@@ -15,7 +15,7 @@ _CLI_GATE_TEST_COMMAND = (
     "tests/unit/test_cli_main.py "
     "tests/unit/test_cli_refactor_boundaries.py "
     "tests/integration/test_cli_http_flow_integration.py "
-    "tests/contract/test_cli_http_only_contract.py "
+    "tests/contract/test_cli_sdk_only_contract.py "
     "tests/contract/test_cli_error_contract.py"
 )
 _PYTHON_EXECUTABLE = shlex.quote(sys.executable)

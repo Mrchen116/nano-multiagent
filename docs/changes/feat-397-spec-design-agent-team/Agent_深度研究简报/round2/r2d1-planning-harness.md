@@ -449,20 +449,15 @@ You are a design engineer. Your job is to create a detailed technical design.
 
 ## 5. 推荐的一手工程来源
 
-1. **`~/Repos/opensource-hub/claude-code/src/coordinator/coordinatorMode.ts`**
-   — CC coordinator 完整 system prompt，含 4 阶段流水线、并发策略、worker prompt 写法指南。是 orchestrator 设计的最优参考。
+1. **`~/Repos/opensource-hub/claude-code/src/coordinator/coordinatorMode.ts`** — CC coordinator 完整 system prompt，含 4 阶段流水线、并发策略、worker prompt 写法指南。是 orchestrator 设计的最优参考。
 
-2. **`~/Repos/opensource-hub/claude-code/packages/builtin-tools/src/tools/AgentTool/built-in/planAgent.ts`**
-   — 只读 planning agent 的完整实现：READ-ONLY MODE 强制、disallowedTools 列表、omitClaudeMd 优化。spec author 可直接参考。
+2. **`~/Repos/opensource-hub/claude-code/packages/builtin-tools/src/tools/AgentTool/built-in/planAgent.ts`** — 只读 planning agent 的完整实现：READ-ONLY MODE 强制、disallowedTools 列表、omitClaudeMd 优化。spec author 可直接参考。
 
-3. **`~/Repos/opensource-hub/claude-code/packages/builtin-tools/src/tools/ExitPlanModeTool/ExitPlanModeV2Tool.ts`**
-   — plan approval choke point 的完整实现，含 teammate 向 leader 发 `plan_approval_request` 的协议。
+3. **`~/Repos/opensource-hub/claude-code/packages/builtin-tools/src/tools/ExitPlanModeTool/ExitPlanModeV2Tool.ts`** — plan approval choke point 的完整实现，含 teammate 向 leader 发 `plan_approval_request` 的协议。
 
-4. **`~/Repos/opensource-hub/claude-code/packages/builtin-tools/src/tools/WorkflowTool/WorkflowTool.ts`**
-   — 顺序流水线状态机：YAML/Markdown workflow 文件 → 步骤状态持久化 → advance API。可直接用于 spec/design 阶段顺序编排。
+4. **`~/Repos/opensource-hub/claude-code/packages/builtin-tools/src/tools/WorkflowTool/WorkflowTool.ts`** — 顺序流水线状态机：YAML/Markdown workflow 文件 → 步骤状态持久化 → advance API。可直接用于 spec/design 阶段顺序编排。
 
-5. **`~/Repos/opensource-hub/openclaw/src/agents/workspace.ts`**
-   — SOUL.md/IDENTITY.md/MEMORY.md/AGENTS.md 的 bootstrap file 体系，以及 lightweight 模式下的按需过滤。是"品味注入"的工程参考实现。
+5. **`~/Repos/opensource-hub/openclaw/src/agents/workspace.ts`** — SOUL.md/IDENTITY.md/MEMORY.md/AGENTS.md 的 bootstrap file 体系，以及 lightweight 模式下的按需过滤。是"品味注入"的工程参考实现。
 
 ---
 

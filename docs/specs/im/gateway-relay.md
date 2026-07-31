@@ -3,7 +3,7 @@
 > 对齐: bugfix-471
 > 上级: [IM Specification](spec.md)
 >
-> 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
+> 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
 
 ## Purpose
 
@@ -64,9 +64,7 @@ Gateway 经 `/im/ws/gateway` 上行 `agent.config.boundary`，将某聊天真正
 
 ### Requirement: 消息中继幂等,投递回执推进状态
 
-同一消息以相同 `idempotency_key` 重复中继时,IM 复用同一 relay 任务,**不产生重复消息/重复投递**;
-Gateway 上行 `node.delivery_receipt` 把对应消息的 `delivery_status` 沿 `sent` → `completed` 推进,
-并回流到前端可见的消息投递状态。
+同一消息以相同 `idempotency_key` 重复中继时,IM 复用同一 relay 任务,**不产生重复消息/重复投递**; Gateway 上行 `node.delivery_receipt` 把对应消息的 `delivery_status` 沿 `sent` → `completed` 推进, 并回流到前端可见的消息投递状态。
 
 #### Scenario: 重复 idempotency_key 不产生第二条中继
 - **GIVEN** 一条消息已用某 `idempotency_key` 中继过
@@ -79,8 +77,7 @@ Gateway 上行 `node.delivery_receipt` 把对应消息的 `delivery_status` 沿 
 
 ### Requirement: IM 是可选中心服务,离线与中继关闭都不连累外部 IM 主路径
 
-IM 整体离线时,经 Node Gateway Channel 的外部 IM 主路径仍可用(Gateway 本地自治);中继单独关闭时,IM 仍
-作为配置中心独立可用。IM 不直接调用 agent 内核,所有 Agent 执行经 Node Gateway 中继。
+IM 整体离线时,经 Node Gateway Channel 的外部 IM 主路径仍可用(Gateway 本地自治);中继单独关闭时,IM 仍作为配置中心独立可用。IM 不直接调用 agent 内核,所有 Agent 执行经 Node Gateway 中继。
 
 #### Scenario: IM 离线不影响外部 IM 主路径
 - **GIVEN** IM 服务不可达
@@ -94,15 +91,12 @@ IM 整体离线时,经 Node Gateway Channel 的外部 IM 主路径仍可用(Gate
 
 ### Requirement: 后台 agent 通知实时到达在线用户,无需刷新
 
-Agent 后台任务(`run_in_background`)完成后回发给人类用户的通知,与前台回复一样实时到达:
-在线用户的浏览器在不刷新的前提下,立即看到该通知作为一条新消息气泡出现。通知一次性携带
-完整内容送达,不经历可见的空泡或"生成中"中间态。消息只进入存储、要刷新才显示,不满足本契约。
+Agent 后台任务(`run_in_background`)完成后回发给人类用户的通知,与前台回复一样实时到达: 在线用户的浏览器在不刷新的前提下,立即看到该通知作为一条新消息气泡出现。通知一次性携带完整内容送达,不经历可见的空泡或"生成中"中间态。消息只进入存储、要刷新才显示,不满足本契约。
 
 #### Scenario: 后台通知在在线用户流中实时长出气泡
 - **GIVEN** 用户浏览器已建立用户流连接(`/im/ws/user`)
 - **WHEN** 该用户某个 agent 的后台任务完成并回发通知
-- **THEN** 浏览器收到一帧 `op:"event"`、`event_type:"message.created"`,消息内容即最终全文、
-  投递状态 `completed`;用户无需刷新即可看到该气泡
+- **THEN** 浏览器收到一帧 `op:"event"`、`event_type:"message.created"`,消息内容即最终全文、投递状态 `completed`;用户无需刷新即可看到该气泡
 
 #### Scenario: 同一后台通知重发不产生重复气泡
 - **GIVEN** 某条后台通知已送达并在会话中显示
@@ -111,10 +105,7 @@ Agent 后台任务(`run_in_background`)完成后回发给人类用户的通知,�
 
 ### Requirement: Gateway 可原子回滚未形成用户回复的 provisional 消息
 
-Gateway 为普通聊天预先创建的 `running` agent 消息是 provisional 状态。若 Agent 最终选择协议静默,
-Gateway 发送 `message_discarded`;IM 在同一事务内留下可重放 tombstone、删除 provisional 消息及其
-message-scoped 过程事件,并恢复会话 preview / last_message_at / unread_count。浏览器收到 tombstone 后按
-message_id 移除占位气泡;重复 discard 幂等,刷新历史也不得重新出现该消息。
+Gateway 为普通聊天预先创建的 `running` agent 消息是 provisional 状态。若 Agent 最终选择协议静默, Gateway 发送 `message_discarded`;IM 在同一事务内留下可重放 tombstone、删除 provisional 消息及其 message-scoped 过程事件,并恢复会话 preview / last_message_at / unread_count。浏览器收到 tombstone 后按 message_id 移除占位气泡;重复 discard 幂等,刷新历史也不得重新出现该消息。
 
 #### Scenario: NO_REPLY 回滚 running 占位且断线后不复活
 - **GIVEN** 某群聊 Agent run 已创建 running 占位消息
@@ -124,12 +115,7 @@ message_id 移除占位气泡;重复 discard 幂等,刷新历史也不得重新�
 
 ### Requirement: 中继看门狗按 liveness 判存活,不误杀活着但安静的消息
 
-中继看门狗判定某 `running` 消息是否失去进展时,依据其存活信号是否仍在刷新:agent run 在"活着但安静"
-窗口内产生的 liveness 心跳(执行静默长工具 / 等待 LLM / 等待用户权限决策,三类同源)必须推进该消息的
-存活判定(推进最近事件时间戳或刷新通用存活标记),使活跃 run 不被误判为卡死。看门狗对上述窗口不再按
-类型分别豁免(不再有 permission 专用特例)。只有在判定窗口内既无新事件也无 liveness 心跳的消息才被回收为
-`failed`;维持存活信号的 Gateway/内核崩溃后心跳停止,存活信号 stale 超过回收阈值,该消息仍被正常回收,
-不永久停留 running。
+中继看门狗判定某 `running` 消息是否失去进展时,依据其存活信号是否仍在刷新:agent run 在"活着但安静" 窗口内产生的 liveness 心跳(执行静默长工具 / 等待 LLM / 等待用户权限决策,三类同源)必须推进该消息的存活判定(推进最近事件时间戳或刷新通用存活标记),使活跃 run 不被误判为卡死。看门狗对上述窗口不再按类型分别豁免(不再有 permission 专用特例)。只有在判定窗口内既无新事件也无 liveness 心跳的消息才被回收为 `failed`;维持存活信号的 Gateway/内核崩溃后心跳停止,存活信号 stale 超过回收阈值,该消息仍被正常回收, 不永久停留 running。
 
 #### Scenario: 活跃长工具的消息不被误收
 - **GIVEN** 某 running 消息对应的 run 正在执行静默长工具并周期产生 liveness 心跳
@@ -153,9 +139,7 @@ message_id 移除占位气泡;重复 discard 幂等,刷新历史也不得重新�
 
 ### Requirement: 工具调用的授权决策随消息持久化与下发
 
-IM 持久化并下发的工具调用数据，在原有字段（status / reason / detail / emoji / duration）之外，携带
-「该工具调用是否经用户显式授权/拒绝」的标识。该标识在实时下发（WebSocket）与历史加载（REST）两条路径
-上一致，页面刷新后不丢失；无标识的历史工具调用保持兼容（不携带该字段）。
+IM 持久化并下发的工具调用数据，在原有字段（status / reason / detail / emoji / duration）之外，携带 「该工具调用是否经用户显式授权/拒绝」的标识。该标识在实时下发（WebSocket）与历史加载（REST）两条路径上一致，页面刷新后不丢失；无标识的历史工具调用保持兼容（不携带该字段）。
 
 #### Scenario: 经用户授权的工具调用在历史加载中保留标识
 - **GIVEN** 一条已落库的 agent 消息，其中某工具调用经用户授权允许

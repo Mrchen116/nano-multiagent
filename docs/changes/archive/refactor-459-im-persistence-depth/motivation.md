@@ -11,7 +11,7 @@
 
 ## 来源
 
-- 架构审查报告：`docs/architecture-reviews/architecture-review-20260711-105616-395a54b5.html` 的 Candidate 01
+- 架构审查报告：`docs/research/architecture-reviews/architecture-review-20260711-105616-395a54b5.html` 的 Candidate 01
 
 ## 澄清记录
 

@@ -1,12 +1,8 @@
 # r2d9：第一轮推荐方法的黑盒再过滤
 
-> **维度定位**：针对第一轮报告 sec07（推荐）、dim01（品味编译）、dim02（escalation）、dim12（个性化）
-> 中的每个核心推荐方法，产出 CAN / CANNOT（黑盒下）过滤表，纠正对 Drift / AMULET / T-POP
-> 的分类错误，并给出黑盒可落地的替代或等效做法。
+> **维度定位**：针对第一轮报告 sec07（推荐）、dim01（品味编译）、dim02（escalation）、dim12（个性化）中的每个核心推荐方法，产出 CAN / CANNOT（黑盒下）过滤表，纠正对 Drift / AMULET / T-POP 的分类错误，并给出黑盒可落地的替代或等效做法。
 >
-> **黑盒定义**：通过 provider 代理调用，文本进文本出，**无法访问 logprob / logit / token
-> probability / entropy / 解码层**。排除一切需要 fine-tune / RLHF / DPO / RL / LoRA
-> / 奖励模型训练的方法。
+> **黑盒定义**：通过 provider 代理调用，文本进文本出，**无法访问 logprob / logit / token probability / entropy / 解码层**。排除一切需要 fine-tune / RLHF / DPO / RL / LoRA / 奖励模型训练的方法。
 
 ---
 

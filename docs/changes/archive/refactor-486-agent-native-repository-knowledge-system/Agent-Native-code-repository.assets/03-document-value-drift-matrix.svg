@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 700" role="img" aria-labelledby="title desc" data-palette="article-guide">
+  <title id="title">长期文档的增量信息与漂移风险矩阵</title>
+  <desc id="desc">横轴表示相对代码和权威源的增量信息，纵轴表示持续同步与漂移风险。矩阵给出不新增副本、长期维护、生成校验和保留稳定解释四类处理方式。</desc>
+  <defs>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #1a1a1a; }
+      .title { font-size: 28px; font-weight: 700; }
+      .subtitle { font-size: 16px; fill: #6b6b6b; }
+      .axis { font-size: 16px; font-weight: 650; fill: #6b6b6b; }
+      .quadrant-title { font-size: 20px; font-weight: 700; }
+      .body { font-size: 16px; fill: #6b6b6b; }
+      .small { font-size: 14px; fill: #6b6b6b; }
+      .formula { font-size: 18px; font-weight: 650; }
+      .line { stroke: #e6e3dc; stroke-width: 2; }
+      .axis-line { stroke: #6b6b6b; stroke-width: 2.2; marker-end: url(#arrow); }
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#6b6b6b"/>
+    </marker>
+  </defs>
+
+  <rect width="1000" height="700" fill="#ffffff"/>
+  <text x="40" y="48" class="title">长期文档是否值得维护：收益还要扣除同步成本</text>
+  <text x="40" y="78" class="subtitle">先判断是否带来代码之外的信息或导航价值，再判断这种价值能否长期保持可信。</text>
+
+  <rect x="150" y="120" width="760" height="440" rx="12" fill="#ffffff" stroke="#e6e3dc" stroke-width="2"/>
+
+  <!-- Quadrants -->
+  <rect x="150" y="120" width="380" height="220" rx="12" fill="#f5ebe6"/>
+  <rect x="530" y="120" width="380" height="220" rx="12" fill="#f5ecdb"/>
+  <rect x="150" y="340" width="380" height="220" rx="12" fill="#f5f1ea"/>
+  <rect x="530" y="340" width="380" height="220" rx="12" fill="#ecf0e6"/>
+  <line x1="530" y1="120" x2="530" y2="560" class="line"/>
+  <line x1="150" y1="340" x2="910" y2="340" class="line"/>
+
+  <!-- Low info / high drift -->
+  <text x="180" y="165" class="quadrant-title" fill="#8b3a2f">低增量 · 高漂移</text>
+  <text x="180" y="202" class="body">
+    <tspan x="180">最危险的重复：</tspan>
+    <tspan x="180" dy="28">易读，却很快成为旧答案。</tspan>
+  </text>
+  <rect x="180" y="270" width="320" height="42" rx="8" fill="#ffffff" stroke="#c9a89e"/>
+  <text x="340" y="297" text-anchor="middle" class="formula" fill="#8b3a2f">删除副本，链接或查询权威源</text>
+
+  <!-- High info / high drift -->
+  <text x="560" y="165" class="quadrant-title" fill="#a07020">高增量 · 高漂移</text>
+  <text x="560" y="202" class="body">
+    <tspan x="560">价值存在，但动态事实</tspan>
+    <tspan x="560" dy="28">不能依赖人工记得同步。</tspan>
+  </text>
+  <rect x="560" y="256" width="320" height="56" rx="8" fill="#ffffff" stroke="#d4a86a"/>
+  <text x="720" y="279" text-anchor="middle" class="small" fill="#a07020">保留稳定解释与关系</text>
+  <text x="720" y="300" text-anchor="middle" class="small" fill="#a07020">动态成员生成、校验或按需查询</text>
+
+  <!-- Low info / low drift -->
+  <text x="180" y="385" class="quadrant-title" fill="#6b6b6b">低增量 · 低漂移</text>
+  <text x="180" y="422" class="body">
+    <tspan x="180">维护不贵，也没有理由</tspan>
+    <tspan x="180" dy="28">为同一事实再造一份表示。</tspan>
+  </text>
+  <rect x="180" y="490" width="320" height="42" rx="8" fill="#ffffff" stroke="#e6e3dc"/>
+  <text x="340" y="517" text-anchor="middle" class="formula" fill="#6b6b6b">不新增独立长期文档</text>
+
+  <!-- High info / low drift -->
+  <text x="560" y="385" class="quadrant-title" fill="#4a6f3a">高增量 · 低漂移</text>
+  <text x="560" y="422" class="body">
+    <tspan x="560">保存代码中没有的意图、</tspan>
+    <tspan x="560" dy="28">边界、理由或高价值地图。</tspan>
+  </text>
+  <rect x="560" y="490" width="320" height="42" rx="8" fill="#ffffff" stroke="#a8c0a0"/>
+  <text x="720" y="517" text-anchor="middle" class="formula" fill="#4a6f3a">适合长期人工维护</text>
+
+  <!-- Axes -->
+  <path d="M150 590 H910" class="axis-line"/>
+  <text x="530" y="626" text-anchor="middle" class="axis">相对代码与权威源的增量信息 / 导航价值：低 → 高</text>
+  <path d="M118 560 V120" class="axis-line"/>
+  <text x="72" y="340" text-anchor="middle" class="axis" transform="rotate(-90 72 340)">同步成本与漂移风险：低 → 高</text>
+
+  <rect x="150" y="650" width="760" height="36" rx="8" fill="#e6eef0"/>
+  <text x="530" y="674" text-anchor="middle" class="formula" fill="#2a6470">长期净价值 = 信息增量 − 持续同步成本 − 冲突误导风险</text>
+</svg>

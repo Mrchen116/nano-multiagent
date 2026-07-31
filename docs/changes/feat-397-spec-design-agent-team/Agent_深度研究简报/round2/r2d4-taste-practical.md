@@ -317,6 +317,4 @@ SOUL.md 共享基础（vibe/identity），role-specific 部分用 systemPromptOv
 
 ---
 
-*来源标注说明：
-🟢 SHIPPED = 在本文列出的开源 harness / 本项目已运行的机制中真实采用
-🟡 RESEARCH = 仅论文验证，未见 shipped 实现*
+*来源标注说明：🟢 SHIPPED = 在本文列出的开源 harness / 本项目已运行的机制中真实采用 🟡 RESEARCH = 仅论文验证，未见 shipped 实现*

@@ -3,11 +3,13 @@
 
 验证实现是否匹配 spec / design / tasks。读代码核对，只读 + 报告，不修不改。
 三维：Completeness（task 完成 + spec 覆盖）/ Correctness（实现 ↔ spec）/ Coherence（实现 ↔ design）。
-问题分级：CRITICAL（缺实现 / 未完成 task）> WARNING（偏离 spec/design / 缺测试）> SUGGESTION（模式不一致 / 小改进）。
-每条问题带可执行建议 + file:line。有 CRITICAL 时不要建议提 PR。
+问题分级：CRITICAL（严重阻塞）> WARNING（普通阻塞）> SUGGESTION（非阻塞）。
+每条问题带可执行建议 + file:line。CRITICAL / WARNING 都为 0 才能建议提 PR。
 -->
 
 # Verification Report: <unit_id>
+
+> Validation snapshot: `<executed_base> → <validated_at>`
 
 ## Summary
 
@@ -19,8 +21,7 @@
 
 <!-- 结尾消息三选一：
   All checks passed. Ready for PR.
-  X critical issue(s) found. Fix before PR.
-  No critical issues. Y warning(s) to consider. Ready for PR (with noted improvements).
+  X critical issue(s), Y warning(s) found. Fix before PR.
 -->
 
 ## Completeness
@@ -61,8 +62,22 @@
 ### CRITICAL（提 PR 前必须修）
 - <问题 + file:line + 怎么改>
 
-### WARNING（应该修）
+### WARNING（提 PR 前必须修）
 - <问题 + file:line + 怎么改>
 
 ### SUGGESTION（可以修）
 - <问题 + file:line + 怎么改>
+
+<!-- 仅 verification_mode=corrected-delta 时填写；复验时更新本段，不追加 Attempt 历史。 -->
+
+## Corrected Delta Reconciliation
+
+| Delta item | Implementation evidence | Test evidence | Outcome |
+|---|---|---|---|
+| <path + Requirement / Scenario> | <file:line> | <test file:line or N/A> | aligned / delta-mismatch / implementation-mismatch |
+
+### Uncovered Observable Behavior
+
+None / <unit diff 中未被 delta 覆盖的行为及证据>
+
+Outcome: aligned | delta-mismatch | implementation-mismatch

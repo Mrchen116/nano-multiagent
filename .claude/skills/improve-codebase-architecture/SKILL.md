@@ -36,7 +36,7 @@ Do not impose a fixed scan set, repository-specific exclusion list, architecture
 Write one independent HTML snapshot inside the reviewed project:
 
 1. Try `git rev-parse --show-toplevel`. If it succeeds, use that Git root as `<root>`; otherwise use the current working directory.
-2. Create `<root>/docs/architecture-reviews/` when it does not exist.
+2. Create `<root>/docs/research/architecture-reviews/` when it does not exist.
 3. Use local generation time `YYYYMMDD-HHMMSS` and name the report `architecture-review-<timestamp>-<short-sha>.html`. When Git revision data is unavailable, use `no-git` instead of a SHA. If that path already exists, append an incrementing suffix (`-2`, `-3`, ...) rather than overwriting any report.
 4. When Git data is available, collect the full commit SHA, branch, and working tree state (`clean` or `dirty`, using tracked and untracked changes). When it is unavailable, mark every Git field `unavailable`; never invent or omit version context.
 

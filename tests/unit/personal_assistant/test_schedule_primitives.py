@@ -1,7 +1,7 @@
 """Canonical unit tests for shared schedule primitives.
 
 _AtSchedule, _IntervalSchedule, _CronSchedule are the unique authority for
-at/interval/cron scheduling semantics (TESTING_GUIDE §4: one behaviour, one layer).
+at/interval/cron scheduling semantics (docs/development/testing.md §4: one behaviour, one layer).
 Higher-layer scheduler tests may keep a single smoke per type; they must NOT
 re-assert the timing logic proven here.
 

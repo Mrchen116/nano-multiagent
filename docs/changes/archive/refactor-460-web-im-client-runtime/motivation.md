@@ -9,7 +9,7 @@
 
 ## 原始诉求
 
-> /Users/czj/Repos/nano-multiagent/docs/architecture-reviews/architecture-review-20260711-105616-395a54b5.html Candidate 04 的问题还存在吗
+> docs/research/architecture-reviews/architecture-review-20260711-105616-395a54b5.html Candidate 04 的问题还存在吗
 
 > 修了这个缺失会让架构变得更合理吗
 

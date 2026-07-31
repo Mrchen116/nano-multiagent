@@ -3,7 +3,7 @@
 > 对齐: bugfix-471
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
-> 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
+> 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
 
 ## Purpose
 
@@ -13,18 +13,12 @@
 
 ### Requirement: 入站消息按四步决策路由并回发原通道原目标
 
-任一通道(外部 IM 或内置 Web IM)收到一条入站消息时,Gateway 依次决策:路由到哪个 Agent、用哪个会话、
-是否串行排队、回复发回哪个通道目标。同一会话的回复**只**回发原通道原目标,不跨通道混发。idle 看门狗按
-**liveness 心跳**判定一轮是否仍有进展——执行静默长工具、等待 LLM 返回这两类"活着但安静"的窗口都有周期性
-liveness 心跳,看门狗不再以"无业务输出事件"判卡死;等待用户权限决策的窗口则完全豁免于 idle 看门狗超时
-(用户可能离开、关闭页面、心搏链路也可能延迟或丢失),只有该轮收到 `permission_resolved` 或判定窗口内既无业务
-事件也无 liveness 心跳时才判失去进展并收尾。
+任一通道(外部 IM 或内置 Web IM)收到一条入站消息时,Gateway 依次决策:路由到哪个 Agent、用哪个会话、是否串行排队、回复发回哪个通道目标。同一会话的回复**只**回发原通道原目标,不跨通道混发。idle 看门狗按 **liveness 心跳**判定一轮是否仍有进展——执行静默长工具、等待 LLM 返回这两类"活着但安静"的窗口都有周期性 liveness 心跳,看门狗不再以"无业务输出事件"判卡死;等待用户权限决策的窗口则完全豁免于 idle 看门狗超时 (用户可能离开、关闭页面、心搏链路也可能延迟或丢失),只有该轮收到 `permission_resolved` 或判定窗口内既无业务事件也无 liveness 心跳时才判失去进展并收尾。
 
 #### Scenario: 直聊消息被默认 Agent 处理并把回复发回原通道
 - **GIVEN** 一个配置了至少一个 Agent 的 Gateway,且消息未显式指定 `agent_id`
 - **WHEN** 终端用户经某通道发来一条直聊消息
-- **THEN** 消息被路由到命中的 Agent(显式 `agent_id` → channel/chat 绑定 → 节点默认 Agent),交内核执行,
-  最终 Agent 回复经原通道的出站路由回发到发起会话
+- **THEN** 消息被路由到命中的 Agent(显式 `agent_id` → channel/chat 绑定 → 节点默认 Agent),交内核执行, 最终 Agent 回复经原通道的出站路由回发到发起会话
 
 #### Scenario: 同会话串行、跨会话并行
 - **GIVEN** 同一会话已有一轮在执行,另有一条属于不同会话的消息同时到达
@@ -58,15 +52,12 @@ liveness 心跳,看门狗不再以"无业务输出事件"判卡死;等待用户�
 
 ### Requirement: 群聊只在被 @提及 / 回复 Agent / 控制命令时触发 Agent
 
-群聊流量在分配任何内核会话或队列槽**之前**先过 @提及门控。未被点名的群聊消息不触发 Agent 执行;Agent
-判断无需回复时输出约定 token(`NO_REPLY`)则不向用户发言。门控策略由各 Agent 的 `group_reply_policy`
-决定(默认 `MENTION`;`ALWAYS` 则有消息即回)。
+群聊流量在分配任何内核会话或队列槽**之前**先过 @提及门控。未被点名的群聊消息不触发 Agent 执行;Agent 判断无需回复时输出约定 token(`NO_REPLY`)则不向用户发言。门控策略由各 Agent 的 `group_reply_policy`决定(默认 `MENTION`;`ALWAYS` 则有消息即回)。
 
 #### Scenario: 群聊未被 @提及的消息不触发 Agent
 - **GIVEN** 一个 `group_reply_policy=MENTION` 的 Agent 在某群聊中
 - **WHEN** 群里来了一条既未 @该 Agent、也非回复该 Agent、也非控制命令的消息
-- **THEN** 不创建内核会话、不发起运行;该消息仅作为后台上下文缓冲到该 Agent 自己的群上下文 buffer,
-  待该 Agent 下次被点名时随当轮一并带入
+- **THEN** 不创建内核会话、不发起运行;该消息仅作为后台上下文缓冲到该 Agent 自己的群上下文 buffer, 待该 Agent 下次被点名时随当轮一并带入
 
 #### Scenario: 群聊被 @提及触发并把上下文带入当轮
 - **GIVEN** 该 Agent 的群上下文 buffer 里已缓冲了若干条未点名消息
@@ -75,20 +66,17 @@ liveness 心跳,看门狗不再以"无业务输出事件"判卡死;等待用户�
 
 #### Scenario: 群聊 Agent 输出 NO_REPLY 时不发言
 - **WHEN** 群聊一轮运行的最终回复文本为 `NO_REPLY`
-- **THEN** Gateway 不把 token 作为正文 delta 投递;若该轮已有用于 running/工具过程的 provisional
-  气泡则在终态回滚,最终不留下消息行、列表摘要、未读数或桌面通知
+- **THEN** Gateway 不把 token 作为正文 delta 投递;若该轮已有用于 running/工具过程的 provisional 气泡则在终态回滚,最终不留下消息行、列表摘要、未读数或桌面通知
 
 #### Scenario: 群聊 Agent 互相 @ 的 fan-out 回复输出 NO_REPLY 时不发言
-- **GIVEN** 群聊里 Agent A 的回复 @ 了 Agent B,把 B 拉起(agent-to-agent fan-out),或某 Agent 的
-  后台任务在群聊会话产生回复
+- **GIVEN** 群聊里 Agent A 的回复 @ 了 Agent B,把 B 拉起(agent-to-agent fan-out),或某 Agent 的后台任务在群聊会话产生回复
 - **WHEN** 被拉起的 Agent 判断无需接话,输出 `NO_REPLY`(或心跳静默 token `HEARTBEAT_OK`)
 - **THEN** Gateway 对该 fan-out / 后台投递同样抑制,用户在群里看不到 `NO_REPLY` 字面量,该消息也不落库
 - **AND** 静默 token 不作为 Agent 发言继续 fan-out,其他 Agent 的群上下文 buffer / run 不得收到该 token
 
 ### Requirement: /stop 控制命令中断当前运行
 
-终端用户发 `/stop`(支持 `/stop`、`@agent /stop`、`/stop @agent` 形式)可中断该会话当前活动运行;无活动
-运行时返回友好提示而非报错。
+终端用户发 `/stop`(支持 `/stop`、`@agent /stop`、`/stop @agent` 形式)可中断该会话当前活动运行;无活动运行时返回友好提示而非报错。
 
 #### Scenario: /stop 中断正在执行的运行
 - **GIVEN** 某会话有一轮正在执行
@@ -215,9 +203,7 @@ Gateway 持久化聊天与内核会话的绑定及该聊天实际采用的运行
 
 ### Requirement: 内核中的产品工具可把 Agent 产出的消息投递到目标会话
 
-内核中运行的产品工具(如 `send_message`)可把 Agent 产出的消息投递到另一目标会话;`to` 为稳定业务标识
-(`user_id` / `agent_id` / `conversation_id`)。Gateway 经 live IM 连接路由到目标会话,目标直聊不存在则
-创建、已存在则复用;IM 连接不可用时返回明确错误而非静默丢弃。
+内核中运行的产品工具(如 `send_message`)可把 Agent 产出的消息投递到另一目标会话;`to` 为稳定业务标识 (`user_id` / `agent_id` / `conversation_id`)。Gateway 经 live IM 连接路由到目标会话,目标直聊不存在则创建、已存在则复用;IM 连接不可用时返回明确错误而非静默丢弃。
 
 #### Scenario: IM 在线时投递成功并回执
 - **GIVEN** Gateway 的 IM 连接已激活
@@ -234,9 +220,7 @@ Gateway 持久化聊天与内核会话的绑定及该聊天实际采用的运行
 
 ### Requirement: 后台任务完成后 Gateway 把 Agent 回复中继回原 IM 对话
 
-用户让 Agent 后台执行长任务（`run_in_background`），Agent 立即回复「已启动」后主轮结束；任务完成后，
-Gateway 把 Agent 的完成回复投递回触发该任务的原 IM 对话——用户在同一对话看到内含任务结果的第二条
-回复。重复投递（如 Gateway 重启后重放）经去重，用户不会看到重复的第二条回复。
+用户让 Agent 后台执行长任务（`run_in_background`），Agent 立即回复「已启动」后主轮结束；任务完成后，Gateway 把 Agent 的完成回复投递回触发该任务的原 IM 对话——用户在同一对话看到内含任务结果的第二条回复。重复投递（如 Gateway 重启后重放）经去重，用户不会看到重复的第二条回复。
 
 #### Scenario: 后台任务完成后用户在 IM 对话收到包含结果的第二条回复
 - **GIVEN** 用户经 IM 直聊让 Agent 后台执行一个命令（如 `run_in_background: sleep 30 && echo X`）
@@ -250,9 +234,7 @@ Gateway 把 Agent 的完成回复投递回触发该任务的原 IM 对话——�
 
 ### Requirement: agent 回复失败时即时反馈真实原因
 
-当一轮 agent 回复因故无法完成时,Gateway 即时把该条回复在消息级翻为失败态并附带可读的真实失败原因,
-归属到对应 agent。该即时反馈不依赖 IM 的 idle 看门狗;看门狗仅在「整个节点失联、无法发出任何反馈」时
-作为最后兜底。
+当一轮 agent 回复因故无法完成时,Gateway 即时把该条回复在消息级翻为失败态并附带可读的真实失败原因, 归属到对应 agent。该即时反馈不依赖 IM 的 idle 看门狗;看门狗仅在「整个节点失联、无法发出任何反馈」时作为最后兜底。
 
 #### Scenario: run 失败即时翻为失败态
 - **GIVEN** 用户向某 agent 发了一条消息,该 agent 开始回复

@@ -1,0 +1,172 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 900" role="img" aria-labelledby="title desc">
+  <title id="title">change-* 流程中的知识状态迁移</title>
+  <desc id="desc">展示 nano-multiagent 的 Full change 如何从 current baseline 出发，依次经过 change-spec-author、change-design-author、orchestrator 与 worker、独立验证，最后把校正后的 delta 归并为新的 current，并将完整 unit 冻结为历史。</desc>
+  <defs>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #1a1a1a; }
+      .title { font-size: 32px; font-weight: 700; }
+      .subtitle { font-size: 17px; fill: #6b6b6b; }
+      .step { font-size: 13px; font-weight: 700; }
+      .card-title { font-size: 21px; font-weight: 700; }
+      .body { font-size: 16px; fill: #6b6b6b; }
+      .small { font-size: 14px; fill: #6b6b6b; }
+      .state { font-size: 15px; font-weight: 700; }
+      .gate { font-size: 14px; font-weight: 700; fill: #a07020; }
+      .on-color { fill: #ffffff; }
+      .rust { fill: #8b3a2f; }
+      .forest { fill: #4a6f3a; }
+      .teal { fill: #2a6470; }
+      .ochre { fill: #a07020; }
+      .connector { stroke: #6b6b6b; stroke-width: 2.4; fill: none; marker-end: url(#arrowNeutral); }
+      .feedback { stroke: #a07020; stroke-width: 2.4; fill: none; marker-end: url(#arrowOchre); }
+      .promotion { stroke: #4a6f3a; stroke-width: 2.6; fill: none; marker-end: url(#arrowForest); }
+      .rail { stroke: #6b6b6b; stroke-width: 2.2; fill: none; }
+    </style>
+    <marker id="arrowNeutral" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#6b6b6b"/>
+    </marker>
+    <marker id="arrowOchre" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#a07020"/>
+    </marker>
+    <marker id="arrowForest" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#4a6f3a"/>
+    </marker>
+  </defs>
+
+  <rect width="1400" height="900" fill="#ffffff"/>
+  <text x="45" y="52" class="title">change-* 流程把一次变化从 Work 推进为 Truth 与 Memory</text>
+  <text x="45" y="84" class="subtitle">门禁推进的是知识状态：目标先成为可实施增量，证据再证明它成立，最后才更新 current 并冻结完整历史。</text>
+
+  <!-- Legend -->
+  <rect x="45" y="108" width="122" height="30" rx="15" fill="#ecf0e6" stroke="#a8c0a0"/>
+  <circle cx="65" cy="123" r="6" fill="#4a6f3a"/>
+  <text x="80" y="129" class="small">Truth</text>
+  <rect x="180" y="108" width="122" height="30" rx="15" fill="#f5ebe6" stroke="#c9a89e"/>
+  <circle cx="200" cy="123" r="6" fill="#8b3a2f"/>
+  <text x="215" y="129" class="small">Work</text>
+  <rect x="315" y="108" width="132" height="30" rx="15" fill="#e6eef0" stroke="#9ab8be"/>
+  <circle cx="335" cy="123" r="6" fill="#2a6470"/>
+  <text x="350" y="129" class="small">Evidence</text>
+  <rect x="460" y="108" width="132" height="30" rx="15" fill="#f5ecdb" stroke="#d4a86a"/>
+  <circle cx="480" cy="123" r="6" fill="#a07020"/>
+  <text x="495" y="129" class="small">Control</text>
+  <rect x="605" y="108" width="132" height="30" rx="15" fill="#f5f1ea" stroke="#e6e3dc"/>
+  <circle cx="625" cy="123" r="6" fill="#6b6b6b"/>
+  <text x="640" y="129" class="small">Memory</text>
+
+  <rect x="35" y="158" width="1330" height="586" rx="20" fill="#f5f1ea" stroke="#e6e3dc" stroke-width="2"/>
+
+  <!-- Baseline -->
+  <rect x="55" y="194" width="160" height="322" rx="16" fill="#ecf0e6" stroke="#a8c0a0" stroke-width="2"/>
+  <rect x="73" y="212" width="124" height="30" rx="15" fill="#4a6f3a"/>
+  <text x="135" y="232" text-anchor="middle" class="step on-color">BASELINE</text>
+  <text x="135" y="278" text-anchor="middle" class="card-title forest">当前基线</text>
+  <text x="135" y="318" text-anchor="middle" class="body">docs/specs</text>
+  <text x="135" y="346" text-anchor="middle" class="body">code · config</text>
+  <text x="135" y="374" text-anchor="middle" class="body">真实产品行为</text>
+  <line x1="77" y1="410" x2="193" y2="410" stroke="#a8c0a0"/>
+  <text x="135" y="440" text-anchor="middle" class="small">回答“现在怎样”</text>
+  <rect x="77" y="466" width="116" height="28" rx="14" fill="#ffffff" stroke="#a8c0a0"/>
+  <text x="135" y="485" text-anchor="middle" class="state forest">Truth / current</text>
+
+  <!-- Spec -->
+  <rect x="250" y="194" width="180" height="322" rx="16" fill="#f5ebe6" stroke="#c9a89e" stroke-width="2"/>
+  <rect x="260" y="212" width="160" height="30" rx="15" fill="#8b3a2f"/>
+  <text x="340" y="232" text-anchor="middle" class="step on-color">1 · SPEC AUTHOR</text>
+  <text x="340" y="278" text-anchor="middle" class="card-title rust">固定问题</text>
+  <text x="340" y="318" text-anchor="middle" class="body">用户原话</text>
+  <text x="340" y="346" text-anchor="middle" class="body">Requirement / Scenario</text>
+  <text x="340" y="374" text-anchor="middle" class="body">范围与非目标</text>
+  <line x1="272" y1="410" x2="408" y2="410" stroke="#c9a89e"/>
+  <text x="340" y="440" text-anchor="middle" class="small">只写变化，不覆盖 current</text>
+  <rect x="275" y="466" width="130" height="28" rx="14" fill="#ffffff" stroke="#c9a89e"/>
+  <text x="340" y="485" text-anchor="middle" class="state rust">Work / proposed</text>
+
+  <!-- Design -->
+  <rect x="470" y="194" width="180" height="322" rx="16" fill="#f5ebe6" stroke="#c9a89e" stroke-width="2"/>
+  <rect x="480" y="212" width="160" height="30" rx="15" fill="#8b3a2f"/>
+  <text x="560" y="232" text-anchor="middle" class="step on-color">2 · DESIGN AUTHOR</text>
+  <text x="560" y="278" text-anchor="middle" class="card-title rust">设计增量</text>
+  <text x="560" y="318" text-anchor="middle" class="body">design.md</text>
+  <text x="560" y="346" text-anchor="middle" class="body">delta-spec</text>
+  <text x="560" y="374" text-anchor="middle" class="body">milestones · runbook</text>
+  <line x1="492" y1="410" x2="628" y2="410" stroke="#c9a89e"/>
+  <text x="560" y="440" text-anchor="middle" class="small">预测归并目标，仍非 current</text>
+  <rect x="495" y="466" width="130" height="28" rx="14" fill="#ffffff" stroke="#c9a89e"/>
+  <text x="560" y="485" text-anchor="middle" class="state rust">Work / accepted</text>
+
+  <!-- Implementation -->
+  <rect x="690" y="194" width="200" height="322" rx="16" fill="#f5ecdb" stroke="#d4a86a" stroke-width="2"/>
+  <rect x="698" y="212" width="184" height="30" rx="15" fill="#a07020"/>
+  <text x="790" y="232" text-anchor="middle" class="step on-color">3 · ORCHESTRATE</text>
+  <text x="790" y="278" text-anchor="middle" class="card-title ochre">实现与恢复胶囊</text>
+  <text x="790" y="318" text-anchor="middle" class="body">code · tests</text>
+  <text x="790" y="346" text-anchor="middle" class="body">tasks · progress</text>
+  <text x="790" y="374" text-anchor="middle" class="body">evidence · commits</text>
+  <line x1="712" y1="410" x2="868" y2="410" stroke="#d4a86a"/>
+  <text x="790" y="440" text-anchor="middle" class="small">worker 实施，owner 边界不变</text>
+  <rect x="720" y="466" width="140" height="28" rx="14" fill="#ffffff" stroke="#d4a86a"/>
+  <text x="790" y="485" text-anchor="middle" class="state ochre">Work + Evidence</text>
+
+  <!-- Validation -->
+  <rect x="930" y="194" width="200" height="322" rx="16" fill="#e6eef0" stroke="#9ab8be" stroke-width="2"/>
+  <rect x="940" y="212" width="180" height="30" rx="15" fill="#2a6470"/>
+  <text x="1030" y="232" text-anchor="middle" class="step on-color">4 · VALIDATE</text>
+  <text x="1030" y="278" text-anchor="middle" class="card-title teal">分 claim 验证</text>
+  <text x="1030" y="318" text-anchor="middle" class="body">worker sign-off</text>
+  <text x="1030" y="346" text-anchor="middle" class="body">verifier · reviewer</text>
+  <text x="1030" y="374" text-anchor="middle" class="body">code review · CI</text>
+  <line x1="952" y1="410" x2="1108" y2="410" stroke="#9ab8be"/>
+  <text x="1030" y="440" text-anchor="middle" class="small">每类证据只证明对应声明</text>
+  <rect x="973" y="466" width="114" height="28" rx="14" fill="#ffffff" stroke="#9ab8be"/>
+  <text x="1030" y="485" text-anchor="middle" class="state teal">Evidence</text>
+
+  <!-- Closure -->
+  <rect x="1170" y="194" width="175" height="322" rx="16" fill="#ecf0e6" stroke="#a8c0a0" stroke-width="2"/>
+  <rect x="1178" y="212" width="159" height="30" rx="15" fill="#4a6f3a"/>
+  <text x="1257" y="232" text-anchor="middle" class="step on-color">5 · CLOSE</text>
+  <text x="1257" y="278" text-anchor="middle" class="card-title forest">校正与归并</text>
+  <text x="1257" y="318" text-anchor="middle" class="body">按实际 diff 校正 delta</text>
+  <text x="1257" y="346" text-anchor="middle" class="body">合并 canonical</text>
+  <text x="1257" y="374" text-anchor="middle" class="body">archive · PR · remote CI</text>
+  <line x1="1192" y1="410" x2="1323" y2="410" stroke="#a8c0a0"/>
+  <text x="1257" y="440" text-anchor="middle" class="small">长期事实与过程历史分流</text>
+  <rect x="1187" y="466" width="140" height="28" rx="14" fill="#ffffff" stroke="#a8c0a0"/>
+  <text x="1257" y="485" text-anchor="middle" class="state forest">Truth + Memory</text>
+
+  <!-- Main flow -->
+  <path d="M215 355 H242" class="connector"/>
+  <path d="M430 355 H462" class="connector"/>
+  <path d="M650 355 H682" class="connector"/>
+  <path d="M890 355 H922" class="connector"/>
+  <path d="M1130 355 H1162" class="promotion"/>
+
+  <!-- Gate labels -->
+  <rect x="430" y="174" width="40" height="24" rx="12" fill="#f5ecdb" stroke="#d4a86a"/>
+  <text x="450" y="191" text-anchor="middle" class="gate">G1</text>
+  <rect x="650" y="174" width="40" height="24" rx="12" fill="#f5ecdb" stroke="#d4a86a"/>
+  <text x="670" y="191" text-anchor="middle" class="gate">G2</text>
+
+  <!-- Validation feedback -->
+  <path d="M1010 516 V550 H810 V524" class="feedback"/>
+  <text x="910" y="576" text-anchor="middle" class="small ochre">finding → 回实施层修复 → 只重验被 delta 影响的门禁</text>
+
+  <!-- Promotion outputs -->
+  <rect x="115" y="640" width="520" height="86" rx="14" fill="#ecf0e6" stroke="#a8c0a0" stroke-width="2"/>
+  <text x="375" y="670" text-anchor="middle" class="card-title forest">新的 Current Truth / Control</text>
+  <text x="375" y="698" text-anchor="middle" class="body">行为 → specs · 架构 → SPEC · 方法 → runbook · 回归 → tests / CI</text>
+
+  <rect x="765" y="640" width="520" height="86" rx="14" fill="#ffffff" stroke="#e6e3dc" stroke-width="2"/>
+  <text x="1025" y="670" text-anchor="middle" class="card-title">完整 Change Memory</text>
+  <text x="1025" y="698" text-anchor="middle" class="body">原始需求 · design · progress · reports · evidence · 交付理由</text>
+
+  <path d="M1257 516 V600 H700" class="rail"/>
+  <circle cx="700" cy="600" r="5" fill="#6b6b6b"/>
+  <path d="M700 600 H375 V632" class="promotion"/>
+  <path d="M700 600 H1025 V632" class="connector"/>
+
+  <!-- Bottom principle -->
+  <rect x="70" y="780" width="1260" height="76" rx="16" fill="#ffffff" stroke="#e6e3dc" stroke-width="2"/>
+  <text x="700" y="813" text-anchor="middle" class="card-title">accepted ≠ implemented ≠ verified ≠ current 已完成归并</text>
+  <text x="700" y="840" text-anchor="middle" class="body">只有验证后的实际增量进入长期 owner；其余过程退出 active，并作为可追溯历史保留。</text>
+</svg>

@@ -3,7 +3,7 @@
 > 对齐: feat-447 + feat-464
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
-> 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
+> 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
 
 ## Purpose
 
@@ -229,11 +229,7 @@ Gateway 对内部 IM 的外部 channel 同步是 best-effort：IM 不可达不�
 
 ### Requirement: IM 托管的外部 channel 可热调和并离线自治
 
-用户经 IM 通道页保存的完整 desired manifest 是托管 external channel 的权威配置。Gateway 在 register
-成功后接收完整 manifest，由唯一 ChannelManager 幂等执行新增、替换、启停、重连和删除；不要求改本地
-`config.yaml` 或重启 Gateway。Gateway 只在内存中解封节点公钥 envelope，并把同一密文 manifest 原子缓存到
-本机；因此 IM 暂时不可达或 Gateway 重启时，已应用 channel 仍可启动和收发。内置 `web_relay` 不进入该
-managed manifest。旧 standalone YAML、历史 backup 或 legacy export 不属于本契约。
+用户经 IM 通道页保存的完整 desired manifest 是托管 external channel 的权威配置。Gateway 在 register 成功后接收完整 manifest，由唯一 ChannelManager 幂等执行新增、替换、启停、重连和删除；不要求改本地 `config.yaml` 或重启 Gateway。Gateway 只在内存中解封节点公钥 envelope，并把同一密文 manifest 原子缓存到本机；因此 IM 暂时不可达或 Gateway 重启时，已应用 channel 仍可启动和收发。内置 `web_relay` 不进入该 managed manifest。旧 standalone YAML、历史 backup 或 legacy export 不属于本契约。
 
 #### Scenario: 在线保存后热连接且凭据不落普通配置
 - **GIVEN** 节点在线且 IM 下发一个有效飞书 desired item
@@ -282,10 +278,7 @@ managed manifest。旧 standalone YAML、历史 backup 或 legacy export 不属�
 
 ### Requirement: 飞书权限诊断只依据可信租户授权并允许降级
 
-飞书 runtime 启动后执行 provider-owned probe。权限项只有在开放平台返回已授权且为 tenant identity 时才算
-满足；每项 capability 可接受 current 或明确列出的 legacy 等价 scope set。完整 probe 证明所有等价集合都不
-满足时才标 missing；网络/API/解析失败、grant 字段缺失或只有 user identity 时标 unknown。基础链路可用但
-权限不完整不停止 channel，而以上报的 structured checks 让 IM 显示 limited、raw scope、影响和修复方向。
+飞书 runtime 启动后执行 provider-owned probe。权限项只有在开放平台返回已授权且为 tenant identity 时才算满足；每项 capability 可接受 current 或明确列出的 legacy 等价 scope set。完整 probe 证明所有等价集合都不满足时才标 missing；网络/API/解析失败、grant 字段缺失或只有 user identity 时标 unknown。基础链路可用但权限不完整不停止 channel，而以上报的 structured checks 让 IM 显示 limited、raw scope、影响和修复方向。
 
 #### Scenario: tenant grant 满足 current 或 legacy 等价权限
 - **WHEN** scope probe 对某 capability 返回任一 accepted set，且所需 scope 均为 tenant granted

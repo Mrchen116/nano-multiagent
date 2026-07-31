@@ -33,12 +33,12 @@ description: 用于和人交互式对齐"做什么",产出一个变更单元的�
 
 不确定时**先问一句**:"我把这个理解为新功能(feat)还是 bug 修复(bugfix)?",再选模板。
 
-bugfix lite vs full 的判据(参考 `docs/changes/readme.md`):**默认 lite**;只有满足以下任一才升 full:跨多 milestone / 需要独立回归矩阵文档 / 根因横跨多模块。第一次写时优先 lite,后面发现影响面大再升级。
+bugfix lite vs full 的判据(参考 `docs/changes/README.md`):**默认 lite**;只有满足以下任一才升 full:跨多 milestone / 需要独立回归矩阵文档 / 根因横跨多模块。第一次写时优先 lite,后面发现影响面大再升级。
 
 ### §1.2 决定 unit_id 和目录名
 
 - **id**:在仓库根目录执行 `python3 <skill_dir>/scripts/next_unit_id.py <type>`，只执行一次并直接使用输出的
-  `unit_id`。脚本同时扫描 `docs/changes/` 活动区与 `docs/changes/archive/`，并在 Git common dir 中原子保留
+  `unit_id`。脚本同时扫描 `docs/changes/` 活动区、`docs/changes/archive/` 与 `docs/changes/retired/`，并在 Git common dir 中原子保留
   新编号；同一 clone 的并发进程和 worktree 不会拿到重复编号。已保留但尚未建目录的编号不复用，禁止为
   “看一下下个编号”重复执行，也禁止临时拼 `find`/`sed` 只扫活动区。例：
   `python3 .claude/skills/change-spec-author/scripts/next_unit_id.py feat` → `feat-<next-number>`。

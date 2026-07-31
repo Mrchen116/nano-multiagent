@@ -34,8 +34,7 @@
 
 - 它引 Anthropic《Building Effective Agents》——那篇的核心忠告是**"从最简单方案开始,只在必要时加 agentic complexity"**。这份处方却一上来就是 6 agent + claim 协议 + 3 verifier + 4 gate,是反向操作。
 - 它引 MAST(2503.13657)——MAST 的结论是 **79% 的失败来自 specification + coordination**。而**协调机构越多,这两类失败的暴露面越大**。处方堆的全是协调机构。
-- 我们 round-3 的 McEntire 对照实验:**11 阶段门控流水线 100% 失败**,把全部预算烧在规划阶段、零代码产出。这份处方(6 agent + 4 gate 全压在 spec/design,即写码之前)**形态上非常接近这个反模式**。
-→ 它有"严谨的样子",但严谨过头本身就是 spec/design 阶段最高频的失败模式。
+- 我们 round-3 的 McEntire 对照实验:**11 阶段门控流水线 100% 失败**,把全部预算烧在规划阶段、零代码产出。这份处方(6 agent + 4 gate 全压在 spec/design,即写码之前)**形态上非常接近这个反模式**。→ 它有"严谨的样子",但严谨过头本身就是 spec/design 阶段最高频的失败模式。
 
 ### 问题 2:Claim Registry + Owner Review 优雅但未经验证、且高摩擦
 

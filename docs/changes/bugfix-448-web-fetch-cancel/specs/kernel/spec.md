@@ -11,8 +11,7 @@ This delta applies to `docs/specs/kernel/spec.md`.
 - If a foreground stopper is registered for the session, the kernel calls it before force-cancelling the run carrier.
 - The session lock must be released after interrupt recovery so the same session can accept a later user message.
 - Open tool calls from the interrupted run must be closed before any later model request can include the transcript.
-- User-interrupted tool recovery content must be exactly:
-  `[Request interrupted by user for tool use]`
+- User-interrupted tool recovery content must be exactly: `[Request interrupted by user for tool use]`
 - Late results from interrupted tools must not be appended to a later run's transcript.
 
 ## Added Requirement: Tool Task Cancellation
@@ -24,8 +23,7 @@ When the agent loop is cancelled while tool calls are queued or executing, the t
 - User-interrupted discard preserves user-interrupt attribution for downstream transcript recovery.
 - Non-user cancellation must not be reported as a user interruption.
 - Discarded internal tool results are not yielded as normal tool results on the user-interrupt path.
-- User-interrupted transcript closure is owned by runtime recovery, and must use exactly:
-  `[Request interrupted by user for tool use]`
+- User-interrupted transcript closure is owned by runtime recovery, and must use exactly: `[Request interrupted by user for tool use]`
 
 ## Added Requirement: Async-Compatible Tool Execution
 

@@ -3,7 +3,7 @@
 > 对齐: feat-446
 > 上级: [IM Specification](spec.md)
 >
-> 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
+> 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
 
 ## Purpose
 
@@ -13,9 +13,7 @@
 
 ### Requirement: 工具徽标按中断原因显示终态
 
-run 异常终止、工具自身超时或工具被拒绝时,IM 工具徽标必须从「运行中」收口为一个**按原因区分**的非成功
-终态,不再停留在转圈状态。失败原因区分:工具因自身 deadline 到点被掐 → 「执行超时」(耗时过长);run 因
-看门狗 liveness 收尸或进程异常/中断 → 「已中断」(卡死/中断)。
+run 异常终止、工具自身超时或工具被拒绝时,IM 工具徽标必须从「运行中」收口为一个**按原因区分**的非成功终态,不再停留在转圈状态。失败原因区分:工具因自身 deadline 到点被掐 → 「执行超时」(耗时过长);run 因看门狗 liveness 收尸或进程异常/中断 → 「已中断」(卡死/中断)。
 
 #### Scenario: 在飞工具按原因收口
 - **GIVEN** 一条消息里某工具已开始执行(徽标运行中)
@@ -40,14 +38,11 @@ run 异常终止、工具自身超时或工具被拒绝时,IM 工具徽标必须
 #### Scenario: 超时收口的工具仍显示其命令与描述
 - **GIVEN** 一个 bash 工具调用运行中,已显示其命令与 description
 - **WHEN** 该工具因看门狗超时(或其他异常终止)被收口为失败态
-- **THEN** 该工具行仍显示原命令与 description(连同失败标识),用户能看出是哪条命令被中断,
-  而非只剩工具名 + 失败标识
+- **THEN** 该工具行仍显示原命令与 description(连同失败标识),用户能看出是哪条命令被中断, 而非只剩工具名 + 失败标识
 
 ### Requirement: 工具调用折叠态摘要有信息量且用真实工具名
 
-每条 agent 消息下方的工具调用面板,折叠态每行显示"工具在干什么"的一句人话而非仅工具名+耗时,失败行有
-可见失败标识,工具名一律为真实注册名。工具调用展示分两类信息源:参数(从入参得出,如折叠摘要、命令、
-prompt、查询词)在工具执行中即可见;结果(如 stdout、退出码、搜索结果、正文)只在工具执行完后展示。
+每条 agent 消息下方的工具调用面板,折叠态每行显示"工具在干什么"的一句人话而非仅工具名+耗时,失败行有可见失败标识,工具名一律为真实注册名。工具调用展示分两类信息源:参数(从入参得出,如折叠摘要、命令、prompt、查询词)在工具执行中即可见;结果(如 stdout、退出码、搜索结果、正文)只在工具执行完后展示。
 
 #### Scenario: bash 带 description 显示人话
 - **WHEN** agent 调用 bash 且填了 description
@@ -80,15 +75,13 @@ prompt、查询词)在工具执行中即可见;结果(如 stdout、退出码、�
 - **THEN** 其折叠行显示参数摘要,展开区不残留多余内容
 
 #### Scenario: 工具调用失败时折叠态标红
-- **GIVEN** 某个工具调用失败(bash 退出码非 0、edit 未命中、web 返回错误,或 memory/skill_manage
-  返回 success=false 这类不抛错的失败)
+- **GIVEN** 某个工具调用失败(bash 退出码非 0、edit 未命中、web 返回错误,或 memory/skill_manage 返回 success=false 这类不抛错的失败)
 - **WHEN** 用户扫工具调用面板而不展开任何一行
 - **THEN** 失败的那一行有可见的失败标识(标红 + 失败提示)
 
 #### Scenario: 工具名显示真实注册名
 - **WHEN** 用户看任意工具调用行
-- **THEN** 工具名显示其真实注册名(`bash` / `read` / `write` / `edit` / `agent` / `task_stop` /
-  `web_fetch` / `memory` / `skill_manage` / `web_search`),不出现别名或改写名
+- **THEN** 工具名显示其真实注册名(`bash` / `read` / `write` / `edit` / `agent` / `task_stop` / `web_fetch` / `memory` / `skill_manage` / `web_search`),不出现别名或改写名
 
 #### Scenario: web_search 折叠显查询词
 - **WHEN** agent 调用 `web_search` 搜索某查询词且搜索成功
@@ -97,14 +90,12 @@ prompt、查询词)在工具执行中即可见;结果(如 stdout、退出码、�
 
 #### Scenario: web_fetch 折叠显抓取的网址
 - **WHEN** agent 调用 `web_fetch` 抓取某 URL
-- **THEN** 该工具行折叠态显示 `🌐` 图标 + 该 URL(如 `🌐 https://example.com/doc`),不显示
-  `status=200 (title)` 这类机器视角文案
+- **THEN** 该工具行折叠态显示 `🌐` 图标 + 该 URL(如 `🌐 https://example.com/doc`),不显示 `status=200 (title)` 这类机器视角文案
 - **AND** 抓取失败(网络错误/非法 URL/4xx-5xx)时折叠仍显 `🌐` + 该 URL
 
 ### Requirement: 工具折叠行图标随工具自带,自定义工具可拥有专属图标
 
-折叠行图标优先取工具/presenter 自带的 emoji(经内核事件透传 + 落库);工具未声明 emoji 时回退到前端
-按工具名的图标表(内置工具不退化,未知/DIY/MCP 工具回退通用 🔧)。
+折叠行图标优先取工具/presenter 自带的 emoji(经内核事件透传 + 落库);工具未声明 emoji 时回退到前端按工具名的图标表(内置工具不退化,未知/DIY/MCP 工具回退通用 🔧)。
 
 #### Scenario: 自定义 / MCP 工具声明了 emoji
 - **GIVEN** 一个自定义(`.nano/tools/`)/ MCP / 新产品工具的 presenter 声明了专属 emoji

@@ -699,46 +699,7 @@ Bidirectional sync（spec↔code双向同步）是防止drift的核心机制。T
 
 ## 参考文献索引
 
-[^38^] Cleland-Huang et al., "Natural Language Processing for Requirements Traceability", arXiv, 2024.
-[^39^] 博客园, "Vibe Coding - 深度解读规范驱动制作（SDD）", 2025.
-[^42^] "An AI-Enhanced Technical Debt Management Framework for Aerospace and Defense", Systems, 2026.
-[^43^] "AI-Enhanced Requirements Traceability Using MBSE and LLM", SERCU ARC, 2025.
-[^48^] "Intent Assurance using LLMs guided by Intent Drift", arXiv, 2024.
-[^52^] Dev.to, "Where to Gate Your AI Coding Agent: A 3-Checkpoint Framework", 2026.
-[^53^] "Where to Gate Your AI Coding Agent: 3-Checkpoint Framework", Code on Grass, 2026.
-[^54^] SimpleModeling, "Component-Based Development in the Age of AI", 2025.
-[^55^] "Project Prometheus: Bridging the Intent Gap in Agentic Program Repair", arXiv/ICSE 2026.
-[^56^] Augment Code, "What Is Spec-Driven Development?", 2026.
-[^63^] GitHub, "get-shit-done/agents/gsd-planner.md".
-[^67^] Kinde, "Spec Drift: The Hidden Problem AI Can Help Fix", 2021.
-[^68^] "From Code to Contract in the Age of AI Coding Assistants", arXiv, 2025.
-[^78^] "Aligning Requirement for Large Language Model's Code Generation", ICSE 2026.
-[^79^] "Enhancing Requirements Traceability Link Recovery", arXiv, 2026.
-[^80^] "一分钟读论文：《大语言模型代码生成的规格对齐》", 2026.
-[^81^] Beeceptor, "API Contract Change Detection".
-[^82^] Wiz.io, "What is API drift and how do you prevent you?", 2025.
-[^86^] Hey et al., "Automated Traceability Link Recovery Between Requirements and Source Code", 2023.
-[^89^] "TVR: Automotive System Requirement Traceability Validation and Recovery Through Retrieval-Augmented Generation", arXiv, 2025.
-[^90^] Dev.to, "Specification Drift: Why AI Coding Workflows Stop Converging", 2026.
-[^91^] specdriven.com, "Tessl".
-[^92^] Martin Fowler, "Understanding Spec-Driven-Development: Kiro, spec-kit, and Tessl", 2025.
-[^93^] intent-driven.dev, "Spec-Driven Development Workflows", 2025.
-[^94^] Tessl, "Revolutionising Spec-Driven Development with Tessl's Framework & Registry", 2025.
-[^95^] Tessl, "Tessl launches spec-driven framework and registry", 2025.
-[^99^] GitHub, "tianzhaotju/Specine", 2025.
-[^101^] Lahiri, "Intent Formalization: A Grand Challenge for Reliable Coding in the Age of AI Agents", Microsoft Research, 2026.
-[^120^] "A Requirement Alignment Approach for Code Generation", arXiv, 2026.
-[^137^] Towards AI, "Spec-Driven Development: Structure Beats Vibes", 2026.
-[^139^] Click 123, "Spec-Driven Development in 2026", 2026.
-[^142^] "Project Prometheus: Bridging the Intent Gap in Agentic Program Repair", ICSE 2026.
-[^143^] "SDD 規格驅動開發", 2026.
-[^145^] "A Survey of Development Workflows in the Coding Agent Era", 2026.
-[^190^] "Enhancing Traceability Link Recovery with Unlabeled Data", ISSRE 2022.
-[^196^] GitHub, "Feature Request: EARS Integration", Spec Kit Issue #1356, 2025.
-[^198^] QRA Corp, "When Not to Use EARS", 2025.
-[^201^] Alistair Mavin, "EARS: Easy Approach to Requirements Syntax".
-[^205^] "On-Demand Automated Traceability Maintenance and Evolution", University of Vienna.
-[^207^] "A Cross-Level Requirement Trace Link Update Model Based on BERT", Mathematics, 2023.
+[^38^] Cleland-Huang et al., "Natural Language Processing for Requirements Traceability", arXiv, 2024. [^39^] 博客园, "Vibe Coding - 深度解读规范驱动制作（SDD）", 2025. [^42^] "An AI-Enhanced Technical Debt Management Framework for Aerospace and Defense", Systems, 2026. [^43^] "AI-Enhanced Requirements Traceability Using MBSE and LLM", SERCU ARC, 2025. [^48^] "Intent Assurance using LLMs guided by Intent Drift", arXiv, 2024. [^52^] Dev.to, "Where to Gate Your AI Coding Agent: A 3-Checkpoint Framework", 2026. [^53^] "Where to Gate Your AI Coding Agent: 3-Checkpoint Framework", Code on Grass, 2026. [^54^] SimpleModeling, "Component-Based Development in the Age of AI", 2025. [^55^] "Project Prometheus: Bridging the Intent Gap in Agentic Program Repair", arXiv/ICSE 2026. [^56^] Augment Code, "What Is Spec-Driven Development?", 2026. [^63^] GitHub, "get-shit-done/agents/gsd-planner.md". [^67^] Kinde, "Spec Drift: The Hidden Problem AI Can Help Fix", 2021. [^68^] "From Code to Contract in the Age of AI Coding Assistants", arXiv, 2025. [^78^] "Aligning Requirement for Large Language Model's Code Generation", ICSE 2026. [^79^] "Enhancing Requirements Traceability Link Recovery", arXiv, 2026. [^80^] "一分钟读论文：《大语言模型代码生成的规格对齐》", 2026. [^81^] Beeceptor, "API Contract Change Detection". [^82^] Wiz.io, "What is API drift and how do you prevent you?", 2025. [^86^] Hey et al., "Automated Traceability Link Recovery Between Requirements and Source Code", 2023. [^89^] "TVR: Automotive System Requirement Traceability Validation and Recovery Through Retrieval-Augmented Generation", arXiv, 2025. [^90^] Dev.to, "Specification Drift: Why AI Coding Workflows Stop Converging", 2026. [^91^] specdriven.com, "Tessl". [^92^] Martin Fowler, "Understanding Spec-Driven-Development: Kiro, spec-kit, and Tessl", 2025. [^93^] intent-driven.dev, "Spec-Driven Development Workflows", 2025. [^94^] Tessl, "Revolutionising Spec-Driven Development with Tessl's Framework & Registry", 2025. [^95^] Tessl, "Tessl launches spec-driven framework and registry", 2025. [^99^] GitHub, "tianzhaotju/Specine", 2025. [^101^] Lahiri, "Intent Formalization: A Grand Challenge for Reliable Coding in the Age of AI Agents", Microsoft Research, 2026. [^120^] "A Requirement Alignment Approach for Code Generation", arXiv, 2026. [^137^] Towards AI, "Spec-Driven Development: Structure Beats Vibes", 2026. [^139^] Click 123, "Spec-Driven Development in 2026", 2026. [^142^] "Project Prometheus: Bridging the Intent Gap in Agentic Program Repair", ICSE 2026. [^143^] "SDD 規格驅動開發", 2026. [^145^] "A Survey of Development Workflows in the Coding Agent Era", 2026. [^190^] "Enhancing Traceability Link Recovery with Unlabeled Data", ISSRE 2022. [^196^] GitHub, "Feature Request: EARS Integration", Spec Kit Issue #1356, 2025. [^198^] QRA Corp, "When Not to Use EARS", 2025. [^201^] Alistair Mavin, "EARS: Easy Approach to Requirements Syntax". [^205^] "On-Demand Automated Traceability Maintenance and Evolution", University of Vienna. [^207^] "A Cross-Level Requirement Trace Link Update Model Based on BERT", Mathematics, 2023.
 
 ---
 

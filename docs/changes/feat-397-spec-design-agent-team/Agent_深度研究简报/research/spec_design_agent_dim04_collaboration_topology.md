@@ -39,10 +39,7 @@
 
 **关键证据**：Liang et al. 提出**Degeneration-of-Thought (DoT)**问题——自信的LLM无法通过自我反思纠正错误答案，只有外部压力才能"unstick"它 [^431^]。其核心设计是两个debater加一个judge，debater被显式提示不同意（"it's not necessary to fully agree"）。GPT-3.5加MAD在常识翻译上击败了GPT-4基线（37% vs 26% vs 51%）[^431^]。
 
-**Source**: Liang et al., "Encouraging Divergent Thinking through Multi-Agent Debate," EMNLP 2024
-**URL**: https://aclanthology.org/2024.emnlp-main.778.pdf
-**Excerpt**: "GPT-3.5 plus MAD beat GPT-4 baseline on commonsense translation... Debaters explicitly prompted to disagree"
-**Confidence**: Medium（存在显著failure mode）
+**Source**: Liang et al., "Encouraging Divergent Thinking through Multi-Agent Debate," EMNLP 2024 **URL**: https://aclanthology.org/2024.emnlp-main.778.pdf **Excerpt**: "GPT-3.5 plus MAD beat GPT-4 baseline on commonsense translation... Debaters explicitly prompted to disagree" **Confidence**: Medium（存在显著failure mode）
 
 ### 1.2 反面证据：Debate的系统性缺陷
 
@@ -50,24 +47,18 @@
 
 **Claim**: 标准MAD无法将belief correctness提升至超越majority voting的水平——这被称为"Martingale Curse"。
 
-**Source**: Liu et al., "Breaking the Martingale Curse: Multi-Agent Debate via Asymmetric Cognitive Potential Energy," 2026 [^367^]
-**URL**: https://arxiv.org/abs/2603.06801
-**Excerpt**: 
+**Source**: Liu et al., "Breaking the Martingale Curse: Multi-Agent Debate via Asymmetric Cognitive Potential Energy," 2026 [^367^] **URL**: https://arxiv.org/abs/2603.06801 **Excerpt**:
 > "standard MAD cannot improve belief correctness beyond majority voting; we refer to this as the Martingale Curse. This curse arises because correlated errors cause agents to converge toward erroneous consensus, where debate merely reinforces collective mistakes rather than filtering noise."
 
 **理论分析**：从概率论角度，标准MAD是一个martingale过程——每轮debate的期望值等于当前值，因此没有正向drift toward truth [^367^]。相关误差导致agents收敛到错误共识，debate只是强化了集体错误。
 
-**Source**: Choi et al. (2025), cited in [^210^]
-**Excerpt**: "standard MAD as a martingale process: without external supervision, the expected belief in the correct answer remains constant across rounds"
-**Confidence**: High（有数学证明支持）
+**Source**: Choi et al. (2025), cited in [^210^] **Excerpt**: "standard MAD as a martingale process: without external supervision, the expected belief in the correct answer remains constant across rounds" **Confidence**: High（有数学证明支持）
 
 #### 1.2.2 AceMAD：打破诅咒的理论方案
 
 **Claim**: 通过asymmetric cognitive potential energy和peer-prediction机制，可以将MAD从martingale转化为submartingale，实现正向drift toward truth。
 
-**Source**: Liu et al., AceMAD [^367^]
-**URL**: https://arxiv.org/html/2603.06801v1
-**Excerpt**:
+**Source**: Liu et al., AceMAD [^367^] **URL**: https://arxiv.org/html/2603.06801v1 **Excerpt**:
 > "truth-holders not only know the correct answer but also anticipate the crowd's misconceptions, while the hallucinating majority remains blind to their collective error. This asymmetry creates a potential energy gap... We prove this cognitive potential manifests as information-theoretic superiority and, under nonlinear aggregation, converts into submartingale drift toward truth"
 
 **实验结果**：AceMAD在六个benchmark的challenging subsets上比标准MAD提升20.31%。消融研究显示，移除second-order cognition导致性能下降14.6% [^367^]。
@@ -80,9 +71,7 @@
 
 **Claim**: 在长debate中，agents的通信倾向于恶化，偏离原始任务目标——这被称为"problem drift"。
 
-**Source**: ACL 2025, "Stay Focused: Problem Drift in Multi-Agent Debate" [^433^]
-**URL**: https://aclanthology.org/2025.emnlp-main.1403.pdf（相关引用）
-**Excerpt**:
+**Source**: ACL 2025, "Stay Focused: Problem Drift in Multi-Agent Debate" [^433^] **URL**: https://aclanthology.org/2025.emnlp-main.1403.pdf（相关引用）**Excerpt**:
 > "multi-agent systems can collapse in long discussions... agents' communication tends to deteriorate over time, drifting to a point where they can not recover and address the original task goal"
 
 **量化数据**：
@@ -97,9 +86,7 @@
 
 **Claim**: 在混合能力agent的debate中，更强的agent倾向于反射性附和较弱同伴的错误推理。
 
-**Source**: "Understanding Failure Modes in Multi-Agent Debate," 2025 [^460^]
-**URL**: https://arxiv.org/html/2509.05396v1
-**Excerpt**:
+**Source**: "Understanding Failure Modes in Multi-Agent Debate," 2025 [^460^] **URL**: https://arxiv.org/html/2509.05396v1 **Excerpt**:
 > "stronger agents flip from correct to incorrect answers in response to weaker peers' arguments more often than weaker agents learn the correct answer from their stronger peers... overly sycophantic behavior encouraged by current alignment techniques may inadvertently encourage undue deference"
 
 **关键发现**：
@@ -113,9 +100,7 @@
 
 **Claim**: 在peer review模拟中，讨论导致review分数的方差显著下降（conformity效应），且存在回声室和偏见效应。
 
-**Source**: "AgentReview: Exploring Peer Review Dynamics with LLM Agents," EMNLP 2024 [^212^]
-**URL**: https://arxiv.org/html/2406.12708v2
-**Excerpt**:
+**Source**: "AgentReview: Exploring Peer Review Dynamics with LLM Agents," EMNLP 2024 [^212^] **URL**: https://arxiv.org/html/2406.12708v2 **Excerpt**:
 > "the standard deviation of reviewer ratings significant declines after the Reviewer-AC discussion, revealing a trend towards conformity... increasing the number of malicious reviewers from 0 to 3 results in a consistent drop in the average rating from 5.11 to 3.35"
 
 **社会学现象复现**：
@@ -135,9 +120,7 @@
 
 **Claim**: MetaGPT通过模拟软件公司SOP（标准操作流程）的顺序角色流水线，在代码生成任务上显著优于单agent和灵活debate方法。
 
-**Source**: Hong et al., "MetaGPT: Meta Programming for A Multi-Agent Collaborative Framework," 2023 [^223^]
-**URL**: https://arxiv.org/pdf/2308.00352
-**Excerpt**:
+**Source**: Hong et al., "MetaGPT: Meta Programming for A Multi-Agent Collaborative Framework," 2023 [^223^] **URL**: https://arxiv.org/pdf/2308.00352 **Excerpt**:
 > "MetaGPT achieves an average score of 3.9, surpassing ChatDev's score of 2.1... MetaGPT+GPT-4 yields 85.9% HumanEval Pass@1 vs. vanilla GPT-4 at 80.5%"
 
 **流水线结构**：Product Manager → Architect → Project Manager → Engineer → QA Engineer
@@ -165,9 +148,7 @@
 
 **Claim**: MARE通过将需求工程分解为四个顺序任务（elicitation → modeling → verification → specification），每个任务由专门agent执行，实现了端到端的需求规格化。
 
-**Source**: Jin et al., "MARE: Multi-Agents Collaboration Framework for Requirements Engineering," 2024 [^20^]
-**URL**: https://arxiv.org/pdf/2405.03256
-**Excerpt**:
+**Source**: Jin et al., "MARE: Multi-Agents Collaboration Framework for Requirements Engineering," 2024 [^20^] **URL**: https://arxiv.org/pdf/2405.03256 **Excerpt**:
 > "MARE(gpt-3.5-turbo) outperforms the three SOTA baselines by up to 15.4%, 23.9%, and 0.6%, respectively"（在requirements modeling F1上）
 
 **四阶段流水线**：
@@ -191,9 +172,7 @@
 
 **Claim**: BMAD通过结构化的phase-based workflow（分析→规划→架构→实现），使用不同agent persona处理不同阶段。
 
-**Source**: BMAD-METHOD GitHub [^230^]
-**URL**: https://github.com/bmad-code-org/BMAD-METHOD
-**Excerpt**:
+**Source**: BMAD-METHOD GitHub [^230^] **URL**: https://github.com/bmad-code-org/BMAD-METHOD **Excerpt**:
 > "Traditional AI tools do the thinking for you, producing average results. BMad agents and facilitated workflows act as expert collaborators who guide you through a structured process"
 
 **关键特征** [^225^]：
@@ -214,9 +193,7 @@
 
 **Claim**: IronEngine通过固定的三阶段pipeline（Discussion → Model Switch → Execution），其中Planner-Reviewer discussion loop提供形式化质量保障，优于灵活的多agent群聊。
 
-**Source**: "IronEngine: Towards General AI Assistant," 2026 [^430^]
-**URL**: https://arxiv.org/html/2603.08425v1
-**Excerpt**:
+**Source**: "IronEngine: Towards General AI Assistant," 2026 [^430^] **URL**: https://arxiv.org/html/2603.08425v1 **Excerpt**:
 > "IronEngine adopts a structured multi-role approach with fixed pipeline phases rather than free-form multi-agent conversation, prioritizing predictability and controllability over conversational flexibility. The Planner-Reviewer discussion loop provides quality assurance without the overhead of managing arbitrary agent topologies."
 
 **对现有框架的critique** [^430^]：
@@ -245,9 +222,7 @@
 
 **Claim**: 对抗性critic（持续适应generator行为变化）比静态reward model更鲁棒，尤其在noisy validation环境下。
 
-**Source**: "RLAC: Reinforcement Learning with Adversarial Critic for Free-Form Generation Tasks," 2025 [^358^]
-**URL**: https://arxiv.org/html/2511.01758v1
-**Excerpt**:
+**Source**: "RLAC: Reinforcement Learning with Adversarial Critic for Free-Form Generation Tasks," 2025 [^358^] **URL**: https://arxiv.org/html/2511.01758v1 **Excerpt**:
 > "AceCoder-RM not only fails to improve performance but can even degrade it under noisy validation... The static RM cannot adapt, causing it to favor spurious correlations rather than true correctness, leading the generator to exploit flaws in the reward signal... RLAC consistently improves performance across all benchmarks, even in noisy and imperfect validation environments"
 
 **实验对比**：Static critic的detection accuracy从42.3%下降到33.9%（generator利用其模式），而adversarial critic持续改进（+1.8%）[^358^]。
@@ -258,9 +233,7 @@
 
 **Claim**: 通过sneaky generator和critic之间的对抗游戏，critic模型可以自我进化其error detection能力。
 
-**Source**: "SPC: Evolving Self-Play Critic via Adversarial Games for LLM Reasoning," 2025 [^347^]
-**URL**: https://arxiv.org/abs/2504.19162
-**Excerpt**:
+**Source**: "SPC: Evolving Self-Play Critic via Adversarial Games for LLM Reasoning," 2025 [^347^] **URL**: https://arxiv.org/abs/2504.19162 **Excerpt**:
 > "a 'sneaky generator' that deliberately produces erroneous steps designed to be difficult to detect, and a 'critic' that analyzes the correctness of reasoning steps... accuracy increases from 70.8% to 77.7% on ProcessBench"
 
 **关键发现**：overly unbalanced game prevents critic from learning——需要skill-level comparable的对手 [^347^]。
@@ -275,9 +248,7 @@
 
 **Claim**: AutoGen通过GroupChat和GroupChatManager提供了最灵活的多agent对话框架，但质量保障是应用层责任。
 
-**Source**: Wu et al., "AutoGen: Enabling Next-Gen LLM Applications via Multi-Agent Conversation Framework," 2023 [^372^]
-**URL**: https://arxiv.org/pdf/2308.08155v1
-**Excerpt**:
+**Source**: Wu et al., "AutoGen: Enabling Next-Gen LLM Applications via Multi-Agent Conversation Framework," 2023 [^372^] **URL**: https://arxiv.org/pdf/2308.08155v1 **Excerpt**:
 > "AutoGen is more honest than the others about the fact that there's no 'right' multi-agent architecture. It doesn't try to tell you what your agents should be. It gives you the plumbing and assumes you know what you're doing." [^377^]
 
 **通信模式** [^360^]：
@@ -309,9 +280,7 @@
 
 **Claim**: CAMEL通过role-playing实现agent协作，其Workforce模块在GAIA benchmark上达69.09%（首个超过OpenAI Deep Research的开源系统）。
 
-**Source**: Li et al., "CAMEL: Communicative Agents for 'Mind' Exploration of Large Language Model Society," NeurIPS 2023 [^376^]
-**URL**: https://chatforest.com/reviews/camel-ai-multi-agent-framework/
-**Excerpt**:
+**Source**: Li et al., "CAMEL: Communicative Agents for 'Mind' Exploration of Large Language Model Society," NeurIPS 2023 [^376^] **URL**: https://chatforest.com/reviews/camel-ai-multi-agent-framework/ **Excerpt**:
 > "CAMEL's defining contribution is role-playing between agents as a coordination mechanism: rather than one LLM trying to do everything, two agents take complementary roles... OWL is a CAMEL-based multi-agent system that scored 69.09% on the GAIA benchmark"
 
 **架构演进** [^376^]：
@@ -327,9 +296,7 @@
 
 **Claim**: ChatEval通过多样角色prompt和结构化通信策略，在NLG评估任务上显著优于单agent设置。
 
-**Source**: Chan et al., "ChatEval: Towards Better LLM-based Evaluators through Multi-Agent Debate," 2023 [^425^]
-**URL**: https://ar5iv.labs.arxiv.org/html/2308.07201
-**Excerpt**:
+**Source**: Chan et al., "ChatEval: Towards Better LLM-based Evaluators through Multi-Agent Debate," 2023 [^425^] **URL**: https://ar5iv.labs.arxiv.org/html/2308.07201 **Excerpt**:
 > "ChatEval with diverse role prompt design significantly improves performance compared to single-agent setting... ChatEval equipped with diverse role configurations can significantly improve the performance of evaluation"
 
 **消融发现** [^425^][^426^]：
@@ -355,8 +322,7 @@
 
 **Claim**: 不同的预定义拓扑（chain、star、tree、complete graph、random graph）在不同任务上表现差异显著，且可以通过GNN学习task-aware topology。
 
-**Source**: Zhang et al., "G-Designer: Architecting Multi-agent Communication Topologies via Graph Neural Networks," 2024 [^384^]
-**URL**: https://arxiv.org/html/2410.11782v1
+**Source**: Zhang et al., "G-Designer: Architecting Multi-agent Communication Topologies via Graph Neural Networks," 2024 [^384^] **URL**: https://arxiv.org/html/2410.11782v1
 
 **Performance对比**（在HumanEval和GSM8K等benchmark上）[^384^]：
 | 方法 | HumanEval | GSM8K | MMLU |
@@ -382,9 +348,7 @@
 
 **Claim**: 不同的voting/social choice机制在多agent协作中产生显著不同的群体决策质量。
 
-**Source**: "RoundTable: Investigating Group Decision-Making Mechanism in Multi-Agent Collaboration," 2024 [^381^]
-**URL**: https://arxiv.org/html/2411.07161v1
-**Excerpt**:
+**Source**: "RoundTable: Investigating Group Decision-Making Mechanism in Multi-Agent Collaboration," 2024 [^381^] **URL**: https://arxiv.org/html/2411.07161v1 **Excerpt**:
 > "RoundTable employs round-based agent collaboration, with each round comprising three phases: Message Phase, Proposal Phase, Voting Phase"
 
 **比较的Voting机制** [^381^]：
@@ -406,9 +370,7 @@
 
 **Claim**: AgentAuditor通过Reasoning Tree和Critical Divergence Points (CDPs) audit，在MinC（majority wrong但correct minority存在）regime上大幅优于majority voting。
 
-**Source**: "Auditing Multi-Agent LLM Reasoning Trees Outperforms Majority Vote and LLM-as-Judge," 2025 [^361^]
-**URL**: https://arxiv.org/html/2602.09341v1
-**Excerpt**:
+**Source**: "Auditing Multi-Agent LLM Reasoning Trees Outperforms Majority Vote and LLM-as-Judge," 2025 [^361^] **URL**: https://arxiv.org/html/2602.09341v1 **Excerpt**:
 > "AgentAuditor yields an average absolute improvement of ~3% over MV, with gains reaching +5.7% on AMC (GPTSwarm) and +5.5% on GSM8K (DyLAN)... effectively neutralizing the consensus trap and majority bias"
 
 **关键机制**：
@@ -444,9 +406,7 @@
 
 这表明**open-ended任务比closed-ended任务更容易受到debate质量 degradation的影响**。
 
-**Source**: "Creativity in LLM-based Multi-Agent Systems: A Survey," EMNLP 2025 [^467^]
-**URL**: https://aclanthology.org/2025.emnlp-main.1403.pdf
-**Excerpt**:
+**Source**: "Creativity in LLM-based Multi-Agent Systems: A Survey," EMNLP 2025 [^467^] **URL**: https://aclanthology.org/2025.emnlp-main.1403.pdf **Excerpt**:
 > "Most LLM-based creative generation methods today focus on specific tasks: story writing, poem completion, ad copy, or code snippets, each with its own data and custom evaluations. That patchwork approach makes it impossible to tell which method drives progress."
 
 **Confidence**: Medium（证据间接，缺乏直接对比实验）
@@ -461,15 +421,12 @@
 
 #### 证据1：Martingale Curse的数学证明
 
-**Source**: Liu et al., AceMAD [^367^]
-**Excerpt**:
+**Source**: Liu et al., AceMAD [^367^] **Excerpt**:
 > "the hallucinating majority reinforces each other's misconceptions, drowning isolated truth-holders in collective consensus... Standard MAD treats all arguments as 'cheap talk', updating beliefs through symmetric linear aggregation. Under correlated errors, this creates an echo chamber"
 
 #### 证据2：医疗多Agent的协作失败
 
-**Source**: "Diagnosing and Quantifying Collaborative Failure Modes in Medical Multi-Agent Systems," 2025 [^396^]
-**URL**: https://arxiv.org/html/2510.10185v1
-**Excerpt**:
+**Source**: "Diagnosing and Quantifying Collaborative Failure Modes in Medical Multi-Agent Systems," 2025 [^396^] **URL**: https://arxiv.org/html/2510.10185v1 **Excerpt**:
 > "four dominant failure patterns: flawed consensus driven by shared model deficiencies, suppression of correct minority opinions, ineffective discussion dynamics, and critical information loss during synthesis"
 
 **失败模式** [^396^]：
@@ -482,15 +439,12 @@
 
 #### 证据3：身份偏见与多数驱动收敛
 
-**Source**: "Understanding Failure Modes in Multi-Agent Debate" [^460^]; ICLR Blog "Multi-LLM-Agents Debate" [^436^]
-**Excerpt** [^436^]:
+**Source**: "Understanding Failure Modes in Multi-Agent Debate" [^460^]; ICLR Blog "Multi-LLM-Agents Debate" [^436^] **Excerpt** [^436^]:
 > "most MAD frameworks are not able to achieve consistently better performances than CoT... EOT demonstrates scalability to some extent, but we also observed that under the same conditions, EOT performs worse than other MAD methods"
 
 #### 证据4：Sycophantic Conformity
 
-**Source**: "Scaling Multi-Agent Debate," 2025 [^398^]
-**URL**: https://arxiv.org/pdf/2605.00914
-**Excerpt**:
+**Source**: "Scaling Multi-Agent Debate," 2025 [^398^] **URL**: https://arxiv.org/pdf/2605.00914 **Excerpt**:
 > "peer communication induces three distinct failure modes: (i) sycophantic conformity, where RLHF-aligned models abandon independent reasoning to adopt the modal peer answer (up to 85.5%); (ii) contextual fragility... (iii) consensus collapse... producing oracle gaps of up to 32.3 percentage points"
 
 **经济分析**：Debate架构比isolated self-correction多花费2.1x-3.4x token cost，但accuracy统计上相当或更差 [^398^]。
@@ -499,15 +453,11 @@
 
 #### 策略1：Asymmetric Cognitive Potential Energy（AceMAD）
 
-**Source**: AceMAD [^367^]
-**机制**：Peer-prediction + nonlinear weight amplification
-**效果**：比标准MAD +20.31%（challenging subsets）
+**Source**: AceMAD [^367^] **机制**：Peer-prediction + nonlinear weight amplification **效果**：比标准MAD +20.31%（challenging subsets）
 
 #### 策略2：Specialized Critics with Different Objective Functions
 
-**Source**: Talvinder analysis [^23^]
-**URL**: https://talvinder.com/frameworks/the-martingale-curse/
-**Excerpt**:
+**Source**: Talvinder analysis [^23^] **URL**: https://talvinder.com/frameworks/the-martingale-curse/ **Excerpt**:
 > "Specialized critics, not general debaters... One checks factual accuracy. Another attacks logical coherence. A third evaluates whether the argument is actually novel... They are not trying to agree. They are trying to find specific failure modes."
 
 **核心原则** [^23^]：
@@ -515,14 +465,11 @@
 
 #### 策略3：AgentAuditor的Reasoning Tree Audit
 
-**Source**: AgentAuditor [^361^]
-**机制**：Structure-aware auditing at Critical Divergence Points
-**效果**：~3%平均提升，MinC regime上+5.7%
+**Source**: AgentAuditor [^361^] **机制**：Structure-aware auditing at Critical Divergence Points **效果**：~3%平均提升，MinC regime上+5.7%
 
 #### 策略4：External Verification Loops
 
-**Source**: Talvinder [^23^]
-**Excerpt**:
+**Source**: Talvinder [^23^] **Excerpt**:
 > "The system must include at least one validation step that does not rely on agent opinion. Code execution. Data lookups. Citation checks. Something that injects ground truth into the loop"
 
 ### 6.3 关键张力与反面证据
@@ -710,7 +657,4 @@
 
 ---
 
-*报告生成日期: 2025年*
-*搜索次数: 22+ 独立搜索查询*
-*覆盖文献: 40+ 篇学术论文和技术报告*
-*主要来源: arXiv, ACL Anthology, EMNLP, NeurIPS, ICLR, ACM, IEEE*
+*报告生成日期: 2025年* *搜索次数: 22+ 独立搜索查询* *覆盖文献: 40+ 篇学术论文和技术报告* *主要来源: arXiv, ACL Anthology, EMNLP, NeurIPS, ICLR, ACM, IEEE*

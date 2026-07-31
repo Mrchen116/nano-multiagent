@@ -67,7 +67,7 @@ from personal_assistant.gateway.runtime_protocol import runtime_protocol_or_deri
 from personal_assistant.gateway.shadow_saga import ExternalShadowOutput
 
 if TYPE_CHECKING:
-    from agent.sdk.kernel import Kernel
+    from agent.sdk import Kernel
 
 
 _DEFAULT_GATEWAY_INTERNAL_PORT = 8089

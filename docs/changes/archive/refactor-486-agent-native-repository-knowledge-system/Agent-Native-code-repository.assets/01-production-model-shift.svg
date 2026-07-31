@@ -1,0 +1,136 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">从岗位横向分工到 Agent 垂直整合</title>
+  <desc id="desc">左侧展示传统软件生产依靠岗位交接和人的隐性补偿，右侧展示同一 Coding Agent 连续执行并依赖 Repository Harness，底部给出知识断点的传播后果和仓库需要显式提供的能力。</desc>
+  <defs>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #1a1a1a; }
+      .title { font-size: 32px; font-weight: 750; }
+      .subtitle { font-size: 17px; fill: #6b6b6b; }
+      .panel-title { font-size: 23px; font-weight: 700; }
+      .section { font-size: 18px; font-weight: 700; }
+      .label { font-size: 16px; font-weight: 650; }
+      .small { font-size: 14px; fill: #6b6b6b; }
+      .tiny { font-size: 13px; fill: #6b6b6b; }
+      .panel { fill: #f5f1ea; stroke: #9ab8be; stroke-width: 2; }
+      .stage-old { fill: #f5ecdb; stroke: #a07020; stroke-width: 2; }
+      .platform { fill: #ffffff; stroke: #e6e3dc; stroke-width: 1.5; }
+      .human-layer { fill: #f5ecdb; stroke: #a07020; stroke-width: 2; stroke-dasharray: 9 7; }
+      .stage-new { fill: #e6eef0; stroke: #2a6470; stroke-width: 2; }
+      .agent-shell { fill: #e6eef0; stroke: #2a6470; stroke-width: 2.5; }
+      .harness { fill: #ecf0e6; stroke: #4a6f3a; stroke-width: 2.5; }
+      .chip { fill: #ffffff; stroke: #9ab8be; stroke-width: 1.4; }
+      .risk { fill: #f5ebe6; stroke: #8b3a2f; stroke-width: 2; }
+      .need { fill: #ecf0e6; stroke: #4a6f3a; stroke-width: 2; }
+      .arrow { stroke: #6b6b6b; stroke-width: 2.2; fill: none; marker-end: url(#arrow); }
+      .arrow-old { stroke: #a07020; stroke-width: 2.4; fill: none; marker-end: url(#arrowOld); }
+      .arrow-new { stroke: #2a6470; stroke-width: 2.4; fill: none; marker-end: url(#arrowNew); }
+      .dash { stroke: #9a9a9a; stroke-width: 1.8; stroke-dasharray: 7 6; fill: none; }
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#6b6b6b"/>
+    </marker>
+    <marker id="arrowOld" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#a07020"/>
+    </marker>
+    <marker id="arrowNew" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#2a6470"/>
+    </marker>
+  </defs>
+
+  <rect width="1600" height="900" fill="#ffffff"/>
+  <text x="48" y="52" class="title">为什么 Agent 时代需要不同的仓库知识体系</text>
+  <text x="48" y="82" class="subtitle">变化不在于岗位责任消失，而在于同一个执行主体开始连续穿越原本分散的环节。</text>
+
+  <rect x="40" y="110" width="720" height="560" rx="22" class="panel"/>
+  <text x="72" y="150" class="panel-title">过去：岗位横向分工</text>
+  <text x="72" y="178" class="small">知识随岗位和作业平台分布，交接处由人补全。</text>
+
+  <g>
+    <rect x="70" y="215" width="92" height="58" rx="12" class="stage-old"/><text x="116" y="250" text-anchor="middle" class="label">产品</text>
+    <rect x="182" y="215" width="92" height="58" rx="12" class="stage-old"/><text x="228" y="250" text-anchor="middle" class="label">设计</text>
+    <rect x="294" y="215" width="92" height="58" rx="12" class="stage-old"/><text x="340" y="250" text-anchor="middle" class="label">开发</text>
+    <rect x="406" y="215" width="92" height="58" rx="12" class="stage-old"/><text x="452" y="250" text-anchor="middle" class="label">测试</text>
+    <rect x="518" y="215" width="92" height="58" rx="12" class="stage-old"/><text x="564" y="250" text-anchor="middle" class="label">发布</text>
+    <rect x="630" y="215" width="92" height="58" rx="12" class="stage-old"/><text x="676" y="250" text-anchor="middle" class="label">运维</text>
+    <path d="M162 244 H178" class="arrow-old"/><path d="M274 244 H290" class="arrow-old"/><path d="M386 244 H402" class="arrow-old"/>
+    <path d="M498 244 H514" class="arrow-old"/><path d="M610 244 H626" class="arrow-old"/>
+  </g>
+
+  <g>
+    <rect x="70" y="300" width="92" height="48" rx="9" class="platform"/><text x="116" y="329" text-anchor="middle" class="small">需求平台</text>
+    <rect x="182" y="300" width="92" height="48" rx="9" class="platform"/><text x="228" y="329" text-anchor="middle" class="small">设计稿</text>
+    <rect x="294" y="300" width="92" height="48" rx="9" class="platform"/><text x="340" y="329" text-anchor="middle" class="small">代码仓</text>
+    <rect x="406" y="300" width="92" height="48" rx="9" class="platform"/><text x="452" y="329" text-anchor="middle" class="small">测试平台</text>
+    <rect x="518" y="300" width="92" height="48" rx="9" class="platform"/><text x="564" y="329" text-anchor="middle" class="small">CI/CD</text>
+    <rect x="630" y="300" width="92" height="48" rx="9" class="platform"/><text x="676" y="329" text-anchor="middle" class="small">监控工单</text>
+    <path d="M116 273 V296 M228 273 V296 M340 273 V296 M452 273 V296 M564 273 V296 M676 273 V296" class="dash"/>
+  </g>
+
+  <rect x="78" y="388" width="636" height="148" rx="16" class="human-layer"/>
+  <text x="104" y="424" class="section">隐性的组织补偿层</text>
+  <text x="104" y="451" class="small">文档不完整或互相冲突时，人通过这些机制恢复语义：</text>
+  <rect x="104" y="474" width="176" height="38" rx="19" class="chip"/><text x="192" y="499" text-anchor="middle" class="small">会议与即时沟通</text>
+  <rect x="300" y="474" width="176" height="38" rx="19" class="chip"/><text x="388" y="499" text-anchor="middle" class="small">责任人与评审网络</text>
+  <rect x="496" y="474" width="176" height="38" rx="19" class="chip"/><text x="584" y="499" text-anchor="middle" class="small">组织经验与默认常识</text>
+  <path d="M192 474 C180 430 165 390 145 352 M388 474 C388 420 388 390 388 352 M584 474 C600 430 620 390 650 352" class="dash"/>
+
+  <rect x="78" y="568" width="636" height="68" rx="14" fill="#ffffff" stroke="#e6e3dc" stroke-width="1.5"/>
+  <text x="396" y="595" text-anchor="middle" class="label">每个岗位只需掌握局部上下文</text>
+  <text x="396" y="620" text-anchor="middle" class="small">知识断点主要在岗位交接时暴露，并由人判断哪个版本可信。</text>
+
+  <rect x="800" y="110" width="760" height="560" rx="22" class="panel"/>
+  <text x="832" y="150" class="panel-title">现在：Agent 垂直整合</text>
+  <text x="832" y="178" class="small">同一执行主体连续理解、修改、验证和操作系统。</text>
+
+  <rect x="970" y="205" width="420" height="58" rx="14" fill="#f5ebe6" stroke="#8b3a2f" stroke-width="2"/>
+  <text x="1180" y="230" text-anchor="middle" class="label">人：目标 · 约束 · 授权 · 验收</text>
+  <text x="1180" y="251" text-anchor="middle" class="tiny">集中决定做什么、为什么做和什么算完成</text>
+  <path d="M1180 264 V292" class="arrow-new"/>
+
+  <rect x="842" y="294" width="676" height="210" rx="18" class="agent-shell"/>
+  <text x="1180" y="326" text-anchor="middle" class="section">同一个 Coding Agent loop</text>
+  <g>
+    <rect x="870" y="350" width="128" height="52" rx="12" class="stage-new"/><text x="934" y="382" text-anchor="middle" class="label">理解任务</text>
+    <rect x="1030" y="350" width="128" height="52" rx="12" class="stage-new"/><text x="1094" y="382" text-anchor="middle" class="label">探索上下文</text>
+    <rect x="1190" y="350" width="128" height="52" rx="12" class="stage-new"/><text x="1254" y="382" text-anchor="middle" class="label">形成方案</text>
+    <rect x="1350" y="350" width="128" height="52" rx="12" class="stage-new"/><text x="1414" y="382" text-anchor="middle" class="label">修改实现</text>
+    <rect x="1190" y="430" width="128" height="52" rx="12" class="stage-new"/><text x="1254" y="462" text-anchor="middle" class="label">验证结果</text>
+    <rect x="1030" y="430" width="128" height="52" rx="12" class="stage-new"/><text x="1094" y="462" text-anchor="middle" class="label">交付与运行</text>
+    <rect x="870" y="430" width="128" height="52" rx="12" class="stage-new"/><text x="934" y="462" text-anchor="middle" class="label">诊断与修复</text>
+    <path d="M998 376 H1026 M1158 376 H1186 M1318 376 H1346" class="arrow-new"/>
+    <path d="M1414 402 V418 C1414 442 1372 456 1322 456" class="arrow-new"/>
+    <path d="M1190 456 H1162 M1030 456 H1002" class="arrow-new"/>
+    <path d="M934 430 V414 C934 402 914 402 900 410 C870 428 850 395 866 365" class="arrow-new"/>
+  </g>
+
+  <rect x="842" y="528" width="676" height="108" rx="16" class="harness"/>
+  <text x="870" y="561" class="section">Repository Harness：把跨环节知识显式化</text>
+  <g>
+    <rect x="870" y="582" width="112" height="34" rx="17" class="chip"/><text x="926" y="604" text-anchor="middle" class="tiny">当前事实</text>
+    <rect x="992" y="582" width="112" height="34" rx="17" class="chip"/><text x="1048" y="604" text-anchor="middle" class="tiny">活动工作</text>
+    <rect x="1114" y="582" width="112" height="34" rx="17" class="chip"/><text x="1170" y="604" text-anchor="middle" class="tiny">代码与配置</text>
+    <rect x="1236" y="582" width="112" height="34" rx="17" class="chip"/><text x="1292" y="604" text-anchor="middle" class="tiny">测试与证据</text>
+    <rect x="1358" y="582" width="132" height="34" rx="17" class="chip"/><text x="1424" y="604" text-anchor="middle" class="tiny">流程、门禁与权限</text>
+  </g>
+  <path d="M1180 528 V506" class="arrow-new"/>
+
+  <rect x="40" y="700" width="1520" height="80" rx="18" class="risk"/>
+  <text x="72" y="731" class="section" fill="#8b3a2f">知识断点会沿同一执行链传播</text>
+  <text x="390" y="748" text-anchor="middle" class="label">错误来源</text>
+  <path d="M455 743 H500" class="arrow"/>
+  <text x="570" y="748" text-anchor="middle" class="label">错误计划</text>
+  <path d="M635 743 H680" class="arrow"/>
+  <text x="760" y="748" text-anchor="middle" class="label">错误实现</text>
+  <path d="M825 743 H870" class="arrow"/>
+  <text x="995" y="748" text-anchor="middle" class="label">无效验证</text>
+  <path d="M1060 743 H1105" class="arrow"/>
+  <text x="1300" y="748" text-anchor="middle" class="label">危险操作或错误交付</text>
+
+  <rect x="40" y="802" width="1520" height="62" rx="18" class="need"/>
+  <text x="72" y="840" class="section">仓库因此必须提供：</text>
+  <text x="300" y="840" class="label">可发现的入口</text>
+  <text x="500" y="840" class="label">明确的权威与状态</text>
+  <text x="750" y="840" class="label">跨 session 可恢复的工作记录</text>
+  <text x="1100" y="840" class="label">可执行反馈</text>
+  <text x="1310" y="840" class="label">真实门禁与权限</text>
+</svg>

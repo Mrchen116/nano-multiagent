@@ -17,7 +17,7 @@ of such a message across all captured requests is the cross-layer observable.
 
 Shares the build_kernel harness (_build / _run_turn_and_collect / _llm_config /
 _allow_all) with test_bash_engine — split out only to keep each test
-file under the 400-line cap (docs/TESTING_GUIDE.md §7). Not an e2e-marked test — a fake
+file under the 400-line cap (docs/development/testing.md §7). Not an e2e-marked test — a fake
 LLM client issues the bash tool_call, so no external services are needed.
 """
 

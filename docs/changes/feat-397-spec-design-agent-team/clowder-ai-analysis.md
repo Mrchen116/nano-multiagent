@@ -10,9 +10,7 @@
 
 ## 0. 一句话先抓住本质
 
-Clowder = **一个确定性的"平台层"harness,编排一小群身份持久、跨模型的 AI agent(猫),用一套
-确定性代码做所有路由/闸门/分流,把猫的"软力量"(生成+判断)关进硬轨里。** 多 agent 协作不是
-"群聊涌现智能",而是三种**结构化协作模式** + 一条 **A2A 接力链**,全部带确定性 guard。
+Clowder = **一个确定性的"平台层"harness,编排一小群身份持久、跨模型的 AI agent(猫),用一套确定性代码做所有路由/闸门/分流,把猫的"软力量"(生成+判断)关进硬轨里。** 多 agent 协作不是 "群聊涌现智能",而是三种**结构化协作模式** + 一条 **A2A 接力链**,全部带确定性 guard。
 
 下面从"有几个 agent"讲到"它们怎么协作",再到"spec/design 具体怎么排兵"。
 
@@ -222,8 +220,7 @@ Clowder 没有专职 spec/design agent。spec/design 由**通用猫 + 三个 ski
 
 **OQ(开放问题)分流**(贯穿 B/C):每个 OQ 必须标
 - **技术 OQ**(回滚成本低)→ 猫自决 + 事后通报,**不升级**;
-- **价值 OQ**(碰愿景/安全/外部契约/不可逆/显著成本)→ **升级你 + 附 Decision Packet**。
-闸门 = **可逆性**。
+- **价值 OQ**(碰愿景/安全/外部契约/不可逆/显著成本)→ **升级你 + 附 Decision Packet**。闸门 = **可逆性**。
 
 ### 5.2 `expert-panel`(多猫专家团,正式分析/方案)
 
@@ -337,9 +334,7 @@ kickoff ─▶ impl ─▶ quality_gate ─▶ review ─▶ merge ─▶ comple
 
 > **LLM 负责生成与软评分;确定性代码负责所有闸门、路由、分流、纪律。猫是"硬轨之上的软力量"。**
 
-- 路由策略(ideate+多猫→parallel)= 代码;A2A 接力 guard(depth/streak/fairness)= 代码;
-  intent 分流(computeBucket)= 代码;风险检测(detectRisks)= 代码;SOP hard_rule = 代码;
-  谁验收(reviewer≠author)= 代码。
+- 路由策略(ideate+多猫→parallel)= 代码;A2A 接力 guard(depth/streak/fairness)= 代码; intent 分流(computeBucket)= 代码;风险检测(detectRisks)= 代码;SOP hard_rule = 代码; 谁验收(reviewer≠author)= 代码。
 - LLM 只在骨架内做两件事:**生成**(spec/分析/方案/代码)和**软评分**(clarity/可逆性/影响面)。
 - "判断"(价值/不可逆/愿景)走**决策漏斗**给人(宏观=人/中=猫讨论/微=猫自治);"可查的"(代码/历史/文档)**不打扰人**("能翻代码解决的不要问人")。
 

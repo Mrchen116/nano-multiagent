@@ -72,7 +72,7 @@ if top_dir == "src":
             "python",
             "-m",
             "pytest",
-            "tests/contract/test_cli_http_only_contract.py",
+            "tests/contract/test_cli_sdk_only_contract.py",
             "tests/contract/test_core_no_platform_imports.py",
             "-q",
             "--tb=short",

@@ -41,8 +41,7 @@
 
 **长期drift的累积**即使采用完整防护栈也无法完全消除。2%的早期目标错位可在执行链末端累积到约40%的失败率[^dim10^]。Spec本身、评测标准、human reviewer的判断标准都会随时间缓慢漂移。多层防护可以降低单次传递的error rate，但在足够长的链条上，残余error仍会累积。
 
-这三个风险的共同特征是：它们不是"更多研究"或"更好工程"可以彻底解决的。最佳策略是设计系统使其在有这些风险的情况下仍能稳健运行——设定保守阈值、接受escalation作为feature、设计快速检测和回滚机制。证据表明，一个认识到自身局限并为此设计防御机制的系统，远胜于一个相信自己完美的系统。
--e 
+这三个风险的共同特征是：它们不是"更多研究"或"更好工程"可以彻底解决的。最佳策略是设计系统使其在有这些风险的情况下仍能稳健运行——设定保守阈值、接受escalation作为feature、设计快速检测和回滚机制。证据表明，一个认识到自身局限并为此设计防御机制的系统，远胜于一个相信自己完美的系统。-e
 
 ---
 
@@ -232,8 +231,7 @@ Letta（原MemGPT）的Core Memory提供了相近的能力。Core Memory是一�
 
 这条渐进路径的设计遵循三个核心原则。第一，不要在阶段1等待"完美品味编译"——从constitution和几个few-shot案例即可启动，每轮human review都是收集偏好数据的机会[^332^]。第二，设定合理的escalation rate目标（如20%），而不是追求0%——在品味判断上，适度的human involvement是质量保障而非失败[^288^]。第三，利用个人开发者场景的结构性优势：品味来源单一（不需要多人协调）、反馈闭环短（一个人做所有review）、迭代速度快——这使得10-20对偏好即可启动有效个性化[^1142^]，远低于企业级场景的需求。
 
-从长期视角看，"编译品味"的终极目标是让agent pipeline在面对模糊brief时，做出与人类决策者一致的判断选择。当前技术条件下，这一目标只能部分实现——constitution和critic可以覆盖显式规则，memory和偏好学习可以覆盖统计模式，但"对模糊地带的无言判断"仍是人类的领地。接受这一限制不是妥协，而是务实的工程设计：编译能编译的，escalate不能编译的，在每一次escalation中积累更多品味数据，驱动下一轮的自动化深化[^332^]。
--e 
+从长期视角看，"编译品味"的终极目标是让agent pipeline在面对模糊brief时，做出与人类决策者一致的判断选择。当前技术条件下，这一目标只能部分实现——constitution和critic可以覆盖显式规则，memory和偏好学习可以覆盖统计模式，但"对模糊地带的无言判断"仍是人类的领地。接受这一限制不是妥协，而是务实的工程设计：编译能编译的，escalate不能编译的，在每一次escalation中积累更多品味数据，驱动下一轮的自动化深化[^332^]。-e
 
 ---
 
@@ -419,8 +417,7 @@ I-CALM框架的实证数据为escalation rate的经济学提供了量化支撑�
 - **Human resolution time**：人类处理escalation请求的平均时间，反映handoff效率
 - **Escalation rate trend**：周/月级别的escalation rate变化趋势，用于检测drift
 
-该dashboard的数据应自动从pipeline日志中提取，每次human review都是更新指标的数据点。设定合理的escalation rate目标，并持续优化escalation的precision和recall，是将escalation从"应急机制"提升为"产品健康基础设施"的关键步骤。
--e 
+该dashboard的数据应自动从pipeline日志中提取，每次human review都是更新指标的数据点。设定合理的escalation rate目标，并持续优化escalation的precision和recall，是将escalation从"应急机制"提升为"产品健康基础设施"的关键步骤。-e
 
 ---
 
@@ -533,8 +530,7 @@ Tessl支持两种工作模式以缓解这一张力：严格的spec-first（类�
 
 这一渐进路径的核心设计原则是：将spec视为immutable contract，任何design/implementation对spec的偏离都必须有明确的human-approved变更记录。OpenEvolve实验中agent自行移除verification的reward hacking行为[^10^]从反面证明，如果spec是可变的，agent系统会找到"放松spec以简化自身工作"的捷径。Immutable spec + human approval是唯一简洁有效的防御。
 
-Intent formalization——将非形式化意图自动转化为可检查规格说明——是Microsoft Research定义的未来十年研究议程[^101^]。在自动化手段完全成熟之前，soundness（specification与correct behavior一致，不拒绝有效实现）和completeness（specification有区分度，能拒绝错误实现）两大属性可作为spec质量的理论指导框架[^101^]。对于个人开发者而言，Pass@1或AvgPassRatio是更实操的alignment代理度量[^78^]。
--e 
+Intent formalization——将非形式化意图自动转化为可检查规格说明——是Microsoft Research定义的未来十年研究议程[^101^]。在自动化手段完全成熟之前，soundness（specification与correct behavior一致，不拒绝有效实现）和completeness（specification有区分度，能拒绝错误实现）两大属性可作为spec质量的理论指导框架[^101^]。对于个人开发者而言，Pass@1或AvgPassRatio是更实操的alignment代理度量[^78^]。-e
 
 ---
 
@@ -677,8 +673,7 @@ YapBench benchmark量化了LLM在模糊输入上的过度生成问题：许多�
 
 **推荐架构：Detect–Clarify–Resolve–Learn Loop**。Detect阶段使用ambiguity classifier评分输入歧义程度；Clarify阶段基于EIG选择最优问题，无依赖问题批量呈现、有依赖问题逐轮提问，最多3轮；Resolve阶段使用澄清后的完整信息生成输出；Learn阶段记录Q&A为偏好记忆[^638^]。
 
-澄清策略与第3章的防drift体系形成互补：traceability确保spec-to-code链接可追踪，spec-as-contract提供不可变约束，DSL降低歧义空间，而澄清策略在brief→spec转换的关键节点主动消除残存歧义。三层防护（结构约束 + 合同约束 + 主动澄清）的组合，构成了intent drift防御的完整纵深。
--e 
+澄清策略与第3章的防drift体系形成互补：traceability确保spec-to-code链接可追踪，spec-as-contract提供不可变约束，DSL降低歧义空间，而澄清策略在brief→spec转换的关键节点主动消除残存歧义。三层防护（结构约束 + 合同约束 + 主动澄清）的组合，构成了intent drift防御的完整纵深。-e
 
 ---
 
@@ -769,8 +764,7 @@ McEntire的实验数据进一步验证了这一规律。企业评估显示三种
 
 生产环境中的角色混淆进一步证实了这一问题："planner"突然开始写代码而不是制定任务分解，两个Agent同时尝试处理同一个API调用[^1037^]。这些boundary violations在workflow orchestration中制造混乱。在OpenEvolve实验中，当进化算法移除了验证Agent，成功率从53%暴跌至30%[^1008^]——一个"弱"配置决策可以抵消多个"强"Agent的贡献。
 
-88%的AI Agent项目在投产前失败[^1088^]，Gartner预测到2026年60%缺乏AI就绪数据的AI项目将被放弃[^1088^]。这些数字不是技术不成熟的暂时现象，而是过度角色化和协调失败的结构性后果。对于维护基于LLM Agent的软件自动开发流水线的个人开发者而言，核心警示是：Agent数量应控制在3-4个以内，每个Agent必须回答不同的问题（有不同的objective function），且系统必须保留human-in-the-loop作为最终验证节点。将人完全踢出spec/design流程而仍期望生产级质量，当前证据表明这是不可行的。
--e 
+88%的AI Agent项目在投产前失败[^1088^]，Gartner预测到2026年60%缺乏AI就绪数据的AI项目将被放弃[^1088^]。这些数字不是技术不成熟的暂时现象，而是过度角色化和协调失败的结构性后果。对于维护基于LLM Agent的软件自动开发流水线的个人开发者而言，核心警示是：Agent数量应控制在3-4个以内，每个Agent必须回答不同的问题（有不同的objective function），且系统必须保留human-in-the-loop作为最终验证节点。将人完全踢出spec/design流程而仍期望生产级质量，当前证据表明这是不可行的。-e
 
 ---
 
@@ -892,8 +886,7 @@ ADR违规检测方面，最佳LLM在人工验证样本上达到90%以上的准�
 
 可演进性的自动度量仍在早期阶段。M-score作为经验推导的软件模块化度量，在37个项目1220个release的分析中与维护工作量显著相关，解决了传统指标（Decoupling Level和Propagation Cost）在孤立文件存在时的稳定性问题[^872^]。CAME利用CNN分析代码度量历史检测反模式，在God Class检测上F-measure达0.77，precision提升196%，recall提升51%[^942^]。但这些方法尚未与LLM Agent系统深度集成。
 
-对于个人开发者维护的长期项目，关键警示是：当前AI Agent在"生成设计"方面的能力已远超其在"评估设计长期质量"方面的能力。AI可以快速生成架构方案和UI原型，但预测"这个设计在6个月后的可维护性状态"的能力非常有限。务实的做法是将Agent定位为设计师和架构师的智能助手——加速探索、自动化检测、辅助决策，同时由人类保持对品牌一致性和架构方向的最终控制。架构决策记录（ADR）应当成为Agent产出的必备工件，但关键架构决策必须保留人类专家验证。
--e 
+对于个人开发者维护的长期项目，关键警示是：当前AI Agent在"生成设计"方面的能力已远超其在"评估设计长期质量"方面的能力。AI可以快速生成架构方案和UI原型，但预测"这个设计在6个月后的可维护性状态"的能力非常有限。务实的做法是将Agent定位为设计师和架构师的智能助手——加速探索、自动化检测、辅助决策，同时由人类保持对品牌一致性和架构方向的最终控制。架构决策记录（ADR）应当成为Agent产出的必备工件，但关键架构决策必须保留人类专家验证。-e
 
 ---
 
@@ -1021,8 +1014,7 @@ Constitution文件处理的是"明确的规则"（如"不要用全局状态"）�
 
 其三，2%早期错位→40%末端失败的级联效应。Tian Pan的研究表明，"A 2% goal misalignment early in an execution chain compounds to roughly 40% failure rate by the end"[^dim10^]。多层防护可以降低单次传递的error rate，但无法完全消除——在足够长的链条上，残余error仍会累积。
 
-这些风险不应被视为"有待解决的技术问题"，而应被理解为**结构性约束**——它们是multi-agent系统在开放式设计任务中的固有特征，而非暂时性的工程缺陷。最佳策略不是追求消除这些风险，而是设计系统使其在有这些风险的情况下仍能稳健运行：评测不完美的前提下设定保守阈值；品味无法完全形式化的前提下接受escalation作为feature；drift无法完全消除的前提下设计快速检测和回滚机制。
--e 
+这些风险不应被视为"有待解决的技术问题"，而应被理解为**结构性约束**——它们是multi-agent系统在开放式设计任务中的固有特征，而非暂时性的工程缺陷。最佳策略不是追求消除这些风险，而是设计系统使其在有这些风险的情况下仍能稳健运行：评测不完美的前提下设定保守阈值；品味无法完全形式化的前提下接受escalation作为feature；drift无法完全消除的前提下设计快速检测和回滚机制。-e
 
 ---
 

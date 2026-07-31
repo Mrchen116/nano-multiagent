@@ -3,7 +3,7 @@
 > 对齐: bugfix-471
 > 上级: [IM Specification](spec.md)
 >
-> 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
+> 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
 
 ## Purpose
 
@@ -57,8 +57,7 @@ IM 持久化 Agent 配置并用 `profile_version` 做乐观锁；保存成功表
 
 ### Requirement: Agent 配置页可管理 skill_view 工具
 
-前端在 Agent 配置页把 `skill_view` 作为普通可选工具呈现;未显式配置工具白名单的 Agent 默认启用它,
-显式白名单仍精确表达用户选择。
+前端在 Agent 配置页把 `skill_view` 作为普通可选工具呈现;未显式配置工具白名单的 Agent 默认启用它, 显式白名单仍精确表达用户选择。
 
 #### Scenario: 新建 agent 时默认选中 skill_view
 - **WHEN** 用户在 IM 新建 PA agent 并进入工具选择区域
@@ -77,8 +76,7 @@ IM 持久化 Agent 配置并用 `profile_version` 做乐观锁；保存成功表
 
 ### Requirement: Skill 使用统计 API
 
-浏览器前端可按 agent 查询 skill 使用统计;IM 通过在线 Gateway 读取对应 agent workspace 的运行态使用数据,
-离线时以前端可处理的方式降级。
+浏览器前端可按 agent 查询 skill 使用统计;IM 通过在线 Gateway 读取对应 agent workspace 的运行态使用数据, 离线时以前端可处理的方式降级。
 
 #### Scenario: 查询 agent 的 skill 使用统计
 - **WHEN** 浏览器前端请求 `GET /im/v1/agents/:agentId/skills/usage`
@@ -91,13 +89,11 @@ IM 持久化 Agent 配置并用 `profile_version` 做乐观锁；保存成功表
 
 ### Requirement: HEARTBEAT.md 只读预览与 cron 任务管理经 WS RPC 代理到 gateway（feat-394-M13 决策 G）
 
-IM 进程**绝不**直读 gateway 侧 workspace 文件（IM 与 gateway 可跨机）。相关 endpoint 均经 WS RPC
-将请求委托给目标节点 gateway，由 gateway 读写其本地 workspace 后回包，IM 做路由转发与离线降级。
+IM 进程**绝不**直读 gateway 侧 workspace 文件（IM 与 gateway 可跨机）。相关 endpoint 均经 WS RPC 将请求委托给目标节点 gateway，由 gateway 读写其本地 workspace 后回包，IM 做路由转发与离线降级。
 
 #### Scenario: 获取 HEARTBEAT.md 预览内容
 - **WHEN** 前端 `GET /im/v1/agents/{id}/heartbeat-md`
-- **THEN** 200 返回 `{content: string, node_online: bool}`；节点在线时 content 为 `HEARTBEAT.md` 内容
-  （文件不存在则空串）；节点离线或 RPC 超时时 `{content:"", node_online:false}`
+- **THEN** 200 返回 `{content: string, node_online: bool}`；节点在线时 content 为 `HEARTBEAT.md` 内容 （文件不存在则空串）；节点离线或 RPC 超时时 `{content:"", node_online:false}`
 
 #### Scenario: 列 cron 任务经 RPC 代理
 - **WHEN** 前端 `GET /im/v1/agents/{id}/cron-jobs`
@@ -109,15 +105,12 @@ IM 进程**绝不**直读 gateway 侧 workspace 文件（IM 与 gateway 可跨�
 
 ### Requirement: Agent 创建必须挂在已绑定且在线的节点下,workspace_root 由节点分配
 
-前端在节点下创建 Agent(`POST /im/v1/nodes/{node_id}/agents`):IM 校验该节点已绑定、归属当前 owner;
-经网关 `agent.create` 由节点分配并回传 `workspace_root`,IM 持久化为 `AgentProfile`。未知节点在 owner
-门禁处 404,重复 `agent_id` 409。
+前端在节点下创建 Agent(`POST /im/v1/nodes/{node_id}/agents`):IM 校验该节点已绑定、归属当前 owner; 经网关 `agent.create` 由节点分配并回传 `workspace_root`,IM 持久化为 `AgentProfile`。未知节点在 owner 门禁处 404,重复 `agent_id` 409。
 
 #### Scenario: 在已知节点创建返回带 node_id+workspace_root 的配置
 - **GIVEN** 当前 owner 名下一个已知节点 `node-1`
 - **WHEN** 前端 `POST /im/v1/nodes/node-1/agents {agent_id, display_name, skills, tool_allowlist, ...}`
-- **THEN** 201 返回与 `GET .../config` 同形的配置体,`node_id == "node-1"`、`workspace_root` 为节点
-  回传值、`workspace_is_default` 反映是否默认路径、`profile_version == 1`
+- **THEN** 201 返回与 `GET .../config` 同形的配置体,`node_id == "node-1"`、`workspace_root` 为节点回传值、`workspace_is_default` 反映是否默认路径、`profile_version == 1`
 
 #### Scenario: 重复 agent_id 与未知节点被拒
 - **WHEN** 前端以已存在的 `agent_id` 再次创建
@@ -127,18 +120,12 @@ IM 进程**绝不**直读 gateway 侧 workspace 文件（IM 与 gateway 可跨�
 
 ### Requirement: node.register 首见 agent 时以上报种子值落库（bugfix-404-M2 / bugfix-467）
 
-IM 处理 `node.register` 时,对帧中**首次出现**(无既有 profile)的 agent,以帧内种子值落库:
-workspace_root 取 `agent_workspaces` 上报值(缺失时回落 managed default),skills / tool_allowlist
-取 `agent_skills` / `agent_tool_allowlist` 上报值(帧未携带或单 agent 值非法时按空落库,兼容旧帧;
-单 agent 值内混入非法项时仅丢弃非法项)。已存在 profile 的 agent,其各字段保持既有值不被注册
-改写(重连重发幂等),以保护用户经配置更新(含特意清空)后的收敛。
+IM 处理 `node.register` 时,对帧中**首次出现**(无既有 profile)的 agent,以帧内种子值落库: workspace_root 取 `agent_workspaces` 上报值(缺失时回落 managed default),skills / tool_allowlist 取 `agent_skills` / `agent_tool_allowlist` 上报值(帧未携带或单 agent 值非法时按空落库,兼容旧帧; 单 agent 值内混入非法项时仅丢弃非法项)。已存在 profile 的 agent,其各字段保持既有值不被注册改写(重连重发幂等),以保护用户经配置更新(含特意清空)后的收敛。
 
 #### Scenario: 首见 agent 用上报值落库
 - **GIVEN** IM 中无 agent X 的 profile
-- **WHEN** 收到 `node.register`,`agent_workspaces["X"]` 为非默认绝对路径 P,
-  `agent_skills["X"]` 为技能列表 S,`agent_tool_allowlist["X"]` 为工具列表 T
-- **THEN** agent X 的 profile 落库 workspace_root=P、skills=S、tool_allowlist=T,
-  `GET /im/v1/agents` 广播 P 且 `workspace_is_default=false`
+- **WHEN** 收到 `node.register`,`agent_workspaces["X"]` 为非默认绝对路径 P, `agent_skills["X"]` 为技能列表 S,`agent_tool_allowlist["X"]` 为工具列表 T
+- **THEN** agent X 的 profile 落库 workspace_root=P、skills=S、tool_allowlist=T, `GET /im/v1/agents` 广播 P 且 `workspace_is_default=false`
 
 #### Scenario: 已存在 profile 不被重注册改写
 - **GIVEN** agent X 的 profile 已存在(含用户特意清空的 skills / tool_allowlist)
@@ -152,8 +139,7 @@ workspace_root 取 `agent_workspaces` 上报值(缺失时回落 managed default)
 
 ### Requirement: agent workspace_root 创建后不可经配置更新修改（bugfix-404-M2）
 
-agent 的 workspace_root 在创建时确定(`agent.create` 由节点分配 / `node.register` 种子),update
-config 接口不含该字段(请求中出现也被忽略),且任何配置更新都不改变已存的 workspace_root。
+agent 的 workspace_root 在创建时确定(`agent.create` 由节点分配 / `node.register` 种子),update config 接口不含该字段(请求中出现也被忽略),且任何配置更新都不改变已存的 workspace_root。
 
 #### Scenario: 配置更新不重置 workspace_root
 - **GIVEN** agent X 的 profile workspace_root 为非默认路径 P
@@ -167,9 +153,7 @@ config 接口不含该字段(请求中出现也被忽略),且任何配置更新�
 
 ### Requirement: 每个 AgentProfile 一一对应一个 IM users 行,响应恒带非空 user_id
 
-每个 `AgentProfile` 有且只有一个 `users.username = "agent:" + agent_id` 的行(创建时同事务建,历史缺失
-者读路径 lazy bootstrap)。因此前端只要看到一个 agent 行,就能拿到稳定非空的 `user_id`,据此把 Agent 作为
-会话 participant 加入,不会被会话创建端点以"未知 user"400 拒绝。
+每个 `AgentProfile` 有且只有一个 `users.username = "agent:" + agent_id` 的行(创建时同事务建,历史缺失者读路径 lazy bootstrap)。因此前端只要看到一个 agent 行,就能拿到稳定非空的 `user_id`,据此把 Agent 作为会话 participant 加入,不会被会话创建端点以"未知 user"400 拒绝。
 
 #### Scenario: 列 agent 恒带可作 participant 的 user_id
 - **WHEN** 前端 `GET /im/v1/agents`
@@ -208,9 +192,7 @@ bearer.<jwt>` 子协议),无 token / 非法 token 立即关闭;身份只认 JWT,
 
 ### Requirement: 设备绑定把节点归属到当前用户
 
-终端用户在本机发起绑定:`POST /im/v1/bind {action:"start", node_id}` 取得绑定链接,浏览器登录后
-`{action:"confirm", bind_id|bind_token}` 确认,确认后该节点及其上 Agent 自动归属当前用户。缺必填字段
-大声失败(400),不静默。
+终端用户在本机发起绑定:`POST /im/v1/bind {action:"start", node_id}` 取得绑定链接,浏览器登录后 `{action:"confirm", bind_id|bind_token}` 确认,确认后该节点及其上 Agent 自动归属当前用户。缺必填字段大声失败(400),不静默。
 
 #### Scenario: start 返回绑定结构
 - **GIVEN** 已授权用户、一个已知节点
@@ -247,13 +229,11 @@ capabilities` 都把网关返回的 `features` 列表透传给前端。
 
 #### Scenario: agent 能力透传 features 五元字段
 - **WHEN** 前端 `GET /im/v1/agents/{id}/capabilities`
-- **THEN** 200 含 `features` 列表,每项携 `{key, label_i18n, help_i18n, default_on, available}`
-  (可含 `requires_tool`),由网关 FEATURE_REGISTRY 投影原样转发
+- **THEN** 200 含 `features` 列表,每项携 `{key, label_i18n, help_i18n, default_on, available}` (可含 `requires_tool`),由网关 FEATURE_REGISTRY 投影原样转发
 
 #### Scenario: 可选模型列表每项携带其注册的 provider
 - **WHEN** 前端 `GET /im/v1/nodes/{id}/capabilities` 或 `GET /im/v1/agents/{id}/capabilities`
-- **THEN** 返回的 `models` 列表中每项带有它注册的 provider(例:`codex_oauth:gpt-5.5` → `openai_compat`,
-  `kimiCoding:K2.6` → `anthropic`),供 agent 配置页模型下拉展示格式
+- **THEN** 返回的 `models` 列表中每项带有它注册的 provider(例:`codex_oauth:gpt-5.5` → `openai_compat`, `kimiCoding:K2.6` → `anthropic`),供 agent 配置页模型下拉展示格式
 
 #### Scenario: agent 能力的 skills 项携带 location
 - **WHEN** 前端 `GET /im/v1/agents/{id}/capabilities`
@@ -261,15 +241,12 @@ capabilities` 都把网关返回的 `features` 列表透传给前端。
 
 ### Requirement: 节点上线/心跳/超时实时反映到 owner 的浏览器看板
 
-Gateway 上行 `node.register` / `node.heartbeat` 驱动 IM 向**该节点 owner**的浏览器用户流广播
-`node.status_changed` 事件(online);心跳超时由 IM 后台扫描翻为 offline 并广播
-(`status:"offline", last_error:"heartbeat_timeout"`)。广播严格按 owner 隔离,不泄漏给他租浏览器。
+Gateway 上行 `node.register` / `node.heartbeat` 驱动 IM 向**该节点 owner**的浏览器用户流广播 `node.status_changed` 事件(online);心跳超时由 IM 后台扫描翻为 offline 并广播 (`status:"offline", last_error:"heartbeat_timeout"`)。广播严格按 owner 隔离,不泄漏给他租浏览器。
 
 #### Scenario: 节点注册广播 online 给本租浏览器
 - **GIVEN** 节点已绑定某 owner,该 owner 一条浏览器用户流在线
 - **WHEN** Gateway 上行 `node.register {node_id, agents, capabilities}`
-- **THEN** 该 owner 浏览器收到 `op:"event"`、`event_type:"node.status_changed"`、`status:"online"` 帧;
-  他租浏览器收不到
+- **THEN** 该 owner 浏览器收到 `op:"event"`、`event_type:"node.status_changed"`、`status:"online"` 帧; 他租浏览器收不到
 
 #### Scenario: 心跳超时翻 offline 并广播
 - **GIVEN** 一个 online 节点最近心跳已过期
@@ -279,11 +256,7 @@ Gateway 上行 `node.register` / `node.heartbeat` 驱动 IM 向**该节点 owner
 
 ### Requirement: Agent 通道页统一管理外部 channel 与安全凭据
 
-Agent 详情页的“通道”页只管理可配置的外部 channel，不把内置 Web IM 列为 channel。页面和 REST
-资源按 provider 通用建模；本期 provider catalog 只有飞书，且同一 Agent 每种 provider 最多一个实例。
-飞书向导只给简短准备说明和开放平台入口。App Secret 只在新增或显式替换时提交，服务端立即封装为目标
-节点公钥可解的密文；list/get/edit 不返回明文或 envelope，Gateway 的普通 `config.yaml` 也不是该凭据的
-持久化位置。
+Agent 详情页的“通道”页只管理可配置的外部 channel，不把内置 Web IM 列为 channel。页面和 REST 资源按 provider 通用建模；本期 provider catalog 只有飞书，且同一 Agent 每种 provider 最多一个实例。飞书向导只给简短准备说明和开放平台入口。App Secret 只在新增或显式替换时提交，服务端立即封装为目标节点公钥可解的密文；list/get/edit 不返回明文或 envelope，Gateway 的普通 `config.yaml` 也不是该凭据的持久化位置。
 
 #### Scenario: 空态与添加入口不展示 Web IM
 - **GIVEN** 当前 Agent 没有外部 channel
@@ -293,8 +266,7 @@ Agent 详情页的“通道”页只管理可配置的外部 channel，不把内
 
 #### Scenario: 飞书向导提供轻量开放平台入口
 - **WHEN** 用户选择添加飞书
-- **THEN** 页面简要提示准备应用、Bot 与长连接，并提供
-  `https://open.feishu.cn/page/launcher?from=backend_oneclick`
+- **THEN** 页面简要提示准备应用、Bot 与长连接，并提供 `https://open.feishu.cn/page/launcher?from=backend_oneclick`
 - **AND** App ID/App Secret 缺失时在字段处提示，不提交连接请求
 
 #### Scenario: channel 列表读取失败不伪装成空态
@@ -315,10 +287,7 @@ Agent 详情页的“通道”页只管理可配置的外部 channel，不把内
 
 ### Requirement: 外部 channel desired state 与 runtime state 分离并自动收敛
 
-IM 持久化用户期望的 channel 配置，Gateway 上报实际连接和诊断状态。保存成功只代表 desired state 已提交；
-节点离线或 Gateway 尚未应用时显示“配置已保存，等待节点应用”，不能伪造已连接。节点重连后 IM 下发完整
-manifest 自动收敛。启用、停用、编辑、重连和删除均经同一资源生命周期；内部 revision 只用于并发/CAS，
-不作为用户可见版本。删除先保留无凭据 removal receipt，实际停止失败可重试；影子会话和历史不随 channel 删除。
+IM 持久化用户期望的 channel 配置，Gateway 上报实际连接和诊断状态。保存成功只代表 desired state 已提交；节点离线或 Gateway 尚未应用时显示“配置已保存，等待节点应用”，不能伪造已连接。节点重连后 IM 下发完整 manifest 自动收敛。启用、停用、编辑、重连和删除均经同一资源生命周期；内部 revision 只用于并发/CAS，不作为用户可见版本。删除先保留无凭据 removal receipt，实际停止失败可重试；影子会话和历史不随 channel 删除。
 
 #### Scenario: 节点离线仍可保存并在重连后自动应用
 - **GIVEN** Agent 所属节点离线
@@ -346,10 +315,7 @@ manifest 自动收敛。启用、停用、编辑、重连和删除均经同一�
 
 ### Requirement: 外部 channel 状态提供可操作的 provider 诊断
 
-连接状态和权限诊断分层展示。基础收发可用但权限不完整时 channel 保持降级可用并标为“连接受限”；
-页面逐项展示缺失权限、受影响能力和修复方向。只有完整、可信的 provider probe 才能断言某权限缺失；
-probe 失败或返回信息不完整时显示“权限状态暂时无法确认”，不能猜测缺失。凭据、Bot、长连接或 runtime
-失败显示具体可操作原因，节点离线时已观测状态明确标成 last-known。
+连接状态和权限诊断分层展示。基础收发可用但权限不完整时 channel 保持降级可用并标为“连接受限”；页面逐项展示缺失权限、受影响能力和修复方向。只有完整、可信的 provider probe 才能断言某权限缺失；probe 失败或返回信息不完整时显示“权限状态暂时无法确认”，不能猜测缺失。凭据、Bot、长连接或 runtime 失败显示具体可操作原因，节点离线时已观测状态明确标成 last-known。
 
 #### Scenario: 部分权限缺失时降级使用并解释影响
 - **GIVEN** 飞书基础消息可收发，但某项租户权限未授权
@@ -374,9 +340,7 @@ probe 失败或返回信息不完整时显示“权限状态暂时无法确认�
 
 ### Requirement: 设置 detail 页工具勾选态按存储真值渲染
 
-agent 设置 detail 页的工具面板按存储的 `tool_allowlist` 渲染勾选态:存储为空时全部不亮,不再按
-capabilities `default_on` 显示为默认全开;用户勾选/取消直接写显式名单,空名单作为合法配置可表达、
-可保存、刷新后保持。
+agent 设置 detail 页的工具面板按存储的 `tool_allowlist` 渲染勾选态:存储为空时全部不亮,不再按 capabilities `default_on` 显示为默认全开;用户勾选/取消直接写显式名单,空名单作为合法配置可表达、可保存、刷新后保持。
 
 #### Scenario: 存储为空全不亮
 - **GIVEN** agent 的存储 `tool_allowlist` 为空

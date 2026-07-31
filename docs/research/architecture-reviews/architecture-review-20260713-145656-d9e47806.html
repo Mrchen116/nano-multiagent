@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Architecture review — nano-multiagent</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "loose" });
+    </script>
+    <style>
+      .seam { border-style: dashed; }
+      .deep { background: linear-gradient(135deg, #0f172a, #1e293b); }
+      .module-shadow { box-shadow: 0 18px 45px -32px rgba(15, 23, 42, 0.5); }
+      .leak-arrow { color: #dc2626; font-weight: 800; }
+      .code-path { overflow-wrap: anywhere; }
+      .mass-grid { display: grid; grid-template-columns: 1fr 1.45fr; gap: .45rem; align-items: stretch; }
+      .interface-mass { min-height: 3rem; }
+      .implementation-mass { min-height: 8rem; }
+    </style>
+  </head>
+  <body class="bg-stone-50 text-slate-900 font-sans">
+    <main class="max-w-6xl mx-auto px-5 py-10 md:px-8 md:py-14 space-y-10">
+      <header class="space-y-5">
+        <div class="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <div>
+            <p class="text-xs uppercase tracking-[0.22em] text-slate-500">Architecture review</p>
+            <h1 class="mt-2 text-4xl font-serif tracking-tight">nano-multiagent</h1>
+          </div>
+          <div class="grid grid-cols-2 gap-x-8 gap-y-2 text-sm md:grid-cols-3">
+            <div><span class="block text-xs uppercase tracking-wider text-slate-500">Generated</span>2026-07-13 14:56:56 CST</div>
+            <div><span class="block text-xs uppercase tracking-wider text-slate-500">Branch</span>main</div>
+            <div><span class="block text-xs uppercase tracking-wider text-slate-500">Tree</span><span class="font-semibold text-amber-700">dirty</span></div>
+            <div class="col-span-2 md:col-span-3"><span class="block text-xs uppercase tracking-wider text-slate-500">Commit</span><code class="code-path text-xs">d9e478063251c2a27a129dd816b1677873c15401</code></div>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-amber-300 bg-amber-50 px-5 py-4 text-sm text-amber-950">
+          <strong>Dirty snapshot.</strong> 本报告包含未提交 working-tree 状态；仅凭上述 commit 不能完整复现分析结果。
+        </div>
+
+        <div class="flex flex-wrap gap-4 rounded-xl border border-slate-200 bg-white px-5 py-4 text-xs text-slate-600">
+          <span><span class="mr-2 inline-block h-3 w-5 rounded border-2 border-slate-600 bg-white"></span>solid box = module</span>
+          <span><span class="mr-2 inline-block h-3 w-5 rounded border-2 border-dashed border-slate-500 bg-white"></span>dashed = seam</span>
+          <span><span class="mr-2 text-red-600">━━▶</span>red = leakage</span>
+          <span><span class="mr-2 inline-block h-3 w-5 rounded bg-slate-900"></span>dark = deep module</span>
+          <span class="ml-auto">P0 = 最高优先级 · P1 = 高杠杆 · P2 = 后续收口</span>
+        </div>
+      </header>
+
+      <section id="candidates" class="space-y-10">
+        <article id="gateway-proactive-owner" class="module-shadow overflow-hidden rounded-2xl border border-slate-300 bg-white">
+          <div class="border-b border-slate-200 px-6 py-6 md:px-8">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="rounded-full bg-rose-100 px-3 py-1 text-xs font-bold text-rose-800">P0 · Top recommendation</span>
+              <span class="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">Strong</span>
+              <span class="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900">local-substitutable</span>
+            </div>
+            <h2 class="mt-3 text-2xl font-serif">深化 Gateway 主动执行的 session / admission / delivery 所有权</h2>
+            <p class="mt-3 font-mono text-xs leading-5 text-slate-600 code-path">src/personal_assistant/scheduler/heartbeat_scheduler.py · src/personal_assistant/main.py · src/personal_assistant/gateway/inbound_pipeline.py · src/personal_assistant/gateway/run_queue.py · src/personal_assistant/gateway/session_keys.py</p>
+          </div>
+          <div class="grid gap-6 px-6 py-7 md:grid-cols-2 md:px-8">
+            <div>
+              <p class="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500">Before</p>
+              <div class="relative min-h-[320px] rounded-xl border border-slate-200 bg-stone-50 p-4">
+                <div class="mx-auto w-3/4 rounded-lg border-2 border-slate-700 bg-white px-3 py-2 text-center text-xs font-bold uppercase tracking-wider">Heartbeat tick</div>
+                <div class="mt-5 grid grid-cols-2 gap-3 text-center text-xs">
+                  <div class="rounded border-2 border-slate-500 bg-white p-3">SQLite binding</div>
+                  <div class="rounded border-2 border-slate-500 bg-white p-3">canonical dict</div>
+                  <div class="rounded border-2 border-slate-500 bg-white p-3">busy set</div>
+                  <div class="rounded border-2 border-red-500 bg-red-50 p-3">run_queue._active_sessions</div>
+                </div>
+                <div class="mt-5 flex items-center justify-center gap-2 text-xs"><span class="leak-arrow">━━▶</span><span>private post-construction mutation from main.py</span></div>
+                <div class="mt-5 rounded-lg border-2 border-dashed border-slate-500 bg-white p-3 text-center text-xs">heartbeat / cron / user run each reconstruct admission facts</div>
+              </div>
+            </div>
+            <div>
+              <p class="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500">After</p>
+              <div class="deep min-h-[320px] rounded-xl border-4 border-slate-900 p-5 text-white">
+                <div class="text-center text-xs font-bold uppercase tracking-[0.2em] text-emerald-300">Proactive execution deep module</div>
+                <div class="mt-6 grid grid-cols-2 gap-3 text-center text-xs text-slate-900">
+                  <div class="rounded bg-white/90 p-3">session identity</div>
+                  <div class="rounded bg-white/90 p-3">admission / busy</div>
+                  <div class="rounded bg-white/90 p-3">queue ownership</div>
+                  <div class="rounded bg-white/90 p-3">delivery target</div>
+                </div>
+                <div class="mt-7 rounded-lg border border-dashed border-emerald-300 p-4 text-center text-sm">Heartbeat 与 cron 只提供各自产品语义；共同状态转换留在内部。</div>
+              </div>
+            </div>
+          </div>
+          <div class="grid gap-5 border-t border-slate-200 bg-stone-50 px-6 py-6 md:grid-cols-3 md:px-8">
+            <div><h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Problem</h3><p class="mt-2 text-sm leading-6">一次 heartbeat admission 同时读取 binding、canonical dict、busy set 和 queue 私有状态；main 再私有回填依赖。</p></div>
+            <div><h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Solution</h3><p class="mt-2 text-sm leading-6">把主动执行的 session identity、busy 判断、排队和 delivery 状态收归一个 module。</p></div>
+            <div><h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Wins</h3><ul class="mt-2 space-y-1 text-sm"><li>locality: 并发状态单一 owner</li><li>leverage: heartbeat / cron 共用</li><li>tests 不读 private queue</li><li>main 只做 composition</li></ul></div>
+          </div>
+          <div class="mx-6 mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 md:mx-8">约束：保留 feat-394 已定语义——heartbeat 复用 canonical direct session；cron 保持 isolated session + awareness。</div>
+        </article>
+
+        <article id="kernel-session-aggregate" class="module-shadow overflow-hidden rounded-2xl border border-slate-300 bg-white">
+          <div class="border-b border-slate-200 px-6 py-6 md:px-8">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="rounded-full bg-orange-100 px-3 py-1 text-xs font-bold text-orange-900">P1 · 跨产品高杠杆</span>
+              <span class="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">Strong</span>
+              <span class="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900">local-substitutable</span>
+            </div>
+            <h2 class="mt-3 text-2xl font-serif">深化 kernel session aggregate，封住 JSONL / cache seam</h2>
+            <p class="mt-3 font-mono text-xs leading-5 text-slate-600 code-path">src/agent/core/agent/runtime.py · src/agent/core/session/manager.py · src/agent/core/session/jsonl_store.py · src/agent/core/session/jsonl_writer.py · tests/unit/test_agent_runtime.py · tests/unit/test_fork_session.py</p>
+          </div>
+          <div class="grid gap-6 px-6 py-7 md:grid-cols-2 md:px-8">
+            <div>
+              <p class="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500">Before · shallow seam</p>
+              <div class="rounded-xl border border-slate-200 bg-stone-50 p-4">
+                <div class="mass-grid">
+                  <div class="interface-mass rounded border-2 border-red-500 bg-red-50 p-3 text-xs font-semibold">SessionManager interface<br/><span class="font-normal">manager + .store + .writer</span></div>
+                  <div class="implementation-mass rounded border-2 border-slate-500 bg-white p-3 text-xs">Runtime still owns<br/>histories · configs · paths · locks · snapshots · file states · prompt slots</div>
+                </div>
+                <div class="my-4 text-center leak-arrow">store / writer / flush / invalidate leakage ━━▶</div>
+                <div class="grid grid-cols-3 gap-2 text-center text-[11px]">
+                  <div class="rounded border bg-white p-2">run</div><div class="rounded border bg-white p-2">fork</div><div class="rounded border bg-white p-2">compact</div>
+                </div>
+              </div>
+            </div>
+            <div>
+              <p class="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500">After · deep seam</p>
+              <div class="deep rounded-xl border-4 border-slate-900 p-5 text-white">
+                <div class="rounded bg-emerald-300 px-3 py-2 text-center text-xs font-bold uppercase tracking-wider text-slate-950">Small session aggregate interface</div>
+                <div class="mt-3 min-h-[205px] rounded border border-dashed border-slate-400 bg-slate-800 p-4 text-center text-xs text-slate-200">
+                  <p class="font-semibold text-white">Deep implementation</p>
+                  <div class="mt-5 grid grid-cols-2 gap-3">
+                    <span class="rounded bg-slate-700 p-2">load + repair</span><span class="rounded bg-slate-700 p-2">cache coherence</span><span class="rounded bg-slate-700 p-2">append + flush</span><span class="rounded bg-slate-700 p-2">invalidate + close</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="grid gap-5 border-t border-slate-200 bg-stone-50 px-6 py-6 md:grid-cols-3 md:px-8">
+            <div><h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Problem</h3><p class="mt-2 text-sm leading-6">SessionManager 暴露 store/writer；Runtime 同时维护七类 session map，run/fork/compact 测试穿过 private state。</p></div>
+            <div><h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Solution</h3><p class="mt-2 text-sm leading-6">让 session aggregate 隐藏 load、repair、cache、write、flush、invalidate 的一致性；Runtime 保留 run orchestration。</p></div>
+            <div><h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Wins</h3><ul class="mt-2 space-y-1 text-sm"><li>locality: JSONL 一致性集中</li><li>leverage: run / fork / compact</li><li>interface 替代 private maps</li><li>内存 adapter 可测恢复</li></ul></div>
+          </div>
+          <div class="mx-6 mb-6 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-950 md:mx-8">不要把候选误写成“拆 AgentRuntime”：删除 AgentRuntime 会让复杂度扩散，说明它整体已有 depth；这里仅深化其内部 session seam。</div>
+        </article>
+
+        <article id="gateway-ws-domain-dispatch" class="module-shadow overflow-hidden rounded-2xl border border-slate-300 bg-white">
+          <div class="border-b border-slate-200 px-6 py-6 md:px-8">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="rounded-full bg-slate-200 px-3 py-1 text-xs font-bold text-slate-800">P2</span>
+              <span class="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-900">Worth exploring</span>
+              <span class="rounded-full bg-indigo-100 px-3 py-1 text-xs font-semibold text-indigo-800">ports &amp; adapters</span>
+            </div>
+            <h2 class="mt-3 text-2xl font-serif">把 Gateway–IM WebSocket transport 与领域 RPC dispatch 分开深化</h2>
+            <p class="mt-3 font-mono text-xs leading-5 text-slate-600 code-path">src/personal_assistant/ws/im_connection.py · src/personal_assistant/main.py · src/personal_assistant/config/sync_client.py · src/personal_assistant/channels/web_relay_adapter.py · tests/unit/personal_assistant/test_gateway_im_connection_behavior.py</p>
+          </div>
+          <div class="grid gap-6 px-6 py-7 md:grid-cols-2 md:px-8">
+            <div>
+              <p class="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500">Before</p>
+              <div class="rounded-xl border border-slate-200 bg-stone-50 p-3">
+                <pre class="mermaid">
+flowchart LR
+  WS[IMConnectionManager\nconnect / ack / retry] --> Switch{_listen_once}
+  Switch --> Relay[relay]
+  Switch --> Config[config]
+  Switch --> HB[heartbeat files]
+  Switch --> Cron[cron jobs]
+  Switch --> Fork[session fork]
+  Switch --> Caps[capabilities]
+  classDef leak stroke:#dc2626,stroke-width:3px;
+  class Switch,HB,Cron,Fork,Caps leak;
+                </pre>
+              </div>
+            </div>
+            <div>
+              <p class="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500">After</p>
+              <div class="rounded-xl border border-slate-800 bg-slate-900 p-3 text-white">
+                <pre class="mermaid">
+flowchart LR
+  WS[Transport deep module\nconnect / ack / retry] --> Frame[validated frame seam]
+  Frame --> Domain[Domain RPC module\nconfig / heartbeat / cron / fork]
+  Domain --> Reply[typed reply]
+  Reply --> WS
+  classDef deep fill:#0f172a,stroke:#34d399,stroke-width:3px,color:#fff;
+  class WS,Domain deep;
+                </pre>
+              </div>
+            </div>
+          </div>
+          <div class="grid gap-5 border-t border-slate-200 bg-stone-50 px-6 py-6 md:grid-cols-3 md:px-8">
+            <div><h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Problem</h3><p class="mt-2 text-sm leading-6">transport constructor 注入大量领域 callbacks；listen loop 直接解释 config、heartbeat、cron、fork、capability。</p></div>
+            <div><h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Solution</h3><p class="mt-2 text-sm leading-6">保留 reconnect/ack 的 transport depth；把领域 frame 解释与本地文件/调度访问移到领域 module。</p></div>
+            <div><h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Wins</h3><ul class="mt-2 space-y-1 text-sm"><li>locality: transport lifecycle 集中</li><li>locality: RPC 语义集中</li><li>frame seam 独立测试</li><li>新增 RPC 不扩 constructor</li></ul></div>
+          </div>
+          <div class="mx-6 mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 md:mx-8">约束：保留真实网络 seam；不得让 IM 与 personal_assistant sibling package 互相 import。</div>
+        </article>
+
+        <article id="dead-kernel-process-seam" class="module-shadow overflow-hidden rounded-2xl border border-slate-300 bg-white">
+          <div class="border-b border-slate-200 px-6 py-6 md:px-8">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="rounded-full bg-slate-200 px-3 py-1 text-xs font-bold text-slate-800">P2 · 低风险清理</span>
+              <span class="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">Strong</span>
+              <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">in-process</span>
+            </div>
+            <h2 class="mt-3 text-2xl font-serif">删除 refactor-387 后残留的 kernel subprocess seam</h2>
+            <p class="mt-3 font-mono text-xs leading-5 text-slate-600 code-path">src/personal_assistant/main.py · src/personal_assistant/config/local_store.py · tests/unit/personal_assistant/test_gateway_process_manager.py · tests/unit/personal_assistant/test_gateway_build_runtime.py</p>
+          </div>
+          <div class="grid gap-6 px-6 py-7 md:grid-cols-2 md:px-8">
+            <div>
+              <p class="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500">Before</p>
+              <div class="rounded-xl border border-slate-200 bg-stone-50 p-4">
+                <div class="rounded-lg border-2 border-red-500 bg-red-50 p-4 text-center text-sm font-semibold">GatewayProcessManager</div>
+                <div class="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
+                  <div class="rounded border bg-white p-3">spawn</div><div class="rounded border bg-white p-3">/health</div><div class="rounded border bg-white p-3">terminate</div>
+                </div>
+                <div class="mt-5 text-center text-sm text-red-700">0 production constructors</div>
+                <div class="mt-2 text-center text-xs text-slate-500">legacy config + compatibility tests keep the seam alive</div>
+              </div>
+            </div>
+            <div>
+              <p class="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500">After</p>
+              <div class="deep min-h-[220px] rounded-xl border-4 border-slate-900 p-6 text-center text-white">
+                <p class="text-xs font-bold uppercase tracking-[0.2em] text-emerald-300">Current architecture only</p>
+                <div class="mt-7 rounded-lg bg-white px-5 py-5 text-sm font-semibold text-slate-900">Gateway ── import agent.sdk ──▶ in-process Kernel</div>
+                <p class="mt-6 text-xs text-slate-300">删除测试后复杂度不会在 caller 重现。</p>
+              </div>
+            </div>
+          </div>
+          <div class="grid gap-5 border-t border-slate-200 bg-stone-50 px-6 py-6 md:grid-cols-3 md:px-8">
+            <div><h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Problem</h3><p class="mt-2 text-sm leading-6">死 manager、kernel HTTP health 语义和兼容 protocol 仍占据 composition root 与测试表面。</p></div>
+            <div><h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Solution</h3><p class="mt-2 text-sm leading-6">删除无生产调用方的 subprocess module、旧 config 与仅守护旧路径的测试。</p></div>
+            <div><h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Wins</h3><ul class="mt-2 space-y-1 text-sm"><li>deletion test: complexity vanishes</li><li>interface 回到 agent.sdk</li><li>main 测试表面收窄</li><li>SPEC 与代码重新一致</li></ul></div>
+          </div>
+          <div class="mx-6 mb-6 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-950 md:mx-8">这不是重开架构决策；它恢复 SPEC / refactor-387 已明确的“内核是进程内库”。</div>
+        </article>
+      </section>
+
+      <section id="top-recommendation" class="deep rounded-2xl border-4 border-slate-900 px-7 py-8 text-white module-shadow">
+        <p class="text-xs uppercase tracking-[0.22em] text-emerald-300">Top recommendation</p>
+        <h2 class="mt-3 text-3xl font-serif"><a class="underline decoration-emerald-400 underline-offset-8" href="#gateway-proactive-owner">深化 Gateway 主动执行所有权</a></h2>
+        <p class="mt-4 max-w-3xl text-sm leading-6 text-slate-200">它是最大的未立项 ownership 问题：session identity、busy admission、queue 与 delivery 状态分散在多份共享状态和私有接线中。</p>
+      </section>
+    </main>
+  </body>
+</html>

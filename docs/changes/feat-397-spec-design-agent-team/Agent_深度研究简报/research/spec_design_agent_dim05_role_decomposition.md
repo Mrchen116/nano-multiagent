@@ -30,10 +30,7 @@
 
 ### 2.1 MetaGPT的角色消融（最系统的实验）
 
-**Claim**：逐步移除角色导致代码可执行性和质量显著下降
-**Source**：MetaGPT: Meta Programming for A Multi-Agent Collaborative Framework [^443^]
-**URL**：https://arxiv.org/html/2308.00352v6
-**Date**：2023
+**Claim**：逐步移除角色导致代码可执行性和质量显著下降 **Source**：MetaGPT: Meta Programming for A Multi-Agent Collaborative Framework [^443^] **URL**：https://arxiv.org/html/2308.00352v6 **Date**：2023
 
 **Excerpt**：
 
@@ -55,10 +52,7 @@
 
 ### 2.2 ChatDev的角色移除实验（最戏剧性的效果）
 
-**Claim**：移除所有agent角色后性能下降最大，是所有消融因子中影响最大的
-**Source**：ChatDev: Communicative Agents for Software Development [^448^] [^449^]
-**URL**：https://arxiv.org/html/2307.07924v5
-**Date**：2023
+**Claim**：移除所有agent角色后性能下降最大，是所有消融因子中影响最大的 **Source**：ChatDev: Communicative Agents for Software Development [^448^] [^449^] **URL**：https://arxiv.org/html/2307.07924v5 **Date**：2023
 
 **Excerpt**：
 
@@ -77,10 +71,7 @@
 
 ### 2.3 MARE的Individual vs Multi-Agent对比
 
-**Claim**：Multi-agent协作在需求建模任务上优于Individual LLM
-**Source**：MARE: Multi-Agents Collaboration Framework for Requirements Engineering [^442^]
-**URL**：https://arxiv.org/html/2405.03256v1
-**Date**：2024
+**Claim**：Multi-agent协作在需求建模任务上优于Individual LLM **Source**：MARE: Multi-Agents Collaboration Framework for Requirements Engineering [^442^] **URL**：https://arxiv.org/html/2405.03256v1 **Date**：2024
 
 **Excerpt**：
 
@@ -99,10 +90,7 @@
 
 ### 2.4 AutoGen的消融实验
 
-**Claim**：结构化角色分配显著优于单agent系统
-**Source**：Can We Trust AI Agents? [^446^]
-**URL**：https://arxiv.org/pdf/2411.08881
-**Date**：2024
+**Claim**：结构化角色分配显著优于单agent系统 **Source**：Can We Trust AI Agents? [^446^] **URL**：https://arxiv.org/pdf/2411.08881 **Date**：2024
 
 **Excerpt**：
 > "Wu et al. [41] from Microsoft introduced AutoGen, a multi-agent LLM framework enhancing coding productivity by structuring tasks among specialized roles (Commander, Writer, Safeguard) that interact to refine outputs. Through an ablation study they demonstrated that this method significantly outperforms single-agent systems by breaking down complex tasks into manageable components."
@@ -117,10 +105,7 @@
 
 ### 3.1 Multi-Agent Debate改善事实性和推理
 
-**Claim**：多agent之间的debate能持续提升推理准确性和事实性
-**Source**：Du et al., "Improving Factuality and Reasoning in Language Models through Multiagent Debate" [^521^]
-**URL**：https://arxiv.org/abs/2305.14325
-**Date**：ICML 2023
+**Claim**：多agent之间的debate能持续提升推理准确性和事实性 **Source**：Du et al., "Improving Factuality and Reasoning in Language Models through Multiagent Debate" [^521^] **URL**：https://arxiv.org/abs/2305.14325 **Date**：ICML 2023
 
 **Excerpt**：
 > "We show multi-agent debate beat single-model baselines on standard reasoning, math, and factuality benchmarks. The improvement scaled with model count up to a point, then plateaued."
@@ -133,10 +118,7 @@
 
 ### 3.2 Multi-Persona Self-Collaboration中的认知协同
 
-**Claim**：单个LLM通过multi-persona self-collaboration可以实现认知协同，但只在GPT-4级别模型中出现
-**Source**：Wang et al., "Unleashing the Emergent Cognitive Synergy in Large Language Models" [^491^] [^500^]
-**URL**：https://arxiv.org/abs/2307.05300
-**Date**：NAACL 2024
+**Claim**：单个LLM通过multi-persona self-collaboration可以实现认知协同，但只在GPT-4级别模型中出现 **Source**：Wang et al., "Unleashing the Emergent Cognitive Synergy in Large Language Models" [^491^] [^500^] **URL**：https://arxiv.org/abs/2307.05300 **Date**：NAACL 2024
 
 **Excerpt**：
 > "We propose Solo Performance Prompting (SPP), which transforms a single LLM into a cognitive synergist by engaging in multi-turn self-collaboration with multiple personas... assigning multiple fine-grained personas in LLMs improves problem-solving abilities compared to using a single or fixed number of personas... Additionally, comparative experiments show that **cognitive synergy only emerges in GPT-4 and does not appear in less capable models, such as GPT-3.5-turbo and Llama2-13b-chat**, which draws an interesting analogy to human development."
@@ -149,10 +131,7 @@
 
 ### 3.3 Synthetic Deliberation：多视角问题求解
 
-**Claim**：LLM-based synthetic deliberation通过模拟不同视角间的对话，实现了超越mental simulation的问题求解
-**Source**：Park et al., "Thinking with Many Minds: Using Large Language Models for Multi-Perspective Problem-Solving" [^444^]
-**URL**：https://arxiv.org/abs/2501.02348
-**Date**：2025
+**Claim**：LLM-based synthetic deliberation通过模拟不同视角间的对话，实现了超越mental simulation的问题求解 **Source**：Park et al., "Thinking with Many Minds: Using Large Language Models for Multi-Perspective Problem-Solving" [^444^] **URL**：https://arxiv.org/abs/2501.02348 **Date**：2025
 
 **Excerpt**：
 > "Complex problem-solving requires cognitive flexibility—the capacity to entertain multiple perspectives while preserving their distinctiveness. This flexibility replicates the 'wisdom of crowds' within a single individual... We propose synthetic deliberation, a Large Language Model (LLM)-based method that simulates discourse between agents embodying diverse perspectives, as a solution. Using a custom GPT-based model, we showcase its benefits: **concurrent processing of multiple viewpoints without cognitive degradation, parallel exploration of perspectives, and precise control over viewpoint synthesis**."
@@ -165,10 +144,7 @@
 
 ### 3.4 Role-Play Prompting的神经机制解释
 
-**Claim**：Role-playing通过激活LLM内部与step-by-step reasoning相关的特征来提升推理
-**Source**：Wang et al., "Improving LLM Reasoning through Interpretable Role-Playing Steering" (SRPS) [^470^] [^473^]
-**URL**：https://arxiv.org/html/2506.07335v2
-**Date**：EMNLP 2025 Findings
+**Claim**：Role-playing通过激活LLM内部与step-by-step reasoning相关的特征来提升推理 **Source**：Wang et al., "Improving LLM Reasoning through Interpretable Role-Playing Steering" (SRPS) [^470^] [^473^] **URL**：https://arxiv.org/html/2506.07335v2 **Date**：EMNLP 2025 Findings
 
 **Excerpt**：
 > "Role-play prompting has been explored as a technique to enhance the reasoning capabilities of LLMs... Kong et al. (2023) demonstrate consistent improvements... However, the effectiveness of role-play prompting is not universal. Han and Wang (2024) critically examine its application in mathematical reasoning tasks, finding that directly adding role-play prompts before questions does not always enhance model performance and may sometimes even degrade it."
@@ -183,10 +159,7 @@
 
 ### 3.5 Diversity of Thought in Multi-Agent Debate
 
-**Claim**：思维多样性（diversity of thought）在multi-agent debate中显著提升推理能力，甚至超过GPT-4
-**Source**：Hegazy, "Diversity of Thought Elicits Stronger Reasoning Capabilities in Multi-Agent Debate Frameworks" [^453^]
-**URL**：https://www.ijcsma.com/articles/diversity-of-thought-elicits-stronger-reasoning-capabilities-in-multiagent-debate-frameworks-1100503.html
-**Date**：2024
+**Claim**：思维多样性（diversity of thought）在multi-agent debate中显著提升推理能力，甚至超过GPT-4 **Source**：Hegazy, "Diversity of Thought Elicits Stronger Reasoning Capabilities in Multi-Agent Debate Frameworks" [^453^] **URL**：https://www.ijcsma.com/articles/diversity-of-thought-elicits-stronger-reasoning-capabilities-in-multiagent-debate-frameworks-1100503.html **Date**：2024
 
 **Excerpt**：
 > "Our results demonstrate that leveraging diversity of thought in multi-agent debate significantly enhances the reasoning capabilities of LLMs, **outperforming even state-of-the-art models like GPT-4**."
@@ -215,10 +188,7 @@
 
 ### 4.2 Yang et al.的信息论分析：多样性>数量
 
-**Claim**：2个认知多样的agent可以匹配或超越16个同质agent
-**Source**：Yang et al., "Understanding Agent Scaling in LLM-Based Multi-Agent Systems via Diversity" [^507^] [^515^]
-**URL**：https://arxiv.org/abs/2602.03794
-**Date**：2026 (ICML)
+**Claim**：2个认知多样的agent可以匹配或超越16个同质agent **Source**：Yang et al., "Understanding Agent Scaling in LLM-Based Multi-Agent Systems via Diversity" [^507^] [^515^] **URL**：https://arxiv.org/abs/2602.03794 **Date**：2026 (ICML)
 
 **Excerpt**：
 > "We present an information-theoretic framework showing that MAS performance is bounded by the intrinsic task uncertainty, not by agent count... Homogeneous agents saturate early because their outputs are strongly correlated, whereas heterogeneous agents contribute complementary evidence... **2 diverse agents can match or exceed the performance of 16 homogeneous agents**."
@@ -236,10 +206,7 @@
 
 ### 4.3 "Team of Rivals"：Planner+Executor+Critic+Expert
 
-**Claim**：具有对立激励的角色组合（Team of Rivals）可实现90%+的错误拦截率
-**Source**：Vijayaraghavan et al., "If You Want Coherence, Orchestrate a Team of Rivals" [^720^] [^726^]
-**URL**：https://arxiv.org/abs/2601.14351
-**Date**：2026
+**Claim**：具有对立激励的角色组合（Team of Rivals）可实现90%+的错误拦截率 **Source**：Vijayaraghavan et al., "If You Want Coherence, Orchestrate a Team of Rivals" [^720^] [^726^] **URL**：https://arxiv.org/abs/2601.14351 **Date**：2026
 
 **Excerpt**：
 > "Multiple models serving as a team of rivals can catch and minimize errors within the final product... specialized agent teams (planners, executors, critics, experts), organized into an organization with clear goals... achieves **over 90% internal error interception** prior to user exposure while maintaining acceptable latency tradeoffs."
@@ -260,10 +227,7 @@
 
 ### 5.1 强单Agent Baseline可以匹配同质多Agent
 
-**Claim**：在匹配的token预算下，单agent通过multi-turn conversation可以匹配甚至超过同质多agent workflow
-**Source**：Xu et al., "Rethinking the Value of Multi-Agent Workflow: A Strong Single Agent Baseline" [^476^] [^477^]
-**URL**：https://arxiv.org/html/2601.12307v1
-**Date**：2026
+**Claim**：在匹配的token预算下，单agent通过multi-turn conversation可以匹配甚至超过同质多agent workflow **Source**：Xu et al., "Rethinking the Value of Multi-Agent Workflow: A Strong Single Agent Baseline" [^476^] [^477^] **URL**：https://arxiv.org/html/2601.12307v1 **Date**：2026
 
 **Excerpt**：
 > "Recent advances in LLM-based multi-agent systems (MAS) show that workflows composed of multiple LLM agents with distinct roles, tools, and communication patterns can outperform single-LLM baselines on complex tasks. However, most frameworks are **homogeneous, where all agents share the same base LLM and differ only in prompts, tools, and positions in the workflow**. This raises the question of whether such workflows can be simulated by a single agent through multi-turn conversations. Our results show that **a single agent can reach the performance of homogeneous workflows with an efficiency advantage from KV cache reuse**, and can even match the performance of an automatically optimized heterogeneous workflow."
@@ -274,10 +238,7 @@
 
 ### 5.2 单Agent在匹配Token Budget下优于多Agent
 
-**Claim**：在multi-hop reasoning任务上，匹配thinking token budget时，单agent系统一致匹配或优于多agent架构
-**Source**：Tran & Kiela, "Single-Agent LLMs Outperform Multi-Agent Systems on Multi-Hop Reasoning Under Equal Thinking Token Budgets" [^481^] [^482^]
-**URL**：https://arxiv.org/html/2604.02460v1
-**Date**：2026
+**Claim**：在multi-hop reasoning任务上，匹配thinking token budget时，单agent系统一致匹配或优于多agent架构 **Source**：Tran & Kiela, "Single-Agent LLMs Outperform Multi-Agent Systems on Multi-Hop Reasoning Under Equal Thinking Token Budgets" [^481^] [^482^] **URL**：https://arxiv.org/html/2604.02460v1 **Date**：2026
 
 **Excerpt**：
 > "We present an information-theoretic argument, grounded in the Data Processing Inequality, suggesting that **under a fixed reasoning-token budget and with perfect context utilization, single-agent systems are more information-efficient**... We find that SAS consistently match or outperform MAS on multi-hop reasoning tasks when reasoning tokens are held constant."
@@ -290,10 +251,7 @@
 
 ### 5.3 角色化增加协调开销的证据
 
-**Claim**：多agent系统的通信开销可达简单链式拓扑的2-11.8倍
-**Source**：Zhang et al., "Cut the Crap: An Economical Communication Pipeline for LLM-based Multi-Agent Systems" [^717^]
-**URL**：https://openreview.net/forum?id=LkzuPorQ5L
-**Date**：ICLR 2025
+**Claim**：多agent系统的通信开销可达简单链式拓扑的2-11.8倍 **Source**：Zhang et al., "Cut the Crap: An Economical Communication Pipeline for LLM-based Multi-Agent Systems" [^717^] **URL**：https://openreview.net/forum?id=LkzuPorQ5L **Date**：ICLR 2025
 
 **Excerpt**：
 > "Existing multi-agent pipelines inherently introduce substantial token overhead... achieves comparable results as state-of-the-art topologies at merely $5.6 cost compared to their $43.7, integrates seamlessly into existing multi-agent frameworks with **28.1%~72.8% token reduction**"
@@ -304,10 +262,7 @@
 
 ### 5.4 动态Agent消除：21.6%的token节省
 
-**Claim**：通过动态识别和消除冗余agent，可以减少21.6%的prompt token和18.4%的completion token
-**Source**：Wang et al., "AgentDropout: Dynamic Agent Elimination for Token-Efficient and High-Performance LLM-Based Multi-Agent Collaboration" [^522^] [^527^]
-**URL**：https://arxiv.org/abs/2503.18891
-**Date**：ACL 2025
+**Claim**：通过动态识别和消除冗余agent，可以减少21.6%的prompt token和18.4%的completion token **Source**：Wang et al., "AgentDropout: Dynamic Agent Elimination for Token-Efficient and High-Performance LLM-Based Multi-Agent Collaboration" [^522^] [^527^] **URL**：https://arxiv.org/abs/2503.18891 **Date**：ACL 2025
 
 **Excerpt**：
 > "AgentDropout... identifies redundant agents and communication across different communication rounds by optimizing the adjacency matrices of the communication graphs and eliminates them... achieves an average reduction of **21.6% in prompt token consumption and 18.4% in completion token consumption**, along with a performance improvement of 1.14 on the tasks."
@@ -322,10 +277,7 @@
 
 ### 6.1 多Agent团队拖累专家表现
 
-**Claim**：自组织LLM团队一致未能达到其最佳单个agent的表现，性能损失高达37.6%
-**Source**：Pappu et al., "Multi-Agent Teams Hold Experts Back" [^484^]
-**URL**：https://arxiv.org/abs/2602.01011
-**Date**：2026
+**Claim**：自组织LLM团队一致未能达到其最佳单个agent的表现，性能损失高达37.6% **Source**：Pappu et al., "Multi-Agent Teams Hold Experts Back" [^484^] **URL**：https://arxiv.org/abs/2602.01011 **Date**：2026
 
 **Excerpt**：
 > "Across human-inspired and frontier ML benchmarks, we find that -- unlike human teams -- **LLM teams consistently fail to match their expert agent's performance, even when explicitly told who the expert is, incurring performance losses of up to 37.6%**. Decomposing this failure, we show that **expert leveraging, rather than identification, is the primary bottleneck**. Conversational analysis reveals a tendency toward **integrative compromise** -- averaging expert and non-expert views rather than appropriately weighting expertise -- which increases with team size and correlates negatively with performance."
@@ -336,10 +288,7 @@
 
 ### 6.2 Debate可能放大错误
 
-**Claim**：多agent debate可能系统性地降低性能，特别是在heterogeneous agent配置中
-**Source**：Wynn, Satija & Hadfield, "Talk isn't always cheap: Understanding failure modes in multi-agent debate" [^460^]
-**URL**：https://arxiv.org/html/2509.05396v1
-**Date**：ICML 2025
+**Claim**：多agent debate可能系统性地降低性能，特别是在heterogeneous agent配置中 **Source**：Wynn, Satija & Hadfield, "Talk isn't always cheap: Understanding failure modes in multi-agent debate" [^460^] **URL**：https://arxiv.org/html/2509.05396v1 **Date**：ICML 2025
 
 **Excerpt**：
 > "We show that the benefits of multi-agent debate are not as universal as commonly assumed... multi-agent debate can sometimes **degrade performance**, leading to worse final answers than those generated by a single agent acting alone. These failures are not rare edge cases, but arise systematically in settings where **agents amplify each other's errors** – agreeing reflexively rather than challenging flawed reasoning."
@@ -352,10 +301,7 @@
 
 ### 6.3 Role-Play Prompting不总是有帮助
 
-**Claim**：在某些推理任务中，role-play prompting不仅不提升性能，反而降低性能
-**Source**：Han & Wang, "Rethinking the Role-play Prompting in Mathematical Reasoning Tasks" [^565^] [^567^]
-**URL**：https://dl.acm.org/doi/10.1145/3688864.3689149
-**Date**：ESGMF 2024
+**Claim**：在某些推理任务中，role-play prompting不仅不提升性能，反而降低性能 **Source**：Han & Wang, "Rethinking the Role-play Prompting in Mathematical Reasoning Tasks" [^565^] [^567^] **URL**：https://dl.acm.org/doi/10.1145/3688864.3689149 **Date**：ESGMF 2024
 
 **Excerpt**：
 > "Our findings reveal unexpected and counterintuitive results: **these role-playing prompts do not improve reasoning abilities and may even degrade performance**. We attribute this degradation to a **mismatch between the role assumed in the prompt and the problem-solving skills required**, where the capabilities provided by the role do not align with the abilities needed to solve the problem."
@@ -368,10 +314,7 @@
 
 ### 6.4 Persona-Based Diversification的局限
 
-**Claim**：Persona-based diversification存在局限性，不是所有多样性都有益
-**Source**：Yang et al. [^507^], citing Samuel et al. (2024) and Taillandier et al. (2025)
-**URL**：https://arxiv.org/html/2602.03794v1
-**Date**：2026
+**Claim**：Persona-based diversification存在局限性，不是所有多样性都有益 **Source**：Yang et al. [^507^], citing Samuel et al. (2024) and Taillandier et al. (2025) **URL**：https://arxiv.org/html/2602.03794v1 **Date**：2026
 
 **Excerpt**：
 > "Related work shows that diversity benefits depend on task complexity (Tang et al., 2025) and that **persona-based diversification has limitations** (Samuel et al., 2024; Taillandier et al., 2025)."
@@ -384,10 +327,7 @@
 
 ### 6.5 认知协同只在强模型中涌现
 
-**Claim**：Multi-persona cognitive synergy只在GPT-4级别模型中出现，不在GPT-3.5中出现
-**Source**：Wang et al. [^491^] [^500^]
-**URL**：https://arxiv.org/abs/2307.05300
-**Date**：NAACL 2024
+**Claim**：Multi-persona cognitive synergy只在GPT-4级别模型中出现，不在GPT-3.5中出现 **Source**：Wang et al. [^491^] [^500^] **URL**：https://arxiv.org/abs/2307.05300 **Date**：NAACL 2024
 
 **Excerpt**：
 > "cognitive synergy only emerges in GPT-4 and does not appear in less capable models, such as GPT-3.5-turbo and Llama2-13b-chat"
@@ -402,10 +342,7 @@
 
 ### 7.1 认知灵活性理论
 
-**Claim**：认知灵活性——在不同概念或视角间无缝切换的能力——是复杂问题求解的核心
-**Source**：Park et al. [^444^], Diamond (2013), Krems (2014)
-**URL**：https://arxiv.org/abs/2501.02348
-**Date**：2025
+**Claim**：认知灵活性——在不同概念或视角间无缝切换的能力——是复杂问题求解的核心 **Source**：Park et al. [^444^], Diamond (2013), Krems (2014) **URL**：https://arxiv.org/abs/2501.02348 **Date**：2025
 
 **Excerpt**：
 > "Cognitive flexibility effectively enables problem-solvers to benefit from imagining multiple possibilities, such as toggling between abstract versus concrete, structural versus functional perspectives, or employing approaches like goal-driven or data-driven methods... Its benefits also extend to multi-agent settings, where cognitive flexibility allows individuals to adopt and integrate multiple stakeholders' viewpoints, fostering the anticipation and resolution of objections to potential solutions."
@@ -416,10 +353,7 @@
 
 ### 7.2 Role-Play作为隐式CoT触发器
 
-**Claim**：Role-play prompting是比Zero-Shot-CoT更有效的推理触发器
-**Source**：Kong et al., "Better Zero-Shot Reasoning with Role-Play Prompting" [^572^] [^574^]
-**URL**：https://arxiv.org/abs/2308.07702
-**Date**：2023
+**Claim**：Role-play prompting是比Zero-Shot-CoT更有效的推理触发器 **Source**：Kong et al., "Better Zero-Shot Reasoning with Role-Play Prompting" [^572^] [^574^] **URL**：https://arxiv.org/abs/2308.07702 **Date**：2023
 
 **Excerpt**：
 > "role-play prompting acts as a more effective trigger for the CoT process... In experiments conducted using ChatGPT, accuracy on AQuA rises from 53.5% to 63.8%, and on Last Letter from 23.8% to 84.2%"
@@ -430,10 +364,7 @@
 
 ### 7.3 信息论视角：有效通道>Agent数量
 
-**Claim**：MAS性能由有效信息通道数量决定，非agent数量
-**Source**：Yang et al. [^507^] [^515^]
-**URL**：https://arxiv.org/abs/2602.03794
-**Date**：2026
+**Claim**：MAS性能由有效信息通道数量决定，非agent数量 **Source**：Yang et al. [^507^] [^515^] **URL**：https://arxiv.org/abs/2602.03794 **Date**：2026
 
 **Excerpt**：
 > "performance improvements depend on how many effective channels the system accesses. Homogeneous agents saturate early because their outputs are strongly correlated, whereas heterogeneous agents contribute complementary evidence."
@@ -543,6 +474,4 @@ Role persona是一种有效的**prompt engineering技术**，通过system prompt
 
 ---
 
-*报告生成日期：2026年*
-*研究方法：系统文献综述，覆盖arXiv、ICML、ICLR、ACL、NAACL、EMNLP等顶级会议论文*
-*搜索策略：中英文混合搜索，>25次独立搜索，优先2023-2026年最新研究*
+*报告生成日期：2026年* *研究方法：系统文献综述，覆盖arXiv、ICML、ICLR、ACL、NAACL、EMNLP等顶级会议论文* *搜索策略：中英文混合搜索，>25次独立搜索，优先2023-2026年最新研究*

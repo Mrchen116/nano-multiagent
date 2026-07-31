@@ -1,0 +1,143 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1800 1040" role="img" aria-labelledby="title desc">
+  <title id="title">仓库知识、Repository Harness 与 Agent Work Loop 的关系矩阵</title>
+  <desc id="desc">左侧矩阵展示五种知识角色如何支撑五项 Repository Harness 能力，右侧矩阵展示五项能力如何支撑五个 Agent 工作闭环阶段，强调它们是多对多关系。</desc>
+  <defs>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #1a1a1a; }
+      .title { font-size: 32px; font-weight: 760; }
+      .subtitle { font-size: 17px; fill: #6b6b6b; }
+      .panel-title { font-size: 23px; font-weight: 720; }
+      .axis-title { font-size: 15px; font-weight: 700; fill: #6b6b6b; }
+      .header { font-size: 14px; font-weight: 700; }
+      .row-main { font-size: 16px; font-weight: 720; }
+      .row-sub { font-size: 13px; fill: #6b6b6b; }
+      .note { font-size: 15px; fill: #6b6b6b; }
+      .summary { font-size: 17px; font-weight: 650; }
+      .panel { fill: #f5f1ea; stroke: #9ab8be; stroke-width: 2; }
+      .cell { fill: #ffffff; stroke: #e6e3dc; stroke-width: 1.2; }
+      .head { fill: #e6eef0; stroke: #9ab8be; stroke-width: 1.4; }
+      .truth { fill: #2a6470; }
+      .work { fill: #8b3a2f; }
+      .evidence { fill: #4a6f3a; }
+      .memory { fill: #7a3a5c; }
+      .control { fill: #6b6b6b; }
+      .cap { fill: #2a6470; }
+      .learning { fill: #4a6f3a; }
+      .empty { fill: #f5f1ea; stroke: #e6e3dc; stroke-width: 1; }
+    </style>
+  </defs>
+
+  <rect width="1800" height="1040" fill="#ffffff"/>
+  <text x="48" y="54" class="title">五种知识如何转化为 Harness 能力，并形成 Agent 工作闭环</text>
+  <text x="48" y="84" class="subtitle">圆点表示文章中直接论述的关键支撑关系；没有圆点不代表毫无关联，而是不把所有弱关系都画成噪声。</text>
+
+  <rect x="40" y="112" width="840" height="790" rx="22" class="panel"/>
+  <text x="72" y="154" class="panel-title">A. 仓库知识角色 → Repository Harness 能力</text>
+  <text x="72" y="181" class="note">回答：组织好的知识怎样变成 Agent 可以使用的工作条件？</text>
+
+  <text x="178" y="220" text-anchor="middle" class="axis-title">知识角色</text>
+  <text x="574" y="220" text-anchor="middle" class="axis-title">Harness 能力</text>
+
+  <rect x="70" y="238" width="216" height="82" rx="12" class="head"/>
+  <rect x="286" y="238" width="110" height="82" class="head"/>
+  <rect x="396" y="238" width="110" height="82" class="head"/>
+  <rect x="506" y="238" width="110" height="82" class="head"/>
+  <rect x="616" y="238" width="110" height="82" class="head"/>
+  <rect x="726" y="238" width="110" height="82" rx="12" class="head"/>
+  <text x="341" y="271" text-anchor="middle" class="header"><tspan x="341">上下文</tspan><tspan x="341" dy="20">地图</tspan></text>
+  <text x="451" y="271" text-anchor="middle" class="header"><tspan x="451">环境</tspan><tspan x="451" dy="20">就绪</tspan></text>
+  <text x="561" y="271" text-anchor="middle" class="header"><tspan x="561">快速</tspan><tspan x="561" dy="20">反馈</tspan></text>
+  <text x="671" y="271" text-anchor="middle" class="header"><tspan x="671">质量</tspan><tspan x="671" dy="20">门禁</tspan></text>
+  <text x="781" y="271" text-anchor="middle" class="header"><tspan x="781">变更</tspan><tspan x="781" dy="20">安全</tspan></text>
+
+  <!-- Matrix A rows -->
+  <g>
+    <rect x="70" y="320" width="216" height="96" class="cell"/>
+    <rect x="286" y="320" width="110" height="96" class="cell"/><rect x="396" y="320" width="110" height="96" class="cell"/><rect x="506" y="320" width="110" height="96" class="cell"/><rect x="616" y="320" width="110" height="96" class="cell"/><rect x="726" y="320" width="110" height="96" class="cell"/>
+    <circle cx="94" cy="360" r="8" class="truth"/><text x="116" y="360" class="row-main">Truth</text><text x="116" y="384" class="row-sub">当前事实</text>
+    <circle cx="341" cy="368" r="14" class="truth"/><circle cx="451" cy="368" r="14" class="truth"/><circle cx="671" cy="368" r="14" class="truth"/>
+  </g>
+  <g>
+    <rect x="70" y="416" width="216" height="96" class="cell"/>
+    <rect x="286" y="416" width="110" height="96" class="cell"/><rect x="396" y="416" width="110" height="96" class="cell"/><rect x="506" y="416" width="110" height="96" class="cell"/><rect x="616" y="416" width="110" height="96" class="cell"/><rect x="726" y="416" width="110" height="96" class="cell"/>
+    <circle cx="94" cy="456" r="8" class="work"/><text x="116" y="456" class="row-main">Work</text><text x="116" y="480" class="row-sub">活动工作</text>
+    <circle cx="341" cy="464" r="14" class="work"/><circle cx="781" cy="464" r="14" class="work"/>
+  </g>
+  <g>
+    <rect x="70" y="512" width="216" height="96" class="cell"/>
+    <rect x="286" y="512" width="110" height="96" class="cell"/><rect x="396" y="512" width="110" height="96" class="cell"/><rect x="506" y="512" width="110" height="96" class="cell"/><rect x="616" y="512" width="110" height="96" class="cell"/><rect x="726" y="512" width="110" height="96" class="cell"/>
+    <circle cx="94" cy="552" r="8" class="evidence"/><text x="116" y="552" class="row-main">Evidence</text><text x="116" y="576" class="row-sub">验证证据</text>
+    <circle cx="561" cy="560" r="14" class="evidence"/><circle cx="671" cy="560" r="14" class="evidence"/><circle cx="781" cy="560" r="14" class="evidence"/>
+  </g>
+  <g>
+    <rect x="70" y="608" width="216" height="96" class="cell"/>
+    <rect x="286" y="608" width="110" height="96" class="cell"/><rect x="396" y="608" width="110" height="96" class="cell"/><rect x="506" y="608" width="110" height="96" class="cell"/><rect x="616" y="608" width="110" height="96" class="cell"/><rect x="726" y="608" width="110" height="96" class="cell"/>
+    <circle cx="94" cy="648" r="8" class="memory"/><text x="116" y="648" class="row-main">Memory</text><text x="116" y="672" class="row-sub">历史经验</text>
+    <circle cx="341" cy="656" r="14" class="memory"/><circle cx="781" cy="656" r="14" class="memory"/>
+  </g>
+  <g>
+    <rect x="70" y="704" width="216" height="96" rx="0 0 0 12" class="cell"/>
+    <rect x="286" y="704" width="110" height="96" class="cell"/><rect x="396" y="704" width="110" height="96" class="cell"/><rect x="506" y="704" width="110" height="96" class="cell"/><rect x="616" y="704" width="110" height="96" class="cell"/><rect x="726" y="704" width="110" height="96" rx="0 0 12 0" class="cell"/>
+    <circle cx="94" cy="744" r="8" class="control"/><text x="116" y="744" class="row-main">Control</text><text x="116" y="768" class="row-sub">路由与约束</text>
+    <circle cx="341" cy="752" r="14" class="control"/><circle cx="451" cy="752" r="14" class="control"/><circle cx="561" cy="752" r="14" class="control"/><circle cx="671" cy="752" r="14" class="control"/><circle cx="781" cy="752" r="14" class="control"/>
+  </g>
+  <rect x="72" y="824" width="762" height="48" rx="12" fill="#f5f1ea"/>
+  <text x="94" y="853" class="note">例：快速反馈同时需要 Evidence 提供结果，也需要 Control 把改动路由到正确检查。</text>
+
+  <rect x="920" y="112" width="840" height="790" rx="22" class="panel"/>
+  <text x="952" y="154" class="panel-title">B. Repository Harness 能力 → Agent Work Loop</text>
+  <text x="952" y="181" class="note">回答：这些工作条件在一项真实任务的哪个环节发挥作用？</text>
+
+  <text x="1058" y="220" text-anchor="middle" class="axis-title">Harness 能力</text>
+  <text x="1454" y="220" text-anchor="middle" class="axis-title">Agent Work Loop</text>
+
+  <rect x="950" y="238" width="216" height="82" rx="12" class="head"/>
+  <rect x="1166" y="238" width="110" height="82" class="head"/>
+  <rect x="1276" y="238" width="110" height="82" class="head"/>
+  <rect x="1386" y="238" width="110" height="82" class="head"/>
+  <rect x="1496" y="238" width="110" height="82" class="head"/>
+  <rect x="1606" y="238" width="110" height="82" rx="12" class="head"/>
+  <text x="1221" y="271" text-anchor="middle" class="header"><tspan x="1221">任务</tspan><tspan x="1221" dy="20">理解</tspan></text>
+  <text x="1331" y="271" text-anchor="middle" class="header"><tspan x="1331">受控</tspan><tspan x="1331" dy="20">执行</tspan></text>
+  <text x="1441" y="271" text-anchor="middle" class="header"><tspan x="1441">变更</tspan><tspan x="1441" dy="20">验证</tspan></text>
+  <text x="1551" y="271" text-anchor="middle" class="header"><tspan x="1551">可靠</tspan><tspan x="1551" dy="20">交付</tspan></text>
+  <text x="1661" y="271" text-anchor="middle" class="header"><tspan x="1661">经验</tspan><tspan x="1661" dy="20">沉淀</tspan></text>
+
+  <!-- Matrix B rows -->
+  <g>
+    <rect x="950" y="320" width="216" height="96" class="cell"/>
+    <rect x="1166" y="320" width="110" height="96" class="cell"/><rect x="1276" y="320" width="110" height="96" class="cell"/><rect x="1386" y="320" width="110" height="96" class="cell"/><rect x="1496" y="320" width="110" height="96" class="cell"/><rect x="1606" y="320" width="110" height="96" class="cell"/>
+    <text x="978" y="360" class="row-main">上下文地图</text><text x="978" y="384" class="row-sub">找到正确知识与边界</text>
+    <circle cx="1221" cy="368" r="14" class="cap"/><circle cx="1661" cy="368" r="14" class="learning"/>
+  </g>
+  <g>
+    <rect x="950" y="416" width="216" height="96" class="cell"/>
+    <rect x="1166" y="416" width="110" height="96" class="cell"/><rect x="1276" y="416" width="110" height="96" class="cell"/><rect x="1386" y="416" width="110" height="96" class="cell"/><rect x="1496" y="416" width="110" height="96" class="cell"/><rect x="1606" y="416" width="110" height="96" class="cell"/>
+    <text x="978" y="456" class="row-main">环境就绪</text><text x="978" y="480" class="row-sub">可复现地建立与运行环境</text>
+    <circle cx="1331" cy="464" r="14" class="cap"/><circle cx="1661" cy="464" r="14" class="learning"/>
+  </g>
+  <g>
+    <rect x="950" y="512" width="216" height="96" class="cell"/>
+    <rect x="1166" y="512" width="110" height="96" class="cell"/><rect x="1276" y="512" width="110" height="96" class="cell"/><rect x="1386" y="512" width="110" height="96" class="cell"/><rect x="1496" y="512" width="110" height="96" class="cell"/><rect x="1606" y="512" width="110" height="96" class="cell"/>
+    <text x="978" y="552" class="row-main">快速反馈</text><text x="978" y="576" class="row-sub">尽快暴露与定位问题</text>
+    <circle cx="1441" cy="560" r="14" class="cap"/><circle cx="1661" cy="560" r="14" class="learning"/>
+  </g>
+  <g>
+    <rect x="950" y="608" width="216" height="96" class="cell"/>
+    <rect x="1166" y="608" width="110" height="96" class="cell"/><rect x="1276" y="608" width="110" height="96" class="cell"/><rect x="1386" y="608" width="110" height="96" class="cell"/><rect x="1496" y="608" width="110" height="96" class="cell"/><rect x="1606" y="608" width="110" height="96" class="cell"/>
+    <text x="978" y="648" class="row-main">质量门禁</text><text x="978" y="672" class="row-sub">机械保护关键不变量</text>
+    <circle cx="1441" cy="656" r="14" class="cap"/><circle cx="1551" cy="656" r="14" class="cap"/><circle cx="1661" cy="656" r="14" class="learning"/>
+  </g>
+  <g>
+    <rect x="950" y="704" width="216" height="96" class="cell"/>
+    <rect x="1166" y="704" width="110" height="96" class="cell"/><rect x="1276" y="704" width="110" height="96" class="cell"/><rect x="1386" y="704" width="110" height="96" class="cell"/><rect x="1496" y="704" width="110" height="96" class="cell"/><rect x="1606" y="704" width="110" height="96" class="cell"/>
+    <text x="978" y="744" class="row-main">变更安全</text><text x="978" y="768" class="row-sub">控制行动、交付与恢复后果</text>
+    <circle cx="1331" cy="752" r="14" class="cap"/><circle cx="1551" cy="752" r="14" class="cap"/><circle cx="1661" cy="752" r="14" class="learning"/>
+  </g>
+  <rect x="952" y="824" width="762" height="48" rx="12" fill="#f5ecdb"/>
+  <text x="974" y="853" class="note">经验沉淀横跨全部能力：它把重复摩擦与有效做法反馈到正确的长期位置。</text>
+
+  <rect x="40" y="928" width="1720" height="78" rx="18" fill="#e6eef0" stroke="#9ab8be" stroke-width="1.8"/>
+  <text x="900" y="960" text-anchor="middle" class="summary">知识角色回答“仓库管理什么” → Harness 能力回答“仓库支持什么” → Work Loop 检验“真实任务能否形成闭环”</text>
+  <text x="900" y="987" text-anchor="middle" class="note">它们是多对多关系；文件齐全或目录整齐，不能替代工作闭环的实际验证。</text>
+</svg>

@@ -7,7 +7,7 @@
 
 ## 原始诉求
 
-> docs/architecture-reviews/architecture-review-20260714-144212-d33025cf.html
+> docs/research/architecture-reviews/architecture-review-20260714-144212-d33025cf.html
 > 你审下
 > 1. Platform Tool Registry 透传 shim
 > 4. InboundPipeline 是 Gateway 入口 god class

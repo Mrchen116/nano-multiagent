@@ -3,7 +3,7 @@
 > 对齐: feat-484
 > 上级: [IM Specification](spec.md)
 >
-> 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
+> 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
 
 ## Purpose
 
@@ -260,8 +260,7 @@ Web IM SHALL 为 Agent Markdown 中的每个 block code 提供独立、可访问
 
 ### Requirement: 历史会话蒸馏 conversation 选择入口
 
-用户可从 IM 左侧 conversation 列表选择已完成会话,生成一条普通聊天消息来调用历史会话蒸馏 skill。
-IM 负责选择来源、执行 agent 与写入范围;Gateway 不解析蒸馏路径或注入 transcript 上下文。
+用户可从 IM 左侧 conversation 列表选择已完成会话,生成一条普通聊天消息来调用历史会话蒸馏 skill。IM 负责选择来源、执行 agent 与写入范围;Gateway 不解析蒸馏路径或注入 transcript 上下文。
 
 #### Scenario: 用户在 IM 左侧面板选择 conversation 发起蒸馏
 - **WHEN** 用户在 conversation 列表中进入"生成 skill"多选模式
@@ -294,8 +293,7 @@ IM 负责选择来源、执行 agent 与写入范围;Gateway 不解析蒸馏路�
 #### Scenario: 用户通过范围弹窗指定生成级别后提交蒸馏
 - **GIVEN** 新对话已预填所选 conversation 对应的 `source_jsonl_paths`
 - **WHEN** 用户补充意图说明并提交
-- **THEN** 对话将 `/skill:conversation-skill-distiller`、`source_jsonl_paths`、用户意图、
-  `execution_agent_id` 与 `target_scope` 预填为用户可见消息
+- **THEN** 对话将 `/skill:conversation-skill-distiller`、`source_jsonl_paths`、用户意图、`execution_agent_id` 与 `target_scope` 预填为用户可见消息
 - **AND** 该消息按普通聊天消息发送;Gateway 不解析 `source_jsonl_paths`,不注入 transcript 上下文
 
 #### Scenario: 蒸馏写入结果复用现有对话展示

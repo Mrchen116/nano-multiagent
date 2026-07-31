@@ -3,7 +3,7 @@
 > 对齐: bugfix-471
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
-> 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
+> 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
 
 ## Purpose
 
@@ -13,9 +13,7 @@ Gateway 与 IM 之间工具调用、附件、终态收口、图片、授权、�
 
 ### Requirement: Gateway 中继工具调用时执行中即转发参数侧展示
 
-Gateway 把内核工具调用事件中继给 IM 时,工具开始执行的中继帧携带 presenter 在该阶段产出的参数侧展示:
-`summary` 经 `output` 字段转发,参数侧 `detail` 原样转发;工具执行结束的中继帧携带含结果的完整展示。
-Gateway 纯透传 presenter 字段,不按工具语义增删。
+Gateway 把内核工具调用事件中继给 IM 时,工具开始执行的中继帧携带 presenter 在该阶段产出的参数侧展示: `summary` 经 `output` 字段转发,参数侧 `detail` 原样转发;工具执行结束的中继帧携带含结果的完整展示。Gateway 纯透传 presenter 字段,不按工具语义增删。
 
 #### Scenario: 工具执行中的中继帧携带参数侧展示
 - **GIVEN** 一个其 presenter 在执行开始即产出 presentation 的工具被调用
@@ -30,8 +28,7 @@ Gateway 纯透传 presenter 字段,不按工具语义增删。
 
 ### Requirement: Skills 使用统计 WS RPC
 
-IM 查询某 agent 的 skill 使用统计时,Gateway 经 WS RPC 读取该 agent workspace 的运行态统计文件并回包;
-缺文件或缺 workspace 视为空列表。
+IM 查询某 agent 的 skill 使用统计时,Gateway 经 WS RPC 读取该 agent workspace 的运行态统计文件并回包; 缺文件或缺 workspace 视为空列表。
 
 #### Scenario: IM 前端通过 gateway 读取 skill 使用统计
 - **WHEN** Gateway 收到 WS RPC `skills_usage_request`(含 agentId)
@@ -43,8 +40,7 @@ IM 查询某 agent 的 skill 使用统计时,Gateway 经 WS RPC 读取该 agent 
 
 ### Requirement: 通道中继去重并把多媒体附件透传给内核
 
-Web IM 中继通道对收到的 relay 帧去重(SQLite 落盘,跨重启生效),避免同一消息重复处理;通道把图片等附件
-解析为标准结构透传进内核入站,不内置 ASR/OCR 等业务解析。
+Web IM 中继通道对收到的 relay 帧去重(SQLite 落盘,跨重启生效),避免同一消息重复处理;通道把图片等附件解析为标准结构透传进内核入站,不内置 ASR/OCR 等业务解析。
 
 #### Scenario: 重复 relay 帧只处理一次
 - **GIVEN** 中继通道已处理过某 relay 帧
@@ -57,10 +53,7 @@ Web IM 中继通道对收到的 relay 帧去重(SQLite 落盘,跨重启生效),�
 
 ### Requirement: run 进入终态时对在飞 tool_call 按原因收口
 
-run 进入失败/取消终态(含 idle 看门狗收尸路径)时,Gateway 必须对该轮所有仍处于 running 的 tool_call
-经原通道下发一个终态,并标注中断原因,使消费者侧不再有工具停留在「运行中」。中断原因区分两类:工具因自身
-deadline(如命令 `timeout`)到点被掐 → 标「执行超时」(耗时过长);run 因 idle 看门狗 liveness 收尸或进程
-异常/中断 → 标「已中断」(卡死/中断)。已完成的 tool_call 终态不被改写。
+run 进入失败/取消终态(含 idle 看门狗收尸路径)时,Gateway 必须对该轮所有仍处于 running 的 tool_call 经原通道下发一个终态,并标注中断原因,使消费者侧不再有工具停留在「运行中」。中断原因区分两类:工具因自身 deadline(如命令 `timeout`)到点被掐 → 标「执行超时」(耗时过长);run 因 idle 看门狗 liveness 收尸或进程异常/中断 → 标「已中断」(卡死/中断)。已完成的 tool_call 终态不被改写。
 
 #### Scenario: 工具自身 deadline 命中后在飞工具收口为执行超时
 - **GIVEN** 某轮有一个设了自身超时的工具(如带 `timeout` 的命令)已开始执行(已发 tool_start)
@@ -85,8 +78,7 @@ deadline(如命令 `timeout`)到点被掐 → 标「执行超时」(耗时过长
 #### Scenario: 在飞工具收口仍保留其原始调用参数
 - **GIVEN** 某轮有一个工具在飞,其开始执行时已带出原始调用参数(如 bash 的命令与 description)
 - **WHEN** run 进入终态对该在飞工具收口(看门狗超时或异常终止)
-- **THEN** 下发的终态仍携带该工具的原始调用参数(仅状态改为失败 + 标注原因),消费者据此能看出
-  是哪条命令被中断,而非只剩工具名
+- **THEN** 下发的终态仍携带该工具的原始调用参数(仅状态改为失败 + 标注原因),消费者据此能看出是哪条命令被中断,而非只剩工具名
 
 ### Requirement: 用户经 IM 发送的图片被 Agent 看到，且在后续轮次仍可追问
 
@@ -113,8 +105,7 @@ deadline(如命令 `timeout`)到点被掐 → 标「执行超时」(耗时过长
 
 ### Requirement: Gateway 向 IM 中继的工具调用携带授权决策
 
-Gateway 把内核工具执行事件中继到 IM 时，除既有的 reason 徽标 / emoji / presentation detail 外，
-一并透传「该工具调用是否经用户显式授权/拒绝」的标识；自动放行的调用不携带。
+Gateway 把内核工具执行事件中继到 IM 时，除既有的 reason 徽标 / emoji / presentation detail 外，一并透传「该工具调用是否经用户显式授权/拒绝」的标识；自动放行的调用不携带。
 
 #### Scenario: 经用户授权的工具调用被中继
 - **WHEN** 内核报出一次经用户允许的工具调用执行

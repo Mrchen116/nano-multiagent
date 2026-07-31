@@ -3,7 +3,6 @@
 Clears SOCKS/HTTP proxy env vars so httpx tests using non-local base URLs
 don't fail with 'socksio not installed' when the dev environment has SOCKS
 proxy configured (e.g. ALL_PROXY / HTTPS_PROXY pointing to a SOCKS server).
-See regression.md §4.1.
 """
 
 import pytest

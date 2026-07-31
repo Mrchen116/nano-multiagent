@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 720" role="img" aria-labelledby="title desc">
+  <title id="title">文档体系的静态检查与真实任务验证</title>
+  <desc id="desc">左侧展示结构、grounding、生命周期、生成内容、一致性和信任边界等机械检查；右侧展示任务结果、检索路径、成本、人类评审和维护成本等真实任务评测；两者同时成立才说明体系可持续且真的帮助 Agent。</desc>
+  <defs>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #1a1a1a; }
+      .title { font-size: 28px; font-weight: 700; }
+      .subtitle { font-size: 16px; fill: #6b6b6b; }
+      .panel-title { font-size: 22px; font-weight: 700; }
+      .item { font-size: 16px; font-weight: 650; }
+      .small { font-size: 14px; fill: #6b6b6b; }
+      .warning { font-size: 15px; font-weight: 650; }
+      .result { font-size: 20px; font-weight: 700; }
+      .connector { stroke: #6b6b6b; stroke-width: 2.2; fill: none; }
+      .feedback { stroke: #4a6f3a; stroke-width: 2.4; fill: none; marker-end: url(#arrowGreen); }
+    </style>
+    <marker id="arrowGreen" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#4a6f3a"/>
+    </marker>
+  </defs>
+
+  <rect width="1100" height="720" fill="#ffffff"/>
+  <text x="40" y="48" class="title">“文档都正确”与“Agent 真的更容易做对”必须分别验证</text>
+  <text x="40" y="78" class="subtitle">静态检查保证体系不持续腐化，真实任务评测检验它是否改善结果、定位成本和风险控制。</text>
+
+  <!-- Static panel -->
+  <rect x="40" y="115" width="450" height="420" rx="16" fill="#e6eef0" stroke="#9ab8be" stroke-width="2"/>
+  <rect x="65" y="138" width="142" height="30" rx="15" fill="#2a6470"/>
+  <text x="136" y="158" text-anchor="middle" class="small" fill="#ffffff">机械检查 · 持续运行</text>
+  <text x="65" y="205" class="panel-title" fill="#2a6470">A. 体系是否结构可信？</text>
+
+  <rect x="65" y="235" width="185" height="70" rx="10" fill="#ffffff" stroke="#9ab8be"/>
+  <text x="82" y="263" class="item">Structure</text>
+  <text x="82" y="286" class="small">可达性 · links · orphan</text>
+  <rect x="280" y="235" width="185" height="70" rx="10" fill="#ffffff" stroke="#9ab8be"/>
+  <text x="297" y="263" class="item">Grounding</text>
+  <text x="297" y="286" class="small">路径 · 符号 · 命令存在</text>
+
+  <rect x="65" y="325" width="185" height="70" rx="10" fill="#ffffff" stroke="#9ab8be"/>
+  <text x="82" y="353" class="item">Lifecycle</text>
+  <text x="82" y="376" class="small">active/archive · promotion</text>
+  <rect x="280" y="325" width="185" height="70" rx="10" fill="#ffffff" stroke="#9ab8be"/>
+  <text x="297" y="353" class="item">Generated</text>
+  <text x="297" y="376" class="small">source/output 漂移</text>
+
+  <rect x="65" y="415" width="185" height="70" rx="10" fill="#ffffff" stroke="#9ab8be"/>
+  <text x="82" y="443" class="item">Consistency</text>
+  <text x="82" y="466" class="small">workflow · skill · 提示一致</text>
+  <rect x="280" y="415" width="185" height="70" rx="10" fill="#ffffff" stroke="#9ab8be"/>
+  <text x="297" y="443" class="item">Trust</text>
+  <text x="297" y="466" class="small">来源 · 适用范围 · owner</text>
+
+  <rect x="78" y="505" width="374" height="52" rx="10" fill="#f5ecdb" stroke="#d4a86a"/>
+  <text x="265" y="528" text-anchor="middle" class="warning" fill="#a07020">只通过这一层：</text>
+  <text x="265" y="548" text-anchor="middle" class="small">页面可能整齐可信，真实任务仍然失败</text>
+
+  <!-- Task evaluation panel -->
+  <rect x="610" y="115" width="450" height="420" rx="16" fill="#ecf0e6" stroke="#a8c0a0" stroke-width="2"/>
+  <rect x="635" y="138" width="142" height="30" rx="15" fill="#4a6f3a"/>
+  <text x="706" y="158" text-anchor="middle" class="small" fill="#ffffff">配对任务 · 定期运行</text>
+  <text x="635" y="205" class="panel-title" fill="#4a6f3a">B. Agent 是否真的更容易做对？</text>
+
+  <rect x="635" y="235" width="185" height="70" rx="10" fill="#ffffff" stroke="#a8c0a0"/>
+  <text x="652" y="263" class="item">Task Outcome</text>
+  <text x="652" y="286" class="small">结果正确 · diff 不越界</text>
+  <rect x="850" y="235" width="185" height="70" rx="10" fill="#ffffff" stroke="#a8c0a0"/>
+  <text x="867" y="263" class="item">Retrieval</text>
+  <text x="867" y="286" class="small">入口 · 路径 · authority 错误</text>
+
+  <rect x="635" y="325" width="185" height="70" rx="10" fill="#ffffff" stroke="#a8c0a0"/>
+  <text x="652" y="353" class="item">Cost</text>
+  <text x="652" y="376" class="small">tokens · calls · 时间</text>
+  <rect x="850" y="325" width="185" height="70" rx="10" fill="#ffffff" stroke="#a8c0a0"/>
+  <text x="867" y="353" class="item">Human Review</text>
+  <text x="867" y="376" class="small">遗漏 · 假设 · 返工</text>
+
+  <rect x="635" y="415" width="400" height="70" rx="10" fill="#ffffff" stroke="#a8c0a0"/>
+  <text x="652" y="443" class="item">Maintenance</text>
+  <text x="652" y="466" class="small">文档、索引、owner 与收尾成本是否产生净收益</text>
+
+  <rect x="648" y="505" width="374" height="52" rx="10" fill="#f5ecdb" stroke="#d4a86a"/>
+  <text x="835" y="528" text-anchor="middle" class="warning" fill="#a07020">只通过这一层：</text>
+  <text x="835" y="548" text-anchor="middle" class="small">一次改造可能有效，却无法持续发现漂移</text>
+
+  <!-- Both required -->
+  <path d="M490 325 H516" class="connector"/>
+  <path d="M610 325 H584" class="connector"/>
+  <circle cx="550" cy="325" r="34" fill="#ffffff" stroke="#6b6b6b" stroke-width="2"/>
+  <text x="550" y="332" text-anchor="middle" class="panel-title">&amp;</text>
+
+  <path d="M550 359 V592" class="feedback"/>
+  <rect x="180" y="600" width="740" height="82" rx="14" fill="#ecf0e6" stroke="#a8c0a0" stroke-width="2"/>
+  <text x="550" y="633" text-anchor="middle" class="result" fill="#4a6f3a">两层同时成立：体系既能长期保持可信，也能在真实任务中产生净收益</text>
+  <text x="550" y="660" text-anchor="middle" class="small">任务结果没有改善的流程应缩小或退役；不能持续检查的收益也会随漂移消失。</text>
+</svg>

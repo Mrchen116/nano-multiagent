@@ -2,19 +2,16 @@
 
 > 对齐: bugfix-471
 >
-> 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)「给库/内核写契约的额外纪律」。本目录只收 **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 + 归档 design)。
+> 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)「给库/内核写契约的额外纪律」。本目录只收 **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 + 归档 design)。
 
 ## Purpose
 
 `agent`(内核)是整个系统唯一的 Agent 执行内核,是一个**库**:单 Agent 运行时 + 工具执行 + 技能发现
 + 事件扩展 + 会话持久化 + 上下文压缩 + 多 LLM provider 适配。
 
-它对外**只暴露 `agent.sdk`**——`build_kernel()` 装配出一个进程内 `Kernel`,消费者持有它并 `await` /
-调用其方法。内核**不内置任何 HTTP / 网络 API**;呈现为终端软件、常驻 gateway 还是云 API,是产品层
-决策,内核不持形态偏好(refactor-387)。
+它对外**只暴露 `agent.sdk`**——`build_kernel()` 装配出一个进程内 `Kernel`,消费者持有它并 `await` / 调用其方法。内核**不内置任何 HTTP / 网络 API**;呈现为终端软件、常驻 gateway 还是云 API,是产品层决策,内核不持形态偏好(refactor-387)。
 
-**显式不负责**:不知道什么是 coding / assistant(产品语义);不做 IM 接入 / channel 路由 / heartbeat
-调度;不做 CLI 交互;不做对外网络服务。这些由消费它的产品承担。
+**显式不负责**:不知道什么是 coding / assistant(产品语义);不做 IM 接入 / channel 路由 / heartbeat 调度;不做 CLI 交互;不做对外网络服务。这些由消费它的产品承担。
 
 ## Canonical Areas
 
@@ -27,9 +24,9 @@
 | [Model Runtime](model-runtime.md) | LLM config、per-run model routing、模型错误恢复 | 2 |
 | [Background Tasks](background-tasks.md) | 后台完成通知、subagent follow-up、task_stop、派生子 agent 隔离 | 4 |
 | [Context and Persistence](context-persistence.md) | compaction、会话档案、事件恢复、append_message、tool call 闭合、AGENTS.md、图片、运行配置、fork_session | 11 |
-| [Tools and Hooks](tools-hooks.md) | built-in tools、Hook、presenter、授权决策、cache/thinking、拒绝文本 | 9 |
-| [Skills](skills.md) | Skill 发现、读取、管理、生命周期、使用统计、preview/list_skills | 5 |
-| [Prompts](prompts.md) | PromptSlots、产品中立 prompt、系统提示模板 | 2 |
+| [Tools and Hooks](tools-hooks.md) | built-in tools、Hook、presenter、授权决策、cache/thinking、拒绝文本 | 10 |
+| [Skills](skills.md) | Skill 发现、读取、管理、生命周期、使用统计、preview/list_skills | 6 |
+| [Prompts](prompts.md) | PromptSlots、产品中立 prompt、系统提示模板 | 3 |
 
 ## Maintenance Rule
 

@@ -1,6 +1,6 @@
 """Contract: test file naming and size guardrails.
 
-Enforces two mechanical rules (docs/TESTING_GUIDE.md):
+Enforces two mechanical rules (docs/development/testing.md):
 
 1. Milestone naming ban (§3 MUST NOT): no new test files whose basename matches
    ``test_m<N>*`` or ``test_m<N><letter>*`` patterns — those are one-time migration
@@ -101,7 +101,7 @@ _MILESTONE_NAME_RE = re.compile(r"^test_m\d+[a-z]*_", re.IGNORECASE)
 def test_no_new_milestone_named_test_files() -> None:
     """No newly added test file basename may match test_m<N>* pattern.
 
-    Milestone-named files are one-time migration artifacts (docs/TESTING_GUIDE.md §3
+    Milestone-named files are one-time migration artifacts (docs/development/testing.md §3
     MUST NOT). They test that a migration happened, not persistent behaviour — they
     are always green after the migration and provide zero regression value.
 
@@ -113,7 +113,7 @@ def test_no_new_milestone_named_test_files() -> None:
         names = "\n  ".join(str(p.relative_to(_REPO_ROOT)) for p in violations)
         pytest.fail(
             f"New test files with milestone names detected — rename to behaviour-based names:\n  {names}\n\n"
-            "See docs/TESTING_GUIDE.md §3: MUST NOT use milestone numbers (test_m9*, etc.)"
+            "See docs/development/testing.md §3: MUST NOT use milestone numbers (test_m9*, etc.)"
         )
 
 
@@ -125,7 +125,7 @@ _LINE_LIMIT = 400
 
 
 def test_new_test_files_under_400_lines() -> None:
-    """Newly introduced test files must not exceed 400 lines (docs/TESTING_GUIDE.md §7).
+    """Newly introduced test files must not exceed 400 lines (docs/development/testing.md §7).
 
     Files already on main that exceed the limit are grandfathered (historical debt).
     Only files added in this branch are checked.
@@ -149,5 +149,5 @@ def test_new_test_files_under_400_lines() -> None:
         )
         pytest.fail(
             f"New test files exceed {_LINE_LIMIT}-line soft cap — split by behaviour:\n  {detail}\n\n"
-            "See docs/TESTING_GUIDE.md §7: single file soft limit 400 lines."
+            "See docs/development/testing.md §7: single file soft limit 400 lines."
         )

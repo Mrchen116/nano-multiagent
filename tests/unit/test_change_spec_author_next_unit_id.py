@@ -40,13 +40,14 @@ def _allocate(
     return result.stdout.strip()
 
 
-def test_allocator_scans_active_and_archived_units(tmp_path: Path) -> None:
+def test_allocator_scans_active_archived_and_retired_units(tmp_path: Path) -> None:
     changes_dir = tmp_path / "changes"
     (changes_dir / "feat-7-active").mkdir(parents=True)
     (changes_dir / "archive" / "bugfix-11-archived").mkdir(parents=True)
     (changes_dir / "archive" / "refactor-9-older").mkdir()
+    (changes_dir / "retired" / "feat-14-superseded").mkdir(parents=True)
 
-    assert _allocate(changes_dir, tmp_path / "state", "perf") == "perf-12"
+    assert _allocate(changes_dir, tmp_path / "state", "perf") == "perf-15"
 
 
 def test_allocator_persists_reservations_before_unit_directory_exists(

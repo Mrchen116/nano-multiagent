@@ -19,20 +19,20 @@ Codex 执行本 skill 时,工具映射差异见 `references/codex-execution-note
 
 1. **门禁 2 没过不能启动**。检查 `docs/changes/<unit>/design.md`:无 `<!-- 模板说明 -->`、Milestone 表完整、空目录数量 = 表行数。任一不满足,**拒绝启动**,提示用户回 `change-design-author` 收口。
 2. **Sync Gate 不通过不动作**。启动第一件事是 main 同步检查(§2),分叉直接停下让人介入,不要强制 reset。
-3. **不写代码、不改 design / 变更稿 spec**。escalation 时通知人介入,由 design-author / spec-author 修订。**两个例外**:(a) 在 PR body / Changelog 这类调度产物里写文字;(b) §7.0 收尾归并:据本 unit delta-spec 把行为增量合并进**长青行为契约层** `docs/specs/<包>/<target>.md`(顶层 canonical,你是单一 owner),并可校正 delta 文件 `<unit_path>/specs/<包>/<target>.md`——注意这与 `<unit_path>/spec.md`(变更稿,禁改)是两回事。
+3. **不写代码、不改 design / 变更稿 spec**。escalation 时通知人介入,由 design-author / spec-author 修订。**两个例外**:(a) 在 PR body / Changelog 这类调度产物里写文字;(b) §7.1 收尾归并:据本 unit delta-spec 把行为增量合并进**长青行为契约层** `docs/specs/<包>/<target>.md`(顶层 canonical,你是单一 owner),并可校正 delta 文件 `<unit_path>/specs/<包>/<target>.md`——注意这与 `<unit_path>/spec.md`(变更稿,禁改)是两回事。
 4. **Agent 工具派发时不设置 isolation 参数**。worktree 由本 skill 分配路径并指示 worker 自建。设了 `isolation=worktree` 会在 `.claude/worktrees/` 创建冲突 worktree,破坏整个流程。
 5. **一个 milestone 一个 worker**。不让同一个 worker 串跑多个 milestone(上下文窗口风险 + 失败定位难)。
 6. **默认并行**。无依赖、无文件冲突的 milestone 必须并行派发;不并行才需要理由。
 7. **轮次上限**。同 issue 5 轮 / 同 unit 7 轮验收没 pass → 强制全停,通知人。
 8. **revise-design 三道闸**。reviewer 给的 `revise-design` 不合规(首轮 / 没引用 design.md 段落 / fix-implementation < 2 轮)直接降级回 fix-implementation,详见 §6.3。
-9. **reviewer / verifier 越界硬处置**。这两个验收角色都严禁写源码/测试/提 commit(详见 change-reviewer §0 / change-verifier §0)。若回报时 unit 分支多了非报告类 commit,**强制 revert** 这些 commit(`git reset` 到该 agent 派发前的 HEAD,`push --force-with-lease`)后,把该轮该 agent 的 verdict **作废**,issues 重新打包派 fix worker 实施(参见 §6.6)。不要"接受验收 agent 顺手修的代码"——既验又改不可信。
+9. **reviewer / verifier 越界硬处置**。这两个验收角色都严禁写源码/测试/提交非报告 commit(详见 change-reviewer §0 / change-verifier §0)。若回报时 unit 分支多了非报告类 commit,**强制 revert** 这些 commit(`git reset` 到该 agent 派发前的 HEAD,`push --force-with-lease`)后,把该轮该 agent 的 verdict **作废**,issues 重新打包派 fix worker 实施(参见 §6.6)。不要"接受验收 agent 顺手修的代码"——既验又改不可信。
 10. **退出标准必须逐条严格核对**。worker 回报 DONE 时,orchestrator **必须**对 design.md 该 milestone 行"退出标准"列里的每一条,在 progress.md 找到对应证据并判定是否真的达标(详见 §3.3)。这一步**不许跳过、不许走过场、不许只看证据存不存在**。任一项不达标 → 不算 DONE,退回 worker 补齐。**尤其:live-critical 工作(运行时行为 / 投递 / 跨进程集成)的达标证据必须是真端到端跑到用户可见结果——pytest / stub 绿不算。worker 没给 live 证据时(常因 env 坏了它自降证据),自己把 env 修好或打回 worker 真跑,绝不签收后把 live 验证甩给下一轮 reviewer——那正是 worker→reviewer 往返轮的来源(详见 §3.3 live 签收闸)。**
 11. **派发 reviewer 的 prompt 口径净化**。orchestrator 在派发包里**只许**透传 design.md 已有的"用户可观察"验收语,**严禁**手写"WS 帧必须有 X / API 必须返回 Y / 函数必须被调用"这类协议/接口/实现级标准——这会把 reviewer 推进 engineer 模式。详见 §5。
 12. **CI 绿了才退出,但不等 merge**——提 PR 后等远端 CI,红了走 fix 循环修到绿再交棒;merge 由人做(§7)。
 13. **派发必须后台运行**。Agent 工具派发 worker / reviewer / verifier 一律 `run_in_background: true`。前台(阻塞)派发会让本 skill 卡死在单个子 agent 上——无法并行(§0.6)、无法监控(§3.2),也无法回应开工报信 / 澄清(§3.1.1):前台子 agent 在返回最终结果前,orchestrator 不执行回合,收不到也回不了 `SendMessage`。
 14. **派发时给每个子 agent 稳定 `name`**。Agent 工具派发 worker / reviewer / verifier 时一律传一个稳定可寻址的 `name`(worker 用 `<milestone_id>`、reviewer 用 `<unit_id>-reviewer`、verifier 用 `<unit_id>-verifier`),之后失败循环 / Fast-lane 复验 / PR 反馈处理(§6.FL / §7.5)用 `SendMessage` 按该 `name`(或派发返回的 agent ID)唤醒续跑,保上下文。不给 `name` 则只能新开实例丢上下文。
 15. **主仓 HEAD 不动**。整个 unit 生命周期内,所有针对 `unit/<unit_id>` 分支的 checkout / pull / merge / push / rebase / PR 一律在专属 `unit_worktree_dir`(§2.3)里跑,**严禁**在主仓 `git checkout unit/<id>`——多 orchestrator 并发时主仓 HEAD 会被互相踩翻,用户也可能正在主仓做别的事。Sync Gate(§2.2)操作的是主仓的 main,不在此限。
-16. **任何退出路径必须先 sweep 服务 PID,再处置 worktree**(§7.6 / §6.4 escalate / §0.7 cap 都过这条)。reviewer/worker 正常退出会自 kill,但崩溃时不会,孤儿进程会让用户误把分支代码当主仓在跑。sweep snippet 见项目 AGENTS.md;§7.6 sweep 完后 `git worktree remove`,§6.4 / §0.7 只 sweep 进程、保留 worktree 与日志 / DB 给人排查。
+16. **任何退出路径必须先 sweep 服务 PID,再处置 worktree**(§7.6 / §6.4 escalate / §0.7 cap 都过这条)。reviewer/worker 正常退出会自 kill,但崩溃时不会,孤儿进程会让用户误把分支代码当主仓在跑。sweep 与完成证明见 [`docs/development/worktree-runtime.md`](../../../docs/development/worktree-runtime.md);§7.6 sweep 完后 `git worktree remove`,§6.4 / §0.7 只 sweep 进程、保留 worktree 与日志 / DB 给人排查。
 17. **提 PR 前必须归档 unit**。§7.3 把整个 `docs/changes/<unit_dir>/` 移到
     `docs/changes/archive/<unit_dir>/`;不删除历史、不只搬报告。归档后 PR body、CI fix 和复验都使用
     `unit_path` 解析后的路径。未归档不得创建 PR。已退出的 orchestrator 只自动恢复自包含的 review/CI
@@ -54,7 +54,8 @@ pr_url: <url>            # 可选；address PR / 恢复远端 CI fix 时使用
 **自查 unit_dir**(可能含 short-desc 后缀;orchestrator 只启动活动区 unit):
 
 ```bash
-unit_matches=$(find docs/changes docs/changes/archive -mindepth 1 -maxdepth 1 -type d \
+unit_matches=$(find docs/changes docs/changes/archive docs/changes/retired \
+  -mindepth 1 -maxdepth 1 -type d \
   \( -name "<unit_id>" -o -name "<unit_id>-*" \) -print 2>/dev/null)
 match_count=$(printf '%s\n' "$unit_matches" | sed '/^$/d' | wc -l | tr -d ' ')
 if [[ "$match_count" -eq 0 ]]; then echo "unit path not found: <unit_id>" >&2; exit 1; fi
@@ -65,6 +66,10 @@ if [[ "$match_count" -ne 1 ]]; then
 fi
 unit_path=$unit_matches
 unit_dir=$(basename "$unit_path")
+if [[ "$unit_path" == docs/changes/retired/* ]]; then
+  echo "retired unit cannot be implemented; create a new unit and link this history" >&2
+  exit 1
+fi
 if [[ "$unit_path" == docs/changes/archive/* ]]; then
   if [[ -z "${pr_url:-}" ]]; then
     echo "archived unit is complete; provide its open PR URL to address feedback" >&2
@@ -82,11 +87,11 @@ if [[ "$unit_path" == docs/changes/archive/* ]]; then
 fi
 ```
 
-如 `feat-104` → `feat-104-chat-mention-picker`。active 与 archive 同时命中或任一层存在多个同 id 目录时
+如 `feat-104` → `feat-104-chat-mention-picker`。active、archive、retired 同时命中或任一层存在多个同 id 目录时
 必须报歧义并退出，禁止 `head -1` 随机选。只命中 archive 且没有对应开放 PR 说明 unit 已完成，拒绝重复启动；
-只命中 archive 且显式给出对应开放 PR 时进入受限的 `post-pr` 小修模式。
+只命中 archive 且显式给出对应开放 PR 时进入受限的 `post-pr` 小修模式；retired unit 一律拒绝启动。
 
-unit 的所有信息从 `$unit_path/` 读出来——design.md Milestone 表是 full 模式的派发依据;lite 模式读 fix.md。
+unit 的阶段从 `$unit_path/` 的实际产物判断：full 模式读取首文档、`design.md`、`design-review.md`、milestone 的 `tasks.md` / `progress.md` 和验收报告，lite 模式读取 `fix.md` 与 `M1-fix/`。branch、worktree、PR 和 CI 必须实时核对，不能靠聊天历史或手工快照猜进度。
 
 ---
 
@@ -440,7 +445,7 @@ design-author 已经按反向门槛拆好 milestone(默认单 M1,拆分要举证
 | `retained` | 上轮结论未被本次 delta invalidate,本轮不派 |
 | `skipped` | 本 unit 类型本就不适用(如 lite 跳过 reviewer/verifier、零用户面跳过 reviewer) |
 
-`retained` 不是"没验":必须记录继承依据,至少包含上一轮 report path、上一轮 validated head、本次 `pre_fix_head..HEAD` 变更摘要、为什么没有触及该闸的验证范围。最终 PR body 也要列出 retained 闸和依据。
+`retained` 不是"没验":必须记录继承依据,至少包含上一轮 report path、`validated_at`、`executed_base`、本次 delta 摘要和为什么没有触及该闸的验证范围。`validated_at` 是门禁实际核对的 unit HEAD，`executed_base` 是该 HEAD 与当时 `origin/main` 的 merge-base；派发前记录并传给本轮实际执行的 gate，retained gate 沿用上次值。
 
 **派发包 — verifier**:
 ```
@@ -448,13 +453,14 @@ design-author 已经按反向门槛拆好 milestone(默认单 M1,拆分要举证
 派发包:
   unit_id / unit_dir / branch: unit/<unit_id>
   verify_worktree_dir: <repo_root>/.worktrees/verify-<unit_id>   # §2.4 规划路径,verifier 自建自删
+  validated_at: <派发前 unit HEAD>
+  executed_base: <该 HEAD 与 origin/main 的 merge-base>
   review_round: <N>
   prior_verification_path: <unit_path>/verification.md   # 第 2 轮起
   verification_mode: full | targeted-closure | delta
-  fix_delta_range: <pre_fix_head>..<HEAD>        # 非 full 时必传
+  fix_delta_range: <pre_fix_head>..<validated_at>        # 非 full 时必传
   focus_issues: [<上一轮 CRITICAL/WARNING 指纹或摘要>]   # targeted-closure 时必传
   frontend_reference_contract: <若 design.md 有 ## 前端原型,粘贴相关 must-match 行供 verifier 做证据链核对;否则 N/A>
-  mode: full
 ```
 
 **派发包 — reviewer**:
@@ -463,11 +469,13 @@ design-author 已经按反向门槛拆好 milestone(默认单 M1,拆分要举证
 派发包:
   unit_id / unit_dir / branch: unit/<unit_id>
   unit_worktree_dir: <repo_root>/.worktrees/unit-<unit_id>
+  validated_at: <派发前 unit HEAD>
+  executed_base: <该 HEAD 与 origin/main 的 merge-base>
   review_round: <N>
   prior_acceptance_paths: [<unit_path>/<acceptance|regression>.md]   # 第 2 轮起
   revalidation_mode: full | targeted
   focus_scenarios_or_issues: [<上一轮 fail/inconclusive issue 或 Scenario>]   # targeted 时必传
-  fix_delta_range: <pre_fix_head>..<HEAD>        # targeted 时必传
+  fix_delta_range: <pre_fix_head>..<validated_at>        # targeted 时必传
   frontend_reference_contract: <若 design.md 有 ## 前端原型,粘贴相关 must-match 行供 reviewer 做真实产品对照;否则 N/A>
   mode: full
 ```
@@ -476,8 +484,10 @@ design-author 已经按反向门槛拆好 milestone(默认单 M1,拆分要举证
 
 ```yaml
 review_mode: full | patch | closure
-diff_range: main...HEAD | <pre_fix_head>..HEAD | <finding_origin_head>..HEAD
+diff_range: <executed_base>...<validated_at> | <pre_fix_head>..<validated_at> | <finding_origin_head>..<validated_at>
 focus_findings: [<上一轮 code review finding>]   # closure 时必传
+validated_at: <派发前 unit HEAD>
+executed_base: <该 HEAD 与 origin/main 的 merge-base>
 ```
 
 两个 agent 启动后都会先报开工信、可能来口径澄清,按 §3.1.1 回应。等**本轮 selection 里所有非 retained / skipped 的结果都齐**再进 §5.2 / §6 路由(谁先回就先收着,等齐再决策)。
@@ -495,20 +505,29 @@ reviewer 的真值是首文档(spec / motivation / incident)里**用户可观察
 
 需要协议级验证的是 worker 写单测时的事,不是 reviewer 的事。reviewer 一旦拿到协议级标准,就会去抓帧 / 读 handler / 加 debug log,**整轮验收作废**。
 
-### §5.2 续接 + 越界校验(两个 agent 都查)
+### §5.2 同步报告 + 越界校验(两个 agent 都查)
 
-本轮被派发的 reviewer / verifier 报告都回后,合并路由见 §6。路由前必须**校验 verifier / reviewer 越界**(§0.9)——两者都是零写入,unit 分支上只该多出本轮实际派发闸对应的报告 commit:
+本轮被派发的 reviewer / verifier 报告都回后,先同步远端 unit 分支,确认两者返回的 `report_commit` 都已纳入,再按 §6 合并路由。Orchestrator 不替验收角色提交报告。随后必须**校验 verifier / reviewer 越界**(§0.9)——两者都是零写入,unit 分支上只该多出本轮实际派发闸对应的报告 commit:
 
 ```bash
-# 派发前记下基线(派 verifier+reviewer 之前)
+# 派发前执行，并把同一个 SHA 作为 validated_at
 BEFORE=$(git -C "$unit_worktree" rev-parse HEAD)
 
-# 本轮派出的 reviewer/verifier 报告都回、都 push 后比对
+# 本轮派出的 reviewer/verifier 报告都回、都 push 后同步远端
+git -C "$unit_worktree" fetch origin "unit/<unit_id>"
+git -C "$unit_worktree" merge --ff-only "origin/unit/<unit_id>"
 AFTER=$(git -C "$unit_worktree" rev-parse HEAD)
+
+# 对本轮 selected 的闸逐一检查;retained / skipped 不检查
+git -C "$unit_worktree" merge-base --is-ancestor "<reviewer report_commit>" "$AFTER"
+git -C "$unit_worktree" merge-base --is-ancestor "<verifier report_commit>" "$AFTER"
+
 NEW_COMMITS=$(git -C "$unit_worktree" log --oneline "$BEFORE..$AFTER")
 ```
 
-预期:`NEW_COMMITS` **只包含本轮 selected gates 的报告 commit**——若派了 reviewer,应有 `docs(<unit_id>): round <N> acceptance — verdict ...`;若派了 verifier,应有 `docs(<unit_id>): round <N> verification — verdict ...`(commit message 格式详见 AGENTS.md)。retained / skipped 的闸不期待新报告 commit。出现任何改了源码/测试/配置的 commit → 走 §6.6 处置(verifier 越界同 reviewer:作废本轮该 agent 的 verdict、revert 越界 commit、issues 转 fix worker 重做)。
+任一 `report_commit` 不在 `AFTER` 中,要求对应 agent 先完成同步和 push,不要继续路由。
+
+预期:`NEW_COMMITS` **只包含本轮 selected gates 的报告 commit**，格式以对应验收 skill 为准。retained / skipped 的闸不期待新报告 commit。出现任何改了源码/测试/配置的 commit → 走 §6.6 处置(verifier 越界同 reviewer:作废本轮该 agent 的 verdict、revert 越界 commit、issues 转 fix worker 重做)。
 
 ---
 
@@ -520,7 +539,7 @@ NEW_COMMITS=$(git -C "$unit_worktree" log --oneline "$BEFORE..$AFTER")
 
 - **code review findings 的判定**:返回 `[]` → 该闸 pass。非空时由你逐条判:CONFIRMED 的 correctness bug **按 CRITICAL 对待**,必须并入 fix;PLAUSIBLE 及 cleanup / altitude 类发现你用技术领导者判断——值得修的并入同一个 fix milestone,不值得阻塞 PR 的记入 PR body 已知事项(并说明不修理由)。
 - **所有 required gates 都 pass**(派发闸 pass + retained 闸仍有效 + skipped 闸不适用)→ §6.1(各做完整性检查)→ §7 提 PR。
-- **verifier 有 CRITICAL,或 reviewer 给 fix-implementation,或 code review 有阻塞发现** → §6.2:**把 verifier 的 CRITICAL/WARNING issues + reviewer 的 fix issues + code review 的阻塞 findings 合并打包进同一个 fix 任务**,一个 fix worker 改完后先过 worker DONE / live 签收闸,再走 §6.2.1 Revalidation Selection。verifier 报"缺测试"(WARNING)的,worker 必须补上对应测试。
+- **verifier `verdict=fail`,或 reviewer 给 fix-implementation,或 code review 有阻塞发现** → §6.2:**把 verifier 的 CRITICAL/WARNING issues + reviewer 的 fix issues + code review 的阻塞 findings 合并打包进同一个 fix 任务**,一个 fix worker 改完后先过 worker DONE / live 签收闸,再走 §6.2.1 Revalidation Selection。verifier 报"缺测试"(WARNING)的,worker 必须补上对应测试。
 - **reviewer 给 `revise-design`** → §6.3 三道闸。(verifier 不给 revise-design;它若把某 design 决策违背报成 WARNING,默认走 fix-implementation 让实现去对齐 design;真要改 design 仍由 reviewer 的 revise-design 三道闸驱动。)
 - **reviewer 给 `out-of-unit`** → §6.5。
 
@@ -532,7 +551,7 @@ NEW_COMMITS=$(git -C "$unit_worktree" log --oneline "$BEFORE..$AFTER")
 
 所有 required gates 都 pass 时,对参与或被继承的报告做完整性检查:
 
-**verifier 报告**:记分卡三维齐全、Correctness 逐 requirement/scenario 有结论、CRITICAL 计数为 0。
+**verifier 报告**:记分卡三维齐全、Correctness 逐 requirement/scenario 有结论、CRITICAL / WARNING 计数均为 0。
 **reviewer 报告**:
 
 - acceptance/regression 报告必须有验收标准覆盖表,且没有明显只列 focus fix、漏掉首文档必验项。
@@ -599,7 +618,7 @@ git -C "$unit_worktree" diff --stat <pre_fix_head>..HEAD
 - reviewer targeted 复验发现新副作用,或 fix 触及上轮未覆盖旅程
 - 同一 issue targeted 复验失败 >= 2 次
 - verifier 报的是架构自洽 / Coherence 级问题且 fix 触及架构边界
-- rebase main 后有非平凡冲突解决或大范围 delta
+- final sync 的 main delta 触及本 unit 调用链、高风险边界或产生非平凡冲突
 - orchestrator 无法说明 retained 依据
 
 轻量复验发现新副作用 / 新 CRITICAL / 新阻塞 finding 时,该闸本轮有效失败;下一轮按新 delta 重新 selection。连续 targeted 不收敛时升级 full 三闸或 §6.4 escalate。
@@ -675,7 +694,7 @@ Recommended next action: 启动 change-design-author 修订 design.md(必须 Cha
 Resume: 修订完成后调 orchestrator,带 unit_id 即可续跑
 ```
 
-4. **sweep 服务 PID**(§0.16,见 AGENTS.md snippet),保留 worktree 与日志 / DB。
+4. **sweep 服务 PID**(§0.16,见 [`docs/development/worktree-runtime.md`](../../../docs/development/worktree-runtime.md)),保留 worktree 与日志 / DB。
 5. orchestrator **退出**。等人完成 design 修订并主动重启。
 
 ### §6.5 `out-of-unit`(reviewer 已立 issue)
@@ -710,36 +729,50 @@ Resume: 修订完成后调 orchestrator,带 unit_id 即可续跑
 
 unit 内所有 issues 解决,reviewer 给 `pass`(或 `pass-with-issues` 且 acceptance bar 允许):
 
-### §7.0 收尾归并:据 delta-spec 把行为增量并进长青契约层
+### §7.0 最终 sync + 门禁有效性判断
 
-提 PR 前的最后一道实质动作——把本 unit 的对外行为增量并进长青行为契约层 `docs/specs/<包>/<target>.md`,
-让它保持 current。**不全量重扫 canonical**,而是据 design 阶段产的 **delta-spec**
-(`<unit_path>/specs/<包>/<target>.md`)合并。规范见 `docs/SPEC_GUIDE.md`「契约层增量」+
-「收尾归并 checklist」。
+门禁结论绑定的是执行时的 `(executed_base, validated_at)`,不是分支名。校正 delta-spec 和归并 current spec 前，先把 unit 分支 rebase 到最新 `origin/main`；冲突时暂停交人。随后结合 main 增量、门禁后 unit 增量和最终 unit diff，逐道判断：
+
+| Gate | 可 `retained` | 需要重跑 |
+|---|---|---|
+| reviewer | 增量无法影响本 unit 的用户旅程 | 可能影响用户可观察行为时跑 `full` |
+| verifier | 增量不触及 requirement、design、架构边界或实现依赖 | 局部影响跑 `delta`;高风险或范围不清跑 `full` |
+| code review | unit patch 及其依赖上下文没有实质变化 | 上下文或 patch 变化时对最终 `origin/main...HEAD` 跑 `full` |
+
+命中 §6.2.1 的高风险条件或无法清楚说明 retained 依据时，所有适用门禁都选 `full`。需要重跑时带新的 `selection` 返回 §5，通过后重新进入本节；不需要重跑时记录每道闸的 `effective_base`、`effective_through` 和理由，再进入 §7.1。旧报告保留原始 `executed_base` / `validated_at`，不能伪装成在新 HEAD 上重新执行过。
+
+### §7.1 收尾归并:据 delta-spec 把行为增量并进长青契约层
+
+在 §7.0 确认门禁对最终集成树仍然有效后,把本 unit 的对外行为增量并进长青行为契约层 `docs/specs/<包>/<target>.md`,让它保持 current。**不全量重扫 canonical**,而是据 design 阶段产的 **delta-spec**(`<unit_path>/specs/<包>/<target>.md`)合并。规范见 `docs/specs/CONTRIBUTING.md`「契约层增量」和「delta-spec 归并规则」。
 
 > **fix 路径无 delta 的兜底**:lite 模式 / post-PR fix(§6.FL)没走 design-author,没有 delta 文件。若这类
 > 改动触及对外行为(典型:bugfix 恢复或改变了用户可观察行为),orchestrator 据实际代码**自己补一份 delta**
-> 到 `<unit_path>/specs/<包>/`(套 ③ 的实现层红线),再走下面三步——契约写入不留给 worker
+> 到 `<unit_path>/specs/<包>/`(套 ④ 的实现层红线),再走下面流程——契约写入不留给 worker
 
 > **canonical `docs/specs/` 与 delta `<unit_path>/specs/` 都在 unit_worktree 的
 > `unit/<unit_id>` 分支上**,和源码 diff 同处一棵树——在 `$unit_worktree` 里编辑 + commit,随 PR 一起
 > 进 main。不动主仓 HEAD(§0.15)。
 
-对本 unit **每个 delta 文件**(可在同一包下有多个 target),按下面三步走:
+对本 unit 的全部 delta 文件(可在同一包下有多个 target),按下面四步走:
 
 **① 校正 delta(design 草案 → 实际代码)**:delta 是 design 期的预测,worker 实现可能偏。拿实际代码 diff
 核对 delta 每条 ADDED/MODIFIED/REMOVED——实现期新增的对外行为补进 delta、design 写了但没落地的删掉。
 design 注 "no spec delta" 且 diff 也无对外行为变化 → 该包跳过(PR body 记 "no spec delta")。
 
-**② 软对账(advisory,不出红测)** —— 复用已派的 reviewer / verifier 做,不另起机制。派 §5
-reviewer / verifier 时(或本步现派一轮)让其对**校正后 delta 的每条** Requirement/Scenario **搜代码 +
-测试**,报告三类:契约与实现一致 / 契约声明的行为代码已背离 / 本 unit 新增代码产生了 delta 未覆盖的对外
-行为。背离与缺口**显式列在报告里**(advisory,不出红测、不机械硬卡)。范围 = 本 unit delta,**不是
-canonical 全量**。靠 agent 尽责对账,不靠机械绑定。
+**② 提交校正结果**:若①产生修改,commit 并 push；若文件无需修改,直接继续。verifier 从最新
+`unit/<unit_id>` 分支读取本 unit 的全部 delta 文件。
 
-**③ 合并 delta 进 canonical**:按相对路径把校正后 delta 机械合并进对应 `docs/specs/<包>/<target>.md`——ADDED 追加、
+**③ Full unit 由 verifier 对账**:只派 `change-verifier`,传 `unit_id`、`unit_dir`、`branch`、`verify_worktree_dir`、当前 `validated_at` / `executed_base` 和 `verification_mode: corrected-delta`。按 §5.2 同步报告并校验越界:
+
+- `outcome=aligned` → 进入④。
+- `outcome=delta-mismatch` → 你按报告校正 delta,重新执行②③；不重跑产品 reviewer 或 code review。
+- `outcome=implementation-mismatch` → 回 §6.2 修实现/测试,按 §6.2.1 复验原门禁；全部通过后重新执行 §7.0,再进入 §7.1。
+
+Bugfix lite 保持 §2.1 的门禁政策,不追加 verifier；它的 delta 由 orchestrator 校正后直接进入④。
+
+**④ 合并 delta 进 canonical**:按相对路径把已对账的校正后 delta 机械合并进对应 `docs/specs/<包>/<target>.md`——ADDED 追加、
 MODIFIED 替换对应条目、REMOVED 删对应条目(delta 与 canonical 同骨架,对应是机械的)。每条进 canonical
-前再过 SPEC_GUIDE 的「两问判据」+「库契约四纪律」(WHEN/THEN 主语=消费者、CDC 裁剪、纯
+前再过 `docs/specs/CONTRIBUTING.md` 的「两问判据」+「库契约四纪律」(WHEN/THEN 主语=消费者、CDC 裁剪、纯
 `Purpose + Requirement/Scenario`,**无** `覆盖:` 行 / `[可执行]` 标签 / freshness 测试),并守**实现层红线**:
 Scenario 的 THEN / 正文不得出现内部函数名、类名、日志字符串、`<符号> 被调用 / 不被调用` 断言(那是单测的事;
 delta 若混入也在此滤掉)。只有包级职责、边界或 area 索引变化才写入口 `spec.md`;否则必须选择语义最窄的 area。
@@ -747,23 +780,29 @@ delta 若混入也在此滤掉)。只有包级职责、边界或 area 索引变�
 (或多包分别 commit)。
 
 > 你是单一 owner、串行收尾,无并行写冲突。delta 把"该验 / 该合并什么"限定到本 unit 增量,不必全量
-> 重扫;非确定性由 delta 固定骨架 + 校正 / 软对账兜——真飘了下个 unit 收尾再修(纯增量、advisory,
-> 不阻塞本 PR)。
+> 重扫;你负责校正和归并,verifier 只对校正结果做一次独立对账。
 
-归并完成后,继续 §7.1。
+归并完成后,继续 §7.2。
 
-### §7.1 sync gate 重跑
+### §7.1A 归并跨任务知识
 
-```bash
-git -C "$unit_worktree" fetch origin
-git -C "$unit_worktree" rebase origin/main           # 期间 main 可能被别人推进了
-# 冲突 → 暂停,通知人介入(不强行解)
-git -C "$unit_worktree" push --force-with-lease origin "unit/<unit_id>"
-```
+逐个读取 milestone `progress.md` 的 `Promotion Candidates`。对每条候选先用本 unit 的代码、测试和 evidence
+核实，再按它回答的问题归并到唯一 owner：
+
+- 跨包职责、依赖方向或架构不变量 → `SPEC.md`；
+- 当前对外行为 → `docs/specs/`；
+- 可重复的开发、测试或 worktree 规则 → `docs/development/`；
+- 启动、恢复和排障规则 → `docs/operations/`；
+- 能机械保护的约束 → 代码、测试、CI、脚本或 skill；
+- 只对本次实现成立、证据不足或没有长期复用价值 → 不 promotion，留在归档 unit 中。
+
+归并时写入现有 canonical 页面并从对应领域索引链接；不要创建泛化 `LOGBOOK.md`，也不要把同一规则同时复制到多个 owner。将 accepted/rejected 结论回填到候选表，方便后续读者知道它是否已经进入 current。若归并需要修改源码、测试、配置、CI、脚本或 skill，交给 worker 实施并重新判断受影响门禁。
 
 ### §7.2 本地 CI 门禁(绿才提 PR)
 
 提 PR 前在 `$unit_worktree` 把项目 CI 等价跑一遍。从 CI 配置(`.github/workflows/` 或同类**照搬**每个 job 的命令逐条复现,别凭记忆——format 用「只验不改」版、依赖按锁文件装,否则本地绿、CI 红。任一 job 红当 bug 走 §6.2,修到全绿才进 §7.3。
+
+CI 通过后、归档前，再按 §7.0 检查门禁后新增提交及 main 推进是否使任一道闸失效；需要复验则返回 §5，全部结论对当前 HEAD 仍有效才进入 §7.3。
 
 ### §7.3 归档完成 unit
 
@@ -782,9 +821,7 @@ git -C "$unit_worktree" add -A -- docs/changes
 git -C "$unit_worktree" commit -m "docs(<unit_id>): archive completed change unit"
 ```
 
-必须移动整个目录,包括首文档、design、M*/、acceptance/regression、verification、delta-spec 和 evidence。
-不得复制后留下活动区副本。归档后用 `unit_path` 作为唯一文档根路径；本会话内的 CI/fix/reviewer/verifier
-循环继续按各角色的 active/archive 解析规则读取同一目录。会话退出后的恢复仅限 §2.5 自包含小修。
+必须移动整个目录,包括首文档、design、M*/、acceptance/regression、verification、delta-spec 和 evidence。不得复制后留下活动区副本。归档后用 `unit_path` 作为唯一文档根路径；本会话内的 CI/fix/reviewer/verifier 循环继续按各角色的 active/archive 解析规则读取同一目录。会话退出后的恢复仅限 §2.5 自包含小修。
 
 归档提交后至少运行 `git -C "$unit_worktree" diff --check origin/main...HEAD`,并检查 PR 要引用的文档都存在于
 `$unit_worktree/$unit_path`。
@@ -799,9 +836,9 @@ git -C "$unit_worktree" commit -m "docs(<unit_id>): archive completed change uni
 `$repo_url/blob/$pr_head_sha/$unit_path/...` 形式的绝对 GitHub blob URL；禁止继续生成活动区路径，也禁止把
 `docs/...` 裸相对路径放进 PR body，因为它会相对 `/pull/<n>` 路由解析。
 
-PR body 里附一行 **Spec delta**:列 §7.0 收尾归并实际改了哪些 `docs/specs/<包>/<target>.md`(或 "no spec delta",纯内部 unit)。
+PR body 里附一行 **Spec delta**:列 §7.1 收尾归并实际改了哪些 `docs/specs/<包>/<target>.md`(或 "no spec delta",纯内部 unit)。
 
-PR body 里附一段 **Validation summary**:列每道闸最近一次有效状态(`full` / `targeted` / `targeted-closure` / `delta` / `patch` / `closure` / `retained` / `skipped`)、report path / diff range / validated head。任何 retained 闸都要写继承依据,让 reviewer 看得出是"上轮已验且本次 delta 未失效",不是漏验。
+PR body 里附一段 **Validation snapshot + summary**:列出每道闸的最近一次有效模式、证据、`executed_base → validated_at`、`effective_base → effective_through` 和 retained / 局部复验理由。
 
 ### §7.5 提 PR + 等 CI
 
@@ -817,6 +854,8 @@ EOF
 ```
 
 PR title 格式:`[<type>] <短描述> (<unit_id>)`,例:`[feat] chat mention picker (feat-104)`、`[bugfix] session leak on restart (bugfix-200)`。
+
+开放 PR 后若 unit 分支再次同步 main，重复 §7.0 的门禁失效判断。
 
 提 PR 后等远端 CI 跑完(`gh pr checks --watch`)——本地门禁只防低级红,环境差异 / 并发 main 推进仍可能红。全绿 → §7.6。有红当 bug 走 §6.2(`gh run view --log-failed` 取失败详情作线索,派 worker 修;push 后 CI 自动重跑,再 watch),修到绿才退。此时 unit 已在 archive;本会话继续使用 `$unit_path`,所有派发包仍传原 `unit_dir`,接收角色必须唯一解析到归档路径。fix push 改变 HEAD 后，重新计算 `pr_head_sha` 并更新 PR body 的 blob 链接和 Validation Summary，再继续 watch。
 

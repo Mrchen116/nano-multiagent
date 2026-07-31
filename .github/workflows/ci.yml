@@ -24,6 +24,9 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[dev]"
 
+      - name: Documentation integrity
+        run: ./scripts/docs-check
+
       - name: ruff check
         run: ruff check .
 

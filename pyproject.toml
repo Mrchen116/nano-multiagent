@@ -40,6 +40,8 @@ dev = [
   "pytest-cov>=5.0,<7.0",
   # feat-388: 固定大版本——format 输出跨大版本会变，CI/hook/本地须保持一致（决策 D5）
   "ruff==0.15.*",
+  # refactor-486: docs-check 通过 Markdown AST 读取链接，避免把代码块和示例误判为 live 引用。
+  "markdown-it-py>=4,<5",
   # feat-434: per-test 超时——把 CI 上偶发的整 job 挂死（runner "operation was canceled"，
   # 无 traceback 难定位）变成单测超时 + faulthandler 栈转储，既止血又可精确定位 hang 的测试。
   "pytest-timeout>=2.3,<3.0",

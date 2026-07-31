@@ -2,22 +2,15 @@
 
 > 对齐: bugfix-471
 >
-> 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
+> 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
 
 ## Purpose
 
-`personal_assistant`(Node Gateway)是个人助手产品的**常驻进程节点网关**:把外部 IM / 内置 Web IM 的入站
-消息路由到正确的 Agent、进程内持有 `agent` 内核(经 `agent.sdk`)执行、把结果回发原通道,并跑本地
-heartbeat / cron 两套主动机制、与可选的中心 IM 服务做配置同步与状态上报。它运行在用户机器上,通常在 NAT 后面。
+`personal_assistant`(Node Gateway)是个人助手产品的**常驻进程节点网关**:把外部 IM / 内置 Web IM 的入站消息路由到正确的 Agent、进程内持有 `agent` 内核(经 `agent.sdk`)执行、把结果回发原通道,并跑本地 heartbeat / cron 两套主动机制、与可选的中心 IM 服务做配置同步与状态上报。它运行在用户机器上,通常在 NAT 后面。
 
-它对外承担的可观察职责:① 终端用户在任一通道发消息能被正确的 Agent 处理、回复回到原通道原目标;
-② 群聊只在被 @提及 / 回复 Agent / 控制命令时才触发 Agent;③ 运维者用启停命令把它当后台服务管理;
-④ IM 服务在线时它主动连出、注册节点、周期心跳、同步配置、中继 Web IM 消息;⑤ IM 服务离线时外部 IM
-主路径仍可用(本地自治);⑥ 进程重启后会话映射自动恢复,错过的 heartbeat / cron 周期不补跑回填。
+它对外承担的可观察职责:① 终端用户在任一通道发消息能被正确的 Agent 处理、回复回到原通道原目标; ② 群聊只在被 @提及 / 回复 Agent / 控制命令时才触发 Agent;③ 运维者用启停命令把它当后台服务管理; ④ IM 服务在线时它主动连出、注册节点、周期心跳、同步配置、中继 Web IM 消息;⑤ IM 服务离线时外部 IM 主路径仍可用(本地自治);⑥ 进程重启后会话映射自动恢复,错过的 heartbeat / cron 周期不补跑回填。
 
-**显式不负责**:不实现 Agent Loop、不直接调 LLM、不管会话持久化(都由内核负责);不做全局用户/组织
-管理(IM 服务负责);不提供终端 CLI 交互(coding_cli 负责)。它**只经 `agent.sdk`** 持有内核,禁止
-import 内核内部(由 `tests/contract/` 把守)。
+**显式不负责**:不实现 Agent Loop、不直接调 LLM、不管会话持久化(都由内核负责);不做全局用户/组织管理(IM 服务负责);不提供终端 CLI 交互(coding_cli 负责)。它**只经 `agent.sdk`** 持有内核,禁止 import 内核内部(由 `tests/contract/` 把守)。
 
 ## Canonical Areas
 

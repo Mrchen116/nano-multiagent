@@ -3,7 +3,7 @@
 > 对齐: feat-445
 > 上级: [kernel (agent) Specification](spec.md)
 >
-> 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)「给库/内核写契约的额外纪律」。本目录只收 **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 + 归档 design)。
+> 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)「给库/内核写契约的额外纪律」。本目录只收 **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 + 归档 design)。
 
 ## Purpose
 
@@ -13,12 +13,7 @@ LLM 配置查询、每轮模型路由和模型错误恢复语义的对外契约�
 
 ### Requirement: LLM 配置可查询,每轮对话的模型由消费者随 run 提供
 
-消费者可读当前 LLM 配置(provider/base_url/默认目录,供选择器/能力上报用);模型不再是 kernel 级固化的
-全局属性,改为消费者在发起每个 run 时随 `submit` 提供,内核不持有对话默认 model。`get_llm_config()` 返回
-SDK-owned `LLMConfig` DTO(内核内部 `LLMFactoryConfig` 不出边界),仍报告 build-time 的 active 连接供
-选择器使用;`create_session` 不收 model。`reconfigure_llm`/`bind_llm_client` 失去调用方而退役,内核不再
-有"当前全局 active model"的概念。一个 run 内部派生的子运行(内核为该 run 派发的子 agent、该 run 的
-自动上下文压缩摘要)同样复用该 run 的 model,不回退到内核构造期的全局默认。
+消费者可读当前 LLM 配置(provider/base_url/默认目录,供选择器/能力上报用);模型不再是 kernel 级固化的全局属性,改为消费者在发起每个 run 时随 `submit` 提供,内核不持有对话默认 model。`get_llm_config()` 返回 SDK-owned `LLMConfig` DTO(内核内部 `LLMFactoryConfig` 不出边界),仍报告 build-time 的 active 连接供选择器使用;`create_session` 不收 model。`reconfigure_llm`/`bind_llm_client` 失去调用方而退役,内核不再有"当前全局 active model"的概念。一个 run 内部派生的子运行(内核为该 run 派发的子 agent、该 run 的自动上下文压缩摘要)同样复用该 run 的 model,不回退到内核构造期的全局默认。
 
 #### Scenario: 读取当前 LLM 配置
 - **WHEN** 消费者 `kernel.get_llm_config()`
@@ -51,11 +46,7 @@ SDK-owned `LLMConfig` DTO(内核内部 `LLMFactoryConfig` 不出边界),仍报�
 
 ### Requirement: 模型错误按统一可恢复语义重试并保留原始原因
 
-内核对所有 LLM provider 使用同一 provider-neutral 错误事实与重试策略。网络、超时、限流、
-额度/余额及无法明确判定为永久的错误默认可重试;明确参数/格式错误、无效凭证、权限拒绝、
-资源或能力不存在/不支持不可重试。HTTP 状态码本身不单独决定 4xx 是否可重试。重试策略含
-退避,连续失败可能引入额外冷却等待——消费者观察到的恢复延迟可能超过单次重试间隔。重试不得
-造成重复输出:一次请求已向消费者产出部分内容后,中途故障按最终失败处理,不原位重放该请求。
+内核对所有 LLM provider 使用同一 provider-neutral 错误事实与重试策略。网络、超时、限流、额度/余额及无法明确判定为永久的错误默认可重试;明确参数/格式错误、无效凭证、权限拒绝、资源或能力不存在/不支持不可重试。HTTP 状态码本身不单独决定 4xx 是否可重试。重试策略含退避,连续失败可能引入额外冷却等待——消费者观察到的恢复延迟可能超过单次重试间隔。重试不得造成重复输出:一次请求已向消费者产出部分内容后,中途故障按最终失败处理,不原位重放该请求。
 
 #### Scenario: 语义不明或可能恢复的 4xx 继续重试
 - **WHEN** provider 返回限流、额度/余额或没有明确永久语义的 4xx
@@ -72,5 +63,4 @@ SDK-owned `LLMConfig` DTO(内核内部 `LLMFactoryConfig` 不出边界),仍报�
 
 #### Scenario: 重试耗尽返回最后真实错误
 - **WHEN** 可重试错误耗尽重试预算
-- **THEN** 最终 `ModelError` 保留最后一次上游 message/code/type/status,重试次数仅作为附加诊断,
-  不用通用 exhaustion 或 stream-ended 文案替换真实原因
+- **THEN** 最终 `ModelError` 保留最后一次上游 message/code/type/status,重试次数仅作为附加诊断, 不用通用 exhaustion 或 stream-ended 文案替换真实原因

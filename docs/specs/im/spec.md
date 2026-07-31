@@ -2,19 +2,15 @@
 
 > 对齐: feat-484
 >
-> 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端(内置 Web IM)、Node Gateway(`personal_assistant`)、终端用户,以及 `tests/im_service/` 里的契约测试。
+> 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端(内置 Web IM)、Node Gateway(`personal_assistant`)、终端用户,以及 `tests/im_service/` 里的契约测试。
 
 ## Purpose
 
-`IM` 是多租户即时通讯中心服务:提供账号体系、会话/消息持久化、浏览器 Web IM、Agent / Node 配置中心,
-并通过 Gateway 主动建立的 WebSocket 连接把用户消息中继到本地 Agent、把回复与过程事件实时推回浏览器。
+`IM` 是多租户即时通讯中心服务:提供账号体系、会话/消息持久化、浏览器 Web IM、Agent / Node 配置中心, 并通过 Gateway 主动建立的 WebSocket 连接把用户消息中继到本地 Agent、把回复与过程事件实时推回浏览器。
 
-它对外承担的可观察职责:① 用户注册/登录后只能看到自己的数据;② direct/group 会话与消息历史稳定持久化;
-③ 浏览器实时收发消息、展示工具/思考过程和响应指标;④ 用户管理 Agent 配置与 Node 绑定;⑤ Gateway 在线时
-双向中继、离线时明确降级;⑥ 外部 channel 会话可镜像为 shadow conversation。
+它对外承担的可观察职责:① 用户注册/登录后只能看到自己的数据;② direct/group 会话与消息历史稳定持久化; ③ 浏览器实时收发消息、展示工具/思考过程和响应指标;④ 用户管理 Agent 配置与 Node 绑定;⑤ Gateway 在线时双向中继、离线时明确降级;⑥ 外部 channel 会话可镜像为 shadow conversation。
 
-**显式不负责**:不执行 Agent、不调用 LLM、不读取 Gateway 本地 workspace、不直接接飞书等外部 channel;
-这些由 `personal_assistant` 承担。IM 与 `agent` 包之间零 import,与 Gateway 只走 HTTP/WebSocket 协议。
+**显式不负责**:不执行 Agent、不调用 LLM、不读取 Gateway 本地 workspace、不直接接飞书等外部 channel; 这些由 `personal_assistant` 承担。IM 与 `agent` 包之间零 import,与 Gateway 只走 HTTP/WebSocket 协议。
 
 ## Canonical Areas
 

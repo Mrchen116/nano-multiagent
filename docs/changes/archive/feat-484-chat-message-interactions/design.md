@@ -29,8 +29,8 @@
 - fork 的资格仍是“direct user↔agent + completed Agent 回复 + 有 `kernel_message_id`”；Agent 离线或请求 pending 时保留既有禁用语义，后端仍是最终校验者。
 - Agent 原始 HTML 继续由 `react-markdown` 默认安全路径转义；不得为链接或复制引入 `rehype-raw`。
 - 用户消息仍走现有 inline renderer，Agent 消息仍走 CommonMark/GFM；本 unit 只扩展渲染组件，不另写 Markdown parser。
-- `docs/IM前端蓝图.md` 要求信息密度高但不压迫、桌面与手机竖屏各自自然、消息动效克制。原截图中的灰色大气泡、头像/发送者、底部时间与过程/token 信息层级必须保留。
-- `src/IM/frontend/dist/` 是生成产物，不提交。前端行为回归优先落 Vitest；真浏览器截图/录屏是一次性验收证据，按 `docs/TESTING_GUIDE.md` 留在 milestone `progress.md`，不伪装成单测。
+- `docs/product/web-im-principles.md` 要求信息密度高但不压迫、桌面与手机竖屏各自自然、消息动效克制。原截图中的灰色大气泡、头像/发送者、底部时间与过程/token 信息层级必须保留。
+- `src/IM/frontend/dist/` 是生成产物，不提交。前端行为回归优先落 Vitest；真浏览器截图/录屏是一次性验收证据，按 `docs/development/testing.md` 留在 milestone `progress.md`，不伪装成单测。
 
 ### 可复用能力
 

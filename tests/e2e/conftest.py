@@ -121,7 +121,7 @@ def _e2e_session_process_leak_finalizer() -> Iterable[None]:
 
 # refactor-372-M1: 按路径自动给 tests/e2e/ 下的所有 item 打 e2e marker。
 # 用 hook 而非逐文件手写 pytestmark，保证新增文件天然被覆盖不会再漏标。
-# TESTING_GUIDE §3 已认可此法；design.md 决策 1 选定此方案。
+# docs/development/testing.md §3 已认可此法；design.md 决策 1 选定此方案。
 def pytest_collection_modifyitems(
     config: pytest.Config, items: list[pytest.Item]
 ) -> None:

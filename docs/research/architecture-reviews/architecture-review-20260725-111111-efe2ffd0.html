@@ -1,0 +1,804 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Architecture review — nano-multiagent</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({
+        startOnLoad: true,
+        theme: "base",
+        securityLevel: "loose",
+        themeVariables: {
+          fontFamily: "ui-sans-serif, system-ui, sans-serif",
+          primaryColor: "#f8fafc",
+          primaryTextColor: "#0f172a",
+          primaryBorderColor: "#94a3b8",
+          lineColor: "#64748b",
+          secondaryColor: "#ecfdf5",
+          tertiaryColor: "#fff7ed"
+        }
+      });
+    </script>
+    <style>
+      :root { color-scheme: light; }
+      .paper-grid {
+        background-image:
+          linear-gradient(#e7e5e4 1px, transparent 1px),
+          linear-gradient(90deg, #e7e5e4 1px, transparent 1px);
+        background-size: 24px 24px;
+      }
+      .deep {
+        background: linear-gradient(135deg, #0f172a, #1e293b);
+        color: white;
+      }
+      .seam-line { border-top: 2px dashed #94a3b8; }
+      .leak-line { border-top: 3px solid #dc2626; }
+      .mono-wrap { overflow-wrap: anywhere; }
+      .diagram-card { min-height: 330px; }
+      code { overflow-wrap: anywhere; }
+    </style>
+  </head>
+  <body class="bg-stone-50 font-sans text-slate-900">
+    <main class="mx-auto max-w-6xl space-y-12 px-5 py-10 sm:px-8 lg:px-10">
+      <header class="space-y-6">
+        <div class="flex flex-col gap-3 border-b border-slate-300 pb-6 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p class="text-xs font-bold uppercase tracking-[0.24em] text-emerald-700">Architecture review snapshot</p>
+            <h1 class="mt-2 font-serif text-4xl font-semibold tracking-tight">nano-multiagent</h1>
+          </div>
+          <span class="inline-flex w-fit rounded-full bg-rose-100 px-3 py-1 text-xs font-bold uppercase tracking-wider text-rose-800">dirty working tree</span>
+        </div>
+
+        <dl class="grid gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-5">
+          <div class="bg-white p-4">
+            <dt class="text-xs uppercase tracking-wider text-slate-500">Generated</dt>
+            <dd class="mt-2 text-sm font-semibold">2026-07-25 11:11:11 CST</dd>
+          </div>
+          <div class="bg-white p-4">
+            <dt class="text-xs uppercase tracking-wider text-slate-500">Repository</dt>
+            <dd class="mt-2 text-sm font-semibold">nano-multiagent</dd>
+          </div>
+          <div class="bg-white p-4 lg:col-span-2">
+            <dt class="text-xs uppercase tracking-wider text-slate-500">Full commit</dt>
+            <dd class="mono-wrap mt-2 font-mono text-xs">efe2ffd08034f611897b58b994547fcf71753f7e</dd>
+          </div>
+          <div class="bg-white p-4">
+            <dt class="text-xs uppercase tracking-wider text-slate-500">Branch / state</dt>
+            <dd class="mt-2 text-sm font-semibold">main · dirty</dd>
+          </div>
+        </dl>
+
+        <div class="rounded-xl border-2 border-rose-300 bg-rose-50 p-4 text-sm text-rose-950">
+          <strong>不可完全复现：</strong>本报告包含未提交的 working-tree 状态；仅凭上述 commit 无法还原本次快照。扫描开始时存在 1 个 tracked 修改与 58 个 untracked 路径；这些既有改动均未被本次审查修改。
+        </div>
+
+        <div class="flex flex-wrap gap-x-6 gap-y-3 rounded-lg bg-white px-4 py-3 text-xs text-slate-600 shadow-sm ring-1 ring-slate-200">
+          <span class="inline-flex items-center gap-2"><i class="h-4 w-6 rounded border-2 border-slate-600 bg-white"></i>solid box = module</span>
+          <span class="inline-flex items-center gap-2"><i class="w-7 seam-line"></i>dashed line = seam</span>
+          <span class="inline-flex items-center gap-2"><i class="w-7 leak-line"></i>red line = leaked knowledge</span>
+          <span class="inline-flex items-center gap-2"><i class="deep h-4 w-6 rounded border-2 border-slate-950"></i>thick dark box = deep module</span>
+        </div>
+
+        <div class="rounded-xl border border-emerald-300 bg-emerald-50 p-5 text-sm text-emerald-950">
+          <p class="font-bold">最终组合：8 个独立重构 unit + 1 个已删除假 seam</p>
+          <p class="mt-2 leading-6">候选不是按 LOC 机械切片，而是按真实 transaction、lifecycle 与 state authority 建 unit。每项均有 motivation、design、单一 M1 与独立 design review；用户最终确认前不进入实现。</p>
+          <div class="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
+            <a class="rounded-full bg-white px-3 py-1 ring-1 ring-emerald-300" href="../../changes/refactor-476-permission-transaction-owner/design.md">476 Permission</a>
+            <a class="rounded-full bg-white px-3 py-1 ring-1 ring-emerald-300" href="../../changes/refactor-477-cli-session-stream-owner/design.md">477 CLI stream</a>
+            <a class="rounded-full bg-white px-3 py-1 ring-1 ring-emerald-300" href="../../changes/refactor-478-gateway-control-rpc-boundary/design.md">478 Control RPC</a>
+            <a class="rounded-full bg-white px-3 py-1 ring-1 ring-emerald-300" href="../../changes/refactor-479-skill-review-lifecycle-owner/design.md">479 Skill review</a>
+            <a class="rounded-full bg-white px-3 py-1 ring-1 ring-emerald-300" href="../../changes/refactor-480-typed-run-delivery-context/design.md">480 Delivery</a>
+            <a class="rounded-full bg-white px-3 py-1 ring-1 ring-emerald-300" href="../../changes/refactor-481-gateway-config-ownership/design.md">481 Config</a>
+            <a class="rounded-full bg-white px-3 py-1 ring-1 ring-emerald-300" href="../../changes/refactor-482-web-chat-runtime-ownership/design.md">482 Web Chat</a>
+            <a class="rounded-full bg-white px-3 py-1 ring-1 ring-emerald-300" href="../../changes/refactor-483-web-agent-config-form-model/design.md">483 Agent form</a>
+          </div>
+        </div>
+      </header>
+
+      <section id="candidates" class="space-y-12">
+        <article class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div class="border-b border-slate-200 p-6 sm:p-8">
+            <div class="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Candidate 01</p>
+                <h2 class="mt-2 font-serif text-2xl font-semibold">让 permission request 拥有一个完整事务 owner</h2>
+              </div>
+              <div class="flex gap-2">
+                <span class="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">Strong</span>
+                <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">in-process</span>
+              </div>
+            </div>
+            <p class="mono-wrap mt-5 font-mono text-xs leading-6 text-slate-600">src/agent/core/agent/runtime.py:1232–1434 · src/agent/platform/permissions/broker.py:102–226 · src/agent/sdk/kernel.py:1456–1537 · tests/unit/test_permission_requester_cancel.py:27–225</p>
+          </div>
+
+          <div class="grid gap-5 bg-stone-100 p-5 lg:grid-cols-2 sm:p-8">
+            <figure class="diagram-card rounded-xl border border-rose-200 bg-white p-4">
+              <figcaption class="mb-3 text-xs font-bold uppercase tracking-wider text-rose-700">Before · transaction knowledge crosses modules</figcaption>
+              <pre class="mermaid">
+sequenceDiagram
+  participant H as HookContext
+  participant R as Runtime closure
+  participant B as PermissionBroker
+  participant P as Product callback
+  participant E as Session events
+  H->>R: request permission
+  R->>B: register Future
+  R->>E: publish request
+  par local decision
+    R->>P: await callback
+  and external decision
+    R->>B: await Future
+  end
+  R-xB: private lock and pending pop
+  R->>E: publish resolved
+              </pre>
+              <div class="mt-2 rounded-md bg-rose-50 px-3 py-2 text-xs text-rose-800">Tests copy the race and mutate broker private state.</div>
+            </figure>
+
+            <figure class="diagram-card rounded-xl border border-emerald-200 bg-white p-4">
+              <figcaption class="mb-3 text-xs font-bold uppercase tracking-wider text-emerald-700">After · one deep transaction owner</figcaption>
+              <div class="flex h-[270px] flex-col justify-center gap-4">
+                <div class="rounded-lg border-2 border-slate-500 bg-slate-50 p-3 text-center text-sm font-semibold">HookContext requester</div>
+                <div class="mx-auto h-5 border-l-2 border-slate-400"></div>
+                <div class="deep rounded-xl border-4 border-slate-950 p-5 text-center shadow-lg">
+                  <p class="text-xs font-bold uppercase tracking-[0.2em] text-emerald-300">Permission lifecycle deep module</p>
+                  <p class="mt-3 text-sm text-slate-200">register · race · liveness · resolve · cancel · publish</p>
+                </div>
+                <div class="grid grid-cols-3 gap-2 text-center text-xs">
+                  <div class="rounded border border-slate-300 p-2">pending state</div>
+                  <div class="rounded border border-slate-300 p-2">decision adapter</div>
+                  <div class="rounded border border-slate-300 p-2">event publisher</div>
+                </div>
+              </div>
+            </figure>
+          </div>
+
+          <div class="grid gap-6 p-6 sm:grid-cols-3 sm:p-8">
+            <div>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Problem</h3>
+              <p class="mt-2 text-sm leading-6"><code>PermissionBroker</code> 声称独占 pending state，但约 190 行 runtime closure 又拥有 register-before-publish、双路 race、liveness、loser drain 与 resolved ordering，并直接穿透 <code>_lock/_pending</code>。</p>
+            </div>
+            <div>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Solution</h3>
+              <p class="mt-2 text-sm leading-6">让既有 broker 用独立 supervisor 吞下 register 到 resolve/cancel/publish/cleanup；新增 loop-neutral 本地交互 port，既有三参数 callback 保持兼容。</p>
+            </div>
+            <div>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Benefits</h3>
+              <ul class="mt-2 space-y-1 text-sm">
+                <li>locality: exactly-once 决策</li>
+                <li>run-scoped cancel 同测</li>
+                <li>删除复制 race 测试</li>
+                <li>CLI / Gateway leverage</li>
+              </ul>
+            </div>
+          </div>
+          <div class="mx-6 mb-7 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-xs text-amber-950 sm:mx-8">约束：保持 <code>core</code> 不 import <code>platform</code>；只在现有注入方向内增加 depth，不反转 SPEC.md 的层次依赖。</div>
+        </article>
+
+        <article class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div class="border-b border-slate-200 p-6 sm:p-8">
+            <div class="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Candidate 02</p>
+                <h2 class="mt-2 font-serif text-2xl font-semibold">给 CLI 一个 session stream owner</h2>
+              </div>
+              <div class="flex gap-2">
+                <span class="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">Strong</span>
+                <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">in-process</span>
+              </div>
+            </div>
+            <p class="mono-wrap mt-5 font-mono text-xs leading-6 text-slate-600">src/coding_cli/commands.py:541–584, 894–1086 · src/coding_cli/events/background_runs.py:8–50 · src/coding_cli/events/event_pipeline.py:40–318 · src/agent/core/events/hub.py:178–239</p>
+          </div>
+
+          <div class="grid gap-5 bg-stone-100 p-5 lg:grid-cols-2 sm:p-8">
+            <figure class="diagram-card rounded-xl border border-rose-200 bg-white p-4">
+              <figcaption class="mb-3 text-xs font-bold uppercase tracking-wider text-rose-700">Before · one broadcast, two production consumers</figcaption>
+              <pre class="mermaid">
+flowchart TB
+  H[EventStreamHub replay and live fanout]
+  H --> P[persistent session subscriber]
+  H --> F[foreground run subscriber]
+  P --> Q[background queue]
+  F --> R[foreground render]
+  F --> Q
+  Q --> B[BackgroundRunEventProcessor]
+  B --> M[pending user-run events never cleared]
+  E[event_pipeline normalizer dedupe phase] -. only view model used .-> R
+  classDef leak fill:#fff1f2,stroke:#dc2626,stroke-width:2px;
+  class P,F,Q,M,E leak;
+              </pre>
+              <div class="mt-2 rounded-md bg-rose-50 px-3 py-2 text-xs text-rose-800">The same foreground run reaches both subscribers; <code>origin=user</code> returns before pending cleanup.</div>
+            </figure>
+
+            <figure class="diagram-card rounded-xl border border-emerald-200 bg-white p-4">
+              <figcaption class="mb-3 text-xs font-bold uppercase tracking-wider text-emerald-700">After · one stream, explicit routing</figcaption>
+              <pre class="mermaid">
+flowchart TB
+  H[EventStreamHub]
+  H --> C
+  subgraph C[CLI event-consumption deep module]
+    S[single session stream]
+    D[replay dedupe and run classification]
+    T[terminal and interrupt ownership]
+    S --> D --> T
+  end
+  C --> F[foreground view]
+  C --> B[background view]
+  C --> V[turn summary]
+  classDef deep fill:#0f172a,color:#fff,stroke:#020617,stroke-width:4px;
+  class C,S,D,T deep;
+              </pre>
+            </figure>
+          </div>
+
+          <div class="grid gap-6 p-6 sm:grid-cols-3 sm:p-8">
+            <div>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Problem</h3>
+              <p class="mt-2 text-sm leading-6">REPL 的 persistent subscriber 与每轮 <code>_send_message_async</code> 同时订阅同一 session；foreground 事件被再次送入 background processor，user-run pending state 不会清理。与此同时，normalize/dedupe/phase interface 基本没有 production caller。</p>
+            </div>
+            <div>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Solution</h3>
+              <p class="mt-2 text-sm leading-6">让一个 CLI event-consumption deep module 独占 session stream、replay/dedupe、foreground/background routing、interrupt 与 terminal finalization；删除未接入的平行设计。</p>
+            </div>
+            <div>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Benefits</h3>
+              <ul class="mt-2 space-y-1 text-sm">
+                <li>单一 subscription owner</li>
+                <li>bounded background state</li>
+                <li>tests 命中真实路径</li>
+                <li><code>commands</code> 只做 composition</li>
+              </ul>
+            </div>
+          </div>
+          <div class="mx-6 mb-7 rounded-lg border border-sky-300 bg-sky-50 px-4 py-3 text-xs text-sky-950 sm:mx-8">删除测试：当前大部分 <code>event_pipeline.py</code> 可删除而不搬走 production complexity；反过来删除任一 subscriber 又会破坏一条 routing path。这正是 shallow module 与分裂 ownership 同时存在的证据。</div>
+        </article>
+
+        <article class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div class="border-b border-slate-200 p-6 sm:p-8">
+            <div class="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Candidate 03</p>
+                <h2 class="mt-2 font-serif text-2xl font-semibold">深化 owned IM↔Gateway control-plane seam</h2>
+              </div>
+              <div class="flex gap-2">
+                <span class="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">Strong</span>
+                <span class="rounded-full bg-indigo-100 px-3 py-1 text-xs font-semibold text-indigo-800">ports &amp; adapters</span>
+              </div>
+            </div>
+            <p class="mono-wrap mt-5 font-mono text-xs leading-6 text-slate-600">src/IM/ws/gateway/control.py:18–787 · src/IM/ws/gateway/runtime.py:143–180 · src/personal_assistant/ws/im_connection.py:250–348, 843–1335 · src/IM/api/routes/agents.py:639–650</p>
+          </div>
+
+          <div class="grid gap-5 bg-stone-100 p-5 lg:grid-cols-2 sm:p-8">
+            <figure class="diagram-card rounded-xl border border-rose-200 bg-white p-4">
+              <figcaption class="mb-3 text-xs font-bold uppercase tracking-wider text-rose-700">Before · repeated lifecycle on both sides</figcaption>
+              <pre class="mermaid">
+flowchart TB
+  R[IM domain routes] --> GC[GatewayControl]
+  GC --> W[11 waiter maps]
+  W --> X[11 copies register send wait cleanup]
+  X --> WS[owned WebSocket frames]
+  WS --> IC[IMConnectionManager]
+  IC --> T[transport ACK FIFO reconnect]
+  IC --> D[17 domain request branches]
+  D --> P[prompt fork permission heartbeat cron skills]
+  classDef leak fill:#fff1f2,stroke:#dc2626,stroke-width:2px;
+  class W,X,IC,D leak;
+              </pre>
+            </figure>
+
+            <figure class="diagram-card rounded-xl border border-emerald-200 bg-white p-4">
+              <figcaption class="mb-3 text-xs font-bold uppercase tracking-wider text-emerald-700">After · preserve wire, deepen both owners</figcaption>
+              <pre class="mermaid">
+flowchart TB
+  R[IM domain routes] --> GC
+  subgraph GC[GatewayControl deep module]
+    M[domain meaning]
+    C[shared correlation lifecycle]
+    M --> C
+  end
+  C --> WS[unchanged owned frames]
+  WS --> T
+  subgraph T[IM connection transport deep module]
+    Q[register ACK FIFO reconnect close]
+  end
+  T --> D
+  subgraph D[typed control dispatch module]
+    O[prompt fork permission heartbeat cron skills]
+  end
+  classDef deep fill:#0f172a,color:#fff,stroke:#020617,stroke-width:4px;
+  class GC,C,T,Q,D,O deep;
+              </pre>
+            </figure>
+          </div>
+
+          <div class="grid gap-6 p-6 sm:grid-cols-3 sm:p-8">
+            <div>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Problem</h3>
+              <p class="mt-2 text-sm leading-6">IM 侧 11 类 RPC 重复 request-id/Future/send/timeout/finally lifecycle；PA 侧 transport constructor 与 listen loop 又知道每种 domain operation、filesystem 访问和回复 shape。新增一项 control RPC 必须同时扩张两个宽 interface。</p>
+            </div>
+            <div>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Solution</h3>
+              <p class="mt-2 text-sm leading-6">在既有 owner 内增加 depth：IM 侧集中 correlation lifecycle，PA 侧把 typed domain dispatch 从 wire/FIFO/reconnect transport 中收回；WebSocket frame contract 保持不变。</p>
+            </div>
+            <div>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Benefits</h3>
+              <ul class="mt-2 space-y-1 text-sm">
+                <li>leverage: 11 类 RPC</li>
+                <li>late reply 一处处理</li>
+                <li>transport tests 更窄</li>
+                <li>新增 operation 不扩 wire</li>
+              </ul>
+            </div>
+          </div>
+          <div class="mx-6 mb-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-950 sm:mx-8"><strong>继承 refactor-472：</strong><code>GatewayControl</code> 仍是唯一 waiter owner 并保留 shared lock；不拆成 per-RPC module，不新增 target-node 校验，不改变 timeout / empty fallback。</div>
+          <div class="mx-6 mb-7 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-950 sm:mx-8"><strong>继承 refactor-470：</strong><code>IMConnectionManager</code> 仍独占 wire、FIFO、ACK、reconnect 与 close ordering；不引入 generic untyped event bus 或第二条 queue。</div>
+        </article>
+
+        <article class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div class="border-b border-slate-200 p-6 sm:p-8">
+            <div class="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Candidate 04</p>
+                <h2 class="mt-2 font-serif text-2xl font-semibold">让 skill-batch review 生命周期只实现一次</h2>
+              </div>
+              <div class="flex gap-2">
+                <span class="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">Strong</span>
+                <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">in-process + local adapter</span>
+              </div>
+            </div>
+            <p class="mono-wrap mt-5 font-mono text-xs leading-6 text-slate-600">src/agent/platform/tools/builtins/skill_view.py:141–180 · src/agent/core/agent/runtime.py:861–930 · src/agent/sdk/kernel.py:1749–1785 · src/coding_cli/product.py:157–266 · src/personal_assistant/gateway/runtime.py:86–113, 494–618</p>
+          </div>
+
+          <div class="grid gap-5 bg-stone-100 p-5 lg:grid-cols-2 sm:p-8">
+            <figure class="diagram-card rounded-xl border border-rose-200 bg-white p-4">
+              <figcaption class="mb-3 text-xs font-bold uppercase tracking-wider text-rose-700">Before · queue-to-terminal knowledge leaks outward</figcaption>
+              <pre class="mermaid">
+flowchart TB
+  V[skill_view threshold] --> Q[runtime queue and dedupe]
+  Q --> C[CLI scheduler and root mapping]
+  Q --> G[Gateway scheduler and root mapping]
+  C --> CR[create session submit poll 300]
+  G --> GR[create session submit poll 300]
+  CR --> K[Kernel drain]
+  GR --> K
+  K --> P[platform review and mark reviewed]
+  classDef leak fill:#fff1f2,stroke:#dc2626,stroke-width:2px;
+  class C,G,CR,GR,K leak;
+              </pre>
+              <div class="mt-2 rounded-md bg-rose-50 px-3 py-2 text-xs text-rose-800">The two background-analysis runners are byte-for-byte equivalent.</div>
+            </figure>
+
+            <figure class="diagram-card rounded-xl border border-emerald-200 bg-white p-4">
+              <figcaption class="mb-3 text-xs font-bold uppercase tracking-wider text-emerald-700">After · product policy outside, lifecycle inside</figcaption>
+              <div class="flex h-[270px] flex-col justify-center gap-4">
+                <div class="grid grid-cols-2 gap-3 text-center text-xs font-semibold">
+                  <div class="rounded-lg border-2 border-slate-400 bg-slate-50 p-3">CLI workspace policy<br /><span class="font-normal text-slate-500">.nanocode</span></div>
+                  <div class="rounded-lg border-2 border-slate-400 bg-slate-50 p-3">Gateway workspace catalog<br /><span class="font-normal text-slate-500">.nanoassistant</span></div>
+                </div>
+                <div class="mx-auto h-5 border-l-2 border-dashed border-slate-400"></div>
+                <div class="deep rounded-xl border-4 border-slate-950 p-5 text-center shadow-lg">
+                  <p class="text-xs font-bold uppercase tracking-[0.2em] text-emerald-300">Skill review lifecycle deep module</p>
+                  <p class="mt-3 text-sm text-slate-200">queue · analysis session · terminal wait · review · finish</p>
+                </div>
+                <div class="rounded border border-slate-300 p-2 text-center text-xs">local filesystem adapter stays substitutable in tests</div>
+              </div>
+            </figure>
+          </div>
+
+          <div class="grid gap-6 p-6 sm:grid-cols-3 sm:p-8">
+            <div>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Problem</h3>
+              <p class="mt-2 text-sm leading-6">threshold、queue、workspace resolution、analysis session、terminal polling、review 与 finish 分散在 core、SDK、platform 和两个产品；删除任一产品 glue 都会让 live review 不可达。</p>
+            </div>
+            <div>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Solution</h3>
+              <p class="mt-2 text-sm leading-6">让 Kernel 内的 skill-review deep module 拥有 queue-to-terminal completion；产品只保留各自 workspace catalog、配置目录与调度时机。</p>
+            </div>
+            <div>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Benefits</h3>
+              <ul class="mt-2 space-y-1 text-sm">
+                <li>一份 terminal policy</li>
+                <li>跨产品相同行为</li>
+                <li>root 映射仍本地化</li>
+                <li>queue-to-finish 可整测</li>
+              </ul>
+            </div>
+          </div>
+          <div class="mx-6 mb-7 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-xs text-amber-950 sm:mx-8">约束：product-specific workspace catalog 与 <code>.nanocode</code>/<code>.nanoassistant</code> policy 必须继续由产品拥有；deep module 消费该 policy，不得硬编码。</div>
+        </article>
+
+        <article class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div class="border-b border-slate-200 p-6 sm:p-8">
+            <div class="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Candidate 05</p>
+                <h2 class="mt-2 font-serif text-2xl font-semibold">完成 RunDeliveryContext 的 typed cutover</h2>
+              </div>
+              <div class="flex gap-2">
+                <span class="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800">Worth exploring</span>
+                <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">in-process</span>
+              </div>
+            </div>
+            <p class="mono-wrap mt-5 font-mono text-xs leading-6 text-slate-600">src/personal_assistant/gateway/runtime_delivery/context.py:59–203, 262–306, 351–365, 456–459 · observer.py:73–127, 348–465, 690–851 · stream.py:161–170</p>
+          </div>
+
+          <div class="grid gap-5 bg-stone-100 p-5 lg:grid-cols-2 sm:p-8">
+            <figure class="diagram-card relative overflow-hidden rounded-xl border border-rose-200 bg-white p-5">
+              <figcaption class="mb-5 text-xs font-bold uppercase tracking-wider text-rose-700">Before · typed facts cross a stringly waist</figcaption>
+              <div class="space-y-3">
+                <div class="rounded-lg border-2 border-indigo-400 bg-indigo-50 p-4">
+                  <p class="text-xs font-bold uppercase tracking-wider text-indigo-700">RunDeliveryContext</p>
+                  <p class="mt-1 text-xs text-indigo-900">typed facts and invariants</p>
+                </div>
+                <div class="flex items-center justify-center gap-2 text-xs font-semibold text-rose-700"><span>sync</span><span class="text-xl">⇅</span><span>translate 19 keys</span></div>
+                <div class="rounded-lg border-2 border-rose-400 bg-rose-50 p-4">
+                  <p class="text-xs font-bold uppercase tracking-wider text-rose-700">legacy dict mirror + MutableMapping</p>
+                  <p class="mt-1 text-xs text-rose-900">magic strings and duplicate state</p>
+                </div>
+                <div class="grid grid-cols-3 gap-2 text-center text-xs">
+                  <div class="rounded border border-slate-300 p-2">observer</div>
+                  <div class="rounded border border-slate-300 p-2">stream</div>
+                  <div class="rounded border border-slate-300 p-2">compat tests</div>
+                </div>
+              </div>
+            </figure>
+
+            <figure class="diagram-card rounded-xl border border-emerald-200 bg-white p-5">
+              <figcaption class="mb-5 text-xs font-bold uppercase tracking-wider text-emerald-700">After · delivery facts have one representation</figcaption>
+              <div class="deep flex h-[250px] flex-col justify-between rounded-xl border-4 border-slate-950 p-5 shadow-lg">
+                <div>
+                  <p class="text-xs font-bold uppercase tracking-[0.2em] text-emerald-300">Typed run-delivery deep module</p>
+                  <p class="mt-2 text-sm text-slate-200">target · provisional bubble · visibility · rolling · cleanup</p>
+                </div>
+                <div class="grid grid-cols-2 gap-2 text-xs text-slate-300">
+                  <div class="rounded border border-slate-600 p-3">observer handlers</div>
+                  <div class="rounded border border-slate-600 p-3">terminal stream</div>
+                  <div class="rounded border border-slate-600 p-3">bubble roll</div>
+                  <div class="rounded border border-slate-600 p-3">context discard</div>
+                </div>
+                <div class="rounded bg-emerald-400/15 px-3 py-2 text-center text-xs text-emerald-200">legacy mirror and string-key facade removed</div>
+              </div>
+            </figure>
+          </div>
+
+          <div class="grid gap-6 p-6 sm:grid-cols-3 sm:p-8">
+            <div>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Problem</h3>
+              <p class="mt-2 text-sm leading-6">typed store 已是 production owner，却仍同步维护未被 production 读取的 legacy mirror；observer 再经 <code>MutableMapping</code> 写入 magic keys，store 将它们映回 typed fields。</p>
+            </div>
+            <div>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Solution</h3>
+              <p class="mt-2 text-sm leading-6">让 runtime delivery 直接消费 typed context，删除 legacy mirror、string-key facade 与兼容断言；仅在真正的外部 outcome seam 做一次 projection。</p>
+            </div>
+            <div>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Benefits</h3>
+              <ul class="mt-2 space-y-1 text-sm">
+                <li>单一 state representation</li>
+                <li>locality: bubble invariants</li>
+                <li>删除双写与漂移</li>
+                <li>typed tests 更稳定</li>
+              </ul>
+            </div>
+          </div>
+        </article>
+
+        <article class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div class="border-b border-slate-200 p-6 sm:p-8">
+            <div class="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Candidate 06</p>
+                <h2 class="mt-2 font-serif text-2xl font-semibold">拆开 Gateway 本地配置的六个变化轴</h2>
+              </div>
+              <div class="flex gap-2">
+                <span class="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">Strong</span>
+                <span class="rounded-full bg-indigo-100 px-3 py-1 text-xs font-semibold text-indigo-800">durable + runtime</span>
+              </div>
+            </div>
+            <p class="mono-wrap mt-5 font-mono text-xs leading-6 text-slate-600">src/personal_assistant/config/local_store.py:1–1390 · src/personal_assistant/main.py · gateway composition · reconnect/token/config write paths</p>
+          </div>
+
+          <div class="grid gap-5 bg-stone-100 p-5 lg:grid-cols-2 sm:p-8">
+            <figure class="diagram-card rounded-xl border border-rose-200 bg-white p-5">
+              <figcaption class="mb-5 text-xs font-bold uppercase tracking-wider text-rose-700">Before · one file owns unrelated change axes</figcaption>
+              <div class="grid grid-cols-2 gap-3 text-center text-xs">
+                <div class="rounded-lg border-2 border-rose-300 bg-rose-50 p-4">schema + YAML codec</div>
+                <div class="rounded-lg border-2 border-rose-300 bg-rose-50 p-4">atomic write + snapshot</div>
+                <div class="rounded-lg border-2 border-rose-300 bg-rose-50 p-4">workspace normalization</div>
+                <div class="rounded-lg border-2 border-rose-300 bg-rose-50 p-4">model/provider update</div>
+                <div class="rounded-lg border-2 border-rose-300 bg-rose-50 p-4">IM token/runtime URL</div>
+                <div class="rounded-lg border-2 border-rose-300 bg-rose-50 p-4">Feishu account mutation</div>
+              </div>
+              <div class="mt-5 rounded-md bg-rose-50 px-3 py-2 text-xs text-rose-800">Launcher、reconnect 与 control handlers 都必须知道同一个 mutable store 的内部规则。</div>
+            </figure>
+
+            <figure class="diagram-card rounded-xl border border-emerald-200 bg-white p-5">
+              <figcaption class="mb-5 text-xs font-bold uppercase tracking-wider text-emerald-700">After · durable authority and runtime overlay separate</figcaption>
+              <div class="space-y-3">
+                <div class="deep rounded-xl border-4 border-slate-950 p-4 text-center shadow-lg">
+                  <p class="text-xs font-bold uppercase tracking-[0.2em] text-emerald-300">Config durable store</p>
+                  <p class="mt-2 text-xs text-slate-200">one writer lease · codec · raw-byte no-op · fsync/replace</p>
+                </div>
+                <div class="grid grid-cols-2 gap-3 text-center text-xs">
+                  <div class="rounded-lg border-2 border-slate-400 bg-slate-50 p-4">immutable schema/snapshot</div>
+                  <div class="rounded-lg border-2 border-slate-400 bg-slate-50 p-4">runtime overlay</div>
+                  <div class="rounded-lg border-2 border-slate-400 bg-slate-50 p-4">model mutation service</div>
+                  <div class="rounded-lg border-2 border-slate-400 bg-slate-50 p-4">IM credential service</div>
+                </div>
+              </div>
+            </figure>
+          </div>
+
+          <div class="grid gap-6 p-6 sm:grid-cols-3 sm:p-8">
+            <div>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Problem</h3>
+              <p class="mt-2 text-sm leading-6">schema、serialization、durability、process snapshot、runtime connection facts 与领域 mutation 同处一个类；一次 token rotation 或 model no-op 都可能重写整份 YAML。</p>
+            </div>
+            <div>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Solution</h3>
+              <p class="mt-2 text-sm leading-6">建立 config-scoped writer lease 与 durable store；runtime URL/token overlay、model/Feishu mutation 走各自 owner，并用明确 durability warning 处理远端已提交、本地落盘失败。</p>
+            </div>
+            <div>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Benefits</h3>
+              <ul class="mt-2 space-y-1 text-sm">
+                <li>唯一 durable writer</li>
+                <li>no-op 零写盘</li>
+                <li>token 不回退</li>
+                <li>变化轴可独立测试</li>
+              </ul>
+            </div>
+          </div>
+        </article>
+
+        <article class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div class="border-b border-slate-200 p-6 sm:p-8">
+            <div class="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Candidate 07</p>
+                <h2 class="mt-2 font-serif text-2xl font-semibold">收拢 Web Chat runtime 与 DOM lifecycle</h2>
+              </div>
+              <div class="flex gap-2">
+                <span class="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">Strong</span>
+                <span class="rounded-full bg-violet-100 px-3 py-1 text-xs font-semibold text-violet-800">React ownership</span>
+              </div>
+            </div>
+            <p class="mono-wrap mt-5 font-mono text-xs leading-6 text-slate-600">chat-workspace-page.tsx:1–1252 · components/message-pane.tsx:1–1158 · chat-workspace.integration.test.tsx · message-pane.test.tsx</p>
+          </div>
+
+          <div class="grid gap-5 bg-stone-100 p-5 lg:grid-cols-2 sm:p-8">
+            <figure class="diagram-card rounded-xl border border-rose-200 bg-white p-5">
+              <figcaption class="mb-5 text-xs font-bold uppercase tracking-wider text-rose-700">Before · page state and 26 props form an implicit protocol</figcaption>
+              <pre class="mermaid">
+flowchart TB
+  P[ChatWorkspacePage]
+  P --> H[history and live merge]
+  P --> D[directory unread and status]
+  P --> A[fork group distill]
+  P --> S[send and optimistic echo]
+  P --> M[MessagePane 26 props]
+  M --> V[scroll and pagination]
+  M --> C[composer mention slash upload]
+  M --> R[message renderer]
+  classDef leak fill:#fff1f2,stroke:#dc2626,stroke-width:2px;
+  class P,M,H,D,A,S,V,C leak;
+              </pre>
+            </figure>
+
+            <figure class="diagram-card rounded-xl border border-emerald-200 bg-white p-5">
+              <figcaption class="mb-5 text-xs font-bold uppercase tracking-wider text-emerald-700">After · state owners are named and mutually exclusive</figcaption>
+              <pre class="mermaid">
+flowchart TB
+  P[Page route and layout]
+  B[one Chat realtime bridge]
+  D[Directory owner]
+  T[Timeline owner]
+  C[Composer owner]
+  V[TimelineViewport DOM owner]
+  A[fork group distill controllers]
+  R[MessageRenderer]
+  B --> D
+  B --> T
+  P --> D
+  P --> T
+  P --> C
+  P --> V
+  P --> A
+  T --> R
+  classDef deep fill:#0f172a,color:#fff,stroke:#020617,stroke-width:4px;
+  class B,D,T,C,V deep;
+              </pre>
+            </figure>
+          </div>
+
+          <div class="grid gap-6 p-6 sm:grid-cols-3 sm:p-8">
+            <div>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Problem</h3>
+              <p class="mt-2 text-sm leading-6">history/live race、React Query cache、optimistic send、unread/status、composer 与 scroll anchor 只能经整页同时验证；MessagePane 还保留 timeline/messages 双输入。</p>
+            </div>
+            <div>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Solution</h3>
+              <p class="mt-2 text-sm leading-6">用 activation epoch 保卫 timeline；Chat 只有一个 subscriber bridge；directory、composer、viewport 与 feature actions 各自拥有状态，views只收 typed model/intents。</p>
+            </div>
+            <div>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Benefits</h3>
+              <ul class="mt-2 space-y-1 text-sm">
+                <li>history/live exactly-once merge</li>
+                <li>旧 conversation 不污染新页</li>
+                <li>scroll/composer 可独测</li>
+                <li>删除 compatibility props</li>
+              </ul>
+            </div>
+          </div>
+        </article>
+
+        <article class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div class="border-b border-slate-200 p-6 sm:p-8">
+            <div class="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Candidate 08</p>
+                <h2 class="mt-2 font-serif text-2xl font-semibold">让 Agent create/edit 共享一个配置规则模型</h2>
+              </div>
+              <div class="flex gap-2">
+                <span class="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">Strong</span>
+                <span class="rounded-full bg-violet-100 px-3 py-1 text-xs font-semibold text-violet-800">pure domain model</span>
+              </div>
+            </div>
+            <p class="mono-wrap mt-5 font-mono text-xs leading-6 text-slate-600">agent-create-page.tsx · agent-detail-page.tsx:1–1985 · im-agent-config-api.ts · create/detail/feature tests</p>
+          </div>
+
+          <div class="grid gap-5 bg-stone-100 p-5 lg:grid-cols-2 sm:p-8">
+            <figure class="diagram-card rounded-xl border border-rose-200 bg-white p-5">
+              <figcaption class="mb-5 text-xs font-bold uppercase tracking-wider text-rose-700">Before · two pages interpret one persisted contract</figcaption>
+              <div class="grid grid-cols-2 gap-4">
+                <div class="rounded-xl border-2 border-rose-400 bg-rose-50 p-4">
+                  <p class="text-sm font-bold text-rose-800">Create page rules</p>
+                  <p class="mt-2 text-xs leading-5">normalize · validate · defaults · feature→tool · payload</p>
+                </div>
+                <div class="rounded-xl border-2 border-rose-400 bg-rose-50 p-4">
+                  <p class="text-sm font-bold text-rose-800">Detail page rules</p>
+                  <p class="mt-2 text-xs leading-5">normalize · validate · dirty · feature→tool · payload</p>
+                </div>
+              </div>
+              <div class="mt-5 rounded-md bg-rose-50 px-3 py-2 text-xs text-rose-800">API DTO is used as mutable form state; missing, default and explicit empty are inferred from array content.</div>
+            </figure>
+
+            <figure class="diagram-card rounded-xl border border-emerald-200 bg-white p-5">
+              <figcaption class="mb-5 text-xs font-bold uppercase tracking-wider text-emerald-700">After · one pure transition and projection authority</figcaption>
+              <div class="deep rounded-xl border-4 border-slate-950 p-5 shadow-lg">
+                <p class="text-xs font-bold uppercase tracking-[0.2em] text-emerald-300">AgentConfigFormModel</p>
+                <p class="mt-3 text-sm text-slate-200">adapt · provenance · effective features · transitions · validate · semantic dirty · payload</p>
+              </div>
+              <div class="mt-5 grid grid-cols-2 gap-3 text-center text-xs">
+                <div class="rounded-lg border-2 border-slate-400 bg-slate-50 p-4">Create session<br />node + auto defaults</div>
+                <div class="rounded-lg border-2 border-slate-400 bg-slate-50 p-4">Edit session<br />baseline + passthrough</div>
+                <div class="rounded-lg border-2 border-slate-400 bg-slate-50 p-4">Shared Behavior view</div>
+                <div class="rounded-lg border-2 border-slate-400 bg-slate-50 p-4">Existing selectors/cards</div>
+              </div>
+            </figure>
+          </div>
+
+          <div class="grid gap-6 p-6 sm:grid-cols-3 sm:p-8">
+            <div>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Problem</h3>
+              <p class="mt-2 text-sm leading-6">feature default、required tool、显式空 allowlist、model null、hidden profile/system fields 与 dirty 在两页各有实现，新增字段极易只修一边。</p>
+            </div>
+            <div>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Solution</h3>
+              <p class="mt-2 text-sm leading-6">pure form model保留 missing/false 与 auto/explicit provenance；create/edit session分别拥有异步入口差异，payload与semantic equality由同一处投影。</p>
+            </div>
+            <div>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Benefits</h3>
+              <ul class="mt-2 space-y-1 text-sm">
+                <li>配置规则单一 authority</li>
+                <li>显式空值不回弹</li>
+                <li>DTO 不再充当 draft</li>
+                <li>规则测试脱离整页</li>
+              </ul>
+            </div>
+          </div>
+        </article>
+
+        <article class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div class="border-b border-slate-200 p-6 sm:p-8">
+            <div class="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Candidate 09 · completed quick removal</p>
+                <h2 class="mt-2 font-serif text-2xl font-semibold">删除 platform ToolRegistry 假 seam</h2>
+              </div>
+              <div class="flex gap-2">
+                <span class="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">PR #212 · ready</span>
+                <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">in-process</span>
+              </div>
+            </div>
+            <p class="mono-wrap mt-5 font-mono text-xs leading-6 text-slate-600">src/agent/platform/tools/registry.py:1–5 · src/agent/core/tools/registry.py · src/agent/platform/tools/loader.py:19 · tests/unit/test_core_tools_location.py · tests/unit/test_platform_tools_location.py</p>
+          </div>
+
+          <div class="grid gap-5 bg-stone-100 p-5 lg:grid-cols-2 sm:p-8">
+            <figure class="diagram-card rounded-xl border border-rose-200 bg-white p-5">
+              <figcaption class="mb-5 text-xs font-bold uppercase tracking-wider text-rose-700">Before · tests preserve a pass-through façade</figcaption>
+              <div class="flex h-[250px] flex-col items-center justify-center gap-5">
+                <div class="w-4/5 rounded-lg border-2 border-slate-500 bg-slate-50 p-4 text-center text-sm font-semibold">9 test importers</div>
+                <div class="text-2xl font-bold text-rose-600">↓</div>
+                <div class="w-4/5 rounded-lg border-4 border-rose-500 bg-rose-50 p-4 text-center">
+                  <p class="text-sm font-bold text-rose-800">platform.tools.registry</p>
+                  <p class="mt-1 text-xs text-rose-700">five-line re-export only</p>
+                </div>
+                <div class="text-2xl font-bold text-rose-600">↓</div>
+                <div class="w-4/5 rounded-lg border-2 border-slate-800 bg-slate-100 p-4 text-center text-sm font-semibold">core.tools.registry · real owner</div>
+              </div>
+            </figure>
+
+            <figure class="diagram-card rounded-xl border border-emerald-200 bg-white p-5">
+              <figcaption class="mb-5 text-xs font-bold uppercase tracking-wider text-emerald-700">After · canonical owner is visible</figcaption>
+              <div class="flex h-[250px] flex-col items-center justify-center gap-6">
+                <div class="grid w-full grid-cols-2 gap-3 text-center text-xs">
+                  <div class="rounded-lg border-2 border-slate-400 bg-slate-50 p-4">platform loader</div>
+                  <div class="rounded-lg border-2 border-slate-400 bg-slate-50 p-4">behavior tests</div>
+                </div>
+                <div class="text-2xl font-bold text-emerald-600">↓</div>
+                <div class="deep w-4/5 rounded-xl border-4 border-slate-950 p-6 text-center shadow-lg">
+                  <p class="text-xs font-bold uppercase tracking-[0.2em] text-emerald-300">Canonical ToolRegistry module</p>
+                  <p class="mt-2 text-sm text-slate-200">one implementation · one import location</p>
+                </div>
+                <div class="rounded-full bg-emerald-100 px-4 py-2 text-xs font-bold text-emerald-800">zero implementation complexity moves</div>
+              </div>
+            </figure>
+          </div>
+
+          <div class="grid gap-6 p-6 sm:grid-cols-3 sm:p-8">
+            <div>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Problem</h3>
+              <p class="mt-2 text-sm leading-6"><code>platform.tools.registry</code> 仅 re-export core owner；production loader 已直接使用 canonical module，剩余 9 个调用方全是维护兼容位置的测试。</p>
+            </div>
+            <div>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Solution</h3>
+              <p class="mt-2 text-sm leading-6">删除 façade，把行为测试迁到 canonical owner，并删除仅证明旧 import location 存在的断言。</p>
+            </div>
+            <div>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Benefits</h3>
+              <ul class="mt-2 space-y-1 text-sm">
+                <li>删除 false seam</li>
+                <li>零 implementation 搬迁</li>
+                <li>tests 只守行为</li>
+                <li>依赖方向更可见</li>
+              </ul>
+            </div>
+          </div>
+          <div class="mx-6 mb-7 rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-xs text-emerald-950 sm:mx-8">已完成：<a class="font-bold underline" href="https://github.com/Mrchen116/nano-multiagent/pull/212">PR #212</a> 已从 canonical core owner 直连调用方，CI 通过并处于 Ready for review。</div>
+        </article>
+      </section>
+
+      <section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+        <p class="text-xs font-bold uppercase tracking-[0.24em] text-slate-500">Screened out by deletion tests</p>
+        <div class="mt-5 grid gap-4 md:grid-cols-3">
+          <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <h3 class="font-semibold">InboundPipeline</h3>
+            <p class="mt-2 text-sm leading-6 text-slate-600">保留。单一 <code>handle_inbound</code> interface 拥有 route/gate/shadow 顺序，run lifetime 已委托给 coordinator；删除只会把 coherent policy 散开。</p>
+          </div>
+          <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <h3 class="font-semibold">gateway/composition.py</h3>
+            <p class="mt-2 text-sm leading-6 text-slate-600">保留。它显式构造 object graph；近期重构已把 lifecycle 与 policy 移入 owners。大 wiring surface 本身不是 shallow module 证据。</p>
+          </div>
+          <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <h3 class="font-semibold">InProcessKernelClient</h3>
+            <p class="mt-2 text-sm leading-6 text-slate-600">保留。它集中 SDK DTO translation、origin mapping、session provenance 与 message parts；删除会把 adapter knowledge 扩散到 inbound、heartbeat 与 cron。</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="top-recommendation" class="deep rounded-2xl border-4 border-slate-950 p-7 shadow-xl sm:p-9">
+        <p class="text-xs font-bold uppercase tracking-[0.24em] text-emerald-300">Top recommendation</p>
+        <h2 class="mt-3 font-serif text-3xl font-semibold text-white">先收拢 permission request 的完整事务</h2>
+        <p class="mt-5 max-w-3xl leading-7 text-slate-200">这是当前最危险、也最容易用删除测试证明的 ownership split：runtime 穿透 broker private state，Kernel 的 interrupt/cancel 又各自知道 pending policy，测试还复制 production race。把 exactly-once resolution、liveness、run-scoped cancel、跨 loop 本地交互与 cleanup 放回一个 owner，可同时提高 CLI 与 Gateway 的 correctness locality。既有三参数 SDK callback 保持不变，仅为可取消 CLI 交互新增可选 SDK-owned port。</p>
+        <div class="mt-6 flex flex-wrap gap-2 text-xs">
+          <span class="rounded-full bg-white/10 px-3 py-1 text-slate-200">private-state leakage</span>
+          <span class="rounded-full bg-white/10 px-3 py-1 text-slate-200">copied concurrency tests</span>
+          <span class="rounded-full bg-white/10 px-3 py-1 text-slate-200">cross-product leverage</span>
+          <span class="rounded-full bg-white/10 px-3 py-1 text-slate-200">legacy SDK callback preserved</span>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

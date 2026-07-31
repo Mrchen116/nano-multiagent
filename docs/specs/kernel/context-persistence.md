@@ -3,7 +3,7 @@
 > 对齐: bugfix-471
 > 上级: [kernel (agent) Specification](spec.md)
 >
-> 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)「给库/内核写契约的额外纪律」。本目录只收 **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 + 归档 design)。
+> 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)「给库/内核写契约的额外纪律」。本目录只收 **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 + 归档 design)。
 
 ## Purpose
 
@@ -13,8 +13,7 @@
 
 ### Requirement: 上下文压缩在长会话中保持可恢复
 
-内核在 LLM 调用前后检查上下文是否接近/超出上限,必要时把旧轮次摘要化并落盘为压缩记录,保留首个保留
-事件 id 以保证可重建与可审计;overflow 后可恢复重试。消费者也可手动触发压缩。压缩判定所用的**上下文上限按当前轮所用模型取**：消费者经 `build_kernel(llm=…)` 为某模型声明的上下文窗口生效于该模型的运行;未声明窗口的模型回退到内核默认上限。判定上限时保留的安全余量是全局策略量,不随模型变化。
+内核在 LLM 调用前后检查上下文是否接近/超出上限,必要时把旧轮次摘要化并落盘为压缩记录,保留首个保留事件 id 以保证可重建与可审计;overflow 后可恢复重试。消费者也可手动触发压缩。压缩判定所用的**上下文上限按当前轮所用模型取**：消费者经 `build_kernel(llm=…)` 为某模型声明的上下文窗口生效于该模型的运行;未声明窗口的模型回退到内核默认上限。判定上限时保留的安全余量是全局策略量,不随模型变化。
 
 #### Scenario: 手动触发压缩
 - **WHEN** 消费者 `await kernel.compact(session_id)`
@@ -37,10 +36,7 @@
 
 ### Requirement: 会话档案为无状态 per-workspace JSONL
 
-会话档案是每会话一个 append-only JSONL,落
-`{workspace_root}/{workspace_config_dirname}/sessions/{session_id}.jsonl`。存储组件无状态(不持
-session→位置映射,按调用方传的 `workspace_root` 当场定位);位置由 `create_session(workspace_root)`
-决定,无中心 session db 路径配置。
+会话档案是每会话一个 append-only JSONL,落 `{workspace_root}/{workspace_config_dirname}/sessions/{session_id}.jsonl`。存储组件无状态(不持 session→位置映射,按调用方传的 `workspace_root` 当场定位);位置由 `create_session(workspace_root)`决定,无中心 session db 路径配置。
 
 #### Scenario: 不同 agent 会话落各自 workspace
 - **GIVEN** 两个会话以不同 `workspace_root` 创建
@@ -49,8 +45,7 @@ session→位置映射,按调用方传的 `workspace_root` 当场定位);位置�
 
 ### Requirement: 会话事件溯源持久化,进程重启后可恢复
 
-每次状态变更产生事件并经会话存储持久化;会话可由事件重放重建,进程重启后可恢复。运行时不直接写 SQL,
-只经会话存储接口。
+每次状态变更产生事件并经会话存储持久化;会话可由事件重放重建,进程重启后可恢复。运行时不直接写 SQL, 只经会话存储接口。
 
 #### Scenario: 重启后恢复会话
 - **GIVEN** 一个已持久化的会话
@@ -59,9 +54,7 @@ session→位置映射,按调用方传的 `workspace_root` 当场定位);位置�
 
 ### Requirement: 经 append_message 带外写入的消息对后续轮次可见
 
-消费者(如 Gateway)可在不触发模型运行的前提下,经 `append_message` 把一条消息持久化进会话;该消息进入会话
-线性历史,对该会话此后任意一轮运行可见——既不被丢弃,也不被运行时的内存历史遮蔽。`append_message`
-在返回前自动同步该会话的持久化与 live state;消费者不负责管理或失效内核缓存。
+消费者(如 Gateway)可在不触发模型运行的前提下,经 `append_message` 把一条消息持久化进会话;该消息进入会话线性历史,对该会话此后任意一轮运行可见——既不被丢弃,也不被运行时的内存历史遮蔽。`append_message`在返回前自动同步该会话的持久化与 live state;消费者不负责管理或失效内核缓存。
 
 #### Scenario: 带外追加的消息进入下一轮上下文
 - **GIVEN** 一个已运行过至少一轮的会话
@@ -70,10 +63,7 @@ session→位置映射,按调用方传的 `workspace_root` 当场定位);位置�
 
 ### Requirement: 持久化 transcript 在进入模型前保持 tool call 闭合
 
-消费者中断、取消或关闭包含工具调用的运行后,内核必须使已持久化的每个 assistant tool call
-具有对应的 tool result。进程异常退出留下的历史悬空调用在下次提交运行前自动恢复为取消终态;
-恢复保持 append-only、按 tool call id 幂等,并向 provider 物化为合法消息顺序。只读加载、
-列表和预览不得因检查完整性而改写会话。
+消费者中断、取消或关闭包含工具调用的运行后,内核必须使已持久化的每个 assistant tool call 具有对应的 tool result。进程异常退出留下的历史悬空调用在下次提交运行前自动恢复为取消终态; 恢复保持 append-only、按 tool call id 幂等,并向 provider 物化为合法消息顺序。只读加载、列表和预览不得因检查完整性而改写会话。
 
 #### Scenario: 中断权限等待后继续同一会话
 - **GIVEN** 一个运行已经持久化 assistant tool call,正在等待权限决定
