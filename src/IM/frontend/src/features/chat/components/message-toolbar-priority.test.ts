@@ -21,3 +21,15 @@ it("layers the white message toolbar above a code-copy button when their corners
 
   expect(zIndexOf("\\.chat-message-toolbar")).toBeGreaterThan(zIndexOf("\\.im-code-copy"));
 });
+
+it("only reveals code copy while its code block is hovered or it has keyboard focus", () => {
+  expect(globalCss).toMatch(
+    /\.im-code-copy\s*\{[^}]*opacity:\s*0;[^}]*pointer-events:\s*none;/s
+  );
+  expect(globalCss).toMatch(
+    /\.im-code-block:hover\s+\.im-code-copy,[^{]*\.im-code-copy:focus-visible\s*\{[^}]*opacity:\s*1;[^}]*pointer-events:\s*auto;/s
+  );
+  expect(globalCss).toMatch(
+    /@media\s*\(any-hover:\s*none\)\s*\{\s*\.im-code-copy\s*\{[^}]*opacity:\s*1;[^}]*pointer-events:\s*auto;/s
+  );
+});

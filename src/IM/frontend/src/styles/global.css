@@ -2164,7 +2164,10 @@ body {
   font-size: 0.9rem;
   line-height: 1;
   cursor: pointer;
-  opacity: 0.55;
+  /* Keep code actions out of the message-level toolbar's hover state. The
+     parent hover reveals this button before it can receive pointer events. */
+  opacity: 0;
+  pointer-events: none;
   transition: opacity 0.15s ease;
 }
 
@@ -2172,7 +2175,17 @@ body {
 .im-code-copy:hover,
 .im-code-copy:focus-visible {
   opacity: 1;
+  pointer-events: auto;
   outline: none;
+}
+
+/* Touch-only devices have no hover affordance, so retain a tappable code-copy
+   entry. Hybrid devices with a mouse continue to use the hover-only behavior. */
+@media (any-hover: none) {
+  .im-code-copy {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 
 .chat-bubble-attachments {
