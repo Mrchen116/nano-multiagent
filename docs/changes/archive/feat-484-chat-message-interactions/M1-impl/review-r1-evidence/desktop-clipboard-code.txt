@@ -1,0 +1,7 @@
+def main():
+    """包含空行与缩进的示例"""
+
+    if True:
+        print("hello")
+
+    return 0
