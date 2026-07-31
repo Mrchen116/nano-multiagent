@@ -10,3 +10,14 @@ it("gives a hovered code block priority over the message toolbar without hiding 
     /\.chat-bubble-card:has\(\.im-code-block:hover\)\s+\.chat-message-toolbar:not\(:focus-within\)\s*\{[^}]*opacity:\s*0;[^}]*pointer-events:\s*none;/s
   );
 });
+
+it("layers the white message toolbar above a code-copy button when their corners overlap", () => {
+  const zIndexOf = (selector: string) =>
+    Number(
+      globalCss.match(
+        new RegExp(`${selector}\\s*\\{[^}]*z-index:\\s*(\\d+);`, "s")
+      )?.[1]
+    );
+
+  expect(zIndexOf("\\.chat-message-toolbar")).toBeGreaterThan(zIndexOf("\\.im-code-copy"));
+});

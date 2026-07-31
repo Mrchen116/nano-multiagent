@@ -1754,6 +1754,9 @@ body {
 /* feat-484-M1: shared action model rendered as toolbar / context menu / action sheet. */
 .chat-message-toolbar {
   position: absolute;
+  /* This must cover the code block's in-place copy button (z-index: 5) at
+     their shared corner; moving either control would break the bubble layout. */
+  z-index: 6;
   top: -10px;
   right: 6px;
   display: inline-flex;
