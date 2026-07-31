@@ -1,0 +1,117 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 720" role="img" aria-labelledby="title desc">
+  <title id="title">旧仓文档体系的迁移优先级</title>
+  <desc id="desc">迁移从声明不变量和授权边界开始，优先治理仍在自动加载、频繁读取和继续写入的入口，随后建立路由与权威、嵌入生命周期和机械检查，最后再处理历史存量，并以前后真实任务评测闭环。</desc>
+  <defs>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #1a1a1a; }
+      .title { font-size: 28px; font-weight: 700; }
+      .subtitle { font-size: 16px; fill: #6b6b6b; }
+      .stage-num { font-size: 14px; font-weight: 700; }
+      .stage-title { font-size: 18px; font-weight: 700; }
+      .body { font-size: 14px; fill: #6b6b6b; }
+      .label { font-size: 15px; font-weight: 650; }
+      .summary { font-size: 19px; font-weight: 700; }
+      .arrow { stroke: #8b3a2f; stroke-width: 2.4; fill: none; marker-end: url(#arrow); }
+      .queue { stroke: #a07020; stroke-width: 2.2; stroke-dasharray: 7 5; fill: none; marker-end: url(#arrowGold); }
+      .eval { stroke: #4a6f3a; stroke-width: 2.2; fill: none; marker-end: url(#arrowGreen); }
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#8b3a2f"/>
+    </marker>
+    <marker id="arrowGold" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#a07020"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#4a6f3a"/>
+    </marker>
+  </defs>
+
+  <rect width="1100" height="720" fill="#ffffff"/>
+  <text x="40" y="48" class="title">旧仓迁移：先关掉继续制造漂移的路径，再整理历史存量</text>
+  <text x="40" y="78" class="subtitle">顺序由风险传播决定：live 入口每天影响新任务，隔离的历史只有被误路由时才重新造成伤害。</text>
+
+  <!-- Baseline evaluation -->
+  <rect x="55" y="112" width="990" height="64" rx="12" fill="#ecf0e6" stroke="#a8c0a0" stroke-width="2"/>
+  <text x="85" y="140" class="stage-title" fill="#4a6f3a">迁移前：选取真实维护任务建立基线</text>
+  <text x="85" y="163" class="body">记录定位路径、authority 错误、结果、成本和返工；迁移后在同一基线重新评测。</text>
+  <path d="M128 176 V207" class="eval"/>
+
+  <!-- Stage 1 -->
+  <rect x="35" y="215" width="185" height="220" rx="14" fill="#f5ecdb" stroke="#d4a86a" stroke-width="2"/>
+  <rect x="55" y="235" width="34" height="28" rx="14" fill="#a07020"/>
+  <text x="72" y="254" text-anchor="middle" class="stage-num" fill="#ffffff">1</text>
+  <text x="55" y="298" class="stage-title" fill="#a07020">声明边界</text>
+  <text x="55" y="330" class="body">
+    <tspan x="55">• 哪些语义必须保持</tspan>
+    <tspan x="55" dy="25">• 哪些结构允许调整</tspan>
+    <tspan x="55" dy="25">• 哪些冲突可直接修</tspan>
+    <tspan x="55" dy="25">• 哪些必须由 owner 裁决</tspan>
+  </text>
+
+  <!-- Stage 2 -->
+  <rect x="245" y="215" width="185" height="220" rx="14" fill="#f5ebe6" stroke="#c9a89e" stroke-width="2"/>
+  <rect x="265" y="235" width="34" height="28" rx="14" fill="#8b3a2f"/>
+  <text x="282" y="254" text-anchor="middle" class="stage-num" fill="#ffffff">2</text>
+  <text x="265" y="298" class="stage-title" fill="#8b3a2f">治理 live 入口</text>
+  <text x="265" y="330" class="body">
+    <tspan x="265">• 自动加载</tspan>
+    <tspan x="265" dy="25">• 频繁读取</tspan>
+    <tspan x="265" dy="25">• 仍在继续写入</tspan>
+    <tspan x="265" dy="25">• 正在传播错误权威</tspan>
+  </text>
+
+  <!-- Stage 3 -->
+  <rect x="455" y="215" width="185" height="220" rx="14" fill="#e6eef0" stroke="#9ab8be" stroke-width="2"/>
+  <rect x="475" y="235" width="34" height="28" rx="14" fill="#2a6470"/>
+  <text x="492" y="254" text-anchor="middle" class="stage-num" fill="#ffffff">3</text>
+  <text x="475" y="298" class="stage-title" fill="#2a6470">建立路由与判权</text>
+  <text x="475" y="330" class="body">
+    <tspan x="475">• 根入口与 docs map</tspan>
+    <tspan x="475" dy="25">• 领域 index 与链接</tspan>
+    <tspan x="475" dy="25">• current / work / history</tspan>
+    <tspan x="475" dy="25">• 每类事实唯一权威</tspan>
+  </text>
+
+  <!-- Stage 4 -->
+  <rect x="665" y="215" width="185" height="220" rx="14" fill="#ecf0e6" stroke="#a8c0a0" stroke-width="2"/>
+  <rect x="685" y="235" width="34" height="28" rx="14" fill="#4a6f3a"/>
+  <text x="702" y="254" text-anchor="middle" class="stage-num" fill="#ffffff">4</text>
+  <text x="685" y="298" class="stage-title" fill="#4a6f3a">嵌入生命周期</text>
+  <text x="685" y="330" class="body">
+    <tspan x="685">• current promotion</tspan>
+    <tspan x="685" dy="25">• 生成与结构检查</tspan>
+    <tspan x="685" dy="25">• 门禁与权限下沉</tspan>
+    <tspan x="685" dy="25">• 完成后冻结历史</tspan>
+  </text>
+
+  <!-- Stage 5 -->
+  <rect x="875" y="215" width="185" height="220" rx="14" fill="#f5f1ea" stroke="#e6e3dc" stroke-width="2"/>
+  <rect x="895" y="235" width="34" height="28" rx="14" fill="#6b6b6b"/>
+  <text x="912" y="254" text-anchor="middle" class="stage-num" fill="#ffffff">5</text>
+  <text x="895" y="298" class="stage-title" fill="#6b6b6b">处理历史存量</text>
+  <text x="895" y="330" class="body">
+    <tspan x="895">• 提取仍有效知识</tspan>
+    <tspan x="895" dy="25">• 归档与重定向</tspan>
+    <tspan x="895" dy="25">• 删除废弃入口</tspan>
+    <tspan x="895" dy="25">• 避免孤儿与重复</tspan>
+  </text>
+
+  <path d="M220 325 H237" class="arrow"/>
+  <path d="M430 325 H447" class="arrow"/>
+  <path d="M640 325 H657" class="arrow"/>
+  <path d="M850 325 H867" class="arrow"/>
+
+  <!-- Drift queue -->
+  <path d="M337 435 V443 H430 V447" class="queue"/>
+  <path d="M670 455 V449 H757 V443" class="queue"/>
+  <rect x="350" y="455" width="400" height="92" rx="12" fill="#f5ecdb" stroke="#d4a86a" stroke-width="2"/>
+  <text x="550" y="484" text-anchor="middle" class="stage-title" fill="#a07020">临时 drift queue：无法依据现有权威裁决的冲突</text>
+  <text x="550" y="511" text-anchor="middle" class="body">记录证据、影响与候选处理 → owner 决定 → 回到对应迁移阶段</text>
+  <text x="550" y="534" text-anchor="middle" class="body">裁决完成后删除或冻结，不能变成永久 backlog</text>
+
+  <!-- Evaluation closure -->
+  <rect x="120" y="585" width="860" height="84" rx="14" fill="#ecf0e6" stroke="#a8c0a0" stroke-width="2"/>
+  <text x="550" y="617" text-anchor="middle" class="summary" fill="#4a6f3a">同一基线重跑真实任务：结果更好、定位更快、权威误用更少，迁移才算有效</text>
+  <text x="550" y="647" text-anchor="middle" class="body">没有净收益的索引、流程和文档，应缩小范围或删除。</text>
+  <path d="M967 435 V560 H550 V577" class="eval"/>
+</svg>
