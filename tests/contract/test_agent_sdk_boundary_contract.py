@@ -100,8 +100,7 @@ def test_products_import_only_agent_sdk_root() -> None:
             for rel, lineno, module in all_violations
         ]
         raise AssertionError(
-            "Product files bypass the agent.sdk root surface:\n"
-            + "\n".join(lines)
+            "Product files bypass the agent.sdk root surface:\n" + "\n".join(lines)
         )
 
 
