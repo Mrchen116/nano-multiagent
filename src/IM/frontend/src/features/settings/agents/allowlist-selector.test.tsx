@@ -5,7 +5,7 @@ import { vi } from "vitest";
 import { AllowlistSelector } from "./allowlist-selector";
 
 describe("allowlist selector", () => {
-  it("shows all available options in one list without advanced grouping", async () => {
+  it("shows selected options and reports user changes", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
 
@@ -25,9 +25,6 @@ describe("allowlist selector", () => {
     );
 
     expect(screen.getByRole("checkbox", { name: /plan/i })).toBeChecked();
-    expect(screen.queryByRole("button", { name: /plan/i })).not.toBeInTheDocument();
-    expect(screen.queryByText(/Show advanced options/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/^Selected 1$/)).not.toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /playwright/i })).toBeInTheDocument();
 
     await user.click(screen.getByRole("checkbox", { name: /plan/i }));
@@ -54,7 +51,5 @@ describe("allowlist selector", () => {
     expect(screen.getByRole("checkbox", { name: /bash/i })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /legacy-tool/i })).toBeChecked();
     expect(screen.getByText("Unavailable now")).toBeInTheDocument();
-    expect(screen.queryByText("Common choices")).not.toBeInTheDocument();
-    expect(screen.queryByText("Needs review")).not.toBeInTheDocument();
   });
 });

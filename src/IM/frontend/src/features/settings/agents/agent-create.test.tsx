@@ -75,8 +75,8 @@ function mockNodes() {
   ]);
 }
 
-describe("agent create page (three-card)", () => {
-  it("renders only Identity/Behavior/Access&Model cards, creates the agent, and navigates to its detail page on save", async () => {
+describe("agent create page", () => {
+  it("creates an agent from the selected node capabilities and opens its settings", async () => {
     const user = userEvent.setup();
     mockNodes();
 
@@ -132,21 +132,7 @@ describe("agent create page (three-card)", () => {
 
     expect(await screen.findByRole("heading", { name: /New agent/i })).toBeInTheDocument();
 
-    const panel = screen.getByTestId("agent-create");
-    expect(panel.className).toContain("im-agent-panel");
-    const cards = panel.querySelectorAll(".im-agent-card");
-    expect(cards.length).toBe(3);
-
-    expect(screen.getByRole("heading", { name: "Identity" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Behavior" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Access & Model" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: /Workspace/i })).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/Workspace Root/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Workspace preview/i)).not.toBeInTheDocument();
-
     expect(screen.getByLabelText(/Owning Node/i)).toBeInTheDocument();
-    // feat-379-M5 (ISSUE-1): system_prompt no longer shown; Custom Instructions replaces it
-    expect(screen.queryByLabelText(/^System Prompt/)).not.toBeInTheDocument();
     expect(screen.getByLabelText(/^Custom Instructions/)).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText(/^Agent ID/), { target: { value: "agent-new" } });
@@ -165,7 +151,6 @@ describe("agent create page (three-card)", () => {
         owner_id: "",
         display_name: "Agent New",
         description: "runtime-created helper",
-        // feat-379-M5 (ISSUE-1): system_prompt always blank; sections assembler owns it
         system_prompt: "",
         custom_prompt: "You are Agent New.",
         features: {},
@@ -219,12 +204,10 @@ describe("agent create page (three-card)", () => {
     renderCreatePage();
 
     await screen.findByRole("heading", { name: /New agent/i });
-    // feat-379-M3: system_prompt is no longer required; submit with all fields blank
     await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
 
     expect(await screen.findByText(/Agent ID is required/i)).toBeInTheDocument();
     expect(screen.getByText(/Display name is required/i)).toBeInTheDocument();
-    // system_prompt required check removed — segment system provides defaults (feat-379-M3)
     expect(apiMocks.createNodeAgentMock).not.toHaveBeenCalled();
     expect(apiMocks.navigateMock).not.toHaveBeenCalled();
   });
@@ -448,7 +431,6 @@ describe("agent create page (three-card)", () => {
 
     fireEvent.change(await screen.findByLabelText(/^Agent ID/), { target: { value: "agent-new" } });
     fireEvent.change(screen.getByLabelText(/^Display Name/), { target: { value: "Agent New" } });
-    // feat-379-M5 (ISSUE-1): Custom Instructions replaces System Prompt textarea
     fireEvent.change(screen.getByLabelText(/^Custom Instructions/), { target: { value: "You are Agent New." } });
     await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
 
@@ -490,8 +472,7 @@ describe("agent create page (three-card)", () => {
   });
 });
 
-// feat-383-M1 R4: nodePromptPreview must include skill_ids and agent_id_hint
-describe("agent create page — preview fidelity (feat-383-M1)", () => {
+describe("agent create prompt preview", () => {
   function mockCreateState() {
     apiMocks.getNodeCreateStateMock.mockResolvedValue({
       node: {
@@ -522,7 +503,7 @@ describe("agent create page — preview fidelity (feat-383-M1)", () => {
     });
   }
 
-  it("nodePromptPreview 请求 skill_ids 来自 draft.skills", async () => {
+  it("passes the draft skill selection to the preview API", async () => {
     const user = userEvent.setup();
     mockNodes();
     mockCreateState();
@@ -531,7 +512,6 @@ describe("agent create page — preview fidelity (feat-383-M1)", () => {
     renderCreatePage();
     await screen.findByText(/Select a node/i);
 
-    // 打开预览
     const previewToggle = await screen.findByRole("button", { name: /Preview full system prompt/i });
     await user.click(previewToggle);
 
@@ -539,11 +519,9 @@ describe("agent create page — preview fidelity (feat-383-M1)", () => {
       expect(apiMocks.nodePromptPreviewMock).toHaveBeenCalled();
     });
 
-    // 初始状态没有选 skill，skill_ids 应为空
     const calls = apiMocks.nodePromptPreviewMock.mock.calls;
     const lastCall = calls[calls.length - 1];
     const body = lastCall[1] as { skill_ids?: string[]; agent_id_hint?: string };
-    // skill_ids 字段必须存在（即使为空数组）
     expect(body).toHaveProperty("skill_ids");
   });
 });

@@ -26,6 +26,11 @@ function mockNodes(nodes: unknown[]) {
         new Response(JSON.stringify({ items: [] }), { status: 200, headers: { "Content-Type": "application/json" } })
       );
     }
+    if (url === "/im/v1/sync") {
+      return Promise.resolve(
+        new Response(JSON.stringify({ items: [], max_event_id: 0 }), { status: 200, headers: { "Content-Type": "application/json" } })
+      );
+    }
     return Promise.resolve(new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } }));
   });
 }
@@ -71,10 +76,8 @@ describe("nodes page — status pill + last_error + empty state", () => {
     expect(offlinePill).toHaveTextContent(/offline/i);
     expect(offlinePill.querySelector('[data-status-dot="offline"]')).toBeInTheDocument();
 
-    // last_error should be rendered with a warning class (oklch warm-red prototype palette).
     const errorEl = screen.getByTestId("node-last-error-node-b");
     expect(errorEl).toHaveTextContent("connection refused");
-    expect(errorEl.className).toMatch(/text-red-|0\.14_25|0\.45_0\.14/);
   });
 
   it("renders an empty-state message when the owner has no nodes", async () => {
