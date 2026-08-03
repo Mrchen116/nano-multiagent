@@ -23,7 +23,7 @@
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: 回退本 roadpoint 提交；计划基点为 `dcd4b8b6d`。
-- Commits: 本 roadpoint 提交（SHA 以 Git history 为准）。
+- Commits: `b9b45e2ad`。
 - Next: R2 收敛 prompt golden、片段措辞、feature registry skeleton 与重复 assembler 测试。
 
 ## R2 — 收敛 prompt 条件与消费者输入输出
@@ -41,12 +41,30 @@
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: 回退本 roadpoint 提交；R1 基点为 `b9b45e2ad`。
-- Commits: 本 roadpoint 提交（SHA 以 Git history 为准）。
+- Commits: `28113705a`。
 - Next: R3 将 assistant 合并保护下沉到 `build_chat_messages` 公共消费入口、去除 MemoryStore 空态重复，并运行完整 M3 门禁。
 
 ## R3 — 合并 runtime/persistence 重复并完成门禁
 
-- 状态: DOING
+- 状态: DONE
+- Context: assistant history 合并由两个文件直接重复调用 `_merge_adjacent_assistant` / `_coalesce_assistant_group`；MemoryStore 同一空态和非空态在一个文件内各断言多次。
+- Decision: 删除私有 adjacent helper 测试文件，把文本、tool calls、reasoning 与 group restore 风险统一改经 `build_chat_messages`；MemoryStore 合并为按 target 返回条目、双 target 空态与缺失 root 三项行为保护。
+- Rationale: 模型真正消费的是 `build_chat_messages` 输出；公共入口同时覆盖 persisted `Message` 转换、group coalesce 与 adjacent merge，比私有 helper 形状更接近失效后果。MemoryStore 只需证明 target 隔离、空态和使用率，banner/三态由 prompt consumer 测试负责。
+- Evidence:
+  - Tests: 改写前 merge/persistence/memory/prompt 替代保护 `59 passed in 0.12s`；改写后同风险组合 `45 passed in 0.12s`。
+  - Entry: `build_chat_messages` 验证相邻 assistant、tool 分隔与同 group 持久化行恢复；`MemoryStore.format_for_prompt` 验证 target 输入输出。
+  - Frontend State Matrix: N/A（非前端）。
+  - Browser QA: N/A（零用户面）。
+  - E2E/Regression: M3 精确范围（显式包含 `test_curator.py`）`684 passed in 11.08s`；相关架构 contract `13 passed in 1.26s`。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Gates:
+  - Ruff: milestone 全部保留/新增 Python 文件 `All checks passed!`。
+  - Docs: `documentation integrity passed: 192 maintained Markdown sources, 65 required routes`。
+  - Diff/scope: `git diff --check` 与授权范围检查通过。
+- Rollback: 回退本 roadpoint 提交；R2 基点为 `28113705a`。
+- Commits: 本 roadpoint 提交（SHA 以 Git history 为准）。
+- Next: rebase 最新 unit、重跑 M3 精确范围后，在 unit lock 下合并并推送。
 
 ## Promotion Candidates
 

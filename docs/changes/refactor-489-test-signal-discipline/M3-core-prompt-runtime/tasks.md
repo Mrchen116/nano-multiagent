@@ -8,10 +8,10 @@
 
 ## 退出标准
 
-- [ ] 当前 prompt assembler、feature/tool gate、session/runtime 状态与消费者输入输出仍有最低层保护。
-- [ ] 迁移 golden、旧符号/目录终态和 prompt 段落片段不再作为永久测试契约。
-- [ ] 真实风险对应的保留或替代测试在删除旧测试前已跑通。
-- [ ] M3 精确范围测试、相关 contract 替代保护、ruff 与 diff 检查通过。
+- [x] 当前 prompt assembler、feature/tool gate、session/runtime 状态与消费者输入输出仍有最低层保护。
+- [x] 迁移 golden、旧符号/目录终态和 prompt 段落片段不再作为永久测试契约。
+- [x] 真实风险对应的保留或替代测试在删除旧测试前已跑通。
+- [x] M3 精确范围测试、相关 contract 替代保护、ruff 与 diff 检查通过。
 
 ## 测试策略
 
@@ -55,6 +55,6 @@
 
 ### R3 — 合并 runtime/persistence 重复并完成门禁
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 把 assistant merge 改为 `build_chat_messages` 消费者保护，去除 MemoryStore 重复；核对处置表并运行 M3 精确范围门禁。
 - 验证: M3 全量（显式包含 `tests/unit/test_curator.py`）、相关 contract、ruff、`git diff --check` 与范围检查通过。
