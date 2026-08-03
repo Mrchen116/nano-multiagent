@@ -36,6 +36,31 @@
 - Commits: 本 R2 提交（SHA 以 Git history 为准）。
 - Next: R3 运行收尾门禁，复核范围与处置表。
 
+## R3 — 门禁与范围收尾
+
+- 状态: DONE
+- Context: R1--R2 已完成删测和断言收敛，需要用与基线同口径的 M9 切片、可执行的下层替代保护和静态/文档门禁证明没有保护缺口或越界。
+- Decision: 复用 7 类文件 glob 重跑全 M9，单独运行 bash policy、tool validation、ReadTool、idle、bash contract 与 prompt section 替代保护；同时执行 ruff check/format、docs check、diff check、collection 与 baseline changed-path 对账。
+- Rationale: 同口径 `32 → 18` 量化了测试资产收敛；独立替代保护命令防止“删掉高层重复后下层也不存在”的误判。
+- Evidence:
+  - Claim: M9 在不改产品/spec 的前提下净减 14 个重复/历史 case，保留的 kernel/tool 跨 seam 保护和下层独立保护全绿。
+  - Baseline: `origin/unit/refactor-489@6d4ebd793`；M9 同口径 `32 passed in 9.01s`。
+  - Method: 运行收敛后 M9 切片、6 类 lower seam/contract，再执行 ruff check/format、`scripts/docs_check.py`、`git diff --check 6d4ebd793...HEAD`、collect-only 和 changed-path 白名单检查。
+  - Result: PASS；M9 `18 passed in 5.74s`（`32 → 18`）；替代保护 `116 passed in 0.62s`；ruff `All checks passed!`；format `8 files already formatted`；docs check `202 maintained Markdown sources / 65 routes`；collect `18 tests`；diff/scope 通过。
+  - Locator: `tasks.md` 的逐风险处置表；保留的 8 个 M9 test 文件；下层替代保护路径见 R1 Tests。
+  - Limit: fake LLM、临时文件与本地短子进程证明进程内 kernel/tool seam；本 milestone 无用户面变化，未调用真实外部 LLM/浏览器/常驻服务，不将此证据升级为 live E2E。
+  - Tests: M9 `18 passed`；lower seam/contract `116 passed`；ruff/docs/diff/collect 全绿。
+  - Entry: `build_kernel`→session/run→tool/compaction→LLM request/event stream，及 workspace loader→registry/runner；零产品 delta。
+  - Frontend State Matrix: N/A（非前端）。
+  - Browser QA: N/A（零用户面）。
+  - E2E/Regression: 收敛后 M9 18 项 integration 与 116 项可执行替代保护全绿；无新增 E2E。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Scope: baseline diff 仅含 M9 `tasks.md` / `progress.md` / `.gitkeep` 及 10 个归属 M9 的 integration test 文件；`test_empty_tool_allowlist_wiring.py` 处置为 keep 且无需改动；产品源码、current spec、M13 运行时测试和其他 milestone 产物均未改。
+- Rollback: 按 R2 `01fed5d36`、R1 `21a52e594`、plan `33cf0581c` 逆序回退；零产品数据或运行时回滚需求。
+- Commits: plan `33cf0581c`；R1 `21a52e594`；R2 `01fed5d36`；R3 本提交 SHA 以 Git history 为准。
+- Next: 按 worker 协议 rebase 最新 `origin/unit/refactor-489`，重跑门禁后在 unit lock 下合并。
+
 ## Promotion Candidates
 
 None.

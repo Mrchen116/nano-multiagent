@@ -8,10 +8,10 @@
 
 ## 退出标准
 
-- [ ] M9 每项受影响存量测试都有 keep / rewrite-merge / delete 处置结论。
-- [ ] 保留的 integration 只断言 `build_kernel` / ToolRegistry / hook-loader / tool-loader / provider mapper 等跨 seam 结果，不重测下层 policy、ReadTool 细节或 REPL 私有输入实现。
-- [ ] 删除的真实风险均有更低层保护；纯迁移 golden 明确记录为无 current 风险。
-- [ ] M9 切片、相关最低层替代保护、ruff、`git diff --check` 全绿，changed paths 不越界。
+- [x] M9 每项受影响存量测试都有 keep / rewrite-merge / delete 处置结论。
+- [x] 保留的 integration 只断言 `build_kernel` / ToolRegistry / hook-loader / tool-loader / provider mapper 等跨 seam 结果，不重测下层 policy、ReadTool 细节或 REPL 私有输入实现。
+- [x] 删除的真实风险均有更低层保护；纯迁移 golden 明确记录为无 current 风险。
+- [x] M9 切片、相关最低层替代保护、ruff、`git diff --check` 全绿，changed paths 不越界。
 
 ## 测试策略
 
@@ -60,6 +60,6 @@
 
 ### R3 — 门禁与范围收尾
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 复核处置表、保留保护与 changed paths，运行 M9 切片、下层替代保护、ruff 和 diff 检查。
 - 验证: 所有门禁全绿，`progress.md` 记录 Claim/Baseline/Method/Result/Locator/Limit。
