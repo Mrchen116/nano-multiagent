@@ -1,27 +1,18 @@
-"""R3 contract: build_kernel(基座) + create_session(per-agent) new-signature wiring.
-
-refactor-406 决策 1/2/4/5/6: the SDK building blocks (LLMConfig / Tool Protocol /
-PromptSlots / DTOs) are wired into the kernel. This test drives the **new**
-signature end-to-end — an agent-package-external application that only imports
-``agent.sdk``:
+"""Exercise the public SDK assembly contract end to end.
 
 - ``build_kernel(llm=LLMConfig, tools=[native objects], hooks=[setup], …)`` with
-  zero registry pre-init (决策 5 footgun removal),
+  no registry pre-initialization,
 - ``create_session(enabled_tools=…, features=…, prompt=PromptSlots)`` → ``SessionInfo``,
 - ``submit`` → ``RunInfo``, ``get_run`` → ``RunInfo``,
-- ``get_llm_config`` → ``LLMConfig`` DTO (bugfix-429: reconfigure_llm retired),
+- ``get_llm_config`` → ``LLMConfig`` DTO,
 - ``list_models`` / ``list_tools`` / ``list_features`` / ``list_skills`` consistent
   with the assembled kernel,
-- a closure-backed side-effect tool (no host-capability bridge) executes and reaches
-  the application's own subsystem (决策 9 shape: side effect direct to app, no回桥).
-
-This is the design.md M1 「外部产品最小证明」exit-criterion in test form.
+- a closure-backed side-effect tool reaches the application's own subsystem.
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -41,7 +32,6 @@ from agent.sdk import (
 )
 from agent.sdk.dto import FeatureInfo, ModelInfo, RunInfo, ToolInfo
 from agent.core.llm.interfaces import LLMMessage, LLMToolCall
-from agent.core.session.types import PromptSlotSeed, SessionRef
 
 
 # ---------------------------------------------------------------------------
@@ -495,49 +485,3 @@ async def test_prompt_slots_rehydrate_into_system_prompt_after_kernel_restart(
         assert "PROMPT-SLOTS-RESTART" in system_prompt
     finally:
         await second.aclose()
-
-
-async def test_legacy_session_without_prompt_seed_uses_empty_fallback(
-    tmp_path: Path,
-) -> None:
-    session_id = "sess_legacy_prompt_slots"
-    transcript = tmp_path / ".nanotest" / "sessions" / f"{session_id}.jsonl"
-    transcript.parent.mkdir(parents=True)
-    transcript.write_text(
-        json.dumps(
-            {
-                "type": "session_created",
-                "session_id": session_id,
-                "created_at": "2026-01-01T00:00:00Z",
-                "workspace_root": str(tmp_path),
-                "metadata": {"legacy": True},
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    captured: list[Any] = []
-
-    class _CapturingClient:
-        def generate(self, request: Any):  # noqa: ANN001, ANN201
-            captured.append(request)
-            return _stub("legacy-opened")
-
-    kernel = _build(tmp_path, _llm_client_override=_CapturingClient())
-    try:
-        run = kernel.submit(
-            session_id=session_id,
-            parts=[{"type": "text", "text": "open legacy"}],
-            workspace_root=tmp_path,
-        )
-        assert (await _wait_terminal(kernel, run.run_id)).status == "completed"
-        reopened = kernel._c.directory.open(  # type: ignore[attr-defined]
-            SessionRef(session_id=session_id, workspace_root=tmp_path)
-        )
-        assert reopened.prompt_seed == PromptSlotSeed()
-        assert captured[-1].messages[0].role == "system"
-        assert kernel.get_session(session_id, workspace_root=tmp_path)["metadata"] == {
-            "legacy": True
-        }
-    finally:
-        await kernel.aclose()

@@ -1,15 +1,7 @@
-"""Capability payload baseline guard (refactor-406-M2, design 风险 2).
+"""Guard the current IM capability wire payload.
 
-The reporter's IM capability payload (node.register flags + node.capabilities +
-agent.capabilities.resolve) is the highest-risk migration surface in M2: the data
-source switches from SDK-forwarded registry/resolver/profile internals to the
-neutral ``kernel.list_*`` queries with a Gateway projection layer (决策 4).
-
-The migration invariant (design 风险 2) is **byte-for-byte payload identity**:
-models / skills / tools / features / defaults / order must not drift one byte.
-
-This module pins the *pre-migration* payload shape as an executable baseline.
-It is recorded against:
+The node and agent capability operations expose an ordered protocol containing
+models, skills, tools, features and defaults. The contract is recorded against:
 
 - the conftest-fixed model registry (deterministic models/default),
 - a controlled ``HOME`` so skill discovery roots (``~/.nanoassistant/skills``,
@@ -18,9 +10,8 @@ It is recorded against:
   ``~/.claude/skills``), and
 - a controlled workspace seeded with two known skills.
 
-When R2 reroutes the reporter onto ``kernel.list_*`` + Gateway projection, the
-SAME controlled inputs must reproduce the SAME payload here. Red means drift —
-stop and fix the projection before proceeding.
+Controlled inputs must reproduce the same public payload; absolute skill locations
+are validated structurally because their prefixes vary by host.
 """
 
 from __future__ import annotations
@@ -52,12 +43,12 @@ def _seed_workspace_skills(workspace: Path) -> None:
 
 
 def _seed_user_level_skills(home: Path) -> None:
-    """Seed user-level skills the pre-refactor reporter advertises.
+    """Seed user-level skills advertised by the current reporter.
 
-    The pre-refactor reporter's PA skill search roots are 4-tier: workspace
+    PA skill search roots are four-tier: workspace
     ``<ws>/.nanoassistant/skills`` + global ``~/.nanoassistant/skills`` + compat
     ``~/.claude/skills`` + ``~/.codex/skills``. These global/compat user-level skills
-    are part of the advertised capability and must survive the migration (R-CFG-2).
+    are part of the advertised capability.
     """
     _write_skill(home / ".nanoassistant" / "skills", "global-pa-skill", "Global PA")
     _write_skill(home / ".claude" / "skills", "compat-claude-skill", "Compat Claude")
@@ -68,9 +59,8 @@ def _seed_user_level_skills(home: Path) -> None:
 def controlled_caps(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Yield reporter payload builders under a fully controlled environment.
 
-    HOME is redirected to an empty tmp dir so the three skill compat/global roots
-    (``~/.nanoassistant/skills``, ``~/.claude/skills``, ``~/.codex/skills``) are
-    empty — skill output is then determined solely by the controlled workspace.
+    HOME and CODEX_HOME are redirected to a temporary tree, then the workspace and
+    three user-level roots are seeded explicitly so host state cannot affect output.
     """
     fake_home = tmp_path / "home"
     fake_home.mkdir(parents=True, exist_ok=True)
@@ -91,9 +81,8 @@ def controlled_caps(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     kernel_root = tmp_path / "kernel-root"
     kernel_root.mkdir(parents=True, exist_ok=True)
 
-    # refactor-406-M2: the reporter now projects from a live Kernel's neutral
-    # list_* queries (决策 4). Build the real PA kernel so the baseline exercises
-    # the actual post-migration data path under the controlled environment.
+    # Build the real PA kernel so the contract exercises the production projection
+    # from neutral Kernel list_* queries under the controlled environment.
     import tests.conftest as _conftest  # noqa: PLC0415
     from agent.sdk import LLMConfig  # noqa: PLC0415
     from personal_assistant.product import build_pa_kernel  # noqa: PLC0415
@@ -213,8 +202,8 @@ GOLDEN_AGENT_FEATURES: list[dict[str, object]] = [
     },
 ]
 
-# User-level skills (global + compat) advertised on every PA agent regardless of
-# workspace — part of the pre-refactor capability and a migration invariant.
+# User-level skills (global + compat) are advertised on every PA agent regardless
+# of workspace.
 GOLDEN_USER_LEVEL_SKILLS: list[dict[str, str]] = [
     {"name": "compat-claude-skill", "description": "Compat Claude"},
     {"name": "compat-codex-skill", "description": "Compat Codex"},
@@ -246,8 +235,8 @@ GOLDEN_DEFAULT_SYSTEM_PROMPT = ""
 
 
 def _sorted_skills(skills: list[dict[str, str]]) -> list[dict[str, str]]:
-    # feat-430: drop the volatile ``location`` (absolute SKILL.md path varies by host)
-    # before the byte-identity golden compare; location presence is asserted separately.
+    # Absolute SKILL.md prefixes vary by host, so location has a separate structural
+    # assertion while stable protocol fields remain exact.
     return sorted(
         ({"name": s["name"], "description": s["description"]} for s in skills),
         key=lambda s: s["name"],
@@ -264,12 +253,12 @@ def _assert_skills_carry_location(skills: list[dict[str, str]]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Baseline assertions
+# Protocol assertions
 # ---------------------------------------------------------------------------
 
 
-def test_node_capabilities_payload_matches_baseline(controlled_caps) -> None:
-    """node.capabilities payload reproduces the recorded baseline (design 风险 2)."""
+def test_node_capabilities_payload_matches_contract(controlled_caps) -> None:
+    """node.capabilities returns the current wire contract."""
     ur, kernel, _workspace = controlled_caps
     payload = ur.build_node_capabilities_payload(kernel)
 
@@ -285,8 +274,8 @@ def test_node_capabilities_payload_matches_baseline(controlled_caps) -> None:
     assert payload["default_system_prompt"] == GOLDEN_DEFAULT_SYSTEM_PROMPT
 
 
-def test_agent_capabilities_payload_matches_baseline(controlled_caps) -> None:
-    """agent.capabilities.resolve payload reproduces the baseline (design 风险 2).
+def test_agent_capabilities_payload_matches_contract(controlled_caps) -> None:
+    """agent.capabilities.resolve returns the current wire contract.
 
     Exercises per-workspace skill discovery (workspace-seeded skills only, global
     roots empty) AND per-allowlist feature availability — the two R-CFG invariants.
@@ -306,8 +295,8 @@ def test_agent_capabilities_payload_matches_baseline(controlled_caps) -> None:
     _assert_skills_carry_location(list(payload["skills"]))
 
 
-def test_node_register_flags_payload_matches_baseline(controlled_caps) -> None:
-    """node.register capability flags reproduce the baseline (design 风险 2).
+def test_node_register_flags_payload_matches_contract(controlled_caps) -> None:
+    """node.register capability flags return the current wire contract.
 
     node.register carries only the boolean flags (no models/skills/tools), per
     ReporterCapabilities.register_flags_payload.

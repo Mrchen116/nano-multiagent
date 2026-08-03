@@ -69,11 +69,13 @@ contract_violations = ""
 if top_dir == "src":
     contract_result = subprocess.run(
         [
-            "python",
+            sys.executable,
             "-m",
             "pytest",
+            "tests/contract/test_agent_sdk_boundary_contract.py",
             "tests/contract/test_cli_sdk_only_contract.py",
             "tests/contract/test_core_no_platform_imports.py",
+            "tests/contract/test_platform_no_sdk_imports.py",
             "-q",
             "--tb=short",
             "--no-header",

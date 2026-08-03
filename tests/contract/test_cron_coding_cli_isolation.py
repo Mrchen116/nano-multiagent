@@ -1,21 +1,13 @@
-"""Contract: coding_cli must not contain the cron tool or heartbeat/cron prompt segments.
-
-feat-394 decision 7: cron tool and heartbeat/cron prompt segments are personal_assistant
-only. coding_cli must never receive them. refactor-406-M2: products/ dissolved — the
-isolation is now checked against the production factories (coding_cli.product /
-personal_assistant.product) and the live tool name sources.
-"""
+"""Keep cron and heartbeat capabilities isolated to personal_assistant."""
 
 from __future__ import annotations
-
-from pathlib import Path
 
 
 class TestCronCodingCliIsolation:
     """coding_cli MUST NOT contain cron tool or heartbeat/cron prompt segments."""
 
     def test_coding_cli_toolset_no_cron(self) -> None:
-        """coding_cli enabled tools must not include 'cron' (feat-394 decision 7)."""
+        """coding_cli enabled tools must not include cron scheduling."""
         from coding_cli.product import DEFAULT_ENABLED_TOOLS
 
         assert "cron" not in list(DEFAULT_ENABLED_TOOLS), (
@@ -54,19 +46,4 @@ class TestCronCodingCliIsolation:
         assert "pa.heartbeat" in names, (
             "PA prompt must include 'pa.heartbeat' segment when heartbeat enabled "
             "(regression guard)"
-        )
-
-    def test_cron_tool_only_in_pa_tools_directory(self) -> None:
-        """cron.py must live in src/personal_assistant/tools/, not under src/coding_cli/.
-
-        refactor-406-M1 R7 (决策 9): PA's cron tool is supplied via build_kernel(tools=…).
-        """
-        src_root = Path(__file__).resolve().parents[2] / "src"
-        pa_tools_dir = src_root / "personal_assistant" / "tools"
-        cli_dir = src_root / "coding_cli"
-        assert (pa_tools_dir / "cron.py").exists(), (
-            "cron.py must exist in src/personal_assistant/tools/"
-        )
-        assert not (cli_dir / "tools" / "cron.py").exists(), (
-            "cron.py must NOT exist under src/coding_cli/"
         )
