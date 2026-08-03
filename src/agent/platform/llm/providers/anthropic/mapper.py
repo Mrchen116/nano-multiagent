@@ -38,7 +38,25 @@ class AnthropicMapper:
                 if message.content:
                     system_parts.append(message.content)
                 continue
-            messages.append(self._map_message(message))
+            mapped = dict(self._map_message(message))
+            # Anthropic Messages 要求：并行 tool_use 之后的全部 tool_result 必须落在
+            # 紧随其后的同一条 user 里。内部 transcript 仍可按条存 role=tool；上线时
+            # 把连续的仅含 tool_result 的 user 合成一条（bugfix-490 / #226）。
+            if (
+                message.role == "tool"
+                and messages
+                and _is_tool_result_only_user(messages[-1])
+            ):
+                prev = messages[-1]
+                prev_content = prev.get("content")
+                new_content = mapped.get("content")
+                if isinstance(prev_content, list) and isinstance(new_content, list):
+                    messages[-1] = {
+                        "role": "user",
+                        "content": [*prev_content, *new_content],
+                    }
+                    continue
+            messages.append(mapped)
 
         if not messages:
             raise ModelError(
@@ -154,6 +172,19 @@ class AnthropicMapper:
             "role": role,
             "content": [{"type": "text", "text": message.content}],
         }
+
+
+def _is_tool_result_only_user(message: Mapping[str, Any]) -> bool:
+    """Whether a wire user message consists solely of tool_result blocks."""
+    if message.get("role") != "user":
+        return False
+    content = message.get("content")
+    if not isinstance(content, list) or not content:
+        return False
+    return all(
+        isinstance(block, Mapping) and block.get("type") == "tool_result"
+        for block in content
+    )
 
 
 def _map_tool_result_content(

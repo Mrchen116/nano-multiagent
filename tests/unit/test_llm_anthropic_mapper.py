@@ -215,6 +215,69 @@ def test_map_message_assistant_without_reasoning_omits_thinking_block() -> None:
     assert all(b.get("type") != "thinking" for b in assistant_msg["content"])
 
 
+def test_map_generate_request_merges_consecutive_parallel_tool_results() -> None:
+    """并行 tool 的多条 role=tool 必须合成一条 user，content 含全部 tool_result。
+
+    Anthropic Messages 要求：含多个 tool_use 的 assistant 之后，紧跟的那一条 user
+    必须立刻带齐对应 tool_result；拆成多条 user 会 400（bugfix-490 / #226）。
+    内部 transcript 仍可拆条；合并只发生在 Anthropic 上线映射。
+    """
+    from agent.core.llm.interfaces import LLMToolCall
+
+    mapper = AnthropicMapper()
+
+    payload = mapper.map_generate_request(
+        _request(
+            messages=(
+                LLMMessage(role="user", content="read both"),
+                LLMMessage(
+                    role="assistant",
+                    content="",
+                    tool_calls=(
+                        LLMToolCall(
+                            call_id="call_A", name="read", arguments={"path": "/a"}
+                        ),
+                        LLMToolCall(
+                            call_id="call_B", name="read", arguments={"path": "/b"}
+                        ),
+                    ),
+                ),
+                LLMMessage(role="tool", content="content-a", tool_call_id="call_A"),
+                LLMMessage(role="tool", content="content-b", tool_call_id="call_B"),
+                LLMMessage(role="user", content="thanks"),
+            ),
+        )
+    )
+
+    wire = payload["messages"]
+    # user → assistant(tool_use×2) → user(tool_result×2) → user(thanks)
+    assert len(wire) == 4
+    assert wire[1]["role"] == "assistant"
+    assert [b["id"] for b in wire[1]["content"] if b["type"] == "tool_use"] == [
+        "call_A",
+        "call_B",
+    ]
+    assert wire[2] == {
+        "role": "user",
+        "content": [
+            {
+                "type": "tool_result",
+                "tool_use_id": "call_A",
+                "content": [{"type": "text", "text": "content-a"}],
+            },
+            {
+                "type": "tool_result",
+                "tool_use_id": "call_B",
+                "content": [{"type": "text", "text": "content-b"}],
+            },
+        ],
+    }
+    assert wire[3] == {
+        "role": "user",
+        "content": [{"type": "text", "text": "thanks"}],
+    }
+
+
 def test_map_generate_response_surfaces_cache_hit_fields() -> None:
     """feat-439-M1: Anthropic 缓存读取量单独暴露为 cache_read_tokens；
     cache_total_input_tokens 跨家归一为本次总 input(== prompt_tokens)。

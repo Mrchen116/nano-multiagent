@@ -90,8 +90,16 @@ Issue：https://github.com/Mrchen116/nano-multiagent/issues/226
 
 ## 修复
 
-<!-- 改了什么 + commits。由 worker / orchestrator 回填。 -->
+在 `AnthropicMapper.map_generate_request` 上线映射时，把连续的仅含 `tool_result` 的 `user` 合成一条（content 按序拼接全部 block）。内部 transcript 仍可多条 `role=tool`；不做旧 session 历史改写。
+
+- `src/agent/platform/llm/providers/anthropic/mapper.py`：合并逻辑 + `_is_tool_result_only_user`
+- `tests/unit/test_llm_anthropic_mapper.py`：`test_map_generate_request_merges_consecutive_parallel_tool_results`
 
 ## 验证
 
-<!-- 修前能复现 → 修后不能；相关功能回归正常。由 worker / orchestrator 回填。 -->
+- **Red → Green**：修前并行两条 `role=tool` 映成 5 条 wire message（两条独立 tool_result user）；修后 4 条，tool_result 同属一条 user。
+- **相关回归**：`tests/unit/test_llm_anthropic_mapper.py`、`test_loop_parallel_tool_results.py`、`tests/contract/test_llm_provider_contract.py`、`tests/integration/test_tools_read_integration.py` 全绿（内部仍按条存 tool）。
+- **真实上游（本机 LLM_PROXY `deepseek:deepseek-v4-flash`）**：
+  - SPLIT（拆条）→ `invalid_request_error`：`tool_use ids were found without tool_result blocks immediately after: call_B`
+  - MERGED / 经 mapper 映射的 payload → `200`
+  - 证据：`M1-fix/evidence/local-deepseek-wire.txt`
