@@ -8,9 +8,9 @@
 
 ## 退出标准
 
-- [ ] IM 的公开 HTTP/WebSocket contract、owner 隔离、持久化原子性、幂等与稳定顺序仍有最小必要保护。
-- [ ] 删除或改写只锁定私有调用步骤、源码/路由形态、历史迁移措辞以及跨 repository/service/route 重复的断言。
-- [ ] M11 范围完整 pytest 门禁全绿，测试 census 与删改理由可复查。
+- [x] IM 的公开 HTTP/WebSocket contract、owner 隔离、持久化原子性、幂等与稳定顺序仍有最小必要保护。
+- [x] 删除或改写只锁定私有调用步骤、源码/路由形态、历史迁移措辞以及跨 repository/service/route 重复的断言。
+- [x] M11 范围完整 pytest 门禁全绿，测试 census 与删改理由可复查。
 
 ## 测试策略
 
@@ -65,6 +65,6 @@
 
 ### R4 — 全量门禁与测试 census
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 复查 scope、测试命名/大小/重复、`git diff --check`，运行 M11 全范围 pytest，记录前后 census 与 warning。
 - 验证: M11 全范围全绿；无越界修改；tasks/progress 证据完备。

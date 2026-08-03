@@ -50,19 +50,19 @@
 
 ## R4 — 全量门禁与测试 census
 
-- Context: 待执行。
-- Decision: 待执行。
-- Rationale: 待执行。
+- Context: R1-R3 后需要证明删减没有降低 IM 公开契约、持久化事务和异步时序保护，并确认没有把测试重构扩散到 M11 之外。
+- Decision: 在最新 `origin/unit/refactor-489` 基线上完成 collect、M11 全范围 pytest、全范围 Ruff、形状审计和 diff/scope 检查；保留 schema/transaction/concurrency regression 中必要的私有连接与 PRAGMA 注入，不再机械删除。最终测试从 424 收敛到 329，删除 95 项（22.4%），范围文件从 61 减到 59，代码行从 16,357 减到 14,769。
+- Rationale: 公开 seam 与独立生产风险都仍有 surviving test；剩余 private connection/SQL 只用于构造无法从公开 API 稳定触发的 migration、rollback、stale ordering 和 shared-connection 竞争。22.4% 的删减来自重复层级、逐字段/逐跳及实现形态，不来自降低 current spec 风险覆盖。
 - Evidence:
-  - Tests: 待执行。
+  - Tests: `pytest --collect-only -q tests/unit/IM tests/im_service/unit tests/im_service/contract` → `329 tests collected in 0.30s`；`pytest -q` 同范围 → `329 passed, 13 warnings in 21.10s`；`ruff check` 同范围及 `_auth_helpers.py` → `All checks passed!`。
   - Entry: N/A。
   - Frontend State Matrix: N/A。
   - Browser QA: N/A。
-  - E2E/Regression: 待执行。
+  - E2E/Regression: M11 全范围从基线 `424 passed, 13 warnings` 到最终 `329 passed, 13 warnings`；13 项均为未变化的测试 secret PyJWT `InsecureKeyLengthWarning`。`git diff --check origin/unit/refactor-489...HEAD` 无输出；形状审计未发现残留 `inspect`/`getsource`/`hasattr`/route-introspection 锁定；改动仅位于 M11 测试与工件范围。
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: 文档可随对应实现 commit 回退。
-- Commits: 待完成。
+- Commits: 本 roadpoint commit。
 
 ## Promotion Candidates
 
