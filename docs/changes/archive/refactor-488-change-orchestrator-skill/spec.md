@@ -40,5 +40,5 @@
 
 ## 范围与非目标
 
-- 在范围：`change-orchestrator` 主 skill、其 Codex 执行说明，以及本次快速开发的事后 unit 记录。
+- 在范围：`change-orchestrator` 主 skill、其 Codex 执行说明、对应的 workflow contract tests，以及本次快速开发的事后 unit 记录。
 - 非目标：改变产品行为、修改其他角色 skill、改变 Full/Bugfix lite 的门禁组合，或为不存在的实施阶段补造记录。
