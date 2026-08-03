@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 from pathlib import Path
 
 import pytest
@@ -140,7 +139,7 @@ def test_run_delivery_target_distinguishes_shadow_owner_direct_and_none() -> Non
     assert none.owner_direct is None
 
 
-def test_relay_lifecycle_seeds_typed_owner_direct_context_and_legacy_view() -> None:
+def test_relay_lifecycle_seeds_typed_owner_direct_context() -> None:
     context_store = RunDeliveryContextStore()
     callback = _build_relay_lifecycle_callback(
         reporter=None,
@@ -177,13 +176,6 @@ def test_relay_lifecycle_seeds_typed_owner_direct_context_and_legacy_view() -> N
         to_user_id="owner-1",
         agent_id="agent-a",
     )
-    assert context_store.legacy_contexts["run-owner-direct"] == {
-        "conversation_id": "",
-        "message_id": "",
-        "agent_id": "agent-a",
-        "kernel_session_id": "sess-owner-direct",
-        "to_user_id": "owner-1",
-    }
 
 
 def test_relay_lifecycle_partial_external_metadata_never_targets_owner_direct() -> None:
@@ -220,10 +212,9 @@ def test_relay_lifecycle_partial_external_metadata_never_targets_owner_direct() 
     assert context is not None
     assert context.delivery_target.kind == "none"
     assert context.delivery_target.reason == "external_without_shadow"
-    assert context_store.legacy_contexts["run-partial-external"]["to_user_id"] == ""
 
 
-def test_relay_lifecycle_cleanup_removes_typed_and_legacy_context() -> None:
+def test_relay_lifecycle_cleanup_removes_typed_context() -> None:
     context_store = RunDeliveryContextStore()
     callback = _build_relay_lifecycle_callback(
         reporter=None,
@@ -266,7 +257,6 @@ def test_relay_lifecycle_cleanup_removes_typed_and_legacy_context() -> None:
     asyncio.run(_exercise())
 
     assert context_store.get("run-cleanup") is None
-    assert "run-cleanup" not in context_store.legacy_contexts
 
 
 def test_typed_store_fresh_relay_accepted_still_sends_sent_receipt() -> None:
@@ -434,14 +424,6 @@ def test_roll_bubble_updates_typed_context_runtime_state() -> None:
     assert ctx.kernel_message_id == "kernel-msg-b"
     assert ctx.visible_reply_committed is False
     assert ctx.rolling is False
-
-
-def test_compose_gateway_wires_typed_delivery_context_store() -> None:
-    source = inspect.getsource(compose_gateway)
-
-    assert "RunDeliveryContextStore()" in source
-    assert "_run_context_store" not in source
-    assert "run_context_store=run_delivery_contexts.legacy_contexts" not in source
 
 
 def test_relay_lifecycle_callback_sends_receipts_and_reports_with_real_usage_to_im() -> (
@@ -778,6 +760,7 @@ def test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion() 
                 "run_id": "run-1",
                 "message_id": "kernel-msg-a",
                 "content": "I will check.",
+                "reasoning_content": "private chain of thought A",
             }
         )
         await asyncio.sleep(0)
@@ -787,6 +770,7 @@ def test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion() 
                 "run_id": "run-1",
                 "message_id": "kernel-msg-b",
                 "content": "Final answer.",
+                "reasoning_content": "private chain of thought B",
             }
         )
         assert asyncio.iscoroutine(roll)

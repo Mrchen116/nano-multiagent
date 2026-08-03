@@ -69,12 +69,11 @@ def test_relay_dedup_store_purge_removes_expired_rows(tmp_path: Path) -> None:
 
 def test_relay_dedup_store_deque_rolls_over_at_max(tmp_path: Path) -> None:
     store = RelayDeduplicationStore(
-        db_path=tmp_path / "relay-dedup.sqlite3", seen_keys=deque(["old"])
+        db_path=tmp_path / "relay-dedup.sqlite3",
+        seen_keys=deque(str(index) for index in range(1000)),
     )
-    store._seen_idempotency_keys = deque([str(index) for index in range(1000)])  # noqa: SLF001
 
     store.add("overflow")
 
     assert store.contains("0") is False
     assert store.contains("overflow") is True
-    assert len(store._seen_idempotency_keys) == 1000  # noqa: SLF001

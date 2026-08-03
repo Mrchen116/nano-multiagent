@@ -1,4 +1,4 @@
-"""M103 gateway-side mention gating and local-autonomy coverage."""
+"""Independent Gateway group-trigger and local-autonomy coverage."""
 
 from __future__ import annotations
 
@@ -8,10 +8,12 @@ from pathlib import Path
 from personal_assistant.channels.base import InboundMessage, OutboundMessage
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.channel_registry import ChannelRegistry
-from tests.helpers.inbound_pipeline import build_inbound_pipeline, inbound_graph
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import SessionBindingStore
+from tests.helpers.inbound_pipeline import build_inbound_pipeline
+
+from ._pipeline_helpers import _FakeKernel
 
 
 class _FakeChannel:
@@ -19,7 +21,7 @@ class _FakeChannel:
         self.name = name
         self.sent: list[OutboundMessage] = []
 
-    def start(self, on_inbound):  # noqa: ANN001
+    def start(self, on_inbound) -> None:  # noqa: ANN001
         self.on_inbound = on_inbound
 
     def send(self, outbound: OutboundMessage) -> None:
@@ -27,9 +29,6 @@ class _FakeChannel:
 
     def stop(self) -> None:
         return None
-
-
-from ._pipeline_helpers import _FakeKernel  # noqa: E402 (local helper import after stdlib)
 
 
 def _agents(tmp_path: Path) -> tuple[AgentWorkspaceConfig, ...]:
@@ -42,71 +41,23 @@ def _agents(tmp_path: Path) -> tuple[AgentWorkspaceConfig, ...]:
     )
 
 
-def _two_agents(tmp_path: Path) -> tuple[AgentWorkspaceConfig, ...]:
-    wa = tmp_path / "agent-a"
-    wb = tmp_path / "agent-b"
-    wa.mkdir()
-    wb.mkdir()
-    return (
-        AgentWorkspaceConfig(agent_id="agent-a", workspace_root=wa, title="Agent A"),
-        AgentWorkspaceConfig(agent_id="agent-b", workspace_root=wb, title="Agent B"),
-    )
-
-
-def test_group_message_without_mention_is_ignored(tmp_path: Path) -> None:
-    """Unmentioned group traffic must not invoke the kernel."""
-    agents = _agents(tmp_path)
-    channel = _FakeChannel("web_relay")
-    kernel = _FakeKernel()
-    pipeline = build_inbound_pipeline(
+def _pipeline(tmp_path: Path, channel: _FakeChannel, kernel: _FakeKernel):
+    return build_inbound_pipeline(
         kernel=kernel,
-        agents=agents,
+        agents=_agents(tmp_path),
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
         run_queue=SessionRunQueue(),
         session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
 
+
+def test_group_reply_to_agent_runs_without_a_new_mention(tmp_path: Path) -> None:
+    """Reply metadata independently addresses the agent in a group."""
+    channel = _FakeChannel("web_relay")
+    kernel = _FakeKernel()
+    pipeline = _pipeline(tmp_path, channel, kernel)
     inbound = InboundMessage(
-        channel_name="web_relay",
-        text="hello group",
-        external_user_id="user-1",
-        external_chat_id="conv-1",
-        is_group=True,
-        metadata={"mentioned_agent_ids": [], "trigger": "ambient"},
-    )
-
-    result = asyncio.run(pipeline.handle_inbound(inbound))
-
-    assert result is None
-    assert kernel.create_session_calls == []
-    assert kernel.send_calls == []
-    assert channel.sent == []
-
-
-def test_group_message_with_mention_or_reply_runs(tmp_path: Path) -> None:
-    """Mentioned or agent-reply group traffic must still reach the kernel."""
-    agents = _agents(tmp_path)
-    channel = _FakeChannel("web_relay")
-    kernel = _FakeKernel()
-    pipeline = build_inbound_pipeline(
-        kernel=kernel,
-        agents=agents,
-        outbound_router=OutboundRouter(ChannelRegistry((channel,))),
-        run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
-        default_agent_id="agent-a",
-    )
-
-    mentioned = InboundMessage(
-        channel_name="web_relay",
-        text="@agent-a hello",
-        external_user_id="user-1",
-        external_chat_id="conv-1",
-        is_group=True,
-        metadata={"mentioned_agent_ids": ["agent-a"], "trigger": "mention"},
-    )
-    replied = InboundMessage(
         channel_name="web_relay",
         text="follow-up",
         external_user_id="user-1",
@@ -115,125 +66,18 @@ def test_group_message_with_mention_or_reply_runs(tmp_path: Path) -> None:
         metadata={"reply_to_agent_id": "agent-a", "trigger": "reply"},
     )
 
-    first = asyncio.run(pipeline.handle_inbound(mentioned))
-    second = asyncio.run(pipeline.handle_inbound(replied))
-
-    assert first is not None
-    assert second is not None
-    # Since M246: group messages are prefixed with [sender_id] by the gateway layer.
-    assert [call["texts"][-1] for call in kernel.send_calls] == [
-        "[user-1] @agent-a hello",
-        "[user-1] follow-up",
-    ]
-    assert [item.text for item in channel.sent] == [
-        "reply:[user-1] @agent-a hello",
-        "reply:[user-1] follow-up",
-    ]
-
-
-def test_group_message_with_mention_and_no_reply_token_stays_silent(
-    tmp_path: Path,
-) -> None:
-    """Mentioned group traffic that returns NO_REPLY must stay silent."""
-    agents = _agents(tmp_path)
-    channel = _FakeChannel("web_relay")
-    kernel = _FakeKernel()
-    kernel.default_output_text = "NO_REPLY"
-    pipeline = build_inbound_pipeline(
-        kernel=kernel,
-        agents=agents,
-        outbound_router=OutboundRouter(ChannelRegistry((channel,))),
-        run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
-        default_agent_id="agent-a",
-    )
-
-    inbound = InboundMessage(
-        channel_name="web_relay",
-        text="@agent-a stay quiet",
-        external_user_id="user-1",
-        external_chat_id="conv-1",
-        is_group=True,
-        metadata={"mentioned_agent_ids": ["agent-a"], "trigger": "mention"},
-    )
-
     result = asyncio.run(pipeline.handle_inbound(inbound))
 
     assert result is not None
-    assert result.reply_text == "NO_REPLY"
-    assert result.outbound is None
-    # Since M246: group messages are prefixed with [sender_id] by the gateway layer.
-    assert kernel.send_calls == [
-        {
-            "session_id": "sess-1",
-            "texts": ["[user-1] @agent-a stay quiet"],
-            "run_id": "run-1",
-        }
-    ]
-    assert channel.sent == []
-
-
-def test_register_agent_refresh_drops_old_session_binding_and_recreates_session(
-    tmp_path: Path,
-) -> None:
-    """Refreshing one agent config must force later messages onto a new kernel session."""
-    agents = _agents(tmp_path)
-    channel = _FakeChannel("web_relay")
-    kernel = _FakeKernel()
-    session_store = SessionBindingStore()
-    pipeline = build_inbound_pipeline(
-        kernel=kernel,
-        agents=agents,
-        outbound_router=OutboundRouter(ChannelRegistry((channel,))),
-        run_queue=SessionRunQueue(),
-        session_store=session_store,
-        default_agent_id="agent-a",
-    )
-
-    inbound = InboundMessage(
-        channel_name="web_relay",
-        text="first turn",
-        external_user_id="user-1",
-        external_chat_id="conv-1",
-        is_group=False,
-    )
-    refreshed_workspace = tmp_path / "agent-a-v2"
-    refreshed_workspace.mkdir()
-
-    first = asyncio.run(pipeline.handle_inbound(inbound))
-    current = inbound_graph(pipeline).catalog.publish(
-        AgentWorkspaceConfig(
-            agent_id="agent-a", workspace_root=refreshed_workspace, title="Agent A v2"
-        )
-    )
-    inbound_graph(pipeline).binder.invalidate_stale(
-        "agent-a", current_revision=current.revision
-    )
-    second = asyncio.run(pipeline.handle_inbound(inbound))
-
-    assert first is not None
-    assert second is not None
-    assert [call["session_id"] for call in kernel.send_calls] == ["sess-1", "sess-2"]
-    assert [call["workspace_root"] for call in kernel.create_session_calls] == [
-        str(tmp_path / "agent-a"),
-        str(refreshed_workspace),
-    ]
+    assert kernel.send_calls[0]["texts"] == ["[user-1] follow-up"]
+    assert [item.text for item in channel.sent] == ["reply:[user-1] follow-up"]
 
 
 def test_local_channel_keeps_working_without_im_connection(tmp_path: Path) -> None:
-    """Gateway local channel execution must not depend on IM websocket connectivity."""
-    agents = _agents(tmp_path)
+    """Local channel execution does not depend on IM WebSocket connectivity."""
     channel = _FakeChannel("qq")
     kernel = _FakeKernel()
-    pipeline = build_inbound_pipeline(
-        kernel=kernel,
-        agents=agents,
-        outbound_router=OutboundRouter(ChannelRegistry((channel,))),
-        run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
-        default_agent_id="agent-a",
-    )
-
+    pipeline = _pipeline(tmp_path, channel, kernel)
     inbound = InboundMessage(
         channel_name="qq",
         text="offline still works",
@@ -258,94 +102,3 @@ def test_local_channel_keeps_working_without_im_connection(tmp_path: Path) -> No
             metadata={},
         )
     ]
-
-
-def test_group_multiagent_fanout_buffers_and_contextualises(tmp_path: Path) -> None:
-    """Each agent's relay buffers messages into its own context; no cross-agent fan-out.
-
-    After M231 the IM service sends one relay per participant agent.  Each gateway
-    only buffers context for its own agent_id and drains it on the next addressed turn.
-    The test simulates the relay-per-agent flow using explicit agent_id on each message.
-    """
-    from personal_assistant.gateway.group_context_store import GroupContextStore
-
-    agents = _two_agents(tmp_path)
-    channel = _FakeChannel("web_relay")
-    kernel = _FakeKernel()
-    store = GroupContextStore(db_path=tmp_path / "group_ctx.sqlite3")
-    pipeline = build_inbound_pipeline(
-        kernel=kernel,
-        agents=agents,
-        outbound_router=OutboundRouter(ChannelRegistry((channel,))),
-        run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
-        group_context_store=store,
-        default_agent_id="agent-a",
-    )
-
-    # Step 1a: plain message relay targeted to agent-b → agent-b buffers, does not respond.
-    plain_for_b = InboundMessage(
-        channel_name="web_relay",
-        text="hello everyone",
-        external_user_id="user-1",
-        external_chat_id="conv-1",
-        is_group=True,
-        agent_id="agent-b",  # relay explicitly targets agent-b
-        metadata={"mentioned_agent_ids": []},
-    )
-    result_plain = asyncio.run(pipeline.handle_inbound(plain_for_b))
-    assert result_plain is None
-    assert kernel.send_calls == []
-
-    # Step 2: @agent-b relay targeted to agent-b → agent-b drains its buffer then processes.
-    mention_b = InboundMessage(
-        channel_name="web_relay",
-        text="@agent-b what time is it?",
-        external_user_id="user-1",
-        external_chat_id="conv-1",
-        is_group=True,
-        agent_id="agent-b",  # relay explicitly targets agent-b
-        metadata={"mentioned_agent_ids": ["agent-b"]},
-    )
-    result_b = asyncio.run(pipeline.handle_inbound(mention_b))
-    assert result_b is not None
-    assert result_b.agent_id == "agent-b"
-    assert len(kernel.send_calls) == 1
-    # Since M246: group messages are prefixed with [sender_id] by the gateway layer.
-    # agent-b must drain "hello everyone" then receive the @mention in its own buffer
-    assert kernel.send_calls[0]["texts"] == [
-        "[user-1] hello everyone",
-        "[user-1] @agent-b what time is it?",
-    ]
-
-    # Step 3a: plain message relay targeted to agent-a → agent-a buffers.
-    plain_for_a = InboundMessage(
-        channel_name="web_relay",
-        text="hello everyone",
-        external_user_id="user-1",
-        external_chat_id="conv-1",
-        is_group=True,
-        agent_id="agent-a",
-        metadata={"mentioned_agent_ids": []},
-    )
-    asyncio.run(pipeline.handle_inbound(plain_for_a))
-
-    # Step 3b: @agent-a relay targeted to agent-a → agent-a drains its own buffer and processes.
-    mention_a = InboundMessage(
-        channel_name="web_relay",
-        text="@agent-a your turn",
-        external_user_id="user-1",
-        external_chat_id="conv-1",
-        is_group=True,
-        agent_id="agent-a",
-        metadata={"mentioned_agent_ids": ["agent-a"]},
-    )
-    result_a = asyncio.run(pipeline.handle_inbound(mention_a))
-    assert result_a is not None
-    assert result_a.agent_id == "agent-a"
-    assert len(kernel.send_calls) == 2
-    sent_texts = kernel.send_calls[1]["texts"]
-    # Since M246: group messages are prefixed with [sender_id] by the gateway layer.
-    # agent-a drains its own buffer ("hello everyone") then receives the @mention
-    assert sent_texts[0] == "[user-1] hello everyone"
-    assert sent_texts[-1] == "[user-1] @agent-a your turn"

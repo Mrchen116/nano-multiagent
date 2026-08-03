@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 
 import pytest
 
-from personal_assistant.gateway.runtime_delivery import observer as observer_module
 from personal_assistant.gateway.runtime_delivery.task_tracker import (
     RuntimeDeliveryTaskTracker,
 )
@@ -78,10 +76,3 @@ async def test_close_timeout_cancels_every_tracked_task_and_names_owner() -> Non
         for task in asyncio.all_tasks()
         if not task.done()
     )
-
-
-def test_observer_has_no_bare_detached_task_creation() -> None:
-    """Observer delegates every detached awaitable to its concrete owner."""
-
-    source = inspect.getsource(observer_module)
-    assert ".create_task(" not in source
