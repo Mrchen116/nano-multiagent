@@ -34,19 +34,19 @@
 
 ## R3 — Gateway、relay 与实时状态持久化保护收敛
 
-- Context: 待执行。
-- Decision: 待执行。
-- Rationale: 待执行。
+- Context: Gateway/relay 范围中大量测试把同一 ToolCall 字段沿 private parse、dict、event、JSON encode/decode、repository 各测一遍；Gateway handler 也用 `inspect.signature`、dataclass field 和 PRAGMA 重复证明 heartbeat 字段存在。
+- Decision: 把 ToolCall detail/emoji/approval 的 24 项逐跳测试收敛为 completed-event、durable history、legacy defaults 三项；把 19 项 user-stream builder 测试收敛为 7 个稳定 wire behavior；合并 token usage current/legacy normalization、四类 offline RPC、permission reason current/omitted、permission request list lifecycle；删除 incoming `permission_response` no-op、private notify owner、timestamp formatter 单元形态和 capability model getter 断言。Gateway durable winner、dispatch concurrency、routing freshness、register order、stale status、tombstone、replay、liveness 与 owner isolation 全部保留。
+- Rationale: 同一 wire/persistence outcome 不需要每个内部函数一项测试；但 shared SQLite 竞争、ACK/dedup、freshness barrier 和 replay/liveness 是历史上真实发生且 current spec 明确要求的时序风险，必须继续从最低完整 seam 观察。
 - Evidence:
-  - Tests: 待执行。
+  - Tests: changed-test `ruff check` → `All checks passed`；M11 全范围 → `329 passed, 13 warnings in 21.91s`；R3 减少 57 个实现逐跳/重复 case。
   - Entry: N/A。
   - Frontend State Matrix: N/A。
   - Browser QA: N/A。
-  - E2E/Regression: 待执行。
+  - E2E/Regression: Gateway/relay/event/user-stream regressions 随 M11 全范围通过；N/A E2E，因为 design 指定零用户 delta，真实进程/API 由 M12/M13 独立负责。
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: 回退 R3 commit。
-- Commits: 待完成。
+- Commits: 本 roadpoint commit。
 
 ## R4 — 全量门禁与测试 census
 

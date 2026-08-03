@@ -588,44 +588,6 @@ def test_scan_reaps_running_message_when_heartbeat_stopped(tmp_path: Path) -> No
     assert row["delivery_status"] == "failed"
 
 
-def test_cutoff_format_is_single_sourced_with_stored_timestamps() -> None:
-    """bugfix-410-fix-r1 (Reuse-1): the watchdog compares its cutoffs against stored
-    timestamps via SQL text ordering, so the cutoff format and the writer format must be
-    one source. _utc_now (the writer) is defined in terms of _format_utc (the comparator's
-    formatter); any drift between them would silently break the comparison."""
-    from IM.infra._timestamps import format_utc
-    from IM.infra._timestamps import utc_now
-
-    fixed = datetime(2026, 1, 2, 3, 4, 5, 678000, tzinfo=timezone.utc)
-    formatted = format_utc(fixed)
-    assert formatted == "2026-01-02T03:04:05.678000Z"
-    assert formatted.endswith("Z") and "+00:00" not in formatted
-
-    # The writer used for awaiting_permission_at must route through the same formatter,
-    # so a stored marker and a watchdog cutoff share an identical, comparable shape.
-    now = utc_now()
-    assert now == format_utc(datetime.fromisoformat(now.replace("Z", "+00:00")))
-
-
-def test_format_utc_rejects_naive_and_normalizes_aware() -> None:
-    """bugfix-410 (#1, post-PR review): _format_utc must fail-fast on a naive datetime
-    (which would format without the +00:00 offset, no-op the Z substitution, and silently
-    drift from every stored timestamp) and normalise any aware zone to UTC before
-    formatting (so a caller cannot accidentally store a non-UTC offset)."""
-    from datetime import timedelta
-
-    import pytest
-
-    from IM.infra._timestamps import format_utc
-
-    with pytest.raises(ValueError, match="timezone-aware"):
-        format_utc(datetime(2026, 1, 2, 3, 4, 5))
-
-    # 08:00 at +08:00 is 00:00 UTC → normalised and emitted with the Z suffix.
-    plus8 = datetime(2026, 1, 2, 8, 0, 0, tzinfo=timezone(timedelta(hours=8)))
-    assert format_utc(plus8) == "2026-01-02T00:00:00Z"
-
-
 def test_fresh_heartbeat_written_via_utc_now_keeps_alive(tmp_path: Path) -> None:
     """bugfix-417-M3 R4 (carries forward bugfix-410-fix-r1 Reuse-1): a liveness event row
     timestamped through the production formatter (_utc_now) must compare correctly against

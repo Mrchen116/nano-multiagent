@@ -1,6 +1,4 @@
-"""Tests for IM WS event type constants and payload builders (feat-340-M2 R2)."""
-
-from pathlib import Path
+"""Public IM user-stream event names and payload serialization contracts."""
 
 from IM.api.ws.event_types import (
     EVENT_AGENT_CHANNEL_STATUS_CHANGED,
@@ -22,67 +20,49 @@ from IM.api.ws.event_types import (
     build_tool_call_completed_payload,
     build_tool_call_upserted_payload,
 )
-from IM.domain.models import Attachment, Message, ThinkingSegment, TokenUsage, ToolCall
-from IM.infra.db import connect, initialize_schema
-from IM.infra.repositories.conversations import ConversationRepository
-from IM.infra.repositories.messages import MessageRepository
-from IM.infra.repositories.users import UserRepository
+from IM.domain.models import (
+    Actor,
+    Attachment,
+    Message,
+    ThinkingSegment,
+    TokenUsage,
+    ToolCall,
+)
 
 
 def test_event_type_constants_are_stable_strings() -> None:
-    assert EVENT_MESSAGE_CREATED == "message.created"
-    assert EVENT_MESSAGE_DELTA == "message.delta"
-    assert EVENT_MESSAGE_COMPLETED == "message.completed"
-    assert EVENT_TOOL_CALL_UPSERTED == "tool_call.upserted"
-    assert EVENT_TOOL_CALL_COMPLETED == "tool_call.completed"
-    assert EVENT_NODE_STATUS_CHANGED == "node.status_changed"
-    assert EVENT_AGENT_STATUS_CHANGED == "agent.status_changed"
-    assert EVENT_AGENT_CHANNEL_STATUS_CHANGED == "agent.channel.status_changed"
+    assert {
+        EVENT_MESSAGE_CREATED,
+        EVENT_MESSAGE_DELTA,
+        EVENT_MESSAGE_COMPLETED,
+        EVENT_THINKING_SEGMENT,
+        EVENT_TOOL_CALL_UPSERTED,
+        EVENT_TOOL_CALL_COMPLETED,
+        EVENT_NODE_STATUS_CHANGED,
+        EVENT_AGENT_STATUS_CHANGED,
+        EVENT_AGENT_CHANNEL_STATUS_CHANGED,
+    } == {
+        "message.created",
+        "message.delta",
+        "message.completed",
+        "thinking.segment",
+        "tool_call.upserted",
+        "tool_call.completed",
+        "node.status_changed",
+        "agent.status_changed",
+        "agent.channel.status_changed",
+    }
 
 
-def _make_agent_message(tmp_path: Path) -> Message:
-    connection = connect(tmp_path / "im.db")
-    initialize_schema(connection)
-    users = UserRepository(connection)
-    conversations = ConversationRepository(connection)
-    messages = MessageRepository(connection)
-    alice = users.create_user(username="alice", display_name="Alice")
-    conv = conversations.create_conversation(title="t", participant_ids=[alice.id])
-    return messages.create_message(
-        conversation_id=conv.id,
-        sender_user_id=alice.id,
-        content="hi",
-    )
-
-
-def test_build_message_created_payload(tmp_path: Path) -> None:
-    msg = _make_agent_message(tmp_path)
-    payload = build_message_created_payload(message=msg)
-    assert payload["conversation_id"] == msg.conversation_id
-    assert payload["message_id"] == msg.id
-    assert payload["sender_user_id"] == msg.sender_user_id
-    assert payload["sender_type"] == msg.sender_type
-    assert payload["content"] == "hi"
-    # Optional fields not yet populated, encode as None or absent.
-    assert payload.get("tool_calls") in (None, [])
-    assert payload.get("token_usage") is None
-
-
-def test_build_message_created_payload_carries_external_insert_fields(
-    tmp_path: Path,
-) -> None:
-    connection = connect(tmp_path / "im.db")
-    initialize_schema(connection)
-    users = UserRepository(connection)
-    conversations = ConversationRepository(connection)
-    messages = MessageRepository(connection)
-    owner = users.create_user(username="owner", display_name="Owner")
-    conv = conversations.create_conversation(title="shadow", participant_ids=[owner.id])
-
-    msg = messages.create_message(
-        conversation_id=conv.id,
-        sender_user_id=owner.id,
+def test_message_created_payload_preserves_live_insert_fields() -> None:
+    message = Message(
+        id="message-1",
+        conversation_id="conversation-1",
+        sender=Actor(type="user", id="owner-1", display_name="Alice"),
+        sender_user_id="owner-1",
+        sender_type="user",
         content="from feishu",
+        created_at="2026-01-01T00:00:00Z",
         attachments=[
             Attachment(
                 url="https://example.test/a.png",
@@ -90,11 +70,13 @@ def test_build_message_created_payload_carries_external_insert_fields(
                 file_name="a.png",
             )
         ],
-        sender_display_name="Alice",
+        thinking=[ThinkingSegment(seq=0, text="inspect")],
     )
 
-    payload = build_message_created_payload(message=msg)
+    payload = build_message_created_payload(message=message)
 
+    assert payload["message_id"] == "message-1"
+    assert payload["conversation_id"] == "conversation-1"
     assert payload["content"] == "from feishu"
     assert payload["attachments"] == [
         {
@@ -103,207 +85,135 @@ def test_build_message_created_payload_carries_external_insert_fields(
             "file_name": "a.png",
         }
     ]
-    assert payload["sender"]["display_name"] == "Alice"
     assert payload["sender_display_name"] == "Alice"
+    assert payload["thinking"] == [{"seq": 0, "text": "inspect"}]
 
 
-def test_event_thinking_segment_constant() -> None:
-    assert EVENT_THINKING_SEGMENT == "thinking.segment"
-
-
-def test_build_thinking_segment_payload() -> None:
-    seg = ThinkingSegment(seq=1, text="两家口径要归一")
-    payload = build_thinking_segment_payload(
-        conversation_id="c1", message_id="m1", segment=seg
+def test_incremental_message_payloads_preserve_identity_and_content() -> None:
+    delta = build_message_delta_payload(
+        conversation_id="conversation-1", message_id="message-1", delta_text="hello"
     )
-    assert payload["conversation_id"] == "c1"
-    assert payload["message_id"] == "m1"
-    assert payload["thinking_segment"] == {"seq": 1, "text": "两家口径要归一"}
-
-
-def test_build_message_created_payload_carries_thinking(tmp_path: Path) -> None:
-    msg = _make_agent_message(tmp_path)
-    msg_with_thinking = Message(
-        id=msg.id,
-        conversation_id=msg.conversation_id,
-        sender_user_id=msg.sender_user_id,
-        sender_type=msg.sender_type,
-        content=msg.content,
-        thinking=[ThinkingSegment(seq=0, text="先想一下")],
+    thinking = build_thinking_segment_payload(
+        conversation_id="conversation-1",
+        message_id="message-1",
+        segment=ThinkingSegment(seq=1, text="reason"),
     )
-    payload = build_message_created_payload(message=msg_with_thinking)
-    assert payload["thinking"] == [{"seq": 0, "text": "先想一下"}]
 
-
-def test_build_message_delta_payload() -> None:
-    payload = build_message_delta_payload(
-        conversation_id="c1", message_id="m1", delta_text="hello "
-    )
-    assert payload == {
-        "conversation_id": "c1",
-        "message_id": "m1",
-        "delta_text": "hello ",
+    assert delta == {
+        "conversation_id": "conversation-1",
+        "message_id": "message-1",
+        "delta_text": "hello",
+    }
+    assert thinking == {
+        "conversation_id": "conversation-1",
+        "message_id": "message-1",
+        "thinking_segment": {"seq": 1, "text": "reason"},
     }
 
 
-def test_build_tool_call_upserted_payload() -> None:
-    tc = ToolCall(
-        id="tc1",
+def test_tool_call_lifecycle_payloads_preserve_state() -> None:
+    running = ToolCall(
+        id="call-1",
         name="read_file",
         status="running",
-        duration_ms=None,
-        input={"p": "x"},
-        output=None,
+        input={"path": "x"},
     )
-    payload = build_tool_call_upserted_payload(
-        conversation_id="c1", message_id="m1", tool_call=tc
-    )
-    assert payload["conversation_id"] == "c1"
-    assert payload["message_id"] == "m1"
-    assert payload["tool_call"]["id"] == "tc1"
-    assert payload["tool_call"]["name"] == "read_file"
-    assert payload["tool_call"]["status"] == "running"
-    assert payload["tool_call"]["input"] == {"p": "x"}
-    assert "duration_ms" not in payload["tool_call"]
-    assert "output" not in payload["tool_call"]
-
-
-def test_build_tool_call_completed_payload() -> None:
-    tc = ToolCall(
-        id="tc1",
+    completed = ToolCall(
+        id="call-1",
         name="read_file",
         status="completed",
-        duration_ms=22,
-        input={},
+        input={"path": "x"},
         output="ok",
+        duration_ms=22,
     )
-    payload = build_tool_call_completed_payload(
-        conversation_id="c1", message_id="m1", tool_call=tc
+
+    upserted = build_tool_call_upserted_payload(
+        conversation_id="conversation-1", message_id="message-1", tool_call=running
     )
-    assert payload["tool_call"]["status"] == "completed"
-    assert payload["tool_call"]["duration_ms"] == 22
-    assert payload["tool_call"]["output"] == "ok"
+    finished = build_tool_call_completed_payload(
+        conversation_id="conversation-1", message_id="message-1", tool_call=completed
+    )
+
+    assert upserted["tool_call"] == {
+        "id": "call-1",
+        "name": "read_file",
+        "status": "running",
+        "input": {"path": "x"},
+    }
+    assert finished["tool_call"] == {
+        "id": "call-1",
+        "name": "read_file",
+        "status": "completed",
+        "input": {"path": "x"},
+        "duration_ms": 22,
+        "output": "ok",
+    }
 
 
-def test_build_message_completed_payload_with_token_usage() -> None:
-    usage = TokenUsage(output=42, context_used=1000, context_window=200000)
+def test_message_completed_payload_preserves_turn_metadata() -> None:
     payload = build_message_completed_payload(
-        conversation_id="c1", message_id="m1", content="full text", token_usage=usage
+        conversation_id="conversation-1",
+        message_id="message-1",
+        content="done",
+        token_usage=TokenUsage(
+            output=42,
+            context_used=1000,
+            context_window=200000,
+            total=1042,
+            cache_read_tokens=270,
+            cache_total_input_tokens=400,
+        ),
+        kernel_message_id="kernel-message-1",
+        elapsed_ms=4200,
     )
-    assert payload["content"] == "full text"
-    # M17/R8-3: total field added; falls back to context_used + output when not stored.
-    # feat-439-M1: 缓存命中两字段恒带出(无命中=0)，前端据此渲染「缓存命中 X (Y%)」行。
+
+    assert payload["content"] == "done"
     assert payload["token_usage"] == {
         "output": 42,
         "context_used": 1000,
         "context_window": 200000,
         "total": 1042,
-        "cache_read_tokens": 0,
-        "cache_total_input_tokens": 0,
+        "cache_read_tokens": 270,
+        "cache_total_input_tokens": 400,
     }
-
-
-def test_token_usage_to_dict_surfaces_cache_hit_fields() -> None:
-    """feat-439-M1: token_usage_to_dict 带出整轮缓存命中量与总输入量。"""
-    usage = TokenUsage(
-        output=42,
-        context_used=1000,
-        context_window=200000,
-        total=1042,
-        cache_read_tokens=270,
-        cache_total_input_tokens=400,
-    )
-    payload = build_message_completed_payload(
-        conversation_id="c1", message_id="m1", content="x", token_usage=usage
-    )
-    assert payload["token_usage"]["cache_read_tokens"] == 270
-    assert payload["token_usage"]["cache_total_input_tokens"] == 400
-
-
-def test_build_message_completed_payload_without_token_usage() -> None:
-    payload = build_message_completed_payload(
-        conversation_id="c1", message_id="m1", content="x", token_usage=None
-    )
-    assert payload["token_usage"] is None
-
-
-def test_build_message_completed_payload_includes_kernel_message_id() -> None:
-    """feat-445-M1: message.completed event carries kernel_message_id so a live-completed
-    bubble becomes forkable without a refetch (regression guard for the WS serialization
-    gap that unit tests on the repo Message object missed)."""
-    payload = build_message_completed_payload(
-        conversation_id="c1",
-        message_id="m1",
-        content="done",
-        token_usage=None,
-        kernel_message_id="msg_abc123",
-    )
-    assert payload["kernel_message_id"] == "msg_abc123"
-
-
-def test_build_message_completed_payload_includes_elapsed_ms() -> None:
-    """feat-414-M1: build_message_completed_payload 带出 elapsed_ms 字段。"""
-    usage = TokenUsage(output=10, context_used=500, context_window=200000)
-    payload = build_message_completed_payload(
-        conversation_id="c1",
-        message_id="m1",
-        content="done",
-        token_usage=usage,
-        elapsed_ms=4200,
-    )
+    assert payload["kernel_message_id"] == "kernel-message-1"
     assert payload["elapsed_ms"] == 4200
 
 
-def test_build_message_completed_payload_elapsed_ms_none() -> None:
-    """feat-414-M1: elapsed_ms=None 时字段在 payload 中也为 None。"""
+def test_message_completed_payload_keeps_optional_metadata_absent() -> None:
     payload = build_message_completed_payload(
-        conversation_id="c1",
-        message_id="m1",
+        conversation_id="conversation-1",
+        message_id="message-1",
         content="done",
         token_usage=None,
-        elapsed_ms=None,
     )
+
+    assert payload["token_usage"] is None
+    assert payload.get("kernel_message_id") is None
     assert payload.get("elapsed_ms") is None
 
 
-def test_build_node_status_changed_payload_online() -> None:
-    payload = build_node_status_changed_payload(
+def test_status_payloads_preserve_scope_and_failure_details() -> None:
+    online = build_node_status_changed_payload(
         seq=7,
         node_id="node-1",
         status="online",
         last_heartbeat_at="2026-05-11T10:00:00Z",
         last_error=None,
     )
-    assert payload == {
-        "seq": 7,
-        "node_id": "node-1",
-        "status": "online",
-        "last_heartbeat_at": "2026-05-11T10:00:00Z",
-        "last_error": None,
-    }
-
-
-def test_build_node_status_changed_payload_offline_with_error() -> None:
-    payload = build_node_status_changed_payload(
+    offline = build_node_status_changed_payload(
         seq=8,
         node_id="node-1",
         status="offline",
         last_heartbeat_at="2026-05-11T10:00:00Z",
         last_error="heartbeat_timeout",
     )
-    assert payload["status"] == "offline"
-    assert payload["last_error"] == "heartbeat_timeout"
 
-
-def test_build_agent_status_changed_payload() -> None:
-    payload = build_agent_status_changed_payload(
+    assert online["status"] == "online"
+    assert offline["last_error"] == "heartbeat_timeout"
+    assert build_agent_status_changed_payload(
         seq=3, agent_id="agent-x", status="online"
-    )
-    assert payload == {"seq": 3, "agent_id": "agent-x", "status": "online"}
-
-
-def test_build_agent_channel_status_changed_payload() -> None:
-    payload = build_agent_channel_status_changed_payload(
-        seq=4, agent_id="agent-x", channel_id="ch-a"
-    )
-    assert payload == {"seq": 4, "agent_id": "agent-x", "channel_id": "ch-a"}
+    ) == {"seq": 3, "agent_id": "agent-x", "status": "online"}
+    assert build_agent_channel_status_changed_payload(
+        seq=4, agent_id="agent-x", channel_id="channel-a"
+    ) == {"seq": 4, "agent_id": "agent-x", "channel_id": "channel-a"}

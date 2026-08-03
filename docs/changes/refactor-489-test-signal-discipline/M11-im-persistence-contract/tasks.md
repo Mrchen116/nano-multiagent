@@ -59,12 +59,12 @@
 
 ### R3 — Gateway、relay 与实时状态持久化保护收敛
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 审核 Gateway handler、node/conversation persistence、routing freshness、dispatch concurrency、EventBridge、relay/watchdog/status projection 与 root IM 重复测试；保留 shared-connection concurrency、ACK、rollback、freshness 与 liveness 风险。
 - 验证: gateway/relay/event focused suite 全绿，跨层重复减少且时序 regression 仍在。
 
 ### R4 — 全量门禁与测试 census
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 复查 scope、测试命名/大小/重复、`git diff --check`，运行 M11 全范围 pytest，记录前后 census 与 warning。
 - 验证: M11 全范围全绿；无越界修改；tasks/progress 证据完备。
