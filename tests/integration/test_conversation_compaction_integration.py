@@ -10,9 +10,7 @@ from agent.sdk import LLMConfig, LLMModel, LLMProvider, build_kernel
 
 
 def _is_summary_request(request: LLMGenerateRequest) -> bool:
-    return any(
-        "Do NOT call any tools" in str(message.content) for message in request.messages
-    )
+    return request.tools == ()
 
 
 def _compaction_llm() -> LLMConfig:

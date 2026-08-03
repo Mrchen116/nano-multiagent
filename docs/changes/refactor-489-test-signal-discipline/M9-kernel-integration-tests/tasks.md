@@ -54,12 +54,12 @@
 
 ### R2 — 收敛保留的跨 seam 保护
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 参数化 bash gate；compaction 不再依赖 prompt 原文；hook/tool/read 只断言跨边界结果；bash stream 改为等待指定 run 终态事件。
 - 验证: 保留的 M9 integration 全绿，无固定 prompt 文案/无条件 trailing sleep/无为解锁 stream 而提交的 noop run。
 
 ### R3 — 门禁与范围收尾
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 复核处置表、保留保护与 changed paths，运行 M9 切片、下层替代保护、ruff 和 diff 检查。
 - 验证: 所有门禁全绿，`progress.md` 记录 Claim/Baseline/Method/Result/Locator/Limit。

@@ -1,34 +1,24 @@
-"""Integration tests for BashTool.check_permissions end-to-end dispatch (bugfix-355-M6 R5).
-
-Covers the full chain: ToolRegistry.execute → auto_mode_gate → BashTool.check_permissions
-→ bash_policy.check_command_policy.
-
-Exit-criteria for M6 R5:
-- git status: BashTool.check_permissions returns allow → auto_mode_gate passes without
-  calling the classifier LLM.
-- python3 file.py: BashTool.check_permissions returns passthrough → auto_mode_gate goes
-  to classifier, which blocks fail-closed when model_caller is absent (no regression).
-- python3 --version: BashTool.check_permissions returns allow (D9 version-flag exception).
-"""
+"""Verify bash permission policy is connected to registry hook dispatch."""
 
 from __future__ import annotations
 
 from pathlib import Path
+
 import pytest
 
 from agent.core.errors import ToolError
 from agent.core.hooks.context import HookContext
-from agent.platform.hooks.loader import build_hook_registry
 from agent.core.hooks.runner import HookRunner
-from agent.platform.tools.base import ToolContext
-from agent.platform.tools.builtins.bash import BashTool
-from agent.core.tools.registry import ToolRegistry
 from agent.core.tools.base import (
     set_tool_safety_config_factory,
     set_tool_safety_factory,
 )
-from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
+from agent.core.tools.registry import ToolRegistry
 from agent.platform.background_tasks.wiring import wire_background_tasks
+from agent.platform.hooks.loader import build_hook_registry
+from agent.platform.tools.base import ToolContext
+from agent.platform.tools.builtins.bash import BashTool
+from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
 
 set_tool_safety_factory(ToolSafety)
 set_tool_safety_config_factory(ToolSafetyConfig)
@@ -42,70 +32,38 @@ def _make_registry(tmp_path: Path) -> ToolRegistry:
         context=ctx,
         hook_runner=hook_runner,
     )
-    # bugfix-417-M4: these tests execute bash through the registry, so the tool needs
-    # the wired ShellRunner engine (the no-wiring dead path was deleted). runs_registry
-    # =None skips background notification wiring (irrelevant here).
     wiring = wire_background_tasks(workspace_root=tmp_path, runs_registry=None)
     registry.register(BashTool(wiring=wiring))
     return registry
 
 
+@pytest.mark.parametrize("command", ("git status", "python3 --version"))
 @pytest.mark.asyncio
-async def test_git_status_passes_without_classifier(tmp_path: Path) -> None:
-    """git status is allowed by BashTool.check_permissions → no classifier call.
-
-    Verifies D10 single-point: policy is decided in BashTool.check_permissions
-    (returns allow for git status), auto_mode_gate returns None at step 5 without
-    touching the classifier.
-    """
+async def test_safe_bash_commands_bypass_classifier_through_registry(
+    tmp_path: Path,
+    command: str,
+) -> None:
+    """Safe commands reach execution when no classifier is available."""
     registry = _make_registry(tmp_path)
-    # No model_caller — if classifier were called, it would block fail-closed.
-    # git status must NOT reach the classifier (must pass the hook gate).
     try:
         await registry.execute(
             "bash",
-            {"command": "git status"},  # git status is in allowed prefixes (D9)
+            {"command": command},
             hook_context=HookContext(
-                session_id="sess-r5-1",
+                session_id="safe-bash",
                 repo_root=tmp_path,
-                metadata={"tool_call_id": "call-r5-1"},
+                metadata={"tool_call_id": "safe-bash-call"},
             ),
         )
-        # Reached here = hook passed, command ran (may succeed in a git repo)
-    except ToolError as err:
-        # Execution error (non-zero exit like exit 128 = not a git repo) is acceptable.
-        # Hook block is NOT acceptable.
-        assert "tool blocked by hook" not in str(err), (
-            f"git status should not be blocked by hook; got: {err}"
-        )
-
-
-@pytest.mark.asyncio
-async def test_python3_version_flag_passes_without_classifier(tmp_path: Path) -> None:
-    """python3 --version is in D9 allowed prefixes → no classifier, executes directly."""
-    registry = _make_registry(tmp_path)
-    result = await registry.execute(
-        "bash",
-        {"command": "python3 --version"},
-        hook_context=HookContext(
-            session_id="sess-r5-2",
-            repo_root=tmp_path,
-            metadata={"tool_call_id": "call-r5-2"},
-        ),
-    )
-    assert result.get("exitCode") == 0 or "content" in result or "stdout" in result
+    except ToolError as error:
+        assert error.details.get("blocked_by_hook") is not True
 
 
 @pytest.mark.asyncio
 async def test_python3_script_goes_to_classifier_and_blocks_fail_closed(
     tmp_path: Path,
 ) -> None:
-    """python3 file.py (review path) goes to classifier, blocks when no model_caller.
-
-    After M6: BashTool.check_permissions returns passthrough for python3 file.py.
-    auto_mode_gate step 5 falls through (passthrough), goes to step 7 classifier.
-    With no model_caller, classifier blocks fail-closed.
-    """
+    """Unlisted commands fail closed when no classifier is available."""
     registry = _make_registry(tmp_path)
     with pytest.raises(ToolError, match="tool blocked by hook"):
         await registry.execute(

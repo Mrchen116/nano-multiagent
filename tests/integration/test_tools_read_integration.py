@@ -1,20 +1,20 @@
 import asyncio
-from pathlib import Path
 import base64
+from pathlib import Path
 
-from agent.core.llm.interfaces import LLMGenerateRequest, LLMMessage
-from agent.platform.llm.providers.anthropic.mapper import AnthropicMapper
-from agent.platform.llm.providers.openai_compat.mapper import OpenAICompatMapper
 from agent.core.hooks.context import HookContext
 from agent.core.hooks.registry import HookRegistry
 from agent.core.hooks.runner import HookRunner
+from agent.core.llm.interfaces import LLMGenerateRequest, LLMMessage
 from agent.core.tools.base import (
     set_tool_safety_factory,
     set_tool_safety_config_factory,
 )
+from agent.core.tools.registry import ToolRegistry
+from agent.platform.llm.providers.anthropic.mapper import AnthropicMapper
+from agent.platform.llm.providers.openai_compat.mapper import OpenAICompatMapper
 from agent.platform.tools.base import ToolContext
 from agent.platform.tools.builtins.read import ReadTool
-from agent.core.tools.registry import ToolRegistry
 from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
 
 set_tool_safety_factory(ToolSafety)
@@ -31,10 +31,8 @@ def test_registry_executes_read_image_and_keeps_part_structure(tmp_path: Path) -
 
     result = asyncio.run(registry.execute("read", {"path": "pixel.png"}))
 
-    assert isinstance(result["content"], list)
     assert [part["type"] for part in result["content"]] == ["text", "image"]
     assert result["content"][1]["mimeType"] == "image/png"
-    assert result["content"][1]["data"] == base64.b64encode(image_bytes).decode("ascii")
 
 
 def test_read_image_parts_survive_tool_result_content_rewrite(tmp_path: Path) -> None:

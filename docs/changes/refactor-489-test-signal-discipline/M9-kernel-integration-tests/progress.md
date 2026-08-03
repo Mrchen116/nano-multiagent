@@ -18,6 +18,24 @@
 - Commits: 本 R1 提交（SHA 以 Git history 为准）。
 - Next: R2 收敛保留用例的断言高度与时序等待。
 
+## R2 — 收敛保留的跨 seam 保护
+
+- 状态: DONE
+- Context: 删除重复用例后，留存测试仍有三类腐烂点：compaction fake client 靠 prompt 原句识别摘要请求；bash stream 用固定尾部 sleep 和额外 noop run 解锁 collector；hook/tool/read 断言了下层文件名、字节和 classifier 投影细节。
+- Decision: 摘要请求改以“不暴露工具”的 request seam 识别；bash collector 直接读取指定 run 的 terminal `run_status`；bash safe policy 用一条参数化 registry 路径表达；loader/read 仅保留加载后可 dispatch/execute 与 multipart shape 结果。
+- Rationale: 这些观测点只在 seam 断开时失败，不再因 prompt 改写、fixture 改名、ReadTool 字节细节或 collector 调度时机而红。
+- Evidence:
+  - Tests: M9 全切片 `18 passed in 5.64s`；`test_bash_engine.py` 连续 3 轮均 `3 passed`（每轮约 5.17s）；M9 文件 ruff `All checks passed!`；`git diff --check` 通过。
+  - Entry: fake LLM 仍经 `build_kernel`→ToolRegistry/ShellRunner→`kernel.stream`；workspace fixture 仍经 loader→registry/runner；read image 仍经 registry/hook/provider mapper。
+  - Frontend State Matrix: N/A（非前端）。
+  - Browser QA: N/A（零用户面）。
+  - E2E/Regression: `tests/integration/test_bash_engine.py`、`test_conversation_*`、`test_tools_*`、`test_hooks_loader_integration.py`、`test_empty_tool_allowlist_wiring.py` 为永久 regression；本切片无外部依赖，不升级为 E2E。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退 R2 提交，保留 R1 的删测收敛。
+- Commits: 本 R2 提交（SHA 以 Git history 为准）。
+- Next: R3 运行收尾门禁，复核范围与处置表。
+
 ## Promotion Candidates
 
 None.

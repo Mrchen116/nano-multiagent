@@ -5,14 +5,16 @@ from agent.core.tools.base import (
     set_tool_safety_factory,
     set_tool_safety_config_factory,
 )
+from agent.core.tools.registry import ToolRegistry
 from agent.platform.tools.base import ToolContext
 from agent.platform.tools.loader import load_tools_from_directory
-from agent.core.tools.registry import ToolRegistry
 from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
 
 set_tool_safety_factory(ToolSafety)
 set_tool_safety_config_factory(ToolSafetyConfig)
-def test_loader_discovers_and_registers_directory_tools(tmp_path: Path) -> None:
+
+
+def test_workspace_tool_loads_and_executes_through_registry(tmp_path: Path) -> None:
     tools_dir = tmp_path / ".nano" / "tools"
     tools_dir.mkdir(parents=True, exist_ok=True)
     (tools_dir / "reverse_tool.py").write_text(

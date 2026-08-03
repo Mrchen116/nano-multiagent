@@ -28,7 +28,7 @@ def _request_text(request: LLMGenerateRequest) -> str:
 
 
 def _is_summary_request(request: LLMGenerateRequest) -> bool:
-    return "Do NOT call any tools" in _request_text(request)
+    return request.tools == ()
 
 
 async def _wait_for_terminal(kernel, run_id: str):  # noqa: ANN001, ANN201
