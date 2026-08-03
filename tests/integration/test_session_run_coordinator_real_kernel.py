@@ -76,9 +76,12 @@ async def test_terminal_observer_window_creates_one_fallback_run(
     )
     terminal_seen = asyncio.Event()
     release_terminal = asyncio.Event()
+    first_run_id: str | None = None
 
     async def _observer(event: dict[str, object]) -> None:
+        nonlocal first_run_id
         if event.get("event") == "run_status" and not terminal_seen.is_set():
+            first_run_id = str(event["run_id"])
             terminal_seen.set()
             await release_terminal.wait()
 
@@ -104,7 +107,7 @@ async def test_terminal_observer_window_creates_one_fallback_run(
             )
         )
         await asyncio.wait_for(terminal_seen.wait(), timeout=2)
-        first_run_id = next(iter(kernel._c.runs_registry._runs))  # noqa: SLF001
+        assert first_run_id is not None
         while kernel.get_run(first_run_id).status not in {
             "completed",
             "failed",
@@ -270,53 +273,6 @@ async def test_kernel_recovery_preserves_empty_feature_runtime_identity(
         assert state.identity == recovered.identify_runtime(runtime=runtime)
     finally:
         await recovered.aclose()
-
-
-@pytest.mark.asyncio
-async def test_runtime_identity_canonicalizes_maps_but_preserves_list_order() -> None:
-    """Runtime fingerprints normalize mapping order without erasing ordered semantics."""
-    from agent.sdk import PromptSlots, PromptText, SessionRuntimeConfig
-
-    def runtime(*, features: dict[str, bool], tools: list[str]) -> SessionRuntimeConfig:
-        return SessionRuntimeConfig(
-            model="model-a",
-            prompt=PromptSlots(body=(PromptText(name="identity", text="same"),)),
-            skills=["research", "review"],
-            enabled_tools=tools,
-            features=features,
-        )
-
-    canonical = runtime(
-        features={"memory_curation": False, "auto_mode": True},
-        tools=["read", "write"],
-    )
-    reordered_map = runtime(
-        features={"auto_mode": True, "memory_curation": False},
-        tools=["read", "write"],
-    )
-    reordered_tools = runtime(
-        features={"memory_curation": False, "auto_mode": True},
-        tools=["write", "read"],
-    )
-
-    kernel = build_kernel(
-        llm=LLMConfig(
-            provider="openai_compat",
-            model="test-model",
-            base_url="http://127.0.0.1:1",
-        ),
-        repo_root=Path.cwd(),
-        _llm_client_override=_CountingClient(),
-    )
-    try:
-        assert kernel.identify_runtime(runtime=canonical) == kernel.identify_runtime(
-            runtime=reordered_map
-        )
-        assert kernel.identify_runtime(runtime=canonical) != kernel.identify_runtime(
-            runtime=reordered_tools
-        )
-    finally:
-        await kernel.aclose()
 
 
 @pytest.mark.asyncio

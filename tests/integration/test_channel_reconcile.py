@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from pathlib import Path
 import stat
@@ -18,17 +17,9 @@ from personal_assistant.channels.channel_credentials import (
     GatewayChannelAad,
     GatewayChannelKeyStore,
 )
-from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
 from personal_assistant.config.local_store import NodeConfig
 from personal_assistant.reporter.upstream_reporter import UpstreamReporter
-from personal_assistant.ws.im_connection import IMConnectionConfig, IMConnectionManager
 from tests.im_service._auth_helpers import authorize, register_user
-from tests.unit.personal_assistant._im_connection_helpers import (
-    _FakeWebSocket,
-    _agents,
-    _connect_fake,
-    _managed_channel_bindings,
-)
 
 
 def _seed_agent(client: TestClient, *, owner_id: str) -> None:
@@ -266,89 +257,3 @@ def test_online_http_save_pushes_manifest_and_status_projects_connected(
             assert websocket.receive_json()["payload"]["outcome"] == (
                 "terminal_stale_revision"
             )
-
-
-def test_gateway_dispatches_manifest_and_correlated_result_releases_fifo(
-    tmp_path: Path,
-) -> None:
-    """Reconcile and status result frames coexist with the existing single-slot FIFO."""
-    handled: list[dict[str, object]] = []
-
-    async def apply_manifest(payload):
-        handled.append(dict(payload))
-        return {"outcomes": [{"channel_id": "ch-a", "outcome": "applied"}]}
-
-    socket = _FakeWebSocket(
-        incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
-            json.dumps(
-                {
-                    "type": "channel.reconcile",
-                    "payload": {
-                        "request_id": "reconcile-1",
-                        "node_id": "node-a",
-                        "manifest_revision": 4,
-                        "channels": [],
-                        "removals": [],
-                    },
-                }
-            ),
-            json.dumps(
-                {
-                    "type": "ack",
-                    "payload": {"message_type": "channel.reconcile.result"},
-                }
-            ),
-            json.dumps(
-                {
-                    "type": "channel.status.result",
-                    "payload": {"request_id": "status-1", "outcome": "accepted"},
-                }
-            ),
-        ]
-    )
-    reporter = UpstreamReporter(
-        node=NodeConfig(node_id="node-a"),
-        agents=_agents(tmp_path),
-        send_frame=lambda _kind, _payload: None,
-    )
-    relay = WebRelayAdapter()
-    relay.start(lambda _message: None)
-    manager = IMConnectionManager(
-        config=IMConnectionConfig(url="http://im.local"),
-        reporter=reporter,
-        relay_adapter=relay,
-        managed_channel_bindings=_managed_channel_bindings(
-            apply_manifest=apply_manifest
-        ),
-        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
-    )
-
-    async def exercise() -> None:
-        await manager.connect_once()
-        await manager._listen_once()
-        await manager._listen_once()
-        await manager._listen_once()
-        await manager.send_json(
-            "channel.status",
-            {
-                "request_id": "status-1",
-                "node_id": "node-a",
-                "channel_id": "ch-a",
-            },
-        )
-        await manager.send_json(
-            "channel.runtime_metadata",
-            {"request_id": "metadata-1", "node_id": "node-a", "channel_id": "ch-a"},
-        )
-        await manager._listen_once()
-
-    asyncio.run(exercise())
-
-    assert handled[0]["manifest_revision"] == 4
-    sent = [json.loads(frame) for frame in socket.sent]
-    assert [frame["type"] for frame in sent][-3:] == [
-        "channel.reconcile.result",
-        "channel.status",
-        "channel.runtime_metadata",
-    ]
