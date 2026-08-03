@@ -15,19 +15,19 @@
 
 ## R1 — 配置、capability 与 prompt 测试收敛
 
-- Context: DOING。
-- Decision: 待完成。
-- Rationale: 待完成。
+- Context: 旧测试把 heartbeat/cron 的迁移终态、PromptSection 退役签名、提示词禁句与 capability dict 的每个 key 分拆为永久契约，并重复 builtin skill 与 unattended capability 断言。
+- Decision: 删除 4 个迁移/私有实现文件和重复 capability 文件；将两个 builtin skill 文件合为公共安装/discovery seam；communication context 收敛为 direct/group/mention protocol 三项；group store 与 foreground/unattended capability 各保留两项行为测试。
+- Rationale: capability wire、PromptSlots 装配已有 contract/integration owner；M6 只保留消费者输入输出和用户文件不覆盖等独立风险，避免内部表示变化造成无产品回归的红灯。
 - Evidence:
-  - Tests: 待完成。
-  - Entry: N/A
+  - Tests: R1 当前测试 + 替代保护 38 passed；ruff check 与 `git diff --check` 通过。
+  - Entry: 公共 builtin skill 安装后经 node/agent capabilities、`Kernel.list_skills` 与 prompt preview 均能发现 `feishu-doc`；foreground/unattended 创建路径得到相同 capability 投影。
   - Frontend State Matrix: N/A
   - Browser QA: N/A
-  - E2E/Regression: 待完成。
+  - E2E/Regression: `test_capability_payload_contract.py` 与 `test_prompt_sections_golden.py` 17 passed，证明删除的重复 capability/prompt 断言已有当前替代。
   - Visual/Interaction: N/A
   - Prototype Comparison: N/A
-- Rollback: 回退本 roadpoint commit。
-- Commits: 待完成。
+- Rollback: 回退本 roadpoint commit 可恢复原测试树，不影响产品代码或数据。
+- Commits: 本 roadpoint commit（最终哈希在 R4 回填）。
 - Next: R2。
 
 ## Promotion Candidates

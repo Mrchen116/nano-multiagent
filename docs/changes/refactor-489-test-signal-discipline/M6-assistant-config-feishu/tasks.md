@@ -57,13 +57,13 @@
 
 ### R1 — 配置、capability 与 prompt 测试收敛
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 删除迁移字段/私有签名契约，合并 builtin skill、communication context、group store 与 unattended capability 测试。
 - 验证: 受影响 personal_assistant 最窄 pytest + 已确认的 capability/prompt 替代测试。
 
 ### R2 — Feishu adapter 与 provider client 测试收敛
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 合并入站/出站/mention/history/provider wrapper 覆盖，删除旧 standalone YAML/registry 与 SDK 私有成员断言。
 - 验证: root `test_feishu_*.py` 最窄 pytest + managed channel 替代测试。
 
