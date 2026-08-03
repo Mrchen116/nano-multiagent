@@ -134,7 +134,6 @@ def test_scheduler_uses_config_every_when_heartbeat_every_is_set(
 
     When HEARTBEAT.md has a top-level "every: 5m" line but agent.heartbeat_every is "60m",
     the scheduler must use the config value (60m) and ignore the md line.
-    This is the openclaw-aligned behaviour: md top-level every is retired, config is SoT.
     """
     agent = AgentWorkspaceConfig(
         agent_id="agent-cfg-sot",
@@ -171,7 +170,7 @@ def test_scheduler_uses_config_every_when_heartbeat_every_is_set(
 def test_scheduler_uses_default_30m_when_heartbeat_every_is_none(
     tmp_path: Path,
 ) -> None:
-    """When agent.heartbeat_every is None, default to 30m (openclaw DEFAULT_HEARTBEAT_EVERY).
+    """When agent.heartbeat_every is None, default to the current 30m cadence.
 
     The HEARTBEAT.md has only freeform instructions (no top-level every: line); the
     scheduler must infer 30m from the absent config field and run accordingly.

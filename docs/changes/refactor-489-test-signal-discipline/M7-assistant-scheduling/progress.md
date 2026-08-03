@@ -89,6 +89,26 @@
 - Commits: 本 R 提交（SHA 以 Git history 为准）。
 - Next: R5 全 M7 切片、边界与路径审计。
 
+## R5 — M7 边界与全切片收尾
+
+- Context: startup baseline 为 32 个文件、229 tests；收尾需证明删减来自重复/历史/假链路，而 schedule、heartbeat、cron、background、polling 与 liveness 风险仍有 owner。
+- Decision: 最终保留 28 个 M7 文件、135 个行为测试；删除 6 个历史/跨层重复文件，并以 2 个 current public-shape/reply-visibility 文件替代。共享 schedule primitive 继续拥有 timing/timezone/no-backfill 风险，真实 async lifecycle/ticker、cron concurrency/drain 和 heartbeat canonical/silent cleanup 均保留。
+- Rationale: 数量下降不是验收目标；最终门禁按风险 owner、公开 seam、路径边界和可重复执行共同判断。expired heartbeat `at` 冲突仍明确冻结在 [#224](https://github.com/Mrchen116/nano-multiagent/issues/224)，没有通过删除测试隐藏。
+- Evidence:
+  - Tests: 全部 28 个当前 M7 匹配文件，`135 passed, 1 warning in 4.54s`；唯一 warning 来自第三方 `lark_oapi` protobuf 的 deprecated `utcfromtimestamp`。
+  - Entry: `pytest --collect-only -q` 为 `135 tests collected in 0.51s`。
+  - Frontend State Matrix: N/A（非前端）。
+  - Browser QA: N/A（零用户面代码变更）。
+  - E2E/Regression: 全 M7 unit 切片；R1 另确认既有 heartbeat bubble critical-path E2E 可收集。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+  - Quality: 22 个现存 changed Python 文件 focused `ruff check` 通过；`git diff --check` 通过；迁移/source/private-shape pattern scan 归零。
+  - Scope: 31 个 changed paths 仅为派发的 M7 test globs 与 `M7-assistant-scheduling/` 文档；无 `src/`、current spec 或其他 milestone delta。
+  - Diff: 相对 startup base 为 `644 insertions, 3978 deletions`，净减 3334 行；用于证明删减规模，不替代风险验收。
+- Rollback: 回退本 R 提交至 `459e25930`。
+- Commits: 本 R 提交（SHA 以 Git history 为准）。
+- Next: rebase 最新 unit、复跑 M7 门禁并合入 `unit/refactor-489`。
+
 ## Promotion Candidates
 
 | Candidate | Suggested owner | Scope | Evidence |

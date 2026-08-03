@@ -8,10 +8,10 @@
 
 ## 退出标准
 
-- [ ] schedule / heartbeat 开关、节律、active hours、静默结果、canonical session、cron 隔离执行/历史/关机收拢仍有直接保护。
-- [ ] 迁移时的 OpenClaw 逐字基线、provenance/source scan、已退役符号不存在、仅 importable/interface 和重写生产逻辑的假链路测试已删除。
-- [ ] cron / heartbeat / liveness 的重复覆盖收敛到最低合适 seam；真实异步时序不因可能不稳而被删除。
-- [ ] M7 最窄切片门禁全绿，且无产品代码或 spec delta。
+- [x] schedule / heartbeat 开关、节律、active hours、静默结果、canonical session、cron 隔离执行/历史/关机收拢仍有直接保护。
+- [x] 迁移时的 OpenClaw 逐字基线、provenance/source scan、已退役符号不存在、仅 importable/interface 和重写生产逻辑的假链路测试已删除。
+- [x] cron / heartbeat / liveness 的重复覆盖收敛到最低合适 seam；真实异步时序不因可能不稳而被删除。
+- [x] M7 最窄切片门禁全绿，且无产品代码或 spec delta。
 
 ## 测试策略
 
@@ -66,6 +66,6 @@
 
 ### R5 — M7 边界与全切片收尾
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 对账 32 个原始文件的 keep/rewrite-merge/delete，确认无产品/spec/其他 milestone 路径变更，记录限制和后续候选。
 - 验证: 全 M7 pytest、`git diff --check`、changed-path scope audit、pytest collect-only。
