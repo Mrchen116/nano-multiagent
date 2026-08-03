@@ -28,11 +28,25 @@
 
 ## R2 — 收敛 prompt 条件与消费者输入输出
 
-- 状态: TODO
+- 状态: DONE
+- Context: 旧套件同时冻结 M4 迁移过程、PromptContext/dataclass 形态、banner 字节、CC 改写片段和 feature registry 字典结构；相同运行风险已在 assembler、Kernel capability、metadata 与 consumer 路径重复覆盖。
+- Decision: 删除 golden/legacy/no-order/字段存在快照与 registry skeleton 测试；把保护收敛为 assembler 顺序/gate/cache-safe/override、memory/user/AGENTS 三态输入、feature+tool 条件和 legacy prompt consumer I/O。删除 background/role prompt 的固定句子断言，保留 notification XML、tool deny 与 PromptSlotSeed 对象传递。
+- Rationale: prompt 文案可独立演进，但能力条件、真实 runtime 输入是否进入模型、空态是否省略以及子 agent seed 是否原样传递仍是当前风险；输入 sentinel 与动态 section render 对比能保护这些风险而不把一段自然语言升级为协议。
+- Evidence:
+  - Tests: 删除前候选保护组合 `163 passed in 0.35s`；改写后 prompt/capability/metadata/subagent/memory 组合 `160 passed in 0.38s`；ruff `All checks passed!`。
+  - Entry: `assemble_system_prompt`、`build_kernel_prompt_skeleton`、`build_prompt_messages`、`AgentTool.run` 与 Kernel capability/metadata 查询均从消费者入口验证。
+  - Frontend State Matrix: N/A（非前端）。
+  - Browser QA: N/A（零用户面）。
+  - E2E/Regression: unit 定向回归；无真实进程需求。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退本 roadpoint 提交；R1 基点为 `b9b45e2ad`。
+- Commits: 本 roadpoint 提交（SHA 以 Git history 为准）。
+- Next: R3 将 assistant 合并保护下沉到 `build_chat_messages` 公共消费入口、去除 MemoryStore 空态重复，并运行完整 M3 门禁。
 
 ## R3 — 合并 runtime/persistence 重复并完成门禁
 
-- 状态: TODO
+- 状态: DOING
 
 ## Promotion Candidates
 

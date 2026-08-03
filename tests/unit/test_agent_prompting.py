@@ -1,268 +1,153 @@
+"""Consumer I/O tests for the legacy prompt-building entry points."""
+
+from __future__ import annotations
+
 from pathlib import Path
 
 from agent.core.agent.prompting import (
     DEFAULT_SYSTEM_PROMPT,
     MEMORY_GUIDANCE,
-    SKILLS_GUIDANCE,
     build_prompt_messages,
     build_system_prompt,
 )
-from agent.core.types import Message
-from agent.core.types import ToolSpec
 from agent.core.skills.registry import SkillMetadata
+from agent.core.types import Message, ToolSpec
 
-# Minimal coding prompt fixture — replaces the deleted CODING_SYSTEM_PROMPT constant.
-# Coding-specific content now lives in prompt_sections.py (segment assembly).
-# Contains RUNTIME_FILL placeholders so runtime-fill tests remain meaningful.
-_CODING_FIXTURE = (
-    "You are an expert coding assistant.\n\n"
-    "Available tools:\n<RUNTIME_FILL:AVAILABLE_TOOLS>\n\n"
-    "Guidelines:\n- Be helpful\n\n"
-    "Current date and time: <RUNTIME_FILL:CURRENT_DATETIME>\n"
-    "Current working directory: <RUNTIME_FILL:CURRENT_WORKING_DIRECTORY>"
+_SYSTEM_TEMPLATE = (
+    "SYSTEM_INPUT_SENTINEL\n"
+    "<RUNTIME_FILL:AVAILABLE_TOOLS>\n"
+    "<RUNTIME_FILL:CURRENT_DATETIME>\n"
+    "<RUNTIME_FILL:CURRENT_WORKING_DIRECTORY>"
 )
 
 
-def test_default_system_prompt_is_generic_fallback() -> None:
-    """DEFAULT_SYSTEM_PROMPT must be a generic (non-coding-specific) fallback after feat-385."""
-    # Generic fallback: empty string signals segment-assembled prompt path.
-    assert "coding assistant" not in DEFAULT_SYSTEM_PROMPT
-    assert "expert coding" not in DEFAULT_SYSTEM_PROMPT
+def _tool(name: str) -> ToolSpec:
+    return ToolSpec(name=name, description=f"{name} description", input_schema={})
 
 
-def test_build_prompt_messages_includes_system_history_and_user() -> None:
-    history = (Message(message_id="msg_1", role="assistant", content="past answer"),)
+def _build_system(*tool_names: str, memory_block: str | None = None) -> str:
+    return build_system_prompt(
+        system_prompt=_SYSTEM_TEMPLATE,
+        available_skills=(),
+        available_tools=tuple(_tool(name) for name in tool_names),
+        current_datetime="DATETIME_INPUT_SENTINEL",
+        current_working_directory=Path("/workspace-input-sentinel"),
+        memory_block=memory_block,
+    )
 
-    # Verify role ordering: system → history → user.
+
+def test_default_system_prompt_selects_segment_assembly() -> None:
+    assert DEFAULT_SYSTEM_PROMPT == ""
+
+
+def test_build_prompt_messages_preserves_role_order_and_runtime_inputs() -> None:
     prompts = build_prompt_messages(
-        history_messages=history,
-        user_text="new question",
-        system_prompt=_CODING_FIXTURE,
+        history_messages=(
+            Message(message_id="history", role="assistant", content="HISTORY_SENTINEL"),
+        ),
+        user_text="USER_INPUT_SENTINEL",
+        system_prompt=_SYSTEM_TEMPLATE,
+        available_tools=(_tool("read"),),
+        current_datetime="DATETIME_INPUT_SENTINEL",
+        current_working_directory=Path("/workspace-input-sentinel"),
     )
 
     assert [item.role for item in prompts] == ["system", "assistant", "user"]
-    assert "You are an expert coding assistant" in prompts[0].content
-    assert "Current date and time:" in prompts[0].content
-    assert "Current working directory:" in prompts[0].content
-    assert "input_schema" not in prompts[0].content
+    assert "SYSTEM_INPUT_SENTINEL" in prompts[0].content
+    assert "DATETIME_INPUT_SENTINEL" in prompts[0].content
+    assert "/workspace-input-sentinel" in prompts[0].content
     assert "<RUNTIME_FILL:" not in prompts[0].content
-    assert prompts[-1].content == "new question"
+    assert prompts[1].content == "HISTORY_SENTINEL"
+    assert prompts[2].content == "USER_INPUT_SENTINEL"
 
 
-def test_build_prompt_messages_injects_available_skills_section_with_absolute_location() -> (
-    None
-):
-    relative_location = Path("./relative/demo/SKILL.md")
+def test_available_tools_render_names_and_descriptions_without_schemas() -> None:
+    tool = ToolSpec(
+        name="read",
+        description="READ_DESCRIPTION_SENTINEL",
+        input_schema={"type": "object", "properties": {"path": {"type": "string"}}},
+    )
+    result = build_system_prompt(
+        system_prompt=_SYSTEM_TEMPLATE,
+        available_skills=(),
+        available_tools=(tool,),
+    )
+
+    assert "read" in result
+    assert "READ_DESCRIPTION_SENTINEL" in result
+    assert "input_schema" not in result
+    assert '"properties"' not in result
+
+
+def test_available_skills_preserve_identity_and_absolute_location() -> None:
+    relative_location = Path("relative/demo/SKILL.md")
     prompts = build_prompt_messages(
         history_messages=(),
-        user_text="run this",
+        user_text="USER_INPUT_SENTINEL",
         available_skills=(
             SkillMetadata(
                 name="demo",
-                description="demo skill",
+                description="SKILL_DESCRIPTION_SENTINEL",
                 location=relative_location,
                 base_dir=relative_location.parent,
             ),
         ),
+        available_tools=(_tool("skill_view"),),
     )
-
     system_prompt = prompts[0].content
+
     assert "<available_skills>" in system_prompt
     assert "<name>demo</name>" in system_prompt
-    assert "Use the skill_view tool to load a skill's SKILL.md" in system_prompt
-    assert "call read on its <location>" not in system_prompt
-    assert "resolve it against the skill directory" in system_prompt
+    assert "SKILL_DESCRIPTION_SENTINEL" in system_prompt
     assert (
         f"<location>{relative_location.expanduser().resolve()}</location>"
         in system_prompt
     )
 
 
-def test_build_prompt_messages_does_not_advertise_skill_view_when_tool_disabled() -> (
-    None
-):
-    relative_location = Path("./relative/demo/SKILL.md")
+def test_available_skills_do_not_advertise_an_inactive_view_tool() -> None:
+    location = Path("relative/demo/SKILL.md")
     prompts = build_prompt_messages(
         history_messages=(),
-        user_text="run this",
+        user_text="USER_INPUT_SENTINEL",
         available_skills=(
             SkillMetadata(
                 name="demo",
-                description="demo skill",
-                location=relative_location,
-                base_dir=relative_location.parent,
+                description="SKILL_DESCRIPTION_SENTINEL",
+                location=location,
+                base_dir=location.parent,
             ),
         ),
-        available_tools=(
-            ToolSpec(name="read", description="Read file contents", input_schema={}),
-        ),
+        available_tools=(_tool("read"),),
     )
 
-    system_prompt = prompts[0].content
-    assert "<available_skills>" in system_prompt
-    assert "<name>demo</name>" in system_prompt
-    assert "skill_view" not in system_prompt
-    assert "Use the listed skills only as task-matching context." in system_prompt
+    assert "<available_skills>" in prompts[0].content
+    assert "skill_view" not in prompts[0].content
 
 
-def test_build_prompt_messages_skips_available_skills_section_when_empty() -> None:
-    # Use _CODING_FIXTURE explicitly: default is now generic empty string.
-    prompts = build_prompt_messages(
-        history_messages=(),
-        user_text="run this",
-        system_prompt=_CODING_FIXTURE,
-        available_skills=(),
-    )
-    assert "<available_skills>" not in prompts[0].content
-    assert "Available tools:" in prompts[0].content
-    assert "input_schema" not in prompts[0].content
+def test_empty_available_skills_omit_the_serialized_section() -> None:
+    result = _build_system("read")
+
+    assert "<available_skills>" not in result
 
 
-def test_build_prompt_messages_only_displays_tool_name_and_description() -> None:
-    # Use _CODING_FIXTURE explicitly: default is now generic empty string.
-    prompts = build_prompt_messages(
-        history_messages=(),
-        user_text="run this",
-        system_prompt=_CODING_FIXTURE,
-        available_tools=(
-            ToolSpec(
-                name="read",
-                description="Read file contents",
-                input_schema={
-                    "type": "object",
-                    "properties": {"path": {"type": "string"}},
-                },
-            ),
-        ),
-    )
+def test_guidance_tracks_the_active_tool_capabilities() -> None:
+    baseline = _build_system("read")
+    memory = _build_system("read", "memory")
+    skill_view = _build_system("read", "skill_view")
+    skill_manage = _build_system("read", "skill_manage")
 
-    system_prompt = prompts[0].content
-    assert "Available tools:" in system_prompt
-    assert "- read: Read file contents" in system_prompt
-    assert "input_schema" not in system_prompt
+    assert MEMORY_GUIDANCE not in baseline
+    assert MEMORY_GUIDANCE in memory
+    assert skill_view != baseline
+    assert "skill_view" in skill_view
+    assert skill_manage != baseline
+    assert "skill_manage" in skill_manage
 
 
-# ---------------------------------------------------------------------------
-# R2 tests: SKILLS_GUIDANCE / MEMORY_GUIDANCE constants + injection logic
-# ---------------------------------------------------------------------------
+def test_memory_block_is_injected_only_when_supplied() -> None:
+    baseline = _build_system("read")
+    with_memory = _build_system("read", memory_block="MEMORY_BLOCK_INPUT_SENTINEL")
 
-
-def test_skills_guidance_constant_exists_and_mentions_skill_view_and_manage():
-    """SKILLS_GUIDANCE must guide read-side skill usage and write-side maintenance."""
-    assert SKILLS_GUIDANCE, "SKILLS_GUIDANCE must be non-empty"
-    assert "skill_view" in SKILLS_GUIDANCE
-    assert "skill_manage" in SKILLS_GUIDANCE
-
-
-def test_memory_guidance_constant_exists_and_mentions_memory():
-    """MEMORY_GUIDANCE must exist and guide when to use memory tool."""
-    assert MEMORY_GUIDANCE, "MEMORY_GUIDANCE must be non-empty"
-    assert "memory" in MEMORY_GUIDANCE.lower()
-
-
-def test_build_system_prompt_injects_skills_guidance_when_skill_manage_in_tools():
-    """SKILLS_GUIDANCE is injected when skill_manage tool is in available_tools."""
-    tools = (
-        ToolSpec(name="skill_manage", description="Manage skills.", input_schema={}),
-        ToolSpec(name="read", description="Read a file.", input_schema={}),
-    )
-    result = build_system_prompt(
-        system_prompt=_CODING_FIXTURE,
-        available_skills=(),
-        available_tools=tools,
-    )
-    assert "skill_manage" in result
-
-
-def test_build_system_prompt_injects_read_side_guidance_when_skill_view_in_tools():
-    """skill_view alone should enable skill guidance without advertising skill writes."""
-    tools = (
-        ToolSpec(name="skill_view", description="View skills.", input_schema={}),
-        ToolSpec(name="read", description="Read a file.", input_schema={}),
-    )
-    result = build_system_prompt(
-        system_prompt=_CODING_FIXTURE,
-        available_skills=(),
-        available_tools=tools,
-    )
-    assert "skill_view" in result
-    assert "skill_manage" not in result
-
-
-def test_build_system_prompt_no_skills_guidance_without_skill_manage():
-    """Skill guidance is NOT injected when neither skill tool is present."""
-    tools = (
-        ToolSpec(name="read", description="Read a file.", input_schema={}),
-        ToolSpec(name="bash", description="Run bash.", input_schema={}),
-    )
-    result = build_system_prompt(
-        system_prompt=_CODING_FIXTURE,
-        available_skills=(),
-        available_tools=tools,
-    )
-    assert "skill_view" not in result
-    assert "skill_manage" not in result
-
-
-def test_build_system_prompt_injects_memory_guidance_when_memory_in_tools():
-    """MEMORY_GUIDANCE is injected when memory tool is in available_tools."""
-    tools = (
-        ToolSpec(name="memory", description="Manage memory.", input_schema={}),
-        ToolSpec(name="read", description="Read a file.", input_schema={}),
-    )
-    result = build_system_prompt(
-        system_prompt=_CODING_FIXTURE,
-        available_skills=(),
-        available_tools=tools,
-    )
-    assert MEMORY_GUIDANCE in result
-
-
-def test_build_system_prompt_no_memory_guidance_without_memory_tool():
-    """MEMORY_GUIDANCE is NOT injected when memory tool is absent."""
-    tools = (ToolSpec(name="read", description="Read a file.", input_schema={}),)
-    result = build_system_prompt(
-        system_prompt=_CODING_FIXTURE,
-        available_skills=(),
-        available_tools=tools,
-    )
-    assert MEMORY_GUIDANCE not in result
-
-
-def test_build_system_prompt_injects_both_guidance_when_both_tools_present():
-    """Both SKILLS_GUIDANCE and MEMORY_GUIDANCE injected when both tools present."""
-    tools = (
-        ToolSpec(name="skill_manage", description="Manage skills.", input_schema={}),
-        ToolSpec(name="memory", description="Manage memory.", input_schema={}),
-        ToolSpec(name="read", description="Read a file.", input_schema={}),
-    )
-    result = build_system_prompt(
-        system_prompt=_CODING_FIXTURE,
-        available_skills=(),
-        available_tools=tools,
-    )
-    assert "skill_manage" in result
-    assert MEMORY_GUIDANCE in result
-
-
-def test_build_system_prompt_injects_memory_block_when_provided():
-    """Memory block is injected verbatim when memory_block kwarg is supplied."""
-    fake_memory_block = (
-        "══════\nMEMORY (your personal notes) [0% — 0/2,200 chars]\n══════\n"
-    )
-    result = build_system_prompt(
-        system_prompt=_CODING_FIXTURE,
-        available_skills=(),
-        memory_block=fake_memory_block,
-    )
-    assert fake_memory_block in result
-
-
-def test_build_system_prompt_no_memory_block_when_not_provided():
-    """No memory section injected when memory_block not supplied or None."""
-    result = build_system_prompt(
-        system_prompt=_CODING_FIXTURE,
-        available_skills=(),
-        memory_block=None,
-    )
-    assert "MEMORY (your personal notes)" not in result
+    assert "MEMORY_BLOCK_INPUT_SENTINEL" not in baseline
+    assert "MEMORY_BLOCK_INPUT_SENTINEL" in with_memory

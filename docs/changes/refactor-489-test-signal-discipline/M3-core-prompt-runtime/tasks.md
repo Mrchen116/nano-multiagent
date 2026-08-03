@@ -49,12 +49,12 @@
 
 ### R2 — 收敛 prompt 条件与消费者输入输出
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 删除迁移 golden、片段措辞和 registry skeleton 断言；把 assembler、runtime/preview、AGENTS、feature/tool gate 与 PromptSlotSeed 传递合并到当前 seam。
 - 验证: prompt、capability、metadata、subagent 定向测试通过，且不再存在 M4 golden/legacy/no-order 文件。
 
 ### R3 — 合并 runtime/persistence 重复并完成门禁
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 把 assistant merge 改为 `build_chat_messages` 消费者保护，去除 MemoryStore 重复；核对处置表并运行 M3 精确范围门禁。
 - 验证: M3 全量（显式包含 `tests/unit/test_curator.py`）、相关 contract、ruff、`git diff --check` 与范围检查通过。
