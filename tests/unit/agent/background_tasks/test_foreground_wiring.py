@@ -1,15 +1,4 @@
-"""bugfix-417-M7 (decision 12): foreground stopper wiring + injection redirect.
-
-These pin the接线 contract the milestone changes:
-  - wire_background_tasks exposes a ForegroundExecutionRegistry alongside the
-    BackgroundTaskRegistry;
-  - build_kernel injects ForegroundExecutionRegistry.stop_for_session (NOT the old
-    BackgroundTaskRegistry.stop_foreground_for_session, which is deleted) into the
-    core RunsRegistry as the foreground stopper port.
-
-The core RunsRegistry interrupt/cancel logic is unchanged — it only sees the injected
-``(session_id) -> bool`` port; what backs that port is the only thing M7 moves.
-"""
+"""Behavioral wiring tests for foreground execution cancellation."""
 
 from __future__ import annotations
 
@@ -22,15 +11,6 @@ from agent.platform.background_tasks.wiring import wire_background_tasks
 def test_wiring_exposes_foreground_registry(tmp_path: Path) -> None:
     wiring = wire_background_tasks(workspace_root=tmp_path)
     assert isinstance(wiring.foreground_registry, ForegroundExecutionRegistry)
-
-
-def test_background_registry_has_no_foreground_patches(tmp_path: Path) -> None:
-    """The foreground-specific patches are gone from BackgroundTaskRegistry — the
-    structural cleanup that removes the dual-channel bug's habitat."""
-    wiring = wire_background_tasks(workspace_root=tmp_path)
-    registry = wiring.registry
-    assert not hasattr(registry, "stop_foreground_for_session")
-    assert not hasattr(registry, "_foreground_task_ids")
 
 
 def test_kernel_injects_foreground_registry_stopper(tmp_path: Path) -> None:

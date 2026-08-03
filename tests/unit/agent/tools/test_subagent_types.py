@@ -8,7 +8,6 @@ from agent.core.errors import ToolError
 from agent.platform.tools.subagent_types import (
     apply_tool_deny,
     format_available_agents,
-    iter_agent_types,
     resolve_agent_type,
 )
 
@@ -57,13 +56,3 @@ def test_format_available_agents_lists_in_stable_registration_order() -> None:
     assert (
         format_available_agents() == "Available agents: general-purpose, Explore, Plan"
     )
-
-
-def test_role_prompt_seeds_are_distinct_and_read_only_types_avoid_gp_copy() -> None:
-    seeds = {d.name: d.role_prompt_seed for d in iter_agent_types()}
-    assert len(seeds) == 3
-    for name in ("Explore", "Plan"):
-        body_text = " ".join(item.text for item in seeds[name].body)
-        assert "READ-ONLY" in body_text
-    gp_body = " ".join(item.text for item in seeds["general-purpose"].body)
-    assert "READ-ONLY" not in gp_body

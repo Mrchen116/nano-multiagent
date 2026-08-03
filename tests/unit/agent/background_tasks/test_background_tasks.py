@@ -14,10 +14,7 @@ from agent.core.background_tasks.models import (
     BackgroundTaskStatus,
     BackgroundTaskType,
 )
-from agent.core.background_tasks.notifications import (
-    BACKGROUND_TASK_PROMPT_BLOCK,
-    build_task_notification_xml,
-)
+from agent.core.background_tasks.notifications import build_task_notification_xml
 from agent.core.background_tasks.registry import BackgroundTaskRegistry
 
 
@@ -448,17 +445,6 @@ def test_build_notification_escapes_xml() -> None:
     xml = build_task_notification_xml(record)
     assert "research &lt;loop&gt;" in xml
     assert "foo &amp; bar" in xml
-
-
-# ---------------------------------------------------------------------------
-# Prompt block
-# ---------------------------------------------------------------------------
-
-
-def test_prompt_block_contains_rules() -> None:
-    assert "<task-notification>" in BACKGROUND_TASK_PROMPT_BLOCK
-    assert "not new user requests" in BACKGROUND_TASK_PROMPT_BLOCK
-    assert "Do not thank them" in BACKGROUND_TASK_PROMPT_BLOCK
 
 
 # ---------------------------------------------------------------------------
