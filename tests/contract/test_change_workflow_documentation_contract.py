@@ -53,10 +53,9 @@ def test_selected_validation_gate_matrix_does_not_drift() -> None:
     assert rows["Full，存在用户可观察旅程"] == ("必须", "必须", "必须")
     assert rows["Full，零用户面"] == ("必须", "跳过", "必须")
     assert rows["Bugfix lite"] == ("跳过", "跳过", "必须")
-    assert (
-        "full 普通 unit → 三道闸全跑;零用户面 unit → verifier + code review;"
-        "lite → 只跑 code review"
-    ) in orchestrator
+    assert "| Full，有用户可观察旅程 | full | full | full |" in orchestrator
+    assert "| Full，零用户面 | skipped | full | full |" in orchestrator
+    assert "| Bugfix lite | skipped | skipped | full |" in orchestrator
     assert "用户点名 `$change-orchestrator-simple` 时使用" in simple_orchestrator
     assert (
         "零用户面：执行 `$change-verifier` 和 `$change-code-review`"
