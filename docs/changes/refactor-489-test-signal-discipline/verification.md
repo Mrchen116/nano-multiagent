@@ -64,3 +64,53 @@ None.
 None.
 
 2 warning(s) found. Fix before PR.
+
+# Round 2
+
+> Targeted closure snapshot: `0b9607147df21e6e11e1c7b27cccba6005ce6ab6 → bde0ed1b050fe934c4461fdcd81e842e83784cbb`
+> Fix delta: `ac281030314477c44098d5888506674236a83e5e..bde0ed1b050fe934c4461fdcd81e842e83784cbb`
+
+## Summary
+
+Mode: `targeted-closure`
+Focus issues: W1 (final Ruff format gate), W2 (ordinary-PATH resilience invocation)
+requires_full_verification: `false`
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | M17 records exactly the two prior warnings, formats the 20 W1 files, and changes the W2 subprocess environment; both listed exit surfaces were independently re-run. |
+| Correctness | `ruff format --check .` passes over 812 files; the opt-in true-stack resilience node passes with the ordinary shell PATH, where `python3` resolves to `/usr/bin/python3`. |
+| Coherence | The fix preserves the prior test-only boundary: no `src/`, script, CI, current-spec, or design change is in the fix delta. |
+
+## Focused verification
+
+| Prior issue / requirement | Implementation and boundary | Independent evidence | Status |
+|---|---|---|---|
+| W1 — CI format gate is executable and green | The delta formats only the 20 reported test files; the CI command remains [`ruff format --check .`](../../../.github/workflows/ci.yml#L36-L37). | `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m ruff format --check .` → `812 files already formatted` (exit 0). `ruff check .` also returned `All checks passed!`. | pass |
+| W2 — M13 resilience path runs without caller PATH setup | [`_run_resilience_script`](../../../tests/e2e/critical_paths/test_gateway_im_resilience_critical_path.py#L45-L65) prepends `Path(sys.executable).parent` only to the spawned script's `PATH`, so its bare `python3` resolves to the same repository interpreter as pytest. | With the inherited ordinary PATH unchanged (`python3` = `/usr/bin/python3`), `NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 .venv/bin/python -m pytest -q -rs tests/e2e/critical_paths/test_gateway_im_resilience_critical_path.py::test_gateway_recovers_node_online_after_transient_faults` → `1 passed in 24.25s`. | pass |
+
+The focused live run left no matching `e2e-resilience.sh`, verification-worktree, or resilience temporary-worktree process. The two listeners observed afterward were pre-existing user services: the LLM proxy on port 4000 and the main `personal_assistant` process on port 57040; neither command line points to this verification worktree or the test temporary directory.
+
+`./scripts/docs-check` also passed (`223 maintained Markdown sources`, `65 required routes`), and `git diff --check ac2810303..bde0ed1b0` was clean.
+
+## Scope and verification mode
+
+The fix delta changes 23 paths: two M17 records, the 20 W1 formatting-only tests, and the W2 resilience test harness. It contains no `src/`, `scripts/`, `.github/`, `docs/specs/`, `SPEC.md`, dependency, configuration, architecture, cross-machine, or parallel-runtime mechanism change. It therefore does not invalidate the independent full evidence already recorded in Round 1 and does not require escalation to full verification.
+
+The W2 change follows the existing lifecycle-test interpreter-propagation pattern while preserving the M13 contract: a real shell-driven IM/Gateway recovery journey remains the owner of the operational risk, rather than replacing it with a script-text assertion.
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+None.
+
+### WARNING（提 PR 前必须修）
+
+None.
+
+### SUGGESTION（可以修）
+
+None.
+
+All focused checks passed. Ready for PR.
