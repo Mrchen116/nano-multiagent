@@ -11,7 +11,7 @@
 - [x] `docs/development/testing.md` 成为处置判据的唯一完整 owner。
 - [x] `change-impl-worker` 在规划和交付时要求审视受影响的既有测试，不要求全仓台账。
 - [x] `assets/tasks.md` 含风险/行为、既有测试、处置、理由与保留或替代保护、验证五列。
-- [ ] 文档路由、skill 格式和现有 workflow contract 校验通过。
+- [x] 文档路由、skill 格式和现有 workflow contract 校验通过。
 
 ## 测试策略
 
@@ -45,6 +45,6 @@
 
 ### R3 — 校验格式、路由与去重
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 对三处规范做交叉审读，删除重复解释并记录最终证据。
 - 验证: `scripts/docs_check.py`、workflow documentation contract、`git diff --check` 和范围检查通过。

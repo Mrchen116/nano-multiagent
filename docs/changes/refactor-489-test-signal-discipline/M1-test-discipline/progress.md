@@ -33,12 +33,32 @@
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: 回退提交 `bc1055d56`，不影响 R1 的 canonical 规范。
-- Commits: 本 roadpoint 提交（最终 hash 在 R3 汇总）。
+- Commits: `49ebf276a`。
 - Next: R3 做去重审读，并运行 skill、文档和 workflow contract 校验。
 
 ## R3 — 校验格式、路由与去重
 
-- 状态: DOING
+- 状态: DONE
+- Context: 需要确认三处内容既能形成可执行闭环，又没有把完整处置判据复制进 skill/template 或越出 milestone 范围。
+- Decision: 保留 `testing.md` 为唯一判据 owner；skill 只写识别、规划、执行和完成检查；模板只提供五列表格与“无覆盖”的填写方式。
+- Rationale: 这种分工让未来判据只改一处，同时保证 worker 实际产物不会漏掉既有测试处置。
+- Evidence:
+  - Claim: M1 规范、skill 路由和任务模板格式有效，且既有 change workflow contract 未漂移。
+  - Baseline: `origin/unit/refactor-489@0b9607147`，验证前 milestone HEAD `49ebf276a`。
+  - Method: 运行 skill `quick_validate.py`、`scripts/docs_check.py`、`pytest -q tests/contract/test_change_workflow_documentation_contract.py`、跨文件结构搜索、`git diff --check origin/unit/refactor-489...HEAD` 和 changed-path scope 检查。
+  - Result: PASS；skill valid；文档完整性通过（190 sources / 65 routes）；contract `3 passed`；完整删除/精确文本判据只命中 `testing.md`；changed paths 仅为三处派发文件与 M1 交付物。
+  - Locator: `docs/development/testing.md`“受影响的既有测试是持续维护资产”、`change-impl-worker` §2.3/§3/§5/§6/§10、`assets/tasks.md`“受影响的既有测试处置”。
+  - Limit: 零用户面，无浏览器或 live runtime 验证；本轮不评估 M2--M16 的具体测试处置。
+  - Tests: `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q tests/contract/test_change_workflow_documentation_contract.py` → `3 passed`。
+  - Entry: `docs/README.md` → `docs/development/README.md` → `testing.md` 的 current 路由有效；worker 从读取规范到模板、执行和交付检查的内部路由完整。
+  - Frontend State Matrix: N/A（非前端）。
+  - Browser QA: N/A（零用户面）。
+  - E2E/Regression: N/A（无产品或运行时行为）。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 分别回退 `49ebf276a`（skill/template 接入）与 `bc1055d56`（canonical 规范）。
+- Commits: 本收尾提交，SHA 以 Git history 为准。
+- Next: M1 完成，合入 `unit/refactor-489` 后可解锁 M2--M16。
 
 ## Promotion Candidates
 
