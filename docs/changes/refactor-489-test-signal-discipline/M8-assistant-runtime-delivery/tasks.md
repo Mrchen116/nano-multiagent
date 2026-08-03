@@ -8,10 +8,10 @@
 
 ## 退出标准
 
-- [ ] Gateway/channel/relay/inbound/session/投递结果的当前行为与公开边界仍由最低合适层保护。
-- [ ] 完全重复的测试、退役实现缺席断言、源码扫描和模型提示词逐字快照已删除或改写。
-- [ ] 进程关闭、并发、ACK/reconnect、durable outbox、session 恢复和投递终态等真实时序/服务风险未因清理丢失。
-- [ ] M8 全量最窄门禁通过，且无产品代码、current spec 或相邻 milestone 文件变更。
+- [x] Gateway/channel/relay/inbound/session/投递结果的当前行为与公开边界仍由最低合适层保护。
+- [x] 完全重复的测试、退役实现缺席断言、源码扫描和模型提示词逐字快照已删除或改写。
+- [x] 进程关闭、并发、ACK/reconnect、durable outbox、session 恢复和投递终态等真实时序/服务风险未因清理丢失。
+- [x] M8 全量最窄门禁通过，且无产品代码、current spec 或相邻 milestone 文件变更。
 
 ## 测试策略
 
@@ -64,6 +64,6 @@
 
 ### R4 — 全量门禁与证据对账
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 运行 M8 全量 pytest、collect-only、ruff、diff/check/scope；回填删除/改写/保留证据和最终 test count。
 - 验证: 所有门禁通过，tasks/progress 完整，只有 M8 范围与产物变更。

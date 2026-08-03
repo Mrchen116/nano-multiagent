@@ -64,7 +64,23 @@
 
 ## R4 — 全量门禁与证据对账
 
-- 状态: DOING
+- 状态: DONE
+- Context: roadpoints 完成后需要证明整个 M8 派发域仍可收集和运行，并确认没有借测试清理改动产品代码、current spec 或相邻 milestone。
+- Decision: 按 design 的 root/assistant 排除规则重新枚举 89 个测试文件，执行 pytest 与 collect-only；对同一集合执行 ruff，并运行 docs integrity、diff whitespace 与相对 unit 分支的 changed-path 审计。
+- Rationale: 分簇门禁证明局部意图，全域收集和执行用于发现跨文件 fixture/import/顺序回归；路径审计保证 milestone 权限边界。
+- Evidence:
+  - Tests: M8 全域 `626 passed`（20.53s，2 个第三方 deprecation warnings）；collect-only `626 tests collected`（2.06s）。
+  - Entry: 4 个 root + 85 个 top-level `personal_assistant` owner 文件按派发规则执行；测试集合自身可独立收集。
+  - Frontend State Matrix: N/A（非前端）。
+  - Browser QA: N/A（非前端）。
+  - E2E/Regression: `ruff check` 全域通过；`scripts/docs_check.py` 通过（202 maintained sources / 65 routes）；`git diff --check` 通过。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Result: 相对 `origin/unit/refactor-489` 仅有 19 个授权测试路径与 M8 的 tasks/progress/.gitkeep；删除 2 个聚合测试文件、改写 17 个 owner 文件，零产品代码与 current spec 变更。
+- Limit: 本 milestone 不运行真实服务；进程、端口、WebSocket 与完整用户旅程证据由 M13 独立拥有。第三方 Lark SDK 的 2 个 deprecation warnings 为既有环境噪声。
+- Rollback: 依次回退 R3、R2、R1 与 plan 提交即可恢复 unit 基线测试树。
+- Commits: 本 roadpoint 提交（SHA 以 Git history 为准）。
+- Next: rebase 最新 unit 分支，重跑 M8 门禁后合并并推送 unit。
 
 ## Promotion Candidates
 
