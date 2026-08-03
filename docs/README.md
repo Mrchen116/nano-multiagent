@@ -11,7 +11,7 @@
 | 修改跨包职责、依赖方向或部署拓扑 | [`../SPEC.md`](../SPEC.md) |
 | 修改用户或外部消费者可观察行为 | 相关包的 [`specs/`](specs/README.md) → [`development/change-workflow.md`](development/change-workflow.md) |
 | 编写或归并行为契约 | [`specs/CONTRIBUTING.md`](specs/CONTRIBUTING.md) → [`specs/README.md`](specs/README.md) |
-| 判断是否建立 unit、选择生命周期或 Full 实施方式、查看阶段和门禁 | [`development/change-workflow.md`](development/change-workflow.md) |
+| 判断是否建立 unit、选择生命周期或实施方式、查看阶段和门禁 | [`development/change-workflow.md`](development/change-workflow.md) |
 | 查 change unit 的目录、命名、文件归属或归档位置 | [`changes/README.md`](changes/README.md) |
 | 配置开发环境、运行测试或开发 CLI/前端 | [`development/`](development/README.md) |
 | 判断测试、CI、截图、runtime 或 LLM 日志能证明什么 | [`development/evidence.md`](development/evidence.md) |
@@ -33,7 +33,7 @@
 | 顶层包如何分工、允许怎样依赖、如何部署 | [`../SPEC.md`](../SPEC.md) | 跨包架构与不变量 |
 | 单包当前应该表现为什么 | [`specs/<package>/`](specs/README.md) | current 行为契约 |
 | 长青 spec 如何编写、delta-spec 如何归并 | [`specs/CONTRIBUTING.md`](specs/CONTRIBUTING.md) | 契约层内容规则 |
-| change unit 如何选择、推进，经过哪些角色和门禁 | [`development/change-workflow.md`](development/change-workflow.md) | 当前开发变更生命周期 |
+| change unit 如何选择、推进，如何选择实施方式，经过哪些角色和门禁 | [`development/change-workflow.md`](development/change-workflow.md) | 当前开发变更生命周期 |
 | change unit 如何命名，文件放在哪里、由谁维护和归档 | [`changes/README.md`](changes/README.md) | unit 存储与文件归属 |
 | 开发流程、环境、测试和联调文档如何进入 | [`development/`](development/README.md) | 开发任务地图 |
 | 本地环境如何安装、常用命令和提交格式是什么 | [`development/local-development.md`](development/local-development.md) | 开发者本地入口 |

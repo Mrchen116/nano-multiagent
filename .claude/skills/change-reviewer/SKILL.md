@@ -240,7 +240,7 @@ git pull --ff-only origin "unit/<unit_id>"
 | refactor / perf | `<unit_path>/acceptance.md` | `acceptance.md` |
 | bugfix full | `<unit_path>/regression.md` | `regression.md` |
 
-bugfix lite 没有独立 reviewer 阶段,worker 完成后直接合 unit→main(由 orchestrator)。lite 的"验证"段由 worker 在 fix.md 里自填。
+bugfix lite 没有独立 reviewer 阶段；选定的实施流程回填 fix.md 的“修复 / 验证”并完成 code review。
 
 第 2 轮起,**追加到同一文件**,加新段落:
 

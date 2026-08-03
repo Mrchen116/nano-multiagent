@@ -113,12 +113,13 @@ docs/changes/<unit-dir>/
 docs/changes/<unit-dir>/
 ├── fix.md
 └── M1-fix/
-    ├── tasks.md
-    ├── progress.md
-    └── evidence/
+    ├── .gitkeep                    # 简化流程无其他 milestone 记录时
+    ├── tasks.md                    # 原流程
+    ├── progress.md                 # 原流程
+    └── evidence/                   # 按需
 ```
 
-`fix.md` 依次记录现象/复现、根因、修复、验证。spec author 写前两部分，worker 回填后两部分。
+`fix.md` 依次记录现象/复现、根因、修复、验证。spec author 写前两部分，选定的实施流程回填后两部分。原流程由 worker 维护 `tasks.md` 和 `progress.md`；简化流程保留单个 `M1-fix` 交付目标和可复核证据，不强制这两份过程文档。
 
 ### 快速开发
 

@@ -1,6 +1,6 @@
 # Change Workflow
 
-本文记录 nano-multiagent 当前的开发变更生命周期，负责说明什么时候建立 change unit、Full、Bugfix lite 与快速开发如何选择、Full unit 如何选择实施方式、各阶段怎样流转，以及每类 unit 需要经过哪些门禁。
+本文记录 nano-multiagent 当前的开发变更生命周期，负责说明什么时候建立 change unit、Full、Bugfix lite 与快速开发如何选择、实施方式如何选择、各阶段怎样流转，以及每类 unit 需要经过哪些门禁。
 
 各 `change-*` skill 负责角色内部的具体执行方法；[`../changes/README.md`](../changes/README.md) 负责 unit 的目录、命名、文件归属和归档位置。
 
@@ -35,7 +35,7 @@ Full
          → 后续轮次复用同一 reviewer
          → 选择实施方式
             ├─ 原流程：change-orchestrator → change-impl-worker(s)
-            └─ 用户点名简化流程：change-orchestrator-simple → 主 Agent 自主组织实现
+            └─ 用户点名简化流程：change-orchestrator-simple → 自主组织实现
          → 对应 validation gates
          → canonical spec 归并
          → 本地 CI
@@ -44,13 +44,14 @@ Full
 
 Bugfix lite
   change-spec-author（fix.md 前两段）
-    → change-orchestrator
-       → 单个 change-impl-worker
-       → change-code-review
-       → 必要的 canonical spec 归并
-       → 本地 CI
-       → archive
-       → PR + 远端 CI
+    → 选择实施方式
+       ├─ 原流程：change-orchestrator → 单个 change-impl-worker
+       └─ 用户点名简化流程：change-orchestrator-simple → 自主实施单个 M1-fix
+    → change-code-review
+    → 必要的 canonical spec 归并
+    → 本地 CI
+    → archive
+    → PR + 远端 CI
 
 快速开发
   用户与 Agent 持续对齐、实现和测试
@@ -96,7 +97,7 @@ Bugfix lite
 
 `change-spec-reviewer` 是可选的独立复核：用户明确要求 review，或 author 希望独立复核时调用。它不是 Full 流程的默认强制门禁，`change-design-author` 的启动不依赖 `spec-review.md`。
 
-Bugfix lite 在 `fix.md` 的“现象/复现”和“根因”两段完成后直接进入实施；“修复”和“验证”由 worker 回填。
+Bugfix lite 在 `fix.md` 的“现象/复现”和“根因”两段完成后直接进入实施；“修复”和“验证”由选定的实施流程回填。
 
 ## 阶段 2：设计
 
@@ -129,14 +130,14 @@ Full unit 由 `change-design-author` 基于首文档、current specs 和真实�
 
 ## 阶段 3：实施
 
-Full unit 在 Gate 2 通过后有两种实施方式：
+Full unit 在 Gate 2 通过后、Bugfix lite 在首文档收口后，均有两种实施方式：
 
 | 实施方式 | 触发条件 | 实施组织 | 固定交付要求 |
 |---|---|---|---|
-| 原流程 | 默认 | `change-orchestrator` 建立 unit worktree，并按 milestone 派发 `change-impl-worker` | 完成全部 milestone、适用门禁、契约归并、归档和 PR/CI |
-| 简化流程 | 用户点名 `$change-orchestrator-simple` | 主 Agent 在一个 unit worktree 内端到端负责，自主决定直接实现或使用 subagent，不强制 worker、milestone worktree、roadpoint 或过程台账 | 完成全部 milestone、适用门禁、契约归并、归档和 PR/CI |
+| 原流程 | 默认 | `change-orchestrator` 建立 unit worktree；Full 按 milestone 派发 worker，Bugfix lite 派发单个 worker | 完成全部 milestone、适用门禁、契约归并、归档和 PR/CI |
+| 简化流程 | 用户点名 `$change-orchestrator-simple` | 在一个 unit worktree 内端到端负责，自主决定直接实现或使用 subagent，不强制 worker、milestone worktree、roadpoint 或过程台账 | 完成全部 milestone、适用门禁、契约归并、归档和 PR/CI |
 
-两种方式共享已经确认的首文档、design、milestone 目标和工程质量底线；选择简化流程只改变实施组织，不改变需求、设计和交付标准。Bugfix lite 继续由 `change-orchestrator` 创建单个 `M1-fix`，不使用简化流程。
+两种方式共享各自已经确认的首文档、milestone 目标和工程质量底线；Full 额外共享已通过 Gate 2 的 design。选择简化流程只改变实施组织，不改变需求、设计和交付标准。Bugfix lite 在两种方式下都保持唯一的 `M1-fix`。
 
 原流程的每个 milestone：
 
@@ -147,7 +148,7 @@ Full unit 在 Gate 2 通过后有两种实施方式：
 
 实施中发现 design 错误、遗漏或无法执行时，worker 必须暂停编码，在 `progress.md` 记录修订原因和影响，同步 design 后通知 orchestrator。orchestrator 决定继续、复审或返回 design/spec 阶段，不能让 worker 静默绕过已经确认的方案。
 
-所有 milestone 的退出标准、tasks、progress 和 evidence 齐全，并已合入 unit 分支后，进入验收阶段。
+原流程的 milestone 退出标准、tasks、progress 和 evidence 齐全，简化流程的 milestone 退出标准和实际证据可逐条复核，并已统一落在 unit 分支后，进入验收阶段。
 
 ## 阶段 4：selected validation gates
 
@@ -158,13 +159,13 @@ Full unit 在 Gate 2 通过后有两种实施方式：
 | Bugfix lite | 跳过 | 跳过 | 必须 |
 | 快速开发 | 跳过 | 跳过；使用已记录的用户验收 | 必须 |
 
-Full 的两行门禁同时适用于原流程和简化流程。
+Full 和 Bugfix lite 的门禁组合同时适用于原流程和简化流程。
 
 - verifier 核对实现是否完整、正确且与 spec、design、milestone 一致；原流程同时核对 tasks/progress，简化流程核对实际存在的实施记录；
 - reviewer 走真实产品旅程，只验用户可观察结果；
 - code review 审查 unit diff；
-- Full 原流程与 Bugfix lite 的门禁发现问题后由 orchestrator 判真并派 worker 修复；
-- Full 简化流程的门禁发现问题后由 `change-orchestrator-simple` 判真并自主组织修复；
+- 原流程的门禁发现问题后由 `change-orchestrator` 判真并派 worker 修复；
+- 简化流程的门禁发现问题后由 `change-orchestrator-simple` 判真并自主组织修复；
 - 快速开发的 code review 发现问题后，由执行 `change-fast-close` 的主会话判真和修复；
 - 修复后按变更范围重跑、局部复验或保留仍然有效的门禁结论；快速开发的修复改变用户可观察行为时交回用户确认。
 
@@ -172,10 +173,10 @@ Full 的两行门禁同时适用于原流程和简化流程。
 
 ## 收尾
 
-Full 原流程与 Bugfix lite 由 `change-orchestrator` 收尾，Full 简化流程由 `change-orchestrator-simple` 收尾，均按以下顺序完成交付：
+原流程由 `change-orchestrator` 收尾，简化流程由 `change-orchestrator-simple` 收尾，均按以下顺序完成交付：
 
 1. 同步最新 `origin/main`，比较 main 增量对 reviewer、verifier 和 code review 验证范围的影响；每道闸必须重跑、局部复验或记录 retained 依据，不能用“rebase 无冲突”或 CI 代替失效判断。
-2. 在门禁对最终集成树仍然有效后，根据实际实现校正 delta-spec。Full unit 由 `change-verifier` 对校正结果逐条核对实现与测试，通过后归并到 `docs/specs/<package>/<area>.md`；Bugfix lite 触及对外行为但没有 delta 时由 orchestrator 补齐并直接归并。
+2. 在门禁对最终集成树仍然有效后，根据实际实现校正 delta-spec。Full unit 由 `change-verifier` 对校正结果逐条核对实现与测试，通过后归并到 `docs/specs/<package>/<area>.md`；Bugfix lite 触及对外行为但没有 delta 时由当前实施流程补齐并直接归并。
 3. 按当前 CI 配置运行本地等价检查；归档前再次判断门禁后新增提交和 main 推进是否使结论失效。
 4. 将整个 unit 从 `docs/changes/<unit>/` 移入 `docs/changes/archive/<unit>/`。
 5. 创建 PR 并等待远端 CI；CI 或 review 小修改变代码后，重新执行受影响门禁。
@@ -206,7 +207,7 @@ CI 全绿后收尾 owner 交棒，由人审查和 merge。归档表示 unit 已�
 
 ## 权威边界
 
-- 本文负责是否建立 unit、Full/Bugfix lite/快速开发路径、Full 实施方式、生命周期、角色组合和门禁选择。
+- 本文负责是否建立 unit、Full/Bugfix lite/快速开发路径、实施方式、生命周期、角色组合和门禁选择。
 - 每个 `.claude/skills/change-*/SKILL.md` 负责该角色内部的动作、输入输出和恢复细节。
 - [`../changes/README.md`](../changes/README.md) 负责 unit 的目录、命名、文件归属和归档位置。
 - [`../specs/CONTRIBUTING.md`](../specs/CONTRIBUTING.md) 负责 canonical spec 与 delta-spec 的内容规范。

@@ -22,7 +22,7 @@
 
 | 文档 | 负责的事实 |
 |---|---|
-| [`change-workflow.md`](change-workflow.md) | 何时建 unit、生命周期、Full 实施方式、角色和门禁 |
+| [`change-workflow.md`](change-workflow.md) | 何时建 unit、生命周期、实施方式、角色和门禁 |
 | [`local-development.md`](local-development.md) | Python/前端环境、常用命令、测试身份和提交格式 |
 | [`testing.md`](testing.md) | 测试选择、分层、命名、长期回归与临时证据边界 |
 | [`evidence.md`](evidence.md) | 测试、CI、真栈、报告、runtime 与 LLM 日志的能力边界和归并规则 |

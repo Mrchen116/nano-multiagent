@@ -1,23 +1,26 @@
 ---
 name: change-orchestrator-simple
-description: 端到端实施已完成 spec / design 对齐的 change unit，并交付 CI 全绿的 PR。用户点名 `$change-orchestrator-simple` 时使用。
+description: 端到端实施已完成实施前对齐的 Full 或 Bugfix lite change unit，并交付 CI 全绿的 PR。用户点名 `$change-orchestrator-simple` 时使用。
 ---
 
 # Change Unit Delivery
 
 ## 目标
 
-把一个 change unit 从实施推进到可审查、CI 全绿的 PR。交付覆盖需求、设计、milestone、
+把一个 change unit 从实施推进到可审查、CI 全绿的 PR。交付覆盖首文档、适用设计、milestone、
 实现、测试、真实入口验证、适用的独立验收闸、文档和归档。
 
 ## 启动
 
 1. 在 `docs/changes/` 中唯一解析目标 unit；命中歧义或只命中已归档 unit 时停止并说明。
-2. 确认该 unit 已具备实施条件：首文档和 `design.md` 已定稿；独立 design review 的最新
-   结论为通过，且此后受审产物未再修改；milestone 拆分、退出标准和仓库要求的实施前产物
-   完整。任一条件不满足时停止并说明。
+2. 判定 unit 类型并核对准入：
+   - 存在 `design.md` 时为 Full：首文档和 design 已定稿，独立 design review 最新结论
+     为通过且此后受审产物未再修改，milestone 和退出标准完整。
+   - 无 `design.md` 但存在 `fix.md` 时为 Bugfix lite：“现象 / 复现”和“根因”已确认，
+     无模板残留，且仍满足单 milestone、影响面小、无独立设计决策或回归矩阵的边界。
+   - 两者同时存在、都不存在或准入条件不满足时停止并说明。
 3. 完整阅读：
-   - unit 首文档、`design.md`，以及其中引用的 prototype、reference 和 reviewer runbook；
+   - unit 首文档；Full 额外读 `design.md` 及其引用的 prototype、reference 和 reviewer runbook；
    - 仓库级与受影响目录的 `CLAUDE.md` / `AGENTS.md`，并按其中路由读取本次实施相关规范；
    - `docs/development/change-workflow.md`；
    - `docs/development/testing.md`；必须在阅读现有测试和编写任何测试之前读完；
@@ -26,6 +29,8 @@ description: 端到端实施已完成 spec / design 对齐的 change unit，并�
    `<repo-root>/.worktrees/unit-<unit-id>` 建立专属 worktree。恢复已有现场时先核对分支、
    远端 head 和未提交修改；禁止用 reset 覆盖不明现场。安全建立后把 unit 分支推送到
    origin。
+   Bugfix lite 首次启动时在 unit worktree 建立或确认唯一的 `M1-fix/`；空目录
+   用 `.gitkeep` 保留，不因此强制创建 `tasks.md` 或 `progress.md`。
 5. 在 unit worktree 中运行仓库规定的实现前测试基线。基线已有失败时先区分并报告，
    不把它混入本 unit 或用后续结果掩盖。
 
@@ -41,8 +46,11 @@ checkout 中已有的分支、修改和未跟踪文件。
 - 自行管理协作中的写入冲突与集成，最终状态统一落在 unit 分支。
 - 自行选择实施记录的形式；记录范围、关键决策、design 偏差、测试、真实入口证据和相关
   commit，使 milestone 退出标准能够逐条复核。
-- 在已确认需求范围内调整技术方案时，同步 `design.md` 和实现记录。调整会改变用户需求、
-  验收标准或 unit 范围时，先与用户重新对齐。
+- Bugfix lite 在进入 code review 前回填 `fix.md` 的“修复”和“验证”，验证必须覆盖
+  首文档记录的同一真实入口。
+- Full 在已确认需求范围内调整技术方案时，同步 `design.md` 和实现记录。
+  Bugfix lite 需要独立设计决策或影响面扩大时停止，交回 author 升级为 Full。任一路径
+  会改变用户需求、验收标准或 unit 范围时，先与用户重新对齐。
 - 只处理本 unit 范围。发现 out-of-unit 问题时按仓库规则建立 issue 并记录关联，不顺手
   扩大实现范围。
 
@@ -52,7 +60,8 @@ checkout 中已有的分支、修改和未跟踪文件。
 
 ### 架构与失败处理
 
-- 遵守 design、仓库架构边界和现有实现模式；实现细节优先扩展已有机制，不创建平行机制。
+- 遵守适用的 unit 文档、仓库架构边界和现有实现模式；实现细节优先扩展已有机制，
+  不创建平行机制。
 - 禁止吞错、神秘 fallback、临时常量和只绕过症状的 heuristic。
 - 遇到非平凡 bug、测试失败或意外行为时，先使用 `$systematic-debugging` 定位根因，再在
   正确层修复。
@@ -87,8 +96,9 @@ checkout 中已有的分支、修改和未跟踪文件。
 
 所有 milestone 完成并逐条核对退出标准后，对当前完整 unit 状态执行第一轮完整验收：
 
-- 存在用户可观察旅程：执行 `$change-reviewer`、`$change-verifier` 和 `$change-code-review`。
-- 零用户面：执行 `$change-verifier` 和 `$change-code-review`，不派产品 reviewer。
+- Full，存在用户可观察旅程：执行 `$change-reviewer`、`$change-verifier` 和 `$change-code-review`。
+- Full 零用户面：执行 `$change-verifier` 和 `$change-code-review`，不派产品 reviewer。
+- Bugfix lite：只执行 `$change-code-review`，不派 verifier 或产品 reviewer。
 
 适用的 `$change-reviewer` 与 `$change-verifier` 分别由独立于实施上下文、彼此独立的 subagent
 执行。`$change-code-review` 在实施上下文中执行，但必须按其自身 skill 派发独立的 finder /
@@ -117,10 +127,12 @@ verifier subagent，不得省略为自我审查。验收 subagent 只按各自 s
 2. fetch 并把 unit 分支同步到最新 `origin/main`。根据 main 增量、门禁后的 unit 增量和最终
    unit diff，逐道判断原结论是否仍然有效：能证明无影响时保留，受影响时复验；高风险或边界
    不清时完整重跑。无法安全判断时保存现场并报告阻塞。
-3. 按 `docs/specs/CONTRIBUTING.md` 的收尾归并规则，用实际实现校正 unit delta-spec。只派
-   `$change-verifier` 以 `verification_mode: corrected-delta` 对账；结论为 `aligned` 后再把
-   行为增量合入对应 canonical spec，无行为增量时记录 `no spec delta`。delta 不一致时继续
-   校正并重新对账；实现不一致时修复实现并复验受影响的门禁。
+3. 按 `docs/specs/CONTRIBUTING.md` 的收尾归并规则对账实际实现：
+   - Full 校正 unit delta-spec，再派 `$change-verifier` 以
+     `verification_mode: corrected-delta` 对账；结论为 `aligned` 后合入 canonical spec。
+   - Bugfix lite 触及对外行为但没有 delta 时补最小 delta 并直接归并；不触及时记录
+     `no spec delta`，不因收尾额外派 verifier。
+   delta 不一致时继续校正；实现不一致时修复实现并复验受影响的门禁。
 4. 从当前 CI 配置读取命令，在 unit worktree 运行本地 CI 等价检查；使用只检查、不改写文件
    的格式化命令。
 5. 适用门禁、长青契约归并和本地 CI 均收口后，按 `docs/changes/README.md` 把整个 unit 目录
@@ -137,7 +149,8 @@ verifier subagent，不得省略为自我审查。验收 subagent 只按各自 s
 
 仅在以下条件全部满足时报告完成：
 
-- spec、design 和全部 milestone 的退出标准均已实现并有证据；
+- 首文档、适用设计和全部 milestone 的退出标准均已实现并有证据；Bugfix lite 的
+  `fix.md` 已回填“修复”和“验证”；
 - 相关测试、本地质量检查和真实入口验证通过；
 - 所有适用门禁对最终状态各有有效结论，所有成立且阻塞交付的 finding 已关闭；
 - canonical spec 已按实际行为同步，整个 unit 已归档；

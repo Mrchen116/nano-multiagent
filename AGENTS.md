@@ -19,12 +19,12 @@ nano-multiagent 是一个同时支持终端 Coding Agent 和多渠道个人助�
 |---|---|
 | 产品定位与稳定体验原则 | [docs/product/](docs/product/README.md) |
 | 单包 current behavior | [docs/specs/](docs/specs/README.md) |
-| 是否建立 change unit、选择生命周期或 Full 实施方式、查看门禁 | [docs/development/change-workflow.md](docs/development/change-workflow.md) |
+| 是否建立 change unit、选择生命周期或实施方式、查看门禁 | [docs/development/change-workflow.md](docs/development/change-workflow.md) |
 | 开发环境、测试、注释、worktree E2E 与 LLM 联调 | [docs/development/](docs/development/README.md) |
 | 启动、观察、排障和恢复 current 系统 | [docs/operations/](docs/operations/README.md) |
 | change unit 目录、文件归属和归档 | [docs/changes/README.md](docs/changes/README.md) |
 
-当前任务涉及用户可观察行为时，先读对应 `docs/specs/<package>/`；active change 描述目标状态，完成归并前不能覆盖 current spec。需要 change unit 的工作按 `change-workflow.md` 调用相应 `change-*` skills；符合“不建 unit”判据的小修可以直接实施。Full unit 完成设计后默认使用 `change-orchestrator`，用户点名 `$change-orchestrator-simple` 时改用简化实施。用户明确选择快速开发模式时可以边对齐边实现，但交付前必须调用 `change-fast-close` 补齐 unit 并完成 code review。
+当前任务涉及用户可观察行为时，先读对应 `docs/specs/<package>/`；active change 描述目标状态，完成归并前不能覆盖 current spec。需要 change unit 的工作按 `change-workflow.md` 调用相应 `change-*` skills；符合“不建 unit”判据的小修可以直接实施。Full 完成设计或 Bugfix lite 完成实施前首文档后，默认使用 `change-orchestrator`；用户点名 `$change-orchestrator-simple` 时改用简化实施。用户明确选择快速开发模式时可以边对齐边实现，但交付前必须调用 `change-fast-close` 补齐 unit 并完成 code review。
 
 ## 工作红线
 
