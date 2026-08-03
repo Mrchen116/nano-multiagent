@@ -17,9 +17,7 @@ from personal_assistant.scheduler.heartbeat_scheduler import (
 
 
 def _write_heartbeat(workspace_root: Path) -> None:
-    (workspace_root / "HEARTBEAT.md").write_text(
-        "- Check status\n", encoding="utf-8"
-    )
+    (workspace_root / "HEARTBEAT.md").write_text("- Check status\n", encoding="utf-8")
 
 
 def test_heartbeat_scheduler_uses_current_canonical_binding_before_submit(

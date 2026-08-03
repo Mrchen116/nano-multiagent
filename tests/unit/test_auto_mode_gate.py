@@ -74,6 +74,7 @@ class TestBuildYoloSystemPrompt:
         assert "<block>no</block>" in prompt
         assert "## Output Format" in prompt
 
+
 # ---------------------------------------------------------------------------
 # Transcript construction
 # ---------------------------------------------------------------------------

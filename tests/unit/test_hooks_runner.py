@@ -224,6 +224,7 @@ class TestHookContextPermissionRequester:
         assert response.decision == "allow_once"
         assert response.request_id == "req-2"
 
+
 class TestHookRunnerTimeoutNone:
     """Hooks registered with timeout_ms=None are not wrapped in asyncio.wait_for."""
 
@@ -248,6 +249,7 @@ class TestHookRunnerTimeoutNone:
         )
         assert called == ["done"]
         assert diagnostics[0].status == "ok"
+
 
 def test_dispatch_observe_skips_intercept_mode_handlers() -> None:
     """An INTERCEPT-mode handler must NOT execute during dispatch_observe.

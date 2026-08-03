@@ -32,6 +32,6 @@ def test_resolve_enabled_tools_preserves_whitelist_and_cron_gate(
 ) -> None:
     """Keep the explicit whitelist exact and append cron at most once when enabled."""
 
-    assert resolve_enabled_tools(
-        _agent(allowlist, cron_enabled=cron_enabled)
-    ) == expected
+    assert (
+        resolve_enabled_tools(_agent(allowlist, cron_enabled=cron_enabled)) == expected
+    )

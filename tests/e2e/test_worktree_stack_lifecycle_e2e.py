@@ -83,7 +83,9 @@ def test_worktree_stack_isolates_runtime_and_releases_owned_resources(
         assert _pid_is_alive(im_pid)
         assert _pid_is_alive(gateway_pid)
         assert _port_is_open(im_port)
-        assert httpx.get(f"{ports['IM_URL']}/openapi.json", timeout=2).status_code == 200
+        assert (
+            httpx.get(f"{ports['IM_URL']}/openapi.json", timeout=2).status_code == 200
+        )
 
         config = yaml.safe_load((stack_dir / ".gateway-config.yaml").read_text())
         workspace_root = (stack_dir / ".gateway-workspace").resolve()

@@ -7,7 +7,9 @@ from pathlib import Path
 from personal_assistant.gateway.group_context_store import GroupContextStore
 
 
-def test_drain_preserves_sender_order_and_consumes_messages_once(tmp_path: Path) -> None:
+def test_drain_preserves_sender_order_and_consumes_messages_once(
+    tmp_path: Path,
+) -> None:
     store = GroupContextStore(db_path=tmp_path / "ctx.sqlite3")
     store.append("group-a", "hello", sender="alice")
     store.append("group-a", "world", sender="bob")

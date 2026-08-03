@@ -96,7 +96,9 @@ def test_installed_feishu_doc_is_visible_to_capabilities_and_prompt_preview(
         repo_root=tmp_path / "repo",
     )
     try:
-        node_names = {item["name"] for item in build_runtime_capabilities(kernel).skills}
+        node_names = {
+            item["name"] for item in build_runtime_capabilities(kernel).skills
+        }
         agent_names = {
             item["name"]
             for item in build_agent_capabilities_payload(

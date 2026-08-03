@@ -79,7 +79,9 @@ async def test_permission_request_and_resolution_are_forwarded_to_im() -> None:
         },
     )
 
-    deltas = [payload for kind, payload in manager.sent if kind == "node.streaming_delta"]
+    deltas = [
+        payload for kind, payload in manager.sent if kind == "node.streaming_delta"
+    ]
     request = next(item for item in deltas if item["kind"] == "permission_request")
     resolved = next(item for item in deltas if item["kind"] == "permission_resolved")
     assert request["message_id"] == "message-1"
@@ -127,7 +129,8 @@ async def test_external_permission_request_does_not_require_im_message_anchor() 
     assert [
         payload
         for kind, payload in manager.sent
-        if kind == "node.streaming_delta" and payload.get("kind") == "permission_request"
+        if kind == "node.streaming_delta"
+        and payload.get("kind") == "permission_request"
     ] == []
     request, metadata = external_sender.call_args.args
     assert request["request_id"] == "request-1"

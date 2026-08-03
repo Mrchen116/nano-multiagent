@@ -238,6 +238,8 @@ def test_thinking_default_none_and_legacy_rows(tmp_path: Path) -> None:
     assert created.thinking is None
     listed = messages.list_messages(conversation_id=conversation.id)[-1]
     assert listed.thinking is None
+
+
 def test_tool_call_validates_status() -> None:
     with pytest.raises(ValueError):
         ToolCall(

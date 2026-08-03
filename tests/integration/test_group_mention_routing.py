@@ -50,10 +50,7 @@ def test_group_relay_routes_inline_identity_without_display_name_collision(
     message = messages.create_message(
         conversation_id=conversation.id,
         sender_user_id=owner.id,
-        content=(
-            '<mention type="agent" target_id="agent-target"/> '
-            "please answer"
-        ),
+        content=('<mention type="agent" target_id="agent-target"/> please answer'),
     )
 
     results = relay.enqueue_message_relay_all(

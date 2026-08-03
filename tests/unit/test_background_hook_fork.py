@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+
 def test_registry_background_handlers_for_returns_them():
     """background_handlers_for() should return only BACKGROUND registrations."""
     from agent.core.hooks.registry import HookRegistry

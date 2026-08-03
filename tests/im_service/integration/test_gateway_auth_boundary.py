@@ -282,9 +282,9 @@ def test_binding_evicts_a_pre_registered_socket_from_the_wrong_owner(
             _bind(client, node_id="node-prebound")
             with pytest.raises(WebSocketDisconnect):
                 bob_socket.receive_json()
-            assert [
-                node["node_id"] for node in client.get("/im/v1/nodes").json()
-            ] == ["node-prebound"]
+            assert [node["node_id"] for node in client.get("/im/v1/nodes").json()] == [
+                "node-prebound"
+            ]
             assert (
                 client.app.state.connection.execute(
                     "SELECT 1 FROM node_credential_keys WHERE node_id = 'node-prebound'"

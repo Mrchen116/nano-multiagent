@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
+import sys
 from contextlib import suppress
 from pathlib import Path
 
@@ -47,9 +48,16 @@ def _run_resilience_script(
     cwd: Path,
     timeout: float,
 ) -> subprocess.CompletedProcess[str]:
+    env = {
+        **os.environ,
+        "PATH": os.pathsep.join(
+            (str(Path(sys.executable).parent), os.environ.get("PATH", ""))
+        ),
+    }
     process = subprocess.Popen(
         command,
         cwd=str(cwd),
+        env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+
+
 def test_local_store_seeds_memory_in_config_subdir(tmp_path: Path) -> None:
     """Seed memory inputs in the product config directory, not workspace root."""
     from personal_assistant.config.local_store import ensure_workspace_defaults

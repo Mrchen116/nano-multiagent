@@ -139,6 +139,7 @@ def e2e_stack(tmp_path_factory: pytest.TempPathFactory) -> E2EStack:
             f"stack may not be fully torn down. stderr tail:\n{tail}"
         )
 
+
 def _dump_logs(wt_dir: Path) -> None:
     """把 IM / Gateway 日志 tail 到 stderr,失败时留可诊断证据(spec Req)。"""
     for name in (".im.log", ".gateway.log"):
