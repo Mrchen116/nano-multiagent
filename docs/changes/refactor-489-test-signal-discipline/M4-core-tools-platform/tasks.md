@@ -8,10 +8,10 @@
 
 ## 退出标准
 
-- [ ] 工具、权限、安全、hook、LLM/provider 与 platform 的当前行为仍由最低合适层的可运行测试保护。
-- [ ] 不再以内部调用路径、模块 `__module__`、退役符号缺席、源码句子或一次迁移 golden 作为永久断言。
-- [ ] 重复的 allowlist、permission dispatch、presenter、event 与 bash policy 断言已合并到单一 seam。
-- [ ] M4 最窄测试与受依赖的既有 contract/lower-seam 保护全绿；无产品行为或 spec delta。
+- [x] 工具、权限、安全、hook、LLM/provider 与 platform 的当前行为仍由最低合适层的可运行测试保护。
+- [x] 不再以内部调用路径、模块 `__module__`、退役符号缺席、源码句子或一次迁移 golden 作为永久断言。
+- [x] 重复的 allowlist、permission dispatch、presenter、event 与 bash policy 断言已合并到单一 seam。
+- [x] M4 最窄测试与受依赖的既有 contract/lower-seam 保护全绿；无产品行为或 spec delta。
 
 ## 测试策略
 
@@ -68,6 +68,6 @@
 
 ### R5 — M4 范围门禁与证据收尾
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 运行完整 M4 slice、检查 changed paths、测试收集数、diff 与无产品/spec delta，补齐 progress。
 - 验证: M4 slice 全绿，`git diff --check` 与 scope 检查通过。

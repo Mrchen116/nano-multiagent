@@ -99,6 +99,30 @@
 - Commits: 本提交（SHA 以 Git history 为准）。
 - Next: R5 运行完整 M4 slice、受依赖 contract/lower seams、Ruff、diff 与 scope 门禁并收尾证据。
 
+## R5 — M4 范围门禁与证据收尾
+
+- Context: R1--R4 已完成逐组替代保护验证，需要证明合并后的完整 M4 slice 没有遗漏，且 changed paths 未越过 M4、未修改产品实现/spec 或相邻 M3/M8 owner。
+- Decision: 复用启动时同一语义 slice 选择器运行全量回归；另跑 event/hook/SDK/import/LLM contracts 和 tool-permission/bash lower seams；对所有保留的修改 Python 文件跑 Ruff，并核对 baseline diff/status。
+- Rationale: 同口径 before/after 数量可量化去重结果；独立 contract/lower-seam 命令证明删除项确有当前可运行替代保护，scope 检查防止测试清理夹带行为变化。
+- Evidence:
+  - Claim: M4 在不改变产品/spec 的前提下删除 107 个重复/历史 tests，剩余工具、权限、安全、hook、LLM/provider 与 platform slice 全绿。
+  - Baseline: `unit/refactor-489@8d6cfb3e8`；同口径 M4 slice `658 passed, 1 warning`。
+  - Method: 运行 `tests/unit/platform` 与排除 M2/M3/M5--M8/M13 owner 后的 root unit slice；另跑 5 个 contract 和 2 个 lower-seam 文件；检查 Ruff、`git diff --check`、changed paths 与 clean status。
+  - Result: PASS；M4 slice `551 passed, 1 warning`，即 `658 → 551`（净减 107）；依赖保护 `122 passed`；Ruff `All checks passed!`；diff check 与 clean status 通过。
+  - Locator: `docs/changes/refactor-489-test-signal-discipline/M4-core-tools-platform/tasks.md` 的处置矩阵；R1--R4 progress Locator；changed paths 仅本 milestone 文档与 `tests/unit/` M4 文件。
+  - Limit: warning 来自第三方 `lark_oapi` 的 `datetime.utcfromtimestamp()` deprecation，与本次测试资产变更无关；未执行真实外部 LLM、浏览器或服务 E2E，因为产品实现和用户行为均无 delta。
+  - Tests: `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q "${m4_paths[@]}"` → `551 passed, 1 warning`；`... pytest -q tests/contract/test_core_events_contract.py tests/contract/test_hooks_contract.py tests/contract/test_agent_sdk_boundary_contract.py tests/contract/test_core_no_platform_imports.py tests/contract/test_llm_provider_contract.py tests/unit/agent/platform/tools/test_tool_check_permissions.py tests/unit/agent/platform/tools/builtins/test_bash_policy.py` → `122 passed`。
+  - Entry: N/A（测试资产重构；验证入口为 current contract、lower seam 与 M4 unit slice）。
+  - Frontend State Matrix: N/A（非前端）。
+  - Browser QA: N/A（零用户面）。
+  - E2E/Regression: 完整 M4 unit regression 与依赖 contract/lower seams 全绿；无新增 E2E。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Scope: 对 `8d6cfb3e8...HEAD` 的 22 个 changed paths 均为本 milestone 文档或 `tests/unit/`；`tests/unit/test_curator.py`、`tests/unit/test_text_runner.py`、产品源码、current spec 均未修改；worktree clean。
+- Rollback: 按 R1--R4 提交逆序回退可恢复原测试资产；零产品迁移或数据回滚要求。
+- Commits: R1 `57f649ba0`；R2 `d5c25b41a`；R3 `c32f5199c`；R4 `5d3128d90`；本 R5 文档提交 SHA 以 Git history 为准。
+- Next: 按 worker 协议 rebase 最新 `unit/refactor-489`，在 unit lock 下合并并推送，随后清理 milestone worktree/branch。
+
 ## Promotion Candidates
 
 None.
