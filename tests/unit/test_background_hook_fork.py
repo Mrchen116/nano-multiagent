@@ -1,10 +1,9 @@
-"""Tests for background hook infrastructure: HookEventMode enum and dispatch_background.
+"""Tests for background hook dispatch and isolated context forks.
 
 Covers:
-- HookEventMode.BACKGROUND enumeration value
-- HookRegistration.mode field
 - HookRegistry.on() with mode="background"
 - HookRunner.dispatch_background() fire-and-forget (no await, no timeout)
+- Fork execution context, tool boundaries, and runtime payload propagation
 """
 
 import asyncio
@@ -14,75 +13,6 @@ from typing import Any, Mapping
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
-from agent.core.hooks.types import HookEventMode, HookRegistration
-
-
-# ---------------------------------------------------------------------------
-# R1: HookEventMode.BACKGROUND enumeration
-# ---------------------------------------------------------------------------
-
-
-def test_hook_event_mode_has_background_value():
-    """HookEventMode must have a BACKGROUND member for fire-and-forget dispatch."""
-    assert HookEventMode.BACKGROUND == "background"
-
-
-def test_hook_event_mode_has_three_modes():
-    """Exactly three modes: observe, intercept, background."""
-    modes = {m.value for m in HookEventMode}
-    assert modes == {"observe", "intercept", "background"}
-
-
-def test_hook_registration_has_mode_field():
-    """HookRegistration must carry a mode field defaulting to observe."""
-    from agent.core.hooks.types import DEFAULT_HOOK_TIMEOUT_MS
-
-    reg = HookRegistration(
-        event="agent_end",
-        handler=lambda p, c: None,
-        mode=HookEventMode.OBSERVE,
-    )
-    assert reg.mode == HookEventMode.OBSERVE
-
-
-def test_hook_registration_can_be_background():
-    """HookRegistration with mode=BACKGROUND is valid."""
-    reg = HookRegistration(
-        event="agent_end",
-        handler=lambda p, c: None,
-        mode=HookEventMode.BACKGROUND,
-    )
-    assert reg.mode == HookEventMode.BACKGROUND
-
-
-# ---------------------------------------------------------------------------
-# R1: HookRegistry.on() supports mode="background"
-# ---------------------------------------------------------------------------
-
-
-def test_registry_on_accepts_background_mode():
-    """registry.on(..., mode='background') must not raise."""
-    from agent.core.hooks.registry import HookRegistry
-
-    registry = HookRegistry()
-    called = []
-
-    async def handler(payload, ctx):
-        called.append(payload)
-
-    reg = registry.on("agent_end", handler, mode="background")
-    assert reg.mode == HookEventMode.BACKGROUND
-
-
-def test_registry_on_default_mode_is_observe():
-    """registry.on() without mode defaults to observe."""
-    from agent.core.hooks.registry import HookRegistry
-
-    registry = HookRegistry()
-    reg = registry.on("agent_end", lambda p, c: None)
-    assert reg.mode == HookEventMode.OBSERVE
-
 
 def test_registry_background_handlers_for_returns_them():
     """background_handlers_for() should return only BACKGROUND registrations."""
@@ -213,57 +143,6 @@ async def test_dispatch_background_only_fires_background_handlers():
     assert len(observe_called) == 0, (
         "dispatch_background must not fire observe handlers"
     )
-
-
-# ---------------------------------------------------------------------------
-# R3: HookContext.fork_conversation callable + anti-recursion
-# ---------------------------------------------------------------------------
-
-
-def test_hook_context_has_fork_conversation_field():
-    """HookContext must accept fork_conversation kwarg."""
-    from agent.core.hooks.context import HookContext
-
-    ctx = HookContext(session_id="test", fork_conversation=None)
-    assert ctx.fork_conversation is None
-
-
-def test_hook_context_fork_conversation_can_be_callable():
-    """HookContext fork_conversation accepts a callable."""
-    from agent.core.hooks.context import HookContext
-
-    async def my_fork(review_prompt, *, tool_allowlist, max_turns):
-        return None
-
-    ctx = HookContext(session_id="test", fork_conversation=my_fork)
-    assert callable(ctx.fork_conversation)
-
-
-@pytest.mark.asyncio
-async def test_fork_conversation_none_in_fork_context():
-    """The HookContext created for fork's own background hooks must have fork_conversation=None.
-
-    This prevents recursive fork: review agent dispatches agent_end, background
-    hook fires, but fork_conversation is None so it cannot spawn another fork.
-    """
-    from agent.core.hooks.context import HookContext
-
-    fork_ctx_fork_conversation_values = []
-
-    async def make_fork(review_prompt, *, tool_allowlist, max_turns):
-        # Simulate that fork internally creates its own context
-        # In real impl the fork creates a context with fork_conversation=None
-        fork_ctx_fork_conversation_values.append(None)  # always None inside fork
-        return MagicMock(messages=[], completed=True)
-
-    ctx = HookContext(session_id="test", fork_conversation=make_fork)
-    # Call fork_conversation — result context must have fork_conversation=None
-    result = await ctx.fork_conversation(
-        "review", tool_allowlist=("memory",), max_turns=16
-    )
-
-    # The fork itself must record fork_conversation=None in its own context
-    assert fork_ctx_fork_conversation_values == [None]
 
 
 # ---------------------------------------------------------------------------
@@ -519,94 +398,6 @@ async def test_fork_executor_denies_unlisted_tool_at_execution_layer():
 
 
 # ---------------------------------------------------------------------------
-# R4: loop.py turn_meta exposes tool_iterations
-# ---------------------------------------------------------------------------
-
-
-def test_turn_meta_has_tool_iterations_in_metadata():
-    """turn_meta message from AgentLoop must include tool_iterations in metadata."""
-    # We test build_turn_result with a turn_meta that has tool_iterations
-    from agent.core.agent.runtime import build_turn_result
-    from agent.core.types import Message
-
-    turn_meta = Message(
-        message_id="m1",
-        role="turn_meta",
-        content="",
-        metadata={
-            "stop_reason": "completed",
-            "usage": None,
-            "completed": True,
-            "tool_iterations": 5,
-        },
-    )
-    result = build_turn_result("session-1", "turn-1", [turn_meta])
-    assert result.completed is True
-
-
-@pytest.mark.asyncio
-async def test_agent_loop_turn_meta_includes_tool_iterations():
-    """AgentLoop.run() must yield a turn_meta message with tool_iterations set to api_round_count."""
-    from agent.core.agent.loop import AgentLoop
-    from agent.core.agent.state import AgentState
-    from agent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage
-    from agent.core.types import Message
-
-    class FakeLLMResponse:
-        def __init__(self):
-            self.role = "assistant"
-            self.content = "Hello"
-            self.tool_calls = []
-            self.finish_reason = "stop"
-            self.usage = None
-            self.reasoning_content = None
-            self.reasoning_signature = None
-
-    class FakeLLMTerminal:
-        def __init__(self):
-            self.role = "assistant"
-            self.content = ""
-            self.tool_calls = []
-            self.finish_reason = "stop"
-            self.usage = None
-            self.reasoning_content = None
-            self.reasoning_signature = None
-
-    class FakeLLMClient:
-        def generate(self, request):
-            async def _stream():
-                yield FakeLLMResponse()
-                yield FakeLLMTerminal()
-
-            return _stream()
-
-    loop = AgentLoop(
-        llm_client=FakeLLMClient(),
-        model="test-model",
-    )
-    state = AgentState(
-        session_id="s1",
-        turn_id="t1",
-        turn_count=0,
-        history_messages=(),
-        input_parts=[],
-        user_text="hello",
-    )
-    messages = []
-    async for msg in loop.run(state):
-        messages.append(msg)
-
-    turn_meta = [m for m in messages if m.role == "turn_meta"]
-    assert len(turn_meta) == 1, "Expected exactly one turn_meta message"
-    meta = turn_meta[0]
-    assert "tool_iterations" in meta.metadata, (
-        "turn_meta must include tool_iterations for nudge counter signal flow"
-    )
-    # 1 api round = tool_iterations = 1 (no tool calls, single LLM round)
-    assert meta.metadata["tool_iterations"] == 1
-
-
-# ---------------------------------------------------------------------------
 # R4: runtime agent_end payload includes tool_iterations
 # ---------------------------------------------------------------------------
 
@@ -692,7 +483,9 @@ async def test_background_hook_receives_fork_conversation_in_context():
         background_ctx_values.append(ctx.fork_conversation)
 
     async def obs_handler(payload, ctx):
-        observe_ctx_values.append(ctx.fork_conversation)
+        observe_ctx_values.append(
+            (ctx.fork_conversation, ctx.message_history, ctx.permission_requester)
+        )
 
     registry = HookRegistry()
     registry.on("agent_end", obs_handler, mode="observe")
@@ -703,7 +496,17 @@ async def test_background_hook_receives_fork_conversation_in_context():
     async def dummy_fork(review_prompt, *, tool_allowlist, max_turns):
         return MagicMock()
 
-    ctx = HookContext(session_id="s1", fork_conversation=dummy_fork)
+    sentinel_history = ("user-msg", "assistant-tool-call")
+
+    async def permission_requester(request):
+        return request
+
+    ctx = HookContext(
+        session_id="s1",
+        message_history=sentinel_history,
+        permission_requester=permission_requester,
+        fork_conversation=dummy_fork,
+    )
     await runner.dispatch_observe("agent_end", {"session_id": "s1"}, ctx)
     runner.dispatch_background("agent_end", {"session_id": "s1"}, ctx)
     await asyncio.sleep(0.05)
@@ -714,56 +517,8 @@ async def test_background_hook_receives_fork_conversation_in_context():
         "Background hook context must have fork_conversation callable"
     )
 
-    # Observe handler should NOT receive fork_conversation
-    assert len(observe_ctx_values) == 1
-    assert observe_ctx_values[0] is None, (
-        "Observe hook context must NOT have fork_conversation (only background gets it)"
-    )
-
-
-# ---------------------------------------------------------------------------
-# M5: bind_tool_registry must propagate to _context_fork (regression)
-# ---------------------------------------------------------------------------
-
-
-def test_bind_tool_registry_propagates_to_context_fork(tmp_path):
-    """bind_tool_registry must also update _context_fork._loop._tool_registry.
-
-    AgentEngine is constructed before the tool_registry is built,
-    so tool_registry=None at construction time. bind_tool_registry is called
-    later to attach the registry. If it only updates self._loop and not
-    self._context_fork._loop, the fork side-chain executes with tool_registry=None
-    and exits with stop_reason='tool_registry_unavailable' after round 1.
-    """
-    from agent.core.agent.runtime import AgentEngine
-
-    class _FakeLLMClient:
-        async def generate(self, request):
-            # Minimal: yields nothing — only construction matters
-            return
-            yield  # makes generate() an async generator (protocol requirement)
-
-    # Construct with tool_registry=None (mirrors app.py construction order)
-    engine = AgentEngine(
-        llm_client=_FakeLLMClient(),
-        repo_root=tmp_path,
-    )
-    assert engine._context_fork._loop._tool_registry is None
-
-    # Build a minimal tool registry stub
-    class _StubRegistry:
-        def list_specs(self):
-            return ()
-
-    stub = _StubRegistry()
-    engine.bind_tool_registry(stub)
-
-    # After binding, _context_fork._loop must also have the registry
-    assert engine._context_fork._loop._tool_registry is stub, (
-        "bind_tool_registry must propagate to _context_fork._loop._tool_registry; "
-        "otherwise fork side-chains run with tool_registry=None and exit after round 1 "
-        "with stop_reason='tool_registry_unavailable'"
-    )
+    # Observe handlers cannot recurse, but retain the rest of the permission context.
+    assert observe_ctx_values == [(None, sentinel_history, permission_requester)]
 
 
 @pytest.mark.asyncio

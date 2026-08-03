@@ -56,13 +56,13 @@
 
 ### R3 — 收敛 hook/background 行为保护
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 删除 enum/dataclass/fake 自证与重复内部断言；把 context 字段保留验证合入真实 dispatch seam。
 - 验证: background fork、hook runner、self-improvement 与 realtime hook tests 全绿。
 
 ### R4 — 收敛 bash policy 与 LLM 负断言
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: bash policy 仅保留未被 lower seam 覆盖的安全 cases；删除 LLM signature/dead-field 迁移断言。
 - 验证: bash policy lower seam、LLM provider/retry/model registry 与 contract tests 全绿。
 

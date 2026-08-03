@@ -53,6 +53,29 @@
 - Commits: 本提交（SHA 以 Git history 为准）。
 - Next: R3 删除 hook/background 的 enum/dataclass/fake 自证，将字段保留保护合入真实 dispatch seam。
 
+## R3 — 收敛 hook/background 行为保护
+
+- Context: background hook 测试混入 enum/dataclass 语言特性、手写 fake 自证、未观察目标字段的 turn-meta case，以及对私有 `_strip_fork_conversation` 和 `_context_fork` 内部路径的直接断言。
+- Decision: 删除上述低信号断言；在公开 observe/background dispatch 测试中同时证明 observe context 禁止递归 fork 且保留 message history/permission requester；保留真实 fork 工具执行、执行层 allowlist、anti-recursion、runtime payload 和异常隔离。
+- Rationale: 用户风险是调度模式、上下文隔离与 fork 实际可执行性，不是 enum 成员数、dataclass getter 或某个私有 helper/字段路径。
+- Evidence:
+  - Claim: 删除内部与自证断言后，background dispatch、observe 隔离、fork 执行与 hook runner 仍由公开行为保护。
+  - Baseline: R2 commit `d5c25b41a`；本轮修改前相关测试包含在 M4 baseline `658 passed`。
+  - Method: 运行两个受影响文件，并扩大到 self-improvement hook 与 `tests/unit/platform/hooks`；对两个修改文件跑 Ruff。
+  - Result: PASS；`47 passed`，Ruff `All checks passed!`，`git diff --check` 通过。
+  - Locator: `tests/unit/test_background_hook_fork.py::test_background_hook_receives_fork_conversation_in_context`、`test_fork_loop_executes_tools_after_bind_tool_registry`、`test_runtime_agent_end_payload_includes_tool_iterations`；`tests/unit/test_hooks_runner.py::TestHookContextPermissionRequester`、`TestHookRunnerTimeoutNone`。
+  - Limit: 使用内存 fake LLM/registry 验证进程内 hook seam；零产品行为 delta，不声称外部服务 live 证据。
+  - Tests: `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q tests/unit/test_background_hook_fork.py tests/unit/test_hooks_runner.py tests/unit/test_self_improvement_hook.py tests/unit/platform/hooks` → `47 passed`。
+  - Entry: HookRegistry → HookRunner observe/background dispatch 与 AgentEngine context fork；无用户界面入口。
+  - Frontend State Matrix: N/A（非前端）。
+  - Browser QA: N/A（零用户面）。
+  - E2E/Regression: 保留的进程内 hook/fork regression 如 Locator；无新用例。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退本 roadpoint 提交恢复 hook/background 历史断言，不影响 R1/R2。
+- Commits: 本提交（SHA 以 Git history 为准）。
+- Next: R4 收敛 bash policy 重复，并删除 LLM signature/dead-field 迁移负断言。
+
 ## Promotion Candidates
 
 None.
