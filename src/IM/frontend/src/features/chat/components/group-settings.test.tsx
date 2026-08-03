@@ -99,13 +99,6 @@ describe("GroupSettings (desktop drawer)", () => {
     expect(props.onDissolve).toHaveBeenCalled();
   });
 
-  it("close button calls onClose", async () => {
-    const user = userEvent.setup();
-    const props = renderSettings();
-    await user.click(screen.getByRole("button", { name: /Close/i }));
-    expect(props.onClose).toHaveBeenCalled();
-  });
-
   // round-1 fix #1: a failed write must be visible inside the panel (the global
   // toast is hidden behind the scrim), and the user's pending action is preserved.
   it("surfaces an inline error when a remove fails and keeps the confirm open", async () => {

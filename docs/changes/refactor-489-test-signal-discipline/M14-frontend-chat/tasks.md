@@ -75,13 +75,13 @@ Prototype / Reference Contract：N/A。
 
 ### R1 — 删除静态扫描与叶子重复
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 删除三份源码/CSS/文件布局扫描；收敛 attachment、token、permission、sidebar/group 等 leaf tests 的私有形状和同义断言。
 - 验证: 相关 leaf/component tests 与 M14 全量 Vitest 通过，源码扫描文件不再收集。
 
 ### R2 — 收敛消息与工具交互保护
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 合并 message-content、MessagePane、tool panel 中重复的 framework/CSS/常量边界/同义状态测试，保留 current interaction 与接口结果。
 - 验证: content/pane/tool 定向 Vitest 与 M14 全量通过；保留 copy/fork/pagination/permission/tool/mention/slash 用户风险。
 

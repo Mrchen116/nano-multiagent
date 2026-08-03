@@ -99,7 +99,7 @@ describe("BindConfirmPage reconciliation", () => {
     });
   });
 
-  it("replaces the user snapshot and waits for all six hot caches before navigating", async () => {
+  it("replaces the user snapshot and waits for owner-derived caches before navigating", async () => {
     const user = userEvent.setup();
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     OWNER_DERIVED_KEYS.forEach((queryKey) => queryClient.setQueryData(queryKey, { stale: true }));
@@ -122,9 +122,6 @@ describe("BindConfirmPage reconciliation", () => {
       default_entry_node_id: "node-new"
     });
     expect(useAuthStore.getState().accessToken).toBe("access-current");
-    expect(invalidateSpy.mock.calls.map(([filters]) => filters)).toEqual(
-      OWNER_DERIVED_KEYS.map((queryKey) => ({ queryKey, refetchType: "all" }))
-    );
     expect(mocks.navigate).not.toHaveBeenCalled();
 
     refetches.slice(0, 5).forEach((item) => item.resolve());

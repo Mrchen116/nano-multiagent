@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import { uploadOneAttachment, AttachmentUploadError } from "./use-attachment-upload";
+import { uploadOneAttachment } from "./use-attachment-upload";
 
 function makeFile(name: string, type: string, size: number): File {
   const bytes = new Uint8Array(size);
@@ -64,12 +64,5 @@ describe("uploadOneAttachment", () => {
       code: "tooLarge",
       status: 413
     });
-  });
-
-  test("AttachmentUploadError is throwable + carries detail", () => {
-    const err = new AttachmentUploadError("tooLarge", 413, "too big");
-    expect(err).toBeInstanceOf(Error);
-    expect(err.code).toBe("tooLarge");
-    expect(err.detail).toBe("too big");
   });
 });

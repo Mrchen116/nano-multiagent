@@ -219,43 +219,4 @@ describe("ConversationSidebar", () => {
     const row = screen.getByRole("button", { name: /Assistant/ });
     expect(within(row).getByText("2")).toBeInTheDocument();
   });
-
-  // R8.5 — R11-10 ConvItem visual rewrite on the production Chat path.
-  // Prototype source: docs/changes/archive/feat-340-agent-native-im/attachments/prototype/project/im-chat-page.jsx::ConvItem
-  //   no KindBadge uppercase chip in the row; avatar carries data-testid for visual audits.
-  describe("R11-10 ConvItem visual", () => {
-    it("does NOT render a KindBadge / kind_label chip in each row", () => {
-      render(<ConversationSidebar conversations={CONVS} activeConversationId={null} onSelect={() => {}} onNewGroup={() => {}} />);
-      const row = screen.getByRole("button", { name: /Assistant/ });
-      // KindBadge prototype renders uppercase strings like "DIRECT", "GROUP", "AGENT NETWORK"
-      // inside the row meta. Asserting *element absence* via testid + className catches
-      // both the legacy <KindBadge> wrapper and any stylistic replacement that re-introduces
-      // the chip.
-      expect(row.querySelector(".chat-kind-badge, .chat-sidebar-kind-badge, [data-testid^=\"conv-kind-\"]")).toBeNull();
-      // Defence-in-depth: the literal text most KindBadge renderings produce.
-      expect(within(row).queryByText(/^(DIRECT|GROUP|AGENT NETWORK)$/i)).not.toBeInTheDocument();
-    });
-
-    it("renders an avatar with conv-avatar-<id> testid in each row", () => {
-      render(<ConversationSidebar conversations={CONVS} activeConversationId={null} onSelect={() => {}} onNewGroup={() => {}} />);
-      expect(screen.getByTestId("conv-avatar-c1")).toBeInTheDocument();
-      expect(screen.getByTestId("conv-avatar-c2")).toBeInTheDocument();
-      expect(screen.getByTestId("conv-avatar-c3")).toBeInTheDocument();
-    });
-
-    it("only shows online/offline avatar status for direct-agent rows, not group rows", () => {
-      render(
-        <ConversationSidebar
-          conversations={CONVS}
-          activeConversationId={null}
-          onSelect={() => {}}
-          onNewGroup={() => {}}
-          agents={[{ agent_id: "a1", status: "online" }]}
-        />
-      );
-      expect(screen.getByTestId("conv-avatar-c1").querySelector(".chat-avatar-status")).not.toBeNull();
-      expect(screen.getByTestId("conv-avatar-c2").querySelector(".chat-avatar-status")).toBeNull();
-      expect(screen.getByTestId("conv-avatar-c3").querySelector(".chat-avatar-status")).toBeNull();
-    });
-  });
 });
