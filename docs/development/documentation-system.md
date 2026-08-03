@@ -4,7 +4,7 @@
 >
 > 适用范围：面向人类与 Coding Agent 的代码仓，工具中立、跨仓复用。
 >
-> 证据与推论过程见 [`../research/agent-era-repository-knowledge-system.md`](../research/agent-era-repository-knowledge-system.md)；本仓当前有哪些文档、每类事实由谁负责，以 [`../README.md`](../README.md) 为准。
+> 证据与推论过程见 [`../research/studies/agent-native-repository-knowledge-system-2026-07-30/research.md`](../research/studies/agent-native-repository-knowledge-system-2026-07-30/research.md)；本仓当前有哪些文档、每类事实由谁负责，以 [`../README.md`](../README.md) 为准。
 
 ## 核心命题
 
@@ -480,7 +480,7 @@ flowchart LR
 - 运维入口：[`../operations/README.md`](../operations/README.md)
 - change unit：[`../changes/README.md`](../changes/README.md)
 - LLM 交互日志与参考仓入口：[`../../AGENTS.md`](../../AGENTS.md#调研与联调入口)
-- 本方法论的证据记录：[`../research/agent-era-repository-knowledge-system.md`](../research/agent-era-repository-knowledge-system.md)
+- 本方法论的证据记录：[`../research/studies/agent-native-repository-knowledge-system-2026-07-30/research.md`](../research/studies/agent-native-repository-knowledge-system-2026-07-30/research.md)
 
 新增、移动或退役长期文档时，应同时检查这些 live 入口，但不批量改写历史材料中的语境链接。
 

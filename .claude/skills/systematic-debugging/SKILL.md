@@ -1,6 +1,6 @@
 ---
 name: systematic-debugging
-description: 遇到任何 bug、测试失败或意外行为时,在提出修复方案之前使用
+description: 用于排查已经观察到、但根因仍不明确的 bug、异常测试失败、运行时/集成故障或 flaky；在提出修复方案前先复现并定位根因。不要用于原因已明确的环境或操作错误、预期 TDD 红测、常规 review/验收、设计对比或直接补遗漏。
 ---
 
 # Systematic Debugging（系统化调试）

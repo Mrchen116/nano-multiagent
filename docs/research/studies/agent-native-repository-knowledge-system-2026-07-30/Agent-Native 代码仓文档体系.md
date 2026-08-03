@@ -1,4 +1,14 @@
+---
+status: research-snapshot
+recorded-at: 2026-07-30
+nano-baseline: 9c4326e93
+source-baseline: multiple-see-research.md
+current-owner: docs/development/documentation-system.md
+---
+
 # Agent-Native 代码仓文档体系
+
+> 对应的来源、案例与中间推导见 [`research.md`](research.md)。本文不替代本仓 current 方法论。
 
 > Agent 时代需要的不是更多文档，而是把代码仓建设成一个可探索、可判权、可恢复、可验证、可持续演进的工作环境。
 
@@ -371,7 +381,7 @@ nano-multiagent 同时包含进程内 Agent 内核、两个上层产品和独立
 
 ## 项目地图
 
-nano-multiagent 由四个顶层包组成：`agent` 是进程内内核库，`coding_cli` 和 `personal_assistant` 是两个产品，`IM` 是独立中心服务。跨包架构、职责和部署拓扑见 [`SPEC.md`](SPEC.md)，各包当前对外行为见 [`docs/specs/`](docs/specs/README.md)。
+nano-multiagent 由四个顶层包组成：`agent` 是进程内内核库，`coding_cli` 和 `personal_assistant` 是两个产品，`IM` 是独立中心服务。跨包架构、职责和部署拓扑见 [`SPEC.md`](../../../../SPEC.md)，各包当前对外行为见 [`docs/specs/`](../../../../docs/specs/README.md)。
 
 ## 全仓边界
 
@@ -381,15 +391,15 @@ nano-multiagent 由四个顶层包组成：`agent` 是进程内内核库，`codi
 - 内核是库，不恢复独立 HTTP server、旧 `--mode managed/remote` 或相关 HTTP CLI 子命令。
 - 不覆盖、删除或提交工作区中与当前任务无关的已有修改。
 - 不提交 secret、本机 config、日志、PID、数据库、截图缓存或其他 runtime 文件。
-- worktree 中启动服务时使用隔离端口和隔离 Gateway config，并清理自己启动的进程；操作方法见 [`docs/development/worktree-runtime.md`](docs/development/worktree-runtime.md)。
+- worktree 中启动服务时使用隔离端口和隔离 Gateway config，并清理自己启动的进程；操作方法见 [`docs/development/worktree-runtime.md`](../../../../docs/development/worktree-runtime.md)。
 
 跨包边界由 `tests/contract/` 验收；详细解释和例外裁决只在 `SPEC.md` 维护。
 
 ## 开始任务
 
-- 先从 [`docs/README.md`](docs/README.md) 了解有哪些文档，并根据任务找到对应的权威入口。
-- 准备修改时，按 [`docs/development/change-workflow.md`](docs/development/change-workflow.md) 判断直接修改、Bugfix lite 或 Full，并使用其中路由的 `change-*` skills。
-- 代码修改先运行最窄的相关验证，再按风险扩大；环境安装、命令和测试说明见 [`docs/development/local-development.md`](docs/development/local-development.md) 与 [`docs/TESTING_GUIDE.md`](docs/TESTING_GUIDE.md)。
+- 先从 [`docs/README.md`](../../../../docs/README.md) 了解有哪些文档，并根据任务找到对应的权威入口。
+- 准备修改时，按 [`docs/development/change-workflow.md`](../../../../docs/development/change-workflow.md) 判断直接修改、Bugfix lite 或 Full，并使用其中路由的 `change-*` skills。
+- 代码修改先运行最窄的相关验证，再按风险扩大；环境安装、命令和测试说明见 [`docs/development/local-development.md`](../../../../docs/development/local-development.md) 与 [`docs/development/testing.md`](../../../../docs/development/testing.md)。
 
 ## 高频知识入口
 

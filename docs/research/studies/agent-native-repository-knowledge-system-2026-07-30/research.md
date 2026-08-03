@@ -14,7 +14,7 @@ current-owner: docs/development/documentation-system.md
 >
 > 研究对象：面向 Coding Agent 与人类协作者、可跨代码仓复用的知识与上下文管理体系
 >
-> 当前方法论草案：[`../development/documentation-system.md`](../development/documentation-system.md)
+> 当前方法论草案：[`../../../development/documentation-system.md`](../../../development/documentation-system.md)
 
 ## 研究问题
 
