@@ -25,17 +25,27 @@
   - Prototype Comparison: N/A。
   - Scope: `git diff --ignore-space-at-eol -- verification.md` 无内容差异；普通 diff 仅显示三处尾随空格删除。
 - Rollback: 回退本 roadpoint commit 可恢复原报告字节，不影响实现、契约或运行数据。
-- Commits: 本 roadpoint commit（SHA 以 Git history 为准）。
+- Commits: `38ca5f02b`。
 
 ## R2 — final sync、门禁与交付
 
-- 状态: TODO
-- Context: 待补。
-- Decision: 待补。
-- Rationale: 待补。
-- Evidence: 待补。
-- Rollback: 待补。
-- Commits: 待补。
+- 状态: DONE
+- Context: R1 后需用 reviewer 指定的 original-validation range 验证整个 unit diff 已无空白错误，并确认 M18 没有偷带 report 内容或实现改动。
+- Decision: 在 `38ca5f02b` 上运行指定 `git diff --check`、docs-check、M18 base range/scope audit；随后确认 `origin/unit/refactor-489` 仍为 `435ee2274`，rebase 后以同一命令重跑，再通过 unit lock 合并。
+- Rationale: 此 finding 的直接 owner 是 Git whitespace gate；docs-check 证明修复未破坏文档系统，而精确 name-status audit 保证小修没有越界。
+- Evidence:
+  - Tests: `git diff --check 0b9607147df21e6e11e1c7b27cccba6005ce6ab6...HEAD` PASS；`git diff --check 435ee2274593bcd52418fd22fc2eff351dbe52c8..HEAD` PASS。
+  - Quality: `/Users/czj/Repos/nano-multiagent/.venv/bin/python scripts/docs_check.py` PASS（225 maintained Markdown sources / 65 required routes）。
+  - Entry: N/A（无用户可观察运行时入口）；Git 的现有 whitespace gate 是 confirmed finding 的直接可执行入口。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression: N/A；不为 Markdown 行尾空格新增永久测试。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+  - Scope: `435ee2274..HEAD` 仅为 `verification.md` 和 `M18-fix-verification-report/{tasks,progress}.md`；没有 `src/`、tests、scripts、CI、spec 或 design 改动。
+  - Final sync: `git fetch origin --prune` 后 `origin/unit/refactor-489=435ee2274`；最终 merge 前 rebase 和验证复跑。
+- Rollback: 回退 `38ca5f02b` 和本 closure commit 即可恢复派发前 report 字节及删除 M18 记录；无运行数据或产品行为影响。
+- Commits: `38ca5f02b`（whitespace + plan）、本 closure commit（SHA 以 Git history 为准）。
 
 ## Promotion Candidates
 

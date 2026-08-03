@@ -8,10 +8,10 @@
 
 ## 退出标准
 
-- [ ] `verification.md` 第 7--9 行仅移除每行末尾空格，报告内容不变。
-- [ ] `git diff --check 0b9607147df21e6e11e1c7b27cccba6005ce6ab6...HEAD` 通过。
-- [ ] `scripts/docs_check.py` 通过，且范围只含 `verification.md` 与 `M18-fix-verification-report/`。
-- [ ] 在最新 `origin/unit/refactor-489` 上完成 rebase、验证、合入、推送与 milestone worktree/branch 清理。
+- [x] `verification.md` 第 7--9 行仅移除每行末尾空格，报告内容不变。
+- [x] `git diff --check 0b9607147df21e6e11e1c7b27cccba6005ce6ab6...HEAD` 通过。
+- [x] `scripts/docs_check.py` 通过，且范围只含 `verification.md` 与 `M18-fix-verification-report/`。
+- [x] 在最新 `origin/unit/refactor-489` 上完成 rebase、验证、合入、推送与 milestone worktree/branch 清理。
 
 ## 测试策略
 
@@ -35,6 +35,6 @@
 
 ### R2 — final sync、门禁与交付
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 运行 docs-check 和范围审计；rebase 最新 unit 后重跑，再在 unit lock 内合并推送并清理。
 - 验证: docs-check、指定 diff check、clean worktree、unit push。
