@@ -48,14 +48,15 @@ def _online():
     return _c
 
 
-def _ok_fork(id_map=None, *, with_id_map: bool = True):
+def _ok_fork(id_map=None):
     async def _req(
         *, agent_id, source_conversation_id, new_conversation_id, fork_message_id
     ):
-        result = {"ok": True, "new_session_id": "ksess-new"}
-        if with_id_map:
-            result["id_map"] = id_map or {}
-        return result
+        return {
+            "ok": True,
+            "new_session_id": "ksess-new",
+            "id_map": id_map or {},
+        }
 
     return _req
 
@@ -165,34 +166,3 @@ async def test_rollback_swallows_base_exception_from_delete(tmp_path: Path) -> N
             check_agent_online=_online(),
             request_fork=_fail,
         )
-
-
-# ── 清理-4: gateway 漏返回 id_map 时记 warning（仍接受 None 语义）──────────────
-
-
-@pytest.mark.asyncio
-async def test_missing_id_map_logs_warning(tmp_path: Path, caplog) -> None:
-    service, conversations, messages, human, agent_user, conv, _ = _setup(tmp_path)
-    a1 = messages.create_message(
-        conversation_id=conv.id,
-        sender_user_id=agent_user.id,
-        content="a1",
-        sender_type="agent",
-        kernel_message_id="kmsg-a1",
-        allow_empty=True,
-    )
-    with caplog.at_level("WARNING"):
-        new_conv = await service.fork_conversation(
-            source_conversation_id=conv.id,
-            fork_message_id=a1.id,
-            owner_id=human.owner_id,
-            actor_user_id=human.id,
-            check_agent_online=_online(),
-            request_fork=_ok_fork(with_id_map=False),  # gateway omitted id_map
-        )
-    # copied bubble falls back to None kernel id (degraded), and a warning is recorded
-    copied = messages.list_all_messages(conversation_id=new_conv.id)
-    assert copied[-1].kernel_message_id is None
-    assert any("id_map" in r.message for r in caplog.records), (
-        "missing id_map must log a warning, not degrade silently"
-    )

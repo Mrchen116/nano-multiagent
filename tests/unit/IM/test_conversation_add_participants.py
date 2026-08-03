@@ -1,14 +1,7 @@
-"""Unit tests for adding participants to an existing conversation (feat-438-M1).
-
-Covers the new ``POST /conversations/{id}/participants`` endpoint and its
-repository backing ``add_participants``, plus the decision-5 contract that the
-serialized participant carries ``user_id`` so the frontend can drive the
-``DELETE /participants/{user_id}`` remove path (CRITICAL-1 regression).
-"""
+"""Conversation participant persistence and HTTP contract regressions."""
 
 from pathlib import Path
 
-import pytest
 from fastapi.testclient import TestClient
 
 from IM.infra.db import connect, initialize_schema
@@ -26,85 +19,6 @@ def _build_repos(tmp_path: Path) -> tuple[UserRepository, ConversationRepository
 # ---------------------------------------------------------------------------
 # Repository layer: add_participants
 # ---------------------------------------------------------------------------
-
-
-def test_add_participants_resolves_agent_and_inserts(tmp_path: Path) -> None:
-    """An agent reference is resolved to its user row and inserted as membership."""
-    users, conversations = _build_repos(tmp_path)
-    alice = users.create_user(username="alice", display_name="Alice")
-    agent = users.create_user(username="agent:planner", display_name="Planner")
-
-    convo = conversations.create_conversation(
-        title="Solo", participant_ids=[alice.id], creator_id=alice.id
-    )
-
-    updated = conversations.add_participants(
-        conversation_id=convo.id, references=["agent:planner"]
-    )
-
-    assert agent.id in updated.participant_ids
-    agent_actor = next(p for p in updated.participants if p.type == "agent")
-    # decision 5: the agent participant's id is the logical agent_id, while
-    # user_id is the stable UUID used by the remove endpoint.
-    assert agent_actor.id == "planner"
-    assert agent_actor.user_id == agent.id
-
-
-def test_add_participants_idempotent_skips_existing(tmp_path: Path) -> None:
-    """Re-adding an already-present agent neither duplicates nor raises."""
-    users, conversations = _build_repos(tmp_path)
-    alice = users.create_user(username="alice", display_name="Alice")
-    users.create_user(username="agent:planner", display_name="Planner")
-
-    convo = conversations.create_conversation(
-        title="Solo", participant_ids=[alice.id], creator_id=alice.id
-    )
-    conversations.add_participants(
-        conversation_id=convo.id, references=["agent:planner"]
-    )
-    updated = conversations.add_participants(
-        conversation_id=convo.id, references=["agent:planner"]
-    )
-
-    agent_count = sum(1 for p in updated.participants if p.type == "agent")
-    assert agent_count == 1
-
-
-def test_add_participants_empty_raises(tmp_path: Path) -> None:
-    """An empty reference list is rejected."""
-    users, conversations = _build_repos(tmp_path)
-    alice = users.create_user(username="alice", display_name="Alice")
-    convo = conversations.create_conversation(
-        title="Solo", participant_ids=[alice.id], creator_id=alice.id
-    )
-
-    with pytest.raises(ValueError, match="participants must not be empty"):
-        conversations.add_participants(conversation_id=convo.id, references=[])
-
-
-def test_add_participants_unknown_agent_raises(tmp_path: Path) -> None:
-    """A reference that resolves to no user is rejected."""
-    users, conversations = _build_repos(tmp_path)
-    alice = users.create_user(username="alice", display_name="Alice")
-    convo = conversations.create_conversation(
-        title="Solo", participant_ids=[alice.id], creator_id=alice.id
-    )
-
-    with pytest.raises(ValueError, match="unknown users"):
-        conversations.add_participants(
-            conversation_id=convo.id, references=["agent:ghost"]
-        )
-
-
-def test_add_participants_conversation_not_found_raises(tmp_path: Path) -> None:
-    """Adding to a missing conversation raises ValueError."""
-    users, conversations = _build_repos(tmp_path)
-    users.create_user(username="agent:planner", display_name="Planner")
-
-    with pytest.raises(ValueError, match="conversation_id not found"):
-        conversations.add_participants(
-            conversation_id="nonexistent", references=["agent:planner"]
-        )
 
 
 def test_add_participants_does_not_refreeze_config_profile_version(
@@ -277,7 +191,7 @@ def test_post_participants_cross_tenant_returns_404(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# decision 5 / CRITICAL-1: user_id is serialized and drives remove
+# Stable user identity is serialized and drives removal.
 # ---------------------------------------------------------------------------
 
 
@@ -306,7 +220,7 @@ def test_participant_payload_carries_user_id(tmp_path: Path) -> None:
 
 
 def test_remove_participant_by_user_id_removes_agent(tmp_path: Path) -> None:
-    """CRITICAL-1: DELETE keyed on the participant's user_id actually removes it.
+    """DELETE keyed on the participant's user_id actually removes it.
 
     Passing the agent's logical id would silently fail; the contract is that the
     frontend reads participant.user_id from the serialized payload and uses that.

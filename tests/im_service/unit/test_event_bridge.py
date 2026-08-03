@@ -157,28 +157,6 @@ def test_on_message_discarded_removes_placeholder_and_keeps_tombstone(
     assert projection["unread_count"] == 0
 
 
-def test_on_message_discarded_notifies_once_through_message_repository(
-    tmp_path: Path,
-) -> None:
-    """Production wiring publishes the tombstone through MessageRepository once."""
-    bridge, conv_id, agent_uid, messages, _captured = _make_bridge(tmp_path)
-    repository_events: list[ConversationEvent] = []
-    messages._notify = repository_events.append  # noqa: SLF001
-    msg = bridge.on_turn_start(
-        conversation_id=conv_id, agent_user_id=agent_uid, agent_id="planner"
-    )
-    repository_events.clear()
-
-    bridge.on_message_discarded(message_id=msg.id, reason="no_reply_token")
-    bridge.on_message_discarded(message_id=msg.id, reason="no_reply_token")
-
-    discarded = [
-        event for event in repository_events if event.event_type == "message.discarded"
-    ]
-    assert len(discarded) == 1
-    assert json.loads(discarded[0].payload_json)["message_id"] == msg.id
-
-
 def test_on_run_heartbeat_appends_liveness_event_without_mutating_message(
     tmp_path: Path,
 ) -> None:

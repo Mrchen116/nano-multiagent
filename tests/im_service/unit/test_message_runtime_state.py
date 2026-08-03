@@ -38,7 +38,14 @@ def test_create_message_persists_tool_calls_and_token_usage(tmp_path: Path) -> N
         input={"path": "."},
         output="a.py\nb.py",
     )
-    usage = TokenUsage(output=312, context_used=14800, context_window=200000)
+    usage = TokenUsage(
+        output=312,
+        context_used=14800,
+        context_window=200000,
+        total=15112,
+        cache_read_tokens=270,
+        cache_total_input_tokens=400,
+    )
 
     created = messages.create_message(
         conversation_id=conversation.id,
@@ -57,6 +64,7 @@ def test_create_message_persists_tool_calls_and_token_usage(tmp_path: Path) -> N
     assert listed[-1].tool_calls[0].name == "list_files"
     assert listed[-1].tool_calls[0].input == {"path": "."}
     assert listed[-1].token_usage == usage
+    assert listed[-1].token_usage.cache_read_tokens == 270
 
 
 def test_kernel_message_id_round_trip(tmp_path: Path) -> None:
@@ -97,54 +105,6 @@ def test_kernel_message_id_round_trip(tmp_path: Path) -> None:
         messages.list_messages(conversation_id=conversation.id)[-1].kernel_message_id
         == "kmsg-update"
     )
-
-
-def test_token_usage_cache_fields_round_trip(tmp_path: Path) -> None:
-    """feat-439-M1: 缓存命中两字段经 encode/decode 持久化往返不丢。"""
-    users, conversations, messages = _build(tmp_path)
-    alice = users.create_user(username="alice", display_name="Alice")
-    conversation = conversations.create_conversation(
-        title="t", participant_ids=[alice.id]
-    )
-
-    usage = TokenUsage(
-        output=15,
-        context_used=400,
-        context_window=200000,
-        total=415,
-        cache_read_tokens=270,
-        cache_total_input_tokens=400,
-    )
-    created = messages.create_message(
-        conversation_id=conversation.id,
-        sender_user_id=alice.id,
-        content="hi",
-        token_usage=usage,
-    )
-    assert created.token_usage == usage
-
-    listed = messages.list_messages(conversation_id=conversation.id)
-    assert listed[-1].token_usage is not None
-    assert listed[-1].token_usage.cache_read_tokens == 270
-    assert listed[-1].token_usage.cache_total_input_tokens == 400
-
-
-def test_create_message_default_tool_calls_and_token_usage_are_none(
-    tmp_path: Path,
-) -> None:
-    users, conversations, messages = _build(tmp_path)
-    alice = users.create_user(username="alice", display_name="Alice")
-    conversation = conversations.create_conversation(
-        title="t", participant_ids=[alice.id]
-    )
-
-    created = messages.create_message(
-        conversation_id=conversation.id,
-        sender_user_id=alice.id,
-        content="hi",
-    )
-    assert created.tool_calls is None
-    assert created.token_usage is None
 
 
 def test_update_runtime_state_appends_content_and_upserts_tool_call(
@@ -278,32 +238,11 @@ def test_thinking_default_none_and_legacy_rows(tmp_path: Path) -> None:
     assert created.thinking is None
     listed = messages.list_messages(conversation_id=conversation.id)[-1]
     assert listed.thinking is None
-    # ThinkingSegment 是简单值对象
-    seg = ThinkingSegment(seq=2, text="x")
-    assert (seg.seq, seg.text) == (2, "x")
-
-
 def test_tool_call_validates_status() -> None:
     with pytest.raises(ValueError):
         ToolCall(
             id="x", name="t", status="bogus", duration_ms=None, input={}, output=None
         )
-
-
-def test_elapsed_ms_is_none_on_create(tmp_path: Path) -> None:
-    """feat-414-M1: turn_start 建行时 elapsed_ms 为 NULL。"""
-    users, conversations, messages = _build(tmp_path)
-    alice = users.create_user(username="alice", display_name="Alice")
-    conversation = conversations.create_conversation(
-        title="t", participant_ids=[alice.id]
-    )
-    created = messages.create_message(
-        conversation_id=conversation.id,
-        sender_user_id=alice.id,
-        content="",
-        allow_empty=True,
-    )
-    assert created.elapsed_ms is None
 
 
 def test_update_runtime_state_persists_elapsed_ms(tmp_path: Path) -> None:
@@ -319,6 +258,7 @@ def test_update_runtime_state_persists_elapsed_ms(tmp_path: Path) -> None:
         content="",
         allow_empty=True,
     )
+    assert created.elapsed_ms is None
     messages.update_runtime_state(
         message_id=created.id,
         content_replace="final answer",

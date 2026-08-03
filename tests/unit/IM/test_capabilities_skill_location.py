@@ -6,28 +6,20 @@ location; the capabilities response must carry it through from the Gateway paylo
 
 from __future__ import annotations
 
-from IM.api.routes.agents import AllowlistOptionResponse, coerce_allowlist_options
+from IM.api.routes.agents import coerce_allowlist_options
 
 
-def test_coerce_allowlist_options_forwards_location() -> None:
+def test_capability_options_preserve_current_and_legacy_skill_locations() -> None:
     options = coerce_allowlist_options(
         [
             {
                 "name": "doc",
                 "description": "doc skill",
                 "location": "/ws/.nanoassistant/skills/doc/SKILL.md",
-            }
+            },
+            {"name": "legacy", "description": "old gateway"},
         ]
     )
-    assert len(options) == 1
+    assert len(options) == 2
     assert options[0].location == "/ws/.nanoassistant/skills/doc/SKILL.md"
-
-
-def test_coerce_allowlist_options_location_defaults_to_none() -> None:
-    """Older Gateway payloads without ``location`` degrade to None, not an error."""
-    options = coerce_allowlist_options([{"name": "doc", "description": "d"}])
-    assert options[0].location is None
-
-
-def test_allowlist_option_response_location_is_optional() -> None:
-    assert AllowlistOptionResponse(name="x").location is None
+    assert options[1].location is None
