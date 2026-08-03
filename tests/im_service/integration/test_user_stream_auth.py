@@ -12,30 +12,27 @@ import json
 from pathlib import Path
 
 import pytest
+from starlette.websockets import WebSocketDisconnect
 
 from .conftest import authorize, make_app_client, register_user
 
 
-def test_user_stream_rejects_connection_without_token(tmp_path: Path) -> None:
-    """No token query string → close with policy violation code (1008)."""
-    with make_app_client(tmp_path) as client:
-        # Register so a valid app exists but the connection itself has no token.
-        alice = register_user(client, username="alice")
-        del alice
-        with pytest.raises(Exception):  # noqa: PT011 - starlette raises WebSocketDisconnect or similar
-            with client.websocket_connect("/im/ws/user") as websocket:
-                # If the server didn't close, this read will eventually hang/raise.
-                websocket.receive_text()
-
-
-def test_user_stream_rejects_invalid_token(tmp_path: Path) -> None:
-    """Garbage token → close 1008."""
+def test_user_stream_rejects_missing_invalid_and_legacy_identity(
+    tmp_path: Path,
+) -> None:
+    """Accept identity only from a valid JWT and close all legacy forms."""
     with make_app_client(tmp_path) as client:
         alice = register_user(client, username="alice")
-        del alice
-        with pytest.raises(Exception):  # noqa: PT011
-            with client.websocket_connect("/im/ws/user?token=not-a-jwt") as websocket:
-                websocket.receive_text()
+        paths = (
+            "/im/ws/user",
+            "/im/ws/user?token=not-a-jwt",
+            f"/im/ws/user?user_id={alice.id}",
+        )
+        for path in paths:
+            with pytest.raises(WebSocketDisconnect) as caught:
+                with client.websocket_connect(path) as websocket:
+                    websocket.receive_text()
+            assert caught.value.code == 1008
 
 
 def test_user_stream_accepts_valid_token_and_replays_owners_events(
@@ -68,15 +65,3 @@ def test_user_stream_accepts_valid_token_and_replays_owners_events(
                 if len(seen) >= 2:
                     break
             assert "message.sent" in seen
-
-
-@pytest.mark.timeout(5)
-def test_user_stream_rejects_legacy_user_id_param(tmp_path: Path) -> None:
-    """?user_id= fallback must be removed; connection with only user_id= is rejected."""
-    with make_app_client(tmp_path) as client:
-        alice = register_user(client, username="alice")
-        with pytest.raises(Exception):  # noqa: PT011
-            with client.websocket_connect(
-                f"/im/ws/user?user_id={alice.id}"
-            ) as websocket:
-                websocket.receive_text()

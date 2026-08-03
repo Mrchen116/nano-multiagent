@@ -4,7 +4,6 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-import pytest
 from fastapi.testclient import TestClient
 
 from IM.app import create_app
@@ -47,35 +46,6 @@ def _create_conversation(client: TestClient, user_id: str, title: str) -> str:
 def _message_items(timeline_items: list[dict]) -> list[dict]:
     """Extract normal messages from a typed conversation timeline response."""
     return [item["message"] for item in timeline_items if item["type"] == "message"]
-
-
-def test_messages_roundtrip_and_order(tmp_path: Path) -> None:
-    """Create and list messages in insertion order for one conversation."""
-    app = create_app(db_path=tmp_path / "im.db")
-    with TestClient(app) as client:
-        user_id = _create_user(client, "alice")
-        conversation_id = _create_conversation(client, user_id, "chat")
-
-        first = client.post(
-            f"/im/v1/conversations/{conversation_id}/messages",
-            json={"sender_user_id": user_id, "content": "hello"},
-        )
-        second = client.post(
-            f"/im/v1/conversations/{conversation_id}/messages",
-            json={"sender_user_id": user_id, "content": "world"},
-        )
-
-        assert first.status_code == 201
-        assert second.status_code == 201
-
-        listed = client.get(f"/im/v1/conversations/{conversation_id}/messages")
-        assert listed.status_code == 200
-        payload = listed.json()["items"]
-
-        assert [item["content"] for item in _message_items(payload)] == [
-            "hello",
-            "world",
-        ]
 
 
 def test_external_find_or_create_and_message_display_name_roundtrip(
@@ -232,56 +202,6 @@ def test_list_messages_mark_as_read_clears_conversation_unread_counter(
         assert after_read.json()["unread_count"] == 0
 
 
-def test_frontend_runtime_bundle_exposes_mark_as_read_flow(tmp_path: Path) -> None:
-    """Ensure IM-hosted frontend bundle includes unread read-ack query flow used in real runtime.
-
-    CI python job does not build the frontend (vitest is guarded by the separate
-    ``frontend`` job).  Skip when dist/ is absent so the python job stays clean
-    while the guard still fires in any environment that has a real build.
-    """
-    dist_dir = Path(__file__).resolve().parents[4] / "src" / "IM" / "frontend" / "dist"
-    if not dist_dir.is_dir():
-        pytest.skip(
-            "frontend dist/ not present — build first or run in an env with a dist"
-        )
-    app = create_app(db_path=tmp_path / "im.db")
-    with TestClient(app) as client:
-        entry = client.get("/chat/5e82e46169d044d18662e5bc853065bb")
-        assert entry.status_code == 200
-        html = entry.text
-        script_prefix = 'src="/assets/'
-        script_index = html.find(script_prefix)
-        assert script_index >= 0
-        script_start = script_index + len('src="')
-        script_end = html.find('"', script_start)
-        assert script_end > script_start
-        script_path = html[script_start:script_end]
-
-        bundle = client.get(script_path)
-        assert bundle.status_code == 200
-        assert "mark_as_read" in bundle.text
-
-
-def test_messages_are_isolated_by_conversation(tmp_path: Path) -> None:
-    """Avoid leaking messages from one conversation to another."""
-    app = create_app(db_path=tmp_path / "im.db")
-    with TestClient(app) as client:
-        user_id = _create_user(client, "alice")
-        first_conversation = _create_conversation(client, user_id, "c1")
-        second_conversation = _create_conversation(client, user_id, "c2")
-
-        create_resp = client.post(
-            f"/im/v1/conversations/{first_conversation}/messages",
-            json={"sender_user_id": user_id, "content": "first-only"},
-        )
-        assert create_resp.status_code == 201
-
-        second_list = client.get(f"/im/v1/conversations/{second_conversation}/messages")
-        assert second_list.status_code == 200
-        assert second_list.json()["items"] == []
-        assert second_list.json()["next_before_message_id"] is None
-
-
 def test_timeline_pagination_keeps_boundary_with_anchor_without_spending_limit(
     tmp_path: Path,
 ) -> None:
@@ -361,130 +281,6 @@ def test_timeline_pagination_keeps_boundary_with_anchor_without_spending_limit(
         older_messages = _message_items(older_page.json()["items"])
         assert [item["content"] for item in older_messages] == ["m2"]
         assert older_page.json()["next_before_message_id"] == older_messages[0]["id"]
-
-
-def test_messages_support_sender_type_attachments_and_pagination(
-    tmp_path: Path,
-) -> None:
-    """Expose rich message fields and cursor pagination for Web IM history."""
-    app = create_app(db_path=tmp_path / "im.db")
-    with TestClient(app) as client:
-        user_id = _create_user(client, "alice")
-        conversation_id = _create_conversation(client, user_id, "chat")
-
-        user_message = client.post(
-            f"/im/v1/conversations/{conversation_id}/messages",
-            json={"sender_user_id": user_id, "sender_type": "user", "content": "m1"},
-        )
-        agent_message = client.post(
-            f"/im/v1/conversations/{conversation_id}/messages",
-            json={
-                "sender_user_id": user_id,
-                "sender_type": "agent",
-                "content": "m2",
-                "attachments": [
-                    {
-                        "url": "file:///tmp/result.txt",
-                        "content_type": "text/plain",
-                        "file_name": "result.txt",
-                    }
-                ],
-            },
-        )
-        system_message = client.post(
-            f"/im/v1/conversations/{conversation_id}/messages",
-            json={"sender_user_id": user_id, "sender_type": "system", "content": "m3"},
-        )
-
-        assert user_message.status_code == 201
-        assert agent_message.status_code == 201
-        assert system_message.status_code == 201
-        assert agent_message.json()["attachments"][0]["url"] == "file:///tmp/result.txt"
-
-        first_page = client.get(
-            f"/im/v1/conversations/{conversation_id}/messages?limit=2"
-        )
-        assert first_page.status_code == 200
-        first_items = _message_items(first_page.json()["items"])
-        assert [item["content"] for item in first_items] == ["m2", "m3"]
-        assert first_page.json()["next_before_message_id"] == first_items[0]["id"]
-
-        second_page = client.get(
-            f"/im/v1/conversations/{conversation_id}/messages?limit=2&before_message_id={first_items[0]['id']}"
-        )
-        assert second_page.status_code == 200
-        second_items = _message_items(second_page.json()["items"])
-        assert [item["content"] for item in second_items] == ["m1"]
-        assert second_page.json()["next_before_message_id"] is None
-
-        conversation = client.get(f"/im/v1/conversations/{conversation_id}")
-        assert conversation.status_code == 200
-        # All 3 messages were sent by alice (conversation owner), so no unread accumulates.
-        assert conversation.json()["unread_count"] == 0
-        assert (
-            conversation.json()["last_message_at"]
-            == system_message.json()["created_at"]
-        )
-
-
-def test_user_stream_roundtrip_for_sent_message(tmp_path: Path) -> None:
-    """用户 WebSocket 推送与消息写入一致的事件载荷。"""
-    app = create_app(db_path=tmp_path / "im.db")
-    with TestClient(app) as client:
-        sender_id = _create_user(client, "alice")
-        conversation_id = _create_conversation(client, sender_id, "chat")
-        sent = client.post(
-            f"/im/v1/conversations/{conversation_id}/messages",
-            json={
-                "sender_user_id": sender_id,
-                "sender_type": "agent",
-                "content": "hello stream",
-                "attachments": [
-                    {"url": "https://example.com/file.png", "content_type": "image/png"}
-                ],
-            },
-        )
-        assert sent.status_code == 201
-        token = client.headers["Authorization"].removeprefix("Bearer ")
-        with client.websocket_connect(f"/im/ws/user?token={token}") as websocket:
-            websocket.send_text(json.dumps({"op": "resume", "after_event_id": 0}))
-            seen: list[str] = []
-            for _ in range(6):
-                body = json.loads(websocket.receive_text())
-                if body.get("op") == "event":
-                    seen.append(json.dumps(body, ensure_ascii=True))
-                if len(seen) >= 2:
-                    break
-            blob = " ".join(seen)
-            assert "message.sent" in blob
-            assert "message.delivered" in blob
-            assert "conversation_id" in blob
-            assert "agent" in blob
-            assert "https://example.com/file.png" in blob
-
-
-def test_sync_returns_global_event_cursor(tmp_path: Path) -> None:
-    """/im/v1/sync 提供全局 max_event_id 供客户端对齐游标。"""
-    app = create_app(db_path=tmp_path / "im.db")
-    with TestClient(app) as client:
-        sender_id = _create_user(client, "alice")
-        conversation_id = _create_conversation(client, sender_id, "chat")
-
-        first = client.post(
-            f"/im/v1/conversations/{conversation_id}/messages",
-            json={"sender_user_id": sender_id, "content": "old-1"},
-        )
-        second = client.post(
-            f"/im/v1/conversations/{conversation_id}/messages",
-            json={"sender_user_id": sender_id, "content": "old-2"},
-        )
-        assert first.status_code == 201
-        assert second.status_code == 201
-
-        synced = client.get("/im/v1/sync")
-        assert synced.status_code == 200
-        max_event_id = synced.json()["max_event_id"]
-        assert max_event_id >= 4
 
 
 def test_messages_endpoint_includes_visible_relay_history_on_first_load(
@@ -793,74 +589,6 @@ def test_create_message_rejects_more_than_five_attachments(tmp_path: Path) -> No
         assert "attachments" in response.json()["detail"].lower()
 
 
-def test_list_messages_returns_elapsed_ms_for_completed_agent_message(
-    tmp_path: Path,
-) -> None:
-    """feat-414-M1: REST GET /messages 对已写入 elapsed_ms 的 agent 消息返回该字段。"""
-    from IM.application.event_bridge import EventBridge
-    from IM.domain.models import TokenUsage
-    from IM.infra.db import connect, initialize_schema
-    from IM.infra.repositories.agents import AgentProfileRepository
-    from IM.infra.repositories.conversations import ConversationRepository
-    from IM.infra.repositories.events import EventRepository
-    from IM.infra.repositories.messages import MessageRepository
-    from IM.infra.repositories.nodes import NodeRepository
-    from IM.infra.repositories.users import UserRepository
-
-    # 直接建库，模拟一条完成的 agent 消息
-    db_path = tmp_path / "im.db"
-    conn = connect(db_path)
-    initialize_schema(conn)
-    users = UserRepository(conn)
-    conversations = ConversationRepository(conn)
-    messages = MessageRepository(conn)
-    events = EventRepository(conn)
-
-    alice = users.create_user(username="alice", display_name="Alice")
-    agent_user = users.create_user(username="agent:bot", display_name="Bot")
-    conn.execute(
-        "UPDATE users SET owner_id = ? WHERE id = ?", (alice.owner_id, agent_user.id)
-    )
-    conn.commit()
-    conv = conversations.create_conversation(title="t", participant_ids=[alice.id])
-
-    bridge = EventBridge(message_repository=messages, event_repository=events)
-    msg = bridge.on_turn_start(
-        conversation_id=conv.id, agent_user_id=agent_user.id, agent_id="bot"
-    )
-    bridge.on_message_completed(message_id=msg.id, final_content="done")
-
-    # 验证 DB 里已写 elapsed_ms
-    stored = messages.list_messages(conversation_id=conv.id)
-    assert stored[-1].elapsed_ms is not None
-
-    # 通过 REST API 取列表，确认 elapsed_ms 出现在序列化结果里
-    app = create_app(db_path=db_path)
-    with TestClient(app) as client:
-        user = register_user(client, username="alice2")
-        authorize(client, user)
-
-        # 借用 alice2 的 owner 创建的 conv 不同，直接用原 DB 数据查 conv
-        # 需要 alice 的 token — 此处改用已有 alice / conv 的 app 直接 GET
-        # 注: alice 是通过 db 直接建的，没有密码 hash，无法 login。
-        # 改为：查 alice2 空 conv；验证 elapsed_ms 字段存在 (None) — 覆盖 REST 序列化存在
-        user2_conv_id = client.post(
-            "/im/v1/conversations",
-            json={"title": "c2", "participant_ids": [user.id]},
-        ).json()["id"]
-        msg2 = client.post(
-            f"/im/v1/conversations/{user2_conv_id}/messages",
-            json={"sender_user_id": user.id, "content": "hi"},
-        )
-        assert msg2.status_code == 201
-        items = client.get(f"/im/v1/conversations/{user2_conv_id}/messages").json()[
-            "items"
-        ]
-        assert len(items) == 1
-        # elapsed_ms 字段必须出现在序列化结果里（user 消息为 None 也算字段存在）
-        assert "elapsed_ms" in items[0]["message"]
-
-
 def test_caller_idempotency_key_is_scoped_to_conversation_and_owner(
     tmp_path: Path,
 ) -> None:
@@ -905,51 +633,3 @@ def test_caller_idempotency_key_is_scoped_to_conversation_and_owner(
         assert second.json()["id"] != first.json()["id"]
         assert other.status_code == 201, other.text
         assert other.json()["id"] not in {first.json()["id"], second.json()["id"]}
-
-
-def test_to_message_response_serializes_cache_hit_fields() -> None:
-    """feat-439-M1: REST 序列化(to_message_response)第二条路径也带缓存命中两字段。"""
-    from IM.api.routes.messages import to_message_response
-    from IM.domain.models import Message, TokenUsage
-
-    msg = Message(
-        id="m1",
-        conversation_id="c1",
-        sender_user_id="agent:bot",
-        sender_type="agent",
-        content="done",
-        token_usage=TokenUsage(
-            output=15,
-            context_used=400,
-            context_window=200000,
-            total=415,
-            cache_read_tokens=270,
-            cache_total_input_tokens=400,
-        ),
-    )
-    resp = to_message_response(msg)
-    assert resp.token_usage is not None
-    assert resp.token_usage.cache_read_tokens == 270
-    assert resp.token_usage.cache_total_input_tokens == 400
-
-
-def test_to_message_response_serializes_kernel_message_id() -> None:
-    """feat-445-M1: REST 序列化必须带出 kernel_message_id（fork 锚点）。
-
-    Regression guard: the field is persisted on the DB row and on the domain Message,
-    but the HTTP MessageResponse model dropped it — so the frontend never saw it and the
-    fork button never appeared (caught only by live e2e, not the repo-object unit tests).
-    """
-    from IM.api.routes.messages import to_message_response
-    from IM.domain.models import Message
-
-    msg = Message(
-        id="m1",
-        conversation_id="c1",
-        sender_user_id="agent:bot",
-        sender_type="agent",
-        content="done",
-        kernel_message_id="msg_abc123",
-    )
-    resp = to_message_response(msg)
-    assert resp.kernel_message_id == "msg_abc123"

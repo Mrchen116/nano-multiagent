@@ -23,7 +23,19 @@
 
 ## R2 — Message 与 user-stream 实时路径收敛
 
-- Context: 待执行。
+- Context: messages integration 同时包含 M11 contract 已拥有的 basic roundtrip/rich pagination/sync/user-stream、三个直接 mapper/字段存在测试，以及一个依赖可选 `dist/` 且只查 bundle 字符串的常态 skip；`events_sse_api` 和所谓 e2e 也都用同一进程 TestClient 重复 resume。
+- Decision: 保留 shadow conversation+完整 live payload、mark-as-read、boundary pagination、relay history、upload/download/限制、offline 结果和 caller idempotency scope；删除重复 basic CRUD/sync/resume、直接 mapper 和未验证标题所称 agent elapsed 的 placeholder。把 user-stream 的 missing/invalid/legacy identity 合并为一项严格 1008 行为，保留合法 JWT resume；删除伪 E2E 与重复 SSE 文件。
+- Rationale: 消息 schema、repository order/runtime 字段和通用 resume 由 M11 contract/unit 最低层拥有；M12 只为 HTTP 与 WS 连接增加独立信号。静态 bundle 字符串既不证明前端交互也依赖未提交产物，不应进入 Python 永久套件。
+- Evidence:
+  - Tests: R2 M12 同口径从 26 项收敛到 `13 tests collected`；M12 surviving + M11 message/events/runtime/repository replacement gate → `43 passed, 1 warning in 5.03s`；Ruff 与 diff-check 通过。
+  - Entry: message/upload HTTP 与 `/im/ws/user` 真实 TestClient WebSocket；非法身份逐项观察 close code 1008，有效 JWT 观察 owner message event。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression: 删除的 `tests/im_service/e2e/test_human_chat_sse_e2e.py` 未起真进程且与 contract/integration 相同；真实 runtime/E2E 由 M13 独立负责，M12 不把 TestClient 证据升级为 live E2E。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退 R2 commit。
+- Commits: 本 R2 commit。
 
 ## R3 — Agent、Node 与配置 RPC 收敛
 

@@ -64,13 +64,13 @@
 
 ### R2 — Message 与 user-stream 实时路径收敛
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 删除重复消息 mapper/basic CRUD/static dist/伪 E2E；保留 mark-read、boundary、shadow/live、upload、offline、idempotency 和 token-auth user stream。
 - 验证: message/user-stream focused pytest + collect 全绿。
 
 ### R3 — Agent、Node 与配置 RPC 收敛
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 删除 M11 contract/repository 重复，保留 real WS live config、agent create/register/bootstrap/channel 与 public RPC 结果；合并 stale lifecycle。
 - 验证: agent/node/config focused pytest 全绿。
 
