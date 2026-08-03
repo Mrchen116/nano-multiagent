@@ -8,9 +8,9 @@
 
 ## 退出标准
 
-- [ ] 指定 M6 切片只保留当前配置、capability、渠道适配与安全风险的最低层保护。
-- [ ] 历史实现/措辞、重复 wrapper 与旧 standalone Feishu YAML 契约已删除或合并。
-- [ ] 删除真实风险前已有当前可运行替代，最窄测试与 M6 全切片通过；无产品行为/spec delta。
+- [x] 指定 M6 切片只保留当前配置、capability、渠道适配与安全风险的最低层保护。
+- [x] 历史实现/措辞、重复 wrapper 与旧 standalone Feishu YAML 契约已删除或合并。
+- [x] 删除真实风险前已有当前可运行替代，最窄测试与 M6 全切片通过；无产品行为/spec delta。
 
 ## 测试策略
 
@@ -47,7 +47,8 @@
 | Feishu outbound 目标映射、空消息、ack 终态与失败 | `test_feishu_adapter_send.py`、`test_feishu_adapter_ack_lifecycle.py` | rewrite-merge | 合并 control/final ack 重复，删除 stop/异常类透传重复 | targeted + M6 pytest |
 | Feishu client event/API adapter | `test_feishu_client.py`、`test_feishu_client_chat_info.py`、`test_feishu_client_interactive.py` | rewrite-merge | 保留 provider request/response 与错误分类，删除 exact retry count、noop lifecycle 和 wrapper call 重复 | targeted + M6 pytest |
 | 旧 standalone Feishu YAML 与 `_build_channel_registry` | `test_feishu_config.py`、`test_feishu_integration.py` | delete | current spec 明确 managed manifest 为权威，旧 YAML/legacy export 不属于契约；managed alternatives 已通过 | channel alternatives |
-| Feishu 群历史补齐与 mention-only 可见内容 | `test_feishu_group_history_catchup.py`、`test_feishu_history_client.py`、`test_feishu_mentions.py` | rewrite-merge | 合并 parser/echo 变体，保留 last-bot boundary、权限失败继续当前触发与可见 mention | targeted + M6 pytest |
+| Feishu 群历史补齐 | `test_feishu_group_history_catchup.py`、`test_feishu_history_client.py` | rewrite-merge | 合并 parser/echo 变体，保留 last-bot boundary 与权限失败继续当前触发 | targeted + M6 pytest |
+| mention-only 与 @所有人可见内容 | `test_feishu_mentions.py` | keep | 直接保护 current 用户可见 mention 与 trigger metadata，处于 provider normalization 最低层 | M6 pytest |
 
 替代保护预检：`tests/contract/test_capability_payload_contract.py`、`tests/integration/test_prompt_sections_golden.py`、`tests/integration/test_channel_bootstrap.py`、`tests/integration/test_channel_reconcile.py`、`tests/unit/test_permission_decision_loop.py`、`tests/integration/test_group_mention_routing.py` 共 42 passed。
 
@@ -75,6 +76,6 @@
 
 ### R4 — 全切片与替代保护复核
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 运行 M6 全切片、替代测试、ruff 与 diff 检查，记录最终处置数量和证据。
 - 验证: 所有指定测试与替代保护全绿。
