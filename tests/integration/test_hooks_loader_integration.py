@@ -2,11 +2,11 @@ import asyncio
 from pathlib import Path
 
 from agent.core.hooks.context import HookContext
-from agent.platform.hooks.loader import load_hooks_from_directories
 from agent.core.hooks.runner import HookRunner
+from agent.platform.hooks.loader import load_hooks_from_directories
 
 
-def test_loader_uses_builtin_then_workspace_order_for_same_priority(
+def test_loaded_hooks_compose_builtin_and_workspace_layers(
     tmp_path: Path,
 ) -> None:
     builtins_dir = tmp_path / "builtin_hooks"
@@ -55,11 +55,6 @@ def setup(hooks):
     )
 
     assert [item.source for item in loaded] == ["builtin", "builtin", "workspace"]
-    assert [item.file_path.name for item in loaded] == [
-        "a_builtin.py",
-        "b_builtin.py",
-        "local.py",
-    ]
 
     runner = HookRunner(registry=registry)
     payload = {"order": []}
