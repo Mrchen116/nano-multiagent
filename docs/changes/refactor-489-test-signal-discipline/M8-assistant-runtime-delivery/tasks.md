@@ -46,13 +46,13 @@
 
 ### R1 — 收敛完全重复测试
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 按 AST 完全重复清单合并 channel/auth/relay/inbound/session owner，删除聚合或子集文件。
 - 验证: AST 重复清单不再命中已处置项；相关文件 pytest 通过。
 
 ### R2 — 移除退役实现与源码形态断言
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 删除 source scan、private absence、compat setter、historical derivation 与模型提示词逐字快照；把仍存在的风险改从公开结果观察。
 - 验证: 源码扫描命中清零；send_message、delivery context、terminal/reject 最窄测试通过。
 
