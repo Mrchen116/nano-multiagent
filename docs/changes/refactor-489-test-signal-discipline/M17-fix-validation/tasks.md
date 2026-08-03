@@ -11,7 +11,7 @@
 - [x] 只格式化 verifier 运行 `ruff format --check .` 报出的 20 个本 unit Python 测试文件，且全仓 formatter gate 通过。
 - [x] resilience critical-path test 启动 `scripts/e2e-resilience.sh` 时把 `Path(sys.executable).parent` 前置到 `PATH`，不要求调用者手工修改 PATH。
 - [x] verifier 指定的普通 PATH live 命令通过，并确认真 IM / Gateway 子进程与监听资源由测试清理。
-- [ ] Python CI lane、文档完整性、Ruff lint/format 与 diff/scope 检查通过；无脚本或产品实现变更。
+- [x] Python CI lane、文档完整性、Ruff lint/format 与 diff/scope 检查通过；无脚本或产品实现变更。
 
 ## 测试策略
 
@@ -44,6 +44,6 @@
 
 ### R3 — final sync、完整门禁与交付
 
-- 状态: IN PROGRESS
+- 状态: DONE
 - 步骤: 同步最新 `unit/refactor-489` 后重跑 W1/W2 和 CI 等价门禁，审计 diff/runtime residue，再合入并推送 unit branch。
 - 验证: docs-check、Ruff lint/format、完整 non-E2E pytest、live resilience、`git diff --check` 与 changed-path audit。

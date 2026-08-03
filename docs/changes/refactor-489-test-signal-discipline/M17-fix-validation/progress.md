@@ -44,17 +44,27 @@
   - Prototype Comparison: N/A。
   - Cleanup: pytest tmp `pytest-164/test_gateway_recovers_node_onl0` 无 `.im.pid` / `.gateway.pid`，派生 IM port `54608` 无 listener；进程扫描无该运行的 IM/Gateway 残留。
 - Rollback: 回退本 roadpoint commit，恢复 verifier W2 的调用者 PATH 依赖；无产品数据迁移。
-- Commits: 本 roadpoint 提交（SHA 以 Git history 为准）。
+- Commits: `7db6c3fa1`。
 
 ## R3 — final sync、完整门禁与交付
 
-- 状态: PENDING
-- Context: 待补。
-- Decision: 待补。
-- Rationale: 待补。
-- Evidence: 待补。
-- Rollback: 待补。
-- Commits: 待补。
+- 状态: DONE
+- Context: W1/W2 定向验证通过后，需要在最新 unit 基线上证明完整 Python CI lane 没有被 20 个格式化 diff 或 test-harness 环境改动破坏。
+- Decision: `git fetch origin --prune` 后确认 `origin/unit/refactor-489` 仍为 dispatch/report commit `ac2810303`，milestone 无需吸收新 delta；按 `.github/workflows/ci.yml` 原样运行 Python job 的四个 gate，并复核 `pre_fix_head..HEAD` 范围。
+- Rationale: formatter warning 必须与完整 Python lane 一起关闭；在 executed base 未变化且最后一个代码 commit 已固定后运行，证据同时绑定 W1/W2 的实际实现。
+- Evidence:
+  - Tests: `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -m "not e2e" -n 4 --dist worksteal --durations=20 --durations-min=0.5` PASS，`2836 passed, 22 warnings in 38.30s`。
+  - Quality: `scripts/docs_check.py` PASS（223 maintained Markdown sources / 65 required routes）；`ruff check .` PASS；`ruff format --check .` PASS（812 files）；`git diff --check` PASS。
+  - Entry: W2 的 real-process critical node 继续由 `scripts/e2e-resilience.sh` 的公开入口完成两段恢复旅程；W1 直接使用 CI workflow 中未修改的 formatter command。
+  - Frontend State Matrix: N/A（无 frontend/product delta）。
+  - Browser QA: N/A。
+  - E2E/Regression: ordinary PATH live resilience `1 passed in 23.56s`；complete non-E2E lane 2,836 tests 全绿。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+  - Scope: `ac2810303..HEAD` 只含 M17 tasks/progress、verifier 报出的 20 个 Python test formatting paths，以及一个 resilience pytest harness；`.github/workflows/ci.yml`、`scripts/e2e-resilience.sh`、product `src/`、spec/design 均未修改。
+  - Final sync: `origin/unit/refactor-489@ac2810303` 与 dispatch base 一致，无 rebase delta；final milestone head 提交后再次运行这些 gate，以最终 HEAD 为 `validated_at`。
+- Rollback: 回退 `7db6c3fa1` 恢复旧 test harness；回退 `7c7143737` 恢复 formatter 前测试文本。两者均无产品数据或 schema 迁移。
+- Commits: `7c7143737`（W1）、`7db6c3fa1`（W2）、本 progress closure commit（SHA 以 Git history 为准）。
 
 ## Promotion Candidates
 
