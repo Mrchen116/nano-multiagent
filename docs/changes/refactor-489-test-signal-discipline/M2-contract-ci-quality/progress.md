@@ -36,7 +36,21 @@
 
 ## R2 — CI 与 quality gate 收敛
 
-TODO
+- 状态: DONE
+- Context: docs catalog 曾把标题措辞和 prose 计数当成 CI 契约，workflow/template tests 固定整句或链接数量，新增测试 gate 在拿不到 `origin/main` 时静默返回空集合，ruff hook 只覆盖部分 current import 边界。
+- Decision: E2E catalog 只按五列结构寻找表格并验证行/schema/pytest node，不读标题或重复 count；workflow 以语义关键词与对应 table rows 对账，PR 模板提取所有 change links 验证 blob 形态；测试命名检查覆盖全树，大小 gate 以 merge-base 比较并在 base 缺失时大声失败；Python CI checkout 获取完整 history，hook 使用自身解释器运行四个 import contract。
+- Rationale: 这些 gate 现在各自对应一个可执行风险：悬空 E2E node、workflow consumer 漂移、PR 相对链接、低质量新增测试、真实 import 违规。重写标题、增加模板链接或缺失 Git ref 不会再被误判为成功或无关回归。
+- Evidence:
+  - Tests: 修改前 `test_e2e_catalog_accepts_collectable_full_and_shorthand_node_ids` 以 `E2E_CATALOG_TABLE: missing '## v1 必保活路径' section` 稳定失败；修改后 quality focused suite `17 passed`。
+  - Entry: `PYTHON=/Users/czj/Repos/nano-multiagent/.venv/bin/python ./scripts/docs-check` → `documentation integrity passed: 192 maintained Markdown sources, 65 required routes`；真实 CLI 入口消费重写后的 checker。
+  - Frontend State Matrix: N/A（非前端变更）。
+  - Browser QA: N/A（零用户面）。
+  - E2E/Regression: `NANO_TEST_BASE_REF=refs/heads/refactor-489-missing-base ...::test_new_test_files_under_400_lines` → pytest exit `1`，保留 Git fatal 证据，证明 gate 不再静默跳过；ruff hook JSON 入口针对 `src/agent/core/ids.py` → exit `0`，实际运行四个 import contract。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退本 R2 提交；R1 contract 清理提交 `bde3f62e3` 可独立保留。
+- Commits: 本提交，SHA 以 Git history 为准。
+- Next: R3 运行完整 M2 门禁、核对 scope 与处置闭环。
 
 ## R3 — 切片回归与证据闭环
 

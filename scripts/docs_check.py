@@ -93,7 +93,6 @@ UNIT_DIR_RE = re.compile(
 E2E_CRITICAL_PATH_CATALOG = Path("docs/development/e2e-critical-paths.md")
 E2E_CRITICAL_PATH_TEST_ROOT = Path("tests/e2e/critical_paths")
 E2E_CATALOG_COLUMNS = ("#", "用户旅程", "守护测试", "归属子系统", "引入 unit")
-E2E_CATALOG_COUNT_RE = re.compile(r"v1 必保活当前为\s*(\d+)\s*条")
 INLINE_CODE_RE = re.compile(r"`([^`\n]+)`")
 
 _MARKDOWN = MarkdownIt("commonmark")
@@ -766,37 +765,20 @@ def check_e2e_critical_path_catalog(
 
     text = (root / catalog).read_text(encoding="utf-8")
     lines = text.splitlines()
-    heading_index = next(
+    header_index = next(
         (
             index
             for index, line in enumerate(lines)
-            if line.strip() == "## v1 必保活路径"
+            if _markdown_table_cells(line) == E2E_CATALOG_COLUMNS
         ),
         None,
     )
-    if heading_index is None:
-        return [
-            Problem(
-                "E2E_CATALOG_TABLE",
-                catalog,
-                "missing '## v1 必保活路径' section",
-            )
-        ]
-
-    header_index: int | None = None
-    for index in range(heading_index + 1, len(lines)):
-        if lines[index].startswith("## "):
-            break
-        if _markdown_table_cells(lines[index]) == E2E_CATALOG_COLUMNS:
-            header_index = index
-            break
     if header_index is None:
         return [
             Problem(
                 "E2E_CATALOG_TABLE",
                 catalog,
                 "missing critical-path table or expected five-column header",
-                heading_index + 1,
             )
         ]
 
@@ -826,18 +808,6 @@ def check_e2e_critical_path_catalog(
         if cells is None:
             break
         rows.append((index + 1, cells))
-
-    count_match = E2E_CATALOG_COUNT_RE.search(text)
-    if count_match is not None and int(count_match.group(1)) != len(rows):
-        count_line = text[: count_match.start()].count("\n") + 1
-        problems.append(
-            Problem(
-                "E2E_CATALOG_COUNT",
-                catalog,
-                f"declares {count_match.group(1)} paths but table has {len(rows)} rows",
-                count_line,
-            )
-        )
 
     seen_ids: set[str] = set()
     referenced: list[tuple[int, str, str]] = []

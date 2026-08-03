@@ -37,7 +37,8 @@
 | PR body 中 unit 文档链接固定到 PR head | `test_change_skill_archive_contract.py` | rewrite-merge | 保留真实渲染风险；提取所有 change-unit Markdown link 验证绝对 blob 形态，不固定模板恰有五个链接 | 单文件 contract pytest |
 | docs-check 维护 current 路由、spec index、E2E catalog 与 bootstrap | `scripts/docs_check.py`、`tests/unit/test_docs_check.py`、`scripts/docs-check` | rewrite-merge | 保留结构与 pytest node 可收集性；E2E catalog 不再依赖标题措辞或重复 prose count | docs-check unit + CLI |
 | 新测试文件命名与 400 行上限 | `test_test_naming_and_size_contract.py`、`.github/workflows/ci.yml` | rewrite-merge | 保留 M1 current 质量规则；CI 获取完整 base history，比较失败大声报错，不再因缺 `origin/main` 静默放行 | 单文件 contract + invalid-base negative run |
-| 编辑 Python 后的 ruff 与架构快速反馈 | `.claude/hooks/ruff-guardrail.py`、`pyproject.toml` | rewrite-merge | 保留 ruff/timeout/current lint 配置，并让 hook 覆盖全部 current import 方向 contract | hook JSON 入口 + ruff |
+| 编辑 Python 后的 ruff 与架构快速反馈 | `.claude/hooks/ruff-guardrail.py` | rewrite-merge | 用 hook 当前解释器运行全部 current import 方向 contract | hook JSON 入口 + ruff |
+| Python lint、format、pytest timeout 与 marker 配置 | `pyproject.toml` | keep | 配置直接被本地与 CI runner 消费，仍是可执行质量规则；审计未发现历史目录/措辞断言 | scoped pytest + ruff/format |
 | 全套 pytest 的模型注册初始化与共享 inbound graph | `tests/conftest.py`、`tests/helpers/**` | keep | 是实际测试 harness seam，不固定迁移终态；本 milestone 不改变其行为 | scoped pytest 与 collection |
 | AGENTS loader 与 unit-id allocator | `test_agents_md_loader.py`、`test_change_spec_author_next_unit_id.py` | keep | 直接运行 parser/git/worktree/并发公开脚本行为，属于最低 unit seam | 两个 unit 文件 pytest |
 
@@ -53,7 +54,7 @@
 
 ### R2 — CI 与 quality gate 收敛
 
-- 状态：TODO
+- 状态：DONE
 - 步骤：改写 workflow/template/docs catalog/test-file gate 为结构或可执行规则；让 CI base 可用且失败不静默；扩充 hook 的 current import 边界反馈。
 - 验证：quality contract、`test_docs_check.py`、`./scripts/docs-check`、invalid-base negative run、hook JSON 入口、ruff/format。
 
