@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -17,15 +17,6 @@ from personal_assistant.channels.feishu.client import (
 
 class TestFeishuClientInteractive:
     """Verify Feishu interactive card sending and callbacks."""
-
-    @patch("personal_assistant.channels.feishu.client.FeishuWorkerRuntime")
-    def test_start_forwards_card_action_handler_to_worker(
-        self, mock_worker_cls: MagicMock
-    ) -> None:
-        on_card_action = MagicMock()
-        client = FeishuClient(app_id="cli_abc", app_secret="secret")
-        client.start(MagicMock(), on_card_action=on_card_action)
-        assert mock_worker_cls.call_args.kwargs["on_card_action"] is on_card_action
 
     def test_send_interactive_message_calls_api_and_returns_message_id(self) -> None:
         mock_rest = MagicMock()

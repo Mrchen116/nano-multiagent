@@ -63,13 +63,13 @@
 
 ### R2 — Feishu adapter 与 provider client 测试收敛
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 合并入站/出站/mention/history/provider wrapper 覆盖，删除旧 standalone YAML/registry 与 SDK 私有成员断言。
 - 验证: root `test_feishu_*.py` 最窄 pytest + managed channel 替代测试。
 
 ### R3 — 权限、安全与 web_search 测试收敛
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 保留审批 owner/first-wins/secret、租户 scope、敏感写和 provider fail-loud，删除重复 handler、真网络与 card 文案布局契约。
 - 验证: 权限/diagnostics/web_search 最窄 pytest + permission 替代测试。
 

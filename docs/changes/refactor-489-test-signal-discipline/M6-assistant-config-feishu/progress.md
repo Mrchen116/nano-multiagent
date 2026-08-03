@@ -27,8 +27,25 @@
   - Visual/Interaction: N/A
   - Prototype Comparison: N/A
 - Rollback: 回退本 roadpoint commit 可恢复原测试树，不影响产品代码或数据。
-- Commits: 本 roadpoint commit（最终哈希在 R4 回填）。
+- Commits: `0c307f89b`
 - Next: R2。
+
+## R2 — Feishu adapter 与 provider client 测试收敛
+
+- Context: root Feishu tests 同时保留 current adapter/provider 风险与旧 standalone YAML、`_build_channel_registry`、SDK 私有成员、精确重试次数和重复 wrapper 调用契约。
+- Decision: 删除旧 standalone config/registry 与独立 ack 重复文件；adapter 测试按入站规范化、owner 绑定、目标映射和 reaction 生命周期合并；client 测试收敛到 provider request/response、错误分类、interactive/history adapter；群历史按 catch-up 顺序、last-bot boundary 和权限降级保留。
+- Rationale: current external channel 由 managed manifest/ChannelManager 拥有，旧 YAML 不再是契约；Feishu provider 的真实风险是稳定身份、可见 mention、错误显式、资源回收和群上下文，而不是某次 SDK wrapper 的调用次数或私有成员存在。
+- Evidence:
+  - Tests: root Feishu current tests、worker runtime 与 managed alternatives 共 71 passed；ruff check 与 `git diff --check` 通过。
+  - Entry: Feishu adapter 从 provider event 产出稳定 external identity/agent route；DM/group 出站映射到 open_id/chat_id；群触发在历史补齐失败时仍投递当前消息。
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: `test_channel_bootstrap.py` 与 `test_channel_reconcile.py` 5 passed，证明 managed channel 当前替代可运行；本 milestone 不新增 live Feishu E2E。
+  - Visual/Interaction: N/A
+  - Prototype Comparison: N/A
+- Rollback: 回退本 roadpoint commit 可恢复原测试树，不影响产品代码或 channel 数据。
+- Commits: 本 roadpoint commit（最终哈希在 R4 回填）。
+- Next: R3。
 
 ## Promotion Candidates
 
