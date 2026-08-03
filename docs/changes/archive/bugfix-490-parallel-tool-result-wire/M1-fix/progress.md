@@ -16,3 +16,7 @@
 | 经 worktree `AnthropicMapper` 映射后的 payload | `200` |
 
 详见 `evidence/local-deepseek-wire.txt`。
+
+## Spec delta
+
+no spec delta（Anthropic 上线规范化，不改 SDK/消费者可观察契约）。
