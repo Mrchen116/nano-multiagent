@@ -43,7 +43,7 @@ def test_message_response_preserves_process_details_for_history() -> None:
                     detail=detail,
                     emoji="🧪",
                 )
-            ]
+            ],
         )
     )
 
@@ -60,9 +60,7 @@ def test_message_response_preserves_process_details_for_history() -> None:
 
 def test_message_response_uses_legacy_process_defaults() -> None:
     response = to_message_response(
-        _agent_message(
-            tool_calls=[ToolCall(id="tc1", name="read", status="completed")]
-        )
+        _agent_message(tool_calls=[ToolCall(id="tc1", name="read", status="completed")])
     )
 
     assert response.thinking == []

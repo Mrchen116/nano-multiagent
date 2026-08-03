@@ -103,9 +103,10 @@ def test_permission_card_is_idempotent_and_only_owner_can_decide(
     card = client.send_interactive_message.call_args.kwargs["card"]
     allow = _action_value(card, "allow_once")
 
-    assert adapter._handle_card_action(
-        _event(allow, operator_open_id="ou_not_owner")
-    ) is None
+    assert (
+        adapter._handle_card_action(_event(allow, operator_open_id="ou_not_owner"))
+        is None
+    )
     callback.assert_not_called()
     adapter._handle_card_action(_event(allow))
     adapter._handle_card_action(_event(allow))
@@ -154,7 +155,9 @@ def test_deny_reason_reaches_kernel_without_exposing_operator_identity(
         request=_request(),
     )
     pending_card = client.send_interactive_message.call_args.kwargs["card"]
-    reason_card = adapter._handle_card_action(_event(_action_value(pending_card, "deny")))
+    reason_card = adapter._handle_card_action(
+        _event(_action_value(pending_card, "deny"))
+    )
     assert reason_card is not None
 
     resolved_card = adapter._handle_card_action(

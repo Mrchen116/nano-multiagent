@@ -54,7 +54,9 @@ def test_skills_guidance_requires_a_skill_tool_and_enabled_feature(
     assert CORE_SKILLS_GUIDANCE.enabled_when(ctx) is expected
 
 
-@pytest.mark.parametrize("tool_names, expected", [(('agent',), True), (('read',), False)])
+@pytest.mark.parametrize(
+    "tool_names, expected", [(("agent",), True), (("read",), False)]
+)
 def test_background_task_guidance_requires_the_agent_tool(
     tool_names: tuple[str, ...], expected: bool
 ) -> None:

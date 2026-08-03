@@ -1,0 +1,53 @@
+# refactor-489-M17 — Progress
+
+## Baseline / Audit
+
+- Claim: verifier W1 与 W2 均可在报告 commit 上独立复现，且修复范围可限制为 formatter 报出的 20 个测试文件与 resilience pytest harness。
+- Baseline: verifier validated head `e8f31eb47fa1c75183868cf92591173ea82a7d85`；verification report / `pre_fix_head` `ac281030314477c44098d5888506674236a83e5e`；branch `milestone/refactor-489-M17-fix-validation`。
+- Method: 完整读取 motivation/design、仓库测试/evidence/worktree runtime/E2E catalog 规范、verification.md、CI workflow、resilience test/script 与 lifecycle reference；随后在未修改 worktree 上运行 verifier 的两条失败路径。
+- Result:
+  - W1 reproduced: `/Users/czj/Repos/nano-multiagent/.venv/bin/ruff format --check .` exit 1，报告 20 个 `tests/**/*.py` 文件需要格式化，792 个文件已格式化。
+  - W2 reproduced: `NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q tests/e2e/critical_paths/test_gateway_im_resilience_critical_path.py::test_gateway_recovers_node_online_after_transient_faults` exit 1；shell 的 bare `python3` 解析到普通 PATH，config setup 报 `ModuleNotFoundError: No module named 'yaml'`。
+- Locator: verifier issue definitions在 `verification.md`；W2 失败发生于 `test_gateway_im_resilience_critical_path.py` 启动的 `scripts/e2e-resilience.sh` 配置派生阶段；参考实现为 `test_worktree_stack_lifecycle_e2e.py` 的 active-interpreter PATH。
+- Limit: 基线在 YAML config 派生前即失败，因此不证明两段 Gateway-IM 恢复旅程；修复后必须用同一普通 PATH 命令真跑。W1 的 20 文件列表以本次 Ruff 输出为唯一格式化范围。
+
+## R1 — 固定 verifier 基线并关闭 W1
+
+- 状态: DONE
+- Context: CI 明确执行 `ruff format --check .`，当前 unit 的 20 个 Python 测试文件产生真实红灯。
+- Decision: 只对基线输出的精确 20 文件列表运行 `/Users/czj/Repos/nano-multiagent/.venv/bin/ruff format <paths...>`；未向命令加入其他文件，也未改测试断言。
+- Rationale: 机械收敛到 CI 的当前可执行规则即可关闭 W1，同时避免把修复 lane 扩成无关格式整理。
+- Evidence:
+  - Tests: `/Users/czj/Repos/nano-multiagent/.venv/bin/ruff format --check .` PASS，`812 files already formatted`；`git diff --check` PASS。
+  - Entry: `.github/workflows/ci.yml` 的现有 `ruff format --check .` 命令原样运行；无需修改 workflow。
+  - Frontend State Matrix: N/A（Python 测试机械格式化）。
+  - Browser QA: N/A。
+  - E2E/Regression: N/A；格式化不改变测试 seam，完整 Python lane 在 R3 运行。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退本 roadpoint 的纯格式化 commit。
+- Commits: 本 roadpoint 提交（SHA 以 Git history 为准）。
+
+## R2 — 关闭 W2 的 subprocess PATH 缺口
+
+- 状态: PENDING
+- Context: 待补。
+- Decision: 待补。
+- Rationale: 待补。
+- Evidence: 待补。
+- Rollback: 待补。
+- Commits: 待补。
+
+## R3 — final sync、完整门禁与交付
+
+- 状态: PENDING
+- Context: 待补。
+- Decision: 待补。
+- Rationale: 待补。
+- Evidence: 待补。
+- Rollback: 待补。
+- Commits: 待补。
+
+## Promotion Candidates
+
+None.

@@ -53,15 +53,11 @@ def test_reconcile_marks_only_missing_node_agents_and_is_idempotent(repos) -> No
     _upsert(profiles, agent_id="B", node_id="N1")
     _upsert(profiles, agent_id="other", node_id="N2")
 
-    assert profiles.mark_stale_for_node(
-        node_id="N1", advertised_agent_ids=["A"]
-    ) == 1
+    assert profiles.mark_stale_for_node(node_id="N1", advertised_agent_ids=["A"]) == 1
     assert profiles.get_profile(agent_id="A").is_stale is False
     assert profiles.get_profile(agent_id="B").is_stale is True
     assert profiles.get_profile(agent_id="other").is_stale is False
-    assert profiles.mark_stale_for_node(
-        node_id="N1", advertised_agent_ids=["A"]
-    ) == 0
+    assert profiles.mark_stale_for_node(node_id="N1", advertised_agent_ids=["A"]) == 0
 
     assert profiles.mark_stale_for_node(node_id="N1", advertised_agent_ids=[]) == 1
     assert profiles.get_profile(agent_id="A").is_stale is True
@@ -82,9 +78,7 @@ def test_reregister_revives_stale_profile(repos) -> None:
 def test_runtime_selectable_lists_exclude_stale_profiles(repos) -> None:
     profiles, nodes, users = repos
     owner = users.create_user(username="alice", display_name="Alice")
-    nodes.upsert_node(
-        node_id="N", owner_id=owner.owner_id, node_name="N", version="1"
-    )
+    nodes.upsert_node(node_id="N", owner_id=owner.owner_id, node_name="N", version="1")
     _upsert(profiles, agent_id="A", node_id="N", owner_id=owner.owner_id)
     _upsert(profiles, agent_id="X", node_id="N", owner_id=owner.owner_id)
     profiles.mark_stale_for_node(node_id="N", advertised_agent_ids=["A"])

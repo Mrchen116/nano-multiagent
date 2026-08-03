@@ -71,7 +71,8 @@ def test_runs_returns_structured_history_newest_first(tmp_path: Path) -> None:
     )
 
     result = make_cron_tool({}).run(
-        {"action": "runs", "jobId": job_id}, _Context(tmp_path)  # type: ignore[arg-type]
+        {"action": "runs", "jobId": job_id},
+        _Context(tmp_path),  # type: ignore[arg-type]
     )
 
     assert result["ok"] is True

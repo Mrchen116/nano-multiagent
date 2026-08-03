@@ -44,7 +44,9 @@ def test_assemble_passes_the_same_context_to_gate_and_renderer() -> None:
     ctx = PromptContext(flags={"enabled": True})
     section = PromptSection(
         name="conditional",
-        enabled_when=lambda actual: seen.append(("gate", actual)) or actual.flags["enabled"],
+        enabled_when=lambda actual: (
+            seen.append(("gate", actual)) or actual.flags["enabled"]
+        ),
         render=lambda actual: seen.append(("render", actual)) or "rendered",
     )
 
