@@ -14,7 +14,7 @@ afterEach(() => {
 });
 
 describe("agent edit page", () => {
-  it("loads agent form, shows bound node status, and saves edited display name via IM config APIs", async () => {
+  it("loads the agent settings and saves edited profile and allowlists", async () => {
     const user = userEvent.setup();
     let currentConfig: {
       agent_id: string;
@@ -144,32 +144,16 @@ describe("agent edit page", () => {
     });
 
     const input = await screen.findByLabelText("Display Name");
-    // feat-379-M3: System Prompt textarea removed; custom_prompt textarea is now the editable field.
-    expect(screen.queryByLabelText("System Prompt")).toBeNull();
     expect(screen.getByLabelText("Custom Instructions")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Identity" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Behavior" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Access & Model" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Workspace & Runtime" })).toBeInTheDocument();
     expect(screen.getByText(/MacBook/, { selector: ".im-agent-panel-node" })).toBeInTheDocument();
     expect((screen.getByLabelText("Workspace Root") as HTMLInputElement).value).toBe(
       "/Users/demo/nano-assistant/workspace/agent-core-1"
     );
 
-    const panel = screen.getByTestId("agent-detail");
-    expect(panel.className).toContain("im-agent-panel");
-    expect(panel.querySelector(".chat-avatar-status--online")).not.toBeNull();
-    expect(panel.querySelector(".im-agent-panel-status-chip")).toBeNull();
-    expect(panel.querySelectorAll(".im-agent-card").length).toBeGreaterThanOrEqual(4);
-    expect(panel.querySelector(".im-agent-footer")).not.toBeNull();
-    expect(screen.queryByLabelText("Workspace setting")).not.toBeInTheDocument();
-    expect(screen.queryByText(/^Selected 2$/)).not.toBeInTheDocument();
-    expect(screen.queryByText("Needs review")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /tdd-execution-worker/i })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: /playwright/i })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: /bash/i })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: /read_file/i })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.queryByText(/Show advanced options/i)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Save Agent$/ })).toBeDisabled();
 
     fireEvent.change(input, { target: { value: "Core Planner X" } });
@@ -188,10 +172,6 @@ describe("agent edit page", () => {
     });
 
     await waitFor(() => {
-      // feat-379-M3: PATCH now includes features and custom_prompt; system_prompt is preserved for
-      // API compat but not user-editable.
-      // bugfix-390: features:{} is present because Behavior card initializes effectiveFeatures
-      // from capabilityFeatures; with no capability features declared the resolved map is {}.
       expect(fetchMock).toHaveBeenCalledWith(
         "/im/v1/agents/agent-core-1/config",
         expect.objectContaining({

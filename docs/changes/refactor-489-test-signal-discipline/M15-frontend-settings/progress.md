@@ -28,7 +28,21 @@
 
 ## R2 — 合并 Agent 配置与 API 重复保护
 
-- 状态: TODO
+- 状态: DONE
+- Context: Agent tests 同时从 selector、feature panel、create/edit/detail 整页重复证明 allowlist/features，详情页还保留旧 heartbeat/cron 卡片、历史 milestone 终态与静态 i18n；API tests 则以重复 case 和退役 endpoint 负断言扩大噪声。
+- Decision: 让 API adapter 负责 endpoint/auth/normalization，selector 负责选择交互，create/edit/detail 负责各自的提交与错误路径，feature panel 以两条完整 toggle 交互守 heartbeat/cron 可见状态，prompt preview 各入口只守自身请求。删除整页 pill 重复和静态 i18n 文件；详情测试由 29 条收敛为 15 条，feature panel 由 7 条收敛为 2 条。
+- Rationale: 每个风险只保留最接近故障源且仍能观察用户结果的 owner，可避免同一 form 重构同时击穿多组文件；table case 仍覆盖 heartbeat cadence 的有值/缺省 normalization，而不复制 setup。
+- Evidence:
+  - Tests: Agent create/edit/detail/features/allowlist/API 与 settings API 共 7 files、43 tests 全绿（2.95s）。
+  - Entry: jsdom 真实 create/edit/detail routes 与组件交互；API adapter 直接观察 account、agent config、heartbeat/source/skills/channel 请求与 normalized response。
+  - Frontend State Matrix: default、empty、error、disabled、submitting、conflict、offline 与 nullable cadence；visual/mobile N/A（无 UI delta）。
+  - Browser QA: N/A；仅测试资产改动，未改组件或 UI。
+  - E2E/Regression: 保留 create/edit/save/refetch、direct chat、skills usage、prompt preview、feature-tool linkage 与 empty allowlist regression。
+  - Visual/Interaction: Testing Library 以 role/label/pill selection 驱动交互；无截图或 reference。
+  - Prototype Comparison: N/A。
+- Rollback: 回退 R2 提交。
+- Commits: 本 roadpoint 提交（SHA 以 Git history 为准）。
+- Next: R3 审计 channel/realtime owner，并运行 settings 全域、build 与 scope 门禁。
 
 ## R3 — 收敛 channel 状态并完成全域门禁
 

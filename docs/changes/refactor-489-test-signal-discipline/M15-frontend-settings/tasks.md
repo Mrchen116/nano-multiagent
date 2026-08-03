@@ -67,7 +67,7 @@ Prototype / Reference Contract：N/A（design 与派发均无前端原型/refere
 
 ### R2 — 合并 Agent 配置与 API 重复保护
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 合并 normalization cases、feature/allowlist/preview 重复，删除静态 i18n 与历史迁移断言；保留 create/edit/detail 保存与错误状态。
 - 验证: Agent/API scoped Vitest，行数与测试清单对账。
 

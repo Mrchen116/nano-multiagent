@@ -232,35 +232,6 @@ describe("agent detail page", () => {
     expect(screen.getByText("批量复盘")).toBeInTheDocument();
   });
 
-  it("localizes every agent detail tab and placeholder", async () => {
-    const user = userEvent.setup();
-    setLanguage("en");
-    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDashboardDetailState());
-    apiMocks.listAgentsMock.mockResolvedValue([]);
-
-    renderDetailPage();
-    await screen.findByRole("heading", { name: "Core Planner" });
-
-    for (const label of ["Overview", "Config", "Channels", "Skills", "Sessions"]) {
-      expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
-    }
-    await user.click(screen.getByRole("button", { name: "Overview" }));
-    expect(screen.getByRole("heading", { name: "Overview" })).toBeInTheDocument();
-    expect(screen.getByText("The overview page is not included in this release. It will be designed separately."))
-      .toBeInTheDocument();
-
-    await act(async () => {
-      setLanguage("zh");
-    });
-    await waitFor(() => {
-      for (const label of ["概览", "配置", "通道", "技能", "会话"]) {
-        expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
-      }
-    });
-    expect(screen.getByRole("heading", { name: "概览" })).toBeInTheDocument();
-    expect(screen.getByText("本期不设计概览页。保持空态，后续单独设计。")).toBeInTheDocument();
-  });
-
   it("opens skill statistics from the Access card entry in the real config flow", async () => {
     const user = userEvent.setup();
     apiMocks.getAgentDetailStateMock.mockResolvedValue({
@@ -451,7 +422,7 @@ describe("agent detail page", () => {
     });
   });
 
-  it("bugfix-429 R5: model dropdown labels each option with its provider/format", async () => {
+  it("labels each model option with its provider", async () => {
     apiMocks.getAgentDetailStateMock.mockResolvedValue({
       config: {
         agent_id: "agent-core-1",
@@ -569,7 +540,7 @@ describe("agent detail page", () => {
     });
   });
 
-  it("R9-2: surfaces an inline error when the open-chat request fails (no silent swallow)", async () => {
+  it("shows the conversation API error when opening chat fails", async () => {
     const user = userEvent.setup();
 
     apiMocks.getAgentDetailStateMock.mockResolvedValue({
@@ -617,137 +588,14 @@ describe("agent detail page", () => {
     await screen.findByRole("heading", { name: "Core Planner" });
     await user.click(screen.getByRole("button", { name: /Open chat/i }));
 
-    // R9-2: the failure must show up to the user, not get swallowed.
     const errorBanner = await screen.findByTestId("open-chat-error");
     expect(errorBanner.textContent).toContain("participant_ids contains unknown users");
     expect(apiMocks.navigateMock).not.toHaveBeenCalled();
   });
 
-  // M19/R11-4: Identity row1 字段是 `Agent ID + Display Name`, 而不是
-  // `Agent ID + Owner(裸 UUID)`。owner_id 对最终用户毫无意义,prototype
-  // 的 AgentForm Identity row1 只放 Agent ID + Display Name (Description 下移到下一行)。
-  it("R11-4: Identity row1 is Agent ID + Display Name (no Owner UUID column)", async () => {
-    apiMocks.getAgentDetailStateMock.mockResolvedValue({
-      config: {
-        agent_id: "agent-core-1",
-        owner_id: "owner-uuid-DEADBEEF",
-        display_name: "Core Planner",
-        description: "",
-        system_prompt: "p",
-        skills: [],
-        tool_allowlist: [],
-        group_reply_policy: "MENTION",
-        default_model: null,
-        workspace_root: "/tmp",
-        workspace_is_default: false,
-        profile_version: 1,
-        node_id: "node-1",
-        node_name: "MacBook",
-        node_status: "online",
-        bound_nodes: ["node-1"],
-        updated_at: "2026-03-13T10:00:00Z"
-      },
-      capabilities: {
-        node_id: "node-1",
-        node_name: "MacBook",
-        node_status: "online",
-        capabilities_updated_at: "2026-03-13T10:00:00Z",
-        skills: [],
-        tools: [],
-        model_options: [],
-        platform_default_model: null,
-        default_system_prompt: ""
-      },
-      owningNode: null
-    });
-    apiMocks.listAgentsMock.mockResolvedValue([]);
-
-    renderDetailPage();
-    await screen.findByRole("heading", { name: "Core Planner" });
-
-    // Owner UUID 不应作为表单字段值出现 (header subtitle 里可能仍含 agent_id,但不应有 owner_id 裸值)。
-    const ownerInput = document.querySelector("#owner-id") as HTMLInputElement | null;
-    expect(ownerInput, "M19/R11-4: #owner-id 字段应被移除").toBeNull();
-
-    // Display Name 应作为 row1 第二列, 与 Agent ID 同 grid。
-    const identityGrid = document.querySelector('[data-testid="agent-identity-row1"]');
-    expect(identityGrid, "expected an Identity row1 grid").not.toBeNull();
-    expect(identityGrid?.querySelector("#agent-id")).not.toBeNull();
-    expect(identityGrid?.querySelector("#display-name")).not.toBeNull();
-  });
-
-  // M19/R11-3: Skills / Tool Allowlist 不再是 60+ checkbox grid, 而是 prototype
-  // `MultiSelect` 风格的平铺 pill — 每项一个 toggle button,选中态青色背景。
-  it("R11-3: Skills / Tool allowlists render as pill toggles (no checkbox grid)", async () => {
-    apiMocks.getAgentDetailStateMock.mockResolvedValue({
-      config: {
-        agent_id: "agent-core-1",
-        owner_id: "owner-1",
-        display_name: "Core Planner",
-        description: "",
-        system_prompt: "p",
-        skills: ["tdd"],
-        tool_allowlist: ["read"],
-        group_reply_policy: "MENTION",
-        default_model: null,
-        workspace_root: "/tmp",
-        workspace_is_default: false,
-        profile_version: 1,
-        node_id: "node-1",
-        node_name: "MacBook",
-        node_status: "online",
-        bound_nodes: ["node-1"],
-        updated_at: "2026-03-13T10:00:00Z"
-      },
-      capabilities: {
-        node_id: "node-1",
-        node_name: "MacBook",
-        node_status: "online",
-        capabilities_updated_at: "2026-03-13T10:00:00Z",
-        skills: [
-          { name: "tdd", description: "", location: "/tmp/.nanoassistant/skills/tdd/SKILL.md" },
-          { name: "review", description: "", default_on: true, location: "/Users/test/.nanoassistant/skills/review/SKILL.md" },
-          { name: "compat", description: "", location: "/Users/test/.claude/skills/compat/SKILL.md" }
-        ],
-        tools: [
-          { name: "read", description: "" },
-          { name: "write", description: "" }
-        ],
-        model_options: [],
-        platform_default_model: null,
-        default_system_prompt: ""
-      },
-      owningNode: null
-    });
-    apiMocks.listAgentsMock.mockResolvedValue([]);
-
-    renderDetailPage();
-    await screen.findByRole("heading", { name: "Core Planner" });
-
-    // pill selector 容器存在
-    const skillsPill = document.querySelector('[data-testid="pill-selector-skills"]');
-    expect(skillsPill, "expected pill selector for skills").not.toBeNull();
-    const toolsPill = document.querySelector('[data-testid="pill-selector-tools"]');
-    expect(toolsPill, "expected pill selector for tools").not.toBeNull();
-    expect(await screen.findByText(/Local|本地/)).toBeInTheDocument();
-    expect(await screen.findByText(/Global|全局/)).toBeInTheDocument();
-    expect(await screen.findByText(/Compatibility|兼容来源/)).toBeInTheDocument();
-
-    // 不应再有 allowlist-selector 的 checkbox + fieldset 结构
-    expect(skillsPill?.querySelector('input[type="checkbox"]')).toBeNull();
-    expect(toolsPill?.querySelector('input[type="checkbox"]')).toBeNull();
-
-    // 每项渲染为 <button>,选中 selected 有 aria-pressed=true
-    const tddBtn = skillsPill?.querySelector('button[data-pill-name="tdd"]') as HTMLButtonElement | null;
-    expect(tddBtn).not.toBeNull();
-    expect(tddBtn?.getAttribute("aria-pressed")).toBe("true");
-    const reviewBtn = skillsPill?.querySelector('button[data-pill-name="review"]') as HTMLButtonElement | null;
-    expect(reviewBtn?.getAttribute("aria-pressed")).toBe("false");
-  });
 });
 
-// feat-379-M3: Behavior card 重构 — features checkbox + custom_prompt + 折叠预览
-describe("feat-379-M3 Behavior card", () => {
+describe("agent behavior settings", () => {
   function makeDetailState(
     overrides: {
       features?: Array<{ key: string; label_i18n: string; help_i18n: string; default_on: boolean; available: boolean; requires_tool?: string | null }>;
@@ -802,52 +650,7 @@ describe("feat-379-M3 Behavior card", () => {
     apiMocks.listAgentsMock.mockResolvedValue([]);
   });
 
-  it("M3-R1: 不再显示 system_prompt textarea，改为 custom_prompt 和 features 区块", async () => {
-    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDetailState());
-
-    renderDetailPage();
-    await screen.findByRole("heading", { name: "Core Planner" });
-
-    // 旧的 system_prompt textarea 不应存在
-    expect(screen.queryByLabelText("System Prompt")).toBeNull();
-    expect(screen.queryByLabelText(/System Prompt \*/)).toBeNull();
-
-    // 新的 custom_prompt textarea 应存在
-    expect(screen.getByLabelText(/Custom Instructions/i)).toBeInTheDocument();
-
-    // features 区块标题
-    expect(screen.getByText(/Features/i)).toBeInTheDocument();
-  });
-
-  it("M3-R1: features checkbox 按 capabilities.features 渲染，所有特性可勾选（feat-379-M9 决策12 删除 disabled）", async () => {
-    // feat-379-M9 (決策 12): disabled 态已删除 — 所有特性均可勾选，tool 联动是权威。
-    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDetailState());
-
-    renderDetailPage();
-    await screen.findByRole("heading", { name: "Core Planner" });
-
-    // memory_curation: available=true, default_on=true → 勾选可用
-    const memoryCheckbox = document.querySelector<HTMLInputElement>('[data-feature-key="memory_curation"]');
-    expect(memoryCheckbox, "memory_curation checkbox 应存在").not.toBeNull();
-    expect(memoryCheckbox?.disabled).toBe(false);
-
-    // skill_creation: available=false, 但 M9 后 disabled 已删除 → 同样可勾选
-    const skillCheckbox = document.querySelector<HTMLInputElement>('[data-feature-key="skill_creation"]');
-    expect(skillCheckbox, "skill_creation checkbox 应存在").not.toBeNull();
-    expect(skillCheckbox?.disabled).toBe(false);
-  });
-
-  it("M3-R1: 空 features 列表时不渲染 Features 区块", async () => {
-    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDetailState({ features: [] }));
-
-    renderDetailPage();
-    await screen.findByRole("heading", { name: "Core Planner" });
-
-    // features 区块不应出现（无可用特性）
-    expect(document.querySelector("[data-testid='features-section']")).toBeNull();
-  });
-
-  it("M3-R1: custom_prompt 编辑后保存时 PATCH payload 包含 features 和 custom_prompt", async () => {
+  it("saves custom instructions with the selected features", async () => {
     const user = userEvent.setup();
     apiMocks.getAgentDetailStateMock.mockResolvedValue(
       makeDetailState({ configFeatures: { memory_curation: true, skill_creation: true } })
@@ -893,13 +696,12 @@ describe("feat-379-M3 Behavior card", () => {
     });
   });
 
-  it("M3-R1: 折叠预览区块初始收起，点击展开后 aria-expanded=true", async () => {
+  it("opens the full prompt preview on demand", async () => {
     apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDetailState());
 
     renderDetailPage();
     await screen.findByRole("heading", { name: "Core Planner" });
 
-    // 折叠按钮应存在，初始 aria-expanded=false
     const previewToggle = screen.getByRole("button", { name: /Preview full system prompt/i });
     expect(previewToggle).toBeInTheDocument();
     expect(previewToggle.getAttribute("aria-expanded")).toBe("false");
@@ -909,21 +711,9 @@ describe("feat-379-M3 Behavior card", () => {
     expect(previewToggle.getAttribute("aria-expanded")).toBe("true");
   });
 
-  it("M3-R1: group_reply_policy select 保留在 Behavior card 中", async () => {
-    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDetailState());
-
-    renderDetailPage();
-    await screen.findByRole("heading", { name: "Core Planner" });
-
-    expect(screen.getByLabelText(/Group Reply Policy/i)).toBeInTheDocument();
-  });
 });
 
-// feat-379-M9: preview tool_ids 来自 draft.tool_allowlist（決策 14 删除 effectiveToolIds hack）
-// 根因回顾：M8 用 effectiveToolIds = union(capabilityFeatures.available.requires_tool, draft.tool_allowlist)
-// 绕过了 M8 缺陷；M9 R1 修复了 _build_tool_names()，capabilities.tools 现在含 memory，
-// 联动逻辑（决策 12）确保勾特性时工具自动进 allowlist，故直接用 draft.tool_allowlist 即正确。
-describe("preview tool_ids regression: uses draft.tool_allowlist directly", () => {
+describe("agent prompt preview", () => {
   const memoryCapFeature = {
     key: "memory_curation",
     label_i18n: "agents.features.memory_curation.label",
@@ -944,7 +734,6 @@ describe("preview tool_ids regression: uses draft.tool_allowlist directly", () =
         custom_prompt: "",
         features: {},
         skills: [],
-        // M9 後 tool_allowlist 含 memory（由联动逻辑加入）
         tool_allowlist: ["memory"] as string[],
         group_reply_policy: "MENTION" as const,
         default_model: null,
@@ -979,7 +768,7 @@ describe("preview tool_ids regression: uses draft.tool_allowlist directly", () =
     apiMocks.listAgentsMock.mockResolvedValue([]);
   });
 
-  it("M9: preview 请求 tool_ids 直接来自 draft.tool_allowlist（決策 14 删除 effectiveToolIds）", async () => {
+  it("sends the selected tools to the preview API", async () => {
     const user = userEvent.setup();
     apiMocks.getAgentDetailStateMock.mockResolvedValue(makeStateWithMemoryInAllowlist());
     apiMocks.promptPreviewMock.mockResolvedValue("## Preview\n\nMemory guidance here.");
@@ -997,217 +786,11 @@ describe("preview tool_ids regression: uses draft.tool_allowlist directly", () =
     const calls = apiMocks.promptPreviewMock.mock.calls;
     const lastCall = calls[calls.length - 1];
     const body = lastCall[1] as { tool_ids?: string[] };
-    // tool_ids 来自 draft.tool_allowlist=["memory"]，不再从 capabilityFeatures 推断
-    expect(body.tool_ids, "tool_ids 应来自 draft.tool_allowlist").toContain("memory");
-  });
-
-  // feat-394-M1/R4: heartbeat 开关测试
-  it("feat-394-M9-E: Heartbeat card 显示并可开关 (enable via features)", async () => {
-    // feat-394 M9-E: enable is in features["heartbeat"]; heartbeat only has cadence.
-    const user = userEvent.setup();
-    apiMocks.getAgentDetailStateMock.mockResolvedValue({
-      ...makeStateWithMemoryInAllowlist(),
-      config: {
-        ...makeStateWithMemoryInAllowlist().config,
-        features: { heartbeat: false },
-        heartbeat: { every: "30m" }
-      }
-    });
-
-    renderDetailPage();
-    await screen.findByRole("heading", { name: "Mem Agent" });
-
-    // Heartbeat card 应有 "Heartbeat" 标题
-    expect(screen.getByRole("heading", { name: /Heartbeat/i })).toBeInTheDocument();
-
-    // 开关应存在且初始为关闭 (reads features["heartbeat"])
-    const toggle = document.querySelector<HTMLInputElement>('[data-testid="heartbeat-enabled-toggle"]');
-    expect(toggle, "heartbeat-enabled-toggle 应存在").not.toBeNull();
-    expect(toggle?.checked).toBe(false);
-
-    // 打开开关
-    if (toggle) await user.click(toggle);
-
-    expect(document.querySelector<HTMLInputElement>('[data-testid="heartbeat-enabled-toggle"]')?.checked).toBe(true);
-  });
-
-  it("feat-394-M9-E: Heartbeat 开关开启后保存时 PATCH payload 包含 features.heartbeat=true", async () => {
-    // feat-394 M9-E: enable lives in features["heartbeat"], not heartbeat.enabled.
-    const user = userEvent.setup();
-    apiMocks.getAgentDetailStateMock.mockResolvedValue({
-      ...makeStateWithMemoryInAllowlist(),
-      config: {
-        ...makeStateWithMemoryInAllowlist().config,
-        features: { heartbeat: false },
-        heartbeat: { every: "30m" }
-      }
-    });
-    apiMocks.updateAgentConfigMock.mockResolvedValue({
-      ...makeStateWithMemoryInAllowlist().config,
-      features: { heartbeat: true },
-      heartbeat: { every: "30m" },
-      profile_version: 2
-    });
-
-    renderDetailPage();
-    await screen.findByRole("heading", { name: "Mem Agent" });
-
-    // 打开开关 (inline toggle when not in capabilityFeatures)
-    const toggle = document.querySelector<HTMLInputElement>('[data-testid="heartbeat-enabled-toggle"]');
-    if (toggle) await user.click(toggle);
-
-    // 保存
-    await user.click(screen.getByRole("button", { name: /Save Agent/i }));
-
-    await waitFor(() => {
-      expect(apiMocks.updateAgentConfigMock).toHaveBeenCalledWith(
-        "agent-core-1",
-        expect.objectContaining({
-          features: expect.objectContaining({ heartbeat: true })
-        })
-      );
-    });
-  });
-
-  // feat-383-M1: preview 请求必须包含 skill_ids
-  it("feat-383-M1: preview 请求 skill_ids 来自 draft.skills", async () => {
-    const user = userEvent.setup();
-    const stateWithSkills = {
-      ...makeStateWithMemoryInAllowlist(),
-      config: {
-        ...makeStateWithMemoryInAllowlist().config,
-        skills: ["code-review", "plan"] as string[],
-      }
-    };
-    apiMocks.getAgentDetailStateMock.mockResolvedValue(stateWithSkills);
-    apiMocks.promptPreviewMock.mockResolvedValue("## Preview");
-
-    renderDetailPage();
-    await screen.findByRole("heading", { name: "Mem Agent" });
-
-    const previewToggle = screen.getByRole("button", { name: /Preview full system prompt/i });
-    await user.click(previewToggle);
-
-    await waitFor(() => {
-      expect(apiMocks.promptPreviewMock).toHaveBeenCalled();
-    });
-
-    const calls = apiMocks.promptPreviewMock.mock.calls;
-    const lastCall = calls[calls.length - 1];
-    const body = lastCall[1] as { skill_ids?: string[] };
-    expect(body.skill_ids, "skill_ids 必须来自 draft.skills").toEqual(
-      expect.arrayContaining(["code-review", "plan"])
-    );
-  });
-
-  // feat-394-M2/R7: cron 开关测试
-  it("feat-394-M9-E: Cron card 显示并可开关 (enable via features)", async () => {
-    // feat-394 M9-E: enable is in features["cron_scheduling"]; no cron config object.
-    const user = userEvent.setup();
-    apiMocks.getAgentDetailStateMock.mockResolvedValue({
-      ...makeStateWithMemoryInAllowlist(),
-      config: {
-        ...makeStateWithMemoryInAllowlist().config,
-        features: { cron_scheduling: false }
-      }
-    });
-
-    renderDetailPage();
-    await screen.findByRole("heading", { name: "Mem Agent" });
-
-    // Cron card 应有 "Cron Jobs" 标题
-    expect(screen.getByRole("heading", { name: /Cron Jobs/i })).toBeInTheDocument();
-
-    // 开关应存在且初始为关闭 (reads features["cron_scheduling"])
-    const toggle = document.querySelector<HTMLInputElement>('[data-testid="cron-enabled-toggle"]');
-    expect(toggle, "cron-enabled-toggle 应存在").not.toBeNull();
-    expect(toggle?.checked).toBe(false);
-
-    // 打开开关
-    if (toggle) await user.click(toggle);
-
-    expect(document.querySelector<HTMLInputElement>('[data-testid="cron-enabled-toggle"]')?.checked).toBe(true);
-  });
-
-  it("feat-394-M9-E: Cron 开关开启后保存时 PATCH payload 包含 features.cron_scheduling=true", async () => {
-    // feat-394 M9-E: enable lives in features["cron_scheduling"]; no cron config object.
-    const user = userEvent.setup();
-    apiMocks.getAgentDetailStateMock.mockResolvedValue({
-      ...makeStateWithMemoryInAllowlist(),
-      config: {
-        ...makeStateWithMemoryInAllowlist().config,
-        features: { cron_scheduling: false }
-      }
-    });
-    apiMocks.updateAgentConfigMock.mockResolvedValue({
-      ...makeStateWithMemoryInAllowlist().config,
-      features: { cron_scheduling: true },
-      profile_version: 2
-    });
-
-    renderDetailPage();
-    await screen.findByRole("heading", { name: "Mem Agent" });
-
-    // 打开开关 (inline toggle when not in capabilityFeatures)
-    const toggle = document.querySelector<HTMLInputElement>('[data-testid="cron-enabled-toggle"]');
-    if (toggle) await user.click(toggle);
-
-    // 保存
-    await user.click(screen.getByRole("button", { name: /Save Agent/i }));
-
-    await waitFor(() => {
-      expect(apiMocks.updateAgentConfigMock).toHaveBeenCalledWith(
-        "agent-core-1",
-        expect.objectContaining({
-          features: expect.objectContaining({ cron_scheduling: true })
-        })
-      );
-    });
-  });
-
-  // feat-394 M9-E round-trip: features["heartbeat"]=true 重开配置页时开关应显示「开」
-  it("feat-394-M9-E round-trip: heartbeat 已启用(features)时重开配置页开关初始态为 checked=true", async () => {
-    apiMocks.getAgentDetailStateMock.mockResolvedValue({
-      ...makeStateWithMemoryInAllowlist(),
-      config: {
-        ...makeStateWithMemoryInAllowlist().config,
-        features: { heartbeat: true },
-        heartbeat: { every: "30m" }
-      }
-    });
-
-    renderDetailPage();
-    await screen.findByRole("heading", { name: "Mem Agent" });
-
-    const toggle = document.querySelector<HTMLInputElement>('[data-testid="heartbeat-enabled-toggle"]');
-    expect(toggle, "heartbeat-enabled-toggle 应存在").not.toBeNull();
-    expect(toggle?.checked).toBe(true);
-  });
-
-  // feat-394-M9-E round-trip: features["cron_scheduling"]=true 重开配置页时开关应显示「开」
-  it("feat-394-M9-E round-trip: cron 已启用(features)时重开配置页开关初始态为 checked=true", async () => {
-    apiMocks.getAgentDetailStateMock.mockResolvedValue({
-      ...makeStateWithMemoryInAllowlist(),
-      config: {
-        ...makeStateWithMemoryInAllowlist().config,
-        features: { cron_scheduling: true }
-      }
-    });
-
-    renderDetailPage();
-    await screen.findByRole("heading", { name: "Mem Agent" });
-
-    const toggle = document.querySelector<HTMLInputElement>('[data-testid="cron-enabled-toggle"]');
-    expect(toggle, "cron-enabled-toggle 应存在").not.toBeNull();
-    expect(toggle?.checked).toBe(true);
+    expect(body.tool_ids).toEqual(["memory"]);
   });
 });
 
-// bugfix-468-M1: 空 tool_allowlist 下开启 requires_tool feature 时只追加该工具本身，
-// 不再把整个 default_on 集合物化进去。
-describe("feature toggle with empty tool_allowlist", () => {
-  // updateAgentConfig 必须返回完整 config，否则 onSuccess 把 draft 设成含 undefined 字段的对象
-  // 导致 normalizeAgentConfig(draft) → normalizeText(undefined) → TypeError（exit 1）。
+describe("feature tool linkage with an empty allowlist", () => {
   function makeFeatureToggleConfig(overrides: Partial<{
     agent_id: string; display_name: string; tool_allowlist: string[]
   }> = {}) {
@@ -1233,9 +816,7 @@ describe("feature toggle with empty tool_allowlist", () => {
     };
   }
 
-  // 场景: 初始 tool_allowlist=[]，勾选 cron_scheduling 特性（requires_tool=cron_tool）
-  // 期望: tool_allowlist 只追加 cron_tool，不再物化 default_on 工具。
-  it("空 allowlist 下勾 cron 特性 → tool_allowlist 仅含 cron 所需工具", async () => {
+  it("adds only the required tool when enabling a tool-backed feature", async () => {
     const user = userEvent.setup();
 
     const baseConfig = makeFeatureToggleConfig({ agent_id: "bugfix-cron-1", display_name: "Cron Agent" });
@@ -1270,26 +851,22 @@ describe("feature toggle with empty tool_allowlist", () => {
     };
 
     apiMocks.getAgentDetailStateMock.mockResolvedValue(state);
-    // listAgentCronJobs returns empty list so CronCard doesn't error
     apiMocks.listAgentCronJobsMock.mockResolvedValue([]);
     apiMocks.listAgentSummariesMock.mockResolvedValue([
       { agent_id: "bugfix-cron-1", display_name: "Cron Agent", owner_id: "owner-1", description: "", profile_version: 1, default_model: null, workspace_root: "", workspace_is_default: false }
     ]);
     apiMocks.listAgentsMock.mockResolvedValue([]);
-    // 必须返回完整 config，否则 onSuccess setDraft(updated) → normalizeText(undefined) crash
     apiMocks.updateAgentConfigMock.mockResolvedValue(baseConfig);
 
     renderDetailPage();
     await screen.findByRole("heading", { name: "Cron Agent" });
 
-    // 勾选 cron_scheduling 特性（BehaviorCard 里的 features checkbox，用 data-feature-key 定位）
     const cronCheckbox = document.querySelector<HTMLInputElement>(
       '[data-feature-key="cron_scheduling"]'
     );
     expect(cronCheckbox, "cron_scheduling checkbox 应存在").not.toBeNull();
     await user.click(cronCheckbox!);
 
-    // 保存配置，观察 PATCH payload 中的 tool_allowlist
     const saveBtn = document.querySelector<HTMLButtonElement>('button[type="submit"]');
     expect(saveBtn, "submit 按钮应存在").not.toBeNull();
     await user.click(saveBtn!);
@@ -1305,8 +882,7 @@ describe("feature toggle with empty tool_allowlist", () => {
     expect(patchBody.tool_allowlist).toEqual(["cron_tool"]);
   });
 
-  // 收紧: 勾 heartbeat（requires_tool=null）不应改变 tool_allowlist。
-  it("空 allowlist 下勾 heartbeat 特性(无 requires_tool) → tool_allowlist 仍为空", async () => {
+  it("does not add default tools for a feature without a tool requirement", async () => {
     const user = userEvent.setup();
 
     const baseConfig = makeFeatureToggleConfig({ agent_id: "bugfix-hb-1", display_name: "HB Agent" });
@@ -1332,7 +908,7 @@ describe("feature toggle with empty tool_allowlist", () => {
             help_i18n: "agents.features.heartbeat.help",
             default_on: false,
             available: true,
-            requires_tool: null   // heartbeat 不需要工具
+            requires_tool: null
           }
         ]
       },
@@ -1346,7 +922,6 @@ describe("feature toggle with empty tool_allowlist", () => {
       { agent_id: "bugfix-hb-1", display_name: "HB Agent", owner_id: "owner-1", description: "", profile_version: 1, default_model: null, workspace_root: "", workspace_is_default: false }
     ]);
     apiMocks.listAgentsMock.mockResolvedValue([]);
-    // 必须返回完整 config，否则 onSuccess setDraft(updated) → normalizeText(undefined) crash
     apiMocks.updateAgentConfigMock.mockResolvedValue(baseConfig);
 
     renderDetailPage();
@@ -1377,9 +952,7 @@ describe("feature toggle with empty tool_allowlist", () => {
   });
 });
 
-// bugfix-468-M1: 显式清空工具名单后，保存应提交空 allowlist；refetch 回空名单时
-// 所有 pill 保持未选中，不回弹 default_on。
-describe("bugfix-468-M1: explicit clear persists empty tool_allowlist", () => {
+describe("explicit empty tool allowlist", () => {
   function makeClearConfig(toolAllowlist: string[], profileVersion: number) {
     return {
       agent_id: "agent-core-1",
@@ -1432,7 +1005,7 @@ describe("bugfix-468-M1: explicit clear persists empty tool_allowlist", () => {
     );
   }
 
-  it("取消所有 tool pill 后保存，PATCH payload 为 tool_allowlist: []；refetch 后不回弹 default_on", async () => {
+  it("persists an empty tool selection after refetch", async () => {
     const user = userEvent.setup();
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 

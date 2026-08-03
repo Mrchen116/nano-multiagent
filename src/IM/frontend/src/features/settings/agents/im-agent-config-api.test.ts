@@ -1,12 +1,3 @@
-/**
- * Tests for feat-394 round-trip: heartbeat_json (raw JSON string from backend) must be
- * parsed back to a HeartbeatConfig cadence object so HeartbeatCard renders correct cadence.
- *
- * feat-394 M9-E: heartbeat enable lives in features["heartbeat"]; heartbeat_json only
- * carries cadence (every / active_hours). cron_json and CronConfig are retired.
- *
- * These tests call normalizeAgentConfigResponse directly (no HTTP mock needed).
- */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 import { authFetch } from "../../auth/auth-fetch";
@@ -46,57 +37,33 @@ const BASE_RAW = {
   heartbeat_json: null,
 };
 
-describe("normalizeAgentConfigResponse — heartbeat_json cadence round-trip", () => {
-  it("parses heartbeat_json string into cadence-only heartbeat object", () => {
-    const raw = { ...BASE_RAW, heartbeat_json: JSON.stringify({ every: "10m" }) };
-    const result = normalizeAgentConfigResponse(raw);
-    expect(result.heartbeat).toEqual({ every: "10m" });
+describe("normalizeAgentConfigResponse heartbeat cadence", () => {
+  it.each([
+    [{ every: "10m" }, { every: "10m" }],
+    [
+      { every: "1h", active_hours: { start: "09:00", end: "22:00" } },
+      { every: "1h", active_hours: { start: "09:00", end: "22:00" } },
+    ],
+    [{ enabled: true, every: "30m" }, { every: "30m" }],
+  ])("normalizes stored %o to cadence %o", (stored, expected) => {
+    const result = normalizeAgentConfigResponse({
+      ...BASE_RAW,
+      heartbeat_json: JSON.stringify(stored),
+    });
+
+    expect(result.heartbeat).toEqual(expected);
   });
 
-  it("extracts only cadence fields — drops legacy enabled field from stored JSON", () => {
-    // Legacy heartbeat_json may contain "enabled"; M9-E: only cadence fields are kept.
-    const raw = { ...BASE_RAW, heartbeat_json: JSON.stringify({ enabled: true, every: "30m" }) };
-    const result = normalizeAgentConfigResponse(raw);
-    // "enabled" must NOT appear on heartbeat — it lives in features["heartbeat"].
-    expect(result.heartbeat).toEqual({ every: "30m" });
-    expect((result.heartbeat as Record<string, unknown>)?.enabled).toBeUndefined();
-  });
-
-  it("extracts active_hours cadence from heartbeat_json", () => {
-    const hb = { every: "1h", active_hours: { start: "09:00", end: "22:00" } };
-    const raw = { ...BASE_RAW, heartbeat_json: JSON.stringify(hb) };
-    const result = normalizeAgentConfigResponse(raw);
-    expect(result.heartbeat).toEqual(hb);
-  });
-
-  it("null heartbeat_json produces undefined heartbeat", () => {
-    const raw = { ...BASE_RAW, heartbeat_json: null };
-    const result = normalizeAgentConfigResponse(raw);
-    expect(result.heartbeat).toBeUndefined();
-  });
-
-  it("absent heartbeat_json key produces undefined heartbeat", () => {
-    const { heartbeat_json: _, ...rawWithout } = BASE_RAW;
-    const result = normalizeAgentConfigResponse(rawWithout);
-    expect(result.heartbeat).toBeUndefined();
-  });
-
-  it("heartbeat_json with only enabled and no cadence produces undefined heartbeat", () => {
-    // Pure-enable JSON with no cadence fields → nothing useful to keep.
-    const raw = { ...BASE_RAW, heartbeat_json: JSON.stringify({ enabled: true }) };
-    const result = normalizeAgentConfigResponse(raw);
-    expect(result.heartbeat).toBeUndefined();
+  it.each([
+    ["null", BASE_RAW],
+    ["absent", (({ heartbeat_json: _, ...raw }) => raw)(BASE_RAW)],
+    ["enable-only", { ...BASE_RAW, heartbeat_json: JSON.stringify({ enabled: true }) }],
+  ])("leaves heartbeat undefined when cadence is %s", (_case, raw) => {
+    expect(normalizeAgentConfigResponse(raw).heartbeat).toBeUndefined();
   });
 });
 
-// feat-394 M9-E: cron_json round-trip tests removed — cron enable lives in
-// features["cron_scheduling"]; cron_json parsing path deleted from normalizeAgentConfigResponse.
-// feat-394 M9-E: heartbeat.enabled round-trip tests removed — enable lives in features["heartbeat"].
-
-// feat-430 fix-r2 (P0): getAgentConfig must let the caller pick the data source so the
-// slash picker can fetch the agent's真实已启用 skills (live Gateway) instead of the empty
-// mirror whitelist that triggers the "empty→all" fallback.
-describe("getAgentConfig — source selection", () => {
+describe("getAgentConfig source selection", () => {
   const mockedFetch = vi.mocked(authFetch);
 
   beforeEach(() => {
@@ -117,7 +84,7 @@ describe("getAgentConfig — source selection", () => {
     );
   });
 
-  it("requests the live source when asked (slash picker path)", async () => {
+  it("requests the live source when asked", async () => {
     await getAgentConfig("a1", "live");
     expect(mockedFetch).toHaveBeenCalledWith(
       "/im/v1/agents/a1/config?source=live",
