@@ -46,7 +46,7 @@
   - Claim: M9 在不改产品/spec 的前提下净减 14 个重复/历史 case，保留的 kernel/tool 跨 seam 保护和下层独立保护全绿。
   - Baseline: `origin/unit/refactor-489@6d4ebd793`；M9 同口径 `32 passed in 9.01s`。
   - Method: 运行收敛后 M9 切片、6 类 lower seam/contract，再执行 ruff check/format、`scripts/docs_check.py`、`git diff --check 6d4ebd793...HEAD`、collect-only 和 changed-path 白名单检查。
-  - Result: PASS；M9 `18 passed in 5.74s`（`32 → 18`）；替代保护 `116 passed in 0.62s`；ruff `All checks passed!`；format `8 files already formatted`；docs check `202 maintained Markdown sources / 65 routes`；collect `18 tests`；diff/scope 通过。
+  - Result: PASS；M9 `18 passed in 5.74s`（`32 → 18`）；替代保护 `116 passed in 0.62s`；ruff `All checks passed!`；format `8 files already formatted`；docs check `202 maintained Markdown sources / 65 routes`；collect `18 tests`；diff/scope 通过。baseline `git grep golden_prompts` 只命中已删 M9 文件，current HEAD 零引用，7 个无引用 fixture 已交 M10 在 rebase 后处置。
   - Locator: `tasks.md` 的逐风险处置表；保留的 8 个 M9 test 文件；下层替代保护路径见 R1 Tests。
   - Limit: fake LLM、临时文件与本地短子进程证明进程内 kernel/tool seam；本 milestone 无用户面变化，未调用真实外部 LLM/浏览器/常驻服务，不将此证据升级为 live E2E。
   - Tests: M9 `18 passed`；lower seam/contract `116 passed`；ruff/docs/diff/collect 全绿。
@@ -56,7 +56,7 @@
   - E2E/Regression: 收敛后 M9 18 项 integration 与 116 项可执行替代保护全绿；无新增 E2E。
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
-- Scope: baseline diff 仅含 M9 `tasks.md` / `progress.md` / `.gitkeep` 及 10 个归属 M9 的 integration test 文件；`test_empty_tool_allowlist_wiring.py` 处置为 keep 且无需改动；产品源码、current spec、M13 运行时测试和其他 milestone 产物均未改。
+- Scope: baseline diff 仅含 M9 `tasks.md` / `progress.md` / `.gitkeep` 及 10 个归属 M9 的 integration test 文件；`test_empty_tool_allowlist_wiring.py` 处置为 keep 且无需改动；7 个 `tests/integration/golden_prompts/*.txt` 因不属 M9 保持未改，已明确交由 M10 在 M9 合入后删除；产品源码、current spec、M13 运行时测试和其他 milestone 产物均未改。
 - Rollback: 按 R2 `01fed5d36`、R1 `21a52e594`、plan `33cf0581c` 逆序回退；零产品数据或运行时回滚需求。
 - Commits: plan `33cf0581c`；R1 `21a52e594`；R2 `01fed5d36`；R3 本提交 SHA 以 Git history 为准。
 - Next: 按 worker 协议 rebase 最新 `origin/unit/refactor-489`，重跑门禁后在 unit lock 下合并。
