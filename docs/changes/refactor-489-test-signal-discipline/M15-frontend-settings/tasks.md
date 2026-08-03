@@ -8,10 +8,10 @@
 
 ## 退出标准
 
-- [ ] Account、Policies、Agent、Node 与外部 channel 的读取、编辑、提交、失败/空态和 realtime 状态仍有直接行为保护。
-- [ ] 不再以历史 milestone 名、CSS class、旧页面/控件缺席、mock fixture 字段或假想 provider 固化当前实现。
-- [ ] 同一 allowlist、feature、prompt preview、鉴权或 i18n 风险只在最低合适 seam 保留一次。
-- [ ] settings 全域 Vitest、frontend build、diff/scope 检查通过；不修改产品源或相邻 milestone。
+- [x] Account、Policies、Agent、Node 与外部 channel 的读取、编辑、提交、失败/空态和 realtime 状态仍有直接行为保护。
+- [x] 不再以历史 milestone 名、CSS class、旧页面/控件缺席、mock fixture 字段或假想 provider 固化当前实现。
+- [x] 同一 allowlist、feature、prompt preview、鉴权或 i18n 风险只在最低合适 seam 保留一次。
+- [x] settings 全域 Vitest、frontend build、diff/scope 检查通过；不修改产品源或相邻 milestone。
 
 ## 测试策略
 
@@ -73,6 +73,6 @@ Prototype / Reference Contract：N/A（design 与派发均无前端原型/refere
 
 ### R3 — 收敛 channel 状态并完成全域门禁
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 保留 current channel lifecycle/diagnostics/recovery/realtime，删除 responsive class 和无 current provider 路径的重复；运行 settings 全域、build、scope/diff。
 - 验证: settings Vitest、`npm run build`、tracked-path/scope、`git diff --check` 全通过。

@@ -156,12 +156,6 @@ describe("AgentChannelsPanel", () => {
     expect(await screen.findByText("当前配置已应用")).toBeInTheDocument();
     expect(screen.getByText(/状态更新于/)).toBeInTheDocument();
     expect(screen.queryByText(/revision|版本 7|v7/i)).toBeNull();
-    const card = screen.getByText("当前配置已应用").closest("article");
-    expect(card).toHaveClass("im-channel-card");
-    expect(card?.querySelector(".im-channel-card-head")).toBeInTheDocument();
-    expect(card?.querySelector(".im-channel-provider-logo")).toBeInTheDocument();
-    expect(card?.querySelector(".im-channel-card-footer")).toBeInTheDocument();
-
     apiMocks.listAgentChannels.mockResolvedValue([
       channel({
         sync_state: "failed",

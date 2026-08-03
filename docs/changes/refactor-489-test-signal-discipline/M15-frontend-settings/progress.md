@@ -46,7 +46,24 @@
 
 ## R3 — 收敛 channel 状态并完成全域门禁
 
-- 状态: TODO
+- 状态: DONE
+- Context: channel slice 的 Feishu lifecycle、诊断、离线 desired state、删除恢复与 realtime cache 都是 current 风险；其中一条测试只锁 mobile CSS/bottom-sheet class，另一个文件用未进入 current catalog 的 Webhook provider 重复 create/edit/diagnostics。
+- Decision: 保留 Feishu 添加、编辑、secret replacement、连接/失败/last-known、诊断 unknown-vs-missing、删除与 retry recovery；保留 agent/node WS event filtering 与 cache/page 状态更新。删除 mobile class 终态与假想 Webhook provider 文件，并清理保留测试中的 milestone fixture 名和 CSS class 断言。
+- Rationale: current spec 明确本期 catalog 只有 Feishu；通用 provider 数据模型仍由 Feishu 的完整 create/update/status 请求经过，虚构第二 provider 不代表可交付用户路径。响应式视觉没有产品 delta，应由真实 UI 验收或 foundation owner，而不是 class 名承担契约。
+- Evidence:
+  - Tests: channel/realtime 定向 5 files、24 tests 全绿（1.56s）；最终 settings 全域 18 files、79 tests 全绿（4.05s）。
+  - Entry: `AgentChannelsPanel` 经过真实 Feishu add/edit/connect/fail/offline/remove/retry 状态；WS consumer 接收 channel/node status event 并更新 query cache 与 Nodes 页面。
+  - Frontend State Matrix: default、empty、error、disabled、submitting、offline/last-known、limited/unknown diagnostics、deleting/retry 与 realtime flip 均保留；mobile/desktop visual N/A（无 UI delta）。
+  - Browser QA: N/A；派发 reference contract 与 design 都标明零 UI delta，本 milestone 只改测试资产。
+  - E2E/Regression: settings Vitest `18 passed / 79 passed`；production build `tsc -b && vite build`，501 modules transformed，通过，仅有既存 chunk-size warning。
+  - Visual/Interaction: 交互测试通过按钮、表单、dialog、alert 和可见状态驱动；已移除 CSS class/bottom-sheet 终态，无截图或 prototype。
+  - Prototype Comparison: N/A。
+  - Scope: 基线 `25 files / 6036 lines / 132 tests`，最终 `18 files / 4241 lines / 79 tests`；`rg` 确认 settings tests 不再含 milestone/bugfix 命名或 CSS class 断言；相对 `8ceeb39eb` 仅 M15 文档与 settings test 文件变化。
+  - Docs/Diff: `/Users/czj/Repos/nano-multiagent/.venv/bin/python scripts/docs_check.py` 通过（216 maintained Markdown sources、65 required routes）；`git diff --check` 通过。
+- Limit: Vitest 输出仍含基线已有的 React `act(...)`、jsdom WebSocket/user-stream fetch 与 `--localstorage-file` 告警；本 milestone 不改 M16-owned harness 或产品源，未把这些环境输出提升为行为失败。build 的大 chunk warning同样是既存非阻塞项。
+- Rollback: 回退 R3 提交。
+- Commits: 本 roadpoint 提交（SHA 以 Git history 为准）。
+- Next: rebase 最新 unit、复验 selected gates，并集成到 `unit/refactor-489`。
 
 ## Promotion Candidates
 
