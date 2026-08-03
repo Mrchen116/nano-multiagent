@@ -45,6 +45,18 @@
 - Commits: 本 R2 提交（SHA 以 Git history 为准）。
 - Next: R3 rebase 最新 unit，复核 M9 golden 零引用、运行替代保护和完整收尾门禁。
 
+## R3 — Rebase、golden 归属确认与门禁收尾
+
+- 状态: DOING（等待 M9→M13 collection 回归修复后复验）
+- Context: rebase `origin/unit/refactor-489@d0e5ea669`（新增 M8）无冲突，M10 13 nodes、替代保护、docs/ruff 均绿；扩大到完整 `tests/integration` 时 collection 在 M13-owned 文件失败。
+- Decision: 不修改/绕过 M9 或 M13，不以 selected M10 绿替代 unit collection；保留失败证据并等待责任 milestone 修复合入后再次 rebase。
+- Rationale: `test_foreground_interrupt_reap.py` 不属 M10，越界复制 helper 或 skip 会掩盖并行切片依赖；unit 分支必须先恢复可收集性。
+- Evidence:
+  - Tests: rebase 后替代保护 `129 passed, 2 warnings in 3.56s`；M10 `13 tests collected`；`scripts/docs_check.py` 为 `208 maintained Markdown sources / 65 routes`；M10 ruff 与 `git diff --check` 通过。
+  - Gate hold: `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q tests/integration` 与 `--collect-only tests/integration/test_foreground_interrupt_reap.py` 均稳定报 `ImportError: cannot import name '_SUPPRESS_STREAM_STOP' from tests.integration.test_bash_engine`。
+  - Root cause: M9 commit `8cd1d2808` 删除 `test_bash_engine.py` 的 `_SUPPRESS_STREAM_STOP` / `_collect_stream`，M13 `test_foreground_interrupt_reap.py:24-28,150,154` 仍导入/使用；这是 M9 helper 与 M13 consumer 的跨切片依赖回归，已通知 orchestrator。
+- Next: 等 M9/M13 owner 修复并合入 unit；随后 rebase、重跑 M10 + alternatives + full integration + docs/ruff/diff，再完成 R3 与集成。
+
 ## Promotion Candidates
 
 None.
