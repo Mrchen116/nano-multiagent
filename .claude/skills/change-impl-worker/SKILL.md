@@ -140,7 +140,7 @@ repo_root=$(git rev-parse --show-toplevel)
 7. **`docs/development/testing.md`** —— 测试规范的唯一真源:测什么/不测什么的停止条件、**MUST NOT 测私有函数/实现细节**、「改个内部写法就变红的测试是负债——它测的是实现不是行为」。**在写任何测试(含红测)之前必须读完**——它定义本 milestone 测试的取舍。放在「现有测试」之前读:**先立标准,再看样本**。
 8. **现有测试结构** —— 已有哪些测试、组织方式、入口测试是怎么写的。⚠️ 现状里可能掺着反模式(mock 断言某内部函数「被调用」、测一条已失效/no-op 的实现路径);先用上一条测试规范的判据过一遍再参照,**别无脑模仿现状**——坏样本会让你把实现细节当成测试目标。
 
-读完后心里要有清晰的:**本 milestone 的边界 / 涉及的文件 / 已有可复用的东西 / 测试该测什么·不该测什么**。
+读完后心里要有清晰的:**本 milestone 的边界 / 涉及的文件 / 已有可复用的东西 / 测试该测什么·不该测什么 / 哪些既有测试会受影响**。
 
 ### §2.4 跑测试基线
 
@@ -194,6 +194,7 @@ rm -f "<unit_path>/<milestone_dir>/.gitkeep"
 - **目标**:抄 design.md Milestone 表对应行的"退出标准"(lite 模式抄 fix.md "现象/根因"段)
 - **退出标准**:同上,可补充
 - **测试策略**:见 §3.1
+- **受影响的既有测试处置**:按 `docs/development/testing.md` 只记录本 milestone 影响的 `keep / rewrite-merge / delete`,不建全仓台账;没有时写明搜索范围和理由
 - **Roadpoints**:把 milestone 拆成 3-7 个 roadpoint(R1/R2/...),每个能独立按 §5 Red→Green 完成。tasks.md 里每个 roadpoint 状态字段用 `TODO / DOING / DONE / BLOCKED` 四档之一
 
 复制 `assets/progress.md` 模板到 `<unit_path>/<milestone_dir>/progress.md`(空骨架,后续每个 R 完成补齐)。
@@ -354,6 +355,7 @@ Red/Verify 的含义按任务类型区分:
 | Green | 最小实现让测试/状态/路径通过 | — |
 | Browser QA | 前端任务必须真实浏览器验收;后端/API 任务必须真实入口验收 | — |
 | Refactor | 行为不变的重构;改行为先补测试/状态/验收清单 | — |
+| 既有测试 | 按 `tasks.md` 完成 `keep / rewrite-merge / delete`;风险仍在时先跑通最低层替代保护再删旧测试 | 只处理本 milestone 受影响的测试 |
 | 门禁 | `<test_command>` 以及本 roadpoint 相关浏览器/E2E/组件检查按 `tasks.md` 规划通过 | 提交前必过 |
 | Commit | 提交本 roadpoint(测试+实现+progress) | `feat\|fix\|refactor\|test\|docs(<unit>/<milestone>/R<n>): <描述>` |
 | Push | `git push` 保存现场 | — |
@@ -395,7 +397,7 @@ Red/Verify 的含义按任务类型区分:
 
 ## §6 集成到 unit 分支
 
-所有 roadpoint DONE 且满足 milestone 退出标准后(**lite 模式**:在此之前先回填 fix.md 的"修复"和"验证"段——见 §6.0):
+所有 roadpoint DONE、`tasks.md` 的既有测试处置与最终实现一致,且满足 milestone 退出标准后(**lite 模式**:在此之前先回填 fix.md 的"修复"和"验证"段——见 §6.0):
 
 ### §6.0 lite 模式回填 fix.md(仅 lite)
 
@@ -532,7 +534,7 @@ orchestrator 会派新 worker 接同一个 worktree 续跑。新 worker 启动�
 
 **输出**:
 
-- `<unit_path>/<milestone_dir>/tasks.md` —— roadpoint 列表,全部 DONE
+- `<unit_path>/<milestone_dir>/tasks.md` —— roadpoint 列表全部 DONE,受影响既有测试的处置与验证已闭环
 - `<unit_path>/<milestone_dir>/progress.md` —— 每个 roadpoint 的 Context/Decision/Rationale/Evidence/Rollback/Commits 段
 - 代码 + 测试/验收清单/验收证据,合到 `unit/<unit_id>` 分支
 - `progress.md` 的 Promotion Candidates(若发现需要归并到长期 owner 的知识)
