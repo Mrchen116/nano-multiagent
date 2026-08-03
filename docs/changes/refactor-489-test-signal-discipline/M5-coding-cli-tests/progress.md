@@ -14,13 +14,13 @@
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: 回退本计划提交。
-- Commits: 以 Git history 为准。
+- Commits: `a5154f1fe`。
 - Next: R2 删除退役架构与私有实现保护。
 
 ## R2 — 删除退役架构与私有实现保护
 
 - Context: 多个 root test 只验证 HTTP/managed 文件已不存在、对象住在哪个模块、bridge 私有别名相等、Kernel 内部关闭方式或无产品调用者的 Rich renderer；`_cli_async_stubs.py` 的 HTTP client stubs 已无消费者。
-- Decision: 删除 8 个纯历史/private 测试文件和 `_cli_async_stubs.py`；把 release observability 改为 README 公开行为测试并更名；删除 managed-mode release playbook 测试；SDK import 风险继续由 contract AST seam 独占。
+- Decision: 删除 8 个纯历史/private 测试文件和 `_cli_async_stubs.py`；把 `test_cli_refactor_boundaries.py` 收敛为 README 公开的 release-observability 行为测试（current release-playbook gate 仍引用该路径，故不改名）；删除 managed-mode release playbook 测试；SDK import 风险继续由 contract AST seam 独占。
 - Rationale: 这些断言在内部重组时失败，却不增加用户、公开接口或架构风险的独立保护；contract 和 `run_cli` 已是更低、更真实的 seam。
 - Evidence:
   - Tests: 清理中 focused suite `65 passed`；最终 scoped suite `79 passed`，相关 CLI contracts `9 passed`。
@@ -31,7 +31,7 @@
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: 回退本轮测试资产清理 commit。
-- Commits: 以 Git history 为准。
+- Commits: `2859535c5`。
 - Next: R3 收敛重复入口、render 与 input 覆盖。
 
 ## R3 — 将剩余覆盖收敛到当前行为 seam
@@ -48,8 +48,26 @@
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: 回退本轮测试资产清理 commit。
-- Commits: 以 Git history 为准。
+- Commits: `2859535c5`。
 - Next: R4 最终门禁、处置对账与范围检查。
+
+## R4 — 最终门禁与范围证据
+
+- Context: 清理后需确认入口保护、SDK contract、文档完整性、静态质量和 milestone 范围同时成立，并确保没有因改名制造 current release-playbook gate 的新路径漂移。
+- Decision: 保留 `test_cli_refactor_boundaries.py` 路径（其内容已只剩 current release-observability 行为），因为 current `release_playbook.py` 仍引用该 gate；对全部处置做最终 scope/usage/collection 对账。
+- Rationale: 测试内容可以去掉历史断言，但不能在禁止改产品代码的 M5 中新增一个已知路径断裂；最终范围证据也应覆盖删除和 rename 的两端。
+- Evidence:
+  - Tests: scoped root CLI `79 passed in 0.39s`；CLI contract/错误/隔离 `9 passed in 0.62s`；`ruff check` 通过；`scripts/docs_check.py` 通过（198 maintained Markdown sources / 65 routes）；collect `79 tests`。
+  - Entry: `run_cli` 覆盖无参 REPL、Ctrl-C、权限 bypass warning、生产 `llm-config get`、公开斜杠命令、`--text` NDJSON/`--resume`、steer、TTY/非 TTY 与 background run；context-budget 缺口按 R1 证据保持未决且未伪装为绿。
+  - Frontend State Matrix: N/A（非前端）。
+  - Browser QA: N/A。
+  - E2E/Regression: root CLI 79 + related contract 9 全绿；本 milestone 零产品代码变更，无 live service。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+  - Scope: changed paths 全部匹配 M5 root CLI test/helper 或 M5 产物；所有保留的采集测试文件最多 314 行；`git diff --check` 通过。
+- Rollback: 分别回退 `2859535c5`（测试资产处置）和 `a5154f1fe`（计划/证据）。
+- Commits: 本收尾提交，SHA 以 Git history 为准。
+- Next: M5 完成，合入 `unit/refactor-489`。
 
 ## Promotion Candidates
 

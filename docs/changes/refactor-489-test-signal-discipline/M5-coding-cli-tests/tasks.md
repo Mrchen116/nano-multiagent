@@ -12,7 +12,7 @@
 - [x] `coding_cli -> agent.sdk` 边界只由 contract seam 拥有，root unit 不重复扫描历史布局或私有导出。
 - [x] 退役 HTTP、历史文件布局、私有实现、无调用者 helper 和重复迁移测试已删除或合并。
 - [x] context-budget 假绿已删除；既有 out-of-unit 产品缺口未被文字断言或无 issue 的 xfail 掩盖，并有直接复现证据。
-- [ ] M5 scoped tests、相关 CLI contract、ruff、diff/scope 检查通过。
+- [x] M5 scoped tests、相关 CLI contract、ruff、docs、diff/scope 检查通过。
 
 ## 测试策略
 
@@ -32,7 +32,7 @@
 | SDK-only import 边界 | `tests/unit/test_apps_coding_cli_location.py`、`tests/unit/test_cli_structure.py::test_cli_commands_surface_matches_app_commands_module` | delete | root tests只守历史导出/模块位置；当前架构风险由 `tests/contract/test_cli_sdk_only_contract.py` 的 AST 边界在正确层拥有 | contract pytest |
 | 退役 HTTP、managed/remote、health 与历史文件终态 | `tests/unit/test_coding_cli_dead_http_files_removed.py`、`tests/unit/test_apps_coding_cli_location.py::test_legacy_cli_root_is_removed`、`tests/unit/test_cli_async_repl_sdk.py::test_run_cli_no_*` | delete | 这些是迁移终态/文件布局残留；当前 SDK-only/无 HTTP 风险已有 contract seam，公开 `llm-config set` 缺失则按 current automation spec 保留 parser 行为测试 | scoped + contract pytest |
 | 私有模块位置、bridge 别名、render phase 与内核关闭实现 | `tests/unit/test_cli_structure.py`、`tests/unit/test_cli_refactor_boundaries.py::test_commands_*`、`tests/unit/test_cli_async_repl_sdk.py::test_coding_cli_async_main_uses_aclose_not_close`、同文件 `test_kernel_*` | delete | 改内部组织即变红，且 Kernel 自身行为不属于 M5；CLI clean exit 继续由 `run_cli` 入口的可观察 close 结果保护 | scoped pytest |
-| CLI release observability 的当前公开 helper | `tests/unit/test_cli_refactor_boundaries.py::test_cli_release_observability_is_thin_compat_shim` | rewrite-merge | README 仍公开该 helper；更名为 `test_cli_release_observability.py`，去掉自指“compat shim”断言，仅保留输入到诊断输出的行为 | focused pytest |
+| CLI release observability 的当前公开 helper | `tests/unit/test_cli_refactor_boundaries.py::test_cli_release_observability_is_thin_compat_shim` | rewrite-merge | README 仍公开该 helper；去掉自指“compat shim”断言，仅保留输入到诊断输出的行为；路径仍被 current release-playbook gate 引用，暂不改名 | focused pytest |
 | 已退役 managed-mode release playbook | `tests/unit/test_cli_refactor_boundaries.py::test_cli_release_playbook_*` | delete | 断言已不存在的 `--mode managed`、`--base-url` 和历史 gate 文件，不对应 current CLI 风险 | focused pytest |
 | 自动权限状态提示 | `tests/unit/test_repl_auto_mode_banner.py`、`tests/unit/test_cli_mode.py::test_run_cli_auto_mode_banner_shown_at_startup` | rewrite-merge | 风险是用户是否从真实 REPL 看到权限状态；把私有 loader/banner 单测合并成 `run_cli` 入口测试 | focused pytest |
 | context budget 与 70/85/95 hint | `tests/unit/test_cli_repl_commands.py::test_run_cli_repl_context_budget_shows_threshold_hint`、`tests/unit/test_cli_context_budget.py`、`tests/unit/test_repl_summary.py::test_print_turn_summary_*budget*` | delete | 现有测试只断言 echo/私有 helper，无法保护 current spec；真实入口已复现产品未传 kernel。无既有 issue，按 orchestrator 裁决不新增无 issue xfail，本 milestone 不声称风险已关闭 | progress 直接证据 + scoped pytest |
@@ -64,6 +64,6 @@
 
 ### R4 — 最终门禁与范围证据
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 核对处置表与最终测试树，运行 scoped tests、相关 contract、ruff、diff/scope 检查，补齐 progress。
 - 验证: 全部门禁绿；changed paths 仅 M5 范围。
