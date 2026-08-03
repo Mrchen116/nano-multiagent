@@ -27,6 +27,24 @@
 - Commits: 本 R1 提交（SHA 以 Git history 为准）。
 - Next: R2 去除保留测试中的私有 run registry、旧 metadata、change 叙事与无条件异步等待，只保留最终跨 seam 断言。
 
+## R2 — 收敛当前跨 seam 保护
+
+- 状态: DONE
+- Context: 清理后的 13 个 current case 中，foreground 文件仍以历史 change 叙事解释实现，restart test 直接断言旧 session metadata，terminal-overlap test 从 `kernel._c.runs_registry._runs` 读取私有状态，foreground negative case 还靠固定 0.5 秒等待。
+- Decision: foreground/background 只从 tool terminal event 与下一轮模型输入判定单/双通道，后台通知使用 condition polling；restart 只断言旧 listener 零请求、新 listener 收到消息且历史/绑定续接；terminal overlap 从公开 observer event 捕获 run identity，不再读取 Kernel 私有组件。
+- Rationale: 这些最终结果正是 Gateway、Kernel、HTTP listener 与 session persistence 接缝失效后消费者会看到的症状；旧 metadata 值、registry 容器和迁移故事不是长期契约。
+- Evidence:
+  - Tests: 定向 foreground/restart/session 为 `7 passed, 2 warnings in 5.03s`；完整 M10 为 `13 passed, 2 warnings in 5.62s`；全部 M10 Python 文件 ruff 和 `git diff --check` 通过。
+  - Entry: real `build_kernel` 执行 local shell 后从 tool event/模型下一轮输入取证；restart 用两个真实 loopback HTTP listener 证明 live endpoint；Gateway coordinator 用公开 event observer + dispatch result 证明 terminal overlap 只产生一条 fallback run。
+  - Frontend State Matrix: N/A（非前端）。
+  - Browser QA: N/A（零用户面测试资产重构）。
+  - E2E/Regression: 本 R 只重写永久 integration regression；不新增临时验收脚本。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退本 roadpoint commit 可恢复原断言，不影响产品实现。
+- Commits: 本 R2 提交（SHA 以 Git history 为准）。
+- Next: R3 rebase 最新 unit，复核 M9 golden 零引用、运行替代保护和完整收尾门禁。
+
 ## Promotion Candidates
 
 None.

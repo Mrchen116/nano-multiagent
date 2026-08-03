@@ -55,12 +55,12 @@ Prototype / Reference Contract：N/A。
 
 ### R2 — 收敛当前跨 seam 保护
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 保留真实 channel HTTP/WS、real-kernel 通知、routing/session/restart 结果；移除私有字段、历史 metadata 和 change 叙事断言，改用公开事件或最终接收结果。
 - 验证: M10 integration 全绿，保留用例只断言 current 跨边界结果。
 
 ### R3 — Rebase、golden 归属确认与门禁收尾
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: rebase 最新 unit；确认 M9 已删除 golden 唯一引用后再删除 fixtures；复核处置表、changed paths 与替代保护，运行 M10、ruff、diff check。
 - 验证: 所有门禁全绿；若 M9 仍引用 golden 则保留并在 progress 报告，不越界修改 M9。

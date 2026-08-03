@@ -76,9 +76,12 @@ async def test_terminal_observer_window_creates_one_fallback_run(
     )
     terminal_seen = asyncio.Event()
     release_terminal = asyncio.Event()
+    first_run_id: str | None = None
 
     async def _observer(event: dict[str, object]) -> None:
+        nonlocal first_run_id
         if event.get("event") == "run_status" and not terminal_seen.is_set():
+            first_run_id = str(event["run_id"])
             terminal_seen.set()
             await release_terminal.wait()
 
@@ -104,7 +107,7 @@ async def test_terminal_observer_window_creates_one_fallback_run(
             )
         )
         await asyncio.wait_for(terminal_seen.wait(), timeout=2)
-        first_run_id = next(iter(kernel._c.runs_registry._runs))  # noqa: SLF001
+        assert first_run_id is not None
         while kernel.get_run(first_run_id).status not in {
             "completed",
             "failed",
