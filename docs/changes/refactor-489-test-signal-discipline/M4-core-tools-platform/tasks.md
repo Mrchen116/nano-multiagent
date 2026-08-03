@@ -62,12 +62,12 @@
 
 ### R4 — 收敛 bash policy 与 LLM 负断言
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: bash policy 仅保留未被 lower seam 覆盖的安全 cases；删除 LLM signature/dead-field 迁移断言。
 - 验证: bash policy lower seam、LLM provider/retry/model registry 与 contract tests 全绿。
 
 ### R5 — M4 范围门禁与证据收尾
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 运行完整 M4 slice、检查 changed paths、测试收集数、diff 与无产品/spec delta，补齐 progress。
 - 验证: M4 slice 全绿，`git diff --check` 与 scope 检查通过。

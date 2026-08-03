@@ -267,24 +267,3 @@ class TestRetryableErrors:
             provider_code="Throttling.RateQuota",
         )
         assert classify_retryability(facts) is True
-
-
-# ---------------------------------------------------------------------------
-# Provider-name independence
-# ---------------------------------------------------------------------------
-
-
-def test_classifier_has_no_provider_name_branch() -> None:
-    """Classifier must not care about provider name.
-
-    Same facts classified identically regardless of which provider sent them.
-    This is enforced by the classifier signature: no provider name parameter.
-    """
-    import inspect
-
-    sig = inspect.signature(classify_retryability)
-    param_names = list(sig.parameters.keys())
-    assert "provider" not in param_names, (
-        f"classify_retryability must not accept a 'provider' parameter; "
-        f"got: {param_names}"
-    )

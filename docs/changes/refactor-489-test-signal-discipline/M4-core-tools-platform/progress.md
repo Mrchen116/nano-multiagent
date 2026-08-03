@@ -76,6 +76,29 @@
 - Commits: 本提交（SHA 以 Git history 为准）。
 - Next: R4 收敛 bash policy 重复，并删除 LLM signature/dead-field 迁移负断言。
 
+## R4 — 收敛 bash policy 与 LLM 负断言
+
+- Context: root bash-policy 文件重复 lower suite 的 allow/review/deny、loader、fork-bomb 与常见危险命令；LLM 文件则以 function signature 和退役 metadata 字段缺席锁定迁移终态。
+- Decision: root bash-policy 只保留混合 chain、`emulate`、env prefix 与 deny-command replacement 四项独有风险；删除其余重复 cases，以及 LLM provider 参数缺席和 dead-field 缺席断言。
+- Rationale: lower bash suite 已直接覆盖三态决策、enforcement、常见危险命令与配置读取；LLM 长期风险由事实→retryability 结果矩阵和 metadata roundtrip/provider contract 保护，而不是历史参数或字段不能出现。
+- Evidence:
+  - Claim: 重复与迁移负断言删除后，bash 安全边界、retryability 与公开 model metadata 仍有直接行为保护。
+  - Baseline: R3 commit `c32f5199c`；本轮修改前相关测试包含在 M4 baseline `658 passed`。
+  - Method: 将 root bash cases 与 current lower policy suite 同跑；将 error classifier/model registry 与 LLM provider contract 同跑；对三个修改文件跑 Ruff。
+  - Result: PASS；bash policy `79 passed`，LLM/contract `68 passed`，Ruff `All checks passed!`，`git diff --check` 通过。
+  - Locator: `tests/unit/test_tool_safety_policy.py` 的四项独有安全 cases；`tests/unit/agent/platform/tools/builtins/test_bash_policy.py`；`tests/unit/test_llm_error_classifier.py` 的 facts matrix；`tests/unit/test_llm_model_registry.py::test_resolve_anthropic_metadata_extra_request_body_preserved`；`tests/contract/test_llm_provider_contract.py`。
+  - Limit: 测试使用本地 policy/model registry 和 provider contract，不调用真实外部 provider。
+  - Tests: `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q tests/unit/test_tool_safety_policy.py tests/unit/agent/platform/tools/builtins/test_bash_policy.py` → `79 passed`；`... pytest -q tests/unit/test_llm_error_classifier.py tests/unit/test_llm_model_registry.py tests/contract/test_llm_provider_contract.py` → `68 passed`。
+  - Entry: Bash policy function seam 与 LLM registry/classifier API；无外部 live 入口。
+  - Frontend State Matrix: N/A（非前端）。
+  - Browser QA: N/A（零用户面）。
+  - E2E/Regression: 保留的自动化 regression 如 Locator；无新用例。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退本 roadpoint 提交恢复 bash/LLM 历史断言，不影响 R1--R3。
+- Commits: 本提交（SHA 以 Git history 为准）。
+- Next: R5 运行完整 M4 slice、受依赖 contract/lower seams、Ruff、diff 与 scope 门禁并收尾证据。
+
 ## Promotion Candidates
 
 None.
