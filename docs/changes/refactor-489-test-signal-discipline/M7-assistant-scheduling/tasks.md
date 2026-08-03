@@ -60,7 +60,7 @@
 
 ### R4 — 稳定 background / polling / liveness 时序保护
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 保留异步生命周期和 await-bound 风险，将可收敛的任意 sleep 改为条件驱动，删除自我复制的 idle/permission 假 wiring。
 - 验证: background + root liveness/idle 文件切片 pytest。
 

@@ -71,6 +71,24 @@
 - Commits: 本 R 提交（SHA 以 Git history 为准）。
 - Next: R4 稳定 background / polling / liveness 时序保护。
 
+## R4 — 稳定 background / polling / liveness 时序保护
+
+- Context: polling runner 的前三个接线测试依赖 `sleep(0.01)` 猜测后台 loop 已运行，故障恢复测试反复 sleep 轮询计数；另有私有 done-callback inspection 和从未调用产品的 state-path 构造测试。CLI idle 测试完整复制 formatter，permission liveness 测试则自己复刻私有 task/cancel wiring。
+- Decision: cron enabled/disabled 合并成一次 mixed-agent 真实 loop；用 `asyncio.Event` 等待 cron 调用和 heartbeat tick，故障恢复由首 tick event + `request_tick()` 驱动第二次 tick。删除私有 task callback、假 state construction、idle formatter 复制、重复 liveness no-op 和 permission 私有 wiring。保留 background subscriber/manager 的重连、seal/close/事件不丢，以及真实 ticker/tool registry/REPL input 行为。
+- Rationale: 条件驱动断言证明 loop 已到达目标状态，不把调度速度当正确性；await-bound liveness 本身是真时序风险，因此保留在 primitive 与实际 ToolRegistry seam，而非因耗时而删除。
+- Evidence:
+  - Tests: background + cron polling + root generic/idle/liveness 切片，`35 passed in 2.50s`。
+  - Entry: `PollingHeartbeatRunner.start()/request_tick()/close()`、background subscriber/manager、`repl_input`、liveness/execution ticker 与 `ToolRegistry.execute()`。
+  - Frontend State Matrix: N/A（非前端）。
+  - Browser QA: N/A（零用户面代码变更）。
+  - E2E/Regression: `test_cron_polling_runner.py`, `test_background_session_events.py`, `test_background_subscription_manager.py`, `test_generic_ticker_skip.py`。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+  - Quality: focused `ruff check` 通过；polling runner 测试已无任意 sleep、私有 callback inspection 或自建 production path。
+- Rollback: 回退本 R 提交至 `cac1a77da`。
+- Commits: 本 R 提交（SHA 以 Git history 为准）。
+- Next: R5 全 M7 切片、边界与路径审计。
+
 ## Promotion Candidates
 
 | Candidate | Suggested owner | Scope | Evidence |
