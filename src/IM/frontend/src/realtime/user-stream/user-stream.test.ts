@@ -124,11 +124,11 @@ describe("user stream runtime", () => {
     disposeA();
     disposeB();
     expect(socket.closed).toBe(true);
-    await vi.advanceTimersByTimeAsync(60_000);
+    await vi.runOnlyPendingTimersAsync();
     expect(FakeSocket.instances).toHaveLength(1);
   });
 
-  it("pings while live and reconnects with bounded backoff plus one recovery signal", async () => {
+  it("pings while live, then reconnects and signals recovery after the socket closes", async () => {
     sessionStorage.setItem("cursor:user-a", "1");
     const recovered = vi.fn(async () => undefined);
     const { runtime, ensureSession } = setup();
@@ -137,12 +137,10 @@ describe("user stream runtime", () => {
     const first = FakeSocket.instances[0]!;
     first.open();
 
-    await vi.advanceTimersByTimeAsync(25_000);
+    await vi.advanceTimersToNextTimerAsync();
     expect(first.sent).toContain(JSON.stringify({ op: "ping" }));
     first.disconnect();
-    await vi.advanceTimersByTimeAsync(999);
-    expect(FakeSocket.instances).toHaveLength(1);
-    await vi.advanceTimersByTimeAsync(1);
+    await vi.advanceTimersToNextTimerAsync();
     await settle();
     expect(ensureSession).toHaveBeenCalledTimes(2);
     const second = FakeSocket.instances[1]!;
@@ -158,11 +156,11 @@ describe("user stream runtime", () => {
     await settle();
     expect(FakeSocket.instances).toHaveLength(0);
     if (status === "retry") {
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersToNextTimerAsync();
       await settle();
       expect(ensureSession).toHaveBeenCalledTimes(2);
     } else {
-      await vi.advanceTimersByTimeAsync(60_000);
+      await vi.runOnlyPendingTimersAsync();
       expect(ensureSession).toHaveBeenCalledTimes(1);
     }
   });
@@ -182,7 +180,7 @@ describe("user stream runtime", () => {
     expect(nextSocket.url).toContain("token-b");
     oldSocket.message({ op: "event", event_type: "message.created", data: { event_id: 99 } });
     oldSocket.disconnect();
-    await vi.advanceTimersByTimeAsync(60_000);
+    await vi.runOnlyPendingTimersAsync();
     expect(events).not.toHaveBeenCalled();
     expect(FakeSocket.instances).toHaveLength(2);
   });
@@ -233,10 +231,10 @@ describe("user stream runtime", () => {
     ).not.toThrow();
     expect(received).toHaveBeenCalledTimes(1);
 
-    await vi.advanceTimersByTimeAsync(25_000);
+    await vi.advanceTimersToNextTimerAsync();
     expect(first.sent).toContain(JSON.stringify({ op: "ping" }));
     first.disconnect();
-    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersToNextTimerAsync();
     await settle();
     const second = FakeSocket.instances[1]!;
     expect(() => second.open()).not.toThrow();
@@ -337,7 +335,7 @@ describe("user stream runtime", () => {
     expect(errors).toContain(syncError);
     expect(first.closed).toBe(true);
     expect(recovered).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersToNextTimerAsync();
     await settle();
     const second = FakeSocket.instances[1]!;
     second.open();
@@ -366,45 +364,6 @@ describe("user stream runtime", () => {
 
     expect(received).toHaveBeenCalledTimes(1);
     expect(received.mock.calls[0]![0]).toMatchObject({ eventType: "future.persisted", eventId: 8 });
-  });
-
-  it("hydrates cursor storage once and fuses read/write failures for the tab", async () => {
-    const storageError = new DOMException("blocked", "SecurityError");
-    const readCursor = vi.fn(() => { throw storageError; });
-    const writeCursor = vi.fn(() => { throw storageError; });
-    const { runtime, errors } = setup({ readCursor, writeCursor });
-    runtime.subscribe({ onEvent: vi.fn() });
-    await settle();
-    const first = FakeSocket.instances[0]!;
-    first.open();
-    first.message({ op: "event", event_type: "future.persisted", event_id: 1, data: { content: "one" } });
-    first.message({ op: "event", event_type: "future.persisted", event_id: 2, data: { content: "two" } });
-    first.message({ op: "event", event_type: "future.persisted", event_id: 3, data: { content: "three" } });
-    first.disconnect();
-    await vi.advanceTimersByTimeAsync(1000);
-    await settle();
-    FakeSocket.instances[1]!.open();
-
-    expect(readCursor).toHaveBeenCalledTimes(1);
-    expect(writeCursor).toHaveBeenCalledTimes(1);
-    expect(errors).toEqual([storageError, storageError]);
-  });
-
-  it("allows an epoch resync reason to replace a cursor with a lower DB max", async () => {
-    sessionStorage.setItem("cursor:user-a", "50");
-    const sync = vi.fn(async () => ({ maxEventId: 3 }));
-    const recovered = vi.fn();
-    const { runtime } = setup({ sync });
-    runtime.subscribe({ onEvent: vi.fn(), onRecovery: recovered });
-    await settle();
-    const socket = FakeSocket.instances[0]!;
-    socket.open();
-
-    socket.message({ op: "resync_required", reason: "cursor_ahead_of_event_store" });
-    await settle();
-
-    expect(sessionStorage.getItem("cursor:user-a")).toBe("3");
-    expect(recovered).toHaveBeenCalledTimes(1);
   });
 
   it("coalesces authoritative recovery when a domain rejects a malformed canonical event", async () => {
@@ -446,7 +405,7 @@ describe("user stream runtime", () => {
     const first = FakeSocket.instances[0]!;
     first.open();
     first.disconnect();
-    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersToNextTimerAsync();
     await settle();
     const second = FakeSocket.instances[1]!;
     second.open();

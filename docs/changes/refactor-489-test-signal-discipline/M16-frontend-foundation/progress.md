@@ -47,7 +47,23 @@
 
 ## R3 — 收敛 realtime 并完成配置门禁
 
-- 状态: TODO
+- 状态: DONE
+- Context: user-stream 已直接保护 single socket、session generation、cursor/resume、resync/recovery 与 malformed isolation，但又用单独 case 锁定 sessionStorage read/write 恰好一次、lower cursor 的内部 setter 分支，并在多例中精确等待 1 秒/25 秒/60 秒 timer 常量。
+- Decision: 保留 storage 被阻挡时完整的 resume→dispatch→ping→reconnect memory continuity，以及 resync 失败→重连→lower authoritative cursor→新事件的端到端 runtime case；删除两份内部调用次数/单点重复，将 timer 驱动改为推进下一已安排任务。Vite WS proxy test 与 package/vite/tsconfig/setup/render helper 原样保留，由实际 collection 和 build 验证。
+- Rationale: 产品风险是断线后仍能恢复、cursor 不漏/不倒退/可被新 epoch 校正、账号切换不串流和坏事件不污染 fan-out；storage helper 调用次数和退避常量不是公开契约。完整状态机 case 已覆盖被删分支，而且更接近消费者可观察结果。
+- Evidence:
+  - Tests: user-stream + proxy 定向 `2 files / 16 tests passed in 0.72s`；最新 unit 上完整 M16 `17 files / 73 tests passed in 3.49s`，相对基线从 `19 files / 105 tests` 净减 2 个 raw-text 文件与 32 个低信号/重复 case；完整 frontend `66 files / 608 tests passed in 13.71s`。
+  - Build: `tsc -b --pretty false` 与 Vite production build PASS；构建输出定向 `/tmp/refactor-489-M16-build.*`，仓内不产生 `src/IM/frontend/dist/`。
+  - Docs/Scope: `scripts/docs_check.py` PASS（218 maintained Markdown sources / 65 required routes）；`git diff --check` 与 changed-path audit PASS，改动仅 M16 foundation tests 和本 milestone 文档。
+  - Entry: runtime tests 继续执行 socket open/message/close、session change、cursor storage、sync/recovery、subscriber fan-out；node-environment proxy test 继续证明 `/im` WebSocket 转发配置。
+  - Frontend State Matrix: default/empty/error/disabled/permission denied/missing data/mobile/desktop 的适用 foundation 状态均由保留的 73 个 case 代表性覆盖。
+  - Browser QA: N/A（测试资产重构，无 UI/product delta）。
+  - E2E/Regression: 永久 regression 为收敛后的 M16 Vitest；真实浏览器/real IM service 不属本 milestone。
+  - Visual/Interaction: N/A；无产品样式或交互修改。
+  - Prototype Comparison: N/A。
+- Rollback: 回退 M16 三个 roadpoint commit 可恢复被删除/合并的测试资产，不改变生产代码或用户数据。
+- Commits: 本 R3 提交与最终 merge commit（SHA 以 Git history 为准）。
+- Next: 无；M16 已达到退出标准，等待合入 unit 分支。
 
 ## Promotion Candidates
 

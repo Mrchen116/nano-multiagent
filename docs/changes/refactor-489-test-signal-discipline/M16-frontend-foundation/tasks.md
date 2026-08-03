@@ -8,10 +8,10 @@
 
 ## 退出标准
 
-- [ ] 19 个 M16 测试文件与 scoped test/config support 均有 keep / rewrite-merge / delete 处置结论。
-- [ ] 保留测试直接驱动路由、组件、store、transport runtime、browser API adapter 或 Vite config，并从 DOM、请求、持久状态、事件 fan-out 或公开配置观察结果。
-- [ ] 删除的源码文本、HTML/`.gitignore` 布局与重复断言不留下 app/auth/realtime/notification 保护缺口。
-- [ ] M16 Vitest、frontend build、`git diff --check` 与 changed-path scope 全绿。
+- [x] 19 个 M16 测试文件与 scoped test/config support 均有 keep / rewrite-merge / delete 处置结论。
+- [x] 保留测试直接驱动路由、组件、store、transport runtime、browser API adapter 或 Vite config，并从 DOM、请求、持久状态、事件 fan-out 或公开配置观察结果。
+- [x] 删除的源码文本、HTML/`.gitignore` 布局与重复断言不留下 app/auth/realtime/notification 保护缺口。
+- [x] M16 Vitest、frontend build、`git diff --check` 与 changed-path scope 全绿。
 
 ## 测试策略
 
@@ -89,6 +89,6 @@ Prototype / Reference Contract：N/A。
 
 ### R3 — 收敛 realtime 并完成配置门禁
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 删除 user-stream 中被完整 continuity/resync case 覆盖的内部调用次数与单点重复；复核 test setup/package/Vite/tsconfig owner，并在最新 unit 上完成门禁。
 - 验证: M16、frontend build、docs/diff/scope 全绿；changed paths 仅 M16 tests 与本 milestone 文档。
