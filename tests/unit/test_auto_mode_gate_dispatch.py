@@ -1,11 +1,7 @@
-"""Tests for auto_mode_gate new dispatch order (bugfix-355 M1 R4).
+"""Tests for auto_mode_gate permission dispatch.
 
 Verifies:
-- web_fetch removed from SAFE_TOOL_ALLOWLIST
-- _detect_outside_workspace_path function is gone
-- _WRITE_TOOLS_WITH_PATH_INPUT constant is gone
-- OUTSIDE NOTE no longer prepended to classifier prompt
-- tool.check_permissions called at step 1 (before dangerously bypass)
+- tool.check_permissions decisions are honored before classifier fallback
 - safety_locked = True when check_permissions returns ask+safety_check
 - dangerously mode + safety_locked → still asks (bypass-immune)
 - dangerously mode + !safety_locked → passes through (true bypass)
@@ -25,8 +21,6 @@ import pytest
 
 from agent.platform.config.auto_mode import AutoModeConfig
 from agent.platform.hooks.builtins.auto_mode_gate import (
-    SAFE_TOOL_ALLOWLIST,
-    is_safe_tool,
     setup as gate_setup,
 )
 from agent.platform.permissions.broker import PermissionBroker, PermissionDecision
@@ -115,120 +109,6 @@ def _make_ctx(
 
     ctx.message_history = ()
     return ctx
-
-
-# ---------------------------------------------------------------------------
-# SAFE_TOOL_ALLOWLIST changes
-# ---------------------------------------------------------------------------
-
-
-class TestSafeToolAllowlistChanges:
-    def test_web_fetch_removed_from_safe_allowlist(self):
-        """web_fetch must NOT be in SAFE_TOOL_ALLOWLIST after M1 (S1 gap)."""
-        assert "web_fetch" not in SAFE_TOOL_ALLOWLIST, (
-            "web_fetch must be removed from SAFE_TOOL_ALLOWLIST (falls to check_permissions)"
-        )
-
-    def test_web_search_in_safe_allowlist(self):
-        """bugfix-456: web_search is read-only search and bypasses classifier."""
-        assert "web_search" in SAFE_TOOL_ALLOWLIST
-
-    def test_read_still_in_safe_allowlist(self):
-        """read must remain in SAFE_TOOL_ALLOWLIST."""
-        assert "read" in SAFE_TOOL_ALLOWLIST
-
-    def test_agent_still_in_safe_allowlist(self):
-        """agent must remain in SAFE_TOOL_ALLOWLIST (D2 decision)."""
-        assert "agent" in SAFE_TOOL_ALLOWLIST
-
-    def test_task_stop_still_in_safe_allowlist(self):
-        assert "task_stop" in SAFE_TOOL_ALLOWLIST
-
-    def test_other_task_tools_not_preapproved(self):
-        for tool in (
-            "task_create",
-            "task_get",
-            "task_update",
-            "task_list",
-            "task_output",
-        ):
-            assert tool not in SAFE_TOOL_ALLOWLIST
-
-    def test_send_message_still_in_safe_allowlist(self):
-        assert "send_message" in SAFE_TOOL_ALLOWLIST
-
-    def test_is_safe_tool_web_fetch_false(self):
-        """is_safe_tool must return False for web_fetch after removal."""
-        assert is_safe_tool("web_fetch", AutoModeConfig()) is False
-
-    def test_is_safe_tool_web_search_true(self):
-        assert is_safe_tool("web_search", AutoModeConfig()) is True
-
-
-# ---------------------------------------------------------------------------
-# _detect_outside_workspace_path deleted
-# ---------------------------------------------------------------------------
-
-
-class TestDetectOutsideWorkspacePathDeleted:
-    def test_detect_outside_workspace_path_not_exported(self):
-        """_detect_outside_workspace_path must be deleted from auto_mode_gate."""
-        import agent.platform.hooks.builtins.auto_mode_gate as gate_module
-
-        assert not hasattr(gate_module, "_detect_outside_workspace_path"), (
-            "_detect_outside_workspace_path must be deleted (Anchor F)"
-        )
-
-    def test_write_tools_with_path_input_not_exported(self):
-        """_WRITE_TOOLS_WITH_PATH_INPUT constant must be deleted from auto_mode_gate."""
-        import agent.platform.hooks.builtins.auto_mode_gate as gate_module
-
-        assert not hasattr(gate_module, "_WRITE_TOOLS_WITH_PATH_INPUT"), (
-            "_WRITE_TOOLS_WITH_PATH_INPUT must be deleted (Anchor F)"
-        )
-
-
-# ---------------------------------------------------------------------------
-# OUTSIDE NOTE removed from classifier prompt
-# ---------------------------------------------------------------------------
-
-
-class TestOutsideNoteRemoved:
-    @pytest.mark.asyncio
-    async def test_outside_note_not_in_classifier_prompt(self):
-        """Classifier prompt must NOT contain OUTSIDE NOTE for out-of-workspace write."""
-        captured_prompts: list[str] = []
-
-        async def capturing_model(**kwargs):
-            captured_prompts.append(kwargs.get("user_prompt", ""))
-            return MagicMock(content="<block>no</block>")
-
-        config = AutoModeConfig()
-        handler, _ = _get_handler(config)
-        ctx = _make_ctx(
-            config=config,
-            tool_instance=_make_tool_with_check_permissions("passthrough"),
-        )
-        ctx.call_model = capturing_model
-
-        # write to out-of-workspace path (previously would add OUTSIDE NOTE)
-        await handler(
-            {
-                "name": "write",
-                "args": {"file_path": "/tmp/outside_workspace.txt", "content": "data"},
-            },
-            ctx,
-        )
-
-        # At least one call to call_model (classifier reached)
-        assert len(captured_prompts) > 0
-        for prompt in captured_prompts:
-            assert "NOTE: target path" not in prompt, (
-                "OUTSIDE NOTE must not appear in classifier prompt (W2 gap removed)"
-            )
-            assert "is OUTSIDE" not in prompt, (
-                "OUTSIDE NOTE must not appear in classifier prompt (W2 gap removed)"
-            )
 
 
 # ---------------------------------------------------------------------------

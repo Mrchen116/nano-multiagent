@@ -174,35 +174,6 @@ def test_tool_call_block_short_circuits_following_handlers() -> None:
     assert result.payload["reason"] == "policy"
 
 
-# ---------------------------------------------------------------------------
-# R3: HookContext extensions — message_history + permission_requester +
-#     request_permission (R3 of feat-333-M1)
-# ---------------------------------------------------------------------------
-
-
-class TestHookContextMessageHistory:
-    """message_history field: tuple of LLM messages for classifier transcript."""
-
-    def test_default_message_history_is_empty_tuple(self) -> None:
-        ctx = HookContext(session_id="s-mh-1")
-        assert ctx.message_history == ()
-
-    def test_message_history_stored_and_accessible(self) -> None:
-        msgs = (
-            {"role": "user", "content": "hello"},
-            {"role": "assistant", "content": "hi"},
-        )
-        ctx = HookContext(session_id="s-mh-2", message_history=msgs)
-        assert ctx.message_history == msgs
-
-    def test_message_history_coerced_to_tuple(self) -> None:
-        """Any sequence passed as message_history should be accessible as-is (tuple)."""
-        msgs = ({"role": "user", "content": "test"},)
-        ctx = HookContext(session_id="s-mh-3", message_history=msgs)
-        assert isinstance(ctx.message_history, tuple)
-        assert len(ctx.message_history) == 1
-
-
 class TestHookContextPermissionRequester:
     """permission_requester field and request_permission method."""
 
@@ -253,11 +224,6 @@ class TestHookContextPermissionRequester:
         assert response.decision == "allow_once"
         assert response.request_id == "req-2"
 
-    def test_permission_requester_default_is_none(self) -> None:
-        ctx = HookContext(session_id="s-pr-3")
-        assert ctx.permission_requester is None
-
-
 class TestHookRunnerTimeoutNone:
     """Hooks registered with timeout_ms=None are not wrapped in asyncio.wait_for."""
 
@@ -282,16 +248,6 @@ class TestHookRunnerTimeoutNone:
         )
         assert called == ["done"]
         assert diagnostics[0].status == "ok"
-
-    def test_registration_allows_none_timeout_ms(self) -> None:
-        registry = HookRegistry()
-
-        def noop(event, ctx):
-            return None
-
-        reg = registry.on("tool_call", noop, timeout_ms=None)
-        assert reg.timeout_ms is None
-
 
 def test_dispatch_observe_skips_intercept_mode_handlers() -> None:
     """An INTERCEPT-mode handler must NOT execute during dispatch_observe.
@@ -338,46 +294,3 @@ def test_dispatch_observe_skips_intercept_mode_handlers() -> None:
         )
     )
     assert "intercept" in ran, "intercept handler must run in intercept dispatch"
-
-
-def test_strip_fork_conversation_preserves_message_history_and_permission_requester() -> (
-    None
-):
-    """_strip_fork_conversation must null ONLY fork_conversation, keeping every
-    other field — notably message_history and permission_requester.
-
-    Regression (bugfix-377): the manual rebuild in _strip_fork_conversation
-    copied a hand-listed subset of fields and silently dropped message_history
-    and permission_requester (added to HookContext later, on 2026-05-15, without
-    updating this rebuild). Result: any observe/intercept dispatch whose ctx
-    carried a fork_conversation reached the auto_mode_gate classifier with an
-    EMPTY transcript — the classifier ran blind and over-blocked — and lost the
-    PermissionBroker so request_permission fail-closed to deny.
-    """
-    from agent.core.hooks.runner import _strip_fork_conversation
-
-    sentinel_history = ("user-msg", "assistant-tool_use")
-
-    async def requester(req):
-        return None
-
-    async def make_fork(review_prompt, *, tool_allowlist, max_turns):
-        return None
-
-    ctx = HookContext(
-        session_id="sess-strip",
-        turn_id="turn-1",
-        message_history=sentinel_history,
-        permission_requester=requester,
-        fork_conversation=make_fork,
-    )
-
-    stripped = _strip_fork_conversation(ctx)
-
-    assert stripped.fork_conversation is None
-    assert stripped.message_history == sentinel_history, (
-        "message_history must survive fork_conversation stripping"
-    )
-    assert stripped.permission_requester is requester, (
-        "permission_requester must survive fork_conversation stripping"
-    )

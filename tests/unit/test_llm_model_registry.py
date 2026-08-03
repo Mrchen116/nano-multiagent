@@ -29,25 +29,6 @@ def test_anthropic_default_model_and_base_url() -> None:
     assert get_default_base_url("anthropic") == "http://127.0.0.1:4000"
 
 
-def test_resolve_model_metadata_no_dead_fields() -> None:
-    """ModelMetadata must not have supports_text/image/tools/streaming (dead fields removed)."""
-    metadata = resolve_model_metadata("openai_compat", "codex_oauth:gpt-5.5")
-    assert metadata.provider == "openai_compat"
-    assert metadata.model == "codex_oauth:gpt-5.5"
-    assert not hasattr(metadata, "supports_text"), (
-        "supports_text dead field must be removed"
-    )
-    assert not hasattr(metadata, "supports_image"), (
-        "supports_image dead field must be removed"
-    )
-    assert not hasattr(metadata, "supports_tools"), (
-        "supports_tools dead field must be removed"
-    )
-    assert not hasattr(metadata, "supports_streaming"), (
-        "supports_streaming dead field must be removed"
-    )
-
-
 def test_resolve_anthropic_metadata_extra_request_body_preserved() -> None:
     """K2.6 extra_request_body must roundtrip exactly — thinking signature chain depends on this."""
     metadata = resolve_model_metadata("anthropic", "kimiCoding:K2.6")
