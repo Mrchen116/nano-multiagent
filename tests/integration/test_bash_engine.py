@@ -10,6 +10,8 @@ from typing import Any
 
 import pytest
 
+_SUPPRESS_STREAM_STOP = (asyncio.TimeoutError, asyncio.CancelledError)
+
 from agent.core.llm.interfaces import LLMMessage, LLMToolCall
 from agent.sdk import LLMConfig, LLMModel, LLMProvider, build_kernel
 
@@ -94,6 +96,15 @@ def _build(tmp_path: Path, llm_client: Any) -> Any:
         repo_root=tmp_path,
         _llm_client_override=llm_client,
     )
+
+
+async def _collect_stream(
+    kernel: Any, session_id: str, stop: asyncio.Event, sink: list[dict]
+) -> None:
+    async for event in kernel.stream(session_id):
+        if stop.is_set():
+            break
+        sink.append(event)
 
 
 async def _run_turn_and_collect(

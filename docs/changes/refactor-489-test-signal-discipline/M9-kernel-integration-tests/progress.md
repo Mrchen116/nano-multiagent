@@ -61,6 +61,27 @@
 - Commits: plan `8cbb19dda`；R1 `850c048a3`；R2 `8cd1d2808`；R3 `0f8ef4ae7`；golden fixture 交接 `b25feabe4`；rebase 证据本提交 SHA 以 Git history 为准。
 - Next: 按 worker 协议 rebase 最新 `origin/unit/refactor-489`，重跑门禁后在 unit lock 下合并。
 
+## R4 — 合并后跨 milestone collection 回归修复
+
+- 状态: DONE
+- Context: M9 R2 `8cd1d2808` 将 `test_bash_engine.py` 自身改为等待 terminal `run_status` 时，同时删除了 `_collect_stream` 与 `_SUPPRESS_STREAM_STOP`；M13 owner `test_foreground_interrupt_reap.py` 仍从 M9 harness 导入并在长进程 interrupt/teardown 路径使用二者，导致 unit 分支在 collection 阶段失败。
+- Decision: 恢复原有共享 collector 与 teardown exception tuple；不改 M13 consumer，不让 M9 自身重新使用旧的 stop/noop collector，也不改产品代码。
+- Rationale: 稳定复现与 commit/data-flow 追溯证明根因是共享 test harness 符号被误删，而非 M13 行为或 pytest 环境。单点恢复维持 M9 的低腐烂终态收集，同时修复跨文件导入契约。
+- Evidence:
+  - Reproduction: `pytest --collect-only -q tests/integration/test_foreground_interrupt_reap.py` 在 `origin/unit/refactor-489@b992e9626` 稳定报 `ImportError: cannot import name '_SUPPRESS_STREAM_STOP'`，定位到 consumer 第 24 行导入。
+  - Root Cause: `git show 8cd1d2808 -- tests/integration/test_bash_engine.py` 显示两个定义在同一提交被删除；`rg` 证明当前唯一外部消费者是 M13 interrupt regression 的 collector 创建与 finally teardown。
+  - Tests: 修复后同一 collect 命令为 `1 test collected in 0.13s`；M13 consumer 与 M9 8 个保留文件合并运行 `19 passed in 6.70s`（M9 仍为 18 项，另 1 项为 M13 consumer）。
+  - Static/Scope: `ruff check tests/integration/test_bash_engine.py` → `All checks passed!`；改动只包含 M9-owned `test_bash_engine.py` 与 M9 `tasks.md` / `progress.md`。
+  - Entry: 真实 `build_kernel` interrupt/reap/self-heal integration seam；零产品行为变化。
+  - Frontend State Matrix: N/A（非前端）。
+  - Browser QA: N/A（零用户面）。
+  - E2E/Regression: M13 consumer 实跑通过；未修改 M13 consumer 或 M10 范围。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退本修复 commit 会重新产生确定性的 M13 collection ImportError，无产品数据回滚需求。
+- Commits: 本 R4 修复提交（SHA 以 Git history 为准）。
+- Next: rebase 最新 unit，重跑 focused gate 后加锁合并并通知 M10 重新 rebase。
+
 ## Promotion Candidates
 
 None.

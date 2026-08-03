@@ -63,3 +63,9 @@
 - 状态: DONE
 - 步骤: 复核处置表、保留保护与 changed paths，运行 M9 切片、下层替代保护、ruff 和 diff 检查。
 - 验证: 所有门禁全绿，`progress.md` 记录 Claim/Baseline/Method/Result/Locator/Limit。
+
+### R4 — 合并后跨 milestone collection 回归修复
+
+- 状态: DONE
+- 步骤: 复现 M13 consumer 导入失败，追溯 M9 R2 删除与共享 harness 依赖；只在 M9 owner 文件恢复仍被消费的 stream collector 与 teardown exception tuple，不回退 M9 自身的终态事件收集逻辑。
+- 验证: M13 consumer 可 collect 且实跑通过；M9 18 项与 consumer 合并运行全绿；ruff、diff 与 scope 检查全绿。
