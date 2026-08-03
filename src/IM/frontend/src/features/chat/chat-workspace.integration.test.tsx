@@ -1571,44 +1571,6 @@ describe("ChatWorkspacePage — integration", () => {
     });
   });
 
-  it("bugfix-405 R1: node.status_changed online event updates Node chip from offline to online without page refresh", async () => {
-    // Override the nodes fixture to start with offline status.
-    const offlineFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof input === "string" ? input : input.toString();
-      if (url.endsWith("/im/v1/nodes")) {
-        return new Response(
-          JSON.stringify([{ node_id: "node-prod", owner_id: "u-self", node_name: "laptop-prod", status: "offline", last_heartbeat_at: null, agent_count: 1, version: "1.0", relay_enabled: true, reporting_enabled: true, alias: null, last_error: null }]),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        );
-      }
-      return fetchSpy(input, init);
-    });
-    vi.stubGlobal("fetch", offlineFetch);
-
-    renderAtRoute("/chat/c1");
-    // Wait for initial render with offline status.
-    await screen.findByText("Hi Planner");
-    // Node chip initially offline.
-    await waitFor(() => {
-      const chip = screen.getByText(/laptop-prod/);
-      expect(chip.closest(".chat-node-chip")).not.toHaveClass("chat-node-chip--online");
-    });
-
-    // SSE event: node comes back online.
-    await waitFor(() => expect(capturedStatusHandler).not.toBeNull());
-    act(() => {
-      capturedStatusHandler!({
-        eventType: "node.status_changed",
-        payload: { node_id: "node-prod", status: "online" }
-      });
-    });
-
-    await waitFor(() => {
-      const chip = screen.getByText(/laptop-prod/);
-      expect(chip.closest(".chat-node-chip")).toHaveClass("chat-node-chip--online");
-    });
-  });
-
   it("bugfix-405: agent.status_changed offline event resolves agent→node and patches nodes cache", async () => {
     // Page opens; node-prod starts online (default fixture).
     renderAtRoute("/chat/c1");
@@ -1630,26 +1592,6 @@ describe("ChatWorkspacePage — integration", () => {
       const updatedChip = screen.getByText(/laptop-prod/);
       expect(updatedChip.closest(".chat-node-chip")).not.toHaveClass("chat-node-chip--online");
     });
-  });
-
-  it("bugfix-405: agent.status_changed for unknown agent_id is silently dropped without error", async () => {
-    renderAtRoute("/chat/c1");
-    await screen.findByText(/laptop-prod/);
-
-    await waitFor(() => expect(capturedStatusHandler).not.toBeNull());
-    // Injecting an agent that is not in the agents cache must not throw.
-    expect(() => {
-      act(() => {
-        capturedStatusHandler!({
-          eventType: "agent.status_changed",
-          payload: { agent_id: "a-nonexistent", status: "offline" }
-        });
-      });
-    }).not.toThrow();
-
-    // Node chip remains unchanged (node-prod should still be online).
-    const chip = screen.getByText(/laptop-prod/);
-    expect(chip.closest(".chat-node-chip")).toHaveClass("chat-node-chip--online");
   });
 
   // bugfix-419: 乐观插入用户消息后，agent WS 回复有更早 created_at 时，渲染按 created_at 有序

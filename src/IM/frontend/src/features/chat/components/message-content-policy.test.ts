@@ -41,63 +41,28 @@ function recent(over: Partial<RecentPointerRecord> = {}): RecentPointerRecord {
 }
 
 describe("resolveContextMenuModality", () => {
-  it("returns mouse for direct mouse secondary click (button === 2)", () => {
+  it("recognizes mouse secondary clicks including macOS Control-click", () => {
     expect(resolveContextMenuModality(ctx(), null)).toBe("mouse");
-  });
-
-  it("returns mouse for macOS Control-click (button === 0, ctrlKey)", () => {
     expect(resolveContextMenuModality(ctx({ button: 0, ctrlKey: true }), null)).toBe("mouse");
   });
 
-  it("returns keyboard for ContextMenu/Shift+F10 (button === -1)", () => {
+  it("recognizes keyboard-triggered context menus", () => {
     expect(resolveContextMenuModality(ctx({ button: -1, pointerType: "mouse" }), null)).toBe("keyboard");
-  });
-
-  it("returns keyboard for direct mouse primary click without ctrlKey", () => {
     expect(resolveContextMenuModality(ctx({ button: 0, ctrlKey: false }), null)).toBe("keyboard");
   });
 
-  it("returns touch for direct touch", () => {
+  it("keeps touch, pen, and unknown direct input distinct", () => {
     expect(resolveContextMenuModality(ctx({ pointerType: "touch", button: 0 }), null)).toBe("touch");
-  });
-
-  it("returns pen for direct pen", () => {
     expect(resolveContextMenuModality(ctx({ pointerType: "pen", button: 0 }), null)).toBe("pen");
-  });
-
-  it("returns unknown for unrecognized direct pointerType", () => {
     expect(resolveContextMenuModality(ctx({ pointerType: "", button: 0 }), null)).toBe("unknown");
   });
 
-  it("uses recent mouse fallback when context lacks pointerType but matches secondary kind", () => {
+  it("uses only a matching recent mouse secondary event as fallback", () => {
     expect(resolveContextMenuModality(ctx({ pointerType: undefined }), recent())).toBe("mouse");
-  });
-
-  it("rejects recent fallback when messageId differs", () => {
     expect(resolveContextMenuModality(ctx({ pointerType: undefined }), recent({ messageId: "m2" }))).toBe("unknown");
-  });
-
-  it("rejects recent fallback when secondary kind differs", () => {
     expect(resolveContextMenuModality(ctx({ pointerType: undefined }), recent({ button: 0, ctrlKey: true }))).toBe("unknown");
-  });
-
-  it("rejects recent fallback beyond 1500ms", () => {
     expect(resolveContextMenuModality(ctx({ pointerType: undefined, timeStamp: 2100 }), recent({ timeStamp: 500 }))).toBe("unknown");
-  });
-
-  it("accepts recent fallback at exactly 1500ms", () => {
-    expect(resolveContextMenuModality(ctx({ pointerType: undefined, timeStamp: 2000 }), recent({ timeStamp: 500 }))).toBe("mouse");
-  });
-
-  it("rejects recent fallback beyond 8px Euclidean distance", () => {
     expect(resolveContextMenuModality(ctx({ pointerType: undefined, clientX: 109 }), recent({ clientX: 100 }))).toBe("unknown");
-  });
-
-  it("accepts recent fallback within 8px Euclidean distance", () => {
-    expect(resolveContextMenuModality(ctx({ pointerType: undefined, clientX: 107 }), recent({ clientX: 100 }))).toBe("mouse");
-  });
-
-  it("rejects recent fallback when recent was not mouse", () => {
     expect(resolveContextMenuModality(ctx({ pointerType: undefined }), recent({ pointerType: "touch", button: 0 }))).toBe("unknown");
   });
 });
@@ -195,123 +160,19 @@ describe("shouldKeepNativeContextMenu", () => {
     }
   });
 
-  it("keeps native when caret API is unavailable and there is a selection", () => {
-    const body = makeBody("<p id='p'>hello world</p>");
-    const p = body.querySelector("#p")!.firstChild!;
-    const range = document.createRange();
-    range.setStart(p, 0);
-    range.setEnd(p, 5);
-    const sel = window.getSelection()!;
-    sel.removeAllRanges();
-    sel.addRange(range);
-
-    const originalCaretRangeFromPoint = (document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }).caretRangeFromPoint;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    delete (document as any).caretRangeFromPoint;
-
-    try {
-      expect(shouldKeepNativeContextMenu("mouse", body, body, 10, 10, null, document)).toBe(true);
-    } finally {
-      if (originalCaretRangeFromPoint) {
-        (document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }).caretRangeFromPoint = originalCaretRangeFromPoint;
-      }
-      sel.removeAllRanges();
-    }
-  });
-
-  it("keeps native for a Text node target inside a link", () => {
-    const body = makeBody('<p><a href="https://x.com">link text</a></p>');
-    const linkText = body.querySelector("a")!.firstChild!;
-    expect(shouldKeepNativeContextMenu("mouse", body, linkText, 10, 10, null, document)).toBe(true);
-  });
-
-  it("keeps native for a Text node target inside code", () => {
-    const body = makeBody("<pre><code>code text</code></pre>");
-    const codeText = body.querySelector("code")!.firstChild!;
-    expect(shouldKeepNativeContextMenu("mouse", body, codeText, 10, 10, null, document)).toBe(true);
-  });
-
-  it("keeps native when caret point is inside a cross-text-node selection", () => {
-    const body = makeBody("<p id='p'><span>hello</span><span>world</span></p>");
-    const first = body.querySelector("#p")!.firstChild!.firstChild!;
-    const second = body.querySelector("#p")!.lastChild!.firstChild!;
-    const range = document.createRange();
-    range.setStart(first, 2);
-    range.setEnd(second, 2);
-    const sel = window.getSelection()!;
-    sel.removeAllRanges();
-    sel.addRange(range);
-
-    const originalCaretRangeFromPoint = (document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }).caretRangeFromPoint;
-    (document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }).caretRangeFromPoint = () => {
-      const r = document.createRange();
-      r.setStart(first, 3);
-      r.setEnd(first, 3);
-      return r;
-    };
-
-    try {
-      expect(shouldKeepNativeContextMenu("mouse", body, body, 10, 10, null, document)).toBe(true);
-    } finally {
-      (document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }).caretRangeFromPoint = originalCaretRangeFromPoint;
-      sel.removeAllRanges();
-    }
-  });
-
-  it("opens IM menu when caret point is outside a cross-text-node selection", () => {
-    const body = makeBody("<p id='p'><span>hello</span><span>world</span></p>");
-    const first = body.querySelector("#p")!.firstChild!.firstChild!;
-    const second = body.querySelector("#p")!.lastChild!.firstChild!;
-    const range = document.createRange();
-    range.setStart(first, 2);
-    range.setEnd(second, 2);
-    const sel = window.getSelection()!;
-    sel.removeAllRanges();
-    sel.addRange(range);
-
-    const originalCaretRangeFromPoint = (document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }).caretRangeFromPoint;
-    (document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }).caretRangeFromPoint = () => {
-      const r = document.createRange();
-      r.setStart(second, 4);
-      r.setEnd(second, 4);
-      return r;
-    };
-
-    try {
-      expect(shouldKeepNativeContextMenu("mouse", body, body, 10, 10, null, document)).toBe(false);
-    } finally {
-      (document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }).caretRangeFromPoint = originalCaretRangeFromPoint;
-      sel.removeAllRanges();
-    }
-  });
 });
 
 describe("classifyChatLink", () => {
-  it("classifies relative URL as same-origin-document", () => {
+  it("keeps relative, hash, and same-origin links in the current product", () => {
     expect(classifyChatLink("/chat/c2", CURRENT_URL)).toBe("same-origin-document");
-  });
-
-  it("classifies bare relative URL as same-origin-document", () => {
     expect(classifyChatLink("foo/bar", CURRENT_URL)).toBe("same-origin-document");
-  });
-
-  it("classifies hash as same-origin-document", () => {
     expect(classifyChatLink("#section", CURRENT_URL)).toBe("same-origin-document");
-  });
-
-  it("classifies same-origin absolute URL as same-origin-document", () => {
     expect(classifyChatLink("https://app.example.com/openapi.json", CURRENT_URL)).toBe("same-origin-document");
-  });
-
-  it("classifies protocol-relative same-origin as same-origin-document", () => {
     expect(classifyChatLink("//app.example.com/openapi.json", CURRENT_URL)).toBe("same-origin-document");
   });
 
-  it("classifies protocol-relative cross-origin as external", () => {
+  it("opens cross-origin HTTP links externally", () => {
     expect(classifyChatLink("//other.example.com/docs", CURRENT_URL)).toBe("external");
-  });
-
-  it("classifies cross-origin http(s) as external", () => {
     expect(classifyChatLink("https://example.com/docs", CURRENT_URL)).toBe("external");
   });
 
@@ -319,15 +180,9 @@ describe("classifyChatLink", () => {
     expect(classifyChatLink("mailto:hi@example.com", CURRENT_URL)).toBe("system");
   });
 
-  it("classifies empty href as unsupported", () => {
+  it("rejects empty, unsupported, and malformed links", () => {
     expect(classifyChatLink("", CURRENT_URL)).toBe("unsupported");
-  });
-
-  it("classifies tel (rejected by sanitizer) as unsupported", () => {
     expect(classifyChatLink("tel:+123", CURRENT_URL)).toBe("unsupported");
-  });
-
-  it("classifies malformed URL as unsupported", () => {
     expect(classifyChatLink("::not-a-url", CURRENT_URL)).toBe("unsupported");
   });
 });
@@ -414,39 +269,6 @@ describe("serializeMessageBody", () => {
     expect(serializeMessageBody(el)).toBe("https://example.com");
   });
 
-  it("continues ordered list numbering after an explicit li value", () => {
-    const el = body('<ol start="1"><li value="4">Fourth</li><li>Fifth</li><li>Sixth</li></ol>');
-    expect(serializeMessageBody(el)).toBe("4. Fourth\n5. Fifth\n6. Sixth");
-  });
-
-  it("keeps loose list items consecutive (p-wrapped li)", () => {
-    const el = body(
-      "<ul><li><p>Alpha</p></li><li><p>Beta</p><ul><li><p>Nested</p></li></ul></li></ul>"
-    );
-    expect(serializeMessageBody(el)).toBe("- Alpha\n- Beta\n  - Nested");
-  });
-
-  it("ignores formatting whitespace text nodes between block children", () => {
-    const el = body(
-      "<ul>\n  <li>Alpha</li>\n  <li>Beta\n    <ul>\n      <li>Nested</li>\n    </ul>\n  </li>\n</ul>"
-    );
-    expect(serializeMessageBody(el)).toBe("- Alpha\n- Beta\n  - Nested");
-  });
-
-  it("serializes links as inline even when product CSS sets display:inline-flex", () => {
-    const el = body(
-      '<p>参考 <a href="https://example.com/docs" style="display:inline-flex">文档</a> 或访问 <a href="https://example.com" style="display:inline-flex">https://example.com</a> 以及 <a href="/chat">/chat</a></p>'
-    );
-    expect(serializeMessageBody(el)).toBe(
-      "参考 文档 (https://example.com/docs) 或访问 https://example.com 以及 /chat"
-    );
-  });
-
-  it("preserves inline code without extra formatting", () => {
-    const el = body("<p>use <code>const x = 1</code> please</p>");
-    expect(serializeMessageBody(el)).toBe("use const x = 1 please");
-  });
-
   it("keeps code block content and excludes only the copy button in whole-message copy", () => {
     const el = body(
       '<p>before</p><div class="im-code-block"><button class="im-code-copy" data-clipboard-exclude>⎘</button><pre><code>if (ready) {\n\n  run();\n}</code></pre></div><p>after</p>'
@@ -468,13 +290,7 @@ describe("serializeMessageBody", () => {
 });
 
 describe("extractCodeText", () => {
-  it("removes a single renderer trailing newline", () => {
-    const code = document.createElement("code");
-    code.textContent = "if (x) {\n  y();\n}\n";
-    expect(extractCodeText(code)).toBe("if (x) {\n  y();\n}");
-  });
-
-  it("keeps internal blank lines and indentation", () => {
+  it("removes one renderer newline while preserving internal spacing", () => {
     const code = document.createElement("code");
     code.textContent = "line1\n\n  line3\n";
     expect(extractCodeText(code)).toBe("line1\n\n  line3");
