@@ -28,11 +28,25 @@
 
 ## R2 — 用真实栈结果取代脚本文本与轮询实现断言
 
-- 状态: DOING
+- 状态: DONE
+- Context: 旧 guard 通过读取 `e2e-up/down.sh` 文本、测试专用 `--prepare-only` 分支、mock wrapper 私有函数和“5 秒必须恰好 sleep 25 次”来推断运维结果；同一 fixture 还保留了已被 `node.workspace_base` 修复的主目录 Agent 清理逻辑。
+- Decision: 新增 `test_worktree_stack_lifecycle_e2e.py`，实际运行 up/down：观察 IM/Gateway PID、OpenAPI/监听端口、随机 node identity、隔离 DB、preset/dynamic Agent workspace 与 channel credential，并在 down 后验证 PID/端口/config/secret/credential 释放；删除旧 source/poll/prepare guards。所有子进程 fixture 以 active `sys.executable` 的 venv 作为 PATH，去掉主目录 workspace 删除与全局 agent-id 追踪。
+- Rationale: up/down 的价值是“真实栈可用且资源归还”，不是 shell 如何循环；动态 Agent 真落入 worktree 比搜索 yq 字符串更能证明隔离。修正 venv PATH 也让 fake-LLM node 不再依赖调用者手工 export PATH。
+- Evidence:
+  - Tests: lifecycle 真栈 `1 passed`（5.17s）；不额外设置 PATH 的 fake-LLM context node `1 passed`（6.49s）；changed files ruff、4 个 shell `bash -n`、diff check 通过。
+  - Entry: `scripts/e2e-up.sh --wt <pytest tmp>` 启动真 IM/Gateway；经 IM HTTP 新建动态 Agent，返回 workspace 位于 `.gateway-workspace`；`e2e-down.sh` 后进程、监听端口和敏感 runtime 文件均消失。
+  - Frontend State Matrix: N/A（非前端）。
+  - Browser QA: N/A（API/进程级运维路径）。
+  - E2E/Regression: `tests/e2e/test_worktree_stack_lifecycle_e2e.py` 与 fake-LLM critical path 均真跑通过。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退本 roadpoint 提交，恢复 R1 提交 `90d7c9288` 的 harness。
+- Commits: 本 roadpoint 提交（SHA 以 Git history 为准）。
+- Next: R3 把 session finalizer 改成当前 basetemp 的 nested-pytest 黑盒，并收敛 interrupt/worktree unit 断言。
 
 ## R3 — 收敛 finalizer 与 interrupt 的进程所有权保护
 
-- 状态: TODO
+- 状态: DOING
 
 ## R4 — catalog、全域与 live 证据收口
 

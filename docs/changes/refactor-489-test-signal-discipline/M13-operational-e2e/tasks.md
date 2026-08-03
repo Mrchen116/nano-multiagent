@@ -52,13 +52,13 @@
 
 ### R2 — 用真实栈结果取代脚本文本与轮询实现断言
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 新增 worktree stack lifecycle e2e，观察进程、端口、config/static+dynamic workspace/credential 与 down 后清理；删除 source scan、prepare-only、固定 poll-count guard，并移除已修复的主目录 workspace 清理。
 - 验证: lifecycle e2e 真进程通过，down 后 PID/端口/runtime secret 均释放。
 
 ### R3 — 收敛 finalizer 与 interrupt 的进程所有权保护
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: finalizer 限定当前 pytest basetemp，改为 nested pytest 黑盒；worktree unit 合并；foreground interrupt 只守进程/终态/自愈结果。
 - 验证: 新 finalizer regression、worktree unit、foreground integration 通过，无测试进程残留。
 
