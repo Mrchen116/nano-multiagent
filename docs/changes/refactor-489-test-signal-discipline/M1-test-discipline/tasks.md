@@ -8,7 +8,7 @@
 
 ## 退出标准
 
-- [ ] `docs/development/testing.md` 成为处置判据的唯一完整 owner。
+- [x] `docs/development/testing.md` 成为处置判据的唯一完整 owner。
 - [ ] `change-impl-worker` 在规划和交付时要求审视受影响的既有测试，不要求全仓台账。
 - [ ] `assets/tasks.md` 含风险/行为、既有测试、处置、理由与保留或替代保护、验证五列。
 - [ ] 文档路由、skill 格式和现有 workflow contract 校验通过。
@@ -33,13 +33,13 @@
 
 ### R1 — 固化唯一处置规范
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 在 `docs/development/testing.md` 定义触发范围、三类处置、删除前提与精确文本例外，并保持既有章节不重复。
 - 验证: 用结构搜索确认当前缺口，再检查规范能够独立回答“何时审、审哪些、如何处置、何时可删”。
 
 ### R2 — 接入 worker 与实际模板
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 让 `change-impl-worker` 引用唯一 owner 并把处置动作接入规划/执行/交付；在 `assets/tasks.md` 加入实际处置表。
 - 验证: `quick_validate.py` 通过，模板五列与三种处置值可从复制后的文件直接填写。
 
