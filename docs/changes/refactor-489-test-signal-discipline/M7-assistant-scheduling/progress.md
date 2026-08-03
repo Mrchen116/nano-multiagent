@@ -109,6 +109,12 @@
 - Commits: 本 R 提交（SHA 以 Git history 为准）。
 - Next: rebase 最新 unit、复跑 M7 门禁并合入 `unit/refactor-489`。
 
+## Integration Revalidation
+
+- Base: 已 rebase `origin/unit/refactor-489@6d4ebd793`，无冲突。
+- Evidence: rebase 后重新运行 28 个 M7 文件，`135 passed, 1 warning in 4.55s`；22 个现存 changed Python 文件 focused `ruff check` 与 `git diff --check` 均通过。
+- Decision: 验证结果仍绑定当前 unit base，可以进入加锁合并；第三方 `lark_oapi` deprecation warning 不影响结果。
+
 ## Promotion Candidates
 
 | Candidate | Suggested owner | Scope | Evidence |
