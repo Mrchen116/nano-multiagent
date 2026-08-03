@@ -37,7 +37,7 @@
 - Rationale: 安全风险仍由真实决策结果和最低 tool permission seam 覆盖；实现如何拆 helper、prompt 曾使用哪些句子、迁移前有哪些步骤不构成长期契约。
 - Evidence:
   - Claim: 清除 707 行重复/历史测试后，AutoMode config、allowlist、权限裁决、危险路径、approval 与 fail-closed 仍有直接保护。
-  - Baseline: R1 commit `57f649ba0`；本轮修改前相关测试均包含在 M4 baseline `658 passed`。
+  - Baseline: R1 commit `0b6d2a9c9`；本轮修改前相关测试均包含在 M4 baseline `658 passed`。
   - Method: 运行全部受影响 AutoMode/hook/permission 文件，并加入当前 lower-seam `test_tool_check_permissions.py`；对 6 个保留文件跑 Ruff。
   - Result: PASS；`129 passed, 1 warning`，Ruff `All checks passed!`，`git diff --check` 通过。
   - Locator: `tests/unit/test_auto_mode_gate_dispatch.py::TestCheckPermissionsDispatch`、`TestSafetyLockedBypassImmune`；`tests/unit/test_hook_builtin_bash_risk_gate.py`；`tests/unit/agent/platform/tools/test_tool_check_permissions.py`；`tests/unit/test_auto_mode_gate_hook.py::TestHandleAskApprovalSignal`。
@@ -60,7 +60,7 @@
 - Rationale: 用户风险是调度模式、上下文隔离与 fork 实际可执行性，不是 enum 成员数、dataclass getter 或某个私有 helper/字段路径。
 - Evidence:
   - Claim: 删除内部与自证断言后，background dispatch、observe 隔离、fork 执行与 hook runner 仍由公开行为保护。
-  - Baseline: R2 commit `d5c25b41a`；本轮修改前相关测试包含在 M4 baseline `658 passed`。
+  - Baseline: R2 commit `21f7eef43`；本轮修改前相关测试包含在 M4 baseline `658 passed`。
   - Method: 运行两个受影响文件，并扩大到 self-improvement hook 与 `tests/unit/platform/hooks`；对两个修改文件跑 Ruff。
   - Result: PASS；`47 passed`，Ruff `All checks passed!`，`git diff --check` 通过。
   - Locator: `tests/unit/test_background_hook_fork.py::test_background_hook_receives_fork_conversation_in_context`、`test_fork_loop_executes_tools_after_bind_tool_registry`、`test_runtime_agent_end_payload_includes_tool_iterations`；`tests/unit/test_hooks_runner.py::TestHookContextPermissionRequester`、`TestHookRunnerTimeoutNone`。
@@ -83,7 +83,7 @@
 - Rationale: lower bash suite 已直接覆盖三态决策、enforcement、常见危险命令与配置读取；LLM 长期风险由事实→retryability 结果矩阵和 metadata roundtrip/provider contract 保护，而不是历史参数或字段不能出现。
 - Evidence:
   - Claim: 重复与迁移负断言删除后，bash 安全边界、retryability 与公开 model metadata 仍有直接行为保护。
-  - Baseline: R3 commit `c32f5199c`；本轮修改前相关测试包含在 M4 baseline `658 passed`。
+  - Baseline: R3 commit `6dc64a6bf`；本轮修改前相关测试包含在 M4 baseline `658 passed`。
   - Method: 将 root bash cases 与 current lower policy suite 同跑；将 error classifier/model registry 与 LLM provider contract 同跑；对三个修改文件跑 Ruff。
   - Result: PASS；bash policy `79 passed`，LLM/contract `68 passed`，Ruff `All checks passed!`，`git diff --check` 通过。
   - Locator: `tests/unit/test_tool_safety_policy.py` 的四项独有安全 cases；`tests/unit/agent/platform/tools/builtins/test_bash_policy.py`；`tests/unit/test_llm_error_classifier.py` 的 facts matrix；`tests/unit/test_llm_model_registry.py::test_resolve_anthropic_metadata_extra_request_body_preserved`；`tests/contract/test_llm_provider_contract.py`。
@@ -108,10 +108,10 @@
   - Claim: M4 在不改变产品/spec 的前提下删除 107 个重复/历史 tests，剩余工具、权限、安全、hook、LLM/provider 与 platform slice 全绿。
   - Baseline: `unit/refactor-489@8d6cfb3e8`；同口径 M4 slice `658 passed, 1 warning`。
   - Method: 运行 `tests/unit/platform` 与排除 M2/M3/M5--M8/M13 owner 后的 root unit slice；另跑 5 个 contract 和 2 个 lower-seam 文件；检查 Ruff、`git diff --check`、changed paths 与 clean status。
-  - Result: PASS；M4 slice `551 passed, 1 warning`，即 `658 → 551`（净减 107）；依赖保护 `122 passed`；Ruff `All checks passed!`；diff check 与 clean status 通过。
+  - Result: PASS；M4 slice `551 passed, 1 warning`，即 `658 → 551`（净减 107）；首次依赖保护 `122 passed`；Ruff `All checks passed!`；diff check 与 clean status 通过。rebase 最新 unit 后同一 slice 仍为 `551 passed, 1 warning`，随最新 contract 集合重跑依赖保护为 `115 passed`。
   - Locator: `docs/changes/refactor-489-test-signal-discipline/M4-core-tools-platform/tasks.md` 的处置矩阵；R1--R4 progress Locator；changed paths 仅本 milestone 文档与 `tests/unit/` M4 文件。
   - Limit: warning 来自第三方 `lark_oapi` 的 `datetime.utcfromtimestamp()` deprecation，与本次测试资产变更无关；未执行真实外部 LLM、浏览器或服务 E2E，因为产品实现和用户行为均无 delta。
-  - Tests: `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q "${m4_paths[@]}"` → `551 passed, 1 warning`；`... pytest -q tests/contract/test_core_events_contract.py tests/contract/test_hooks_contract.py tests/contract/test_agent_sdk_boundary_contract.py tests/contract/test_core_no_platform_imports.py tests/contract/test_llm_provider_contract.py tests/unit/agent/platform/tools/test_tool_check_permissions.py tests/unit/agent/platform/tools/builtins/test_bash_policy.py` → `122 passed`。
+  - Tests: `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q "${m4_paths[@]}"` → `551 passed, 1 warning`；`... pytest -q tests/contract/test_core_events_contract.py tests/contract/test_hooks_contract.py tests/contract/test_agent_sdk_boundary_contract.py tests/contract/test_core_no_platform_imports.py tests/contract/test_llm_provider_contract.py tests/unit/agent/platform/tools/test_tool_check_permissions.py tests/unit/agent/platform/tools/builtins/test_bash_policy.py` → 首次 `122 passed`、rebase 后 `115 passed`。
   - Entry: N/A（测试资产重构；验证入口为 current contract、lower seam 与 M4 unit slice）。
   - Frontend State Matrix: N/A（非前端）。
   - Browser QA: N/A（零用户面）。
@@ -120,7 +120,7 @@
   - Prototype Comparison: N/A。
 - Scope: 对 `8d6cfb3e8...HEAD` 的 22 个 changed paths 均为本 milestone 文档或 `tests/unit/`；`tests/unit/test_curator.py`、`tests/unit/test_text_runner.py`、产品源码、current spec 均未修改；worktree clean。
 - Rollback: 按 R1--R4 提交逆序回退可恢复原测试资产；零产品迁移或数据回滚要求。
-- Commits: R1 `57f649ba0`；R2 `d5c25b41a`；R3 `c32f5199c`；R4 `5d3128d90`；本 R5 文档提交 SHA 以 Git history 为准。
+- Commits: rebase 后 R1 `0b6d2a9c9`；R2 `21f7eef43`；R3 `6dc64a6bf`；R4 `a8669db74`；R5 `8e0ddb13a`，本 integration evidence 追加提交 SHA 以 Git history 为准。
 - Next: 按 worker 协议 rebase 最新 `unit/refactor-489`，在 unit lock 下合并并推送，随后清理 milestone worktree/branch。
 
 ## Promotion Candidates
