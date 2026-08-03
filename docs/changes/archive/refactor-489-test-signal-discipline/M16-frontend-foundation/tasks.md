@@ -12,6 +12,7 @@
 - [x] 保留测试直接驱动路由、组件、store、transport runtime、browser API adapter 或 Vite config，并从 DOM、请求、持久状态、事件 fan-out 或公开配置观察结果。
 - [x] 删除的源码文本、HTML/`.gitignore` 布局与重复断言不留下 app/auth/realtime/notification 保护缺口。
 - [x] M16 Vitest、frontend build、`git diff --check` 与 changed-path scope 全绿。
+- [x] 受限 post-PR M19：在 CI clean Node 20 queue 中稳定执行 user-stream 的既有 ping/reconnect/recovery 行为用例；记录见 `../M19-fix-frontend-ci/`。
 
 ## 测试策略
 
@@ -42,7 +43,7 @@
 | Notification 支持、权限与构造/click/no-op | `src/IM/frontend/src/features/notifications/notification-api.test.ts` | rewrite-merge | 每个公开 adapter 保留成功与不可用边界；合并 granted/denied terminal permission、denied/absent 构造等同 seam 重复 | notification API tests |
 | 本地通知 preference 默认值、持久化与 hook fan-out | `src/IM/frontend/src/features/notifications/notification-preference.test.tsx` | keep | 直接保护用户偏好持久化和订阅结果，无更低层替代 | preference tests |
 | 默认语言与中英文切换/持久化 | `src/IM/frontend/src/i18n/i18n.test.ts` | rewrite-merge | 保留默认 locale 与用户切换后的代表性可见翻译；删除 `as any` 非法 locale、防伪 hydrate 和同一 shell namespace 的逐 key 文案重复 | i18n tests |
-| user stream socket ownership、session generation、cursor/resume/resync/recovery 与 malformed isolation | `src/IM/frontend/src/realtime/user-stream/user-stream.test.ts` | rewrite-merge | 保留 runtime 的公开 transport/state seam；删除与完整 continuity 重复的 storage 调用次数和 lower-cursor 单点 case，避免锁定 timer/内部 storage fuse 步骤 | user-stream tests |
+| user stream socket ownership、session generation、cursor/resume/resync/recovery 与 malformed isolation | `src/IM/frontend/src/realtime/user-stream/user-stream.test.ts` | rewrite-merge | 保留 runtime 的公开 transport/state seam；删除与完整 continuity 重复的 storage 调用次数和 lower-cursor 单点 case，避免锁定 timer/内部 storage fuse 步骤。M19 只在 common test setup 隔离 runner 继承 timer，使 next-timer 仍驱动此 runtime 的 ping/retry queue；原有 transport/state assertions 不变。 | clean Node 20 user-stream tests + M19 full frontend gate |
 | `/im` development proxy 同时转发 HTTP/WS | `src/IM/frontend/tests/vite-proxy-config.test.ts` | keep | 直接读取公开 Vite config 对象，保护本地 WebSocket 用户流入口的运行配置 | proxy config test |
 | Vitest/jsdom setup、render helper、scripts 与 TypeScript/Vite 配置可运行 | `src/IM/frontend/{package.json,vite.config.ts,tsconfig*.json}`、`src/IM/frontend/src/test/**` | keep | 这些是 19 个测试与 build 的当前运行 seam，不以源码文本快照另测；用实际 collection/build 验证 | M16 Vitest + frontend build |
 

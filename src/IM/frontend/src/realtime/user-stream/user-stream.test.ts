@@ -55,6 +55,8 @@ interface MutableSession {
 }
 
 function setup(overrides: Partial<UserStreamRuntimeDependencies> = {}) {
+  // Isolate the runtime-owned queue from timers the Vitest/jsdom worker already carries.
+  vi.clearAllTimers();
   const session: MutableSession = { userId: "user-a", accessToken: "token-a" };
   const listeners = new Set<() => void>();
   const errors: unknown[] = [];
