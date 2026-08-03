@@ -30,6 +30,29 @@
 - Commits: 本提交（SHA 以 Git history 为准）。
 - Next: R2 收敛 AutoMode 与 permission gate，同时保留安全与 fail-closed seam。
 
+## R2 — 收敛 AutoMode 与 permission gate
+
+- Context: 同一 safe allowlist 被 exact set 和逐成员测试重复，dispatch/path 文件残留 private symbol、OUTSIDE NOTE 与 M6 source scan；bash 假 handler 与真实 HookRegistry seam 重复，且一个 `rm -rf /` 测试把 classifier fail-closed 误称为 hard deny。
+- Decision: 默认配置和 allowlist 各合并为单一 current-policy 断言；删除旧 path 文件、source/private-symbol/CC phrase 与重复 M6 handler tests；真实 HookRegistry 硬拒绝 case 改用 `reboot`，保留 safe execution、review 无 channel fail-closed、permission allow/deny/ask 与危险路径 bypass-immune。
+- Rationale: 安全风险仍由真实决策结果和最低 tool permission seam 覆盖；实现如何拆 helper、prompt 曾使用哪些句子、迁移前有哪些步骤不构成长期契约。
+- Evidence:
+  - Claim: 清除 707 行重复/历史测试后，AutoMode config、allowlist、权限裁决、危险路径、approval 与 fail-closed 仍有直接保护。
+  - Baseline: R1 commit `57f649ba0`；本轮修改前相关测试均包含在 M4 baseline `658 passed`。
+  - Method: 运行全部受影响 AutoMode/hook/permission 文件，并加入当前 lower-seam `test_tool_check_permissions.py`；对 6 个保留文件跑 Ruff。
+  - Result: PASS；`129 passed, 1 warning`，Ruff `All checks passed!`，`git diff --check` 通过。
+  - Locator: `tests/unit/test_auto_mode_gate_dispatch.py::TestCheckPermissionsDispatch`、`TestSafetyLockedBypassImmune`；`tests/unit/test_hook_builtin_bash_risk_gate.py`；`tests/unit/agent/platform/tools/test_tool_check_permissions.py`；`tests/unit/test_auto_mode_gate_hook.py::TestHandleAskApprovalSignal`。
+  - Limit: 测试资产重构，不调用真实外部 LLM；provider caller 以现有 stub 验证 gate 决策。
+  - Tests: `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q tests/unit/test_auto_mode_config.py tests/unit/test_auto_mode_gate.py tests/unit/test_auto_mode_gate_allowlist.py tests/unit/test_auto_mode_gate_dispatch.py tests/unit/test_auto_mode_gate_hook.py tests/unit/test_hook_builtin_bash_risk_gate.py tests/unit/test_permission_broker.py tests/unit/test_permission_decision_loop.py tests/unit/test_permission_requester_cancel.py tests/unit/agent/platform/tools/test_tool_check_permissions.py` → `129 passed`。
+  - Entry: 真实本地 hook loader → HookRunner → ToolRegistry → BashTool seam 通过；零产品行为 delta，无外部 live 入口要求。
+  - Frontend State Matrix: N/A（非前端）。
+  - Browser QA: N/A（零用户面）。
+  - E2E/Regression: 保留的 permission/tool regression 如 Locator；无新用例。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退本 roadpoint 提交恢复旧路径与重复断言，不影响 R1。
+- Commits: 本提交（SHA 以 Git history 为准）。
+- Next: R3 删除 hook/background 的 enum/dataclass/fake 自证，将字段保留保护合入真实 dispatch seam。
+
 ## Promotion Candidates
 
 None.

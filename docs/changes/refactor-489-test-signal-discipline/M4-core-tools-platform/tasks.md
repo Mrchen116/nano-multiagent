@@ -50,13 +50,13 @@
 
 ### R2 — 收敛 AutoMode 与 permission gate
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 合并默认值/allowlist/dispatch；删除 private-symbol/source-text/CC phrase 与重复 bash fake-handler 断言；保留危险路径、授权和 fail-closed seam。
 - 验证: AutoMode、permission、真实 hook registry 与 tool permission 最窄测试全绿。
 
 ### R3 — 收敛 hook/background 行为保护
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 删除 enum/dataclass/fake 自证与重复内部断言；把 context 字段保留验证合入真实 dispatch seam。
 - 验证: background fork、hook runner、self-improvement 与 realtime hook tests 全绿。
 
