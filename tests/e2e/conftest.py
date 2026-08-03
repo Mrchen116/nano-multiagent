@@ -1,47 +1,40 @@
-"""E2E test session finalizer — kill any leaked subprocesses.
+"""E2E session safety net for Gateway processes leaked by the current run.
 
-bugfix-359: e2e 测试 ``tests/e2e/test_personal_assistant_main_e2e.py`` 在异常路径
-(测试超时 / assert 失败 / Ctrl-C)下会留下 ``personal_assistant.main --foreground``
-和它的 kernel uvicorn 子进程。即便 §R1 把 ``_terminate_background_pid`` / ``stop_gateway``
-都改成 killpg,只要测试在跑到清理代码前就异常,daemon 还是飞了。
-
-本 finalizer 是兜底:session teardown 时扫一遍系统进程,cmdline 命中 pytest-of-<user>/pytest-NN/
-的 ``personal_assistant.main`` 一律 SIGKILL,
-每条打一行 ``WARN:`` 让 dev 立刻看到 — 兜底干净不等于测试自身清理也干净,留下的告警就是
-"测试本身的清理路径有 bug,请修"。
+Normal E2E fixtures own process cleanup.  This finalizer is the last-resort path
+for interrupts and assertion failures: at session teardown it kills Gateway
+commands whose config path is rooted in this pytest session's base temp
+directory.  The ownership check is deliberately session-local so concurrent
+pytest runs cannot reap each other's processes.
 """
 
 from __future__ import annotations
 
 import os
-import re
 import signal
 import subprocess
 import sys
-import warnings
+from pathlib import Path
 from typing import Iterable
 
 import pytest
-
-# 匹配 pytest tmpdir 路径里的 pytest 标识(macOS / Linux 通用)。
-# pytest 默认 basetemp 形如 /private/var/folders/.../pytest-of-<user>/pytest-<NN>/...
-# 或 /tmp/pytest-of-<user>/pytest-<NN>/...
-_PYTEST_TMP_RE = re.compile(r"pytest-of-[^/\s]+/pytest-\d+/")
 
 # 只追 Gateway 入口进程。其它 cmdline 命中 pytest tmpdir 的进程不在追杀范围，
 # 避免误杀测试 runner 或无关工具。
 _LEAK_NEEDLES = ("personal_assistant.main",)
 
 
-def _scan_leaked_pids(*, exclude: Iterable[int] = ()) -> list[tuple[int, str]]:
-    """Return ``(pid, cmdline)`` for processes whose cmdline matches a pytest tmpdir.
+def _scan_leaked_pids(
+    *, pytest_tmp_root: Path, exclude: Iterable[int] = ()
+) -> list[tuple[int, str]]:
+    """Return Gateway processes owned by ``pytest_tmp_root``.
 
     用 ``ps -ww -eo pid=,command=`` 跨平台拿当前用户的进程表。``=`` 后缀去掉表头。
     ``-ww`` 取消列宽截断 — Linux 非 tty 下 ``ps`` 默认按终端宽度裁列,含长 pytest
     tmpdir 路径的 cmdline 会被截掉,导致漏报泄漏进程;macOS 不截断故本地不暴露。
-    匹配条件:cmdline 同时含 pytest 临时目录标识 + Gateway/kernel 关键词。
+    匹配条件:cmdline 同时含当前 session 的 base temp 路径 + Gateway 关键词。
     """
     exclude_set = set(exclude)
+    tmp_roots = {str(pytest_tmp_root), str(pytest_tmp_root.resolve())}
     try:
         completed = subprocess.run(
             ["ps", "-ww", "-eo", "pid=,command="],
@@ -64,7 +57,7 @@ def _scan_leaked_pids(*, exclude: Iterable[int] = ()) -> list[tuple[int, str]]:
             continue
         if pid in exclude_set:
             continue
-        if not _PYTEST_TMP_RE.search(cmd):
+        if not any(tmp_root in cmd for tmp_root in tmp_roots):
             continue
         if not any(needle in cmd for needle in _LEAK_NEEDLES):
             continue
@@ -109,28 +102,27 @@ def _emit_warnings(killed: list[tuple[int, str]]) -> None:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _e2e_session_process_leak_finalizer() -> Iterable[None]:
+def _e2e_session_process_leak_finalizer(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Iterable[None]:
     """Autouse session finalizer — runs at session teardown only."""
     yield
-    leaked = _scan_leaked_pids(exclude={os.getpid()})
+    leaked = _scan_leaked_pids(
+        pytest_tmp_root=tmp_path_factory.getbasetemp(), exclude={os.getpid()}
+    )
     if not leaked:
         return
     killed = _kill_leaked_processes(leaked)
     _emit_warnings(killed)
 
 
-# refactor-372-M1: 按路径自动给 tests/e2e/ 下的所有 item 打 e2e marker。
-# 用 hook 而非逐文件手写 pytestmark，保证新增文件天然被覆盖不会再漏标。
-# docs/development/testing.md §3 已认可此法；design.md 决策 1 选定此方案。
 def pytest_collection_modifyitems(
     config: pytest.Config, items: list[pytest.Item]
 ) -> None:
     """Auto-apply ``e2e`` marker to every item whose path is inside ``tests/e2e/``.
 
     Prevents ``pytest -m "not e2e"`` from accidentally collecting tests that
-    need real processes or network services.  Previously only 4 of 29 e2e
-    files carried the marker explicitly; the other 25 leaked into the baseline
-    run and caused spurious failures.
+    need real processes or network services.
     """
     e2e_marker = pytest.mark.e2e
     for item in items:

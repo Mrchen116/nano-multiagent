@@ -58,7 +58,7 @@
 
 ### R3 — 收敛 finalizer 与 interrupt 的进程所有权保护
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: finalizer 限定当前 pytest basetemp，改为 nested pytest 黑盒；worktree unit 合并；foreground interrupt 只守进程/终态/自愈结果。
 - 验证: 新 finalizer regression、worktree unit、foreground integration 通过，无测试进程残留。
 

@@ -46,7 +46,21 @@
 
 ## R3 — 收敛 finalizer 与 interrupt 的进程所有权保护
 
-- 状态: DOING
+- 状态: DONE
+- Context: E2E session finalizer 旧实现以宽泛的 `pytest-of-*/pytest-N/` 正则扫描所有 pytest 临时目录，两个并发会话会互相 SIGKILL Gateway；对应 6 个 unit tests 直接 import 私有 helper。worktree runtime 测试绑定历史 milestone 名，foreground interrupt 在真实进程结果之外还扫描 JSONL 私有 recovery entry 与逐字内容。
+- Decision: 用 nested pytest 黑盒回归启动“本 session leak + 另一 session Gateway marker”，先复现旧 finalizer 误杀，再将 owner 限定为 `tmp_path_factory.getbasetemp()`；保留 leak 回收但验证另一会话仍存活。worktree runtime 把幂等性并入本地 lock-dir 转换行为；foreground integration 只验证真 bash child 消失、run cancelled、同 session 下一轮 completed。
+- Rationale: finalizer 是失败路径安全网，必须以当前 session 的 runtime root 建立所有权，不能把“看起来像 pytest 路径”当全局处置权限；中断的运营风险是孤儿进程和 session 不可恢复，内部 JSONL 形状与特定文案由更低层 owner 负责。
+- Evidence:
+  - Tests: 新 regression 在修复前稳定失败于“one E2E pytest session killed another session's Gateway process”，修复后连同 worktree runtime、foreground interrupt 共 `4 passed`（1.46s）。
+  - Entry: nested pytest 真实触发 session teardown；foreground test 经真实 in-process Kernel 启动带唯一 argv marker 的 `sleep` 并调用公开 `kernel.interrupt`。
+  - Frontend State Matrix: N/A（非前端）。
+  - Browser QA: N/A（进程生命周期路径）。
+  - E2E/Regression: 当前 session 的 Gateway marker 被 finalizer 回收，另一 pytest basetemp 下 marker 保持存活并由测试自身清理；中断后无 marker PID 残留。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退本 roadpoint 提交，恢复 R2 提交 `ee57bcb49` 的 finalizer 与 integration guards。
+- Commits: 本 roadpoint 提交（SHA 以 Git history 为准）。
+- Next: R4 真跑 resilience/lifecycle/fake-LLM，校验 catalog、全域门禁和 runtime 清理。
 
 ## R4 — catalog、全域与 live 证据收口
 
