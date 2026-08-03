@@ -8,11 +8,11 @@
 
 ## 退出标准
 
-- [ ] 真 IM + 真 Gateway 的启动、隔离、清理、重启恢复与关键用户旅程仍有实际进程证据。
-- [ ] `docs/development/e2e-critical-paths.md` 的守护节点全部可由 pytest 收集；已知产品 bug #126 的 strict xfail 不被删测掩盖。
-- [ ] E2E 测试层级、marker、可选依赖和 live/fake-LLM gate 与成本相称。
-- [ ] 不再通过脚本文本、固定轮询次数、test helper 私有调用或退役 `--mode managed` 入口推断成功。
-- [ ] M13 全域门禁与至少一条无真 LLM 的 live 真栈旅程通过；本次进程、端口和 runtime 文件已清理。
+- [x] 真 IM + 真 Gateway 的启动、隔离、清理、重启恢复与关键用户旅程仍有实际进程证据。
+- [x] `docs/development/e2e-critical-paths.md` 的守护节点全部可由 pytest 收集；已知产品 bug #126 的 strict xfail 不被删测掩盖。
+- [x] E2E 测试层级、marker、可选依赖和 live/fake-LLM gate 与成本相称。
+- [x] 不再通过脚本文本、固定轮询次数、test helper 私有调用或退役 `--mode managed` 入口推断成功。
+- [x] M13 全域门禁与至少一条无真 LLM 的 live 真栈旅程通过；本次进程、端口和 runtime 文件已清理。
 
 ## 测试策略
 
@@ -64,6 +64,6 @@
 
 ### R4 — catalog、全域与 live 证据收口
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 校验 catalog 引用节点可收集；运行 M13 全域、ruff/shell/docs/scope；真跑 fake-LLM context continuity、Gateway-IM resilience 与 stack lifecycle，确认清理。
 - 验证: 所有门禁通过，progress 记录 live evidence 与环境限制。

@@ -64,7 +64,21 @@
 
 ## R4 — catalog、全域与 live 证据收口
 
-- 状态: TODO
+- 状态: DONE
+- Claim: 精简后的 operational E2E 仍从公开脚本/API 跑真实进程，覆盖 worktree 隔离与清理、Gateway-IM 瞬态恢复、fake-LLM 消息上下文连续；catalog 引用均是当前可收集 pytest node。
+- Baseline: R3 提交 `6cd54055a`；本机 `127.0.0.1:4000/health` 不可连接，因此 18 个真 provider/LLM 项保持显式 skip，没有把不可用环境伪报成通过。
+- Method: 分别真跑 resilience、stack lifecycle、fake-LLM critical node；再运行全部 `tests/e2e` 加指定 unit/integration owner、全 E2E collect-only、`docs_check.py`、全域 ruff、所有 `e2e-*.sh`/`free-ports.sh` 的 `bash -n`、diff check、runtime 文件和进程扫描。
+- Result:
+  - Live resilience: `test_gateway_recovers_node_online_after_transient_faults` `1 passed`（22.53s）；真实覆盖 IM online → kill/restart → Gateway 自动恢复，以及 Gateway 先起/IM 后起。
+  - Live lifecycle + fake LLM: `2 passed`（11.71s）；真实观察 IM/Gateway PID、端口、隔离 config/node/workspace/DB、动态 Agent 落盘、down 后释放，以及两轮消息跨配置更新仍进入同一上游上下文。
+  - M13 full: `9 passed, 18 skipped`（13.09s）；skip 均为显式 live proxy gate。
+  - Catalog/docs: E2E `20 tests collected`（其中 critical paths 17 nodes）；`documentation integrity passed: 212 maintained Markdown sources, 65 required routes`，13 条 v1 catalog 引用可解析，heartbeat #126 strict-xfail node 保留。
+  - Static/cleanup: scoped ruff、shell syntax、`git diff --check` 全通过；worktree 根无 PID/ports/config/secret residue，进程表无指向本 milestone worktree 的 IM/Gateway 进程。
+- Locator: 自动守护在 `tests/e2e/test_worktree_stack_lifecycle_e2e.py`、`tests/e2e/critical_paths/test_gateway_im_resilience_critical_path.py`、`tests/e2e/critical_paths/test_agent_config_context_continuity_critical_path.py`；catalog 权威为 `docs/development/e2e-critical-paths.md`。
+- Limit: 本次没有真跑需要本地 LLM proxy 的 token 消耗路径；它们仍可收集且保留显式 health gate。无真 LLM 的三条真栈路径已满足本 milestone 的 live 退出标准。
+- Rollback: 回退本 roadpoint 提交；R1-R3 的独立提交仍可分别保留或回退。
+- Commits: 本 roadpoint 提交（SHA 以 Git history 为准）。
+- Next: 同步最新 unit branch 后重跑 M13 关键门禁，合并 milestone 分支并清理 worktree/临时分支。
 
 ## Promotion Candidates
 
