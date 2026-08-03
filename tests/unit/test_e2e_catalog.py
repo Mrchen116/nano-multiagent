@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from scripts.e2e_catalog import E2E_DYNAMIC_AGENT_MODEL, ensure_model_registered
@@ -49,19 +47,6 @@ def test_ensure_model_registered_does_not_duplicate_existing_model() -> None:
 
     models = config["llm"]["providers"][0]["models"]  # type: ignore[index]
     assert models == [{"name": E2E_DYNAMIC_AGENT_MODEL}]
-
-
-def test_critical_path_wrapper_opts_in_to_catalog_injection() -> None:
-    """通用 e2e-up 只在 critical-path wrapper 明确选择时补 Kimi catalog。"""
-    repo_root = Path(__file__).resolve().parents[2]
-    up_script = (repo_root / "scripts" / "e2e-up.sh").read_text(encoding="utf-8")
-    critical_script = (repo_root / "scripts" / "e2e-critical.sh").read_text(
-        encoding="utf-8"
-    )
-
-    assert 'NANO_MULTIAGENT_ENABLE_CRITICAL_PATH_CATALOG:-}" == "1"' in up_script
-    assert 'python3 "$SCRIPT_DIR/e2e_catalog.py" "$WT_CFG"' in up_script
-    assert "export NANO_MULTIAGENT_ENABLE_CRITICAL_PATH_CATALOG=1" in critical_script
 
 
 def test_ensure_model_registered_rejects_missing_anthropic_catalog() -> None:

@@ -21,47 +21,6 @@ from ._im_client import IMClient, restart_gateway
 
 
 @pytest.mark.e2e
-def test_restart_readiness_rejects_old_process_shutdown_heartbeat(monkeypatch) -> None:
-    """Only a heartbeat after old-process termination proves replacement readiness."""
-    client = IMClient("http://unused")
-    snapshots = iter(
-        [
-            [
-                {
-                    "node_id": "node-1",
-                    "status": "online",
-                    "last_heartbeat_at": "2026-07-11T11:00:01Z",
-                }
-            ],
-            [
-                {
-                    "node_id": "node-1",
-                    "status": "offline",
-                    "last_heartbeat_at": "2026-07-11T11:00:01Z",
-                }
-            ],
-            [
-                {
-                    "node_id": "node-1",
-                    "status": "online",
-                    "last_heartbeat_at": "2026-07-11T11:00:03Z",
-                }
-            ],
-        ]
-    )
-    monkeypatch.setattr(client, "list_nodes", lambda: next(snapshots))
-
-    reconnected = client.wait_for_node_reconnect(
-        node_id="node-1",
-        replacement_started_after="2026-07-11T11:00:02Z",
-        timeout=2.0,
-    )
-
-    assert reconnected["last_heartbeat_at"] == "2026-07-11T11:00:03Z"
-    client.close()
-
-
-@pytest.mark.e2e
 def test_context_survives_gateway_restart(
     im_user: IMClient, e2e_stack: E2EStack
 ) -> None:

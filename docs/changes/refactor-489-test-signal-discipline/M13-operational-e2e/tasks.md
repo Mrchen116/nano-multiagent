@@ -46,13 +46,13 @@
 
 ### R1 — 删除退役、错层与一次性测试资产
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 删除 retired managed-mode Termwright、全桩 helper/mislayered hooks 测试和未消费 fault fixtures；保留其 current owner 或真实旅程。
 - 验证: reference/search 对账；collect-only、相关 integration/fake-LLM node 通过。
 
 ### R2 — 用真实栈结果取代脚本文本与轮询实现断言
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 新增 worktree stack lifecycle e2e，观察进程、端口、config/static+dynamic workspace/credential 与 down 后清理；删除 source scan、prepare-only、固定 poll-count guard，并移除已修复的主目录 workspace 清理。
 - 验证: lifecycle e2e 真进程通过，down 后 PID/端口/runtime secret 均释放。
 
