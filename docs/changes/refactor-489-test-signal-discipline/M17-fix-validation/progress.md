@@ -26,17 +26,25 @@
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: 回退本 roadpoint 的纯格式化 commit。
-- Commits: 本 roadpoint 提交（SHA 以 Git history 为准）。
+- Commits: `7c7143737`。
 
 ## R2 — 关闭 W2 的 subprocess PATH 缺口
 
-- 状态: PENDING
-- Context: 待补。
-- Decision: 待补。
-- Rationale: 待补。
-- Evidence: 待补。
-- Rollback: 待补。
-- Commits: 待补。
+- 状态: DONE
+- Context: resilience pytest 虽由仓库 venv interpreter 启动，但其 `Popen` 继承调用 shell 的普通 PATH；脚本内 bare `python3` 因而落到系统解释器并缺少 PyYAML。相邻 lifecycle E2E 已通过 active-interpreter PATH 解决同一 harness 边界。
+- Decision: 在 `_run_resilience_script` 中复制当前环境，用 `os.pathsep` 把 `Path(sys.executable).parent` 前置到 PATH，并把该环境传给 `Popen`；live gate、command、timeout、process-group cleanup 与 `scripts/e2e-resilience.sh` 均不变。
+- Rationale: pytest 启动的真栈子进程应使用 pytest 自己的已安装环境；由 test harness 明确传递解释器目录能消除调用者手工 export 前置条件，又不把环境选择写进产品/运维脚本逻辑。
+- Evidence:
+  - Tests: ordinary shell PATH 下运行 `NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q tests/e2e/critical_paths/test_gateway_im_resilience_critical_path.py::test_gateway_recovers_node_online_after_transient_faults` PASS，`1 passed in 23.56s`。
+  - Entry: pytest 仍直接驱动 `scripts/e2e-resilience.sh`；脚本完成 Scenario A（IM restart 后自动 online）与 Scenario B（Gateway 先起、IM 后起 online），并返回现有 `RESILIENCE E2E PASS` marker。
+  - Frontend State Matrix: N/A（Gateway/IM 进程韧性）。
+  - Browser QA: N/A。
+  - E2E/Regression: 同上 live critical-path node；没有手工 PATH prefix。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+  - Cleanup: pytest tmp `pytest-164/test_gateway_recovers_node_onl0` 无 `.im.pid` / `.gateway.pid`，派生 IM port `54608` 无 listener；进程扫描无该运行的 IM/Gateway 残留。
+- Rollback: 回退本 roadpoint commit，恢复 verifier W2 的调用者 PATH 依赖；无产品数据迁移。
+- Commits: 本 roadpoint 提交（SHA 以 Git history 为准）。
 
 ## R3 — final sync、完整门禁与交付
 
