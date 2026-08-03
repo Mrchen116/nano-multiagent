@@ -196,41 +196,6 @@ def test_compose_gateway_wires_external_delivery_without_im_service(
     assert coordinator_kwargs[0]["bg_reply_sender"] is not None
 
 
-def test_compose_gateway_does_not_call_set_kernel_client(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """refactor-387 M3: compose_gateway no longer calls set_kernel_client.
-
-    Session validation is handled in-process via kernel.get_session inside
-    InboundPipeline._binding_matches_workspace_root.  The old HTTP-based
-    injection path is removed.
-    """
-    config = make_minimal_config(tmp_path)
-    injected_clients: list[object] = []
-
-    class _TrackingStore(PersistentSessionBindingStore):
-        def set_kernel_client(self, client: object) -> None:
-            injected_clients.append(client)
-            super().set_kernel_client(client)  # type: ignore[arg-type]
-
-    monkeypatch.setattr(
-        "personal_assistant.gateway.composition.PersistentSessionBindingStore",
-        _TrackingStore,
-    )
-
-    compose_gateway(config)
-
-    assert len(injected_clients) == 0, (
-        "M3: set_kernel_client must not be called — session validation is now in-process"
-    )
-
-
-def test_im_token_provider_is_importable() -> None:
-    """IMTokenProvider 由 IM 认证 owner 公开提供。"""
-    from personal_assistant.auth.im_auth_client import IMTokenProvider  # noqa: F401
-
-
 @pytest.mark.asyncio
 async def test_im_token_provider_uses_refresh_token_first(tmp_path: Path) -> None:
     """当 refresh_token 存在时，闭包应调用 IMAuthClient.refresh() 并返回新的 access_token。"""

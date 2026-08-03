@@ -37,37 +37,6 @@ def _make_tool_context(session_metadata: dict | None = None):
     return ctx
 
 
-# ---------------------------------------------------------------------------
-# Contract: no module-level TOOL singleton, no bind_dispatcher
-# ---------------------------------------------------------------------------
-
-
-def test_send_message_tool_has_no_module_level_singleton() -> None:
-    """send_message.py must not export a module-level TOOL singleton."""
-    import personal_assistant.tools.send_message as mod
-
-    assert not hasattr(mod, "TOOL"), (
-        "send_message.py must not have a module-level TOOL singleton"
-    )
-
-
-def test_send_message_tool_has_no_bind_dispatcher() -> None:
-    """SendMessageTool must not have a bind_dispatcher method."""
-    from personal_assistant.tools.send_message import SendMessageTool
-
-    instance = SendMessageTool()
-    assert not hasattr(instance, "bind_dispatcher"), (
-        "SendMessageTool must not have bind_dispatcher (stateless rewrite required)"
-    )
-
-
-def test_send_message_tool_has_presenter() -> None:
-    """SendMessageTool must carry a presenter for running/complete IM display."""
-    from personal_assistant.tools.send_message import SendMessageTool
-
-    assert getattr(SendMessageTool, "presenter", None) is not None
-
-
 class _FakeResult:
     def __init__(self, output: Any = None, error: str | None = None) -> None:
         self.output = output
@@ -132,6 +101,8 @@ def test_send_message_tool_dispatches_http_post_to_gateway_dispatch_url() -> Non
         result = tool.run({"text": "hello", "to": "agent_b"}, ctx)
 
     assert result["ok"] is True
+    assert result["target"] == "agent_b"
+    assert result["text"] == "hello"
     assert len(captured_urls) == 1
     assert "127.0.0.1:8089" in captured_urls[0]
     assert captured_payloads[0]["text"] == "hello"
@@ -225,29 +196,5 @@ def test_send_message_tool_validates_text_field() -> None:
     )
     tool = SendMessageTool()
 
-    with pytest.raises((ValueError, Exception)):
+    with pytest.raises(ValueError, match="text must be a non-empty string"):
         tool.run({"text": "  ", "to": "agent_b"}, ctx)
-
-
-def test_send_message_tool_run_returns_ok_target_text() -> None:
-    """run() must return ok, target, and text fields."""
-    from personal_assistant.tools.send_message import SendMessageTool
-
-    ctx = _make_tool_context(
-        session_metadata={
-            "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
-        }
-    )
-    tool = SendMessageTool()
-
-    def _ok_response(url: str, **kwargs) -> httpx.Response:
-        return httpx.Response(
-            200, json={"ok": True}, request=httpx.Request("POST", url)
-        )
-
-    with patch("httpx.post", side_effect=_ok_response):
-        result = tool.run({"text": "hello world", "to": "agent_x"}, ctx)
-
-    assert result["ok"] is True
-    assert result["target"] == "agent_x"
-    assert result["text"] == "hello world"

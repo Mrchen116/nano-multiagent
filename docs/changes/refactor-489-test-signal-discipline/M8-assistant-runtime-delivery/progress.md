@@ -28,11 +28,25 @@
 
 ## R2 — 移除退役实现与源码形态断言
 
-- 状态: TODO
+- 状态: DONE
+- Context: 部分测试通过 `inspect.getsource`、private attr、兼容 setter 未调用、符号可导入或外部项目提示词逐字内容来推断行为；这些信号会被无行为变化的重构触发，也不能证明当前运行时结果。
+- Decision: 删除 task tracker/composition 源码扫描、legacy context 镜像、compat setter、singleton/旧 dispatcher 缺席和内部 enum 推导断言；`send_message` 合并到 dispatch/回执结果，Gateway shutdown 只保留一次异步关闭，reject/terminal 改守公开语义和值。
+- Rationale: 当前行为风险应由任务 drain/cancel、typed delivery receipt、持久 session 恢复、真实 HTTP dispatch、shutdown 所有权与 SDK 公开值直接观察；退役路径不存在和源码长相不构成第二份产品保护。
+- Evidence:
+  - Tests: 10 个相关 owner/相邻 shutdown 文件 `78 passed`；changed files `ruff check` 与 `git diff --check` 通过。
+  - Entry: N/A（测试资产清理）；运行入口仍是 GatewayRuntime、SendMessageTool、binding store 与公开 SDK 函数。
+  - Frontend State Matrix: N/A（非前端）。
+  - Browser QA: N/A（非前端）。
+  - E2E/Regression: shutdown resource graph/timeout isolation 与 task drain/cancel 原位保留；真实进程证据仍归 M13。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退本 roadpoint 提交，恢复 R1 提交 `666978c38` 的测试树。
+- Commits: 本 roadpoint 提交（SHA 以 Git history 为准）。
+- Next: R3 收敛 IM 聚合、图片失败、thinking mirror、SSE 与 relay dedup 的高层重复。
 
 ## R3 — 把高层重复收敛到最低行为 seam
 
-- 状态: TODO
+- 状态: DOING
 
 ## R4 — 全量门禁与证据对账
 

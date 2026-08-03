@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock
-
 import pytest
 
 from personal_assistant.channels.base import InboundMessage, ReplyContext
@@ -181,88 +179,6 @@ class TestR1PersistAndRecover:
         binding = store.get("web_relay:conv-1:agent-a")
         assert binding is not None
         assert binding.reply_context.metadata == {"message_id": "msg-1"}
-
-
-# ---------------------------------------------------------------------------
-# R2 — kernel session 验证
-# ---------------------------------------------------------------------------
-
-
-class TestR2KernelValidation:
-    """get() 不再探测 kernel —— 直接返回存储的 binding。
-
-    bugfix-348 (Option C): 内核无状态，按 workspace_root 定位 session 文件。
-    binding 行不携带 workspace_root，所以 get() 无法（也不应）做带 workspace_root
-    的存活校验。存活/workspace 校验上移到 GatewaySessionBinder.resolve ->
-    _binding_matches_workspace_root，那里知道 agent 的 workspace_root。
-    set_kernel_client 仍保留为兼容性 setter，但 get() 不再调用它。
-    """
-
-    def test_get_returns_stored_binding_without_probing_kernel(
-        self, tmp_path: Path
-    ) -> None:
-        """即使注入了 kernel_client，get() 也不调用 get_session()。"""
-        store = PersistentSessionBindingStore(db_path=tmp_path / "sb.sqlite3")
-        rc = _make_reply_context()
-        store.bind(session_key="ch:c:a", kernel_session_id="ksess-ok", reply_context=rc)
-
-        mock_client = MagicMock()
-        store.set_kernel_client(mock_client)
-
-        result = store.get("ch:c:a")
-
-        assert result is not None
-        assert result.kernel_session_id == "ksess-ok"
-        # get() must not probe the kernel — validation lives in the pipeline now.
-        mock_client.get_session.assert_not_called()
-
-    def test_get_does_not_delete_binding_even_if_kernel_would_404(
-        self, tmp_path: Path
-    ) -> None:
-        """get() 不再因 kernel 探测失败而删除 binding；binding 持久保留。"""
-        store = PersistentSessionBindingStore(db_path=tmp_path / "sb.sqlite3")
-        rc = _make_reply_context()
-        store.bind(
-            session_key="ch:c:a", kernel_session_id="ksess-dead", reply_context=rc
-        )
-
-        mock_client = MagicMock()
-        mock_client.get_session.side_effect = RuntimeError(
-            "kernel request failed (404)"
-        )
-        store.set_kernel_client(mock_client)
-
-        result = store.get("ch:c:a")
-
-        # binding is returned as-is; the pipeline's workspace-aware check decides
-        # whether to refresh it.
-        assert result is not None
-        assert result.kernel_session_id == "ksess-dead"
-        # record still in DB across a fresh instance
-        store2 = PersistentSessionBindingStore(db_path=tmp_path / "sb.sqlite3")
-        assert store2.get("ch:c:a") is not None
-
-    def test_get_without_kernel_client_returns_binding(self, tmp_path: Path) -> None:
-        """kernel_client 为 None 时直接返回 binding。"""
-        store = PersistentSessionBindingStore(db_path=tmp_path / "sb.sqlite3")
-        rc = _make_reply_context()
-        store.bind(session_key="ch:c:a", kernel_session_id="ksess-x", reply_context=rc)
-
-        result = store.get("ch:c:a")
-
-        assert result is not None
-        assert result.kernel_session_id == "ksess-x"
-
-    def test_get_unknown_key_returns_none(self, tmp_path: Path) -> None:
-        """key 不存在时返回 None，不触碰 kernel_client。"""
-        store = PersistentSessionBindingStore(db_path=tmp_path / "sb.sqlite3")
-        mock_client = MagicMock()
-        store.set_kernel_client(mock_client)
-
-        result = store.get("missing-key")
-
-        assert result is None
-        mock_client.get_session.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
