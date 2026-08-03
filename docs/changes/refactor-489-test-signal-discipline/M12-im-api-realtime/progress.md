@@ -39,7 +39,19 @@
 
 ## R3 — Agent、Node 与配置 RPC 收敛
 
-- Context: 待执行。
+- Context: agent config integration 重复 M11 contract 的 list/get/patch/conflict、owner scope 与 capabilities mapper；agent create 重复 omitted-workspace fallback；metrics 用合成消息再次重述 repository aggregation。cron/skill/delete/heartbeat 在线用例还用 call-log 断言内部 mock 是否被调用，而 HTTP 返回体已经能证明结果跨过 route/GatewayControl 边界。
+- Decision: 删除上述最低层重述，保留 real Gateway WebSocket live config/mismatch 防护、配置仅影响新会话、绑定后重注册、agent create→relay/config-sync、bootstrap/channel、node status 和真实 relay usage；把 stale→hidden→re-advertise→revive 合并为一个 WebSocket/HTTP 生命周期。RPC 在线用例改名为公开结果，并删除重复内部 call-log 断言；离线公开结果继续保留。
+- Rationale: M11 已独立拥有字段合同、owner repository、Gateway persistence、metrics aggregation 与 stale 状态机；M12 的新增信号应来自 HTTP、WebSocket、持久化和 relay 的连接结果。mock GatewayControl 返回值仍用于隔离远端节点，但只断言公开 HTTP 结果，避免同时锁死内部调用记账。
+- Evidence:
+  - Tests: 本组四个高重复文件净减 `515` 行；R3 agent/node/config surviving tests + M11 replacements → `57 passed in 11.21s`；changed files Ruff → `All checks passed!`；`git diff --check` 通过。
+  - Entry: `/im/v1/agents*`、`/im/v1/nodes*`、`/im/v1/metrics/usage` 与 `/im/ws/gateway` 均经真实 TestClient HTTP/WS；live config 由并发 HTTP 请求和 Gateway frame 应答完成，真实 relay usage 在 completion report 后按 owner/conversation/agent 投影。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression: M11 agent config/create/owner-scoped repository/Gateway persistence/metrics/stale 替代保护与 R3 跨 seam 用例同批全绿；无外部服务 E2E。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退 R3 commit。
+- Commits: 本 R3 commit。
 
 ## R4 — Gateway、群聊与共享 harness 收敛
 
