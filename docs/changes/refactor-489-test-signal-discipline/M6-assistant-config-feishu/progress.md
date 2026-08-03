@@ -27,7 +27,7 @@
   - Visual/Interaction: N/A
   - Prototype Comparison: N/A
 - Rollback: 回退本 roadpoint commit 可恢复原测试树，不影响产品代码或数据。
-- Commits: `0c307f89b`
+- Commits: `071810bb7`
 - Next: R2。
 
 ## R2 — Feishu adapter 与 provider client 测试收敛
@@ -44,7 +44,7 @@
   - Visual/Interaction: N/A
   - Prototype Comparison: N/A
 - Rollback: 回退本 roadpoint commit 可恢复原测试树，不影响产品代码或 channel 数据。
-- Commits: `abb56f9a6`
+- Commits: `71c7da438`
 - Next: R3。
 
 ## R3 — 权限、安全与 web_search 测试收敛
@@ -61,7 +61,7 @@
   - Visual/Interaction: N/A
   - Prototype Comparison: N/A
 - Rollback: 回退本 roadpoint commit 可恢复原测试树，不影响产品权限状态或 secret。
-- Commits: `c34ef7398`
+- Commits: `9224241b1`
 - Next: R4 全切片复核。
 
 ## R4 — 全切片与替代保护复核
@@ -70,16 +70,16 @@
 - Decision: 复跑全部 M6 文件与六组 current 替代保护；对最终 26 个 M6 文件跑 ruff，执行 docs integrity 与 diff 检查。M6 从 35 个文件/253 tests/6387 行收敛为 26 个文件/138 tests/3308 行：删除 9 个文件、115 个测试和 3079 行测试代码。
 - Rationale: 数量变化只描述处置结果；完成依据是 180 个 current M6 + 替代保护全绿，以及每类真实风险仍有最低层 owner，而非删测比例。
 - Evidence:
-  - Tests: M6 当前 138 tests + capability/prompt/managed-channel/permission/group-routing alternatives 42 tests，共 180 passed；仅有 lark SDK 自身 2 条 DeprecationWarning。
+  - Tests: rebase 到最新 `origin/unit/refactor-489`（含 M5）后，M6 当前 138 tests + capability/prompt/managed-channel/permission/group-routing alternatives 42 tests，共 180 passed；仅有 lark SDK 自身 2 条 DeprecationWarning。
   - Entry: current Agent config/capability、Feishu 入站/出站/群历史/诊断/审批与 web_search provider seam 均由现有自动化直接经过；无产品代码或 spec delta。
   - Frontend State Matrix: N/A
   - Browser QA: N/A
   - E2E/Regression: N/A；本 milestone 为测试资产重构，未修改用户入口；current cross-boundary alternatives 42 passed。
   - Visual/Interaction: N/A
   - Prototype Comparison: N/A
-  - Quality: 最终 M6 26 文件 ruff 全绿；`scripts/docs_check.py` 通过（198 maintained Markdown sources、65 required routes）；`git diff --check` 通过。
-- Rollback: 分别回退 `0c307f89b`、`abb56f9a6`、`c34ef7398` 可恢复对应测试簇；无产品数据迁移。
-- Commits: 本收尾证据 commit（合并前以 git log 为准）。
+  - Quality: rebase 后最终 M6 26 文件 ruff 全绿；`scripts/docs_check.py` 通过（200 maintained Markdown sources、65 required routes）；`git diff --check` 通过。
+- Rollback: 分别回退 `071810bb7`、`71c7da438`、`9224241b1` 可恢复对应测试簇；无产品数据迁移。
+- Commits: `ef245eb7a` + 本次 post-rebase evidence sync commit。
 - Next: rebase 到最新 `origin/unit/refactor-489`，复跑门禁并合入 unit。
 
 ## Promotion Candidates
