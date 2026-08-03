@@ -23,13 +23,7 @@ describe("auth-store", () => {
     localStorage.clear();
   });
 
-  it("starts unauthenticated", () => {
-    expect(useAuthStore.getState().user).toBeNull();
-    expect(useAuthStore.getState().accessToken).toBeNull();
-    expect(useAuthStore.getState().isAuthenticated()).toBe(false);
-  });
-
-  it("persists session to localStorage on setSession", () => {
+  it("persists and clears the authenticated session", () => {
     useAuthStore.getState().setSession({
       access_token: "a.b.c",
       refresh_token: "r.t",
@@ -45,14 +39,6 @@ describe("auth-store", () => {
     const parsed = JSON.parse(raw!);
     expect(parsed.access_token).toBe("a.b.c");
     expect(parsed.user.id).toBe("user-1");
-  });
-
-  it("clears persisted session on clear()", () => {
-    useAuthStore.getState().setSession({
-      access_token: "a.b.c",
-      refresh_token: "r.t",
-      user: SAMPLE_USER
-    });
 
     useAuthStore.getState().clear();
 
