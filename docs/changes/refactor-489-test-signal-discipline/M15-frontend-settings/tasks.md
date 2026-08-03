@@ -61,7 +61,7 @@ Prototype / Reference Contract：N/A（design 与派发均无前端原型/refere
 
 ### R1 — 删除设置壳、mock 与历史视觉终态
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 删除 mock/sub-nav/mobile/node-agent 缺席测试；把 account/nodes/list 收敛为真实交互和 API 状态。
 - 验证: R1 scoped Vitest；确认保留 account save/discard、node edit/status/empty、agent list/open/error/empty。
 

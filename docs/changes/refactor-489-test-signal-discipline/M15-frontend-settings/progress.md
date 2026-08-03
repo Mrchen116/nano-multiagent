@@ -10,7 +10,21 @@
 
 ## R1 — 删除设置壳、mock 与历史视觉终态
 
-- 状态: TODO
+- 状态: DONE
+- Context: settings 树含 mock fixture 字段 shape、旧二级导航缺席、mobile DOM 缺席、node 不请求 agent list，以及 Account/Nodes/Agents list 的旧 prototype 卡片、CSS class、icon/KPI/chevron 等交付终态；这些断言不经过当前保存或 API 状态 seam。
+- Decision: 删除 4 个纯终态文件；Account 收敛为加载后保存与 Discard，Nodes 收敛为在线创建入口、alias PATCH、status/error/empty，Agents list 收敛为列表打开详情、empty 与 load-error retry。移除退役 endpoint 负断言和 CSS palette 检查。
+- Rationale: 页面布局或某元素“不存在”会被任何等价 UI 重构击穿，却不能证明设置可用；同一渲染成本应观察用户能否改值、提交、进入对象，或从失败恢复。删除项对应的产品风险要么不存在，要么归 M16 app/router/responsive owner。
+- Evidence:
+  - Tests: Account/Agents list/Nodes/Policies 5 files、9 tests 全绿（1.91s）。
+  - Entry: jsdom 从真实 app routes 进入 `/settings/account`、`/settings/agents`、`/settings/nodes`、`/settings/policies`；执行输入、选择、保存、Discard、打开详情和 Retry。
+  - Frontend State Matrix: default、empty、error、disabled（offline node / clean form）、submitting 后回显；visual/mobile N/A（无 UI delta）。
+  - Browser QA: N/A；仅测试资产改动，未改组件或 UI。
+  - E2E/Regression: 保留 page-level interaction regression；未新增浏览器 E2E，因没有产品行为变化。
+  - Visual/Interaction: 交互由 Testing Library role/label 驱动；无截图或 reference。
+  - Prototype Comparison: N/A。
+- Rollback: 回退到计划提交 `7c51d7058`。
+- Commits: 本 roadpoint 提交（SHA 以 Git history 为准）。
+- Next: R2 合并 Agent form/API 的 feature、allowlist、preview 与历史迁移重复。
 
 ## R2 — 合并 Agent 配置与 API 重复保护
 
