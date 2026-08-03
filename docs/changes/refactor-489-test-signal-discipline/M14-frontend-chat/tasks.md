@@ -81,12 +81,12 @@ Prototype / Reference Contract：N/A。
 
 ### R2 — 收敛消息与工具交互保护
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 合并 message-content、MessagePane、tool panel 中重复的 framework/CSS/常量边界/同义状态测试，保留 current interaction 与接口结果。
 - 验证: content/pane/tool 定向 Vitest 与 M14 全量通过；保留 copy/fork/pagination/permission/tool/mention/slash 用户风险。
 
 ### R3 — 收敛状态协作并完成门禁
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 合并 reducer/workspace 中同一事件或 leaf behavior 的重复断言，复核 27-file 处置矩阵；rebase 最新 unit 后运行 M14、frontend build、docs/diff/scope 门禁。
 - 验证: M14 与 frontend build 全绿；changed paths 仅 M14 chat tests 与本 milestone 文档。

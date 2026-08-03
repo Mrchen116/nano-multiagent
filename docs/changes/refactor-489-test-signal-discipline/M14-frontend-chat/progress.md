@@ -29,7 +29,21 @@
 
 ## R2 — 收敛消息与工具交互保护
 
-- 状态: TODO
+- 状态: DONE
+- Context: `message-content-policy.test.ts`、`message-pane.test.tsx` 与 `tool-calls-panel.test.tsx` 合计 242 个 case，混有 context fallback 的毫秒/像素常量、DOM Text-node 组合、react-markdown 自身语义、CSS class、相同 leaf 状态在 pane 重复，以及每种工具对同一 running/long-output/approval 分支的复述。
+- Decision: content policy 保留 mouse/touch/pen/keyboard、native selection/link/code、四类 link disposition 和 rich-copy/code-copy 结果；MessagePane 保留分页/滚动/发送/copy/fork/paste/mention/permission/指标接线，移除 Markdown 框架语义、TokenChip/PermissionCard/slash/drop 重复；tool panel 每个 bespoke presenter 仍有成功/失败可见差异，只合并 running 参数、长输出 class/行数、重复 emoji/start-detail 与 approval 空段。语言切换改为 React `act`，消除本文件的既存 i18n act warnings。
+- Rationale: current contract 要求的是输入模态、可用动作、消息序列化、工具结果/终态和可访问反馈；框架把 heading 变成 `h2`、恰好 8px/1500ms、某 CSS class 或每个 presenter 都复测相同 state machine 不增加独立风险保护。
+- Evidence:
+  - Tests: content policy + pane/fork/memo 定向 `4 files / 120 tests passed in 3.53s`；tool panel `68 passed in 1.89s`；完整 M14 为 `24 files / 407 tests passed in 7.39s`。
+  - Entry: Testing Library 仍执行 desktop context menu、mobile More、whole-message/code copy、fork、composer/paste、permission 与 tool expand/collapse；pure policy 只断言真实入口需要的分类/序列化结果。
+  - Frontend State Matrix: mobile/desktop input、empty/disabled/submitting、permission denied、long content、missing metrics 等适用状态均保留代表性 case。
+  - Browser QA: N/A（零 UI/product delta）。
+  - E2E/Regression: 永久 regression 为收敛后的 content/pane/tool Vitest；真实浏览器行为继续归既有 E2E/产品验收 owner，本 R 不改其路径。
+  - Visual/Interaction: N/A；没有样式改动，删除 CSS/class 断言不升级为截图验收。
+  - Prototype Comparison: N/A。
+- Rollback: 回退本 roadpoint commit 可恢复被合并用例，不改变生产代码。
+- Commits: 本 R2 提交（SHA 以 Git history 为准）。
+- Next: R3 收敛 reducer/workspace 重复事件结果，随后 rebase 最新 unit 并跑 build/全量门禁。
 
 ## R3 — 收敛状态协作并完成门禁
 

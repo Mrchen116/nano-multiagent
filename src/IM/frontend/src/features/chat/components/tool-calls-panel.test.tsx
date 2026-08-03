@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -12,11 +12,6 @@ const SAMPLE: ToolCall[] = [
 ];
 
 describe("ToolCallsPanel", () => {
-  it("renders nothing when there are no tool calls", () => {
-    const { container } = render(<ToolCallsPanel toolCalls={[]} />);
-    expect(container.firstChild).toBeNull();
-  });
-
   it("shows the running indicator when at least one tool call is in flight", () => {
     render(<ToolCallsPanel toolCalls={SAMPLE} />);
     expect(screen.getByText(/running/i)).toBeInTheDocument();
@@ -185,19 +180,6 @@ describe("ToolCallsPanel · collapsed row (R1)", () => {
     // feat-425 决策 1: 自定义/MCP 工具声明了 emoji,折叠行就显该图标,不再一律 🔧。
     const calls: ToolCall[] = [
       { id: "x1", name: "my_custom_tool", status: "completed", input: {}, output: "done", emoji: "🚀" }
-    ];
-    render(<ToolCallsPanel toolCalls={calls} />);
-    await expandPanel();
-    const nameEl = screen.getByText("my_custom_tool").closest(".chat-tool-call-name");
-    expect(nameEl?.textContent).toContain("🚀");
-    expect(nameEl?.textContent).not.toContain("🔧");
-  });
-
-  it("shows the carried emoji on a running row (feat-425 C1)", async () => {
-    // running 阶段 tool_call_upserted 也带上自带 emoji,执行中就显该图标,不回退 🔧
-    // 等完成才跳变(C1 polish)。
-    const calls: ToolCall[] = [
-      { id: "x1", name: "my_custom_tool", status: "running", input: {}, emoji: "🚀" }
     ];
     render(<ToolCallsPanel toolCalls={calls} />);
     await expandPanel();
@@ -678,49 +660,6 @@ describe("ToolCallsPanel · expanded body (R2)", () => {
     expect(container.textContent).not.toMatch(/✓\s*completed/i);
   });
 
-  it("running memory renders parameters without a done marker", async () => {
-    const { container } = renderSingle({
-      id: "m-running",
-      name: "memory",
-      status: "running",
-      input: {},
-      output: "add memory",
-      detail: { action: "add", target: "memory", content: "记住偏好" }
-    });
-    await open();
-    expect(screen.getByText(/记住偏好/)).toBeInTheDocument();
-    expect(container.querySelector(".chat-tool-detail-info-head")?.textContent).toBe("add · memory");
-    expect(container.textContent).not.toContain("✓");
-  });
-
-  it("running skill_manage renders parameters without a done marker", async () => {
-    const { container } = renderSingle({
-      id: "s-running",
-      name: "skill_manage",
-      status: "running",
-      input: {},
-      output: "create skill",
-      detail: { action: "create", name: "log-cleanup" }
-    });
-    await open();
-    expect(container.querySelector(".chat-tool-detail-info-head")?.textContent).toBe("create log-cleanup");
-    expect(container.textContent).not.toContain("✓");
-  });
-
-  it("running task_stop renders task_id without a done marker", async () => {
-    const { container } = renderSingle({
-      id: "ts-running",
-      name: "task_stop",
-      status: "running",
-      input: {},
-      output: "agt-9",
-      detail: { task_id: "agt-9" }
-    });
-    await open();
-    expect(container.querySelector(".chat-tool-detail-info-head")?.textContent).toBe("agt-9");
-    expect(container.textContent).not.toContain("✓");
-  });
-
   it("renders a failed call's error message in the expanded body", async () => {
     renderSingle({
       id: "b1",
@@ -835,69 +774,6 @@ describe("ToolCallsPanel · long output (R3)", () => {
     await open();
     expect(screen.queryByText(/expand all/i)).not.toBeInTheDocument();
     expect(screen.getByText("hi")).toBeInTheDocument();
-  });
-
-  it("shows the total line count in the truncated hint (BUG2)", async () => {
-    // feat-409 protoalign BUG2: 截断提示要告诉用户被隐藏了多少行(原型「… 已截断，
-    // 共 N 行（展开全部）」),而非裸 "展开全部"。
-    const { container } = renderSingle({
-      id: "b1",
-      name: "bash",
-      status: "completed",
-      input: {},
-      output: "run",
-      detail: { command: "show", exit_code: 0, stdout: LONG_STDOUT, stderr: "", truncated: false }
-    });
-    await open();
-    // 200 行总数出现在截断 toggle 按钮文案里。
-    const toggle = container.querySelector(".chat-tool-long-output-toggle");
-    expect(toggle?.textContent).toMatch(/200/);
-    expect(toggle?.textContent).toMatch(/expand all/i);
-  });
-
-  it("only caps height after expand, never in the truncated/collapsed state (BUG1)", async () => {
-    // feat-409 protoalign BUG1: 截断态必须平铺无滚——高度上限只由 --expanded 容器
-    // 控制。collapsed 态不带 --expanded,展开后才带。覆盖 write(用 .chat-tool-call-pre
-    // 内层,曾因该类常驻 max-height 导致截断态假滚动)。
-    const user = userEvent.setup();
-    const LONG_CONTENT = Array.from({ length: 120 }, (_, i) => `row ${i + 1}`).join("\n");
-    const { container } = renderSingle({
-      id: "w1",
-      name: "write",
-      status: "completed",
-      input: {},
-      output: "docs/big.md · 新建 1.2KB",
-      detail: { path: "docs/big.md", content: LONG_CONTENT, bytes: 1200, truncated: false }
-    });
-    await open();
-    // 截断态:有 long-output 容器,但不带 --expanded(无滚动盒)。
-    const block = container.querySelector(".chat-tool-long-output");
-    expect(block).not.toBeNull();
-    expect(block?.classList.contains("chat-tool-long-output--expanded")).toBe(false);
-    // 内层 pre 不自带滚动盒类(高度只归 --expanded 容器管)。
-    expect(container.querySelector(".chat-tool-long-output .chat-tool-call-pre")).not.toBeNull();
-    // 点开后容器才加 --expanded(此时才限高滚动)。
-    await user.click(screen.getByText(/expand all/i));
-    expect(
-      container.querySelector(".chat-tool-long-output")?.classList.contains(
-        "chat-tool-long-output--expanded"
-      )
-    ).toBe(true);
-  });
-
-  it("does not show an expand toggle for short write content (BUG1)", async () => {
-    // 短 write 内容:无截断、无 "展开全部"、无滚动按钮。
-    renderSingle({
-      id: "w2",
-      name: "write",
-      status: "completed",
-      input: {},
-      output: "docs/x.md · 新建 28B",
-      detail: { path: "docs/x.md", content: "# Title\nbody text", bytes: 28, truncated: false }
-    });
-    await open();
-    expect(screen.queryByText(/expand all/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/body text/)).toBeInTheDocument();
   });
 
   it("marks output that was truncated at the kernel source", async () => {
@@ -1144,35 +1020,6 @@ describe("ToolCallsPanel · failed calls with start-side detail", () => {
     expect(card?.textContent).not.toContain("✓");
   });
 
-  it("keeps interrupted skill_manage parameters visible without rendering a success marker", async () => {
-    const { container } = renderSingle({
-      id: "s-failed-start-detail",
-      name: "skill_manage",
-      status: "failed",
-      output: "interrupted",
-      input: {},
-      detail: { action: "create", name: "log-cleanup" }
-    });
-    await open();
-    const card = container.querySelector(".chat-tool-detail-info");
-    expect(card?.textContent).toContain("create log-cleanup");
-    expect(card?.textContent).not.toContain("✓");
-  });
-
-  it("keeps an interrupted task_stop task_id visible without rendering a success marker", async () => {
-    const { container } = renderSingle({
-      id: "ts-failed-start-detail",
-      name: "task_stop",
-      status: "failed",
-      output: "interrupted",
-      input: {},
-      detail: { task_id: "agt-9" }
-    });
-    await open();
-    const card = container.querySelector(".chat-tool-detail-info");
-    expect(card?.textContent).toBe("agt-9");
-    expect(card?.textContent).not.toContain("✓");
-  });
 });
 
 // feat-414-M1 W3: 折叠态工具徽标 toggle button 不含求和耗时（无 `· Xs` 后缀）
@@ -1197,6 +1044,10 @@ describe("feat-414-M1 · collapsed toggle has no total duration (W3)", () => {
 // the gate/result/count assertions run in zh and en where the文案随语言.
 import { setLanguage } from "../../../i18n";
 
+async function setTestLanguage(language: "en" | "zh") {
+  await act(async () => setLanguage(language));
+}
+
 describe("ToolCallsPanel · approval gate region (feat-434-M1)", () => {
   // locale-robust: the toggle button text is localized, so query it by class
   // (these tests switch to zh, where /tool call/i would not match).
@@ -1206,10 +1057,10 @@ describe("ToolCallsPanel · approval gate region (feat-434-M1)", () => {
     await user.click(toggle);
   }
 
-  afterEach(() => setLanguage("en"));
+  afterEach(async () => setTestLanguage("en"));
 
   it("shows the authorized gate near the name for a user-allowed success (zh)", async () => {
-    setLanguage("zh");
+    await setTestLanguage("zh");
     const calls: ToolCall[] = [
       { id: "a1", name: "bash", status: "completed", input: {}, output: "npm run build", duration_ms: 1200, approval: "user_allow" }
     ];
@@ -1232,7 +1083,7 @@ describe("ToolCallsPanel · approval gate region (feat-434-M1)", () => {
   });
 
   it("authorized-but-failed shows BOTH gate and the fail tag (key boundary, zh)", async () => {
-    setLanguage("zh");
+    await setTestLanguage("zh");
     const calls: ToolCall[] = [
       {
         id: "f1", name: "bash", status: "failed", input: {}, output: "npm test",
@@ -1256,7 +1107,7 @@ describe("ToolCallsPanel · approval gate region (feat-434-M1)", () => {
     expect(en.container.querySelector(".chat-tool-call-fail-tag")?.textContent).toBe("exit 1");
     en.unmount();
     // zh
-    setLanguage("zh");
+    await setTestLanguage("zh");
     const zh = render(<ToolCallsPanel toolCalls={calls} />);
     await expandPanel();
     expect(zh.container.querySelector(".chat-tool-call-fail-tag")?.textContent).toBe("退出码 1");
@@ -1270,14 +1121,14 @@ describe("ToolCallsPanel · approval gate region (feat-434-M1)", () => {
     await expandPanel();
     expect(en.container.querySelector(".chat-tool-call-fail-tag")?.textContent).toBe("failed");
     en.unmount();
-    setLanguage("zh");
+    await setTestLanguage("zh");
     const zh = render(<ToolCallsPanel toolCalls={calls} />);
     await expandPanel();
     expect(zh.container.querySelector(".chat-tool-call-fail-tag")?.textContent).toBe("失败");
   });
 
   it("denied row shows deny gate + not-run result, and NO duplicate reason badge (zh)", async () => {
-    setLanguage("zh");
+    await setTestLanguage("zh");
     const calls: ToolCall[] = [
       { id: "d1", name: "bash", status: "failed", input: {}, output: "rm -rf x", reason: "denied", approval: "user_deny" }
     ];
@@ -1292,7 +1143,7 @@ describe("ToolCallsPanel · approval gate region (feat-434-M1)", () => {
   });
 
   it("historical denied row (reason only, no approval) still shows the deny gate", async () => {
-    setLanguage("zh");
+    await setTestLanguage("zh");
     const calls: ToolCall[] = [
       { id: "h1", name: "bash", status: "failed", input: {}, output: "rm x", reason: "denied" }
     ];
@@ -1321,8 +1172,8 @@ describe("ToolCallsPanel · approval gate region (feat-434-M1)", () => {
     expect(container.querySelector(".chat-tool-call-gate")).toBeNull();
   });
 
-  it("collapsed-state suffix shows approval count + allow/deny segments (only non-zero, zh)", () => {
-    setLanguage("zh");
+  it("collapsed-state suffix shows approval count + allow/deny segments (only non-zero, zh)", async () => {
+    await setTestLanguage("zh");
     const calls: ToolCall[] = [
       { id: "1", name: "bash", status: "completed", input: {}, output: "a", approval: "user_allow" },
       { id: "2", name: "bash", status: "completed", input: {}, output: "b", approval: "user_allow" },
@@ -1336,25 +1187,4 @@ describe("ToolCallsPanel · approval gate region (feat-434-M1)", () => {
     expect(btn.textContent).toContain("1 拒绝");
   });
 
-  it("collapsed-state suffix omits the deny segment when there are no denials (zh)", () => {
-    setLanguage("zh");
-    const calls: ToolCall[] = [
-      { id: "1", name: "bash", status: "completed", input: {}, output: "a", approval: "user_allow" },
-      { id: "2", name: "read", status: "completed", input: {}, output: "b" }
-    ];
-    const { container } = render(<ToolCallsPanel toolCalls={calls} />);
-    const btn = container.querySelector(".chat-tool-calls-toggle") as HTMLElement;
-    expect(btn.textContent).toContain("1 允许");
-    expect(btn.textContent).not.toContain("拒绝");
-  });
-
-  it("no approval count suffix when no call was user-decided (empty state, zh)", () => {
-    setLanguage("zh");
-    const calls: ToolCall[] = [
-      { id: "1", name: "read", status: "completed", input: {}, output: "a" }
-    ];
-    const { container } = render(<ToolCallsPanel toolCalls={calls} />);
-    const btn = container.querySelector(".chat-tool-calls-toggle") as HTMLElement;
-    expect(btn.textContent).not.toContain("授权");
-  });
 });
