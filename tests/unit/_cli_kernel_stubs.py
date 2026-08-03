@@ -1,6 +1,5 @@
-"""Kernel stubs for CLI REPL unit tests (refactor-387 M2).
+"""Reusable Kernel stubs for current CLI entry tests.
 
-这些 stub 模拟 agent.sdk.Kernel 接口，供 M2 后的 CLI 测试使用。
 不以 test_ 开头，pytest 不直接采集，但可被同目录测试文件导入。
 
 接口规则（与 agent.sdk.Kernel 对齐）：
@@ -31,8 +30,7 @@ class _TTYStringIO(io.StringIO):
 @dataclass
 class _StubSession:
     session_id: str
-    # feat-445-M3 清理-5: mirror the real SessionInfo fork-result field so the stub stays
-    # interface-compatible (fork_session can populate it without an AttributeError gap).
+    # Mirror the SDK SessionInfo fork-result field used by fork-session callers.
     fork_id_map: dict[str, str] | None = None
 
 
@@ -198,56 +196,6 @@ def _make_kernel_factory(stub: _BaseKernelStub):
     return factory
 
 
-# ---------------------------------------------------------------------------
-# Specialized stubs for async event rendering tests
-# ---------------------------------------------------------------------------
-
-
-class _KernelWithEvents(_BaseKernelStub):
-    """Kernel stub with configurable event sequences per stream() call."""
-
-    def __init__(
-        self,
-        *,
-        session_id: str = "sess_cli",
-        stream_events_by_call: list[list[dict[str, Any]]] | None = None,
-        default_events: list[dict[str, Any]] | None = None,
-    ) -> None:
-        super().__init__(session_id=session_id)
-        self._stream_events_by_call = stream_events_by_call or []
-        self._default_events = default_events
-        self._stream_call_count = 0
-
-    def stream(
-        self, session_id: str, *, after_sequence: int = 0
-    ) -> AsyncIterator[dict[str, Any]]:
-        call_index = self._stream_call_count
-        self._stream_call_count += 1
-        if call_index < len(self._stream_events_by_call):
-            events = self._stream_events_by_call[call_index]
-        elif self._default_events is not None:
-            events = self._default_events
-        else:
-            run_id = f"run-{self._run_id_counter}"
-            text = self._last_text
-            events = [
-                {
-                    "event": "assistant_message",
-                    "run_id": run_id,
-                    "session_id": session_id,
-                    "content": f"echo:{text}",
-                },
-                {
-                    "event": "run_status",
-                    "run_id": run_id,
-                    "session_id": session_id,
-                    "status": "completed",
-                    "stop_reason": "stop",
-                },
-            ]
-        return _AsyncIterEvents(events)
-
-
 class _AsyncEventingKernelStub(_BaseKernelStub):
     """Stub simulating tool events + assistant reply sequence."""
 
@@ -269,8 +217,8 @@ class _AsyncEventingKernelStub(_BaseKernelStub):
     ) -> AsyncIterator[dict[str, Any]]:
         # Real Kernel.stream() replays the full event set on every subscription
         # (history replay + live), independent of which subscriber called first.
-        # bugfix-426-M2 made REPL input non-blocking, so the per-run drive is no
-        # longer guaranteed to be the *first* stream() caller — returning the
+        # REPL input and per-run drive consume concurrently, so the per-run drive is
+        # not guaranteed to be the first stream() caller. Returning the
         # complete sequence on every call mirrors the real Kernel and removes the
         # brittle "first caller gets full events" coupling.
         self._stream_call_count += 1
@@ -740,61 +688,6 @@ class _AsyncNoEventIdReplayKernelStub(_BaseKernelStub):
         return _AsyncIterEvents([])
 
 
-class _AsyncChangedEventIdReplayKernelStub(_BaseKernelStub):
-    def __init__(self) -> None:
-        super().__init__()
-        self._stream_call_count = 0
-
-    def submit(self, *, session_id, parts, **kwargs):
-        text = ""
-        for part in parts:
-            if isinstance(part, dict) and part.get("type") == "text":
-                text = part.get("text", "")
-        self.calls.append(("submit", {"session_id": session_id, "text": text}))
-        return _StubRunRecord(run_id="run_changed_event_id")
-
-    def stream(
-        self, session_id: str, *, after_sequence: int = 0
-    ) -> AsyncIterator[dict[str, Any]]:
-        # Real Kernel.stream() replays the full event set on every subscription
-        # regardless of call order; a single per-run subscription sees tool_start
-        # once, so within-stream dedupe keeps the rendered start line unique.
-        # bugfix-426-M2: non-blocking input dropped the "first caller gets full
-        # events" ordering, so every call returns the complete sequence.
-        self._stream_call_count += 1
-        return _AsyncIterEvents(
-            [
-                {
-                    "event": "tool_start",
-                    "run_id": "run_changed_event_id",
-                    "name": "bash",
-                    "call_id": "call_changed_event_id",
-                    "arguments": {"command": "echo hi"},
-                },
-                {
-                    "event": "tool_exec_exit",
-                    "run_id": "run_changed_event_id",
-                    "name": "bash",
-                    "call_id": "call_changed_event_id",
-                    "status": "completed",
-                    "duration_ms": 18,
-                    "exit_code": 0,
-                },
-                {
-                    "event": "assistant_message",
-                    "run_id": "run_changed_event_id",
-                    "content": "final:changed-event-id",
-                },
-                {
-                    "event": "run_status",
-                    "run_id": "run_changed_event_id",
-                    "status": "completed",
-                    "stop_reason": "stop",
-                },
-            ]
-        )
-
-
 class _UsageKernelStub(_BaseKernelStub):
     def submit(self, *, session_id, parts, **kwargs):
         text = ""
@@ -880,52 +773,6 @@ class _CompactedKernelStub(_BaseKernelStub):
                 },
             ]
         )
-
-
-class _ThresholdBudgetKernelStub(_BaseKernelStub):
-    def __init__(self, *, used_tokens: int, max_tokens: int) -> None:
-        super().__init__()
-        self._context_budget = {
-            "session_id": "sess_cli",
-            "used_tokens": used_tokens,
-            "max_tokens": max_tokens,
-            "remaining_tokens": max(max_tokens - used_tokens, 0),
-            "usage_ratio": float(used_tokens) / float(max_tokens),
-        }
-
-    def submit(self, *, session_id, parts, **kwargs):
-        text = ""
-        for part in parts:
-            if isinstance(part, dict) and part.get("type") == "text":
-                text = part.get("text", "")
-        self._last_text = text
-        self.calls.append(("submit", {"session_id": session_id, "text": text}))
-        return _StubRunRecord(run_id="run-1")
-
-    def stream(
-        self, session_id: str, *, after_sequence: int = 0
-    ) -> AsyncIterator[dict[str, Any]]:
-        text = self._last_text
-        return _AsyncIterEvents(
-            [
-                {
-                    "event": "assistant_message",
-                    "run_id": "run-1",
-                    "session_id": session_id,
-                    "content": f"echo:{text}",
-                },
-                {
-                    "event": "run_status",
-                    "run_id": "run-1",
-                    "session_id": session_id,
-                    "status": "completed",
-                    "stop_reason": "stop",
-                },
-            ]
-        )
-
-    def get_context_budget(self, session_id: str, **kwargs: Any) -> dict[str, Any]:
-        return self._context_budget
 
 
 class _FailingToolsKernelStub(_BaseKernelStub):

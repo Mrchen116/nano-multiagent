@@ -17,8 +17,43 @@
 - Commits: 以 Git history 为准。
 - Next: R2 删除退役架构与私有实现保护。
 
+## R2 — 删除退役架构与私有实现保护
+
+- Context: 多个 root test 只验证 HTTP/managed 文件已不存在、对象住在哪个模块、bridge 私有别名相等、Kernel 内部关闭方式或无产品调用者的 Rich renderer；`_cli_async_stubs.py` 的 HTTP client stubs 已无消费者。
+- Decision: 删除 8 个纯历史/private 测试文件和 `_cli_async_stubs.py`；把 release observability 改为 README 公开行为测试并更名；删除 managed-mode release playbook 测试；SDK import 风险继续由 contract AST seam 独占。
+- Rationale: 这些断言在内部重组时失败，却不增加用户、公开接口或架构风险的独立保护；contract 和 `run_cli` 已是更低、更真实的 seam。
+- Evidence:
+  - Tests: 清理中 focused suite `65 passed`；最终 scoped suite `79 passed`，相关 CLI contracts `9 passed`。
+  - Entry: `test_cli_async_repl_sdk.py` 保留无参启动、Ctrl-C 与生产 `llm-config get`；`test_cli_repl_commands.py` 保留公开命令完整用户旅程。
+  - Frontend State Matrix: N/A（非前端）。
+  - Browser QA: N/A。
+  - E2E/Regression: N/A（零产品行为变更；入口回归在 root unit/contract）。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退本轮测试资产清理 commit。
+- Commits: 以 Git history 为准。
+- Next: R3 收敛重复入口、render 与 input 覆盖。
+
+## R3 — 将剩余覆盖收敛到当前行为 seam
+
+- Context: 多个文件重复执行同一 stub journey；auto-mode 只测私有 loader/banner；context-budget 阈值测试只断言 assistant echo；输入测试含 150+ 行未使用 HTTP client 和私有 redraw 次数断言。
+- Decision: 将 auto-mode 改为 workspace config → `run_cli` → 可见 WARNING；将 text automation 文件改名为 `test_cli_text_mode.py`；合并同 event fixture 的 summary/error 重复用例；保留 steer、NDJSON、resume、非 TTY、工具流和公开命令；删除 context-budget 假绿与无 issue 的替代 xfail；精简共享 Kernel stubs。
+- Rationale: 改写后的失败直接对应用户入口或当前 formatter 输出；不会用 helper 绿灯掩盖产品链路未接通，也不把 implementation call graph 当契约。
+- Evidence:
+  - Tests: 测试从 163 个收敛为 79 个，scoped `79 passed in 0.38s`；相关 CLI contracts `9 passed in 0.63s`；ruff 通过。
+  - Entry: 真实 `run_cli` 覆盖无参 REPL/clean close、Ctrl-C、workspace bypass warning、生产 `llm-config get`、斜杠命令、`--text` NDJSON/`--resume`、steer、TTY/非 TTY 和背景 run。
+  - Frontend State Matrix: N/A（非前端）。
+  - Browser QA: N/A。
+  - E2E/Regression: `tests/unit/test_cli_async_repl_sdk.py`、`test_cli_repl_commands.py`、`test_cli_repl_steering.py`、`test_cli_text_mode.py`；focused/scoped 命令全绿。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退本轮测试资产清理 commit。
+- Commits: 以 Git history 为准。
+- Next: R4 最终门禁、处置对账与范围检查。
+
 ## Promotion Candidates
 
 | Candidate | Suggested owner | Scope | Evidence |
 |---|---|---|---|
 | CLI REPL 未显示 current spec 要求的 context budget 与 70/85/95 hint | `docs/specs/cli/interactive-repl.md` + 后续产品 change unit | `coding_cli.commands._finalize_run_payload` 到 `print_repl_turn_summary` 的用户入口 | `run_cli` 真实入口以 174/200 budget 运行仍无 budget/hint；当前假绿只断言 `echo:hello`；无既有 GitHub issue |
+| 删除无调用者的 CLI 旧实现 | code-test-CI | `src/coding_cli/release_playbook.py`、`render/repl_live.py`、同步 `input/repl_commands.handle_repl_command` 与 context-budget helper | usage search 显示这些实现无产品调用者；原测试仅保护 managed HTTP 命令、私有字段或未接入 helper，本 milestone 只删除其低信号测试 |
