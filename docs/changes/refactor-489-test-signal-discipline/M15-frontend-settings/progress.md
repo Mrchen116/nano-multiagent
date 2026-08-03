@@ -58,12 +58,12 @@
   - E2E/Regression: settings Vitest `18 passed / 79 passed`；production build `tsc -b && vite build`，501 modules transformed，通过，仅有既存 chunk-size warning。
   - Visual/Interaction: 交互测试通过按钮、表单、dialog、alert 和可见状态驱动；已移除 CSS class/bottom-sheet 终态，无截图或 prototype。
   - Prototype Comparison: N/A。
-  - Scope: 基线 `25 files / 6036 lines / 132 tests`，最终 `18 files / 4241 lines / 79 tests`；`rg` 确认 settings tests 不再含 milestone/bugfix 命名或 CSS class 断言；相对 `8ceeb39eb` 仅 M15 文档与 settings test 文件变化。
-  - Docs/Diff: `/Users/czj/Repos/nano-multiagent/.venv/bin/python scripts/docs_check.py` 通过（216 maintained Markdown sources、65 required routes）；`git diff --check` 通过。
+  - Scope: 开工基线 `8ceeb39eb` 为 `25 files / 6036 lines / 132 tests`；rebase 到 `5dbf1b23f` 后最终为 `18 files / 4226 lines / 79 tests`。`rg` 确认 settings tests 不再含 milestone/bugfix 命名或 CSS class 断言；相对最新 unit base 仅 M15 文档与 settings test 文件变化。
+  - Docs/Diff: `/Users/czj/Repos/nano-multiagent/.venv/bin/python scripts/docs_check.py` 通过（220 maintained Markdown sources、65 required routes）；`git diff --check` 通过。
 - Limit: Vitest 输出仍含基线已有的 React `act(...)`、jsdom WebSocket/user-stream fetch 与 `--localstorage-file` 告警；本 milestone 不改 M16-owned harness 或产品源，未把这些环境输出提升为行为失败。build 的大 chunk warning同样是既存非阻塞项。
 - Rollback: 回退 R3 提交。
 - Commits: 本 roadpoint 提交（SHA 以 Git history 为准）。
-- Next: rebase 最新 unit、复验 selected gates，并集成到 `unit/refactor-489`。
+- Next: 集成到 `unit/refactor-489`。
 
 ## Promotion Candidates
 
