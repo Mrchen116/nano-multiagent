@@ -93,3 +93,59 @@ def test_leave_gateway_for_session_finalizer(tmp_path):
         )
     finally:
         _terminate(unrelated)
+
+
+def test_e2e_session_finalizer_does_not_kill_its_own_process_group(
+    tmp_path: Path,
+) -> None:
+    """A leaked Gateway inheriting pytest's group must not abort pytest itself."""
+    repo_root = Path(__file__).resolve().parents[2]
+    nested_test = tmp_path / "test_nested_e2e_inherited_group.py"
+    leak_pid_path = tmp_path / "inherited-group-leak.pid"
+    nested_test.write_text(
+        """
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+
+def test_leave_gateway_in_pytest_process_group(tmp_path):
+    marker = f"personal_assistant.main --config {tmp_path / 'config.yaml'}"
+    process = subprocess.Popen(
+        [sys.executable, "-c", f"# {marker}\\nimport time; time.sleep(60)"],
+    )
+    Path(os.environ["E2E_CURRENT_LEAK_PID"]).write_text(str(process.pid))
+""".lstrip(),
+        encoding="utf-8",
+    )
+    env = {
+        **os.environ,
+        "E2E_CURRENT_LEAK_PID": str(leak_pid_path),
+        "PYTHONPATH": str(repo_root),
+    }
+
+    nested = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            "-p",
+            "tests.e2e.conftest",
+            str(nested_test),
+        ],
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+        # Isolate this regression subprocess: before the fix its finalizer
+        # kills this group's pytest runner along with its leaked child.
+        start_new_session=True,
+    )
+
+    assert nested.returncode == 0, nested.stdout + nested.stderr
+    leaked_pid = int(leak_pid_path.read_text(encoding="utf-8"))
+    _wait_until_stopped(leaked_pid)

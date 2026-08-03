@@ -1,7 +1,8 @@
-"""补齐隔离 critical-path 栈所需的模型目录。"""
+"""选择隔离 critical-path 栈要使用的已登记模型。"""
 
 from __future__ import annotations
 
+import os
 import sys
 from collections.abc import MutableMapping
 from pathlib import Path
@@ -9,46 +10,54 @@ from pathlib import Path
 import yaml
 
 
-E2E_DYNAMIC_AGENT_MODEL = "kimiCoding:kimi-for-coding"
+E2E_MODEL_ENV = "NANO_MULTIAGENT_E2E_MODEL"
 
 
-def ensure_model_registered(
-    config: MutableMapping[str, object], *, model: str = E2E_DYNAMIC_AGENT_MODEL
-) -> None:
-    """确保隔离 Gateway 配置能解析 critical-path 动态 Agent 的模型。
+def select_e2e_model(
+    config: MutableMapping[str, object], *, model: str | None = None
+) -> str:
+    """Select a registered model for every real-LLM critical-path agent.
 
     Args:
         config: 从用户主配置复制出的 worktree-local Gateway 配置。
-        model: dynamic Agent critical-path 明确指定的模型名称。
+        model: Explicit route from ``NANO_MULTIAGENT_E2E_MODEL``. ``None`` keeps
+            the copied configuration's default model.
 
     Raises:
-        ValueError: 配置没有可承载 Anthropic-compatible 模型的 provider catalog。
+        ValueError: 配置缺少默认模型，或所选模型不在配置 catalog 中。
+
+    Returns:
+        The selected model route.
     """
     llm = config.get("llm")
     if not isinstance(llm, MutableMapping):
         raise ValueError("config is missing llm mapping")
+    configured_default = llm.get("default_model")
+    selected = model or configured_default
+    if not isinstance(selected, str) or not selected:
+        raise ValueError("config is missing llm.default_model")
     providers = llm.get("providers")
     if not isinstance(providers, list):
         raise ValueError("config is missing llm.providers list")
-    provider = next(
-        (
-            item
-            for item in providers
-            if isinstance(item, MutableMapping) and item.get("name") == "anthropic"
-        ),
-        None,
-    )
-    if provider is None:
-        raise ValueError("config is missing anthropic provider for critical-path model")
-    models = provider.get("models")
-    if not isinstance(models, list):
-        raise ValueError("anthropic provider is missing models list")
-    if any(
-        isinstance(item, MutableMapping) and item.get("name") == model
-        for item in models
+    if not any(
+        isinstance(provider, MutableMapping)
+        and isinstance(provider.get("models"), list)
+        and any(
+            isinstance(candidate, MutableMapping) and candidate.get("name") == selected
+            for candidate in provider["models"]
+        )
+        for provider in providers
     ):
-        return
-    models.append({"name": model})
+        raise ValueError(
+            f"selected E2E model {selected!r} is not registered in llm.providers"
+        )
+    llm["default_model"] = selected
+    agents = config.get("agents")
+    if isinstance(agents, list):
+        for agent in agents:
+            if isinstance(agent, MutableMapping):
+                agent["default_model"] = selected
+    return selected
 
 
 def main() -> int:
@@ -59,7 +68,7 @@ def main() -> int:
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     if not isinstance(config, MutableMapping):
         raise ValueError(f"{config_path} must contain a YAML mapping")
-    ensure_model_registered(config)
+    select_e2e_model(config, model=os.getenv(E2E_MODEL_ENV))
     config_path.write_text(
         yaml.safe_dump(config, allow_unicode=True, sort_keys=False), encoding="utf-8"
     )

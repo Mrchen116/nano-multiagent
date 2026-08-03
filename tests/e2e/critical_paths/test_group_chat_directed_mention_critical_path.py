@@ -29,9 +29,12 @@ import pytest
 
 from ._im_client import IMClient
 from ._im_polling import assert_absent_within, poll_until
+from .conftest import E2EStack
 
 
-def _make_group_agent(im_user: IMClient, node_id: str, agent_id: str) -> None:
+def _make_group_agent(
+    im_user: IMClient, node_id: str, agent_id: str, model: str
+) -> None:
     """建一个 MENTION-policy 群聊 agent,system_prompt 明确「被 @ 才答 + 如何 @ 别人」。"""
     im_user.create_agent(
         node_id,
@@ -43,7 +46,7 @@ def _make_group_agent(im_user: IMClient, node_id: str, agent_id: str) -> None:
             '<mention type="agent" target_id="对方的agent_id"/> 标签来 @ 他。'
         ),
         group_reply_policy="MENTION",
-        default_model="kimiCoding:kimi-for-coding",
+        default_model=model,
     )
 
 
@@ -75,14 +78,16 @@ def _wait_agent_message(
 
 
 @pytest.mark.e2e
-def test_human_mentions_a_then_a_mentions_b(im_user: IMClient) -> None:
+def test_human_mentions_a_then_a_mentions_b(
+    im_user: IMClient, e2e_stack: E2EStack
+) -> None:
     """用户 @A 让 A 去 @B：A 应答且消息含 B 的 mention 标签，B 因被点名而应答。"""
     node_id = im_user.wait_for_online_node(timeout=40)
     suffix = secrets.token_hex(3)
     agent_a = "grpA" + suffix
     agent_b = "grpB" + suffix
-    _make_group_agent(im_user, node_id, agent_a)
-    _make_group_agent(im_user, node_id, agent_b)
+    _make_group_agent(im_user, node_id, agent_a, e2e_stack.llm_model)
+    _make_group_agent(im_user, node_id, agent_b, e2e_stack.llm_model)
     im_user.wait_for_agent_listed(agent_a)
     im_user.wait_for_agent_listed(agent_b)
 
@@ -113,14 +118,14 @@ def test_human_mentions_a_then_a_mentions_b(im_user: IMClient) -> None:
 
 
 @pytest.mark.e2e
-def test_unmentioned_agent_stays_silent(im_user: IMClient) -> None:
+def test_unmentioned_agent_stays_silent(im_user: IMClient, e2e_stack: E2EStack) -> None:
     """只 @A 时 B 不抢话：有界窗口内历史里 B 不发言。"""
     node_id = im_user.wait_for_online_node(timeout=40)
     suffix = secrets.token_hex(3)
     agent_a = "soloA" + suffix
     agent_b = "soloB" + suffix
-    _make_group_agent(im_user, node_id, agent_a)
-    _make_group_agent(im_user, node_id, agent_b)
+    _make_group_agent(im_user, node_id, agent_a, e2e_stack.llm_model)
+    _make_group_agent(im_user, node_id, agent_b, e2e_stack.llm_model)
     im_user.wait_for_agent_listed(agent_a)
     im_user.wait_for_agent_listed(agent_b)
 

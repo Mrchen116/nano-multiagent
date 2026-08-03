@@ -25,6 +25,7 @@ import pytest
 
 from ._im_client import IMClient
 from ._im_polling import poll_until
+from .conftest import E2EStack
 
 
 def _agent_msg_ids_with(im_user: IMClient, conv_id: str, sentinel: str) -> set[str]:
@@ -37,7 +38,7 @@ def _agent_msg_ids_with(im_user: IMClient, conv_id: str, sentinel: str) -> set[s
 
 @pytest.mark.e2e
 @pytest.mark.slow
-def test_cron_job_auto_pushes_message(im_user: IMClient) -> None:
+def test_cron_job_auto_pushes_message(im_user: IMClient, e2e_stack: E2EStack) -> None:
     """开了 cron feature 的 agent 注册秒级 cron → 到点自动推一条含哨兵消息到直聊。"""
     node_id = im_user.wait_for_online_node(timeout=40)
     agent_id = "cronBot" + secrets.token_hex(3)
@@ -46,7 +47,7 @@ def test_cron_job_auto_pushes_message(im_user: IMClient) -> None:
         agent_id,
         display_name=agent_id,
         system_prompt="你是一个测试助手，会用 cron 工具按用户要求注册定时任务。",
-        default_model="kimiCoding:kimi-for-coding",
+        default_model=e2e_stack.llm_model,
     )
     # cron 工具仅在 features['cron_scheduling'] 开启时注册进 agent 工具集(product.py)。
     im_user.update_agent_config(agent_id, features={"cron_scheduling": True})

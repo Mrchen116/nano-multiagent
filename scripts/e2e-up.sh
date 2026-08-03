@@ -110,9 +110,10 @@ with open(path, "w") as f: yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=
 PY
 fi
 
-# Dynamic critical-path agents explicitly select this model. Their wrapper opts in
-# so the general-purpose stack launcher remains compatible with any valid catalog.
-if [[ "${NANO_MULTIAGENT_ENABLE_CRITICAL_PATH_CATALOG:-}" == "1" ]]; then
+# An explicit critical-path model override must be registered in the copied config.
+# The selector changes only the worktree-local default, so preset and dynamically
+# created agents use the same route.
+if [[ -n "${NANO_MULTIAGENT_E2E_MODEL:-}" ]]; then
   python3 "$SCRIPT_DIR/e2e_catalog.py" "$WT_CFG"
 fi
 

@@ -35,7 +35,7 @@ def test_agent_created_via_im_lands_and_replies(
         new_agent_id,
         display_name=f"E2E New {new_agent_id}",
         system_prompt="你是一个测试助手。用户让你原样回复某个 token 时，只回复那个 token 本身。",
-        default_model="kimiCoding:kimi-for-coding",
+        default_model=e2e_stack.llm_model,
     )
     workspace_root = Path(created["workspace_root"]).resolve()
     assert workspace_root.is_relative_to(

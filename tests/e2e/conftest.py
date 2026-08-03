@@ -66,7 +66,7 @@ def _scan_leaked_pids(
 
 
 def _kill_leaked_processes(leaked: list[tuple[int, str]]) -> list[tuple[int, str]]:
-    """SIGKILL each ``(pid, cmd)`` (best-effort, killpg first then direct)."""
+    """SIGKILL each ``(pid, cmd)`` without killing the pytest process group."""
     killed: list[tuple[int, str]] = []
     for pid, cmd in leaked:
         sent = False
@@ -74,7 +74,11 @@ def _kill_leaked_processes(leaked: list[tuple[int, str]]) -> list[tuple[int, str
             pgid = os.getpgid(pid)
         except (ProcessLookupError, PermissionError):
             pgid = None
-        if pgid is not None:
+        # e2e-up.sh starts Gateway without a new session, so an assertion while
+        # bringing up a stack can leave Gateway in pytest's own process group.
+        # Only a process that leads its own group can be killed group-wide;
+        # otherwise kill the leaked Gateway process directly.
+        if pgid == pid:
             try:
                 os.killpg(pgid, signal.SIGKILL)
                 sent = True

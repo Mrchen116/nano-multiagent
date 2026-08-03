@@ -17,6 +17,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+import yaml
 
 from ._im_client import IMClient
 
@@ -59,6 +60,7 @@ class E2EStack:
     im_port: str
     node_id: str
     wt_dir: str
+    llm_model: str
 
 
 def _parse_ports_env(ports_env: Path) -> dict[str, str]:
@@ -71,6 +73,16 @@ def _parse_ports_env(ports_env: Path) -> dict[str, str]:
         key, _, val = line[len("export ") :].partition("=")
         values[key.strip()] = val.strip()
     return values
+
+
+def _selected_llm_model(config_path: Path) -> str:
+    """Read the model selected in the isolated Gateway configuration."""
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    llm = config.get("llm") if isinstance(config, dict) else None
+    model = llm.get("default_model") if isinstance(llm, dict) else None
+    if not isinstance(model, str) or not model:
+        raise ValueError(f"{config_path} is missing llm.default_model")
+    return model
 
 
 @pytest.fixture(scope="session")
@@ -118,6 +130,7 @@ def e2e_stack(tmp_path_factory: pytest.TempPathFactory) -> E2EStack:
         im_port=values["IM_PORT"],
         node_id=values.get("NODE_ID", ""),
         wt_dir=str(wt_dir),
+        llm_model=_selected_llm_model(wt_dir / ".gateway-config.yaml"),
     )
 
     yield stack
