@@ -76,12 +76,12 @@
 
 ### R4 — Gateway、群聊与共享 harness 收敛
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 保留 relay/receipt/report/status、安全 owner 边界和 IM↔Gateway↔kernel 结果；替换 private 状态断言；合并重复 fake kernel helper，删除 helper 自测。
 - 验证: gateway/group/direct/event focused pytest 全绿。
 
 ### R5 — 全量门禁与测试 census
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: rebase 最新 unit，运行 M12 collect/pytest、ruff、docs/diff/scope，记录前后 census、warning 与删改理由。
 - 验证: 所有退出标准打勾，M12 全范围全绿且无越界修改。

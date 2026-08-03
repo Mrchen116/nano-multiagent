@@ -55,7 +55,20 @@
 
 ## R4 — Gateway、群聊与共享 harness 收敛
 
-- Context: 待执行。
+- Context: direct/group integration 各自维护大段同源 fake kernel；另有用例只自测 fake terminal snapshot，所谓 kernel-stream E2E 也明确绕过 InboundPipeline、内联翻译后直调 EventBridge/repository。基础 relay/config/bind/suppress 用例与更强的 direct/group/config-sync 和 R1/R2 已重复；auth boundary 还读取 session seq 与 waiter 私有字典。
+- Decision: 统一到 `_gateway_helpers.py`，删除重复 group helper、fake 自测、伪 E2E 和被更强路径包含的基本 roundtrip/bind/config/suppress。保留并收敛 owner WS 安全、完整 receipt/report、last-error/offline/broken-socket、direct/group 配置采用、双 agent identity、status broadcast、heartbeat→scheduler 与 CLI→HTTP。把 forged `agent.created` 私有 waiter 断言改为真实 Bob HTTP create 保持 pending、Alice 伪造被拒、Bob 正确结果完成 201；双 mention 的 running/report/completed/delivered identity 合为一个 WS 生命周期。
+- Rationale: M12 要证明跨 seam 可观察结果，而非 helper、mapper 或 private dict。共享 fake 只模拟 kernel SDK 边界，断言由真实 IM HTTP/WS、Gateway pipeline 和 durable/public result 承担。删除的 inline EventBridge 用例由 M11 `test_event_bridge.py`、Gateway handler 与 events contract 独立拥有。
+- Evidence:
+  - Tests: R4 原同口径 `34` 项收敛到 `20` 项；R4 surviving + M11 Gateway/EventBridge/events replacements → `68 passed, 2 warnings in 13.59s`；integration Ruff → `All checks passed!`；diff-check 通过。
+  - Entry: `/im/ws/gateway`、`/im/ws/user`、message/agent/node HTTP、Gateway InboundPipeline、ConfigSyncClient 与 HeartbeatScheduler；owner 伪造结果只能收到 `gateway_owner_mismatch`，合法 owner HTTP 最终得到 201。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression: real TestClient HTTP/WS 与进程内 Gateway pipeline；未将其升级为外部进程 live E2E。当前两项 warning 来自 `lark_oapi` 的 datetime/event-loop deprecation，未新增 warning 类别。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Debugging: focused gate 首轮发现 owner socket 队列先到 channel bootstrap frame，以及统一 helper 的 current system prompt 多于 legacy helper。按 `systematic-debugging` 追到绑定后 `initialize_channel_control()` 的确定性 bootstrap 入队和新 helper 的 current config metadata；分别显式消费 bootstrap frame、对齐 current `system_prompt` 预期，单测与整组复验全绿。
+- Rollback: 回退 R4 commit。
+- Commits: 本 R4 commit。
 
 ## R5 — 全量门禁与测试 census
 
