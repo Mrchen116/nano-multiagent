@@ -58,12 +58,12 @@
 
 ### R3 — 把高层重复收敛到最低行为 seam
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 收敛 group/offline pipeline、图片 resolver/pipeline、external thinking mirror 与 shutdown graph 重复，保留独立连接风险。
 - 验证: 相关分簇 pytest 全绿；时序、恢复、投递终态节点仍可收集。
 
 ### R4 — 全量门禁与证据对账
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 运行 M8 全量 pytest、collect-only、ruff、diff/check/scope；回填删除/改写/保留证据和最终 test count。
 - 验证: 所有门禁通过，tasks/progress 完整，只有 M8 范围与产物变更。

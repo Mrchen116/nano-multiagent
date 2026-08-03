@@ -46,11 +46,25 @@
 
 ## R3 — 把高层重复收敛到最低行为 seam
 
-- 状态: DOING
+- 状态: DONE
+- Context: Gateway IM 聚合测试重复验证 mention/no-fanout/sender prefix/session refresh；图片 pipeline 重复 resolver 的 MIME/格式算法；thinking 测试自己挑选 content，并未经过 runtime observer；relay restart/capacity 断言 private deque。
+- Decision: IM 聚合只保留 reply-to-agent 与无 IM 的本地 channel；图片 pipeline 保留 resolver→Kernel 接线、三类用户反馈和失败后续轮可用，解析算法归 resolver；reasoning 输入移入真实 external bubble mirror；relay dedup 从重启后拒绝重放和淘汰后可再次发送观察；SSE 合并成功路径并对失败类型精确断言。
+- Rationale: 每个风险只由能真正穿过该 seam 的最低测试拥有；跨层连接风险继续保留，但不在高层复制 lower owner 已能独立定位的算法与策略。
+- Evidence:
+  - Tests: 11 个相关 owner/相邻保护文件 `116 passed`；changed files `ruff check` 通过。
+  - Entry: Gateway inbound、ImageAttachmentResolver、WebRelayAdapter/RelayDeduplicationStore 与 runtime observer 的实际公开调用均被执行。
+  - Frontend State Matrix: N/A（非前端）。
+  - Browser QA: N/A（非前端）。
+  - E2E/Regression: reply trigger、离线 local channel、图片失败后同会话下一轮、持久 dedup 重启均保留；ACK/reconnect/outbox/session/shutdown 风险未改动。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退本 roadpoint 提交，恢复 R2 提交 `78b3e3ae2` 的测试树。
+- Commits: 本 roadpoint 提交（SHA 以 Git history 为准）。
+- Next: R4 运行 M8 全量门禁、collect-only 对账并完成范围审计。
 
 ## R4 — 全量门禁与证据对账
 
-- 状态: TODO
+- 状态: DOING
 
 ## Promotion Candidates
 

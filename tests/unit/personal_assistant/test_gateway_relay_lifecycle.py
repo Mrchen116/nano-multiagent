@@ -760,6 +760,7 @@ def test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion() 
                 "run_id": "run-1",
                 "message_id": "kernel-msg-a",
                 "content": "I will check.",
+                "reasoning_content": "private chain of thought A",
             }
         )
         await asyncio.sleep(0)
@@ -769,6 +770,7 @@ def test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion() 
                 "run_id": "run-1",
                 "message_id": "kernel-msg-b",
                 "content": "Final answer.",
+                "reasoning_content": "private chain of thought B",
             }
         )
         assert asyncio.iscoroutine(roll)
