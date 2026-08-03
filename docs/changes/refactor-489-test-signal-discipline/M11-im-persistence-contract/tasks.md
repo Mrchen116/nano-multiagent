@@ -32,17 +32,28 @@
 
 - Prototype / Reference Contract：N/A。
 
+### 受影响的既有测试处置
+
+| 风险 / 行为 | 既有测试 | 处置 | 理由与保留或替代保护 | 验证 |
+|---|---|---|---|---|
+| HTTP/WS 公开字段、状态码、鉴权与 owner 隔离 | `tests/im_service/contract/**`、root route tests、`test_app_factory.py`、`test_message_repo.py`、`test_messages_route_detail.py` | keep + rewrite-merge + delete | contract 作为公开 seam owner；删除只枚举路由对象/模块归属的框架与布局断言，把重复 route/repository case 合并到最小公开结果 | R1 focused pytest |
+| auth fixture 的稳定复用 | `tests/im_service/_auth_helpers.py` | keep | M11 contract 与 M12 integration 共用，保持单一 helper owner，不重写协议 | R1 collect + pytest |
+| schema 初始化、线上迁移与共享 SQLite 跨线程安全 | `test_db_init.py`、`test_repositories_schema.py` | keep + rewrite-merge | 保留当前启动路径仍执行的迁移、数据修复及 shared handle regression；合并纯 schema existence/重复幂等断言 | R2 focused pytest |
+| users/agents/nodes/conversations/messages/events/boundaries 的 durable round-trip、owner scope、幂等、分页与排序 | `test_repositories_*.py`、`test_owner_scoped_repositories.py`、`test_message_runtime_state.py`、`test_event_repository*.py`、fork tests | keep + rewrite-merge | 删除 getter/默认值逐字段重复，保留真实 SQLite 事务、关系、唯一性、回滚及 stable ordering | R2 focused pytest |
+| Gateway 注册、ACK、dispatch winner、路由 freshness 与状态防倒退 | `test_gateway_*.py`、channel persistence/projection tests | keep + rewrite-merge | 这些是共享连接与异步顺序风险；去掉 private call choreography，保留 durable outcome 与并发/旧帧 regression | R3 focused pytest |
+| relay、EventBridge、watchdog、user stream 与 payload serialization | `test_event_bridge.py`、`test_relay_*.py`、`test_streaming_chain.py`、`test_permission_streaming.py`、`test_tool_call_detail.py`、`test_ws_event_types.py` | rewrite-merge + delete | 合并字段逐跳/逐 getter 测试为最低层持久化或公开 frame 结果；保留 tombstone、liveness、权限、replay 去重与 owner isolation | R3 focused pytest |
+
 ## Roadpoints
 
 ### R1 — 公开契约与认证 helper 收敛
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 审核 `tests/im_service/contract/**`、`_auth_helpers.py` 与 route-shape unit 测试；以 current spec 的 HTTP/WS 可观察结果为 owner，去掉 route/source 私有形态和跨层重复。
 - 验证: contract suite 全绿；认证 helper 仍被 contract/M12 消费；公开状态码与字段集不降级。
 
 ### R2 — schema 与 repository 持久化保护收敛
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 审核 schema migration、users/agents/nodes/conversations/messages/events/boundaries/fork 测试；合并重复 getter/round-trip，保留事务、外键、幂等、分页、owner isolation 与 stable ordering 风险。
 - 验证: repository-focused suite 全绿，unique risk 到 surviving test 的映射可复查。
 
