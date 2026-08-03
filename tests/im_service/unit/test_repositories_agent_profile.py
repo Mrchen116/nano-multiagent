@@ -53,6 +53,8 @@ def test_agent_profile_roundtrip_and_optimistic_lock(tmp_path: Path) -> None:
         group_reply_policy="manual",
         default_model=None,
         workspace_root=None,
+        features={"memory_curation": False},
+        custom_prompt="Be concise.",
     )
 
     created_conversation = conversations.create_conversation(
@@ -71,10 +73,14 @@ def test_agent_profile_roundtrip_and_optimistic_lock(tmp_path: Path) -> None:
         tool_allowlist=["read", "edit"],
         group_reply_policy="auto",
         default_model="claude-sonnet-4",
+        features={"skill_creation": True},
+        custom_prompt="Use examples.",
         # bugfix-404-M2: workspace_root removed from update_profile — immutable after creation
     )
     assert updated.profile_version == 2
     assert updated.group_reply_policy == "auto"
+    assert updated.features == {"skill_creation": True}
+    assert updated.custom_prompt == "Use examples."
     # workspace_root is unchanged from upsert value (None in this test)
     assert updated.workspace_root is None
 
@@ -92,10 +98,10 @@ def test_agent_profile_roundtrip_and_optimistic_lock(tmp_path: Path) -> None:
         )
 
 
-def test_direct_conversation_with_agent_alias_freezes_prompt_snapshot(
+def test_direct_conversation_agent_alias_freezes_profile_identity(
     tmp_path: Path,
 ) -> None:
-    """Freeze agent snapshot metadata when direct chats target an alias user like `agent:<id>`."""
+    """Resolve an `agent:<id>` participant to the durable profile identity/version."""
     users, conversations, _, profiles, _, _ = _build_repositories(tmp_path)
     owner = users.create_user(username="owner", display_name="Owner")
     agent_alias = users.create_user(
@@ -119,116 +125,11 @@ def test_direct_conversation_with_agent_alias_freezes_prompt_snapshot(
         participant_ids=[owner.id, agent_alias.id],
     )
     stored = conversations.get_conversation(conversation_id=created.id)
-    snapshot_row = conversations._connection.execute(
-        "SELECT config_agent_id, config_profile_version, config_system_prompt FROM conversations WHERE id = ?",
-        (created.id,),
-    ).fetchone()
-
     assert created.type == "direct"
     assert created.config_profile_version == 1
     assert stored is not None
+    assert stored.config_agent_id == "agent-1"
     assert stored.config_profile_version == 1
-    assert snapshot_row is not None
-    assert snapshot_row["config_agent_id"] == "agent-1"
-    assert snapshot_row["config_profile_version"] == 1
-    assert snapshot_row["config_system_prompt"] == "You are Alpha."
-
-
-# ---------------------------------------------------------------------------
-# feat-379-M2/R3: features_json + custom_prompt in AgentProfile
-# ---------------------------------------------------------------------------
-
-
-def test_agent_profile_features_and_custom_prompt_roundtrip(tmp_path: Path) -> None:
-    """AgentProfile must store and return features_json + custom_prompt (feat-379-M2)."""
-    _, _, _, profiles, _, _ = _build_repositories(tmp_path)
-
-    from IM.infra.repositories.agents import AgentProfileRepository as _APR  # noqa: F401
-
-    # features + custom_prompt must exist on AgentProfile dataclass
-    from IM.domain.models import AgentProfile
-
-    assert hasattr(AgentProfile, "__dataclass_fields__") or True  # dataclass check
-    sample = AgentProfile(agent_id="x", owner_id="y")
-    assert hasattr(sample, "features"), "AgentProfile must have 'features' field"
-    assert hasattr(sample, "custom_prompt"), (
-        "AgentProfile must have 'custom_prompt' field"
-    )
-
-
-def test_upsert_profile_stores_features_and_custom_prompt(tmp_path: Path) -> None:
-    """upsert_profile must persist features and custom_prompt."""
-    _, _, _, profiles, _, _ = _build_repositories(tmp_path)
-    from IM.infra.repositories.users import UserRepository
-
-    connection = profiles._connection
-    users = UserRepository(connection)
-    owner = users.create_user(username="owner3", display_name="Owner3")
-
-    profile = profiles.upsert_profile(
-        agent_id="agent-features",
-        owner_id=owner.owner_id,
-        display_name="Features Agent",
-        description="",
-        system_prompt="",
-        skills=[],
-        tool_allowlist=[],
-        group_reply_policy="manual",
-        default_model=None,
-        workspace_root=None,
-        features={"memory_curation": False},
-        custom_prompt="You are a chef.",
-    )
-
-    assert profile.features == {"memory_curation": False}
-    assert profile.custom_prompt == "You are a chef."
-
-    # Reload from db to confirm persistence
-    reloaded = profiles.get_profile(agent_id="agent-features")
-    assert reloaded is not None
-    assert reloaded.features == {"memory_curation": False}
-    assert reloaded.custom_prompt == "You are a chef."
-
-
-def test_update_profile_stores_features_and_custom_prompt(tmp_path: Path) -> None:
-    """update_profile must persist features and custom_prompt changes."""
-    _, _, _, profiles, _, _ = _build_repositories(tmp_path)
-    from IM.infra.repositories.users import UserRepository
-
-    connection = profiles._connection
-    users = UserRepository(connection)
-    owner = users.create_user(username="owner4", display_name="Owner4")
-
-    profiles.upsert_profile(
-        agent_id="agent-upd",
-        owner_id=owner.owner_id,
-        display_name="Upd",
-        description="",
-        system_prompt="",
-        skills=[],
-        tool_allowlist=[],
-        group_reply_policy="manual",
-        default_model=None,
-        workspace_root=None,
-    )
-
-    updated = profiles.update_profile(
-        agent_id="agent-upd",
-        profile_version=1,
-        display_name="Upd",
-        description="",
-        system_prompt="",
-        skills=[],
-        tool_allowlist=[],
-        group_reply_policy="manual",
-        default_model=None,
-        # bugfix-404-M2: workspace_root removed from update_profile — immutable after creation
-        features={"skill_creation": True},
-        custom_prompt="You are a tutor.",
-    )
-
-    assert updated.features == {"skill_creation": True}
-    assert updated.custom_prompt == "You are a tutor."
 
 
 # feat-379-M6 (ISSUE-2): upsert_profile must preserve existing features/custom_prompt

@@ -46,34 +46,25 @@ def test_list_conversations_for_owner_returns_only_owner_rows(repos) -> None:
     alice = users.create_user(username="alice", display_name="Alice")
     bob = users.create_user(username="bob", display_name="Bob")
     conversations.create_conversation(title="A-only", participant_ids=[alice.id])
-    conversations.create_conversation(title="B-only", participant_ids=[bob.id])
+    bob_conversation = conversations.create_conversation(
+        title="B-only", participant_ids=[bob.id]
+    )
 
     alice_visible = conversations.list_conversations_for_owner(owner_id=alice.owner_id)
     bob_visible = conversations.list_conversations_for_owner(owner_id=bob.owner_id)
 
     assert {item.title for item in alice_visible} == {"A-only"}
     assert {item.title for item in bob_visible} == {"B-only"}
-
-
-def test_get_conversation_for_owner_returns_none_for_other_owner(repos) -> None:
-    """get_conversation_for_owner must hide existence of conversations owned by others (return None)."""
-    users, conversations, _, _, _ = repos
-    alice = users.create_user(username="alice", display_name="Alice")
-    bob = users.create_user(username="bob", display_name="Bob")
-    bob_conv = conversations.create_conversation(
-        title="B-only", participant_ids=[bob.id]
-    )
-
     assert (
         conversations.get_conversation_for_owner(
-            conversation_id=bob_conv.id,
+            conversation_id=bob_conversation.id,
             owner_id=alice.owner_id,
         )
         is None
     )
     assert (
         conversations.get_conversation_for_owner(
-            conversation_id=bob_conv.id,
+            conversation_id=bob_conversation.id,
             owner_id=bob.owner_id,
         )
         is not None
@@ -129,26 +120,6 @@ def test_list_runtime_selectable_profiles_for_owner_filters(repos) -> None:
     )
     assert [item.agent_id for item in alice_agents] == ["agent-A"]
     assert [item.agent_id for item in bob_agents] == ["agent-B"]
-
-
-def test_get_profile_for_owner_returns_none_for_other_owner(repos) -> None:
-    """get_profile_for_owner must hide profiles belonging to another owner."""
-    users, _, _, profiles, _ = repos
-    alice = users.create_user(username="alice", display_name="Alice")
-    bob = users.create_user(username="bob", display_name="Bob")
-    profiles.upsert_profile(
-        agent_id="agent-B",
-        owner_id=bob.owner_id,
-        node_id="node-B",
-        display_name="B Bot",
-        description="",
-        system_prompt="",
-        skills=[],
-        tool_allowlist=[],
-        group_reply_policy="manual",
-        default_model=None,
-        workspace_root="/tmp/b",
-    )
     assert (
         profiles.get_profile_for_owner(agent_id="agent-B", owner_id=alice.owner_id)
         is None

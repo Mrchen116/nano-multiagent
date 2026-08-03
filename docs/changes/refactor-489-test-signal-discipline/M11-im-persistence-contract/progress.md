@@ -18,19 +18,19 @@
 
 ## R2 — schema 与 repository 持久化保护收敛
 
-- Context: 待执行。
-- Decision: 待执行。
-- Rationale: 待执行。
+- Context: repository 测试同时包含真实 migration/transaction 风险、字段逐项 round-trip、私有连接读列与历史修复备注；必须区分当前运行仍依赖的 durable 语义与实现形态。
+- Decision: 保留所有当前启动迁移、数据修复、跨线程 shared SQLite、owner isolation、external conversation 竞争、消息/事件 stable order、fork 原子回滚与完整气泡复制；把 profile 配置字段并入 optimistic-lock roundtrip，把 owner list/get 和 event cursor/high-water 各按同一风险合并；将 stale reconcile 9 项收敛为 missing/idempotent、revive、selectable 三项；删除 dataclass `hasattr`、默认 getter、日志 warning 和 participant repository 重复。
+- Rationale: schema migration 与 SQLite 并发仍直接承载生产数据库升级和 app-scoped connection；fork/relay 的事务与排序风险不能由普通 getter 代替。反之，字段存在性、默认 `None`、私有 SQL 和 warning 文案不应成为独立长期契约。
 - Evidence:
-  - Tests: 待执行。
+  - Tests: repository/schema/fork focused suite → `81 passed in 2.12s`；changed-test `ruff check` → `All checks passed`；R2 减少 21 个重复/实现细节 case。
   - Entry: N/A。
   - Frontend State Matrix: N/A。
   - Browser QA: N/A。
-  - E2E/Regression: 待执行。
+  - E2E/Regression: `test_db_init.py` shared-connection regression、schema migrations、repository/fork focused tests 全绿；N/A E2E，因为零行为变化。
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: 回退 R2 commit。
-- Commits: 待完成。
+- Commits: 本 roadpoint commit。
 
 ## R3 — Gateway、relay 与实时状态持久化保护收敛
 

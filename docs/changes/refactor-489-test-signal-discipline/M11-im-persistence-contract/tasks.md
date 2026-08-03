@@ -53,13 +53,13 @@
 
 ### R2 — schema 与 repository 持久化保护收敛
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 审核 schema migration、users/agents/nodes/conversations/messages/events/boundaries/fork 测试；合并重复 getter/round-trip，保留事务、外键、幂等、分页、owner isolation 与 stable ordering 风险。
 - 验证: repository-focused suite 全绿，unique risk 到 surviving test 的映射可复查。
 
 ### R3 — Gateway、relay 与实时状态持久化保护收敛
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 审核 Gateway handler、node/conversation persistence、routing freshness、dispatch concurrency、EventBridge、relay/watchdog/status projection 与 root IM 重复测试；保留 shared-connection concurrency、ACK、rollback、freshness 与 liveness 风险。
 - 验证: gateway/relay/event focused suite 全绿，跨层重复减少且时序 regression 仍在。
 
