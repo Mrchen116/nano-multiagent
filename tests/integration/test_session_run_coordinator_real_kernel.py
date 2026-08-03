@@ -273,53 +273,6 @@ async def test_kernel_recovery_preserves_empty_feature_runtime_identity(
 
 
 @pytest.mark.asyncio
-async def test_runtime_identity_canonicalizes_maps_but_preserves_list_order() -> None:
-    """Runtime fingerprints normalize mapping order without erasing ordered semantics."""
-    from agent.sdk import PromptSlots, PromptText, SessionRuntimeConfig
-
-    def runtime(*, features: dict[str, bool], tools: list[str]) -> SessionRuntimeConfig:
-        return SessionRuntimeConfig(
-            model="model-a",
-            prompt=PromptSlots(body=(PromptText(name="identity", text="same"),)),
-            skills=["research", "review"],
-            enabled_tools=tools,
-            features=features,
-        )
-
-    canonical = runtime(
-        features={"memory_curation": False, "auto_mode": True},
-        tools=["read", "write"],
-    )
-    reordered_map = runtime(
-        features={"auto_mode": True, "memory_curation": False},
-        tools=["read", "write"],
-    )
-    reordered_tools = runtime(
-        features={"memory_curation": False, "auto_mode": True},
-        tools=["write", "read"],
-    )
-
-    kernel = build_kernel(
-        llm=LLMConfig(
-            provider="openai_compat",
-            model="test-model",
-            base_url="http://127.0.0.1:1",
-        ),
-        repo_root=Path.cwd(),
-        _llm_client_override=_CountingClient(),
-    )
-    try:
-        assert kernel.identify_runtime(runtime=canonical) == kernel.identify_runtime(
-            runtime=reordered_map
-        )
-        assert kernel.identify_runtime(runtime=canonical) != kernel.identify_runtime(
-            runtime=reordered_tools
-        )
-    finally:
-        await kernel.aclose()
-
-
-@pytest.mark.asyncio
 async def test_kernel_fork_preserves_complete_runtime(tmp_path: Path) -> None:
     """A fork carries the source runtime, including explicit feature overrides."""
     from agent.sdk import PromptSlots, PromptText, SessionRuntimeConfig

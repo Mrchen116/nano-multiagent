@@ -49,13 +49,13 @@ Prototype / Reference Contract：N/A。
 
 ### R1 — 删除迁移路径与低层重复
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 删除 direct background registry、legacy channel bootstrap、私有 SessionDirectory、fake FIFO 和重复 routing/prompt/runtime 用例；先运行并记录保留/替代保护，再移除旧测试。
 - 验证: 已删风险的最低层 unit/contract/E2E 节点全绿；M10 收集不再包含 legacy/golden/private-path nodes。
 
 ### R2 — 收敛当前跨 seam 保护
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 保留真实 channel HTTP/WS、real-kernel 通知、routing/session/restart 结果；移除私有字段、历史 metadata 和 change 叙事断言，改用公开事件或最终接收结果。
 - 验证: M10 integration 全绿，保留用例只断言 current 跨边界结果。
 
