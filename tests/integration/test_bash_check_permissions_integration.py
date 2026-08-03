@@ -14,8 +14,6 @@ Exit-criteria for M6 R5:
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
-
 import pytest
 
 from agent.core.errors import ToolError
@@ -36,12 +34,10 @@ set_tool_safety_factory(ToolSafety)
 set_tool_safety_config_factory(ToolSafetyConfig)
 
 
-def _make_registry(tmp_path: Path, model_caller=None) -> ToolRegistry:
+def _make_registry(tmp_path: Path) -> ToolRegistry:
     hooks = build_hook_registry(repo_root=tmp_path)
     hook_runner = HookRunner(registry=hooks)
     ctx = ToolContext.create(repo_root=tmp_path)
-    if model_caller is not None:
-        hook_runner = HookRunner(registry=hooks)
     registry = ToolRegistry(
         context=ctx,
         hook_runner=hook_runner,
@@ -121,32 +117,3 @@ async def test_python3_script_goes_to_classifier_and_blocks_fail_closed(
                 metadata={"tool_call_id": "call-r5-3"},
             ),
         )
-
-
-@pytest.mark.asyncio
-async def test_bash_check_permissions_is_called_via_tool_registry_injection(
-    tmp_path: Path,
-) -> None:
-    """Verify tool_registry injection: auto_mode_gate calls BashTool.check_permissions.
-
-    Confirms the full D10 chain works: ToolRegistry.execute injects tool_registry into
-    hook metadata → auto_mode_gate step 1 calls BashTool.check_permissions → step 5
-    dispatches result. Without injection, bash would always fall through to classifier.
-    """
-    from agent.platform.tools.builtins.bash_policy import check_command_policy
-
-    # git status is allowed → BashTool.check_permissions returns allow
-    decision = check_command_policy("git status")
-    assert decision.status == "allowed", "git status must be in BASH_ALLOWED_PREFIXES"
-
-    # python3 /tmp/run.py is review → BashTool.check_permissions returns passthrough
-    decision2 = check_command_policy("python3 /tmp/run.py")
-    assert decision2.status == "review", (
-        "python3 <script> must be review (not in allowed prefix)"
-    )
-
-    # Verify BashTool has check_permissions method
-    tool = BashTool()
-    assert hasattr(tool, "check_permissions"), (
-        "BashTool must implement check_permissions (M6 D1)"
-    )

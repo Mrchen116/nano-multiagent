@@ -48,13 +48,13 @@
 
 ### R1 — 删除历史和重复断言
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 删除 idle 复制逻辑、kernel 迁移 golden、重复 bash signal 文件，以及各文件中已由 unit/contract 拥有的 policy、truncation、validation 细节；用下层最窄命令证明真实风险未丢。
 - 验证: 相关 unit/contract 绿；收集结果不再出现已删 node。
 
 ### R2 — 收敛保留的跨 seam 保护
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 参数化 bash gate；compaction 不再依赖 prompt 原文；hook/tool/read 只断言跨边界结果；bash stream 改为等待指定 run 终态事件。
 - 验证: 保留的 M9 integration 全绿，无固定 prompt 文案/无条件 trailing sleep/无为解锁 stream 而提交的 noop run。
 
