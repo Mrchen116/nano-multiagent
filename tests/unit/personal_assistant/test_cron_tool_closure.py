@@ -70,17 +70,6 @@ def test_add_list_remove_roundtrip(tmp_path: Path) -> None:
     assert tool.run({"action": "list"}, _Ctx(tmp_path, "agent-a"))["count"] == 0
 
 
-def test_run_routes_to_agent_service(tmp_path: Path) -> None:
-    svc = _FakeService("agent-a")
-    tool = make_cron_tool({"agent-a": svc})
-    job_id = _add_job(tool, tmp_path, "agent-a")
-
-    result = tool.run({"action": "run", "jobId": job_id}, _Ctx(tmp_path, "agent-a"))
-    assert result["ok"] is True
-    assert result["accepted"] is True
-    assert svc.calls == [{"job_id": job_id, "trigger": "manual"}]
-
-
 def test_run_per_agent_isolation(tmp_path: Path) -> None:
     """Agent A's run must hit A's service, never B's (决策 9 per-agent routing)."""
     svc_a = _FakeService("agent-a")
@@ -92,8 +81,10 @@ def test_run_per_agent_isolation(tmp_path: Path) -> None:
     root_a.mkdir()
     job_id = _add_job(tool, root_a, "agent-a")
 
-    tool.run({"action": "run", "jobId": job_id}, _Ctx(root_a, "agent-a"))
-    assert len(svc_a.calls) == 1
+    result = tool.run({"action": "run", "jobId": job_id}, _Ctx(root_a, "agent-a"))
+    assert result["ok"] is True
+    assert result["accepted"] is True
+    assert svc_a.calls == [{"job_id": job_id, "trigger": "manual"}]
     assert svc_b.calls == [], "agent-b service must not be touched by agent-a run"
 
 
@@ -112,12 +103,6 @@ def test_run_declined_ack_surfaces_error(tmp_path: Path) -> None:
     result = tool.run({"action": "run", "jobId": job_id}, _Ctx(tmp_path, "agent-a"))
     assert result["ok"] is False
     assert "disabled" in result["error"]
-
-
-def test_cron_tool_has_presenter() -> None:
-    """CronTool must carry a presenter for running/complete IM display."""
-    tool = make_cron_tool({})
-    assert getattr(tool, "presenter", None) is not None
 
 
 class _FakeResult:

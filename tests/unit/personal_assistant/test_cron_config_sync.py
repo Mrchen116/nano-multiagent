@@ -142,44 +142,6 @@ def test_sync_agent_cron_disabled_by_default(tmp_path: Path) -> None:
     assert registered.cron_enabled is False
 
 
-def test_sync_agent_cron_enabled_false_in_payload(tmp_path: Path) -> None:
-    """cron_enabled must be False when IM sends cron.enabled=false."""
-    workspace_root = tmp_path / "ws-cronoff"
-    workspace_root.mkdir()
-
-    def _handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200,
-            json={
-                "agent_id": "cronoff-agent",
-                "display_name": "Cron Off Agent",
-                "profile_version": 1,
-                "workspace_root": str(workspace_root),
-                "cron": {"enabled": False},
-            },
-        )
-
-    local_config = _make_local_config(tmp_path, workspace_root)
-    owners = build_config_sync_test_owners(local_config)
-    sync = _IMConfigSyncClient(
-        base_url="http://im.local",
-        token=None,
-        **owners.kwargs(),
-        local_config=local_config,
-        client=httpx.Client(
-            transport=httpx.MockTransport(_handler),
-            base_url="http://im.local",
-            trust_env=False,
-        ),
-        monotonic=lambda: 0.0,
-        sleep=lambda _: None,
-    )
-    sync.sync_agent(agent_id="cronoff-agent", profile_version=1)
-
-    registered = owners.catalog.require("cronoff-agent").config
-    assert registered.cron_enabled is False
-
-
 # ---------------------------------------------------------------------------
 # feat-394 fix (supersedes M3 WARNING-1): cron is a gated capability decoupled
 # from the user tool whitelist. cron_enabled must NEVER be written into

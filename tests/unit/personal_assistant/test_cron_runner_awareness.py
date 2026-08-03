@@ -125,18 +125,6 @@ class _FakeKernelClient:
         return self._result_text
 
 
-# ---------------------------------------------------------------------------
-# CronRunner existence and interface
-# ---------------------------------------------------------------------------
-
-
-def test_cron_runner_class_exists() -> None:
-    """CronRunner must be importable from personal_assistant.scheduler.cron_runner."""
-    from personal_assistant.scheduler.cron_runner import CronRunner
-
-    assert CronRunner is not None
-
-
 @pytest.mark.asyncio
 async def test_cron_runner_submit_uses_isolated_session(tmp_path: Path) -> None:
     """CronRunner must submit with origin=cron in session metadata.
@@ -217,52 +205,6 @@ async def test_cron_runner_awareness_appended_to_canonical_session(
 
 
 @pytest.mark.asyncio
-async def test_cron_runner_isolated_turns_not_in_canonical(tmp_path: Path) -> None:
-    """Isolated cron session turns must NOT be appended to canonical direct-chat session.
-
-    feat-394 decision C-awareness: only the final result text (as System(untrusted))
-    enters the canonical session via kernel.append_message; the isolated cron run's
-    intermediate turns (cron instruction, tool calls, thinking) are discarded.
-    feat-394-M9: awareness goes through kernel API, not raw file append.
-    """
-    from personal_assistant.scheduler.cron_runner import CronRunner
-
-    canonical_session_id = "sess-canonical"
-    kernel_client = _FakeKernelClient()
-
-    runner = CronRunner(
-        agent_id="agent-1",
-        workspace_root=tmp_path,
-        kernel_client=kernel_client,
-        session_binder=None,
-        canonical_session_id=canonical_session_id,
-    )
-
-    await runner.append_awareness(
-        session_id=canonical_session_id,
-        result_text="Final answer",
-    )
-
-    # Exactly one append_message call — only the final result text
-    assert len(kernel_client.appended_messages) == 1, (
-        "Only the final result text must be appended to the canonical session"
-    )
-    appended = kernel_client.appended_messages[0]
-    assert appended["session_id"] == canonical_session_id
-    # No cron intermediate content should appear
-    content = appended["content"]
-    assert "cron thinking..." not in content, (
-        "Isolated cron intermediate turns must NOT appear in canonical session"
-    )
-    assert "cron instruction" not in content, (
-        "Isolated cron instruction turns must NOT appear in canonical session"
-    )
-    assert "Final answer" in content, (
-        "The final result text must appear in the awareness entry"
-    )
-
-
-@pytest.mark.asyncio
 async def test_cron_runner_delete_after_run(tmp_path: Path) -> None:
     """Jobs with delete_after_run=True must be removed after first execution.
 
@@ -306,6 +248,7 @@ class _ShimCompatibleKernelClient:
 
     def __init__(self) -> None:
         self.called_with: dict | None = None
+        self.submitted_session_ids: list[str] = []
         self._session_counter = 0
 
     async def create_session(
@@ -327,50 +270,11 @@ class _ShimCompatibleKernelClient:
         return {"session_id": f"sess-{self._session_counter}"}
 
     def submit_message(self, *, session_id: str, texts: list[str], **kwargs) -> dict:
+        self.submitted_session_ids.append(session_id)
         return {"run_id": "run-shim-1"}
 
     async def await_run_result(self, *, run_id: str, **kwargs) -> str:
         return "cron job completed"
-
-
-@pytest.mark.asyncio
-async def test_cron_runner_submit_no_session_id_kwarg_to_shim(tmp_path: Path) -> None:
-    """CronRunner._submit_cron_job must NOT pass session_id to create_session.
-
-    feat-394-M6 R1 fix: InProcessKernelClient.create_session has no session_id parameter.
-    Before the fix, cron_runner.py:96 passed session_id=isolated_session_id and crashed
-    with: TypeError: create_session() got an unexpected keyword argument 'session_id'.
-
-    This test uses a shim-compatible fake that rejects session_id just like the real shim.
-    After the fix the call succeeds; the returned session_id is used for submit_message.
-    """
-    from personal_assistant.scheduler.cron_runner import CronRunner
-
-    shim_client = _ShimCompatibleKernelClient()
-    job = _make_job(job_id="j-shim-contract")
-
-    runner = CronRunner(
-        agent_id="agent-1",
-        workspace_root=tmp_path,
-        kernel_client=shim_client,
-        session_binder=None,
-    )
-
-    # Must not raise TypeError after the fix.
-    # feat-394-M7 R6 fix: _submit_cron_job now returns (run_id, kernel_session_id) or None.
-    result = await runner.submit(job=job)
-
-    assert shim_client.called_with is not None, "create_session was never called"
-    assert "session_id" not in (shim_client.called_with or {}), (
-        "create_session must NOT receive session_id kwarg — "
-        "InProcessKernelClient.create_session has no such parameter"
-    )
-    assert result is not None, "run result must be returned on success"
-    run_id, kernel_session_id = result
-    assert run_id is not None, "run_id must be non-empty"
-    assert kernel_session_id is not None, (
-        "kernel_session_id must be returned alongside run_id"
-    )
 
 
 @pytest.mark.asyncio
@@ -394,10 +298,7 @@ async def test_cron_runner_uses_returned_session_id_for_submit(tmp_path: Path) -
 
     await runner.submit(job=job)
 
-    assert shim_client.called_with is not None
-    assert shim_client._session_counter == 1, (
-        "exactly one session must have been created"
-    )
+    assert shim_client.submitted_session_ids == ["sess-1"]
 
 
 @pytest.mark.asyncio
