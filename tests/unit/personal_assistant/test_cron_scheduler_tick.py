@@ -195,38 +195,39 @@ class TestCronSchedulerTick:
 # ---------------------------------------------------------------------------
 
 
-class TestCronAtSchedulerSmoke:
-    def test_cron_fires_when_matching_minute(self, tmp_path: Path) -> None:
-        """Smoke: cron expression job is returned by _compute_due_jobs on matching minute."""
-        store = CronJobStore(workspace_root=tmp_path)
-        store.add(
-            _make_job(job_id="j1", schedule={"kind": "cron", "expr": "0 9 * * *"})
-        )
-        state_store = CronSchedulerStateStore(state_path=tmp_path / "cron-state.json")
-        scheduler = CronScheduler(
-            agent_id="agent-1", job_store=store, state_store=state_store, submit_fn=None
-        )
-        now = datetime(2026, 1, 1, 9, 0, 0, tzinfo=UTC)
-        due = scheduler._compute_due_jobs(now=now)
-        assert len(due) == 1
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("schedule", "now"),
+    [
+        ({"kind": "cron", "expr": "0 9 * * *"}, datetime(2026, 1, 1, 9, tzinfo=UTC)),
+        (
+            {"kind": "at", "at": "2026-01-01T10:00:00Z"},
+            datetime(2026, 1, 1, 10, tzinfo=UTC),
+        ),
+    ],
+)
+async def test_tick_wires_due_cron_and_at_schedules(
+    tmp_path: Path, schedule: dict, now: datetime
+) -> None:
+    """Submit due cron/at jobs through the scheduler's public tick seam."""
 
-    def test_at_fires_when_time_arrived(self, tmp_path: Path) -> None:
-        """Smoke: at job is returned by _compute_due_jobs when now == due_at."""
-        store = CronJobStore(workspace_root=tmp_path)
-        store.add(
-            _make_job(
-                job_id="j1",
-                schedule={"kind": "at", "at": "2026-01-01T10:00:00Z"},
-                delete_after_run=True,
-            )
-        )
-        state_store = CronSchedulerStateStore(state_path=tmp_path / "cron-state.json")
-        scheduler = CronScheduler(
-            agent_id="agent-1", job_store=store, state_store=state_store, submit_fn=None
-        )
-        now = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
-        due = scheduler._compute_due_jobs(now=now)
-        assert len(due) == 1
+    submitted: list[str] = []
+
+    async def _submit(*, agent_id: str, job: CronJob) -> None:
+        submitted.append(job.id)
+
+    store = CronJobStore(workspace_root=tmp_path)
+    store.add(_make_job(job_id="j1", schedule=schedule))
+    scheduler = CronScheduler(
+        agent_id="agent-1",
+        job_store=store,
+        state_store=CronSchedulerStateStore(state_path=tmp_path / "cron-state.json"),
+        submit_fn=_submit,
+    )
+
+    await scheduler.tick(now=now)
+
+    assert submitted == ["j1"]
 
 
 # refactor-406-M1 R7: TestGatewayCronDispatcher (the HostCapabilityDispatcher bridge:

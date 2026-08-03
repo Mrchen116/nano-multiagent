@@ -26,30 +26,6 @@ class TestCronExecutionServiceEnqueue:
         )
 
     @pytest.mark.asyncio
-    async def test_enqueue_returns_accepted_ack(self, tmp_path: Path) -> None:
-        from personal_assistant.scheduler.cron_execution_service import (
-            CronExecutionService,
-        )
-
-        self._make_job_store(tmp_path)
-
-        async def _fake_execute(**_kwargs: object) -> None:
-            return None
-
-        service = CronExecutionService(
-            agent_id="agent-test",
-            workspace_root=tmp_path,
-            execute_fn=_fake_execute,
-        )
-
-        ack = service.enqueue(job_id="job-exec-1", trigger="manual")
-
-        assert ack["accepted"] is True
-        assert ack["job_id"] == "job-exec-1"
-        assert ack["request_id"]
-        assert ack["error_code"] is None
-
-    @pytest.mark.asyncio
     async def test_enqueue_unknown_job_returns_error(self, tmp_path: Path) -> None:
         from personal_assistant.scheduler.cron_execution_service import (
             CronExecutionService,
@@ -102,7 +78,7 @@ class TestCronExecutionServiceEnqueue:
         assert ack["error_code"] == "job_disabled"
 
     @pytest.mark.asyncio
-    async def test_enqueue_persists_accepted_record(self, tmp_path: Path) -> None:
+    async def test_enqueue_accepts_and_persists_history(self, tmp_path: Path) -> None:
         from personal_assistant.scheduler.cron_execution_service import (
             CronExecutionService,
             CronRunsStore,
@@ -119,13 +95,16 @@ class TestCronExecutionServiceEnqueue:
             execute_fn=_fake_execute,
         )
 
-        ack = service.enqueue(job_id="job-exec-1", trigger="scheduled")
+        ack = service.enqueue(job_id="job-exec-1", trigger="manual")
         records = CronRunsStore(workspace_root=tmp_path).list_by_job("job-exec-1")
 
+        assert ack["accepted"] is True
+        assert ack["job_id"] == "job-exec-1"
+        assert ack["error_code"] is None
         assert len(records) >= 1
         assert records[0].status == "accepted"
         assert records[0].request_id == ack["request_id"]
-        assert records[0].trigger == "scheduled"
+        assert records[0].trigger == "manual"
 
 
 class TestGatewayStartupConvergence:

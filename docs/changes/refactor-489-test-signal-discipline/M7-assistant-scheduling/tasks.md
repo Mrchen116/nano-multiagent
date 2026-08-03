@@ -48,7 +48,7 @@
 
 ### R2 — 收敛 cron 工具、调度与执行保护
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 将 public tool/store/tick/history/terminal/drain 收敛到最低行为 seam，合并正反重复与私有步骤断言。
 - 验证: cron 文件切片 pytest。
 

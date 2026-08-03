@@ -35,6 +35,24 @@
 - Commits: 本 R 提交（SHA 以 Git history 为准）。
 - Next: R2 收敛 cron 工具、调度、执行与历史测试。
 
+## R2 — 收敛 cron 工具、调度与执行保护
+
+- Context: cron 切片同时有 public action/schema 风险和 description/provenance 措辞基线；job/store/scheduler 重复测 dataclass getter、固定文件布局、空列表与私有 `_compute_due_jobs`；runner 用两个测试分别锁“不传某 kwarg”和“使用返回 session”，history 还锁了内部文件读取次数。
+- Decision: 将 cron tool 收敛为当前 action/schema 和结构化 history 结果，不锁 description；用参数化权限结果保护读/写分类；用一个 store roundtrip 覆盖持久化/update/remove/enabled filter；cron/at 只经公开 `tick()` 证明 wiring；runner 用 strict shim 返回的 session id 实际进入 submit 取代反向 kwarg 断言。保留 admission linearization、terminal owner、run history restart/concurrency、manual-run per-agent isolation 与 drain 收拢。
+- Rationale: 这些断言直接经过 model/tool/Gateway 使用的 seam，而不依赖实现如何读文件或传参。真实并发与关机风险未以“可能不稳”为由删除。
+- Evidence:
+  - Tests: 全部当前 `test_cron*.py` + `test_schedule_primitives.py` 运行 `83 passed, 1 warning in 1.99s`。
+  - Entry: `cron` tool 从 public `run()` 验证 add/list/remove/run/runs；scheduler 从 public `tick()` 验证 every/cron/at；Gateway startup 保留真线程收敛 stale runs。
+  - Frontend State Matrix: N/A（非前端）。
+  - Browser QA: N/A（零用户面代码变更）。
+  - E2E/Regression: `test_cron_tool_public_shape.py`, `test_cron_tool_closure.py`, `test_cron_scheduler_tick.py`, `test_cron_execution_owner_chain.py`, `test_cron_run_history.py`。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+  - Quality: focused `ruff check` 通过；cron 切片已无 `inspect.getsource` / source-negative / private `_compute_due_jobs` 测试。
+- Rollback: 回退本 R 提交至 `b6ef951af`。
+- Commits: 本 R 提交（SHA 以 Git history 为准）。
+- Next: R3 收敛 heartbeat 节律、开关与 session 保护。
+
 ## Promotion Candidates
 
 | Candidate | Suggested owner | Scope | Evidence |
