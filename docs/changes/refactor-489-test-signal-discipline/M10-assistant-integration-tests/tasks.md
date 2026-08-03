@@ -8,10 +8,10 @@
 
 ## 退出标准
 
-- [ ] M10 每项受影响存量测试都有 keep / rewrite-merge / delete 处置结论。
-- [ ] 保留的 integration 直接证明真实 HTTP/WS channel 生命周期、群聊路由、前后台通知、会话配置/重启和 live dispatch 结果，不锁定私有调用、旧 metadata 或历史 prompt 句子。
-- [ ] 删除的真实风险已有本切片保留测试或最低层 unit/contract/E2E 保护；纯迁移路径明确记录为无 current 风险。
-- [ ] M10 切片、相关最低层替代保护、ruff、`git diff --check` 全绿，changed paths 不越界。
+- [x] M10 每项受影响存量测试都有 keep / rewrite-merge / delete 处置结论。
+- [x] 保留的 integration 直接证明真实 HTTP/WS channel 生命周期、群聊路由、前后台通知、会话配置/重启和 live dispatch 结果，不锁定私有调用、旧 metadata 或历史 prompt 句子。
+- [x] 删除的真实风险已有本切片保留测试或最低层 unit/contract/E2E 保护；纯迁移路径明确记录为无 current 风险。
+- [x] M10 切片、相关最低层替代保护、ruff、`git diff --check` 全绿，changed paths 不越界。
 
 ## 测试策略
 
@@ -61,6 +61,6 @@ Prototype / Reference Contract：N/A。
 
 ### R3 — Rebase、golden 归属确认与门禁收尾
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: rebase 最新 unit；确认 M9 已删除 golden 唯一引用后再删除 fixtures；复核处置表、changed paths 与替代保护，运行 M10、ruff、diff check。
 - 验证: 所有门禁全绿；若 M9 仍引用 golden 则保留并在 progress 报告，不越界修改 M9。
