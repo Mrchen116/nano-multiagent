@@ -4,7 +4,7 @@
 
 - Claim: 清理前 M14 chat Vitest 可稳定运行，后续删除/合并能与同一范围直接对照。
 - Baseline: `milestone/refactor-489-M14` from `origin/unit/refactor-489@52af34076`。
-- Method: 在 `src/IM/frontend/` 运行 `./node_modules/.bin/vitest run src/features/chat`；worktree 的 ignored `node_modules` 链接到主仓已安装的同版本 frontend dependencies。
+- Method: 在 `src/IM/frontend/` 运行 `./node_modules/.bin/vitest run src/features/chat`；worktree 的临时未跟踪 `node_modules` 链接到主仓已安装的同版本 frontend dependencies，收尾时删除。
 - Result: PASS；`27 test files / 493 tests passed in 5.87s`。
 - Locator: `src/IM/frontend/src/features/chat/**/*.test.{ts,tsx}` 与本 milestone `tasks.md` 处置表。
 - Limit: Vitest/jsdom + mocked fetch/user stream；不证明真实浏览器视觉、真实 IM 服务或外部网络。既存输出含 React `act(...)` 与 Node `--localstorage-file` warnings，本 milestone 不把 warning 当失败升级产品范围。
@@ -47,7 +47,23 @@
 
 ## R3 — 收敛状态协作并完成门禁
 
-- 状态: TODO
+- 状态: DONE
+- Context: reducer 为同一个 `message.completed` 事件分别建立 token、耗时与 kernel message id case；workspace 又对 node online/offline 两个对称方向和未知 agent id 的内部 no-op 单独建例。
+- Decision: 将 completion 的公开字段收敛到一个事件断言，保留 failed terminal status 的独立风险；workspace 保留 node online→offline 与 agent→node cache patch 两条不同入口，删除对称反向状态和未知 id 防御性重复。
+- Rationale: 同一 reducer 分支的一次事件即可证明所有 current 字段传递；online/offline 都落到相同公开 chip 状态更新 seam，而 agent→node 仍保留跨 cache 解析风险。未知 agent 无异常只证明内部 defensive no-op，不承担用户可观察契约。
+- Evidence:
+  - Tests: reducer + workspace 定向 `2 files / 76 tests passed in 4.19s`；rebase 最新 unit 后完整 M14 `24 files / 403 tests passed in 8.42s`，相对基线从 `27 files / 493 tests` 净减 3 个静态扫描文件与 90 个低信号/重复 case。
+  - Build: `tsc -b --pretty false` 与 Vite production build PASS；构建输出定向到 `/tmp/refactor-489-M14-build.*`，仓内不产生 `src/IM/frontend/dist/`。
+  - Docs/Scope: `scripts/docs_check.py` PASS（214 maintained Markdown sources / 65 required routes）；`git diff --check` 与 changed-path audit PASS，改动仅 M14 chat tests 和本 milestone 文档。
+  - Entry: reducer 继续保护 completion/failed/tool/thinking/sender/discard 等公开状态；workspace 继续保护 REST/WS 历史收敛、发送、附件、状态、分页与群设置协作。
+  - Frontend State Matrix: default/loading/empty/error/disabled/submitting/permission denied/long content/missing data/mobile/desktop 的适用代表性风险均在保留测试中。
+  - Browser QA: N/A（测试资产重构，无 UI/product delta）。
+  - E2E/Regression: 永久 regression 为收敛后的 403 个 M14 Vitest；真实浏览器与 real-stack 不属本 milestone。
+  - Visual/Interaction: N/A；无样式或交互实现修改。
+  - Prototype Comparison: N/A。
+- Rollback: 回退 M14 三个 roadpoint commit 可完整恢复被删除/合并的测试资产，不改变生产代码或用户数据。
+- Commits: 本 R3 提交与最终 merge commit（SHA 以 Git history 为准）。
+- Next: 无；M14 已达到退出标准，等待合入 unit 分支。
 
 ## Promotion Candidates
 

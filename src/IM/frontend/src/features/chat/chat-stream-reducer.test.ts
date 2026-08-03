@@ -86,11 +86,15 @@ describe("chat-stream-reducer", () => {
       conversation_id: "c1",
       message_id: "m2",
       content: "Hello world.",
-      token_usage: { output: 312, context_used: 14800, context_window: 200000 }
+      token_usage: { output: 312, context_used: 14800, context_window: 200000 },
+      elapsed_ms: 4200,
+      kernel_message_id: "msg_live_abc"
     });
     expect(next.messages[0]!.content).toBe("Hello world.");
     expect(next.messages[0]!.delivery_status).toBe("completed");
     expect(next.messages[0]!.token_usage).toEqual({ output: 312, context_used: 14800, context_window: 200000 });
+    expect(next.messages[0]!.elapsed_ms).toBe(4200);
+    expect(next.messages[0]!.kernel_message_id).toBe("msg_live_abc");
   });
 
   it("preserves a failed terminal status from message.completed", () => {
@@ -105,38 +109,6 @@ describe("chat-stream-reducer", () => {
       delivery_status: "failed"
     });
     expect(next.messages[0]!.delivery_status).toBe("failed");
-  });
-
-  // feat-414-M1: message.completed 带出 elapsed_ms，reducer 写入 Message
-  it("writes elapsed_ms from message.completed event onto the message", () => {
-    const seed: Message = { ...userMessage("m3", ""), sender: { type: "agent", id: "agent-a" }, sender_type: "agent", delivery_status: "running" };
-    const state: ConversationState = { ...emptyConversationState, messages: [seed] };
-    const next = applyWsEvent(state, {
-      type: "message.completed",
-      conversation_id: "c1",
-      message_id: "m3",
-      content: "done",
-      token_usage: null,
-      elapsed_ms: 4200,
-    });
-    expect(next.messages[0]!.delivery_status).toBe("completed");
-    expect(next.messages[0]!.elapsed_ms).toBe(4200);
-  });
-
-  // feat-445-M1: message.completed carries kernel_message_id so a live-completed agent
-  // bubble becomes forkable without a refetch (regression for the WS serialization gap).
-  it("writes kernel_message_id from message.completed onto the message", () => {
-    const seed: Message = { ...userMessage("m4", ""), sender: { type: "agent", id: "agent-a" }, sender_type: "agent", delivery_status: "running" };
-    const state: ConversationState = { ...emptyConversationState, messages: [seed] };
-    const next = applyWsEvent(state, {
-      type: "message.completed",
-      conversation_id: "c1",
-      message_id: "m4",
-      content: "done",
-      token_usage: null,
-      kernel_message_id: "msg_live_abc",
-    });
-    expect(next.messages[0]!.kernel_message_id).toBe("msg_live_abc");
   });
 
   it("upserts a running tool_call onto the in-flight message and updates it on completion", () => {

@@ -8,10 +8,10 @@
 
 ## 退出标准
 
-- [ ] 27 个 M14 测试文件覆盖的风险都有 keep / rewrite-merge / delete 处置结论。
-- [ ] 保留测试直接驱动组件、reducer、hook 或 API adapter，并从 DOM、回调、请求 payload 或公开 state 观察结果。
-- [ ] 删除的源码/CSS/文件布局与重复断言不留下当前聊天交互、状态或接口保护缺口。
-- [ ] M14 Vitest、frontend build、`git diff --check` 与 changed-path scope 全绿。
+- [x] 27 个 M14 测试文件覆盖的风险都有 keep / rewrite-merge / delete 处置结论。
+- [x] 保留测试直接驱动组件、reducer、hook 或 API adapter，并从 DOM、回调、请求 payload 或公开 state 观察结果。
+- [x] 删除的源码/CSS/文件布局与重复断言不留下当前聊天交互、状态或接口保护缺口。
+- [x] M14 Vitest、frontend build、`git diff --check` 与 changed-path scope 全绿。
 
 ## 测试策略
 
@@ -87,6 +87,6 @@ Prototype / Reference Contract：N/A。
 
 ### R3 — 收敛状态协作并完成门禁
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 合并 reducer/workspace 中同一事件或 leaf behavior 的重复断言，复核 27-file 处置矩阵；rebase 最新 unit 后运行 M14、frontend build、docs/diff/scope 门禁。
 - 验证: M14 与 frontend build 全绿；changed paths 仅 M14 chat tests 与本 milestone 文档。
