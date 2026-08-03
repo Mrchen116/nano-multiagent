@@ -27,8 +27,8 @@
 |---|---|---|---|---|
 | 产品只经 `agent.sdk` 接触内核，顶层包与内核层依赖方向正确 | `test_agent_sdk_boundary_contract.py`、`test_cli_sdk_only_contract.py`、`test_core_no_platform_imports.py`、`test_platform_no_sdk_imports.py` | rewrite-merge | 保留 current `SPEC.md` / kernel spec 的真实 import seam；用共享 AST import 解析替代正则、源码片段和重复扫描 | 四个 contract 文件 + hook 入口 |
 | `agent.sdk` 公开 export、DTO/schema、LLM/provider、tool/hook 与 Kernel 公共行为 | `test_agent_sdk_surface_*`、`test_{core_types,core_events,llm_interfaces,llm_provider,compaction,hooks,hook_integration,tools_*,kernel_sdk_behavior,sdk_kernel_wiring,sdk_two_layer_assembly,tool_gate_coverage,skill_commands,system_prompt,cli_error,bg_origin_constant}_*.py` | keep | 直接调用公开对象或协议序列化 seam；精确字段/文本仅用于 schema、wire payload 或明确公开 API | 对应 contract pytest |
-| capability wire payload 的字段、顺序、默认值和 skill location | `test_capability_payload_baseline.py` | rewrite-merge | 风险仍是当前 node/agent capability 协议；去除“迁移前 baseline”叙事，保留受控环境下的协议精确断言 | capability contract pytest |
-| 个人助手包进入构建产物 | `test_personal_assistant_package_contract.py`、`test_personal_assistant_main_contract.py` | rewrite-merge | 用 setuptools 实际发现结果保护可安装包；删除入口文件路径、私有 factory/lifecycle 源码布局断言 | package contract pytest |
+| capability wire payload 的字段、顺序、默认值和 skill location | `test_capability_payload_baseline.py` → `test_capability_payload_contract.py` | rewrite-merge | 风险仍是当前 node/agent capability 协议；去除“迁移前 baseline”叙事，保留受控环境下的协议精确断言 | capability contract pytest |
+| 个人助手包进入构建产物 | `test_personal_assistant_package_contract.py`、`test_personal_assistant_main_contract.py` | rewrite-merge | 保留 pyproject 的 setuptools package-discovery 声明；删除入口文件路径、私有 factory/lifecycle 源码布局断言 | package contract pytest |
 | CLI 与 PA 的 cron/heartbeat 产品隔离 | `test_cron_coding_cli_isolation.py`、`test_agent_sdk_surface_contract.py` 的 cron-negative tests | rewrite-merge | 保留两产品 factory 的可观察 tool/prompt 结果；删除 `cron.py` 文件位置和“名称中不得含 cron”的迁移终态扫描 | cron isolation pytest |
 | 已完成包重命名、旧 import/目录和 session aggregate 切换 | `test_multi_product_architecture.py`、`test_no_legacy_homing_imports.py`、`test_no_legacy_wiring_imports.py`、`test_session_aggregate_architecture.py` | delete | 只验证迁移终态、已删路径/符号或私有 `_engine`；真实跨包依赖由 AST contract，session 行为由 session unit/integration 与 SDK contract 保护 | 替代 contract + session focused tests |
 | PA/IM 内部 owner、module/file layout 和前端单 WebSocket 实现 | `test_gateway_inbound_ownership_contract.py`、`test_im_gateway_seam_contract.py`、`test_im_persistence_seam_contract.py`、`test_im_frontend_user_stream_ownership.py` | delete | 源码字符串、私有调用、类/文件位置是实现步骤；Gateway/IM/前端行为在所属 unit/integration/E2E/Vitest seam 保护 | 相关已有行为测试收集证据 + contract suite |
@@ -47,7 +47,7 @@
 
 ### R1 — Contract 架构 seam 收敛
 
-- 状态：TODO
+- 状态：DONE
 - 步骤：先确认保留的当前行为保护；新增共享 AST import helper，改写跨包/层级 contract；删除迁移终态和私有源码/目录扫描；把 capability/package/cron/SDK 断言改成 current seam。
 - 验证：受影响 contract 文件最窄 pytest；替代保护 focused pytest；ruff/format。
 

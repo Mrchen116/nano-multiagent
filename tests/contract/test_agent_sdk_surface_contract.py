@@ -7,7 +7,6 @@ Covers:
 - can_use_tool callback: injected permission strategy is called when the gate
   fires (modelled via a stub hook that parks a permission request)
 - Interrupt while waiting for permission cancels the pending turn
-- agent.sdk stays cron-neutral (no cron-specific types leak into sdk / core.tools)
 """
 
 from __future__ import annotations
@@ -122,8 +121,6 @@ def test_kernel_exposes_required_methods(tmp_path: Path) -> None:
         assert callable(getattr(kernel, "get_run", None))
         assert callable(getattr(kernel, "list_session_tools", None))
         assert callable(getattr(kernel, "get_llm_config", None))
-        # bugfix-429: reconfigure_llm retired (model is per-run via submit(model=)).
-        assert not hasattr(kernel, "reconfigure_llm")
         assert callable(getattr(kernel, "close", None))
     finally:
         kernel.close()
@@ -339,40 +336,3 @@ def test_kernel_exposes_assemble_prompt_preview(tmp_path: Path) -> None:
         )
     finally:
         kernel.close()
-
-
-# ---------------------------------------------------------------------------
-# refactor-406-M1 R7: HostCapabilityDispatcher/HostCapabilityContext removed (决策 9).
-# The cron-enqueue bridge is gone; cron routing lives in the closure cron tool. The
-# four tests that asserted the SDK exports + build_kernel(host_capabilities=) param
-# are deleted (tested eliminated implementation). The SDK/core cron-neutrality guards
-# below stay — they now also implicitly assert no HostCapability cron types leak.
-# ---------------------------------------------------------------------------
-
-
-def test_no_cron_type_exported_from_agent_sdk() -> None:
-    """agent.sdk must not export any cron-specific types (SDK stays product-neutral).
-
-    CronRunCommand, CronEnqueueAck, and similar types must NOT appear in agent.sdk
-    or agent.core.  Only the generic dispatcher/context protocol lives there.
-    """
-    import agent.sdk as sdk_module
-
-    cron_names = [
-        name for name in dir(sdk_module) if "cron" in name.lower() or "Cron" in name
-    ]
-    assert not cron_names, (
-        f"agent.sdk must not export cron-specific names; found: {cron_names}"
-    )
-
-
-def test_no_cron_type_in_agent_core_tools() -> None:
-    """agent.core.tools must not contain cron-specific types."""
-    import agent.core.tools as core_tools
-
-    cron_names = [
-        name for name in dir(core_tools) if "cron" in name.lower() or "Cron" in name
-    ]
-    assert not cron_names, (
-        f"agent.core.tools must not export cron-specific names; found: {cron_names}"
-    )

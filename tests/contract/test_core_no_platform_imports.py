@@ -1,45 +1,24 @@
-"""Guard that canonical core packages do not depend on higher-level surfaces.
+"""Guard that core packages do not depend on higher-level surfaces."""
 
-Only import statements are checked (not docstrings or comments) to avoid
-false positives when a module's documentation mentions a higher-level surface
-by name without actually importing it.
-"""
-
-import re
 from pathlib import Path
 
+from tests.contract.import_rules import forbidden_imports
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = PROJECT_ROOT / "src" / "agent"
 CORE_ROOT = SRC_ROOT / "core"
 
-# Match only actual import lines to avoid false positives from docstrings.
-_IMPORT_LINE_RE = re.compile(r"^\s*(?:from|import)\s+", re.MULTILINE)
-
 FORBIDDEN_PREFIXES = [
-    # bugfix-431: core must never import sdk (make_skill_resolver lives in core precisely
-    # to avoid this reverse dependency; adding sdk here ensures any future core→sdk import
-    # is caught immediately by CI).
     "agent.sdk",
     "agent.platform",
-    "agent.products",
-    "agent.apps",
     "fastapi",
     "starlette",
 ]
 
 
-def test_core_packages_do_not_import_platform_product_or_app_surfaces() -> None:
-    checked = 0
-    for path in CORE_ROOT.rglob("*.py"):
-        checked += 1
-        source = path.read_text(encoding="utf-8")
-        # Extract only import statement lines to skip docstrings and comments.
-        import_lines = "\n".join(
-            line for line in source.splitlines() if _IMPORT_LINE_RE.match(line)
-        )
-        for prefix in FORBIDDEN_PREFIXES:
-            assert prefix not in import_lines, (
-                f"{path} imports forbidden higher-level surface: {prefix}"
-            )
-    assert checked > 0
+def test_core_packages_do_not_import_higher_level_surfaces() -> None:
+    violations = forbidden_imports(CORE_ROOT, FORBIDDEN_PREFIXES)
+    assert not violations, "core imports higher-level surfaces:\n  " + "\n  ".join(
+        f"{item.path.relative_to(PROJECT_ROOT)}:{item.line}: {item.module}"
+        for item in violations
+    )
