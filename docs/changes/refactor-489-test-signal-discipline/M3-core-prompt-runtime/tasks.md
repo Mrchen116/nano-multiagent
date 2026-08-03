@@ -37,18 +37,19 @@
 | background notification prompt 与子 agent role prompt 不绑定历史句子 | `test_background_tasks.py::test_prompt_block_contains_rules`、`test_subagent_types.py::test_role_prompt_seeds_are_distinct_and_read_only_types_avoid_gp_copy`、`test_agent_tool.py::test_type_specific_prompt_seed_is_passed_to_create_subagent` | delete / rewrite-merge | XML/schema、工具 deny 与 PromptSlotSeed 传递风险仍保留；AgentTool 改为对象相等而非 `READ-ONLY` 片段 | background/subagent/agent tool 定向测试 |
 | assistant history 合并向 LLM 保留文本、tool calls 与 reasoning | `tests/unit/test_merge_adjacent_assistant.py`、`tests/unit/test_prompting_merge_adjacent.py` | delete / rewrite-merge | 删除私有 helper 的重复直接测试，改经 `build_chat_messages` 消费者入口覆盖相邻合并与 group coalesce | prompting merge 文件 + persistence fidelity |
 | MemoryStore 空态与纯内容输出 | `tests/unit/test_memory_store.py`、prompt golden/render-mode 中的重复用例 | rewrite-merge / delete | 同一 store 风险只在 store 最低层断言一次；prompt 只验证装配输入输出 | memory store + prompt runtime state |
+| 自动 skill curator 的 stale/archive/reactivate 与发现边界 | `tests/unit/test_curator.py` | keep | 范围澄清后纳入；5 个测试直接经过 curator 文件状态 seam，分别保护仍存在的生命周期风险，没有迁移快照或更低层重复 | `pytest -q tests/unit/test_curator.py` |
 
 ## Roadpoints
 
 ### R1 — 删除迁移终态与墓碑断言
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 先跑架构/运行时替代保护，再删除 location/removed/tombstone 测试并收敛混合文件中的行为用例。
 - 验证: no-legacy/core contract、Event hub 跨 loop、safety/background/bash policy 定向测试通过。
 
 ### R2 — 收敛 prompt 条件与消费者输入输出
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 删除迁移 golden、片段措辞和 registry skeleton 断言；把 assembler、runtime/preview、AGENTS、feature/tool gate 与 PromptSlotSeed 传递合并到当前 seam。
 - 验证: prompt、capability、metadata、subagent 定向测试通过，且不再存在 M4 golden/legacy/no-order 文件。
 
@@ -56,4 +57,4 @@
 
 - 状态: TODO
 - 步骤: 把 assistant merge 改为 `build_chat_messages` 消费者保护，去除 MemoryStore 重复；核对处置表并运行 M3 精确范围门禁。
-- 验证: M3 全量、相关 contract、ruff、`git diff --check` 与范围检查通过。
+- 验证: M3 全量（显式包含 `tests/unit/test_curator.py`）、相关 contract、ruff、`git diff --check` 与范围检查通过。
