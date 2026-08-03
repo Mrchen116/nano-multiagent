@@ -77,13 +77,13 @@ Prototype / Reference Contract：N/A。
 
 ### R1 — 删除静态扫描与 app/me 伪视觉重复
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 删除 `.gitignore`/HTML 源码测试；收敛 App/router/AppShell/Me 的重复路由、prototype 与 CSS/DOM 形状断言。
 - 验证: app/me 定向 Vitest 与 M16 全量通过；保留 root/route、identity cache、桌面/移动导航、语言与退出路径。
 
 ### R2 — 收敛 auth 与 notification 状态保护
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 合并 auth freshness/status、store lifecycle、completion/visibility/Notification API/i18n 的同 seam 重复，保留错误、账号竞态和用户副作用。
 - 验证: auth/notification/i18n 定向 Vitest 与 M16 全量通过。
 
