@@ -1,120 +1,81 @@
-"""Tests for the web_search presenter (feat-425 决策 5).
-
-The product-owned web_search tool carries its own presenter (presentation travels
-with the tool object, 决策 12; module boundary: written in the product package,
-importing only ``agent.sdk``). Mirrors web_fetch:
-- collapsed row → ``🔍 <query>`` (human-facing primary arg + globe-search emoji);
-- detail → structured ``{query, provider, results, count}``;
-- empty / both failure channels handled (unknown provider {ok:False,error};
-  searxng raise surfaced via result.error).
-"""
+"""User-visible presentation states for the PA web search tool."""
 
 from __future__ import annotations
 
 from typing import Any
 
+import pytest
 
-class _FakeResult:
-    def __init__(self, output: Any = None, error: str | None = None) -> None:
+from personal_assistant.tools.web_search import WebSearchTool
+
+
+class _Result:
+    def __init__(self, *, output: Any = None, error: str | None = None) -> None:
         self.output = output
         self.error = error
 
 
-def _presenter():
-    from personal_assistant.tools.web_search import WebSearchTool
+def test_search_start_exposes_query_as_visible_summary() -> None:
+    event = WebSearchTool.presenter.format_start({"query": "nano multiagent"})
 
-    presenter = WebSearchTool.presenter
-    assert presenter is not None
-    return presenter
-
-
-def test_presenter_attached_to_tool() -> None:
-    # 决策 12: presentation travels with the tool object.
-    from personal_assistant.tools.web_search import WebSearchTool
-
-    assert getattr(WebSearchTool, "presenter", None) is not None
+    assert event.visible is True
+    assert event.summary == "nano multiagent"
+    assert event.emoji == "🔍"
+    assert event.detail == {"query": "nano multiagent"}
 
 
-def test_start_shows_query_with_search_emoji() -> None:
-    evt = _presenter().format_start({"query": "nano multiagent 架构"})
-    assert evt.visible is True
-    assert evt.summary == "nano multiagent 架构"
-    assert evt.emoji == "🔍"
-    assert evt.detail == {"query": "nano multiagent 架构"}
-
-
-def test_end_success_detail_has_results() -> None:
-    results = [
-        {"title": "T1", "url": "https://a.example", "snippet": "s1"},
-        {"title": "T2", "url": "https://b.example", "snippet": "s2"},
-    ]
-    evt = _presenter().format_end(
-        {"query": "kw"},
-        _FakeResult(
+@pytest.mark.parametrize(
+    "results",
+    [
+        [],
+        [{"title": "Result", "url": "https://example.test", "snippet": "body"}],
+    ],
+)
+def test_search_success_preserves_results_and_count(
+    results: list[dict[str, str]],
+) -> None:
+    event = WebSearchTool.presenter.format_end(
+        {"query": "query"},
+        _Result(
             output={
                 "ok": True,
-                "query": "kw",
-                "provider": "duckduckgo",
+                "query": "query",
+                "provider": "searxng",
                 "results": results,
             }
         ),
-        duration_ms=120,
+        duration_ms=10,
     )
-    assert evt.summary == "kw"
-    assert evt.emoji == "🔍"
-    assert evt.detail is not None
-    assert evt.detail["query"] == "kw"
-    assert evt.detail["provider"] == "duckduckgo"
-    assert evt.detail["results"] == results
-    assert evt.detail["count"] == 2
+
+    assert event.summary == "query"
+    assert event.detail == {
+        "query": "query",
+        "provider": "searxng",
+        "results": results,
+        "count": len(results),
+    }
 
 
-def test_end_empty_results() -> None:
-    # 空态:results=[],count=0 — 前端渲染"无结果"空态。
-    evt = _presenter().format_end(
-        {"query": "无命中查询"},
-        _FakeResult(
-            output={
-                "ok": True,
-                "query": "无命中查询",
-                "provider": "searxng",
-                "results": [],
-            }
-        ),
-        duration_ms=50,
+@pytest.mark.parametrize(
+    "result",
+    [
+        _Result(output={"ok": False, "error": "Unknown provider"}),
+        _Result(error="SEARXNG_URL is not set"),
+    ],
+)
+def test_search_failure_keeps_query_summary_and_exposes_error_detail(
+    result: _Result,
+) -> None:
+    event = WebSearchTool.presenter.format_end(
+        {"query": "query"},
+        result,
+        duration_ms=10,
     )
-    assert evt.summary == "无命中查询"
-    assert evt.detail is not None
-    assert evt.detail["results"] == []
-    assert evt.detail["count"] == 0
 
-
-def test_end_failed_unknown_provider() -> None:
-    # 失败通道 1: unknown provider → run() 返回 {ok:False,error},result.error 为空。
-    # presenter 必须判 output["ok"] is False,折叠仍显 query,展开看到 error。
-    evt = _presenter().format_end(
-        {"query": "kw"},
-        _FakeResult(
-            output={"ok": False, "query": "kw", "error": "Unknown provider: bogus"}
-        ),
-        duration_ms=5,
-    )
-    assert evt.summary == "kw"
-    assert evt.emoji == "🔍"
-    assert "Unknown provider" not in evt.summary
-    assert evt.detail is not None
-    assert "error" in evt.detail
-
-
-def test_end_failed_searxng_raise() -> None:
-    # 失败通道 2: searxng provider raise → 内核 result.error 非空。
-    evt = _presenter().format_end(
-        {"query": "kw"},
-        _FakeResult(error="SEARXNG_URL is not set"),
-        duration_ms=5,
-    )
-    assert evt.summary == "kw"
-    assert evt.emoji == "🔍"
-    assert "SEARXNG_URL" not in evt.summary
-    assert evt.detail is not None
-    assert "error" in evt.detail
+    assert event.summary == "query"
+    assert event.emoji == "🔍"
+    assert event.detail is not None
+    assert "error" in event.detail
+    error = event.detail["error"]
+    assert isinstance(error, dict)
+    assert error["message"] not in event.summary

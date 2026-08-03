@@ -44,8 +44,25 @@
   - Visual/Interaction: N/A
   - Prototype Comparison: N/A
 - Rollback: 回退本 roadpoint commit 可恢复原测试树，不影响产品代码或 channel 数据。
-- Commits: 本 roadpoint commit（最终哈希在 R4 回填）。
+- Commits: `abb56f9a6`
 - Next: R3。
+
+## R3 — 权限、安全与 web_search 测试收敛
+
+- Context: permission tests 混有历史修复叙事、私有 WS listen 调用、M7 heartbeat origin 和重复 handler 用例；approval card 固定具体元素/英语措辞；web_search unit tests 运行真实网络并重复同一 provider 选择与错误通道。
+- Decision: permission pipeline 收敛到 IM request/resolved、无 IM anchor 的 external request 与 external resolved 三条 seam，并删除已由 `test_permission_decision_loop.py` 覆盖的 handler 文件；Feishu card 只保留 owner gate、first-wins、deny reason 与敏感值不泄漏；web_search 保留用户状态、provider fail-loud/zero-results、SearXNG 归一化及运行时选择，删除真网络检查。
+- Rationale: 权限审批的长期风险是未经 owner 决策、重复决策或泄漏工具参数；搜索的长期风险是 provider 失败被伪装为空结果、选择错误或用户看不到错误。card 布局文案、transport 私有步骤和互联网可用性不应由 unit CI 固定。
+- Evidence:
+  - Tests: 权限/安全/diagnostics/web_search 与 permission 替代共 78 passed；ruff check 与 `git diff --check` 通过。
+  - Entry: external permission 在无 IM message anchor 时仍投递 Feishu surface；owner 首次决策后重复点击不再提交；card 不含 command/path/token 值；web_search 明确区分 provider failure 与零结果。
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: `test_permission_decision_loop.py` 14 passed，保留 IM→Kernel decision 与 first-wins 返回语义；本 milestone 不新增 live 外部依赖。
+  - Visual/Interaction: N/A
+  - Prototype Comparison: N/A
+- Rollback: 回退本 roadpoint commit 可恢复原测试树，不影响产品权限状态或 secret。
+- Commits: 本 roadpoint commit（最终哈希在 R4 回填）。
+- Next: R4 全切片复核。
 
 ## Promotion Candidates
 

@@ -69,12 +69,12 @@
 
 ### R3 — 权限、安全与 web_search 测试收敛
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 保留审批 owner/first-wins/secret、租户 scope、敏感写和 provider fail-loud，删除重复 handler、真网络与 card 文案布局契约。
 - 验证: 权限/diagnostics/web_search 最窄 pytest + permission 替代测试。
 
 ### R4 — 全切片与替代保护复核
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 运行 M6 全切片、替代测试、ruff 与 diff 检查，记录最终处置数量和证据。
 - 验证: 所有指定测试与替代保护全绿。
