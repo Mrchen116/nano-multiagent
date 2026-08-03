@@ -18,18 +18,14 @@ function setVisibility(state: DocumentVisibilityState) {
 }
 
 describe("document-visibility", () => {
-  it("isDocumentHidden mirrors document.visibilityState", () => {
+  it("tracks visibility changes until the listener unsubscribes", () => {
     setVisibility("visible");
     expect(isDocumentHidden()).toBe(false);
-    setVisibility("hidden");
-    expect(isDocumentHidden()).toBe(true);
-  });
-
-  it("subscribeDocumentVisibility fires callback on visibilitychange", () => {
     const listener = vi.fn();
     const unsubscribe = subscribeDocumentVisibility(listener);
 
     setVisibility("hidden");
+    expect(isDocumentHidden()).toBe(true);
     document.dispatchEvent(new Event("visibilitychange"));
     expect(listener).toHaveBeenCalledWith(true);
 

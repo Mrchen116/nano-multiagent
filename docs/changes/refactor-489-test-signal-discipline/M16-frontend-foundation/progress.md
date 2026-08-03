@@ -29,7 +29,21 @@
 
 ## R2 — 收敛 auth 与 notification 状态保护
 
-- 状态: TODO
+- 状态: DONE
+- Context: auth-session 把同一 refresh readiness 分支按 30 秒/过期和 500/503 拆成边界枚举，auth-store 又把一次 session lifecycle 拆成初值/set/clear；notification leaf tests 分别枚举 browser API 缺失、granted/denied/default、visibility getter/callback，i18n 对同一中文 namespace 逐 key 重复精确文案。
+- Decision: auth 保留 fresh/near-expiry、single-flight、HTTP+WS 共用、401/503/network 与账号切换竞态，只删精确 TTL/同类状态重复；store 合并 persist→clear lifecycle，保留 hydrate/malformed 和 delayed identity；completion 删除退役 alias，visibility 合并订阅生命周期，Notification API 按 support/permission/show 三个公开 adapter 各保留成功和 suppression seam，i18n 只保留默认与切换持久化的代表性可见翻译。
+- Rationale: 当前真实风险是 token rotation、身份隔离、通知资格/副作用和 locale state，而不是某个内部 freshness 常量、每个 5xx 数值或曾存在的 alias/翻译 key 列表。同一公开 adapter 一例可覆盖同类 terminal 状态，账号/网络/权限的独立失败语义仍分别保留。
+- Evidence:
+  - Tests: auth + notifications + i18n 定向 `11 files / 44 tests passed in 1.82s`；完整 M16 `17 files / 75 tests passed in 3.37s`。
+  - Entry: Login form/RequireAuth、authFetch、session readiness、Zustand+localStorage、Notification click→chat route、preference/visibility/unread hooks 均从公开入口观察请求、DOM、副作用或 state；零产品源修改。
+  - Frontend State Matrix: authenticated/unauthenticated、error/retry/signed-out、preference disabled、permission denied、visible/hidden、missing API/candidate 与账号切换均有代表性保护。
+  - Browser QA: N/A（测试资产重构，无 UI/product delta）。
+  - E2E/Regression: 永久 regression 为保留的 auth/notification/i18n Vitest；真实浏览器 Notification permission flow 不属本 unit。
+  - Visual/Interaction: N/A；无 UI 或样式修改。
+  - Prototype Comparison: N/A。
+- Rollback: 回退本 roadpoint commit 可恢复被合并的状态枚举与退役 alias/逐 key 文案测试，不改变产品代码或持久数据。
+- Commits: 本 R2 提交（SHA 以 Git history 为准）。
+- Next: R3 收敛 user-stream 内部重复，复核 proxy/setup/config 并完成最新 unit 门禁。
 
 ## R3 — 收敛 realtime 并完成配置门禁
 

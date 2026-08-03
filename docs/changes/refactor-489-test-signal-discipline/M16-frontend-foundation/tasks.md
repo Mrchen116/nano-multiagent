@@ -83,12 +83,12 @@ Prototype / Reference Contract：N/A。
 
 ### R2 — 收敛 auth 与 notification 状态保护
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 合并 auth freshness/status、store lifecycle、completion/visibility/Notification API/i18n 的同 seam 重复，保留错误、账号竞态和用户副作用。
 - 验证: auth/notification/i18n 定向 Vitest 与 M16 全量通过。
 
 ### R3 — 收敛 realtime 并完成配置门禁
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 删除 user-stream 中被完整 continuity/resync case 覆盖的内部调用次数与单点重复；复核 test setup/package/Vite/tsconfig owner，并在最新 unit 上完成门禁。
 - 验证: M16、frontend build、docs/diff/scope 全绿；changed paths 仅 M16 tests 与本 milestone 文档。
