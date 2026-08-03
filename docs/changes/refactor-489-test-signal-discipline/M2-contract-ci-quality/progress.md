@@ -30,7 +30,7 @@
   - E2E/Regression: 替代保护 `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q tests/unit/agent/session/test_session_directory.py tests/integration/test_session_directory_reopen_integration.py tests/unit/personal_assistant/test_gateway_build_runtime.py tests/im_service/unit/test_event_repository_queries.py tests/im_service/integration/test_user_stream_auth.py` → `29 passed`；`npm run test -- --run src/realtime/user-stream/user-stream.test.ts` → `17 passed`。这些证明被删源码扫描对应的 session/Gateway/IM/user-stream 风险仍由行为 seam 保护。
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
-- Rollback: 回退本 R1 提交，计划提交 `9298b0e42` 保持不变。
+- Rollback: 回退本 R1 提交 `5b92b1b62`，计划提交 `70e8e97b6` 保持不变。
 - Commits: 本提交，SHA 以 Git history 为准。
 - Next: R2 收敛 workflow/template/docs catalog/test-file/CI/hook quality gate。
 
@@ -48,7 +48,7 @@
   - E2E/Regression: `NANO_TEST_BASE_REF=refs/heads/refactor-489-missing-base ...::test_new_test_files_under_400_lines` → pytest exit `1`，保留 Git fatal 证据，证明 gate 不再静默跳过；ruff hook JSON 入口针对 `src/agent/core/ids.py` → exit `0`，实际运行四个 import contract。
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
-- Rollback: 回退本 R2 提交；R1 contract 清理提交 `bde3f62e3` 可独立保留。
+- Rollback: 回退本 R2 提交 `2c6d78998`；R1 contract 清理提交 `5b92b1b62` 可独立保留。
 - Commits: 本提交，SHA 以 Git history 为准。
 - Next: R3 运行完整 M2 门禁、核对 scope 与处置闭环。
 
@@ -56,13 +56,14 @@
 
 - 状态: DONE
 - Claim: M2 已逐项处置派发范围内的 contract 与 CI/quality gate；保留项只保护 current 公开/schema/import/文档/构建或可执行质量 seam，删除项不再把迁移终态、私有源码步骤、历史整句与行号白名单当回归信号。
-- Baseline: `unit/refactor-489@8d6cfb3e8` 的派发切片为 `236 passed, 2 warnings`；M2 计划、R1、R2 提交依次为 `9298b0e42`、`bde3f62e3`、`39bd7553e`。
+- Baseline: `unit/refactor-489@8d6cfb3e8` 的派发切片为 `236 passed, 2 warnings`；同步最新 unit 后，M2 计划、R1、R2、R3 提交依次为 `70e8e97b6`、`5b92b1b62`、`2c6d78998`、`8fc76a764`。
 - Method: 按 tasks 处置表逐文件审计；用 `origin/unit/refactor-489...HEAD` 列出 tracked diff 并逐路径匹配派发 allowlist；运行完整 M2 pytest、真实 docs CLI、ruff check/format、ruff hook JSON 入口与 `git diff --check`。
 - Result:
   - Tests: `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q tests/contract tests/unit/test_docs_check.py tests/unit/test_agents_md_loader.py tests/unit/test_change_spec_author_next_unit_id.py` → `170 passed`。
   - Entry: `PYTHON=/Users/czj/Repos/nano-multiagent/.venv/bin/python ./scripts/docs-check` → `documentation integrity passed: 192 maintained Markdown sources, 65 required routes`；ruff hook 针对 `src/agent/core/ids.py` → exit `0`。
   - Quality: ruff check → `All checks passed!`；ruff format → `40 files already formatted`；`git diff --check` → exit `0`。
   - Scope: diff allowlist 审计 → exit `0`，无越界路径；10 个低信号 contract 删除、1 个 capability contract 改名、真实 import/quality seam 改写均已列入 tasks 处置表。
+  - Integration Sync: milestone 已无冲突 rebase 到 `origin/unit/refactor-489@32a63e95a`；同步后完整切片仍为 `170 passed`，docs-check 为 `194 maintained Markdown sources, 65 required routes`，ruff/format、hook、scope 与 diff check 全部 exit `0`。
   - Frontend State Matrix: N/A（零 UI 行为变化）。
   - Browser QA: N/A（零用户面）。
   - E2E/Regression: R1 已运行 session/Gateway/IM focused tests `29 passed` 与 user-stream Vitest `17 passed`；本轮完整切片覆盖最终回归。
@@ -70,7 +71,7 @@
   - Prototype Comparison: N/A。
 - Locator: `tests/contract/import_rules.py`、四个 import-boundary contract、`scripts/docs_check.py`、test naming/size contract、CI checkout 与 ruff hook；完整文件处置见 `tasks.md`。
 - Limit: 本 milestone 不修改产品运行时、public API 或 current spec；没有需要 live service/browser 验收的行为面。CI workflow 仅在 PR runner 上最终执行，本地以同一 pytest/docs/ruff/hook 入口验证。
-- Rollback: R3 仅补齐说明与证据；按 `39bd7553e`（R2）、`bde3f62e3`（R1）、`9298b0e42`（plan）逆序回退可恢复基线。
+- Rollback: R3 仅补齐说明与证据；按 `8fc76a764`（R3）、`2c6d78998`（R2）、`5b92b1b62`（R1）、`70e8e97b6`（plan）逆序回退可恢复同步后的 unit 基线。
 - Commits: 本提交，SHA 以 Git history 为准。
 - Next: 同步最新 `origin/unit/refactor-489`，重跑门禁后合并并 push unit 分支。
 
