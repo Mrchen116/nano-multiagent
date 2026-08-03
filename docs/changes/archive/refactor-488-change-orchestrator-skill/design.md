@@ -15,7 +15,7 @@
 
 - `change-orchestrator/SKILL.md`：保留 unit 准入、专属 worktree、worker 边界、独立 gate、finding 裁决、选择性复验、final sync、归档和 PR/CI；删除重复解释、固定轮询、小抄和与当前阶段无关的强制读取。
 - `references/codex-execution-notes.md`：保留 Codex 工具映射、稳定 task identity 与显式模型/推理强度；移除不受当前 spawn 接口支持的 `agent_type`，并指定 code-review finder=Luna、verifier=Terra。
-- workflow contract tests：只验证 PR 模板的固定 blob 链接、已退役恢复脚本不存在，以及 lifecycle 文档中的 selected-gate matrix；不把 agent 行为提示的标题或措辞视为接口。
+- workflow contract tests：只验证 PR 模板的固定 blob 链接，以及 lifecycle 文档中的 selected-gate matrix；不把 agent 行为提示或已退役文件名视为接口。
 - `docs/changes/refactor-488-change-orchestrator-skill/`：记录快速开发路径中真实发生的需求与 as-built design，不补造 milestone、design review、verifier、产品验收或 code-review 报告。
 
 ### 调用链与数据流
