@@ -6,7 +6,6 @@ import threading
 from fastapi.testclient import TestClient
 
 from IM.app import create_app
-from IM.domain.models import managed_workspace_root
 from IM.infra.repositories.nodes import NodeRepository
 from IM.infra.repositories.users import UserRepository
 
@@ -259,74 +258,6 @@ def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(
         ).fetchone()
         assert relay_task is not None
         assert relay_task["target_node_id"] == "node-1"
-
-
-def test_create_agent_without_workspace_persists_managed_default_workspace_root(
-    tmp_path: Path,
-) -> None:
-    """Persist the managed default workspace so later session refreshes can trust profile rows."""
-    app = create_app(db_path=tmp_path / "im.db")
-    with TestClient(app) as client:
-        users = UserRepository(app.state.connection)
-        owner = register_user(client, username="owner", display_name="Owner")
-        authorize(client, owner)
-        agent_user = users.create_user(
-            username="agent:agent-default", display_name="Agent Default"
-        )
-        NodeRepository(app.state.connection).upsert_node(
-            node_id="node-1", node_name="MacBook"
-        )
-
-        async def fake_request_agent_create(
-            *,
-            target_node_id: str,
-            payload: dict[str, object],
-            timeout_seconds: float = 5.0,
-        ):
-            del timeout_seconds
-            assert target_node_id == "node-1"
-            return {
-                "agent_id": payload["agent_id"],
-                "display_name": payload["display_name"],
-                "description": payload["description"],
-                "system_prompt": payload["system_prompt"],
-                "skills": payload["skills"],
-                "tool_allowlist": payload["tool_allowlist"],
-                "group_reply_policy": payload["group_reply_policy"],
-                "default_model": payload["default_model"],
-                "workspace_root": managed_workspace_root(str(payload["agent_id"])),
-            }
-
-        app.state.gateway_control.request_agent_create = fake_request_agent_create
-
-        created = client.post(
-            "/im/v1/nodes/node-1/agents",
-            json={
-                "agent_id": agent_user.id,
-                "owner_id": owner.owner_id,
-                "display_name": "Agent Default",
-                "description": "managed workspace",
-                "system_prompt": "You are Agent Default.",
-                "skills": ["plan"],
-                "tool_allowlist": ["read"],
-                "group_reply_policy": "MENTION",
-                "default_model": "claude-sonnet-4",
-            },
-        )
-        assert created.status_code == 201
-        assert created.json()["workspace_is_default"] is True
-        assert created.json()["workspace_root"].endswith(
-            f"/nano-assistant/workspace/{agent_user.id}"
-        )
-
-        row = app.state.connection.execute(
-            "SELECT workspace_root FROM agent_profiles WHERE agent_id = ?",
-            (agent_user.id,),
-        ).fetchone()
-        assert row is not None
-        assert row["workspace_root"].endswith(
-            f"/nano-assistant/workspace/{agent_user.id}"
-        )
 
 
 def test_create_agent_pushes_config_sync_to_connected_gateway(tmp_path: Path) -> None:

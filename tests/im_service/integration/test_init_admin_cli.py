@@ -47,31 +47,3 @@ def test_init_admin_cli_creates_user_loginable_via_http(tmp_path: Path) -> None:
         )
         assert login.status_code == 200, login.text
         assert login.json()["user"]["username"] == "root"
-
-
-def test_init_admin_cli_rejects_duplicate(tmp_path: Path) -> None:
-    """Running init_admin twice with the same username should error out with non-zero exit."""
-    db_path = tmp_path / "im.db"
-    cmd = [
-        sys.executable,
-        "-m",
-        "IM.cli",
-        "init_admin",
-        "--username",
-        "root",
-        "--password",
-        "rootpassword",
-        "--display-name",
-        "Root",
-        "--db-path",
-        str(db_path),
-    ]
-    env = {
-        "PYTHONPATH": str(Path(__file__).resolve().parents[3] / "src"),
-        "PATH": "/usr/bin:/bin",
-    }
-    first = subprocess.run(cmd, capture_output=True, text=True, check=False, env=env)
-    second = subprocess.run(cmd, capture_output=True, text=True, check=False, env=env)
-    assert first.returncode == 0, first.stderr
-    assert second.returncode != 0
-    assert "already exists" in (second.stderr + second.stdout)

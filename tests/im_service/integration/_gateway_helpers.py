@@ -60,6 +60,7 @@ class _FakeKernel:
         self.send_calls: list[dict[str, str]] = []
         self.run_states: dict[str, dict[str, str] | list[dict[str, str]]] = {}
         self.session_events: dict[str, list[list[dict[str, object]]]] = {}
+        self.default_output_text = "gateway-reply:{text}"
         self._session_metadata_by_id: dict[str, dict[str, Any]] = {}
         self._session_runtime_by_id: dict[str, SessionRuntimeState] = {}
         self._session_index = 0
@@ -176,7 +177,7 @@ class _FakeKernel:
         )
         session_metadata = self._session_metadata_by_id.get(session_id, {})
         runtime = self._session_runtime_by_id.get(session_id)
-        output_text = f"gateway-reply:{rendered_text}"
+        output_text = self.default_output_text.format(text=rendered_text)
         # Complete runtime replacement changes future prompt semantics without
         # recreating the durable session address.
         prompt_text = (

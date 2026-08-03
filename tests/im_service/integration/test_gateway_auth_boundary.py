@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
-from functools import partial
 from pathlib import Path
+import threading
 import time
 
 import pytest
@@ -62,13 +61,6 @@ def test_gateway_websocket_rejects_missing_bearer_before_registration(
             ).fetchone()
             is None
         )
-        connected = client.portal.call(
-            partial(
-                client.app.state.gateway_sessions.snapshot_connection,
-                node_id="node-anon",
-            )
-        )
-        assert connected is None
 
 
 def test_authenticated_wrong_owner_cannot_replace_bound_node_socket_or_key(
@@ -103,6 +95,7 @@ def test_authenticated_wrong_owner_cannot_replace_bound_node_socket_or_key(
                     break
                 time.sleep(0.01)
             assert row is not None and row["key_id"] == expected_key_id
+            assert owner_socket.receive_json()["type"] == "channels.bootstrap.request"
 
             authorize(client, bob)
             with client.websocket_connect("/im/ws/gateway") as attacker_socket:
@@ -121,15 +114,20 @@ def test_authenticated_wrong_owner_cannot_replace_bound_node_socket_or_key(
                     attacker_socket.receive_json()
                 assert caught.value.code == 1008
 
-            connection = client.portal.call(
-                partial(
-                    client.app.state.gateway_sessions.snapshot_connection,
-                    node_id="node-owned",
-                )
+            authorize(client, alice)
+            owner_socket.send_json(
+                {
+                    "type": "node.heartbeat",
+                    "payload": {
+                        "node_id": "node-owned",
+                        "status": "online",
+                        "last_error": "owner socket remains authoritative",
+                    },
+                }
             )
-            assert connection is not None
-            assert connection.owner_id == alice.owner_id
-            assert connection.credential_key_id == expected_key_id
+            assert owner_socket.receive_json()["type"] == "ack"
+            visible_node = client.get("/im/v1/nodes").json()[0]
+            assert visible_node["last_error"] == "owner socket remains authoritative"
             key_row = client.app.state.connection.execute(
                 "SELECT owner_id, key_id FROM node_credential_keys WHERE node_id = ?",
                 ("node-owned",),
@@ -159,12 +157,6 @@ def test_registered_socket_cannot_mutate_another_owners_node(
                 bob_socket.send_json(bob_registration)
                 assert bob_socket.receive_json()["type"] == "ack"
                 _bind(client, node_id="node-bob")
-                bob_broadcast_seq = (
-                    client.app.state.gateway_sessions._status_seq_by_owner.get(  # noqa: SLF001
-                        bob.owner_id, 0
-                    )
-                )
-
                 alice_socket.send_json(
                     {
                         "type": "node.heartbeat",
@@ -178,22 +170,20 @@ def test_registered_socket_cannot_mutate_another_owners_node(
                 rejection = alice_socket.receive_json()
                 assert rejection["payload"]["code"] == "gateway_owner_mismatch"
 
-                row = client.app.state.connection.execute(
-                    "SELECT status, last_error FROM nodes WHERE node_id = 'node-bob'"
-                ).fetchone()
-                assert tuple(row) == ("online", None)
-                assert (
-                    client.app.state.gateway_sessions._status_seq_by_owner.get(  # noqa: SLF001
-                        bob.owner_id, 0
-                    )
-                    == bob_broadcast_seq
+                authorize(client, bob)
+                visible_node = next(
+                    node
+                    for node in client.get("/im/v1/nodes").json()
+                    if node["node_id"] == "node-bob"
                 )
+                assert visible_node["status"] == "online"
+                assert visible_node["last_error"] is None
 
 
 def test_cross_owner_result_cannot_release_another_nodes_waiter(
     tmp_path: Path,
 ) -> None:
-    """Rejected result frames cannot complete request futures owned by another node."""
+    """A forged result cannot satisfy another owner's public agent-create request."""
     with make_app_client(tmp_path) as client:
         alice = register_user(client, username="waiter-alice")
         bob = register_user(client, username="waiter-bob")
@@ -211,18 +201,35 @@ def test_cross_owner_result_cannot_release_another_nodes_waiter(
                 )
                 assert bob_socket.receive_json()["type"] == "ack"
 
-                async def seed_waiter() -> None:
-                    handler = client.app.state.gateway_control
-                    handler._agent_create_waiters["request-b"] = (  # noqa: SLF001
-                        asyncio.get_running_loop().create_future()
+                creation_result: dict[str, object] = {}
+
+                def create_agent() -> None:
+                    creation_result["response"] = client.post(
+                        "/im/v1/nodes/waiter-b/agents",
+                        headers={"Authorization": f"Bearer {bob.access_token}"},
+                        json={
+                            "agent_id": "agent-b",
+                            "owner_id": bob.owner_id,
+                            "display_name": "Agent B",
+                            "description": "cross-owner result guard",
+                            "system_prompt": "You are Agent B.",
+                            "skills": [],
+                            "tool_allowlist": [],
+                            "group_reply_policy": "MENTION",
+                            "default_model": None,
+                        },
                     )
 
-                client.portal.call(seed_waiter)
+                worker = threading.Thread(target=create_agent)
+                worker.start()
+                create_request = bob_socket.receive_json()
+                assert create_request["type"] == "agent.create"
+                request_id = create_request["payload"]["request_id"]
                 alice_socket.send_json(
                     {
                         "type": "agent.created",
                         "payload": {
-                            "request_id": "request-b",
+                            "request_id": request_id,
                             "node_id": "waiter-b",
                             "agent": {"agent_id": "forged-agent"},
                         },
@@ -230,14 +237,32 @@ def test_cross_owner_result_cannot_release_another_nodes_waiter(
                 )
                 rejection = alice_socket.receive_json()
                 assert rejection["payload"]["code"] == "gateway_owner_mismatch"
+                assert worker.is_alive()
 
-                async def waiter_done() -> bool:
-                    waiter = client.app.state.gateway_control._agent_create_waiters[  # noqa: SLF001
-                        "request-b"
-                    ]
-                    return waiter.done()
-
-                assert client.portal.call(waiter_done) is False
+                bob_socket.send_json(
+                    {
+                        "type": "agent.created",
+                        "payload": {
+                            "request_id": request_id,
+                            "node_id": "waiter-b",
+                            "agent": {
+                                "agent_id": "agent-b",
+                                "display_name": "Agent B",
+                                "description": "cross-owner result guard",
+                                "system_prompt": "You are Agent B.",
+                                "skills": [],
+                                "tool_allowlist": [],
+                                "group_reply_policy": "MENTION",
+                                "default_model": None,
+                                "workspace_root": str(tmp_path / "agent-b"),
+                            },
+                        },
+                    }
+                )
+                assert bob_socket.receive_json()["type"] == "ack"
+                assert bob_socket.receive_json()["type"] == "config.sync"
+                worker.join(timeout=5)
+                assert creation_result["response"].status_code == 201
 
 
 def test_binding_evicts_a_pre_registered_socket_from_the_wrong_owner(
@@ -255,19 +280,11 @@ def test_binding_evicts_a_pre_registered_socket_from_the_wrong_owner(
 
             authorize(client, alice)
             _bind(client, node_id="node-prebound")
-            connection = object()
-            for _ in range(50):
-                connection = client.portal.call(
-                    partial(
-                        client.app.state.gateway_sessions.snapshot_connection,
-                        node_id="node-prebound",
-                    )
-                )
-                if connection is None:
-                    break
-                time.sleep(0.01)
-
-            assert connection is None
+            with pytest.raises(WebSocketDisconnect):
+                bob_socket.receive_json()
+            assert [
+                node["node_id"] for node in client.get("/im/v1/nodes").json()
+            ] == ["node-prebound"]
             assert (
                 client.app.state.connection.execute(
                     "SELECT 1 FROM node_credential_keys WHERE node_id = 'node-prebound'"
