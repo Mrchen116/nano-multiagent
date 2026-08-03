@@ -25,7 +25,7 @@
 
 | 风险 / 行为 | 既有测试 | 处置 | 理由与保留或替代保护 | 验证 |
 |---|---|---|---|---|
-| heartbeat / cron 时序、无补跑与 timezone | `test_schedule_primitives.py` | keep | 共享 schedule primitive 是最低逻辑 seam；保留真实时序风险。`test_heartbeat_mode_fires_even_when_expired` 与 current spec 冲突已暂停，保留现状且不在 M7 修产品/spec | 文件 pytest + spec→source→test 证据 |
+| heartbeat / cron 时序、无补跑与 timezone | `test_schedule_primitives.py` | keep | 共享 schedule primitive 是最低逻辑 seam；保留真实时序风险。`test_heartbeat_mode_fires_even_when_expired` 与 current spec 冲突已暂停，保留现状且不在 M7 修产品/spec，后续跟踪 [#224](https://github.com/Mrchen116/nano-multiagent/issues/224) | 文件 pytest + spec→source→test 证据 |
 | heartbeat 开关、config cadence、active hours、live config 及 canonical session | `test_heartbeat_scheduler*.py`, `test_heartbeat_revision_ownership.py`, `test_heartbeat_session_binding.py` | rewrite-merge | 风险仍在；合并正/反重复和私有 parser/签名断言，保留 scheduler tick 可观察结果 | heartbeat scheduler 切片 pytest |
 | HEARTBEAT_OK 不打扰用户 | `test_heartbeat_prompt_openclaw.py::TestHeartbeatOkSilenceToken`, `test_heartbeat_im_delivery.py` | rewrite-merge | 保留 current 协议 token 的最低 reply-visibility 断言；删除 OpenClaw 逐字提示基线与重复 IM DB 链路，真冒泡由 critical-path E2E 拥有 | 重写后单文件 + E2E 可收集性 |
 | prompt 迁移逐字与 provenance 历史基线 | `test_cron_prompt_sections.py`, `test_heartbeat_prompt_openclaw.py::{TestHeartbeatPromptOpenclawParity,TestHeartbeatMessageOpenclawVerbatim}` | delete | 只保护历史措辞、来源注释与私有 builder，current spec 未锁字节 | 精准文本/source scan 归零 |
@@ -42,7 +42,7 @@
 
 ### R1 — 删除迁移基线与假链路
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 删除 prompt/provenance/source-scan、retired-symbol、module/interface exists、重写生产逻辑的假链路与跨层 heartbeat IM DB 重复，先确认每项真实风险的保留 owner。
 - 验证: 受影响单文件/替代保护 pytest + 结构搜索。
 

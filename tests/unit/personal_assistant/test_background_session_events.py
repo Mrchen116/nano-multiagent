@@ -36,30 +36,6 @@ async def _finite_event_stream(
         yield event
 
 
-# ---------------------------------------------------------------------------
-# Tests for BackgroundSessionEventSubscriber
-# ---------------------------------------------------------------------------
-
-
-def test_background_session_event_subscriber_module_exists() -> None:
-    """BackgroundSessionEventSubscriber must be importable from gateway.background_session_events."""
-    from personal_assistant.gateway.background_session_events import (
-        BackgroundSessionEventSubscriber,
-    )
-
-    assert BackgroundSessionEventSubscriber is not None
-
-
-def test_background_session_event_subscriber_has_required_interface() -> None:
-    """BackgroundSessionEventSubscriber must expose start() and stop() coroutines."""
-    from personal_assistant.gateway.background_session_events import (
-        BackgroundSessionEventSubscriber,
-    )
-
-    assert hasattr(BackgroundSessionEventSubscriber, "start")
-    assert hasattr(BackgroundSessionEventSubscriber, "stop")
-
-
 @pytest.mark.asyncio
 async def test_background_subscriber_calls_callback_on_self_evolution_review() -> None:
     """When a self_evolution_review event arrives in the SSE stream, the on_event callback is called."""

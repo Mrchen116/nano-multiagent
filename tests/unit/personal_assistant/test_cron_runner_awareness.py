@@ -125,18 +125,6 @@ class _FakeKernelClient:
         return self._result_text
 
 
-# ---------------------------------------------------------------------------
-# CronRunner existence and interface
-# ---------------------------------------------------------------------------
-
-
-def test_cron_runner_class_exists() -> None:
-    """CronRunner must be importable from personal_assistant.scheduler.cron_runner."""
-    from personal_assistant.scheduler.cron_runner import CronRunner
-
-    assert CronRunner is not None
-
-
 @pytest.mark.asyncio
 async def test_cron_runner_submit_uses_isolated_session(tmp_path: Path) -> None:
     """CronRunner must submit with origin=cron in session metadata.
@@ -213,52 +201,6 @@ async def test_cron_runner_awareness_appended_to_canonical_session(
     )
     assert result_text in content, (
         f"awareness content must contain the result text, got: {content!r}"
-    )
-
-
-@pytest.mark.asyncio
-async def test_cron_runner_isolated_turns_not_in_canonical(tmp_path: Path) -> None:
-    """Isolated cron session turns must NOT be appended to canonical direct-chat session.
-
-    feat-394 decision C-awareness: only the final result text (as System(untrusted))
-    enters the canonical session via kernel.append_message; the isolated cron run's
-    intermediate turns (cron instruction, tool calls, thinking) are discarded.
-    feat-394-M9: awareness goes through kernel API, not raw file append.
-    """
-    from personal_assistant.scheduler.cron_runner import CronRunner
-
-    canonical_session_id = "sess-canonical"
-    kernel_client = _FakeKernelClient()
-
-    runner = CronRunner(
-        agent_id="agent-1",
-        workspace_root=tmp_path,
-        kernel_client=kernel_client,
-        session_binder=None,
-        canonical_session_id=canonical_session_id,
-    )
-
-    await runner.append_awareness(
-        session_id=canonical_session_id,
-        result_text="Final answer",
-    )
-
-    # Exactly one append_message call — only the final result text
-    assert len(kernel_client.appended_messages) == 1, (
-        "Only the final result text must be appended to the canonical session"
-    )
-    appended = kernel_client.appended_messages[0]
-    assert appended["session_id"] == canonical_session_id
-    # No cron intermediate content should appear
-    content = appended["content"]
-    assert "cron thinking..." not in content, (
-        "Isolated cron intermediate turns must NOT appear in canonical session"
-    )
-    assert "cron instruction" not in content, (
-        "Isolated cron instruction turns must NOT appear in canonical session"
-    )
-    assert "Final answer" in content, (
-        "The final result text must appear in the awareness entry"
     )
 
 
