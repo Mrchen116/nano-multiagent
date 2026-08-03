@@ -2,16 +2,16 @@
 
 Enforces two mechanical rules (docs/development/testing.md):
 
-1. Milestone naming ban (§3 MUST NOT): no new test files whose basename matches
+1. Milestone naming ban (§3 MUST NOT): no test files whose basename matches
    ``test_m<N>*`` or ``test_m<N><letter>*`` patterns — those are one-time migration
    artifacts with no long-term regression value.
 
-2. 400-line soft cap (§7): no newly introduced test file (relative to main branch)
-   in tests/ may exceed 400 lines.  Files that already exceed the cap on main are
+2. 400-line soft cap (§7): no newly introduced test file (relative to the PR base)
+   may exceed 400 lines. Files that already exceed the cap on the base are
    grandfathered (scope boundary).
 
-Both rules compare the working-tree state against origin/main so they catch PR
-additions without burdening the existing debt.
+The naming rule covers the current tree; the size rule compares the working-tree
+state against the configured PR base so additions cannot hide existing debt.
 """
 
 from __future__ import annotations
@@ -96,7 +96,7 @@ def _all_test_files_in_working_tree() -> list[Path]:
 
 
 # ---------------------------------------------------------------------------
-# Rule 1: no new milestone-named test files
+# Rule 1: no milestone-named test files
 # ---------------------------------------------------------------------------
 
 # Pattern: test_m<digit(s)><optional-letter(s)>_... e.g. test_m9b_, test_m1_
@@ -113,7 +113,7 @@ def test_no_milestone_named_test_files() -> None:
     if violations:
         names = "\n  ".join(str(p.relative_to(_REPO_ROOT)) for p in violations)
         pytest.fail(
-            f"New test files with milestone names detected — rename to behaviour-based names:\n  {names}\n\n"
+            f"Test files with milestone names detected — rename to behaviour-based names:\n  {names}\n\n"
             "See docs/development/testing.md §3: MUST NOT use milestone numbers (test_m9*, etc.)"
         )
 

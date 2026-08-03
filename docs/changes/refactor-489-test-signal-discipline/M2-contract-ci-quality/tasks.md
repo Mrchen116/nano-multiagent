@@ -8,10 +8,10 @@
 
 ## 退出标准
 
-- [ ] 每项受影响的 contract/quality gate 都有 keep、rewrite-merge 或 delete 处置及最低层保护说明。
-- [ ] 保留的架构检查通过 AST 验证真实 import 依赖，或验证 current 文档/构建结构，不绑定已删除符号、历史目录树或迁移终态。
-- [ ] 被删除测试曾对应的真实风险，已由当前公开 seam 的 unit/integration/contract/E2E 保护，或已确认没有长期风险。
-- [ ] 指定切片 pytest、docs-check、ruff/format 与 hook 入口全部通过；无产品行为或 spec delta。
+- [x] 每项受影响的 contract/quality gate 都有 keep、rewrite-merge 或 delete 处置及最低层保护说明。
+- [x] 保留的架构检查通过 AST 验证真实 import 依赖，或验证 current 文档/构建结构，不绑定已删除符号、历史目录树或迁移终态。
+- [x] 被删除测试曾对应的真实风险，已由当前公开 seam 的 unit/integration/contract/E2E 保护，或已确认没有长期风险。
+- [x] 指定切片 pytest、docs-check、ruff/format 与 hook 入口全部通过；无产品行为或 spec delta。
 
 ## 测试策略
 
@@ -60,6 +60,6 @@
 
 ### R3 — 切片回归与证据闭环
 
-- 状态：TODO
+- 状态：DONE
 - 步骤：核对处置表、tracked scope 与 diff；运行完整 M2 pytest/docs/ruff/hook 门禁并记录 limits；完成可回退提交与集成准备。
 - 验证：完整 M2 命令、`git diff --check`、无越界路径。
