@@ -53,6 +53,24 @@
 - Commits: 本 R 提交（SHA 以 Git history 为准）。
 - Next: R3 收敛 heartbeat 节律、开关与 session 保护。
 
+## R3 — 收敛 heartbeat 节律、开关与 session 保护
+
+- Context: heartbeat scheduler 同时用多个测试重复证明 config cadence 和 enabled gate，并锁定退役的 Markdown top-level interval、多 schedule parser、私有 payload tuple 与 transcript ownership；canonical binding 又分别测 store method 存在、私有 SQL 排序、预填 map 和 tick-time lookup。
+- Decision: cadence 保留 live config、config-over-Markdown、默认 30m 和 per-task rhythm；enabled 正反例合并到 mixed-agent 行为，active hours 参数化覆盖窗口内外；canonical session 用一次真实 binder lookup 同时证明不创建 fallback 且 submit 使用当前 binding，stable-session 测试明确让两个 tick 都到期。保留 model route、agent metadata、busy session、revision ownership、silent cleanup 与 reply visibility。
+- Rationale: 保留测试直接穿过公开 scheduler `tick()` 并检查用户/运维可观察结果；删除的 parser/tuple/方法存在断言只保护内部形状。stable-session 原测试没有证明第二个 tick 到期，显式设置 1s config cadence 后才真正覆盖复用风险。
+- Evidence:
+  - Tests: 全部当前 `test_heartbeat*.py` + `test_schedule_primitives.py`，`37 passed in 0.33s`。
+  - Entry: `HeartbeatScheduler.tick()` 覆盖 live catalog、gate、cadence、active hours、canonical lookup/session reuse/runtime refresh、model 与 metadata route。
+  - Frontend State Matrix: N/A（非前端）。
+  - Browser QA: N/A（零用户面代码变更）。
+  - E2E/Regression: `test_heartbeat_scheduler_config_every.py`, `test_heartbeat_scheduler_gate.py`, `test_heartbeat_session_binding.py`, `test_heartbeat_session_trim.py`, `test_heartbeat_reply_visibility.py`。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+  - Quality: focused `ruff check` 通过；[#224](https://github.com/Mrchen116/nano-multiagent/issues/224) 对应的 expired-at 测试原样保留，未把冲突升级为已解决。
+- Rollback: 回退本 R 提交至 `616ccf150`。
+- Commits: 本 R 提交（SHA 以 Git history 为准）。
+- Next: R4 稳定 background / polling / liveness 时序保护。
+
 ## Promotion Candidates
 
 | Candidate | Suggested owner | Scope | Evidence |

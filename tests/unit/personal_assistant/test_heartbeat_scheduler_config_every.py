@@ -8,8 +8,6 @@ from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.scheduler.heartbeat_scheduler import (
     HeartbeatScheduler,
     HeartbeatSchedulerStateStore,
-    _AgentState,
-    _SchedulerState,
 )
 
 
@@ -125,23 +123,6 @@ def test_scheduler_uses_live_agents_getter_on_each_tick(tmp_path: Path) -> None:
     assert disabled_agent.agent_id in summary2.skipped_agents
 
 
-def test_scheduler_falls_back_to_frozen_agents_when_no_getter(tmp_path: Path) -> None:
-    """When agents_getter is None, scheduler uses the frozen _agents tuple (backward compat)."""
-    agent = _agent_with_heartbeat(tmp_path, heartbeat_enabled=True)
-    _write_heartbeat(agent.workspace_root, "interval: 1m\n\n- Check\n")
-    kernel = _FakeKernelClient()
-
-    scheduler = HeartbeatScheduler(
-        agents=(agent,),
-        kernel_client=kernel,
-        state_store=HeartbeatSchedulerStateStore(tmp_path / "state.json"),
-        # no agents_getter — uses frozen tuple
-    )
-
-    summary = asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC)))
-    assert len(summary.triggered_runs) == 1
-
-
 # feat-394-M11 decision E: cadence is the single source of truth — scheduler reads
 # agent.heartbeat_every from config, not HEARTBEAT.md top-level every: line.
 
@@ -225,47 +206,6 @@ def test_scheduler_uses_default_30m_when_heartbeat_every_is_none(
     assert early.triggered_runs == (), "20m < 30m default — must not fire"
     assert len(second.triggered_runs) == 1
     assert len(kernel.sent_messages) == 2
-
-
-def test_scheduler_ignores_md_top_level_every_when_config_every_set(
-    tmp_path: Path,
-) -> None:
-    """md top-level every: is completely ignored when agent.heartbeat_every is set.
-
-    If md "every: 1m" were honoured, the scheduler would fire every minute.
-    With config "2h", a tick 90 seconds after the first must NOT fire a second run.
-    This proves the md every: line is silenced and config cadence governs.
-    """
-    agent = AgentWorkspaceConfig(
-        agent_id="agent-ignore-md",
-        workspace_root=tmp_path / "agent-ignore-md",
-        heartbeat_every="2h",
-        features={"heartbeat": True},
-    )
-    (tmp_path / "agent-ignore-md").mkdir()
-    # md declares very short every: 1m — must be fully ignored
-    _write_heartbeat(
-        agent.workspace_root,
-        "# Heartbeat\n\nevery: 1m\n\n- Check something\n",
-    )
-    kernel = _FakeKernelClient()
-    scheduler = HeartbeatScheduler(
-        agents=(agent,),
-        kernel_client=kernel,
-        state_store=HeartbeatSchedulerStateStore(tmp_path / "state.json"),
-    )
-
-    first = asyncio.run(scheduler.tick(now=datetime(2026, 6, 8, 9, 0, tzinfo=UTC)))
-    # 90 seconds later — if md "every: 1m" were used, a second run would fire.
-    # With config "2h", this must remain silent.
-    ninety_sec = asyncio.run(
-        scheduler.tick(now=datetime(2026, 6, 8, 9, 1, 30, tzinfo=UTC))
-    )
-
-    assert len(first.triggered_runs) == 1
-    assert ninety_sec.triggered_runs == (), (
-        "90s after first tick — md every:1m must be ignored; config 2h must not fire yet"
-    )
 
 
 def test_scheduler_tasks_per_task_rhythm_unaffected_by_config_every(

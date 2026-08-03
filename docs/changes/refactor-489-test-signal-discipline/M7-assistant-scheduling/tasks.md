@@ -54,7 +54,7 @@
 
 ### R3 — 收敛 heartbeat 节律、开关与 session 保护
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 保留 config cadence/live update/active hours/canonical session/silent cleanup，合并重复，保留并冻结与 current spec 冲突的 expired-at 时序簇。
 - 验证: heartbeat + schedule 文件切片 pytest。
 
