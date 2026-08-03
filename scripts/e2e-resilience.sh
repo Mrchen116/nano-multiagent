@@ -25,10 +25,8 @@ set -euo pipefail
 
 WT_ROOT=""
 MAIN_CFG="${HOME}/.nano-assistant/config.yaml"
-PREPARE_ONLY=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --prepare-only) PREPARE_ONLY=1; shift ;;
     --wt) WT_ROOT="$(cd "$2" && pwd)"; shift 2 ;;
     --main-config) MAIN_CFG="$2"; shift 2 ;;
     -h|--help) sed -n '2,/^set -e/p' "$0"; exit 0 ;;
@@ -194,10 +192,6 @@ for agent in cfg.get("agents", []):
 PY
 
 echo "  IM_PORT=$IM_PORT  NODE_ID=$NODE_ID"
-if [[ "$PREPARE_ONLY" == "1" ]]; then
-  echo "PREPARE_ONLY PASS"
-  exit 0
-fi
 
 # ─── Scenario A: IM restart → node auto-recovers ─────────────────────────────
 
