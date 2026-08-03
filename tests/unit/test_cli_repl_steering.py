@@ -1,8 +1,7 @@
-"""CLI REPL 运行中 steer 行为测试 (bugfix-426-M2)。
+"""CLI REPL run-time steering behavior.
 
-覆盖决策4：run 执行期间用户输入不阻塞、不排队到 run 结束，而是经
-``kernel.submit(steer=True)`` 注入当前活跃 run 的下一轮；空闲输入仍开新 run；
-abort 侧（SIGINT）维持既有 interrupt 语义。
+Run 执行期间用户输入不阻塞、不排队到 run 结束，而是经
+``kernel.submit(steer=True)`` 注入当前活跃 run 的下一轮；空闲输入仍开新 run。
 
 时序由 ``_SteerableKernelStub`` 控制：run 的 stream 在产出终态前 await 一个
 release event，测试得以在 run "仍在执行" 的窗口内喂入第二行输入，断言它走 steer
@@ -220,9 +219,8 @@ def test_mid_run_multiple_messages_each_steered_in_order(tmp_path) -> None:
 class _DrainRaisesKernelStub(_BaseKernelStub):
     """Stub whose stream raises a non-cancellation error on first pull.
 
-    bugfix-426-M2 made _drain_forever a concurrent background task that also
-    pulls the session stream. If that stream raises (here a RuntimeError; the
-    real-world trigger is a user Ctrl-C surfacing through the stream), the
+    The concurrent background drain also pulls the session stream. If that
+    stream raises (the real-world trigger is a user Ctrl-C surfacing through it), the
     background drain must stop cleanly — it must NOT let the exception escape to
     the event loop and tear down the whole REPL/process. This guards the gap
     that, once introduced, aborted the entire pytest session via an unhandled

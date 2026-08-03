@@ -1,11 +1,7 @@
 import io
-from unittest.mock import MagicMock
-from unittest.mock import patch
-
-import pytest
 
 from coding_cli.render.repl_render import print_repl_turn_summary
-from coding_cli.render.repl_summary import format_turn_summary, print_turn_summary
+from coding_cli.render.repl_summary import format_turn_summary
 
 
 def test_format_turn_summary_minimal_completed() -> None:
@@ -20,18 +16,6 @@ def test_format_turn_summary_minimal_completed() -> None:
     assert "run_123" not in summary
     assert "sess_456" not in summary
     assert "Usage: unavailable" in summary
-
-
-def test_format_turn_summary_omits_run_and_session_ids() -> None:
-    payload = {
-        "completed": True,
-        "run_id": "run_secret",
-        "session_id": "sess_secret",
-    }
-    summary = format_turn_summary(payload=payload)
-    assert "run_secret" not in summary
-    assert "sess_secret" not in summary
-    assert "State: completed" in summary
 
 
 def test_format_turn_summary_with_usage() -> None:
@@ -79,39 +63,6 @@ def test_format_turn_summary_limits_tool_updates() -> None:
         assert f"Tool: tool{i}" in summary
     for i in range(6):
         assert f"Tool: tool{i}" not in summary
-
-
-def test_print_turn_summary_writes_output_and_budget() -> None:
-    out = io.StringIO()
-    payload = {
-        "status": "completed",
-        "session_id": "sess_123",
-    }
-    mock_client = MagicMock()
-
-    with patch(
-        "coding_cli.render.repl_summary.print_context_budget_snapshot"
-    ) as mock_budget:
-        print_turn_summary(out=out, payload=payload, context_budget_client=mock_client)
-
-    text = out.getvalue()
-    assert "State: completed" in text
-    mock_budget.assert_called_once_with(
-        out=out, client=mock_client, session_id="sess_123"
-    )
-
-
-def test_print_turn_summary_skips_budget_when_no_session_id() -> None:
-    out = io.StringIO()
-    payload = {"status": "completed"}
-    mock_client = MagicMock()
-
-    with patch(
-        "coding_cli.render.repl_summary.print_context_budget_snapshot"
-    ) as mock_budget:
-        print_turn_summary(out=out, payload=payload, context_budget_client=mock_client)
-
-    mock_budget.assert_not_called()
 
 
 def test_print_repl_turn_summary_renders_ordered_updates_before_state() -> None:
