@@ -13,7 +13,6 @@
 | `Agent` 工具 + `run_in_background: true` | `collaboration.spawn_agent` / `spawn_agent`。Codex subagent 创建后就是后台运行；不要派发后立刻长时间 `wait_agent`，除非下一步必须等它结果。 |
 | 稳定 `name` | `task_name`。使用小写字母、数字和下划线，例如 `feat_104_m1`、`feat_104_reviewer`、`feat_104_verifier`。不要直接拿 `feat-104-M1` 当 V2 `task_name`。 |
 | 按稳定 `name` 调 `SendMessage` | 对已有 subagent 调 `followup_task(target=<task_name>, message=...)` 触发续跑；只排队不触发新 turn 时才用 `send_message`。 |
-| `subagent_type: general-purpose` | `agent_type: default`。实现 / fix worker 用 `agent_type: worker`；窄范围只读探索用 `agent_type: explorer`。 |
 | `model: sonnet` | `spawn_agent` 派发时必须按下方策略表显式传 `model`，不要省略。 |
 | 推理强度 | `spawn_agent` 派发时必须按下方策略表显式传 `reasoning_effort`，不要省略。 |
 | Agent `isolation=worktree` 参数 | Codex 没有这个参数，不设置。正好符合原 skill “不要设置 `isolation=worktree`” 的要求。 |
@@ -22,25 +21,25 @@
 | 查看运行中 agent | `list_agents`，按 task-path prefix 查当前 root thread tree。 |
 | 打断 agent | `interrupt_agent(target=<task_name>)`。只在错误派发、强制停工、用户中断或轮次上限时使用。 |
 
-V2 `spawn_agent` 的 `fork_turns` 默认是 `all`。当派发时显式传 `agent_type`、`model` 或 `reasoning_effort`，必须设置 `fork_turns: "none"` 或一个正整数；否则 full-history fork 会拒绝这些覆盖。常规 milestone / reviewer / verifier 派发使用 `fork_turns: "none"`，把必要上下文放进派发包，不靠继承 root 历史。
+V2 `spawn_agent` 的 `fork_turns` 默认是 `all`。当派发时显式传 `model` 或 `reasoning_effort`，必须设置 `fork_turns: "none"` 或一个正整数；否则 full-history fork 会拒绝这些覆盖。常规 milestone / reviewer / verifier 派发使用 `fork_turns: "none"`，把必要上下文放进派发包，不靠继承 root 历史。
 
 ## 模型与推理强度策略
 
 `change-orchestrator` 派发任何 Codex subagent 时，必须按下表显式传 `model` 与 `reasoning_effort`，不要依赖继承或默认配置。主会话模型配置可能与本流程的角色要求不一致，省略参数会造成 worker / reviewer / verifier 强度漂移。
 
-| Subagent | `agent_type` | `model` | `reasoning_effort` |
-|---|---|---|---|
-| impl / fix worker | `worker` | `gpt-5.6 sol` | `xhigh` |
-| product reviewer (`change-reviewer`) | `default` | `gpt-5.6 sol` | `medium` |
-| implementation verifier (`change-verifier`) | `default` | `gpt-5.6 sol` | `medium` |
-| code-review finder (`change-code-review`) | `explorer` | `gpt-5.6 Terra` | `high` |
-| code-review verifier (`change-code-review`) | `default` | `gpt-5.3-codex-spark` | `high` |
+| Subagent | `model` | `reasoning_effort` |
+|---|---|---|
+| impl / fix worker | `gpt-5.6-sol` | `xhigh` |
+| product reviewer (`change-reviewer`) | `gpt-5.6-sol` | `medium` |
+| implementation verifier (`change-verifier`) | `gpt-5.6-sol` | `medium` |
+| code-review finder (`change-code-review`) | `gpt-5.6-luna` | `high` |
+| code-review verifier (`change-code-review`) | `gpt-5.6-terra` | `high` |
 
-预算分配原则：impl / fix worker 有最高自主性，需要在实现路径、边界处理、测试策略和失败修复上做技术判断，固定传 `xhigh`；product reviewer / implementation verifier 的职责是按既定 contract 严格验收，不做方案发散，固定传 `medium`；`change-code-review` 关注高并发、窄范围找问题，固定传 `gpt-5.3-codex-spark` + `high` 控制延迟。
+预算分配原则：impl / fix worker 有最高自主性，需要在实现路径、边界处理、测试策略和失败修复上做技术判断，固定传 `xhigh`；product reviewer / implementation verifier 的职责是按既定 contract 严格验收，不做方案发散，固定传 `medium`；code-review finder 用 Luna，verifier 用 Terra。
 
 ## Code Review
 
-保持原 skill 行为：`change-code-review` 由主会话调度。Codex 主会话可以直接用 V2 `spawn_agent` 派 finder / verifier subagents，并显式传 `model: gpt-5.3-codex-spark`、`reasoning_effort: high`、`fork_turns: "none"`，沿用同一套 review contract，把 findings 交回正常 failure loop 路由。
+保持原 skill 行为：`change-code-review` 由主会话调度。Codex 主会话用 V2 `spawn_agent` 派 finder / verifier subagents：finder 传 `model: gpt-5.6-luna`，verifier 传 `model: gpt-5.6-terra`；两者都传 `reasoning_effort: high`、`fork_turns: "none"`，沿用同一套 review contract，把 findings 交回正常 failure loop 路由。
 
 ## 运行态记录
 
