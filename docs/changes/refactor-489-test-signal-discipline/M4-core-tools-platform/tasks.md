@@ -44,13 +44,13 @@
 
 ### R1 — 清除布局、迁移终态与历史 golden
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 删除 location/event-subset/presenter-golden 文件，并先运行表中当前替代保护。
 - 验证: 对应 contract、presenter/current cap tests 与 `git diff --check` 全绿。
 
 ### R2 — 收敛 AutoMode 与 permission gate
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 合并默认值/allowlist/dispatch；删除 private-symbol/source-text/CC phrase 与重复 bash fake-handler 断言；保留危险路径、授权和 fail-closed seam。
 - 验证: AutoMode、permission、真实 hook registry 与 tool permission 最窄测试全绿。
 
