@@ -15,7 +15,7 @@
 
 - `change-orchestrator/SKILL.md`：保留 unit 准入、专属 worktree、worker 边界、独立 gate、finding 裁决、选择性复验、final sync、归档和 PR/CI；删除重复解释、固定轮询、小抄和与当前阶段无关的强制读取。
 - `references/codex-execution-notes.md`：保留 Codex 工具映射、稳定 task identity 与显式模型/推理强度；移除不受当前 spawn 接口支持的 `agent_type`，并指定 code-review finder=Luna、verifier=Terra。
-- 两个 workflow contract tests：验证 unit 路径解析、开放 PR 小修、`.gitkeep` 骨架、归档和 selected-gate matrix；不再把旧标题或措辞视为接口。
+- workflow contract tests：只验证 PR 模板的固定 blob 链接、已退役恢复脚本不存在，以及 lifecycle 文档中的 selected-gate matrix；不把 agent 行为提示的标题或措辞视为接口。
 - `docs/changes/refactor-488-change-orchestrator-skill/`：记录快速开发路径中真实发生的需求与 as-built design，不补造 milestone、design review、verifier、产品验收或 code-review 报告。
 
 ### 调用链与数据流
@@ -38,7 +38,7 @@
 | 将主 skill 压缩到 500 行以下 | 强模型不需要重复 rationale、shell 小抄或固定轮询；非显然的交付边界必须保留。 | `.claude/skills/change-orchestrator/SKILL.md` |
 | 只保留阶段性 reference | `worktree-runtime`、spec 归并规则、PR 模板和 Codex 映射各自承载不可猜测的阶段接口；不再引用生命周期总览或 child skill。 | `SKILL.md` 的“读取范围” |
 | 在 parent 保留 gate handoff | mode、snapshot、range 与 worktree 由 orchestrator 决定，不能交由 child skill 自行猜测。 | `SKILL.md` 的“选择门禁” |
-| 更新 workflow contract tests | 精简可改变章节与措辞；测试应守住路径、归档和门禁矩阵等行为契约。 | `tests/contract/test_change_*` |
+| 删除 skill 文本断言 | agent 行为约束由 skill 与实际 unit 验收承担；字符串断言会阻碍等价的 prompt 重构。 | `tests/contract/test_change_skill_archive_contract.py` |
 | 显式远端可见性边界 | corrected-delta verifier 与 PR 只能读取已 push 的 unit head。 | `SKILL.md` 的“收尾与 PR” |
 | Finder=Luna、verifier=Terra | 按用户指定的 Codex code-review 模型映射执行。 | `references/codex-execution-notes.md` |
 
