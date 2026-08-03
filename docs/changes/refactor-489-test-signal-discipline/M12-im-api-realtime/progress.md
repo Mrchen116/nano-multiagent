@@ -72,7 +72,22 @@
 
 ## R5 — 全量门禁与测试 census
 
-- Context: 待执行。
+- Context: R1–R4 完成后，unit 已并入 M10/M13 等并行 milestone，需要先 rebase 最新 `origin/unit/refactor-489` 再确认收集、依赖和路径归属没有漂移。
+- Decision: rebase 到 unit `c2f64d290`；运行 M12 整树 pytest、ruff、docs-check、diff-check 与 name-only scope audit，并复核 `_auth_helpers.py` 未进入 diff。以 baseline 同口径记录 test 文件、helper、case 与 Python 行数。
+- Rationale: rebase 前 focused 绿灯不能代表最终 unit 组合；只有在最新 unit 基线上重跑整树，才能证明删除没有依赖旧收集顺序或遗漏并行变更。
+- Evidence:
+  - Tests: `/Users/czj/Repos/nano-multiagent/.venv/bin/pytest -q tests/im_service/integration tests/im_service/e2e` → `79 passed, 3 warnings in 24.02s`；无 skip。warning 为既有 `lark_oapi` 两项 deprecation 与 FastAPI HTTP 413 常量一项 deprecation。
+  - Census: collected case `138 → 79`（`-59 / -42.8%`）；test 文件 `32 → 24`；大型同域 helper `2 → 1`；M12 Python 行数 `9482 → 6448`（`-3034 / -32.0%`）。milestone 总 diff（含文档）为 `31 files changed, 501 insertions, 3369 deletions`。
+  - Gates: `ruff check tests/im_service/integration tests/im_service/e2e` → `All checks passed!`；`scripts/docs_check.py` → `214 maintained Markdown sources, 65 required routes`；`git diff --check origin/unit/refactor-489...HEAD` 通过。
+  - Scope: `git diff --name-only origin/unit/refactor-489...HEAD` 仅含 `tests/im_service/integration/**`、`tests/im_service/e2e/**` 与 M12 artifacts；`tests/im_service/_auth_helpers.py` 无 diff；worktree clean。
+  - Entry: N/A（本 roadpoint 为 rebase 后自动化门禁；跨 seam 入口证据见 R1–R4）。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression: M12 `e2e/` 已无伪 E2E case；真实 operational E2E 由已合入 unit 的 M13 独立拥有。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退 M12 milestone commits。
+- Commits: R5 final evidence commit。
 
 ## Promotion Candidates
 

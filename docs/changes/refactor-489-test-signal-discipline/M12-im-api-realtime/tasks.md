@@ -8,10 +8,10 @@
 
 ## 退出标准
 
-- [ ] IM auth/data HTTP、用户流与 Gateway WebSocket 的 current 公开行为仍有最低必要保护。
-- [ ] IM↔Gateway↔kernel、配置 RPC、群聊/直聊与状态广播的独立连接风险仍可从跨 seam 结果观察。
-- [ ] M11 已拥有的 unit/contract 逻辑不在 M12 重述；`tests/im_service/_auth_helpers.py` 保持未修改。
-- [ ] M12 全范围 pytest、ruff、docs/diff/scope 门禁全绿，并记录前后 census 与处置依据。
+- [x] IM auth/data HTTP、用户流与 Gateway WebSocket 的 current 公开行为仍有最低必要保护。
+- [x] IM↔Gateway↔kernel、配置 RPC、群聊/直聊与状态广播的独立连接风险仍可从跨 seam 结果观察。
+- [x] M11 已拥有的 unit/contract 逻辑不在 M12 重述；`tests/im_service/_auth_helpers.py` 保持未修改。
+- [x] M12 全范围 pytest、ruff、docs/diff/scope 门禁全绿，并记录前后 census 与处置依据。
 
 ## 测试策略
 
@@ -82,6 +82,6 @@
 
 ### R5 — 全量门禁与测试 census
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: rebase 最新 unit，运行 M12 collect/pytest、ruff、docs/diff/scope，记录前后 census、warning 与删改理由。
 - 验证: 所有退出标准打勾，M12 全范围全绿且无越界修改。
