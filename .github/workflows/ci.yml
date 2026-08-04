@@ -1,5 +1,5 @@
 # feat-388 触点 (c) — 远端兜底 CI：push/PR 时前后端双门任一红阻止合并
-# 两个并行 job：python（ruff + pytest）+ frontend（vitest）互不依赖，失败各自独立。
+# 两个并行 job：python（ruff + pytest）+ frontend（dependency audit + vitest）互不依赖，失败各自独立。
 name: CI
 
 on:
@@ -57,6 +57,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Dependency audit (critical)
+        run: npm audit --audit-level=critical
 
       # npm run test = vitest run；不跑 npm run build（不引入 tsc 类型检查）
       - name: vitest run
