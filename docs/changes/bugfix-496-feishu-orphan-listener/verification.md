@@ -121,3 +121,59 @@ N/A。
 - 无。
 
 All checks passed. Ready for PR.
+
+# Round 3
+
+> Validation snapshot: `e79b5d1a12204c077188f3646f741c8648d66cc9 → d8d6d84724c4884bec824259a12698acca581c1b`
+
+## Summary
+
+- Mode: `targeted-closure`
+- Delta range: `9ec7b0bc6cffa8d195990f284d768ad01ddbcb9f..d8d6d84724c4884bec824259a12698acca581c1b`
+- Focus issues: probe child must load unit-worktree `src`; timeout/interrupt must reap the complete probe process group
+- requires_full_verification: `false`
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 2/2 patch-review issues closed |
+| Correctness | 2/2 test-infrastructure failure paths independently exercised |
+| Coherence | Followed；delta remains inside the existing owner-death regression harness |
+
+## Targeted Closure
+
+| Focus issue | 修复与代码证据 | 独立验证 | 状态 |
+|---|---|---|---|
+| probe 子解释器固定加载 unit worktree `src` | test 从自身绝对路径解析 repo root，把 `<unit-worktree>/src` 放在既有 `PYTHONPATH` 之前，并把该环境显式传给 probe（`tests/unit/personal_assistant/test_feishu_worker_runtime.py:174-186`）。 | 验证进程故意把环境 `PYTHONPATH` 指向不含 parent-sentinel 修复的主仓 `src`，同时从 verify worktree 加载 test；owner-death probe 仍通过。若 child 未使用新前置路径，该探针会加载主仓旧 worker 并在 3 秒断言失败。 | closed |
+| timeout / 中断清理 probe 整个进程组 | probe 使用 `start_new_session=True` 成为独立 process-group leader；`communicate` 的任意 `BaseException` 都向该确切 PGID 发 `SIGKILL`，随后再次 `communicate()` reap leader（`tests/unit/personal_assistant/test_feishu_worker_runtime.py:180-197`）。 | 两次只读故障注入都先等待 group 内出现 probe、resource tracker、owner 和 listener：① 向 pytest PID 发 `SIGINT`，pytest 以 2 退出且 probe PGID 在 3 秒内无成员；② 首次 `communicate` 注入 `TimeoutExpired`，同一 cleanup 分支执行后 PGID 无成员。两次结束后均无 owner/listener 残留。 | closed |
+
+## Scope and Retained Conclusions
+
+- 本轮 delta 仅修改 `tests/unit/personal_assistant/test_feishu_worker_runtime.py` 的 probe launcher；production code、incident、design、delta-spec、progress evidence 与用户可观察行为均未改变。
+- Round 2 对 R1-C1/R1-W1、M1-E5/E6/E7 和其余 Round 1 full 映射的结论继续有效；本轮完整 worker 文件再次单次全绿，pytest 仍无 resource-tracker semaphore warning。
+- delta 没有触及架构边界、跨机契约、public interface 或产品旅程，因此不需要 full verification，也不需要重新派 product reviewer。
+
+## Validation
+
+- `PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/pytest -q tests/unit/personal_assistant/test_feishu_worker_runtime.py` → `8 passed, 2 warnings in 18.31s`；仅既有 lark SDK deprecation warnings。
+- 冲突源码路径探针：外部 `PYTHONPATH=/Users/czj/Repos/nano-multiagent/src`，verify test module 显式加载后调用 owner-death test → passed。
+- `KeyboardInterrupt` 注入：probe group 已含 owner/listener 后向 pytest PID 发 `SIGINT` → pytest exit 2；probe PGID 无残留。
+- `TimeoutExpired` 注入：probe group 已含 owner/listener 后让首次 `communicate` 抛超时 → cleanup re-raise；probe PGID 无残留。
+- `/Users/czj/Repos/nano-multiagent/.venv/bin/ruff check tests/unit/personal_assistant/test_feishu_worker_runtime.py` → passed。
+- `/Users/czj/Repos/nano-multiagent/.venv/bin/ruff format --check tests/unit/personal_assistant/test_feishu_worker_runtime.py` → already formatted。
+- `git diff --check 9ec7b0bc6cffa8d195990f284d768ad01ddbcb9f..d8d6d84724c4884bec824259a12698acca581c1b` → passed。
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+- 无。
+
+### WARNING（提 PR 前必须修）
+
+- 无。
+
+### SUGGESTION（可以修）
+
+- 无。
+
+All checks passed. Ready for PR.
