@@ -128,7 +128,9 @@ def _stable_worker(context: FeishuWorkerProcessContext) -> None:
 class _WorkerAdapter:
     name = "feishu:agent-a"
 
-    def __init__(self, *, target, status_handler, block_events: bool) -> None:
+    def __init__(
+        self, *, target, status_handler, block_events: bool, startup_deadline: float
+    ) -> None:
         self._release = threading.Event()
 
         def on_event(_event) -> None:
@@ -152,9 +154,12 @@ class _WorkerAdapter:
             join_timeout=0.2,
         )
         ready_event = self.runtime._ready_event
-        self.runtime._ready_event = SimpleNamespace(
-            wait=lambda _default_timeout: ready_event.wait(30)
-        )
+
+        def wait_for_startup(_default_timeout: float) -> bool:
+            remaining = startup_deadline - time.monotonic()
+            return ready_event.wait(max(0.0, min(30.0, remaining)))
+
+        self.runtime._ready_event = SimpleNamespace(wait=wait_for_startup)
 
     def start(self, _handler) -> None:
         self.runtime.start()
@@ -204,6 +209,7 @@ def test_backpressure_reaps_noncooperative_listener_and_restarts_once() -> None:
     """A full FIFO cannot leave the SDK listener alive after terminal status."""
     adapters: list[_WorkerAdapter] = []
     statuses = []
+    startup_deadline = time.monotonic() + 75.0
 
     def factory(_spec, _binder, status_handler):
         first = not adapters
@@ -211,6 +217,7 @@ def test_backpressure_reaps_noncooperative_listener_and_restarts_once() -> None:
             target=_noncooperative_pressure_worker if first else _stable_worker,
             status_handler=status_handler,
             block_events=first,
+            startup_deadline=startup_deadline,
         )
         adapters.append(adapter)
         return adapter
@@ -244,6 +251,7 @@ def test_backpressure_reaps_noncooperative_listener_and_restarts_once() -> None:
 def test_backpressure_retry_budget_reaps_final_listener() -> None:
     """Three retries end failed with no child and no extra automatic restart."""
     adapters: list[_WorkerAdapter] = []
+    startup_deadline = time.monotonic() + 75.0
 
     def factory(_spec, _binder, status_handler):
         pressure = len(adapters) < 4
@@ -251,6 +259,7 @@ def test_backpressure_retry_budget_reaps_final_listener() -> None:
             target=_noncooperative_pressure_worker if pressure else _stable_worker,
             status_handler=status_handler,
             block_events=pressure,
+            startup_deadline=startup_deadline,
         )
         adapters.append(adapter)
         return adapter
