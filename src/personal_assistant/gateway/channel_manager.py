@@ -21,6 +21,7 @@ from personal_assistant.gateway.channel_manifest_store import (
     ChannelManifestStoreError,
 )
 from personal_assistant.gateway.channel_registry import ChannelRegistry
+from personal_assistant.builtin_skills.lark_bundle import lark_skill_names
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,7 +153,7 @@ class ProviderRuntimeFactory(Protocol):
 
 
 class FeishuActivationPolicy:
-    """Idempotently add the bundled Feishu skill to explicit allowlists."""
+    """Idempotently add the Lark bundle to explicit Feishu allowlists."""
 
     def __init__(
         self,
@@ -164,6 +165,7 @@ class FeishuActivationPolicy:
         self._on_activated = on_activated
         self._load_skills = load_skills
         self._save_skills = save_skills
+        self._skill_ids = lark_skill_names()
         self._activated: set[str] = set()
         self._lock = threading.Lock()
 
@@ -175,8 +177,13 @@ class FeishuActivationPolicy:
             try:
                 if self._load_skills is not None and self._save_skills is not None:
                     current = self._load_skills(agent_id)
-                    if current and "feishu-doc" not in current:
-                        self._save_skills(agent_id, (*current, "feishu-doc"))
+                    missing_skills = tuple(
+                        skill_id
+                        for skill_id in self._skill_ids
+                        if skill_id not in current
+                    )
+                    if current and missing_skills:
+                        self._save_skills(agent_id, (*current, *missing_skills))
                 if self._on_activated(agent_id) is False:
                     return False
             except Exception:  # noqa: BLE001 - retry owns transient persistence failures.

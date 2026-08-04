@@ -17,6 +17,7 @@ import httpx
 
 from personal_assistant.config.local_store import (
     AgentWorkspaceConfig,
+    ChannelConfig,
     HeartbeatConfig,
     IMServiceConfig,
     GatewayLifecycleConfig,
@@ -27,6 +28,7 @@ from personal_assistant.config.local_store import (
 from personal_assistant.gateway.agent_config_sync import (
     IMAgentConfigSync as _IMConfigSyncClient,
 )
+from personal_assistant.builtin_skills.lark_bundle import lark_skill_names
 from tests.unit.personal_assistant._config_sync_test_owners import (
     build_config_sync_test_owners,
 )
@@ -344,3 +346,81 @@ def test_reconcile_ignores_mirror_workspace_root_and_uses_local_config(
     assert registered.workspace_root == local_ws
     assert (local_ws / "HEARTBEAT.md").is_file()
     assert not dirty_im_ws.exists()
+
+
+def test_reconcile_repairs_static_feishu_mirror_once_before_publish(
+    tmp_path: Path,
+) -> None:
+    """Reconnect keeps a static Feishu agent's explicit bundle complete."""
+    workspace_root = tmp_path / "agent-static"
+    skills = ["memory"]
+    version = 1
+    patch_count = 0
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        nonlocal patch_count, skills, version
+        if request.method == "GET":
+            return httpx.Response(
+                200,
+                json={
+                    "agent_id": "agent-static",
+                    "display_name": "Static",
+                    "profile_version": version,
+                    "skills": skills,
+                    "workspace_root": str(workspace_root),
+                },
+            )
+        patch_count += 1
+        body = dict(json.loads(request.content.decode("utf-8")))
+        skills = list(body["skills"])
+        version += 1
+        return httpx.Response(
+            200,
+            json={
+                **body,
+                "agent_id": "agent-static",
+                "profile_version": version,
+            },
+        )
+
+    local_config = LocalConfig(
+        node=NodeConfig(node_id="node-static"),
+        agents=(
+            AgentWorkspaceConfig(
+                agent_id="agent-static",
+                workspace_root=workspace_root,
+                skills=("memory",),
+            ),
+        ),
+        channels=(
+            ChannelConfig(
+                name="feishu:agent-static",
+                settings={"appId": "cli_static", "appSecret": "secret"},
+            ),
+        ),
+        gateway=GatewayLifecycleConfig(),
+        heartbeat=HeartbeatConfig(),
+        im_service=IMServiceConfig(url="http://im.local:9000", token="tok"),
+        llm=_DEFAULT_LLM,
+        source_path=tmp_path / "config.yaml",
+    )
+    owners = build_config_sync_test_owners(local_config)
+    sync = _IMConfigSyncClient(
+        base_url="http://im.local:9000",
+        token="tok",
+        **owners.kwargs(),
+        local_config=local_config,
+        client=httpx.Client(
+            transport=httpx.MockTransport(_handler),
+            base_url="http://im.local:9000",
+        ),
+    )
+
+    sync.reconcile_all_agents()
+    sync.reconcile_all_agents()
+
+    expected = ("memory", *lark_skill_names())
+    assert patch_count == 1
+    assert tuple(skills) == expected
+    assert owners.catalog.require("agent-static").config.skills == expected
+    assert load_local_config(local_config.source_path).agents[0].skills == expected

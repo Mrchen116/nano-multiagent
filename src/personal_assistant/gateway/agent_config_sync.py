@@ -17,9 +17,11 @@ from personal_assistant.config.local_store import (
     RuntimeConfigOwner,
     WORKSPACE_CONFIG_DIRNAME as _WCD,
     default_local_config_path,
+    enabled_feishu_agent_ids,
     ensure_workspace_defaults,
     save_sensitive_local_config,
 )
+from personal_assistant.builtin_skills.lark_bundle import lark_skill_names
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
 from personal_assistant.gateway.im_http_transport import (
     build_im_http_headers,
@@ -141,6 +143,10 @@ class IMAgentConfigSync:
                     raise RuntimeError(
                         f"agent {agent_id} config stale: expected >= {profile_version}, got {resolved_profile_version}"
                     )
+                payload = self._ensure_static_feishu_bundle(
+                    agent_id=agent_id,
+                    payload=payload,
+                )
                 self._publish_agent_config(
                     self._decode_mirror_agent_config(
                         payload=payload,
@@ -259,17 +265,25 @@ class IMAgentConfigSync:
             "custom_prompt": custom_prompt,
         }
 
-    def ensure_agent_skill_enabled(self, agent_id: str, skill_id: str) -> bool:
-        """Enable one declared skill for a local agent when its allowlist is explicit."""
+    def ensure_agent_skills_enabled(
+        self, agent_id: str, skill_ids: tuple[str, ...]
+    ) -> bool:
+        """Enable declared skills for a local agent with an explicit allowlist."""
 
         agent = self._local_agent(agent_id)
         if agent is None:
             return False
-        self._enable_created_skill_for_agent(agent, skill_id)
+        self._enable_skills_for_agent(agent, skill_ids)
         updated = self._local_agent(agent_id)
         return updated is not None and (
-            not updated.skills or skill_id in updated.skills
+            not updated.skills
+            or all(skill_id in updated.skills for skill_id in skill_ids)
         )
+
+    def ensure_agent_skill_enabled(self, agent_id: str, skill_id: str) -> bool:
+        """Enable one declared skill through the shared collection operation."""
+
+        return self.ensure_agent_skills_enabled(agent_id, (skill_id,))
 
     def handle_skill_created(self, agent_id: str, event: Mapping[str, object]) -> None:
         """Enable a successfully created skill for the affected live agents."""
@@ -298,7 +312,7 @@ class IMAgentConfigSync:
                     skill_root,
                 )
                 return
-            self._enable_created_skill_for_agent(agent, skill_name)
+            self._enable_skills_for_agent(agent, (skill_name,))
             return
         if scope == "global":
             if self._global_skill_root is None or skill_root != self._global_skill_root:
@@ -309,15 +323,18 @@ class IMAgentConfigSync:
                 )
                 return
             for agent in tuple(self._config_snapshot().agents):
-                self._enable_created_skill_for_agent(agent, skill_name)
+                self._enable_skills_for_agent(agent, (skill_name,))
 
-    def _enable_created_skill_for_agent(
-        self, agent: AgentWorkspaceConfig, skill_name: str
+    def _enable_skills_for_agent(
+        self, agent: AgentWorkspaceConfig, skill_ids: tuple[str, ...]
     ) -> None:
+        required_skills = tuple(dict.fromkeys(skill_ids))
+        if not required_skills:
+            return
         if not agent.skills:
             self._republish_agent(agent)
             return
-        if skill_name in agent.skills:
+        if all(skill_id in agent.skills for skill_id in required_skills):
             self._republish_agent(agent)
             return
         try:
@@ -327,20 +344,24 @@ class IMAgentConfigSync:
                 for item in payload.get("skills", [])
                 if isinstance(item, str) and item.strip()
             ]
-            if skill_name not in next_skills:
-                next_skills.append(skill_name)
+            missing_skills = [
+                skill_id for skill_id in required_skills if skill_id not in next_skills
+            ]
+            if missing_skills:
+                next_skills.extend(missing_skills)
                 updated = self._patch_agent_skills(agent.agent_id, payload, next_skills)
-                profile_version = int(updated.get("profile_version", 0))
-                self.sync_agent(
-                    agent_id=agent.agent_id,
-                    profile_version=profile_version,
+                self._publish_agent_config(
+                    self._decode_mirror_agent_config(
+                        payload=updated,
+                        agent_id=agent.agent_id,
+                    )
                 )
             else:
                 self._republish_agent(agent)
         except (httpx.HTTPError, ValueError, RuntimeError):
             _log.warning(
-                "failed to enable created skill %s for agent %s",
-                skill_name,
+                "failed to enable skills %s for agent %s",
+                required_skills,
                 agent.agent_id,
                 exc_info=True,
             )
@@ -396,6 +417,31 @@ class IMAgentConfigSync:
             None,
         )
 
+    def _ensure_static_feishu_bundle(
+        self, *, agent_id: str, payload: dict[str, object]
+    ) -> dict[str, object]:
+        """Patch static Feishu mirror profiles before they replace local runtime.
+
+        Empty allowlists deliberately keep global skill discovery and are therefore
+        not materialized into the packaged bundle.
+        """
+
+        if agent_id not in enabled_feishu_agent_ids(self._config_snapshot()):
+            return payload
+        skills = [
+            item.strip()
+            for item in payload.get("skills", [])
+            if isinstance(item, str) and item.strip()
+        ]
+        if not skills:
+            return payload
+        missing_skills = [
+            skill_id for skill_id in lark_skill_names() if skill_id not in skills
+        ]
+        if not missing_skills:
+            return payload
+        return self._patch_agent_skills(agent_id, payload, [*skills, *missing_skills])
+
     def _config_snapshot(self) -> LocalConfig:
         """Return the process-wide config snapshot shared by all durable writers."""
 
@@ -436,28 +482,33 @@ class IMAgentConfigSync:
             mem_ver = memory_versions.get(agent_id, 0)
             try:
                 payload = self._fetch_agent_config(agent_id=agent_id)
+                im_version = int(payload.get("profile_version", 0))
+                if im_version < mem_ver:
+                    # IM 版本落后内存（增量推送已带来更新版本），保留内存不回退
+                    _log.debug(
+                        "reconcile_all_agents: skipping agent %s — IM version %d < memory %d",
+                        agent_id,
+                        im_version,
+                        mem_ver,
+                    )
+                    continue
+                payload = self._ensure_static_feishu_bundle(
+                    agent_id=agent_id,
+                    payload=payload,
+                )
+                self._publish_agent_config(
+                    self._decode_mirror_agent_config(
+                        payload=payload,
+                        agent_id=agent_id,
+                    )
+                )
             except (httpx.HTTPError, ValueError):
                 _log.warning(
-                    "reconcile_all_agents: failed to fetch profile for agent %s, skipping",
+                    "reconcile_all_agents: failed to reconcile profile for agent %s, skipping",
                     agent_id,
+                    exc_info=True,
                 )
                 continue
-            im_version = int(payload.get("profile_version", 0))
-            if im_version < mem_ver:
-                # IM 版本落后内存（增量推送已带来更新版本），保留内存不回退
-                _log.debug(
-                    "reconcile_all_agents: skipping agent %s — IM version %d < memory %d",
-                    agent_id,
-                    im_version,
-                    mem_ver,
-                )
-                continue
-            self._publish_agent_config(
-                self._decode_mirror_agent_config(
-                    payload=payload,
-                    agent_id=agent_id,
-                )
-            )
             _log.debug(
                 "reconcile_all_agents: updated agent %s to IM version %d",
                 agent_id,

@@ -17,7 +17,9 @@ from personal_assistant.gateway.managed_channel_control import (
 
 
 class _AgentConfigSync:
-    def ensure_agent_skill_enabled(self, _agent_id: str, _skill_id: str) -> bool:
+    def ensure_agent_skills_enabled(
+        self, _agent_id: str, _skill_ids: tuple[str, ...]
+    ) -> bool:
         return True
 
 
