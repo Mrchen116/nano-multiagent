@@ -57,5 +57,6 @@
 
 - TDD：先为桌面 rail、空表单直接切换、填写后侧栏切换确认与填写后取消确认补上失败用例，再实现修复。
 - `cd src/IM/frontend && npm run test -- --run src/features/settings/agents/agent-create.test.tsx src/features/settings/agents/agent-detail-page.test.tsx src/app/shell/app-shell.test.tsx`：29 passed。
+- CI 等价检查中，`ruff check` 与 `ruff format --check` 通过，完整前端 `npm run test` 通过（59 files / 559 tests）。`docs-check` 被最新 `origin/main` 已存在的 `bugfix-499` active/archive 重复 unit 阻塞，本 unit 未触及该目录；`npm audit --audit-level=critical` 两次均因到 npm 审计端点的 TLS 连接中断而未能完成。
 - `cd src/IM/frontend && npm run build`：`tsc -b && vite build` 通过。
 - 隔离真实栈：以 `scripts/e2e-up.sh --wt <unit worktree>` 启动 IM/Gateway，并以该 IM 作为 Vite 代理目标。Playwright 登录测试用户后，在 `1280px` 宽的新建页确认 rail、已有 Agent 行和与详情页一致的桌面分栏均实际渲染；移动宽度下 rail 继续由 `lg` 断点隐藏。浏览器截图仅作本地运行证据，未纳入提交。
