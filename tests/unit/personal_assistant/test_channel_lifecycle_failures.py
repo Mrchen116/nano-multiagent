@@ -168,6 +168,29 @@ class _WorkerAdapter:
         self.runtime.stop(drain=False)
 
 
+class _ImmediateStatusAdapter:
+    name = "feishu:agent-a"
+
+    def __init__(self, *, status_handler, pressure: bool) -> None:
+        self._status_handler = status_handler
+        self._pressure = pressure
+        self.stopped = False
+
+    def start(self, _handler) -> None:
+        if self._pressure:
+            self._status_handler(
+                status_sequence=2,
+                connection_state="failed",
+                status_code="event_backpressure",
+            )
+
+    def stop(self) -> None:
+        self.stopped = True
+
+    def stop_invalidated(self) -> None:
+        self.stop()
+
+
 def _wait_until(predicate, *, timeout: float = 4.0) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -218,10 +241,8 @@ def test_backpressure_reaps_noncooperative_listener_and_restarts_once() -> None:
         asyncio.run(manager.close())
 
 
-def test_backpressure_retry_budget_reaps_final_listener_and_allows_manual_retry() -> (
-    None
-):
-    """Three retries end failed with no child; reconnect can use retained desired."""
+def test_backpressure_retry_budget_reaps_final_listener() -> None:
+    """Three retries end failed with no child and no extra automatic restart."""
     adapters: list[_WorkerAdapter] = []
 
     def factory(_spec, _binder, status_handler):
@@ -256,10 +277,45 @@ def test_backpressure_retry_budget_reaps_final_listener_and_allows_manual_retry(
         )
         time.sleep(0.6)
         assert len(adapters) == 4
+    finally:
+        asyncio.run(manager.close())
+
+
+def test_manual_retry_after_retry_exhaustion_uses_retained_desired() -> None:
+    """A manual reconnect can reuse desired state after automatic retries stop."""
+    adapters: list[_ImmediateStatusAdapter] = []
+
+    def factory(_spec, _binder, status_handler):
+        adapter = _ImmediateStatusAdapter(
+            status_handler=status_handler,
+            pressure=len(adapters) < 4,
+        )
+        adapters.append(adapter)
+        return adapter
+
+    manager = ChannelManager(
+        registry=ChannelRegistry(),
+        on_inbound=lambda _message: None,
+        provider_factories={"feishu": factory},
+        status_sink=lambda _status: None,
+    )
+    try:
+        asyncio.run(
+            manager.reconcile(ChannelManifest(manifest_revision=1, channels=(_spec(),)))
+        )
+        _wait_until(
+            lambda: (
+                len(adapters) == 4
+                and manager.registry.get("feishu:agent-a") is None
+                and all(adapter.stopped for adapter in adapters)
+            )
+        )
 
         asyncio.run(manager.reconnect("ch-a"))
-        _wait_until(lambda: manager.registry.get("feishu:agent-a") is adapters[4])
+
         assert len(adapters) == 5
+        assert manager.registry.get("feishu:agent-a") is adapters[4]
+        assert adapters[4].stopped is False
     finally:
         asyncio.run(manager.close())
 
