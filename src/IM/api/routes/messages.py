@@ -16,7 +16,15 @@ from IM.application.web_im_service import WebIMService
 from IM.api.deps import get_gateway_control, get_gateway_relay
 from IM.ws.gateway.control import GatewayControl
 from IM.ws.gateway.relay import GatewayRelay
-from IM.domain.models import AgentConfigChangedBoundary, Attachment, Message, User
+from IM.domain.models import (
+    AgentConfigChangedBoundary,
+    Attachment,
+    Message,
+    ThinkingSegment,
+    TokenUsage,
+    ToolCall,
+    User,
+)
 
 router = APIRouter(tags=["messages"])
 
@@ -118,6 +126,25 @@ class TokenUsagePayload(BaseModel):
     # feat-439-M1: 缓存命中两字段(整轮口径)。旧行默认 0，前端渲染「缓存命中 X (Y%)」。
     cache_read_tokens: int = 0
     cache_total_input_tokens: int = 0
+
+
+class ExternalAgentMessageSnapshotRequest(BaseModel):
+    """Complete terminal projection used to recover an external Agent bubble."""
+
+    agent_id: str = Field(min_length=1)
+    content: str = ""
+    thinking: list[ThinkingSegmentPayload] = Field(default_factory=list)
+    tool_calls: list[ToolCallPayload] = Field(default_factory=list)
+    token_usage: TokenUsagePayload | None = None
+    elapsed_ms: int = Field(ge=0)
+    delivery_status: str
+    kernel_message_id: str | None = None
+
+    @model_validator(mode="after")
+    def validate_terminal(self) -> "ExternalAgentMessageSnapshotRequest":
+        if self.delivery_status not in {"completed", "failed"}:
+            raise ValueError("delivery_status must be completed or failed")
+        return self
 
 
 class MessageResponse(BaseModel):
@@ -425,6 +452,71 @@ async def create_message(
                 detail="target_node_id is not connected",
             )
     return to_message_response(created)
+
+
+@router.put(
+    "/im/v1/conversations/{conversation_id}/external-agent-messages/{shadow_message_id}",
+    response_model=MessageResponse,
+)
+def reconcile_external_agent_message(
+    conversation_id: str,
+    shadow_message_id: str,
+    payload: ExternalAgentMessageSnapshotRequest,
+    user: User = Depends(current_user),
+    service: WebIMService = Depends(get_web_im_service),
+) -> MessageResponse:
+    """Create or reconcile one terminal external Agent message by source identity."""
+
+    _assert_conversation_in_owner_scope(
+        service=service, conversation_id=conversation_id, owner_id=user.owner_id
+    )
+    try:
+        message = service.reconcile_external_agent_message(
+            conversation_id=conversation_id,
+            shadow_message_id=shadow_message_id,
+            agent_id=payload.agent_id,
+            content=payload.content,
+            thinking=[
+                ThinkingSegment(seq=item.seq, text=item.text)
+                for item in payload.thinking
+            ],
+            tool_calls=[
+                ToolCall(
+                    id=item.id,
+                    name=item.name,
+                    status=item.status,
+                    input=item.input,
+                    duration_ms=item.duration_ms,
+                    output=item.output,
+                    reason=item.reason,
+                    detail=item.detail,
+                    emoji=item.emoji,
+                    approval=item.approval,
+                    seq=item.seq,
+                )
+                for item in payload.tool_calls
+            ],
+            token_usage=(
+                TokenUsage(
+                    output=payload.token_usage.output,
+                    context_used=payload.token_usage.context_used,
+                    context_window=payload.token_usage.context_window,
+                    total=payload.token_usage.total
+                    if payload.token_usage.total is not None
+                    else payload.token_usage.context_used + payload.token_usage.output,
+                    cache_read_tokens=payload.token_usage.cache_read_tokens,
+                    cache_total_input_tokens=payload.token_usage.cache_total_input_tokens,
+                )
+                if payload.token_usage is not None
+                else None
+            ),
+            elapsed_ms=payload.elapsed_ms,
+            delivery_status=payload.delivery_status,
+            kernel_message_id=payload.kernel_message_id,
+        )
+    except ValueError as exc:
+        raise map_message_write_error(exc) from exc
+    return to_message_response(message)
 
 
 @router.get(

@@ -8,6 +8,7 @@ export class UserStreamRecoveryError extends Error {
 
 const CHAT_STREAM_EVENT_TYPES = new Set([
   "message.created",
+  "message.reconciled",
   "message.delta",
   "message.completed",
   "message.discarded",
@@ -73,6 +74,7 @@ export function validateCanonicalUserStreamEvent(
   if (!isText(payload.message_id)) malformed(eventType);
   switch (eventType) {
     case "message.created":
+    case "message.reconciled":
       if (
         !isText(payload.sender_user_id)
         || !isText(payload.sender_type)
@@ -85,6 +87,17 @@ export function validateCanonicalUserStreamEvent(
         || (payload.attachments !== undefined && !Array.isArray(payload.attachments))
         || (payload.thinking !== undefined
           && (!Array.isArray(payload.thinking) || !payload.thinking.every(isThinkingSegment)))
+        || (payload.elapsed_ms !== undefined
+          && payload.elapsed_ms !== null
+          && (typeof payload.elapsed_ms !== "number" || !Number.isFinite(payload.elapsed_ms)))
+        || (payload.kernel_message_id !== undefined
+          && payload.kernel_message_id !== null
+          && typeof payload.kernel_message_id !== "string")
+      ) malformed(eventType);
+      if (
+        eventType === "message.reconciled"
+        && payload.delivery_status !== "completed"
+        && payload.delivery_status !== "failed"
       ) malformed(eventType);
       return;
     case "message.delta":

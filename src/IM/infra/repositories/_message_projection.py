@@ -79,6 +79,17 @@ def _message_created_payload(message: Message) -> dict[str, object]:
     }
 
 
+def _message_reconciled_payload(message: Message) -> dict[str, object]:
+    """Build a complete terminal projection for same-identity browser upsert."""
+
+    return {
+        **_message_created_payload(message),
+        "elapsed_ms": message.elapsed_ms,
+        "kernel_message_id": message.kernel_message_id,
+        "permission_requests": list(message.permission_requests),
+    }
+
+
 def _encode_attachments(attachments: list[Attachment]) -> str:
     """Encode attachments JSON with stable field ordering."""
     payload = [_attachment_to_dict(item) for item in attachments]

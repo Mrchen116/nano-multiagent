@@ -187,6 +187,37 @@ export function applyWsEvent(
   }
 
   switch (ev.type) {
+    case "message.reconciled": {
+      const current = state.messages.find((message) => message.id === ev.message_id);
+      const reconciled: Message = {
+        id: ev.message_id,
+        conversation_id: ev.conversation_id,
+        sender: ev.sender ?? {
+          type: ev.sender_type === "agent" ? "agent" : ev.sender_type === "system" ? "system" : "user",
+          id: ev.sender_user_id.replace(/^(agent|user):/, ""),
+          display_name: ev.sender_display_name ?? null
+        },
+        sender_user_id: ev.sender_user_id,
+        sender_type: ev.sender_type,
+        content: ev.content,
+        attachments: ev.attachments,
+        delivery_status: ev.delivery_status,
+        created_at: ev.created_at,
+        tool_calls: ev.tool_calls,
+        thinking: ev.thinking,
+        token_usage: ev.token_usage,
+        elapsed_ms: ev.elapsed_ms,
+        kernel_message_id: ev.kernel_message_id,
+        permission_requests: ev.permission_requests ?? current?.permission_requests ?? []
+      };
+      if (current) {
+        return patchMessage(state, ev.message_id, () => reconciled);
+      }
+      return withTimeline(
+        state,
+        mergeTimelineItems(stateTimeline(state), [{ type: "message", message: reconciled }])
+      );
+    }
     case "message.created": {
       // M17/R8-1 defensive: synthetic relay-mirror ids must never enter the
       // workspace cache as standalone bubbles (backend dedup is the primary

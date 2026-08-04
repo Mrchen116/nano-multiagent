@@ -25,6 +25,7 @@ from agent.core.llm.interfaces import (
 )
 from agent.core.llm.model_registry import context_window_for_model, provider_of
 from agent.core.observability.tracing import span
+from agent.core.runs.origin import RunOrigin
 from agent.core.skills.registry import SkillMetadata
 from agent.core.tools.result_budget import (
     DEFAULT_MAX_RESULT_SIZE_CHARS,
@@ -730,6 +731,9 @@ class AgentLoop:
                     "session_id": hook_ctx.session_id,
                     "turn_id": hook_ctx.turn_id,
                     "message_count": len(consumed),
+                    "user_message_count": sum(
+                        1 for item in consumed if item.origin == RunOrigin.USER
+                    ),
                 },
                 run_id=run_id,
             ),

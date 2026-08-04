@@ -10,6 +10,9 @@ from IM.domain.models import (
     Attachment,
     Conversation,
     Message,
+    ThinkingSegment,
+    TokenUsage,
+    ToolCall,
 )
 from IM.infra.repositories.config_boundaries import AgentConfigBoundaryRepository
 from IM.infra.repositories.conversations import ConversationRepository
@@ -252,6 +255,35 @@ class WebIMService:
                 turns=1,
             )
         return created
+
+    def reconcile_external_agent_message(
+        self,
+        *,
+        conversation_id: str,
+        shadow_message_id: str,
+        agent_id: str,
+        content: str,
+        thinking: list[ThinkingSegment],
+        tool_calls: list[ToolCall],
+        token_usage: TokenUsage | None,
+        elapsed_ms: int,
+        delivery_status: str,
+        kernel_message_id: str | None,
+    ) -> Message:
+        """Create or atomically reconcile one terminal external Agent bubble."""
+
+        return self._messages.reconcile_external_agent_message(
+            conversation_id=conversation_id,
+            shadow_message_id=shadow_message_id,
+            agent_id=agent_id,
+            content=content,
+            thinking=thinking,
+            tool_calls=tool_calls,
+            token_usage=token_usage,
+            elapsed_ms=elapsed_ms,
+            delivery_status=delivery_status,
+            kernel_message_id=kernel_message_id,
+        )
 
     def list_messages(
         self,

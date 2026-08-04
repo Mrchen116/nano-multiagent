@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 import logging
 
 
@@ -236,10 +237,15 @@ class GatewayExecution:
                             "skipped": "owner_unresolved",
                         },
                     }
+                turn_start_args = {
+                    "conversation_id": conversation_id,
+                    "agent_user_id": agent_user_id,
+                    "agent_id": agent_id,
+                }
+                if event.shadow_message_id is not None:
+                    turn_start_args["caller_idempotency_key"] = event.shadow_message_id
                 created_message = self._event_bridge.on_turn_start(
-                    conversation_id=conversation_id,
-                    agent_user_id=agent_user_id,
-                    agent_id=agent_id,
+                    **turn_start_args,
                 )
                 # Return both conversation_id and message_id so the gateway can update
                 # run_context_store with the resolved canonical conversation (feat-393 design §接口与数据流).
@@ -273,11 +279,14 @@ class GatewayExecution:
                         "skipped": "agent_user_id_not_found",
                     },
                 }
-            created_message = self._event_bridge.on_turn_start(
-                conversation_id=conversation_id,
-                agent_user_id=agent_user_id,
-                agent_id=agent_id,
-            )
+            turn_start_args = {
+                "conversation_id": conversation_id,
+                "agent_user_id": agent_user_id,
+                "agent_id": agent_id,
+            }
+            if event.shadow_message_id is not None:
+                turn_start_args["caller_idempotency_key"] = event.shadow_message_id
+            created_message = self._event_bridge.on_turn_start(**turn_start_args)
             # Return message_id in ack so PA observer can update run_context_store;
             # without this, observer keeps empty message_id and delta targets user message.
             return {
@@ -323,6 +332,7 @@ class GatewayExecution:
                 token_usage=token_usage,
                 delivery_status=ds,
                 kernel_message_id=kernel_message_id,
+                elapsed_ms=event.elapsed_ms,
             )
 
         elif kind == "message_discarded":
@@ -346,18 +356,20 @@ class GatewayExecution:
             # thinking.segment。seq 在 repo 持久化边界赋予(= 当前 tool_calls 数)。
             message_id = _require_text(event.message_id, field_name="message_id")
             text = event.text or ""
-            self._event_bridge.on_thinking_segment(message_id=message_id, text=text)
+            self._event_bridge.on_thinking_segment(
+                message_id=message_id, text=text, process_seq=event.process_seq
+            )
 
         elif kind == "tool_call_upserted":
             message_id = _require_text(event.message_id, field_name="message_id")
-            tc = _parse_tool_call(event.tool_call)
+            tc = replace(_parse_tool_call(event.tool_call), seq=event.process_seq)
             self._event_bridge.on_tool_call_upserted(
                 message_id=message_id, tool_call=tc
             )
 
         elif kind == "tool_call_completed":
             message_id = _require_text(event.message_id, field_name="message_id")
-            tc = _parse_tool_call(event.tool_call)
+            tc = replace(_parse_tool_call(event.tool_call), seq=event.process_seq)
             self._event_bridge.on_tool_call_completed(
                 message_id=message_id, tool_call=tc
             )

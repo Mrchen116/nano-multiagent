@@ -27,6 +27,8 @@ from personal_assistant.gateway.runtime_protocol import (
     strip_runtime_protocol_metadata,
 )
 from personal_assistant.gateway.shadow_saga import (
+    ExternalShadowBubble,
+    ExternalShadowBubbleEvent,
     ExternalShadowOutput,
     ExternalShadowSaga,
     ExternalShadowSagaStore,
@@ -91,11 +93,17 @@ class IMShadowConversationSync:
             return None
         if identity.trigger_source == "im":
             return None
+        if message.external_event_identity is None:
+            if self._saga_store is not None:
+                self._saga_store.prepare(
+                    message=message,
+                    agent_id=agent_id,
+                    owner_id=self._owner_user_id,
+                )
+            return None
         metadata = strip_runtime_protocol_metadata(message.metadata)
         external_source = identity.external_source
         external_chat_id = identity.external_chat_id
-        token = await self._token_getter()
-        headers = build_im_http_headers(token)
         saga_store = self._saga_store
         # The configured node owner is sufficient to identify the durable source fact.
         # Persist it before any IM request so an unavailable /me endpoint cannot erase an
@@ -113,6 +121,8 @@ class IMShadowConversationSync:
             self._promote_boundary(saga_id=saga.saga_id, shadow_ref=saga.shadow_ref)
             return saga.shadow_ref
         try:
+            token = await self._token_getter()
+            headers = build_im_http_headers(token)
             async with httpx.AsyncClient(
                 base_url=self._base_url,
                 headers=headers,
@@ -253,6 +263,72 @@ class IMShadowConversationSync:
             content=content,
         )
 
+    def record_bubble_event(
+        self, event: ExternalShadowBubbleEvent
+    ) -> ExternalShadowBubble:
+        """Persist one normalized external runtime fact before network delivery."""
+
+        saga_store = self._saga_store
+        if saga_store is None:
+            raise RuntimeError("external shadow bubble requires durable saga storage")
+        return saga_store.record(event)
+
+    async def reconcile_snapshot(self, snapshot: ExternalShadowBubble) -> None:
+        """Reconcile one terminal rich snapshot into its same-identity IM row."""
+
+        saga_store = self._saga_store
+        if saga_store is None:
+            raise RuntimeError("external shadow bubble requires durable saga storage")
+        saga = saga_store.require(snapshot.saga_id)
+        shadow_ref = saga.shadow_ref
+        if shadow_ref is None:
+            return
+        token = await self._token_getter()
+        token_usage = snapshot.token_usage
+        token_payload = None
+        if token_usage is not None:
+            prompt = int(token_usage.get("prompt") or 0)
+            completion = int(token_usage.get("completion") or 0)
+            token_payload = {
+                "output": completion,
+                "context_used": prompt,
+                "context_window": int(token_usage.get("context_window") or 0),
+                "total": int(token_usage.get("total") or prompt + completion),
+                "cache_read_tokens": int(token_usage.get("cache_read") or 0),
+                "cache_total_input_tokens": int(
+                    token_usage.get("cache_total_input") or 0
+                ),
+            }
+        async with httpx.AsyncClient(
+            base_url=self._base_url,
+            headers=build_im_http_headers(token),
+            timeout=self._timeout_seconds,
+            trust_env=False,
+            transport=self._transport,
+        ) as client:
+            response = await client.put(
+                f"/im/v1/conversations/{shadow_ref.conversation_id}/external-agent-messages/"
+                f"{snapshot.shadow_message_id}",
+                json={
+                    "agent_id": saga.agent_id,
+                    "content": snapshot.content,
+                    "thinking": list(snapshot.thinking),
+                    "tool_calls": list(snapshot.tool_calls),
+                    "token_usage": token_payload,
+                    "elapsed_ms": snapshot.elapsed_ms or 0,
+                    "delivery_status": snapshot.delivery_status,
+                    "kernel_message_id": snapshot.kernel_message_id,
+                },
+            )
+            response.raise_for_status()
+            message_id = str(response.json().get("id") or "").strip()
+            if not message_id:
+                raise ValueError("external shadow reconcile response missing id")
+        saga_store.acknowledge(
+            shadow_message_id=snapshot.shadow_message_id,
+            im_message_id=message_id,
+        )
+
     async def mirror_prepared_agent_output(self, output: ExternalShadowOutput) -> None:
         """Mirror an already durable Agent output without blocking external delivery.
 
@@ -348,45 +424,52 @@ class IMShadowConversationSync:
         saga_store = self._saga_store
         if saga_store is None:
             return
-        for saga in saga_store.pending():
-            payload = json.loads(saga.canonical_inbound_json)
-            external_event = payload["external_event_identity"]
-            message = attach_runtime_protocol(
-                InboundMessage(
-                    channel_name=str(payload["channel_name"]),
-                    text=str(payload["text"]),
-                    external_user_id=str(payload["external_user_id"]),
-                    external_chat_id=str(payload["external_chat_id"]),
-                    is_group=bool(payload["is_group"]),
-                    agent_id=saga.agent_id,
-                    thread_id=payload.get("thread_id"),
-                    metadata=payload["metadata"],
-                    external_event_identity=ExternalInboundEventIdentity(
-                        connector_account_id=str(
-                            external_event["connector_account_id"]
-                        ),
-                        provider_event_id=str(external_event["provider_event_id"]),
-                    ),
-                ),
-                RuntimeProtocolFacts(
-                    external_identity=ExternalConversationIdentity(
-                        external_source=str(
-                            payload["external_identity"]["external_source"]
-                        ),
-                        external_chat_id=str(
-                            payload["external_identity"]["external_chat_id"]
-                        ),
+        pending_snapshots = saga_store.pending_snapshots()
+        snapshots_by_saga: dict[str, list[ExternalShadowBubble]] = {}
+        for snapshot in pending_snapshots:
+            snapshots_by_saga.setdefault(snapshot.saga_id, []).append(snapshot)
+        for saga in saga_store.recovery_sagas():
+            if saga.shadow_ref is None:
+                payload = json.loads(saga.canonical_inbound_json)
+                external_event = payload["external_event_identity"]
+                message = attach_runtime_protocol(
+                    InboundMessage(
+                        channel_name=str(payload["channel_name"]),
+                        text=str(payload["text"]),
+                        external_user_id=str(payload["external_user_id"]),
+                        external_chat_id=str(payload["external_chat_id"]),
+                        is_group=bool(payload["is_group"]),
                         agent_id=saga.agent_id,
-                        conversation_type=payload["external_identity"].get(
-                            "conversation_type"
+                        thread_id=payload.get("thread_id"),
+                        metadata=payload["metadata"],
+                        external_event_identity=ExternalInboundEventIdentity(
+                            connector_account_id=str(
+                                external_event["connector_account_id"]
+                            ),
+                            provider_event_id=str(external_event["provider_event_id"]),
                         ),
-                        trigger_source=payload["external_identity"].get(
-                            "trigger_source"
-                        ),
-                    )
-                ),
-            )
-            await self.sync_user_message(message, agent_id=saga.agent_id)
+                    ),
+                    RuntimeProtocolFacts(
+                        external_identity=ExternalConversationIdentity(
+                            external_source=str(
+                                payload["external_identity"]["external_source"]
+                            ),
+                            external_chat_id=str(
+                                payload["external_identity"]["external_chat_id"]
+                            ),
+                            agent_id=saga.agent_id,
+                            conversation_type=payload["external_identity"].get(
+                                "conversation_type"
+                            ),
+                            trigger_source=payload["external_identity"].get(
+                                "trigger_source"
+                            ),
+                        )
+                    ),
+                )
+                await self.sync_user_message(message, agent_id=saga.agent_id)
+            for snapshot in snapshots_by_saga.get(saga.saga_id, []):
+                await self.reconcile_snapshot(snapshot)
         for output in saga_store.pending_outputs():
             saga = saga_store.require(output.saga_id)
             if saga.shadow_ref is None:

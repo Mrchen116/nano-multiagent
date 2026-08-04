@@ -12,7 +12,11 @@ from personal_assistant.gateway.reply_visibility import (
     is_protocol_silence_token,
     should_suppress_reply,
 )
-from personal_assistant.gateway.shadow_saga import ExternalShadowOutput
+from personal_assistant.gateway.shadow_saga import (
+    ExternalShadowBubble,
+    ExternalShadowBubbleEvent,
+    ExternalShadowOutput,
+)
 from personal_assistant.ws.im_connection import IMConnectionManager
 
 from .context import RunDeliveryContextStore
@@ -56,6 +60,8 @@ async def roll_bubble(
     run_context_store: dict[str, dict[str, str]] | RunDeliveryContextStore,
     old_message_id: str | None,
     new_kernel_message_id: str | None = None,
+    new_shadow_message_id: str | None = None,
+    old_elapsed_ms: int | None = None,
 ) -> str | None:
     """Finalize the current IM bubble and open a fresh one for the same run.
 
@@ -85,7 +91,7 @@ async def roll_bubble(
     old_kernel_message_id = ctx.get("kernel_message_id")
     try:
         if old_message_id:
-            await manager.send_json(
+            await manager.send_json_await_ack(
                 "node.streaming_delta",
                 {
                     "kind": "message_completed",
@@ -95,6 +101,7 @@ async def roll_bubble(
                     "delivery_status": "completed",
                     "kernel_message_id": old_kernel_message_id,
                     "run_id": run_id,
+                    "elapsed_ms": old_elapsed_ms,
                 },
             )
         ack = await manager.send_json_await_ack(
@@ -104,6 +111,7 @@ async def roll_bubble(
                 "conversation_id": conversation_id,
                 "agent_id": agent_id,
                 "run_id": run_id,
+                "shadow_message_id": new_shadow_message_id,
             },
         )
         new_message_id = extract_ack_message_id(ack)
@@ -115,11 +123,15 @@ async def roll_bubble(
             # old bubble's visible/silence terminal decision.
             live_ctx.pop("visible_reply_committed", None)
             live_ctx.pop("discard_current_bubble", None)
+            live_ctx.pop("external_current_text", None)
+            live_ctx.pop("external_intermediate_sent_marker", None)
             if new_kernel_message_id:
                 live_ctx["kernel_message_id"] = new_kernel_message_id
             else:
                 live_ctx.pop("kernel_message_id", None)
             return new_message_id
+        if live_ctx is not None:
+            live_ctx["message_id"] = ""
         return None
     finally:
         live_ctx = _runtime_context_view(run_context_store, run_id)
@@ -139,6 +151,13 @@ def build_kernel_event_observer(
     shadow_output_mirror: (
         Callable[[ExternalShadowOutput], Coroutine[Any, Any, None]] | None
     ) = None,
+    shadow_bubble_record: (
+        Callable[[ExternalShadowBubbleEvent], ExternalShadowBubble] | None
+    ) = None,
+    shadow_bubble_reconcile: (
+        Callable[[ExternalShadowBubble], Coroutine[Any, Any, None]] | None
+    ) = None,
+    shadow_pending_notify: Callable[[], None] | None = None,
     external_permission_request_sender: (
         Callable[[Mapping[str, Any], Mapping[str, str]], Any] | None
     ) = None,
@@ -193,6 +212,7 @@ def build_kernel_event_observer(
         # always injects the composition-root singleton so GatewayRuntime can drain it.
         task_tracker = RuntimeDeliveryTaskTracker()
     visible_reasoning_by_group: dict[str, dict[str, str]] = {}
+    durable_reasoning_by_group: dict[str, dict[str, str]] = {}
 
     async def _send(
         manager: IMConnectionManager, message_type: str, payload: Mapping[str, Any]
@@ -246,7 +266,11 @@ def build_kernel_event_observer(
             return
         kernel_message_id = ctx.get("kernel_message_id") or None
         saga_id = ctx.get("shadow_saga_id") or ""
-        if saga_id and shadow_output_prepare is not None:
+        if (
+            saga_id
+            and shadow_output_prepare is not None
+            and shadow_bubble_record is None
+        ):
             output = shadow_output_prepare(
                 saga_id,
                 rid,
@@ -333,6 +357,106 @@ def build_kernel_event_observer(
 
     def _clear_run_visible_reasoning(rid: str) -> None:
         visible_reasoning_by_group.pop(rid, None)
+        durable_reasoning_by_group.pop(rid, None)
+
+    def _record_shadow(
+        *,
+        rid: str,
+        ctx: MutableMapping[str, str],
+        kind: str,
+        **facts: Any,
+    ) -> ExternalShadowBubble | None:
+        saga_id = ctx.get("shadow_saga_id") or ""
+        if not saga_id or shadow_bubble_record is None:
+            return None
+        snapshot = shadow_bubble_record(
+            ExternalShadowBubbleEvent(
+                kind=kind,  # type: ignore[arg-type]
+                saga_id=saga_id,
+                run_id=rid,
+                **facts,
+            )
+        )
+        ctx["shadow_message_id"] = snapshot.shadow_message_id
+        return snapshot
+
+    def _notify_shadow_pending() -> None:
+        if shadow_pending_notify is not None:
+            shadow_pending_notify()
+
+    def _finish_shadow_live_run(
+        manager: IMConnectionManager | None, *, rid: str
+    ) -> None:
+        finish = getattr(manager, "finish_external_shadow_run", None)
+        if callable(finish):
+            finish(rid)
+
+    def _clear_live_bubble_context(*, rid: str, clear_conversation: bool) -> None:
+        live_ctx = _runtime_context_view(run_context_store, rid)
+        if live_ctx is None:
+            return
+        live_ctx["message_id"] = ""
+        if clear_conversation:
+            live_ctx["conversation_id"] = ""
+        for key in (
+            "kernel_message_id",
+            "external_current_text",
+            "external_intermediate_sent_marker",
+            "visible_reply_committed",
+            "discard_current_bubble",
+        ):
+            live_ctx.pop(key, None)
+
+    async def _reconcile_ready_snapshot(snapshot: ExternalShadowBubble) -> None:
+        if shadow_bubble_reconcile is None:
+            return
+        try:
+            await shadow_bubble_reconcile(snapshot)
+        except Exception:
+            _notify_shadow_pending()
+            raise
+
+    def _durable_reasoning_delta(*, rid: str, group_id: str, reasoning: str) -> str:
+        if not reasoning:
+            return ""
+        if not group_id:
+            return reasoning
+        groups = durable_reasoning_by_group.setdefault(rid, {})
+        previous = groups.get(group_id)
+        groups[group_id] = reasoning
+        if previous == reasoning:
+            return ""
+        if previous and reasoning.startswith(previous):
+            return reasoning[len(previous) :].strip()
+        return reasoning
+
+    def _turn_token_usage(
+        event: Mapping[str, Any], *, turn_completed: bool
+    ) -> dict[str, object] | None:
+        usage_raw = event.get("usage") if turn_completed else None
+        if not isinstance(usage_raw, Mapping):
+            return None
+        prompt = usage_raw.get("prompt_tokens") or usage_raw.get("input_tokens")
+        completion = usage_raw.get("completion_tokens") or usage_raw.get(
+            "output_tokens"
+        )
+        if not isinstance(prompt, int) or not isinstance(completion, int):
+            return None
+        payload: dict[str, object] = {
+            "prompt": prompt,
+            "completion": completion,
+            "total": prompt + completion,
+        }
+        context_window = event.get("context_window")
+        if isinstance(context_window, int) and context_window > 0:
+            payload["context_window"] = context_window
+        cache_read = usage_raw.get("cache_read_tokens")
+        cache_total_input = usage_raw.get("cache_total_input_tokens")
+        payload["cache_read"] = cache_read if isinstance(cache_read, int) else 0
+        payload["cache_total_input"] = (
+            cache_total_input if isinstance(cache_total_input, int) else 0
+        )
+        return payload
 
     def observer(event: Mapping[str, Any]) -> "Coroutine[Any, Any, None] | None":
         manager = im_connection_manager_factory()
@@ -360,7 +484,269 @@ def build_kernel_event_observer(
         to_user_id = ctx.get("to_user_id") or ""
 
         im_connected = manager is not None and manager.connected
-        has_external_context = _external_context_metadata(ctx) is not None
+        has_external_context = _external_context_metadata(ctx) is not None or bool(
+            ctx.get("shadow_saga_id")
+        )
+        rolled_shadow_snapshot: ExternalShadowBubble | None = None
+        shadow_snapshot: ExternalShadowBubble | None = None
+        shadow_process_seq: int | None = None
+        consumed_shadow_anchor_pending = False
+        abnormal_inflight: dict[str, dict[str, Any]] = {}
+        if event_name == "run_terminal_reconcile":
+            abnormal_inflight = running_tool_calls.pop(run_id, {})
+        if ctx.get("shadow_saga_id") and shadow_bubble_record is not None:
+            if event_name == "run_status" and event.get("status") == "running":
+                shadow_snapshot = _record_shadow(rid=run_id, ctx=ctx, kind="begin")
+            elif event_name == "assistant_message":
+                content = str(event.get("content") or "").strip()
+                kernel_msg_id = str(event.get("message_id") or "").strip()
+                prev_kernel_msg_id = ctx.get("kernel_message_id") or ""
+                if (
+                    content
+                    and kernel_msg_id
+                    and prev_kernel_msg_id
+                    and kernel_msg_id != prev_kernel_msg_id
+                ):
+                    rolled_shadow_snapshot = _record_shadow(
+                        rid=run_id,
+                        ctx=ctx,
+                        kind="terminal",
+                        token_usage=None,
+                        delivery_status="completed",
+                    )
+                    shadow_snapshot = _record_shadow(rid=run_id, ctx=ctx, kind="begin")
+                elif not ctx.get("shadow_message_id"):
+                    shadow_snapshot = _record_shadow(rid=run_id, ctx=ctx, kind="begin")
+                reasoning = str(event.get("reasoning_content") or "").strip()
+                durable_reasoning = _durable_reasoning_delta(
+                    rid=run_id,
+                    group_id=str(event.get("group_id") or "").strip(),
+                    reasoning=reasoning,
+                )
+                if durable_reasoning:
+                    shadow_snapshot = _record_shadow(
+                        rid=run_id,
+                        ctx=ctx,
+                        kind="thinking",
+                        thinking_text=durable_reasoning,
+                    )
+                    if shadow_snapshot and shadow_snapshot.thinking:
+                        shadow_process_seq = int(shadow_snapshot.thinking[-1]["seq"])
+                if content:
+                    shadow_snapshot = _record_shadow(
+                        rid=run_id,
+                        ctx=ctx,
+                        kind="text",
+                        content=content,
+                        kernel_message_id=kernel_msg_id or None,
+                    )
+            elif event_name == "tool_start":
+                call_id = str(event.get("call_id") or "").strip() or run_id
+                presentation = event.get("presentation")
+                tool_call: dict[str, Any] = {
+                    "id": call_id,
+                    "name": str(event.get("name") or ""),
+                    "status": "running",
+                    "input": event.get("arguments")
+                    if isinstance(event.get("arguments"), dict)
+                    else {},
+                }
+                if isinstance(presentation, Mapping):
+                    if presentation.get("summary"):
+                        tool_call["output"] = str(presentation["summary"])
+                    if presentation.get("detail") is not None:
+                        tool_call["detail"] = presentation["detail"]
+                    if presentation.get("emoji"):
+                        tool_call["emoji"] = str(presentation["emoji"])
+                shadow_snapshot = _record_shadow(
+                    rid=run_id, ctx=ctx, kind="tool", tool_call=tool_call
+                )
+                running_call = {
+                    key: tool_call[key]
+                    for key in ("name", "input", "output", "detail", "emoji")
+                    if key in tool_call
+                }
+                running_tool_calls.setdefault(run_id, {})[call_id] = running_call
+                if shadow_snapshot:
+                    persisted = next(
+                        item
+                        for item in shadow_snapshot.tool_calls
+                        if item.get("id") == call_id
+                    )
+                    shadow_process_seq = int(persisted["seq"])
+            elif event_name == "tool_end":
+                call_id = str(event.get("call_id") or "").strip() or run_id
+                presentation = event.get("presentation")
+                tool_call = {
+                    "id": call_id,
+                    "name": str(event.get("name") or ""),
+                    "status": "failed" if event.get("error") else "completed",
+                    "input": event.get("arguments")
+                    if isinstance(event.get("arguments"), dict)
+                    else {},
+                }
+                duration_ms = event.get("duration_ms")
+                if isinstance(duration_ms, (int, float)):
+                    tool_call["duration_ms"] = int(duration_ms)
+                reason = event.get("reason_code")
+                if isinstance(reason, str) and reason:
+                    tool_call["reason"] = reason
+                approval = event.get("approval")
+                if isinstance(approval, str) and approval:
+                    tool_call["approval"] = approval
+                if isinstance(presentation, Mapping):
+                    if presentation.get("summary"):
+                        tool_call["output"] = str(presentation["summary"])
+                    if presentation.get("detail") is not None:
+                        tool_call["detail"] = presentation["detail"]
+                    if presentation.get("emoji"):
+                        tool_call["emoji"] = str(presentation["emoji"])
+                shadow_snapshot = _record_shadow(
+                    rid=run_id, ctx=ctx, kind="tool", tool_call=tool_call
+                )
+                inner = running_tool_calls.get(run_id)
+                if inner is not None:
+                    inner.pop(call_id, None)
+                    if not inner:
+                        running_tool_calls.pop(run_id, None)
+                if shadow_snapshot:
+                    persisted = next(
+                        item
+                        for item in shadow_snapshot.tool_calls
+                        if item.get("id") == call_id
+                    )
+                    shadow_process_seq = int(persisted["seq"])
+            elif event_name == "turn_end":
+                turn_completed = event.get("completed") is not False
+                discard = bool(ctx.get("discard_current_bubble")) or (
+                    turn_completed
+                    and bool(ctx.get("discard_empty_completion"))
+                    and not bool(ctx.get("visible_reply_committed"))
+                )
+                shadow_snapshot = _record_shadow(
+                    rid=run_id,
+                    ctx=ctx,
+                    kind="discard" if discard else "terminal",
+                    token_usage=_turn_token_usage(event, turn_completed=turn_completed),
+                    delivery_status=(
+                        None if discard else "completed" if turn_completed else "failed"
+                    ),
+                )
+            elif event_name == "injection_consumed":
+                rolled_shadow_snapshot = _record_shadow(
+                    rid=run_id,
+                    ctx=ctx,
+                    kind="terminal",
+                    token_usage=None,
+                    delivery_status="completed",
+                )
+                consumed_shadow_saga_id = event.get("shadow_saga_id")
+                if (
+                    isinstance(consumed_shadow_saga_id, str)
+                    and consumed_shadow_saga_id
+                    and consumed_shadow_saga_id != ctx.get("shadow_saga_id")
+                ):
+                    ctx["shadow_saga_id"] = consumed_shadow_saga_id
+                    ctx.pop("shadow_message_id", None)
+                consumed_shadow_conversation_id = event.get("shadow_conversation_id")
+                if (
+                    isinstance(consumed_shadow_conversation_id, str)
+                    and consumed_shadow_conversation_id
+                ):
+                    conversation_id = consumed_shadow_conversation_id
+                    ctx["conversation_id"] = consumed_shadow_conversation_id
+                consumed_shadow_anchor_pending = (
+                    event.get("shadow_anchor_pending") is True
+                )
+                shadow_snapshot = _record_shadow(rid=run_id, ctx=ctx, kind="begin")
+            elif event_name == "run_terminal_reconcile":
+                reason = str(event.get("reason") or "interrupted").strip()
+                terminal_output = event.get("content")
+                for call_id, running_call in abnormal_inflight.items():
+                    call = (
+                        dict(running_call) if isinstance(running_call, Mapping) else {}
+                    )
+                    call.update(
+                        {
+                            "id": call_id,
+                            "name": str(call.get("name") or running_call),
+                            "status": "failed",
+                            "reason": reason,
+                            "input": call.get("input")
+                            if isinstance(call.get("input"), dict)
+                            else {},
+                        }
+                    )
+                    if isinstance(terminal_output, str) and terminal_output:
+                        call["output"] = terminal_output
+                    _record_shadow(rid=run_id, ctx=ctx, kind="tool", tool_call=call)
+                terminal_status = event.get("delivery_status")
+                if terminal_status not in {"completed", "failed"}:
+                    terminal_status = (
+                        "completed" if event.get("finalize_bubble") else "failed"
+                    )
+                shadow_snapshot = _record_shadow(
+                    rid=run_id,
+                    ctx=ctx,
+                    kind="terminal",
+                    token_usage=None,
+                    delivery_status=terminal_status,
+                )
+        if (
+            event_name in {"turn_end", "run_terminal_reconcile"}
+            and shadow_snapshot is not None
+            and shadow_snapshot.state == "ready"
+            and not ctx.get("conversation_id")
+        ):
+            # A follower user anchor can still be recovering while this bubble
+            # terminalizes. Bump the recovery generation again so a recovery pass
+            # that captured its snapshot list before this moment cannot strand it.
+            _notify_shadow_pending()
+        if event_name == "injection_consumed" and consumed_shadow_anchor_pending:
+            old_kernel_message_id = ctx.get("kernel_message_id")
+            _clear_live_bubble_context(rid=run_id, clear_conversation=True)
+            _notify_shadow_pending()
+            if not im_connected or manager is None:
+                return None
+
+            async def _close_before_pending_shadow_anchor(
+                mgr: IMConnectionManager = manager,
+                old_msg_id: str = message_id,
+                old_kernel_id: str | None = old_kernel_message_id,
+                snapshot: ExternalShadowBubble | None = rolled_shadow_snapshot,
+            ) -> None:
+                if old_msg_id:
+                    try:
+                        await mgr.send_json_await_ack(
+                            "node.streaming_delta",
+                            {
+                                "kind": "message_completed",
+                                "message_id": old_msg_id,
+                                "final_content": None,
+                                "token_usage": None,
+                                "delivery_status": "completed",
+                                "kernel_message_id": old_kernel_id,
+                                "run_id": run_id,
+                                "elapsed_ms": (
+                                    snapshot.elapsed_ms
+                                    if snapshot is not None
+                                    else None
+                                ),
+                            },
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        _notify_shadow_pending()
+                        _log.warning("IM observer pending-anchor close failed: %s", exc)
+                if snapshot is not None and shadow_bubble_reconcile is not None:
+                    try:
+                        await _reconcile_ready_snapshot(snapshot)
+                    except Exception as exc:  # noqa: BLE001
+                        _log.warning(
+                            "IM observer pending-anchor reconcile failed: %s", exc
+                        )
+
+            return _close_before_pending_shadow_anchor()
+
         if not im_connected and not has_external_context:
             return None
         if not im_connected:
@@ -386,8 +772,11 @@ def build_kernel_event_observer(
                     return None
             elif event_name == "turn_end":
                 running_tool_calls.pop(run_id, None)
+                _finish_shadow_live_run(manager, rid=run_id)
                 return None
             elif event_name != "permission_resolved":
+                if event_name == "run_terminal_reconcile":
+                    _finish_shadow_live_run(manager, rid=run_id)
                 return None
         if event_name == "run_status" and event.get("status") == "running":
             if to_user_id:
@@ -412,6 +801,7 @@ def build_kernel_event_observer(
                                 "conversation_id": cid,
                                 "agent_id": aid,
                                 "run_id": rid,
+                                "shadow_message_id": ctx.get("shadow_message_id"),
                             },
                         )
                         ack_payload = (
@@ -510,6 +900,7 @@ def build_kernel_event_observer(
                                 "to_user_id": uid,
                                 "agent_id": aid,
                                 "run_id": rid,
+                                "shadow_message_id": ctx.get("shadow_message_id"),
                             },
                         )
                         ack_payload = (
@@ -561,6 +952,7 @@ def build_kernel_event_observer(
                                         "message_id": str(returned_msg_id),
                                         "text": reasoning_text,
                                         "run_id": rid,
+                                        "process_seq": shadow_process_seq,
                                     },
                                 )
                                 _mark_visible_reasoning(
@@ -608,6 +1000,7 @@ def build_kernel_event_observer(
                     full_reasoning: str = reasoning,
                     new_kernel_id: str = kernel_msg_id,
                 ) -> None:
+                    new_msg_id: str | None = None
                     try:
                         old_text = ctx.get("external_current_text") or ""
                         _mirror_external_reply(
@@ -624,7 +1017,25 @@ def build_kernel_event_observer(
                             run_context_store=run_context_store,
                             old_message_id=old_msg_id,
                             new_kernel_message_id=new_kernel_id,
+                            new_shadow_message_id=ctx.get("shadow_message_id"),
+                            old_elapsed_ms=(
+                                rolled_shadow_snapshot.elapsed_ms
+                                if rolled_shadow_snapshot is not None
+                                else None
+                            ),
                         )
+                        if (
+                            rolled_shadow_snapshot is not None
+                            and shadow_bubble_reconcile is not None
+                        ):
+                            try:
+                                await _reconcile_ready_snapshot(rolled_shadow_snapshot)
+                            except Exception as exc:  # noqa: BLE001
+                                _log.warning(
+                                    "IM observer prior bubble reconcile failed; "
+                                    "continuing new live bubble: %s",
+                                    exc,
+                                )
                         if new_msg_id:
                             # roll_bubble intentionally clears bubble-local visibility.
                             # This branch already has real text for the newly opened
@@ -640,6 +1051,7 @@ def build_kernel_event_observer(
                                         "message_id": new_msg_id,
                                         "text": reasoning_text,
                                         "run_id": rid,
+                                        "process_seq": shadow_process_seq,
                                     },
                                 )
                                 _mark_visible_reasoning(
@@ -657,6 +1069,14 @@ def build_kernel_event_observer(
                                 },
                             )
                     except Exception as exc:  # noqa: BLE001
+                        live_ctx = _runtime_context_view(run_context_store, rid)
+                        if live_ctx is not None:
+                            if new_msg_id is None:
+                                live_ctx["message_id"] = ""
+                            live_ctx["kernel_message_id"] = new_kernel_id
+                            live_ctx["external_current_text"] = text
+                        if rolled_shadow_snapshot is not None:
+                            _notify_shadow_pending()
                         _log.warning(
                             "IM observer close/restart delta send failed: %s", exc
                         )
@@ -667,6 +1087,42 @@ def build_kernel_event_observer(
                 # feat-439-M2: 思考过程项先于正文 delta 转发到当前气泡。纯思考回合
                 # (content="") 只发 thinking_segment，不发 delta、不动 kernel_message_id
                 # (保留下一含正文回合的 roll 判定基准)。
+                if content:
+                    # turn_start already ack'd — send delta directly.
+                    if kernel_msg_id:
+                        ctx["kernel_message_id"] = kernel_msg_id
+                    ctx["external_current_text"] = content
+                if shadow_snapshot is not None:
+
+                    async def _send_ordered_shadow_process(
+                        mgr: IMConnectionManager = manager,
+                    ) -> None:
+                        if visible_reasoning:
+                            await mgr.send_json(
+                                "node.streaming_delta",
+                                {
+                                    "kind": "thinking_segment",
+                                    "message_id": message_id,
+                                    "text": visible_reasoning,
+                                    "run_id": run_id,
+                                    "process_seq": shadow_process_seq,
+                                },
+                            )
+                            _mark_visible_reasoning(
+                                rid=run_id, group_id=group_id, reasoning=reasoning
+                            )
+                        if content:
+                            await mgr.send_json(
+                                "node.streaming_delta",
+                                {
+                                    "kind": "message_delta",
+                                    "message_id": message_id,
+                                    "delta_text": content,
+                                    "run_id": run_id,
+                                },
+                            )
+
+                    return _send_ordered_shadow_process()
                 if visible_reasoning:
                     task_tracker.start(
                         _send(
@@ -677,6 +1133,7 @@ def build_kernel_event_observer(
                                 "message_id": message_id,
                                 "text": visible_reasoning,
                                 "run_id": run_id,
+                                "process_seq": shadow_process_seq,
                             },
                         ),
                         name=f"thinking-segment:{run_id}",
@@ -685,10 +1142,6 @@ def build_kernel_event_observer(
                         rid=run_id, group_id=group_id, reasoning=reasoning
                     )
                 if content:
-                    # turn_start already ack'd — send delta directly.
-                    if kernel_msg_id:
-                        ctx["kernel_message_id"] = kernel_msg_id
-                    ctx["external_current_text"] = content
                     task_tracker.start(
                         _send(
                             manager,
@@ -716,6 +1169,12 @@ def build_kernel_event_observer(
                     full_reasoning: str = reasoning,
                     new_kernel_id: str = kernel_msg_id,
                 ) -> None:
+                    live_ctx = _runtime_context_view(run_context_store, rid)
+                    if live_ctx is not None:
+                        live_ctx["message_id"] = ""
+                        if new_kernel_id:
+                            live_ctx["kernel_message_id"] = new_kernel_id
+                        live_ctx["external_current_text"] = text
                     try:
                         ack = await mgr.send_json_await_ack(
                             "node.streaming_delta",
@@ -724,15 +1183,13 @@ def build_kernel_event_observer(
                                 "conversation_id": cid,
                                 "agent_id": aid,
                                 "run_id": rid,
+                                "shadow_message_id": ctx.get("shadow_message_id"),
                             },
                         )
                         returned_msg_id = extract_ack_message_id(ack)
                         live_ctx = _runtime_context_view(run_context_store, rid)
                         if returned_msg_id and live_ctx is not None:
                             live_ctx["message_id"] = returned_msg_id
-                            if new_kernel_id:
-                                live_ctx["kernel_message_id"] = new_kernel_id
-                            live_ctx["external_current_text"] = text
                             # feat-439-M2: 思考过程项先于正文 delta 转发到新建气泡。
                             if reasoning_text:
                                 await mgr.send_json(
@@ -742,6 +1199,7 @@ def build_kernel_event_observer(
                                         "message_id": returned_msg_id,
                                         "text": reasoning_text,
                                         "run_id": rid,
+                                        "process_seq": shadow_process_seq,
                                     },
                                 )
                                 _mark_visible_reasoning(
@@ -789,44 +1247,27 @@ def build_kernel_event_observer(
             ):
                 discard_reason = "empty_visible_reply"
             if message_id and discard_reason:
-                return _send(
-                    manager,
-                    "node.streaming_delta",
-                    {
-                        "kind": "message_discarded",
-                        "message_id": message_id,
-                        "run_id": run_id,
-                        "reason": discard_reason,
-                    },
-                )
 
-            # Finalize message with token_usage if present (only on success path).
-            usage_raw = event.get("usage") if turn_completed else None
-            token_usage_payload: dict[str, object] | None = None
-            if isinstance(usage_raw, Mapping):
-                prompt = usage_raw.get("prompt_tokens") or usage_raw.get("input_tokens")
-                completion = usage_raw.get("completion_tokens") or usage_raw.get(
-                    "output_tokens"
-                )
-                if isinstance(prompt, int) and isinstance(completion, int):
-                    token_usage_payload = {
-                        "prompt": prompt,
-                        "completion": completion,
-                        "total": prompt + completion,
-                    }
-                    cw = event.get("context_window")
-                    if isinstance(cw, int) and cw > 0:
-                        token_usage_payload["context_window"] = cw
-                    # feat-439-M1: token_usage_payload 是白名单(只挑 prompt/completion)，
-                    # 缓存命中两字段必须在此显式补带，否则永远到不了 IM、命中率恒 0%。
-                    cache_read = usage_raw.get("cache_read_tokens")
-                    cache_total_input = usage_raw.get("cache_total_input_tokens")
-                    token_usage_payload["cache_read"] = (
-                        cache_read if isinstance(cache_read, int) else 0
-                    )
-                    token_usage_payload["cache_total_input"] = (
-                        cache_total_input if isinstance(cache_total_input, int) else 0
-                    )
+                async def _discard_and_finish() -> None:
+                    try:
+                        await _send(
+                            manager,
+                            "node.streaming_delta",
+                            {
+                                "kind": "message_discarded",
+                                "message_id": message_id,
+                                "run_id": run_id,
+                                "reason": discard_reason,
+                            },
+                        )
+                    finally:
+                        _finish_shadow_live_run(manager, rid=run_id)
+
+                return _discard_and_finish()
+
+            token_usage_payload = _turn_token_usage(
+                event, turn_completed=turn_completed
+            )
             if message_id:
                 _mirror_external_reply(
                     rid=run_id,
@@ -834,11 +1275,15 @@ def build_kernel_event_observer(
                     phase="final",
                     text=ctx.get("external_current_text") or "",
                 )
-                task_tracker.start(
-                    _send(
-                        manager,
-                        "node.streaming_delta",
-                        {
+                completion_kernel_message_id = ctx.get("kernel_message_id")
+
+                async def _complete_and_reconcile(
+                    mgr: IMConnectionManager = manager,
+                    snapshot: ExternalShadowBubble | None = shadow_snapshot,
+                    kernel_message_id: str | None = completion_kernel_message_id,
+                ) -> None:
+                    try:
+                        completion_payload = {
                             "kind": "message_completed",
                             "message_id": message_id,
                             "final_content": None,
@@ -848,12 +1293,49 @@ def build_kernel_event_observer(
                             else "failed",
                             # feat-445-M1: stamp the final bubble with the kernel message
                             # id that produced it (decision 4 fork anchor).
-                            "kernel_message_id": ctx.get("kernel_message_id"),
+                            "kernel_message_id": kernel_message_id,
                             "run_id": run_id,
-                        },
-                    ),
+                            "elapsed_ms": snapshot.elapsed_ms
+                            if snapshot is not None
+                            else None,
+                        }
+                        if snapshot is None:
+                            await mgr.send_json(
+                                "node.streaming_delta", completion_payload
+                            )
+                        else:
+                            await mgr.send_json_await_ack(
+                                "node.streaming_delta", completion_payload
+                            )
+                        if (
+                            snapshot is not None
+                            and snapshot.state == "ready"
+                            and shadow_bubble_reconcile is not None
+                        ):
+                            await _reconcile_ready_snapshot(snapshot)
+                    except Exception as exc:  # noqa: BLE001
+                        if snapshot is not None:
+                            _notify_shadow_pending()
+                        _log.warning("IM observer completion/reconcile failed: %s", exc)
+                    finally:
+                        _finish_shadow_live_run(mgr, rid=run_id)
+
+                task_tracker.start(
+                    _complete_and_reconcile(),
                     name=f"message-completed:{run_id}",
                 )
+                return None
+            if (
+                shadow_snapshot is not None
+                and shadow_snapshot.state == "ready"
+                and im_connected
+                and shadow_bubble_reconcile is not None
+            ):
+                task_tracker.start(
+                    _reconcile_ready_snapshot(shadow_snapshot),
+                    name=f"shadow-agent-reconcile:{run_id}",
+                )
+            _finish_shadow_live_run(manager, rid=run_id)
 
         elif event_name == "run_heartbeat":
             # bugfix-417-M3 R4: forward the kernel liveness heartbeat (tool / LLM-await /
@@ -922,16 +1404,20 @@ def build_kernel_event_observer(
                     start_tool_call["detail"] = start_detail
                 if start_emoji is not None:
                     start_tool_call["emoji"] = start_emoji
+                start_payload = {
+                    "kind": "tool_call_upserted",
+                    "message_id": message_id,
+                    "tool_call": start_tool_call,
+                    "run_id": run_id,
+                    "process_seq": shadow_process_seq,
+                }
+                if shadow_snapshot is not None:
+                    return _send(manager, "node.streaming_delta", start_payload)
                 task_tracker.start(
                     _send(
                         manager,
                         "node.streaming_delta",
-                        {
-                            "kind": "tool_call_upserted",
-                            "message_id": message_id,
-                            "tool_call": start_tool_call,
-                            "run_id": run_id,
-                        },
+                        start_payload,
                     ),
                     name=f"tool-start:{run_id}:{call_id}",
                 )
@@ -1007,16 +1493,20 @@ def build_kernel_event_observer(
             if approval is not None:
                 tool_call_payload["approval"] = approval
             if message_id:
+                terminal_payload = {
+                    "kind": "tool_call_completed",
+                    "message_id": message_id,
+                    "tool_call": tool_call_payload,
+                    "run_id": run_id,
+                    "process_seq": shadow_process_seq,
+                }
+                if shadow_snapshot is not None:
+                    return _send(manager, "node.streaming_delta", terminal_payload)
                 task_tracker.start(
                     _send(
                         manager,
                         "node.streaming_delta",
-                        {
-                            "kind": "tool_call_completed",
-                            "message_id": message_id,
-                            "tool_call": tool_call_payload,
-                            "run_id": run_id,
-                        },
+                        terminal_payload,
                     ),
                     name=f"tool-terminal:{run_id}:{call_id}",
                 )
@@ -1116,8 +1606,10 @@ def build_kernel_event_observer(
                     aid: str = agent_id,
                     old_msg_id: str = message_id,
                 ) -> None:
+                    reconcile_started = False
+                    new_message_id: str | None = None
                     try:
-                        await roll_bubble(
+                        new_message_id = await roll_bubble(
                             mgr,
                             run_id=rid,
                             conversation_id=cid,
@@ -1128,8 +1620,30 @@ def build_kernel_event_observer(
                             # next assistant_message delta streams straight into bubble B
                             # rather than tripping _close_old_and_restart again.
                             new_kernel_message_id=None,
+                            new_shadow_message_id=ctx.get("shadow_message_id"),
+                            old_elapsed_ms=(
+                                rolled_shadow_snapshot.elapsed_ms
+                                if rolled_shadow_snapshot is not None
+                                else None
+                            ),
                         )
+                        if new_message_id is None:
+                            _clear_live_bubble_context(
+                                rid=rid, clear_conversation=False
+                            )
+                        if (
+                            rolled_shadow_snapshot is not None
+                            and shadow_bubble_reconcile is not None
+                        ):
+                            reconcile_started = True
+                            await _reconcile_ready_snapshot(rolled_shadow_snapshot)
                     except Exception as exc:  # noqa: BLE001
+                        if not reconcile_started:
+                            _clear_live_bubble_context(
+                                rid=rid, clear_conversation=False
+                            )
+                        if rolled_shadow_snapshot is not None and not reconcile_started:
+                            _notify_shadow_pending()
                         _log.warning("IM observer steer bubble roll failed: %s", exc)
 
                 return _roll_bubble_on_steer()
@@ -1152,9 +1666,9 @@ def build_kernel_event_observer(
                 if isinstance(reconcile_content, str) and reconcile_content
                 else None
             )
-            inflight = running_tool_calls.pop(run_id, {})
-            if message_id and inflight:
-                for stuck_call_id, stuck_call in inflight.items():
+            terminal_frames: list[dict[str, Any]] = []
+            if message_id and abnormal_inflight:
+                for stuck_call_id, stuck_call in abnormal_inflight.items():
                     # bugfix-416 #111: re-emit the original input recorded at tool_start
                     # so command/description survive the reconcile; only status + reason
                     # change. (Entries pre-bugfix-416 stored a bare name string — tolerate
@@ -1188,19 +1702,27 @@ def build_kernel_event_observer(
                         stuck_tool_call["emoji"] = stuck_emoji
                     if reconcile_output is not None:
                         stuck_tool_call["output"] = reconcile_output
-                    task_tracker.start(
-                        _send(
-                            manager,
-                            "node.streaming_delta",
-                            {
-                                "kind": "tool_call_completed",
-                                "message_id": message_id,
-                                "tool_call": stuck_tool_call,
-                                "run_id": run_id,
-                            },
-                        ),
-                        name=f"tool-reconcile:{run_id}:{stuck_call_id}",
-                    )
+                    process_seq = None
+                    if shadow_snapshot is not None:
+                        stored_call = next(
+                            (
+                                item
+                                for item in shadow_snapshot.tool_calls
+                                if item.get("id") == stuck_call_id
+                            ),
+                            None,
+                        )
+                        if stored_call is not None:
+                            process_seq = stored_call.get("seq")
+                    terminal_frame = {
+                        "kind": "tool_call_completed",
+                        "message_id": message_id,
+                        "tool_call": stuck_tool_call,
+                        "run_id": run_id,
+                    }
+                    if process_seq is not None:
+                        terminal_frame["process_seq"] = process_seq
+                    terminal_frames.append(terminal_frame)
 
             # bugfix-417-fix2 (#114, Issue 1): a user /stop cancels the run, but the
             # kernel emits NO turn_end on the cancel path (turn_end fires only on
@@ -1209,24 +1731,57 @@ def build_kernel_event_observer(
             # user /stop is completed, while watchdog/crash/shutdown aborts are failed.
             # The coordinator supplies the status explicitly so a system abort cannot
             # be mistaken for a clean user cancellation.
-            if event.get("finalize_bubble") and message_id:
-                # Legacy user-stop emitters set finalize_bubble without an explicit
-                # status; preserve their clean-completion contract. New system-abort
-                # emitters always carry delivery_status="failed".
-                delivery_status = str(event.get("delivery_status") or "completed")
-                task_tracker.start(
-                    _send(
-                        manager,
-                        "node.streaming_delta",
-                        {
+            finalize_bubble = bool(event.get("finalize_bubble"))
+            delivery_status = str(event.get("delivery_status") or "completed")
+
+            async def _complete_abnormal_terminal(
+                mgr: IMConnectionManager = manager,
+                snapshot: ExternalShadowBubble | None = shadow_snapshot,
+                frames: tuple[dict[str, Any], ...] = tuple(terminal_frames),
+                live_message_id: str = message_id,
+                kernel_message_id: str | None = ctx.get("kernel_message_id"),
+            ) -> None:
+                try:
+                    for frame in frames:
+                        await mgr.send_json("node.streaming_delta", frame)
+                    if finalize_bubble and live_message_id:
+                        completion_payload: dict[str, Any] = {
                             "kind": "message_completed",
-                            "message_id": message_id,
+                            "message_id": live_message_id,
                             "final_content": None,
                             "token_usage": None,
                             "delivery_status": delivery_status,
                             "run_id": run_id,
-                        },
-                    ),
+                        }
+                        if snapshot is not None:
+                            completion_payload["kernel_message_id"] = kernel_message_id
+                            completion_payload["elapsed_ms"] = snapshot.elapsed_ms
+                            await mgr.send_json_await_ack(
+                                "node.streaming_delta", completion_payload
+                            )
+                        else:
+                            await mgr.send_json(
+                                "node.streaming_delta", completion_payload
+                            )
+                    if snapshot is not None and snapshot.state == "ready":
+                        await _reconcile_ready_snapshot(snapshot)
+                except Exception as exc:  # noqa: BLE001
+                    if snapshot is not None:
+                        _notify_shadow_pending()
+                    _log.warning("IM observer abnormal reconcile failed: %s", exc)
+                finally:
+                    _finish_shadow_live_run(mgr, rid=run_id)
+
+            if (
+                terminal_frames
+                or (finalize_bubble and message_id)
+                or (shadow_snapshot is not None and shadow_snapshot.state == "ready")
+            ):
+                # Legacy user-stop emitters set finalize_bubble without an explicit
+                # status; preserve their clean-completion contract. New system-abort
+                # emitters always carry delivery_status="failed".
+                task_tracker.start(
+                    _complete_abnormal_terminal(),
                     name=f"bubble-finalize:{run_id}",
                 )
 

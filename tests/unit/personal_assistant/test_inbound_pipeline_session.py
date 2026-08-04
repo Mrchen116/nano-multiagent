@@ -218,6 +218,73 @@ def test_external_shadow_sync_failure_does_not_block_or_seed_lazy_direct(
     assert channel.sent[0].target_chat_id == "oc_feishu_chat"
 
 
+def test_external_without_provider_identity_replies_without_shadow_side_effects(
+    tmp_path: Path,
+) -> None:
+    """A non-Feishu adapter missing stable identity stays outside all shadow writes."""
+
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("slack:agent-a")
+    registry = ChannelRegistry((channel,))
+    kernel_client = _FakeKernel()
+    saga_store = ExternalShadowSagaStore(db_path=tmp_path / "shadow-sagas.sqlite3")
+    requests: list[str] = []
+
+    def unexpected_request(request: httpx.Request) -> httpx.Response:
+        requests.append(request.url.path)
+        return httpx.Response(500)
+
+    async def token_getter() -> str:
+        return "token-a"
+
+    shadow_sync = IMShadowConversationSync(
+        base_url="http://im.local",
+        token_getter=token_getter,
+        owner_user_id="owner-a",
+        transport=httpx.MockTransport(unexpected_request),
+        saga_store=saga_store,
+    )
+    session_store = SessionBindingStore()
+    pipeline = build_inbound_pipeline(
+        kernel=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=session_store,
+        default_agent_id="agent-a",
+        shadow_sync=shadow_sync,
+    )
+    inbound = attach_runtime_protocol(
+        InboundMessage(
+            channel_name="slack:agent-a",
+            text="still answer",
+            external_user_id="slack-user",
+            external_chat_id="slack-chat",
+            is_group=False,
+            agent_id="agent-a",
+        ),
+        RuntimeProtocolFacts(
+            external_identity=ExternalConversationIdentity(
+                external_source="slack",
+                external_chat_id="slack-chat",
+                agent_id="agent-a",
+                trigger_source="external",
+            )
+        ),
+    )
+
+    result = asyncio.run(pipeline.handle_inbound(inbound))
+
+    assert result is not None
+    assert channel.sent[0].text == "reply:still answer"
+    assert requests == []
+    assert saga_store.pending() == ()
+    assert saga_store.pending_snapshots() == ()
+    assert saga_store.pending_outputs() == ()
+    assert saga_store.diagnostic_reasons() == ("shadow_identity_unavailable",)
+    assert session_store.pending_boundaries() == ()
+
+
 def test_im_outage_keeps_external_delivery_and_durably_records_final_shadow_output(
     tmp_path: Path,
 ) -> None:
