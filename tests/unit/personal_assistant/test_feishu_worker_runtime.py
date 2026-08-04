@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import multiprocessing
 import os
+import signal
+import subprocess
 import threading
 import time
 from types import SimpleNamespace
 
-from lark_oapi.core.enum import LogLevel
-from personal_assistant.channels.feishu.client import _run_feishu_sdk_worker
 from personal_assistant.channels.feishu.worker import (
     FeishuWorkerProcessContext,
     FeishuWorkerRuntime,
@@ -73,6 +73,25 @@ def _crash_worker(_context: FeishuWorkerProcessContext) -> None:
     os._exit(17)
 
 
+def _process_birth(pid: int) -> str | None:
+    result = subprocess.run(
+        ["ps", "-p", str(pid), "-o", "lstart="],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    birth = " ".join(result.stdout.split())
+    return birth or None
+
+
+def _abrupt_listener_owner(worker_info, exit_owner) -> None:
+    runtime = _runtime(target=_listener_worker, events=[], statuses=[])
+    runtime.start()
+    worker_info.send((runtime.pid, _process_birth(runtime.pid)))
+    exit_owner.wait()
+    os._exit(23)
+
+
 def _runtime(*, target, events, statuses, **kwargs) -> FeishuWorkerRuntime:
     return FeishuWorkerRuntime(
         app_id=kwargs.pop("app_id", "cli_a"),
@@ -85,6 +104,43 @@ def _runtime(*, target, events, statuses, **kwargs) -> FeishuWorkerRuntime:
         join_timeout=1,
         **kwargs,
     )
+
+
+def test_listener_exits_when_its_owner_dies_without_cleanup() -> None:
+    """A listener cannot survive the Gateway process that created it."""
+    mp = multiprocessing.get_context("spawn")
+    worker_info_recv, worker_info_send = mp.Pipe(duplex=False)
+    exit_owner = mp.Event()
+    owner = mp.Process(
+        target=_abrupt_listener_owner,
+        args=(worker_info_send, exit_owner),
+    )
+    worker_pid: int | None = None
+    worker_birth: str | None = None
+
+    try:
+        owner.start()
+        assert worker_info_recv.poll(10), "owner did not report its listener"
+        worker_pid, worker_birth = worker_info_recv.recv()
+        assert worker_birth is not None
+
+        exit_owner.set()
+        owner.join(3)
+        assert owner.exitcode == 23
+        _wait_until(lambda: _process_birth(worker_pid) != worker_birth)
+    finally:
+        if owner.is_alive():
+            owner.terminate()
+            owner.join(1)
+        if (
+            worker_pid is not None
+            and worker_birth is not None
+            and _process_birth(worker_pid) == worker_birth
+        ):
+            os.kill(worker_pid, signal.SIGKILL)
+            _wait_until(lambda: _process_birth(worker_pid) != worker_birth)
+        worker_info_recv.close()
+        worker_info_send.close()
 
 
 def test_two_listener_processes_are_isolated_and_true_stop_join() -> None:
@@ -252,6 +308,9 @@ def test_worker_crash_is_a_terminal_priority_status() -> None:
 
 def test_sdk_worker_suppresses_sensitive_websocket_url_info_log(monkeypatch) -> None:
     """The SDK must not log access_key/ticket query values at INFO."""
+    from lark_oapi.core.enum import LogLevel
+    from personal_assistant.channels.feishu.client import _run_feishu_sdk_worker
+
     captured: dict[str, object] = {}
 
     class FakeWSClient:
