@@ -130,7 +130,7 @@ output → boundary，重复 recovery 不会重复写入。运行时告警在 ow
 仅把既有 `config.node.node_id` 传给 shadow sync，用现有 owner-scoped nodes API 复用同一条
 durable owner 权限边界。
 
-实现提交：`75397d424`（`fix(gateway): recover stale shadow saga owner`）、`2b40787e7`
+实现提交：`b84ea3b9f`（`fix(gateway): recover stale shadow saga owner`）、`958705247`
 （`fix(gateway): authorize shadow owner recovery`）。
 
 ## 验证
@@ -169,7 +169,7 @@ durable owner 权限边界。
 
 - Claim：stale owner 的 durable Feishu source fact 通过真实 IM HTTP 鉴权后，能补齐唯一影子
   会话中的用户消息和已持久 Agent 回复，同时提升原 saga 的 boundary，且二次恢复无重复。
-- Baseline：`unit/bugfix-491`，`2b40787e7`；worktree
+- Baseline：`unit/bugfix-491`，`958705247`；worktree
   `.worktrees/unit-bugfix-491`；`scripts/e2e-up.sh` 启动隔离 IM + Gateway，端口、数据库、
   node identity、config 和 workspace 均为本 unit 独占。
 - Method：在真实栈存活时登录隔离 IM 用户，选择已注册 Agent；构造带
