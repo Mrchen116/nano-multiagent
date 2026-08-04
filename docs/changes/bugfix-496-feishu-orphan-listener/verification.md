@@ -319,3 +319,57 @@ All checks passed. Ready for PR.
 - 无。
 
 All checks passed. Ready for PR.
+
+# Round 7
+
+> Validated code tree: `49003be13f94210f35e09a819e34d253f0a2710f`
+>
+> Fix delta: `7dcc8088c5c083f2bd7d2d16d6b590d5214659f5..49003be13f94210f35e09a819e34d253f0a2710f`
+
+## Summary
+
+- Mode: `targeted-closure`
+- Focus issue: sequential retry terminal wait must leave cleanup headroom inside pytest's 90-second hard timeout
+- requires_full_verification: `false`
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 1/1 focus issue closed |
+| Correctness | Exact xdist retry test passed with the final 45-second terminal window |
+| Coherence | Followed；delta only shortens a test observation ceiling |
+
+## Targeted Closure
+
+| Focus area | Final evidence | Outcome |
+|---|---|---|
+| terminal wait 与 hard timeout / cleanup 预算一致 | pytest 全局 hard timeout 为 90 秒（`pyproject.toml:82-90`）。sequential retry 仍使用单一终态 predicate，同时要求四次尝试结算、registry 为空且全部 runtime dead；唯一行为变化是最终等待上限从 55 秒收紧为 45 秒（`tests/unit/personal_assistant/test_channel_lifecycle_failures.py:247-258`）。45 秒最多占用 hard timeout 的一半，比 55 秒方案多留 10 秒清理余量；`finally` 仍调用 `manager.close()`，pressure adapter 的强制 stop 预算仍为 0.2 秒（`:128-168,263-264`）。精确 xdist 用例在 22.91 秒内完成。 | closed |
+
+## Scope and Retained Conclusions
+
+- 相对 Round 6 validated tree，唯一新的实质代码变化是上述测试 timeout 常量；其余 diff 是 Round 6 报告与 merge 历史。没有 production code、spec、design、public interface、配置或用户可观察行为变化。
+- Round 6 对 parent-only startup wrapper、5 秒 normal graceful stop、0.2 秒 pressure forced stop、3 秒 owner-death 以及 45 秒 first-restart predicate 的结论均未被触及；corrected-delta 仍为 `aligned`。
+- 无需 product re-review，也无需 full verification。
+
+## Validation
+
+- `PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/pytest -q -n 4 --dist worksteal tests/unit/personal_assistant/test_channel_lifecycle_failures.py::test_backpressure_retry_budget_reaps_final_listener_and_allows_manual_retry` → `1 passed, 8 warnings in 22.91s`。
+- `/Users/czj/Repos/nano-multiagent/.venv/bin/ruff check tests/unit/personal_assistant/test_channel_lifecycle_failures.py` → passed。
+- `/Users/czj/Repos/nano-multiagent/.venv/bin/ruff format --check tests/unit/personal_assistant/test_channel_lifecycle_failures.py` → already formatted。
+- `PYTHON=/Users/czj/Repos/nano-multiagent/.venv/bin/python ./scripts/docs-check` → `documentation integrity passed`。
+- `git diff --check 7dcc8088c5c083f2bd7d2d16d6b590d5214659f5..49003be13f94210f35e09a819e34d253f0a2710f` → passed。
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+- 无。
+
+### WARNING（提 PR 前必须修）
+
+- 无。
+
+### SUGGESTION（可以修）
+
+- 无。
+
+All checks passed. Ready for PR.
