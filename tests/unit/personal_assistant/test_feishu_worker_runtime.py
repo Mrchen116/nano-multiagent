@@ -118,7 +118,7 @@ def _runtime(*, target, events, statuses, **kwargs) -> FeishuWorkerRuntime:
         on_status=statuses.append,
         worker_target=target,
         multiprocessing_context=multiprocessing.get_context("spawn"),
-        join_timeout=kwargs.pop("join_timeout", 1),
+        join_timeout=kwargs.pop("join_timeout", 5),
         **kwargs,
     )
     return _with_startup_budget(runtime)
