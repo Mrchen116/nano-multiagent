@@ -36,4 +36,4 @@
 
 - `067d1763b` — parent-sentinel worker 实现、owner-death 回归与本记录初稿。
 - `d0331f25b` — 回填首轮实现证据。
-- 当前未提交 — 关闭 verifier R1-C1/R1-W1 与 code review C1/C2 的测试确定性、idle 反例和 tracker 隔离。
+- `d14f0db00` — 关闭 verifier R1-C1/R1-W1 与 code review C1/C2 的测试确定性、idle 反例和 tracker 隔离。
