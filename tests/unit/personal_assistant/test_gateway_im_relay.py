@@ -4,17 +4,28 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+from pathlib import Path
 
 import httpx
+import pytest
 
-from personal_assistant.channels.base import InboundMessage
-from personal_assistant.gateway.runtime_protocol import ShadowConversationRef
+from personal_assistant.channels.base import (
+    ExternalInboundEventIdentity,
+    InboundMessage,
+)
+from personal_assistant.gateway.runtime_protocol import (
+    ExternalConversationIdentity,
+    RuntimeProtocolFacts,
+    attach_runtime_protocol,
+)
+from personal_assistant.gateway.shadow_saga import ExternalShadowSagaStore
 from personal_assistant.gateway.shadow_sync import IMShadowConversationSync
 
 
-def test_external_shadow_sync_uses_authenticated_im_user_not_stale_config_user() -> (
-    None
-):
+def test_external_shadow_sync_uses_authenticated_im_user_not_stale_config_user(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     """External shadow writes use the Bearer-token user, not config.node.user_id."""
     requests: list[dict[str, object]] = []
 
@@ -50,37 +61,133 @@ def test_external_shadow_sync_uses_authenticated_im_user_not_stale_config_user()
             return httpx.Response(201, json={"id": "msg-shadow"})
         raise AssertionError(f"unexpected request: {request.url.path}")
 
+    saga_store = ExternalShadowSagaStore(db_path=tmp_path / "shadow-sagas.sqlite3")
     client = IMShadowConversationSync(
         base_url="http://im.local",
         token_getter=lambda: _async_value("token-1"),
         owner_user_id="stale-config-user",
         transport=httpx.MockTransport(handler),
+        saga_store=saga_store,
     )
-    inbound = InboundMessage(
-        channel_name="feishu:agent-a",
-        text="hello from lark",
-        external_user_id="ou_user",
-        external_chat_id="feishu:app:dm:ou_user",
-        is_group=False,
-        agent_id="agent-a",
-        metadata={
-            "external_source": "feishu",
-            "external_chat_id": "feishu:app:dm:ou_user",
-            "sender_display_name": "你",
-        },
-    )
+    inbound = _external_inbound()
 
-    shadow_ref = asyncio.run(client.sync_user_message(inbound, agent_id="agent-a"))
+    with caplog.at_level(logging.WARNING):
+        shadow_ref = asyncio.run(client.sync_user_message(inbound, agent_id="agent-a"))
+        replay_ref = asyncio.run(
+            client.sync_user_message(inbound, agent_id="agent-a")
+        )
 
-    assert shadow_ref == ShadowConversationRef(
-        conversation_id="conv-shadow",
-        im_message_id="msg-shadow",
+    assert shadow_ref is not None
+    assert replay_ref == shadow_ref
+    assert shadow_ref.conversation_id == "conv-shadow"
+    assert shadow_ref.im_message_id == "msg-shadow"
+    assert shadow_ref.shadow_saga_id is not None
+    assert saga_store.require(shadow_ref.shadow_saga_id).owner_id == "actual-user"
+    assert saga_store.diagnostic_reasons() == (
+        "shadow_owner_recovered:stale-config-user->actual-user",
     )
+    assert "recovered stale configured owner" in caplog.text
     assert [item["path"] for item in requests] == [
         "/im/v1/me",
         "/im/v1/conversations/external/find-or-create",
         "/im/v1/conversations/conv-shadow/messages",
     ]
+
+
+def test_stale_owner_pending_saga_recovers_user_output_and_boundary(
+    tmp_path: Path,
+) -> None:
+    """Recovery preserves one saga identity across its user, output, and boundary."""
+
+    requests: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(
+            {
+                "path": request.url.path,
+                "idempotency_key": request.headers.get("Idempotency-Key"),
+            }
+        )
+        if request.url.path == "/im/v1/me":
+            return httpx.Response(200, json={"id": "actual-user"})
+        if request.url.path == "/im/v1/conversations/external/find-or-create":
+            return httpx.Response(201, json={"id": "conv-shadow"})
+        if request.url.path == "/im/v1/conversations/conv-shadow/messages":
+            message_id = f"msg-{len(requests)}"
+            return httpx.Response(201, json={"id": message_id})
+        raise AssertionError(f"unexpected request: {request.url.path}")
+
+    saga_store = ExternalShadowSagaStore(db_path=tmp_path / "shadow-sagas.sqlite3")
+    inbound = _external_inbound()
+    stale_saga = saga_store.prepare(
+        message=inbound,
+        agent_id="agent-a",
+        owner_id="stale-config-user",
+    )
+    assert stale_saga is not None
+    pending_output = saga_store.prepare_output(
+        saga_id=stale_saga.saga_id,
+        run_id="run-1",
+        output_kind="final",
+        kernel_message_id="kernel-message-1",
+        content="done",
+    )
+    promoted_saga_ids: list[str] = []
+    client = IMShadowConversationSync(
+        base_url="http://im.local",
+        token_getter=lambda: _async_value("token-1"),
+        owner_user_id="stale-config-user",
+        transport=httpx.MockTransport(handler),
+        saga_store=saga_store,
+        promote_pending_boundary=lambda saga_id, _shadow_ref: (
+            promoted_saga_ids.append(saga_id)
+        ),
+    )
+
+    asyncio.run(client.recover_pending())
+    asyncio.run(client.recover_pending())
+
+    recovered = saga_store.require(stale_saga.saga_id)
+    assert recovered.owner_id == "actual-user"
+    assert recovered.shadow_ref is not None
+    assert saga_store.pending() == ()
+    assert saga_store.pending_outputs() == ()
+    assert promoted_saga_ids == [stale_saga.saga_id]
+    assert [request["path"] for request in requests] == [
+        "/im/v1/me",
+        "/im/v1/conversations/external/find-or-create",
+        "/im/v1/conversations/conv-shadow/messages",
+        "/im/v1/conversations/conv-shadow/messages",
+    ]
+    assert requests[2]["idempotency_key"] == stale_saga.shadow_user_idempotency_key
+    assert requests[3]["idempotency_key"] == pending_output.caller_idempotency_key
+
+
+def _external_inbound() -> InboundMessage:
+    return attach_runtime_protocol(
+        InboundMessage(
+            channel_name="feishu:agent-a",
+            text="hello from lark",
+            external_user_id="ou_user",
+            external_chat_id="feishu:app:dm:ou_user",
+            is_group=False,
+            agent_id="agent-a",
+            metadata={"sender_display_name": "你"},
+            external_event_identity=ExternalInboundEventIdentity(
+                connector_account_id="app-a",
+                provider_event_id="event-a",
+            ),
+        ),
+        RuntimeProtocolFacts(
+            external_identity=ExternalConversationIdentity(
+                external_source="feishu",
+                external_chat_id="feishu:app:dm:ou_user",
+                agent_id="agent-a",
+                conversation_type="direct",
+                trigger_source="external",
+            )
+        ),
+    )
 
 
 async def _async_value(value: str) -> str:

@@ -264,6 +264,54 @@ class ExternalShadowSagaStore:
                 raise LookupError(f"external shadow saga not found: {saga_id}")
         return self.require(saga_id)
 
+    def recover_owner(
+        self, *, saga: ExternalShadowSaga, authenticated_owner_id: str
+    ) -> ExternalShadowSaga:
+        """Correct a stale local owner without changing durable saga identity.
+
+        The saga id stays stable because pending Agent outputs and configuration
+        boundaries already refer to it. The authenticated IM identity becomes the
+        owner used by subsequent shadow writes, while the diagnostic remains durable.
+
+        Args:
+            saga: Existing durable saga whose local owner is stale.
+            authenticated_owner_id: Current owner resolved from the IM access token.
+
+        Returns:
+            The corrected saga with its original durable identity.
+
+        Raises:
+            ValueError: When the authenticated owner is empty.
+            LookupError: When the saga no longer exists.
+
+        Side Effects:
+            Updates the saga owner and appends one durable recovery diagnostic in the
+            same SQLite transaction.
+        """
+
+        owner_id = authenticated_owner_id.strip()
+        if not owner_id:
+            raise ValueError("external shadow saga requires an authenticated IM owner id")
+        if saga.owner_id == owner_id:
+            return saga
+        reason = f"shadow_owner_recovered:{saga.owner_id}->{owner_id}"
+        with self._conn:
+            updated = self._conn.execute(
+                "UPDATE external_shadow_sagas SET owner_id = ? WHERE saga_id = ?",
+                (owner_id, saga.saga_id),
+            )
+            if updated.rowcount != 1:
+                raise LookupError(f"external shadow saga not found: {saga.saga_id}")
+            self._conn.execute(
+                """
+                INSERT INTO external_shadow_diagnostics(
+                    channel_name, external_chat_id, agent_id, reason
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (saga.channel_name, saga.external_chat_id, saga.agent_id, reason),
+            )
+        return self.require(saga.saga_id)
+
     def prepare_output(
         self,
         *,

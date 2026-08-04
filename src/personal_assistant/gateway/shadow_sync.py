@@ -128,8 +128,21 @@ class IMShadowConversationSync:
                         owner_id=owner_user_id,
                     )
                 elif saga is not None and saga.owner_id != owner_user_id:
-                    raise ValueError(
-                        "configured node owner differs from authenticated IM owner"
+                    logging.getLogger(__name__).warning(
+                        "external shadow recovered stale configured owner "
+                        "channel=%s chat=%s agent=%s configured_owner=%s "
+                        "authenticated_owner=%s saga_id=%s",
+                        saga.channel_name,
+                        saga.external_chat_id,
+                        saga.agent_id,
+                        saga.owner_id,
+                        owner_user_id,
+                        saga.saga_id,
+                    )
+                    assert saga_store is not None
+                    saga = saga_store.recover_owner(
+                        saga=saga,
+                        authenticated_owner_id=owner_user_id,
                     )
                 conversation_response = await client.post(
                     "/im/v1/conversations/external/find-or-create",
