@@ -236,7 +236,15 @@ sequenceDiagram
 
 **Review 驱动方式**：端到端真栈；本 unit不改客户端面，可用 Web IM 实际发送消息的同一 HTTP/WS 入口驱动 direct、group/shadow、permission/tool 与失败取消，再真开 Web IM 核对 provisional/rolling bubble。
 
-**验收前置**：worktree e2e config 与账号由脚本创建；外部 channel shadow 场景使用仓库测试 channel/fixture，LLM 按联调文档或 HTTP fixture 可用。
+**验收前置**：worktree e2e config 与账号由脚本创建。工具/权限旅程须先为
+验收 agent 显式配置非空的 `tool_allowlist`（例如 `bash,read`）；空 allowlist 是
+“禁用所有工具”的产品语义，不能把模型回显的 DSML 标记当作投递回归。
+
+当前默认 e2e 栈不提供可安全重放的外部 Feishu/Lark fixture（见
+[`docs/development/e2e-critical-paths.md`](../../development/e2e-critical-paths.md)）。
+“IM 离线不阻塞外部 channel”只能由另行提供的、隔离的真实 external fixture 闭合；
+fixture 缺失时 reviewer 必须记为产品验收 blocker，不得以 Web IM、mock、源码阅读或
+单元测试替代。
 
 ## Milestones
 

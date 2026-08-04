@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from collections.abc import Callable, Coroutine, Mapping
 import logging
 from typing import Any
@@ -440,14 +441,43 @@ def build_kernel_event_observer(
         )
         return payload
 
-    def observer(event: Mapping[str, Any]) -> "Coroutine[Any, Any, None] | None":
+    @dataclass(slots=True)
+    class _DeliveryEventScope:
+        """Typed state shared by the stable runtime-delivery event families."""
+
+        event: Mapping[str, Any]
+        manager: IMConnectionManager | None
+        run_id: str
+        ctx: RunDeliveryContext
+        event_name: str
+        conversation_id: str
+        message_id: str
+        agent_id: str
+        to_user_id: str
+        im_connected: bool
+        rolled_shadow_snapshot: ExternalShadowBubble | None
+        shadow_snapshot: ExternalShadowBubble | None
+        shadow_process_seq: int | None
+        abnormal_inflight: dict[str, dict[str, Any]]
+
+    @dataclass(slots=True)
+    class _PreparedEvent:
+        """Either a shared event scope or an ordering/offline result already handled."""
+
+        handled: bool
+        scope: _DeliveryEventScope | None = None
+        result: Coroutine[Any, Any, None] | None = None
+
+    def _prepare_event(event: Mapping[str, Any]) -> _PreparedEvent:
+        """Build one typed delivery scope and run shared shadow/offline ordering gates."""
+
         manager = im_connection_manager_factory()
         run_id = str(event.get("run_id") or "").strip()
         if not run_id:
-            return None
+            return _PreparedEvent(handled=True, result=None)
         ctx = _live_context(run_context_store, run_id)
         if ctx is None:
-            return None
+            return _PreparedEvent(handled=True, result=None)
         event_name = str(event.get("event") or "").strip()
         if event_name in {"turn_end", "run_terminal_reconcile"}:
             _clear_run_visible_reasoning(run_id)
@@ -459,7 +489,7 @@ def build_kernel_event_observer(
                 asyncio.to_thread(skill_created_handler, agent_id, event),
                 name=f"skill-created:{agent_id}",
             )
-            return None
+            return _PreparedEvent(handled=True, result=None)
 
         # feat-393: heartbeat runs carry to_user_id instead of conversation_id.
         # The lazy-bubble gate: skip eager turn_start; defer to assistant_message.
@@ -688,7 +718,7 @@ def build_kernel_event_observer(
             _clear_live_bubble_context(rid=run_id, clear_conversation=True)
             _notify_shadow_pending()
             if not im_connected or manager is None:
-                return None
+                return _PreparedEvent(handled=True, result=None)
 
             async def _close_before_pending_shadow_anchor(
                 mgr: IMConnectionManager = manager,
@@ -726,15 +756,17 @@ def build_kernel_event_observer(
                             "IM observer pending-anchor reconcile failed: %s", exc
                         )
 
-            return _close_before_pending_shadow_anchor()
+            return _PreparedEvent(
+                handled=True, result=_close_before_pending_shadow_anchor()
+            )
 
         if not im_connected and not has_external_context:
-            return None
+            return _PreparedEvent(handled=True, result=None)
         if not im_connected:
             if event_name == "assistant_message":
                 content = str(event.get("content") or "").strip()
                 if not content:
-                    return None
+                    return _PreparedEvent(handled=True, result=None)
                 kernel_msg_id = str(event.get("message_id") or "").strip()
                 prev_kernel_msg_id = ctx.kernel_message_id
                 if (
@@ -744,19 +776,58 @@ def build_kernel_event_observer(
                 ):
                     _mirror_external_current_as_intermediate(rid=run_id, ctx=ctx)
                 ctx.record_assistant_text(content, kernel_message_id=kernel_msg_id)
-                return None
+                return _PreparedEvent(handled=True, result=None)
             if event_name in {"tool_start", "permission_request"}:
                 _mirror_external_current_as_intermediate(rid=run_id, ctx=ctx)
                 if event_name == "tool_start":
-                    return None
+                    return _PreparedEvent(handled=True, result=None)
             elif event_name == "turn_end":
                 running_tool_calls.pop(run_id, None)
                 _finish_shadow_live_run(manager, rid=run_id)
-                return None
+                return _PreparedEvent(handled=True, result=None)
             elif event_name != "permission_resolved":
                 if event_name == "run_terminal_reconcile":
                     _finish_shadow_live_run(manager, rid=run_id)
-                return None
+                return _PreparedEvent(handled=True, result=None)
+        return _PreparedEvent(
+            handled=False,
+            scope=_DeliveryEventScope(
+                event=event,
+                manager=manager,
+                run_id=run_id,
+                ctx=ctx,
+                event_name=event_name,
+                conversation_id=conversation_id,
+                message_id=message_id,
+                agent_id=agent_id,
+                to_user_id=to_user_id,
+                im_connected=im_connected,
+                rolled_shadow_snapshot=rolled_shadow_snapshot,
+                shadow_snapshot=shadow_snapshot,
+                shadow_process_seq=shadow_process_seq,
+                abnormal_inflight=abnormal_inflight,
+            ),
+        )
+
+    def _handle_bubble_event(
+        scope: _DeliveryEventScope,
+    ) -> Coroutine[Any, Any, None] | None:
+        """Handle turn start, assistant deltas, and normal bubble completion."""
+
+        event = scope.event
+        manager = scope.manager
+        run_id = scope.run_id
+        ctx = scope.ctx
+        event_name = scope.event_name
+        conversation_id = scope.conversation_id
+        message_id = scope.message_id
+        agent_id = scope.agent_id
+        to_user_id = scope.to_user_id
+        im_connected = scope.im_connected
+        rolled_shadow_snapshot = scope.rolled_shadow_snapshot
+        shadow_snapshot = scope.shadow_snapshot
+        shadow_process_seq = scope.shadow_process_seq
+
         if event_name == "run_status" and event.get("status") == "running":
             if to_user_id:
                 # Heartbeat: skip eager turn_start; bubble is created lazily on first
@@ -1310,7 +1381,22 @@ def build_kernel_event_observer(
                 )
             _finish_shadow_live_run(manager, rid=run_id)
 
-        elif event_name == "run_heartbeat":
+    def _handle_process_event(
+        scope: _DeliveryEventScope,
+    ) -> Coroutine[Any, Any, None] | None:
+        """Handle liveness, tool, and permission delivery events."""
+
+        event = scope.event
+        manager = scope.manager
+        run_id = scope.run_id
+        ctx = scope.ctx
+        event_name = scope.event_name
+        message_id = scope.message_id
+        im_connected = scope.im_connected
+        shadow_snapshot = scope.shadow_snapshot
+        shadow_process_seq = scope.shadow_process_seq
+
+        if event_name == "run_heartbeat":
             # bugfix-417-M3 R4: forward the kernel liveness heartbeat (tool / LLM-await /
             # parked-permission) to IM as a lightweight `run_heartbeat` delta. IM's
             # EventBridge appends a conversation_events row, advancing the message's
@@ -1551,7 +1637,24 @@ def build_kernel_event_observer(
                 decision=decision,
             )
 
-        elif event_name == "injection_consumed":
+    def _handle_terminal_or_steer_event(
+        scope: _DeliveryEventScope,
+    ) -> Coroutine[Any, Any, None] | None:
+        """Handle bubble rolls and abnormal terminal reconciliation."""
+
+        event = scope.event
+        manager = scope.manager
+        run_id = scope.run_id
+        ctx = scope.ctx
+        event_name = scope.event_name
+        conversation_id = scope.conversation_id
+        message_id = scope.message_id
+        agent_id = scope.agent_id
+        rolled_shadow_snapshot = scope.rolled_shadow_snapshot
+        shadow_snapshot = scope.shadow_snapshot
+        abnormal_inflight = scope.abnormal_inflight
+
+        if event_name == "injection_consumed":
             # bugfix-426-M4 决策6: the kernel just drained a steered (injected) message
             # into the model context on THIS run (run_id unchanged under 决策5). IM is a
             # time-ordered bubble chat: the steer user message already sits in the
@@ -1757,5 +1860,31 @@ def build_kernel_event_observer(
                     _complete_abnormal_terminal(),
                     name=f"bubble-finalize:{run_id}",
                 )
+
+    event_handlers: dict[
+        str, Callable[[_DeliveryEventScope], Coroutine[Any, Any, None] | None]
+    ] = {
+        "run_status": _handle_bubble_event,
+        "assistant_message": _handle_bubble_event,
+        "turn_end": _handle_bubble_event,
+        "run_heartbeat": _handle_process_event,
+        "tool_start": _handle_process_event,
+        "tool_end": _handle_process_event,
+        "permission_request": _handle_process_event,
+        "permission_resolved": _handle_process_event,
+        "injection_consumed": _handle_terminal_or_steer_event,
+        "run_terminal_reconcile": _handle_terminal_or_steer_event,
+    }
+
+    def observer(event: Mapping[str, Any]) -> "Coroutine[Any, Any, None] | None":
+        """Dispatch one kernel event to its typed runtime-delivery event family."""
+
+        prepared = _prepare_event(event)
+        if prepared.handled:
+            return prepared.result
+        if prepared.scope is None:
+            return None
+        handler = event_handlers.get(prepared.scope.event_name)
+        return handler(prepared.scope) if handler is not None else None
 
     return observer
