@@ -31,11 +31,10 @@
 - Focused post-review Gateway/IM regression: `163 passed` for observer, relay
   lifecycle, terminal reconciliation, recovery ordering, inbound streaming and IM
   wire liveness/ACK ownership.
-- Final race-closure regression: `120 passed` across observer, shadow sync, connection
-  recovery and WS ownership/reconnect behavior.
-- Full Python non-E2E suite: `2865 passed`, with one unrelated known Feishu
-  worker-process timing case failing in the loaded run and passing on a later direct
-  rerun.
+- Final concurrency regression: `57 passed` across runtime event forwarding, steer
+  admission and rich shadow observer behavior, including batched steers, failed bubble
+  rolls and pending follower anchors.
+- Full Python non-E2E suite: `2874 passed, 20 deselected`.
 - Frontend full suite: `59 files passed, 556 tests passed`.
 - Frontend production build passed (`tsc -b && vite build`).
 - `ruff check`, `scripts/docs-check` and `git diff --check` passed.
@@ -43,8 +42,7 @@
 ## Baseline comparison
 
 - The implementation baseline had eight pre-existing Feishu worker/startup timing
-  failures in the full parallel Python run; the final full run has no new failures and
-  only one of those timing cases recurred.
+  failures in the full parallel Python run; none recurred in the final full run.
 - The frontend baseline had two unrelated five-second timeouts. The final full
   frontend rerun passed all `556` tests.
 

@@ -53,7 +53,7 @@ class PendingFrame:
     ack_future: asyncio.Future[dict[str, object]] | None = field(
         default=None, repr=False
     )
-    wire_started: asyncio.Event | None = field(default=None, repr=False)
+    send_completed: asyncio.Event | None = field(default=None, repr=False)
     requeue_on_disconnect: bool = True
 
 
@@ -347,6 +347,7 @@ class IMConnectionManager:
         self._registration_deadline: float | None = None
         self._outbound_drained: asyncio.Event | None = None
         self._flush_lock = asyncio.Lock()
+        self._business_ack_timeout_task: asyncio.Task[None] | None = None
         self._heartbeat_task: asyncio.Task[None] | None = None
         self._heartbeat_ack_future: asyncio.Future[dict[str, object]] | None = None
         self._stop_event: asyncio.Event | None = None
@@ -448,6 +449,7 @@ class IMConnectionManager:
         if retry_task is not None:
             retry_task.cancel()
         self._stop_heartbeat_loop()
+        self._stop_business_ack_timeout()
         websocket = self._websocket
         self._websocket = None
         self._connected = False
@@ -568,32 +570,21 @@ class IMConnectionManager:
 
         loop = asyncio.get_running_loop()
         ack_future: asyncio.Future[dict[str, object]] = loop.create_future()
-        wire_started = asyncio.Event()
+        send_completed = asyncio.Event()
         self._queue_pending_frame(
             PendingFrame(
                 message_type=message_type,
                 payload=dict(payload),
                 ack_future=ack_future,
-                wire_started=wire_started,
+                send_completed=send_completed,
             )
         )
-        timeout = self._config.normalized_business_ack_timeout_seconds()
         try:
             await self._flush_pending_frames()
             # A frame queued behind another business owner has not consumed any of its
-            # own ACK budget yet.  Its timer begins only when it reaches the wire.
-            await wire_started.wait()
-            if timeout is None:
-                return await ack_future
-            async with asyncio.timeout(timeout):
-                return await asyncio.shield(ack_future)
-        except TimeoutError:
-            await self._disconnect_current_websocket(
-                TimeoutError(
-                    f"IM business frame {message_type} timed out after {timeout:.2f}s"
-                )
-            )
-            raise
+            # own ACK budget yet. Its ACK timer begins after its send completes.
+            await send_completed.wait()
+            return await asyncio.shield(ack_future)
         finally:
             if not ack_future.done():
                 ack_future.cancel()
@@ -1428,8 +1419,6 @@ class IMConnectionManager:
                 phase="sending",
             )
             self._wire_frame_owner = owner
-            if pending_frame.wire_started is not None:
-                pending_frame.wire_started.set()
             try:
                 business_timeout = (
                     self._config.normalized_business_ack_timeout_seconds()
@@ -1456,8 +1445,12 @@ class IMConnectionManager:
                 if raise_on_disconnect:
                     raise
                 return
+            if pending_frame.send_completed is not None:
+                pending_frame.send_completed.set()
             if self._wire_frame_owner is owner:
                 owner.phase = "awaiting_result"
+                if lane == "business" and business_timeout is not None:
+                    self._start_business_ack_timeout(owner, business_timeout)
             elif self._wire_frame_owner is not None:
                 raise RuntimeError("frame wire ownership changed during send")
 
@@ -1500,6 +1493,7 @@ class IMConnectionManager:
         if not isinstance(ack_type, str) or ack_type.strip() != awaiting:
             return None
         pending_frame = owner.frame
+        self._stop_business_ack_timeout()
         self._wire_frame_owner = None
         if pending_frame.ack_future is not None and not pending_frame.ack_future.done():
             pending_frame.ack_future.set_result(dict(payload))
@@ -1530,6 +1524,7 @@ class IMConnectionManager:
             "request_id"
         ):
             return False
+        self._stop_business_ack_timeout()
         self._wire_frame_owner = None
         if pending.ack_future is not None and not pending.ack_future.done():
             pending.ack_future.set_result(dict(payload))
@@ -1556,6 +1551,7 @@ class IMConnectionManager:
             return None
         pending = owner.frame
         awaiting = pending.message_type
+        self._stop_business_ack_timeout()
         self._wire_frame_owner = None
         code = str(payload.get("code") or "protocol_error")
         message = str(payload.get("message") or "upstream frame rejected")
@@ -1693,6 +1689,7 @@ class IMConnectionManager:
         self._wire_frame_owner = None
         self._pending_control_frames.clear()
         self._heartbeat_ack_future = None
+        self._stop_business_ack_timeout()
         self._stop_heartbeat_loop()
         for control_frame in control_frames:
             future = control_frame.ack_future
@@ -1710,7 +1707,10 @@ class IMConnectionManager:
                 )
         if business_frame is not None:
             self._fail_pending_frame(
-                business_frame, RuntimeError("IM websocket disconnected before ack")
+                business_frame,
+                exc
+                if isinstance(exc, TimeoutError)
+                else RuntimeError("IM websocket disconnected before ack"),
             )
         for dropped in dropped_business_frames:
             self._fail_pending_frame(
@@ -1771,10 +1771,47 @@ class IMConnectionManager:
         if isinstance(run_id, str):
             self._external_shadow_run_ids.discard(run_id)
 
+    def finish_external_shadow_run(self, run_id: str) -> None:
+        """Release reconnect classification when the observer reaches run terminal."""
+
+        self._external_shadow_run_ids.discard(run_id)
+
+    def _start_business_ack_timeout(
+        self, owner: WireFrameOwner, timeout_seconds: float
+    ) -> None:
+        self._stop_business_ack_timeout()
+
+        async def _watch() -> None:
+            try:
+                await asyncio.sleep(timeout_seconds)
+                if self._wire_frame_owner is owner and owner.phase == "awaiting_result":
+                    await self._disconnect_current_websocket(
+                        TimeoutError(
+                            "IM business frame "
+                            f"{owner.frame.message_type} ack timed out after "
+                            f"{timeout_seconds:.2f}s"
+                        )
+                    )
+            except asyncio.CancelledError:
+                raise
+            finally:
+                if self._business_ack_timeout_task is asyncio.current_task():
+                    self._business_ack_timeout_task = None
+
+        self._business_ack_timeout_task = asyncio.create_task(
+            _watch(), name="personal-assistant-im-business-ack-timeout"
+        )
+
+    def _stop_business_ack_timeout(self) -> None:
+        task = self._business_ack_timeout_task
+        self._business_ack_timeout_task = None
+        if task is not None and task is not asyncio.current_task():
+            task.cancel()
+
     @staticmethod
     def _fail_pending_frame(pending: PendingFrame, exc: Exception) -> None:
-        if pending.wire_started is not None:
-            pending.wire_started.set()
+        if pending.send_completed is not None:
+            pending.send_completed.set()
         future = pending.ack_future
         if future is not None and not future.done():
             # The event loop serializes ownership, but suppressing InvalidStateError keeps

@@ -382,6 +382,29 @@ def build_kernel_event_observer(
         if shadow_pending_notify is not None:
             shadow_pending_notify()
 
+    def _finish_shadow_live_run(
+        manager: IMConnectionManager | None, *, rid: str
+    ) -> None:
+        finish = getattr(manager, "finish_external_shadow_run", None)
+        if callable(finish):
+            finish(rid)
+
+    def _clear_live_bubble_context(*, rid: str, clear_conversation: bool) -> None:
+        live_ctx = _runtime_context_view(run_context_store, rid)
+        if live_ctx is None:
+            return
+        live_ctx["message_id"] = ""
+        if clear_conversation:
+            live_ctx["conversation_id"] = ""
+        for key in (
+            "kernel_message_id",
+            "external_current_text",
+            "external_intermediate_sent_marker",
+            "visible_reply_committed",
+            "discard_current_bubble",
+        ):
+            live_ctx.pop(key, None)
+
     async def _reconcile_ready_snapshot(snapshot: ExternalShadowBubble) -> None:
         if shadow_bubble_reconcile is None:
             return
@@ -465,6 +488,7 @@ def build_kernel_event_observer(
         rolled_shadow_snapshot: ExternalShadowBubble | None = None
         shadow_snapshot: ExternalShadowBubble | None = None
         shadow_process_seq: int | None = None
+        consumed_shadow_anchor_pending = False
         abnormal_inflight: dict[str, dict[str, Any]] = {}
         if event_name == "run_terminal_reconcile":
             abnormal_inflight = running_tool_calls.pop(run_id, {})
@@ -614,6 +638,24 @@ def build_kernel_event_observer(
                     token_usage=None,
                     delivery_status="completed",
                 )
+                consumed_shadow_saga_id = event.get("shadow_saga_id")
+                if (
+                    isinstance(consumed_shadow_saga_id, str)
+                    and consumed_shadow_saga_id
+                    and consumed_shadow_saga_id != ctx.get("shadow_saga_id")
+                ):
+                    ctx["shadow_saga_id"] = consumed_shadow_saga_id
+                    ctx.pop("shadow_message_id", None)
+                consumed_shadow_conversation_id = event.get("shadow_conversation_id")
+                if (
+                    isinstance(consumed_shadow_conversation_id, str)
+                    and consumed_shadow_conversation_id
+                ):
+                    conversation_id = consumed_shadow_conversation_id
+                    ctx["conversation_id"] = consumed_shadow_conversation_id
+                consumed_shadow_anchor_pending = (
+                    event.get("shadow_anchor_pending") is True
+                )
                 shadow_snapshot = _record_shadow(rid=run_id, ctx=ctx, kind="begin")
             elif event_name == "run_terminal_reconcile":
                 reason = str(event.get("reason") or "interrupted").strip()
@@ -648,6 +690,61 @@ def build_kernel_event_observer(
                     token_usage=None,
                     delivery_status=terminal_status,
                 )
+        if (
+            event_name in {"turn_end", "run_terminal_reconcile"}
+            and shadow_snapshot is not None
+            and shadow_snapshot.state == "ready"
+            and not ctx.get("conversation_id")
+        ):
+            # A follower user anchor can still be recovering while this bubble
+            # terminalizes. Bump the recovery generation again so a recovery pass
+            # that captured its snapshot list before this moment cannot strand it.
+            _notify_shadow_pending()
+        if event_name == "injection_consumed" and consumed_shadow_anchor_pending:
+            old_kernel_message_id = ctx.get("kernel_message_id")
+            _clear_live_bubble_context(rid=run_id, clear_conversation=True)
+            _notify_shadow_pending()
+            if not im_connected or manager is None:
+                return None
+
+            async def _close_before_pending_shadow_anchor(
+                mgr: IMConnectionManager = manager,
+                old_msg_id: str = message_id,
+                old_kernel_id: str | None = old_kernel_message_id,
+                snapshot: ExternalShadowBubble | None = rolled_shadow_snapshot,
+            ) -> None:
+                if old_msg_id:
+                    try:
+                        await mgr.send_json_await_ack(
+                            "node.streaming_delta",
+                            {
+                                "kind": "message_completed",
+                                "message_id": old_msg_id,
+                                "final_content": None,
+                                "token_usage": None,
+                                "delivery_status": "completed",
+                                "kernel_message_id": old_kernel_id,
+                                "run_id": run_id,
+                                "elapsed_ms": (
+                                    snapshot.elapsed_ms
+                                    if snapshot is not None
+                                    else None
+                                ),
+                            },
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        _notify_shadow_pending()
+                        _log.warning("IM observer pending-anchor close failed: %s", exc)
+                if snapshot is not None and shadow_bubble_reconcile is not None:
+                    try:
+                        await _reconcile_ready_snapshot(snapshot)
+                    except Exception as exc:  # noqa: BLE001
+                        _log.warning(
+                            "IM observer pending-anchor reconcile failed: %s", exc
+                        )
+
+            return _close_before_pending_shadow_anchor()
+
         if not im_connected and not has_external_context:
             return None
         if not im_connected:
@@ -673,8 +770,11 @@ def build_kernel_event_observer(
                     return None
             elif event_name == "turn_end":
                 running_tool_calls.pop(run_id, None)
+                _finish_shadow_live_run(manager, rid=run_id)
                 return None
             elif event_name != "permission_resolved":
+                if event_name == "run_terminal_reconcile":
+                    _finish_shadow_live_run(manager, rid=run_id)
                 return None
         if event_name == "run_status" and event.get("status") == "running":
             if to_user_id:
@@ -926,7 +1026,14 @@ def build_kernel_event_observer(
                             rolled_shadow_snapshot is not None
                             and shadow_bubble_reconcile is not None
                         ):
-                            await shadow_bubble_reconcile(rolled_shadow_snapshot)
+                            try:
+                                await _reconcile_ready_snapshot(rolled_shadow_snapshot)
+                            except Exception as exc:  # noqa: BLE001
+                                _log.warning(
+                                    "IM observer prior bubble reconcile failed; "
+                                    "continuing new live bubble: %s",
+                                    exc,
+                                )
                         if new_msg_id:
                             # roll_bubble intentionally clears bubble-local visibility.
                             # This branch already has real text for the newly opened
@@ -1138,16 +1245,23 @@ def build_kernel_event_observer(
             ):
                 discard_reason = "empty_visible_reply"
             if message_id and discard_reason:
-                return _send(
-                    manager,
-                    "node.streaming_delta",
-                    {
-                        "kind": "message_discarded",
-                        "message_id": message_id,
-                        "run_id": run_id,
-                        "reason": discard_reason,
-                    },
-                )
+
+                async def _discard_and_finish() -> None:
+                    try:
+                        await _send(
+                            manager,
+                            "node.streaming_delta",
+                            {
+                                "kind": "message_discarded",
+                                "message_id": message_id,
+                                "run_id": run_id,
+                                "reason": discard_reason,
+                            },
+                        )
+                    finally:
+                        _finish_shadow_live_run(manager, rid=run_id)
+
+                return _discard_and_finish()
 
             token_usage_payload = _turn_token_usage(
                 event, turn_completed=turn_completed
@@ -1201,6 +1315,8 @@ def build_kernel_event_observer(
                         if snapshot is not None:
                             _notify_shadow_pending()
                         _log.warning("IM observer completion/reconcile failed: %s", exc)
+                    finally:
+                        _finish_shadow_live_run(mgr, rid=run_id)
 
                 task_tracker.start(
                     _complete_and_reconcile(),
@@ -1217,6 +1333,7 @@ def build_kernel_event_observer(
                     _reconcile_ready_snapshot(shadow_snapshot),
                     name=f"shadow-agent-reconcile:{run_id}",
                 )
+            _finish_shadow_live_run(manager, rid=run_id)
 
         elif event_name == "run_heartbeat":
             # bugfix-417-M3 R4: forward the kernel liveness heartbeat (tool / LLM-await /
@@ -1487,8 +1604,10 @@ def build_kernel_event_observer(
                     aid: str = agent_id,
                     old_msg_id: str = message_id,
                 ) -> None:
+                    reconcile_started = False
+                    new_message_id: str | None = None
                     try:
-                        await roll_bubble(
+                        new_message_id = await roll_bubble(
                             mgr,
                             run_id=rid,
                             conversation_id=cid,
@@ -1506,12 +1625,23 @@ def build_kernel_event_observer(
                                 else None
                             ),
                         )
+                        if new_message_id is None:
+                            _clear_live_bubble_context(
+                                rid=rid, clear_conversation=False
+                            )
                         if (
                             rolled_shadow_snapshot is not None
                             and shadow_bubble_reconcile is not None
                         ):
+                            reconcile_started = True
                             await _reconcile_ready_snapshot(rolled_shadow_snapshot)
                     except Exception as exc:  # noqa: BLE001
+                        if not reconcile_started:
+                            _clear_live_bubble_context(
+                                rid=rid, clear_conversation=False
+                            )
+                        if rolled_shadow_snapshot is not None and not reconcile_started:
+                            _notify_shadow_pending()
                         _log.warning("IM observer steer bubble roll failed: %s", exc)
 
                 return _roll_bubble_on_steer()
@@ -1637,6 +1767,8 @@ def build_kernel_event_observer(
                     if snapshot is not None:
                         _notify_shadow_pending()
                     _log.warning("IM observer abnormal reconcile failed: %s", exc)
+                finally:
+                    _finish_shadow_live_run(mgr, rid=run_id)
 
             if (
                 terminal_frames

@@ -155,7 +155,7 @@ def test_queued_waiter_ack_budget_starts_only_after_it_owns_wire(
         waiter = asyncio.create_task(
             manager.send_json_await_ack("agent.message", {"text": "queued"})
         )
-        await asyncio.sleep(0.03)
+        await asyncio.sleep(0)
         assert manager.connected is True
         assert waiter.done() is False
 
@@ -170,6 +170,41 @@ def test_queued_waiter_ack_budget_starts_only_after_it_owns_wire(
         await waiter
 
     asyncio.run(exercise())
+
+
+def test_fire_and_forget_business_frame_has_its_own_ack_timeout(
+    tmp_path: Path,
+) -> None:
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})
+        ]
+    )
+    manager = _manager(
+        tmp_path,
+        socket,
+        config=IMConnectionConfig(
+            url="http://im.local",
+            heartbeat_interval_seconds=0,
+            business_ack_timeout_seconds=0.01,
+        ),
+    )
+
+    async def exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - register boundary
+        await manager.send_json("node.report", {"run_id": "fire-and-forget"})
+        await asyncio.sleep(0.03)
+
+    asyncio.run(exercise())
+
+    assert manager.connected is False
+    assert socket.closed == 1
+    assert any(
+        event.get("event") == "disconnected"
+        and "node.report ack timed out" in str(event.get("error"))
+        for event in manager.event_log()
+    )
 
 
 def test_external_shadow_live_frame_is_not_replayed_after_send_timeout(

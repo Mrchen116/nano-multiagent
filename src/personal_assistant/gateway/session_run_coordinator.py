@@ -166,6 +166,7 @@ class SessionRunCoordinator:
         self._run_idle_timeout_seconds = run_idle_timeout_seconds
         self._active_runs: dict[str, _ActiveRunHandle] = {}
         self._steered_requests: dict[str, list[InboundRunRequest]] = {}
+        self._consumed_steer_counts: dict[str, int] = {}
         self._user_interrupted_runs: set[str] = set()
         self._transition_locks: OrderedDict[str, asyncio.Lock] = OrderedDict()
         self._transition_lock_users: dict[str, int] = {}
@@ -560,6 +561,7 @@ class SessionRunCoordinator:
             if active is not None and active.run_id == run_id:
                 self._active_runs.pop(session_key, None)
             self._user_interrupted_runs.discard(run_id)
+            self._consumed_steer_counts.pop(run_id, None)
             return tuple(self._steered_requests.pop(run_id, ()))
 
     async def _emit_follower_lifecycle(
@@ -990,6 +992,8 @@ class SessionRunCoordinator:
                     if asyncio.iscoroutine(result):
                         await result
                     continue
+                if event.get("event") == "injection_consumed":
+                    event = self._attach_consumed_steer_identity(run_id, event)
                 if self._kernel_event_observer is not None:
                     result = self._kernel_event_observer(event)
                     if asyncio.iscoroutine(result):
@@ -1032,6 +1036,32 @@ class SessionRunCoordinator:
             await self._emit_terminal_reconcile(run_id, reason="interrupted")
             raise RuntimeError(self._extract_run_error(run_state, str(status or "")))
         return run_state, reply_text
+
+    def _attach_consumed_steer_identity(
+        self, run_id: str, event: Mapping[str, object]
+    ) -> Mapping[str, object]:
+        followers = self._steered_requests.get(run_id, [])
+        index = self._consumed_steer_counts.get(run_id, 0)
+        if index >= len(followers):
+            return event
+        raw_count = event.get("message_count")
+        message_count = (
+            raw_count
+            if isinstance(raw_count, int)
+            and not isinstance(raw_count, bool)
+            and raw_count > 0
+            else 1
+        )
+        end = min(index + message_count, len(followers))
+        self._consumed_steer_counts[run_id] = end
+        protocol = runtime_protocol_or_derive(followers[end - 1].message)
+        enriched = dict(event)
+        if protocol.shadow_saga_id is not None:
+            enriched["shadow_saga_id"] = protocol.shadow_saga_id
+            enriched["shadow_anchor_pending"] = protocol.shadow_ref is None
+        if protocol.shadow_ref is not None:
+            enriched["shadow_conversation_id"] = protocol.shadow_ref.conversation_id
+        return enriched
 
     async def _emit_terminal_reconcile(self, run_id: str, *, reason: str) -> None:
         if self._kernel_event_observer is None:

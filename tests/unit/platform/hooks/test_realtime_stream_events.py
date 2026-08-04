@@ -364,7 +364,7 @@ async def test_pending_injection_consumed_emits_injection_consumed() -> None:
             "session_id": "sess_1",
             "turn_id": "turn_1",
             "run_id": "run_1",
-            "message_count": 1,
+            "message_count": 2,
         },
         ctx,
     )
@@ -374,6 +374,7 @@ async def test_pending_injection_consumed_emits_injection_consumed() -> None:
     assert evt["event"] == "injection_consumed"
     assert evt["data"]["event"] == "injection_consumed"
     assert evt["data"]["run_id"] == "run_1"
+    assert evt["data"]["message_count"] == 2
 
 
 async def test_pending_injection_consumed_without_run_id_is_skipped() -> None:
