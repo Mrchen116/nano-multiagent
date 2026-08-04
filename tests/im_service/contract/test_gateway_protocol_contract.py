@@ -120,6 +120,36 @@ def test_streaming_delta_parser_reads_message_discard_tombstone() -> None:
     assert event.reason == "no_reply_token"
 
 
+def test_streaming_delta_parser_reads_external_shadow_authority_fields() -> None:
+    started = parse_streaming_delta_event(
+        {
+            "kind": "turn_start",
+            "conversation_id": "conv-1",
+            "agent_id": "agent-a",
+            "shadow_message_id": "shadow-message-1",
+        }
+    )
+    process = parse_streaming_delta_event(
+        {
+            "kind": "thinking_segment",
+            "message_id": "message-1",
+            "text": "inspect",
+            "process_seq": 7,
+        }
+    )
+    completed = parse_streaming_delta_event(
+        {
+            "kind": "message_completed",
+            "message_id": "message-1",
+            "elapsed_ms": 432,
+        }
+    )
+
+    assert started.shadow_message_id == "shadow-message-1"
+    assert process.process_seq == 7
+    assert completed.elapsed_ms == 432
+
+
 def test_node_report_parser_ignores_legacy_unstructured_detail_and_usage() -> None:
     event = parse_node_report_event(
         {

@@ -36,13 +36,18 @@ def conversation_event_to_wire_data(event: ConversationEvent) -> dict[str, objec
         if event.message_id is not None
         else raw_payload.get("message_id")
     )
+    created_at = (
+        raw_payload.get("created_at")
+        if event.event_type == "message.reconciled"
+        else event.created_at
+    )
     return {
         **raw_payload,
         "event_id": event.event_id,
         "conversation_id": event.conversation_id,
         "message_id": message_id,
         "delivery_status": event.delivery_status,
-        "created_at": event.created_at,
+        "created_at": created_at,
     }
 
 

@@ -76,6 +76,42 @@ def test_on_turn_start_creates_empty_agent_message_and_emits_event(
     assert payload["conversation_id"] == conv_id
 
 
+def test_shadow_turn_start_retry_reuses_terminal_message_without_resetting_it(
+    tmp_path: Path,
+) -> None:
+    """Live retries share one durable identity with terminal snapshot recovery."""
+
+    bridge, conv_id, agent_uid, messages, captured = _make_bridge(tmp_path)
+    first = bridge.on_turn_start(
+        conversation_id=conv_id,
+        agent_user_id=agent_uid,
+        agent_id="planner",
+        caller_idempotency_key="shadow-message-1",
+    )
+    bridge.on_message_completed(
+        message_id=first.id,
+        final_content="complete",
+        token_usage=TokenUsage(output=2, context_used=10, context_window=100, total=12),
+        kernel_message_id="kernel-1",
+    )
+    event_count = len(captured)
+
+    retried = bridge.on_turn_start(
+        conversation_id=conv_id,
+        agent_user_id=agent_uid,
+        agent_id="planner",
+        caller_idempotency_key="shadow-message-1",
+    )
+
+    assert retried.id == first.id
+    assert retried.delivery_status == "completed"
+    assert retried.content == "complete"
+    assert retried.token_usage is not None and retried.token_usage.total == 12
+    assert retried.kernel_message_id == "kernel-1"
+    assert len(captured) == event_count
+    assert len(messages.list_messages(conversation_id=conv_id)) == 1
+
+
 def test_on_message_completed_persists_kernel_message_id(tmp_path: Path) -> None:
     """feat-445-M1 R1: on_message_completed 把 gateway 转发的逐气泡 kernel message_id
     落到该气泡的消息行（决策 4 地基），供 fork 两侧对齐。"""
@@ -386,6 +422,31 @@ def test_on_message_completed_writes_elapsed_ms_and_emits_in_payload(
     payload = json.loads(completed_events[0].payload_json)
     assert "elapsed_ms" in payload
     assert payload["elapsed_ms"] == reloaded[-1].elapsed_ms
+
+
+def test_external_shadow_process_seq_and_elapsed_are_authoritative(
+    tmp_path: Path,
+) -> None:
+    bridge, conv_id, agent_uid, messages, captured = _make_bridge(tmp_path)
+    msg = bridge.on_turn_start(
+        conversation_id=conv_id, agent_user_id=agent_uid, agent_id="planner"
+    )
+
+    bridge.on_thinking_segment(message_id=msg.id, text="inspect", process_seq=7)
+    bridge.on_tool_call_upserted(
+        message_id=msg.id,
+        tool_call=ToolCall(id="call-1", name="read", status="running", input={}, seq=8),
+    )
+    bridge.on_message_completed(message_id=msg.id, elapsed_ms=432)
+
+    reloaded = messages.list_messages(conversation_id=conv_id)[-1]
+    assert [(item.seq, item.text) for item in reloaded.thinking or []] == [
+        (7, "inspect")
+    ]
+    assert [(item.id, item.seq) for item in reloaded.tool_calls or []] == [
+        ("call-1", 8)
+    ]
+    assert reloaded.elapsed_ms == 432
 
 
 def test_heartbeat_refresh_only_touches_marked_running_messages(

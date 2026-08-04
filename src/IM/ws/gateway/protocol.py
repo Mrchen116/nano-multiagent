@@ -38,6 +38,7 @@ class StreamingDeltaEvent:
     message_id: str | None
     to_user_id: str | None
     agent_user_id: str | None
+    shadow_message_id: str | None
     delta_text: str | None
     final_content: str | None
     delivery_status: str | None
@@ -50,6 +51,8 @@ class StreamingDeltaEvent:
     request_id: str | None
     decision: str | None
     reason: str | None
+    process_seq: int | None
+    elapsed_ms: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,6 +138,7 @@ def parse_streaming_delta_event(payload: Mapping[str, object]) -> StreamingDelta
         ),
         to_user_id=text_for("turn_start", field_name="to_user_id"),
         agent_user_id=text_for("turn_start", field_name="agent_user_id"),
+        shadow_message_id=text_for("turn_start", field_name="shadow_message_id"),
         delta_text=text_for("message_delta", field_name="delta_text"),
         final_content=text_for("message_completed", field_name="final_content"),
         delivery_status=text_for("message_completed", field_name="delivery_status"),
@@ -160,6 +164,20 @@ def parse_streaming_delta_event(payload: Mapping[str, object]) -> StreamingDelta
         decision=text_for("permission_resolved", field_name="decision"),
         reason=text_for(
             "run_terminal_reconcile", "message_discarded", field_name="reason"
+        ),
+        process_seq=(
+            _optional_non_negative_int(
+                payload.get("process_seq"), field_name="process_seq"
+            )
+            if kind in {"thinking_segment", "tool_call_upserted", "tool_call_completed"}
+            else None
+        ),
+        elapsed_ms=(
+            _optional_non_negative_int(
+                payload.get("elapsed_ms"), field_name="elapsed_ms"
+            )
+            if kind == "message_completed"
+            else None
         ),
     )
 

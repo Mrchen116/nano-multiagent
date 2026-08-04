@@ -422,32 +422,18 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
     )
 
     runtime_delivery_tasks = RuntimeDeliveryTaskTracker()
-    shadow_output_prepare = (
-        (
-            lambda saga_id, run_id, output_kind, kernel_message_id, content: (
-                shadow_sync.prepare_agent_output(
-                    saga_id=saga_id,
-                    run_id=run_id,
-                    output_kind=output_kind,
-                    kernel_message_id=kernel_message_id,
-                    content=content,
-                )
-            )
-        )
-        if shadow_sync is not None
-        else None
-    )
+    shadow_output_prepare = None
     _kernel_event_observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: im_connection_manager,
         run_context_store=run_delivery_contexts,
         external_reply_sender=_send_external_reply,
         shadow_output_prepare=shadow_output_prepare,
-        shadow_output_mirror=(
-            lambda output: (
-                shadow_sync.mirror_prepared_agent_output(output)
-                if shadow_sync is not None
-                else None
-            )
+        shadow_output_mirror=None,
+        shadow_bubble_record=(
+            shadow_sync.record_bubble_event if shadow_sync is not None else None
+        ),
+        shadow_bubble_reconcile=(
+            shadow_sync.reconcile_snapshot if shadow_sync is not None else None
         ),
         external_permission_request_sender=_send_external_permission_request,
         external_permission_resolved_sender=_mark_external_permission_resolved,

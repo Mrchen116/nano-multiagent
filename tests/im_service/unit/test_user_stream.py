@@ -39,6 +39,28 @@ def _event(event_id: int) -> ConversationEvent:
     )
 
 
+def test_reconciled_wire_event_preserves_message_timeline_created_at() -> None:
+    event = ConversationEvent(
+        event_id=9,
+        conversation_id="conv-1",
+        message_id="message-1",
+        event_type="message.reconciled",
+        delivery_status="completed",
+        payload_json=json.dumps(
+            {
+                "conversation_id": "conv-1",
+                "message_id": "message-1",
+                "created_at": "2026-07-13T00:00:00Z",
+            }
+        ),
+        created_at="2026-07-13T00:01:00Z",
+    )
+
+    data = conversation_event_to_wire_data(event)
+
+    assert data["created_at"] == "2026-07-13T00:00:00Z"
+
+
 class _PagedEventRepository:
     def __init__(self, count: int) -> None:
         self.events = [_event(event_id) for event_id in range(1, count + 1)]

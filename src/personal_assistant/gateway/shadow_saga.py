@@ -7,6 +7,8 @@ from hashlib import sha256
 import json
 from pathlib import Path
 import sqlite3
+import time
+from typing import Any, Literal, Mapping
 from personal_assistant.channels.base import InboundMessage
 from personal_assistant.gateway.runtime_protocol import (
     ShadowConversationRef,
@@ -109,6 +111,28 @@ CREATE TABLE IF NOT EXISTS external_shadow_outputs (
 )
 """
 
+_CREATE_BUBBLE_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS external_shadow_bubbles (
+    shadow_message_id TEXT PRIMARY KEY,
+    saga_id TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    bubble_ordinal INTEGER NOT NULL,
+    state TEXT NOT NULL,
+    content TEXT NOT NULL DEFAULT '',
+    thinking_json TEXT NOT NULL DEFAULT '[]',
+    tool_calls_json TEXT NOT NULL DEFAULT '[]',
+    token_usage_json TEXT,
+    started_at_ms INTEGER NOT NULL,
+    finished_at_ms INTEGER,
+    elapsed_ms INTEGER,
+    delivery_status TEXT,
+    kernel_message_id TEXT,
+    im_message_id TEXT,
+    UNIQUE (saga_id, run_id, bubble_ordinal),
+    FOREIGN KEY (saga_id) REFERENCES external_shadow_sagas(saga_id)
+)
+"""
+
 _CREATE_DIAGNOSTICS_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS external_shadow_diagnostics (
     diagnostic_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -142,6 +166,44 @@ class ExternalShadowOutput:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class ExternalShadowBubbleEvent:
+    """One normalized runtime fact applied to the current external shadow bubble."""
+
+    kind: Literal["begin", "text", "thinking", "tool", "terminal", "discard"]
+    saga_id: str
+    run_id: str
+    content: str | None = None
+    thinking_text: str | None = None
+    tool_call: Mapping[str, Any] | None = None
+    token_usage: Mapping[str, Any] | None = None
+    elapsed_ms: int | None = None
+    delivery_status: str | None = None
+    kernel_message_id: str | None = None
+    source_time_ms: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ExternalShadowBubble:
+    """Durable presentation-ready projection for one logical Agent bubble."""
+
+    shadow_message_id: str
+    saga_id: str
+    run_id: str
+    bubble_ordinal: int
+    state: str
+    content: str
+    thinking: tuple[dict[str, Any], ...]
+    tool_calls: tuple[dict[str, Any], ...]
+    token_usage: dict[str, Any] | None
+    started_at_ms: int
+    finished_at_ms: int | None
+    elapsed_ms: int | None
+    delivery_status: str | None
+    kernel_message_id: str | None
+    im_message_id: str | None
+
+
 class ExternalShadowSagaStore:
     """Own crash-safe external shadow recovery data in Gateway-local SQLite.
 
@@ -155,6 +217,7 @@ class ExternalShadowSagaStore:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute(_CREATE_SAGA_TABLE_SQL)
         self._conn.execute(_CREATE_OUTPUT_TABLE_SQL)
+        self._conn.execute(_CREATE_BUBBLE_TABLE_SQL)
         self._conn.execute(_CREATE_DIAGNOSTICS_TABLE_SQL)
         self._conn.commit()
 
@@ -323,6 +386,262 @@ class ExternalShadowSagaStore:
             saga_id=saga_id, run_id=run_id, output_kind=output_kind, ordinal=ordinal
         )
 
+    def record(self, event: ExternalShadowBubbleEvent) -> ExternalShadowBubble:
+        """Apply one normalized event to a durable logical-bubble projection."""
+
+        if not event.saga_id or not event.run_id:
+            raise ValueError("shadow bubble event requires saga_id and run_id")
+        if event.kind not in {
+            "begin",
+            "text",
+            "thinking",
+            "tool",
+            "terminal",
+            "discard",
+        }:
+            raise ValueError(f"unsupported shadow bubble event: {event.kind}")
+        with self._conn:
+            row = self._recording_bubble_row(saga_id=event.saga_id, run_id=event.run_id)
+            if row is None:
+                if event.kind in {"terminal", "discard"}:
+                    latest = self._latest_bubble_row(
+                        saga_id=event.saga_id, run_id=event.run_id
+                    )
+                    if latest is not None and str(latest[4]) in {
+                        "ready",
+                        "reconciled",
+                        "discarded",
+                    }:
+                        return self._bubble_from_row(latest)
+                row = self._insert_bubble(
+                    saga_id=event.saga_id,
+                    run_id=event.run_id,
+                    started_at_ms=event.source_time_ms,
+                )
+            shadow_message_id = str(row[0])
+            if event.kind == "begin":
+                return self._bubble_from_row(row)
+
+            content = str(row[5])
+            thinking = _decode_json_list(row[6])
+            tool_calls = _decode_json_list(row[7])
+            token_usage = _decode_json_object(row[8])
+            started_at_ms = int(row[9])
+            finished_at_ms = int(row[10]) if row[10] is not None else None
+            elapsed_ms = int(row[11]) if row[11] is not None else None
+            delivery_status = str(row[12]) if row[12] is not None else None
+            kernel_message_id = str(row[13]) if row[13] is not None else None
+            state = str(row[4])
+
+            if event.kind == "text":
+                content = event.content or ""
+                if event.kernel_message_id:
+                    kernel_message_id = event.kernel_message_id
+            elif event.kind == "thinking":
+                text = (event.thinking_text or "").strip()
+                if text:
+                    thinking.append(
+                        {"seq": _next_process_seq(thinking, tool_calls), "text": text}
+                    )
+            elif event.kind == "tool":
+                if event.tool_call is None:
+                    raise ValueError("tool shadow event requires tool_call")
+                incoming = dict(event.tool_call)
+                call_id = str(incoming.get("id") or "").strip()
+                if not call_id:
+                    raise ValueError("tool shadow event requires tool_call.id")
+                existing_index = next(
+                    (
+                        index
+                        for index, item in enumerate(tool_calls)
+                        if str(item.get("id") or "") == call_id
+                    ),
+                    None,
+                )
+                if existing_index is None:
+                    incoming["seq"] = _next_process_seq(thinking, tool_calls)
+                    tool_calls.append(incoming)
+                else:
+                    prior = tool_calls[existing_index]
+                    incoming["seq"] = prior.get("seq")
+                    tool_calls[existing_index] = incoming
+            elif event.kind in {"terminal", "discard"}:
+                finished_at_ms = event.source_time_ms or _now_ms()
+                elapsed_ms = (
+                    event.elapsed_ms
+                    if event.elapsed_ms is not None
+                    else max(0, finished_at_ms - started_at_ms)
+                )
+                if event.kind == "discard":
+                    state = "discarded"
+                    delivery_status = None
+                    token_usage = None
+                else:
+                    if event.delivery_status not in {"completed", "failed"}:
+                        raise ValueError(
+                            "terminal shadow event requires completed or failed status"
+                        )
+                    state = "ready"
+                    delivery_status = event.delivery_status
+                    token_usage = (
+                        dict(event.token_usage)
+                        if event.token_usage is not None
+                        else None
+                    )
+                    if event.content is not None:
+                        content = event.content
+                    if event.kernel_message_id:
+                        kernel_message_id = event.kernel_message_id
+
+            self._conn.execute(
+                """
+                UPDATE external_shadow_bubbles
+                SET state = ?, content = ?, thinking_json = ?, tool_calls_json = ?,
+                    token_usage_json = ?, finished_at_ms = ?, elapsed_ms = ?,
+                    delivery_status = ?, kernel_message_id = ?
+                WHERE shadow_message_id = ?
+                """,
+                (
+                    state,
+                    content,
+                    _encode_json(thinking),
+                    _encode_json(tool_calls),
+                    _encode_json(token_usage) if token_usage is not None else None,
+                    finished_at_ms,
+                    elapsed_ms,
+                    delivery_status,
+                    kernel_message_id,
+                    shadow_message_id,
+                ),
+            )
+        return self.require_snapshot(shadow_message_id)
+
+    def pending_snapshots(self) -> tuple[ExternalShadowBubble, ...]:
+        """Return terminal rich snapshots waiting for IM acknowledgement."""
+
+        rows = self._conn.execute(
+            f"""
+            SELECT {_BUBBLE_COLUMNS}
+            FROM external_shadow_bubbles
+            WHERE state = 'ready'
+            ORDER BY rowid ASC
+            """
+        ).fetchall()
+        return tuple(self._bubble_from_row(row) for row in rows)
+
+    def require_snapshot(self, shadow_message_id: str) -> ExternalShadowBubble:
+        """Return one durable bubble projection by stable source identity."""
+
+        row = self._conn.execute(
+            f"SELECT {_BUBBLE_COLUMNS} FROM external_shadow_bubbles "
+            "WHERE shadow_message_id = ?",
+            (shadow_message_id,),
+        ).fetchone()
+        if row is None:
+            raise LookupError("external shadow bubble not found")
+        return self._bubble_from_row(row)
+
+    def acknowledge(
+        self, *, shadow_message_id: str, im_message_id: str
+    ) -> ExternalShadowBubble:
+        """Mark a rich snapshot reconciled only after IM returns its message id."""
+
+        if not im_message_id:
+            raise ValueError("shadow bubble IM acknowledgement requires message id")
+        with self._conn:
+            updated = self._conn.execute(
+                """
+                UPDATE external_shadow_bubbles
+                SET state = 'reconciled', im_message_id = ?
+                WHERE shadow_message_id = ? AND state IN ('ready', 'reconciled')
+                """,
+                (im_message_id, shadow_message_id),
+            )
+            if updated.rowcount != 1:
+                raise LookupError("ready external shadow bubble not found")
+        return self.require_snapshot(shadow_message_id)
+
+    def _recording_bubble_row(
+        self, *, saga_id: str, run_id: str
+    ) -> sqlite3.Row | tuple[Any, ...] | None:
+        return self._conn.execute(
+            f"""
+            SELECT {_BUBBLE_COLUMNS}
+            FROM external_shadow_bubbles
+            WHERE saga_id = ? AND run_id = ? AND state = 'recording'
+            ORDER BY bubble_ordinal DESC
+            LIMIT 1
+            """,
+            (saga_id, run_id),
+        ).fetchone()
+
+    def _latest_bubble_row(
+        self, *, saga_id: str, run_id: str
+    ) -> sqlite3.Row | tuple[Any, ...] | None:
+        return self._conn.execute(
+            f"""
+            SELECT {_BUBBLE_COLUMNS}
+            FROM external_shadow_bubbles
+            WHERE saga_id = ? AND run_id = ?
+            ORDER BY bubble_ordinal DESC
+            LIMIT 1
+            """,
+            (saga_id, run_id),
+        ).fetchone()
+
+    def _insert_bubble(
+        self, *, saga_id: str, run_id: str, started_at_ms: int | None
+    ) -> tuple[Any, ...]:
+        ordinal_row = self._conn.execute(
+            """
+            SELECT COALESCE(MAX(bubble_ordinal), -1) + 1
+            FROM external_shadow_bubbles
+            WHERE saga_id = ? AND run_id = ?
+            """,
+            (saga_id, run_id),
+        ).fetchone()
+        ordinal = int(ordinal_row[0])
+        shadow_message_id = _shadow_message_id(
+            saga_id=saga_id, run_id=run_id, bubble_ordinal=ordinal
+        )
+        self._conn.execute(
+            """
+            INSERT INTO external_shadow_bubbles(
+                shadow_message_id, saga_id, run_id, bubble_ordinal, state, started_at_ms
+            ) VALUES (?, ?, ?, ?, 'recording', ?)
+            """,
+            (
+                shadow_message_id,
+                saga_id,
+                run_id,
+                ordinal,
+                started_at_ms or _now_ms(),
+            ),
+        )
+        row = self._recording_bubble_row(saga_id=saga_id, run_id=run_id)
+        assert row is not None
+        return row
+
+    @staticmethod
+    def _bubble_from_row(row: sqlite3.Row | tuple[Any, ...]) -> ExternalShadowBubble:
+        return ExternalShadowBubble(
+            shadow_message_id=str(row[0]),
+            saga_id=str(row[1]),
+            run_id=str(row[2]),
+            bubble_ordinal=int(row[3]),
+            state=str(row[4]),
+            content=str(row[5]),
+            thinking=tuple(_decode_json_list(row[6])),
+            tool_calls=tuple(_decode_json_list(row[7])),
+            token_usage=_decode_json_object(row[8]),
+            started_at_ms=int(row[9]),
+            finished_at_ms=int(row[10]) if row[10] is not None else None,
+            elapsed_ms=int(row[11]) if row[11] is not None else None,
+            delivery_status=str(row[12]) if row[12] is not None else None,
+            kernel_message_id=str(row[13]) if row[13] is not None else None,
+            im_message_id=str(row[14]) if row[14] is not None else None,
+        )
+
     def require_output(
         self, *, saga_id: str, run_id: str, output_kind: str, ordinal: int
     ) -> ExternalShadowOutput:
@@ -476,3 +795,49 @@ def _saga_id(
     )
     encoded = json.dumps(natural_key, separators=(",", ":"), ensure_ascii=False)
     return sha256(encoded.encode()).hexdigest()
+
+
+_BUBBLE_COLUMNS = """
+shadow_message_id, saga_id, run_id, bubble_ordinal, state, content,
+thinking_json, tool_calls_json, token_usage_json, started_at_ms,
+finished_at_ms, elapsed_ms, delivery_status, kernel_message_id, im_message_id
+"""
+
+
+def _shadow_message_id(*, saga_id: str, run_id: str, bubble_ordinal: int) -> str:
+    encoded = json.dumps(
+        (saga_id, run_id, bubble_ordinal), separators=(",", ":"), ensure_ascii=False
+    )
+    return sha256(encoded.encode()).hexdigest()
+
+
+def _now_ms() -> int:
+    return time.time_ns() // 1_000_000
+
+
+def _encode_json(value: object) -> str:
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+
+
+def _decode_json_list(value: object) -> list[dict[str, Any]]:
+    parsed = json.loads(str(value)) if value is not None else []
+    if not isinstance(parsed, list):
+        raise ValueError("external shadow bubble JSON must be a list")
+    return [dict(item) for item in parsed if isinstance(item, Mapping)]
+
+
+def _decode_json_object(value: object) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    parsed = json.loads(str(value))
+    if not isinstance(parsed, Mapping):
+        raise ValueError("external shadow bubble token usage must be an object")
+    return dict(parsed)
+
+
+def _next_process_seq(
+    thinking: list[dict[str, Any]], tool_calls: list[dict[str, Any]]
+) -> int:
+    seqs = [item.get("seq") for item in [*thinking, *tool_calls]]
+    numeric = [int(value) for value in seqs if isinstance(value, int)]
+    return max(numeric, default=-1) + 1

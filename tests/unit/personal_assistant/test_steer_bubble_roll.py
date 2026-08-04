@@ -194,6 +194,8 @@ def test_concurrent_injection_consumed_guard_drops_duplicate() -> None:
             self, mt: str, payload: dict[str, Any]
         ) -> dict[str, Any]:
             self.sent.append((mt, payload))
+            if payload.get("kind") != "turn_start":
+                return {"payload": {"kind": payload.get("kind")}}
             await self._gate.wait()  # hold the first roll inside the await
             self._seq += 1
             return {"payload": {"message_id": f"bubble-{self._seq}"}}

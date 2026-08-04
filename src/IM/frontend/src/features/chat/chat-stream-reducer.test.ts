@@ -97,6 +97,57 @@ describe("chat-stream-reducer", () => {
     expect(next.messages[0]!.kernel_message_id).toBe("msg_live_abc");
   });
 
+  it("upserts a complete reconciled snapshot for both live-existing and offline-missing messages", () => {
+    const live: Message = {
+      ...userMessage("m-shadow", "partial"),
+      sender: { type: "agent", id: "agent-a" },
+      sender_type: "agent",
+      delivery_status: "running"
+    };
+    const payload = {
+      conversation_id: "c1",
+      message_id: "m-shadow",
+      sender_user_id: "agent:agent-a",
+      sender_type: "agent",
+      sender: { type: "agent", id: "agent-a", display_name: "Agent A" },
+      content: "complete",
+      attachments: [],
+      tool_calls: [{ id: "tool-1", name: "read", status: "completed", input: {}, output: "ok", seq: 1 }],
+      thinking: [{ seq: 0, text: "inspect" }],
+      token_usage: { output: 2, context_used: 10, context_window: 100, total: 12 },
+      delivery_status: "completed",
+      created_at: "2026-01-01T00:00:01Z",
+      elapsed_ms: 432,
+      kernel_message_id: "kernel-1"
+    };
+    const event = toChatWsEvent("message.reconciled", payload);
+    expect(event).not.toBeNull();
+
+    const existing = applyWsEvent(
+      { ...emptyConversationState, conversation_id: "c1", messages: [live] },
+      event!
+    );
+    const replayed = applyWsEvent(existing, event!);
+    const missing = applyWsEvent(
+      { ...emptyConversationState, conversation_id: "c1", messages: [] },
+      event!
+    );
+
+    expect(existing.messages).toHaveLength(1);
+    expect(replayed.messages).toEqual(existing.messages);
+    expect(existing.messages[0]).toMatchObject({
+      id: "m-shadow",
+      content: "complete",
+      thinking: [{ seq: 0, text: "inspect" }],
+      tool_calls: [{ id: "tool-1", seq: 1, status: "completed" }],
+      token_usage: { total: 12 },
+      delivery_status: "completed",
+      elapsed_ms: 432,
+      kernel_message_id: "kernel-1"
+    });
+    expect(missing.messages).toEqual(existing.messages);
+  });
+
   it("preserves a failed terminal status from message.completed", () => {
     const seed: Message = { ...userMessage("m-failed", "partial"), sender: { type: "agent", id: "agent-a" }, sender_type: "agent", delivery_status: "running" };
     const state: ConversationState = { ...emptyConversationState, messages: [seed] };

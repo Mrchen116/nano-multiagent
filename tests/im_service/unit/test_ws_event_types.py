@@ -5,6 +5,7 @@ from IM.api.ws.event_types import (
     EVENT_AGENT_STATUS_CHANGED,
     EVENT_MESSAGE_COMPLETED,
     EVENT_MESSAGE_CREATED,
+    EVENT_MESSAGE_RECONCILED,
     EVENT_MESSAGE_DELTA,
     EVENT_NODE_STATUS_CHANGED,
     EVENT_THINKING_SEGMENT,
@@ -33,6 +34,7 @@ from IM.domain.models import (
 def test_event_type_constants_are_stable_strings() -> None:
     assert {
         EVENT_MESSAGE_CREATED,
+        EVENT_MESSAGE_RECONCILED,
         EVENT_MESSAGE_DELTA,
         EVENT_MESSAGE_COMPLETED,
         EVENT_THINKING_SEGMENT,
@@ -43,6 +45,7 @@ def test_event_type_constants_are_stable_strings() -> None:
         EVENT_AGENT_CHANNEL_STATUS_CHANGED,
     } == {
         "message.created",
+        "message.reconciled",
         "message.delta",
         "message.completed",
         "thinking.segment",

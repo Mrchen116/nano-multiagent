@@ -29,6 +29,8 @@ async def test_message_completed_carries_per_bubble_kernel_message_id() -> None:
 
     async def mock_send_json_await_ack(message_type, payload):
         send_calls.append((message_type, payload))
+        if payload.get("kind") != "turn_start":
+            return {"type": "ack", "payload": {"kind": payload.get("kind")}}
         bubble_seq["n"] += 1
         return {
             "type": "ack",

@@ -24,6 +24,7 @@ from IM.domain.models import Message, ThinkingSegment, TokenUsage, ToolCall
 # Event type identifiers — keep as module-level constants; the EVENT_* names are stable
 # wire identifiers, not refactor-safe Python symbols.
 EVENT_MESSAGE_CREATED = "message.created"
+EVENT_MESSAGE_RECONCILED = "message.reconciled"
 EVENT_MESSAGE_DELTA = "message.delta"
 EVENT_MESSAGE_COMPLETED = "message.completed"
 EVENT_MESSAGE_DISCARDED = "message.discarded"

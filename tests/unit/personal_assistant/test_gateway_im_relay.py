@@ -7,7 +7,10 @@ import json
 
 import httpx
 
-from personal_assistant.channels.base import InboundMessage
+from personal_assistant.channels.base import (
+    ExternalInboundEventIdentity,
+    InboundMessage,
+)
 from personal_assistant.gateway.runtime_protocol import ShadowConversationRef
 from personal_assistant.gateway.shadow_sync import IMShadowConversationSync
 
@@ -63,6 +66,10 @@ def test_external_shadow_sync_uses_authenticated_im_user_not_stale_config_user()
         external_chat_id="feishu:app:dm:ou_user",
         is_group=False,
         agent_id="agent-a",
+        external_event_identity=ExternalInboundEventIdentity(
+            connector_account_id="app-a",
+            provider_event_id="message-a",
+        ),
         metadata={
             "external_source": "feishu",
             "external_chat_id": "feishu:app:dm:ou_user",
