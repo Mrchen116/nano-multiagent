@@ -100,8 +100,6 @@ class IMShadowConversationSync:
         metadata = strip_runtime_protocol_metadata(message.metadata)
         external_source = identity.external_source
         external_chat_id = identity.external_chat_id
-        token = await self._token_getter()
-        headers = build_im_http_headers(token)
         saga_store = self._saga_store
         # The configured node owner is sufficient to identify the durable source fact.
         # Persist it before any IM request so an unavailable /me endpoint cannot erase an
@@ -119,6 +117,8 @@ class IMShadowConversationSync:
             self._promote_boundary(saga_id=saga.saga_id, shadow_ref=saga.shadow_ref)
             return saga.shadow_ref
         try:
+            token = await self._token_getter()
+            headers = build_im_http_headers(token)
             async with httpx.AsyncClient(
                 base_url=self._base_url,
                 headers=headers,
@@ -396,6 +396,11 @@ class IMShadowConversationSync:
         saga_store = self._saga_store
         if saga_store is None:
             return
+        pending_snapshots = saga_store.pending_snapshots()
+        snapshots_by_saga: dict[str, list[ExternalShadowBubble]] = {}
+        for snapshot in pending_snapshots:
+            snapshots_by_saga.setdefault(snapshot.saga_id, []).append(snapshot)
+        recovered_saga_ids: set[str] = set()
         for saga in saga_store.pending():
             payload = json.loads(saga.canonical_inbound_json)
             external_event = payload["external_event_identity"]
@@ -435,7 +440,12 @@ class IMShadowConversationSync:
                 ),
             )
             await self.sync_user_message(message, agent_id=saga.agent_id)
-        for snapshot in saga_store.pending_snapshots():
+            recovered_saga_ids.add(saga.saga_id)
+            for snapshot in snapshots_by_saga.get(saga.saga_id, []):
+                await self.reconcile_snapshot(snapshot)
+        for snapshot in pending_snapshots:
+            if snapshot.saga_id in recovered_saga_ids:
+                continue
             saga = saga_store.require(snapshot.saga_id)
             if saga.shadow_ref is None:
                 continue

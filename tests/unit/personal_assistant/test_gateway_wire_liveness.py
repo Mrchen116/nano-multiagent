@@ -71,6 +71,65 @@ def _manager(
     )
 
 
+def test_business_send_timeout_disconnects_half_open_socket(tmp_path: Path) -> None:
+    socket = _YieldingSendWebSocket("node.streaming_delta")
+    manager = _manager(
+        tmp_path,
+        socket,
+        config=IMConnectionConfig(
+            url="http://im.local",
+            heartbeat_interval_seconds=0,
+            business_ack_timeout_seconds=0.01,
+        ),
+    )
+
+    async def exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - register boundary
+        await asyncio.wait_for(
+            manager.send_json("node.streaming_delta", {"kind": "message_delta"}),
+            timeout=0.2,
+        )
+
+    asyncio.run(exercise())
+
+    assert manager.connected is False
+    assert socket.closed == 1
+
+
+def test_business_ack_timeout_disconnects_silent_socket(tmp_path: Path) -> None:
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})
+        ]
+    )
+    manager = _manager(
+        tmp_path,
+        socket,
+        config=IMConnectionConfig(
+            url="http://im.local",
+            heartbeat_interval_seconds=0,
+            business_ack_timeout_seconds=0.01,
+        ),
+    )
+
+    async def exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - register boundary
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(
+                manager.send_json_await_ack(
+                    "node.streaming_delta", {"kind": "turn_start"}
+                ),
+                timeout=0.2,
+            )
+
+    asyncio.run(exercise())
+
+    assert manager.connected is False
+    assert socket.closed == 1
+
+
 def test_status_result_during_yielding_send_releases_wire_owner(
     tmp_path: Path,
 ) -> None:

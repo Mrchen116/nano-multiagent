@@ -105,3 +105,40 @@ async def test_failed_shadow_recovery_retries_without_rescheduling_outbox() -> N
     await asyncio.wait_for(recovered.wait(), timeout=1.2)
     assert attempts == 2
     assert outbox.connections == [connection]
+
+
+@pytest.mark.asyncio
+async def test_new_ready_snapshot_wakes_recovery_without_websocket_reconnect() -> None:
+    """A later terminal snapshot is retried by the existing single recovery owner."""
+
+    attempts = 0
+    second_recovery = asyncio.Event()
+
+    async def recover() -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 2:
+            raise RuntimeError("first snapshot PUT failed")
+        if attempts == 3:
+            second_recovery.set()
+
+    coordinator = ConnectionReadyCoordinator(
+        node_id="node-1",
+        bootstrap_client=_Bootstrap(),
+        reporter=_Reporter(),
+        managed_channel_bindings=_ManagedChannels(),
+        sync_client=_SyncClient(),
+        agent_config_sync=_AgentConfigSync(),
+        agent_ids=[],
+        boundary_outbox=_Outbox(),
+        recover_external_shadows=recover,
+    )
+
+    await coordinator.on_connected(object())
+    await asyncio.sleep(0)
+    assert attempts == 1
+
+    coordinator.notify_external_shadows_pending()
+
+    await asyncio.wait_for(second_recovery.wait(), timeout=1.2)
+    assert attempts == 3

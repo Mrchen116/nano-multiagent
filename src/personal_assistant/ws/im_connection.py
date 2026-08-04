@@ -202,6 +202,8 @@ class IMConnectionConfig:
             receive its IM acknowledgment.
         registration_ack_timeout_seconds: Maximum total wait to send node
             registration and receive its acknowledgment after transport connects.
+        business_ack_timeout_seconds: Maximum time one business frame may own the
+            wire while sending or awaiting its acknowledgment.
     """
 
     url: str
@@ -211,6 +213,7 @@ class IMConnectionConfig:
     heartbeat_interval_seconds: float = 30.0
     heartbeat_ack_timeout_seconds: float = 10.0
     registration_ack_timeout_seconds: float = 10.0
+    business_ack_timeout_seconds: float = 1.0
 
     def normalized_heartbeat_interval_seconds(self) -> float | None:
         interval = self.heartbeat_interval_seconds
@@ -226,6 +229,14 @@ class IMConnectionConfig:
 
     def normalized_registration_ack_timeout_seconds(self) -> float | None:
         timeout = self.registration_ack_timeout_seconds
+        if timeout <= 0:
+            return None
+        return timeout
+
+    def normalized_business_ack_timeout_seconds(self) -> float | None:
+        """Return the configured business-frame liveness budget."""
+
+        timeout = self.business_ack_timeout_seconds
         if timeout <= 0:
             return None
         return timeout
@@ -559,8 +570,26 @@ class IMConnectionManager:
                 message_type=message_type, payload=dict(payload), ack_future=ack_future
             )
         )
-        await self._flush_pending_frames()
-        return await ack_future
+        timeout = self._config.normalized_business_ack_timeout_seconds()
+        try:
+            if timeout is None:
+                await self._flush_pending_frames()
+                return await ack_future
+            async with asyncio.timeout(timeout):
+                await self._flush_pending_frames()
+                return await asyncio.shield(ack_future)
+        except TimeoutError:
+            await self._disconnect_current_websocket(
+                TimeoutError(
+                    f"IM business frame {message_type} timed out after {timeout:.2f}s"
+                )
+            )
+            raise
+        finally:
+            if not ack_future.done():
+                ack_future.cancel()
+            elif not ack_future.cancelled():
+                ack_future.exception()
 
     def _queue_pending_frame(self, pending: PendingFrame) -> None:
         """Append a frame, coalescing only statuses still owned by the pending queue.
@@ -1380,9 +1409,20 @@ class IMConnectionManager:
             )
             self._wire_frame_owner = owner
             try:
-                await self._send_frame(
-                    pending_frame.message_type, pending_frame.payload
+                business_timeout = (
+                    self._config.normalized_business_ack_timeout_seconds()
+                    if lane == "business"
+                    else None
                 )
+                if business_timeout is None:
+                    await self._send_frame(
+                        pending_frame.message_type, pending_frame.payload
+                    )
+                else:
+                    async with asyncio.timeout(business_timeout):
+                        await self._send_frame(
+                            pending_frame.message_type, pending_frame.payload
+                        )
             except asyncio.CancelledError:
                 if disconnect_on_cancel:
                     await self._disconnect_current_websocket(

@@ -267,6 +267,9 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
     _owner_user_id = config.node.user_id or ""
     _gateway_internal_port = 0
     shadow_sync: IMShadowConversationSync | None = None
+    connection_ready_coordinator: connection_ready.ConnectionReadyCoordinator | None = (
+        None
+    )
     image_resolver = ImageAttachmentResolver()
     _kernel_event_observer: Any | None = None
     cron_runtime = GatewayCronRuntime(
@@ -423,6 +426,11 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
 
     runtime_delivery_tasks = RuntimeDeliveryTaskTracker()
     shadow_output_prepare = None
+
+    def _notify_shadow_pending() -> None:
+        if connection_ready_coordinator is not None:
+            connection_ready_coordinator.notify_external_shadows_pending()
+
     _kernel_event_observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: im_connection_manager,
         run_context_store=run_delivery_contexts,
@@ -434,6 +442,9 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         ),
         shadow_bubble_reconcile=(
             shadow_sync.reconcile_snapshot if shadow_sync is not None else None
+        ),
+        shadow_pending_notify=(
+            _notify_shadow_pending if shadow_sync is not None else None
         ),
         external_permission_request_sender=_send_external_permission_request,
         external_permission_resolved_sender=_mark_external_permission_resolved,

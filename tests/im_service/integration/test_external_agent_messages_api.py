@@ -206,3 +206,42 @@ def test_snapshot_rejects_non_shadow_conversation_and_non_terminal_status(
 
         assert ordinary.status_code == 400
         assert running.status_code == 422
+
+
+def test_snapshot_rejects_wrong_agent_and_other_owner_without_side_effects(
+    tmp_path: Path,
+) -> None:
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        conversation_id, _owner_id = _external_conversation(client, app)
+        before_messages = app.state.connection.execute(
+            "SELECT COUNT(*) FROM messages WHERE conversation_id = ?",
+            (conversation_id,),
+        ).fetchone()[0]
+        before_events = app.state.connection.execute(
+            "SELECT COUNT(*) FROM conversation_events WHERE conversation_id = ?",
+            (conversation_id,),
+        ).fetchone()[0]
+        url = (
+            f"/im/v1/conversations/{conversation_id}/external-agent-messages/"
+            "shadow-message-isolated"
+        )
+
+        wrong_agent = client.put(url, json={**_snapshot(), "agent_id": "socrates"})
+        assert wrong_agent.status_code == 400
+
+        other_owner = register_user(client, username="other-owner")
+        authorize(client, other_owner)
+        cross_owner = client.put(url, json=_snapshot())
+        assert cross_owner.status_code == 404
+
+        after_messages = app.state.connection.execute(
+            "SELECT COUNT(*) FROM messages WHERE conversation_id = ?",
+            (conversation_id,),
+        ).fetchone()[0]
+        after_events = app.state.connection.execute(
+            "SELECT COUNT(*) FROM conversation_events WHERE conversation_id = ?",
+            (conversation_id,),
+        ).fetchone()[0]
+        assert after_messages == before_messages
+        assert after_events == before_events
