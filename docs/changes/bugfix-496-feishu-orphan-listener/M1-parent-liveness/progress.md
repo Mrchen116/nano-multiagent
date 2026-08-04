@@ -38,9 +38,13 @@
 - `d0331f25b` — 回填首轮实现证据。
 - `d14f0db00` — 关闭 verifier R1-C1/R1-W1 与 code review C1/C2 的测试确定性、idle 反例和 tracker 隔离。
 - `d8d6d8472` — 固定 probe 的 unit checkout，并在 timeout/interrupt 时回收其完整进程组。
+- `d7be6c996` / `7dcc8088c` — 分离 spawn、正常 stop 与强制 stop 的测试预算，并在并发负载下保留正常 join 语义。
+- `698426be3` / `8bfba07ef` — 将真实 listener 回收与 retained-desired 手动重连拆成独立测试，并用共享绝对截止点保证失败路径在 pytest hard timeout 前完成清理。
 
 ## 独立门禁
 
 - Product review Round 2：`pass-with-issues`，本 unit 0 blocking；真实 stop/start、异常 owner death、离线页、逐条飞书回复和 10 秒 idle 均通过，主线既有 #231/#234 记录为 out-of-unit。
-- Verifier Round 3：`pass`，完整 worker 文件 `8 passed`，无 resource tracker warning；checkout pin 与 timeout/interrupt 清理均被独立验证。
-- Code review：首轮两个确认问题均位于测试 harness 并已关闭；对最终修复提交的 patch follow-up 无候选问题。
+- Verifier Round 8：`pass`，validated tree `8bfba07ef`；两份受影响测试文件 `15 passed`，Round 7 及后续 provisional 结论已标记为 stale/superseded，corrected delta 保持 `aligned`。
+- Code review：首轮与高负载收尾发现均只涉及测试 harness，确认问题全部关闭；最终补丁复审返回空候选。
+- 本地 Python CI：documentation integrity、Ruff、format 与 GitHub Actions 同形 pytest 全部通过，`2843 passed`；最终共享截止点补丁的三个精确 xdist 节点再次通过。
+- Frontend CI：`npm ci`、critical audit 与 Vitest 通过，`59` 个文件、`555 passed`；本 unit 无 frontend delta。
