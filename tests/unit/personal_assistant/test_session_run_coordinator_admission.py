@@ -486,6 +486,128 @@ async def test_continuous_steer_uses_one_original_stream(
 
 
 @pytest.mark.asyncio
+async def test_batched_consumed_steer_uses_the_last_follower_shadow_anchor(
+    tmp_path: Path,
+) -> None:
+    kernel, catalog, binder, router, group_store = build_dependencies(tmp_path)
+    observed: list[dict[str, object]] = []
+    coordinator = SessionRunCoordinator(
+        kernel=kernel,
+        session_binder=binder,
+        outbound_router=router,
+        group_context_store=group_store,
+        kernel_event_observer=lambda event: observed.append(dict(event)),
+    )
+    primary_message = attach_runtime_protocol(
+        inbound(chat_id="chat-a", text="one"),
+        RuntimeProtocolFacts(shadow_saga_id="saga-1"),
+    )
+    running = asyncio.create_task(
+        coordinator.dispatch(_request(primary_message, catalog))
+    )
+    await kernel.wait_stream("run-1")
+    kernel.inject_steer = True
+    follower_message = attach_runtime_protocol(
+        inbound(chat_id="chat-a", text="two"),
+        RuntimeProtocolFacts(shadow_saga_id="saga-2"),
+    )
+    last_follower_message = attach_runtime_protocol(
+        inbound(chat_id="chat-a", text="three"),
+        RuntimeProtocolFacts(
+            shadow_saga_id="saga-3",
+            shadow_ref=ShadowConversationRef(conversation_id="shadow-3"),
+        ),
+    )
+
+    steered = await coordinator.dispatch(_request(follower_message, catalog))
+    assert steered.run_id == "run-1"
+    last_steered = await coordinator.dispatch(_request(last_follower_message, catalog))
+    assert last_steered.run_id == "run-1"
+    kernel.push(
+        "run-1",
+        {
+            "event": "injection_consumed",
+            "message_count": 2,
+            "user_message_count": 2,
+        },
+    )
+    kernel.finish("run-1", text="all done")
+    await running
+
+    consumed = next(
+        event for event in observed if event["event"] == "injection_consumed"
+    )
+    assert consumed["shadow_saga_id"] == "saga-3"
+    assert consumed["shadow_anchor_pending"] is False
+    assert consumed["shadow_conversation_id"] == "shadow-3"
+
+
+@pytest.mark.asyncio
+async def test_consumed_steer_marks_a_pending_follower_shadow_anchor(
+    tmp_path: Path,
+) -> None:
+    kernel, catalog, binder, router, group_store = build_dependencies(tmp_path)
+    observed: list[dict[str, object]] = []
+    coordinator = SessionRunCoordinator(
+        kernel=kernel,
+        session_binder=binder,
+        outbound_router=router,
+        group_context_store=group_store,
+        kernel_event_observer=lambda event: observed.append(dict(event)),
+    )
+    running = asyncio.create_task(
+        coordinator.dispatch(
+            _request(
+                attach_runtime_protocol(
+                    inbound(chat_id="chat-a", text="one"),
+                    RuntimeProtocolFacts(shadow_saga_id="saga-1"),
+                ),
+                catalog,
+            )
+        )
+    )
+    await kernel.wait_stream("run-1")
+    kernel.inject_steer = True
+    steered = await coordinator.dispatch(
+        _request(
+            attach_runtime_protocol(
+                inbound(chat_id="chat-a", text="two"),
+                RuntimeProtocolFacts(shadow_saga_id="saga-2"),
+            ),
+            catalog,
+        )
+    )
+    assert steered.run_id == "run-1"
+    kernel.push(
+        "run-1",
+        {
+            "event": "injection_consumed",
+            "message_count": 1,
+            "user_message_count": 0,
+        },
+    )
+    kernel.push(
+        "run-1",
+        {
+            "event": "injection_consumed",
+            "message_count": 1,
+            "user_message_count": 1,
+        },
+    )
+    kernel.finish("run-1", text="all done")
+    await running
+
+    consumed_events = [
+        event for event in observed if event["event"] == "injection_consumed"
+    ]
+    assert len(consumed_events) == 1
+    consumed = consumed_events[0]
+    assert consumed["shadow_saga_id"] == "saga-2"
+    assert consumed["shadow_anchor_pending"] is True
+    assert "shadow_conversation_id" not in consumed
+
+
+@pytest.mark.asyncio
 async def test_config_publish_reconfigures_same_session_only_for_next_run(
     tmp_path: Path,
 ) -> None:

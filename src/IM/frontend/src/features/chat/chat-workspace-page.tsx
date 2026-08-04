@@ -735,6 +735,7 @@ export function ChatWorkspacePage() {
         } else if (
           event.eventType === "message.sent" ||
           event.eventType === "message.created" ||
+          event.eventType === "message.reconciled" ||
           event.eventType === "relay.completed"
         ) {
           // bugfix-442: 新消息/回复到达——该会话的未读、preview、时间、排序都可能变。

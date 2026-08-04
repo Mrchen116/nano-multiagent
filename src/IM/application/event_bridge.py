@@ -141,6 +141,7 @@ class EventBridge:
         conversation_id: str,
         agent_user_id: str,
         agent_id: str,
+        caller_idempotency_key: str | None = None,
     ) -> Message:
         """Create the agent's empty placeholder message and emit ``message.created``.
 
@@ -150,6 +151,8 @@ class EventBridge:
                 row with username ``agent:<agent_id>``).
             agent_id: Stable agent identifier; available for callers that wish to log
                 or correlate, currently unused inside the bridge.
+            caller_idempotency_key: Optional durable source identity shared by live
+                external delivery and terminal snapshot recovery.
 
         Returns:
             The created placeholder message.
@@ -162,7 +165,10 @@ class EventBridge:
             sender_type="agent",
             auto_complete_delivery=False,
             allow_empty=True,
+            caller_idempotency_key=caller_idempotency_key,
         )
+        if created.delivery_status != "sent":
+            return created
         # Surface the agent message as "running" so /sync replays mark unfinished turns,
         # and live UIs render the pulse / spinner immediately.
         message = self.message_repository.update_runtime_state(
@@ -271,7 +277,9 @@ class EventBridge:
             ),
         )
 
-    def on_thinking_segment(self, *, message_id: str, text: str) -> None:
+    def on_thinking_segment(
+        self, *, message_id: str, text: str, process_seq: int | None = None
+    ) -> None:
         """feat-439-M2: 持久化一段思考过程项并发 ``thinking.segment`` 事件。
 
         seq 由 repo 在持久化边界赋予：思考与工具共享一个 per-message 单调递增、按真实
@@ -279,7 +287,7 @@ class EventBridge:
         历史回放口径一致（同一持久化 seq，重放可按 seq 幂等去重）。
         """
         updated = self.message_repository.append_thinking_segment(
-            message_id=message_id, text=text
+            message_id=message_id, text=text, process_seq=process_seq
         )
         segment = (updated.thinking or [])[-1]
         self._emit(
@@ -302,6 +310,7 @@ class EventBridge:
         token_usage: TokenUsage | None = None,
         delivery_status: str = "completed",
         kernel_message_id: str | None = None,
+        elapsed_ms: int | None = None,
     ) -> None:
         """Close the agent message with terminal content + optional token usage.
 
@@ -322,10 +331,14 @@ class EventBridge:
             kernel_message_id=kernel_message_id,
         )
         turn_start = datetime.fromisoformat(current.created_at)
-        elapsed_ms = round((now_utc - turn_start).total_seconds() * 1000)
+        resolved_elapsed_ms = (
+            elapsed_ms
+            if elapsed_ms is not None
+            else round((now_utc - turn_start).total_seconds() * 1000)
+        )
         updated = self.message_repository.update_runtime_state(
             message_id=message_id,
-            elapsed_ms=elapsed_ms,
+            elapsed_ms=resolved_elapsed_ms,
         )
         # bugfix-410-M2 (#98): a terminal run must drop any awaiting_permission
         # marker so a never-resolved ask cannot keep exempting an already-closed
@@ -341,7 +354,7 @@ class EventBridge:
                 message_id=message_id,
                 content=updated.content,
                 token_usage=token_usage,
-                elapsed_ms=elapsed_ms,
+                elapsed_ms=resolved_elapsed_ms,
                 kernel_message_id=updated.kernel_message_id,
             ),
         )

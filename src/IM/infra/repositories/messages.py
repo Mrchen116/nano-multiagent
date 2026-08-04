@@ -36,6 +36,7 @@ from IM.infra.repositories._message_projection import (
     _encode_tool_calls,
     _load_permission_requests,
     _message_created_payload,
+    _message_reconciled_payload,
     _next_process_seq,
     _synthetic_message_id_from_event_payload,
     _to_message_preview,
@@ -443,6 +444,169 @@ class MessageRepository:
             self._notify(tombstone)
         return tombstone
 
+    def reconcile_external_agent_message(
+        self,
+        *,
+        conversation_id: str,
+        shadow_message_id: str,
+        agent_id: str,
+        content: str,
+        thinking: list[ThinkingSegment],
+        tool_calls: list[ToolCall],
+        token_usage: TokenUsage | None,
+        elapsed_ms: int,
+        delivery_status: str,
+        kernel_message_id: str | None,
+    ) -> Message:
+        """Atomically create or replace one terminal external Agent projection."""
+
+        if delivery_status not in {"completed", "failed"}:
+            raise ValueError("external agent message must be terminal")
+        if elapsed_ms < 0:
+            raise ValueError("elapsed_ms must be non-negative")
+        caller_key = shadow_message_id.strip()
+        if not caller_key:
+            raise ValueError("shadow_message_id must be non-empty")
+        conversation = self._connection.execute(
+            """
+            SELECT owner_id, external_source, external_chat_id, config_agent_id
+            FROM conversations
+            WHERE id = ?
+            """,
+            (conversation_id,),
+        ).fetchone()
+        if conversation is None:
+            raise ValueError("conversation_id not found")
+        if (
+            conversation["external_source"] is None
+            or conversation["external_chat_id"] is None
+        ):
+            raise ValueError("conversation is not an external shadow conversation")
+        if str(conversation["config_agent_id"] or "") != agent_id:
+            raise ValueError("agent_id does not match external shadow conversation")
+        sender = self._resolve_sender_user_row(
+            sender_user_id=f"agent:{agent_id}", sender_type="agent"
+        )
+        if sender is None:
+            raise ValueError("sender_user_id not found")
+        sender_user_id = str(sender["id"])
+        participant = self._connection.execute(
+            """
+            SELECT 1 FROM conversation_participants
+            WHERE conversation_id = ? AND user_id = ?
+            """,
+            (conversation_id, sender_user_id),
+        ).fetchone()
+        if participant is None:
+            raise ValueError("agent is not a participant of conversation")
+        stored_key = _scoped_caller_idempotency_key(conversation_id, caller_key)
+        event: ConversationEvent
+        with self._connection:
+            existing = self._connection.execute(
+                """
+                SELECT id, sender_user_id, sender_type
+                FROM messages
+                WHERE conversation_id = ? AND caller_idempotency_key IN (?, ?)
+                """,
+                (conversation_id, stored_key, caller_key),
+            ).fetchone()
+            if existing is None:
+                message_id = uuid4().hex
+                created_at = utc_now()
+                self._connection.execute(
+                    """
+                    INSERT INTO messages(
+                        id, conversation_id, sender_user_id, sender_type, content,
+                        attachments_json, delivery_status, created_at, tool_calls_json,
+                        thinking_json, token_usage_json, elapsed_ms, kernel_message_id,
+                        caller_idempotency_key
+                    ) VALUES (?, ?, ?, 'agent', ?, '[]', ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        message_id,
+                        conversation_id,
+                        sender_user_id,
+                        content,
+                        delivery_status,
+                        created_at,
+                        _encode_tool_calls(tool_calls),
+                        _encode_thinking(thinking),
+                        _encode_token_usage(token_usage),
+                        elapsed_ms,
+                        kernel_message_id,
+                        stored_key,
+                    ),
+                )
+                self._connection.execute(
+                    "UPDATE conversations SET unread_count = unread_count + 1 WHERE id = ?",
+                    (conversation_id,),
+                )
+            else:
+                if (
+                    str(existing["sender_user_id"]) != sender_user_id
+                    or str(existing["sender_type"]) != "agent"
+                ):
+                    raise ValueError("shadow_message_id belongs to another sender")
+                message_id = str(existing["id"])
+                self._connection.execute(
+                    """
+                    UPDATE messages
+                    SET content = ?, tool_calls_json = ?, thinking_json = ?,
+                        token_usage_json = ?, elapsed_ms = ?, delivery_status = ?,
+                        kernel_message_id = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        content,
+                        _encode_tool_calls(tool_calls),
+                        _encode_thinking(thinking),
+                        _encode_token_usage(token_usage),
+                        elapsed_ms,
+                        delivery_status,
+                        kernel_message_id,
+                        message_id,
+                    ),
+                )
+            row = self._message_row(message_id)
+            assert row is not None
+            message = self._message_from_row(row)
+            latest = self._connection.execute(
+                """
+                SELECT content, attachments_json, created_at
+                FROM messages
+                WHERE conversation_id = ?
+                ORDER BY created_at DESC, id DESC
+                LIMIT 1
+                """,
+                (conversation_id,),
+            ).fetchone()
+            assert latest is not None
+            self._connection.execute(
+                """
+                UPDATE conversations
+                SET last_message_preview = ?, last_message_at = ?
+                WHERE id = ?
+                """,
+                (
+                    _to_message_preview(
+                        content=str(latest["content"]),
+                        attachments=_decode_attachments(latest["attachments_json"]),
+                    ),
+                    str(latest["created_at"]),
+                    conversation_id,
+                ),
+            )
+            event = self._insert_event(
+                conversation_id=conversation_id,
+                message_id=message_id,
+                event_type="message.reconciled",
+                delivery_status=delivery_status,
+                payload=_message_reconciled_payload(message),
+            )
+        if self._notify is not None:
+            self._notify(event)
+        return message
+
     def update_runtime_state(
         self,
         *,
@@ -515,14 +679,18 @@ class MessageRepository:
                     # (max over current thinking + tools, +1) so thinking/tools share one
                     # monotonic arrival order. A later same-id upsert (completed) keeps it.
                     order.append(upsert.id)
-                    seq = _next_process_seq(
-                        existing_thinking, list(existing_by_id.values())
+                    seq = (
+                        upsert.seq
+                        if upsert.seq is not None
+                        else _next_process_seq(
+                            existing_thinking, list(existing_by_id.values())
+                        )
                     )
                     existing_by_id[upsert.id] = replace(upsert, seq=seq)
                 else:
-                    # Preserve the seq assigned at first upsert; the gateway never sends
-                    # seq (IM owns assignment), so a None on the incoming completed frame
-                    # must not wipe it.
+                    # Preserve the first assigned seq for ordinary Gateway frames. An
+                    # external shadow frame may carry the durable source seq so live and
+                    # recovered projections keep the same process order.
                     prior_seq = existing_by_id[upsert.id].seq
                     existing_by_id[upsert.id] = replace(
                         upsert, seq=upsert.seq if upsert.seq is not None else prior_seq
@@ -594,7 +762,9 @@ class MessageRepository:
         ).fetchone()
         return self._message_from_row(refreshed)
 
-    def append_thinking_segment(self, *, message_id: str, text: str) -> Message:
+    def append_thinking_segment(
+        self, *, message_id: str, text: str, process_seq: int | None = None
+    ) -> Message:
         """feat-439-M2: 追加一段思考到 ``messages.thinking_json``，返回刷新后的消息。
 
         ``seq`` 在此（持久化边界）统一赋予：思考与工具**共享一个 per-message 单调递增
@@ -613,8 +783,13 @@ class MessageRepository:
                 raise ValueError(f"message_id not found: {message_id}")
             existing_tools = _decode_tool_calls(row["tool_calls_json"]) or []
             existing = _decode_thinking(row["thinking_json"]) or []
-            seq = _next_process_seq(existing, existing_tools)
-            existing.append(ThinkingSegment(seq=seq, text=text))
+            seq = (
+                process_seq
+                if process_seq is not None
+                else _next_process_seq(existing, existing_tools)
+            )
+            if not any(segment.seq == seq for segment in existing):
+                existing.append(ThinkingSegment(seq=seq, text=text))
             self._connection.execute(
                 "UPDATE messages SET thinking_json = ? WHERE id = ?",
                 (_encode_thinking(existing), message_id),
@@ -977,6 +1152,34 @@ class MessageRepository:
             permission_requests=permission_requests,
             kernel_message_id=kernel_message_id_value,
         )
+
+    def _message_row(self, message_id: str) -> sqlite3.Row | None:
+        return self._connection.execute(
+            """
+            SELECT
+                messages.id,
+                messages.conversation_id,
+                messages.sender_user_id,
+                messages.sender_type,
+                messages.content,
+                messages.attachments_json,
+                messages.delivery_status,
+                messages.created_at,
+                messages.tool_calls_json,
+                messages.thinking_json,
+                messages.token_usage_json,
+                messages.elapsed_ms,
+                messages.permission_request_json,
+                messages.kernel_message_id,
+                users.username AS sender_username,
+                COALESCE(messages.sender_display_name, users.display_name)
+                    AS sender_display_name
+            FROM messages
+            LEFT JOIN users ON users.id = messages.sender_user_id
+            WHERE messages.id = ?
+            """,
+            (message_id,),
+        ).fetchone()
 
     def _message_from_visible_event_row(self, row: sqlite3.Row) -> Message | None:
         """Convert one relay-visible event row into the synthetic message shown in history."""
