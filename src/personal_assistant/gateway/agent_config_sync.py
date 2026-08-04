@@ -276,7 +276,8 @@ class IMAgentConfigSync:
         self._enable_skills_for_agent(agent, skill_ids)
         updated = self._local_agent(agent_id)
         return updated is not None and (
-            not updated.skills or all(skill_id in updated.skills for skill_id in skill_ids)
+            not updated.skills
+            or all(skill_id in updated.skills for skill_id in skill_ids)
         )
 
     def ensure_agent_skill_enabled(self, agent_id: str, skill_id: str) -> bool:

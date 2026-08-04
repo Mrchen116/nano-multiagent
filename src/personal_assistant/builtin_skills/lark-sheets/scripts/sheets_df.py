@@ -12,6 +12,7 @@ so callers can `import` it instead of copy-pasting:
 
 Callers run lark-cli themselves; this file is a library, not a CLI.
 """
+
 import json
 
 import pandas as pd

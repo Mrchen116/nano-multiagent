@@ -106,7 +106,9 @@ def parse_simple_type(
         union_members = [
             local_name(member) for member in union.attrib.get("memberTypes", "").split()
         ]
-        for index, inline_simple in enumerate(direct_children(union, "simpleType"), start=1):
+        for index, inline_simple in enumerate(
+            direct_children(union, "simpleType"), start=1
+        ):
             inline_name = f"__inline_union_member_{name}_{index}"
             union_members.append(inline_name)
             if simple_types is not None:
@@ -141,8 +143,13 @@ def parse_simple_type(
     return SimpleTypeRule(
         name=name,
         base=local_name(restriction.attrib.get("base", "string")),
-        enums=tuple(child.attrib["value"] for child in direct_children(restriction, "enumeration")),
-        patterns=tuple(child.attrib["value"] for child in direct_children(restriction, "pattern")),
+        enums=tuple(
+            child.attrib["value"]
+            for child in direct_children(restriction, "enumeration")
+        ),
+        patterns=tuple(
+            child.attrib["value"] for child in direct_children(restriction, "pattern")
+        ),
         bounds=tuple(bounds),
         length_bounds=tuple(length_bounds),
     )
@@ -157,7 +164,9 @@ def parse_element_rule(element: ET.Element) -> ElementRule | None:
         return None
     return ElementRule(
         name=name,
-        type_name=local_name(element.attrib["type"]) if element.attrib.get("type") else None,
+        type_name=local_name(element.attrib["type"])
+        if element.attrib.get("type")
+        else None,
         inline_complex_type=first_direct_child(element, "complexType"),
         ref_name=local_name(raw_ref) if raw_ref else None,
     )
@@ -177,7 +186,9 @@ def load_schema_model(schema_path: str) -> SchemaModel:
         if inline_simple is None:
             continue
         inline_name = f"__inline_attribute_{attribute.attrib.get('name', 'anonymous')}_{id(attribute)}"
-        simple_types[inline_name] = parse_simple_type(inline_simple, inline_name, simple_types)
+        simple_types[inline_name] = parse_simple_type(
+            inline_simple, inline_name, simple_types
+        )
     complex_types = {
         element.attrib["name"]: element
         for element in direct_children(root, "complexType")
@@ -219,7 +230,11 @@ def attributes_for_complex_type(
         base_name = local_name(extension.attrib.get("base", ""))
         if base_name in model.complex_types and base_name not in resolving:
             resolving.add(base_name)
-            attributes.update(attributes_for_complex_type(model.complex_types[base_name], model, resolving))
+            attributes.update(
+                attributes_for_complex_type(
+                    model.complex_types[base_name], model, resolving
+                )
+            )
             resolving.remove(base_name)
         attributes.update(direct_attribute_rules(extension))
 
@@ -245,7 +260,9 @@ def direct_attribute_rules(element: ET.Element) -> dict[str, AttributeRule]:
     return rules
 
 
-def attributes_for_element(rule: ElementRule, model: SchemaModel) -> dict[str, AttributeRule]:
+def attributes_for_element(
+    rule: ElementRule, model: SchemaModel
+) -> dict[str, AttributeRule]:
     complex_type = rule.inline_complex_type
     if complex_type is None and rule.type_name in model.complex_types:
         complex_type = model.complex_types[rule.type_name]
@@ -261,7 +278,8 @@ def best_element_rule(element_name: str, model: SchemaModel) -> ElementRule | No
     return max(
         candidates,
         key=lambda candidate: (
-            candidate.type_name is not None or candidate.inline_complex_type is not None,
+            candidate.type_name is not None
+            or candidate.inline_complex_type is not None,
             len(attributes_for_element(candidate, model)),
         ),
     )
@@ -276,7 +294,9 @@ def concrete_element_rule(rule: ElementRule, model: SchemaModel) -> ElementRule:
     return candidate or rule
 
 
-def complex_type_for_element(rule: ElementRule, model: SchemaModel) -> ET.Element | None:
+def complex_type_for_element(
+    rule: ElementRule, model: SchemaModel
+) -> ET.Element | None:
     rule = concrete_element_rule(rule, model)
     if rule.inline_complex_type is not None:
         return rule.inline_complex_type
@@ -378,7 +398,9 @@ def child_rules_for_complex_type(
                         max_multiplier=effective_max,
                     )
             if names and (group_min > 0 or effective_max is not None):
-                requirements.append(ChoiceRequirement(tuple(names), group_min, effective_max))
+                requirements.append(
+                    ChoiceRequirement(tuple(names), group_min, effective_max)
+                )
             return
 
         group_ordered = kind == "sequence"
@@ -557,23 +579,38 @@ def value_error_for_type(
         except ValueError:
             return "sxsd_invalid_scalar", f"value valid for {type_name}"
         except ArithmeticError:
-            return "sxsd_value_out_of_range", f"value in the range allowed by {type_name}"
+            return (
+                "sxsd_value_out_of_range",
+                f"value in the range allowed by {type_name}",
+            )
         return None
 
     resolving.add(type_name)
     try:
         if rule.union_members:
-            member_errors = [value_error_for_type(member, value, model, resolving) for member in rule.union_members]
+            member_errors = [
+                value_error_for_type(member, value, model, resolving)
+                for member in rule.union_members
+            ]
             if any(error is None for error in member_errors):
                 return None
             unsupported_error = next(
-                (error for error in member_errors if error and error[0] == "sxsd_unsupported_pattern"),
+                (
+                    error
+                    for error in member_errors
+                    if error and error[0] == "sxsd_unsupported_pattern"
+                ),
                 None,
             )
             if unsupported_error is not None:
                 return unsupported_error
-            if any(error and error[0] == "sxsd_pattern_mismatch" for error in member_errors):
-                return "sxsd_pattern_mismatch", f"value matching one member of {type_name}"
+            if any(
+                error and error[0] == "sxsd_pattern_mismatch" for error in member_errors
+            ):
+                return (
+                    "sxsd_pattern_mismatch",
+                    f"value matching one member of {type_name}",
+                )
             return member_errors[0]
 
         if rule.enums and value not in rule.enums:
@@ -591,16 +628,21 @@ def value_error_for_type(
                 if unsupported_patterns:
                     return (
                         "sxsd_unsupported_pattern",
-                        "lint support for XSD pattern " + "; ".join(unsupported_patterns),
+                        "lint support for XSD pattern "
+                        + "; ".join(unsupported_patterns),
                     )
-                return "sxsd_pattern_mismatch", "value matching pattern " + " or ".join(rule.patterns)
+                return "sxsd_pattern_mismatch", "value matching pattern " + " or ".join(
+                    rule.patterns
+                )
 
         base_name = rule.base or "string"
         base_error = value_error_for_type(base_name, value, model, resolving)
         if base_error is not None:
             return base_error
         for facet, bound in rule.length_bounds:
-            allowed = len(value) >= bound if facet == "minLength" else len(value) <= bound
+            allowed = (
+                len(value) >= bound if facet == "minLength" else len(value) <= bound
+            )
             if not allowed:
                 return "sxsd_value_out_of_range", f"{facet} {bound}"
         scalar = scalar_value_for_type(base_name, value, model)
@@ -655,17 +697,13 @@ def validate_element_attributes(
             continue
         code, expected = validation_error
         if code == "sxsd_unsupported_pattern":
-            message = (
-                f'unsupported SXSD pattern for attribute "{attr_name}" on <{tag}> at {path}'
-            )
+            message = f'unsupported SXSD pattern for attribute "{attr_name}" on <{tag}> at {path}'
             hint = (
                 f"Extend the SXSD pattern interpreter for {attr_rule.type_name}; "
                 "do not treat this attribute value as validated."
             )
         else:
-            message = (
-                f'invalid SXSD value {value!r} for attribute "{attr_name}" on <{tag}> at {path}'
-            )
+            message = f'invalid SXSD value {value!r} for attribute "{attr_name}" on <{tag}> at {path}'
             hint = f'Set attribute "{attr_name}" to a value valid for {attr_rule.type_name}.'
         issues.append(
             issue(
@@ -697,7 +735,9 @@ def validate_element_children(
     tag = local_name(element.tag)
     complex_type = complex_type_for_element(element_rule, model)
     child_rules, choice_requirements = (
-        child_rules_for_complex_type(complex_type) if complex_type is not None else ([], [])
+        child_rules_for_complex_type(complex_type)
+        if complex_type is not None
+        else ([], [])
     )
     rules_by_name: dict[str, list[ChildRule]] = {}
     for child_rule in child_rules:
@@ -718,7 +758,9 @@ def validate_element_children(
                     child_path,
                     child_name,
                     attr=None,
-                    expected="one of: " + ", ".join(sorted(rules_by_name)) if rules_by_name else "no child elements",
+                    expected="one of: " + ", ".join(sorted(rules_by_name))
+                    if rules_by_name
+                    else "no child elements",
                     actual=child_name,
                     message=f"unexpected SXSD child <{child_name}> under <{tag}> at {child_path}",
                     hint=f"Move or remove <{child_name}> so <{tag}> follows the SXSD child structure.",
@@ -744,7 +786,10 @@ def validate_element_children(
             latest_order = max(latest_order, child_rule.order)
 
         counts[child_name] = counts.get(child_name, 0) + 1
-        if child_rule.max_occurs is not None and counts[child_name] > child_rule.max_occurs:
+        if (
+            child_rule.max_occurs is not None
+            and counts[child_name] > child_rule.max_occurs
+        ):
             issues.append(
                 issue(
                     "sxsd_too_many_children",
@@ -853,7 +898,9 @@ def validate_sxsd(root: ET.Element, schema_path: Path) -> list[dict[str, Any]]:
                 )
             )
         issues.extend(validate_element_attributes(element, path, model, element_rule))
-        child_issues, matched = validate_element_children(element, path, element_rule, model)
+        child_issues, matched = validate_element_children(
+            element, path, element_rule, model
+        )
         issues.extend(child_issues)
         for child in element:
             child_rule = matched.get(id(child))
@@ -904,5 +951,7 @@ def load_tag_attributes(schema_path: Path) -> dict[str, set[str]]:
     for tag_name, candidates in model.element_candidates.items():
         attrs = tag_attributes.setdefault(tag_name, set())
         for candidate in candidates:
-            attrs.update(attributes_for_element(concrete_element_rule(candidate, model), model))
+            attrs.update(
+                attributes_for_element(concrete_element_rule(candidate, model), model)
+            )
     return tag_attributes

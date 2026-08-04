@@ -81,13 +81,18 @@ def test_packaged_lark_bundle_matches_its_manifest_and_gateway_boundaries() -> N
     ).read_text(encoding="utf-8")
 
 
-def test_install_builtin_skills_installs_the_complete_lark_bundle(tmp_path: Path) -> None:
+def test_install_builtin_skills_installs_the_complete_lark_bundle(
+    tmp_path: Path,
+) -> None:
     target_root = tmp_path / ".nanoassistant" / "skills"
 
     installed = install_builtin_skills(target_root=target_root)
 
     assert set(lark_skill_names()) <= set(installed)
-    assert all((target_root / skill_id / "SKILL.md").is_file() for skill_id in lark_skill_names())
+    assert all(
+        (target_root / skill_id / "SKILL.md").is_file()
+        for skill_id in lark_skill_names()
+    )
 
 
 _LLM_YAML = """\
@@ -147,7 +152,7 @@ def test_installed_lark_doc_is_visible_to_capabilities_and_prompt_preview(
         }
         preview = kernel.assemble_prompt_preview(
             workspace_root=workspace,
-                skill_ids=["lark-doc"],
+            skill_ids=["lark-doc"],
             prompt=prompt_for(config.agents[0]),
             enabled_tools=["read"],
         )

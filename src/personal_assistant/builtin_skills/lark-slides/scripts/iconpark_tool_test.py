@@ -20,14 +20,21 @@ class IconParkToolTest(unittest.TestCase):
         cls.index_data = iconpark_tool.load_index()
 
     def test_search_icons_finds_growth_trend(self) -> None:
-        results = iconpark_tool.search_icons(self.index_data, {"query": "增长趋势", "limit": 5})
+        results = iconpark_tool.search_icons(
+            self.index_data, {"query": "增长趋势", "limit": 5}
+        )
         self.assertTrue(results)
         self.assertTrue(
-            any(entry["iconType"] == "iconpark/Charts/positive-dynamics.svg" for entry in results)
+            any(
+                entry["iconType"] == "iconpark/Charts/positive-dynamics.svg"
+                for entry in results
+            )
         )
 
     def test_search_icons_supports_english_query(self) -> None:
-        results = iconpark_tool.search_icons(self.index_data, {"query": "security protect", "limit": 3})
+        results = iconpark_tool.search_icons(
+            self.index_data, {"query": "security protect", "limit": 3}
+        )
         self.assertTrue(results)
         self.assertEqual(results[0]["iconType"], "iconpark/Safe/protect.svg")
 
@@ -40,11 +47,17 @@ class IconParkToolTest(unittest.TestCase):
         self.assertTrue(all(entry["category"] == "Charts" for entry in results))
 
     def test_search_icons_does_not_expand_ai_inside_words(self) -> None:
-        mail_results = iconpark_tool.search_icons(self.index_data, {"query": "mail", "limit": 5})
-        self.assertEqual(mail_results[0]["iconType"], "iconpark/Office/envelope-one.svg")
+        mail_results = iconpark_tool.search_icons(
+            self.index_data, {"query": "mail", "limit": 5}
+        )
+        self.assertEqual(
+            mail_results[0]["iconType"], "iconpark/Office/envelope-one.svg"
+        )
         self.assertNotEqual(mail_results[0]["iconType"], "iconpark/Others/magic.svg")
 
-        fail_results = iconpark_tool.search_icons(self.index_data, {"query": "fail", "limit": 5})
+        fail_results = iconpark_tool.search_icons(
+            self.index_data, {"query": "fail", "limit": 5}
+        )
         self.assertNotEqual(fail_results[0]["iconType"], "iconpark/Others/magic.svg")
 
     def test_search_icons_supports_template_icon_queries(self) -> None:
@@ -58,7 +71,9 @@ class IconParkToolTest(unittest.TestCase):
         ]
         for query, icon_type in cases:
             with self.subTest(query=query):
-                results = iconpark_tool.search_icons(self.index_data, {"query": query, "limit": 10})
+                results = iconpark_tool.search_icons(
+                    self.index_data, {"query": query, "limit": 10}
+                )
                 self.assertTrue(
                     any(entry["iconType"] == icon_type for entry in results),
                     f"{icon_type} not found in {results}",
@@ -69,9 +84,13 @@ class IconParkToolTest(unittest.TestCase):
         self.assertEqual(len(results), 8)
 
     def test_search_icons_boosts_common_slide_terms(self) -> None:
-        results = iconpark_tool.search_icons(self.index_data, {"query": "会议", "limit": 3})
+        results = iconpark_tool.search_icons(
+            self.index_data, {"query": "会议", "limit": 3}
+        )
         self.assertTrue(
-            any(entry["iconType"] == "iconpark/Office/schedule.svg" for entry in results),
+            any(
+                entry["iconType"] == "iconpark/Office/schedule.svg" for entry in results
+            ),
             f"iconpark/Office/schedule.svg not found in {results}",
         )
 
@@ -85,7 +104,9 @@ class IconParkToolTest(unittest.TestCase):
         ]
         for query, icon_type in cases:
             with self.subTest(query=query):
-                results = iconpark_tool.search_icons(self.index_data, {"query": query, "limit": 3})
+                results = iconpark_tool.search_icons(
+                    self.index_data, {"query": query, "limit": 3}
+                )
                 self.assertTrue(results)
                 self.assertEqual(results[0]["iconType"], icon_type)
 
@@ -95,16 +116,22 @@ class IconParkToolTest(unittest.TestCase):
 
     def test_search_icons_rejects_invalid_limit(self) -> None:
         with self.assertRaises(iconpark_tool.IconParkToolError):
-            iconpark_tool.search_icons(self.index_data, {"query": "data", "limit": "abc"})
+            iconpark_tool.search_icons(
+                self.index_data, {"query": "data", "limit": "abc"}
+            )
 
     def test_resolve_icon_accepts_name_and_icon_type(self) -> None:
         by_name = iconpark_tool.resolve_icon(self.index_data, "chart-line")
-        by_type = iconpark_tool.resolve_icon(self.index_data, "iconpark/Charts/chart-line.svg")
+        by_type = iconpark_tool.resolve_icon(
+            self.index_data, "iconpark/Charts/chart-line.svg"
+        )
         self.assertEqual(by_name["iconType"], "iconpark/Charts/chart-line.svg")
         self.assertEqual(by_name, by_type)
 
     def test_resolve_icon_accepts_template_icon_type(self) -> None:
-        result = iconpark_tool.resolve_icon(self.index_data, "iconpark/Arrows/arrow-right.svg")
+        result = iconpark_tool.resolve_icon(
+            self.index_data, "iconpark/Arrows/arrow-right.svg"
+        )
         self.assertEqual(result["iconType"], "iconpark/Arrows/arrow-right.svg")
 
     def test_resolve_icon_rejects_unknown_name(self) -> None:
@@ -113,7 +140,12 @@ class IconParkToolTest(unittest.TestCase):
 
     def test_list_categories_counts_index(self) -> None:
         categories = iconpark_tool.list_categories(self.index_data)
-        self.assertTrue(any(entry["category"] == "Charts" and entry["count"] > 0 for entry in categories))
+        self.assertTrue(
+            any(
+                entry["category"] == "Charts" and entry["count"] > 0
+                for entry in categories
+            )
+        )
 
 
 class IconParkToolCLITest(unittest.TestCase):
@@ -133,7 +165,10 @@ class IconParkToolCLITest(unittest.TestCase):
         output = json.loads(result.stdout)
         self.assertTrue(output)
         self.assertTrue(
-            any(entry["iconType"] == "iconpark/Charts/positive-dynamics.svg" for entry in output)
+            any(
+                entry["iconType"] == "iconpark/Charts/positive-dynamics.svg"
+                for entry in output
+            )
         )
 
     def test_cli_resolve_writes_json_to_stdout(self) -> None:
@@ -150,7 +185,11 @@ class IconParkToolCLITest(unittest.TestCase):
         self.assertEqual(result.stderr, "")
 
         output = json.loads(result.stdout)
-        self.assertTrue(any(entry["category"] == "Charts" and entry["count"] > 0 for entry in output))
+        self.assertTrue(
+            any(
+                entry["category"] == "Charts" and entry["count"] > 0 for entry in output
+            )
+        )
 
     def test_cli_help_writes_usage_to_stderr(self) -> None:
         result = self.run_tool("--help")
@@ -163,7 +202,9 @@ class IconParkToolCLITest(unittest.TestCase):
         result = self.run_tool("search", "增长趋势")
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stdout, "")
-        self.assertIn("iconpark-tool error: unexpected argument: 增长趋势", result.stderr)
+        self.assertIn(
+            "iconpark-tool error: unexpected argument: 增长趋势", result.stderr
+        )
 
     def test_cli_unknown_command_writes_usage_and_error_to_stderr(self) -> None:
         result = self.run_tool("unknown")

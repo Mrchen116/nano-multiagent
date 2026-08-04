@@ -189,7 +189,9 @@ def score_icon(entry: dict[str, Any], query: str, tokens: list[str]) -> int:
             score += 120
         elif normalized_query in icon_type_tokens:
             score += 60
-        elif allows_substring_match(normalized_query) and normalized_query in search_text:
+        elif (
+            allows_substring_match(normalized_query) and normalized_query in search_text
+        ):
             score += 30
 
     for token in tokens:
@@ -249,7 +251,9 @@ def public_icon(entry: dict[str, Any], score: int | None = None) -> dict[str, An
     return result
 
 
-def search_icons(index_data: dict[str, Any], options: dict[str, Any]) -> list[dict[str, Any]]:
+def search_icons(
+    index_data: dict[str, Any], options: dict[str, Any]
+) -> list[dict[str, Any]]:
     query = str(options.get("query") or "")
     if not normalize_whitespace(query):
         fail("query is required")
@@ -259,7 +263,10 @@ def search_icons(index_data: dict[str, Any], options: dict[str, Any]) -> list[di
 
     ranked: list[dict[str, Any]] = []
     for entry in index_data["icons"]:
-        if category_filter and normalize_token(entry.get("category", "")) != category_filter:
+        if (
+            category_filter
+            and normalize_token(entry.get("category", "")) != category_filter
+        ):
             continue
         score = score_icon(entry, query, tokens)
         if query and score == 0:
@@ -270,7 +277,9 @@ def search_icons(index_data: dict[str, Any], options: dict[str, Any]) -> list[di
     return ranked[: max(limit, 0)]
 
 
-def resolve_icon(index_data: dict[str, Any], name_or_type: str | None) -> dict[str, Any]:
+def resolve_icon(
+    index_data: dict[str, Any], name_or_type: str | None
+) -> dict[str, Any]:
     if not name_or_type:
         fail("name is required")
     target = normalize_token(name_or_type)
@@ -279,7 +288,7 @@ def resolve_icon(index_data: dict[str, Any], name_or_type: str | None) -> dict[s
         candidates = {
             normalize_token(entry["iconType"]),
             normalize_token(entry["name"]),
-            normalize_token(f'{entry["category"]}/{entry["name"]}.svg'),
+            normalize_token(f"{entry['category']}/{entry['name']}.svg"),
         }
         if target in candidates:
             matches.append(entry)
@@ -295,7 +304,9 @@ def list_categories(index_data: dict[str, Any]) -> list[dict[str, Any]]:
     counts: dict[str, int] = {}
     for entry in index_data["icons"]:
         counts[entry["category"]] = counts.get(entry["category"], 0) + 1
-    return [{"category": category, "count": counts[category]} for category in sorted(counts)]
+    return [
+        {"category": category, "count": counts[category]} for category in sorted(counts)
+    ]
 
 
 def parse_cli_args(argv: list[str]) -> tuple[str | None, dict[str, Any]]:

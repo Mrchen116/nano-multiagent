@@ -19,6 +19,7 @@ from xml.etree import ElementTree as ET
 # Data model
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class TextRun:
     text: str
@@ -67,21 +68,18 @@ class UnknownBlock:
             "action": self.action,
         }
 
+
 # ---------------------------------------------------------------------------
 # Counting rules
 # ---------------------------------------------------------------------------
 
 CHINESE_PUNCTUATION = set("，。！？；：、（）《》〈〉“”‘’【】「」『』〔〕…—～·￥")
-ENGLISH_PUNCTUATION = set(
-    r"""!"#$%&'()*+,-./:;<=>?@[\]^_`{|}~"""
-)
+ENGLISH_PUNCTUATION = set(r"""!"#$%&'()*+,-./:;<=>?@[\]^_`{|}~""")
 
 
 LexemeKind = Literal["english", "number"]
 URL_TOKEN_RE = re.compile(r"https?://[!-~]+")
-ASCII_COMPOUND_TOKEN_RE = re.compile(
-    r"[A-Za-z0-9]+(?:[._/@:-][A-Za-z0-9]+)+"
-)
+ASCII_COMPOUND_TOKEN_RE = re.compile(r"[A-Za-z0-9]+(?:[._/@:-][A-Za-z0-9]+)+")
 
 
 @dataclass
@@ -141,7 +139,9 @@ def is_digit(ch: str) -> bool:
 def is_chinese_punctuation(ch: str) -> bool:
     if ch in CHINESE_PUNCTUATION:
         return True
-    return unicodedata.category(ch).startswith("P") and unicodedata.east_asian_width(ch) in {
+    return unicodedata.category(ch).startswith("P") and unicodedata.east_asian_width(
+        ch
+    ) in {
         "W",
         "F",
     }
@@ -257,7 +257,9 @@ class Counter:
             if not keeps_lexeme:
                 had_lexeme = self._lexeme_kind is not None
                 self._end_lexeme()
-                if not had_lexeme and (self._symbol_run_length > 0 or self._at_boundary):
+                if not had_lexeme and (
+                    self._symbol_run_length > 0 or self._at_boundary
+                ):
                     self._symbol_run_length += 1
             self.stats.english_punctuations += 1
             self.stats.char_count += 1
@@ -326,14 +328,13 @@ class Counter:
             keeps_lexeme = (
                 self._lexeme_kind == "english"
                 and (ch in {"'", "-"} or (self._lexeme_has_digit and ch == "."))
-            ) or (
-                self._lexeme_kind == "number"
-                and ch in {".", ",", "-"}
-            )
+            ) or (self._lexeme_kind == "number" and ch in {".", ",", "-"})
             if not keeps_lexeme:
                 had_lexeme = self._lexeme_kind is not None
                 self._end_lexeme()
-                if not had_lexeme and (self._symbol_run_length > 0 or self._at_boundary):
+                if not had_lexeme and (
+                    self._symbol_run_length > 0 or self._at_boundary
+                ):
                     self._symbol_run_length += 1
             self.stats.english_punctuations += 1
             self.stats.char_count += 1
@@ -440,6 +441,7 @@ class Counter:
             self._at_boundary = False
         self._symbol_run_length = 0
 
+
 # ---------------------------------------------------------------------------
 # Markdown parser
 # ---------------------------------------------------------------------------
@@ -458,7 +460,12 @@ def parse_markdown(source: str) -> list[Block]:
 
     def flush_paragraph() -> None:
         if paragraph:
-            blocks.append(Block(type="paragraph", text_runs=[TextRun(clean_inline(" ".join(paragraph)))]))
+            blocks.append(
+                Block(
+                    type="paragraph",
+                    text_runs=[TextRun(clean_inline(" ".join(paragraph)))],
+                )
+            )
             paragraph.clear()
 
     while i < len(lines):
@@ -479,13 +486,19 @@ def parse_markdown(source: str) -> list[Block]:
                 i += 1
             if i < len(lines):
                 i += 1
-            blocks.append(Block(type="code", text_runs=[TextRun("\n".join(code_lines))]))
+            blocks.append(
+                Block(type="code", text_runs=[TextRun("\n".join(code_lines))])
+            )
             continue
 
         heading = HEADING_RE.match(line)
         if heading:
             flush_paragraph()
-            blocks.append(Block(type="heading", text_runs=[TextRun(clean_inline(heading.group(2)))]))
+            blocks.append(
+                Block(
+                    type="heading", text_runs=[TextRun(clean_inline(heading.group(2)))]
+                )
+            )
             i += 1
             continue
 
@@ -504,7 +517,12 @@ def parse_markdown(source: str) -> list[Block]:
                 match = LIST_RE.match(lines[i])
                 if not match:
                     break
-                items.append(Block(type="list_item", text_runs=[TextRun(clean_inline(match.group(1)))]))
+                items.append(
+                    Block(
+                        type="list_item",
+                        text_runs=[TextRun(clean_inline(match.group(1)))],
+                    )
+                )
                 i += 1
             blocks.append(Block(type="list", children=items))
             continue
@@ -519,7 +537,12 @@ def parse_markdown(source: str) -> list[Block]:
                     break
                 quote_lines.append(match.group(1))
                 i += 1
-            blocks.append(Block(type="quote", text_runs=[TextRun(clean_inline(" ".join(quote_lines)))]))
+            blocks.append(
+                Block(
+                    type="quote",
+                    text_runs=[TextRun(clean_inline(" ".join(quote_lines)))],
+                )
+            )
             continue
 
         paragraph.append(stripped)
@@ -538,7 +561,11 @@ def clean_inline(text: str) -> str:
 
 
 def _looks_like_table(lines: list[str], i: int) -> bool:
-    return i + 1 < len(lines) and "|" in lines[i] and TABLE_SEP_RE.match(lines[i + 1]) is not None
+    return (
+        i + 1 < len(lines)
+        and "|" in lines[i]
+        and TABLE_SEP_RE.match(lines[i + 1]) is not None
+    )
 
 
 def _parse_table(lines: list[str], i: int) -> tuple[Block, int]:
@@ -564,6 +591,7 @@ def _parse_table(lines: list[str], i: int) -> tuple[Block, int]:
         rows.append(row)
         consumed += 1
     return Block(type="table", children=rows), consumed
+
 
 # ---------------------------------------------------------------------------
 # XML parser
@@ -713,7 +741,9 @@ def ensure_safe_xml_source(source: str) -> None:
             f"XML input is too large ({len(source)} chars, limit {MAX_XML_INPUT_CHARS})"
         )
     if FORBIDDEN_XML_DECL_RE.search(source):
-        raise UserInputError("XML input must not contain DOCTYPE or ENTITY declarations")
+        raise UserInputError(
+            "XML input must not contain DOCTYPE or ENTITY declarations"
+        )
 
 
 def parse_xml(source: str) -> list[Block]:
@@ -787,9 +817,11 @@ def _collect_inline(elem: ET.Element, block: Block) -> None:
         if child.tail:
             block.text_runs.append(TextRun(child.tail))
 
+
 # ---------------------------------------------------------------------------
 # Block extraction registry
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class ExtractContext:
@@ -798,7 +830,9 @@ class ExtractContext:
 
 
 class Handler(Protocol):
-    def extract(self, block: Block, registry: "Registry", ctx: ExtractContext) -> list[Segment]:
+    def extract(
+        self, block: Block, registry: "Registry", ctx: ExtractContext
+    ) -> list[Segment]:
         raise NotImplementedError
 
 
@@ -825,7 +859,9 @@ class TextBlockHandler:
     def __init__(self, kind: str = "text") -> None:
         self.kind = kind
 
-    def extract(self, block: Block, registry: "Registry", ctx: ExtractContext) -> list[Segment]:
+    def extract(
+        self, block: Block, registry: "Registry", ctx: ExtractContext
+    ) -> list[Segment]:
         segments: list[Segment] = []
         text = runs_text(block)
         if text.strip():
@@ -843,12 +879,19 @@ class TextBlockHandler:
 
 
 class ContainerHandler:
-    def extract(self, block: Block, registry: "Registry", ctx: ExtractContext) -> list[Segment]:
+    def extract(
+        self, block: Block, registry: "Registry", ctx: ExtractContext
+    ) -> list[Segment]:
         segments: list[Segment] = []
         text = runs_text(block)
         if text.strip():
             segments.append(
-                Segment(text=text, block_type=block.type, block_id=block_id(block), kind="text")
+                Segment(
+                    text=text,
+                    block_type=block.type,
+                    block_id=block_id(block),
+                    kind="text",
+                )
             )
         for child in block.children:
             segments.extend(registry.extract(child, ctx))
@@ -856,7 +899,9 @@ class ContainerHandler:
 
 
 class ListHandler:
-    def extract(self, block: Block, registry: "Registry", ctx: ExtractContext) -> list[Segment]:
+    def extract(
+        self, block: Block, registry: "Registry", ctx: ExtractContext
+    ) -> list[Segment]:
         tag = raw_tag(block)
         if tag not in {"ol", "ul"}:
             return ContainerHandler().extract(block, registry, ctx)
@@ -865,7 +910,12 @@ class ListHandler:
         text = runs_text(block)
         if text.strip():
             segments.append(
-                Segment(text=text, block_type=block.type, block_id=block_id(block), kind="text")
+                Segment(
+                    text=text,
+                    block_type=block.type,
+                    block_id=block_id(block),
+                    kind="text",
+                )
             )
 
         next_seq = 1
@@ -901,7 +951,9 @@ class ListHandler:
 
 
 class CheckboxHandler(TextBlockHandler):
-    def extract(self, block: Block, registry: "Registry", ctx: ExtractContext) -> list[Segment]:
+    def extract(
+        self, block: Block, registry: "Registry", ctx: ExtractContext
+    ) -> list[Segment]:
         return [
             Segment(
                 text="☑" if block.attrs.get("done") == "true" else "☐",
@@ -914,8 +966,12 @@ class CheckboxHandler(TextBlockHandler):
 
 
 class UnknownHandler:
-    def extract(self, block: Block, registry: "Registry", ctx: ExtractContext) -> list[Segment]:
-        ctx.unknown_blocks.append(UnknownBlock(type=block.type, block_id=block_id(block)))
+    def extract(
+        self, block: Block, registry: "Registry", ctx: ExtractContext
+    ) -> list[Segment]:
+        ctx.unknown_blocks.append(
+            UnknownBlock(type=block.type, block_id=block_id(block))
+        )
         return ContainerHandler().extract(block, registry, ctx)
 
 
@@ -923,49 +979,86 @@ class IgnoreHandler:
     def __init__(self, action: str = "ignored") -> None:
         self.action = action
 
-    def extract(self, block: Block, registry: "Registry", ctx: ExtractContext) -> list[Segment]:
-        ctx.unknown_blocks.append(UnknownBlock(type=block.type, block_id=block_id(block), action=self.action))
+    def extract(
+        self, block: Block, registry: "Registry", ctx: ExtractContext
+    ) -> list[Segment]:
+        ctx.unknown_blocks.append(
+            UnknownBlock(type=block.type, block_id=block_id(block), action=self.action)
+        )
         return []
 
 
 class TaskHandler:
-    def extract(self, block: Block, registry: "Registry", ctx: ExtractContext) -> list[Segment]:
+    def extract(
+        self, block: Block, registry: "Registry", ctx: ExtractContext
+    ) -> list[Segment]:
         task_id = block.attrs.get("task-id") or block.attrs.get("task_id")
         if isinstance(task_id, str) and task_id:
             text = ctx.resource_texts.get(f"task:{task_id}")
             if text and text.strip():
-                marker = "☑" if block.attrs.get("status") in {"done", "completed", "complete"} else "☐"
+                marker = (
+                    "☑"
+                    if block.attrs.get("status") in {"done", "completed", "complete"}
+                    else "☐"
+                )
                 return [
-                    Segment(text=marker, block_type="task_marker", block_id=block_id(block), kind="marker"),
-                    Segment(text=text, block_type="task", block_id=block_id(block), kind="resource_title"),
+                    Segment(
+                        text=marker,
+                        block_type="task_marker",
+                        block_id=block_id(block),
+                        kind="marker",
+                    ),
+                    Segment(
+                        text=text,
+                        block_type="task",
+                        block_id=block_id(block),
+                        kind="resource_title",
+                    ),
                 ]
 
-        ctx.unknown_blocks.append(UnknownBlock(type=block.type, block_id=block_id(block), action="ignored_resource"))
+        ctx.unknown_blocks.append(
+            UnknownBlock(
+                type=block.type, block_id=block_id(block), action="ignored_resource"
+            )
+        )
         return []
 
 
 class WhiteboardHandler:
-    def extract(self, block: Block, registry: "Registry", ctx: ExtractContext) -> list[Segment]:
+    def extract(
+        self, block: Block, registry: "Registry", ctx: ExtractContext
+    ) -> list[Segment]:
         board_type = block.attrs.get("type")
-        is_empty_resource_shell = not board_type and not block.children and not runs_text(block).strip()
+        is_empty_resource_shell = (
+            not board_type and not block.children and not runs_text(block).strip()
+        )
         action = (
             "ignored_resource"
-            if board_type in {"blank", "mermaid", "plantuml", "svg"} or is_empty_resource_shell
+            if board_type in {"blank", "mermaid", "plantuml", "svg"}
+            or is_empty_resource_shell
             else "unsupported_resource"
         )
-        ctx.unknown_blocks.append(UnknownBlock(type=block.type, block_id=block_id(block), action=action))
+        ctx.unknown_blocks.append(
+            UnknownBlock(type=block.type, block_id=block_id(block), action=action)
+        )
         return []
 
 
 class SyncedSourceHandler:
-    def extract(self, block: Block, registry: "Registry", ctx: ExtractContext) -> list[Segment]:
+    def extract(
+        self, block: Block, registry: "Registry", ctx: ExtractContext
+    ) -> list[Segment]:
         if block.children:
             segments: list[Segment] = []
             for child in block.children:
                 segments.extend(registry.extract(child, ctx))
             return segments
 
-        ctx.unknown_blocks.append(UnknownBlock(type=block.type, block_id=block_id(block), action="unsupported_resource"))
+        ctx.unknown_blocks.append(
+            UnknownBlock(
+                type=block.type, block_id=block_id(block), action="unsupported_resource"
+            )
+        )
         return []
 
 
@@ -1018,10 +1111,22 @@ def default_registry() -> Registry:
     registry.register("table", "thead", "tbody", "tr", handler=ContainerHandler())
     registry.register("table_cell", "td", "th", handler=TextBlockHandler("table_cell"))
     registry.register("code", "code_block", "pre", handler=TextBlockHandler("code"))
-    registry.register("link", "a", "mention", "mention-doc", "mention-user", "time", handler=TextBlockHandler("inline"))
+    registry.register(
+        "link",
+        "a",
+        "mention",
+        "mention-doc",
+        "mention-user",
+        "time",
+        handler=TextBlockHandler("inline"),
+    )
     registry.register("image", "img", handler=TextBlockHandler("caption"))
-    registry.register("colgroup", "col", "br", "hr", handler=IgnoreHandler("ignored_structure"))
-    registry.register("button", "cite", "latex", "bookmark", handler=IgnoreHandler("ignored_inline"))
+    registry.register(
+        "colgroup", "col", "br", "hr", handler=IgnoreHandler("ignored_structure")
+    )
+    registry.register(
+        "button", "cite", "latex", "bookmark", handler=IgnoreHandler("ignored_inline")
+    )
     registry.register("task", handler=TaskHandler())
     registry.register("whiteboard", handler=WhiteboardHandler())
     registry.register("synced_source", handler=SyncedSourceHandler())
@@ -1048,6 +1153,7 @@ def default_registry() -> Registry:
         handler=IgnoreHandler("unsupported_resource"),
     )
     return registry
+
 
 # ---------------------------------------------------------------------------
 # CLI
@@ -1106,10 +1212,14 @@ def extract_lark_json_content(source: str) -> str:
         raise UserInputError("lark-cli JSON envelope is missing object field data")
     document = data.get("document")
     if not isinstance(document, dict):
-        raise UserInputError("lark-cli JSON envelope is missing object field data.document")
+        raise UserInputError(
+            "lark-cli JSON envelope is missing object field data.document"
+        )
     content = document.get("content")
     if not isinstance(content, str):
-        raise UserInputError("lark-cli JSON envelope is missing string field data.document.content")
+        raise UserInputError(
+            "lark-cli JSON envelope is missing string field data.document.content"
+        )
     return content
 
 
@@ -1223,7 +1333,9 @@ def main() -> int:
     payload["protocol"] = args.protocol
     payload["unknown_blocks"] = [item.to_dict() for item in ctx.unknown_blocks]
     payload["unsupported_blocks"] = [
-        item.to_dict() for item in ctx.unknown_blocks if item.action == "unsupported_resource"
+        item.to_dict()
+        for item in ctx.unknown_blocks
+        if item.action == "unsupported_resource"
     ]
     payload["diagnostics"] = build_diagnostics(ctx.unknown_blocks)
     if args.segments:
@@ -1240,4 +1352,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

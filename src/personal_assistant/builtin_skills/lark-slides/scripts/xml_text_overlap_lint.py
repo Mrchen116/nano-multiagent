@@ -24,11 +24,17 @@ XS_NS = "{http://www.w3.org/2001/XMLSchema}"
 XML_NS = "{http://www.w3.org/XML/1998/namespace}"
 SVG_NS = "{http://www.w3.org/2000/svg}"
 SML_NAMESPACE = "http://www.larkoffice.com/sml/2.0"
-SXSD_SCHEMA_PATH = Path(__file__).resolve().parents[1] / "references" / "slides_xml_schema_definition.xml"
-ICONPARK_INDEX_PATH = Path(__file__).resolve().parents[1] / "references" / "iconpark-index.json"
+SXSD_SCHEMA_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "references"
+    / "slides_xml_schema_definition.xml"
+)
+ICONPARK_INDEX_PATH = (
+    Path(__file__).resolve().parents[1] / "references" / "iconpark-index.json"
+)
 SXSD_TAG_ALIASES = {
-    "textbox": "<shape type=\"text\">",
-    "textBox": "<shape type=\"text\">",
+    "textbox": '<shape type="text">',
+    "textBox": '<shape type="text">',
     "image": "<img>",
     "picture": "<img>",
 }
@@ -108,7 +114,7 @@ def parse_args(argv: list[str]) -> dict[str, Any]:
 
 def extract_attribute(tag_source: str, name: str) -> str | None:
     match = re.search(
-        fr"(?:^|\s){re.escape(name)}\s*=\s*(?:\"([^\"]+)\"|'([^']+)')", tag_source
+        rf"(?:^|\s){re.escape(name)}\s*=\s*(?:\"([^\"]+)\"|'([^']+)')", tag_source
     )
     if not match:
         return None
@@ -150,7 +156,9 @@ def extract_color_alpha(color: str | None) -> int | float | None:
     return int(alpha) if alpha.is_integer() else alpha
 
 
-def effective_text_alpha(shape_alpha: int | float | None, text_color: str | None) -> int | float:
+def effective_text_alpha(
+    shape_alpha: int | float | None, text_color: str | None
+) -> int | float:
     base_alpha = shape_alpha if isinstance(shape_alpha, (int, float)) else 1
     color_alpha = extract_color_alpha(text_color)
     if not isinstance(color_alpha, (int, float)):
@@ -160,7 +168,7 @@ def effective_text_alpha(shape_alpha: int | float | None, text_color: str | None
 
 def detect_inline_style_presence(content_xml: str, style_tags: set[str]) -> bool:
     for tag_name in style_tags:
-        if re.search(fr"<{re.escape(tag_name)}\b[\s>]", content_xml) is not None:
+        if re.search(rf"<{re.escape(tag_name)}\b[\s>]", content_xml) is not None:
             return True
     return False
 
@@ -180,7 +188,9 @@ def is_filled_size(size: int | float | None) -> bool:
     return isinstance(size, (int, float)) and math.isfinite(size) and size > 0
 
 
-def fill_last_size_gap(sizes: list[int | float], target_size: int | float) -> list[int | float]:
+def fill_last_size_gap(
+    sizes: list[int | float], target_size: int | float
+) -> list[int | float]:
     if not sizes:
         return sizes
     final_sizes = [
@@ -206,7 +216,9 @@ def fill_last_size_gap(sizes: list[int | float], target_size: int | float) -> li
 
 
 def solve_weighted_min_layout(
-    input_sizes: list[int | float | None], default_size: int | float, target_min_size: int | float | None
+    input_sizes: list[int | float | None],
+    default_size: int | float,
+    target_min_size: int | float | None,
 ) -> dict[str, Any]:
     filled_indexes: list[int] = []
     empty_indexes: list[int] = []
@@ -221,33 +233,60 @@ def solve_weighted_min_layout(
     filled_sum = sum_sizes(base_sizes)
 
     if target_min_size is None:
-        final_sizes = [default_size if index in empty_indexes else size for index, size in enumerate(base_sizes)]
-        return {"final_sizes": final_sizes, "actual_size": sum_sizes(final_sizes), "ratio": 1}
+        final_sizes = [
+            default_size if index in empty_indexes else size
+            for index, size in enumerate(base_sizes)
+        ]
+        return {
+            "final_sizes": final_sizes,
+            "actual_size": sum_sizes(final_sizes),
+            "ratio": 1,
+        }
 
     if not filled_indexes:
         average_size = target_min_size / len(input_sizes)
-        final_sizes = fill_last_size_gap([average_size] * len(input_sizes), target_min_size)
-        return {"final_sizes": final_sizes, "actual_size": sum_sizes(final_sizes), "ratio": 1}
+        final_sizes = fill_last_size_gap(
+            [average_size] * len(input_sizes), target_min_size
+        )
+        return {
+            "final_sizes": final_sizes,
+            "actual_size": sum_sizes(final_sizes),
+            "ratio": 1,
+        }
 
     if empty_indexes:
         remaining_size = target_min_size - filled_sum
         final_sizes = [*base_sizes]
         if remaining_size > 0:
             average_size = remaining_size / len(empty_indexes)
-            empty_sizes = fill_last_size_gap([average_size] * len(empty_indexes), remaining_size)
+            empty_sizes = fill_last_size_gap(
+                [average_size] * len(empty_indexes), remaining_size
+            )
             for index, empty_size in zip(empty_indexes, empty_sizes):
                 final_sizes[index] = empty_size
         else:
             for index in empty_indexes:
                 final_sizes[index] = default_size
-        return {"final_sizes": final_sizes, "actual_size": sum_sizes(final_sizes), "ratio": 1}
+        return {
+            "final_sizes": final_sizes,
+            "actual_size": sum_sizes(final_sizes),
+            "ratio": 1,
+        }
 
     ratio = max(1, target_min_size / filled_sum)
     actual_size = max(target_min_size, filled_sum)
     if ratio == 1:
-        return {"final_sizes": [*base_sizes], "actual_size": actual_size, "ratio": ratio}
+        return {
+            "final_sizes": [*base_sizes],
+            "actual_size": actual_size,
+            "ratio": ratio,
+        }
     final_sizes = fill_last_size_gap([size * ratio for size in base_sizes], actual_size)
-    return {"final_sizes": final_sizes, "actual_size": sum_sizes(final_sizes), "ratio": ratio}
+    return {
+        "final_sizes": final_sizes,
+        "actual_size": sum_sizes(final_sizes),
+        "ratio": ratio,
+    }
 
 
 def strip_xml(value: str, preserve_line_breaks: bool = False) -> str:
@@ -262,18 +301,24 @@ def strip_xml(value: str, preserve_line_breaks: bool = False) -> str:
     stripped = stripped.replace("&quot;", '"')
     stripped = stripped.replace("&#39;", "'")
     if preserve_line_breaks:
-        return "\n".join(re.sub(r"\s+", " ", line).strip() for line in stripped.split("\n"))
+        return "\n".join(
+            re.sub(r"\s+", " ", line).strip() for line in stripped.split("\n")
+        )
     return re.sub(r"\s+", " ", stripped).strip()
 
 
 def strip_xml_paragraphs(value: str) -> str:
     paragraphs = re.findall(r"<p\b[^>]*>([\s\S]*?)</p\s*>", value)
     if paragraphs:
-        return "\n".join(strip_xml(paragraph, preserve_line_breaks=True) for paragraph in paragraphs)
+        return "\n".join(
+            strip_xml(paragraph, preserve_line_breaks=True) for paragraph in paragraphs
+        )
     return strip_xml(value, preserve_line_breaks=True)
 
 
-def extract_text_paragraphs(value: str, default_font_size: int | float) -> list[dict[str, Any]]:
+def extract_text_paragraphs(
+    value: str, default_font_size: int | float
+) -> list[dict[str, Any]]:
     paragraphs = []
     for attrs, body in re.findall(r"<p\b([^>]*)>([\s\S]*?)</p\s*>", value):
         paragraphs.append(
@@ -290,7 +335,9 @@ def extract_text_paragraphs(value: str, default_font_size: int | float) -> list[
     return paragraphs
 
 
-def extract_max_span_font_size(value: str, default_font_size: int | float) -> int | float:
+def extract_max_span_font_size(
+    value: str, default_font_size: int | float
+) -> int | float:
     font_sizes = [
         font_size
         for attrs in re.findall(r"<span\b([^>]*)>", value)
@@ -300,7 +347,7 @@ def extract_max_span_font_size(value: str, default_font_size: int | float) -> in
 
 
 def extract_tag_attributes(value: str, tag: str) -> str:
-    match = re.search(fr"<{re.escape(tag)}\b([^>]*)>", value)
+    match = re.search(rf"<{re.escape(tag)}\b([^>]*)>", value)
     return match.group(1) if match else ""
 
 
@@ -337,7 +384,9 @@ def load_iconpark_icon_types() -> set[str]:
     icon_types = {
         icon["iconType"]
         for icon in icons
-        if isinstance(icon, dict) and isinstance(icon.get("iconType"), str) and icon["iconType"]
+        if isinstance(icon, dict)
+        and isinstance(icon.get("iconType"), str)
+        and icon["iconType"]
     }
     _ICONPARK_ICON_TYPES_CACHE = icon_types
     return icon_types
@@ -349,9 +398,15 @@ def build_sxsd_tag_hint(tag_name: str, supported_tags: set[str]) -> str:
         return f"Use {alias} instead of <{tag_name}>."
     if tag_name == "svg":
         return 'Inside <whiteboard>, write SVG as <svg xmlns="http://www.w3.org/2000/svg">...</svg>.'
-    close_matches = get_close_matches(tag_name, sorted(supported_tags), n=3, cutoff=0.72)
+    close_matches = get_close_matches(
+        tag_name, sorted(supported_tags), n=3, cutoff=0.72
+    )
     if close_matches:
-        return "Unsupported SXSD tag. Did you mean " + ", ".join(f"<{match}>" for match in close_matches) + "?"
+        return (
+            "Unsupported SXSD tag. Did you mean "
+            + ", ".join(f"<{match}>" for match in close_matches)
+            + "?"
+        )
     return "Unsupported SXSD tag. Use only tags defined in slides_xml_schema_definition.xml."
 
 
@@ -367,7 +422,11 @@ def build_sxsd_attr_hint(tag_name: str, attr_name: str, allowed_attrs: set[str])
     if suggestions:
         if SXSD_ATTR_ALIASES.get(attr_name) == suggestions[0]:
             return f'Use "{suggestions[0]}" on <{tag_name}> instead of "{attr_name}".'
-        return "Unsupported SXSD attribute. Did you mean " + ", ".join(f'"{match}"' for match in suggestions) + "?"
+        return (
+            "Unsupported SXSD attribute. Did you mean "
+            + ", ".join(f'"{match}"' for match in suggestions)
+            + "?"
+        )
     allowed_summary = ", ".join(sorted(allowed_attrs)[:8])
     if len(allowed_attrs) > 8:
         allowed_summary += ", ..."
@@ -379,7 +438,10 @@ def should_skip_sxsd_subtree(element: ET.Element, ancestors: list[str]) -> bool:
 
 
 def should_skip_sxsd_attribute(tag_name: str, attr_name: str) -> bool:
-    return attr_name in SERVER_FILLED_SXSD_ATTRS or (tag_name, attr_name) in ROUNDTRIP_SXSD_ATTRS
+    return (
+        attr_name in SERVER_FILLED_SXSD_ATTRS
+        or (tag_name, attr_name) in ROUNDTRIP_SXSD_ATTRS
+    )
 
 
 def should_skip_sxsd_tag(parent_name: str | None, tag_name: str) -> bool:
@@ -443,9 +505,9 @@ def validate_sxsd_document(xml: str, root: ET.Element) -> list[dict[str, Any]]:
                     continue
                 suggestions = suggest_sxsd_attrs(attr_name, allowed_attrs)
                 if suggestions:
-                    suggested_attr_candidates.setdefault((current_path, tag_name), []).append(
-                        set(suggestions)
-                    )
+                    suggested_attr_candidates.setdefault(
+                        (current_path, tag_name), []
+                    ).append(set(suggestions))
                 issues.append(
                     {
                         "level": "error",
@@ -454,7 +516,9 @@ def validate_sxsd_document(xml: str, root: ET.Element) -> list[dict[str, Any]]:
                         "attr": attr_name,
                         "path": current_path,
                         "message": f'unsupported SXSD attribute "{attr_name}" on <{tag_name}> at {current_path}',
-                        "hint": build_sxsd_attr_hint(tag_name, attr_name, allowed_attrs),
+                        "hint": build_sxsd_attr_hint(
+                            tag_name, attr_name, allowed_attrs
+                        ),
                     }
                 )
 
@@ -477,7 +541,9 @@ def validate_sxsd_document(xml: str, root: ET.Element) -> list[dict[str, Any]]:
         if schema_issue.get("code") != "sxsd_missing_required_attr":
             continue
         location = (schema_issue.get("path"), schema_issue.get("tag"))
-        missing_attrs_by_location.setdefault(location, set()).add(schema_issue.get("attr"))
+        missing_attrs_by_location.setdefault(location, set()).add(
+            schema_issue.get("attr")
+        )
 
     suggested_attrs: set[tuple[str, str, str]] = set()
     for location, candidate_groups in suggested_attr_candidates.items():
@@ -488,16 +554,24 @@ def validate_sxsd_document(xml: str, root: ET.Element) -> list[dict[str, Any]]:
                 suggested_attrs.add((*location, next(iter(matching_missing_attrs))))
 
     for schema_issue in schema_issues:
-        if schema_issue.get("code") == "sxsd_unexpected_child" and (
-            schema_issue.get("path"),
-            schema_issue.get("tag"),
-        ) in unsupported_tag_locations:
+        if (
+            schema_issue.get("code") == "sxsd_unexpected_child"
+            and (
+                schema_issue.get("path"),
+                schema_issue.get("tag"),
+            )
+            in unsupported_tag_locations
+        ):
             continue
-        if schema_issue.get("code") == "sxsd_missing_required_attr" and (
-            schema_issue.get("path"),
-            schema_issue.get("tag"),
-            schema_issue.get("attr"),
-        ) in suggested_attrs:
+        if (
+            schema_issue.get("code") == "sxsd_missing_required_attr"
+            and (
+                schema_issue.get("path"),
+                schema_issue.get("tag"),
+                schema_issue.get("attr"),
+            )
+            in suggested_attrs
+        ):
             continue
         key = (
             schema_issue.get("code"),
@@ -510,7 +584,9 @@ def validate_sxsd_document(xml: str, root: ET.Element) -> list[dict[str, Any]]:
     return issues
 
 
-def _validate_sxsd_schema_constraints(xml: str, root: ET.Element) -> list[dict[str, Any]]:
+def _validate_sxsd_schema_constraints(
+    xml: str, root: ET.Element
+) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
     if re.match(r"^\s*<\?xml\b", xml):
         issues.append(
@@ -535,8 +611,12 @@ def _validate_sxsd_schema_constraints(xml: str, root: ET.Element) -> list[dict[s
     return issues
 
 
-def build_iconpark_icon_type_hint(icon_type: str, supported_icon_types: set[str]) -> str:
-    close_matches = get_close_matches(icon_type, sorted(supported_icon_types), n=3, cutoff=0.58)
+def build_iconpark_icon_type_hint(
+    icon_type: str, supported_icon_types: set[str]
+) -> str:
+    close_matches = get_close_matches(
+        icon_type, sorted(supported_icon_types), n=3, cutoff=0.58
+    )
     if close_matches:
         return (
             "iconType must exist in iconpark-index.json. Did you mean "
@@ -551,7 +631,10 @@ def validate_iconpark_icon_types(root: ET.Element) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
 
     def direct_child(element: ET.Element, local_name: str) -> ET.Element | None:
-        return next((child for child in element if xml_local_name(child.tag) == local_name), None)
+        return next(
+            (child for child in element if xml_local_name(child.tag) == local_name),
+            None,
+        )
 
     def is_transparent_color(color: str) -> bool:
         normalized = re.sub(r"\s+", "", color).lower()
@@ -596,7 +679,9 @@ def validate_iconpark_icon_types(root: ET.Element) -> list[dict[str, Any]]:
                             "iconType": icon_type,
                             "path": current_path,
                             "message": f'unsupported iconpark iconType "{icon_type}" at {current_path}',
-                            "hint": build_iconpark_icon_type_hint(icon_type, supported_icon_types),
+                            "hint": build_iconpark_icon_type_hint(
+                                icon_type, supported_icon_types
+                            ),
                         }
                     )
             fill = direct_child(element, "fill")
@@ -624,7 +709,9 @@ def validate_iconpark_icon_types(root: ET.Element) -> list[dict[str, Any]]:
     return issues
 
 
-def extract_error_context(xml: str, line: int | None, column: int | None, radius: int = 40) -> str | None:
+def extract_error_context(
+    xml: str, line: int | None, column: int | None, radius: int = 40
+) -> str | None:
     if line is None or column is None:
         return None
     lines = xml.splitlines()
@@ -697,7 +784,7 @@ def validate_sml_tag_prefixes(xml: str) -> list[dict[str, Any]]:
                 "column": parser.CurrentColumnNumber,
                 "message": f"SML tag <{element_name}> must not use a namespace prefix at {path}",
                 "hint": (
-                    f'Use <{local_name}> under the default namespace '
+                    f"Use <{local_name}> under the default namespace "
                     f'<{local_name} xmlns="{SML_NAMESPACE}">, or use an unprefixed SML tag.'
                 ),
             }
@@ -765,7 +852,9 @@ def parse_presentation(root: ET.Element) -> dict[str, Any]:
     return {
         "width": width,
         "height": height,
-        "slides": [serialize_slide_for_layout(slide_root) for slide_root in slide_roots],
+        "slides": [
+            serialize_slide_for_layout(slide_root) for slide_root in slide_roots
+        ],
         "slide_roots": slide_roots,
     }
 
@@ -773,7 +862,9 @@ def parse_presentation(root: ET.Element) -> dict[str, Any]:
 def extract_elements(slide_xml: str) -> list[dict[str, Any]]:
     elements: list[dict[str, Any]] = []
 
-    for match in re.finditer(r"<(shape|img|table|chart|whiteboard)\b([^>]*)>", slide_xml):
+    for match in re.finditer(
+        r"<(shape|img|table|chart|whiteboard)\b([^>]*)>", slide_xml
+    ):
         kind, attrs = match.group(1), match.group(2)
         is_self_closing = attrs.rstrip().endswith("/")
         content = ""
@@ -823,8 +914,12 @@ def extract_elements(slide_xml: str) -> list[dict[str, Any]]:
                 font_size = extract_numeric_attribute(content_attrs, "fontSize")
                 if font_size is None:
                     font_size = extract_numeric_attribute(attrs, "fontSize")
-                font_family = extract_attribute(content_attrs, "fontFamily") or extract_attribute(attrs, "fontFamily")
-                text_color = extract_attribute(content_attrs, "color") or extract_attribute(attrs, "color")
+                font_family = extract_attribute(
+                    content_attrs, "fontFamily"
+                ) or extract_attribute(attrs, "fontFamily")
+                text_color = extract_attribute(
+                    content_attrs, "color"
+                ) or extract_attribute(attrs, "color")
                 bold = (
                     extract_bool_attribute(content_attrs, "bold")
                     or extract_bool_attribute(attrs, "bold")
@@ -841,18 +936,39 @@ def extract_elements(slide_xml: str) -> list[dict[str, Any]]:
                     {
                         "textType": extract_attribute(content_attrs, "textType"),
                         "textAlign": extract_attribute(content_attrs, "textAlign"),
-                        "verticalAlign": extract_attribute(content_attrs, "verticalAlign") or "middle",
+                        "verticalAlign": extract_attribute(
+                            content_attrs, "verticalAlign"
+                        )
+                        or "middle",
                         "vert": extract_attribute(attrs, "vert") or "horz",
                         "autoFit": extract_attribute(content_attrs, "autoFit"),
                         "wrap": extract_attribute(content_attrs, "wrap"),
                         "lineSpacing": extract_attribute(content_attrs, "lineSpacing"),
-                        "beforeLineSpacing": extract_attribute(content_attrs, "beforeLineSpacing"),
-                        "afterLineSpacing": extract_attribute(content_attrs, "afterLineSpacing"),
-                        "letterSpacing": extract_numeric_attribute(content_attrs, "letterSpacing"),
-                        "paddingTop": extract_numeric_attribute(content_attrs, "paddingTop") or 0,
-                        "paddingRight": extract_numeric_attribute(content_attrs, "paddingRight") or 0,
-                        "paddingBottom": extract_numeric_attribute(content_attrs, "paddingBottom") or 0,
-                        "paddingLeft": extract_numeric_attribute(content_attrs, "paddingLeft") or 0,
+                        "beforeLineSpacing": extract_attribute(
+                            content_attrs, "beforeLineSpacing"
+                        ),
+                        "afterLineSpacing": extract_attribute(
+                            content_attrs, "afterLineSpacing"
+                        ),
+                        "letterSpacing": extract_numeric_attribute(
+                            content_attrs, "letterSpacing"
+                        ),
+                        "paddingTop": extract_numeric_attribute(
+                            content_attrs, "paddingTop"
+                        )
+                        or 0,
+                        "paddingRight": extract_numeric_attribute(
+                            content_attrs, "paddingRight"
+                        )
+                        or 0,
+                        "paddingBottom": extract_numeric_attribute(
+                            content_attrs, "paddingBottom"
+                        )
+                        or 0,
+                        "paddingLeft": extract_numeric_attribute(
+                            content_attrs, "paddingLeft"
+                        )
+                        or 0,
                         "fontSize": font_size if font_size is not None else 16,
                         "fontFamily": font_family or "",
                         "color": text_color,
@@ -860,7 +976,9 @@ def extract_elements(slide_xml: str) -> list[dict[str, Any]]:
                         "bold": bold,
                         "italic": italic,
                         "text": strip_xml_paragraphs(content),
-                        "paragraphs": extract_text_paragraphs(content, font_size if font_size is not None else 16),
+                        "paragraphs": extract_text_paragraphs(
+                            content, font_size if font_size is not None else 16
+                        ),
                     }
                 )
             elements.append(element)
@@ -889,40 +1007,60 @@ def has_text_content(element: dict[str, Any]) -> bool:
 
 
 def is_vertical_text(element: dict[str, Any]) -> bool:
-    return element.get("vert") in {"vert", "vert270", "word-art-vert", "word-art-vert-rtl", "ea-vert"}
+    return element.get("vert") in {
+        "vert",
+        "vert270",
+        "word-art-vert",
+        "word-art-vert-rtl",
+        "ea-vert",
+    }
 
 
-def detect_image_text_occlusions(elements: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def detect_image_text_occlusions(
+    elements: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
     text_elements = [
         element
         for element in elements
-        if is_text_element(element) and has_text_content(element) and not is_ghost_text(element)
+        if is_text_element(element)
+        and has_text_content(element)
+        and not is_ghost_text(element)
     ]
-    image_elements = [element for element in elements if element["kind"] == "img" and element["alpha"] > 0]
+    image_elements = [
+        element
+        for element in elements
+        if element["kind"] == "img" and element["alpha"] > 0
+    ]
     for text_element in text_elements:
         for image_element in image_elements:
             if image_element["order"] <= text_element["order"]:
                 continue
             if is_vertical_text(text_element):
                 if intersects(image_element, text_element):
-                    issues.append({
-                        "level": "info",
-                        "code": "image_may_cover_vertical_text",
-                        "elements": [image_element["id"], text_element["id"]],
-                        "message": f'image {image_element["id"]} may cover vertical text shape {text_element["id"]}',
-                        "hint": "Inspect the rendered slide because vertical text layout is not statically modeled.",
-                    })
+                    issues.append(
+                        {
+                            "level": "info",
+                            "code": "image_may_cover_vertical_text",
+                            "elements": [image_element["id"], text_element["id"]],
+                            "message": f"image {image_element['id']} may cover vertical text shape {text_element['id']}",
+                            "hint": "Inspect the rendered slide because vertical text layout is not statically modeled.",
+                        }
+                    )
                 continue
             text_visual_bbox = estimate_text_visual_bbox(text_element)
-            if text_visual_bbox is not None and intersects(image_element, text_visual_bbox):
-                issues.append({
-                    "level": "error",
-                    "code": "image_covers_text",
-                    "elements": [image_element["id"], text_element["id"]],
-                    "message": f'image {image_element["id"]} covers text shape {text_element["id"]}',
-                    "hint": "Move the image before the text shape in XML order, or adjust the image and text shape coordinates or dimensions.",
-                })
+            if text_visual_bbox is not None and intersects(
+                image_element, text_visual_bbox
+            ):
+                issues.append(
+                    {
+                        "level": "error",
+                        "code": "image_covers_text",
+                        "elements": [image_element["id"], text_element["id"]],
+                        "message": f"image {image_element['id']} covers text shape {text_element['id']}",
+                        "hint": "Move the image before the text shape in XML order, or adjust the image and text shape coordinates or dimensions.",
+                    }
+                )
     return issues
 
 
@@ -936,13 +1074,39 @@ def normalize_text_for_overlap(text: str) -> str:
 
 
 SERIF_FONT_PATTERNS = {
-    "song", "songti", "simsun", "ming", "mincho",
-    "georgia", "times", "caslon", "garamond", "sourcehan-serif",
-    "source han serif", "思源宋体", "宋体", "明体",
+    "song",
+    "songti",
+    "simsun",
+    "ming",
+    "mincho",
+    "georgia",
+    "times",
+    "caslon",
+    "garamond",
+    "sourcehan-serif",
+    "source han serif",
+    "思源宋体",
+    "宋体",
+    "明体",
 }
 
-SANS_EXPLICIT_MARKERS = {"sans", "sans-serif", "sans serif", "sourcehan-sans", "source han sans", "思源黑体", "黑体",
-                         "helvetica", "arial", "inter", "roboto", "verdana", "tahoma", "calibri", "open sans"}
+SANS_EXPLICIT_MARKERS = {
+    "sans",
+    "sans-serif",
+    "sans serif",
+    "sourcehan-sans",
+    "source han sans",
+    "思源黑体",
+    "黑体",
+    "helvetica",
+    "arial",
+    "inter",
+    "roboto",
+    "verdana",
+    "tahoma",
+    "calibri",
+    "open sans",
+}
 
 
 def classify_font_family(font_family: str | None) -> str:
@@ -995,11 +1159,16 @@ def estimate_text_width(
     bold: bool = False,
     font_family: str | None = None,
 ) -> int | float:
-    base = sum(estimate_character_width(character, font_size, bold, font_family) for character in text)
+    base = sum(
+        estimate_character_width(character, font_size, bold, font_family)
+        for character in text
+    )
     return base + max(len(text) - 1, 0) * letter_spacing
 
 
-def resolve_letter_spacing(element: dict[str, Any], paragraph: dict[str, Any] | None = None) -> int | float:
+def resolve_letter_spacing(
+    element: dict[str, Any], paragraph: dict[str, Any] | None = None
+) -> int | float:
     if paragraph is not None:
         value = paragraph.get("letterSpacing")
         if isinstance(value, (int, float)):
@@ -1028,7 +1197,10 @@ def is_short_metric_text(text: str) -> bool:
         return True
     if re.search(r"[,.，+\-–—/%％]", compact) is None:
         return False
-    return re.fullmatch(r"[+\-–—]?[0-9A-Za-z,.，/%％\-–—\u4e00-\u9fff]+", compact) is not None
+    return (
+        re.fullmatch(r"[+\-–—]?[0-9A-Za-z,.，/%％\-–—\u4e00-\u9fff]+", compact)
+        is not None
+    )
 
 
 def is_single_line_visual_candidate(
@@ -1048,20 +1220,33 @@ def is_single_line_visual_candidate(
     if text_align == "center" and compact_len <= 32:
         return logical_width <= effective_width * CENTERED_SHORT_LABEL_WIDTH_RATIO
 
-    font_size = element["fontSize"] if isinstance(element["fontSize"], (int, float)) else 16
-    if element.get("textType") in {"headline", "title"} and font_size <= 30 and compact_len <= 40:
+    font_size = (
+        element["fontSize"] if isinstance(element["fontSize"], (int, float)) else 16
+    )
+    if (
+        element.get("textType") in {"headline", "title"}
+        and font_size <= 30
+        and compact_len <= 40
+    ):
         return logical_width <= effective_width * HEADLINE_NEAR_FIT_WIDTH_RATIO
     return False
 
 
 def estimate_text_max_line_width(element: dict[str, Any]) -> int | float:
-    font_size = element["fontSize"] if isinstance(element["fontSize"], (int, float)) else 16
+    font_size = (
+        element["fontSize"] if isinstance(element["fontSize"], (int, float)) else 16
+    )
     bold = element.get("bold", False)
     font_family = element.get("fontFamily", "")
     letter_spacing = resolve_letter_spacing(element)
-    paragraphs = [paragraph for paragraph in re.split(r"\n+", element["text"]) if paragraph]
+    paragraphs = [
+        paragraph for paragraph in re.split(r"\n+", element["text"]) if paragraph
+    ]
     return max(
-        [estimate_text_width(paragraph, font_size, letter_spacing, bold, font_family) for paragraph in paragraphs]
+        [
+            estimate_text_width(paragraph, font_size, letter_spacing, bold, font_family)
+            for paragraph in paragraphs
+        ]
         or [1]
     )
 
@@ -1079,11 +1264,18 @@ def is_similar_text_overlay(left: dict[str, Any], right: dict[str, Any]) -> bool
 def estimate_text_line_count_for_text(
     element: dict[str, Any], text: str, paragraph: dict[str, Any] | None = None
 ) -> int:
-    font_size = element["fontSize"] if isinstance(element["fontSize"], (int, float)) else 16
+    font_size = (
+        element["fontSize"] if isinstance(element["fontSize"], (int, float)) else 16
+    )
     bold = element.get("bold", False)
     font_family = element.get("fontFamily", "")
     letter_spacing = resolve_letter_spacing(element, paragraph)
-    available_width = max(element["width"] - element.get("paddingLeft", 0) - element.get("paddingRight", 0), 1)
+    available_width = max(
+        element["width"]
+        - element.get("paddingLeft", 0)
+        - element.get("paddingRight", 0),
+        1,
+    )
     hard_lines = text.split("\n")
     if not text:
         return 0
@@ -1092,9 +1284,16 @@ def estimate_text_line_count_for_text(
         if element.get("wrap") in {"false", "0"}:
             line_count += 1
             continue
-        logical_width = max(estimate_text_width(hard_line, font_size, letter_spacing, bold, font_family), 1)
+        logical_width = max(
+            estimate_text_width(
+                hard_line, font_size, letter_spacing, bold, font_family
+            ),
+            1,
+        )
         effective_width = available_width + text_wrap_width_tolerance()
-        if is_single_line_visual_candidate(element, paragraph, hard_line, logical_width, effective_width):
+        if is_single_line_visual_candidate(
+            element, paragraph, hard_line, logical_width, effective_width
+        ):
             line_count += 1
             continue
         line_count += max(1, math.ceil(logical_width / effective_width))
@@ -1105,8 +1304,12 @@ def estimate_text_line_count(element: dict[str, Any]) -> int:
     return max(estimate_text_line_count_for_text(element, element["text"]), 1)
 
 
-def estimate_text_line_height(element: dict[str, Any], line_spacing: str | None = None) -> int | float | None:
-    font_size = element["fontSize"] if isinstance(element["fontSize"], (int, float)) else 16
+def estimate_text_line_height(
+    element: dict[str, Any], line_spacing: str | None = None
+) -> int | float | None:
+    font_size = (
+        element["fontSize"] if isinstance(element["fontSize"], (int, float)) else 16
+    )
     if line_spacing is None:
         return font_size * DEFAULT_TEXT_LINE_SPACING_MULTIPLE
     match = re.fullmatch(r"(multiple|fixed):([0-9]+(?:\.[0-9]+)?)", line_spacing)
@@ -1122,16 +1325,23 @@ def adjust_dense_body_line_height(
     line_height: int | float,
     paragraph_count: int,
 ) -> int | float:
-    font_size = element["fontSize"] if isinstance(element["fontSize"], (int, float)) else 16
+    font_size = (
+        element["fontSize"] if isinstance(element["fontSize"], (int, float)) else 16
+    )
     if paragraph_count < 4 or font_size > 14 or not line_spacing:
         return line_height
     match = re.fullmatch(r"multiple:([0-9]+(?:\.[0-9]+)?)", line_spacing)
     if match is None:
         return line_height
-    return min(line_height, font_size * min(float(match.group(1)), DENSE_BODY_LINE_SPACING_MAX_MULTIPLE))
+    return min(
+        line_height,
+        font_size * min(float(match.group(1)), DENSE_BODY_LINE_SPACING_MAX_MULTIPLE),
+    )
 
 
-def detect_text_may_overflow_shapes(elements: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def detect_text_may_overflow_shapes(
+    elements: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
     for element in elements:
         if not is_text_element(element) or not has_text_content(element):
@@ -1139,7 +1349,9 @@ def detect_text_may_overflow_shapes(elements: list[dict[str, Any]]) -> list[dict
         if has_explicit_height_auto_fit(element):
             continue
 
-        font_size = element["fontSize"] if isinstance(element["fontSize"], (int, float)) else 16
+        font_size = (
+            element["fontSize"] if isinstance(element["fontSize"], (int, float)) else 16
+        )
         paragraphs = element.get("paragraphs") or [
             {
                 "text": element["text"],
@@ -1152,30 +1364,45 @@ def detect_text_may_overflow_shapes(elements: list[dict[str, Any]]) -> list[dict
         estimated_height = 0.0
         line_heights: list[int | float] = []
         for paragraph in paragraphs:
-            paragraph_line_count = estimate_text_line_count_for_text(element, paragraph["text"], paragraph)
+            paragraph_line_count = estimate_text_line_count_for_text(
+                element, paragraph["text"], paragraph
+            )
             if paragraph_line_count == 0:
                 continue
             resolved_line_spacing = paragraph["lineSpacing"] or element["lineSpacing"]
             line_height = estimate_text_line_height(element, resolved_line_spacing)
             before_spacing = estimate_text_line_height(
-                element, paragraph["beforeLineSpacing"] or element["beforeLineSpacing"] or "fixed:0"
+                element,
+                paragraph["beforeLineSpacing"]
+                or element["beforeLineSpacing"]
+                or "fixed:0",
             )
             after_spacing = estimate_text_line_height(
-                element, paragraph["afterLineSpacing"] or element["afterLineSpacing"] or "fixed:0"
+                element,
+                paragraph["afterLineSpacing"]
+                or element["afterLineSpacing"]
+                or "fixed:0",
             )
             if line_height is None or before_spacing is None or after_spacing is None:
                 line_count = 0
                 break
-            line_height = adjust_dense_body_line_height(element, resolved_line_spacing, line_height, len(paragraphs))
+            line_height = adjust_dense_body_line_height(
+                element, resolved_line_spacing, line_height, len(paragraphs)
+            )
             first_line_height = font_size if line_count == 0 else line_height
             line_count += paragraph_line_count
             line_heights.append(line_height)
             estimated_height += (
-                before_spacing + first_line_height + max(paragraph_line_count - 1, 0) * line_height + after_spacing
+                before_spacing
+                + first_line_height
+                + max(paragraph_line_count - 1, 0) * line_height
+                + after_spacing
             )
         if line_count == 0:
             continue
-        available_height = max(element["height"] - element["paddingTop"] - element["paddingBottom"], 0)
+        available_height = max(
+            element["height"] - element["paddingTop"] - element["paddingBottom"], 0
+        )
         overflow = estimated_height - available_height
         if overflow <= text_height_overflow_tolerance():
             continue
@@ -1186,8 +1413,8 @@ def detect_text_may_overflow_shapes(elements: list[dict[str, Any]]) -> list[dict
         else:
             level = "error" if overflow > 10 else "warning"
         message = (
-            f'text shape {element["id"]} may overflow its own content box '
-            f'(estimated {estimated_height:g}px, available {available_height:g}px); '
+            f"text shape {element['id']} may overflow its own content box "
+            f"(estimated {estimated_height:g}px, available {available_height:g}px); "
             'consider setting content wrap="true" autoFit="normal-auto-fit"'
         )
         if is_background:
@@ -1204,8 +1431,8 @@ def detect_text_may_overflow_shapes(elements: list[dict[str, Any]]) -> list[dict
                 "overflow": overflow,
                 "message": message,
                 "hint": (
-                    "Increase shape.height, reduce the text, or set content wrap=\"true\" "
-                    "autoFit=\"normal-auto-fit\". "
+                    'Increase shape.height, reduce the text, or set content wrap="true" '
+                    'autoFit="normal-auto-fit". '
                     "This is an estimate based on font size, line spacing, and wrapped line count."
                 ),
             }
@@ -1236,17 +1463,26 @@ def is_background_decorative_text(
 def is_ghost_text(element: dict[str, Any]) -> bool:
     if not is_text_element(element) or not has_text_content(element):
         return False
-    font_size = element["fontSize"] if isinstance(element["fontSize"], (int, float)) else 16
+    font_size = (
+        element["fontSize"] if isinstance(element["fontSize"], (int, float)) else 16
+    )
     text_alpha = element.get("textAlpha", element.get("alpha", 1))
     if not isinstance(text_alpha, (int, float)):
         return False
     if font_size > GHOST_TEXT_MIN_FONT_SIZE and text_alpha < GHOST_TEXT_MAX_ALPHA:
         return True
-    return font_size >= GHOST_TEXT_FAINT_MIN_FONT_SIZE and text_alpha < GHOST_TEXT_FAINT_MAX_ALPHA
+    return (
+        font_size >= GHOST_TEXT_FAINT_MIN_FONT_SIZE
+        and text_alpha < GHOST_TEXT_FAINT_MAX_ALPHA
+    )
 
 
 def estimate_text_visual_bbox(element: dict[str, Any]) -> dict[str, int | float] | None:
-    if not is_text_element(element) or not has_text_content(element) or is_decorative_text(element):
+    if (
+        not is_text_element(element)
+        or not has_text_content(element)
+        or is_decorative_text(element)
+    ):
         return None
 
     padding_left = element.get("paddingLeft", 0)
@@ -1255,10 +1491,16 @@ def estimate_text_visual_bbox(element: dict[str, Any]) -> dict[str, int | float]
     padding_bottom = element.get("paddingBottom", 0)
     content_width = max(element["width"] - padding_left - padding_right, 0)
     content_height = max(element["height"] - padding_top - padding_bottom, 0)
-    font_size = element["fontSize"] if isinstance(element["fontSize"], (int, float)) else 16
+    font_size = (
+        element["fontSize"] if isinstance(element["fontSize"], (int, float)) else 16
+    )
     line_count = estimate_text_line_count(element)
     estimated_width = max(1, estimate_text_max_line_width(element))
-    visual_width = estimated_width if element.get("wrap") in {"false", "0"} else min(content_width, estimated_width)
+    visual_width = (
+        estimated_width
+        if element.get("wrap") in {"false", "0"}
+        else min(content_width, estimated_width)
+    )
     visual_height = min(content_height, max(1, line_count * font_size * 1.2))
     x = element["x"] + padding_left
     if element.get("textAlign") == "center":
@@ -1279,20 +1521,28 @@ def estimate_text_visual_bbox(element: dict[str, Any]) -> dict[str, int | float]
 
 
 def intersection_area(left: dict[str, Any], right: dict[str, Any]) -> int | float:
-    width = min(left["x"] + left["width"], right["x"] + right["width"]) - max(left["x"], right["x"])
-    height = min(left["y"] + left["height"], right["y"] + right["height"]) - max(left["y"], right["y"])
+    width = min(left["x"] + left["width"], right["x"] + right["width"]) - max(
+        left["x"], right["x"]
+    )
+    height = min(left["y"] + left["height"], right["y"] + right["height"]) - max(
+        left["y"], right["y"]
+    )
     if width <= 0 or height <= 0:
         return 0
     return width * height
 
 
 def intersection_height(left: dict[str, Any], right: dict[str, Any]) -> int | float:
-    height = min(left["y"] + left["height"], right["y"] + right["height"]) - max(left["y"], right["y"])
+    height = min(left["y"] + left["height"], right["y"] + right["height"]) - max(
+        left["y"], right["y"]
+    )
     return max(height, 0)
 
 
 def intersection_width(left: dict[str, Any], right: dict[str, Any]) -> int | float:
-    width = min(left["x"] + left["width"], right["x"] + right["width"]) - max(left["x"], right["x"])
+    width = min(left["x"] + left["width"], right["x"] + right["width"]) - max(
+        left["x"], right["x"]
+    )
     return max(width, 0)
 
 
@@ -1300,7 +1550,9 @@ def element_area(element: dict[str, Any]) -> int | float:
     return max(element["width"], 0) * max(element["height"], 0)
 
 
-def contains(outer: dict[str, Any], inner: dict[str, Any], tolerance: int | float = 2) -> bool:
+def contains(
+    outer: dict[str, Any], inner: dict[str, Any], tolerance: int | float = 2
+) -> bool:
     return (
         inner["x"] >= outer["x"] - tolerance
         and inner["y"] >= outer["y"] - tolerance
@@ -1310,7 +1562,10 @@ def contains(outer: dict[str, Any], inner: dict[str, Any], tolerance: int | floa
 
 
 def is_bottom_layer_full_slide_whiteboard(
-    whiteboard: dict[str, Any], other: dict[str, Any], slide_width: int | float, slide_height: int | float
+    whiteboard: dict[str, Any],
+    other: dict[str, Any],
+    slide_width: int | float,
+    slide_height: int | float,
 ) -> bool:
     return (
         whiteboard["order"] < other["order"]
@@ -1321,7 +1576,9 @@ def is_bottom_layer_full_slide_whiteboard(
     )
 
 
-def is_background_container_for_whiteboard(container: dict[str, Any], whiteboard: dict[str, Any]) -> bool:
+def is_background_container_for_whiteboard(
+    container: dict[str, Any], whiteboard: dict[str, Any]
+) -> bool:
     if container["order"] > whiteboard["order"]:
         return False
     if is_text_element(container):
@@ -1351,7 +1608,9 @@ def is_template_text_stack(left: dict[str, Any], right: dict[str, Any]) -> bool:
     return same_column and vertical_offset >= top_font_size * 0.75
 
 
-def should_flag_horizontal_text_overflow(left: dict[str, Any], right: dict[str, Any]) -> bool:
+def should_flag_horizontal_text_overflow(
+    left: dict[str, Any], right: dict[str, Any]
+) -> bool:
     if not (is_text_element(left) and is_text_element(right)):
         return False
     if not (has_text_content(left) and has_text_content(right)):
@@ -1373,7 +1632,9 @@ def should_flag_horizontal_text_overflow(left: dict[str, Any], right: dict[str, 
     if source.get("textAlign") in {"center", "right"}:
         return False
 
-    font_size = source["fontSize"] if isinstance(source["fontSize"], (int, float)) else 16
+    font_size = (
+        source["fontSize"] if isinstance(source["fontSize"], (int, float)) else 16
+    )
     padding_left = source.get("paddingLeft", 0)
     padding_right = source.get("paddingRight", 0)
     available_width = max(source["width"] - padding_left - padding_right, 1)
@@ -1393,11 +1654,18 @@ def should_flag_horizontal_text_overflow(left: dict[str, Any], right: dict[str, 
     return vertical_overlap >= min_vertical_overlap
 
 
-def horizontal_text_overflow_measurement(left: dict[str, Any], right: dict[str, Any]) -> dict[str, int | float]:
+def horizontal_text_overflow_measurement(
+    left: dict[str, Any], right: dict[str, Any]
+) -> dict[str, int | float]:
     source, target = sorted([left, right], key=lambda element: element["x"])
     padding_left = source.get("paddingLeft", 0)
     visual_width = estimate_text_max_line_width(source)
-    source_visual_bbox = {"x": source["x"] + padding_left, "y": source["y"], "width": visual_width, "height": source["height"]}
+    source_visual_bbox = {
+        "x": source["x"] + padding_left,
+        "y": source["y"],
+        "width": visual_width,
+        "height": source["height"],
+    }
     width = intersection_width(source_visual_bbox, target)
     height = intersection_height(source_visual_bbox, target)
     return {
@@ -1442,7 +1710,7 @@ def build_whiteboard_external_overlap_issue(
         "level": "warning",
         "code": "whiteboard_external_overlap",
         "elements": [whiteboard["id"], *element_ids],
-        "message": f'whiteboard {whiteboard["id"]} overlaps {len(element_ids)} sibling elements across its boundary',
+        "message": f"whiteboard {whiteboard['id']} overlaps {len(element_ids)} sibling elements across its boundary",
         "hint": (
             "Treat this as a static whiteboard container-bbox risk, not final visual proof. "
             "After moving or accepting the overlap, use screenshot QA or equivalent rendered visual inspection as "
@@ -1464,7 +1732,9 @@ def should_report_whiteboard_overlap(
         return None
     if contains(whiteboard, other):
         return None
-    if is_bottom_layer_full_slide_whiteboard(whiteboard, other, slide_width, slide_height):
+    if is_bottom_layer_full_slide_whiteboard(
+        whiteboard, other, slide_width, slide_height
+    ):
         return None
     if is_background_container_for_whiteboard(other, whiteboard):
         return None
@@ -1516,7 +1786,9 @@ def detect_whiteboard_external_overlaps(
 ) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
     elements_by_id = {element["id"]: element for element in elements}
-    for whiteboard in [element for element in elements if is_whiteboard_element(element)]:
+    for whiteboard in [
+        element for element in elements if is_whiteboard_element(element)
+    ]:
         overlap_details = [
             detail
             for element in elements
@@ -1530,15 +1802,21 @@ def detect_whiteboard_external_overlaps(
             )
             is not None
         ]
-        overlap_details = prune_contained_text_overlap_details(overlap_details, elements_by_id)
+        overlap_details = prune_contained_text_overlap_details(
+            overlap_details, elements_by_id
+        )
         if overlap_details:
-            issues.append(build_whiteboard_external_overlap_issue(whiteboard, overlap_details))
+            issues.append(
+                build_whiteboard_external_overlap_issue(whiteboard, overlap_details)
+            )
     return issues
 
 
 def element_canvas_bbox(element: dict[str, Any]) -> dict[str, int | float]:
     bbox = {key: element[key] for key in ("x", "y", "width", "height")}
-    if element["kind"] != "chart" and not (element["kind"] == "shape" and element["type"] == "text"):
+    if element["kind"] != "chart" and not (
+        element["kind"] == "shape" and element["type"] == "text"
+    ):
         return bbox
     rotation = element["rotation"]
     if not isinstance(rotation, (int, float)) or not math.isfinite(rotation):
@@ -1588,20 +1866,20 @@ def detect_elements_out_of_canvas(
         issues.append(
             {
                 "level": "error",
-                "code": f'{element["kind"]}_out_of_canvas',
+                "code": f"{element['kind']}_out_of_canvas",
                 "elements": [element["id"]],
                 "canvas": {"width": slide_width, "height": slide_height},
                 "bbox": bbox,
                 "overflow": overflow,
                 "message": (
-                    f'{element["kind"]} {element["id"]} exceeds the {slide_width:g}x{slide_height:g} canvas '
-                    f'({", ".join(overflow_details)})'
+                    f"{element['kind']} {element['id']} exceeds the {slide_width:g}x{slide_height:g} canvas "
+                    f"({', '.join(overflow_details)})"
                 ),
                 "hint": (
                     "Move the table inside the canvas, reduce table.width/table.height, or split the table across "
                     "slides."
                     if element["kind"] == "table"
-                    else f'Move the {element["kind"]} inside the canvas or reduce its width/height.'
+                    else f"Move the {element['kind']} inside the canvas or reduce its width/height."
                 ),
             }
         )
@@ -1613,13 +1891,20 @@ def extract_table_column_sizes(table_xml: str) -> list[int | float | None]:
     for match in re.finditer(r"<col\b([^>]*)/?>", table_xml):
         attrs = match.group(1)
         span = extract_numeric_attribute(attrs, "span") or 1
-        span_count = int(span) if math.isfinite(span) and span > 0 and float(span).is_integer() else 1
+        span_count = (
+            int(span)
+            if math.isfinite(span) and span > 0 and float(span).is_integer()
+            else 1
+        )
         sizes.extend([extract_numeric_attribute(attrs, "width")] * span_count)
     return sizes
 
 
 def extract_table_row_sizes(table_xml: str) -> list[int | float | None]:
-    return [extract_numeric_attribute(match.group(1), "height") for match in re.finditer(r"<tr\b([^>]*)>", table_xml)]
+    return [
+        extract_numeric_attribute(match.group(1), "height")
+        for match in re.finditer(r"<tr\b([^>]*)>", table_xml)
+    ]
 
 
 def resolve_table_dimension(
@@ -1632,7 +1917,9 @@ def resolve_table_dimension(
     if not input_sizes:
         return declared_size, None
     layout = solve_weighted_min_layout(
-        input_sizes, default_size, declared_size if is_filled_size(declared_size) else None
+        input_sizes,
+        default_size,
+        declared_size if is_filled_size(declared_size) else None,
     )
     return layout["actual_size"], layout
 
@@ -1641,7 +1928,9 @@ def format_size(size: int | float) -> str:
     return f"{size:g}"
 
 
-def detect_table_layout_size_mismatches(elements: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def detect_table_layout_size_mismatches(
+    elements: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
     dimensions = {
         "width": ("col", "column widths"),
@@ -1668,7 +1957,7 @@ def detect_table_layout_size_mismatches(elements: list[dict[str, Any]]) -> list[
                     "resolved_size": actual_size,
                     "resolved_sizes": layout["final_sizes"],
                     "message": (
-                        f'table {table["id"]} declares {dimension}={format_size(target_size)}px, but its '
+                        f"table {table['id']} declares {dimension}={format_size(target_size)}px, but its "
                         f"{child_description} resolve to {format_size(actual_size)}px"
                     ),
                     "hint": (
@@ -1695,7 +1984,12 @@ def segment_intersects_rect(
     if dx == 0 and dy == 0:
         return left <= x1 <= right and top <= y1 <= bottom
     t_enter, t_exit = 0.0, 1.0
-    for delta, distance in ((-dx, x1 - left), (dx, right - x1), (-dy, y1 - top), (dy, bottom - y1)):
+    for delta, distance in (
+        (-dx, x1 - left),
+        (dx, right - x1),
+        (-dy, y1 - top),
+        (dy, bottom - y1),
+    ):
         if delta == 0:
             if distance < 0:
                 return False
@@ -1711,16 +2005,27 @@ def segment_intersects_rect(
 
 
 def line_text_graze_margin(text_element: dict[str, Any]) -> float:
-    font_size = text_element["fontSize"] if isinstance(text_element.get("fontSize"), (int, float)) else 16
+    font_size = (
+        text_element["fontSize"]
+        if isinstance(text_element.get("fontSize"), (int, float))
+        else 16
+    )
     return max(font_size * LINE_TEXT_GRAZE_FONT_RATIO, LINE_TEXT_GRAZE_MIN_PX)
 
 
-def erode_rect(rect: dict[str, int | float], margin: float) -> dict[str, int | float] | None:
+def erode_rect(
+    rect: dict[str, int | float], margin: float
+) -> dict[str, int | float] | None:
     width = rect["width"] - 2 * margin
     height = rect["height"] - 2 * margin
     if width <= 0 or height <= 0:
         return None
-    return {"x": rect["x"] + margin, "y": rect["y"] + margin, "width": width, "height": height}
+    return {
+        "x": rect["x"] + margin,
+        "y": rect["y"] + margin,
+        "width": width,
+        "height": height,
+    }
 
 
 def line_crosses_text(line: dict[str, Any], text_element: dict[str, Any]) -> bool:
@@ -1760,7 +2065,7 @@ def detect_line_text_crossings(
                     "level": "error",
                     "code": "bbox_overlap",
                     "elements": [line["id"], text_element["id"]],
-                    "message": f'line {line["id"]} crosses text {text_element["id"]}',
+                    "message": f"line {line['id']} crosses text {text_element['id']}",
                     "hint": "Move the line off the text glyphs so it no longer cuts through the letterforms.",
                 }
             )
@@ -1768,7 +2073,10 @@ def detect_line_text_crossings(
 
 
 def lint_slide(
-    slide_xml: str, slide_number: int, slide_width: int | float = 960, slide_height: int | float = 540
+    slide_xml: str,
+    slide_number: int,
+    slide_width: int | float = 960,
+    slide_height: int | float = 540,
 ) -> dict[str, Any]:
     elements = extract_elements(slide_xml)
     issues: list[dict[str, Any]] = [
@@ -1783,17 +2091,23 @@ def lint_slide(
     for index, left in enumerate(elements):
         for right in elements[index + 1 :]:
             horizontal_overflow = should_flag_horizontal_text_overflow(left, right)
-            if not horizontal_overflow and (not intersects(left, right) or not should_flag_overlap(left, right)):
+            if not horizontal_overflow and (
+                not intersects(left, right) or not should_flag_overlap(left, right)
+            ):
                 continue
             issues.append(
                 {
                     "level": "error",
                     "code": "bbox_overlap",
                     "elements": [left["id"], right["id"]],
-                    "message": f'{left["id"]} overlaps {right["id"]}',
+                    "message": f"{left['id']} overlaps {right['id']}",
                     "hint": "Move or resize the elements so their visual bounds no longer intersect.",
                     **(
-                        {"measurement": horizontal_text_overflow_measurement(left, right)}
+                        {
+                            "measurement": horizontal_text_overflow_measurement(
+                                left, right
+                            )
+                        }
                         if horizontal_overflow
                         else {}
                     ),
@@ -1806,7 +2120,6 @@ def lint_slide(
         "elements": elements,
         "issues": issues,
     }
-
 
 
 MIN_CONTAINER_WIDTH = 140
@@ -1824,7 +2137,9 @@ IMAGE_OVERLAY_MATCH_RATIO = 0.90
 DENSITY_CONTAINMENT_TOLERANCE = 8
 
 
-def clipped_bbox(element: dict[str, Any], container: dict[str, Any]) -> dict[str, int | float] | None:
+def clipped_bbox(
+    element: dict[str, Any], container: dict[str, Any]
+) -> dict[str, int | float] | None:
     left = max(element["x"], container["x"])
     top = max(element["y"], container["y"])
     right = min(element["x"] + element["width"], container["x"] + container["width"])
@@ -1835,7 +2150,13 @@ def clipped_bbox(element: dict[str, Any], container: dict[str, Any]) -> dict[str
 
 
 def rectangle_union_area(rectangles: list[dict[str, int | float]]) -> int | float:
-    x_coordinates = sorted({coordinate for rect in rectangles for coordinate in (rect["x"], rect["x"] + rect["width"])})
+    x_coordinates = sorted(
+        {
+            coordinate
+            for rect in rectangles
+            for coordinate in (rect["x"], rect["x"] + rect["width"])
+        }
+    )
     area = 0
     for left, right in zip(x_coordinates, x_coordinates[1:]):
         intervals = sorted(
@@ -1856,21 +2177,28 @@ def rectangle_union_area(rectangles: list[dict[str, int | float]]) -> int | floa
     return area
 
 
-def has_similar_short_card_peer(element: dict[str, Any], elements: list[dict[str, Any]]) -> bool:
-    return sum(
-        other is not element
-        and is_visually_rendered(other)
-        and other["kind"] == "shape"
-        and other["type"] == "rect"
-        and other["width"] >= MIN_CONTAINER_WIDTH
-        and other["height"] >= MIN_SHORT_CARD_HEIGHT
-        and element_area(other) >= MIN_CONTAINER_AREA
-        and abs(other["width"] - element["width"]) / max(other["width"], element["width"])
-        <= SHORT_CARD_SIZE_TOLERANCE_RATIO
-        and abs(other["height"] - element["height"]) / max(other["height"], element["height"])
-        <= SHORT_CARD_SIZE_TOLERANCE_RATIO
-        for other in elements
-    ) >= MIN_SIMILAR_SHORT_CARD_COUNT
+def has_similar_short_card_peer(
+    element: dict[str, Any], elements: list[dict[str, Any]]
+) -> bool:
+    return (
+        sum(
+            other is not element
+            and is_visually_rendered(other)
+            and other["kind"] == "shape"
+            and other["type"] == "rect"
+            and other["width"] >= MIN_CONTAINER_WIDTH
+            and other["height"] >= MIN_SHORT_CARD_HEIGHT
+            and element_area(other) >= MIN_CONTAINER_AREA
+            and abs(other["width"] - element["width"])
+            / max(other["width"], element["width"])
+            <= SHORT_CARD_SIZE_TOLERANCE_RATIO
+            and abs(other["height"] - element["height"])
+            / max(other["height"], element["height"])
+            <= SHORT_CARD_SIZE_TOLERANCE_RATIO
+            for other in elements
+        )
+        >= MIN_SIMILAR_SHORT_CARD_COUNT
+    )
 
 
 def is_layout_container(
@@ -1903,25 +2231,39 @@ def is_layout_container(
 def is_edge_spanning_layout_panel(
     element: dict[str, Any], slide_width: int | float, slide_height: int | float
 ) -> bool:
-    touches_horizontal_edge = element["x"] <= 2 or element["x"] + element["width"] >= slide_width - 2
-    touches_vertical_edge = element["y"] <= 2 or element["y"] + element["height"] >= slide_height - 2
-    return (touches_horizontal_edge and element["height"] >= slide_height * LAYOUT_PANEL_SPAN_RATIO) or (
-        touches_vertical_edge and element["width"] >= slide_width * LAYOUT_PANEL_SPAN_RATIO
+    touches_horizontal_edge = (
+        element["x"] <= 2 or element["x"] + element["width"] >= slide_width - 2
+    )
+    touches_vertical_edge = (
+        element["y"] <= 2 or element["y"] + element["height"] >= slide_height - 2
+    )
+    return (
+        touches_horizontal_edge
+        and element["height"] >= slide_height * LAYOUT_PANEL_SPAN_RATIO
+    ) or (
+        touches_vertical_edge
+        and element["width"] >= slide_width * LAYOUT_PANEL_SPAN_RATIO
     )
 
 
-def has_matching_image_overlay(container: dict[str, Any], elements: list[dict[str, Any]]) -> bool:
+def has_matching_image_overlay(
+    container: dict[str, Any], elements: list[dict[str, Any]]
+) -> bool:
     container_area = element_area(container)
     return any(
         element["kind"] == "img"
         and is_visually_rendered(element)
-        and intersection_area(container, element) / max(1, container_area) >= IMAGE_OVERLAY_MATCH_RATIO
+        and intersection_area(container, element) / max(1, container_area)
+        >= IMAGE_OVERLAY_MATCH_RATIO
         for element in elements
     )
 
 
 def is_nested_in_layout_panel(
-    container: dict[str, Any], elements: list[dict[str, Any]], slide_width: int | float, slide_height: int | float
+    container: dict[str, Any],
+    elements: list[dict[str, Any]],
+    slide_width: int | float,
+    slide_height: int | float,
 ) -> bool:
     return any(
         element is not container
@@ -1966,9 +2308,15 @@ def extract_density_elements(slide_xml: str) -> list[dict[str, Any]]:
             base_font_size = 16.0
         element.update(
             {
-                "textType": content_node.attrib.get("textType") if content_node is not None else None,
-                "textAlign": content_node.attrib.get("textAlign") if content_node is not None else None,
-                "autoFit": content_node.attrib.get("autoFit") if content_node is not None else None,
+                "textType": content_node.attrib.get("textType")
+                if content_node is not None
+                else None,
+                "textAlign": content_node.attrib.get("textAlign")
+                if content_node is not None
+                else None,
+                "autoFit": content_node.attrib.get("autoFit")
+                if content_node is not None
+                else None,
                 "fontSize": base_font_size,
                 "text": "\n".join(paragraph for paragraph in paragraphs if paragraph),
             }
@@ -2042,7 +2390,9 @@ def is_visually_rendered(element: dict[str, Any]) -> bool:
     return element.get("alpha", 1) > 0
 
 
-def visual_bbox(element: dict[str, Any], container: dict[str, Any]) -> dict[str, int | float] | None:
+def visual_bbox(
+    element: dict[str, Any], container: dict[str, Any]
+) -> dict[str, int | float] | None:
     if not is_visually_rendered(element):
         return None
     if is_text_element(element):
@@ -2080,7 +2430,11 @@ def slide_content_visual_bbox(
 
 
 def line_stroke_bbox(element: dict[str, Any]) -> dict[str, Any]:
-    return {**element, "width": max(element["width"], 1), "height": max(element["height"], 1)}
+    return {
+        **element,
+        "width": max(element["width"], 1),
+        "height": max(element["height"], 1),
+    }
 
 
 def is_slide_content_present(
@@ -2120,11 +2474,16 @@ def is_large_visual_child(element: dict[str, Any], container: dict[str, Any]) ->
 
 
 def detect_sparse_container_content(
-    elements: list[dict[str, Any]], slide_number: int, slide_width: int | float, slide_height: int | float
+    elements: list[dict[str, Any]],
+    slide_number: int,
+    slide_width: int | float,
+    slide_height: int | float,
 ) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
     for container in (
-        element for element in elements if is_layout_container(element, slide_width, slide_height, elements)
+        element
+        for element in elements
+        if is_layout_container(element, slide_width, slide_height, elements)
     ):
         if (
             is_edge_spanning_layout_panel(container, slide_width, slide_height)
@@ -2142,7 +2501,9 @@ def detect_sparse_container_content(
             continue
         own_text_bbox = own_text_visual_bbox(container)
         rectangles = ([own_text_bbox] if own_text_bbox else []) + [
-            bbox for child in children if (bbox := visual_bbox(child, container)) is not None
+            bbox
+            for child in children
+            if (bbox := visual_bbox(child, container)) is not None
         ]
         content_area = rectangle_union_area(rectangles) if rectangles else 0
         coverage_ratio = content_area / element_area(container)
@@ -2156,7 +2517,9 @@ def detect_sparse_container_content(
                     "slide_number": slide_number,
                     "container_id": container["id"],
                     "container_type": container["type"],
-                    "bbox": {key: container[key] for key in ("x", "y", "width", "height")},
+                    "bbox": {
+                        key: container[key] for key in ("x", "y", "width", "height")
+                    },
                 },
                 "rule": {
                     "name": "large_container_visible_content_coverage",
@@ -2167,7 +2530,8 @@ def detect_sparse_container_content(
                     "container_area": element_area(container),
                     "visible_content_area": round(content_area, 3),
                     "content_coverage_ratio": round(coverage_ratio, 3),
-                    "content_element_count": len(children) + (1 if own_text_bbox else 0),
+                    "content_element_count": len(children)
+                    + (1 if own_text_bbox else 0),
                 },
                 "elements": [container["id"], *[child["id"] for child in children]],
             }
@@ -2176,7 +2540,10 @@ def detect_sparse_container_content(
 
 
 def detect_sparse_slide_content(
-    elements: list[dict[str, Any]], slide_number: int, slide_width: int | float, slide_height: int | float
+    elements: list[dict[str, Any]],
+    slide_number: int,
+    slide_width: int | float,
+    slide_height: int | float,
 ) -> list[dict[str, Any]]:
     slide_bbox = {"x": 0, "y": 0, "width": slide_width, "height": slide_height}
     content = [
@@ -2246,7 +2613,6 @@ def detect_blank_slide(
             "hint": "Add visible text, an image, a chart, a table, a whiteboard, or an icon before creating the slide.",
         }
     ]
-
 
 
 RULE_METADATA: dict[str, dict[str, Any]] = {
@@ -2336,8 +2702,12 @@ def issue_measurement(
         left = elements_by_id.get(issue["elements"][0])
         right = elements_by_id.get(issue["elements"][1])
         if left and right:
-            left_box = (estimate_text_visual_bbox(left) if is_text_element(left) else None) or left
-            right_box = (estimate_text_visual_bbox(right) if is_text_element(right) else None) or right
+            left_box = (
+                estimate_text_visual_bbox(left) if is_text_element(left) else None
+            ) or left
+            right_box = (
+                estimate_text_visual_bbox(right) if is_text_element(right) else None
+            ) or right
             width = intersection_width(left_box, right_box)
             height = intersection_height(left_box, right_box)
             return {
@@ -2468,7 +2838,8 @@ def normalize_issue(
     else:
         normalized.setdefault("message", normalized["code"].replace("_", " "))
     normalized.setdefault(
-        "hint", "Inspect the reported elements and adjust them to satisfy the rule comparison."
+        "hint",
+        "Inspect the reported elements and adjust them to satisfy the rule comparison.",
     )
     return normalized
 
@@ -2503,13 +2874,21 @@ def build_result(
     slides: list[dict[str, Any]],
 ) -> dict[str, Any]:
     document_errors = [issue for issue in top_level_issues if issue["level"] == "error"]
-    document_warnings = [issue for issue in top_level_issues if issue["level"] == "warning"]
+    document_warnings = [
+        issue for issue in top_level_issues if issue["level"] == "warning"
+    ]
     document_infos = [issue for issue in top_level_issues if issue["level"] == "info"]
     error_count = len(document_errors) + sum(len(slide["errors"]) for slide in slides)
-    warning_count = len(document_warnings) + sum(len(slide["warnings"]) for slide in slides)
+    warning_count = len(document_warnings) + sum(
+        len(slide["warnings"]) for slide in slides
+    )
     info_count = len(document_infos) + sum(len(slide["infos"]) for slide in slides)
-    all_errors = document_errors + [issue for slide in slides for issue in slide["errors"]]
-    all_warnings = document_warnings + [issue for slide in slides for issue in slide["warnings"]]
+    all_errors = document_errors + [
+        issue for slide in slides for issue in slide["errors"]
+    ]
+    all_warnings = document_warnings + [
+        issue for slide in slides for issue in slide["warnings"]
+    ]
     status = slide_status(all_errors, all_warnings)
     result: dict[str, Any] = {
         "schema_version": "2.0",
@@ -2612,7 +2991,9 @@ def lint_xml(xml: str, source_path: str | None = None) -> dict[str, Any]:
         )
         density_elements = extract_density_elements(slide_xml)
         extra_elements = [
-            element for element in density_elements if element["kind"] in {"icon", "polyline", "line"}
+            element
+            for element in density_elements
+            if element["kind"] in {"icon", "polyline", "line"}
         ]
         elements_by_id = {
             element["id"]: element for element in [*density_elements, *extra_elements]
@@ -2620,7 +3001,9 @@ def lint_xml(xml: str, source_path: str | None = None) -> dict[str, Any]:
         # geometry["elements"] are the exact objects should_flag_overlap/detect_elements_out_of_canvas
         # decided with inside lint_slide; prefer them so measurement/related_objects stay consistent
         # with whatever actually triggered the issue, instead of density_elements' separate re-parse.
-        elements_by_id.update({element["id"]: element for element in geometry["elements"]})
+        elements_by_id.update(
+            {element["id"]: element for element in geometry["elements"]}
+        )
         extra_overflow_issues = detect_elements_out_of_canvas(
             extra_elements,
             presentation["width"],
@@ -2679,7 +3062,10 @@ def lint_xml(xml: str, source_path: str | None = None) -> dict[str, Any]:
 
 
 def print_usage() -> None:
-    print("Usage:\n  python3 xml_text_overlap_lint.py --input <presentation.xml>", file=sys.stderr)
+    print(
+        "Usage:\n  python3 xml_text_overlap_lint.py --input <presentation.xml>",
+        file=sys.stderr,
+    )
 
 
 def run_cli(argv: list[str] | None = None) -> None:
