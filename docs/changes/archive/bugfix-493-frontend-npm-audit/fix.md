@@ -229,3 +229,9 @@ Frontend CI 中的新 audit step，既有 59 个 Vitest 文件全部保留。
 - final-sync 后 `scripts/docs-check` 通过（`192` sources / `65` routes），`ruff check .` 与 `ruff format --check .` 通过（`812` files），`git diff --check` 通过。
 - 与 GitHub Frontend job 等价的独立 clean 运行 `npm ci && npm audit --audit-level=critical && npm run test` 通过，结果仍为 `59` files / `555` tests。
 - `origin/main@1a0fb9ea9` 的 GitHub CI 两个 job 均为 green。本机把 Python 与 Frontend 两个完整 job 同时运行时触发资源竞争；拆开后 Frontend 全绿，Python 全量仅剩四个本单元未改动的 Feishu multiprocessing 测试在 macOS xdist 全套件上下文失败，而相同失败集合的聚焦运行 `13 passed`。本单元不改 Python 代码或测试，不跨范围处理该本机并发问题；最终以 PR 的独立 Linux runners 必需检查为交付门禁。
+
+#### PR 开放后的 final-sync 恢复
+
+- PR #233 开放后，`origin/main` 从 `1a0fb9ea922c33551b2c5bbb3bf440102e3ddae6` 前进到 `be61e2d72a5fdd0f725afe837402e96582e5e0ef`。唯一新增提交只加入 `bugfix-496` 的 Feishu listener/Gateway 设计、设计评审、Gateway delta-spec 和 milestone 占位文件；没有修改 `.github/workflows/ci.yml`、`src/IM/frontend/` 或本 unit 的归档目录。
+- 该增量描述未来的 Feishu worker owner-liveness 实现，并明确 IM/前端为 `no spec delta`。它不改变 npm 依赖树、critical audit 策略、前端运行代码、IM 静态托管入口或 bugfix-493 的用户旅程，因此既有 audit、Vitest、production build、真实浏览器和独立 code-review 结论全部 retained。
+- 文档集合本身发生变化，所以同步后重新执行 `scripts/docs-check` 与 `git diff --check`；rebase 产生的新 PR head 重新等待 GitHub Python/Frontend 两个 required jobs 全绿，不能沿用旧 head 的 CI 状态。
