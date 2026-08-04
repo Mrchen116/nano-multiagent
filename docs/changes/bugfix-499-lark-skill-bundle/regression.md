@@ -95,3 +95,137 @@
 ## Side Findings
 
 无。在未启动产品旅程的前提下，没有把静态材料或未相关服务状态当作 side finding。
+
+---
+
+# Round 2 — 2026-08-04
+
+> Validation snapshot: `a0b4a5a2f`
+>
+> Review mode: full
+
+## Verdict
+
+**fail** — 已使用专用 tenant、专用测试用户、两条新建私有测试群和受限的
+`b499-test` user identity，完整重走 static 与 fresh-IM 托管两条入口。两条入口都
+能完成 Bot ping、当前群 Gateway 回复和 IM shadow；但用户一旦请求任何 Lark
+操作，助手向当前 Feishu 群暴露原始 DSML tool-call 文本后停止，没有给出可用结果。
+显式向另一条测试群发送 marker 也没有发生。因此完整 Lark bundle 对用户仍不可用。
+
+**Highest Required Action:** `out-of-unit` — 还观察到已由 #231 /
+`bugfix-497-shadow-mirror-duplicate-reply` 跟踪的 IM shadow duplicate；它不改变本轮
+Lark-operation 的直接 `fix-implementation` 结论，但按既有 major out-of-unit 问题的
+优先级记录在 Issues。
+
+第一轮的 G-1 fixture 缺失已关闭：本轮只使用了明确提供的、权限为 0600 的测试
+fixture；没有访问主/生产配置、聊天或资源。
+
+## 验收前置与服务接管
+
+- 专用测试群：当前群 `oc_9897648ac0f8571d5ea03c75162fd364`，目标群
+  `oc_324aa051dcba047417244aca6ddd78b9`；均由测试用户与测试 App Bot 组成。
+- `lark-cli --profile b499-test auth status --verify` 成功；该 profile 只具备本轮
+  所需的 IM / current-user 最小权限。Gateway 的隔离子进程也固定使用该 profile。
+- static run 使用独立 0600 source config；managed run 使用另一份仅有 web relay
+  的 0600 source config。两次分别以 fresh IM + Gateway 栈运行，未让同一 Bot
+  竞争连接。
+- managed run 由 Web IM 的
+  `feishu-managed-e2e → Channels → Add channel → Feishu → Save and connect`
+  建立。页面显示 **Connected**；同时显示缺少非 @ 群背景所需的两个 scope，但
+  明确说明 basic messaging path 可用。本轮所有触发均 @ Bot。
+
+## User Journeys Exercised
+
+1. **Static Feishu entry** — 当前群 @ 测试 Bot 发送 fixture ping、只回复
+   `gateway-normal-ok`、只读 Lark 身份请求、跨 chat marker 请求、独立 listener
+   边界与启动确认。
+2. **Managed Feishu entry** — fresh IM 中从 Settings 建立受控 Feishu channel，随后
+   在同一当前测试群重复 fixture ping、普通回复、只读 Lark 身份和跨 chat marker。
+3. **Shadow inspection** — 以临时 IM 的 `nano` 测试账户打开 Web IM，并以已认证
+   conversations/messages API 核对 external source 与本轮消息。
+
+## 验收标准覆盖
+
+### Requirement: 飞书绑定 agent 可使用完整 Lark 能力
+
+| Scenario | 期望来源 | 验证方式与证据 | 结果 | 备注 |
+| --- | --- | --- | --- | --- |
+| 用户从飞书请求 Lark 资源操作 | `incident.md` “用户从飞书请求 Lark 资源操作” | static `b499-static-read-20260804211029` 与 managed `b499-managed-read-20260804212802` 都要求只读检查已授权 user identity。测试 profile 已验证可用，但 Bot 仅回显 raw DSML read/tool-call 内容，未给最终身份或授权结果。 | fail | 用户看见内部 tool-call 标记而非可执行结果或准确前提说明。 |
+| Lark CLI 未安装或尚未授权 | `incident.md` “Lark CLI 未安装或尚未授权” | 本轮 CLI 与 user identity 实际可用，故未人为破坏 fixture；两条入口在可用前提下仍未完成只读状态检查。 | fail | 若连可用前提下的状态都不能向用户完成说明，不能把缺失/未授权分支判为可用。 |
+
+### Requirement: 飞书对话回复保持 Gateway 所有权
+
+| Scenario | 期望来源 | 验证方式与证据 | 结果 | 备注 |
+| --- | --- | --- | --- | --- |
+| 当前飞书对话产生普通助手回复 | `incident.md` “当前飞书对话产生普通助手回复” | static `b499-static-normal-20260804211258` 与 managed `b499-managed-normal-20260804212613` 在当前群均各只收到一次 `gateway-normal-ok`。两次 fresh IM 均创建 `external_source=feishu` 的影子会话，且含同轮 user / Agent 文本。 | pass | Gateway 仍是当前群唯一外部回复出口；另见 #231 duplicate side issue。 |
+| 用户明确要求操作另一段 Lark 聊天 | `incident.md` “用户明确要求操作另一段 Lark 聊天” | static `b499-static-cross-20260804211546` 与 managed `b499-managed-cross-20260804212908` 都明确指定唯一目标群与 marker。当前群只显示 raw DSML skill-read 文本；目标群仍只有建群系统消息，未收到任一 marker。 | fail | 当前群也没有操作成功/失败的正常说明。 |
+
+### Requirement: Lark 监听与身份语义保持全局能力的边界
+
+| Scenario | 期望来源 | 验证方式与证据 | 结果 | 备注 |
+| --- | --- | --- | --- | --- |
+| 用户明确要求监听 Lark 事件 | `incident.md` “用户明确要求监听 Lark 事件” | `b499-static-event-20260804211721` 的边界说明正确：仅测试群、普通回复仍由 Gateway、独立且有界监听。用户确认 `b499-static-event-confirm-20260804211838` 后，助手只回显“读取 lark-event / 启动监听”的内部标记，未确认建立监听或完成首个事件。 | fail | 边界文字正确，但用户要求的独立监听未建立。 |
+| 用户请求需要 Lark 身份的操作 | `incident.md` “用户请求需要 Lark 身份的操作” | 两条 entry 的只读身份请求均在可用的 `b499-test` user identity 下触发，但均止于 raw DSML。 | fail | 不能确认 agent 默认实际使用 Gateway 已登录的 Lark user identity。 |
+
+## Issues
+
+### G-2 — Lark 操作请求向用户泄露内部 tool-call 文本后停止
+
+- **Severity:** blocking
+- **Regression Relation:** direct
+- **Recommended Action:** fix-implementation
+- **Action Rationale:** 本 unit 的主价值是让飞书绑定 agent 可发现并执行完整 Lark
+  bundle。static 与 managed 两条真实入口都不能完成最小的只读身份检查或指定目标群
+  的 marker 发送；用户得到的是内部 DSML 而非结果、错误或下一步。
+
+### G-3 — 已知 external shadow duplicate 仍在本轮真旅程中可见
+
+- **Severity:** major
+- **Regression Relation:** unrelated-existing
+- **Recommended Action:** out-of-unit
+- **Action Rationale:** static 和 managed 的每个 `gateway-normal-ok` 在 Web IM shadow
+  中都呈现一条带 Process 的富气泡及一条同文案 plain 副本，而外部当前群仅一条。
+  这与已有 #231 / active `bugfix-497-shadow-mirror-duplicate-reply` 的已知用户症状
+  相同，属于本 unit 范围之外的 existing shadow-delivery 修复；未新建重复 GitHub
+  issue。
+
+## 复现验证
+
+在两次 fresh isolated stack 中均复现 G-2：@ 测试 Bot 请求 `lark-cli` 只读身份或
+向明确目标群发送 marker。前者没有最终结果，后者没有 marker；两者都在当前群留下
+raw DSML。普通非工具回复在两条入口均正常，表明失败是用户请求 Lark bundle 时才
+出现的能力断点，而不是测试 Bot 连通性问题。
+
+## 回归测试
+
+- static fixture ping：通过；测试 Bot 回复
+  `b499-static-20260804210948-ack`。
+- managed fixture ping：通过；测试 Bot 回复
+  `b499-managed-20260804212532-ack`。
+- 当前群普通 Gateway 回复与 Feishu shadow：两条入口通过（同时观察到 G-3）。
+- 显式另一 chat marker、只读 Lark identity、确认后的 independent listener：失败，
+  原因为 G-2。
+
+## 自动化测试增量
+
+本 reviewer 未以自动化测试替代真实用户旅程；实现侧自动化测试由 verifier / code
+reviewer 单独报告。上述结论来自真实 Feishu、Web IM 和认证 IM API 的可观察结果。
+
+## Reference Artifacts Reviewed
+
+不适用。本 unit 没有前端原型或 must-match screenshot；本轮已实际使用 Web IM
+Settings、Chat 和两条专用 Feishu 群作为用户面真值。
+
+## 上层文档同步
+
+- [x] `SPEC.md`（跨包顶点架构）：无需更新。本轮未观察到跨包依赖或部署拓扑变化。
+- [x] `docs/specs/gateway/`（agent capabilities / external channels）：unit 的 delta
+  仍需在 G-2 修复并通过产品门禁后再由 orchestrator 归并；当前不能以失败实现写入
+  canonical。
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新。本轮问题是产品行为，不是通用工作约定。
+- [x] `docs/specs/CONTRIBUTING.md`：无需更新。本 unit 不改变文档体系规范。
+
+## Side Findings
+
+- Managed Settings 已向用户显式显示当前 App 缺少非 @ 群背景 / history 权限；本轮
+  @ Bot 的 basic messaging path 未被该提示阻断。
