@@ -9,6 +9,7 @@ Gateway observer must forward ``detail`` verbatim into the
 
 from __future__ import annotations
 
+from tests.helpers.runtime_delivery import delivery_context_store
 import asyncio
 from typing import Any
 
@@ -31,13 +32,15 @@ class _FakeManager:
 
 def _run_observer_with_tool_end(event: dict[str, Any]) -> _FakeManager:
     manager = _FakeManager()
-    run_ctx = {
-        "run-1": {
-            "conversation_id": "conv-1",
-            "message_id": "msg-1",
-            "agent_id": "agent-1",
+    run_ctx = delivery_context_store(
+        {
+            "run-1": {
+                "conversation_id": "conv-1",
+                "message_id": "msg-1",
+                "agent_id": "agent-1",
+            }
         }
-    }
+    )
     observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
         run_context_store=run_ctx,
@@ -167,13 +170,15 @@ def test_tool_end_without_emoji_omits_key() -> None:
 
 def test_skill_created_event_reaches_handler_without_im_connection() -> None:
     received: list[tuple[str, dict[str, Any]]] = []
-    run_ctx = {
-        "run-1": {
-            "conversation_id": "conv-1",
-            "message_id": "msg-1",
-            "agent_id": "agent-1",
+    run_ctx = delivery_context_store(
+        {
+            "run-1": {
+                "conversation_id": "conv-1",
+                "message_id": "msg-1",
+                "agent_id": "agent-1",
+            }
         }
-    }
+    )
     observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: None,
         run_context_store=run_ctx,

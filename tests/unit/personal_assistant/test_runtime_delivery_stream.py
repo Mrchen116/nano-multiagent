@@ -11,6 +11,13 @@ from personal_assistant.gateway.runtime_delivery.stream import (
     StreamRunOutcome,
     stream_run_to_completion,
 )
+from personal_assistant.gateway.runtime_delivery.context import (
+    RunDeliveryContext,
+    RunDeliveryContextStore,
+    RunDeliveryTerminalProjection,
+    RunDeliveryTarget,
+)
+from personal_assistant.gateway.runtime_protocol import ShadowConversationRef
 
 
 class _StreamingKernel:
@@ -28,7 +35,7 @@ class _StreamingKernel:
 @pytest.mark.asyncio
 async def test_stream_returns_failed_terminal_outcome_with_partial_text() -> None:
     observed: list[dict[str, Any]] = []
-    context_store: dict[str, dict[str, str]] = {}
+    context_store = RunDeliveryContextStore()
     kernel = _StreamingKernel(
         [
             {"run_id": "run-1", "event": "assistant_message", "content": "partial"},
@@ -57,13 +64,7 @@ async def test_stream_returns_failed_terminal_outcome_with_partial_text() -> Non
     assert outcome == StreamRunOutcome(
         status="failed",
         final_text="partial",
-        context={
-            "conversation_id": "",
-            "message_id": "",
-            "agent_id": "agent-a",
-            "to_user_id": "owner-a",
-            "kernel_session_id": "session-1",
-        },
+        delivery=RunDeliveryTerminalProjection(resolved_conversation_id=None),
         error="upstream failed",
     )
     assert [
@@ -72,7 +73,7 @@ async def test_stream_returns_failed_terminal_outcome_with_partial_text() -> Non
         "error",
         "failed",
     ]
-    assert context_store == {}
+    assert context_store.get("run-1") is None
 
 
 @pytest.mark.asyncio
@@ -91,7 +92,7 @@ async def test_stream_returns_cancelled_terminal_outcome() -> None:
                 }
             ]
         ),
-        run_context_store={},
+        run_context_store=RunDeliveryContextStore(),
         observer=None,
     )
 
@@ -102,7 +103,7 @@ async def test_stream_returns_cancelled_terminal_outcome() -> None:
 
 @pytest.mark.asyncio
 async def test_stream_ending_without_terminal_status_fails_instead_of_hanging() -> None:
-    context_store: dict[str, dict[str, str]] = {}
+    context_store = RunDeliveryContextStore()
 
     with pytest.raises(RuntimeError, match="stream ended without terminal run_status"):
         await stream_run_to_completion(
@@ -123,4 +124,71 @@ async def test_stream_ending_without_terminal_status_fails_instead_of_hanging() 
             observer=None,
         )
 
-    assert context_store == {}
+    assert context_store.get("run-missing-terminal") is None
+
+
+@pytest.mark.asyncio
+async def test_stream_terminal_projection_preserves_resolved_shadow_conversation() -> (
+    None
+):
+    context_store = RunDeliveryContextStore()
+    context_store.seed(
+        RunDeliveryContext(
+            run_id="run-shadow",
+            agent_id="agent-a",
+            kernel_session_id="session-1",
+            delivery_target=RunDeliveryTarget.shadow(
+                ShadowConversationRef(conversation_id="conversation-1")
+            ),
+        )
+    )
+
+    outcome = await stream_run_to_completion(
+        run_id="run-shadow",
+        kernel_session_id="session-1",
+        agent_id="agent-a",
+        owner_user_id="owner-a",
+        kernel=_StreamingKernel(
+            [
+                {
+                    "run_id": "run-shadow",
+                    "event": "run_status",
+                    "status": "completed",
+                }
+            ]
+        ),
+        run_context_store=context_store,
+        observer=None,
+    )
+
+    assert outcome.delivery == RunDeliveryTerminalProjection(
+        resolved_conversation_id="conversation-1"
+    )
+    assert context_store.get("run-shadow") is None
+
+
+@pytest.mark.asyncio
+async def test_stream_terminal_projection_is_absent_after_another_owner_discards_context() -> (
+    None
+):
+    context_store = RunDeliveryContextStore()
+
+    outcome = await stream_run_to_completion(
+        run_id="run-discarded",
+        kernel_session_id="session-1",
+        agent_id="agent-a",
+        owner_user_id="owner-a",
+        kernel=_StreamingKernel(
+            [
+                {
+                    "run_id": "run-discarded",
+                    "event": "run_status",
+                    "status": "completed",
+                }
+            ]
+        ),
+        run_context_store=context_store,
+        observer=lambda _event: context_store.discard("run-discarded"),
+    )
+
+    assert outcome.delivery is None

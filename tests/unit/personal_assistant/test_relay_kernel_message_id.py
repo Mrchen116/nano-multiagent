@@ -12,6 +12,8 @@ import asyncio
 import pytest
 from unittest.mock import MagicMock
 
+from tests.helpers.runtime_delivery import delivery_context_store
+
 
 @pytest.mark.asyncio
 async def test_message_completed_carries_per_bubble_kernel_message_id() -> None:
@@ -47,14 +49,16 @@ async def test_message_completed_carries_per_bubble_kernel_message_id() -> None:
     manager.send_json = mock_send_json
     manager.send_json_await_ack = mock_send_json_await_ack
 
-    run_context_store: dict[str, dict[str, str]] = {
-        "run-1": {
-            "conversation_id": "conv-1",
-            "message_id": "",
-            "agent_id": "alpha",
-            "discard_empty_completion": "1",
+    run_context_store = delivery_context_store(
+        {
+            "run-1": {
+                "conversation_id": "conv-1",
+                "message_id": "",
+                "agent_id": "alpha",
+                "discard_empty_completion": "1",
+            }
         }
-    }
+    )
 
     observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
@@ -65,7 +69,9 @@ async def test_message_completed_carries_per_bubble_kernel_message_id() -> None:
     coro = observer({"event": "run_status", "status": "running", "run_id": "run-1"})
     if asyncio.iscoroutine(coro):
         await coro
-    assert run_context_store["run-1"]["message_id"] == "bubble-1"
+    context = run_context_store.get("run-1")
+    assert context is not None
+    assert context.message_id == "bubble-1"
 
     # assistant_message A → delta to bubble-1, ctx.kernel_message_id = kmsg-A
     coro = observer(
@@ -137,9 +143,9 @@ async def test_single_bubble_completed_carries_kernel_message_id() -> None:
     manager.send_json = mock_send_json
     manager.send_json_await_ack = mock_send_json_await_ack
 
-    run_context_store: dict[str, dict[str, str]] = {
-        "run-1": {"conversation_id": "conv-1", "message_id": "", "agent_id": "alpha"}
-    }
+    run_context_store = delivery_context_store(
+        {"run-1": {"conversation_id": "conv-1", "message_id": "", "agent_id": "alpha"}}
+    )
     observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
         run_context_store=run_context_store,

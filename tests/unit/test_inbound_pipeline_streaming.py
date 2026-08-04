@@ -10,6 +10,7 @@ Verifies that:
 
 from __future__ import annotations
 
+from tests.helpers.runtime_delivery import delivery_context_store
 from typing import Any, Mapping
 from unittest.mock import AsyncMock, MagicMock
 import asyncio
@@ -32,7 +33,7 @@ class TestAcceptedPhaseSeedsRunContext:
         from personal_assistant.gateway.inbound_models import RelayLifecycleUpdate
         from personal_assistant.channels.base import InboundMessage
 
-        run_context_store: dict[str, dict[str, str]] = {}
+        run_context_store = delivery_context_store({})
 
         manager = MagicMock()
         manager.connected = True
@@ -62,13 +63,14 @@ class TestAcceptedPhaseSeedsRunContext:
 
         await callback(message, update)
 
-        assert "run-001" in run_context_store
-        ctx = run_context_store["run-001"]
-        assert ctx["conversation_id"] == "conv-abc"
-        assert ctx["agent_id"] == "Alpha"
+        ctx = run_context_store.get("run-001")
+        assert ctx is not None
+        assert ctx.conversation_id == "conv-abc"
+        assert ctx.agent_id == "Alpha"
         # message_id starts empty; it will be filled by turn_start ack
-        assert ctx["message_id"] == "", (
-            f"message_id must be empty initially (filled by turn_start ack), got: '{ctx['message_id']}'"
+        assert ctx.message_id == "", (
+            "message_id must be empty initially (filled by turn_start ack), "
+            f"got: '{ctx.message_id}'"
         )
 
     @pytest.mark.asyncio
@@ -80,7 +82,7 @@ class TestAcceptedPhaseSeedsRunContext:
         from personal_assistant.gateway.inbound_models import RelayLifecycleUpdate
         from personal_assistant.channels.base import InboundMessage
 
-        run_context_store: dict[str, dict[str, str]] = {}
+        run_context_store = delivery_context_store({})
 
         manager = MagicMock()
         manager.connected = True
@@ -110,8 +112,9 @@ class TestAcceptedPhaseSeedsRunContext:
 
         await callback(message, update)
 
-        ctx = run_context_store.get("run-001", {})
-        assert ctx.get("message_id") != "user-msg-001", (
+        ctx = run_context_store.get("run-001")
+        assert ctx is not None
+        assert ctx.message_id != "user-msg-001", (
             "accepted phase must not store user message_id as agent message_id"
         )
 
@@ -132,14 +135,16 @@ class TestAcceptedPhaseSeedsRunContext:
         from personal_assistant.channels.base import InboundMessage
 
         # The run already has a live bubble (A) streaming when the steer is accepted.
-        run_context_store: dict[str, dict[str, str]] = {
-            "run-active": {
-                "conversation_id": "conv-abc",
-                "message_id": "bubble-A",
-                "agent_id": "Alpha",
-                "kernel_message_id": "kmsg-A",
+        run_context_store = delivery_context_store(
+            {
+                "run-active": {
+                    "conversation_id": "conv-abc",
+                    "message_id": "bubble-A",
+                    "agent_id": "Alpha",
+                    "kernel_message_id": "kmsg-A",
+                }
             }
-        }
+        )
 
         manager = MagicMock()
         manager.connected = True
@@ -164,12 +169,13 @@ class TestAcceptedPhaseSeedsRunContext:
 
         await callback(message, update)
 
-        ctx = run_context_store["run-active"]
+        ctx = run_context_store.get("run-active")
+        assert ctx is not None
         # Bubble A's context survives — not wiped to "".
-        assert ctx["message_id"] == "bubble-A", (
+        assert ctx.message_id == "bubble-A", (
             "injected-steer accepted phase must preserve the active run's bubble context"
         )
-        assert ctx["kernel_message_id"] == "kmsg-A"
+        assert ctx.kernel_message_id == "kmsg-A"
         # The steer's delivery receipt is still sent (the steer message is acknowledged).
         reporter.send_delivery_receipt.assert_called_once()
 
@@ -189,7 +195,7 @@ class TestAcceptedPhaseSeedsRunContextForNonRelay:
         from personal_assistant.gateway.inbound_models import RelayLifecycleUpdate
         from personal_assistant.channels.base import InboundMessage
 
-        run_context_store: dict[str, dict[str, str]] = {}
+        run_context_store = delivery_context_store({})
 
         manager = MagicMock()
         manager.connected = True
@@ -217,16 +223,16 @@ class TestAcceptedPhaseSeedsRunContextForNonRelay:
 
         await callback(message, update)
 
-        assert "run-feishu-001" in run_context_store
-        ctx = run_context_store["run-feishu-001"]
+        ctx = run_context_store.get("run-feishu-001")
+        assert ctx is not None
         # Non-relay channels must leave conversation_id empty so IM lazily creates
         # a direct chat instead of trying to look up a Feishu external_chat_id.
-        assert ctx["conversation_id"] == ""
-        assert ctx["agent_id"] == "default-agent"
-        assert ctx["kernel_session_id"] == "ksession-1"
-        assert ctx["message_id"] == ""
+        assert ctx.conversation_id == ""
+        assert ctx.agent_id == "default-agent"
+        assert ctx.kernel_session_id == "ksession-1"
+        assert ctx.message_id == ""
         # Lazy direct-chat creation needs the owning IM user.
-        assert ctx["to_user_id"] == "im-owner-123"
+        assert ctx.owner_user_id == "im-owner-123"
         reporter.send_delivery_receipt.assert_not_called()
         manager.send_json.assert_not_called()
 
@@ -239,13 +245,15 @@ class TestAcceptedPhaseSeedsRunContextForNonRelay:
         from personal_assistant.gateway.inbound_models import RelayLifecycleUpdate
         from personal_assistant.channels.base import InboundMessage
 
-        run_context_store: dict[str, dict[str, str]] = {
-            "run-feishu-001": {
-                "conversation_id": "feishu:cli_a:dm:ou_user1",
-                "message_id": "msg-1",
-                "agent_id": "default-agent",
+        run_context_store = delivery_context_store(
+            {
+                "run-feishu-001": {
+                    "conversation_id": "feishu:cli_a:dm:ou_user1",
+                    "message_id": "msg-1",
+                    "agent_id": "default-agent",
+                }
             }
-        }
+        )
 
         reporter = MagicMock()
         reporter.send_delivery_receipt.return_value = {"type": "delivery_receipt"}
@@ -267,7 +275,7 @@ class TestAcceptedPhaseSeedsRunContextForNonRelay:
 
         await callback(message, update)
 
-        assert "run-feishu-001" not in run_context_store
+        assert run_context_store.get("run-feishu-001") is None
         reporter.send_delivery_receipt.assert_not_called()
 
 
@@ -307,13 +315,15 @@ class TestObserverHandlesDirectAssistantMessage:
         manager.send_json = mock_send_json
         manager.send_json_await_ack = mock_send_json_await_ack
 
-        run_context_store: dict[str, dict[str, str]] = {
-            "run-001": {
-                "conversation_id": "conv-abc",
-                "message_id": "",  # empty: no run_status=running was emitted
-                "agent_id": "alpha",
+        run_context_store = delivery_context_store(
+            {
+                "run-001": {
+                    "conversation_id": "conv-abc",
+                    "message_id": "",  # empty: no run_status=running was emitted
+                    "agent_id": "alpha",
+                }
             }
-        }
+        )
 
         observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
@@ -360,13 +370,15 @@ class TestObserverHandlesDirectAssistantMessage:
 
         manager.send_json = mock_send_json
 
-        run_context_store: dict[str, dict[str, str]] = {
-            "run-001": {
-                "conversation_id": "conv-abc",
-                "message_id": "msg-xyz",
-                "agent_id": "alpha",
+        run_context_store = delivery_context_store(
+            {
+                "run-001": {
+                    "conversation_id": "conv-abc",
+                    "message_id": "msg-xyz",
+                    "agent_id": "alpha",
+                }
             }
-        }
+        )
 
         observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
@@ -404,13 +416,15 @@ class TestObserverHandlesDirectAssistantMessage:
 
         manager.send_json = mock_send_json
 
-        run_context_store: dict[str, dict[str, str]] = {
-            "run-001": {
-                "conversation_id": "conv-abc",
-                "message_id": "",
-                "agent_id": "a",
+        run_context_store = delivery_context_store(
+            {
+                "run-001": {
+                    "conversation_id": "conv-abc",
+                    "message_id": "",
+                    "agent_id": "a",
+                }
             }
-        }
+        )
         observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=run_context_store,
@@ -442,13 +456,15 @@ class TestObserverHandlesDirectAssistantMessage:
         manager.send_json = AsyncMock()
         manager.send_json_await_ack = mock_send_json_await_ack
 
-        run_context_store: dict[str, dict[str, str]] = {
-            "run-001": {
-                "conversation_id": "conv-abc",
-                "message_id": "",
-                "agent_id": "alpha",
+        run_context_store = delivery_context_store(
+            {
+                "run-001": {
+                    "conversation_id": "conv-abc",
+                    "message_id": "",
+                    "agent_id": "alpha",
+                }
             }
-        }
+        )
 
         observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
@@ -461,7 +477,9 @@ class TestObserverHandlesDirectAssistantMessage:
         if coro is not None:
             await coro
 
-        assert run_context_store["run-001"]["message_id"] == "inline-placeholder-222"
+        context = run_context_store.get("run-001")
+        assert context is not None
+        assert context.message_id == "inline-placeholder-222"
 
 
 # ─── R2 tests: kernel_event_observer sends turn_start (M16) ──────────────────
@@ -497,13 +515,15 @@ class TestObserverSendsTurnStart:
             }
         )
 
-        run_context_store = {
-            "run-001": {
-                "conversation_id": "conv-abc",
-                "message_id": "agent-msg-999",
-                "agent_id": "Alpha",
+        run_context_store = delivery_context_store(
+            {
+                "run-001": {
+                    "conversation_id": "conv-abc",
+                    "message_id": "agent-msg-999",
+                    "agent_id": "Alpha",
+                }
             }
-        }
+        )
 
         observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
@@ -565,13 +585,15 @@ class TestObserverSendsTurnStartAndUpdatesStore:
         manager.send_json = mock_send_json
         manager.send_json_await_ack = mock_send_json_await_ack
 
-        run_context_store: dict[str, dict[str, str]] = {
-            "run-001": {
-                "conversation_id": "conv-abc",
-                "message_id": "",  # empty = not yet created
-                "agent_id": "alpha",
+        run_context_store = delivery_context_store(
+            {
+                "run-001": {
+                    "conversation_id": "conv-abc",
+                    "message_id": "",  # empty = not yet created
+                    "agent_id": "alpha",
+                }
             }
-        }
+        )
 
         observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
@@ -617,13 +639,15 @@ class TestObserverSendsTurnStartAndUpdatesStore:
         manager.send_json = AsyncMock()
         manager.send_json_await_ack = mock_send_json_await_ack
 
-        run_context_store: dict[str, dict[str, str]] = {
-            "run-001": {
-                "conversation_id": "conv-abc",
-                "message_id": "",
-                "agent_id": "alpha",
+        run_context_store = delivery_context_store(
+            {
+                "run-001": {
+                    "conversation_id": "conv-abc",
+                    "message_id": "",
+                    "agent_id": "alpha",
+                }
             }
-        }
+        )
 
         observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
@@ -640,8 +664,10 @@ class TestObserverSendsTurnStartAndUpdatesStore:
         if coro is not None:
             await coro
 
-        assert run_context_store["run-001"]["message_id"] == "agent-placeholder-555", (
-            f"run_context_store must be updated with ack message_id, got: {run_context_store}"
+        context = run_context_store.get("run-001")
+        assert context is not None
+        assert context.message_id == "agent-placeholder-555", (
+            f"run context must be updated with ack message_id, got: {context}"
         )
 
     @pytest.mark.asyncio
@@ -672,13 +698,15 @@ class TestObserverSendsTurnStartAndUpdatesStore:
         manager.send_json = mock_send_json
         manager.send_json_await_ack = mock_send_json_await_ack
 
-        run_context_store: dict[str, dict[str, str]] = {
-            "run-001": {
-                "conversation_id": "conv-abc",
-                "message_id": "",
-                "agent_id": "alpha",
+        run_context_store = delivery_context_store(
+            {
+                "run-001": {
+                    "conversation_id": "conv-abc",
+                    "message_id": "",
+                    "agent_id": "alpha",
+                }
             }
-        }
+        )
 
         observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
@@ -733,14 +761,16 @@ class TestTerminalToolCallReconcile:
         manager.send_json = mock_send_json
         return manager, send_calls
 
-    def _ctx_store(self) -> dict[str, dict[str, str]]:
-        return {
-            "run-1": {
-                "conversation_id": "conv-1",
-                "message_id": "agent-msg-1",
-                "agent_id": "alpha",
+    def _ctx_store(self):
+        return delivery_context_store(
+            {
+                "run-1": {
+                    "conversation_id": "conv-1",
+                    "message_id": "agent-msg-1",
+                    "agent_id": "alpha",
+                }
             }
-        }
+        )
 
     @pytest.mark.asyncio
     async def test_reconcile_closes_inflight_toolcall_with_reason(self):
@@ -1098,13 +1128,15 @@ class TestTurnEndCachePassthrough:
             send_calls.append((message_type, payload))
 
         manager.send_json = mock_send_json
-        ctx_store = {
-            "run-1": {
-                "conversation_id": "conv-1",
-                "message_id": "agent-msg-1",
-                "agent_id": "alpha",
+        ctx_store = delivery_context_store(
+            {
+                "run-1": {
+                    "conversation_id": "conv-1",
+                    "message_id": "agent-msg-1",
+                    "agent_id": "alpha",
+                }
             }
-        }
+        )
         observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=ctx_store,
@@ -1153,13 +1185,15 @@ class TestTurnEndCachePassthrough:
             send_calls.append((message_type, payload))
 
         manager.send_json = mock_send_json
-        ctx_store = {
-            "run-1": {
-                "conversation_id": "conv-1",
-                "message_id": "agent-msg-1",
-                "agent_id": "alpha",
+        ctx_store = delivery_context_store(
+            {
+                "run-1": {
+                    "conversation_id": "conv-1",
+                    "message_id": "agent-msg-1",
+                    "agent_id": "alpha",
+                }
             }
-        }
+        )
         observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=ctx_store,
@@ -1212,13 +1246,15 @@ class TestObserverForwardsThinkingSegment:
 
         send_calls: list[tuple] = []
         manager = self._manager_with_sink(send_calls)
-        run_context_store = {
-            "run-1": {
-                "conversation_id": "conv-a",
-                "message_id": "agent-msg-1",
-                "agent_id": "Alpha",
+        run_context_store = delivery_context_store(
+            {
+                "run-1": {
+                    "conversation_id": "conv-a",
+                    "message_id": "agent-msg-1",
+                    "agent_id": "Alpha",
+                }
             }
-        }
+        )
         observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=run_context_store,
@@ -1253,13 +1289,15 @@ class TestObserverForwardsThinkingSegment:
 
         send_calls: list[tuple] = []
         manager = self._manager_with_sink(send_calls)
-        run_context_store = {
-            "run-1": {
-                "conversation_id": "conv-a",
-                "message_id": "agent-msg-1",
-                "agent_id": "Alpha",
+        run_context_store = delivery_context_store(
+            {
+                "run-1": {
+                    "conversation_id": "conv-a",
+                    "message_id": "agent-msg-1",
+                    "agent_id": "Alpha",
+                }
             }
-        }
+        )
         observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=run_context_store,
@@ -1286,13 +1324,15 @@ class TestObserverForwardsThinkingSegment:
 
         send_calls: list[tuple] = []
         manager = self._manager_with_sink(send_calls)
-        run_context_store = {
-            "run-1": {
-                "conversation_id": "conv-a",
-                "message_id": "agent-msg-1",
-                "agent_id": "Alpha",
+        run_context_store = delivery_context_store(
+            {
+                "run-1": {
+                    "conversation_id": "conv-a",
+                    "message_id": "agent-msg-1",
+                    "agent_id": "Alpha",
+                }
             }
-        }
+        )
         observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=run_context_store,
@@ -1326,13 +1366,15 @@ class TestObserverForwardsThinkingSegment:
 
         send_calls: list[tuple] = []
         manager = self._manager_with_sink(send_calls)
-        run_context_store = {
-            "run-1": {
-                "conversation_id": "conv-a",
-                "message_id": "agent-msg-1",
-                "agent_id": "Alpha",
+        run_context_store = delivery_context_store(
+            {
+                "run-1": {
+                    "conversation_id": "conv-a",
+                    "message_id": "agent-msg-1",
+                    "agent_id": "Alpha",
+                }
             }
-        }
+        )
         observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=run_context_store,
@@ -1367,13 +1409,15 @@ class TestObserverForwardsThinkingSegment:
 
         send_calls: list[tuple] = []
         manager = self._manager_with_sink(send_calls)
-        run_context_store = {
-            "run-1": {
-                "conversation_id": "conv-a",
-                "message_id": "agent-msg-1",
-                "agent_id": "Alpha",
+        run_context_store = delivery_context_store(
+            {
+                "run-1": {
+                    "conversation_id": "conv-a",
+                    "message_id": "agent-msg-1",
+                    "agent_id": "Alpha",
+                }
             }
-        }
+        )
         observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=run_context_store,
@@ -1414,13 +1458,15 @@ class TestObserverForwardsThinkingSegment:
         manager.send_json_await_ack.return_value = {
             "payload": {"message_id": "agent-msg-1"}
         }
-        run_context_store = {
-            "run-1": {
-                "conversation_id": "conv-a",
-                "message_id": "",
-                "agent_id": "Alpha",
+        run_context_store = delivery_context_store(
+            {
+                "run-1": {
+                    "conversation_id": "conv-a",
+                    "message_id": "",
+                    "agent_id": "Alpha",
+                }
             }
-        }
+        )
         observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=run_context_store,
@@ -1469,13 +1515,15 @@ class TestObserverForwardsThinkingSegment:
 
         send_calls: list[tuple] = []
         manager = self._manager_with_sink(send_calls)
-        run_context_store = {
-            "run-1": {
-                "conversation_id": "conv-a",
-                "message_id": "agent-msg-1",
-                "agent_id": "Alpha",
+        run_context_store = delivery_context_store(
+            {
+                "run-1": {
+                    "conversation_id": "conv-a",
+                    "message_id": "agent-msg-1",
+                    "agent_id": "Alpha",
+                }
             }
-        }
+        )
         observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=run_context_store,

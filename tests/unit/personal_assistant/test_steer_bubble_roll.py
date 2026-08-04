@@ -13,6 +13,7 @@ bubble that was answering the prior message. The observer must:
 
 from __future__ import annotations
 
+from tests.helpers.runtime_delivery import delivery_context_store
 import asyncio
 from typing import Any
 
@@ -64,14 +65,16 @@ def _kinds(manager: _FakeManager) -> list[str]:
 
 def test_injection_consumed_closes_bubble_a_completed_then_opens_b() -> None:
     manager = _FakeManager(new_message_id="msg-B")
-    run_ctx = {
-        "run-1": {
-            "conversation_id": "conv-1",
-            "message_id": "msg-A",
-            "agent_id": "agent-1",
-            "kernel_message_id": "kmsg-A",
+    run_ctx = delivery_context_store(
+        {
+            "run-1": {
+                "conversation_id": "conv-1",
+                "message_id": "msg-A",
+                "agent_id": "agent-1",
+                "kernel_message_id": "kmsg-A",
+            }
         }
-    }
+    )
     observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
         run_context_store=run_ctx,
@@ -96,8 +99,10 @@ def test_injection_consumed_closes_bubble_a_completed_then_opens_b() -> None:
 
     # The run now streams into bubble B; the stale kernel_message_id is cleared so
     # the next assistant_message delta flows straight into B.
-    assert run_ctx["run-1"]["message_id"] == "msg-B"
-    assert "kernel_message_id" not in run_ctx["run-1"]
+    context = run_ctx.get("run-1")
+    assert context is not None
+    assert context.message_id == "msg-B"
+    assert context.kernel_message_id == ""
 
 
 def test_injection_consumed_opens_b_even_when_message_id_empty() -> None:
@@ -105,13 +110,15 @@ def test_injection_consumed_opens_b_even_when_message_id_empty() -> None:
     (turn_start ack not yet returned), the steer must still get a bubble — open B so
     its reply is not stranded. With no bubble A to close, only turn_start is sent."""
     manager = _FakeManager(new_message_id="msg-B")
-    run_ctx = {
-        "run-1": {
-            "conversation_id": "conv-1",
-            "message_id": "",
-            "agent_id": "agent-1",
+    run_ctx = delivery_context_store(
+        {
+            "run-1": {
+                "conversation_id": "conv-1",
+                "message_id": "",
+                "agent_id": "agent-1",
+            }
         }
-    }
+    )
     observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
         run_context_store=run_ctx,
@@ -123,7 +130,9 @@ def test_injection_consumed_opens_b_even_when_message_id_empty() -> None:
     # No message_completed (no bubble A to close), but B is opened and the run points
     # at it so the steer reply streams into B.
     assert _kinds(manager) == ["turn_start"]
-    assert run_ctx["run-1"]["message_id"] == "msg-B"
+    context = run_ctx.get("run-1")
+    assert context is not None
+    assert context.message_id == "msg-B"
 
 
 def test_two_back_to_back_steers_roll_safely() -> None:
@@ -132,14 +141,16 @@ def test_two_back_to_back_steers_roll_safely() -> None:
     consume, no double-close of an already-finalized bubble, no zombie running bubble.
     """
     manager = _FakeManager(new_message_id=None)  # fresh distinct id per turn_start
-    run_ctx = {
-        "run-1": {
-            "conversation_id": "conv-1",
-            "message_id": "bubble-A",
-            "agent_id": "agent-1",
-            "kernel_message_id": "kmsg-A",
+    run_ctx = delivery_context_store(
+        {
+            "run-1": {
+                "conversation_id": "conv-1",
+                "message_id": "bubble-A",
+                "agent_id": "agent-1",
+                "kernel_message_id": "kmsg-A",
+            }
         }
-    }
+    )
     observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
         run_context_store=run_ctx,
@@ -149,9 +160,13 @@ def test_two_back_to_back_steers_roll_safely() -> None:
     # First steer rolls A→B1; second steer rolls B1→B2. Each completes the prior
     # bubble exactly once and opens exactly one new bubble.
     _drive(observer, {"event": "injection_consumed", "run_id": "run-1"})
-    first_bubble = run_ctx["run-1"]["message_id"]
+    first_context = run_ctx.get("run-1")
+    assert first_context is not None
+    first_bubble = first_context.message_id
     _drive(observer, {"event": "injection_consumed", "run_id": "run-1"})
-    second_bubble = run_ctx["run-1"]["message_id"]
+    second_context = run_ctx.get("run-1")
+    assert second_context is not None
+    second_bubble = second_context.message_id
 
     kinds = _kinds(manager)
     # Each roll = one message_completed (close prior) + one turn_start (open next).
@@ -167,7 +182,7 @@ def test_two_back_to_back_steers_roll_safely() -> None:
     # The run ends pointing at the latest bubble (no zombie left running).
     assert second_bubble and second_bubble != first_bubble
     # The reentrancy flag is cleared (not leaked) after both rolls settle.
-    assert "rolling" not in run_ctx["run-1"]
+    assert second_context.rolling is False
 
 
 def test_concurrent_injection_consumed_guard_drops_duplicate() -> None:
@@ -202,13 +217,15 @@ def test_concurrent_injection_consumed_guard_drops_duplicate() -> None:
 
     async def _go() -> None:
         manager = _BlockingManager()
-        run_ctx = {
-            "run-1": {
-                "conversation_id": "conv-1",
-                "message_id": "bubble-A",
-                "agent_id": "agent-1",
+        run_ctx = delivery_context_store(
+            {
+                "run-1": {
+                    "conversation_id": "conv-1",
+                    "message_id": "bubble-A",
+                    "agent_id": "agent-1",
+                }
             }
-        }
+        )
 
         def _roll():
             return roll_bubble(
@@ -235,7 +252,9 @@ def test_concurrent_injection_consumed_guard_drops_duplicate() -> None:
         # Bubble A closed exactly once; exactly one new bubble opened.
         assert kinds.count("message_completed") == 1
         assert kinds.count("turn_start") == 1
-        assert run_ctx["run-1"]["message_id"] == "bubble-1"
-        assert "rolling" not in run_ctx["run-1"]
+        context = run_ctx.get("run-1")
+        assert context is not None
+        assert context.message_id == "bubble-1"
+        assert context.rolling is False
 
     asyncio.run(_go())

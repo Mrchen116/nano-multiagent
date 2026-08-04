@@ -20,9 +20,7 @@ def build_relay_lifecycle_callback(
     *,
     reporter: UpstreamReporter | None,
     im_connection_manager_factory: Callable[[], IMConnectionManager | None],
-    run_context_store: dict[str, dict[str, str]]
-    | RunDeliveryContextStore
-    | None = None,
+    run_context_store: RunDeliveryContextStore | None = None,
     owner_user_id: str = "",
     channel_registry: ChannelRegistry | None = None,
 ):
@@ -144,76 +142,26 @@ def _seed_run_context(
     *,
     message: InboundMessage,
     update: RelayLifecycleUpdate,
-    run_context_store: dict[str, dict[str, str]] | RunDeliveryContextStore | None,
+    run_context_store: RunDeliveryContextStore | None,
     owner_user_id: str,
 ) -> None:
     if run_context_store is None or not update.run_id:
         return
-    if isinstance(run_context_store, RunDeliveryContextStore):
-        run_context_store.seed_from_lifecycle(
-            message=message,
-            update=update,
-            owner_user_id=owner_user_id,
-        )
-        return
-    if update.run_id in run_context_store:
-        return
-    protocol = runtime_protocol_or_derive(message)
-    shadow_ref = protocol.shadow_ref
-    trigger_source = protocol.trigger_source or ""
-    external_identity = protocol.external_identity
-    relay_task_id = protocol.relay_task_id
-    if shadow_ref is not None:
-        conversation_id = shadow_ref.conversation_id
-        to_user_id = ""
-    elif relay_task_id is not None:
-        conversation_id = message.external_chat_id
-        to_user_id = ""
-    elif external_identity is not None:
-        conversation_id = ""
-        to_user_id = ""
-    else:
-        conversation_id = ""
-        to_user_id = owner_user_id
-    agent_id_meta = (
-        (external_identity.agent_id if external_identity else None)
-        or update.agent_id
-        or ""
+    run_context_store.seed_from_lifecycle(
+        message=message,
+        update=update,
+        owner_user_id=owner_user_id,
     )
-    run_context_store[update.run_id] = {
-        "conversation_id": conversation_id,
-        "message_id": "",
-        "agent_id": agent_id_meta,
-        "kernel_session_id": update.kernel_session_id or "",
-        "to_user_id": to_user_id,
-    }
-    if trigger_source:
-        run_context_store[update.run_id]["trigger_source"] = trigger_source
-    if trigger_source and trigger_source != "im":
-        channel_name = str(getattr(message, "channel_name", "") or "")
-        run_context_store[update.run_id]["reply_channel_name"] = channel_name
-        run_context_store[update.run_id]["reply_target_chat_id"] = (
-            message.external_chat_id
-        )
-        thread_id = getattr(message, "thread_id", None)
-        if thread_id:
-            run_context_store[update.run_id]["reply_thread_id"] = str(thread_id)
-        feishu_message_id = _metadata_text(message.metadata, key="feishu_message_id")
-        if feishu_message_id is not None:
-            run_context_store[update.run_id]["feishu_message_id"] = feishu_message_id
 
 
 def _discard_run_context(
     *,
-    run_context_store: dict[str, dict[str, str]] | RunDeliveryContextStore | None,
+    run_context_store: RunDeliveryContextStore | None,
     run_id: str | None,
 ) -> None:
     if run_context_store is None or not run_id:
         return
-    if isinstance(run_context_store, RunDeliveryContextStore):
-        run_context_store.discard(run_id)
-    else:
-        run_context_store.pop(run_id, None)
+    run_context_store.discard(run_id)
 
 
 def _protocol_conversation_id(message: InboundMessage) -> str:

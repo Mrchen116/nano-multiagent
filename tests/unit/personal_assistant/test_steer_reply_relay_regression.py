@@ -22,6 +22,7 @@ consume point (决策6). The test asserts:
 
 from __future__ import annotations
 
+from tests.helpers.runtime_delivery import delivery_context_store
 import asyncio
 from pathlib import Path
 from typing import Any
@@ -69,9 +70,15 @@ def test_collapse_window_steer_streams_reply_in_new_bubble_no_timeout(
     # (conversation/agent meta, empty message_id filled by the turn_start ack). The
     # lifecycle seeding itself is covered by test_inbound_pipeline_streaming; here we
     # exercise the observer's stream handling + relay anchoring.
-    run_context_store: dict[str, dict[str, str]] = {
-        "run-1": {"conversation_id": "chat-1", "message_id": "", "agent_id": "agent-a"}
-    }
+    run_context_store = delivery_context_store(
+        {
+            "run-1": {
+                "conversation_id": "chat-1",
+                "message_id": "",
+                "agent_id": "agent-a",
+            }
+        }
+    )
     manager = _FakeIMManager()
     observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,

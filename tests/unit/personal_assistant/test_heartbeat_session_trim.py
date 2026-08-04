@@ -7,6 +7,7 @@ the heartbeat trigger prompt and ack turn from the session history (net-zero res
 
 from __future__ import annotations
 
+from tests.helpers.runtime_delivery import delivery_context_store
 import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
@@ -91,7 +92,7 @@ async def _drive_heartbeat_record(
         scheduler=_SingleRunScheduler(record),
         config=HeartbeatConfig(tick_interval_seconds=60),
         kernel=kernel,
-        run_context_store={},
+        run_context_store=delivery_context_store({}),
         owner_user_id="owner-1",
         kernel_event_observer=_observe,
         cron_tick_fn=_mark_after_heartbeat,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from tests.helpers.runtime_delivery import delivery_context_store
 import asyncio
 from collections.abc import Mapping
 from typing import Any
@@ -48,13 +49,15 @@ async def test_permission_request_and_resolution_are_forwarded_to_im() -> None:
     manager = _Manager()
     observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
-        run_context_store={
-            "run-1": {
-                "conversation_id": "conversation-1",
-                "message_id": "message-1",
-                "agent_id": "agent-a",
+        run_context_store=delivery_context_store(
+            {
+                "run-1": {
+                    "conversation_id": "conversation-1",
+                    "message_id": "message-1",
+                    "agent_id": "agent-a",
+                }
             }
-        },
+        ),
     )
 
     await _observe(
@@ -99,17 +102,19 @@ async def test_external_permission_request_does_not_require_im_message_anchor() 
     external_sender = MagicMock()
     observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
-        run_context_store={
-            "run-1": {
-                "conversation_id": "conversation-1",
-                "message_id": "",
-                "agent_id": "agent-a",
-                "trigger_source": "feishu",
-                "reply_channel_name": "feishu:agent-a",
-                "reply_target_chat_id": "feishu:cli_a:group:oc_group",
-                "feishu_message_id": "message-origin",
+        run_context_store=delivery_context_store(
+            {
+                "run-1": {
+                    "conversation_id": "conversation-1",
+                    "message_id": "",
+                    "agent_id": "agent-a",
+                    "trigger_source": "feishu",
+                    "reply_channel_name": "feishu:agent-a",
+                    "reply_target_chat_id": "feishu:cli_a:group:oc_group",
+                    "feishu_message_id": "message-origin",
+                }
             }
-        },
+        ),
         external_permission_request_sender=external_sender,
     )
 
@@ -145,16 +150,18 @@ async def test_external_permission_resolution_updates_channel_surface() -> None:
     external_resolver = MagicMock()
     observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
-        run_context_store={
-            "run-1": {
-                "conversation_id": "conversation-1",
-                "message_id": "message-1",
-                "agent_id": "agent-a",
-                "trigger_source": "feishu",
-                "reply_channel_name": "feishu:agent-a",
-                "reply_target_chat_id": "feishu:cli_a:group:oc_group",
+        run_context_store=delivery_context_store(
+            {
+                "run-1": {
+                    "conversation_id": "conversation-1",
+                    "message_id": "message-1",
+                    "agent_id": "agent-a",
+                    "trigger_source": "feishu",
+                    "reply_channel_name": "feishu:agent-a",
+                    "reply_target_chat_id": "feishu:cli_a:group:oc_group",
+                }
             }
-        },
+        ),
         external_permission_resolved_sender=external_resolver,
     )
 

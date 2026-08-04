@@ -11,6 +11,7 @@ status=failed + reason.
 
 from __future__ import annotations
 
+from tests.helpers.runtime_delivery import delivery_context_store
 import asyncio
 from typing import Any
 
@@ -64,13 +65,15 @@ def _completed_payloads(manager: _FakeManager) -> list[dict[str, Any]]:
 
 def test_reconcile_preserves_command_and_description() -> None:
     manager = _FakeManager()
-    run_ctx = {
-        "run-1": {
-            "conversation_id": "conv-1",
-            "message_id": "msg-1",
-            "agent_id": "agent-1",
+    run_ctx = delivery_context_store(
+        {
+            "run-1": {
+                "conversation_id": "conv-1",
+                "message_id": "msg-1",
+                "agent_id": "agent-1",
+            }
         }
-    }
+    )
     running_tool_calls: dict[str, dict[str, Any]] = {}
     observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
@@ -115,13 +118,15 @@ def test_reconcile_preserves_command_and_description() -> None:
 
 def test_reconcile_preserves_running_presentation_for_history_replay() -> None:
     manager = _FakeManager()
-    run_ctx = {
-        "run-1": {
-            "conversation_id": "conv-1",
-            "message_id": "msg-1",
-            "agent_id": "agent-1",
+    run_ctx = delivery_context_store(
+        {
+            "run-1": {
+                "conversation_id": "conv-1",
+                "message_id": "msg-1",
+                "agent_id": "agent-1",
+            }
         }
-    }
+    )
     running_tool_calls: dict[str, dict[str, Any]] = {}
     observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
@@ -207,13 +212,15 @@ def test_reconcile_stop_content_overrides_output_but_keeps_presentation_detail()
     None
 ):
     manager = _FakeManager()
-    run_ctx = {
-        "run-1": {
-            "conversation_id": "conv-1",
-            "message_id": "msg-1",
-            "agent_id": "agent-1",
+    run_ctx = delivery_context_store(
+        {
+            "run-1": {
+                "conversation_id": "conv-1",
+                "message_id": "msg-1",
+                "agent_id": "agent-1",
+            }
         }
-    }
+    )
     running_tool_calls: dict[str, dict[str, Any]] = {}
     observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
@@ -257,13 +264,15 @@ def test_reconcile_stop_content_overrides_output_but_keeps_presentation_detail()
 def test_reconcile_still_closes_in_flight_call_as_failed() -> None:
     """止转圈不退化：在飞 call 仍被收口为 failed（不再永久 running）。"""
     manager = _FakeManager()
-    run_ctx = {
-        "run-1": {
-            "conversation_id": "conv-1",
-            "message_id": "msg-1",
-            "agent_id": "agent-1",
+    run_ctx = delivery_context_store(
+        {
+            "run-1": {
+                "conversation_id": "conv-1",
+                "message_id": "msg-1",
+                "agent_id": "agent-1",
+            }
         }
-    }
+    )
     running_tool_calls: dict[str, dict[str, Any]] = {}
     observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
@@ -300,13 +309,15 @@ def test_abnormal_reconcile_finalizes_current_bubble_as_failed() -> None:
     manager = _FakeManager()
     observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
-        run_context_store={
-            "run-1": {
-                "conversation_id": "conv-1",
-                "message_id": "bubble-2",
-                "agent_id": "agent-1",
+        run_context_store=delivery_context_store(
+            {
+                "run-1": {
+                    "conversation_id": "conv-1",
+                    "message_id": "bubble-2",
+                    "agent_id": "agent-1",
+                }
             }
-        },
+        ),
     )
 
     _drive(

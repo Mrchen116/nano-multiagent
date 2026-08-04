@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Coroutine, Mapping, MutableMapping
+from collections.abc import Callable, Coroutine, Mapping
 import logging
 from typing import Any
 
 from personal_assistant.gateway.reply_visibility import (
-    ReplyVisibilityPolicy,
     is_protocol_silence_token,
     should_suppress_reply,
 )
@@ -19,18 +18,17 @@ from personal_assistant.gateway.shadow_saga import (
 )
 from personal_assistant.ws.im_connection import IMConnectionManager
 
-from .context import RunDeliveryContextStore
+from .context import RunDeliveryContext, RunDeliveryContextStore
 from .task_tracker import RuntimeDeliveryTaskTracker
 
 _log = logging.getLogger("personal_assistant.gateway.runtime_delivery.observer")
 
 
-def _runtime_context_view(
-    run_context_store: dict[str, dict[str, str]] | RunDeliveryContextStore,
-    run_id: str,
-) -> MutableMapping[str, str] | None:
-    if isinstance(run_context_store, RunDeliveryContextStore):
-        return run_context_store.runtime_view(run_id)
+def _live_context(
+    run_context_store: RunDeliveryContextStore, run_id: str
+) -> RunDeliveryContext | None:
+    """Return the typed context while its run remains live."""
+
     return run_context_store.get(run_id)
 
 
@@ -57,7 +55,7 @@ async def roll_bubble(
     run_id: str,
     conversation_id: str,
     agent_id: str,
-    run_context_store: dict[str, dict[str, str]] | RunDeliveryContextStore,
+    run_context_store: RunDeliveryContextStore,
     old_message_id: str | None,
     new_kernel_message_id: str | None = None,
     new_shadow_message_id: str | None = None,
@@ -76,19 +74,18 @@ async def roll_bubble(
     second caller does not re-close an already-closed bubble or open a duplicate B
     (which would leave a zombie running bubble). The flag is cleared in ``finally``.
     """
-    ctx = _runtime_context_view(run_context_store, run_id)
+    ctx = _live_context(run_context_store, run_id)
     if ctx is None:
         return None
-    if ctx.get("rolling"):
+    if not ctx.begin_roll():
         # A roll is already in flight for this run; the in-flight one owns the
         # transition. Dropping this duplicate is safe — the steer's content still
         # streams into whatever bubble the in-flight roll lands on.
         return None
-    ctx["rolling"] = "1"
     # feat-445-M1: the bubble being closed was produced by the kernel message tracked in
-    # ctx["kernel_message_id"]; stamp it onto the closing frame so IM persists the
+    # ctx.kernel_message_id; stamp it onto the closing frame so IM persists the
     # per-bubble id BEFORE the new bubble's id overwrites ctx (decision 4 fork anchor).
-    old_kernel_message_id = ctx.get("kernel_message_id")
+    old_kernel_message_id = ctx.kernel_message_id or None
     try:
         if old_message_id:
             await manager.send_json_await_ack(
@@ -115,34 +112,29 @@ async def roll_bubble(
             },
         )
         new_message_id = extract_ack_message_id(ack)
-        live_ctx = _runtime_context_view(run_context_store, run_id)
+        live_ctx = _live_context(run_context_store, run_id)
         if new_message_id and live_ctx is not None:
-            live_ctx["message_id"] = new_message_id
             # These flags describe the bubble that was just closed, not the whole
             # run. Carrying either across a steer makes the new bubble inherit the
             # old bubble's visible/silence terminal decision.
-            live_ctx.pop("visible_reply_committed", None)
-            live_ctx.pop("discard_current_bubble", None)
-            live_ctx.pop("external_current_text", None)
-            live_ctx.pop("external_intermediate_sent_marker", None)
-            if new_kernel_message_id:
-                live_ctx["kernel_message_id"] = new_kernel_message_id
-            else:
-                live_ctx.pop("kernel_message_id", None)
+            live_ctx.replace_bubble(
+                message_id=new_message_id,
+                kernel_message_id=new_kernel_message_id,
+            )
             return new_message_id
         if live_ctx is not None:
-            live_ctx["message_id"] = ""
+            live_ctx.clear_message_id()
         return None
     finally:
-        live_ctx = _runtime_context_view(run_context_store, run_id)
+        live_ctx = _live_context(run_context_store, run_id)
         if live_ctx is not None:
-            live_ctx.pop("rolling", None)
+            live_ctx.finish_roll()
 
 
 def build_kernel_event_observer(
     *,
     im_connection_manager_factory: Callable[[], IMConnectionManager | None],
-    run_context_store: dict[str, dict[str, str]] | RunDeliveryContextStore,
+    run_context_store: RunDeliveryContextStore,
     running_tool_calls: dict[str, dict[str, dict[str, Any]]] | None = None,
     external_reply_sender: Callable[[str, Mapping[str, str]], Any] | None = None,
     shadow_output_prepare: (
@@ -224,17 +216,17 @@ def build_kernel_event_observer(
             # drop is observable (refactor-395-M1).
             _log.warning("IM observer send failed for %s: %s", message_type, exc)
 
-    def _is_external_reply_context(ctx: Mapping[str, str]) -> bool:
+    def _is_external_reply_context(ctx: RunDeliveryContext) -> bool:
         return (
             external_reply_sender is not None
             and _external_context_metadata(ctx) is not None
         )
 
-    def _external_context_metadata(ctx: Mapping[str, str]) -> dict[str, str] | None:
-        channel_name = ctx.get("reply_channel_name") or ""
-        target_chat_id = ctx.get("reply_target_chat_id") or ""
+    def _external_context_metadata(ctx: RunDeliveryContext) -> dict[str, str] | None:
+        channel_name = ctx.reply_channel_name
+        target_chat_id = ctx.reply_target_chat_id
         if (
-            ctx.get("trigger_source") == "im"
+            ctx.trigger_source == "im"
             or not channel_name
             or channel_name == "web_relay"
             or not target_chat_id
@@ -244,15 +236,14 @@ def build_kernel_event_observer(
             "channel_name": channel_name,
             "target_chat_id": target_chat_id,
         }
-        optional_keys = ("reply_thread_id", "feishu_message_id")
-        for key in optional_keys:
-            value = ctx.get(key)
-            if value:
-                metadata[key] = value
+        if ctx.reply_thread_id:
+            metadata["reply_thread_id"] = ctx.reply_thread_id
+        if ctx.feishu_message_id:
+            metadata["feishu_message_id"] = ctx.feishu_message_id
         return metadata
 
     def _mirror_external_reply(
-        *, rid: str, ctx: dict[str, str], phase: str, text: str
+        *, rid: str, ctx: RunDeliveryContext, phase: str, text: str
     ) -> None:
         if not _is_external_reply_context(ctx):
             return
@@ -264,8 +255,8 @@ def build_kernel_event_observer(
         external_metadata = _external_context_metadata(ctx)
         if external_metadata is None:
             return
-        kernel_message_id = ctx.get("kernel_message_id") or None
-        saga_id = ctx.get("shadow_saga_id") or ""
+        kernel_message_id = ctx.kernel_message_id or None
+        saga_id = ctx.shadow_saga_id
         if (
             saga_id
             and shadow_output_prepare is not None
@@ -283,9 +274,7 @@ def build_kernel_event_observer(
                     shadow_output_mirror(output),
                     name=f"shadow-agent-mirror:{rid}:{phase}",
                 )
-        bubble_key = (
-            kernel_message_id or ctx.get("message_id") or f"text:{cleaned_text}"
-        )
+        bubble_key = kernel_message_id or ctx.message_id or f"text:{cleaned_text}"
         metadata: dict[str, str] = {
             "reply_phase": phase,
             "reply_dedupe_key": f"{rid}:bubble:{bubble_key}",
@@ -296,7 +285,7 @@ def build_kernel_event_observer(
             task_tracker.start(result, name=f"external-reply:{rid}:{phase}")
 
     def _mirror_external_permission_request(
-        *, rid: str, ctx: Mapping[str, str], request: Mapping[str, Any]
+        *, rid: str, ctx: RunDeliveryContext, request: Mapping[str, Any]
     ) -> None:
         if external_permission_request_sender is None:
             return
@@ -309,7 +298,7 @@ def build_kernel_event_observer(
             task_tracker.start(result, name=f"external-permission-request:{rid}")
 
     def _mirror_external_permission_resolved(
-        *, ctx: Mapping[str, str], request_id: str, decision: str
+        *, ctx: RunDeliveryContext, request_id: str, decision: str
     ) -> None:
         if external_permission_resolved_sender is None:
             return
@@ -324,13 +313,13 @@ def build_kernel_event_observer(
             )
 
     def _mirror_external_current_as_intermediate(
-        *, rid: str, ctx: dict[str, str]
+        *, rid: str, ctx: RunDeliveryContext
     ) -> None:
-        current_text = ctx.get("external_current_text") or ""
+        current_text = ctx.external_current_text
         if not current_text.strip():
             return
-        marker = ctx.get("kernel_message_id") or f"text:{current_text.strip()}"
-        if ctx.get("external_intermediate_sent_marker") == marker:
+        marker = ctx.kernel_message_id or f"text:{current_text.strip()}"
+        if ctx.external_intermediate_sent_marker == marker:
             return
         _mirror_external_reply(
             rid=rid,
@@ -338,7 +327,7 @@ def build_kernel_event_observer(
             phase="intermediate",
             text=current_text,
         )
-        ctx["external_intermediate_sent_marker"] = marker
+        ctx.mark_external_intermediate_sent(marker)
 
     def _next_visible_reasoning(*, rid: str, group_id: str, reasoning: str) -> str:
         if not reasoning or not group_id:
@@ -362,11 +351,11 @@ def build_kernel_event_observer(
     def _record_shadow(
         *,
         rid: str,
-        ctx: MutableMapping[str, str],
+        ctx: RunDeliveryContext,
         kind: str,
         **facts: Any,
     ) -> ExternalShadowBubble | None:
-        saga_id = ctx.get("shadow_saga_id") or ""
+        saga_id = ctx.shadow_saga_id
         if not saga_id or shadow_bubble_record is None:
             return None
         snapshot = shadow_bubble_record(
@@ -377,7 +366,7 @@ def build_kernel_event_observer(
                 **facts,
             )
         )
-        ctx["shadow_message_id"] = snapshot.shadow_message_id
+        ctx.record_shadow_snapshot(snapshot.shadow_message_id)
         return snapshot
 
     def _notify_shadow_pending() -> None:
@@ -392,20 +381,13 @@ def build_kernel_event_observer(
             finish(rid)
 
     def _clear_live_bubble_context(*, rid: str, clear_conversation: bool) -> None:
-        live_ctx = _runtime_context_view(run_context_store, rid)
+        live_ctx = _live_context(run_context_store, rid)
         if live_ctx is None:
             return
-        live_ctx["message_id"] = ""
+        live_ctx.clear_message_id()
         if clear_conversation:
-            live_ctx["conversation_id"] = ""
-        for key in (
-            "kernel_message_id",
-            "external_current_text",
-            "external_intermediate_sent_marker",
-            "visible_reply_committed",
-            "discard_current_bubble",
-        ):
-            live_ctx.pop(key, None)
+            live_ctx.resolve_conversation("")
+        live_ctx.reset_bubble_state()
 
     async def _reconcile_ready_snapshot(snapshot: ExternalShadowBubble) -> None:
         if shadow_bubble_reconcile is None:
@@ -463,15 +445,15 @@ def build_kernel_event_observer(
         run_id = str(event.get("run_id") or "").strip()
         if not run_id:
             return None
-        ctx = _runtime_context_view(run_context_store, run_id)
+        ctx = _live_context(run_context_store, run_id)
         if ctx is None:
             return None
         event_name = str(event.get("event") or "").strip()
         if event_name in {"turn_end", "run_terminal_reconcile"}:
             _clear_run_visible_reasoning(run_id)
-        conversation_id = ctx.get("conversation_id") or ""
-        message_id = ctx.get("message_id") or ""
-        agent_id = ctx.get("agent_id") or ""
+        conversation_id = ctx.conversation_id
+        message_id = ctx.message_id
+        agent_id = ctx.agent_id
         if event_name == "skill_created" and agent_id and skill_created_handler:
             task_tracker.start(
                 asyncio.to_thread(skill_created_handler, agent_id, event),
@@ -481,11 +463,11 @@ def build_kernel_event_observer(
 
         # feat-393: heartbeat runs carry to_user_id instead of conversation_id.
         # The lazy-bubble gate: skip eager turn_start; defer to assistant_message.
-        to_user_id = ctx.get("to_user_id") or ""
+        to_user_id = ctx.owner_user_id
 
         im_connected = manager is not None and manager.connected
         has_external_context = _external_context_metadata(ctx) is not None or bool(
-            ctx.get("shadow_saga_id")
+            ctx.shadow_saga_id
         )
         rolled_shadow_snapshot: ExternalShadowBubble | None = None
         shadow_snapshot: ExternalShadowBubble | None = None
@@ -494,13 +476,13 @@ def build_kernel_event_observer(
         abnormal_inflight: dict[str, dict[str, Any]] = {}
         if event_name == "run_terminal_reconcile":
             abnormal_inflight = running_tool_calls.pop(run_id, {})
-        if ctx.get("shadow_saga_id") and shadow_bubble_record is not None:
+        if ctx.shadow_saga_id and shadow_bubble_record is not None:
             if event_name == "run_status" and event.get("status") == "running":
                 shadow_snapshot = _record_shadow(rid=run_id, ctx=ctx, kind="begin")
             elif event_name == "assistant_message":
                 content = str(event.get("content") or "").strip()
                 kernel_msg_id = str(event.get("message_id") or "").strip()
-                prev_kernel_msg_id = ctx.get("kernel_message_id") or ""
+                prev_kernel_msg_id = ctx.kernel_message_id
                 if (
                     content
                     and kernel_msg_id
@@ -515,7 +497,7 @@ def build_kernel_event_observer(
                         delivery_status="completed",
                     )
                     shadow_snapshot = _record_shadow(rid=run_id, ctx=ctx, kind="begin")
-                elif not ctx.get("shadow_message_id"):
+                elif not ctx.shadow_message_id:
                     shadow_snapshot = _record_shadow(rid=run_id, ctx=ctx, kind="begin")
                 reasoning = str(event.get("reasoning_content") or "").strip()
                 durable_reasoning = _durable_reasoning_delta(
@@ -618,10 +600,10 @@ def build_kernel_event_observer(
                     shadow_process_seq = int(persisted["seq"])
             elif event_name == "turn_end":
                 turn_completed = event.get("completed") is not False
-                discard = bool(ctx.get("discard_current_bubble")) or (
+                discard = bool(ctx.discard_current_bubble) or (
                     turn_completed
-                    and bool(ctx.get("discard_empty_completion"))
-                    and not bool(ctx.get("visible_reply_committed"))
+                    and bool(ctx.discard_empty_completion)
+                    and not bool(ctx.visible_reply_committed)
                 )
                 shadow_snapshot = _record_shadow(
                     rid=run_id,
@@ -644,17 +626,16 @@ def build_kernel_event_observer(
                 if (
                     isinstance(consumed_shadow_saga_id, str)
                     and consumed_shadow_saga_id
-                    and consumed_shadow_saga_id != ctx.get("shadow_saga_id")
+                    and consumed_shadow_saga_id != ctx.shadow_saga_id
                 ):
-                    ctx["shadow_saga_id"] = consumed_shadow_saga_id
-                    ctx.pop("shadow_message_id", None)
+                    ctx.switch_shadow_saga(consumed_shadow_saga_id)
                 consumed_shadow_conversation_id = event.get("shadow_conversation_id")
                 if (
                     isinstance(consumed_shadow_conversation_id, str)
                     and consumed_shadow_conversation_id
                 ):
                     conversation_id = consumed_shadow_conversation_id
-                    ctx["conversation_id"] = consumed_shadow_conversation_id
+                    ctx.resolve_conversation(consumed_shadow_conversation_id)
                 consumed_shadow_anchor_pending = (
                     event.get("shadow_anchor_pending") is True
                 )
@@ -696,14 +677,14 @@ def build_kernel_event_observer(
             event_name in {"turn_end", "run_terminal_reconcile"}
             and shadow_snapshot is not None
             and shadow_snapshot.state == "ready"
-            and not ctx.get("conversation_id")
+            and not ctx.conversation_id
         ):
             # A follower user anchor can still be recovering while this bubble
             # terminalizes. Bump the recovery generation again so a recovery pass
             # that captured its snapshot list before this moment cannot strand it.
             _notify_shadow_pending()
         if event_name == "injection_consumed" and consumed_shadow_anchor_pending:
-            old_kernel_message_id = ctx.get("kernel_message_id")
+            old_kernel_message_id = ctx.kernel_message_id
             _clear_live_bubble_context(rid=run_id, clear_conversation=True)
             _notify_shadow_pending()
             if not im_connected or manager is None:
@@ -755,16 +736,14 @@ def build_kernel_event_observer(
                 if not content:
                     return None
                 kernel_msg_id = str(event.get("message_id") or "").strip()
-                prev_kernel_msg_id = ctx.get("kernel_message_id") or ""
+                prev_kernel_msg_id = ctx.kernel_message_id
                 if (
                     kernel_msg_id
                     and prev_kernel_msg_id
                     and kernel_msg_id != prev_kernel_msg_id
                 ):
                     _mirror_external_current_as_intermediate(rid=run_id, ctx=ctx)
-                if kernel_msg_id:
-                    ctx["kernel_message_id"] = kernel_msg_id
-                ctx["external_current_text"] = content
+                ctx.record_assistant_text(content, kernel_message_id=kernel_msg_id)
                 return None
             if event_name in {"tool_start", "permission_request"}:
                 _mirror_external_current_as_intermediate(rid=run_id, ctx=ctx)
@@ -801,7 +780,7 @@ def build_kernel_event_observer(
                                 "conversation_id": cid,
                                 "agent_id": aid,
                                 "run_id": rid,
-                                "shadow_message_id": ctx.get("shadow_message_id"),
+                                "shadow_message_id": ctx.shadow_message_id,
                             },
                         )
                         ack_payload = (
@@ -814,9 +793,11 @@ def build_kernel_event_observer(
                             if isinstance(ack_payload, dict)
                             else None
                         )
-                        live_ctx = _runtime_context_view(run_context_store, rid)
+                        live_ctx = _live_context(run_context_store, rid)
                         if returned_msg_id and live_ctx is not None:
-                            live_ctx["message_id"] = str(returned_msg_id)
+                            live_ctx.backfill_turn_start_ack(
+                                message_id=str(returned_msg_id)
+                            )
                     except Exception as exc:  # noqa: BLE001
                         _log.warning("IM observer turn_start send/ack failed: %s", exc)
 
@@ -825,34 +806,23 @@ def build_kernel_event_observer(
         elif event_name == "assistant_message":
             content = str(event.get("content") or "").strip()
             kernel_msg_id = str(event.get("message_id") or "").strip()
-            prev_kernel_msg_id = ctx.get("kernel_message_id") or ""
-            raw_visibility_policy = ctx.get("visibility_policy")
-            visibility_policy = (
-                ReplyVisibilityPolicy(raw_visibility_policy)
-                if raw_visibility_policy
-                else (
-                    ReplyVisibilityPolicy.SUPPRESS_PROTOCOL_TOKENS
-                    if to_user_id
-                    else ReplyVisibilityPolicy.LITERAL_TEXT
-                )
-            )
+            prev_kernel_msg_id = ctx.kernel_message_id
+            visibility_policy = ctx.visibility_policy
             if should_suppress_reply(content, policy=visibility_policy):
                 # The eager normal-chat placeholder is provisional until assistant
                 # content commits it. A first-bubble silence token rolls that row back;
                 # a later token merely declines to open another bubble, preserving the
                 # preceding real assistant message.
-                if message_id and not prev_kernel_msg_id:
-                    ctx["discard_current_bubble"] = "1"
-                ctx.pop("external_current_text", None)
+                ctx.mark_suppressed_reply()
                 return None
             # A later real assistant message supersedes an earlier provisional silence
             # decision in the same run and commits the existing bubble normally.
-            ctx.pop("discard_current_bubble", None)
+            ctx.preserve_current_bubble()
             if content:
                 # Tool/thinking frames are process metadata, not a user-visible reply.
                 # The direct-Web terminal policy commits a provisional bubble only when
                 # complete assistant text has actually crossed this boundary.
-                ctx["visible_reply_committed"] = "1"
+                ctx.mark_visible_reply()
             # feat-439-M2: 整轮每回合各带一段思考(决策 4 / §1 事实 A)。空正文「且无
             # 思考」的回合仍整段丢弃(避免空气泡)；空正文「但有思考」的回合不再丢，作为
             # 「过程项」转发到当前气泡(不 roll 新气泡、不发空 delta)。思考段的时序序号
@@ -900,7 +870,7 @@ def build_kernel_event_observer(
                                 "to_user_id": uid,
                                 "agent_id": aid,
                                 "run_id": rid,
-                                "shadow_message_id": ctx.get("shadow_message_id"),
+                                "shadow_message_id": ctx.shadow_message_id,
                             },
                         )
                         ack_payload = (
@@ -936,13 +906,17 @@ def build_kernel_event_observer(
                                 skipped_reason,
                             )
                             return
-                        live_ctx = _runtime_context_view(run_context_store, rid)
-                        if returned_msg_id and live_ctx is not None:
-                            live_ctx["message_id"] = str(returned_msg_id)
-                        if returned_conv_id and live_ctx is not None:
-                            live_ctx["conversation_id"] = str(returned_conv_id)
-                        if new_kernel_id and live_ctx is not None:
-                            live_ctx["kernel_message_id"] = new_kernel_id
+                        live_ctx = _live_context(run_context_store, rid)
+                        if live_ctx is not None:
+                            live_ctx.backfill_turn_start_ack(
+                                message_id=(
+                                    str(returned_msg_id) if returned_msg_id else None
+                                ),
+                                conversation_id=(
+                                    str(returned_conv_id) if returned_conv_id else None
+                                ),
+                                kernel_message_id=new_kernel_id,
+                            )
                         if returned_msg_id:
                             if reasoning_text:
                                 await mgr.send_json(
@@ -1002,7 +976,7 @@ def build_kernel_event_observer(
                 ) -> None:
                     new_msg_id: str | None = None
                     try:
-                        old_text = ctx.get("external_current_text") or ""
+                        old_text = ctx.external_current_text
                         _mirror_external_reply(
                             rid=rid,
                             ctx=ctx,
@@ -1017,7 +991,7 @@ def build_kernel_event_observer(
                             run_context_store=run_context_store,
                             old_message_id=old_msg_id,
                             new_kernel_message_id=new_kernel_id,
-                            new_shadow_message_id=ctx.get("shadow_message_id"),
+                            new_shadow_message_id=ctx.shadow_message_id,
                             old_elapsed_ms=(
                                 rolled_shadow_snapshot.elapsed_ms
                                 if rolled_shadow_snapshot is not None
@@ -1041,8 +1015,8 @@ def build_kernel_event_observer(
                             # This branch already has real text for the newly opened
                             # bubble, so restore the marker before the run terminal
                             # decides whether that bubble should be discarded.
-                            ctx["visible_reply_committed"] = "1"
-                            ctx["external_current_text"] = text
+                            ctx.mark_visible_reply()
+                            ctx.record_assistant_text(text)
                             if reasoning_text:
                                 await mgr.send_json(
                                     "node.streaming_delta",
@@ -1069,12 +1043,13 @@ def build_kernel_event_observer(
                                 },
                             )
                     except Exception as exc:  # noqa: BLE001
-                        live_ctx = _runtime_context_view(run_context_store, rid)
+                        live_ctx = _live_context(run_context_store, rid)
                         if live_ctx is not None:
                             if new_msg_id is None:
-                                live_ctx["message_id"] = ""
-                            live_ctx["kernel_message_id"] = new_kernel_id
-                            live_ctx["external_current_text"] = text
+                                live_ctx.clear_message_id()
+                            live_ctx.record_assistant_text(
+                                text, kernel_message_id=new_kernel_id
+                            )
                         if rolled_shadow_snapshot is not None:
                             _notify_shadow_pending()
                         _log.warning(
@@ -1089,9 +1064,7 @@ def build_kernel_event_observer(
                 # (保留下一含正文回合的 roll 判定基准)。
                 if content:
                     # turn_start already ack'd — send delta directly.
-                    if kernel_msg_id:
-                        ctx["kernel_message_id"] = kernel_msg_id
-                    ctx["external_current_text"] = content
+                    ctx.record_assistant_text(content, kernel_message_id=kernel_msg_id)
                 if shadow_snapshot is not None:
 
                     async def _send_ordered_shadow_process(
@@ -1169,12 +1142,12 @@ def build_kernel_event_observer(
                     full_reasoning: str = reasoning,
                     new_kernel_id: str = kernel_msg_id,
                 ) -> None:
-                    live_ctx = _runtime_context_view(run_context_store, rid)
+                    live_ctx = _live_context(run_context_store, rid)
                     if live_ctx is not None:
-                        live_ctx["message_id"] = ""
-                        if new_kernel_id:
-                            live_ctx["kernel_message_id"] = new_kernel_id
-                        live_ctx["external_current_text"] = text
+                        live_ctx.clear_message_id()
+                        live_ctx.record_assistant_text(
+                            text, kernel_message_id=new_kernel_id
+                        )
                     try:
                         ack = await mgr.send_json_await_ack(
                             "node.streaming_delta",
@@ -1183,13 +1156,13 @@ def build_kernel_event_observer(
                                 "conversation_id": cid,
                                 "agent_id": aid,
                                 "run_id": rid,
-                                "shadow_message_id": ctx.get("shadow_message_id"),
+                                "shadow_message_id": ctx.shadow_message_id,
                             },
                         )
                         returned_msg_id = extract_ack_message_id(ack)
-                        live_ctx = _runtime_context_view(run_context_store, rid)
+                        live_ctx = _live_context(run_context_store, rid)
                         if returned_msg_id and live_ctx is not None:
-                            live_ctx["message_id"] = returned_msg_id
+                            live_ctx.backfill_turn_start_ack(message_id=returned_msg_id)
                             # feat-439-M2: 思考过程项先于正文 delta 转发到新建气泡。
                             if reasoning_text:
                                 await mgr.send_json(
@@ -1238,12 +1211,12 @@ def build_kernel_event_observer(
             running_tool_calls.pop(run_id, None)
 
             discard_reason = None
-            if ctx.get("discard_current_bubble"):
+            if ctx.discard_current_bubble:
                 discard_reason = "no_reply_token"
             elif (
                 turn_completed
-                and ctx.get("discard_empty_completion")
-                and not ctx.get("visible_reply_committed")
+                and ctx.discard_empty_completion
+                and not ctx.visible_reply_committed
             ):
                 discard_reason = "empty_visible_reply"
             if message_id and discard_reason:
@@ -1273,9 +1246,9 @@ def build_kernel_event_observer(
                     rid=run_id,
                     ctx=ctx,
                     phase="final",
-                    text=ctx.get("external_current_text") or "",
+                    text=ctx.external_current_text,
                 )
-                completion_kernel_message_id = ctx.get("kernel_message_id")
+                completion_kernel_message_id = ctx.kernel_message_id
 
                 async def _complete_and_reconcile(
                     mgr: IMConnectionManager = manager,
@@ -1620,7 +1593,7 @@ def build_kernel_event_observer(
                             # next assistant_message delta streams straight into bubble B
                             # rather than tripping _close_old_and_restart again.
                             new_kernel_message_id=None,
-                            new_shadow_message_id=ctx.get("shadow_message_id"),
+                            new_shadow_message_id=ctx.shadow_message_id,
                             old_elapsed_ms=(
                                 rolled_shadow_snapshot.elapsed_ms
                                 if rolled_shadow_snapshot is not None
@@ -1739,7 +1712,7 @@ def build_kernel_event_observer(
                 snapshot: ExternalShadowBubble | None = shadow_snapshot,
                 frames: tuple[dict[str, Any], ...] = tuple(terminal_frames),
                 live_message_id: str = message_id,
-                kernel_message_id: str | None = ctx.get("kernel_message_id"),
+                kernel_message_id: str | None = ctx.kernel_message_id,
             ) -> None:
                 try:
                     for frame in frames:
