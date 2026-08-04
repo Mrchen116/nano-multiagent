@@ -87,3 +87,107 @@ N/A. No frontend prototype or reference artifact is declared.
 ### SUGGESTION（可以修）
 
 None.
+
+# Round 2
+
+> Validation snapshot: `068340700fb026a67a22d9aff91c3aab2e70ccb2 → f1f44a2696460d7bcef85b605353de8c870b8467`
+
+## Summary
+
+Mode: targeted-closure
+
+Delta range: `068340700fb026a67a22d9aff91c3aab2e70ccb2..f1f44a2696460d7bcef85b605353de8c870b8467`
+
+Focus issues: `V-C1`, `V-W1`, `V-W2`, `V-W3`, `V-W4`
+
+Validated issues: `V-W1`, `V-W2`, `V-W3`, `V-W4`
+
+requires_full_verification: false
+
+| Issue | Round 2 result |
+|---|---|
+| V-C1 | retained as CRITICAL; the required real Feishu journeys still have no durable evidence |
+| V-W1 | closed; one wakeable recovery owner retries on the current connection |
+| V-W2 | closed; abnormal terminal now orders live terminal ACK before same-id snapshot reconcile |
+| V-W3 | closed; integration coverage rejects wrong agent and other owner without message/event writes |
+| V-W4 | closed; a Slack-like missing-identity pipeline test proves external reply continuity and no shadow/boundary writes |
+
+Independent checks at the validation snapshot:
+
+- Focused closure regression across recovery, observer, wire liveness, inbound pipeline,
+  steer admission, IM integration and Kernel event forwarding: `119 passed`.
+- Repository contract suite: `135 passed`.
+- Ruff over every source and test file changed by the closure delta: passed.
+- `git diff --check 068340700..f1f44a269`: passed.
+- The implementation progress records a final full Python non-E2E run
+  (`2876 passed, 20 deselected`), frontend suite (`556 tests passed`) and frontend
+  production build at this snapshot; targeted closure did not rerun them.
+
+1 critical issue(s), 0 warning(s) and 0 suggestion(s) remain. Fix before PR.
+
+## Targeted Closure
+
+- **V-C1 remains open.** The reviewer-owned M1/M2 exits still require the real Feishu
+  online, fully-offline plus Gateway restart, and mid-run IM disconnect journeys in
+  `design.md:212-242`. The latest progress explicitly records that this checkout has no
+  isolated Feishu channel and that API/mock coverage is not a substitute
+  (`M2-rich-shadow-recovery/progress.md:49-55`).
+- **V-W1 is closed.** `ConnectionReadyCoordinator` exposes one generation-based wakeup
+  and retries transient recovery failure without requiring another WebSocket connection
+  (`connection_ready.py:116-143`); observer reconcile failures notify that owner through
+  the composed callback (`composition.py:430-448`, `observer.py:410-417,1280-1321`).
+  `test_connection_ready_shadow_recovery.py:76-143` covers both retry-after-failure and
+  a later ready snapshot on the existing connection.
+- **V-W2 is closed.** Abnormal terminal first durably closes in-flight tools and produces
+  a ready snapshot (`observer.py:662-694`), then a single coroutine sends tool terminal
+  frames, awaits `message_completed` business ACK, and only then reconciles the same
+  snapshot (`observer.py:1737-1773`). The offline durable close and online ordered path
+  are protected by `test_gateway_shadow_sync.py:1010-1169`.
+- **V-W3 is closed.** The integration test now rejects a non-participant Agent and a
+  different owner, then verifies both message and conversation-event counts are
+  unchanged (`test_external_agent_messages_api.py:211-247`).
+- **V-W4 is closed.** A Slack-like inbound without provider event identity completes the
+  Agent run and provider reply while issuing no IM HTTP request, leaving no pending saga,
+  rich snapshot, legacy output or config boundary, and recording the required diagnostic
+  (`test_inbound_pipeline_session.py:221-285`).
+
+## Closure Delta Coherence
+
+- Batched USER steer correlation remains aligned with the active follower list: Kernel
+  reports a separate `user_message_count`, the realtime hook forwards it, and the run
+  coordinator advances to the last consumed user follower (`agent/loop.py:684-722`,
+  `realtime_stream.py:142-164`, `session_run_coordinator.py:1043-1074`). Permanent tests
+  cover mixed-origin batches and two-user batches.
+- Failed bubble roll does not leave bubble-A transport context attached to bubble B:
+  the failure path clears the live message/text markers and wakes recovery while the new
+  durable bubble continues recording (`observer.py:394-408,1602-1647`;
+  `test_gateway_shadow_sync.py:1249-1348,1727-1823`).
+- Pending follower anchor recovery preserves inbound order even when an earlier saga is
+  already anchored: recovery enumerates all sagas with missing anchors or ready snapshots
+  by saga row order, then reconciles each saga before advancing (`shadow_saga.py:736-753`,
+  `shadow_sync.py:399-449`; `test_gateway_shadow_sync.py:211-350`).
+- A successful steer roll clears the prior bubble's cached external reply and intermediate
+  marker before the next terminal boundary, preventing stale content from being sent again
+  (`observer.py:118-139`; `test_gateway_shadow_sync.py:1351-1399`).
+- The delta adds no top-level package or forbidden import direction, and the contract suite
+  passes; no architecture boundary crossing or duplicate recovery mechanism requires a
+  new full verification round.
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+- **V-C1 — 真实飞书 reviewer 旅程仍无 durable 验收证据。** `design.md:212-242`
+  要求从真实飞书分别验证在线唯一富气泡、全程离线加 Gateway restart 后完整恢复、
+  中途断线后同 message id 无刷新收敛，并用历史 API 对账字段。最新
+  `M2-rich-shadow-recovery/progress.md:49-55` 明确说明当前机器没有隔离飞书 channel，
+  因此本轮不能把自动化 seam 证据替代为产品旅程结论。修复方向不变：获得独占真实
+  listener 窗口，按 runbook 记录 nonce、浏览器观察、历史 API 对账、message id 与清理结果。
+
+### WARNING（提 PR 前必须修）
+
+None.
+
+### SUGGESTION（可以修）
+
+None.
