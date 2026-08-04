@@ -33,10 +33,8 @@
 - 完整 Lark capability bundle 以当前全局 `lark-*` skills 为基线，不按
   产品偏好删减能力；默认身份沿用它们的 `--as user` 语义，
   `lark-vc-agent` 的 `--as bot` 例外不改。
-- M1 的复制输入固定为当前已同步的 `lark-cli 1.0.82`：27 个 `lark-*` 目录、
-  458 个文件。新版增加的是既有 skills 内的资源和通用能力；`lark-im` 的直接
-  chat 操作与 `lark-event` 的独立 listener 语义不变，继续只叠加 D3 的 Gateway
-  边界说明。
+- M1 从当前全局 `lark-*` source 复制完整目录树及其相对引用；`lark-im` 的直接
+  chat 操作与 `lark-event` 的独立 listener 仍只叠加 D3 的 Gateway 边界说明。
 - 用户已明确不迁移或清理旧 `feishu-doc` 安装目录及旧 allowlist；本期只
   定义尚未上线的目标状态。
 - PA 继续只经 `agent.sdk` 使用内核；本变更不引入 IM 对 agent 的依赖，
@@ -184,8 +182,8 @@ flowchart LR
 
 ### 实现顺序与测试 seam
 
-1. 从已同步到 `lark-cli 1.0.82` 的 `/Users/czj/.agents/skills/lark-*` 复制 27 个
-   完整目录（当前 458 个文件）到 `src/personal_assistant/builtin_skills/`，删除随包的旧
+1. 从 `/Users/czj/.agents/skills/lark-*` 复制 27 个完整目录到
+   `src/personal_assistant/builtin_skills/`，删除随包的旧
    `feishu-doc`。不删除用户 runtime 中的旧目录，也不修改旧配置。
 2. 新增 `lark_bundle.py` 静态清单；让 bundle 名称成为唯一的实现常量。测试
    必须反向比较清单与包内目录，防止将来复制资源时漏项或多项。
@@ -379,7 +377,7 @@ blocker。
 |---|---|---|---|---|---|
 | `bugfix-499-M1` | `lark-skill-bundle` | — | A | `src/personal_assistant/builtin_skills/lark_bundle.py`、`builtin_skills/lark-*/`、移除 `builtin_skills/feishu-doc/`；`config/local_store.py`、`gateway/{agent_config_sync,channel_manager,managed_channel_control}.py`；`tests/unit/personal_assistant/{test_builtin_skill_bootstrap,test_gateway_launch,test_gateway_reconcile_on_connect,test_gateway_reconcile_callback,test_gateway_im_config_sync,test_channel_manager}.py`；两个 `specs/gateway` delta | **[worker]** 新安装与用户覆盖不变量成立；静态启动、静态 IM mirror 的 reconnect / `config.sync` 对账与托管的显式/空 allowlist 行为、一次 PATCH、PATCH 失败不阻断 post-register 收敛，以及聚焦 tests/docs-check 通过。 **[reviewer]** 使用 Runbook 的仓外 isolated fixture，先让静态和 fresh-IM 托管 Bot 各通过真实 `fixture ping`，再真实执行 `external-channels` delta 的“当前飞书 chat 不走 Lark IM 直发”与“另一段 Lark chat”两个 Scenario，确认 Gateway reply/IM shadow 所有权保持不变；fixture 缺失明确为产品门禁 blocker。 |
 
-虽然 snapshot 约含 458 个资源文件，M1 仍是默认的单 milestone：资源目录、名称
+虽然 snapshot 包含完整资源目录树，M1 仍是默认的单 milestone：资源目录、名称
 清单与 activation 缺任何一项都不能形成可用能力，拆成“复制资源”与“接线”会是
 没有独立用户价值的水平切分。worker 在 M1 中只创建自己的 `tasks.md` 与
 `progress.md`，本设计阶段仅保留目录骨架。
