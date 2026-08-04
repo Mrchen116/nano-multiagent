@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import multiprocessing
 import os
+from pathlib import Path
 import signal
 import subprocess
 import sys
@@ -170,14 +171,30 @@ def _run_owner_death_probe() -> None:
 
 def test_listener_exits_when_its_owner_dies_without_cleanup() -> None:
     """A listener cannot survive the Gateway process that created it."""
-    result = subprocess.run(
-        [sys.executable, __file__, "--owner-death-probe"],
-        capture_output=True,
-        text=True,
-        timeout=75,
-        check=False,
+    repo_root = Path(__file__).resolve().parents[3]
+    probe_env = os.environ.copy()
+    existing_pythonpath = probe_env.get("PYTHONPATH")
+    probe_env["PYTHONPATH"] = os.pathsep.join(
+        path for path in (str(repo_root / "src"), existing_pythonpath) if path
     )
-    assert result.returncode == 0, result.stderr
+    probe = subprocess.Popen(
+        [sys.executable, __file__, "--owner-death-probe"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=probe_env,
+        start_new_session=True,
+    )
+    try:
+        _, stderr = probe.communicate(timeout=75)
+    except BaseException:
+        try:
+            os.killpg(probe.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        probe.communicate()
+        raise
+    assert probe.returncode == 0, stderr
 
 
 def test_listener_stays_alive_while_owner_is_idle() -> None:
