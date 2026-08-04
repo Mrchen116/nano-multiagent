@@ -34,4 +34,4 @@
 
 ## Commits
 
-- 待提交。
+- `067d1763b` — parent-sentinel worker 实现、owner-death 回归与本记录初稿。
