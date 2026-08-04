@@ -160,6 +160,10 @@ durable owner 权限边界。
 - 首轮独立 code review 找到并确认 3 项阻断问题：跨 owner token 可接管 stale saga、修正配置
   后 owner-dependent saga id 会分叉、恢复事务失败前可能先打印成功告警。修正后由独立 verifier
   仅对这 3 项做 closure，结论 `3/3 closed`；其定向测试为 `14 passed`。
+- 最终本地 CI（`2026-08-04T03:16:15Z`）：documentation integrity、全仓 ruff check、
+  ruff format check、`pytest -m "not e2e" -n 4 --dist worksteal`（`2840 passed`）及前端
+  `npm run test` 全部通过。首次把 Python 与前端全套同时运行时，有一条 40ms idle watchdog
+  时序测试受资源竞争超时；该用例单独连续 `5/5 passed`，随后单独重跑完整 Python gate 全绿。
 
 ### 隔离真栈
 
