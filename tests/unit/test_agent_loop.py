@@ -744,6 +744,44 @@ async def test_loop_emits_injection_consumed_signal_at_consume_point() -> None:
     # context (the terminal re-drain round).
     assert len(consumed_events) == 1
     assert consumed_events[0].get("run_id") == "run_abc"
+    assert consumed_events[0].get("message_count") == 1
+    assert consumed_events[0].get("user_message_count") == 1
+
+
+async def test_injection_consumed_counts_only_user_origin_messages() -> None:
+    from agent.core.agent.run_control import PendingMessage
+    from agent.core.runs.origin import RunOrigin
+
+    consumed_events: list[dict] = []
+    hooks = HookRegistry()
+
+    async def on_injection_consumed(event, ctx):  # noqa: ANN001
+        consumed_events.append(dict(event))
+
+    hooks.on("pending_injection_consumed", on_injection_consumed)
+    loop = AgentLoop(
+        llm_client=FakeLLMClient(),
+        model="model-x",
+        hook_runner=HookRunner(registry=hooks),
+    )
+    await loop._dispatch_pending_consumed(
+        HookContext(session_id="sess_agent", turn_id="turn_1"),
+        "run_abc",
+        [
+            PendingMessage(
+                message=LLMMessage(role="user", content="steer"),
+                origin=RunOrigin.USER,
+            ),
+            PendingMessage(
+                message=LLMMessage(role="user", content="background result"),
+                origin=RunOrigin.BACKGROUND_TASK,
+            ),
+        ],
+    )
+
+    assert len(consumed_events) == 1
+    assert consumed_events[0]["message_count"] == 2
+    assert consumed_events[0]["user_message_count"] == 1
 
 
 class _SteerThenToolCallClient:

@@ -1348,6 +1348,57 @@ def test_failed_steer_bubble_reconcile_notifies_recovery_owner(
     assert current.content == "after steer"
 
 
+def test_successful_steer_roll_does_not_reuse_the_previous_external_reply() -> None:
+    class Manager:
+        connected = True
+
+        async def send_json(self, _message_type: str, _payload: dict[str, Any]) -> None:
+            return None
+
+        async def send_json_await_ack(
+            self, _message_type: str, payload: dict[str, Any]
+        ) -> dict[str, Any]:
+            if payload["kind"] == "turn_start":
+                return {"payload": {"message_id": "im-agent-2"}}
+            return {"payload": {"kind": payload["kind"]}}
+
+    context = {
+        "run-1": {
+            "agent_id": "agent-a",
+            "conversation_id": "shadow-a",
+            "message_id": "im-agent-1",
+            "kernel_message_id": "kernel-a",
+            "external_current_text": "answer A",
+            "external_intermediate_sent_marker": "kernel-a",
+            "trigger_source": "external",
+            "reply_channel_name": "feishu:agent-a",
+            "reply_target_chat_id": "chat-a",
+        }
+    }
+    mirrored: list[str] = []
+    tracker = RuntimeDeliveryTaskTracker()
+    observer = build_kernel_event_observer(
+        im_connection_manager_factory=Manager,
+        run_context_store=context,
+        external_reply_sender=lambda text, _metadata: mirrored.append(text),
+        task_tracker=tracker,
+    )
+
+    async def emit() -> None:
+        rolling = observer({"event": "injection_consumed", "run_id": "run-1"})
+        assert rolling is not None
+        await rolling
+        assert context["run-1"]["message_id"] == "im-agent-2"
+        assert "external_current_text" not in context["run-1"]
+        assert "external_intermediate_sent_marker" not in context["run-1"]
+        observer({"event": "turn_end", "run_id": "run-1", "completed": True})
+        await tracker.close_and_drain(asyncio.get_running_loop().time() + 1)
+
+    asyncio.run(emit())
+
+    assert mirrored == []
+
+
 def test_consumed_steer_moves_new_bubble_to_the_follower_saga(tmp_path: Path) -> None:
     saga_store = ExternalShadowSagaStore(db_path=tmp_path / "shadow-sagas.sqlite3")
     sagas = []

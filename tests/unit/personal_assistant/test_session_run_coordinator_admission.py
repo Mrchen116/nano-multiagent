@@ -523,7 +523,14 @@ async def test_batched_consumed_steer_uses_the_last_follower_shadow_anchor(
     assert steered.run_id == "run-1"
     last_steered = await coordinator.dispatch(_request(last_follower_message, catalog))
     assert last_steered.run_id == "run-1"
-    kernel.push("run-1", {"event": "injection_consumed", "message_count": 2})
+    kernel.push(
+        "run-1",
+        {
+            "event": "injection_consumed",
+            "message_count": 2,
+            "user_message_count": 2,
+        },
+    )
     kernel.finish("run-1", text="all done")
     await running
 
@@ -571,13 +578,30 @@ async def test_consumed_steer_marks_a_pending_follower_shadow_anchor(
         )
     )
     assert steered.run_id == "run-1"
-    kernel.push("run-1", {"event": "injection_consumed", "message_count": 1})
+    kernel.push(
+        "run-1",
+        {
+            "event": "injection_consumed",
+            "message_count": 1,
+            "user_message_count": 0,
+        },
+    )
+    kernel.push(
+        "run-1",
+        {
+            "event": "injection_consumed",
+            "message_count": 1,
+            "user_message_count": 1,
+        },
+    )
     kernel.finish("run-1", text="all done")
     await running
 
-    consumed = next(
+    consumed_events = [
         event for event in observed if event["event"] == "injection_consumed"
-    )
+    ]
+    assert len(consumed_events) == 1
+    consumed = consumed_events[0]
     assert consumed["shadow_saga_id"] == "saga-2"
     assert consumed["shadow_anchor_pending"] is True
     assert "shadow_conversation_id" not in consumed

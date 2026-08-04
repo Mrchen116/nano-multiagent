@@ -28,13 +28,13 @@
 
 ## Automated evidence
 
-- Focused post-review Gateway/IM regression: `163 passed` for observer, relay
+- Focused post-review Gateway/IM regression: `171 passed` for observer, relay
   lifecycle, terminal reconciliation, recovery ordering, inbound streaming and IM
   wire liveness/ACK ownership.
-- Final concurrency regression: `57 passed` across runtime event forwarding, steer
+- Final concurrency regression: `79 passed` across runtime event forwarding, steer
   admission and rich shadow observer behavior, including batched steers, failed bubble
   rolls and pending follower anchors.
-- Full Python non-E2E suite: `2874 passed, 20 deselected`.
+- Full Python non-E2E suite: `2876 passed, 20 deselected`.
 - Frontend full suite: `59 files passed, 556 tests passed`.
 - Frontend production build passed (`tsc -b && vite build`).
 - `ruff check`, `scripts/docs-check` and `git diff --check` passed.

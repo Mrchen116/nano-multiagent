@@ -993,7 +993,10 @@ class SessionRunCoordinator:
                         await result
                     continue
                 if event.get("event") == "injection_consumed":
-                    event = self._attach_consumed_steer_identity(run_id, event)
+                    consumed_event = self._attach_consumed_steer_identity(run_id, event)
+                    if consumed_event is None:
+                        continue
+                    event = consumed_event
                 if self._kernel_event_observer is not None:
                     result = self._kernel_event_observer(event)
                     if asyncio.iscoroutine(result):
@@ -1039,19 +1042,26 @@ class SessionRunCoordinator:
 
     def _attach_consumed_steer_identity(
         self, run_id: str, event: Mapping[str, object]
-    ) -> Mapping[str, object]:
-        followers = self._steered_requests.get(run_id, [])
-        index = self._consumed_steer_counts.get(run_id, 0)
-        if index >= len(followers):
-            return event
-        raw_count = event.get("message_count")
+    ) -> Mapping[str, object] | None:
+        raw_user_count = event.get("user_message_count")
+        raw_count = (
+            raw_user_count
+            if isinstance(raw_user_count, int)
+            else event.get("message_count")
+        )
         message_count = (
             raw_count
             if isinstance(raw_count, int)
             and not isinstance(raw_count, bool)
-            and raw_count > 0
+            and raw_count >= 0
             else 1
         )
+        if message_count == 0:
+            return None
+        followers = self._steered_requests.get(run_id, [])
+        index = self._consumed_steer_counts.get(run_id, 0)
+        if index >= len(followers):
+            return event
         end = min(index + message_count, len(followers))
         self._consumed_steer_counts[run_id] = end
         protocol = runtime_protocol_or_derive(followers[end - 1].message)

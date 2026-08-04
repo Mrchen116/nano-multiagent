@@ -161,6 +161,7 @@ def setup(hooks):  # noqa: ANN001, ANN201
                 "run_id": run_id,
                 "turn_id": event.get("turn_id"),
                 "message_count": event.get("message_count"),
+                "user_message_count": event.get("user_message_count"),
             },
         )
 

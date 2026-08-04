@@ -123,6 +123,8 @@ async def roll_bubble(
             # old bubble's visible/silence terminal decision.
             live_ctx.pop("visible_reply_committed", None)
             live_ctx.pop("discard_current_bubble", None)
+            live_ctx.pop("external_current_text", None)
+            live_ctx.pop("external_intermediate_sent_marker", None)
             if new_kernel_message_id:
                 live_ctx["kernel_message_id"] = new_kernel_message_id
             else:
