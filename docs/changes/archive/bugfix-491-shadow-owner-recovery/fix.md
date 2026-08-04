@@ -130,7 +130,7 @@ output → boundary，重复 recovery 不会重复写入。运行时告警在 ow
 仅把既有 `config.node.node_id` 传给 shadow sync，用现有 owner-scoped nodes API 复用同一条
 durable owner 权限边界。
 
-实现提交：`b84ea3b9f`（`fix(gateway): recover stale shadow saga owner`）、`958705247`
+实现提交：`9d5fb53fe`（`fix(gateway): recover stale shadow saga owner`）、`086f13499`
 （`fix(gateway): authorize shadow owner recovery`）。
 
 ## 验证
@@ -164,12 +164,18 @@ durable owner 权限边界。
   ruff format check、`pytest -m "not e2e" -n 4 --dist worksteal`（`2840 passed`）及前端
   `npm run test` 全部通过。首次把 Python 与前端全套同时运行时，有一条 40ms idle watchdog
   时序测试受资源竞争超时；该用例单独连续 `5/5 passed`，随后单独重跑完整 Python gate 全绿。
+- 最终同步（`2026-08-04T04:15:52Z`）：effective base 前进到 `1a0fb9ea9`，增量仅新增
+  `bugfix-497` incident，无代码、canonical spec 或测试变化。该 incident 的根因是 live 富气泡
+  与 durable mirror 缺少共同消息身份，并明确要求保住 bugfix-491 的 stale-owner recovery；
+  不改变本 unit 的 owner 校正、node-owner 授权或 provider-event saga identity。由此保留
+  已通过的真实入口和 code-review 结论；rebase 后 docs integrity、聚焦 ruff 及 4 个相关
+  测试文件重跑通过（`25 passed`）。
 
 ### 隔离真栈
 
 - Claim：stale owner 的 durable Feishu source fact 通过真实 IM HTTP 鉴权后，能补齐唯一影子
   会话中的用户消息和已持久 Agent 回复，同时提升原 saga 的 boundary，且二次恢复无重复。
-- Baseline：`unit/bugfix-491`，`958705247`；worktree
+- Baseline：`unit/bugfix-491`，`086f13499`；worktree
   `.worktrees/unit-bugfix-491`；`scripts/e2e-up.sh` 启动隔离 IM + Gateway，端口、数据库、
   node identity、config 和 workspace 均为本 unit 独占。
 - Method：在真实栈存活时登录隔离 IM 用户，选择已注册 Agent；构造带
