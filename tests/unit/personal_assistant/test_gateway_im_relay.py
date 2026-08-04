@@ -20,7 +20,10 @@ from personal_assistant.gateway.runtime_protocol import (
     attach_runtime_protocol,
 )
 from personal_assistant.gateway.shadow_saga import ExternalShadowSagaStore
-from personal_assistant.gateway.shadow_sync import IMShadowConversationSync
+from personal_assistant.gateway.shadow_sync import (
+    IMShadowConversationSync,
+    ShadowSyncPendingError,
+)
 
 
 def test_external_shadow_sync_uses_authenticated_im_user_not_stale_config_user(
@@ -49,6 +52,11 @@ def test_external_shadow_sync_uses_authenticated_im_user_not_stale_config_user(
                     "created_at": "2026-07-02T00:00:00Z",
                 },
             )
+        if request.url.path == "/im/v1/nodes":
+            return httpx.Response(
+                200,
+                json=[{"node_id": "node-a", "owner_id": "actual-user"}],
+            )
         if request.url.path == "/im/v1/conversations/external/find-or-create":
             assert payload["participant_ids"] == [
                 "user:actual-user",
@@ -66,6 +74,7 @@ def test_external_shadow_sync_uses_authenticated_im_user_not_stale_config_user(
         base_url="http://im.local",
         token_getter=lambda: _async_value("token-1"),
         owner_user_id="stale-config-user",
+        node_id="node-a",
         transport=httpx.MockTransport(handler),
         saga_store=saga_store,
     )
@@ -87,9 +96,25 @@ def test_external_shadow_sync_uses_authenticated_im_user_not_stale_config_user(
     assert "recovered stale configured owner" in caplog.text
     assert [item["path"] for item in requests] == [
         "/im/v1/me",
+        "/im/v1/nodes",
         "/im/v1/conversations/external/find-or-create",
         "/im/v1/conversations/conv-shadow/messages",
     ]
+
+    corrected_config_client = IMShadowConversationSync(
+        base_url="http://im.local",
+        token_getter=lambda: _async_value("token-1"),
+        owner_user_id="actual-user",
+        node_id="node-a",
+        transport=httpx.MockTransport(handler),
+        saga_store=saga_store,
+    )
+    corrected_replay = asyncio.run(
+        corrected_config_client.sync_user_message(inbound, agent_id="agent-a")
+    )
+
+    assert corrected_replay == shadow_ref
+    assert len(requests) == 4
 
 
 def test_stale_owner_pending_saga_recovers_user_output_and_boundary(
@@ -108,6 +133,11 @@ def test_stale_owner_pending_saga_recovers_user_output_and_boundary(
         )
         if request.url.path == "/im/v1/me":
             return httpx.Response(200, json={"id": "actual-user"})
+        if request.url.path == "/im/v1/nodes":
+            return httpx.Response(
+                200,
+                json=[{"node_id": "node-a", "owner_id": "actual-user"}],
+            )
         if request.url.path == "/im/v1/conversations/external/find-or-create":
             return httpx.Response(201, json={"id": "conv-shadow"})
         if request.url.path == "/im/v1/conversations/conv-shadow/messages":
@@ -135,6 +165,7 @@ def test_stale_owner_pending_saga_recovers_user_output_and_boundary(
         base_url="http://im.local",
         token_getter=lambda: _async_value("token-1"),
         owner_user_id="stale-config-user",
+        node_id="node-a",
         transport=httpx.MockTransport(handler),
         saga_store=saga_store,
         promote_pending_boundary=lambda saga_id, _shadow_ref: promoted_saga_ids.append(
@@ -153,12 +184,60 @@ def test_stale_owner_pending_saga_recovers_user_output_and_boundary(
     assert promoted_saga_ids == [stale_saga.saga_id]
     assert [request["path"] for request in requests] == [
         "/im/v1/me",
+        "/im/v1/nodes",
         "/im/v1/conversations/external/find-or-create",
         "/im/v1/conversations/conv-shadow/messages",
         "/im/v1/conversations/conv-shadow/messages",
     ]
-    assert requests[2]["idempotency_key"] == stale_saga.shadow_user_idempotency_key
-    assert requests[3]["idempotency_key"] == pending_output.caller_idempotency_key
+    assert requests[3]["idempotency_key"] == stale_saga.shadow_user_idempotency_key
+    assert requests[4]["idempotency_key"] == pending_output.caller_idempotency_key
+
+
+def test_cross_owner_token_cannot_reassign_pending_shadow_saga(tmp_path: Path) -> None:
+    """A token rejected by the node owner gate cannot claim external history."""
+
+    requests: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request.url.path)
+        if request.url.path == "/im/v1/me":
+            return httpx.Response(
+                200,
+                json={"id": "bob-user", "owner_id": "bob-owner"},
+            )
+        if request.url.path == "/im/v1/nodes":
+            return httpx.Response(
+                200,
+                json=[{"node_id": "alice-node", "owner_id": ""}],
+            )
+        if request.url.path == "/im/v1/conversations/external/find-or-create":
+            return httpx.Response(201, json={"id": "bob-shadow"})
+        if request.url.path == "/im/v1/conversations/bob-shadow/messages":
+            return httpx.Response(201, json={"id": "bob-message"})
+        raise AssertionError(f"unexpected request: {request.url.path}")
+
+    saga_store = ExternalShadowSagaStore(db_path=tmp_path / "shadow-sagas.sqlite3")
+    stale_saga = saga_store.prepare(
+        message=_external_inbound(),
+        agent_id="agent-a",
+        owner_id="alice-user",
+    )
+    assert stale_saga is not None
+    client = IMShadowConversationSync(
+        base_url="http://im.local",
+        token_getter=lambda: _async_value("bob-token"),
+        owner_user_id="alice-user",
+        node_id="alice-node",
+        transport=httpx.MockTransport(handler),
+        saga_store=saga_store,
+    )
+
+    with pytest.raises(ShadowSyncPendingError):
+        asyncio.run(client.sync_user_message(_external_inbound(), agent_id="agent-a"))
+
+    assert saga_store.require(stale_saga.saga_id).owner_id == "alice-user"
+    assert saga_store.diagnostic_reasons() == ()
+    assert requests == ["/im/v1/me", "/im/v1/nodes"]
 
 
 def _external_inbound() -> InboundMessage:
