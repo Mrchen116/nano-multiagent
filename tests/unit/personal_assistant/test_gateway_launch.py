@@ -17,6 +17,7 @@ from personal_assistant.config.local_store import (
     LocalConfig,
     NodeConfig,
 )
+from personal_assistant.builtin_skills.lark_bundle import lark_skill_names
 from personal_assistant.gateway.process_lifecycle import (
     BackgroundLaunchResult,
     GatewayStartupError,
@@ -196,10 +197,10 @@ def test_load_runtime_config_preserves_im_credentials_when_overriding_url(
     assert loaded.im_service.password == "nano1234"
 
 
-def test_load_runtime_config_provisions_feishu_skill_before_composition(
+def test_load_runtime_config_provisions_lark_bundle_before_composition(
     tmp_path: Path,
 ) -> None:
-    """Gateway startup persists the Feishu skill before runtime composition."""
+    """Gateway startup persists the Lark bundle before runtime composition."""
     config = LocalConfig(
         node=NodeConfig(node_id="node-local"),
         agents=(
@@ -229,8 +230,45 @@ def test_load_runtime_config_provisions_feishu_skill_before_composition(
         save_config=lambda updated, _path: saved.append(updated),
     )
 
-    assert loaded.agents[0].skills == ("memory", "feishu-doc")
+    assert loaded.agents[0].skills == ("memory", *lark_skill_names())
     assert saved == [loaded]
+
+
+def test_load_runtime_config_keeps_empty_feishu_allowlist_unmaterialized(
+    tmp_path: Path,
+) -> None:
+    """An empty list continues to mean discovery of all global skills."""
+    config = LocalConfig(
+        node=NodeConfig(node_id="node-local"),
+        agents=(
+            AgentWorkspaceConfig(
+                agent_id="agent-open",
+                workspace_root=tmp_path / "agent-open",
+                skills=(),
+            ),
+        ),
+        channels=(
+            ChannelConfig(
+                name="feishu:agent-open",
+                settings={"appId": "cli_a", "appSecret": "s_a", "botOpenId": "ou_bot"},
+            ),
+        ),
+        gateway=GatewayLifecycleConfig(),
+        heartbeat=HeartbeatConfig(),
+        im_service=IMServiceConfig(url="http://im.local"),
+        llm=_DEFAULT_TEST_LLM,
+        source_path=tmp_path / "node-config.yaml",
+    )
+    saved: list[LocalConfig] = []
+
+    loaded = local_store.load_gateway_runtime_config(
+        config.source_path,
+        load_config=lambda _path: config,
+        save_config=lambda updated, _path: saved.append(updated),
+    )
+
+    assert loaded.agents[0].skills == ()
+    assert saved == []
 
 
 def test_launch_gateway_in_background_stops_child_when_start_confirmation_fails(

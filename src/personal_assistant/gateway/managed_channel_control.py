@@ -26,6 +26,7 @@ from personal_assistant.gateway.channel_manager import (
     ProviderMetadataReport,
     ProviderRuntimeBuild,
 )
+from personal_assistant.builtin_skills.lark_bundle import lark_skill_names
 from personal_assistant.gateway.channel_manifest_apply import (
     CredentialEnvelopeContext,
     apply_channel_manifest_payload,
@@ -147,8 +148,8 @@ class ManagedChannelControl:
             status_sink=self._record_status,
             metadata_sink=self._record_metadata,
             activation_policy=FeishuActivationPolicy(
-                lambda agent_id: agent_config_sync.ensure_agent_skill_enabled(
-                    agent_id, "feishu-doc"
+                lambda agent_id: agent_config_sync.ensure_agent_skills_enabled(
+                    agent_id, lark_skill_names()
                 )
             ),
             manifest_store=manifest_store,
