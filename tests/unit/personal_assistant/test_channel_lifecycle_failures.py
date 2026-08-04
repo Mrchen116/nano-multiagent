@@ -6,6 +6,7 @@ import asyncio
 import multiprocessing
 import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -127,7 +128,9 @@ def _stable_worker(context: FeishuWorkerProcessContext) -> None:
 class _WorkerAdapter:
     name = "feishu:agent-a"
 
-    def __init__(self, *, target, status_handler, block_events: bool) -> None:
+    def __init__(
+        self, *, target, status_handler, block_events: bool, startup_deadline: float
+    ) -> None:
         self._release = threading.Event()
 
         def on_event(_event) -> None:
@@ -150,6 +153,13 @@ class _WorkerAdapter:
             event_queue_capacity=1,
             join_timeout=0.2,
         )
+        ready_event = self.runtime._ready_event
+
+        def wait_for_startup(_default_timeout: float) -> bool:
+            remaining = startup_deadline - time.monotonic()
+            return ready_event.wait(max(0.0, min(30.0, remaining)))
+
+        self.runtime._ready_event = SimpleNamespace(wait=wait_for_startup)
 
     def start(self, _handler) -> None:
         self.runtime.start()
@@ -161,6 +171,29 @@ class _WorkerAdapter:
     def stop_invalidated(self) -> None:
         self._release.set()
         self.runtime.stop(drain=False)
+
+
+class _ImmediateStatusAdapter:
+    name = "feishu:agent-a"
+
+    def __init__(self, *, status_handler, pressure: bool) -> None:
+        self._status_handler = status_handler
+        self._pressure = pressure
+        self.stopped = False
+
+    def start(self, _handler) -> None:
+        if self._pressure:
+            self._status_handler(
+                status_sequence=2,
+                connection_state="failed",
+                status_code="event_backpressure",
+            )
+
+    def stop(self) -> None:
+        self.stopped = True
+
+    def stop_invalidated(self) -> None:
+        self.stop()
 
 
 def _wait_until(predicate, *, timeout: float = 4.0) -> None:
@@ -176,6 +209,7 @@ def test_backpressure_reaps_noncooperative_listener_and_restarts_once() -> None:
     """A full FIFO cannot leave the SDK listener alive after terminal status."""
     adapters: list[_WorkerAdapter] = []
     statuses = []
+    startup_deadline = time.monotonic() + 75.0
 
     def factory(_spec, _binder, status_handler):
         first = not adapters
@@ -183,6 +217,7 @@ def test_backpressure_reaps_noncooperative_listener_and_restarts_once() -> None:
             target=_noncooperative_pressure_worker if first else _stable_worker,
             status_handler=status_handler,
             block_events=first,
+            startup_deadline=startup_deadline,
         )
         adapters.append(adapter)
         return adapter
@@ -197,26 +232,26 @@ def test_backpressure_reaps_noncooperative_listener_and_restarts_once() -> None:
         asyncio.run(
             manager.reconcile(ChannelManifest(manifest_revision=1, channels=(_spec(),)))
         )
-        first_pid = adapters[0].runtime.pid
         _wait_until(
-            lambda: any(
-                status.status_code == "event_backpressure" for status in statuses
-            )
+            lambda: (
+                len(adapters) == 2
+                and any(
+                    status.status_code == "event_backpressure" for status in statuses
+                )
+                and adapters[0].runtime.is_alive is False
+                and manager.registry.get("feishu:agent-a") is adapters[1]
+            ),
+            timeout=45,
         )
-        _wait_until(lambda: len(adapters) == 2)
-        _wait_until(lambda: adapters[0].runtime.is_alive is False)
-        _wait_until(lambda: manager.registry.get("feishu:agent-a") is adapters[1])
-        assert first_pid != adapters[1].runtime.pid
         assert len(adapters) == 2
     finally:
         asyncio.run(manager.close())
 
 
-def test_backpressure_retry_budget_reaps_final_listener_and_allows_manual_retry() -> (
-    None
-):
-    """Three retries end failed with no child; reconnect can use retained desired."""
+def test_backpressure_retry_budget_reaps_final_listener() -> None:
+    """Three retries end failed with no child and no extra automatic restart."""
     adapters: list[_WorkerAdapter] = []
+    startup_deadline = time.monotonic() + 75.0
 
     def factory(_spec, _binder, status_handler):
         pressure = len(adapters) < 4
@@ -224,6 +259,7 @@ def test_backpressure_retry_budget_reaps_final_listener_and_allows_manual_retry(
             target=_noncooperative_pressure_worker if pressure else _stable_worker,
             status_handler=status_handler,
             block_events=pressure,
+            startup_deadline=startup_deadline,
         )
         adapters.append(adapter)
         return adapter
@@ -240,18 +276,55 @@ def test_backpressure_retry_budget_reaps_final_listener_and_allows_manual_retry(
         )
         # Four spawn/reap cycles are intentionally sequential; leave headroom for
         # loaded CI workers without adding delay to the successful path.
-        _wait_until(lambda: len(adapters) == 4, timeout=20)
         _wait_until(
-            lambda: manager.registry.get("feishu:agent-a") is None,
-            timeout=4,
+            lambda: (
+                len(adapters) == 4
+                and manager.registry.get("feishu:agent-a") is None
+                and all(not item.runtime.is_alive for item in adapters)
+            ),
+            timeout=45,
         )
-        _wait_until(lambda: all(not item.runtime.is_alive for item in adapters))
         time.sleep(0.6)
         assert len(adapters) == 4
+    finally:
+        asyncio.run(manager.close())
+
+
+def test_manual_retry_after_retry_exhaustion_uses_retained_desired() -> None:
+    """A manual reconnect can reuse desired state after automatic retries stop."""
+    adapters: list[_ImmediateStatusAdapter] = []
+
+    def factory(_spec, _binder, status_handler):
+        adapter = _ImmediateStatusAdapter(
+            status_handler=status_handler,
+            pressure=len(adapters) < 4,
+        )
+        adapters.append(adapter)
+        return adapter
+
+    manager = ChannelManager(
+        registry=ChannelRegistry(),
+        on_inbound=lambda _message: None,
+        provider_factories={"feishu": factory},
+        status_sink=lambda _status: None,
+    )
+    try:
+        asyncio.run(
+            manager.reconcile(ChannelManifest(manifest_revision=1, channels=(_spec(),)))
+        )
+        _wait_until(
+            lambda: (
+                len(adapters) == 4
+                and manager.registry.get("feishu:agent-a") is None
+                and all(adapter.stopped for adapter in adapters)
+            )
+        )
 
         asyncio.run(manager.reconnect("ch-a"))
-        _wait_until(lambda: manager.registry.get("feishu:agent-a") is adapters[4])
+
         assert len(adapters) == 5
+        assert manager.registry.get("feishu:agent-a") is adapters[4]
+        assert adapters[4].stopped is False
     finally:
         asyncio.run(manager.close())
 

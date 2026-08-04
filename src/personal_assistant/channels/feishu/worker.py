@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import logging
 import multiprocessing
-from multiprocessing.connection import Connection
+from multiprocessing.connection import Connection, wait
+import os
 import queue
 import threading
 import time
@@ -196,11 +197,25 @@ def _default_worker_target(context: FeishuWorkerProcessContext) -> None:
     _run_feishu_sdk_worker(context)
 
 
+def _exit_when_parent_terminates(parent_sentinel: int) -> None:
+    wait([parent_sentinel])
+    os._exit(0)
+
+
 def _worker_bootstrap(
     target: Callable[[FeishuWorkerProcessContext], None],
     context: FeishuWorkerProcessContext,
 ) -> None:
     try:
+        parent = multiprocessing.parent_process()
+        if parent is None:
+            raise RuntimeError("feishu worker has no multiprocessing parent")
+        threading.Thread(
+            target=_exit_when_parent_terminates,
+            args=(parent.sentinel,),
+            name="feishu-parent-liveness",
+            daemon=True,
+        ).start()
         context.ready_event.set()
         target(context)
     except BaseException:

@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import multiprocessing
 import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
 import threading
 import time
 from types import SimpleNamespace
 
-from lark_oapi.core.enum import LogLevel
-from personal_assistant.channels.feishu.client import _run_feishu_sdk_worker
 from personal_assistant.channels.feishu.worker import (
     FeishuWorkerProcessContext,
     FeishuWorkerRuntime,
@@ -73,8 +75,42 @@ def _crash_worker(_context: FeishuWorkerProcessContext) -> None:
     os._exit(17)
 
 
+def _process_birth(pid: int) -> str | None:
+    result = subprocess.run(
+        ["ps", "-p", str(pid), "-o", "lstart="],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    birth = " ".join(result.stdout.split())
+    return birth or None
+
+
+def _abrupt_listener_owner(worker_info, exit_owner) -> None:
+    try:
+        runtime = _runtime(
+            target=_listener_worker,
+            events=[],
+            statuses=[],
+            join_timeout=30,
+        )
+        runtime.start()
+        worker_pid = runtime.pid
+        if worker_pid is None:
+            raise RuntimeError("listener did not expose a pid")
+        worker_birth = _process_birth(worker_pid)
+        if worker_birth is None:
+            raise RuntimeError("listener process birth could not be read")
+    except BaseException as error:
+        worker_info.send(("startup_error", type(error).__name__, str(error)))
+        raise
+    worker_info.send(("ready", worker_pid, worker_birth))
+    exit_owner.wait()
+    os._exit(23)
+
+
 def _runtime(*, target, events, statuses, **kwargs) -> FeishuWorkerRuntime:
-    return FeishuWorkerRuntime(
+    runtime = FeishuWorkerRuntime(
         app_id=kwargs.pop("app_id", "cli_a"),
         app_secret="secret",
         incarnation=kwargs.pop("incarnation", "inc-a"),
@@ -82,9 +118,118 @@ def _runtime(*, target, events, statuses, **kwargs) -> FeishuWorkerRuntime:
         on_status=statuses.append,
         worker_target=target,
         multiprocessing_context=multiprocessing.get_context("spawn"),
-        join_timeout=1,
+        join_timeout=kwargs.pop("join_timeout", 5),
         **kwargs,
     )
+    return _with_startup_budget(runtime)
+
+
+def _with_startup_budget(runtime: FeishuWorkerRuntime) -> FeishuWorkerRuntime:
+    ready_event = runtime._ready_event
+    runtime._ready_event = SimpleNamespace(
+        wait=lambda _default_timeout: ready_event.wait(30)
+    )
+    return runtime
+
+
+def _run_owner_death_probe() -> None:
+    mp = multiprocessing.get_context("spawn")
+    worker_info_recv, worker_info_send = mp.Pipe(duplex=False)
+    exit_owner = mp.Event()
+    owner = mp.Process(
+        target=_abrupt_listener_owner,
+        args=(worker_info_send, exit_owner),
+    )
+    owner_pid: int | None = None
+    owner_birth: str | None = None
+    worker_pid: int | None = None
+    worker_birth: str | None = None
+
+    try:
+        owner.start()
+        owner_pid = owner.pid
+        assert owner_pid is not None
+        owner_birth = _process_birth(owner_pid)
+        assert owner_birth is not None
+        assert worker_info_recv.poll(45), "owner did not report listener startup"
+        startup = worker_info_recv.recv()
+        assert startup[0] == "ready", f"owner startup failed: {startup[1:]}"
+        _, worker_pid, worker_birth = startup
+
+        exit_owner.set()
+        owner.join(10)
+        assert owner.exitcode == 23
+        assert _process_birth(owner_pid) != owner_birth
+        _wait_until(lambda: _process_birth(worker_pid) != worker_birth)
+    finally:
+        if owner.is_alive():
+            owner.terminate()
+            owner.join(1)
+        if (
+            worker_pid is not None
+            and worker_birth is not None
+            and _process_birth(worker_pid) == worker_birth
+        ):
+            os.kill(worker_pid, signal.SIGKILL)
+            _wait_until(lambda: _process_birth(worker_pid) != worker_birth)
+        if not owner.is_alive():
+            owner.close()
+        worker_info_recv.close()
+        worker_info_send.close()
+
+
+def test_listener_exits_when_its_owner_dies_without_cleanup() -> None:
+    """A listener cannot survive the Gateway process that created it."""
+    repo_root = Path(__file__).resolve().parents[3]
+    probe_env = os.environ.copy()
+    existing_pythonpath = probe_env.get("PYTHONPATH")
+    probe_env["PYTHONPATH"] = os.pathsep.join(
+        path for path in (str(repo_root / "src"), existing_pythonpath) if path
+    )
+    probe = subprocess.Popen(
+        [sys.executable, __file__, "--owner-death-probe"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=probe_env,
+        start_new_session=True,
+    )
+    try:
+        _, stderr = probe.communicate(timeout=75)
+    except BaseException:
+        try:
+            os.killpg(probe.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        probe.communicate()
+        raise
+    assert probe.returncode == 0, stderr
+
+
+def test_listener_stays_alive_while_owner_is_idle() -> None:
+    """An idle listener keeps the same process identity while its owner lives."""
+    events, statuses = [], []
+    runtime = _runtime(
+        target=_listener_worker,
+        events=events,
+        statuses=statuses,
+    )
+    runtime.start()
+    try:
+        _wait_until(lambda: events)
+        worker_pid = runtime.pid
+        assert worker_pid is not None
+        worker_birth = _process_birth(worker_pid)
+        assert worker_birth is not None
+
+        idle_deadline = time.monotonic() + 0.25
+        while time.monotonic() < idle_deadline:
+            assert runtime.is_alive
+            assert _process_birth(worker_pid) == worker_birth
+            time.sleep(0.01)
+    finally:
+        report = runtime.stop(drain=True)
+    assert report.joined
 
 
 def test_two_listener_processes_are_isolated_and_true_stop_join() -> None:
@@ -130,16 +275,18 @@ def test_backpressure_status_coalescing_and_priority_error_are_visible() -> None
             entered.set()
             release.wait(2)
 
-    runtime = FeishuWorkerRuntime(
-        app_id="cli_pressure",
-        app_secret="secret",
-        incarnation="inc-pressure",
-        on_event=slow_event,
-        on_status=statuses.append,
-        worker_target=_pressure_worker,
-        multiprocessing_context=multiprocessing.get_context("spawn"),
-        event_queue_capacity=1,
-        join_timeout=1,
+    runtime = _with_startup_budget(
+        FeishuWorkerRuntime(
+            app_id="cli_pressure",
+            app_secret="secret",
+            incarnation="inc-pressure",
+            on_event=slow_event,
+            on_status=statuses.append,
+            worker_target=_pressure_worker,
+            multiprocessing_context=multiprocessing.get_context("spawn"),
+            event_queue_capacity=1,
+            join_timeout=1,
+        )
     )
     runtime.start()
     assert entered.wait(2)
@@ -178,16 +325,18 @@ def test_stop_can_drain_or_drop_invalidated_generation() -> None:
         entered.set()
         release.wait(2)
 
-    invalidated = FeishuWorkerRuntime(
-        app_id="cli_drop",
-        app_secret="secret",
-        incarnation="inc-drop",
-        on_event=blocked,
-        on_status=lambda _status: None,
-        worker_target=_drain_worker,
-        multiprocessing_context=multiprocessing.get_context("spawn"),
-        event_queue_capacity=3,
-        join_timeout=1,
+    invalidated = _with_startup_budget(
+        FeishuWorkerRuntime(
+            app_id="cli_drop",
+            app_secret="secret",
+            incarnation="inc-drop",
+            on_event=blocked,
+            on_status=lambda _status: None,
+            worker_target=_drain_worker,
+            multiprocessing_context=multiprocessing.get_context("spawn"),
+            event_queue_capacity=3,
+            join_timeout=1,
+        )
     )
     invalidated.start()
     assert entered.wait(2)
@@ -252,6 +401,9 @@ def test_worker_crash_is_a_terminal_priority_status() -> None:
 
 def test_sdk_worker_suppresses_sensitive_websocket_url_info_log(monkeypatch) -> None:
     """The SDK must not log access_key/ticket query values at INFO."""
+    from lark_oapi.core.enum import LogLevel
+    from personal_assistant.channels.feishu.client import _run_feishu_sdk_worker
+
     captured: dict[str, object] = {}
 
     class FakeWSClient:
@@ -282,3 +434,9 @@ def test_sdk_worker_suppresses_sensitive_websocket_url_info_log(monkeypatch) -> 
     )
 
     assert captured["log_level"] is LogLevel.WARNING
+
+
+if __name__ == "__main__":
+    if sys.argv[1:] != ["--owner-death-probe"]:
+        raise SystemExit("expected --owner-death-probe")
+    _run_owner_death_probe()
