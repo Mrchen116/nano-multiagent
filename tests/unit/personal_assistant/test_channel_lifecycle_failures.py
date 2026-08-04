@@ -156,11 +156,13 @@ class _WorkerAdapter:
 
     def stop(self) -> None:
         self._release.set()
+        # Keep the loaded-CI startup budget separate from the forced-stop budget.
         self.runtime._join_timeout = 0.2
         self.runtime.stop(drain=True)
 
     def stop_invalidated(self) -> None:
         self._release.set()
+        # Keep the loaded-CI startup budget separate from the forced-stop budget.
         self.runtime._join_timeout = 0.2
         self.runtime.stop(drain=False)
 

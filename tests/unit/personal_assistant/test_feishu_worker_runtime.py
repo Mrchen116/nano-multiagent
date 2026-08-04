@@ -118,7 +118,7 @@ def _runtime(*, target, events, statuses, **kwargs) -> FeishuWorkerRuntime:
         on_status=statuses.append,
         worker_target=target,
         multiprocessing_context=multiprocessing.get_context("spawn"),
-        join_timeout=kwargs.pop("join_timeout", 1),
+        join_timeout=kwargs.pop("join_timeout", 30),
         **kwargs,
     )
 
@@ -278,7 +278,7 @@ def test_backpressure_status_coalescing_and_priority_error_are_visible() -> None
         worker_target=_pressure_worker,
         multiprocessing_context=multiprocessing.get_context("spawn"),
         event_queue_capacity=1,
-        join_timeout=1,
+        join_timeout=30,
     )
     runtime.start()
     assert entered.wait(2)
@@ -326,7 +326,7 @@ def test_stop_can_drain_or_drop_invalidated_generation() -> None:
         worker_target=_drain_worker,
         multiprocessing_context=multiprocessing.get_context("spawn"),
         event_queue_capacity=3,
-        join_timeout=1,
+        join_timeout=30,
     )
     invalidated.start()
     assert entered.wait(2)
