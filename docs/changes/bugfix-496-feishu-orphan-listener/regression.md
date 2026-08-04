@@ -124,3 +124,122 @@
 ## Recommended Next Step
 
 保持 `fix-implementation`：先关闭 ISSUE-1 的通道收敛问题和 ISSUE-2 的真实消息缺失/重复，再由同一 reviewer 对两个 issue 及受影响 Scenario 做复验。第一轮禁止路由到 `revise-design`。
+
+---
+
+# Round 2 — 2026-08-04
+
+> Validation snapshot: `202949e2fb81ee3ed33443e5e1985a7b9ba49562 → d8d6d84724c4884bec824259a12698acca581c1b`
+>
+> Review round: 2（targeted closure；因 Round 1 问题混入 mainline 既有行为，扩展为 unit + origin/main 同 fixture 因果复验）
+
+## Verdict
+
+- **Verdict**: `pass-with-issues`
+- **Highest Required Action**: `out-of-unit`
+- **Issues**: 0 blocking / 2 major / 0 minor，均已证明为 mainline 既有问题；本 unit 无待修 issue
+- **needs_re_review**: `false`
+- **结论**: bugfix-496 自身可交付。正常 stop/start 后旧 listener 消失且新 Gateway 只有一个当前 listener；`kill -9` 后旧 listener 原 process birth 在确认 owner 消失后的 `0.004s` 内自行消失；离线页面正确显示节点离线与上次状态；异常恢复后 A/B/C 三条真实飞书消息按“发一条、等 exact reply、再发下一条”全部各得到一次回复；parent 存活空闲 10 秒时同一 Gateway/worker birth 保持不变。Round 1 的 `Connecting` 与影子重复分别由 origin/main 基线和既有 Issue #231 证明为 496 范围外问题。
+
+## Reference Artifacts Reviewed
+
+- 无原型、设计稿或视觉 reference。离线页面判据来自 `incident.md` 的现有状态语言；真实页面证据：`/tmp/nano-bugfix-496-r2-evidence.eXofBo/offline-page.png`。
+
+## User Journeys Exercised
+
+1. **正常 stop/start**：在真实 Feishu listener 已 connected 且唯一时冻结 Gateway/worker PID + process birth，正常 stop 后确认旧 worker identity 消失，再显式启动新 Gateway，确认新 listener 唯一并恢复 `connected + fresh`。
+2. **异常死亡、离线状态与恢复**：只对已核验 birth 的隔离 Gateway 执行 `kill -9`，从确认原 Gateway birth 消失起计时观察旧 worker；随后从真实浏览器进入 Agent Channels，检查节点离线与 last-known，再启动当前 Gateway。
+3. **逐条真实消息**：在重新确认当前 Gateway/listener 唯一后，以当前飞书用户依次发送 A/B/C 三个唯一 nonce；每条都等待对应 exact Bot reply 后才发送下一条，再核对飞书会话与 Web IM 影子历史。
+4. **parent-alive idle 反例**：保持 Gateway 与 listener 存活且 10 秒不发送消息，对比前后 PID + birth、listener 数量和 channel observed 状态。
+5. **origin/main 因果基线**：在 `202949e2f` 上使用全新的隔离 IM、相同 mini cache fixture 和独立日志，复现 Round 1 的 `pending / Connecting`，判断 ISSUE-1 是否由 496 引入。
+
+## 验收标准覆盖
+
+### Requirement: Feishu listener 与 Gateway 共享退出生命周期
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 正常停止 Gateway | `incident.md` | 真实 Gateway 正常 stop/start，前后分别冻结 Gateway/worker PID + birth 并核对唯一 listener | stop 后旧 worker 原 birth 消失；新 Gateway 启动后只有一个直接 spawn listener，observed=`connected`、fresh；之后真实消息路径可用 | `pass` | 新 Gateway 已实际接管 Bot。页面仍显示 `Connecting` 的既有状态投影问题单列 #234，不归因给 496。 |
+| Gateway 异常死亡 | `incident.md` | 对已核验 birth 的隔离 Gateway 执行 `kill -9`；确认 owner 原 birth 消失后进入 3 秒 worker 等待 | 原 worker birth 在 `0.004s` 内消失；无超时 cleanup 参与成功判定；重启前系统中没有该旧 listener | `pass` | Round 1 的 `0.005s` 证据被本轮独立复现，结果一致。 |
+
+### Requirement: Gateway 重启后飞书消息稳定恢复
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 异常退出后重新启动 Gateway | `incident.md` | 重启后确认唯一 listener；依次发送 `BUGFIX496_R2_A/B/C_20260804T1409`，每条等 exact reply 后再发下一条；核对飞书和 shadow history | 飞书侧每个 nonce 恰有 `1 user + 1 app`，三条均回复；全程 listener count=1。IM shadow 每个 nonce 为 `1 user + 2 agent`，其固定双写与 #231 / bugfix-497 完全一致 | `pass` | 496 的因果判据“不会因旧 listener 随机缺失或重复”通过：没有旧 listener、没有飞书回复缺失或重复。影子固定双写是 mainline 已知独立问题，见 OUT-2。 |
+| Gateway 离线期间查看通道状态 | `incident.md` | `kill -9` 后等 channel stale，真实浏览器登录 Web IM 并打开 Agent Channels | 页面显示 `Node is offline`、`Waiting for node`、`Last status updated …`，证据 `/tmp/nano-bugfix-496-r2-evidence.eXofBo/offline-page.png` | `pass` | 页面没有把旧 connected 显示为当前有效连接。 |
+
+### Requirement: 正常空闲不被误判为故障
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 已连接通道长时间没有入站消息 | `incident.md` | parent 存活且空闲 10 秒，比较 Gateway/worker birth、listener 数量与 channel observed | 前后为同一 Gateway 与 worker birth，listener 始终唯一，observed 始终 `connected + fresh`，没有退出、重连或降级 | `pass` | `sync_state=pending` 在 origin/main 同 fixture 原样存在，不是 idle 触发，也不代表 listener 失活。 |
+
+## Round 1 Issues Disposition
+
+### ISSUE-1 — 通道无法收敛为用户可见的已连接状态
+
+- **Disposition**: 从 bugfix-496 blocker 移出，转为 out-of-unit [#234](https://github.com/Mrchen116/nano-multiagent/issues/234)。
+- **直接基线**: origin/main `202949e2f` 使用全新 IM 与同一 mini cache fixture，首次启动为 `sync_state=pending` 且无 listener；显式 stop/start 后出现唯一 listener，observed=`connected + fresh`，但 `sync_state` 仍为 `pending`。unit 得到相同行为。
+- **产品判断**: listener 连通、唯一性、真实消息往返与 control-plane `sync_state` 没有同步收敛；后者影响状态可信度，但不是本 unit 的 owner-death 生命周期改动造成。
+
+### ISSUE-2 — 异常恢复后连续消息缺回复且影子历史重复
+
+- **Disposition**: 作为 bugfix-496 blocker 关闭；拆成两个已有因果。
+- **消息缺失**: Round 1 在不足 1 秒内发送 A/B/C，后续消息 steering 进入同一 active run；本轮严格逐条等待 exact reply，A/B/C 在真实飞书各有一次且只有一次 Bot 回复，证明当前唯一 listener 的恢复路径可用。
+- **影子重复**: 本轮每个 nonce 都固定为 `1 user + 2 agent`，不是旧 listener 引发的随机重复；这是既有 [#231](https://github.com/Mrchen116/nano-multiagent/issues/231) / bugfix-497 dual-writer 问题，另行处理。
+
+## Issues
+
+### OUT-1 — listener 已连接但通道页长期显示 Connecting
+
+- **Severity**: `major`
+- **Regression Relation**: `unrelated-existing`
+- **Recommended Action**: `out-of-unit`
+- **Action Rationale**: origin/main 在相同 fresh-IM fixture 中直接复现，且真实 listener 与消息收发已成立；该状态投影不由 496 引入。
+- **Tracking**: [#234](https://github.com/Mrchen116/nano-multiagent/issues/234)
+
+### OUT-2 — Web IM 影子会话 Agent 回复双写
+
+- **Severity**: `major`
+- **Regression Relation**: `unrelated-existing`
+- **Recommended Action**: `out-of-unit`
+- **Action Rationale**: 三个 nonce 的飞书外部回复均唯一，但 Web IM shadow 都固定多一条 Agent 气泡；症状与现有 #231 完全一致，bugfix-497 已在处理。
+- **Tracking**: [#231](https://github.com/Mrchen116/nano-multiagent/issues/231) / `bugfix-497-shadow-mirror-duplicate-reply`
+
+## 回归测试
+
+- 正常 stop/start：`pass`，旧 worker identity 消失，新 Gateway 只有一个 current listener。
+- 异常 parent death：`pass`，worker 在 owner 原 birth 消失后的 `0.004s` 内自行退出。
+- 离线通道页：`pass`，真实页面显示 offline/last-known。
+- 异常恢复消息：`pass`，A/B/C 按顺序逐条发送后各获得一次 exact 飞书回复，无旧 listener 抢占。
+- 空闲 10 秒：`pass`，同一 Gateway/worker birth、唯一 listener、`connected + fresh` 均保持不变。
+- origin/main 对照：`pending / Connecting` 在基线原样复现；#234 已建立。
+
+## 自动化测试增量
+
+- 实施与 verifier 报告中的真实 spawn owner-death、parent-alive idle 和完整 worker 文件测试结论继续有效；本轮没有用自动化测试替代产品验收。
+- Round 2 的 verdict 来自 unit 与 origin/main 两套独立真栈、真实 Feishu Bot、真实 Web IM 页面和真实逐条消息旅程。
+
+## Side Findings
+
+- 无其他未跟踪发现。两个 mainline 既有 major 问题均已关联独立 issue，不要求在 bugfix-496 中扩 scope。
+
+## 上层文档同步
+
+- [x] `SPEC.md`（跨包顶点架构）：无需更新。
+- [x] `docs/specs/gateway/`（长青行为契约层）：需要更新 listener-owner 生命周期增量；由 orchestrator 在收尾阶段校正并归并。
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新。
+- [x] `docs/specs/CONTRIBUTING.md`：无需更新。
+
+## 环境与清理
+
+- unit 与 origin/main 前端均从各自 worktree 源码重建，产物指纹均为 `index-CimPHGgj.js`。
+- 两套 fresh IM 使用不同高位端口、独立数据库/config/workspace 与分离日志；报告只保留安全状态结论和两张无 secret 的页面证据，不保留原始 runtime/log/数据库。
+- unit/baseline Gateway、listener、IM、reviewer tmux 和浏览器均已停止；两组端口已释放。
+- 临时 config、JWT、auth token、chat id、manifest、私钥和 reviewer env 已定向删除；原始隔离 runtime 目录已删除。
+- mini 持久 Gateway 已恢复，并确认只有一个当前 Feishu listener。
+
+## Recommended Next Step
+
+bugfix-496 不需要再次产品复验；orchestrator 可把本轮作为该 unit 的产品 gate 结论继续收尾。#234 与 #231 独立跟踪，不扩入 496。
