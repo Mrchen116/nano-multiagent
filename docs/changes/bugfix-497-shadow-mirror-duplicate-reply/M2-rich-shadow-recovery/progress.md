@@ -19,14 +19,23 @@
 - IM business send/ACK ownership fails closed within one second on a half-open socket,
   so the external reply path does not wait for heartbeat recovery before switching to
   durable offline convergence.
+- Durable external live frames are discarded rather than replayed after a disconnect;
+  the terminal snapshot is the sole reconnect convergence owner. Each queued business
+  waiter starts its ACK budget only after obtaining wire ownership.
+- Recovery orders every saga by its durable inbound position even when an earlier user
+  anchor already exists, so a later fully-offline turn cannot overtake that earlier
+  Agent snapshot. Steer-bubble reconcile failures wake the same retry owner.
 
 ## Automated evidence
 
 - Focused post-review Gateway/IM regression: `163 passed` for observer, relay
   lifecycle, terminal reconciliation, recovery ordering, inbound streaming and IM
   wire liveness/ACK ownership.
-- Full Python non-E2E suite: `2860 passed`; the two baseline Feishu worker-process
-  timing cases failed in the loaded full run and both passed on direct rerun.
+- Final race-closure regression: `120 passed` across observer, shadow sync, connection
+  recovery and WS ownership/reconnect behavior.
+- Full Python non-E2E suite: `2865 passed`, with one unrelated known Feishu
+  worker-process timing case failing in the loaded run and passing on a later direct
+  rerun.
 - Frontend full suite: `59 files passed, 556 tests passed`.
 - Frontend production build passed (`tsc -b && vite build`).
 - `ruff check`, `scripts/docs-check` and `git diff --check` passed.
@@ -34,7 +43,8 @@
 ## Baseline comparison
 
 - The implementation baseline had eight pre-existing Feishu worker/startup timing
-  failures in the full parallel Python run; the final full run has no failures.
+  failures in the full parallel Python run; the final full run has no new failures and
+  only one of those timing cases recurred.
 - The frontend baseline had two unrelated five-second timeouts. The final full
   frontend rerun passed all `556` tests.
 

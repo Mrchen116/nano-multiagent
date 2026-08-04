@@ -276,6 +276,80 @@ def test_recovery_interleaves_each_user_anchor_with_its_agent_snapshots(
     ]
 
 
+def test_recovery_preserves_order_when_first_user_anchor_already_exists(
+    tmp_path: Path,
+) -> None:
+    """An anchored first turn still recovers before a fully-offline second turn."""
+
+    requests: list[dict[str, Any]] = []
+    saga_store = ExternalShadowSagaStore(db_path=tmp_path / "shadow-sagas.sqlite3")
+    sync = _build_sync(requests, saga_store=saga_store)
+    sagas = []
+    shadow_message_ids: list[str] = []
+    for ordinal in (1, 2):
+        inbound = attach_runtime_protocol(
+            replace(
+                _message(),
+                text=f"question {ordinal}",
+                external_event_identity=ExternalInboundEventIdentity(
+                    connector_account_id="app-a",
+                    provider_event_id=f"mixed-event-{ordinal}",
+                ),
+            ),
+            RuntimeProtocolFacts(
+                external_identity=ExternalConversationIdentity(
+                    external_source="feishu",
+                    external_chat_id="typed-chat-id",
+                    agent_id="agent-a",
+                    trigger_source="external",
+                )
+            ),
+        )
+        saga = saga_store.prepare(
+            message=inbound, agent_id="agent-a", owner_id="owner-a"
+        )
+        assert saga is not None
+        sagas.append(saga)
+        saga_store.record(
+            ExternalShadowBubbleEvent(
+                kind="begin", saga_id=saga.saga_id, run_id=f"mixed-run-{ordinal}"
+            )
+        )
+        snapshot = saga_store.record(
+            ExternalShadowBubbleEvent(
+                kind="text",
+                saga_id=saga.saga_id,
+                run_id=f"mixed-run-{ordinal}",
+                content=f"answer {ordinal}",
+            )
+        )
+        saga_store.record(
+            ExternalShadowBubbleEvent(
+                kind="terminal",
+                saga_id=saga.saga_id,
+                run_id=f"mixed-run-{ordinal}",
+                delivery_status="completed",
+            )
+        )
+        shadow_message_ids.append(snapshot.shadow_message_id)
+    saga_store.record_anchor(
+        saga_id=sagas[0].saga_id,
+        shadow_ref=ShadowConversationRef(
+            conversation_id="shadow-a", im_message_id="existing-user-1"
+        ),
+    )
+
+    asyncio.run(sync.recover_pending())
+
+    assert [request["path"] for request in requests] == [
+        f"/im/v1/conversations/shadow-a/external-agent-messages/{shadow_message_ids[0]}",
+        "/im/v1/me",
+        "/im/v1/conversations/external/find-or-create",
+        "/im/v1/conversations/shadow-a/messages",
+        f"/im/v1/conversations/shadow-a/external-agent-messages/{shadow_message_ids[1]}",
+    ]
+
+
 def test_im_unavailable_after_saga_preparation_preserves_external_source_fact(
     tmp_path: Path,
 ) -> None:
@@ -1170,6 +1244,85 @@ def test_failed_immediate_reconcile_notifies_recovery_owner(tmp_path: Path) -> N
 
     assert notifications
     assert saga_store.pending_snapshots()[0].state == "ready"
+
+
+def test_failed_steer_bubble_reconcile_notifies_recovery_owner(
+    tmp_path: Path,
+) -> None:
+    class Manager:
+        connected = True
+
+        async def send_json(self, _message_type: str, _payload: dict[str, Any]) -> None:
+            return None
+
+        async def send_json_await_ack(
+            self, _message_type: str, payload: dict[str, Any]
+        ) -> dict[str, Any]:
+            if payload["kind"] == "turn_start":
+                return {"payload": {"message_id": "im-agent-2"}}
+            return {"payload": {"kind": payload["kind"]}}
+
+    saga_store = ExternalShadowSagaStore(db_path=tmp_path / "shadow-sagas.sqlite3")
+    inbound = attach_runtime_protocol(
+        replace(
+            _message(),
+            external_event_identity=ExternalInboundEventIdentity(
+                connector_account_id="app-a", provider_event_id="steer-event"
+            ),
+        ),
+        RuntimeProtocolFacts(
+            external_identity=ExternalConversationIdentity(
+                external_source="feishu",
+                external_chat_id="typed-chat-id",
+                agent_id="agent-a",
+                trigger_source="external",
+            )
+        ),
+    )
+    saga = saga_store.prepare(message=inbound, agent_id="agent-a", owner_id="owner-a")
+    assert saga is not None
+    initial = saga_store.record(
+        ExternalShadowBubbleEvent(kind="begin", saga_id=saga.saga_id, run_id="run-1")
+    )
+    saga_store.record(
+        ExternalShadowBubbleEvent(
+            kind="text", saga_id=saga.saga_id, run_id="run-1", content="before steer"
+        )
+    )
+    notifications: list[None] = []
+
+    async def fail_reconcile(_snapshot) -> None:
+        raise httpx.ConnectError("IM temporarily unavailable")
+
+    observer = build_kernel_event_observer(
+        im_connection_manager_factory=Manager,
+        run_context_store={
+            "run-1": {
+                "agent_id": "agent-a",
+                "conversation_id": "shadow-a",
+                "message_id": "im-agent-1",
+                "trigger_source": "external",
+                "reply_channel_name": "feishu:agent-a",
+                "reply_target_chat_id": "chat-a",
+                "shadow_saga_id": saga.saga_id,
+                "shadow_message_id": initial.shadow_message_id,
+            }
+        },
+        external_reply_sender=lambda _text, _metadata: None,
+        shadow_bubble_record=saga_store.record,
+        shadow_bubble_reconcile=fail_reconcile,
+        shadow_pending_notify=lambda: notifications.append(None),
+    )
+
+    async def emit() -> None:
+        pending = observer({"event": "injection_consumed", "run_id": "run-1"})
+        assert pending is not None
+        await pending
+
+    asyncio.run(emit())
+
+    assert notifications == [None]
+    assert saga_store.require_snapshot(initial.shadow_message_id).state == "ready"
 
 
 def test_terminal_keeps_durable_text_when_next_live_turn_start_fails(

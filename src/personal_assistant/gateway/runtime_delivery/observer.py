@@ -1510,7 +1510,7 @@ def build_kernel_event_observer(
                             rolled_shadow_snapshot is not None
                             and shadow_bubble_reconcile is not None
                         ):
-                            await shadow_bubble_reconcile(rolled_shadow_snapshot)
+                            await _reconcile_ready_snapshot(rolled_shadow_snapshot)
                     except Exception as exc:  # noqa: BLE001
                         _log.warning("IM observer steer bubble roll failed: %s", exc)
 

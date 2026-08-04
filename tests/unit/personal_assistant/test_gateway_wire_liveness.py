@@ -130,6 +130,122 @@ def test_business_ack_timeout_disconnects_silent_socket(tmp_path: Path) -> None:
     assert socket.closed == 1
 
 
+def test_queued_waiter_ack_budget_starts_only_after_it_owns_wire(
+    tmp_path: Path,
+) -> None:
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})
+        ]
+    )
+    manager = _manager(
+        tmp_path,
+        socket,
+        config=IMConnectionConfig(
+            url="http://im.local",
+            heartbeat_interval_seconds=0,
+            business_ack_timeout_seconds=0.01,
+        ),
+    )
+
+    async def exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - register boundary
+        await manager.send_json("node.report", {"run_id": "owner"})
+        waiter = asyncio.create_task(
+            manager.send_json_await_ack("agent.message", {"text": "queued"})
+        )
+        await asyncio.sleep(0.03)
+        assert manager.connected is True
+        assert waiter.done() is False
+
+        socket.incoming.append(
+            json.dumps({"type": "ack", "payload": {"message_type": "node.report"}})
+        )
+        await manager._listen_once()  # noqa: SLF001 - release first wire owner
+        socket.incoming.append(
+            json.dumps({"type": "ack", "payload": {"message_type": "agent.message"}})
+        )
+        await manager._listen_once()  # noqa: SLF001 - acknowledge queued waiter
+        await waiter
+
+    asyncio.run(exercise())
+
+
+def test_external_shadow_live_frame_is_not_replayed_after_send_timeout(
+    tmp_path: Path,
+) -> None:
+    first_socket = _YieldingSendWebSocket("node.streaming_delta")
+    first_socket.blocked_type = "never-block-turn-start"
+    second_socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})
+        ]
+    )
+    sockets = iter((first_socket, second_socket))
+    relay = WebRelayAdapter()
+    relay.start(lambda _message: None)
+
+    async def connect(_url: str, _headers: dict[str, str]) -> _FakeWebSocket:
+        return next(sockets)
+
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(
+            url="http://im.local",
+            heartbeat_interval_seconds=0,
+            business_ack_timeout_seconds=0.01,
+        ),
+        reporter=_minimal_reporter(tmp_path),
+        relay_adapter=relay,
+        connect=connect,
+    )
+
+    async def exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - first register boundary
+        turn_start = asyncio.create_task(
+            manager.send_json_await_ack(
+                "node.streaming_delta",
+                {
+                    "kind": "turn_start",
+                    "run_id": "external-run",
+                    "conversation_id": "conversation-1",
+                    "agent_id": "agent-1",
+                    "shadow_message_id": "shadow-message-1",
+                },
+            )
+        )
+        await asyncio.sleep(0)
+        first_socket.incoming.append(
+            json.dumps(
+                {"type": "ack", "payload": {"message_type": "node.streaming_delta"}}
+            )
+        )
+        await manager._listen_once()  # noqa: SLF001 - turn_start ACK
+        await turn_start
+
+        first_socket.blocked_type = "node.streaming_delta"
+        await manager.send_json(
+            "node.streaming_delta",
+            {
+                "kind": "message_delta",
+                "run_id": "external-run",
+                "message_id": "im-message-1",
+                "delta_text": "stale",
+            },
+        )
+        assert manager.connected is False
+        assert list(manager._pending_frames) == []  # noqa: SLF001
+
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - second register boundary
+
+    asyncio.run(exercise())
+
+    second_types = [json.loads(frame)["type"] for frame in second_socket.sent]
+    assert second_types == ["node.register"]
+
+
 def test_status_result_during_yielding_send_releases_wire_owner(
     tmp_path: Path,
 ) -> None:

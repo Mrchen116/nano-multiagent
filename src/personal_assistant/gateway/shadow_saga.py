@@ -733,6 +733,25 @@ class ExternalShadowSagaStore:
         ).fetchall()
         return tuple(ExternalShadowSaga(*row) for row in rows)
 
+    def recovery_sagas(self) -> tuple[ExternalShadowSaga, ...]:
+        """Return sagas with a missing user anchor or a ready rich Agent snapshot."""
+
+        rows = self._conn.execute(
+            """
+            SELECT saga_id, owner_id, agent_id, channel_name, connector_account_id,
+                   external_chat_id, thread_id, provider_event_id, session_key,
+                   canonical_inbound_json, reply_context_json, conversation_id,
+                   im_message_id
+            FROM external_shadow_sagas AS saga
+            WHERE conversation_id IS NULL OR im_message_id IS NULL OR EXISTS (
+                SELECT 1 FROM external_shadow_bubbles AS bubble
+                WHERE bubble.saga_id = saga.saga_id AND bubble.state = 'ready'
+            )
+            ORDER BY saga.rowid ASC
+            """
+        ).fetchall()
+        return tuple(ExternalShadowSaga(*row) for row in rows)
+
     def require(self, saga_id: str) -> ExternalShadowSaga:
         """Return one persisted saga or fail when the durable record is absent."""
 

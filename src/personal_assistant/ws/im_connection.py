@@ -53,6 +53,8 @@ class PendingFrame:
     ack_future: asyncio.Future[dict[str, object]] | None = field(
         default=None, repr=False
     )
+    wire_started: asyncio.Event | None = field(default=None, repr=False)
+    requeue_on_disconnect: bool = True
 
 
 @dataclass(slots=True)
@@ -338,6 +340,7 @@ class IMConnectionManager:
         self._events: list[dict[str, object]] = []
         self._pending_control_frames: deque[PendingFrame] = deque()
         self._pending_frames: deque[PendingFrame] = deque()
+        self._external_shadow_run_ids: set[str] = set()
         self._wire_frame_owner: WireFrameOwner | None = None
         self._registered = False
         self._connection_epoch = 0
@@ -565,18 +568,24 @@ class IMConnectionManager:
 
         loop = asyncio.get_running_loop()
         ack_future: asyncio.Future[dict[str, object]] = loop.create_future()
+        wire_started = asyncio.Event()
         self._queue_pending_frame(
             PendingFrame(
-                message_type=message_type, payload=dict(payload), ack_future=ack_future
+                message_type=message_type,
+                payload=dict(payload),
+                ack_future=ack_future,
+                wire_started=wire_started,
             )
         )
         timeout = self._config.normalized_business_ack_timeout_seconds()
         try:
+            await self._flush_pending_frames()
+            # A frame queued behind another business owner has not consumed any of its
+            # own ACK budget yet.  Its timer begins only when it reaches the wire.
+            await wire_started.wait()
             if timeout is None:
-                await self._flush_pending_frames()
                 return await ack_future
             async with asyncio.timeout(timeout):
-                await self._flush_pending_frames()
                 return await asyncio.shield(ack_future)
         except TimeoutError:
             await self._disconnect_current_websocket(
@@ -597,6 +606,17 @@ class IMConnectionManager:
         The wire owner is transferred out of this queue before ``websocket.send`` may
         yield.  Coalescing therefore cannot delete a frame whose send has begun.
         """
+        self._classify_external_shadow_frame(pending)
+        if not pending.requeue_on_disconnect and (
+            not self._connected or not self._registered
+        ):
+            self._fail_pending_frame(
+                pending,
+                RuntimeError(
+                    "external shadow live frame dropped while IM websocket is offline"
+                ),
+            )
+            return
         self._outbound_drained_event().clear()
         if pending.message_type != "channel.status":
             self._pending_frames.append(pending)
@@ -1408,6 +1428,8 @@ class IMConnectionManager:
                 phase="sending",
             )
             self._wire_frame_owner = owner
+            if pending_frame.wire_started is not None:
+                pending_frame.wire_started.set()
             try:
                 business_timeout = (
                     self._config.normalized_business_ack_timeout_seconds()
@@ -1482,6 +1504,7 @@ class IMConnectionManager:
         if pending_frame.ack_future is not None and not pending_frame.ack_future.done():
             pending_frame.ack_future.set_result(dict(payload))
         self._events.append({"event": "acked", "type": awaiting})
+        self._finish_external_shadow_run(pending_frame)
         self._mark_outbound_drained_if_idle()
         return pending_frame
 
@@ -1542,6 +1565,7 @@ class IMConnectionManager:
                     f"IM rejected {awaiting} frame ({code}): {message}", code=code
                 )
             )
+        self._finish_external_shadow_run(pending)
         self._events.append(
             {
                 "event": "rejected",
@@ -1653,6 +1677,14 @@ class IMConnectionManager:
         if owner is not None and owner.lane == "control":
             control_frames.append(owner.frame)
         heartbeat_ack_future = self._heartbeat_ack_future
+        retained_business_frames: deque[PendingFrame] = deque()
+        dropped_business_frames: list[PendingFrame] = []
+        for pending in self._pending_frames:
+            if pending.requeue_on_disconnect:
+                retained_business_frames.append(pending)
+            else:
+                dropped_business_frames.append(pending)
+        self._pending_frames = retained_business_frames
         self._connected = False
         self._websocket = None
         self._registered = False
@@ -1676,20 +1708,27 @@ class IMConnectionManager:
                 heartbeat_ack_future.set_exception(
                     RuntimeError("IM websocket disconnected before heartbeat ack")
                 )
-        if (
-            business_frame is not None
-            and business_frame.ack_future is not None
-            and not business_frame.ack_future.done()
-        ):
-            # bugfix-446-M1 decision 6 (pure defense): guard the TOCTOU where the future
-            # is resolved between the done() check and set_exception. The single event
-            # loop makes this practically unreachable, but the suppress is zero-cost.
-            with contextlib.suppress(asyncio.InvalidStateError):
-                business_frame.ack_future.set_exception(
-                    RuntimeError("IM websocket disconnected before ack")
-                )
         if business_frame is not None:
-            if self._is_status_superseded_by_pending(business_frame):
+            self._fail_pending_frame(
+                business_frame, RuntimeError("IM websocket disconnected before ack")
+            )
+        for dropped in dropped_business_frames:
+            self._fail_pending_frame(
+                dropped,
+                RuntimeError(
+                    "external shadow live frame dropped before IM acknowledgement"
+                ),
+            )
+        if business_frame is not None:
+            if not business_frame.requeue_on_disconnect:
+                self._events.append(
+                    {
+                        "event": "dropped",
+                        "type": business_frame.message_type,
+                        "reason": "external_shadow_recovery",
+                    }
+                )
+            elif self._is_status_superseded_by_pending(business_frame):
                 self._events.append(
                     {
                         "event": "superseded",
@@ -1704,6 +1743,44 @@ class IMConnectionManager:
             if exc is not None:
                 event["error"] = str(exc)
             self._events.append(event)
+
+    def _classify_external_shadow_frame(self, pending: PendingFrame) -> None:
+        """Keep durable external live projections out of reconnect replay."""
+
+        if pending.message_type != "node.streaming_delta":
+            return
+        run_id = pending.payload.get("run_id")
+        if not isinstance(run_id, str) or not run_id:
+            return
+        if pending.payload.get("kind") == "turn_start" and pending.payload.get(
+            "shadow_message_id"
+        ):
+            self._external_shadow_run_ids.add(run_id)
+        if run_id in self._external_shadow_run_ids:
+            pending.requeue_on_disconnect = False
+
+    def _finish_external_shadow_run(self, pending: PendingFrame) -> None:
+        if pending.message_type != "node.streaming_delta":
+            return
+        if pending.payload.get("kind") not in {
+            "message_completed",
+            "message_discarded",
+        }:
+            return
+        run_id = pending.payload.get("run_id")
+        if isinstance(run_id, str):
+            self._external_shadow_run_ids.discard(run_id)
+
+    @staticmethod
+    def _fail_pending_frame(pending: PendingFrame, exc: Exception) -> None:
+        if pending.wire_started is not None:
+            pending.wire_started.set()
+        future = pending.ack_future
+        if future is not None and not future.done():
+            # The event loop serializes ownership, but suppressing InvalidStateError keeps
+            # disconnect cleanup safe if a test double resolves between the two calls.
+            with contextlib.suppress(asyncio.InvalidStateError):
+                future.set_exception(exc)
 
     def _require_websocket(self) -> ClientWebSocket:
         websocket = self._websocket

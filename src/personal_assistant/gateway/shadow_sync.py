@@ -400,56 +400,48 @@ class IMShadowConversationSync:
         snapshots_by_saga: dict[str, list[ExternalShadowBubble]] = {}
         for snapshot in pending_snapshots:
             snapshots_by_saga.setdefault(snapshot.saga_id, []).append(snapshot)
-        recovered_saga_ids: set[str] = set()
-        for saga in saga_store.pending():
-            payload = json.loads(saga.canonical_inbound_json)
-            external_event = payload["external_event_identity"]
-            message = attach_runtime_protocol(
-                InboundMessage(
-                    channel_name=str(payload["channel_name"]),
-                    text=str(payload["text"]),
-                    external_user_id=str(payload["external_user_id"]),
-                    external_chat_id=str(payload["external_chat_id"]),
-                    is_group=bool(payload["is_group"]),
-                    agent_id=saga.agent_id,
-                    thread_id=payload.get("thread_id"),
-                    metadata=payload["metadata"],
-                    external_event_identity=ExternalInboundEventIdentity(
-                        connector_account_id=str(
-                            external_event["connector_account_id"]
-                        ),
-                        provider_event_id=str(external_event["provider_event_id"]),
-                    ),
-                ),
-                RuntimeProtocolFacts(
-                    external_identity=ExternalConversationIdentity(
-                        external_source=str(
-                            payload["external_identity"]["external_source"]
-                        ),
-                        external_chat_id=str(
-                            payload["external_identity"]["external_chat_id"]
-                        ),
+        for saga in saga_store.recovery_sagas():
+            if saga.shadow_ref is None:
+                payload = json.loads(saga.canonical_inbound_json)
+                external_event = payload["external_event_identity"]
+                message = attach_runtime_protocol(
+                    InboundMessage(
+                        channel_name=str(payload["channel_name"]),
+                        text=str(payload["text"]),
+                        external_user_id=str(payload["external_user_id"]),
+                        external_chat_id=str(payload["external_chat_id"]),
+                        is_group=bool(payload["is_group"]),
                         agent_id=saga.agent_id,
-                        conversation_type=payload["external_identity"].get(
-                            "conversation_type"
+                        thread_id=payload.get("thread_id"),
+                        metadata=payload["metadata"],
+                        external_event_identity=ExternalInboundEventIdentity(
+                            connector_account_id=str(
+                                external_event["connector_account_id"]
+                            ),
+                            provider_event_id=str(external_event["provider_event_id"]),
                         ),
-                        trigger_source=payload["external_identity"].get(
-                            "trigger_source"
-                        ),
-                    )
-                ),
-            )
-            await self.sync_user_message(message, agent_id=saga.agent_id)
-            recovered_saga_ids.add(saga.saga_id)
+                    ),
+                    RuntimeProtocolFacts(
+                        external_identity=ExternalConversationIdentity(
+                            external_source=str(
+                                payload["external_identity"]["external_source"]
+                            ),
+                            external_chat_id=str(
+                                payload["external_identity"]["external_chat_id"]
+                            ),
+                            agent_id=saga.agent_id,
+                            conversation_type=payload["external_identity"].get(
+                                "conversation_type"
+                            ),
+                            trigger_source=payload["external_identity"].get(
+                                "trigger_source"
+                            ),
+                        )
+                    ),
+                )
+                await self.sync_user_message(message, agent_id=saga.agent_id)
             for snapshot in snapshots_by_saga.get(saga.saga_id, []):
                 await self.reconcile_snapshot(snapshot)
-        for snapshot in pending_snapshots:
-            if snapshot.saga_id in recovered_saga_ids:
-                continue
-            saga = saga_store.require(snapshot.saga_id)
-            if saga.shadow_ref is None:
-                continue
-            await self.reconcile_snapshot(snapshot)
         for output in saga_store.pending_outputs():
             saga = saga_store.require(output.saga_id)
             if saga.shadow_ref is None:
