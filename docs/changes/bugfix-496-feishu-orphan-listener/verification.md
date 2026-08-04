@@ -373,3 +373,65 @@ All checks passed. Ready for PR.
 - 无。
 
 All checks passed. Ready for PR.
+
+# Round 8
+
+> Validated code tree: `8bfba07ef47c90a2c7ef050bf1973761166eb17a`
+>
+> Fix delta: `49003be13f94210f35e09a819e34d253f0a2710f..8bfba07ef47c90a2c7ef050bf1973761166eb17a`
+
+## Summary
+
+- Mode: `targeted-closure`
+- Focus issue: retry recovery tests must preserve their user-visible assertions while every failure path retains cleanup headroom inside pytest's 90-second hard timeout
+- requires_full_verification: `false`
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 2/2 focus areas closed |
+| Correctness | Three exact xdist nodes and both affected test files passed |
+| Coherence | Followed；delta only restructures test coverage and bounds its startup budget |
+
+## Prior Verdict Disposition
+
+- Round 7's pass at `49003be13f94210f35e09a819e34d253f0a2710f` is **stale and superseded**. Its 45-second terminal predicate did not account for the subsequent manual reconnect startup budget, so it must not be treated as the current gate.
+- The provisional checks at `7c5259fb0c4b2845b1dec01fd7f1f74082e90d7f` are also **superseded**. Splitting manual reconnect removed the serial budget, but the two real-process tests could still enter cleanup while a replacement held the manager lock in a 30-second startup wait.
+- This Round 8 verdict at `8bfba07ef47c90a2c7ef050bf1973761166eb17a` is the only current verification result.
+
+## Targeted Closure
+
+| Focus area | Final evidence | Outcome |
+|---|---|---|
+| real multiprocessing retry 与 manual reconnect 预算隔离 | `test_backpressure_retry_budget_reaps_final_listener` 只运行真实 multiprocessing 的 initial + 3 retries，要求四个 listener 全部回收、registry 为空，并在 0.6 秒稳定期后确认没有第五次自动重启（`tests/unit/personal_assistant/test_channel_lifecycle_failures.py:251-290`）。保留 desired state 后的手动 reconnect 由快速 in-process adapter 独立验证精确四次失败、旧 adapter 全部 stopped，以及第五个 adapter 成为 registry 当前实例（`:293-329`）；它调用的仍是 `ChannelManager.reconcile` / `reconnect` 公开行为 seam。 | closed |
+| 失败路径的持锁 startup wait 与 90 秒 hard timeout 对齐 | 两个真实进程用例都在 initial reconcile 前创建同一个 `now + 75s` absolute deadline（`:208-248,251-290`）；initial 和所有 replacement 的 ready wait 都是 `max(0, min(30s, remaining))`（`:128-173`）。因此正常路径仍保留单次 30 秒的高负载容差，而最坏启动失败会在约 75 秒释放 lifecycle / manager lock；pressure adapter 的 `join_timeout=0.2` 随后完成回收，为 pytest `--timeout=90` 留出约 15 秒 cleanup 余量。restart-once 与 retry-exhaustion 两条同形路径均使用该 wrapper。 | closed |
+
+## Scope and Retained Conclusions
+
+- 实质修正为 test-only commits `698426be34d95a33b94afd5b779ba606f25e2c63` 和 `8bfba07ef47c90a2c7ef050bf1973761166eb17a`；相对 Round 7 validated tree 没有 production code、spec、design、public interface、配置或用户可观察行为变化。
+- Round 6 已验证的 Gateway close 主行为、parent-only startup wrapper、normal graceful stop、pressure forced stop、owner-death 与 first-restart 行为均未被产品代码变更触及；corrected-delta 仍为 `aligned`。
+- 上一代码树的 full suite 已通过 `2843 passed`；当前 delta 只修改测试预算 wrapper，并已独立覆盖其精确节点和两个受影响文件，无需 product re-review 或 full verification。
+
+## Validation
+
+- `PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/pytest -q -n 4 --dist worksteal tests/unit/personal_assistant/test_channel_lifecycle_failures.py::test_backpressure_reaps_noncooperative_listener_and_restarts_once tests/unit/personal_assistant/test_channel_lifecycle_failures.py::test_backpressure_retry_budget_reaps_final_listener tests/unit/personal_assistant/test_channel_lifecycle_failures.py::test_manual_retry_after_retry_exhaustion_uses_retained_desired` → `3 passed, 8 warnings in 12.14s`。
+- `PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/pytest -q -n 4 --dist worksteal tests/unit/personal_assistant/test_channel_lifecycle_failures.py tests/unit/personal_assistant/test_feishu_worker_runtime.py` → `15 passed, 8 warnings in 18.75s`。
+- `/Users/czj/Repos/nano-multiagent/.venv/bin/ruff check tests/unit/personal_assistant/test_channel_lifecycle_failures.py tests/unit/personal_assistant/test_feishu_worker_runtime.py` → passed。
+- `/Users/czj/Repos/nano-multiagent/.venv/bin/ruff format --check tests/unit/personal_assistant/test_channel_lifecycle_failures.py tests/unit/personal_assistant/test_feishu_worker_runtime.py` → already formatted。
+- `PYTHON=/Users/czj/Repos/nano-multiagent/.venv/bin/python ./scripts/docs-check` → `documentation integrity passed`。
+- `git diff --check 49003be13f94210f35e09a819e34d253f0a2710f..8bfba07ef47c90a2c7ef050bf1973761166eb17a` → passed。
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+- 无。
+
+### WARNING（提 PR 前必须修）
+
+- 无。
+
+### SUGGESTION（可以修）
+
+- 无。
+
+All checks passed. Ready for PR.
