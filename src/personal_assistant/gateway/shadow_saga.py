@@ -291,7 +291,9 @@ class ExternalShadowSagaStore:
 
         owner_id = authenticated_owner_id.strip()
         if not owner_id:
-            raise ValueError("external shadow saga requires an authenticated IM owner id")
+            raise ValueError(
+                "external shadow saga requires an authenticated IM owner id"
+            )
         if saga.owner_id == owner_id:
             return saga
         reason = f"shadow_owner_recovered:{saga.owner_id}->{owner_id}"

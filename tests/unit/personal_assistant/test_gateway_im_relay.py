@@ -73,9 +73,7 @@ def test_external_shadow_sync_uses_authenticated_im_user_not_stale_config_user(
 
     with caplog.at_level(logging.WARNING):
         shadow_ref = asyncio.run(client.sync_user_message(inbound, agent_id="agent-a"))
-        replay_ref = asyncio.run(
-            client.sync_user_message(inbound, agent_id="agent-a")
-        )
+        replay_ref = asyncio.run(client.sync_user_message(inbound, agent_id="agent-a"))
 
     assert shadow_ref is not None
     assert replay_ref == shadow_ref
@@ -139,8 +137,8 @@ def test_stale_owner_pending_saga_recovers_user_output_and_boundary(
         owner_user_id="stale-config-user",
         transport=httpx.MockTransport(handler),
         saga_store=saga_store,
-        promote_pending_boundary=lambda saga_id, _shadow_ref: (
-            promoted_saga_ids.append(saga_id)
+        promote_pending_boundary=lambda saga_id, _shadow_ref: promoted_saga_ids.append(
+            saga_id
         ),
     )
 
