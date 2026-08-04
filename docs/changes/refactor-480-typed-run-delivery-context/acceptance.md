@@ -86,3 +86,62 @@ N/A。motivation/design 未引用前端原型、截图或 must-match 视觉 arti
 ## Recommended Next Step
 
 先派 `fix-implementation` 处理 R1-1，并让可复验的 worktree external channel/fixture 成为 R1-2 的实际前置；修复后本 reviewer 应对工具/权限、外部 IM-offline、失败/取消和 shutdown drain 做定向或完整复验。第一轮没有经验性证据支持 `revise-design`。
+
+---
+
+# Round 2 — 2026-08-05
+
+> Validation snapshot: `3436854f9ef46b88ccd7b4ebbf92c86e4c256ce5`
+
+> Review mode: targeted independent revalidation of tool delivery, ordinary direct delivery, and long-response terminal cleanup
+
+## Round 2 Verdict
+
+**fail**
+
+**Highest Required Action:** `fix-implementation`
+
+R1-1 is **closed**: with the design-specified nonempty temporary allowlist `bash,read`, a real Web IM conversation delivered `R2_TOOL_OK` as a normal final agent reply. The rendered reply contained `Process · 1 tool · 1 thinking` and token metadata, while the fresh browser DOM contained no raw `<tool_calls>` markup. This independently reproduces the corrected fixture precondition and does not indicate a refactor regression.
+
+The overall verdict remains **fail** because the separately required external-channel / IM-offline scenario still has no isolated real fixture. The current design explicitly declares that absence an acceptance blocker and forbids substituting mock, source, unit test, or Web IM traffic for it. It is retained as a delivery-environment blocker, not reclassified as a product regression.
+
+## Round 2 Real Journeys and Evidence
+
+All observations used a freshly built Web IM and fresh IM + Gateway started from this worktree. Browser control logged in as the isolated e2e user, rendered the actual `plato r2 direct` chat, and observed every assertion below in the user-visible DOM. The authenticated public Web IM message endpoint was used only to submit messages after this browser controller's `Send` action failed to mutate the local app; API acceptance alone was never used as pass evidence.
+
+1. **Corrected tool delivery — pass / R1-1 closed.** The temporary test-agent config visibly showed `Tool Allowlist` with `read` and `bash` selected. Prompt `REF480_R2_TOOL_20260805` requested `bash` to execute `printf R2_TOOL_OK`. At 03:18 Asia/Shanghai, the rendered direct chat showed one `R2_TOOL_OK` agent reply, the expandable `Process · 1 tool · 1 thinking` affordance, `2.7k tok · ctx 1%`, and no raw tool-call tag.
+2. **Ordinary direct delivery — pass.** `REF480_R2_DIRECT_20260805` received exactly `R2_DIRECT_OK` as a subsequent normal agent reply (03:31 Asia/Shanghai), with its own terminal Process and token chrome; it did not merge with the preceding tool result.
+3. **Long-response terminal aggregation and next-run cleanup — pass for the targeted terminal path.** `REF480_R2_ROLL_20260805` rendered a single structured 20-item response ending `R2_ROLL_END` (03:32), then the immediate next request rendered `R2_CLEANUP_OK` as a separate reply. A fresh 50-item request `REF480_R2_ROLLLIVE_20260805` likewise rendered one structured response ending `R2_ROLLLIVE_END` with terminal Process/token chrome (03:37). The browser received completed output before its first 300 ms live DOM sample, so this round does not claim an observed intermediate provisional update; it does establish the user-visible long-response terminal and clean successor path.
+4. **External IM-offline path — blocked / inconclusive.** No separately supplied isolated external Feishu/Lark fixture or channel was available. Per the amended reviewer runbook, this cannot be replaced with this Web IM path or a mock.
+
+## Round 2 Issue Disposition
+
+### R1-1 — closed: original tool-markup observation was an empty-allowlist fixture precondition
+
+- **Disposition:** closed
+- **Regression Relation:** not a refactor regression
+- **Evidence:** Round 2 journey 1’s real browser DOM has the `R2_TOOL_OK` final reply and rendered one-tool Process event, with no `<tool_calls>` text. The only changed test precondition is the explicit `tool_allowlist=["bash","read"]` required by the revised design runbook.
+- **Conclusion:** an empty allowlist disables tools; raw model DSML in that state is not evidence that typed run delivery regressed.
+
+### R2-1 — external-channel acceptance fixture remains unavailable
+
+- **Severity:** blocking
+- **Regression Relation:** unclear
+- **Recommended Action:** `fix-implementation`
+- **Action Rationale:** provision the design-required, isolated, replayable real external-channel fixture before delivery. Until then, the required IM-offline / external-reply behavior cannot be verified in a product-faithful journey.
+- **Evidence:** no external fixture credentials/channel were supplied to this review; the runbook explicitly marks this as an acceptance blocker and disallows substitutes.
+
+## Round 2 Coverage Update
+
+| Scenario | Round 2 result | Evidence / boundary |
+|---|---|---|
+| Ordinary owner direct conversation | pass | `R2_DIRECT_OK` is a distinct rendered direct-chat reply after the tool run. |
+| Tool event crosses the delivery chain | pass | `R2_TOOL_OK`, `Process · 1 tool · 1 thinking`, terminal token UI, and no raw `<tool_calls>` in browser DOM. |
+| Long-response terminal / clean next run | pass (targeted terminal path) | `R2_ROLL_END`, `R2_ROLLLIVE_END`, then separate `R2_CLEANUP_OK`; intermediate provisional state was not observable before completion. |
+| Permission wait liveness | inconclusive | No safe real permission-request fixture was provided; no normal reply is used as a substitute. |
+| External channel while IM is offline | inconclusive / blocking | Required real external fixture unavailable. |
+| Failure/cancel and Gateway shutdown drain | inconclusive | Not re-run without a deterministic, product-faithful fixture. |
+
+## Round 2 Recommended Next Step
+
+Do not reopen R1-1. Provide the isolated real external-channel fixture promised by the reviewer runbook, then re-run the IM-offline external-reply scenario; retain the existing inconclusive boundaries for permission wait, failure/cancel, and shutdown drain until suitable real fixtures exist.
