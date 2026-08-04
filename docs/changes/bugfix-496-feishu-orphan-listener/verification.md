@@ -67,3 +67,57 @@ N/A。
 - 无。
 
 1 critical issue(s), 1 warning(s) found. Fix before PR.
+
+# Round 2
+
+> Validation snapshot: `e79b5d1a12204c077188f3646f741c8648d66cc9 → dc1ac46b3c1db2509fd2cdfb521a3a73001b89c1`
+
+## Summary
+
+- Mode: `targeted-closure`
+- Delta range: `e834f561c5f84525b9c6d688099dc7c718db2a97..dc1ac46b3c1db2509fd2cdfb521a3a73001b89c1`
+- Focus issues: `R1-C1`, `R1-W1`
+- requires_full_verification: `false`
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 2/2 focus issues closed；M1-E5/E6/E7 证据已补齐 |
+| Correctness | 2/2 targeted scenarios 有稳定永久回归 |
+| Coherence | Followed；fix delta 仅修改既有 worker 测试与 progress evidence |
+
+## Targeted Closure
+
+| Focus issue | 修复与代码证据 | 独立验证 | 状态 |
+|---|---|---|---|
+| `R1-C1` owner-death setup/3-second budget separation and single-run full-file green | owner probe 移入独立 Python subprocess，避免异常 owner 与 pytest 共享 resource tracker（`tests/unit/personal_assistant/test_feishu_worker_runtime.py:171-180`）；inner startup 通过 `ready` / `startup_error` outcome 明确结算（`:88-108`），使用 30 秒 child-ready 与 45 秒 outer setup 预算（`:90-95,144-147`）；先确认 owner 原 PID+birth 消失，再进入默认 3 秒 worker birth 条件等待（`:149-153`）。 | 完整文件一次执行 `8 passed, 2 warnings in 20.34s`；pytest 输出只有既有 lark SDK deprecation warnings，没有 resource-tracker semaphore warning，结束后无本轮 pytest/spawn 残留进程。`progress.md:29-33` 已记录同一整文件命令和结果。 | closed |
+| `R1-W1` parent-alive idle permanent assertion | 新增 test 从现有 `FeishuWorkerRuntime` interface 启动 listener，等待初始事件后冻结 PID+birth；owner 存活且无后续入站期间持续断言 runtime alive、birth 不变，最后走 `stop(drain=True)` 并断言 joined（`tests/unit/personal_assistant/test_feishu_worker_runtime.py:183-202`）。 | 该用例包含在同一次完整文件 `8 passed` 中；既有双 Bot正常 stop 继续断言无需 terminate（`:205-233`）。 | closed |
+
+## Scope and Retained Conclusions
+
+- fix delta 只有 `tests/unit/personal_assistant/test_feishu_worker_runtime.py` 与 `M1-parent-liveness/progress.md`；没有修改 production worker、incident、design、delta-spec、public interface、配置、持久状态或用户可观察行为。
+- Round 1 对 D1-D4、正常 stop、多 Bot、背压、drain/drop、worker crash、offline/last-known 与消息路径的实现映射未被该测试 delta 触及，结论 retained。
+- delta 没有触及依赖方向、跨机边界或平行机制，不需要升级 full verification。
+
+## Validation
+
+- `PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/pytest -q tests/unit/personal_assistant/test_feishu_worker_runtime.py` → `8 passed, 2 warnings in 20.34s`。
+- `/Users/czj/Repos/nano-multiagent/.venv/bin/ruff check tests/unit/personal_assistant/test_feishu_worker_runtime.py` → passed。
+- `/Users/czj/Repos/nano-multiagent/.venv/bin/ruff format --check tests/unit/personal_assistant/test_feishu_worker_runtime.py` → already formatted。
+- `PYTHON=/Users/czj/Repos/nano-multiagent/.venv/bin/python ./scripts/docs-check` → `documentation integrity passed`。
+- `git diff --check e834f561c5f84525b9c6d688099dc7c718db2a97..dc1ac46b3c1db2509fd2cdfb521a3a73001b89c1` → passed。
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+- 无。
+
+### WARNING（提 PR 前必须修）
+
+- 无。
+
+### SUGGESTION（可以修）
+
+- 无。
+
+All checks passed. Ready for PR.
