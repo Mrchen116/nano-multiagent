@@ -6,6 +6,7 @@ import multiprocessing
 import os
 import signal
 import subprocess
+import sys
 import threading
 import time
 from types import SimpleNamespace
@@ -85,9 +86,24 @@ def _process_birth(pid: int) -> str | None:
 
 
 def _abrupt_listener_owner(worker_info, exit_owner) -> None:
-    runtime = _runtime(target=_listener_worker, events=[], statuses=[])
-    runtime.start()
-    worker_info.send((runtime.pid, _process_birth(runtime.pid)))
+    try:
+        runtime = _runtime(
+            target=_listener_worker,
+            events=[],
+            statuses=[],
+            join_timeout=30,
+        )
+        runtime.start()
+        worker_pid = runtime.pid
+        if worker_pid is None:
+            raise RuntimeError("listener did not expose a pid")
+        worker_birth = _process_birth(worker_pid)
+        if worker_birth is None:
+            raise RuntimeError("listener process birth could not be read")
+    except BaseException as error:
+        worker_info.send(("startup_error", type(error).__name__, str(error)))
+        raise
+    worker_info.send(("ready", worker_pid, worker_birth))
     exit_owner.wait()
     os._exit(23)
 
@@ -101,13 +117,12 @@ def _runtime(*, target, events, statuses, **kwargs) -> FeishuWorkerRuntime:
         on_status=statuses.append,
         worker_target=target,
         multiprocessing_context=multiprocessing.get_context("spawn"),
-        join_timeout=1,
+        join_timeout=kwargs.pop("join_timeout", 1),
         **kwargs,
     )
 
 
-def test_listener_exits_when_its_owner_dies_without_cleanup() -> None:
-    """A listener cannot survive the Gateway process that created it."""
+def _run_owner_death_probe() -> None:
     mp = multiprocessing.get_context("spawn")
     worker_info_recv, worker_info_send = mp.Pipe(duplex=False)
     exit_owner = mp.Event()
@@ -115,18 +130,26 @@ def test_listener_exits_when_its_owner_dies_without_cleanup() -> None:
         target=_abrupt_listener_owner,
         args=(worker_info_send, exit_owner),
     )
+    owner_pid: int | None = None
+    owner_birth: str | None = None
     worker_pid: int | None = None
     worker_birth: str | None = None
 
     try:
         owner.start()
-        assert worker_info_recv.poll(10), "owner did not report its listener"
-        worker_pid, worker_birth = worker_info_recv.recv()
-        assert worker_birth is not None
+        owner_pid = owner.pid
+        assert owner_pid is not None
+        owner_birth = _process_birth(owner_pid)
+        assert owner_birth is not None
+        assert worker_info_recv.poll(45), "owner did not report listener startup"
+        startup = worker_info_recv.recv()
+        assert startup[0] == "ready", f"owner startup failed: {startup[1:]}"
+        _, worker_pid, worker_birth = startup
 
         exit_owner.set()
-        owner.join(3)
+        owner.join(10)
         assert owner.exitcode == 23
+        assert _process_birth(owner_pid) != owner_birth
         _wait_until(lambda: _process_birth(worker_pid) != worker_birth)
     finally:
         if owner.is_alive():
@@ -139,8 +162,44 @@ def test_listener_exits_when_its_owner_dies_without_cleanup() -> None:
         ):
             os.kill(worker_pid, signal.SIGKILL)
             _wait_until(lambda: _process_birth(worker_pid) != worker_birth)
+        if not owner.is_alive():
+            owner.close()
         worker_info_recv.close()
         worker_info_send.close()
+
+
+def test_listener_exits_when_its_owner_dies_without_cleanup() -> None:
+    """A listener cannot survive the Gateway process that created it."""
+    result = subprocess.run(
+        [sys.executable, __file__, "--owner-death-probe"],
+        capture_output=True,
+        text=True,
+        timeout=75,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_listener_stays_alive_while_owner_is_idle() -> None:
+    """An idle listener keeps the same process identity while its owner lives."""
+    events, statuses = [], []
+    runtime = _runtime(target=_listener_worker, events=events, statuses=statuses)
+    runtime.start()
+    try:
+        _wait_until(lambda: events)
+        worker_pid = runtime.pid
+        assert worker_pid is not None
+        worker_birth = _process_birth(worker_pid)
+        assert worker_birth is not None
+
+        idle_deadline = time.monotonic() + 0.25
+        while time.monotonic() < idle_deadline:
+            assert runtime.is_alive
+            assert _process_birth(worker_pid) == worker_birth
+            time.sleep(0.01)
+    finally:
+        report = runtime.stop(drain=True)
+    assert report.joined
 
 
 def test_two_listener_processes_are_isolated_and_true_stop_join() -> None:
@@ -341,3 +400,9 @@ def test_sdk_worker_suppresses_sensitive_websocket_url_info_log(monkeypatch) -> 
     )
 
     assert captured["log_level"] is LogLevel.WARNING
+
+
+if __name__ == "__main__":
+    if sys.argv[1:] != ["--owner-death-probe"]:
+        raise SystemExit("expected --owner-death-probe")
+    _run_owner_death_probe()

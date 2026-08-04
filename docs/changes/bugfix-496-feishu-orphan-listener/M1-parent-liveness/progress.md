@@ -27,11 +27,13 @@
 ### Green
 
 - Claim：owner-death 回归与既有 worker 行为同时成立。
-- Method：新增回归单测；既有 worker 测试按风险组运行；Ruff 与 format check 覆盖两个修改文件。
-- Result：新增 owner-death 测试通过；既有正常 stop/隔离/背压/drain/drop/card/crash/SDK 日志测试逐项通过；静态检查通过。
+- Method：`PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/pytest -q tests/unit/personal_assistant/test_feishu_worker_runtime.py`；Ruff 与 format check 覆盖两个修改文件。
+- Result：整文件单次 `8 passed`；owner-death 探针用独立 subprocess 隔离异常 owner 的 resource tracker，startup 通过独立 IPC outcome 与 45 秒建桩预算和 owner 死后的 3 秒契约分离；parent-alive idle 明确观察同一 worker birth 后正常 stop。pytest 进程没有 semaphore leak warning，静态检查通过。
 - Locator：`src/personal_assistant/channels/feishu/worker.py` 与 `tests/unit/personal_assistant/test_feishu_worker_runtime.py`。
-- Limit：实施前与首次整文件回归期间，宿主同时运行其他并行 pytest/vitest 且 load average 一度超过 70，现行 5 秒 child-ready 基线在 `origin/main` 与 unit worktree 均出现超时；失败用例在负载下降后不改代码逐项通过。交付前仍需取得整文件与本地 CI 单次全绿证据。
+- Limit：fake target 只替代外部飞书 SDK；真实 WebSocket、重启、消息与页面状态由独立 product reviewer 报告持有。
 
 ## Commits
 
 - `067d1763b` — parent-sentinel worker 实现、owner-death 回归与本记录初稿。
+- `d0331f25b` — 回填首轮实现证据。
+- 当前未提交 — 关闭 verifier R1-C1/R1-W1 与 code review C1/C2 的测试确定性、idle 反例和 tracker 隔离。
