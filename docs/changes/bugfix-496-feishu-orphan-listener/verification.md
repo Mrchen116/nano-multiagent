@@ -261,3 +261,61 @@ All checks passed. Ready for PR.
 - 无。
 
 All checks passed. Ready for PR.
+
+# Round 6
+
+> Validated code tree: `7dcc8088c5c083f2bd7d2d16d6b590d5214659f5`
+>
+> Fix delta: `85d89d9326534bfe451c912acc294f2b9d9bbc14..7dcc8088c5c083f2bd7d2d16d6b590d5214659f5`
+
+## Summary
+
+- Mode: `targeted-closure`
+- Focus issues: parent-only startup wrapper; independent setup/graceful/forced-stop/owner-death budgets; non-additive terminal predicates; loaded normal-stop false termination
+- requires_full_verification: `false`
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 4/4 focus areas closed |
+| Correctness | 4/4 xdist focus nodes and 14/14 affected-file tests passed under CI-shaped load |
+| Coherence | Followed；final changes remain test-only and do not weaken lifecycle assertions |
+
+## Targeted Closure
+
+| Focus area | Final evidence | Outcome |
+|---|---|---|
+| 30 秒 startup wrapper 只位于 parent test runtime，不进入 child/pickle | production runtime 先用原始 multiprocessing Event 构造 child context 与 `Process` args（`src/personal_assistant/channels/feishu/worker.py:261-279`）；测试随后才仅替换 parent runtime 的 `_ready_event.wait` 入口（`tests/unit/personal_assistant/test_feishu_worker_runtime.py:112-132`；`tests/unit/personal_assistant/test_channel_lifecycle_failures.py:138-157`）。独立身份探针确认 child args 仍持有原始 Event，wrapper 与 child Event 不是同一对象；所有真实 spawn 用例通过，因此 lambda/SimpleNamespace 没有进入 child pickle。 | closed |
+| setup、normal graceful stop、forced stop 与 owner-death 预算彼此独立 | parent ready wait 为 30 秒；worker runtime 测试 helper 的 5 秒只用于正常 cooperative stop（`tests/unit/personal_assistant/test_feishu_worker_runtime.py:112-132`）；noncooperative pressure adapter 仍为 0.2 秒（`tests/unit/personal_assistant/test_channel_lifecycle_failures.py:128-168`）。owner 原 process birth 消失后的 listener 断言仍使用 `_wait_until` 默认 3 秒（`tests/unit/personal_assistant/test_feishu_worker_runtime.py:25-31,150-174`）。 | closed |
+| backpressure restart 观测不再叠加局部超时 | first restart 在单一 45 秒 predicate 内同时要求 terminal status、精确两个 adapter、first runtime dead 和 registry 指向 second（`tests/unit/personal_assistant/test_channel_lifecycle_failures.py:180-218`）。sequential retry 在单一 80 秒 predicate 内同时要求四次尝试结算、registry 为空且全部 runtime dead，稳定后仍断言没有第五次自动重启（`:221-264`）。 | closed |
+| 高负载正常 stop 不再被 1 秒调度窗口误判为需强制 terminate | d7 在本轮四节点聚焦和两文件完整运行中均复现 dual-listener `terminated=True`。7dcc 仅将测试 helper 的 normal graceful-stop 预算改为 5 秒（`tests/unit/personal_assistant/test_feishu_worker_runtime.py:112-124`）；最终同等负载下用例仍断言两个 worker 均 `joined` 且均未 `terminated`（`:235-263`），聚焦与完整门禁全绿。 | closed |
+
+## Scope and Retained Conclusions
+
+- 最终 validated code tree 为 `7dcc8088c`；该 tree 通过 `bc8e80e36` 继承 Round 5 报告，本轮产品/test 变更仍只涉及两个既有测试文件。production code、incident、design、delta-spec、public interface、配置与用户可观察行为均未变。
+- corrected-delta 的 `aligned` 结论与 Round 2 产品证据继续有效；无需 product re-review，也无需 full verification。
+
+## Validation
+
+- parent/child ready-event 身份探针 → parent wrapper 与 child args 中的原始 Event 分离，test helper graceful `join_timeout=5`。
+- `PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/pytest -q -n 4 --dist worksteal <idle> <two-listener> <backpressure-restart> <backpressure-retry>` → `4 passed, 8 warnings in 83.16s`。
+- `PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/pytest -q -n 4 --dist worksteal tests/unit/personal_assistant/test_feishu_worker_runtime.py tests/unit/personal_assistant/test_channel_lifecycle_failures.py` → `14 passed, 8 warnings in 74.06s`。
+- `/Users/czj/Repos/nano-multiagent/.venv/bin/ruff check tests/unit/personal_assistant/test_feishu_worker_runtime.py tests/unit/personal_assistant/test_channel_lifecycle_failures.py` → passed。
+- `/Users/czj/Repos/nano-multiagent/.venv/bin/ruff format --check tests/unit/personal_assistant/test_feishu_worker_runtime.py tests/unit/personal_assistant/test_channel_lifecycle_failures.py` → already formatted。
+- `PYTHON=/Users/czj/Repos/nano-multiagent/.venv/bin/python ./scripts/docs-check` → `documentation integrity passed`。
+- `git diff --check 85d89d9326534bfe451c912acc294f2b9d9bbc14..7dcc8088c5c083f2bd7d2d16d6b590d5214659f5` → passed。
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+- 无。
+
+### WARNING（提 PR 前必须修）
+
+- 无。
+
+### SUGGESTION（可以修）
+
+- 无。
+
+All checks passed. Ready for PR.
