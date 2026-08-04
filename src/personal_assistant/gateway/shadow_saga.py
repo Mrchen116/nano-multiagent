@@ -173,6 +173,16 @@ class ExternalShadowSagaStore:
         owner = owner_id.strip()
         if not owner:
             raise ValueError("external shadow saga requires an IM owner id")
+        existing = self._find_by_external_event(
+            agent_id=agent_id,
+            channel_name=message.channel_name,
+            connector_account_id=event_identity.connector_account_id,
+            external_chat_id=external_identity.external_chat_id,
+            thread_id=message.thread_id,
+            provider_event_id=event_identity.provider_event_id,
+        )
+        if existing is not None:
+            return existing
         saga_id = _saga_id(
             owner_id=owner,
             agent_id=agent_id,
@@ -244,6 +254,44 @@ class ExternalShadowSagaStore:
             )
         return self.require(saga.saga_id)
 
+    def _find_by_external_event(
+        self,
+        *,
+        agent_id: str,
+        channel_name: str,
+        connector_account_id: str,
+        external_chat_id: str,
+        thread_id: str | None,
+        provider_event_id: str,
+    ) -> ExternalShadowSaga | None:
+        # Owner is a correctable IM projection. Provider identity remains stable when a
+        # stale local owner is repaired or the operator later corrects local config.
+        row = self._conn.execute(
+            """
+            SELECT saga_id, owner_id, agent_id, channel_name, connector_account_id,
+                   external_chat_id, thread_id, provider_event_id, session_key,
+                   canonical_inbound_json, reply_context_json, conversation_id,
+                   im_message_id
+            FROM external_shadow_sagas
+            WHERE agent_id = ? AND channel_name = ? AND connector_account_id = ?
+              AND external_chat_id = ?
+              AND (thread_id = ? OR (thread_id IS NULL AND ? IS NULL))
+              AND provider_event_id = ?
+            ORDER BY rowid ASC
+            LIMIT 1
+            """,
+            (
+                agent_id,
+                channel_name,
+                connector_account_id,
+                external_chat_id,
+                thread_id,
+                thread_id,
+                provider_event_id,
+            ),
+        ).fetchone()
+        return ExternalShadowSaga(*row) if row is not None else None
+
     def record_anchor(
         self, *, saga_id: str, shadow_ref: ShadowConversationRef
     ) -> ExternalShadowSaga:
@@ -263,6 +311,56 @@ class ExternalShadowSagaStore:
             if updated.rowcount != 1:
                 raise LookupError(f"external shadow saga not found: {saga_id}")
         return self.require(saga_id)
+
+    def recover_owner(
+        self, *, saga: ExternalShadowSaga, authenticated_owner_id: str
+    ) -> ExternalShadowSaga:
+        """Correct a stale local owner without changing durable saga identity.
+
+        The saga id stays stable because pending Agent outputs and configuration
+        boundaries already refer to it. The authenticated IM identity becomes the
+        owner used by subsequent shadow writes, while the diagnostic remains durable.
+
+        Args:
+            saga: Existing durable saga whose local owner is stale.
+            authenticated_owner_id: Current owner resolved from the IM access token.
+
+        Returns:
+            The corrected saga with its original durable identity.
+
+        Raises:
+            ValueError: When the authenticated owner is empty.
+            LookupError: When the saga no longer exists.
+
+        Side Effects:
+            Updates the saga owner and appends one durable recovery diagnostic in the
+            same SQLite transaction.
+        """
+
+        owner_id = authenticated_owner_id.strip()
+        if not owner_id:
+            raise ValueError(
+                "external shadow saga requires an authenticated IM owner id"
+            )
+        if saga.owner_id == owner_id:
+            return saga
+        reason = f"shadow_owner_recovered:{saga.owner_id}->{owner_id}"
+        with self._conn:
+            updated = self._conn.execute(
+                "UPDATE external_shadow_sagas SET owner_id = ? WHERE saga_id = ?",
+                (owner_id, saga.saga_id),
+            )
+            if updated.rowcount != 1:
+                raise LookupError(f"external shadow saga not found: {saga.saga_id}")
+            self._conn.execute(
+                """
+                INSERT INTO external_shadow_diagnostics(
+                    channel_name, external_chat_id, agent_id, reason
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (saga.channel_name, saga.external_chat_id, saga.agent_id, reason),
+            )
+        return self.require(saga.saga_id)
 
     def prepare_output(
         self,
