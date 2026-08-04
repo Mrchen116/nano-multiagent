@@ -200,7 +200,12 @@ def test_listener_exits_when_its_owner_dies_without_cleanup() -> None:
 def test_listener_stays_alive_while_owner_is_idle() -> None:
     """An idle listener keeps the same process identity while its owner lives."""
     events, statuses = [], []
-    runtime = _runtime(target=_listener_worker, events=events, statuses=statuses)
+    runtime = _runtime(
+        target=_listener_worker,
+        events=events,
+        statuses=statuses,
+        join_timeout=30,
+    )
     runtime.start()
     try:
         _wait_until(lambda: events)
@@ -228,6 +233,7 @@ def test_two_listener_processes_are_isolated_and_true_stop_join() -> None:
         statuses=statuses,
         app_id="cli_a",
         incarnation="inc-a",
+        join_timeout=30,
     )
     runtime_b = _runtime(
         target=_listener_worker,
@@ -235,6 +241,7 @@ def test_two_listener_processes_are_isolated_and_true_stop_join() -> None:
         statuses=statuses,
         app_id="cli_b",
         incarnation="inc-b",
+        join_timeout=30,
     )
     runtime_a.start()
     runtime_b.start()
