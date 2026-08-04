@@ -252,7 +252,7 @@ def test_backpressure_retry_budget_reaps_final_listener_and_allows_manual_retry(
                 and manager.registry.get("feishu:agent-a") is None
                 and all(not item.runtime.is_alive for item in adapters)
             ),
-            timeout=80,
+            timeout=55,
         )
         time.sleep(0.6)
         assert len(adapters) == 4
