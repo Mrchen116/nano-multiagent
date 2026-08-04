@@ -206,3 +206,58 @@ All checks passed. Ready for PR.
 ## Conclusion
 
 `external-channels.md` 与最终实现、永久回归和 Round 2 产品证据一致；无需重新执行 full verification。
+
+# Round 5
+
+> Validation snapshot: `d5a5fcfc3a800f154d9f8da0b7dbfbd5605565f7 → 85d89d9326534bfe451c912acc294f2b9d9bbc14`
+
+## Summary
+
+- Mode: `targeted-closure`
+- Delta range: `d5a5fcfc3a800f154d9f8da0b7dbfbd5605565f7..85d89d9326534bfe451c912acc294f2b9d9bbc14`
+- Focus issues: loaded-CI spawn setup budgets; separation from 3-second owner-death and 0.2-second forced-stop budgets; closed-process-safe restart assertions
+- requires_full_verification: `false`
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 4/4 focus areas closed |
+| Correctness | 3/3 xdist focus nodes and 14/14 affected-file tests passed under CI-shaped load |
+| Coherence | Followed；final delta remains test-only and preserves behavioral budgets |
+
+## Targeted Closure
+
+| Focus area | Final evidence | Outcome |
+|---|---|---|
+| 高负载 spawn setup 预算覆盖完整 worker 测试面 | d5 的完整 xdist 运行暴露 `test_stop_can_drain_or_drop_invalidated_generation` 仍从 `_runtime` 继承 5 秒启动上限。85d 将 `_runtime` 默认 join/setup 预算与两个直接 runtime 构造统一为 30 秒（`tests/unit/personal_assistant/test_feishu_worker_runtime.py:112-123,260-283,301-331`）；最终两文件 xdist 完整运行 14/14 通过。 | closed |
+| setup 与行为预算没有错误混合 | owner-death 仍在确认 owner process birth 消失后使用 `_wait_until` 默认 3 秒断言（`tests/unit/personal_assistant/test_feishu_worker_runtime.py:25-31,150-165`）。backpressure adapter 只在启动期使用 30 秒，`stop` / `stop_invalidated` 调用前都将强制回收预算恢复为 0.2 秒（`tests/unit/personal_assistant/test_channel_lifecycle_failures.py:127-165`）。其余放宽路径的 worker 均会协作处理 stop event 或在 stop 前自行终止，不改变原行为断言。 | closed |
+| restart-once 断言不再读取已 close 的 `multiprocessing.Process.pid` | 用例不再保留/读取 first runtime PID；它等待 first runtime dead、registry 精确指向第二个 adapter，并断言 `len(adapters) == 2`（`tests/unit/personal_assistant/test_channel_lifecycle_failures.py:177-216`）。这仍证明旧 listener 被回收、新 listener 已接管且只重启一次。 | closed |
+| backpressure/status/restart 观测适应高负载 | terminal backpressure status 与 registry 接管均有 20 秒观测窗口（`tests/unit/personal_assistant/test_channel_lifecycle_failures.py:202-214`）；窗口只容纳 CI 调度/冷启动延迟，不改变 status code、旧 runtime dead、registry identity 和精确 adapter 数量断言。 | closed |
+
+## Scope and Retained Conclusions
+
+- `d5a5fcfc3..85d89d932` 只修改两个既有测试文件；没有 production code、incident、design、delta-spec、public interface、配置或用户可观察行为变化。
+- corrected-delta 的 `aligned` 结论与 Round 2 产品证据继续有效；本轮不需要 full verification，也不需要 product re-review。
+
+## Validation
+
+- `PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/pytest -q -n 4 --dist worksteal <idle> <two-listener> <backpressure-restart>` → `3 passed, 8 warnings in 44.80s`。
+- `PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/pytest -q -n 4 --dist worksteal tests/unit/personal_assistant/test_feishu_worker_runtime.py tests/unit/personal_assistant/test_channel_lifecycle_failures.py` → `14 passed, 8 warnings in 95.19s`。
+- `/Users/czj/Repos/nano-multiagent/.venv/bin/ruff check tests/unit/personal_assistant/test_feishu_worker_runtime.py tests/unit/personal_assistant/test_channel_lifecycle_failures.py` → passed。
+- `/Users/czj/Repos/nano-multiagent/.venv/bin/ruff format --check tests/unit/personal_assistant/test_feishu_worker_runtime.py tests/unit/personal_assistant/test_channel_lifecycle_failures.py` → already formatted。
+- `git diff --check d5a5fcfc3a800f154d9f8da0b7dbfbd5605565f7..85d89d9326534bfe451c912acc294f2b9d9bbc14` → passed。
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+- 无。
+
+### WARNING（提 PR 前必须修）
+
+- 无。
+
+### SUGGESTION（可以修）
+
+- 无。
+
+All checks passed. Ready for PR.
