@@ -9,6 +9,7 @@ import httpx
 
 from personal_assistant.config.local_store import (
     AgentWorkspaceConfig,
+    ChannelConfig,
     HeartbeatConfig,
     IMServiceConfig,
     GatewayLifecycleConfig,
@@ -22,6 +23,7 @@ from personal_assistant.gateway.agent_config_sync import (
     _read_skill_name,
     _make_workspace_root_factory,
 )
+from personal_assistant.builtin_skills.lark_bundle import lark_skill_names
 from tests.unit.personal_assistant._config_sync_test_owners import (
     build_config_sync_test_owners,
 )
@@ -597,16 +599,17 @@ def test_skill_created_agent_scope_only_enables_executing_agent(
     assert owners.catalog.require("agent-b").revision == agent_b_revision
 
 
-def test_ensure_agent_skill_enabled_updates_explicit_local_allowlist(
+def test_ensure_agent_skills_enabled_updates_explicit_local_allowlist_once(
     tmp_path: Path,
 ) -> None:
     """A managed Feishu runtime enables its declared skill through the public API."""
     workspace_root = tmp_path / "agent-a"
     skills = ["existing-skill"]
     version = 1
+    patch_count = 0
 
     def _handler(request: httpx.Request) -> httpx.Response:
-        nonlocal version, skills
+        nonlocal patch_count, version, skills
         body = (
             dict(json.loads(request.content.decode("utf-8")))
             if request.content
@@ -631,6 +634,7 @@ def test_ensure_agent_skill_enabled_updates_explicit_local_allowlist(
                 },
             )
         assert request.method == "PATCH"
+        patch_count += 1
         assert body is not None
         skills = list(body["skills"])
         version += 1
@@ -670,12 +674,145 @@ def test_ensure_agent_skill_enabled_updates_explicit_local_allowlist(
         sleep=lambda _: None,
     )
 
-    assert sync.ensure_agent_skill_enabled("agent-a", "feishu-doc") is True
+    assert sync.ensure_agent_skills_enabled("agent-a", lark_skill_names()) is True
+    assert sync.ensure_agent_skills_enabled("agent-a", lark_skill_names()) is True
     assert owners.catalog.require("agent-a").config.skills == (
         "existing-skill",
-        "feishu-doc",
+        *lark_skill_names(),
     )
-    assert sync.ensure_agent_skill_enabled("missing", "feishu-doc") is False
+    assert patch_count == 1
+    assert sync.ensure_agent_skills_enabled("missing", lark_skill_names()) is False
+
+
+def test_ensure_agent_skills_enabled_keeps_empty_allowlist_unmaterialized(
+    tmp_path: Path,
+) -> None:
+    """Managed agents with an empty list retain global discovery semantics."""
+    workspace_root = tmp_path / "agent-open"
+    local_config = LocalConfig(
+        node=NodeConfig(node_id="node-open"),
+        agents=(
+            AgentWorkspaceConfig(
+                agent_id="agent-open",
+                workspace_root=workspace_root,
+                skills=(),
+            ),
+        ),
+        channels=(),
+        gateway=GatewayLifecycleConfig(),
+        heartbeat=HeartbeatConfig(),
+        im_service=None,
+        llm=_DEFAULT_TEST_LLM,
+        source_path=tmp_path / "config.yaml",
+    )
+    owners = build_config_sync_test_owners(local_config)
+    sync = _IMConfigSyncClient(
+        base_url="http://im.local",
+        token=None,
+        **owners.kwargs(),
+        local_config=local_config,
+        client=httpx.Client(
+            transport=httpx.MockTransport(
+                lambda _request: (_ for _ in ()).throw(AssertionError("no HTTP"))
+            ),
+            base_url="http://im.local",
+            trust_env=False,
+        ),
+    )
+
+    assert sync.ensure_agent_skills_enabled("agent-open", lark_skill_names()) is True
+    assert owners.catalog.require("agent-open").config.skills == ()
+
+
+def test_sync_agent_repairs_static_feishu_mirror_once_before_publish(
+    tmp_path: Path,
+) -> None:
+    """A config.sync mirror cannot replace a static binding's required bundle."""
+    workspace_root = tmp_path / "agent-static"
+    skills = ["memory"]
+    profile_version = 1
+    patch_count = 0
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        nonlocal patch_count, profile_version, skills
+        if request.method == "GET":
+            return httpx.Response(
+                200,
+                json={
+                    "agent_id": "agent-static",
+                    "display_name": "Static",
+                    "profile_version": profile_version,
+                    "skills": skills,
+                    "workspace_root": str(workspace_root),
+                },
+            )
+        patch_count += 1
+        body = dict(json.loads(request.content.decode("utf-8")))
+        skills = list(body["skills"])
+        profile_version += 1
+        return httpx.Response(
+            200,
+            json={
+                **body,
+                "agent_id": "agent-static",
+                "profile_version": profile_version,
+            },
+        )
+
+    local_config = LocalConfig(
+        node=NodeConfig(node_id="node-static"),
+        agents=(
+            AgentWorkspaceConfig(
+                agent_id="agent-static",
+                workspace_root=workspace_root,
+                skills=("memory",),
+            ),
+        ),
+        channels=(
+            ChannelConfig(
+                name="feishu:agent-static",
+                settings={"appId": "cli_static", "appSecret": "secret"},
+            ),
+        ),
+        gateway=GatewayLifecycleConfig(),
+        heartbeat=HeartbeatConfig(),
+        im_service=None,
+        llm=_DEFAULT_TEST_LLM,
+        source_path=tmp_path / "config.yaml",
+    )
+    owners = build_config_sync_test_owners(local_config)
+    sync = _IMConfigSyncClient(
+        base_url="http://im.local",
+        token=None,
+        **owners.kwargs(),
+        local_config=local_config,
+        client=httpx.Client(
+            transport=httpx.MockTransport(_handler),
+            base_url="http://im.local",
+            trust_env=False,
+        ),
+        monotonic=lambda: 0.0,
+        sleep=lambda _: None,
+    )
+
+    sync.sync_agent(agent_id="agent-static", profile_version=1)
+    sync.sync_agent(agent_id="agent-static", profile_version=profile_version)
+
+    expected = ("memory", *lark_skill_names())
+    assert patch_count == 1
+    assert tuple(skills) == expected
+    assert owners.catalog.require("agent-static").config.skills == expected
+    assert sync.current_agent_payload(agent_id="agent-static") == {
+        "display_name": "Static",
+        "system_prompt": "",
+        "skills": [*expected],
+        "tool_allowlist": [],
+        "group_reply_policy": "manual",
+        "default_model": None,
+        "workspace_root": str(workspace_root),
+        "features": {},
+        "custom_prompt": None,
+    }
 
 
 def test_sync_agent_passes_through_features(tmp_path: Path) -> None:

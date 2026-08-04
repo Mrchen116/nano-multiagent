@@ -16,6 +16,7 @@ import httpx
 
 from personal_assistant.config.local_store import (
     AgentWorkspaceConfig,
+    ChannelConfig,
     HeartbeatConfig,
     IMServiceConfig,
     GatewayLifecycleConfig,
@@ -201,6 +202,80 @@ def test_reconcile_http_failure_does_not_raise(tmp_path: Path) -> None:
 
     # 失败时没有 register_agent 调用
     assert owners.catalog.require("agent-w").revision == 1
+
+
+def test_reconcile_bundle_patch_failure_skips_only_static_agent(
+    tmp_path: Path,
+) -> None:
+    """A static bundle PATCH failure does not block other reconnect convergence."""
+    local_config = LocalConfig(
+        node=NodeConfig(node_id="test-node"),
+        agents=(
+            AgentWorkspaceConfig(
+                agent_id="agent-static",
+                workspace_root=tmp_path / "agent-static",
+                skills=("memory",),
+            ),
+            AgentWorkspaceConfig(
+                agent_id="agent-other",
+                workspace_root=tmp_path / "agent-other",
+                features={"heartbeat": True},
+            ),
+        ),
+        channels=(
+            ChannelConfig(
+                name="feishu:agent-static",
+                settings={"appId": "cli_static", "appSecret": "secret"},
+            ),
+        ),
+        gateway=GatewayLifecycleConfig(),
+        heartbeat=HeartbeatConfig(),
+        im_service=IMServiceConfig(url="http://im.local:9000", token="tok"),
+        llm=_DEFAULT_LLM,
+        source_path=tmp_path / "config.yaml",
+    )
+    owners = build_config_sync_test_owners(local_config)
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("agent-static/config"):
+            if request.method == "PATCH":
+                return httpx.Response(503, json={"detail": "try again"})
+            return httpx.Response(
+                200,
+                json={
+                    "agent_id": "agent-static",
+                    "display_name": "Static",
+                    "profile_version": 1,
+                    "skills": ["memory"],
+                    "workspace_root": str(tmp_path / "agent-static"),
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "agent_id": "agent-other",
+                "display_name": "Other",
+                "profile_version": 1,
+                "features": {"heartbeat": False},
+                "workspace_root": str(tmp_path / "agent-other"),
+            },
+        )
+
+    sync_client = _IMConfigSyncClient(
+        base_url="http://im.local:9000",
+        token="tok",
+        **owners.kwargs(),
+        local_config=local_config,
+        client=httpx.Client(
+            base_url="http://im.local:9000",
+            transport=httpx.MockTransport(_handler),
+        ),
+    )
+
+    sync_client.reconcile_all_agents()
+
+    assert owners.catalog.require("agent-static").config.skills == ("memory",)
+    assert owners.catalog.require("agent-other").config.features["heartbeat"] is False
 
 
 # ---------------------------------------------------------------------------

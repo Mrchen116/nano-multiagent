@@ -15,6 +15,8 @@ from uuid import uuid4
 
 import yaml
 
+from personal_assistant.builtin_skills.lark_bundle import lark_skill_names
+
 # refactor-406-M2: the LLM config wire schema is owned by personal_assistant (its
 # gateway config layer), not re-exported from agent.sdk. The kernel consumes it via
 # the duck-typed ``LLMConfig.from_payload`` (reads .default_model / .providers /
@@ -59,7 +61,6 @@ _log = logging.getLogger("personal_assistant.config.local_store")
 
 DEFAULT_LOCAL_CONFIG_DIR = Path("~/.nano-assistant").expanduser()
 DEFAULT_LOCAL_CONFIG_PATH = DEFAULT_LOCAL_CONFIG_DIR / "config.yaml"
-FEISHU_DOC_SKILL_ID = "feishu-doc"
 _DEFAULT_STARTUP_TIMEOUT_SECONDS = 15.0
 _DEFAULT_SHUTDOWN_GRACE_SECONDS = 5.0
 _DEFAULT_POLL_INTERVAL_SECONDS = 0.25
@@ -384,7 +385,7 @@ def load_gateway_runtime_config(
     """
     config = (load_config or load_local_config)(config_path)
     config = autofill_feishu_bot_open_id(config, save_config=save_config)
-    config = provision_feishu_doc_skill_for_gateway(
+    config = provision_lark_skill_bundle_for_gateway(
         RuntimeConfigOwner(config),
         save_config=save_config,
     )
@@ -641,12 +642,12 @@ def resolve_run_model(
     return product_default
 
 
-def provision_feishu_doc_skill_for_gateway(
+def provision_lark_skill_bundle_for_gateway(
     config_owner: RuntimeConfigOwner,
     *,
     save_config: Callable[[LocalConfig, str | Path], None] | None = None,
 ) -> LocalConfig:
-    """Persist required Feishu skill provisioning through the config owner.
+    """Persist the Lark bundle for static Feishu bindings through the config owner.
 
     Args:
         config_owner: Serialized owner for the Gateway's mutable config snapshot.
@@ -656,19 +657,31 @@ def provision_feishu_doc_skill_for_gateway(
         The latest configuration, after provisioning when it changed the skill list.
     """
     current = config_owner.snapshot()
-    _, changed = ensure_feishu_doc_skill_for_feishu_agents(current)
+    _, changed = ensure_lark_skill_bundle_for_feishu_agents(current)
     if not changed:
         return current
     return config_owner.persist(
-        lambda config: ensure_feishu_doc_skill_for_feishu_agents(config)[0],
+        lambda config: ensure_lark_skill_bundle_for_feishu_agents(config)[0],
         save_config=save_config or save_sensitive_local_config,
     )
 
 
-def ensure_feishu_doc_skill_for_feishu_agents(
+def enabled_feishu_agent_ids(config: LocalConfig) -> frozenset[str]:
+    """Return agent ids with an enabled static Feishu channel binding."""
+
+    return frozenset(
+        channel.name.removeprefix("feishu:")
+        for channel in config.channels
+        if channel.enabled
+        and channel.name.startswith("feishu:")
+        and channel.name.removeprefix("feishu:").strip()
+    )
+
+
+def ensure_lark_skill_bundle_for_feishu_agents(
     config: LocalConfig,
 ) -> tuple[LocalConfig, bool]:
-    """Add the built-in Feishu doc skill to explicit Feishu agent allowlists.
+    """Add the Lark bundle to explicit static Feishu agent allowlists.
 
     Args:
         config: Parsed Gateway config.
@@ -676,29 +689,22 @@ def ensure_feishu_doc_skill_for_feishu_agents(
     Returns:
         Tuple of ``(updated_config, changed)``. ``changed`` is True only when an
         enabled ``feishu:<agent_id>`` channel maps to an agent that already has a
-        non-empty explicit skills allowlist missing ``feishu-doc``.
+        non-empty explicit skills allowlist missing a bundled Lark skill.
     """
 
-    feishu_agent_ids = {
-        channel.name.removeprefix("feishu:")
-        for channel in config.channels
-        if channel.enabled
-        and channel.name.startswith("feishu:")
-        and channel.name.removeprefix("feishu:").strip()
-    }
+    feishu_agent_ids = enabled_feishu_agent_ids(config)
     if not feishu_agent_ids:
         return config, False
 
     changed = False
     updated_agents: list[AgentWorkspaceConfig] = []
     for agent in config.agents:
-        if (
-            agent.agent_id in feishu_agent_ids
-            and agent.skills
-            and FEISHU_DOC_SKILL_ID not in agent.skills
-        ):
+        missing_skills = tuple(
+            skill_id for skill_id in lark_skill_names() if skill_id not in agent.skills
+        )
+        if agent.agent_id in feishu_agent_ids and agent.skills and missing_skills:
             updated_agents.append(
-                replace(agent, skills=(*agent.skills, FEISHU_DOC_SKILL_ID))
+                replace(agent, skills=(*agent.skills, *missing_skills))
             )
             changed = True
         else:

@@ -15,6 +15,7 @@ from personal_assistant.gateway.channel_manager import (
     ManagedChannelSpec,
 )
 from personal_assistant.gateway.channel_registry import ChannelRegistry
+from personal_assistant.builtin_skills.lark_bundle import lark_skill_names
 
 
 class _Adapter:
@@ -260,7 +261,7 @@ def test_active_status_forwards_structured_diagnostic_checks() -> None:
     assert statuses[-1].checks[0]["check_id"] == ("feishu.receive_group_message")
 
 
-def test_activation_policy_adds_feishu_doc_once_for_explicit_allowlist() -> None:
+def test_activation_policy_adds_lark_bundle_once_for_explicit_allowlist() -> None:
     """Legacy and managed Feishu activation share one idempotent skill policy."""
     skills = {"agent-a": ["planning"], "agent-open": []}
     saved: list[tuple[str, tuple[str, ...]]] = []
@@ -277,6 +278,6 @@ def test_activation_policy_adds_feishu_doc_once_for_explicit_allowlist() -> None
     policy.ensure("agent-a")
     policy.ensure("agent-open")
 
-    assert skills["agent-a"] == ["planning", "feishu-doc"]
+    assert skills["agent-a"] == ["planning", *lark_skill_names()]
     assert skills["agent-open"] == []
-    assert saved == [("agent-a", ("planning", "feishu-doc"))]
+    assert saved == [("agent-a", ("planning", *lark_skill_names()))]
