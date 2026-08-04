@@ -331,6 +331,10 @@ channels:
       appSecret: <isolated-test-app-secret>
 ```
 
+执行真实 Lark 操作的验收 agent 还必须启用其所需的工具；本轮使用 `read` 与
+`bash`。`tool_allowlist: []` 是显式禁用一切工具，不是“使用产品默认工具”，只能
+用于确认无工具时的 fail-closed 行为，不能作为 Lark 操作的 fixture。
+
 `appSecret` 是静态 adapter 的实际启动前提；`credentialRef` 且没有 `appSecret`
 只适用于 IM 托管回放，不能用作这条静态验收 channel。可选的 `botOpenId` 由既有
 identity probe 填充。用另一没有上述 `config.channels` binding 的、显式非空 skills

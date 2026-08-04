@@ -20,7 +20,7 @@
 |---|---|---|
 | [Routing and Delivery](routing-delivery.md) | 入站路由、群聊触发、/stop、运行中插话、配置边界、回复线程、会话映射、产品投递、失败反馈 | 11 |
 | [Service Lifecycle](service-lifecycle.md) | 启停、IM WS、reconnect/ack、auto-bind | 5 |
-| [Agent Capabilities](agent-capabilities.md) | 完整运行配置、模型配置、tool_allowlist、context window、skills bootstrap | 7 |
+| [Agent Capabilities](agent-capabilities.md) | 完整运行配置、模型配置、tool_allowlist、context window、Lark skill bundle | 6 |
 | [Heartbeat and Cron](heartbeat-cron.md) | per-agent heartbeat / cron 开关、调度、错过周期语义 | 1 |
 | [Relay Protocol](relay-protocol.md) | tool relay、skill usage RPC、附件透传、tool terminal events、图片、授权决策、cache/thinking、fork、配置边界与 shadow mirror | 11 |
 | [External Channels](external-channels.md) | Feishu channel、IM 托管配置、多 Bot、trigger source、reply mirror、控制文本、群聊上下文、原生权限、shadow sync、offline autonomy、隔离 | 12 |

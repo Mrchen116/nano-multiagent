@@ -229,3 +229,60 @@ Settings、Chat 和两条专用 Feishu 群作为用户面真值。
 
 - Managed Settings 已向用户显式显示当前 App 缺少非 @ 群背景 / history 权限；本轮
   @ Bot 的 basic messaging path 未被该提示阻断。
+
+---
+
+# Round 3 — 2026-08-04
+
+> Validation snapshot: `fe3fe8747`
+>
+> Review mode: focused regression closure
+
+## Verdict
+
+**pass** — Round 2 的 G-2 不是 bundle 或 Gateway 运行时缺陷：两个验收 agent
+都显式配置了 `tool_allowlist: []`，该产品字段的语义是禁用所有工具。因此模型能
+阅读 skill 指令但收不到任何结构化工具定义，才把 DSML 标记当普通文本回给用户。
+将隔离 fixture 的 allowlist 改为 `read,bash` 后，静态与 fresh-IM 托管入口均实际
+执行 Lark CLI 操作，正常返回用户结果，并保持 Gateway 当前 chat 回复和 IM shadow
+的所有权。
+
+## User Journeys Exercised
+
+1. **Static Feishu entry** — 测试用户在当前隔离 chat @ Bot，请求读取当前 Lark
+   用户授权状态；agent 使用 `lark-shared` 并通过 `bash` 执行 CLI 校验，向当前
+   chat 返回有效身份结果。随后用户明确指定另一隔离 chat；agent 使用 `lark-im`
+   写入唯一 marker，目标 chat 收到 marker，当前 chat 仍经 Gateway 收到操作说明。
+2. **Managed Feishu entry** — 以 fresh IM + Gateway 启动后，经受控的 managed
+   channel API 建立同一类 Feishu binding，状态收敛为 `applied` / `connected`。重复
+   上述只读身份和跨 chat marker 操作，均完成；当前 chat 的普通回复没有被
+   `lark-im` 直发取代。
+3. **IM shadow** — managed 当前 chat 的 shadow 标为 `external_source=feishu`，并
+   呈现完成的结构化 `read` / `bash` 工具调用，而非 Round 2 的 raw DSML 文本。
+
+## Lark Event Boundary
+
+对两个已存在、已授权的测试 profile 请求 `lark-event` 后，CLI 都如实返回其已有
+的“每个 App 仅一个远端事件连接”前置条件；未接管既有连接，也未启动常驻 listener。
+这验证了 bundle 中的事件能力按既有身份和生命周期规则报告前置条件，不改变
+Gateway 对普通 Feishu 对话的收发。为建立第二个独立事件连接而新建 App 不属于
+本 unit 的产品修改范围，未继续进行。
+
+## Issues
+
+### G-2 — closed — 验收 fixture 显式禁用了工具
+
+Round 2 的原始 DSML 和 marker 缺失由 `tool_allowlist: []` 造成。该配置正确地
+执行 fail-closed 的工具白名单契约；修正隔离 fixture 后无需修改产品代码。
+
+### G-3 — unchanged — external shadow duplicate
+
+外部 chat 的用户可见回复仍各只有一条；IM shadow 中的 duplicate 与已跟踪的
+#231 / `bugfix-497-shadow-mirror-duplicate-reply` 一致，不在本 unit 范围内。
+
+## Regression Summary
+
+- 聚焦自动化：55 passed。
+- 文档检查：`docs-check` passed。
+- 真实 static / managed 入口：只读 Lark 身份、显式另一 chat marker、当前 chat
+  Gateway 回复和 IM shadow 均通过。

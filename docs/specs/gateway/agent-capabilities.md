@@ -111,17 +111,45 @@ Gateway 为某 Agent 构建会话工具集时，以该 Agent 配置的 `tool_all
 
 ### Requirement: PA 内置 skill 启动自举
 
-Gateway 启动时把产品包内置的 PA skills 安装到运行态全局 skill root,只补缺失,不覆盖用户已有文件。
+Gateway 随包提供 PA 内置 skills 与当前产品定义的完整 Lark skill bundle。启动时只把
+运行态全局 skill root 中缺失的目录安装进去，不覆盖用户已有文件。绑定 Feishu
+channel 的 agent 能发现完整 bundle，并默认沿用 Gateway 所在机器已登录的 Lark 用户
+身份；只有各 skill 的既有规则明确要求时才使用其他身份。
 
-#### Scenario: Gateway 启动时安装缺失的 PA 内置 skill
-- **WHEN** Gateway 启动并发现包内 `builtin_skills/<skill-name>/SKILL.md`
-- **THEN** 若运行态全局 skill root 中不存在同名 `SKILL.md`,复制整个内置 skill 目录
-- **AND** 复制后的 skill 可被 PA agent 的 skill discovery 发现
+#### Scenario: 新安装的飞书 agent 发现完整 Lark bundle
+- **GIVEN** 用户本机尚未安装任一同名的 Lark skill
+- **WHEN** Gateway 启动并为 agent 启用飞书 channel
+- **THEN** agent 的 capabilities 和会话可发现产品随包的完整 Lark skill bundle
+- **AND** 用户可从飞书要求该 agent 操作文档、云盘、表格、日程、任务、审批、邮件、知识库、会议或其他由 bundle 覆盖的 Lark 资源
+
+#### Scenario: 显式 skill allowlist 的飞书 agent 获得完整 bundle
+- **GIVEN** 飞书绑定 agent 的本地 skills allowlist 非空且缺少一个或多个 Lark skill
+- **WHEN** Gateway 启动静态 `config.channels` 中的该飞书 channel，或调和 IM 托管的该飞书 channel
+- **THEN** Gateway 保留已有条目并将完整 Lark skill bundle 加入 allowlist
+- **AND** 重复调和不会重复写入或重复列出 bundle skill
+
+#### Scenario: 空 skill allowlist 保持默认发现语义
+- **GIVEN** 飞书绑定 agent 的本地 skills allowlist 为空
+- **WHEN** Gateway 启动或调和该飞书 channel
+- **THEN** Gateway 不将完整 bundle 物化写入该 allowlist
+- **AND** 该 agent 仍按默认全局 skill discovery 发现 Lark bundle
+
+#### Scenario: 静态 Feishu agent 的 IM profile ingress 保留完整 bundle
+- **GIVEN** Gateway 的静态 `config.channels` 绑定了一个 skills allowlist 非空的 Feishu agent
+- **AND** IM 中该 agent 已存在一个尚未包含完整 Lark skill bundle 的 mirror profile
+- **WHEN** Gateway 连接、重连 IM，或接收该 agent 的 `config.sync` profile 更新
+- **THEN** Gateway 将完整 Lark skill bundle 补齐到该 agent 的显式 profile 后再应用到本地运行态
+- **AND** 该 agent 后续会话仍可发现完整 Lark skill bundle
 
 #### Scenario: 用户已有同名内置 skill 时不覆盖
 - **GIVEN** 运行态全局 skill root 中已存在 `<skill-name>/SKILL.md`
 - **WHEN** Gateway 启动
 - **THEN** 不覆盖该目录中的用户文件
+
+#### Scenario: 用户明确请求独立 Lark 事件监听
+- **WHEN** 用户要求飞书绑定 agent 监听并处理一种 Lark 事件
+- **THEN** agent 可使用 bundle 中的 Lark event 能力按其既有身份、授权和生命周期规则建立独立监听
+- **AND** 该监听不取代 Gateway 对普通飞书对话的消息接收和回复
 
 ### Requirement: 模型可在配置中声明各自的上下文窗口
 
@@ -141,24 +169,3 @@ Gateway 启动时把产品包内置的 PA skills 安装到运行态全局 skill 
 - **GIVEN** config 某模型条目把 `context_window` 写成非正整数
 - **WHEN** 运维者用该模型经 Gateway 跑对话
 - **THEN** Gateway 不崩溃,按未声明处理回退内核默认上限
-
-### Requirement: 内置 skills 启动自举
-
-Gateway 随包携带 PA 产品级内置 skills。启动时，Gateway 将包内内置 skill 目录安装到用户全局 skill root；目标已存在时默认不覆盖用户本地版本。启用飞书 channel 的 agent 必须能发现 `feishu-doc` skill，使用户在飞书中要求云文档操作时，agent 能按该 skill 给出授权和文档操作路径。
-
-#### Scenario: 新安装用户启动后获得 feishu-doc
-- **GIVEN** 用户本机没有 `~/.nanoassistant/skills/feishu-doc/SKILL.md`
-- **WHEN** Gateway 启动
-- **THEN** Gateway 从包内内置资源安装 `feishu-doc` 到用户全局 skill root
-- **AND** 后续 capabilities 查询和会话 prompt 均能解析到 `feishu-doc`
-
-#### Scenario: 已存在的用户 skill 不被覆盖
-- **GIVEN** 用户本机已存在自定义的 `~/.nanoassistant/skills/feishu-doc/SKILL.md`
-- **WHEN** Gateway 启动
-- **THEN** Gateway 保留用户已有文件，不以包内版本覆盖
-
-#### Scenario: 飞书绑定 agent 自动启用 feishu-doc
-- **GIVEN** Gateway 配置了 `feishu:plato` channel 且 plato agent 的 skills allowlist 未包含 `feishu-doc`
-- **WHEN** Gateway 启动
-- **THEN** Gateway 将 `feishu-doc` 加入 plato 的本地 skills 配置
-- **AND** 用户从飞书向 plato-bot 请求云文档操作时，plato 的会话可见 `feishu-doc`
