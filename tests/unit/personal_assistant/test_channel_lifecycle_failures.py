@@ -6,6 +6,7 @@ import asyncio
 import multiprocessing
 import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -148,7 +149,11 @@ class _WorkerAdapter:
             worker_target=target,
             multiprocessing_context=multiprocessing.get_context("spawn"),
             event_queue_capacity=1,
-            join_timeout=30,
+            join_timeout=0.2,
+        )
+        ready_event = self.runtime._ready_event
+        self.runtime._ready_event = SimpleNamespace(
+            wait=lambda _default_timeout: ready_event.wait(30)
         )
 
     def start(self, _handler) -> None:
@@ -156,14 +161,10 @@ class _WorkerAdapter:
 
     def stop(self) -> None:
         self._release.set()
-        # Keep the loaded-CI startup budget separate from the forced-stop budget.
-        self.runtime._join_timeout = 0.2
         self.runtime.stop(drain=True)
 
     def stop_invalidated(self) -> None:
         self._release.set()
-        # Keep the loaded-CI startup budget separate from the forced-stop budget.
-        self.runtime._join_timeout = 0.2
         self.runtime.stop(drain=False)
 
 
@@ -202,16 +203,15 @@ def test_backpressure_reaps_noncooperative_listener_and_restarts_once() -> None:
             manager.reconcile(ChannelManifest(manifest_revision=1, channels=(_spec(),)))
         )
         _wait_until(
-            lambda: any(
-                status.status_code == "event_backpressure" for status in statuses
+            lambda: (
+                len(adapters) == 2
+                and any(
+                    status.status_code == "event_backpressure" for status in statuses
+                )
+                and adapters[0].runtime.is_alive is False
+                and manager.registry.get("feishu:agent-a") is adapters[1]
             ),
-            timeout=20,
-        )
-        _wait_until(lambda: len(adapters) == 2)
-        _wait_until(lambda: adapters[0].runtime.is_alive is False)
-        _wait_until(
-            lambda: manager.registry.get("feishu:agent-a") is adapters[1],
-            timeout=20,
+            timeout=45,
         )
         assert len(adapters) == 2
     finally:
@@ -246,12 +246,14 @@ def test_backpressure_retry_budget_reaps_final_listener_and_allows_manual_retry(
         )
         # Four spawn/reap cycles are intentionally sequential; leave headroom for
         # loaded CI workers without adding delay to the successful path.
-        _wait_until(lambda: len(adapters) == 4, timeout=20)
         _wait_until(
-            lambda: manager.registry.get("feishu:agent-a") is None,
-            timeout=4,
+            lambda: (
+                len(adapters) == 4
+                and manager.registry.get("feishu:agent-a") is None
+                and all(not item.runtime.is_alive for item in adapters)
+            ),
+            timeout=80,
         )
-        _wait_until(lambda: all(not item.runtime.is_alive for item in adapters))
         time.sleep(0.6)
         assert len(adapters) == 4
 

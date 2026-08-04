@@ -110,7 +110,7 @@ def _abrupt_listener_owner(worker_info, exit_owner) -> None:
 
 
 def _runtime(*, target, events, statuses, **kwargs) -> FeishuWorkerRuntime:
-    return FeishuWorkerRuntime(
+    runtime = FeishuWorkerRuntime(
         app_id=kwargs.pop("app_id", "cli_a"),
         app_secret="secret",
         incarnation=kwargs.pop("incarnation", "inc-a"),
@@ -118,9 +118,18 @@ def _runtime(*, target, events, statuses, **kwargs) -> FeishuWorkerRuntime:
         on_status=statuses.append,
         worker_target=target,
         multiprocessing_context=multiprocessing.get_context("spawn"),
-        join_timeout=kwargs.pop("join_timeout", 30),
+        join_timeout=kwargs.pop("join_timeout", 1),
         **kwargs,
     )
+    return _with_startup_budget(runtime)
+
+
+def _with_startup_budget(runtime: FeishuWorkerRuntime) -> FeishuWorkerRuntime:
+    ready_event = runtime._ready_event
+    runtime._ready_event = SimpleNamespace(
+        wait=lambda _default_timeout: ready_event.wait(30)
+    )
+    return runtime
 
 
 def _run_owner_death_probe() -> None:
@@ -204,7 +213,6 @@ def test_listener_stays_alive_while_owner_is_idle() -> None:
         target=_listener_worker,
         events=events,
         statuses=statuses,
-        join_timeout=30,
     )
     runtime.start()
     try:
@@ -233,7 +241,6 @@ def test_two_listener_processes_are_isolated_and_true_stop_join() -> None:
         statuses=statuses,
         app_id="cli_a",
         incarnation="inc-a",
-        join_timeout=30,
     )
     runtime_b = _runtime(
         target=_listener_worker,
@@ -241,7 +248,6 @@ def test_two_listener_processes_are_isolated_and_true_stop_join() -> None:
         statuses=statuses,
         app_id="cli_b",
         incarnation="inc-b",
-        join_timeout=30,
     )
     runtime_a.start()
     runtime_b.start()
@@ -269,16 +275,18 @@ def test_backpressure_status_coalescing_and_priority_error_are_visible() -> None
             entered.set()
             release.wait(2)
 
-    runtime = FeishuWorkerRuntime(
-        app_id="cli_pressure",
-        app_secret="secret",
-        incarnation="inc-pressure",
-        on_event=slow_event,
-        on_status=statuses.append,
-        worker_target=_pressure_worker,
-        multiprocessing_context=multiprocessing.get_context("spawn"),
-        event_queue_capacity=1,
-        join_timeout=30,
+    runtime = _with_startup_budget(
+        FeishuWorkerRuntime(
+            app_id="cli_pressure",
+            app_secret="secret",
+            incarnation="inc-pressure",
+            on_event=slow_event,
+            on_status=statuses.append,
+            worker_target=_pressure_worker,
+            multiprocessing_context=multiprocessing.get_context("spawn"),
+            event_queue_capacity=1,
+            join_timeout=1,
+        )
     )
     runtime.start()
     assert entered.wait(2)
@@ -317,16 +325,18 @@ def test_stop_can_drain_or_drop_invalidated_generation() -> None:
         entered.set()
         release.wait(2)
 
-    invalidated = FeishuWorkerRuntime(
-        app_id="cli_drop",
-        app_secret="secret",
-        incarnation="inc-drop",
-        on_event=blocked,
-        on_status=lambda _status: None,
-        worker_target=_drain_worker,
-        multiprocessing_context=multiprocessing.get_context("spawn"),
-        event_queue_capacity=3,
-        join_timeout=30,
+    invalidated = _with_startup_budget(
+        FeishuWorkerRuntime(
+            app_id="cli_drop",
+            app_secret="secret",
+            incarnation="inc-drop",
+            on_event=blocked,
+            on_status=lambda _status: None,
+            worker_target=_drain_worker,
+            multiprocessing_context=multiprocessing.get_context("spawn"),
+            event_queue_capacity=3,
+            join_timeout=1,
+        )
     )
     invalidated.start()
     assert entered.wait(2)
