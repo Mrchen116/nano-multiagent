@@ -221,3 +221,11 @@ Frontend CI 中的新 audit step，既有 59 个 Vitest 文件全部保留。
 
 本修复不改变 Web IM 的用户可观察行为；dependency audit 属于 CI / 开发安全约束，按
 `docs/specs/CONTRIBUTING.md` 判定为 `no spec delta`，不修改 `docs/specs/im/`。
+
+### Review 与 final sync
+
+- 独立 finder 对 `d5274646e85033579e9ea1e4802960fd1c075b6f..e251c2a8c` 的七个审查角度均未发现候选问题，输出为 `[]`；独立 verifier 对零候选复核后同样输出 `[]`。
+- 实施完成后已 rebase 到 `origin/main@1a0fb9ea922c33551b2c5bbb3bf440102e3ddae6`。新增 upstream 内容只包含 `bugfix-496` 与 `bugfix-497` 的 active incident 文档，与本单元没有代码或文档所有权重叠；实现 diff 未变，因此保留上述 code-review、测试、build 与浏览器门禁结论。
+- final-sync 后 `scripts/docs-check` 通过（`192` sources / `65` routes），`ruff check .` 与 `ruff format --check .` 通过（`812` files），`git diff --check` 通过。
+- 与 GitHub Frontend job 等价的独立 clean 运行 `npm ci && npm audit --audit-level=critical && npm run test` 通过，结果仍为 `59` files / `555` tests。
+- `origin/main@1a0fb9ea9` 的 GitHub CI 两个 job 均为 green。本机把 Python 与 Frontend 两个完整 job 同时运行时触发资源竞争；拆开后 Frontend 全绿，Python 全量仅剩四个本单元未改动的 Feishu multiprocessing 测试在 macOS xdist 全套件上下文失败，而相同失败集合的聚焦运行 `13 passed`。本单元不改 Python 代码或测试，不跨范围处理该本机并发问题；最终以 PR 的独立 Linux runners 必需检查为交付门禁。
