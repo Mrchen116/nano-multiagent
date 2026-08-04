@@ -177,3 +177,32 @@ All checks passed. Ready for PR.
 - 无。
 
 All checks passed. Ready for PR.
+
+# Corrected Delta Reconciliation
+
+> Validation snapshot: `202949e2fb81ee3ed33443e5e1985a7b9ba49562 → 55d3a5c268a7a500de2dc186480074b07590a64f`
+
+## Summary
+
+- Mode: `corrected-delta`
+- Outcome: `aligned`
+- requires_full_verification: `false`
+- Reconciled delta: `specs/gateway/external-channels.md`
+
+## Requirement and Scenario Reconciliation
+
+| Delta item | Final implementation evidence | Final test / product evidence | Outcome |
+|---|---|---|---|
+| Requirement: listener 与创建它的 Gateway 共享退出生命周期，重启只保留当前 listener，空闲不触发退出或重连 | worker bootstrap 在 listener target 前启动只等待 multiprocessing parent sentinel 的 watcher，sentinel 就绪后立即结束 worker（`src/personal_assistant/channels/feishu/worker.py:200-220`）；正常关闭仍使用既有 stop/join/terminate/kill（`:331-350`） | Round 2 真栈同时覆盖正常 stop/start、异常 owner death、逐条恢复消息与 10 秒 idle（`regression.md:148-176`）；最终完整 worker 文件为 `8 passed, 2 warnings in 38.13s` | aligned |
+| Scenario: 正常停止或重启时回收旧 listener | parent 存活时 sentinel 不触发；`stop()` 设置 stop event 并完整 reap worker（`src/personal_assistant/channels/feishu/worker.py:331-375`） | 永久回归断言两个真实 spawn listener 均被正常 stop/join，且无需 terminate（`tests/unit/personal_assistant/test_feishu_worker_runtime.py:222-250`）；Round 2 证明旧 identity 消失且新 Gateway 只有一个 current listener（`regression.md:150-150,162-163`） | aligned |
+| Scenario: owner 未执行清理便消失后 3 秒内回收 listener | watcher 等待创建者 sentinel，并以进程级退出让 OS 回收 listener 持有的连接与 IPC（`src/personal_assistant/channels/feishu/worker.py:200-220`） | 两级真实 spawn 回归先确认 owner 原 process birth 消失，再以默认 3 秒上限等待 worker 原 birth 消失（`tests/unit/personal_assistant/test_feishu_worker_runtime.py:126-165`）；Round 2 真栈测得 `0.004s` 且无超时清理参与（`regression.md:163-163`） | aligned |
+| Scenario: 异常退出后按顺序恢复稳定消息路径 | 当前 listener 仍复用既有消息、回复和 shadow 路径；本 unit 只消除旧 listener 的存活与抢占条件，未修改消息语义 | Round 2 在确认唯一 current listener 后按“发一条、等待 exact reply、再发下一条”发送 A/B/C；三条飞书消息均恰有一次回复（`regression.md:152-152,169-170,188-190`） | aligned |
+| Scenario: parent 存活时空闲不改变 listener 状态 | watcher 只等待 parent sentinel，没有消息空闲计时器、健康轮询或主动重连逻辑（`src/personal_assistant/channels/feishu/worker.py:200-218`） | 永久回归冻结 worker PID + birth，在 owner 存活且无入站期间持续断言同一 worker 存活（`tests/unit/personal_assistant/test_feishu_worker_runtime.py:200-219`）；Round 2 真栈空闲 10 秒时同一 Gateway/worker birth、唯一 listener 与 `connected + fresh` 均保持不变（`regression.md:176-176`） | aligned |
+
+## Uncovered Observable Behavior
+
+无。最终产品/测试 delta 只引入并验证上述 owner-liveness 行为；没有新增未写入 delta-spec 的用户可观察变化。Round 2 记录的 #234 状态投影与 #231 shadow 双写已由同 fixture 的 origin/main 基线和独立 issue 证明为单元外既有行为（`regression.md:178-208`），不属于 bugfix-496 的 corrected delta，也不要求在本 unit 内修复。
+
+## Conclusion
+
+`external-channels.md` 与最终实现、永久回归和 Round 2 产品证据一致；无需重新执行 full verification。
