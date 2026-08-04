@@ -111,4 +111,99 @@ Issue：https://github.com/Mrchen116/nano-multiagent/issues/225
 
 ## 修复
 
+`IMShadowConversationSync` 继续在请求 IM 前用本地 owner 建立 durable source fact，因而
+IM 离线时不会丢失外部事件；但该值现在只作为离线期的暂存身份。IM 恢复后，同步器先从
+`GET /im/v1/me` 得到 token 对应的 user/owner identity，再通过 owner-scoped
+`GET /im/v1/nodes` 严格确认本 Gateway 的 `node_id` 确实绑定到该 owner。只有这项门禁通过，
+stale saga 才能在一个 SQLite 事务中把 `owner_id` 校正为鉴权用户，并追加
+`shadow_owner_recovered:<old>-><authenticated>` 诊断；未绑定节点或另一 owner 的 token
+只能让 shadow 保持 pending，不能接管外部历史。
+
+校正刻意保留原 `saga_id`：已持久化的 Agent output、pending configuration boundary 和 IM
+caller idempotency key 都已引用该 identity。`prepare()` 也会先按不含可校正 owner 的稳定
+provider event identity 查找已有 saga，保证运维者随后纠正 `config.node.user_id` 时，同一
+事件仍复用原事务，而不是按新 owner 派生第二个 saga。恢复顺序仍是 user anchor → Agent
+output → boundary，重复 recovery 不会重复写入。运行时告警在 owner 校正事务成功返回后才
+记录，避免数据库失败时留下虚假的“已恢复”信号。
+
+本次不修改 `config.yaml`，也不改变 Gateway WebSocket 注册和 IM node bind 规则；生产组合
+仅把既有 `config.node.node_id` 传给 shadow sync，用现有 owner-scoped nodes API 复用同一条
+durable owner 权限边界。
+
+实现提交：`cb8870dce`（`fix(gateway): recover stale shadow saga owner`）、`fce818b0c`
+（`fix(gateway): authorize shadow owner recovery`）。
+
 ## 验证
+
+### Red / Green 与回归保护
+
+- Red（修复前）：
+  `pytest -q tests/unit/personal_assistant/test_gateway_im_relay.py` → `2 failed`；当前事件和
+  restart recovery 都在 `configured node owner differs from authenticated IM owner` 处转成
+  `ShadowSyncPendingError`。
+- Green（修复后）：同一文件 → `2 passed`。测试覆盖 stale config 下当前消息、已有 stale
+  pending saga、已持久 Agent final output、pending boundary promotion、durable diagnostic，
+  并重复执行 recovery 证明不会重复 shadow 用户消息或 Agent 回复。
+- 首轮独立 code review 后的定向回归：
+  `pytest -q tests/unit/personal_assistant/test_gateway_im_relay.py tests/unit/personal_assistant/test_gateway_shadow_sync.py tests/unit/personal_assistant/test_connection_ready_shadow_recovery.py tests/unit/personal_assistant/test_gateway_build_runtime.py`
+  → `25 passed`。新增覆盖另一 owner token 和 ownerless node 均不能改写 pending saga，以及
+  运维者纠正本地 owner 后重放同一 provider event 仍复用原 saga/anchor。
+- 相关扩展：
+  `pytest -q tests/unit/personal_assistant/test_gateway_im_relay.py tests/unit/personal_assistant/test_gateway_shadow_sync.py tests/unit/personal_assistant/test_connection_ready_shadow_recovery.py tests/im_service/integration/test_gateway_auth_boundary.py::test_authenticated_wrong_owner_cannot_replace_bound_node_socket_or_key tests/im_service/integration/test_account_binding_api.py::test_bind_is_same_owner_idempotent_and_rejects_cross_owner_takeover`
+  → `18 passed`。其中两条 IM 集成测试确认跨 owner node register/bind 门禁未被放宽。
+- Gateway/IM 风险扩展：
+  `pytest -qq --disable-warnings tests/unit/personal_assistant tests/im_service/integration/test_messages_api.py tests/im_service/integration/test_gateway_auth_boundary.py tests/im_service/integration/test_account_binding_api.py`
+  → 退出码 0（`808 tests collected`）。
+- 静态检查：
+  `ruff check src/personal_assistant/gateway/composition.py src/personal_assistant/gateway/shadow_saga.py src/personal_assistant/gateway/shadow_sync.py tests/unit/personal_assistant/test_gateway_im_relay.py tests/unit/personal_assistant/test_gateway_shadow_sync.py`
+  → passed。
+- 首轮独立 code review 找到并确认 3 项阻断问题：跨 owner token 可接管 stale saga、修正配置
+  后 owner-dependent saga id 会分叉、恢复事务失败前可能先打印成功告警。修正后由独立 verifier
+  仅对这 3 项做 closure，结论 `3/3 closed`；其定向测试为 `14 passed`。
+- 最终本地 CI（`2026-08-04T03:16:15Z`）：documentation integrity、全仓 ruff check、
+  ruff format check、`pytest -m "not e2e" -n 4 --dist worksteal`（`2840 passed`）及前端
+  `npm run test` 全部通过。首次把 Python 与前端全套同时运行时，有一条 40ms idle watchdog
+  时序测试受资源竞争超时；该用例单独连续 `5/5 passed`，随后单独重跑完整 Python gate 全绿。
+- 最终同步（`2026-08-04T04:15:52Z`）：effective base 前进到 `1a0fb9ea9`，增量仅新增
+  `bugfix-497` incident，无代码、canonical spec 或测试变化。该 incident 的根因是 live 富气泡
+  与 durable mirror 缺少共同消息身份，并明确要求保住 bugfix-491 的 stale-owner recovery；
+  不改变本 unit 的 owner 校正、node-owner 授权或 provider-event saga identity。由此保留
+  已通过的真实入口和 code-review 结论；rebase 后 docs integrity、聚焦 ruff 及 4 个相关
+  测试文件重跑通过（`25 passed`）。
+- 二次最终同步（`2026-08-04T04:20:45Z`）：effective base 前进到 `be61e2d72`，增量仅为
+  `bugfix-496` 的 Feishu listener parent-liveness 设计、design review 和 active delta-spec。
+  方案把后续产品修改限定在 `channels/feishu/worker.py`，明确 IM 与 shadow 语义不变；其三
+  nonce shadow 断言只是复用 current behavior。该增量仍未触及本 unit 代码、canonical spec
+  或测试，故真实入口与 code-review 继续 retained；rebase 后 docs integrity、聚焦 ruff 与
+  相关测试再次通过（`25 passed`）。
+
+### 隔离真栈
+
+- Claim：stale owner 的 durable Feishu source fact 通过真实 IM HTTP 鉴权后，能补齐唯一影子
+  会话中的用户消息和已持久 Agent 回复，同时提升原 saga 的 boundary，且二次恢复无重复。
+- Baseline：`unit/bugfix-491`，`fce818b0c`；worktree
+  `.worktrees/unit-bugfix-491`；`scripts/e2e-up.sh` 启动隔离 IM + Gateway，端口、数据库、
+  node identity、config 和 workspace 均为本 unit 独占。
+- Method：在真实栈存活时登录隔离 IM 用户，选择已注册 Agent；构造带
+  `connector_account_id + provider_event_id` 的规范化 Feishu external event，先以
+  `demo-user` 持久化 user saga、Agent final output 和 boundary callback，再让
+  `IMShadowConversationSync.recover_pending()` 经真实 `/im/v1/me`、owner-scoped `/im/v1/nodes`、external
+  find-or-create 与 message HTTP API 恢复两次；最后从用户侧 REST 列出 conversation 和
+  timeline。
+- Result：pass。owner 校正为真实鉴权 UUID；匹配影子会话恰好 1 个；timeline 中 user
+  `bugfix-491 live user message` 和 Agent `bugfix-491 live agent reply` 各 1 条；pending saga
+  与 pending output 都为 0；boundary promotion 为 1；durable diagnostic 为
+  `shadow_owner_recovered:demo-user-><authenticated>`。验证后 `e2e-down.sh` 已停止进程并确认
+  隔离 IM 端口释放。
+- Limit：隔离 node 没有 static 或 managed Feishu credential，仓库也没有可稳定重放的
+  Feishu/Lark fixture，因此没有连接第三方飞书 WebSocket 或向真实飞书账号发消息。证据覆盖
+  本次根因所在的 external shadow adapter → durable SQLite → 真实 IM HTTP/DB 跨进程链路；
+  Feishu SDK 收发和真实 LLM 回复继续由既有 channel tests/历史 live 验收约束，本轮不把它们
+  冒充为已重新实测。
+
+### Canonical spec 对账
+
+No spec delta。本修复恢复 `docs/specs/gateway/relay-protocol.md` 已有的「Gateway 重启或 IM
+恢复后按稳定事件身份补齐 user/Agent shadow mirror 且幂等」契约，以及
+`docs/specs/gateway/external-channels.md` 已有的「飞书主路径不因 shadow sync 失败而阻塞、
+飞书用户消息和回复最终出现在同一内部影子会话」契约；没有新增或改变长期对外行为。
