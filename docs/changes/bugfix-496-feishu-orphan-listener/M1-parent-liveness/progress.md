@@ -28,7 +28,7 @@
 
 - Claim：owner-death 回归与既有 worker 行为同时成立。
 - Method：`PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/pytest -q tests/unit/personal_assistant/test_feishu_worker_runtime.py`；Ruff 与 format check 覆盖两个修改文件。
-- Result：整文件单次 `8 passed`；owner-death 探针用独立 subprocess 隔离异常 owner 的 resource tracker，startup 通过独立 IPC outcome 与 45 秒建桩预算和 owner 死后的 3 秒契约分离；parent-alive idle 明确观察同一 worker birth 后正常 stop。pytest 进程没有 semaphore leak warning，静态检查通过。
+- Result：整文件单次 `8 passed`；owner-death 探针用独立 subprocess 隔离异常 owner 的 resource tracker，startup 通过独立 IPC outcome 与 45 秒建桩预算和 owner 死后的 3 秒契约分离；子解释器固定从当前 unit 的 `src` 导入，超时或中断会回收 probe 进程组；parent-alive idle 明确观察同一 worker birth 后正常 stop。pytest 进程没有 semaphore leak warning，静态检查通过。
 - Locator：`src/personal_assistant/channels/feishu/worker.py` 与 `tests/unit/personal_assistant/test_feishu_worker_runtime.py`。
 - Limit：fake target 只替代外部飞书 SDK；真实 WebSocket、重启、消息与页面状态由独立 product reviewer 报告持有。
 
@@ -37,3 +37,10 @@
 - `067d1763b` — parent-sentinel worker 实现、owner-death 回归与本记录初稿。
 - `d0331f25b` — 回填首轮实现证据。
 - `d14f0db00` — 关闭 verifier R1-C1/R1-W1 与 code review C1/C2 的测试确定性、idle 反例和 tracker 隔离。
+- `d8d6d8472` — 固定 probe 的 unit checkout，并在 timeout/interrupt 时回收其完整进程组。
+
+## 独立门禁
+
+- Product review Round 2：`pass-with-issues`，本 unit 0 blocking；真实 stop/start、异常 owner death、离线页、逐条飞书回复和 10 秒 idle 均通过，主线既有 #231/#234 记录为 out-of-unit。
+- Verifier Round 3：`pass`，完整 worker 文件 `8 passed`，无 resource tracker warning；checkout pin 与 timeout/interrupt 清理均被独立验证。
+- Code review：首轮两个确认问题均位于测试 harness 并已关闭；对最终修复提交的 patch follow-up 无候选问题。
