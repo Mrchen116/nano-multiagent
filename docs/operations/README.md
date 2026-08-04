@@ -6,7 +6,8 @@
 
 | 任务 | 先读 |
 |---|---|
-| 第一次启动本机 IM + Gateway + Web IM | [`local-stack.md`](local-stack.md) |
+| 个人生产：mini 唯一 IM + 本机/mini 双 Gateway | [`prod-fleet.md`](prod-fleet.md)；执行部署用 skill [`prod-fleet-deploy`](../../.claude/skills/prod-fleet-deploy/SKILL.md) |
+| 第一次启动本机 IM + Gateway + Web IM（开发主链路） | [`local-stack.md`](local-stack.md) |
 | 编写 Gateway 配置，执行 start / stop / restart | [`gateway.md`](gateway.md) |
 | 配置飞书通道或 `web_search` provider | [`gateway.md`](gateway.md) |
 | 页面打不开、节点离线、Gateway 启动失败或通道异常 | [`troubleshooting.md`](troubleshooting.md) |

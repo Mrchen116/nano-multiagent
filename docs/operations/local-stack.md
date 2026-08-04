@@ -1,6 +1,6 @@
 # Local Stack
 
-本文用于启动日常使用的本机 IM + Gateway + Web IM 主链路。临时开发验证需要隔离端口、config、数据库和进程，请改用 [`../development/worktree-runtime.md`](../development/worktree-runtime.md)。
+本文用于启动**本机一体**的 IM + Gateway + Web IM 开发主链路（IM 也跑在本机 `:8011`）。个人生产舰队是另一套拓扑——IM 只在 Mac mini，本机只跑第二 Gateway——见 [`prod-fleet.md`](prod-fleet.md)。临时开发验证需要隔离端口、config、数据库和进程，请改用 [`../development/worktree-runtime.md`](../development/worktree-runtime.md)。
 
 ## 前置条件
 

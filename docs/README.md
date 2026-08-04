@@ -41,7 +41,7 @@
 | 测试如何分层、什么值得进入长期测试 | [`development/testing.md`](development/testing.md) | 测试规范 |
 | 一次验证如何形成可复查证据、结果保存和归并到哪里 | [`development/evidence.md`](development/evidence.md) | Evidence 能力边界与流转 |
 | 哪些真实用户旅程必须长期守护 | [`development/e2e-critical-paths.md`](development/e2e-critical-paths.md) | 关键路径与 E2E 对账 |
-| 服务如何启动、观察、恢复和排障 | [`operations/`](operations/README.md) | 按任务进入主链路、Gateway 或排障文档 |
+| 服务如何启动、观察、恢复和排障 | [`operations/`](operations/README.md) | 开发主链路、个人生产舰队、Gateway 或排障 |
 | LLM provider、本地代理与交互日志如何联调 | [`development/llm-integration.md`](development/llm-integration.md) | 模型与代理入口 |
 | 仓库代码应遵守哪些编写规范 | [`development/coding-guidelines.md`](development/coding-guidelines.md) | 跨模块通用编码规范；当前包含注释与 docstring |
 | Agent 开始任务前必须知道什么 | [`../AGENTS.md`](../AGENTS.md) | 仓库级指令、关键入口与运行约束 |
