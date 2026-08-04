@@ -391,6 +391,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
             base_url=config.im_service.url,
             token_getter=token_getter,
             owner_user_id=_owner_user_id,
+            node_id=config.node.node_id,
             saga_store=ExternalShadowSagaStore(
                 db_path=runtime_dir / "external_shadow_sagas.sqlite3"
             ),

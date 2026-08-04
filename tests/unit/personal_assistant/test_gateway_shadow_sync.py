@@ -58,6 +58,10 @@ def _build_sync(
         )
         if request.url.path == "/im/v1/me":
             return httpx.Response(200, json={"id": "owner-a"})
+        if request.url.path == "/im/v1/nodes":
+            return httpx.Response(
+                200, json=[{"node_id": "node-a", "owner_id": "owner-a"}]
+            )
         if request.url.path == "/im/v1/conversations/external/find-or-create":
             return httpx.Response(201, json={"id": "shadow-a"})
         if request.url.path == "/im/v1/conversations/shadow-a/messages":
@@ -73,6 +77,7 @@ def _build_sync(
         base_url="http://im.local",
         token_getter=token_getter,
         owner_user_id="owner-a",
+        node_id="node-a",
         transport=httpx.MockTransport(handler),
         saga_store=saga_store,
     )
@@ -169,7 +174,7 @@ def test_durable_saga_reuses_confirmed_anchor_after_gateway_restart(
         if saga_store.pending()
         else saga_store.require(first.shadow_saga_id or "")
     )
-    assert requests[2]["idempotency_key"] == saga.shadow_user_idempotency_key
+    assert requests[3]["idempotency_key"] == saga.shadow_user_idempotency_key
 
 
 def test_recovery_replays_pending_durable_saga(tmp_path: Path) -> None:
@@ -267,9 +272,11 @@ def test_recovery_interleaves_each_user_anchor_with_its_agent_snapshots(
 
     assert [request["path"] for request in requests] == [
         "/im/v1/me",
+        "/im/v1/nodes",
         "/im/v1/conversations/external/find-or-create",
         "/im/v1/conversations/shadow-a/messages",
         f"/im/v1/conversations/shadow-a/external-agent-messages/{shadow_message_ids[0]}",
+        "/im/v1/nodes",
         "/im/v1/conversations/external/find-or-create",
         "/im/v1/conversations/shadow-a/messages",
         f"/im/v1/conversations/shadow-a/external-agent-messages/{shadow_message_ids[1]}",
@@ -344,6 +351,7 @@ def test_recovery_preserves_order_when_first_user_anchor_already_exists(
     assert [request["path"] for request in requests] == [
         f"/im/v1/conversations/shadow-a/external-agent-messages/{shadow_message_ids[0]}",
         "/im/v1/me",
+        "/im/v1/nodes",
         "/im/v1/conversations/external/find-or-create",
         "/im/v1/conversations/shadow-a/messages",
         f"/im/v1/conversations/shadow-a/external-agent-messages/{shadow_message_ids[1]}",

@@ -155,4 +155,83 @@ Issue #219 创建前，CI 的可观察成功条件始终只有“安装成功 + 
 
 ## 修复
 
+M1-fix 在 Node `20.20.2` / npm `10.8.2` 下对明确列出的依赖执行 lock-only 更新，没有运行
+`npm audit fix`，也没有扩大 `package.json` 的声明范围。最终 lockfile 只更新了这批直接或必要传递版本：
+
+| dependency | before | after | 处置 |
+|---|---:|---:|---|
+| `react-router-dom` / `react-router` | `7.13.1` | `7.18.2` | 消除除 RSC-only 项之外的 Router advisory；继续使用现有 browser/data-router API |
+| `vite` | `7.3.1` | `7.3.6` | 消除当前 7.x dev-server high advisories |
+| `vitest` 及同版本内部包 | `3.2.4` | `3.2.7` | 消除 `GHSA-5xrq-8626-4rwp` critical |
+| `picomatch` | `4.0.3` | `4.0.5` | 消除 glob 相关 high |
+| `postcss` / `nanoid` | `8.5.8` / `3.3.11` | `8.5.25` / `3.3.17` | 消除 PostCSS high；`nanoid` 随其受支持范围更新 |
+| `ws` | `8.19.0` | `8.21.2` | 消除测试环境 WebSocket high |
+
+`.github/workflows/ci.yml` 的 Frontend job 在完整 `npm ci` 后新增
+`npm audit --audit-level=critical`。它没有 `--omit=dev`，所以测试与构建工具链仍在审计范围内；
+只剩 high 时命令会保留报告但返回成功，新的 critical 会直接阻断 job。本次没有建立 advisory
+ignore、allowlist 或其他旁路。
+
+最终 audit 仍把 `GHSA-qwww-vcr4-c8h2` 聚合显示为 `react-router` / `react-router-dom`
+两个 high entries。GitHub reviewed advisory 明确限定为 unstable RSC APIs；本仓生产入口只有
+`createBrowserRouter` + `RouterProvider` 的浏览器 SPA，代码、manifest、Vite 配置和真实入口均没有
+SSR、Framework Mode、RSC 或 server action。因此按 Q1 条件化接受，不升级到 React Router 8.3；
+一旦路由运行模式或 advisory 适用条件变化，必须重新审计。
+
+剩余两个 low 分别是开发期 `@babel/core` source-map 任意文件读取和 Windows 上的 `esbuild`
+dev-server 文件读取。本仓生产由 IM host 提供静态 build，不接收不可信 source map，也不在 Windows
+运行生产 dev server；本 milestone 不为 low 扩大 Babel/esbuild 更新面，audit 输出继续保留它们。
+
+现有完整 Vitest 与生产 build 已覆盖依赖升级的兼容性；没有新增平行测试文件。长期回归 owner 是
+Frontend CI 中的新 audit step，既有 59 个 Vitest 文件全部保留。
+
 ## 验证
+
+### Audit Red / Green
+
+- Baseline: `origin/main@d5274646e85033579e9ea1e4802960fd1c075b6f`，Node `20.20.2`，
+  npm `10.8.2`；clean `npm ci` 后 `npm audit --json` 为
+  `1 critical / 6 high / 2 low`，`npm audit --audit-level=critical` 退出码 `1`。
+- Lockfile 更新后：`package-lock.json` SHA-256 为
+  `bdbed83747f3e03bc15b4ed39ed52288fdbc93606e468753ade0835e59e5b750`；clean `npm ci`
+  前后哈希一致。
+- Green: 同一环境执行 `npm audit --audit-level=critical` 退出码 `0`；完整 audit 为
+  `0 critical / 2 high / 2 low`。两个 high 都来自同一个 RSC-only advisory，没有未处置的
+  applicable critical/high。
+
+### 测试与构建
+
+- `CI=1 NO_COLOR=1 npm run test -- --reporter=dot`：`59` files / `555` tests passed，
+  Vitest `3.2.7`。输出中的既有 React `act()` / user-stream console 噪声在升级前也存在，已由
+  active `bugfix-495` 单独处理，本 unit 没有改动或掩盖它。
+- `npm run build`：TypeScript build 与 Vite `7.3.6` production build 通过，转换 `501` modules，
+  产出静态 SPA；既有 chunk-size warning 不变。
+
+### 真实静态入口
+
+- Method: 在 unit worktree build 之后，用隔离端口 `53450` 启动真实 `IM.app`，由 IM host 提供
+  `dist`；使用 Playwright headed Chromium 分别验证 desktop 与 `390x844` mobile viewport。
+- Result: `/` 正确跳转 `/login`；创建隔离账号后进入 `/chat`；desktop 导航到
+  `/settings/agents` 并 hard reload 仍成功；mobile 底栏返回 `/chat`。根 HTML、JS、CSS、favicon、
+  register、sync、agents、nodes、conversations 请求均为 `2xx`，console 为 `0 errors / 0 warnings`。
+- Limit: 本次不改变 Gateway/LLM 数据面，因此没有启动 Gateway 或调用模型；验证覆盖依赖升级影响的
+  静态入口、Router 导航、响应式入口、console 和 network。浏览器与 IM 进程已关闭，监听端口已释放。
+
+### Canonical spec
+
+本修复不改变 Web IM 的用户可观察行为；dependency audit 属于 CI / 开发安全约束，按
+`docs/specs/CONTRIBUTING.md` 判定为 `no spec delta`，不修改 `docs/specs/im/`。
+
+### Review 与 final sync
+
+- 独立 finder 对 `d5274646e85033579e9ea1e4802960fd1c075b6f..e251c2a8c` 的七个审查角度均未发现候选问题，输出为 `[]`；独立 verifier 对零候选复核后同样输出 `[]`。
+- 实施完成后已 rebase 到 `origin/main@1a0fb9ea922c33551b2c5bbb3bf440102e3ddae6`。新增 upstream 内容只包含 `bugfix-496` 与 `bugfix-497` 的 active incident 文档，与本单元没有代码或文档所有权重叠；实现 diff 未变，因此保留上述 code-review、测试、build 与浏览器门禁结论。
+- final-sync 后 `scripts/docs-check` 通过（`192` sources / `65` routes），`ruff check .` 与 `ruff format --check .` 通过（`812` files），`git diff --check` 通过。
+- 与 GitHub Frontend job 等价的独立 clean 运行 `npm ci && npm audit --audit-level=critical && npm run test` 通过，结果仍为 `59` files / `555` tests。
+- `origin/main@1a0fb9ea9` 的 GitHub CI 两个 job 均为 green。本机把 Python 与 Frontend 两个完整 job 同时运行时触发资源竞争；拆开后 Frontend 全绿，Python 全量仅剩四个本单元未改动的 Feishu multiprocessing 测试在 macOS xdist 全套件上下文失败，而相同失败集合的聚焦运行 `13 passed`。本单元不改 Python 代码或测试，不跨范围处理该本机并发问题；最终以 PR 的独立 Linux runners 必需检查为交付门禁。
+
+#### PR 开放后的 final-sync 恢复
+
+- PR #233 开放后，`origin/main` 从 `1a0fb9ea922c33551b2c5bbb3bf440102e3ddae6` 前进到 `be61e2d72a5fdd0f725afe837402e96582e5e0ef`。唯一新增提交只加入 `bugfix-496` 的 Feishu listener/Gateway 设计、设计评审、Gateway delta-spec 和 milestone 占位文件；没有修改 `.github/workflows/ci.yml`、`src/IM/frontend/` 或本 unit 的归档目录。
+- 该增量描述未来的 Feishu worker owner-liveness 实现，并明确 IM/前端为 `no spec delta`。它不改变 npm 依赖树、critical audit 策略、前端运行代码、IM 静态托管入口或 bugfix-493 的用户旅程，因此既有 audit、Vitest、production build、真实浏览器和独立 code-review 结论全部 retained。
+- 文档集合本身发生变化，所以同步后重新执行 `scripts/docs-check` 与 `git diff --check`；rebase 产生的新 PR head 重新等待 GitHub Python/Frontend 两个 required jobs 全绿，不能沿用旧 head 的 CI 状态。
