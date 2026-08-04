@@ -103,3 +103,93 @@ N/A.
 - None.
 
 0 critical issue(s), 1 warning(s) found. Fix before PR.
+
+# Round 2
+
+> Validation snapshot: `02eb5cca7cadf52e68cd02c27cca51355b5c1bc7 → 3436854f9ef46b88ccd7b4ebbf92c86e4c256ce5`
+
+## Summary
+
+Mode: targeted-closure
+Delta range: `4dcd7c5cf82f78cc59923c60c29cebe398a3dd32..3436854f9ef46b88ccd7b4ebbf92c86e4c256ce5`
+Focus issues: W1 — observer 未按已批准设计拆分为事件族 handlers
+requires_full_verification: false
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 1/1 focus issue closed |
+| Correctness | await/detach behavior regression suite passed |
+| Coherence | Followed for D3 targeted scope |
+
+## Focus Verification
+
+- **Single dispatcher and stable families:** `observer()` is now only a typed-scope
+  preparation plus dispatch entry point (`src/personal_assistant/gateway/runtime_delivery/observer.py:1879-1890`).
+  Its closed routing table sends `run_status`/`assistant_message`/`turn_end` to the
+  bubble family, liveness/tool/permission to the process family, and steer/reconcile
+  to the terminal family (`observer.py:1864-1877`).
+- **Shared typed scope:** `_prepare_event()` obtains the sole live
+  `RunDeliveryContext`, performs common shadow/offline ordering gates, and returns
+  `_DeliveryEventScope` with that exact typed context to every family
+  (`observer.py:471-807`). The handlers consume the shared scope at
+  `observer.py:812-1382`, `1384-1638`, and `1640-1862`; they do not accept a map,
+  create a second context store, or reintroduce a string-key mutation façade.
+- **Ownership split preserved:** bubble turn-start and roll branches return their
+  ordering coroutine (`observer.py:829-1270`, `1640-1725`), while ordinary terminal,
+  liveness, tool and permission side effects continue through the injected
+  `RuntimeDeliveryTaskTracker` (`observer.py:1367-1380,1407-1630,1851-1862`).
+  The tracker remains drained before IM transport shutdown (`runtime.py:417-440`).
+- **Typed-only boundary retained:** no production occurrence was found for the removed
+  legacy mirror, mapping façade, terminal dict projection, or store dict fallback.
+
+## Evidence
+
+```text
+PYTHONPATH="$PWD/src" /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest \
+  tests/unit/personal_assistant/test_cron_execution_owner_chain.py \
+  tests/unit/personal_assistant/test_external_visible_delivery.py \
+  tests/unit/personal_assistant/test_gateway_relay_lifecycle.py \
+  tests/unit/personal_assistant/test_gateway_shadow_sync.py \
+  tests/unit/personal_assistant/test_heartbeat_session_trim.py \
+  tests/unit/personal_assistant/test_permission_pipeline.py \
+  tests/unit/personal_assistant/test_reconcile_preserves_tool_input.py \
+  tests/unit/personal_assistant/test_relay_kernel_message_id.py \
+  tests/unit/personal_assistant/test_runtime_delivery_stream.py \
+  tests/unit/personal_assistant/test_steer_bubble_roll.py \
+  tests/unit/personal_assistant/test_steer_reply_relay_regression.py \
+  tests/unit/personal_assistant/test_tool_end_detail_passthrough.py \
+  tests/unit/test_inbound_pipeline_streaming.py
+# 144 passed, 2 third-party deprecation warnings
+
+PYTHONPATH="$PWD/src" /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest \
+  tests/unit/personal_assistant/test_runtime_delivery_task_tracker.py \
+  tests/unit/personal_assistant/test_gateway_shutdown_resource_graph.py \
+  tests/unit/personal_assistant/test_gateway_shutdown_timeout_isolation.py \
+  tests/contract
+# 145 passed, 2 third-party deprecation warnings
+
+/Users/czj/Repos/nano-multiagent/.venv/bin/ruff check \
+  src/personal_assistant/gateway/runtime_delivery/observer.py \
+  tests/e2e/critical_paths/test_tool_call_reply_critical_path.py
+# All checks passed
+```
+
+The fix delta changes no production behavior outside the verified refactor. Its
+additional E2E fixture and reviewer-runbook correction are not a substitute for the
+separate product-review gate.
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+- None.
+
+### WARNING（提 PR 前必须修）
+
+- None. W1 is closed.
+
+### SUGGESTION（可以修）
+
+- None.
+
+All checks passed. Ready for PR.
