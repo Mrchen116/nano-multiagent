@@ -1,0 +1,88 @@
+# refactor-480 — 验收报告
+
+> 对齐：motivation.md 的用户侧验收标准
+
+> Validation snapshot: `02eb5cca7cadf52e68cd02c27cca51355b5c1bc7 → ff5b2f93e179b0324b1ca100714f8b3620787a13`
+
+> Review round: 1 · mode: full · validated_at: `ff5b2f93e`
+
+## Verdict
+
+**fail**
+
+**Highest Required Action:** `fix-implementation`
+
+隔离真 IM + Gateway 与 freshly built Web IM 中，普通 direct、群聊 @、长回复的 provisional 到单一终态聚合、以及终态后的下一轮回复均可见；但要求调用 bash 的真实用户请求最终在聊天中显示了原始 `<tool_calls>…</tool_calls>` 标记，没有工具事件卡片、工具结果或后续 `TOOL_OK_REF480`。这直接违反本 unit 的“工具与权限事件穿过投递链”不变性，第一轮按严格门槛不能交付。
+
+## User Journeys Exercised
+
+1. **Direct baseline**：在 fresh Web IM 以 e2e 已绑定的 `nano` 测试用户打开 `plato` direct chat，发送 `REF480_DIRECT_20260805`，先看到 provisional agent bubble，随后看到 `DIRECT_OK_REF480` 终态。
+2. **Tool delivery**：同一 direct chat 要求 `plato` 用 bash 执行 `printf TOOL_OK_REF480`。用户面没有卡片或结果，只看到完整原始 tool-call markup。
+3. **Group / rolling / terminal cleanup**：创建 `REF480 Group`，`@plato` 正常回复 `GROUP_OK_REF480`；随后发送 30 项长回复，先有 provisional bubble，后在同一 Agent 回复位置完成并显示 `ROLL_END_REF480`；再发送 `REF480_CLEANUP_20260805`，得到干净的新一轮 `CLEANUP_OK_REF480`。
+4. **External-channel availability check**：在该 Agent 的真实 Web IM `Channels` 页确认显示 “No external channels yet”；本轮隔离栈未提供 design runbook 所述的仓库测试 channel/fixture，未伪造外部通道或以源码/单测替代。
+
+本轮服务接管：先执行 `e2e-down.sh`，使用主仓既有前端依赖在本 worktree fresh build `src/IM/frontend/dist/`，再按 runbook 启动 `e2e-up.sh`。实际 Web IM 首页资产为 `assets/index-e6lX1o-i.js` 与 `assets/index-BXWCVq0P.css`；IM `/openapi.json` 与 worktree IM/Gateway PID 均在旅程前健康。
+
+## Reference Artifacts Reviewed
+
+N/A。motivation/design 未引用前端原型、截图或 must-match 视觉 artifact。
+
+## Issues
+
+### R1-1 — 工具调用在聊天中泄漏为原始标记
+
+- **Severity:** major
+- **Regression Relation:** direct
+- **Recommended Action:** `fix-implementation`
+- **Action Rationale:** 用户请求 Agent 用 bash 执行 `printf TOOL_OK_REF480` 后，direct chat 最终消息是完整的 `<tool_calls><invoke name="bash">…</invoke></tool_calls>` 标记；没有工具执行卡片、完成结果或请求中的 `TOOL_OK_REF480`。这直接不满足 motivation.md “工具与权限事件穿过投递链”的 THEN，主交互可见结果不可接受。
+- **Reproduction:** Web IM → `plato` direct chat → 发送 `REF480_TOOL_20260805: Use the bash tool to run printf TOOL_OK_REF480, then reply with exactly TOOL_OK_REF480.` → 等待终态。
+- **Evidence:** 2026-08-05 01:41 Asia/Shanghai 的真实浏览器 DOM snapshot 中，左侧会话摘要与 Agent 气泡均显示 `<｜｜DSML｜｜tool_calls> … printf TOOL_OK_REF480 … </｜｜DSML｜｜tool_calls>`；页面没有 permission/tool card 或 `TOOL_OK_REF480`。
+
+### R1-2 — 外部通道离线回归无法在承诺的 runbook 环境中验收
+
+- **Severity:** major
+- **Regression Relation:** unclear
+- **Recommended Action:** `fix-implementation`
+- **Action Rationale:** design.md Runbook for Reviewer 声明 external shadow 场景可使用仓库测试 channel/fixture；但本 worktree 的真实 Agent Channels 页面显示 “No external channels yet”。因此无法从真实外部入口验证“IM 离线不阻塞外部回复”，也不能把 Web IM 路径冒充为外部通道。
+- **Evidence:** 2026-08-05 01:47 Asia/Shanghai 的 `plato` → Channels 页面，仅显示 “No external channels yet” 与 “Add channel”。
+
+## 验收标准覆盖
+
+### Requirement: 消息投递保持 — 组内结论: fail
+
+| Scenario | 期望来源 | 验证方式（覆盖它的旅程） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 普通 owner 对话 | motivation.md §消息投递保持 | Journey 1：真 Web IM direct 发送唯一 nonce 并等待终态 | `DIRECT_OK_REF480` 出现在 `plato` direct bubble，且含 Process/用量/elapsed terminal chrome | pass | 用户消息、provisional 与 final reply 均在同一 direct thread 可见。 |
+| Shadow 与 rolling 路径 | motivation.md §消息投递保持 | Journey 3：真 Web IM group @ 提及 + 长 30 项回复 | `GROUP_OK_REF480`；long reply 从空 provisional bubble 聚合为同一位置的 `ROLL_END_REF480` | pass | Scenario 写为 shadow **或** rolling；本轮以 group rolling 条件实际覆盖，且之后下一轮仍可启动。 |
+| IM 离线不阻塞外部 channel | motivation.md §消息投递保持 | Journey 4：检查 runbook 要求的真实 external fixture | Agent Channels 页面无任何 external channel，无法由外部用户发入或观察回发 | inconclusive | 必验前置未落实；见 R1-2。没有用 API 200、单测或源码替代。 |
+
+### Requirement: 交互事件保持 — 组内结论: fail
+
+| Scenario | 期望来源 | 验证方式（覆盖它的旅程） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 工具与权限事件穿过投递链 | motivation.md §交互事件保持 | Journey 2：真实 direct prompt 明确要求 bash 工具 | 用户面显示原始 `<tool_calls>` 标记，没有工具/权限卡片或终态结果 | fail | R1-1。权限卡片也未出现，无法继续 approve/deny 路径。 |
+| 权限等待期间保持运行活性 | motivation.md §交互事件保持 | 通过 Journey 2 尝试到达权限等待 | 未生成可操作的 permission request/card | inconclusive | 不以短时普通回复代替 120s 等待期的 liveness 体验。 |
+| IM 离线时 skill-created 仍同步配置 | motivation.md §交互事件保持 | N/A | N/A | not-applicable | THEN 是 Gateway 内部 side effect，非本 reviewer 的用户可观察验收面；应由 design/worker 行为契约与测试保护。 |
+
+### Requirement: 清理和故障行为保持 — 组内结论: fail
+
+| Scenario | 期望来源 | 验证方式（覆盖它的旅程） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 运行结束、失败或取消 | motivation.md §清理和故障行为保持 | Journey 3 完成后立即开启下一轮 | completed 终态 `ROLL_END_REF480` 后，下一轮得到 `CLEANUP_OK_REF480`，无旧文本串入 | inconclusive | 正常 completed 清理可见；失败与取消的真实用户路径因 R1-1 未能形成可控工具/权限等待，未夸大为全终态通过。 |
+| Gateway 关闭时排空已接收的投递 | motivation.md §清理和故障行为保持 | 尝试依据 runbook 规划 shutdown-with-detached-delivery | 无法在本轮真栈中建立可验证的 detached tool/permission terminal delivery | inconclusive | 不以进程健康检查或单测替代用户可见的 shutdown drain。 |
+
+## Side Findings
+
+- 在两次 pre-terminal DOM snapshot 中，消息输入框为 disabled；本轮未能建立一个持续可操作的长运行来判断它是否违反现有“运行中仍可插话 /stop”体验，因此没有将其定性为本 unit issue。
+- 浏览器自动化宿主记录过与本地产品无关的 Statsig 网络超时；Web IM 本身正常加载、登录、发消息和接收回复，故未计入产品问题。
+
+## 上层文档同步
+
+- [x] `SPEC.md`（跨包顶点架构）：无需更新；本 unit 是 runtime_delivery 内部表征收口，验收未发现跨包边界变化。
+- [x] `docs/specs/gateway/`（长青行为契约层）：无需由 reviewer 直接更新；R1-1 是实现/验收失败，不应以文档追认。
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新。
+- [x] `docs/specs/CONTRIBUTING.md`：无需更新；本 unit 未改变文档体系。
+
+## Recommended Next Step
+
+先派 `fix-implementation` 处理 R1-1，并让可复验的 worktree external channel/fixture 成为 R1-2 的实际前置；修复后本 reviewer 应对工具/权限、外部 IM-offline、失败/取消和 shutdown drain 做定向或完整复验。第一轮没有经验性证据支持 `revise-design`。
