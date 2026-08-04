@@ -445,7 +445,11 @@
       "submit": "Create agent",
       "submitArrow": "Create agent →",
       "cancel": "Cancel",
-      "errorGeneric": "Create failed"
+      "errorGeneric": "Create failed",
+      "unsavedExitTitle": "Unsaved changes",
+      "unsavedExitBody": "You have unsaved changes. Are you sure you want to leave?",
+      "keepEditing": "Keep editing",
+      "leaveWithoutSaving": "Leave without saving"
     }
   },
   "chat": {

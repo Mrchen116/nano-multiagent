@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Label from "@radix-ui/react-label";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useBlocker, useNavigate, useParams } from "react-router-dom";
 
 import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
+import { AgentsRailDesktop } from "./agents-rail-desktop";
 import { PillSelector } from "./pill-selector";
 import { SkillSourceSelector } from "./skill-source-selector";
 import {
@@ -319,10 +320,13 @@ export function AgentCreatePage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const [isDirty, setIsDirty] = useState(false);
+  const allowExitRef = useRef(false);
   const skillsEditedRef = useRef(false);
   const autoDefaultSkillsRef = useRef<string[]>([]);
   const autoDefaultToolsRef = useRef<string[]>([]);
   const toolsEditedRef = useRef(false);
+  const blocker = useBlocker(() => isDirty && !allowExitRef.current);
 
   const nodesQuery = useQuery({
     queryKey: ["settings", "agents", "create", "nodes"],
@@ -410,6 +414,7 @@ export function AgentCreatePage() {
       });
       await queryClient.invalidateQueries({ queryKey: ["settings", "agents"] });
       await queryClient.invalidateQueries({ queryKey: ["settings", "nodes"] });
+      allowExitRef.current = true;
       navigate(`/settings/agents/${created.agent_id}`);
     },
     onError: (error) => {
@@ -425,6 +430,13 @@ export function AgentCreatePage() {
 
   function shouldShowError(field: "agent_id" | "display_name") {
     return (hasSubmitted || touched[field]) && validationErrors[field];
+  }
+
+  function confirmExit() {
+    if (blocker.state === "blocked") {
+      allowExitRef.current = true;
+      blocker.proceed();
+    }
   }
 
   if ((nodesQuery.isLoading || createStateQuery.isLoading) && !capabilities) {
@@ -470,7 +482,7 @@ export function AgentCreatePage() {
 
   const border = "oklch(0.87 0.006 240)";
 
-  return (
+  const createPanel = (
     <form
       data-testid="agent-create"
       className="im-agent-panel"
@@ -563,6 +575,7 @@ export function AgentCreatePage() {
                 onBlur={() => markTouched("agent_id")}
                 onChange={(event) => {
                   setErrorMessage(null);
+                  setIsDirty(true);
                   setDraft({ ...draft, agent_id: event.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, "") });
                 }}
               />
@@ -585,6 +598,7 @@ export function AgentCreatePage() {
                 onBlur={() => markTouched("display_name")}
                 onChange={(event) => {
                   setErrorMessage(null);
+                  setIsDirty(true);
                   setDraft({ ...draft, display_name: event.target.value });
                 }}
               />
@@ -603,6 +617,7 @@ export function AgentCreatePage() {
               placeholder={t("agents.form.identity.descriptionPlaceholder")}
               onChange={(event) => {
                 setErrorMessage(null);
+                setIsDirty(true);
                 setDraft({ ...draft, description: event.target.value });
               }}
             />
@@ -619,6 +634,7 @@ export function AgentCreatePage() {
               onChange={(event) => {
                 setSelectedNodeId(event.target.value);
                 setErrorMessage(null);
+                setIsDirty(true);
               }}
             >
               <option value="">{t("settings.account.defaults.selectNode")}</option>
@@ -639,10 +655,12 @@ export function AgentCreatePage() {
           selectedNodeId={selectedNodeId}
           onCustomPromptChange={(value) => {
             setErrorMessage(null);
+            setIsDirty(true);
             setDraft({ ...draft, custom_prompt: value });
           }}
           onFeatureToggle={(key, value) => {
             setErrorMessage(null);
+            setIsDirty(true);
             // feat-379-M9 (決策 12): tick → add requires_tool to allowlist; untick → keep tool.
             const capFeats = capabilities?.features ?? [];
             const requiresTool = capFeats.find((f) => f.key === key)?.requires_tool ?? null;
@@ -654,6 +672,7 @@ export function AgentCreatePage() {
           }}
           onPolicyChange={(value) => {
             setErrorMessage(null);
+            setIsDirty(true);
             setDraft({ ...draft, group_reply_policy: value });
           }}
         />
@@ -677,6 +696,7 @@ export function AgentCreatePage() {
                 skillsEditedRef.current = true;
                 autoDefaultSkillsRef.current = [];
                 setErrorMessage(null);
+                setIsDirty(true);
                 setDraft({ ...draft, skills });
               }}
             />
@@ -692,6 +712,7 @@ export function AgentCreatePage() {
                 toolsEditedRef.current = true;
                 autoDefaultToolsRef.current = [];
                 setErrorMessage(null);
+                setIsDirty(true);
                 // feat-379-M9 (決策 12): removed tool → uncheck any feature that requires it.
                 const capFeats = capabilities?.features ?? [];
                 const removed = draft.tool_allowlist.filter((t) => !toolAllowlist.includes(t));
@@ -713,6 +734,7 @@ export function AgentCreatePage() {
               value={draft.default_model ?? ""}
               onChange={(event) => {
                 setErrorMessage(null);
+                setIsDirty(true);
                 setDraft({ ...draft, default_model: event.target.value || null });
               }}
             >
@@ -785,6 +807,34 @@ export function AgentCreatePage() {
           </button>
         </div>
       </div>
+      {blocker.state === "blocked" && (
+        <div className={isMobile ? "chat-modal-bottom-sheet" : "chat-modal-backdrop"} role="presentation">
+          <section className="chat-modal" role="dialog" aria-modal="true" aria-labelledby="agent-create-unsaved-title">
+            <header className="chat-modal-header bg-white">
+              {isMobile ? <div className="chat-modal-sheet-handle" aria-hidden="true"><div className="chat-modal-sheet-handle-bar" /></div> : null}
+              <h2 id="agent-create-unsaved-title">{t("agents.create.unsavedExitTitle")}</h2>
+            </header>
+            <div className="chat-modal-body"><p className="m-0 text-sm text-slate-600">{t("agents.create.unsavedExitBody")}</p></div>
+            <footer className="chat-modal-footer bg-white">
+              <button className="chat-modal-btn-ghost" type="button" onClick={() => blocker.reset()}>
+                {t("agents.create.keepEditing")}
+              </button>
+              <button className="chat-modal-btn-primary" type="button" onClick={confirmExit}>
+                {t("agents.create.leaveWithoutSaving")}
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
     </form>
+  );
+
+  if (isMobile) return createPanel;
+
+  return (
+    <div className="flex h-full overflow-hidden">
+      <AgentsRailDesktop isCreatePage />
+      <div className="flex-1 overflow-y-auto bg-[oklch(0.93_0.007_240)]">{createPanel}</div>
+    </div>
   );
 }

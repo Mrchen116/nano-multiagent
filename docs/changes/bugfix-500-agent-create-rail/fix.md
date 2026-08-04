@@ -48,4 +48,14 @@
 
 ## 修复
 
+- 把桌面 Agent rail 提取为 `AgentsRailDesktop`，由详情页和两个新建路由共用；新建状态的 `+ New` 显示为当前、不可重新触发，避免它重置进行中的表单。
+- 桌面新建页使用与详情页相同的 240px rail 和内容滚动容器；移动端仍只显示原有单栏创建页。
+- 任何用户编辑都会标记草稿为未保存，并由路由 blocker 覆盖所有站内导航（包括侧栏、取消、移动端返回、顶部/底部导航、用户菜单和浏览器后退）。用户菜单退出登录也先发起到登录页的路由导航，再清理会话，避免先卸载 blocker。未编辑时仍直接离开；编辑后统一先显示“未保存，是否确认退出？”。选择“继续编辑”保留所有字段，选择“确认退出”才导航到原目标。
+- 成功创建后的既有直接进入新 Agent 详情页行为不变；未扩大到浏览器关闭或刷新保护。
+
 ## 验证
+
+- TDD：先为桌面 rail、空表单直接切换、填写后侧栏切换确认与填写后取消确认补上失败用例，再实现修复。
+- `cd src/IM/frontend && npm run test -- --run src/features/settings/agents/agent-create.test.tsx src/features/settings/agents/agent-detail-page.test.tsx src/app/shell/app-shell.test.tsx`：29 passed。
+- `cd src/IM/frontend && npm run build`：`tsc -b && vite build` 通过。
+- 隔离真实栈：以 `scripts/e2e-up.sh --wt <unit worktree>` 启动 IM/Gateway，并以该 IM 作为 Vite 代理目标。Playwright 登录测试用户后，在 `1280px` 宽的新建页确认 rail、已有 Agent 行和与详情页一致的桌面分栏均实际渲染；移动宽度下 rail 继续由 `lg` 断点隐藏。浏览器截图仅作本地运行证据，未纳入提交。
