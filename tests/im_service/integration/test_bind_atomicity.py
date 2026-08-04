@@ -1,35 +1,19 @@
-"""Concurrent device binding transaction regressions."""
+"""Concurrent device binding remains atomic through the public HTTP API."""
 
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-import sqlite3
-import threading
 
-from IM.application.bind_service import BindService
-from IM.infra.binding_store import BindingStore
-from IM.infra.db import connect, initialize_schema
+from fastapi.testclient import TestClient
+
 from IM.infra.repositories.agents import AgentProfileRepository
-from IM.infra.repositories.bindings import BindRepository
 from IM.infra.repositories.nodes import NodeRepository
-from IM.infra.repositories.users import UserRepository
+
+from .conftest import authorize, make_app_client, register_user
 
 
-def _service(connection: sqlite3.Connection, db_path: Path) -> BindService:
-    return BindService(
-        users=UserRepository(connection),
-        nodes=NodeRepository(connection),
-        binds=BindRepository(connection),
-        profiles=AgentProfileRepository(connection),
-        binding_store=BindingStore(db_path),
-        bind_base_url="http://im.test/bind/confirm",
-    )
-
-
-def _protected_rows(
-    connection: sqlite3.Connection,
-) -> dict[str, list[tuple[object, ...]]]:
+def _protected_rows(connection) -> dict[str, list[tuple[object, ...]]]:  # noqa: ANN001
     tables = (
         "agent_channels",
         "channel_manifest_heads",
@@ -43,102 +27,87 @@ def _protected_rows(
 
 
 def test_cross_owner_concurrent_bind_has_one_atomic_winner(tmp_path: Path) -> None:
-    """Bind guard and ownership writes commit once without touching channel ciphertext."""
-    db_path = tmp_path / "binding.db"
-    setup = connect(db_path)
-    initialize_schema(setup)
-    users = UserRepository(setup)
-    alice = users.create_user(username="alice", display_name="Alice")
-    bob = users.create_user(username="bob", display_name="Bob")
-    nodes = NodeRepository(setup)
-    nodes.upsert_node(node_id="node-race", node_name="Race")
-    profiles = AgentProfileRepository(setup)
-    profiles.upsert_profile(
-        agent_id="agent-race",
-        owner_id="",
-        node_id="node-race",
-        display_name="Race Agent",
-        description="",
-        system_prompt="Race safely.",
-        skills=[],
-        tool_allowlist=[],
-        group_reply_policy="manual",
-        default_model=None,
-        workspace_root=None,
-    )
-    binds = BindRepository(setup)
-    alice_bind = binds.create_bind_request(
-        node_id="node-race", bind_base_url="http://im.test/bind/confirm"
-    )
-    bob_bind = binds.create_bind_request(
-        node_id="node-race", bind_base_url="http://im.test/bind/confirm"
-    )
-    setup.executescript(
-        """
-        INSERT INTO node_credential_keys VALUES
-          ('node-race', '', 'key-before', 'alg-before', 'public-before', 'time-before');
-        INSERT INTO channel_manifest_heads VALUES
-          ('node-race', '', 4, 3, NULL, NULL, 'init-before', 'time-before');
-        INSERT INTO agent_channels VALUES
-          ('channel-before', '', 'agent-race', 'node-race', 'feishu', 1,
-           '{"app_id":"cli_before"}', 'fingerprint', 1, '{}',
-           '{"ciphertext":"opaque"}', 'key-before', 1, 4,
-           'time-before', 'time-before');
-        INSERT INTO agent_channel_removals VALUES
-          ('removed-before', 'token-before', '', 'agent-race', 'node-race',
-           'feishu', '{"app_id":"cli_old"}', 2, 4, 'pending', NULL, NULL,
-           NULL, 'expires-after', 'time-before', 'time-before');
-        """
-    )
-    setup.commit()
-    protected_before = _protected_rows(setup)
-
-    alice_connection = connect(db_path)
-    bob_connection = connect(db_path)
-    alice_service = _service(alice_connection, db_path)
-    bob_service = _service(bob_connection, db_path)
-    start = threading.Barrier(2)
-
-    def confirm(service: BindService, bind_id: str, user_id: str):
-        start.wait()
-        try:
-            return service.confirm_bind(bind_id=bind_id, user_id=user_id)
-        except ValueError as error:
-            return error
-
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(
-            pool.map(
-                lambda args: confirm(*args),
-                (
-                    (alice_service, alice_bind.bind_id, alice.id),
-                    (bob_service, bob_bind.bind_id, bob.id),
-                ),
+    """Commit exactly one owner without altering channel-control state."""
+    with make_app_client(tmp_path) as alice_client:
+        alice = register_user(alice_client, username="alice")
+        authorize(alice_client, alice)
+        with TestClient(alice_client.app) as bob_client:
+            bob = register_user(bob_client, username="bob")
+            authorize(bob_client, bob)
+            connection = alice_client.app.state.connection
+            NodeRepository(connection).upsert_node(
+                node_id="node-race", node_name="Race"
             )
-        )
+            AgentProfileRepository(connection).upsert_profile(
+                agent_id="agent-race",
+                owner_id="",
+                node_id="node-race",
+                display_name="Race Agent",
+                description="",
+                system_prompt="Race safely.",
+                skills=[],
+                tool_allowlist=[],
+                group_reply_policy="manual",
+                default_model=None,
+                workspace_root=None,
+            )
+            connection.executescript(
+                """
+                INSERT INTO node_credential_keys VALUES
+                  ('node-race', '', 'key-before', 'alg-before', 'public-before', 'time-before');
+                INSERT INTO channel_manifest_heads VALUES
+                  ('node-race', '', 4, 3, NULL, NULL, 'init-before', 'time-before');
+                INSERT INTO agent_channels VALUES
+                  ('channel-before', '', 'agent-race', 'node-race', 'feishu', 1,
+                   '{"app_id":"cli_before"}', 'fingerprint', 1, '{}',
+                   '{"ciphertext":"opaque"}', 'key-before', 1, 4,
+                   'time-before', 'time-before');
+                INSERT INTO agent_channel_removals VALUES
+                  ('removed-before', 'token-before', '', 'agent-race', 'node-race',
+                   'feishu', '{"app_id":"cli_old"}', 2, 4, 'pending', NULL, NULL,
+                   NULL, 'expires-after', 'time-before', 'time-before');
+                """
+            )
+            connection.commit()
+            protected_before = _protected_rows(connection)
 
-    winners = [result for result in results if not isinstance(result, ValueError)]
-    losers = [result for result in results if isinstance(result, ValueError)]
-    assert len(winners) == len(losers) == 1
-    assert str(losers[0]) == "node already bound to another owner"
-    winner = winners[0]
-    winner_user = alice if winner.user_id == alice.id else bob
-    loser_user = bob if winner_user is alice else alice
-    assert (
-        NodeRepository(setup).get_node(node_id="node-race").owner_id
-        == winner_user.owner_id
-    )
-    assert profiles.get_profile(agent_id="agent-race").owner_id == winner_user.owner_id
-    assert users.get_user(user_id=winner_user.id).default_entry_node_id == "node-race"
-    assert users.get_user(user_id=loser_user.id).default_entry_node_id is None
-    assert _protected_rows(setup) == protected_before
+            alice_start = alice_client.post(
+                "/im/v1/bind", json={"action": "start", "node_id": "node-race"}
+            ).json()
+            bob_start = bob_client.post(
+                "/im/v1/bind", json={"action": "start", "node_id": "node-race"}
+            ).json()
 
-    winning_service = alice_service if winner_user is alice else bob_service
-    assert (
-        winning_service.confirm_bind(bind_id=winner.bind_id, user_id=winner_user.id)
-        == winner
-    )
+            def confirm(client: TestClient, bind_id: str):
+                return client.post(
+                    "/im/v1/bind",
+                    json={"action": "confirm", "bind_id": bind_id},
+                )
 
-    alice_connection.close()
-    bob_connection.close()
-    setup.close()
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                alice_result = pool.submit(
+                    confirm, alice_client, alice_start["bind_id"]
+                )
+                bob_result = pool.submit(confirm, bob_client, bob_start["bind_id"])
+                responses = [alice_result.result(), bob_result.result()]
+
+            winners = [
+                response for response in responses if response.status_code == 201
+            ]
+            losers = [response for response in responses if response.status_code == 409]
+            assert len(winners) == len(losers) == 1
+            winner_user = alice if winners[0].json()["user_id"] == alice.id else bob
+            loser_user = bob if winner_user is alice else alice
+
+            node = NodeRepository(connection).get_node(node_id="node-race")
+            profile = AgentProfileRepository(connection).get_profile(
+                agent_id="agent-race"
+            )
+            assert node is not None and node.owner_id == winner_user.owner_id
+            assert profile is not None and profile.owner_id == winner_user.owner_id
+            assert _protected_rows(connection) == protected_before
+
+            loser_client = bob_client if loser_user is bob else alice_client
+            assert (
+                loser_client.get("/im/v1/agents/agent-race/config").status_code == 404
+            )

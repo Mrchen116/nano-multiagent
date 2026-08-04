@@ -51,8 +51,8 @@ describe("auth session readiness", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it.each([30, -1])("single-flights refresh when access token expires in %s seconds", async (ttl) => {
-    session(USER_A, accessToken(ttl), "refresh-a");
+  it("single-flights refresh when the access token is near expiry", async () => {
+    session(USER_A, accessToken(10), "refresh-a");
     const fresh = accessToken(120);
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       response(200, { access_token: fresh, refresh_token: "refresh-a2", user: USER_A })
@@ -87,10 +87,10 @@ describe("auth session readiness", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
-  it.each([500, 503])("returns retry and keeps the session when refresh returns %s", async (status) => {
+  it("returns retry and keeps the session when refresh has a temporary server failure", async () => {
     const expired = accessToken(-1);
     session(USER_A, expired, "refresh-a");
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(response(status, { detail: "temporary" }));
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(response(503, { detail: "temporary" }));
 
     await expect(ensureFreshSession()).resolves.toEqual({ status: "retry" });
     expect(useAuthStore.getState().accessToken).toBe(expired);

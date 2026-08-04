@@ -87,142 +87,47 @@ class TestEventBridgePermissionRequest:
         )
         return bridge, emitted
 
-    def test_on_permission_request_persists_as_list_with_one_entry(self) -> None:
+    def test_permission_requests_are_ordered_idempotent_and_resolved_by_id(
+        self,
+    ) -> None:
         conn = _make_db()
         _insert_user(conn, "u1", "agent:alpha")
         _insert_conversation(conn, "conv-1")
         _insert_message(conn, "msg-1", "conv-1", "u1")
 
         bridge, emitted = self._make_bridge(conn)
-
-        permission_data = {
-            "request_id": "req-abc",
-            "tool_name": "bash",
-            "tool_input": {"command": "rm -rf /tmp/old"},
-            "question": "Allow bash? Risky deletion",
-            "options": [
-                {
-                    "id": "allow_once",
-                    "label": "Allow once",
-                    "description": "Allow this single action",
-                },
-                {"id": "deny", "label": "Deny", "description": "Block this action"},
-            ],
-        }
-        bridge.on_permission_request(
-            message_id="msg-1",
-            permission_request=permission_data,
-        )
-
-        assert len(emitted) == 1
-        event = emitted[0]
-        payload = json.loads(event.payload_json)
-        assert payload["event_type"] == EVENT_PERMISSION_REQUEST
-        assert payload["permission_request"]["request_id"] == "req-abc"
-        assert payload["message_id"] == "msg-1"
-
-        # bugfix-367: 持久化为 list 形态
-        row = conn.execute(
-            "SELECT permission_request_json FROM messages WHERE id = 'msg-1'"
-        ).fetchone()
-        persisted = json.loads(row["permission_request_json"])
-        assert isinstance(persisted, list)
-        assert len(persisted) == 1
-        assert persisted[0]["request_id"] == "req-abc"
-        assert persisted[0]["status"] == "pending"
-
-    def test_two_asks_on_same_message_accumulate_in_list(self) -> None:
-        """bugfix-367 核心: 同一 message 上两次 ask 都保留, 不覆盖."""
-        conn = _make_db()
-        _insert_user(conn, "u1", "agent:alpha")
-        _insert_conversation(conn, "conv-1")
-        _insert_message(conn, "msg-1", "conv-1", "u1")
-
-        bridge, emitted = self._make_bridge(conn)
-
-        bridge.on_permission_request(
-            message_id="msg-1",
-            permission_request={"request_id": "req-1", "tool_name": "bash"},
-        )
-        bridge.on_permission_resolved(
-            message_id="msg-1", request_id="req-1", decision="allow_once"
-        )
-        bridge.on_permission_request(
-            message_id="msg-1",
-            permission_request={"request_id": "req-2", "tool_name": "write"},
-        )
-
-        row = conn.execute(
-            "SELECT permission_request_json FROM messages WHERE id = 'msg-1'"
-        ).fetchone()
-        persisted = json.loads(row["permission_request_json"])
-        assert isinstance(persisted, list)
-        assert len(persisted) == 2, "两次 ask 都必须保留, 不能覆盖"
-        # 第一条 resolved, 第二条 pending —— 按时间顺序
-        assert persisted[0]["request_id"] == "req-1"
-        assert persisted[0]["status"] == "resolved"
-        assert persisted[0]["decision"] == "allow_once"
-        assert persisted[1]["request_id"] == "req-2"
-        assert persisted[1]["status"] == "pending"
-
-    def test_same_request_id_idempotent_replace(self) -> None:
-        """同 request_id 重复 append 视为 idempotent 替换(网络重传等)."""
-        conn = _make_db()
-        _insert_user(conn, "u1", "agent:alpha")
-        _insert_conversation(conn, "conv-1")
-        _insert_message(conn, "msg-1", "conv-1", "u1")
-
-        bridge, _ = self._make_bridge(conn)
-
         bridge.on_permission_request(
             message_id="msg-1",
             permission_request={
-                "request_id": "req-1",
+                "request_id": "req-a",
                 "tool_name": "bash",
-                "question": "v1",
+                "question": "version 1",
             },
         )
         bridge.on_permission_request(
             message_id="msg-1",
             permission_request={
-                "request_id": "req-1",
+                "request_id": "req-a",
                 "tool_name": "bash",
-                "question": "v2",
+                "question": "version 2",
             },
         )
-
-        row = conn.execute(
-            "SELECT permission_request_json FROM messages WHERE id = 'msg-1'"
-        ).fetchone()
-        persisted = json.loads(row["permission_request_json"])
-        assert len(persisted) == 1
-        assert persisted[0]["question"] == "v2"
-
-    def test_on_permission_resolved_updates_only_target_entry(self) -> None:
-        """update_permission_resolution 按 request_id 定位, 不动 list 中其他条目."""
-        conn = _make_db()
-        _insert_user(conn, "u1", "agent:alpha")
-        _insert_conversation(conn, "conv-1")
-        _insert_message(conn, "msg-1", "conv-1", "u1")
-
-        bridge, emitted = self._make_bridge(conn)
-
         bridge.on_permission_request(
             message_id="msg-1",
-            permission_request={"request_id": "req-a", "tool_name": "bash"},
+            permission_request={
+                "request_id": "req-b",
+                "tool_name": "write",
+            },
         )
-        bridge.on_permission_request(
-            message_id="msg-1",
-            permission_request={"request_id": "req-b", "tool_name": "write"},
-        )
-        emitted.clear()
-
         bridge.on_permission_resolved(
             message_id="msg-1", request_id="req-b", decision="deny"
         )
 
-        assert len(emitted) == 1
-        payload = json.loads(emitted[0].payload_json)
+        event_types = [
+            json.loads(event.payload_json)["event_type"] for event in emitted
+        ]
+        assert EVENT_PERMISSION_REQUEST in event_types
+        payload = json.loads(emitted[-1].payload_json)
         assert payload["event_type"] == EVENT_PERMISSION_RESOLVED
         assert payload["request_id"] == "req-b"
         assert payload["decision"] == "deny"
@@ -233,9 +138,8 @@ class TestEventBridgePermissionRequest:
         persisted = json.loads(row["permission_request_json"])
         assert len(persisted) == 2
         assert persisted[0]["request_id"] == "req-a"
-        assert persisted[0]["status"] == "pending", (
-            "未指定 request_id 的条目状态不应被改"
-        )
+        assert persisted[0]["question"] == "version 2"
+        assert persisted[0]["status"] == "pending"
         assert persisted[1]["request_id"] == "req-b"
         assert persisted[1]["status"] == "resolved"
         assert persisted[1]["decision"] == "deny"
@@ -287,7 +191,7 @@ class TestGatewayExecutionPermissionKinds:
         return execution, mock_bridge
 
     @pytest.mark.asyncio
-    async def test_permission_request_kind_calls_bridge(self) -> None:
+    async def test_permission_streaming_kinds_reach_the_bridge(self) -> None:
         handler, mock_bridge = self._make_handler_with_mock_bridge()
 
         payload = {
@@ -307,37 +211,20 @@ class TestGatewayExecutionPermissionKinds:
             message_id="msg-1",
             permission_request=payload["permission_request"],
         )
-
-    @pytest.mark.asyncio
-    async def test_permission_resolved_kind_calls_bridge(self) -> None:
-        handler, mock_bridge = self._make_handler_with_mock_bridge()
-
-        payload = {
+        resolved_payload = {
             "kind": "permission_resolved",
             "message_id": "msg-1",
             "request_id": "req-1",
             "decision": "deny",
         }
-        result = await handler.handle_streaming_delta(payload=payload)
-        assert result["type"] == "ack"
+        resolved = await handler.handle_streaming_delta(payload=resolved_payload)
+
+        assert resolved["type"] == "ack"
         mock_bridge.on_permission_resolved.assert_called_once_with(
             message_id="msg-1",
             request_id="req-1",
             decision="deny",
         )
-
-    @pytest.mark.asyncio
-    async def test_permission_response_kind_forwarded_to_pa(self) -> None:
-        """permission_response kind (IM→PA direction) is a no-op in GatewayExecution streaming delta."""
-        handler, _ = self._make_handler_with_mock_bridge()
-
-        payload = {
-            "kind": "permission_response",
-            "request_id": "req-1",
-            "decision": "allow_once",
-        }
-        result = await handler.handle_streaming_delta(payload=payload)
-        assert result["type"] == "ack"
 
 
 # ---------------------------------------------------------------------------
@@ -451,6 +338,7 @@ class TestPermissionRestEndpoint:
         assert call_kwargs["request_id"] == "req-1"
         assert call_kwargs["decision"] == "allow_once"
         assert call_kwargs["message_id"] == ctx["msg_id"]
+        assert call_kwargs["reason"] is None
 
     def test_submit_deny_forwards_reason_to_gateway(self, tmp_path) -> None:
         """feat-440-M1: a deny with a user-supplied reason must pass it through to
@@ -470,7 +358,7 @@ class TestPermissionRestEndpoint:
                     json={
                         "message_id": ctx["msg_id"],
                         "decision": "deny",
-                        "reason": "先别动这个文件",
+                        "reason": "  先别动这个文件  ",
                     },
                     headers={"Authorization": f"Bearer {ctx['token']}"},
                 )
@@ -505,54 +393,6 @@ class TestPermissionRestEndpoint:
                         "decision": "deny",
                         "reason": "   ",
                     },
-                    headers={"Authorization": f"Bearer {ctx['token']}"},
-                )
-
-        assert resp.status_code == 200
-        assert mock_push.call_args.kwargs["reason"] is None
-
-    def test_submit_deny_reason_is_stripped(self, tmp_path) -> None:
-        """feat-440-M2 (F3): surrounding whitespace is trimmed before the reason is
-        forwarded, so the LLM-visible text has no leading/trailing blanks."""
-        from fastapi.testclient import TestClient
-
-        app, ctx = self._make_app(tmp_path)
-
-        with TestClient(app) as client:
-            with patch.object(
-                client.app.state.gateway_control,
-                "push_permission_response",
-                new=AsyncMock(return_value=True),
-            ) as mock_push:
-                resp = client.post(
-                    f"/im/v1/conversations/{ctx['conv_id']}/permissions/req-1",
-                    json={
-                        "message_id": ctx["msg_id"],
-                        "decision": "deny",
-                        "reason": "  先别动  ",
-                    },
-                    headers={"Authorization": f"Bearer {ctx['token']}"},
-                )
-
-        assert resp.status_code == 200
-        assert mock_push.call_args.kwargs["reason"] == "先别动"
-
-    def test_submit_decision_without_reason_passes_none(self, tmp_path) -> None:
-        """reason is optional — omitting it forwards None; GatewayControl normalizes
-        to "" in the frame (single normalization point)."""
-        from fastapi.testclient import TestClient
-
-        app, ctx = self._make_app(tmp_path)
-
-        with TestClient(app) as client:
-            with patch.object(
-                client.app.state.gateway_control,
-                "push_permission_response",
-                new=AsyncMock(return_value=True),
-            ) as mock_push:
-                resp = client.post(
-                    f"/im/v1/conversations/{ctx['conv_id']}/permissions/req-1",
-                    json={"message_id": ctx["msg_id"], "decision": "allow_once"},
                     headers={"Authorization": f"Bearer {ctx['token']}"},
                 )
 
@@ -631,10 +471,4 @@ class TestMessageResponsePermissionRequests:
         assert response.permission_requests[0]["status"] == "resolved"
         assert response.permission_requests[1]["request_id"] == "req-2"
         assert response.permission_requests[1]["status"] == "pending"
-
-    def test_to_message_response_empty_list_when_no_asks(self) -> None:
-        from IM.api.routes.messages import to_message_response
-
-        msg = self._make_message(permission_requests=[])
-        response = to_message_response(msg)
-        assert response.permission_requests == []
+        assert to_message_response(self._make_message()).permission_requests == []

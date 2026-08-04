@@ -14,6 +14,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Diff-aware test quality gates compare the PR head with origin/main.
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:

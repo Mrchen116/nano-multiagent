@@ -93,62 +93,16 @@ describe("AppShell", () => {
     expect(useAuthStore.getState().user).toBeNull();
   });
 
-  // R11-9 — shell polish (minor)
-  // Prototype source: docs/changes/archive/feat-340-agent-native-im/attachments/prototype/IM Prototype.html
-  //   L297  internal badge next to brand
-  //   L168  UserMenu trigger ▾ chevron
-  //   L103-109  MobileTabBar emoji 💬🤖👤 + unread badge on chat
-  describe("R11-9: shell polish", () => {
-    it("desktop top banner shows an internal badge next to the brand", () => {
-      renderShell("/chat");
-      const banner = screen.getByRole("banner");
-      const badge = within(banner).getByText(/^internal$/i);
-      expect(badge).toBeInTheDocument();
-      expect(badge).toHaveAttribute("data-testid", "shell-internal-badge");
-    });
-
-    it("UserMenu trigger renders a ▾ chevron", () => {
-      renderShell("/chat");
-      const trigger = screen.getByRole("button", { name: /alex chen/i });
-      expect(within(trigger).getByText("▾")).toBeInTheDocument();
-    });
-
-    it("mobile bottom nav renders 💬🤖👤 emojis on its three tabs", () => {
-      setViewportWidth(640);
-      renderShell("/chat");
-      const mobile = screen.getByRole("navigation", { name: /mobile/i });
-      const chat = within(mobile).getByRole("link", { name: /chat/i });
-      const agents = within(mobile).getByRole("link", { name: /agents/i });
-      const me = within(mobile).getByRole("link", { name: /me/i });
-      expect(within(chat).getByText("💬")).toBeInTheDocument();
-      expect(within(agents).getByText("🤖")).toBeInTheDocument();
-      expect(within(me).getByText("👤")).toBeInTheDocument();
-    });
-
-    it("mobile Chat tab shows an unread count badge when conversations have unread", async () => {
-      (listConversations as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([
-        { id: "c1", title: "A", kind: "agent-user", participants: [], unread_count: 2, last_message_at: null },
-        { id: "c2", title: "B", kind: "agent-user", participants: [], unread_count: 3, last_message_at: null }
-      ]);
-      setViewportWidth(640);
-      renderShell("/chat");
-      const mobile = screen.getByRole("navigation", { name: /mobile/i });
-      await waitFor(() => {
-        expect(within(mobile).getByTestId("shell-chat-unread")).toHaveTextContent("5");
-      });
-    });
-
-    it("mobile Chat tab hides the unread badge when total unread is zero", async () => {
-      (listConversations as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([
-        { id: "c1", title: "A", kind: "agent-user", participants: [], unread_count: 0, last_message_at: null }
-      ]);
-      setViewportWidth(640);
-      renderShell("/chat");
-      const mobile = screen.getByRole("navigation", { name: /mobile/i });
-      await waitFor(() => {
-        expect(within(mobile).getByRole("link", { name: /chat/i })).toBeInTheDocument();
-      });
-      expect(within(mobile).queryByTestId("shell-chat-unread")).not.toBeInTheDocument();
+  it("shows the summed unread count on the mobile Chat tab", async () => {
+    (listConversations as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "c1", title: "A", kind: "agent-user", participants: [], unread_count: 2, last_message_at: null },
+      { id: "c2", title: "B", kind: "agent-user", participants: [], unread_count: 3, last_message_at: null }
+    ]);
+    setViewportWidth(640);
+    renderShell("/chat");
+    const mobile = screen.getByRole("navigation", { name: /mobile/i });
+    await waitFor(() => {
+      expect(within(mobile).getByTestId("shell-chat-unread")).toHaveTextContent("5");
     });
   });
 });

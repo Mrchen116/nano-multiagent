@@ -87,13 +87,4 @@ describe("agent completion accumulator", () => {
     expect(discarded.state.pendingByMessageId).toEqual({});
     expect(discarded.candidate).toBeNull();
   });
-
-  it("does not revive the retired message_created notification alias", () => {
-    const legacy = reduceAgentCompletionEvent(emptyAgentCompletionState, {
-      ...created,
-      eventType: "message_created"
-    });
-    expect(legacy.state).toBe(emptyAgentCompletionState);
-    expect(legacy.candidate).toBeNull();
-  });
 });

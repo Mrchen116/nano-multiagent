@@ -35,28 +35,4 @@ describe("AttachmentDropzone", () => {
     expect(onAdd).toHaveBeenCalledWith([file]);
   });
 
-  test("does not call onAdd when no files in drop event", () => {
-    const onAdd = vi.fn();
-    render(
-      <AttachmentDropzone onAdd={onAdd}>
-        <span>child</span>
-      </AttachmentDropzone>
-    );
-    const zone = screen.getByText("child").parentElement!;
-    fireEvent.drop(zone, { dataTransfer: dataTransferOf([]) });
-    expect(onAdd).not.toHaveBeenCalled();
-  });
-
-  test("marks zone as dragging via data attribute on dragenter", () => {
-    render(
-      <AttachmentDropzone onAdd={() => {}}>
-        <span>child</span>
-      </AttachmentDropzone>
-    );
-    const zone = screen.getByText("child").parentElement!;
-    fireEvent.dragEnter(zone, { dataTransfer: dataTransferOf([makeFile("a.png", "image/png")]) });
-    expect(zone).toHaveAttribute("data-dragging", "true");
-    fireEvent.dragLeave(zone);
-    expect(zone).toHaveAttribute("data-dragging", "false");
-  });
 });

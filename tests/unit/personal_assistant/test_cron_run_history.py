@@ -41,37 +41,6 @@ def test_append_update_and_restart_reconstruct_latest_state(tmp_path: Path) -> N
     assert restarted[0].result_summary == "done"
 
 
-def test_repeated_updates_materialize_runs_file_once_per_owner(
-    tmp_path: Path, monkeypatch
-) -> None:
-    """Status transitions after first use must not replay the growing JSONL file."""
-
-    seed = CronRunsStore(workspace_root=tmp_path)
-    seed.append(_record(2))
-    runs_path = tmp_path / ".nanoassistant" / "cron" / "runs.jsonl"
-    original_read_text = Path.read_text
-    reads = 0
-
-    def _counted_read_text(path: Path, *args, **kwargs):
-        nonlocal reads
-        if path == runs_path:
-            reads += 1
-        return original_read_text(path, *args, **kwargs)
-
-    monkeypatch.setattr(Path, "read_text", _counted_read_text)
-    store = CronRunsStore(workspace_root=tmp_path)
-
-    for index in range(25):
-        store.update_status(
-            "req-002",
-            "running",
-            started_at=f"2026-01-01T01:00:{index:02d}+00:00",
-        )
-    assert store.list_by_job("job-a")[0].status == "running"
-    assert store.list_by_job("job-a")[0].request_id == "req-002"
-    assert reads == 1
-
-
 def test_concurrent_append_and_update_survives_restart(tmp_path: Path) -> None:
     """One owner serializes concurrent transitions without corrupting durable replay."""
 

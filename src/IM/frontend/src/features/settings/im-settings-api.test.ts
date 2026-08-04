@@ -33,7 +33,7 @@ describe("im-settings-api", () => {
     localStorage.clear();
   });
 
-  it("getAccount calls /im/v1/me with Bearer token, no user_id query", async () => {
+  it("reads the authenticated account from /im/v1/me", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       jsonResponse(200, {
         id: "user-1",
@@ -73,26 +73,6 @@ describe("im-settings-api", () => {
       action: "confirm",
       bind_token: "bind-once"
     });
-  });
-
-  it("getAccount never calls /im/v1/users (was used by resolveCurrentUserId — removed)", async () => {
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      jsonResponse(200, {
-        id: "user-1",
-        user_id: "user-1",
-        username: "alex",
-        display_name: "Alex",
-        owner_id: "user-1",
-        owned_node_ids: [],
-        default_entry_node_id: null,
-        created_at: ""
-      })
-    );
-
-    await getAccount();
-    for (const call of fetchMock.mock.calls) {
-      expect(String(call[0])).not.toContain("/im/v1/users");
-    }
   });
 
   it("updateAccount PATCHes /im/v1/me with Bearer token", async () => {

@@ -1,30 +1,16 @@
-"""feat-409-M1/R3: IM ToolCall.detail vertical (parse / serialize / persist).
-
-detail is the presenter-produced structured dict forwarded by the Gateway. It must
-survive every IM hop: streaming_delta parse → WS payload serialize → SQLite
-persist/round-trip. Historical rows without detail must decode without error
-(detail → None), so the front-end can fall back to the output string.
-"""
-
-from __future__ import annotations
+"""Tool-call metadata persistence and public event serialization regressions."""
 
 from pathlib import Path
 
-from IM.api.ws.event_types import (
-    build_tool_call_completed_payload,
-    tool_call_to_dict,
-)
+from IM.api.ws.event_types import build_tool_call_completed_payload
 from IM.domain.models import ToolCall
+from IM.infra.db import connect, initialize_schema
 from IM.infra.repositories.conversations import ConversationRepository
 from IM.infra.repositories.messages import MessageRepository
 from IM.infra.repositories.users import UserRepository
-from IM.infra.repositories._message_projection import _decode_tool_calls
-from IM.infra.repositories._message_projection import _encode_tool_calls
-from IM.infra.db import connect, initialize_schema
-from IM.ws.gateway.protocol import _parse_tool_call
 
 
-_SAMPLE_DETAIL = {
+_DETAIL = {
     "command": "pytest -q",
     "exit_code": 0,
     "stdout": "OK",
@@ -33,7 +19,22 @@ _SAMPLE_DETAIL = {
 }
 
 
-def _build(tmp_path: Path):
+def _tool_call() -> ToolCall:
+    return ToolCall(
+        id="call-1",
+        name="bash",
+        status="completed",
+        input={"command": "pytest -q"},
+        output="tests passed",
+        detail=_DETAIL,
+        emoji="🧪",
+        approval="user_allow",
+    )
+
+
+def _repositories(
+    tmp_path: Path,
+) -> tuple[UserRepository, ConversationRepository, MessageRepository]:
     connection = connect(tmp_path / "im.db")
     initialize_schema(connection)
     return (
@@ -43,303 +44,57 @@ def _build(tmp_path: Path):
     )
 
 
-# --- parse (streaming_delta dict → ToolCall) ----------------------------------
-
-
-def test_parse_tool_call_reads_detail() -> None:
-    tc = _parse_tool_call(
-        {
-            "id": "tc1",
-            "name": "bash",
-            "status": "completed",
-            "input": {"command": "pytest -q"},
-            "output": "跑测试",
-            "duration_ms": 12,
-            "detail": _SAMPLE_DETAIL,
-        }
-    )
-    assert tc.detail == _SAMPLE_DETAIL
-
-
-def test_parse_tool_call_without_detail_is_none() -> None:
-    tc = _parse_tool_call(
-        {"id": "tc1", "name": "read", "status": "completed", "output": "42 lines"}
-    )
-    assert tc.detail is None
-
-
-# --- serialize (ToolCall → WS payload) ----------------------------------------
-
-
-def test_tool_call_to_dict_includes_detail() -> None:
-    tc = ToolCall(
-        id="tc1",
-        name="bash",
-        status="completed",
-        duration_ms=12,
-        input={"command": "x"},
-        output="跑测试",
-        detail=_SAMPLE_DETAIL,
-    )
-    payload = tool_call_to_dict(tc)
-    assert payload["detail"] == _SAMPLE_DETAIL
-
-
-def test_tool_call_to_dict_omits_detail_when_absent() -> None:
-    tc = ToolCall(id="tc1", name="read", status="completed", output="42 lines")
-    payload = tool_call_to_dict(tc)
-    assert "detail" not in payload
-
-
-def test_completed_payload_carries_detail() -> None:
-    tc = ToolCall(
-        id="tc1",
-        name="bash",
-        status="completed",
-        duration_ms=12,
-        input={},
-        output="跑测试",
-        detail=_SAMPLE_DETAIL,
-    )
+def test_completed_event_preserves_tool_call_metadata() -> None:
     payload = build_tool_call_completed_payload(
-        conversation_id="c1", message_id="m1", tool_call=tc
+        conversation_id="conversation-1",
+        message_id="message-1",
+        tool_call=_tool_call(),
     )
-    assert payload["tool_call"]["detail"] == _SAMPLE_DETAIL
 
-
-# --- encode/decode (SQLite JSON) ----------------------------------------------
-
-
-def test_encode_decode_round_trip_with_detail() -> None:
-    tc = ToolCall(
-        id="tc1",
-        name="bash",
-        status="completed",
-        duration_ms=12,
-        input={"command": "x"},
-        output="跑测试",
-        detail=_SAMPLE_DETAIL,
-    )
-    encoded = _encode_tool_calls([tc])
-    decoded = _decode_tool_calls(encoded)
-    assert decoded is not None
-    assert decoded[0].detail == _SAMPLE_DETAIL
-
-
-def test_decode_legacy_row_without_detail() -> None:
-    # Historical persisted JSON has no detail key — must decode to detail=None.
-    legacy = '[{"id":"tc1","name":"read","status":"completed","output":"42 lines","input":{}}]'
-    decoded = _decode_tool_calls(legacy)
-    assert decoded is not None
-    assert decoded[0].detail is None
-
-
-# --- full persist round-trip --------------------------------------------------
-
-
-def test_persist_round_trip_with_detail(tmp_path: Path) -> None:
-    users, conversations, messages = _build(tmp_path)
-    alice = users.create_user(username="alice", display_name="Alice")
-    conversation = conversations.create_conversation(
-        title="t", participant_ids=[alice.id]
-    )
-    tc = ToolCall(
-        id="call_1",
-        name="bash",
-        status="completed",
-        duration_ms=48,
-        input={"command": "pytest"},
-        output="跑测试",
-        detail=_SAMPLE_DETAIL,
-    )
-    messages.create_message(
-        conversation_id=conversation.id,
-        sender_user_id=alice.id,
-        content="hello",
-        tool_calls=[tc],
-    )
-    listed = messages.list_messages(conversation_id=conversation.id)
-    assert listed[-1].tool_calls is not None
-    assert listed[-1].tool_calls[0].detail == _SAMPLE_DETAIL
-
-
-# --- feat-425: emoji vertical (parse / serialize / persist) -------------------
-# emoji 走 detail 同一条序列化路径(决策 2):工具自带的图标随 tool_call 全程透传 +
-# 落库,历史行/无 emoji 行解码缺省 None(前端按名表兜底)。
-
-
-def test_parse_tool_call_reads_emoji() -> None:
-    tc = _parse_tool_call(
-        {
-            "id": "tc1",
-            "name": "web_fetch",
-            "status": "completed",
-            "input": {"url": "https://x"},
-            "output": "https://x",
-            "emoji": "🌐",
-        }
-    )
-    assert tc.emoji == "🌐"
-
-
-def test_parse_tool_call_without_emoji_is_none() -> None:
-    tc = _parse_tool_call(
-        {"id": "tc1", "name": "read", "status": "completed", "output": "42 lines"}
-    )
-    assert tc.emoji is None
-
-
-def test_tool_call_to_dict_includes_emoji() -> None:
-    tc = ToolCall(
-        id="tc1", name="web_fetch", status="completed", output="https://x", emoji="🌐"
-    )
-    payload = tool_call_to_dict(tc)
-    assert payload["emoji"] == "🌐"
-
-
-def test_tool_call_to_dict_omits_emoji_when_absent() -> None:
-    tc = ToolCall(id="tc1", name="read", status="completed", output="42 lines")
-    payload = tool_call_to_dict(tc)
-    assert "emoji" not in payload
-
-
-def test_completed_payload_carries_emoji() -> None:
-    tc = ToolCall(
-        id="tc1", name="web_fetch", status="completed", output="https://x", emoji="🌐"
-    )
-    payload = build_tool_call_completed_payload(
-        conversation_id="c1", message_id="m1", tool_call=tc
-    )
-    assert payload["tool_call"]["emoji"] == "🌐"
-
-
-def test_encode_decode_round_trip_with_emoji() -> None:
-    tc = ToolCall(
-        id="tc1", name="web_fetch", status="completed", output="https://x", emoji="🌐"
-    )
-    decoded = _decode_tool_calls(_encode_tool_calls([tc]))
-    assert decoded is not None
-    assert decoded[0].emoji == "🌐"
-
-
-def test_decode_legacy_row_without_emoji() -> None:
-    legacy = '[{"id":"tc1","name":"read","status":"completed","output":"x","input":{}}]'
-    decoded = _decode_tool_calls(legacy)
-    assert decoded is not None
-    assert decoded[0].emoji is None
-
-
-def test_persist_round_trip_with_emoji(tmp_path: Path) -> None:
-    users, conversations, messages = _build(tmp_path)
-    alice = users.create_user(username="alice", display_name="Alice")
-    conversation = conversations.create_conversation(
-        title="t", participant_ids=[alice.id]
-    )
-    tc = ToolCall(
-        id="call_1",
-        name="web_fetch",
-        status="completed",
-        input={"url": "https://x"},
-        output="https://x",
-        emoji="🌐",
-    )
-    messages.create_message(
-        conversation_id=conversation.id,
-        sender_user_id=alice.id,
-        content="hello",
-        tool_calls=[tc],
-    )
-    listed = messages.list_messages(conversation_id=conversation.id)
-    assert listed[-1].tool_calls is not None
-    assert listed[-1].tool_calls[0].emoji == "🌐"
-
-
-# --- feat-434-M1: approval vertical (parse / serialize / persist) -------------
-# approval 走与 emoji/detail 同一条逐字透传路径：gateway_handler 解析 → event_types
-# 序列化 → SQLite 落库往返。历史行/无 approval 行解码缺省 None（前端闸门区不显）。
-
-
-def test_parse_tool_call_reads_approval() -> None:
-    tc = _parse_tool_call(
-        {
-            "id": "tc1",
-            "name": "bash",
-            "status": "completed",
-            "input": {"command": "npm run build"},
-            "output": "npm run build",
-            "approval": "user_allow",
-        }
-    )
-    assert tc.approval == "user_allow"
-
-
-def test_parse_tool_call_without_approval_is_none() -> None:
-    tc = _parse_tool_call(
-        {"id": "tc1", "name": "read", "status": "completed", "output": "42 lines"}
-    )
-    assert tc.approval is None
-
-
-def test_tool_call_to_dict_includes_approval() -> None:
-    tc = ToolCall(
-        id="tc1", name="bash", status="completed", output="x", approval="user_deny"
-    )
-    payload = tool_call_to_dict(tc)
-    assert payload["approval"] == "user_deny"
-
-
-def test_tool_call_to_dict_omits_approval_when_absent() -> None:
-    tc = ToolCall(id="tc1", name="read", status="completed", output="42 lines")
-    payload = tool_call_to_dict(tc)
-    assert "approval" not in payload
-
-
-def test_completed_payload_carries_approval() -> None:
-    tc = ToolCall(
-        id="tc1", name="bash", status="completed", output="x", approval="user_allow"
-    )
-    payload = build_tool_call_completed_payload(
-        conversation_id="c1", message_id="m1", tool_call=tc
-    )
+    assert payload["tool_call"]["detail"] == _DETAIL
+    assert payload["tool_call"]["emoji"] == "🧪"
     assert payload["tool_call"]["approval"] == "user_allow"
 
 
-def test_encode_decode_round_trip_with_approval() -> None:
-    tc = ToolCall(
-        id="tc1", name="bash", status="completed", output="x", approval="user_allow"
-    )
-    decoded = _decode_tool_calls(_encode_tool_calls([tc]))
-    assert decoded is not None
-    assert decoded[0].approval == "user_allow"
-
-
-def test_decode_legacy_row_without_approval() -> None:
-    legacy = '[{"id":"tc1","name":"read","status":"completed","output":"x","input":{}}]'
-    decoded = _decode_tool_calls(legacy)
-    assert decoded is not None
-    assert decoded[0].approval is None
-
-
-def test_persist_round_trip_with_approval(tmp_path: Path) -> None:
-    users, conversations, messages = _build(tmp_path)
-    alice = users.create_user(username="alice", display_name="Alice")
+def test_message_history_preserves_tool_call_metadata(tmp_path: Path) -> None:
+    users, conversations, messages = _repositories(tmp_path)
+    owner = users.create_user(username="alice", display_name="Alice")
     conversation = conversations.create_conversation(
-        title="t", participant_ids=[alice.id]
-    )
-    tc = ToolCall(
-        id="call_1",
-        name="bash",
-        status="completed",
-        input={"command": "npm run build"},
-        output="npm run build",
-        approval="user_allow",
+        title="chat", participant_ids=[owner.id]
     )
     messages.create_message(
         conversation_id=conversation.id,
-        sender_user_id=alice.id,
-        content="hello",
-        tool_calls=[tc],
+        sender_user_id=owner.id,
+        content="done",
+        tool_calls=[_tool_call()],
     )
+
     listed = messages.list_messages(conversation_id=conversation.id)
+
     assert listed[-1].tool_calls is not None
-    assert listed[-1].tool_calls[0].approval == "user_allow"
+    persisted = listed[-1].tool_calls[0]
+    assert persisted.detail == _DETAIL
+    assert persisted.emoji == "🧪"
+    assert persisted.approval == "user_allow"
+
+
+def test_legacy_tool_call_history_defaults_optional_metadata(tmp_path: Path) -> None:
+    users, conversations, messages = _repositories(tmp_path)
+    owner = users.create_user(username="alice", display_name="Alice")
+    conversation = conversations.create_conversation(
+        title="chat", participant_ids=[owner.id]
+    )
+    messages.create_message(
+        conversation_id=conversation.id,
+        sender_user_id=owner.id,
+        content="done",
+        tool_calls=[ToolCall(id="call-1", name="read", status="completed")],
+    )
+
+    listed = messages.list_messages(conversation_id=conversation.id)
+
+    assert listed[-1].tool_calls is not None
+    persisted = listed[-1].tool_calls[0]
+    assert persisted.detail is None
+    assert persisted.emoji is None
+    assert persisted.approval is None

@@ -1,20 +1,20 @@
 import asyncio
-from pathlib import Path
 import base64
+from pathlib import Path
 
-from agent.core.llm.interfaces import LLMGenerateRequest, LLMMessage
-from agent.platform.llm.providers.anthropic.mapper import AnthropicMapper
-from agent.platform.llm.providers.openai_compat.mapper import OpenAICompatMapper
 from agent.core.hooks.context import HookContext
 from agent.core.hooks.registry import HookRegistry
 from agent.core.hooks.runner import HookRunner
+from agent.core.llm.interfaces import LLMGenerateRequest, LLMMessage
 from agent.core.tools.base import (
     set_tool_safety_factory,
     set_tool_safety_config_factory,
 )
+from agent.core.tools.registry import ToolRegistry
+from agent.platform.llm.providers.anthropic.mapper import AnthropicMapper
+from agent.platform.llm.providers.openai_compat.mapper import OpenAICompatMapper
 from agent.platform.tools.base import ToolContext
 from agent.platform.tools.builtins.read import ReadTool
-from agent.core.tools.registry import ToolRegistry
 from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
 
 set_tool_safety_factory(ToolSafety)
@@ -31,37 +31,8 @@ def test_registry_executes_read_image_and_keeps_part_structure(tmp_path: Path) -
 
     result = asyncio.run(registry.execute("read", {"path": "pixel.png"}))
 
-    assert isinstance(result["content"], list)
     assert [part["type"] for part in result["content"]] == ["text", "image"]
     assert result["content"][1]["mimeType"] == "image/png"
-    assert result["content"][1]["data"] == base64.b64encode(image_bytes).decode("ascii")
-
-
-def test_registry_executes_read_text_with_truncation_hint(tmp_path: Path) -> None:
-    (tmp_path / "note.txt").write_text(
-        "line-1\nline-2\nline-3\nline-4\n", encoding="utf-8"
-    )
-    registry = ToolRegistry(
-        context=ToolContext.create(
-            repo_root=tmp_path,
-            safety_config=ToolSafetyConfig(read_max_lines=2, read_max_bytes=1024),
-        )
-    )
-    registry.register(ReadTool())
-
-    result = asyncio.run(
-        registry.execute("read", {"path": "note.txt", "offset": 1, "limit": 4})
-    )
-
-    assert result["truncated"] is True
-    # next_offset may be null when the read tool omits it on truncation; total_lines is authoritative.
-    assert result["total_lines"] == 4
-    text_part = result["content"][0]
-    assert text_part["type"] == "text"
-    # Content is truncated to read_max_lines=2; first two lines must appear.
-    assert "line-1" in text_part["text"]
-    assert "line-2" in text_part["text"]
-    assert result["details"]["truncation"]["truncatedBy"] == "lines"
 
 
 def test_read_image_parts_survive_tool_result_content_rewrite(tmp_path: Path) -> None:

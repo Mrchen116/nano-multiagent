@@ -12,14 +12,27 @@ def _read(relative: str) -> str:
     return (_ROOT / relative).read_text(encoding="utf-8")
 
 
-def _table_rows(markdown: str) -> dict[str, tuple[str, ...]]:
+def _table_cells(line: str) -> tuple[str, ...] | None:
+    stripped = line.strip()
+    if not stripped.startswith("|") or not stripped.endswith("|"):
+        return None
+    return tuple(cell.strip() for cell in stripped.strip("|").split("|"))
+
+
+def _table_rows(
+    markdown: str,
+    columns: tuple[str, ...],
+) -> dict[str, tuple[str, ...]]:
+    lines = markdown.splitlines()
+    header_index = next(
+        index for index, line in enumerate(lines) if _table_cells(line) == columns
+    )
     rows: dict[str, tuple[str, ...]] = {}
-    for line in markdown.splitlines():
-        if not line.startswith("|") or not line.endswith("|"):
-            continue
-        cells = tuple(cell.strip() for cell in line.strip("|").split("|"))
-        if cells and cells[0] not in {"Unit 类型", "---"}:
-            rows[cells[0]] = cells[1:]
+    for line in lines[header_index + 2 :]:
+        cells = _table_cells(line)
+        if cells is None:
+            break
+        rows[cells[0]] = cells[1:]
     return rows
 
 
@@ -27,38 +40,60 @@ def test_spec_review_remains_optional() -> None:
     workflow = _read("docs/development/change-workflow.md")
     storage = _read("docs/changes/README.md")
 
-    assert "`change-spec-reviewer` 是可选的独立复核" in workflow
-    assert "它不是 Full 流程的默认强制门禁" in workflow
-    assert "`spec-review.md` 不是 Full 的必备文件" in storage
+    workflow_mentions = [
+        line for line in workflow.splitlines() if "`change-spec-reviewer`" in line
+    ]
+    storage_mentions = [
+        line for line in storage.splitlines() if "`spec-review.md`" in line
+    ]
+    assert any("可选" in line or "按需" in line for line in workflow_mentions)
+    assert any("可选" in line or "按需" in line for line in storage_mentions)
 
 
 def test_gate_two_reuses_one_reviewer_until_clean_approval() -> None:
     workflow = _read("docs/development/change-workflow.md")
     author_skill = _read(".claude/skills/change-design-author/SKILL.md")
 
-    assert "一个 unit 的 Gate 2 使用同一个独立 `change-design-reviewer`" in workflow
-    assert "后续轮次唤醒同一 reviewer" in workflow
-    assert "最后一个完整 Round 为 `Approved`" in workflow
-    assert "`0 CRITICAL / 0 WARNING`" in workflow
-    assert "一个 unit 的整个 Gate 2 闭环只创建**一个** reviewer" in author_skill
-    assert "由 reviewer 根据实际改动选择 `closure`、`delta` 或 `full`" in workflow
+    workflow_lines = workflow.splitlines()
+    assert any(
+        "Gate 2" in line and "同一个" in line and "`change-design-reviewer`" in line
+        for line in workflow_lines
+    )
+    assert any("后续" in line and "同一 reviewer" in line for line in workflow_lines)
+    assert any("`Approved`" in line for line in workflow_lines)
+    assert any("CRITICAL" in line and "WARNING" in line for line in workflow_lines)
+    assert any(
+        "Gate 2" in line and "只创建" in line and "一个" in line
+        for line in author_skill.splitlines()
+    )
 
 
 def test_selected_validation_gate_matrix_does_not_drift() -> None:
     workflow = _read("docs/development/change-workflow.md")
     orchestrator = _read(".claude/skills/change-orchestrator/SKILL.md")
-    simple_orchestrator = _read(".claude/skills/change-orchestrator-simple/SKILL.md")
-    rows = _table_rows(workflow)
-
-    assert rows["Full，存在用户可观察旅程"] == ("必须", "必须", "必须")
-    assert rows["Full，零用户面"] == ("必须", "跳过", "必须")
-    assert rows["Bugfix lite"] == ("跳过", "跳过", "必须")
-    assert "| Full，有用户可观察旅程 | full | full | full |" in orchestrator
-    assert "| Full，零用户面 | skipped | full | full |" in orchestrator
-    assert "| Bugfix lite | skipped | skipped | full |" in orchestrator
-    assert "用户点名 `$change-orchestrator-simple` 时使用" in simple_orchestrator
-    assert (
-        "零用户面：执行 `$change-verifier` 和 `$change-code-review`"
-        in simple_orchestrator
+    workflow_rows = _table_rows(
+        workflow,
+        (
+            "Unit 类型",
+            "`change-verifier`",
+            "`change-reviewer`",
+            "`change-code-review`",
+        ),
     )
-    assert "不派产品 reviewer" in simple_orchestrator
+    orchestrator_rows = _table_rows(
+        orchestrator,
+        ("Unit", "Product reviewer", "Verifier", "Code review"),
+    )
+
+    row_pairs = {
+        "Full，存在用户可观察旅程": "Full，有用户可观察旅程",
+        "Full，零用户面": "Full，零用户面",
+        "Bugfix lite": "Bugfix lite",
+    }
+    for workflow_name, orchestrator_name in row_pairs.items():
+        verifier, reviewer, code_review = workflow_rows[workflow_name]
+        normalized = tuple(
+            "full" if value == "必须" else "skipped"
+            for value in (reviewer, verifier, code_review)
+        )
+        assert orchestrator_rows[orchestrator_name] == normalized

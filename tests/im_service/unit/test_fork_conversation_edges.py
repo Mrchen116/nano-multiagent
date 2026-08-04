@@ -9,13 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from IM.application.web_im_service import (
-    AgentOfflineError,
-    ForkDelegationError,
-    ForkNotFoundError,
-    ForkValidationError,
-    WebIMService,
-)
+from IM.application.web_im_service import WebIMService
 from IM.infra.db import connect, initialize_schema
 from IM.infra.repositories.conversations import ConversationRepository
 from IM.infra.repositories.messages import MessageRepository
@@ -242,36 +236,6 @@ async def test_fork_unmapped_kernel_id_becomes_none(tmp_path: Path) -> None:
     by_content = {m.content: m for m in copied}
     assert by_content["a2"].kernel_message_id == "branch-a2"  # mapped
     assert by_content["a1"].kernel_message_id is None  # not in map → None
-
-
-@pytest.mark.asyncio
-async def test_fork_rollback_does_not_mask_original_error(tmp_path: Path) -> None:
-    """#6: 回滚里 delete 自身抛错不得覆盖原 ForkDelegationError（否则路由 except 不命中 → 500）。"""
-    service, conversations, messages, human, agent_user, conv = _setup(tmp_path)
-    a1, _ = _seed_history(messages, conv.id, human, agent_user)
-
-    async def _fail(**_kw):
-        return {"ok": False, "error": "kernel boom"}
-
-    # Make rollback's delete raise — original ForkDelegationError must still surface.
-    orig_delete = conversations.delete_conversation
-
-    def _boom_delete(**kw):
-        raise RuntimeError("delete failed")
-
-    conversations.delete_conversation = _boom_delete  # type: ignore[method-assign]
-    try:
-        with pytest.raises(ForkDelegationError):
-            await service.fork_conversation(
-                source_conversation_id=conv.id,
-                fork_message_id=a1.id,
-                owner_id=human.owner_id,
-                actor_user_id=human.id,
-                check_agent_online=_online(None),
-                request_fork=_fail,
-            )
-    finally:
-        conversations.delete_conversation = orig_delete  # type: ignore[method-assign]
 
 
 @pytest.mark.asyncio

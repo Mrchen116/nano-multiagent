@@ -926,34 +926,11 @@ def test_handle_agent_message_deduplicates_same_dispatch_request(
     assert messages[0].content == "hello B"
 
 
-def test_parse_token_usage_preserves_total_field() -> None:
-    """_parse_token_usage must surface the total (prompt+completion) so the chip shows real usage, not just completion."""
+def test_parse_token_usage_normalizes_totals_and_cache_fields() -> None:
+    """Normalize both current usage payloads and legacy payloads without totals/cache."""
     from IM.ws.gateway.protocol import _parse_token_usage
 
-    parsed = _parse_token_usage({"prompt": 2428, "completion": 1, "total": 2429})
-    assert parsed is not None
-    # Total exposed for the chip; output stays = completion for backwards reads.
-    assert parsed.total == 2429, (
-        f"Expected total=2429 (prompt+completion), got {parsed!r}"
-    )
-    assert parsed.output == 1
-    assert parsed.context_used == 2428
-
-
-def test_parse_token_usage_derives_total_when_missing() -> None:
-    """_parse_token_usage derives total = prompt + completion when not provided."""
-    from IM.ws.gateway.protocol import _parse_token_usage
-
-    parsed = _parse_token_usage({"prompt": 12, "completion": 30})
-    assert parsed is not None
-    assert parsed.total == 42
-
-
-def test_parse_token_usage_reads_cache_hit_fields() -> None:
-    """feat-439-M1: gateway streaming_delta 带缓存命中两字段时落入 domain TokenUsage。"""
-    from IM.ws.gateway.protocol import _parse_token_usage
-
-    parsed = _parse_token_usage(
+    current = _parse_token_usage(
         {
             "prompt": 400,
             "completion": 15,
@@ -962,19 +939,16 @@ def test_parse_token_usage_reads_cache_hit_fields() -> None:
             "cache_total_input": 400,
         }
     )
-    assert parsed is not None
-    assert parsed.cache_read_tokens == 270
-    assert parsed.cache_total_input_tokens == 400
+    legacy = _parse_token_usage({"prompt": 12, "completion": 30})
 
-
-def test_parse_token_usage_cache_defaults_zero_when_absent() -> None:
-    """无 cache 字段(旧 gateway)时默认 0，不丢其它字段。"""
-    from IM.ws.gateway.protocol import _parse_token_usage
-
-    parsed = _parse_token_usage({"prompt": 12, "completion": 30})
-    assert parsed is not None
-    assert parsed.cache_read_tokens == 0
-    assert parsed.cache_total_input_tokens == 0
+    assert current is not None
+    assert current.total == 415
+    assert current.cache_read_tokens == 270
+    assert current.cache_total_input_tokens == 400
+    assert legacy is not None
+    assert legacy.total == 42
+    assert legacy.cache_read_tokens == 0
+    assert legacy.cache_total_input_tokens == 0
 
 
 # ---------------------------------------------------------------------------
@@ -1305,17 +1279,11 @@ def test_turn_start_to_user_id_owner_not_in_db_returns_skipped_ack_not_exception
 # ---------------------------------------------------------------------------
 
 
-def test_request_node_heartbeat_md_returns_none_when_node_offline(
-    tmp_path: Path,
-) -> None:
-    """Heartbeat-md RPC returns None when target node is not connected.
-
-    feat-394-M13 (决策 G): IM must never directly read gateway workspace files.
-    request_node_heartbeat_md is the RPC path; offline node → None (graceful).
-    """
+def test_node_local_rpcs_return_none_when_node_is_offline(tmp_path: Path) -> None:
+    """All workspace-backed controls fail at the Gateway RPC boundary when offline."""
     handler = _build_handler(tmp_path)
 
-    result = asyncio.run(
+    heartbeat = asyncio.run(
         handler.control.request_node_heartbeat_md(
             target_node_id="offline-node",
             agent_id="agent-x",
@@ -1324,20 +1292,7 @@ def test_request_node_heartbeat_md_returns_none_when_node_offline(
         )
     )
 
-    assert result is None
-
-
-def test_request_node_cron_jobs_returns_none_when_node_offline(
-    tmp_path: Path,
-) -> None:
-    """Cron-jobs RPC returns None when target node is not connected.
-
-    feat-394-M13: cron jobs list must be fetched from gateway via RPC, not read
-    directly from the IM host filesystem.  Offline node → None (graceful).
-    """
-    handler = _build_handler(tmp_path)
-
-    result = asyncio.run(
+    cron_jobs = asyncio.run(
         handler.control.request_node_cron_jobs(
             target_node_id="offline-node",
             agent_id="agent-x",
@@ -1346,20 +1301,7 @@ def test_request_node_cron_jobs_returns_none_when_node_offline(
         )
     )
 
-    assert result is None
-
-
-def test_request_node_skills_usage_returns_none_when_node_offline(
-    tmp_path: Path,
-) -> None:
-    """Skills usage RPC returns None when target node is not connected.
-
-    feat-446-M4: IM asks the gateway node for skill usage stats because the
-    source .usage.json lives in the gateway workspace, not on the IM host.
-    """
-    handler = _build_handler(tmp_path)
-
-    result = asyncio.run(
+    skill_usage = asyncio.run(
         handler.control.request_node_skills_usage(
             target_node_id="offline-node",
             agent_id="agent-x",
@@ -1368,20 +1310,7 @@ def test_request_node_skills_usage_returns_none_when_node_offline(
         )
     )
 
-    assert result is None
-
-
-def test_request_node_cron_delete_returns_none_when_node_offline(
-    tmp_path: Path,
-) -> None:
-    """Cron-delete RPC returns None when target node is not connected.
-
-    feat-394-M13: delete must also go via RPC, not direct file write on IM host.
-    Offline node → None (graceful degradation); route layer maps to 503/404.
-    """
-    handler = _build_handler(tmp_path)
-
-    result = asyncio.run(
+    cron_delete = asyncio.run(
         handler.control.request_node_cron_delete(
             target_node_id="offline-node",
             agent_id="agent-x",
@@ -1391,36 +1320,15 @@ def test_request_node_cron_delete_returns_none_when_node_offline(
         )
     )
 
-    assert result is None
+    assert heartbeat is None
+    assert cron_jobs is None
+    assert skill_usage is None
+    assert cron_delete is None
 
 
 # ---------------------------------------------------------------------------
 # heartbeat schema 防回归（feat-394）
 # ---------------------------------------------------------------------------
-
-
-def test_heartbeat_json_field_present_in_agent_profile() -> None:
-    """AgentProfile domain model must have heartbeat_json field (cadence data)."""
-    from IM.domain.models import AgentProfile
-    from dataclasses import fields
-
-    field_names = {f.name for f in fields(AgentProfile)}
-    assert "heartbeat_json" in field_names, "AgentProfile missing heartbeat_json field"
-
-
-def test_heartbeat_json_column_in_agent_profiles_table(tmp_path) -> None:
-    """agent_profiles table must have heartbeat_json column (DB migration guard)."""
-    from IM.infra.db import connect, initialize_schema
-
-    db_path = tmp_path / "hb_schema.db"
-    conn = connect(db_path)
-    initialize_schema(conn)
-
-    cols = conn.execute("PRAGMA table_info(agent_profiles)").fetchall()
-    col_names = {row["name"] for row in cols}
-    assert "heartbeat_json" in col_names, (
-        f"agent_profiles table missing heartbeat_json column; columns: {sorted(col_names)}"
-    )
 
 
 def test_heartbeat_json_persisted_and_readable(tmp_path) -> None:
@@ -1466,31 +1374,6 @@ def test_heartbeat_json_persisted_and_readable(tmp_path) -> None:
     refetched = repo.get_profile(agent_id="agent-hb")
     assert refetched is not None
     assert refetched.heartbeat_json == hb_json_str
-
-
-def test_update_profile_accepts_heartbeat_json_param() -> None:
-    """AgentProfileRepository.update_profile must accept heartbeat_json parameter."""
-    import inspect
-    from IM.infra.repositories.agents import AgentProfileRepository
-
-    sig = inspect.signature(AgentProfileRepository.update_profile)
-    assert "heartbeat_json" in sig.parameters, (
-        "update_profile must accept heartbeat_json for cadence data"
-    )
-
-
-def test_update_request_and_response_have_heartbeat_json_field() -> None:
-    """UpdateAgentConfigRequest and AgentConfigResponse must carry heartbeat_json."""
-    from IM.api.routes.agents import UpdateAgentConfigRequest, AgentConfigResponse
-
-    req_fields = UpdateAgentConfigRequest.model_fields
-    resp_fields = AgentConfigResponse.model_fields
-    assert "heartbeat_json" in req_fields, (
-        "UpdateAgentConfigRequest missing heartbeat_json field"
-    )
-    assert "heartbeat_json" in resp_fields, (
-        "AgentConfigResponse missing heartbeat_json field"
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -1772,9 +1655,8 @@ def test_agent_message_user_target_dedup_does_not_double_emit(
     )
 
 
-def test_push_permission_response_writes_reason_into_frame(tmp_path: Path) -> None:
-    """feat-440-M1: a deny reason supplied at the endpoint must ride the
-    permission_response frame so the PA/kernel can fill PermissionResponse.reason."""
+def test_permission_response_frame_preserves_optional_reason(tmp_path: Path) -> None:
+    """Permission frames preserve an explicit reason and normalize omission to empty."""
     handler = _build_handler(tmp_path)
     websocket = StubWebSocket()
     asyncio.run(
@@ -1785,7 +1667,7 @@ def test_push_permission_response_writes_reason_into_frame(tmp_path: Path) -> No
         )
     )
 
-    delivered = asyncio.run(
+    explicit_delivered = asyncio.run(
         handler.control.push_permission_response(
             target_node_id="node-1",
             message_id="msg-1",
@@ -1795,39 +1677,26 @@ def test_push_permission_response_writes_reason_into_frame(tmp_path: Path) -> No
         )
     )
 
-    assert delivered is True
-    frame = next(
+    explicit_frame = next(
         f
         for f in websocket.sent_json
-        if f.get("payload", {}).get("kind") == "permission_response"
+        if f.get("payload", {}).get("request_id") == "req-1"
     )
-    assert frame["payload"]["reason"] == "先别动这个文件"
-
-
-def test_push_permission_response_defaults_reason_to_empty(tmp_path: Path) -> None:
-    """No reason supplied → frame carries reason="" (back-compat: old callers)."""
-    handler = _build_handler(tmp_path)
-    websocket = StubWebSocket()
-    asyncio.run(
-        handler.runtime.handle_message(
-            websocket=websocket,
-            message_type="node.register",
-            payload={"node_id": "node-1", "agents": [], "capabilities": {}},
-        )
-    )
-
-    asyncio.run(
+    omitted_delivered = asyncio.run(
         handler.control.push_permission_response(
             target_node_id="node-1",
             message_id="msg-1",
-            request_id="req-1",
+            request_id="req-2",
             decision="allow_once",
         )
     )
-
-    frame = next(
+    omitted_frame = next(
         f
         for f in websocket.sent_json
-        if f.get("payload", {}).get("kind") == "permission_response"
+        if f.get("payload", {}).get("request_id") == "req-2"
     )
-    assert frame["payload"]["reason"] == ""
+
+    assert explicit_delivered is True
+    assert omitted_delivered is True
+    assert explicit_frame["payload"]["reason"] == "先别动这个文件"
+    assert omitted_frame["payload"]["reason"] == ""

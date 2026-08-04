@@ -1,16 +1,3 @@
-"""Tests for feat-394-M3 R2: cron接入 PollingHeartbeatRunner gateway 运行循环.
-
-CRITICAL-1 fix: CronScheduler/CronRunner were only referenced by tests; main.py
-never imported or invoked them. The gateway polling loop only ran heartbeat ticks.
-
-These tests verify that:
-1. The polling runner evaluates cron jobs on each tick for cron_enabled agents.
-2. Due cron jobs are submitted (CronScheduler.tick is called).
-3. agents with cron_enabled=False are skipped.
-
-feat-394 architecture: 统一 polling tick 驱动 heartbeat + cron 两套（design 架构图）。
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -21,281 +8,106 @@ import pytest
 
 from personal_assistant.config.local_store import AgentWorkspaceConfig, HeartbeatConfig
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
-from personal_assistant.scheduler.cron_scheduler import (
-    CronJob,
-    CronJobStore,
-    CronScheduler,
-    CronSchedulerStateStore,
-)
-from personal_assistant.scheduler.heartbeat_scheduler import (
-    HeartbeatScheduler,
-    HeartbeatSchedulerStateStore,
-)
-
-
-# ---------------------------------------------------------------------------
-# Fakes / helpers
-# ---------------------------------------------------------------------------
+from personal_assistant.scheduler.heartbeat_runner import PollingHeartbeatRunner
 
 
 class _FakeHeartbeatScheduler:
-    """Heartbeat scheduler stub that returns empty summary."""
-
     def __init__(self) -> None:
         self.tick_count = 0
+        self.ticked = asyncio.Event()
 
     async def tick(self) -> Any:
         self.tick_count += 1
+        self.ticked.set()
 
         class _Summary:
-            triggered_runs: list = []
+            triggered_runs: tuple[object, ...] = ()
 
         return _Summary()
 
 
-class _FakeCronScheduler:
-    """CronScheduler stub that records tick calls."""
-
-    def __init__(self) -> None:
-        self.tick_count = 0
-        self.tick_args: list[dict] = []
-
-    async def tick(self, *, now=None) -> None:
-        self.tick_count += 1
-        self.tick_args.append({"now": now})
-
-
-class _PipelineLike:
-    """Minimal pipeline-like object with agents dict."""
-
-    def __init__(self, agents: dict[str, AgentWorkspaceConfig]) -> None:
-        self._agents = agents
-
-
-# ---------------------------------------------------------------------------
-# Tests: cron tick接入 polling runner
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.asyncio
-async def test_polling_runner_calls_cron_tick_for_cron_enabled_agent(
-    tmp_path: Path,
-) -> None:
-    """PollingHeartbeatRunner._run_loop must call cron tick for agents with cron_enabled=True.
-
-    CRITICAL-1: Before the fix, CronScheduler was never called by the gateway loop.
-    After the fix, each polling tick must evaluate cron jobs for each cron_enabled agent.
-    """
-    from personal_assistant.scheduler.heartbeat_runner import PollingHeartbeatRunner
-
-    ws = tmp_path / "ws-agent"
-    ws.mkdir()
-    agent = AgentWorkspaceConfig(
-        agent_id="cron-agent",
-        workspace_root=ws,
+async def test_polling_runner_ticks_only_cron_enabled_agents(tmp_path: Path) -> None:
+    enabled_workspace = tmp_path / "enabled"
+    disabled_workspace = tmp_path / "disabled"
+    enabled_workspace.mkdir()
+    disabled_workspace.mkdir()
+    enabled = AgentWorkspaceConfig(
+        agent_id="enabled-agent",
+        workspace_root=enabled_workspace,
         features={"cron_scheduling": True},
     )
-
-    cron_ticks: list[str] = []
-
-    async def _fake_cron_tick_fn(agent_id: str) -> None:
-        cron_ticks.append(agent_id)
-
-    hb_scheduler = _FakeHeartbeatScheduler()
-    hb_config = HeartbeatConfig(tick_interval_seconds=999)
-
-    # Build runner with the cron tick fn injected.
-    runner = PollingHeartbeatRunner(
-        scheduler=hb_scheduler,
-        config=hb_config,
-        cron_tick_fn=_fake_cron_tick_fn,
-        agent_catalog=LiveAgentCatalog((agent,)),
-    )
-
-    await runner.start()
-    # Give the loop one chance to run.
-    await asyncio.sleep(0.01)
-    await runner.close()
-
-    assert len(cron_ticks) >= 1, (
-        "cron_tick_fn must be called at least once per polling loop tick "
-        "(CRITICAL-1: cron was never wired into the gateway run loop)"
-    )
-    assert "cron-agent" in cron_ticks
-
-
-@pytest.mark.asyncio
-async def test_polling_runner_skips_cron_tick_for_cron_disabled_agent(
-    tmp_path: Path,
-) -> None:
-    """PollingHeartbeatRunner must NOT call cron tick for agents with cron_enabled=False."""
-    from personal_assistant.scheduler.heartbeat_runner import PollingHeartbeatRunner
-
-    ws = tmp_path / "ws-nocron"
-    ws.mkdir()
-    agent = AgentWorkspaceConfig(
-        agent_id="nocron-agent",
-        workspace_root=ws,
+    disabled = AgentWorkspaceConfig(
+        agent_id="disabled-agent",
+        workspace_root=disabled_workspace,
         features={},
     )
-
+    cron_called = asyncio.Event()
     cron_ticks: list[str] = []
 
-    async def _fake_cron_tick_fn(agent_id: str) -> None:
+    async def _cron_tick(agent_id: str) -> None:
         cron_ticks.append(agent_id)
-
-    hb_scheduler = _FakeHeartbeatScheduler()
-    hb_config = HeartbeatConfig(tick_interval_seconds=999)
+        cron_called.set()
 
     runner = PollingHeartbeatRunner(
-        scheduler=hb_scheduler,
-        config=hb_config,
-        cron_tick_fn=_fake_cron_tick_fn,
-        agent_catalog=LiveAgentCatalog((agent,)),
+        scheduler=_FakeHeartbeatScheduler(),
+        config=HeartbeatConfig(tick_interval_seconds=999),
+        cron_tick_fn=_cron_tick,
+        agent_catalog=LiveAgentCatalog((enabled, disabled)),
     )
 
     await runner.start()
-    await asyncio.sleep(0.01)
+    await asyncio.wait_for(cron_called.wait(), timeout=1)
     await runner.close()
 
-    # nocron-agent has cron_enabled=False → must NOT be in cron_ticks
-    assert "nocron-agent" not in cron_ticks, (
-        "cron_tick_fn must NOT be called for agents with cron_enabled=False"
-    )
+    assert cron_ticks == [enabled.agent_id]
 
 
 @pytest.mark.asyncio
-async def test_polling_runner_without_cron_fn_runs_normally(
-    tmp_path: Path,
-) -> None:
-    """PollingHeartbeatRunner without cron_tick_fn must still work (backward compat)."""
-    from personal_assistant.scheduler.heartbeat_runner import PollingHeartbeatRunner
-
-    hb_scheduler = _FakeHeartbeatScheduler()
-    hb_config = HeartbeatConfig(tick_interval_seconds=999)
-
+async def test_polling_runner_without_cron_fn_still_ticks_heartbeat() -> None:
+    heartbeat = _FakeHeartbeatScheduler()
     runner = PollingHeartbeatRunner(
-        scheduler=hb_scheduler,
-        config=hb_config,
-        # no cron_tick_fn passed
+        scheduler=heartbeat,
+        config=HeartbeatConfig(tick_interval_seconds=999),
     )
 
     await runner.start()
-    await asyncio.sleep(0.01)
+    await asyncio.wait_for(heartbeat.ticked.wait(), timeout=1)
     await runner.close()
 
-    assert hb_scheduler.tick_count >= 1
-
-
-# ---------------------------------------------------------------------------
-# bugfix-446-M1 (decision 4): heartbeat tick resilience + done callback
-# ---------------------------------------------------------------------------
-
-
-class _FlakyHeartbeatScheduler:
-    """tick raises the first ``fail_times`` calls, then returns an empty summary."""
-
-    def __init__(self, *, fail_times: int) -> None:
-        self.tick_count = 0
-        self._fail_times = fail_times
-
-    async def tick(self) -> Any:
-        self.tick_count += 1
-        if self.tick_count <= self._fail_times:
-            raise RuntimeError(f"tick boom {self.tick_count}")
-
-        class _Summary:
-            triggered_runs: list = []
-
-        return _Summary()
+    assert heartbeat.tick_count == 1
 
 
 @pytest.mark.asyncio
-async def test_polling_runner_survives_scheduler_tick_failure(tmp_path: Path) -> None:
-    """decision 4: a failing scheduler.tick must not kill the polling loop — the loop
-    logs and retries on the next interval. Before the fix, the bare ``await tick()``
-    let the exception propagate and silently kill the heartbeat subsystem."""
-    from personal_assistant.scheduler.heartbeat_runner import PollingHeartbeatRunner
+async def test_polling_runner_survives_scheduler_tick_failure() -> None:
+    class _FlakyHeartbeatScheduler:
+        def __init__(self) -> None:
+            self.tick_count = 0
+            self.first_tick = asyncio.Event()
+            self.recovered_tick = asyncio.Event()
 
-    hb_scheduler = _FlakyHeartbeatScheduler(fail_times=1)
-    hb_config = HeartbeatConfig(tick_interval_seconds=0.001)
+        async def tick(self) -> Any:
+            self.tick_count += 1
+            if self.tick_count == 1:
+                self.first_tick.set()
+                raise RuntimeError("tick boom")
+            self.recovered_tick.set()
 
-    runner = PollingHeartbeatRunner(scheduler=hb_scheduler, config=hb_config)
+            class _Summary:
+                triggered_runs: tuple[object, ...] = ()
+
+            return _Summary()
+
+    heartbeat = _FlakyHeartbeatScheduler()
+    runner = PollingHeartbeatRunner(
+        scheduler=heartbeat,
+        config=HeartbeatConfig(tick_interval_seconds=999),
+    )
 
     await runner.start()
-    # Allow several intervals so a surviving loop ticks again after the first failure.
-    for _ in range(50):
-        if hb_scheduler.tick_count >= 2:
-            break
-        await asyncio.sleep(0.005)
-    tick_count = hb_scheduler.tick_count
+    await asyncio.wait_for(heartbeat.first_tick.wait(), timeout=1)
+    runner.request_tick()
+    await asyncio.wait_for(heartbeat.recovered_tick.wait(), timeout=1)
     await runner.close()
 
-    assert tick_count >= 2, (
-        f"loop must survive a failing tick and tick again; got tick_count={tick_count}"
-    )
-
-
-@pytest.mark.asyncio
-async def test_polling_runner_start_attaches_done_callback(tmp_path: Path) -> None:
-    """decision 4: the heartbeat loop task must carry a done callback so a truly
-    unexpected loop crash is observed (logged) rather than swallowed silently."""
-    from personal_assistant.scheduler.heartbeat_runner import (
-        PollingHeartbeatRunner,
-        _consume_task_exception,
-    )
-
-    hb_scheduler = _FakeHeartbeatScheduler()
-    hb_config = HeartbeatConfig(tick_interval_seconds=999)
-
-    runner = PollingHeartbeatRunner(scheduler=hb_scheduler, config=hb_config)
-    await runner.start()
-    try:
-        task = runner._task  # noqa: SLF001
-        assert task is not None
-        registered = [
-            cb[0] if isinstance(cb, tuple) else cb
-            for cb in (task._callbacks or [])  # noqa: SLF001
-        ]
-        assert _consume_task_exception in registered, (
-            "heartbeat loop task must have _consume_task_exception as a done callback"
-        )
-    finally:
-        await runner.close()
-
-
-# ---------------------------------------------------------------------------
-# Regression: _cron_tick_for_agent reaches CronSchedulerStateStore construction
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_cron_tick_for_agent_reaches_state_store_construction(
-    tmp_path: Path,
-) -> None:
-    """_cron_tick_for_agent must construct CronSchedulerStateStore without NameError.
-
-    Root cause (feat-394-M14 Issue B): WORKSPACE_CONFIG_DIRNAME was imported as _WCD
-    inside _consume_heartbeat_run (a method body), but _cron_tick_for_agent (a closure
-    inside run_gateway) referenced _WCD without importing it — causing NameError on
-    every cron tick.
-
-    This test reproduces the logic by calling a helper that mirrors _cron_tick_for_agent's
-    state_store construction using WORKSPACE_CONFIG_DIRNAME from local_store.
-    After the fix, the import must be available in _cron_tick_for_agent's scope
-    (either as a local import inside the closure, or promoted to run_gateway scope).
-    """
-    from personal_assistant.config.local_store import WORKSPACE_CONFIG_DIRNAME
-    from personal_assistant.scheduler.cron_scheduler import CronSchedulerStateStore
-
-    ws_root = tmp_path / "ws-agent"
-    ws_root.mkdir()
-
-    # Mirrors the exact expression from _cron_tick_for_agent line 2263.
-    # If WORKSPACE_CONFIG_DIRNAME is not importable or the path is wrong, this fails.
-    state_path = ws_root / WORKSPACE_CONFIG_DIRNAME / "cron" / "state.json"
-    state_store = CronSchedulerStateStore(state_path=state_path)
-
-    # The store must be constructable (state file doesn't have to exist yet).
-    assert state_store is not None
-    assert str(state_path).endswith(".nanoassistant/cron/state.json")
+    assert heartbeat.tick_count == 2

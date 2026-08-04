@@ -106,21 +106,12 @@ def test_login_wrong_password_returns_401(tmp_path: Path) -> None:
         assert response.status_code == 401
 
 
-def test_me_without_token_returns_401(tmp_path: Path) -> None:
-    """Calling /im/v1/auth/me without Authorization header must return 401."""
+def test_me_rejects_missing_or_invalid_token(tmp_path: Path) -> None:
+    """Reject requests that do not carry a valid access token."""
     with _make_client(tmp_path) as client:
-        response = client.get("/im/v1/auth/me")
-        assert response.status_code == 401
-
-
-def test_me_with_invalid_token_returns_401(tmp_path: Path) -> None:
-    """Calling /im/v1/auth/me with a garbage Bearer token must return 401."""
-    with _make_client(tmp_path) as client:
-        response = client.get(
-            "/im/v1/auth/me",
-            headers={"Authorization": "Bearer not-a-real-jwt"},
-        )
-        assert response.status_code == 401
+        for headers in ({}, {"Authorization": "Bearer not-a-real-jwt"}):
+            response = client.get("/im/v1/auth/me", headers=headers)
+            assert response.status_code == 401
 
 
 def test_refresh_returns_new_pair_and_invalidates_old(tmp_path: Path) -> None:

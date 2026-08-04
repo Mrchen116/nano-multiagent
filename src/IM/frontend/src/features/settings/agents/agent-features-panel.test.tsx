@@ -1,106 +1,71 @@
-/**
- * Features-driven heartbeat/cron panel behavior.
- *
- * When capabilities.features includes "heartbeat" or "cron_scheduling", the agent
- * detail page must:
- *   1. Remove the independent enable toggle from HeartbeatCard / CronCard.
- *   2. Show/hide the config panels based on draft.features (controlled by the
- *      Features checkbox list).
- */
-
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const apiMocks = vi.hoisted(() => ({
-  getAgentDetailStateMock: vi.fn(),
-  updateAgentConfigMock: vi.fn(),
-  listAgentSummariesMock: vi.fn(),
-  listAgentsMock: vi.fn(),
-  navigateMock: vi.fn(),
-  promptPreviewMock: vi.fn(),
-  createConversationMock: vi.fn(),
+  getAgentDetailState: vi.fn(),
+  listAgentSummaries: vi.fn(),
+  listAgents: vi.fn(),
+  navigate: vi.fn(),
 }));
 
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
   return {
     ...actual,
-    useParams: () => ({ agentId: "agent-m9c-1" }),
-    useNavigate: () => apiMocks.navigateMock,
+    useParams: () => ({ agentId: "agent-1" }),
+    useNavigate: () => apiMocks.navigate,
   };
 });
 
 vi.mock("../../chat/chat-api", () => ({
-  createConversation: apiMocks.createConversationMock,
-  listAgents: apiMocks.listAgentsMock,
+  createConversation: vi.fn(),
+  listAgents: apiMocks.listAgents,
 }));
 
-vi.mock("../../../hooks/use-is-mobile", () => ({
-  useIsMobile: () => false,
-}));
+vi.mock("../../../hooks/use-is-mobile", () => ({ useIsMobile: () => false }));
 
 vi.mock("./im-agent-config-api", () => ({
-  getAgentDetailState: apiMocks.getAgentDetailStateMock,
-  updateAgentConfig: apiMocks.updateAgentConfigMock,
-  listAgentSummaries: apiMocks.listAgentSummariesMock,
-  promptPreview: apiMocks.promptPreviewMock,
+  getAgentDetailState: apiMocks.getAgentDetailState,
+  listAgentSummaries: apiMocks.listAgentSummaries,
+  promptPreview: vi.fn(),
+  updateAgentConfig: vi.fn(),
 }));
 
 import { AgentDetailPage } from "./agent-detail-page";
 
-function renderDetailPage() {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
-        <AgentDetailPage />
-      </MemoryRouter>
-    </QueryClientProvider>
-  );
-}
-
-// Capability features that include heartbeat + cron_scheduling.
-const HB_CAP_FEATURE = {
+const HEARTBEAT = {
   key: "heartbeat",
-  label_i18n: "agents.features.heartbeat.label",
-  help_i18n: "agents.features.heartbeat.help",
+  label_i18n: "Heartbeat",
+  help_i18n: "Run periodic checks",
   default_on: false,
   available: true,
   requires_tool: null,
 };
 
-const CRON_CAP_FEATURE = {
+const CRON = {
   key: "cron_scheduling",
-  label_i18n: "agents.features.cron_scheduling.label",
-  help_i18n: "agents.features.cron_scheduling.help",
+  label_i18n: "Cron scheduling",
+  help_i18n: "Run scheduled jobs",
   default_on: false,
   available: true,
   requires_tool: "cron",
 };
 
-const TOOL_DEFAULT = { name: "read", description: "Read files", default_on: true };
-const TOOL_OPTIONAL = { name: "cron", description: "Cron scheduling", default_on: false };
-
-function makeAgentState(opts: {
-  configFeatures?: Record<string, boolean>;
-  capFeatures?: object[];
-  heartbeat?: object;
-  // cron field removed from AgentConfig; enable lives in features["cron_scheduling"].
-} = {}) {
+function agentState(feature: typeof HEARTBEAT | typeof CRON) {
   return {
     config: {
-      agent_id: "agent-m9c-1",
+      agent_id: "agent-1",
       owner_id: "owner-1",
-      display_name: "M9C Agent",
+      display_name: "Settings Agent",
       description: "",
       system_prompt: "",
       custom_prompt: "",
-      features: opts.configFeatures ?? {},
+      features: {},
       skills: [],
-      tool_allowlist: [] as string[],
+      tool_allowlist: [],
       group_reply_policy: "MENTION" as const,
       default_model: null,
       workspace_root: "/tmp",
@@ -110,8 +75,7 @@ function makeAgentState(opts: {
       node_name: "MacBook",
       node_status: "online",
       updated_at: "2026-03-13T10:00:00Z",
-      ...(opts.heartbeat !== undefined ? { heartbeat: opts.heartbeat } : {}),
-      // feat-394 M9-E: no cron config field; enable in features["cron_scheduling"].
+      heartbeat: { every: "1h" },
     },
     capabilities: {
       node_id: "node-1",
@@ -119,21 +83,34 @@ function makeAgentState(opts: {
       node_status: "online",
       capabilities_updated_at: "2026-03-13T10:00:00Z",
       skills: [],
-      tools: [TOOL_DEFAULT, TOOL_OPTIONAL],
+      tools: [{ name: "cron", description: "Cron scheduling", default_on: false }],
       model_options: [],
       platform_default_model: null,
       default_system_prompt: "",
-      features: opts.capFeatures ?? [HB_CAP_FEATURE, CRON_CAP_FEATURE],
+      features: [feature],
     },
     owningNode: null,
   };
 }
 
+function renderDetail() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter>
+        <AgentDetailPage />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
 beforeEach(() => {
-  apiMocks.listAgentSummariesMock.mockResolvedValue([
+  apiMocks.listAgentSummaries.mockResolvedValue([
     {
-      agent_id: "agent-m9c-1",
-      display_name: "M9C Agent",
+      agent_id: "agent-1",
+      display_name: "Settings Agent",
       owner_id: "owner-1",
       description: "",
       profile_version: 1,
@@ -142,151 +119,38 @@ beforeEach(() => {
       workspace_is_default: false,
     },
   ]);
-  apiMocks.listAgentsMock.mockResolvedValue([]);
+  apiMocks.listAgents.mockResolvedValue([]);
 });
 
-afterEach(() => {
-  vi.clearAllMocks();
-});
+afterEach(() => vi.clearAllMocks());
 
-
-describe("heartbeat controlled by Features list", () => {
-  it("heartbeat-enabled-toggle is hidden when heartbeat is in capabilities.features", async () => {
-    // heartbeat is a registered capability feature → toggle moves to Features list
-    apiMocks.getAgentDetailStateMock.mockResolvedValue(
-      makeAgentState({ capFeatures: [HB_CAP_FEATURE, CRON_CAP_FEATURE] })
-    );
-
-    renderDetailPage();
-    await screen.findByRole("heading", { name: "M9C Agent" });
-
-    const toggle = document.querySelector<HTMLInputElement>(
-      '[data-testid="heartbeat-enabled-toggle"]'
-    );
-    expect(toggle, "heartbeat-enabled-toggle must be hidden when heartbeat is in cap features").toBeNull();
-  });
-
-  it("HeartbeatCard is not rendered when features.heartbeat is false/absent", async () => {
-    // heartbeat in cap features but not in draft.features → card hidden
-    apiMocks.getAgentDetailStateMock.mockResolvedValue(
-      makeAgentState({
-        capFeatures: [HB_CAP_FEATURE],
-        configFeatures: {}, // heartbeat not enabled
-      })
-    );
-
-    renderDetailPage();
-    await screen.findByRole("heading", { name: "M9C Agent" });
-
-    // HeartbeatCard title must not appear
-    expect(screen.queryByRole("heading", { name: /Heartbeat/i })).toBeNull();
-  });
-
-  it("HeartbeatCard appears when features.heartbeat is toggled on via Features list", async () => {
+describe("agent feature settings", () => {
+  it("reveals heartbeat cadence after the user enables heartbeat", async () => {
     const user = userEvent.setup();
-    apiMocks.getAgentDetailStateMock.mockResolvedValue(
-      makeAgentState({
-        capFeatures: [HB_CAP_FEATURE],
-        configFeatures: {}, // initially off
-      })
-    );
+    apiMocks.getAgentDetailState.mockResolvedValue(agentState(HEARTBEAT));
 
-    renderDetailPage();
-    await screen.findByRole("heading", { name: "M9C Agent" });
-
-    // Before toggle: card absent
+    renderDetail();
+    await screen.findByRole("heading", { name: "Settings Agent" });
     expect(screen.queryByRole("heading", { name: /Heartbeat/i })).toBeNull();
 
-    // Find the heartbeat checkbox in the Features list
-    const hbCheckbox = document.querySelector<HTMLInputElement>(
-      '[data-feature-key="heartbeat"]'
-    );
-    expect(hbCheckbox, "heartbeat feature checkbox must exist in Features list").not.toBeNull();
+    await user.click(document.querySelector<HTMLInputElement>('[data-feature-key="heartbeat"]')!);
 
-    // Toggle it on
-    if (hbCheckbox) await user.click(hbCheckbox);
-
-    // After toggle: HeartbeatCard (with cadence config) appears
-    await waitFor(() => {
-      expect(screen.queryByRole("heading", { name: /Heartbeat/i })).not.toBeNull();
-    });
+    expect(await screen.findByRole("heading", { name: /Heartbeat/i })).toBeInTheDocument();
+    expect(document.querySelector<HTMLInputElement>("#heartbeat-every")).toHaveValue(1);
   });
 
-  it("HeartbeatCard shows cadence config (every input) when enabled via features", async () => {
-    // heartbeat on via features → cadence panel always visible (no separate enable toggle)
-    apiMocks.getAgentDetailStateMock.mockResolvedValue(
-      makeAgentState({
-        capFeatures: [HB_CAP_FEATURE],
-        configFeatures: { heartbeat: true }, // pre-enabled
-        heartbeat: { enabled: true, every: "1h" },
-      })
-    );
-
-    renderDetailPage();
-    await screen.findByRole("heading", { name: "M9C Agent" });
-
-    // Cadence input must be visible (not gated behind a separate enable toggle)
-    const everyInput = document.querySelector<HTMLInputElement>("#heartbeat-every");
-    expect(everyInput, "'every' interval input must be visible when heartbeat feature is on").not.toBeNull();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Part B: CronCard independent toggle hidden when cron_scheduling in cap features
-// ---------------------------------------------------------------------------
-
-describe("cron controlled by Features list", () => {
-  it("cron-enabled-toggle is hidden when cron_scheduling is in capabilities.features", async () => {
-    apiMocks.getAgentDetailStateMock.mockResolvedValue(
-      makeAgentState({ capFeatures: [HB_CAP_FEATURE, CRON_CAP_FEATURE] })
-    );
-
-    renderDetailPage();
-    await screen.findByRole("heading", { name: "M9C Agent" });
-
-    const toggle = document.querySelector<HTMLInputElement>(
-      '[data-testid="cron-enabled-toggle"]'
-    );
-    expect(toggle, "cron-enabled-toggle must be hidden when cron_scheduling is in cap features").toBeNull();
-  });
-
-  it("CronCard is not rendered when features.cron_scheduling is false/absent", async () => {
-    apiMocks.getAgentDetailStateMock.mockResolvedValue(
-      makeAgentState({
-        capFeatures: [CRON_CAP_FEATURE],
-        configFeatures: {}, // cron not enabled
-      })
-    );
-
-    renderDetailPage();
-    await screen.findByRole("heading", { name: "M9C Agent" });
-
-    expect(screen.queryByRole("heading", { name: /Cron Jobs/i })).toBeNull();
-  });
-
-  it("CronCard appears when features.cron_scheduling toggled on via Features list", async () => {
+  it("reveals cron jobs after the user enables scheduling", async () => {
     const user = userEvent.setup();
-    apiMocks.getAgentDetailStateMock.mockResolvedValue(
-      makeAgentState({
-        capFeatures: [CRON_CAP_FEATURE],
-        configFeatures: {},
-      })
-    );
+    apiMocks.getAgentDetailState.mockResolvedValue(agentState(CRON));
 
-    renderDetailPage();
-    await screen.findByRole("heading", { name: "M9C Agent" });
-
+    renderDetail();
+    await screen.findByRole("heading", { name: "Settings Agent" });
     expect(screen.queryByRole("heading", { name: /Cron Jobs/i })).toBeNull();
 
-    const cronCheckbox = document.querySelector<HTMLInputElement>(
-      '[data-feature-key="cron_scheduling"]'
+    await user.click(
+      document.querySelector<HTMLInputElement>('[data-feature-key="cron_scheduling"]')!,
     );
-    expect(cronCheckbox, "cron_scheduling feature checkbox must exist").not.toBeNull();
 
-    if (cronCheckbox) await user.click(cronCheckbox);
-
-    await waitFor(() => {
-      expect(screen.queryByRole("heading", { name: /Cron Jobs/i })).not.toBeNull();
-    });
+    expect(await screen.findByRole("heading", { name: /Cron Jobs/i })).toBeInTheDocument();
   });
 });

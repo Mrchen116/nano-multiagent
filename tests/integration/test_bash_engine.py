@@ -1,31 +1,8 @@
-"""bugfix-417-M4 R4: end-to-end guard for the unified bash engine (decision 8).
-
-This incident's deepest root cause was "all unit tests green / live all red": M2's
-killpg and M3's bash heartbeat / reason_code each had isolated, passing unit tests,
-but production bash runs through ``build_kernel`` → ``ShellRunner`` (the foreground
-``_run_foreground`` path), while those changes landed on the dead ``run_stream`` /
-``_run_legacy_sync`` path. Isolated unit tests could not prove the heartbeat actually
-reaches a watchdog, because that path spans five layers:
-
-    build_kernel → ShellRunner → ctx.emit_execution_event → tools/registry executor
-    (run_coroutine_threadsafe bridge) → realtime_stream publisher → kernel.stream
-
-These two tests drive a real ``build_kernel`` wiring end-to-end and assert the two
-observable contracts that B1/C1 broke in live:
-  1. a silent long-running bash command makes ``kernel.stream`` emit ``run_heartbeat``
-     (liveness reaches the stream → watchdogs see it → no false reap), and
-  2. a bash command that hits its own ``timeout`` surfaces ``reason_code=tool_timeout``
-     on the ``tool_end`` stream event (→ IM ``tool_call.reason`` → "执行超时" badge).
-
-They are the DONE hard gate that replaces "trust the human live re-test" with an
-automated regression. A fake LLM client issues the bash tool_call so no real upstream
-is needed (not an e2e-marked test — no external services).
-"""
+"""Verify production kernel wiring exposes tool liveness and timeout events."""
 
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import time
 from collections.abc import Mapping
 from pathlib import Path
@@ -62,11 +39,7 @@ async def _allow_all(tool, input, ctx) -> Any:  # noqa: ANN001
 
 
 class _BashThenStopLLM:
-    """First turn: emit one bash tool_call. After the tool result: stop.
-
-    Mirrors the real provider's two-step tool loop so build_kernel actually executes
-    the bash tool through the production ShellRunner foreground path.
-    """
+    """Emit one bash tool call, then finish after receiving its result."""
 
     def __init__(self, *, command: str, timeout: float | None) -> None:
         self._command = command
@@ -137,41 +110,25 @@ async def _collect_stream(
 async def _run_turn_and_collect(
     kernel: Any, session_id: str, tmp_path: Path, text: str
 ) -> list[dict]:
-    """Submit one turn, collect every stream event until the run reaches a terminal
-    status (plus a short drain for trailing events), then tear the collector down.
-
-    Avoids the fragile "stop after N seconds" race: the collector runs concurrently
-    with the run and is stopped only once we have observed the terminal run_status.
-    """
+    """Collect one run's stream through its terminal status event."""
     events: list[dict] = []
-    stop = asyncio.Event()
-    collector = asyncio.create_task(_collect_stream(kernel, session_id, stop, events))
     run = kernel.submit(
         session_id=session_id,
         parts=[{"type": "text", "text": text}],
         workspace_root=tmp_path,
     )
-    deadline = asyncio.get_event_loop().time() + 20.0
-    while asyncio.get_event_loop().time() < deadline:
-        record = kernel.get_run(run.run_id)
-        if record and record.status in {"completed", "failed", "cancelled"}:
-            break
-        await asyncio.sleep(0.05)
-    # Let trailing events (turn_end / terminal run_status) flush into the stream.
-    await asyncio.sleep(0.5)
-    stop.set()
-    # Unblock the collector's pending anext with one more event, then drain it.
-    kernel.submit(
-        session_id=session_id,
-        parts=[{"type": "text", "text": "noop"}],
-        workspace_root=tmp_path,
-    )
-    with contextlib.suppress(*_SUPPRESS_STREAM_STOP):
-        await asyncio.wait_for(collector, timeout=3.0)
-    if not collector.done():
-        collector.cancel()
-        with contextlib.suppress(*_SUPPRESS_STREAM_STOP):
-            await collector
+
+    async def _collect() -> None:
+        async for event in kernel.stream(session_id):
+            events.append(event)
+            if (
+                event.get("event") == "run_status"
+                and event.get("run_id") == run.run_id
+                and event.get("status") in {"completed", "failed", "cancelled"}
+            ):
+                return
+
+    await asyncio.wait_for(_collect(), timeout=20.0)
     return events
 
 
@@ -179,12 +136,7 @@ async def _run_turn_and_collect(
 async def test_silent_long_bash_emits_run_heartbeat_through_build_kernel(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A silent long bash command must make kernel.stream emit run_heartbeat (B1).
-
-    Heartbeat interval is patched small so a ~1.5s sleep yields several ticks well
-    within the foreground budget (no auto-background). Pre-M4 the production
-    foreground path emitted zero events for the whole run.
-    """
+    """A silent long bash command emits liveness through ``kernel.stream``."""
     monkeypatch.setattr(
         "agent.platform.tools.builtins.bash._FOREGROUND_HEARTBEAT_INTERVAL", 0.2
     )
@@ -208,9 +160,7 @@ async def test_silent_long_bash_emits_run_heartbeat_through_build_kernel(
 async def test_bash_timeout_surfaces_tool_timeout_reason_through_build_kernel(
     tmp_path: Path,
 ) -> None:
-    """A bash command hitting its own timeout must surface reason_code=tool_timeout
-    on the tool_end stream event (C1: live had reason=null).
-    """
+    """A bash deadline surfaces ``tool_timeout`` on its stream event."""
     kernel = _build(tmp_path, _BashThenStopLLM(command="sleep 30", timeout=0.5))
     try:
         session = await kernel.create_session(workspace_root=tmp_path)
@@ -231,26 +181,8 @@ async def test_bash_timeout_surfaces_tool_timeout_reason_through_build_kernel(
     )
 
 
-# --- bugfix-417-M6 (#115): generic (non-bash) tool liveness --------------------
-#
-# Pre-M6 only bash emitted execution heartbeats; any other long-running to_thread
-# tool (web_fetch etc.) produced zero events for its whole duration → both watchdogs
-# saw "output silent" and reaped the live run. M6 lifts liveness to the executor's
-# generic layer (an await-bound ticker wrapping to_thread(tool.run)), so EVERY long
-# tool inherits it. This guard drives a real build_kernel wiring with a non-bash tool
-# that deliberately blocks WITHOUT calling ctx.emit_execution_event, and asserts the
-# generic ticker still makes kernel.stream emit run_heartbeat — the DONE hard gate
-# that pins the generalization, not just bash's own phase:running path.
-
-
 class _SlowSleepTool:
-    """A non-bash tool whose run() blocks in a thread WITHOUT emitting any heartbeat.
-
-    Satisfies the SDK Tool Protocol structurally (name/description/input_schema/run).
-    It calls neither ctx.emit_execution_event nor any phase event, so any run_heartbeat
-    reaching the stream proves the executor's generic liveness ticker (not the tool)
-    produced it. Mirrors the real gap: web_fetch et al. are silent during execution.
-    """
+    """Block without emitting tool-specific progress events."""
 
     name = "slow_sleep"
     description = "Sleep for `seconds` seconds without emitting progress (test tool)."
@@ -266,11 +198,7 @@ class _SlowSleepTool:
 
 
 class _SlowToolThenStopLLM:
-    """First turn: emit one slow_sleep tool_call. After the tool result: stop.
-
-    Same two-step streamed tool-loop shape as _BashThenStopLLM so build_kernel runs the
-    non-bash tool through the production executor path.
-    """
+    """Emit one slow tool call, then finish after receiving its result."""
 
     def __init__(self, *, seconds: float) -> None:
         self._seconds = seconds
@@ -308,11 +236,7 @@ class _SlowToolThenStopLLM:
 async def test_silent_non_bash_tool_emits_run_heartbeat_through_build_kernel(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A silent long non-bash tool must make kernel.stream emit run_heartbeat (#115).
-
-    The executor's generic ticker interval is patched small so a ~1.5s sleep yields
-    several ticks. Pre-M6 this tool produced zero events for its whole run.
-    """
+    """A silent non-bash tool inherits generic liveness events."""
     monkeypatch.setattr(
         "agent.core.tools.registry._GENERIC_EXECUTION_HEARTBEAT_INTERVAL", 0.2
     )

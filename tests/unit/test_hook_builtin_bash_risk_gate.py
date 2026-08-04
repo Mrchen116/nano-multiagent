@@ -1,8 +1,7 @@
-"""Regression tests for bash tool gating via auto_mode_gate (replaces bash_risk_gate).
+"""Regression tests for bash tool gating through the current auto-mode hook.
 
-auto_mode_gate is the unified permission gate that replaces the former
-bash_risk_gate builtin. These tests verify end-to-end bash gating behaviour
-through the real hook loader so that the replacement doesn't regress.
+These tests verify the loader → hook runner → tool registry seam, including
+safe execution, hard denial, and fail-closed behavior when review is unavailable.
 """
 
 from pathlib import Path
@@ -38,7 +37,7 @@ def _wired_bash_tool(tmp_path: Path) -> BashTool:
     return BashTool(wiring=wiring)
 
 
-async def test_builtin_bash_risk_hook_allows_unlisted_command_after_safe_review(
+async def test_builtin_bash_gate_executes_allowlisted_read_only_command(
     tmp_path: Path,
 ) -> None:
     """Read-only commands allowed by command policy pass without needing classification."""
@@ -51,7 +50,6 @@ async def test_builtin_bash_risk_hook_allows_unlisted_command_after_safe_review(
     # engine (the no-wiring dead path was deleted).
     registry.register(_wired_bash_tool(tmp_path))
 
-    # "ls -la" matches allowed prefix list → passes immediately without classifier
     result = await registry.execute(
         "bash",
         {"command": "ls -la /tmp"},
@@ -66,7 +64,7 @@ async def test_builtin_bash_risk_hook_allows_unlisted_command_after_safe_review(
     assert result.get("exitCode") == 0 or "content" in result or "stdout" in result
 
 
-async def test_builtin_bash_risk_hook_blocks_unlisted_unsafe_command(
+async def test_builtin_bash_gate_blocks_hard_denied_command(
     tmp_path: Path,
 ) -> None:
     """Commands matching the hardcoded denylist are blocked without classifier."""
@@ -77,11 +75,11 @@ async def test_builtin_bash_risk_hook_blocks_unlisted_unsafe_command(
     )
     registry.register(BashTool())
 
-    # "rm -rf /" matches a denylist fragment → blocked immediately
+    # Hard-denied commands must never reach execution or require a classifier.
     with pytest.raises(ToolError, match="tool blocked by hook"):
         await registry.execute(
             "bash",
-            {"command": "rm -rf /"},
+            {"command": "reboot"},
             hook_context=HookContext(
                 session_id="sess-risk-2",
                 repo_root=tmp_path,

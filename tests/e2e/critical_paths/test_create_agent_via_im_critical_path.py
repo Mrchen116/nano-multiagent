@@ -14,6 +14,7 @@ prompt 让 agent 原样回出,只锚哨兵 + 协议级 ``message.completed``,不
 from __future__ import annotations
 
 import secrets
+from pathlib import Path
 
 import pytest
 
@@ -29,13 +30,18 @@ def test_agent_created_via_im_lands_and_replies(
     node_id = im_user.wait_for_online_node(timeout=40)
 
     new_agent_id = "e2eNew" + secrets.token_hex(3)
-    im_user.create_agent(
+    created = im_user.create_agent(
         node_id,
         new_agent_id,
         display_name=f"E2E New {new_agent_id}",
         system_prompt="你是一个测试助手。用户让你原样回复某个 token 时，只回复那个 token 本身。",
-        default_model="kimiCoding:kimi-for-coding",
+        default_model=e2e_stack.llm_model,
     )
+    workspace_root = Path(created["workspace_root"]).resolve()
+    assert workspace_root.is_relative_to(
+        (Path(e2e_stack.wt_dir) / ".gateway-workspace").resolve()
+    )
+    assert workspace_root.is_dir()
 
     # 落地上线信号:新 agent 出现在 IM agent 列表。
     im_user.wait_for_agent_listed(new_agent_id, timeout=40)

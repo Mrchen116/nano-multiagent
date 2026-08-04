@@ -25,7 +25,7 @@ vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
   return {
     ...actual,
-    useParams: () => ({ agentId: "agent-m9c-1" }),
+    useParams: () => ({ agentId: "agent-preview-1" }),
     useNavigate: () => apiMocks.navigateMock,
   };
 });
@@ -89,9 +89,9 @@ function makeAgentState(opts: {
 } = {}) {
   return {
     config: {
-      agent_id: "agent-m9c-1",
+      agent_id: "agent-preview-1",
       owner_id: "owner-1",
-      display_name: "M9C Agent",
+      display_name: "Preview Agent",
       description: "",
       system_prompt: "",
       custom_prompt: "",
@@ -108,7 +108,6 @@ function makeAgentState(opts: {
       node_status: "online",
       updated_at: "2026-03-13T10:00:00Z",
       ...(opts.heartbeat !== undefined ? { heartbeat: opts.heartbeat } : {}),
-      // feat-394 M9-E: no cron config field; enable in features["cron_scheduling"].
     },
     capabilities: {
       node_id: "node-1",
@@ -129,8 +128,8 @@ function makeAgentState(opts: {
 beforeEach(() => {
   apiMocks.listAgentSummariesMock.mockResolvedValue([
     {
-      agent_id: "agent-m9c-1",
-      display_name: "M9C Agent",
+      agent_id: "agent-preview-1",
+      display_name: "Preview Agent",
       owner_id: "owner-1",
       description: "",
       profile_version: 1,
@@ -160,7 +159,7 @@ describe("promptPreview reflects features for heartbeat/cron", () => {
     apiMocks.promptPreviewMock.mockResolvedValue("## Heartbeat\nCadence...");
 
     renderDetailPage();
-    await screen.findByRole("heading", { name: "M9C Agent" });
+    await screen.findByRole("heading", { name: "Preview Agent" });
 
     // Open preview
     const previewBtn = screen.getByRole("button", { name: /Preview full system prompt/i });
@@ -196,7 +195,7 @@ describe("cadence input shows actual backend value", () => {
     );
 
     renderDetailPage();
-    await screen.findByRole("heading", { name: "M9C Agent" });
+    await screen.findByRole("heading", { name: "Preview Agent" });
 
     const everyInput = document.querySelector<HTMLInputElement>("#heartbeat-every");
     const unitSelect = document.querySelector<HTMLSelectElement>("#heartbeat-every-unit");
@@ -220,7 +219,7 @@ describe("cadence input shows actual backend value", () => {
     );
 
     renderDetailPage();
-    await screen.findByRole("heading", { name: "M9C Agent" });
+    await screen.findByRole("heading", { name: "Preview Agent" });
 
     const everyInput = document.querySelector<HTMLInputElement>("#heartbeat-every");
     const unitSelect = document.querySelector<HTMLSelectElement>("#heartbeat-every-unit");

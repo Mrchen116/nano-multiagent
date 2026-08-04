@@ -11,13 +11,13 @@ design.md 决策 1:不在 Python 重写起栈,session 级 fixture subprocess 调
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
 import pytest
+import yaml
 
 from ._im_client import IMClient
 
@@ -60,6 +60,7 @@ class E2EStack:
     im_port: str
     node_id: str
     wt_dir: str
+    llm_model: str
 
 
 def _parse_ports_env(ports_env: Path) -> dict[str, str]:
@@ -72,6 +73,16 @@ def _parse_ports_env(ports_env: Path) -> dict[str, str]:
         key, _, val = line[len("export ") :].partition("=")
         values[key.strip()] = val.strip()
     return values
+
+
+def _selected_llm_model(config_path: Path) -> str:
+    """Read the model selected in the isolated Gateway configuration."""
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    llm = config.get("llm") if isinstance(config, dict) else None
+    model = llm.get("default_model") if isinstance(llm, dict) else None
+    if not isinstance(model, str) or not model:
+        raise ValueError(f"{config_path} is missing llm.default_model")
+    return model
 
 
 @pytest.fixture(scope="session")
@@ -119,6 +130,7 @@ def e2e_stack(tmp_path_factory: pytest.TempPathFactory) -> E2EStack:
         im_port=values["IM_PORT"],
         node_id=values.get("NODE_ID", ""),
         wt_dir=str(wt_dir),
+        llm_model=_selected_llm_model(wt_dir / ".gateway-config.yaml"),
     )
 
     yield stack
@@ -139,17 +151,6 @@ def e2e_stack(tmp_path_factory: pytest.TempPathFactory) -> E2EStack:
             f"\n[WARN] e2e-down.sh exited rc={down.returncode} for {wt_dir}; "
             f"stack may not be fully torn down. stderr tail:\n{tail}"
         )
-
-    # 清理经 IM 动态建 agent 落在主目录 ~/nano-assistant/workspace/<agent_id> 的 workspace
-    # 残留:这是产品隔离 gap(#127)——动态建的 agent 不走 worktree 隔离区(且 IM 返回的
-    # workspace_root 是 IM 侧映射路径,≠ gateway 实际落地的主目录路径),会污染主仓。
-    # 本套件自取自清,按本 session 建过的 agent_id 拼主目录路径删,不碰其它。
-    home_ws_root = Path.home() / "nano-assistant" / "workspace"
-    for agent_id in IMClient.created_agent_ids:
-        ws_path = home_ws_root / agent_id
-        if ws_path.parent == home_ws_root and ws_path.is_dir():
-            shutil.rmtree(ws_path, ignore_errors=True)
-    IMClient.created_agent_ids.clear()
 
 
 def _dump_logs(wt_dir: Path) -> None:

@@ -1,5 +1,6 @@
-"""Non-prompt archive artifacts contracts."""
+"""Contracts for rendered change-workflow artifacts."""
 
+import re
 from pathlib import Path
 
 
@@ -15,5 +16,13 @@ def test_pr_templates_use_stable_absolute_blob_links() -> None:
         ".claude/skills/change-orchestrator/references/pr-body-templates.md"
     )
 
-    assert "](docs/changes/" not in template
-    assert template.count("/blob/<pr_head_sha>/docs/changes/archive/") == 5
+    link_targets = re.findall(r"\[[^\]]+\]\(([^)]+)\)", template)
+    change_links = [target for target in link_targets if "docs/changes/" in target]
+
+    assert change_links
+    assert all(
+        target.startswith(
+            "<repo_url>/blob/<pr_head_sha>/docs/changes/archive/<unit_dir>/"
+        )
+        for target in change_links
+    )

@@ -4,8 +4,6 @@ _AtSchedule, _IntervalSchedule, _CronSchedule are the unique authority for
 at/interval/cron scheduling semantics (docs/development/testing.md §4: one behaviour, one layer).
 Higher-layer scheduler tests may keep a single smoke per type; they must NOT
 re-assert the timing logic proven here.
-
-Provenance: feat-394-W1 dedup — openclaw/src/cron/schedule.ts:computeNextRunAtMs.
 """
 
 from __future__ import annotations
@@ -186,11 +184,7 @@ class TestCronSchedule:
         assert times == []
 
     def test_no_backfill_missed_minutes(self) -> None:
-        """After a gap, only the current minute is checked — missed minutes are not replayed.
-
-        openclaw semantics: cron checks whether the present tick matches; it does not
-        scan backward from last_due_at to enumerate all skipped slots.
-        """
+        """After a gap, only the current minute is checked; missed slots are not replayed."""
         sched = _daily_at_9am_cron()
         # Fired yesterday at 09:00; now it's today at 09:00 (24h gap).
         last = datetime(2026, 1, 1, 9, 0, 0, tzinfo=UTC)

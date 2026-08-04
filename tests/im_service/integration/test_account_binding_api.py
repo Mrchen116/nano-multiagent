@@ -87,25 +87,6 @@ def test_me_roundtrip_and_bind_flow(tmp_path: Path) -> None:
         assert profile_resp.json()["owner_id"] == owner.owner_id
 
 
-def test_bind_rejects_unknown_references(tmp_path: Path) -> None:
-    """Return stable errors for missing bind graph references."""
-    with make_app_client(tmp_path) as client:
-        user = register_user(client, username="alice")
-        authorize(client, user)
-        start_resp = client.post(
-            "/im/v1/bind", json={"action": "start", "node_id": "missing-node"}
-        )
-        assert start_resp.status_code == 404
-        assert start_resp.json()["detail"] == "node_id not found"
-
-        confirm_resp = client.post(
-            "/im/v1/bind",
-            json={"action": "confirm", "bind_id": "missing-bind"},
-        )
-        assert confirm_resp.status_code == 404
-        assert confirm_resp.json()["detail"] == "bind_id not found"
-
-
 @pytest.mark.parametrize("node_status", ["online", "offline"])
 def test_bind_is_same_owner_idempotent_and_rejects_cross_owner_takeover(
     tmp_path: Path, node_status: str

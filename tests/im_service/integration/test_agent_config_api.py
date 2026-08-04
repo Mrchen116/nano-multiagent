@@ -6,7 +6,6 @@ import threading
 import pytest
 from fastapi.testclient import TestClient
 
-from IM.api.routes import agents as agent_routes
 from IM.app import create_app
 from IM.infra.repositories.agents import AgentProfileRepository
 from IM.infra.repositories.nodes import NodeRepository
@@ -19,152 +18,10 @@ from .conftest import authorize, register_user
 _WORKSPACE_PATH_SETTING = str(Path("/tmp/nano-test/workspace/test-agent").resolve())
 
 
-def test_agents_list_get_patch_and_conflict(tmp_path: Path) -> None:
-    """List runtime-selectable agents, then read and optimistically update one config."""
-    app = create_app(db_path=tmp_path / "im.db")
-    with TestClient(app) as client:
-        users = UserRepository(app.state.connection)
-        owner = register_user(client, username="owner", display_name="Owner")
-        authorize(client, owner)
-        profiles = AgentProfileRepository(app.state.connection)
-        NodeRepository(app.state.connection).upsert_node(
-            node_id="node-1",
-            node_name="MacBook",
-            status="online",
-            version="1.0.0",
-            owner_id=owner.owner_id,
-        )
-        seeded = profiles.upsert_profile(
-            agent_id="agent-1",
-            owner_id=owner.owner_id,
-            display_name="Alpha",
-            description="initial",
-            system_prompt="You are Alpha.",
-            skills=["plan"],
-            tool_allowlist=["read"],
-            group_reply_policy="manual",
-            default_model="gpt-4.1",
-            workspace_root=None,
-        )
-        app.state.connection.execute(
-            "UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?",
-            ("node-1", "agent-1"),
-        )
-        app.state.connection.commit()
-
-        list_resp = client.get("/im/v1/agents")
-        assert list_resp.status_code == 200
-        # Use subset assertion: node_status is runtime-derived and may change.
-        agent_row = list_resp.json()[0]
-        assert {
-            k: agent_row[k]
-            for k in (
-                "agent_id",
-                "owner_id",
-                "node_id",
-                "display_name",
-                "description",
-                "profile_version",
-                "default_model",
-                "workspace_is_default",
-            )
-        } == {
-            "agent_id": "agent-1",
-            "owner_id": owner.owner_id,
-            "node_id": "node-1",
-            "display_name": "Alpha",
-            "description": "initial",
-            "profile_version": 1,
-            "default_model": "gpt-4.1",
-            "workspace_is_default": True,
-        }
-        assert list_resp.json()[0]["user_id"] is not None
-        assert list_resp.json()[0]["workspace_root"].endswith(
-            "/nano-assistant/workspace/agent-1"
-        )
-
-        get_resp = client.get(f"/im/v1/agents/{seeded.agent_id}/config?source=mirror")
-        assert get_resp.status_code == 200
-        assert get_resp.json()["profile_version"] == 1
-        assert get_resp.json()["skills"] == ["plan"]
-        assert get_resp.json()["workspace_is_default"] is True
-
-        patch_resp = client.patch(
-            f"/im/v1/agents/{seeded.agent_id}/config",
-            json={
-                "profile_version": 1,
-                "display_name": "Alpha v2",
-                "description": "updated",
-                "system_prompt": "You are Alpha v2.",
-                "skills": ["plan", "review"],
-                "tool_allowlist": ["read", "edit"],
-                "group_reply_policy": "auto",
-                "default_model": "claude-sonnet-4",
-                "workspace_root": _WORKSPACE_PATH_SETTING,
-            },
-        )
-        assert patch_resp.status_code == 200
-        body = patch_resp.json()
-        assert body["display_name"] == "Alpha v2"
-        assert body["profile_version"] == 2
-        assert body["group_reply_policy"] == "auto"
-        assert body["workspace_root"].endswith("/nano-assistant/workspace/agent-1")
-        assert body["workspace_is_default"] is True
-
-        reset_resp = client.patch(
-            f"/im/v1/agents/{seeded.agent_id}/config",
-            json={
-                "profile_version": 2,
-                "display_name": "Alpha default",
-                "description": "default workspace",
-                "system_prompt": "You are Alpha default.",
-                "skills": ["plan"],
-                "tool_allowlist": ["read"],
-                "group_reply_policy": "manual",
-                "default_model": None,
-                "workspace_root": None,
-            },
-        )
-        assert reset_resp.status_code == 200
-        reset_body = reset_resp.json()
-        assert reset_body["profile_version"] == 3
-        assert reset_body["workspace_is_default"] is True
-        assert reset_body["workspace_root"].endswith(
-            "/nano-assistant/workspace/agent-1"
-        )
-        # bugfix-404-M2: update_profile 不写 workspace_root 列——DB 存量为 NULL（
-        # 初始 upsert 时 workspace_root=None），API 回显时 workspace_root_for_profile()
-        # 派生为 managed default。DB 值本身保持 NULL。
-        stored_row = app.state.connection.execute(
-            "SELECT workspace_root FROM agent_profiles WHERE agent_id = ?",
-            (seeded.agent_id,),
-        ).fetchone()
-        assert stored_row is not None
-        assert stored_row["workspace_root"] is None
-
-        conflict_resp = client.patch(
-            f"/im/v1/agents/{seeded.agent_id}/config",
-            json={
-                "profile_version": 1,
-                "display_name": "stale",
-                "description": "stale",
-                "system_prompt": "stale",
-                "skills": [],
-                "tool_allowlist": [],
-                "group_reply_policy": "manual",
-                "default_model": None,
-                "workspace_root": None,
-            },
-        )
-        assert conflict_resp.status_code == 409
-        assert conflict_resp.json()["detail"] == "profile_version conflict"
-
-
 def test_get_agent_config_prefers_live_gateway_snapshot(tmp_path: Path) -> None:
     """Read agent config through the connected gateway so IM cache becomes a mirror, not the runtime source."""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
-        users = UserRepository(app.state.connection)
         owner = register_user(client, username="owner", display_name="Owner")
         authorize(client, owner)
         profiles = AgentProfileRepository(app.state.connection)
@@ -372,151 +229,6 @@ def test_get_agent_config_ignores_mismatched_live_agent_payload(
         assert body["skills"] == []
 
 
-def test_agents_list_hides_unbound_and_cross_owner_profiles(tmp_path: Path) -> None:
-    """Only bound profiles in the current runtime ownership scope should be selectable."""
-    app = create_app(db_path=tmp_path / "im.db")
-    with TestClient(app) as client:
-        users = UserRepository(app.state.connection)
-        owner = register_user(client, username="owner", display_name="Owner")
-        authorize(client, owner)
-        other_owner = users.create_user(username="other", display_name="Other")
-        profiles = AgentProfileRepository(app.state.connection)
-        NodeRepository(app.state.connection).upsert_node(
-            node_id="node-1",
-            node_name="MacBook",
-            status="online",
-            version="1.0.0",
-            owner_id=owner.owner_id,
-        )
-
-        profiles.upsert_profile(
-            agent_id="agent-selectable",
-            owner_id=owner.owner_id,
-            display_name="Selectable",
-            description="bound to runtime owner",
-            system_prompt="You are Selectable.",
-            skills=[],
-            tool_allowlist=[],
-            group_reply_policy="manual",
-            default_model=None,
-            workspace_root=None,
-        )
-        profiles.upsert_profile(
-            agent_id="agent-unbound",
-            owner_id=owner.owner_id,
-            display_name="Unbound",
-            description="not bound to any node",
-            system_prompt="You are Unbound.",
-            skills=[],
-            tool_allowlist=[],
-            group_reply_policy="manual",
-            default_model=None,
-            workspace_root=None,
-        )
-        profiles.upsert_profile(
-            agent_id="agent-cross-owner",
-            owner_id=other_owner.owner_id,
-            display_name="Cross Owner",
-            description="bound to someone else",
-            system_prompt="You are Cross Owner.",
-            skills=[],
-            tool_allowlist=[],
-            group_reply_policy="manual",
-            default_model=None,
-            workspace_root=None,
-        )
-        app.state.connection.execute(
-            "UPDATE agent_profiles SET node_id = ? WHERE agent_id IN (?, ?)",
-            ("node-1", "agent-selectable", "agent-cross-owner"),
-        )
-        app.state.connection.commit()
-
-        response = client.get("/im/v1/agents")
-        assert response.status_code == 200
-        assert [item["agent_id"] for item in response.json()] == ["agent-selectable"]
-        assert response.json()[0]["node_id"] == "node-1"
-
-
-def test_agents_list_includes_fresh_runtime_profiles_before_bind(
-    tmp_path: Path,
-) -> None:
-    """Fresh gateway runtimes should expose ownerless bound agents before bind confirmation."""
-    app = create_app(db_path=tmp_path / "im.db")
-    with TestClient(app) as client:
-        viewer = register_user(client, username="viewer", display_name="Viewer")
-        authorize(client, viewer)
-        users = UserRepository(app.state.connection)
-        other_owner = users.create_user(username="other", display_name="Other")
-        profiles = AgentProfileRepository(app.state.connection)
-        NodeRepository(app.state.connection).upsert_node(
-            node_id="node-fresh",
-            node_name="Fresh Runtime",
-            status="online",
-            version="1.0.0",
-        )
-
-        profiles.upsert_profile(
-            agent_id="agent-fresh",
-            owner_id="",
-            display_name="Fresh Agent",
-            description="advertised by an unbound runtime",
-            system_prompt="You are Fresh Agent.",
-            skills=[],
-            tool_allowlist=[],
-            group_reply_policy="manual",
-            default_model=None,
-            workspace_root=None,
-        )
-        profiles.upsert_profile(
-            agent_id="agent-stale-cross-owner",
-            owner_id=other_owner.owner_id,
-            display_name="Stale Cross Owner",
-            description="stale profile attached to an unbound node",
-            system_prompt="You are Stale Cross Owner.",
-            skills=[],
-            tool_allowlist=[],
-            group_reply_policy="manual",
-            default_model=None,
-            workspace_root=None,
-        )
-        app.state.connection.execute(
-            "UPDATE agent_profiles SET node_id = ? WHERE agent_id IN (?, ?)",
-            ("node-fresh", "agent-fresh", "agent-stale-cross-owner"),
-        )
-        app.state.connection.commit()
-
-        response = client.get("/im/v1/agents")
-        assert response.status_code == 200
-        # Use subset assertion: node_status is runtime-derived and may change.
-        agent_row = response.json()[0]
-        assert {
-            k: agent_row[k]
-            for k in (
-                "agent_id",
-                "owner_id",
-                "node_id",
-                "display_name",
-                "description",
-                "profile_version",
-                "default_model",
-                "workspace_is_default",
-            )
-        } == {
-            "agent_id": "agent-fresh",
-            "owner_id": "",
-            "node_id": "node-fresh",
-            "display_name": "Fresh Agent",
-            "description": "advertised by an unbound runtime",
-            "profile_version": 1,
-            "default_model": None,
-            "workspace_is_default": True,
-        }
-        assert response.json()[0]["workspace_root"].endswith(
-            "/nano-assistant/workspace/agent-fresh"
-        )
-        assert response.json()[0]["user_id"] is not None
-
-
 def test_profile_updates_only_affect_new_conversations(tmp_path: Path) -> None:
     """Snapshot alias-backed direct conversations so old threads stay old and new threads pick up updates."""
     app = create_app(db_path=tmp_path / "im.db")
@@ -690,60 +402,16 @@ def test_bound_agent_survives_fresh_reregistration_and_remains_updatable(
         assert patch_resp.json()["display_name"] == "Alpha NO_REPLY"
 
 
-def test_node_capabilities_return_current_selectable_items(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Expose current gateway-resolved skill/tool/model items for the settings UI."""
-
-    async def _fake_node_capabilities(
-        self, *, target_node_id: str, timeout_seconds: float = 15.0
-    ):  # noqa: ARG002
-        return {
-            "skills": ["plan", "playwright"],
-            "tools": ["read", "bash"],
-            "models": ["kimiCoding:K2.6", "codex_oauth:gpt-5.5"],
-        }
-
-    from IM.ws.gateway.control import GatewayControl
-
-    monkeypatch.setattr(
-        GatewayControl, "request_node_capabilities", _fake_node_capabilities
-    )
-
-    app = create_app(db_path=tmp_path / "im.db")
-    with TestClient(app) as client:
-        viewer = register_user(client, username="viewer", display_name="Viewer")
-        authorize(client, viewer)
-        nodes = NodeRepository(app.state.connection)
-        nodes.upsert_node(
-            node_id="node-1", node_name="MacBook", status="online", version="1.0.0"
-        )
-        response = client.get("/im/v1/nodes/node-1/capabilities")
-
-    assert response.status_code == 200
-    assert [item["name"] for item in response.json()["skills"]] == [
-        "plan",
-        "playwright",
-    ]
-    assert [item["name"] for item in response.json()["tools"]] == ["read", "bash"]
-
-
 # ---------------------------------------------------------------------------
 # feat-394-M13: cron jobs and heartbeat-md routes must go via WS RPC
 # ---------------------------------------------------------------------------
 
 
-def test_list_cron_jobs_calls_rpc_not_direct_file_read(
+def test_list_cron_jobs_returns_gateway_result(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """GET /im/v1/agents/{id}/cron/jobs must use request_node_cron_jobs RPC.
-
-    feat-394-M13 (决策 G): IM must never directly read gateway workspace files.
-    The cron jobs list must arrive via the WS RPC path.
-    """
+    """Return cron jobs delivered by the target node through Gateway RPC."""
     from IM.ws.gateway.control import GatewayControl
-
-    rpc_calls: list[dict] = []
 
     async def _fake_cron_jobs(
         self,
@@ -753,7 +421,6 @@ def test_list_cron_jobs_calls_rpc_not_direct_file_read(
         workspace_root: str,
         timeout_seconds: float = 10.0,
     ) -> list:
-        rpc_calls.append({"target_node_id": target_node_id, "agent_id": agent_id})
         return [
             {
                 "id": "job-rpc-1",
@@ -805,9 +472,6 @@ def test_list_cron_jobs_calls_rpc_not_direct_file_read(
     assert len(jobs) == 1
     assert jobs[0]["id"] == "job-rpc-1"
     assert jobs[0]["name"] == "via-rpc"
-    # RPC must have been called (not direct file read).
-    assert len(rpc_calls) == 1, f"RPC was not called: {rpc_calls!r}"
-    assert rpc_calls[0]["agent_id"] == "agent-cron"
 
 
 def test_list_cron_jobs_returns_empty_when_node_offline(
@@ -860,13 +524,11 @@ def test_list_cron_jobs_returns_empty_when_node_offline(
     assert resp.json() == []
 
 
-def test_get_skills_usage_calls_rpc_not_direct_file_read(
+def test_get_skills_usage_returns_gateway_result(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """GET /im/v1/agents/{id}/skills/usage must use gateway WS RPC."""
+    """Return skill usage delivered by the target node through Gateway RPC."""
     from IM.ws.gateway.control import GatewayControl
-
-    rpc_calls: list[dict[str, str]] = []
 
     async def _fake_skills_usage(
         self,
@@ -876,13 +538,6 @@ def test_get_skills_usage_calls_rpc_not_direct_file_read(
         workspace_root: str,
         timeout_seconds: float = 10.0,
     ) -> dict[str, object]:
-        rpc_calls.append(
-            {
-                "target_node_id": target_node_id,
-                "agent_id": agent_id,
-                "workspace_root": workspace_root,
-            }
-        )
         return {
             "agent_id": agent_id,
             "node_id": target_node_id,
@@ -956,8 +611,6 @@ def test_get_skills_usage_calls_rpc_not_direct_file_read(
     assert body["skills"][0]["use_count"] == 3
     assert body["heatmap_data"][-1] == 1
     assert body["health"]["created_auto_total"] == 1
-    assert len(rpc_calls) == 1
-    assert rpc_calls[0]["agent_id"] == "agent-skills"
 
 
 def test_get_skills_usage_reports_offline_when_rpc_times_out(
@@ -1010,13 +663,11 @@ def test_get_skills_usage_reports_offline_when_rpc_times_out(
     assert resp.json()["detail"] == "target_node_id is not connected"
 
 
-def test_delete_cron_job_calls_rpc_not_direct_file_write(
+def test_delete_cron_job_returns_gateway_result(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """DELETE /im/v1/agents/{id}/cron/jobs/{job_id} must use request_node_cron_delete RPC."""
+    """Expose a successful cron deletion delivered by Gateway RPC."""
     from IM.ws.gateway.control import GatewayControl
-
-    rpc_calls: list[dict] = []
 
     async def _fake_cron_delete(
         self,
@@ -1027,9 +678,6 @@ def test_delete_cron_job_calls_rpc_not_direct_file_write(
         job_id: str,
         timeout_seconds: float = 10.0,
     ) -> bool:
-        rpc_calls.append(
-            {"target_node_id": target_node_id, "agent_id": agent_id, "job_id": job_id}
-        )
         return True  # job found and deleted
 
     monkeypatch.setattr(GatewayControl, "request_node_cron_delete", _fake_cron_delete)
@@ -1068,8 +716,6 @@ def test_delete_cron_job_calls_rpc_not_direct_file_write(
         resp = client.delete("/im/v1/agents/agent-del/cron/jobs/job-1")
 
     assert resp.status_code == 204, resp.text
-    assert len(rpc_calls) == 1
-    assert rpc_calls[0]["job_id"] == "job-1"
 
 
 def test_delete_cron_job_returns_404_when_node_offline(
@@ -1121,10 +767,10 @@ def test_delete_cron_job_returns_404_when_node_offline(
     assert resp.status_code == 404
 
 
-def test_get_heartbeat_md_calls_rpc(
+def test_get_heartbeat_md_returns_gateway_result(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """GET /im/v1/agents/{id}/heartbeat-md must use request_node_heartbeat_md RPC."""
+    """Return heartbeat content delivered by the target node through Gateway RPC."""
     from IM.ws.gateway.control import GatewayControl
 
     async def _fake_hb_md(

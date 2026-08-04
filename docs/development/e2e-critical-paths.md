@@ -14,11 +14,14 @@
 ```bash
 scripts/e2e-critical.sh                 # 跑全部关键路径
 scripts/e2e-critical.sh -m "not slow"   # 跳过时间驱动（cron/heartbeat）路径
+NANO_MULTIAGENT_E2E_MODEL=deepseek:deepseek-v4-flash scripts/e2e-critical.sh
 # 只跑 fake-LLM 路径（无需 :4000）:
 PYTHONPATH=src pytest -m e2e tests/e2e/critical_paths/test_agent_config_context_continuity_critical_path.py
 ```
 
 缺本地 LLM proxy（`:4000/health`）或缺 `~/.nano-assistant/config.yaml`（含 `llm:` 段）时，**真 LLM 路径干净 skip**而非报错；fake-LLM 路径只要主 config 存在即可跑。失败时 IM/Gateway 日志 tail 进报告，可定位断在哪一段。
+
+真 LLM 路径默认使用复制到隔离 Gateway 配置后的 `llm.default_model`，动态创建的 agent 也从这一选择取模型。需要临时切换时设 `NANO_MULTIAGENT_E2E_MODEL=<route>`；该 route 必须已登记在主配置的 `llm.providers[].models` 中，启动器会把隔离副本中预置和动态创建 agent 的路由一并切到它，不改用户主配置。
 
 ## 登记纪律
 

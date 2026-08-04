@@ -34,8 +34,10 @@ def _register_node(ws, *, node_id: str, agents: list[str]) -> dict:
     return ws.receive_json()
 
 
-def test_register_marks_removed_agent_stale(tmp_path: Path) -> None:
-    """After re-register without X, GET /im/v1/agents must not include X."""
+def test_gateway_registration_hides_removed_agent_and_revives_it(
+    tmp_path: Path,
+) -> None:
+    """Reflect an agent disappearing and returning across Gateway registrations."""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         user = register_user(client, username="alice", display_name="Alice")
@@ -62,25 +64,11 @@ def test_register_marks_removed_agent_stale(tmp_path: Path) -> None:
         assert "agent-a" in agent_ids2
         assert "agent-x" not in agent_ids2
 
-
-def test_stale_agent_revives_after_re_advertise(tmp_path: Path) -> None:
-    """Re-registering with X re-included must make X visible again."""
-    app = create_app(db_path=tmp_path / "im.db")
-    with TestClient(app) as client:
-        user = register_user(client, username="alice", display_name="Alice")
-        authorize(client, user)
-
-        with client.websocket_connect("/im/ws/gateway") as ws:
-            _register_node(ws, node_id="node-1", agents=["agent-a", "agent-x"])
-            _register_node(ws, node_id="node-1", agents=["agent-a"])  # stale X
-
-        # Reconnect and re-advertise X
         with client.websocket_connect("/im/ws/gateway") as ws:
             _register_node(ws, node_id="node-1", agents=["agent-a", "agent-x"])
 
-        agents_resp = client.get("/im/v1/agents").json()
-        agent_ids = {a["agent_id"] for a in agents_resp}
-        assert "agent-x" in agent_ids
+        revived_agents = client.get("/im/v1/agents").json()
+        assert "agent-x" in {agent["agent_id"] for agent in revived_agents}
 
 
 def test_conversation_participant_is_stale_exposed(tmp_path: Path) -> None:

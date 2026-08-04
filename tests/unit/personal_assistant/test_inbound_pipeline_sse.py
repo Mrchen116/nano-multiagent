@@ -25,7 +25,9 @@ def test_inbound_pipeline_uses_sse_path_when_submit_and_stream_available(
     registry = ChannelRegistry((channel,))
     kernel_client = _FakeSseKernel(
         events=[
+            {"event": "tool_start", "run_id": "run-1", "tool_name": "web_search"},
             {"event": "assistant_message", "run_id": "run-1", "content": "sse reply"},
+            {"event": "tool_end", "run_id": "run-1", "tool_name": "web_search"},
             {"event": "run_status", "run_id": "run-1", "status": "completed"},
         ]
     )
@@ -65,42 +67,6 @@ def test_inbound_pipeline_uses_sse_path_when_submit_and_stream_available(
     ]
 
 
-def test_inbound_pipeline_sse_path_extracts_reply_from_assistant_message(
-    tmp_path: Path,
-) -> None:
-    agents = _agents(tmp_path)
-    channel = _FakeChannel("web_relay")
-    registry = ChannelRegistry((channel,))
-    kernel_client = _FakeSseKernel(
-        events=[
-            {"event": "tool_start", "run_id": "run-1", "tool_name": "web_search"},
-            {"event": "assistant_message", "run_id": "run-1", "content": "found it"},
-            {"event": "tool_end", "run_id": "run-1", "tool_name": "web_search"},
-            {"event": "run_status", "run_id": "run-1", "status": "completed"},
-        ]
-    )
-    pipeline = build_inbound_pipeline(
-        kernel=kernel_client,
-        agents=agents,
-        outbound_router=OutboundRouter(registry),
-        run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
-        default_agent_id="agent-a",
-    )
-    inbound = InboundMessage(
-        channel_name="web_relay",
-        text="search",
-        external_user_id="user-1",
-        external_chat_id="conv-1",
-        is_group=False,
-    )
-
-    result = asyncio.run(pipeline.handle_inbound(inbound))
-
-    assert result is not None
-    assert result.reply_text == "found it"
-
-
 def test_inbound_pipeline_sse_path_raises_on_failed_run(tmp_path: Path) -> None:
     agents = _agents(tmp_path)
     channel = _FakeChannel("web")
@@ -132,11 +98,8 @@ def test_inbound_pipeline_sse_path_raises_on_failed_run(tmp_path: Path) -> None:
         is_group=False,
     )
 
-    try:
+    with pytest.raises(RuntimeError, match="boom"):
         asyncio.run(pipeline.handle_inbound(inbound))
-        raise AssertionError("expected exception")
-    except Exception as exc:
-        assert "boom" in str(exc)
 
 
 def test_inbound_pipeline_sse_path_routes_non_user_origin_events(

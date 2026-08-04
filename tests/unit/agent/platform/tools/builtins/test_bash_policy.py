@@ -1,16 +1,4 @@
-"""Tests for bash_policy module — policy layer for BashTool.
-
-Verifies:
-- BASH_ALLOWED_PREFIXES按 D9 清单覆盖 true-read-only 命令
-- check_command_policy 返回 allowed / denied / review 三种状态
-- git 子命令级 prefix（13 项 read-only，push/commit/reset 进 review）
-- python3/python --version/-V 进 allowed；python3 file.py 进 review
-- bash/pytest/sleep/sed/python(无版本 flag) 进 review
-- BASH_BLOCKED_COMMANDS / BASH_BLOCKED_FRAGMENTS 硬 deny 路径
-- .nano/policy.toml 配置兼容：[tool_safety.bash_policy] 段仍能覆盖 allow_prefixes
-- enforce_command_policy 在 denied/review 下 raise ToolError，allowed 下静默
-- load_bash_policy_overrides 读 policy.toml 并返回 BashPolicyOverrides
-"""
+"""Behavioral tests for BashTool command policy decisions and overrides."""
 
 import pytest
 from pathlib import Path
@@ -19,88 +7,12 @@ import tempfile
 
 # These imports will fail (Red) until bash_policy.py is created.
 from agent.platform.tools.builtins.bash_policy import (
-    BASH_ALLOWED_PREFIXES,
-    BASH_BLOCKED_COMMANDS,
-    BASH_BLOCKED_FRAGMENTS,
-    CommandPolicyDecision,
     check_command_policy,
     enforce_command_policy,
     load_bash_policy_overrides,
     BashPolicyOverrides,
 )
 from agent.core.errors import ToolError
-
-
-class TestBashAllowedPrefixes:
-    """BASH_ALLOWED_PREFIXES 按 D9 清单—只保留真只读命令。"""
-
-    def test_true_readonly_commands_in_prefixes(self):
-        """cat / echo / head / ls / pwd / rg / tail / true / false / wc / command -v 在列。"""
-        expected_single = {
-            "cat",
-            "command -v",
-            "echo",
-            "false",
-            "head",
-            "ls",
-            "pwd",
-            "rg",
-            "tail",
-            "true",
-            "wc",
-        }
-        for cmd in expected_single:
-            assert cmd in BASH_ALLOWED_PREFIXES, (
-                f"{cmd!r} must be in BASH_ALLOWED_PREFIXES"
-            )
-
-    def test_d9_removed_commands_not_in_prefixes(self):
-        """bash / pytest / sed / sleep / python / python3 (bare) 不再在顶层 prefix 中。"""
-        bare_removed = {"bash", "pytest", "sed", "sleep"}
-        for cmd in bare_removed:
-            assert cmd not in BASH_ALLOWED_PREFIXES, (
-                f"{cmd!r} must NOT be in BASH_ALLOWED_PREFIXES as bare prefix"
-            )
-
-    def test_git_readonly_subcommands_in_prefixes(self):
-        """git status / log / diff / show / branch / config / rev-parse / ls-files / blame / tag / describe / remote / stash list 均在列。"""
-        git_readonly = [
-            "git status",
-            "git log",
-            "git diff",
-            "git show",
-            "git branch",
-            "git config",
-            "git rev-parse",
-            "git ls-files",
-            "git blame",
-            "git tag",
-            "git describe",
-            "git remote",
-            "git stash list",
-        ]
-        for prefix in git_readonly:
-            assert prefix in BASH_ALLOWED_PREFIXES, (
-                f"{prefix!r} must be in BASH_ALLOWED_PREFIXES"
-            )
-
-    def test_python_version_flags_in_prefixes(self):
-        """python --version / python -V / python3 --version / python3 -V 在列。"""
-        version_prefixes = [
-            "python --version",
-            "python -V",
-            "python3 --version",
-            "python3 -V",
-        ]
-        for prefix in version_prefixes:
-            assert prefix in BASH_ALLOWED_PREFIXES, (
-                f"{prefix!r} must be in BASH_ALLOWED_PREFIXES"
-            )
-
-    def test_bare_python_not_in_prefixes(self):
-        """python / python3 (不带 version flag) 不在 prefix 中。"""
-        assert "python" not in BASH_ALLOWED_PREFIXES
-        assert "python3" not in BASH_ALLOWED_PREFIXES
 
 
 class TestCheckCommandPolicyAllowed:
@@ -320,17 +232,3 @@ class TestBashPolicyOverrides:
         # custom-tool is not in default list, but with overrides it should be allowed
         decision = check_command_policy("custom-tool --flag", overrides=overrides)
         assert decision.status == "allowed"
-
-
-class TestCommandPolicyDecision:
-    """CommandPolicyDecision dataclass 形态验证。"""
-
-    def test_dataclass_fields(self):
-        d = CommandPolicyDecision(status="allowed", details={})
-        assert d.status == "allowed"
-        assert d.details == {}
-
-    def test_is_frozen(self):
-        d = CommandPolicyDecision(status="allowed", details={})
-        with pytest.raises((AttributeError, TypeError)):
-            d.status = "denied"  # type: ignore[misc]

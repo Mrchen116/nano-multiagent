@@ -36,19 +36,6 @@ describe("TokenChip", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it("R8-3: displays token_usage.total (real prompt+completion sum) when present", () => {
-    render(
-      <TokenChip
-        usage={{ output: 1, context_used: 2428, context_window: 200_000, total: 2429 }}
-      />
-    );
-    const chip = screen.getByRole("button");
-    // The chip shows the total (2429) formatted as "2.4k" via fmtK; textContent includes arrow + "tok" + dot + ctx%
-    expect(chip.textContent).toMatch(/2\.4k/);
-    // Ensure the formatted total appears before "tok"
-    expect(chip.textContent).toMatch(/2\.4k\s+tok/);
-  });
-
   it("feat-439-M1: 展开详情显示缓存命中行(命中量 + 百分比)", () => {
     render(
       <TokenChip

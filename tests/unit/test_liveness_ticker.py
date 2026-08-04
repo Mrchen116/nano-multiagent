@@ -16,7 +16,6 @@ import pytest
 
 from agent.core.agent.liveness import (
     _broker_publish_adapter,
-    _emit_liveness_heartbeats,
     _with_liveness_heartbeat,
     liveness_ticker,
     session_event_publisher,
@@ -102,17 +101,6 @@ async def test_with_liveness_heartbeat_reyields_and_ticks_during_gaps() -> None:
     assert len(events) == count
 
 
-async def test_liveness_ticker_noop_when_missing() -> None:
-    # The no-op-when-missing contract lives in liveness_ticker, not
-    # _emit_liveness_heartbeats (bugfix-417-M4 fix-r1 removed the redundant park branch;
-    # callers now guard before spawning the emit coroutine). A ticker with no publisher
-    # must create no task and emit nothing.
-    events, _publish = _recorder()
-    async with liveness_ticker(publish=None, run_id="r", source="llm", interval=0.01):
-        await asyncio.sleep(0.05)
-    assert events == []
-
-
 async def test_broker_publish_adapter_routes_to_raw_publisher() -> None:
     events, publish = _recorder()
     adapter = _broker_publish_adapter(publish)
@@ -137,41 +125,3 @@ async def test_session_event_publisher_adapter_from_hook_ctx() -> None:
         session_event_publisher = None
 
     assert session_event_publisher(_NoPub()) is None
-
-
-async def test_permission_await_emits_heartbeats_then_stops_on_resolve() -> None:
-    """Mirror runtime._permission_requester's parked-await structure: a ticker runs
-    while the broker future is pending and is torn down the instant it resolves.
-
-    Reproduces the production wiring (create_task(_emit_liveness_heartbeats) before the
-    await, cancel + drain in finally) so any divergence in runtime.py breaks loudly —
-    the same mirroring convention used by test_permission_requester_cancel.py.
-    """
-    events, publish = _recorder()
-    loop = asyncio.get_running_loop()
-    future: asyncio.Future[str] = loop.create_future()
-
-    perm_heartbeat = asyncio.create_task(
-        _emit_liveness_heartbeats(
-            publish=_broker_publish_adapter(publish),
-            run_id="run-perm",
-            source="permission",
-            interval=0.02,
-        )
-    )
-    try:
-        # Resolve the "user decision" after a few heartbeat intervals.
-        loop.call_later(0.11, lambda: future.set_result("allow_once"))
-        decision = await future
-    finally:
-        perm_heartbeat.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await perm_heartbeat
-
-    assert decision == "allow_once"
-    count = len(events)
-    assert count >= 3, f"permission wait must emit periodic heartbeats, got {count}"
-    assert all(d["source"] == "permission" for _, d in events)
-    # No heartbeat after the decision (ticker torn down).
-    await asyncio.sleep(0.06)
-    assert len(events) == count

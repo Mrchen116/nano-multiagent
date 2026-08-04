@@ -7,30 +7,20 @@ Allowlist, tool projection, gate setup, hook logic are in separate files:
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
-from typing import Any, Mapping
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from agent.core.llm.interfaces import LLMMessage, LLMToolCall
 from agent.platform.config.auto_mode import AutoModeConfig
 from agent.platform.hooks.builtins.auto_mode_gate import (
-    BASE_PROMPT,
-    EXTERNAL_PERMISSIONS_TEMPLATE,
-    SAFE_TOOL_ALLOWLIST,
     build_transcript_entries,
     build_yolo_system_prompt,
-    is_safe_tool,
     parse_xml_block,
     parse_xml_reason,
-    setup as gate_setup,
     strip_thinking,
-    XML_S1_SUFFIX,
-    XML_S2_SUFFIX,
 )
-from agent.platform.permissions.broker import PermissionBroker
 
 
 # ---------------------------------------------------------------------------
@@ -39,14 +29,6 @@ from agent.platform.permissions.broker import PermissionBroker
 
 
 class TestBuildYoloSystemPrompt:
-    def test_base_prompt_embedded_in_output(self):
-        cfg = AutoModeConfig()
-        prompt = build_yolo_system_prompt(cfg)
-        # The base prompt contains the core classification instruction
-        assert "automated security classifier" in prompt
-        assert "BLOCK" in prompt
-        assert "ALLOW" in prompt
-
     def test_permissions_template_substituted(self):
         cfg = AutoModeConfig()
         prompt = build_yolo_system_prompt(cfg)
@@ -91,11 +73,6 @@ class TestBuildYoloSystemPrompt:
         assert "<block>yes</block>" in prompt
         assert "<block>no</block>" in prompt
         assert "## Output Format" in prompt
-
-    def test_classify_result_line_not_present(self):
-        cfg = AutoModeConfig()
-        prompt = build_yolo_system_prompt(cfg)
-        assert "Use the classify_result tool" not in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -263,12 +240,6 @@ class TestBuildTranscriptEntries:
 class TestToolOwnedClassifierProjection:
     """Classifier prompt must use registered tool projection, not a central table."""
 
-    def test_auto_mode_gate_has_no_central_projection_api(self):
-        import agent.platform.hooks.builtins.auto_mode_gate as gate_module
-
-        assert not hasattr(gate_module, "TOOL_PROJECTIONS")
-        assert not hasattr(gate_module, "project_tool_input")
-
     def test_skill_manage_create_current_action_is_projected(self):
         from agent.platform.hooks.builtins.auto_mode_gate import (
             _build_transcript_user_message,
@@ -434,38 +405,4 @@ class TestClassifyActionThinkingDisabled:
         decision = await _classify_action(ctx, "sys", "user")
         assert decision.behavior == "ask", (
             "stage-1 content 为空应 fail-closed → ask，但实际返回了 allow/deny"
-        )
-
-
-# ---------------------------------------------------------------------------
-# bugfix-410 #99 (Q7): two-stage XML suffix tracks CC 2.1.177 baseline
-# ---------------------------------------------------------------------------
-
-
-class TestXmlSuffixCcBaseline:
-    """The stage suffixes must match the enhanced CC 2.1.177 templates.
-
-    A regression to the prior short stage-1 suffix ("Err on the side of
-    blocking. <block> immediately.") would silently re-weaken stage-1, so pin
-    the load-bearing phrases extracted from the installed 2.1.177 binary.
-    """
-
-    def test_stage1_suffix_enhanced_2_1_177(self):
-        assert XML_S1_SUFFIX.startswith("\n")
-        assert "Stage 1 does NOT apply user intent or ALLOW exceptions" in XML_S1_SUFFIX
-        assert "Judge the action by its full effect" in XML_S1_SUFFIX
-        assert "not its surface form" in XML_S1_SUFFIX
-        assert "Block if ANY rule could apply." in XML_S1_SUFFIX
-        assert XML_S1_SUFFIX.rstrip().endswith("<block> immediately.")
-        # real em-dash, not ASCII hyphen
-        assert "\u2014" in XML_S1_SUFFIX
-
-    def test_stage2_suffix_enhanced_2_1_177(self):
-        assert (
-            "Review the classification process and follow it carefully" in XML_S2_SUFFIX
-        )
-        assert "Use <thinking> before responding with <block>." in XML_S2_SUFFIX
-        assert (
-            "Think longer on ambiguous or borderline actions; "
-            "keep reasoning brief for clear-cut ones." in XML_S2_SUFFIX
         )

@@ -17,6 +17,7 @@ from agent.core.session.types import PromptSlotSeed
 from agent.core.tools.base import ToolContext
 from agent.platform.tools.builtins.agent import AgentTool
 from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
+from agent.platform.tools.subagent_types import resolve_agent_type
 
 
 class _Turn:
@@ -491,8 +492,7 @@ def test_type_specific_prompt_seed_is_passed_to_create_subagent(
 
     seed = control.created[0]["prompt_seed"]
     assert isinstance(seed, PromptSlotSeed)
-    body_text = " ".join(item.text for item in seed.body)
-    assert "READ-ONLY" in body_text
+    assert seed == resolve_agent_type("Explore").role_prompt_seed
 
 
 @pytest.mark.parametrize(

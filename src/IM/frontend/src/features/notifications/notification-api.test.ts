@@ -42,11 +42,8 @@ afterEach(() => {
 
 describe("notification-api", () => {
   describe("isNotificationSupported", () => {
-    it("returns false when Notification global is absent", () => {
+    it("reports support only when the Notification global is present", () => {
       expect(isNotificationSupported()).toBe(false);
-    });
-
-    it("returns true when Notification global is present", () => {
       installFakeNotification("default");
       expect(isNotificationSupported()).toBe(true);
     });
@@ -57,10 +54,12 @@ describe("notification-api", () => {
       expect(await ensureNotificationPermission()).toBe("denied");
     });
 
-    it("returns existing permission without re-prompting when granted", async () => {
-      const { fake } = installFakeNotification("granted");
-      expect(await ensureNotificationPermission()).toBe("granted");
-      expect(fake.requestPermission).not.toHaveBeenCalled();
+    it("returns a terminal permission without re-prompting", async () => {
+      for (const permission of ["granted", "denied"] as const) {
+        const { fake } = installFakeNotification(permission);
+        expect(await ensureNotificationPermission()).toBe(permission);
+        expect(fake.requestPermission).not.toHaveBeenCalled();
+      }
     });
 
     it("requests permission when status is default", async () => {
@@ -69,11 +68,6 @@ describe("notification-api", () => {
       expect(fake.requestPermission).toHaveBeenCalledTimes(1);
     });
 
-    it("does not re-prompt when previously denied", async () => {
-      const { fake } = installFakeNotification("denied");
-      expect(await ensureNotificationPermission()).toBe("denied");
-      expect(fake.requestPermission).not.toHaveBeenCalled();
-    });
   });
 
   describe("showAgentNotification", () => {
@@ -87,15 +81,15 @@ describe("notification-api", () => {
       // simulate click
       created[0].instance.onclick?.call(created[0].instance);
       expect(onClick).toHaveBeenCalledTimes(1);
+      expect(created[0].instance.close).toHaveBeenCalledTimes(1);
       expect(handle).not.toBeNull();
     });
 
-    it("returns null when permission is not granted", () => {
-      installFakeNotification("denied");
+    it("does not construct a notification unless the API is available and permission is granted", () => {
+      const { fake } = installFakeNotification("denied");
       expect(showAgentNotification({ title: "x", body: "y", onClick: vi.fn() })).toBeNull();
-    });
-
-    it("returns null when API is unavailable", () => {
+      expect(fake).not.toHaveBeenCalled();
+      delete (globalThis as unknown as { Notification?: unknown }).Notification;
       expect(showAgentNotification({ title: "x", body: "y", onClick: vi.fn() })).toBeNull();
     });
   });

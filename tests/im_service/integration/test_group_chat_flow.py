@@ -17,129 +17,13 @@ from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import SessionBindingStore
 
-from ._group_chat_helpers import (
+from ._gateway_helpers import (
     _FakeKernelClient,
     make_agent_configs,
     seed_node_and_profiles,
     seed_user,
     send_delivery_receipt,
 )
-
-
-def test_group_message_with_mention_and_no_reply_token_stays_silent(
-    tmp_path: Path,
-) -> None:
-    """A mentioned group relay that returns NO_REPLY must complete without outbound chat text."""
-
-    app = create_app(db_path=tmp_path / "im.db")
-    kernel_client = _FakeKernelClient()
-    kernel_client.default_output_text = "NO_REPLY"
-    relay_adapter = WebRelayAdapter()
-    agents = make_agent_configs(tmp_path, "agent-a", "agent-b")
-    pipeline = build_inbound_pipeline(
-        kernel=kernel_client,
-        agents=agents,
-        outbound_router=OutboundRouter(ChannelRegistry((relay_adapter,))),
-        run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
-        default_agent_id="agent-a",
-    )
-    relay_adapter.start(lambda inbound: asyncio.run(pipeline.handle_inbound(inbound)))
-
-    with TestClient(app) as client:
-        user_id = seed_user(client, "alice")
-        agent_a_user_id = seed_user(client, "agent:agent-a")
-        agent_b_user_id = seed_user(client, "agent:agent-b")
-        seed_node_and_profiles(app, agent_ids=("agent-a", "agent-b"))
-
-        conversation = client.post(
-            "/im/v1/conversations",
-            json={
-                "title": "Quiet Group",
-                "participant_ids": [user_id, agent_a_user_id, agent_b_user_id],
-            },
-        )
-        assert conversation.status_code == 201
-        conversation_id = conversation.json()["id"]
-
-        with client.websocket_connect("/im/ws/gateway") as websocket:
-            websocket.send_json(
-                {
-                    "type": "node.register",
-                    "payload": {
-                        "node_id": "node-1",
-                        "node_name": "MacBook",
-                        "version": "1.0.0",
-                        "agents": ["agent-a", "agent-b"],
-                        "capabilities": {"relay": True},
-                    },
-                }
-            )
-            assert websocket.receive_json()["type"] == "ack"
-
-            posted = client.post(
-                f"/im/v1/conversations/{conversation_id}/messages",
-                headers={"Idempotency-Key": "idem-group-no-reply"},
-                json={
-                    "sender_user_id": user_id,
-                    "content": "@agent-a stay quiet",
-                    "target_node_id": "node-1",
-                },
-            )
-            assert posted.status_code == 201
-            relay_frames = [websocket.receive_json(), websocket.receive_json()]
-            relay_frame_by_agent = {
-                frame["payload"]["agent_id"]: frame for frame in relay_frames
-            }
-            relay_adapter.accept_relay(relay_frame_by_agent["agent-a"]["payload"])
-            relay_adapter.accept_relay(relay_frame_by_agent["agent-b"]["payload"])
-            sent_ack = send_delivery_receipt(
-                websocket,
-                relay_payload=relay_frame_by_agent["agent-a"]["payload"],
-                delivery_status="sent",
-                detail=None,
-            )
-            completed_ack = send_delivery_receipt(
-                websocket,
-                relay_payload=relay_frame_by_agent["agent-a"]["payload"],
-                delivery_status="completed",
-                detail="NO_REPLY | suppressed_by=no_reply_token",
-            )
-
-        event_rows = app.state.connection.execute(
-            """
-            SELECT event_type, payload_json
-            FROM conversation_events
-            WHERE conversation_id = ?
-            ORDER BY event_id
-            """,
-            (conversation_id,),
-        ).fetchall()
-
-    accepted_payloads = [
-        json.loads(row["payload_json"])
-        for row in event_rows
-        if row["event_type"] == "relay.accepted"
-    ]
-    completed_payloads = [
-        json.loads(row["payload_json"])
-        for row in event_rows
-        if row["event_type"] == "relay.completed"
-    ]
-    assert kernel_client.send_calls == [
-        {
-            "session_id": "sess-1",
-            "text": "[Alice] @agent-a stay quiet",
-            "run_id": "run-1",
-        }
-    ]
-    assert relay_adapter.sent == []
-    assert sent_ack["type"] == "ack"
-    assert completed_ack["type"] == "ack"
-    assert [payload["detail"] for payload in accepted_payloads] == [None]
-    assert [payload["detail"] for payload in completed_payloads] == [
-        "NO_REPLY | suppressed_by=no_reply_token"
-    ]
 
 
 def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(
@@ -149,6 +33,7 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(
 
     app = create_app(db_path=tmp_path / "im.db")
     kernel_client = _FakeKernelClient()
+    kernel_client.default_output_text = "reply:{text}"
     relay_adapter = WebRelayAdapter()
     agents = make_agent_configs(tmp_path, "agent-a", "agent-b")
     pipeline = build_inbound_pipeline(
@@ -252,6 +137,7 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(
             "conversation_id": conversation_id,
             "agent_features": {},
             "config_profile_version": 1,
+            "system_prompt": "You are agent-a.",
             "conversation_type": "group",
             "participant_agent_ids": ["agent-a", "agent-b"],
             "external_chat_id": conversation_id,
@@ -267,6 +153,7 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(
             "conversation_id": conversation_id,
             "agent_features": {},
             "config_profile_version": 1,
+            "system_prompt": "You are agent-b.",
             "conversation_type": "group",
             "participant_agent_ids": ["agent-a", "agent-b"],
             "external_chat_id": conversation_id,

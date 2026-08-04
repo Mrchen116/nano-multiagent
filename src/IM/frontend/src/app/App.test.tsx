@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render } from "@testing-library/react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { vi } from "vitest";
@@ -46,19 +46,6 @@ describe("App shell", () => {
 
   afterEach(() => vi.restoreAllMocks());
 
-  it("renders the Chat and Agents top-level navigation entries", () => {
-    render(
-      <AppProviders>
-        <MemoryRouter>
-          <App />
-        </MemoryRouter>
-      </AppProviders>
-    );
-
-    expect(screen.getByRole("link", { name: /chat/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /agents/i })).toBeInTheDocument();
-  });
-
   it("uses one notification stream coordinator even off the chat route", () => {
     const fake = vi.fn(() => ({ onclick: null, close: vi.fn() })) as unknown as typeof Notification & {
       permission: NotificationPermission;
@@ -80,7 +67,7 @@ describe("App shell", () => {
     delete (globalThis as unknown as { Notification?: unknown }).Notification;
   });
 
-  it("keeps server cache for same-user token refresh and clears it on logout", () => {
+  it("keeps cache for same-user refresh and clears it when the authenticated identity changes or leaves", () => {
     render(
       <AppProviders>
         <QueryClientCapture />
@@ -91,18 +78,7 @@ describe("App shell", () => {
     act(() => useAuthStore.getState().setTokens({ access_token: "t-2", refresh_token: "r-2" }));
     expect(capturedQueryClient!.getQueryData(["chat", "conversations"])).toEqual(["cached"]);
 
-    act(() => useAuthStore.getState().clear());
-    expect(capturedQueryClient!.getQueryData(["chat", "conversations"])).toBeUndefined();
-  });
-
-  it("clears server cache when the authenticated user changes", () => {
-    render(
-      <AppProviders>
-        <QueryClientCapture />
-      </AppProviders>
-    );
     capturedQueryClient!.setQueryData(["settings", "nodes"], ["user-a-node"]);
-
     act(() => useAuthStore.getState().setSession({
       access_token: "user-b-token",
       refresh_token: "user-b-refresh",
@@ -110,18 +86,9 @@ describe("App shell", () => {
     }));
 
     expect(capturedQueryClient!.getQueryData(["settings", "nodes"])).toBeUndefined();
-  });
 
-  it("renders a banner and a main region so the shell wraps routed content", () => {
-    render(
-      <AppProviders>
-        <MemoryRouter>
-          <App />
-        </MemoryRouter>
-      </AppProviders>
-    );
-
-    expect(screen.getByRole("banner")).toBeInTheDocument();
-    expect(screen.getByRole("main")).toBeInTheDocument();
+    capturedQueryClient!.setQueryData(["chat", "conversations"], ["user-b-cache"]);
+    act(() => useAuthStore.getState().clear());
+    expect(capturedQueryClient!.getQueryData(["chat", "conversations"])).toBeUndefined();
   });
 });

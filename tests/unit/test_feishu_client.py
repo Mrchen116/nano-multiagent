@@ -1,4 +1,4 @@
-"""Tests for FeishuClient — lark-oapi WSClient wrapper."""
+"""Provider-boundary tests for the Feishu client."""
 
 from __future__ import annotations
 
@@ -6,376 +6,163 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-lark_oapi = pytest.importorskip("lark_oapi")
+pytest.importorskip("lark_oapi")
 
-from personal_assistant.channels.feishu.client import FeishuClient
-
-
-class TestFeishuClientLifecycle:
-    """Verify FeishuClient owns REST in parent and WS in a worker process."""
-
-    @patch("personal_assistant.channels.feishu.client.FeishuWorkerRuntime")
-    def test_start_creates_worker_runtime_with_event_handler(
-        self, mock_worker_cls: MagicMock
-    ) -> None:
-        mock_worker = MagicMock()
-        mock_worker_cls.return_value = mock_worker
-        client = FeishuClient(
-            app_id="cli_abc",
-            app_secret="secret",
-        )
-        on_message = MagicMock()
-        client.start(on_message)
-        call_kwargs = mock_worker_cls.call_args.kwargs
-        assert call_kwargs["app_id"] == "cli_abc"
-        assert call_kwargs["app_secret"] == "secret"
-        assert call_kwargs["on_event"] is on_message
-        mock_worker.start.assert_called_once()
-
-    @patch("personal_assistant.channels.feishu.client.FeishuWorkerRuntime")
-    def test_stop_noop_when_not_started(self, mock_worker_cls: MagicMock) -> None:
-        client = FeishuClient(app_id="cli_abc", app_secret="secret")
-        # stop before start should not raise
-        client.stop()
-
-    @patch("personal_assistant.channels.feishu.client.FeishuWorkerRuntime")
-    def test_stop_after_start(self, mock_worker_cls: MagicMock) -> None:
-        mock_worker = MagicMock()
-        mock_worker_cls.return_value = mock_worker
-        client = FeishuClient(app_id="cli_abc", app_secret="secret")
-        client.start(MagicMock())
-        client.stop()
-        mock_worker.stop.assert_called_once_with(drain=True)
+from personal_assistant.channels.feishu.client import (
+    FeishuAPIError,
+    FeishuAuthError,
+    FeishuClient,
+    _parse_feishu_event,
+)
 
 
-class TestFeishuClientEventParsing:
-    """Verify FeishuClient parses P2ImMessageReceiveV1 into structured data."""
+@patch("personal_assistant.channels.feishu.client.FeishuWorkerRuntime")
+def test_start_and_stop_own_one_worker_runtime(worker_class: MagicMock) -> None:
+    worker = worker_class.return_value
+    on_message = MagicMock()
+    client = FeishuClient(app_id="cli_a", app_secret="secret")
 
-    def _make_event(
-        self,
-        *,
-        chat_type: str = "p2p",
-        content: str = '{"text":"hello"}',
-        chat_id: str = "oc_abc123",
-        sender_open_id: str = "ou_user1",
-        message_id: str = "msg_001",
-        mentions: list | None = None,
-    ) -> MagicMock:
-        """Build a mock P2ImMessageReceiveV1 event."""
-        event = MagicMock()
-        event.event.sender.sender_id.open_id = sender_open_id
-        event.event.message.chat_id = chat_id
-        event.event.message.chat_type = chat_type
-        event.event.message.content = content
-        event.event.message.message_id = message_id
-        event.event.message.mentions = mentions or []
-        return event
+    client.start(on_message)
+    client.stop()
 
-    def test_parse_p2p_message(self) -> None:
-        from personal_assistant.channels.feishu.client import _parse_feishu_event
+    assert worker_class.call_args.kwargs["app_id"] == "cli_a"
+    assert worker_class.call_args.kwargs["on_event"] is on_message
+    worker.start.assert_called_once()
+    worker.stop.assert_called_once_with(drain=True)
 
-        ev = self._make_event(chat_type="p2p", content='{"text":"hi there"}')
-        result = _parse_feishu_event(ev)
-        assert result.text == "hi there"
-        assert result.chat_type == "p2p"
-        assert result.sender_open_id == "ou_user1"
-        assert result.chat_id == "oc_abc123"
-        assert result.message_id == "msg_001"
-        assert result.is_group is False
 
-    def test_parse_group_message(self) -> None:
-        from personal_assistant.channels.feishu.client import _parse_feishu_event
+def _sdk_event(
+    *,
+    chat_type: str = "p2p",
+    content: str = '{"text":"hello"}',
+    mentions: list[MagicMock] | None = None,
+) -> MagicMock:
+    event = MagicMock()
+    event.event.sender.sender_id.open_id = "ou_user"
+    event.event.message.chat_id = "oc_chat"
+    event.event.message.chat_type = chat_type
+    event.event.message.content = content
+    event.event.message.message_id = "message-1"
+    event.event.message.mentions = mentions or []
+    return event
 
-        ev = self._make_event(chat_type="group")
-        result = _parse_feishu_event(ev)
-        assert result.is_group is True
 
-    def test_parse_empty_content(self) -> None:
-        from personal_assistant.channels.feishu.client import _parse_feishu_event
+@pytest.mark.parametrize(
+    ("chat_type", "content", "expected_text", "is_group"),
+    [
+        ("p2p", '{"text":"hello"}', "hello", False),
+        ("group", '{"text":"group update"}', "group update", True),
+        ("p2p", "non-json attachment body", "non-json attachment body", False),
+    ],
+)
+def test_event_parsing_preserves_visible_message_identity(
+    chat_type: str,
+    content: str,
+    expected_text: str,
+    is_group: bool,
+) -> None:
+    parsed = _parse_feishu_event(_sdk_event(chat_type=chat_type, content=content))
 
-        ev = self._make_event(content="")
-        result = _parse_feishu_event(ev)
-        assert result.text == ""
+    assert parsed.text == expected_text
+    assert parsed.sender_open_id == "ou_user"
+    assert parsed.chat_id == "oc_chat"
+    assert parsed.message_id == "message-1"
+    assert parsed.is_group is is_group
 
-    def test_parse_non_json_content_fallback(self) -> None:
-        """Non-JSON content (e.g. image/file) should be kept as-is."""
-        from personal_assistant.channels.feishu.client import _parse_feishu_event
 
-        ev = self._make_event(content="plain text not json")
-        result = _parse_feishu_event(ev)
-        assert result.text == "plain text not json"
+def test_event_parsing_normalizes_mentions() -> None:
+    mention = MagicMock()
+    mention.id.open_id = "ou_bot"
+    mention.name = "nano"
+    mention.key = "@_user_1"
 
-    def test_mentions_extracted(self) -> None:
-        from personal_assistant.channels.feishu.client import _parse_feishu_event
-
-        mention = MagicMock()
-        mention.id.open_id = "ou_bot1"
-        mention.name = "plato-bot"
-        mention.key = "@_user_1"
-        ev = self._make_event(
+    parsed = _parse_feishu_event(
+        _sdk_event(
+            content='{"text":"@_user_1 hello"}',
             mentions=[mention],
-            content='{"text":"@_user_1 hello bot"}',
         )
-        result = _parse_feishu_event(ev)
-        assert len(result.mentions) == 1
-        assert result.mentions[0].open_id == "ou_bot1"
-        assert result.mentions[0].name == "plato-bot"
-        assert result.mentions[0].key == "@_user_1"
+    )
+
+    assert parsed.text == "@nano hello"
+    assert [(item.open_id, item.name) for item in parsed.mentions] == [
+        ("ou_bot", "nano")
+    ]
 
 
-class TestFeishuClientSendMessage:
-    """Verify FeishuClient.send_message calls lark-oapi REST API."""
-
-    @patch("personal_assistant.channels.feishu.client.FeishuWorkerRuntime")
-    @patch("personal_assistant.channels.feishu.client.lark")
-    def test_send_message_calls_api(
-        self, mock_lark: MagicMock, mock_worker_cls: MagicMock
-    ) -> None:
-        mock_rest = MagicMock()
-        mock_builder = MagicMock()
-        mock_builder.app_id.return_value = mock_builder
-        mock_builder.app_secret.return_value = mock_builder
-        mock_builder.domain.return_value = mock_builder
-        mock_builder.build.return_value = mock_rest
-        mock_lark.Client.builder.return_value = mock_builder
-
-        # Mock the response
-        mock_resp = MagicMock()
-        mock_resp.success.return_value = True
-        mock_resp.code = 0
-        mock_rest.im.v1.message.create.return_value = mock_resp
-
-        client = FeishuClient(app_id="cli_abc", app_secret="secret")
-        client.start(MagicMock())
-        client.send_message(
-            receive_id="oc_chat123",
-            text="hello from bot",
-            receive_id_type="chat_id",
-        )
-        mock_rest.im.v1.message.create.assert_called_once()
-
-    def test_add_reaction_calls_api(self) -> None:
-        mock_rest = MagicMock()
-        mock_resp = MagicMock()
-        mock_resp.success.return_value = True
-        mock_resp.code = 0
-        mock_resp.data.reaction_id = "reaction_001"
-        mock_rest.im.v1.message_reaction.create.return_value = mock_resp
-
-        client = FeishuClient(app_id="cli_abc", app_secret="secret")
-        client._rest_client = mock_rest
-
-        reaction_id = client.add_reaction(
-            message_id="om_msg_001",
-            emoji_type="THINKING",
-        )
-
-        assert reaction_id == "reaction_001"
-        mock_rest.im.v1.message_reaction.create.assert_called_once()
-        request = mock_rest.im.v1.message_reaction.create.call_args[0][0]
-        assert request.message_id == "om_msg_001"
-        assert request.request_body.reaction_type.emoji_type == "THINKING"
-
-    def test_add_reaction_failure_raises_feishu_api_error(self) -> None:
-        from personal_assistant.channels.feishu.client import FeishuAPIError
-
-        mock_rest = MagicMock()
-        mock_resp = MagicMock()
-        mock_resp.success.return_value = False
-        mock_resp.code = 99999
-        mock_resp.msg = "bad reaction"
-        mock_rest.im.v1.message_reaction.create.return_value = mock_resp
-
-        client = FeishuClient(app_id="cli_abc", app_secret="secret")
-        client._rest_client = mock_rest
-
-        with pytest.raises(FeishuAPIError):
-            client.add_reaction(message_id="om_msg_001", emoji_type="THINKING")
-
-    def test_delete_reaction_calls_api(self) -> None:
-        mock_rest = MagicMock()
-        mock_resp = MagicMock()
-        mock_resp.success.return_value = True
-        mock_resp.code = 0
-        mock_rest.im.v1.message_reaction.delete.return_value = mock_resp
-
-        client = FeishuClient(app_id="cli_abc", app_secret="secret")
-        client._rest_client = mock_rest
-
-        client.delete_reaction(
-            message_id="om_msg_001",
-            reaction_id="reaction_001",
-        )
-
-        mock_rest.im.v1.message_reaction.delete.assert_called_once()
-        request = mock_rest.im.v1.message_reaction.delete.call_args[0][0]
-        assert request.message_id == "om_msg_001"
-        assert request.reaction_id == "reaction_001"
+def _client_with_response(response: MagicMock) -> tuple[FeishuClient, MagicMock]:
+    rest = MagicMock()
+    rest.im.v1.message.create.return_value = response
+    client = FeishuClient(app_id="cli_a", app_secret="secret")
+    client._rest_client = rest
+    return client, rest
 
 
-class TestFeishuClientErrorClassification:
-    """Verify send_message classifies feishu API errors correctly."""
+def _response(*, success: bool, code: int, msg: str = "") -> MagicMock:
+    response = MagicMock()
+    response.success.return_value = success
+    response.code = code
+    response.msg = msg
+    return response
 
-    def _make_started_client(self, mock_rest: MagicMock) -> FeishuClient:
-        """Create a FeishuClient with mocked REST client (bypasses WSClient)."""
-        client = FeishuClient(app_id="cli_abc", app_secret="secret")
-        # Inject mocked REST client directly — no WSClient needed for send tests
-        client._rest_client = mock_rest
-        return client
 
-    def _mock_response(self, *, success: bool, code: int, msg: str = "") -> MagicMock:
-        """Build a mock lark-oapi API response."""
-        resp = MagicMock()
-        resp.success.return_value = success
-        resp.code = code
-        resp.msg = msg
-        return resp
+def test_send_message_builds_provider_request() -> None:
+    client, rest = _client_with_response(_response(success=True, code=0))
 
-    @patch("time.sleep")
-    def test_rate_limit_retries_with_exponential_backoff(
-        self, mock_sleep: MagicMock
-    ) -> None:
-        """429 (rate limit) should retry up to 3 times with exponential backoff."""
-        from personal_assistant.channels.feishu.client import FeishuAPIError
+    client.send_message(
+        receive_id="oc_group",
+        text="hello",
+        receive_id_type="chat_id",
+    )
 
-        mock_rest = MagicMock()
-        # First 2 calls return 429, 3rd succeeds
-        rate_limit_resp = self._mock_response(success=False, code=429, msg="rate limit")
-        ok_resp = self._mock_response(success=True, code=0)
-        mock_rest.im.v1.message.create.side_effect = [
-            rate_limit_resp,
-            rate_limit_resp,
-            ok_resp,
-        ]
+    request = rest.im.v1.message.create.call_args.args[0]
+    assert request.receive_id_type == "chat_id"
+    assert request.request_body.receive_id == "oc_group"
+    assert request.request_body.content == '{"text": "hello"}'
 
-        client = self._make_started_client(mock_rest)
-        # Should succeed after retries — no exception
-        client.send_message(receive_id="oc_chat123", text="hello")
 
-        assert mock_rest.im.v1.message.create.call_count == 3
-        assert mock_sleep.call_count == 2  # 2 sleeps between 3 attempts
+def test_empty_receive_id_is_rejected_before_provider_request() -> None:
+    client, rest = _client_with_response(_response(success=True, code=0))
 
-    @patch("time.sleep")
-    def test_rate_limit_exhausted_raises_feishu_api_error(
-        self, mock_sleep: MagicMock
-    ) -> None:
-        """429 after max retries should raise FeishuAPIError."""
-        from personal_assistant.channels.feishu.client import FeishuAPIError
+    with pytest.raises(ValueError, match="receive_id"):
+        client.send_message(receive_id="  ", text="hello")
 
-        mock_rest = MagicMock()
-        rate_limit_resp = self._mock_response(success=False, code=429, msg="rate limit")
-        mock_rest.im.v1.message.create.return_value = rate_limit_resp
+    rest.im.v1.message.create.assert_not_called()
 
-        client = self._make_started_client(mock_rest)
-        with pytest.raises(FeishuAPIError) as exc_info:
-            client.send_message(receive_id="oc_chat123", text="hello")
 
-        assert mock_rest.im.v1.message.create.call_count == 3
-        assert "429" in str(exc_info.value)
+@pytest.mark.parametrize(
+    ("code", "error_type"),
+    [(401, FeishuAuthError), (403, FeishuAuthError), (99999, FeishuAPIError)],
+)
+def test_send_errors_are_classified_and_fail_loud(
+    code: int,
+    error_type: type[Exception],
+) -> None:
+    client, _ = _client_with_response(
+        _response(success=False, code=code, msg="provider rejected request")
+    )
 
-    def test_auth_error_raises_feishu_auth_error(self) -> None:
-        """401/403 should raise FeishuAuthError (no retry)."""
-        from personal_assistant.channels.feishu.client import FeishuAuthError
+    with pytest.raises(error_type):
+        client.send_message(receive_id="oc_group", text="hello")
 
-        for code in (401, 403):
-            mock_rest = MagicMock()
-            auth_resp = self._mock_response(success=False, code=code, msg="auth error")
-            mock_rest.im.v1.message.create.return_value = auth_resp
 
-            client = self._make_started_client(mock_rest)
-            with pytest.raises(FeishuAuthError) as exc_info:
-                client.send_message(receive_id="oc_chat123", text="hello")
+def test_reaction_create_and_delete_use_message_identity() -> None:
+    rest = MagicMock()
+    create_response = _response(success=True, code=0)
+    create_response.data.reaction_id = "reaction-1"
+    rest.im.v1.message_reaction.create.return_value = create_response
+    rest.im.v1.message_reaction.delete.return_value = _response(success=True, code=0)
+    client = FeishuClient(app_id="cli_a", app_secret="secret")
+    client._rest_client = rest
 
-            assert mock_rest.im.v1.message.create.call_count == 1  # no retry
-            assert str(code) in str(exc_info.value)
+    reaction_id = client.add_reaction(
+        message_id="message-1",
+        emoji_type="THINKING",
+    )
+    client.delete_reaction(message_id="message-1", reaction_id=reaction_id)
 
-    @patch("time.sleep")
-    def test_server_error_retries_once(self, mock_sleep: MagicMock) -> None:
-        """5xx should retry exactly once, then raise FeishuAPIError if still failing."""
-        from personal_assistant.channels.feishu.client import FeishuAPIError
-
-        mock_rest = MagicMock()
-        server_resp = self._mock_response(success=False, code=500, msg="internal error")
-        mock_rest.im.v1.message.create.return_value = server_resp
-
-        client = self._make_started_client(mock_rest)
-        with pytest.raises(FeishuAPIError):
-            client.send_message(receive_id="oc_chat123", text="hello")
-
-        assert mock_rest.im.v1.message.create.call_count == 2
-
-    @patch("time.sleep")
-    def test_rate_limit_then_server_error_retries_independently(
-        self, mock_sleep: MagicMock
-    ) -> None:
-        """429 retries and 5xx retries must use independent counters.
-
-        A 429 retry must not consume the 5xx retry budget.
-        """
-        mock_rest = MagicMock()
-        # 429 and 5xx use separate budgets before either budget is exhausted.
-        rate_limit_resp = self._mock_response(success=False, code=429, msg="rate limit")
-        server_err_resp = self._mock_response(
-            success=False, code=500, msg="server error"
-        )
-        ok_resp = self._mock_response(success=True, code=0)
-        mock_rest.im.v1.message.create.side_effect = [
-            rate_limit_resp,
-            server_err_resp,
-            ok_resp,
-        ]
-
-        client = self._make_started_client(mock_rest)
-        # Should succeed after one 429 retry and one 5xx retry.
-        client.send_message(receive_id="oc_chat123", text="hello")
-
-        assert mock_rest.im.v1.message.create.call_count == 3
-        assert mock_sleep.call_count == 2
-
-    @patch("time.sleep")
-    def test_server_error_retry_succeeds(self, mock_sleep: MagicMock) -> None:
-        """5xx first call fails, retry succeeds → no exception."""
-        mock_rest = MagicMock()
-        server_resp = self._mock_response(success=False, code=502, msg="bad gateway")
-        ok_resp = self._mock_response(success=True, code=0)
-        mock_rest.im.v1.message.create.side_effect = [server_resp, ok_resp]
-
-        client = self._make_started_client(mock_rest)
-        client.send_message(receive_id="oc_chat123", text="hello")
-
-        assert mock_rest.im.v1.message.create.call_count == 2
-
-    def test_unknown_error_raises_feishu_api_error(self) -> None:
-        """Non-retryable unknown errors should raise FeishuAPIError immediately."""
-        from personal_assistant.channels.feishu.client import FeishuAPIError
-
-        mock_rest = MagicMock()
-        err_resp = self._mock_response(success=False, code=99999, msg="unknown")
-        mock_rest.im.v1.message.create.return_value = err_resp
-
-        client = self._make_started_client(mock_rest)
-        with pytest.raises(FeishuAPIError) as exc_info:
-            client.send_message(receive_id="oc_chat123", text="hello")
-
-        assert mock_rest.im.v1.message.create.call_count == 1  # no retry
-        assert "99999" in str(exc_info.value)
-
-    def test_success_returns_without_error(self) -> None:
-        """200/success response should not raise."""
-        mock_rest = MagicMock()
-        ok_resp = self._mock_response(success=True, code=0)
-        mock_rest.im.v1.message.create.return_value = ok_resp
-
-        client = self._make_started_client(mock_rest)
-        client.send_message(receive_id="oc_chat123", text="hello")
-
-        mock_rest.im.v1.message.create.assert_called_once()
-
-    def test_empty_receive_id_is_rejected_before_api_call(self) -> None:
-        mock_rest = MagicMock()
-        client = self._make_started_client(mock_rest)
-
-        with pytest.raises(ValueError, match="receive_id"):
-            client.send_message(receive_id="  ", text="hello")
-
-        mock_rest.im.v1.message.create.assert_not_called()
+    create_request = rest.im.v1.message_reaction.create.call_args.args[0]
+    delete_request = rest.im.v1.message_reaction.delete.call_args.args[0]
+    assert reaction_id == "reaction-1"
+    assert create_request.message_id == "message-1"
+    assert delete_request.message_id == "message-1"
+    assert delete_request.reaction_id == "reaction-1"

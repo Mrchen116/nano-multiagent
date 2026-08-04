@@ -16,6 +16,7 @@
 #   scripts/e2e-critical.sh                 # run all critical paths
 #   scripts/e2e-critical.sh -m "not slow"   # skip time-driven (cron/heartbeat) paths
 #   scripts/e2e-critical.sh -k tool_call    # run one path
+#   NANO_MULTIAGENT_E2E_MODEL=deepseek:deepseek-v4-flash scripts/e2e-critical.sh
 #   (any extra args are forwarded to pytest)
 
 set -euo pipefail
@@ -26,7 +27,6 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # Gate env: the suite's fixture also re-checks this and skips if unset, but we
 # set it here so the one command "just runs" without the caller exporting it.
 export NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1
-export NANO_MULTIAGENT_ENABLE_CRITICAL_PATH_CATALOG=1
 export PYTHONPATH="$REPO_ROOT/src"
 
 cd "$REPO_ROOT"

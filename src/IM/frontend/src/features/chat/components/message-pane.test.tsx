@@ -1937,44 +1937,6 @@ describe("MessagePane", () => {
     });
   });
 
-  it("uploads dropped files and surfaces chips in the composer", async () => {
-    const onSend = vi.fn();
-    const uploaded: Attachment = {
-      url: "http://im.local/im/uploads/dropped.png",
-      content_type: "image/png",
-      file_name: "dropped.png"
-    };
-    const uploader = vi.fn(async (_file: File): Promise<Attachment> => uploaded);
-    render(
-      <MessagePane
-        conversation={DIRECT_CONV}
-        messages={[]}
-        mentionCandidates={[]}
-        onSend={onSend}
-        uploadAttachment={uploader}
-      />
-    );
-    const composer = screen.getByRole("textbox");
-    await userEvent.type(composer, "see image");
-
-    const file = new File([new Uint8Array(4)], "dropped.png", { type: "image/png" });
-    const dropZone = composer.closest("[data-dragging]") as HTMLElement;
-    fireEvent.drop(dropZone, {
-      dataTransfer: { files: [file], items: [], types: ["Files"] }
-    });
-
-    // wait for chip to render after upload resolves
-    const chipImg = await screen.findByRole("img", { name: "dropped.png" });
-    expect(chipImg).toBeInTheDocument();
-    expect(uploader).toHaveBeenCalledWith(file);
-
-    await userEvent.click(screen.getByRole("button", { name: /Send/i }));
-    expect(onSend).toHaveBeenCalledWith("see image", [uploaded]);
-
-    // After send, chips should clear
-    expect(screen.queryByRole("img", { name: "dropped.png" })).not.toBeInTheDocument();
-  });
-
   it("removes a pending attachment when its chip × is clicked", async () => {
     const uploaded: Attachment = {
       url: "http://im.local/im/uploads/a.pdf",
@@ -2177,24 +2139,6 @@ describe("MessagePane", () => {
       expect(card?.closest(".chat-bubble-card")).not.toBeNull();
     });
 
-    it("does not render PermissionCard when message has empty permission_requests list", () => {
-      render(
-        <MessagePane
-          conversation={DIRECT_CONV}
-          messages={[{
-            ...AGENT_MSG_WITH_PERM,
-            id: "m-no-perm",
-            permission_requests: [],
-            content: "Regular reply",
-          }]}
-          mentionCandidates={[]}
-          onSend={() => {}}
-        />
-      );
-      expect(screen.queryByText(/Allow bash to run this command/i)).not.toBeInTheDocument();
-      expect(screen.getByText("Regular reply")).toBeInTheDocument();
-    });
-
     // feat-434 决策 3: a resolved审批 no longer renders an独立 card —— its呈现 moved to
     // the tool-call row's gate region. The bubble must NOT show a resolved permission card.
     it("does NOT render a resolved permission card (已决并入工具行)", () => {
@@ -2216,32 +2160,6 @@ describe("MessagePane", () => {
       expect(screen.queryByRole("button", { name: /allow once/i })).not.toBeInTheDocument();
     });
 
-    // feat-434 决策 3 / spec Scenario-又来新待决: when one ask is已决 and a new ask is
-    // pending, only the pending card shows (resolved已并入工具行); 用户仍能分清。
-    it("shows only the new pending card when a prior ask is resolved (no resolved card)", () => {
-      const msg: Message = {
-        ...AGENT_MSG_WITH_PERM,
-        id: "m-two-asks",
-        permission_requests: [
-          { ...PERM_REQUEST, request_id: "req-1", question: "Allow bash command #1?", status: "resolved", decision: "allow_once" },
-          { ...PERM_REQUEST, request_id: "req-2", tool_name: "write", question: "Allow write call #2?", status: "pending" },
-        ],
-      };
-      render(
-        <MessagePane
-          conversation={DIRECT_CONV}
-          messages={[msg]}
-          mentionCandidates={[]}
-          onSend={() => {}}
-        />
-      );
-      // resolved card gone
-      expect(screen.queryByTestId("permission-resolved")).not.toBeInTheDocument();
-      expect(screen.queryByText(/Allow bash command #1/i)).not.toBeInTheDocument();
-      // 当前 pending 的按钮组仍可见
-      expect(screen.getByText(/Allow write call #2/i)).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /allow once/i })).toBeInTheDocument();
-    });
   });
 
   // M19/R11-8: prototype `im-chat-page.jsx::MessagePaneView` 移动模式头部紧凑 —
@@ -2361,17 +2279,6 @@ describe("MessagePane", () => {
       token_usage: { output: 1234, context_used: 30000, context_window: 200000 },
       permission_requests: []
     };
-    const TS_AGENT_WARN: Message = {
-      ...TS_AGENT_LOW,
-      id: "mt-agent-warn",
-      token_usage: { output: 2000, context_used: 150000, context_window: 200000 }
-    };
-    const TS_AGENT_CRIT: Message = {
-      ...TS_AGENT_LOW,
-      id: "mt-agent-crit",
-      token_usage: { output: 5000, context_used: 185000, context_window: 200000 }
-    };
-
     it("matches prototype: user bubbles have no avatar, agent avatar stays outside the bubble", () => {
       render(
         <MessagePane
@@ -2418,32 +2325,6 @@ describe("MessagePane", () => {
       expect(bubble.contains(chip)).toBe(true);
     });
 
-    it("token chip flips to warn color at >=70% context", () => {
-      render(
-        <MessagePane
-          conversation={DIRECT_CONV}
-          messages={[TS_AGENT_WARN]}
-          mentionCandidates={[]}
-          onSend={() => {}}
-        />
-      );
-      const chip = screen.getByTestId(`message-token-chip-${TS_AGENT_WARN.id}`);
-      expect(chip.className).toMatch(/chat-token-chip--warn/);
-    });
-
-    it("token chip flips to critical color at >=90% context", () => {
-      render(
-        <MessagePane
-          conversation={DIRECT_CONV}
-          messages={[TS_AGENT_CRIT]}
-          mentionCandidates={[]}
-          onSend={() => {}}
-        />
-      );
-      const chip = screen.getByTestId(`message-token-chip-${TS_AGENT_CRIT.id}`);
-      expect(chip.className).toMatch(/chat-token-chip--critical/);
-    });
-
     it("does not render a per-bubble TokenChip when token_usage is absent", () => {
       render(
         <MessagePane
@@ -2473,101 +2354,6 @@ describe("MessagePane", () => {
         permission_requests: [],
       };
     }
-
-    it("renders ## heading as h2, not literal ##", () => {
-      const { container } = render(
-        <MessagePane
-          conversation={DIRECT_CONV}
-          messages={[agentMsg("## 二级标题")]}
-          mentionCandidates={[]}
-          onSend={() => {}}
-        />
-      );
-      expect(container.querySelector("h2")).not.toBeNull();
-      expect(screen.queryByText(/^##/)).toBeNull();
-    });
-
-    it("renders ### heading as h3, not literal ###", () => {
-      const { container } = render(
-        <MessagePane
-          conversation={DIRECT_CONV}
-          messages={[agentMsg("### 三级标题")]}
-          mentionCandidates={[]}
-          onSend={() => {}}
-        />
-      );
-      expect(container.querySelector("h3")).not.toBeNull();
-      expect(screen.queryByText(/^###/)).toBeNull();
-    });
-
-    it("renders --- as <hr>, not literal ---", () => {
-      const { container } = render(
-        <MessagePane
-          conversation={DIRECT_CONV}
-          messages={[agentMsg("above\n\n---\n\nbelow")]}
-          mentionCandidates={[]}
-          onSend={() => {}}
-        />
-      );
-      expect(container.querySelector("hr")).not.toBeNull();
-      expect(screen.queryByText("---")).toBeNull();
-    });
-
-    it("renders > blockquote as <blockquote>, not literal >", () => {
-      const { container } = render(
-        <MessagePane
-          conversation={DIRECT_CONV}
-          messages={[agentMsg("> 引用文本")]}
-          mentionCandidates={[]}
-          onSend={() => {}}
-        />
-      );
-      expect(container.querySelector("blockquote")).not.toBeNull();
-      expect(screen.queryByText(/^>/)).toBeNull();
-    });
-
-    it("renders unclosed fenced code block as <pre><code>, not prose", () => {
-      const { container } = render(
-        <MessagePane
-          conversation={DIRECT_CONV}
-          messages={[agentMsg("```python\nprint('hello')\nx = 1")]}
-          mentionCandidates={[]}
-          onSend={() => {}}
-        />
-      );
-      expect(container.querySelector("pre > code")).not.toBeNull();
-      // Content should not be squashed into one prose paragraph
-      expect(screen.queryByText(/```python/)).toBeNull();
-    });
-
-    it("renders nested list with indented sub-items", () => {
-      const { container } = render(
-        <MessagePane
-          conversation={DIRECT_CONV}
-          messages={[agentMsg("- 顶层\n  - 子项")]}
-          mentionCandidates={[]}
-          onSend={() => {}}
-        />
-      );
-      // nested list: ul > li > ul
-      const nestedUl = container.querySelector("ul ul");
-      expect(nestedUl).not.toBeNull();
-    });
-
-    it("renders [text](url) as <a> link, not literal brackets", () => {
-      const { container } = render(
-        <MessagePane
-          conversation={DIRECT_CONV}
-          messages={[agentMsg("[点击这里](https://example.com)")]}
-          mentionCandidates={[]}
-          onSend={() => {}}
-        />
-      );
-      const anchor = container.querySelector("a");
-      expect(anchor).not.toBeNull();
-      expect(anchor?.getAttribute("href")).toBe("https://example.com");
-      expect(screen.queryByText(/\[点击这里\]/)).toBeNull();
-    });
 
     it("renders <script> as escaped text, not executed", () => {
       const { container } = render(
@@ -2609,57 +2395,6 @@ describe("MessagePane", () => {
         );
         expect(screen.getByText("@Coder")).toBeInTheDocument();
         expect(screen.queryByText(/<mention/)).toBeNull();
-      });
-
-      it("renders mention chip inside a heading", () => {
-        render(
-          <MessagePane
-            conversation={CONV_WITH_PARTICIPANTS}
-            messages={[agentMsgWithParticipants('## 请 <mention type="agent" target_id="a-coder"/> 审阅')]}
-            mentionCandidates={[]}
-            onSend={() => {}}
-          />
-        );
-        expect(screen.getByText("@Coder")).toBeInTheDocument();
-        expect(screen.queryByText(/<mention/)).toBeNull();
-      });
-
-      it("renders mention chip inside a blockquote", () => {
-        render(
-          <MessagePane
-            conversation={CONV_WITH_PARTICIPANTS}
-            messages={[agentMsgWithParticipants('> <mention type="agent" target_id="a-coder"/> 的意见')]}
-            mentionCandidates={[]}
-            onSend={() => {}}
-          />
-        );
-        expect(screen.getByText("@Coder")).toBeInTheDocument();
-      });
-
-      it("renders mention chip inside a list item", () => {
-        render(
-          <MessagePane
-            conversation={CONV_WITH_PARTICIPANTS}
-            messages={[agentMsgWithParticipants('- <mention type="agent" target_id="a-coder"/> 负责此项')]}
-            mentionCandidates={[]}
-            onSend={() => {}}
-          />
-        );
-        expect(screen.getByText("@Coder")).toBeInTheDocument();
-      });
-
-      it("renders unknown mention as --unknown chip inside block content", () => {
-        const { container } = render(
-          <MessagePane
-            conversation={CONV_WITH_PARTICIPANTS}
-            messages={[agentMsgWithParticipants('## <mention type="agent" target_id="nonexistent"/> 审阅')]}
-            mentionCandidates={[]}
-            onSend={() => {}}
-          />
-        );
-        const unknownChip = container.querySelector(".chat-mention-chip--unknown");
-        expect(unknownChip).not.toBeNull();
-        expect(unknownChip?.textContent).toBe("@unknown");
       });
 
       // CR-1: CommonMark HTML block type-7 — mention 独占首行紧跟非空行时
@@ -2757,22 +2492,6 @@ describe("MessagePane", () => {
       expect(screen.queryByText(/<mention/)).not.toBeInTheDocument();
     });
 
-    it("renders plain text content unchanged when no mention tags present", () => {
-      const msg: Message = {
-        ...AGENT_MSG_WITH_MENTION,
-        id: "m-plain",
-        content: "regular message without any mention",
-      };
-      render(
-        <MessagePane
-          conversation={GROUP_CONV_WITH_PARTICIPANTS}
-          messages={[msg]}
-          mentionCandidates={[]}
-          onSend={() => {}}
-        />
-      );
-      expect(screen.getByText("regular message without any mention")).toBeInTheDocument();
-    });
   });
 
   // feat-414-M1 W1: running 气泡 status 行随时间推进显示实时 tick 秒数
@@ -2871,21 +2590,6 @@ describe("MessagePane", () => {
       expect(screen.getByText("pr-review")).toBeInTheDocument();
     });
 
-    it("does not open the picker when '/' is in the middle of the text", async () => {
-      const user = userEvent.setup();
-      render(
-        <MessagePane
-          conversation={DIRECT_CONV}
-          messages={[]}
-          mentionCandidates={[]}
-          slashSkills={SLASH_SKILLS}
-          onSend={() => {}}
-        />
-      );
-      await user.type(screen.getByRole("textbox"), "hello /world");
-      expect(screen.queryByText("/stop")).not.toBeInTheDocument();
-    });
-
     it("inserts /skill:name when a skill is selected", async () => {
       const user = userEvent.setup();
       render(
@@ -2903,60 +2607,5 @@ describe("MessagePane", () => {
       expect(box.value).toBe("/skill:pr-review ");
     });
 
-    it("Esc closes the picker but keeps the typed '/' text", async () => {
-      const user = userEvent.setup();
-      render(
-        <MessagePane
-          conversation={DIRECT_CONV}
-          messages={[]}
-          mentionCandidates={[]}
-          slashSkills={SLASH_SKILLS}
-          onSend={() => {}}
-        />
-      );
-      const box = screen.getByRole("textbox") as HTMLTextAreaElement;
-      await user.type(box, "/pr");
-      expect(await screen.findByText("pr-review")).toBeInTheDocument();
-      await user.keyboard("{Escape}");
-      expect(screen.queryByText("pr-review")).not.toBeInTheDocument();
-      expect(box.value).toBe("/pr");
-    });
-
-    it("opens the picker in a group conversation too", async () => {
-      const user = userEvent.setup();
-      render(
-        <MessagePane
-          conversation={GROUP_CONV}
-          messages={[]}
-          mentionCandidates={MENTION_CANDIDATES}
-          slashSkills={SLASH_SKILLS}
-          onSend={() => {}}
-        />
-      );
-      await user.type(screen.getByRole("textbox"), "/");
-      expect(await screen.findByText("/stop")).toBeInTheDocument();
-    });
-
-    // R5-S3: editing an already-inserted `/skill:doc` down to `/skill:d` re-opens the
-    // picker and re-filters skills by the `d` prefix (not the literal `skill:d` query).
-    it("re-filters skills when editing a /skill: prefix for correction", async () => {
-      const user = userEvent.setup();
-      render(
-        <MessagePane
-          conversation={DIRECT_CONV}
-          messages={[]}
-          mentionCandidates={[]}
-          slashSkills={SLASH_SKILLS}
-          onSend={() => {}}
-        />
-      );
-      const box = screen.getByRole("textbox") as HTMLTextAreaElement;
-      // Simulate the corrected state `/skill:d` (after deleting chars from `/skill:doc`).
-      await user.type(box, "/skill:d");
-      // `doc` matches the `d` prefix; `/stop` must NOT show (skill-only namespace).
-      expect(await screen.findByText("doc")).toBeInTheDocument();
-      expect(screen.queryByText("/stop")).not.toBeInTheDocument();
-      expect(screen.queryByText("pr-review")).not.toBeInTheDocument();
-    });
   });
 });

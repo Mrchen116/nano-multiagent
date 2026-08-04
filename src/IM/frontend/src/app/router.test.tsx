@@ -1,25 +1,18 @@
 import { screen } from "@testing-library/react";
-import { isValidElement, type ReactElement } from "react";
 import { beforeEach, vi } from "vitest";
-import { Navigate } from "react-router-dom";
 
-const getChatBootstrapState = vi.fn();
-const getChatStarter = vi.fn();
 const listConversations = vi.fn();
-const getConversation = vi.fn();
-const sendMessage = vi.fn();
-const streamConversationEvents = vi.fn((_: unknown) => () => undefined);
+
+vi.mock("../realtime/user-stream", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../realtime/user-stream")>();
+  return { ...actual, subscribeUserStream: vi.fn(() => () => undefined) };
+});
 
 vi.mock("../features/chat/chat-api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../features/chat/chat-api")>();
   return {
     ...actual,
-    getChatBootstrapState: () => getChatBootstrapState(),
-    getChatStarter: () => getChatStarter(),
-    listConversations: () => listConversations(),
-    getConversation: (conversationId: string) => getConversation(conversationId),
-    sendMessage: (input: { conversationId: string; content: string }) => sendMessage(input),
-    streamConversationEvents: (input: unknown) => streamConversationEvents(input)
+    listConversations: () => listConversations()
   };
 });
 
@@ -28,69 +21,33 @@ import { renderRouter } from "../test/render-router";
 
 describe("app routes", () => {
   beforeEach(() => {
-    getChatBootstrapState.mockResolvedValue({
-      selfUserId: "user-1",
-      targetNodeId: "node-1",
-      targetNodeStatus: "online",
-      initialConversationId: "conv-1",
-      ownership: {
-        nodeId: "node-1",
-        nodeLabel: "node-1",
-        nodeStatus: "online",
-        agentLabel: "OpsBot",
-        ownershipLabel: "Using OpsBot on node-1 (online)"
-      }
-    });
-    getChatStarter.mockResolvedValue({
-      title: "Agent · OpsBot",
-      actionLabel: "Open Agent · OpsBot",
-      actionHref: "/chat/conv-1",
-      agentName: "OpsBot",
-      description: "OpsBot is your default starter chat. Reuse each agent's dedicated direct chat from Settings, or open group chats and agent-to-agent threads from the conversation list.",
-      nodeLabel: "node-1",
-      statusLabel: "Using OpsBot on node-1 (online)"
-    });
     listConversations.mockResolvedValue([
       {
-        conversation_id: "conv-1",
+        id: "conv-1",
         title: "You & Teammate",
+        participants: [
+          { type: "user", id: "user-1", display_name: "You" },
+          { type: "user", id: "user-2", display_name: "Teammate" }
+        ],
+        participant_ids: ["user-1", "user-2"],
+        type: "direct",
+        direct_kind: "user-user",
+        owner_id: "user-1",
+        creator_id: "user-1",
+        is_pinned: false,
+        is_muted: false,
         last_message_preview: "",
         last_message_at: null,
         unread_count: 0,
-        participants: ["You", "Teammate"],
-        kind_label: "Direct agent chat",
-        target_label: "Teammate",
-        discoverability_hint: "This is a one-to-one conversation with an available target."
+        created_at: "2026-01-01T00:00:00Z"
       }
     ]);
-    getConversation.mockResolvedValue({
-      conversation_id: "conv-1",
-      title: "You & Teammate",
-      kind_label: "Direct agent chat",
-      target_label: "Teammate",
-      discoverability_hint: "This is a one-to-one conversation with an available target.",
-      ownership_label: "Using OpsBot on node-1 (online)",
-      messages: []
-    });
-    sendMessage.mockResolvedValue({});
-    streamConversationEvents.mockReturnValue(() => undefined);
   });
 
-  it("declares the root entry redirect to /chat", () => {
-    const rootRoute = appRoutes.find((route) => route.path === "/");
-    const rootIndexRoute = rootRoute?.children?.find((route) => route.index);
-    const rootElement = rootIndexRoute?.element;
+  it("opens the chat workspace from the authenticated root entry", async () => {
+    renderRouter({ routes: appRoutes, initialEntries: ["/"] });
 
-    expect(rootIndexRoute).toBeDefined();
-    expect(isValidElement(rootElement)).toBe(true);
-    if (!isValidElement(rootElement)) {
-      throw new Error("root index route must render a Navigate element");
-    }
-    const navigateElement = rootElement as ReactElement<{ replace?: boolean; to: string }>;
-
-    expect(navigateElement.type).toBe(Navigate);
-    expect(navigateElement.props.to).toBe("/chat");
-    expect(navigateElement.props.replace).toBe(true);
+    expect((await screen.findAllByText("You & Teammate")).length).toBeGreaterThan(0);
   });
 
   it("renders the bind confirmation route", async () => {

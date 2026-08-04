@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Minimal Anthropic-format SSE stub that records requests and returns ok text.
 
-Happy-path companion to ``anthropic_sse_error.py``. Use when a real Gateway /
-IM stack must complete agent turns without a live LLM proxy, while still
-letting the test inspect every upstream request body (messages / tools).
+Use when a real Gateway / IM stack must complete agent turns without a live LLM
+proxy, while still letting the test inspect every upstream request body
+(messages / tools).
 
 Each POST body is appended as one JSON line to ``NANO_FIXTURE_RECORD_PATH``
 (required). The assistant text for the N-th request is ``ACK-<N>``.

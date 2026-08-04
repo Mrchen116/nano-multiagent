@@ -15,7 +15,7 @@ def test_prepare_shared_runtime_files_converts_lock_dir_to_repo_symlink(
     shared_locks.mkdir()
     (shared_locks / "merge.lock").write_text("", encoding="utf-8")
 
-    worktree_dir = repo_root / ".worktrees" / "M139"
+    worktree_dir = repo_root / ".worktrees" / "existing-worktree"
     worktree_data = worktree_dir / "data"
     worktree_data.mkdir(parents=True)
     local_locks = worktree_data / "locks"
@@ -27,22 +27,7 @@ def test_prepare_shared_runtime_files_converts_lock_dir_to_repo_symlink(
     assert local_locks.is_symlink()
     assert local_locks.resolve() == shared_locks.resolve()
 
-
-def test_prepare_shared_runtime_files_is_idempotent_for_existing_lock_symlink(
-    tmp_path: Path,
-) -> None:
-    repo_root = tmp_path / "repo"
-    repo_data = repo_root / "data"
-    repo_data.mkdir(parents=True)
-    shared_locks = repo_data / "locks"
-    shared_locks.mkdir()
-
-    worktree_dir = repo_root / ".worktrees" / "M139"
-    worktree_data = worktree_dir / "data"
-    worktree_data.mkdir(parents=True)
-    local_locks = worktree_data / "locks"
-    local_locks.symlink_to(shared_locks, target_is_directory=True)
-
+    # Re-preparing an already converted worktree preserves the shared owner.
     prepare_shared_runtime_files(repo_root=repo_root, worktree_dir=worktree_dir)
 
     assert local_locks.is_symlink()
@@ -58,7 +43,7 @@ def test_prepare_shared_runtime_files_recreates_worktree_local_data_dir_for_priv
     shared_locks = repo_data / "locks"
     shared_locks.mkdir()
 
-    worktree_dir = repo_root / ".worktrees" / "M175"
+    worktree_dir = repo_root / ".worktrees" / "new-worktree"
 
     prepare_shared_runtime_files(repo_root=repo_root, worktree_dir=worktree_dir)
 

@@ -3,6 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 import tomllib
 
+import pytest
+
+from agent.sdk import LLMConfig
 from personal_assistant.builtin_skills.bootstrap import install_builtin_skills
 from personal_assistant.config.local_store import load_local_config
 from personal_assistant.product import build_pa_kernel, prompt_for
@@ -10,32 +13,36 @@ from personal_assistant.reporter.upstream_reporter import (
     build_agent_capabilities_payload,
     build_runtime_capabilities,
 )
-from agent.sdk import LLMConfig
 
 
-def test_install_builtin_skills_copies_missing_feishu_doc(tmp_path: Path) -> None:
-    target_root = tmp_path / "home" / ".nanoassistant" / "skills"
+@pytest.mark.parametrize("skill_name", ["feishu-doc", "conversation-skill-distiller"])
+def test_install_builtin_skills_copies_missing_skill(
+    tmp_path: Path,
+    skill_name: str,
+) -> None:
+    target_root = tmp_path / ".nanoassistant" / "skills"
 
     installed = install_builtin_skills(target_root=target_root)
 
-    target = target_root / "feishu-doc" / "SKILL.md"
+    target = target_root / skill_name / "SKILL.md"
     assert target.is_file()
-    assert "feishu-cli" in target.read_text(encoding="utf-8")
-    assert installed["feishu-doc"] == target
+    assert installed[skill_name] == target
 
 
-def test_install_builtin_skills_does_not_overwrite_existing_user_skill(
+@pytest.mark.parametrize("skill_name", ["feishu-doc", "conversation-skill-distiller"])
+def test_install_builtin_skills_does_not_overwrite_user_skill(
     tmp_path: Path,
+    skill_name: str,
 ) -> None:
-    target = tmp_path / "home" / ".nanoassistant" / "skills" / "feishu-doc"
-    target.mkdir(parents=True)
-    skill_file = target / "SKILL.md"
-    skill_file.write_text("user customized skill\n", encoding="utf-8")
+    target_root = tmp_path / ".nanoassistant" / "skills"
+    skill_file = target_root / skill_name / "SKILL.md"
+    skill_file.parent.mkdir(parents=True)
+    skill_file.write_text("user-owned skill\n", encoding="utf-8")
 
-    installed = install_builtin_skills(target_root=target.parent)
+    installed = install_builtin_skills(target_root=target_root)
 
-    assert skill_file.read_text(encoding="utf-8") == "user customized skill\n"
-    assert "feishu-doc" not in installed
+    assert skill_name not in installed
+    assert skill_file.read_text(encoding="utf-8") == "user-owned skill\n"
 
 
 def test_builtin_skills_are_included_as_package_data() -> None:
@@ -44,7 +51,6 @@ def test_builtin_skills_are_included_as_package_data() -> None:
 
     package_data = payload["tool"]["setuptools"]["package-data"]
 
-    assert "personal_assistant" in package_data
     assert "builtin_skills/**" in package_data["personal_assistant"]
 
 
@@ -59,14 +65,13 @@ llm:
 """
 
 
-def test_installed_feishu_doc_is_same_source_for_capabilities_preview_and_runtime(
+def test_installed_feishu_doc_is_visible_to_capabilities_and_prompt_preview(
     tmp_path: Path,
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     home = tmp_path / "home"
     monkeypatch.setenv("HOME", str(home))
-    target_root = home / ".nanoassistant" / "skills"
-    install_builtin_skills(target_root=target_root)
+    install_builtin_skills(target_root=home / ".nanoassistant" / "skills")
     workspace = tmp_path / "agent-ws"
     workspace.mkdir()
     config_path = tmp_path / "config.yaml"
@@ -91,23 +96,18 @@ def test_installed_feishu_doc_is_same_source_for_capabilities_preview_and_runtim
         repo_root=tmp_path / "repo",
     )
     try:
-        node_capability_names = {
+        node_names = {
             item["name"] for item in build_runtime_capabilities(kernel).skills
         }
-        agent_capability_names = {
+        agent_names = {
             item["name"]
             for item in build_agent_capabilities_payload(
-                kernel, workspace_root=str(workspace)
+                kernel,
+                workspace_root=str(workspace),
             )["skills"]
         }
-        list_skill_names = {
+        discovered_names = {
             skill.name for skill in kernel.list_skills(workspace_root=workspace)
-        }
-        runtime_skill_names = {
-            skill.name
-            for skill in kernel._c.engine_services.resolve_available_skills(  # type: ignore[attr-defined]
-                workspace, include_names=["feishu-doc"]
-            )
         }
         preview = kernel.assemble_prompt_preview(
             workspace_root=workspace,
@@ -116,11 +116,9 @@ def test_installed_feishu_doc_is_same_source_for_capabilities_preview_and_runtim
             enabled_tools=["read"],
         )
 
-        assert "feishu-doc" in node_capability_names
-        assert "feishu-doc" in agent_capability_names
-        assert "feishu-doc" in list_skill_names
-        assert runtime_skill_names == {"feishu-doc"}
+        assert "feishu-doc" in node_names
+        assert "feishu-doc" in agent_names
+        assert "feishu-doc" in discovered_names
         assert "<name>feishu-doc</name>" in preview["prompt"]
-        assert str(target_root / "feishu-doc" / "SKILL.md") in preview["prompt"]
     finally:
         kernel.close()

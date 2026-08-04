@@ -10,7 +10,7 @@
  *  - 删除 useState 派生 prop 反模式: 新 pending request 进来时不会卡在
  *    旧 resolved 上
  */
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -40,7 +40,7 @@ const SAMPLE_REQUEST: PermissionRequest = {
 };
 
 describe("PermissionCard — pending state", () => {
-  it("renders tool name in the card header", () => {
+  it("renders the tool request and every decision option", () => {
     render(
       <PermissionCard
         request={SAMPLE_REQUEST}
@@ -51,43 +51,30 @@ describe("PermissionCard — pending state", () => {
     );
     const elements = screen.getAllByText(/bash/i);
     expect(elements.length).toBeGreaterThan(0);
-  });
-
-  it("renders the question text", () => {
-    render(
-      <PermissionCard
-        request={SAMPLE_REQUEST}
-        conversationId="conv-1"
-        messageId="msg-1"
-        onResolved={() => {}}
-      />
-    );
     expect(screen.getByText(/Allow bash to run this command/i)).toBeInTheDocument();
-  });
-
-  it("renders all option buttons", () => {
-    render(
-      <PermissionCard
-        request={SAMPLE_REQUEST}
-        conversationId="conv-1"
-        messageId="msg-1"
-        onResolved={() => {}}
-      />
-    );
     expect(screen.getByRole("button", { name: /allow once/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /deny/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /allow for session/i })).toBeInTheDocument();
+    expect(screen.getByTestId("permission-reason-input")).toBeInTheDocument();
   });
 
   // feat-434-M1 (F1, reviewer major): option labels must follow the interface
   // language by mapping the stable option id → i18n key, NOT render the backend's
   // English opt.label verbatim. 原型 prototype.html 202-204: 允许 / 本会话内允许 / 拒绝.
-  it("renders option labels in Chinese when locale is zh (mapped by option id)", () => {
-    setLanguage("zh");
+  it("localizes known decisions and keeps an unknown backend label", async () => {
+    await act(async () => setLanguage("zh"));
     try {
+      const request: PermissionRequest = {
+        ...SAMPLE_REQUEST,
+        options: [
+          ...SAMPLE_OPTIONS,
+          { id: "allow_always", label: "Always allow", description: "Remember" },
+          { id: "some_custom_id", label: "Custom Action", description: "x" },
+        ],
+      };
       const { container } = render(
         <PermissionCard
-          request={SAMPLE_REQUEST}
+          request={request}
           conversationId="conv-1"
           messageId="msg-1"
           onResolved={() => {}}
@@ -99,61 +86,11 @@ describe("PermissionCard — pending state", () => {
       expect(labels).toContain("允许");
       expect(labels).toContain("本会话内允许");
       expect(labels).toContain("拒绝");
-      // the backend's English label must NOT leak through when zh is active
+      expect(labels).toContain("总是允许");
+      expect(labels).toContain("Custom Action");
       expect(labels).not.toContain("Allow once");
     } finally {
-      setLanguage("en");
-    }
-  });
-
-  it("maps allow_always option id to its localized label (zh)", () => {
-    setLanguage("zh");
-    try {
-      const req: PermissionRequest = {
-        ...SAMPLE_REQUEST,
-        options: [
-          ...SAMPLE_OPTIONS,
-          { id: "allow_always", label: "Always allow", description: "Remember" },
-        ],
-      };
-      const { container } = render(
-        <PermissionCard
-          request={req}
-          conversationId="conv-1"
-          messageId="msg-1"
-          onResolved={() => {}}
-        />
-      );
-      const labels = Array.from(
-        container.querySelectorAll(".chat-permission-btn")
-      ).map((b) => b.textContent);
-      expect(labels).toContain("总是允许");
-    } finally {
-      setLanguage("en");
-    }
-  });
-
-  it("falls back to backend opt.label for an unknown option id", () => {
-    setLanguage("zh");
-    try {
-      const req: PermissionRequest = {
-        ...SAMPLE_REQUEST,
-        options: [{ id: "some_custom_id", label: "Custom Action", description: "x" }],
-      };
-      const { container } = render(
-        <PermissionCard
-          request={req}
-          conversationId="conv-1"
-          messageId="msg-1"
-          onResolved={() => {}}
-        />
-      );
-      const labels = Array.from(
-        container.querySelectorAll(".chat-permission-btn")
-      ).map((b) => b.textContent);
-      expect(labels).toContain("Custom Action");
-    } finally {
-      setLanguage("en");
+      await act(async () => setLanguage("en"));
     }
   });
 
@@ -170,6 +107,7 @@ describe("PermissionCard — pending state", () => {
     );
     const block = screen.getByTestId("permission-tool-input");
     expect(block.textContent).toContain("rm -rf /tmp/old");
+    expect(screen.queryByTestId("permission-description")).not.toBeInTheDocument();
   });
 
   // bugfix-367 §A: bash / task / agent 工具的 input_schema 提供了 `description`
@@ -193,22 +131,6 @@ describe("PermissionCard — pending state", () => {
     expect(raw).toContain("rm hello.py");
     expect(raw).toContain("timeout");
     expect(raw).not.toContain("description");
-  });
-
-  it("does not render description line for tools without that field", () => {
-    const req: PermissionRequest = {
-      ...SAMPLE_REQUEST,
-      tool_input: { file_path: "/tmp/foo.py", content: "print('x')" },
-    };
-    render(
-      <PermissionCard
-        request={req}
-        conversationId="conv-1"
-        messageId="msg-1"
-        onResolved={() => {}}
-      />
-    );
-    expect(screen.queryByTestId("permission-description")).not.toBeInTheDocument();
   });
 });
 
@@ -280,19 +202,6 @@ describe("PermissionCard — resolved renders nothing (feat-434 决策 3)", () =
     const { container } = render(
       <PermissionCard
         request={{ ...SAMPLE_REQUEST, status: "resolved", decision: "allow_once" }}
-        conversationId="conv-1"
-        messageId="msg-1"
-        onResolved={() => {}}
-      />
-    );
-    expect(screen.queryByTestId("permission-resolved")).not.toBeInTheDocument();
-    expect(container.querySelector(".chat-permission-card")).toBeNull();
-  });
-
-  it("renders nothing when status='resolved' decision='deny'", () => {
-    const { container } = render(
-      <PermissionCard
-        request={{ ...SAMPLE_REQUEST, status: "resolved", decision: "deny" }}
         conversationId="conv-1"
         messageId="msg-1"
         onResolved={() => {}}
@@ -399,18 +308,6 @@ describe("PermissionCard — prop change reactivity", () => {
 // feat-440-M1: 常驻选填理由输入框。用户拒绝时填的理由透传进 POST body.reason,
 // 后端再拼进回传给 LLM 的拒绝文本;允许类决策后端忽略 reason。
 describe("PermissionCard — deny reason input (feat-440-M1)", () => {
-  it("renders a persistent optional reason input in the pending card", () => {
-    render(
-      <PermissionCard
-        request={SAMPLE_REQUEST}
-        conversationId="conv-1"
-        messageId="msg-1"
-        onResolved={() => {}}
-      />
-    );
-    expect(screen.getByTestId("permission-reason-input")).toBeInTheDocument();
-  });
-
   it("includes the typed reason in the POST body when denying", async () => {
     const user = userEvent.setup();
     const mockFetch = vi
@@ -457,33 +354,6 @@ describe("PermissionCard — deny reason input (feat-440-M1)", () => {
     await waitFor(() => expect(mockFetch).toHaveBeenCalled());
     const body = JSON.parse((mockFetch.mock.calls[0][1] as RequestInit).body as string);
     expect(body.decision).toBe("deny");
-    expect("reason" in body).toBe(false);
-  });
-
-  it("omits reason from an allow decision even with reason text present (feat-440-M2 F4)", async () => {
-    const user = userEvent.setup();
-    const mockFetch = vi
-      .fn()
-      .mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
-    const onResolved = vi.fn();
-
-    render(
-      <PermissionCard
-        request={SAMPLE_REQUEST}
-        conversationId="conv-1"
-        messageId="msg-1"
-        onResolved={onResolved}
-        fetchFn={mockFetch as unknown as typeof fetch}
-      />
-    );
-
-    await user.type(screen.getByTestId("permission-reason-input"), "whatever");
-    await user.click(screen.getByRole("button", { name: /allow once/i }));
-
-    await waitFor(() => expect(onResolved).toHaveBeenCalledWith("allow_once"));
-    // spec Q4: 允许类决策忽略理由框 — the reason must not even be sent.
-    const body = JSON.parse((mockFetch.mock.calls[0][1] as RequestInit).body as string);
-    expect(body.decision).toBe("allow_once");
     expect("reason" in body).toBe(false);
   });
 

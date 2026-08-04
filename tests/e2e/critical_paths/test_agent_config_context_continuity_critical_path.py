@@ -18,8 +18,8 @@ from __future__ import annotations
 import json
 import os
 import secrets
-import shutil
 import subprocess
+import sys
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -30,7 +30,7 @@ import pytest
 import yaml
 
 from ._im_client import IMClient
-from .conftest import E2EStack, _dump_logs, _parse_ports_env
+from .conftest import E2EStack, _dump_logs, _parse_ports_env, _selected_llm_model
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _E2E_UP = _REPO_ROOT / "scripts" / "e2e-up.sh"
@@ -180,7 +180,7 @@ def stub_llm_stack(tmp_path: Path) -> Iterator[StubLLMStack]:
         env={
             **os.environ,
             # e2e-up 里的 python 回退路径需要 PyYAML;确保用到仓库 venv。
-            "PATH": f"{_REPO_ROOT / '.venv' / 'bin'}:{os.environ.get('PATH', '')}",
+            "PATH": f"{Path(sys.executable).parent}:{os.environ.get('PATH', '')}",
         },
     )
     if up.returncode != 0:
@@ -197,6 +197,7 @@ def stub_llm_stack(tmp_path: Path) -> Iterator[StubLLMStack]:
         im_port=values["IM_PORT"],
         node_id=values.get("NODE_ID", ""),
         wt_dir=str(wt_dir),
+        llm_model=_selected_llm_model(wt_dir / ".gateway-config.yaml"),
         record_path=str(record_path),
         stub_port=stub_port,
     )
@@ -214,12 +215,6 @@ def stub_llm_stack(tmp_path: Path) -> Iterator[StubLLMStack]:
             stub_proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             stub_proc.kill()
-        home_ws_root = Path.home() / "nano-assistant" / "workspace"
-        for agent_id in IMClient.created_agent_ids:
-            ws_path = home_ws_root / agent_id
-            if ws_path.parent == home_ws_root and ws_path.is_dir():
-                shutil.rmtree(ws_path, ignore_errors=True)
-        IMClient.created_agent_ids.clear()
 
 
 @pytest.fixture

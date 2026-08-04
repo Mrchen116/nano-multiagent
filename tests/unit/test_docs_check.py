@@ -210,8 +210,7 @@ def test_e2e_catalog_accepts_collectable_full_and_shorthand_node_ids(
         tmp_path,
         "docs/development/e2e-critical-paths.md",
         "# Catalog\n\n"
-        "> v1 必保活当前为 2 条。\n\n"
-        "## v1 必保活路径\n\n"
+        "## Journeys guarded in CI\n\n"
         "| # | 用户旅程 | 守护测试 | 归属子系统 | 引入 unit |\n"
         "|---|---|---|---|---|\n"
         "| 1 | first | `test_first.py::test_one` | gateway | feat-1 |\n"
@@ -232,15 +231,14 @@ def test_e2e_catalog_accepts_collectable_full_and_shorthand_node_ids(
     assert problems == []
 
 
-def test_e2e_catalog_rejects_wrong_count_and_uncollectable_test(
+def test_e2e_catalog_rejects_uncollectable_test(
     tmp_path: Path,
 ) -> None:
     catalog = _write(
         tmp_path,
         "docs/development/e2e-critical-paths.md",
         "# Catalog\n\n"
-        "> v1 必保活当前为 2 条。\n\n"
-        "## v1 必保活路径\n\n"
+        "## Current critical paths\n\n"
         "| # | 用户旅程 | 守护测试 | 归属子系统 | 引入 unit |\n"
         "|---|---|---|---|---|\n"
         "| 1 | journey | `test_missing.py::test_missing` | gateway | feat-1 |\n",
@@ -253,7 +251,7 @@ def test_e2e_catalog_rejects_wrong_count_and_uncollectable_test(
     )
     codes = {problem.code for problem in problems}
 
-    assert codes == {"E2E_CATALOG_COUNT", "E2E_CATALOG_TEST"}
+    assert codes == {"E2E_CATALOG_TEST"}
     assert "uncollectable test" in next(
         problem.message for problem in problems if problem.code == "E2E_CATALOG_TEST"
     )
@@ -264,7 +262,7 @@ def test_e2e_catalog_rejects_duplicate_id_and_empty_field(tmp_path: Path) -> Non
         tmp_path,
         "docs/development/e2e-critical-paths.md",
         "# Catalog\n\n"
-        "## v1 必保活路径\n\n"
+        "## Guarded journeys\n\n"
         "| # | 用户旅程 | 守护测试 | 归属子系统 | 引入 unit |\n"
         "|---|---|---|---|---|\n"
         "| 1 | first | `test_first.py::test_one` | gateway | feat-1 |\n"

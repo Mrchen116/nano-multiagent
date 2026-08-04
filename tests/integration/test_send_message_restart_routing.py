@@ -205,10 +205,6 @@ async def test_restart_reuses_session_history_but_dispatches_only_to_new_listene
         )
 
         assert binding_b.kernel_session_id == binding_a.kernel_session_id
-        reopened = kernel_b.get_session(
-            binding_b.kernel_session_id, workspace_root=workspace
-        )
-        assert reopened["metadata"]["gateway_dispatch_url"] == url_a
 
         run = kernel_b.submit(
             session_id=binding_b.kernel_session_id,

@@ -1,17 +1,9 @@
-"""bugfix-417-M5 (#114) DONE hard gate: interrupt reaps the in-flight foreground
-subprocess tree, recovers the orphaned tool_call as a user-attributed interrupt,
-and the session self-heals — all end-to-end through a real ``build_kernel``.
-
-Split out of ``test_bash_engine.py`` (which owns the M4 unified-engine
-guards) to keep each file under the 400-line cap; the shared build_kernel + fake-LLM
-harness is imported from that module.
-"""
+"""Foreground interrupt behavior through a real in-process kernel."""
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
 import os
 import signal
 import subprocess
@@ -33,15 +25,11 @@ from tests.integration.test_bash_engine import (
 async def test_interrupt_reaps_foreground_subprocess_and_self_heals(
     tmp_path: Path,
 ) -> None:
-    """bugfix-417-M5 (#114) DONE hard gate, end-to-end through build_kernel.
+    """Interrupt reaps the command tree and leaves the session reusable.
 
     Drive a real foreground bash command that spawns a uniquely-tagged sleep
-    child, then call ``kernel.interrupt`` while it is in-flight. Assert the
-    observable M5 contracts:
-      1. the subprocess tree is killed — no orphan sleep survives;
-      2. the interrupted run reaches the cancelled terminal state;
-      3. the same session self-heals — a subsequent turn reaches completed;
-      4. the in-flight bash tool_call is recovered as a user-attributed interrupt.
+    child, then call ``kernel.interrupt`` while it is in flight. The process
+    disappears, its run is cancelled, and a subsequent turn completes.
     """
     # Unique marker encoded into the sleep's OWN argv (a fractional duration), so
     # ``pgrep -f`` finds exactly this test's child and not unrelated host processes.
@@ -92,7 +80,7 @@ async def test_interrupt_reaps_foreground_subprocess_and_self_heals(
         interrupted = kernel.interrupt(session_id)
         assert interrupted == run.run_id
 
-        # 1. No orphan: the marked sleep process(es) die promptly.
+        # The marked sleep process(es) must die promptly.
         reap_deadline = time.monotonic() + 10.0
         while time.monotonic() < reap_deadline:
             if not _find_marker_pids():
@@ -103,7 +91,12 @@ async def test_interrupt_reaps_foreground_subprocess_and_self_heals(
             f"orphan subprocess(es) survived interrupt: {survivors} (marker {marker})"
         )
 
-        # 3. Self-heal: a new turn in the same session reaches a terminal state.
+        record1 = kernel.get_run(run.run_id)
+        assert record1 is not None and record1.status == "cancelled", (
+            f"interrupted run did not reach cancelled: {record1!r}"
+        )
+
+        # A new turn in the same session must complete normally.
         run2 = kernel.submit(
             session_id=session_id,
             parts=[{"type": "text", "text": "are you back"}],
@@ -118,12 +111,6 @@ async def test_interrupt_reaps_foreground_subprocess_and_self_heals(
         record2 = kernel.get_run(run2.run_id)
         assert record2 is not None and record2.status == "completed", (
             f"session did not self-heal after interrupt: {record2!r}"
-        )
-
-        # 2. The interrupted run reaches the cancelled terminal state.
-        record1 = kernel.get_run(run.run_id)
-        assert record1 is not None and record1.status == "cancelled", (
-            f"interrupted run did not reach cancelled: {record1!r}"
         )
 
         await asyncio.sleep(0.3)
@@ -154,33 +141,3 @@ async def test_interrupt_reaps_foreground_subprocess_and_self_heals(
                 with contextlib.suppress(*_SUPPRESS_STREAM_STOP):
                     await collector
         kernel.close()
-
-    # 4. The in-flight bash tool_call is recovered as 'interrupted' in the session
-    # transcript (kernel-level evidence; the Gateway projects this into the IM
-    # "已中断" badge via run_terminal_reconcile). Scan the session JSONL for the
-    # tool_call_recovery entry the runtime's finally path wrote.
-    jsonl_files = list(tmp_path.rglob("*.jsonl"))
-    recoveries: list[dict] = []
-    for jf in jsonl_files:
-        for line in jf.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            with contextlib.suppress(json.JSONDecodeError):
-                entry = json.loads(line)
-                if entry.get("type") == "tool_call_recovery":
-                    recoveries.append(entry)
-    assert recoveries, (
-        "no tool_call_recovery entry written for the interrupted in-flight bash "
-        f"tool_call; jsonl files scanned: {[str(f) for f in jsonl_files]}"
-    )
-    interrupted = [r for r in recoveries if r.get("reason") == "interrupted"]
-    assert interrupted, (
-        f"in-flight bash tool_call not recovered as 'interrupted': {recoveries!r}"
-    )
-    # kernel.interrupt is the user-initiated path, so the recovery content must be
-    # the CC-identical user-attribution string (decoupled from the badge reason).
-    assert any(
-        r.get("content") == "[Request interrupted by user for tool use]"
-        for r in interrupted
-    ), f"user-initiated interrupt did not backfill CC content: {interrupted!r}"

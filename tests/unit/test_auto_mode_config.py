@@ -10,53 +10,33 @@ Covers:
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
-import pytest
 import yaml
 
-from agent.platform.config.auto_mode import AutoModeConfig, load_auto_mode_config
+from agent.platform.config.auto_mode import (
+    AutoModeConfig,
+    WebFetchConfig,
+    load_auto_mode_config,
+)
 
 
 class TestAutoModeConfigDefaults:
     """Default values without any config files."""
 
-    def test_default_enabled(self):
-        cfg = AutoModeConfig()
-        assert cfg.enabled is True
-
-    def test_default_skip_permissions_false(self):
-        cfg = AutoModeConfig()
-        assert cfg.dangerously_skip_permissions is False
-
-    def test_default_always_allow_tools_empty(self):
-        cfg = AutoModeConfig()
-        assert cfg.always_allow_tools == ()
-
-    def test_default_deny_limit(self):
-        cfg = AutoModeConfig()
-        assert cfg.deny_limit == 3
-
-    def test_default_ask_timeout_sec(self):
-        cfg = AutoModeConfig()
-        assert cfg.ask_timeout_sec == 600
-
-    def test_default_unattended_fallback(self):
-        cfg = AutoModeConfig()
-        assert cfg.unattended_fallback == "deny"
-
-    def test_default_allow_rules_empty(self):
-        cfg = AutoModeConfig()
-        assert cfg.allow == ()
-
-    def test_default_soft_deny_empty(self):
-        cfg = AutoModeConfig()
-        assert cfg.soft_deny == ()
-
-    def test_default_environment_empty(self):
-        cfg = AutoModeConfig()
-        assert cfg.environment == ()
+    def test_defaults_are_safe_and_require_user_decisions(self):
+        assert AutoModeConfig() == AutoModeConfig(
+            enabled=True,
+            dangerously_skip_permissions=False,
+            always_allow_tools=(),
+            deny_limit=3,
+            ask_timeout_sec=600,
+            unattended_fallback="deny",
+            allow=(),
+            soft_deny=(),
+            environment=(),
+            web_fetch=WebFetchConfig(),
+        )
 
 
 class TestLoadAutoModeConfig:
