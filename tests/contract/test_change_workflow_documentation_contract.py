@@ -71,6 +71,7 @@ def test_gate_two_reuses_one_reviewer_until_clean_approval() -> None:
 def test_selected_validation_gate_matrix_does_not_drift() -> None:
     workflow = _read("docs/development/change-workflow.md")
     orchestrator = _read(".claude/skills/change-orchestrator/SKILL.md")
+    simple_orchestrator = _read(".claude/skills/change-orchestrator-simple/SKILL.md")
     workflow_rows = _table_rows(
         workflow,
         (
@@ -97,3 +98,16 @@ def test_selected_validation_gate_matrix_does_not_drift() -> None:
             for value in (reviewer, verifier, code_review)
         )
         assert orchestrator_rows[orchestrator_name] == normalized
+    assert "不派产品 reviewer" in simple_orchestrator
+    assert "Bugfix lite：只执行 `$change-code-review`" in simple_orchestrator
+    assert "不派 verifier 或产品 reviewer" in simple_orchestrator
+
+
+def test_simplified_flow_supports_full_and_bugfix_lite() -> None:
+    workflow = _read("docs/development/change-workflow.md")
+    simple_orchestrator = _read(".claude/skills/change-orchestrator-simple/SKILL.md")
+
+    assert "Bugfix lite 在两种方式下都保持唯一的 `M1-fix`" in workflow
+    assert "Full 和 Bugfix lite 的门禁组合同时适用" in workflow
+    assert "Full 或 Bugfix lite change unit" in simple_orchestrator
+    assert "不因此强制创建 `tasks.md` 或 `progress.md`" in simple_orchestrator
