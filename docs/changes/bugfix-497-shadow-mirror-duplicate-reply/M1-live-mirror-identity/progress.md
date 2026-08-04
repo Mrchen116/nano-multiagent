@@ -24,3 +24,14 @@
 
 New production writes no longer create legacy plain Agent outputs. Upgrade-era
 legacy pending rows remain readable and recover through the existing protocol.
+
+## Real Feishu reviewer acceptance
+
+The isolated real-channel online run `BUGFIX497-ONLINE-20260804-1720` created one
+Agent row that remained one rich bubble after browser reload (1 thinking item, 2,637
+total tokens, 1,011 ms). A later real structured-tool steer run closed M1-C1: its first
+Agent bubble retained one completed `bash` tool and thinking item with `token_usage =
+null`; the in-run Feishu follower opened the terminal bubble with the cumulative 4,453
+token usage. Both rows appeared in Web IM without a plain duplicate. The durable message
+identity and the exact Feishu/IM history cross-checks are recorded in
+[`M2-rich-shadow-recovery/evidence/real-feishu-acceptance-20260804.md`](../M2-rich-shadow-recovery/evidence/real-feishu-acceptance-20260804.md).

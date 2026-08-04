@@ -49,7 +49,29 @@
 ## Remaining acceptance evidence
 
 The exact online, fully-offline plus Gateway restart, and mid-run IM disconnect journeys
-still require the design runbook's exclusive real Feishu listener window. The local
-machine has no isolated Feishu channel in its E2E config, while its previous credentials
-were moved to the production Mac mini; this progress file does not treat API or mock
-coverage as a substitute for that product journey.
+were run in an isolated real Feishu P2P listener window on 2026-08-04. All three
+reconciled one rich Agent bubble with its terminal thinking, token and elapsed fields;
+the mid-run case disconnected IM four seconds into a 26,031 ms run and recovered without
+a refresh or plain duplicate. The nonce, Feishu message ids, IM/history cross-check and
+cleanup boundary are in
+[`evidence/real-feishu-acceptance-20260804.md`](evidence/real-feishu-acceptance-20260804.md).
+
+The isolated agent initially had an explicit empty tool allowlist, so those first actual
+channel rows contained no structured tool event. The final isolated test profile enabled only
+the isolated `read` and `bash` tools: a real `bash` tool then appeared in the process
+timeline, with one intermediate rich bubble retaining `token_usage = null` and the
+in-run follower's final bubble holding the cumulative 4,453-token total. The same
+runtime-only tool profile also completed the full IM-offline journey: Feishu returned the
+`BUGFIX497-OFFLINE-TOOL-RESTART-20260804-1811` terminal tool result before IM recovery;
+Gateway restarted while IM remained offline; the restored same-port/database IM reconciled
+one terminal row with ordered thinking plus completed `bash` tool, 3,504 total tokens,
+15,026 ms and kernel id `msg_18d0de01d4dbee81`. Web IM opened directly to that terminal
+state, and reload retained the one bubble.
+
+For M2-C2, the open page displayed the partial Agent row
+`098717ccdade45a68f1b90cb069ebfc2` before IM was stopped. Gateway stayed online and
+Feishu received the terminal reply while IM was still down. Restoring IM on the same port
+and SQLite database automatically reconciled that exact row to `completed` with 1
+thinking item, 16,126 total tokens, 27,037 ms and kernel id `msg_daba1196ad809592`.
+The open page converged without reload and a later reload retained one bubble. The full
+real-channel evidence is linked above.

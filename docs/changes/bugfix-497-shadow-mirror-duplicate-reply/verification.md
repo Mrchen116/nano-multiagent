@@ -191,3 +191,73 @@ None.
 ### SUGGESTION（可以修）
 
 None.
+
+# Round 3
+
+> Validation snapshot: `f1f44a2696460d7bcef85b605353de8c870b8467 → pending documentation commit`
+
+## Summary
+
+Mode: real-channel acceptance review
+
+Focus issue: `V-C1`
+
+The initial real-channel evidence covers an online run, a fully IM-offline run followed
+by a Gateway restart, and an IM disconnect during a 26,031 ms run. Each history/API and
+browser-reload check found exactly one terminal rich Agent bubble, not a new plain reply.
+The detailed nonce, message identities, observed rich fields and cleanup boundary are in
+[`M2-rich-shadow-recovery/evidence/real-feishu-acceptance-20260804.md`](M2-rich-shadow-recovery/evidence/real-feishu-acceptance-20260804.md).
+
+The test agent's explicit empty tool allowlist meant this listener window could not
+generate a structured tool event. The real-channel evidence does not claim otherwise;
+ordered rich tool recovery remains covered by the permanent automated regression suite
+recorded in `M2-rich-shadow-recovery/progress.md`. Independent review verdict: **fail**.
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+- **V-C1 remains open.** The required real Feishu run still lacks a structured-tool
+  multi-bubble journey, so it cannot observe intermediate `token_usage = null`, final
+  cumulative usage, ordered tool content or `kernel_message_id` through the actual
+  channel. The mid-run case also must first record an already-visible partial Agent row
+  and its message id, then prove that same id automatically reaches terminal state after
+  IM restoration.
+
+# Round 4
+
+> Validation snapshot: `f1f44a2696460d7bcef85b605353de8c870b8467 → real Feishu closure evidence`
+
+## Summary
+
+Mode: real-channel closure
+
+Focus issue: `V-C1`
+
+**Verdict: pass.** The new isolated real Feishu runs close the product exits:
+
+- A structured `bash` tool appeared in the live Web IM process timeline. A real Feishu
+  follower split the run into an intermediate Agent bubble with completed tool/thinking/
+  elapsed and `token_usage = null`, then a terminal bubble with 4,453 cumulative tokens
+  and its kernel id. Neither bubble had a plain duplicate.
+- A page-visible partial Agent row was recorded as
+  `098717ccdade45a68f1b90cb069ebfc2` before IM was stopped. Gateway stayed online and
+  Feishu received the complete response while IM was offline. Restoring IM on the same
+  SQLite database and port automatically reconciled that same row in the already-open
+  page to rich terminal content (thinking, 16,126 total tokens, 27,037 ms and kernel id);
+  a fresh login/page reload still showed one bubble.
+- The full IM-offline journey was rerun with the real `bash` tool enabled. Feishu received
+  its terminal tool result before IM recovery; Gateway restarted while IM was still down;
+  restoring the same IM database and port reconciled one completed rich Agent row with
+  ordered thinking, `bash` at sequence 1, 3,504 total tokens, 15,026 ms and kernel id
+  `msg_18d0de01d4dbee81`. The Web IM page showed that terminal snapshot without a running
+  replay and still showed the single bubble after reload.
+
+Exact nonces, message ids, API cross-checks and cleanup boundary are in
+[`M2-rich-shadow-recovery/evidence/real-feishu-acceptance-20260804.md`](M2-rich-shadow-recovery/evidence/real-feishu-acceptance-20260804.md).
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+None.
