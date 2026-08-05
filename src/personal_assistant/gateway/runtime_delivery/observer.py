@@ -486,9 +486,9 @@ def build_kernel_event_observer(
             if event_name == "run_reset_discard":
 
                 async def _discard_reset_bubble() -> None:
-                    if ctx.get("shadow_saga_id") and shadow_bubble_record is not None:
+                    if ctx.shadow_saga_id and shadow_bubble_record is not None:
                         _record_shadow(rid=run_id, ctx=ctx, kind="discard")
-                    message_id = ctx.get("message_id") or ""
+                    message_id = ctx.message_id
                     if manager is not None and manager.connected and message_id:
                         await _send(
                             manager,
@@ -502,7 +502,7 @@ def build_kernel_event_observer(
                         )
                     _finish_shadow_live_run(manager, rid=run_id)
 
-                return _discard_reset_bubble()
+                return _PreparedEvent(handled=True, result=_discard_reset_bubble())
             if run_context_store.is_quiescing(run_id):
 
                 async def _defer_until_reset_decides() -> None:
@@ -512,9 +512,9 @@ def build_kernel_event_observer(
                     if asyncio.iscoroutine(deferred):
                         await deferred
 
-                return _defer_until_reset_decides()
+                return _PreparedEvent(handled=True, result=_defer_until_reset_decides())
             if run_context_store.is_suppressed(run_id):
-                return None
+                return _PreparedEvent(handled=True, result=None)
         if event_name in {"turn_end", "run_terminal_reconcile"}:
             _clear_run_visible_reasoning(run_id)
         conversation_id = ctx.conversation_id

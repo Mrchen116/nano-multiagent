@@ -47,3 +47,7 @@ passed
 ## 验收边界
 
 本次验证覆盖可复现的 unit、integration、contract 和 Gateway 生命周期 seam，不替代真实飞书账号、provider 回调与内部 IM 部署环境中的端到端验收。特别是 provider 已接收发送后进程退出的 at-least-once 重投，以及飞书群真实 mention 的呈现，应在具备有效飞书凭据和 IM 服务的环境中按 `design.md` 验收计划执行。
+
+## Rebase revalidation
+
+`unit/feat-501` 已在 `9c50b8a5f` 上重放；唯一的冲突收束是把 `run_reset_discard`、quiesce 和 suppress 分支适配为重构后 observer 的 `_PreparedEvent` typed contract。独立 verifier 复核了 relay lifecycle、visibility lease、coordinator admission/terminal、task tracker、shadow sync 和 Gateway lifecycle 相邻回归：`101 passed`；受影响 Python 文件 Ruff 与 `git diff --check` 均通过。该复核对应行为提交 `13ba17f42`，未发现需要实现修复的问题。
