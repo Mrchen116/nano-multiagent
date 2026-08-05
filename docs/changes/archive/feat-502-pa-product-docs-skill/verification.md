@@ -2,6 +2,8 @@
 
 > Validation snapshot: `e6f8b617a7beb1dc68e1a116f368eaf05c764606 → ea59765053a8bc8fb253f5b3f1ae3dc6d73cda0b`
 
+> Post-review note: 本报告保留最初单文件实现及其 corrected-delta 的独立 verification 记录。用户随后撤销“无 `read` 可达”要求；最终资源形态与有效证据以 `Post-review revision verification` 和文末 `Final post-review delta reconciliation` 为准，其他关于“单文件 / 无 read / 50,000 字符”的结论不再描述 PR 当前树。
+
 ## Summary
 
 - Mode: `full`
@@ -80,6 +82,41 @@ N/A. 本 unit 没有前端原型或 reference artifact；单文件手册本身�
 ### SUGGESTION（可以修）
 
 - None.
+
+## Post-review revision verification
+
+### Scope and verdict
+
+- Verification mode: changed-scope full verification for the product-manual resource shape.
+- Verdict: **pass**；0 CRITICAL / 0 WARNING / 0 SUGGESTION。
+- Changed atoms: `nanoassistant-docs` 的入口/正文分工、`read` 工具前提、Gateway 产品问答 delta、design D3/D4/D5、milestone 测试与 reviewer journey。
+- Retained atoms: 内置目录托管与原子替换、共享 root 锁、失败恢复/继续、Lark bundle、IM default-on/显式选择和远端/现场证据边界。
+
+### Requirement and design alignment
+
+| 项目 | 最终实现 | 验证 |
+|---|---|---|
+| 产品问题按需读取 | `SKILL.md` 仅保留触发后的回答规则、来源边界和七主题路由；入口明确禁止默认加载全部资料 | 真实模型先 `skill_view`，再只 `read(references/getting-started.md)`，没有读取其他专题 |
+| 随安装版本离线回答 | 七份 references 全部位于随包 `nanoassistant-docs/` 内，不依赖源码仓 current docs 或远端服务 | 安装测试逐份比对包资源与目标 root；真实模型不提供网络工具仍完成回答 |
+| 工具前提 | 正常 PA Agent 默认启用 `skill_view` 与 `read`；用户显式关闭 `read` 后不保证详细手册可读，真白名单契约不变 | 配置与 prompt preview 测试断言默认 Agent 同时具备两工具；Gateway canonical/delta GIVEN 已同步 |
+| OpenAI 式渐进加载 | metadata 负责触发，精简入口负责来源和路由，一层 references 负责互不重复的专题正文 | 官方 `quick_validate.py` 通过；入口 38 行 / 3,510 bytes，全部七份 reference 被直接链接且各少于 100 行 |
+| 内置资源完整刷新 | 安装器仍以整个 skill 目录为替换单元，因此 references 随版本一起覆盖并清除旧文件 | `nanoassistant-docs` 加入 managed-directory replacement 参数集；安装后逐份内容一致 |
+| D1/D2/D5 未扩张 | 没有新增 Kernel API、helper、MCP、scripts、assets、PA UI metadata 或前端/API seam | unit diff 无 `src/agent` / `src/IM` 生产改动；contract 136 passed |
+
+### Validation evidence
+
+- Skill validator: PASS，`Skill is valid!`。
+- Focused bootstrap: 15 passed。
+- Capability / `skill_view` / `read` / default-tool focused set: 72 passed，2 个第三方 warning。
+- PA unit suite: 838 passed，2 个第三方 warning。
+- Contract suite: 136 passed。
+- docs-check: 203 maintained Markdown sources / 66 required routes。
+- Ruff check / Ruff format-check / `git diff --check`: PASS。
+- Real-model forward test: terminal `completed`; calls were exactly `skill_view(name=nanoassistant-docs)` then `read(.../references/getting-started.md)`; answer correctly stated IM → Gateway → bind/chat and that `Gateway started` is not readiness evidence.
+
+### Historical gate invalidation
+
+Round 1 的最小工具问答证据依赖旧的单文件资源，已被本节真实模型轨迹替代。Round 1 的 IM 默认选择/关闭、普通任务不触发、范围边界、全部内置资源刷新、非内置保留和 profile 不改写证据不依赖正文存放位置；安装器本来就以完整目录为替换单元，因此新增 references 没有使这些 gate 失效。
 
 ## Corrected Delta Reconciliation
 
@@ -280,3 +317,13 @@ All checks passed. Ready for PR.
 ### SUGGESTION（可以修）
 
 - None.
+
+## Final post-review delta reconciliation
+
+| Delta item | Final implementation and evidence | Outcome |
+|---|---|---|
+| Gateway ADDED `PA 产品说明书按需回答产品问题` | `SKILL.md` 提供精确触发、来源边界和七主题路由；`references/*.md` 覆盖要求中的全部产品面。场景 GIVEN 已同步为产品 skill + `skill_view` + `read`；真实模型完成入口到单一专题的渐进读取 | aligned |
+| Gateway MODIFIED `PA 内置 skill 启动自举` | installer 仍完整替换每个包内目录；`nanoassistant-docs` 的七份 references 作为同目录资源随包复制、升级覆盖和旧文件清理。原事务/锁/失败恢复测试继续通过，产品手册也加入 managed replacement 测试 | aligned |
+| IM ADDED `PA 产品说明书 skill 可默认启用和关闭` | skill 名、frontmatter、global-root default-on 和显式 profile 语义未变；资源拆分不改变 capability/UI/API | aligned |
+
+最终 delta 与 canonical Gateway/IM specs 一致，没有新增 Kernel 或 CLI delta，也没有遗漏新的用户可观察行为。

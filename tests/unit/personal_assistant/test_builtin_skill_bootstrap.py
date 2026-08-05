@@ -26,6 +26,15 @@ from personal_assistant.reporter.upstream_reporter import (
 
 
 _PRODUCT_DOCS_SKILL = "nanoassistant-docs"
+_PRODUCT_DOCS_REFERENCES = {
+    "automation.md",
+    "gateway-and-channels.md",
+    "getting-started.md",
+    "overview.md",
+    "skills-tools-memory.md",
+    "troubleshooting.md",
+    "web-im-and-agents.md",
+}
 
 
 def _install_builtin_skills_process(
@@ -75,7 +84,10 @@ def test_install_builtin_skills_copies_missing_skill(
     assert installed[skill_name] == target
 
 
-@pytest.mark.parametrize("skill_name", ["lark-doc", "conversation-skill-distiller"])
+@pytest.mark.parametrize(
+    "skill_name",
+    [_PRODUCT_DOCS_SKILL, "lark-doc", "conversation-skill-distiller"],
+)
 def test_install_builtin_skills_replaces_managed_skill_directory(
     tmp_path: Path,
     skill_name: str,
@@ -298,7 +310,7 @@ def test_install_builtin_skills_uses_real_cross_process_root_lock(
     assert second.exitcode == 0
     assert second_entered_switch.is_set()
     assert [outcomes.get(timeout=5)[0] for _ in range(2)] == ["ok", "ok"]
-    assert "# Nano Personal Assistant 产品手册" in stale_manual.read_text(
+    assert "# Nano Personal Assistant 产品说明书" in stale_manual.read_text(
         encoding="utf-8"
     )
 
@@ -418,9 +430,10 @@ def test_installed_builtin_skills_are_visible_to_capabilities_and_skill_view(
             workspace_root=workspace,
             skill_ids=[_PRODUCT_DOCS_SKILL],
             prompt=prompt_for(config.agents[0]),
-            enabled_tools=["skill_view"],
+            enabled_tools=["skill_view", "read"],
         )
 
+        assert {"skill_view", "read"} <= set(config.agents[0].tool_allowlist)
         assert "lark-doc" in node_skills
         assert _PRODUCT_DOCS_SKILL in node_skills
         assert node_skills[_PRODUCT_DOCS_SKILL]["default_on"] is True
@@ -432,7 +445,8 @@ def test_installed_builtin_skills_are_visible_to_capabilities_and_skill_view(
         kernel.close()
 
     skill_root = home / ".nanoassistant" / "skills"
-    manual_path = skill_root / _PRODUCT_DOCS_SKILL / "SKILL.md"
+    manual_root = skill_root / _PRODUCT_DOCS_SKILL
+    manual_path = manual_root / "SKILL.md"
     manual = manual_path.read_text(encoding="utf-8")
     tool = SkillViewTool(
         skill_root=skill_root,
@@ -449,7 +463,48 @@ def test_installed_builtin_skills_are_visible_to_capabilities_and_skill_view(
 
     assert result["success"] is True
     assert result["content"] == manual
-    assert "# Nano Personal Assistant 产品手册" in manual
-    assert "## Heartbeat 与 Cron" in manual
-    assert "## 故障排查" in manual
+    assert "# Nano Personal Assistant 产品说明书" in manual
+    assert "## 主题路由" in manual
+    assert "不要默认加载全部资料" in manual
+    assert "# Heartbeat 与 Cron" not in manual
+    assert "# 故障排查" not in manual
+    assert len(manual) < 5_000
     assert len(tool.serialize_result(result)) < tool.max_result_size_chars
+
+    references_root = manual_root / "references"
+    reference_names = {path.name for path in references_root.glob("*.md")}
+    assert reference_names == _PRODUCT_DOCS_REFERENCES
+    for reference_name in sorted(_PRODUCT_DOCS_REFERENCES):
+        assert f"references/{reference_name}" in manual
+        installed_reference = references_root / reference_name
+        packaged_reference = (
+            Path(__file__).parents[3]
+            / "src"
+            / "personal_assistant"
+            / "builtin_skills"
+            / _PRODUCT_DOCS_SKILL
+            / "references"
+            / reference_name
+        )
+        assert installed_reference.read_text(encoding="utf-8") == (
+            packaged_reference.read_text(encoding="utf-8")
+        )
+        assert len(installed_reference.read_text(encoding="utf-8").splitlines()) < 100
+
+    reference_bundle = "\n".join(
+        (references_root / name).read_text(encoding="utf-8")
+        for name in sorted(_PRODUCT_DOCS_REFERENCES)
+    )
+    for expected_topic in (
+        "Web IM",
+        "Gateway",
+        "Agent 与节点配置",
+        "## 模型",
+        "## Skills",
+        "Tools 与执行权限",
+        "Memory 与会话连续性",
+        "# Heartbeat 与 Cron",
+        "## 飞书渠道",
+        "# 故障排查",
+    ):
+        assert expected_topic in reference_bundle

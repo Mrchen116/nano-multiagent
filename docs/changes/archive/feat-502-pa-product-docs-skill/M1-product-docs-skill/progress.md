@@ -5,7 +5,7 @@
 - unit branch: `unit/feat-502`
 - worktree: `/Users/czj/Repos/nano-multiagent/.worktrees/unit-feat-502`
 - implementation base: `e1691085407c45d4ef311869a903e543d030b199`
-- design deviation: none
+- design deviation: PR review 后用户撤销无 `read` 可达要求，改为 OpenAI 式精简入口 + 一层 references；spec、delta、design 和验证证据已同步。
 
 ## Evidence
 
@@ -81,6 +81,17 @@
 - Frontend CI: `npm ci`、`npm audit --audit-level=critical` 与 `npm run test` PASS；59 files / 559 tests。Audit 输出仍有 2 low + 2 high，但没有达到当前 CI 的 critical 阈值。
 - Gate invalidation: canonical 只是已对账 delta 的机械归并，未改变实现、测试或用户旅程；现有 acceptance、verification 与 code-review 结论保持有效。
 - Archive: canonical 与本地 CI 收口后，整个 unit 原样移入 `docs/changes/archive/feat-502-pa-product-docs-skill/`；归档态 docs-check PASS（203 maintained Markdown sources / 66 required routes），无门禁输入失效。
+
+### PR review revision: OpenAI-style progressive references
+
+- Trigger: 用户指出正常 PA Agent 可以用默认 `read` 读取 skill references，并明确不要求显式关闭 `read` 后仍能回答；原“单份完整 SKILL.md”设计前提被撤销。
+- Implementation: `nanoassistant-docs/SKILL.md` 收敛为 38 行的触发后入口，只保留回答规则、来源边界和主题路由；产品正文拆为七份全部由入口直接链接的一层 `references/*.md`。入口要求只读取命中问题的最少专题，不复制正文，不增加 scripts/assets/helper/MCP 或 PA 不消费的 `agents/openai.yaml`。
+- Contract: Gateway current spec、unit delta、首文档与 design 改为产品 skill + 默认 `skill_view` + `read` 的渐进读取契约；用户显式关闭 `read` 时不保证详细手册可读，真工具白名单本身不变。历史 design-review 的 R1-C1 作为旧需求前提下的审计记录保留，并追加 product-decision supersession。
+- Skill validation: 官方 `skill-creator/scripts/quick_validate.py` PASS（`Skill is valid!`）。入口 3,510 bytes；整个 skill 文档 331 行 / 21,823 bytes；每份 reference 少于 100 行。
+- Permanent tests: bootstrap 聚焦文件 15 passed；扩展读取/capability/tool 链 72 passed；PA unit 838 passed（2 个第三方 warning）；contract 136 passed。测试确认入口少于 5,000 字符、直接链接全部七份 references、安装后文件与包资源逐份一致、完整托管目录刷新会携带并替换 references、默认 Agent 同时具备 `skill_view` 与 `read`。
+- Quality: docs-check PASS（203 maintained Markdown sources / 66 required routes）；Ruff check/format-check、`git diff --check` PASS。
+- Real-model forward test: 不启动外部服务、不改真实 HOME；使用真实 PA Kernel、当前 LLM 配置和真实模型，session 只选择 `nanoassistant-docs`，工具只开放 `skill_view` + `read`。问题为首次启动顺序与 `Gateway started` ready 语义，terminal=`completed`；精确工具序列为 `skill_view(name=nanoassistant-docs)` → `read(.../references/getting-started.md)`，没有读取其他专题。最终回答正确给出 IM → Gateway → 绑定/聊天，并明确 started 不等于 IM、Agent 或渠道就绪。
+- Gate invalidation: installer、IM 默认选择/关闭、Lark bundle、并发锁和失败恢复实现未变化，Round 1 对这些场景的真栈证据继续有效；正文可达、离线问答和来源路由由本轮真实模型与永久测试替代验证。
 
 ## Commits
 

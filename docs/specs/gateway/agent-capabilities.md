@@ -111,11 +111,11 @@ Gateway 为某 Agent 构建会话工具集时，以该 Agent 配置的 `tool_all
 
 ### Requirement: PA 产品说明书按需回答产品问题
 
-PA 随当前安装版本提供可选的产品说明书 skill，覆盖 Web IM、Gateway、Agent 配置、模型、skills、tools、memory、heartbeat、cron、外部渠道、启动和常见故障处理。启用该 skill 的 Agent 在相关问题上按需读取；普通任务不因其启用而加载。coding CLI、Kernel 内部和开发流程不属于该手册。
+PA 随当前安装版本提供可选的产品说明书 skill，覆盖 Web IM、Gateway、Agent 配置、模型、skills、tools、memory、heartbeat、cron、外部渠道、启动和常见故障处理。入口经 `skill_view` 按需加载，再由默认启用的 `read` 只读取当前问题所需的随包专题资料；普通任务不因其启用而加载。用户显式关闭 `read` 后，产品不保证详细手册可读。coding CLI、Kernel 内部和开发流程不属于该手册。
 
 #### Scenario: 在 PA 对话入口询问产品问题
 
-- **GIVEN** 当前 Agent 已启用产品说明书与 `skill_view`
+- **GIVEN** 当前 Agent 已启用产品说明书、`skill_view` 与 `read`
 - **WHEN** 用户从 Web IM、飞书或其他 PA 对话入口询问 PA 能力、使用、配置或故障处理
 - **THEN** Agent 按需读取产品说明书，并基于当前安装版本直接回答
 
