@@ -25,13 +25,14 @@ description: 用于从产品视角独立验收一个 unit 的所有 milestone �
 2. **看不到就是 fail**。用户面看不到符合预期的结果 → 直接判 `fail`,在报告里写清"期望看到 X / 实际看到 Y / 操作步骤 Z"就够了。**不要**自己去读源码 trace、加日志、改代码、抓内部帧来定位"为什么没出现"——那是 fix worker 的事。reviewer 永远只对用户面负责,不对内部链路负责。一旦 debug-by-editing,本轮全部证据失效。
 3. **不读实现代码**。你的判据是用户面材料(首文档 / design / README / runbook / 产品入口),不是源码。报告里描述问题用用户语言("发消息后没看到回复气泡"),不用工程语言("WS handler 没注册 / observer 没触发 / 某函数没被调")。**不要**为了写出"看起来专业"的归因去翻源码——归因是 fix worker 的事。
 4. **真实走用户旅程**。用真实入口(浏览器 / CLI / 客户端 / HTTP)——不是看代码推断"应该能行"。技术可达性 ≠ 产品可接受性。
-5. **从干净视角判断**。不要被 progress.md 里的"我修好了"暗示。你独立确认,基于看到的、点到的、敲到的。
-6. **revise-design 三道闸**(详见 §5.3):
+5. **真实验收包含必要的测试写入**。caller 选择真实验收，且目标是已配置的专用测试环境、身份或资源时，完成旅程所需的常规产品操作已经获得授权，不逐项重复询问；在报告中记录目标和结果。生产或身份不明的目标、非测试数据、广泛通知、付款、实质删除或其他不可恢复动作仍须先取得授权。
+6. **从干净视角判断**。不要被 progress.md 里的"我修好了"暗示。你独立确认,基于看到的、点到的、敲到的。
+7. **revise-design 三道闸**(详见 §5.3):
    - 第一轮验收**禁止**给 `revise-design`(没经验性证据)
    - 给 `revise-design` 时必须**引用 design.md 具体段落**指出矛盾
    - 必须**至少经过 2 轮 fix-implementation 仍未解决**
-7. **out-of-unit 立 issue 不带情绪**:blocking / major 必立,minor 只在报告"Side Findings"段记录,不立(防 issue 队列污染)。
-8. **不 invoke `systematic-debugging`**。它会驱动你 trace/读源码/加日志——违反 §0.2/§0.3。看不到就判 fail,归因是 fix worker 的事。
+8. **out-of-unit 立 issue 不带情绪**:blocking / major 必立,minor 只在报告"Side Findings"段记录,不立(防 issue 队列污染)。
+9. **不 invoke `systematic-debugging`**。它会驱动你 trace/读源码/加日志——违反 §0.2/§0.3。看不到就判 fail,归因是 fix worker 的事。
 
 ---
 
@@ -93,9 +94,8 @@ git pull --ff-only origin "unit/<unit_id>"
 2. **`<unit_path>/design.md`** —— 大概架构(§架构总览 + §关键决策),为可能的 revise-design 引用准备;Runbook 按 §2.5 读取
 3. **`README.md` / [`docs/operations/README.md`](../../../docs/operations/README.md)** —— 怎么启动、怎么用
 4. **`CLAUDE.md` / `AGENTS.md`** —— 项目级约定,怎么跑产品
-5. **[`docs/development/change-workflow.md`](../../../docs/development/change-workflow.md)** —— 当前 change lifecycle、门禁与真实验收测试动作的授权边界
-6. **历轮验收报告**(若 `review_round > 1`)—— 上一轮的 issues、Recommended Action、修复路径
-7. **每个 milestone 中实际存在的实施记录** —— 若有 `progress.md`，简短扫一眼，知道大概实现了什么、有没有"[Design 修订]"段。没有过程记录时直接继续，不把它当作产品验收缺陷。**不要**深读代码意图——你不是 code reviewer。
+5. **历轮验收报告**(若 `review_round > 1`)—— 上一轮的 issues、Recommended Action、修复路径
+6. **每个 milestone 中实际存在的实施记录** —— 若有 `progress.md`，简短扫一眼，知道大概实现了什么、有没有"[Design 修订]"段。没有过程记录时直接继续，不把它当作产品验收缺陷。**不要**深读代码意图——你不是 code reviewer。
 
 读完后心里要清晰:
 - 这个 unit 的验收标准有哪些条

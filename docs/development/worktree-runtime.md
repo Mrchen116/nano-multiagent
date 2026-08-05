@@ -29,7 +29,7 @@
 
 ### 本机飞书测试 Bot
 
-本机 `.env`（不提交）包含测试 Bot 的 `NANO_MULTIAGENT_TEST_FEISHU_APP_ID` 与 `NANO_MULTIAGENT_TEST_FEISHU_APP_SECRET`。`e2e-up.sh` 不读取它；真实飞书验收应使用基于它生成的独立 `--main-config`，只操作指定测试 Bot/会话，且不输出凭据。测试动作的授权边界见 [`change-workflow.md`](change-workflow.md#真实验收的测试动作授权)。
+本机 `.env`（不提交）包含测试 Bot 的 `NANO_MULTIAGENT_TEST_FEISHU_APP_ID` 与 `NANO_MULTIAGENT_TEST_FEISHU_APP_SECRET`。`e2e-up.sh` 不读取它；真实飞书验收应使用基于它生成的独立 `--main-config`，只操作指定测试 Bot/会话，且不输出凭据。
 
 ## 推荐路径：脚本化起停
 
