@@ -55,6 +55,14 @@
 - Locator: isolated runtime logs under the unit worktree during acceptance; terminal marker `REAL_PRODUCT_DOCS_JOURNEY_PASS`, agent `docs6cd5c5`.
 - Limit: 一次性真栈实例和日志不提交；最终交付前必须清理进程与 runtime 文件。
 
+### Code review fixes
+
+- Finding: 临时 backup 清理失败时，旧目录留在 skill root 下并被 `SkillRegistry` 优先发现；不同 config 的 Gateway 共享 HOME 并发刷新时，后失败者可删除先成功者的新目录并恢复旧版。两项均经 finder 与独立 verifier 复现确认为 `CONFIRMED`。
+- Red: 在 `c78d5df89` 上新增 discovery 与 root-lock 回归测试，结果 EXPECTED FAIL（2 failed）：registry 实际定位到 `.nanoassistant-docs.backup-*`，且安装流程不存在共享 root lock。
+- Fix: staging/backup 统一置于 registry 排除的 `.archive` 下；整次 bundle 刷新持有 user-global skill root 的 `fcntl` 跨进程锁。
+- Green: bootstrap 文件 13 passed；bootstrap/lifecycle/reporter 聚焦集 38 passed；PA 单测 836 passed，contract 136 passed（PA 聚焦/全量各有 2 个第三方 warning）；相关 Ruff check/format-check、docs-check（211 maintained Markdown sources / 66 required routes）与 `git diff --check` 通过。
+- Limit: 提交整合后还需执行受影响门禁 closure 和最终 CI。
+
 ## Commits
 
 - `c19707871` — `feat(feat-502/M1): add PA product docs skill`.

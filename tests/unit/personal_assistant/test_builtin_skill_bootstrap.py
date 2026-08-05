@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from pathlib import Path
 import tomllib
 from types import SimpleNamespace
@@ -109,6 +110,87 @@ def test_install_builtin_skills_restores_failed_switch_and_continues(
     assert succeeding_skill.read_text(encoding="utf-8") != "old lark skill\n"
     assert failed_name in caplog.text
     assert "injected switch failure" in caplog.text
+
+
+def test_install_builtin_skills_keeps_failed_backup_cleanup_out_of_discovery(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    target_root = tmp_path / ".nanoassistant" / "skills"
+    skill_file = target_root / _PRODUCT_DOCS_SKILL / "SKILL.md"
+    skill_file.parent.mkdir(parents=True)
+    skill_file.write_text(
+        "---\n"
+        f"name: {_PRODUCT_DOCS_SKILL}\n"
+        "description: old product manual\n"
+        "---\n\n"
+        "old product manual\n",
+        encoding="utf-8",
+    )
+    real_remove_path = builtin_skill_bootstrap._remove_path
+    cleanup_failed = False
+
+    def fail_backup_cleanup(path: Path) -> None:
+        nonlocal cleanup_failed
+        if not cleanup_failed and ".backup-" in path.name:
+            cleanup_failed = True
+            raise OSError("injected backup cleanup failure")
+        real_remove_path(path)
+
+    monkeypatch.setattr(builtin_skill_bootstrap, "_remove_path", fail_backup_cleanup)
+    caplog.set_level("WARNING", logger=builtin_skill_bootstrap.__name__)
+
+    installed = install_builtin_skills(target_root=target_root)
+
+    discovered = {
+        skill.name: skill
+        for skill in SkillRegistry(search_roots=(target_root,)).list_skills()
+    }
+    assert cleanup_failed
+    assert installed[_PRODUCT_DOCS_SKILL] == skill_file
+    assert discovered[_PRODUCT_DOCS_SKILL].location == skill_file.resolve()
+    assert "old product manual" not in discovered[_PRODUCT_DOCS_SKILL].description
+    assert "injected backup cleanup failure" in caplog.text
+
+
+def test_install_builtin_skills_holds_one_root_lock_while_switching(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target_root = tmp_path / ".nanoassistant" / "skills"
+    real_sync = builtin_skill_bootstrap._sync_skill_directory
+    lock_held = False
+    locked_roots: list[Path] = []
+    synchronized_names: list[str] = []
+
+    @contextmanager
+    def observe_root_lock(destination_root: Path):
+        nonlocal lock_held
+        assert not lock_held
+        lock_held = True
+        locked_roots.append(destination_root)
+        try:
+            yield
+        finally:
+            lock_held = False
+
+    def assert_locked_sync(*, source: Path, destination: Path) -> None:
+        assert lock_held
+        synchronized_names.append(destination.name)
+        real_sync(source=source, destination=destination)
+
+    monkeypatch.setattr(
+        builtin_skill_bootstrap, "_builtin_skill_sync_lock", observe_root_lock
+    )
+    monkeypatch.setattr(
+        builtin_skill_bootstrap, "_sync_skill_directory", assert_locked_sync
+    )
+
+    install_builtin_skills(target_root=target_root)
+
+    assert locked_roots == [target_root]
+    assert {_PRODUCT_DOCS_SKILL, "lark-doc"} <= set(synchronized_names)
 
 
 def test_builtin_skills_are_included_as_package_data() -> None:
