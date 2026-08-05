@@ -72,6 +72,15 @@
 - Gate validity: acceptance Round 1 的 17/17 用户 Scenario 不受内部锁/测试修复和 main 文档增量影响；code review 的 3 个 confirmed finding 均已 closure；verification Round 4 在 `1c90dffda` 上 0 CRITICAL / 0 WARNING。同步后无被影响 gate，结论继续有效。
 - Delta calibration: 最终实现新增的 `.archive` discovery 隔离和共享 root 完整 bundle 跨进程串行保证已补入 design 决策 2 与 Gateway delta，等待 corrected-delta 对账。
 
+### Canonical merge and local CI
+
+- Corrected delta: `verification_mode=corrected-delta` 在 `a69e1bf9a` 上结论 `aligned`，report commit `725037bd8`；全部 IM/Gateway delta 与最终实现/测试一致，unit diff 没有遗漏的对外行为。
+- Canonical merge: delta 已归入 `docs/specs/gateway/agent-capabilities.md` 与 `docs/specs/im/agents-nodes.md`；Gateway Agent Capabilities 计数更新为 7，IM Agents and Nodes 更新为 19，对齐标记均为 `feat-502`。
+- Python CI: `pytest -m "not e2e" -n 4 --dist worksteal --durations=20 --durations-min=0.5` PASS，2897 passed / 22 warnings。
+- Quality CI: docs-check PASS（212 maintained Markdown sources / 66 required routes）；Ruff check PASS；Ruff format-check PASS（822 files）。
+- Frontend CI: `npm ci`、`npm audit --audit-level=critical` 与 `npm run test` PASS；59 files / 559 tests。Audit 输出仍有 2 low + 2 high，但没有达到当前 CI 的 critical 阈值。
+- Gate invalidation: canonical 只是已对账 delta 的机械归并，未改变实现、测试或用户旅程；现有 acceptance、verification 与 code-review 结论保持有效。
+
 ## Commits
 
 - `c19707871` — `feat(feat-502/M1): add PA product docs skill`.
