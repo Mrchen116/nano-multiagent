@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from tests.helpers.runtime_delivery import delivery_context_store
 import asyncio
 from pathlib import Path
 
@@ -400,9 +401,11 @@ def test_roll_bubble_updates_typed_context_runtime_state() -> None:
             ),
         )
     )
-    context_store.set_message_id("run-roll", "im-msg-a")
-    context_store.set_kernel_message_id("run-roll", "kernel-msg-a")
-    context_store.get("run-roll").visible_reply_committed = True  # type: ignore[union-attr]
+    context = context_store.get("run-roll")
+    assert context is not None
+    context.message_id = "im-msg-a"
+    context.kernel_message_id = "kernel-msg-a"
+    context.visible_reply_committed = True
     manager = _AckingIMManager(message_id="im-msg-b")
 
     new_message_id = asyncio.run(
@@ -578,7 +581,7 @@ def test_relay_lifecycle_accepted_acks_feishu_message_processing_started() -> No
 
 
 def test_relay_lifecycle_callback_seeds_external_shadow_run_context() -> None:
-    run_context_store: dict[str, dict[str, str]] = {}
+    run_context_store = delivery_context_store({})
     callback = _build_relay_lifecycle_callback(
         reporter=None,
         im_connection_manager_factory=lambda: None,
@@ -588,6 +591,7 @@ def test_relay_lifecycle_callback_seeds_external_shadow_run_context() -> None:
     message = type("_Message", (), {})()
     message.channel_name = "feishu:agent-a"
     message.external_chat_id = "oc_feishu_chat"
+    message.is_group = False
     message.metadata = {
         "external_source": "feishu",
         "external_chat_id": "oc_feishu_chat",
@@ -611,23 +615,23 @@ def test_relay_lifecycle_callback_seeds_external_shadow_run_context() -> None:
 
     asyncio.run(_exercise())
 
-    assert run_context_store["run-1"] == {
-        "conversation_id": "shadow-conv-1",
-        "message_id": "",
-        "agent_id": "agent-a",
-        "kernel_session_id": "sess-1",
-        "to_user_id": "",
-        "trigger_source": "feishu",
-        "reply_channel_name": "feishu:agent-a",
-        "reply_target_chat_id": "oc_feishu_chat",
-        "feishu_message_id": "om_msg_1",
-    }
+    context = run_context_store.get("run-1")
+    assert context is not None
+    assert context.conversation_id == "shadow-conv-1"
+    assert context.message_id == ""
+    assert context.agent_id == "agent-a"
+    assert context.kernel_session_id == "sess-1"
+    assert context.owner_user_id == ""
+    assert context.trigger_source == "feishu"
+    assert context.reply_channel_name == "feishu:agent-a"
+    assert context.reply_target_chat_id == "oc_feishu_chat"
+    assert context.feishu_message_id == "om_msg_1"
 
 
 def test_relay_lifecycle_callback_skips_lazy_direct_when_external_shadow_missing() -> (
     None
 ):
-    run_context_store: dict[str, dict[str, str]] = {}
+    run_context_store = delivery_context_store({})
     callback = _build_relay_lifecycle_callback(
         reporter=None,
         im_connection_manager_factory=lambda: None,
@@ -635,7 +639,9 @@ def test_relay_lifecycle_callback_skips_lazy_direct_when_external_shadow_missing
         owner_user_id="owner-1",
     )
     message = type("_Message", (), {})()
+    message.channel_name = "feishu:agent-a"
     message.external_chat_id = "oc_feishu_chat"
+    message.is_group = False
     message.metadata = {
         "external_source": "feishu",
         "external_chat_id": "oc_feishu_chat",
@@ -657,20 +663,24 @@ def test_relay_lifecycle_callback_skips_lazy_direct_when_external_shadow_missing
 
     asyncio.run(_exercise())
 
-    assert run_context_store["run-1"]["conversation_id"] == ""
-    assert run_context_store["run-1"]["to_user_id"] == ""
-    assert run_context_store["run-1"]["trigger_source"] == "feishu"
+    context = run_context_store.get("run-1")
+    assert context is not None
+    assert context.conversation_id == ""
+    assert context.owner_user_id == ""
+    assert context.trigger_source == "feishu"
 
 
 def test_relay_lifecycle_callback_routes_im_shadow_run_to_shadow_conversation() -> None:
-    run_context_store: dict[str, dict[str, str]] = {}
+    run_context_store = delivery_context_store({})
     callback = _build_relay_lifecycle_callback(
         reporter=None,
         im_connection_manager_factory=lambda: None,
         run_context_store=run_context_store,
     )
     message = type("_Message", (), {})()
+    message.channel_name = "web_relay"
     message.external_chat_id = "shadow-conv-1"
+    message.is_group = False
     message.metadata = {
         "relay_task_id": "relay-1",
         "message_id": "msg-1",
@@ -695,9 +705,11 @@ def test_relay_lifecycle_callback_routes_im_shadow_run_to_shadow_conversation() 
 
     asyncio.run(_exercise())
 
-    assert run_context_store["run-1"]["conversation_id"] == "shadow-conv-1"
-    assert run_context_store["run-1"]["to_user_id"] == ""
-    assert run_context_store["run-1"]["trigger_source"] == "im"
+    context = run_context_store.get("run-1")
+    assert context is not None
+    assert context.conversation_id == "shadow-conv-1"
+    assert context.owner_user_id == ""
+    assert context.trigger_source == "im"
 
 
 def test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion() -> None:
@@ -727,19 +739,21 @@ def test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion() 
 
     manager = _Manager()
     mirrored: list[tuple[str, dict[str, str]]] = []
-    run_context_store = {
-        "run-1": {
-            "conversation_id": "shadow-conv",
-            "message_id": "",
-            "agent_id": "agent-a",
-            "kernel_session_id": "sess-1",
-            "to_user_id": "",
-            "trigger_source": "feishu",
-            "reply_channel_name": "feishu:agent-a",
-            "reply_target_chat_id": "feishu:cli_a:dm:ou_user",
-            "feishu_message_id": "om_msg_1",
+    run_context_store = delivery_context_store(
+        {
+            "run-1": {
+                "conversation_id": "shadow-conv",
+                "message_id": "",
+                "agent_id": "agent-a",
+                "kernel_session_id": "sess-1",
+                "to_user_id": "",
+                "trigger_source": "feishu",
+                "reply_channel_name": "feishu:agent-a",
+                "reply_target_chat_id": "feishu:cli_a:dm:ou_user",
+                "feishu_message_id": "om_msg_1",
+            }
         }
-    }
+    )
     observer = _build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
         run_context_store=run_context_store,
@@ -821,18 +835,20 @@ def test_kernel_event_observer_does_not_mirror_im_triggered_shadow_runs() -> Non
     mirrored: list[tuple[str, dict[str, str]]] = []
     observer = _build_kernel_event_observer(
         im_connection_manager_factory=lambda: _Manager(),
-        run_context_store={
-            "run-1": {
-                "conversation_id": "shadow-conv",
-                "message_id": "",
-                "agent_id": "agent-a",
-                "kernel_session_id": "sess-1",
-                "to_user_id": "",
-                "trigger_source": "im",
-                "reply_channel_name": "web_relay",
-                "reply_target_chat_id": "shadow-conv",
+        run_context_store=delivery_context_store(
+            {
+                "run-1": {
+                    "conversation_id": "shadow-conv",
+                    "message_id": "",
+                    "agent_id": "agent-a",
+                    "kernel_session_id": "sess-1",
+                    "to_user_id": "",
+                    "trigger_source": "im",
+                    "reply_channel_name": "web_relay",
+                    "reply_target_chat_id": "shadow-conv",
+                }
             }
-        },
+        ),
         external_reply_sender=lambda text, metadata: mirrored.append(
             (text, dict(metadata))
         ),
@@ -883,15 +899,17 @@ def test_group_no_reply_discards_provisional_im_message() -> None:
     manager = _Manager()
     observer = _build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
-        run_context_store={
-            "run-1": {
-                "conversation_id": "group-conv",
-                "message_id": "",
-                "agent_id": "agent-a",
-                "kernel_session_id": "sess-1",
-                "visibility_policy": "suppress_protocol_tokens",
+        run_context_store=delivery_context_store(
+            {
+                "run-1": {
+                    "conversation_id": "group-conv",
+                    "message_id": "",
+                    "agent_id": "agent-a",
+                    "kernel_session_id": "sess-1",
+                    "visibility_policy": "suppress_protocol_tokens",
+                }
             }
-        },
+        ),
     )
 
     async def _exercise() -> None:
@@ -1232,15 +1250,17 @@ def test_later_no_reply_preserves_preceding_real_bubble() -> None:
     manager = _Manager()
     observer = _build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
-        run_context_store={
-            "run-1": {
-                "conversation_id": "group-conv",
-                "message_id": "",
-                "agent_id": "agent-a",
-                "kernel_session_id": "sess-1",
-                "visibility_policy": "suppress_protocol_tokens",
+        run_context_store=delivery_context_store(
+            {
+                "run-1": {
+                    "conversation_id": "group-conv",
+                    "message_id": "",
+                    "agent_id": "agent-a",
+                    "kernel_session_id": "sess-1",
+                    "visibility_policy": "suppress_protocol_tokens",
+                }
             }
-        },
+        ),
     )
 
     async def _exercise() -> None:

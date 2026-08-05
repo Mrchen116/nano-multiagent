@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from tests.helpers.runtime_delivery import delivery_context_store
 import asyncio
 from dataclasses import replace
 import json
@@ -749,15 +750,17 @@ def test_offline_observer_persists_complete_rich_terminal_snapshot(
     )
     saga = saga_store.prepare(message=inbound, agent_id="agent-a", owner_id="owner-a")
     assert saga is not None
-    context = {
-        "run-1": {
-            "agent_id": "agent-a",
-            "trigger_source": "external",
-            "reply_channel_name": "slack:agent-a",
-            "reply_target_chat_id": "chat-a",
-            "shadow_saga_id": saga.saga_id,
+    context = delivery_context_store(
+        {
+            "run-1": {
+                "agent_id": "agent-a",
+                "trigger_source": "external",
+                "reply_channel_name": "slack:agent-a",
+                "reply_target_chat_id": "chat-a",
+                "shadow_saga_id": saga.saga_id,
+            }
         }
-    }
+    )
     observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: None,
         run_context_store=context,
@@ -871,16 +874,18 @@ def test_online_observer_uses_one_shadow_identity_and_reconciles_after_ack(
 
     observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
-        run_context_store={
-            "run-1": {
-                "agent_id": "agent-a",
-                "conversation_id": "shadow-a",
-                "trigger_source": "external",
-                "reply_channel_name": "feishu:agent-a",
-                "reply_target_chat_id": "chat-a",
-                "shadow_saga_id": saga.saga_id,
+        run_context_store=delivery_context_store(
+            {
+                "run-1": {
+                    "agent_id": "agent-a",
+                    "conversation_id": "shadow-a",
+                    "trigger_source": "external",
+                    "reply_channel_name": "feishu:agent-a",
+                    "reply_target_chat_id": "chat-a",
+                    "shadow_saga_id": saga.saga_id,
+                }
             }
-        },
+        ),
         external_reply_sender=lambda _text, _metadata: None,
         shadow_bubble_record=saga_store.record,
         shadow_bubble_reconcile=reconcile,
@@ -1039,15 +1044,17 @@ def test_offline_tool_state_is_closed_by_abnormal_terminal(tmp_path: Path) -> No
     assert saga is not None
     observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: None,
-        run_context_store={
-            "run-1": {
-                "agent_id": "agent-a",
-                "trigger_source": "external",
-                "reply_channel_name": "slack:agent-a",
-                "reply_target_chat_id": "chat-a",
-                "shadow_saga_id": saga.saga_id,
+        run_context_store=delivery_context_store(
+            {
+                "run-1": {
+                    "agent_id": "agent-a",
+                    "trigger_source": "external",
+                    "reply_channel_name": "slack:agent-a",
+                    "reply_target_chat_id": "chat-a",
+                    "shadow_saga_id": saga.saga_id,
+                }
             }
-        },
+        ),
         external_reply_sender=lambda _text, _metadata: None,
         shadow_bubble_record=saga_store.record,
     )
@@ -1123,19 +1130,21 @@ def test_online_abnormal_terminal_acks_then_reconciles_rich_snapshot(
 
     observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
-        run_context_store={
-            "run-1": {
-                "agent_id": "agent-a",
-                "conversation_id": "shadow-a",
-                "message_id": "im-agent-1",
-                "trigger_source": "external",
-                "reply_channel_name": "feishu:agent-a",
-                "reply_target_chat_id": "chat-a",
-                "shadow_saga_id": saga.saga_id,
-                "kernel_message_id": "kernel-1",
-                "external_current_text": "partial",
+        run_context_store=delivery_context_store(
+            {
+                "run-1": {
+                    "agent_id": "agent-a",
+                    "conversation_id": "shadow-a",
+                    "message_id": "im-agent-1",
+                    "trigger_source": "external",
+                    "reply_channel_name": "feishu:agent-a",
+                    "reply_target_chat_id": "chat-a",
+                    "shadow_saga_id": saga.saga_id,
+                    "kernel_message_id": "kernel-1",
+                    "external_current_text": "partial",
+                }
             }
-        },
+        ),
         external_reply_sender=lambda _text, _metadata: None,
         shadow_bubble_record=saga_store.record,
         shadow_bubble_reconcile=reconcile,
@@ -1216,17 +1225,19 @@ def test_failed_immediate_reconcile_notifies_recovery_owner(tmp_path: Path) -> N
 
     observer = build_kernel_event_observer(
         im_connection_manager_factory=Manager,
-        run_context_store={
-            "run-1": {
-                "agent_id": "agent-a",
-                "conversation_id": "shadow-a",
-                "message_id": "im-agent-1",
-                "trigger_source": "external",
-                "reply_channel_name": "feishu:agent-a",
-                "reply_target_chat_id": "chat-a",
-                "shadow_saga_id": saga.saga_id,
+        run_context_store=delivery_context_store(
+            {
+                "run-1": {
+                    "agent_id": "agent-a",
+                    "conversation_id": "shadow-a",
+                    "message_id": "im-agent-1",
+                    "trigger_source": "external",
+                    "reply_channel_name": "feishu:agent-a",
+                    "reply_target_chat_id": "chat-a",
+                    "shadow_saga_id": saga.saga_id,
+                }
             }
-        },
+        ),
         external_reply_sender=lambda _text, _metadata: None,
         shadow_bubble_record=saga_store.record,
         shadow_bubble_reconcile=fail_reconcile,
@@ -1306,20 +1317,22 @@ def test_failed_steer_bubble_reconcile_notifies_recovery_owner(
         if failure_stage == "reconcile":
             raise httpx.ConnectError("IM temporarily unavailable")
 
-    context = {
-        "run-1": {
-            "agent_id": "agent-a",
-            "conversation_id": "shadow-a",
-            "message_id": "im-agent-1",
-            "kernel_message_id": "kernel-a",
-            "external_current_text": "before steer",
-            "trigger_source": "external",
-            "reply_channel_name": "feishu:agent-a",
-            "reply_target_chat_id": "chat-a",
-            "shadow_saga_id": saga.saga_id,
-            "shadow_message_id": initial.shadow_message_id,
+    context = delivery_context_store(
+        {
+            "run-1": {
+                "agent_id": "agent-a",
+                "conversation_id": "shadow-a",
+                "message_id": "im-agent-1",
+                "kernel_message_id": "kernel-a",
+                "external_current_text": "before steer",
+                "trigger_source": "external",
+                "reply_channel_name": "feishu:agent-a",
+                "reply_target_chat_id": "chat-a",
+                "shadow_saga_id": saga.saga_id,
+                "shadow_message_id": initial.shadow_message_id,
+            }
         }
-    }
+    )
     manager = Manager()
     observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
@@ -1334,7 +1347,9 @@ def test_failed_steer_bubble_reconcile_notifies_recovery_owner(
         pending = observer({"event": "injection_consumed", "run_id": "run-1"})
         assert pending is not None
         await pending
-        next_shadow_message_id = context["run-1"]["shadow_message_id"]
+        live_context = context.get("run-1")
+        assert live_context is not None
+        next_shadow_message_id = live_context.shadow_message_id
         next_event = observer(
             {
                 "event": "assistant_message",
@@ -1345,13 +1360,15 @@ def test_failed_steer_bubble_reconcile_notifies_recovery_owner(
         )
         assert next_event is not None
         await next_event
-        assert context["run-1"]["shadow_message_id"] == next_shadow_message_id
+        assert live_context.shadow_message_id == next_shadow_message_id
 
     asyncio.run(emit())
 
     assert notifications == [None]
     assert saga_store.require_snapshot(initial.shadow_message_id).state == "ready"
-    current = saga_store.require_snapshot(context["run-1"]["shadow_message_id"])
+    live_context = context.get("run-1")
+    assert live_context is not None
+    current = saga_store.require_snapshot(live_context.shadow_message_id)
     assert current.state == "recording"
     assert current.content == "after steer"
 
@@ -1370,19 +1387,21 @@ def test_successful_steer_roll_does_not_reuse_the_previous_external_reply() -> N
                 return {"payload": {"message_id": "im-agent-2"}}
             return {"payload": {"kind": payload["kind"]}}
 
-    context = {
-        "run-1": {
-            "agent_id": "agent-a",
-            "conversation_id": "shadow-a",
-            "message_id": "im-agent-1",
-            "kernel_message_id": "kernel-a",
-            "external_current_text": "answer A",
-            "external_intermediate_sent_marker": "kernel-a",
-            "trigger_source": "external",
-            "reply_channel_name": "feishu:agent-a",
-            "reply_target_chat_id": "chat-a",
+    context = delivery_context_store(
+        {
+            "run-1": {
+                "agent_id": "agent-a",
+                "conversation_id": "shadow-a",
+                "message_id": "im-agent-1",
+                "kernel_message_id": "kernel-a",
+                "external_current_text": "answer A",
+                "external_intermediate_sent_marker": "kernel-a",
+                "trigger_source": "external",
+                "reply_channel_name": "feishu:agent-a",
+                "reply_target_chat_id": "chat-a",
+            }
         }
-    }
+    )
     mirrored: list[str] = []
     tracker = RuntimeDeliveryTaskTracker()
     observer = build_kernel_event_observer(
@@ -1396,9 +1415,11 @@ def test_successful_steer_roll_does_not_reuse_the_previous_external_reply() -> N
         rolling = observer({"event": "injection_consumed", "run_id": "run-1"})
         assert rolling is not None
         await rolling
-        assert context["run-1"]["message_id"] == "im-agent-2"
-        assert "external_current_text" not in context["run-1"]
-        assert "external_intermediate_sent_marker" not in context["run-1"]
+        live_context = context.get("run-1")
+        assert live_context is not None
+        assert live_context.message_id == "im-agent-2"
+        assert live_context.external_current_text == ""
+        assert live_context.external_intermediate_sent_marker == ""
         observer({"event": "turn_end", "run_id": "run-1", "completed": True})
         await tracker.close_and_drain(asyncio.get_running_loop().time() + 1)
 
@@ -1446,15 +1467,17 @@ def test_consumed_steer_moves_new_bubble_to_the_follower_saga(tmp_path: Path) ->
             content="answer A",
         )
     )
-    context = {
-        "run-1": {
-            "agent_id": "agent-a",
-            "conversation_id": "shadow-a",
-            "message_id": "im-agent-1",
-            "shadow_saga_id": sagas[0].saga_id,
-            "shadow_message_id": first.shadow_message_id,
+    context = delivery_context_store(
+        {
+            "run-1": {
+                "agent_id": "agent-a",
+                "conversation_id": "shadow-a",
+                "message_id": "im-agent-1",
+                "shadow_saga_id": sagas[0].saga_id,
+                "shadow_message_id": first.shadow_message_id,
+            }
         }
-    }
+    )
     observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: None,
         run_context_store=context,
@@ -1469,8 +1492,10 @@ def test_consumed_steer_moves_new_bubble_to_the_follower_saga(tmp_path: Path) ->
         }
     )
 
-    assert context["run-1"]["shadow_saga_id"] == sagas[1].saga_id
-    new_shadow_message_id = context["run-1"]["shadow_message_id"]
+    live_context = context.get("run-1")
+    assert live_context is not None
+    assert live_context.shadow_saga_id == sagas[1].saga_id
+    new_shadow_message_id = live_context.shadow_message_id
     assert new_shadow_message_id != first.shadow_message_id
     snapshots = saga_store.pending_snapshots()
     assert snapshots[0].saga_id == sagas[0].saga_id
@@ -1539,17 +1564,19 @@ def test_pending_follower_anchor_keeps_new_bubble_durable_until_recovery(
             kernel_message_id="kernel-a",
         )
     )
-    context = {
-        "run-1": {
-            "agent_id": "agent-a",
-            "conversation_id": "shadow-a",
-            "message_id": "im-agent-1",
-            "kernel_message_id": "kernel-a",
-            "external_current_text": "answer A",
-            "shadow_saga_id": sagas[0].saga_id,
-            "shadow_message_id": initial.shadow_message_id,
+    context = delivery_context_store(
+        {
+            "run-1": {
+                "agent_id": "agent-a",
+                "conversation_id": "shadow-a",
+                "message_id": "im-agent-1",
+                "kernel_message_id": "kernel-a",
+                "external_current_text": "answer A",
+                "shadow_saga_id": sagas[0].saga_id,
+                "shadow_message_id": initial.shadow_message_id,
+            }
         }
-    }
+    )
     manager = Manager()
     notifications: list[None] = []
     observer = build_kernel_event_observer(
@@ -1569,8 +1596,10 @@ def test_pending_follower_anchor_keeps_new_bubble_durable_until_recovery(
             }
         )
         assert closing is not None
-        assert context["run-1"]["conversation_id"] == ""
-        assert context["run-1"]["message_id"] == ""
+        live_context = context.get("run-1")
+        assert live_context is not None
+        assert live_context.conversation_id == ""
+        assert live_context.message_id == ""
         await closing
         assert (
             observer(
@@ -1595,7 +1624,9 @@ def test_pending_follower_anchor_keeps_new_bubble_durable_until_recovery(
     saga_store.acknowledge(
         shadow_message_id=initial.shadow_message_id, im_message_id="im-agent-1"
     )
-    current = saga_store.require_snapshot(context["run-1"]["shadow_message_id"])
+    live_context = context.get("run-1")
+    assert live_context is not None
+    current = saga_store.require_snapshot(live_context.shadow_message_id)
     assert current.saga_id == sagas[1].saga_id
     assert current.state == "ready"
     assert current.content == "answer B"
@@ -1661,20 +1692,22 @@ def test_failed_prior_bubble_reconcile_does_not_block_new_live_bubble(
 
     observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
-        run_context_store={
-            "run-1": {
-                "agent_id": "agent-a",
-                "conversation_id": "shadow-a",
-                "message_id": "im-agent-1",
-                "kernel_message_id": "kernel-a",
-                "external_current_text": "answer A",
-                "trigger_source": "external",
-                "reply_channel_name": "feishu:agent-a",
-                "reply_target_chat_id": "chat-a",
-                "shadow_saga_id": saga.saga_id,
-                "shadow_message_id": initial.shadow_message_id,
+        run_context_store=delivery_context_store(
+            {
+                "run-1": {
+                    "agent_id": "agent-a",
+                    "conversation_id": "shadow-a",
+                    "message_id": "im-agent-1",
+                    "kernel_message_id": "kernel-a",
+                    "external_current_text": "answer A",
+                    "trigger_source": "external",
+                    "reply_channel_name": "feishu:agent-a",
+                    "reply_target_chat_id": "chat-a",
+                    "shadow_saga_id": saga.saga_id,
+                    "shadow_message_id": initial.shadow_message_id,
+                }
             }
-        },
+        ),
         external_reply_sender=lambda _text, _metadata: None,
         shadow_bubble_record=saga_store.record,
         shadow_bubble_reconcile=fail_reconcile,
@@ -1717,15 +1750,17 @@ def test_offline_terminal_releases_external_live_run_classification() -> None:
     manager = Manager()
     observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
-        run_context_store={
-            "run-1": {
-                "agent_id": "agent-a",
-                "trigger_source": "external",
-                "reply_channel_name": "feishu:agent-a",
-                "reply_target_chat_id": "chat-a",
-                "shadow_saga_id": "saga-1",
+        run_context_store=delivery_context_store(
+            {
+                "run-1": {
+                    "agent_id": "agent-a",
+                    "trigger_source": "external",
+                    "reply_channel_name": "feishu:agent-a",
+                    "reply_target_chat_id": "chat-a",
+                    "shadow_saga_id": "saga-1",
+                }
             }
-        },
+        ),
     )
 
     assert observer({"event": "turn_end", "run_id": "run-1", "completed": True}) is None
@@ -1771,19 +1806,21 @@ def test_terminal_keeps_durable_text_when_next_live_turn_start_fails(
     assert saga is not None
     tracker = RuntimeDeliveryTaskTracker()
     external_replies: list[str] = []
-    context = {
-        "run-1": {
-            "agent_id": "agent-a",
-            "conversation_id": "shadow-a",
-            "message_id": "im-a",
-            "trigger_source": "external",
-            "reply_channel_name": "feishu:agent-a",
-            "reply_target_chat_id": "chat-a",
-            "shadow_saga_id": saga.saga_id,
-            "kernel_message_id": "kernel-a",
-            "external_current_text": "answer A",
+    context = delivery_context_store(
+        {
+            "run-1": {
+                "agent_id": "agent-a",
+                "conversation_id": "shadow-a",
+                "message_id": "im-a",
+                "trigger_source": "external",
+                "reply_channel_name": "feishu:agent-a",
+                "reply_target_chat_id": "chat-a",
+                "shadow_saga_id": saga.saga_id,
+                "kernel_message_id": "kernel-a",
+                "external_current_text": "answer A",
+            }
         }
-    }
+    )
     observer = build_kernel_event_observer(
         im_connection_manager_factory=Manager,
         run_context_store=context,
@@ -1826,8 +1863,10 @@ def test_terminal_keeps_durable_text_when_next_live_turn_start_fails(
     snapshots = saga_store.pending_snapshots()
     assert [snapshot.content for snapshot in snapshots] == ["answer A", "answer B"]
     assert snapshots[-1].kernel_message_id == "kernel-b"
-    assert context["run-1"]["external_current_text"] == "answer B"
-    assert context["run-1"]["message_id"] == ""
+    live_context = context.get("run-1")
+    assert live_context is not None
+    assert live_context.external_current_text == "answer B"
+    assert live_context.message_id == ""
     assert external_replies == ["answer A"]
 
 
@@ -1967,17 +2006,19 @@ def test_runtime_observer_prepares_once_then_mirrors_same_output(
     external_replies: list[str] = []
     observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: None,
-        run_context_store={
-            "run-1": {
-                "agent_id": "agent-a",
-                "trigger_source": "feishu",
-                "reply_channel_name": "feishu:agent-a",
-                "reply_target_chat_id": "chat-a",
-                "shadow_saga_id": saga.saga_id,
-                "kernel_message_id": "kernel-message-1",
-                "external_current_text": "done",
+        run_context_store=delivery_context_store(
+            {
+                "run-1": {
+                    "agent_id": "agent-a",
+                    "trigger_source": "feishu",
+                    "reply_channel_name": "feishu:agent-a",
+                    "reply_target_chat_id": "chat-a",
+                    "shadow_saga_id": saga.saga_id,
+                    "kernel_message_id": "kernel-message-1",
+                    "external_current_text": "done",
+                }
             }
-        },
+        ),
         external_reply_sender=lambda text, _metadata: external_replies.append(text),
         shadow_output_prepare=lambda saga_id, run_id, output_kind, kernel_message_id, content: (
             sync.prepare_agent_output(

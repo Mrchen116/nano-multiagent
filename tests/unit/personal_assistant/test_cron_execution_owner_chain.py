@@ -35,7 +35,7 @@ class _Delivery:
         self.outcome = outcome or StreamRunOutcome(
             status="completed",
             final_text="cron result",
-            context=None,
+            delivery=None,
             error=None,
         )
         self.failure = failure
@@ -60,7 +60,7 @@ class _TerminalConsumer:
         self.outcome = outcome or StreamRunOutcome(
             status="completed",
             final_text="cron result",
-            context=None,
+            delivery=None,
             error=None,
         )
         self.failure = failure
@@ -149,7 +149,7 @@ async def test_service_preserves_non_success_terminal_outcome_without_awareness(
         outcome=StreamRunOutcome(
             status=status,
             final_text="partial cron result",
-            context=None,
+            delivery=None,
             error=error,
         )
     )
@@ -207,7 +207,7 @@ async def test_no_delivery_configuration_persists_real_terminal_outcome(
         outcome=StreamRunOutcome(
             status=status,
             final_text="cron result",
-            context=None,
+            delivery=None,
             error=error,
         )
     )

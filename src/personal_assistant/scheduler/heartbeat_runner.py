@@ -53,7 +53,7 @@ class PollingHeartbeatRunner:
         config: HeartbeatConfig,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         kernel: Any | None = None,
-        run_context_store: "dict[str, dict[str, str]] | RunDeliveryContextStore | None" = None,
+        run_context_store: RunDeliveryContextStore | None = None,
         owner_user_id: str = "",
         kernel_event_observer: Any | None = None,
         cron_tick_fn: Callable[[str], Awaitable[None]] | None = None,
@@ -229,7 +229,7 @@ class PollingHeartbeatRunner:
                 observer=self._kernel_event_observer,
                 stream_anchor=record.stream_anchor,
             )
-            ctx = outcome.context
+            delivery = outcome.delivery
         except Exception:  # noqa: BLE001  — delivery failure does not disrupt gateway loop
             _hb_logger.exception(
                 "heartbeat run delivery failed: agent=%s run_id=%s", agent_id, run_id
@@ -250,7 +250,7 @@ class PollingHeartbeatRunner:
         # Silent heartbeat turns are removed by the Kernel conversation owner. The
         # run identity is stable even if later foreground messages reached the same
         # session before this consumer acquired its cleanup transaction.
-        _was_silent = ctx is not None and not ctx.get("conversation_id")
+        _was_silent = delivery is not None and delivery.resolved_conversation_id is None
         if _was_silent:
             try:
                 await self._kernel.discard_run_messages(run_id)

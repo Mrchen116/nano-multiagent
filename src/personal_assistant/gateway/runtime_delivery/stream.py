@@ -10,6 +10,7 @@ from typing import Any
 from agent.sdk import TERMINAL_RUN_STATUSES
 from personal_assistant.gateway.runtime_delivery.context import (
     RunDeliveryContextStore,
+    RunDeliveryTerminalProjection,
 )
 
 
@@ -20,13 +21,13 @@ class StreamRunOutcome:
     Args:
         status: Terminal status from ``TERMINAL_RUN_STATUSES``.
         final_text: Latest non-empty assistant message, including partial output.
-        context: Delivery context removed from the shared store after consumption.
+        delivery: Minimal delivery projection captured while removing the context.
         error: Kernel-provided failure detail, when present.
     """
 
     status: str
     final_text: str
-    context: dict[str, str] | None
+    delivery: RunDeliveryTerminalProjection | None
     error: str | None
 
 
@@ -37,7 +38,7 @@ async def stream_run_to_completion(
     agent_id: str,
     owner_user_id: str,
     kernel: Any,
-    run_context_store: dict[str, dict[str, str]] | RunDeliveryContextStore,
+    run_context_store: RunDeliveryContextStore,
     observer: Callable[..., Any] | None,
     stream_anchor: int = 0,
 ) -> StreamRunOutcome:
@@ -60,7 +61,7 @@ async def stream_run_to_completion(
 
     final_result_text = ""
     terminal_event: Mapping[str, Any] | None = None
-    popped_ctx: dict[str, str] | None = None
+    terminal_delivery: RunDeliveryTerminalProjection | None = None
     abnormal_terminal_reconciled = False
     try:
         async for event in kernel.stream(
@@ -103,7 +104,7 @@ async def stream_run_to_completion(
                         await reconcile
                 break
     finally:
-        popped_ctx = _pop_stream_context(
+        terminal_delivery = _take_stream_delivery(
             run_context_store=run_context_store, run_id=run_id
         )
 
@@ -113,7 +114,7 @@ async def stream_run_to_completion(
     return StreamRunOutcome(
         status=status,
         final_text=final_result_text,
-        context=popped_ctx,
+        delivery=terminal_delivery,
         error=_extract_terminal_error(terminal_event, status=status),
     )
 
@@ -135,37 +136,28 @@ def _extract_terminal_error(
 
 def _seed_owner_direct_stream_context(
     *,
-    run_context_store: dict[str, dict[str, str]] | RunDeliveryContextStore,
+    run_context_store: RunDeliveryContextStore,
     run_id: str,
     agent_id: str,
     kernel_session_id: str,
     owner_user_id: str,
 ) -> None:
-    if isinstance(run_context_store, RunDeliveryContextStore):
-        run_context_store.seed_owner_direct_run(
-            run_id=run_id,
-            agent_id=agent_id,
-            kernel_session_id=kernel_session_id,
-            owner_user_id=owner_user_id,
-        )
-        return
-    run_context_store[run_id] = {
-        "conversation_id": "",
-        "message_id": "",
-        "agent_id": agent_id,
-        "to_user_id": owner_user_id,
-        "kernel_session_id": kernel_session_id,
-    }
+    run_context_store.seed_owner_direct_run(
+        run_id=run_id,
+        agent_id=agent_id,
+        kernel_session_id=kernel_session_id,
+        owner_user_id=owner_user_id,
+    )
 
 
-def _pop_stream_context(
+def _take_stream_delivery(
     *,
-    run_context_store: dict[str, dict[str, str]] | RunDeliveryContextStore,
+    run_context_store: RunDeliveryContextStore,
     run_id: str,
-) -> dict[str, str] | None:
-    if isinstance(run_context_store, RunDeliveryContextStore):
-        context = run_context_store.get(run_id)
-        popped = context.to_legacy_dict() if context is not None else None
-        run_context_store.discard(run_id)
-        return popped
-    return run_context_store.pop(run_id, None)
+) -> RunDeliveryTerminalProjection | None:
+    context = run_context_store.take(run_id)
+    if context is None:
+        return None
+    return RunDeliveryTerminalProjection(
+        resolved_conversation_id=context.conversation_id.strip() or None
+    )

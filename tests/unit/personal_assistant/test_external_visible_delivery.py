@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from tests.helpers.runtime_delivery import delivery_context_store
 import asyncio
 from types import SimpleNamespace
 from typing import Any
@@ -126,15 +127,17 @@ def test_feishu_visible_control_text_goes_to_external_without_im_manager() -> No
 
 def test_feishu_intermediate_reply_goes_to_external_without_im_manager() -> None:
     external: list[tuple[str, dict[str, str]]] = []
-    run_context_store = {
-        "run-1": {
-            "agent_id": "agent-a",
-            "trigger_source": "feishu",
-            "reply_channel_name": "feishu:agent-a",
-            "reply_target_chat_id": "feishu:app:dm:ou_user",
-            "reply_thread_id": "om_trigger",
+    run_context_store = delivery_context_store(
+        {
+            "run-1": {
+                "agent_id": "agent-a",
+                "trigger_source": "feishu",
+                "reply_channel_name": "feishu:agent-a",
+                "reply_target_chat_id": "feishu:app:dm:ou_user",
+                "reply_thread_id": "om_trigger",
+            }
         }
-    }
+    )
     observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: None,
         run_context_store=run_context_store,
@@ -186,17 +189,19 @@ def test_external_output_is_durable_before_provider_reply() -> None:
     """A shadow saga captures the Agent output before Feishu receives it."""
 
     delivery_order: list[str] = []
-    run_context_store = {
-        "run-1": {
-            "agent_id": "agent-a",
-            "trigger_source": "feishu",
-            "reply_channel_name": "feishu:agent-a",
-            "reply_target_chat_id": "feishu:app:dm:ou_user",
-            "shadow_saga_id": "saga-1",
-            "kernel_message_id": "kmsg-1",
-            "external_current_text": "好的，我查一下。",
+    run_context_store = delivery_context_store(
+        {
+            "run-1": {
+                "agent_id": "agent-a",
+                "trigger_source": "feishu",
+                "reply_channel_name": "feishu:agent-a",
+                "reply_target_chat_id": "feishu:app:dm:ou_user",
+                "shadow_saga_id": "saga-1",
+                "kernel_message_id": "kmsg-1",
+                "external_current_text": "好的，我查一下。",
+            }
         }
-    }
+    )
 
     def prepare(
         saga_id: str,

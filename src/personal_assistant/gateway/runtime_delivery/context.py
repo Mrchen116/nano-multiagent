@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, MutableMapping
 from dataclasses import dataclass
 from typing import Literal
 
@@ -99,236 +98,136 @@ class RunDeliveryContext:
         if shadow_ref is not None:
             self.conversation_id = shadow_ref.conversation_id
 
-    def to_legacy_dict(self) -> dict[str, str]:
-        """Return the dict shape consumed by the pre-extraction observer."""
+    @property
+    def owner_user_id(self) -> str:
+        """Return the owner-direct user id, if this run has one."""
 
-        if self.delivery_target.kind == "owner_direct":
-            owner_direct = self.delivery_target.owner_direct
-            to_user_id = owner_direct.to_user_id if owner_direct else ""
-        else:
-            to_user_id = ""
+        owner_direct = self.delivery_target.owner_direct
+        return owner_direct.to_user_id if owner_direct is not None else ""
 
-        fields: dict[str, str] = {
-            "conversation_id": self.conversation_id,
-            "message_id": self.message_id,
-            "agent_id": self.agent_id,
-            "kernel_session_id": self.kernel_session_id,
-            "to_user_id": to_user_id,
-        }
-        optional = {
-            "trigger_source": self.trigger_source,
-            "reply_channel_name": self.reply_channel_name,
-            "reply_target_chat_id": self.reply_target_chat_id,
-            "reply_thread_id": self.reply_thread_id,
-            "feishu_message_id": self.feishu_message_id,
-            "shadow_saga_id": self.shadow_saga_id,
-            "shadow_message_id": self.shadow_message_id,
-            "kernel_message_id": self.kernel_message_id,
-            "external_current_text": self.external_current_text,
-            "external_intermediate_sent_marker": self.external_intermediate_sent_marker,
-        }
-        fields.update({key: value for key, value in optional.items() if value})
+    def begin_roll(self) -> bool:
+        """Claim the current bubble-roll transition when no roll is active."""
+
         if self.rolling:
-            fields["rolling"] = "1"
-        if self.discard_current_bubble:
-            fields["discard_current_bubble"] = "1"
-        if self.discard_empty_completion:
-            fields["discard_empty_completion"] = "1"
-        if self.visible_reply_committed:
-            fields["visible_reply_committed"] = "1"
-        return fields
+            return False
+        self.rolling = True
+        return True
+
+    def finish_roll(self) -> None:
+        """Release the current bubble-roll transition."""
+
+        self.rolling = False
+
+    def reset_bubble_state(self) -> None:
+        """Clear state that belongs to the bubble just closed or discarded."""
+
+        self.kernel_message_id = ""
+        self.external_current_text = ""
+        self.external_intermediate_sent_marker = ""
+        self.visible_reply_committed = False
+        self.discard_current_bubble = False
+
+    def record_shadow_snapshot(self, shadow_message_id: str) -> None:
+        """Remember the durable shadow message representing the current bubble."""
+
+        self.shadow_message_id = shadow_message_id
+
+    def switch_shadow_saga(self, shadow_saga_id: str) -> None:
+        """Move subsequent delivery to another shadow saga and clear its anchor."""
+
+        self.shadow_saga_id = shadow_saga_id
+        self.shadow_message_id = ""
+
+    def resolve_conversation(self, conversation_id: str) -> None:
+        """Record the canonical IM conversation selected for this live run."""
+
+        self.conversation_id = conversation_id
+
+    def mark_external_intermediate_sent(self, marker: str) -> None:
+        """Remember which external text snapshot has already been mirrored."""
+
+        self.external_intermediate_sent_marker = marker
+
+    def record_assistant_text(
+        self, text: str, *, kernel_message_id: str | None = None
+    ) -> None:
+        """Capture the latest assistant text and, when present, its kernel id."""
+
+        if kernel_message_id:
+            self.kernel_message_id = kernel_message_id
+        self.external_current_text = text
+
+    def clear_external_text(self) -> None:
+        """Forget the current external text after a suppressed reply."""
+
+        self.external_current_text = ""
+
+    def mark_suppressed_reply(self) -> None:
+        """Record protocol silence for a provisional bubble, if one exists."""
+
+        if self.message_id and not self.kernel_message_id:
+            self.discard_current_bubble = True
+        self.clear_external_text()
+
+    def mark_visible_reply(self) -> None:
+        """Commit the current bubble after real assistant text crosses delivery."""
+
+        self.preserve_current_bubble()
+        self.visible_reply_committed = True
+
+    def preserve_current_bubble(self) -> None:
+        """Cancel an earlier provisional-silence decision for this bubble."""
+
+        self.discard_current_bubble = False
+
+    def backfill_turn_start_ack(
+        self,
+        *,
+        message_id: str | None = None,
+        conversation_id: str | None = None,
+        kernel_message_id: str | None = None,
+    ) -> None:
+        """Apply the identifiers returned by an acknowledged turn-start request."""
+
+        if message_id:
+            self.message_id = message_id
+        if conversation_id:
+            self.resolve_conversation(conversation_id)
+        if kernel_message_id:
+            self.kernel_message_id = kernel_message_id
+
+    def clear_message_id(self) -> None:
+        """Mark the current bubble unavailable while preserving its delivery target."""
+
+        self.message_id = ""
+
+    def replace_bubble(
+        self, *, message_id: str, kernel_message_id: str | None = None
+    ) -> None:
+        """Point this run at a newly acknowledged delivery bubble."""
+
+        self.message_id = message_id
+        self.reset_bubble_state()
+        self.kernel_message_id = kernel_message_id or ""
 
 
-class RunDeliveryRuntimeView(MutableMapping[str, str]):
-    """Dict-shaped runtime view that writes through to typed context state."""
+@dataclass(frozen=True, slots=True)
+class RunDeliveryTerminalProjection:
+    """Expose the only delivery fact scheduler terminal consumers need."""
 
-    _static_keys = (
-        "conversation_id",
-        "message_id",
-        "agent_id",
-        "kernel_session_id",
-        "to_user_id",
-        "trigger_source",
-        "reply_channel_name",
-        "reply_target_chat_id",
-        "reply_thread_id",
-        "feishu_message_id",
-        "shadow_saga_id",
-        "shadow_message_id",
-        "kernel_message_id",
-        "external_current_text",
-        "external_intermediate_sent_marker",
-        "visibility_policy",
-        "discard_empty_completion",
-        "visible_reply_committed",
-        "discard_current_bubble",
-        "rolling",
-    )
-
-    def __init__(self, store: RunDeliveryContextStore, run_id: str) -> None:
-        self._store = store
-        self._run_id = run_id
-
-    def __getitem__(self, key: str) -> str:
-        value = self._store.runtime_value(self._run_id, key)
-        if value is None:
-            raise KeyError(key)
-        return value
-
-    def __setitem__(self, key: str, value: str) -> None:
-        self._store.set_runtime_value(self._run_id, key, value)
-
-    def __delitem__(self, key: str) -> None:
-        removed = self._store.pop_runtime_value(self._run_id, key)
-        if removed is None:
-            raise KeyError(key)
-
-    def __iter__(self) -> Iterator[str]:
-        for key in self._static_keys:
-            if self._store.runtime_value(self._run_id, key) is not None:
-                yield key
-
-    def __len__(self) -> int:
-        return sum(1 for _ in self)
+    resolved_conversation_id: str | None
 
 
 class RunDeliveryContextStore:
-    """Own typed run delivery contexts and the legacy observer view."""
+    """Own the single typed delivery context for each live kernel run."""
 
     def __init__(self) -> None:
         self._contexts: dict[str, RunDeliveryContext] = {}
-        self._legacy_contexts: dict[str, dict[str, str]] = {}
-
-    @property
-    def legacy_contexts(self) -> dict[str, dict[str, str]]:
-        """Return the mutable legacy context map used during extraction."""
-
-        return self._legacy_contexts
 
     def get(self, run_id: str) -> RunDeliveryContext | None:
         """Return typed context for one run, if present."""
 
         return self._contexts.get(run_id)
-
-    def runtime_view(self, run_id: str) -> RunDeliveryRuntimeView | None:
-        """Return a dict-shaped runtime view backed by typed state."""
-
-        if run_id not in self._contexts:
-            return None
-        return RunDeliveryRuntimeView(self, run_id)
-
-    def runtime_value(self, run_id: str, key: str) -> str | None:
-        """Read one observer-facing runtime value from typed state."""
-
-        context = self._contexts[run_id]
-        if key == "conversation_id":
-            return context.conversation_id
-        if key == "message_id":
-            return context.message_id
-        if key == "agent_id":
-            return context.agent_id
-        if key == "kernel_session_id":
-            return context.kernel_session_id
-        if key == "to_user_id":
-            owner_direct = context.delivery_target.owner_direct
-            return owner_direct.to_user_id if owner_direct is not None else ""
-        if key == "trigger_source":
-            return context.trigger_source or None
-        if key == "reply_channel_name":
-            return context.reply_channel_name or None
-        if key == "reply_target_chat_id":
-            return context.reply_target_chat_id or None
-        if key == "reply_thread_id":
-            return context.reply_thread_id or None
-        if key == "feishu_message_id":
-            return context.feishu_message_id or None
-        if key == "shadow_saga_id":
-            return context.shadow_saga_id or None
-        if key == "shadow_message_id":
-            return context.shadow_message_id or None
-        if key == "kernel_message_id":
-            return context.kernel_message_id or None
-        if key == "external_current_text":
-            return context.external_current_text or None
-        if key == "external_intermediate_sent_marker":
-            return context.external_intermediate_sent_marker or None
-        if key == "visibility_policy":
-            return context.visibility_policy.value
-        if key == "discard_empty_completion":
-            return "1" if context.discard_empty_completion else None
-        if key == "visible_reply_committed":
-            return "1" if context.visible_reply_committed else None
-        if key == "discard_current_bubble":
-            return "1" if context.discard_current_bubble else None
-        if key == "rolling":
-            return "1" if context.rolling else None
-        raise KeyError(key)
-
-    def set_runtime_value(self, run_id: str, key: str, value: str) -> None:
-        """Write one observer-facing runtime value into typed state."""
-
-        context = self._contexts[run_id]
-        if key == "conversation_id":
-            context.conversation_id = value
-        elif key == "message_id":
-            context.message_id = value
-        elif key == "shadow_saga_id":
-            context.shadow_saga_id = value
-        elif key == "shadow_message_id":
-            context.shadow_message_id = value
-        elif key == "kernel_message_id":
-            context.kernel_message_id = value
-        elif key == "external_current_text":
-            context.external_current_text = value
-        elif key == "external_intermediate_sent_marker":
-            context.external_intermediate_sent_marker = value
-        elif key == "visible_reply_committed":
-            context.visible_reply_committed = bool(value)
-        elif key == "discard_current_bubble":
-            context.discard_current_bubble = bool(value)
-        elif key == "rolling":
-            context.rolling = bool(value)
-        else:
-            raise KeyError(key)
-        self._sync_legacy(run_id)
-
-    def pop_runtime_value(self, run_id: str, key: str) -> str | None:
-        """Clear one optional observer-facing runtime value from typed state."""
-
-        existing = self.runtime_value(run_id, key)
-        if key == "kernel_message_id":
-            self._contexts[run_id].kernel_message_id = ""
-        elif key == "shadow_message_id":
-            self._contexts[run_id].shadow_message_id = ""
-        elif key == "external_current_text":
-            self._contexts[run_id].external_current_text = ""
-        elif key == "external_intermediate_sent_marker":
-            self._contexts[run_id].external_intermediate_sent_marker = ""
-        elif key == "visible_reply_committed":
-            self._contexts[run_id].visible_reply_committed = False
-        elif key == "discard_current_bubble":
-            self._contexts[run_id].discard_current_bubble = False
-        elif key == "rolling":
-            self._contexts[run_id].rolling = False
-        else:
-            raise KeyError(key)
-        self._sync_legacy(run_id)
-        return existing
-
-    def set_message_id(self, run_id: str, message_id: str) -> None:
-        """Backfill the IM message id returned by a turn_start ack."""
-
-        self.set_runtime_value(run_id, "message_id", message_id)
-
-    def set_conversation_id(self, run_id: str, conversation_id: str) -> None:
-        """Backfill the resolved IM conversation id returned by a lazy turn_start."""
-
-        self.set_runtime_value(run_id, "conversation_id", conversation_id)
-
-    def set_kernel_message_id(self, run_id: str, kernel_message_id: str) -> None:
-        """Track the kernel assistant message id that owns the current IM bubble."""
-
-        self.set_runtime_value(run_id, "kernel_message_id", kernel_message_id)
 
     def seed_owner_direct_run(
         self,
@@ -357,11 +256,15 @@ class RunDeliveryContextStore:
             )
         )
 
-    def discard(self, run_id: str) -> None:
-        """Remove typed and legacy context for one run."""
+    def take(self, run_id: str) -> RunDeliveryContext | None:
+        """Atomically remove and return one live context for its terminal owner."""
 
-        self._contexts.pop(run_id, None)
-        self._legacy_contexts.pop(run_id, None)
+        return self._contexts.pop(run_id, None)
+
+    def discard(self, run_id: str) -> bool:
+        """Remove one live context and report whether it was still present."""
+
+        return self.take(run_id) is not None
 
     def seed(self, context: RunDeliveryContext) -> RunDeliveryContext:
         """Store one context without clobbering an already-live run."""
@@ -371,7 +274,6 @@ class RunDeliveryContextStore:
             return existing
         context.ensure_initial_runtime_state()
         self._contexts[context.run_id] = context
-        self._sync_legacy(context.run_id)
         return context
 
     def seed_from_lifecycle(
@@ -461,8 +363,3 @@ class RunDeliveryContextStore:
                 discard_empty_completion=message.channel_name == "web_relay",
             )
         )
-
-    def _sync_legacy(self, run_id: str) -> None:
-        context = self._contexts.get(run_id)
-        if context is not None:
-            self._legacy_contexts[run_id] = context.to_legacy_dict()
