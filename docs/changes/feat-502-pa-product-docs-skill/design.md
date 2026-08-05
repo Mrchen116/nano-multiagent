@@ -6,6 +6,8 @@
 
 ## Changelog
 
+- 2026-08-05: 根据实现期 code review，把共享全局 root 的跨进程锁与 `.archive` 临时目录隔离补入决策 2；不改变已批准的内置资源所有权、失败继续或用户选择语义。
+
 ## 现状分析
 
 ### 涉及范围
@@ -83,11 +85,13 @@ Before：包内 skill 只在目标缺失时复制，旧版本目录会永久保�
 
 ### 决策 2: 刷新事务与失败语义
 
-**每个内置 skill 独立完成同文件系统 staging、旧目录备份和目录切换；失败恢复旧完整目录并继续启动。**
+**整次 bundle 刷新先锁定共享全局 root；锁内由每个内置 skill 独立完成同文件系统 staging、旧目录备份和目录切换，失败恢复旧完整目录并继续启动。**
 
 - **理由**: Gateway 必须尽量可用，同时不能让一次复制失败留下半新半旧目录。逐 skill 隔离也避免一个坏资源阻断其他内置 skills 更新。
+- **并发边界**: 生命周期锁按 config 隔离，但不同 config 的 Gateway 可以共享同一个用户 HOME。installer 因此以目标 skill root 上的文件锁串行化完整 bundle 刷新，不能把锁缩窄到单个 skill；否则两个安装版本可能交错形成混合 bundle，或后失败者把先成功者回滚成旧版。
+- **发现边界**: staging 与 backup 置于同 root 的 `.archive` 下，保持同文件系统 rename，同时复用 Kernel 已有的 discovery 排除规则。即使成功切换后的 backup 清理暂时失败，Agent 也只发现 canonical 新目录。
 - **拒绝**: 先删后复制会暴露残缺目录；失败后保留部分新文件无法判定版本；任一失败就阻止 Gateway 启动会把资源更新故障扩大为整个 PA 不可用。
-- **错误边界**: staging 完成前不触碰旧目录；切换失败恢复备份并清理 staging。单项失败记录 skill 名与原因，下一次 Gateway 启动重试；成功项不回滚。
+- **错误边界**: staging 完成前不触碰旧目录；切换失败恢复备份并清理 staging。单项失败记录 skill 名与原因，下一次 Gateway 启动重试；成功项不回滚。临时目录清理失败单独告警，不把已成功的新 canonical 目录判成失败或重新暴露旧目录。
 - **风险**: 失败项会暂时停留旧版本。该退化优于残缺目录或整机不可用，并由启动日志明确暴露。
 
 ### 决策 3: 产品手册的资源形态
@@ -144,6 +148,7 @@ sequenceDiagram
     participant User
     participant Agent
 
+    Lifecycle->>Root: 获取共享 root 跨进程锁
     Lifecycle->>Package: 枚举含 SKILL.md 的内置目录
     loop 每个内置 skill
         Lifecycle->>Root: staging 完整新目录
@@ -154,6 +159,7 @@ sequenceDiagram
             Lifecycle->>Root: 恢复旧完整目录并记录错误
         end
     end
+    Lifecycle->>Root: 释放共享 root 跨进程锁
     Lifecycle->>Kernel: 构建 runtime（读取现有全局 root）
     Kernel-->>IM: capabilities：nanoassistant-docs default_on
     IM-->>Agent: 保存默认或显式 skill 选择
@@ -163,7 +169,7 @@ sequenceDiagram
     Agent-->>User: 按安装版本回答；必要时区分现场/远端
 ```
 
-staging 和 backup 都放在目标 root 的同一文件系统，避免跨设备 rename。替换完成后才清理 backup；异常路径先恢复再清理。Gateway 在 runtime 构建前完成同步，因此运行中的 Kernel 不会观察到切换中间态。
+staging 和 backup 都放在目标 root 的 `.archive` 下，既避免跨设备 rename，也不进入 skill discovery。整次 bundle 刷新持有共享 root 文件锁；替换完成后才清理 backup，异常路径先恢复再清理。Gateway 在 runtime 构建前完成同步，因此本 Gateway 的 Kernel 不会观察到切换中间态。
 
 ## 契约层增量 (delta-spec)
 
@@ -180,6 +186,8 @@ Kernel 的 skill 发现、`skill_view`、使用统计和 prompt 注入行为不�
 |---|---|
 | 保留名称下的用户修改被覆盖 | 这是 spec 明确的新所有权语义；手册说明定制应复制成新名称，测试锁定非内置名称不受影响 |
 | 文件复制或目录切换中断 | 同文件系统 staging + backup；单项失败恢复旧完整目录、继续其他项并在下次启动重试 |
+| 不同 config 的 Gateway 共享 HOME 并发启动 | 对完整 bundle 持有共享 root 跨进程锁；双进程争用与锁域回归测试防止回滚或混合版本 |
+| backup 清理失败留下旧目录 | 临时目录位于 `.archive` discovery 隔离区；新 canonical 目录仍是唯一可发现版本并记录清理告警 |
 | 手册正文与 canonical docs 漂移 | `SKILL.md` 标注来源边界；本 unit 以 current docs 逐章投影，后续 PA 行为 change 的退出标准必须包含相关手册更新 |
 | 模型对产品问题未调用 skill | frontmatter description 覆盖 PA 正式名称、常见实体和故障类问题；真实 LLM reviewer 旅程验证按需调用，不增加强制 prompt |
 | 已有显式 Agent 列表不含新手册 | 按用户确认保留显式配置；IM 中可见但未选中，用户手动开启。空/默认集合自动发现 |
@@ -212,4 +220,4 @@ Kernel 的 skill 发现、`skill_view`、使用统计和 prompt 注入行为不�
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| feat-502-M1 | product-docs-skill | — | A | `src/personal_assistant/builtin_skills/bootstrap.py`、`src/personal_assistant/builtin_skills/nanoassistant-docs/SKILL.md`、`src/personal_assistant/gateway/process_lifecycle.py`、`tests/unit/personal_assistant/test_builtin_skill_bootstrap.py`、必要的 Gateway capability/lifecycle 聚焦测试、`docs/specs/{gateway/agent-capabilities,im/agents-nodes}.md` 与本 unit delta | `[reviewer]` 覆盖 spec 五个 Requirement 的全部 Scenario：默认可关闭的产品手册、全部内置 skill 随版本刷新、按需产品问答、版本一致性、产品规则/现场状态的证据边界；使用隔离 HOME + 真 IM/Gateway + 真实 LLM，并包含“仅启用该 skill + `skill_view`、关闭 `read`”时仍能回答基础 PA 产品问题的旅程。<br/>`[worker]` 新装、旧版、被修改、含额外旧文件、非内置用户 skill、单项同步失败恢复/继续等 installer 测试全绿；包内 `nanoassistant-docs/SKILL.md` 的 frontmatter 可发现、正文覆盖指定 PA 主题且低于 50,000 字符；仅开启 `nanoassistant-docs` + `skill_view`、未开启 `read` 的会话级聚焦测试证明 `skill_view` 返回未截断的完整手册；capabilities/prompt preview 中该 skill 可见且 `default_on=true`，显式 Agent skills 不被刷新改写。<br/>`[worker]` `.venv/bin/pytest -q tests/unit/personal_assistant/test_builtin_skill_bootstrap.py tests/unit/personal_assistant/test_gateway_pid_lifecycle.py tests/unit/personal_assistant/test_gateway_upstream_reporter.py`、触及文件的 `ruff check` / `ruff format --check`、`PYTHON="$PWD/.venv/bin/python" ./scripts/docs-check`、`git diff --check` 全绿。 |
+| feat-502-M1 | product-docs-skill | — | A | `src/personal_assistant/builtin_skills/bootstrap.py`、`src/personal_assistant/builtin_skills/nanoassistant-docs/SKILL.md`、`src/personal_assistant/gateway/process_lifecycle.py`、`tests/unit/personal_assistant/test_builtin_skill_bootstrap.py`、必要的 Gateway capability/lifecycle 聚焦测试、`docs/specs/{gateway/agent-capabilities,im/agents-nodes}.md` 与本 unit delta | `[reviewer]` 覆盖 spec 五个 Requirement 的全部 Scenario：默认可关闭的产品手册、全部内置 skill 随版本刷新、按需产品问答、版本一致性、产品规则/现场状态的证据边界；使用隔离 HOME + 真 IM/Gateway + 真实 LLM，并包含“仅启用该 skill + `skill_view`、关闭 `read`”时仍能回答基础 PA 产品问题的旅程。<br/>`[worker]` 新装、旧版、被修改、含额外旧文件、非内置用户 skill、单项同步失败恢复/继续、backup 清理失败 discovery 隔离、共享 root 双进程争用和完整 bundle 锁域等 installer 测试全绿；包内 `nanoassistant-docs/SKILL.md` 的 frontmatter 可发现、正文覆盖指定 PA 主题且低于 50,000 字符；仅开启 `nanoassistant-docs` + `skill_view`、未开启 `read` 的会话级聚焦测试证明 `skill_view` 返回未截断的完整手册；capabilities/prompt preview 中该 skill 可见且 `default_on=true`，显式 Agent skills 不被刷新改写。<br/>`[worker]` `.venv/bin/pytest -q tests/unit/personal_assistant/test_builtin_skill_bootstrap.py tests/unit/personal_assistant/test_gateway_pid_lifecycle.py tests/unit/personal_assistant/test_gateway_upstream_reporter.py`、触及文件的 `ruff check` / `ruff format --check`、`PYTHON="$PWD/.venv/bin/python" ./scripts/docs-check`、`git diff --check` 全绿。 |

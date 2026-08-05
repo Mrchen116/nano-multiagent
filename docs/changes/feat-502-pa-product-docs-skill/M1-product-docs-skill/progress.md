@@ -66,7 +66,15 @@
 - Gate status: verifier Round 3 已关闭 Round 2 WARNING；随后 code-review patch finder/verifier 确认仅靠进程存活不能保护完整 bundle 锁域，本次互补 scope 证据用于关闭该 finding。
 - Limit: 还需 code-review closure、受影响 verifier closure 和最终 CI。
 
+### Final sync and gate validity
+
+- Main sync: unit 在 `53febf215` 合入 `origin/main@e6f8b617a`；main 增量只修改 `AGENTS.md` 与 `change-reviewer/SKILL.md` 的验收授权规则，不触及产品实现、测试、首文档、delta 或运行时入口，无冲突。
+- Gate validity: acceptance Round 1 的 17/17 用户 Scenario 不受内部锁/测试修复和 main 文档增量影响；code review 的 3 个 confirmed finding 均已 closure；verification Round 4 在 `1c90dffda` 上 0 CRITICAL / 0 WARNING。同步后无被影响 gate，结论继续有效。
+- Delta calibration: 最终实现新增的 `.archive` discovery 隔离和共享 root 完整 bundle 跨进程串行保证已补入 design 决策 2 与 Gateway delta，等待 corrected-delta 对账。
+
 ## Commits
 
 - `c19707871` — `feat(feat-502/M1): add PA product docs skill`.
 - `b4dc3bbaf` — `fix(feat-502/M1): serialize built-in skill refresh`.
+- `ffb7ec40b` — `test(feat-502/M1): cover cross-process skill refresh`.
+- `1c90dffda` — `test(feat-502/M1): protect full refresh lock scope`.

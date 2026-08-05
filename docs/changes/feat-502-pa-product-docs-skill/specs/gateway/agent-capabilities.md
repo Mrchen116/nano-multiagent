@@ -63,6 +63,20 @@ Gateway 随包提供 PA 产品说明书与当前产品定义的完整 Lark skill
 - **WHEN** Gateway 执行启动刷新
 - **THEN** 该名称恢复旧完整目录、其他名称继续刷新，Gateway 继续启动并暴露失败原因
 
+#### Scenario: backup 清理失败不遮蔽已切换的新版本
+
+- **GIVEN** 某个内置 skill 已成功切换到当前包版本，但旧 backup 的清理失败
+- **WHEN** Agent 发现或读取该名称的 skill
+- **THEN** Agent 仍只发现 canonical 新版本，旧 backup 不参与 skill discovery
+- **AND** Gateway 暴露 cleanup 失败原因并可继续启动
+
+#### Scenario: 共享全局 root 的并发 Gateway 刷新保持完整版本
+
+- **GIVEN** 两个使用不同 config 的 Gateway 共享同一个用户全局 skill root
+- **WHEN** 两个 Gateway 并发刷新随包内置 skills
+- **THEN** 两次完整 bundle 刷新按顺序执行，不逐 skill 交错
+- **AND** 先成功的刷新不被另一失败刷新回滚，Agent 不会发现混合版本 bundle
+
 #### Scenario: 显式 skill allowlist 不因资源刷新改变
 
 - **GIVEN** 某 Agent 已保存显式 skills 列表并关闭部分内置 skills
