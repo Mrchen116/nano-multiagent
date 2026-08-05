@@ -145,3 +145,50 @@ All observations used a freshly built Web IM and fresh IM + Gateway started from
 ## Round 2 Recommended Next Step
 
 Do not reopen R1-1. Provide the isolated real external-channel fixture promised by the reviewer runbook, then re-run the IM-offline external-reply scenario; retain the existing inconclusive boundaries for permission wait, failure/cancel, and shutdown drain until suitable real fixtures exist.
+
+---
+
+# Round 3 — 2026-08-05
+
+> Validation snapshot: `aa97f18c38f96ead4b42fec61386ec1ac46785f2`
+
+> Review mode: independent real external-channel / IM-offline revalidation
+
+## Final Verdict
+
+**pass**
+
+The last open delivery-environment blocker is closed. Round 3 followed the corrected reviewer runbook: it rendered an ignored, isolated `feishu:plato` static test channel from the local test-Bot credentials, then used the already-authorized Lark **user** profile belonging to that same App to converse with the Bot. No credential, Lark/IM identifier, private config, generated runtime file, or nonce value is retained in this report.
+
+R2-1 was an **unexecuted fixture-setup error in Round 2**, not evidence that the fixture was absent and not a refactor/product regression. The real fixture was available locally once the prescribed private static config was rendered and passed to `e2e-up.sh --main-config`.
+
+## Scope and Materials Read
+
+This round re-opened only the required external-channel / IM-offline scenario from `motivation.md`. It used the Round 3 runbook in `design.md`, the external-channel and delivery requirements in `docs/specs/gateway/external-channels.md`, and the isolated-runtime lifecycle contract in `docs/development/worktree-runtime.md`.
+
+## Real User Journeys Exercised
+
+1. **Online external reply.** The isolated IM + Gateway stack started from the private static test-channel config. The same-App authorized Lark user profile sent a unique plain-text nonce to the Bot in its 1:1 conversation. The Bot replied in that same real Lark conversation with the required nonce-derived terminal text.
+2. **IM-offline external reply.** After the online reply, only this worktree's IM process was stopped. The IM HTTP endpoint and its dedicated port were both unreachable, while the unchanged worktree Gateway PID remained live. The same Lark user sent a second unique nonce to the same Bot; the Bot again replied in the same 1:1 conversation before IM was restored.
+
+## Passes
+
+- The external Bot received and replied to the online user message through the real Lark conversation.
+- With IM demonstrably unavailable, Gateway retained external-channel autonomy and returned the second reply through the same real Lark conversation.
+- The offline exercise did not rely on Web IM, a mock, a unit test, source inspection, or a restarted Gateway.
+- The process/port checks establish that only IM was stopped; the Gateway that delivered the offline reply was the one that had handled the online reply.
+
+## Issues
+
+None in the Round 3 scope.
+
+## R2-1 Disposition
+
+- **Disposition:** closed as reviewer fixture setup omission
+- **Regression Relation:** none
+- **Evidence:** both online and IM-offline unique-message/reply journeys completed with the local real Bot fixture required by the corrected runbook.
+- **Conclusion:** the former “fixture unavailable” statement resulted from not rendering and supplying the required ignored static config. It must not be carried forward as an implementation defect or external-environment blocker.
+
+## Retest Focus
+
+None for the external-channel / IM-offline path. Future changes that alter Gateway delivery ownership should repeat these two real-Lark journeys using fresh private runtime state.
