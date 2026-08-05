@@ -34,7 +34,7 @@
 1. 创建权限为 `0600` 的 `${XDG_CONFIG_HOME:-~/.config}/nano-multiagent/feishu-e2e.env`，包含 `NANO_MULTIAGENT_E2E_FEISHU_APP_ID`、`NANO_MULTIAGENT_E2E_FEISHU_APP_SECRET`、`NANO_MULTIAGENT_E2E_FEISHU_BOT_OPEN_ID` 和 `NANO_MULTIAGENT_E2E_FEISHU_LARK_PROFILE`。这些值不得提交、打印或放进仓库 `.env`。
 2. 以该文件声明的**非 default** `lark-cli` profile 完成一次用户身份登录。开始前执行 `lark-cli --profile <profile> auth status --json --verify`；profile 必须同时验证测试 App、测试 Bot 和测试用户。
 
-`e2e-up.sh --feishu` 在启动 Gateway 前用 App 凭据查询 Bot identity；与 `BOT_OPEN_ID` 不一致时立即失败，不会把生产 Bot 凭据接入隔离栈。`scripts/e2e-feishu-probe.py` 也拒绝 default 或跨 App/Bot 的 CLI profile，故不会因忘记 `--profile` 向生产 Bot 发消息。
+`e2e-up.sh --feishu` 在启动 Gateway 前用 App 凭据查询 Bot identity；与 `BOT_OPEN_ID` 不一致时立即失败，不会把生产 Bot 凭据接入隔离栈。它还为该 Bot 取得本机 listener lock；同一 Bot 的第二个 worktree 会在启动 Gateway 前失败，必须先对原 worktree 执行 `e2e-down.sh`。`scripts/e2e-feishu-probe.py` 也拒绝 default 或跨 App/Bot 的 CLI profile，故不会因忘记 `--profile` 向生产 Bot 发消息。
 
 ## 推荐路径：脚本化起停
 

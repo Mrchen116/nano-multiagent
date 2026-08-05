@@ -43,3 +43,14 @@ def test_probe_accepts_feishu_stack_marker(
     )
 
     probe_module._require_feishu_stack(tmp_path)
+
+
+def test_probe_default_env_path_honors_xdg_config_home(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, probe_module: object
+) -> None:
+    """The probe follows the launcher's XDG private-profile location."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    assert probe_module._default_e2e_env_path() == (
+        tmp_path / "nano-multiagent" / "feishu-e2e.env"
+    )

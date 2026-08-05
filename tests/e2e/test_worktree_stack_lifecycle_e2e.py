@@ -46,6 +46,13 @@ def test_worktree_stack_isolates_runtime_and_releases_owned_resources(
     """Start the public E2E stack, create an Agent, then prove complete teardown."""
     stack_dir = tmp_path / "stack"
     stack_dir.mkdir()
+    stale_shadow_files = [
+        stack_dir / "external_shadow_sagas.sqlite3",
+        stack_dir / "external_shadow_sagas.sqlite3-wal",
+        stack_dir / "external_shadow_sagas.sqlite3-shm",
+    ]
+    for path in stale_shadow_files:
+        path.write_text("stale-external-shadow-state", encoding="utf-8")
     env = {
         **os.environ,
         "PATH": f"{Path(sys.executable).parent}:{os.environ.get('PATH', '')}",
@@ -72,6 +79,11 @@ def test_worktree_stack_isolates_runtime_and_releases_owned_resources(
 
         ports = _parse_ports_env(stack_dir / ".e2e-ports.env")
         assert ports["E2E_PROFILE"] == "default"
+        assert all(
+            not path.exists()
+            or path.read_bytes() != b"stale-external-shadow-state"
+            for path in stale_shadow_files
+        )
         im_port = int(ports["IM_PORT"])
         im_pid = int((stack_dir / ".im.pid").read_text().strip())
         gateway_pid = int((stack_dir / ".gateway.pid").read_text().strip())

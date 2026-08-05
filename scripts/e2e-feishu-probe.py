@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import secrets
 import sqlite3
 import subprocess
@@ -13,6 +14,12 @@ import time
 from pathlib import Path
 
 from e2e_feishu_config import FeishuE2EConfigError, load_e2e_env
+
+
+def _default_e2e_env_path() -> Path:
+    """Return the private profile path using the same XDG rule as the launcher."""
+    config_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    return config_home / "nano-multiagent" / "feishu-e2e.env"
 
 
 def _profile_status(profile: str) -> dict[str, object]:
@@ -114,7 +121,7 @@ def main() -> int:
     parser.add_argument(
         "--env",
         type=Path,
-        default=Path.home() / ".config/nano-multiagent/feishu-e2e.env",
+        default=_default_e2e_env_path(),
     )
     parser.add_argument("--profile")
     parser.add_argument("--timeout", type=float, default=45.0)

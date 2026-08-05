@@ -32,6 +32,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd 2>/dev/null)"
 SRC_DIR="$REPO_ROOT/src"
 DEFAULT_E2E_CONFIG="$REPO_ROOT/config/e2e/gateway.yaml"
 DEFAULT_FEISHU_ENV="${XDG_CONFIG_HOME:-$HOME/.config}/nano-multiagent/feishu-e2e.env"
+DEFAULT_FEISHU_LOCK_ROOT="${XDG_RUNTIME_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/nano-multiagent}"
 
 # ─── arg parsing ─────────────────────────────────────────────────────────────
 
@@ -40,6 +41,64 @@ MAIN_CFG="$DEFAULT_E2E_CONFIG"
 E2E_PROFILE="default"
 FEISHU_ENV="$DEFAULT_FEISHU_ENV"
 MAIN_CONFIG_EXPLICIT=0
+FEISHU_LOCK_DIR=""
+FEISHU_LOCK_HELD=0
+
+release_feishu_listener_lock() {
+  [[ $FEISHU_LOCK_HELD -eq 1 ]] || return 0
+  local owner_file="$FEISHU_LOCK_DIR/owner"
+  if [[ -f "$owner_file" ]] && grep -Fqx "worktree=$WT_ROOT" "$owner_file"; then
+    rm -f "$owner_file"
+    rmdir "$FEISHU_LOCK_DIR" 2>/dev/null || true
+  fi
+  FEISHU_LOCK_HELD=0
+}
+
+claim_feishu_listener_lock() {
+  FEISHU_LOCK_DIR="$(
+    WT_CFG_PY="$WT_CFG" FEISHU_LOCK_ROOT="$DEFAULT_FEISHU_LOCK_ROOT" python3 - <<'PY'
+import hashlib
+import os
+from pathlib import Path
+
+import yaml
+
+with open(os.environ["WT_CFG_PY"], encoding="utf-8") as stream:
+    config = yaml.safe_load(stream)
+for channel in config.get("channels", []):
+    if channel.get("name") == "feishu:e2e":
+        bot_open_id = channel["settings"]["botOpenId"]
+        digest = hashlib.sha256(bot_open_id.encode("utf-8")).hexdigest()[:16]
+        print(Path(os.environ["FEISHU_LOCK_ROOT"]) / f"feishu-e2e-{digest}.lock")
+        break
+else:
+    raise RuntimeError("Feishu E2E channel was not rendered")
+PY
+  )"
+  mkdir -p "$(dirname "$FEISHU_LOCK_DIR")"
+  if ! mkdir "$FEISHU_LOCK_DIR" 2>/dev/null; then
+    local owner_file="$FEISHU_LOCK_DIR/owner"
+    local owner_pid=""
+    local owner_worktree=""
+    if [[ -f "$owner_file" ]]; then
+      owner_pid="$(sed -n 's/^pid=//p' "$owner_file" | head -1)"
+      owner_worktree="$(sed -n 's/^worktree=//p' "$owner_file" | head -1)"
+    fi
+    if [[ "$owner_pid" =~ ^[0-9]+$ ]] && kill -0 "$owner_pid" 2>/dev/null; then
+      echo "dedicated Feishu E2E listener is already owned by ${owner_worktree:-another worktree}" >&2
+      echo "stop that stack with scripts/e2e-down.sh before starting another --feishu stack" >&2
+      return 1
+    fi
+    rm -f "$owner_file"
+    if ! rmdir "$FEISHU_LOCK_DIR" 2>/dev/null || ! mkdir "$FEISHU_LOCK_DIR"; then
+      echo "could not clear stale Feishu E2E listener lock: $FEISHU_LOCK_DIR" >&2
+      return 1
+    fi
+  fi
+  printf 'worktree=%s\npid=%s\n' "$WT_ROOT" "$$" > "$FEISHU_LOCK_DIR/owner"
+  FEISHU_LOCK_HELD=1
+  trap release_feishu_listener_lock EXIT
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -104,6 +163,7 @@ if [[ "$E2E_PROFILE" == "feishu" ]]; then
   PYTHONPATH="$SRC_DIR" python3 "$SCRIPT_DIR/e2e_feishu_config.py" \
     --config "$WT_CFG" \
     --env "$FEISHU_ENV"
+  claim_feishu_listener_lock
 fi
 chmod 600 "$WT_CFG"
 
@@ -161,16 +221,17 @@ PY
 # feat-393 fix-r1: remove stale IM DB before each e2e run so heartbeat conversations
 # created by a previous run (with different owner_id) do not pollute the new instance.
 # The DB path is cwd-relative (data/im_service.sqlite3) so we remove it from $WT_ROOT.
-rm -f "$WT_ROOT/data/im_service.sqlite3"
+rm -f "$WT_ROOT/data/im_service.sqlite3" "$WT_ROOT/data/im_service.sqlite3-wal" "$WT_ROOT/data/im_service.sqlite3-shm"
 # feat-393 fix-r2: remove stale heartbeat-state.json so a previous run's last_due_at
 # does not trigger catch-up backlog on restart (that was the root cause of the 4x burst).
 rm -f "$WT_ROOT/heartbeat-state.json"
 # e2e-up.sh starts a fresh IM DB every run; Gateway's local state must be fresh too.
 # Otherwise old external chat bindings and buffered group context can route a new
 # validation run through stale kernel sessions from a previous e2e attempt.
-rm -f "$WT_ROOT/session_bindings.sqlite3"
-rm -f "$WT_ROOT/group_context_buffer.sqlite3"
-rm -f "$WT_ROOT/relay_dedup.sqlite3"
+rm -f "$WT_ROOT/session_bindings.sqlite3" "$WT_ROOT/session_bindings.sqlite3-wal" "$WT_ROOT/session_bindings.sqlite3-shm"
+rm -f "$WT_ROOT/group_context_buffer.sqlite3" "$WT_ROOT/group_context_buffer.sqlite3-wal" "$WT_ROOT/group_context_buffer.sqlite3-shm"
+rm -f "$WT_ROOT/relay_dedup.sqlite3" "$WT_ROOT/relay_dedup.sqlite3-wal" "$WT_ROOT/relay_dedup.sqlite3-shm"
+rm -f "$WT_ROOT/external_shadow_sagas.sqlite3" "$WT_ROOT/external_shadow_sagas.sqlite3-wal" "$WT_ROOT/external_shadow_sagas.sqlite3-shm"
 # The copied config gets a fresh node id on every run, so its credential key and
 # encrypted manifest must be fresh as one isolation pair as well.
 rm -f "$WT_ROOT/channel-credentials-v1.pem"
@@ -273,8 +334,18 @@ if [[ $GW_READY -eq 0 ]]; then
   exit 1
 fi
 
+if [[ $FEISHU_LOCK_HELD -eq 1 ]]; then
+  printf 'worktree=%s\npid=%s\n' "$WT_ROOT" "$(cat "$WT_ROOT/.gateway.pid")" > "$FEISHU_LOCK_DIR/owner"
+  FEISHU_LOCK_HELD=0
+  trap - EXIT
+fi
+
 # ─── persist port map for follow-up curl / tests ─────────────────────────────
 
+FEISHU_LOCK_ENV_LINE=""
+if [[ "$E2E_PROFILE" == "feishu" ]]; then
+  FEISHU_LOCK_ENV_LINE="export E2E_FEISHU_LISTENER_LOCK=$FEISHU_LOCK_DIR"
+fi
 cat > "$WT_ROOT/.e2e-ports.env" <<EOF
 # Generated by scripts/e2e-up.sh on $(date -u +%Y-%m-%dT%H:%M:%SZ)
 # refactor-387 M3: kernel is in-process; no API_PORT needed.
@@ -285,6 +356,7 @@ export IM_JWT_SECRET=$JWT_SECRET
 export NODE_ID=$NODE_ID
 export VITE_IM_PROXY_TARGET=http://127.0.0.1:$IM_PORT
 export E2E_PROFILE=$E2E_PROFILE
+$FEISHU_LOCK_ENV_LINE
 EOF
 
 echo "e2e stack ready in $WT_ROOT"
