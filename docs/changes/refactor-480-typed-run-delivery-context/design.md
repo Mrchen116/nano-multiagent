@@ -240,11 +240,11 @@ sequenceDiagram
 验收 agent 显式配置非空的 `tool_allowlist`（例如 `bash,read`）；空 allowlist 是
 “禁用所有工具”的产品语义，不能把模型回显的 DSML 标记当作投递回归。
 
-当前默认 e2e 栈不提供可安全重放的外部 Feishu/Lark fixture（见
-[`docs/development/e2e-critical-paths.md`](../../development/e2e-critical-paths.md)）。
-“IM 离线不阻塞外部 channel”只能由另行提供的、隔离的真实 external fixture 闭合；
-fixture 缺失时 reviewer 必须记为产品验收 blocker，不得以 Web IM、mock、源码阅读或
-单元测试替代。
+**真实 external 旅程**：本机 `.env` 的测试 Bot 凭据用于渲染一个不入仓的
+`feishu:plato` static channel config，并通过 `e2e-up.sh --main-config <private-config>`
+启动；脚本只复制该 config，不读取 `.env`。以同一 App 的 Lark 用户身份向 Bot 发送
+唯一 nonce，先确认回信；随后只停止 worktree IM（Gateway 保持运行）并确认下一条
+回信。临时 config、凭据和会话标识均不得写入仓库或验收报告。
 
 ## Milestones
 
