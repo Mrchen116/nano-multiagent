@@ -99,7 +99,7 @@ N/A. 本 unit 没有前端原型或 reference artifact；单文件手册本身�
 | 产品问题按需读取 | `SKILL.md` 仅保留触发后的回答规则、来源边界和七主题路由；入口明确禁止默认加载全部资料 | 真实模型先 `skill_view`，再只 `read(references/getting-started.md)`，没有读取其他专题 |
 | 随安装版本离线回答 | 七份 references 全部位于随包 `nanoassistant-docs/` 内，不依赖源码仓 current docs 或远端服务 | 安装测试逐份比对包资源与目标 root；真实模型不提供网络工具仍完成回答 |
 | 工具前提 | 正常 PA Agent 默认启用 `skill_view` 与 `read`；用户显式关闭 `read` 后不保证详细手册可读，真白名单契约不变 | 配置与 prompt preview 测试断言默认 Agent 同时具备两工具；Gateway canonical/delta GIVEN 已同步 |
-| OpenAI 式渐进加载 | metadata 负责触发，精简入口负责来源和路由，一层 references 负责互不重复的专题正文 | 官方 `quick_validate.py` 通过；入口 38 行 / 3,510 bytes，全部七份 reference 被直接链接且各少于 100 行 |
+| OpenAI 式渐进加载 | metadata 负责触发，精简入口负责来源和路由，一层 references 负责互不重复的专题正文 | 官方 `quick_validate.py` 通过；永久测试动态核对入口直链与随包 Markdown references 一一对应，且没有多层链接、漏链或孤儿文件 |
 | 内置资源完整刷新 | 安装器仍以整个 skill 目录为替换单元，因此 references 随版本一起覆盖并清除旧文件 | `nanoassistant-docs` 加入 managed-directory replacement 参数集；安装后逐份内容一致 |
 | D1/D2/D5 未扩张 | 没有新增 Kernel API、helper、MCP、scripts、assets、PA UI metadata 或前端/API seam | unit diff 无 `src/agent` / `src/IM` 生产改动；contract 136 passed |
 

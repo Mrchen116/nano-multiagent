@@ -5,6 +5,7 @@ import fcntl
 import multiprocessing
 import os
 from pathlib import Path
+import re
 import tomllib
 from types import SimpleNamespace
 from typing import Any
@@ -26,15 +27,21 @@ from personal_assistant.reporter.upstream_reporter import (
 
 
 _PRODUCT_DOCS_SKILL = "nanoassistant-docs"
-_PRODUCT_DOCS_REFERENCES = {
-    "automation.md",
-    "gateway-and-channels.md",
-    "getting-started.md",
-    "overview.md",
-    "skills-tools-memory.md",
-    "troubleshooting.md",
-    "web-im-and-agents.md",
-}
+_REFERENCE_LINK_PATTERN = re.compile(r"]\((references/[^)#?]+\.md)\)")
+
+
+def _packaged_product_docs_root() -> Path:
+    return (
+        Path(__file__).parents[3]
+        / "src"
+        / "personal_assistant"
+        / "builtin_skills"
+        / _PRODUCT_DOCS_SKILL
+    )
+
+
+def _linked_reference_paths(manual: str) -> set[Path]:
+    return {Path(target) for target in _REFERENCE_LINK_PATTERN.findall(manual)}
 
 
 def _install_builtin_skills_process(
@@ -310,9 +317,9 @@ def test_install_builtin_skills_uses_real_cross_process_root_lock(
     assert second.exitcode == 0
     assert second_entered_switch.is_set()
     assert [outcomes.get(timeout=5)[0] for _ in range(2)] == ["ok", "ok"]
-    assert "# Nano Personal Assistant 产品说明书" in stale_manual.read_text(
-        encoding="utf-8"
-    )
+    assert stale_manual.read_text(encoding="utf-8") == (
+        _packaged_product_docs_root() / "SKILL.md"
+    ).read_text(encoding="utf-8")
 
     lock_fd = os.open(
         target_root / builtin_skill_bootstrap._SYNC_LOCK_FILENAME, os.O_RDWR
@@ -463,48 +470,30 @@ def test_installed_builtin_skills_are_visible_to_capabilities_and_skill_view(
 
     assert result["success"] is True
     assert result["content"] == manual
-    assert "# Nano Personal Assistant 产品说明书" in manual
-    assert "## 主题路由" in manual
-    assert "不要默认加载全部资料" in manual
-    assert "# Heartbeat 与 Cron" not in manual
-    assert "# 故障排查" not in manual
-    assert len(manual) < 5_000
     assert len(tool.serialize_result(result)) < tool.max_result_size_chars
 
-    references_root = manual_root / "references"
-    reference_names = {path.name for path in references_root.glob("*.md")}
-    assert reference_names == _PRODUCT_DOCS_REFERENCES
-    for reference_name in sorted(_PRODUCT_DOCS_REFERENCES):
-        assert f"references/{reference_name}" in manual
-        installed_reference = references_root / reference_name
-        packaged_reference = (
-            Path(__file__).parents[3]
-            / "src"
-            / "personal_assistant"
-            / "builtin_skills"
-            / _PRODUCT_DOCS_SKILL
-            / "references"
-            / reference_name
-        )
-        assert installed_reference.read_text(encoding="utf-8") == (
-            packaged_reference.read_text(encoding="utf-8")
-        )
-        assert len(installed_reference.read_text(encoding="utf-8").splitlines()) < 100
+    packaged_root = _packaged_product_docs_root()
+    linked_references = _linked_reference_paths(manual)
+    packaged_references = {
+        path.relative_to(packaged_root)
+        for path in (packaged_root / "references").rglob("*.md")
+    }
+    assert linked_references
+    assert all(path.parent == Path("references") for path in linked_references)
+    assert linked_references == packaged_references
 
-    reference_bundle = "\n".join(
-        (references_root / name).read_text(encoding="utf-8")
-        for name in sorted(_PRODUCT_DOCS_REFERENCES)
-    )
-    for expected_topic in (
-        "Web IM",
-        "Gateway",
-        "Agent 与节点配置",
-        "## 模型",
-        "## Skills",
-        "Tools 与执行权限",
-        "Memory 与会话连续性",
-        "# Heartbeat 与 Cron",
-        "## 飞书渠道",
-        "# 故障排查",
-    ):
-        assert expected_topic in reference_bundle
+    packaged_files = {
+        path.relative_to(packaged_root)
+        for path in packaged_root.rglob("*")
+        if path.is_file()
+    }
+    installed_files = {
+        path.relative_to(manual_root)
+        for path in manual_root.rglob("*")
+        if path.is_file()
+    }
+    assert installed_files == packaged_files
+    for relative_path in packaged_files:
+        assert (manual_root / relative_path).read_bytes() == (
+            packaged_root / relative_path
+        ).read_bytes()
