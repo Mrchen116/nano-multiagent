@@ -74,7 +74,13 @@ class ConversationEngine(Protocol):
     ) -> TurnResult:
         """Execute one serialized turn without owning session identity or storage."""
 
-    async def compact(self, state: ConversationState) -> CompactionResult | None:
+    async def compact(
+        self,
+        state: ConversationState,
+        *,
+        focus: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> CompactionResult | None:
         """Compute and commit one manual compaction for a bound state."""
 
 
@@ -275,7 +281,9 @@ class ConversationSession:
                 usage=state.partial_usage,
             )
 
-    async def compact(self) -> CompactionResult | None:
+    async def compact(
+        self, *, focus: str | None = None, idempotency_key: str | None = None
+    ) -> CompactionResult | None:
         """Run manual compaction in the same transaction domain as turns."""
 
         self._bind_owner_loop()
@@ -283,7 +291,9 @@ class ConversationSession:
             try:
                 async with self._turn_gate:
                     state = await self._ensure_loaded()
-                    return await self._engine.compact(state)
+                    return await self._engine.compact(
+                        state, focus=focus, idempotency_key=idempotency_key
+                    )
             finally:
                 self._note_quiescent()
 

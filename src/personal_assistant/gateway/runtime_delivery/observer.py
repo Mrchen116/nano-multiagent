@@ -274,6 +274,7 @@ def build_kernel_event_observer(
                 task_tracker.start(
                     shadow_output_mirror(output),
                     name=f"shadow-agent-mirror:{rid}:{phase}",
+                    run_id=rid,
                 )
         bubble_key = kernel_message_id or ctx.message_id or f"text:{cleaned_text}"
         metadata: dict[str, str] = {
@@ -283,7 +284,7 @@ def build_kernel_event_observer(
         }
         result = external_reply_sender(cleaned_text, metadata)
         if asyncio.iscoroutine(result):
-            task_tracker.start(result, name=f"external-reply:{rid}:{phase}")
+            task_tracker.start(result, name=f"external-reply:{rid}:{phase}", run_id=rid)
 
     def _mirror_external_permission_request(
         *, rid: str, ctx: RunDeliveryContext, request: Mapping[str, Any]
@@ -296,7 +297,9 @@ def build_kernel_event_observer(
         metadata["run_id"] = rid
         result = external_permission_request_sender(request, metadata)
         if asyncio.iscoroutine(result):
-            task_tracker.start(result, name=f"external-permission-request:{rid}")
+            task_tracker.start(
+                result, name=f"external-permission-request:{rid}", run_id=rid
+            )
 
     def _mirror_external_permission_resolved(
         *, ctx: RunDeliveryContext, request_id: str, decision: str
@@ -479,6 +482,39 @@ def build_kernel_event_observer(
         if ctx is None:
             return _PreparedEvent(handled=True, result=None)
         event_name = str(event.get("event") or "").strip()
+        if isinstance(run_context_store, RunDeliveryContextStore):
+            if event_name == "run_reset_discard":
+
+                async def _discard_reset_bubble() -> None:
+                    if ctx.get("shadow_saga_id") and shadow_bubble_record is not None:
+                        _record_shadow(rid=run_id, ctx=ctx, kind="discard")
+                    message_id = ctx.get("message_id") or ""
+                    if manager is not None and manager.connected and message_id:
+                        await _send(
+                            manager,
+                            "node.streaming_delta",
+                            {
+                                "kind": "message_discarded",
+                                "message_id": message_id,
+                                "run_id": run_id,
+                                "reason": "new_session",
+                            },
+                        )
+                    _finish_shadow_live_run(manager, rid=run_id)
+
+                return _discard_reset_bubble()
+            if run_context_store.is_quiescing(run_id):
+
+                async def _defer_until_reset_decides() -> None:
+                    if not await run_context_store.await_visibility(run_id):
+                        return
+                    deferred = observer(event)
+                    if asyncio.iscoroutine(deferred):
+                        await deferred
+
+                return _defer_until_reset_decides()
+            if run_context_store.is_suppressed(run_id):
+                return None
         if event_name in {"turn_end", "run_terminal_reconcile"}:
             _clear_run_visible_reasoning(run_id)
         conversation_id = ctx.conversation_id
@@ -488,6 +524,7 @@ def build_kernel_event_observer(
             task_tracker.start(
                 asyncio.to_thread(skill_created_handler, agent_id, event),
                 name=f"skill-created:{agent_id}",
+                run_id=run_id,
             )
             return _PreparedEvent(handled=True, result=None)
 
@@ -1181,6 +1218,7 @@ def build_kernel_event_observer(
                             },
                         ),
                         name=f"thinking-segment:{run_id}",
+                        run_id=run_id,
                     )
                     _mark_visible_reasoning(
                         rid=run_id, group_id=group_id, reasoning=reasoning
@@ -1198,6 +1236,7 @@ def build_kernel_event_observer(
                             },
                         ),
                         name=f"message-delta:{run_id}",
+                        run_id=run_id,
                     )
             elif content and conversation_id and agent_id:
                 # Kernel skipped run_status=running; send turn_start inline and await ack
@@ -1367,6 +1406,7 @@ def build_kernel_event_observer(
                 task_tracker.start(
                     _complete_and_reconcile(),
                     name=f"message-completed:{run_id}",
+                    run_id=run_id,
                 )
                 return None
             if (
@@ -1378,6 +1418,7 @@ def build_kernel_event_observer(
                 task_tracker.start(
                     _reconcile_ready_snapshot(shadow_snapshot),
                     name=f"shadow-agent-reconcile:{run_id}",
+                    run_id=run_id,
                 )
             _finish_shadow_live_run(manager, rid=run_id)
 
@@ -1416,6 +1457,7 @@ def build_kernel_event_observer(
                         },
                     ),
                     name=f"run-heartbeat:{run_id}",
+                    run_id=run_id,
                 )
 
         elif event_name == "tool_start":
@@ -1479,6 +1521,7 @@ def build_kernel_event_observer(
                         start_payload,
                     ),
                     name=f"tool-start:{run_id}:{call_id}",
+                    run_id=run_id,
                 )
 
         elif event_name == "tool_end":
@@ -1568,6 +1611,7 @@ def build_kernel_event_observer(
                         terminal_payload,
                     ),
                     name=f"tool-terminal:{run_id}:{call_id}",
+                    run_id=run_id,
                 )
 
         elif event_name == "permission_request":
@@ -1604,6 +1648,7 @@ def build_kernel_event_observer(
                         },
                     ),
                     name=f"permission-request:{run_id}:{request_id}",
+                    run_id=run_id,
                 )
             _mirror_external_permission_request(
                 rid=run_id,
@@ -1630,6 +1675,7 @@ def build_kernel_event_observer(
                         },
                     ),
                     name=f"permission-resolved:{run_id}:{request_id}",
+                    run_id=run_id,
                 )
             _mirror_external_permission_resolved(
                 ctx=ctx,
@@ -1859,6 +1905,7 @@ def build_kernel_event_observer(
                 task_tracker.start(
                     _complete_abnormal_terminal(),
                     name=f"bubble-finalize:{run_id}",
+                    run_id=run_id,
                 )
 
     event_handlers: dict[

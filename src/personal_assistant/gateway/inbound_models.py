@@ -27,6 +27,7 @@ class InboundRunRequest:
     agent: LiveAgentSnapshot
     session_key: str
     sender_label: str
+    generation: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +43,32 @@ class StopRunRequest:
     message: InboundMessage
     agent: LiveAgentSnapshot
     session_key: str
+
+
+@dataclass(frozen=True, slots=True)
+class NewSessionRequest:
+    """Capture one routed request to replace the current Kernel session.
+
+    ``operation_id`` is the stable ingress identity when the channel supplied one.
+    Replayed external events and relay tasks use it to return the first reset outcome
+    instead of creating another session.
+    """
+
+    message: InboundMessage
+    agent: LiveAgentSnapshot
+    session_key: str
+    operation_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CompactSessionRequest:
+    """Capture one routed explicit compaction request."""
+
+    message: InboundMessage
+    agent: LiveAgentSnapshot
+    session_key: str
+    focus: str | None = None
+    operation_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

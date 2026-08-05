@@ -274,6 +274,10 @@ def _build_inbound(
         and not metadata.get("mentioned_agent_ids")
     ):
         metadata["mentioned_agent_ids"] = [external_agent_id]
+        # This preserves legacy shadow-turn routing, but it is not a user-authored
+        # @ mention. Gateway uses the marker to keep destructive controls behind
+        # an explicit mention/reply gate in group conversations.
+        metadata["implicit_external_agent_target"] = True
     return InboundMessage(
         channel_name="web_relay",
         text=envelope.content,

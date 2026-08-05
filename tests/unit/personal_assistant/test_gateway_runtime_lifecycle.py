@@ -97,6 +97,51 @@ def test_startup_action_runs_once_before_channel_producers(
     assert outcome.get("exit_code") == 0
 
 
+def test_external_control_recovery_runs_after_cached_channels_without_im(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Restart delivery reaches Feishu after its cached channel is live, even offline IM."""
+    from personal_assistant.gateway import runtime as gateway_runtime
+
+    events: list[str] = []
+
+    def _start_channels(*_args: object) -> tuple[str, ...]:
+        events.append("channels.start")
+        return ()
+
+    monkeypatch.setattr(gateway_runtime, "start_channels", _start_channels)
+
+    class _ManagedChannels:
+        async def start_cached(self) -> None:
+            events.append("channels.cached_ready")
+
+        async def close(self, _deadline: float) -> None:
+            events.append("channels.close")
+
+    async def _recover() -> None:
+        events.append("external_control.recover")
+
+    runtime = GatewayRuntime(
+        make_config(tmp_path),
+        managed_channel_control=_ManagedChannels(),
+        external_control_recovery=_recover,
+    )
+
+    thread, outcome = run_in_thread(runtime)
+    try:
+        assert runtime.wait_until_ready(timeout=2.0) is True
+        assert events[:3] == [
+            "channels.start",
+            "channels.cached_ready",
+            "external_control.recover",
+        ]
+    finally:
+        runtime.request_shutdown()
+        thread.join(timeout=5.0)
+
+    assert outcome.get("exit_code") == 0
+
+
 def test_gateway_survives_unreachable_im_at_startup(tmp_path: Path) -> None:
     """Gateway reaches ready even when IM is unreachable at startup."""
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
@@ -78,6 +79,9 @@ from personal_assistant.gateway.internal_dispatch import (
     InternalDispatchHandler,
 )
 from personal_assistant.gateway.outbound_router import OutboundRouter
+from personal_assistant.gateway.external_control_delivery import (
+    ExternalControlDeliveryMaterializer,
+)
 from personal_assistant.gateway.boundary_outbox import BoundaryOutboxDispatcher
 from personal_assistant.gateway.shadow_saga import ExternalShadowSagaStore
 from personal_assistant.gateway.session_keys import PersistentSessionBindingStore
@@ -267,6 +271,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
     _owner_user_id = config.node.user_id or ""
     _gateway_internal_port = 0
     shadow_sync: IMShadowConversationSync | None = None
+    external_control_delivery: ExternalControlDeliveryMaterializer | None = None
     connection_ready_coordinator: connection_ready.ConnectionReadyCoordinator | None = (
         None
     )
@@ -427,6 +432,20 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
 
     runtime_delivery_tasks = RuntimeDeliveryTaskTracker()
     shadow_output_prepare = None
+    if shadow_sync is not None:
+        external_control_delivery = ExternalControlDeliveryMaterializer(
+            session_binder=session_binder,
+            outbound_router=outbound_router,
+            shadow_sync=shadow_sync,
+        )
+
+    async def _recover_external_control_and_shadows() -> None:
+        """Resume the binder-to-saga handoff before ordinary shadow replay."""
+
+        if external_control_delivery is not None:
+            await external_control_delivery.drain()
+        if shadow_sync is not None:
+            await shadow_sync.recover_pending()
 
     def _notify_shadow_pending() -> None:
         if connection_ready_coordinator is not None:
@@ -471,6 +490,29 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         session_event_callback=session_event_callback,
         bg_reply_sender=bg_reply_sender,
     )
+
+    async def _quiesce_run_delivery(run_id: str) -> None:
+        """Hold new old-run output, then settle already permitted delivery."""
+
+        run_delivery_contexts.quiesce(run_id)
+        await runtime_delivery_tasks.drain_run(run_id)
+
+    def _restore_run_delivery(run_id: str) -> None:
+        """Release deferred old-run output when reset publication aborts."""
+
+        run_delivery_contexts.restore(run_id)
+
+    async def _commit_run_delivery(run_id: str) -> None:
+        """Revoke old output and close any pre-existing provisional IM bubble."""
+
+        run_delivery_contexts.suppress(run_id)
+        result = _kernel_event_observer(
+            {"event": "run_reset_discard", "run_id": run_id}
+        )
+        if asyncio.iscoroutine(result):
+            await result
+        runtime_delivery_tasks.cancel_run(run_id)
+
     run_coordinator = SessionRunCoordinator(
         kernel=kernel,
         session_binder=session_binder,
@@ -485,6 +527,14 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         bg_reply_sender=bg_reply_sender,
         node_id=config.node.node_id,
         boundary_outbox=boundary_outbox,
+        quiesce_run_delivery=_quiesce_run_delivery,
+        restore_run_delivery=_restore_run_delivery,
+        commit_run_delivery=_commit_run_delivery,
+        drain_external_control_deliveries=(
+            external_control_delivery.drain
+            if external_control_delivery is not None
+            else None
+        ),
         background_subscriptions=background_subscriptions,
         image_resolver=image_resolver,
     )
@@ -519,7 +569,9 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
             agent_ids=(agent.agent_id for agent in config.agents),
             boundary_outbox=boundary_outbox,
             recover_external_shadows=(
-                shadow_sync.recover_pending if shadow_sync is not None else None
+                _recover_external_control_and_shadows
+                if shadow_sync is not None
+                else None
             ),
         )
 
@@ -616,6 +668,11 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         managed_channel_control=managed_channel_control,
         run_coordinator=run_coordinator,
         runtime_delivery_tasks=runtime_delivery_tasks,
+        external_control_recovery=(
+            external_control_delivery.drain
+            if external_control_delivery is not None
+            else None
+        ),
         gateway_internal_port=_gateway_internal_port,
     )
 

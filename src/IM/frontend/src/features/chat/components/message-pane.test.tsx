@@ -2590,6 +2590,28 @@ describe("MessagePane", () => {
       expect(screen.getByText("pr-review")).toBeInTheDocument();
     });
 
+    it.each(["/new", "/compact"])(
+      "submits exact %s with Enter instead of trapping it in the slash picker",
+      async (command) => {
+        const user = userEvent.setup();
+        const onSend = vi.fn();
+        render(
+          <MessagePane
+            conversation={DIRECT_CONV}
+            messages={[]}
+            mentionCandidates={[]}
+            slashSkills={SLASH_SKILLS}
+            onSend={onSend}
+          />
+        );
+        const box = screen.getByRole("textbox") as HTMLTextAreaElement;
+        await user.type(box, command);
+        await user.keyboard("{Enter}");
+        expect(onSend).toHaveBeenCalledWith(command, []);
+        expect(box.value).toBe("");
+      }
+    );
+
     it("inserts /skill:name when a skill is selected", async () => {
       const user = userEvent.setup();
       render(

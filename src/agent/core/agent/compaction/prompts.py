@@ -121,9 +121,17 @@ _RESUME_INSTRUCTION = (
 )
 
 
-def get_compact_prompt() -> str:
-    """Return the full compact summary prompt for the summarizer user message."""
-    return NO_TOOLS_PREAMBLE + BASE_COMPACT_PROMPT + NO_TOOLS_TRAILER
+def get_compact_prompt(*, focus: str | None = None) -> str:
+    """Return the full compact summary prompt, optionally prioritizing one focus."""
+
+    prompt = NO_TOOLS_PREAMBLE + BASE_COMPACT_PROMPT + NO_TOOLS_TRAILER
+    if not focus:
+        return prompt
+    return (
+        f"{prompt}\n\nUser-specified focus:\n{focus}\n\n"
+        "Prioritize preserving facts relevant to that focus. Do not invent facts "
+        "that are not present in the conversation."
+    )
 
 
 def format_compact_summary(summary: str) -> str:

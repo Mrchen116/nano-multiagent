@@ -13,7 +13,9 @@ from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
 from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.gateway.inbound_models import (
+    CompactSessionRequest,
     InboundRunRequest,
+    NewSessionRequest,
     PipelineResult,
     StopRunRequest,
     build_group_context_key,
@@ -111,8 +113,12 @@ class InboundPipeline:
 
         agent_id = self._resolve_agent(message)
         agent = self._agent_catalog.require(agent_id)
+        command, focus = self._parse_control_command(message, agent_id=agent_id)
         should_process = self._should_process(
-            message, agent_id=agent_id, agent_config=agent.config
+            message,
+            agent_id=agent_id,
+            agent_config=agent.config,
+            control_command=command,
         )
         sender_label = _resolve_sender_label(message)
         sync_only = message.metadata.get("sync_only") is True
@@ -129,12 +135,31 @@ class InboundPipeline:
             return None
 
         session_key = build_session_key(message, agent_id=agent_id)
-        if self._is_stop_command(message, agent_id=agent_id):
+        if command == "stop":
             return await self._run_coordinator.stop(
                 StopRunRequest(
                     message=message,
                     agent=agent,
                     session_key=session_key,
+                )
+            )
+        if command == "new":
+            return await self._run_coordinator.new_session(
+                NewSessionRequest(
+                    message=message,
+                    agent=agent,
+                    session_key=session_key,
+                    operation_id=self._control_operation_id(message),
+                )
+            )
+        if command == "compact":
+            return await self._run_coordinator.compact(
+                CompactSessionRequest(
+                    message=message,
+                    agent=agent,
+                    session_key=session_key,
+                    focus=focus,
+                    operation_id=self._control_operation_id(message),
                 )
             )
         return await self._run_coordinator.dispatch(
@@ -235,11 +260,22 @@ class InboundPipeline:
         *,
         agent_id: str,
         agent_config: AgentWorkspaceConfig,
+        control_command: str | None = None,
     ) -> bool:
         if not message.is_group:
             return True
         if message.text.strip() == "/stop":
             return True
+        # A web-relay external shadow historically synthesizes a target Agent when
+        # relaying a group message without a mention.  It remains valid for normal
+        # conversational turns, but must not turn `/new` or `/compact` into a bare
+        # destructive group command.
+        if (
+            control_command in {"new", "compact"}
+            and message.metadata.get("implicit_external_agent_target") is True
+        ):
+            reply_to = message.metadata.get("reply_to_agent_id")
+            return isinstance(reply_to, str) and reply_to.strip() == agent_id
         if (agent_config.group_reply_policy or "MENTION").upper() == "ALWAYS":
             return True
         mentioned = message.metadata.get("mentioned_agent_ids")
@@ -251,21 +287,25 @@ class InboundPipeline:
         return f"@{agent_id}" in message.text
 
     @staticmethod
-    def _is_stop_command(message: InboundMessage, *, agent_id: str) -> bool:
+    def _parse_control_command(
+        message: InboundMessage, *, agent_id: str
+    ) -> tuple[str | None, str | None]:
+        """Return one exact control command and optional compact focus.
+
+        Mention stripping deliberately remains here at the shared inbound seam so
+        Web IM and Feishu cannot acquire subtly different command grammars.
+        """
+
         text = message.text.strip()
-        if text == "/stop":
-            return True
         mentioned = message.metadata.get("mentioned_agent_ids")
         structurally_mentioned = isinstance(mentioned, list) and agent_id in mentioned
         reply_to = message.metadata.get("reply_to_agent_id")
         structurally_mentioned = structurally_mentioned or (
             isinstance(reply_to, str) and reply_to.strip() == agent_id
         )
-        if not structurally_mentioned:
-            return text.replace(f"@{agent_id}", "").strip() == "/stop"
         candidates = {f"@{agent_id}"}
         feishu_mentions = message.metadata.get("feishu_mentions")
-        if isinstance(feishu_mentions, list):
+        if structurally_mentioned and isinstance(feishu_mentions, list):
             for mention in feishu_mentions:
                 if not isinstance(mention, Mapping):
                     continue
@@ -278,7 +318,33 @@ class InboundPipeline:
         normalized = text
         for mention in sorted(candidates, key=len, reverse=True):
             normalized = normalized.replace(mention, " ")
-        return " ".join(normalized.split()) == "/stop"
+        normalized = " ".join(normalized.split())
+        if normalized == "/stop":
+            return "stop", None
+        if normalized == "/new":
+            return "new", None
+        if normalized == "/compact":
+            return "compact", None
+        if normalized.startswith("/compact "):
+            focus = normalized[len("/compact ") :].strip()
+            if focus:
+                return "compact", focus
+        return None, None
+
+    @staticmethod
+    def _control_operation_id(message: InboundMessage) -> str | None:
+        """Return the durable ingress identity usable for a replay-safe control."""
+
+        protocol = runtime_protocol_or_derive(message)
+        if protocol.shadow_saga_id:
+            return f"shadow:{protocol.shadow_saga_id}"
+        for prefix, value in (
+            ("relay", protocol.relay_task_id),
+            ("relay", protocol.idempotency_key),
+        ):
+            if value:
+                return f"{prefix}:{value}"
+        return None
 
 
 def _resolve_sender_label(message: InboundMessage) -> str:

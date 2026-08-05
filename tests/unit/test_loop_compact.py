@@ -398,9 +398,11 @@ class _RecordingFork:
 
     def __init__(self) -> None:
         self.model_overrides: list[str | None] = []
+        self.user_prompts: list[str] = []
 
     async def execute(self, *, state, model_override=None, **kwargs):  # noqa: ANN001
         self.model_overrides.append(model_override)
+        self.user_prompts.append(state.user_text)
         return build_turn_result(
             state.session_id,
             state.turn_id,
@@ -444,6 +446,39 @@ async def test_compaction_summarizer_ignores_override_when_fork_is_dedicated() -
     )
 
     assert fork.model_overrides == [None]
+
+
+async def test_manual_compaction_focus_is_only_a_summary_instruction() -> None:
+    from agent.core.agent.compaction.summarizer import CompactionSummarizer
+
+    fork = _RecordingFork()
+    summarizer = CompactionSummarizer(fork=fork)
+
+    await summarizer.summarize(
+        session_id="sess_x",
+        system_prompt="sys",
+        dropped_messages=[Message(message_id="d", role="user", content="old")],
+        focus="保留认证方案与未完成项",
+        strict=True,
+    )
+
+    assert "保留认证方案与未完成项" in fork.user_prompts[0]
+
+
+async def test_strict_manual_compaction_never_returns_the_automatic_fallback() -> None:
+    from agent.core.agent.compaction.summarizer import CompactionSummarizer
+
+    summarizer = CompactionSummarizer(fork=_RecordingFork())
+
+    assert (
+        await summarizer.summarize(
+            session_id="sess_x",
+            system_prompt="sys",
+            dropped_messages=(),
+            strict=True,
+        )
+        is None
+    )
 
 
 def _init_per_model_window_registry() -> None:

@@ -374,6 +374,8 @@ class JsonlTranscript:
         reason: str,
         restored_files: Sequence[str] = (),
         expected_external_epoch: int | None = None,
+        manual_idempotency_key: str | None = None,
+        result_data: Mapping[str, Any] | None = None,
     ) -> bool:
         """Atomically append a boundary and replacement messages when capture is fresh."""
 
@@ -386,27 +388,75 @@ class JsonlTranscript:
             summary_uuid = summary.message_id
             if not summary_uuid:
                 raise ValueError("compaction summary requires uuid")
-            self._writer.enqueue_raw(
-                self._path,
-                {
-                    "type": "compact_boundary",
-                    "session_id": self._ref.session_id,
-                    "timestamp": utc_now_iso(),
-                    "summary_uuid": summary_uuid,
-                    "data": {
-                        "reason": reason,
-                        "restored_files": list(restored_files),
-                    },
+            boundary = {
+                "type": "compact_boundary",
+                "session_id": self._ref.session_id,
+                "timestamp": utc_now_iso(),
+                "summary_uuid": summary_uuid,
+                "data": {
+                    "reason": reason,
+                    "restored_files": list(restored_files),
+                    **(
+                        {"manual_idempotency_key": manual_idempotency_key}
+                        if manual_idempotency_key is not None
+                        else {}
+                    ),
+                    **dict(result_data or {}),
                 },
+            }
+            replacement_entries = []
+            for message in (summary, *reinjections):
+                entry = _message_to_raw(message, self._ref.session_id)
+                message_id = entry.get("uuid")
+                if not isinstance(message_id, str) or not message_id:
+                    raise ValueError("turn entry requires uuid")
+                entry["type"] = "turn"
+                entry["session_id"] = self._ref.session_id
+                entry["timestamp"] = entry.get("timestamp") or utc_now_iso()
+                replacement_entries.append(entry)
+            self._ensure_tail_locked()
+            self._writer.enqueue_atomic_batch(
+                self._path, [boundary, *replacement_entries]
             )
-            self._append_turn_entries_locked(
-                [
-                    _message_to_raw(message, self._ref.session_id)
-                    for message in (summary, *reinjections)
-                ],
-                durable=True,
-            )
+            self._writer.durable_barrier(self._path)
+            self._tail_uuid = replacement_entries[-1]["uuid"]
+            self._tail_known = True
             return True
+
+    def find_manual_compaction(self, idempotency_key: str) -> Mapping[str, Any] | None:
+        """Return the persisted manual-compaction result for one replay key."""
+
+        with self._mutex:
+            self._writer.durable_barrier(self._path)
+            raw = list(self._files.read_raw_entries(self._ref))
+        turns = {
+            entry.get("uuid"): entry
+            for entry in raw
+            if entry.get("type") == "turn" and isinstance(entry.get("uuid"), str)
+        }
+        for entry in reversed(raw):
+            if entry.get("type") != "compact_boundary":
+                continue
+            data = entry.get("data")
+            if (
+                not isinstance(data, Mapping)
+                or data.get("manual_idempotency_key") != idempotency_key
+            ):
+                continue
+            summary_uuid = entry.get("summary_uuid")
+            if not isinstance(summary_uuid, str) or not summary_uuid:
+                continue
+            summary_entry = turns.get(summary_uuid)
+            if summary_entry is None:
+                continue
+            return {
+                "entry_id": summary_uuid,
+                "summary": str(summary_entry.get("content") or ""),
+                "first_kept_event_id": str(data.get("first_kept_event_id") or ""),
+                "dropped_event_ids": tuple(data.get("dropped_event_ids") or ()),
+                "kept_event_ids": tuple(data.get("kept_event_ids") or ()),
+            }
+        return None
 
     def _append_turn_entries_locked(
         self,

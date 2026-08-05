@@ -291,7 +291,13 @@ class AgentEngine:
             raise RuntimeError("agent engine method requires an active conversation")
         return state
 
-    async def compact(self, state: ConversationState) -> CompactionResult | None:
+    async def compact(
+        self,
+        state: ConversationState,
+        *,
+        focus: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> CompactionResult | None:
         """Run manual compaction against one caller-owned conversation state."""
 
         token = self._active_state.set(state)
@@ -299,6 +305,8 @@ class AgentEngine:
             return await self._compact_session(
                 session_id=state.ref.session_id,
                 reason=CompactionReason.MANUAL,
+                focus=focus,
+                idempotency_key=idempotency_key,
             )
         finally:
             self._active_state.reset(token)
@@ -1819,10 +1827,23 @@ class AgentEngine:
         *,
         session_id: str,
         reason: CompactionReason,
+        focus: str | None = None,
+        idempotency_key: str | None = None,
     ) -> CompactionResult | None:
         # Compaction always runs on a session that has been loaded by a prior
         # run(), so its config (and thus workspace_root) is cached here.
         conversation = self._state()
+        if reason is CompactionReason.MANUAL and idempotency_key:
+            prior = conversation.transcript.find_manual_compaction(idempotency_key)
+            if prior is not None:
+                return CompactionResult(
+                    reason=CompactionReason.MANUAL,
+                    entry_id=str(prior["entry_id"]),
+                    first_kept_event_id=str(prior["first_kept_event_id"]),
+                    summary=str(prior["summary"]),
+                    dropped_event_ids=tuple(prior["dropped_event_ids"]),
+                    kept_event_ids=tuple(prior["kept_event_ids"]),
+                )
         captured_external_epoch = conversation.transcript.external_epoch
         config = conversation.config
         compaction_workspace_root = config.workspace_root
@@ -1845,15 +1866,19 @@ class AgentEngine:
         dropped_messages = tuple(
             message_from_turn_entry(entry) for entry in plan.dropped_events
         )
+        summary_kwargs: dict[str, Any] = {
+            "session_id": session_id,
+            "system_prompt": rendered_system_prompt,
+            "dropped_messages": dropped_messages,
+            "model_override": self.resolve_run_model(session_id),
+        }
+        if reason is CompactionReason.MANUAL:
+            summary_kwargs.update({"focus": focus, "strict": True})
         summary = await self._compaction_summarizer.summarize(
-            session_id=session_id,
-            system_prompt=rendered_system_prompt,
-            dropped_messages=dropped_messages,
-            # bugfix-429 fix-r1 #2: summarize with this run's model. The
-            # summary_model mutual-exclusion is owned by CompactionSummarizer
-            # (bugfix-443 fix1 altitude #3).
-            model_override=self.resolve_run_model(session_id),
+            **summary_kwargs,
         )
+        if summary is None:
+            raise RuntimeError("manual compaction summary could not be generated")
 
         # Post-compact file restore: read up to 5 most recently accessed files.
         file_state = conversation.file_state
@@ -1909,25 +1934,35 @@ class AgentEngine:
         # second write is removed. The memory reset is load-bearing — the next run's
         # conversation state is the cache-first source, so replace it only after
         # the boundary and summary are durably committed.
+        result = self._compaction_applier.apply(
+            plan=plan,
+            summary=summary,
+            summary_uuid=summary_msg.message_id,
+        )
         committed = conversation.transcript.append_compaction(
             summary=summary_msg,
             reinjections=(reinjection_msg,) if reinjection_msg is not None else (),
             reason=reason.value,
             restored_files=restored_files,
             expected_external_epoch=captured_external_epoch,
+            manual_idempotency_key=(
+                idempotency_key if reason is CompactionReason.MANUAL else None
+            ),
+            result_data={
+                "first_kept_event_id": result.first_kept_event_id,
+                "dropped_event_ids": list(result.dropped_event_ids),
+                "kept_event_ids": list(result.kept_event_ids),
+            },
         )
         if not committed:
+            if reason is CompactionReason.MANUAL:
+                raise RuntimeError("manual compaction was not committed")
             return None
         conversation.history[:] = compacted_messages
         self._invalidate_memory_snapshot(session_id)
 
         # Build the result object from the already-persisted direct write (no
         # second persistence): entry_id aligns with the on-disk summary_uuid.
-        result = self._compaction_applier.apply(
-            plan=plan,
-            summary=summary,
-            summary_uuid=summary_msg.message_id,
-        )
         await self._dispatch_observe(
             "session_compact",
             {

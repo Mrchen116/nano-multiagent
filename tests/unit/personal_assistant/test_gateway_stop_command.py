@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -220,6 +221,274 @@ def test_stop_command_with_no_active_run_returns_friendly_message(
         if any("stop" in t.lower() for t in c.get("texts", []))
     ]
     assert stop_text_calls == []
+
+
+def test_new_command_replaces_the_current_binding_without_erasing_the_chat(
+    tmp_path: Path,
+) -> None:
+    """`/new` keeps the channel target but gives the next turn a new session."""
+
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web")
+    kernel = _FakeKernel()
+    pipeline = build_inbound_pipeline(
+        kernel=kernel,
+        agents=agents,
+        outbound_router=OutboundRouter(ChannelRegistry((channel,))),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+    first = InboundMessage(
+        channel_name="web",
+        text="continue the old task",
+        external_user_id="user-1",
+        external_chat_id="chat-1",
+        is_group=False,
+    )
+    assert asyncio.run(pipeline.handle_inbound(first)) is not None
+
+    result = asyncio.run(pipeline.handle_inbound(replace(first, text="/new")))
+
+    assert result is not None
+    assert result.reply_text == "已开始新会话。"
+    assert result.kernel_session_id == "sess-2"
+    assert [call["session_id"] for call in kernel.send_calls] == ["sess-1"]
+    assert [call["workspace_root"] for call in kernel.create_session_calls] == [
+        str(agents[0].workspace_root),
+        str(agents[0].workspace_root),
+    ]
+    assert channel.sent[-1].text == "已开始新会话。"
+
+
+def test_new_requires_an_explicit_group_target_but_stop_remains_the_exception(
+    tmp_path: Path,
+) -> None:
+    agents = _mention_agents(tmp_path)
+    channel = _FakeChannel("web_relay")
+    kernel = _FakeKernel()
+    pipeline = build_inbound_pipeline(
+        kernel=kernel,
+        agents=agents,
+        outbound_router=OutboundRouter(ChannelRegistry((channel,))),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+    bare = InboundMessage(
+        channel_name="web_relay",
+        text="/new",
+        external_user_id="user-1",
+        external_chat_id="group-1",
+        is_group=True,
+    )
+    mentioned = replace(
+        bare,
+        text="@agent-a /new",
+        metadata={"mentioned_agent_ids": ["agent-a"]},
+    )
+
+    assert asyncio.run(pipeline.handle_inbound(bare)) is None
+    result = asyncio.run(pipeline.handle_inbound(mentioned))
+
+    assert result is not None
+    assert result.reply_text == "已开始新会话。"
+    assert len(kernel.create_session_calls) == 1
+
+
+def test_implicit_external_shadow_target_cannot_authorize_group_controls(
+    tmp_path: Path,
+) -> None:
+    """Synthetic shadow routing must not impersonate a user @ mention for `/new`."""
+
+    agents = _mention_agents(tmp_path)
+    channel = _FakeChannel("web_relay")
+    kernel = _FakeKernel()
+    pipeline = build_inbound_pipeline(
+        kernel=kernel,
+        agents=agents,
+        outbound_router=OutboundRouter(ChannelRegistry((channel,))),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+    synthetic = InboundMessage(
+        channel_name="web_relay",
+        text="/compact",
+        external_user_id="user-1",
+        external_chat_id="group-1",
+        is_group=True,
+        agent_id="agent-a",
+        metadata={
+            "mentioned_agent_ids": ["agent-a"],
+            "implicit_external_agent_target": True,
+        },
+    )
+
+    assert asyncio.run(pipeline.handle_inbound(synthetic)) is None
+    assert kernel.create_session_calls == []
+    assert kernel.compact_calls == []
+
+
+def test_new_replay_with_a_stable_ingress_id_does_not_create_another_session(
+    tmp_path: Path,
+) -> None:
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web_relay")
+    kernel = _FakeKernel()
+    pipeline = build_inbound_pipeline(
+        kernel=kernel,
+        agents=agents,
+        outbound_router=OutboundRouter(ChannelRegistry((channel,))),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+    inbound = InboundMessage(
+        channel_name="web_relay",
+        text="/new",
+        external_user_id="user-1",
+        external_chat_id="chat-1",
+        is_group=False,
+        metadata={"relay_task_id": "relay-new-1"},
+    )
+
+    first = asyncio.run(pipeline.handle_inbound(inbound))
+    second = asyncio.run(pipeline.handle_inbound(inbound))
+
+    assert first is not None and second is not None
+    assert first.kernel_session_id == second.kernel_session_id == "sess-1"
+    assert len(kernel.create_session_calls) == 1
+
+
+def test_new_ack_uses_an_im_dispatch_identity_that_the_web_relay_accepts(
+    tmp_path: Path,
+) -> None:
+    """A `/new` reply is visible in Web IM instead of being rejected as malformed."""
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web_relay")
+    delivered: list[tuple[str, str]] = []
+
+    async def _fake_bg_sender(text, _reply_context, from_session_id):
+        delivered.append((text, from_session_id))
+
+    pipeline = build_inbound_pipeline(
+        kernel=_FakeKernel(),
+        agents=agents,
+        outbound_router=OutboundRouter(ChannelRegistry((channel,))),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+        bg_reply_sender=_fake_bg_sender,
+    )
+    result = asyncio.run(
+        pipeline.handle_inbound(
+            InboundMessage(
+                channel_name="web_relay",
+                text="/new",
+                external_user_id="user-1",
+                external_chat_id="chat-1",
+                is_group=False,
+                metadata={"relay_task_id": "relay-new-1"},
+            )
+        )
+    )
+
+    assert result is not None
+    assert delivered == [
+        (
+            "已开始新会话。",
+            "agent-a|tool_call:control:new-ack:relay:relay-new-1",
+        )
+    ]
+
+
+def test_compact_with_focus_uses_the_current_binding_without_creating_a_turn(
+    tmp_path: Path,
+) -> None:
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web")
+    kernel = _FakeKernel()
+    pipeline = build_inbound_pipeline(
+        kernel=kernel,
+        agents=agents,
+        outbound_router=OutboundRouter(ChannelRegistry((channel,))),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+    first = InboundMessage(
+        channel_name="web",
+        text="work before a transition",
+        external_user_id="user-1",
+        external_chat_id="chat-1",
+        is_group=False,
+    )
+    assert asyncio.run(pipeline.handle_inbound(first)) is not None
+
+    result = asyncio.run(
+        pipeline.handle_inbound(
+            replace(
+                first,
+                text="/compact 保留认证方案与未完成项",
+                metadata={"relay_task_id": "relay-compact-1"},
+            )
+        )
+    )
+    replay = asyncio.run(
+        pipeline.handle_inbound(
+            replace(
+                first,
+                text="/compact 保留认证方案与未完成项",
+                metadata={"relay_task_id": "relay-compact-1"},
+            )
+        )
+    )
+
+    assert result is not None and replay is not None
+    assert result.reply_text == "已按关注点压缩当前会话。"
+    assert replay.reply_text == result.reply_text
+    assert kernel.compact_calls == [
+        {
+            "session_id": "sess-1",
+            "workspace_root": str(agents[0].workspace_root),
+            "focus": "保留认证方案与未完成项",
+            "idempotency_key": "relay:relay-compact-1",
+        }
+    ]
+    assert [call["session_id"] for call in kernel.send_calls] == ["sess-1"]
+
+
+def test_compact_without_a_current_binding_does_not_create_an_empty_session(
+    tmp_path: Path,
+) -> None:
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web")
+    kernel = _FakeKernel()
+    pipeline = build_inbound_pipeline(
+        kernel=kernel,
+        agents=agents,
+        outbound_router=OutboundRouter(ChannelRegistry((channel,))),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+    result = asyncio.run(
+        pipeline.handle_inbound(
+            InboundMessage(
+                channel_name="web",
+                text="/compact",
+                external_user_id="user-1",
+                external_chat_id="chat-1",
+                is_group=False,
+            )
+        )
+    )
+
+    assert result is not None
+    assert result.reply_text == "当前历史不足，无需压缩。"
+    assert kernel.create_session_calls == []
+    assert kernel.compact_calls == []
 
 
 def test_stop_ack_delivered_via_bg_reply_sender_when_wired(tmp_path: Path) -> None:

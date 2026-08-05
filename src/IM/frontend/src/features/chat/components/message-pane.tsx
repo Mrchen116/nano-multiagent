@@ -462,11 +462,14 @@ export function MessagePane({
   const isGroup = kind === "group" || kind === "agent-network";
   const mentionMatch = isGroup ? MENTION_RE.exec(draft) : null;
   const mentionQuery = mentionMatch?.[1] ?? null;
+  const directControlCommand = /^\/(?:stop|new|compact)$/.test(draft.trim());
 
   // feat-430: slash picker triggers only at the START of the composer (决策 6) and
   // never simultaneously with the @ mention picker. Available in single and group chats.
   const slashMatch =
-    mentionQuery === null && !slashDismissed ? matchSlashTrigger(draft) : null;
+    mentionQuery === null && !slashDismissed && !directControlCommand
+      ? matchSlashTrigger(draft)
+      : null;
   const minComposerRows = isMobile ? 1 : 2;
   const maxComposerRows = isMobile ? 4 : 5;
   const composerRows = Math.min(

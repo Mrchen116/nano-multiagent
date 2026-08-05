@@ -120,6 +120,7 @@ def test_web_relay_adapter_preserves_shadow_identity_and_group_target_agent() ->
     assert inbound.metadata["external_chat_id"] == "oc_product"
     assert inbound.metadata["agent_id"] == "plato"
     assert inbound.metadata["mentioned_agent_ids"] == ["plato"]
+    assert inbound.metadata["implicit_external_agent_target"] is True
 
 
 def test_web_relay_adapter_returns_inbound_envelope_with_runtime_protocol() -> None:

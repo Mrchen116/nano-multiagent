@@ -1205,12 +1205,17 @@ class Kernel:
         session_id: str,
         *,
         workspace_root: str | Path | None = None,
+        focus: str | None = None,
+        idempotency_key: str | None = None,
     ) -> Any:
         """Compact session context (summarise old turns to save tokens).
 
         Args:
             session_id: Session to compact.
             workspace_root: Session workspace root.
+            focus: Optional user-specified facts to prioritize in the summary.
+            idempotency_key: Stable key that makes a replay return the first manual
+                compaction result without creating another boundary.
 
         Returns:
             CompactResult or None when compaction is skipped.
@@ -1219,7 +1224,11 @@ class Kernel:
         ref = SessionRef(session_id=session_id, workspace_root=effective_root)
         if self._c.directory.get(ref) is None:
             raise ValueError(f"session does not exist: {session_id}")
-        return await self._c.executor.compact(self._c.directory.open(ref))
+        return await self._c.executor.compact(
+            self._c.directory.open(ref),
+            focus=focus,
+            idempotency_key=idempotency_key,
+        )
 
     async def discard_run_messages(self, run_id: str) -> bool:
         """Remove messages produced by one terminal run from its conversation.

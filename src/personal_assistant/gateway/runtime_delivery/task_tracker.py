@@ -15,9 +15,12 @@ class RuntimeDeliveryTaskTracker:
 
     def __init__(self) -> None:
         self._tasks: set[asyncio.Task[None]] = set()
+        self._tasks_by_run: dict[str, set[asyncio.Task[None]]] = {}
         self._closed = False
 
-    def start(self, awaitable: Awaitable[object], *, name: str) -> None:
+    def start(
+        self, awaitable: Awaitable[object], *, name: str, run_id: str | None = None
+    ) -> None:
         """Accept one detached delivery awaitable under a semantic task name.
 
         Args:
@@ -48,7 +51,31 @@ class RuntimeDeliveryTaskTracker:
             name=f"runtime-delivery:{name}",
         )
         self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
+        if run_id is not None:
+            self._tasks_by_run.setdefault(run_id, set()).add(task)
+
+        def _discard(done: asyncio.Task[None]) -> None:
+            self._tasks.discard(done)
+            if run_id is not None:
+                tasks = self._tasks_by_run.get(run_id)
+                if tasks is not None:
+                    tasks.discard(done)
+                    if not tasks:
+                        self._tasks_by_run.pop(run_id, None)
+
+        task.add_done_callback(_discard)
+
+    def cancel_run(self, run_id: str) -> None:
+        """Cancel delivery work that has not crossed the reset visibility boundary."""
+
+        for task in tuple(self._tasks_by_run.get(run_id, ())):
+            task.cancel()
+
+    async def drain_run(self, run_id: str) -> None:
+        """Wait for already-permitted output from one run to finish sending."""
+
+        while tasks := tuple(self._tasks_by_run.get(run_id, ())):
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def close_and_drain(self, deadline: float) -> None:
         """Seal admission and drain accepted tasks by one absolute deadline.
