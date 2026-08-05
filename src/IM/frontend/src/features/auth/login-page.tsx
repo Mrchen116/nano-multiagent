@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import { useTranslation } from "../../i18n";
@@ -10,6 +10,7 @@ export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const setSession = useAuthStore((s) => s.setSession);
+  const signOut = Boolean((location.state as { signOut?: boolean } | null)?.signOut);
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -17,6 +18,10 @@ export function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const from = (location.state as { from?: string } | null)?.from ?? "/";
+
+  useEffect(() => {
+    if (signOut) useAuthStore.getState().clear();
+  }, [signOut]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

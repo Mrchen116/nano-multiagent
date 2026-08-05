@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { useAuthStore } from "../../features/auth/auth-store";
+import { LoginPage } from "../../features/auth/login-page";
 import { setLanguage } from "../../i18n";
 import { AppShell } from "./app-shell";
 
@@ -42,6 +43,7 @@ function renderShell(initialPath: string) {
       <MemoryRouter initialEntries={[initialPath]}>
         <Routes>
           <Route path="/*" element={<AppShell>{<div data-testid="content">main-content</div>}</AppShell>} />
+          <Route path="/login" element={<LoginPage />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>
@@ -90,7 +92,9 @@ describe("AppShell", () => {
     renderShell("/chat");
     await userEvent.click(screen.getByRole("button", { name: /alex chen/i }));
     await userEvent.click(screen.getByRole("menuitem", { name: /sign out/i }));
-    expect(useAuthStore.getState().user).toBeNull();
+    await waitFor(() => {
+      expect(useAuthStore.getState().user).toBeNull();
+    });
   });
 
   it("shows the summed unread count on the mobile Chat tab", async () => {

@@ -1,31 +1,23 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { Link, createMemoryRouter, RouterProvider } from "react-router-dom";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const apiMocks = vi.hoisted(() => ({
   getNodeCreateStateMock: vi.fn(),
   createNodeAgentMock: vi.fn(),
   listNodesMock: vi.fn(),
+  listAgentSummariesMock: vi.fn(),
   promptPreviewMock: vi.fn(),
-  nodePromptPreviewMock: vi.fn(),
-  navigateMock: vi.fn()
+  nodePromptPreviewMock: vi.fn()
 }));
-
-vi.mock("react-router-dom", async () => {
-  const actual = await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
-  return {
-    ...actual,
-    useNavigate: () => apiMocks.navigateMock,
-    useParams: () => ({ nodeId: "node-1" })
-  };
-});
 
 vi.mock("./im-agent-config-api", () => ({
   getNodeCreateState: apiMocks.getNodeCreateStateMock,
   createNodeAgent: apiMocks.createNodeAgentMock,
   listNodes: apiMocks.listNodesMock,
+  listAgentSummaries: apiMocks.listAgentSummariesMock,
   promptPreview: apiMocks.promptPreviewMock,
   nodePromptPreview: apiMocks.nodePromptPreviewMock
 }));
@@ -39,13 +31,30 @@ function renderCreatePage() {
     }
   });
 
+  const router = createMemoryRouter(
+    [
+      {
+        path: "/settings/nodes/:nodeId/agents/new",
+        element: (
+          <>
+            <Link to="/chat">Chat</Link>
+            <AgentCreatePage />
+          </>
+        )
+      },
+      { path: "/settings/agents", element: <p>Agent list</p> },
+      { path: "/settings/agents/:agentId", element: <p>Agent detail</p> },
+      { path: "/chat", element: <p>Chat</p> }
+    ],
+    { initialEntries: ["/settings/nodes/node-1/agents/new"] }
+  );
+
   return {
     queryClient,
+    router,
     ...render(
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter>
-          <AgentCreatePage />
-        </MemoryRouter>
+        <RouterProvider router={router} />
       </QueryClientProvider>
     )
   };
@@ -55,9 +64,13 @@ afterEach(() => {
   apiMocks.getNodeCreateStateMock.mockReset();
   apiMocks.createNodeAgentMock.mockReset();
   apiMocks.listNodesMock.mockReset();
+  apiMocks.listAgentSummariesMock.mockReset();
   apiMocks.promptPreviewMock.mockReset();
   apiMocks.nodePromptPreviewMock.mockReset();
-  apiMocks.navigateMock.mockReset();
+});
+
+beforeEach(() => {
+  apiMocks.listAgentSummariesMock.mockResolvedValue([]);
 });
 
 function mockNodes() {
@@ -71,6 +84,47 @@ function mockNodes() {
       last_heartbeat_at: "2026-03-13T10:00:00Z",
       agent_count: 0,
       version: "1.0.0"
+    }
+  ]);
+}
+
+function mockCreateState() {
+  apiMocks.getNodeCreateStateMock.mockResolvedValue({
+    node: {
+      node_id: "node-1",
+      owner_id: "owner-1",
+      node_name: "MacBook",
+      status: "online",
+      last_heartbeat_at: "2026-03-13T10:00:00Z",
+      agent_count: 0,
+      version: "1.0.0"
+    },
+    capabilities: {
+      node_id: "node-1",
+      node_name: "MacBook",
+      node_status: "online",
+      capabilities_updated_at: "2026-03-13T10:00:00Z",
+      skills: [],
+      tools: [],
+      model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }],
+      platform_default_model: "codex_oauth:gpt-5.5",
+      default_system_prompt: ""
+    }
+  });
+}
+
+function mockAgentSummaries() {
+  apiMocks.listAgentSummariesMock.mockResolvedValue([
+    {
+      agent_id: "existing-agent",
+      owner_id: "owner-1",
+      display_name: "Existing Agent",
+      description: "",
+      profile_version: 1,
+      default_model: null,
+      workspace_root: "",
+      workspace_is_default: false,
+      node_status: "online"
     }
   ]);
 }
@@ -127,8 +181,21 @@ describe("agent create page", () => {
       bound_nodes: ["node-1"],
       updated_at: "2026-03-13T10:00:00Z"
     });
+    apiMocks.listAgentSummariesMock.mockResolvedValue([
+      {
+        agent_id: "agent-new",
+        owner_id: "",
+        display_name: "Agent New",
+        description: "runtime-created helper",
+        profile_version: 1,
+        default_model: "kimiCoding:K2.6",
+        workspace_root: "/tmp/agent-new-workspace",
+        workspace_is_default: false,
+        node_status: "online"
+      }
+    ]);
 
-    const { queryClient } = renderCreatePage();
+    const { queryClient, router } = renderCreatePage();
 
     expect(await screen.findByRole("heading", { name: /New agent/i })).toBeInTheDocument();
 
@@ -163,7 +230,7 @@ describe("agent create page", () => {
     });
 
     await waitFor(() => {
-      expect(apiMocks.navigateMock).toHaveBeenCalledWith("/settings/agents/agent-new");
+      expect(router.state.location.pathname).toBe("/settings/agents/agent-new");
     });
 
     expect(queryClient.getQueryData(["settings", "agents"])).toEqual([
@@ -201,7 +268,7 @@ describe("agent create page", () => {
       }
     });
 
-    renderCreatePage();
+    const { router } = renderCreatePage();
 
     await screen.findByRole("heading", { name: /New agent/i });
     await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
@@ -209,7 +276,7 @@ describe("agent create page", () => {
     expect(await screen.findByText(/Agent ID is required/i)).toBeInTheDocument();
     expect(screen.getByText(/Display name is required/i)).toBeInTheDocument();
     expect(apiMocks.createNodeAgentMock).not.toHaveBeenCalled();
-    expect(apiMocks.navigateMock).not.toHaveBeenCalled();
+    expect(router.state.location.pathname).toBe("/settings/nodes/node-1/agents/new");
   });
 
   it("materializes default-on global skills into the create payload", async () => {
@@ -427,7 +494,7 @@ describe("agent create page", () => {
       new Error("POST /im/v1/nodes/node-1/agents failed: 409 (agent already exists)")
     );
 
-    renderCreatePage();
+    const { router } = renderCreatePage();
 
     fireEvent.change(await screen.findByLabelText(/^Agent ID/), { target: { value: "agent-new" } });
     fireEvent.change(screen.getByLabelText(/^Display Name/), { target: { value: "Agent New" } });
@@ -435,40 +502,84 @@ describe("agent create page", () => {
     await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
 
     expect(await screen.findByText(/409.*agent already exists/i)).toBeInTheDocument();
-    expect(apiMocks.navigateMock).not.toHaveBeenCalled();
+    expect(router.state.location.pathname).toBe("/settings/nodes/node-1/agents/new");
   });
 
-  it("offers a Cancel back to the agents list", async () => {
+  it("shows the desktop agent rail and switches immediately from an untouched form", async () => {
+    const user = userEvent.setup();
     mockNodes();
+    mockCreateState();
+    mockAgentSummaries();
 
-    apiMocks.getNodeCreateStateMock.mockResolvedValue({
-      node: {
-        node_id: "node-1",
-        owner_id: "owner-1",
-        node_name: "MacBook",
-        status: "online",
-        last_heartbeat_at: "2026-03-13T10:00:00Z",
-        agent_count: 0,
-        version: "1.0.0"
-      },
-      capabilities: {
-        node_id: "node-1",
-        node_name: "MacBook",
-        node_status: "online",
-        capabilities_updated_at: "2026-03-13T10:00:00Z",
-        skills: [],
-        tools: [],
-        model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }],
-        platform_default_model: "codex_oauth:gpt-5.5",
-        default_system_prompt: ""
-      }
+    const { router } = renderCreatePage();
+
+    expect(await screen.findByTestId("agents-rail-desktop")).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: /Existing Agent/i }));
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/settings/agents/existing-agent");
     });
+    expect(screen.queryByRole("dialog", { name: /Unsaved changes/i })).not.toBeInTheDocument();
+  });
 
-    renderCreatePage();
+  it("keeps an edited form until the user confirms leaving", async () => {
+    const user = userEvent.setup();
+    mockNodes();
+    mockCreateState();
+    mockAgentSummaries();
 
-    const cancels = await screen.findAllByRole("link", { name: /^Cancel$/i });
-    expect(cancels.length).toBeGreaterThanOrEqual(1);
-    expect(cancels[0]).toHaveAttribute("href", "/settings/agents");
+    const { router } = renderCreatePage();
+
+    const agentId = await screen.findByLabelText(/^Agent ID/);
+    await user.type(agentId, "draft-agent");
+    await user.click(screen.getByRole("button", { name: /Existing Agent/i }));
+
+    expect(await screen.findByRole("dialog", { name: /Unsaved changes/i })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/settings/nodes/node-1/agents/new");
+    expect(agentId).toHaveValue("draft-agent");
+
+    await user.click(screen.getByRole("button", { name: /Keep editing/i }));
+    expect(screen.queryByRole("dialog", { name: /Unsaved changes/i })).not.toBeInTheDocument();
+    expect(agentId).toHaveValue("draft-agent");
+
+    await user.click(screen.getByRole("button", { name: /Existing Agent/i }));
+    await user.click(screen.getByRole("button", { name: /Leave without saving/i }));
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/settings/agents/existing-agent");
+    });
+  });
+
+  it("asks before global in-app navigation leaves an edited form", async () => {
+    const user = userEvent.setup();
+    mockNodes();
+    mockCreateState();
+
+    const { router } = renderCreatePage();
+
+    await user.type(await screen.findByLabelText(/^Agent ID/), "draft-agent");
+    await user.click(screen.getByRole("link", { name: "Chat" }));
+
+    expect(await screen.findByRole("dialog", { name: /Unsaved changes/i })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/settings/nodes/node-1/agents/new");
+
+    await user.click(screen.getByRole("button", { name: /Leave without saving/i }));
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/chat");
+    });
+  });
+
+  it("asks before Cancel leaves an edited form", async () => {
+    const user = userEvent.setup();
+    mockNodes();
+    mockCreateState();
+
+    const { router } = renderCreatePage();
+
+    await user.type(await screen.findByLabelText(/^Agent ID/), "draft-agent");
+    await user.click(screen.getAllByRole("link", { name: /^Cancel$/i })[0]);
+
+    expect(await screen.findByRole("dialog", { name: /Unsaved changes/i })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/settings/nodes/node-1/agents/new");
   });
 });
 

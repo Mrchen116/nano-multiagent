@@ -40,8 +40,9 @@ export function UserMenu() {
   const initials = (user.display_name || user.username).slice(0, 2).toUpperCase();
 
   const handleSignOut = () => {
-    useAuthStore.getState().clear();
-    navigate("/login", { replace: true });
+    // Clear the session only after navigation reaches LoginPage: this lets a
+    // dirty form's route blocker confirm the user-initiated exit first.
+    navigate("/login", { replace: true, state: { signOut: true } });
   };
 
   const handleLanguage = (next: Locale) => {
