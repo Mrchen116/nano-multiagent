@@ -83,7 +83,38 @@ N/A. 本 unit 没有前端原型或 reference artifact；单文件手册本身�
 
 ## Corrected Delta Reconciliation
 
-N/A for `verification_mode=full`.
+> Validation snapshot: `e6f8b617a7beb1dc68e1a116f368eaf05c764606 → a69e1bf9ae0d2aa70d361f8a97d0de3b8eb9377a`
+
+| Delta item | Implementation evidence | Test evidence | Outcome |
+|---|---|---|---|
+| `specs/gateway/agent-capabilities.md:5-7` — ADDED `PA 产品说明书按需回答产品问题` | 随包单文件手册的精确触发描述与 PA 范围规则在 `src/personal_assistant/builtin_skills/nanoassistant-docs/SKILL.md:1-14`，完整产品面在 `:16-319` | `tests/unit/personal_assistant/test_builtin_skill_bootstrap.py:373-455`；真 IM/Gateway/LLM 验收 `acceptance.md:18-31,74-96` | aligned |
+| `specs/gateway/agent-capabilities.md:9-13` — 在 PA 对话入口询问产品问题 | 候选触发描述与手册正文分工保持按需 `skill_view`：`nanoassistant-docs/SKILL.md:1-14,175-186` | 只开启手册 + `skill_view` 的真模型产品问答调用成功：`acceptance.md:20,25-26,78` | aligned |
+| `specs/gateway/agent-capabilities.md:15-18` — 普通任务不加载手册 | skill 正文不常驻 system prompt，只以产品问题触发描述候选：`nanoassistant-docs/SKILL.md:1-14,175-180` | 已启用手册的真模型完成算术题且无工具轨迹：`acceptance.md:27,79` | aligned |
+| `specs/gateway/agent-capabilities.md:20-23` — 基础问答离线可用 | 手册明确以已安装版本为默认来源且基础问答不联网：`nanoassistant-docs/SKILL.md:8-14`；全文自包含 | `test_builtin_skill_bootstrap.py:434-455` 断言仅 `skill_view` 返回未截断全文；真栈无网络工具闭环 `acceptance.md:26,30,86` | aligned |
+| `specs/gateway/agent-capabilities.md:25-29` — 最新版与本机版本分开回答 | 远程查询仅在明确最新/升级问题触发，并要求区分官方远程与已安装版：`nanoassistant-docs/SKILL.md:10-13` | 有/无远程工具的真模型路径均正确限定版本：`acceptance.md:30,86-88` | aligned |
+| `specs/gateway/agent-capabilities.md:31-35` — 现场状态以实际核实为准 | 现场核实、产品规则/观察分离与有界不确定性规则：`nanoassistant-docs/SKILL.md:11-14,167-173,219-228,280-319` | 真模型区分会话工具观察与产品规则，且对未覆盖能力不编造：`acceptance.md:31,90-96` | aligned |
+| `specs/gateway/agent-capabilities.md:39-41` — MODIFIED `PA 内置 skill 启动自举` | Gateway foreground 在 runtime 构建前调用包资源同步：`src/personal_assistant/gateway/process_lifecycle.py:39-56,136-148`；全包枚举和目录级切换：`src/personal_assistant/builtin_skills/bootstrap.py:49-90,93-141` | 本轮在 final tree 实跑 bootstrap/Lark/profile 相关集：64 passed；真启动验收 `acceptance.md:18-29,65-72` | aligned |
+| `specs/gateway/agent-capabilities.md:43-46` — 新安装发现产品手册与完整 Lark bundle | 直接枚举所有含 `SKILL.md` 的随包子目录并同步：`bootstrap.py:118-140`；全局 root 能力投影 `src/personal_assistant/reporter/upstream_reporter.py:123-142` | `test_builtin_skill_bootstrap.py:62-75,315-359,373-455` | aligned |
+| `specs/gateway/agent-capabilities.md:48-52` — 升级刷新全部随包内置 skills | staging 复制包内完整目录、旧目录备份后 canonical rename：`bootstrap.py:49-80` | `test_builtin_skill_bootstrap.py:78-94`；真 Gateway 两次刷新 `acceptance.md:21,25,29,69-70` | aligned |
+| `specs/gateway/agent-capabilities.md:54-58` — 非内置用户 skill 保持不变 | installer 只触达当前包声明的同名目录：`bootstrap.py:118-140` | `test_builtin_skill_bootstrap.py:97-107`；真栈 `my-custom-skill` 保持：`acceptance.md:21,25,71` | aligned |
+| `specs/gateway/agent-capabilities.md:60-64` — 刷新失败保留旧完整目录并继续启动 | 切换失败恢复 backup，外层逐项记录 skill 名/异常并继续：`bootstrap.py:64-90,130-140`；Gateway 外层不阻断启动 `process_lifecycle.py:39-56` | 故障注入同时断言旧主文件、旧额外文件、后续 skill 成功与日志原因：`test_builtin_skill_bootstrap.py:110-147` | aligned |
+| `specs/gateway/agent-capabilities.md:66-71` — backup 清理失败不遮蔽新版本 | staging/backup 均在 `root/.archive`，canonical 切换成功后 cleanup 异常只告警：`bootstrap.py:49-90`；正式 discovery 剪枝 `.archive`：`src/agent/core/skills/registry.py:41-58` | cleanup 故障注入后用正式 `SkillRegistry` 断言 canonical 新版本唯一发现且原因可观察：`test_builtin_skill_bootstrap.py:150-189` | aligned |
+| `specs/gateway/agent-capabilities.md:73-78` — 共享 root 的并发 Gateway 刷新保持完整版本 | root 上稳定文件锁以 `fcntl.LOCK_EX` 串行化 `for source` 的整次 bundle：`bootstrap.py:35-46,118-140`；后一进程的单项失败会恢复其取得锁后备份的先成功 canonical，不跨锁回滚 | 完整 bundle 只进一次锁作用域：`test_builtin_skill_bootstrap.py:192-230`；真跨进程争用、第二刷新在释放前不进入切换且最终 canonical 完整：`:232-312`；单项失败恢复：`:110-147` | aligned |
+| `specs/gateway/agent-capabilities.md:80-84` — 显式 skill allowlist 不因资源刷新改变 | installer 仅写全局 skill root，不依赖 IM/profile：`bootstrap.py:93-141`；现有 profile 仍是选择真值 | IM 重注册不覆盖已有 skills：`tests/im_service/unit/test_gateway_node_persistence.py:83-128`；真刷新后显式关闭保持：`acceptance.md:28-29,62,72` | aligned |
+| `specs/gateway/agent-capabilities.md:86-91` — 显式 allowlist 的飞书 Agent 获得完整 bundle | 静态启动与 managed channel 都复用 `lark_skill_names()` 并只向非空列表补齐：`src/personal_assistant/config/local_store.py:681-714`; `src/personal_assistant/gateway/channel_manager.py:155-192`; `agent_config_sync.py:268-350` | 启动补齐 `test_gateway_launch.py:200-234`；managed 幂等补齐 `test_gateway_im_config_sync.py:602-684`；activation 幂等 `test_channel_manager.py:264-283` | aligned |
+| `specs/gateway/agent-capabilities.md:93-98` — 空 skill allowlist 保持默认发现语义 | 静态加载和 managed 调和都在空列表上不物化：`local_store.py:699-711`; `channel_manager.py:173-186`; `agent_config_sync.py:334-339,423-443` | `test_gateway_launch.py:237-260`; `test_gateway_im_config_sync.py:687-724`; `test_channel_manager.py:264-283` | aligned |
+| `specs/gateway/agent-capabilities.md:100-106` — 静态 Feishu Agent 的 IM profile ingress 保留 bundle | `config.sync` 在应用前以静态 channel 身份判定并补齐 profile：`agent_config_sync.py:420-443` | `test_gateway_im_config_sync.py:727-815`；connect/reconnect 全量调和 `test_gateway_reconcile_on_connect.py:386-426` | aligned |
+| `specs/gateway/agent-capabilities.md:108-112` — 用户明确请求独立 Lark 事件监听 | 随包 `lark-event` 只在明确独立监听时启用，并保留 Gateway 对普通飞书入站/回复的所有权：`src/personal_assistant/builtin_skills/lark-event/SKILL.md:1-20`；`lark-im/SKILL.md:13-21` | bundle manifest/完整安装：`test_builtin_skill_bootstrap.py:324-359`；本项为已有 Lark 运行契约，unit 未改其实现 | aligned |
+| `specs/im/agents-nodes.md:5-7` — ADDED `PA 产品说明书 skill 可默认启用和关闭` | 全局 PA skill 投影 `default_on=true`：`upstream_reporter.py:112-142`；IM create/detail 沿用现有 capabilities/profile 选择链：`src/IM/api/routes/nodes.py:244-263`; `agent-create-page.tsx:31-36,374-386`; `agent-detail-page.tsx:1735-1749` | 手册 capability default-on：`test_builtin_skill_bootstrap.py:404-430`；真 UI 创建/关闭/恢复：`acceptance.md:25,28-29,56-63` | aligned |
+| `specs/im/agents-nodes.md:9-12` — 新建 Agent 默认选中产品手册 | Gateway 上报手册的 `default_on=true`，IM API/UI 把 default-on 名称物化为创建选择：`upstream_reporter.py:123-142`; `nodes.py:244-263`; `agent-create-page.tsx:31-36,374-386` | `test_gateway_upstream_reporter.py:136-149`; `agent-create.test.tsx:282-361`；真 UI 验收 `acceptance.md:25,60-61` | aligned |
+| `specs/im/agents-nodes.md:14-18` — 已有显式选择不因升级改变 | 资源 installer 不写 profile；IM 已有 profile 不被 Gateway 重注册种子覆盖 | `test_gateway_node_persistence.py:83-128`；真升级/重启后产品手册仍未选中：`acceptance.md:28-29,62` | aligned |
+| `specs/im/agents-nodes.md:20-23` — 用户关闭或重新开启产品手册 | 详情页直接以 `draft.skills` 为选择与保存真值：`agent-detail-page.tsx:1735-1749`；会话级 `skills` metadata 限制 `skill_view` | 未启用的 skill 被工具强制拒绝：`tests/unit/test_skill_view.py:193-221`；真 UI 关闭后无调用、重开后恢复：`acceptance.md:28,63` | aligned |
+
+### Uncovered Observable Behavior
+
+None. Final unit runtime diff only adds the packaged manual, changes packaged built-in names from missing-only installation to managed full-directory synchronization (including root-wide serialization, `.archive` discovery isolation, recovery/logging), and updates the lifecycle success wording to “synchronized”; these behaviors are covered by the two delta Requirements and their Scenarios. IM, Kernel, and Lark selection/channel mechanisms are reused unchanged rather than extended with an uncovered parallel behavior.
+
+Outcome: aligned
 
 # Round 2
 
