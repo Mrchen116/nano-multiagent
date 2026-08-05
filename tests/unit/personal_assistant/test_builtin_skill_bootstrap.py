@@ -1,9 +1,12 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
+import fcntl
+import multiprocessing
+import os
 from pathlib import Path
 import tomllib
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -22,6 +25,37 @@ from personal_assistant.reporter.upstream_reporter import (
 
 
 _PRODUCT_DOCS_SKILL = "nanoassistant-docs"
+
+
+def _install_builtin_skills_process(
+    target_root: str,
+    attempted: Any,
+    entered_switch: Any | None,
+    release_switch: Any | None,
+    outcomes: Any,
+) -> None:
+    attempted.set()
+    if entered_switch is not None and release_switch is not None:
+        real_sync = builtin_skill_bootstrap._sync_skill_directory
+        first_switch = True
+
+        def pause_first_switch(*, source: Path, destination: Path) -> None:
+            nonlocal first_switch
+            if first_switch:
+                first_switch = False
+                entered_switch.set()
+                if not release_switch.wait(timeout=20):
+                    raise TimeoutError("parent did not release first skill switch")
+            real_sync(source=source, destination=destination)
+
+        builtin_skill_bootstrap._sync_skill_directory = pause_first_switch
+
+    try:
+        installed = install_builtin_skills(target_root=target_root)
+    except BaseException as exc:  # noqa: BLE001
+        outcomes.put(("error", repr(exc)))
+        raise
+    outcomes.put(("ok", sorted(installed)))
 
 
 @pytest.mark.parametrize(
@@ -154,43 +188,79 @@ def test_install_builtin_skills_keeps_failed_backup_cleanup_out_of_discovery(
     assert "injected backup cleanup failure" in caplog.text
 
 
-def test_install_builtin_skills_holds_one_root_lock_while_switching(
+def test_install_builtin_skills_serializes_shared_root_across_processes(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     target_root = tmp_path / ".nanoassistant" / "skills"
-    real_sync = builtin_skill_bootstrap._sync_skill_directory
-    lock_held = False
-    locked_roots: list[Path] = []
-    synchronized_names: list[str] = []
-
-    @contextmanager
-    def observe_root_lock(destination_root: Path):
-        nonlocal lock_held
-        assert not lock_held
-        lock_held = True
-        locked_roots.append(destination_root)
+    stale_manual = target_root / _PRODUCT_DOCS_SKILL / "SKILL.md"
+    stale_manual.parent.mkdir(parents=True)
+    stale_manual.write_text("stale product manual\n", encoding="utf-8")
+    context = multiprocessing.get_context("spawn")
+    first_attempted = context.Event()
+    first_entered_switch = context.Event()
+    release_first_switch = context.Event()
+    second_attempted = context.Event()
+    outcomes = context.Queue()
+    first = context.Process(
+        target=_install_builtin_skills_process,
+        args=(
+            str(target_root),
+            first_attempted,
+            first_entered_switch,
+            release_first_switch,
+            outcomes,
+        ),
+    )
+    second = context.Process(
+        target=_install_builtin_skills_process,
+        args=(str(target_root), second_attempted, None, None, outcomes),
+    )
+    first.start()
+    lock_fd: int | None = None
+    try:
+        assert first_attempted.wait(timeout=10)
+        assert first_entered_switch.wait(timeout=20)
+        lock_path = target_root / builtin_skill_bootstrap._SYNC_LOCK_FILENAME
+        lock_fd = os.open(lock_path, os.O_RDWR)
         try:
-            yield
-        finally:
-            lock_held = False
+            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            root_lock_is_held = True
+        else:
+            root_lock_is_held = False
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        assert root_lock_is_held
 
-    def assert_locked_sync(*, source: Path, destination: Path) -> None:
-        assert lock_held
-        synchronized_names.append(destination.name)
-        real_sync(source=source, destination=destination)
+        second.start()
+        assert second_attempted.wait(timeout=10)
+        assert second.is_alive()
+    finally:
+        release_first_switch.set()
+        for process in (first, second):
+            if process.pid is None:
+                continue
+            process.join(timeout=30)
+            if process.is_alive():
+                process.terminate()
+                process.join(timeout=5)
+        if lock_fd is not None:
+            os.close(lock_fd)
 
-    monkeypatch.setattr(
-        builtin_skill_bootstrap, "_builtin_skill_sync_lock", observe_root_lock
+    assert first.exitcode == 0
+    assert second.exitcode == 0
+    assert [outcomes.get(timeout=5)[0] for _ in range(2)] == ["ok", "ok"]
+    assert "# Nano Personal Assistant 产品手册" in stale_manual.read_text(
+        encoding="utf-8"
     )
-    monkeypatch.setattr(
-        builtin_skill_bootstrap, "_sync_skill_directory", assert_locked_sync
+
+    lock_fd = os.open(
+        target_root / builtin_skill_bootstrap._SYNC_LOCK_FILENAME, os.O_RDWR
     )
-
-    install_builtin_skills(target_root=target_root)
-
-    assert locked_roots == [target_root]
-    assert {_PRODUCT_DOCS_SKILL, "lark-doc"} <= set(synchronized_names)
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(lock_fd, fcntl.LOCK_UN)
+    finally:
+        os.close(lock_fd)
 
 
 def test_builtin_skills_are_included_as_package_data() -> None:

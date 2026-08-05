@@ -61,8 +61,11 @@
 - Red: 在 `c78d5df89` 上新增 discovery 与 root-lock 回归测试，结果 EXPECTED FAIL（2 failed）：registry 实际定位到 `.nanoassistant-docs.backup-*`，且安装流程不存在共享 root lock。
 - Fix: staging/backup 统一置于 registry 排除的 `.archive` 下；整次 bundle 刷新持有 user-global skill root 的 `fcntl` 跨进程锁。
 - Green: bootstrap 文件 13 passed；bootstrap/lifecycle/reporter 聚焦集 38 passed；PA 单测 836 passed，contract 136 passed（PA 聚焦/全量各有 2 个第三方 warning）；相关 Ruff check/format-check、docs-check（211 maintained Markdown sources / 66 required routes）与 `git diff --check` 通过。
-- Limit: 提交整合后还需执行受影响门禁 closure 和最终 CI。
+- Verification Round 2: 实现问题均关闭，但 verifier 判原 root-lock 测试只 mock 私有 helper，无法防止锁退化为 no-op，留下 1 个 WARNING。
+- Closure fix: 把该测试替换为 `spawn` 双进程行为测试；第一进程从公开 installer 进入真实切换段时，父进程以 `LOCK_NB` 证实 root lock 已被跨进程持有，第二 installer 在释放后完成，最终 canonical 手册保持当前包版本。替换后 bootstrap 文件 13 passed，Ruff 与 diff check 通过。
+- Limit: 还需 verifier targeted closure 和最终 CI。
 
 ## Commits
 
 - `c19707871` — `feat(feat-502/M1): add PA product docs skill`.
+- `b4dc3bbaf` — `fix(feat-502/M1): serialize built-in skill refresh`.
