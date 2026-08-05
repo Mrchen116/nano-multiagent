@@ -4,11 +4,11 @@
 
 ### Requirement: PA 产品说明书按需回答产品问题
 
-PA 随当前安装版本提供可选的产品说明书 skill，覆盖 Web IM、Gateway、Agent 配置、模型、skills、tools、memory、heartbeat、cron、外部渠道、启动和常见故障处理。启用该 skill 的 Agent 在相关问题上按需读取；普通任务不因其启用而加载。coding CLI、Kernel 内部和开发流程不属于该手册。
+PA 随当前安装版本提供可选的产品说明书 skill，覆盖 Web IM、Gateway、Agent 配置、模型、skills、tools、memory、heartbeat、cron、外部渠道、启动和常见故障处理。入口经 `skill_view` 按需加载，再由默认启用的 `read` 只读取当前问题所需的随包专题资料；普通任务不因其启用而加载。用户显式关闭 `read` 后，产品不保证详细手册可读。coding CLI、Kernel 内部和开发流程不属于该手册。
 
 #### Scenario: 在 PA 对话入口询问产品问题
 
-- **GIVEN** 当前 Agent 已启用产品说明书与 `skill_view`
+- **GIVEN** 当前 Agent 已启用产品说明书、`skill_view` 与 `read`
 - **WHEN** 用户从 Web IM、飞书或其他 PA 对话入口询问 PA 能力、使用、配置或故障处理
 - **THEN** Agent 按需读取产品说明书，并基于当前安装版本直接回答
 
@@ -62,6 +62,20 @@ Gateway 随包提供 PA 产品说明书与当前产品定义的完整 Lark skill
 - **GIVEN** 某个内置 skill 在 staging 或切换时失败，且目标已有旧完整目录
 - **WHEN** Gateway 执行启动刷新
 - **THEN** 该名称恢复旧完整目录、其他名称继续刷新，Gateway 继续启动并暴露失败原因
+
+#### Scenario: backup 清理失败不遮蔽已切换的新版本
+
+- **GIVEN** 某个内置 skill 已成功切换到当前包版本，但旧 backup 的清理失败
+- **WHEN** Agent 发现或读取该名称的 skill
+- **THEN** Agent 仍只发现 canonical 新版本，旧 backup 不参与 skill discovery
+- **AND** Gateway 暴露 cleanup 失败原因并可继续启动
+
+#### Scenario: 共享全局 root 的并发 Gateway 刷新保持完整版本
+
+- **GIVEN** 两个使用不同 config 的 Gateway 共享同一个用户全局 skill root
+- **WHEN** 两个 Gateway 并发刷新随包内置 skills
+- **THEN** 两次完整 bundle 刷新按顺序执行，不逐 skill 交错
+- **AND** 先成功的刷新不被另一失败刷新回滚，Agent 不会发现混合版本 bundle
 
 #### Scenario: 显式 skill allowlist 不因资源刷新改变
 

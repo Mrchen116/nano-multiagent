@@ -37,21 +37,22 @@ SignalHandlerInstaller = Callable[[], Callable[[], None]]
 
 
 def install_builtin_skills_for_gateway() -> None:
-    """Install missing packaged skills without preventing Gateway startup.
+    """Synchronize packaged skills without preventing Gateway startup.
 
     The installation belongs to the foreground process because it writes the
     user-global skill root. A background launcher only creates that process.
     """
     try:
-        installed_builtin_skills = install_builtin_skills()
-        if installed_builtin_skills:
-            installed_names = ", ".join(sorted(installed_builtin_skills))
+        synchronized_builtin_skills = install_builtin_skills()
+        if synchronized_builtin_skills:
+            synchronized_names = ", ".join(sorted(synchronized_builtin_skills))
             _log.info(
-                "installed built-in personal assistant skills: %s", installed_names
+                "synchronized built-in personal assistant skills: %s",
+                synchronized_names,
             )
     except Exception:  # noqa: BLE001
         _log.warning(
-            "failed to install built-in personal assistant skills", exc_info=True
+            "failed to synchronize built-in personal assistant skills", exc_info=True
         )
 
 

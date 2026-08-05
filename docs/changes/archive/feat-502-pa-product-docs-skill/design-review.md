@@ -179,3 +179,16 @@ Approved — 0 CRITICAL / 0 WARNING
 ### Recommendations
 
 - None.
+
+## Post-review product decision: progressive references
+
+本文件前述 R1-C1 与 Round 2 结论记录当时“即使显式关闭 `read`，仅凭 `skill_view` 也必须完整回答”的需求前提。PR review 中用户随后明确撤销该前提，并要求进一步采用 OpenAI 的 skill 写法：正常 PA Agent 保留默认 `read`，产品说明书不为关闭 `read` 的配置提供正文副本或兼容路径。
+
+因此，R1-C1 在旧前提下的分析仍作为历史审计保留，但不再约束最终资源形态。最终设计改为：
+
+- `SKILL.md` 只承载触发、回答规则、来源边界和主题路由；
+- 七份一层 `references/*.md` 承载互不重复的专题正文，并全部由入口直接链接；
+- `skill_view` 加载入口，默认启用的 `read` 只加载当前问题所需的 reference；
+- Gateway delta 的问答场景同步要求产品 skill、`skill_view` 与 `read`，不改变用户仍可显式关闭任何工具的真白名单契约。
+
+该产品决策不改变 D1/D2 的托管目录、事务刷新、跨进程锁或失败恢复设计；整个 skill 目录仍是安装器的原子替换单元。最终验证证据记录在 `verification.md` 和 `acceptance.md` 的 post-review revision 段落。
