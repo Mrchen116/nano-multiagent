@@ -1,0 +1,48 @@
+# Repository-owned, secret-free default for isolated IM + Gateway E2E stacks.
+# scripts/e2e-up.sh rewrites node, IM URL and workspaces in its worktree copy.
+node:
+  node_id: e2e-gateway
+  workspace_base: /tmp/nano-e2e-workspace
+
+im_service:
+  url: http://127.0.0.1:8011
+  username: nano
+  password: nano1234
+
+agents:
+  - agent_id: e2e
+    title: E2E Agent
+    workspace_root: /tmp/nano-e2e-workspace/e2e
+    system_prompt: You are the isolated E2E test agent. Reply concisely.
+    default_model: deepseek:deepseek-v4-flash
+    features:
+      heartbeat: false
+      cron_scheduling: false
+  - agent_id: e2e-peer
+    title: E2E Peer Agent
+    workspace_root: /tmp/nano-e2e-workspace/e2e-peer
+    system_prompt: You are the peer in isolated E2E group-chat tests. Reply concisely.
+    default_model: deepseek:deepseek-v4-flash
+    group_reply_policy: mention_only
+    features:
+      heartbeat: false
+      cron_scheduling: false
+
+channels:
+  - name: web_relay
+    enabled: true
+  # The fixed Feishu E2E agent/channel is opt-in. `e2e-up.sh --feishu` enables
+  # it only in the generated worktree config after it verifies private test-App
+  # credentials; default E2E never opens a Feishu listener.
+  - name: feishu:e2e
+    enabled: false
+    settings: {}
+
+llm:
+  default_model: deepseek:deepseek-v4-flash
+  providers:
+    - name: anthropic
+      base_url: http://127.0.0.1:4000
+      models:
+        - name: deepseek:deepseek-v4-flash
+          context_window: 262144

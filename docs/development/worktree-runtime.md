@@ -14,7 +14,7 @@
 ## 隔离与清理红线
 
 1. worktree 不使用主实例的 IM 端口 `8011` 或常用 Vite 端口 `5173`，所有监听服务分配空闲高位端口。
-2. Gateway 必须使用 worktree 内的 config 副本，不能让验证过程写回 `~/.nano-assistant/config.yaml`。
+2. Gateway 必须使用 worktree 内的 config 副本，不能让验证过程读写用户的 `~/.nano-assistant/config.yaml`。
 3. IM 数据库、JWT secret、Gateway runtime state、agent workspace 和 node identity 必须属于本次运行。
 4. 谁启动进程，谁负责记录进程身份、停止进程并确认端口已经释放。
 5. config 副本、secret、PID、日志、数据库、凭据和 workspace 都是本地运行数据，不提交。
@@ -23,13 +23,18 @@
 ## 前置条件
 
 - 当前 Python 环境已安装项目依赖，并且 `python -c "import yaml"` 成功。worktree 没有独立 `.venv` 时，可以复用主 checkout 的虚拟环境。
-- `~/.nano-assistant/config.yaml` 已存在并包含有效的 `llm:` 配置；也可以通过 `--main-config` 指定其他源 config。配置结构见 [`../operations/gateway.md`](../operations/gateway.md)。
+- 仓库内的 [`../../config/e2e/gateway.yaml`](../../config/e2e/gateway.yaml) 是默认的、无密钥 E2E 配置，包含固定 agent、Web IM channel 和可选模型目录。需要另一个受控 config 时，才通过 `--main-config` 显式指定。
 - `curl` 可用；手工改写 YAML 时 `yq` 可选，脚本在没有 `yq` 时使用 PyYAML。
 - `WT_ROOT` 使用实际 worktree 或临时目录的绝对路径。Agent 收到派发包中的 `worktree_dir` 时直接使用该值，不根据调用 shell 的 `$PWD` 猜测。
 
-### 本机飞书测试 Bot
+### 专用 Feishu E2E profile
 
-本机 `.env`（不提交）包含测试 Bot 的 `NANO_MULTIAGENT_TEST_FEISHU_APP_ID` 与 `NANO_MULTIAGENT_TEST_FEISHU_APP_SECRET`。`e2e-up.sh` 不读取它；真实飞书验收应使用基于它生成的独立 `--main-config`，只操作指定测试 Bot/会话，且不输出凭据。
+真实 Feishu 验收只使用仓库 [`../../config/e2e/gateway.yaml`](../../config/e2e/gateway.yaml) 中固定的 `e2e`、`e2e-peer` agents 和默认禁用的 `feishu:e2e` channel；`--feishu` 只在 worktree 副本中启用该 channel。`e2e-peer` 用于内部 IM 双 Agent 群聊；外部 Feishu 群聊用测试用户与当前测试 Bot 验证。它绝不从个人 Gateway config 或根目录 `.env` 继承 channel，且需要两项**本机私有**准备：
+
+1. 创建权限为 `0600` 的 `${XDG_CONFIG_HOME:-~/.config}/nano-multiagent/feishu-e2e.env`，包含 `NANO_MULTIAGENT_E2E_FEISHU_APP_ID`、`NANO_MULTIAGENT_E2E_FEISHU_APP_SECRET`、`NANO_MULTIAGENT_E2E_FEISHU_BOT_OPEN_ID` 和 `NANO_MULTIAGENT_E2E_FEISHU_LARK_PROFILE`。这些值不得提交、打印或放进仓库 `.env`。
+2. 以该文件声明的**非 default** `lark-cli` profile 完成一次用户身份登录。开始前执行 `lark-cli --profile <profile> auth status --json --verify`；profile 必须同时验证测试 App、测试 Bot 和测试用户。
+
+`e2e-up.sh --feishu` 在启动 Gateway 前用 App 凭据查询 Bot identity；与 `BOT_OPEN_ID` 不一致时立即失败，不会把生产 Bot 凭据接入隔离栈。`scripts/e2e-feishu-probe.py` 也拒绝 default 或跨 App/Bot 的 CLI profile，故不会因忘记 `--profile` 向生产 Bot 发消息。
 
 ## 推荐路径：脚本化起停
 
@@ -64,6 +69,8 @@ curl -fsS "$IM_URL/openapi.json" >/dev/null
 脚本支持：
 
 ```bash
+./scripts/e2e-up.sh --feishu
+./scripts/e2e-feishu-probe.py --wt "$WT_ROOT"
 ./scripts/e2e-up.sh --main-config /path/to/config.yaml
 ./scripts/e2e-up.sh --wt /absolute/worktree/or/temp/path
 ./scripts/e2e-down.sh --wt /absolute/worktree/or/temp/path
@@ -76,7 +83,7 @@ curl -fsS "$IM_URL/openapi.json" >/dev/null
 | 端口 | 通过 `scripts/free-ports.sh` 为 IM 分配空闲端口；内核和 Gateway 不监听业务端口 |
 | IM identity | 为本次运行生成随机 `IM_JWT_SECRET`，在全新 IM 中注册隔离测试用户 |
 | IM 数据 | 以 `WT_ROOT` 为 cwd，使用其中的 `data/im_service.sqlite3`，启动前清理本目录的旧 E2E 状态 |
-| Gateway config | 从源 config 复制 `.gateway-config.yaml`，不修改源文件 |
+| Gateway config | 默认从 `config/e2e/gateway.yaml` 复制 `.gateway-config.yaml`，不修改源文件；`--feishu` 仅向该副本注入私有测试 App 凭据 |
 | Gateway identity | 生成唯一 `node_id`，把 `im_service.url` 指向本次 IM，并同步本次测试用户的 `node.user_id` |
 | Agent workspace | 将 `node.workspace_base` 和所有预置 agent 的 `workspace_root` 改到 `.gateway-workspace/` |
 | Binding | Gateway 使用 `--auto-bind`，避免自动化流程停在浏览器确认页 |
@@ -187,8 +194,10 @@ unit 完成或 worktree 删除前，还要确认：
 | 症状 | 优先检查 |
 |---|---|
 | `ModuleNotFoundError: yaml` | 当前 `python` 不属于项目环境；激活 `.venv` 或把主 checkout 的 `.venv/bin` 放到 `PATH` 前部 |
-| `main config not found` | 创建 `~/.nano-assistant/config.yaml`，或传 `--main-config` |
-| config 缺少 `llm:` | 修正源 config；不要在生成后的临时副本里维护第二份长期配置 |
+| `E2E config not found` | 恢复仓库 `config/e2e/gateway.yaml`，或显式传 `--main-config` |
+| config 缺少 `llm:` | 修正仓库 E2E config；不要在生成后的临时副本里维护第二份长期配置 |
+| Feishu identity 校验失败 | 检查私有 `feishu-e2e.env` 是否仍指向专用测试 App/Bot；不要复用生产 App 凭据 |
+| probe 拒绝 CLI profile | 执行文档中的 `auth status --verify`，并使用 env 文件指定的非 default profile |
 | 提示 PID 仍在运行 | 先执行 `e2e-down.sh --wt <exact-path>`，再组合 PID、端口和日志确认 |
 | Gateway 启动后无能力或节点异常 | 检查旧 Gateway 是否仍存活、`node_id` 是否碰撞、config 是否指向本次 IM |
 | 启动被中断或日志像旧结果 | 先执行 down；必要时用 `zsh -x ./scripts/e2e-up.sh`，并核对新 PID、端口和日志时间 |

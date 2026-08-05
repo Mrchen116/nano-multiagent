@@ -23,8 +23,13 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+SRC_DIR="$REPO_ROOT/src"
+FREE_PORTS_SH="$REPO_ROOT/scripts/free-ports.sh"
+
 WT_ROOT=""
-MAIN_CFG="${HOME}/.nano-assistant/config.yaml"
+MAIN_CFG="$REPO_ROOT/config/e2e/gateway.yaml"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --wt) WT_ROOT="$(cd "$2" && pwd)"; shift 2 ;;
@@ -35,14 +40,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ ! -f "$MAIN_CFG" ]]; then
-  echo "main config not found: $MAIN_CFG (see docs/operations/gateway.md; it must include the llm: section)" >&2
+  echo "E2E config not found: $MAIN_CFG (it must include the llm: section)" >&2
   exit 1
 fi
-
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-SRC_DIR="$REPO_ROOT/src"
-FREE_PORTS_SH="$REPO_ROOT/scripts/free-ports.sh"
 
 [[ -n "$WT_ROOT" ]] || WT_ROOT="$(mktemp -d)"
 echo "resilience e2e workdir: $WT_ROOT"

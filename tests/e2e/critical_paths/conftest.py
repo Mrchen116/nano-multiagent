@@ -5,7 +5,8 @@ design.md 决策 1:不在 Python 重写起栈,session 级 fixture subprocess 调
 ``.e2e-ports.env`` 拿 ``IM_URL`` / ``NODE_ID``,session 结束调 ``e2e-down.sh``。
 
 门控沿用既有范式(决策 3):``NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1`` + ``GET :4000/health``
-双门控。缺 env / 缺 proxy / 缺 ~/.nano-assistant/config.yaml → **干净 skip,不崩**。
+双门控。缺 live 开关或本地 LLM proxy → **干净 skip,不崩**；Gateway 配置由仓库
+``config/e2e/gateway.yaml`` 提供，不依赖个人主配置。
 """
 
 from __future__ import annotations
@@ -24,7 +25,6 @@ from ._im_client import IMClient
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _E2E_UP = _REPO_ROOT / "scripts" / "e2e-up.sh"
 _E2E_DOWN = _REPO_ROOT / "scripts" / "e2e-down.sh"
-_MAIN_CONFIG = Path.home() / ".nano-assistant" / "config.yaml"
 _LLM_PROXY_HEALTH = "http://127.0.0.1:4000/health"
 
 
@@ -37,7 +37,7 @@ def _live_proxy_available() -> bool:
 
 
 def _gate_or_skip() -> None:
-    """三道门控:env 开关 / proxy 探活 / 主 config 存在。任一不满足 → 干净 skip。"""
+    """两道门控:env 开关 / proxy 探活。任一不满足 → 干净 skip。"""
     if os.getenv("NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E") != "1":
         pytest.skip(
             "set NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 to run critical-path e2e "
@@ -45,11 +45,6 @@ def _gate_or_skip() -> None:
         )
     if not _live_proxy_available():
         pytest.skip(f"LLM proxy unavailable at {_LLM_PROXY_HEALTH}")
-    if not _MAIN_CONFIG.exists():
-        pytest.skip(
-            f"main config not found: {_MAIN_CONFIG} — create it first "
-            "(see docs/operations/gateway.md; it must include the llm: section)"
-        )
 
 
 @dataclass
@@ -104,8 +99,6 @@ def e2e_stack(tmp_path_factory: pytest.TempPathFactory) -> E2EStack:
             str(_E2E_UP),
             "--wt",
             str(wt_dir),
-            "--main-config",
-            str(_MAIN_CONFIG),
         ],
         cwd=str(_REPO_ROOT),
         capture_output=True,
