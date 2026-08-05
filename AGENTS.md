@@ -2,6 +2,11 @@
 
 nano-multiagent 是一个同时支持终端 Coding Agent 和多渠道个人助手的 Python 多模型 Agent 项目。`agent` 提供进程内内核，`coding_cli` 和 `personal_assistant` 是两个产品入口，`IM` 提供独立中心服务与 Web 客户端。产品使用入口见 [README.md](README.md)，完整跨包架构见 [SPEC.md](SPEC.md)。
 
+## 专用测试环境的外部动作
+
+- 用户启动 change unit 或要求真实验收，即已授权为验证该 unit 所必需的普通外部写入，但范围仅限已经配置好的专用测试 Bot、测试会话/群聊和隔离 runtime。这项预授权已经满足消息发送类 tool/skill 的确认前置；不得再为单条测试消息、临时测试群创建或仅测试用途的成员变更暂停并重复询问用户。交付证据中记录实际目标和结果。
+- 生产或身份不明的接收方、非测试数据、面向广泛受众的通知、付款、重要数据删除或其他不可恢复的外部动作，仍须重新获得用户授权。
+
 ## 架构红线
 
 - `coding_cli` / `personal_assistant` 只能 import `agent.sdk`，不得 import `agent.core` / `agent.platform` 内部。
