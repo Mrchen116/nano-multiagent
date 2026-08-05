@@ -3,30 +3,90 @@
 from __future__ import annotations
 
 from importlib import resources
+import logging
 from pathlib import Path
 import shutil
+import tempfile
 
 
 DEFAULT_BUILTIN_SKILL_TARGET_ROOT = Path("~/.nanoassistant/skills")
 """Default user-global skill root consumed by the PA kernel resolver."""
 
 _BUILTIN_SKILLS_PACKAGE = "personal_assistant.builtin_skills"
+_log = logging.getLogger(__name__)
+
+
+def _path_exists(path: Path) -> bool:
+    return path.exists() or path.is_symlink()
+
+
+def _remove_path(path: Path) -> None:
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.exists():
+        shutil.rmtree(path)
+
+
+def _sync_skill_directory(*, source: Path, destination: Path) -> None:
+    destination_root = destination.parent
+    skill_name = destination.name
+    staging = Path(
+        tempfile.mkdtemp(prefix=f".{skill_name}.staging-", dir=destination_root)
+    )
+    backup: Path | None = None
+    try:
+        shutil.copytree(source, staging, dirs_exist_ok=True)
+        if _path_exists(destination):
+            backup = Path(
+                tempfile.mkdtemp(prefix=f".{skill_name}.backup-", dir=destination_root)
+            )
+            backup.rmdir()
+            destination.replace(backup)
+        try:
+            staging.replace(destination)
+        except Exception:
+            if backup is not None and _path_exists(backup):
+                if _path_exists(destination):
+                    _remove_path(destination)
+                backup.replace(destination)
+            raise
+        if backup is not None and _path_exists(backup):
+            try:
+                _remove_path(backup)
+            except Exception:  # noqa: BLE001
+                _log.warning(
+                    "failed to remove built-in skill backup '%s'",
+                    backup,
+                    exc_info=True,
+                )
+    finally:
+        if _path_exists(staging):
+            try:
+                _remove_path(staging)
+            except Exception:  # noqa: BLE001
+                _log.warning(
+                    "failed to remove built-in skill staging directory '%s'",
+                    staging,
+                    exc_info=True,
+                )
 
 
 def install_builtin_skills(*, target_root: Path | str | None = None) -> dict[str, Path]:
-    """Install packaged built-in skills that are missing from the user root.
+    """Synchronize packaged built-in skills into the user runtime root.
 
     Args:
         target_root: Skill root to install into. Defaults to
             ``~/.nanoassistant/skills``. Tests may pass a temporary root.
 
     Returns:
-        Mapping of skill name to installed ``SKILL.md`` path. Existing user
-        skills are omitted and left untouched.
+        Mapping of every successfully synchronized built-in skill name to its
+        destination ``SKILL.md`` path.
 
     Side Effects:
-        Creates the target root and copies each packaged ``<skill>/`` directory
-        when ``<target>/<skill>/SKILL.md`` does not already exist.
+        Creates the target root and replaces each packaged built-in skill directory
+        with the current package version. Names not declared by the package remain
+        untouched. A failed skill keeps its previous complete directory when one
+        exists, is logged, and does not prevent other skills from synchronizing.
     """
 
     destination_root = (
@@ -36,9 +96,9 @@ def install_builtin_skills(*, target_root: Path | str | None = None) -> dict[str
     ).expanduser()
     destination_root.mkdir(parents=True, exist_ok=True)
 
-    installed: dict[str, Path] = {}
+    synchronized: dict[str, Path] = {}
     root = resources.files(_BUILTIN_SKILLS_PACKAGE)
-    for source in root.iterdir():
+    for source in sorted(root.iterdir(), key=lambda item: item.name):
         if not source.is_dir():
             continue
         source_skill = source.joinpath("SKILL.md")
@@ -47,9 +107,15 @@ def install_builtin_skills(*, target_root: Path | str | None = None) -> dict[str
         skill_name = source.name
         destination = destination_root / skill_name
         target_skill = destination / "SKILL.md"
-        if target_skill.exists():
+        try:
+            with resources.as_file(source) as source_path:
+                _sync_skill_directory(source=source_path, destination=destination)
+        except Exception:  # noqa: BLE001
+            _log.warning(
+                "failed to synchronize built-in personal assistant skill '%s'",
+                skill_name,
+                exc_info=True,
+            )
             continue
-        with resources.as_file(source) as source_path:
-            shutil.copytree(source_path, destination, dirs_exist_ok=True)
-        installed[skill_name] = target_skill
-    return installed
+        synchronized[skill_name] = target_skill
+    return synchronized
