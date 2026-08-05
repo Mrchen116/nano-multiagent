@@ -80,6 +80,7 @@
 - Quality CI: docs-check PASS（212 maintained Markdown sources / 66 required routes）；Ruff check PASS；Ruff format-check PASS（822 files）。
 - Frontend CI: `npm ci`、`npm audit --audit-level=critical` 与 `npm run test` PASS；59 files / 559 tests。Audit 输出仍有 2 low + 2 high，但没有达到当前 CI 的 critical 阈值。
 - Gate invalidation: canonical 只是已对账 delta 的机械归并，未改变实现、测试或用户旅程；现有 acceptance、verification 与 code-review 结论保持有效。
+- Archive: canonical 与本地 CI 收口后，整个 unit 原样移入 `docs/changes/archive/feat-502-pa-product-docs-skill/`；归档态 docs-check PASS（203 maintained Markdown sources / 66 required routes），无门禁输入失效。
 
 ## Commits
 
