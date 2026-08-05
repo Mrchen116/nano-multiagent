@@ -62,8 +62,9 @@
 - Fix: staging/backup 统一置于 registry 排除的 `.archive` 下；整次 bundle 刷新持有 user-global skill root 的 `fcntl` 跨进程锁。
 - Green: bootstrap 文件 13 passed；bootstrap/lifecycle/reporter 聚焦集 38 passed；PA 单测 836 passed，contract 136 passed（PA 聚焦/全量各有 2 个第三方 warning）；相关 Ruff check/format-check、docs-check（211 maintained Markdown sources / 66 required routes）与 `git diff --check` 通过。
 - Verification Round 2: 实现问题均关闭，但 verifier 判原 root-lock 测试只 mock 私有 helper，无法防止锁退化为 no-op，留下 1 个 WARNING。
-- Closure fix: 把该测试替换为 `spawn` 双进程行为测试；第一进程从公开 installer 进入真实切换段时，父进程以 `LOCK_NB` 证实 root lock 已被跨进程持有，第二 installer 在释放后完成，最终 canonical 手册保持当前包版本。替换后 bootstrap 文件 13 passed，Ruff 与 diff check 通过。
-- Limit: 还需 verifier targeted closure 和最终 CI。
+- Closure fix: 增加 `spawn` 双进程行为测试；第一进程从公开 installer 进入真实切换段时，父进程以 `LOCK_NB` 证实 root lock 已被跨进程持有，第二 installer 在释放前不能进入切换段、释放后完成，最终 canonical 手册保持当前包版本。另保留互补的完整 bundle lock-scope 测试：真实争用防锁退化为 no-op，scope 断言防锁缩窄成逐 skill。两项专门测试通过。
+- Gate status: verifier Round 3 已关闭 Round 2 WARNING；随后 code-review patch finder/verifier 确认仅靠进程存活不能保护完整 bundle 锁域，本次互补 scope 证据用于关闭该 finding。
+- Limit: 还需 code-review closure、受影响 verifier closure 和最终 CI。
 
 ## Commits
 

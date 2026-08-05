@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 import fcntl
 import multiprocessing
 import os
@@ -35,7 +36,7 @@ def _install_builtin_skills_process(
     outcomes: Any,
 ) -> None:
     attempted.set()
-    if entered_switch is not None and release_switch is not None:
+    if entered_switch is not None:
         real_sync = builtin_skill_bootstrap._sync_skill_directory
         first_switch = True
 
@@ -44,7 +45,7 @@ def _install_builtin_skills_process(
             if first_switch:
                 first_switch = False
                 entered_switch.set()
-                if not release_switch.wait(timeout=20):
+                if release_switch is not None and not release_switch.wait(timeout=20):
                     raise TimeoutError("parent did not release first skill switch")
             real_sync(source=source, destination=destination)
 
@@ -188,7 +189,47 @@ def test_install_builtin_skills_keeps_failed_backup_cleanup_out_of_discovery(
     assert "injected backup cleanup failure" in caplog.text
 
 
-def test_install_builtin_skills_serializes_shared_root_across_processes(
+def test_install_builtin_skills_keeps_one_lock_scope_across_complete_bundle(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target_root = tmp_path / ".nanoassistant" / "skills"
+    real_sync = builtin_skill_bootstrap._sync_skill_directory
+    lock_held = False
+    lock_entries = 0
+    synchronized_names: list[str] = []
+
+    @contextmanager
+    def observe_root_lock(destination_root: Path):
+        nonlocal lock_held, lock_entries
+        assert destination_root == target_root
+        assert not lock_held
+        lock_held = True
+        lock_entries += 1
+        try:
+            yield
+        finally:
+            lock_held = False
+
+    def assert_locked_sync(*, source: Path, destination: Path) -> None:
+        assert lock_held
+        synchronized_names.append(destination.name)
+        real_sync(source=source, destination=destination)
+
+    monkeypatch.setattr(
+        builtin_skill_bootstrap, "_builtin_skill_sync_lock", observe_root_lock
+    )
+    monkeypatch.setattr(
+        builtin_skill_bootstrap, "_sync_skill_directory", assert_locked_sync
+    )
+
+    install_builtin_skills(target_root=target_root)
+
+    assert lock_entries == 1
+    assert {_PRODUCT_DOCS_SKILL, "lark-doc"} <= set(synchronized_names)
+
+
+def test_install_builtin_skills_uses_real_cross_process_root_lock(
     tmp_path: Path,
 ) -> None:
     target_root = tmp_path / ".nanoassistant" / "skills"
@@ -200,6 +241,7 @@ def test_install_builtin_skills_serializes_shared_root_across_processes(
     first_entered_switch = context.Event()
     release_first_switch = context.Event()
     second_attempted = context.Event()
+    second_entered_switch = context.Event()
     outcomes = context.Queue()
     first = context.Process(
         target=_install_builtin_skills_process,
@@ -213,7 +255,13 @@ def test_install_builtin_skills_serializes_shared_root_across_processes(
     )
     second = context.Process(
         target=_install_builtin_skills_process,
-        args=(str(target_root), second_attempted, None, None, outcomes),
+        args=(
+            str(target_root),
+            second_attempted,
+            second_entered_switch,
+            None,
+            outcomes,
+        ),
     )
     first.start()
     lock_fd: int | None = None
@@ -233,7 +281,7 @@ def test_install_builtin_skills_serializes_shared_root_across_processes(
 
         second.start()
         assert second_attempted.wait(timeout=10)
-        assert second.is_alive()
+        assert not second_entered_switch.wait(timeout=1)
     finally:
         release_first_switch.set()
         for process in (first, second):
@@ -248,6 +296,7 @@ def test_install_builtin_skills_serializes_shared_root_across_processes(
 
     assert first.exitcode == 0
     assert second.exitcode == 0
+    assert second_entered_switch.is_set()
     assert [outcomes.get(timeout=5)[0] for _ in range(2)] == ["ok", "ok"]
     assert "# Nano Personal Assistant 产品手册" in stale_manual.read_text(
         encoding="utf-8"
