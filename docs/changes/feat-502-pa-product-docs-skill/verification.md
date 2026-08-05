@@ -84,3 +84,56 @@ N/A. 本 unit 没有前端原型或 reference artifact；单文件手册本身�
 ## Corrected Delta Reconciliation
 
 N/A for `verification_mode=full`.
+
+# Round 2
+
+> Validation snapshot: `e6f8b617a7beb1dc68e1a116f368eaf05c764606 → b4dc3bbaf2471a383627b17c373c5135fe2c6f2a`
+
+## Verification Report: feat-502
+
+### Summary
+
+- Mode: `targeted-closure`
+- Delta range: `ea59765053a8bc8fb253f5b3f1ae3dc6d73cda0b..b4dc3bbaf2471a383627b17c373c5135fe2c6f2a`
+- Focus issues:
+  - backup cleanup failure leaves old skill discoverable ahead of canonical directory
+  - concurrent Gateways with different config but shared HOME can roll successful refresh back to old directory
+- requires_full_verification: `false`
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 1/2 focus issues fully closed |
+| Correctness | 1/2 focus issues fully protected |
+| Coherence | Followed |
+
+0 critical issue(s), 1 warning(s) found. Fix before PR.
+
+## Targeted Closure
+
+### Focus 1: cleanup 失败后旧版 skill 被优先发现
+
+**Closed.** staging 与 backup 现在都位于 skill root 下的 `.archive` 隔离目录（`src/personal_assistant/builtin_skills/bootstrap.py:49-63`）；现有 `SkillRegistry` 在递归扫描时明确剪掉 `.archive`（`src/agent/core/skills/registry.py:41-58`）。故障注入测试让 backup 删除真实失败后，通过正式 `SkillRegistry` seam 确认发现位置仍是 canonical `nanoassistant-docs/SKILL.md`，且描述来自新版（`tests/unit/personal_assistant/test_builtin_skill_bootstrap.py:115-154`）。
+
+### Focus 2: 共享 HOME 的并发 Gateway 可把成功刷新回滚为旧版
+
+**Implementation closed; permanent regression coverage remains incomplete.** `install_builtin_skills()` 现在以 destination root 下稳定的 `.builtin-skills-sync.lock` 作为用户全局锁文件，用 `fcntl.flock(..., LOCK_EX)` 获得跨进程排他锁，并在整个内置 bundle 的目录切换期间持有（`src/personal_assistant/builtin_skills/bootstrap.py:35-46,118-140`）。本轮一次性双进程检查确认：第二进程在第一进程释放锁前不能获得同一 root 的锁，释放后才继续（`CROSS_PROCESS_ROOT_LOCK_PASS`）。这一局部串行化复用现有 PA root，未新建跨包或跨机机制，不触发 full verification 升级。
+
+## Coherence
+
+- `.archive` 复用 Kernel 已有的归档隔离约定，没有为临时目录再造发现排除规则；符合 design D1/D2 对整目录替换、失败恢复和成功项不回滚的约束（`docs/changes/feat-502-pa-product-docs-skill/design.md:75-91`）。
+- 锁仅位于 `personal_assistant.builtin_skills` 内，没有增加 `personal_assistant → agent.core/agent.platform` 依赖；针对性架构 contract 5 tests 通过。
+- 受影响代码 Ruff check 和 format-check 通过。
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+- None.
+
+### WARNING（提 PR 前必须修）
+
+- `tests/unit/personal_assistant/test_builtin_skill_bootstrap.py:157-193` 只把 `_builtin_skill_sync_lock` 替换为观察 context manager，再断言私有 `_sync_skill_directory` 在 context 中被调用；它没有观察两个进程不能交叉切换这个运维结果，而且 `_builtin_skill_sync_lock` 即使退化为 no-op，该测试仍会通过。这不满足 `docs/development/testing.md:9-20` 的可观察 seam 和“不测私有实现细节”要求，也没有把本轮并发回滚失败原因留在永久回归门禁中。请把该测试改为确定性的双进程行为测试：一个进程持有同一 target root 的刷新锁/进入切换段时，第二个进程不得进入切换段，释放后才能继续；或直接编排原始交叉并断言最终 canonical 目录仍是当前包版本。保留在现有 bootstrap 测试 owner 中，不需要增加另一层重复测试。
+
+### SUGGESTION（可以修）
+
+- None.
