@@ -45,6 +45,16 @@
 - Locator: implementation session terminal output.
 - Limit: 不替代后续真栈验收、独立 review 或仓库 CI。
 
+### Isolated real-stack journey
+
+- Claim: Gateway 启动会刷新全部产品托管 skill、保留非内置名称，并且真实 IM 用户可以让仅启用产品手册的 Agent 调用 `skill_view` 后回答产品问题。
+- Validated commit: `c19707871` (`feat(feat-502/M1): add PA product docs skill`).
+- Runtime: worktree-local random IM port, copied Gateway config, isolated HOME / workspace / node identity; live proxy model `deepseek:deepseek-v4-flash`.
+- Method: 预置 stale `lark-doc` 目录与 `my-custom-skill` 后执行 `scripts/e2e-up.sh`; 通过 IM API 创建只选择 `nanoassistant-docs`、只允许 `skill_view` 的 Agent，发送首次启动与 Gateway ready 问题并观察 WS 工具/消息事件。
+- Result: PASS；`lark-doc` 旧残留被删除，`nanoassistant-docs` 安装，`my-custom-skill` 原文保留；收到 completed `skill_view(name=nanoassistant-docs)`，最终回答同时包含 IM→Gateway 启动顺序和 started 不代表已可聊天语义。
+- Locator: isolated runtime logs under the unit worktree during acceptance; terminal marker `REAL_PRODUCT_DOCS_JOURNEY_PASS`, agent `docs6cd5c5`.
+- Limit: 一次性真栈实例和日志不提交；最终交付前必须清理进程与 runtime 文件。
+
 ## Commits
 
-- Pending.
+- `c19707871` — `feat(feat-502/M1): add PA product docs skill`.
