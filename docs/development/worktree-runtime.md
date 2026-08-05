@@ -27,6 +27,10 @@
 - `curl` 可用；手工改写 YAML 时 `yq` 可选，脚本在没有 `yq` 时使用 PyYAML。
 - `WT_ROOT` 使用实际 worktree 或临时目录的绝对路径。Agent 收到派发包中的 `worktree_dir` 时直接使用该值，不根据调用 shell 的 `$PWD` 猜测。
 
+### 本机飞书测试 Bot
+
+本机 `.env`（不提交）包含测试 Bot 的 `NANO_MULTIAGENT_TEST_FEISHU_APP_ID` 与 `NANO_MULTIAGENT_TEST_FEISHU_APP_SECRET`。`e2e-up.sh` 不读取它；真实飞书验收应使用基于它生成的独立 `--main-config`，只操作指定测试 Bot/会话，且不输出凭据。
+
 ## 推荐路径：脚本化起停
 
 `scripts/e2e-up.sh` 是完整 IM + Gateway 隔离栈的可执行入口，`scripts/e2e-down.sh` 是与它配对的退出入口。即使启动或验证失败，也必须执行 down。
