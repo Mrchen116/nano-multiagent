@@ -80,8 +80,7 @@ def test_worktree_stack_isolates_runtime_and_releases_owned_resources(
         ports = _parse_ports_env(stack_dir / ".e2e-ports.env")
         assert ports["E2E_PROFILE"] == "default"
         assert all(
-            not path.exists()
-            or path.read_bytes() != b"stale-external-shadow-state"
+            not path.exists() or path.read_bytes() != b"stale-external-shadow-state"
             for path in stale_shadow_files
         )
         im_port = int(ports["IM_PORT"])
