@@ -96,3 +96,11 @@ Round 3 的 listener 归属问题已由独立 Test Agent 和仓库维护的 Feis
 4. 建立真实测试事实后发送 `/compact 保留认证方案与未完成项`：可见“已按关注点压缩当前会话。”；随后真实追问仍得到 `PKCE` 与 `refresh-token rotation`。focused 命令与确认同样进入 IM shadow。
 
 这轮验证的隔离 IM + Gateway 栈已停止并清除 runtime 文件；测试 App 凭据与 profile 不在仓库、日志或本报告中记录。
+
+---
+
+# Round 5 — 2026-08-05
+
+独立代码审查发现 E2E harness 的三个可复现隔离缺口，均已修正并重验：probe 现遵循与 launcher 相同的 XDG 私有配置路径；每次启动都会清除旧 external shadow SQLite 及 WAL/SHM；同一专用 Test Agent Bot 由本机 listener lock 串行化。
+
+真实双 worktree 验收：A 启动 `--feishu` 后能通过 ingress probe；B 在 Gateway 启动前因同一 Bot 的 listener lock 被拒绝。停止 A 后，B 能取得 lock 并再次通过 ingress probe；两个 runtime 均由 `e2e-down.sh` 停止，lock 已释放。默认 lifecycle 回归还预置了旧 shadow SQLite/WAL/SHM，确认启动后不保留它们。
