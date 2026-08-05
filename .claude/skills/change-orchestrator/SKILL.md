@@ -19,7 +19,8 @@ verifier 与 code review 的结论都是判断输入；结合完整上下文核�
 
 ## 读取范围
 
-启动时读取目标 unit 的：
+启动时先完整读取
+[`docs/development/change-workflow.md`](../../../docs/development/change-workflow.md)，再读取目标 unit 的：
 
 - 首文档、`design.md`、最新 `design-review.md`，以及 design 内的
   `Runbook for Reviewer` / reference contract；

@@ -93,8 +93,9 @@ git pull --ff-only origin "unit/<unit_id>"
 2. **`<unit_path>/design.md`** —— 大概架构(§架构总览 + §关键决策),为可能的 revise-design 引用准备;Runbook 按 §2.5 读取
 3. **`README.md` / [`docs/operations/README.md`](../../../docs/operations/README.md)** —— 怎么启动、怎么用
 4. **`CLAUDE.md` / `AGENTS.md`** —— 项目级约定,怎么跑产品
-5. **历轮验收报告**(若 `review_round > 1`)—— 上一轮的 issues、Recommended Action、修复路径
-6. **每个 milestone 中实际存在的实施记录** —— 若有 `progress.md`，简短扫一眼，知道大概实现了什么、有没有"[Design 修订]"段。没有过程记录时直接继续，不把它当作产品验收缺陷。**不要**深读代码意图——你不是 code reviewer。
+5. **[`docs/development/change-workflow.md`](../../../docs/development/change-workflow.md)** —— 当前 change lifecycle、门禁与真实验收测试动作的授权边界
+6. **历轮验收报告**(若 `review_round > 1`)—— 上一轮的 issues、Recommended Action、修复路径
+7. **每个 milestone 中实际存在的实施记录** —— 若有 `progress.md`，简短扫一眼，知道大概实现了什么、有没有"[Design 修订]"段。没有过程记录时直接继续，不把它当作产品验收缺陷。**不要**深读代码意图——你不是 code reviewer。
 
 读完后心里要清晰:
 - 这个 unit 的验收标准有哪些条
