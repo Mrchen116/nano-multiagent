@@ -137,3 +137,59 @@ N/A for `verification_mode=full`.
 ### SUGGESTION（可以修）
 
 - None.
+
+# Round 3
+
+> Validation snapshot: `e6f8b617a7beb1dc68e1a116f368eaf05c764606 → ffb7ec40b2a17ff196a6b9059e1c0a6ede3847ab`
+
+## Verification Report: feat-502
+
+### Summary
+
+- Mode: `targeted-closure`
+- Delta range: `b4dc3bbaf2471a383627b17c373c5135fe2c6f2a..ffb7ec40b2a17ff196a6b9059e1c0a6ede3847ab`
+- Focus issues:
+  - Round 2 WARNING: root-lock regression test mocks private helper and would pass if real `fcntl` lock became no-op
+- requires_full_verification: `false`
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 1/1 focus issue closed |
+| Correctness | 1/1 focus issue protected |
+| Coherence | Followed |
+
+All checks passed. Ready for PR.
+
+## Targeted Closure
+
+### Focus: root lock 回归测试只验私有 helper
+
+**Closed.** 新测试通过公开 `install_builtin_skills()` 分别启动两个 `spawn` 子进程（`tests/unit/personal_assistant/test_builtin_skill_bootstrap.py:30-58,191-217`）。第一个 installer 已进入真实 skill 切换段后，父进程对同一 root 锁文件执行 `LOCK_EX | LOCK_NB`，必须收到 `BlockingIOError`，因而直接观察到操作系统级跨进程 lock contention（`:218-232`）。若生产 `fcntl` 锁退化为 no-op，父进程会立即获锁并在 `assert root_lock_is_held` 失败；结论不再依赖 mock 的 context-manager 调用或私有 helper 调用次数。
+
+测试随后启动第二个 public installer，在第一个释放切换段后等待两者完成，断言两个进程都以成功结果退出，最终 canonical `nanoassistant-docs/SKILL.md` 是当前包内容，且锁已可再次获取（`:234-263`）。这一可观察 seam 同时保护“切换期间真实互斥”、“第二 installer 最终完成”和“两进程后 canonical 内容不回滚”三个运维结果。对 `_sync_skill_directory` 的局部替换只用于把第一个真实切换段确定性暂停，不是测试结果的观察点。
+
+## Verification Evidence
+
+- 定向双进程测试连续运行 5 次：5/5 PASS，单次约 0.95–1.36s。
+- 整个 `tests/unit/personal_assistant/test_builtin_skill_bootstrap.py`：13 passed。
+- Ruff check：PASS；Ruff format-check：1 file already formatted；`git diff --check` 对本轮 delta：PASS。
+- 归属合规：测试继续放在现有 bootstrap owner 文件，保护的是稳定的跨进程运维边界；未新建 milestone 命名文件，也未在 integration/e2e 层重复同一失败原因。
+
+## Coherence
+
+- 此 delta 只替换不足的回归测试并追加证据记录，未改变产品实现、spec/design 映射、依赖方向或用户可观察行为，因此不需要升级 full verification。
+- `spawn` 进程在当前 macOS/Python 门禁中稳定运行；超时与 `finally` 回收确保失败时不留子进程。
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+- None.
+
+### WARNING（提 PR 前必须修）
+
+- None.
+
+### SUGGESTION（可以修）
+
+- None.
