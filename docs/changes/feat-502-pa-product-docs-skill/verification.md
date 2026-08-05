@@ -193,3 +193,59 @@ All checks passed. Ready for PR.
 ### SUGGESTION（可以修）
 
 - None.
+
+# Round 4
+
+> Validation snapshot: `e6f8b617a7beb1dc68e1a116f368eaf05c764606 → 1c90dffdac7d873fa81a005aaa4f01ba29127531`
+
+## Verification Report: feat-502
+
+### Summary
+
+- Mode: `targeted-closure`
+- Delta range: `ffb7ec40b2a17ff196a6b9059e1c0a6ede3847ab..1c90dffdac7d873fa81a005aaa4f01ba29127531`
+- Focus issues:
+  - code-review confirmed: prior process-liveness assertion did not permanently protect whole-bundle lock scope
+- requires_full_verification: `false`
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 1/1 focus issue closed |
+| Correctness | 1/1 focus issue protected |
+| Coherence | Followed |
+
+All checks passed. Ready for PR.
+
+## Targeted Closure
+
+### Focus: 跨进程证据未单独保护整个 bundle 的锁作用域
+
+**Closed.** 新增 scope 测试从公开 `install_builtin_skills()` 入口运行完整刷新，在一个 root-lock context 内观察每次 skill 目录切换；任何切换移到 context 外都会立即失败，而 `lock_entries == 1` 明确防止实现退化为逐 skill 重新加锁（`tests/unit/personal_assistant/test_builtin_skill_bootstrap.py:192-229`）。它保护的是已有 root-lock 的完整 bundle 作用域，没有改变 production 实现。
+
+现有跨进程测试保护另一个失败原因：第一个公开 installer 进入真实切换段后，父进程的 `LOCK_EX | LOCK_NB` 必须被操作系统拒绝，第二个 installer 在释放前不得进入切换段，释放后两个进程均完成且 canonical 手册仍是当前包版本（`tests/unit/personal_assistant/test_builtin_skill_bootstrap.py:232-312`）。该证据会防止 `fcntl` 锁退化为 no-op，scope 测试则防止真实锁仍存在但锁域被缩窄；两者互补，不重复同一失败原因。
+
+## Verification Evidence
+
+- 两项定向测试联合连续运行 5 次：5/5 PASS，单轮约 2.00–2.33s。
+- 完整 `tests/unit/personal_assistant/test_builtin_skill_bootstrap.py`：14 passed（约 2.98s）。
+- Ruff check：PASS；Ruff format-check：1 file already formatted；`git diff --check` 对本轮 delta：PASS。
+- Delta 仅修改既有 bootstrap unit-test owner 与 unit 证据文档，`src/` 无变更。测试仍位于能暴露 installer 并发失败的最低现有层，未新建平行文件或跨层重复。
+
+## Coherence
+
+- scope 测试的注入 seam 只用于确定性观察整次公开 installer 调用的 root-lock 边界；它不再独自充当真实锁有效性证据，真实运维结果由独立的 OS 跨进程测试承担。
+- 本轮 delta 没有修改 spec/design 映射、产品行为、依赖方向或跨进程协议，无需升级 full verification。
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+- None.
+
+### WARNING（提 PR 前必须修）
+
+- None.
+
+### SUGGESTION（可以修）
+
+- None.
