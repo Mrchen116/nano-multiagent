@@ -37,7 +37,7 @@ _E2E_UP = _REPO_ROOT / "scripts" / "e2e-up.sh"
 _E2E_DOWN = _REPO_ROOT / "scripts" / "e2e-down.sh"
 _FREE_PORTS = _REPO_ROOT / "scripts" / "free-ports.sh"
 _RECORDING_STUB = _REPO_ROOT / "scripts" / "fixtures" / "anthropic_sse_ok_recording.py"
-_MAIN_CONFIG = Path.home() / ".nano-assistant" / "config.yaml"
+_E2E_CONFIG = _REPO_ROOT / "config" / "e2e" / "gateway.yaml"
 
 
 @dataclass
@@ -121,11 +121,7 @@ def _rewrite_llm_to_stub(src: Path, dst: Path, stub_url: str) -> None:
 @pytest.fixture
 def stub_llm_stack(tmp_path: Path) -> Iterator[StubLLMStack]:
     """起 recording Anthropic stub + 真 IM/Gateway;Gateway 的 llm 全指向 stub。"""
-    if not _MAIN_CONFIG.exists():
-        pytest.skip(
-            f"main config not found: {_MAIN_CONFIG} — create it first "
-            "(see docs/operations/gateway.md)"
-        )
+    assert _E2E_CONFIG.is_file(), f"repository E2E config missing: {_E2E_CONFIG}"
     if not _RECORDING_STUB.exists():
         pytest.fail(f"missing fixture script: {_RECORDING_STUB}")
 
@@ -161,7 +157,7 @@ def stub_llm_stack(tmp_path: Path) -> Iterator[StubLLMStack]:
         pytest.fail("recording stub did not listen in time")
 
     main_for_up = tmp_path / "main-config-stubbed.yaml"
-    _rewrite_llm_to_stub(_MAIN_CONFIG, main_for_up, f"http://127.0.0.1:{stub_port}")
+    _rewrite_llm_to_stub(_E2E_CONFIG, main_for_up, f"http://127.0.0.1:{stub_port}")
 
     wt_dir = tmp_path / "stack"
     wt_dir.mkdir()

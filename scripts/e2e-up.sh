@@ -10,7 +10,8 @@
 # docs/changes/archive/bugfix-380-llm-upstream-error-visible/retro.md §2).
 #
 # Usage:
-#   ./scripts/e2e-up.sh                                  # use defaults
+#   ./scripts/e2e-up.sh                                  # repository default profile
+#   ./scripts/e2e-up.sh --feishu                         # dedicated test Bot profile
 #   ./scripts/e2e-up.sh --main-config /path/to/cfg.yaml  # alt source config
 #   ./scripts/e2e-up.sh --wt /custom/worktree/path       # alt target worktree
 #
@@ -24,23 +25,52 @@
 
 set -euo pipefail
 
+# Resolve the repository from this script, not the caller's worktree: pytest can
+# pass an arbitrary temporary directory as --wt.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd 2>/dev/null)"
+SRC_DIR="$REPO_ROOT/src"
+DEFAULT_E2E_CONFIG="$REPO_ROOT/config/e2e/gateway.yaml"
+DEFAULT_FEISHU_ENV="${XDG_CONFIG_HOME:-$HOME/.config}/nano-multiagent/feishu-e2e.env"
+
 # ─── arg parsing ─────────────────────────────────────────────────────────────
 
 WT_ROOT="${PWD}"
-MAIN_CFG="${HOME}/.nano-assistant/config.yaml"
+MAIN_CFG="$DEFAULT_E2E_CONFIG"
+E2E_PROFILE="default"
+FEISHU_ENV="$DEFAULT_FEISHU_ENV"
+MAIN_CONFIG_EXPLICIT=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --wt) WT_ROOT="$(cd "$2" && pwd)"; shift 2 ;;
-    --main-config) MAIN_CFG="$2"; shift 2 ;;
+    --main-config) MAIN_CFG="$2"; MAIN_CONFIG_EXPLICIT=1; shift 2 ;;
+    --profile) E2E_PROFILE="$2"; shift 2 ;;
+    --feishu) E2E_PROFILE="feishu"; shift ;;
+    --feishu-env) FEISHU_ENV="$2"; shift 2 ;;
     -h|--help) sed -n '1,/^set -e/p' "$0" | sed -n '2,/^$/p'; exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
 
+case "$E2E_PROFILE" in
+  default)
+    ;;
+  feishu)
+    if [[ $MAIN_CONFIG_EXPLICIT -eq 1 ]]; then
+      echo "--feishu cannot be combined with --main-config" >&2
+      exit 2
+    fi
+    ;;
+  *)
+    echo "unknown E2E profile: $E2E_PROFILE (expected default or feishu)" >&2
+    exit 2
+    ;;
+esac
+
 if [[ ! -f "$MAIN_CFG" ]]; then
-  echo "main config not found: $MAIN_CFG" >&2
-  echo "create ~/.nano-assistant/config.yaml first (see docs/operations/gateway.md) or pass --main-config" >&2
+  echo "E2E config not found: $MAIN_CFG" >&2
+  echo "restore the repository E2E config or pass --main-config" >&2
   exit 1
 fi
 
@@ -56,15 +86,8 @@ done
 
 # ─── port allocation ─────────────────────────────────────────────────────────
 
-# REPO_ROOT must resolve to the checkout that holds src/ and scripts/, NOT to
-# $WT_ROOT — feat-421 runs the stack with --wt pointing at a pytest tmp dir that
-# is not a git checkout and has no src/. Derive it from this script's own path
-# ($0 lives in <repo>/scripts/) so PYTHONPATH and free-ports.sh resolve no matter
-# where $WT_ROOT points. Falls back to git/dirname only if $0 derivation fails.
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd 2>/dev/null)"
-REPO_ROOT="${REPO_ROOT:-$(git -C "$WT_ROOT" rev-parse --show-toplevel 2>/dev/null || dirname "$WT_ROOT")}"
-SRC_DIR="$REPO_ROOT/src"
+# REPO_ROOT was resolved from this script before arguments were parsed. It must
+# not follow $WT_ROOT because test fixtures commonly use a non-git temp path.
 FREE_PORTS_SH="$REPO_ROOT/scripts/free-ports.sh"
 [[ -x "$FREE_PORTS_SH" ]] || FREE_PORTS_SH="$SCRIPT_DIR/free-ports.sh"
 # refactor-387 M3: kernel runs in-process; only 1 port needed (IM).
@@ -77,6 +100,12 @@ echo "$JWT_SECRET" > "$WT_ROOT/.e2e-jwt-secret"
 
 WT_CFG="$WT_ROOT/.gateway-config.yaml"
 cp "$MAIN_CFG" "$WT_CFG"
+if [[ "$E2E_PROFILE" == "feishu" ]]; then
+  PYTHONPATH="$SRC_DIR" python3 "$SCRIPT_DIR/e2e_feishu_config.py" \
+    --config "$WT_CFG" \
+    --env "$FEISHU_ENV"
+fi
+chmod 600 "$WT_CFG"
 
 WT_NAME="$(basename "$WT_ROOT")"
 NODE_ID="wt-${WT_NAME}-$$"
@@ -204,7 +233,7 @@ fi
 
 if ! python3 -c "import yaml; cfg=yaml.safe_load(open('$WT_CFG')); exit(0 if 'llm' in cfg else 1)" 2>/dev/null; then
   echo "ERROR: '$WT_CFG' is missing the 'llm:' section." >&2
-  echo "Add the llm: block to ~/.nano-assistant/config.yaml first (see docs/operations/gateway.md)." >&2
+  echo "Add the llm: block to the selected repository E2E config first." >&2
   exit 1
 fi
 
@@ -255,11 +284,13 @@ export IM_URL=http://127.0.0.1:$IM_PORT
 export IM_JWT_SECRET=$JWT_SECRET
 export NODE_ID=$NODE_ID
 export VITE_IM_PROXY_TARGET=http://127.0.0.1:$IM_PORT
+export E2E_PROFILE=$E2E_PROFILE
 EOF
 
 echo "e2e stack ready in $WT_ROOT"
 echo "  IM   $IM_PORT  ($WT_ROOT/.im.log)"
 echo "  GW   pid=$(cat "$WT_ROOT/.gateway.pid")  ($WT_ROOT/.gateway.log)"
+echo "  profile $E2E_PROFILE"
 echo "source $WT_ROOT/.e2e-ports.env to expose ports"
-echo "hint: e2e-up copies only --main-config and never imports local .env"
-echo "      Optional Feishu test Bot: see docs/development/worktree-runtime.md before external-channel acceptance"
+echo "hint: the default profile uses config/e2e/gateway.yaml, never ~/.nano-assistant"
+echo "      Feishu requires --feishu and the private profile documented in worktree-runtime.md"

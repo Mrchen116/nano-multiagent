@@ -10,7 +10,7 @@
 #
 # Prerequisites (else the suite cleanly SKIPS, never errors):
 #   - local LLM proxy reachable at http://127.0.0.1:4000/health
-#   - ~/.nano-assistant/config.yaml exists and includes the llm: section
+#   - repository config/e2e/gateway.yaml is present (tracked)
 #
 # Usage:
 #   scripts/e2e-critical.sh                 # run all critical paths
