@@ -47,3 +47,14 @@
   with handler assertions for stable errors and zero message/live-event side effects.
 - Focused Gateway/IM/fork suites: 106 passed after the fixes; the complete Web IM suite
   also passed 603 tests.
+
+## Delivery closure
+
+- Rebased onto `origin/main` after all three round-2 gates; the rebase was conflict-free,
+  so the accepted implementation and evidence remained valid.
+- Corrected-delta verification passed with `requires_full_verification=false`; the four
+  delta specs were merged into canonical Gateway/IM specs and the unit was archived.
+- Local GitHub Actions equivalents passed: Ruff check and format over 833 Python files,
+  2,984 non-E2E Python tests, documentation integrity, npm critical-level audit, and all
+  603 Web IM tests. The production frontend build also passed; only existing dependency,
+  React test, and chunk-size warnings remained.
