@@ -23,7 +23,6 @@ from datetime import datetime, timezone
 from IM.api.ws.event_types import (
     EVENT_MESSAGE_COMPLETED,
     EVENT_MESSAGE_CREATED,
-    EVENT_MESSAGE_DELTA,
     EVENT_PERMISSION_REQUEST,
     EVENT_PERMISSION_RESOLVED,
     EVENT_RUN_HEARTBEAT,
@@ -184,25 +183,33 @@ class EventBridge:
         )
         return message
 
-    def on_message_delta(self, *, message_id: str, delta_text: str) -> None:
+    def on_message_delta(
+        self,
+        *,
+        message_id: str,
+        delta_text: str,
+        idempotency_key: str | None = None,
+    ) -> None:
         """Append an incremental text token to the agent message and emit a delta event."""
         if not delta_text:
             # Drop empty deltas before any DB write — they would still emit a no-op event
             # which the frontend has to filter; safer to ignore at the source.
             return
-        updated = self.message_repository.update_runtime_state(
-            message_id=message_id,
-            content_append=delta_text,
+        conversation_id = self.message_repository.get_conversation_id(
+            message_id=message_id
         )
-        self._emit(
-            conversation_id=updated.conversation_id,
+        if conversation_id is None:
+            raise ValueError(f"message_id not found: {message_id}")
+        self.event_repository.append_message_delta_if_new(
+            conversation_id=conversation_id,
             message_id=message_id,
-            event_type=EVENT_MESSAGE_DELTA,
-            delivery_status="running",
+            delta_text=delta_text,
+            idempotency_key=idempotency_key,
             payload=build_message_delta_payload(
-                conversation_id=updated.conversation_id,
+                conversation_id=conversation_id,
                 message_id=message_id,
                 delta_text=delta_text,
+                idempotency_key=idempotency_key,
             ),
         )
 

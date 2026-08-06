@@ -150,14 +150,21 @@ def build_message_created_payload(*, message: Message) -> dict[str, Any]:
 
 
 def build_message_delta_payload(
-    *, conversation_id: str, message_id: str, delta_text: str
+    *,
+    conversation_id: str,
+    message_id: str,
+    delta_text: str,
+    idempotency_key: str | None = None,
 ) -> dict[str, Any]:
     """Build payload for the ``message.delta`` event (incremental token append)."""
-    return {
+    payload = {
         "conversation_id": conversation_id,
         "message_id": message_id,
         "delta_text": delta_text,
     }
+    if idempotency_key is not None:
+        payload["idempotency_key"] = idempotency_key
+    return payload
 
 
 def build_message_completed_payload(

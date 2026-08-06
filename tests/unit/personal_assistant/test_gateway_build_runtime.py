@@ -435,10 +435,9 @@ async def test_reconcile_on_connect_continues_after_binding_failure_and_reports_
         def handle_agent_create(self, payload: object) -> object:
             return payload
 
-        def reconcile_all_agents(
-            self, *, memory_versions: dict[str, int] | None = None
-        ) -> None:
-            reconcile_calls.append(dict(memory_versions or {}))
+        def reconcile_all_agents(self, *, latest_memory_version: object) -> None:
+            assert latest_memory_version is not None
+            reconcile_calls.append({})
 
     captured: dict[str, object] = {}
 
@@ -470,6 +469,12 @@ async def test_reconcile_on_connect_continues_after_binding_failure_and_reports_
     on_connected = captured["on_connected"]
 
     await on_connected(manager)
+    bootstrap_task = on_connected.__self__._node_bootstrap_task  # type: ignore[attr-defined]  # noqa: SLF001
+    assert bootstrap_task is not None
+    await bootstrap_task
+    reconcile_task = on_connected.__self__._agent_reconcile_task  # type: ignore[attr-defined]  # noqa: SLF001
+    assert reconcile_task is not None
+    await reconcile_task
 
     assert reconcile_calls == [{}]
     assert manager.sent == [

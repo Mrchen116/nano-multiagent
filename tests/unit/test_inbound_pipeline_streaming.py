@@ -353,6 +353,43 @@ class TestObserverHandlesDirectAssistantMessage:
         assert delta_frames[0]["delta_text"] == "The answer is 42."
 
     @pytest.mark.asyncio
+    async def test_message_delta_carries_stable_kernel_event_identity(self):
+        from personal_assistant.gateway.runtime_delivery.observer import (
+            build_kernel_event_observer,
+        )
+
+        manager = MagicMock()
+        manager.connected = True
+        manager.send_json = AsyncMock()
+        run_context_store = delivery_context_store(
+            {
+                "run-001": {
+                    "conversation_id": "conv-abc",
+                    "message_id": "agent-msg-1",
+                    "agent_id": "alpha",
+                }
+            }
+        )
+        observer = build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=run_context_store,
+        )
+
+        observer(
+            {
+                "event": "assistant_message",
+                "content": "answer",
+                "message_id": "kernel-msg-1",
+                "run_id": "run-001",
+                "_id": 42,
+            }
+        )
+        await asyncio.sleep(0.05)
+
+        payload = manager.send_json.await_args.args[1]
+        assert payload["idempotency_key"] == "run-001:assistant_message:42"
+
+    @pytest.mark.asyncio
     async def test_run_heartbeat_forwards_liveness_delta_to_im(self):
         """bugfix-417-M3 R4: a kernel run_heartbeat event is forwarded to IM as a
         run_heartbeat streaming_delta (advancing last_evt) when a message_id exists."""

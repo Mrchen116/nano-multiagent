@@ -18,6 +18,12 @@ from ._im_connection_helpers import (
 )
 
 
+def test_business_ack_default_allows_remote_im_round_trips() -> None:
+    config = IMConnectionConfig(url="http://im.example")
+
+    assert config.business_ack_timeout_seconds == 10.0
+
+
 class _YieldingSendWebSocket(_FakeWebSocket):
     """Expose a response after transport acceptance but before ``send`` returns."""
 

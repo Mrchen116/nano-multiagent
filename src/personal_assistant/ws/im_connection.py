@@ -215,7 +215,7 @@ class IMConnectionConfig:
     heartbeat_interval_seconds: float = 30.0
     heartbeat_ack_timeout_seconds: float = 10.0
     registration_ack_timeout_seconds: float = 10.0
-    business_ack_timeout_seconds: float = 1.0
+    business_ack_timeout_seconds: float = 10.0
 
     def normalized_heartbeat_interval_seconds(self) -> float | None:
         interval = self.heartbeat_interval_seconds
