@@ -49,6 +49,7 @@
 - `AgentDetailPage` 只读取 route param，并用 `key={agentId}` 挂载实际持有 state/query/mutation 的 `AgentDetailPageContent`。Agent 切换会在 commit 前创建新的 Agent-scoped state 与 mutation observer；旧 Agent 的 pending mutation 无法写入新 Agent 的 draft、saved 状态或 cache，cached/uncached B 都不会渲染 A 的表单。
 - state panel 改为自身承担纵向滚动；长错误详情仍完整保留，Retry 可通过内容区滚动到达，desktop rail 不随内容滚动。
 - 新增长期回归：`agent-detail-loading-shell.test.tsx` 覆盖 desktop pending/error 保留 rail 与 mobile 单栏；`agents-rail-desktop.test.tsx` 覆盖 normal/hover/active identity color semantics 与 desktop-only responsive class。
+- 最小 spec delta 已并入 `docs/specs/IM/agents-nodes.md`：桌面 Agent 详情在 loading 或 initial error 时保持连续导航，内容区只展示局部状态；移动端继续单栏。
 - 实现 commits：`f6e733d1d`、`195a22809`；真实浏览器 evidence commit：`27551b89d`。
 
 ## 验证
