@@ -5,6 +5,7 @@
 
 ## Changelog
 
+- 2026-08-06 (收尾文档同步): 将 `node.register` custom seed 与 live snapshot 的公开字段变更补入 Gateway service-lifecycle delta/canonical spec，关闭 code-review 发现的长期契约漂移。
 - 2026-08-06 (设计修订): Gate 2 R1 补齐 Gateway-first 空 IM 的 canonical seed 所有权，并将公开 contract cutover 收敛为一个原子 milestone；详见 `design-review.md` Round 1 Author Resolutions。
 - 2026-08-06 (设计初稿): 收敛 IM/PA 公开 Agent 人设到 `custom_prompt`，把已生效的 legacy 值可见迁移，并保留 Kernel 内部 override。
 
@@ -225,4 +226,5 @@ VITE_IM_PROXY_TARGET="$IM_URL" \
 
 - 修改 `docs/specs/im/agents-nodes.md`：公开 Agent 配置字段、preview 可信边界、legacy upgrade 行为。
 - 修改 `docs/specs/gateway/agent-capabilities.md`：下一轮完整配置中的 profile prompt 语义仅为 visible custom instruction。
+- 修改 `docs/specs/gateway/service-lifecycle.md`：首次注册的 custom seed、镜像配置与 live snapshot 都不再声明公开 `system_prompt`。
 - Kernel spec 无 delta：内部 override 和 SDK preview contract 都保留，外部消费者行为不变。

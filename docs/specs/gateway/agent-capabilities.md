@@ -46,7 +46,7 @@ Gateway 在每次新回复开始时按 Agent 当前 `default_model` 选择模型
 
 ### Requirement: Agent 运行能力更新在下一轮新回复整体生效
 
-Gateway 对 model、PromptSlots、skills、tools 与内核 features 使用同一份有效运行配置。配置保存不打断正在进行的回复，也不重建既有聊天；某聊天下一次开始新回复时采用最新完整配置并延续自己的历史。排队期间连续保存多次只采用真正开始时的最终配置。
+Gateway 对 model、PromptSlots、skills、tools 与内核 features 使用同一份有效运行配置。公开 Agent profile 提供的提示词文本仅为可见的 Custom Instructions：它作为产品规则后的 `PromptSlots` 追加段出现，不能覆盖公共 PA 提示词，也不走 Kernel 内部完整 override。配置保存不打断正在进行的回复，也不重建既有聊天；某聊天下一次开始新回复时采用最新完整配置并延续自己的历史。排队期间连续保存多次只采用真正开始时的最终配置。
 
 #### Scenario: 增加工具后继续既有聊天
 - **GIVEN** Agent 因未配置某工具而无法完成既有聊天中的任务
@@ -58,9 +58,9 @@ Gateway 对 model、PromptSlots、skills、tools 与内核 features 使用同一
 - **WHEN** 用户删除该工具后继续聊天
 - **THEN** 新回复不能再执行该工具，但能理解历史调用与结果
 
-#### Scenario: 修改 prompt、skills 或 features 后继续历史
+#### Scenario: 修改 Custom Instructions、skills 或 features 后继续历史
 - **GIVEN** 某聊天已形成历史
-- **WHEN** 用户修改会影响后续模型请求的 prompt、skills 或 features 后发起新交流
+- **WHEN** 用户修改会影响后续模型请求的 Custom Instructions、skills 或 features 后发起新交流
 - **THEN** 新回复体现完整的新运行配置，并仍能引用修改前历史
 
 #### Scenario: 连续保存多次只采用最终运行配置
