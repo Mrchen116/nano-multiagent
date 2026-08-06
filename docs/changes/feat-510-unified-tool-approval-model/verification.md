@@ -4,9 +4,12 @@
 
 ## Summary
 
-Mode: `full`  
-Delta range: N/A  
-Focus issues: N/A  
+Mode: `full`
+
+Delta range: N/A
+
+Focus issues: N/A
+
 requires_full_verification: `false`
 
 | 维度 | 结果 |
@@ -73,3 +76,90 @@ None.
 
 - **S1 — 补全公开 SDK 失败契约的 Google-style `Raises`。** `src/agent/sdk/kernel.py:248-290` 的 public `build_kernel` docstring 已增加 `tool_approval_model` Args，但没有说明 `src/agent/sdk/kernel.py:291-330` 的空值/未注册 `ValueError`。按 `docs/development/coding-guidelines.md:14-40` 在 `Returns` 后增加 `Raises: ValueError` 并写明 llm 缺失、审批模型为空或不在 catalog 的失败语义。
 
+# Round 2
+
+> Validation snapshot: `eaaed4c3ec91c5359044ca6b47d3834e8388063f → 7f0d4be1e3d2adf992dd80413a4bed587cbf5ff8`
+
+## Verification Report: feat-510
+
+### Summary
+
+Mode: `full`
+
+Delta range: N/A
+
+Focus issues: Round 1 W1 / W2 / S1，以及 code-review 发现的既有 `_classify_action` 直接调用和 dispatch hook harness 回归
+
+requires_full_verification: `false`
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 1/1 Milestone；4/4 Requirements，7/7 Scenarios |
+| Correctness | 7/7 Scenarios 实现与永久测试覆盖匹配 |
+| Coherence | Followed |
+
+All checks passed. Ready for PR.
+
+## Completeness
+
+- M1 的 PA config parse/save/compose、SDK build-scoped 选择、单一 registry-state bridge、auto gate 两阶段路由、失败不回退、重启生效、运维文档和 deterministic 真栈 E2E 均已落地。
+- `tasks.md` 的 6 项实现 roadpoint 已完成；独立门禁/canonical merge/归档/PR/CI 是 orchestrator 收尾，不是缺失的实现。
+- Prototype / Reference: N/A；本 unit 无原型或 reference artifact contract。
+- 独立复跑 evidence:
+  - PA config/composition、全部 `test_auto_mode_gate*.py`、SDK wiring/behavior 与架构 contract：`134 passed`.
+  - 真 IM + Gateway + 进程内 Kernel critical path：`4 passed in 51.37s`.
+  - 变更 Python 文件 `ruff check` / `ruff format --check`、unit diff `git diff --check`、`./scripts/docs-check` 全绿。
+
+## Correctness
+
+| Requirement / Scenario | 实现位置（file:line） | 测试覆盖 | 状态 |
+|---|---|---|---|
+| 不同 Agent 共用专用审批模型 C | `src/personal_assistant/config/local_store.py:48-64,996-1088`; `src/personal_assistant/gateway/composition.py:198-214`; `src/agent/sdk/kernel.py:229-334,571-590`; `src/agent/platform/hooks/builtins/auto_mode_gate.py:943-953` | E2E `tests/e2e/critical_paths/test_tool_approval_model_critical_path.py:221-261` 断言 A→C→A / B→C→B | covered |
+| Web IM/外部渠道/heartbeat/cron/Agent 派生运行均使用 C | Kernel 唯一 registry 上的选择由同一 classifier 入口读取，不按 origin 变更 model：`src/agent/sdk/kernel.py:571-590`; `src/agent/platform/hooks/builtins/auto_mode_gate.py:943-953` | `tests/unit/test_auto_mode_gate_hook.py:209-227` 使用真实 `user/heartbeat/cron/background_task` 枚举值；E2E 补充真 Web IM | covered |
+| 专用模型不改变 Agent 对话和工具后续模型 | 仅 stage 1/2 `call_model` 收到显式 model：`src/agent/platform/hooks/builtins/auto_mode_gate.py:436-542`；normal run 仍由 submit model 选择 | `tests/contract/test_sdk_kernel_wiring.py:257-331` 通过公开 SDK 断言 provider-a/A → provider-c/C → provider-a/A；E2E 再从产品入口断言 | covered |
+| 省略专用模型时复用各 Agent 模型 | `src/personal_assistant/config/local_store.py:1012-1019`; `src/agent/platform/hooks/tool_approval_model.py:13-35`; `src/agent/core/agent/runtime.py:1480-1513` | config/hook unit tests + E2E `tests/e2e/critical_paths/test_tool_approval_model_critical_path.py:266-283` 断言 A→A→A / B→B→B | covered |
+| 未注册审批模型拒绝 Gateway 启动 | PA catalog 校验 `src/personal_assistant/config/local_store.py:1071-1088`；SDK 通用不变量 `src/agent/sdk/kernel.py:295-334` | config unit、SDK contract 与 foreground E2E `:319-345` 均覆盖错误字段/错误值 | covered |
+| 专用模型失败时不换 Agent/其他模型 | auto gate 超时/例外/不可解析直接形成 ask：`src/agent/platform/hooks/builtins/auto_mode_gate.py:470-542,993-1011`；runtime 单次按显式 model 选 client：`src/agent/core/agent/runtime.py:1480-1513` | unit 失败/无人值守用例 + attended E2E `:286-316`，record 中只有 `approval-fail` classifier | covered |
+| C→D 配置修改重启后才生效 | `compose_gateway` 每进程读取一次，SDK build 写一次 registry：`src/personal_assistant/gateway/composition.py:198-214`; `src/agent/sdk/kernel.py:571-590` | E2E `tests/e2e/critical_paths/test_tool_approval_model_critical_path.py:240-261` 断言改盘未重启仍 C，restart/reconnect 后 D | covered |
+
+## Prior Issue Closure
+
+| Issue | 闭环证据 | 结论 |
+|---|---|---|
+| Round 1 W1：跨 provider client 路由未真正测到 | `tests/contract/test_sdk_kernel_wiring.py:257-331` 取消单 client override，由 factory 产生 provider-a/provider-c 独立 client，并断言 `(provider, model)` 序列 | closed |
+| Round 1 W2：测试误用 `subagent` origin | `tests/unit/test_auto_mode_gate_hook.py:209-227` 改为生产枚举真值 `background_task` | closed |
+| Round 1 S1：SDK 公开失败契约缺 `Raises` | `src/agent/sdk/kernel.py:248-294` 完整说明 llm 缺失、空值和未注册的 `ValueError` | closed |
+| Code review：既有 `_classify_action(ctx, sys, user)` 直接调用因新 required kwarg 回归 | `src/agent/platform/hooks/builtins/auto_mode_gate.py:436-442` 给 model 保留 `None` 默认；`tests/unit/test_auto_mode_gate.py:365-405` 三条既有直接调用在本轮全部通过 | closed |
+| Code review：dispatch hook harness 没有 registry-state getter | `tests/unit/test_auto_mode_gate_dispatch.py:57-71` 的 MockHooks 提供 `get_state`；全部 `test_auto_mode_gate*.py` 在 134-test 矩阵中通过 | closed |
+
+## Coherence
+
+| design 决策 | 遵守? | 证据 |
+|---|---|---|
+| D1 PA-owned optional config + parse/save/validate | 是 | `src/personal_assistant/config/local_store.py:48-64,900-931,996-1088` |
+| D2 产品中立 SDK build 参数，不污染 `LLMConfig` | 是 | `src/agent/sdk/kernel.py:229-334`; `src/personal_assistant/product.py:381-431` |
+| D3 唯一 registry-state bridge，不放 session metadata，不与 476 bundle 并存 | 是 | `src/agent/platform/hooks/tool_approval_model.py:1-35`; `src/agent/sdk/kernel.py:535-590`；source 中无 `BuiltinHookDependencies`，getter 的唯一生产 caller 为 auto gate |
+| D4 两阶段 classifier 一致显式路由，normal run 不变 | 是 | `src/agent/platform/hooks/builtins/auto_mode_gate.py:436-542,943-953`; SDK contract A→C→A |
+| D5 fail-closed 且不改选模型 | 是 | `src/agent/platform/hooks/builtins/auto_mode_gate.py:470-542,993-1011`; failure E2E |
+| D6 仅 Gateway restart 切换 | 是 | `src/personal_assistant/gateway/composition.py:198-214`; restart E2E |
+| D7 请求体 model 为确定性锚 | 是 | `scripts/fixtures/anthropic_sse_tool_approval_recording.py:135-173`; critical-path records |
+
+架构自洽复核：无新的依赖方向、跨进程边界或平行机制。PA 仍只通过 `agent.sdk` 传递选择，`platform → core`、`sdk → core + platform` 保持；边界 contract 在本轮 134-test 矩阵中通过。
+
+### Prototype / Reference Contract
+
+N/A.
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+None.
+
+### WARNING（提 PR 前必须修）
+
+None.
+
+### SUGGESTION（可以修）
+
+None.
