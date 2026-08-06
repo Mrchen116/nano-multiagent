@@ -5,7 +5,7 @@ import logging
 
 
 from IM.application.relay_service import RelayService
-from IM.domain.models import Actor, Message
+from IM.domain.models import Actor, Message, SystemNotice
 from IM.infra.gateway_persistence import (
     AgentDispatchRecord,
     DispatchTarget,
@@ -419,11 +419,64 @@ class GatewayRelay:
             ).strip()
             text = _require_text(payload.get("text"), field_name="text").strip()
 
+            notice: SystemNotice | None = None
+            caller_idempotency_key: str | None = None
+            raw_notice = payload.get("system_notice")
+            if raw_notice is not None:
+                if not isinstance(raw_notice, dict):
+                    raise ValueError("system_notice must be an object")
+                kind = _require_text(
+                    raw_notice.get("kind"), field_name="system_notice.kind"
+                ).strip()
+                if kind != "self_evolution_review":
+                    raise ValueError("unsupported system_notice.kind")
+                source_agent_id = _require_text(
+                    raw_notice.get("source_agent_id"),
+                    field_name="system_notice.source_agent_id",
+                ).strip()
+                raw_targets = raw_notice.get("updated_targets")
+                if not isinstance(raw_targets, list) or not raw_targets:
+                    raise ValueError(
+                        "system_notice.updated_targets must be a non-empty list"
+                    )
+                if not all(isinstance(target, str) for target in raw_targets):
+                    raise ValueError(
+                        "system_notice.updated_targets must contain strings"
+                    )
+                unknown_targets = set(raw_targets) - {"skills", "memory"}
+                if unknown_targets:
+                    raise ValueError(
+                        "system_notice.updated_targets contains unknown value"
+                    )
+                updated_targets = tuple(
+                    target for target in ("skills", "memory") if target in raw_targets
+                )
+                node_id = _require_text(
+                    payload.get("node_id"), field_name="node_id"
+                ).strip()
+                caller_idempotency_key = _require_text(
+                    payload.get("idempotency_key"), field_name="idempotency_key"
+                ).strip()
+                display_name = self._conversation_persistence.resolve_system_notice_source_display_name(
+                    conversation_id=conversation_id,
+                    source_agent_id=source_agent_id,
+                    node_id=node_id,
+                )
+                notice = SystemNotice(
+                    kind=kind,
+                    source_agent_id=source_agent_id,
+                    source_agent_display_name=display_name,
+                    updated_targets=updated_targets,
+                )
+
             message = self._message_repository.create_message(
                 conversation_id=conversation_id,
                 sender_user_id=self._conversation_persistence.system_user_id(),
                 sender_type="system",
                 content=text,
+                system_notice=notice,
+                emit_created_event=notice is not None,
+                caller_idempotency_key=caller_idempotency_key,
             )
             return {
                 "type": "ack",

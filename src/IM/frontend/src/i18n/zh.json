@@ -492,6 +492,18 @@
       "startError": "启动蒸馏失败。"
     },
     "messagePane": {
+      "systemNotice": {
+        "direct": {
+          "skills": "· 后台自进化：技能已更新",
+          "memory": "· 后台自进化：记忆已更新",
+          "both": "· 后台自进化：技能与记忆已更新"
+        },
+        "group": {
+          "skills": "· {{agent}} · 后台自进化：技能已更新",
+          "memory": "· {{agent}} · 后台自进化：记忆已更新",
+          "both": "· {{agent}} · 后台自进化：技能与记忆已更新"
+        }
+      },
       "emptyTitle": "暂无消息",
       "emptySubtitle": "发出第一条消息。",
       "placeholderDirect": "给 {{title}} 发消息…",

@@ -8,6 +8,7 @@ from IM.domain.models import (
     Actor,
     Attachment,
     Message,
+    SystemNotice,
     ThinkingSegment,
     TokenUsage,
     ToolCall,
@@ -76,7 +77,61 @@ def _message_created_payload(message: Message) -> dict[str, object]:
         "token_usage": _token_usage_to_event_dict(message.token_usage),
         "delivery_status": message.delivery_status,
         "created_at": message.created_at,
+        "system_notice": _system_notice_to_dict(message.system_notice),
     }
+
+
+def _system_notice_to_dict(notice: SystemNotice | None) -> dict[str, object] | None:
+    """Serialize a structured system-notice snapshot for storage and live events."""
+    if notice is None:
+        return None
+    return {
+        "kind": notice.kind,
+        "source_agent_id": notice.source_agent_id,
+        "source_agent_display_name": notice.source_agent_display_name,
+        "updated_targets": list(notice.updated_targets),
+    }
+
+
+def _encode_system_notice(notice: SystemNotice | None) -> str | None:
+    payload = _system_notice_to_dict(notice)
+    if payload is None:
+        return None
+    return json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
+
+
+def _decode_system_notice(value: object) -> SystemNotice | None:
+    """Decode known complete sidecars; malformed history falls back to text."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    kind = parsed.get("kind")
+    source_agent_id = parsed.get("source_agent_id")
+    source_agent_display_name = parsed.get("source_agent_display_name")
+    if not all(
+        isinstance(value, str)
+        for value in (kind, source_agent_id, source_agent_display_name)
+    ):
+        return None
+    targets = parsed.get("updated_targets")
+    if not isinstance(targets, list) or not all(
+        isinstance(target, str) for target in targets
+    ):
+        return None
+    try:
+        return SystemNotice(
+            kind=kind,
+            source_agent_id=source_agent_id,
+            source_agent_display_name=source_agent_display_name,
+            updated_targets=tuple(targets),
+        )
+    except ValueError:
+        return None
 
 
 def _message_reconciled_payload(message: Message) -> dict[str, object]:
@@ -349,6 +404,7 @@ def _upsert_message(messages: list[Message], candidate: Message) -> list[Message
         else existing.attachments,
         delivery_status=candidate.delivery_status,
         created_at=candidate.created_at,
+        system_notice=candidate.system_notice or existing.system_notice,
     )
     return _sort_messages(next_messages)
 

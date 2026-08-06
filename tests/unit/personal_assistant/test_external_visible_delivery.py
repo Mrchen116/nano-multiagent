@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from tests.helpers.runtime_delivery import delivery_context_store
 import asyncio
+import logging
 from types import SimpleNamespace
 from typing import Any
+
+import pytest
 
 from personal_assistant.channels.base import ReplyContext
 from personal_assistant.gateway.runtime_delivery.background import (
@@ -30,6 +33,12 @@ class _FakeIMManager:
 
     async def send_json(self, message_type: str, payload: dict[str, Any]) -> None:
         self.json_messages.append((message_type, dict(payload)))
+
+    async def send_json_await_ack(
+        self, message_type: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        self.json_messages.append((message_type, dict(payload)))
+        return {"message_type": message_type, "message_id": "notice-1"}
 
 
 def test_feishu_visible_control_text_goes_to_external_and_shadow_im() -> None:
@@ -297,15 +306,19 @@ def test_system_notification_for_feishu_binding_targets_shadow_im_only() -> None
     )
     callback = build_session_event_callback(
         im_connection_manager_factory=lambda: manager,
+        delivery_incarnation="gateway-run-1",
     )
 
     asyncio.run(
         callback(
             store.find_by_kernel_session_id("sess-1").reply_context,
+            "agent-a",
+            "sess-1",
             {
                 "event": "self_evolution_review",
                 "reviewed_skills": True,
                 "reviewed_memory": False,
+                "_id": 87,
             },
         )
     )
@@ -315,7 +328,177 @@ def test_system_notification_for_feishu_binding_targets_shadow_im_only() -> None
             "node.system_message",
             {
                 "conversation_id": "conv-shadow",
+                "idempotency_key": ("self-evolution-review:gateway-run-1:sess-1:87"),
                 "text": "· background self-evolution review: skills updated",
+                "system_notice": {
+                    "kind": "self_evolution_review",
+                    "source_agent_id": "agent-a",
+                    "updated_targets": ["skills"],
+                },
             },
         )
     ]
+
+
+def test_system_notification_skips_empty_review_and_unsequenced_event() -> None:
+    manager = _FakeIMManager()
+    callback = build_session_event_callback(
+        im_connection_manager_factory=lambda: manager,
+    )
+    reply_context = ReplyContext(channel_name="web_relay", target_chat_id="conv-1")
+
+    asyncio.run(
+        callback(
+            reply_context,
+            "agent-a",
+            "sess-1",
+            {"event": "self_evolution_review", "_id": 88},
+        )
+    )
+    asyncio.run(
+        callback(
+            reply_context,
+            "agent-a",
+            "sess-1",
+            {
+                "event": "self_evolution_review",
+                "reviewed_memory": True,
+            },
+        )
+    )
+
+    assert manager.json_messages == []
+
+
+def test_system_notification_identity_is_stable_per_gateway_incarnation() -> None:
+    manager = _FakeIMManager()
+    context = ReplyContext(channel_name="web_relay", target_chat_id="conv-1")
+    event = {
+        "event": "self_evolution_review",
+        "reviewed_memory": True,
+        "_id": 87,
+    }
+    first = build_session_event_callback(
+        im_connection_manager_factory=lambda: manager,
+        delivery_incarnation="gateway-run-1",
+    )
+    restarted = build_session_event_callback(
+        im_connection_manager_factory=lambda: manager,
+        delivery_incarnation="gateway-run-2",
+    )
+
+    asyncio.run(first(context, "agent-a", "sess-1", event))
+    asyncio.run(first(context, "agent-a", "sess-1", event))
+    asyncio.run(restarted(context, "agent-a", "sess-1", event))
+
+    keys = [payload["idempotency_key"] for _, payload in manager.json_messages]
+    assert keys == [
+        "self-evolution-review:gateway-run-1:sess-1:87",
+        "self-evolution-review:gateway-run-1:sess-1:87",
+        "self-evolution-review:gateway-run-2:sess-1:87",
+    ]
+
+
+def test_system_notification_queues_while_im_is_disconnected(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    manager = _FakeIMManager()
+    manager.connected = False
+    callback = build_session_event_callback(
+        im_connection_manager_factory=lambda: manager,
+        delivery_incarnation="gateway-run-1",
+    )
+
+    with caplog.at_level(
+        logging.WARNING,
+        logger="personal_assistant.gateway.runtime_delivery.background",
+    ):
+        asyncio.run(
+            callback(
+                ReplyContext(channel_name="web_relay", target_chat_id="conv-1"),
+                "agent-a",
+                "sess-1",
+                {
+                    "event": "self_evolution_review",
+                    "reviewed_skills": True,
+                    "_id": 88,
+                },
+            )
+        )
+
+    assert [message_type for message_type, _ in manager.json_messages] == [
+        "node.system_message"
+    ]
+    assert "queued while IM is disconnected" in caplog.text
+    assert "conv-1" in caplog.text
+    assert "agent-a" in caplog.text
+
+
+def test_system_notification_logs_missing_manager(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    callback = build_session_event_callback(
+        im_connection_manager_factory=lambda: None,
+        delivery_incarnation="gateway-run-1",
+    )
+
+    with caplog.at_level(
+        logging.WARNING,
+        logger="personal_assistant.gateway.runtime_delivery.background",
+    ):
+        asyncio.run(
+            callback(
+                ReplyContext(channel_name="web_relay", target_chat_id="conv-1"),
+                "agent-a",
+                "sess-1",
+                {
+                    "event": "self_evolution_review",
+                    "reviewed_memory": True,
+                    "_id": 89,
+                },
+            )
+        )
+
+    assert "has no IM connection manager" in caplog.text
+    assert "conv-1" in caplog.text
+    assert "agent-a" in caplog.text
+
+
+@pytest.mark.parametrize("ack", [RuntimeError("rejected"), {}, {"message_id": " "}])
+def test_system_notification_logs_negative_or_malformed_ack(
+    caplog: pytest.LogCaptureFixture, ack: object
+) -> None:
+    class _AckManager(_FakeIMManager):
+        async def send_json_await_ack(
+            self, message_type: str, payload: dict[str, Any]
+        ) -> dict[str, Any]:
+            self.json_messages.append((message_type, dict(payload)))
+            if isinstance(ack, Exception):
+                raise ack
+            return dict(ack)
+
+    manager = _AckManager()
+    callback = build_session_event_callback(
+        im_connection_manager_factory=lambda: manager,
+        delivery_incarnation="gateway-run-1",
+    )
+
+    with caplog.at_level(
+        logging.WARNING,
+        logger="personal_assistant.gateway.runtime_delivery.background",
+    ):
+        asyncio.run(
+            callback(
+                ReplyContext(channel_name="web_relay", target_chat_id="conv-1"),
+                "agent-a",
+                "sess-1",
+                {
+                    "event": "self_evolution_review",
+                    "reviewed_memory": True,
+                    "_id": 90,
+                },
+            )
+        )
+
+    assert "delivery failed" in caplog.text
+    assert "sequence=90" in caplog.text

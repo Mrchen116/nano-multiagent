@@ -12,6 +12,7 @@ from IM.domain.models import (
     Attachment,
     ConversationEvent,
     Message,
+    SystemNotice,
     ThinkingSegment,
     TokenUsage,
     ToolCall,
@@ -27,10 +28,12 @@ from IM.infra.repositories._event_rows import insert_event_row
 from IM.infra.repositories._message_projection import (
     _attachment_to_dict,
     _decode_attachments,
+    _decode_system_notice,
     _decode_thinking,
     _decode_token_usage,
     _decode_tool_calls,
     _encode_attachments,
+    _encode_system_notice,
     _encode_thinking,
     _encode_token_usage,
     _encode_tool_calls,
@@ -79,6 +82,8 @@ class MessageRepository:
         sender_display_name: str | None = None,
         emit_created_event: bool = False,
         caller_idempotency_key: str | None = None,
+        system_notice: SystemNotice | None = None,
+        created_at: str | None = None,
     ) -> Message:
         """Create a message in a conversation.
 
@@ -91,6 +96,7 @@ class MessageRepository:
             auto_complete_delivery: When True, local-only writes synchronously close delivery to completed
                 and persist both message.sent and message.delivered. Relay-backed writes pass False so
                 gateway receipts remain the single source of truth for completion.
+            created_at: Optional caller-owned timestamp for ordered history copies.
 
         Returns:
             Created message entity.
@@ -140,6 +146,7 @@ class MessageRepository:
                     messages.elapsed_ms,
                     messages.permission_request_json,
                     messages.kernel_message_id,
+                    messages.system_notice_json,
                     users.username AS sender_username,
                     COALESCE(messages.sender_display_name, users.display_name)
                         AS sender_display_name
@@ -200,7 +207,7 @@ class MessageRepository:
             raise ValueError("sender_user_id is not a participant of conversation")
 
         message_id = uuid4().hex
-        created_at = utc_now()
+        created_at_value = created_at or utc_now()
         initial_status = "sent"
         # feat-445-M2 #8: an explicit delivery_status (used by fork's history copy) wins
         # so a copied bubble preserves the source's terminal state (e.g. "failed") instead
@@ -231,6 +238,7 @@ class MessageRepository:
             else None
         )
         token_usage_json = _encode_token_usage(token_usage)
+        system_notice_json = _encode_system_notice(system_notice)
         created_message = Message(
             id=message_id,
             conversation_id=conversation_id,
@@ -240,12 +248,13 @@ class MessageRepository:
             content=content,
             attachments=normalized_attachments,
             delivery_status=final_status,
-            created_at=created_at,
+            created_at=created_at_value,
             tool_calls=normalized_tool_calls,
             token_usage=token_usage,
             # feat-414: 建行时始终为 None，由 on_message_completed 写入。
             elapsed_ms=None,
             kernel_message_id=kernel_message_id,
+            system_notice=system_notice,
         )
         with self._connection:
             self._connection.execute(
@@ -263,8 +272,9 @@ class MessageRepository:
                     token_usage_json,
                     kernel_message_id,
                     sender_display_name,
-                    caller_idempotency_key
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    caller_idempotency_key,
+                    system_notice_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     message_id,
@@ -274,12 +284,13 @@ class MessageRepository:
                     content,
                     attachments_json,
                     initial_status,
-                    created_at,
+                    created_at_value,
                     tool_calls_json,
                     token_usage_json,
                     kernel_message_id,
                     display_name_override,
                     stored_idempotency_key,
+                    system_notice_json,
                 ),
             )
             pending_live_events.append(
@@ -335,7 +346,7 @@ class MessageRepository:
                         _to_message_preview(
                             content=content, attachments=normalized_attachments
                         ),
-                        created_at,
+                        created_at_value,
                         conversation_id,
                     ),
                 )
@@ -346,7 +357,7 @@ class MessageRepository:
                         _to_message_preview(
                             content=content, attachments=normalized_attachments
                         ),
-                        created_at,
+                        created_at_value,
                         conversation_id,
                     ),
                 )
@@ -752,6 +763,7 @@ class MessageRepository:
                 messages.elapsed_ms,
                 messages.permission_request_json,
                 messages.kernel_message_id,
+                messages.system_notice_json,
                 users.username AS sender_username,
                 COALESCE(messages.sender_display_name, users.display_name) AS sender_display_name
             FROM messages
@@ -811,6 +823,7 @@ class MessageRepository:
                 messages.elapsed_ms,
                 messages.permission_request_json,
                 messages.kernel_message_id,
+                messages.system_notice_json,
                 users.username AS sender_username,
                 COALESCE(messages.sender_display_name, users.display_name) AS sender_display_name
             FROM messages
@@ -908,6 +921,7 @@ class MessageRepository:
                 messages.elapsed_ms,
                 messages.permission_request_json,
                 messages.kernel_message_id,
+                messages.system_notice_json,
                 users.username AS sender_username,
                 COALESCE(messages.sender_display_name, users.display_name) AS sender_display_name
             FROM messages
@@ -1123,6 +1137,9 @@ class MessageRepository:
         kernel_message_id_value: str | None = (
             row["kernel_message_id"] if "kernel_message_id" in row.keys() else None
         )
+        system_notice_value = (
+            row["system_notice_json"] if "system_notice_json" in row.keys() else None
+        )
         permission_requests = _load_permission_requests(permission_request_value)
         return Message(
             id=row["id"],
@@ -1151,6 +1168,7 @@ class MessageRepository:
             elapsed_ms=elapsed_ms_value,
             permission_requests=permission_requests,
             kernel_message_id=kernel_message_id_value,
+            system_notice=_decode_system_notice(system_notice_value),
         )
 
     def _message_row(self, message_id: str) -> sqlite3.Row | None:
@@ -1171,6 +1189,7 @@ class MessageRepository:
                 messages.elapsed_ms,
                 messages.permission_request_json,
                 messages.kernel_message_id,
+                messages.system_notice_json,
                 users.username AS sender_username,
                 COALESCE(messages.sender_display_name, users.display_name)
                     AS sender_display_name

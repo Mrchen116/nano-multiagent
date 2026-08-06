@@ -31,12 +31,15 @@ def _upsert_profile(
     agent_id: str,
     owner_id: str,
     node_id: str | None,
+    display_name: str | None = None,
 ) -> None:
     AgentProfileRepository(connection).upsert_profile(
         agent_id=agent_id,
         owner_id=owner_id,
         node_id=node_id,
-        display_name=f"Agent {agent_id}",
+        display_name=(
+            display_name if display_name is not None else f"Agent {agent_id}"
+        ),
         description="",
         skills=[],
         tool_allowlist=[],
@@ -218,3 +221,83 @@ def test_system_user_and_usage_scope_are_persistence_owned(tmp_path: Path) -> No
         == owner.owner_id
     )
     assert persistence.conversation_usage_scope(conversation_id="missing") is None
+
+
+def test_system_notice_source_uses_current_profile_snapshot(tmp_path: Path) -> None:
+    """Attribution is bound to the authenticated node and current profile name."""
+    connection, persistence = _build(tmp_path)
+    users = UserRepository(connection)
+    conversations = ConversationRepository(connection)
+    owner = users.create_user(username="owner", display_name="Owner")
+    source = users.create_user(username="agent:product", display_name="Old Name")
+    conversation = conversations.create_conversation(
+        title="group",
+        participant_ids=[owner.id, source.id],
+        caller_owner_id=owner.owner_id,
+    )
+    _upsert_profile(
+        connection,
+        agent_id="product",
+        owner_id=owner.owner_id,
+        node_id="node-1",
+        display_name="SpecLab Product",
+    )
+
+    display_name = persistence.resolve_system_notice_source_display_name(
+        conversation_id=conversation.id,
+        source_agent_id="product",
+        node_id="node-1",
+    )
+
+    assert display_name == "SpecLab Product"
+
+
+@pytest.mark.parametrize(
+    ("case", "match"),
+    [
+        ("missing_profile", "profile"),
+        ("wrong_node", "node"),
+        ("blank_display_name", "display name"),
+        ("missing_synthetic_user", "user"),
+        ("missing_conversation", "conversation_id"),
+        ("nonparticipant", "participant"),
+    ],
+)
+def test_system_notice_source_rejects_untrusted_identity(
+    tmp_path: Path, case: str, match: str
+) -> None:
+    """Every missing or mismatched identity seam rejects attribution."""
+    connection, persistence = _build(tmp_path)
+    users = UserRepository(connection)
+    conversations = ConversationRepository(connection)
+    owner = users.create_user(username="owner", display_name="Owner")
+    source = (
+        None
+        if case == "missing_synthetic_user"
+        else users.create_user(username="agent:product", display_name="Product")
+    )
+    conversation = conversations.create_conversation(
+        title="group",
+        participant_ids=[
+            owner.id,
+            *([source.id] if source is not None and case != "nonparticipant" else []),
+        ],
+        caller_owner_id=owner.owner_id,
+    )
+    if case != "missing_profile":
+        _upsert_profile(
+            connection,
+            agent_id="product",
+            owner_id=owner.owner_id,
+            node_id="node-1",
+            display_name="" if case == "blank_display_name" else "Product",
+        )
+
+    with pytest.raises(ValueError, match=match):
+        persistence.resolve_system_notice_source_display_name(
+            conversation_id=(
+                "missing" if case == "missing_conversation" else conversation.id
+            ),
+            source_agent_id="product",
+            node_id="node-other" if case == "wrong_node" else "node-1",
+        )

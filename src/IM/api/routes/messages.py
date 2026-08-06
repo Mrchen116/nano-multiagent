@@ -147,6 +147,15 @@ class ExternalAgentMessageSnapshotRequest(BaseModel):
         return self
 
 
+class SystemNoticePayload(BaseModel):
+    """Browser-safe structured presentation snapshot for a system message."""
+
+    kind: str
+    source_agent_id: str
+    source_agent_display_name: str
+    updated_targets: list[str]
+
+
 class MessageResponse(BaseModel):
     """Serialized message object returned by API endpoints."""
 
@@ -171,6 +180,7 @@ class MessageResponse(BaseModel):
     # bugfix-367: list-shaped 以保留同一 message 上所有 ask 的历史(允许 / 拒绝 /
     # 当前 pending)。REST 历史回放因此能完整还原"按了多少个同意"。
     permission_requests: list[dict] = []
+    system_notice: SystemNoticePayload | None = None
 
 
 class AgentConfigChangedResponse(BaseModel):
@@ -292,6 +302,18 @@ def to_message_response(message: Message) -> MessageResponse:
         # bugfix-367: pass-through list 形态。前端 reducer / 渲染按 request_id
         # 索引每张卡,key 用 request_id remount,刷新后历史小条全部还原。
         permission_requests=list(message.permission_requests),
+        system_notice=(
+            SystemNoticePayload(
+                kind=message.system_notice.kind,
+                source_agent_id=message.system_notice.source_agent_id,
+                source_agent_display_name=(
+                    message.system_notice.source_agent_display_name
+                ),
+                updated_targets=list(message.system_notice.updated_targets),
+            )
+            if message.system_notice is not None
+            else None
+        ),
     )
 
 

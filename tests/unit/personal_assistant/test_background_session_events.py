@@ -238,6 +238,198 @@ async def test_gateway_handler_node_system_message_creates_system_message() -> N
     assert "self-evolution review" in row["content"]
 
 
+@pytest.mark.asyncio
+async def test_gateway_handler_structured_system_message_is_attributed_and_idempotent() -> (
+    None
+):
+    """A trusted structured notice publishes once with the profile-name snapshot."""
+    import json
+    import sqlite3
+
+    from IM.infra.db import initialize_schema
+    from IM.infra.gateway_persistence import GatewayConversationPersistence
+    from IM.infra.repositories.agents import AgentProfileRepository
+    from IM.infra.repositories.conversations import ConversationRepository
+    from IM.infra.repositories.messages import MessageRepository
+    from IM.infra.repositories.users import UserRepository
+    from IM.ws.gateway.execution import GatewayExecution
+    from IM.ws.gateway.relay import GatewayRelay
+    from IM.ws.gateway.sessions import GatewaySessions
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    initialize_schema(conn)
+    users = UserRepository(conn)
+    owner = users.create_user(username="owner", display_name="Owner")
+    source = users.create_user(username="agent:product", display_name="Old Product")
+    conversation = ConversationRepository(conn).create_conversation(
+        title="group",
+        participant_ids=[owner.id, source.id],
+        caller_owner_id=owner.owner_id,
+    )
+    AgentProfileRepository(conn).upsert_profile(
+        agent_id="product",
+        owner_id=owner.owner_id,
+        node_id="node-1",
+        display_name="SpecLab Product",
+        description="",
+        skills=[],
+        tool_allowlist=[],
+        group_reply_policy="manual",
+        default_model=None,
+        workspace_root="/work/product",
+    )
+    lock = asyncio.Lock()
+    sessions = GatewaySessions(lock=lock)
+    handler = GatewayRelay(
+        sessions=sessions,
+        execution=GatewayExecution(sessions=sessions, lock=lock),
+        relay_service=MagicMock(),
+        conversation_persistence=GatewayConversationPersistence(conn),
+        message_repository=MessageRepository(conn),
+        lock=lock,
+    )
+    payload = {
+        "node_id": "node-1",
+        "conversation_id": conversation.id,
+        "idempotency_key": "self-evolution-review:sess-1:87",
+        "text": "· background self-evolution review: memory updated",
+        "system_notice": {
+            "kind": "self_evolution_review",
+            "source_agent_id": "product",
+            "updated_targets": ["memory", "memory"],
+        },
+    }
+
+    first = await handler.handle_system_message(payload=dict(payload))
+    retried = await handler.handle_system_message(payload=dict(payload))
+
+    assert first == retried
+    rows = conn.execute(
+        "SELECT id, system_notice_json FROM messages WHERE conversation_id = ?",
+        (conversation.id,),
+    ).fetchall()
+    assert len(rows) == 1
+    assert json.loads(rows[0]["system_notice_json"]) == {
+        "kind": "self_evolution_review",
+        "source_agent_id": "product",
+        "source_agent_display_name": "SpecLab Product",
+        "updated_targets": ["memory"],
+    }
+    created_count = conn.execute(
+        "SELECT COUNT(*) FROM conversation_events "
+        "WHERE conversation_id = ? AND event_type = 'message.created'",
+        (conversation.id,),
+    ).fetchone()[0]
+    assert created_count == 1
+
+    rejected = await handler.handle_system_message(
+        payload={**payload, "node_id": "node-other", "idempotency_key": "other"}
+    )
+    assert rejected["type"] == "error"
+    assert rejected["payload"]["code"] == "invalid_system_message"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "case",
+    [
+        "missing_profile",
+        "wrong_node",
+        "blank_display_name",
+        "missing_synthetic_user",
+        "missing_conversation",
+        "nonparticipant",
+    ],
+)
+async def test_gateway_handler_rejects_untrusted_notice_without_side_effects(
+    case: str,
+) -> None:
+    """Trust failures return one stable error and create no history/live event."""
+    import sqlite3
+
+    from IM.infra.db import initialize_schema
+    from IM.infra.gateway_persistence import GatewayConversationPersistence
+    from IM.infra.repositories.agents import AgentProfileRepository
+    from IM.infra.repositories.conversations import ConversationRepository
+    from IM.infra.repositories.messages import MessageRepository
+    from IM.infra.repositories.users import UserRepository
+    from IM.ws.gateway.execution import GatewayExecution
+    from IM.ws.gateway.relay import GatewayRelay
+    from IM.ws.gateway.sessions import GatewaySessions
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    initialize_schema(conn)
+    users = UserRepository(conn)
+    owner = users.create_user(username="owner", display_name="Owner")
+    source = (
+        None
+        if case == "missing_synthetic_user"
+        else users.create_user(username="agent:product", display_name="Product")
+    )
+    conversation = ConversationRepository(conn).create_conversation(
+        title="group",
+        participant_ids=[
+            owner.id,
+            *([source.id] if source is not None and case != "nonparticipant" else []),
+        ],
+        caller_owner_id=owner.owner_id,
+    )
+    if case != "missing_profile":
+        AgentProfileRepository(conn).upsert_profile(
+            agent_id="product",
+            owner_id=owner.owner_id,
+            node_id="node-1",
+            display_name="" if case == "blank_display_name" else "Product",
+            description="",
+            skills=[],
+            tool_allowlist=[],
+            group_reply_policy="manual",
+            default_model=None,
+            workspace_root="/work/product",
+        )
+    emitted: list[object] = []
+    lock = asyncio.Lock()
+    sessions = GatewaySessions(lock=lock)
+    handler = GatewayRelay(
+        sessions=sessions,
+        execution=GatewayExecution(sessions=sessions, lock=lock),
+        relay_service=MagicMock(),
+        conversation_persistence=GatewayConversationPersistence(conn),
+        message_repository=MessageRepository(conn, notify=emitted.append),
+        lock=lock,
+    )
+
+    result = await handler.handle_system_message(
+        payload={
+            "node_id": "node-other" if case == "wrong_node" else "node-1",
+            "conversation_id": (
+                "missing" if case == "missing_conversation" else conversation.id
+            ),
+            "idempotency_key": f"notice-{case}",
+            "text": "fallback",
+            "system_notice": {
+                "kind": "self_evolution_review",
+                "source_agent_id": "product",
+                "updated_targets": ["memory"],
+            },
+        }
+    )
+
+    assert result["type"] == "error"
+    assert result["payload"]["code"] == "invalid_system_message"
+    assert conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0] == 0
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) FROM conversation_events "
+            "WHERE event_type = 'message.created'"
+        ).fetchone()[0]
+        == 0
+    )
+    assert emitted == []
+
+
 # ---------------------------------------------------------------------------
 # feat-385-M3-fix-r2 B1: BackgroundSessionEventSubscriber must forward workspace_root
 # ---------------------------------------------------------------------------

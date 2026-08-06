@@ -310,6 +310,36 @@ class GatewayConversationPersistence:
         user = self._users.get_user_by_username(username=f"agent:{agent_id}")
         return user.id if user is not None else None
 
+    def resolve_system_notice_source_display_name(
+        self,
+        *,
+        conversation_id: str,
+        source_agent_id: str,
+        node_id: str,
+    ) -> str:
+        """Validate one notice source and return its current profile display name."""
+        profile = self._profiles.get_profile(agent_id=source_agent_id)
+        if profile is None:
+            raise ValueError("source agent profile not found")
+        if profile.node_id != node_id:
+            raise ValueError("source agent does not belong to authenticated node")
+        display_name = profile.display_name.strip()
+        if not display_name:
+            raise ValueError("source agent display name is blank")
+        source_user = self._users.get_user_by_username(
+            username=f"agent:{source_agent_id}"
+        )
+        if source_user is None:
+            raise ValueError("source agent user not found")
+        conversation = self._conversations.get_conversation(
+            conversation_id=conversation_id
+        )
+        if conversation is None:
+            raise ValueError("conversation_id not found")
+        if source_user.id not in conversation.participant_ids:
+            raise ValueError("source agent is not a conversation participant")
+        return display_name
+
     def group_reply_route(
         self, *, conversation_id: str, source_agent_id: str
     ) -> GroupReplyRoute | None:

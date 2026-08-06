@@ -70,6 +70,35 @@ describe("chat-stream-reducer", () => {
     expect(next.messages[1]!.content).toBe("");
   });
 
+  it("keeps a structured system notice on live message.created", () => {
+    const state: ConversationState = {
+      ...emptyConversationState,
+      conversation_id: "c1",
+    };
+    const ev: WsEvent = {
+      type: "message.created",
+      conversation_id: "c1",
+      message_id: "notice-1",
+      sender_user_id: "system",
+      sender_type: "system",
+      content: "legacy fallback",
+      tool_calls: [],
+      token_usage: null,
+      delivery_status: "completed",
+      created_at: "2026-01-01T00:00:01Z",
+      system_notice: {
+        kind: "self_evolution_review",
+        source_agent_id: "product",
+        source_agent_display_name: "SpecLab Product",
+        updated_targets: ["memory"],
+      },
+    };
+
+    const next = applyWsEvent(state, ev);
+
+    expect(next.messages[0]!.system_notice).toEqual(ev.system_notice);
+  });
+
   it("appends delta_text to a streaming message", () => {
     const seed: Message = { ...userMessage("m2", ""), sender: { type: "agent", id: "agent-a" }, sender_type: "agent", delivery_status: "running" };
     const state: ConversationState = { ...emptyConversationState, messages: [seed] };

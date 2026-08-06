@@ -254,7 +254,8 @@ export function applyWsEvent(
         // feat-439-M2: 历史回放 / 建泡时还原已持久化的思考过程项。
         thinking: ev.thinking,
         token_usage: ev.token_usage,
-        permission_requests: []
+        permission_requests: [],
+        system_notice: ev.system_notice,
       };
       // bugfix-419: sort by created_at so WS arrival order does not dictate
       // render order. The tie-break on id makes ordering deterministic when two

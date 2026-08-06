@@ -2,6 +2,7 @@
 
 import logging
 from collections.abc import Awaitable, Callable, Mapping
+from datetime import datetime, timedelta, timezone
 
 from IM.application.metrics_service import MetricsService
 from IM.application.relay_service import RelayEnqueueResult, RelayService
@@ -14,6 +15,7 @@ from IM.domain.models import (
     TokenUsage,
     ToolCall,
 )
+from IM.infra._timestamps import format_utc
 from IM.infra.repositories.config_boundaries import AgentConfigBoundaryRepository
 from IM.infra.repositories.conversations import ConversationRepository
 from IM.infra.repositories.conversations import ExternalConversationWriteResult
@@ -440,9 +442,24 @@ class WebIMService:
         # unbind RPC). Roll the branch back and flag the now-orphaned kernel session.
         try:
             target_message_ids: dict[str, str] = {}
-            for message in history[: fork_index + 1]:
+            copied_history = history[: fork_index + 1]
+            # Browser dates have millisecond precision. A rapid copy can otherwise
+            # collapse adjacent rows onto one millisecond and the frontend's stable
+            # id tie-break can scramble the source order. End at now and step by one
+            # millisecond so the branch is recent without creating future timestamps.
+            copy_end = datetime.now(timezone.utc)
+            copy_start = copy_end - timedelta(
+                milliseconds=max(len(copied_history) - 1, 0)
+            )
+            for copy_index, message in enumerate(copied_history):
                 sender_user_id = (
-                    actor_user_id if message.sender_type == "user" else agent.user_id
+                    actor_user_id
+                    if message.sender_type == "user"
+                    else (
+                        message.sender_user_id
+                        if message.sender_type == "system"
+                        else agent.user_id
+                    )
                 )
                 branch_kernel_id = (
                     id_map.get(message.kernel_message_id)
@@ -461,6 +478,10 @@ class WebIMService:
                     delivery_status=message.delivery_status,  # #8: preserve source state
                     auto_complete_delivery=True,
                     allow_empty=True,
+                    system_notice=message.system_notice,
+                    created_at=format_utc(
+                        copy_start + timedelta(milliseconds=copy_index)
+                    ),
                 )
                 target_message_ids[message.id] = copied.id
                 # Preserve the thinking segments so the branch回看 keeps the full bubble.

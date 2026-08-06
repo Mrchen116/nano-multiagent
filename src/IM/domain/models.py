@@ -272,6 +272,34 @@ class TokenUsage:
 
 
 @dataclass(frozen=True, slots=True)
+class SystemNotice:
+    """Represent a recognized structured system-message presentation snapshot."""
+
+    kind: str
+    source_agent_id: str
+    source_agent_display_name: str
+    updated_targets: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if self.kind != "self_evolution_review":
+            raise ValueError("system_notice.kind must be self_evolution_review")
+        if not self.source_agent_id.strip():
+            raise ValueError("system_notice.source_agent_id must be non-empty")
+        if not self.source_agent_display_name.strip():
+            raise ValueError(
+                "system_notice.source_agent_display_name must be non-empty"
+            )
+        if self.updated_targets not in {
+            ("skills",),
+            ("memory",),
+            ("skills", "memory"),
+        }:
+            raise ValueError(
+                "system_notice.updated_targets must be skills, memory, or both"
+            )
+
+
+@dataclass(frozen=True, slots=True)
 class Message:
     """Represent a single message in a conversation."""
 
@@ -302,6 +330,7 @@ class Message:
     # uuid）。relay 收尾时落库，fork 据此把被点的气泡对齐回源 session 日志那条消息。None =
     # 用户/系统消息或本特性上线前的旧 agent 气泡（fork 入口对其禁用）。
     kernel_message_id: str | None = None
+    system_notice: SystemNotice | None = None
 
     def __post_init__(self) -> None:
         if self.sender is None:

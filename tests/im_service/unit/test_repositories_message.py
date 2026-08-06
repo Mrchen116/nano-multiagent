@@ -1,7 +1,9 @@
 """Unit tests for message repository: roundtrip, relay history, dedup logic."""
 
 from pathlib import Path
+import json
 
+from IM.domain.models import SystemNotice
 from IM.infra.db import connect, initialize_schema
 from IM.infra.repositories.agents import AgentProfileRepository
 from IM.infra.repositories.bindings import BindRepository
@@ -59,6 +61,92 @@ def test_message_roundtrip_keeps_order(tmp_path: Path) -> None:
     assert [item.id for item in listed] == [first.id, second.id]
     assert [item.content for item in listed] == ["hello", "world"]
     assert listed[0].delivery_status == "completed"
+
+
+def test_system_notice_roundtrip_event_and_retry_are_exactly_once(
+    tmp_path: Path,
+) -> None:
+    """Structured notices survive history and publish one canonical live event."""
+    connection = connect(tmp_path / "system-notice.db")
+    initialize_schema(connection)
+    users = UserRepository(connection)
+    conversations = ConversationRepository(connection)
+    emitted = []
+    messages = MessageRepository(connection, notify=emitted.append)
+    owner = users.create_user(username="owner", display_name="Owner")
+    system = users.create_user(username="system", display_name="System")
+    conversation = conversations.create_conversation(
+        title="group", participant_ids=[owner.id], caller_owner_id=owner.owner_id
+    )
+    notice = SystemNotice(
+        kind="self_evolution_review",
+        source_agent_id="product",
+        source_agent_display_name="SpecLab Product",
+        updated_targets=("skills", "memory"),
+    )
+
+    first = messages.create_message(
+        conversation_id=conversation.id,
+        sender_user_id=system.id,
+        sender_type="system",
+        content="legacy fallback",
+        system_notice=notice,
+        emit_created_event=True,
+        caller_idempotency_key="self-evolution-review:sess-1:87",
+    )
+    retried = messages.create_message(
+        conversation_id=conversation.id,
+        sender_user_id=system.id,
+        sender_type="system",
+        content="must not replace",
+        system_notice=notice,
+        emit_created_event=True,
+        caller_idempotency_key="self-evolution-review:sess-1:87",
+    )
+
+    listed = messages.list_messages(conversation_id=conversation.id)
+    assert retried.id == first.id
+    assert len(listed) == 1
+    assert listed[0].system_notice == notice
+    created = [event for event in emitted if event.event_type == "message.created"]
+    assert len(created) == 1
+    assert json.loads(created[0].payload_json)["system_notice"] == {
+        "kind": "self_evolution_review",
+        "source_agent_id": "product",
+        "source_agent_display_name": "SpecLab Product",
+        "updated_targets": ["skills", "memory"],
+    }
+    connection.execute(
+        "UPDATE messages SET system_notice_json = ? WHERE id = ?",
+        ('{"kind":"unknown"}', first.id),
+    )
+    connection.commit()
+    assert (
+        messages.list_messages(conversation_id=conversation.id)[0].system_notice is None
+    )
+    for malformed in (
+        {
+            "kind": "self_evolution_review",
+            "source_agent_id": None,
+            "source_agent_display_name": "Product",
+            "updated_targets": ["memory"],
+        },
+        {
+            "kind": "self_evolution_review",
+            "source_agent_id": "product",
+            "source_agent_display_name": 123,
+            "updated_targets": ["memory"],
+        },
+    ):
+        connection.execute(
+            "UPDATE messages SET system_notice_json = ? WHERE id = ?",
+            (json.dumps(malformed), first.id),
+        )
+        connection.commit()
+        assert (
+            messages.list_messages(conversation_id=conversation.id)[0].system_notice
+            is None
+        )
 
 
 def test_message_roundtrip_preserves_external_sender_display_name(

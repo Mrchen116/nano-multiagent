@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from IM.domain.models import SystemNotice
 from IM.application.web_im_service import (
     AgentOfflineError,
     ForkDelegationError,
@@ -173,6 +174,81 @@ async def test_fork_copies_history_through_M_and_delegates(tmp_path: Path) -> No
         "u2",
         "a2",
     ]
+
+
+@pytest.mark.asyncio
+async def test_fork_copy_timestamps_preserve_source_order_at_browser_precision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Rapid mixed-message copies remain ordered after browser millisecond parsing."""
+    service, _conversations, messages, _boundaries, human, agent_user, conv = _setup(
+        tmp_path
+    )
+    system = UserRepository(messages._connection).create_user(
+        username="system", display_name="System"
+    )
+    messages.create_message(
+        conversation_id=conv.id,
+        sender_user_id=human.id,
+        content="u1",
+        sender_type="user",
+    )
+    messages.create_message(
+        conversation_id=conv.id,
+        sender_user_id=agent_user.id,
+        content="a1",
+        sender_type="agent",
+        kernel_message_id="kmsg-a1",
+        allow_empty=True,
+    )
+    messages.create_message(
+        conversation_id=conv.id,
+        sender_user_id=system.id,
+        content="notice",
+        sender_type="system",
+        system_notice=SystemNotice(
+            kind="self_evolution_review",
+            source_agent_id="planner",
+            source_agent_display_name="Planner",
+            updated_targets=("memory",),
+        ),
+    )
+    messages.create_message(
+        conversation_id=conv.id,
+        sender_user_id=human.id,
+        content="u2",
+        sender_type="user",
+    )
+    anchor = messages.create_message(
+        conversation_id=conv.id,
+        sender_user_id=agent_user.id,
+        content="a2",
+        sender_type="agent",
+        kernel_message_id="kmsg-a2",
+        allow_empty=True,
+    )
+    monkeypatch.setattr(
+        "IM.infra.repositories.messages.utc_now",
+        lambda: "2026-08-06T10:48:20.132110Z",
+    )
+
+    branch = await service.fork_conversation(
+        source_conversation_id=conv.id,
+        fork_message_id=anchor.id,
+        owner_id=human.owner_id,
+        actor_user_id=human.id,
+        check_agent_online=_online(None),
+        request_fork=_ok_fork(
+            [],
+            id_map={"kmsg-a1": "branch-a1", "kmsg-a2": "branch-a2"},
+        ),
+    )
+
+    copied = messages.list_messages(conversation_id=branch.id, limit=100)
+    browser_milliseconds = [item.created_at[:23] for item in copied]
+    assert [item.content for item in copied] == ["u1", "a1", "notice", "u2", "a2"]
+    assert browser_milliseconds == sorted(browser_milliseconds)
+    assert len(set(browser_milliseconds)) == len(copied)
 
 
 @pytest.mark.asyncio

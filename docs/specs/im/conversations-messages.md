@@ -1,6 +1,6 @@
 # IM - Conversations and Messages Specification
 
-> 对齐: bugfix-471
+> 对齐: bugfix-509
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -259,12 +259,18 @@ IM 通过 WebSocket relay 把影子会话中的用户消息转发给 Gateway 时
 
 ### Requirement: 用户可从单聊里某条已完成的 agent 回复 fork 出带历史的分支单聊
 
-在「你 ↔ 单个 agent」的单聊里，用户可在一条已回复完成的 agent 消息上发起 fork，得到一个与同一 agent 的新单聊：新单聊带入从会话起点到该条回复（含）的全部消息，且 agent 在新单聊里带着这段历史的记忆继续对话。fork 入口只出现在单聊中已完成的 agent 消息上；用户自己的消息、生成中的 agent 消息、群聊中的消息均不提供 fork。新单聊作为普通 direct-agent 单聊出现在会话列表，名称为 agent 名。
+在「你 ↔ 单个 agent」的单聊里，用户可在一条已回复完成的 agent 消息上发起 fork，得到一个与同一 agent 的新单聊：新单聊带入从会话起点到该条回复（含）的全部消息，且 agent 在新单聊里带着这段历史的记忆继续对话。带入消息保留完整气泡形态与持久展示语义；其中结构化自进化 system 提示在分支中保持原更新对象和产生时的来源快照，并继续按分支浏览器的当前语言显示。fork 入口只出现在单聊中已完成的 agent 消息上；用户自己的消息、生成中的 agent 消息、群聊中的消息均不提供 fork。新单聊作为普通 direct-agent 单聊出现在会话列表，名称为 agent 名。
 
 #### Scenario: 在已完成的 agent 回复上 fork 得到带历史的新单聊
 - **GIVEN** 用户在与某 agent 的单聊里，有一条已回复完成的 agent 消息 M，且该 agent 在线
 - **WHEN** 用户在 M 上发起 fork
 - **THEN** 系统新建一个与同一 agent 的单聊，带入从会话起点到 M（含 M）的全部消息（顺序与原会话一致、保留完整气泡形态），M 之后的消息不带入；用户被自动带入该新单聊并可立即发消息
+
+#### Scenario: fork 保留自进化 system 提示语义
+- **GIVEN** fork 点以前存在一条结构化自进化 system 提示
+- **WHEN** 用户完成 fork 并打开分支单聊
+- **THEN** 分支历史中的该提示保留相同更新对象与产生时来源快照，并按当前界面语言显示
+- **AND** 不退回需要解析的固定英文正文，也不因 Agent 后续改名改写该历史快照
 
 #### Scenario: 分支单聊里 agent 记得到 fork 点为止的历史
 - **GIVEN** 带入的历史里 agent 给过一条「分多点」的回复

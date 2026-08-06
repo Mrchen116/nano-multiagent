@@ -52,6 +52,7 @@ import {
 import { TokenChip } from "./token-chip";
 import { formatDuration, ToolCallsPanel } from "./tool-calls-panel";
 import { remarkMention } from "./remark-mention";
+import { formatSystemNotice } from "../system-notice";
 
 export interface MessagePaneProps {
   conversation: Conversation;
@@ -1395,9 +1396,10 @@ function MessageBubble({
     : null;
 
   if (isSystem) {
+    const noticeText = formatSystemNotice(t, message.system_notice, isDirectChat);
     return (
       <div className="chat-bubble-system">
-        {message.content}
+        {noticeText ?? message.content}
       </div>
     );
   }

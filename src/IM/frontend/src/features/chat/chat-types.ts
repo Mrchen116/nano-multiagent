@@ -132,6 +132,13 @@ export interface TokenUsage {
   cache_total_input_tokens?: number;
 }
 
+export interface SystemNotice {
+  kind: string;
+  source_agent_id: string;
+  source_agent_display_name: string;
+  updated_targets: string[];
+}
+
 export interface Message {
   id: string;
   conversation_id: string;
@@ -159,6 +166,7 @@ export interface Message {
    * 保留在原位 —— 用户能回看"按了多少次同意"。
    */
   permission_requests: PermissionRequest[];
+  system_notice?: SystemNotice | null;
 }
 
 /** One durable entry in a conversation timeline. Configuration boundaries remain
@@ -228,7 +236,7 @@ export function classifyConversationKind(c: Pick<Conversation, "type" | "direct_
 
 export type WsEvent =
   | { type: "agent.config.changed"; seq?: number; id: string; conversation_id: string; agent_id: string; before_message_id: string; applied_at: string }
-  | { type: "message.created"; seq?: number; conversation_id: string; message_id: string; sender_user_id: string; sender_type: string; sender?: Actor | null; sender_display_name?: string | null; content: string; attachments?: Attachment[]; tool_calls: ToolCall[]; thinking?: ThinkingSegment[]; token_usage: TokenUsage | null; delivery_status: DeliveryStatus; created_at: string }
+  | { type: "message.created"; seq?: number; conversation_id: string; message_id: string; sender_user_id: string; sender_type: string; sender?: Actor | null; sender_display_name?: string | null; content: string; attachments?: Attachment[]; tool_calls: ToolCall[]; thinking?: ThinkingSegment[]; token_usage: TokenUsage | null; delivery_status: DeliveryStatus; created_at: string; system_notice?: SystemNotice | null }
   | { type: "message.reconciled"; seq?: number; conversation_id: string; message_id: string; sender_user_id: string; sender_type: string; sender?: Actor | null; sender_display_name?: string | null; content: string; attachments: Attachment[]; tool_calls: ToolCall[]; thinking: ThinkingSegment[]; token_usage: TokenUsage | null; delivery_status: Extract<DeliveryStatus, "completed" | "failed">; created_at: string; elapsed_ms: number | null; kernel_message_id: string | null; permission_requests?: PermissionRequest[] }
   | { type: "message.delta"; seq?: number; conversation_id: string; message_id: string; delta_text: string }
   | { type: "message.completed"; seq?: number; conversation_id: string; message_id: string; content: string; token_usage: TokenUsage | null; delivery_status?: Extract<DeliveryStatus, "completed" | "failed">; elapsed_ms?: number | null; kernel_message_id?: string | null }

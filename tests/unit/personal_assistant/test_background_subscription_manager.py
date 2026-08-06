@@ -110,7 +110,12 @@ async def test_manager_seal_does_not_cancel_current_callback_before_close() -> N
     callback_started = asyncio.Event()
     release_callback = asyncio.Event()
 
-    async def _on_session_event(_session_id: str, _event: Mapping[str, Any]) -> None:
+    async def _on_session_event(
+        _reply_context: ReplyContext,
+        _agent_id: str,
+        _kernel_session_id: str,
+        _event: Mapping[str, Any],
+    ) -> None:
         callback_started.set()
         await release_callback.wait()
 
@@ -146,13 +151,23 @@ async def test_session_event_uses_subscription_reply_context_after_binding_inval
     """An old subscriber keeps its original delivery target after config publication."""
 
     kernel = _QueuedKernel()
-    delivered: list[tuple[str, str]] = []
+    delivered: list[tuple[str, str, str, str]] = []
     event_seen = asyncio.Event()
 
     async def _on_session_event(
-        reply_context: ReplyContext, event: Mapping[str, Any]
+        reply_context: ReplyContext,
+        agent_id: str,
+        kernel_session_id: str,
+        event: Mapping[str, Any],
     ) -> None:
-        delivered.append((reply_context.target_chat_id, str(event["event"])))
+        delivered.append(
+            (
+                reply_context.target_chat_id,
+                agent_id,
+                kernel_session_id,
+                str(event["event"]),
+            )
+        )
         event_seen.set()
 
     manager = BackgroundSubscriptionManager(
@@ -164,7 +179,9 @@ async def test_session_event_uses_subscription_reply_context_after_binding_inval
     await kernel.events.put({"event": "self_evolution_review"})
     await asyncio.wait_for(event_seen.wait(), timeout=1)
 
-    assert delivered == [("conv-original", "self_evolution_review")]
+    assert delivered == [
+        ("conv-original", "agent-a", "sess-bg", "self_evolution_review")
+    ]
     await kernel.events.put(None)
     await manager.aclose(asyncio.get_running_loop().time() + 1)
 
@@ -176,7 +193,9 @@ async def test_sealed_manager_allows_terminal_ensure_for_existing_session() -> N
     kernel = _QueuedKernel()
     manager = BackgroundSubscriptionManager(
         kernel=kernel,
-        session_event_callback=lambda _context, _event: asyncio.sleep(0),
+        session_event_callback=lambda _context, _agent, _session, _event: asyncio.sleep(
+            0
+        ),
     )
     request = _request()
     await manager.ensure(request)
@@ -198,7 +217,9 @@ async def test_terminal_ensure_returns_typed_skip_when_shutdown_rejects_new_sess
 
     manager = BackgroundSubscriptionManager(
         kernel=_QueuedKernel(),
-        session_event_callback=lambda _context, _event: asyncio.sleep(0),
+        session_event_callback=lambda _context, _agent, _session, _event: asyncio.sleep(
+            0
+        ),
     )
     manager.seal()
 
@@ -217,7 +238,12 @@ async def test_close_consumes_event_dequeued_before_stop_request() -> None:
     kernel = _YieldGatedKernel()
     delivered: list[str] = []
 
-    async def _on_event(_reply_context: ReplyContext, event: Mapping[str, Any]) -> None:
+    async def _on_event(
+        _reply_context: ReplyContext,
+        _agent_id: str,
+        _kernel_session_id: str,
+        event: Mapping[str, Any],
+    ) -> None:
         delivered.append(str(event["event"]))
 
     manager = BackgroundSubscriptionManager(
@@ -243,7 +269,9 @@ async def test_close_cancels_idle_stream_without_deadline_warning() -> None:
     kernel = _QueuedKernel()
     manager = BackgroundSubscriptionManager(
         kernel=kernel,
-        session_event_callback=lambda _context, _event: asyncio.sleep(0),
+        session_event_callback=lambda _context, _agent, _session, _event: asyncio.sleep(
+            0
+        ),
     )
     await manager.ensure(_request())
     await asyncio.wait_for(kernel.started.wait(), timeout=1)
