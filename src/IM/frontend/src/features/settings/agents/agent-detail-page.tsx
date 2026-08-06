@@ -1273,6 +1273,11 @@ export function AgentDetailPage() {
 
   useEffect(() => {
     setActiveSection("config");
+    setDraft(null);
+    setSaved(false);
+    setErrorMessage(null);
+    setHasAttemptedSave(false);
+    setTouched({});
   }, [agentId]);
 
   useEffect(() => {
@@ -1394,7 +1399,7 @@ export function AgentDetailPage() {
     const statePanel = (
       <div
         data-testid="agent-detail-state-panel"
-        className="flex min-h-full flex-1 items-start justify-center bg-[oklch(0.93_0.007_240)] px-4 py-10 sm:px-8 sm:py-14"
+        className="flex min-h-0 flex-1 items-start justify-center overflow-y-auto bg-[oklch(0.93_0.007_240)] px-4 py-10 sm:px-8 sm:py-14"
       >
         {content}
       </div>
