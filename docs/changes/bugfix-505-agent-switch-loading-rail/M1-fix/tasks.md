@@ -68,13 +68,13 @@
 
 ### R1 — 固化异步壳层回归并实现连续 desktop shell
 
-- 状态：TODO
+- 状态：DONE
 - 步骤：先以 pending、initial-error、mobile pending 用例复现 desktop rail 丢失，再把详情状态放入统一 responsive shell，加入面板内 loading/error 状态。
 - 验证：新增页面回归由红转绿；定向运行 `agent-detail-loading-shell.test.tsx`。
 
 ### R2 — 修正 rail 身份行视觉语义
 
-- 状态：TODO
+- 状态：DOING
 - 步骤：先以 normal / hover / active 行前景和背景语义用例复现低对比度，再用既有 dark rail 色系调整文字、hover、active 表达。
 - 验证：新增 rail 组件回归由红转绿；定向运行 `agents-rail-desktop.test.tsx`。
 
