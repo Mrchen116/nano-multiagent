@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -113,7 +114,9 @@ def test_watchdog_does_not_swallow_process_exit_signals(
         asyncio.run(runtime._supervise_im_connection(_SystemExitIMManager()))  # noqa: SLF001
 
 
-def test_watchdog_resets_backoff_after_stable_runtime(tmp_path: Path) -> None:
+def test_watchdog_resets_backoff_after_stable_runtime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A crash after a long healthy run should restart at the initial watchdog delay,
     not inherit the previous exponential backoff."""
 
@@ -122,35 +125,47 @@ def test_watchdog_resets_backoff_after_stable_runtime(tmp_path: Path) -> None:
 
         def __init__(self, runtime: GatewayRuntime) -> None:
             self._runtime = runtime
-            self.started_at: list[float] = []
             self.calls = 0
 
         async def run_forever(self) -> None:
             self.calls += 1
-            self.started_at.append(time.monotonic())
             if self.calls == 1:
                 raise RuntimeError("first crash")
             if self.calls == 2:
-                await asyncio.sleep(0.12)
                 raise RuntimeError("crash after stable period")
             self._runtime.request_shutdown()
 
+    # Keep the event loop on its real clock. The runtime module alone observes this
+    # controlled clock, making the second failure a stable 10-second run without
+    # measuring scheduler delay as watchdog backoff.
+    monotonic_values = iter((0.0, 0.0, 10.0, 20.0, 30.0, 40.0))
+
+    def _next_monotonic() -> float:
+        return next(monotonic_values)
+
+    monkeypatch.setattr(
+        "personal_assistant.gateway.runtime.time",
+        SimpleNamespace(monotonic=_next_monotonic),
+    )
     runtime = GatewayRuntime(
         make_config(tmp_path),
         im_watchdog_initial_seconds=0.04,
-        im_watchdog_max_seconds=0.10,
+        im_watchdog_max_seconds=10.0,
     )
     manager = _StableThenCrashingIMManager(runtime)
+    scheduled_delays: list[float] = []
+
+    async def _record_wait(*, timeout: float | None = None) -> bool:
+        assert timeout is not None
+        scheduled_delays.append(timeout)
+        return False
+
+    monkeypatch.setattr(runtime, "_wait_for_shutdown_request", _record_wait)
 
     asyncio.run(runtime._supervise_im_connection(manager))  # noqa: SLF001
 
     assert manager.calls == 3
-    first_backoff = manager.started_at[1] - manager.started_at[0]
-    second_backoff = manager.started_at[2] - manager.started_at[1] - 0.12
-    assert first_backoff < 0.08
-    assert second_backoff < 0.08, (
-        "watchdog backoff should reset to the initial delay after a stable run"
-    )
+    assert scheduled_delays == [0.04, 0.04]
 
 
 def test_watchdog_treats_manager_stop_return_as_clean_exit(
