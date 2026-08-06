@@ -33,7 +33,6 @@ function makeConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
     owner_id: "owner-1",
     display_name: "Agent A",
     description: "",
-    system_prompt: "You are A.",
     skills: [],
     tool_allowlist: [],
     group_reply_policy: "MENTION",

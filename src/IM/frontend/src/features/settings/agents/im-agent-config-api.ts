@@ -36,11 +36,10 @@ export interface AgentConfig {
   owner_id: string;
   display_name: string;
   description: string;
-  system_prompt: string;
   // feat-379-M3: per-agent feature flags (key → bool); absent in old IM responses → treat as {}
   features?: Record<string, boolean>;
   // feat-379-M3: user custom instructions appended as pa.user_custom segment
-  custom_prompt?: string;
+  custom_prompt?: string | null;
   // feat-394 M9-E: heartbeat carries only cadence; enable lives in features["heartbeat"].
   heartbeat?: HeartbeatConfig;
   // feat-394 M9-E: cron field removed — no per-agent cron config; enable in features["cron_scheduling"].
@@ -132,10 +131,9 @@ export interface NodeAgentCreateRequest {
   owner_id: string;
   display_name: string;
   description: string;
-  system_prompt: string;
   // feat-379-M3: per-agent feature flags for new agents
   features?: Record<string, boolean>;
-  custom_prompt?: string;
+  custom_prompt?: string | null;
   skills: string[];
   tool_allowlist: string[];
   group_reply_policy: "ALWAYS" | "MENTION" | "NO_REPLY" | string;
@@ -151,10 +149,9 @@ export interface UpdateAgentConfigRequest {
   profile_version: number;
   display_name: string;
   description: string;
-  system_prompt: string;
   // feat-379-M3: per-agent feature flags; omitted → server keeps existing
   features?: Record<string, boolean>;
-  custom_prompt?: string;
+  custom_prompt?: string | null;
   // feat-394 M9-E: heartbeat carries only cadence; enable in features["heartbeat"].
   heartbeat?: HeartbeatConfig;
   // feat-394 M9-E: cron removed from update request; enable in features["cron_scheduling"].
@@ -543,7 +540,6 @@ export async function updateAgentConfig(agentId: string, next: UpdateAgentConfig
       profile_version: next.profile_version,
       display_name: next.display_name,
       description: next.description,
-      system_prompt: next.system_prompt,
       // feat-379-M3: pass features and custom_prompt when present
       ...(next.features !== undefined ? { features: next.features } : {}),
       ...(next.custom_prompt !== undefined ? { custom_prompt: next.custom_prompt } : {}),

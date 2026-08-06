@@ -167,7 +167,6 @@ describe("agent create page", () => {
       owner_id: "",
       display_name: "Agent New",
       description: "runtime-created helper",
-      system_prompt: "You are Agent New.",
       skills: ["plan"],
       tool_allowlist: ["read"],
       group_reply_policy: "MENTION",
@@ -218,7 +217,6 @@ describe("agent create page", () => {
         owner_id: "",
         display_name: "Agent New",
         description: "runtime-created helper",
-        system_prompt: "",
         custom_prompt: "You are Agent New.",
         features: {},
         skills: ["plan"],
@@ -322,7 +320,6 @@ describe("agent create page", () => {
       owner_id: "",
       display_name: "Agent Default Skills",
       description: "",
-      system_prompt: "",
       skills: ["pa-global"],
       tool_allowlist: [],
       group_reply_policy: "MENTION",
@@ -419,7 +416,6 @@ describe("agent create page", () => {
       owner_id: "",
       display_name: "Agent Node Two",
       description: "",
-      system_prompt: "",
       skills: ["node-two-global"],
       tool_allowlist: [],
       group_reply_policy: "MENTION",
@@ -623,7 +619,7 @@ describe("agent create prompt preview", () => {
     renderCreatePage();
     await screen.findByText(/Select a node/i);
 
-    const previewToggle = await screen.findByRole("button", { name: /Preview full system prompt/i });
+    const previewToggle = await screen.findByRole("button", { name: /Preview stable system prompt/i });
     await user.click(previewToggle);
 
     await waitFor(() => {

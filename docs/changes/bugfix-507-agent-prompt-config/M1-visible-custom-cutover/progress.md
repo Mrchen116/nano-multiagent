@@ -46,11 +46,23 @@
 
 ## R3 — Frontend public shape 与 stable preview 文案
 
-- Status: IN PROGRESS
+- Status: DONE
+- Shape: `AgentConfig`, create/update requests, form normalization, fixtures,
+  and mock settings data no longer contain the retired profile field. API
+  regression verifies PATCH sends `custom_prompt` and no legacy key.
+- Wording: preview controls now read “Preview stable system prompt” /
+  “预览稳定系统提示词”; the existing help still states that group chat and
+  memory runtime segments are excluded.
+- Tests: Agent settings plus chat integration suite passed 15 files / 130 tests;
+  the focused red/green set passed 4 files / 39 tests. Existing React `act()`
+  and user-stream fixture warnings remain unchanged.
+- Build: `tsc -b && vite build` passed; Vite reported only the existing large
+  chunk advisory. `dist/` remains an ignored local build artifact.
+- Commit: R3 implementation commit (this commit).
 
 ## R4 — 隔离真栈、浏览器与最终门禁
 
-- Status: TODO
+- Status: IN PROGRESS
 
 ## Promotion Candidates
 

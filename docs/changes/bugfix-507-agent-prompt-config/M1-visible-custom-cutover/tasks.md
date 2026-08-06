@@ -84,12 +84,12 @@ Prototype / Reference Contract: N/A；design 未提供 prototype 或 reference s
 
 ### R3 — Frontend public shape 与 stable preview 文案
 
-- 状态: IN PROGRESS
+- 状态: DONE
 - 步骤: 先更新 regression 断言为无 legacy profile 字段和 stable preview；再收敛 TS types/payload 与中英文文案。
 - 验证: focused vitest + frontend build；UI 状态矩阵 ready for browser。
 
 ### R4 — 隔离真栈、浏览器与最终门禁
 
-- 状态: TODO
+- 状态: IN PROGRESS
 - 步骤: 扩展现有 config-continuity critical path，跑旧 YAML→空 IM seed→preview→下一轮/更新后历史连续；启动隔离 Vite 做桌面/移动浏览器验收并保存证据。
 - 验证: e2e critical path、浏览器 console/network 检查、focused/full risk gates、`git diff --check` 与 Ruff。
