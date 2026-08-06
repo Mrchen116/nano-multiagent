@@ -51,10 +51,17 @@ class LLMConfigPayload:
 
     Parsed from the config ``llm:`` block; passed to ``LLMConfig.from_payload`` (duck
     typed) so the catalog + active connection flow into ``build_kernel(llm=…)``.
+
+    Args:
+        default_model: Product-level default model id.
+        providers: Registered provider and model catalog.
+        tool_approval_model: Optional registered model used only for automatic tool
+            approval classification.
     """
 
     default_model: str
     providers: tuple[LLMProviderPayload, ...] = field(default_factory=tuple)
+    tool_approval_model: str | None = None
 
 
 _log = logging.getLogger("personal_assistant.config.local_store")
@@ -918,6 +925,9 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
             for p in config.llm.providers
         ],
     }
+    tool_approval_model = getattr(config.llm, "tool_approval_model", None)
+    if tool_approval_model is not None:
+        llm_dict["tool_approval_model"] = tool_approval_model
     data["llm"] = llm_dict
 
     new_text = yaml.safe_dump(
@@ -999,6 +1009,14 @@ def _parse_llm(payload: Any) -> LLMConfigPayload:
     default_model = _require_non_empty_string(
         payload.get("default_model"), field_name="llm.default_model"
     )
+    tool_approval_model = (
+        _require_non_empty_string(
+            payload.get("tool_approval_model"),
+            field_name="llm.tool_approval_model",
+        )
+        if "tool_approval_model" in payload
+        else None
+    )
     providers_raw = payload.get("providers")
     if not isinstance(providers_raw, list):
         raise ValueError("llm.providers must be a list")
@@ -1057,7 +1075,17 @@ def _parse_llm(payload: Any) -> LLMConfigPayload:
         raise ValueError(
             f"llm.default_model='{default_model}' not found in llm.providers (available: {available})"
         )
-    return LLMConfigPayload(default_model=default_model, providers=tuple(providers))
+    if tool_approval_model is not None and tool_approval_model not in all_models:
+        available = ", ".join(sorted(all_models)) or "(none)"
+        raise ValueError(
+            "llm.tool_approval_model="
+            f"'{tool_approval_model}' not found in llm.providers (available: {available})"
+        )
+    return LLMConfigPayload(
+        default_model=default_model,
+        providers=tuple(providers),
+        tool_approval_model=tool_approval_model,
+    )
 
 
 def _parse_agents(

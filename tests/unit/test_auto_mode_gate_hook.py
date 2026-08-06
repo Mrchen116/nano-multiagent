@@ -68,7 +68,12 @@ def _make_tool_with_check_permissions(behavior: str) -> MagicMock:
 class TestGateHookLogic:
     """Integration tests for the gate hook on_tool_call coroutine."""
 
-    def _get_handler(self, config: AutoModeConfig | None = None):
+    def _get_handler(
+        self,
+        config: AutoModeConfig | None = None,
+        *,
+        tool_approval_model: str | None = None,
+    ):
         """Extract the on_tool_call handler from gate_setup."""
         if config is None:
             config = AutoModeConfig()
@@ -77,6 +82,9 @@ class TestGateHookLogic:
         class MockHooks:
             def on(self, event, handler, **kwargs):
                 handlers.append(handler)
+
+            def get_state(self, key):
+                return tool_approval_model
 
         gate_setup(MockHooks())
         return handlers[0], config
@@ -197,6 +205,83 @@ class TestGateHookLogic:
             {"name": "write", "args": {"file_path": "/tmp/f", "content": "data"}}, ctx
         )
         assert result is None or result.get("block") is not True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("run_origin", ["user", "heartbeat", "cron", "subagent"])
+    async def test_classifier_uses_configured_model_for_every_run_origin(
+        self, run_origin: str
+    ):
+        handler, config = self._get_handler(tool_approval_model="model-c")
+        ctx = self._make_ctx_with_config(config, run_origin=run_origin)
+        ctx.metadata = dict(ctx.metadata)
+        ctx.metadata["tool_registry"] = self._make_write_projection_registry()
+
+        result = await handler(
+            {"name": "write", "args": {"file_path": "/tmp/f", "content": "data"}},
+            ctx,
+        )
+
+        assert result is None or result.get("block") is not True
+        assert ctx.call_model.await_args.kwargs["model"] == "model-c"
+
+    @pytest.mark.asyncio
+    async def test_classifier_uses_configured_model_for_both_stages(self):
+        handler, config = self._get_handler(tool_approval_model="model-c")
+        ctx = self._make_ctx_with_config(config)
+        ctx.call_model = AsyncMock(
+            side_effect=[
+                MagicMock(content="<block>yes</block>"),
+                MagicMock(content="<block>no</block>"),
+            ]
+        )
+        ctx.metadata = dict(ctx.metadata)
+        ctx.metadata["tool_registry"] = self._make_write_projection_registry()
+
+        result = await handler(
+            {"name": "write", "args": {"file_path": "/tmp/f", "content": "data"}},
+            ctx,
+        )
+
+        assert result is None or result.get("block") is not True
+        assert [call.kwargs["model"] for call in ctx.call_model.await_args_list] == [
+            "model-c",
+            "model-c",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_classifier_omitted_model_reuses_current_run_model(self):
+        handler, config = self._get_handler(tool_approval_model=None)
+        ctx = self._make_ctx_with_config(config)
+        ctx.metadata = dict(ctx.metadata)
+        ctx.metadata["tool_registry"] = self._make_write_projection_registry()
+
+        result = await handler(
+            {"name": "write", "args": {"file_path": "/tmp/f", "content": "data"}},
+            ctx,
+        )
+
+        assert result is None or result.get("block") is not True
+        assert ctx.call_model.await_args.kwargs["model"] is None
+
+    @pytest.mark.asyncio
+    async def test_classifier_failure_does_not_retry_with_another_model(self):
+        handler, config = self._get_handler(
+            AutoModeConfig(unattended_fallback="deny"),
+            tool_approval_model="model-c",
+        )
+        ctx = self._make_ctx_with_config(config, run_origin="heartbeat")
+        ctx.call_model = AsyncMock(side_effect=RuntimeError("model unavailable"))
+        ctx.metadata = dict(ctx.metadata)
+        ctx.metadata["tool_registry"] = self._make_write_projection_registry()
+
+        result = await handler(
+            {"name": "write", "args": {"file_path": "/tmp/f", "content": "data"}},
+            ctx,
+        )
+
+        assert result is not None and result.get("block") is True
+        assert ctx.call_model.await_count == 1
+        assert ctx.call_model.await_args.kwargs["model"] == "model-c"
 
     @pytest.mark.asyncio
     async def test_historical_tool_use_does_not_require_live_registry(self):

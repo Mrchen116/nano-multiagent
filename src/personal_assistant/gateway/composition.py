@@ -209,6 +209,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
 
     kernel = build_pa_kernel(
         llm=llm,
+        tool_approval_model=getattr(config.llm, "tool_approval_model", None),
         cron_services=_cron_dispatcher.services,  # shared mutable map (决策 9)
         gateway_dispatch_url_provider=_internal_dispatch_endpoint.current_url,
         # can_use_tool=None: IM card flow; see submit_permission_decision.

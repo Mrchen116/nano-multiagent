@@ -27,6 +27,7 @@ im_service:
 
 llm:
   default_model: <model-id>
+  # tool_approval_model: <registered-model-id>
   providers:
     - name: anthropic
       base_url: <anthropic-compatible-base-url>
@@ -37,6 +38,9 @@ llm:
 关键约束：
 
 - `llm:` 必填，`llm.default_model` 必须出现在某个 `llm.providers[].models[]` 中。
+- `llm.tool_approval_model` 可选。配置后，所有 PA Agent 的自动工具权限分类都使用这个已注册模型；省略时，各次分类复用发起运行的 Agent 模型。空值或未注册值会让 Gateway 拒绝启动。
+- 专用审批模型只影响自动分类，不改变 Agent 的正常回复或工具结果续跑模型。分类调用失败时不会改用 Agent 模型或其他模型；有人值守时进入既有显式审批，无人值守时遵守既有 unattended fallback。
+- 修改 `llm.tool_approval_model` 后需要重启 Gateway；运行中的进程不会热加载该字段。
 - provider name 使用 `anthropic` 或 `openai_compat`，与上游接口协议匹配。
 - `im_service` 存在时需要启用内置 `web_relay`。
 - `agents[].workspace_root` 省略时，Gateway 为该 Agent 使用默认 workspace；需要固定位置时显式填写绝对路径。

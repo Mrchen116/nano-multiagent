@@ -22,6 +22,8 @@ from agent.sdk import (
     HookAPI,
     Kernel,
     LLMConfig,
+    LLMModel,
+    LLMProvider,
     PromptSlots,
     PromptText,
     RunOrigin,
@@ -51,6 +53,23 @@ async def _stub(content: str):
     yield LLMMessage(
         role="assistant",
         content=content,
+        finish_reason="stop",
+        tool_calls=(),
+        usage=None,
+    )
+
+
+async def _hook_stub(content: str):
+    yield LLMMessage(
+        role="assistant",
+        content=content,
+        finish_reason=None,
+        tool_calls=(),
+        usage=None,
+    )
+    yield LLMMessage(
+        role="assistant",
+        content="",
         finish_reason="stop",
         tool_calls=(),
         usage=None,
@@ -102,6 +121,23 @@ class _EchoTool:
 
     def run(self, args: Mapping[str, Any], ctx: ToolContext) -> Mapping[str, Any]:
         return {"echoed": args.get("note", "")}
+
+
+class _ApprovalRoutingTool:
+    name = "approval_route"
+    description = "Exercise automatic tool approval routing."
+    input_schema: dict = {"type": "object", "properties": {"note": {"type": "string"}}}
+
+    def check_permissions(self, args: Mapping[str, Any], ctx: ToolContext) -> Any:
+        from agent.platform.permissions.broker import PermissionDecision  # noqa: PLC0415
+
+        return PermissionDecision(behavior="passthrough")
+
+    def to_auto_classifier_input(self, args: Mapping[str, Any]) -> str:
+        return f"record note {args.get('note', '')}"
+
+    def run(self, args: Mapping[str, Any], ctx: ToolContext) -> Mapping[str, Any]:
+        return {"recorded": args.get("note", "")}
 
 
 def _make_recording_tool(sink: list[str]) -> _RecordingTool:
@@ -198,6 +234,81 @@ def test_build_kernel_from_llm_config_no_pre_init(tmp_path: Path) -> None:
     assert isinstance(cfg, LLMConfig)
     assert cfg.provider == "openai_compat"
     assert cfg.model == "codex_oauth:gpt-5.5"
+
+
+def test_build_kernel_rejects_unregistered_tool_approval_model(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="tool_approval_model.*missing:model"):
+        _build(tmp_path, tool_approval_model="missing:model")
+
+
+def test_auto_gate_is_the_only_production_approval_model_consumer() -> None:
+    src_root = Path(__file__).parents[2] / "src"
+    helper = src_root / "agent/platform/hooks/tool_approval_model.py"
+    consumers = [
+        path.relative_to(src_root).as_posix()
+        for path in src_root.rglob("*.py")
+        if path != helper
+        and "get_tool_approval_model(" in path.read_text(encoding="utf-8")
+    ]
+
+    assert consumers == ["agent/platform/hooks/builtins/auto_mode_gate.py"]
+
+
+async def test_tool_approval_model_only_routes_classifier_calls(tmp_path: Path) -> None:
+    requests: list[Any] = []
+    normal_calls = 0
+
+    class _RoutingClient:
+        def generate(self, request: Any):  # noqa: ANN001, ANN201
+            nonlocal normal_calls
+            requests.append(request)
+            if request.extra_body == {"thinking": {"type": "disabled"}}:
+                return _hook_stub("<block>no</block>")
+            normal_calls += 1
+            if normal_calls == 1:
+                return _tool_call_stream("approval_route")
+            return _stub("done")
+
+    llm = LLMConfig.from_catalog(
+        default_model="model-a",
+        providers=(
+            LLMProvider(
+                name="provider-a",
+                base_url="http://provider-a.invalid",
+                models=(LLMModel(name="model-a"),),
+            ),
+            LLMProvider(
+                name="provider-c",
+                base_url="http://provider-c.invalid",
+                models=(LLMModel(name="model-c"),),
+            ),
+        ),
+    )
+    kernel = _build(
+        tmp_path,
+        llm=llm,
+        tools=[_ApprovalRoutingTool()],
+        tool_approval_model="model-c",
+        _llm_client_override=_RoutingClient(),
+    )
+    try:
+        session = await kernel.create_session(
+            workspace_root=tmp_path, enabled_tools=["approval_route"]
+        )
+        run = kernel.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "record hi"}],
+            model="model-a",
+        )
+
+        assert (await _wait_terminal(kernel, run.run_id)).status == "completed"
+        assert [request.model for request in requests] == [
+            "model-a",
+            "model-c",
+            "model-a",
+        ]
+    finally:
+        await kernel.aclose()
 
 
 def test_kernel_close_closes_owned_provider_clients(

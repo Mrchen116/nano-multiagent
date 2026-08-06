@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,9 @@ from personal_assistant.config.local_store import (
     GatewayLifecycleConfig,
     LocalConfig,
     NodeConfig,
+    LLMConfigPayload as PALLMConfigPayload,
+    LLMModelPayload as PALLMModelPayload,
+    LLMProviderPayload as PALLMProviderPayload,
 )
 from personal_assistant.gateway.session_keys import PersistentSessionBindingStore
 from personal_assistant.gateway.im_bootstrap import GatewayStartupError
@@ -38,6 +42,38 @@ _DEFAULT_TEST_LLM = LLMConfigPayload(
         ),
     ),
 )
+
+
+def test_compose_gateway_propagates_tool_approval_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from personal_assistant import product
+
+    base = make_minimal_config(tmp_path)
+    model = base.llm.default_model
+    llm = PALLMConfigPayload(
+        default_model=model,
+        providers=(
+            PALLMProviderPayload(
+                name="anthropic",
+                base_url="http://127.0.0.1:4000",
+                models=(PALLMModelPayload(name=model),),
+            ),
+        ),
+        tool_approval_model=model,
+    )
+    captured: list[str | None] = []
+    original = product.build_pa_kernel
+
+    def _capturing_build(**kwargs):  # noqa: ANN003, ANN202
+        captured.append(kwargs.get("tool_approval_model"))
+        return original(**kwargs)
+
+    monkeypatch.setattr(product, "build_pa_kernel", _capturing_build)
+
+    compose_gateway(replace(base, llm=llm))
+
+    assert captured == [model]
 
 
 def test_compose_gateway_uses_persistent_session_binding_store(

@@ -230,6 +230,7 @@ def build_kernel(
     *,
     # 2-layer surface (refactor-406 决策 1/2/5) — the sole composition entry.
     llm: LLMConfig | None = None,
+    tool_approval_model: str | None = None,
     tools: Sequence[Any] | None = None,
     hooks: Sequence[Callable[[Any], None]] | None = None,
     workspace_config_dirname: str | None = None,
@@ -259,6 +260,8 @@ def build_kernel(
 
     Args:
         llm: SDK-owned LLM config. Catalog + connection + default.
+        tool_approval_model: Optional registered model used by automatic tool
+            approval classification. ``None`` reuses the current run model.
         tools: Native tool objects satisfying the SDK ``Tool`` Protocol.
         hooks: ``setup(hooks)`` callables registered into the hook registry.
         workspace_config_dirname: Per-workspace config dir name (e.g. ``.nanocode``)
@@ -287,8 +290,12 @@ def build_kernel(
     """
     if llm is None:
         raise ValueError("build_kernel requires llm= (2-layer surface)")
+    resolved_tool_approval_model = _validate_tool_approval_model(
+        llm, tool_approval_model
+    )
     return _build_kernel_base(
         llm=llm,
+        tool_approval_model=resolved_tool_approval_model,
         tools=list(tools or ()),
         hooks=list(hooks or ()),
         workspace_config_dirname=workspace_config_dirname or ".nano",
@@ -300,6 +307,27 @@ def build_kernel(
         hook_search_roots=tuple(hook_search_roots),
         _llm_client_override=_llm_client_override,
     )
+
+
+def _validate_tool_approval_model(llm: LLMConfig, model: str | None) -> str | None:
+    """Validate an explicit classifier model against the Kernel catalog."""
+
+    if model is None:
+        return None
+    normalized = model.strip()
+    if not normalized:
+        raise ValueError("tool_approval_model must be a non-empty string")
+    available = (
+        {item.name for provider in llm.providers for item in provider.models}
+        if llm.providers
+        else {llm.model}
+    )
+    if normalized not in available:
+        choices = ", ".join(sorted(available)) or "(none)"
+        raise ValueError(
+            f"tool_approval_model '{normalized}' is not registered (available: {choices})"
+        )
+    return normalized
 
 
 def _init_model_registry_from_llm_config(llm: LLMConfig) -> None:
@@ -477,6 +505,7 @@ class _SearchRootsResolver:
 def _build_kernel_base(
     *,
     llm: LLMConfig,
+    tool_approval_model: str | None,
     tools: list[Any],
     hooks: list[Callable[[Any], None]],
     workspace_config_dirname: str,
@@ -499,6 +528,9 @@ def _build_kernel_base(
         build_kernel_prompt_skeleton,
     )
     from agent.platform.tools.builtins import register_builtin_tools  # noqa: PLC0415
+    from agent.platform.hooks.tool_approval_model import (  # noqa: PLC0415
+        set_tool_approval_model,
+    )
     from agent.core.tools.base import (  # noqa: PLC0415
         ToolContext as CoreToolContext,
         set_tool_safety_config_factory,
@@ -548,6 +580,7 @@ def _build_kernel_base(
         )
     else:
         hook_registry = build_hook_registry(repo_root=resolved_repo_root)
+    set_tool_approval_model(hook_registry, tool_approval_model)
     for setup in hooks:
         setup(hook_registry)
     hook_runner = HookRunner(registry=hook_registry)

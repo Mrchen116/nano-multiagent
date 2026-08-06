@@ -381,6 +381,7 @@ def resolve_enabled_tools(agent: Any) -> list[str]:
 def build_pa_kernel(
     *,
     llm: LLMConfig,
+    tool_approval_model: str | None = None,
     cron_services: Mapping[str, CronExecutionService],
     repo_root: Path | None = None,
     gateway_dispatch_url_provider: Callable[[], str | None] | None = None,
@@ -396,6 +397,8 @@ def build_pa_kernel(
 
     Args:
         llm: SDK-owned LLM config (catalog + active connection).
+        tool_approval_model: Optional model used only by automatic tool approval
+            classification. ``None`` reuses each run's Agent model.
         cron_services: Mutable map agent_id → CronExecutionService. The cron tool
             closure routes by agent_id at run time; registration may happen after
             build (shared-reference map).
@@ -422,6 +425,7 @@ def build_pa_kernel(
 
     return build_kernel(
         llm=llm,
+        tool_approval_model=tool_approval_model,
         tools=tools,
         hooks=[chat_history.setup],
         can_use_tool=None,
