@@ -310,6 +310,8 @@ class LocalConfig:
         im_service: Optional upstream IM service configuration.
         llm: LLM registry configuration (required; no hardcoded fallback).
         source_path: Absolute file path used to load the config.
+        legacy_prompt_migration_pending: Whether a successful config persistence
+            should remove a retired prompt key observed during load.
     """
 
     node: NodeConfig
@@ -320,6 +322,7 @@ class LocalConfig:
     im_service: IMServiceConfig | None
     llm: LLMConfigPayload
     source_path: Path
+    legacy_prompt_migration_pending: bool = False
 
 
 class RuntimeConfigOwner:
@@ -593,6 +596,10 @@ def load_local_config(config_path: str | Path) -> LocalConfig:
     node = _parse_node_config(raw.get("node"))
     llm = _parse_llm(raw.get("llm"))
     agents = _parse_agents(raw.get("agents"), llm)
+    raw_agents = raw.get("agents")
+    legacy_prompt_migration_pending = isinstance(raw_agents, list) and any(
+        isinstance(item, dict) and "system_prompt" in item for item in raw_agents
+    )
     channels = _parse_channels(raw.get("channels"))
     gateway = _parse_gateway_lifecycle(raw.get("gateway"))
     heartbeat = _parse_heartbeat(raw.get("heartbeat"))
@@ -606,6 +613,7 @@ def load_local_config(config_path: str | Path) -> LocalConfig:
         im_service=im_service,
         llm=llm,
         source_path=source_path,
+        legacy_prompt_migration_pending=legacy_prompt_migration_pending,
     )
 
 

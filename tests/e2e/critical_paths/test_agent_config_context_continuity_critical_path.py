@@ -38,6 +38,8 @@ _E2E_DOWN = _REPO_ROOT / "scripts" / "e2e-down.sh"
 _FREE_PORTS = _REPO_ROOT / "scripts" / "free-ports.sh"
 _RECORDING_STUB = _REPO_ROOT / "scripts" / "fixtures" / "anthropic_sse_ok_recording.py"
 _E2E_CONFIG = _REPO_ROOT / "config" / "e2e" / "gateway.yaml"
+_LEGACY_PROMPT = "BUGFIX-507 LEGACY VISIBLE ROLE"
+_UPDATED_PROMPT = "BUGFIX-507 UPDATED VISIBLE ROLE"
 
 
 @dataclass
@@ -73,6 +75,22 @@ def _tool_names(request: dict) -> set[str]:
         if isinstance(tool, dict) and isinstance(tool.get("name"), str):
             names.add(tool["name"])
     return names
+
+
+def _system_blob(request: dict) -> str:
+    """Flatten the Anthropic request's stable system content."""
+    system = request.get("system")
+    if isinstance(system, str):
+        return system
+    if not isinstance(system, list):
+        return ""
+    parts: list[str] = []
+    for block in system:
+        if isinstance(block, str):
+            parts.append(block)
+        elif isinstance(block, dict) and isinstance(block.get("text"), str):
+            parts.append(block["text"])
+    return "\n".join(parts)
 
 
 def _load_records(path: Path) -> list[dict]:
@@ -112,10 +130,27 @@ def _rewrite_llm_to_stub(src: Path, dst: Path, stub_url: str) -> None:
     for provider in providers:
         for model in provider.get("models") or []:
             model.pop("extra_request_body", None)
+    first_agent = (cfg.get("agents") or [])[0]
+    first_agent["system_prompt"] = _LEGACY_PROMPT
+    first_agent["custom_prompt"] = ""
     dst.write_text(
         yaml.safe_dump(cfg, allow_unicode=True, sort_keys=False),
         encoding="utf-8",
     )
+
+
+def _wait_gateway_prompt_migration(path: Path, *, timeout: float = 30.0) -> dict:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+        first_agent = (payload.get("agents") or [])[0]
+        if (
+            "system_prompt" not in first_agent
+            and first_agent.get("custom_prompt") == _LEGACY_PROMPT
+        ):
+            return first_agent
+        time.sleep(0.2)
+    raise AssertionError(f"Gateway YAML did not canonicalize legacy prompt: {path}")
 
 
 @pytest.fixture
@@ -225,8 +260,23 @@ def stub_im_user(stub_llm_stack: StubLLMStack) -> Iterator[IMClient]:
 def test_agent_config_update_keeps_chat_context_with_stub_llm(
     stub_im_user: IMClient, stub_llm_stack: StubLLMStack
 ) -> None:
-    """先聊 → 改 tools → 再聊;最后一次 LLM 请求必须仍带上改配置前的用户句。"""
+    """旧 YAML 可见迁移后，preview/新回复同源且既有聊天连续。"""
     agent_id = stub_im_user.first_agent_id()
+    initial_config = stub_im_user.get_agent_config(agent_id)
+    assert initial_config["custom_prompt"] == _LEGACY_PROMPT
+    assert "system_prompt" not in initial_config
+    initial_preview = stub_im_user.preview_agent_prompt(
+        agent_id,
+        custom_prompt=initial_config["custom_prompt"],
+        features=initial_config.get("features"),
+        tool_ids=initial_config.get("tool_allowlist"),
+        skill_ids=initial_config.get("skills"),
+    )
+    assert _LEGACY_PROMPT in initial_preview
+    _wait_gateway_prompt_migration(
+        Path(stub_llm_stack.wt_dir) / ".gateway-config.yaml"
+    )
+
     # 起点清空工具,确保后续 PATCH 真的改变 effective runtime。
     stub_im_user.update_agent_config(agent_id, tool_allowlist=[])
     conversation_id = stub_im_user.create_direct_conversation(agent_id)
@@ -242,9 +292,23 @@ def test_agent_config_update_keeps_chat_context_with_stub_llm(
             f"请记住这个标记:{first}。先简短确认即可。",
         )
         ws.wait_for_event("message.completed")
-        _wait_records(record, 1)
+        first_records = _wait_records(record, 1)
+        assert _LEGACY_PROMPT in _system_blob(first_records[-1])
 
-        stub_im_user.update_agent_config(agent_id, tool_allowlist=["read"])
+        stub_im_user.update_agent_config(
+            agent_id,
+            tool_allowlist=["read"],
+            custom_prompt=_UPDATED_PROMPT,
+        )
+        updated_preview = stub_im_user.preview_agent_prompt(
+            agent_id,
+            custom_prompt=_UPDATED_PROMPT,
+            features=initial_config.get("features"),
+            tool_ids=["read"],
+            skill_ids=initial_config.get("skills"),
+        )
+        assert _UPDATED_PROMPT in updated_preview
+        assert _LEGACY_PROMPT not in updated_preview
 
         stub_im_user.send_message(
             conversation_id,
@@ -257,6 +321,7 @@ def test_agent_config_update_keeps_chat_context_with_stub_llm(
 
     last = records[-1]
     blob = _message_blob(last)
+    system = _system_blob(last)
     assert first in blob, (
         "post-config-update LLM request lost earlier chat context; "
         f"missing {first!r} in last request messages. blob={blob!r}"
@@ -264,7 +329,16 @@ def test_agent_config_update_keeps_chat_context_with_stub_llm(
     assert second in blob, (
         f"last LLM request missing the new user turn {second!r}; blob={blob!r}"
     )
+    assert _UPDATED_PROMPT in system
+    assert _LEGACY_PROMPT not in system
     # 运行配置确实换了:最后一次请求应带上新增的 read 工具。
     assert "read" in _tool_names(last), (
         f"expected read tool after config update; tools={_tool_names(last)!r}"
     )
+    saved_agent = yaml.safe_load(
+        (Path(stub_llm_stack.wt_dir) / ".gateway-config.yaml").read_text(
+            encoding="utf-8"
+        )
+    )["agents"][0]
+    assert saved_agent["custom_prompt"] == _UPDATED_PROMPT
+    assert "system_prompt" not in saved_agent

@@ -8,12 +8,12 @@ Owner 升级后能在 Custom Instructions 中看到此前隐藏但实际生效�
 
 ## 退出标准
 
-- [ ] IM SQLite 与 Gateway YAML 都按 legacy-first 合并表把旧 `system_prompt` 幂等迁入 `custom_prompt`，新存储和公开 API 不再包含 legacy 字段。
-- [ ] 首次 `node.register` 可用 `agent_custom_prompts` 为 IM first-seen profile 提供 canonical seed，已有 profile（含显式空值）不被覆盖。
-- [ ] PA runtime、session metadata、live snapshot 与 preview 只使用 `custom_prompt`；Kernel 内部 generic override 保持可用。
-- [ ] conversations 不再复制 `config_system_prompt` 正文，既有聊天在配置更新后继续使用历史并于下一轮采用新稳定配置。
-- [ ] Agent 设置页与创建页称其为 stable system prompt preview，继续明确排除 group/memory runtime 段，并通过真实浏览器验收。
-- [ ] 隔离 IM↔Gateway 真进程路径证明旧 YAML → 空 IM → 可见 custom → preview/下一轮一致 → 改配置后既有聊天继续。
+- [x] IM SQLite 与 Gateway YAML 都按 legacy-first 合并表把旧 `system_prompt` 幂等迁入 `custom_prompt`，新存储和公开 API 不再包含 legacy 字段。
+- [x] 首次 `node.register` 可用 `agent_custom_prompts` 为 IM first-seen profile 提供 canonical seed，已有 profile（含显式空值）不被覆盖。
+- [x] PA runtime、session metadata、live snapshot 与 preview 只使用 `custom_prompt`；Kernel 内部 generic override 保持可用。
+- [x] conversations 不再复制 `config_system_prompt` 正文，既有聊天在配置更新后继续使用历史并于下一轮采用新稳定配置。
+- [x] Agent 设置页与创建页称其为 stable system prompt preview，继续明确排除 group/memory runtime 段，并通过真实浏览器验收。
+- [x] 隔离 IM↔Gateway 真进程路径证明旧 YAML → 空 IM → 可见 custom → preview/下一轮一致 → 改配置后既有聊天继续。
 
 ## 测试策略
 
@@ -90,6 +90,6 @@ Prototype / Reference Contract: N/A；design 未提供 prototype 或 reference s
 
 ### R4 — 隔离真栈、浏览器与最终门禁
 
-- 状态: IN PROGRESS
+- 状态: DONE
 - 步骤: 扩展现有 config-continuity critical path，跑旧 YAML→空 IM seed→preview→下一轮/更新后历史连续；启动隔离 Vite 做桌面/移动浏览器验收并保存证据。
 - 验证: e2e critical path、浏览器 console/network 检查、focused/full risk gates、`git diff --check` 与 Ruff。

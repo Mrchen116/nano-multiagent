@@ -200,6 +200,31 @@ class IMClient:
         resp.raise_for_status()
         return resp.json()
 
+    def preview_agent_prompt(
+        self,
+        agent_id: str,
+        *,
+        custom_prompt: str | None,
+        features: dict[str, bool] | None = None,
+        tool_ids: list[str] | None = None,
+        skill_ids: list[str] | None = None,
+    ) -> str:
+        """Return the Gateway-built stable prompt preview for one draft."""
+        resp = self._http.post(
+            f"/im/v1/agents/{agent_id}/prompt-preview",
+            headers=self._auth_headers,
+            json={
+                "custom_prompt": custom_prompt,
+                "features": features or {},
+                "tool_ids": tool_ids or [],
+                "skill_ids": skill_ids or [],
+                "scenario": "direct",
+            },
+            timeout=60.0,
+        )
+        resp.raise_for_status()
+        return str(resp.json()["prompt"])
+
     def create_agent(
         self,
         node_id: str,

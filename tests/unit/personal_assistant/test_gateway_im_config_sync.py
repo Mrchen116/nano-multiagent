@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import httpx
+import yaml
 
 from personal_assistant.config.local_store import (
     AgentWorkspaceConfig,
@@ -358,6 +359,82 @@ def test_im_config_sync_client_persists_agent_config_to_source_path(
     assert "system_prompt" not in sync.current_agent_payload(agent_id="agent-live")
     assert agent.group_reply_policy == "mention_only"
     assert agent.default_model == "claude-sonnet-4-6"
+
+
+def test_first_mirror_reconcile_rewrites_a_legacy_yaml_prompt(
+    tmp_path: Path,
+) -> None:
+    """A successful authoritative mirror read completes deferred YAML migration."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    config_path = tmp_path / "gateway.yaml"
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "node": {"node_id": "node-1"},
+                "agents": [
+                    {
+                        "agent_id": "agent-a",
+                        "workspace_root": str(workspace),
+                        "title": "agent-a",
+                        "system_prompt": "Legacy visible role",
+                        "skills": [],
+                        "tool_allowlist": [],
+                        "group_reply_policy": "manual",
+                    }
+                ],
+                "llm": {
+                    "default_model": "test:model",
+                    "providers": [
+                        {
+                            "name": "test",
+                            "base_url": "http://127.0.0.1:4000",
+                            "models": [{"name": "test:model"}],
+                        }
+                    ],
+                },
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    local_config = load_local_config(config_path)
+    owners = build_config_sync_test_owners(local_config)
+
+    def _handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "agent_id": "agent-a",
+                "display_name": "agent-a",
+                "profile_version": 1,
+                "custom_prompt": "Legacy visible role",
+                "skills": [],
+                "tool_allowlist": [],
+                "group_reply_policy": "manual",
+                "default_model": None,
+                "features": {},
+            },
+        )
+
+    sync = _IMConfigSyncClient(
+        base_url="http://im.local",
+        token=None,
+        **owners.kwargs(),
+        local_config=local_config,
+        client=httpx.Client(
+            transport=httpx.MockTransport(_handler),
+            base_url="http://im.local",
+            trust_env=False,
+        ),
+        max_attempts=1,
+    )
+
+    sync.sync_agent(agent_id="agent-a", profile_version=1)
+
+    saved_agent = yaml.safe_load(config_path.read_text(encoding="utf-8"))["agents"][0]
+    assert saved_agent["custom_prompt"] == "Legacy visible role"
+    assert "system_prompt" not in saved_agent
 
 
 # ---------------------------------------------------------------------------

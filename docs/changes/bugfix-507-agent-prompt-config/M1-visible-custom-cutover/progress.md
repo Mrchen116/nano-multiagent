@@ -62,7 +62,28 @@
 
 ## R4 — 隔离真栈、浏览器与最终门禁
 
-- Status: IN PROGRESS
+- Status: DONE
+- Persistence: loading a legacy Gateway YAML marks canonical persistence as
+  pending, so the first successful authoritative mirror rewrites the file even
+  when the merged in-memory config is already equal. The saved file contains
+  only `custom_prompt`.
+- Real stack: the isolated config-continuity critical path passed (1 test,
+  8.12s). It proves legacy YAML -> empty IM first-seen seed -> visible custom ->
+  stable preview/first LLM turn -> config update -> existing conversation
+  history plus updated stable prompt on the next turn, with canonical YAML
+  persisted after the successful mirror.
+- Browser: an isolated IM/Gateway/Vite journey edited and saved a long Custom
+  Instructions value, expanded the stable system prompt preview on desktop and
+  mobile, found the saved role in the preview, and confirmed the group/memory
+  exclusion help. Console had 0 errors/0 warnings; config PATCH and preview
+  requests returned 200. Evidence is under `evidence/`.
+- Frontend final gate: Agent settings plus chat integration passed 15 files /
+  130 tests; `tsc -b && vite build` passed with only the existing large-chunk
+  advisory. Existing React `act()` and fixture warnings remain unchanged.
+- Full gates: PA plus prompt/Kernel regression passed 867 tests; IM passed 422
+  tests; Ruff, `git diff --check`, and documentation integrity passed.
+- Cleanup: the browser session, Vite, isolated IM/Gateway processes and ports,
+  tmux session, and untracked dependency symlink were removed.
 
 ## Promotion Candidates
 

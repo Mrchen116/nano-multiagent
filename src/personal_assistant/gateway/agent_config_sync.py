@@ -584,6 +584,7 @@ class IMAgentConfigSync:
                 current,
                 agents=tuple(agents),
                 source_path=current.source_path or default_local_config_path(),
+                legacy_prompt_migration_pending=False,
             )
 
         self._config_owner.persist(
@@ -594,8 +595,16 @@ class IMAgentConfigSync:
     def _publish_agent_config(self, agent_config: AgentWorkspaceConfig) -> None:
         """Converge durable and live owners independently, persisting first."""
 
-        local_current = self._local_agent(agent_config.agent_id)
-        if local_current != agent_config:
+        local_config = self._config_snapshot()
+        local_current = next(
+            (
+                agent
+                for agent in local_config.agents
+                if agent.agent_id == agent_config.agent_id
+            ),
+            None,
+        )
+        if local_current != agent_config or local_config.legacy_prompt_migration_pending:
             self._persist_agent_config(agent_config)
         current = self._agent_catalog.get(agent_config.agent_id)
         if current is not None and current.config == agent_config:
