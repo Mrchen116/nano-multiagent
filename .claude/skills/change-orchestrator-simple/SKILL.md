@@ -140,8 +140,10 @@ verifier subagent，不得省略为自我审查。验收 subagent 只按各自 s
 6. 检查 canonical 文档归并和 archive 移动是否使任何门禁失效，并确认 `origin/main` 没有
    越过第 2 步已经判断的 base；需要时返回相应步骤。通过后组装可追溯的 PR：说明需求和实现，
    链接归档后的 unit 文档，列出 spec delta、适用门禁的最新有效状态及验证结果。
-7. 从 `unit/<unit-id>` 向 `main` 创建 PR，等待 required CI checks 全绿。CI 失败时先定位
-   根因并修复，再复验受 delta 影响的闸；更新 PR 中对应的 head 和验证状态。
+7. 从 `unit/<unit-id>` 向 `main` 创建 Ready for review 的非 Draft PR，不得使用 `--draft`，
+   然后等待 required CI checks 全绿。仅当用户明确要求提前查看未完成 diff 时，才可先创建
+   Draft 作为中间产物；交付条件全部满足后必须执行 `gh pr ready`，再等待 required CI。
+   CI 失败时先定位根因并修复，再复验受 delta 影响的闸；更新 PR 中对应的 head 和验证状态。
 8. CI 全绿后清理由本 unit 创建的运行时资源和临时 worktree，输出 PR URL。未获用户明确
    授权时不合并 PR。
 
