@@ -49,7 +49,7 @@ PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q te
 ```
 
 该矩阵覆盖 `user`（Web IM 与外部渠道进入 Kernel 后的用户运行）、`heartbeat`、`cron`、
-`subagent`，并补充覆盖两阶段分类与无人值守失败处理。它只作为非交互来源的补充证据；模型
+`background_task`（Agent 派生运行），并补充覆盖两阶段分类与无人值守失败处理。它只作为非交互来源的补充证据；模型
 选择和 Agent 正常续跑的主结论来自上面的真实 Web IM 真栈旅程。
 
 验收结束后再次执行 `e2e-down.sh`；`.im.pid`、`.gateway.pid` 均不存在，本轮服务已关闭。
@@ -70,7 +70,7 @@ must-match 契约。
 | Scenario | 期望来源 | 验证方式（覆盖它的旅程） | 证据 | 结果 | 备注 |
 |---|---|---|---|---|---|
 | 不同对话模型的 Agent 共用专用审批模型 | `spec.md` 同名 Scenario；`design.md` 决策 7 | 旅程 1：两个 Agent 分别从 Web IM 触发真实工具调用 | 真栈请求锚 `A → C → A`、`B → C → B`；对应 critical-path 用例 `PASSED` | pass | 分类统一为 C，Agent 模型没有被统一替换 |
-| 所有 PA 运行来源遵守统一选择 | `spec.md` 同名 Scenario；`design.md` 架构总览 | 旅程 1 的 Web IM 真栈 + user/heartbeat/cron/subagent origin 矩阵 | Web IM critical path `PASSED`；四类 origin、两阶段分类补充矩阵 7 项全绿 | pass | 外部渠道与 Web IM 均作为用户运行进入同一 Kernel；其他后台来源逐 origin 补充核对 |
+| 所有 PA 运行来源遵守统一选择 | `spec.md` 同名 Scenario；`design.md` 架构总览 | 旅程 1 的 Web IM 真栈 + user/heartbeat/cron/background_task（Agent 派生运行）origin 矩阵 | Web IM critical path `PASSED`；四类 origin、两阶段分类补充矩阵 7 项全绿 | pass | 外部渠道与 Web IM 均作为用户运行进入同一 Kernel；其他后台来源逐 origin 补充核对 |
 | 专用审批模型不改变 Agent 对话模型 | `spec.md` 同名 Scenario；`design.md` 决策 4 | 旅程 1：观察首次请求、分类、工具后续跑的完整记录 | `A → C → A` 与 `B → C → B` | pass | 只有中间分类请求使用 C |
 
 ### Requirement: 未指定专用审批模型时保持现有行为 — 组内结论: pass
