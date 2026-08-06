@@ -495,6 +495,18 @@
       "startError": "Failed to start distillation."
     },
     "messagePane": {
+      "systemNotice": {
+        "direct": {
+          "skills": "· Background self-evolution: skills updated",
+          "memory": "· Background self-evolution: memory updated",
+          "both": "· Background self-evolution: skills and memory updated"
+        },
+        "group": {
+          "skills": "· {{agent}} · Background self-evolution: skills updated",
+          "memory": "· {{agent}} · Background self-evolution: memory updated",
+          "both": "· {{agent}} · Background self-evolution: skills and memory updated"
+        }
+      },
       "emptyTitle": "No messages yet",
       "emptySubtitle": "Send the first message.",
       "placeholderDirect": "Message {{title}}…",

@@ -44,6 +44,7 @@ def test_initialize_schema_is_idempotent(tmp_path: Path) -> None:
 
     assert {"external_source", "external_chat_id"} <= conversation_columns
     assert "sender_display_name" in message_columns
+    assert "system_notice_json" in message_columns
     assert "idx_conversations_external_identity" in conversation_indexes
     assert "idx_conversations_external_identity_unique" in conversation_indexes
     boundary_columns = {
@@ -82,6 +83,30 @@ def test_initialize_schema_replaces_global_caller_idempotency_index(
     }
     assert "idx_messages_caller_idempotency_key" not in indexes
     assert "idx_messages_conversation_caller_idempotency_key" in indexes
+
+
+def test_initialize_schema_migrates_system_notice_sidecar(tmp_path: Path) -> None:
+    """Existing databases gain the nullable structured system-notice column."""
+    connection = connect(tmp_path / "legacy-system-notice.db")
+    initialize_schema(connection)
+    connection.execute("ALTER TABLE messages RENAME TO messages_with_notice")
+    connection.execute(
+        "CREATE TABLE messages AS SELECT "
+        "id, conversation_id, sender_user_id, sender_type, content, attachments_json, "
+        "delivery_status, created_at, tool_calls_json, token_usage_json, thinking_json, "
+        "elapsed_ms, sender_display_name, caller_idempotency_key, permission_request_json, "
+        "awaiting_permission_at, kernel_message_id FROM messages_with_notice"
+    )
+    connection.execute("DROP TABLE messages_with_notice")
+    connection.commit()
+
+    initialize_schema(connection)
+
+    columns = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info(messages)").fetchall()
+    }
+    assert "system_notice_json" in columns
 
 
 def test_initialize_schema_migrates_boundary_profile_provenance_to_nullable(

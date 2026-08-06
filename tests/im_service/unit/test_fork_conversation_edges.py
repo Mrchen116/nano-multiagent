@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from IM.application.web_im_service import WebIMService
+from IM.domain.models import SystemNotice
 from IM.infra.db import connect, initialize_schema
 from IM.infra.repositories.conversations import ConversationRepository
 from IM.infra.repositories.messages import MessageRepository
@@ -315,6 +316,21 @@ async def test_fork_copies_tool_calls_and_thinking(tmp_path: Path) -> None:
     from IM.domain.models import ToolCall
 
     service, conversations, messages, human, agent_user, conv = _setup(tmp_path)
+    system = UserRepository(messages._connection).create_user(
+        username="system", display_name="System"
+    )
+    source_notice = messages.create_message(
+        conversation_id=conv.id,
+        sender_user_id=system.id,
+        sender_type="system",
+        content="legacy fallback",
+        system_notice=SystemNotice(
+            kind="self_evolution_review",
+            source_agent_id="planner",
+            source_agent_display_name="Planner",
+            updated_targets=("memory",),
+        ),
+    )
     messages.create_message(
         conversation_id=conv.id,
         sender_user_id=human.id,
@@ -352,6 +368,9 @@ async def test_fork_copies_tool_calls_and_thinking(tmp_path: Path) -> None:
     )
     copied = messages.list_all_messages(conversation_id=new_conv.id)
     branch_agent = next(m for m in copied if m.content == "answer with a tool")
+    branch_notice = next(m for m in copied if m.content == "legacy fallback")
+    assert branch_notice.id != source_notice.id
+    assert branch_notice.system_notice == source_notice.system_notice
     assert branch_agent.tool_calls is not None
     assert [tc.name for tc in branch_agent.tool_calls] == ["bash"]
     assert branch_agent.tool_calls[0].output == "a\nb"

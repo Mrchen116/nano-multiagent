@@ -23,7 +23,7 @@ def _metadata_text(metadata: Mapping[str, Any], *, key: str) -> str | None:
 def build_session_event_callback(
     *,
     im_connection_manager_factory: Callable[[], "IMConnectionManager | None"],
-) -> Callable[[ReplyContext, Mapping[str, Any]], Awaitable[None]]:
+) -> Callable[[ReplyContext, str, str, Mapping[str, Any]], Awaitable[None]]:
     """Build a session event callback that sends self_evolution_review as IM system messages.
 
     When the background hook publishes ``self_evolution_review`` after a turn, this
@@ -34,10 +34,15 @@ def build_session_event_callback(
     Args:
         im_connection_manager_factory: Returns the live IM connection manager (may be None).
     Returns:
-        Async callable ``(captured_reply_context, event) -> None``.
+        Async callable ``(reply_context, agent_id, kernel_session_id, event) -> None``.
     """
 
-    async def _callback(reply_context: ReplyContext, event: Mapping[str, Any]) -> None:
+    async def _callback(
+        reply_context: ReplyContext,
+        agent_id: str,
+        kernel_session_id: str,
+        event: Mapping[str, Any],
+    ) -> None:
         manager = im_connection_manager_factory()
         if manager is None or not manager.connected:
             return
@@ -57,29 +62,63 @@ def build_session_event_callback(
         # degraded every notification to the generic "self-evolution" subject.
         reviewed_skills: bool = bool(event.get("reviewed_skills", False))
         reviewed_memory: bool = bool(event.get("reviewed_memory", False))
+        updated_targets = [
+            target
+            for target, reviewed in (
+                ("skills", reviewed_skills),
+                ("memory", reviewed_memory),
+            )
+            if reviewed
+        ]
+        if not updated_targets:
+            return
+        raw_sequence = event.get("_id") or event.get("sequence_num")
+        if (
+            not isinstance(raw_sequence, int)
+            or isinstance(raw_sequence, bool)
+            or raw_sequence <= 0
+        ):
+            _log.warning(
+                "session event notification skipped without sequence "
+                "(conversation_id=%s agent_id=%s kernel_session_id=%s)",
+                conversation_id,
+                agent_id,
+                kernel_session_id,
+            )
+            return
         if reviewed_skills and reviewed_memory:
             subject = "skills + memory"
         elif reviewed_skills:
             subject = "skills"
         elif reviewed_memory:
             subject = "memory"
-        else:
-            subject = "self-evolution"
         text = f"· background self-evolution review: {subject} updated"
 
         try:
-            await manager.send_json(
+            await manager.send_json_await_ack(
                 "node.system_message",
                 {
                     "conversation_id": conversation_id,
+                    "idempotency_key": (
+                        f"self-evolution-review:{kernel_session_id}:{raw_sequence}"
+                    ),
                     "text": text,
+                    "system_notice": {
+                        "kind": "self_evolution_review",
+                        "source_agent_id": agent_id,
+                        "updated_targets": updated_targets,
+                    },
                 },
             )
         except Exception as exc:  # noqa: BLE001
             # Background notification delivery must never crash the gateway.
             _log.warning(
-                "session event notification delivery failed (conversation_id=%s): %s",
+                "session event notification delivery failed "
+                "(conversation_id=%s agent_id=%s kernel_session_id=%s sequence=%s): %s",
                 conversation_id,
+                agent_id,
+                kernel_session_id,
+                raw_sequence,
                 exc,
             )
 

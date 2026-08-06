@@ -61,7 +61,7 @@ class BackgroundSubscriptionManager:
         *,
         kernel: "Kernel",
         session_event_callback: Callable[
-            [ReplyContext, Mapping[str, Any]], Awaitable[None]
+            [ReplyContext, str, str, Mapping[str, Any]], Awaitable[None]
         ]
         | None = None,
         bg_reply_sender: Callable[[str, ReplyContext, str], Awaitable[None]]
@@ -171,7 +171,12 @@ class BackgroundSubscriptionManager:
 
         async def _on_session_event(event: Mapping[str, Any]) -> None:
             if session_event_callback is not None and request.reply_context is not None:
-                await session_event_callback(request.reply_context, event)
+                await session_event_callback(
+                    request.reply_context,
+                    request.agent_id,
+                    request.session_id,
+                    event,
+                )
 
         bg_run_output_callback = None
         if request.reply_context is not None and self._bg_reply_sender is not None:

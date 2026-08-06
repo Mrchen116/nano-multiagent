@@ -31,6 +31,12 @@ class _FakeIMManager:
     async def send_json(self, message_type: str, payload: dict[str, Any]) -> None:
         self.json_messages.append((message_type, dict(payload)))
 
+    async def send_json_await_ack(
+        self, message_type: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        self.json_messages.append((message_type, dict(payload)))
+        return {"type": "ack", "payload": {"message_type": message_type}}
+
 
 def test_feishu_visible_control_text_goes_to_external_and_shadow_im() -> None:
     manager = _FakeIMManager()
@@ -302,10 +308,13 @@ def test_system_notification_for_feishu_binding_targets_shadow_im_only() -> None
     asyncio.run(
         callback(
             store.find_by_kernel_session_id("sess-1").reply_context,
+            "agent-a",
+            "sess-1",
             {
                 "event": "self_evolution_review",
                 "reviewed_skills": True,
                 "reviewed_memory": False,
+                "_id": 87,
             },
         )
     )
@@ -315,7 +324,43 @@ def test_system_notification_for_feishu_binding_targets_shadow_im_only() -> None
             "node.system_message",
             {
                 "conversation_id": "conv-shadow",
+                "idempotency_key": "self-evolution-review:sess-1:87",
                 "text": "· background self-evolution review: skills updated",
+                "system_notice": {
+                    "kind": "self_evolution_review",
+                    "source_agent_id": "agent-a",
+                    "updated_targets": ["skills"],
+                },
             },
         )
     ]
+
+
+def test_system_notification_skips_empty_review_and_unsequenced_event() -> None:
+    manager = _FakeIMManager()
+    callback = build_session_event_callback(
+        im_connection_manager_factory=lambda: manager,
+    )
+    reply_context = ReplyContext(channel_name="web_relay", target_chat_id="conv-1")
+
+    asyncio.run(
+        callback(
+            reply_context,
+            "agent-a",
+            "sess-1",
+            {"event": "self_evolution_review", "_id": 88},
+        )
+    )
+    asyncio.run(
+        callback(
+            reply_context,
+            "agent-a",
+            "sess-1",
+            {
+                "event": "self_evolution_review",
+                "reviewed_memory": True,
+            },
+        )
+    )
+
+    assert manager.json_messages == []

@@ -442,7 +442,13 @@ class WebIMService:
             target_message_ids: dict[str, str] = {}
             for message in history[: fork_index + 1]:
                 sender_user_id = (
-                    actor_user_id if message.sender_type == "user" else agent.user_id
+                    actor_user_id
+                    if message.sender_type == "user"
+                    else (
+                        message.sender_user_id
+                        if message.sender_type == "system"
+                        else agent.user_id
+                    )
                 )
                 branch_kernel_id = (
                     id_map.get(message.kernel_message_id)
@@ -461,6 +467,7 @@ class WebIMService:
                     delivery_status=message.delivery_status,  # #8: preserve source state
                     auto_complete_delivery=True,
                     allow_empty=True,
+                    system_notice=message.system_notice,
                 )
                 target_message_ids[message.id] = copied.id
                 # Preserve the thinking segments so the branch回看 keeps the full bubble.

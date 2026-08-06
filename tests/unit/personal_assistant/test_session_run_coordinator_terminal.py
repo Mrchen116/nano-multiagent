@@ -261,7 +261,9 @@ async def test_completed_foreground_run_survives_background_subscription_seal(
 
     background_subscriptions = BackgroundSubscriptionManager(
         kernel=kernel,
-        session_event_callback=lambda _context, _event: asyncio.sleep(0),
+        session_event_callback=lambda _context, _agent, _session, _event: asyncio.sleep(
+            0
+        ),
     )
     coordinator = SessionRunCoordinator(
         kernel=kernel,

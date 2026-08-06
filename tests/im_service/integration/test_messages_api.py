@@ -7,6 +7,8 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from IM.app import create_app
+from IM.domain.models import SystemNotice
+from IM.infra.repositories.messages import MessageRepository
 from IM.infra.repositories.agents import AgentProfileRepository
 from IM.infra.repositories.nodes import NodeRepository
 from IM.infra.repositories.users import UserRepository
@@ -153,6 +155,40 @@ def test_external_find_or_create_and_message_display_name_roundtrip(
         ]
         assert created_payload["sender"]["display_name"] == "你"
         assert created_payload["sender_display_name"] == "你"
+
+
+def test_system_notice_sidecar_is_returned_in_message_history(tmp_path: Path) -> None:
+    """History exposes the structured snapshot while keeping fallback content."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner_id = _create_user(client, "owner")
+        conversation_id = _create_conversation(client, owner_id, "group")
+        users = UserRepository(app.state.connection)
+        system = users.create_user(username="system", display_name="System")
+        MessageRepository(app.state.connection).create_message(
+            conversation_id=conversation_id,
+            sender_user_id=system.id,
+            sender_type="system",
+            content="legacy fallback",
+            system_notice=SystemNotice(
+                kind="self_evolution_review",
+                source_agent_id="product",
+                source_agent_display_name="SpecLab Product",
+                updated_targets=("memory",),
+            ),
+        )
+
+        response = client.get(f"/im/v1/conversations/{conversation_id}/messages")
+
+        assert response.status_code == 200, response.text
+        [message] = _message_items(response.json()["items"])
+        assert message["content"] == "legacy fallback"
+        assert message["system_notice"] == {
+            "kind": "self_evolution_review",
+            "source_agent_id": "product",
+            "source_agent_display_name": "SpecLab Product",
+            "updated_targets": ["memory"],
+        }
 
 
 def test_list_messages_mark_as_read_clears_conversation_unread_counter(
