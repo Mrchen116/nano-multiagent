@@ -64,7 +64,7 @@
 | 派发 frontend reference contract | mobile hides desktop rail | `evidence/mobile-loading.png` | 390x844 loading | match | N/A |
 
 - Rollback: revert R1/R2 实现 commits；R3 只含 durable evidence 与进度记录。
-- Commits: pending (this commit)
+- Commits: `27551b89d`
 - Next: lite `fix.md` 回填、rebase 后门禁与 unit merge。
 - Runtime cleanup: Playwright session 已关闭，Vite `51271` 已停止，`e2e-down.sh` 已清理 IM/Gateway PID 与 secret/config，IM `53119` 和 Vite `51271` 均无 listener。
 - Environment note: 首次把 `e2e-up.sh` 放在短生命周期 shell 中导致进程在 ready 后被宿主回收；日志证明注册/登录原先为 201/200。改由持久 PTY 持有进程后，真实入口全程通过；未修改产品代码或降低验收标准。
