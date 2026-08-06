@@ -163,3 +163,39 @@ None.
 ### SUGGESTION（可以修）
 
 None.
+
+## Corrected Delta Reconciliation
+
+> Validation snapshot: `eaaed4c3ec91c5359044ca6b47d3834e8388063f → ea96d9d5a43a54ed22629066bae7ff523f6e347d`
+>
+> Validated at: `2026-08-06T19:00:29+08:00`
+>
+> Mode: `corrected-delta`（仅核对三份 active delta-spec 与最终可观察实现；不重复 full verification）
+
+| Delta item | Implementation evidence | Test evidence | Outcome |
+|---|---|---|---|
+| `kernel/sdk-boundary` MODIFIED：装配与会话分层、内核产品中立 | `src/agent/sdk/kernel.py:229-313` 仅在产品中立的 `build_kernel` 增加 build-scoped 参数；PA 经 `agent.sdk` 传递，未增加产品分支 | Round 2 的 SDK/边界 contract 纳入 134-test 矩阵 | aligned |
+| 应用零前置调用直接装配 | `src/agent/sdk/kernel.py:295-313,337-345` 仍由 `build_kernel` 负责 registry 初始化 | `tests/contract/test_sdk_kernel_wiring.py:229-237` | aligned |
+| 三类应用对内核同构 | 参数属于通用 SDK surface；PA 仅在 `src/personal_assistant/product.py:381-438` 消费，无 PA 分支进入内核 | `tests/contract/test_agent_sdk_boundary_contract.py:35-63` | aligned |
+| 工具目录共享、会话选子集 | 本 unit 未改变 tools catalog / `create_session(enabled_tools=...)` 路径 | Round 2 的 SDK behavior/架构 contract 纳入 134-test 矩阵 | aligned |
+| Kernel 稳定对外方法集 | 本 unit 只扩展 `build_kernel` 参数，未改变 `Kernel` 方法集 | Round 2 的 SDK surface/behavior contract 纳入 134-test 矩阵 | aligned |
+| 消费者选择已注册分类模型 | `src/agent/sdk/kernel.py:316-334,587-590` 校验 catalog 并写入单个 Kernel 的 hook registry | `tests/contract/test_sdk_kernel_wiring.py:257-331` | aligned |
+| 消费者省略分类模型 | `src/agent/sdk/kernel.py:319-320,587-590` 保留 `None`；运行时据此复用当前 run model | `tests/unit/test_auto_mode_gate_hook.py:254-266`; E2E `tests/e2e/critical_paths/test_tool_approval_model_critical_path.py:267-283` | aligned |
+| 消费者选择未注册分类模型 | `src/agent/sdk/kernel.py:295-334` 在 `_build_kernel_base` 创建 runtime / 后台任务前拒绝装配 | `tests/contract/test_sdk_kernel_wiring.py:239-241` | aligned |
+| `kernel/runs` ADDED：分类可用消费者指定模型且不静默降级 | `src/agent/platform/hooks/tool_approval_model.py:10-35` 保存 build-scoped 选择；`auto_mode_gate.py:436-542,943-953` 仅向两阶段 classifier 传递该选择 | classifier unit、SDK contract 与真栈 E2E 均有永久覆盖 | aligned |
+| 显式模型只用于自动分类 | classifier 两阶段显式用 C；普通 run 仍由 `src/agent/core/agent/runtime.py:1480-1513` 的 run model 路由 | `tests/contract/test_sdk_kernel_wiring.py:257-331` 断言 provider-a/A → provider-c/C → provider-a/A | aligned |
+| 未显式选择时复用当前 run 模型 | gate 传 `model=None`，`runtime.py:1489-1493` 回落当前 run model | `tests/unit/test_auto_mode_gate_hook.py:254-266`; E2E `:267-283` | aligned |
+| 显式模型必须属于 catalog | SDK 通用校验点名无效模型并拒绝 build | `tests/contract/test_sdk_kernel_wiring.py:239-241`; E2E `:320-345` | aligned |
+| 显式模型失败不改用 run / 其他模型 | `auto_mode_gate.py:470-548,992-1011` 将失败/超时/不可解析转既有 ask；`runtime.py:1497-1513` 只向所选 client 发起该次调用 | `tests/unit/test_auto_mode_gate_hook.py:269-287`; E2E `:287-316` 只记录 `approval-fail` classifier | aligned |
+| `gateway/agent-capabilities` ADDED：Gateway 可统一选择分类模型 | `local_store.py:48-64,996-1019,1071-1088` 定义/解析/校验 PA-owned 字段；`composition.py:194-216` 启动时一次性传入 Kernel | PA config/composition unit + 真栈 E2E | aligned |
+| 不同 Agent / PA 运行来源共用 C，正常运行保留 A/B | Kernel-scoped registry 选择由唯一 classifier 读取且不按 origin 分支 | `tests/unit/test_auto_mode_gate_hook.py:209-227` 覆盖 `user/heartbeat/cron/background_task`; E2E `:222-261` 断言 A→C→A / B→C→B | aligned |
+| Gateway 省略字段时各 Agent 复用自己的模型 | `local_store.py:1012-1019` 产生 `None`，Gateway 正常装配 | E2E `tests/e2e/critical_paths/test_tool_approval_model_critical_path.py:267-283` 断言 A→A→A / B→B→B | aligned |
+| Gateway 配置未注册模型时拒绝启动 | `local_store.py:1071-1088` 在 Gateway 组合前拒绝配置并点名 `llm.tool_approval_model` | config unit `tests/unit/personal_assistant/config/test_parse_llm.py:76-87`; E2E `:320-345` | aligned |
+| 专用分类模型失败后不改用 Agent 模型 | 两阶段失败进入既有 attended 审批或 unattended fallback，没有备用模型调用 | `tests/unit/test_auto_mode_gate_hook.py:269-287`; E2E `:287-316` | aligned |
+| 修改选择后重启才生效 | `composition.py:194-216` 每个 Gateway 进程读取一次配置；registry state 无热更新入口 | E2E `tests/e2e/critical_paths/test_tool_approval_model_critical_path.py:222-261` 断言改盘仍 C、重启后 D | aligned |
+
+### Uncovered Observable Behavior
+
+None. 最终 diff 中其余变更为测试 fixture、运维说明、兼容既有直接调用的默认参数及验收报告，不新增未由三份 delta 描述的产品或 SDK 可观察行为。`7f0d4be1e3d2adf992dd80413a4bed587cbf5ff8` 之后仅 verification/acceptance 文档变化，因此 Round 2 在相同实现树上的永久测试证据仍适用于当前 HEAD。
+
+Outcome: `aligned`
