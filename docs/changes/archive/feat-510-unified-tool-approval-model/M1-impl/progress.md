@@ -63,6 +63,15 @@ Command: `PYTHONPATH=src .../.venv/bin/python -m pytest -xvs tests/e2e/critical_
   corrected to the production origin `background_task（Agent 派生运行）` in `ea96d9d5a`.
 - Corrected-delta verification: `aligned`, no issues; report commit `7840195ef`.
 
+### Delivery closure
+
+- Canonical specs were merged and the complete unit was archived in `a65c1ba59`.
+- Local CI matched `.github/workflows/ci.yml`: docs-check, ruff check/format, 2959 non-E2E
+  Python tests, critical-level npm audit, and 574 frontend tests all passed.
+- PR [#248](https://github.com/Mrchen116/nano-multiagent/pull/248) was opened against `main`.
+- GitHub Actions run `31096022607` passed both required jobs: Frontend checks in 1m16s and
+  Python checks in 2m2s. This record-only commit does not alter implementation or contract behavior.
+
 ## Design deviations
 
 None.

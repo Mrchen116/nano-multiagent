@@ -28,7 +28,7 @@
 - [x] Update operations documentation and record all evidence in `progress.md`.
 - [x] Complete independent product, implementation, code-review, and corrected-delta gates.
 - [x] Merge the final delta into canonical specs and archive the unit.
-- [ ] Complete local CI, PR creation, and required remote CI.
+- [x] Complete local CI, PR creation, and required remote CI.
 
 ## Exit criteria
 
