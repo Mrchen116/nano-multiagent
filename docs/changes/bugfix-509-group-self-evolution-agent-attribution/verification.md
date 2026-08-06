@@ -119,3 +119,64 @@ Production code rejects missing profile, wrong node, blank current profile displ
 None.
 
 0 critical issue(s), 3 warning(s) found. Fix before PR.
+
+# Round 2
+
+## Verification Report: bugfix-509
+
+> Validation snapshot: `ac47fca08148ccc245eca956d253096b9394f8dd → ebaec0d71b9c5322b6042a5724b8015777ceb5e9`
+
+### Summary
+
+- **Mode:** targeted-closure
+- **Delta range:** `ac47fca08148ccc245eca956d253096b9394f8dd..ebaec0d71b9c5322b6042a5724b8015777ceb5e9`
+- **Focus issues:** W1 disconnected/failed delivery diagnostics; W2 localization matrix and P2 evidence; W3 trust-rejection matrix
+- **requires_full_verification:** false
+
+| Dimension | Result |
+|---|---|
+| Completeness | 3/3 focus issues closed |
+| Correctness | 4/4 targeted checks passed, including the related direct-fork millisecond-order regression |
+| Coherence | Followed |
+
+**Finding counts:** 0 critical, 0 warnings, 0 suggestions.
+**Verdict:** PASS.
+
+## Targeted Closure
+
+| Focus issue | Implementation evidence | Durable verification | Outcome |
+|---|---|---|---|
+| W1 — disconnected/failed IM delivery was not fully diagnosable | `src/personal_assistant/gateway/runtime_delivery/background.py:51-148` now identifies a valid notice before checking connectivity. A missing manager logs conversation/Agent/session/sequence; `connected=False` logs and still calls `send_json_await_ack`, whose existing queue retains business frames until reconnect (`src/personal_assistant/ws/im_connection.py:566-613`, `1398-1415`); rejected and missing/blank-message-id ACKs are caught and logged without escaping. The callback-local delivery incarnation keeps the key stable across same-process replay without colliding after restart. | `tests/unit/personal_assistant/test_external_visible_delivery.py:373-504` covers same-incarnation identity, disconnected queue handoff, manager absence, negative ACK, and two malformed ACK shapes. Focused tests passed. | **closed** |
+| W2 — localization/prototype cross-product lacked durable coverage | Formatter and component matrices enumerate all 12 `group/direct × zh/en × skills/memory/both` cells (`src/IM/frontend/src/features/chat/system-notice.test.ts:15-40`, `components/system-notice-message.test.tsx:73-106`). The component participant is currently `Renamed Product` while the stored snapshot is `SpecLab Product`, and every case rejects the current participant name. Malformed live/persisted sidecars fall back to stored text rather than throwing. | Both focused frontend files passed 28 tests and the production build passed. The independent real-stack P2 matrix and durable artifact index are recorded in `regression.md:46-67` and `evidence/README.md:49-60`; the committed group/direct, zh/en, three-target, two-Agent, reload, and long-name screenshots were inspected. | **closed** |
+| W3 — trust rejection lacked the complete durable matrix | The existing resolver still enforces profile, authenticated node, nonblank profile name, synthetic user, conversation, and participant membership. | `tests/im_service/unit/test_gateway_conversation_persistence.py:256-304` covers all six resolver failures. `tests/unit/personal_assistant/test_background_session_events.py:334-432` repeats all six through the handler and asserts stable `invalid_system_message`, zero message rows, zero `message.created` rows, and zero notifier emissions. Focused tests passed. | **closed** |
+
+## Related Direct-Fork Order Check
+
+The reviewer-discovered browser-order failure was checked only as the requested related closure, not as a new full review. `src/IM/application/web_im_service.py:444-485` assigns source-ordered timestamps one millisecond apart and ending at copy time, while continuing to copy `system_notice` exactly. `tests/im_service/unit/test_fork_conversation.py:179-251` creates mixed user/Agent/system history, forces the old repository clock collision, and proves both source content order and distinct sorted browser-millisecond timestamps. The design now explicitly records this timestamp contract and the Gateway delivery incarnation in `design.md:84-98`, `141-152`, and `251-255`; implementation and design are synchronized.
+
+This implementation-level closure does not replace the product reviewer's requested round-2 browser rerun of the formerly failing fork journey.
+
+## Validation
+
+- 63 focused Python tests passed across W1, W3, message persistence, and direct-fork ordering; only two pre-existing dependency deprecation warnings were emitted.
+- 28 focused Vitest cases passed (12 formatter cells, 12 component cells, and fallback checks), followed by a successful production frontend build; only the existing chunk-size warning was emitted.
+- Ruff passed on all Python files changed in the fix range.
+- `git diff --check` passed for the fix range.
+- `scripts/docs-check` passed: 237 maintained Markdown sources and 66 required routes.
+- All operations were read-only except this report.
+
+## Issues
+
+### Critical
+
+None.
+
+### Warnings
+
+None.
+
+### Suggestions
+
+None.
+
+All checks passed. Ready for PR.
