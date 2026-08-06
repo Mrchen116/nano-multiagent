@@ -72,3 +72,21 @@
 ## Promotion Candidates
 
 None.
+
+## Reviewer fix — route activation 与长错误滚动
+
+- Status: DONE
+- Fast lane: 两个 CONFIRMED finding 都落在既有 R1 async state shell owner，使用一组行为红测和一个可回滚 commit 闭环；按 fast-lane 省略新的 §3 tasks template，不重复拆 milestone。
+- Findings:
+  - F1: Agent A 已加载后切换到 B，旧 `draft` 未在 route activation 时清理；若 B 首次请求失败，error 条件被旧 draft 屏蔽并落回 loading。
+  - F2: desktop state panel 的 `overflow-hidden` 会裁掉长错误详情及 Retry，用户无法滚动到操作入口。
+- Decision: `agentId` 变化时清理上一 Agent 的 draft 与页面级交互状态，让当前 Agent 的响应独占激活；state panel 使用 `min-h-0 overflow-y-auto` 承担内容滚动，不改变 desktop rail 或 mobile 单栏结构。
+- Evidence:
+  - Red: `agent-detail-loading-shell.test.tsx` 修前 3 failed / 2 passed；desktop/mobile 的 A-loaded → B-error 都停在 loading，长错误 panel 缺 `min-h-0 overflow-y-auto`。
+  - Green: 同文件 5/5 passed；相关套件 `agent-detail-loading-shell.test.tsx`、`agents-rail-desktop.test.tsx`、`agent-detail-page.test.tsx`、`agent-create.test.tsx` 共 4 files / 32 tests passed。既有 detail 测试仍输出 baseline `act(...)` warnings，无失败。
+  - Build: `npm run build` passed，TypeScript + Vite 共 502 modules。
+  - Browser: 真实 `/settings/agents/e2e` 先以 API 200 加载，再从 desktop rail 切到注入 503 的 `/settings/agents/e2e-peer`；B rail 保持 active，B 错误与 Retry 出现且 A 表单消失。`1440x420` 时 panel `scrollHeight=638 > clientHeight=372`，滚到底后 Retry 的 bounding box `top=299.5`、`bottom=343.09375`，完整位于 420px viewport 内。`390x844` 为单列错误页且不含 desktop rail。注入阶段 console 仅有预期 503。
+  - Visual: `evidence/review-agent-switch-error.png`、`evidence/review-long-error-scroll.png`、`evidence/review-mobile-error.png`。
+  - Runtime cleanup: Playwright session、Vite、IM、Gateway 均停止；`e2e-down.sh` 清理隔离运行时，Vite `58067` 无 listener。
+- Rollback: revert 本 reviewer-fix commit；不影响先前 R1/R2/R3 commits。
+- Commits: pending（本 reviewer-fix commit）
