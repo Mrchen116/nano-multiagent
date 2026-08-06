@@ -56,6 +56,35 @@ def test_load_local_config_parses_llm_payload(tmp_path: Path) -> None:
     assert anthropic.base_url == "http://127.0.0.1:4000"
     k26 = next(m for m in anthropic.models if m.name == "kimiCoding:K2.6")
     assert k26.extra_request_body == {"thinking": {"type": "adaptive"}}
+    assert config.llm.tool_approval_model is None
+
+
+def test_load_local_config_parses_tool_approval_model(tmp_path: Path) -> None:
+    from personal_assistant.config.local_store import load_local_config
+
+    llm_yaml = _LLM_YAML.replace(
+        "  default_model: kimiCoding:K2.6\n",
+        "  default_model: kimiCoding:K2.6\n"
+        "  tool_approval_model: codex_oauth:gpt-5.5\n",
+    )
+    config = load_local_config(_make_config(tmp_path, llm_yaml))
+
+    assert config.llm.tool_approval_model == "codex_oauth:gpt-5.5"
+
+
+@pytest.mark.parametrize("value", ["'   '", "missing:model"])
+def test_load_local_config_rejects_invalid_tool_approval_model(
+    tmp_path: Path, value: str
+) -> None:
+    from personal_assistant.config.local_store import load_local_config
+
+    llm_yaml = _LLM_YAML.replace(
+        "  default_model: kimiCoding:K2.6\n",
+        f"  default_model: kimiCoding:K2.6\n  tool_approval_model: {value}\n",
+    )
+
+    with pytest.raises(ValueError, match="llm.tool_approval_model"):
+        load_local_config(_make_config(tmp_path, llm_yaml))
 
 
 def test_load_local_config_missing_llm_raises(tmp_path: Path) -> None:
@@ -102,7 +131,12 @@ def test_save_and_reload_preserves_llm(tmp_path: Path) -> None:
         save_local_config,
     )
 
-    cfg = _make_config(tmp_path, _LLM_YAML)
+    llm_yaml = _LLM_YAML.replace(
+        "  default_model: kimiCoding:K2.6\n",
+        "  default_model: kimiCoding:K2.6\n"
+        "  tool_approval_model: codex_oauth:gpt-5.5\n",
+    )
+    cfg = _make_config(tmp_path, llm_yaml)
     original = load_local_config(cfg)
     saved_path = tmp_path / "saved.yaml"
     save_local_config(original, saved_path)
@@ -116,6 +150,7 @@ def test_save_and_reload_preserves_llm(tmp_path: Path) -> None:
     orig_k26 = next(m for m in orig_anthropic.models if m.name == "kimiCoding:K2.6")
     rest_k26 = next(m for m in rest_anthropic.models if m.name == "kimiCoding:K2.6")
     assert rest_k26.extra_request_body == orig_k26.extra_request_body
+    assert restored.llm.tool_approval_model == "codex_oauth:gpt-5.5"
 
 
 _LLM_YAML_CONTEXT_WINDOW = """
