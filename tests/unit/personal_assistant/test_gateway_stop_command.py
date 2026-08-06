@@ -261,10 +261,11 @@ def test_new_command_replaces_the_current_binding_without_erasing_the_chat(
     assert channel.sent[-1].text == "已开始新会话。"
 
 
-def test_new_requires_an_explicit_group_target_but_stop_remains_the_exception(
+def test_bare_new_in_group_starts_a_fresh_session_for_every_agent(
     tmp_path: Path,
 ) -> None:
-    agents = _mention_agents(tmp_path)
+    """Each relay in a bare group `/new` replaces its own agent session."""
+    agents = _two_mention_agents(tmp_path)
     channel = _FakeChannel("web_relay")
     kernel = _FakeKernel()
     pipeline = build_inbound_pipeline(
@@ -275,25 +276,178 @@ def test_new_requires_an_explicit_group_target_but_stop_remains_the_exception(
         session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
-    bare = InboundMessage(
-        channel_name="web_relay",
-        text="/new",
-        external_user_id="user-1",
-        external_chat_id="group-1",
-        is_group=True,
+    results = []
+    for agent_id in ("agent-a", "agent-b"):
+        results.append(
+            asyncio.run(
+                pipeline.handle_inbound(
+                    InboundMessage(
+                        channel_name="web_relay",
+                        text="/new",
+                        external_user_id="user-1",
+                        external_chat_id="group-1",
+                        is_group=True,
+                        agent_id=agent_id,
+                        metadata={"mentioned_agent_ids": []},
+                    )
+                )
+            )
+        )
+
+    assert [result.reply_text for result in results if result is not None] == [
+        "已开始新会话。",
+        "已开始新会话。",
+    ]
+    assert [result.kernel_session_id for result in results if result is not None] == [
+        "sess-1",
+        "sess-2",
+    ]
+    assert [call["workspace_root"] for call in kernel.create_session_calls] == [
+        str(agents[0].workspace_root),
+        str(agents[1].workspace_root),
+    ]
+
+
+def test_reply_targeted_group_new_resets_only_the_replied_agent(
+    tmp_path: Path,
+) -> None:
+    """A reply-targeted `/new` remains distinct from the bare group-wide command."""
+
+    agents = _two_mention_agents(tmp_path)
+    kernel = _FakeKernel()
+    pipeline = build_inbound_pipeline(
+        kernel=kernel,
+        agents=agents,
+        outbound_router=OutboundRouter(ChannelRegistry((_FakeChannel("web_relay"),))),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
     )
-    mentioned = replace(
-        bare,
-        text="@agent-a /new",
-        metadata={"mentioned_agent_ids": ["agent-a"]},
+    results = [
+        asyncio.run(
+            pipeline.handle_inbound(
+                InboundMessage(
+                    channel_name="web_relay",
+                    text="/new",
+                    external_user_id="user-1",
+                    external_chat_id="group-1",
+                    is_group=True,
+                    agent_id=agent_id,
+                    metadata={"reply_to_agent_id": "agent-a"},
+                )
+            )
+        )
+        for agent_id in ("agent-a", "agent-b")
+    ]
+
+    assert results[0] is not None
+    assert results[1] is None
+    assert [call["workspace_root"] for call in kernel.create_session_calls] == [
+        str(agents[0].workspace_root)
+    ]
+
+
+def test_group_always_policy_does_not_authorize_bare_compact(tmp_path: Path) -> None:
+    """Normal ALWAYS delivery does not turn `/compact` into a group-wide control."""
+
+    agents = (replace(_mention_agents(tmp_path)[0], group_reply_policy="ALWAYS"),)
+    kernel = _FakeKernel()
+    pipeline = build_inbound_pipeline(
+        kernel=kernel,
+        agents=agents,
+        outbound_router=OutboundRouter(ChannelRegistry((_FakeChannel("web_relay"),))),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
     )
 
-    assert asyncio.run(pipeline.handle_inbound(bare)) is None
-    result = asyncio.run(pipeline.handle_inbound(mentioned))
+    result = asyncio.run(
+        pipeline.handle_inbound(
+            InboundMessage(
+                channel_name="web_relay",
+                text="/compact",
+                external_user_id="user-1",
+                external_chat_id="group-1",
+                is_group=True,
+                agent_id="agent-a",
+                metadata={"mentioned_agent_ids": []},
+            )
+        )
+    )
 
-    assert result is not None
-    assert result.reply_text == "已开始新会话。"
-    assert len(kernel.create_session_calls) == 1
+    assert result is None
+    assert kernel.compact_calls == []
+
+
+def test_external_group_bare_new_remains_mention_gated(tmp_path: Path) -> None:
+    """The Web IM group-wide exception does not broaden external-channel groups."""
+
+    agents = _mention_agents(tmp_path)
+    kernel = _FakeKernel()
+    pipeline = build_inbound_pipeline(
+        kernel=kernel,
+        agents=agents,
+        outbound_router=OutboundRouter(
+            ChannelRegistry((_FakeChannel("feishu:agent-a"),))
+        ),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+
+    result = asyncio.run(
+        pipeline.handle_inbound(
+            InboundMessage(
+                channel_name="feishu:agent-a",
+                text="/new",
+                external_user_id="user-1",
+                external_chat_id="group-1",
+                is_group=True,
+                agent_id="agent-a",
+                metadata={"mentioned_agent_ids": [], "external_source": "feishu"},
+            )
+        )
+    )
+
+    assert result is None
+    assert kernel.create_session_calls == []
+
+
+def test_structured_group_mention_targets_one_new_session(tmp_path: Path) -> None:
+    """Web IM's mention wire tag retains targeted `/new` command semantics."""
+
+    agents = _two_mention_agents(tmp_path)
+    kernel = _FakeKernel()
+    pipeline = build_inbound_pipeline(
+        kernel=kernel,
+        agents=agents,
+        outbound_router=OutboundRouter(ChannelRegistry((_FakeChannel("web_relay"),))),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+    results = [
+        asyncio.run(
+            pipeline.handle_inbound(
+                InboundMessage(
+                    channel_name="web_relay",
+                    text='<mention type="agent" target_id="agent-a"/> /new',
+                    external_user_id="user-1",
+                    external_chat_id="group-1",
+                    is_group=True,
+                    agent_id=agent_id,
+                    metadata={"mentioned_agent_ids": ["agent-a"]},
+                )
+            )
+        )
+        for agent_id in ("agent-a", "agent-b")
+    ]
+
+    assert results[0] is not None
+    assert results[1] is None
+    assert [call["workspace_root"] for call in kernel.create_session_calls] == [
+        str(agents[0].workspace_root)
+    ]
 
 
 def test_implicit_external_shadow_target_cannot_authorize_group_controls(

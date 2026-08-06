@@ -558,7 +558,8 @@ class WebIMService:
 
         Args:
             message: Persisted message to relay.
-            target_node_id: Gateway node that should receive every relay.
+            target_node_id: Gateway node for a direct relay; group relays select
+                their participant Agent's configured node.
             idempotency_key_base: Base retry key; per-agent key is ``{base}:{agent_id}``.
             sender_user_id: Human sender identifier copied into relay payloads.
 

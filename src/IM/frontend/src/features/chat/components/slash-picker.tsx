@@ -23,10 +23,12 @@ export interface SlashPickerProps {
 /**
  * feat-430: slash command / skill picker shown above the composer when the user
  * types `/` at the start of the input. Mirrors the mention-picker interaction but
- * inserts plain text (`/stop ` or `/skill:name `) instead of wire XML (决策 1).
+ * inserts plain text (`/new `, `/compact `, `/stop `, or `/skill:name `) instead
+ * of wire XML (决策 1).
  *
  * Interaction (design.md slash picker checklist + prototype):
- * - `/stop` command + skills, prefix-filtered together; `/skill:` mode filters skills only.
+ * - Built-in control commands + skills, prefix-filtered together; `/skill:` mode
+ *   filters skills only.
  * - ↑/↓ cycle highlight (always scrolled into view), Enter/Tab confirm, Esc closes.
  * - hover only toggles the active class (never rebuilds the list — that breaks clicks);
  *   selection uses mousedown+preventDefault so the composer keeps focus.
@@ -48,10 +50,16 @@ export function SlashPicker({
     if (skillMode) return matchedSkills;
     const allCommands: SlashCommandCandidate[] = [
       { kind: "command", name: "stop", description: t("chat.slash.stopDesc") },
+      {
+        kind: "command",
+        name: "new",
+        description: t(isGroup ? "chat.slash.newGroupDesc" : "chat.slash.newDesc"),
+      },
+      { kind: "command", name: "compact", description: t("chat.slash.compactDesc") },
     ];
     const commands = allCommands.filter((c) => c.name.toLowerCase().startsWith(q));
     return [...commands, ...matchedSkills];
-  }, [skills, query, skillMode, t]);
+  }, [skills, query, skillMode, isGroup, t]);
 
   const [highlighted, setHighlighted] = useState(0);
   const baseId = useId();

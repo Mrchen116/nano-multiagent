@@ -2574,7 +2574,7 @@ describe("MessagePane", () => {
       { kind: "skill" as const, name: "doc", description: "docs", location: "/b", fromAgents: ["Planner"] },
     ];
 
-    it("opens the slash picker with /stop and skills when typing '/' at the start", async () => {
+    it("opens the slash picker with control commands and skills when typing '/' at the start", async () => {
       const user = userEvent.setup();
       render(
         <MessagePane
@@ -2587,6 +2587,8 @@ describe("MessagePane", () => {
       );
       await user.type(screen.getByRole("textbox"), "/");
       expect(await screen.findByText("/stop")).toBeInTheDocument();
+      expect(screen.getByText("/new")).toBeInTheDocument();
+      expect(screen.getByText("/compact")).toBeInTheDocument();
       expect(screen.getByText("pr-review")).toBeInTheDocument();
     });
 
