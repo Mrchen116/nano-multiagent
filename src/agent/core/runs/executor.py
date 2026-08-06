@@ -74,7 +74,9 @@ class ConversationTarget(Protocol):
     async def submit_turn(self, request: TurnRequest) -> TurnResult:
         """Run one fully-owned conversation turn."""
 
-    async def compact(self) -> Any:
+    async def compact(
+        self, *, focus: str | None = None, idempotency_key: str | None = None
+    ) -> Any:
         """Run one manual compaction transaction."""
 
     async def fork(self, *, up_to: str | None = None) -> Any:
@@ -209,11 +211,20 @@ class KernelExecutor:
             cleanup_ack=target.cleanup_ack,
         )
 
-    async def compact(self, session: ConversationTarget) -> Any:
+    async def compact(
+        self,
+        session: ConversationTarget,
+        *,
+        focus: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
         """Run manual compaction as a tracked lifecycle target on the owner loop."""
 
         return await asyncio.wrap_future(
-            self._admit_lifecycle("compact", session.compact)
+            self._admit_lifecycle(
+                "compact",
+                lambda: session.compact(focus=focus, idempotency_key=idempotency_key),
+            )
         )
 
     async def fork(

@@ -21,7 +21,6 @@ from .critical_paths.conftest import _parse_ports_env
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _E2E_UP = _REPO_ROOT / "scripts" / "e2e-up.sh"
 _E2E_DOWN = _REPO_ROOT / "scripts" / "e2e-down.sh"
-_MAIN_CONFIG = Path.home() / ".nano-assistant" / "config.yaml"
 
 
 def _pid_is_alive(pid: int) -> bool:
@@ -45,11 +44,15 @@ def test_worktree_stack_isolates_runtime_and_releases_owned_resources(
     tmp_path: Path,
 ) -> None:
     """Start the public E2E stack, create an Agent, then prove complete teardown."""
-    if not _MAIN_CONFIG.exists():
-        pytest.skip(f"main config not found: {_MAIN_CONFIG}")
-
     stack_dir = tmp_path / "stack"
     stack_dir.mkdir()
+    stale_shadow_files = [
+        stack_dir / "external_shadow_sagas.sqlite3",
+        stack_dir / "external_shadow_sagas.sqlite3-wal",
+        stack_dir / "external_shadow_sagas.sqlite3-shm",
+    ]
+    for path in stale_shadow_files:
+        path.write_text("stale-external-shadow-state", encoding="utf-8")
     env = {
         **os.environ,
         "PATH": f"{Path(sys.executable).parent}:{os.environ.get('PATH', '')}",
@@ -62,8 +65,6 @@ def test_worktree_stack_isolates_runtime_and_releases_owned_resources(
                 str(_E2E_UP),
                 "--wt",
                 str(stack_dir),
-                "--main-config",
-                str(_MAIN_CONFIG),
             ],
             cwd=_REPO_ROOT,
             env=env,
@@ -77,6 +78,11 @@ def test_worktree_stack_isolates_runtime_and_releases_owned_resources(
         )
 
         ports = _parse_ports_env(stack_dir / ".e2e-ports.env")
+        assert ports["E2E_PROFILE"] == "default"
+        assert all(
+            not path.exists() or path.read_bytes() != b"stale-external-shadow-state"
+            for path in stale_shadow_files
+        )
         im_port = int(ports["IM_PORT"])
         im_pid = int((stack_dir / ".im.pid").read_text().strip())
         gateway_pid = int((stack_dir / ".gateway.pid").read_text().strip())
@@ -91,6 +97,10 @@ def test_worktree_stack_isolates_runtime_and_releases_owned_resources(
         workspace_root = (stack_dir / ".gateway-workspace").resolve()
         assert Path(config["node"]["workspace_base"]).resolve() == workspace_root
         assert config["node"]["node_id"] == ports["NODE_ID"]
+        assert {agent["agent_id"] for agent in config["agents"]} == {
+            "e2e",
+            "e2e-peer",
+        }
         assert all(
             Path(agent["workspace_root"]).resolve().is_relative_to(workspace_root)
             for agent in config.get("agents", [])

@@ -7,6 +7,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from personal_assistant.gateway.runtime_protocol import (
+    ExternalConversationIdentity,
     RuntimeProtocolFacts,
     ShadowConversationRef,
     attach_runtime_protocol,
@@ -16,7 +17,9 @@ import pytest
 
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.inbound_models import (
+    CompactSessionRequest,
     InboundRunRequest,
+    NewSessionRequest,
     StopRunRequest,
 )
 from personal_assistant.gateway.image_attachments import ImageResolution
@@ -42,6 +45,311 @@ def _request(message, catalog) -> InboundRunRequest:
         session_key=build_session_key(message, agent_id=agent.agent_id),
         sender_label="Alice",
     )
+
+
+def _new_request(
+    message, catalog, *, operation_id: str | None = None
+) -> NewSessionRequest:
+    agent = catalog.require("agent-a")
+    return NewSessionRequest(
+        message=message,
+        agent=agent,
+        session_key=build_session_key(message, agent_id=agent.agent_id),
+        operation_id=operation_id,
+    )
+
+
+def _compact_request(
+    message, catalog, *, operation_id: str | None = None
+) -> CompactSessionRequest:
+    agent = catalog.require("agent-a")
+    return CompactSessionRequest(
+        message=message,
+        agent=agent,
+        session_key=build_session_key(message, agent_id=agent.agent_id),
+        operation_id=operation_id,
+    )
+
+
+@pytest.mark.asyncio
+async def test_new_suppresses_a_running_old_final_before_confirming_fresh_session(
+    tmp_path: Path,
+) -> None:
+    store = SessionBindingStore()
+    kernel, catalog, binder, router, group_store = build_dependencies(
+        tmp_path, session_store=store
+    )
+    coordinator = SessionRunCoordinator(
+        kernel=kernel,
+        session_binder=binder,
+        outbound_router=router,
+        group_context_store=group_store,
+    )
+    message = inbound(chat_id="chat-a", text="old work")
+    running = asyncio.create_task(coordinator.dispatch(_request(message, catalog)))
+    await kernel.wait_stream("run-1")
+
+    reset = await coordinator.new_session(
+        _new_request(
+            inbound(chat_id="chat-a", text="/new"),
+            catalog,
+            operation_id="relay:new-1",
+        )
+    )
+    kernel.finish("run-1", text="late old output")
+    old = await running
+
+    assert reset.reply_text == "已停止当前操作，并已开始新会话。"
+    assert reset.kernel_session_id == "sess-2"
+    assert kernel.interrupt_calls == ["sess-1"]
+    assert old.outbound is None
+    assert old.reply_text == "late old output"
+    assert store.get("web_relay:chat-a:agent-a").kernel_session_id == "sess-2"
+
+
+@pytest.mark.asyncio
+async def test_new_drops_a_queued_old_request_instead_of_submitting_it_to_new_context(
+    tmp_path: Path,
+) -> None:
+    kernel, catalog, binder, router, group_store = build_dependencies(tmp_path)
+    coordinator = SessionRunCoordinator(
+        kernel=kernel,
+        session_binder=binder,
+        outbound_router=router,
+        group_context_store=group_store,
+    )
+    first = asyncio.create_task(
+        coordinator.dispatch(_request(inbound(chat_id="chat-a", text="first"), catalog))
+    )
+    await kernel.wait_stream("run-1")
+    queued = asyncio.create_task(
+        coordinator.dispatch(
+            _request(inbound(chat_id="chat-a", text="queued"), catalog)
+        )
+    )
+    await kernel.wait_try_steer_count(1)
+
+    await coordinator.new_session(
+        _new_request(inbound(chat_id="chat-a", text="/new"), catalog)
+    )
+    kernel.finish("run-1", text="old")
+
+    queued_result = await queued
+    await first
+    assert [
+        call["parts"][0]["text"] for call in kernel.submit_calls if not call["steer"]
+    ] == ["first"]
+    assert queued_result.outbound is None
+    assert queued_result.run_id == ""
+
+
+@pytest.mark.asyncio
+async def test_compact_queues_behind_active_work_and_becomes_a_fifo_barrier(
+    tmp_path: Path,
+) -> None:
+    kernel, catalog, binder, router, group_store = build_dependencies(tmp_path)
+    coordinator = SessionRunCoordinator(
+        kernel=kernel,
+        session_binder=binder,
+        outbound_router=router,
+        group_context_store=group_store,
+    )
+    first_message = inbound(chat_id="chat-a", text="first")
+    first = asyncio.create_task(coordinator.dispatch(_request(first_message, catalog)))
+    await kernel.wait_stream("run-1")
+
+    compact = asyncio.create_task(
+        coordinator.compact(
+            _compact_request(
+                inbound(chat_id="chat-a", text="/compact"),
+                catalog,
+                operation_id="relay:compact-1",
+            )
+        )
+    )
+    await asyncio.sleep(0)
+    assert not compact.done()
+    assert kernel.compact_calls == []
+
+    later = asyncio.create_task(
+        coordinator.dispatch(_request(inbound(chat_id="chat-a", text="later"), catalog))
+    )
+    await asyncio.sleep(0)
+    assert kernel.try_steer_calls == []
+
+    kernel.finish("run-1")
+    await first
+    compact_result = await compact
+    assert compact_result.reply_text == "已压缩当前会话。"
+    assert kernel.compact_calls == [
+        {
+            "session_id": "sess-1",
+            "workspace_root": str(catalog.require("agent-a").config.workspace_root),
+            "focus": None,
+            "idempotency_key": "relay:compact-1",
+        }
+    ]
+
+    await kernel.wait_stream("run-2")
+    kernel.finish("run-2")
+    await later
+
+
+@pytest.mark.asyncio
+async def test_new_supersedes_a_queued_compact_and_persists_its_replay_outcome(
+    tmp_path: Path,
+) -> None:
+    kernel, catalog, binder, router, group_store = build_dependencies(tmp_path)
+    coordinator = SessionRunCoordinator(
+        kernel=kernel,
+        session_binder=binder,
+        outbound_router=router,
+        group_context_store=group_store,
+    )
+    first = asyncio.create_task(
+        coordinator.dispatch(_request(inbound(chat_id="chat-a", text="first"), catalog))
+    )
+    await kernel.wait_stream("run-1")
+    compact_request = _compact_request(
+        inbound(chat_id="chat-a", text="/compact"),
+        catalog,
+        operation_id="relay:compact-before-new",
+    )
+    compact = asyncio.create_task(coordinator.compact(compact_request))
+    await asyncio.sleep(0)
+
+    await coordinator.new_session(
+        _new_request(
+            inbound(chat_id="chat-a", text="/new"),
+            catalog,
+            operation_id="relay:new-after-compact",
+        )
+    )
+    kernel.finish("run-1")
+    await first
+    compact_result = await compact
+
+    assert compact_result.reply_text == "已开始新会话，未执行之前的压缩请求。"
+    assert kernel.compact_calls == []
+    outcome = binder.completed_control(
+        session_key=compact_request.session_key,
+        operation_id="relay:compact-before-new",
+        kind="compact",
+    )
+    assert outcome is not None
+    assert outcome.status == "superseded"
+
+    replay = await coordinator.compact(compact_request)
+
+    assert replay.reply_text == "已开始新会话，未执行之前的压缩请求。"
+    assert kernel.compact_calls == []
+
+
+@pytest.mark.asyncio
+async def test_failed_new_restores_old_delivery_and_confirms_current_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    kernel, catalog, binder, router, group_store = build_dependencies(tmp_path)
+    delivery_events: list[str] = []
+
+    async def quiesce(run_id: str) -> None:
+        delivery_events.append(f"quiesce:{run_id}")
+
+    def restore(run_id: str) -> None:
+        delivery_events.append(f"restore:{run_id}")
+
+    coordinator = SessionRunCoordinator(
+        kernel=kernel,
+        session_binder=binder,
+        outbound_router=router,
+        group_context_store=group_store,
+        quiesce_run_delivery=quiesce,
+        restore_run_delivery=restore,
+    )
+    running = asyncio.create_task(
+        coordinator.dispatch(_request(inbound(chat_id="chat-a", text="old"), catalog))
+    )
+    await kernel.wait_stream("run-1")
+
+    def fail_publish(*_args, **_kwargs):  # noqa: ANN002, ANN003
+        raise RuntimeError("simulated binding failure")
+
+    monkeypatch.setattr(binder, "publish_reset", fail_publish)
+    result = await coordinator.new_session(
+        _new_request(
+            inbound(chat_id="chat-a", text="/new"),
+            catalog,
+            operation_id="relay:new-failure",
+        )
+    )
+
+    assert result.reply_text == "未能开始新会话，当前会话保持不变。"
+    outcome = binder.completed_control(
+        session_key="web_relay:chat-a:agent-a",
+        operation_id="relay:new-failure",
+        kind="new",
+    )
+    assert outcome is not None
+    assert outcome.status == "failed"
+    assert delivery_events == ["quiesce:run-1", "restore:run-1"]
+    assert kernel.interrupt_calls == []
+    kernel.finish("run-1", text="old output still visible")
+    assert (await running).reply_text == "old output still visible"
+
+
+@pytest.mark.asyncio
+async def test_failed_external_new_persists_recoverable_confirmation_intent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed Feishu reset is replay-safe even before it has an IM binding."""
+    store = PersistentSessionBindingStore(db_path=tmp_path / "bindings.sqlite3")
+    kernel, catalog, binder, router, group_store = build_dependencies(
+        tmp_path, session_store=store
+    )
+    delivery_drains: list[str] = []
+
+    async def drain() -> None:
+        delivery_drains.append("drain")
+
+    coordinator = SessionRunCoordinator(
+        kernel=kernel,
+        session_binder=binder,
+        outbound_router=router,
+        group_context_store=group_store,
+        drain_external_control_deliveries=drain,
+    )
+
+    async def fail_prepare(*_args, **_kwargs):  # noqa: ANN002, ANN003
+        raise RuntimeError("fresh session unavailable")
+
+    monkeypatch.setattr(binder, "prepare_reset", fail_prepare)
+    external_message = attach_runtime_protocol(
+        inbound(chat_id="oc-external", text="/new"),
+        RuntimeProtocolFacts(
+            external_identity=ExternalConversationIdentity(
+                external_source="feishu",
+                external_chat_id="oc-external",
+                agent_id="agent-a",
+                trigger_source="feishu",
+            ),
+            shadow_saga_id="saga-failed-new",
+        ),
+    )
+
+    result = await coordinator.new_session(
+        _new_request(
+            external_message,
+            catalog,
+            operation_id="feishu:new-failure",
+        )
+    )
+
+    assert result.reply_text == "未能开始新会话，当前会话保持不变。"
+    assert delivery_drains == ["drain"]
+    pending = store.pending_external_controls()
+    assert len(pending) == 1
+    assert pending[0].outcome.status == "failed"
+    assert pending[0].shadow_saga_id == "saga-failed-new"
 
 
 @pytest.mark.asyncio

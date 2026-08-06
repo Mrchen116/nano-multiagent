@@ -10,7 +10,8 @@
 # docs/changes/archive/bugfix-380-llm-upstream-error-visible/retro.md §2).
 #
 # Usage:
-#   ./scripts/e2e-up.sh                                  # use defaults
+#   ./scripts/e2e-up.sh                                  # repository default profile
+#   ./scripts/e2e-up.sh --feishu                         # dedicated test Bot profile
 #   ./scripts/e2e-up.sh --main-config /path/to/cfg.yaml  # alt source config
 #   ./scripts/e2e-up.sh --wt /custom/worktree/path       # alt target worktree
 #
@@ -24,23 +25,111 @@
 
 set -euo pipefail
 
+# Resolve the repository from this script, not the caller's worktree: pytest can
+# pass an arbitrary temporary directory as --wt.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd 2>/dev/null)"
+SRC_DIR="$REPO_ROOT/src"
+DEFAULT_E2E_CONFIG="$REPO_ROOT/config/e2e/gateway.yaml"
+DEFAULT_FEISHU_ENV="${XDG_CONFIG_HOME:-$HOME/.config}/nano-multiagent/feishu-e2e.env"
+DEFAULT_FEISHU_LOCK_ROOT="${XDG_RUNTIME_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/nano-multiagent}"
+
 # ─── arg parsing ─────────────────────────────────────────────────────────────
 
 WT_ROOT="${PWD}"
-MAIN_CFG="${HOME}/.nano-assistant/config.yaml"
+MAIN_CFG="$DEFAULT_E2E_CONFIG"
+E2E_PROFILE="default"
+FEISHU_ENV="$DEFAULT_FEISHU_ENV"
+MAIN_CONFIG_EXPLICIT=0
+FEISHU_LOCK_DIR=""
+FEISHU_LOCK_HELD=0
+
+release_feishu_listener_lock() {
+  [[ $FEISHU_LOCK_HELD -eq 1 ]] || return 0
+  local owner_file="$FEISHU_LOCK_DIR/owner"
+  if [[ -f "$owner_file" ]] && grep -Fqx "worktree=$WT_ROOT" "$owner_file"; then
+    rm -f "$owner_file"
+    rmdir "$FEISHU_LOCK_DIR" 2>/dev/null || true
+  fi
+  FEISHU_LOCK_HELD=0
+}
+
+claim_feishu_listener_lock() {
+  FEISHU_LOCK_DIR="$(
+    WT_CFG_PY="$WT_CFG" FEISHU_LOCK_ROOT="$DEFAULT_FEISHU_LOCK_ROOT" python3 - <<'PY'
+import hashlib
+import os
+from pathlib import Path
+
+import yaml
+
+with open(os.environ["WT_CFG_PY"], encoding="utf-8") as stream:
+    config = yaml.safe_load(stream)
+for channel in config.get("channels", []):
+    if channel.get("name") == "feishu:e2e":
+        bot_open_id = channel["settings"]["botOpenId"]
+        digest = hashlib.sha256(bot_open_id.encode("utf-8")).hexdigest()[:16]
+        print(Path(os.environ["FEISHU_LOCK_ROOT"]) / f"feishu-e2e-{digest}.lock")
+        break
+else:
+    raise RuntimeError("Feishu E2E channel was not rendered")
+PY
+  )"
+  mkdir -p "$(dirname "$FEISHU_LOCK_DIR")"
+  if ! mkdir "$FEISHU_LOCK_DIR" 2>/dev/null; then
+    local owner_file="$FEISHU_LOCK_DIR/owner"
+    local owner_pid=""
+    local owner_worktree=""
+    if [[ -f "$owner_file" ]]; then
+      owner_pid="$(sed -n 's/^pid=//p' "$owner_file" | head -1)"
+      owner_worktree="$(sed -n 's/^worktree=//p' "$owner_file" | head -1)"
+    fi
+    if [[ "$owner_pid" =~ ^[0-9]+$ ]] && kill -0 "$owner_pid" 2>/dev/null; then
+      echo "dedicated Feishu E2E listener is already owned by ${owner_worktree:-another worktree}" >&2
+      echo "stop that stack with scripts/e2e-down.sh before starting another --feishu stack" >&2
+      return 1
+    fi
+    rm -f "$owner_file"
+    if ! rmdir "$FEISHU_LOCK_DIR" 2>/dev/null || ! mkdir "$FEISHU_LOCK_DIR"; then
+      echo "could not clear stale Feishu E2E listener lock: $FEISHU_LOCK_DIR" >&2
+      return 1
+    fi
+  fi
+  printf 'worktree=%s\npid=%s\n' "$WT_ROOT" "$$" > "$FEISHU_LOCK_DIR/owner"
+  FEISHU_LOCK_HELD=1
+  trap release_feishu_listener_lock EXIT
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --wt) WT_ROOT="$(cd "$2" && pwd)"; shift 2 ;;
-    --main-config) MAIN_CFG="$2"; shift 2 ;;
+    --main-config) MAIN_CFG="$2"; MAIN_CONFIG_EXPLICIT=1; shift 2 ;;
+    --profile) E2E_PROFILE="$2"; shift 2 ;;
+    --feishu) E2E_PROFILE="feishu"; shift ;;
+    --feishu-env) FEISHU_ENV="$2"; shift 2 ;;
     -h|--help) sed -n '1,/^set -e/p' "$0" | sed -n '2,/^$/p'; exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
 
+case "$E2E_PROFILE" in
+  default)
+    ;;
+  feishu)
+    if [[ $MAIN_CONFIG_EXPLICIT -eq 1 ]]; then
+      echo "--feishu cannot be combined with --main-config" >&2
+      exit 2
+    fi
+    ;;
+  *)
+    echo "unknown E2E profile: $E2E_PROFILE (expected default or feishu)" >&2
+    exit 2
+    ;;
+esac
+
 if [[ ! -f "$MAIN_CFG" ]]; then
-  echo "main config not found: $MAIN_CFG" >&2
-  echo "create ~/.nano-assistant/config.yaml first (see docs/operations/gateway.md) or pass --main-config" >&2
+  echo "E2E config not found: $MAIN_CFG" >&2
+  echo "restore the repository E2E config or pass --main-config" >&2
   exit 1
 fi
 
@@ -56,15 +145,8 @@ done
 
 # ─── port allocation ─────────────────────────────────────────────────────────
 
-# REPO_ROOT must resolve to the checkout that holds src/ and scripts/, NOT to
-# $WT_ROOT — feat-421 runs the stack with --wt pointing at a pytest tmp dir that
-# is not a git checkout and has no src/. Derive it from this script's own path
-# ($0 lives in <repo>/scripts/) so PYTHONPATH and free-ports.sh resolve no matter
-# where $WT_ROOT points. Falls back to git/dirname only if $0 derivation fails.
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd 2>/dev/null)"
-REPO_ROOT="${REPO_ROOT:-$(git -C "$WT_ROOT" rev-parse --show-toplevel 2>/dev/null || dirname "$WT_ROOT")}"
-SRC_DIR="$REPO_ROOT/src"
+# REPO_ROOT was resolved from this script before arguments were parsed. It must
+# not follow $WT_ROOT because test fixtures commonly use a non-git temp path.
 FREE_PORTS_SH="$REPO_ROOT/scripts/free-ports.sh"
 [[ -x "$FREE_PORTS_SH" ]] || FREE_PORTS_SH="$SCRIPT_DIR/free-ports.sh"
 # refactor-387 M3: kernel runs in-process; only 1 port needed (IM).
@@ -77,6 +159,13 @@ echo "$JWT_SECRET" > "$WT_ROOT/.e2e-jwt-secret"
 
 WT_CFG="$WT_ROOT/.gateway-config.yaml"
 cp "$MAIN_CFG" "$WT_CFG"
+if [[ "$E2E_PROFILE" == "feishu" ]]; then
+  PYTHONPATH="$SRC_DIR" python3 "$SCRIPT_DIR/e2e_feishu_config.py" \
+    --config "$WT_CFG" \
+    --env "$FEISHU_ENV"
+  claim_feishu_listener_lock
+fi
+chmod 600 "$WT_CFG"
 
 WT_NAME="$(basename "$WT_ROOT")"
 NODE_ID="wt-${WT_NAME}-$$"
@@ -132,16 +221,17 @@ PY
 # feat-393 fix-r1: remove stale IM DB before each e2e run so heartbeat conversations
 # created by a previous run (with different owner_id) do not pollute the new instance.
 # The DB path is cwd-relative (data/im_service.sqlite3) so we remove it from $WT_ROOT.
-rm -f "$WT_ROOT/data/im_service.sqlite3"
+rm -f "$WT_ROOT/data/im_service.sqlite3" "$WT_ROOT/data/im_service.sqlite3-wal" "$WT_ROOT/data/im_service.sqlite3-shm"
 # feat-393 fix-r2: remove stale heartbeat-state.json so a previous run's last_due_at
 # does not trigger catch-up backlog on restart (that was the root cause of the 4x burst).
 rm -f "$WT_ROOT/heartbeat-state.json"
 # e2e-up.sh starts a fresh IM DB every run; Gateway's local state must be fresh too.
 # Otherwise old external chat bindings and buffered group context can route a new
 # validation run through stale kernel sessions from a previous e2e attempt.
-rm -f "$WT_ROOT/session_bindings.sqlite3"
-rm -f "$WT_ROOT/group_context_buffer.sqlite3"
-rm -f "$WT_ROOT/relay_dedup.sqlite3"
+rm -f "$WT_ROOT/session_bindings.sqlite3" "$WT_ROOT/session_bindings.sqlite3-wal" "$WT_ROOT/session_bindings.sqlite3-shm"
+rm -f "$WT_ROOT/group_context_buffer.sqlite3" "$WT_ROOT/group_context_buffer.sqlite3-wal" "$WT_ROOT/group_context_buffer.sqlite3-shm"
+rm -f "$WT_ROOT/relay_dedup.sqlite3" "$WT_ROOT/relay_dedup.sqlite3-wal" "$WT_ROOT/relay_dedup.sqlite3-shm"
+rm -f "$WT_ROOT/external_shadow_sagas.sqlite3" "$WT_ROOT/external_shadow_sagas.sqlite3-wal" "$WT_ROOT/external_shadow_sagas.sqlite3-shm"
 # The copied config gets a fresh node id on every run, so its credential key and
 # encrypted manifest must be fresh as one isolation pair as well.
 rm -f "$WT_ROOT/channel-credentials-v1.pem"
@@ -204,7 +294,7 @@ fi
 
 if ! python3 -c "import yaml; cfg=yaml.safe_load(open('$WT_CFG')); exit(0 if 'llm' in cfg else 1)" 2>/dev/null; then
   echo "ERROR: '$WT_CFG' is missing the 'llm:' section." >&2
-  echo "Add the llm: block to ~/.nano-assistant/config.yaml first (see docs/operations/gateway.md)." >&2
+  echo "Add the llm: block to the selected repository E2E config first." >&2
   exit 1
 fi
 
@@ -244,8 +334,18 @@ if [[ $GW_READY -eq 0 ]]; then
   exit 1
 fi
 
+if [[ $FEISHU_LOCK_HELD -eq 1 ]]; then
+  printf 'worktree=%s\npid=%s\n' "$WT_ROOT" "$(cat "$WT_ROOT/.gateway.pid")" > "$FEISHU_LOCK_DIR/owner"
+  FEISHU_LOCK_HELD=0
+  trap - EXIT
+fi
+
 # ─── persist port map for follow-up curl / tests ─────────────────────────────
 
+FEISHU_LOCK_ENV_LINE=""
+if [[ "$E2E_PROFILE" == "feishu" ]]; then
+  FEISHU_LOCK_ENV_LINE="export E2E_FEISHU_LISTENER_LOCK=$FEISHU_LOCK_DIR"
+fi
 cat > "$WT_ROOT/.e2e-ports.env" <<EOF
 # Generated by scripts/e2e-up.sh on $(date -u +%Y-%m-%dT%H:%M:%SZ)
 # refactor-387 M3: kernel is in-process; no API_PORT needed.
@@ -255,11 +355,14 @@ export IM_URL=http://127.0.0.1:$IM_PORT
 export IM_JWT_SECRET=$JWT_SECRET
 export NODE_ID=$NODE_ID
 export VITE_IM_PROXY_TARGET=http://127.0.0.1:$IM_PORT
+export E2E_PROFILE=$E2E_PROFILE
+$FEISHU_LOCK_ENV_LINE
 EOF
 
 echo "e2e stack ready in $WT_ROOT"
 echo "  IM   $IM_PORT  ($WT_ROOT/.im.log)"
 echo "  GW   pid=$(cat "$WT_ROOT/.gateway.pid")  ($WT_ROOT/.gateway.log)"
+echo "  profile $E2E_PROFILE"
 echo "source $WT_ROOT/.e2e-ports.env to expose ports"
-echo "hint: e2e-up copies only --main-config and never imports local .env"
-echo "      Optional Feishu test Bot: see docs/development/worktree-runtime.md before external-channel acceptance"
+echo "hint: the default profile uses config/e2e/gateway.yaml, never ~/.nano-assistant"
+echo "      Feishu requires --feishu and the private profile documented in worktree-runtime.md"

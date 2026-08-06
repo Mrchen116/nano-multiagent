@@ -13,6 +13,7 @@ import httpx
 from personal_assistant.channels.base import (
     ExternalInboundEventIdentity,
     InboundMessage,
+    ReplyContext,
 )
 from personal_assistant.gateway.im_http_transport import (
     build_im_http_headers,
@@ -261,6 +262,34 @@ class IMShadowConversationSync:
             output_kind=output_kind,
             kernel_message_id=kernel_message_id,
             content=content,
+        )
+
+    def reply_context_for_saga(self, saga_id: str) -> ReplyContext:
+        """Return the original external reply target captured by one durable saga."""
+
+        saga_store = self._saga_store
+        if saga_store is None:
+            raise RuntimeError(
+                "external control delivery requires durable saga storage"
+            )
+        saga = saga_store.require(saga_id)
+        payload = json.loads(saga.reply_context_json)
+        if not isinstance(payload, dict):
+            raise ValueError("external shadow saga has invalid reply context")
+        channel_name = payload.get("channel_name")
+        target_chat_id = payload.get("target_chat_id")
+        if not isinstance(channel_name, str) or not isinstance(target_chat_id, str):
+            raise ValueError("external shadow saga reply context is incomplete")
+        metadata = payload.get("metadata")
+        return ReplyContext(
+            channel_name=channel_name,
+            target_chat_id=target_chat_id,
+            thread_id=(
+                payload.get("thread_id")
+                if isinstance(payload.get("thread_id"), str)
+                else None
+            ),
+            metadata=metadata if isinstance(metadata, dict) else {},
         )
 
     def record_bubble_event(

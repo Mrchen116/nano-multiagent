@@ -181,3 +181,28 @@ def test_compaction_commit_rejects_a_stale_external_epoch(tmp_path: Path) -> Non
     assert not any(
         entry["type"] == "compact_boundary" for entry in _raw_entries(files, ref)
     )
+
+
+def test_manual_compaction_key_recovers_the_original_persisted_result(
+    tmp_path: Path,
+) -> None:
+    transcript, _files, _writer, _ref = _build_transcript(tmp_path)
+
+    assert transcript.append_compaction(
+        summary=Message(message_id="msg_summary", role="user", content="summary"),
+        reason="manual",
+        manual_idempotency_key="compact:1",
+        result_data={
+            "first_kept_event_id": "kept-1",
+            "dropped_event_ids": ["drop-1"],
+            "kept_event_ids": ["kept-1", "kept-2"],
+        },
+    )
+
+    assert transcript.find_manual_compaction("compact:1") == {
+        "entry_id": "msg_summary",
+        "summary": "summary",
+        "first_kept_event_id": "kept-1",
+        "dropped_event_ids": ("drop-1",),
+        "kept_event_ids": ("kept-1", "kept-2"),
+    }

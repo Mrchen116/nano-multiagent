@@ -26,6 +26,12 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+feishu_lock_dir=""
+ports_env="$WT_ROOT/.e2e-ports.env"
+if [[ -f "$ports_env" ]]; then
+  feishu_lock_dir="$(sed -n 's/^export E2E_FEISHU_LISTENER_LOCK=//p' "$ports_env" | head -1)"
+fi
+
 # Step 1: Signal Gateway and wait for graceful exit before touching IM.
 # Gateway's shutdown drains in-flight runs before closing IM transport;
 # sending SIGTERM to both at once would close IM before runs settle.
@@ -72,6 +78,13 @@ if [[ ${#stopped_pids[@]} -gt 0 ]]; then
   for pid in "${stopped_pids[@]}"; do
     kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null || true
   done
+fi
+
+# `--feishu` owns one machine-scoped listener lock per dedicated test Bot. Only
+# the worktree named by the lock may release it after its Gateway has stopped.
+if [[ -n "$feishu_lock_dir" && -f "$feishu_lock_dir/owner" ]] && grep -Fqx "worktree=$WT_ROOT" "$feishu_lock_dir/owner"; then
+  rm -f "$feishu_lock_dir/owner"
+  rmdir "$feishu_lock_dir" 2>/dev/null || true
 fi
 
 # Remove generated state. .gateway-workspace/ is preserved for post-mortem.

@@ -34,7 +34,9 @@ from personal_assistant.gateway.agent_catalog import LiveAgentSnapshot
 from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.gateway.image_attachments import ImageAttachmentResolver
 from personal_assistant.gateway.inbound_models import (
+    CompactSessionRequest,
     InboundRunRequest,
+    NewSessionRequest,
     PipelineResult,
     RelayLifecycleCallback,
     RelayLifecycleUpdate,
@@ -58,6 +60,7 @@ from personal_assistant.gateway.session_binder import (
 )
 from personal_assistant.gateway.session_keys import (
     BoundaryIntent,
+    ControlOperation,
     PendingBoundaryIntent,
     SessionBinding,
     build_reply_context,
@@ -91,6 +94,18 @@ class _ActiveRunHandle:
     run_id: str
     binding: SessionBinding
     agent: LiveAgentSnapshot
+
+
+@dataclass(slots=True)
+class _CompactReservation:
+    """Hold one FIFO slot while inbound metadata is prepared."""
+
+    session_key: str
+    agent_id: str
+    generation: int
+    request: asyncio.Future[CompactSessionRequest | None]
+    result: asyncio.Future[PipelineResult] | None = None
+    released: bool = False
 
 
 class SessionRunCoordinator:
@@ -142,6 +157,11 @@ class SessionRunCoordinator:
         | None = None,
         node_id: str | None = None,
         boundary_outbox: BoundaryOutboxDispatcher | None = None,
+        suppress_run_delivery: Callable[[str], None] | None = None,
+        quiesce_run_delivery: Callable[[str], Awaitable[None]] | None = None,
+        restore_run_delivery: Callable[[str], None] | None = None,
+        commit_run_delivery: Callable[[str], Awaitable[None]] | None = None,
+        drain_external_control_deliveries: Callable[[], Awaitable[None]] | None = None,
         run_idle_timeout_seconds: float = _DEFAULT_RUN_IDLE_TIMEOUT_SECONDS,
         max_transition_locks: int = _MAX_SESSION_TRANSITION_LOCKS,
     ) -> None:
@@ -163,11 +183,19 @@ class SessionRunCoordinator:
         self._bg_reply_sender = bg_reply_sender
         self._node_id = node_id
         self._boundary_outbox = boundary_outbox
+        self._suppress_run_delivery = suppress_run_delivery
+        self._quiesce_run_delivery = quiesce_run_delivery
+        self._restore_run_delivery = restore_run_delivery
+        self._commit_run_delivery = commit_run_delivery
+        self._drain_external_control_deliveries = drain_external_control_deliveries
         self._run_idle_timeout_seconds = run_idle_timeout_seconds
         self._active_runs: dict[str, _ActiveRunHandle] = {}
         self._steered_requests: dict[str, list[InboundRunRequest]] = {}
         self._consumed_steer_counts: dict[str, int] = {}
+        self._queued_compactions: dict[str, int] = {}
         self._user_interrupted_runs: set[str] = set()
+        self._reset_suppressed_runs: set[str] = set()
+        self._session_generations: dict[str, int] = {}
         self._transition_locks: OrderedDict[str, asyncio.Lock] = OrderedDict()
         self._transition_lock_users: dict[str, int] = {}
         self._max_transition_locks = max(1, max_transition_locks)
@@ -189,8 +217,14 @@ class SessionRunCoordinator:
         injected_result: PipelineResult | None = None
         image_failure: tuple[str, SessionBinding] | None = None
         async with self._transition(request.session_key):
+            request = replace(
+                request,
+                generation=self._session_generations.get(request.session_key, 0),
+            )
             active = self._active_runs.get(request.session_key)
-            if active is not None:
+            if active is not None and not self._queued_compactions.get(
+                request.session_key, 0
+            ):
                 binding = active.binding
                 parts, failure_kind = await self._build_message_parts(request)
                 if failure_kind is not None:
@@ -239,6 +273,408 @@ class SessionRunCoordinator:
             return injected_result
         return await self._submit_queued(request, prebuilt_parts=fallback_parts)
 
+    async def new_session(self, request: NewSessionRequest) -> PipelineResult:
+        """Replace one chat binding with a fresh session under its transition lock."""
+
+        reply_text = "已开始新会话。"
+        active_run_id: str | None = None
+        quiesced_run_id: str | None = None
+        async with self._transition(request.session_key):
+            if request.operation_id is not None:
+                completed = self._session_binder.completed_control(
+                    session_key=request.session_key,
+                    operation_id=request.operation_id,
+                    kind="new",
+                )
+                if completed is not None:
+                    if completed.status != "completed":
+                        return await self._new_session_failure(
+                            request, reply_text=completed.reply_text, persist=False
+                        )
+                    binding = self._session_binder.lookup(request.session_key)
+                    if binding is None:
+                        raise RuntimeError("completed reset lost its session binding")
+                    outbound = await self._deliver_control_reply(
+                        text=completed.reply_text,
+                        binding=binding,
+                        agent_id=request.agent.agent_id,
+                        ack_tag="new-ack",
+                        source_message=request.message,
+                        operation_id=request.operation_id,
+                    )
+                    return PipelineResult(
+                        agent_id=request.agent.agent_id,
+                        session_key=request.session_key,
+                        kernel_session_id=completed.kernel_session_id,
+                        run_id="",
+                        reply_text=completed.reply_text,
+                        outbound=outbound,
+                    )
+            agent = self._latest_agent(request.agent)
+            runtime = self._project_runtime(agent=agent, message=request.message)
+            dispatch_url, fallback_port = self._dispatch_endpoint_metadata()
+            try:
+                candidate = await self._session_binder.prepare_reset(
+                    SessionBindingRequest(
+                        session_key=request.session_key,
+                        reply_context=build_reply_context(request.message),
+                        message=request.message,
+                        gateway_internal_port=fallback_port,
+                        gateway_dispatch_url=dispatch_url,
+                        runtime=runtime.runtime,
+                        profile_version=runtime.profile_version,
+                    ),
+                    agent,
+                )
+            except Exception:  # noqa: BLE001
+                logging.getLogger(__name__).exception(
+                    "fresh session preparation failed"
+                )
+                return await self._new_session_failure(request)
+            active = self._active_runs.get(request.session_key)
+            active_run_id = active.run_id if active is not None else None
+            if active_run_id is not None:
+                reply_text = "已停止当前操作，并已开始新会话。"
+                if self._quiesce_run_delivery is not None:
+                    await self._quiesce_run_delivery(active_run_id)
+                    quiesced_run_id = active_run_id
+            try:
+                binding = self._session_binder.publish_reset(
+                    candidate,
+                    operation_id=request.operation_id,
+                    superseded_run_id=active_run_id,
+                    reply_text=reply_text,
+                    external_saga_id=_external_shadow_saga_id(request.message),
+                )
+            except Exception:
+                if (
+                    quiesced_run_id is not None
+                    and self._restore_run_delivery is not None
+                ):
+                    self._restore_run_delivery(quiesced_run_id)
+                logging.getLogger(__name__).exception(
+                    "fresh session publication failed"
+                )
+                return await self._new_session_failure(request)
+            self._session_generations[request.session_key] = (
+                self._session_generations.get(request.session_key, 0) + 1
+            )
+            if active is not None:
+                self._reset_suppressed_runs.add(active.run_id)
+                self._active_runs.pop(request.session_key, None)
+                if self._commit_run_delivery is not None:
+                    await self._commit_run_delivery(active.run_id)
+                elif self._suppress_run_delivery is not None:
+                    self._suppress_run_delivery(active.run_id)
+                self._kernel.interrupt(active.binding.kernel_session_id)
+        outbound = await self._deliver_control_reply(
+            text=reply_text,
+            binding=binding,
+            agent_id=request.agent.agent_id,
+            ack_tag="new-ack",
+            source_message=request.message,
+            operation_id=request.operation_id,
+        )
+        return PipelineResult(
+            agent_id=request.agent.agent_id,
+            session_key=request.session_key,
+            kernel_session_id=binding.kernel_session_id,
+            run_id="",
+            reply_text=reply_text,
+            outbound=outbound,
+        )
+
+    async def _new_session_failure(
+        self,
+        request: NewSessionRequest,
+        *,
+        reply_text: str = "未能开始新会话，当前会话保持不变。",
+        persist: bool = True,
+    ) -> PipelineResult:
+        """Report a failed reset without claiming that the current binding changed."""
+
+        if persist and request.operation_id is not None:
+            reply_text = self._session_binder.complete_control(
+                ControlOperation(
+                    session_key=request.session_key,
+                    operation_id=request.operation_id,
+                    kind="new",
+                    status="failed",
+                    kernel_session_id="",
+                    reply_text=reply_text,
+                ),
+                external_saga_id=_external_shadow_saga_id(request.message),
+            ).reply_text
+        binding = self._session_binder.lookup(request.session_key)
+        if binding is None:
+            if (
+                request.operation_id is not None
+                and _external_shadow_saga_id(request.message) is not None
+                and self._drain_external_control_deliveries is not None
+            ):
+                try:
+                    await self._drain_external_control_deliveries()
+                except Exception:  # noqa: BLE001
+                    logging.getLogger(__name__).exception(
+                        "external failed-control delivery deferred for recovery"
+                    )
+                outbound = None
+            else:
+                outbound = self._outbound_router.send_text(
+                    text=reply_text, reply_context=build_reply_context(request.message)
+                )
+            return PipelineResult(
+                agent_id=request.agent.agent_id,
+                session_key=request.session_key,
+                kernel_session_id="",
+                run_id="",
+                reply_text=reply_text,
+                outbound=outbound,
+            )
+        outbound = await self._deliver_control_reply(
+            text=reply_text,
+            binding=binding,
+            agent_id=request.agent.agent_id,
+            ack_tag="new-failed",
+            source_message=request.message,
+            operation_id=request.operation_id,
+        )
+        return PipelineResult(
+            agent_id=request.agent.agent_id,
+            session_key=request.session_key,
+            kernel_session_id=binding.kernel_session_id,
+            run_id="",
+            reply_text=reply_text,
+            outbound=outbound,
+        )
+
+    def reserve_compact(
+        self, *, session_key: str, agent_id: str
+    ) -> _CompactReservation:
+        """Reserve a compaction FIFO slot before external shadow preparation yields."""
+
+        reservation = _CompactReservation(
+            session_key=session_key,
+            agent_id=agent_id,
+            generation=self._session_generations.get(session_key, 0),
+            request=asyncio.get_running_loop().create_future(),
+        )
+        self._queued_compactions[session_key] = (
+            self._queued_compactions.get(session_key, 0) + 1
+        )
+
+        async def _on_cancel(_error: GatewayShutdownBeforeSubmit) -> None:
+            self._release_compact_reservation(reservation)
+
+        reservation.result = self._run_queue.enqueue(
+            session_key,
+            lambda: self._run_reserved_compact(reservation),
+            on_cancel=_on_cancel,
+        )
+        return reservation
+
+    async def commit_compact(
+        self,
+        reservation: _CompactReservation,
+        request: CompactSessionRequest,
+    ) -> PipelineResult:
+        """Fill a reserved compact slot and await its FIFO outcome."""
+
+        if request.session_key != reservation.session_key:
+            raise ValueError("compact reservation session does not match request")
+        if request.agent.agent_id != reservation.agent_id:
+            raise ValueError("compact reservation agent does not match request")
+        if not reservation.request.done():
+            reservation.request.set_result(
+                replace(request, generation=reservation.generation)
+            )
+        assert reservation.result is not None
+        return await reservation.result
+
+    def abandon_compact(self, reservation: _CompactReservation) -> None:
+        """Release a reserved compact slot when inbound preparation fails."""
+
+        if not reservation.request.done():
+            reservation.request.set_result(None)
+
+    async def compact(self, request: CompactSessionRequest) -> PipelineResult:
+        """Queue compaction behind current session work without making it a turn."""
+
+        reservation = self.reserve_compact(
+            session_key=request.session_key,
+            agent_id=request.agent.agent_id,
+        )
+        try:
+            return await self.commit_compact(reservation, request)
+        except BaseException:
+            self.abandon_compact(reservation)
+            raise
+
+    async def _run_reserved_compact(
+        self, reservation: _CompactReservation
+    ) -> PipelineResult:
+        """Wait for inbound preparation, then execute the reserved FIFO item."""
+
+        try:
+            request = await reservation.request
+            if request is None:
+                return PipelineResult(
+                    agent_id=reservation.agent_id,
+                    session_key=reservation.session_key,
+                    kernel_session_id="",
+                    run_id="",
+                    reply_text="",
+                    outbound=None,
+                )
+            return await self._run_queued_compact(request)
+        finally:
+            self._release_compact_reservation(reservation)
+
+    def _release_compact_reservation(self, reservation: _CompactReservation) -> None:
+        """Remove one barrier once its reserved queue item has settled."""
+
+        if reservation.released:
+            return
+        reservation.released = True
+        remaining = self._queued_compactions.get(reservation.session_key, 0) - 1
+        if remaining > 0:
+            self._queued_compactions[reservation.session_key] = remaining
+        else:
+            self._queued_compactions.pop(reservation.session_key, None)
+
+    async def _run_queued_compact(
+        self, request: CompactSessionRequest
+    ) -> PipelineResult:
+        """Run one FIFO compaction after preceding session work has settled."""
+
+        binding: SessionBinding | None
+        reply_text: str
+        async with self._transition(request.session_key):
+            binding = self._session_binder.lookup(request.session_key)
+            completed = (
+                self._session_binder.completed_control(
+                    session_key=request.session_key,
+                    operation_id=request.operation_id,
+                    kind="compact",
+                )
+                if request.operation_id is not None
+                else None
+            )
+            if completed is not None:
+                reply_text = completed.reply_text
+            elif request.generation != self._session_generations.get(
+                request.session_key, 0
+            ):
+                reply_text = "已开始新会话，未执行之前的压缩请求。"
+                if request.operation_id is not None:
+                    reply_text = self._session_binder.complete_control(
+                        ControlOperation(
+                            session_key=request.session_key,
+                            operation_id=request.operation_id,
+                            kind="compact",
+                            status="superseded",
+                            kernel_session_id="",
+                            reply_text=reply_text,
+                        ),
+                        external_saga_id=_external_shadow_saga_id(request.message),
+                    ).reply_text
+            elif binding is None:
+                reply_text = "当前历史不足，无需压缩。"
+            else:
+                agent = self._latest_agent(request.agent)
+                try:
+                    result = await self._kernel.compact(
+                        binding.kernel_session_id,
+                        workspace_root=agent.config.workspace_root,
+                        focus=request.focus,
+                        idempotency_key=request.operation_id,
+                    )
+                except Exception:  # noqa: BLE001
+                    logging.getLogger(__name__).exception("manual compaction failed")
+                    reply_text = "压缩未完成，当前会话保持不变。"
+                else:
+                    if result is None:
+                        reply_text = "当前历史不足，无需压缩。"
+                    elif request.focus:
+                        reply_text = "已按关注点压缩当前会话。"
+                    else:
+                        reply_text = "已压缩当前会话。"
+            if (
+                request.operation_id is not None
+                and completed is None
+                and (
+                    request.generation
+                    == self._session_generations.get(request.session_key, 0)
+                )
+            ):
+                reply_text = self._session_binder.complete_control(
+                    ControlOperation(
+                        session_key=request.session_key,
+                        operation_id=request.operation_id,
+                        kind="compact",
+                        status="completed",
+                        kernel_session_id=(
+                            binding.kernel_session_id if binding else ""
+                        ),
+                        reply_text=reply_text,
+                    ),
+                    external_saga_id=_external_shadow_saga_id(request.message),
+                ).reply_text
+        return await self._compact_result_reply(
+            request=request, binding=binding, reply_text=reply_text
+        )
+
+    async def _compact_result_reply(
+        self,
+        *,
+        request: CompactSessionRequest,
+        binding: SessionBinding | None,
+        reply_text: str,
+    ) -> PipelineResult:
+        """Deliver a compact outcome without allocating an empty session for no-op."""
+
+        if binding is None:
+            if (
+                request.operation_id is not None
+                and _external_shadow_saga_id(request.message) is not None
+                and self._drain_external_control_deliveries is not None
+            ):
+                try:
+                    await self._drain_external_control_deliveries()
+                except Exception:  # noqa: BLE001
+                    logging.getLogger(__name__).exception(
+                        "external control delivery deferred for recovery"
+                    )
+                outbound = None
+            else:
+                outbound = self._outbound_router.send_text(
+                    text=reply_text, reply_context=build_reply_context(request.message)
+                )
+            return PipelineResult(
+                agent_id=request.agent.agent_id,
+                session_key=request.session_key,
+                kernel_session_id="",
+                run_id="",
+                reply_text=reply_text,
+                outbound=outbound,
+            )
+        outbound = await self._deliver_control_reply(
+            text=reply_text,
+            binding=binding,
+            agent_id=request.agent.agent_id,
+            ack_tag="compact-ack",
+            source_message=request.message,
+            operation_id=request.operation_id,
+        )
+        return PipelineResult(
+            agent_id=request.agent.agent_id,
+            session_key=request.session_key,
+            kernel_session_id=binding.kernel_session_id,
+            run_id="",
+            reply_text=reply_text,
+            outbound=outbound,
+        )
+
     async def stop(self, request: StopRunRequest) -> PipelineResult:
         """Interrupt the complete active marker or return the existing idle result."""
 
@@ -285,6 +721,7 @@ class SessionRunCoordinator:
             agent_id=request.agent.agent_id,
             ack_tag=ack_tag,
             source_message=request.message,
+            operation_id=None,
         )
         return PipelineResult(
             agent_id=request.agent.agent_id,
@@ -391,6 +828,27 @@ class SessionRunCoordinator:
         try:
             failure_kind: str | None = None
             async with self._transition(request.session_key):
+                if request.generation != self._session_generations.get(
+                    request.session_key, 0
+                ):
+                    admission_event.set()
+                    await self._emit_lifecycle(
+                        request.message,
+                        RelayLifecycleUpdate(
+                            phase="failed",
+                            agent_id=request.agent.agent_id,
+                            session_key=request.session_key,
+                            error="superseded_by_new_session",
+                        ),
+                    )
+                    return PipelineResult(
+                        agent_id=request.agent.agent_id,
+                        session_key=request.session_key,
+                        kernel_session_id="",
+                        run_id="",
+                        reply_text="",
+                        outbound=None,
+                    )
                 latest_agent = self._latest_agent(request.agent)
                 runtime_projection = self._project_runtime(
                     agent=latest_agent,
@@ -561,6 +1019,7 @@ class SessionRunCoordinator:
             if active is not None and active.run_id == run_id:
                 self._active_runs.pop(session_key, None)
             self._user_interrupted_runs.discard(run_id)
+            self._reset_suppressed_runs.discard(run_id)
             self._consumed_steer_counts.pop(run_id, None)
             return tuple(self._steered_requests.pop(run_id, ()))
 
@@ -582,6 +1041,12 @@ class SessionRunCoordinator:
     async def _on_other_event(
         self, event: Mapping[str, object], *, binding: SessionBinding
     ) -> None:
+        run_id = event.get("run_id")
+        if isinstance(run_id, str) and (
+            run_id in self._reset_suppressed_runs
+            or self._session_binder.is_run_superseded(run_id)
+        ):
+            return
         if event.get("origin") in {"user", None, ""}:
             return
         if event.get("event") != "assistant_message":
@@ -605,6 +1070,11 @@ class SessionRunCoordinator:
         run_state: Mapping[str, object],
         reply_text: str,
     ) -> tuple[OutboundMessage | None, Mapping[str, Any] | None]:
+        if (
+            run_id in self._reset_suppressed_runs
+            or self._session_binder.is_run_superseded(run_id)
+        ):
+            return None, {"suppressed_by": "superseded_by_new_session"}
         if run_state.get("status") == "cancelled":
             return None, {"suppressed_by": "cancelled"}
         if not reply_text.strip():
@@ -903,6 +1373,7 @@ class SessionRunCoordinator:
             agent_id=request.agent.agent_id,
             ack_tag=f"image-error-{failure_kind}",
             source_message=request.message,
+            operation_id=None,
         )
         await self._emit_lifecycle(
             request.message,
@@ -931,12 +1402,26 @@ class SessionRunCoordinator:
         agent_id: str,
         ack_tag: str,
         source_message: InboundMessage,
+        operation_id: str | None,
     ) -> OutboundMessage | None:
+        if (
+            operation_id is not None
+            and _external_shadow_saga_id(source_message) is not None
+            and self._drain_external_control_deliveries is not None
+        ):
+            try:
+                await self._drain_external_control_deliveries()
+            except Exception:  # noqa: BLE001
+                logging.getLogger(__name__).exception(
+                    "external control delivery deferred for recovery"
+                )
+            return None
         from_session_id = _control_ack_from_session_id(
             agent_id=agent_id,
             kernel_session_id=binding.kernel_session_id,
             ack_tag=ack_tag,
             source_message=source_message,
+            operation_id=operation_id,
         )
         if self._bg_reply_sender is not None:
             try:
@@ -1206,9 +1691,15 @@ def _control_ack_from_session_id(
     kernel_session_id: str,
     ack_tag: str,
     source_message: InboundMessage,
+    operation_id: str | None,
 ) -> str:
     """Build the stable IM dispatch key for one visible control acknowledgement."""
 
+    if operation_id:
+        return (
+            f"{agent_id}|tool_call:control:{ack_tag}:"
+            f"{_normalize_dispatch_id_part(operation_id)}"
+        )
     base = f"{agent_id}|tool_call:{kernel_session_id}:{ack_tag}"
     source_id = _control_ack_source_id(source_message)
     if source_id is None:
@@ -1222,6 +1713,17 @@ def _control_ack_source_id(message: InboundMessage) -> str | None:
         if isinstance(value, str) and value.strip():
             return _normalize_dispatch_id_part(value)
     return None
+
+
+def _external_shadow_saga_id(message: InboundMessage) -> str | None:
+    """Return the durable external saga identity when this command owns one."""
+
+    protocol = runtime_protocol_or_derive(message)
+    if protocol.external_identity is None:
+        return None
+    if protocol.external_identity.trigger_source == "im":
+        return None
+    return protocol.shadow_saga_id
 
 
 def _normalize_dispatch_id_part(value: str) -> str:

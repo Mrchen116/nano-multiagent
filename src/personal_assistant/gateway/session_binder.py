@@ -15,6 +15,8 @@ from personal_assistant.gateway.agent_catalog import (
 )
 from personal_assistant.gateway.session_keys import (
     BoundaryIntent,
+    ControlOperation,
+    PendingExternalControlDelivery,
     PendingBoundaryIntent,
     SessionBinding,
     build_conversation_reply_context,
@@ -73,6 +75,38 @@ class _SessionBindingRepository(Protocol):
         profile_version: int | None,
         boundary: PendingBoundaryIntent,
     ) -> SessionBinding: ...
+
+    def get_control_operation(
+        self, *, session_key: str, operation_id: str, kind: str
+    ) -> ControlOperation | None: ...
+
+    def publish_reset(
+        self,
+        *,
+        binding: SessionBinding,
+        operation_id: str | None,
+        superseded_run_id: str | None,
+        reply_text: str,
+        external_saga_id: str | None = None,
+    ) -> ControlOperation | None: ...
+
+    def record_control_operation(
+        self, outcome: ControlOperation, *, external_saga_id: str | None = None
+    ) -> ControlOperation: ...
+
+    def pending_external_controls(
+        self,
+    ) -> tuple[PendingExternalControlDelivery, ...]: ...
+
+    def mark_external_control_handed_off(
+        self, *, session_key: str, operation_id: str, kind: str
+    ) -> None: ...
+
+    def mark_external_control_materialized(
+        self, *, session_key: str, operation_id: str, kind: str
+    ) -> None: ...
+
+    def is_run_superseded(self, run_id: str) -> bool: ...
 
     def drop(self, session_key: str) -> None: ...
 
@@ -148,6 +182,15 @@ class SessionProvenance:
 @dataclass(frozen=True, slots=True)
 class BindingProvenance:
     """Capture one binding and its Agent revision in a single binder transaction."""
+
+    binding: SessionBinding
+    agent: LiveAgentSnapshot
+    guard: BindingWriteGuard
+
+
+@dataclass(frozen=True, slots=True)
+class ResetCandidate:
+    """Hold an unbound fresh session until the coordinator can publish it."""
 
     binding: SessionBinding
     agent: LiveAgentSnapshot
@@ -248,6 +291,130 @@ class GatewaySessionBinder:
                     )
                 return refreshed
 
+        ephemeral = await self._create_binding_candidate(request, agent)
+        kernel_session_id = ephemeral.kernel_session_id
+        with self._lock:
+            self._session_agents[kernel_session_id] = agent
+            if not self._write_guard_is_current(agent=agent, generation=generation):
+                return ephemeral
+            binding = self._repository.bind(
+                session_key=request.session_key,
+                kernel_session_id=kernel_session_id,
+                reply_context=request.reply_context,
+                applied_runtime_fingerprint=ephemeral.applied_runtime_fingerprint,
+                applied_fingerprint_schema=ephemeral.applied_fingerprint_schema,
+                applied_profile_version=ephemeral.applied_profile_version,
+            )
+            self._record_verified_ownership(binding, agent=agent, generation=generation)
+            self._record_provenance(binding, agent=agent, persist_binding=True)
+            return binding
+
+    async def prepare_reset(
+        self,
+        request: SessionBindingRequest,
+        agent: LiveAgentSnapshot,
+    ) -> ResetCandidate:
+        """Create a fresh Kernel session without changing the current binding."""
+
+        if request.session_key.rsplit(":", 1)[-1] != agent.agent_id:
+            raise ValueError("session binding request agent does not match snapshot")
+        with self._lock:
+            guard = self._guard_for(agent)
+        binding = await self._create_binding_candidate(request, agent)
+        return ResetCandidate(binding=binding, agent=agent, guard=guard)
+
+    def completed_control(
+        self, *, session_key: str, operation_id: str, kind: str
+    ) -> ControlOperation | None:
+        """Return a durable result so a replay does not repeat its side effect."""
+
+        with self._lock:
+            return self._repository.get_control_operation(
+                session_key=session_key, operation_id=operation_id, kind=kind
+            )
+
+    def complete_control(
+        self, outcome: ControlOperation, *, external_saga_id: str | None = None
+    ) -> ControlOperation:
+        """Persist an idempotent non-reset outcome in the binding owner."""
+
+        with self._lock:
+            return self._repository.record_control_operation(
+                outcome, external_saga_id=external_saga_id
+            )
+
+    def pending_external_controls(self) -> tuple[PendingExternalControlDelivery, ...]:
+        """Return external controls that survived outcome commit but lack handoff."""
+
+        with self._lock:
+            return self._repository.pending_external_controls()
+
+    def mark_external_control_handed_off(
+        self, *, session_key: str, operation_id: str, kind: str
+    ) -> None:
+        """Commit the provider handoff after the outbound router accepts it."""
+
+        with self._lock:
+            self._repository.mark_external_control_handed_off(
+                session_key=session_key, operation_id=operation_id, kind=kind
+            )
+
+    def mark_external_control_materialized(
+        self, *, session_key: str, operation_id: str, kind: str
+    ) -> None:
+        """Record saga output creation before trying its external router handoff."""
+
+        with self._lock:
+            self._repository.mark_external_control_materialized(
+                session_key=session_key, operation_id=operation_id, kind=kind
+            )
+
+    def publish_reset(
+        self,
+        candidate: ResetCandidate,
+        *,
+        operation_id: str | None,
+        superseded_run_id: str | None,
+        reply_text: str,
+        external_saga_id: str | None = None,
+    ) -> SessionBinding:
+        """Publish a prepared reset only while its catalog guard remains current."""
+
+        with self._lock:
+            if not self._write_guard_is_current(
+                agent=candidate.agent, generation=candidate.guard.generation
+            ):
+                raise RuntimeError("agent changed before fresh session could publish")
+            self._repository.publish_reset(
+                binding=candidate.binding,
+                operation_id=operation_id,
+                superseded_run_id=superseded_run_id,
+                reply_text=reply_text,
+                external_saga_id=external_saga_id,
+            )
+            published = self._repository.get(candidate.binding.session_key)
+            if published is None:  # pragma: no cover - reset transaction invariant.
+                raise RuntimeError(
+                    "fresh session binding disappeared after publication"
+                )
+            self._session_agents[published.kernel_session_id] = candidate.agent
+            self._record_verified_ownership(
+                published,
+                agent=candidate.agent,
+                generation=candidate.guard.generation,
+            )
+            self._record_provenance(
+                published, agent=candidate.agent, persist_binding=True
+            )
+            return published
+
+    async def _create_binding_candidate(
+        self,
+        request: SessionBindingRequest,
+        agent: LiveAgentSnapshot,
+    ) -> SessionBinding:
+        """Create the complete-runtime session used by resolve and reset publication."""
+
         metadata = _build_session_metadata(
             request.message,
             agent=agent,
@@ -278,7 +445,7 @@ class GatewaySessionBinder:
         kernel_session_id = str(getattr(session, "session_id", "")).strip()
         if not kernel_session_id:
             raise RuntimeError("kernel session creation did not return session_id")
-        ephemeral = SessionBinding(
+        return SessionBinding(
             session_key=request.session_key,
             kernel_session_id=kernel_session_id,
             reply_context=request.reply_context,
@@ -290,21 +457,6 @@ class GatewaySessionBinder:
             ),
             applied_profile_version=request.profile_version,
         )
-        with self._lock:
-            self._session_agents[kernel_session_id] = agent
-            if not self._write_guard_is_current(agent=agent, generation=generation):
-                return ephemeral
-            binding = self._repository.bind(
-                session_key=request.session_key,
-                kernel_session_id=kernel_session_id,
-                reply_context=request.reply_context,
-                applied_runtime_fingerprint=ephemeral.applied_runtime_fingerprint,
-                applied_fingerprint_schema=ephemeral.applied_fingerprint_schema,
-                applied_profile_version=ephemeral.applied_profile_version,
-            )
-            self._record_verified_ownership(binding, agent=agent, generation=generation)
-            self._record_provenance(binding, agent=agent, persist_binding=True)
-            return binding
 
     def project_runtime(
         self,
@@ -407,6 +559,12 @@ class GatewaySessionBinder:
 
         with self._lock:
             return self._repository.get(session_key)
+
+    def is_run_superseded(self, run_id: str) -> bool:
+        """Return whether a durable reset revoked this run's visible output."""
+
+        with self._lock:
+            return self._repository.is_run_superseded(run_id)
 
     def invalidate_stale(self, agent_id: str, *, current_revision: int) -> None:
         """Invalidate transient ownership checks after a configuration publication.

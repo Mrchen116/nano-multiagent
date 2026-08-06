@@ -35,7 +35,9 @@ class CompactionSummarizer:
         system_prompt: str | None,
         dropped_messages: Sequence[Message],
         model_override: str | None = None,
-    ) -> str:
+        focus: str | None = None,
+        strict: bool = False,
+    ) -> str | None:
         """Summarize dropped messages for compaction record.
 
         Builds the LLM request by reusing the main agent's context prefix:
@@ -48,14 +50,15 @@ class CompactionSummarizer:
             dropped_messages: Messages that will be removed from active context.
 
         Returns:
-            Generated summary, or fallback summary on empty input/failure.
+            Generated summary, fallback summary for automatic compaction, or ``None``
+            when strict manual compaction cannot safely summarize.
         """
 
         if not dropped_messages:
-            return _fallback_summary()
+            return None if strict else _fallback_summary()
 
         history = list(dropped_messages)
-        summary_prompt = get_compact_prompt()
+        summary_prompt = get_compact_prompt(focus=focus)
 
         state = AgentState(
             session_id=session_id,
@@ -80,8 +83,13 @@ class CompactionSummarizer:
                 model_override=(None if self._has_dedicated_model else model_override),
             )
             summary = result.messages[-1].content.strip() if result.messages else ""
-            return format_compact_summary(summary) if summary else _fallback_summary()
+            if summary:
+                return format_compact_summary(summary)
+            return None if strict else _fallback_summary()
         except Exception as exc:
+            if strict:
+                _log.warning("manual compaction summarizer failed: %s", exc)
+                return None
             _log.exception(
                 "compaction summarizer failed; using fallback summary: %s", exc
             )

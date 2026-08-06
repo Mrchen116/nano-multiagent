@@ -142,6 +142,9 @@ class GatewayRuntime:
         resource_closers: Additional cleanup callables invoked after runtime shutdown.
         startup_collaborators: Domain owners whose startup work must finish after the
             event loop is live and before Gateway producers accept work.
+        external_control_recovery: Drains durable external command confirmations after
+            cached external channels are ready. It intentionally does not depend on IM
+            connectivity, because a provider does not replay a command after restart.
     """
 
     def __init__(
@@ -164,6 +167,7 @@ class GatewayRuntime:
         managed_channel_control: ManagedChannelControl | None = None,
         run_coordinator: SessionRunCoordinator | None = None,
         runtime_delivery_tasks: RuntimeDeliveryTaskTracker | None = None,
+        external_control_recovery: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         self._config = config
         self._channel_registry = channel_registry or ChannelRegistry()
@@ -190,6 +194,7 @@ class GatewayRuntime:
         )
         self._run_coordinator = run_coordinator
         self._runtime_delivery_tasks = runtime_delivery_tasks
+        self._external_control_recovery = external_control_recovery
         self._ready_event = threading.Event()
         self._shutdown_requested = threading.Event()
         self._shutdown_request_lock = threading.Lock()
@@ -278,6 +283,14 @@ class GatewayRuntime:
             channels_started = True
             if self._managed_channel_control is not None:
                 await self._managed_channel_control.start_cached()
+            if self._external_control_recovery is not None:
+                try:
+                    await self._external_control_recovery()
+                except Exception:  # noqa: BLE001
+                    # Startup must remain available when a provider is briefly down.
+                    # The durable intent remains pending and is retried on subsequent
+                    # connection recovery or the next command delivery.
+                    _log.exception("external control confirmation recovery failed")
             await self._run_skill_maintenance()
             self._install_skill_batch_review_scheduler()
             self._ready_event.set()

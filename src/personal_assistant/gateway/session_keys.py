@@ -73,6 +73,32 @@ class SessionBinding:
     applied_profile_version: int | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class ControlOperation:
+    """Persist the completed result of one replayable Gateway control command."""
+
+    session_key: str
+    operation_id: str
+    kind: str
+    status: str
+    kernel_session_id: str
+    reply_text: str
+
+
+@dataclass(frozen=True, slots=True)
+class PendingExternalControlDelivery:
+    """Represent a committed external control outcome awaiting channel handoff.
+
+    The binding store owns this small handoff record so a process loss after the
+    control outcome commits, but before the shadow saga receives its output, cannot
+    silently lose the user's confirmation.
+    """
+
+    outcome: ControlOperation
+    shadow_saga_id: str
+    state: str
+
+
 class SessionBindingStore:
     """Store gateway session bindings in local process memory for v1 pipeline flows."""
 
@@ -82,6 +108,11 @@ class SessionBindingStore:
         self._quarantined_boundaries: dict[str, BoundaryIntent] = {}
         self._boundary_retry_attempts: dict[str, int] = {}
         self._boundary_retry_not_before: dict[str, float] = {}
+        self._control_operations: dict[tuple[str, str, str], ControlOperation] = {}
+        self._pending_external_controls: dict[
+            tuple[str, str, str], PendingExternalControlDelivery
+        ] = {}
+        self._superseded_runs: dict[str, str] = {}
 
     def get(self, session_key: str) -> SessionBinding | None:
         """Return one binding by session key."""
@@ -148,6 +179,142 @@ class SessionBindingStore:
             applied_fingerprint_schema=fingerprint_schema,
             applied_profile_version=profile_version,
         )
+
+    def get_control_operation(
+        self, *, session_key: str, operation_id: str, kind: str
+    ) -> ControlOperation | None:
+        """Return an already completed replayable control outcome."""
+
+        return self._control_operations.get((session_key, operation_id, kind))
+
+    def publish_reset(
+        self,
+        *,
+        binding: SessionBinding,
+        operation_id: str | None,
+        superseded_run_id: str | None,
+        reply_text: str,
+        external_saga_id: str | None = None,
+    ) -> ControlOperation | None:
+        """Publish a replacement binding and its reset outcome as one store action."""
+
+        if operation_id is not None:
+            existing = self.get_control_operation(
+                session_key=binding.session_key, operation_id=operation_id, kind="new"
+            )
+            if existing is not None:
+                return existing
+        published = self.bind(
+            session_key=binding.session_key,
+            kernel_session_id=binding.kernel_session_id,
+            reply_context=binding.reply_context,
+            applied_runtime_fingerprint=binding.applied_runtime_fingerprint,
+            applied_fingerprint_schema=binding.applied_fingerprint_schema,
+            applied_profile_version=binding.applied_profile_version,
+        )
+        if superseded_run_id:
+            self._superseded_runs[superseded_run_id] = published.kernel_session_id
+        if operation_id is None:
+            return None
+        outcome = ControlOperation(
+            session_key=published.session_key,
+            operation_id=operation_id,
+            kind="new",
+            status="completed",
+            kernel_session_id=published.kernel_session_id,
+            reply_text=reply_text,
+        )
+        self._control_operations.setdefault(
+            (published.session_key, operation_id, "new"), outcome
+        )
+        committed = self._control_operations[
+            (published.session_key, operation_id, "new")
+        ]
+        self._record_external_control_delivery(
+            committed, shadow_saga_id=external_saga_id
+        )
+        return committed
+
+    def record_control_operation(
+        self,
+        outcome: ControlOperation,
+        *,
+        external_saga_id: str | None = None,
+    ) -> ControlOperation:
+        """Persist a non-reset control outcome for later replay."""
+
+        key = (outcome.session_key, outcome.operation_id, outcome.kind)
+        self._control_operations.setdefault(key, outcome)
+        committed = self._control_operations[key]
+        self._record_external_control_delivery(
+            committed, shadow_saga_id=external_saga_id
+        )
+        return committed
+
+    def pending_external_controls(self) -> tuple[PendingExternalControlDelivery, ...]:
+        """Return committed external controls not yet handed to the provider."""
+
+        return tuple(
+            delivery
+            for delivery in self._pending_external_controls.values()
+            if delivery.state != "outbound_handed_off"
+        )
+
+    def mark_external_control_handed_off(
+        self,
+        *,
+        session_key: str,
+        operation_id: str,
+        kind: str,
+    ) -> None:
+        """Mark an external confirmation handed to its original channel."""
+
+        key = (session_key, operation_id, kind)
+        delivery = self._pending_external_controls.get(key)
+        if delivery is not None:
+            self._pending_external_controls[key] = PendingExternalControlDelivery(
+                outcome=delivery.outcome,
+                shadow_saga_id=delivery.shadow_saga_id,
+                state="outbound_handed_off",
+            )
+
+    def mark_external_control_materialized(
+        self,
+        *,
+        session_key: str,
+        operation_id: str,
+        kind: str,
+    ) -> None:
+        """Record that the saga output exists before provider handoff."""
+
+        key = (session_key, operation_id, kind)
+        delivery = self._pending_external_controls.get(key)
+        if delivery is not None and delivery.state == "pending_materialization":
+            self._pending_external_controls[key] = PendingExternalControlDelivery(
+                outcome=delivery.outcome,
+                shadow_saga_id=delivery.shadow_saga_id,
+                state="materialized",
+            )
+
+    def _record_external_control_delivery(
+        self, outcome: ControlOperation, *, shadow_saga_id: str | None
+    ) -> None:
+        if not shadow_saga_id:
+            return
+        key = (outcome.session_key, outcome.operation_id, outcome.kind)
+        self._pending_external_controls.setdefault(
+            key,
+            PendingExternalControlDelivery(
+                outcome=outcome,
+                shadow_saga_id=shadow_saga_id,
+                state="pending_materialization",
+            ),
+        )
+
+    def is_run_superseded(self, run_id: str) -> bool:
+        """Return whether reset made a run permanently invisible."""
+
+        return run_id in self._superseded_runs
 
     def apply_runtime_with_boundary(
         self,
@@ -396,6 +563,37 @@ CREATE TABLE IF NOT EXISTS agent_config_pending_shadow_boundaries (
 )
 """
 
+_CREATE_CONTROL_OPERATIONS_SQL = """
+CREATE TABLE IF NOT EXISTS gateway_control_operations (
+    session_key TEXT NOT NULL,
+    operation_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    status TEXT NOT NULL,
+    kernel_session_id TEXT NOT NULL,
+    reply_text TEXT NOT NULL,
+    PRIMARY KEY (session_key, operation_id, kind)
+)
+"""
+
+_CREATE_SUPERSEDED_RUNS_SQL = """
+CREATE TABLE IF NOT EXISTS gateway_superseded_runs (
+    run_id TEXT PRIMARY KEY,
+    session_key TEXT NOT NULL,
+    replacement_kernel_session_id TEXT NOT NULL
+)
+"""
+
+_CREATE_PENDING_EXTERNAL_CONTROL_DELIVERIES_SQL = """
+CREATE TABLE IF NOT EXISTS gateway_pending_external_control_deliveries (
+    session_key TEXT NOT NULL,
+    operation_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    shadow_saga_id TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'pending_materialization',
+    PRIMARY KEY (session_key, operation_id, kind)
+)
+"""
+
 _SQLITE_LIKE_ESCAPE = "!"
 
 
@@ -446,6 +644,9 @@ class PersistentSessionBindingStore:
         self._conn.execute(_CREATE_TABLE_SQL)
         self._conn.execute(_CREATE_BOUNDARY_OUTBOX_SQL)
         self._conn.execute(_CREATE_PENDING_BOUNDARY_SQL)
+        self._conn.execute(_CREATE_CONTROL_OPERATIONS_SQL)
+        self._conn.execute(_CREATE_SUPERSEDED_RUNS_SQL)
+        self._conn.execute(_CREATE_PENDING_EXTERNAL_CONTROL_DELIVERIES_SQL)
         # feat-394 migration: add created_at column if absent (existing databases).
         # created_at records when the binding was first established (proxy for the
         # direct chat's creation time, used by find_direct_by_agent to select the
@@ -609,6 +810,276 @@ class PersistentSessionBindingStore:
         if binding is None:  # pragma: no cover - SQLite commit invariant.
             raise RuntimeError("binding disappeared after persistence")
         return binding
+
+    def get_control_operation(
+        self, *, session_key: str, operation_id: str, kind: str
+    ) -> ControlOperation | None:
+        """Return a completed control outcome recorded before a channel replay."""
+
+        row = self._conn.execute(
+            """
+            SELECT status, kernel_session_id, reply_text
+            FROM gateway_control_operations
+            WHERE session_key = ? AND operation_id = ? AND kind = ?
+            """,
+            (session_key, operation_id, kind),
+        ).fetchone()
+        if row is None:
+            return None
+        return ControlOperation(
+            session_key=session_key,
+            operation_id=operation_id,
+            kind=kind,
+            status=row[0],
+            kernel_session_id=row[1],
+            reply_text=row[2],
+        )
+
+    def publish_reset(
+        self,
+        *,
+        binding: SessionBinding,
+        operation_id: str | None,
+        superseded_run_id: str | None,
+        reply_text: str,
+        external_saga_id: str | None = None,
+    ) -> ControlOperation | None:
+        """Atomically publish the new binding, replay outcome, and old-run fence."""
+
+        import datetime
+
+        now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        try:
+            self._conn.execute("BEGIN IMMEDIATE")
+            if operation_id is not None:
+                existing = self._conn.execute(
+                    """
+                    SELECT status, kernel_session_id, reply_text
+                    FROM gateway_control_operations
+                    WHERE session_key = ? AND operation_id = ? AND kind = 'new'
+                    """,
+                    (binding.session_key, operation_id),
+                ).fetchone()
+                if existing is not None:
+                    self._conn.commit()
+                    return ControlOperation(
+                        session_key=binding.session_key,
+                        operation_id=operation_id,
+                        kind="new",
+                        status=existing[0],
+                        kernel_session_id=existing[1],
+                        reply_text=existing[2],
+                    )
+            self._conn.execute(
+                """
+                INSERT INTO session_bindings
+                    (session_key, kernel_session_id, reply_context_json, updated_at, created_at,
+                     applied_runtime_fingerprint, applied_fingerprint_schema,
+                     applied_profile_version)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(session_key) DO UPDATE SET
+                    kernel_session_id = excluded.kernel_session_id,
+                    reply_context_json = excluded.reply_context_json,
+                    updated_at = excluded.updated_at,
+                    applied_runtime_fingerprint = excluded.applied_runtime_fingerprint,
+                    applied_fingerprint_schema = excluded.applied_fingerprint_schema,
+                    applied_profile_version = excluded.applied_profile_version
+                """,
+                (
+                    binding.session_key,
+                    binding.kernel_session_id,
+                    _serialize_reply_context(binding.reply_context),
+                    now_iso,
+                    now_iso,
+                    binding.applied_runtime_fingerprint,
+                    binding.applied_fingerprint_schema,
+                    binding.applied_profile_version,
+                ),
+            )
+            if superseded_run_id:
+                self._conn.execute(
+                    """
+                    INSERT INTO gateway_superseded_runs
+                        (run_id, session_key, replacement_kernel_session_id)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(run_id) DO NOTHING
+                    """,
+                    (
+                        superseded_run_id,
+                        binding.session_key,
+                        binding.kernel_session_id,
+                    ),
+                )
+            if operation_id is not None:
+                self._conn.execute(
+                    """
+                    INSERT INTO gateway_control_operations
+                        (session_key, operation_id, kind, status, kernel_session_id, reply_text)
+                    VALUES (?, ?, 'new', 'completed', ?, ?)
+                    ON CONFLICT(session_key, operation_id, kind) DO NOTHING
+                    """,
+                    (
+                        binding.session_key,
+                        operation_id,
+                        binding.kernel_session_id,
+                        reply_text,
+                    ),
+                )
+                if external_saga_id:
+                    self._conn.execute(
+                        """
+                        INSERT INTO gateway_pending_external_control_deliveries
+                            (session_key, operation_id, kind, shadow_saga_id)
+                        VALUES (?, ?, 'new', ?)
+                        ON CONFLICT(session_key, operation_id, kind) DO NOTHING
+                        """,
+                        (binding.session_key, operation_id, external_saga_id),
+                    )
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
+        if operation_id is None:
+            return None
+        outcome = self.get_control_operation(
+            session_key=binding.session_key, operation_id=operation_id, kind="new"
+        )
+        if outcome is None:  # pragma: no cover - transaction invariant.
+            raise RuntimeError("reset outcome disappeared after publication")
+        return outcome
+
+    def record_control_operation(
+        self,
+        outcome: ControlOperation,
+        *,
+        external_saga_id: str | None = None,
+    ) -> ControlOperation:
+        """Persist a replayable non-reset control outcome."""
+        try:
+            self._conn.execute("BEGIN IMMEDIATE")
+            self._conn.execute(
+                """
+                INSERT INTO gateway_control_operations
+                    (session_key, operation_id, kind, status, kernel_session_id, reply_text)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(session_key, operation_id, kind) DO NOTHING
+                """,
+                (
+                    outcome.session_key,
+                    outcome.operation_id,
+                    outcome.kind,
+                    outcome.status,
+                    outcome.kernel_session_id,
+                    outcome.reply_text,
+                ),
+            )
+            if external_saga_id:
+                self._conn.execute(
+                    """
+                    INSERT INTO gateway_pending_external_control_deliveries
+                        (session_key, operation_id, kind, shadow_saga_id)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(session_key, operation_id, kind) DO NOTHING
+                    """,
+                    (
+                        outcome.session_key,
+                        outcome.operation_id,
+                        outcome.kind,
+                        external_saga_id,
+                    ),
+                )
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
+        return (
+            self.get_control_operation(
+                session_key=outcome.session_key,
+                operation_id=outcome.operation_id,
+                kind=outcome.kind,
+            )
+            or outcome
+        )
+
+    def pending_external_controls(self) -> tuple[PendingExternalControlDelivery, ...]:
+        """Return external outcomes whose provider handoff is recoverable and pending."""
+
+        rows = self._conn.execute(
+            """
+            SELECT operations.session_key, operations.operation_id, operations.kind,
+                   operations.status, operations.kernel_session_id, operations.reply_text,
+                   pending.shadow_saga_id, pending.state
+            FROM gateway_pending_external_control_deliveries AS pending
+            JOIN gateway_control_operations AS operations
+              ON operations.session_key = pending.session_key
+             AND operations.operation_id = pending.operation_id
+             AND operations.kind = pending.kind
+            WHERE pending.state != 'outbound_handed_off'
+            ORDER BY pending.rowid ASC
+            """
+        ).fetchall()
+        return tuple(
+            PendingExternalControlDelivery(
+                outcome=ControlOperation(
+                    session_key=str(row[0]),
+                    operation_id=str(row[1]),
+                    kind=str(row[2]),
+                    status=str(row[3]),
+                    kernel_session_id=str(row[4]),
+                    reply_text=str(row[5]),
+                ),
+                shadow_saga_id=str(row[6]),
+                state=str(row[7]),
+            )
+            for row in rows
+        )
+
+    def mark_external_control_handed_off(
+        self,
+        *,
+        session_key: str,
+        operation_id: str,
+        kind: str,
+    ) -> None:
+        """Mark an external confirmation after its router handoff returns."""
+
+        self._conn.execute(
+            """
+            UPDATE gateway_pending_external_control_deliveries
+            SET state = 'outbound_handed_off'
+            WHERE session_key = ? AND operation_id = ? AND kind = ?
+            """,
+            (session_key, operation_id, kind),
+        )
+        self._conn.commit()
+
+    def mark_external_control_materialized(
+        self,
+        *,
+        session_key: str,
+        operation_id: str,
+        kind: str,
+    ) -> None:
+        """Record durable saga materialization before external router handoff."""
+
+        self._conn.execute(
+            """
+            UPDATE gateway_pending_external_control_deliveries
+            SET state = 'materialized'
+            WHERE session_key = ? AND operation_id = ? AND kind = ?
+              AND state = 'pending_materialization'
+            """,
+            (session_key, operation_id, kind),
+        )
+        self._conn.commit()
+
+    def is_run_superseded(self, run_id: str) -> bool:
+        """Return whether a durable reset made this run invisible."""
+
+        row = self._conn.execute(
+            "SELECT 1 FROM gateway_superseded_runs WHERE run_id = ?", (run_id,)
+        ).fetchone()
+        return row is not None
 
     def apply_runtime(
         self,

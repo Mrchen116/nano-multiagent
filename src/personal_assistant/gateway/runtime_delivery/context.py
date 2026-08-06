@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import asyncio
+from dataclasses import dataclass, field
 from typing import Literal
 
 from personal_assistant.channels.base import InboundMessage
@@ -86,6 +87,14 @@ class RunDeliveryContext:
     discard_empty_completion: bool = False
     visible_reply_committed: bool = False
     discard_current_bubble: bool = False
+    suppressed: bool = False
+    visibility_state: Literal["active", "quiescing", "revoked"] = "active"
+    visibility_changed: asyncio.Event = field(default_factory=asyncio.Event)
+
+    def __post_init__(self) -> None:
+        """Start every newly accepted run with a visible delivery lease."""
+
+        self.visibility_changed.set()
 
     def ensure_initial_runtime_state(self) -> None:
         """Initialize runtime delivery ids from the static delivery target."""
@@ -228,6 +237,54 @@ class RunDeliveryContextStore:
         """Return typed context for one run, if present."""
 
         return self._contexts.get(run_id)
+
+    def suppress(self, run_id: str) -> None:
+        """Fence a reset-superseded run before it creates further visible output."""
+
+        context = self._contexts.get(run_id)
+        if context is not None:
+            context.suppressed = True
+            context.visibility_state = "revoked"
+            context.visibility_changed.set()
+
+    def quiesce(self, run_id: str) -> None:
+        """Temporarily hold new output while a reset publication is decided."""
+
+        context = self._contexts.get(run_id)
+        if context is not None and context.visibility_state == "active":
+            context.visibility_state = "quiescing"
+            context.visibility_changed.clear()
+
+    def restore(self, run_id: str) -> None:
+        """Release deferred output after a reset publication fails."""
+
+        context = self._contexts.get(run_id)
+        if context is not None and context.visibility_state == "quiescing":
+            context.visibility_state = "active"
+            context.visibility_changed.set()
+
+    async def await_visibility(self, run_id: str) -> bool:
+        """Wait for a quiesced delivery to become visible or permanently revoked."""
+
+        while True:
+            context = self._contexts.get(run_id)
+            if context is None or context.visibility_state == "revoked":
+                return False
+            if context.visibility_state == "active":
+                return True
+            await context.visibility_changed.wait()
+
+    def is_suppressed(self, run_id: str) -> bool:
+        """Return whether a run lost visibility because its chat was reset."""
+
+        context = self._contexts.get(run_id)
+        return context is not None and context.visibility_state == "revoked"
+
+    def is_quiescing(self, run_id: str) -> bool:
+        """Return whether a reset is holding new output for one run."""
+
+        context = self._contexts.get(run_id)
+        return context is not None and context.visibility_state == "quiescing"
 
     def seed_owner_direct_run(
         self,

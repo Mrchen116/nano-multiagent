@@ -317,6 +317,8 @@ class _FakeKernel:
         self.submit_calls: list[dict[str, Any]] = self.send_calls
         # Out-of-band history appends (e.g. /stop command) recorded for assertions.
         self.append_calls: list[dict[str, Any]] = []
+        self.compact_calls: list[dict[str, Any]] = []
+        self.compact_result: object | None = object()
         # Settable to override the default "reply:{text}" output for all runs.
         self.default_output_text: str | None = None
 
@@ -397,6 +399,26 @@ class _FakeKernel:
             changed=previous != state,
             state=state,
         )
+
+    async def compact(
+        self,
+        session_id: str,
+        *,
+        workspace_root: Path | str | None = None,
+        focus: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> object | None:
+        """Record the public manual-compaction seam for Gateway command tests."""
+
+        self.compact_calls.append(
+            {
+                "session_id": session_id,
+                "workspace_root": str(workspace_root) if workspace_root else None,
+                "focus": focus,
+                "idempotency_key": idempotency_key,
+            }
+        )
+        return self.compact_result
 
     def get_session(
         self, session_id: str, *, workspace_root: str | None = None

@@ -32,6 +32,7 @@ from personal_assistant.gateway.session_keys import (
 )
 
 from ._pipeline_helpers import _FakeChannel, _FakeKernel, _agents
+from ._session_run_coordinator_helpers import ControlledKernel
 
 
 class _ShadowSync:
@@ -56,6 +57,87 @@ class _ShadowSync:
             im_message_id="shadow-message-1",
             shadow_saga_id=self.shadow_saga_id,
         )
+
+
+class _BlockingCompactShadowSync(_ShadowSync):
+    """Pause only compact shadow sync to exercise Gateway ingress ordering."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.compact_started = asyncio.Event()
+        self.release_compact = asyncio.Event()
+
+    async def sync_user_message(
+        self, message: InboundMessage, *, agent_id: str
+    ) -> ShadowConversationRef | None:
+        if message.text == "/compact":
+            self.compact_started.set()
+            await self.release_compact.wait()
+        return await super().sync_user_message(message, agent_id=agent_id)
+
+
+def _external_message(text: str) -> InboundMessage:
+    """Build one stable Feishu ingress message for ordering tests."""
+
+    return InboundMessage(
+        channel_name="feishu:agent-a",
+        text=text,
+        external_user_id="ou_user",
+        external_chat_id="oc_feishu_chat",
+        is_group=False,
+        agent_id="agent-a",
+        metadata={
+            "external_source": "feishu",
+            "external_chat_id": "oc_feishu_chat",
+            "trigger_source": "feishu",
+        },
+    )
+
+
+def test_external_compact_reserves_fifo_before_delayed_shadow_sync(
+    tmp_path: Path,
+) -> None:
+    """A later normal message cannot steer past an earlier compact command."""
+
+    async def _run() -> None:
+        agents = _agents(tmp_path)
+        channel = _FakeChannel("feishu:agent-a")
+        kernel = ControlledKernel()
+        shadow_sync = _BlockingCompactShadowSync()
+        pipeline = build_inbound_pipeline(
+            kernel=kernel,
+            agents=agents,
+            outbound_router=OutboundRouter(ChannelRegistry((channel,))),
+            run_queue=SessionRunQueue(),
+            session_store=SessionBindingStore(),
+            default_agent_id="agent-a",
+            shadow_sync=shadow_sync,
+        )
+
+        first = asyncio.create_task(pipeline.handle_inbound(_external_message("first")))
+        await kernel.wait_stream("run-1")
+
+        compact = asyncio.create_task(
+            pipeline.handle_inbound(_external_message("/compact"))
+        )
+        await shadow_sync.compact_started.wait()
+
+        later = asyncio.create_task(pipeline.handle_inbound(_external_message("later")))
+        await asyncio.sleep(0)
+        assert kernel.try_steer_calls == []
+
+        shadow_sync.release_compact.set()
+        kernel.finish("run-1")
+        await first
+        compact_result = await compact
+        assert compact_result is not None
+        assert compact_result.reply_text == "已压缩当前会话。"
+
+        await kernel.wait_stream("run-2")
+        kernel.finish("run-2")
+        await later
+
+    asyncio.run(_run())
 
 
 def test_inbound_pipeline_runs_four_steps_and_replies_via_origin_channel(

@@ -19,7 +19,7 @@ NANO_MULTIAGENT_E2E_MODEL=deepseek:deepseek-v4-flash scripts/e2e-critical.sh
 PYTHONPATH=src pytest -m e2e tests/e2e/critical_paths/test_agent_config_context_continuity_critical_path.py
 ```
 
-缺本地 LLM proxy（`:4000/health`）或缺 `~/.nano-assistant/config.yaml`（含 `llm:` 段）时，**真 LLM 路径干净 skip**而非报错；fake-LLM 路径只要主 config 存在即可跑。失败时 IM/Gateway 日志 tail 进报告，可定位断在哪一段。
+缺本地 LLM proxy（`:4000/health`）时，**真 LLM 路径干净 skip**而非报错；fake-LLM 路径使用仓库 `config/e2e/gateway.yaml`，不依赖个人 Gateway config。失败时 IM/Gateway 日志 tail 进报告，可定位断在哪一段。
 
 真 LLM 路径默认使用复制到隔离 Gateway 配置后的 `llm.default_model`，动态创建的 agent 也从这一选择取模型。需要临时切换时设 `NANO_MULTIAGENT_E2E_MODEL=<route>`；该 route 必须已登记在主配置的 `llm.providers[].models` 中，启动器会把隔离副本中预置和动态创建 agent 的路由一并切到它，不改用户主配置。
 
@@ -63,6 +63,6 @@ PYTHONPATH=src pytest -m e2e tests/e2e/critical_paths/test_agent_config_context_
 | **群聊裸 `/stop` 绕 @ 门控中断**（feat-430） | 群里某 agent `group_reply_policy=MENTION` 且正在运行时，用户发裸 `/stop`（不 @）仍中断它；未运行群成员无副作用（不发 no-op ack、不建 session）。本 unit 经单测（`test_gateway_stop_command.py::test_bare_stop_in_group_mention_policy_interrupts_running_agent` / `::test_bare_stop_in_group_multi_agent_stops_only_running_no_noise`）+ 真栈手工 live 验收覆盖，未落经 Gateway 进程的自动化 e2e | gateway（`docs/specs/gateway/spec.md`） | 后续 unit（并入 /stop e2e #5 的群聊变体） |
 | **token 缓存命中率展示**（feat-439-M1） | token 气泡详情「缓存命中 X (Y%)」整轮口径渲染，属 Web UI 级；本 unit 经 API/真栈浏览器临时验收 + 单测/前端组件测覆盖，未落 Playwright UI smoke | im/frontend（`docs/specs/im/spec.md`） | 同「前端 UI smoke」独立 unit |
 | **thinking 过程时间线展示**（feat-439-M2） | 助手气泡内「过程」盘把整轮多段思考与工具按真实时序混排、逐段可展开、刷新可回看、外部 channel 不带思考；属 Web UI 级，本 unit 经真栈浏览器临时验收 + reducer/组件测 + gateway 出站回归覆盖，未落 Playwright UI smoke | im/frontend（`docs/specs/im/spec.md`） | 同「前端 UI smoke」独立 unit |
-| **Feishu 1:1 外部 channel 主路径**（feat-447） | 第三方平台真 app / 真 WebSocket / 真 LLM 组合依赖外部凭据与网络，不适合并入当前默认 e2e-critical；本 unit 以单元/集成测试 + live 验收覆盖，尚无可稳定重放的真 Gateway e2e | gateway + im（`docs/specs/gateway/spec.md`, `docs/specs/im/spec.md`） | 后续 unit：带可控 Feishu/Lark fixture 或隔离真 app 凭据的 external-channel e2e |
+| **Feishu 1:1 外部 channel 主路径**（feat-447） | 第三方平台真 app / 真 WebSocket / 真 LLM 组合依赖专用凭据与网络，不纳入默认 `e2e-critical`；使用 `e2e-up.sh --feishu` + `e2e-feishu-probe.py` 运行隔离真实入口，凭据和命名 CLI profile 见 [`worktree-runtime.md`](worktree-runtime.md#专用-feishu-e2e-profile) | gateway + im（`docs/specs/gateway/spec.md`, `docs/specs/im/spec.md`） | 后续 unit：把稳定的外部 fixture 接入默认 critical suite |
 | **Feishu 群聊背景上下文与 @Bot 触发**（feat-447） | 普通群消息投递依赖 Feishu app scope `im:message.group_msg`；缺 scope 时只能诊断而不能强制平台投递。本 unit 已覆盖解析、scope warning、history catch-up 和 live 验收，未落稳定 e2e-critical | gateway + im | 后续 unit：external-channel 群聊 fixture / 真 app 凭据矩阵 |
 | **Feishu 原生权限审批卡片**（feat-447） | 飞书 interactive card 点击回调需要真平台回调/长连接事件；当前由 Gateway 权限管线单测覆盖，未有真 Gateway e2e 自动化 | gateway + kernel + im | 后续 unit：外部 channel approval e2e |

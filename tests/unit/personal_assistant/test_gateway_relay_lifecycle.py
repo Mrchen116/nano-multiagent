@@ -1058,6 +1058,47 @@ def test_direct_web_relay_no_reply_discards_provisional_im_message() -> None:
     assert manager.sent_frames[-1][1]["reason"] == "no_reply_token"
 
 
+def test_reset_revocation_discards_an_existing_provisional_im_message() -> None:
+    """A committed `/new` must close the old run's already-open bubble."""
+
+    store = RunDeliveryContextStore()
+    store.seed(
+        RunDeliveryContext(
+            run_id="run-reset",
+            agent_id="agent-a",
+            kernel_session_id="sess-1",
+            delivery_target=RunDeliveryTarget.none(),
+            conversation_id="conv-1",
+            message_id="im-old-bubble",
+        )
+    )
+    manager = _AckingIMManager()
+    observer = _build_kernel_event_observer(
+        im_connection_manager_factory=lambda: manager,
+        run_context_store=store,
+    )
+    store.suppress("run-reset")
+
+    async def _exercise() -> None:
+        pending = observer({"event": "run_reset_discard", "run_id": "run-reset"})
+        assert pending is not None
+        await pending
+
+    asyncio.run(_exercise())
+
+    assert manager.sent_frames == [
+        (
+            "node.streaming_delta",
+            {
+                "kind": "message_discarded",
+                "message_id": "im-old-bubble",
+                "run_id": "run-reset",
+                "reason": "new_session",
+            },
+        )
+    ]
+
+
 def test_direct_web_empty_completion_after_process_discards_provisional_message() -> (
     None
 ):

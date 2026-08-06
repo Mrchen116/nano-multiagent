@@ -2,14 +2,26 @@
 
 import asyncio
 import json
+import os
 import queue
+import shutil
 import threading
 import time
+import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 
 _STOP = object()
+
+
+@dataclass(frozen=True, slots=True)
+class _AtomicAppendBatch:
+    """Entries that must become visible together or not at all."""
+
+    path: Path
+    entries: tuple[dict[str, Any], ...]
 
 
 class JsonlWriter:
@@ -40,6 +52,23 @@ class JsonlWriter:
             if self._closed:
                 raise RuntimeError("JsonlWriter is closed")
             self._queue.put((path, entry))
+
+    def enqueue_atomic_batch(self, path: Path, entries: list[dict]) -> None:
+        """Queue one replace-backed JSONL append that is all-or-nothing.
+
+        Compaction boundaries reference replacement turn records. A plain sequence of
+        append calls can persist the boundary before its summary, so this narrow API
+        makes that linked set visible with one atomic file replacement instead.
+        """
+
+        if not entries:
+            return
+        with self._lifecycle_guard:
+            if self._closed:
+                raise RuntimeError("JsonlWriter is closed")
+            self._queue.put(
+                _AtomicAppendBatch(path, tuple(dict(entry) for entry in entries))
+            )
 
     def durable_barrier(self, path: Path, timeout: float = 10.0) -> None:
         """Block until all writes ordered before this path barrier are durable."""
@@ -78,7 +107,7 @@ class JsonlWriter:
             raise self._last_error
 
     def _run(self) -> None:
-        buffer: list[tuple[Path, dict]] = []
+        buffer: list[tuple[Path, dict] | _AtomicAppendBatch] = []
         last_flush = time.monotonic()
 
         while True:
@@ -126,12 +155,62 @@ class JsonlWriter:
                 buffer = []
                 last_flush = time.monotonic()
 
-    def _flush_buffer(self, buffer: list[tuple[Path, dict]]) -> None:
-        by_path: dict[Path, list[dict]] = {}
-        for path, entry in buffer:
-            by_path.setdefault(path, []).append(entry)
-        for path, entries in by_path.items():
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with path.open("a", encoding="utf-8") as f:
-                for entry in entries:
-                    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    def _flush_buffer(
+        self, buffer: list[tuple[Path, dict] | _AtomicAppendBatch]
+    ) -> None:
+        pending_by_path: dict[Path, list[dict]] = {}
+        for item in buffer:
+            if isinstance(item, _AtomicAppendBatch):
+                pending = pending_by_path.pop(item.path, ())
+                if pending:
+                    self._append_entries(item.path, pending)
+                self._atomic_append_entries(item.path, item.entries)
+                continue
+            path, entry = item
+            pending_by_path.setdefault(path, []).append(entry)
+        for path, entries in pending_by_path.items():
+            self._append_entries(path, entries)
+
+    @staticmethod
+    def _append_entries(path: Path, entries: list[dict] | tuple[dict, ...]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = "".join(
+            json.dumps(entry, ensure_ascii=False) + "\n" for entry in entries
+        )
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(payload)
+
+    @staticmethod
+    def _atomic_append_entries(path: Path, entries: tuple[dict[str, Any], ...]) -> None:
+        """Append linked records using a same-directory atomic replacement."""
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        replacement = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        payload = "".join(
+            json.dumps(entry, ensure_ascii=False) + "\n" for entry in entries
+        )
+        try:
+            with replacement.open("wb") as target:
+                if path.exists():
+                    with path.open("rb") as source:
+                        shutil.copyfileobj(source, target)
+                target.write(payload.encode("utf-8"))
+                target.flush()
+                os.fsync(target.fileno())
+            os.replace(replacement, path)
+            try:
+                directory_fd = os.open(path.parent, os.O_RDONLY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+            except OSError:
+                # The replacement is already committed. Some filesystems do not
+                # support directory fsync, so never report a failed compaction
+                # after making its complete batch visible.
+                pass
+        finally:
+            try:
+                replacement.unlink(missing_ok=True)
+            except OSError:
+                pass
