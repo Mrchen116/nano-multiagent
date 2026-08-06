@@ -112,9 +112,7 @@ def test_initialize_schema_clears_legacy_prompt_data_when_sqlite_cannot_drop_col
     connection.execute(
         "ALTER TABLE agent_profiles ADD COLUMN system_prompt TEXT NOT NULL DEFAULT ''"
     )
-    connection.execute(
-        "ALTER TABLE conversations ADD COLUMN config_system_prompt TEXT"
-    )
+    connection.execute("ALTER TABLE conversations ADD COLUMN config_system_prompt TEXT")
     connection.execute(
         """
         INSERT INTO agent_profiles(

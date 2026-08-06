@@ -840,9 +840,7 @@ class ConversationRepository:
                 agent_id=None,
                 profile_version=snapshot.profile_version,
             )
-        return _ConversationConfigSnapshot(
-            agent_id=None, profile_version=None
-        )
+        return _ConversationConfigSnapshot(agent_id=None, profile_version=None)
 
     def _profile_snapshot_for_participant(
         self, *, row: sqlite3.Row

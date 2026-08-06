@@ -273,9 +273,7 @@ def test_agent_config_update_keeps_chat_context_with_stub_llm(
         skill_ids=initial_config.get("skills"),
     )
     assert _LEGACY_PROMPT in initial_preview
-    _wait_gateway_prompt_migration(
-        Path(stub_llm_stack.wt_dir) / ".gateway-config.yaml"
-    )
+    _wait_gateway_prompt_migration(Path(stub_llm_stack.wt_dir) / ".gateway-config.yaml")
 
     # 起点清空工具,确保后续 PATCH 真的改变 effective runtime。
     stub_im_user.update_agent_config(agent_id, tool_allowlist=[])
