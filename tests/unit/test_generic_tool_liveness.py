@@ -37,8 +37,15 @@ def _recorder() -> tuple[list[dict[str, Any]], Any]:
 
 async def test_ticker_emits_executing_phase_with_growing_elapsed() -> None:
     emitted, emit = _recorder()
-    async with execution_update_ticker(emit=emit, interval=0.02):
-        await asyncio.sleep(0.11)  # ~5 intervals
+    third_update = asyncio.Event()
+
+    def _emit_and_signal(payload: dict[str, Any]) -> None:
+        emit(payload)
+        if len(emitted) == 3:
+            third_update.set()
+
+    async with execution_update_ticker(emit=_emit_and_signal, interval=0.02):
+        await asyncio.wait_for(third_update.wait(), timeout=1.0)
     count_at_exit = len(emitted)
     assert count_at_exit >= 3, (
         f"expected periodic execution updates, got {count_at_exit}"
