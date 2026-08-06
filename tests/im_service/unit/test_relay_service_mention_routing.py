@@ -42,7 +42,6 @@ def test_enqueue_message_relay_targets_the_mentioned_agent_in_group_chats(
         owner_id=alice.owner_id,
         display_name="Agent A",
         description="profile a",
-        system_prompt="You are agent-a.",
         skills=[],
         tool_allowlist=[],
         group_reply_policy="manual",
@@ -54,7 +53,6 @@ def test_enqueue_message_relay_targets_the_mentioned_agent_in_group_chats(
         owner_id=alice.owner_id,
         display_name="Agent B",
         description="profile b",
-        system_prompt="You are agent-b.",
         skills=["playwright", "tdd-execution-worker"],
         tool_allowlist=[],
         group_reply_policy="manual",
@@ -89,10 +87,10 @@ def test_enqueue_message_relay_targets_the_mentioned_agent_in_group_chats(
     }
 
 
-def test_enqueue_message_relay_advances_group_profile_version_without_overwriting_frozen_prompt(
+def test_enqueue_message_relay_advances_group_profile_version(
     tmp_path: Path,
 ) -> None:
-    """Group relays must advance to the latest mentioned-agent profile version while keeping the matching prompt snapshot."""
+    """Group relays advance to the latest mentioned-agent profile version."""
     relay_service, messages, conversations, users, profiles = _build_fixture(tmp_path)
     alice = users.create_user(username="alice", display_name="Alice")
     agent_a_user = users.create_user(username="agent:agent-a", display_name="Agent A")
@@ -102,7 +100,6 @@ def test_enqueue_message_relay_advances_group_profile_version_without_overwritin
         owner_id=alice.owner_id,
         display_name="Agent A",
         description="profile a",
-        system_prompt="Reply with ALPHA_ACK_M170.",
         skills=[],
         tool_allowlist=[],
         group_reply_policy="manual",
@@ -114,7 +111,6 @@ def test_enqueue_message_relay_advances_group_profile_version_without_overwritin
         owner_id=alice.owner_id,
         display_name="Agent B",
         description="profile b",
-        system_prompt="You are agent-b.",
         skills=[],
         tool_allowlist=[],
         group_reply_policy="manual",
@@ -126,19 +122,17 @@ def test_enqueue_message_relay_advances_group_profile_version_without_overwritin
         participant_ids=[alice.id, agent_a_user.id, agent_b_user.id],
     )
 
-    app_prompt = "When mentioned in a group chat, reply exactly with NO_REPLY."
     connection = relay_service._connection
     with connection:
         connection.execute(
-            "UPDATE conversations SET config_agent_id = ?, config_system_prompt = ? WHERE id = ?",
-            ("agent-a", app_prompt, conversation.id),
+            "UPDATE conversations SET config_agent_id = ? WHERE id = ?",
+            ("agent-a", conversation.id),
         )
     profiles.update_profile(
         agent_id="agent-a",
         profile_version=1,
         display_name="Agent A",
         description="profile a v2",
-        system_prompt=app_prompt,
         skills=[],
         tool_allowlist=[],
         group_reply_policy="manual",
@@ -169,10 +163,10 @@ def test_enqueue_message_relay_advances_group_profile_version_without_overwritin
     }
 
 
-def test_enqueue_message_relay_uses_live_group_prompt_when_conversation_has_no_matching_frozen_prompt(
+def test_enqueue_message_relay_uses_live_group_profile_version(
     tmp_path: Path,
 ) -> None:
-    """Group relays must keep using the live prompt when no matching frozen prompt snapshot exists."""
+    """Group relays use the selected Agent's live profile version."""
     relay_service, messages, conversations, users, profiles = _build_fixture(tmp_path)
     alice = users.create_user(username="alice", display_name="Alice")
     agent_a_user = users.create_user(username="agent:agent-a", display_name="Agent A")
@@ -182,7 +176,6 @@ def test_enqueue_message_relay_uses_live_group_prompt_when_conversation_has_no_m
         owner_id=alice.owner_id,
         display_name="Agent A",
         description="profile a",
-        system_prompt="Reply with ALPHA_ACK_M170.",
         skills=[],
         tool_allowlist=[],
         group_reply_policy="manual",
@@ -194,7 +187,6 @@ def test_enqueue_message_relay_uses_live_group_prompt_when_conversation_has_no_m
         owner_id=alice.owner_id,
         display_name="Agent B",
         description="profile b",
-        system_prompt="You are agent-b.",
         skills=[],
         tool_allowlist=[],
         group_reply_policy="manual",
@@ -211,7 +203,6 @@ def test_enqueue_message_relay_uses_live_group_prompt_when_conversation_has_no_m
         profile_version=1,
         display_name="Agent A",
         description="profile a v2",
-        system_prompt="When mentioned in a group chat, reply exactly with NO_REPLY.",
         skills=[],
         tool_allowlist=[],
         group_reply_policy="manual",
@@ -228,7 +219,7 @@ def test_enqueue_message_relay_uses_live_group_prompt_when_conversation_has_no_m
     created = relay_service.enqueue_message_relay(
         message=message,
         target_node_id="node-1",
-        idempotency_key="idem-group-live-profile-no-frozen-prompt",
+        idempotency_key="idem-group-live-profile",
         sender_user_id=alice.id,
         conversation_type="group",
     )
@@ -255,7 +246,6 @@ def test_enqueue_message_relay_normalizes_typed_and_picker_mentions_to_the_same_
         owner_id=alice.owner_id,
         display_name="Agent A",
         description="profile a",
-        system_prompt="You are agent-a.",
         skills=[],
         tool_allowlist=[],
         group_reply_policy="manual",
@@ -267,7 +257,6 @@ def test_enqueue_message_relay_normalizes_typed_and_picker_mentions_to_the_same_
         owner_id=alice.owner_id,
         display_name="Agent B",
         description="profile b",
-        system_prompt="You are agent-b.",
         skills=[],
         tool_allowlist=[],
         group_reply_policy="manual",

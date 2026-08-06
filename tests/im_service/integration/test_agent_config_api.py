@@ -37,12 +37,12 @@ def test_get_agent_config_prefers_live_gateway_snapshot(tmp_path: Path) -> None:
             owner_id=owner.owner_id,
             display_name="Cached Alpha",
             description="cached",
-            system_prompt="cached prompt",
             skills=[],
             tool_allowlist=[],
             group_reply_policy="manual",
             default_model=None,
             workspace_root=None,
+            custom_prompt="cached prompt",
         )
         app.state.connection.execute(
             "UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?",
@@ -85,7 +85,7 @@ def test_get_agent_config_prefers_live_gateway_snapshot(tmp_path: Path) -> None:
                         "agent_id": "agent-1",
                         "agent": {
                             "display_name": "Live Alpha",
-                            "system_prompt": "live prompt",
+                            "custom_prompt": "stale live prompt",
                             "skills": ["plan"],
                             "tool_allowlist": ["read"],
                             "group_reply_policy": "auto",
@@ -112,7 +112,8 @@ def test_get_agent_config_prefers_live_gateway_snapshot(tmp_path: Path) -> None:
         mirror_response = client.get("/im/v1/agents/agent-1/config?source=mirror")
         assert mirror_response.status_code == 200
         assert mirror_response.json()["display_name"] == "Cached Alpha"
-        assert response.json()["system_prompt"] == "live prompt"
+        assert response.json()["custom_prompt"] == "cached prompt"
+        assert "system_prompt" not in response.json()
         assert response.json()["skills"] == ["plan"]
         assert response.json()["tool_allowlist"] == ["read"]
         assert response.json()["group_reply_policy"] == "auto"
@@ -143,7 +144,6 @@ def test_get_agent_config_ignores_mismatched_live_agent_payload(
             owner_id=owner.owner_id,
             display_name="Default Agent",
             description="cached",
-            system_prompt="cached prompt",
             skills=[],
             tool_allowlist=[],
             group_reply_policy="manual",
@@ -155,7 +155,6 @@ def test_get_agent_config_ignores_mismatched_live_agent_payload(
             owner_id=owner.owner_id,
             display_name="Luban",
             description="cached",
-            system_prompt="cached prompt",
             skills=[],
             tool_allowlist=[],
             group_reply_policy="manual",
@@ -204,7 +203,7 @@ def test_get_agent_config_ignores_mismatched_live_agent_payload(
                         "agent": {
                             "agent_id": "luban",
                             "display_name": "Luban",
-                            "system_prompt": "luban prompt",
+                            "custom_prompt": "luban prompt",
                             "skills": ["wrong"],
                             "tool_allowlist": ["skill_view"],
                             "group_reply_policy": "auto",
@@ -242,7 +241,6 @@ def test_profile_updates_only_affect_new_conversations(tmp_path: Path) -> None:
             owner_id=owner.owner_id,
             display_name="Alpha",
             description="initial",
-            system_prompt="You are Alpha.",
             skills=[],
             tool_allowlist=[],
             group_reply_policy="manual",
@@ -275,7 +273,7 @@ def test_profile_updates_only_affect_new_conversations(tmp_path: Path) -> None:
                 "profile_version": 1,
                 "display_name": "Alpha v2",
                 "description": "updated",
-                "system_prompt": "v2",
+                "custom_prompt": "v2",
                 "skills": [],
                 "tool_allowlist": [],
                 "group_reply_policy": "manual",
@@ -331,7 +329,6 @@ def test_bound_agent_survives_fresh_reregistration_and_remains_updatable(
             owner_id="",
             display_name="Alpha",
             description="fresh runtime agent",
-            system_prompt="You are Alpha.",
             skills=[],
             tool_allowlist=[],
             group_reply_policy="manual",
@@ -389,7 +386,7 @@ def test_bound_agent_survives_fresh_reregistration_and_remains_updatable(
                 "profile_version": after_reregister.json()["profile_version"],
                 "display_name": "Alpha NO_REPLY",
                 "description": "updated after fresh re-registration",
-                "system_prompt": "Return NO_REPLY.",
+                "custom_prompt": "Return NO_REPLY.",
                 "skills": [],
                 "tool_allowlist": [],
                 "group_reply_policy": "manual",
@@ -452,7 +449,6 @@ def test_list_cron_jobs_returns_gateway_result(
             owner_id=owner.owner_id,
             display_name="CronAgent",
             description="",
-            system_prompt="",
             skills=[],
             tool_allowlist=[],
             group_reply_policy="manual",
@@ -505,7 +501,6 @@ def test_list_cron_jobs_returns_empty_when_node_offline(
             owner_id=owner.owner_id,
             display_name="OffAgent",
             description="",
-            system_prompt="",
             skills=[],
             tool_allowlist=[],
             group_reply_policy="manual",
@@ -588,7 +583,6 @@ def test_get_skills_usage_returns_gateway_result(
             owner_id=owner.owner_id,
             display_name="SkillAgent",
             description="",
-            system_prompt="",
             skills=[],
             tool_allowlist=[],
             group_reply_policy="manual",
@@ -644,7 +638,6 @@ def test_get_skills_usage_reports_offline_when_rpc_times_out(
             owner_id=owner.owner_id,
             display_name="SkillOffline",
             description="",
-            system_prompt="",
             skills=[],
             tool_allowlist=[],
             group_reply_policy="manual",
@@ -700,7 +693,6 @@ def test_delete_cron_job_returns_gateway_result(
             owner_id=owner.owner_id,
             display_name="DelAgent",
             description="",
-            system_prompt="",
             skills=[],
             tool_allowlist=[],
             group_reply_policy="manual",
@@ -749,7 +741,6 @@ def test_delete_cron_job_returns_404_when_node_offline(
             owner_id=owner.owner_id,
             display_name="DelAgent2",
             description="",
-            system_prompt="",
             skills=[],
             tool_allowlist=[],
             group_reply_policy="manual",
@@ -803,7 +794,6 @@ def test_get_heartbeat_md_returns_gateway_result(
             owner_id=owner.owner_id,
             display_name="HbAgent",
             description="",
-            system_prompt="",
             skills=[],
             tool_allowlist=[],
             group_reply_policy="manual",
@@ -854,7 +844,6 @@ def test_get_heartbeat_md_returns_empty_when_node_offline(
             owner_id=owner.owner_id,
             display_name="HbAgent2",
             description="",
-            system_prompt="",
             skills=[],
             tool_allowlist=[],
             group_reply_policy="manual",

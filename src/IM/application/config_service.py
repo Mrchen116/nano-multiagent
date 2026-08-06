@@ -82,12 +82,13 @@ class ConfigService:
         node_id: str,
         display_name: str,
         description: str,
-        system_prompt: str,
         skills: list[str],
         tool_allowlist: list[str],
         group_reply_policy: str,
         default_model: str | None,
         workspace_root: str,
+        features: dict[str, bool] | None = None,
+        custom_prompt: str | None = None,
     ) -> AgentProfile:
         """Create one agent profile under exactly one known node."""
         existing = self._profiles.get_profile(agent_id=agent_id)
@@ -113,7 +114,6 @@ class ConfigService:
             node_id=node_id,
             display_name=display_name,
             description=description,
-            system_prompt=system_prompt,
             skills=skills,
             tool_allowlist=tool_allowlist,
             group_reply_policy=group_reply_policy,
@@ -121,6 +121,8 @@ class ConfigService:
             workspace_root=self.normalize_workspace_root(
                 agent_id=agent_id, workspace_root=workspace_root
             ),
+            features=features,
+            custom_prompt=custom_prompt,
         )
         # feat-340-M18 R9-1: pair every newly-created agent with an IM users row so the
         # subsequent `POST /im/v1/conversations { participant_ids: [user_id] }` flow
@@ -171,7 +173,6 @@ class ConfigService:
         profile_version: int,
         display_name: str,
         description: str,
-        system_prompt: str,
         skills: list[str],
         tool_allowlist: list[str],
         group_reply_policy: str,
@@ -204,7 +205,6 @@ class ConfigService:
             profile_version=profile_version,
             display_name=display_name,
             description=description,
-            system_prompt=system_prompt,
             skills=skills,
             tool_allowlist=tool_allowlist,
             group_reply_policy=group_reply_policy,

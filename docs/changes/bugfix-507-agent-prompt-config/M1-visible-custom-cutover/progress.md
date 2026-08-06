@@ -9,11 +9,23 @@
 
 ## R1 — IM canonical profile、schema 与 register seed
 
-- Status: TODO
+- Status: DONE
+- Behavior: fresh schema and public Agent profile/API now contain only
+  `custom_prompt`; old SQLite profiles are migrated idempotently with the
+  approved legacy-first merge table, and conversation prompt snapshots are
+  dropped while identity/version snapshots remain.
+- Registration: `node.register.agent_custom_prompts` seeds only a first-seen
+  profile; re-registration preserves existing values, including explicit null.
+- Tests: 67 focused IM unit/contract/integration tests passed (14.02s), covering
+  migration combinations, repeated initialization, API shape, create/update,
+  real Gateway WebSocket registration, seed precedence, and relay continuity.
+- Static checks: Ruff passed for touched IM and IM test paths; `git diff --check`
+  passed.
+- Commit: R1 implementation commit (this commit).
 
 ## R2 — Gateway YAML、sync 与 runtime prompt 单源
 
-- Status: TODO
+- Status: IN PROGRESS
 
 ## R3 — Frontend public shape 与 stable preview 文案
 

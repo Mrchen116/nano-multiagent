@@ -259,7 +259,6 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
                     agent_id="agent-a",
                     workspace_root=refreshed_workspace,
                     title="agent-a v2",
-                    system_prompt="You are upgraded.",
                     skills=("plan",),
                     tool_allowlist=("read",),
                     default_model="claude-sonnet-4",

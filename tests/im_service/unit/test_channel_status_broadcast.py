@@ -49,7 +49,6 @@ def test_accepted_status_broadcasts_precise_agent_channel_event_once(
         node_id="node-a",
         display_name="Agent A",
         description="",
-        system_prompt="You are Agent A.",
         skills=[],
         tool_allowlist=[],
         group_reply_policy="manual",

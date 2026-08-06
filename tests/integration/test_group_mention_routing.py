@@ -35,7 +35,6 @@ def test_group_relay_routes_inline_identity_without_display_name_collision(
             owner_id=owner.owner_id,
             display_name="Shared Name",
             description="",
-            system_prompt="",
             skills=[],
             tool_allowlist=[],
             group_reply_policy="mention",

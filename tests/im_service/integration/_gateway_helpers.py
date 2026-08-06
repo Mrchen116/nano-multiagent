@@ -272,7 +272,6 @@ def seed_node_and_profiles(
             owner_id=owner_id,
             display_name=agent_id,
             description=f"profile for {agent_id}",
-            system_prompt=f"You are {agent_id}.",
             skills=[],
             tool_allowlist=[],
             group_reply_policy="manual",
@@ -299,7 +298,6 @@ def make_agent_configs(
                 agent_id=agent_id,
                 workspace_root=workspace_root,
                 title=agent_id.title(),
-                system_prompt=f"You are {agent_id}.",
             )
         )
     return tuple(agents)

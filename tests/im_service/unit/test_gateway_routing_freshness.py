@@ -129,7 +129,6 @@ def _seed_nonlexical_group(connection):  # noqa: ANN001, ANN202
             node_id=node_id,
             display_name=f"Agent {agent_id}",
             description="",
-            system_prompt=f"You are {agent_id}.",
             skills=[],
             tool_allowlist=[],
             group_reply_policy="manual",

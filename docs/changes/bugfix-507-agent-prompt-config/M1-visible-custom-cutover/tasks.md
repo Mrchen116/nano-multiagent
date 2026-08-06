@@ -72,13 +72,13 @@ Prototype / Reference Contract: N/A；design 未提供 prototype 或 reference s
 
 ### R1 — IM canonical profile、schema 与 register seed
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 先写 migration 合并表/API shape/register precedence 红测；再移除 AgentProfile/API/SQLite/conversation legacy 字段并接入 `agent_custom_prompts` first-seen seed。
 - 验证: IM repository/contract/integration focused pytest；fresh DB 与 old DB schema inspection。
 
 ### R2 — Gateway YAML、sync 与 runtime prompt 单源
 
-- 状态: TODO
+- 状态: IN PROGRESS
 - 步骤: 先写旧 YAML/旧 mirror/registration payload/runtime prompt 红测；再让 `AgentWorkspaceConfig` 只保留 canonical custom，移除 live/session legacy projection，更新 E2E fixture 数据。
 - 验证: PA unit/integration/contract focused pytest，断言序列化和 wire payload 无 legacy key，Kernel override 回归通过。
 

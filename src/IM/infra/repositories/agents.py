@@ -25,7 +25,7 @@ class AgentProfileRepository:
         """List agent profiles in stable creation order."""
         rows = self._connection.execute(
             """
-            SELECT agent_id, owner_id, node_id, display_name, description, system_prompt, skills_json,
+            SELECT agent_id, owner_id, node_id, display_name, description, skills_json,
                    tool_allowlist_json, group_reply_policy, default_model, workspace_root, profile_version,
                    is_stale, features_json, custom_prompt, heartbeat_json
             FROM agent_profiles
@@ -45,7 +45,7 @@ class AgentProfileRepository:
         """
         rows = self._connection.execute(
             """
-            SELECT ap.agent_id, ap.owner_id, ap.node_id, ap.display_name, ap.description, ap.system_prompt, ap.skills_json,
+            SELECT ap.agent_id, ap.owner_id, ap.node_id, ap.display_name, ap.description, ap.skills_json,
                    ap.tool_allowlist_json, ap.group_reply_policy, ap.default_model, ap.workspace_root, ap.profile_version,
                    ap.is_stale, ap.features_json, ap.custom_prompt, ap.heartbeat_json
             FROM agent_profiles ap
@@ -76,7 +76,7 @@ class AgentProfileRepository:
         """
         rows = self._connection.execute(
             """
-            SELECT ap.agent_id, ap.owner_id, ap.node_id, ap.display_name, ap.description, ap.system_prompt, ap.skills_json,
+            SELECT ap.agent_id, ap.owner_id, ap.node_id, ap.display_name, ap.description, ap.skills_json,
                    ap.tool_allowlist_json, ap.group_reply_policy, ap.default_model, ap.workspace_root, ap.profile_version,
                    ap.is_stale, ap.features_json, ap.custom_prompt, ap.heartbeat_json
             FROM agent_profiles ap
@@ -120,7 +120,7 @@ class AgentProfileRepository:
         """Return one agent profile, or None when it does not exist."""
         row = self._connection.execute(
             """
-            SELECT agent_id, owner_id, node_id, display_name, description, system_prompt, skills_json,
+            SELECT agent_id, owner_id, node_id, display_name, description, skills_json,
                    tool_allowlist_json, group_reply_policy, default_model, workspace_root, profile_version,
                    is_stale, features_json, custom_prompt, heartbeat_json
             FROM agent_profiles
@@ -139,7 +139,6 @@ class AgentProfileRepository:
         owner_id: str,
         display_name: str,
         description: str,
-        system_prompt: str,
         skills: list[str],
         tool_allowlist: list[str],
         group_reply_policy: str,
@@ -165,17 +164,16 @@ class AgentProfileRepository:
             self._connection.execute(
                 """
                 INSERT INTO agent_profiles(
-                    agent_id, owner_id, node_id, display_name, description, system_prompt,
+                    agent_id, owner_id, node_id, display_name, description,
                     skills_json, tool_allowlist_json, group_reply_policy,
                     default_model, workspace_root, profile_version, created_at, updated_at,
                     features_json, custom_prompt
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, '{}'), ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, '{}'), ?)
                 ON CONFLICT(agent_id) DO UPDATE SET
                     owner_id = excluded.owner_id,
                     node_id = excluded.node_id,
                     display_name = excluded.display_name,
                     description = excluded.description,
-                    system_prompt = excluded.system_prompt,
                     skills_json = excluded.skills_json,
                     tool_allowlist_json = excluded.tool_allowlist_json,
                     group_reply_policy = excluded.group_reply_policy,
@@ -201,7 +199,6 @@ class AgentProfileRepository:
                     node_id,
                     display_name,
                     description,
-                    system_prompt,
                     skills_json,
                     tool_allowlist_json,
                     group_reply_policy,
@@ -263,7 +260,6 @@ class AgentProfileRepository:
         profile_version: int,
         display_name: str,
         description: str,
-        system_prompt: str,
         skills: list[str],
         tool_allowlist: list[str],
         group_reply_policy: str,
@@ -306,7 +302,6 @@ class AgentProfileRepository:
                 UPDATE agent_profiles
                 SET display_name = ?,
                     description = ?,
-                    system_prompt = ?,
                     skills_json = ?,
                     tool_allowlist_json = ?,
                     group_reply_policy = ?,
@@ -321,7 +316,6 @@ class AgentProfileRepository:
                 (
                     display_name,
                     description,
-                    system_prompt,
                     _encode_json_list(skills),
                     _encode_json_list(tool_allowlist),
                     group_reply_policy,
@@ -388,7 +382,6 @@ class AgentProfileRepository:
             node_id=row["node_id"],
             display_name=row["display_name"],
             description=row["description"],
-            system_prompt=row["system_prompt"],
             skills=_decode_string_list(row["skills_json"]),
             tool_allowlist=_decode_string_list(row["tool_allowlist_json"]),
             group_reply_policy=row["group_reply_policy"],

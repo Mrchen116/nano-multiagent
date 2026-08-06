@@ -44,7 +44,6 @@ def test_cross_owner_concurrent_bind_has_one_atomic_winner(tmp_path: Path) -> No
                 node_id="node-race",
                 display_name="Race Agent",
                 description="",
-                system_prompt="Race safely.",
                 skills=[],
                 tool_allowlist=[],
                 group_reply_policy="manual",

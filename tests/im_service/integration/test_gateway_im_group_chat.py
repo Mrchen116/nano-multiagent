@@ -147,7 +147,6 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
                     agent_id="agent-a",
                     workspace_root=agents[0].workspace_root,
                     title=agents[0].title,
-                    system_prompt="When mentioned in a group chat, reply exactly with NO_REPLY.",
                 )
             )
             inbound_graph(pipeline).binder.invalidate_stale(
