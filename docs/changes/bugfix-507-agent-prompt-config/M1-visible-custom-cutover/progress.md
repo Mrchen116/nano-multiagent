@@ -85,6 +85,32 @@
 - Cleanup: the browser session, Vite, isolated IM/Gateway processes and ports,
   tmux session, and untracked dependency symlink were removed.
 
+## Reviewer fix — C1 SQLite <3.35 prompt-column retirement
+
+- Process: original M1 worker reused its completed context and omitted a new
+  tasks roadmap plus the prior baseline under the reviewer-fix lightweight
+  loop; this is one reversible persistence fix with one regression owner.
+- Context: `ALTER TABLE ... DROP COLUMN` is unavailable before SQLite 3.35.
+  Leaving an old prompt column untouched would also re-merge legacy text on
+  every later startup, duplicating the visible custom prompt.
+- Decision: current SQLite still drops the two retired columns. Older SQLite
+  keeps the physical columns, but clears their values after the canonical
+  migration; the public schema and repositories never read them.
+- Evidence:
+  - Red/green: the new old-SQLite regression first failed because current code
+    dropped the simulated legacy columns, then passed after the guarded
+    retirement change (6 focused tests passed).
+  - Entry/regression: it uses an on-disk SQLite connection, executes the real
+    `initialize_schema()` startup migration twice, and observes canonical
+    profile data plus cleared retained legacy storage.
+  - Full gate: `pytest tests/im_service tests/unit/IM -q` — 423 passed.
+  - Static: Ruff and `git diff --check` passed.
+  - Frontend State Matrix / Browser QA / Visual: N/A; this changes only IM
+    startup persistence behavior.
+- Rollback: `3d0e45290`.
+- Commits: this reviewer-fix commit.
+- Next: independent code review.
+
 ## Promotion Candidates
 
 None.

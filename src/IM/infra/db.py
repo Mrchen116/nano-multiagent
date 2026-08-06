@@ -266,6 +266,8 @@ CREATE TABLE IF NOT EXISTS agent_channel_status (
 );
 """
 
+_SQLITE_DROP_COLUMN_MIN_VERSION = (3, 35, 0)
+
 
 def connect(db_path: Path) -> sqlite3.Connection:
     """Create an SQLite connection for IM persistence.
@@ -670,16 +672,23 @@ def _migrate_agent_profile_tables(connection: sqlite3.Connection) -> None:
                     row["rowid"],
                 ),
             )
-        connection.execute("ALTER TABLE agent_profiles DROP COLUMN system_prompt")
+        if sqlite3.sqlite_version_info >= _SQLITE_DROP_COLUMN_MIN_VERSION:
+            connection.execute("ALTER TABLE agent_profiles DROP COLUMN system_prompt")
+        else:
+            # Keep old SQLite migrations idempotent without retaining hidden text.
+            connection.execute("UPDATE agent_profiles SET system_prompt = ''")
 
     conversation_column_names = {
         row["name"]
         for row in connection.execute("PRAGMA table_info(conversations)").fetchall()
     }
     if "config_system_prompt" in conversation_column_names:
-        connection.execute(
-            "ALTER TABLE conversations DROP COLUMN config_system_prompt"
-        )
+        if sqlite3.sqlite_version_info >= _SQLITE_DROP_COLUMN_MIN_VERSION:
+            connection.execute(
+                "ALTER TABLE conversations DROP COLUMN config_system_prompt"
+            )
+        else:
+            connection.execute("UPDATE conversations SET config_system_prompt = ''")
 
     # feat-394: heartbeat cadence persisted as JSON string per agent profile.
     # feat-394 M9-E: cron_json column intentionally not added — enable state lives in
