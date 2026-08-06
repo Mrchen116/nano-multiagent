@@ -139,6 +139,46 @@ def test_group_message_pushes_relay_to_each_agent(tmp_path: Path) -> None:
     assert pushed_agent_ids == {"agent-a", "agent-b"}
 
 
+def test_group_message_pushes_each_agent_to_its_own_node(tmp_path: Path) -> None:
+    """Group fan-out keeps a cross-node participant on its own Gateway node."""
+
+    app, db_path, conv_id, alice_id, auth, mock_gateway = _setup_group_conversation(
+        tmp_path
+    )
+    connection = connect(db_path)
+    connection.execute(
+        "UPDATE agent_profiles SET node_id = 'node-2' WHERE agent_id = 'agent-b'"
+    )
+    connection.commit()
+    connection.close()
+    push_calls: list[dict] = []
+
+    async def _fake_push(
+        *, relay_task_id: str, target_node_id: str, payload: dict
+    ) -> bool:
+        del relay_task_id
+        push_calls.append(
+            {"agent_id": payload.get("agent_id"), "target_node_id": target_node_id}
+        )
+        return True
+
+    mock_gateway.push_relay_message = _fake_push
+
+    with TestClient(app) as client:
+        client.app.state.gateway_relay = mock_gateway
+        response = client.post(
+            f"/im/v1/conversations/{conv_id}/messages",
+            json={"sender_user_id": alice_id, "content": "/new"},
+            headers=auth,
+        )
+
+    assert response.status_code in (200, 201), response.text
+    assert {call["agent_id"]: call["target_node_id"] for call in push_calls} == {
+        "agent-a": "node-1",
+        "agent-b": "node-2",
+    }
+
+
 def test_group_message_partial_push_failure_continues(tmp_path: Path) -> None:
     """一个 agent 节点离线不阻断其他 agent 的 relay；所有 agent 均被尝试。"""
     app, db_path, conv_id, alice_id, auth, mock_gateway = _setup_group_conversation(

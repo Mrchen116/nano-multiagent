@@ -636,6 +636,9 @@
       "skills": "Skills",
       "noMatch": "没有匹配的 slash 项",
       "stopDesc": "中断当前正在执行的运行",
+      "newDesc": "在当前聊天中开始新会话",
+      "newGroupDesc": "为群内所有 Agent 开始新会话",
+      "compactDesc": "压缩当前会话的上下文",
       "from": "来自 {{agents}}"
     }
   },

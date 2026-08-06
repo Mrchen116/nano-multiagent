@@ -284,22 +284,47 @@ class InboundPipeline:
         if message.text.strip() == "/stop":
             return True
         # A web-relay external shadow historically synthesizes a target Agent when
-        # relaying a group message without a mention.  It remains valid for normal
-        # conversational turns, but must not turn `/new` or `/compact` into a bare
-        # destructive group command.
+        # relaying a group message without a mention. It remains valid for normal
+        # conversational turns, but cannot authorize a destructive control.
         if (
             control_command in {"new", "compact"}
             and message.metadata.get("implicit_external_agent_target") is True
         ):
             reply_to = message.metadata.get("reply_to_agent_id")
             return isinstance(reply_to, str) and reply_to.strip() == agent_id
+        mentioned = message.metadata.get("mentioned_agent_ids")
+        has_mentioned_target = isinstance(mentioned, list) and any(
+            isinstance(candidate, str) and candidate.strip() for candidate in mentioned
+        )
+        reply_to = message.metadata.get("reply_to_agent_id")
+        has_reply_target = isinstance(reply_to, str) and bool(reply_to.strip())
+        # Web IM group messages are relayed once per participant. Only an
+        # unaddressed, exact `/new` is the explicit group-wide reset; a
+        # reply/mention remains a targeted control even when its textual body is
+        # just `/new`. External-channel groups retain their existing explicit
+        # Bot-target requirement.
+        if (
+            control_command == "new"
+            and message.text.strip() == "/new"
+            and message.channel_name == "web_relay"
+            and message.metadata.get("external_source") is None
+            and not has_mentioned_target
+            and not has_reply_target
+        ):
+            return True
+        # Controls other than the explicit group-wide `/new` require a concrete
+        # target regardless of the Agent's normal group reply policy.
+        if control_command in {"new", "compact"}:
+            if isinstance(mentioned, list) and agent_id in mentioned:
+                return True
+            if has_reply_target and reply_to.strip() == agent_id:
+                return True
+            return f"@{agent_id}" in message.text
         if (agent_config.group_reply_policy or "MENTION").upper() == "ALWAYS":
             return True
-        mentioned = message.metadata.get("mentioned_agent_ids")
         if isinstance(mentioned, list) and agent_id in mentioned:
             return True
-        reply_to = message.metadata.get("reply_to_agent_id")
-        if isinstance(reply_to, str) and reply_to.strip() == agent_id:
+        if has_reply_target and reply_to.strip() == agent_id:
             return True
         return f"@{agent_id}" in message.text
 
@@ -321,6 +346,8 @@ class InboundPipeline:
             isinstance(reply_to, str) and reply_to.strip() == agent_id
         )
         candidates = {f"@{agent_id}"}
+        if structurally_mentioned:
+            candidates.add(f'<mention type="agent" target_id="{agent_id}"/>')
         feishu_mentions = message.metadata.get("feishu_mentions")
         if structurally_mentioned and isinstance(feishu_mentions, list):
             for mention in feishu_mentions:

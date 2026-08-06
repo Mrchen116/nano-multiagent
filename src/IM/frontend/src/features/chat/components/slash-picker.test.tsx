@@ -15,23 +15,47 @@ const SKILLS: SlashSkillCandidate[] = [
 function noop() {}
 
 describe("SlashPicker", () => {
-  it("shows /stop command and all skills when query is empty", () => {
+  it("shows every built-in control command and all skills when query is empty", () => {
     render(<SlashPicker skills={SKILLS} query="" skillMode={false} isGroup={false} onSelect={noop} onClose={noop} />);
     expect(screen.getByText("/stop")).toBeInTheDocument();
+    expect(screen.getByText("/new")).toBeInTheDocument();
+    expect(screen.getByText("/compact")).toBeInTheDocument();
     expect(screen.getByText("pr-review")).toBeInTheDocument();
     expect(screen.getByText("doc")).toBeInTheDocument();
   });
 
-  it("prefix-filters commands and skills together; non-matching /stop disappears", () => {
+  it("prefix-filters commands and skills together", () => {
     render(<SlashPicker skills={SKILLS} query="pr" skillMode={false} isGroup={false} onSelect={noop} onClose={noop} />);
     expect(screen.getByText("pr-review")).toBeInTheDocument();
     expect(screen.queryByText("/stop")).not.toBeInTheDocument();
+    expect(screen.queryByText("/new")).not.toBeInTheDocument();
+    expect(screen.queryByText("/compact")).not.toBeInTheDocument();
     expect(screen.queryByText("doc")).not.toBeInTheDocument();
   });
 
-  it("in /skill: mode shows only skills (no /stop command)", () => {
+  it.each(["new", "compact"])("shows /%s for its command prefix", (query) => {
+    render(<SlashPicker skills={SKILLS} query={query} skillMode={false} isGroup={false} onSelect={noop} onClose={noop} />);
+    expect(screen.getByText(`/${query}`)).toBeInTheDocument();
+  });
+
+  it("explains that bare /new resets every group agent", () => {
+    render(<SlashPicker skills={SKILLS} query="new" skillMode={false} isGroup onSelect={noop} onClose={noop} />);
+    expect(screen.getByText("Start a new session for every agent in this group")).toBeInTheDocument();
+  });
+
+  it("updates the /new description when the current chat becomes a group", () => {
+    const { rerender } = render(
+      <SlashPicker skills={SKILLS} query="new" skillMode={false} isGroup={false} onSelect={noop} onClose={noop} />,
+    );
+    rerender(<SlashPicker skills={SKILLS} query="new" skillMode={false} isGroup onSelect={noop} onClose={noop} />);
+    expect(screen.getByText("Start a new session for every agent in this group")).toBeInTheDocument();
+  });
+
+  it("in /skill: mode shows only skills (no built-in commands)", () => {
     render(<SlashPicker skills={SKILLS} query="" skillMode={true} isGroup={false} onSelect={noop} onClose={noop} />);
     expect(screen.queryByText("/stop")).not.toBeInTheDocument();
+    expect(screen.queryByText("/new")).not.toBeInTheDocument();
+    expect(screen.queryByText("/compact")).not.toBeInTheDocument();
     expect(screen.getByText("pr-review")).toBeInTheDocument();
   });
 
@@ -62,7 +86,7 @@ describe("SlashPicker", () => {
     const onSelect = vi.fn();
     render(<SlashPicker skills={SKILLS} query="" skillMode={false} isGroup={false} onSelect={onSelect} onClose={noop} />);
     await user.keyboard("{ArrowDown}{Enter}");
-    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ kind: "skill", name: "pr-review" }));
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ kind: "command", name: "new" }));
   });
 
   it("Escape closes the picker", async () => {

@@ -430,9 +430,10 @@ async def create_message(
         # Push each relay independently: one offline agent must not block others.
         any_dispatched = False
         for relay_result in relay_results:
+            relay_target_node_id = relay_result.relay_task.target_node_id
             dispatched = await gateway_handler.push_relay_message(
                 relay_task_id=relay_result.relay_task.relay_task_id,
-                target_node_id=resolved_target_node_id,
+                target_node_id=relay_target_node_id,
                 payload=relay_result.relay_task.payload,
             )
             if dispatched:
@@ -442,7 +443,7 @@ async def create_message(
                     conversation_id=created.conversation_id,
                     message_id=created.id,
                     relay_task_id=relay_result.relay_task.relay_task_id,
-                    target_node_id=resolved_target_node_id,
+                    target_node_id=relay_target_node_id,
                     reason="node_disconnected",
                     guidance="检查目标节点连接状态后重试，或切换到在线节点。",
                 )
