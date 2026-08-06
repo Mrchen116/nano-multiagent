@@ -15,6 +15,8 @@
 
 > 好，你独立走spec，design，修复该问题。
 
+> 不要，彻底把system_prompt逻辑删掉，不用考虑兼容之前的版本
+
 附：用户在 IM Agent 配置页查看团队实验 Agent 时，`Custom Instructions` 为空；展开
 “Preview full system prompt”后看到的是公共提示词，页面底部说明群聊和记忆运行时段未被预览。
 
@@ -29,6 +31,10 @@
 - Q2: 本次是只解释问题，还是独立完成从需求、设计到修复的完整变更？
   A(原话): 好，你独立走spec，design，修复该问题。
   Agent 解读: 用户授权在既有产品决策范围内独立完成 Full bugfix 流程，并以 #244 跟踪。
+
+- Q3: 已有 Agent 的 legacy `system_prompt` 是否需要迁移为可见的 Custom Instructions？
+  A(原话): 不要，彻底把system_prompt逻辑删掉，不用考虑兼容之前的版本
+  Agent 解读: IM/PA 的公开 Agent 配置不读取、迁移、展示或再次传播旧字段；旧专属说明允许被丢弃，不能成为新的 Custom Instructions 或后续回复的输入。
 
 ## 现象与复现
 
@@ -46,7 +52,7 @@ Agent owner 打开 IM 的 Agent 配置页，只能编辑 `Custom Instructions`�
 - 受影响对象是所有持有非空 legacy `system_prompt` 的 IM/PA Agent，以及它们的直聊和群聊后续新回复。
 - 用户会得到“配置页显示为空、Agent 行为却带有专属约束”的错误心智模型；团队模板尤其无法被审阅。
 - “Preview full system prompt”不能作为有效配置的可信检查工具，容易让用户基于错误信息调整 Agent。
-- 当前未发现消息、聊天历史或工具调用数据损坏；风险是行为不透明和既有专属指令在删除字段时被静默丢失。
+- 当前未发现消息、聊天历史或工具调用数据损坏；旧专属说明被丢弃是 owner 明确选择的升级语义，而非数据损坏。
 
 ## 根因分析（RCA）
 
@@ -57,7 +63,8 @@ Agent owner 打开 IM 的 Agent 配置页，只能编辑 `Custom Instructions`�
 用户覆盖。该 unit 的决策 5 同时废弃了用户面的整串 `system_prompt` 覆盖语义。
 
 必须保住的不变量是：Agent owner 在 IM 中看到并保存的定制文本，才是改变该 Agent 专属人设的
-唯一公开配置；公共提示词、群聊上下文、记忆等各自保持既有职责。
+唯一公开配置；旧 `system_prompt` 不具有迁移、恢复或隐藏回退语义。公共提示词、群聊上下文、
+记忆等各自保持既有职责。
 
 ### 直接根因
 
@@ -86,9 +93,9 @@ Agent owner 打开 IM 的 Agent 配置页，只能编辑 `Custom Instructions`�
 公共规则之后。页面仍明确说明群聊参与者、记忆和其他运行时信息不在预览内，但不能遗漏任何
 已保存的稳定用户配置。
 
-**场景 3 — 已有 Agent 不丢约束。** 已经因 legacy 字段而实际带有专属说明的 Agent，升级后其说明
-仍作为可见的 Custom Instructions 保留；owner 可以理解、审阅、修改或清空它，而不是在升级中
-悄悄失去行为约束。
+**场景 3 — 旧隐藏说明不再存在。** 已经因 legacy 字段而实际带有专属说明的 Agent，升级后不再从
+该字段得到角色约束；owner 看到的 Custom Instructions 才是唯一真值。旧值不被迁入、显示或在以后
+重新生效。
 
 ## 验收标准
 
@@ -117,20 +124,20 @@ Agent owner 打开 IM 的 Agent 配置页，只能编辑 `Custom Instructions`�
 - **THEN** 页面明确说明群聊、记忆等运行时内容不在预览内
 - **AND** 除这些明确的运行时内容外，所有稳定用户配置都与实际新回复一致
 
-### Requirement: 既有隐藏说明变为可审阅的公开配置
+### Requirement: 旧隐藏说明被彻底废弃
 
-#### Scenario: 升级后保留已有 Agent 的有效专属说明
+#### Scenario: 升级后旧说明不再影响 Agent
 - **GIVEN** 某 Agent 在升级前因 legacy 配置实际带有专属说明
 - **WHEN** 系统升级且 owner 重新打开该 Agent 配置
-- **THEN** owner 能在 Custom Instructions 中看到并编辑该说明
-- **AND** 该说明不会静默丢失或重复注入
+- **THEN** owner 看不到由该 legacy 值迁入的 Custom Instructions
+- **AND** 后续新回复和稳定提示词预览都不采用该说明
 
 ## 范围与非目标
 
 ### 范围
 
-- IM/PA Agent profile、Gateway 配置同步和 PA 提示词装配中 legacy `system_prompt` 的公开语义收敛。
-- 将已有有效 legacy 专属说明迁入可见的 `custom_prompt`，并防止重复注入。
+- IM/PA Agent profile、Gateway 配置同步和 PA 提示词装配中 legacy `system_prompt` 的公开语义彻底删除。
+- 删除旧 SQLite/YAML 值的读取、合并、迁移、首次注册 seed 与运行时投影；不提供数据保留或恢复路径。
 - Agent 配置页预览与实际稳定配置的同源性，以及对应跨进程回归覆盖。
 - 将团队模板或实验 Agent 的成员职责改为可见的 Custom Instructions 数据，而不是隐藏字段。
 
@@ -140,4 +147,3 @@ Agent owner 打开 IM 的 Agent 配置页，只能编辑 `Custom Instructions`�
 - 删除 Kernel 内部受控的完整 system-prompt override；它可继续服务子 Agent、测试或明确的内部 hook，
   但不再由 IM/PA 的公开 Agent 配置提供。
 - 新增一套团队角色编辑器或模板 UI；该产品能力属于 feat-397 的后续范围。
-
