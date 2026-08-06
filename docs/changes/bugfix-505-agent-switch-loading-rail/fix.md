@@ -39,12 +39,14 @@
 
 实现复核又发现两个同属异步壳层的边界：路由从已加载 Agent A 切到 Agent B 时，页面仍保留 A 的 `draft`；若 B 的首次请求失败，error 分支因旧 `draft` 存在而不会显示，随后落入“不完整详情”的 loading。另一个边界是 desktop state panel 使用 `overflow-hidden`，较长的后端错误详情会把 Retry 裁出可视区且无法滚动。
 
+第二轮复核进一步确认，依赖 `agentId` effect 清理仍不是完整的 Agent 生命周期边界。若 A 的保存请求 pending 时切到 B，同一个 TanStack Query mutation observer 会在 B render 时更新 options，随后 A 的成功回调可能使用 B 的 closure，把 A 的响应写入 B 的 draft、saved 状态与 query cache。并且 effect 属于被动阶段；当 B 已同步命中 cache，页面可先 commit 一帧 `route=B` 与 `draft=A` 的组合，再由 effect 修正。
+
 ## 修复
 
 - `AgentDetailPage` 把 initial loading、initial error 和 detail 尚未完整的状态统一放入 responsive state shell。desktop shell 始终先渲染既有 `AgentsRailDesktop`；mobile 继续只渲染单栏内容。
 - 原本孤立的 loading 文本改为内容面板内的窄幅白色状态卡，使用轻边框、阴影和单一 accent spinner；initial error 在同一位置展示详情与 Retry。
 - `AgentsRailDesktop` 的 normal Agent 名称/id 改为深色 rail 上的亮前景，active 继续使用白色名称与高亮背景；hover、focus、active 背景集中为静态 class，不再由 mouse event 改 inline style。
-- 路由目标变化时同步清理上一 Agent 的 draft、保存提示、错误提示和表单交互状态；随后仅由当前 Agent 的成功响应重建 draft，因此 B 首次失败会直接显示 B 的错误，不会残留 A 的配置或卡在 loading。
+- `AgentDetailPage` 只读取 route param，并用 `key={agentId}` 挂载实际持有 state/query/mutation 的 `AgentDetailPageContent`。Agent 切换会在 commit 前创建新的 Agent-scoped state 与 mutation observer；旧 Agent 的 pending mutation 无法写入新 Agent 的 draft、saved 状态或 cache，cached/uncached B 都不会渲染 A 的表单。
 - state panel 改为自身承担纵向滚动；长错误详情仍完整保留，Retry 可通过内容区滚动到达，desktop rail 不随内容滚动。
 - 新增长期回归：`agent-detail-loading-shell.test.tsx` 覆盖 desktop pending/error 保留 rail 与 mobile 单栏；`agents-rail-desktop.test.tsx` 覆盖 normal/hover/active identity color semantics 与 desktop-only responsive class。
 - 实现 commits：`f6e733d1d`、`195a22809`；真实浏览器 evidence commit：`27551b89d`。
@@ -60,3 +62,6 @@
 - Reviewer fix 回归：4 个相关前端测试文件共 32 tests passed；`npm run build` 通过（502 modules）。既有 detail 测试仍只有 baseline React `act(...)` warnings，无失败。
 - Reviewer fix 真实入口：隔离 Web IM 中先让 `/settings/agents/e2e` 真实 200 加载，再从 desktop rail 切到注入 503 的 `e2e-peer`；页面显示 B 的完整错误与 Retry，rail 保持并选中 B，不再展示 A 的表单。`1440x420` 下 state panel 实测 `scrollHeight=638`、`clientHeight=372`，滚到底后 Retry 位于 viewport 内；`390x844` 下仍为无 desktop rail 的单列错误页。注入阶段 console 唯一 error 为预期 503。
 - Reviewer fix 截图：`M1-fix/evidence/review-agent-switch-error.png`、`review-long-error-scroll.png`、`review-mobile-error.png`。该轮 Playwright session、Vite、IM 与 Gateway 均已停止并清理。
+- Reviewer fix round 2 红测：修前 pending save A→cached B 用例在 A 响应后把 B 页面改成 `Agent One Saved` 并污染 B cache；commit probe 也直接记录到 `{agentId: "agent-two", heading: "Agent One"}`。keyed route boundary 后两个用例转绿，async-shell 文件 7/7 passed。
+- Reviewer fix round 2 回归：4 个相关前端测试文件共 34 tests passed；`npm run build` 通过（502 modules）。既有 detail 测试仍只有 baseline React `act(...)` warnings，无失败。
+- Reviewer fix round 2 真实入口：隔离 Web IM 中先真实加载 `e2e-peer` 形成 cache，再编辑 `e2e` 并把真实 PATCH 响应延迟 30 秒；保存后立即切回 cached `e2e-peer`。A 的 PATCH 最终 200 后，B 仍显示 `e2e-peer`、rail 仍选中 B、状态为 `No changes`，console 0 errors / 0 warnings。截图：`M1-fix/evidence/review-pending-save-isolated.png`；Playwright、Vite、IM 与 Gateway 均已停止并清理。

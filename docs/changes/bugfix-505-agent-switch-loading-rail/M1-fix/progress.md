@@ -90,3 +90,22 @@ None.
   - Runtime cleanup: Playwright session、Vite、IM、Gateway 均停止；`e2e-down.sh` 清理隔离运行时，Vite `58067` 无 listener。
 - Rollback: revert 本 reviewer-fix commit；不影响先前 R1/R2/R3 commits。
 - Commits: pending（本 reviewer-fix commit）
+
+## Reviewer fix round 2 — Agent-scoped state 与 mutation 隔离
+
+- Status: DONE
+- Fast lane: F3/F4 都属于同一 route switching lifecycle，修复为一个 wrapper boundary、两条定向回归和一个可回滚 commit；继续省略新的 §3 tasks template，不扩展 milestone。
+- Root cause:
+  - F3: stateful `AgentDetailPage` 跨 `agentId` 复用同一个 TanStack Query mutation observer；B render 会更新 observer options，A 的 pending save 成功后可能执行 B closure，把 A 响应写入 B UI/cache/saved 状态。
+  - F4: `[agentId]` passive effect 只在 commit 后清理 local draft；若 B detail 同步命中 cache，B route 的首个 commit 仍可携带 A draft。
+- Decision: route-facing `AgentDetailPage` 只解析 `agentId`，以 `key={agentId}` 渲染持有所有 local state、query 和 mutation 的 `AgentDetailPageContent`。route identity 变化时 React 在 commit 边界重挂载完整 Agent scope，不保留 manual reset effect，也不增加 epoch/ref plumbing。
+- Evidence:
+  - Red: async-shell 文件 2 failed / 5 passed；pending save A→B 最终把 B heading 改为 `Agent One Saved` 并显示 saved，commit probe 记录 `{agentId: "agent-two", heading: "Agent One"}`。
+  - Green: async-shell 7/7 passed；pending A completion 不改变 B heading/saved/B query cache，cached B 的所有 commit 都不含 A heading。
+  - Regression: `agent-detail-loading-shell.test.tsx`、`agents-rail-desktop.test.tsx`、`agent-detail-page.test.tsx`、`agent-create.test.tsx` 共 4 files / 34 tests passed；baseline `act(...)` warnings 无失败。
+  - Build: `npm run build` passed，TypeScript + Vite 共 502 modules。
+  - Browser: 真实登录后先加载 `/settings/agents/e2e-peer` 形成 cache，再打开 `/settings/agents/e2e`、编辑名称并提交；真实 PATCH 响应延迟 30 秒，在 pending 窗口从 rail 切回 cached B。A PATCH 最终 200 后，URL/header/form 仍为 `e2e-peer`、B rail active、footer `No changes`。console 0 errors / 0 warnings；相关 config/capabilities/nodes/agents 请求与 PATCH 均 200。
+  - Visual: `evidence/review-pending-save-isolated.png`（1440x900，A 响应落地后的 B 页面）。
+  - Runtime cleanup: Playwright session、Vite `62383`、IM `62431` 与 Gateway 均停止，`e2e-down.sh` 已清理隔离运行时，两端口无 listener。
+- Rollback: revert 本 reviewer-fix round 2 commit；回到 round 1 的手动 effect 清理实现。
+- Commits: pending（本 reviewer-fix round 2 commit）

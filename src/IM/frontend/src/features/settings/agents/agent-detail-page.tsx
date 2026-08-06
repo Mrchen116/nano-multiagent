@@ -1246,6 +1246,10 @@ function AgentSkillsUsagePanel({ agentId }: { agentId: string }) {
 
 export function AgentDetailPage() {
   const { agentId = "" } = useParams();
+  return <AgentDetailPageContent key={agentId} agentId={agentId} />;
+}
+
+function AgentDetailPageContent({ agentId }: { agentId: string }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { t } = useTranslation();
@@ -1270,15 +1274,6 @@ export function AgentDetailPage() {
     queryFn: () => getAgentDetailState(agentId),
     staleTime: 30_000
   });
-
-  useEffect(() => {
-    setActiveSection("config");
-    setDraft(null);
-    setSaved(false);
-    setErrorMessage(null);
-    setHasAttemptedSave(false);
-    setTouched({});
-  }, [agentId]);
 
   useEffect(() => {
     if (detailQuery.data?.config) {
