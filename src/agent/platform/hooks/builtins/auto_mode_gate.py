@@ -38,6 +38,7 @@ _log = logging.getLogger("agent.platform.hooks.auto_mode_gate")
 
 from agent.core.runs.origin import RunOrigin
 from agent.platform.config.auto_mode import AutoModeConfig, load_auto_mode_config
+from agent.platform.hooks.tool_approval_model import get_tool_approval_model
 from agent.platform.permissions.broker import (
     PermissionBroker,
     PermissionDecision,
@@ -433,7 +434,11 @@ def parse_xml_reason(text: str) -> str | None:
 
 
 async def _classify_action(
-    ctx: Any, system_prompt: str, user_prompt: str
+    ctx: Any,
+    system_prompt: str,
+    user_prompt: str,
+    *,
+    model: str | None = None,
 ) -> PermissionDecision:
     """Two-stage XML classification. Pixel-perfect CC classifyYoloActionXml.
 
@@ -451,6 +456,7 @@ async def _classify_action(
         ctx: HookContext with call_model capability.
         system_prompt: Pre-assembled classifier system prompt.
         user_prompt: Transcript + current action as user message.
+        model: Explicit classifier model, or ``None`` to reuse the current run model.
 
     Returns:
         PermissionDecision with behavior in {"allow", "deny", "ask"}.
@@ -464,6 +470,7 @@ async def _classify_action(
     try:
         stage1_result = await asyncio.wait_for(
             ctx.call_model(
+                model=model,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt + XML_S1_SUFFIX,
                 max_tokens=64,
@@ -509,6 +516,7 @@ async def _classify_action(
     try:
         stage2_result = await asyncio.wait_for(
             ctx.call_model(
+                model=model,
                 system_prompt=system_prompt,  # Same system prompt → prompt cache hit
                 user_prompt=user_prompt + XML_S2_SUFFIX,
                 max_tokens=4096,
@@ -937,7 +945,12 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
         user_prompt = _build_transcript_user_message(ctx, tool_name, current_projection)
 
         try:
-            decision = await _classify_action(ctx, system_prompt, user_prompt)
+            decision = await _classify_action(
+                ctx,
+                system_prompt,
+                user_prompt,
+                model=get_tool_approval_model(hooks),
+            )
         except Exception as exc:
             # Hook body catch-all: any unexpected error → fail-closed (deny)
             ctx.logger.error("auto_mode_gate unexpected error", error=str(exc))

@@ -19,12 +19,12 @@
 | Area | Covers | Requirements |
 |---|---|---|
 | [Auth and Tenancy](auth-tenancy.md) | JWT、owner 隔离、系统 policies | 3 |
-| [Conversations and Messages](conversations-messages.md) | 会话/消息 CRUD、shadow conversation、配置边界、outbox、群聊、分页、fork | 14 |
+| [Conversations and Messages](conversations-messages.md) | 会话/消息 CRUD、shadow conversation、配置边界、outbox、群聊、分页、fork | 15 |
 | [Web Chat UX](web-chat-ux.md) | 历史加载、配置边界、滚动、输入、slash 控制命令、消息操作、conversation skill 蒸馏入口、响应式体验 | 13 |
 | [Tool Timeline](tool-timeline.md) | tool/reasoning 实时状态、展示、权限卡、长输出 | 8 |
 | [Response Metrics](response-metrics.md) | 墙钟耗时、气泡指标、缓存命中率 | 3 |
 | [Agents and Nodes](agents-nodes.md) | agent 配置保存与实际采用、可见专属说明与稳定提示词预览、创建/配置 UX、外部 channel 控制面、skill_view、产品说明书、skill usage、heartbeat/cron、能力、节点绑定/状态 | 20 |
-| [Gateway Relay](gateway-relay.md) | WS 协议、配置边界事件、幂等回执、离线降级、后台通知、liveness、授权决策 | 9 |
+| [Gateway Relay](gateway-relay.md) | WS 协议、配置边界事件、幂等回执、离线降级、后台通知、liveness、授权决策 | 10 |
 
 ## Maintenance Rule
 
