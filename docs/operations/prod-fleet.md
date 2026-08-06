@@ -37,6 +37,8 @@ LLM_PROXY :4000                            Gateway node_id=mac-mini
 | 改 Gateway 配置 | 目标机先 `stop`，改 config，再启动；细节见 [`gateway.md`](gateway.md) |
 | 排障 | [`troubleshooting.md`](troubleshooting.md)；结合两边 `gateway.log` 与 IM `im-service.log` |
 
+mini 的 IM 签名密钥是生产持久状态：`~/.nano-assistant/im-jwt-secret`（权限 `0600`）。常规更新在停止 IM 前读取并复用它，不能临时生成。需要主动换钥时才覆盖这个文件；换钥会使 Web IM 既有登录态失效，之后须重启两台 Gateway 让其重新认证并恢复在线。精确顺序见 [`prod-fleet-deploy` skill](../../.claude/skills/prod-fleet-deploy/SKILL.md)。
+
 ## 可用性判断
 
 同时满足才视为舰队正常：

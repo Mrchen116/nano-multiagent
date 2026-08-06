@@ -62,7 +62,7 @@ ssh mini                  # Host mini -> 100.88.34.122, user czj, id_rsa 免密
 4. **Gateway CLI**：只有 `stop` / `restart`；不带参数裸跑 = start。没有 `start` 子命令。
 5. **本机禁止起 IM `:8011`**。Web IM 入口：`http://100.88.34.122:8011/`。
 6. **IM 前端 `src/IM/frontend/dist` 被 gitignore**——mini 上 pull 到前端改动后必须 `npm ci && npm run build`。
-7. **IM 需要 `IM_JWT_SECRET`**，由 mini 的本地环境或服务管理器提供；不得把值写进仓库。
+7. **IM 签名密钥只保存在 mini `~/.nano-assistant/im-jwt-secret`（`0600`）**；不得把值写进仓库、shell history 或临时命令。常规部署在停止旧 IM 前读出并复用它；文件缺失或为空时必须直接失败。主动换钥才覆盖该文件，并会使 Web IM 既有登录态失效。
 8. **两边 Gateway 启动都带 `SEARXNG_URL=http://100.88.34.122:8888`**（SearXNG 只在 mini；本机经 Tailscale 访问）。mini 上也可用 `http://127.0.0.1:8888`。
 9. **LLM 代理配置只在启动时加载**；改 `upstreams.json` / `.env` 必须重启对应代理。改前留 `.bak`。
 10. 顺序：**IM →（各机 LLM 代理若需要）→ 两边 Gateway**。Gateway 启动即连 IM。
@@ -79,10 +79,18 @@ ssh mini 'cd ~/Repos/nano-multiagent && git status -sb && git pull'
 # 2. 前端有改动则重建
 ssh mini 'zsh -lc "cd ~/Repos/nano-multiagent/src/IM/frontend && npm ci && npm run build"'
 
-# 3. 重启 IM
-ssh mini 'kill $(lsof -ti:8011) 2>/dev/null; sleep 1; cd ~/Repos/nano-multiagent && \
-  PYTHONPATH=src IM_JWT_SECRET="${IM_JWT_SECRET:?set in mini environment}" \
-  nohup .venv/bin/python -m uvicorn IM.app:app --host 0.0.0.0 --port 8011 >> im-service.log 2>&1 &'
+# 3. 读取持久密钥后重启 IM（普通更新不换钥）
+ssh mini 'zsh -lc '"'"'
+  secret_file="$HOME/.nano-assistant/im-jwt-secret"
+  [[ -s "$secret_file" ]] || { print -u2 -r -- "IM secret missing: $secret_file"; exit 1; }
+  im_secret=$(<"$secret_file")
+  pids=$(lsof -ti:8011)
+  [[ -n "$pids" ]] && kill $pids
+  for attempt in {1..120}; do lsof -ti:8011 >/dev/null 2>&1 || break; sleep 0.5; done
+  lsof -ti:8011 >/dev/null 2>&1 && { print -u2 -r -- "IM port still in use"; exit 1; }
+  cd ~/Repos/nano-multiagent && IM_JWT_SECRET="$im_secret" PYTHONPATH=src \
+    nohup .venv/bin/python -m uvicorn IM.app:app --host 0.0.0.0 --port 8011 >> im-service.log 2>&1 &
+'"'"''
 
 # 4. 若改了 LLM_Bridge，重启代理
 ssh mini 'kill $(lsof -ti:4000) 2>/dev/null; sleep 1; cd ~/Repos/LLM_Bridge && \
@@ -123,6 +131,23 @@ cd ~/Repos/nano-multiagent && \
 | 只更新本机 Gateway | 步骤 6–9 + 验证本机 node |
 | 只重启 LLM 代理 | mini→步骤 4；本机→步骤 8；改模型目录见下 |
 | 改 Gateway config | 目标机：`stop` → 编辑 `~/.nano-assistant/config.yaml` → 裸跑或 `restart` |
+
+### 显式换 IM 签名密钥
+
+只有需要让全部现有 IM 登录令牌失效时才执行。它不是常规代码部署的一部分：
+
+```bash
+# mini：生成并保存新值，权限仅限当前用户读取
+ssh mini 'cd ~/Repos/nano-multiagent && umask 077 && .venv/bin/python -c '"'"'import secrets; print(secrets.token_urlsafe(48))'"'"' > ~/.nano-assistant/im-jwt-secret && chmod 600 ~/.nano-assistant/im-jwt-secret'
+
+# 接着执行完整闭环的步骤 3 重启 IM；随后两个 Gateway 用保存的账号凭据重新认证
+
+# 两边 Gateway 重新认证
+ssh mini 'cd ~/Repos/nano-multiagent && SEARXNG_URL=http://127.0.0.1:8888 PYTHONPATH=src .venv/bin/python -m personal_assistant.main restart'
+cd ~/Repos/nano-multiagent && SEARXNG_URL=http://100.88.34.122:8888 PYTHONPATH=src .venv/bin/python -m personal_assistant.main restart
+```
+
+浏览器中的 Web IM 会被要求重新登录。换钥后必须完成下方完整验证清单。
 
 ## 验证清单
 
