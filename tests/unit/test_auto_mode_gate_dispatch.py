@@ -64,6 +64,9 @@ def _get_handler(config: AutoModeConfig | None = None):
         def on(self, event, handler, **kwargs):
             handlers.append(handler)
 
+        def get_state(self, key):
+            return None
+
     gate_setup(MockHooks())
     return handlers[0], config
 

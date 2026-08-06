@@ -1,6 +1,6 @@
 # kernel (agent) Specification
 
-> 对齐: bugfix-471
+> 对齐: feat-510
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)「给库/内核写契约的额外纪律」。本目录只收 **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 + 归档 design)。
 
@@ -20,7 +20,7 @@
 | Area | Covers | Requirements |
 |---|---|---|
 | [SDK Boundary](sdk-boundary.md) | SDK 表面、产品中立装配、扩展协议、能力查询、公开类型 | 5 |
-| [Runs](runs.md) | create_session、submit/stream、steer、权限、中断、liveness、关闭 | 11 |
+| [Runs](runs.md) | create_session、submit/stream、steer、权限、中断、liveness、关闭 | 12 |
 | [Model Runtime](model-runtime.md) | LLM config、per-run model routing、模型错误恢复 | 2 |
 | [Background Tasks](background-tasks.md) | 后台完成通知、subagent follow-up、task_stop、派生子 agent 隔离 | 4 |
 | [Context and Persistence](context-persistence.md) | compaction、会话档案、事件恢复、append_message、tool call 闭合、AGENTS.md、图片、运行配置、fork_session | 11 |
