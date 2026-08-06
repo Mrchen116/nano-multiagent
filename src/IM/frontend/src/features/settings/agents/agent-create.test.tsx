@@ -108,7 +108,6 @@ function mockCreateState() {
       tools: [],
       model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }],
       platform_default_model: "codex_oauth:gpt-5.5",
-      default_system_prompt: ""
     }
   });
 }
@@ -159,7 +158,6 @@ describe("agent create page", () => {
         ],
         model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }, { name: "kimiCoding:K2.6", provider: "anthropic" }],
         platform_default_model: "codex_oauth:gpt-5.5",
-        default_system_prompt: "You are the personal_assistant default template."
       }
     });
     apiMocks.createNodeAgentMock.mockResolvedValue({
@@ -262,7 +260,6 @@ describe("agent create page", () => {
         tools: [],
         model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }],
         platform_default_model: "codex_oauth:gpt-5.5",
-        default_system_prompt: ""
       }
     });
 
@@ -312,7 +309,6 @@ describe("agent create page", () => {
         tools: [],
         model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }],
         platform_default_model: "codex_oauth:gpt-5.5",
-        default_system_prompt: ""
       }
     });
     apiMocks.createNodeAgentMock.mockResolvedValue({
@@ -408,7 +404,6 @@ describe("agent create page", () => {
         tools: [],
         model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }],
         platform_default_model: "codex_oauth:gpt-5.5",
-        default_system_prompt: ""
       }
     }));
     apiMocks.createNodeAgentMock.mockResolvedValue({
@@ -483,7 +478,6 @@ describe("agent create page", () => {
         tools: [],
         model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }],
         platform_default_model: "codex_oauth:gpt-5.5",
-        default_system_prompt: ""
       }
     });
     apiMocks.createNodeAgentMock.mockRejectedValue(
@@ -605,7 +599,6 @@ describe("agent create prompt preview", () => {
         ],
         model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }],
         platform_default_model: "codex_oauth:gpt-5.5",
-        default_system_prompt: "You are the personal_assistant default template."
       }
     });
   }

@@ -1,5 +1,7 @@
 # bugfix-507 — 回归验证
 
+> **Superseded.** 本记录基于旧的 legacy-migration 行为；不作为当前实现的回归结论。
+
 > 对齐: incident.md
 >
 > Validation snapshot: `5bba0493f34bd5acc2343787f04a8e092d1309b4 → bdb7243484b776295fb32f69eccdafa1f7f710cd`

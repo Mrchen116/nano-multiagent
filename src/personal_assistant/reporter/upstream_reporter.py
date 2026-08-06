@@ -46,7 +46,6 @@ class ReporterCapabilities:
     # pills as "selected by default" when the agent's tool_allowlist is empty.
     tools: tuple[dict[str, object], ...] = ()
     platform_default_model: str | None = None
-    default_system_prompt: str = ""
 
     def as_payload(self) -> dict[str, object]:
         """Return a JSON-serializable capability declaration."""
@@ -60,7 +59,6 @@ class ReporterCapabilities:
             "skills": list(self.skills),
             "tools": list(self.tools),
             "platform_default_model": self.platform_default_model,
-            "default_system_prompt": self.default_system_prompt,
         }
 
     def register_flags_payload(self) -> dict[str, object]:
@@ -156,11 +154,6 @@ def build_runtime_capabilities(kernel: "Kernel") -> ReporterCapabilities:
         skills=tuple(_skills_from_kernel(kernel, workspace_root=None)),
         tools=_tools_from_kernel(kernel),
         platform_default_model=_platform_default_model_from_kernel(kernel),
-        # feat-379-M5 (ISSUE-4): do NOT expose the raw RUNTIME_FILL template; the
-        # sections assembler owns prompt construction at runtime.  Consumers (IM
-        # agent-create page) uses the visible custom_prompt field instead — empty
-        # string is the safe neutral capability value.
-        default_system_prompt="",
     )
 
 
@@ -267,11 +260,6 @@ class UpstreamReporter:
             },
             "agent_tool_allowlist": {
                 agent.agent_id: list(agent.tool_allowlist) for agent in self._agents
-            },
-            "agent_custom_prompts": {
-                agent.agent_id: agent.custom_prompt.strip()
-                for agent in self._agents
-                if agent.custom_prompt is not None and agent.custom_prompt.strip()
             },
             "capabilities": self._capabilities.register_flags_payload(),
         }

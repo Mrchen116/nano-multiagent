@@ -231,7 +231,6 @@ GOLDEN_FLAGS = {
     "config_sync": True,
     "channel_bootstrap": True,
 }
-GOLDEN_DEFAULT_SYSTEM_PROMPT = ""
 
 
 def _sorted_skills(skills: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -271,7 +270,7 @@ def test_node_capabilities_payload_matches_contract(controlled_caps) -> None:
     assert payload["relay"] == GOLDEN_FLAGS["relay"]
     assert payload["send_message"] == GOLDEN_FLAGS["send_message"]
     assert payload["config_sync"] == GOLDEN_FLAGS["config_sync"]
-    assert payload["default_system_prompt"] == GOLDEN_DEFAULT_SYSTEM_PROMPT
+    assert "default_system_prompt" not in payload
 
 
 def test_agent_capabilities_payload_matches_contract(controlled_caps) -> None:

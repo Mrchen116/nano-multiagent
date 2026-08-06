@@ -133,7 +133,6 @@ def test_node_capabilities_contract_shape(
             "skills": ["plan"],
             "tools": ["read"],
             "platform_default_model": None,
-            "default_system_prompt": "",
         }
 
     monkeypatch.setattr(
@@ -165,7 +164,7 @@ def test_node_capabilities_contract_shape(
         {"name": "codex_oauth:gpt-5.5", "provider": "openai_compat"}
     ]
     assert body["platform_default_model"] is None
-    assert body["default_system_prompt"] == ""
+    assert "default_system_prompt" not in body
     assert "features" in body
     # Gateway payload has no features field → IM returns empty list (graceful degradation)
     assert body["features"] == []
@@ -191,7 +190,6 @@ def test_node_capabilities_includes_features_list(
             "skills": [],
             "tools": [],
             "platform_default_model": None,
-            "default_system_prompt": "",
             "features": [
                 {
                     "key": "memory_curation",
@@ -399,7 +397,6 @@ def test_agent_capabilities_features_contract(
             "skills": [],
             "tools": [],
             "platform_default_model": None,
-            "default_system_prompt": "",
             # feat-379-M2: features projection from FEATURE_REGISTRY
             "features": _GATEWAY_FEATURES,
         }

@@ -1,5 +1,8 @@
 # bugfix-507-M1 — Progress
 
+> **Superseded.** 本 milestone 的完成记录属于“迁移 legacy prompt”旧范围；当前范围见
+> [`../design.md`](../design.md)，需要重新实现和验收。
+
 ## Baseline
 
 - Context: M1 同时切断 profile/API/storage/runtime/UI 的公开 legacy prompt 路径，必须先确认相关现有覆盖可运行。

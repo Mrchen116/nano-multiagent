@@ -302,7 +302,6 @@ def test_im_config_sync_client_persists_agent_config_to_source_path(
                 "workspace_root": str(workspace_root),
                 "skills": ["skill-a", "skill-b"],
                 "tool_allowlist": ["Read", "Bash"],
-                "system_prompt": "Legacy role.",
                 "custom_prompt": "Current instructions.",
                 "group_reply_policy": "mention_only",
                 "default_model": "claude-sonnet-4-6",
@@ -355,16 +354,16 @@ def test_im_config_sync_client_persists_agent_config_to_source_path(
     )
     assert agent.skills == ("skill-a", "skill-b")
     assert agent.tool_allowlist == ("Read", "Bash")
-    assert agent.custom_prompt == "Legacy role.\n\nCurrent instructions."
+    assert agent.custom_prompt == "Current instructions."
     assert "system_prompt" not in sync.current_agent_payload(agent_id="agent-live")
     assert agent.group_reply_policy == "mention_only"
     assert agent.default_model == "claude-sonnet-4-6"
 
 
-def test_first_mirror_reconcile_rewrites_a_legacy_yaml_prompt(
+def test_first_mirror_reconcile_persists_authoritative_custom_prompt(
     tmp_path: Path,
 ) -> None:
-    """A successful authoritative mirror read completes deferred YAML migration."""
+    """A successful authoritative mirror read writes the visible prompt field."""
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     config_path = tmp_path / "gateway.yaml"
@@ -377,7 +376,7 @@ def test_first_mirror_reconcile_rewrites_a_legacy_yaml_prompt(
                         "agent_id": "agent-a",
                         "workspace_root": str(workspace),
                         "title": "agent-a",
-                        "system_prompt": "Legacy visible role",
+                        "custom_prompt": None,
                         "skills": [],
                         "tool_allowlist": [],
                         "group_reply_policy": "manual",
@@ -408,7 +407,7 @@ def test_first_mirror_reconcile_rewrites_a_legacy_yaml_prompt(
                 "agent_id": "agent-a",
                 "display_name": "agent-a",
                 "profile_version": 1,
-                "custom_prompt": "Legacy visible role",
+                "custom_prompt": "Visible role",
                 "skills": [],
                 "tool_allowlist": [],
                 "group_reply_policy": "manual",
@@ -433,7 +432,7 @@ def test_first_mirror_reconcile_rewrites_a_legacy_yaml_prompt(
     sync.sync_agent(agent_id="agent-a", profile_version=1)
 
     saved_agent = yaml.safe_load(config_path.read_text(encoding="utf-8"))["agents"][0]
-    assert saved_agent["custom_prompt"] == "Legacy visible role"
+    assert saved_agent["custom_prompt"] == "Visible role"
     assert "system_prompt" not in saved_agent
 
 

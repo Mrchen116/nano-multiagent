@@ -13,7 +13,7 @@ Agent 配置中心、外部 channel 控制面、节点绑定、节点状态、ru
 
 ### Requirement: Agent 配置中心可读可改，版本乐观锁，新运行配置由既有聊天下一轮新回复采用
 
-前端经 `/im/v1/agents/*` 读写 Agent 展示与运行配置，配置以 `profile_version` 乐观锁持久化。展示字段更新立即反映在 UI；model、可见的 Custom Instructions (`custom_prompt`)、skills、tools 与运行 features 等配置由 Gateway 在每个既有聊天下一轮新回复开始时采用，并保持该聊天历史。已在进行的整轮不切换。IM 自有字段在 live 快照合并时仍以持久值为准。公开 Agent profile 不提供也不接受 `system_prompt`；能力目录中的只读 `default_system_prompt` 仍仅表示产品默认提示词。
+前端经 `/im/v1/agents/*` 读写 Agent 展示与运行配置，配置以 `profile_version` 乐观锁持久化。展示字段更新立即反映在 UI；model、可见的 Custom Instructions (`custom_prompt`)、skills、tools 与运行 features 等配置由 Gateway 在每个既有聊天下一轮新回复开始时采用，并保持该聊天历史。已在进行的整轮不切换。IM 自有字段在 live 快照合并时仍以持久值为准。公开 Agent profile 和能力目录都不提供 `system_prompt`。
 
 #### Scenario: 读配置暴露稳定字段集
 - **WHEN** 前端读取 Agent 配置
@@ -51,17 +51,11 @@ Agent owner 通过 Custom Instructions 管理该 Agent 的专属职责或约束�
 - **THEN** 预览包含该 Agent 已保存或待保存的专属说明和已选能力配置
 - **AND** 页面明确说明群聊、记忆等运行时内容不在预览内
 
-#### Scenario: 升级保留已有有效说明且不重复
-- **GIVEN** 某 Agent 在升级前因 legacy `system_prompt` 实际带有专属说明
-- **WHEN** 系统升级且 owner 打开该 Agent 配置
-- **THEN** owner 能在 Custom Instructions 中看到并编辑这段说明
-- **AND** 该说明不丢失、不重复注入；如已有不同 Custom Instructions，则保留原来 legacy 在前、custom 在后的有效顺序
-
-#### Scenario: 旧 Gateway 初次注册空 IM 时保留本地有效说明
-- **GIVEN** Gateway 的本地旧配置中某 Agent 有有效 legacy 专属说明，且 IM 尚无该 Agent profile
-- **WHEN** 升级后的 Gateway 首次注册该 Agent
-- **THEN** IM 创建的 Agent profile 将规范化后的说明作为 Custom Instructions 持久化
-- **AND** 后续 Gateway 对账、重连或 owner 已明确清空 Custom Instructions 时，不以旧本地 seed 覆盖已存在的 profile
+#### Scenario: 退休字段不能影响升级后的新回复
+- **GIVEN** 某旧 profile、conversation snapshot 或 Gateway YAML 仍带 `system_prompt`
+- **WHEN** 新版本读取 Agent 配置、同步 profile 或开始下一轮新回复
+- **THEN** 该字段不被读取、展示、迁入 Custom Instructions 或传入运行时
+- **AND** 已知生产存量的删除由发布操作完成，不属于 IM/Gateway 的自动迁移
 
 ### Requirement: Agent 配置保存与聊天实际采用状态分离
 
@@ -281,7 +275,7 @@ bearer.<jwt>` 子协议),无 token / 非法 token 立即关闭;身份只认 JWT,
 
 ### Requirement: 节点 runtime 能力按需向在线网关解析,不入库快照
 
-新建/编辑 Agent 页需要的 runtime 候选项(skills / tools / models / features / 默认 system_prompt)由 IM
+新建/编辑 Agent 页需要的 runtime 候选项(skills / tools / models / features)由 IM
 **当场**经 gateway WS 向在线节点解析后返回,IM 不在本地持久化该能力目录,也不据 IM 部署机文件系统推断。
 节点级 `GET /im/v1/nodes/{id}/capabilities`(agent 尚不存在时用)与 agent 级 `GET /im/v1/agents/{id}/
 capabilities` 都把网关返回的 `features` 列表透传给前端。
@@ -290,7 +284,7 @@ capabilities` 都把网关返回的 `features` 列表透传给前端。
 - **GIVEN** 一个已知节点,网关在线
 - **WHEN** 前端 `GET /im/v1/nodes/{id}/capabilities`
 - **THEN** 200 返回 `{node_id, skills:[{name,description}], tools:[{name,description}], models:[...],
-  platform_default_model, default_system_prompt, features:[...]}`;网关 payload 无 features 时 IM 返回
+  platform_default_model, features:[...]}`;网关 payload 无 features 时 IM 返回
   空 `features` 列表(优雅降级)
 
 #### Scenario: agent 能力透传 features 五元字段

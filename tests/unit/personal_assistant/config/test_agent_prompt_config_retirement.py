@@ -1,28 +1,14 @@
-"""Regression coverage for legacy Gateway YAML prompt migration."""
+"""Regression coverage for retiring the hidden Gateway YAML prompt key."""
 
 from pathlib import Path
 
-import pytest
 import yaml
 
 from personal_assistant.config.local_store import load_local_config, save_local_config
 
 
-@pytest.mark.parametrize(
-    ("legacy", "custom", "expected"),
-    [
-        ("   ", "Current custom", "Current custom"),
-        ("Legacy role", "", "Legacy role"),
-        (" Legacy role ", "Legacy role", "Legacy role"),
-        ("Legacy role", "Current custom", "Legacy role\n\nCurrent custom"),
-    ],
-)
-def test_legacy_system_prompt_migrates_to_one_canonical_custom_prompt(
-    tmp_path: Path,
-    legacy: str,
-    custom: str,
-    expected: str,
-) -> None:
+def test_retired_yaml_prompt_key_is_not_loaded_or_saved(tmp_path: Path) -> None:
+    """A stale key must not become Custom Instructions or a runtime input."""
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     config_path = tmp_path / "gateway.yaml"
@@ -34,8 +20,8 @@ def test_legacy_system_prompt_migrates_to_one_canonical_custom_prompt(
                     {
                         "agent_id": "agent-a",
                         "workspace_root": str(workspace),
-                        "system_prompt": legacy,
-                        "custom_prompt": custom,
+                        "system_prompt": "discard this hidden role",
+                        "custom_prompt": "visible instruction",
                     }
                 ],
                 "llm": {
@@ -55,14 +41,9 @@ def test_legacy_system_prompt_migrates_to_one_canonical_custom_prompt(
     )
 
     config = load_local_config(config_path)
-    agent = config.agents[0]
-    assert agent.custom_prompt == expected
-    assert not hasattr(agent, "system_prompt")
+    assert config.agents[0].custom_prompt == "visible instruction"
 
     save_local_config(config, config_path)
     saved_agent = yaml.safe_load(config_path.read_text(encoding="utf-8"))["agents"][0]
-    assert saved_agent["custom_prompt"] == expected
+    assert saved_agent["custom_prompt"] == "visible instruction"
     assert "system_prompt" not in saved_agent
-
-    reloaded = load_local_config(config_path)
-    assert reloaded.agents[0].custom_prompt == expected

@@ -85,7 +85,6 @@ function agentState(feature: typeof HEARTBEAT | typeof CRON) {
       tools: [{ name: "cron", description: "Cron scheduling", default_on: false }],
       model_options: [],
       platform_default_model: null,
-      default_system_prompt: "",
       features: [feature],
     },
     owningNode: null,

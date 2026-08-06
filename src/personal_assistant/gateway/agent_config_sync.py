@@ -19,7 +19,6 @@ from personal_assistant.config.local_store import (
     default_local_config_path,
     enabled_feishu_agent_ids,
     ensure_workspace_defaults,
-    merge_legacy_custom_prompt,
     save_sensitive_local_config,
 )
 from personal_assistant.builtin_skills.lark_bundle import lark_skill_names
@@ -558,9 +557,6 @@ class IMAgentConfigSync:
 
         raw_skills = payload.get("skills")
         raw_tools = payload.get("tool_allowlist")
-        custom_prompt = merge_legacy_custom_prompt(
-            _optional_text("system_prompt"), _optional_text("custom_prompt")
-        )
         return AgentWorkspaceConfig(
             agent_id=agent_id,
             workspace_root=workspace_root,
@@ -578,7 +574,7 @@ class IMAgentConfigSync:
             group_reply_policy=_optional_text("group_reply_policy"),
             default_model=_optional_text("default_model"),
             features=features,
-            custom_prompt=custom_prompt,
+            custom_prompt=_optional_text("custom_prompt"),
             heartbeat_every=heartbeat_every,
             heartbeat_active_hours_start=hb_start,
             heartbeat_active_hours_end=hb_end,
@@ -598,7 +594,6 @@ class IMAgentConfigSync:
                 current,
                 agents=tuple(agents),
                 source_path=current.source_path or default_local_config_path(),
-                legacy_prompt_migration_pending=False,
             )
 
         self._config_owner.persist(
@@ -618,10 +613,7 @@ class IMAgentConfigSync:
             ),
             None,
         )
-        if (
-            local_current != agent_config
-            or local_config.legacy_prompt_migration_pending
-        ):
+        if local_current != agent_config:
             self._persist_agent_config(agent_config)
         current = self._agent_catalog.get(agent_config.agent_id)
         if current is not None and current.config == agent_config:

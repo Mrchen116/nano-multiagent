@@ -21,7 +21,6 @@ from IM.ws.user_stream import UserStreamRegistry
 from .protocol import (
     _encode_status_frame,
     _normalize_agent_string_list_seed,
-    _normalize_agent_text_seed,
     _not_registered_error,
     _optional_int,
     _optional_text,
@@ -298,9 +297,6 @@ class GatewaySessions:
             if isinstance(raw_tools, dict)
             else {}
         )
-        agent_custom_prompts = _normalize_agent_text_seed(
-            payload.get("agent_custom_prompts")
-        )
         cap_raw = payload.get("capabilities")
         if cap_raw is None:
             capabilities: dict[str, object] = {}
@@ -331,7 +327,6 @@ class GatewaySessions:
                 agent_workspaces=agent_workspaces,
                 agent_skills=agent_skills,
                 agent_tool_allowlist=agent_tool_allowlist,
-                agent_custom_prompts=agent_custom_prompts,
             )
             prior_status = (
                 result.previous_node.status

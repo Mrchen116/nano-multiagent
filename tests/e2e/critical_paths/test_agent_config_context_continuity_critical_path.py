@@ -130,27 +130,23 @@ def _rewrite_llm_to_stub(src: Path, dst: Path, stub_url: str) -> None:
     for provider in providers:
         for model in provider.get("models") or []:
             model.pop("extra_request_body", None)
-    first_agent = (cfg.get("agents") or [])[0]
-    first_agent["system_prompt"] = _LEGACY_PROMPT
-    first_agent["custom_prompt"] = ""
     dst.write_text(
         yaml.safe_dump(cfg, allow_unicode=True, sort_keys=False),
         encoding="utf-8",
     )
 
 
-def _wait_gateway_prompt_migration(path: Path, *, timeout: float = 30.0) -> dict:
+def _wait_gateway_custom_prompt(
+    path: Path, custom_prompt: str, *, timeout: float = 30.0
+) -> dict:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         payload = yaml.safe_load(path.read_text(encoding="utf-8"))
         first_agent = (payload.get("agents") or [])[0]
-        if (
-            "system_prompt" not in first_agent
-            and first_agent.get("custom_prompt") == _LEGACY_PROMPT
-        ):
+        if first_agent.get("custom_prompt") == custom_prompt:
             return first_agent
         time.sleep(0.2)
-    raise AssertionError(f"Gateway YAML did not canonicalize legacy prompt: {path}")
+    raise AssertionError(f"Gateway YAML did not receive custom prompt: {path}")
 
 
 @pytest.fixture
@@ -260,8 +256,12 @@ def stub_im_user(stub_llm_stack: StubLLMStack) -> Iterator[IMClient]:
 def test_agent_config_update_keeps_chat_context_with_stub_llm(
     stub_im_user: IMClient, stub_llm_stack: StubLLMStack
 ) -> None:
-    """旧 YAML 可见迁移后，preview/新回复同源且既有聊天连续。"""
+    """Custom Instructions 的 preview/新回复同源且既有聊天连续。"""
     agent_id = stub_im_user.first_agent_id()
+    stub_im_user.update_agent_config(agent_id, custom_prompt=_LEGACY_PROMPT)
+    _wait_gateway_custom_prompt(
+        Path(stub_llm_stack.wt_dir) / ".gateway-config.yaml", _LEGACY_PROMPT
+    )
     initial_config = stub_im_user.get_agent_config(agent_id)
     assert initial_config["custom_prompt"] == _LEGACY_PROMPT
     assert "system_prompt" not in initial_config
@@ -273,8 +273,6 @@ def test_agent_config_update_keeps_chat_context_with_stub_llm(
         skill_ids=initial_config.get("skills"),
     )
     assert _LEGACY_PROMPT in initial_preview
-    _wait_gateway_prompt_migration(Path(stub_llm_stack.wt_dir) / ".gateway-config.yaml")
-
     # 起点清空工具,确保后续 PATCH 真的改变 effective runtime。
     stub_im_user.update_agent_config(agent_id, tool_allowlist=[])
     conversation_id = stub_im_user.create_direct_conversation(agent_id)

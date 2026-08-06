@@ -274,7 +274,6 @@ function mockFetch(opts: {
           : [],
         model_options: [],
         platform_default_model: null,
-        default_system_prompt: ""
       });
     }
     if (/\/im\/v1\/conversations\/c1\/messages$/.test(url) && init?.method === "POST") {

@@ -171,7 +171,6 @@ class AgentCapabilitiesResponse(BaseModel):
     skills: list[AllowlistOptionResponse] = Field(default_factory=list)
     tools: list[AllowlistOptionResponse] = Field(default_factory=list)
     platform_default_model: str | None = None
-    default_system_prompt: str = ""
     # feat-379-M2: feature toggle projection from FEATURE_REGISTRY (decision 7)
     features: list[FeatureCapabilityResponse] = Field(default_factory=list)
 
@@ -383,8 +382,6 @@ async def get_agent_capabilities(
         if isinstance(raw_platform, str) and raw_platform.strip()
         else None
     )
-    raw_prompt = payload.get("default_system_prompt")
-    default_system_prompt = raw_prompt if isinstance(raw_prompt, str) else ""
     # feat-379-M2: forward FEATURE_REGISTRY projection from Gateway verbatim
     features = _coerce_feature_list(payload.get("features"))
     return AgentCapabilitiesResponse(
@@ -395,7 +392,6 @@ async def get_agent_capabilities(
         skills=coerce_allowlist_options(payload.get("skills")),
         tools=coerce_allowlist_options(payload.get("tools")),
         platform_default_model=platform_default,
-        default_system_prompt=default_system_prompt,
         features=features,
     )
 

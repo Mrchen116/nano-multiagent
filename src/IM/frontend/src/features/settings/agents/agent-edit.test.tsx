@@ -85,7 +85,6 @@ describe("agent edit page", () => {
             ],
             model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }, { name: "kimiCoding:K2.6", provider: "anthropic" }],
             platform_default_model: "codex_oauth:gpt-5.5",
-            default_system_prompt: "You are the personal_assistant default template."
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         );

@@ -117,7 +117,6 @@ function makeAgentState(opts: {
       tools: [TOOL_DEFAULT, TOOL_OPTIONAL],
       model_options: [],
       platform_default_model: null,
-      default_system_prompt: "",
       features: opts.capFeatures ?? [HB_CAP_FEATURE, CRON_CAP_FEATURE],
     },
     owningNode: null,

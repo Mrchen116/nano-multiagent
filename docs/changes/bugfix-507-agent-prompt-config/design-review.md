@@ -1,5 +1,8 @@
 # Design Review: bugfix-507-agent-prompt-config
 
+> **Superseded.** 本记录审查的是“迁移旧文本到 Custom Instructions”的旧设计；用户随后
+> 明确要求不兼容旧版本。它只保留为决策变更的历史证据，不能作为当前 Gate 2 结论。
+
 ## Round 1
 
 ### Metadata

@@ -106,7 +106,6 @@ class GatewayNodePersistence:
         agent_workspaces: dict[str, str],
         agent_skills: dict[str, list[str]] | None = None,
         agent_tool_allowlist: dict[str, list[str]] | None = None,
-        agent_custom_prompts: dict[str, str] | None = None,
     ) -> GatewayRegistrationResult:
         """Persist one node advertisement using the legacy durable write sequence.
 
@@ -120,8 +119,6 @@ class GatewayNodePersistence:
                 Used only when creating a new profile (bugfix-467).
             agent_tool_allowlist: Optional per-agent tool allowlist seed keyed by agent id.
                 Used only when creating a new profile (bugfix-467).
-            agent_custom_prompts: Optional canonical visible prompt seed keyed by
-                agent id. Used only when creating a first-seen profile.
 
         Returns:
             Previous/current node snapshots and agent ids in protocol advertisement
@@ -143,7 +140,6 @@ class GatewayNodePersistence:
         )
         skills_seed = agent_skills or {}
         tools_seed = agent_tool_allowlist or {}
-        custom_prompt_seed = agent_custom_prompts or {}
         for agent_id in agent_ids:
             existing = self._profiles.get_profile(agent_id=agent_id)
             owner_id = (
@@ -162,7 +158,7 @@ class GatewayNodePersistence:
                     agent_id
                 ) or managed_workspace_root(agent_id)
                 features: dict[str, bool] | None = None
-                custom_prompt = custom_prompt_seed.get(agent_id)
+                custom_prompt = None
             else:
                 display_name = existing.display_name
                 description = existing.description

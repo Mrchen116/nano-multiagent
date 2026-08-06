@@ -1,5 +1,8 @@
 # bugfix-507-M1: visible custom prompt cutover — Tasks
 
+> **Superseded.** 本任务表描述的 legacy merge、migration 和 registration seed 已被用户取消；
+> 当前范围见 [`../design.md`](../design.md)，本文件只保留旧执行证据。
+
 > 对齐: ../design.md（2026-08-06 Gate 2 approved）
 
 ## 目标

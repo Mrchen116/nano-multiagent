@@ -98,7 +98,6 @@ function makeDetailState(agentId: string, displayName: string) {
       tools: [],
       model_options: [],
       platform_default_model: null,
-      default_system_prompt: "",
       features: []
     },
     owningNode: null

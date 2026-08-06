@@ -1,5 +1,7 @@
 # Verification Report: bugfix-507
 
+> **Superseded.** 本记录验证的旧实现会迁移 legacy prompt；当前设计明确丢弃旧值，需重新验证。
+
 > Validation snapshot: `5bba0493f34bd5acc2343787f04a8e092d1309b4 → 8ae5fdd7a7f87a5aa60d145efb73e7225a14f3c8`
 
 ## Summary

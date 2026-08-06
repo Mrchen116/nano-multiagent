@@ -94,7 +94,6 @@ export interface CapabilitySnapshot {
   tools: AgentAllowlistOption[];
   model_options: ModelOption[];
   platform_default_model: string | null;
-  default_system_prompt: string;
   // feat-379-M3: feature toggle list; absent from older Gateway versions → treat as []
   features?: AgentFeature[];
 }
@@ -252,7 +251,6 @@ interface AgentCapabilitiesWire {
   skills: Array<string | AgentAllowlistOption>;
   tools: Array<string | AgentAllowlistOption>;
   platform_default_model?: string | null;
-  default_system_prompt?: string;
   // feat-379-M3: feature toggle projection from FEATURE_REGISTRY
   features?: AgentFeature[];
 }
@@ -267,7 +265,6 @@ interface NodeCapabilitiesWire {
   skills: Array<string | AgentAllowlistOption>;
   tools: Array<string | AgentAllowlistOption>;
   platform_default_model?: string | null;
-  default_system_prompt?: string;
   // feat-379-M7 (ISSUE-1): node capabilities now carry FEATURE_REGISTRY projection
   // so the agent-create page can render feature toggles without a per-agent context.
   features?: AgentFeature[];
@@ -336,7 +333,6 @@ function toCapabilitySnapshot(
     tools: normalizeAllowlistOptions(raw.tools),
     model_options: normalizeModelOptions(raw),
     platform_default_model: raw.platform_default_model ?? null,
-    default_system_prompt: raw.default_system_prompt ?? "",
     // feat-379-M3: carry through feature toggles; NodeCapabilitiesWire has no features field → []
     features: "features" in raw && Array.isArray(raw.features) ? raw.features : [],
   };
@@ -359,7 +355,6 @@ function enrichCapabilitySnapshot(
     tools: toAllowlistOptions(raw.tools ?? []),
     model_options: normalizeModelOptions(raw),
     platform_default_model: null,
-    default_system_prompt: "",
   };
 }
 
@@ -509,7 +504,6 @@ export async function getAgentDetailState(agentId: string): Promise<AgentDetailS
     skills: config.skills,
     tools: config.tool_allowlist,
     platform_default_model: null,
-    default_system_prompt: "",
   };
   const capabilities = capabilitiesResult.status === "fulfilled" ? capabilitiesResult.value : fallbackCapabilities;
   const owningNodeId = config.node_id ?? capabilities.node_id;

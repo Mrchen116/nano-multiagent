@@ -36,6 +36,11 @@
   A(原话): 不要，彻底把system_prompt逻辑删掉，不用考虑兼容之前的版本
   Agent 解读: IM/PA 的公开 Agent 配置不读取、迁移、展示或再次传播旧字段；旧专属说明允许被丢弃，不能成为新的 Custom Instructions 或后续回复的输入。
 
+- Q4: 两台既有生产部署中的旧配置如何处理？
+  A(原话): 旧的你直接去改了就行，就两个机子的部署
+  Agent 解读: 旧存量不纳入产品兼容逻辑；在合并新代码后，对 mac-mini 和 macbook-air 的
+  已知配置与 mini IM SQLite 做一次性直接清理，再启动新服务。
+
 ## 现象与复现
 
 Agent owner 打开 IM 的 Agent 配置页，只能编辑 `Custom Instructions`。当该输入为空时，用户

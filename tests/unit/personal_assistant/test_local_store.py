@@ -397,7 +397,7 @@ def test_parse_agents_loads_extended_fields(tmp_path: Path) -> None:
                 "  - agent_id: agent-a",
                 f"    workspace_root: {workspace_root}",
                 "    title: My Agent",
-                "    system_prompt: You are a helpful assistant.",
+                "    custom_prompt: You are a helpful assistant.",
                 "    skills:",
                 "      - web_search",
                 "      - code_review",
