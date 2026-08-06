@@ -1390,16 +1390,54 @@ export function AgentDetailPage() {
     }
   }
 
+  function renderDetailState(content: ReactNode) {
+    const statePanel = (
+      <div
+        data-testid="agent-detail-state-panel"
+        className="flex min-h-full flex-1 items-start justify-center bg-[oklch(0.93_0.007_240)] px-4 py-10 sm:px-8 sm:py-14"
+      >
+        {content}
+      </div>
+    );
+    if (isMobile) return statePanel;
+    return (
+      <div className="flex h-full overflow-hidden">
+        <AgentsRailDesktop activeId={agentId} />
+        {statePanel}
+      </div>
+    );
+  }
+
+  function renderLoadingState() {
+    return renderDetailState(
+      <section
+        data-testid="agent-detail-loading"
+        role="status"
+        aria-live="polite"
+        className="flex w-full max-w-[420px] items-center gap-4 rounded-2xl border border-[var(--im-border)] bg-white/90 px-5 py-5 shadow-sm"
+      >
+        <span
+          className="h-5 w-5 shrink-0 animate-spin rounded-full border-2 border-slate-200 border-t-[var(--im-accent)]"
+          aria-hidden="true"
+        />
+        <p className="m-0 text-sm font-medium text-slate-600">{t("agents.detail.loading")}</p>
+      </section>
+    );
+  }
+
   if (detailQuery.isLoading && !draft) {
-    return <p className="text-sm text-slate-500">{t("agents.detail.loading")}</p>;
+    return renderLoadingState();
   }
 
   if (detailQuery.isError && !draft) {
-    return (
-      <section className="grid gap-3 rounded-2xl border border-rose-200 bg-rose-50/80 p-5">
+    return renderDetailState(
+      <section
+        data-testid="agent-detail-error"
+        className="grid w-full max-w-[520px] gap-4 rounded-2xl border border-rose-200 bg-white/90 p-5 shadow-sm"
+      >
         <div className="space-y-1">
           <p className="text-sm font-semibold text-rose-700">{t("agents.loadError")}</p>
-          <p className="text-sm text-rose-600">{queryErrorDetail}</p>
+          <p className="break-words text-sm text-slate-600">{queryErrorDetail}</p>
         </div>
         <button className="im-btn im-btn-muted w-fit" type="button" onClick={() => void detailQuery.refetch()}>
           {t("agents.retry")}
@@ -1409,7 +1447,7 @@ export function AgentDetailPage() {
   }
 
   if (!draft || !normalizedDraft || !capabilities) {
-    return <p className="text-sm text-slate-500">{t("agents.detail.loading")}</p>;
+    return renderLoadingState();
   }
 
   const displayedNodeName =

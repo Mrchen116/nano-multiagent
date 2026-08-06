@@ -35,8 +35,7 @@ export function AgentsRailDesktop({ activeId, isCreatePage = false, onSelectAgen
   return (
     <aside
       data-testid="agents-rail-desktop"
-      className="hidden lg:flex lg:w-[240px] lg:flex-col lg:border-r lg:border-[oklch(0.29_0.010_240)]"
-      style={{ background: "oklch(0.24 0.012 240)" }}
+      className="hidden bg-[oklch(0.24_0.012_240)] lg:flex lg:w-[240px] lg:flex-col lg:border-r lg:border-[oklch(0.29_0.010_240)]"
       aria-label={t("agents.title")}
     >
       <div className="flex items-center justify-between px-3 py-[10px] border-b border-[oklch(0.29_0.010_240)]">
@@ -72,19 +71,11 @@ export function AgentsRailDesktop({ activeId, isCreatePage = false, onSelectAgen
               key={agent.agent_id}
               type="button"
               onClick={() => selectAgent(agent.agent_id)}
-              className={`flex w-full items-center gap-3 rounded-xl border-none text-left font-inherit mb-1 min-h-[52px] px-[10px] py-[9px] transition-colors ${
-                active ? "outline outline-1 outline-[oklch(0.40_0.08_180)]" : "outline-none"
+              className={`mb-1 flex min-h-[52px] w-full cursor-pointer items-center gap-3 rounded-xl border-none px-[10px] py-[9px] text-left font-inherit transition-colors ${
+                active
+                  ? "bg-[oklch(0.31_0.015_240)] ring-1 ring-inset ring-[oklch(0.43_0.07_180)]"
+                  : "bg-transparent hover:bg-[oklch(0.29_0.012_240)] focus-visible:bg-[oklch(0.29_0.012_240)]"
               }`}
-              style={{
-                background: active ? "oklch(0.31 0.015 240)" : "transparent",
-                cursor: "pointer"
-              }}
-              onMouseEnter={(event) => {
-                if (!active) event.currentTarget.style.background = "oklch(0.28 0.012 240)";
-              }}
-              onMouseLeave={(event) => {
-                if (!active) event.currentTarget.style.background = "transparent";
-              }}
               aria-current={active ? "page" : undefined}
             >
               <span
@@ -95,10 +86,10 @@ export function AgentsRailDesktop({ activeId, isCreatePage = false, onSelectAgen
                 {initialsOf(agent.display_name)}
               </span>
               <div className="min-w-0 flex-1">
-                <p className={`m-0 text-[13px] font-semibold truncate ${active ? "text-white" : "text-[oklch(0.18_0.01_240)]"}`}>
+                <p className={`m-0 truncate text-[13px] font-semibold ${active ? "text-white" : "text-[oklch(0.86_0.01_240)]"}`}>
                   {agent.display_name}
                 </p>
-                <p className="m-0 mt-[2px] font-mono text-[11px] text-[oklch(0.50_0.01_240)] truncate">
+                <p className={`m-0 mt-[2px] truncate font-mono text-[11px] ${active ? "text-[oklch(0.70_0.01_240)]" : "text-[oklch(0.64_0.01_240)]"}`}>
                   {agent.agent_id}
                 </p>
               </div>
