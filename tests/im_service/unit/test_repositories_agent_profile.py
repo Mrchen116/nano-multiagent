@@ -220,7 +220,7 @@ def test_update_profile_preserves_non_default_workspace_root(tmp_path: Path) -> 
         workspace_root=custom_ws,
     )
 
-    # update 只改 system_prompt，不应触碰 workspace_root
+    # update 只改可见配置，不应触碰 workspace_root
     profile_before = repo.get_profile(agent_id="Arch")
     assert profile_before is not None
     # bugfix-404-M2: workspace_root 参数已从 update_profile 移除

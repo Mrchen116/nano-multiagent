@@ -13,7 +13,7 @@ agents:
   - agent_id: e2e
     title: E2E Agent
     workspace_root: /tmp/nano-e2e-workspace/e2e
-    system_prompt: You are the isolated E2E test agent. Reply concisely.
+    custom_prompt: You are the isolated E2E test agent. Reply concisely.
     default_model: deepseek:deepseek-v4-flash
     features:
       heartbeat: false
@@ -21,7 +21,7 @@ agents:
   - agent_id: e2e-peer
     title: E2E Peer Agent
     workspace_root: /tmp/nano-e2e-workspace/e2e-peer
-    system_prompt: You are the peer in isolated E2E group-chat tests. Reply concisely.
+    custom_prompt: You are the peer in isolated E2E group-chat tests. Reply concisely.
     default_model: deepseek:deepseek-v4-flash
     group_reply_policy: mention_only
     features:

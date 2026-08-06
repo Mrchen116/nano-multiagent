@@ -29,7 +29,7 @@ def test_identical_reconcile_preserves_restart_binding(tmp_path: Path) -> None:
         agent_id="agent-a",
         workspace_root=workspace,
         title="Agent A",
-        system_prompt="You are Agent A.",
+        custom_prompt="You are Agent A.",
         group_reply_policy="MENTION",
     )
     catalog = LiveAgentCatalog((agent,))

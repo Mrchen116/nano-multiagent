@@ -158,8 +158,8 @@ def build_runtime_capabilities(kernel: "Kernel") -> ReporterCapabilities:
         platform_default_model=_platform_default_model_from_kernel(kernel),
         # feat-379-M5 (ISSUE-4): do NOT expose the raw RUNTIME_FILL template; the
         # sections assembler owns prompt construction at runtime.  Consumers (IM
-        # agent-create page) that relied on this field for a system_prompt prefill
-        # are migrated to custom_prompt (R5) — empty string is the safe neutral value.
+        # agent-create page) uses the visible custom_prompt field instead — empty
+        # string is the safe neutral capability value.
         default_system_prompt="",
     )
 
@@ -267,6 +267,11 @@ class UpstreamReporter:
             },
             "agent_tool_allowlist": {
                 agent.agent_id: list(agent.tool_allowlist) for agent in self._agents
+            },
+            "agent_custom_prompts": {
+                agent.agent_id: agent.custom_prompt.strip()
+                for agent in self._agents
+                if agent.custom_prompt is not None and agent.custom_prompt.strip()
             },
             "capabilities": self._capabilities.register_flags_payload(),
         }

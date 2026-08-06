@@ -241,7 +241,7 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
                     "profile_version": current.json()["profile_version"],
                     "display_name": "agent-a v2",
                     "description": "updated",
-                    "system_prompt": "You are upgraded.",
+                    "custom_prompt": "You are upgraded.",
                     "skills": ["plan"],
                     "tool_allowlist": ["read"],
                     "group_reply_policy": "manual",
@@ -262,6 +262,7 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
                     skills=("plan",),
                     tool_allowlist=("read",),
                     default_model="claude-sonnet-4",
+                    custom_prompt="You are upgraded.",
                 )
             )
 
@@ -340,7 +341,6 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
             "conversation_id": old_conversation_id,
             "agent_features": {},
             "config_profile_version": 1,
-            "system_prompt": "You are agent-a.",
             "conversation_type": "direct",
         },
         {
@@ -349,7 +349,7 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
             "conversation_id": old_conversation_id,
             "agent_features": {},
             "config_profile_version": 1,
-            "system_prompt": "You are upgraded.",
+            "agent_custom_prompt": "You are upgraded.",
             "skills": ["plan"],
             "tool_allowlist": ["read"],
             "conversation_type": "direct",
@@ -360,7 +360,7 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
             "conversation_id": new_conversation_id,
             "agent_features": {},
             "config_profile_version": 2,
-            "system_prompt": "You are upgraded.",
+            "agent_custom_prompt": "You are upgraded.",
             "skills": ["plan"],
             "tool_allowlist": ["read"],
             "conversation_type": "direct",
@@ -469,9 +469,10 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
         "payload": {"agent_id": "agent-a", "profile_version": 2},
     }
     assert patched.json()["profile_version"] == 2
-    assert patched.json()["system_prompt"] == "You are upgraded."
+    assert patched.json()["custom_prompt"] == "You are upgraded."
+    assert "system_prompt" not in patched.json()
     assert current.json()["profile_version"] == 1
-    assert current.json()["system_prompt"] == "You are agent-a."
+    assert current.json()["custom_prompt"] is None
     assert old_before.json()["conversation_id"] == old_conversation_id
     assert old_after.json()["conversation_id"] == old_conversation_id
     assert new_after.json()["conversation_id"] == new_conversation_id

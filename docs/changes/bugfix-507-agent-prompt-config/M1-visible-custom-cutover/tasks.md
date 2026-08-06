@@ -78,13 +78,13 @@ Prototype / Reference Contract: N/A；design 未提供 prototype 或 reference s
 
 ### R2 — Gateway YAML、sync 与 runtime prompt 单源
 
-- 状态: IN PROGRESS
+- 状态: DONE
 - 步骤: 先写旧 YAML/旧 mirror/registration payload/runtime prompt 红测；再让 `AgentWorkspaceConfig` 只保留 canonical custom，移除 live/session legacy projection，更新 E2E fixture 数据。
 - 验证: PA unit/integration/contract focused pytest，断言序列化和 wire payload 无 legacy key，Kernel override 回归通过。
 
 ### R3 — Frontend public shape 与 stable preview 文案
 
-- 状态: TODO
+- 状态: IN PROGRESS
 - 步骤: 先更新 regression 断言为无 legacy profile 字段和 stable preview；再收敛 TS types/payload 与中英文文案。
 - 验证: focused vitest + frontend build；UI 状态矩阵 ready for browser。
 

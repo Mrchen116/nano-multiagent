@@ -612,7 +612,7 @@ def test_completed_group_reply_broadcasts_background_context_to_peer_agents(
         title="group", participant_ids=[owner.id, agent_a_user.id, agent_q_user.id]
     )
     connection.execute(
-        "INSERT INTO agent_profiles(agent_id, owner_id, node_id, display_name, description, system_prompt, skills_json, tool_allowlist_json, group_reply_policy, default_model, workspace_root, profile_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
+        "INSERT INTO agent_profiles(agent_id, owner_id, node_id, display_name, description, custom_prompt, skills_json, tool_allowlist_json, group_reply_policy, default_model, workspace_root, profile_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
         (
             "A",
             owner.owner_id,
@@ -629,7 +629,7 @@ def test_completed_group_reply_broadcasts_background_context_to_peer_agents(
         ),
     )
     connection.execute(
-        "INSERT INTO agent_profiles(agent_id, owner_id, node_id, display_name, description, system_prompt, skills_json, tool_allowlist_json, group_reply_policy, default_model, workspace_root, profile_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
+        "INSERT INTO agent_profiles(agent_id, owner_id, node_id, display_name, description, custom_prompt, skills_json, tool_allowlist_json, group_reply_policy, default_model, workspace_root, profile_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
         (
             "Q",
             owner.owner_id,

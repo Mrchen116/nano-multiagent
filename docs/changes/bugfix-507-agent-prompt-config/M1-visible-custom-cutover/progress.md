@@ -25,11 +25,28 @@
 
 ## R2 — Gateway YAML、sync 与 runtime prompt 单源
 
-- Status: IN PROGRESS
+- Status: DONE
+- Canonicalization: old Gateway YAML and old IM mirror payloads use the same
+  legacy-first merge table; `AgentWorkspaceConfig` and saved YAML now contain
+  only `custom_prompt`.
+- Wire/runtime: first registration sends non-empty `agent_custom_prompts`;
+  agent create/current/skill-patch payloads omit the retired field; session
+  metadata carries `agent_custom_prompt`, and `prompt_for()` injects only the
+  canonical `pa.user_custom` segment.
+- Continuity: live catalog publication reconfigures existing session runtime
+  without changing its durable address; IM direct/group integration fixtures
+  now assert the canonical metadata and runtime path.
+- Tests: 866 PA unit/integration plus Kernel internal-override regression tests
+  passed (85.88s); the full IM suite passed 422 tests (57.35s). The dedicated
+  migration red/green set covers all four YAML combinations, no legacy save,
+  registration seed filtering, old mirror merge, and duck-typed legacy prompt
+  rejection.
+- Static checks: Ruff and `git diff --check` passed for all touched Python paths.
+- Commit: R2 implementation commit (this commit).
 
 ## R3 — Frontend public shape 与 stable preview 文案
 
-- Status: TODO
+- Status: IN PROGRESS
 
 ## R4 — 隔离真栈、浏览器与最终门禁
 

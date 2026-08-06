@@ -301,7 +301,8 @@ def test_im_config_sync_client_persists_agent_config_to_source_path(
                 "workspace_root": str(workspace_root),
                 "skills": ["skill-a", "skill-b"],
                 "tool_allowlist": ["Read", "Bash"],
-                "system_prompt": "You are synced.",
+                "system_prompt": "Legacy role.",
+                "custom_prompt": "Current instructions.",
                 "group_reply_policy": "mention_only",
                 "default_model": "claude-sonnet-4-6",
             },
@@ -353,7 +354,8 @@ def test_im_config_sync_client_persists_agent_config_to_source_path(
     )
     assert agent.skills == ("skill-a", "skill-b")
     assert agent.tool_allowlist == ("Read", "Bash")
-    assert agent.system_prompt == "You are synced."
+    assert agent.custom_prompt == "Legacy role.\n\nCurrent instructions."
+    assert "system_prompt" not in sync.current_agent_payload(agent_id="agent-live")
     assert agent.group_reply_policy == "mention_only"
     assert agent.default_model == "claude-sonnet-4-6"
 
@@ -395,7 +397,6 @@ def test_skill_created_global_enables_explicit_allowlists_and_drops_all_sessions
             "agent_id": agent_id,
             "display_name": agent_id,
             "description": "",
-            "system_prompt": "",
             "skills": skills,
             "tool_allowlist": ["skill_manage"],
             "group_reply_policy": "manual",
@@ -521,7 +522,6 @@ def test_skill_created_agent_scope_only_enables_executing_agent(
                     "agent_id": "agent-a",
                     "display_name": "agent-a",
                     "description": "",
-                    "system_prompt": "",
                     "skills": skills,
                     "tool_allowlist": [],
                     "group_reply_policy": "manual",
@@ -622,7 +622,6 @@ def test_ensure_agent_skills_enabled_updates_explicit_local_allowlist_once(
                     "agent_id": "agent-a",
                     "display_name": "Agent A",
                     "description": "",
-                    "system_prompt": "",
                     "skills": skills,
                     "tool_allowlist": [],
                     "group_reply_policy": "manual",
@@ -804,7 +803,6 @@ def test_sync_agent_repairs_static_feishu_mirror_once_before_publish(
     assert owners.catalog.require("agent-static").config.skills == expected
     assert sync.current_agent_payload(agent_id="agent-static") == {
         "display_name": "Static",
-        "system_prompt": "",
         "skills": [*expected],
         "tool_allowlist": [],
         "group_reply_policy": "manual",

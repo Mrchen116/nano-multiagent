@@ -46,8 +46,8 @@ class _FakeKernel:
       - stream (returns AsyncIterator)
       - get_session (sync)
 
-    NO_REPLY output is triggered when session metadata matches the suppression
-    system_prompt + profile_version combination, mirroring kernel behavior.
+    NO_REPLY output is triggered when the runtime prompt contains the suppression
+    instruction, mirroring kernel behavior.
 
     Observable attributes kept compatible with old _FakeKernelClient so test
     assertions on create_session_calls / send_calls continue to work:
@@ -187,7 +187,7 @@ class _FakeKernel:
                 for item in getattr(runtime.runtime.prompt, slot, ())
             )
             if runtime is not None
-            else session_metadata.get("system_prompt", "")
+            else session_metadata.get("agent_custom_prompt", "")
         )
         if (
             "When mentioned in a group chat, reply exactly with NO_REPLY."

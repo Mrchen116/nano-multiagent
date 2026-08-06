@@ -19,6 +19,7 @@ from personal_assistant.config.local_store import (
     default_local_config_path,
     enabled_feishu_agent_ids,
     ensure_workspace_defaults,
+    merge_legacy_custom_prompt,
     save_sensitive_local_config,
 )
 from personal_assistant.builtin_skills.lark_bundle import lark_skill_names
@@ -186,12 +187,6 @@ class IMAgentConfigSync:
         )
         desc_val = agent_payload.get("description")
         description_str = desc_val.strip() if isinstance(desc_val, str) else ""
-        system_prompt_val = agent_payload.get("system_prompt")
-        system_prompt = (
-            system_prompt_val.strip()
-            if isinstance(system_prompt_val, str) and system_prompt_val.strip()
-            else None
-        )
         raw_skills = agent_payload.get("skills")
         skills = tuple(
             item.strip()
@@ -233,7 +228,6 @@ class IMAgentConfigSync:
             title=title,
             skills=skills,
             tool_allowlist=tool_allowlist,
-            system_prompt=system_prompt,
             group_reply_policy=group_reply_policy,
             default_model=default_model,
             features=features,
@@ -255,7 +249,6 @@ class IMAgentConfigSync:
             "agent_id": agent_id,
             "display_name": title,
             "description": description_str,
-            "system_prompt": system_prompt or "",
             "skills": list(skills),
             "tool_allowlist": list(tool_allowlist),
             "group_reply_policy": group_reply_policy,
@@ -378,7 +371,6 @@ class IMAgentConfigSync:
             "profile_version": int(payload.get("profile_version", 1)),
             "display_name": str(payload.get("display_name") or agent_id),
             "description": str(payload.get("description") or ""),
-            "system_prompt": str(payload.get("system_prompt") or ""),
             "skills": skills,
             "tool_allowlist": [
                 item.strip()
@@ -552,6 +544,9 @@ class IMAgentConfigSync:
 
         raw_skills = payload.get("skills")
         raw_tools = payload.get("tool_allowlist")
+        custom_prompt = merge_legacy_custom_prompt(
+            _optional_text("system_prompt"), _optional_text("custom_prompt")
+        )
         return AgentWorkspaceConfig(
             agent_id=agent_id,
             workspace_root=workspace_root,
@@ -566,11 +561,10 @@ class IMAgentConfigSync:
                 for item in (raw_tools if isinstance(raw_tools, list) else [])
                 if isinstance(item, str) and item.strip()
             ),
-            system_prompt=_optional_text("system_prompt"),
             group_reply_policy=_optional_text("group_reply_policy"),
             default_model=_optional_text("default_model"),
             features=features,
-            custom_prompt=_optional_text("custom_prompt"),
+            custom_prompt=custom_prompt,
             heartbeat_every=heartbeat_every,
             heartbeat_active_hours_start=hb_start,
             heartbeat_active_hours_end=hb_end,
@@ -619,7 +613,6 @@ class IMAgentConfigSync:
                 continue
             payload: dict[str, object] = {
                 "display_name": agent.title or agent.agent_id,
-                "system_prompt": agent.system_prompt or "",
                 "skills": list(agent.skills),
                 "tool_allowlist": list(agent.tool_allowlist),
                 "group_reply_policy": agent.group_reply_policy or "manual",
