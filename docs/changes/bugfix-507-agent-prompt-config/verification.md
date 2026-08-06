@@ -90,6 +90,47 @@ None.
 
 None.
 
+## Corrected Delta Reconciliation
+
+> Reconciled final tree: `e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6 → 4a30443c288f8ec3f417092c0fff5ef278f7cbc1`.
+
+| Delta item | Implementation evidence | Test evidence | Outcome |
+|---|---|---|---|
+| `specs/im/agents-nodes.md:7-9` MODIFIED requirement | `src/IM/api/routes/agents.py:26-69,179-202,400-435`; `src/personal_assistant/gateway/session_composition.py:55-65` | `tests/im_service/contract/test_agent_config_contract.py:17,65`; `tests/unit/personal_assistant/test_session_run_coordinator_admission.py:919` | aligned |
+| `agents-nodes:11-14` stable config fields | `src/IM/api/routes/agents.py:26-48,179-202` emits `custom_prompt` and no profile `system_prompt` | `tests/im_service/contract/test_agent_config_contract.py:17` | aligned |
+| `agents-nodes:16-18` PATCH + optimistic lock | `src/IM/api/routes/agents.py:400-435`; `src/IM/infra/repositories/agents.py:258-332` | `tests/im_service/contract/test_agent_config_contract.py:17,65` | aligned |
+| `agents-nodes:20-23` next reply adopts saved runtime and retains history | `src/personal_assistant/gateway/session_run_coordinator.py:852-881,1201-1282` takes the latest agent only at admission and reconfigures the retained session | `tests/unit/personal_assistant/test_session_run_coordinator_admission.py:919`; `tests/e2e/critical_paths/test_agent_config_context_continuity_critical_path.py:260` | aligned |
+| `agents-nodes:25-28` live merge retains IM-owned fields | `src/IM/api/routes/agents.py:205-254` preserves persisted features/custom text while overlaying Gateway-owned values | `tests/im_service/contract/test_agent_config_contract.py:238` | aligned |
+| `agents-nodes:30-32` heartbeat cadence is real value or `30m` | `src/IM/api/routes/agents.py:179-202`; `src/personal_assistant/config/local_store.py:1138-1168` | `tests/unit/personal_assistant/test_heartbeat_scheduler_config_every.py:130,170` | aligned |
+| `agents-nodes:36-38` ADDED custom-only public prompt and stable preview | `src/personal_assistant/product.py:289-345`; `src/IM/api/routes/agents.py:550-642` | `tests/integration/test_personal_assistant_prompt_integration.py:67`; `src/IM/frontend/src/features/settings/agents/im-agent-config-api.test.ts:99` | aligned |
+| `agents-nodes:40-42` empty Custom Instructions has no hidden persona | `src/personal_assistant/product.py:315-345` has no profile `system_prompt` path | `tests/integration/test_personal_assistant_prompt_integration.py:67` | aligned |
+| `agents-nodes:44-47` preview reflects saved/draft stable config and states runtime exclusions | `src/IM/frontend/src/features/settings/agents/agent-detail-page.tsx:142-163`; `src/IM/api/routes/agents.py:550-642` | `tests/im_service/contract/test_agent_config_contract.py:295`; `src/IM/frontend/src/features/settings/agents/agent-detail-page.test.tsx:684,755` | aligned |
+| `agents-nodes:49-53` legacy migration preserves once, legacy-first | `src/IM/infra/db.py:688-749`; `src/personal_assistant/config/local_store.py:1113-1137,1340-1362` | `tests/im_service/unit/test_agent_prompt_config_migration.py:20,105`; `tests/unit/personal_assistant/config/test_agent_prompt_config_migration.py:20` | aligned |
+| `agents-nodes:55-59` old Gateway first register seeds empty IM only | `src/personal_assistant/reporter/upstream_reporter.py:245-281`; `src/IM/ws/gateway/sessions.py:274-350`; `src/IM/infra/gateway_persistence.py:144-194` | `tests/unit/personal_assistant/test_gateway_upstream_reporter.py:274`; `tests/im_service/integration/test_gateway_im_registration.py:14,170` | aligned |
+| `specs/gateway/agent-capabilities.md:7-9` MODIFIED requirement | `src/personal_assistant/gateway/session_composition.py:55-65`; `src/personal_assistant/product.py:289-345`; `src/personal_assistant/gateway/session_run_coordinator.py:852-881` | `tests/integration/test_session_run_coordinator_real_kernel.py:141`; `tests/unit/personal_assistant/test_session_run_coordinator_admission.py:919` | aligned |
+| `agent-capabilities:11-14` add a tool and continue a chat | Same full-runtime projection/reconfigure path, `session_composition.py:55-65`, `session_run_coordinator.py:852-881` | `tests/e2e/critical_paths/test_agent_config_context_continuity_critical_path.py:260` | aligned |
+| `agent-capabilities:16-19` remove a tool without losing past tool history | `src/personal_assistant/gateway/session_run_coordinator.py:1201-1282` retains the session; runtime allowlist is replaced atomically | `tests/unit/agent/test_runtime_tool_allowlist_enforcement.py:161`; `tests/unit/test_auto_mode_gate_hook.py:202,250` | aligned |
+| `agent-capabilities:21-24` custom/skills/features replace together while preserving history | `src/personal_assistant/gateway/session_composition.py:55-65`; `src/personal_assistant/gateway/session_run_coordinator.py:1201-1282` | `tests/unit/personal_assistant/test_session_run_coordinator_admission.py:919`; `tests/integration/test_session_run_coordinator_real_kernel.py:141` | aligned |
+| `agent-capabilities:26-29` repeated saves use latest configuration at admission | `src/personal_assistant/gateway/session_run_coordinator.py:852-869,1170-1190` reads the catalog only after owning the per-session transition | `tests/unit/personal_assistant/test_session_run_coordinator_admission.py:919,970` | aligned |
+| `agent-capabilities:31-33` failed replacement cannot submit a mixed runtime | `src/personal_assistant/gateway/session_run_coordinator.py:852-881,985-1004` submits only after complete reconfiguration and reports failures | `tests/unit/personal_assistant/test_session_run_coordinator_admission.py:919`; `tests/integration/test_session_run_coordinator_real_kernel.py:141` | aligned |
+| `specs/gateway/service-lifecycle.md:7-9` MODIFIED requirement | `src/personal_assistant/ws/im_connection.py:400-445,903-920`; `src/IM/ws/gateway/sessions.py:252-350` | `tests/unit/personal_assistant/test_gateway_im_connection_behavior.py:28,156,276` | aligned |
+| `service-lifecycle:11-14` register has four seeds, then heartbeat | `src/personal_assistant/reporter/upstream_reporter.py:245-281`; `src/IM/ws/gateway/sessions.py:274-350` | `tests/unit/personal_assistant/test_gateway_upstream_reporter.py:274`; `tests/im_service/integration/test_gateway_im_registration.py:14` | aligned |
+| `service-lifecycle:16-20` ACK gates business traffic with bounded registration | `src/personal_assistant/ws/im_connection.py:415-445,760-790,903-920` | `tests/unit/personal_assistant/test_gateway_reconnect_registration_gate.py:13`; `tests/unit/personal_assistant/test_gateway_im_connection_behavior.py:28` | aligned |
+| `service-lifecycle:22-25` runtime uses local workspace but mirrors public config | `src/personal_assistant/gateway/agent_config_sync.py:558-626`; `src/personal_assistant/gateway/session_run_coordinator.py:852-881` | `tests/unit/personal_assistant/test_gateway_im_config_sync.py:1495` | aligned |
+| `service-lifecycle:27-29` `agent.create` creates local workspace and returns it | `src/personal_assistant/ws/im_connection.py:1034-1051`; `src/IM/api/routes/nodes.py:82-313` | `tests/im_service/contract/test_agent_create_contract.py:13`; `tests/im_service/integration/test_agent_create_flow.py:19` | aligned |
+| `service-lifecycle:31-33` live snapshot is custom-only | `src/personal_assistant/gateway/agent_config_sync.py:633-649`; `src/personal_assistant/ws/im_connection.py:1018-1032` | `tests/unit/personal_assistant/test_gateway_im_connection_behavior.py:156`; `tests/im_service/integration/test_agent_config_api.py:21` | aligned |
+| `service-lifecycle:35-37` Gateway reads and returns `HEARTBEAT.md` | `src/personal_assistant/ws/im_connection.py:1228-1255` | `tests/unit/personal_assistant/test_gateway_im_connection_behavior.py:1179,1233` | aligned |
+| `service-lifecycle:39-41` Gateway lists cron jobs | `src/personal_assistant/ws/im_connection.py:1256-1287` | `tests/unit/personal_assistant/test_gateway_im_connection_behavior.py:1279` | aligned |
+| `service-lifecycle:43-45` Gateway deletes cron job and returns precise result | `src/personal_assistant/ws/im_connection.py:1309-1354` | `tests/unit/personal_assistant/test_gateway_im_connection_behavior.py:1528,1586` | aligned |
+
+Focused execution for this reconciliation: 137 profile/config/session tests, 10 lifecycle tests, 7 heartbeat/allowlist tests, and 2 historical-tool tests passed. Changed Python Ruff, `git diff --check`, and `scripts/docs-check` also passed.
+
+### Uncovered Observable Behavior
+
+None. The final unit diff's public cutover points—API/create payloads, visible prompt migration, first-register seeding, mirror/live configuration, stable preview, retained-session replacement, and conversation prompt-body retirement—are all covered by the three delta specs above. The latest synchronized db/config-sync maintenance does not add a conflicting public prompt contract.
+
+Outcome: aligned
+
 # Round 2
 
 > Validation snapshot: `8ae5fdd7a7f87a5aa60d145efb73e7225a14f3c8 → 204b22de9f4871f06e4a5fbad165c9ed74bd3fd6`
