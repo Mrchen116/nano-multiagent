@@ -74,12 +74,12 @@
 
 ### R2 — 修正 rail 身份行视觉语义
 
-- 状态：DOING
+- 状态：DONE
 - 步骤：先以 normal / hover / active 行前景和背景语义用例复现低对比度，再用既有 dark rail 色系调整文字、hover、active 表达。
 - 验证：新增 rail 组件回归由红转绿；定向运行 `agents-rail-desktop.test.tsx`。
 
 ### R3 — 真实浏览器验收与交付门禁
 
-- 状态：TODO
+- 状态：DOING
 - 步骤：隔离启动 Web IM，覆盖 desktop loading/error/loaded 与 mobile loading，检查 console/network，并保存 durable screenshots；运行相关 Vitest 与 build。
 - 验证：证据写入 `M1-fix/evidence/`，所有退出标准闭环。

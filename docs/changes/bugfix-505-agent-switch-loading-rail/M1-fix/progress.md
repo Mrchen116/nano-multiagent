@@ -21,16 +21,30 @@
   - Visual/Interaction: loading 使用窄幅白色面板、轻边框/阴影和单个 accent spinner；error 使用同一内容区与可重试卡片。R3 保存截图。
   - Prototype Comparison: 派发 reference contract 的 shell/mobile 项在组件层 match；浏览器对照在 R3。
 - Rollback: revert 本 roadpoint commit，恢复旧 early returns。
-- Commits: pending (this commit)
+- Commits: `f6e733d1d`
 - Next: R2 修正 rail 视觉语义。
 
 ## R2 — 修正 rail 身份行视觉语义
 
-- Status: TODO
+- Status: DONE
+- Context: normal Agent 名称使用 `oklch(0.18...)` 叠在 `oklch(0.24...)` rail 上，文字比背景更暗；hover 依赖事件改 inline style，active 的背景与 outline 分散在 class/style 两处。
+- Decision: normal 名称提升到 `oklch(0.86...)`、id 提升到 `oklch(0.64...)`；active 名称保持白色、id 使用 `oklch(0.70...)`。row 的 normal/hover/active 背景和 active ring 全部用静态 Tailwind class 表达，删除 mouse enter/leave inline mutation。
+- Rationale: 深色 rail 上身份文本始终使用亮前景；静态状态 class 同时覆盖鼠标、键盘 focus 和 active，视觉规则集中且可被回归测试观察。
+- Evidence:
+  - Tests: 红测显示 active row 缺目标 background/ring class；Green 后 `agents-rail-desktop.test.tsx` 2/2 passed，覆盖 normal/hover/active identity colors 与 desktop-only responsive classes。
+  - Entry: `AgentsRailDesktop` 的真实按钮行、display name 和 agent id DOM；浏览器入口由 R3 验收。
+  - Frontend State Matrix: normal/hover/active/keyboard focus/desktop rail 已覆盖；mobile 由 `hidden lg:flex` 既有响应式语义保持。
+  - Browser QA: R3 执行。
+  - E2E/Regression: `src/IM/frontend/src/features/settings/agents/agents-rail-desktop.test.tsx`；`npm test -- src/features/settings/agents/agents-rail-desktop.test.tsx`。
+  - Visual/Interaction: normal/hover/active 前景与背景 token 已由测试锁定，真实像素与交互截图在 R3。
+  - Prototype Comparison: 派发 reference contract 的 rail contrast 语义在组件层 match；浏览器对照在 R3。
+- Rollback: revert 本 roadpoint commit，恢复旧 rail 行色值和 inline hover mutation。
+- Commits: pending (this commit)
+- Next: R3 真实浏览器验收、全量定向门禁与 build。
 
 ## R3 — 真实浏览器验收与交付门禁
 
-- Status: TODO
+- Status: DOING
 
 ## Promotion Candidates
 
