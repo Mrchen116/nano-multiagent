@@ -438,7 +438,7 @@ async def _classify_action(
     system_prompt: str,
     user_prompt: str,
     *,
-    model: str | None,
+    model: str | None = None,
 ) -> PermissionDecision:
     """Two-stage XML classification. Pixel-perfect CC classifyYoloActionXml.
 

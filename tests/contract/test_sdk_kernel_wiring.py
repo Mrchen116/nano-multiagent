@@ -254,20 +254,35 @@ def test_auto_gate_is_the_only_production_approval_model_consumer() -> None:
     assert consumers == ["agent/platform/hooks/builtins/auto_mode_gate.py"]
 
 
-async def test_tool_approval_model_only_routes_classifier_calls(tmp_path: Path) -> None:
-    requests: list[Any] = []
+async def test_tool_approval_model_only_routes_classifier_calls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import agent.sdk.kernel as kernel_module
+
+    requests: list[tuple[str, Any]] = []
     normal_calls = 0
 
     class _RoutingClient:
+        def __init__(self, provider: str) -> None:
+            self.provider = provider
+
         def generate(self, request: Any):  # noqa: ANN001, ANN201
             nonlocal normal_calls
-            requests.append(request)
-            if request.extra_body == {"thinking": {"type": "disabled"}}:
+            requests.append((self.provider, request))
+            if self.provider == "provider-c":
                 return _hook_stub("<block>no</block>")
             normal_calls += 1
             if normal_calls == 1:
                 return _tool_call_stream("approval_route")
             return _stub("done")
+
+        async def close(self) -> None:
+            return None
+
+    def _factory(*, config: Any) -> _RoutingClient:
+        return _RoutingClient(config.provider)
+
+    monkeypatch.setattr(kernel_module, "_platform_create_llm_client", _factory)
 
     llm = LLMConfig.from_catalog(
         default_model="model-a",
@@ -289,7 +304,7 @@ async def test_tool_approval_model_only_routes_classifier_calls(tmp_path: Path) 
         llm=llm,
         tools=[_ApprovalRoutingTool()],
         tool_approval_model="model-c",
-        _llm_client_override=_RoutingClient(),
+        _llm_client_override=None,
     )
     try:
         session = await kernel.create_session(
@@ -302,7 +317,12 @@ async def test_tool_approval_model_only_routes_classifier_calls(tmp_path: Path) 
         )
 
         assert (await _wait_terminal(kernel, run.run_id)).status == "completed"
-        assert [request.model for request in requests] == [
+        assert [(provider, request.model) for provider, request in requests] == [
+            ("provider-a", "model-a"),
+            ("provider-c", "model-c"),
+            ("provider-a", "model-a"),
+        ]
+        assert [request.model for _, request in requests] == [
             "model-a",
             "model-c",
             "model-a",

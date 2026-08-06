@@ -287,6 +287,10 @@ def build_kernel(
 
     Returns:
         A fully assembled, ready-to-use Kernel.
+
+    Raises:
+        ValueError: If ``llm`` is missing, or ``tool_approval_model`` is empty
+            or is not registered in the supplied LLM catalog.
     """
     if llm is None:
         raise ValueError("build_kernel requires llm= (2-layer surface)")

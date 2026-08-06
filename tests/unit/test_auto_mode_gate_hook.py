@@ -207,7 +207,9 @@ class TestGateHookLogic:
         assert result is None or result.get("block") is not True
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("run_origin", ["user", "heartbeat", "cron", "subagent"])
+    @pytest.mark.parametrize(
+        "run_origin", ["user", "heartbeat", "cron", "background_task"]
+    )
     async def test_classifier_uses_configured_model_for_every_run_origin(
         self, run_origin: str
     ):
