@@ -408,6 +408,20 @@ def _normalize_agent_string_list_seed(
     return result
 
 
+def _normalize_agent_text_seed(raw: object) -> dict[str, str]:
+    """Normalize non-empty per-agent text seeds from a registration frame."""
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        agent_id: value.strip()
+        for agent_id, value in raw.items()
+        if isinstance(agent_id, str)
+        and agent_id.strip()
+        and isinstance(value, str)
+        and value.strip()
+    }
+
+
 def _optional_usage(value: object) -> dict[str, int] | None:
     if value is None:
         return None

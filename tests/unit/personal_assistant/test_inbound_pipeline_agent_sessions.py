@@ -25,7 +25,7 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
         agent_id="agent-a",
         workspace_root=agent_a_dir,
         title="Agent A",
-        system_prompt="You are Agent A v1.",
+        custom_prompt="You are Agent A v1.",
     )
     channel = _FakeChannel("web")
     registry = ChannelRegistry((channel,))
@@ -61,7 +61,7 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
             agent_id="agent-a",
             workspace_root=refreshed_workspace,
             title="Agent A v2",
-            system_prompt="You are Agent A v2.",
+            custom_prompt="You are Agent A v2.",
         )
     )
 
@@ -118,7 +118,7 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
                 "agent_id": "agent-a",
                 "conversation_id": "chat-1",
                 "config_profile_version": 1,
-                "system_prompt": "You are Agent A v1.",
+                "agent_custom_prompt": "You are Agent A v1.",
                 "conversation_type": "direct",
                 "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
                 "agent_features": {},
@@ -132,7 +132,7 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
                 "agent_id": "agent-a",
                 "conversation_id": "chat-1",
                 "config_profile_version": 2,
-                "system_prompt": "You are Agent A v2.",
+                "agent_custom_prompt": "You are Agent A v2.",
                 "conversation_type": "direct",
                 "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
                 "agent_features": {},
@@ -146,7 +146,7 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
                 "agent_id": "agent-a",
                 "conversation_id": "chat-2",
                 "config_profile_version": 2,
-                "system_prompt": "You are Agent A v2.",
+                "agent_custom_prompt": "You are Agent A v2.",
                 "conversation_type": "direct",
                 "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
                 "agent_features": {},
@@ -173,7 +173,7 @@ def test_config_publish_reconfigures_group_session_without_changing_address(
         agent_id="agent-a",
         workspace_root=agent_a_dir,
         title="Agent A",
-        system_prompt="Reply with ALPHA_ACK_M170.",
+        custom_prompt="Reply with ALPHA_ACK_M170.",
     )
     channel = _FakeChannel("web_relay")
     registry = ChannelRegistry((channel,))
@@ -213,7 +213,7 @@ def test_config_publish_reconfigures_group_session_without_changing_address(
             agent_id="agent-a",
             workspace_root=agent_a_dir,
             title="Agent A",
-            system_prompt="When mentioned in a group chat, reply exactly with NO_REPLY.",
+            custom_prompt="When mentioned in a group chat, reply exactly with NO_REPLY.",
         )
     )
     inbound_graph(pipeline).binder.invalidate_stale(
@@ -246,7 +246,7 @@ def test_config_publish_reconfigures_group_session_without_changing_address(
     assert len(kernel_client.create_session_calls) == 1
     runtime = kernel_client._session_runtime["sess-1"]  # noqa: SLF001
     assert any(
-        item.text == "When mentioned in a group chat, reply exactly with NO_REPLY."
+        "When mentioned in a group chat, reply exactly with NO_REPLY." in item.text
         for item in runtime.runtime.prompt.custom
     )
 

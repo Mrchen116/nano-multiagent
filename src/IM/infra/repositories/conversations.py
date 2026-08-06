@@ -26,7 +26,6 @@ class _ConversationConfigSnapshot:
 
     agent_id: str | None
     profile_version: int | None
-    system_prompt: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,11 +139,10 @@ class ConversationRepository:
                     last_message_at,
                     config_agent_id,
                     config_profile_version,
-                    config_system_prompt,
                     external_source,
                     external_chat_id,
                     created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     conversation_id,
@@ -159,7 +157,6 @@ class ConversationRepository:
                     None,
                     config_snapshot.agent_id,
                     config_snapshot.profile_version,
-                    config_snapshot.system_prompt,
                     None,
                     None,
                     created_at,
@@ -277,14 +274,11 @@ class ConversationRepository:
         if resolved_creator_id not in normalized_participants:
             raise ValueError("creator_id must be one of participant_ids")
         profile_row = self._connection.execute(
-            "SELECT profile_version, system_prompt FROM agent_profiles WHERE agent_id = ?",
+            "SELECT profile_version FROM agent_profiles WHERE agent_id = ?",
             (normalized_agent_id,),
         ).fetchone()
         profile_version = (
             int(profile_row["profile_version"]) if profile_row is not None else None
-        )
-        system_prompt = (
-            str(profile_row["system_prompt"]) if profile_row is not None else None
         )
         conversation_id = uuid4().hex
         created_at = utc_now()
@@ -306,11 +300,10 @@ class ConversationRepository:
                         last_message_at,
                         config_agent_id,
                         config_profile_version,
-                        config_system_prompt,
                         external_source,
                         external_chat_id,
                         created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         conversation_id,
@@ -325,7 +318,6 @@ class ConversationRepository:
                         None,
                         normalized_agent_id,
                         profile_version,
-                        system_prompt,
                         normalized_source,
                         normalized_chat_id,
                         created_at,
@@ -847,10 +839,9 @@ class ConversationRepository:
             return _ConversationConfigSnapshot(
                 agent_id=None,
                 profile_version=snapshot.profile_version,
-                system_prompt=None,
             )
         return _ConversationConfigSnapshot(
-            agent_id=None, profile_version=None, system_prompt=None
+            agent_id=None, profile_version=None
         )
 
     def _profile_snapshot_for_participant(
@@ -865,7 +856,7 @@ class ConversationRepository:
                 candidate_agent_ids.append(alias_agent_id)
         for candidate_agent_id in candidate_agent_ids:
             profile_row = self._connection.execute(
-                "SELECT agent_id, profile_version, system_prompt FROM agent_profiles WHERE agent_id = ?",
+                "SELECT agent_id, profile_version FROM agent_profiles WHERE agent_id = ?",
                 (candidate_agent_id,),
             ).fetchone()
             if profile_row is None:
@@ -873,6 +864,5 @@ class ConversationRepository:
             return _ConversationConfigSnapshot(
                 agent_id=str(profile_row["agent_id"]),
                 profile_version=int(profile_row["profile_version"]),
-                system_prompt=str(profile_row["system_prompt"]),
             )
         return None

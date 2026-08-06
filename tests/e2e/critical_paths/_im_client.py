@@ -174,7 +174,6 @@ class IMClient:
             "profile_version": current["profile_version"],
             "display_name": current["display_name"],
             "description": current.get("description", ""),
-            "system_prompt": current.get("system_prompt", ""),
             "skills": current.get("skills", []),
             "tool_allowlist": current.get("tool_allowlist", []),
             "group_reply_policy": current["group_reply_policy"],
@@ -201,13 +200,38 @@ class IMClient:
         resp.raise_for_status()
         return resp.json()
 
+    def preview_agent_prompt(
+        self,
+        agent_id: str,
+        *,
+        custom_prompt: str | None,
+        features: dict[str, bool] | None = None,
+        tool_ids: list[str] | None = None,
+        skill_ids: list[str] | None = None,
+    ) -> str:
+        """Return the Gateway-built stable prompt preview for one draft."""
+        resp = self._http.post(
+            f"/im/v1/agents/{agent_id}/prompt-preview",
+            headers=self._auth_headers,
+            json={
+                "custom_prompt": custom_prompt,
+                "features": features or {},
+                "tool_ids": tool_ids or [],
+                "skill_ids": skill_ids or [],
+                "scenario": "direct",
+            },
+            timeout=60.0,
+        )
+        resp.raise_for_status()
+        return str(resp.json()["prompt"])
+
     def create_agent(
         self,
         node_id: str,
         agent_id: str,
         *,
         display_name: str | None = None,
-        system_prompt: str = "",
+        custom_prompt: str = "",
         group_reply_policy: str = "MENTION",
         tool_allowlist: list[str] | None = None,
         skills: list[str] | None = None,
@@ -223,7 +247,7 @@ class IMClient:
             "agent_id": agent_id,
             "owner_id": self.owner_id,
             "display_name": display_name or agent_id,
-            "system_prompt": system_prompt,
+            "custom_prompt": custom_prompt,
             "group_reply_policy": group_reply_policy,
             "tool_allowlist": tool_allowlist or [],
             "skills": skills or [],

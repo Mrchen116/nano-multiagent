@@ -171,7 +171,6 @@ class AgentWorkspaceConfig:
         title: Optional operator-facing label.
         skills: Enabled skill identifiers for this agent.
         tool_allowlist: Allowed tool names restricting the agent's tool access.
-        system_prompt: Custom system prompt override for the agent.
         group_reply_policy: Reply policy in group conversations (e.g. "always", "mention_only").
         default_model: Default LLM model identifier for this agent.
         features: Per-agent feature-flag overrides keyed by FEATURE_REGISTRY key.
@@ -205,7 +204,6 @@ class AgentWorkspaceConfig:
     title: str | None = None
     skills: tuple[str, ...] = ()
     tool_allowlist: tuple[str, ...] = ()
-    system_prompt: str | None = None
     group_reply_policy: str | None = None
     default_model: str | None = None
     # feat-379-M2: per-agent feature flags and custom prompt supplement.
@@ -312,6 +310,8 @@ class LocalConfig:
         im_service: Optional upstream IM service configuration.
         llm: LLM registry configuration (required; no hardcoded fallback).
         source_path: Absolute file path used to load the config.
+        legacy_prompt_migration_pending: Whether a successful config persistence
+            should remove a retired prompt key observed during load.
     """
 
     node: NodeConfig
@@ -322,6 +322,7 @@ class LocalConfig:
     im_service: IMServiceConfig | None
     llm: LLMConfigPayload
     source_path: Path
+    legacy_prompt_migration_pending: bool = False
 
 
 class RuntimeConfigOwner:
@@ -595,6 +596,10 @@ def load_local_config(config_path: str | Path) -> LocalConfig:
     node = _parse_node_config(raw.get("node"))
     llm = _parse_llm(raw.get("llm"))
     agents = _parse_agents(raw.get("agents"), llm)
+    raw_agents = raw.get("agents")
+    legacy_prompt_migration_pending = isinstance(raw_agents, list) and any(
+        isinstance(item, dict) and "system_prompt" in item for item in raw_agents
+    )
     channels = _parse_channels(raw.get("channels"))
     gateway = _parse_gateway_lifecycle(raw.get("gateway"))
     heartbeat = _parse_heartbeat(raw.get("heartbeat"))
@@ -608,6 +613,7 @@ def load_local_config(config_path: str | Path) -> LocalConfig:
         im_service=im_service,
         llm=llm,
         source_path=source_path,
+        legacy_prompt_migration_pending=legacy_prompt_migration_pending,
     )
 
 
@@ -806,8 +812,6 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
         # feat-394 fix: always serialize tool_allowlist so an explicit empty
         # whitelist round-trips as [] instead of being omitted and re-backfilled.
         agent_dict["tool_allowlist"] = list(agent.tool_allowlist)
-        if agent.system_prompt is not None:
-            agent_dict["system_prompt"] = agent.system_prompt
         if agent.group_reply_policy is not None:
             agent_dict["group_reply_policy"] = agent.group_reply_policy
         if agent.default_model is not None:
@@ -1106,7 +1110,7 @@ def _parse_agents(
             from personal_assistant.product import DEFAULT_TOOL_IDS
 
             tool_allowlist = tuple(DEFAULT_TOOL_IDS)
-        system_prompt = _optional_string(
+        legacy_system_prompt = _optional_string(
             item.get("system_prompt"), field_name=f"agents[{index}].system_prompt"
         )
         group_reply_policy = _optional_string(
@@ -1127,6 +1131,9 @@ def _parse_agents(
         )
         custom_prompt = _optional_string(
             item.get("custom_prompt"), field_name=f"agents[{index}].custom_prompt"
+        )
+        custom_prompt = merge_legacy_custom_prompt(
+            legacy_system_prompt, custom_prompt
         )
         # feat-394 decision 5: parse per-agent heartbeat config block.
         # feat-394-M9: heartbeat.enabled is merged into the features dict
@@ -1174,7 +1181,6 @@ def _parse_agents(
                 title=title,
                 skills=skills,
                 tool_allowlist=tool_allowlist,
-                system_prompt=system_prompt,
                 group_reply_policy=group_reply_policy,
                 default_model=default_model,
                 features=features,
@@ -1329,6 +1335,31 @@ def _optional_string(value: Any, *, field_name: str) -> str | None:
         raise ValueError(f"{field_name} must be a string")
     stripped = value.strip()
     return stripped or None
+
+
+def merge_legacy_custom_prompt(
+    legacy_prompt: str | None, custom_prompt: str | None
+) -> str | None:
+    """Merge a retired prompt field into the one canonical visible field.
+
+    Non-empty legacy text stays first so an upgrade preserves the role that was
+    already effective. Equal trimmed values collapse to one copy.
+
+    Args:
+        legacy_prompt: Retired hidden role text, if present.
+        custom_prompt: Current visible custom instructions, if present.
+
+    Returns:
+        One trimmed canonical prompt, or ``None`` when both inputs are blank.
+    """
+
+    legacy = (legacy_prompt or "").strip()
+    custom = (custom_prompt or "").strip()
+    if not legacy:
+        return custom or None
+    if not custom or legacy == custom:
+        return legacy
+    return f"{legacy}\n\n{custom}"
 
 
 def _positive_number(value: Any, *, field_name: str) -> float:

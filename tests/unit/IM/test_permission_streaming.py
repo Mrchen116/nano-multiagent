@@ -286,7 +286,6 @@ class TestPermissionRestEndpoint:
             owner_id=owner_id,
             display_name="Beta",
             description="",
-            system_prompt="",
             skills=[],
             tool_allowlist=[],
             group_reply_policy="manual",

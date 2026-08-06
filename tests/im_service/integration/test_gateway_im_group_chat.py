@@ -129,7 +129,7 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
                     "profile_version": current.json()["profile_version"],
                     "display_name": "agent-a v2",
                     "description": "updated",
-                    "system_prompt": "When mentioned in a group chat, reply exactly with NO_REPLY.",
+                    "custom_prompt": "When mentioned in a group chat, reply exactly with NO_REPLY.",
                     "skills": [],
                     "tool_allowlist": [],
                     "group_reply_policy": "manual",
@@ -147,7 +147,7 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
                     agent_id="agent-a",
                     workspace_root=agents[0].workspace_root,
                     title=agents[0].title,
-                    system_prompt="When mentioned in a group chat, reply exactly with NO_REPLY.",
+                    custom_prompt="When mentioned in a group chat, reply exactly with NO_REPLY.",
                 )
             )
             inbound_graph(pipeline).binder.invalidate_stale(
@@ -210,7 +210,6 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
             "conversation_id": conversation_id,
             "agent_features": {},
             "config_profile_version": 1,
-            "system_prompt": "You are agent-a.",
             "conversation_type": "group",
             "external_chat_id": conversation_id,
             "participants": [

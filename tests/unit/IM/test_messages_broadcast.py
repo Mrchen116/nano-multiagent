@@ -77,7 +77,6 @@ def _setup_group_conversation(tmp_path: Path) -> tuple[TestClient, str, str, Mag
                 owner_id=owner_id,
                 display_name=aname,
                 description=f"profile {aid}",
-                system_prompt=f"You are {aid}.",
                 skills=[],
                 tool_allowlist=[],
                 group_reply_policy="manual",

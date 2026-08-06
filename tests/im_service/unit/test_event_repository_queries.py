@@ -168,7 +168,6 @@ def test_event_enrichment_queries_return_typed_identity_maps(tmp_path: Path) -> 
         owner_id=visible.owner_id,
         display_name="Plato",
         description="",
-        system_prompt="",
         skills=[],
         tool_allowlist=[],
         group_reply_policy="MENTION",

@@ -178,7 +178,7 @@ def test_im_connection_replies_with_live_agent_config_snapshot(tmp_path: Path) -
         relay_adapter=relay_adapter,
         agent_config_provider=lambda agent_id: {
             "display_name": "Agent A",
-            "system_prompt": "You are local.",
+            "custom_prompt": "You are local.",
             "skills": ["plan"],
             "tool_allowlist": ["read"],
             "group_reply_policy": "manual",
@@ -205,7 +205,7 @@ def test_im_connection_replies_with_live_agent_config_snapshot(tmp_path: Path) -
             "agent_id": "agent-a",
             "agent": {
                 "display_name": "Agent A",
-                "system_prompt": "You are local.",
+                "custom_prompt": "You are local.",
                 "skills": ["plan"],
                 "tool_allowlist": ["read"],
                 "group_reply_policy": "manual",

@@ -271,6 +271,37 @@ def test_send_register_includes_agent_skills_and_tool_allowlist(
     assert payload["agent_tool_allowlist"] == {"Arch": ["read", "bash", "edit"]}
 
 
+def test_send_register_includes_non_empty_canonical_custom_prompt(
+    tmp_path: Path,
+) -> None:
+    """First registration advertises the visible role text for IM seeding."""
+    from personal_assistant.config.local_store import AgentWorkspaceConfig
+
+    workspace = tmp_path / "my-workspace"
+    workspace.mkdir()
+    kernel = _build_test_kernel(tmp_path / "kernel-root")
+    reporter = UpstreamReporter(
+        node=NodeConfig(node_id="n1"),
+        agents=(
+            AgentWorkspaceConfig(
+                agent_id="Arch",
+                workspace_root=workspace,
+                custom_prompt="Visible role",
+            ),
+            AgentWorkspaceConfig(
+                agent_id="Empty", workspace_root=workspace, custom_prompt="  "
+            ),
+        ),
+        send_frame=lambda _mt, _p: None,
+        capabilities=build_runtime_capabilities(kernel),
+    )
+
+    payload = reporter.send_register()
+
+    assert payload["agent_custom_prompts"] == {"Arch": "Visible role"}
+    assert "system_prompt" not in payload
+
+
 def test_node_capabilities_tools_contain_all_feature_required_tools(
     tmp_path: Path,
 ) -> None:

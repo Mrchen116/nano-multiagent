@@ -502,8 +502,8 @@ def test_online_shadow_anchor_does_not_prepare_duplicate_final_output(
 def test_inbound_pipeline_passes_local_config_metadata_when_creating_new_kernel_sessions(
     tmp_path: Path,
 ) -> None:
-    """Session metadata uses local agent config for prompt fields; message.metadata
-    system_prompt is ignored.  Routing fields (conversation_id, config_profile_version)
+    """Session metadata uses local agent config for prompt fields; legacy relay
+    prompt data is ignored. Routing fields (conversation_id, config_profile_version)
     still come from message.metadata."""
     agent_b_dir = tmp_path / "agent-b"
     agent_b_dir.mkdir()
@@ -515,7 +515,7 @@ def test_inbound_pipeline_passes_local_config_metadata_when_creating_new_kernel_
             agent_id="agent-b",
             workspace_root=agent_b_dir,
             title="Agent B",
-            system_prompt="Local Agent B prompt.",
+            custom_prompt="Local Agent B prompt.",
         ),
     )
     (tmp_path / "agent-a").mkdir(exist_ok=True)
@@ -555,7 +555,7 @@ def test_inbound_pipeline_passes_local_config_metadata_when_creating_new_kernel_
                 "agent_id": "agent-b",
                 "conversation_id": "conv-1",
                 "config_profile_version": 2,
-                "system_prompt": "Local Agent B prompt.",
+                "agent_custom_prompt": "Local Agent B prompt.",
                 "conversation_type": "direct",
                 "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
                 "agent_features": {},

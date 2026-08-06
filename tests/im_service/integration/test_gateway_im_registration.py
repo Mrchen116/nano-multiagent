@@ -41,6 +41,7 @@ def test_gateway_registration_materializes_runtime_agents_before_and_after_bind(
                         "node_name": "MacBook",
                         "version": "1.0.0",
                         "agents": ["Alpha", "Beta"],
+                        "agent_custom_prompts": {"Alpha": "Visible alpha role"},
                         "capabilities": {"relay": True},
                     },
                 }
@@ -58,6 +59,10 @@ def test_gateway_registration_materializes_runtime_agents_before_and_after_bind(
                 "node-1",
             ]
             assert [item["owner_id"] for item in before_bind.json()] == ["", ""]
+            alpha_config = client.get("/im/v1/agents/Alpha/config?source=mirror")
+            assert alpha_config.status_code == 200
+            assert alpha_config.json()["custom_prompt"] == "Visible alpha role"
+            assert "system_prompt" not in alpha_config.json()
             assert [item["workspace_is_default"] for item in before_bind.json()] == [
                 True,
                 True,
@@ -160,6 +165,57 @@ def test_gateway_reregistration_preserves_canonical_agent_labels_after_restart(
             "M170 Alpha",
             "M170 Beta",
         ]
+
+
+def test_gateway_reregistration_does_not_override_an_existing_empty_custom_prompt(
+    tmp_path: Path,
+) -> None:
+    """A registration seed is first-seen only, including after an explicit clear."""
+    from tests.im_service._auth_helpers import authorize, register_user
+
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        viewer = register_user(client, username="seed-viewer", display_name="Viewer")
+        authorize(client, viewer)
+        with client.websocket_connect("/im/ws/gateway") as websocket:
+            websocket.send_json(
+                {
+                    "type": "node.register",
+                    "payload": {
+                        "node_id": "node-1",
+                        "agents": ["agent-a"],
+                        "agent_custom_prompts": {"agent-a": "Seeded role"},
+                    },
+                }
+            )
+            assert websocket.receive_json()["type"] == "ack"
+
+        profile = app.state.connection.execute(
+            "SELECT profile_version FROM agent_profiles WHERE agent_id = 'agent-a'"
+        ).fetchone()
+        app.state.connection.execute(
+            "UPDATE agent_profiles SET custom_prompt = NULL, profile_version = ? WHERE agent_id = 'agent-a'",
+            (int(profile["profile_version"]) + 1,),
+        )
+        app.state.connection.commit()
+
+        with client.websocket_connect("/im/ws/gateway") as websocket:
+            websocket.send_json(
+                {
+                    "type": "node.register",
+                    "payload": {
+                        "node_id": "node-1",
+                        "agents": ["agent-a"],
+                        "agent_custom_prompts": {"agent-a": "Must not return"},
+                    },
+                }
+            )
+            assert websocket.receive_json()["type"] == "ack"
+
+        stored = app.state.connection.execute(
+            "SELECT custom_prompt FROM agent_profiles WHERE agent_id = 'agent-a'"
+        ).fetchone()
+        assert stored["custom_prompt"] is None
 
 
 def test_fresh_runtime_agents_can_back_group_creation_before_bind(

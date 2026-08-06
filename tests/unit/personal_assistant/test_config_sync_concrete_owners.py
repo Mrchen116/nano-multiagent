@@ -150,11 +150,10 @@ def test_unchanged_sync_and_reconcile_do_not_rewrite_or_republish(
         title="Agent A",
         skills=("skill-a",),
         tool_allowlist=("read",),
-        system_prompt="system-a",
         group_reply_policy="MENTION",
         default_model="kimiCoding:K2.6",
         features={"heartbeat": True},
-        custom_prompt="custom-a",
+        custom_prompt="system-a\n\ncustom-a",
         heartbeat_every="30m",
     )
     root = tmp_path / "config-root"

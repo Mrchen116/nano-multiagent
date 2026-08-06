@@ -77,7 +77,6 @@ def test_resources_are_hidden_across_tenants(tmp_path: Path) -> None:
                 node_id="node-alice",
                 display_name="Alice Agent",
                 description="",
-                system_prompt="",
                 skills=[],
                 tool_allowlist=[],
                 group_reply_policy="manual",

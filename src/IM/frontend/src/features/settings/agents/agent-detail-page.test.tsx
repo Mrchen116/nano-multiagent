@@ -108,7 +108,6 @@ describe("agent detail page", () => {
         owner_id: "owner-1",
         display_name: "Core Planner",
         description: "",
-        system_prompt: "",
         skills: [],
         tool_allowlist: [],
         group_reply_policy: "MENTION",
@@ -351,7 +350,6 @@ describe("agent detail page", () => {
         owner_id: "owner-1",
         display_name: "Core Planner",
         description: "Milestone execution coordinator",
-        system_prompt: "You are the planning core for IM and SDK tasks.",
         skills: ["tdd-execution-worker"],
         tool_allowlist: ["read"],
         group_reply_policy: "MENTION",
@@ -421,7 +419,6 @@ describe("agent detail page", () => {
         owner_id: "owner-1",
         display_name: "Core Planner",
         description: "",
-        system_prompt: "",
         skills: [],
         tool_allowlist: [],
         group_reply_policy: "MENTION",
@@ -480,7 +477,6 @@ describe("agent detail page", () => {
         owner_id: "owner-1",
         display_name: "Core Planner",
         description: "",
-        system_prompt: "",
         skills: [],
         tool_allowlist: [],
         group_reply_policy: "MENTION",
@@ -541,7 +537,6 @@ describe("agent detail page", () => {
         owner_id: "owner-1",
         display_name: "Core Planner",
         description: "",
-        system_prompt: "",
         skills: [],
         tool_allowlist: [],
         group_reply_policy: "MENTION",
@@ -601,7 +596,6 @@ describe("agent behavior settings", () => {
         owner_id: "owner-1",
         display_name: "Core Planner",
         description: "",
-        system_prompt: "legacy prompt",
         custom_prompt: overrides.customPrompt ?? "",
         features: overrides.configFeatures ?? {},
         skills: [],
@@ -652,7 +646,6 @@ describe("agent behavior settings", () => {
       owner_id: "owner-1",
       display_name: "Core Planner",
       description: "",
-      system_prompt: "",
       custom_prompt: "我是法律顾问",
       features: { memory_curation: true, skill_creation: true },
       skills: [],
@@ -688,13 +681,13 @@ describe("agent behavior settings", () => {
     });
   });
 
-  it("opens the full prompt preview on demand", async () => {
+  it("opens the stable prompt preview on demand", async () => {
     apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDetailState());
 
     renderDetailPage();
     await screen.findByRole("heading", { name: "Core Planner" });
 
-    const previewToggle = screen.getByRole("button", { name: /Preview full system prompt/i });
+    const previewToggle = screen.getByRole("button", { name: /Preview stable system prompt/i });
     expect(previewToggle).toBeInTheDocument();
     expect(previewToggle.getAttribute("aria-expanded")).toBe("false");
 
@@ -722,7 +715,6 @@ describe("agent prompt preview", () => {
         owner_id: "owner-1",
         display_name: "Mem Agent",
         description: "",
-        system_prompt: "",
         custom_prompt: "",
         features: {},
         skills: [],
@@ -768,7 +760,7 @@ describe("agent prompt preview", () => {
     renderDetailPage();
     await screen.findByRole("heading", { name: "Mem Agent" });
 
-    const previewToggle = screen.getByRole("button", { name: /Preview full system prompt/i });
+    const previewToggle = screen.getByRole("button", { name: /Preview stable system prompt/i });
     await user.click(previewToggle);
 
     await waitFor(() => {
@@ -791,7 +783,6 @@ describe("feature tool linkage with an empty allowlist", () => {
       owner_id: "owner-1",
       display_name: overrides.display_name ?? "Bugfix Agent",
       description: "",
-      system_prompt: "",
       custom_prompt: "",
       features: {} as Record<string, boolean>,
       skills: [] as string[],
@@ -951,7 +942,6 @@ describe("explicit empty tool allowlist", () => {
       owner_id: "owner-1",
       display_name: "Core Planner",
       description: "",
-      system_prompt: "",
       custom_prompt: "",
       skills: [] as string[],
       tool_allowlist: toolAllowlist,

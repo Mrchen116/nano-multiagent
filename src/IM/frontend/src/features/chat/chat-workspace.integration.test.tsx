@@ -251,7 +251,6 @@ function mockFetch(opts: {
         owner_id: "u-self",
         display_name: agentId === "a-writer" ? "Writer" : "Planner",
         description: "",
-        system_prompt: "",
         skills: [],
         tool_allowlist: toolAllowlist,
         group_reply_policy: "manual",

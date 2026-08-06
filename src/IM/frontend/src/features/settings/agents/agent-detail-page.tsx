@@ -44,8 +44,6 @@ function normalizeAgentConfig(config: AgentConfigFormState): AgentConfigFormStat
     ...config,
     display_name: normalizeText(config.display_name),
     description: normalizeText(config.description),
-    // feat-379-M3: system_prompt preserved for API compat but no longer user-editable
-    system_prompt: config.system_prompt.trim(),
     custom_prompt: (config.custom_prompt ?? "").trim(),
     skills: normalizeAllowlist(config.skills),
     tool_allowlist: normalizeAllowlist(config.tool_allowlist),
@@ -54,7 +52,6 @@ function normalizeAgentConfig(config: AgentConfigFormState): AgentConfigFormStat
 }
 
 function validateDraft(draft: AgentConfigFormState) {
-  // feat-379-M3: system_prompt required validation removed — segment system replaces it
   const errors: Partial<Record<"display_name", string>> = {};
   if (!draft.display_name) errors.display_name = "Display name is required.";
   return errors;
@@ -181,7 +178,7 @@ function BehaviorCard({
         <p className="im-agent-card-sub">{t("agents.form.behavior.sub")}</p>
       </div>
 
-      {/* Custom Instructions — optional textarea replacing legacy system_prompt */}
+      {/* Custom Instructions are the only public per-agent prompt input. */}
       <div className="im-agent-field">
         <Label.Root htmlFor="custom-instructions">{t("agents.form.behavior.customInstructions")}</Label.Root>
         <textarea

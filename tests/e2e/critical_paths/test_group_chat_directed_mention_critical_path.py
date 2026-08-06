@@ -15,7 +15,7 @@ spec Req「群聊里人与 agent 的定向 @ 双向可用」。两个 Scenario�
 - B 被唤醒以「历史里出现 B 发的含哨兵消息」为锚;哨兵透传确认链路真打通。
 - 否定断言(B 不抢话)走「有界窗口内历史里 B 不发言」(REST 轮询窗口)。
 
-两个 agent 由测试自建(owner 归属正确、system_prompt 明确群聊协作行为),比依赖现有 agent
+两个 agent 由测试自建(owner 归属正确、custom prompt 明确群聊协作行为),比依赖现有 agent
 配置更可控。group_reply_policy 用默认 MENTION(只有被 @ 的 agent 才应答)。
 """
 
@@ -35,12 +35,12 @@ from .conftest import E2EStack
 def _make_group_agent(
     im_user: IMClient, node_id: str, agent_id: str, model: str
 ) -> None:
-    """建一个 MENTION-policy 群聊 agent,system_prompt 明确「被 @ 才答 + 如何 @ 别人」。"""
+    """建一个 MENTION-policy 群聊 agent,custom prompt 明确「被 @ 才答 + 如何 @ 别人」。"""
     im_user.create_agent(
         node_id,
         agent_id,
         display_name=agent_id,
-        system_prompt=(
+        custom_prompt=(
             "你在一个群聊里。规则：只有当有人在群里 @ 你时你才回应；没 @ 你时保持沉默。"
             "需要在群里点名另一个 agent 时，直接在回复中写 "
             '<mention type="agent" target_id="对方的agent_id"/> 标签来 @ 他。'

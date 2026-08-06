@@ -33,7 +33,6 @@ def _seed_store(tmp_path: Path) -> tuple[ChannelControlStore, str]:
         node_id="node-a",
         display_name="Agent A",
         description="",
-        system_prompt="You are Agent A.",
         skills=[],
         tool_allowlist=[],
         group_reply_policy="manual",

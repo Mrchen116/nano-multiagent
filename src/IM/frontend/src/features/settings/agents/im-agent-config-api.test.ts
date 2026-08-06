@@ -10,6 +10,7 @@ import {
   reconnectAgentChannel,
   retryAgentChannelRemoval,
   normalizeAgentConfigResponse,
+  updateAgentConfig,
   updateAgentChannel,
 } from "./im-agent-config-api";
 
@@ -23,7 +24,6 @@ const BASE_RAW = {
   node_id: null,
   display_name: "Test",
   description: "",
-  system_prompt: "",
   skills: [],
   tool_allowlist: [],
   group_reply_policy: "MENTION",
@@ -90,6 +90,35 @@ describe("getAgentConfig source selection", () => {
       "/im/v1/agents/a1/config?source=live",
       expect.anything(),
     );
+  });
+});
+
+describe("updateAgentConfig public prompt shape", () => {
+  const mockedFetch = vi.mocked(authFetch);
+
+  it("sends only the canonical custom prompt field", async () => {
+    mockedFetch.mockResolvedValue(
+      new Response(JSON.stringify(BASE_RAW), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    await updateAgentConfig("a1", {
+      profile_version: 1,
+      display_name: "Test",
+      description: "",
+      custom_prompt: "Visible role",
+      skills: [],
+      tool_allowlist: [],
+      group_reply_policy: "MENTION",
+      default_model: null,
+    });
+
+    const options = mockedFetch.mock.calls.at(-1)?.[1] as RequestInit;
+    const body = JSON.parse(String(options.body)) as Record<string, unknown>;
+    expect(body.custom_prompt).toBe("Visible role");
+    expect(body).not.toHaveProperty("system_prompt");
   });
 });
 

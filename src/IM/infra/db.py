@@ -45,7 +45,6 @@ CREATE TABLE IF NOT EXISTS conversations (
     last_message_at TEXT,
     config_agent_id TEXT,
     config_profile_version INTEGER,
-    config_system_prompt TEXT,
     external_source TEXT,
     external_chat_id TEXT,
     created_at TEXT NOT NULL
@@ -57,7 +56,6 @@ CREATE TABLE IF NOT EXISTS agent_profiles (
     node_id TEXT,
     display_name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
-    system_prompt TEXT NOT NULL,
     skills_json TEXT NOT NULL DEFAULT '[]',
     tool_allowlist_json TEXT NOT NULL DEFAULT '[]',
     group_reply_policy TEXT NOT NULL DEFAULT 'manual',
@@ -423,10 +421,6 @@ def _migrate_conversations_metadata(connection: sqlite3.Connection) -> None:
         connection.execute(
             "ALTER TABLE conversations ADD COLUMN config_profile_version INTEGER"
         )
-    if "config_system_prompt" not in column_names:
-        connection.execute(
-            "ALTER TABLE conversations ADD COLUMN config_system_prompt TEXT"
-        )
     if "external_source" not in column_names:
         connection.execute("ALTER TABLE conversations ADD COLUMN external_source TEXT")
     if "external_chat_id" not in column_names:
@@ -655,6 +649,38 @@ def _migrate_agent_profile_tables(connection: sqlite3.Connection) -> None:
     if agent_column_names and "custom_prompt" not in agent_column_names:
         connection.execute("ALTER TABLE agent_profiles ADD COLUMN custom_prompt TEXT")
 
+    # bugfix-507: the visible custom field becomes the only public Agent prompt.
+    # Both legacy columns are retired in the same schema transaction so no startup
+    # can expose a hidden prompt or retain a conversation-level prompt copy.
+    agent_column_names = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info(agent_profiles)").fetchall()
+    }
+    if "system_prompt" in agent_column_names:
+        rows = connection.execute(
+            "SELECT rowid, system_prompt, custom_prompt FROM agent_profiles"
+        ).fetchall()
+        for row in rows:
+            connection.execute(
+                "UPDATE agent_profiles SET custom_prompt = ? WHERE rowid = ?",
+                (
+                    _merge_legacy_agent_prompt(
+                        legacy=row["system_prompt"], custom=row["custom_prompt"]
+                    ),
+                    row["rowid"],
+                ),
+            )
+        connection.execute("ALTER TABLE agent_profiles DROP COLUMN system_prompt")
+
+    conversation_column_names = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info(conversations)").fetchall()
+    }
+    if "config_system_prompt" in conversation_column_names:
+        connection.execute(
+            "ALTER TABLE conversations DROP COLUMN config_system_prompt"
+        )
+
     # feat-394: heartbeat cadence persisted as JSON string per agent profile.
     # feat-394 M9-E: cron_json column intentionally not added — enable state lives in
     # features_json["cron_scheduling"]; the column was never merged to main.
@@ -669,6 +695,19 @@ def _migrate_agent_profile_tables(connection: sqlite3.Connection) -> None:
     node_column_names = {row["name"] for row in node_rows}
     if node_rows and "owner_id" not in node_column_names:
         connection.execute("ALTER TABLE nodes ADD COLUMN owner_id TEXT")
+
+
+def _merge_legacy_agent_prompt(*, legacy: object, custom: object) -> str | None:
+    """Return the canonical visible prompt using the former runtime order."""
+    legacy_text = legacy.strip() if isinstance(legacy, str) else ""
+    if not legacy_text:
+        return custom if isinstance(custom, str) else None
+    custom_text = custom.strip() if isinstance(custom, str) else ""
+    if not custom_text:
+        return legacy_text
+    if legacy_text == custom_text:
+        return custom if isinstance(custom, str) else custom_text
+    return f"{legacy_text}\n\n{custom_text}"
 
 
 def _migrate_nodes_metadata(connection: sqlite3.Connection) -> None:

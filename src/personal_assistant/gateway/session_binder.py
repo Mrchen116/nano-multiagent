@@ -821,8 +821,6 @@ def _build_session_metadata(
     profile_version = metadata.get("config_profile_version")
     if isinstance(profile_version, int):
         result["config_profile_version"] = profile_version
-    if config.system_prompt:
-        result["system_prompt"] = config.system_prompt
     if config.skills:
         result["skills"] = list(config.skills)
     if config.tool_allowlist:

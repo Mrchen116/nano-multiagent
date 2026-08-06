@@ -93,7 +93,6 @@ function makeAgentState(opts: {
       owner_id: "owner-1",
       display_name: "Preview Agent",
       description: "",
-      system_prompt: "",
       custom_prompt: "",
       features: opts.configFeatures ?? {},
       skills: [],
@@ -162,7 +161,7 @@ describe("promptPreview reflects features for heartbeat/cron", () => {
     await screen.findByRole("heading", { name: "Preview Agent" });
 
     // Open preview
-    const previewBtn = screen.getByRole("button", { name: /Preview full system prompt/i });
+    const previewBtn = screen.getByRole("button", { name: /Preview stable system prompt/i });
     await user.click(previewBtn);
 
     await waitFor(() => {

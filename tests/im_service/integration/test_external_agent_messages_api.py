@@ -23,7 +23,6 @@ def _external_conversation(client: TestClient, app) -> tuple[str, str]:
         owner_id=owner.owner_id,
         display_name="Plato",
         description="",
-        system_prompt="You are Plato.",
         skills=[],
         tool_allowlist=[],
         group_reply_policy="MENTION",
