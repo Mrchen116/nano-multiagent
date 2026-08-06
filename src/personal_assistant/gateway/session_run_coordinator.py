@@ -935,7 +935,7 @@ class SessionRunCoordinator:
                     reply_text=reply_text,
                 ),
             )
-            outbound, detail = self._deliver_final_reply(
+            outbound, detail = await self._deliver_final_reply(
                 request=request,
                 binding=binding,
                 run_id=run_id or "",
@@ -1057,11 +1057,13 @@ class SessionRunCoordinator:
             and content.strip()
             and not self._suppress_reply(content.strip(), in_group=True)
         ):
-            self._outbound_router.send_text(
-                text=content.strip(), reply_context=binding.reply_context
+            await asyncio.to_thread(
+                self._outbound_router.send_text,
+                text=content.strip(),
+                reply_context=binding.reply_context,
             )
 
-    def _deliver_final_reply(
+    async def _deliver_final_reply(
         self,
         *,
         request: InboundRunRequest,
@@ -1110,37 +1112,55 @@ class SessionRunCoordinator:
             if isinstance(feishu_message_id, str) and feishu_message_id.strip():
                 metadata["feishu_message_id"] = feishu_message_id
             reply_context = replace(reply_context, metadata=metadata)
-        return (
-            self._outbound_router.send_text(
-                text=reply_text, reply_context=reply_context
-            ),
-            None,
+        outbound = await asyncio.to_thread(
+            self._outbound_router.send_text,
+            text=reply_text,
+            reply_context=reply_context,
         )
+        return outbound, None
 
     async def _build_message_parts(
         self, request: InboundRunRequest
     ) -> tuple[list[dict[str, Any]], str | None]:
         message = request.message
         buffered = (
-            self._group_context_store.drain(
+            self._group_context_store.drain_with_metadata(
                 build_group_context_key(message, request.agent.agent_id)
             )
             if message.is_group and self._group_context_store is not None
             else []
         )
-        texts = [_format_sender_text(sender, text) for sender, text in buffered]
-        texts.append(
-            _format_sender_text(request.sender_label, message.text)
-            if message.is_group
-            else message.text
-        )
-        parts: list[dict[str, Any]] = [{"type": "text", "text": text} for text in texts]
-        resolution = await self._image_resolver.resolve(
-            message.metadata.get("attachments")
-        )
-        if resolution.failure is not None:
-            return [], resolution.failure
-        parts.extend(resolution.parts)
+        parts: list[dict[str, Any]] = []
+        projected_messages = [
+            *buffered,
+            (request.sender_label, message.text, message.metadata),
+        ]
+        for index, (sender, text, metadata) in enumerate(projected_messages):
+            failure = _metadata_image_failure(metadata)
+            if failure is not None:
+                return [], failure
+            raw_attachments = metadata.get("attachments")
+            image_parts: tuple[dict[str, Any], ...] = ()
+            is_current_message = index == len(projected_messages) - 1
+            if is_current_message or (
+                isinstance(raw_attachments, list) and raw_attachments
+            ):
+                resolution = await self._image_resolver.resolve(raw_attachments)
+                if resolution.failure is not None:
+                    return [], resolution.failure
+                image_parts = resolution.parts
+            message_parts = _ordered_kernel_input_parts(
+                metadata,
+                image_parts=image_parts,
+            )
+            if message_parts is None:
+                message_parts = []
+                if text:
+                    message_parts.append({"type": "text", "text": text})
+                message_parts.extend(image_parts)
+            if message.is_group:
+                message_parts = _prefix_sender_parts(message_parts, sender=sender)
+            parts.extend(message_parts)
         return parts, None
 
     async def _ensure_binding(
@@ -1433,8 +1453,10 @@ class SessionRunCoordinator:
                     "control reply delivery via bg_reply_sender failed: %s", exc
                 )
             return None
-        return self._outbound_router.send_text(
-            text=text, reply_context=binding.reply_context
+        return await asyncio.to_thread(
+            self._outbound_router.send_text,
+            text=text,
+            reply_context=binding.reply_context,
         )
 
     async def _emit_lifecycle(
@@ -1680,9 +1702,57 @@ class SessionRunCoordinator:
         }
 
 
-def _format_sender_text(sender: str, text: str) -> str:
+def _metadata_image_failure(metadata: Mapping[str, Any]) -> str | None:
+    failure = metadata.get("image_resolution_failure")
+    return failure if failure in _IMAGE_FAILURE_MESSAGES else None
+
+
+def _ordered_kernel_input_parts(
+    metadata: Mapping[str, Any],
+    *,
+    image_parts: tuple[dict[str, Any], ...],
+) -> list[dict[str, Any]] | None:
+    raw_parts = metadata.get("kernel_input_parts")
+    if not isinstance(raw_parts, list):
+        return None
+    parts: list[dict[str, Any]] = []
+    for item in raw_parts:
+        if not isinstance(item, Mapping):
+            continue
+        part_type = item.get("type")
+        if part_type == "text":
+            text = item.get("text")
+            if isinstance(text, str) and text:
+                parts.append({"type": "text", "text": text})
+            continue
+        if part_type != "image":
+            continue
+        attachment_index = item.get("attachment_index")
+        if (
+            isinstance(attachment_index, int)
+            and not isinstance(attachment_index, bool)
+            and 0 <= attachment_index < len(image_parts)
+        ):
+            parts.append(dict(image_parts[attachment_index]))
+    return parts
+
+
+def _prefix_sender_parts(
+    parts: list[dict[str, Any]],
+    *,
+    sender: str,
+) -> list[dict[str, Any]]:
     normalized = sender.strip()
-    return f"[{normalized}] {text}" if normalized else text
+    if not normalized:
+        return parts
+    prefixed = [dict(part) for part in parts]
+    if prefixed and prefixed[0].get("type") == "text":
+        text = prefixed[0].get("text")
+        if isinstance(text, str):
+            prefixed[0]["text"] = f"[{normalized}] {text}"
+            return prefixed
+    prefixed.insert(0, {"type": "text", "text": f"[{normalized}]"})
+    return prefixed
 
 
 def _control_ack_from_session_id(

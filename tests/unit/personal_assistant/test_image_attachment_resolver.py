@@ -40,6 +40,23 @@ async def test_resolve_returns_typed_data_url_with_detected_mime() -> None:
 
 
 @pytest.mark.asyncio
+async def test_resolve_accepts_self_contained_data_url_without_http_fetch() -> None:
+    async def _fetch(_url: str) -> bytes:
+        raise AssertionError("data URLs must not be sent to the IM HTTP fetcher")
+
+    data_url = "data:image/png;base64," + base64.b64encode(_PNG_BYTES).decode()
+
+    result = await ImageAttachmentResolver(fetcher=_fetch).resolve(
+        [{"url": data_url, "content_type": "image/png"}]
+    )
+
+    assert result.failure is None
+    assert result.parts == (
+        {"type": "image", "image_url": data_url, "mime_type": "image/png"},
+    )
+
+
+@pytest.mark.asyncio
 async def test_resolve_without_fetcher_preserves_raw_url() -> None:
     """Product-agnostic wiring keeps the original URL and supplied MIME."""
 
@@ -55,6 +72,18 @@ async def test_resolve_without_fetcher_preserves_raw_url() -> None:
             "mime_type": "image/png",
         },
     )
+
+
+@pytest.mark.asyncio
+async def test_resolve_without_fetcher_still_validates_self_contained_data_url() -> (
+    None
+):
+    result = await ImageAttachmentResolver(max_image_bytes=8).resolve(
+        [{"url": "data:image/png;base64," + base64.b64encode(_PNG_BYTES).decode()}]
+    )
+
+    assert result.parts == ()
+    assert result.failure == "oversize"
 
 
 @pytest.mark.asyncio

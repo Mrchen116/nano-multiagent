@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock
 
 import pytest
@@ -72,4 +73,58 @@ def test_fetch_group_messages_filters_empty_history_text() -> None:
 
     assert [(event.message_id, event.text) for event in events] == [
         ("visible", "background question")
+    ]
+
+
+def test_fetch_group_messages_includes_post_history() -> None:
+    post = MagicMock()
+    post.message_id = "post-1"
+    post.msg_type = "post"
+    post.content = ""
+    post.body.content = json.dumps(
+        {
+            "title": "",
+            "content": [
+                [{"tag": "text", "text": "1. first", "style": []}],
+                [{"tag": "text", "text": "2. second", "style": []}],
+            ],
+        }
+    )
+    post.sender.sender_id.open_id = "ou_user"
+    post.mentions = []
+    response = MagicMock()
+    response.success.return_value = True
+    response.data.items = [post]
+    rest = MagicMock()
+    rest.im.v1.message.list.return_value = response
+    client = FeishuClient(app_id="cli_a", app_secret="secret")
+    client._rest_client = rest
+
+    events = client.fetch_group_messages(chat_id="oc_group")
+
+    assert [(event.message_id, event.text) for event in events] == [
+        ("post-1", "1. first\n2. second")
+    ]
+
+
+def test_fetch_group_messages_includes_image_history() -> None:
+    image = MagicMock()
+    image.message_id = "image-1"
+    image.msg_type = "image"
+    image.content = ""
+    image.body.content = '{"image_key":"img_history_1"}'
+    image.sender.sender_id.open_id = "ou_user"
+    image.mentions = []
+    response = MagicMock()
+    response.success.return_value = True
+    response.data.items = [image]
+    rest = MagicMock()
+    rest.im.v1.message.list.return_value = response
+    client = FeishuClient(app_id="cli_a", app_secret="secret")
+    client._rest_client = rest
+
+    events = client.fetch_group_messages(chat_id="oc_group")
+
+    assert [(event.message_id, event.text, event.image_keys) for event in events] == [
+        ("image-1", "", ("img_history_1",))
     ]

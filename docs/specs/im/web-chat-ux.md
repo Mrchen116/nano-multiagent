@@ -1,6 +1,6 @@
 # IM - Web Chat UX Specification
 
-> 对齐: bugfix-509
+> 对齐: bugfix-512
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -373,3 +373,17 @@ Web IM 在聊天时间线中把后台自进化结果显示为既有轻量 system
 - **GIVEN** direct-chat fork 带入了一条结构化 self-evolution notice
 - **WHEN** 用户打开分支单聊或切换界面语言
 - **THEN** 提示保留源消息的更新对象和来源快照，并按分支界面的当前语言显示
+
+### Requirement: Web IM 收到的图片 attachment 以可辨认原图预览
+
+Web IM 在消息流中直接预览收到的图片 attachment，保持图片原始宽高比并限制在聊天气泡可用范围内。attachment-only 用户消息不为获得气泡正文而合成无意义的文本占位符。
+
+#### Scenario: attachment-only 图片消息直接显示图片
+- **WHEN** 消息正文为空且携带一个图片 attachment
+- **THEN** 用户在消息流中直接看到保持原比例的图片预览
+- **AND** 消息不显示 `[图片]` 或空白正文气泡
+
+#### Scenario: 正文和图片 attachment 同时存在
+- **WHEN** 消息同时携带展示正文与图片 attachment
+- **THEN** 用户在同一消息中看到正文和可辨认的图片预览
+- **AND** 图片不会被固定裁剪成无法审阅内容的小方块

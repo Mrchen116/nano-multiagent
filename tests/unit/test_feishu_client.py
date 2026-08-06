@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -35,6 +36,7 @@ def _sdk_event(
     *,
     chat_type: str = "p2p",
     content: str = '{"text":"hello"}',
+    message_type: str = "text",
     mentions: list[MagicMock] | None = None,
 ) -> MagicMock:
     event = MagicMock()
@@ -42,6 +44,7 @@ def _sdk_event(
     event.event.message.chat_id = "oc_chat"
     event.event.message.chat_type = chat_type
     event.event.message.content = content
+    event.event.message.message_type = message_type
     event.event.message.message_id = "message-1"
     event.event.message.mentions = mentions or []
     return event
@@ -117,7 +120,12 @@ def test_send_message_builds_provider_request() -> None:
     request = rest.im.v1.message.create.call_args.args[0]
     assert request.receive_id_type == "chat_id"
     assert request.request_body.receive_id == "oc_group"
-    assert request.request_body.content == '{"text": "hello"}'
+    assert request.request_body.msg_type == "post"
+    assert json.loads(request.request_body.content) == {
+        "zh_cn": {
+            "content": [[{"tag": "md", "text": "hello"}]],
+        }
+    }
 
 
 def test_empty_receive_id_is_rejected_before_provider_request() -> None:

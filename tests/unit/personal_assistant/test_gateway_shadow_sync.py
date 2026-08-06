@@ -126,8 +126,80 @@ def test_typed_only_external_identity_creates_shadow_conversation() -> None:
     assert create_payload["external_source"] == "feishu"
     assert create_payload["external_chat_id"] == "typed-chat-id"
     assert create_payload["title"] == "agent-a · Typed Team · feishu"
-    assert "__runtime_protocol_facts__" not in create_payload["metadata"]
+    assert "metadata" not in create_payload
     assert requests[2]["idempotency_key"] == "shadow-user:feishu:app-a:event-a"
+
+
+def test_shadow_standalone_image_has_attachment_without_placeholder_text() -> None:
+    requests: list[dict[str, Any]] = []
+    sync = _build_sync(requests)
+    inbound = attach_runtime_protocol(
+        replace(
+            _message(
+                metadata={
+                    "attachments": [
+                        {
+                            "url": "data:image/png;base64,aW1hZ2U=",
+                            "content_type": "image/png",
+                            "file_name": "photo.png",
+                        }
+                    ]
+                }
+            ),
+            text="",
+            external_event_identity=ExternalInboundEventIdentity(
+                connector_account_id="app-a", provider_event_id="image-event-a"
+            ),
+        ),
+        RuntimeProtocolFacts(
+            external_identity=ExternalConversationIdentity(
+                external_source="feishu",
+                external_chat_id="typed-chat-id",
+                agent_id="agent-a",
+                conversation_type="group",
+                trigger_source="external",
+            )
+        ),
+    )
+
+    asyncio.run(sync.sync_user_message(inbound, agent_id="agent-a"))
+
+    assert requests[2]["payload"]["content"] == ""
+    assert requests[2]["payload"]["attachments"] == [
+        {
+            "url": "data:image/png;base64,aW1hZ2U=",
+            "content_type": "image/png",
+            "file_name": "photo.png",
+        }
+    ]
+
+
+def test_shadow_failed_standalone_image_has_visible_failure_placeholder() -> None:
+    requests: list[dict[str, Any]] = []
+    sync = _build_sync(requests)
+    inbound = attach_runtime_protocol(
+        replace(
+            _message(metadata={"image_resolution_failure": "download"}),
+            text="",
+            external_event_identity=ExternalInboundEventIdentity(
+                connector_account_id="app-a", provider_event_id="image-failure-a"
+            ),
+        ),
+        RuntimeProtocolFacts(
+            external_identity=ExternalConversationIdentity(
+                external_source="feishu",
+                external_chat_id="typed-chat-id",
+                agent_id="agent-a",
+                conversation_type="group",
+                trigger_source="external",
+            )
+        ),
+    )
+
+    asyncio.run(sync.sync_user_message(inbound, agent_id="agent-a"))
+
+    assert requests[2]["payload"]["content"] == "[图片加载失败]"
+    assert requests[2]["payload"]["attachments"] == []
 
 
 def test_durable_saga_reuses_confirmed_anchor_after_gateway_restart(
