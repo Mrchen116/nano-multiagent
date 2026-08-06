@@ -58,3 +58,7 @@
   2,984 non-E2E Python tests, documentation integrity, npm critical-level audit, and all
   603 Web IM tests. The production frontend build also passed; only existing dependency,
   React test, and chunk-size warnings remained.
+- Ready PR: [#250](https://github.com/Mrchen116/nano-multiagent/pull/250). Its first
+  remote CI run `31100682254` passed both required jobs: Frontend checks in 1m13s and
+  Python checks in 2m07s. The final documentation-only evidence commit is rechecked by
+  the same required jobs before handoff.

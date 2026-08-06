@@ -1,7 +1,7 @@
 # Verification Report: bugfix-509
 
-> Validation snapshot: `97474256889f3654760ef4178041707126fb88b1`  
-> Executed base: `d7600ca913b040250e68acc46ba170093b46bbe7`  
+> Validation snapshot: `97474256889f3654760ef4178041707126fb88b1`
+> Executed base: `d7600ca913b040250e68acc46ba170093b46bbe7`
 > Mode: full, round 1
 
 ## Summary
@@ -17,7 +17,7 @@
 | Correctness | 19/20 delta scenarios conform in code; the notification-failure scenario is partial. Two milestone exit matrices also lack durable coverage. |
 | Coherence | Followed. The implementation reuses the existing subscription, authenticated Gateway relay, message repository/event, fork, reducer, i18n, and system-row seams without adding a parallel notification path. |
 
-**Finding counts:** 0 critical, 3 warnings, 0 suggestions.  
+**Finding counts:** 0 critical, 3 warnings, 0 suggestions.
 **Verdict:** FAIL — warnings require fixes before PR.
 
 ## Completeness
