@@ -101,3 +101,74 @@
 - [x] `docs/specs/<包>/`（长青行为契约层）：需要更新/归并；修复通过复验后，应由 orchestrator 将本 unit 的 IM/Gateway delta-spec 归并到 canonical specs。
 - [x] `AGENTS.md` / `CLAUDE.md`：无需更新。
 - [x] `docs/specs/CONTRIBUTING.md`（文档规范）：无需更新。
+
+---
+
+# Round 2 — 2026-08-06
+
+> Targeted revalidation
+>
+> Validated at: `ebaec0d71b9c5322b6042a5724b8015777ceb5e9`
+>
+> Fix delta: `ac47fca08148ccc245eca956d253096b9394f8dd..ebaec0d71b9c5322b6042a5724b8015777ceb5e9`
+
+## Verdict update
+
+**pass**
+
+**Highest Required Action:** `pass`
+
+Round 1 的唯一 major 已关闭。真实 Web IM 中，新 direct branch 在创建瞬间、完整刷新后、切回源会话再重进后，均保持与源会话完全一致的 user → Agent → self-evolution notice 时间线顺序。分支只带入 fork 点以前的 notice；切换中文并再次刷新后，同两条 notice 仍在原位置并按当前语言显示，证明结构化更新对象语义仍随分支持久保留。
+
+## Targeted User Journey
+
+1. 在隔离 IM/Gateway/Vite 真栈创建 `e2e` 单聊，完成三个真实 Agent round。源时间线依次显示：用户 1 → 回复 1 → skills notice → 用户 2 → 回复 2 → memory notice → 用户 3 → 回复 3 → memory notice。
+2. 从回复 3 执行 fork。回复 3 后的最后一条 memory notice 不属于 fork 点以前的历史；新分支应且实际只带入前八项。
+3. 在新分支创建瞬间读取时间线；完整刷新后再读；切回源会话后重新打开分支再读。三次均为：用户 1 → 回复 1 → skills notice → 用户 2 → 回复 2 → memory notice → 用户 3 → 回复 3。
+4. 在重进后的同一分支从英文切到中文，并再完整刷新。两条 notice 分别显示 `· 后台自进化：技能已更新`、`· 后台自进化：记忆已更新`，位置和更新对象均不变。
+
+持久证据与逐项顺序记录见 `evidence/round2-review/README.md`。
+
+## Reference Artifacts Reviewed — targeted update
+
+| Reference | 本轮 must-match 焦点 | 实际产品证据 | 结论 |
+|---|---|---|---|
+| `design.md` direct fork contract | notice 与 content 一起原样复制；分支保留更新对象、当前语言和源时间线顺序 | `evidence/round2-review/source-en-before-fork-top.png`、`source-en-before-fork.png`、`fork-en-immediate.png` | pass |
+| `specs/im/conversations-messages.md` fork Scenario | 从会话起点到已完成回复 M 的全部消息顺序与原会话一致，M 后消息不带入 | `fork-en-immediate.png`、`fork-en-after-reload.png`、`fork-en-after-reentry.png` | pass |
+| `specs/im/web-chat-ux.md` fork notice Scenario | 分支 notice 保留更新对象并按当前语言显示 | `fork-zh-after-reentry.png`、`fork-zh-after-reload.png` | pass |
+
+## 覆盖更新
+
+Round 1 的其他 Scenario 与 must-match 项全部为 pass，本轮按 Fast-lane 继承，不重复执行。唯一 fail 行更新如下：
+
+| Scenario / contract | Round 1 | Round 2 验证方式与证据 | Round 2 |
+|---|---|---|---|
+| fork 带入消息顺序与原会话一致 | fail | 对照源、创建瞬间、刷新后、重进后四个真实页面状态；分支始终保持 `U1 → A1 → N1 → U2 → A2 → N2 → U3 → A3`，且排除 fork 点后的 `N3`。见 `evidence/round2-review/`。 | **pass** |
+| fork 保留结构化 notice 更新对象并按当前语言显示 | pass | 英文分支重进后切中文，再刷新；skills/memory 两种 notice 保持原位置并正确重渲染。 | pass（复验） |
+
+## Issue 1 update
+
+### direct-chat fork 重排结构化 notice 与回复 — closed
+
+- **Prior Severity:** major
+- **Regression Relation:** direct
+- **Round 2 Result:** pass
+- **Observed:** 源会话、fork 创建瞬间、fork 刷新后与 re-entry 后的八项历史顺序完全一致；fork 点之后的第三条 notice 没有被错误带入。英文 notice 切换中文及中文刷新后仍保留 skills/memory 语义和相同位置。
+- **Evidence:** `evidence/round2-review/README.md` 及同目录 7 张 1280×800 真实产品截图。
+- **Recommended Action:** closed
+
+## Issues
+
+无新增 blocking、major 或 minor issue。
+
+## 自动化与运行证据
+
+- `npm run build`：通过；产物 `index-BYl0ZrcW.js`。
+- 本轮以真实浏览器产品结果为判据，不以实现测试替代 targeted user journey。
+
+## 上层文档同步
+
+- [x] `SPEC.md`：无需更新；继承 Round 1 结论。
+- [x] `docs/specs/<包>/`：仍需由 orchestrator 在收尾时归并 unit delta-spec；本轮结果与现有 delta 契约一致。
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新。
+- [x] `docs/specs/CONTRIBUTING.md`：无需更新。
