@@ -27,7 +27,7 @@ def test_agent_conversation_response_includes_source_jsonl_path(
         connection.execute(
             """
             INSERT INTO agent_profiles(
-                agent_id, owner_id, node_id, display_name, description, system_prompt,
+                agent_id, owner_id, node_id, display_name, description, custom_prompt,
                 skills_json, tool_allowlist_json, group_reply_policy, default_model,
                 workspace_root, profile_version, created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
@@ -74,7 +74,7 @@ def test_agent_conversation_response_includes_source_jsonl_path(
                         "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
                         "conversation_id": conversation["id"],
                         "config_profile_version": 1,
-                        "system_prompt": "You are Agent 1.",
+                        "agent_custom_prompt": "You are Agent 1.",
                         "agent_features": {},
                         "conversation_type": "direct",
                         "self_evolution": {

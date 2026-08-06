@@ -108,7 +108,6 @@ function mockCreateState() {
       tools: [],
       model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }],
       platform_default_model: "codex_oauth:gpt-5.5",
-      default_system_prompt: ""
     }
   });
 }
@@ -159,7 +158,6 @@ describe("agent create page", () => {
         ],
         model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }, { name: "kimiCoding:K2.6", provider: "anthropic" }],
         platform_default_model: "codex_oauth:gpt-5.5",
-        default_system_prompt: "You are the personal_assistant default template."
       }
     });
     apiMocks.createNodeAgentMock.mockResolvedValue({
@@ -167,7 +165,6 @@ describe("agent create page", () => {
       owner_id: "",
       display_name: "Agent New",
       description: "runtime-created helper",
-      system_prompt: "You are Agent New.",
       skills: ["plan"],
       tool_allowlist: ["read"],
       group_reply_policy: "MENTION",
@@ -218,7 +215,6 @@ describe("agent create page", () => {
         owner_id: "",
         display_name: "Agent New",
         description: "runtime-created helper",
-        system_prompt: "",
         custom_prompt: "You are Agent New.",
         features: {},
         skills: ["plan"],
@@ -264,7 +260,6 @@ describe("agent create page", () => {
         tools: [],
         model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }],
         platform_default_model: "codex_oauth:gpt-5.5",
-        default_system_prompt: ""
       }
     });
 
@@ -314,7 +309,6 @@ describe("agent create page", () => {
         tools: [],
         model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }],
         platform_default_model: "codex_oauth:gpt-5.5",
-        default_system_prompt: ""
       }
     });
     apiMocks.createNodeAgentMock.mockResolvedValue({
@@ -322,7 +316,6 @@ describe("agent create page", () => {
       owner_id: "",
       display_name: "Agent Default Skills",
       description: "",
-      system_prompt: "",
       skills: ["pa-global"],
       tool_allowlist: [],
       group_reply_policy: "MENTION",
@@ -411,7 +404,6 @@ describe("agent create page", () => {
         tools: [],
         model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }],
         platform_default_model: "codex_oauth:gpt-5.5",
-        default_system_prompt: ""
       }
     }));
     apiMocks.createNodeAgentMock.mockResolvedValue({
@@ -419,7 +411,6 @@ describe("agent create page", () => {
       owner_id: "",
       display_name: "Agent Node Two",
       description: "",
-      system_prompt: "",
       skills: ["node-two-global"],
       tool_allowlist: [],
       group_reply_policy: "MENTION",
@@ -487,7 +478,6 @@ describe("agent create page", () => {
         tools: [],
         model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }],
         platform_default_model: "codex_oauth:gpt-5.5",
-        default_system_prompt: ""
       }
     });
     apiMocks.createNodeAgentMock.mockRejectedValue(
@@ -609,7 +599,6 @@ describe("agent create prompt preview", () => {
         ],
         model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }],
         platform_default_model: "codex_oauth:gpt-5.5",
-        default_system_prompt: "You are the personal_assistant default template."
       }
     });
   }
@@ -623,7 +612,7 @@ describe("agent create prompt preview", () => {
     renderCreatePage();
     await screen.findByText(/Select a node/i);
 
-    const previewToggle = await screen.findByRole("button", { name: /Preview full system prompt/i });
+    const previewToggle = await screen.findByRole("button", { name: /Preview stable system prompt/i });
     await user.click(previewToggle);
 
     await waitFor(() => {

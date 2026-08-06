@@ -13,11 +13,12 @@ Agent 配置中心、外部 channel 控制面、节点绑定、节点状态、ru
 
 ### Requirement: Agent 配置中心可读可改，版本乐观锁，新运行配置由既有聊天下一轮新回复采用
 
-前端经 `/im/v1/agents/*` 读写 Agent 展示与运行配置，配置以 `profile_version` 乐观锁持久化。展示字段更新立即反映在 UI；model、system/custom prompt、skills、tools 与运行 features 等配置由 Gateway 在每个既有聊天下一轮新回复开始时采用，并保持该聊天历史。已在进行的整轮不切换。IM 自有字段在 live 快照合并时仍以持久值为准。
+前端经 `/im/v1/agents/*` 读写 Agent 展示与运行配置，配置以 `profile_version` 乐观锁持久化。展示字段更新立即反映在 UI；model、可见的 Custom Instructions (`custom_prompt`)、skills、tools 与运行 features 等配置由 Gateway 在每个既有聊天下一轮新回复开始时采用，并保持该聊天历史。已在进行的整轮不切换。IM 自有字段在 live 快照合并时仍以持久值为准。公开 Agent profile 和能力目录都不提供 `system_prompt`。
 
 #### Scenario: 读配置暴露稳定字段集
 - **WHEN** 前端读取 Agent 配置
 - **THEN** 响应保留既有稳定配置字段及 profile version
+- **AND** 专属人设只以可见的 `custom_prompt` 返回，不含 profile `system_prompt`
 
 #### Scenario: PATCH 持久化运行配置并保持乐观锁
 - **WHEN** 前端带当前 profile version 保存配置
@@ -36,6 +37,25 @@ Agent 配置中心、外部 channel 控制面、节点绑定、节点状态、ru
 #### Scenario: heartbeat cadence 返回真实配置值
 - **WHEN** 前端读取某 Agent 的 heartbeat cadence
 - **THEN** 返回该 Agent 的真实 `heartbeat.every` 配置值；未配置时体现为默认 `30m`
+
+### Requirement: Agent 专属说明只有可见的 Custom Instructions，预览覆盖全部稳定公开配置
+
+Agent owner 通过 Custom Instructions 管理该 Agent 的专属职责或约束；它是公开 profile 唯一会改变专属人设的文本。提示词预览使用已保存或当前草稿的同一 `custom_prompt`、features、tools 与 skills 组装稳定提示词，并明确排除群聊、记忆等仅在运行时才确定的上下文。
+
+#### Scenario: 留空的 Custom Instructions 没有隐藏专属人设
+- **WHEN** owner 打开或保存 Agent 配置，Custom Instructions 为空
+- **THEN** Agent 不带任何由公开 Agent profile 注入的专属说明
+
+#### Scenario: 预览可检查当前稳定专属说明
+- **WHEN** owner 展开提示词预览，或编辑 Custom Instructions 后再次查看预览
+- **THEN** 预览包含该 Agent 已保存或待保存的专属说明和已选能力配置
+- **AND** 页面明确说明群聊、记忆等运行时内容不在预览内
+
+#### Scenario: 退休字段不能影响升级后的新回复
+- **GIVEN** 某旧 profile、conversation snapshot 或 Gateway YAML 仍带 `system_prompt`
+- **WHEN** 新版本读取 Agent 配置、同步 profile 或开始下一轮新回复
+- **THEN** 该字段不被读取、展示、迁入 Custom Instructions 或传入运行时
+- **AND** 已知生产存量的删除由发布操作完成，不属于 IM/Gateway 的自动迁移
 
 ### Requirement: Agent 配置保存与聊天实际采用状态分离
 
@@ -183,7 +203,7 @@ agent 的 workspace_root 在创建时确定(`agent.create` 由节点分配 / `no
 
 #### Scenario: 配置更新不重置 workspace_root
 - **GIVEN** agent X 的 profile workspace_root 为非默认路径 P
-- **WHEN** 调用 update config 接口修改其他字段(如 system_prompt),payload 不含 workspace_root
+- **WHEN** 调用 update config 接口修改其他字段(如 custom_prompt),payload 不含 workspace_root
 - **THEN** 返回成功,workspace_root 仍为 P
 
 #### Scenario: update config 携带 workspace_root 被忽略
@@ -255,7 +275,7 @@ bearer.<jwt>` 子协议),无 token / 非法 token 立即关闭;身份只认 JWT,
 
 ### Requirement: 节点 runtime 能力按需向在线网关解析,不入库快照
 
-新建/编辑 Agent 页需要的 runtime 候选项(skills / tools / models / features / 默认 system_prompt)由 IM
+新建/编辑 Agent 页需要的 runtime 候选项(skills / tools / models / features)由 IM
 **当场**经 gateway WS 向在线节点解析后返回,IM 不在本地持久化该能力目录,也不据 IM 部署机文件系统推断。
 节点级 `GET /im/v1/nodes/{id}/capabilities`(agent 尚不存在时用)与 agent 级 `GET /im/v1/agents/{id}/
 capabilities` 都把网关返回的 `features` 列表透传给前端。
@@ -264,7 +284,7 @@ capabilities` 都把网关返回的 `features` 列表透传给前端。
 - **GIVEN** 一个已知节点,网关在线
 - **WHEN** 前端 `GET /im/v1/nodes/{id}/capabilities`
 - **THEN** 200 返回 `{node_id, skills:[{name,description}], tools:[{name,description}], models:[...],
-  platform_default_model, default_system_prompt, features:[...]}`;网关 payload 无 features 时 IM 返回
+  platform_default_model, features:[...]}`;网关 payload 无 features 时 IM 返回
   空 `features` 列表(优雅降级)
 
 #### Scenario: agent 能力透传 features 五元字段

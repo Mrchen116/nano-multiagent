@@ -20,7 +20,7 @@ def test_initialize_schema_backfills_missing_agent_workspace_roots(
             node_id,
             display_name,
             description,
-            system_prompt,
+            custom_prompt,
             skills_json,
             tool_allowlist_json,
             group_reply_policy,

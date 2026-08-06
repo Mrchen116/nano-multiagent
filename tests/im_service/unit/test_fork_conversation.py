@@ -191,7 +191,6 @@ async def test_fork_copies_existing_boundary_with_mapped_anchor(tmp_path: Path) 
         node_id="node-1",
         display_name="Planner",
         description="",
-        system_prompt="",
         skills=[],
         tool_allowlist=[],
         group_reply_policy="manual",

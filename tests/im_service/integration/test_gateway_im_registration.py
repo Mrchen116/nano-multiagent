@@ -58,6 +58,10 @@ def test_gateway_registration_materializes_runtime_agents_before_and_after_bind(
                 "node-1",
             ]
             assert [item["owner_id"] for item in before_bind.json()] == ["", ""]
+            alpha_config = client.get("/im/v1/agents/Alpha/config?source=mirror")
+            assert alpha_config.status_code == 200
+            assert alpha_config.json()["custom_prompt"] is None
+            assert "system_prompt" not in alpha_config.json()
             assert [item["workspace_is_default"] for item in before_bind.json()] == [
                 True,
                 True,

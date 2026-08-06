@@ -46,7 +46,7 @@ def test_cron_job_auto_pushes_message(im_user: IMClient, e2e_stack: E2EStack) ->
         node_id,
         agent_id,
         display_name=agent_id,
-        system_prompt="你是一个测试助手，会用 cron 工具按用户要求注册定时任务。",
+        custom_prompt="你是一个测试助手，会用 cron 工具按用户要求注册定时任务。",
         default_model=e2e_stack.llm_model,
     )
     # cron 工具仅在 features['cron_scheduling'] 开启时注册进 agent 工具集(product.py)。

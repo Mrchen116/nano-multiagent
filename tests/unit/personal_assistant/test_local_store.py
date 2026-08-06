@@ -373,7 +373,8 @@ def test_parse_agents_defaults_new_fields_to_none(tmp_path: Path) -> None:
     config = load_local_config(config_path)
     agent = config.agents[0]
 
-    assert agent.system_prompt is None
+    assert agent.custom_prompt is None
+    assert not hasattr(agent, "system_prompt")
     assert agent.group_reply_policy is None
     assert agent.default_model is None
     assert agent.skills == ()
@@ -396,7 +397,7 @@ def test_parse_agents_loads_extended_fields(tmp_path: Path) -> None:
                 "  - agent_id: agent-a",
                 f"    workspace_root: {workspace_root}",
                 "    title: My Agent",
-                "    system_prompt: You are a helpful assistant.",
+                "    custom_prompt: You are a helpful assistant.",
                 "    skills:",
                 "      - web_search",
                 "      - code_review",
@@ -415,7 +416,8 @@ def test_parse_agents_loads_extended_fields(tmp_path: Path) -> None:
     config = load_local_config(config_path)
     agent = config.agents[0]
 
-    assert agent.system_prompt == "You are a helpful assistant."
+    assert agent.custom_prompt == "You are a helpful assistant."
+    assert not hasattr(agent, "system_prompt")
     assert agent.skills == ("web_search", "code_review")
     assert agent.tool_allowlist == ("Read", "Write")
     assert agent.group_reply_policy == "always"
@@ -503,7 +505,7 @@ def test_save_local_config_round_trip(tmp_path: Path) -> None:
     assert reload_agent.agent_id == orig_agent.agent_id
     assert reload_agent.workspace_root == orig_agent.workspace_root
     assert reload_agent.title == orig_agent.title
-    assert reload_agent.system_prompt == orig_agent.system_prompt
+    assert reload_agent.custom_prompt == orig_agent.custom_prompt
     assert reload_agent.skills == orig_agent.skills
     assert reload_agent.tool_allowlist == orig_agent.tool_allowlist
     assert reload_agent.group_reply_policy == orig_agent.group_reply_policy

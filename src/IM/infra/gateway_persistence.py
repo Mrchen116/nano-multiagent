@@ -150,7 +150,6 @@ class GatewayNodePersistence:
             if existing is None:
                 display_name = agent_id
                 description = f"Runtime agent advertised by {node_name}."
-                system_prompt = f"You are {agent_id}."
                 skills = list(skills_seed.get(agent_id, []))
                 tool_allowlist = list(tools_seed.get(agent_id, []))
                 group_reply_policy = "MENTION"
@@ -159,11 +158,10 @@ class GatewayNodePersistence:
                     agent_id
                 ) or managed_workspace_root(agent_id)
                 features: dict[str, bool] | None = None
-                custom_prompt: str | None = None
+                custom_prompt = None
             else:
                 display_name = existing.display_name
                 description = existing.description
-                system_prompt = existing.system_prompt
                 skills = existing.skills
                 tool_allowlist = existing.tool_allowlist
                 group_reply_policy = existing.group_reply_policy
@@ -182,7 +180,6 @@ class GatewayNodePersistence:
                 owner_id=owner_id,
                 display_name=display_name,
                 description=description,
-                system_prompt=system_prompt,
                 skills=skills,
                 tool_allowlist=tool_allowlist,
                 group_reply_policy=group_reply_policy,

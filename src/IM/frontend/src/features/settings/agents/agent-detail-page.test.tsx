@@ -108,7 +108,6 @@ describe("agent detail page", () => {
         owner_id: "owner-1",
         display_name: "Core Planner",
         description: "",
-        system_prompt: "",
         skills: [],
         tool_allowlist: [],
         group_reply_policy: "MENTION",
@@ -130,7 +129,6 @@ describe("agent detail page", () => {
         tools: [],
         model_options: [],
         platform_default_model: null,
-        default_system_prompt: ""
       },
       owningNode: {
         node_id: "node-1",
@@ -351,7 +349,6 @@ describe("agent detail page", () => {
         owner_id: "owner-1",
         display_name: "Core Planner",
         description: "Milestone execution coordinator",
-        system_prompt: "You are the planning core for IM and SDK tasks.",
         skills: ["tdd-execution-worker"],
         tool_allowlist: ["read"],
         group_reply_policy: "MENTION",
@@ -374,7 +371,6 @@ describe("agent detail page", () => {
         tools: [{ name: "read", description: "Read files" }],
         model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }, { name: "kimiCoding:K2.6", provider: "anthropic" }],
         platform_default_model: "codex_oauth:gpt-5.5",
-        default_system_prompt: "You are the personal_assistant default template."
       },
       owningNode: {
         node_id: "node-1",
@@ -421,7 +417,6 @@ describe("agent detail page", () => {
         owner_id: "owner-1",
         display_name: "Core Planner",
         description: "",
-        system_prompt: "",
         skills: [],
         tool_allowlist: [],
         group_reply_policy: "MENTION",
@@ -447,7 +442,6 @@ describe("agent detail page", () => {
           { name: "kimiCoding:K2.6", provider: "anthropic" }
         ],
         platform_default_model: "kimiCoding:K2.6",
-        default_system_prompt: ""
       },
       owningNode: {
         node_id: "node-1",
@@ -480,7 +474,6 @@ describe("agent detail page", () => {
         owner_id: "owner-1",
         display_name: "Core Planner",
         description: "",
-        system_prompt: "",
         skills: [],
         tool_allowlist: [],
         group_reply_policy: "MENTION",
@@ -503,7 +496,6 @@ describe("agent detail page", () => {
         tools: [],
         model_options: [],
         platform_default_model: null,
-        default_system_prompt: ""
       },
       owningNode: null
     });
@@ -541,7 +533,6 @@ describe("agent detail page", () => {
         owner_id: "owner-1",
         display_name: "Core Planner",
         description: "",
-        system_prompt: "",
         skills: [],
         tool_allowlist: [],
         group_reply_policy: "MENTION",
@@ -564,7 +555,6 @@ describe("agent detail page", () => {
         tools: [],
         model_options: [],
         platform_default_model: null,
-        default_system_prompt: ""
       },
       owningNode: null
     });
@@ -601,7 +591,6 @@ describe("agent behavior settings", () => {
         owner_id: "owner-1",
         display_name: "Core Planner",
         description: "",
-        system_prompt: "legacy prompt",
         custom_prompt: overrides.customPrompt ?? "",
         features: overrides.configFeatures ?? {},
         skills: [],
@@ -625,7 +614,6 @@ describe("agent behavior settings", () => {
         tools: [{ name: "memory", description: "Memory tool" }],
         model_options: [],
         platform_default_model: null,
-        default_system_prompt: "",
         features: overrides.features ?? [
           { key: "memory_curation", label_i18n: "记忆自进化", help_i18n: "让 agent 主动把偏好/事实写入长期记忆", default_on: true, available: true, requires_tool: "memory" },
           { key: "skill_creation", label_i18n: "技能自进化", help_i18n: "复杂任务后自动沉淀/修补 skill", default_on: true, available: false, requires_tool: "skill_manage" }
@@ -652,7 +640,6 @@ describe("agent behavior settings", () => {
       owner_id: "owner-1",
       display_name: "Core Planner",
       description: "",
-      system_prompt: "",
       custom_prompt: "我是法律顾问",
       features: { memory_curation: true, skill_creation: true },
       skills: [],
@@ -688,13 +675,13 @@ describe("agent behavior settings", () => {
     });
   });
 
-  it("opens the full prompt preview on demand", async () => {
+  it("opens the stable prompt preview on demand", async () => {
     apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDetailState());
 
     renderDetailPage();
     await screen.findByRole("heading", { name: "Core Planner" });
 
-    const previewToggle = screen.getByRole("button", { name: /Preview full system prompt/i });
+    const previewToggle = screen.getByRole("button", { name: /Preview stable system prompt/i });
     expect(previewToggle).toBeInTheDocument();
     expect(previewToggle.getAttribute("aria-expanded")).toBe("false");
 
@@ -722,7 +709,6 @@ describe("agent prompt preview", () => {
         owner_id: "owner-1",
         display_name: "Mem Agent",
         description: "",
-        system_prompt: "",
         custom_prompt: "",
         features: {},
         skills: [],
@@ -746,7 +732,6 @@ describe("agent prompt preview", () => {
         tools: [{ name: "memory", description: "Memory tool" }],
         model_options: [],
         platform_default_model: null,
-        default_system_prompt: "",
         features: [memoryCapFeature]
       },
       owningNode: null
@@ -768,7 +753,7 @@ describe("agent prompt preview", () => {
     renderDetailPage();
     await screen.findByRole("heading", { name: "Mem Agent" });
 
-    const previewToggle = screen.getByRole("button", { name: /Preview full system prompt/i });
+    const previewToggle = screen.getByRole("button", { name: /Preview stable system prompt/i });
     await user.click(previewToggle);
 
     await waitFor(() => {
@@ -791,7 +776,6 @@ describe("feature tool linkage with an empty allowlist", () => {
       owner_id: "owner-1",
       display_name: overrides.display_name ?? "Bugfix Agent",
       description: "",
-      system_prompt: "",
       custom_prompt: "",
       features: {} as Record<string, boolean>,
       skills: [] as string[],
@@ -827,7 +811,6 @@ describe("feature tool linkage with an empty allowlist", () => {
         ],
         model_options: [],
         platform_default_model: null,
-        default_system_prompt: "",
         features: [
           {
             key: "cron_scheduling",
@@ -892,7 +875,6 @@ describe("feature tool linkage with an empty allowlist", () => {
         ],
         model_options: [],
         platform_default_model: null,
-        default_system_prompt: "",
         features: [
           {
             key: "heartbeat",
@@ -951,7 +933,6 @@ describe("explicit empty tool allowlist", () => {
       owner_id: "owner-1",
       display_name: "Core Planner",
       description: "",
-      system_prompt: "",
       custom_prompt: "",
       skills: [] as string[],
       tool_allowlist: toolAllowlist,
@@ -984,7 +965,6 @@ describe("explicit empty tool allowlist", () => {
         ],
         model_options: [],
         platform_default_model: null,
-        default_system_prompt: "",
         features: []
       },
       owningNode: null

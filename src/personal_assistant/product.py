@@ -294,15 +294,15 @@ def prompt_for(
     """Build PA's per-session PromptSlots from agent config + conversation scenario (决策 8).
 
     All PA conditional content is per-session: heartbeat/cron guidance goes in the
-    body slot (gated by the agent's feature flags), ``system_prompt`` then
-    ``custom_prompt`` occupy the custom slot in that stable order, and group
+    body slot (gated by the agent's feature flags), ``custom_prompt`` occupies
+    the custom slot, and group
     communication context goes in the tail slot (frozen at session-open from the
     conversation scenario). This reproduces legacy output for agents without a
-    system prompt while making that runtime field part of the effective prompt.
+    custom prompt.
 
     Args:
         agent: Agent config exposing ``cron_enabled`` / ``heartbeat_enabled`` /
-            ``system_prompt`` / ``custom_prompt`` (duck-typed; missing attrs are
+            ``custom_prompt`` (duck-typed; a missing attr is
             treated as off or empty).
         scenario: Conversation routing scenario (``conversation_type`` /
             ``participants`` / ``agent_id`` / ``participant_agent_ids``) for the
@@ -315,7 +315,6 @@ def prompt_for(
     cron_enabled = bool(getattr(agent, "cron_enabled", False))
     heartbeat_enabled = bool(getattr(agent, "heartbeat_enabled", False))
     custom_prompt = getattr(agent, "custom_prompt", None)
-    system_prompt = getattr(agent, "system_prompt", None)
 
     head = (
         PromptText(name="pa.identity", text=_PA_IDENTITY_TEXT),
@@ -340,10 +339,6 @@ def prompt_for(
     body_pieces.append(PromptText(name="pa.routing", text=_PA_ROUTING_TEXT))
 
     custom_pieces: list[PromptText] = []
-    if isinstance(system_prompt, str) and system_prompt.strip():
-        custom_pieces.append(
-            PromptText(name="pa.system_prompt_override", text=system_prompt.strip())
-        )
     custom_text = _user_custom_text(custom_prompt)
     if custom_text is not None:
         custom_pieces.append(PromptText(name="pa.user_custom", text=custom_text))

@@ -26,7 +26,6 @@ def test_agent_config_contract_shape_and_conflict_status(tmp_path: Path) -> None
             owner_id=owner.owner_id,
             display_name="Alpha",
             description="initial",
-            system_prompt="You are Alpha.",
             skills=["plan"],
             tool_allowlist=["read"],
             group_reply_policy="manual",
@@ -45,7 +44,6 @@ def test_agent_config_contract_shape_and_conflict_status(tmp_path: Path) -> None
             "node_id",
             "display_name",
             "description",
-            "system_prompt",
             "skills",
             "tool_allowlist",
             "group_reply_policy",
@@ -80,7 +78,6 @@ def test_patch_agent_config_persists_features_and_custom_prompt(tmp_path: Path) 
             owner_id=owner.owner_id,
             display_name="Persist Agent",
             description="",
-            system_prompt="",
             skills=[],
             tool_allowlist=["memory"],
             group_reply_policy="manual",
@@ -95,7 +92,6 @@ def test_patch_agent_config_persists_features_and_custom_prompt(tmp_path: Path) 
                 "profile_version": 1,
                 "display_name": "Persist Agent",
                 "description": "",
-                "system_prompt": "",
                 "skills": [],
                 "tool_allowlist": ["memory"],
                 "group_reply_policy": "manual",
@@ -137,7 +133,6 @@ def test_node_capabilities_contract_shape(
             "skills": ["plan"],
             "tools": ["read"],
             "platform_default_model": None,
-            "default_system_prompt": "",
         }
 
     monkeypatch.setattr(
@@ -169,7 +164,7 @@ def test_node_capabilities_contract_shape(
         {"name": "codex_oauth:gpt-5.5", "provider": "openai_compat"}
     ]
     assert body["platform_default_model"] is None
-    assert body["default_system_prompt"] == ""
+    assert "default_system_prompt" not in body
     assert "features" in body
     # Gateway payload has no features field → IM returns empty list (graceful degradation)
     assert body["features"] == []
@@ -195,7 +190,6 @@ def test_node_capabilities_includes_features_list(
             "skills": [],
             "tools": [],
             "platform_default_model": None,
-            "default_system_prompt": "",
             "features": [
                 {
                     "key": "memory_curation",
@@ -254,7 +248,7 @@ def test_get_agent_config_live_merge_preserves_features_and_custom_prompt(
         # which is the real-world case (Gateway doesn't carry IM-owned config fields).
         return {
             "display_name": "Live Agent",
-            "system_prompt": "Live prompt",
+            "custom_prompt": "Live prompt",
             "skills": [],
             "tool_allowlist": ["memory"],
         }
@@ -274,7 +268,6 @@ def test_get_agent_config_live_merge_preserves_features_and_custom_prompt(
             node_id="node-live",
             display_name="Live Agent",
             description="",
-            system_prompt="",
             skills=[],
             tool_allowlist=["memory"],
             group_reply_policy="manual",
@@ -339,7 +332,6 @@ def test_agent_prompt_preview_proxy_contract(
             owner_id=owner.owner_id,
             display_name="Preview Agent",
             description="",
-            system_prompt="",
             skills=[],
             tool_allowlist=[],
             group_reply_policy="always",
@@ -405,7 +397,6 @@ def test_agent_capabilities_features_contract(
             "skills": [],
             "tools": [],
             "platform_default_model": None,
-            "default_system_prompt": "",
             # feat-379-M2: features projection from FEATURE_REGISTRY
             "features": _GATEWAY_FEATURES,
         }
@@ -426,7 +417,6 @@ def test_agent_capabilities_features_contract(
             owner_id=owner.owner_id,
             display_name="Cap Agent",
             description="",
-            system_prompt="",
             skills=[],
             tool_allowlist=[],
             group_reply_policy="always",
@@ -509,7 +499,6 @@ def test_agent_prompt_preview_forwards_skill_ids_to_gateway(
             owner_id=owner.owner_id,
             display_name="Skill Agent",
             description="",
-            system_prompt="",
             skills=["plan"],
             tool_allowlist=["read"],
             group_reply_policy="always",

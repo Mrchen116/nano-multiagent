@@ -66,7 +66,7 @@ Gateway 始终**主动**向 IM 服务发起 WebSocket 持久连接(因其在 NAT
 #### Scenario: 连接后注册节点并周期心跳
 - **GIVEN** 配置了 IM 服务地址
 - **WHEN** Gateway 启动并连上 IM 服务 WebSocket
-- **THEN** 首帧发 `node.register`(携带 node_id、agent 列表与三组 per-agent 种子映射—— `agent_workspaces` / `agent_skills` / `agent_tool_allowlist`,均为 agent_id → 本地 config 解析值的映射,供 IM 首次落库种子使用;重连重发同帧内容一致), 随后在线期间周期发 `node.heartbeat`(含 `node_id` / `status=online` / `agent_count`), IM 服务据此刷新节点状态
+- **THEN** 首帧发 `node.register`(携带 node_id、agent 列表与三组 per-agent 种子映射——`agent_workspaces` / `agent_skills` / `agent_tool_allowlist`；均为 agent_id → 本地 config 解析值的映射，供 IM 在首次落库时建立 profile；重连重发同帧内容一致), 随后在线期间周期发 `node.heartbeat`(含 `node_id` / `status=online` / `agent_count`), IM 服务据此刷新节点状态
 
 #### Scenario: register ACK 是业务发送门禁且握手有界
 - **GIVEN** Gateway transport 已连上 IM，但 `node.register` 尚未被确认
@@ -77,7 +77,7 @@ Gateway 始终**主动**向 IM 服务发起 WebSocket 持久连接(因其在 NAT
 #### Scenario: runtime workspace_root 以本地 config 为准,IM 镜像值不进入 runtime
 - **GIVEN** IM 中某 agent profile 的 workspace_root 为路径 A,Gateway 本地 config 为路径 B
 - **WHEN** Gateway 同步 agent 配置并处理该 agent 的会话(含 heartbeat)
-- **THEN** session / heartbeat 实际读写路径 B,路径 A 不被读写;其余配置字段(system_prompt / skills / tool_allowlist / features / custom_prompt 等)仍以 IM 镜像为准同步
+- **THEN** session / heartbeat 实际读写路径 B,路径 A 不被读写;其余公开配置字段(Custom Instructions / skills / tool_allowlist / features 等)仍以 IM 镜像为准同步
 
 #### Scenario: IM 推送 agent.create 时在节点落地工作区并回非空 workspace_root
 - **WHEN** IM 服务经下行请求在本节点创建一个 Agent
@@ -85,7 +85,7 @@ Gateway 始终**主动**向 IM 服务发起 WebSocket 持久连接(因其在 NAT
 
 #### Scenario: IM 请求当前 Agent 配置时返回 live 快照
 - **WHEN** IM 服务请求某 Agent 的当前配置
-- **THEN** Gateway 返回该 Agent 的 live 配置快照(display_name / system_prompt / skills / tool_allowlist / group_reply_policy / default_model / workspace_root / features / custom_prompt)
+- **THEN** Gateway 返回该 Agent 的 live 配置快照(display_name / skills / tool_allowlist / group_reply_policy / default_model / workspace_root / features / custom_prompt)，其中 `custom_prompt` 是唯一公开的 Agent 专属说明字段
 
 #### Scenario: IM 经 RPC 请求读取 HEARTBEAT.md 预览内容（feat-394-M13 决策 G）
 - **WHEN** IM 服务下发 `node.heartbeat.md.request`（含 agent_id / workspace_root）

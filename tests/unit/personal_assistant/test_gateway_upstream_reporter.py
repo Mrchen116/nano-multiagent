@@ -84,24 +84,6 @@ def test_upstream_reporter_builds_register_heartbeat_report_and_receipt(
     ]
 
 
-def test_build_runtime_capabilities_default_system_prompt_has_no_runtime_fill_placeholders(
-    tmp_path: Path,
-) -> None:
-    """default_system_prompt exposed via node.capabilities must not contain RUNTIME_FILL
-    placeholders (feat-379-M5 ISSUE-4).
-
-    The sections-based prompt assembler replaced RUNTIME_FILL tokens; sending the raw
-    template to the IM frontend causes garbage text in the agent-create system_prompt
-    prefill.  The field must be either a clean rendered string or empty.
-    """
-    kernel = _build_test_kernel(tmp_path / "kernel-root")
-    caps = build_runtime_capabilities(kernel)
-    assert "<RUNTIME_FILL:" not in caps.default_system_prompt, (
-        "default_system_prompt must not contain <RUNTIME_FILL:*> placeholders — "
-        "use empty string or a pre-rendered template (feat-379-M5 ISSUE-4)"
-    )
-
-
 # ---------------------------------------------------------------------------
 # feat-379-M7 ISSUE-1: node-level capabilities must carry FEATURE_REGISTRY projection
 # ---------------------------------------------------------------------------
@@ -269,6 +251,37 @@ def test_send_register_includes_agent_skills_and_tool_allowlist(
     )
     assert payload["agent_skills"] == {"Arch": ["plan", "playwright"]}
     assert payload["agent_tool_allowlist"] == {"Arch": ["read", "bash", "edit"]}
+
+
+def test_send_register_does_not_seed_agent_prompt_text(
+    tmp_path: Path,
+) -> None:
+    """First registration never seeds an Agent prompt outside normal config sync."""
+    from personal_assistant.config.local_store import AgentWorkspaceConfig
+
+    workspace = tmp_path / "my-workspace"
+    workspace.mkdir()
+    kernel = _build_test_kernel(tmp_path / "kernel-root")
+    reporter = UpstreamReporter(
+        node=NodeConfig(node_id="n1"),
+        agents=(
+            AgentWorkspaceConfig(
+                agent_id="Arch",
+                workspace_root=workspace,
+                custom_prompt="Visible role",
+            ),
+            AgentWorkspaceConfig(
+                agent_id="Empty", workspace_root=workspace, custom_prompt="  "
+            ),
+        ),
+        send_frame=lambda _mt, _p: None,
+        capabilities=build_runtime_capabilities(kernel),
+    )
+
+    payload = reporter.send_register()
+
+    assert "agent_custom_prompts" not in payload
+    assert "system_prompt" not in payload
 
 
 def test_node_capabilities_tools_contain_all_feature_required_tools(

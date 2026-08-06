@@ -21,7 +21,6 @@ describe("agent edit page", () => {
       owner_id: string;
       display_name: string;
       description: string;
-      system_prompt: string;
       skills: string[];
       tool_allowlist: string[];
       group_reply_policy: string;
@@ -36,7 +35,6 @@ describe("agent edit page", () => {
       owner_id: "owner-1",
       display_name: "Core Planner",
       description: "Milestone execution coordinator",
-      system_prompt: "You are the planning core for IM and SDK tasks.",
       skills: ["tdd-execution-worker", "playwright"],
       tool_allowlist: ["bash", "read_file"],
       group_reply_policy: "MENTION",
@@ -87,7 +85,6 @@ describe("agent edit page", () => {
             ],
             model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }, { name: "kimiCoding:K2.6", provider: "anthropic" }],
             platform_default_model: "codex_oauth:gpt-5.5",
-            default_system_prompt: "You are the personal_assistant default template."
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         );
@@ -98,7 +95,6 @@ describe("agent edit page", () => {
           profile_version: number;
           display_name: string;
           description: string;
-          system_prompt: string;
           skills: string[];
           tool_allowlist: string[];
           group_reply_policy: string;
@@ -180,7 +176,6 @@ describe("agent edit page", () => {
             profile_version: 12,
             display_name: "Core Planner X",
             description: "Milestone execution coordinator",
-            system_prompt: "You are the planning core for IM and SDK tasks.",
             features: {},
             custom_prompt: "",
             skills: ["tdd-execution-worker", "plan"],
@@ -228,7 +223,6 @@ describe("agent edit page", () => {
             owner_id: "owner-1",
             display_name: payload.display_name,
             description: "",
-            system_prompt: "You are the planning core for IM and SDK tasks.",
             skills: [],
             tool_allowlist: [],
             group_reply_policy: "MENTION",
@@ -250,7 +244,6 @@ describe("agent edit page", () => {
             owner_id: "owner-1",
             display_name: "Core Planner",
             description: "",
-            system_prompt: "You are the planning core for IM and SDK tasks.",
             skills: [],
             tool_allowlist: [],
             group_reply_policy: "MENTION",
@@ -326,7 +319,6 @@ describe("agent edit page", () => {
             owner_id: "owner-1",
             display_name: "Core Planner",
             description: "Milestone execution coordinator",
-            system_prompt: "You are the planning core for IM and SDK tasks.",
             skills: ["tdd-execution-worker", "playwright"],
             tool_allowlist: ["bash", "read_file"],
             group_reply_policy: "MENTION",
@@ -402,7 +394,6 @@ describe("agent edit page", () => {
             owner_id: "owner-1",
             display_name: "Core Planner",
             description: "Milestone execution coordinator",
-            system_prompt: "You are the planning core for IM and SDK tasks.",
             skills: ["tdd-execution-worker", "playwright"],
             tool_allowlist: ["bash", "read_file"],
             group_reply_policy: "MENTION",

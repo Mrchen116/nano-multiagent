@@ -31,7 +31,6 @@ class AgentConfigResponse(BaseModel):
     node_id: str | None
     display_name: str
     description: str
-    system_prompt: str
     skills: list[str]
     tool_allowlist: list[str]
     group_reply_policy: str
@@ -57,7 +56,6 @@ class UpdateAgentConfigRequest(BaseModel):
     profile_version: int = Field(ge=1)
     display_name: str = Field(min_length=1)
     description: str = ""
-    system_prompt: str = ""
     skills: list[str] = Field(default_factory=list)
     tool_allowlist: list[str] = Field(default_factory=list)
     group_reply_policy: str = Field(min_length=1)
@@ -173,7 +171,6 @@ class AgentCapabilitiesResponse(BaseModel):
     skills: list[AllowlistOptionResponse] = Field(default_factory=list)
     tools: list[AllowlistOptionResponse] = Field(default_factory=list)
     platform_default_model: str | None = None
-    default_system_prompt: str = ""
     # feat-379-M2: feature toggle projection from FEATURE_REGISTRY (decision 7)
     features: list[FeatureCapabilityResponse] = Field(default_factory=list)
 
@@ -190,7 +187,6 @@ def to_agent_config_response(
         node_id=profile.node_id,
         display_name=profile.display_name,
         description=profile.description,
-        system_prompt=profile.system_prompt,
         skills=profile.skills,
         tool_allowlist=profile.tool_allowlist,
         group_reply_policy=profile.group_reply_policy,
@@ -217,7 +213,6 @@ def _merge_live_agent_profile(
     ):
         return profile
     display_name = payload.get("display_name")
-    system_prompt = payload.get("system_prompt")
     skills = payload.get("skills")
     tool_allowlist = payload.get("tool_allowlist")
     group_reply_policy = payload.get("group_reply_policy")
@@ -231,9 +226,6 @@ def _merge_live_agent_profile(
         if isinstance(display_name, str) and display_name.strip()
         else profile.display_name,
         description=profile.description,
-        system_prompt=system_prompt
-        if isinstance(system_prompt, str)
-        else profile.system_prompt,
         skills=[item for item in skills if isinstance(item, str)]
         if isinstance(skills, list)
         else profile.skills,
@@ -390,8 +382,6 @@ async def get_agent_capabilities(
         if isinstance(raw_platform, str) and raw_platform.strip()
         else None
     )
-    raw_prompt = payload.get("default_system_prompt")
-    default_system_prompt = raw_prompt if isinstance(raw_prompt, str) else ""
     # feat-379-M2: forward FEATURE_REGISTRY projection from Gateway verbatim
     features = _coerce_feature_list(payload.get("features"))
     return AgentCapabilitiesResponse(
@@ -402,7 +392,6 @@ async def get_agent_capabilities(
         skills=coerce_allowlist_options(payload.get("skills")),
         tools=coerce_allowlist_options(payload.get("tools")),
         platform_default_model=platform_default,
-        default_system_prompt=default_system_prompt,
         features=features,
     )
 
@@ -432,7 +421,6 @@ def update_agent_config(
             profile_version=payload.profile_version,
             display_name=payload.display_name,
             description=payload.description,
-            system_prompt=payload.system_prompt,
             skills=payload.skills,
             tool_allowlist=payload.tool_allowlist,
             group_reply_policy=payload.group_reply_policy,

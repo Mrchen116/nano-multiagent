@@ -45,7 +45,6 @@ CREATE TABLE IF NOT EXISTS conversations (
     last_message_at TEXT,
     config_agent_id TEXT,
     config_profile_version INTEGER,
-    config_system_prompt TEXT,
     external_source TEXT,
     external_chat_id TEXT,
     created_at TEXT NOT NULL
@@ -57,7 +56,6 @@ CREATE TABLE IF NOT EXISTS agent_profiles (
     node_id TEXT,
     display_name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
-    system_prompt TEXT NOT NULL,
     skills_json TEXT NOT NULL DEFAULT '[]',
     tool_allowlist_json TEXT NOT NULL DEFAULT '[]',
     group_reply_policy TEXT NOT NULL DEFAULT 'manual',
@@ -459,10 +457,6 @@ def _migrate_conversations_metadata(connection: sqlite3.Connection) -> None:
     if "config_profile_version" not in column_names:
         connection.execute(
             "ALTER TABLE conversations ADD COLUMN config_profile_version INTEGER"
-        )
-    if "config_system_prompt" not in column_names:
-        connection.execute(
-            "ALTER TABLE conversations ADD COLUMN config_system_prompt TEXT"
         )
     if "external_source" not in column_names:
         connection.execute("ALTER TABLE conversations ADD COLUMN external_source TEXT")

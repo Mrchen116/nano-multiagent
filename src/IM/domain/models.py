@@ -110,7 +110,6 @@ class AgentProfile:
     node_id: str | None = None
     display_name: str = ""
     description: str = ""
-    system_prompt: str = ""
     skills: list[str] = field(default_factory=list)
     tool_allowlist: list[str] = field(default_factory=list)
     group_reply_policy: str = "manual"

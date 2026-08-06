@@ -2,7 +2,7 @@ export interface AgentProfile {
   agent_id: string;
   display_name: string;
   description?: string;
-  system_prompt: string;
+  custom_prompt: string;
   skills_allowlist: string[];
   group_reply_policy: "ALWAYS" | "MENTION" | "NO_REPLY";
   no_reply_token?: string;
@@ -51,7 +51,7 @@ const initialAgents: AgentProfile[] = [
     agent_id: "agent-core-1",
     display_name: "Core Planner",
     description: "Milestone execution coordinator",
-    system_prompt: "You are the planning core for IM and SDK tasks.",
+    custom_prompt: "You are the planning core for IM and SDK tasks.",
     skills_allowlist: ["tdd-execution-worker", "playwright"],
     group_reply_policy: "MENTION",
     no_reply_token: "NO_REPLY",
@@ -66,7 +66,7 @@ const initialAgents: AgentProfile[] = [
     agent_id: "agent-audit-2",
     display_name: "Audit Sentry",
     description: "Checks policy and logging boundaries",
-    system_prompt: "Detect unsafe operations and produce concise guidance.",
+    custom_prompt: "Detect unsafe operations and produce concise guidance.",
     skills_allowlist: ["policy-checker"],
     group_reply_policy: "NO_REPLY",
     no_reply_token: "NO_REPLY",

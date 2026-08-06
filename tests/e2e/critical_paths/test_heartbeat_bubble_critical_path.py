@@ -42,7 +42,7 @@ def test_heartbeat_bubbles_actionable_message(
         node_id,
         agent_id,
         display_name=agent_id,
-        system_prompt="你是一个测试助手。心跳触发时，按 HEARTBEAT.md 的指示主动发言。",
+        custom_prompt="你是一个测试助手。心跳触发时，按 HEARTBEAT.md 的指示主动发言。",
         default_model=e2e_stack.llm_model,
     )
 

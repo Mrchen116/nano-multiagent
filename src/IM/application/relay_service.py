@@ -16,7 +16,6 @@ from IM.domain.models import Message, RelayTask
 class _RelayAgentSnapshot:
     agent_id: str | None
     profile_version: int | None
-    system_prompt: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -371,7 +370,7 @@ class RelayService:
     ) -> _RelayAgentSnapshot:
         conversation_row = self._connection.execute(
             """
-            SELECT type, config_agent_id, config_profile_version, config_system_prompt
+            SELECT type, config_agent_id, config_profile_version
             FROM conversations
             WHERE id = ?
             """,
@@ -382,14 +381,11 @@ class RelayService:
         )
         frozen_agent_id = None
         frozen_profile_version = None
-        frozen_system_prompt = None
         if conversation_row is not None:
             if conversation_row["config_agent_id"] is not None:
                 frozen_agent_id = str(conversation_row["config_agent_id"])
             if conversation_row["config_profile_version"] is not None:
                 frozen_profile_version = int(conversation_row["config_profile_version"])
-            if conversation_row["config_system_prompt"] is not None:
-                frozen_system_prompt = str(conversation_row["config_system_prompt"])
 
         def _profile_snapshot(agent_id: str) -> _RelayAgentSnapshot | None:
             profile = self._profile_row(agent_id=agent_id)
@@ -398,7 +394,6 @@ class RelayService:
             return _RelayAgentSnapshot(
                 agent_id=agent_id,
                 profile_version=int(profile["profile_version"]),
-                system_prompt=str(profile["system_prompt"]),
             )
 
         participant_rows = self._connection.execute(
@@ -444,30 +439,16 @@ class RelayService:
             return _RelayAgentSnapshot(
                 agent_id=frozen_agent_id,
                 profile_version=frozen_profile_version,
-                system_prompt=frozen_system_prompt,
             )
 
         if selected_agent_id is None:
             return _RelayAgentSnapshot(
                 agent_id=None,
                 profile_version=frozen_profile_version,
-                system_prompt=None,
             )
 
         selected_snapshot = _profile_snapshot(selected_agent_id)
         if selected_snapshot is not None:
-            if (
-                conversation_type == "group"
-                and frozen_agent_id == selected_snapshot.agent_id
-                and frozen_system_prompt == selected_snapshot.system_prompt
-                and frozen_profile_version is not None
-                and selected_snapshot.profile_version > frozen_profile_version
-            ):
-                return _RelayAgentSnapshot(
-                    agent_id=selected_snapshot.agent_id,
-                    profile_version=selected_snapshot.profile_version,
-                    system_prompt=frozen_system_prompt,
-                )
             return selected_snapshot
 
         if (
@@ -479,11 +460,10 @@ class RelayService:
             return _RelayAgentSnapshot(
                 agent_id=frozen_agent_id,
                 profile_version=frozen_profile_version,
-                system_prompt=frozen_system_prompt,
             )
 
         return _RelayAgentSnapshot(
-            agent_id=None, profile_version=frozen_profile_version, system_prompt=None
+            agent_id=None, profile_version=frozen_profile_version
         )
 
     def _resolve_participant_agent_ids(self, *, conversation_id: str) -> list[str]:
@@ -633,7 +613,7 @@ class RelayService:
 
     def _profile_row(self, *, agent_id: str) -> sqlite3.Row | None:
         return self._connection.execute(
-            "SELECT agent_id, profile_version, system_prompt FROM agent_profiles WHERE agent_id = ?",
+            "SELECT agent_id, profile_version FROM agent_profiles WHERE agent_id = ?",
             (agent_id,),
         ).fetchone()
 

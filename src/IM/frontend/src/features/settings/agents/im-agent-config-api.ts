@@ -36,11 +36,10 @@ export interface AgentConfig {
   owner_id: string;
   display_name: string;
   description: string;
-  system_prompt: string;
   // feat-379-M3: per-agent feature flags (key → bool); absent in old IM responses → treat as {}
   features?: Record<string, boolean>;
   // feat-379-M3: user custom instructions appended as pa.user_custom segment
-  custom_prompt?: string;
+  custom_prompt?: string | null;
   // feat-394 M9-E: heartbeat carries only cadence; enable lives in features["heartbeat"].
   heartbeat?: HeartbeatConfig;
   // feat-394 M9-E: cron field removed — no per-agent cron config; enable in features["cron_scheduling"].
@@ -95,7 +94,6 @@ export interface CapabilitySnapshot {
   tools: AgentAllowlistOption[];
   model_options: ModelOption[];
   platform_default_model: string | null;
-  default_system_prompt: string;
   // feat-379-M3: feature toggle list; absent from older Gateway versions → treat as []
   features?: AgentFeature[];
 }
@@ -132,10 +130,9 @@ export interface NodeAgentCreateRequest {
   owner_id: string;
   display_name: string;
   description: string;
-  system_prompt: string;
   // feat-379-M3: per-agent feature flags for new agents
   features?: Record<string, boolean>;
-  custom_prompt?: string;
+  custom_prompt?: string | null;
   skills: string[];
   tool_allowlist: string[];
   group_reply_policy: "ALWAYS" | "MENTION" | "NO_REPLY" | string;
@@ -151,10 +148,9 @@ export interface UpdateAgentConfigRequest {
   profile_version: number;
   display_name: string;
   description: string;
-  system_prompt: string;
   // feat-379-M3: per-agent feature flags; omitted → server keeps existing
   features?: Record<string, boolean>;
-  custom_prompt?: string;
+  custom_prompt?: string | null;
   // feat-394 M9-E: heartbeat carries only cadence; enable in features["heartbeat"].
   heartbeat?: HeartbeatConfig;
   // feat-394 M9-E: cron removed from update request; enable in features["cron_scheduling"].
@@ -255,7 +251,6 @@ interface AgentCapabilitiesWire {
   skills: Array<string | AgentAllowlistOption>;
   tools: Array<string | AgentAllowlistOption>;
   platform_default_model?: string | null;
-  default_system_prompt?: string;
   // feat-379-M3: feature toggle projection from FEATURE_REGISTRY
   features?: AgentFeature[];
 }
@@ -270,7 +265,6 @@ interface NodeCapabilitiesWire {
   skills: Array<string | AgentAllowlistOption>;
   tools: Array<string | AgentAllowlistOption>;
   platform_default_model?: string | null;
-  default_system_prompt?: string;
   // feat-379-M7 (ISSUE-1): node capabilities now carry FEATURE_REGISTRY projection
   // so the agent-create page can render feature toggles without a per-agent context.
   features?: AgentFeature[];
@@ -339,7 +333,6 @@ function toCapabilitySnapshot(
     tools: normalizeAllowlistOptions(raw.tools),
     model_options: normalizeModelOptions(raw),
     platform_default_model: raw.platform_default_model ?? null,
-    default_system_prompt: raw.default_system_prompt ?? "",
     // feat-379-M3: carry through feature toggles; NodeCapabilitiesWire has no features field → []
     features: "features" in raw && Array.isArray(raw.features) ? raw.features : [],
   };
@@ -362,7 +355,6 @@ function enrichCapabilitySnapshot(
     tools: toAllowlistOptions(raw.tools ?? []),
     model_options: normalizeModelOptions(raw),
     platform_default_model: null,
-    default_system_prompt: "",
   };
 }
 
@@ -512,7 +504,6 @@ export async function getAgentDetailState(agentId: string): Promise<AgentDetailS
     skills: config.skills,
     tools: config.tool_allowlist,
     platform_default_model: null,
-    default_system_prompt: "",
   };
   const capabilities = capabilitiesResult.status === "fulfilled" ? capabilitiesResult.value : fallbackCapabilities;
   const owningNodeId = config.node_id ?? capabilities.node_id;
@@ -543,7 +534,6 @@ export async function updateAgentConfig(agentId: string, next: UpdateAgentConfig
       profile_version: next.profile_version,
       display_name: next.display_name,
       description: next.description,
-      system_prompt: next.system_prompt,
       // feat-379-M3: pass features and custom_prompt when present
       ...(next.features !== undefined ? { features: next.features } : {}),
       ...(next.custom_prompt !== undefined ? { custom_prompt: next.custom_prompt } : {}),

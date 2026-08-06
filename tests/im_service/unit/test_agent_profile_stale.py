@@ -23,7 +23,6 @@ def _upsert(
         node_id=node_id,
         display_name=agent_id,
         description="",
-        system_prompt="",
         skills=[],
         tool_allowlist=[],
         group_reply_policy="manual",

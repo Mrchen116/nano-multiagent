@@ -46,9 +46,6 @@ function normalizeDraft(draft: CreateAgentFormState): CreateAgentFormState {
     agent_id: normalizeText(draft.agent_id),
     display_name: normalizeText(draft.display_name),
     description: normalizeText(draft.description),
-    // feat-379-M5 (ISSUE-1): system_prompt no longer exposed in create form;
-    // keep blank in payload for API compat — sections assembler owns the content.
-    system_prompt: "",
     custom_prompt: (draft.custom_prompt ?? "").trim(),
     features: draft.features ?? {},
     skills: normalizeAllowlist(draft.skills),
@@ -86,7 +83,6 @@ const EMPTY_DRAFT: CreateAgentFormState = {
   owner_id: "",
   display_name: "",
   description: "",
-  system_prompt: "",
   custom_prompt: "",
   features: {},
   skills: [],

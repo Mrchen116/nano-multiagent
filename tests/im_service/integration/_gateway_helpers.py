@@ -46,8 +46,8 @@ class _FakeKernel:
       - stream (returns AsyncIterator)
       - get_session (sync)
 
-    NO_REPLY output is triggered when session metadata matches the suppression
-    system_prompt + profile_version combination, mirroring kernel behavior.
+    NO_REPLY output is triggered when the runtime prompt contains the suppression
+    instruction, mirroring kernel behavior.
 
     Observable attributes kept compatible with old _FakeKernelClient so test
     assertions on create_session_calls / send_calls continue to work:
@@ -187,7 +187,7 @@ class _FakeKernel:
                 for item in getattr(runtime.runtime.prompt, slot, ())
             )
             if runtime is not None
-            else session_metadata.get("system_prompt", "")
+            else session_metadata.get("agent_custom_prompt", "")
         )
         if (
             "When mentioned in a group chat, reply exactly with NO_REPLY."
@@ -272,7 +272,6 @@ def seed_node_and_profiles(
             owner_id=owner_id,
             display_name=agent_id,
             description=f"profile for {agent_id}",
-            system_prompt=f"You are {agent_id}.",
             skills=[],
             tool_allowlist=[],
             group_reply_policy="manual",
@@ -299,7 +298,6 @@ def make_agent_configs(
                 agent_id=agent_id,
                 workspace_root=workspace_root,
                 title=agent_id.title(),
-                system_prompt=f"You are {agent_id}.",
             )
         )
     return tuple(agents)

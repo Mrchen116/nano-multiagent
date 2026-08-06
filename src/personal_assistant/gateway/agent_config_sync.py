@@ -186,12 +186,6 @@ class IMAgentConfigSync:
         )
         desc_val = agent_payload.get("description")
         description_str = desc_val.strip() if isinstance(desc_val, str) else ""
-        system_prompt_val = agent_payload.get("system_prompt")
-        system_prompt = (
-            system_prompt_val.strip()
-            if isinstance(system_prompt_val, str) and system_prompt_val.strip()
-            else None
-        )
         raw_skills = agent_payload.get("skills")
         skills = tuple(
             item.strip()
@@ -233,7 +227,6 @@ class IMAgentConfigSync:
             title=title,
             skills=skills,
             tool_allowlist=tool_allowlist,
-            system_prompt=system_prompt,
             group_reply_policy=group_reply_policy,
             default_model=default_model,
             features=features,
@@ -255,7 +248,6 @@ class IMAgentConfigSync:
             "agent_id": agent_id,
             "display_name": title,
             "description": description_str,
-            "system_prompt": system_prompt or "",
             "skills": list(skills),
             "tool_allowlist": list(tool_allowlist),
             "group_reply_policy": group_reply_policy,
@@ -378,7 +370,6 @@ class IMAgentConfigSync:
             "profile_version": int(payload.get("profile_version", 1)),
             "display_name": str(payload.get("display_name") or agent_id),
             "description": str(payload.get("description") or ""),
-            "system_prompt": str(payload.get("system_prompt") or ""),
             "skills": skills,
             "tool_allowlist": [
                 item.strip()
@@ -580,7 +571,6 @@ class IMAgentConfigSync:
                 for item in (raw_tools if isinstance(raw_tools, list) else [])
                 if isinstance(item, str) and item.strip()
             ),
-            system_prompt=_optional_text("system_prompt"),
             group_reply_policy=_optional_text("group_reply_policy"),
             default_model=_optional_text("default_model"),
             features=features,
@@ -614,7 +604,15 @@ class IMAgentConfigSync:
     def _publish_agent_config(self, agent_config: AgentWorkspaceConfig) -> None:
         """Converge durable and live owners independently, persisting first."""
 
-        local_current = self._local_agent(agent_config.agent_id)
+        local_config = self._config_snapshot()
+        local_current = next(
+            (
+                agent
+                for agent in local_config.agents
+                if agent.agent_id == agent_config.agent_id
+            ),
+            None,
+        )
         if local_current != agent_config:
             self._persist_agent_config(agent_config)
         current = self._agent_catalog.get(agent_config.agent_id)
@@ -633,7 +631,6 @@ class IMAgentConfigSync:
                 continue
             payload: dict[str, object] = {
                 "display_name": agent.title or agent.agent_id,
-                "system_prompt": agent.system_prompt or "",
                 "skills": list(agent.skills),
                 "tool_allowlist": list(agent.tool_allowlist),
                 "group_reply_policy": agent.group_reply_policy or "manual",

@@ -93,7 +93,6 @@ function makeAgentState(opts: {
       owner_id: "owner-1",
       display_name: "Preview Agent",
       description: "",
-      system_prompt: "",
       custom_prompt: "",
       features: opts.configFeatures ?? {},
       skills: [],
@@ -118,7 +117,6 @@ function makeAgentState(opts: {
       tools: [TOOL_DEFAULT, TOOL_OPTIONAL],
       model_options: [],
       platform_default_model: null,
-      default_system_prompt: "",
       features: opts.capFeatures ?? [HB_CAP_FEATURE, CRON_CAP_FEATURE],
     },
     owningNode: null,
@@ -162,7 +160,7 @@ describe("promptPreview reflects features for heartbeat/cron", () => {
     await screen.findByRole("heading", { name: "Preview Agent" });
 
     // Open preview
-    const previewBtn = screen.getByRole("button", { name: /Preview full system prompt/i });
+    const previewBtn = screen.getByRole("button", { name: /Preview stable system prompt/i });
     await user.click(previewBtn);
 
     await waitFor(() => {

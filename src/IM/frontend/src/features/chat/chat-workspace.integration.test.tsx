@@ -251,7 +251,6 @@ function mockFetch(opts: {
         owner_id: "u-self",
         display_name: agentId === "a-writer" ? "Writer" : "Planner",
         description: "",
-        system_prompt: "",
         skills: [],
         tool_allowlist: toolAllowlist,
         group_reply_policy: "manual",
@@ -275,7 +274,6 @@ function mockFetch(opts: {
           : [],
         model_options: [],
         platform_default_model: null,
-        default_system_prompt: ""
       });
     }
     if (/\/im\/v1\/conversations\/c1\/messages$/.test(url) && init?.method === "POST") {

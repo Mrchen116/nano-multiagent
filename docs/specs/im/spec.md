@@ -23,7 +23,7 @@
 | [Web Chat UX](web-chat-ux.md) | 历史加载、配置边界、滚动、输入、slash 控制命令、消息操作、conversation skill 蒸馏入口、响应式体验 | 13 |
 | [Tool Timeline](tool-timeline.md) | tool/reasoning 实时状态、展示、权限卡、长输出 | 8 |
 | [Response Metrics](response-metrics.md) | 墙钟耗时、气泡指标、缓存命中率 | 3 |
-| [Agents and Nodes](agents-nodes.md) | agent 配置保存与实际采用、创建/配置 UX、外部 channel 控制面、skill_view、产品说明书、skill usage、heartbeat/cron、能力、节点绑定/状态 | 19 |
+| [Agents and Nodes](agents-nodes.md) | agent 配置保存与实际采用、可见专属说明与稳定提示词预览、创建/配置 UX、外部 channel 控制面、skill_view、产品说明书、skill usage、heartbeat/cron、能力、节点绑定/状态 | 20 |
 | [Gateway Relay](gateway-relay.md) | WS 协议、配置边界事件、幂等回执、离线降级、后台通知、liveness、授权决策 | 10 |
 
 ## Maintenance Rule

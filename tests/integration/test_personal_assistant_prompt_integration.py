@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 from agent.core.agent.prompt_sections.base import PromptContext, assemble_system_prompt
 from agent.core.agent.prompt_sections.skeleton import build_kernel_prompt_skeleton
@@ -16,7 +18,7 @@ def _tool(name: str) -> ToolSpec:
 
 
 def _assemble(
-    agent: AgentWorkspaceConfig,
+    agent: Any,
     *,
     tools: tuple[ToolSpec, ...] = (),
     scenario: dict[str, object] | None = None,
@@ -62,17 +64,20 @@ def test_group_scenario_reaches_the_assembled_pa_prompt(tmp_path: Path) -> None:
     assert "<task-notification>" in prompt
 
 
-def test_system_and_custom_inputs_keep_their_product_order(tmp_path: Path) -> None:
-    """Keep both configured inputs visible without pinning surrounding prose."""
-    system = "SYSTEM-SENTINEL-UNIQUE"
+def test_legacy_system_input_is_ignored_and_custom_is_injected_once(
+    tmp_path: Path,
+) -> None:
+    """Only the public canonical custom field may shape the PA prompt."""
+    legacy = "LEGACY-SYSTEM-SENTINEL-UNIQUE"
     custom = "CUSTOM-SENTINEL-UNIQUE"
-    agent = AgentWorkspaceConfig(
+    agent = SimpleNamespace(
         agent_id="agent-a",
         workspace_root=tmp_path,
-        system_prompt=system,
+        system_prompt=legacy,
         custom_prompt=custom,
     )
 
     prompt = _assemble(agent)
 
-    assert prompt.index(system) < prompt.index(custom)
+    assert legacy not in prompt
+    assert prompt.count(custom) == 1

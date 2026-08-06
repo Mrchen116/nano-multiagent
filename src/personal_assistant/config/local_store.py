@@ -178,7 +178,6 @@ class AgentWorkspaceConfig:
         title: Optional operator-facing label.
         skills: Enabled skill identifiers for this agent.
         tool_allowlist: Allowed tool names restricting the agent's tool access.
-        system_prompt: Custom system prompt override for the agent.
         group_reply_policy: Reply policy in group conversations (e.g. "always", "mention_only").
         default_model: Default LLM model identifier for this agent.
         features: Per-agent feature-flag overrides keyed by FEATURE_REGISTRY key.
@@ -212,7 +211,6 @@ class AgentWorkspaceConfig:
     title: str | None = None
     skills: tuple[str, ...] = ()
     tool_allowlist: tuple[str, ...] = ()
-    system_prompt: str | None = None
     group_reply_policy: str | None = None
     default_model: str | None = None
     # feat-379-M2: per-agent feature flags and custom prompt supplement.
@@ -813,8 +811,6 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
         # feat-394 fix: always serialize tool_allowlist so an explicit empty
         # whitelist round-trips as [] instead of being omitted and re-backfilled.
         agent_dict["tool_allowlist"] = list(agent.tool_allowlist)
-        if agent.system_prompt is not None:
-            agent_dict["system_prompt"] = agent.system_prompt
         if agent.group_reply_policy is not None:
             agent_dict["group_reply_policy"] = agent.group_reply_policy
         if agent.default_model is not None:
@@ -1134,9 +1130,6 @@ def _parse_agents(
             from personal_assistant.product import DEFAULT_TOOL_IDS
 
             tool_allowlist = tuple(DEFAULT_TOOL_IDS)
-        system_prompt = _optional_string(
-            item.get("system_prompt"), field_name=f"agents[{index}].system_prompt"
-        )
         group_reply_policy = _optional_string(
             item.get("group_reply_policy"),
             field_name=f"agents[{index}].group_reply_policy",
@@ -1202,7 +1195,6 @@ def _parse_agents(
                 title=title,
                 skills=skills,
                 tool_allowlist=tool_allowlist,
-                system_prompt=system_prompt,
                 group_reply_policy=group_reply_policy,
                 default_model=default_model,
                 features=features,

@@ -17,11 +17,10 @@ from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
 from ._pipeline_helpers import _FakeChannel, _FakeKernel, _agents
 
 
-def test_build_session_metadata_reads_system_prompt_from_local_agent_config(
+def test_build_session_metadata_reads_custom_prompt_from_local_agent_config(
     tmp_path: Path,
 ) -> None:
-    """system_prompt in session metadata must come from the local AgentWorkspaceConfig,
-    not from the relay-pushed message.metadata."""
+    """Canonical custom prompt comes from local config, never relay metadata."""
     agent_dir = tmp_path / "agent-x"
     agent_dir.mkdir()
     agents = (
@@ -29,7 +28,7 @@ def test_build_session_metadata_reads_system_prompt_from_local_agent_config(
             agent_id="agent-x",
             workspace_root=agent_dir,
             title="Agent X",
-            system_prompt="Local system prompt from config.",
+            custom_prompt="Local system prompt from config.",
         ),
     )
     channel = _FakeChannel("web")
@@ -58,7 +57,10 @@ def test_build_session_metadata_reads_system_prompt_from_local_agent_config(
     asyncio.run(pipeline.handle_inbound(inbound))
 
     created_metadata = kernel_client.create_session_calls[0]["metadata"]
-    assert created_metadata["system_prompt"] == "Local system prompt from config."
+    assert created_metadata["agent_custom_prompt"] == (
+        "Local system prompt from config."
+    )
+    assert "system_prompt" not in created_metadata
 
 
 def test_build_session_metadata_reads_skills_and_tool_allowlist_from_local_agent_config(
@@ -156,7 +158,7 @@ def test_session_creation_uses_agent_features_and_custom_prompt_from_live_config
 def test_build_session_metadata_ignores_message_metadata_for_prompt_fields(
     tmp_path: Path,
 ) -> None:
-    """When local agent config has no system_prompt/skills/tool_allowlist,
+    """When local agent config has no custom prompt/skills/tool_allowlist,
     message.metadata values must still be ignored (not leaked through)."""
     agent_dir = tmp_path / "agent-z"
     agent_dir.mkdir()
@@ -210,7 +212,7 @@ def test_build_session_metadata_still_reads_conversation_id_from_message_metadat
             agent_id="agent-w",
             workspace_root=agent_dir,
             title="Agent W",
-            system_prompt="Local prompt.",
+            custom_prompt="Local prompt.",
         ),
     )
     channel = _FakeChannel("web")
@@ -242,7 +244,7 @@ def test_build_session_metadata_still_reads_conversation_id_from_message_metadat
     assert created_metadata["agent_id"] == "agent-w"
     assert created_metadata["conversation_id"] == "conv-42"
     assert created_metadata["config_profile_version"] == 7
-    assert created_metadata["system_prompt"] == "Local prompt."
+    assert created_metadata["agent_custom_prompt"] == "Local prompt."
 
 
 def test_web_relay_conversation_id_reaches_session_metadata(
@@ -257,7 +259,7 @@ def test_web_relay_conversation_id_reaches_session_metadata(
             agent_id="agent-web",
             workspace_root=agent_dir,
             title="Agent Web",
-            system_prompt="Local prompt.",
+            custom_prompt="Local prompt.",
         ),
     )
     relay = WebRelayAdapter()
@@ -299,7 +301,7 @@ def test_web_relay_conversation_id_reaches_session_metadata(
     assert created_metadata["conversation_id"] == "conv-real-1"
     assert created_metadata["config_profile_version"] == 12
     assert created_metadata["conversation_type"] == "direct"
-    assert created_metadata["system_prompt"] == "Local prompt."
+    assert created_metadata["agent_custom_prompt"] == "Local prompt."
 
 
 def test_session_metadata_group_fields(tmp_path: Path) -> None:

@@ -82,7 +82,8 @@ class CreateNodeAgentRequest(BaseModel):
     owner_id: str = ""
     display_name: str = Field(min_length=1)
     description: str = ""
-    system_prompt: str = ""
+    features: dict[str, bool] = Field(default_factory=dict)
+    custom_prompt: str | None = None
     skills: list[str] = Field(default_factory=list)
     tool_allowlist: list[str] = Field(default_factory=list)
     group_reply_policy: str = Field(min_length=1)
@@ -98,7 +99,6 @@ class NodeCapabilitiesResponse(BaseModel):
     skills: list[AllowlistOptionResponse] = Field(default_factory=list)
     tools: list[AllowlistOptionResponse] = Field(default_factory=list)
     platform_default_model: str | None = None
-    default_system_prompt: str = ""
     # feat-379-M6 (ISSUE-1): expose feature toggles so agent-create page can render
     # the Features section without a per-agent capabilities call (agent not yet created).
     features: list[FeatureCapabilityResponse] = Field(default_factory=list)
@@ -164,9 +164,6 @@ async def get_node_capabilities(
         tools=coerce_allowlist_options(live.get("tools")),
         platform_default_model=_coerce_optional_text(
             live.get("platform_default_model"), fallback=None
-        ),
-        default_system_prompt=_coerce_text(
-            live.get("default_system_prompt"), fallback=""
         ),
         # feat-379-M6 (ISSUE-1): forward features from Gateway so agent-create page
         # can render the Features section without a per-agent capabilities call.
@@ -253,7 +250,8 @@ async def create_node_agent(
         "agent_id": payload.agent_id,
         "display_name": payload.display_name,
         "description": payload.description,
-        "system_prompt": payload.system_prompt,
+        "features": payload.features,
+        "custom_prompt": payload.custom_prompt,
         "tool_allowlist": payload.tool_allowlist,
         "group_reply_policy": payload.group_reply_policy,
         "default_model": payload.default_model,
@@ -287,9 +285,6 @@ async def create_node_agent(
             description=_coerce_text(
                 created_payload.get("description"), fallback=payload.description
             ),
-            system_prompt=_coerce_text(
-                created_payload.get("system_prompt"), fallback=payload.system_prompt
-            ),
             skills=_coerce_string_list(
                 created_payload.get("skills"), fallback=requested_skills
             ),
@@ -304,6 +299,12 @@ async def create_node_agent(
                 created_payload.get("default_model"), fallback=payload.default_model
             ),
             workspace_root=workspace_root,
+            features=_coerce_bool_dict(
+                created_payload.get("features"), fallback=payload.features
+            ),
+            custom_prompt=_coerce_optional_text(
+                created_payload.get("custom_prompt"), fallback=payload.custom_prompt
+            ),
         )
     except LookupError as exc:
         raise HTTPException(
@@ -349,6 +350,16 @@ def _coerce_string_list(value: object, fallback: list[str] | None = None) -> lis
     if isinstance(value, list):
         return [item for item in value if isinstance(item, str)]
     return list(fallback or [])
+
+
+def _coerce_bool_dict(value: object, *, fallback: dict[str, bool]) -> dict[str, bool]:
+    if not isinstance(value, dict):
+        return dict(fallback)
+    return {
+        key: item
+        for key, item in value.items()
+        if isinstance(key, str) and isinstance(item, bool)
+    }
 
 
 def _default_on_names(value: object) -> list[str]:
