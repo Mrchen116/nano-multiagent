@@ -164,6 +164,31 @@ sequenceDiagram
 
 该时序不承诺 preview 包含 group/memory/runtime 片段；这些仍是 Kernel/场景输入，不属于公开 profile。
 
+## Runbook for Reviewer
+
+本 unit 的产品验收只使用隔离 IM + Gateway + Vite 栈，绝不接触主实例的 `8011` / `5173` 或其配置。验收者在 `unit/bugfix-507` worktree 的根目录执行；主 checkout 仅提供已安装的 Python 环境。
+
+```bash
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+MAIN_ROOT="/Users/czj/Repos/nano-multiagent"
+
+# 先关掉本 worktree 可能遗留的栈；不会碰主实例。
+"$REPO_ROOT/scripts/e2e-down.sh" --wt "$REPO_ROOT"
+
+PATH="$MAIN_ROOT/.venv/bin:$PATH" \
+  "$REPO_ROOT/scripts/e2e-up.sh" --wt "$REPO_ROOT"
+source "$REPO_ROOT/.e2e-ports.env"
+curl -fsS "$IM_URL/openapi.json" >/dev/null
+
+# 前端由验收者在独立终端启动，并选取空闲端口；其 PID 必须在结束时停止。
+VITE_PORT="$("$REPO_ROOT/scripts/free-ports.sh" 1)"
+cd "$REPO_ROOT/src/IM/frontend"
+VITE_IM_PROXY_TARGET="$IM_URL" \
+  npm run dev -- --host 127.0.0.1 --port "$VITE_PORT" --strictPort
+```
+
+在浏览器中登录隔离 IM、打开 `Agents → e2e → Config`，验证保存 Custom Instructions、展开“Preview stable system prompt”，并确认 runtime exclusion 文案。验收结束后停止 Vite，再执行 `"$REPO_ROOT/scripts/e2e-down.sh" --wt "$REPO_ROOT"`；参见 `docs/development/worktree-runtime.md` 的端口、进程和清理检查。
+
 ## 数据迁移、兼容与回退
 
 - **IM SQLite：** 在 `_migrate_agent_profile_tables` 中先确保 `custom_prompt` 列存在，逐行按决策 2 规范化，再删除 `system_prompt`。同一初始化中删除 conversations 的 `config_system_prompt`；迁移事务内完成，失败则整个 schema migration 失败而不半迁移。
