@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from IM.application.event_bridge import EventBridge
+from IM.infra.repositories import events as event_repository_module
 from IM.domain.models import Actor, ConversationEvent, TokenUsage, ToolCall
 from IM.infra.db import connect, initialize_schema
 from IM.infra.repositories.conversations import ConversationRepository
@@ -148,6 +149,63 @@ def test_on_message_delta_appends_content_and_emits_delta(tmp_path: Path) -> Non
     p0 = json.loads(deltas[0].payload_json)
     assert p0["delta_text"] == "Hello, "
     assert p0["message_id"] == msg.id
+
+
+def test_on_message_delta_deduplicates_transport_retry(tmp_path: Path) -> None:
+    bridge, conv_id, agent_uid, messages, captured = _make_bridge(tmp_path)
+    msg = bridge.on_turn_start(
+        conversation_id=conv_id, agent_user_id=agent_uid, agent_id="planner"
+    )
+    captured.clear()
+
+    for _ in range(2):
+        bridge.on_message_delta(
+            message_id=msg.id,
+            delta_text="one complete assistant message",
+            idempotency_key="run-1:assistant_message:42",
+        )
+
+    reloaded = messages.list_messages(conversation_id=conv_id)
+    assert reloaded[-1].content == "one complete assistant message"
+    deltas = [event for event in captured if event.event_type == "message.delta"]
+    assert len(deltas) == 1
+    assert json.loads(deltas[0].payload_json)["idempotency_key"] == (
+        "run-1:assistant_message:42"
+    )
+
+
+def test_on_message_delta_rolls_back_content_when_event_insert_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A retry after a failed durable event must not duplicate already-appended text."""
+
+    bridge, conv_id, agent_uid, messages, captured = _make_bridge(tmp_path)
+    msg = bridge.on_turn_start(
+        conversation_id=conv_id, agent_user_id=agent_uid, agent_id="planner"
+    )
+    captured.clear()
+    original_insert = event_repository_module.insert_event_row
+
+    def fail_insert(*_args: object, **_kwargs: object) -> ConversationEvent:
+        raise RuntimeError("event storage unavailable")
+
+    monkeypatch.setattr(event_repository_module, "insert_event_row", fail_insert)
+    with pytest.raises(RuntimeError, match="event storage unavailable"):
+        bridge.on_message_delta(
+            message_id=msg.id,
+            delta_text="once",
+            idempotency_key="run-1:assistant_message:43",
+        )
+    assert messages.list_messages(conversation_id=conv_id)[-1].content == ""
+
+    monkeypatch.setattr(event_repository_module, "insert_event_row", original_insert)
+    bridge.on_message_delta(
+        message_id=msg.id,
+        delta_text="once",
+        idempotency_key="run-1:assistant_message:43",
+    )
+    assert messages.list_messages(conversation_id=conv_id)[-1].content == "once"
+    assert [event for event in captured if event.event_type == "message.delta"]
 
 
 def test_on_message_discarded_removes_placeholder_and_keeps_tombstone(

@@ -69,11 +69,14 @@ class TestNodeStreamingDeltaHandling:
             "conversation_id": "conv-1",
             "message_id": "msg-1",
             "delta_text": "Hello",
+            "idempotency_key": "run-1:assistant_message:42",
             "owner_id": "owner-A",
         }
         await handler.handle_streaming_delta(payload=payload)
         bridge.on_message_delta.assert_called_once_with(
-            message_id="msg-1", delta_text="Hello"
+            message_id="msg-1",
+            delta_text="Hello",
+            idempotency_key="run-1:assistant_message:42",
         )
 
     @pytest.mark.asyncio

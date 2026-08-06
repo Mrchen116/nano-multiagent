@@ -95,6 +95,64 @@ class EventRepository:
             self._notify(event)
         return event
 
+    def append_message_delta_if_new(
+        self,
+        *,
+        conversation_id: str,
+        message_id: str,
+        delta_text: str,
+        idempotency_key: str | None,
+        payload: dict[str, object],
+    ) -> ConversationEvent | None:
+        """Atomically append one delta and its durable event when it is new.
+
+        Args:
+            conversation_id: Conversation that owns the target agent message.
+            message_id: Target agent message.
+            delta_text: Text to append to the persisted message content.
+            idempotency_key: Stable Gateway source identity, when supplied.
+            payload: User-stream payload stored with the durable event.
+
+        Returns:
+            The committed event, or ``None`` when the idempotency key was already
+            applied to this message.
+        """
+        created_at = utc_now()
+        with self._connection:
+            if idempotency_key is not None:
+                marker = self._connection.execute(
+                    """
+                    INSERT OR IGNORE INTO message_delta_idempotency(
+                        message_id, idempotency_key
+                    ) VALUES (?, ?)
+                    """,
+                    (message_id, idempotency_key),
+                )
+                if marker.rowcount == 0:
+                    return None
+            cursor = self._connection.execute(
+                """
+                UPDATE messages
+                SET content = content || ?
+                WHERE id = ? AND conversation_id = ?
+                """,
+                (delta_text, message_id, conversation_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError(f"message_id not found: {message_id}")
+            event = insert_event_row(
+                self._connection,
+                conversation_id=conversation_id,
+                message_id=message_id,
+                event_type="message.delta",
+                delivery_status="running",
+                payload=payload,
+                created_at=created_at,
+            )
+        if self._notify is not None:
+            self._notify(event)
+        return event
+
     def update_message_delivery_status(
         self,
         *,

@@ -461,6 +461,7 @@ class IMAgentConfigSync:
         self,
         *,
         memory_versions: dict[str, int] | None = None,
+        latest_memory_version: Callable[[str], int | None] | None = None,
     ) -> None:
         """拉 IM 权威 profile 做全量对账，按 profile_version 取大覆盖内存 config。
 
@@ -474,12 +475,18 @@ class IMAgentConfigSync:
             memory_versions: 可选的 agent_id → 当前内存 profile_version 映射（由
                 ConfigSyncClient 维护）。缺失或无对应 key 时视作内存版本为 0，即接受
                 任意 IM 版本。
+            latest_memory_version: 可选的当前版本读取器。后台 reconcile 在拉取期间
+                可能有新的 config.sync 到达，发布前须按该读取器再次避免回退。
         """
         if memory_versions is None:
             memory_versions = {}
         for agent in self._config_snapshot().agents:
             agent_id = agent.agent_id
-            mem_ver = memory_versions.get(agent_id, 0)
+            memory_version = lambda: max(
+                memory_versions.get(agent_id, 0),
+                (latest_memory_version(agent_id) or 0) if latest_memory_version else 0,
+            )
+            mem_ver = memory_version()
             try:
                 payload = self._fetch_agent_config(agent_id=agent_id)
                 im_version = int(payload.get("profile_version", 0))
@@ -496,6 +503,13 @@ class IMAgentConfigSync:
                     agent_id=agent_id,
                     payload=payload,
                 )
+                if im_version < memory_version():
+                    _log.debug(
+                        "reconcile_all_agents: skipping agent %s after fetch — IM version %d is stale",
+                        agent_id,
+                        im_version,
+                    )
+                    continue
                 self._publish_agent_config(
                     self._decode_mirror_agent_config(
                         payload=payload,

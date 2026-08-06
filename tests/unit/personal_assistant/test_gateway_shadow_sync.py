@@ -1734,6 +1734,7 @@ def test_failed_prior_bubble_reconcile_does_not_block_new_live_bubble(
         "message_id": "im-agent-2",
         "delta_text": "answer B",
         "run_id": "run-1",
+        "idempotency_key": "run-1:assistant_message:kernel-b",
     }
 
 

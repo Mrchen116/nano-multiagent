@@ -40,6 +40,7 @@ class StreamingDeltaEvent:
     agent_user_id: str | None
     shadow_message_id: str | None
     delta_text: str | None
+    idempotency_key: str | None
     final_content: str | None
     delivery_status: str | None
     token_usage: Mapping[str, Any] | None
@@ -140,6 +141,7 @@ def parse_streaming_delta_event(payload: Mapping[str, object]) -> StreamingDelta
         agent_user_id=text_for("turn_start", field_name="agent_user_id"),
         shadow_message_id=text_for("turn_start", field_name="shadow_message_id"),
         delta_text=text_for("message_delta", field_name="delta_text"),
+        idempotency_key=text_for("message_delta", field_name="idempotency_key"),
         final_content=text_for("message_completed", field_name="final_content"),
         delivery_status=text_for("message_completed", field_name="delivery_status"),
         token_usage=(
