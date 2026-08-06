@@ -914,6 +914,14 @@ def build_kernel_event_observer(
         elif event_name == "assistant_message":
             content = str(event.get("content") or "").strip()
             kernel_msg_id = str(event.get("message_id") or "").strip()
+            source_event_id = (
+                event.get("_id") or event.get("sequence_num") or kernel_msg_id
+            )
+            delta_idempotency_key = (
+                f"{run_id}:assistant_message:{source_event_id}"
+                if source_event_id
+                else None
+            )
             prev_kernel_msg_id = ctx.kernel_message_id
             visibility_policy = ctx.visibility_policy
             if should_suppress_reply(content, policy=visibility_policy):
@@ -969,6 +977,7 @@ def build_kernel_event_observer(
                     reasoning_group_id: str = group_id,
                     full_reasoning: str = reasoning,
                     new_kernel_id: str = kernel_msg_id,
+                    delta_key: str | None = delta_idempotency_key,
                 ) -> None:
                     try:
                         ack = await mgr.send_json_await_ack(
@@ -1049,6 +1058,7 @@ def build_kernel_event_observer(
                                     "message_id": str(returned_msg_id),
                                     "delta_text": text,
                                     "run_id": rid,
+                                    "idempotency_key": delta_key,
                                 },
                             )
                     except Exception:  # noqa: BLE001
@@ -1081,6 +1091,7 @@ def build_kernel_event_observer(
                     reasoning_group_id: str = group_id,
                     full_reasoning: str = reasoning,
                     new_kernel_id: str = kernel_msg_id,
+                    delta_key: str | None = delta_idempotency_key,
                 ) -> None:
                     new_msg_id: str | None = None
                     try:
@@ -1148,6 +1159,7 @@ def build_kernel_event_observer(
                                     "message_id": new_msg_id,
                                     "delta_text": text,
                                     "run_id": rid,
+                                    "idempotency_key": delta_key,
                                 },
                             )
                     except Exception as exc:  # noqa: BLE001
@@ -1200,6 +1212,7 @@ def build_kernel_event_observer(
                                     "message_id": message_id,
                                     "delta_text": content,
                                     "run_id": run_id,
+                                    "idempotency_key": delta_idempotency_key,
                                 },
                             )
 
@@ -1233,6 +1246,7 @@ def build_kernel_event_observer(
                                 "message_id": message_id,
                                 "delta_text": content,
                                 "run_id": run_id,
+                                "idempotency_key": delta_idempotency_key,
                             },
                         ),
                         name=f"message-delta:{run_id}",
@@ -1251,6 +1265,7 @@ def build_kernel_event_observer(
                     reasoning_group_id: str = group_id,
                     full_reasoning: str = reasoning,
                     new_kernel_id: str = kernel_msg_id,
+                    delta_key: str | None = delta_idempotency_key,
                 ) -> None:
                     live_ctx = _live_context(run_context_store, rid)
                     if live_ctx is not None:
@@ -1297,6 +1312,7 @@ def build_kernel_event_observer(
                                     "message_id": returned_msg_id,
                                     "delta_text": text,
                                     "run_id": rid,
+                                    "idempotency_key": delta_key,
                                 },
                             )
                     except Exception as exc:  # noqa: BLE001

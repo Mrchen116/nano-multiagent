@@ -250,6 +250,51 @@ def test_reconcile_skips_update_when_im_profile_version_is_older(
     assert owners.catalog.require("agent-y").revision == 1
 
 
+def test_reconcile_rechecks_latest_memory_version_before_publishing(
+    tmp_path: Path,
+) -> None:
+    """A config.sync received during a background fetch must win over its old response."""
+
+    local_config = _make_local_config(
+        tmp_path,
+        [("agent-y", {"features": {"heartbeat": True}})],
+    )
+    owners = build_config_sync_test_owners(local_config)
+    latest_version = 5
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal latest_version
+        latest_version = 6
+        return httpx.Response(
+            200,
+            json={
+                "agent_id": "agent-y",
+                "display_name": "Agent Y",
+                "profile_version": 5,
+                "workspace_root": str(tmp_path / "agent-y"),
+                "features": {"heartbeat": False},
+            },
+        )
+
+    sync_client = _IMConfigSyncClient(
+        base_url="http://im.local:9000",
+        token="tok",
+        **owners.kwargs(),
+        local_config=local_config,
+        client=httpx.Client(
+            base_url="http://im.local:9000",
+            transport=httpx.MockTransport(handler),
+        ),
+    )
+
+    sync_client.reconcile_all_agents(
+        memory_versions={"agent-y": 5},
+        latest_memory_version=lambda _agent_id: latest_version,
+    )
+
+    assert owners.catalog.require("agent-y").revision == 1
+
+
 # ---------------------------------------------------------------------------
 # 场景 3：对账拉到相同或更新 profile_version，正常覆盖内存
 # ---------------------------------------------------------------------------

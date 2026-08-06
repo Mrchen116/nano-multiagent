@@ -302,7 +302,9 @@ class GatewayExecution:
             message_id = _require_text(event.message_id, field_name="message_id")
             delta_text = event.delta_text or ""
             self._event_bridge.on_message_delta(
-                message_id=message_id, delta_text=delta_text
+                message_id=message_id,
+                delta_text=delta_text,
+                idempotency_key=event.idempotency_key,
             )
 
         elif kind == "message_completed":

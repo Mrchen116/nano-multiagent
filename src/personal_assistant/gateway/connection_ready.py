@@ -63,11 +63,39 @@ class ConnectionReadyCoordinator:
         self._agent_ids = tuple(agent_ids)
         self._boundary_outbox = boundary_outbox
         self._recover_external_shadows = recover_external_shadows
+        self._node_bootstrap_task: asyncio.Task[None] | None = None
+        self._agent_reconcile_task: asyncio.Task[None] | None = None
+        self._agent_reconcile_generation = 0
         self._shadow_recovery_task: asyncio.Task[None] | None = None
         self._shadow_recovery_generation = 0
 
     async def on_connected(self, connection: ManagedChannelConnectionSender) -> None:
         """Converge binding, managed channels, and Agent profiles after registration."""
+        self._schedule_node_bootstrap(connection)
+        await self._managed_channel_bindings.reconcile_after_register(connection)
+        self._schedule_agent_reconcile()
+        # The dispatcher is independent of all convergence work and must start before a
+        # slow or failed recovery can delay ordinary boundary delivery.
+        self._boundary_outbox.schedule_drain(connection)
+        self.notify_external_shadows_pending()
+
+    def _schedule_node_bootstrap(
+        self, connection: ManagedChannelConnectionSender
+    ) -> None:
+        if (
+            self._node_bootstrap_task is not None
+            and not self._node_bootstrap_task.done()
+        ):
+            return
+        self._node_bootstrap_task = asyncio.create_task(
+            self._ensure_node_binding(connection),
+            name="personal-assistant-node-binding",
+        )
+        self._node_bootstrap_task.add_done_callback(self._node_bootstrap_done)
+
+    async def _ensure_node_binding(
+        self, connection: ManagedChannelConnectionSender
+    ) -> None:
         try:
             await asyncio.to_thread(
                 self._bootstrap_client.ensure_node_binding,
@@ -97,21 +125,47 @@ class ConnectionReadyCoordinator:
                     "failed to send degraded IM heartbeat after binding failure: %s",
                     heartbeat_exc,
                 )
-        await self._managed_channel_bindings.reconcile_after_register(connection)
-        memory_versions = {
-            agent_id: version
-            for agent_id in self._agent_ids
-            if (version := self._sync_client.latest_profile_version(agent_id))
-            is not None
-        }
-        await asyncio.to_thread(
-            self._agent_config_sync.reconcile_all_agents,
-            memory_versions=memory_versions,
+
+    def _schedule_agent_reconcile(self) -> None:
+        self._agent_reconcile_generation += 1
+        if (
+            self._agent_reconcile_task is not None
+            and not self._agent_reconcile_task.done()
+        ):
+            return
+        self._agent_reconcile_task = asyncio.create_task(
+            self._reconcile_agents_until_current(),
+            name="personal-assistant-agent-profile-reconcile",
         )
-        # The dispatcher is independent of shadow replay and must start before a
-        # slow or failed recovery can delay ordinary boundary delivery.
-        self._boundary_outbox.schedule_drain(connection)
-        self.notify_external_shadows_pending()
+        self._agent_reconcile_task.add_done_callback(self._agent_reconcile_done)
+
+    async def _reconcile_agents_until_current(self) -> None:
+        while True:
+            generation = self._agent_reconcile_generation
+            await asyncio.to_thread(
+                self._agent_config_sync.reconcile_all_agents,
+                latest_memory_version=self._sync_client.latest_profile_version,
+            )
+            if generation == self._agent_reconcile_generation:
+                return
+
+    @staticmethod
+    def _node_bootstrap_done(task: asyncio.Task[None]) -> None:
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            return
+        except Exception:  # noqa: BLE001
+            _log.warning("IM node bootstrap failed", exc_info=True)
+
+    @staticmethod
+    def _agent_reconcile_done(task: asyncio.Task[None]) -> None:
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            return
+        except Exception:  # noqa: BLE001
+            _log.warning("Agent profile reconciliation failed", exc_info=True)
 
     def notify_external_shadows_pending(self) -> None:
         """Wake the single recovery owner after a new terminal snapshot becomes ready."""

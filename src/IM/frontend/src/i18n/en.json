@@ -636,6 +636,9 @@
       "skills": "Skills",
       "noMatch": "No matching slash items",
       "stopDesc": "Interrupt the currently running task",
+      "newDesc": "Start a new session in this chat",
+      "newGroupDesc": "Start a new session for every agent in this group",
+      "compactDesc": "Compact the current session context",
       "from": "from {{agents}}"
     }
   },

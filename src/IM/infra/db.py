@@ -146,6 +146,13 @@ CREATE TABLE IF NOT EXISTS conversation_events (
     FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS message_delta_idempotency (
+    message_id TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    PRIMARY KEY (message_id, idempotency_key),
+    FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS agent_config_boundaries (
     boundary_id TEXT PRIMARY KEY,
     conversation_id TEXT NOT NULL,
@@ -305,7 +312,10 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
     Side Effects:
         Executes DDL statements and commits the transaction.
     """
+    had_delta_idempotency = _table_exists(connection, "message_delta_idempotency")
     connection.executescript(_SCHEMA_SQL)
+    if not had_delta_idempotency:
+        _backfill_message_delta_idempotency(connection)
     _migrate_users_owner_id(connection)
     _migrate_conversations_metadata(connection)
     _migrate_messages_metadata(connection)
@@ -318,6 +328,33 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
     _migrate_boundary_provenance_nullable(connection)
     _reconcile_conversation_summary_previews(connection)
     connection.commit()
+
+
+def _table_exists(connection: sqlite3.Connection, table_name: str) -> bool:
+    """Return whether an existing database already has one table."""
+
+    return (
+        connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+            (table_name,),
+        ).fetchone()
+        is not None
+    )
+
+
+def _backfill_message_delta_idempotency(connection: sqlite3.Connection) -> None:
+    """Preserve delta keys written before the dedicated idempotency table existed."""
+
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO message_delta_idempotency(message_id, idempotency_key)
+        SELECT message_id, CAST(json_extract(payload_json, '$.idempotency_key') AS TEXT)
+        FROM conversation_events
+        WHERE event_type = 'message.delta'
+          AND message_id IS NOT NULL
+          AND json_extract(payload_json, '$.idempotency_key') IS NOT NULL
+        """
+    )
 
 
 def _migrate_users_owner_id(connection: sqlite3.Connection) -> None:

@@ -1,6 +1,6 @@
 # IM Specification
 
-> 对齐: feat-502
+> 对齐: bugfix-508
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端(内置 Web IM)、Node Gateway(`personal_assistant`)、终端用户,以及 `tests/im_service/` 里的契约测试。
 
@@ -20,7 +20,7 @@
 |---|---|---|
 | [Auth and Tenancy](auth-tenancy.md) | JWT、owner 隔离、系统 policies | 3 |
 | [Conversations and Messages](conversations-messages.md) | 会话/消息 CRUD、shadow conversation、配置边界、outbox、群聊、分页、fork | 14 |
-| [Web Chat UX](web-chat-ux.md) | 历史加载、配置边界、滚动、输入、消息操作、conversation skill 蒸馏入口、响应式体验 | 12 |
+| [Web Chat UX](web-chat-ux.md) | 历史加载、配置边界、滚动、输入、slash 控制命令、消息操作、conversation skill 蒸馏入口、响应式体验 | 13 |
 | [Tool Timeline](tool-timeline.md) | tool/reasoning 实时状态、展示、权限卡、长输出 | 8 |
 | [Response Metrics](response-metrics.md) | 墙钟耗时、气泡指标、缓存命中率 | 3 |
 | [Agents and Nodes](agents-nodes.md) | agent 配置保存与实际采用、可见专属说明与稳定提示词预览、创建/配置 UX、外部 channel 控制面、skill_view、产品说明书、skill usage、heartbeat/cron、能力、节点绑定/状态 | 20 |

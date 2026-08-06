@@ -240,7 +240,9 @@ class RelayService:
 
         Args:
             message: Persisted message to relay.
-            target_node_id: Gateway node that should receive every relay.
+            target_node_id: Gateway node for a direct relay. Group relays use each
+                participant Agent's configured node, with this value retained as a
+                compatibility fallback for profiles without a node binding.
             idempotency_key_base: Base retry key; per-agent key is ``{base}:{agent_id}``.
             sender_user_id: Human sender identifier copied into relay payload.
             conversation_type: Conversation kind; ``"group"`` triggers fan-out.
@@ -288,7 +290,7 @@ class RelayService:
             # Each agent gets its own relay; payload.agent_id identifies the target agent.
             result = self.enqueue_message_relay(
                 message=message,
-                target_node_id=target_node_id,
+                target_node_id=self._resolve_agent_node_id(agent_id) or target_node_id,
                 idempotency_key=per_agent_key,
                 sender_user_id=sender_user_id,
                 conversation_type=conversation_type,
@@ -317,9 +319,13 @@ class RelayService:
         )
         if not agent_snapshot.agent_id:
             return None
+        return self._resolve_agent_node_id(agent_snapshot.agent_id)
+
+    def _resolve_agent_node_id(self, agent_id: str) -> str | None:
+        """Return one Agent's configured Gateway node, if it has one."""
+
         row = self._connection.execute(
-            "SELECT node_id FROM agent_profiles WHERE agent_id = ?",
-            (agent_snapshot.agent_id,),
+            "SELECT node_id FROM agent_profiles WHERE agent_id = ?", (agent_id,)
         ).fetchone()
         if row is None or row["node_id"] in (None, ""):
             return None
