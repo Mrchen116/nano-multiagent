@@ -4,9 +4,9 @@
 
 ## Summary
 
-Mode: full  
-Delta range: N/A  
-Focus issues: N/A  
+Mode: full
+Delta range: N/A
+Focus issues: N/A
 requires_full_verification: false
 
 | 维度 | 结果 |
@@ -75,6 +75,64 @@ All checks passed. Ready for PR.
 ### Prototype / Reference Contract
 
 N/A. The approved design supplied neither a prototype nor a reference artifact contract.
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+None.
+
+### WARNING（提 PR 前必须修）
+
+None.
+
+### SUGGESTION（可以修）
+
+None.
+
+# Round 2
+
+> Validation snapshot: `8ae5fdd7a7f87a5aa60d145efb73e7225a14f3c8 → 204b22de9f4871f06e4a5fbad165c9ed74bd3fd6`
+
+## Summary
+
+Mode: targeted-closure
+Delta range: `8ae5fdd7a7f87a5aa60d145efb73e7225a14f3c8..204b22de9f4871f06e4a5fbad165c9ed74bd3fd6`
+Focus issues: C1 SQLite < 3.35 migration startup failure; C3 Gateway service-lifecycle public `system_prompt`
+requires_full_verification: false
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 2/2 focus issues closed |
+| Correctness | C1 的 modern/old SQLite paths、C3 的 canonical/delta public contract 均已覆盖 |
+| Coherence | 修复局限于 IM migration compatibility 与现有 Gateway/IM 契约对齐 |
+
+All checks passed. Ready for PR.
+
+## Focus-Issue Closure
+
+### C1 SQLite < 3.35 `DROP COLUMN` migration startup failure — closed
+
+- `src/IM/infra/db.py:661-691` first merges legacy `system_prompt` into canonical `custom_prompt`. SQLite >= 3.35 removes both retired columns; older SQLite retains only the physical compatibility columns and clears their values. On every later startup the blank legacy value leaves custom text unchanged, so the migration is idempotent and cannot re-merge the hidden text.
+- `tests/im_service/unit/test_agent_prompt_config_migration.py:105-160` uses a real on-disk connection, simulates SQLite 3.34, initializes twice, and proves retained compatibility columns are blank while `custom_prompt` remains `Legacy role\n\nCustom tail`. It also verifies the retired conversation field is cleared.
+
+### C3 Gateway service-lifecycle still declares public `system_prompt` — closed
+
+- Canonical `docs/specs/gateway/service-lifecycle.md:62-88` and the unit delta `specs/gateway/service-lifecycle.md:7-33` now describe exactly four register seed mappings, with `agent_custom_prompts` as normalized non-empty Custom Instructions, and list `custom_prompt` as the only public agent-specific field in a live snapshot.
+- The related IM capability/profile specifications retain `default_system_prompt` only as a product default capability and explicitly exclude a public per-agent `system_prompt`; no Gateway lifecycle contract exposes it.
+
+## Fix-delta Guard
+
+- The only production-code change is the SQLite version guard and clear-on-old-version migration path; the matching regression test is the only changed Python test. No package imports, RPC surface, persistence ownership, or cross-machine access boundary changed.
+- The remaining delta is migration/acceptance evidence plus canonical and delta spec alignment. The Gateway still sends `config.sync` as a notification and uses the existing mirror/live snapshot path; it does not introduce a second configuration mechanism.
+- The delta introduces no spec/design/architecture deviation. A full verification escalation is not required because it changes neither an architecture-boundary test nor the approved public behavior beyond closing the two named defects.
+
+### Verification execution
+
+- `PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/pytest -q tests/im_service/unit/test_agent_prompt_config_migration.py tests/im_service/contract/test_agent_config_contract.py tests/im_service/integration/test_gateway_im_registration.py tests/unit/personal_assistant/test_gateway_upstream_reporter.py` → `34 passed`.
+- `PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/ruff check src/IM/infra/db.py tests/im_service/unit/test_agent_prompt_config_migration.py` → passed.
+- `PATH=/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH ./scripts/docs-check` → passed (228 maintained Markdown sources, 66 required routes).
+- `git diff --check 8ae5fdd7a7f87a5aa60d145efb73e7225a14f3c8..204b22de9f4871f06e4a5fbad165c9ed74bd3fd6` → passed after removing pre-existing trailing whitespace from this verification report.
 
 ## Issues
 
