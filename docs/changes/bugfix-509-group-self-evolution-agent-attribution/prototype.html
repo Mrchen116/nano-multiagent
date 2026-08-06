@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>bugfix-509 · 群聊后台自进化提示原型</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --page: #edf0f2;
+      --surface: #f8f9fa;
+      --bubble: #e2e6e9;
+      --border: #d1d7db;
+      --text: #1f2529;
+      --muted: #687078;
+      --sidebar: #11171b;
+      --sidebar-row: #222b30;
+      --accent: #0b947b;
+      --agent: #4d67bd;
+      --agent-green: #4e8b18;
+      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      background: linear-gradient(180deg, #f7f8f9, #e8ecee);
+    }
+    button { font: inherit; }
+    .shell { width: min(1500px, calc(100% - 28px)); margin: 0 auto; padding: 22px 0 34px; }
+    .intro { display: flex; align-items: end; justify-content: space-between; gap: 18px; margin-bottom: 14px; }
+    h1 { margin: 0; font-size: clamp(20px, 2.3vw, 30px); letter-spacing: -.025em; }
+    .sub { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
+    .controls { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
+    .control { display: inline-flex; gap: 3px; padding: 3px; border: 1px solid var(--border); border-radius: 10px; background: #fff; }
+    .control button { border: 0; border-radius: 7px; padding: 7px 10px; color: var(--muted); background: transparent; cursor: pointer; font-size: 12px; font-weight: 650; }
+    .control button[aria-pressed="true"] { color: #075f51; background: #d8f0e9; }
+    .control button:focus-visible { outline: 3px solid #7dd3c4; outline-offset: 1px; }
+    .stage { padding: 10px; border: 1px solid var(--border); border-radius: 20px; background: #f5f7f8; box-shadow: 0 25px 60px -42px #000; }
+    .app { display: grid; grid-template-columns: 292px minmax(0, 1fr); width: 100%; height: min(760px, calc(100vh - 175px)); min-height: 590px; overflow: hidden; border: 1px solid #cbd2d6; border-radius: 15px; background: var(--page); transition: width .2s ease, height .2s ease; }
+    .sidebar { padding: 22px 12px; color: #e9edef; background: var(--sidebar); }
+    .brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 26px; font-size: 19px; font-weight: 780; }
+    .brand-mark { display: grid; place-items: center; width: 31px; height: 31px; border-radius: 9px; background: var(--accent); color: white; font-size: 14px; }
+    .side-label { padding: 0 8px 9px; color: #778087; font-size: 11px; font-weight: 760; letter-spacing: .09em; }
+    .conversation { display: grid; grid-template-columns: 42px minmax(0,1fr); gap: 10px; padding: 10px 8px; border-radius: 12px; }
+    .conversation.active { border: 1px solid #087e6c; background: var(--sidebar-row); }
+    .conversation + .conversation { margin-top: 4px; }
+    .avatar { display: grid; place-items: center; flex: 0 0 auto; border-radius: 50%; color: white; font-weight: 800; }
+    .mini { width: 42px; height: 42px; background: var(--agent); font-size: 13px; }
+    .conv-title { overflow: hidden; margin-top: 2px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+    .conv-preview { overflow: hidden; margin-top: 4px; color: #7f898f; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+    .chat { display: grid; min-width: 0; min-height: 0; grid-template-rows: auto minmax(0, 1fr) auto; }
+    .chat-head { display: flex; align-items: center; gap: 12px; min-height: 84px; padding: 13px 24px; border-bottom: 1px solid var(--border); background: rgba(248,249,250,.96); }
+    .head-avatar { width: 48px; height: 48px; background: var(--agent); }
+    .chat-title { font-size: 17px; font-weight: 780; }
+    .chat-meta { margin-top: 4px; color: var(--muted); font-size: 12px; }
+    .messages { overflow: auto; padding: 30px 38px 38px; }
+    .agent-row { display: flex; align-items: flex-start; gap: 11px; max-width: 900px; }
+    .agent-avatar { width: 36px; height: 36px; background: var(--agent-green); font-size: 12px; }
+    .sender { margin-bottom: 7px; color: var(--agent-green); font-size: 13px; font-weight: 780; }
+    .bubble { padding: 14px 17px; border-radius: 17px; background: var(--bubble); font-size: 15px; line-height: 1.55; }
+    .time { margin: 8px 0 0 48px; color: var(--muted); font-size: 11px; }
+    .system-wrap { display: flex; justify-content: center; padding: 42px 16px 30px; }
+    #system-notice { max-width: min(760px, 100%); color: #667078; font-size: 13px; font-weight: 520; line-height: 1.5; text-align: center; overflow-wrap: anywhere; }
+    .composer { margin: 0 28px 20px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 15px; color: #91999e; background: white; font-size: 14px; }
+    .stage.mobile { display: flex; justify-content: center; }
+    .mobile .app { width: 390px; height: 730px; min-height: 0; grid-template-columns: 1fr; }
+    .mobile .sidebar { display: none; }
+    .mobile .chat-head { min-height: 72px; padding: 10px 15px; }
+    .mobile .head-avatar { width: 42px; height: 42px; }
+    .mobile .messages { padding: 24px 15px 30px; }
+    .mobile .system-wrap { padding: 34px 6px 25px; }
+    .mobile #system-notice { font-size: 12px; }
+    .mobile .composer { margin: 0 12px 12px; }
+    @media (max-width: 760px) {
+      .shell { width: min(100% - 16px, 440px); padding-top: 14px; }
+      .intro { align-items: stretch; flex-direction: column; }
+      .controls { justify-content: flex-start; }
+      .stage { overflow: auto; }
+      .app { width: 390px; height: 720px; min-height: 0; grid-template-columns: 1fr; }
+      .sidebar { display: none; }
+      .messages { padding: 24px 15px 30px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="intro">
+      <div>
+        <h1>群聊后台自进化提示</h1>
+        <p class="sub">只改变既有 system 行的语义：群聊可归因，全部 IM 提示跟随当前语言。</p>
+      </div>
+      <div class="controls">
+        <div class="control" aria-label="会话类型">
+          <button data-mode="group" aria-pressed="true">群聊</button>
+          <button data-mode="direct" aria-pressed="false">单聊</button>
+        </div>
+        <div class="control" id="language-controls" aria-label="界面语言">
+          <button data-lang="zh" aria-pressed="true">中文</button>
+          <button data-lang="en" aria-pressed="false">English</button>
+        </div>
+        <div class="control" id="target-controls" aria-label="更新对象">
+          <button data-target="skills" aria-pressed="false">Skills</button>
+          <button data-target="memory" aria-pressed="true">Memory</button>
+          <button data-target="both" aria-pressed="false">Both</button>
+        </div>
+        <div class="control" id="viewport-controls" aria-label="视口">
+          <button data-viewport="desktop" aria-pressed="true">Desktop</button>
+          <button data-viewport="mobile" aria-pressed="false">Mobile</button>
+        </div>
+      </div>
+    </div>
+
+    <section class="stage" id="stage">
+      <div class="app">
+        <aside class="sidebar">
+          <div class="brand"><span class="brand-mark">✓</span> nano IM</div>
+          <div class="side-label">MESSAGES</div>
+          <div class="conversation active">
+            <div class="avatar mini">SP</div>
+            <div><div class="conv-title" id="side-title">SpecLab · feat-504</div><div class="conv-preview" id="side-preview">补充已完成。现在核对 Relations…</div></div>
+          </div>
+          <div class="conversation">
+            <div class="avatar mini" style="background:#9a7800">FO</div>
+            <div><div class="conv-title">forall · feishu</div><div class="conv-preview">已开始新会话。</div></div>
+          </div>
+        </aside>
+
+        <section class="chat">
+          <header class="chat-head">
+            <div class="avatar head-avatar">SP</div>
+            <div><div class="chat-title" id="chat-title">SpecLab · feat-504 敏感值脱敏</div><div class="chat-meta" id="chat-meta">Test User · SpecLab Lead · SpecLab Product · SpecLab Architect</div></div>
+          </header>
+          <div class="messages">
+            <div class="agent-row">
+              <div class="avatar agent-avatar">SP</div>
+              <div><div class="sender">SpecLab Product</div><div class="bubble" id="bubble-text">补充已完成。现在核对工作区是否仍严格限于目标文件。</div></div>
+            </div>
+            <div class="time">12:55 · 18.5s</div>
+            <div class="system-wrap"><div id="system-notice" role="status">· SpecLab Product · 后台自进化：记忆已更新</div></div>
+            <div class="agent-row">
+              <div class="avatar agent-avatar">SP</div>
+              <div><div class="sender">SpecLab Product</div><div class="bubble" id="bubble-next">检查完成，未触碰其他文件。</div></div>
+            </div>
+          </div>
+          <div class="composer" id="composer">给群聊发送消息…</div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const state = { mode: "group", lang: "zh", target: "memory", viewport: "desktop" };
+    const copy = {
+      zh: {
+        titles: { group: "SpecLab · feat-504 敏感值脱敏", direct: "SpecLab Product" },
+        meta: { group: "Test User · SpecLab Lead · SpecLab Product · SpecLab Architect", direct: "在线 · E2E Gateway" },
+        bubble: "补充已完成。现在核对工作区是否仍严格限于目标文件。",
+        next: "检查完成，未触碰其他文件。",
+        composer: { group: "给群聊发送消息…", direct: "给 SpecLab Product 发送消息…" },
+        result: { skills: "技能已更新", memory: "记忆已更新", both: "技能与记忆已更新" },
+        action: "后台自进化"
+      },
+      en: {
+        titles: { group: "SpecLab · feat-504 Redaction", direct: "SpecLab Product" },
+        meta: { group: "Test User · SpecLab Lead · SpecLab Product · SpecLab Architect", direct: "Online · E2E Gateway" },
+        bubble: "The update is complete. I am checking that the workspace stayed within the target file.",
+        next: "Check complete. No unrelated files were touched.",
+        composer: { group: "Message the group…", direct: "Message SpecLab Product…" },
+        result: { skills: "skills updated", memory: "memory updated", both: "skills and memory updated" },
+        action: "Background self-evolution"
+      }
+    };
+
+    function press(selector, key, value) {
+      document.querySelectorAll(selector).forEach((button) => {
+        button.setAttribute("aria-pressed", String(button.dataset[key] === value));
+      });
+    }
+
+    function render() {
+      const c = copy[state.lang];
+      const result = c.result[state.target];
+      const prefix = state.mode === "group" ? "SpecLab Product · " : "";
+      document.documentElement.lang = state.lang === "zh" ? "zh-CN" : "en";
+      const separator = state.lang === "zh" ? "：" : ": ";
+      document.getElementById("system-notice").textContent = `· ${prefix}${c.action}${separator}${result}`;
+      document.getElementById("chat-title").textContent = c.titles[state.mode];
+      document.getElementById("chat-meta").textContent = c.meta[state.mode];
+      document.getElementById("bubble-text").textContent = c.bubble;
+      document.getElementById("bubble-next").textContent = c.next;
+      document.getElementById("composer").textContent = c.composer[state.mode];
+      document.getElementById("stage").classList.toggle("mobile", state.viewport === "mobile");
+      press("[data-mode]", "mode", state.mode);
+      press("[data-lang]", "lang", state.lang);
+      press("[data-target]", "target", state.target);
+      press("[data-viewport]", "viewport", state.viewport);
+    }
+
+    document.querySelectorAll("button[data-mode],button[data-lang],button[data-target],button[data-viewport]").forEach((button) => {
+      button.addEventListener("click", () => {
+        for (const key of ["mode", "lang", "target", "viewport"]) {
+          if (button.dataset[key]) state[key] = button.dataset[key];
+        }
+        render();
+      });
+    });
+    render();
+  </script>
+</body>
+</html>
