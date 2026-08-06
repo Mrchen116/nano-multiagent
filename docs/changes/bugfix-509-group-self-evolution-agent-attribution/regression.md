@@ -36,10 +36,10 @@
 
 | Reference | must-match 契约 | 实际产品证据 | 结论 |
 |---|---|---|---|
-| `prototype.html` P1 | group/direct 均为居中轻量 system 行，无头像、发送者头、菜单 | `output/playwright/bugfix-509-round1/group-en-desktop.png`；`direct-en-desktop-three-targets.png` | pass |
-| `prototype.html` P2 | zh/en × skills/memory/both；群聊有来源名、单聊无来源名 | `group-en-desktop.png`、`group-zh-desktop.png`、`direct-en-desktop-three-targets.png`、`direct-zh-mobile-three-targets.png` | pass |
-| `prototype.html` P3 | 1280×800、390×844，自然换行且无横向滚动 | `group-en-desktop.png`、`group-zh-mobile.png`、`group-zh-mobile-long-name.png` | pass：两个 viewport 的 document scroll width 分别等于 1280 和 390；长来源名在移动端自然换为两行。 |
-| `design.md` fork contract | notice 保留语义、当前语言与源时间线顺序 | `fork-en-desktop.png`、`fork-en-reload-desktop.png`、`fork-zh-desktop.png` | fail：语义和语言通过；消息顺序失败。 |
+| `prototype.html` P1 | group/direct 均为居中轻量 system 行，无头像、发送者头、菜单 | `evidence/round1-review/group-en-desktop.png`；`evidence/round1-review/direct-en-desktop-three-targets.png` | pass |
+| `prototype.html` P2 | zh/en × skills/memory/both；群聊有来源名、单聊无来源名 | `evidence/round1-review/group-en-desktop.png`、`evidence/round1-review/group-zh-desktop.png`、`evidence/round1-review/direct-en-desktop-three-targets.png`、`evidence/round1-review/direct-zh-mobile-three-targets.png` | pass |
+| `prototype.html` P3 | 1280×800、390×844，自然换行且无横向滚动 | `evidence/round1-review/group-en-desktop.png`、`evidence/round1-review/group-zh-mobile.png`、`evidence/round1-review/group-zh-mobile-long-name.png` | pass：两个 viewport 的 document scroll width 分别等于 1280 和 390；长来源名在移动端自然换为两行。 |
+| `design.md` fork contract | notice 保留语义、当前语言与源时间线顺序 | `evidence/round1-review/fork-en-desktop.png`、`evidence/round1-review/fork-en-reload-desktop.png`、`evidence/round1-review/fork-zh-desktop.png` | fail：语义和语言通过；消息顺序失败。 |
 
 ## 验收标准覆盖
 
@@ -47,12 +47,12 @@
 
 | Scenario | 验证方式与证据 | 结果 | 备注 |
 |---|---|---|---|
-| 群聊中的 memory 更新显示来源 Agent（98–103） | 长名 `E2E Peer Agent With A Deliberately Long Attribution Name` 的新 memory notice 实时显示；见 `group-zh-mobile-long-name.png`。 | pass | 来源取 notice 产生时的当前显示名。 |
-| 不同 Agent 的连续更新分别归因（105–109） | `E2E Agent` 与 `E2E Peer Agent` 先后产生 skills notice；见 `group-en-desktop.png`。 | pass | 两条 system 行可逐条区分。 |
+| 群聊中的 memory 更新显示来源 Agent（98–103） | 长名 `E2E Peer Agent With A Deliberately Long Attribution Name` 的新 memory notice 实时显示；见 `evidence/round1-review/group-zh-mobile-long-name.png`。 | pass | 来源取 notice 产生时的当前显示名。 |
+| 不同 Agent 的连续更新分别归因（105–109） | `E2E Agent` 与 `E2E Peer Agent` 先后产生 skills notice；见 `evidence/round1-review/group-en-desktop.png`。 | pass | 两条 system 行可逐条区分。 |
 | 中文界面显示中文提示（115–119） | UserMenu 切中文后，群聊与单聊 notice 均即时改为中文。 | pass | 群聊保留来源名。 |
 | 英文界面显示英文提示（121–125） | 英文群聊和单聊分别显示英文完整句。 | pass | 三类 target 均覆盖。 |
-| 实时到达与重新打开会话一致（127–130） | 群聊 notice 实时出现，刷新、离开再进入后来源/target/语言一致且不重复；见 `group-zh-reload-desktop.png`。 | pass | |
-| IM 单聊只做本地化而不重复 Agent 名（136–139） | 单聊 zh/en 三类 notice 均无 Agent 名；见两张 `direct-*-three-targets.png`。 | pass | |
+| 实时到达与重新打开会话一致（127–130） | 群聊 notice 实时出现，刷新、离开再进入后来源/target/语言一致且不重复；见 `evidence/round1-review/group-zh-reload-desktop.png`。 | pass | |
+| IM 单聊只做本地化而不重复 Agent 名（136–139） | 单聊 zh/en 三类 notice 均无 Agent 名；见 `evidence/round1-review/direct-*-three-targets.png`。 | pass | |
 | Coding CLI 不受影响（141–144） | 真实 CLI 输出原有小写英文 `· background self-evolution review: skills updated`，不带 Agent 名。 | pass | 未改变 CLI 身份呈现。 |
 
 ### Delta specs 与设计约束
@@ -74,7 +74,7 @@
 - **Regression Relation:** direct
 - **Expected:** 从已完成 Agent 回复 fork 后，分支带入从会话起点到 fork 点的全部消息，顺序与原会话完全一致；每条自进化 notice 继续位于原来那一轮回复之后。
 - **Actual:** 源会话按“用户 1 → 回复 1 → skills notice → 用户 2 → 回复 2 → memory notice → 用户 3 → 回复 3 → both notice → 用户 4 → 回复 4”显示；分支显示为“用户 1 → 回复 1 → 用户 2 → skills notice → 用户 3 → memory notice → 回复 2 → 用户 4 → both notice → 回复 3 → 回复 4”。刷新分支后顺序不变。用户会把更新提示理解为错误一轮的结果。
-- **Reproduction:** 在 direct chat 依次完成至少三轮并让每轮后出现结构化 notice；再完成第四轮，从第四条已完成 Agent 回复执行 fork；打开新分支并刷新，对照源会话与分支时间线。证据见 `direct-en-desktop-three-targets.png` 与 `fork-en-reload-desktop.png`。
+- **Reproduction:** 在 direct chat 依次完成至少三轮并让每轮后出现结构化 notice；再完成第四轮，从第四条已完成 Agent 回复执行 fork；打开新分支并刷新，对照源会话与分支时间线。证据见 `evidence/round1-review/direct-en-desktop-three-targets.png` 与 `evidence/round1-review/fork-en-reload-desktop.png`。
 - **Recommended Action:** `fix-implementation`
 - **Action Rationale:** `specs/im/conversations-messages.md` 明确要求 fork 后全部消息顺序与原会话一致；当前持久分支时间线破坏 notice 与触发回复之间的因果阅读顺序，必须修正复制/排序实现后重验。
 

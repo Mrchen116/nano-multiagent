@@ -110,6 +110,14 @@ def _decode_system_notice(value: object) -> SystemNotice | None:
         return None
     if not isinstance(parsed, dict):
         return None
+    kind = parsed.get("kind")
+    source_agent_id = parsed.get("source_agent_id")
+    source_agent_display_name = parsed.get("source_agent_display_name")
+    if not all(
+        isinstance(value, str)
+        for value in (kind, source_agent_id, source_agent_display_name)
+    ):
+        return None
     targets = parsed.get("updated_targets")
     if not isinstance(targets, list) or not all(
         isinstance(target, str) for target in targets
@@ -117,9 +125,9 @@ def _decode_system_notice(value: object) -> SystemNotice | None:
         return None
     try:
         return SystemNotice(
-            kind=str(parsed.get("kind", "")),
-            source_agent_id=str(parsed.get("source_agent_id", "")),
-            source_agent_display_name=str(parsed.get("source_agent_display_name", "")),
+            kind=kind,
+            source_agent_id=source_agent_id,
+            source_agent_display_name=source_agent_display_name,
             updated_targets=tuple(targets),
         )
     except ValueError:

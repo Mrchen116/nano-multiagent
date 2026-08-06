@@ -124,6 +124,29 @@ def test_system_notice_roundtrip_event_and_retry_are_exactly_once(
     assert (
         messages.list_messages(conversation_id=conversation.id)[0].system_notice is None
     )
+    for malformed in (
+        {
+            "kind": "self_evolution_review",
+            "source_agent_id": None,
+            "source_agent_display_name": "Product",
+            "updated_targets": ["memory"],
+        },
+        {
+            "kind": "self_evolution_review",
+            "source_agent_id": "product",
+            "source_agent_display_name": 123,
+            "updated_targets": ["memory"],
+        },
+    ):
+        connection.execute(
+            "UPDATE messages SET system_notice_json = ? WHERE id = ?",
+            (json.dumps(malformed), first.id),
+        )
+        connection.commit()
+        assert (
+            messages.list_messages(conversation_id=conversation.id)[0].system_notice
+            is None
+        )
 
 
 def test_message_roundtrip_preserves_external_sender_display_name(

@@ -12,30 +12,32 @@ const base: SystemNotice = {
 };
 
 describe("formatSystemNotice", () => {
-  it("localizes complete direct and group variants", async () => {
-    await i18n.changeLanguage("zh");
-    expect(formatSystemNotice(i18n.t, base, false)).toBe(
-      "· SpecLab Product · 后台自进化：记忆已更新",
-    );
-    expect(formatSystemNotice(i18n.t, base, true)).toBe(
-      "· 后台自进化：记忆已更新",
-    );
-    expect(
-      formatSystemNotice(
-        i18n.t,
-        { ...base, updated_targets: ["memory", "skills"] },
-        false,
-      ),
-    ).toBe("· SpecLab Product · 后台自进化：技能与记忆已更新");
-
-    await i18n.changeLanguage("en");
-    expect(formatSystemNotice(i18n.t, base, false)).toBe(
-      "· SpecLab Product · Background self-evolution: memory updated",
-    );
-    expect(formatSystemNotice(i18n.t, base, true)).toBe(
-      "· Background self-evolution: memory updated",
-    );
-  });
+  it.each([
+    ["zh", false, ["skills"], "· SpecLab Product · 后台自进化：技能已更新"],
+    ["zh", false, ["memory"], "· SpecLab Product · 后台自进化：记忆已更新"],
+    ["zh", false, ["memory", "skills"], "· SpecLab Product · 后台自进化：技能与记忆已更新"],
+    ["zh", true, ["skills"], "· 后台自进化：技能已更新"],
+    ["zh", true, ["memory"], "· 后台自进化：记忆已更新"],
+    ["zh", true, ["skills", "memory"], "· 后台自进化：技能与记忆已更新"],
+    ["en", false, ["skills"], "· SpecLab Product · Background self-evolution: skills updated"],
+    ["en", false, ["memory"], "· SpecLab Product · Background self-evolution: memory updated"],
+    ["en", false, ["skills", "memory"], "· SpecLab Product · Background self-evolution: skills and memory updated"],
+    ["en", true, ["skills"], "· Background self-evolution: skills updated"],
+    ["en", true, ["memory"], "· Background self-evolution: memory updated"],
+    ["en", true, ["memory", "skills"], "· Background self-evolution: skills and memory updated"],
+  ] as const)(
+    "localizes %s direct=%s targets=%j",
+    async (language, isDirectChat, updatedTargets, expected) => {
+      await i18n.changeLanguage(language);
+      expect(
+        formatSystemNotice(
+          i18n.t,
+          { ...base, updated_targets: [...updatedTargets] },
+          isDirectChat,
+        ),
+      ).toBe(expected);
+    },
+  );
 
   it("returns null for unknown or malformed sidecars", () => {
     expect(
@@ -49,6 +51,24 @@ describe("formatSystemNotice", () => {
       formatSystemNotice(
         i18n.t,
         { ...base, source_agent_display_name: "", updated_targets: [] },
+        false,
+      ),
+    ).toBeNull();
+    expect(() =>
+      formatSystemNotice(
+        i18n.t,
+        {
+          ...base,
+          source_agent_id: null,
+          source_agent_display_name: 123,
+        } as unknown as SystemNotice,
+        false,
+      )
+    ).not.toThrow();
+    expect(
+      formatSystemNotice(
+        i18n.t,
+        { ...base, source_agent_display_name: 123 } as unknown as SystemNotice,
         false,
       ),
     ).toBeNull();

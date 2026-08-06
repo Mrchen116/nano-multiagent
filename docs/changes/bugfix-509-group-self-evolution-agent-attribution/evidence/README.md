@@ -45,3 +45,16 @@ Screenshot:
 - Message rows stayed on the existing low-emphasis centered system style with no avatar, sender header or message actions.
 
 Protocol-level duplicate replay and ACK-loss recovery are covered by the focused Gateway/IM tests; the real browser reload additionally verified that history projection does not duplicate stored notices.
+
+## Independent product review — round 1
+
+The independent reviewer exercised the complete zh/en × group/direct ×
+skills/memory/both matrix, two distinct group Agents, display-name snapshot
+behavior, desktop/mobile layout, refresh/re-entry, Coding CLI compatibility, and
+direct-chat fork. Its durable screenshots are stored in [`round1-review/`](round1-review/).
+
+That round found one major issue: rapid fork copies received timestamps that were
+distinct in SQLite microseconds but equal at browser millisecond precision, allowing
+the frontend's message-id tie-break to reorder the copied timeline. The report and
+reproduction evidence are retained in [`../regression.md`](../regression.md); round 2
+must revalidate the corrected fork order.

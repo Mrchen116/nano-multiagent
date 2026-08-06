@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import Awaitable, Callable, Mapping
 import logging
 from typing import Any
+from uuid import uuid4
 
 from personal_assistant.channels.base import ReplyContext
 from personal_assistant.ws.im_connection import IMConnectionManager
@@ -23,6 +24,7 @@ def _metadata_text(metadata: Mapping[str, Any], *, key: str) -> str | None:
 def build_session_event_callback(
     *,
     im_connection_manager_factory: Callable[[], "IMConnectionManager | None"],
+    delivery_incarnation: str | None = None,
 ) -> Callable[[ReplyContext, str, str, Mapping[str, Any]], Awaitable[None]]:
     """Build a session event callback that sends self_evolution_review as IM system messages.
 
@@ -33,9 +35,12 @@ def build_session_event_callback(
 
     Args:
         im_connection_manager_factory: Returns the live IM connection manager (may be None).
+        delivery_incarnation: Optional process-local identity used by deterministic tests.
     Returns:
         Async callable ``(reply_context, agent_id, kernel_session_id, event) -> None``.
     """
+
+    incarnation = delivery_incarnation or uuid4().hex
 
     async def _callback(
         reply_context: ReplyContext,
@@ -43,10 +48,6 @@ def build_session_event_callback(
         kernel_session_id: str,
         event: Mapping[str, Any],
     ) -> None:
-        manager = im_connection_manager_factory()
-        if manager is None or not manager.connected:
-            return
-
         event_name = event.get("event")
         if event_name != "self_evolution_review":
             return
@@ -94,13 +95,34 @@ def build_session_event_callback(
             subject = "memory"
         text = f"· background self-evolution review: {subject} updated"
 
+        manager = im_connection_manager_factory()
+        if manager is None:
+            _log.warning(
+                "session event notification has no IM connection manager "
+                "(conversation_id=%s agent_id=%s kernel_session_id=%s sequence=%s)",
+                conversation_id,
+                agent_id,
+                kernel_session_id,
+                raw_sequence,
+            )
+            return
+        if not manager.connected:
+            _log.warning(
+                "session event notification queued while IM is disconnected "
+                "(conversation_id=%s agent_id=%s kernel_session_id=%s sequence=%s)",
+                conversation_id,
+                agent_id,
+                kernel_session_id,
+                raw_sequence,
+            )
         try:
-            await manager.send_json_await_ack(
+            ack = await manager.send_json_await_ack(
                 "node.system_message",
                 {
                     "conversation_id": conversation_id,
                     "idempotency_key": (
-                        f"self-evolution-review:{kernel_session_id}:{raw_sequence}"
+                        "self-evolution-review:"
+                        f"{incarnation}:{kernel_session_id}:{raw_sequence}"
                     ),
                     "text": text,
                     "system_notice": {
@@ -110,6 +132,9 @@ def build_session_event_callback(
                     },
                 },
             )
+            message_id = ack.get("message_id")
+            if not isinstance(message_id, str) or not message_id.strip():
+                raise ValueError("node.system_message ACK missing message_id")
         except Exception as exc:  # noqa: BLE001
             # Background notification delivery must never crash the gateway.
             _log.warning(

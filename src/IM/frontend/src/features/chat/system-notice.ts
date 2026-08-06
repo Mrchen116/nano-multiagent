@@ -10,6 +10,8 @@ export function formatSystemNotice(
 ): string | null {
   if (
     notice?.kind !== "self_evolution_review" ||
+    typeof notice.source_agent_id !== "string" ||
+    typeof notice.source_agent_display_name !== "string" ||
     !notice.source_agent_id.trim() ||
     !notice.source_agent_display_name.trim() ||
     !Array.isArray(notice.updated_targets) ||

@@ -83,6 +83,7 @@ class MessageRepository:
         emit_created_event: bool = False,
         caller_idempotency_key: str | None = None,
         system_notice: SystemNotice | None = None,
+        created_at: str | None = None,
     ) -> Message:
         """Create a message in a conversation.
 
@@ -95,6 +96,7 @@ class MessageRepository:
             auto_complete_delivery: When True, local-only writes synchronously close delivery to completed
                 and persist both message.sent and message.delivered. Relay-backed writes pass False so
                 gateway receipts remain the single source of truth for completion.
+            created_at: Optional caller-owned timestamp for ordered history copies.
 
         Returns:
             Created message entity.
@@ -205,7 +207,7 @@ class MessageRepository:
             raise ValueError("sender_user_id is not a participant of conversation")
 
         message_id = uuid4().hex
-        created_at = utc_now()
+        created_at_value = created_at or utc_now()
         initial_status = "sent"
         # feat-445-M2 #8: an explicit delivery_status (used by fork's history copy) wins
         # so a copied bubble preserves the source's terminal state (e.g. "failed") instead
@@ -246,7 +248,7 @@ class MessageRepository:
             content=content,
             attachments=normalized_attachments,
             delivery_status=final_status,
-            created_at=created_at,
+            created_at=created_at_value,
             tool_calls=normalized_tool_calls,
             token_usage=token_usage,
             # feat-414: 建行时始终为 None，由 on_message_completed 写入。
@@ -282,7 +284,7 @@ class MessageRepository:
                     content,
                     attachments_json,
                     initial_status,
-                    created_at,
+                    created_at_value,
                     tool_calls_json,
                     token_usage_json,
                     kernel_message_id,
@@ -344,7 +346,7 @@ class MessageRepository:
                         _to_message_preview(
                             content=content, attachments=normalized_attachments
                         ),
-                        created_at,
+                        created_at_value,
                         conversation_id,
                     ),
                 )
@@ -355,7 +357,7 @@ class MessageRepository:
                         _to_message_preview(
                             content=content, attachments=normalized_attachments
                         ),
-                        created_at,
+                        created_at_value,
                         conversation_id,
                     ),
                 )

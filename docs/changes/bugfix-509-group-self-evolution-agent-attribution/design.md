@@ -83,7 +83,7 @@ graph LR
 ```json
 {
   "conversation_id": "conv-123",
-  "idempotency_key": "self-evolution-review:sess-456:87",
+  "idempotency_key": "self-evolution-review:gateway-run-abc:sess-456:87",
   "text": "· background self-evolution review: memory updated",
   "system_notice": {
     "kind": "self_evolution_review",
@@ -93,9 +93,9 @@ graph LR
 }
 ```
 
-`text` 是旧客户端/未知 notice 的兼容回退，不是新前端的翻译来源。`idempotency_key` 由 `self-evolution-review:{kernel_session_id}:{event_sequence}` 构成；同一 session event 重发保持完全相同。`updated_targets` 只允许非空的 `skills` / `memory` 集合，规范顺序固定为 `skills, memory`。
+`text` 是旧客户端/未知 notice 的兼容回退，不是新前端的翻译来源。`idempotency_key` 由 `self-evolution-review:{gateway_delivery_incarnation}:{kernel_session_id}:{event_sequence}` 构成；同一 Gateway 进程内同一 session event 重发保持完全相同，Gateway 重启后新的 incarnation 避免进程内 sequence 从 1 重置时与历史通知碰撞。`updated_targets` 只允许非空的 `skills` / `memory` 集合，规范顺序固定为 `skills, memory`。
 
-direct-chat fork 复制消息时，`system_notice` 与 `content` 一起原样复制。复制后的消息获得分支自己的 message id，但 notice 内的来源显示名快照和更新对象不变；fork 不重新校验当前 Agent 名，也不把修复前无 sidecar 的历史正文“升级”为结构化 notice。
+direct-chat fork 复制消息时，`system_notice` 与 `content` 一起原样复制。复制后的消息获得分支自己的 message id，但 notice 内的来源显示名快照和更新对象不变；复制时间戳以浏览器可区分的毫秒精度按源时间线递增，确保新 message id 不会在同毫秒 tie-break 中打乱原顺序。fork 不重新校验当前 Agent 名，也不把修复前无 sidecar 的历史正文“升级”为结构化 notice。
 
 ### 决策 2：浏览器按当前界面语言渲染完整句子
 
@@ -141,13 +141,13 @@ IM 持久/下发的 sidecar 在 ingress 字段上增加显示名快照：
 **Gateway 用稳定 event identity 等待业务 ACK；IM 复用 message caller idempotency，在同一条消息写入路径中持久 sidecar并启用 canonical `message.created`。**
 
 - **理由**：当前刷新可见、实时不可靠的根因是写入没有 created event；同时，Gateway business frame 在 IM commit 后丢 ACK 会重放，若每次生成新 message id 就会永久重复。现有 `send_json_await_ack()` 与 repository `caller_idempotency_key` 正好覆盖这两个 seam。
-- **拒绝**：只靠前端 message id 去重——重放会生成新 id，DB 已经重复；前端轮询、发送临时 WS-only event、或先广播后落库——都会让实时与历史形成两套权威或产生刷新闪回；本 unit 新建专用 outbox——当前目标是同一 Gateway 进程内 connection reconnect 的可靠重放，Kernel stream 已提供稳定的进程内 session/sequence identity，跨 Gateway 进程重启的通知恢复不在本次范围。
+- **拒绝**：只靠前端 message id 去重——重放会生成新 id，DB 已经重复；前端轮询、发送临时 WS-only event、或先广播后落库——都会让实时与历史形成两套权威或产生刷新闪回；本 unit 新建专用 outbox——当前目标是同一 Gateway 进程内 connection reconnect 的可靠重放。Gateway 重启后的旧通知恢复仍不在本次范围，但 delivery incarnation 保证重启后的新 event 不会与旧 key 碰撞。
 - **风险**：callback 在 IM negative ACK、ACK timeout 或 socket disconnect 时记录 warning，但不抛回 self-evolution task；disconnect 后 connection queue 仍以同一 key 重发。IM 首次 insert 才发布 `message.created`，幂等命中只 ACK 并返回原 message id，不再发布事件或推进会话投影。
 
 具体契约：
 
 - `BackgroundSubscriptionManager` 调 callback 时补入固定的 `kernel_session_id`；event 必须携带正整数 `_id` 或 `sequence_num`，否则记录 warning 并跳过无法安全去重的通知。
-- Gateway 生成 `idempotency_key=self-evolution-review:{session_id}:{sequence}`，调用 `send_json_await_ack()`；success ACK 至少含相同业务类型与已持久的 `message_id`。
+- Gateway callback 创建时生成一次 process-local delivery incarnation，并生成 `idempotency_key=self-evolution-review:{incarnation}:{session_id}:{sequence}`，调用 `send_json_await_ack()`；success ACK 至少含相同业务类型与非空的已持久 `message_id`。
 - IM 把该 key 传给 `MessageRepository.create_message(caller_idempotency_key=...)`。第一次写入生成 message + sidecar + canonical event；重放在 conversation-scoped key 上返回同一 Message。
 - deterministic error ACK 由现有 connection manager 变成 callback 可观察异常；callback 只记录 conversation/agent/event identity，不让通知失败改变后台 review 或前台 run 结果。
 
@@ -249,7 +249,7 @@ sequenceDiagram
 ## 风险与回退
 
 - **来源身份失配**：IM 拒绝 source AgentProfile 不属于已认证 node、profile 缺失/无当前显示名或 synthetic user 不属于 conversation 的 structured notice，返回现有 error ACK 形态；Gateway warning 带 conversation/agent/event identity，不让通知异常冲垮后台任务。
-- **ACK 模糊结果与重放**：每个 notice 使用 Kernel session + event sequence 稳定 key；IM commit-before-ACK-loss 后重放只返回原 message id。无 sequence 的 event 不发送，避免用不稳定 hash 制造假幂等。
+- **ACK 模糊结果与重放**：每个 notice 使用 Gateway delivery incarnation + Kernel session + event sequence 稳定 key；IM commit-before-ACK-loss 后同进程重放只返回原 message id，Gateway 重启后新事件也不会因 sequence 重置误撞旧 key。无 sequence 的 event 不发送，避免用不稳定 hash 制造假幂等。
 - **实时/历史漂移**：同一个 `SystemNotice` 快照同时进入 DB row、REST 与 `message.created`；frontend reducer 不自行补名字，避免刷新后变样。
 - **本地化漂移**：群聊/单聊与三类目标使用 6 个完整句子 key，并由同一 formatter 选择；组件测试覆盖 zh/en 矩阵，不靠英文字符串 parser。
 - **fork 完整性**：direct fork 精确复制已有 sidecar；不重新解析旧正文、不用改名后的 profile 覆盖历史快照。若 copy transaction 失败，沿既有 fork 原子回滚。
