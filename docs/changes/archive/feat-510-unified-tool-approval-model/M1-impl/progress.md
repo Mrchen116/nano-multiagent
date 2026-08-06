@@ -46,6 +46,23 @@ Command: `PYTHONPATH=src .../.venv/bin/python -m pytest -xvs tests/e2e/critical_
 - `missing-model`: the real PA foreground entry rejected startup and named `llm.tool_approval_model` plus the invalid value.
 - Teardown removed every test PID and generated Gateway config; no fixture or Gateway process remained.
 
+### Independent gates and fix closure
+
+- Product acceptance Round 1: `pass`, 0 blocking / 0 major / 0 minor at
+  `89197f46323803d413a012f83418d5dad03049ce`; report commit `38dfd6b47`.
+- Verification Round 1 identified two permanent-test evidence gaps: the SDK routing test used one
+  override client, and the Agent-derived origin used the nonexistent `subagent` value.
+- Fix commit `7f0d4be1e` routes the contract test through distinct provider-a/provider-c clients, uses
+  the real `background_task` origin, closes two full-unit regressions found by code review, and adds
+  the public SDK `Raises` contract.
+- Complete `tests/unit`: 2441 passed. Focused auto-gate and SDK contract set: 78 passed.
+- Verification Round 2: `pass`, 0 critical / 0 warning / 0 suggestion at `7f0d4be1e`; report commit
+  `0aece52d0`. Independent evidence included 134 related unit/contract tests and 4 real-stack E2E
+  cases.
+- Code-review findings were independently confirmed and closed. The acceptance evidence wording was
+  corrected to the production origin `background_task（Agent 派生运行）` in `ea96d9d5a`.
+- Corrected-delta verification: `aligned`, no issues; report commit `7840195ef`.
+
 ## Design deviations
 
 None.
@@ -56,4 +73,10 @@ Revert the feat-510 commits. Older PA parsers ignore the extra YAML key, and no 
 
 ## Commits
 
-Pending.
+- `89197f463` — implementation, permanent tests, deterministic fixture, runbook, and milestone evidence.
+- `38dfd6b47` — product acceptance Round 1 (`pass`).
+- `b93d0d8ce` — implementation verification Round 1 (`fail`, two warnings).
+- `7f0d4be1e` — close verification and code-review findings.
+- `0aece52d0` — implementation verification Round 2 (`pass`).
+- `ea96d9d5a` — correct final acceptance origin evidence.
+- `7840195ef` — corrected-delta verification (`aligned`).

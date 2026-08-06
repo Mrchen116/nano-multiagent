@@ -26,7 +26,9 @@
 - [x] Implement the smallest config/SDK/platform changes that make them pass.
 - [x] Add and pass the deterministic real-stack critical path.
 - [x] Update operations documentation and record all evidence in `progress.md`.
-- [ ] Complete independent gates, canonical merge, archive, local CI, PR, and required CI.
+- [x] Complete independent product, implementation, code-review, and corrected-delta gates.
+- [x] Merge the final delta into canonical specs and archive the unit.
+- [ ] Complete local CI, PR creation, and required remote CI.
 
 ## Exit criteria
 
