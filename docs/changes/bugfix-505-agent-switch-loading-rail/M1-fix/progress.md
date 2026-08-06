@@ -39,12 +39,35 @@
   - Visual/Interaction: normal/hover/active 前景与背景 token 已由测试锁定，真实像素与交互截图在 R3。
   - Prototype Comparison: 派发 reference contract 的 rail contrast 语义在组件层 match；浏览器对照在 R3。
 - Rollback: revert 本 roadpoint commit，恢复旧 rail 行色值和 inline hover mutation。
-- Commits: pending (this commit)
+- Commits: `195a22809`
 - Next: R3 真实浏览器验收、全量定向门禁与 build。
 
 ## R3 — 真实浏览器验收与交付门禁
 
-- Status: DOING
+- Status: DONE
+- Context: 前端 bug 修复必须从真实 Web IM 入口验证最终 responsive layout、hover/active 对比度和异步状态；所有占用资源必须隔离并回收。
+- Decision: 以 `e2e-up.sh` 启动独立 IM/Gateway，Vite 使用独立 `51271` 端口代理到隔离 IM `53119`。真实登录 `nano` 后在 `/settings/agents/e2e` 与 `/settings/agents/e2e-peer` 验收；通过浏览器 route 分别保持 config pending、注入 503 initial error，再恢复真实 200 API 检查正常页。截图保存到本目录 `evidence/`。
+- Rationale: 真进程、真认证、真路由与真浏览器能覆盖 jsdom 看不到的最终 CSS、响应式和 shell 接线；网络注入只控制异步状态，不替代正常实际 API 路径。
+- Evidence:
+  - Tests: `npm test -- src/features/settings/agents/agent-detail-loading-shell.test.tsx src/features/settings/agents/agents-rail-desktop.test.tsx src/features/settings/agents/agent-detail-page.test.tsx src/features/settings/agents/agent-create.test.tsx` → 4 files / 30 tests passed；既有 detail 测试仍输出 baseline `act(...)` warnings，无失败。`npm run build` → TypeScript + Vite build passed（502 modules）。
+  - Entry: 真实登录后打开 `/settings/agents/e2e` 与 `/settings/agents/e2e-peer`；正常 config/capabilities/nodes/agents 请求均 200。切换到 pending 的 `e2e-peer` 和 reload 注入 503 的 `e2e` 时，desktop rail 均留在原位；error 的 Retry 可见。
+  - Frontend State Matrix: desktop default/loading/error/normal-hover-active、mobile loading、missing initial data、long error detail 均覆盖；其他 N/A 状态未改变。
+  - Browser QA: Playwright Chromium，desktop `1440x900` 与 mobile `390x844`；desktop normal、hover、pending、initial-error 及 mobile pending 均实际打开。恢复真实 API 后 console 0 errors / 0 warnings，相关 config/capabilities/nodes/agents 全部 200；状态注入阶段仅有预期 pending 或预期 503。
+  - E2E/Regression: 永久回归为两个新增 colocated Vitest 文件（5 tests）；浏览器步骤为一次性交付验收，未新增重复 E2E spec。
+  - Visual/Interaction: `evidence/desktop-loaded.png`、`evidence/desktop-hover.png`、`evidence/desktop-loading.png`、`evidence/desktop-error.png`、`evidence/mobile-loading.png`。
+  - Prototype Comparison:
+
+| Reference | Required contract | Actual evidence | Viewport / state | Result | Deviation rationale |
+|---|---|---|---|---|---|
+| 派发 frontend reference contract | pending / initial-error retain existing `AgentsRailDesktop` | `evidence/desktop-loading.png`, `evidence/desktop-error.png` | 1440x900 loading/error | match | N/A |
+| 派发 frontend reference contract | normal / hover / active identity rows readable on dark rail | `evidence/desktop-loaded.png`, `evidence/desktop-hover.png` | 1440x900 loaded/hover/active | match | N/A |
+| 派发 frontend reference contract | mobile hides desktop rail | `evidence/mobile-loading.png` | 390x844 loading | match | N/A |
+
+- Rollback: revert R1/R2 实现 commits；R3 只含 durable evidence 与进度记录。
+- Commits: pending (this commit)
+- Next: lite `fix.md` 回填、rebase 后门禁与 unit merge。
+- Runtime cleanup: Playwright session 已关闭，Vite `51271` 已停止，`e2e-down.sh` 已清理 IM/Gateway PID 与 secret/config，IM `53119` 和 Vite `51271` 均无 listener。
+- Environment note: 首次把 `e2e-up.sh` 放在短生命周期 shell 中导致进程在 ready 后被宿主回收；日志证明注册/登录原先为 201/200。改由持久 PTY 持有进程后，真实入口全程通过；未修改产品代码或降低验收标准。
 
 ## Promotion Candidates
 

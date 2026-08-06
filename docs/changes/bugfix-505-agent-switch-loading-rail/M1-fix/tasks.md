@@ -8,11 +8,11 @@
 
 ## 退出标准
 
-- [ ] 桌面 Agent 详情在初始 pending、请求失败和正常完成状态都保留同一个 `AgentsRailDesktop`。
-- [ ] pending 使用克制、可识别为加载中的面板内状态；initial error 在同一内容面板内提供失败信息和重试。
-- [ ] rail 的 normal / hover / active Agent 身份行在深色背景上保持可读，active 仍清楚表达当前项。
-- [ ] mobile viewport 不显示 desktop rail，既有表单和交互不变。
-- [ ] 定向回归、前端 build 与真实浏览器桌面/移动验收通过，证据落在本 milestone 目录。
+- [x] 桌面 Agent 详情在初始 pending、请求失败和正常完成状态都保留同一个 `AgentsRailDesktop`。
+- [x] pending 使用克制、可识别为加载中的面板内状态；initial error 在同一内容面板内提供失败信息和重试。
+- [x] rail 的 normal / hover / active Agent 身份行在深色背景上保持可读，active 仍清楚表达当前项。
+- [x] mobile viewport 不显示 desktop rail，既有表单和交互不变。
+- [x] 定向回归、前端 build 与真实浏览器桌面/移动验收通过，证据落在本 milestone 目录。
 
 ## 测试策略
 
@@ -80,6 +80,6 @@
 
 ### R3 — 真实浏览器验收与交付门禁
 
-- 状态：DOING
+- 状态：DONE
 - 步骤：隔离启动 Web IM，覆盖 desktop loading/error/loaded 与 mobile loading，检查 console/network，并保存 durable screenshots；运行相关 Vitest 与 build。
 - 验证：证据写入 `M1-fix/evidence/`，所有退出标准闭环。
