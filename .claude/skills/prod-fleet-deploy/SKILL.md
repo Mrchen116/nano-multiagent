@@ -84,10 +84,10 @@ ssh mini 'zsh -lc '"'"'
   secret_file="$HOME/.nano-assistant/im-jwt-secret"
   [[ -s "$secret_file" ]] || { print -u2 -r -- "IM secret missing: $secret_file"; exit 1; }
   im_secret=$(<"$secret_file")
-  pids=$(lsof -ti:8011)
-  [[ -n "$pids" ]] && kill $pids
-  for attempt in {1..120}; do lsof -ti:8011 >/dev/null 2>&1 || break; sleep 0.5; done
-  lsof -ti:8011 >/dev/null 2>&1 && { print -u2 -r -- "IM port still in use"; exit 1; }
+  pids=("${(@f)$(lsof -tiTCP:8011 -sTCP:LISTEN)}")
+  (( ${#pids[@]} )) && kill "${pids[@]}"
+  for attempt in {1..120}; do lsof -tiTCP:8011 -sTCP:LISTEN >/dev/null 2>&1 || break; sleep 0.5; done
+  lsof -tiTCP:8011 -sTCP:LISTEN >/dev/null 2>&1 && { print -u2 -r -- "IM port still in use"; exit 1; }
   cd ~/Repos/nano-multiagent && IM_JWT_SECRET="$im_secret" PYTHONPATH=src \
     nohup .venv/bin/python -m uvicorn IM.app:app --host 0.0.0.0 --port 8011 >> im-service.log 2>&1 &
 '"'"''
