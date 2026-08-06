@@ -8,8 +8,8 @@ failure, and use the inbound replay identity exactly once.
 
 ## Testing strategy
 
-- Unit-test exact command parsing, no-binding no-op, focus forwarding, busy
-  rejection, and replayed Gateway operations.
+- Unit-test exact command parsing, no-binding no-op, focus forwarding, FIFO
+  compaction behind active work, and replayed Gateway operations.
 - Unit-test strict manual summarization and persisted transcript replay data.
 - Run existing SDK, conversation, and compaction integration suites to prove
   automatic compaction keeps its former fallback behavior.

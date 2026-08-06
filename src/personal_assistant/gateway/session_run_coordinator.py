@@ -96,6 +96,18 @@ class _ActiveRunHandle:
     agent: LiveAgentSnapshot
 
 
+@dataclass(slots=True)
+class _CompactReservation:
+    """Hold one FIFO slot while inbound metadata is prepared."""
+
+    session_key: str
+    agent_id: str
+    generation: int
+    request: asyncio.Future[CompactSessionRequest | None]
+    result: asyncio.Future[PipelineResult] | None = None
+    released: bool = False
+
+
 class SessionRunCoordinator:
     """Coordinate one Gateway session from admission through terminal cleanup.
 
@@ -180,6 +192,7 @@ class SessionRunCoordinator:
         self._active_runs: dict[str, _ActiveRunHandle] = {}
         self._steered_requests: dict[str, list[InboundRunRequest]] = {}
         self._consumed_steer_counts: dict[str, int] = {}
+        self._queued_compactions: dict[str, int] = {}
         self._user_interrupted_runs: set[str] = set()
         self._reset_suppressed_runs: set[str] = set()
         self._session_generations: dict[str, int] = {}
@@ -209,7 +222,9 @@ class SessionRunCoordinator:
                 generation=self._session_generations.get(request.session_key, 0),
             )
             active = self._active_runs.get(request.session_key)
-            if active is not None:
+            if active is not None and not self._queued_compactions.get(
+                request.session_key, 0
+            ):
                 binding = active.binding
                 parts, failure_kind = await self._build_message_parts(request)
                 if failure_kind is not None:
@@ -433,32 +448,138 @@ class SessionRunCoordinator:
             outbound=outbound,
         )
 
+    def reserve_compact(
+        self, *, session_key: str, agent_id: str
+    ) -> _CompactReservation:
+        """Reserve a compaction FIFO slot before external shadow preparation yields."""
+
+        reservation = _CompactReservation(
+            session_key=session_key,
+            agent_id=agent_id,
+            generation=self._session_generations.get(session_key, 0),
+            request=asyncio.get_running_loop().create_future(),
+        )
+        self._queued_compactions[session_key] = (
+            self._queued_compactions.get(session_key, 0) + 1
+        )
+
+        async def _on_cancel(_error: GatewayShutdownBeforeSubmit) -> None:
+            self._release_compact_reservation(reservation)
+
+        reservation.result = self._run_queue.enqueue(
+            session_key,
+            lambda: self._run_reserved_compact(reservation),
+            on_cancel=_on_cancel,
+        )
+        return reservation
+
+    async def commit_compact(
+        self,
+        reservation: _CompactReservation,
+        request: CompactSessionRequest,
+    ) -> PipelineResult:
+        """Fill a reserved compact slot and await its FIFO outcome."""
+
+        if request.session_key != reservation.session_key:
+            raise ValueError("compact reservation session does not match request")
+        if request.agent.agent_id != reservation.agent_id:
+            raise ValueError("compact reservation agent does not match request")
+        if not reservation.request.done():
+            reservation.request.set_result(
+                replace(request, generation=reservation.generation)
+            )
+        assert reservation.result is not None
+        return await reservation.result
+
+    def abandon_compact(self, reservation: _CompactReservation) -> None:
+        """Release a reserved compact slot when inbound preparation fails."""
+
+        if not reservation.request.done():
+            reservation.request.set_result(None)
+
     async def compact(self, request: CompactSessionRequest) -> PipelineResult:
-        """Compact an idle bound session without treating the command as a turn."""
+        """Queue compaction behind current session work without making it a turn."""
+
+        reservation = self.reserve_compact(
+            session_key=request.session_key,
+            agent_id=request.agent.agent_id,
+        )
+        try:
+            return await self.commit_compact(reservation, request)
+        except BaseException:
+            self.abandon_compact(reservation)
+            raise
+
+    async def _run_reserved_compact(
+        self, reservation: _CompactReservation
+    ) -> PipelineResult:
+        """Wait for inbound preparation, then execute the reserved FIFO item."""
+
+        try:
+            request = await reservation.request
+            if request is None:
+                return PipelineResult(
+                    agent_id=reservation.agent_id,
+                    session_key=reservation.session_key,
+                    kernel_session_id="",
+                    run_id="",
+                    reply_text="",
+                    outbound=None,
+                )
+            return await self._run_queued_compact(request)
+        finally:
+            self._release_compact_reservation(reservation)
+
+    def _release_compact_reservation(self, reservation: _CompactReservation) -> None:
+        """Remove one barrier once its reserved queue item has settled."""
+
+        if reservation.released:
+            return
+        reservation.released = True
+        remaining = self._queued_compactions.get(reservation.session_key, 0) - 1
+        if remaining > 0:
+            self._queued_compactions[reservation.session_key] = remaining
+        else:
+            self._queued_compactions.pop(reservation.session_key, None)
+
+    async def _run_queued_compact(
+        self, request: CompactSessionRequest
+    ) -> PipelineResult:
+        """Run one FIFO compaction after preceding session work has settled."""
 
         binding: SessionBinding | None
         reply_text: str
         async with self._transition(request.session_key):
-            if request.operation_id is not None:
-                completed = self._session_binder.completed_control(
+            binding = self._session_binder.lookup(request.session_key)
+            completed = (
+                self._session_binder.completed_control(
                     session_key=request.session_key,
                     operation_id=request.operation_id,
                     kind="compact",
                 )
-                if completed is not None:
-                    binding = self._session_binder.lookup(request.session_key)
-                    if binding is None:
-                        raise RuntimeError("completed compact lost its session binding")
-                    return await self._compact_result_reply(
-                        request=request,
-                        binding=binding,
-                        reply_text=completed.reply_text,
-                    )
-            binding = self._session_binder.lookup(request.session_key)
-            if binding is None:
+                if request.operation_id is not None
+                else None
+            )
+            if completed is not None:
+                reply_text = completed.reply_text
+            elif request.generation != self._session_generations.get(
+                request.session_key, 0
+            ):
+                reply_text = "已开始新会话，未执行之前的压缩请求。"
+                if request.operation_id is not None:
+                    reply_text = self._session_binder.complete_control(
+                        ControlOperation(
+                            session_key=request.session_key,
+                            operation_id=request.operation_id,
+                            kind="compact",
+                            status="superseded",
+                            kernel_session_id="",
+                            reply_text=reply_text,
+                        ),
+                        external_saga_id=_external_shadow_saga_id(request.message),
+                    ).reply_text
+            elif binding is None:
                 reply_text = "当前历史不足，无需压缩。"
-            elif self.is_session_busy(request.session_key):
-                reply_text = "当前操作仍在处理，请等待完成或先停止。"
             else:
                 agent = self._latest_agent(request.agent)
                 try:
@@ -478,7 +599,14 @@ class SessionRunCoordinator:
                         reply_text = "已按关注点压缩当前会话。"
                     else:
                         reply_text = "已压缩当前会话。"
-            if request.operation_id is not None:
+            if (
+                request.operation_id is not None
+                and completed is None
+                and (
+                    request.generation
+                    == self._session_generations.get(request.session_key, 0)
+                )
+            ):
                 reply_text = self._session_binder.complete_control(
                     ControlOperation(
                         session_key=request.session_key,

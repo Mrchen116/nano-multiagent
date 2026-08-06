@@ -81,6 +81,28 @@ class SessionRunQueue:
             GatewayShutdownBeforeSubmit: When accepted work is cancelled before execution.
         """
 
+        return await self.enqueue(
+            session_key,
+            operation,
+            on_cancel=on_cancel,
+            admission_event=admission_event,
+        )
+
+    def enqueue(
+        self,
+        session_key: str,
+        operation: Callable[[], Awaitable[T]],
+        *,
+        on_cancel: Callable[[GatewayShutdownBeforeSubmit], Awaitable[None]]
+        | None = None,
+        admission_event: asyncio.Event | None = None,
+    ) -> asyncio.Future[T]:
+        """Synchronously append one operation and return its eventual result.
+
+        This is needed when ingress must reserve FIFO order before an unrelated
+        asynchronous preparation step can yield control.
+        """
+
         if self._sealed:
             raise SessionRunQueueSealed("session run queue is sealed")
         loop = asyncio.get_running_loop()
@@ -108,7 +130,7 @@ class SessionRunQueue:
             worker.add_done_callback(
                 lambda done, key=session_key: self._worker_done(key, done)
             )
-        return await future
+        return future
 
     def is_active(self, session_key: str) -> bool:
         """Return whether the session owns or awaits queue execution."""

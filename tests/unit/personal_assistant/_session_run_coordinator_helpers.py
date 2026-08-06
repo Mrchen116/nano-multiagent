@@ -37,6 +37,7 @@ class ControlledKernel:
         self.try_steer_calls: list[dict[str, Any]] = []
         self.operations: list[tuple[str, str]] = []
         self.append_calls: list[dict[str, Any]] = []
+        self.compact_calls: list[dict[str, Any]] = []
         self.interrupt_calls: list[str] = []
         self.cancel_calls: list[str] = []
         self.inject_steer = False
@@ -255,6 +256,27 @@ class ControlledKernel:
         run_id = self._latest_run_by_session[session_id]
         self.operations.append(("interrupt", run_id))
         self.interrupt_calls.append(session_id)
+
+    async def compact(
+        self,
+        session_id: str,
+        *,
+        workspace_root: Path,
+        focus: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> object:
+        """Record manual compaction after the queue reaches this control item."""
+
+        self.operations.append(("compact", session_id))
+        self.compact_calls.append(
+            {
+                "session_id": session_id,
+                "workspace_root": str(workspace_root),
+                "focus": focus,
+                "idempotency_key": idempotency_key,
+            }
+        )
+        return object()
 
     def append_message(
         self, session_id: str, *, role: str, content: str, **_kwargs: Any

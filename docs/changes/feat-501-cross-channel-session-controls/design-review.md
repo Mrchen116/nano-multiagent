@@ -1,5 +1,9 @@
 # Design Review: feat-501-cross-channel-session-controls
 
+## 2026-08-06 设计修正
+
+评审后的用户澄清将 `/compact` 的并发语义从“busy 时拒绝”改为“排入当前聊天 FIFO”。因此本文此前关于 D3/S12 的 idle-only 或 busy outcome 结论仅保留为当时评审记录；当前权威契约见 `spec.md` 的“正在运行时排队压缩当前会话”及 `design.md` 的决策 3。
+
 ## Round 1
 
 ### Metadata

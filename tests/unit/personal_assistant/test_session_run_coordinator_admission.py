@@ -17,6 +17,7 @@ import pytest
 
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.inbound_models import (
+    CompactSessionRequest,
     InboundRunRequest,
     NewSessionRequest,
     StopRunRequest,
@@ -51,6 +52,18 @@ def _new_request(
 ) -> NewSessionRequest:
     agent = catalog.require("agent-a")
     return NewSessionRequest(
+        message=message,
+        agent=agent,
+        session_key=build_session_key(message, agent_id=agent.agent_id),
+        operation_id=operation_id,
+    )
+
+
+def _compact_request(
+    message, catalog, *, operation_id: str | None = None
+) -> CompactSessionRequest:
+    agent = catalog.require("agent-a")
+    return CompactSessionRequest(
         message=message,
         agent=agent,
         session_key=build_session_key(message, agent_id=agent.agent_id),
@@ -128,6 +141,108 @@ async def test_new_drops_a_queued_old_request_instead_of_submitting_it_to_new_co
     ] == ["first"]
     assert queued_result.outbound is None
     assert queued_result.run_id == ""
+
+
+@pytest.mark.asyncio
+async def test_compact_queues_behind_active_work_and_becomes_a_fifo_barrier(
+    tmp_path: Path,
+) -> None:
+    kernel, catalog, binder, router, group_store = build_dependencies(tmp_path)
+    coordinator = SessionRunCoordinator(
+        kernel=kernel,
+        session_binder=binder,
+        outbound_router=router,
+        group_context_store=group_store,
+    )
+    first_message = inbound(chat_id="chat-a", text="first")
+    first = asyncio.create_task(coordinator.dispatch(_request(first_message, catalog)))
+    await kernel.wait_stream("run-1")
+
+    compact = asyncio.create_task(
+        coordinator.compact(
+            _compact_request(
+                inbound(chat_id="chat-a", text="/compact"),
+                catalog,
+                operation_id="relay:compact-1",
+            )
+        )
+    )
+    await asyncio.sleep(0)
+    assert not compact.done()
+    assert kernel.compact_calls == []
+
+    later = asyncio.create_task(
+        coordinator.dispatch(_request(inbound(chat_id="chat-a", text="later"), catalog))
+    )
+    await asyncio.sleep(0)
+    assert kernel.try_steer_calls == []
+
+    kernel.finish("run-1")
+    await first
+    compact_result = await compact
+    assert compact_result.reply_text == "已压缩当前会话。"
+    assert kernel.compact_calls == [
+        {
+            "session_id": "sess-1",
+            "workspace_root": str(catalog.require("agent-a").config.workspace_root),
+            "focus": None,
+            "idempotency_key": "relay:compact-1",
+        }
+    ]
+
+    await kernel.wait_stream("run-2")
+    kernel.finish("run-2")
+    await later
+
+
+@pytest.mark.asyncio
+async def test_new_supersedes_a_queued_compact_and_persists_its_replay_outcome(
+    tmp_path: Path,
+) -> None:
+    kernel, catalog, binder, router, group_store = build_dependencies(tmp_path)
+    coordinator = SessionRunCoordinator(
+        kernel=kernel,
+        session_binder=binder,
+        outbound_router=router,
+        group_context_store=group_store,
+    )
+    first = asyncio.create_task(
+        coordinator.dispatch(_request(inbound(chat_id="chat-a", text="first"), catalog))
+    )
+    await kernel.wait_stream("run-1")
+    compact_request = _compact_request(
+        inbound(chat_id="chat-a", text="/compact"),
+        catalog,
+        operation_id="relay:compact-before-new",
+    )
+    compact = asyncio.create_task(coordinator.compact(compact_request))
+    await asyncio.sleep(0)
+
+    await coordinator.new_session(
+        _new_request(
+            inbound(chat_id="chat-a", text="/new"),
+            catalog,
+            operation_id="relay:new-after-compact",
+        )
+    )
+    kernel.finish("run-1")
+    await first
+    compact_result = await compact
+
+    assert compact_result.reply_text == "已开始新会话，未执行之前的压缩请求。"
+    assert kernel.compact_calls == []
+    outcome = binder.completed_control(
+        session_key=compact_request.session_key,
+        operation_id="relay:compact-before-new",
+        kind="compact",
+    )
+    assert outcome is not None
+    assert outcome.status == "superseded"
+
+    replay = await coordinator.compact(compact_request)
+
+    assert replay.reply_text == "已开始新会话，未执行之前的压缩请求。"
+    assert kernel.compact_calls == []
 
 
 @pytest.mark.asyncio

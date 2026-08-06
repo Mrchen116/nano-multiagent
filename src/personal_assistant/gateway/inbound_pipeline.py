@@ -122,7 +122,23 @@ class InboundPipeline:
         )
         sender_label = _resolve_sender_label(message)
         sync_only = message.metadata.get("sync_only") is True
-        message = await self._sync_external_shadow_message(message, agent_id=agent_id)
+        session_key = build_session_key(message, agent_id=agent_id)
+        compact_reservation = (
+            self._run_coordinator.reserve_compact(
+                session_key=session_key,
+                agent_id=agent.agent_id,
+            )
+            if command == "compact" and not sync_only and should_process
+            else None
+        )
+        try:
+            message = await self._sync_external_shadow_message(
+                message, agent_id=agent_id
+            )
+        except BaseException:
+            if compact_reservation is not None:
+                self._run_coordinator.abandon_compact(compact_reservation)
+            raise
 
         if message.is_group and self._group_context_store is not None:
             if sync_only or not should_process:
@@ -134,7 +150,6 @@ class InboundPipeline:
         if sync_only or not should_process:
             return None
 
-        session_key = build_session_key(message, agent_id=agent_id)
         if command == "stop":
             return await self._run_coordinator.stop(
                 StopRunRequest(
@@ -153,14 +168,16 @@ class InboundPipeline:
                 )
             )
         if command == "compact":
-            return await self._run_coordinator.compact(
+            assert compact_reservation is not None
+            return await self._run_coordinator.commit_compact(
+                compact_reservation,
                 CompactSessionRequest(
                     message=message,
                     agent=agent,
                     session_key=session_key,
                     focus=focus,
                     operation_id=self._control_operation_id(message),
-                )
+                ),
             )
         return await self._run_coordinator.dispatch(
             InboundRunRequest(

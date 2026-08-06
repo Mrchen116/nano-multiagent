@@ -50,10 +50,11 @@ Gateway 在已路由的聊天中把精确的 `/compact` 和 `/compact <关注点
 - **THEN** Gateway 在原聊天说明无需压缩
 - **AND** 不为该 no-op 创建空 Kernel session，也不改变已有会话上下文
 
-#### Scenario: 忙碌或失败时上下文不变
+#### Scenario: 忙碌时按顺序压缩，失败时上下文不变
 - **GIVEN** 当前 session 有 active 或 queued run
 - **WHEN** 用户发送 `/compact`
-- **THEN** Gateway 提示等待当前操作完成或先使用 `/stop`，且不调用压缩
+- **THEN** Gateway 不打断已有 work，并在它之后执行压缩
+- **AND** 此命令之后到达的普通消息在压缩完成后才进入 Agent 上下文
 - **GIVEN** 当前 session 空闲但手动压缩无法生成或持久提交摘要
 - **WHEN** 用户发送 `/compact`
 - **THEN** Gateway 报告压缩未完成，后续运行仍使用压缩前上下文

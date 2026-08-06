@@ -12,6 +12,7 @@
 - `/new` 在发布新 binding 前 quiesce 旧 run 的可见输出；发布失败恢复旧输出，成功后抑制旧 stream、final reply 与 external mirror。
 - 外部控制结果与 `PendingExternalControlDelivery` 同次持久化；当前请求、cached external channel ready 后的 Gateway 启动，以及 IM reconnect 都会 drain。失败的外部 `/new` 同样写入可恢复 outcome/intent。
 - 手动 `Kernel.compact` 将 focus 透传给 strict summary；空摘要、summary 错误或持久化失败均不改变可恢复上下文；同一 idempotency key 在 Kernel 重启后返回首次结果。
+- `/compact` 是 per-session FIFO barrier：运行中的 Agent 不被打断，命令在已有 work 后执行，其后到达的普通输入不会被 steer 到压缩之前；外部 shadow 同步前已占住该 FIFO 位；`/new` 将旧 generation 的排队压缩持久标为 `superseded`，重放不影响新会话。
 - compaction boundary 与 summary/reinjection 通过同目录 atomic replacement batch 一次可见。实际 `os.replace` 失败回归确认 JSONL 字节不变；成功后 transcript tail 才推进，后续公开 append 在重启后仍从摘要继续。
 - `design.md` 的 external control materialization 描述已与真实接口一致：`ExternalControlDeliveryMaterializer.prepare_agent_output(run_id="control:" + operation_id, output_kind="final")`。
 

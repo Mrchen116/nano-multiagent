@@ -2,7 +2,7 @@
 
 > 对齐: spec.md 的验收标准
 >
-> Validation snapshot: `76f86c821 → unit/feat-501 working tree (2026-08-05)`
+> Validation snapshot: `unit/feat-501 working tree (2026-08-06)`
 
 ## Verdict
 
@@ -14,6 +14,8 @@
 2. **私聊上下文语义与 focused compact**：先建立唯一旧事实 `KESTREL-501`，执行 `/new` 后询问旧事实，Agent 回答 `UNKNOWN`；旧可见消息仍在。另一次真实会话中，`/compact 保留认证方案与未完成项` 显示“已按关注点压缩当前会话。”，后续仍回答 `PKCE; refresh-token rotation.`。
 3. **MENTION 群聊**：在 Web IM 新建的真实 `Group`（Test User、plato、hume）中，裸 `/new` 和 `/compact` 仅作为用户消息出现，8 秒观察窗口内没有任何 Agent 控制确认；`@plato /new` 显示 plato 的“已开始新会话。”，`@plato /compact` 显示 plato 的明确 no-op 结果。
 4. **外部入口**：从仓库受控的双 Agent E2E 配置以 `--feishu` 启动；启动前它核验私有 Test Agent App 的 Bot identity，默认 profile 不会打开 Feishu listener。通过命名测试用户 profile 向该 Test Agent 发送真实 `/new`、`/compact` 与 `/compact 保留认证方案与未完成项`，原飞书私聊分别收到“已开始新会话。”、“当前历史不足，无需压缩。”与“已按关注点压缩当前会话。”；三条用户命令和三条相同确认都出现在对应隔离 IM shadow conversation。focused compact 后追问仍得到 `PKCE` 与 `refresh-token rotation`。
+
+“当前历史不足”不是 token 阈值：当前聊天无 Gateway binding，或上一个 compaction boundary 之后尚无已完成的用户 turn 时，`Kernel.compact()` 返回 `None`。本报告中的 bare `/compact` 是 `/new` 后的 fresh-session no-op；真正执行的压缩是建立认证方案与未完成项后的 focused 命令。focus 只改变摘要保留重点，不改变是否执行压缩的资格。
 
 本轮 IM + Gateway 隔离栈、浏览器与 tmux 会话均已停止并确认端口释放。
 
@@ -45,7 +47,7 @@ N/A。本 unit 没有前端原型或视觉 must-match 契约。
 | 飞书主动压缩同步到内部 IM | spec.md | 专用 Test Agent 私聊依次发送 bare 与 focused compact | 飞书显示 no-op 与 focused completion；隔离 control ledger 记录 `compact/completed`；IM shadow 同时含命令和对应确认 | pass | focused compact 后的真实后续追问仍得到指定事实。 |
 | 没有足够历史可压缩时给出明确结果 | spec.md | 新私聊中裸 `/compact` | “当前历史不足，无需压缩。” | pass | 当前焦点会话未出现空 Agent 上下文或静默失败。 |
 | 压缩无法完成时不丢失上下文 | spec.md | strict summary / persistence failure 回归 | `test_kernel_manual_compact.py`、transcript 与 integration 回归确认失败不写 compaction boundary | pass | failure contract 需要可控持久化故障，自动化验证比偶发外部故障更精确。 |
-| 正在运行时不会静默改变上下文 | spec.md | Gateway coordinator busy / queue 回归 | `test_gateway_stop_command.py` 和 coordinator admission suite 确认 busy outcome 不调用 Kernel compact | pass | 外部正常 focused journey 已验证成功路径。 |
+| 正在运行时排队压缩当前会话 | spec.md | Gateway coordinator FIFO 回归 | coordinator admission suite 确认当前 run 未被中断，随后执行一次 Kernel compact，命令之后的普通消息排在 compact 后；`/new` 会将旧 generation 的 queued compact 持久标为 `superseded`，重放不影响新会话 | pass | 当前实现不再把 busy 当作 `/compact` 拒绝条件。 |
 
 ## 上层文档同步
 

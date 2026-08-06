@@ -62,13 +62,19 @@ class NewSessionRequest:
 
 @dataclass(frozen=True, slots=True)
 class CompactSessionRequest:
-    """Capture one routed explicit compaction request."""
+    """Capture one routed explicit compaction request.
+
+    ``generation`` freezes the session context that existed when the command
+    entered the FIFO. A later ``/new`` therefore cannot make an older queued
+    compaction rewrite the fresh context.
+    """
 
     message: InboundMessage
     agent: LiveAgentSnapshot
     session_key: str
     focus: str | None = None
     operation_id: str | None = None
+    generation: int = 0
 
 
 @dataclass(frozen=True, slots=True)

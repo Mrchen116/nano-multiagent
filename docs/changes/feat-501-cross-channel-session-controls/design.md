@@ -115,9 +115,9 @@ stateDiagram-v2
 
 这张图刻意把“可见历史”排除在状态外：IM/Feishu 的消息时间线只追加，不跟随 Kernel session id 清空；generation 决定输入是否有资格 submit，而 `RunVisibilityLease` 决定该 generation 的 run 是否还能制造任何新的可见输出。
 
-### 决策 3：每个入站控制命令先取得持久 operation outcome；`/compact` 仅在同一 transition domain 空闲时执行
+### 决策 3：每个入站控制命令复用持久 operation outcome；`/compact` 是本会话的 FIFO 控制 barrier
 
-**所有 `/new`、`/compact` 先以稳定入站 identity claim 一次 control operation；coordinator 在同一 session transition lock 内只执行一次 outcome，并把 external control 的 pending delivery intent 与 outcome 放进同一 binder-store transaction；duplicate delivery 返回已持久的 outcome；`/compact` 的首次执行仅在 idle 时调用 Kernel。**
+**所有 `/new`、`/compact` 都使用稳定入站 identity 唯一标识 control operation；coordinator 在同一 session transition lock 内只执行一次 outcome，并把 external control 的 pending delivery intent 与 outcome 放进同一 binder-store transaction；duplicate delivery 返回已持久的 outcome。`/new` 在进入该转换时 claim；`/compact` 先占住 FIFO 位，到达 head 时再 claim，因此首次执行排在该 session 已接收 work 之后。**
 
 operation id 从已经拥有 source 语义的 ingress facts 派生：外部 channel 使用 `shadow_saga_id`（同一 provider event 已持久化为同一 saga），Web IM 使用 relay 的持久 idempotency key/relay task id；命令 kind 是 key 的组成部分，focus 不是。Web relay adapter 的已有 durable inbound dedup 会在多数重投前阻断它，operation ledger 则覆盖外部 provider replay、Gateway restart 和“副作用已做、确认尚未完成”的间隙。没有这些 source identity 的非重放 ingress 保持当前一次性处理语义，不为本期新建猜测性的文本 hash identity。
 
@@ -125,7 +125,7 @@ coordinator 通过 binder 所属的 persistent session-binding repository 取得
 
 对于 external ingress，这个提交还写入一个最小的 `PendingExternalControlDelivery(saga_id, operation_id)`：它关联已完成 outcome 与已经持久的 provider saga，状态为 `pending_materialization`，不复制普通 run output 或做泛化 command outbox。materializer 可由 saga 的原 chat/reply facts 和 operation outcome 重建唯一的 confirmation 文本及 source key；因此不会把易变的 reply callback 当作崩溃恢复前提。`ControlOperation` 已完成而 saga output 尚未创建的 crash，只留下这条可扫描 intent，不会丢失用户结果。
 
-control operation 自身不进入 `SessionRunQueue`：首次执行持有同一 transition lock，normal admission 因而不能在 compact 期间提交；在检查后才排入 FIFO 的普通输入会等到压缩提交/失败后再继续。若 queue 已有 work 或 active marker 存在，首次 `/compact` 记录并返回 busy outcome，不争抢、取消或重排该 work；同一外部 event 的重放始终重播这个 busy outcome，符合“不会静默改变上下文”。
+`/compact` 在 shadow 同步等异步准备前就进入已有 `SessionRunQueue`，并捕获当前 generation。它到达后是一个 FIFO barrier：后续普通输入不得再被 steer 注入正在运行的旧 run，而是排在压缩之后；这样外部同步较慢也不会让后到消息越过命令。到达 queue head 时才检查 binding 并调用 Kernel，因此它不打断正在运行或已排队的 work。`/new` 仍是立即的重置边界；它递增 generation，使尚未执行的旧 `/compact` 以持久的 `superseded` outcome 确认未执行，重放同一事件也不能压缩新会话。
 
 当 binder 查不到 session key 时，当前聊天没有可由 Gateway 继续的 Kernel context；coordinator 直接以请求的 reply context 发“当前历史不足，无需压缩”，不为了回复创建空 session。已有 binding 但 planner 返回 None 同样给出 no-op。成功时按有无 focus 区分确认；任何 Kernel/summary/persistence 异常都给出“压缩未完成，当前会话保持不变”。
 
@@ -166,7 +166,7 @@ IM 已有“用户文本 → Gateway → 同一 conversation 的 agent/control m
 `inbound_models.py` 新增不可变 control request，形状与 `StopRunRequest` 对齐：
 
 - `NewSessionRequest(message, agent, session_key)`：请求切换此聊天的 Kernel context。
-- `CompactSessionRequest(message, agent, session_key, focus)`：`focus` 为修剪后的非空文本或 `None`。
+- `CompactSessionRequest(message, agent, session_key, focus, generation)`：`focus` 为修剪后的非空文本或 `None`；`generation` 防止被 `/new` 跨越的旧压缩改写新会话。
 
 `InboundPipeline` 只负责构造其中一个 typed request，并附上从 runtime protocol 得到的 operation identity；`SessionRunCoordinator` 暴露 `new_session()` 和 `compact()`，并保持 `stop()` 的现有行为。解析结果不跨出 pipeline，避免下游再查看原始 text 或 metadata。
 
@@ -252,9 +252,9 @@ sequenceDiagram
 
 ### `/compact` 主流程
 
-1. Pipeline 完成同样的 route、群聊 gate 和（外部时）source saga/user-message sync，解析 `/compact` 与 optional focus，并派生 operation id。
-2. Coordinator 对 `(session_key, operation_id, compact)` claim。已完成命令只读取并投递原 outcome；首次命令取得 transition lock。
-3. active marker 或 session queue 非空时，持久写入 busy outcome，不调用 Kernel；idle 且无 binding 时写入 no-op outcome，不创建 session；idle 且有 binding 时调用 `await kernel.compact(..., focus=focus, idempotency_key=operation_id)`。
+1. Pipeline 完成 route、群聊 gate 和解析；`/compact` 连同当前 generation 先占住该 session FIFO 位，再进行外部 source saga/user-message sync，并派生 operation id。
+2. 命令到达 head 时，Coordinator 对 `(session_key, operation_id, compact)` claim。已完成命令只读取并投递原 outcome；首次命令在 transition lock 内判定当前 binding 与 generation。
+3. 无 binding 时写入 no-op outcome、不创建 session；有 binding 时调用 `await kernel.compact(..., focus=focus, idempotency_key=operation_id)`。当前 run 不被中断；本命令之后到达的普通输入排在它之后。若 `/new` 已切换 generation，旧命令持久写入 `superseded` outcome，不执行。
 4. SDK 返回 result 时完成 success outcome，返回 `None` 时完成 no-op，抛错时完成 failure；同 operation id 的 core replay 不产生第二次 compaction。external outcome 与 `(saga_id, operation_id)` pending intent 在 binder store 同次提交；materializer 先幂等写 saga control output 再走原 reply context。飞书立即可见，IM shadow 在线写入或离线恢复都复用同一 output identity；若进程在两个 SQLite store 之间退出，启动/reconnect drain 仍能由 intent 补做这一步。
 
 ## 契约层增量 (delta-spec)
@@ -292,7 +292,7 @@ Reviewer 依次走：
 
 1. **内部 IM `/new`**：在同一 conversation 建立带唯一旧事实的上下文，发送 `/new`，确认可见旧消息仍在且出现成功确认；下一条追问不能以旧事实作答。分别让旧 run event 已被 observer 接收但尚未 outbound、event 在 reset 后才到达、以及 terminal 已准备但 final 未发时发送 `/new`：前两者不得在确认后显示，最后一个只能在确认前完成或被抑制；原 provisional bubble 必须以无正文 discard/close 收敛，而不能一直 spinning。对同三类 event 注入 `publish_reset` failure：不得出现新会话确认，binding/generation 不变，暂挂的 old output 必须以原 identity 恰好一次显示。
 2. **飞书 `/new`**：在私聊以及 `@Bot /new` 群聊中重复，核对原飞书聊天确认、对应 IM shadow command/confirmation 与后续上下文切换；未 @ 的群 `/new` 仍不得触发控制。阻塞旧 run 的 Feishu mirror 后发送 `/new`，确认 mirror 被取消或已在确认前完成；对 `publish_reset` failure 则确认同一 mirror 在 restore 后恰好一次发回原飞书 chat。重放同一 provider message（或测试 seam 模拟 duplicate callback）时，只存在一次 binding replacement，后续消息不被第二次 reset 丢弃。
-3. **内部 IM `/compact`**：建立认证方案和未完成项，发送 `/compact 保留认证方案与未完成项`，在确认后继续追问两项；分别核对 bare compact、无可压缩历史的 no-op，以及 active run 时“不变更、等待或先 stop”的明确结果。
+3. **内部 IM `/compact`**：建立认证方案和未完成项，发送 `/compact 保留认证方案与未完成项`，在确认后继续追问两项；分别核对 bare compact、无可压缩历史的 no-op，以及 active run 不被打断、其后 compact 再执行的 FIFO 顺序。
 4. **飞书 `/compact`**：在私聊和明确 @ 的群聊发送 focused compact，核对飞书确认与 IM shadow 相同，后续追问仍能延续指定重点。将 summarizer/持久化失败注入隔离测试配置或测试 double 后，核对失败确认且下一轮仍使用压缩前上下文；重放同一 focused provider event 时不产生第二个 compaction boundary。
 5. **外部 IM 离线与 crash 恢复**：只停止 IM，保留 Gateway/Feishu listener；发送一次 `/new` 与一次 `/compact`，确认飞书各自收到结果。恢复 IM 后，现有 shadow conversation 按 user command → 一条相同 control confirmation 的顺序补齐；重复 recovery 不新增确认。再分别在两个命令的 control outcome/intent 已提交、但 saga `prepare_agent_output()` 前杀掉 Gateway，且不重放 inbound provider event；重启并让 external channel ready 后，确认 drain 补发结果，IM 恢复后只有一条相同 shadow confirmation。
 6. 完成后执行 stack down；确认 IM/Gateway 无残留监听或 worktree runtime 文件。
@@ -304,4 +304,4 @@ Reviewer 依次走：
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
 | feat-501-M1 | fresh-session | — | A | shared command parse 扩展 `/new`；typed new request、persistent control operation + pending external delivery intent、coordinator generation/RunVisibilityLease abortable quiesce fence、binder forced reset、external durable control output 与 Gateway unit/integration/critical-path coverage；gateway routing/external delta。 | **M1-C1 [reviewer]** 内部 IM 的 `/new` 保留可读聊天记录并确认开始新会话；后续普通消息不再使用旧上下文。 **M1-C2 [reviewer]** 飞书私聊和明确 @ 的群聊 `/new` 都在原聊天确认，命令/确认进入相同 IM shadow；未 @ 群聊不触发。IM 离线时飞书仍确认，恢复后影子只补一条相同确认。 **M1-C3 [reviewer]** active run 时 `/new` 取消旧操作；已被 observer 接收但尚未投递的 IM stream/terminal、reset 后到达的 event、已排队 Feishu mirror 都不得晚于新会话确认，provisional bubble 被 terminal discard/close；已排队而未 submit 的旧输入不在新 session 被执行。若 `publish_reset` 失败，binding/generation 不变且这些暂挂 old outputs 以原 identity 恰好一次恢复，不出现新会话确认。 **M1-C4 [worker]** 扩展 `test_inbound_pipeline_session.py`、`test_gateway_stop_command.py`、`test_gateway_session_binder.py`、coordinator admission/delivery-lease/terminal 与 shadow recovery tests，覆盖 direct/group mention、completed-terminal-vs-new 的两种顺序、reset failure、active/queued/steered races、IM stream/external mirror 成功 revoke，以及 intermediate/terminal/Feishu mirror 在 `publish_reset` injected failure 后的暂挂 restore。 **M1-C5 [worker]** 同一 Feishu provider event/operation id 重投不发生第二次 reset；分别注入「outcome+intent 已提交、saga output 尚未 materialize、无 inbound replay」后重启和 reconnect，确认 materializer 只建立一个 shadow output 并恢复首次结果。 **M1-C6 [worker]** 新增或扩展一个隔离 Gateway+IM critical path，以唯一旧事实证明 `/new` 后真实下一次 model input 不含旧 context；测试使用配置默认模型并支持已注册的显式 E2E override。 **M1-C7 [worker]** 受影响 Gateway/integration/contract suites、`git diff --check` 通过。 |
-| feat-501-M2 | guided-compaction | feat-501-M1 | B | typed compact request/coordinator idle guard、control outcome reuse、SDK optional focus/idempotency key、Conversation/AgentEngine/Summarizer prompt、manual strict failure path、external durable confirmation、kernel/Gateway tests、focused `/compact` 的跨入口验收和 kernel/gateway delta。 | **M2-C1 [reviewer]** 内部 IM 和飞书私聊/明确 @ 群聊的 `/compact`、`/compact <focus>` 在原聊天给出可区分结果，飞书命令和确认同步到 IM shadow；后续对 focus 的追问能延续指定事实。 **M2-C2 [reviewer]** 没有历史时不创建空上下文且明确 no-op；active/queued run 时明确提示等待或先 `/stop`，不改变当前上下文。 **M2-C3 [reviewer]** summary 或 compact persistence 失败时确认失败，下一轮仍能使用压缩前上下文；IM 离线时飞书确认、恢复后影子补同一确认。 **M2-C4 [worker]** 覆盖 `Kernel.compact(focus=..., idempotency_key=...)` 的 prompt 传递、focus 不成为普通 user turn、同 key 不产生第二个 boundary、manual summary empty/error 与 append failure 不写 compaction record、automatic threshold/overflow 不受影响；扩展 `test_loop_compact.py`、conversation/session 与 contract tests。 **M2-C5 [worker]** 扩展 Gateway pipeline/coordinator/external shadow tests，覆盖 exact grammar、focus reply、busy/no-binding no-op、相同 focused provider event 重放复用原 outcome；分别在 compact outcome+intent 提交后、saga output materialize 前注入 crash/no inbound replay，验证启动/reconnect drain 只恢复一条 confirmation；运行相关 unit/integration/contract suites、`ruff check`、`scripts/docs-check` 与 `git diff --check`。 |
+| feat-501-M2 | guided-compaction | feat-501-M1 | B | typed compact request/coordinator FIFO barrier、control outcome reuse、SDK optional focus/idempotency key、Conversation/AgentEngine/Summarizer prompt、manual strict failure path、external durable confirmation、kernel/Gateway tests、focused `/compact` 的跨入口验收和 kernel/gateway delta。 | **M2-C1 [reviewer]** 内部 IM 和飞书私聊/明确 @ 群聊的 `/compact`、`/compact <focus>` 在原聊天给出可区分结果，飞书命令和确认同步到 IM shadow；后续对 focus 的追问能延续指定事实。 **M2-C2 [reviewer]** 没有历史时不创建空上下文且明确 no-op；active/queued run 时 `/compact` 排在已有 work 后执行，不打断当前 run，且其后的普通输入在压缩后进入上下文。 **M2-C3 [reviewer]** summary 或 compact persistence 失败时确认失败，下一轮仍能使用压缩前上下文；IM 离线时飞书确认、恢复后影子补同一确认。 **M2-C4 [worker]** 覆盖 `Kernel.compact(focus=..., idempotency_key=...)` 的 prompt 传递、focus 不成为普通 user turn、同 key 不产生第二个 boundary、manual summary empty/error 与 append failure 不写 compaction record、automatic threshold/overflow 不受影响；扩展 `test_loop_compact.py`、conversation/session 与 contract tests。 **M2-C5 [worker]** 扩展 Gateway pipeline/coordinator/external shadow tests，覆盖 exact grammar、focus reply、FIFO compaction/no-binding no-op、相同 focused provider event 重放复用原 outcome；分别在 compact outcome+intent 提交后、saga output materialize 前注入 crash/no inbound replay，验证启动/reconnect drain 只恢复一条 confirmation；运行相关 unit/integration/contract suites、`ruff check`、`scripts/docs-check` 与 `git diff --check`。 |
