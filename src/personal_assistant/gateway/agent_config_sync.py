@@ -618,7 +618,10 @@ class IMAgentConfigSync:
             ),
             None,
         )
-        if local_current != agent_config or local_config.legacy_prompt_migration_pending:
+        if (
+            local_current != agent_config
+            or local_config.legacy_prompt_migration_pending
+        ):
             self._persist_agent_config(agent_config)
         current = self._agent_catalog.get(agent_config.agent_id)
         if current is not None and current.config == agent_config:

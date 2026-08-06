@@ -1132,9 +1132,7 @@ def _parse_agents(
         custom_prompt = _optional_string(
             item.get("custom_prompt"), field_name=f"agents[{index}].custom_prompt"
         )
-        custom_prompt = merge_legacy_custom_prompt(
-            legacy_system_prompt, custom_prompt
-        )
+        custom_prompt = merge_legacy_custom_prompt(legacy_system_prompt, custom_prompt)
         # feat-394 decision 5: parse per-agent heartbeat config block.
         # feat-394-M9: heartbeat.enabled is merged into the features dict
         # (features["heartbeat"]) rather than stored as a separate field.

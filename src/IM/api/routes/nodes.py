@@ -356,9 +356,7 @@ def _coerce_string_list(value: object, fallback: list[str] | None = None) -> lis
     return list(fallback or [])
 
 
-def _coerce_bool_dict(
-    value: object, *, fallback: dict[str, bool]
-) -> dict[str, bool]:
+def _coerce_bool_dict(value: object, *, fallback: dict[str, bool]) -> dict[str, bool]:
     if not isinstance(value, dict):
         return dict(fallback)
     return {
