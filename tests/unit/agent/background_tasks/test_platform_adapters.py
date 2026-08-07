@@ -141,7 +141,7 @@ def test_store_manifest_append() -> None:
 
 def test_file_output_creates_path() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
-        output = BashFileOutput(workspace_root=Path(tmpdir))
+        output = BashFileOutput(output_root=Path(tmpdir) / ".nano" / "background-tasks")
         path = output.open("sess-1", "b1234567890abcdef")
         assert path.exists()
         assert path.name == "b1234567890abcdef.output"
@@ -150,7 +150,7 @@ def test_file_output_creates_path() -> None:
 
 def test_file_output_appends_text() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
-        output = BashFileOutput(workspace_root=Path(tmpdir))
+        output = BashFileOutput(output_root=Path(tmpdir) / ".nano" / "background-tasks")
         path = output.open("sess-1", "b1")
         output.append("b1", "hello\n", stream="stdout")
         content = path.read_text(encoding="utf-8")
@@ -159,7 +159,7 @@ def test_file_output_appends_text() -> None:
 
 def test_file_output_stderr_prefix() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
-        output = BashFileOutput(workspace_root=Path(tmpdir))
+        output = BashFileOutput(output_root=Path(tmpdir) / ".nano" / "background-tasks")
         output.open("sess-1", "b1")
         output.append("b1", "error\n", stream="stderr")
         # Read the file from the handle
@@ -176,7 +176,7 @@ def test_file_output_256mib_cap(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        output = BashFileOutput(workspace_root=Path(tmpdir))
+        output = BashFileOutput(output_root=Path(tmpdir) / ".nano" / "background-tasks")
         output.open("sess-1", "b1")
         retained = "x" * test_limit
         output.append("b1", retained, stream="stdout")
@@ -197,7 +197,7 @@ def test_file_output_256mib_cap(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_shell_runner_completes_with_exit_0() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
-        output = BashFileOutput(workspace_root=Path(tmpdir))
+        output = BashFileOutput(output_root=Path(tmpdir) / ".nano" / "background-tasks")
         runner = ShellRunner()
         completed = []
 
@@ -234,7 +234,7 @@ def test_shell_runner_completes_with_exit_0() -> None:
 
 def test_shell_runner_fails_on_nonzero_exit() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
-        output = BashFileOutput(workspace_root=Path(tmpdir))
+        output = BashFileOutput(output_root=Path(tmpdir) / ".nano" / "background-tasks")
         runner = ShellRunner()
         failed = []
 
@@ -262,7 +262,7 @@ def test_shell_runner_fails_on_nonzero_exit() -> None:
 
 def test_shell_runner_stop_terminates_process() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
-        output = BashFileOutput(workspace_root=Path(tmpdir))
+        output = BashFileOutput(output_root=Path(tmpdir) / ".nano" / "background-tasks")
         runner = ShellRunner()
         failed = []
 
@@ -301,7 +301,7 @@ def test_shell_runner_stop_does_not_fire_on_fail() -> None:
     a stop-induced exit from a genuine failure and not emit on_fail for the former.
     """
     with tempfile.TemporaryDirectory() as tmpdir:
-        output = BashFileOutput(workspace_root=Path(tmpdir))
+        output = BashFileOutput(output_root=Path(tmpdir) / ".nano" / "background-tasks")
         runner = ShellRunner()
         events: list[str] = []
 
@@ -342,7 +342,7 @@ def test_shell_runner_stop_during_timeout_window_stays_silent_and_clears_flag() 
     All three exit paths must symmetrically suppress on_fail when stopped and discard.
     """
     with tempfile.TemporaryDirectory() as tmpdir:
-        output = BashFileOutput(workspace_root=Path(tmpdir))
+        output = BashFileOutput(output_root=Path(tmpdir) / ".nano" / "background-tasks")
         runner = ShellRunner()
         events: list[str] = []
 
@@ -411,7 +411,7 @@ def test_shell_runner_output_ready_when_complete_callback_fires() -> None:
     """
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        inner = BashFileOutput(workspace_root=Path(tmpdir))
+        inner = BashFileOutput(output_root=Path(tmpdir) / ".nano" / "background-tasks")
         output = _SlowAppendOutput(inner, delay=0.3)
         runner = ShellRunner()
         done = threading.Event()
@@ -448,7 +448,7 @@ def test_shell_runner_output_ready_when_complete_callback_fires() -> None:
 
 def test_shell_runner_timeout_kills_process() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
-        output = BashFileOutput(workspace_root=Path(tmpdir))
+        output = BashFileOutput(output_root=Path(tmpdir) / ".nano" / "background-tasks")
         runner = ShellRunner()
         failed = []
 
@@ -498,7 +498,7 @@ def test_shell_runner_runs_in_dedicated_process_group() -> None:
     start_new_session=True 的前提：没有它 killpg 杀的是 pytest 的整组（自杀）。
     """
     with tempfile.TemporaryDirectory() as tmpdir:
-        output = BashFileOutput(workspace_root=Path(tmpdir))
+        output = BashFileOutput(output_root=Path(tmpdir) / ".nano" / "background-tasks")
         runner = ShellRunner()
         done = threading.Event()
 
@@ -541,7 +541,7 @@ def test_shell_runner_timeout_kills_descendant_process_tree() -> None:
     """
     with tempfile.TemporaryDirectory() as tmpdir:
         pidfile = Path(tmpdir) / "grandchild.pid"
-        output = BashFileOutput(workspace_root=Path(tmpdir))
+        output = BashFileOutput(output_root=Path(tmpdir) / ".nano" / "background-tasks")
         runner = ShellRunner()
         done = threading.Event()
 
@@ -592,7 +592,7 @@ def test_shell_runner_drain_does_not_wedge_when_orphan_holds_write_end() -> None
     非阻塞 drain → on_fail 在 timeout+grace 内必然触发（绿）。
     """
     with tempfile.TemporaryDirectory() as tmpdir:
-        output = BashFileOutput(workspace_root=Path(tmpdir))
+        output = BashFileOutput(output_root=Path(tmpdir) / ".nano" / "background-tasks")
         runner = ShellRunner()
         done = threading.Event()
 

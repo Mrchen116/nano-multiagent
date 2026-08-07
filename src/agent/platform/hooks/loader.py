@@ -31,6 +31,7 @@ def build_hook_registry(
     workspace_dir: Path | None = None,
     config_resolver: _HookRootResolver | None = None,
     product_hook_dir: Path | None = None,
+    include_default_workspace: bool = True,
 ) -> HookRegistry:
     """Build a hook registry by loading built-in and user-provided hook modules.
 
@@ -46,6 +47,9 @@ def build_hook_registry(
             back to ``workspace_dir`` or ``<repo_root>/.nano/hooks``.
         product_hook_dir: Optional product-owned hook directory loaded after
             built-ins and before user global/workspace layers.
+        include_default_workspace: Whether a resolver-less caller should scan
+            the legacy ``<repo_root>/.nano/hooks`` root. SDK shared-base
+            assembly disables it and discovers workspace hooks per session.
 
     Returns:
         HookRegistry with built-in hooks loaded, plus any user hook modules.
@@ -74,6 +78,7 @@ def build_hook_registry(
             builtins_dir=builtins_dir,
             workspace_dir=workspace_dir,
             registry=HookRegistry(),
+            include_default_workspace=include_default_workspace,
         )
         if product_hook_dir is not None:
             _load_hook_dir_into_registry(
@@ -176,12 +181,33 @@ def _load_hook_dir_into_registry(
         )
 
 
+def load_hooks_into_registry(
+    *,
+    registry: HookRegistry,
+    directory: Path,
+    source: str,
+    replace: bool = True,
+) -> None:
+    """Load one extension directory into an existing registry.
+
+    SDK uses this after cloning its shared base registry.  Workspace extensions
+    are therefore discovered at session scope instead of at Kernel construction.
+    """
+
+    _load_hook_dir_into_registry(
+        registry,
+        directory,
+        source=source,  # type: ignore[arg-type]
+        replace=replace,
+    )
+
+
 def _remove_existing_hook_registrations(
     registry: HookRegistry, *, source: str, file_name: str
 ) -> None:
     removable_sources = {source}
     if source == "workspace":
-        removable_sources.add("product")
+        removable_sources.update({"product", "global"})
 
     for event, registrations in list(registry._registrations.items()):  # type: ignore[attr-defined]
         filtered = [

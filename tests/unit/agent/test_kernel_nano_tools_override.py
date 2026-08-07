@@ -1,12 +1,4 @@
-"""build_kernel must not crash when .nano/tools overrides a built-in (M3fix-r2 R2-1).
-
-refactor-406-M3fix #1 restored workspace ``.nano/tools`` discovery, but loaded it via
-``load_tools_from_directory`` (internal replace=False). A workspace tool exporting the
-same name as a built-in (e.g. ``bash``) would make ``registry.register`` raise
-``ValueError: tool already registered`` → build_kernel crash → Gateway/CLI fails to
-start. The legacy behavior allowed ``.nano/tools`` to override built-ins (replace=True).
-R2-1 restores replace=True; this guards against the crash regression + override.
-"""
+"""Workspace extension scopes retain replace semantics without cross-workspace bleed."""
 
 from __future__ import annotations
 
@@ -49,12 +41,15 @@ def test_build_kernel_does_not_crash_on_nano_tools_builtin_override(
         workspace_config_dirname=".nano",
         repo_root=repo,
     )
-    names = [t.name for t in kernel.list_tools()]
+    names = [
+        t.name
+        for t in kernel.list_session_tools("scope", workspace_root=repo)
+    ]
     assert "bash" in names, "bash tool must still be present (override, not removed)"
 
 
 def test_nano_tools_new_tool_discovered(tmp_path: Path) -> None:
-    """A non-conflicting .nano/tools tool is discovered (M3fix #1 baseline)."""
+    """A non-conflicting .nano/tools tool is discovered for that workspace scope."""
     repo = tmp_path / "repo2"
     _write_override_tool(
         repo / ".nano" / "tools", name="r2_probe_tool", marker="r2-probe"
@@ -66,5 +61,8 @@ def test_nano_tools_new_tool_discovered(tmp_path: Path) -> None:
         workspace_config_dirname=".nano",
         repo_root=repo,
     )
-    names = [t.name for t in kernel.list_tools()]
+    names = [
+        t.name
+        for t in kernel.list_session_tools("scope", workspace_root=repo)
+    ]
     assert "r2_probe_tool" in names

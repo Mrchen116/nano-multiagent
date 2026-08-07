@@ -81,6 +81,20 @@ class ToolRegistry:
 
         return self._context
 
+    def clone_for(
+        self, *, context: ToolContext, hook_runner: HookRunner | None
+    ) -> "ToolRegistry":
+        """Copy registrations while selecting a workspace-local execution context.
+
+        Built-in, native and global-extension tool instances remain shared.  A
+        workspace resolver adds only workspace-discovered tools to the returned
+        registry, so one workspace cannot replace another's tool catalog.
+        """
+
+        clone = ToolRegistry(context=context, hook_runner=hook_runner)
+        clone._tools = dict(self._tools)
+        return clone
+
     def register(self, tool: Tool, *, replace: bool = False) -> None:
         """Register one tool, optionally replacing an earlier layer.
 
