@@ -112,13 +112,17 @@
   A(原话): 好
   Agent 解读: `policy.toml` 是 workspace 安全配置的一部分。首次部署前按目标缺失才复制、保留旧来源和不持续同步的规则迁入 `.nanoassistant/` 或 `.nanocode/`；PA/CLI 终态只读取自己的产品策略，未指定产品目录的内核消费者仍使用 `.nano/policy.toml`。
 
+- Q18: mini 上旧 `~/.nano-assistant/` 内的 IM JWT 签名密钥是否也随全局根迁入 `~/.nanoassistant/`，并同步修改生产运维路径？
+  A(原话): 好
+  Agent 解读: 人工迁移同时移动 `im-jwt-secret` 至 `~/.nanoassistant/im-jwt-secret`，保持其密钥内容和私有文件权限；IM 启动与生产运维文档改用新路径，不重新生成密钥。
+
 ## 现状痛点
 
 产品已经把会话、memory、skills 和 cron 等状态分别放入 `.nanoassistant/` 或 `.nanocode/`，但仍有 PA 的简化聊天记录写在 workspace 根目录，heartbeat 配置也写在根目录；后台 bash 输出则被内核硬编码到 `.nano/`。当 PA workspace 指向一个代码仓根目录时，这些产品产物混在项目资产中，既难以统一管理，也使仓库维护者难以判断哪些文件应纳入版本控制。
 
 `.nano` 同时承担了内核默认 workspace 命名空间和旧的仓库扩展入口；它与 PA/CLI 的产品目录没有统一的选择规则。因而产品明明传入了自己的配置目录，部分运行时文件仍落到 `.nano` 或根目录。
 
-PA 的全局数据也有同类分裂：`~/.nanoassistant/` 已承载全局扩展，`~/.nano-assistant/` 却承载 Gateway 配置和绑定状态，而默认 Agent workspace 又位于 `~/nano-assistant/`。用户需要区分三个近似名字，且无法从目录名判断哪些是 PA 的全局控制数据、哪些是 Agent 工作区。
+PA 的全局数据也有同类分裂：`~/.nanoassistant/` 已承载全局扩展，`~/.nano-assistant/` 却承载 Gateway 配置、绑定状态和 mini 的 IM JWT 签名密钥，而默认 Agent workspace 又位于 `~/nano-assistant/`。用户需要区分三个近似名字，且无法从目录名判断哪些是 PA 的全局控制数据、哪些是 Agent 工作区。
 
 ## 目标状态
 
@@ -126,7 +130,7 @@ PA 的全局数据也有同类分裂：`~/.nanoassistant/` 已承载全局扩展
 
 PA 继续提供人工可读的 `chat_history`，但它、heartbeat、会话和其他 PA 管理状态均收敛到 `.nanoassistant/`。CLI 不新增这份 PA 专属聊天副本。
 
-PA 的唯一全局产品 home 为 `~/.nanoassistant/`：全局配置、持久状态以及全局 skills、tools、hooks 均在此处。默认创建的 Agent workspace 位于 `~/.nanoassistant/workspaces/<agent-id>/`；其中的 PA workspace 状态仍遵循 `<workspace>/.nanoassistant/`。用户显式指定的代码仓或其他外部 workspace 保持原位置和相同的 workspace 内目录规则。
+PA 的唯一全局产品 home 为 `~/.nanoassistant/`：全局配置、持久状态以及全局 skills、tools、hooks 均在此处。默认创建的 Agent workspace 位于 `~/.nanoassistant/workspaces/<agent-id>/`；其中的 PA workspace 状态仍遵循 `<workspace>/.nanoassistant/`。用户显式指定的代码仓或其他外部 workspace 保持原位置和相同的 workspace 内目录规则。mini 的 IM JWT 签名密钥也在人工迁移后由 `~/.nanoassistant/im-jwt-secret` 持有。
 
 首次部署前由部署者手动完成历史路径整理；部署后的 PA 与 CLI 仅识别和写入终态目录，不在启动时检查、导入、删除或同步任何旧路径。
 
@@ -174,6 +178,11 @@ PA 的唯一全局产品 home 为 `~/.nanoassistant/`：全局配置、持久状
 - **GIVEN** 旧 PA 目录与 `~/.nanoassistant/` 存在内容不同的同名项
 - **WHEN** 部署者执行首次部署迁移步骤
 - **THEN** 旧目录和已有目标内容均不被覆盖或删除，部署者可在处理冲突后重新执行迁移
+
+#### Scenario: mini 的 IM JWT 签名密钥随全局根保留
+- **GIVEN** mini 的旧 `~/.nano-assistant/im-jwt-secret` 是正在使用的 IM JWT 签名密钥
+- **WHEN** 部署者执行首次部署迁移并重启 IM
+- **THEN** IM 使用 `~/.nanoassistant/im-jwt-secret` 中同一密钥继续签名，文件保持私有权限，不因迁移重新生成密钥
 
 #### Scenario: 用户指定外部 workspace
 - **GIVEN** PA Agent 的 workspace 被用户显式指定为一个外部目录或代码仓根目录
@@ -243,10 +252,12 @@ PA 的唯一全局产品 home 为 `~/.nanoassistant/`：全局配置、持久状
 - 范围：把 workspace 目录选择收敛为“内核默认 `.nano`、产品显式目录覆盖”的一致规则，并使 PA 与 CLI 按各自产品目录写入和发现 workspace 资源。
 - 范围：PA 保留 `chat_history`，但将其和 `HEARTBEAT.md` 迁入 `.nanoassistant/`；CLI 适配同一目录选择规则，不新增聊天副本。
 - 范围：workspace 安全策略随实际产品目录生效；部署前人工将旧 `.nano/policy.toml` 按既定的安全分叉规则整理至产品目录。
+- 范围：mini 的 IM JWT 签名密钥随旧全局根迁至 `~/.nanoassistant/`，并更新 IM 与生产舰队的运维路径。
 - 范围：PA 全局配置、持久状态、全局扩展和默认 Agent workspace 收敛到 `~/.nanoassistant/`；首次部署前由部署者将旧 `~/.nano-assistant/` 与 `~/nano-assistant/` 在无冲突时迁移并删除。
 - 非目标：将遗留 `chat_history/`、`.nano/background-tasks/` 重新归属或搬入 PA/CLI 产品目录；默认 workspace 整体迁移时保留这些文件的 workspace 内相对位置。
 - 非目标：首次导入后持续同步 `.nano/tools`、`.nano/hooks`，覆盖或合并产品已有 extension，或自动修改 Git 忽略规则。
 - 非目标：在 PA 或 CLI 运行时代码中保留旧路径检测、首次启动迁移、冲突处理、删除或同步逻辑。
+- 非目标：因目录迁移主动轮换或重新生成 IM JWT 签名密钥。
 - 非目标：改变未提供产品目录名的内核消费者的 `.nano` 默认行为。
 
 ## 影响范围
@@ -255,6 +266,7 @@ PA 的唯一全局产品 home 为 `~/.nanoassistant/`：全局配置、持久状
 - 内核 workspace 安全策略路径与产品目录选择的一致性。
 - PA 的 workspace 初始化、heartbeat、聊天副本和 Agent workspace 运行。
 - PA 的全局配置、绑定状态、全局扩展发现和默认 workspace 创建/迁移。
+- mini 上 IM JWT 签名密钥的部署路径和生产运维文档。
 - CLI 的 workspace 初始化、workspace extension 与后台任务路径。
 - 相关的用户文档、行为契约与回归测试。
 
@@ -263,6 +275,7 @@ PA 的唯一全局产品 home 为 `~/.nanoassistant/`：全局配置、持久状
 - 首次部署前，部署者将旧 `.nano/tools`、`.nano/hooks` 和 `.nano/policy.toml` 快照导入相关产品目录：只补缺失文件，保留旧来源和已有目标文件；之后不持续同步。
 - 首次部署前，部署者在目标缺少 heartbeat 配置时从 workspace 根复制旧 `HEARTBEAT.md`，不覆盖目标或删除来源。
 - 首次部署前，部署者将 `~/.nano-assistant/` 和 `~/nano-assistant/` 迁入 `~/.nanoassistant/`；无内容冲突时删除旧源目录，迁后默认 workspace 内遗留文件保留原相对位置。
+- 该迁移在 mini 保持 `im-jwt-secret` 的内容与私有权限，并使 IM 启动和生产运维改从 `~/.nanoassistant/im-jwt-secret` 读取；不重新生成密钥。
 - 人工迁移发现内容不同的同名项时不覆盖、不删除，待部署者处理后重新执行；运行时代码不参与该判断。
 - 外部 workspace 的旧根目录聊天副本和 `.nano/background-tasks/` 不自动迁移；新版本只在产品目录写新文件。
 - 产品不自动改写 Git 忽略规则，也不在运行时处理任何旧路径或迁移失败状态。
