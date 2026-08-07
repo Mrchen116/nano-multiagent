@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agent 配置 · 推理强度原型</title>
+    <style>
+      :root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; color: #172033; background: #f6f7fb; }
+      * { box-sizing: border-box; }
+      body { margin: 0; }
+      .shell { max-width: 1040px; margin: 0 auto; padding: 40px 28px 72px; }
+      .crumb { color: #677085; font-size: 14px; margin-bottom: 22px; }
+      header { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin-bottom: 28px; }
+      h1 { margin: 0; font-size: 28px; letter-spacing: -.03em; }
+      .lede { color: #657087; margin: 8px 0 0; font-size: 15px; }
+      button { border: 0; background: #2557d7; color: white; border-radius: 8px; padding: 10px 16px; font: inherit; font-weight: 650; cursor: pointer; }
+      button:disabled { cursor: wait; opacity: .62; }
+      .layout { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 34px; }
+      nav { color: #657087; font-size: 14px; display: grid; align-content: start; gap: 8px; }
+      nav div { padding: 9px 12px; border-radius: 7px; }
+      nav .active { background: #e8efff; color: #1947bc; font-weight: 650; }
+      .card { background: white; border: 1px solid #e3e6ee; border-radius: 12px; padding: 25px; box-shadow: 0 1px 2px #1720330a; }
+      .card + .card { margin-top: 16px; }
+      .card h2 { font-size: 17px; margin: 0; }
+      .card > p { color: #6a7387; font-size: 14px; line-height: 1.55; margin: 7px 0 22px; }
+      .field { max-width: 500px; }
+      .field + .field { margin-top: 20px; }
+      label, .label { display: block; color: #374056; font-size: 14px; font-weight: 650; margin-bottom: 8px; }
+      select { width: 100%; appearance: auto; padding: 10px 12px; border: 1px solid #cbd1de; border-radius: 8px; background: #fff; color: #1d2739; font: inherit; }
+      select:focus { outline: 3px solid #bad0ff; border-color: #4b78e7; }
+      .help { color: #737d91; font-size: 13px; line-height: 1.5; margin: 7px 0 0; }
+      .readonly { border: 1px solid #dae0eb; background: #f8f9fc; border-radius: 8px; padding: 11px 12px; color: #3c4659; font-size: 14px; }
+      .readonly strong { color: #202b3e; }
+      .notice { display: flex; gap: 10px; margin: 22px 0 0; padding: 12px 13px; border-radius: 8px; background: #f5f7fb; color: #5f6b80; font-size: 13px; line-height: 1.45; }
+      .notice .dot { color: #4773df; font-size: 17px; line-height: 14px; }
+      .modes { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 16px; }
+      .mode { color: #526075; background: #edf0f6; padding: 6px 9px; border-radius: 999px; font-size: 12px; cursor: pointer; }
+      .mode.selected { background: #dbe7ff; color: #1e4cbd; font-weight: 650; }
+      .error { display: none; margin-top: 10px; color: #af2534; background: #fff2f3; border: 1px solid #f3cbd1; border-radius: 8px; padding: 10px 12px; font-size: 13px; }
+      .pending { display: none; margin-top: 10px; color: #6a5412; background: #fff9e9; border: 1px solid #f0d996; border-radius: 8px; padding: 10px 12px; font-size: 13px; }
+      body[data-mode="stale"] .error { display: block; }
+      body[data-mode="confirm"] .pending { display: block; }
+      body[data-mode="confirm"] #reasoning, body[data-mode="confirm"] #model { opacity: .72; }
+      body[data-mode="stale"] #reasoning { border-color: #d24d5b; }
+      body[data-mode="fixed"] .selectable, body[data-mode="fixed"] .none, body[data-mode="fixed"] .stale-copy { display: none; }
+      body[data-mode="none"] .selectable, body[data-mode="none"] .fixed, body[data-mode="none"] .stale-copy { display: none; }
+      body[data-mode="stale"] .fixed, body[data-mode="stale"] .none { display: none; }
+      body[data-mode="selectable"] .fixed, body[data-mode="selectable"] .none, body[data-mode="selectable"] .stale-copy { display: none; }
+      body[data-mode="confirm"] .fixed, body[data-mode="confirm"] .none, body[data-mode="confirm"] .stale-copy { display: none; }
+      .savebar { display: flex; justify-content: flex-end; gap: 12px; margin-top: 26px; }
+      .secondary { background: white; color: #435066; border: 1px solid #cbd1de; }
+      @media (max-width: 680px) { .shell { padding: 24px 16px 92px; } header { display: block; } header button { margin-top: 18px; width: 100%; } .layout { display: block; } nav { display: none; } .card { padding: 20px; } .savebar { position: sticky; bottom: 12px; background: #ffffffed; padding: 12px; margin: 24px -8px -8px; border: 1px solid #dfe4ef; border-radius: 10px; } .savebar button { flex: 1; } }
+    </style>
+  </head>
+  <body data-mode="selectable">
+    <main class="shell">
+      <div class="crumb">Agents / 研究助手 / 配置</div>
+      <header>
+        <div><h1>研究助手</h1><p class="lede">配置会在下一条新回复时生效，不会打断正在进行的回复。</p></div>
+        <button data-save>保存更改</button>
+      </header>
+      <div class="layout">
+        <nav><div>概览</div><div class="active">配置</div><div>渠道</div><div>技能</div><div>会话</div></nav>
+        <section>
+          <div class="modes" aria-label="原型状态"><span class="mode selected" data-state="selectable">可调模型</span><span class="mode" data-state="fixed">固定思考</span><span class="mode" data-state="none">未选模型</span><span class="mode" data-state="stale">目录已更新</span><span class="mode" data-state="confirm">正在确认</span></div>
+          <section class="card">
+            <h2>访问与模型</h2>
+            <p>选择这个 Agent 使用的模型。推理设置始终跟随所选模型的实际能力。</p>
+            <div class="field">
+              <label for="model">模型</label>
+              <select id="model">
+                <option>Kimi K3 · anthropic</option>
+                <option>DeepSeek V4 Flash · anthropic</option>
+                <option>Kimi K2.7 Code · anthropic</option>
+              </select>
+            </div>
+            <div class="field selectable">
+              <label for="reasoning">推理强度</label>
+              <select id="reasoning"><option>高</option><option>最大</option></select>
+              <p class="help">此模型推荐“高”。切换模型时，仅会保留新模型也支持的强度。</p>
+              <div class="error">该模型的可选强度已更新。请刷新配置后重新选择，再保存。</div>
+              <div class="pending" role="status">正在确认上次保存，请不要重复编辑。确认后会显示保存结果。</div>
+            </div>
+            <div class="field fixed">
+              <span class="label">推理</span>
+              <div class="readonly"><strong>始终开启思考，由模型决定</strong></div>
+              <p class="help">这个模型不提供可配置的推理强度。</p>
+            </div>
+            <div class="field none">
+              <span class="label">推理强度</span>
+              <div class="readonly">请先选择模型以配置推理强度</div>
+              <p class="help">使用平台默认模型时，Gateway 会采用该模型配置的推荐强度。</p>
+            </div>
+            <div class="notice"><span class="dot">•</span><span>模型与推理强度作为同一组设置保存；正在生成的回复会按原设置完成。</span></div>
+          </section>
+          <div class="savebar"><button class="secondary">取消</button><button data-save>保存更改</button></div>
+        </section>
+      </div>
+    </main>
+    <script>
+      document.querySelectorAll('.mode').forEach((node) => node.addEventListener('click', () => {
+        document.body.dataset.mode = node.dataset.state;
+        document.querySelectorAll('.mode').forEach((item) => item.classList.toggle('selected', item === node));
+        document.querySelectorAll('[data-save]').forEach((button) => { button.disabled = node.dataset.state === 'confirm'; });
+      }));
+    </script>
+  </body>
+</html>
