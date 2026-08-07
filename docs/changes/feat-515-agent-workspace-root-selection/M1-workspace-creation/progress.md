@@ -43,7 +43,20 @@
 
 ## R3 — Workspace 创建 UI 与 i18n
 
-- Status: TODO
+- Context: 创建页过去把 `workspace_root` 强制归一为 null；API error 只保留 status/detail，无法按 Gateway 稳定 code 呈现确认、占用和路径问题；preview 也没有传 workspace intent。
+- Decision: 在 Identity 与 Behavior 之间加入默认选中的 Workspace 卡；custom 模式提交目标节点路径，客户端只检查空值/绝对路径语法，节点负责其余校验。`AgentConfigRequestError` 保留 `code`/`agent_id`；existing-directory 409 展示醒目确认区，勾选后用同一草稿重试并仅把 `confirm_existing_workspace` 改为 true。preview 同步传 mode/id/root。样式在 720px 下切单列，中英文文案完整。
+- Rationale: 稳定 code 是交互分支契约，路径 detail 只是展示信息；确认必须可恢复且不能丢失表单草稿。创建页选择不改变既有详情页的只读 Workspace & Runtime 展示。
+- Evidence:
+  - Tests: targeted API/create Vitest 28 passed；frontend 全套 63 files / 611 tests passed（保留既有 act/user-stream stderr）；production `tsc -b && vite build` 成功，仅既有 chunk-size warning。
+  - Entry: API adapter test 覆盖 code/agent_id 与 preview intent；创建页覆盖默认 null、custom root、空路径、confirmation retry、assigned Agent、卡片顺序与 preview default intent。
+  - Frontend State Matrix: default/custom/empty/error/submitting/confirmation/mobile CSS 均落到组件或测试；offline/loading 沿用原页面门禁。
+  - Browser QA: 真浏览器截图、console/network 与 390px 检查留 R5。
+  - E2E/Regression: 全 frontend suite 611 passed；既有 Agent detail 测试包含在全套且实现文件未增加 default/custom 来源标签。
+  - Visual/Interaction: `.im-workspace-*` 复用现有卡片 token，desktop 两列、窄屏单列，长路径 `overflow-wrap:anywhere`。
+  - Prototype Comparison: Workspace 卡位置、二选一、字段说明与 existing notice 已实现；真实截图对照留 R5。
+- Rollback: revert `c2bb68918`。
+- Commits: `c2bb68918`
+- Next: R4 全量风险门禁与 docs，然后 R5 隔离真栈/浏览器验收。
 
 ## R4 — 回归矩阵与质量门禁
 
