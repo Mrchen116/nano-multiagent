@@ -94,3 +94,70 @@
 - [x] `docs/specs/CONTRIBUTING.md`（文档规范）：无需更新。
 
 本轮未修改上述上层文档；long-lived spec 的归并由 orchestrator 在修复、复验后按最终实现完成。
+
+---
+
+# Round 2 — 2026-08-07
+
+> Revalidation: targeted fast-lane。基线为 `66d31ab16a8338780da25a7a4891645cae60922a`；仅复验 Round 1 Issue 1 在 `c1e0163de` 后的 fixed Kimi 聊天路径，并回归确认 DeepSeek 可选强度。其余 Round 1 的 `inconclusive` 覆盖项按流程继承，未在本轮改写为已通过。
+
+## Verdict
+
+**fail**
+
+**Highest Required Action:** `fix-implementation`
+
+Round 1 的唯一产品失败已关闭：隔离 E2E catalog 中公开的 fixed Kimi 现在为可路由的 `kimiCoding:kimi-for-coding`，新建、保存并打开该 Agent 后，真实首轮聊天得到可读正文 `Kimi route works.`；没有再出现空 Agent 气泡或 `stream ended without terminal event`。同一浏览器会话还确认 DeepSeek 仍只公开 `High` 和 `Maximum`，默认推荐 `High`。
+
+但 Round 1 的 4 条必验 Scenario 及 2 个 must-match 状态仍为 `inconclusive`：目录缩减导致草稿失效、保存失败/确认中、既有模型能力变更、以及新增模型/节点；未提供可由 reviewer 安全触发的隔离运行时前置。本轮的范围不包含这些路径，故 targeted fix 已关闭但整份 acceptance 不能升级为 `pass`。
+
+## Focused user journeys
+
+测试环境：重新启动的 unit worktree 隔离 IM + Gateway + Vite（IM `:51367`，Vite `:51712`），仓库 E2E owner `nano`。只打开一个 headed 浏览器会话，完成后立即关闭；所有 Agent、对话和运行数据都留在该隔离 runtime。
+
+1. **fixed Kimi 创建到真实聊天（desktop）**：新建 `reasoning-e2e-514-r2`，选择 `kimiCoding:kimi-for-coding`。create 与已保存的 detail 页均显示 “Reasoning is always on and controlled by the model” 及解释文本，没有 reasoning select。点击 **Open chat**，发送 `Reply with exactly: Kimi route works.`，Agent 在 4.1 秒后显示正文 `Kimi route works.`，会话列表也显示同一正文。
+2. **DeepSeek 选择范围未回归（desktop）**：从同一持久化 Agent 的 Config 页选择 `deepseek:deepseek-v4-flash`；“Reasoning effort”下拉框只有 `High`（已选）和 `Maximum`，且保留 “Recommended for this model: High” 说明。随后使用可见 **Discard** 放弃该仅用于验证的未保存选择。
+
+## Evidence reviewed
+
+| Evidence | Review conclusion |
+| --- | --- |
+| `evidence/browser.md`，`evidence/create-selectable-1440.png`，`evidence/create-selectable-controls.png` | 持久化 1440px 证据与本轮 DeepSeek 实测一致：只公开 High/Maximum，High 为推荐初值。 |
+| `evidence/create-fixed-375.png`，`evidence/create-fixed-375-controls.png` | 持久化 375px 证据显示 Kimi Coding fixed-state 保持一列排版、只读说明且没有 effort selector。 |
+| `evidence/fixed-model-detail-desktop.png`，`evidence/fixed-model-chat-desktop.png` | 持久化 desktop 证据显示 fixed Kimi 的保存后详情和成功聊天；本轮用新 E2E runtime 独立复现该聊天成功。 |
+| 本轮 create、chat、DeepSeek 截图：`src/IM/frontend/.playwright-cli/page-2026-08-07T11-18-02-937Z.png`、`page-2026-08-07T11-19-45-400Z.png`、`page-2026-08-07T11-20-34-379Z.png` | 独立真实旅程：fixed Kimi 成功产出正文；DeepSeek 的可选项未扩展或倒退。 |
+
+## Coverage updates
+
+| Requirement / Scenario | Round 1 | Round 2 result | Evidence / note |
+| --- | --- | --- | --- |
+| 固定思考模型清楚说明限制而不伪造控件 / 选择 fixed Kimi | pass | **pass (reconfirmed)** | 新 create 与已保存 detail 的可见 fixed 说明；持久化 375px / desktop evidence。 |
+| 模型与推理设置作为同一份 Agent 配置生效 / fixed Kimi 聊天入口 | fail — Issue 1 | **pass** | 新建并保存 `kimiCoding:kimi-for-coding` 后，真实首轮回复 `Kimi route works.`；见本轮 chat screenshot。 |
+| 可调推理强度 / 选择 DeepSeek | pass | **pass (reconfirmed)** | 同一 Agent 的 Config 页只显示 High / Maximum，High 已选。 |
+| 目录已更新使草稿选项失效；保存失败/确认中；已有模型能力变更；新增模型/节点 | inconclusive | **inconclusive (inherited)** | 本 targeted fast-lane 未改变前置；仍没有 reviewer 可安全执行的隔离运行时路径。 |
+
+## Issue closure
+
+### Issue 1 — fixed Kimi Agent 首轮聊天没有可读回复
+
+- **Round 1 severity:** major
+- **Round 2 status:** **closed**
+- **Resolution evidence:** E2E 公开的 fixed 模型为已注册的 `kimiCoding:kimi-for-coding`；在全新隔离 stack 中走完保存 → Open chat → 发送首条消息，得到 `Kimi route works.`。没有观察到 Round 1 的空白气泡或 `anthropic: stream ended without terminal event`。
+
+## Remaining required coverage
+
+这不是新的产品 defect；它们是 Round 1 保留的必验浏览器覆盖缺口。要使全量 acceptance 可通过，实施方仍需提供不改 production 配置、且 reviewer 可在隔离 E2E runtime 中执行的前置，覆盖：live catalog 缩减、operation rejection/pending、既有模型 levels 变更和新模型/新节点。
+
+## Review result for orchestration
+
+```text
+unit_id: feat-514-model-reasoning-effort
+review_round: 2
+verdict: fail
+highest_required_action: fix-implementation
+issues_count: { blocking: 0, major: 0, minor: 0 }
+gh_issues_filed: []
+report_path: docs/changes/feat-514-model-reasoning-effort/acceptance.md
+top_concern: Issue 1 is closed, but inherited required browser coverage remains inconclusive.
+needs_re_review: true
+```
