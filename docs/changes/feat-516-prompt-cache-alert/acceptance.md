@@ -84,3 +84,63 @@ N/A。此 unit 没有原型、设计稿或视觉对齐契约；用户可观察�
 ## 最终树状态
 
 验收针对 `unit/feat-516` 上尚未提交的实现工作树；除本报告外，工作树保留待 orchestrator 统一提交的 M1 实现、测试和规范归并改动。验收期间没有修改源码、测试、配置或产品规范。
+
+---
+
+# Round 2 — 2026-08-07
+
+> Revalidation mode: targeted
+>
+> Focus: code-review 修正后，warning 是否在模型流结束时立即可见，而不受慢工具结果等待影响；并确认原有真 Gateway 用户旅程没有回归。
+
+## Verdict
+
+**pass**
+
+- Highest Required Action: `pass`
+- Issues: 无（blocking 0 / major 0 / minor 0）
+
+## 定向复验旅程
+
+在具有慢工具调用的模型回复中，模型流一结束就检查同一 Gateway agent 的日志记录，随后才放行工具结果。告警已经出现，说明运维者不会因为工具执行慢而错过或延迟看到本次高成本低命中模型调用。
+
+同时重新跑隔离真 IM + Gateway + Anthropic SSE fixture 的主旅程：Web IM 用户正常收到回复；日志写出一条低命中 warning，包含 model、`agent_id=e2e`、session id、输入/缓存 tokens 与命中率，且不包含 prompt。
+
+证据：
+
+```text
+PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q \
+  tests/unit/test_agent_loop.py -k cache_alert \
+  --basetemp <temp> \
+  tests/e2e/critical_paths/test_prompt_cache_alert_critical_path.py
+
+5 passed, 23 deselected
+```
+
+此次真栈日志产物：
+
+```text
+low prompt cache hit rate | agent_id='e2e', cache_hit_rate_percent=0.0, cache_read_tokens=0, input_tokens=30001, model='deepseek:deepseek-v4-flash', session_id='sess_950f22d995654ad0', ...
+```
+
+运行产物位于
+`/tmp/feat516-acceptance-r2.Nz4k13/test_gateway_logs_low_prompt_c0/stack/.gateway.log`；fixture 测试已负责停止本轮启动的隔离服务。
+
+## 覆盖表更新
+
+| 已复验 Scenario / 关注点 | 证据 | 结果 | 备注 |
+|---|---|---|---|
+| 单次模型调用输入大且缓存命中率低 | 真 IM + Gateway critical path 通过；真实 `.gateway.log` | pass | 原 Round 1 的字段、无 prompt、JSONL 定位结论保持有效。 |
+| warning 不被工具结果等待推迟 | `test_loop_warns_before_waiting_for_a_tool_result`（纳入上述 5 passed） | pass | 定向新增的用户可观察日志时序保障。 |
+| 30K/80% 边界、缓存数据缺失及无 Gateway agent 时静默 | 其余 cache-alert loop tests（纳入上述 5 passed） | pass | 原 Round 1 的静默结论保持有效。 |
+
+## 上层文档同步复核
+
+- [x] `SPEC.md`：无需更新。
+- [x] `docs/specs/gateway/`：Round 1 已归并的 warning 契约仍适用，无新增产品语义。
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新。
+- [x] `docs/specs/CONTRIBUTING.md`：无需更新。
+
+## 最终树状态
+
+定向复验针对同一未提交 M1 实现树；本轮只追加了验收报告，未改实现、测试、配置或规范。
