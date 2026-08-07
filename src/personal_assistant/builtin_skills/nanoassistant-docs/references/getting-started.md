@@ -4,7 +4,7 @@
 
 ## 1. 准备环境和 Gateway 配置
 
-项目要求 Python 3.11+。默认 Gateway 配置位于 `~/.nano-assistant/config.yaml`。最小结构如下：
+项目要求 Python 3.11+。默认 Gateway 配置位于 `~/.nanoassistant/config.yaml`。最小结构如下：
 
 ```yaml
 node:
@@ -35,7 +35,7 @@ llm:
 - `llm` 必填，`llm.default_model` 必须登记在某个 `llm.providers[].models[]` 中。
 - provider 使用 `anthropic` 或 `openai_compat`，并与上游协议匹配。
 - 配置 `im_service` 时启用内置 `web_relay`。
-- 省略 `agents[].workspace_root` 时，默认使用 `~/nano-assistant/workspace/<agent_id>/` 并自动创建。
+- 省略 `agents[].workspace_root` 时，默认使用 `~/.nanoassistant/workspaces/<agent_id>/` 并自动创建。
 - 配置、密钥、状态文件和日志属于本机运行数据，不应作为普通项目文件分享。
 
 ## 2. 启动 IM

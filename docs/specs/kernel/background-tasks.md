@@ -1,6 +1,6 @@
 # kernel (agent) - Background Tasks Specification
 
-> 对齐: feat-474
+> 对齐: refactor-513
 > 上级: [kernel (agent) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)「给库/内核写契约的额外纪律」。本目录只收 **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 + 归档 design)。
@@ -98,3 +98,12 @@
 - **WHEN** 一次 `agent` 工具派发的子 agent 调用失败
 - **THEN** 该失败仅作为该工具调用的失败结果（status=failed + error）返回
 - **AND** 内核的其它 run 与该消费者进程的常驻活动不受影响、继续正常运行（进程不失联、不需重启）
+
+### Requirement: 后台 bash 产物跟随 session 的 workspace config directory
+
+消费者经 SDK 在一个 workspace-bound session 启动 background bash（含超预算自动转后台）时，工具返回的 `output_file` 与实际追加输出均位于 `<workspace_root>/<workspace_config_dirname>/background-tasks/`；未指定目录名时为 `.nano`。一个 Kernel 的不同 workspace 不混写输出。
+
+#### Scenario: 自定义目录的 auto-background 输出
+- **GIVEN** consumer 以 `workspace_config_dirname=".consumer"` 创建 session，前台 bash 随后转为后台
+- **WHEN** consumer 收到 `async_launched` 结果并等待任务完成
+- **THEN** 返回的 `output_file` 位于该 session workspace 的 `.consumer/background-tasks/`，完成通知仍送达同一 session

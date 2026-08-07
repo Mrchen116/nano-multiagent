@@ -1,6 +1,6 @@
 # kernel (agent) - SDK Boundary Specification
 
-> 对齐: feat-510
+> 对齐: refactor-513
 > 上级: [kernel (agent) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)「给库/内核写契约的额外纪律」。本目录只收 **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 + 归档 design)。
@@ -49,14 +49,16 @@
 `agent.sdk` 不提供"产品"对象(无 `ProductProfile` / `ProductDefinition` / 内置产品常量)。装配分两层, 内核对三类应用(coding_cli / personal_assistant / 任意外部应用)无差别对待,无任何"一方产品"分支:
 
 - `build_kernel(llm, tools, hooks, can_use_tool=None, tool_approval_model=None,
-  workspace_config_dirname=…, repo_root=None, skill_search_roots=(), tool_search_roots=(),
+  workspace_config_dirname=…, global_config_root=None, repo_root=None, skill_search_roots=(), tool_search_roots=(),
   hook_search_roots=())` —— 建一次进程级**共享基座**:
   `llm` 为 SDK-owned `LLMConfig`(providers/models 目录 + 连接 + 默认);`tools` 为原生工具对象**目录**;
   `hooks` 为 `setup(hooks: HookAPI)` 形态 callable;`tool_approval_model` 是可选的 build-scoped
   自动工具权限分类模型,非空时必须属于 `llm` catalog,空时分类复用当前 run 模型;
   `skill_search_roots` / `tool_search_roots` / `hook_search_roots` 为部署级用户插件目录
-  (消费者显式传入的根,非 ConfigResolver),内核在工作区 `<repo_root>/.nano/{tools,hooks,skills}`
-  运行时发现之外额外发现这些目录,空 → 仅工作区。模型注册表初始化在内部,消费者无前置时序
+  (消费者显式传入的根,非 ConfigResolver),内核在每个 session 选定的
+  `<workspace_root>/<workspace_config_dirname>/{tools,hooks,skills}` 运行时发现之外额外发现这些目录,
+  空 → 仅工作区。`global_config_root` 是可选的、消费者拥有的 global auto-mode configuration root；
+  省略时不加载 global auto-mode config，仍从 session 选定的 workspace config root 加载。模型注册表初始化在内部,消费者无前置时序
   义务;装配完成后所有会话/运行均在进程内执行(无子进程、无 loopback HTTP)。
 - `create_session(workspace_root, enabled_tools, features, prompt, title=…, metadata=…)` —— 每 agent 带齐配置:`enabled_tools` 从工具目录选子集;`features` 开关内核通用 feature;`prompt` 为 SDK-owned `PromptSlots`。不收 `model`——model 是 per-run 的,消费者每轮经 `submit(model=...)` 提供。
 
@@ -91,6 +93,15 @@
 - **GIVEN** 模型 X 不在 `LLMConfig` catalog 中
 - **WHEN** 任一消费者调用 `build_kernel(tool_approval_model=X)`
 - **THEN** Kernel 在启动 runtime 或后台任务前以明确配置错误拒绝装配
+
+#### Scenario: 消费者提供 global auto-mode config root
+- **GIVEN** 应用拥有部署级 auto-mode 配置目录 G，session workspace 有自身选定配置目录 W
+- **WHEN** 应用调用 `build_kernel(global_config_root=G)` 并在该 session 触发 auto-mode 工具决策
+- **THEN** 决策按 G 与 W 的既有合并规则读取配置，且不会把任一产品目录名硬编码到 SDK
+
+#### Scenario: 消费者省略 global auto-mode config root
+- **WHEN** 任一消费者省略 `global_config_root`
+- **THEN** Kernel 正常装配，auto-mode 决策不读取任意部署级 global 配置，仍只读取该 session 的选定 workspace config directory
 
 ### Requirement: 应用以原生 Tool/Hook 对象扩展,契约为 SDK-owned Protocol
 

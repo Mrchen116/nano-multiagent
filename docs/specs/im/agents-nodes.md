@@ -1,6 +1,6 @@
 # IM - Agents and Nodes Specification
 
-> 对齐: feat-514
+> 对齐: refactor-513
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -448,3 +448,16 @@ agent 设置 detail 页的工具面板按存储的 `tool_allowlist` 渲染勾选
 - **GIVEN** agent 当前启用若干工具
 - **WHEN** 用户取消全部勾选、保存、刷新页面
 - **THEN** 工具面板保持全部不亮
+
+### Requirement: IM 独立判定 PA 托管默认 workspace
+
+IM 自己维护 PA 托管默认 workspace 的路径规则，不 import `personal_assistant` 或 `agent`：未显式 workspace 的 Agent 为 `~/.nanoassistant/workspaces/<agent-id>/`，并以该路径判定 `workspace_is_default`。IM 只保存和转发这一路径；实际 workspace 文件仍由 Gateway 读写。显式外部 workspace 保持非默认。
+
+#### Scenario: 新建未指定 workspace 的 Agent 使用新托管默认路径
+- **WHEN** IM 为在线节点创建一个未显式 workspace_root 的 Agent
+- **THEN** 下发、保存并在响应中标记 `~/.nanoassistant/workspaces/<agent-id>/` 为该 Agent 的默认 workspace
+
+#### Scenario: 外部 workspace 不被判为默认
+- **GIVEN** Agent profile 保存的是任意显式外部代码仓路径
+- **WHEN** IM 返回该 Agent 的配置
+- **THEN** `workspace_is_default` 为 false，且原路径不被改写

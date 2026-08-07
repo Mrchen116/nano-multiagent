@@ -5,7 +5,7 @@
 ## 前置条件
 
 - 已按 [`../development/local-development.md`](../development/local-development.md) 安装 Python 依赖。
-- 已准备包含有效 `llm:` 段的 `~/.nano-assistant/config.yaml`；结构和生命周期命令见 [`gateway.md`](gateway.md)。
+- 已准备包含有效 `llm:` 段的 `~/.nanoassistant/config.yaml`；结构和生命周期命令见 [`gateway.md`](gateway.md)。
 - Web IM 需要 `src/IM/frontend/dist/`。本地尚未构建时，在 `src/IM/frontend/` 执行 `npm install && npm run build`；前端开发模式见 [`../../src/IM/frontend/README.md`](../../src/IM/frontend/README.md)。
 
 ## 1. 启动 IM
@@ -33,7 +33,7 @@ curl -fsS http://127.0.0.1:8011/openapi.json >/dev/null
 
 ## 2. 启动 Gateway
 
-默认配置位于 `~/.nano-assistant/config.yaml`：
+默认配置位于 `~/.nanoassistant/config.yaml`：
 
 ```bash
 PYTHONPATH=src .venv/bin/python -m personal_assistant.main
