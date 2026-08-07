@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>新建 Agent · Workspace 选择原型</title>
+    <style>
+      :root { --bg:#edf0f2; --surface:#fff; --text:#18212b; --muted:#66727f; --border:#dbe1e6; --accent:#1769e0; --danger:#c4453c; --warn-bg:#fff8e6; --warn-border:#f0c36c; --warn-text:#825800; }
+      * { box-sizing:border-box; }
+      body { margin:0; color:var(--text); background:var(--bg); font:14px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .header { background:var(--surface); border-bottom:1px solid var(--border); padding:18px 28px 14px; }
+      .header-row { display:flex; align-items:flex-start; gap:12px; max-width:936px; margin:0 auto; }
+      h1 { margin:0; font-size:18px; line-height:1.2; letter-spacing:-.02em; } .sub { margin:4px 0 0; color:var(--muted); font-size:12px; }
+      .node { margin-left:auto; display:flex; align-items:center; gap:6px; color:#23703f; font-size:12px; font-weight:650; white-space:nowrap; } .dot { width:7px; height:7px; border-radius:50%; background:currentColor; }
+      main { width:min(880px, calc(100% - 38px)); margin:0 auto; padding:22px 0 72px; display:grid; gap:14px; }
+      .card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:15px 16px; display:grid; gap:14px; }
+      h2 { margin:0; font-size:15px; } .card-sub { margin:3px 0 0; color:var(--muted); font-size:12px; }
+      .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; } label { display:grid; gap:5px; font-size:12px; font-weight:650; } input { width:100%; border:1px solid #bfc9d2; border-radius:7px; padding:9px 10px; color:var(--text); font:inherit; } input:focus { outline:2px solid #a7caff; border-color:var(--accent); }
+      .modes { display:grid; grid-template-columns:1fr 1fr; gap:10px; } .mode { position:relative; display:flex; align-items:flex-start; gap:9px; border:1px solid var(--border); border-radius:9px; padding:11px; cursor:pointer; } .mode.active { border-color:var(--accent); background:#f5f9ff; } .mode input { width:16px; margin:1px 0 0; accent-color:var(--accent); } .mode strong { display:block; font-size:13px; } .mode span { display:block; margin-top:2px; color:var(--muted); font-size:12px; font-weight:400; }
+      .custom { display:none; gap:8px; } .custom.show { display:grid; } .path-help { color:var(--muted); font-size:12px; } .error { display:none; color:var(--danger); font-size:12px; } .error.show { display:block; }
+      .notice { display:none; gap:10px; border:1px solid var(--warn-border); border-radius:9px; background:var(--warn-bg); color:var(--warn-text); padding:11px; } .notice.show { display:grid; } .notice-title { font-weight:750; } .notice p { margin:2px 0 0; font-size:12px; } .notice label { display:flex; align-items:flex-start; gap:7px; font-weight:500; color:#644800; cursor:pointer; } .notice input { width:16px; margin:2px 0 0; accent-color:#a86b00; }
+      .hint { display:none; padding:9px 10px; border-radius:8px; color:var(--danger); background:#fff1ef; font-size:12px; } .hint.show { display:block; }
+      .footer { position:fixed; inset:auto 0 0; padding:12px 28px; border-top:1px solid var(--border); background:rgba(255,255,255,.97); display:flex; justify-content:center; } .footer-in { display:flex; justify-content:flex-end; gap:9px; width:min(936px,100%); } button { border:1px solid transparent; border-radius:7px; padding:9px 14px; font:650 13px inherit; cursor:pointer; } .secondary { border-color:#c8d0d8; background:#fff; color:#34414d; } .primary { background:var(--accent); color:#fff; } .primary:disabled { cursor:not-allowed; opacity:.48; }
+      .outcome { margin:0; color:var(--muted); font-size:12px; }
+      @media (max-width:719px) { .header { padding:16px 14px 13px; } .header-row { align-items:center; } .node { margin-left:0; } main { width:calc(100% - 24px); padding-top:15px; padding-bottom:72px; } .grid,.modes { grid-template-columns:1fr; } .footer { padding:10px 14px; } }
+    </style>
+  </head>
+  <body>
+    <header class="header"><div class="header-row"><div><h1>新建 Agent</h1><p class="sub">在节点上创建一个新的、独立的 Agent</p></div><div class="node"><i class="dot"></i>MacBook · 在线</div></div></header>
+    <main>
+      <section class="card"><div><h2>Identity</h2><p class="card-sub">给 Agent 一个清晰、稳定的身份。</p></div><div class="grid"><label>Agent ID<input value="research-assistant" aria-label="Agent ID" /></label><label>Display Name<input value="Research Assistant" aria-label="Display Name" /></label></div></section>
+      <section class="card" aria-labelledby="workspace-title">
+        <div><h2 id="workspace-title">Workspace</h2><p class="card-sub">工作目录在创建后固定在选中的节点上，不能迁移或编辑。</p></div>
+        <div class="modes">
+          <label class="mode active" id="default-mode"><input type="radio" name="mode" value="default" checked /> <span><strong>使用默认目录</strong><span>由 MacBook 按节点配置分配并创建。</span></span></label>
+          <label class="mode" id="custom-mode"><input type="radio" name="mode" value="custom" /> <span><strong>自定义路径</strong><span>使用 MacBook 上的指定绝对路径。</span></span></label>
+        </div>
+        <div class="custom" id="custom-fields"><label>Workspace Root<input id="workspace-path" placeholder="/Users/me/projects/research-agent" aria-describedby="path-help" /></label><div class="path-help" id="path-help">路径位于 MacBook；父目录必须已存在。已有目录可使用，但需要你确认。</div><div class="error" id="path-error"></div></div>
+        <div class="notice" id="existing-notice" role="alert"><div><div class="notice-title">这是一个已有目录</div><p>创建后 Agent 会使用此目录。现有文件不会被覆盖，但缺失的 Agent 初始文件会在确认后补齐。</p></div><label><input type="checkbox" id="existing-confirm" />我了解并同意让这个 Agent 使用已有目录。</label></div>
+        <div class="hint" id="assigned-hint">该目录已经归属 Agent <strong>project-analyst</strong>。请更换路径。</div>
+        <p class="outcome" id="outcome">默认目录会由选中的节点创建。</p>
+      </section>
+      <section class="card"><div><h2>Behavior</h2><p class="card-sub">定义 Agent 的回应方式和默认行为。</p></div><div class="grid"><label>Custom Instructions<input placeholder="Optional" /></label><label>Default Model<input value="Follow node default" /></label></div></section>
+      <section class="card"><div><h2>Access</h2><p class="card-sub">选择 Agent 可以使用的技能与工具。</p></div></section>
+    </main>
+    <footer class="footer"><div class="footer-in"><button class="secondary">取消</button><button class="primary" id="create">创建 Agent</button></div></footer>
+    <script>
+      const defaultMode = document.getElementById('default-mode'), customMode = document.getElementById('custom-mode');
+      const customFields = document.getElementById('custom-fields'), path = document.getElementById('workspace-path'), notice = document.getElementById('existing-notice');
+      const confirm = document.getElementById('existing-confirm'), error = document.getElementById('path-error'), assigned = document.getElementById('assigned-hint'), outcome = document.getElementById('outcome'), create = document.getElementById('create');
+      function select(mode) { const isCustom = mode === 'custom'; defaultMode.classList.toggle('active', !isCustom); customMode.classList.toggle('active', isCustom); defaultMode.querySelector('input').checked = !isCustom; customMode.querySelector('input').checked = isCustom; customFields.classList.toggle('show', isCustom); notice.classList.remove('show'); assigned.classList.remove('show'); error.classList.remove('show'); outcome.textContent = isCustom ? '输入的是 MacBook 上的路径；提交时由该节点再次校验。' : '默认目录会由选中的节点创建。'; }
+      defaultMode.addEventListener('click', () => select('default')); customMode.addEventListener('click', () => select('custom'));
+      path.addEventListener('input', () => { notice.classList.remove('show'); assigned.classList.remove('show'); error.classList.remove('show'); confirm.checked = false; });
+      create.addEventListener('click', () => { if (!customMode.querySelector('input').checked) { outcome.textContent = '✓ 默认目录创建成功，详情页将显示节点分配的固定路径。'; return; } const value = path.value.trim(); if (!value) { error.textContent = '请输入目标节点上的绝对路径。'; error.classList.add('show'); return; } if (value.includes('/missing-parent/')) { error.textContent = '父目录不存在或不可用。请先在 MacBook 上创建可用的父目录。'; error.classList.add('show'); return; } if (value.includes('/assigned/')) { assigned.classList.add('show'); return; } if (!notice.classList.contains('show')) { notice.classList.add('show'); outcome.textContent = '尚未创建 Agent 或写入任何 workspace 文件。'; return; } if (!confirm.checked) { outcome.textContent = '请先确认你了解这是一个已有目录。'; return; } outcome.textContent = '✓ 已确认并创建 Agent；已有文件保持不覆盖。'; });
+    </script>
+  </body>
+</html>

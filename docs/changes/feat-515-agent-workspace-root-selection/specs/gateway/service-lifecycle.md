@@ -1,0 +1,46 @@
+## MODIFIED Requirements
+
+### Requirement: IM 推送 agent.create 时由节点创建并固定唯一 workspace root
+
+Gateway 处理 IM 下行的 `agent.create` 时，在**本节点**决定 workspace root。未指定 root 的请求
+使用节点默认目录；指定 root 的请求在本节点将路径 canonicalize 后校验。新 root 的父目录必须
+已存在且可用，Gateway 不创建缺失父目录；已有 target 必须为目录且须由用户在请求中明确确认后
+才可采用。Gateway 在初始化前以本地已持久化 agent config 检查 canonical root，确保一个 root
+只归属本节点的一个 Agent。成功后，Gateway 建立/补齐工作区、注册 live 路由、持久化本地配置，
+并回传非空 canonical absolute `workspace_root` 和 `workspace_is_default`（默认 factory 为 true，
+自定义为 false）；已有文件不覆盖。该来源信息随本地 Agent 配置持久化，并在 node register 时
+供 IM 镜像，不能由 IM 根据路径字符串重新推导。
+
+#### Scenario: 默认 root 沿用节点分配
+- **WHEN** IM 下发的 `agent.create` 未指定 `workspace_root`
+- **THEN** Gateway 使用节点默认 workspace factory 创建 Agent、注册 live 路由并回传非空绝对
+  `workspace_root` 与 `workspace_is_default == true`
+
+#### Scenario: 新自定义 root 只在已有 parent 下创建
+- **GIVEN** 下发的自定义 target P 不存在，P 的 canonical parent 已存在、为目录且可用
+- **WHEN** Gateway 处理 `agent.create`
+- **THEN** Gateway 创建 P 及需要的初始 workspace 内容，持久化 Agent config 并回传 P 的
+  canonical absolute path 与 `workspace_is_default == false`
+
+#### Scenario: 不创建缺失或不可用 parent
+- **WHEN** 自定义 target 的 canonical parent 不存在、不是目录或无法用于创建
+- **THEN** Gateway 不创建 target、不创建缺失 parent、不持久化 Agent config，并在 `agent.created`
+  回包中携带对应的结构化 workspace error
+
+#### Scenario: 已有目录先返回确认要求
+- **GIVEN** 自定义 target P 已存在且为目录
+- **WHEN** `agent.create` 未携带明确的已有目录确认
+- **THEN** Gateway 不初始化 P、不写 config、不注册 Agent，回 `agent.created` 的
+  `workspace_confirmation_required` error
+- **WHEN** 后续请求明确确认 P
+- **THEN** Gateway 才初始化缺失的 workspace 默认内容、保留 P 中已有文件，并成功创建 Agent
+
+#### Scenario: 同节点 canonical root 不可重复归属
+- **GIVEN** Gateway 本地 config 中 Agent A 已拥有 canonical root P
+- **WHEN** 下发为 Agent B 指定 P（包括解析后同 P 的别名路径）
+- **THEN** Gateway 不创建或注册 Agent B，回 `workspace_already_assigned` error 并标识 Agent A
+
+#### Scenario: workspace root 创建后不被 IM 镜像改写
+- **GIVEN** Gateway 为 Agent X 成功创建并持久化 root P
+- **WHEN** 后续 IM 配置同步携带不同的镜像 root Q
+- **THEN** Gateway runtime 继续以本地 config 的 P 读写 workspace；不迁移或覆盖 P
