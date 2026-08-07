@@ -60,7 +60,20 @@
 
 ## R4 — 回归矩阵与质量门禁
 
-- Status: TODO
+- Context: R1-R3 改动同时跨 Gateway/IM/SQLite/React；新增 workspace 交互最初继续扩展了已超过 400 行的 `agent-create.test.tsx`，不符合测试文件结构约束。
+- Decision: 将五条 Workspace 创建交互移到 204 行的 `agent-create-workspace.test.tsx`，原文件只保留原有创建/离开/能力行为和默认 payload 接线。全仓 Python、前端单 worker、ruff、build、docs 与 diff 门禁统一重跑。
+- Rationale: 新行为拥有清晰语义 owner，且单 worker frontend 全套能规避当前机器高负载下默认并发的无关 5 秒 timeout，不掩盖真实失败。
+- Evidence:
+  - Tests: Python `pytest -m 'not e2e' -q` — 3035 passed, 24 deselected, 16 dependency warnings；frontend `--no-file-parallelism --maxWorkers=1` — 64 files / 611 tests passed。
+  - Entry: Gateway/IM/HTTP/frontend 所有本 milestone focused owners 均包含在全套门禁。
+  - Frontend State Matrix: targeted 28 passed，production build 成功；UI 真浏览器状态留 R5。
+  - Browser QA: N/A（R5）。
+  - E2E/Regression: `ruff check .`、`git diff --check` 通过；`scripts/docs-check` — 220 maintained Markdown sources / 66 required routes。
+  - Visual/Interaction: N/A（R5）。
+  - Prototype Comparison: N/A（R5）。
+- Rollback: revert `0198d43c1`（测试结构）；R1-R3 功能 commit 分别见前述 roadpoint。
+- Commits: `0198d43c1`
+- Next: R5 隔离单/双 Gateway 真栈、desktop/390px 浏览器验收与证据落盘。
 
 ## R5 — 隔离真栈与浏览器原型对照
 
