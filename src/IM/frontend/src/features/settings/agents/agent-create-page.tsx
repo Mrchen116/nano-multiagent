@@ -19,6 +19,7 @@ import {
 } from "./im-agent-config-api";
 
 type CreateAgentFormState = NodeAgentCreateRequest;
+type WorkspaceMode = "default" | "custom";
 
 function normalizeAllowlist(values: string[]) {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
@@ -51,7 +52,8 @@ function normalizeDraft(draft: CreateAgentFormState): CreateAgentFormState {
     skills: normalizeAllowlist(draft.skills),
     tool_allowlist: normalizeAllowlist(draft.tool_allowlist),
     default_model: normalizeText(draft.default_model ?? "") || null,
-    workspace_root: null
+    workspace_root: normalizeText(draft.workspace_root ?? "") || null,
+    confirm_existing_workspace: draft.confirm_existing_workspace ?? false
   };
 }
 
@@ -89,7 +91,8 @@ const EMPTY_DRAFT: CreateAgentFormState = {
   tool_allowlist: [],
   group_reply_policy: "MENTION",
   default_model: null,
-  workspace_root: null
+  workspace_root: null,
+  confirm_existing_workspace: false
 };
 
 // feat-379-M5 (ISSUE-1): Behavior card for agent creation — same design as agent-detail-page.tsx
@@ -99,6 +102,8 @@ interface CreateBehaviorCardProps {
   draft: CreateAgentFormState;
   capabilityFeatures: AgentFeature[];
   selectedNodeId: string;
+  workspaceMode: WorkspaceMode;
+  workspaceRoot: string | null;
   onCustomPromptChange: (value: string) => void;
   onFeatureToggle: (key: string, value: boolean) => void;
   onPolicyChange: (value: string) => void;
@@ -108,6 +113,8 @@ function CreateBehaviorCard({
   draft,
   capabilityFeatures,
   selectedNodeId,
+  workspaceMode,
+  workspaceRoot,
   onCustomPromptChange,
   onFeatureToggle,
   onPolicyChange
@@ -138,7 +145,9 @@ function CreateBehaviorCard({
         custom_prompt: draft.custom_prompt ?? "",
         tool_ids: draft.tool_allowlist ?? [],
         skill_ids: draft.skills ?? [],
-        agent_id_hint: draft.agent_id || undefined
+        agent_id_hint: draft.agent_id || undefined,
+        workspace_mode: workspaceMode,
+        workspace_root: workspaceMode === "custom" ? workspaceRoot : null
       });
       setPreviewText(text);
     } catch (err) {
@@ -146,7 +155,16 @@ function CreateBehaviorCard({
     } finally {
       setPreviewLoading(false);
     }
-  }, [selectedNodeId, effectiveFeatures, draft.custom_prompt, draft.tool_allowlist, draft.skills, draft.agent_id]);
+  }, [
+    selectedNodeId,
+    effectiveFeatures,
+    draft.custom_prompt,
+    draft.tool_allowlist,
+    draft.skills,
+    draft.agent_id,
+    workspaceMode,
+    workspaceRoot
+  ]);
 
   useEffect(() => {
     if (!previewOpen) return;
@@ -154,7 +172,16 @@ function CreateBehaviorCard({
     previewTimer.current = setTimeout(() => { void fetchPreview(); }, 600);
     return () => { if (previewTimer.current) clearTimeout(previewTimer.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewOpen, draft.custom_prompt, draft.features, draft.tool_allowlist, draft.skills, draft.agent_id]);
+  }, [
+    previewOpen,
+    draft.custom_prompt,
+    draft.features,
+    draft.tool_allowlist,
+    draft.skills,
+    draft.agent_id,
+    workspaceMode,
+    workspaceRoot
+  ]);
 
   function handlePreviewToggle() {
     if (!previewOpen) {
@@ -313,6 +340,10 @@ export function AgentCreatePage() {
   const isMobile = useIsMobile();
   const [draft, setDraft] = useState<CreateAgentFormState>(EMPTY_DRAFT);
   const [selectedNodeId, setSelectedNodeId] = useState(nodeId);
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("default");
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+  const [existingConfirmationRequired, setExistingConfirmationRequired] = useState(false);
+  const [existingConfirmed, setExistingConfirmed] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
@@ -342,6 +373,9 @@ export function AgentCreatePage() {
     toolsEditedRef.current = false;
     autoDefaultToolsRef.current = [];
     setDraft((current) => ({ ...current, skills: [], tool_allowlist: [] }));
+    setWorkspaceError(null);
+    setExistingConfirmationRequired(false);
+    setExistingConfirmed(false);
   }, [selectedNodeId]);
 
   const createStateQuery = useQuery({
@@ -351,7 +385,15 @@ export function AgentCreatePage() {
     staleTime: 30_000
   });
 
-  const normalizedDraft = useMemo(() => normalizeDraft(draft), [draft]);
+  const normalizedDraft = useMemo(() => {
+    const normalized = normalizeDraft(draft);
+    return {
+      ...normalized,
+      workspace_root: workspaceMode === "custom" ? normalized.workspace_root : null,
+      confirm_existing_workspace:
+        workspaceMode === "custom" && existingConfirmationRequired && existingConfirmed
+    };
+  }, [draft, existingConfirmationRequired, existingConfirmed, workspaceMode]);
   const validationErrors = useMemo(() => validateDraft(normalizedDraft), [normalizedDraft]);
   const hasValidationErrors = Object.keys(validationErrors).length > 0;
   const capabilities = createStateQuery.data?.capabilities;
@@ -402,6 +444,7 @@ export function AgentCreatePage() {
     mutationFn: (next: CreateAgentFormState) => createNodeAgent(selectedNodeId, next),
     onSuccess: async (created) => {
       setErrorMessage(null);
+      setWorkspaceError(null);
       queryClient.setQueryData(["settings", "agents", created.agent_id], created);
       queryClient.setQueryData(["settings", "agents"], (current: AgentSummary[] | undefined) => {
         if (!current) return [created];
@@ -414,6 +457,34 @@ export function AgentCreatePage() {
       navigate(`/settings/agents/${created.agent_id}`);
     },
     onError: (error) => {
+      const code =
+        error instanceof Error && "code" in error && typeof error.code === "string"
+          ? error.code
+          : null;
+      const agentId =
+        error instanceof Error && "agentId" in error && typeof error.agentId === "string"
+          ? error.agentId
+          : null;
+      if (code === "workspace_confirmation_required") {
+        setWorkspaceError(null);
+        setExistingConfirmationRequired(true);
+        setExistingConfirmed(false);
+        return;
+      }
+      const workspaceMessages: Record<string, string> = {
+        workspace_parent_missing: t("agents.form.workspaceCreate.parentMissing", { node: nodeLabel }),
+        workspace_parent_unusable: t("agents.form.workspaceCreate.parentUnusable", { node: nodeLabel }),
+        workspace_target_not_directory: t("agents.form.workspaceCreate.targetNotDirectory"),
+        workspace_initialization_failed: t("agents.form.workspaceCreate.initializationFailed"),
+        workspace_already_assigned: t("agents.form.workspaceCreate.alreadyAssigned", {
+          agent: agentId ?? t("agents.form.workspaceCreate.unknownAgent")
+        })
+      };
+      if (code && workspaceMessages[code]) {
+        setWorkspaceError(workspaceMessages[code]);
+        setExistingConfirmationRequired(false);
+        return;
+      }
       setErrorMessage(
         error instanceof Error ? error.message.split(" failed: ").at(-1) ?? error.message : "Create failed"
       );
@@ -433,6 +504,13 @@ export function AgentCreatePage() {
       allowExitRef.current = true;
       blocker.proceed();
     }
+  }
+
+  function resetWorkspaceFeedback() {
+    setWorkspaceError(null);
+    setErrorMessage(null);
+    setExistingConfirmationRequired(false);
+    setExistingConfirmed(false);
   }
 
   if ((nodesQuery.isLoading || createStateQuery.isLoading) && !capabilities) {
@@ -487,6 +565,22 @@ export function AgentCreatePage() {
         setHasSubmitted(true);
         setErrorMessage(null);
         if (hasValidationErrors || !isNodeOnline || !selectedNodeId) return;
+        if (workspaceMode === "custom") {
+          const workspaceRoot = normalizedDraft.workspace_root;
+          if (!workspaceRoot) {
+            setWorkspaceError(t("agents.form.workspaceCreate.pathRequired"));
+            return;
+          }
+          if (!workspaceRoot.startsWith("/") && !workspaceRoot.startsWith("~/")) {
+            setWorkspaceError(t("agents.form.workspaceCreate.pathAbsolute"));
+            return;
+          }
+          if (existingConfirmationRequired && !existingConfirmed) {
+            setWorkspaceError(t("agents.form.workspaceCreate.confirmRequired"));
+            return;
+          }
+        }
+        setWorkspaceError(null);
         mutation.mutate(normalizedDraft);
       }}
     >
@@ -629,7 +723,7 @@ export function AgentCreatePage() {
               value={selectedNodeId}
               onChange={(event) => {
                 setSelectedNodeId(event.target.value);
-                setErrorMessage(null);
+                resetWorkspaceFeedback();
                 setIsDirty(true);
               }}
             >
@@ -644,11 +738,130 @@ export function AgentCreatePage() {
           </div>
         </section>
 
+        <section
+          className="im-agent-card"
+          data-testid="workspace-create-card"
+          aria-labelledby="workspace-create-title"
+        >
+          <div>
+            <h3 id="workspace-create-title" className="im-agent-card-title">
+              {t("agents.form.workspaceCreate.title")}
+            </h3>
+            <p className="im-agent-card-sub">
+              {t("agents.form.workspaceCreate.sub")}
+            </p>
+          </div>
+          <fieldset className="im-workspace-modes">
+            <legend className="sr-only">{t("agents.form.workspaceCreate.modeLegend")}</legend>
+            <label
+              className={`im-workspace-mode ${workspaceMode === "default" ? "active" : ""}`}
+            >
+              <input
+                type="radio"
+                name="workspace-mode"
+                value="default"
+                checked={workspaceMode === "default"}
+                onChange={() => {
+                  setWorkspaceMode("default");
+                  resetWorkspaceFeedback();
+                  setIsDirty(true);
+                }}
+              />
+              <span>
+                <strong>{t("agents.form.workspaceCreate.defaultMode")}</strong>
+                <span>
+                  {t("agents.form.workspaceCreate.defaultModeHelp", { node: nodeLabel })}
+                </span>
+              </span>
+            </label>
+            <label
+              className={`im-workspace-mode ${workspaceMode === "custom" ? "active" : ""}`}
+            >
+              <input
+                type="radio"
+                name="workspace-mode"
+                value="custom"
+                checked={workspaceMode === "custom"}
+                onChange={() => {
+                  setWorkspaceMode("custom");
+                  resetWorkspaceFeedback();
+                  setIsDirty(true);
+                }}
+              />
+              <span>
+                <strong>{t("agents.form.workspaceCreate.customMode")}</strong>
+                <span>
+                  {t("agents.form.workspaceCreate.customModeHelp", { node: nodeLabel })}
+                </span>
+              </span>
+            </label>
+          </fieldset>
+
+          {workspaceMode === "custom" ? (
+            <div className="im-agent-field">
+              <Label.Root htmlFor="workspace-create-root">
+                {t("agents.form.workspaceCreate.workspaceRoot")}
+              </Label.Root>
+              <input
+                id="workspace-create-root"
+                className="im-input im-agent-input-mono"
+                value={draft.workspace_root ?? ""}
+                placeholder={t("agents.form.workspaceCreate.pathPlaceholder")}
+                aria-describedby="workspace-create-help workspace-create-error"
+                aria-invalid={Boolean(workspaceError)}
+                onChange={(event) => {
+                  setDraft({ ...draft, workspace_root: event.target.value });
+                  resetWorkspaceFeedback();
+                  setIsDirty(true);
+                }}
+              />
+              <p id="workspace-create-help" className="im-agent-field-help">
+                {t("agents.form.workspaceCreate.pathHelp", { node: nodeLabel })}
+              </p>
+              {workspaceError ? (
+                <p id="workspace-create-error" className="im-agent-field-error">
+                  {workspaceError}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {existingConfirmationRequired ? (
+            <div className="im-workspace-existing-notice" role="alert">
+              <div>
+                <p className="im-workspace-existing-title">
+                  {t("agents.form.workspaceCreate.existingTitle")}
+                </p>
+                <p>{t("agents.form.workspaceCreate.existingBody")}</p>
+              </div>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={existingConfirmed}
+                  onChange={(event) => {
+                    setExistingConfirmed(event.target.checked);
+                    setWorkspaceError(null);
+                  }}
+                />
+                <span>{t("agents.form.workspaceCreate.existingConfirm")}</span>
+              </label>
+            </div>
+          ) : null}
+
+          <p className="im-workspace-outcome">
+            {workspaceMode === "custom"
+              ? t("agents.form.workspaceCreate.customOutcome", { node: nodeLabel })
+              : t("agents.form.workspaceCreate.defaultOutcome", { node: nodeLabel })}
+          </p>
+        </section>
+
         {/* feat-379-M5 (ISSUE-1): Behavior card — Custom Instructions + Features + Preview */}
         <CreateBehaviorCard
           draft={draft}
           capabilityFeatures={capabilities.features ?? []}
           selectedNodeId={selectedNodeId}
+          workspaceMode={workspaceMode}
+          workspaceRoot={normalizedDraft.workspace_root}
           onCustomPromptChange={(value) => {
             setErrorMessage(null);
             setIsDirty(true);
