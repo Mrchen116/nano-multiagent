@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import stat
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import replace
@@ -162,22 +164,55 @@ class IMAgentConfigSync:
     def handle_agent_create(
         self, agent_payload: Mapping[str, object]
     ) -> dict[str, object]:
-        """在节点上落地工作区并注册 Agent，供 IM ``agent.create`` / ``agent.created`` 回包使用。"""
+        """Create one local workspace or return a structured recoverable rejection."""
         agent_id_raw = agent_payload.get("agent_id")
         if not isinstance(agent_id_raw, str) or not agent_id_raw.strip():
             raise ValueError("agent.create requires non-empty agent_id")
         agent_id = agent_id_raw.strip()
         ws_raw = agent_payload.get("workspace_root")
+        workspace_is_default = not (isinstance(ws_raw, str) and ws_raw.strip())
         if isinstance(ws_raw, str) and ws_raw.strip():
             workspace_root = Path(ws_raw.strip()).expanduser()
             if not workspace_root.is_absolute():
-                raise ValueError(
-                    "workspace_root must be an absolute path or start with ~/"
+                return self._workspace_rejection(
+                    code="workspace_parent_unusable",
+                    detail="Workspace root must be an absolute path or start with ~/.",
                 )
             workspace_root = workspace_root.resolve()
         else:
-            workspace_root = self._workspace_root_factory(agent_id)
-        workspace_root = ensure_workspace_defaults(workspace_root)
+            workspace_root = self._workspace_root_factory(agent_id).expanduser().resolve()
+
+        assigned_agent_id = self._assigned_agent_for_workspace(workspace_root)
+        if assigned_agent_id is not None:
+            return self._workspace_rejection(
+                code="workspace_already_assigned",
+                detail="Workspace is already assigned to another Agent.",
+                agent_id=assigned_agent_id,
+            )
+
+        if workspace_is_default:
+            try:
+                workspace_root = ensure_workspace_defaults(workspace_root)
+            except OSError:
+                return self._workspace_rejection(
+                    code="workspace_initialization_failed",
+                    detail="Workspace could not be initialized on the selected node.",
+                )
+        else:
+            rejection = self._prepare_custom_workspace(
+                workspace_root,
+                confirm_existing=agent_payload.get("confirm_existing_workspace")
+                is True,
+            )
+            if rejection is not None:
+                return rejection
+            try:
+                workspace_root = ensure_workspace_defaults(workspace_root)
+            except OSError:
+                return self._workspace_rejection(
+                    code="workspace_initialization_failed",
+                    detail="Workspace could not be initialized on the selected node.",
+                )
         display = agent_payload.get("display_name")
         title = (
             display.strip()
@@ -224,6 +259,7 @@ class IMAgentConfigSync:
         agent_config = AgentWorkspaceConfig(
             agent_id=agent_id,
             workspace_root=workspace_root,
+            workspace_is_default=workspace_is_default,
             title=title,
             skills=skills,
             tool_allowlist=tool_allowlist,
@@ -253,9 +289,122 @@ class IMAgentConfigSync:
             "group_reply_policy": group_reply_policy,
             "default_model": default_model,
             "workspace_root": str(workspace_root),
+            "workspace_is_default": workspace_is_default,
             "features": features,
             "custom_prompt": custom_prompt,
         }
+
+    def resolve_preview_workspace(
+        self,
+        *,
+        workspace_mode: str,
+        agent_id_hint: str | None,
+        workspace_root: str | None,
+    ) -> str:
+        """Resolve one draft workspace on this node without creating it.
+
+        Args:
+            workspace_mode: ``default`` delegates to the node factory; ``custom``
+                resolves the supplied node-local path.
+            agent_id_hint: Draft Agent id used by the default workspace factory.
+            workspace_root: Custom path supplied by the create form.
+
+        Returns:
+            Canonical node-local path, or an empty string while the draft lacks
+            enough information to resolve a workspace.
+
+        Raises:
+            ValueError: When the mode or custom path is invalid.
+        """
+        if workspace_mode == "default":
+            if not isinstance(agent_id_hint, str) or not agent_id_hint.strip():
+                return ""
+            return str(
+                self._workspace_root_factory(agent_id_hint.strip())
+                .expanduser()
+                .resolve()
+            )
+        if workspace_mode != "custom":
+            raise ValueError("workspace_mode must be default or custom")
+        if not isinstance(workspace_root, str) or not workspace_root.strip():
+            return ""
+        candidate = Path(workspace_root.strip()).expanduser()
+        if not candidate.is_absolute():
+            raise ValueError("workspace_root must be an absolute path or start with ~/")
+        return str(candidate.resolve())
+
+    def _assigned_agent_for_workspace(self, workspace_root: Path) -> str | None:
+        canonical_root = workspace_root.expanduser().resolve()
+        for agent in self._config_snapshot().agents:
+            if agent.workspace_root.expanduser().resolve() == canonical_root:
+                return agent.agent_id
+        return None
+
+    def _prepare_custom_workspace(
+        self, workspace_root: Path, *, confirm_existing: bool
+    ) -> dict[str, object] | None:
+        try:
+            target_stat = workspace_root.stat()
+        except FileNotFoundError:
+            parent = workspace_root.parent
+            try:
+                parent_stat = parent.stat()
+            except FileNotFoundError:
+                return self._workspace_rejection(
+                    code="workspace_parent_missing",
+                    detail="Workspace parent directory does not exist.",
+                )
+            except OSError:
+                return self._workspace_rejection(
+                    code="workspace_parent_unusable",
+                    detail="Workspace parent directory is not usable.",
+                )
+            if not stat.S_ISDIR(parent_stat.st_mode) or not os.access(
+                parent, os.W_OK | os.X_OK
+            ):
+                return self._workspace_rejection(
+                    code="workspace_parent_unusable",
+                    detail="Workspace parent directory is not usable.",
+                )
+            try:
+                workspace_root.mkdir()
+            except FileNotFoundError:
+                return self._workspace_rejection(
+                    code="workspace_parent_missing",
+                    detail="Workspace parent directory does not exist.",
+                )
+            except OSError:
+                return self._workspace_rejection(
+                    code="workspace_parent_unusable",
+                    detail="Workspace parent directory is not usable.",
+                )
+            return None
+        except OSError:
+            return self._workspace_rejection(
+                code="workspace_parent_unusable",
+                detail="Workspace target cannot be inspected on the selected node.",
+            )
+
+        if not stat.S_ISDIR(target_stat.st_mode):
+            return self._workspace_rejection(
+                code="workspace_target_not_directory",
+                detail="Workspace target exists but is not a directory.",
+            )
+        if not confirm_existing:
+            return self._workspace_rejection(
+                code="workspace_confirmation_required",
+                detail="Workspace target is an existing directory and requires confirmation.",
+            )
+        return None
+
+    @staticmethod
+    def _workspace_rejection(
+        *, code: str, detail: str, agent_id: str | None = None
+    ) -> dict[str, object]:
+        error: dict[str, object] = {"code": code, "detail": detail}
+        if agent_id is not None:
+            error["agent_id"] = agent_id
+        return {"error": error}
 
     def ensure_agent_skills_enabled(
         self, agent_id: str, skill_ids: tuple[str, ...]
@@ -560,6 +709,11 @@ class IMAgentConfigSync:
         return AgentWorkspaceConfig(
             agent_id=agent_id,
             workspace_root=workspace_root,
+            workspace_is_default=(
+                self._local_agent(agent_id).workspace_is_default
+                if self._local_agent(agent_id) is not None
+                else True
+            ),
             title=str(payload.get("display_name") or agent_id),
             skills=tuple(
                 item.strip()
@@ -636,6 +790,7 @@ class IMAgentConfigSync:
                 "group_reply_policy": agent.group_reply_policy or "manual",
                 "default_model": agent.default_model,
                 "workspace_root": str(agent.workspace_root),
+                "workspace_is_default": agent.workspace_is_default,
                 # feat-379-M2: expose per-agent features/custom_prompt for capabilities reporting
                 "features": dict(agent.features),
                 "custom_prompt": agent.custom_prompt,
