@@ -117,9 +117,41 @@ closure items and does not change the architecture reviewed in Round 1.
 
 - W1 is functionally closed, but its new durable tests cover the payload shape and CLI renderer separately, not an explicit enabled-tool allowlist through the real CLI command. Preserve the direct verification above with a small regression test so a future return to an unfiltered tuple or incompatible item shape is caught automatically.
 
+# Round 3
+
+> Targeted-closure snapshot: `e3913749d -> 3f0147b1c`
+
+## Summary
+
+Mode: targeted-closure
+
+Focus: Round 2's remaining C1 only.
+
+Verdict: **pass**. The frozen M1 scope-propagation exit criterion now has
+executable evidence for every previously missing side-entry boundary. Splitting
+the regression suite for the 400-line contract retains that evidence unchanged.
+
+requires_full_verification: false. This delta only restructures the targeted
+regression coverage; it leaves the reviewed runtime architecture unchanged.
+
+## C1 closure evidence
+
+| Required boundary | Executable evidence | Result |
+|---|---|---|
+| Concurrent slash skills | Two sessions in distinct `.consumer` workspaces run `/skill:scope-a` and `/skill:scope-b` with `asyncio.gather`; each reaches the real `skill_view` tool and each transcript contains only its own workspace SKILL.md content (`tests/unit/agent/test_workspace_scope_side_entry_points.py:119-183`). | covered |
+| Real `AgentTool` subagent execution | A parent turn calls the registered `agent` tool, which creates a child session and drives that child through the workspace-only `scope_probe_child` extension. The test observes the parent `agent` tool end, the child's actual tool result, and the child workspace hook transform (`tests/unit/agent/test_workspace_scope_side_entry_points.py:132-191`). | covered |
+| Compaction skill reinjection | The test manually compacts the first slash-skill session through `Kernel.compact`; full compaction replaces its transcript, and the retained `<system-reminder>` has only the session's own skill content (`tests/unit/agent/test_workspace_scope_side_entry_points.py:136-183`). This exercises runtime's current-scope compaction path and its post-compact skill reloader (`src/agent/core/agent/runtime.py:309-326,1975-2017,2035-2114`). | covered |
+
+The companion main-run regression still supplies the complementary concurrent
+pre-tool proof: conflicting workspace tools/hooks, auto-mode configuration,
+bash policy, background-output roots, fork follow-up, and `list_session_tools`
+(`tests/unit/agent/test_workspace_execution_scope.py:190-247`). Together, the
+two executable paths satisfy M1's full scope list in `design.md:212`.
+
 ## Checks run
 
 ```text
+Round 2:
 PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q \
   tests/unit/agent/test_workspace_execution_scope.py \
   tests/unit/agent/test_kernel_nano_tools_override.py \
@@ -140,12 +172,31 @@ PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q \
   tests/contract/test_kernel_sdk_behavior_contract.py
 84 passed
 
+Round 3:
+PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q \
+  tests/unit/agent/test_workspace_execution_scope.py \
+  tests/unit/agent/test_workspace_scope_side_entry_points.py \
+  tests/contract/test_test_naming_and_size_contract.py \
+  tests/unit/agent/test_kernel_nano_tools_override.py \
+  tests/integration/test_bash_engine.py \
+  tests/contract/test_kernel_sdk_behavior_contract.py \
+  tests/contract/test_agent_sdk_boundary_contract.py \
+  tests/contract/test_cli_sdk_only_contract.py \
+  tests/contract/test_core_no_platform_imports.py
+47 passed
+
 PYTHON=/Users/czj/Repos/nano-multiagent/.venv/bin/python scripts/docs-check
 documentation integrity passed: 217 maintained Markdown sources, 67 required routes
 
-ruff check [changed closure source and tests]
+ruff check [Round 2 closure source and tests]
+All checks passed
+
+ruff check tests/unit/agent/_workspace_scope_support.py \
+  tests/unit/agent/test_workspace_execution_scope.py \
+  tests/unit/agent/test_workspace_scope_side_entry_points.py
 All checks passed
 
 git diff --check 5feb761de..533082563
+git diff --check e3913749d..3f0147b1c
 passed
 ```
