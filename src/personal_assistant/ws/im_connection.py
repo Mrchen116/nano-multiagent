@@ -133,6 +133,7 @@ AgentCreateHandler = Callable[
     [Mapping[str, object]],
     Awaitable[Mapping[str, object] | None] | Mapping[str, object] | None,
 ]
+NodePromptWorkspaceResolver = Callable[[str, str | None, str | None], str]
 AgentCapabilitiesProvider = Callable[
     [str, str], Awaitable[Mapping[str, object] | None] | Mapping[str, object] | None
 ]
@@ -293,6 +294,7 @@ class IMConnectionManager:
         agent_capabilities_provider: AgentCapabilitiesProvider | None = None,
         node_capabilities_provider: NodeCapabilitiesProvider | None = None,
         prompt_preview_provider: PromptPreviewProvider | None = None,
+        node_prompt_workspace_resolver: NodePromptWorkspaceResolver | None = None,
         session_fork_handler: SessionForkHandler | None = None,
         token_getter: TokenGetter | None = None,
         permission_response_handler: PermissionResponseHandler | None = None,
@@ -315,6 +317,7 @@ class IMConnectionManager:
         self._node_capabilities_provider = node_capabilities_provider
         # feat-379-M2 R5: provider for prompt preview; calls agent HTTP /v1/prompt-preview.
         self._prompt_preview_provider = prompt_preview_provider
+        self._node_prompt_workspace_resolver = node_prompt_workspace_resolver
         # feat-445-M1: handler for IM-delegated session fork (decision 2).
         self._session_fork_handler = session_fork_handler
         # Called when IM pushes a permission_response so PA can POST it to the agent.
@@ -1039,15 +1042,27 @@ class IMConnectionManager:
                 created_payload = await _maybe_await(
                     self._agent_create_handler(agent_payload)
                 )
+            created_error = (
+                created_payload.get("error")
+                if isinstance(created_payload, Mapping)
+                else None
+            )
+            response_payload: dict[str, object] = {
+                "request_id": request_id,
+                "node_id": self._reporter.node_id,
+                "agent": (
+                    {}
+                    if isinstance(created_error, Mapping)
+                    else dict(created_payload)
+                    if isinstance(created_payload, Mapping)
+                    else {}
+                ),
+            }
+            if isinstance(created_error, Mapping):
+                response_payload["error"] = dict(created_error)
             await self.send_json(
                 "agent.created",
-                {
-                    "request_id": request_id,
-                    "node_id": self._reporter.node_id,
-                    "agent": dict(created_payload)
-                    if isinstance(created_payload, Mapping)
-                    else {},
-                },
+                response_payload,
             )
             return
         if message_type == "session.fork.request":
@@ -1170,16 +1185,32 @@ class IMConnectionManager:
             )
             return
         if message_type == "node.prompt.preview.request":
-            # feat-379-M9 (決策 11): node-level preview — no agent_id needed.
-            # feat-383-M1: workspace_root and skill_ids now carried in the frame (IM derives workspace_root).
             request_id = _require_text(body.get("request_id"), field_name="request_id")
-            # workspace_root may be empty string when agent_id_hint was absent in the IM request.
             node_workspace_root_raw = body.get("workspace_root")
             node_workspace_root = (
                 node_workspace_root_raw
                 if isinstance(node_workspace_root_raw, str)
                 else ""
             )
+            workspace_mode_raw = body.get("workspace_mode")
+            if (
+                isinstance(workspace_mode_raw, str)
+                and self._node_prompt_workspace_resolver is not None
+            ):
+                agent_id_hint_raw = body.get("agent_id_hint")
+                agent_id_hint = (
+                    agent_id_hint_raw
+                    if isinstance(agent_id_hint_raw, str)
+                    else None
+                )
+                custom_root = (
+                    node_workspace_root_raw
+                    if isinstance(node_workspace_root_raw, str)
+                    else None
+                )
+                node_workspace_root = self._node_prompt_workspace_resolver(
+                    workspace_mode_raw, agent_id_hint, custom_root
+                )
             features = body.get("features") or {}
             if not isinstance(features, dict):
                 features = {}

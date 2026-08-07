@@ -41,6 +41,7 @@ def test_gateway_registration_materializes_runtime_agents_before_and_after_bind(
                         "node_name": "MacBook",
                         "version": "1.0.0",
                         "agents": ["Alpha", "Beta"],
+                        "agent_workspace_is_default": {"Alpha": True, "Beta": False},
                         "capabilities": {"relay": True},
                     },
                 }
@@ -64,8 +65,36 @@ def test_gateway_registration_materializes_runtime_agents_before_and_after_bind(
             assert "system_prompt" not in alpha_config.json()
             assert [item["workspace_is_default"] for item in before_bind.json()] == [
                 True,
-                True,
+                False,
             ]
+            stored_provenance = app.state.connection.execute(
+                "SELECT agent_id, workspace_is_default FROM agent_profiles "
+                "WHERE agent_id IN (?, ?) ORDER BY agent_id",
+                ("Alpha", "Beta"),
+            ).fetchall()
+            assert [row["workspace_is_default"] for row in stored_provenance] == [1, 0]
+            websocket.send_json(
+                {
+                    "type": "node.register",
+                    "payload": {
+                        "node_id": "node-1",
+                        "node_name": "MacBook",
+                        "version": "1.0.1",
+                        "agents": ["Alpha", "Beta"],
+                        "agent_workspace_is_default": {
+                            "Alpha": False,
+                            "Beta": True,
+                        },
+                    },
+                }
+            )
+            assert websocket.receive_json()["type"] == "ack"
+            preserved = app.state.connection.execute(
+                "SELECT agent_id, workspace_is_default FROM agent_profiles "
+                "WHERE agent_id IN (?, ?) ORDER BY agent_id",
+                ("Alpha", "Beta"),
+            ).fetchall()
+            assert [row["workspace_is_default"] for row in preserved] == [1, 0]
             stored_rows = app.state.connection.execute(
                 "SELECT agent_id, workspace_root FROM agent_profiles WHERE agent_id IN (?, ?) ORDER BY agent_id",
                 ("Alpha", "Beta"),
@@ -132,6 +161,13 @@ def test_gateway_reregistration_preserves_canonical_agent_labels_after_restart(
             "M170 Alpha",
             "M170 Beta",
         ]
+        legacy_provenance = app.state.connection.execute(
+            "SELECT workspace_is_default FROM agent_profiles "
+            "WHERE agent_id = ?",
+            ("agent-m170-alpha",),
+        ).fetchone()
+        assert legacy_provenance["workspace_is_default"] is None
+        assert first_listing.json()[0]["workspace_is_default"] is False
 
         app.state.connection.execute(
             "DELETE FROM agent_profiles WHERE agent_id IN (?, ?)",

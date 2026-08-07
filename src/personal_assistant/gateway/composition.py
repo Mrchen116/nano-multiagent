@@ -623,6 +623,13 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
             ),
             node_capabilities_provider=lambda: build_node_capabilities_payload(kernel),
             prompt_preview_provider=_make_prompt_preview_provider(kernel),
+            node_prompt_workspace_resolver=lambda mode, agent_id_hint, workspace_root: (
+                im_config_sync_client.resolve_preview_workspace(
+                    workspace_mode=mode,
+                    agent_id_hint=agent_id_hint,
+                    workspace_root=workspace_root,
+                )
+            ),
             agent_create_handler=im_config_sync_client.handle_agent_create,
             session_fork_handler=build_session_fork_handler(
                 kernel=kernel,

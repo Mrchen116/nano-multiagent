@@ -59,7 +59,8 @@ def test_agent_config_contract_shape_and_conflict_status(tmp_path: Path) -> None
         assert response.json()["workspace_root"].endswith(
             "/nano-assistant/workspace/agent-1"
         )
-        assert response.json()["workspace_is_default"] is True
+        # Legacy rows without Gateway provenance are conservatively non-default.
+        assert response.json()["workspace_is_default"] is False
 
 
 def test_patch_agent_config_persists_features_and_custom_prompt(tmp_path: Path) -> None:
@@ -524,14 +525,10 @@ def test_agent_prompt_preview_forwards_skill_ids_to_gateway(
     )
 
 
-def test_node_prompt_preview_derives_workspace_root_from_agent_id_hint(
+def test_node_prompt_preview_delegates_default_workspace_resolution_to_gateway(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """POST /im/v1/nodes/{id}/prompt-preview must derive workspace_root from agent_id_hint.
-
-    feat-383-M1: when agent_id_hint is provided, IM derives workspace_root via
-    managed_workspace_root(agent_id_hint) and forwards it to Gateway.
-    """
+    """IM forwards workspace intent and never derives a node-local path."""
     captured: list[dict] = []
 
     async def _fake_request_node_prompt_preview(
@@ -542,20 +539,25 @@ def test_node_prompt_preview_derives_workspace_root_from_agent_id_hint(
         custom_prompt,  # noqa: ARG001
         tool_ids: list,  # noqa: ARG001
         scenario: str,  # noqa: ARG001
-        workspace_root: str = "",  # noqa: ARG001
+        workspace_mode: str,
+        agent_id_hint: str | None,
+        workspace_root: str | None,
         skill_ids: list | None = None,  # noqa: ARG001
         timeout_seconds: float = 10.0,  # noqa: ARG001
     ) -> dict:
         captured.append(
-            {"workspace_root": workspace_root, "skill_ids": list(skill_ids or [])}
+            {
+                "workspace_mode": workspace_mode,
+                "agent_id_hint": agent_id_hint,
+                "workspace_root": workspace_root,
+                "skill_ids": list(skill_ids or []),
+            }
         )
         return {"prompt": "node-preview", "section_count": 1}
 
     monkeypatch.setattr(
         GatewayControl, "request_node_prompt_preview", _fake_request_node_prompt_preview
     )
-
-    from IM.domain.models import managed_workspace_root
 
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
@@ -580,23 +582,18 @@ def test_node_prompt_preview_derives_workspace_root_from_agent_id_hint(
 
     assert response.status_code == 200
     assert len(captured) == 1, "request_node_prompt_preview must have been called"
-    expected_ws = managed_workspace_root("new-agent-x")
-    assert captured[0]["workspace_root"] == expected_ws, (
-        f"workspace_root must be derived from agent_id_hint 'new-agent-x', "
-        f"expected {expected_ws!r}, got: {captured[0]['workspace_root']!r}"
-    )
+    assert captured[0]["workspace_mode"] == "default"
+    assert captured[0]["agent_id_hint"] == "new-agent-x"
+    assert captured[0]["workspace_root"] is None
     assert captured[0]["skill_ids"] == ["code-review"], (
         f"skill_ids must be forwarded to Gateway, got: {captured[0]['skill_ids']}"
     )
 
 
-def test_node_prompt_preview_workspace_root_empty_when_no_agent_id_hint(
+def test_node_prompt_preview_forwards_custom_workspace_without_interpreting_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """POST /im/v1/nodes/{id}/prompt-preview must pass empty workspace_root when no agent_id_hint.
-
-    feat-383-M1: without agent_id_hint, workspace_root should be empty string.
-    """
+    """A custom path remains opaque to the IM host."""
     captured: list[dict] = []
 
     async def _fake_request_node_prompt_preview(
@@ -607,11 +604,19 @@ def test_node_prompt_preview_workspace_root_empty_when_no_agent_id_hint(
         custom_prompt,  # noqa: ARG001
         tool_ids: list,  # noqa: ARG001
         scenario: str,  # noqa: ARG001
-        workspace_root: str = "",  # noqa: ARG001
+        workspace_mode: str,
+        agent_id_hint: str | None,
+        workspace_root: str | None,
         skill_ids: list | None = None,  # noqa: ARG001
         timeout_seconds: float = 10.0,  # noqa: ARG001
     ) -> dict:
-        captured.append({"workspace_root": workspace_root})
+        captured.append(
+            {
+                "workspace_mode": workspace_mode,
+                "agent_id_hint": agent_id_hint,
+                "workspace_root": workspace_root,
+            }
+        )
         return {"prompt": "node-preview-empty", "section_count": 1}
 
     monkeypatch.setattr(
@@ -633,12 +638,16 @@ def test_node_prompt_preview_workspace_root_empty_when_no_agent_id_hint(
                 "features": {},
                 "custom_prompt": None,
                 "tool_ids": [],
+                "workspace_mode": "custom",
+                "workspace_root": "/tmp/remote-node/agent-x",
                 "scenario": "direct",
             },
         )
 
     assert response.status_code == 200
     assert len(captured) == 1
-    assert captured[0]["workspace_root"] == "", (
-        f"workspace_root must be empty when no agent_id_hint, got: {captured[0]['workspace_root']!r}"
-    )
+    assert captured[0] == {
+        "workspace_mode": "custom",
+        "agent_id_hint": None,
+        "workspace_root": "/tmp/remote-node/agent-x",
+    }

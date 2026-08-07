@@ -1,6 +1,10 @@
 """Node board, capability, and node-scoped agent creation routes for IM HTTP APIs."""
 
+from pathlib import Path
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from IM.api.deps import (
@@ -24,7 +28,7 @@ from IM.application.node_service import NodeService
 from IM.api.deps import get_gateway_control, get_gateway_sessions
 from IM.ws.gateway.control import GatewayControl
 from IM.ws.gateway.sessions import GatewaySessions
-from IM.domain.models import NodeStatus, User, managed_workspace_root
+from IM.domain.models import NodeStatus, User
 
 router = APIRouter(tags=["nodes"])
 
@@ -49,6 +53,8 @@ class NodePromptPreviewRequest(BaseModel):
     scenario: str = "direct"
     skill_ids: list[str] = Field(default_factory=list)
     agent_id_hint: str | None = None
+    workspace_mode: Literal["default", "custom"] = "default"
+    workspace_root: str | None = None
 
 
 class NodeResponse(BaseModel):
@@ -89,6 +95,7 @@ class CreateNodeAgentRequest(BaseModel):
     group_reply_policy: str = Field(min_length=1)
     default_model: str | None = None
     workspace_root: str | None = None
+    confirm_existing_workspace: bool = False
 
 
 class NodeCapabilitiesResponse(BaseModel):
@@ -184,24 +191,22 @@ async def node_prompt_preview(
     """Proxy a node-level prompt-preview request to the Gateway node (owner-scoped).
 
     feat-379-M9 (決策 11): Used by the agent-create page before an agent exists.
-    feat-383-M1: workspace_root is derived from agent_id_hint on the IM side (decision 1);
-    skill_ids are forwarded so the kernel can resolve real skill descriptions.
+    Workspace intent is forwarded unchanged; only the target Gateway may interpret
+    or canonicalize node-local paths.
     """
     if service.get_node_for_owner(node_id=node_id, owner_id=user.owner_id) is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="node_id not found"
         )
-    # Derive workspace_root from agent_id_hint (IM owns this mapping per decision 1).
-    workspace_root = (
-        managed_workspace_root(payload.agent_id_hint) if payload.agent_id_hint else ""
-    )
     result = await gateway_handler.request_node_prompt_preview(
         target_node_id=node_id,
         features=payload.features,
         custom_prompt=payload.custom_prompt,
         tool_ids=payload.tool_ids,
         scenario=payload.scenario,
-        workspace_root=workspace_root,
+        workspace_mode=payload.workspace_mode,
+        agent_id_hint=payload.agent_id_hint,
+        workspace_root=payload.workspace_root,
         skill_ids=payload.skill_ids,
     )
     if result is None:
@@ -228,7 +233,7 @@ async def create_node_agent(
     node_service: NodeService = Depends(get_node_service),
     service: ConfigService = Depends(get_config_service),
     gateway_handler: GatewayControl = Depends(get_gateway_control),
-) -> AgentConfigResponse:
+) -> AgentConfigResponse | JSONResponse:
     """Create one agent under the requested node using node-managed workspace allocation.
 
     The target node must belong to the authenticated tenant (or be an ownerless
@@ -237,6 +242,11 @@ async def create_node_agent(
     if node_service.get_node_for_owner(node_id=node_id, owner_id=user.owner_id) is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="node_id not found"
+        )
+    existing = service.get_profile(agent_id=payload.agent_id)
+    if existing is not None and existing.owner_id.strip():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="agent_id already exists"
         )
     requested_skills: list[str] | None = payload.skills
     if "skills" not in payload.model_fields_set:
@@ -256,6 +266,7 @@ async def create_node_agent(
         "group_reply_policy": payload.group_reply_policy,
         "default_model": payload.default_model,
         "workspace_root": payload.workspace_root,
+        "confirm_existing_workspace": payload.confirm_existing_workspace,
     }
     if requested_skills is not None:
         create_payload["skills"] = requested_skills
@@ -268,8 +279,21 @@ async def create_node_agent(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="target_node_id is not connected",
         )
+    error_payload = created_payload.get("error")
+    if isinstance(error_payload, dict):
+        error_response = _workspace_error_response(error_payload)
+        if error_response is not None:
+            return error_response
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="node returned an invalid workspace error",
+        )
     workspace_root = created_payload.get("workspace_root")
-    if not isinstance(workspace_root, str) or not workspace_root.strip():
+    if (
+        not isinstance(workspace_root, str)
+        or not workspace_root.strip()
+        or not Path(workspace_root).is_absolute()
+    ):
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="node did not return workspace_root",
@@ -299,6 +323,11 @@ async def create_node_agent(
                 created_payload.get("default_model"), fallback=payload.default_model
             ),
             workspace_root=workspace_root,
+            workspace_is_default=(
+                created_payload.get("workspace_is_default")
+                if isinstance(created_payload.get("workspace_is_default"), bool)
+                else None
+            ),
             features=_coerce_bool_dict(
                 created_payload.get("features"), fallback=payload.features
             ),
@@ -318,6 +347,37 @@ async def create_node_agent(
         )
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
     return to_agent_config_response(created, service=service)
+
+
+def _workspace_error_response(error: dict[str, object]) -> JSONResponse | None:
+    code = error.get("code")
+    detail = error.get("detail")
+    if not isinstance(code, str) or not isinstance(detail, str):
+        return None
+    conflict_codes = {
+        "workspace_confirmation_required",
+        "workspace_already_assigned",
+    }
+    validation_codes = {
+        "workspace_parent_missing",
+        "workspace_parent_unusable",
+        "workspace_target_not_directory",
+        "workspace_initialization_failed",
+    }
+    if code not in conflict_codes | validation_codes:
+        return None
+    body: dict[str, object] = {"code": code, "detail": detail}
+    agent_id = error.get("agent_id")
+    if isinstance(agent_id, str) and agent_id:
+        body["agent_id"] = agent_id
+    return JSONResponse(
+        status_code=(
+            status.HTTP_409_CONFLICT
+            if code in conflict_codes
+            else status.HTTP_422_UNPROCESSABLE_ENTITY
+        ),
+        content=body,
+    )
 
 
 @router.patch("/im/v1/nodes/{node_id}/config", response_model=NodeResponse)
