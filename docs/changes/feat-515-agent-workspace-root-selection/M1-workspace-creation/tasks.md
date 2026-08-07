@@ -9,12 +9,12 @@
 
 ## 退出标准
 
-- [ ] 创建页在 Identity 与 Behavior 之间提供默认/自定义 Workspace 卡，桌面与 390px 窄屏符合原型。
-- [ ] 默认与自定义创建分别返回正确 canonical root 和 default/custom provenance；已有 Agent 详情保持只读且无新增来源标签。
-- [ ] 缺失/不可用 parent、非目录 target、已有目录未确认、同节点已占用均无创建副作用，并返回可呈现的稳定错误码。
-- [ ] 已有目录确认重试成功且不覆盖现有文件；不同节点的同字符串路径不共享 ownership 索引。
-- [ ] IM 全链路把 Gateway root 当 opaque mirror，register/migration/legacy 行为兼容，节点侧负责新建前 preview root 解析。
-- [ ] 相关 Python/frontend 测试、production build、ruff、diff check、docs check 与隔离单/双 Gateway 真栈和浏览器验收通过。
+- [x] 创建页在 Identity 与 Behavior 之间提供默认/自定义 Workspace 卡，桌面与 390px 窄屏符合原型。
+- [x] 默认与自定义创建分别返回正确 canonical root 和 default/custom provenance；已有 Agent 详情保持只读且无新增来源标签。
+- [x] 缺失/不可用 parent、非目录 target、已有目录未确认、同节点已占用均无创建副作用，并返回可呈现的稳定错误码。
+- [x] 已有目录确认重试成功且不覆盖现有文件；不同节点的同字符串路径不共享 ownership 索引。
+- [x] IM 全链路把 Gateway root 当 opaque mirror，register/migration/legacy 行为兼容，节点侧负责新建前 preview root 解析。
+- [x] 相关 Python/frontend 测试、production build、ruff、diff check、docs check 与隔离单/双 Gateway 真栈和浏览器验收通过。
 
 ## 测试策略
 
@@ -23,7 +23,7 @@
 - 落层/目录/marker: `tests/unit/`（纯 Gateway creation authority）、`tests/im_service/unit|integration|contract/`（IM persistence/protocol/HTTP）、`src/IM/frontend` Vitest（交互/API adapter）、`tests/e2e/` 或 reviewer runbook（真进程/真浏览器），marker: 真进程/浏览器证据为 `e2e` 或临时验收。
 - 文件归属: 扩展上述现有语义 owner；仅在没有合适 owner 时新增按行为命名的测试文件。
 - 可选依赖 importorskip: Playwright 真浏览器验收走现有环境，不新增 Python 可选依赖。
-- 本 milestone 产生的一次性验收证据（收尾删除，不进套件）: unit evidence 下 desktop/390px 截图、HTTP 请求/响应摘要、单/双 Gateway 旅程报告；runtime config/log/DB 保持 gitignored。
+- 本 milestone 的 durable 验收证据: unit evidence 下 desktop/390px 截图、HTTP 请求/响应摘要、单/双 Gateway 旅程报告；runtime config/log/DB 保持 gitignored 并在收尾删除。
 
 ### 受影响的既有测试处置
 
@@ -105,6 +105,6 @@
 
 ### R5 — 隔离真栈与浏览器原型对照
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 通过 runbook 启动隔离 IM/Gateway/Vite 和第二 Gateway，走全部创建旅程；desktop/390px 截图落 unit evidence；检查 console/network；停止并验证资源释放。
 - 验证: 单/双 Gateway HTTP/API/DB/文件系统证据、浏览器截图和 Prototype Comparison。
