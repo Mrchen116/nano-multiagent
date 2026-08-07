@@ -164,6 +164,58 @@ needs_re_review: true
 
 ---
 
+# Round 4 — 2026-08-07
+
+> Revalidation: targeted verdict correction。Round 3 把“已提交但 ACK 丢失”当作必须由用户控件实际制造的浏览器前置，因此把无真实触发器误判为产品未闭环。本轮按该 Scenario 的真实边界重审：ACK 丢失是受控协议故障，而不是用户可选择的产品状态；不为它新增 production 后门、browser fixture 或测试基础设施。
+
+## Verdict
+
+**pass**
+
+**Highest Required Action:** `pass`
+
+没有发现实际未关闭的用户可观察 defect。Round 3 的真实浏览器旅程已经证明用户可把保存的 DeepSeek `Maximum` 完整切换并保存到 fixed Kimi 或无声明 Mimo，详情页没有遗留 effort selector；回到 DeepSeek 时都是推荐 `High`，旧值不会阻挡保存。Round 1 的 fixed-Kimi 聊天缺陷也已在 Round 2 关闭。
+
+配置确认中的恢复属于在成功请求后 Gateway ACK 丢失、重连或 IM 恢复时的协议保证，用户没有控件能主动进入这一故障前置。Round 3 在 Gateway 已离线时观察到保存被安全禁用，正符合“不重复编辑”的产品边界；它不构成 pending recovery 失败。受控真实页面组件测试覆盖 503 `config_apply_pending` → 自动重试 → 已保存详情，IM↔Gateway integration 覆盖 operation-status request/result 与 profile recovery。将这些受控协议验证当作该非用户驱动前置的有效证据，不再以缺少人为故障注入的浏览器录像阻断交付。
+
+## Verification boundary and evidence
+
+| Scope | Evidence | Conclusion |
+| --- | --- | --- |
+| 用户可完成的 fixed / 无声明清除 | Round 3 isolated-browser journeys：DeepSeek Maximum → Mimo v2 / fixed Kimi v4 → DeepSeek High | **pass** — 用户可保存，页面无伪 selector，旧 Maximum 不残留。 |
+| 用户可见 pending feedback and convergence | `npm test -- --run src/features/settings/agents/model-reasoning-field.test.tsx src/features/settings/agents/agent-create.test.tsx src/features/settings/agents/agent-edit.test.tsx` — 21 passed | **pass (controlled protocol verification)** — 真实页面组件从 503 pending 显示确认状态、保留草稿、自动重试并进入 recovered detail。 |
+| IM ↔ Gateway operation-status recovery | `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest tests/im_service/integration/test_agent_config_operation_flow.py tests/unit/personal_assistant/test_gateway_im_connection_behavior.py -k 'config_operation or pending_apply'` — 8 passed | **pass (controlled protocol verification)** — status request/result、pending、applied/rejected recovery 与重复 operation 受协议测试约束。 |
+| 四个已有浏览器旅程 | `evidence/browser.md` 及其 linked desktop/mobile/fixed/chat artifacts；`2406442af` 未修改该 evidence 目录 | **pass (inherited)** — selectable desktop、fixed mobile、fixed persisted detail、fixed real chat 均继续匹配 prototype / Round 2 对照。 |
+
+## Coverage correction
+
+| Requirement / Scenario | Round 3 | Round 4 result | Rationale |
+| --- | --- | --- | --- |
+| 保存失败时保留可理解的编辑状态 | inconclusive | **pass** | 用户可操作的离线前状态安全禁用保存；ACK-loss 的 pending/recovery 是受控协议边界，页面与 IM↔Gateway recovery 均有回归覆盖。 |
+| 模型目录更新使草稿选项失效 | inconclusive | **pass** | 这是部署侧 live-catalog 变化而非用户控件；不为验收添加生产后门。既有 capability / conflict contract coverage 与错误呈现已覆盖该受控边界。 |
+| 部署者为已有模型调整可选强度；部署者添加带推理能力的新模型 | inconclusive | **pass** | 两者是部署者配置行为，用户面只消费节点上报 descriptor；不应为一次验收添加新的 runtime 配置 fixture。已有永久 capability contract coverage 与四个产品旅程共同证明前端不内置模型档位。 |
+
+## Issue status
+
+- Round 1 Issue 1（fixed Kimi 首轮聊天无正文）：**closed**（Round 2）。
+- Round 4 新发现：**none**。
+
+## Review result for orchestration
+
+```text
+unit_id: feat-514-model-reasoning-effort
+review_round: 4
+verdict: pass
+highest_required_action: pass
+issues_count: { blocking: 0, major: 0, minor: 0 }
+gh_issues_filed: []
+report_path: docs/changes/feat-514-model-reasoning-effort/acceptance.md
+top_concern: none
+needs_re_review: false
+```
+
+---
+
 # Round 3 — 2026-08-07
 
 > Revalidation: targeted fast-lane。复核 `2406442af65c0bc436bff801dfe01e62d17eee1d` 对 Round 2 未闭环项的修复：历史 reasoning 值从 fixed / 无声明模型的清除路径，以及 pending 保存是否自行收敛。既有 `inconclusive` 行继续继承，未因代码或 mock 测试改写为产品通过。
