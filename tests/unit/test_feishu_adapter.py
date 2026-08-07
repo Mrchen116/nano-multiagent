@@ -12,6 +12,9 @@ from personal_assistant.channels.base import InboundMessage
 from personal_assistant.channels.feishu.adapter import FeishuAdapter
 from personal_assistant.channels.feishu.client import (
     FeishuAPIError,
+    FeishuContentPart,
+    FeishuImageResource,
+    FeishuImageTooLargeError,
     FeishuMention,
     FeishuMessageEvent,
 )
@@ -27,6 +30,8 @@ def _event(
     chat_type: str = "p2p",
     message_id: str = "msg_001",
     mentions: list[FeishuMention] | None = None,
+    image_keys: tuple[str, ...] = (),
+    content_parts: tuple[FeishuContentPart, ...] = (),
 ) -> FeishuMessageEvent:
     return FeishuMessageEvent(
         text=text,
@@ -39,6 +44,8 @@ def _event(
         mentions=mentions or [],
         raw_text=text,
         mention_only=False,
+        image_keys=image_keys,
+        content_parts=content_parts,
     )
 
 
@@ -77,6 +84,113 @@ def test_direct_message_maps_stable_identity_and_acknowledges(
         message_id="msg_001",
         emoji_type="THINKING",
     )
+
+
+@patch("personal_assistant.channels.feishu.adapter.FeishuClient")
+def test_direct_image_is_downloaded_once_for_model_and_im_attachment(
+    mock_client_class: MagicMock,
+) -> None:
+    client = mock_client_class.return_value
+    client.download_message_image.return_value = FeishuImageResource(
+        data=b"image-bytes",
+        content_type="image/png",
+        file_name="photo.png",
+    )
+    on_inbound = MagicMock()
+    adapter = _adapter()
+    adapter.start(on_inbound)
+
+    adapter._handle_message(
+        _event(
+            text="",
+            image_keys=("img_1",),
+            content_parts=(FeishuContentPart(kind="image", image_key="img_1"),),
+        )
+    )
+
+    message: InboundMessage = on_inbound.call_args.args[0]
+    client.download_message_image.assert_called_once_with(
+        message_id="msg_001",
+        image_key="img_1",
+    )
+    assert message.metadata["attachments"] == [
+        {
+            "url": "data:image/png;base64,aW1hZ2UtYnl0ZXM=",
+            "content_type": "image/png",
+            "file_name": "photo.png",
+        }
+    ]
+    assert message.text == ""
+    assert message.metadata["kernel_input_parts"] == [
+        {"type": "image", "attachment_index": 0}
+    ]
+
+
+@patch("personal_assistant.channels.feishu.adapter.FeishuClient")
+def test_post_image_preserves_model_part_order(
+    mock_client_class: MagicMock,
+) -> None:
+    client = mock_client_class.return_value
+    client.download_message_image.return_value = FeishuImageResource(
+        data=b"image-bytes",
+        content_type="image/png",
+        file_name="photo.png",
+    )
+    on_inbound = MagicMock()
+    adapter = _adapter()
+    adapter.start(on_inbound)
+
+    adapter._handle_message(
+        _event(
+            text="前文[图片]后文",
+            image_keys=("img_1",),
+            content_parts=(
+                FeishuContentPart(kind="text", text="前文"),
+                FeishuContentPart(kind="image", image_key="img_1"),
+                FeishuContentPart(kind="text", text="后文"),
+            ),
+        )
+    )
+
+    message: InboundMessage = on_inbound.call_args.args[0]
+    assert message.text == "前文[图片]后文"
+    assert message.metadata["kernel_input_parts"] == [
+        {"type": "text", "text": "前文"},
+        {"type": "image", "attachment_index": 0},
+        {"type": "text", "text": "后文"},
+    ]
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_failure"),
+    [
+        (FeishuAPIError("download failed", code=1), "download"),
+        (FeishuImageTooLargeError("too large", code=0), "oversize"),
+    ],
+)
+@patch("personal_assistant.channels.feishu.adapter.FeishuClient")
+def test_image_download_failure_is_preserved_for_gateway_reply(
+    mock_client_class: MagicMock,
+    error: Exception,
+    expected_failure: str,
+) -> None:
+    client = mock_client_class.return_value
+    client.download_message_image.side_effect = error
+    on_inbound = MagicMock()
+    adapter = _adapter()
+    adapter.start(on_inbound)
+
+    adapter._handle_message(
+        _event(
+            text="",
+            image_keys=("img_1",),
+            content_parts=(FeishuContentPart(kind="image", image_key="img_1"),),
+        )
+    )
+
+    message: InboundMessage = on_inbound.call_args.args[0]
+    assert message.metadata["image_resolution_failure"] == expected_failure
+    assert "attachments" not in message.metadata
 
 
 @patch("personal_assistant.channels.feishu.adapter.FeishuClient")

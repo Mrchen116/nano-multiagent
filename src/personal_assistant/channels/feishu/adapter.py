@@ -9,6 +9,8 @@ buffering, and IM shadow sync.
 
 from __future__ import annotations
 
+import base64
+from concurrent.futures import ThreadPoolExecutor
 import logging
 import threading
 from collections.abc import Callable, Mapping
@@ -26,6 +28,7 @@ from personal_assistant.channels.feishu.client import (
     FeishuAuthError,
     FeishuCardActionEvent,
     FeishuClient,
+    FeishuImageTooLargeError,
     FeishuMessageEvent,
     FeishuMention,
 )
@@ -279,7 +282,7 @@ class FeishuAdapter:
         for message in pending:
             if not message.message_id or message.message_id == event.message_id:
                 continue
-            if not message.text.strip():
+            if not message.text.strip() and not message.image_keys:
                 continue
             if self._was_group_message_seen(message):
                 continue
@@ -370,6 +373,27 @@ class FeishuAdapter:
 
     def _deliver_dm(self, event: FeishuMessageEvent) -> None:
         """Deliver a 1:1 DM as an InboundMessage."""
+        attachments, image_indexes, image_failure = self._download_image_attachments(
+            event
+        )
+        metadata: dict[str, object] = {
+            "feishu_message_id": event.message_id,
+            "feishu_chat_type": event.chat_type,
+            "feishu_mentions": [
+                {"open_id": m.open_id, "name": m.name, "key": m.key}
+                for m in event.mentions
+            ],
+            "raw_text": event.raw_text,
+            "mention_only": event.mention_only,
+            **self._external_metadata(event, is_group=False),
+        }
+        if attachments:
+            metadata["attachments"] = attachments
+        if image_failure is not None:
+            metadata["image_resolution_failure"] = image_failure
+        kernel_parts = self._kernel_input_parts(event, image_indexes=image_indexes)
+        if kernel_parts:
+            metadata["kernel_input_parts"] = kernel_parts
         inbound = InboundMessage(
             channel_name=self.name,
             text=event.text,
@@ -381,17 +405,7 @@ class FeishuAdapter:
                 connector_account_id=self._app_id,
                 provider_event_id=event.message_id,
             ),
-            metadata={
-                "feishu_message_id": event.message_id,
-                "feishu_chat_type": event.chat_type,
-                "feishu_mentions": [
-                    {"open_id": m.open_id, "name": m.name, "key": m.key}
-                    for m in event.mentions
-                ],
-                "raw_text": event.raw_text,
-                "mention_only": event.mention_only,
-                **self._external_metadata(event, is_group=False),
-            },
+            metadata=metadata,
         )
         assert self._on_inbound is not None
         self._on_inbound(inbound)
@@ -424,6 +438,16 @@ class FeishuAdapter:
                 bind_owner=source == "event",
             ),
         }
+        attachments, image_indexes, image_failure = self._download_image_attachments(
+            event
+        )
+        if attachments:
+            metadata["attachments"] = attachments
+        if image_failure is not None:
+            metadata["image_resolution_failure"] = image_failure
+        kernel_parts = self._kernel_input_parts(event, image_indexes=image_indexes)
+        if kernel_parts:
+            metadata["kernel_input_parts"] = kernel_parts
         if sync_only:
             metadata["sync_only"] = True
         else:
@@ -444,6 +468,90 @@ class FeishuAdapter:
         )
         assert self._on_inbound is not None
         self._on_inbound(inbound)
+
+    def _download_image_attachments(
+        self,
+        event: FeishuMessageEvent,
+    ) -> tuple[list[dict[str, str]], dict[str, int], str | None]:
+        """Resolve Feishu image keys into the shared Gateway attachment shape."""
+        if self._client is None or not event.image_keys:
+            return [], {}, None
+        attachments: list[dict[str, str]] = []
+        image_indexes: dict[str, int] = {}
+        failure: str | None = None
+        image_keys = event.image_keys[:5]
+        with ThreadPoolExecutor(max_workers=len(image_keys)) as executor:
+            downloads = [
+                (
+                    image_key,
+                    executor.submit(
+                        self._client.download_message_image,
+                        message_id=event.message_id,
+                        image_key=image_key,
+                    ),
+                )
+                for image_key in image_keys
+            ]
+        for image_key, download in downloads:
+            try:
+                resource = download.result()
+            except FeishuImageTooLargeError:
+                failure = "oversize"
+                logger.warning(
+                    "feishu message image exceeds inbound limit",
+                    exc_info=True,
+                    extra={
+                        "error_code": "feishu_message_image_oversize",
+                        "message_id": event.message_id,
+                        "image_key": image_key,
+                        "agent_id": self._agent_id,
+                        "adapter": self.name,
+                    },
+                )
+                continue
+            except (FeishuAuthError, FeishuAPIError, RuntimeError):
+                failure = failure or "download"
+                logger.warning(
+                    "failed to download feishu message image",
+                    exc_info=True,
+                    extra={
+                        "error_code": "feishu_message_image_download_failed",
+                        "message_id": event.message_id,
+                        "image_key": image_key,
+                        "agent_id": self._agent_id,
+                        "adapter": self.name,
+                    },
+                )
+                continue
+            encoded = base64.b64encode(resource.data).decode("ascii")
+            attachment = {
+                "url": f"data:{resource.content_type};base64,{encoded}",
+                "content_type": resource.content_type,
+                "file_name": resource.file_name or f"{image_key}.image",
+            }
+            image_indexes[image_key] = len(attachments)
+            attachments.append(attachment)
+        return attachments, image_indexes, failure
+
+    @staticmethod
+    def _kernel_input_parts(
+        event: FeishuMessageEvent,
+        *,
+        image_indexes: Mapping[str, int],
+    ) -> list[dict[str, object]]:
+        """Map provider order to text and resolved attachment references."""
+        if not event.content_parts or not event.image_keys:
+            return []
+        parts: list[dict[str, object]] = []
+        for part in event.content_parts:
+            if part.kind == "text":
+                if part.text:
+                    parts.append({"type": "text", "text": part.text})
+                continue
+            attachment_index = image_indexes.get(part.image_key)
+            if attachment_index is not None:
+                parts.append({"type": "image", "attachment_index": attachment_index})
+        return parts
 
     def _external_metadata(
         self,

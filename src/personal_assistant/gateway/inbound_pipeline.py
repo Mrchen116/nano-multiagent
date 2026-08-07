@@ -146,6 +146,7 @@ class InboundPipeline:
                     build_group_context_key(message, agent_id),
                     message.text,
                     sender=sender_label,
+                    metadata=_buffered_input_metadata(message.metadata),
                 )
         if sync_only or not should_process:
             return None
@@ -399,3 +400,17 @@ def _resolve_sender_label(message: InboundMessage) -> str:
     if isinstance(sender_name, str) and sender_name.strip():
         return sender_name.strip()
     return message.external_user_id
+
+
+def _buffered_input_metadata(metadata: Mapping[str, object]) -> dict[str, object]:
+    """Retain only fields needed to reconstruct buffered Kernel input."""
+
+    return {
+        key: metadata[key]
+        for key in (
+            "attachments",
+            "kernel_input_parts",
+            "image_resolution_failure",
+        )
+        if key in metadata
+    }

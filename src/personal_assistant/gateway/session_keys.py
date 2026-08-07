@@ -1646,11 +1646,18 @@ def build_external_session_key(
 def build_reply_context(message: InboundMessage) -> ReplyContext:
     """Capture the outbound reply target from one inbound message."""
 
+    metadata = strip_runtime_protocol_metadata(message.metadata)
+    for input_only_key in (
+        "attachments",
+        "kernel_input_parts",
+        "image_resolution_failure",
+    ):
+        metadata.pop(input_only_key, None)
     return ReplyContext(
         channel_name=message.channel_name,
         target_chat_id=message.external_chat_id,
         thread_id=message.thread_id,
-        metadata=strip_runtime_protocol_metadata(message.metadata),
+        metadata=metadata,
     )
 
 

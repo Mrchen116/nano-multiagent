@@ -6,12 +6,20 @@ into a single lifecycle-managed object consumed by FeishuAdapter.
 
 from __future__ import annotations
 
+import base64
+from concurrent.futures import ThreadPoolExecutor
+import http.client
+import io
+import ipaddress
 import json
 import logging
+import re
+import socket
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
-from typing import Any, Callable
+from typing import Any, Callable, Literal
+from urllib.parse import SplitResult, urlsplit
 
 import lark_oapi as lark
 from lark_oapi.api.application.v6 import ListScopeRequest
@@ -20,9 +28,12 @@ from lark_oapi.api.im.v1 import (
     CreateMessageReactionRequestBody,
     CreateMessageRequest,
     CreateMessageRequestBody,
+    CreateImageRequest,
+    CreateImageRequestBody,
     DeleteMessageReactionRequest,
     Emoji,
     GetChatRequest,
+    GetMessageResourceRequest,
     ListMessageRequest,
     UpdateMessageRequest,
     UpdateMessageRequestBody,
@@ -58,6 +69,10 @@ logger = logging.getLogger(__name__)
 # Feishu encodes @mentions as @_user_N placeholders inside {"text": "..."}.
 _MENTION_PLACEHOLDER_PREFIX = "@_user_"
 _ALL_MENTION_PLACEHOLDER = "@_all"
+_MARKDOWN_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)\s]+)\)")
+_MAX_OUTBOUND_IMAGE_BYTES = 10 * 1024 * 1024
+_MAX_INBOUND_IMAGE_BYTES = 5 * 1024 * 1024
+_MAX_OUTBOUND_IMAGE_SOURCES = 5
 
 # Retry policy constants for send_message error handling.
 _MAX_RATE_LIMIT_RETRIES = 3  # Total attempts for 429 (original + 2 retries)
@@ -90,6 +105,10 @@ class FeishuAuthError(FeishuAPIError):
     """
 
 
+class FeishuImageTooLargeError(FeishuAPIError):
+    """A Feishu message image exceeds the Gateway inbound limit."""
+
+
 @dataclass(frozen=True, slots=True)
 class FeishuMention:
     """One @mention extracted from a feishu message event.
@@ -103,6 +122,15 @@ class FeishuMention:
     open_id: str
     name: str
     key: str
+
+
+@dataclass(frozen=True, slots=True)
+class FeishuContentPart:
+    """One ordered text or image node from a Feishu message."""
+
+    kind: Literal["text", "image"]
+    text: str = ""
+    image_key: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,6 +148,8 @@ class FeishuMessageEvent:
         sender_display_name: Optional display name reported by Feishu for the sender.
         raw_text: Raw extracted text before mention placeholder normalization.
         mention_only: Whether the message contains mentions but no non-mention text.
+        image_keys: Feishu image resources carried by the message in display order.
+        content_parts: Ordered provider content used to build the model's multimodal input.
     """
 
     text: str
@@ -132,6 +162,17 @@ class FeishuMessageEvent:
     sender_display_name: str | None = None
     raw_text: str = ""
     mention_only: bool = False
+    image_keys: tuple[str, ...] = ()
+    content_parts: tuple[FeishuContentPart, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class FeishuImageResource:
+    """One image downloaded from a Feishu message resource."""
+
+    data: bytes
+    content_type: str
+    file_name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -281,7 +322,7 @@ class FeishuClient:
         text: str,
         receive_id_type: str = "chat_id",
     ) -> None:
-        """Send a text message via feishu REST API with error classification.
+        """Send Markdown text as a Feishu rich-text post.
 
         Error handling strategy:
         - 429 (rate limit): exponential backoff retry, max 3 attempts
@@ -291,7 +332,7 @@ class FeishuClient:
 
         Args:
             receive_id: Target chat or user identifier.
-            text: Plain-text message content.
+            text: Markdown message content.
             receive_id_type: Type of receive_id (``chat_id``, ``open_id``, etc.).
 
         Raises:
@@ -299,13 +340,125 @@ class FeishuClient:
             FeishuAuthError: When the feishu API returns 401/403.
             FeishuAPIError: When the feishu API returns any other error.
         """
-        content = json.dumps({"text": text})
+        resolved_text = self._resolve_outbound_markdown_images(text)
+        content = json.dumps(
+            {
+                "zh_cn": {
+                    "content": [[{"tag": "md", "text": resolved_text}]],
+                }
+            },
+            ensure_ascii=False,
+        )
         self._send_create_message(
             receive_id=receive_id,
             receive_id_type=receive_id_type,
-            msg_type="text",
+            msg_type="post",
             content=content,
         )
+
+    def download_message_image(
+        self,
+        *,
+        message_id: str,
+        image_key: str,
+    ) -> FeishuImageResource:
+        """Download one standalone or post-embedded image from a message."""
+        if self._rest_client is None:
+            raise RuntimeError("feishu client is not started")
+        request = (
+            GetMessageResourceRequest.builder()
+            .message_id(message_id)
+            .file_key(image_key)
+            .type("image")
+            .build()
+        )
+        response = self._rest_client.im.v1.message_resource.get(request)
+        if not response.success():
+            _raise_api_error(response, action="downloading message image")
+
+        stream = getattr(response, "file", None)
+        data = (
+            stream.read(_MAX_INBOUND_IMAGE_BYTES + 1)
+            if hasattr(stream, "read")
+            else stream
+        )
+        if not isinstance(data, (bytes, bytearray)) or not data:
+            raise FeishuAPIError(
+                "feishu returned an empty message image",
+                code=0,
+            )
+        if len(data) > _MAX_INBOUND_IMAGE_BYTES:
+            raise FeishuImageTooLargeError(
+                "feishu message image exceeds the 5 MiB inbound limit",
+                code=0,
+            )
+        content_type = _response_content_type(response) or _detect_image_content_type(
+            bytes(data)
+        )
+        file_name = getattr(response, "file_name", None)
+        return FeishuImageResource(
+            data=bytes(data),
+            content_type=content_type or "image/jpeg",
+            file_name=(
+                str(file_name).strip()
+                if isinstance(file_name, str) and file_name.strip()
+                else None
+            ),
+        )
+
+    def _resolve_outbound_markdown_images(self, text: str) -> str:
+        """Upload Markdown image sources and replace them with Feishu image keys."""
+
+        sources: list[str] = []
+
+        def collect_image(match: re.Match[str]) -> str:
+            source = match.group(2)
+            if not source.startswith("img_") and source not in sources:
+                if len(sources) >= _MAX_OUTBOUND_IMAGE_SOURCES:
+                    raise ValueError(
+                        "one Feishu message supports at most five uploaded image sources"
+                    )
+                sources.append(source)
+            return match.group(0)
+
+        _replace_markdown_images_outside_code(text, collect_image)
+        resolved: dict[str, tuple[bytes, str]] = {}
+        if sources:
+            with ThreadPoolExecutor(max_workers=len(sources)) as executor:
+                downloads = {
+                    source: executor.submit(_read_outbound_image, source)
+                    for source in sources
+                }
+                resolved = {source: downloads[source].result() for source in sources}
+        uploaded = {
+            source: self._upload_image(data, content_type=content_type)
+            for source, (data, content_type) in resolved.items()
+        }
+
+        def replace_image(match: re.Match[str]) -> str:
+            image_key = uploaded.get(match.group(2))
+            if image_key is None:
+                return match.group(0)
+            return f"![{match.group(1)}]({image_key})"
+
+        return _replace_markdown_images_outside_code(text, replace_image)
+
+    def _upload_image(self, data: bytes, *, content_type: str) -> str:
+        if self._rest_client is None:
+            raise RuntimeError("feishu client is not started")
+        stream = io.BytesIO(data)
+        stream.name = f"image.{_image_extension(content_type)}"
+        body = (
+            CreateImageRequestBody.builder().image_type("message").image(stream).build()
+        )
+        request = CreateImageRequest.builder().request_body(body).build()
+        response = self._rest_client.im.v1.image.create(request)
+        if not response.success():
+            _raise_api_error(response, action="uploading message image")
+        image_key = str(getattr(getattr(response, "data", None), "image_key", ""))
+        if not image_key:
+            raise FeishuAPIError("feishu image upload returned no image_key", code=0)
+        return image_key
 
     def send_interactive_message(
         self,
@@ -485,10 +638,10 @@ class FeishuClient:
         items = getattr(response.data, "items", None) or []
         events: list[FeishuMessageEvent] = []
         for item in reversed(items):
-            if _message_type(item) != "text":
+            if _message_type(item) not in {"text", "post", "image"}:
                 continue
             event = _parse_feishu_history_message(item, chat_id=chat_id)
-            if event.text.strip():
+            if event.text.strip() or event.image_keys:
                 events.append(event)
         return events
 
@@ -714,6 +867,196 @@ def _raise_api_error(response: Any, *, action: str) -> None:
     )
 
 
+def _response_content_type(response: Any) -> str | None:
+    raw = getattr(response, "raw", None)
+    headers = getattr(raw, "headers", None)
+    if not isinstance(headers, Mapping):
+        return None
+    value = headers.get("Content-Type") or headers.get("content-type")
+    if not isinstance(value, str):
+        return None
+    normalized = value.split(";", 1)[0].strip().lower()
+    return normalized if normalized.startswith("image/") else None
+
+
+def _replace_markdown_images_outside_code(
+    text: str,
+    replacer: Callable[[re.Match[str]], str],
+) -> str:
+    """Replace image syntax while preserving escaped and code examples."""
+
+    output: list[str] = []
+    index = 0
+    code_delimiter = 0
+    while index < len(text):
+        if text[index] == "`":
+            end = index + 1
+            while end < len(text) and text[end] == "`":
+                end += 1
+            run_length = end - index
+            if code_delimiter == 0:
+                code_delimiter = run_length
+            elif code_delimiter == run_length:
+                code_delimiter = 0
+            output.append(text[index:end])
+            index = end
+            continue
+        if code_delimiter == 0 and text.startswith("![", index):
+            backslashes = 0
+            cursor = index - 1
+            while cursor >= 0 and text[cursor] == "\\":
+                backslashes += 1
+                cursor -= 1
+            if backslashes % 2 == 0:
+                match = _MARKDOWN_IMAGE_RE.match(text, index)
+                if match is not None:
+                    output.append(replacer(match))
+                    index = match.end()
+                    continue
+        output.append(text[index])
+        index += 1
+    return "".join(output)
+
+
+def _read_outbound_image(source: str) -> tuple[bytes, str]:
+    if source.startswith("data:image/"):
+        return _decode_image_data_url(source)
+
+    parsed = urlsplit(source)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("feishu Markdown images require a public HTTP(S) or data URL")
+    if parsed.username or parsed.password:
+        raise ValueError("feishu Markdown image URLs must not contain credentials")
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    addresses = _resolve_public_addresses(parsed.hostname, port)
+    data = _download_from_pinned_public_address(parsed, addresses, port=port)
+    content_type = _detect_image_content_type(data)
+    if content_type is None:
+        raise ValueError("feishu outbound image is not a supported raster image")
+    return data, content_type
+
+
+def _decode_image_data_url(source: str) -> tuple[bytes, str]:
+    header, separator, encoded = source.partition(",")
+    if not separator or ";base64" not in header.lower():
+        raise ValueError("feishu image data URLs must use base64 encoding")
+    try:
+        data = base64.b64decode(encoded, validate=True)
+    except ValueError as exc:
+        raise ValueError("feishu image data URL contains invalid base64") from exc
+    if len(data) > _MAX_OUTBOUND_IMAGE_BYTES:
+        raise ValueError("feishu outbound image exceeds 10 MB")
+    content_type = _detect_image_content_type(data)
+    if content_type is None:
+        raise ValueError("feishu outbound image is not a supported raster image")
+    return data, content_type
+
+
+def _resolve_public_addresses(host: str, port: int) -> tuple[str, ...]:
+    try:
+        addresses = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        raise ValueError("feishu Markdown image host could not be resolved") from exc
+    public_addresses: list[str] = []
+    for address in addresses:
+        raw_ip = address[4][0]
+        ip = ipaddress.ip_address(raw_ip)
+        if not ip.is_global:
+            raise ValueError("feishu Markdown image URL must resolve to a public host")
+        if raw_ip not in public_addresses:
+            public_addresses.append(raw_ip)
+    if not public_addresses:
+        raise ValueError("feishu Markdown image host could not be resolved")
+    return tuple(public_addresses)
+
+
+def _download_from_pinned_public_address(
+    parsed: SplitResult,
+    addresses: tuple[str, ...],
+    *,
+    port: int,
+) -> bytes:
+    """Download through a validated IP while preserving HTTP Host and TLS SNI."""
+
+    target = parsed.path or "/"
+    if parsed.query:
+        target = f"{target}?{parsed.query}"
+    last_error: Exception | None = None
+    deadline = time.monotonic() + 15.0
+    for address in addresses:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        connection_type = (
+            http.client.HTTPSConnection
+            if parsed.scheme == "https"
+            else http.client.HTTPConnection
+        )
+        connection = connection_type(parsed.hostname, port=port, timeout=remaining)
+
+        def create_pinned_connection(
+            _address: tuple[str, int],
+            timeout: float | object = socket._GLOBAL_DEFAULT_TIMEOUT,
+            source_address: tuple[str, int] | None = None,
+            *,
+            all_errors: bool = False,
+        ) -> socket.socket:
+            return socket.create_connection(
+                (address, port),
+                timeout,
+                source_address,
+                all_errors=all_errors,
+            )
+
+        # HTTPConnection uses this hook before HTTPS wraps the socket with the
+        # original hostname, so the validated address is pinned without losing SNI.
+        connection._create_connection = create_pinned_connection  # type: ignore[attr-defined]
+        try:
+            connection.request(
+                "GET",
+                target,
+                headers={"User-Agent": "nano-multiagent/1.0"},
+            )
+            response = connection.getresponse()
+            if response.status >= 400:
+                raise ValueError(
+                    f"feishu outbound image request failed with HTTP {response.status}"
+                )
+            chunks: list[bytes] = []
+            size = 0
+            while chunk := response.read(64 * 1024):
+                size += len(chunk)
+                if size > _MAX_OUTBOUND_IMAGE_BYTES:
+                    raise ValueError("feishu outbound image exceeds 10 MB")
+                chunks.append(chunk)
+            return b"".join(chunks)
+        except (OSError, http.client.HTTPException) as exc:
+            last_error = exc
+        finally:
+            connection.close()
+    raise ValueError("feishu outbound image could not be downloaded") from last_error
+
+
+def _detect_image_content_type(data: bytes) -> str | None:
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if len(data) >= 12 and data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def _image_extension(content_type: str) -> str:
+    return {
+        "image/jpeg": "jpg",
+        "image/gif": "gif",
+        "image/webp": "webp",
+    }.get(content_type, "png")
+
+
 def _parse_feishu_card_action_event(event: Any) -> FeishuCardActionEvent:
     raw_event = getattr(event, "event", None)
     action = getattr(raw_event, "action", None)
@@ -760,10 +1103,23 @@ def _parse_feishu_event(event: Any) -> FeishuMessageEvent:
     message_id: str = message.message_id or ""
     raw_content: str = message.content or ""
 
-    # Parse text from feishu JSON content {"text": "..."}.
-    raw_text = _extract_text(raw_content)
     mentions = _extract_mentions(message)
-    text = _normalize_mention_text(raw_text, mentions)
+    message_type = _message_type(message)
+    raw_parts = _extract_message_content_parts(
+        message_type=message_type,
+        raw_content=raw_content,
+        mentions=mentions,
+    )
+    content_parts = _normalize_content_parts(raw_parts, mentions)
+    include_image_markers = message_type.strip().lower() == "post"
+    raw_text = _project_content_parts(
+        raw_parts,
+        include_image_markers=include_image_markers,
+    )
+    text = _project_content_parts(
+        content_parts,
+        include_image_markers=include_image_markers,
+    )
     mention_only = bool(mentions) and _text_without_mentions(raw_text, mentions) == ""
 
     return FeishuMessageEvent(
@@ -777,6 +1133,8 @@ def _parse_feishu_event(event: Any) -> FeishuMessageEvent:
         sender_display_name=sender_display_name,
         raw_text=raw_text,
         mention_only=mention_only,
+        image_keys=_content_image_keys(content_parts),
+        content_parts=content_parts,
     )
 
 
@@ -784,9 +1142,23 @@ def _parse_feishu_history_message(message: Any, *, chat_id: str) -> FeishuMessag
     sender_open_id = _extract_message_sender_open_id(message)
     message_id = str(getattr(message, "message_id", "") or getattr(message, "id", ""))
     raw_content = _extract_message_content(message)
-    raw_text = _extract_text(raw_content)
     mentions = _extract_mentions(message)
-    text = _normalize_mention_text(raw_text, mentions)
+    message_type = _message_type(message)
+    raw_parts = _extract_message_content_parts(
+        message_type=message_type,
+        raw_content=raw_content,
+        mentions=mentions,
+    )
+    content_parts = _normalize_content_parts(raw_parts, mentions)
+    include_image_markers = message_type.strip().lower() == "post"
+    raw_text = _project_content_parts(
+        raw_parts,
+        include_image_markers=include_image_markers,
+    )
+    text = _project_content_parts(
+        content_parts,
+        include_image_markers=include_image_markers,
+    )
     mention_only = bool(mentions) and _text_without_mentions(raw_text, mentions) == ""
     return FeishuMessageEvent(
         text=text,
@@ -799,11 +1171,17 @@ def _parse_feishu_history_message(message: Any, *, chat_id: str) -> FeishuMessag
         sender_display_name=_extract_message_sender_display_name(message),
         raw_text=raw_text,
         mention_only=mention_only,
+        image_keys=_content_image_keys(content_parts),
+        content_parts=content_parts,
     )
 
 
 def _message_type(message: Any) -> str:
-    return str(getattr(message, "msg_type", "") or getattr(message, "message_type", ""))
+    for attr in ("message_type", "msg_type"):
+        value = getattr(message, attr, "")
+        if isinstance(value, str) and value:
+            return value
+    return ""
 
 
 def _extract_message_content(message: Any) -> str:
@@ -883,15 +1261,281 @@ def _extract_text(raw_content: str) -> str:
     return raw_content
 
 
+def _extract_message_content_parts(
+    *,
+    message_type: str,
+    raw_content: str,
+    mentions: list[FeishuMention],
+) -> tuple[FeishuContentPart, ...]:
+    """Parse one provider payload without collapsing text/image order."""
+
+    normalized_type = message_type.strip().lower()
+    if normalized_type == "post":
+        return _extract_post_content_parts(raw_content, mentions=mentions)
+    if normalized_type == "image":
+        key = _extract_standalone_image_key(raw_content)
+        return (FeishuContentPart(kind="image", image_key=key),) if key else ()
+    text = _extract_text(raw_content)
+    return (FeishuContentPart(kind="text", text=text),) if text else ()
+
+
+def _extract_standalone_image_key(raw_content: str) -> str:
+    try:
+        parsed = json.loads(raw_content)
+    except (json.JSONDecodeError, TypeError):
+        return ""
+    if not isinstance(parsed, dict):
+        return ""
+    return str(parsed.get("image_key", "") or "").strip()
+
+
+def _extract_post_content_parts(
+    raw_content: str,
+    *,
+    mentions: list[FeishuMention],
+) -> tuple[FeishuContentPart, ...]:
+    """Render a Feishu post into ordered Markdown text and image nodes."""
+
+    try:
+        parsed = json.loads(raw_content)
+    except (json.JSONDecodeError, TypeError):
+        return (FeishuContentPart(kind="text", text="[富文本消息]"),)
+
+    payload = _resolve_post_payload(parsed)
+    if payload is None:
+        return (FeishuContentPart(kind="text", text="[富文本消息]"),)
+
+    parts: list[FeishuContentPart] = []
+    title = payload["title"].strip()
+    if title:
+        _append_content_text(parts, title)
+        if payload["content"]:
+            _append_content_text(parts, "\n\n")
+    for paragraph_index, paragraph in enumerate(payload["content"]):
+        if not isinstance(paragraph, list):
+            continue
+        if paragraph_index:
+            _append_content_text(parts, "\n")
+        for element in paragraph:
+            if isinstance(element, dict) and str(
+                element.get("tag", "")
+            ).strip().lower() in {"img", "image"}:
+                image_key = str(element.get("image_key", "") or "").strip()
+                if image_key:
+                    parts.append(FeishuContentPart(kind="image", image_key=image_key))
+                continue
+            _append_content_text(
+                parts,
+                _render_post_element(element, mentions=mentions),
+            )
+    if not parts:
+        return (FeishuContentPart(kind="text", text="[富文本消息]"),)
+    return tuple(parts)
+
+
+def _append_content_text(parts: list[FeishuContentPart], text: str) -> None:
+    if not text:
+        return
+    if parts and parts[-1].kind == "text":
+        previous = parts[-1]
+        parts[-1] = FeishuContentPart(kind="text", text=previous.text + text)
+        return
+    parts.append(FeishuContentPart(kind="text", text=text))
+
+
+def _normalize_content_parts(
+    parts: tuple[FeishuContentPart, ...],
+    mentions: list[FeishuMention],
+) -> tuple[FeishuContentPart, ...]:
+    return tuple(
+        FeishuContentPart(
+            kind="text",
+            text=_replace_mention_placeholders(part.text, mentions),
+        )
+        if part.kind == "text"
+        else part
+        for part in parts
+    )
+
+
+def _project_content_parts(
+    parts: tuple[FeishuContentPart, ...],
+    *,
+    include_image_markers: bool,
+) -> str:
+    return "".join(
+        part.text if part.kind == "text" else "[图片]" if include_image_markers else ""
+        for part in parts
+    ).strip("\n")
+
+
+def _content_image_keys(
+    parts: tuple[FeishuContentPart, ...],
+) -> tuple[str, ...]:
+    keys: list[str] = []
+    for part in parts:
+        if part.kind == "image" and part.image_key and part.image_key not in keys:
+            keys.append(part.image_key)
+    return tuple(keys)
+
+
+def _resolve_post_payload(parsed: Any) -> dict[str, Any] | None:
+    direct = _as_post_payload(parsed)
+    if direct is not None:
+        return direct
+    if not isinstance(parsed, dict):
+        return None
+
+    wrapped = parsed.get("post")
+    direct = _resolve_localized_post(wrapped)
+    if direct is not None:
+        return direct
+    return _resolve_localized_post(parsed)
+
+
+def _resolve_localized_post(candidate: Any) -> dict[str, Any] | None:
+    direct = _as_post_payload(candidate)
+    if direct is not None:
+        return direct
+    if not isinstance(candidate, dict):
+        return None
+    for value in candidate.values():
+        direct = _as_post_payload(value)
+        if direct is not None:
+            return direct
+    return None
+
+
+def _as_post_payload(candidate: Any) -> dict[str, Any] | None:
+    if not isinstance(candidate, dict):
+        return None
+    content = candidate.get("content_v2")
+    if not isinstance(content, list):
+        content = candidate.get("content")
+    if not isinstance(content, list):
+        return None
+    return {
+        "title": str(candidate.get("title", "") or ""),
+        "content": content,
+    }
+
+
+def _render_post_element(
+    element: Any,
+    *,
+    mentions: list[FeishuMention],
+) -> str:
+    if isinstance(element, str):
+        return element
+    if not isinstance(element, dict):
+        return ""
+
+    tag = str(element.get("tag", "")).strip().lower()
+    if tag == "text":
+        return _render_styled_post_text(element)
+    if tag in {"md", "lark_md"}:
+        return str(element.get("text", "") or element.get("content", "") or "")
+    if tag == "a":
+        href = str(element.get("href", "") or "").strip()
+        label = str(element.get("text", "") or href)
+        return f"[{label}]({href})" if href else label
+    if tag == "at":
+        return _render_post_mention(element, mentions=mentions)
+    if tag in {"img", "image"}:
+        return ""
+    if tag in {"media", "file", "audio", "video"}:
+        file_name = str(element.get("file_name", "") or "").strip()
+        return f"[附件: {file_name}]" if file_name else "[附件]"
+    if tag in {"emotion", "emoji"}:
+        return str(element.get("text", "") or element.get("emoji_type", "") or "")
+    if tag == "br":
+        return "\n"
+    if tag in {"hr", "divider"}:
+        return "\n\n---\n\n"
+    if tag == "code":
+        return _wrap_inline_code(
+            str(element.get("text", "") or element.get("content", "") or "")
+        )
+    if tag in {"code_block", "pre"}:
+        language = str(element.get("language", "") or element.get("lang", "") or "")
+        code = str(element.get("text", "") or element.get("content", "") or "")
+        return f"```{language}\n{code}\n```"
+    return str(element.get("text", "") or "")
+
+
+def _render_styled_post_text(element: dict[str, Any]) -> str:
+    text = str(element.get("text", "") or "")
+    style = element.get("style")
+    if _post_style_enabled(style, "code"):
+        return _wrap_inline_code(text)
+    if _post_style_enabled(style, "bold"):
+        text = f"**{text}**"
+    if _post_style_enabled(style, "italic"):
+        text = f"*{text}*"
+    if _post_style_enabled(style, "underline"):
+        text = f"<u>{text}</u>"
+    if any(
+        _post_style_enabled(style, name)
+        for name in ("strikethrough", "line_through", "lineThrough")
+    ):
+        text = f"~~{text}~~"
+    return text
+
+
+def _post_style_enabled(style: Any, name: str) -> bool:
+    if isinstance(style, list):
+        return name in style
+    if isinstance(style, dict):
+        return bool(style.get(name))
+    return False
+
+
+def _wrap_inline_code(text: str) -> str:
+    longest_run = 0
+    current_run = 0
+    for char in text:
+        if char == "`":
+            current_run += 1
+            longest_run = max(longest_run, current_run)
+        else:
+            current_run = 0
+    fence = "`" * (longest_run + 1)
+    padded = f" {text} " if text.startswith("`") or text.endswith("`") else text
+    return f"{fence}{padded}{fence}"
+
+
+def _render_post_mention(
+    element: dict[str, Any],
+    *,
+    mentions: list[FeishuMention],
+) -> str:
+    mention_id = str(
+        element.get("user_id", "") or element.get("open_id", "") or ""
+    ).strip()
+    if mention_id == _ALL_MENTION_PLACEHOLDER:
+        return _ALL_MENTION_PLACEHOLDER
+    for mention in mentions:
+        if mention_id in {mention.key, mention.open_id}:
+            return mention.key or _visible_mention_text(mention)
+    name = str(element.get("user_name", "") or mention_id).strip()
+    return f"@{name}" if name and not name.startswith("@") else name
+
+
 def _normalize_mention_text(text: str, mentions: list[FeishuMention]) -> str:
     """Replace Feishu mention placeholders with user-visible @ labels."""
+
+    return _collapse_spaces(_replace_mention_placeholders(text, mentions))
+
+
+def _replace_mention_placeholders(text: str, mentions: list[FeishuMention]) -> str:
+    """Replace mention placeholders without changing surrounding whitespace."""
 
     normalized = text.replace(_ALL_MENTION_PLACEHOLDER, "@所有人")
     for mention in mentions:
         if not mention.key:
             continue
         normalized = normalized.replace(mention.key, _visible_mention_text(mention))
-    return _collapse_spaces(normalized)
+    return normalized
 
 
 def _text_without_mentions(text: str, mentions: list[FeishuMention]) -> str:

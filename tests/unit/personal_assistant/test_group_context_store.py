@@ -25,3 +25,15 @@ def test_drain_isolated_to_requested_group(tmp_path: Path) -> None:
 
     assert store.drain("group-a") == [("alice", "message-a")]
     assert store.drain("group-b") == [("bob", "message-b")]
+
+
+def test_drain_with_metadata_preserves_multimodal_projection(tmp_path: Path) -> None:
+    store = GroupContextStore(db_path=tmp_path / "ctx.sqlite3")
+    metadata = {
+        "attachments": [{"url": "data:image/png;base64,aW1hZ2U="}],
+        "kernel_input_parts": [{"type": "image", "attachment_index": 0}],
+    }
+    store.append("group-a", "", sender="alice", metadata=metadata)
+
+    assert store.drain_with_metadata("group-a") == [("alice", "", metadata)]
+    assert store.drain_with_metadata("group-a") == []

@@ -69,6 +69,26 @@ class ImageAttachmentResolver:
             url = item["url"]
             mime = item.get("content_type")
             mime = mime.strip() if isinstance(mime, str) and mime.strip() else None
+            if url.startswith("data:image/"):
+                raw = _decode_image_data_url(url)
+                if raw is None:
+                    return ImageResolution(parts=(), failure="corrupt")
+                if len(raw) > self._max_image_bytes:
+                    return ImageResolution(parts=(), failure="oversize")
+                detected_mime = _detect_image_mime(raw)
+                if detected_mime is None:
+                    return ImageResolution(parts=(), failure="corrupt")
+                canonical_url = f"data:{detected_mime};base64," + base64.b64encode(
+                    raw
+                ).decode("ascii")
+                parts.append(
+                    {
+                        "type": "image",
+                        "image_url": canonical_url,
+                        "mime_type": detected_mime,
+                    }
+                )
+                continue
             if self._fetcher is None:
                 part: dict[str, Any] = {"type": "image", "image_url": url}
                 if mime:
@@ -100,6 +120,16 @@ class ImageAttachmentResolver:
                 }
             )
         return ImageResolution(parts=tuple(parts))
+
+
+def _decode_image_data_url(url: str) -> bytes | None:
+    header, separator, encoded = url.partition(",")
+    if not separator or ";base64" not in header.lower():
+        return None
+    try:
+        return base64.b64decode(encoded, validate=True)
+    except ValueError:
+        return None
 
 
 def build_im_attachment_fetcher(

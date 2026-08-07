@@ -158,6 +158,23 @@ class TestR1PersistAndRecover:
 
         assert reply_context.metadata == {"message_id": "msg-1"}
 
+    def test_build_reply_context_excludes_inbound_image_payloads(self) -> None:
+        message = InboundMessage(
+            channel_name="feishu:agent-a",
+            text="[图片]",
+            external_user_id="user-1",
+            external_chat_id="chat-1",
+            is_group=False,
+            metadata={
+                "message_id": "msg-1",
+                "attachments": [{"url": "data:image/png;base64,large"}],
+                "kernel_input_parts": [{"type": "image", "attachment_index": 0}],
+                "image_resolution_failure": "download",
+            },
+        )
+
+        assert build_reply_context(message).metadata == {"message_id": "msg-1"}
+
     def test_bind_strips_existing_private_runtime_protocol_metadata(
         self, tmp_path: Path
     ) -> None:

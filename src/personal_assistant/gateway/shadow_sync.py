@@ -187,11 +187,6 @@ class IMShadowConversationSync:
                             f"user:{owner_user_id}",
                             f"agent:{agent_id}",
                         ],
-                        "metadata": {
-                            key: value
-                            for key, value in metadata.items()
-                            if isinstance(key, str)
-                        },
                     },
                 )
                 conversation_response.raise_for_status()
@@ -212,10 +207,11 @@ class IMShadowConversationSync:
                     json={
                         "sender_user_id": owner_user_id,
                         "sender_type": "user",
-                        "content": message.text,
+                        "content": _shadow_message_content(message, metadata),
                         "sender_display_name": _metadata_text(
                             metadata, key="sender_display_name"
                         ),
+                        "attachments": _shadow_attachments(metadata),
                         "suppress_relay": True,
                     },
                 )
@@ -563,6 +559,40 @@ class IMShadowConversationSync:
         raise PermissionError(
             "authenticated IM owner is not authorized for the Gateway node"
         )
+
+
+def _shadow_attachments(metadata: Mapping[str, object]) -> list[dict[str, str]]:
+    """Copy attachment descriptors into the IM user-message payload."""
+    raw = metadata.get("attachments")
+    if not isinstance(raw, list):
+        return []
+    attachments: list[dict[str, str]] = []
+    for item in raw:
+        if not isinstance(item, Mapping):
+            continue
+        url = item.get("url")
+        if not isinstance(url, str) or not url.strip():
+            continue
+        attachment = {"url": url.strip()}
+        for key in ("content_type", "file_name"):
+            value = item.get(key)
+            if isinstance(value, str) and value.strip():
+                attachment[key] = value.strip()
+        attachments.append(attachment)
+    return attachments
+
+
+def _shadow_message_content(
+    message: InboundMessage,
+    metadata: Mapping[str, object],
+) -> str:
+    """Keep image-only bubbles clean while making a failed image visible."""
+
+    if message.text or _shadow_attachments(metadata):
+        return message.text
+    if metadata.get("image_resolution_failure") in {"download", "oversize", "corrupt"}:
+        return "[图片加载失败]"
+    return ""
 
 
 def _shadow_message_headers(
