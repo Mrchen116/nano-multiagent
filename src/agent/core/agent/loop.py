@@ -166,6 +166,7 @@ class AgentLoop:
         tool_execution_allowlist: tuple[str, ...] | None = None,
         is_fork_sidechain: bool = False,
         model_override: str | None = None,
+        reasoning_effort: str | None = None,
         prior_prompt_tokens: int | None = None,
         on_progress: Callable[[TokenUsage | None, tuple[ToolCall, ...]], None]
         | None = None,
@@ -377,6 +378,7 @@ class AgentLoop:
                             model=active_model,
                             messages=tuple(messages_for_llm),
                             tools=active_tools,
+                            reasoning_effort=reasoning_effort,
                         )
                     )
 

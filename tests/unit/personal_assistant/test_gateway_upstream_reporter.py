@@ -6,7 +6,16 @@ from pathlib import Path
 
 import pytest
 
-from personal_assistant.config.local_store import NodeConfig
+from personal_assistant.config.local_store import (
+    LLMConfigPayload,
+    LLMModelPayload,
+    LLMProviderPayload,
+    NodeConfig,
+)
+from personal_assistant.config.model_reasoning import (
+    ModelReasoningCatalog,
+    ModelReasoningCapability,
+)
 from personal_assistant.reporter.upstream_reporter import (
     UpstreamReporter,
     build_agent_capabilities_payload,
@@ -149,6 +158,56 @@ def test_node_capabilities_models_carry_provider(tmp_path: Path) -> None:
     by_name = {m["name"]: m["provider"] for m in models}
     assert by_name["kimiCoding:K2.6"] == "anthropic"
     assert by_name["codex_oauth:gpt-5.5"] == "openai_compat"
+
+
+def test_node_capabilities_project_only_safe_reasoning_descriptors(
+    tmp_path: Path,
+) -> None:
+    kernel = _build_test_kernel(tmp_path / "kernel-root")
+    catalog = ModelReasoningCatalog(
+        LLMConfigPayload(
+            default_model="kimiCoding:K2.6",
+            providers=(
+                LLMProviderPayload(
+                    name="anthropic",
+                    base_url="http://127.0.0.1:1",
+                    models=(
+                        LLMModelPayload(
+                            name="kimiCoding:K2.6",
+                            extra_request_body={"secret_protocol": True},
+                            reasoning=ModelReasoningCapability(
+                                kind="selectable",
+                                default="high",
+                                levels=("low", "high"),
+                            ),
+                        ),
+                    ),
+                ),
+                LLMProviderPayload(
+                    name="openai_compat",
+                    base_url="http://127.0.0.1:1",
+                    models=(
+                        LLMModelPayload(
+                            name="codex_oauth:gpt-5.5",
+                            reasoning=ModelReasoningCapability(kind="fixed"),
+                        ),
+                    ),
+                ),
+            ),
+        )
+    )
+
+    payload = build_node_capabilities_payload(kernel, reasoning_catalog=catalog)
+    models = {item["name"]: item for item in payload["models"]}
+
+    assert models["kimiCoding:K2.6"]["reasoning"] == {
+        "kind": "selectable",
+        "default": "high",
+        "levels": ["low", "high"],
+    }
+    assert models["codex_oauth:gpt-5.5"]["reasoning"] == {"kind": "fixed"}
+    assert "extra_request_body" not in models["kimiCoding:K2.6"]
+    assert "secret_protocol" not in str(payload)
 
 
 # ---------------------------------------------------------------------------

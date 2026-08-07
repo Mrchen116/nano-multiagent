@@ -46,6 +46,7 @@ def test_llm_generate_request_contract() -> None:
         "tools",
         "metadata",
         "extra_body",
+        "reasoning_effort",
     ]
 
 

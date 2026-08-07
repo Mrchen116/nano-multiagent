@@ -9,6 +9,7 @@ from threading import Lock
 from typing import Any, Literal, Protocol
 
 from personal_assistant.channels.base import InboundMessage, ReplyContext
+from personal_assistant.config.model_reasoning import ModelReasoningCatalog
 from personal_assistant.gateway.agent_catalog import (
     LiveAgentCatalog,
     LiveAgentSnapshot,
@@ -228,10 +229,12 @@ class GatewaySessionBinder:
         catalog: LiveAgentCatalog,
         repository: _SessionBindingRepository,
         kernel: Any,
+        reasoning_catalog: ModelReasoningCatalog | None = None,
     ) -> None:
         self._catalog = catalog
         self._repository = repository
         self._kernel = kernel
+        self._reasoning_catalog = reasoning_catalog
         self._lock = Lock()
         self._binding_revisions: dict[str, int] = {}
         self._binding_agents: dict[str, LiveAgentSnapshot] = {}
@@ -477,6 +480,7 @@ class GatewaySessionBinder:
             agent,
             scenario=metadata,
             resolved_model=resolved_model,
+            reasoning_catalog=self._reasoning_catalog,
         )
 
     def persist_applied_runtime(

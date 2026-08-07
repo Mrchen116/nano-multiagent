@@ -1068,6 +1068,9 @@ class Kernel:
                     if runtime is not None and runtime.features is not None
                     else None
                 ),
+                runtime_reasoning_effort=(
+                    runtime.reasoning_effort if runtime is not None else None
+                ),
                 title=title,
                 skills=tuple(skills) if skills else None,
                 tool_allowlist=(
@@ -1135,6 +1138,12 @@ class Kernel:
             if isinstance(runtime_payload, dict)
             else None
         )
+        runtime_reasoning_effort = (
+            runtime_payload.get("reasoning_effort")
+            if isinstance(runtime_payload, dict)
+            and isinstance(runtime_payload.get("reasoning_effort"), str)
+            else None
+        )
         runtime = SessionRuntimeConfig(
             model=config.runtime_model,
             prompt=PromptSlots(
@@ -1146,6 +1155,7 @@ class Kernel:
             skills=list(config.skills) if config.skills is not None else None,
             enabled_tools=list(config.tool_allowlist or ()),
             features=dict(runtime_features) if runtime_features is not None else None,
+            reasoning_effort=runtime_reasoning_effort,
         )
         return SessionRuntimeState(runtime=runtime, identity=identify_runtime(runtime))
 

@@ -133,6 +133,10 @@ AgentCreateHandler = Callable[
     [Mapping[str, object]],
     Awaitable[Mapping[str, object] | None] | Mapping[str, object] | None,
 ]
+AgentConfigOperationHandler = Callable[
+    [str, Mapping[str, object]],
+    Awaitable[Mapping[str, object]] | Mapping[str, object],
+]
 AgentCapabilitiesProvider = Callable[
     [str, str], Awaitable[Mapping[str, object] | None] | Mapping[str, object] | None
 ]
@@ -290,6 +294,7 @@ class IMConnectionManager:
         heartbeat_trigger: HeartbeatTrigger | None = None,
         agent_config_provider: AgentConfigProvider | None = None,
         agent_create_handler: AgentCreateHandler | None = None,
+        agent_config_operation_handler: AgentConfigOperationHandler | None = None,
         agent_capabilities_provider: AgentCapabilitiesProvider | None = None,
         node_capabilities_provider: NodeCapabilitiesProvider | None = None,
         prompt_preview_provider: PromptPreviewProvider | None = None,
@@ -311,6 +316,7 @@ class IMConnectionManager:
         self._heartbeat_trigger = heartbeat_trigger
         self._agent_config_provider = agent_config_provider
         self._agent_create_handler = agent_create_handler
+        self._agent_config_operation_handler = agent_config_operation_handler
         self._agent_capabilities_provider = agent_capabilities_provider
         self._node_capabilities_provider = node_capabilities_provider
         # feat-379-M2 R5: provider for prompt preview; calls agent HTTP /v1/prompt-preview.
@@ -1035,18 +1041,72 @@ class IMConnectionManager:
             request_id = _require_text(body.get("request_id"), field_name="request_id")
             agent_payload = _require_mapping(body.get("agent"), field_name="agent")
             created_payload = None
-            if self._agent_create_handler is not None:
+            if (
+                body.get("operation_id") is not None
+                and self._agent_config_operation_handler is not None
+            ):
+                created_payload = await _maybe_await(
+                    self._agent_config_operation_handler("create", body)
+                )
+            elif self._agent_create_handler is not None:
                 created_payload = await _maybe_await(
                     self._agent_create_handler(agent_payload)
                 )
+            response_payload: dict[str, object] = {
+                "request_id": request_id,
+                "node_id": self._reporter.node_id,
+            }
+            if body.get("operation_id") is not None:
+                response_payload.update(
+                    dict(created_payload)
+                    if isinstance(created_payload, Mapping)
+                    else {}
+                )
+            else:
+                response_payload["agent"] = (
+                    dict(created_payload)
+                    if isinstance(created_payload, Mapping)
+                    else {}
+                )
             await self.send_json(
                 "agent.created",
+                response_payload,
+            )
+            return
+        if message_type == "agent.config.apply":
+            request_id = _require_text(body.get("request_id"), field_name="request_id")
+            if self._agent_config_operation_handler is None:
+                raise RuntimeError(
+                    "agent.config.apply requires agent_config_operation_handler"
+                )
+            result = await _maybe_await(
+                self._agent_config_operation_handler("apply", body)
+            )
+            await self.send_json(
+                "agent.config.apply.result",
                 {
                     "request_id": request_id,
                     "node_id": self._reporter.node_id,
-                    "agent": dict(created_payload)
-                    if isinstance(created_payload, Mapping)
-                    else {},
+                    **dict(result),
+                },
+            )
+            return
+        if message_type == "agent.config.operation.status":
+            request_id = _require_text(body.get("request_id"), field_name="request_id")
+            if self._agent_config_operation_handler is None:
+                raise RuntimeError(
+                    "agent.config.operation.status requires "
+                    "agent_config_operation_handler"
+                )
+            result = await _maybe_await(
+                self._agent_config_operation_handler("status", body)
+            )
+            await self.send_json(
+                "agent.config.operation.status.result",
+                {
+                    "request_id": request_id,
+                    "node_id": self._reporter.node_id,
+                    **dict(result),
                 },
             )
             return

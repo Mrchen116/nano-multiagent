@@ -20,13 +20,13 @@ from agent.core.llm.interfaces import (
     LLMMessage,
     LLMToolCall,
 )
-from agent.core.llm.model_registry import resolve_model_metadata
 from agent.core.types import TokenUsage
 from agent.platform.llm.providers.common import (
     extract_http_error_facts as _extract_http_error_facts,
     extract_non_negative_int as _extract_non_negative_int,
 )
 from agent.platform.llm.providers.translator import LLMTranslator
+from agent.platform.llm.providers.request_body import merge_registered_model_body
 
 from .mapper import AnthropicMapper
 
@@ -63,12 +63,7 @@ class AnthropicClient(LLMClient):
         if not active_request.model:
             active_request = replace(active_request, model=self._default_model)
 
-        metadata = resolve_model_metadata("anthropic", active_request.model)
-        if metadata.extra_request_body:
-            merged_extra = dict(metadata.extra_request_body)
-            if active_request.extra_body:
-                merged_extra.update(active_request.extra_body)
-            active_request = replace(active_request, extra_body=merged_extra)
+        active_request = merge_registered_model_body("anthropic", active_request)
 
         provider_request = self._translator.to_provider_request(active_request)
         headers = dict(provider_request.headers)

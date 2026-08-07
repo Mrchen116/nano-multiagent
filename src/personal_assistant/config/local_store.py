@@ -16,6 +16,10 @@ from uuid import uuid4
 import yaml
 
 from personal_assistant.builtin_skills.lark_bundle import lark_skill_names
+from personal_assistant.config.model_reasoning import (
+    ModelReasoningCapability,
+    parse_model_reasoning,
+)
 
 # refactor-406-M2: the LLM config wire schema is owned by personal_assistant (its
 # gateway config layer), not re-exported from agent.sdk. The kernel consumes it via
@@ -34,6 +38,7 @@ class LLMModelPayload:
     extra_request_body: dict[str, Any] | None = None
     # feat-436: per-model context window driving compaction边界. None → 内核默认上限.
     context_window: int | None = None
+    reasoning: ModelReasoningCapability | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,6 +185,7 @@ class AgentWorkspaceConfig:
         tool_allowlist: Allowed tool names restricting the agent's tool access.
         group_reply_policy: Reply policy in group conversations (e.g. "always", "mention_only").
         default_model: Default LLM model identifier for this agent.
+        reasoning_effort: Optional selectable reasoning level for ``default_model``.
         features: Per-agent feature-flag overrides keyed by FEATURE_REGISTRY key.
             Absent keys inherit the registry default_on value at session creation time.
             Heartbeat and cron enabling lives here: features["heartbeat"] and
@@ -213,6 +219,7 @@ class AgentWorkspaceConfig:
     tool_allowlist: tuple[str, ...] = ()
     group_reply_policy: str | None = None
     default_model: str | None = None
+    reasoning_effort: str | None = None
     # feat-379-M2: per-agent feature flags and custom prompt supplement.
     # feat-394-M9: heartbeat/cron enable state lives here (features["heartbeat"] /
     # features["cron_scheduling"]) — no separate heartbeat_enabled/cron_enabled fields.
@@ -815,6 +822,8 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
             agent_dict["group_reply_policy"] = agent.group_reply_policy
         if agent.default_model is not None:
             agent_dict["default_model"] = agent.default_model
+        if agent.reasoning_effort is not None:
+            agent_dict["reasoning_effort"] = agent.reasoning_effort
         # feat-379-M2: only emit when non-empty to keep config.yaml readable.
         # feat-394-M9: features dict now carries heartbeat/cron_scheduling state;
         # heartbeat_enabled/cron_enabled are @property derived from features — no
@@ -912,6 +921,24 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
                         **(
                             {"context_window": m.context_window}
                             if m.context_window is not None
+                            else {}
+                        ),
+                        **(
+                            {
+                                "reasoning": (
+                                    "fixed"
+                                    if getattr(m, "reasoning", None).kind == "fixed"
+                                    else {
+                                        "default": getattr(
+                                            m, "reasoning", None
+                                        ).default,
+                                        "levels": list(
+                                            getattr(m, "reasoning", None).levels
+                                        ),
+                                    }
+                                )
+                            }
+                            if getattr(m, "reasoning", None) is not None
                             else {}
                         ),
                     }
@@ -1053,11 +1080,16 @@ def _parse_llm(payload: Any) -> LLMConfigPayload:
                 and cw_raw > 0
                 else None
             )
+            reasoning = parse_model_reasoning(
+                mitem.get("reasoning"),
+                field_name=f"llm.providers[{pi}].models[{mi}].reasoning",
+            )
             models.append(
                 LLMModelPayload(
                     name=mname,
                     extra_request_body=extra_request_body or None,
                     context_window=context_window,
+                    reasoning=reasoning,
                 )
             )
         providers.append(
@@ -1143,6 +1175,10 @@ def _parse_agents(
                 f"agents[{index}].default_model='{default_model}' not found in llm.providers "
                 f"(available: {available})"
             )
+        reasoning_effort = _optional_string(
+            item.get("reasoning_effort"),
+            field_name=f"agents[{index}].reasoning_effort",
+        )
         features = _parse_features(
             item.get("features"), field_name=f"agents[{index}].features"
         )
@@ -1197,6 +1233,7 @@ def _parse_agents(
                 tool_allowlist=tool_allowlist,
                 group_reply_policy=group_reply_policy,
                 default_model=default_model,
+                reasoning_effort=reasoning_effort,
                 features=features,
                 custom_prompt=custom_prompt,
                 heartbeat_every=heartbeat_every,

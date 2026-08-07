@@ -273,6 +273,182 @@ def test_im_connection_dispatches_session_fork_request(tmp_path: Path) -> None:
     assert response_frame["payload"]["new_session_id"] == "ksess-new"
 
 
+def test_im_connection_dispatches_agent_config_operation(tmp_path: Path) -> None:
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(lambda _message: None)
+    request_payload = {
+        "request_id": "req-apply",
+        "operation_id": "op-apply",
+        "candidate_fingerprint": "abc",
+        "expected_previous_fingerprint": "old",
+        "agent": {"agent_id": "agent-a"},
+    }
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps({"type": "agent.config.apply", "payload": request_payload}),
+        ]
+    )
+    seen: list[tuple[str, dict[str, object]]] = []
+
+    def operation_handler(kind, payload):
+        seen.append((kind, dict(payload)))
+        return {
+            "operation_id": payload["operation_id"],
+            "candidate_fingerprint": payload["candidate_fingerprint"],
+            "status": "applied",
+            "agent": {"agent_id": "agent-a", "reasoning_effort": "high"},
+        }
+
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="http://im.local:9000"),
+        reporter=UpstreamReporter(
+            node=NodeConfig(node_id="node-1"),
+            agents=_agents(tmp_path),
+            send_frame=lambda _message_type, _payload: None,
+        ),
+        relay_adapter=relay_adapter,
+        agent_config_operation_handler=operation_handler,
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def _exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001
+        await manager._listen_once()  # noqa: SLF001
+        await manager.close()
+
+    asyncio.run(_exercise())
+
+    assert seen == [("apply", request_payload)]
+    response = json.loads(socket.sent[-1])
+    assert response == {
+        "type": "agent.config.apply.result",
+        "payload": {
+            "request_id": "req-apply",
+            "node_id": "node-1",
+            "operation_id": "op-apply",
+            "candidate_fingerprint": "abc",
+            "status": "applied",
+            "agent": {"agent_id": "agent-a", "reasoning_effort": "high"},
+        },
+    }
+
+
+def test_im_connection_dispatches_agent_create_operation(tmp_path: Path) -> None:
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(lambda _message: None)
+    request_payload = {
+        "request_id": "req-create",
+        "operation_id": "op-create",
+        "candidate_fingerprint": "abc",
+        "expected_previous_fingerprint": None,
+        "agent": {"agent_id": "created"},
+    }
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps({"type": "agent.create", "payload": request_payload}),
+        ]
+    )
+    seen: list[tuple[str, dict[str, object]]] = []
+
+    def operation_handler(kind, payload):
+        seen.append((kind, dict(payload)))
+        return {
+            "operation_id": payload["operation_id"],
+            "candidate_fingerprint": payload["candidate_fingerprint"],
+            "status": "applied",
+            "agent": {"agent_id": "created"},
+        }
+
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="http://im.local:9000"),
+        reporter=UpstreamReporter(
+            node=NodeConfig(node_id="node-1"),
+            agents=_agents(tmp_path),
+            send_frame=lambda _message_type, _payload: None,
+        ),
+        relay_adapter=relay_adapter,
+        agent_config_operation_handler=operation_handler,
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def _exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001
+        await manager._listen_once()  # noqa: SLF001
+        await manager.close()
+
+    asyncio.run(_exercise())
+
+    assert seen == [("create", request_payload)]
+    assert json.loads(socket.sent[-1]) == {
+        "type": "agent.created",
+        "payload": {
+            "request_id": "req-create",
+            "node_id": "node-1",
+            "operation_id": "op-create",
+            "candidate_fingerprint": "abc",
+            "status": "applied",
+            "agent": {"agent_id": "created"},
+        },
+    }
+
+
+def test_im_connection_dispatches_agent_config_operation_status(tmp_path: Path) -> None:
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(lambda _message: None)
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "agent.config.operation.status",
+                    "payload": {
+                        "request_id": "req-status",
+                        "operation_id": "op-status",
+                    },
+                }
+            ),
+        ]
+    )
+
+    def operation_handler(kind, payload):
+        assert kind == "status"
+        return {"operation_id": payload["operation_id"], "status": "pending"}
+
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="http://im.local:9000"),
+        reporter=UpstreamReporter(
+            node=NodeConfig(node_id="node-1"),
+            agents=_agents(tmp_path),
+            send_frame=lambda _message_type, _payload: None,
+        ),
+        relay_adapter=relay_adapter,
+        agent_config_operation_handler=operation_handler,
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def _exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001
+        await manager._listen_once()  # noqa: SLF001
+        await manager.close()
+
+    asyncio.run(_exercise())
+
+    assert json.loads(socket.sent[-1]) == {
+        "type": "agent.config.operation.status.result",
+        "payload": {
+            "request_id": "req-status",
+            "node_id": "node-1",
+            "operation_id": "op-status",
+            "status": "pending",
+        },
+    }
+
+
 def test_im_connection_sends_periodic_node_heartbeats_while_connected(
     tmp_path: Path,
 ) -> None:
@@ -552,6 +728,8 @@ def test_every_guarded_upstream_frame_carries_registered_node_identity(
         "node.delivery_receipt",
         "agent.config",
         "agent.created",
+        "agent.config.apply.result",
+        "agent.config.operation.status.result",
         "agent.capabilities",
         "node.capabilities",
         "agent.prompt.preview",

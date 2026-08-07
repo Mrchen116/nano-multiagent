@@ -78,6 +78,7 @@ class SessionDirectory:
             workspace_root=ref.workspace_root,
             runtime_model=spec.runtime_model,
             runtime_features=spec.runtime_features,
+            runtime_reasoning_effort=spec.runtime_reasoning_effort,
             title=spec.title,
             system_prompt=spec.system_prompt,
             skills=spec.skills,
@@ -219,12 +220,19 @@ class SessionDirectory:
             else None
         )
         metadata = strip_internal_metadata(snapshot.config.metadata)
+        runtime_reasoning_effort = (
+            runtime_payload.get("reasoning_effort")
+            if isinstance(runtime_payload, dict)
+            and isinstance(runtime_payload.get("reasoning_effort"), str)
+            else None
+        )
         metadata["forked_from"] = source.ref.session_id
         target = self.create(
             NewSession(
                 workspace_root=snapshot.config.workspace_root,
                 runtime_model=snapshot.config.runtime_model,
                 runtime_features=runtime_features,
+                runtime_reasoning_effort=runtime_reasoning_effort,
                 system_prompt=snapshot.config.system_prompt,
                 skills=snapshot.config.skills,
                 tool_allowlist=snapshot.config.tool_allowlist,

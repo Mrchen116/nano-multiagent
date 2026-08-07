@@ -23,6 +23,7 @@ from agent.platform.llm.providers.common import (
     extract_non_negative_int as _extract_non_negative_int,
 )
 from agent.platform.llm.providers.translator import LLMTranslator
+from agent.platform.llm.providers.request_body import merge_registered_model_body
 
 from .mapper import OpenAICompatMapper
 
@@ -56,6 +57,7 @@ class OpenAICompatClient(LLMClient):
         active_request = request
         if not active_request.model:
             active_request = replace(active_request, model=self._default_model)
+        active_request = merge_registered_model_body("openai_compat", active_request)
 
         provider_request = self._translator.to_provider_request(active_request)
         headers = dict(provider_request.headers)

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from agent.sdk import PromptSlots, SessionRuntimeConfig
 
+from personal_assistant.config.model_reasoning import ModelReasoningCatalog
 from personal_assistant.gateway.agent_catalog import LiveAgentSnapshot
 from personal_assistant.product import prompt_for, resolve_enabled_tools
 
@@ -40,6 +41,7 @@ def project_agent_runtime(
     *,
     scenario: Mapping[str, object],
     resolved_model: str,
+    reasoning_catalog: ModelReasoningCatalog | None = None,
 ) -> ProjectedAgentRuntime:
     """Project one captured Agent snapshot into all future-turn settings.
 
@@ -47,12 +49,18 @@ def project_agent_runtime(
         agent: Immutable Agent snapshot selected at admission.
         scenario: Routing facts used only while rendering product prompt slots.
         resolved_model: Product-resolved model for this exact admission.
+        reasoning_catalog: Gateway model capability catalog used to resolve effort.
 
     Returns:
         The raw SDK runtime and optional IM profile provenance.
     """
 
     config = agent.config
+    reasoning_effort = (
+        reasoning_catalog.resolve(resolved_model, config.reasoning_effort)
+        if reasoning_catalog is not None
+        else None
+    )
     profile_version = scenario.get("config_profile_version")
     return ProjectedAgentRuntime(
         runtime=SessionRuntimeConfig(
@@ -61,6 +69,7 @@ def project_agent_runtime(
             skills=list(config.skills) if config.skills else None,
             enabled_tools=resolve_enabled_tools(config),
             features=dict(config.features),
+            reasoning_effort=reasoning_effort,
         ),
         profile_version=profile_version if isinstance(profile_version, int) else None,
     )

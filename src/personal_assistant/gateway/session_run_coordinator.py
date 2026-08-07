@@ -19,6 +19,7 @@ from agent.sdk import (
 )
 
 from personal_assistant.config.local_store import resolve_run_model
+from personal_assistant.config.model_reasoning import ModelReasoningCatalog
 from personal_assistant.gateway.session_composition import project_agent_runtime
 
 from personal_assistant.channels.base import (
@@ -148,6 +149,7 @@ class SessionRunCoordinator:
         gateway_internal_port: int = _DEFAULT_GATEWAY_INTERNAL_PORT,
         gateway_dispatch_url_provider: Callable[[], str | None] | None = None,
         product_default_model: str | None = None,
+        reasoning_catalog: ModelReasoningCatalog | None = None,
         relay_lifecycle_callback: RelayLifecycleCallback | None = None,
         kernel_event_observer: Callable[[Mapping[str, Any]], object] | None = None,
         shadow_output_prepare: (
@@ -177,6 +179,7 @@ class SessionRunCoordinator:
         self._gateway_internal_port = gateway_internal_port
         self._gateway_dispatch_url_provider = gateway_dispatch_url_provider
         self._product_default_model = product_default_model
+        self._reasoning_catalog = reasoning_catalog
         self._relay_lifecycle_callback = relay_lifecycle_callback
         self._kernel_event_observer = kernel_event_observer
         self._shadow_output_prepare = shadow_output_prepare
@@ -1207,6 +1210,7 @@ class SessionRunCoordinator:
             agent,
             scenario=dict(message.metadata),
             resolved_model=model,
+            reasoning_catalog=self._reasoning_catalog,
         )
 
     async def _admit_runtime(
