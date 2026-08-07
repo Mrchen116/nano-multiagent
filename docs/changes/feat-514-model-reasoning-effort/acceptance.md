@@ -161,3 +161,64 @@ report_path: docs/changes/feat-514-model-reasoning-effort/acceptance.md
 top_concern: Issue 1 is closed, but inherited required browser coverage remains inconclusive.
 needs_re_review: true
 ```
+
+---
+
+# Round 3 — 2026-08-07
+
+> Revalidation: targeted fast-lane。复核 `2406442af65c0bc436bff801dfe01e62d17eee1d` 对 Round 2 未闭环项的修复：历史 reasoning 值从 fixed / 无声明模型的清除路径，以及 pending 保存是否自行收敛。既有 `inconclusive` 行继续继承，未因代码或 mock 测试改写为产品通过。
+
+## Verdict
+
+**fail**
+
+**Highest Required Action:** `fix-implementation`
+
+实际产品中，正常的历史值清除路径已经可完成：保存 DeepSeek `Maximum` 后，改为无声明的 Mimo 并保存为 v2，再切回 DeepSeek 时只出现推荐 `High`；重新保存 `Maximum` 为 v3、改 fixed Kimi 并保存为 v4 后，再切回 DeepSeek 仍是推荐 `High`。fixed 与无声明状态的详情页都没有遗留的 effort selector，用户能完成保存，不会被旧 `Maximum` 阻挡。
+
+但“已经存在的 fixed / 无声明 profile 带旧值”与“请求已提交但 ACK 丢失”的两个特殊前置，无法仅通过该隔离产品的正常控件安全制造：前者的 API 正确拒绝非法组合，后者在 Gateway 离线前就会把节点标为 offline 并禁用保存。针对两者的本提交前端测试均通过，但它们使用受控响应，不能代替真实用户面验收。因此原先的保存失败/确认中必验 Scenario 仍为 `inconclusive`，全量 verdict 不能升级为 `pass`。
+
+## Focused user journeys
+
+测试环境：更新后的 unit worktree 隔离 IM + Gateway + Vite（IM `:58798`，Vite `:58936`），仓库 E2E owner `nano`。仅使用一个 headed 浏览器会话，完成后立即关闭；未接触生产服务或配置。
+
+1. **无声明模型的可完成清除**：创建 `reasoning-e2e-514-r3`，以 DeepSeek `Maximum` 保存为 v1；改为 `mimo:mimo-v2.5-pro`，页面显示“does not expose configurable reasoning settings”，没有 selector，保存成功为 v2。再选择 DeepSeek，页面选中推荐 `High` 而非旧 `Maximum`。
+2. **fixed 模型的可完成清除**：以 DeepSeek `Maximum` 保存 v3；改为 `kimiCoding:kimi-for-coding`，页面显示 “Reasoning is always on and controlled by the model”，没有 selector，保存成功为 v4。再选择 DeepSeek，页面同样回到推荐 `High`。
+3. **Gateway 短暂离线的安全边界**：在未提交的 fixed-model 草稿期间停止隔离 Gateway；页面立即将 node 标为 offline、恢复已保存的 v1 DeepSeek 值并禁用保存。Gateway 重启后 node 回到 online。此操作没有产生已提交的 pending operation，故不能用于证明 ACK 丢失后的自动收敛。
+
+## Evidence reviewed
+
+| Evidence | Review conclusion |
+| --- | --- |
+| `evidence/browser.md` 与四个既有浏览器旅程 artifact | `2406442af` 未改动 `docs/changes/feat-514-model-reasoning-effort/evidence/`；其 selectable desktop、fixed mobile、fixed saved detail、fixed real chat 的内容仍与 `prototype.html` 和 Round 2 结论匹配。 |
+| 本轮 no-capability、saved fixed、return-to-DeepSeek 截图：`src/IM/frontend/.playwright-cli/page-2026-08-07T11-58-05-426Z.png`、`page-2026-08-07T12-02-00-887Z.png`、`page-2026-08-07T12-02-34-672Z.yml` | 可观察的两个正常清除流均保存成功；fixed / 无声明均未留下无效 selector，回到 DeepSeek 时出现推荐 High。 |
+| `npm test -- --run model-reasoning-field.test.tsx agent-create.test.tsx agent-edit.test.tsx` | **21 passed**。受控 503 `config_apply_pending` 用例在 1 秒后重试并回到已保存详情；fixed stale-value render 用例显示明确的 “Remove unavailable reasoning setting” 操作。此为 caller 要求的代码/测试辅助证据，不能替代下方 pending 的真实产品结论。 |
+| `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest tests/im_service/unit/test_agent_config_operations.py tests/unit/personal_assistant/config/test_parse_llm.py` | **21 passed**。 |
+
+## Coverage updates
+
+| Requirement / Scenario | Prior result | Round 3 result | Evidence / note |
+| --- | --- | --- | --- |
+| 从可调模型切换到固定思考模型 | pass | **pass (reconfirmed)** | DeepSeek Maximum → fixed Kimi 保存 v4；fixed detail 没有 selector，返回 DeepSeek 是 High。 |
+| 无能力模型不出现可选控件（caller-directed） | pass | **pass (reconfirmed)** | DeepSeek Maximum → Mimo 保存 v2；无 descriptor 说明且无 selector，返回 DeepSeek 是 High。 |
+| 保存失败时保留可理解的编辑状态 | inconclusive | **inconclusive (inherited)** | 受控测试显示 pending 会重试并收敛；真实隔离产品未能安全形成“已提交、等待确认”的状态，离线发生在提交前时保存被禁用。 |
+| 目录已更新使草稿选项失效；已有模型能力变更；新增模型/节点 | inconclusive | **inconclusive (inherited)** | 本轮 targeted scope 未新增可由 reviewer 安全执行的 live-catalog 前置。 |
+
+## Issue status
+
+- Round 1 Issue 1（fixed Kimi 首轮聊天无正文）继续保持 **closed**；Round 3 未改变其 chat UI 或 E2E evidence，持久化 `fixed-model-chat-desktop.png` 仍记录可读成功回复。
+- 本轮没有发现新的 blocking / major / minor 产品 defect。全量 `fail` 只来自仍未具备真实用户旅程证据的必验覆盖项。
+
+## Review result for orchestration
+
+```text
+unit_id: feat-514-model-reasoning-effort
+review_round: 3
+verdict: fail
+highest_required_action: fix-implementation
+issues_count: { blocking: 0, major: 0, minor: 0 }
+gh_issues_filed: []
+report_path: docs/changes/feat-514-model-reasoning-effort/acceptance.md
+top_concern: Normal fixed and no-capability clears succeed, but a real submitted-pending operation still lacks an acceptance-safe trigger and user-journey proof.
+needs_re_review: true
+```
