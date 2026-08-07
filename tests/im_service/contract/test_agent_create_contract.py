@@ -24,22 +24,28 @@ def test_agent_create_contract_shape_and_validation(tmp_path: Path) -> None:
             *,
             target_node_id: str,
             payload: dict[str, object],
+            operation_id: str,
+            candidate_fingerprint: str,
             timeout_seconds: float = 5.0,
         ):
             del timeout_seconds
             if target_node_id != "node-1":
                 return None
             return {
-                "agent_id": payload["agent_id"],
-                "display_name": payload["display_name"],
-                "description": payload["description"],
-                "custom_prompt": payload["custom_prompt"],
-                "features": payload["features"],
-                "skills": payload["skills"],
-                "tool_allowlist": payload["tool_allowlist"],
-                "group_reply_policy": payload["group_reply_policy"],
-                "default_model": payload["default_model"],
-                "workspace_root": "/srv/agents/agent-1",
+                "operation_id": operation_id,
+                "status": "applied",
+                "agent": {
+                    "agent_id": payload["agent_id"],
+                    "display_name": payload["display_name"],
+                    "custom_prompt": payload["custom_prompt"],
+                    "features": payload["features"],
+                    "skills": payload["skills"],
+                    "tool_allowlist": payload["tool_allowlist"],
+                    "group_reply_policy": payload["group_reply_policy"],
+                    "default_model": payload["default_model"],
+                    "workspace_root": "/srv/agents/agent-1",
+                },
+                "candidate_fingerprint": candidate_fingerprint,
             }
 
         app.state.gateway_control.request_agent_create = fake_request_agent_create
@@ -73,6 +79,7 @@ def test_agent_create_contract_shape_and_validation(tmp_path: Path) -> None:
             "tool_allowlist",
             "group_reply_policy",
             "default_model",
+            "reasoning_effort",
             "workspace_root",
             "workspace_is_default",
             "profile_version",
@@ -151,21 +158,27 @@ def test_agent_create_defaults_omitted_skills_from_node_capabilities(
             *,
             target_node_id: str,
             payload: dict[str, object],
+            operation_id: str,
+            candidate_fingerprint: str,
             timeout_seconds: float = 5.0,
         ):
             del timeout_seconds
             assert target_node_id == "node-1"
             return {
-                "agent_id": payload["agent_id"],
-                "display_name": payload["display_name"],
-                "description": payload["description"],
-                "custom_prompt": payload["custom_prompt"],
-                "features": payload["features"],
-                "skills": payload["skills"],
-                "tool_allowlist": payload["tool_allowlist"],
-                "group_reply_policy": payload["group_reply_policy"],
-                "default_model": payload["default_model"],
-                "workspace_root": "/srv/agents/agent-1",
+                "operation_id": operation_id,
+                "status": "applied",
+                "agent": {
+                    "agent_id": payload["agent_id"],
+                    "display_name": payload["display_name"],
+                    "custom_prompt": payload["custom_prompt"],
+                    "features": payload["features"],
+                    "skills": payload["skills"],
+                    "tool_allowlist": payload["tool_allowlist"],
+                    "group_reply_policy": payload["group_reply_policy"],
+                    "default_model": payload["default_model"],
+                    "workspace_root": "/srv/agents/agent-1",
+                },
+                "candidate_fingerprint": candidate_fingerprint,
             }
 
         app.state.gateway_control.request_node_capabilities = (
@@ -213,6 +226,8 @@ def test_agent_create_omits_skills_when_capabilities_unavailable(
             *,
             target_node_id: str,
             payload: dict[str, object],
+            operation_id: str,
+            candidate_fingerprint: str,
             timeout_seconds: float = 5.0,
         ):
             del timeout_seconds
@@ -220,16 +235,20 @@ def test_agent_create_omits_skills_when_capabilities_unavailable(
             seen_payloads.append(payload)
             assert "skills" not in payload
             return {
-                "agent_id": payload["agent_id"],
-                "display_name": payload["display_name"],
-                "description": payload["description"],
-                "custom_prompt": payload["custom_prompt"],
-                "features": payload["features"],
-                "skills": ["gateway-default"],
-                "tool_allowlist": payload["tool_allowlist"],
-                "group_reply_policy": payload["group_reply_policy"],
-                "default_model": payload["default_model"],
-                "workspace_root": "/srv/agents/agent-1",
+                "operation_id": operation_id,
+                "status": "applied",
+                "agent": {
+                    "agent_id": payload["agent_id"],
+                    "display_name": payload["display_name"],
+                    "custom_prompt": payload["custom_prompt"],
+                    "features": payload["features"],
+                    "skills": ["gateway-default"],
+                    "tool_allowlist": payload["tool_allowlist"],
+                    "group_reply_policy": payload["group_reply_policy"],
+                    "default_model": payload["default_model"],
+                    "workspace_root": "/srv/agents/agent-1",
+                },
+                "candidate_fingerprint": candidate_fingerprint,
             }
 
         app.state.gateway_control.request_node_capabilities = (

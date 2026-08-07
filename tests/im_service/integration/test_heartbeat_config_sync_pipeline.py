@@ -1,21 +1,12 @@
-"""Regression test: PATCH features.heartbeat=False → config.sync → scheduler skips.
-
-feat-394 bugfix: update_agent_config is a sync FastAPI route. In production uvicorn,
-it runs in a thread pool where asyncio.get_running_loop() fails. The previous code fell
-back to asyncio.run(push_config_sync(...)), which creates an isolated event loop that
-cannot drive the main loop's WebSocket transport — the config.sync WS frame was silently
-dropped. This test drives the real pipeline (IM PATCH → WS frame → sync_agent →
-pipeline._agents → scheduler tick) without mocking, so the bug would surface as a missing
-config.sync frame received by the gateway.
-"""
+"""Regression test: committed heartbeat config reaches the scheduler mirror."""
 
 from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+import threading
 
 import httpx
-import pytest
 from fastapi.testclient import TestClient
 
 from IM.app import create_app
@@ -23,7 +14,6 @@ from IM.infra.repositories.agents import AgentProfileRepository
 from IM.infra.repositories.nodes import NodeRepository
 from IM.infra.repositories.users import UserRepository
 from personal_assistant.config.local_store import AgentWorkspaceConfig
-from personal_assistant.config.sync_client import ConfigSyncClient
 from tests.helpers.inbound_pipeline import build_inbound_pipeline
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
@@ -40,7 +30,6 @@ from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProvider
 from ._gateway_helpers import (
     _FakeKernelClient,
     make_agent_configs,
-    seed_node_and_profiles,
     seed_user,
 )
 
@@ -68,12 +57,11 @@ def _seed_heartbeat_enabled_agent(app, *, agent_id: str, owner_id: str) -> None:
 
 
 def test_patch_heartbeat_disabled_reaches_scheduler(tmp_path: Path) -> None:
-    """Disabling heartbeat via PATCH must stop the scheduler within one tick.
+    """Disabling heartbeat after Gateway apply must stop the scheduler within one tick.
 
     Full pipeline exercised (no mocks on the communication path):
-      IM PATCH features.heartbeat=False
-      → WS config.sync frame delivered to connected gateway WS
-      → sync_agent HTTP GET /config?source=mirror
+      IM PATCH features.heartbeat=False → Gateway applied result → IM commit
+      → legacy mirror convergence reads GET /config?source=mirror
       → pipeline.register_agent(new AgentWorkspaceConfig(heartbeat_enabled=False))
       → HeartbeatScheduler.tick() skips the agent
     """
@@ -184,8 +172,6 @@ def test_patch_heartbeat_disabled_reaches_scheduler(tmp_path: Path) -> None:
             monotonic=lambda: 0.0,
             sleep=lambda _: None,
         )
-        config_sync_client = ConfigSyncClient(fetcher=im_sync_client.sync_agent)
-
         # Wire scheduler with live agents getter
         state_store = HeartbeatSchedulerStateStore(tmp_path / "heartbeat-state.json")
         scheduler = HeartbeatScheduler(
@@ -216,32 +202,49 @@ def test_patch_heartbeat_disabled_reaches_scheduler(tmp_path: Path) -> None:
             current_version = current.json()["profile_version"]
 
             # PATCH: disable heartbeat (the action under test)
-            patched = client.patch(
-                f"/im/v1/agents/{agent_id}/config",
-                json={
-                    "profile_version": current_version,
-                    "display_name": agent_id,
-                    "description": "",
-                    "custom_prompt": f"You are {agent_id}.",
-                    "skills": [],
-                    "tool_allowlist": [],
-                    "group_reply_policy": "manual",
-                    "features": {"heartbeat": False},
-                },
+            patch_result: dict[str, object] = {}
+            patch_payload = {
+                "profile_version": current_version,
+                "display_name": agent_id,
+                "description": "",
+                "custom_prompt": f"You are {agent_id}.",
+                "skills": [],
+                "tool_allowlist": [],
+                "group_reply_policy": "manual",
+                "features": {"heartbeat": False},
+            }
+
+            def _patch_config() -> None:
+                patch_result["response"] = client.patch(
+                    f"/im/v1/agents/{agent_id}/config", json=patch_payload
+                )
+
+            patch_worker = threading.Thread(target=_patch_config)
+            patch_worker.start()
+            apply_frame = websocket.receive_json()
+            assert apply_frame["type"] == "agent.config.apply"
+            apply_payload = apply_frame["payload"]
+            websocket.send_json(
+                {
+                    "type": "agent.config.apply.result",
+                    "payload": {
+                        "request_id": apply_payload["request_id"],
+                        "node_id": "node-1",
+                        "operation_id": apply_payload["operation_id"],
+                        "status": "applied",
+                        "candidate_fingerprint": apply_payload["candidate_fingerprint"],
+                        "agent": apply_payload["agent"],
+                    },
+                }
             )
+            assert websocket.receive_json()["type"] == "ack"
+            patch_worker.join(timeout=5)
+            patched = patch_result["response"]
             assert patched.status_code == 200, patched.text
-
-            # Gateway side: receive the config.sync WS frame (critical assertion —
-            # if the frame is not sent, this will time out / fail)
-            sync_frame = websocket.receive_json()
-            assert sync_frame["type"] == "config.sync", (
-                f"Expected config.sync frame after PATCH, got: {sync_frame['type']!r}. "
-                "Bug: push_config_sync was not delivered to the connected gateway."
+            im_sync_client.sync_agent(
+                agent_id=agent_id,
+                profile_version=patched.json()["profile_version"],
             )
-            assert sync_frame["payload"]["agent_id"] == agent_id
-
-            # Simulate gateway handling: handle_notification → sync_agent → register_agent
-            config_sync_client.handle_notification(sync_frame["payload"])
 
         # After sync_agent ran, pipeline._agents must reflect heartbeat=False
         updated_agent = catalog.require(agent_id).config

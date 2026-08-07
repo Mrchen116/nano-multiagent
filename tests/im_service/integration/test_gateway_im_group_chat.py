@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+import threading
 
 from fastapi.testclient import TestClient
 
@@ -123,25 +124,45 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
 
             current = client.get("/im/v1/agents/agent-a/config?source=mirror")
             assert current.status_code == 200
-            patched = client.patch(
-                "/im/v1/agents/agent-a/config",
-                json={
-                    "profile_version": current.json()["profile_version"],
-                    "display_name": "agent-a v2",
-                    "description": "updated",
-                    "custom_prompt": "When mentioned in a group chat, reply exactly with NO_REPLY.",
-                    "skills": [],
-                    "tool_allowlist": [],
-                    "group_reply_policy": "manual",
-                    "default_model": None,
-                },
-            )
-            assert patched.status_code == 200
-            sync_frame = websocket.receive_json()
-            assert sync_frame == {
-                "type": "config.sync",
-                "payload": {"agent_id": "agent-a", "profile_version": 2},
+            patch_result: dict[str, object] = {}
+            patch_payload = {
+                "profile_version": current.json()["profile_version"],
+                "display_name": "agent-a v2",
+                "description": "updated",
+                "custom_prompt": "When mentioned in a group chat, reply exactly with NO_REPLY.",
+                "skills": [],
+                "tool_allowlist": [],
+                "group_reply_policy": "manual",
+                "default_model": None,
             }
+
+            def _patch_config() -> None:
+                patch_result["response"] = client.patch(
+                    "/im/v1/agents/agent-a/config", json=patch_payload
+                )
+
+            patch_worker = threading.Thread(target=_patch_config)
+            patch_worker.start()
+            apply_frame = websocket.receive_json()
+            assert apply_frame["type"] == "agent.config.apply"
+            apply_payload = apply_frame["payload"]
+            websocket.send_json(
+                {
+                    "type": "agent.config.apply.result",
+                    "payload": {
+                        "request_id": apply_payload["request_id"],
+                        "node_id": "node-1",
+                        "operation_id": apply_payload["operation_id"],
+                        "status": "applied",
+                        "candidate_fingerprint": apply_payload["candidate_fingerprint"],
+                        "agent": apply_payload["agent"],
+                    },
+                }
+            )
+            assert websocket.receive_json()["type"] == "ack"
+            patch_worker.join(timeout=5)
+            patched = patch_result["response"]
+            assert patched.status_code == 200
             current_snapshot = inbound_graph(pipeline).catalog.publish(
                 AgentWorkspaceConfig(
                     agent_id="agent-a",

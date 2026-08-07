@@ -26,7 +26,8 @@ class AgentProfileRepository:
         rows = self._connection.execute(
             """
             SELECT agent_id, owner_id, node_id, display_name, description, skills_json,
-                   tool_allowlist_json, group_reply_policy, default_model, workspace_root, profile_version,
+                   tool_allowlist_json, group_reply_policy, default_model, reasoning_effort,
+                   workspace_root, profile_version,
                    is_stale, features_json, custom_prompt, heartbeat_json
             FROM agent_profiles
             ORDER BY created_at, rowid
@@ -46,7 +47,8 @@ class AgentProfileRepository:
         rows = self._connection.execute(
             """
             SELECT ap.agent_id, ap.owner_id, ap.node_id, ap.display_name, ap.description, ap.skills_json,
-                   ap.tool_allowlist_json, ap.group_reply_policy, ap.default_model, ap.workspace_root, ap.profile_version,
+                   ap.tool_allowlist_json, ap.group_reply_policy, ap.default_model, ap.reasoning_effort,
+                   ap.workspace_root, ap.profile_version,
                    ap.is_stale, ap.features_json, ap.custom_prompt, ap.heartbeat_json
             FROM agent_profiles ap
             JOIN nodes n ON n.node_id = ap.node_id
@@ -77,7 +79,8 @@ class AgentProfileRepository:
         rows = self._connection.execute(
             """
             SELECT ap.agent_id, ap.owner_id, ap.node_id, ap.display_name, ap.description, ap.skills_json,
-                   ap.tool_allowlist_json, ap.group_reply_policy, ap.default_model, ap.workspace_root, ap.profile_version,
+                   ap.tool_allowlist_json, ap.group_reply_policy, ap.default_model, ap.reasoning_effort,
+                   ap.workspace_root, ap.profile_version,
                    ap.is_stale, ap.features_json, ap.custom_prompt, ap.heartbeat_json
             FROM agent_profiles ap
             JOIN nodes n ON n.node_id = ap.node_id
@@ -121,7 +124,8 @@ class AgentProfileRepository:
         row = self._connection.execute(
             """
             SELECT agent_id, owner_id, node_id, display_name, description, skills_json,
-                   tool_allowlist_json, group_reply_policy, default_model, workspace_root, profile_version,
+                   tool_allowlist_json, group_reply_policy, default_model, reasoning_effort,
+                   workspace_root, profile_version,
                    is_stale, features_json, custom_prompt, heartbeat_json
             FROM agent_profiles
             WHERE agent_id = ?
@@ -144,6 +148,7 @@ class AgentProfileRepository:
         group_reply_policy: str,
         default_model: str | None,
         workspace_root: str | None,
+        reasoning_effort: str | None = None,
         node_id: str | None = None,
         features: dict[str, bool] | None = None,
         custom_prompt: str | None = None,
@@ -166,9 +171,9 @@ class AgentProfileRepository:
                 INSERT INTO agent_profiles(
                     agent_id, owner_id, node_id, display_name, description,
                     skills_json, tool_allowlist_json, group_reply_policy,
-                    default_model, workspace_root, profile_version, created_at, updated_at,
+                    default_model, reasoning_effort, workspace_root, profile_version, created_at, updated_at,
                     features_json, custom_prompt
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, '{}'), ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, '{}'), ?)
                 ON CONFLICT(agent_id) DO UPDATE SET
                     owner_id = excluded.owner_id,
                     node_id = excluded.node_id,
@@ -178,6 +183,7 @@ class AgentProfileRepository:
                     tool_allowlist_json = excluded.tool_allowlist_json,
                     group_reply_policy = excluded.group_reply_policy,
                     default_model = excluded.default_model,
+                    reasoning_effort = excluded.reasoning_effort,
                     workspace_root = excluded.workspace_root,
                     updated_at = excluded.updated_at,
                     is_stale = 0,
@@ -203,6 +209,7 @@ class AgentProfileRepository:
                     tool_allowlist_json,
                     group_reply_policy,
                     default_model,
+                    reasoning_effort,
                     workspace_root,
                     1,
                     created_at,
@@ -264,6 +271,7 @@ class AgentProfileRepository:
         tool_allowlist: list[str],
         group_reply_policy: str,
         default_model: str | None,
+        reasoning_effort: str | None = None,
         features: dict[str, bool] | None = None,
         custom_prompt: str | None = None,
         heartbeat_json: str | None = None,
@@ -297,7 +305,7 @@ class AgentProfileRepository:
             heartbeat_json if heartbeat_json is not None else current.heartbeat_json
         )
         with self._connection:
-            self._connection.execute(
+            cursor = self._connection.execute(
                 """
                 UPDATE agent_profiles
                 SET display_name = ?,
@@ -306,12 +314,13 @@ class AgentProfileRepository:
                     tool_allowlist_json = ?,
                     group_reply_policy = ?,
                     default_model = ?,
+                    reasoning_effort = ?,
                     profile_version = ?,
                     updated_at = ?,
                     features_json = ?,
                     custom_prompt = ?,
                     heartbeat_json = ?
-                WHERE agent_id = ?
+                WHERE agent_id = ? AND profile_version = ?
                 """,
                 (
                     display_name,
@@ -320,14 +329,18 @@ class AgentProfileRepository:
                     _encode_json_list(tool_allowlist),
                     group_reply_policy,
                     default_model,
+                    reasoning_effort,
                     next_version,
                     updated_at,
                     features_json,
                     resolved_custom_prompt,
                     resolved_heartbeat_json,
                     agent_id,
+                    profile_version,
                 ),
             )
+            if cursor.rowcount != 1:
+                raise AgentProfileVersionConflictError("profile_version conflict")
         updated = self.get_profile(agent_id=agent_id)
         assert updated is not None
         return updated
@@ -386,6 +399,7 @@ class AgentProfileRepository:
             tool_allowlist=_decode_string_list(row["tool_allowlist_json"]),
             group_reply_policy=row["group_reply_policy"],
             default_model=row["default_model"],
+            reasoning_effort=row["reasoning_effort"],
             workspace_root=row["workspace_root"],
             profile_version=int(row["profile_version"]),
             is_stale=is_stale,

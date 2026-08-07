@@ -21,6 +21,9 @@ from IM.application.user_service import UserService
 from IM.application.web_im_service import WebIMService
 from IM.domain.models import User
 from IM.infra.repositories.agents import AgentProfileRepository
+from IM.infra.repositories.agent_config_operations import (
+    AgentConfigOperationRepository,
+)
 from IM.infra.repositories.bindings import BindRepository
 from IM.infra.repositories.conversations import ConversationRepository
 from IM.infra.repositories.messages import MessageRepository
@@ -59,6 +62,13 @@ def _build_profile_repository(request: Request) -> AgentProfileRepository:
 def get_profile_repository(request: Request) -> AgentProfileRepository:
     """Provide agent profile reads to HTTP route composition."""
     return _build_profile_repository(request)
+
+
+def get_agent_config_operation_repository(
+    request: Request,
+) -> AgentConfigOperationRepository:
+    """Build the durable Agent configuration-operation repository."""
+    return AgentConfigOperationRepository(request.app.state.connection)
 
 
 def _build_node_repository(request: Request) -> NodeRepository:

@@ -51,6 +51,7 @@ def test_agent_profile_roundtrip_and_optimistic_lock(tmp_path: Path) -> None:
         tool_allowlist=["read"],
         group_reply_policy="manual",
         default_model=None,
+        reasoning_effort="low",
         workspace_root=None,
         features={"memory_curation": False},
         custom_prompt="Be concise.",
@@ -71,12 +72,14 @@ def test_agent_profile_roundtrip_and_optimistic_lock(tmp_path: Path) -> None:
         tool_allowlist=["read", "edit"],
         group_reply_policy="auto",
         default_model="claude-sonnet-4",
+        reasoning_effort="high",
         features={"skill_creation": True},
         custom_prompt="Use examples.",
         # bugfix-404-M2: workspace_root removed from update_profile — immutable after creation
     )
     assert updated.profile_version == 2
     assert updated.group_reply_policy == "auto"
+    assert updated.reasoning_effort == "high"
     assert updated.features == {"skill_creation": True}
     assert updated.custom_prompt == "Use examples."
     # workspace_root is unchanged from upsert value (None in this test)

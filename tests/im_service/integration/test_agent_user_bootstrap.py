@@ -82,6 +82,11 @@ def test_create_node_agent_provisions_im_user_row_atomically(tmp_path: Path) -> 
                     "payload": {
                         "request_id": create_req["payload"]["request_id"],
                         "node_id": "node-m18",
+                        "operation_id": create_req["payload"]["operation_id"],
+                        "status": "applied",
+                        "candidate_fingerprint": create_req["payload"][
+                            "candidate_fingerprint"
+                        ],
                         "agent": {
                             "agent_id": "agent-m18-new",
                             "display_name": "M18 Beta",
@@ -91,13 +96,14 @@ def test_create_node_agent_provisions_im_user_row_atomically(tmp_path: Path) -> 
                             "tool_allowlist": [],
                             "group_reply_policy": "MENTION",
                             "default_model": None,
+                            "reasoning_effort": None,
                             "workspace_root": _WORKSPACE_SETTING,
+                            "heartbeat_json": None,
                         },
                     },
                 }
             )
-            # absorb ack + config.sync emitted by the route
-            websocket.receive_json()
+            # The terminal create result itself is the success condition.
             websocket.receive_json()
             worker.join(timeout=5)
 

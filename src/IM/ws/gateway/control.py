@@ -15,6 +15,32 @@ _logger = logging.getLogger(__name__)
 from .sessions import GatewaySessions
 
 
+def _config_operation_result(
+    *,
+    payload: dict[str, object],
+    expected_operation_id: str,
+    expected_candidate_fingerprint: str,
+) -> dict[str, object]:
+    """Validate and copy one correlated Gateway config operation result."""
+    operation_id = _require_text(payload.get("operation_id"), field_name="operation_id")
+    if operation_id != expected_operation_id:
+        raise ValueError("operation_id does not match request")
+    result_status = _require_text(payload.get("status"), field_name="status")
+    if result_status not in {"applied", "rejected", "pending"}:
+        raise ValueError("status must be applied, rejected, or pending")
+    agent = payload.get("agent")
+    if result_status == "applied" and not isinstance(agent, dict):
+        raise ValueError("applied result requires an agent object")
+    if agent is not None and not isinstance(agent, dict):
+        raise ValueError("agent must be an object when provided")
+    fingerprint = payload.get("candidate_fingerprint")
+    if result_status != "pending" or fingerprint is not None:
+        fingerprint = _require_text(fingerprint, field_name="candidate_fingerprint")
+        if fingerprint != expected_candidate_fingerprint:
+            raise ValueError("candidate_fingerprint does not match request")
+    return dict(payload)
+
+
 class GatewayControl:
     """Own Gateway control RPC request/result correlation and waiters."""
 
@@ -23,6 +49,8 @@ class GatewayControl:
         self._lock = lock
         self._agent_config_waiters = {}
         self._agent_create_waiters = {}
+        self._agent_config_apply_waiters = {}
+        self._agent_config_operation_status_waiters = {}
         self._agent_capabilities_waiters = {}
         self._node_capabilities_waiters = {}
         self._prompt_preview_waiters = {}
@@ -32,6 +60,16 @@ class GatewayControl:
         self._cron_delete_waiters = {}
         self._skills_usage_waiters = {}
         self._session_fork_waiters = {}
+        self._config_operation_locks: dict[str, asyncio.Lock] = {}
+
+    async def config_operation_lock(self, *, agent_id: str) -> asyncio.Lock:
+        """Return the app-scoped serialization lock for one Agent config mutation."""
+        async with self._lock:
+            lock = self._config_operation_locks.get(agent_id)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._config_operation_locks[agent_id] = lock
+            return lock
 
     async def push_heartbeat_trigger(
         self, *, target_node_id: str, agent_id: str, reason: str
@@ -124,19 +162,37 @@ class GatewayControl:
         *,
         target_node_id: str,
         payload: dict[str, object],
+        operation_id: str | None = None,
+        candidate_fingerprint: str | None = None,
         timeout_seconds: float = 5.0,
     ) -> dict[str, object] | None:
-        """Request one gateway node to create an agent and return its created agent payload."""
+        """Request Gateway creation, optionally using the durable operation protocol."""
         request_id = f"agent-create-{uuid4().hex}"
         loop = asyncio.get_running_loop()
         waiter: asyncio.Future[dict[str, object] | None] = loop.create_future()
         async with self._lock:
-            self._agent_create_waiters[request_id] = waiter
+            self._agent_create_waiters[request_id] = (
+                operation_id,
+                candidate_fingerprint,
+                waiter,
+            )
+        request_payload: dict[str, object] = {
+            "request_id": request_id,
+            "agent": dict(payload),
+        }
+        if operation_id is not None:
+            request_payload.update(
+                {
+                    "operation_id": operation_id,
+                    "candidate_fingerprint": candidate_fingerprint or "",
+                    "expected_previous_fingerprint": None,
+                }
+            )
         try:
             pushed = await self._sessions.send(
                 target_node_id=target_node_id,
                 message_type="agent.create",
-                payload={"request_id": request_id, "agent": dict(payload)},
+                payload=request_payload,
             )
             if not pushed:
                 return None
@@ -146,6 +202,80 @@ class GatewayControl:
         finally:
             async with self._lock:
                 self._agent_create_waiters.pop(request_id, None)
+
+    async def request_agent_config_apply(
+        self,
+        *,
+        target_node_id: str,
+        operation_id: str,
+        candidate_fingerprint: str,
+        expected_previous_fingerprint: str,
+        payload: dict[str, object],
+        timeout_seconds: float = 5.0,
+    ) -> dict[str, object] | None:
+        """Apply a complete Agent config and await its terminal Gateway result."""
+        request_id = f"agent-config-apply-{uuid4().hex}"
+        loop = asyncio.get_running_loop()
+        waiter: asyncio.Future[dict[str, object] | None] = loop.create_future()
+        async with self._lock:
+            self._agent_config_apply_waiters[request_id] = (
+                operation_id,
+                candidate_fingerprint,
+                waiter,
+            )
+        try:
+            pushed = await self._sessions.send(
+                target_node_id=target_node_id,
+                message_type="agent.config.apply",
+                payload={
+                    "request_id": request_id,
+                    "operation_id": operation_id,
+                    "candidate_fingerprint": candidate_fingerprint,
+                    "expected_previous_fingerprint": expected_previous_fingerprint,
+                    "agent": dict(payload),
+                },
+            )
+            if not pushed:
+                return None
+            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            return None
+        finally:
+            async with self._lock:
+                self._agent_config_apply_waiters.pop(request_id, None)
+
+    async def request_agent_config_operation_status(
+        self,
+        *,
+        target_node_id: str,
+        operation_id: str,
+        candidate_fingerprint: str,
+        timeout_seconds: float = 5.0,
+    ) -> dict[str, object] | None:
+        """Recover the canonical result of a previously submitted config operation."""
+        request_id = f"agent-config-operation-status-{uuid4().hex}"
+        loop = asyncio.get_running_loop()
+        waiter: asyncio.Future[dict[str, object] | None] = loop.create_future()
+        async with self._lock:
+            self._agent_config_operation_status_waiters[request_id] = (
+                operation_id,
+                candidate_fingerprint,
+                waiter,
+            )
+        try:
+            pushed = await self._sessions.send(
+                target_node_id=target_node_id,
+                message_type="agent.config.operation.status",
+                payload={"request_id": request_id, "operation_id": operation_id},
+            )
+            if not pushed:
+                return None
+            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            return None
+        finally:
+            async with self._lock:
+                self._agent_config_operation_status_waiters.pop(request_id, None)
 
     async def request_agent_capabilities(
         self,
@@ -584,15 +714,75 @@ class GatewayControl:
     ) -> dict[str, object]:
         request_id = _require_text(payload.get("request_id"), field_name="request_id")
         node_id = _require_text(payload.get("node_id"), field_name="node_id")
-        agent_payload = _require_dict(payload.get("agent"), field_name="agent")
         async with self._lock:
-            waiter = self._agent_create_waiters.get(request_id)
-        if waiter is not None and not waiter.done():
-            waiter.set_result(dict(agent_payload))
+            waiter_entry = self._agent_create_waiters.get(request_id)
+        if waiter_entry is not None:
+            expected_operation_id, expected_fingerprint, waiter = waiter_entry
+            if expected_operation_id is None:
+                agent_payload = _require_dict(payload.get("agent"), field_name="agent")
+                if not waiter.done():
+                    waiter.set_result(dict(agent_payload))
+            else:
+                result = _config_operation_result(
+                    payload=payload,
+                    expected_operation_id=expected_operation_id,
+                    expected_candidate_fingerprint=expected_fingerprint,
+                )
+                if not waiter.done():
+                    waiter.set_result(result)
         return {
             "type": "ack",
             "payload": {
                 "message_type": "agent.created",
+                "request_id": request_id,
+                "node_id": node_id,
+            },
+        }
+
+    async def _handle_agent_config_apply_result(
+        self, *, payload: dict[str, object]
+    ) -> dict[str, object]:
+        """Resolve an ``agent.config.apply`` request by request and operation id."""
+        return await self._handle_config_operation_result(
+            payload=payload,
+            waiters=self._agent_config_apply_waiters,
+            message_type="agent.config.apply.result",
+        )
+
+    async def _handle_agent_config_operation_status_result(
+        self, *, payload: dict[str, object]
+    ) -> dict[str, object]:
+        """Resolve an operation-status recovery request."""
+        return await self._handle_config_operation_result(
+            payload=payload,
+            waiters=self._agent_config_operation_status_waiters,
+            message_type="agent.config.operation.status.result",
+        )
+
+    async def _handle_config_operation_result(
+        self,
+        *,
+        payload: dict[str, object],
+        waiters: dict[str, object],
+        message_type: str,
+    ) -> dict[str, object]:
+        request_id = _require_text(payload.get("request_id"), field_name="request_id")
+        node_id = _require_text(payload.get("node_id"), field_name="node_id")
+        async with self._lock:
+            waiter_entry = waiters.get(request_id)
+        if waiter_entry is not None:
+            expected_operation_id, expected_fingerprint, waiter = waiter_entry
+            result = _config_operation_result(
+                payload=payload,
+                expected_operation_id=expected_operation_id,
+                expected_candidate_fingerprint=expected_fingerprint,
+            )
+            if not waiter.done():
+                waiter.set_result(result)
+        return {
+            "type": "ack",
+            "payload": {
+                "message_type": message_type,
                 "request_id": request_id,
                 "node_id": node_id,
             },

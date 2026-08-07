@@ -48,6 +48,7 @@ def test_agent_config_contract_shape_and_conflict_status(tmp_path: Path) -> None
             "tool_allowlist",
             "group_reply_policy",
             "default_model",
+            "reasoning_effort",
             "workspace_root",
             "workspace_is_default",
             "profile_version",
@@ -73,6 +74,9 @@ def test_patch_agent_config_persists_features_and_custom_prompt(tmp_path: Path) 
         owner = register_user(client, username="owner2", display_name="Owner2")
         authorize(client, owner)
         profiles = AgentProfileRepository(app.state.connection)
+        NodeRepository(app.state.connection).upsert_node(
+            node_id="node-1", node_name="MacBook"
+        )
         profiles.upsert_profile(
             agent_id="agent-persist",
             owner_id=owner.owner_id,
@@ -83,6 +87,29 @@ def test_patch_agent_config_persists_features_and_custom_prompt(tmp_path: Path) 
             group_reply_policy="manual",
             default_model=None,
             workspace_root=None,
+            node_id="node-1",
+        )
+
+        async def fake_request_agent_config_apply(
+            *,
+            target_node_id: str,
+            operation_id: str,
+            candidate_fingerprint: str,
+            expected_previous_fingerprint: str,
+            payload: dict[str, object],
+            timeout_seconds: float = 5.0,
+        ):
+            del expected_previous_fingerprint, timeout_seconds
+            assert target_node_id == "node-1"
+            return {
+                "operation_id": operation_id,
+                "status": "applied",
+                "candidate_fingerprint": candidate_fingerprint,
+                "agent": payload,
+            }
+
+        app.state.gateway_control.request_agent_config_apply = (
+            fake_request_agent_config_apply
         )
 
         # PATCH with features + custom_prompt
@@ -129,7 +156,23 @@ def test_node_capabilities_contract_shape(
         return {
             # bugfix-429 R5: models carry {name, provider} so the dropdown can
             # label each model's registered format.
-            "models": [{"name": "codex_oauth:gpt-5.5", "provider": "openai_compat"}],
+            "models": [
+                {
+                    "name": "codex_oauth:gpt-5.5",
+                    "provider": "openai_compat",
+                    "reasoning": {
+                        "kind": "selectable",
+                        "default": "high",
+                        "levels": ["low", "high"],
+                    },
+                },
+                {
+                    "name": "kimiCoding:kimi-for-coding",
+                    "provider": "anthropic",
+                    "reasoning": {"kind": "fixed"},
+                },
+                {"name": "plain", "provider": "anthropic"},
+            ],
             "skills": ["plan"],
             "tools": ["read"],
             "platform_default_model": None,
@@ -148,6 +191,23 @@ def test_node_capabilities_contract_shape(
         response = client.get("/im/v1/nodes/node-1/capabilities")
 
     assert response.status_code == 200
+    assert response.json()["models"] == [
+        {
+            "name": "codex_oauth:gpt-5.5",
+            "provider": "openai_compat",
+            "reasoning": {
+                "kind": "selectable",
+                "default": "high",
+                "levels": ["low", "high"],
+            },
+        },
+        {
+            "name": "kimiCoding:kimi-for-coding",
+            "provider": "anthropic",
+            "reasoning": {"kind": "fixed"},
+        },
+        {"name": "plain", "provider": "anthropic"},
+    ]
     body = response.json()
     # feat-379-M6 (ISSUE-1): features list added; other fields unchanged
     assert body["node_id"] == "node-1"
@@ -159,9 +219,6 @@ def test_node_capabilities_contract_shape(
     ]
     assert body["tools"] == [
         {"name": "read", "description": "", "default_on": False, "location": None}
-    ]
-    assert body["models"] == [
-        {"name": "codex_oauth:gpt-5.5", "provider": "openai_compat"}
     ]
     assert body["platform_default_model"] is None
     assert "default_system_prompt" not in body

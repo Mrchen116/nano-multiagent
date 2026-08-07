@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS agent_profiles (
     tool_allowlist_json TEXT NOT NULL DEFAULT '[]',
     group_reply_policy TEXT NOT NULL DEFAULT 'manual',
     default_model TEXT,
+    reasoning_effort TEXT,
     workspace_root TEXT,
     profile_version INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL,
@@ -169,6 +170,30 @@ CREATE TABLE IF NOT EXISTS agent_config_boundaries (
     FOREIGN KEY (before_message_id) REFERENCES messages(id) ON DELETE CASCADE,
     FOREIGN KEY (event_id) REFERENCES conversation_events(event_id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS agent_config_operations (
+    operation_id TEXT PRIMARY KEY,
+    root_operation_id TEXT,
+    agent_id TEXT NOT NULL,
+    owner_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    operation_kind TEXT NOT NULL,
+    status TEXT NOT NULL,
+    candidate_json TEXT NOT NULL,
+    previous_candidate_json TEXT,
+    candidate_fingerprint TEXT NOT NULL,
+    expected_previous_fingerprint TEXT,
+    expected_profile_version INTEGER,
+    gateway_result_json TEXT,
+    error_code TEXT,
+    error_message TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS one_active_config_operation_per_agent
+ON agent_config_operations(agent_id)
+WHERE status IN ('pending', 'gateway_applied');
 
 CREATE TABLE IF NOT EXISTS relay_tasks (
     relay_task_id TEXT PRIMARY KEY,
@@ -698,6 +723,11 @@ def _migrate_agent_profile_tables(connection: sqlite3.Connection) -> None:
     }
     if agent_column_names and "heartbeat_json" not in agent_column_names:
         connection.execute("ALTER TABLE agent_profiles ADD COLUMN heartbeat_json TEXT")
+
+    if agent_column_names and "reasoning_effort" not in agent_column_names:
+        connection.execute(
+            "ALTER TABLE agent_profiles ADD COLUMN reasoning_effort TEXT"
+        )
 
     node_rows = connection.execute("PRAGMA table_info(nodes)").fetchall()
     node_column_names = {row["name"] for row in node_rows}

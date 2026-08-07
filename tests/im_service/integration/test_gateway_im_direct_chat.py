@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+import threading
 
 from fastapi.testclient import TestClient
 
@@ -12,7 +13,6 @@ from IM.app import create_app
 from IM.infra.repositories.users import UserRepository
 from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
 from personal_assistant.config.local_store import AgentWorkspaceConfig
-from personal_assistant.config.sync_client import ConfigSyncClient
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from tests.helpers.inbound_pipeline import build_inbound_pipeline, inbound_graph
 from personal_assistant.gateway.outbound_router import OutboundRouter
@@ -218,7 +218,6 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
                     },
                 }
 
-            sync = ConfigSyncClient()
             old_before = client.post(
                 f"/im/v1/conversations/{old_conversation_id}/messages",
                 headers={"Idempotency-Key": "idem-m150-old-before"},
@@ -235,23 +234,45 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
 
             current = client.get("/im/v1/agents/agent-a/config?source=mirror")
             assert current.status_code == 200
-            patched = client.patch(
-                "/im/v1/agents/agent-a/config",
-                json={
-                    "profile_version": current.json()["profile_version"],
-                    "display_name": "agent-a v2",
-                    "description": "updated",
-                    "custom_prompt": "You are upgraded.",
-                    "skills": ["plan"],
-                    "tool_allowlist": ["read"],
-                    "group_reply_policy": "manual",
-                    "default_model": "claude-sonnet-4",
-                },
+            patch_result: dict[str, object] = {}
+            patch_payload = {
+                "profile_version": current.json()["profile_version"],
+                "display_name": "agent-a v2",
+                "description": "updated",
+                "custom_prompt": "You are upgraded.",
+                "skills": ["plan"],
+                "tool_allowlist": ["read"],
+                "group_reply_policy": "manual",
+                "default_model": "claude-sonnet-4",
+            }
+
+            def _patch_config() -> None:
+                patch_result["response"] = client.patch(
+                    "/im/v1/agents/agent-a/config", json=patch_payload
+                )
+
+            patch_worker = threading.Thread(target=_patch_config)
+            patch_worker.start()
+            apply_frame = websocket.receive_json()
+            assert apply_frame["type"] == "agent.config.apply"
+            apply_payload = apply_frame["payload"]
+            websocket.send_json(
+                {
+                    "type": "agent.config.apply.result",
+                    "payload": {
+                        "request_id": apply_payload["request_id"],
+                        "node_id": "node-1",
+                        "operation_id": apply_payload["operation_id"],
+                        "status": "applied",
+                        "candidate_fingerprint": apply_payload["candidate_fingerprint"],
+                        "agent": apply_payload["agent"],
+                    },
+                }
             )
+            assert websocket.receive_json()["type"] == "ack"
+            patch_worker.join(timeout=5)
+            patched = patch_result["response"]
             assert patched.status_code == 200
-            sync_frame = websocket.receive_json()
-            request = sync.handle_notification(sync_frame["payload"])
-            assert request.agent_id == "agent-a"
             refreshed_workspace = tmp_path / "agent-a-refreshed"
             refreshed_workspace.mkdir()
             inbound_graph(pipeline).catalog.publish(
@@ -464,10 +485,6 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
     assert old_completed_payloads[1]["idempotency_key"] == "idem-m150-old-after"
     assert new_completed_payloads[0]["idempotency_key"] == "idem-m150-new-after"
 
-    assert sync_frame == {
-        "type": "config.sync",
-        "payload": {"agent_id": "agent-a", "profile_version": 2},
-    }
     assert patched.json()["profile_version"] == 2
     assert patched.json()["custom_prompt"] == "You are upgraded."
     assert "system_prompt" not in patched.json()
@@ -476,6 +493,3 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
     assert old_before.json()["conversation_id"] == old_conversation_id
     assert old_after.json()["conversation_id"] == old_conversation_id
     assert new_after.json()["conversation_id"] == new_conversation_id
-    assert sync.latest_profile_version("agent-a") == 2
-    assert request.profile_version == 2
-    assert request.agent_id == "agent-a"

@@ -225,6 +225,10 @@ def test_cross_owner_result_cannot_release_another_nodes_waiter(
                 create_request = bob_socket.receive_json()
                 assert create_request["type"] == "agent.create"
                 request_id = create_request["payload"]["request_id"]
+                operation_id = create_request["payload"]["operation_id"]
+                candidate_fingerprint = create_request["payload"][
+                    "candidate_fingerprint"
+                ]
                 alice_socket.send_json(
                     {
                         "type": "agent.created",
@@ -245,6 +249,9 @@ def test_cross_owner_result_cannot_release_another_nodes_waiter(
                         "payload": {
                             "request_id": request_id,
                             "node_id": "waiter-b",
+                            "operation_id": operation_id,
+                            "status": "applied",
+                            "candidate_fingerprint": candidate_fingerprint,
                             "agent": {
                                 "agent_id": "agent-b",
                                 "display_name": "Agent B",
@@ -254,13 +261,14 @@ def test_cross_owner_result_cannot_release_another_nodes_waiter(
                                 "tool_allowlist": [],
                                 "group_reply_policy": "MENTION",
                                 "default_model": None,
+                                "reasoning_effort": None,
                                 "workspace_root": str(tmp_path / "agent-b"),
+                                "heartbeat_json": None,
                             },
                         },
                     }
                 )
                 assert bob_socket.receive_json()["type"] == "ack"
-                assert bob_socket.receive_json()["type"] == "config.sync"
                 worker.join(timeout=5)
                 assert creation_result["response"].status_code == 201
 

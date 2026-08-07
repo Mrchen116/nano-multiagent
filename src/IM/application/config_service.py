@@ -87,8 +87,10 @@ class ConfigService:
         group_reply_policy: str,
         default_model: str | None,
         workspace_root: str,
+        reasoning_effort: str | None = None,
         features: dict[str, bool] | None = None,
         custom_prompt: str | None = None,
+        notify_config_sync: bool = True,
     ) -> AgentProfile:
         """Create one agent profile under exactly one known node."""
         existing = self._profiles.get_profile(agent_id=agent_id)
@@ -118,6 +120,7 @@ class ConfigService:
             tool_allowlist=tool_allowlist,
             group_reply_policy=group_reply_policy,
             default_model=default_model,
+            reasoning_effort=reasoning_effort,
             workspace_root=self.normalize_workspace_root(
                 agent_id=agent_id, workspace_root=workspace_root
             ),
@@ -129,9 +132,10 @@ class ConfigService:
         # used by the chat UI can resolve the agent participant. Without this, the
         # end-user cannot start a direct chat with a freshly-minted agent.
         self.ensure_agent_user(agent_id=agent_id, display_name=created.display_name)
-        self._notify_config_sync(
-            agent_id=agent_id, profile_version=created.profile_version
-        )
+        if notify_config_sync:
+            self._notify_config_sync(
+                agent_id=agent_id, profile_version=created.profile_version
+            )
         return created
 
     def list_profiles(self) -> list[AgentProfile]:
@@ -177,9 +181,11 @@ class ConfigService:
         tool_allowlist: list[str],
         group_reply_policy: str,
         default_model: str | None,
+        reasoning_effort: str | None = None,
         features: dict[str, bool] | None = None,
         custom_prompt: str | None = None,
         heartbeat_json: str | None = None,
+        notify_config_sync: bool = True,
     ) -> AgentProfile:
         """Update one agent profile using profile_version optimistic locking.
 
@@ -209,13 +215,15 @@ class ConfigService:
             tool_allowlist=tool_allowlist,
             group_reply_policy=group_reply_policy,
             default_model=default_model,
+            reasoning_effort=reasoning_effort,
             features=features,
             custom_prompt=custom_prompt,
             heartbeat_json=heartbeat_json,
         )
-        self._notify_config_sync(
-            agent_id=agent_id, profile_version=updated.profile_version
-        )
+        if notify_config_sync:
+            self._notify_config_sync(
+                agent_id=agent_id, profile_version=updated.profile_version
+            )
         return updated
 
     def workspace_root_for_profile(self, profile: AgentProfile) -> str:
