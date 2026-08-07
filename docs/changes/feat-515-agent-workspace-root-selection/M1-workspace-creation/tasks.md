@@ -19,7 +19,7 @@
 ## 测试策略
 
 - 保护的回归风险与可观察 seam: Gateway 创建 handler 的文件系统/本地 config 结果；`agent.created` 帧和 HTTP 状态/JSON；SQLite profile/register 镜像；真实 `/im/v1/nodes/:id/agents`；创建页提交 payload、错误分支、确认重试和视觉状态。
-- 已有保护与处置: 扩展 `tests/unit/personal_assistant/test_agent_config_sync_ownership.py`、`test_gateway_im_connection_behavior.py`、`tests/im_service/{unit,integration,contract}/` 现有 ownership/create owner；扩展 `src/IM/frontend/src/features/settings/agents/{agent-create.test.tsx,im-agent-config-api.test.ts}`。同一风险分别落在 Gateway 文件系统边界、跨进程协议/HTTP 边界和浏览器交互边界，不复制内部调用断言。
+- 已有保护与处置: 扩展 `tests/unit/personal_assistant/test_agent_config_sync_ownership.py`、`test_gateway_im_connection_behavior.py`、`tests/im_service/{unit,integration,contract}/` 现有 ownership/create owner；API adapter 扩展 `im-agent-config-api.test.ts`，Workspace 独立交互因既有 `agent-create.test.tsx` 已超 400 行而落到 `agent-create-workspace.test.tsx`。同一风险分别落在 Gateway 文件系统边界、跨进程协议/HTTP 边界和浏览器交互边界，不复制内部调用断言。
 - 落层/目录/marker: `tests/unit/`（纯 Gateway creation authority）、`tests/im_service/unit|integration|contract/`（IM persistence/protocol/HTTP）、`src/IM/frontend` Vitest（交互/API adapter）、`tests/e2e/` 或 reviewer runbook（真进程/真浏览器），marker: 真进程/浏览器证据为 `e2e` 或临时验收。
 - 文件归属: 扩展上述现有语义 owner；仅在没有合适 owner 时新增按行为命名的测试文件。
 - 可选依赖 importorskip: Playwright 真浏览器验收走现有环境，不新增 Python 可选依赖。
@@ -33,7 +33,7 @@
 | WS create/preview 协议 | `tests/unit/personal_assistant/test_gateway_im_connection_behavior.py`、`test_gateway_control_frame_correlation.py` | rewrite-merge | 旧 preview root 由 IM 派生的前提退役，改测节点解析和 structured outcome | targeted pytest |
 | IM HTTP 创建与镜像 | `tests/im_service/contract/test_agent_create_contract.py`、`integration/test_agent_create_flow.py` | rewrite-merge | 扩展 code/status/provenance/成功后持久化，保留真实 HTTP+WS seam | targeted pytest |
 | register workspace seed | `tests/im_service/unit/test_gateway_handler.py`、`integration/test_gateway_im_registration.py` | rewrite-merge | 增加 provenance seed、空值补齐、legacy root fallback，保留既有 first-seen 风险 | targeted pytest |
-| 创建页草稿与提交 | `src/IM/frontend/src/features/settings/agents/agent-create.test.tsx` | rewrite-merge | 保留离开保护/节点能力，扩展默认/custom/确认/冲突交互 | targeted Vitest |
+| 创建页草稿与提交 | `src/IM/frontend/src/features/settings/agents/agent-create.test.tsx`、`agent-create-workspace.test.tsx` | rewrite-merge | 保留原文件的离开保护/节点能力；新建 204 行的 Workspace 语义 owner，避免继续扩展既有超长文件 | targeted Vitest |
 | 前端错误 envelope | `src/IM/frontend/src/features/settings/agents/im-agent-config-api.test.ts` | rewrite-merge | 让稳定 `code`/`agent_id` 进入 UI 分支 | targeted Vitest |
 
 ### 用户路径分类
@@ -99,12 +99,12 @@
 
 ### R4 — 回归矩阵与质量门禁
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 汇总/补齐 Gateway/IM/frontend 退出标准覆盖，处理受影响既有测试，运行针对性与风险扩展门禁。
 - 验证: focused/full-enough pytest、frontend test/build、ruff、diff check、docs check。
 
 ### R5 — 隔离真栈与浏览器原型对照
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 通过 runbook 启动隔离 IM/Gateway/Vite 和第二 Gateway，走全部创建旅程；desktop/390px 截图落 unit evidence；检查 console/network；停止并验证资源释放。
 - 验证: 单/双 Gateway HTTP/API/DB/文件系统证据、浏览器截图和 Prototype Comparison。
