@@ -40,8 +40,7 @@ export function normalizeReasoningEffort(
   currentEffort: string | null,
 ): string | null {
   const descriptor = descriptorForModel(modelOptions, modelName);
-  if (descriptor?.kind !== "selectable") return null;
-  return currentEffort ?? descriptor.default;
+  return descriptor?.kind === "selectable" ? (currentEffort ?? descriptor.default) : currentEffort;
 }
 
 export function isStaleReasoningEffort(
@@ -51,7 +50,7 @@ export function isStaleReasoningEffort(
 ): boolean {
   if (!currentEffort) return false;
   const descriptor = descriptorForModel(modelOptions, modelName);
-  return descriptor?.kind === "selectable" && !descriptor.levels.includes(currentEffort);
+  return descriptor?.kind !== "selectable" || !descriptor.levels.includes(currentEffort);
 }
 
 interface ModelReasoningFieldProps {
@@ -61,7 +60,7 @@ interface ModelReasoningFieldProps {
   value: string | null;
   disabled?: boolean;
   applyPending?: boolean;
-  onChange: (value: string) => void;
+  onChange: (value: string | null) => void;
 }
 
 export function ModelReasoningField({
@@ -147,6 +146,21 @@ export function ModelReasoningField({
   return (
     <div className="im-agent-field im-agent-reasoning-field" data-testid={`${idPrefix}-reasoning-field`}>
       {field}
+      {stale && descriptor?.kind !== "selectable" ? (
+        <>
+          <p className="im-agent-reasoning-error" role="alert">
+            {t("agents.form.access.reasoning.staleUnavailableError")}
+          </p>
+          <button
+            className="im-btn im-btn-muted w-fit"
+            type="button"
+            disabled={disabled}
+            onClick={() => onChange(null)}
+          >
+            {t("agents.form.access.reasoning.clearUnavailable")}
+          </button>
+        </>
+      ) : null}
       {applyPending ? (
         <p className="im-agent-reasoning-pending" role="status">
           {t("agents.form.access.reasoning.applyPending")}

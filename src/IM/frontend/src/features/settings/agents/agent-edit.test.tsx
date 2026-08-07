@@ -1,5 +1,5 @@
 import userEvent from "@testing-library/user-event";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
 
 import { appRoutes } from "../../../app/router";
@@ -10,6 +10,7 @@ const fetchMock = vi.fn();
 globalThis.fetch = fetchMock as typeof fetch;
 
 afterEach(() => {
+  vi.useRealTimers();
   fetchMock.mockReset();
 });
 
@@ -435,8 +436,9 @@ describe("agent edit page", () => {
     expect((screen.getByLabelText("Profile Version") as HTMLInputElement).value).toBe("v12");
   });
 
-  it("keeps the detail draft visible and disables save while an apply result is pending", async () => {
+  it("refreshes the detail when a pending apply is confirmed", async () => {
     const user = userEvent.setup();
+    let applyPending = false;
 
     fetchMock.mockImplementation(async (input, init) => {
       const url = typeof input === "string" ? input : input.toString();
@@ -459,6 +461,7 @@ describe("agent edit page", () => {
         }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
       if (url === "/im/v1/agents/agent-core-1/config" && init?.method === "PATCH") {
+        applyPending = true;
         return new Response(JSON.stringify({ detail: "config_apply_pending" }), {
           status: 503,
           headers: { "Content-Type": "application/json" },
@@ -474,10 +477,10 @@ describe("agent edit page", () => {
           tool_allowlist: [],
           group_reply_policy: "MENTION",
           default_model: "adjustable",
-          reasoning_effort: "medium",
+          reasoning_effort: applyPending ? "high" : "medium",
           workspace_root: "/tmp/agent-core-1",
           workspace_is_default: true,
-          profile_version: 12,
+          profile_version: applyPending ? 13 : 12,
           node_id: "node-1",
           updated_at: "2026-03-13T10:00:00Z",
         }), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -489,11 +492,21 @@ describe("agent edit page", () => {
 
     const reasoning = await screen.findByLabelText("Reasoning effort");
     await user.selectOptions(reasoning, "high");
-    await user.click(screen.getByRole("button", { name: /^Save Agent$/ }));
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole("button", { name: /^Save Agent$/ }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
 
-    expect(await screen.findByRole("status")).toHaveTextContent(/Confirming the previous save/i);
+    expect(screen.getByRole("status")).toHaveTextContent(/Confirming the previous save/i);
     expect(reasoning).toHaveValue("high");
     expect(screen.getByRole("button", { name: /^Save Agent$/ })).toBeDisabled();
     expect(screen.getByRole("button", { name: /^Saving…$/ })).toBeDisabled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect((screen.getByLabelText("Profile Version") as HTMLInputElement).value).toBe("v13");
   });
 });

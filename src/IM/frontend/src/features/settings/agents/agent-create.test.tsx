@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Link, createMemoryRouter, RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -511,7 +511,7 @@ describe("agent create page", () => {
     expect(router.state.location.pathname).toBe("/settings/nodes/node-1/agents/new");
   });
 
-  it("preserves the create draft and disables duplicate saves while apply confirmation is pending", async () => {
+  it("retries a pending create and opens the recovered agent", async () => {
     const user = userEvent.setup();
     mockNodes();
     apiMocks.getNodeCreateStateMock.mockResolvedValue({
@@ -538,23 +538,54 @@ describe("agent create page", () => {
         platform_default_model: null,
       },
     });
-    apiMocks.createNodeAgentMock.mockRejectedValue(
-      new Error("POST /im/v1/nodes/node-1/agents failed: 503 (config_apply_pending)"),
-    );
+    apiMocks.createNodeAgentMock
+      .mockRejectedValueOnce(
+        new Error("POST /im/v1/nodes/node-1/agents failed: 503 (config_apply_pending)"),
+      )
+      .mockResolvedValueOnce({
+        agent_id: "pending-agent",
+        owner_id: "owner-1",
+        display_name: "Pending Agent",
+        description: "",
+        skills: [],
+        tool_allowlist: [],
+        group_reply_policy: "MENTION",
+        default_model: "adjustable",
+        reasoning_effort: "high",
+        workspace_root: "/tmp/pending-agent",
+        workspace_is_default: true,
+        profile_version: 1,
+        node_id: "node-1",
+        node_name: "MacBook",
+        node_status: "online",
+        bound_nodes: ["node-1"],
+        updated_at: "2026-03-13T10:00:00Z",
+      });
 
-    renderCreatePage();
+    const { router } = renderCreatePage();
     fireEvent.change(await screen.findByLabelText(/^Agent ID/), { target: { value: "pending-agent" } });
     fireEvent.change(screen.getByLabelText(/^Display Name/), { target: { value: "Pending Agent" } });
     await user.selectOptions(screen.getByLabelText("Default Model"), "adjustable");
     await user.selectOptions(screen.getByLabelText("Reasoning effort"), "high");
-    await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole("button", { name: /^Create agent$/i }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
 
-    expect(await screen.findByRole("status")).toHaveTextContent(/Confirming the previous save/i);
+    expect(screen.getByRole("status")).toHaveTextContent(/Confirming the previous save/i);
     expect(screen.getByLabelText(/^Agent ID/)).toHaveValue("pending-agent");
     expect(screen.getByLabelText("Reasoning effort")).toHaveValue("high");
     for (const button of screen.getAllByRole("button", { name: /Create agent/i })) {
       expect(button).toBeDisabled();
     }
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(apiMocks.createNodeAgentMock).toHaveBeenCalledTimes(2);
+    expect(router.state.location.pathname).toBe("/settings/agents/pending-agent");
+    vi.useRealTimers();
   });
 
   it("shows the desktop agent rail and switches immediately from an untouched form", async () => {

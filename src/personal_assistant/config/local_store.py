@@ -1096,8 +1096,26 @@ def _parse_llm(payload: Any) -> LLMConfigPayload:
             LLMProviderPayload(name=pname, base_url=base_url, models=tuple(models))
         )
 
-    # Validate default_model exists in at least one provider
-    all_models = {m.name for p in providers for m in p.models}
+    # Each model id must have one provider owner. The kernel routes duplicate ids
+    # by first declaration, so accepting duplicates here would let a later
+    # capability declaration disagree with the provider that actually receives
+    # the request.
+    model_names = [m.name for provider in providers for m in provider.models]
+    seen_model_names: set[str] = set()
+    duplicate_model_names: set[str] = set()
+    for model_name in model_names:
+        if model_name in seen_model_names:
+            duplicate_model_names.add(model_name)
+        seen_model_names.add(model_name)
+    duplicates = sorted(duplicate_model_names)
+    if duplicates:
+        raise ValueError(
+            "llm.providers models must not repeat a model name: "
+            + ", ".join(duplicates)
+        )
+
+    # Validate default_model exists in the registered provider catalog.
+    all_models = set(model_names)
     if default_model not in all_models:
         available = ", ".join(sorted(all_models)) or "(none)"
         raise ValueError(

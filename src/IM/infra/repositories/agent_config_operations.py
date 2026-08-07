@@ -88,7 +88,7 @@ class AgentConfigOperationRepository:
                     ),
                 )
         except sqlite3.IntegrityError as exc:
-            active = self.get_active(agent_id=agent_id, owner_id=owner_id)
+            active = self._get_active(agent_id=agent_id)
             if active is not None:
                 raise AgentConfigOperationPendingError("config_apply_pending") from exc
             raise
@@ -116,20 +116,35 @@ class AgentConfigOperationRepository:
         self, *, agent_id: str, owner_id: str
     ) -> AgentConfigOperation | None:
         """Return the current pending or Gateway-applied operation for one agent."""
+        return self._get_active(agent_id=agent_id, owner_id=owner_id)
+
+    def _get_active(
+        self, *, agent_id: str, owner_id: str | None = None
+    ) -> AgentConfigOperation | None:
+        """Return an active operation, optionally constrained to its owner.
+
+        The active-operation index is global to ``agent_id``. The create path
+        uses the unconstrained form only to translate that collision into the
+        owner-safe pending response; it never exposes another owner's record.
+        """
+        owner_clause = "AND owner_id = ?" if owner_id is not None else ""
+        parameters: tuple[str, ...] = (
+            (agent_id, owner_id) if owner_id is not None else (agent_id,)
+        )
         row = self._connection.execute(
-            """
+            f"""
             SELECT operation_id, root_operation_id, agent_id, owner_id, node_id,
                    operation_kind, status, candidate_json, candidate_fingerprint,
                    previous_candidate_json,
                    expected_previous_fingerprint, expected_profile_version,
                    gateway_result_json, error_code, error_message
             FROM agent_config_operations
-            WHERE agent_id = ? AND owner_id = ?
+            WHERE agent_id = ? {owner_clause}
               AND status IN ('pending', 'gateway_applied')
             ORDER BY rowid DESC
             LIMIT 1
             """,
-            (agent_id, owner_id),
+            parameters,
         ).fetchone()
         return self._row_to_operation(row) if row is not None else None
 

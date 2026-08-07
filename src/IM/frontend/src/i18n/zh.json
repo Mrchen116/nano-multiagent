@@ -404,6 +404,8 @@
           "unavailableHelp": "当前节点没有为这个模型声明推理控件。",
           "selectableHelp": "此模型推荐“{{level}}”。切换模型时，仅会保留新模型也支持的强度。",
           "staleError": "该模型的可选强度已更新。请刷新配置后重新选择，再保存。",
+          "staleUnavailableError": "该模型已不接受当前保存的推理强度。请先移除它再保存。",
+          "clearUnavailable": "移除不可用的推理设置",
           "saveConflict": "保存前配置已发生变化。请刷新配置后重新选择，再重试。详情：{{detail}}",
           "applyPending": "正在确认上次保存，请不要重复编辑。你的草稿会保留，确认后将显示保存结果。",
           "levels": {

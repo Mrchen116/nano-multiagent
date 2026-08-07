@@ -1372,6 +1372,7 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
         setErrorMessage(null);
         return;
       }
+      setApplyPending(false);
       const detail = getAgentConfigRequestDetail(error);
       const status = getAgentConfigRequestStatus(error);
       setErrorMessage(
@@ -1381,6 +1382,23 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
       );
     }
   });
+
+  useEffect(() => {
+    if (!applyPending) return;
+    const retryInterval = window.setInterval(() => {
+      void detailQuery.refetch().then((result) => {
+        if (result.isSuccess) {
+          setApplyPending(false);
+          return;
+        }
+        if (result.error && !isConfigApplyPendingError(result.error)) {
+          setApplyPending(false);
+          setErrorMessage(getAgentConfigRequestDetail(result.error));
+        }
+      });
+    }, 1_000);
+    return () => window.clearInterval(retryInterval);
+  }, [applyPending, detailQuery.refetch]);
 
   const openDirectChatMutation = useMutation({
     mutationFn: async () => {

@@ -129,6 +129,21 @@ def test_load_local_config_agent_default_model_validated_against_llm(
         load_local_config(cfg)
 
 
+def test_load_local_config_rejects_duplicate_model_names_across_providers(
+    tmp_path: Path,
+) -> None:
+    """One model id cannot name different provider routes and capabilities."""
+    from personal_assistant.config.local_store import load_local_config
+
+    duplicate_model_yaml = _LLM_YAML.replace(
+        "        - name: codex_oauth:gpt-5.5\n",
+        "        - name: kimiCoding:K2.6\n",
+    )
+
+    with pytest.raises(ValueError, match="must not repeat a model name"):
+        load_local_config(_make_config(tmp_path, duplicate_model_yaml))
+
+
 def test_load_local_config_agent_no_default_model_ok(tmp_path: Path) -> None:
     """agent without default_model must load fine (falls back to llm.default_model at runtime)."""
     from personal_assistant.config.local_store import load_local_config

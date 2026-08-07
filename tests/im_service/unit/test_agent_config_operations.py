@@ -1,8 +1,17 @@
 """Unit coverage for the shared Agent configuration operation projection."""
 
+from pathlib import Path
+
+import pytest
+
 from IM.application.agent_config_operations import (
     candidate_fingerprint,
     gateway_candidate,
+)
+from IM.infra.db import connect, initialize_schema
+from IM.infra.repositories.agent_config_operations import (
+    AgentConfigOperationPendingError,
+    AgentConfigOperationRepository,
 )
 
 
@@ -43,3 +52,28 @@ def test_omitted_create_skills_have_a_distinct_fingerprint() -> None:
     assert candidate_fingerprint(candidate) != candidate_fingerprint(
         {**candidate, "skills": []}
     )
+
+
+def test_active_operation_collision_returns_pending_instead_of_sqlite_error(
+    tmp_path: Path,
+) -> None:
+    """A concurrent create receives the safe retryable operation state."""
+    connection = connect(tmp_path / "im.db")
+    initialize_schema(connection)
+    repository = AgentConfigOperationRepository(connection)
+    candidate = {"agent_id": "agent-1"}
+    kwargs = {
+        "agent_id": "agent-1",
+        "owner_id": "owner-1",
+        "node_id": "node-1",
+        "operation_kind": "create",
+        "candidate": candidate,
+        "previous_candidate": None,
+        "candidate_fingerprint": candidate_fingerprint(candidate),
+        "expected_previous_fingerprint": None,
+        "expected_profile_version": None,
+    }
+    repository.create(operation_id="operation-1", **kwargs)
+
+    with pytest.raises(AgentConfigOperationPendingError, match="config_apply_pending"):
+        repository.create(operation_id="operation-2", **kwargs)

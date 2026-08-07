@@ -6,6 +6,7 @@ import { i18n } from "../../../i18n";
 import type { ModelOption } from "./im-agent-config-api";
 import {
   ModelReasoningField,
+  normalizeReasoningEffort,
   reasoningEffortAfterModelChange,
 } from "./model-reasoning-field";
 
@@ -111,6 +112,25 @@ describe("ModelReasoningField", () => {
 
     expect(screen.getByLabelText("Reasoning effort")).toHaveValue("retired-tier");
     expect(screen.getByRole("alert")).toHaveTextContent(/available efforts changed/i);
+  });
+
+  it("keeps a stale fixed-model value until the user explicitly removes it", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <ModelReasoningField
+        idPrefix="test"
+        modelOptions={OPTIONS}
+        selectedModel="fixed"
+        value="high"
+        onChange={onChange}
+      />,
+    );
+
+    expect(normalizeReasoningEffort(OPTIONS, "fixed", "high")).toBe("high");
+    expect(screen.getByRole("alert")).toHaveTextContent(/no longer accepts the saved reasoning effort/i);
+    await user.click(screen.getByRole("button", { name: "Remove unavailable reasoning setting" }));
+    expect(onChange).toHaveBeenCalledWith(null);
   });
 
   it("preserves a compatible effort across models and otherwise selects the declared default", () => {

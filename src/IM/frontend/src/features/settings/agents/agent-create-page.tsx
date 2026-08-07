@@ -446,6 +446,7 @@ export function AgentCreatePage() {
         setErrorMessage(null);
         return;
       }
+      setApplyPending(false);
       const detail = getAgentConfigRequestDetail(error);
       const status = getAgentConfigRequestStatus(error);
       setErrorMessage(
@@ -455,6 +456,12 @@ export function AgentCreatePage() {
       );
     }
   });
+
+  useEffect(() => {
+    if (!applyPending || mutation.isPending) return;
+    const retryTimer = window.setTimeout(() => mutation.mutate(normalizedDraft), 1_000);
+    return () => window.clearTimeout(retryTimer);
+  }, [applyPending, mutation.isPending, mutation.mutate, normalizedDraft]);
 
   function markTouched(field: "agent_id" | "display_name") {
     setTouched((current) => ({ ...current, [field]: true }));
