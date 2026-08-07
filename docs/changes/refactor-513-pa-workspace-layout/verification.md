@@ -80,3 +80,72 @@ Architecture contracts were re-run: product-to-SDK and product-sibling import bo
 - The public SDK docstrings still describe workspace tools/hooks as literal `<repo_root>/.nano/...` (`src/agent/sdk/kernel.py:283-289,487-499`), and development worktree guidance still names the retired default config path (`docs/development/worktree-runtime.md:14-20`). Update these explanations to say “the selected workspace configuration directory” and `~/.nanoassistant/config.yaml`, respectively, so operator/developer guidance matches the new terminal layout.
 
 1 critical issue(s), 3 warning(s) found. Fix before PR.
+
+# Round 2
+
+> Targeted-closure snapshot: `e0e61f779 -> 533082563`
+
+## Summary
+
+Mode: targeted-closure
+
+Focus: Round 1 C1, W1, W2, W3.
+
+Verdict: **fail**. W1, W2, and W3 are closed. C1 remains a release-blocking
+coverage gap because the newly added real concurrent chain does not exercise all
+of the frozen M1 execution boundaries.
+
+requires_full_verification: false. The fix is narrowly scoped to the reported
+closure items and does not change the architecture reviewed in Round 1.
+
+## Validated closure items
+
+| Prior issue | Result | Evidence |
+|---|---|---|
+| W1: `list_session_tools` public result and explicit allowlist | closed | `Kernel.list_session_tools` filters the tuple returned by the registry on `spec.name` and builds the dict payload consumed by CLI (`src/agent/sdk/kernel.py:1713-1728`). A real `.nanocode` session created with `enabled_tools=['read']` returned only `read`, and `coding_cli.commands._print_tools_summary` rendered it as `Tools for session <id> (1):`. Contract and CLI REPL coverage passed. |
+| W2: four protected config directory names | closed | `DANGEROUS_DIRECTORIES` now contains `.nano`, `.nano-assistant`, `.nanocode`, and `.nanoassistant` (`src/agent/platform/tools/dangerous_paths.py:50-58`), with exact-set and path-level regression cases (`tests/unit/agent/platform/tools/test_dangerous_paths.py:38-109,164-169`). |
+| W3: PA binding-store implicit home | closed | The default and docstring now select `~/.nanoassistant/session_bindings.sqlite3` (`src/personal_assistant/gateway/session_keys.py:624-640`); a HOME-isolated test verifies it neither creates nor reads the retired path (`tests/unit/personal_assistant/test_persistent_session_binding_store.py:153-166`). |
+| C1: concurrent scope isolation | partial; still critical | The new test uses `asyncio.gather` for two real runs and proves workspace tool/hook selection, `auto_mode_gate` permission passage, bash policy passage, selected background-output roots, forked-run scope, and `list_session_tools` (`tests/unit/agent/test_workspace_execution_scope.py:277-339`). It is materially stronger than Round 1, but does not execute the frozen M1 `subagent`, slash-skill, or compaction paths. |
+
+## Remaining issue
+
+### CRITICAL
+
+- **C1 — M1 still lacks execution evidence for three explicitly required scope boundaries.** The frozen exit criterion requires main run, subagent, slash skill, fork/compaction, and `list_session_tools` to use the same workspace scope (`design.md:212`). The added concurrent test executes main runs, a forked follow-up, and `list_session_tools` (`tests/unit/agent/test_workspace_execution_scope.py:294-315`), but it never creates a subagent, invokes a slash skill, or calls `Kernel.compact`. Static inspection shows scope is seeded for compaction (`src/agent/core/agent/runtime.py:309-326`) and the current registry is used by slash-skill dispatch (`src/agent/core/agent/runtime.py:558-568,1603-1613`), but that is not the required executable evidence and does not cover a real subagent path. Add durable workspace-specific extension tests for those three paths (using conflicting A/B workspace markers) before calling M1 complete.
+
+### SUGGESTION
+
+- W1 is functionally closed, but its new durable tests cover the payload shape and CLI renderer separately, not an explicit enabled-tool allowlist through the real CLI command. Preserve the direct verification above with a small regression test so a future return to an unfiltered tuple or incompatible item shape is caught automatically.
+
+## Checks run
+
+```text
+PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q \
+  tests/unit/agent/test_workspace_execution_scope.py \
+  tests/unit/agent/test_kernel_nano_tools_override.py \
+  tests/unit/agent/platform/tools/test_dangerous_paths.py \
+  tests/unit/personal_assistant/test_persistent_session_binding_store.py \
+  tests/contract/test_kernel_sdk_behavior_contract.py \
+  tests/unit/test_cli_repl_commands.py
+120 passed
+
+PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q \
+  tests/integration/test_bash_engine.py \
+  tests/unit/personal_assistant/test_local_store.py \
+  tests/unit/personal_assistant/test_product_workspace_layout.py \
+  tests/unit/test_cli_product_workspace_layout.py \
+  tests/contract/test_agent_sdk_boundary_contract.py \
+  tests/contract/test_cli_sdk_only_contract.py \
+  tests/contract/test_core_no_platform_imports.py \
+  tests/contract/test_kernel_sdk_behavior_contract.py
+84 passed
+
+PYTHON=/Users/czj/Repos/nano-multiagent/.venv/bin/python scripts/docs-check
+documentation integrity passed: 217 maintained Markdown sources, 67 required routes
+
+ruff check [changed closure source and tests]
+All checks passed
+
+git diff --check 5feb761de..533082563
+passed
+```
