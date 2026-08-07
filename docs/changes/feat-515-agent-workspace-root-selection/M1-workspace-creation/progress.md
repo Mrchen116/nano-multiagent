@@ -77,7 +77,21 @@
 
 ## R5 — 隔离真栈与浏览器原型对照
 
-- Status: TODO
+- Context: unit/integration 测试已覆盖协议和路径分支，但仍需证明真实 IM/Gateway/Vite/Chromium 组合、窄屏布局以及 node-local ownership 在两个进程中成立。
+- Decision: 用 worktree runbook 启动端口隔离的 IM、主 Gateway 和 Vite；第二 Gateway 使用独立 config/runtime/workspace base/node identity/process 接入同一 IM。浏览器完成 default/custom、已有目录首次拒绝和确认重试，API 补测 missing parent、同节点冲突和跨节点同字符串 root；SQLite/YAML/文件系统逐项取证。
+- Rationale: 浏览器证据验证用户可见状态和恢复式交互，双 Gateway 证据验证 ownership 位于节点而非 IM；二者不能由组件测试互相替代。
+- Evidence:
+  - Tests: 浏览器网络记录显示已有目录 `409 workspace_confirmation_required` 后相同草稿确认重试 `201`；default 创建 `201`；真实 API 得到 `422 workspace_parent_missing` 和 `409 workspace_already_assigned`。
+  - Entry: 主节点 `wt-feat-515-M1-98571` 和第二节点 `wt-feat-515-M1-second` 同时 online；IM 为 `127.0.0.1:60550`，Vite 为 `127.0.0.1:60599`。
+  - Frontend State Matrix: desktop default/custom、existing confirmation、dual-node selection、390px custom card 均完成真实 Chromium 验收。
+  - Browser QA: 最终 console 为 0 errors / 0 warnings；network 含预期 409、随后 201 与成功 follow-up reads；既有详情只展示 read-only Workspace Root，无来源标签。
+  - E2E/Regression: 首次 existing 请求后 profile/YAML 均无写入；确认后 root/provenance 为 exact canonical string/false，sentinel 未变；default root/provenance 为 Gateway base 下路径/true；missing/assigned 失败均无 profile/YAML/path 副作用。
+  - Visual/Interaction: 1440 x 1000 和 390 x 844 截图与完整结果位于 `evidence/acceptance.md`；长路径不撑破卡片，窄屏模式卡单列。
+  - Prototype Comparison: Identity -> Workspace -> Behavior、默认选中、custom 节点说明、existing warning/checkbox 四项 must-match 全部满足。
+  - Dual Gateway: 第二节点以已由主节点 Agent 使用的同字符串 root 创建另一 Agent 得到 HTTP 201；SQLite 中两个不同 `node_id` 保留同一 root，两个 Gateway YAML 分别持有本地 assignment，sentinel 未变。
+- Rollback: revert `d521f05d5`（durable evidence）；功能 rollback 见 R1-R4。
+- Commits: `d521f05d5`
+- Next: milestone 集成到 `unit/feat-515`，释放浏览器、双 Gateway、IM/Vite 与所有 worktree runtime 文件。
 
 ## Promotion Candidates
 
