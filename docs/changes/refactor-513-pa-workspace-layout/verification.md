@@ -4,9 +4,9 @@
 
 ## Summary
 
-Mode: full  
-Delta range: `f54e008b1..e0e61f779`  
-Focus issues: N/A  
+Mode: full
+Delta range: `f54e008b1..e0e61f779`
+Focus issues: N/A
 requires_full_verification: false
 
 | 维度 | 结果 |
