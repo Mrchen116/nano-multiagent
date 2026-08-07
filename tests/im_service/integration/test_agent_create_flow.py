@@ -97,6 +97,7 @@ def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(
                 "group_reply_policy": "MENTION",
                 "default_model": "claude-sonnet-4",
                 "workspace_root": None,
+                "confirm_existing_workspace": False,
             }
             websocket.send_json(
                 {

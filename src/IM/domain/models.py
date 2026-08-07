@@ -115,6 +115,7 @@ class AgentProfile:
     group_reply_policy: str = "manual"
     default_model: str | None = None
     workspace_root: str | None = None
+    workspace_is_default: bool | None = None
     profile_version: int = 1
     is_stale: bool = False
     # feat-379-M2: per-agent feature-flag overrides (keyed by FEATURE_REGISTRY key)
