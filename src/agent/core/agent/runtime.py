@@ -144,7 +144,8 @@ class AgentEngine:
         default_tool_ids: list[str] | None = None,
         permission_broker: Any | None = None,
         prompt_sections: Sequence[PromptSection] | None = None,
-        execution_scope_resolver: Callable[[Path], WorkspaceExecutionScope] | None = None,
+        execution_scope_resolver: Callable[[Path], WorkspaceExecutionScope]
+        | None = None,
     ) -> None:
         env_llm_config = LLMFactoryConfig.from_env()
         self._llm_config = LLMFactoryConfig(
@@ -332,7 +333,9 @@ class AgentEngine:
 
         self._execution_scope_resolver = resolver
 
-    def _scope_for_workspace(self, workspace_root: Path) -> WorkspaceExecutionScope | None:
+    def _scope_for_workspace(
+        self, workspace_root: Path
+    ) -> WorkspaceExecutionScope | None:
         resolver = self._execution_scope_resolver
         return resolver(workspace_root) if resolver is not None else None
 
@@ -833,8 +836,8 @@ class AgentEngine:
         # building contexts for fork side-chains as an explicit belt-and-suspenders guard.
         hook_runner = self._current_hook_runner()
         if hook_runner is not None:
-            background_registrations = (
-                hook_runner.registry.background_handlers_for("agent_end")
+            background_registrations = hook_runner.registry.background_handlers_for(
+                "agent_end"
             )
             if background_registrations:
                 from agent.core.agent.context_fork import make_fork_conversation
@@ -1201,9 +1204,7 @@ class AgentEngine:
             allowed_set = set(default_ids)
             return tuple(spec for spec in all_specs if spec.name in allowed_set)
         requested = set(config.tool_allowlist)
-        return tuple(
-            tool for tool in all_specs if tool.name in requested
-        )
+        return tuple(tool for tool in all_specs if tool.name in requested)
 
     async def _dispatch_intercept(
         self,
@@ -1504,7 +1505,9 @@ class AgentEngine:
         return HookContext(
             session_id=session_id,
             turn_id=turn_id,
-            repo_root=(scope.layout.workspace_root if scope is not None else self._repo_root),
+            repo_root=(
+                scope.layout.workspace_root if scope is not None else self._repo_root
+            ),
             metadata=final_metadata,
             model_caller=self._call_hook_model,
             session_event_publisher=session_event_publisher,

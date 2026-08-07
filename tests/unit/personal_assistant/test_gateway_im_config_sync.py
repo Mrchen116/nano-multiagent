@@ -146,8 +146,10 @@ def test_im_config_sync_client_retries_until_live_agent_config_reaches_target_ve
     assert (workspace_root / ".nanoassistant" / "HEARTBEAT.md").is_file() is True
     assert memory_seed.read_text(encoding="utf-8").strip()
     assert (
-        workspace_root / ".nanoassistant" / "HEARTBEAT.md"
-    ).read_text(encoding="utf-8").strip()
+        (workspace_root / ".nanoassistant" / "HEARTBEAT.md")
+        .read_text(encoding="utf-8")
+        .strip()
+    )
 
 
 def test_im_config_sync_client_retains_existing_agent_session_bindings_after_profile_refresh(

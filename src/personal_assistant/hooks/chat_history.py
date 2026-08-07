@@ -105,7 +105,9 @@ def setup(hooks: Any) -> None:  # noqa: ANN401
         user_text = session_state.get("user_text", "")
         assistant_text = session_state.get("assistant_text", "")
 
-        config_root = ctx.metadata.get("workspace_config_root") if ctx.metadata else None
+        config_root = (
+            ctx.metadata.get("workspace_config_root") if ctx.metadata else None
+        )
         if not isinstance(config_root, str) or not config_root:
             config_root = str(Path(workspace_root) / WORKSPACE_CONFIG_DIRNAME)
         jsonl_path = Path(config_root) / "chat_history" / f"{ctx.session_id}.jsonl"

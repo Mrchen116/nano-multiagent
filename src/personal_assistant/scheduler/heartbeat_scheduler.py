@@ -346,7 +346,9 @@ class HeartbeatScheduler:
                 if self._is_session_busy(_canonical_session_key):
                     skipped_agents.append(agent.agent_id)
                     continue
-            heartbeat_path = agent.workspace_root / WORKSPACE_CONFIG_DIRNAME / "HEARTBEAT.md"
+            heartbeat_path = (
+                agent.workspace_root / WORKSPACE_CONFIG_DIRNAME / "HEARTBEAT.md"
+            )
             spec = _load_heartbeat_spec(heartbeat_path)
             if spec is None:
                 skipped_agents.append(agent.agent_id)

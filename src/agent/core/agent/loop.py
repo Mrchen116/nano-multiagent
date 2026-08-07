@@ -240,9 +240,7 @@ class AgentLoop:
         registry_token = self._active_tool_registry.set(
             getattr(scope, "tool_registry", None)
         )
-        runner_token = self._active_hook_runner.set(
-            getattr(scope, "hook_runner", None)
-        )
+        runner_token = self._active_hook_runner.set(getattr(scope, "hook_runner", None))
         compressor_token = self._active_tool_result_compressor.set(
             getattr(scope, "tool_result_compressor", None)
         )

@@ -1181,7 +1181,9 @@ class Kernel:
             )(session.session_id),
         )
         try:
-            hook_runner = scope.hook_runner if scope is not None else self._c.hook_runner
+            hook_runner = (
+                scope.hook_runner if scope is not None else self._c.hook_runner
+            )
             diagnostics = await hook_runner.dispatch_observe(
                 "session_start", {"session_id": session.session_id}, hook_ctx
             )
@@ -1711,7 +1713,9 @@ class Kernel:
         """
         effective_root = Path(workspace_root or self._repo_root).expanduser().resolve()
         scope = self._scope_for(effective_root)
-        tool_registry = scope.tool_registry if scope is not None else self._c.tool_registry
+        tool_registry = (
+            scope.tool_registry if scope is not None else self._c.tool_registry
+        )
         if tool_registry is None:
             return {}
         specs = tool_registry.list_specs()

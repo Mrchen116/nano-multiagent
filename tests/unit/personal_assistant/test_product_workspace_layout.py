@@ -21,10 +21,13 @@ def test_pa_kernel_passes_product_workspace_and_global_roots(
 
     monkeypatch.setattr(product, "build_kernel", _build_kernel)
 
-    assert product.build_pa_kernel(
-        llm=object(),  # type: ignore[arg-type]
-        cron_services={},
-        repo_root=tmp_path,
-    ) is sentinel
+    assert (
+        product.build_pa_kernel(
+            llm=object(),  # type: ignore[arg-type]
+            cron_services={},
+            repo_root=tmp_path,
+        )
+        is sentinel
+    )
     assert captured["workspace_config_dirname"] == ".nanoassistant"
     assert captured["global_config_root"] == Path("~/.nanoassistant")

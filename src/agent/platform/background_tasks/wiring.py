@@ -68,9 +68,7 @@ def wire_background_tasks(
     """
     clock = _SystemClock()
     store = InMemoryTaskStore(manifest_path=manifest_path)
-    output = BashFileOutput(
-        output_root=workspace_root / ".nano" / "background-tasks"
-    )
+    output = BashFileOutput(output_root=workspace_root / ".nano" / "background-tasks")
     bash_runner = ShellRunner(safety=safety)
     # The same narrow registry reaps both top-level and auxiliary foreground
     # subprocesses; RuntimeRunner needs it before auxiliary handles are built.

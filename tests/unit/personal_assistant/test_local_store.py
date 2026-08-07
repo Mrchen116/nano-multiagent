@@ -87,8 +87,10 @@ def test_load_local_config_defaults_workspace_root_to_user_workspace(
         .strip()
     )
     assert (
-        expected_root / ".nanoassistant" / "HEARTBEAT.md"
-    ).read_text(encoding="utf-8").strip()
+        (expected_root / ".nanoassistant" / "HEARTBEAT.md")
+        .read_text(encoding="utf-8")
+        .strip()
+    )
 
 
 def test_load_local_config_backfills_default_workspace_files_for_explicit_root(

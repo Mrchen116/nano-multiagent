@@ -21,10 +21,13 @@ def test_cli_kernel_passes_product_workspace_and_global_roots(
 
     monkeypatch.setattr(product, "build_kernel", _build_kernel)
 
-    assert product.build_cli_kernel(
-        llm=object(),  # type: ignore[arg-type]
-        can_use_tool=object(),
-        repo_root=tmp_path,
-    ) is sentinel
+    assert (
+        product.build_cli_kernel(
+            llm=object(),  # type: ignore[arg-type]
+            can_use_tool=object(),
+            repo_root=tmp_path,
+        )
+        is sentinel
+    )
     assert captured["workspace_config_dirname"] == ".nanocode"
     assert captured["global_config_root"] == Path("~/.nanocode")
