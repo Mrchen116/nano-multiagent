@@ -498,15 +498,15 @@ def test_llm_config_get_shape(tmp_path: Path) -> None:
 
 
 def test_list_session_tools_returns_result(tmp_path: Path) -> None:
-    """kernel.list_session_tools() must return a non-None result."""
+    """kernel.list_session_tools() exposes the CLI-facing public payload."""
     kernel = _build_kernel(tmp_path)
     try:
         # list_session_tools is sync; does not require an active session
         tools_result = kernel.list_session_tools(
             session_id="test-session", workspace_root=tmp_path
         )
-        # Must return something (dict or ToolsInfo), not raise
-        assert tools_result is not None
+        assert tools_result["session_id"] == "test-session"
+        assert isinstance(tools_result["tools"], list)
     finally:
         kernel.close()
 

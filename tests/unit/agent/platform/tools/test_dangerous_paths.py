@@ -3,7 +3,7 @@ check_dangerous_path function.
 
 Coverage:
 - DANGEROUS_FILES: 8 items matching D5.2 spec exactly
-- DANGEROUS_DIRECTORIES: 6 items matching D5.2 spec exactly
+- DANGEROUS_DIRECTORIES: 8 items matching D5.2 spec exactly
 - check_dangerous_path: basename match, segment match, case-insensitive, .claude/skills/ exemption,
   absolute/relative/tilde paths, cwd resolution
 """
@@ -41,6 +41,8 @@ EXPECTED_DANGEROUS_DIRECTORIES = frozenset(
         ".vscode",
         ".idea",
         ".claude",
+        ".nano",
+        ".nano-assistant",
         ".nanocode",
         ".nanoassistant",
     }
@@ -76,9 +78,9 @@ class TestDangerousFilesConstant:
 
 
 class TestDangerousDirectoriesConstant:
-    def test_dangerous_directories_has_exactly_6_items(self):
-        assert len(DANGEROUS_DIRECTORIES) == 6, (
-            f"Expected 6 items, got {len(DANGEROUS_DIRECTORIES)}: {DANGEROUS_DIRECTORIES}"
+    def test_dangerous_directories_has_exactly_8_items(self):
+        assert len(DANGEROUS_DIRECTORIES) == 8, (
+            f"Expected 8 items, got {len(DANGEROUS_DIRECTORIES)}: {DANGEROUS_DIRECTORIES}"
         )
 
     def test_dangerous_directories_matches_d52_spec_exactly(self):
@@ -88,8 +90,10 @@ class TestDangerousDirectoriesConstant:
         """CC's 4 baseline items must all be present."""
         assert {".git", ".vscode", ".idea", ".claude"}.issubset(DANGEROUS_DIRECTORIES)
 
-    def test_dangerous_directories_contains_this_repo_extras(self):
-        """Two repo-specific directories added per D5.2."""
+    def test_dangerous_directories_contains_workspace_roots(self):
+        """The default, legacy, and product workspace roots are all guarded."""
+        assert ".nano" in DANGEROUS_DIRECTORIES
+        assert ".nano-assistant" in DANGEROUS_DIRECTORIES
         assert ".nanocode" in DANGEROUS_DIRECTORIES
         assert ".nanoassistant" in DANGEROUS_DIRECTORIES
 
@@ -159,6 +163,12 @@ class TestCheckDangerousPathSegmentMatch:
 
     def test_nanoassistant_directory(self):
         assert check_dangerous_path("/home/user/.nanoassistant/config.yaml") is True
+
+    def test_nano_directory(self):
+        assert check_dangerous_path("/project/.nano/policy.toml") is True
+
+    def test_legacy_nano_assistant_directory(self):
+        assert check_dangerous_path("/home/user/.nano-assistant/config.yaml") is True
 
     def test_safe_directory_not_matched(self):
         assert check_dangerous_path("/project/src/main.py") is False

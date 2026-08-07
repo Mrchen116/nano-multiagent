@@ -282,11 +282,13 @@ def build_kernel(
             ``workspace_config_dirname``). Empty → workspace-only skills.
         tool_search_roots: Deployment-level user tool-plugin directories shared across
             workspaces (e.g. ``~/.<product>/tools``), discovered in addition to the
-            workspace ``<repo_root>/.nano/tools``. Same consumer-supplied-roots pattern
-            as ``skill_search_roots`` — no ConfigResolver. Empty → workspace-only.
+            selected workspace ``<repo_root>/<workspace_config_dirname>/tools``.
+            Same consumer-supplied-roots pattern as ``skill_search_roots`` — no
+            ConfigResolver. Empty → workspace-only.
         hook_search_roots: Deployment-level user hook directories shared across
             workspaces (e.g. ``~/.<product>/hooks``), discovered in addition to the
-            workspace ``<repo_root>/.nano/hooks``. Same pattern. Empty → workspace-only.
+            selected workspace ``<repo_root>/<workspace_config_dirname>/hooks``.
+            Same pattern. Empty → workspace-only.
         _llm_client_override: Test-only LLM client.
 
     Returns:
@@ -489,10 +491,10 @@ class _SearchRootsResolver:
 
     Satisfies the hook loader's ``_HookRootResolver`` Protocol (``user_hook_roots``)
     from consumer-supplied deployment roots — NOT a ConfigResolver. ``user_hook_roots()``
-    returns the per-workspace ``.nano/hooks`` dir FIRST then the deployment ``extra_roots``,
-    deduped, so the loader discovers both the workspace dir (unchanged behavior) and the
-    user-level dirs. Same model as ``skill_search_roots``: the consumer factory owns these
-    product paths.
+    returns the selected per-workspace hooks directory FIRST, then the deployment
+    ``extra_roots``, deduped, so the loader discovers both the workspace dir (unchanged
+    behavior) and the user-level dirs. Same model as ``skill_search_roots``: the consumer
+    factory owns these product paths.
 
     Only the hook registry uses a resolver; the tool path loads tool_search_roots directly
     via ``_load_tools_from_single_dir`` in ``_build_kernel_base`` (no resolver indirection),
@@ -1717,13 +1719,23 @@ class Kernel:
             scope.tool_registry if scope is not None else self._c.tool_registry
         )
         if tool_registry is None:
-            return {}
+            return {"session_id": session_id, "tools": []}
         specs = tool_registry.list_specs()
         session = self._c.directory.get(SessionRef(session_id, effective_root))
-        if session is None or session.tool_allowlist is None:
-            return specs
-        allowed = set(session.tool_allowlist)
-        return {tool_id: spec for tool_id, spec in specs.items() if tool_id in allowed}
+        if session is not None and session.tool_allowlist is not None:
+            allowed = set(session.tool_allowlist)
+            specs = tuple(spec for spec in specs if spec.name in allowed)
+        return {
+            "session_id": session_id,
+            "tools": [
+                {
+                    "name": spec.name,
+                    "description": spec.description,
+                    "input_schema": dict(spec.input_schema),
+                }
+                for spec in specs
+            ],
+        }
 
     # ------------------------------------------------------------------
     # Capability queries (决策 4) — single-item neutral facts, SDK-owned DTOs.

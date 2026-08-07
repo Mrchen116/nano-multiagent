@@ -624,7 +624,7 @@ class PersistentSessionBindingStore:
     Args:
         db_path: Absolute path for the SQLite database file.  Parent directories
             are created automatically.  Defaults to
-            ``~/.nano-assistant/session_bindings.sqlite3`` when omitted.
+            ``~/.nanoassistant/session_bindings.sqlite3`` when omitted.
 
     Notes:
         Thread safety: SQLite ``check_same_thread=False`` is used; the WAL
@@ -635,7 +635,7 @@ class PersistentSessionBindingStore:
 
     def __init__(self, *, db_path: Path | None = None) -> None:
         if db_path is None:
-            db_path = Path("~/.nano-assistant/session_bindings.sqlite3").expanduser()
+            db_path = Path("~/.nanoassistant/session_bindings.sqlite3").expanduser()
         self._db_path = db_path
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)

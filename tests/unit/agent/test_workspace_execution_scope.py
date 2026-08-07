@@ -9,7 +9,7 @@ import asyncio
 import pytest
 import tests.conftest as _conftest
 
-from agent.core.llm.interfaces import LLMMessage
+from agent.core.llm.interfaces import LLMMessage, LLMToolCall
 from agent.platform.config.auto_mode import AutoModeConfig
 from agent.sdk import LLMConfig, build_kernel
 
@@ -52,6 +52,32 @@ def _write_hook(workspace: Path, dirname: str, *, marker: str) -> None:
     )
 
 
+def _write_scope_config(
+    workspace: Path,
+    dirname: str,
+    *,
+    marker: str,
+) -> None:
+    """Write conflicting tool, policy, and auto-mode capabilities for one scope."""
+
+    config_root = workspace / dirname
+    _write_tool(
+        workspace,
+        dirname,
+        name=f"scope_probe_{marker}",
+        marker=f"tool-{marker}",
+    )
+    _write_hook(workspace, dirname, marker=f"-hook-{marker}")
+    (config_root / "config.yaml").write_text(
+        f"auto_mode:\n  always_allow_tools: [scope_probe_{marker}]\n",
+        encoding="utf-8",
+    )
+    (config_root / "policy.toml").write_text(
+        f'[bash]\nallow_prefixes = ["echo scope-{marker}"]\n',
+        encoding="utf-8",
+    )
+
+
 class _CapturingLLM:
     """Complete one turn while recording the user text after scope hooks run."""
 
@@ -70,6 +96,57 @@ class _CapturingLLM:
         yield LLMMessage(role="assistant", content="done", finish_reason="stop")
 
 
+class _ConcurrentScopeLLM:
+    """Issue one workspace-specific extension and background bash call per turn."""
+
+    def __init__(self) -> None:
+        self.user_texts: list[str] = []
+
+    def generate(self, request: Any):  # noqa: ANN201
+        user_text = next(
+            (
+                str(message.content)
+                for message in reversed(request.messages)
+                if getattr(message, "role", None) == "user"
+            ),
+            "",
+        )
+        self.user_texts.append(user_text)
+        if user_text.startswith("<task-notification>"):
+            return self._stop()
+        if getattr(request.messages[-1], "role", None) == "tool":
+            return self._stop()
+        marker = "a" if user_text.endswith("-hook-a") else "b"
+        return self._tools(marker)
+
+    async def _tools(self, marker: str):
+        yield LLMMessage(
+            role="assistant",
+            content="",
+            tool_calls=(
+                LLMToolCall(
+                    call_id=f"scope-{marker}",
+                    name=f"scope_probe_{marker}",
+                    arguments={},
+                ),
+                LLMToolCall(
+                    call_id=f"bash-{marker}",
+                    name="bash",
+                    arguments={
+                        "command": f"echo scope-{marker}",
+                        "description": f"scope {marker} output",
+                        "run_in_background": True,
+                    },
+                ),
+            ),
+            finish_reason=None,
+        )
+        yield LLMMessage(role="assistant", content="", finish_reason="tool_calls")
+
+    async def _stop(self):
+        yield LLMMessage(role="assistant", content="done", finish_reason="stop")
+
+
 async def _wait_for_terminal(kernel: Any, run_id: str) -> None:
     deadline = asyncio.get_running_loop().time() + 3
     while asyncio.get_running_loop().time() < deadline:
@@ -78,6 +155,30 @@ async def _wait_for_terminal(kernel: Any, run_id: str) -> None:
             return
         await asyncio.sleep(0.01)
     raise AssertionError(f"run did not finish: {run_id}")
+
+
+async def _run_turn_and_collect(
+    kernel: Any, session_id: str, workspace: Path, text: str
+) -> list[dict[str, Any]]:
+    """Run one real turn and collect the stream through its terminal event."""
+
+    events: list[dict[str, Any]] = []
+    run = kernel.submit(
+        session_id=session_id,
+        parts=[{"type": "text", "text": text}],
+        workspace_root=workspace,
+    )
+    async for event in kernel.stream(session_id):
+        events.append(event)
+        if (
+            event.get("event") == "run_status"
+            and event.get("run_id") == run.run_id
+            and event.get("status") in {"completed", "failed", "cancelled"}
+        ):
+            return events
+    raise AssertionError(
+        f"stream ended before run {run.run_id} reached a terminal status"
+    )
 
 
 def test_workspace_extensions_are_isolated_and_cached_per_root(tmp_path: Path) -> None:
@@ -171,3 +272,68 @@ async def test_turn_uses_its_workspace_hook_scope(tmp_path: Path) -> None:
 
     assert "hello-a" in llm.user_texts
     assert "hello-b" in llm.user_texts
+
+
+@pytest.mark.asyncio
+async def test_concurrent_pretool_scopes_keep_extensions_policy_config_and_output_isolated(
+    tmp_path: Path,
+) -> None:
+    """Concurrent turns keep every selected pre-tool capability in its workspace."""
+
+    workspace_a = tmp_path / "a"
+    workspace_b = tmp_path / "b"
+    _write_scope_config(workspace_a, ".consumer", marker="a")
+    _write_scope_config(workspace_b, ".consumer", marker="b")
+    llm = _ConcurrentScopeLLM()
+    kernel = _kernel(
+        tmp_path,
+        workspace_config_dirname=".consumer",
+        _llm_client_override=llm,
+    )
+    try:
+        session_a, session_b = await asyncio.gather(
+            kernel.create_session(workspace_root=workspace_a),
+            kernel.create_session(workspace_root=workspace_b),
+        )
+        events_a, events_b = await asyncio.gather(
+            _run_turn_and_collect(kernel, session_a.session_id, workspace_a, "run"),
+            _run_turn_and_collect(kernel, session_b.session_id, workspace_b, "run"),
+        )
+
+        fork_a = await kernel.fork_session(
+            session_a.session_id, workspace_root=workspace_a
+        )
+        fork_events_a = await _run_turn_and_collect(
+            kernel, fork_a.session_id, workspace_a, "run again"
+        )
+
+        tools_a = kernel.list_session_tools(
+            session_a.session_id, workspace_root=workspace_a
+        )
+        tools_b = kernel.list_session_tools(
+            session_b.session_id, workspace_root=workspace_b
+        )
+    finally:
+        kernel.close()
+
+    assert "run-hook-a" in llm.user_texts
+    assert "run-hook-b" in llm.user_texts
+    assert "run again-hook-a" in llm.user_texts
+    names_a = {tool["name"] for tool in tools_a["tools"]}
+    names_b = {tool["name"] for tool in tools_b["tools"]}
+    assert {"scope_probe_a", "bash"} <= names_a
+    assert "scope_probe_b" not in names_a
+    assert {"scope_probe_b", "bash"} <= names_b
+    assert "scope_probe_a" not in names_b
+
+    for marker, events in (("a", events_a), ("b", events_b), ("a", fork_events_a)):
+        tool_ends = [event for event in events if event.get("event") == "tool_end"]
+        assert any(event.get("name") == f"scope_probe_{marker}" for event in tool_ends)
+        assert any(event.get("name") == "bash" for event in tool_ends)
+
+    a_outputs = list((workspace_a / ".consumer" / "background-tasks").rglob("*.output"))
+    b_outputs = list((workspace_b / ".consumer" / "background-tasks").rglob("*.output"))
+    assert len(a_outputs) == 2
+    assert len(b_outputs) == 1
+    assert not list((workspace_a / ".nano" / "background-tasks").rglob("*.output"))
+    assert not list((workspace_b / ".nano" / "background-tasks").rglob("*.output"))

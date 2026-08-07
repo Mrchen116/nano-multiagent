@@ -41,7 +41,8 @@ def test_build_kernel_does_not_crash_on_nano_tools_builtin_override(
         workspace_config_dirname=".nano",
         repo_root=repo,
     )
-    names = [t.name for t in kernel.list_session_tools("scope", workspace_root=repo)]
+    tools = kernel.list_session_tools("scope", workspace_root=repo)["tools"]
+    names = [tool["name"] for tool in tools]
     assert "bash" in names, "bash tool must still be present (override, not removed)"
 
 
@@ -58,5 +59,6 @@ def test_nano_tools_new_tool_discovered(tmp_path: Path) -> None:
         workspace_config_dirname=".nano",
         repo_root=repo,
     )
-    names = [t.name for t in kernel.list_session_tools("scope", workspace_root=repo)]
+    tools = kernel.list_session_tools("scope", workspace_root=repo)["tools"]
+    names = [tool["name"] for tool in tools]
     assert "r2_probe_tool" in names

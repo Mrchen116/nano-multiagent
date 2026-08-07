@@ -150,6 +150,20 @@ class TestR1PersistAndRecover:
         PersistentSessionBindingStore(db_path=db_path)
         assert db_path.exists()
 
+    def test_default_db_path_uses_current_pa_home(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An implicit binding store never recreates the retired PA home."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        store = PersistentSessionBindingStore()
+
+        assert (
+            store._db_path == tmp_path / ".nanoassistant" / "session_bindings.sqlite3"
+        )  # noqa: SLF001
+        assert store._db_path.exists()  # noqa: SLF001
+        assert not (tmp_path / ".nano-assistant").exists()
+
     def test_build_reply_context_strips_private_runtime_protocol_metadata(
         self,
     ) -> None:

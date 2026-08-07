@@ -14,7 +14,7 @@
 ## 隔离与清理红线
 
 1. worktree 不使用主实例的 IM 端口 `8011` 或常用 Vite 端口 `5173`，所有监听服务分配空闲高位端口。
-2. Gateway 必须使用 worktree 内的 config 副本，不能让验证过程读写用户的 `~/.nano-assistant/config.yaml`。
+2. Gateway 必须使用 worktree 内的 config 副本，不能让验证过程读写用户的 `~/.nanoassistant/config.yaml`。
 3. IM 数据库、JWT secret、Gateway runtime state、agent workspace 和 node identity 必须属于本次运行。
 4. 谁启动进程，谁负责记录进程身份、停止进程并确认端口已经释放。
 5. config 副本、secret、PID、日志、数据库、凭据和 workspace 都是本地运行数据，不提交。
