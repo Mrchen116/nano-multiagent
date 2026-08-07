@@ -203,7 +203,7 @@ passed
 
 ## Corrected Delta Reconciliation
 
-Validation mode: `corrected-delta` at `d30d8eb6b` (executed base
+Validation mode: `corrected-delta` at `04b238f1a` (executed base
 `b95e19f15`). The focused durable suite below passed:
 
 ```text
@@ -219,7 +219,7 @@ PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q \
   tests/integration/test_bash_engine.py \
   tests/im_service/unit/test_repositories_schema.py \
   tests/im_service/contract/test_agent_config_contract.py
-84 passed
+85 passed
 ```
 
 | Delta item | Implementation evidence | Test evidence | Outcome |
@@ -227,7 +227,7 @@ PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q \
 | `specs/kernel/background-tasks.md` — selected directory background output / auto-background scenario | `WorkspaceLayout.background_tasks` derives the selected root (`src/agent/core/workspace/layout.py:68-71`); Bash passes that layout to the output port (`src/agent/platform/tools/builtins/bash.py:689-697`). | `tests/unit/agent/test_workspace_execution_scope.py`; `tests/integration/test_bash_engine.py` | aligned |
 | `specs/kernel/tools-hooks.md` — session-isolated workspace tools/hooks, default `.nano`, override, policy, and session tool listing scenarios | The cached scope selects `layout.tools`, `layout.hooks`, and `layout.policy` per workspace (`src/agent/sdk/kernel.py:539-592`); `list_session_tools` selects the same scope and allowlist (`src/agent/sdk/kernel.py:1696-1728`). | `tests/unit/agent/test_workspace_execution_scope.py`; `tests/unit/agent/test_workspace_scope_side_entry_points.py`; `tests/integration/test_bash_engine.py` | aligned |
 | `specs/kernel/sdk-boundary.md` — product-neutral two-layer assembly, session/tool selection, global auto-mode roots, and stable Kernel surface scenarios | SDK accepts consumer-provided native tools/hooks/roots without product branches (`src/agent/sdk/kernel.py:230-319,881-890`); PA and CLI supply their own product composition (`src/personal_assistant/product.py:373-431`; `src/coding_cli/product.py:121-155`). | `tests/unit/agent/test_workspace_execution_scope.py`; `tests/unit/test_cli_product_workspace_layout.py`; existing SDK boundary contracts | aligned |
-| `specs/kernel/sdk-boundary.md` — `workspace_config_dirname` validation requirement | `WorkspaceLayout` correctly strips and rejects `.`, `..`, and separators (`src/agent/core/workspace/layout.py:22-33`), but `build_kernel` changes an explicit empty string into the default before that validation (`src/agent/sdk/kernel.py:306-312`). This contradicts the requirement that a supplied dirname be validated before any session files are created (`specs/kernel/sdk-boundary.md:19-20`). | `tests/unit/agent/test_workspace_layout.py:14-57` covers `.`, `..`, and trimming but not `""`; direct SDK reproduction with `workspace_config_dirname=""` reports `.nano`. | implementation-mismatch |
+| `specs/kernel/sdk-boundary.md` — `workspace_config_dirname` validation requirement | `build_kernel` supplies the `.nano` default only when the argument is omitted (`None`) (`src/agent/sdk/kernel.py:306-315`); `WorkspaceLayout` then strips and rejects empty, `.`, `..`, and separator-bearing values before session files are constructed (`src/agent/core/workspace/layout.py:22-33`). This matches `specs/kernel/sdk-boundary.md:19-20`. | `tests/unit/agent/test_workspace_layout.py:14-57` covers normalization and `""` / `.` / `..` rejection before durable storage; direct SDK reproduction also raises `ValueError` for `workspace_config_dirname=""`. | aligned |
 | `specs/gateway/routing-delivery.md` — PA readable chat copy and transcript separation scenarios | PA's registered history hook writes `ts`, `role`, and `content` below the selected workspace config root (`src/personal_assistant/hooks/chat_history.py:94-119`), while session persistence remains a Kernel responsibility. | `tests/unit/personal_assistant/test_chat_history_hook.py` | aligned |
 | `specs/gateway/service-lifecycle.md` — PA global home/default workspace, local-workspace precedence, agent-create response, config snapshot, and heartbeat/cron RPC paths | PA defaults derive `~/.nanoassistant/workspaces/<agent-id>` (`src/personal_assistant/config/local_store.py:70-71,1095-1108`; `src/personal_assistant/gateway/agent_config_sync.py:167-255,691-704`); Gateway reads `HEARTBEAT.md` and cron jobs under `.nanoassistant` for RPC (`src/personal_assistant/ws/im_connection.py:1228-1347`). | `tests/unit/personal_assistant/test_local_store.py`; gateway config/connection/heartbeat suites; `tests/unit/personal_assistant/test_product_workspace_layout.py` | aligned |
 | `specs/gateway/heartbeat-cron.md` — heartbeat/cron directory relocation across scheduling, canonical context, and active behavior scenarios | Heartbeat resolves `<workspace>/.nanoassistant/HEARTBEAT.md` (`src/personal_assistant/scheduler/heartbeat_scheduler.py:349-352,825-831`); cron persists under `.nanoassistant/cron` (`src/personal_assistant/scheduler/cron_scheduler.py:61-80`). | `tests/unit/personal_assistant/test_heartbeat_scheduler.py`; `tests/unit/personal_assistant/test_heartbeat_scheduler_config_every.py`; `tests/unit/personal_assistant/test_heartbeat_scheduler_gate.py`; `tests/unit/personal_assistant/test_heartbeat_session_binding.py` | aligned |
@@ -237,9 +237,9 @@ PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q \
 
 ### Uncovered Observable Behavior
 
-None beyond the validation mismatch above. The final runtime diff's selected
-workspace paths, PA/CLI product roots, IM managed-default decision, and
-workspace hook behavior each have a matching delta area. The manual migration
-procedure is an operations artifact rather than a new runtime fallback path.
+None. The final runtime diff's selected workspace paths, PA/CLI product roots,
+IM managed-default decision, and workspace hook behavior each have a matching
+delta area. The manual migration procedure is an operations artifact rather
+than a new runtime fallback path.
 
-Outcome: implementation-mismatch
+Outcome: aligned
