@@ -133,3 +133,54 @@ N/A。design 与验收标准没有要求原型、截图或视觉 must-match 对�
 - [x] `docs/specs/CONTRIBUTING.md`（文档规范，仅当本 unit 改了文档体系本身时）：无需更新；已核对 delta-spec 归并规则，本 unit 未改变该规范本身。
 
 当前的 `README.md`、`docs/operations/`、PA builtin product reference 也已写入 `.nanoassistant` / `.nanocode` 与手工迁移入口；但这些文档更新不能替代上述失败的真实用户旅程。
+
+---
+
+# Round 2 — 2026-08-07
+
+> Revalidation mode: targeted
+>
+> Fix delta: `5feb761de..533082563`
+
+## Verdict
+
+**pass**
+
+Highest Required Action: **pass**
+
+本轮只复验 Round 1 的两个 in-unit 用户面阻塞项。首次验收的 production-only 手工迁移项仍由部署变更窗口按 `docs/operations/pa-workspace-layout-migration.md` 执行；本轮没有把生产 home、secret 或 IM `:8011` 当作测试目标。
+
+## 定向用户旅程复验
+
+1. **前端产物与 PA 详情页（通过）**：先在当前 unit 源码执行 `npm run build`，得到 `index-DSzkJSkv.js`；隔离 IM 实际服务该 asset，且 Gateway node online。从新的 `/chat` 浏览器 tab 出发，点击顶栏 `Agents` 到 `/settings/agents`，再点击 online `e2e` 到 `/settings/agents/e2e`。等待两秒后页面显示 heading `e2e`、`Identity`、`Behavior` 和 `Access & Model`，浏览器 console 没有 error。Round 1 的 React Router error boundary 不再出现。
+2. **PA 聊天与 workspace 状态（通过）**：在详情页点击 `Open chat`，发送 `Reply with exactly: accepted`；Web IM 显示用户消息和 Agent 回复 `accepted`。实际生成 `<workspace>/.nanoassistant/chat_history/sess_9fdd1b485c45e2ec.jsonl`，其中有可读的 user/assistant JSONL 记录；session、memory、skills 和 `HEARTBEAT.md` 也都在同一 `.nanoassistant/` 下，root `chat_history/`、root `HEARTBEAT.md` 与 `.nano/` 均不存在。
+3. **PA 后台输出（通过）**：同一真实聊天要求 Agent 以 `run_in_background=true` 执行无副作用的 `printf 'round2-background\\n'; sleep 1`。用户在 Web IM 看到任务已完成；实际输出文件为 `<workspace>/.nanoassistant/background-tasks/sess_9fdd1b485c45e2ec/ba305140a6b7794e4.output`，内容为 `round2-background`，没有 legacy `.nano/background-tasks/` 输出。
+4. **CLI `/tools`（通过）**：新临时 workspace 显式从 unit `src/` 启动 CLI；`/new` 后 `/tools` 正常显示 `Tools for session ... (9)` 和可用工具清单。workspace 只创建 `.nanocode/{sessions,skills}`，没有 `.nano/`、`.nanoassistant/`、root `chat_history/` 或 root `HEARTBEAT.md`。
+
+## 问题关闭
+
+| Round 1 # | 复验结果 | 证据 |
+|---|---|---|
+| 1 — 点击 online Agent 后错误页 | resolved | rebuilt `index-DSzkJSkv.js`；fresh `/chat → Agents → e2e` 路径到 `/settings/agents/e2e`，详情 headings 可见、console error 为空。 |
+| 2 — CLI `/tools` runtime error | resolved | unit-source CLI `/new → /tools` 显示 9 个 session 工具，无 runtime error。 |
+
+## 验收标准覆盖更新
+
+下表仅更新此次 targeted scope；其余 Round 1 覆盖行及 production deployment 边界保持不变。
+
+### Requirement: PA 的 workspace 状态收敛到 `.nanoassistant/` — targeted 组内结论: pass
+
+| Scenario | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|
+| PA 在代码仓 workspace 中产生新状态 | rebuilt Web IM 详情→chat→background bash | `.nanoassistant/` 下的 session/memory/skills/heartbeat/chat/background output；legacy roots absent | pass | 真实 Gateway + Web IM 路径，未使用 stub。 |
+| PA 继续提供简化聊天副本 | 真实对话 `accepted` | `.nanoassistant/chat_history/sess_9fdd1b485c45e2ec.jsonl` 含 user/assistant 文本 | pass | 可读副本与 UI 消息相符。 |
+
+### Requirement: CLI 的 workspace 状态遵循 `.nanocode/` — targeted 组内结论: pass
+
+| Scenario | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|
+| CLI 在 workspace 中运行后台任务或使用 workspace extension | unit-source CLI `/new → /tools` | `Tools for session ... (9)`；仅 `.nanocode/{sessions,skills}` 创建 | pass | Round 1 `/tools` runtime failure 已关闭；本轮没有引入 PA 文件。 |
+
+## 上层文档同步复核
+
+Round 1 的文档同步结论不变；本轮修复没有新增用户行为或文档载体。
