@@ -46,7 +46,7 @@ CLI_SKILL_SEARCH_ROOTS: tuple[Path, ...] = (
 # the dissolved LOCAL_CODING_PROFILE user_tool_roots/user_hook_roots global layer
 # (~/.nanocode/{tools,hooks}). Passed to build_kernel as tool_search_roots /
 # hook_search_roots (consumer-supplied roots, no ConfigResolver); the kernel also scans
-# the workspace <repo>/.nano/{tools,hooks} on top.
+# the per-workspace CLI config root on top.
 CLI_TOOL_SEARCH_ROOTS: tuple[Path, ...] = (Path("~/.nanocode/tools"),)
 CLI_HOOK_SEARCH_ROOTS: tuple[Path, ...] = (Path("~/.nanocode/hooks"),)
 
@@ -151,6 +151,7 @@ def build_cli_kernel(
         skill_search_roots=CLI_SKILL_SEARCH_ROOTS,  # #6: ~/.nanocode + ~/.codex compat
         tool_search_roots=CLI_TOOL_SEARCH_ROOTS,  # #2: ~/.nanocode/tools
         hook_search_roots=CLI_HOOK_SEARCH_ROOTS,  # #2: ~/.nanocode/hooks
+        global_config_root=Path("~/.nanocode"),
     )
 
 

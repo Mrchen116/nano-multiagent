@@ -3,7 +3,7 @@
 This module is the single source of truth for "sensitive path" detection used by
 WriteTool and EditTool in their check_permissions implementations (bugfix-355 D5).
 
-MAINTENANCE NOTE: DANGEROUS_DIRECTORIES includes .nanocode and .nano-assistant —
+MAINTENANCE NOTE: DANGEROUS_DIRECTORIES includes .nanocode and .nanoassistant —
 these are this repo's own config directories (declared in AGENTS.md). When new
 persistent config directories are added to this project, update this set accordingly.
 """
@@ -38,7 +38,7 @@ DANGEROUS_FILES: frozenset[str] = frozenset(
 # Sensitive directory path segments — case-insensitive exact match on any part
 #
 # CC baseline (4 items): .git, .vscode, .idea, .claude
-# Repo-specific additions (2 items): .nanocode, .nano-assistant
+# Repo-specific additions (2 items): .nanocode, .nanoassistant
 #   → both are persistent config roots listed in AGENTS.md; writing to them
 #     without confirmation is a prompt-injection persistence attack vector.
 # ---------------------------------------------------------------------------
@@ -50,7 +50,7 @@ DANGEROUS_DIRECTORIES: frozenset[str] = frozenset(
         ".idea",
         ".claude",
         ".nanocode",
-        ".nano-assistant",
+        ".nanoassistant",
     }
 )
 

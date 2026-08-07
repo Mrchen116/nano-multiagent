@@ -97,6 +97,35 @@ class TestGateHookLogic:
         return ctx
 
     @pytest.mark.asyncio
+    async def test_fallback_uses_selected_workspace_config_root(
+        self, tmp_path, monkeypatch
+    ):
+        """A direct hook invocation never assumes the CLI's config directory."""
+        handler, _ = self._get_handler()
+        selected_root = tmp_path / ".consumer"
+        ctx = _make_ctx()
+        ctx.repo_root = tmp_path
+        ctx.metadata["workspace_config_root"] = str(selected_root)
+        captured: dict[str, object] = {}
+
+        def _load(**kwargs):
+            captured.update(kwargs)
+            return AutoModeConfig()
+
+        monkeypatch.setattr(
+            "agent.platform.hooks.builtins.auto_mode_gate.load_auto_mode_config",
+            _load,
+        )
+
+        result = await handler({"name": "read", "args": {"path": "README.md"}}, ctx)
+
+        assert result is None
+        assert captured == {
+            "global_config_dir": None,
+            "workspace_config_dir": selected_root,
+        }
+
+    @pytest.mark.asyncio
     async def test_dangerously_skip_permissions_passes_all(self):
         handler, config = self._get_handler(
             AutoModeConfig(dangerously_skip_permissions=True)

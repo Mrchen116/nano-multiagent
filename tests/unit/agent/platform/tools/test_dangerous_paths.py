@@ -42,7 +42,7 @@ EXPECTED_DANGEROUS_DIRECTORIES = frozenset(
         ".idea",
         ".claude",
         ".nanocode",
-        ".nano-assistant",
+        ".nanoassistant",
     }
 )
 
@@ -91,7 +91,7 @@ class TestDangerousDirectoriesConstant:
     def test_dangerous_directories_contains_this_repo_extras(self):
         """Two repo-specific directories added per D5.2."""
         assert ".nanocode" in DANGEROUS_DIRECTORIES
-        assert ".nano-assistant" in DANGEROUS_DIRECTORIES
+        assert ".nanoassistant" in DANGEROUS_DIRECTORIES
 
 
 # ---------------------------------------------------------------------------
@@ -157,8 +157,8 @@ class TestCheckDangerousPathSegmentMatch:
     def test_nanocode_directory(self):
         assert check_dangerous_path("/home/user/.nanocode/settings.yaml") is True
 
-    def test_nano_assistant_directory(self):
-        assert check_dangerous_path("/home/user/.nano-assistant/config.yaml") is True
+    def test_nanoassistant_directory(self):
+        assert check_dangerous_path("/home/user/.nanoassistant/config.yaml") is True
 
     def test_safe_directory_not_matched(self):
         assert check_dangerous_path("/project/src/main.py") is False

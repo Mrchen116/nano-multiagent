@@ -777,11 +777,16 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
         if callable(config_loader):
             config: AutoModeConfig = config_loader()
         else:
-            # Fallback: load from repo_root config paths
+            # Fallback: use the selected workspace config root when supplied.
             repo_root: Path | None = getattr(ctx, "repo_root", None)
+            workspace_config_root = metadata.get("workspace_config_root")
+            if isinstance(workspace_config_root, str) and workspace_config_root:
+                workspace_config_dir = Path(workspace_config_root)
+            else:
+                workspace_config_dir = repo_root / ".nano" if repo_root else None
             config = load_auto_mode_config(
                 global_config_dir=None,
-                workspace_config_dir=repo_root / ".nanocode" if repo_root else None,
+                workspace_config_dir=workspace_config_dir,
             )
 
         # Step 1 (bugfix-355 D1+W1): tool.check_permissions — called BEFORE dangerously bypass
