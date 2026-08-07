@@ -94,7 +94,7 @@ class ConfigService:
     ) -> AgentProfile:
         """Create one agent profile under exactly one known node."""
         existing = self._profiles.get_profile(agent_id=agent_id)
-        if existing is not None and existing.owner_id.strip():
+        if existing is not None:
             raise ValueError("agent_id already exists")
         if self._nodes is None:
             raise LookupError("node_id not found")
@@ -110,9 +110,9 @@ class ConfigService:
             raise ValueError("node_id owned by another owner")
         if not node.owner_id.strip() and normalized_owner_id:
             self._nodes.assign_owner(node_id=node_id, owner_id=normalized_owner_id)
-        created = self._profiles.upsert_profile(
+        created = self._profiles.create_profile(
             agent_id=agent_id,
-            owner_id=owner_id,
+            owner_id=normalized_owner_id,
             node_id=node_id,
             display_name=display_name,
             description=description,

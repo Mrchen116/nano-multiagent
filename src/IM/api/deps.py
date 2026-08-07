@@ -231,6 +231,11 @@ def get_gateway_control(request: Request) -> GatewayControl:
     return request.app.state.gateway_control
 
 
+def get_agent_create_lock(request: Request) -> asyncio.Lock:
+    """Return the app-scoped lock serializing Agent create check-and-commit."""
+    return request.app.state.agent_create_lock
+
+
 def get_gateway_channel_control(request: Request) -> GatewayChannelControl:
     """Return the Channel control transport owner for route composition."""
     return request.app.state.gateway_channel_control

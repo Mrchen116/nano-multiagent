@@ -295,7 +295,7 @@ class AgentConfigOperationCoordinator:
         if workspace_root is None:
             raise ConfigApplyPendingError("config_apply_pending")
         existing = self._service.get_profile(agent_id=operation.agent_id)
-        if existing is not None and existing.owner_id.strip():
+        if existing is not None:
             if _profile_matches_create_result(
                 existing,
                 operation=operation,

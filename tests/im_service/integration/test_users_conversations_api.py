@@ -1,6 +1,5 @@
 """Integration tests for conversation HTTP behaviors beyond the contract suite."""
 
-import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -8,15 +7,15 @@ from fastapi.testclient import TestClient
 from .conftest import make_app_client, register_user, authorize
 
 
-def test_agent_conversation_response_includes_source_jsonl_path(
+def test_conversation_list_and_sync_resolve_session_log_through_target_gateway(
     tmp_path: Path,
 ) -> None:
-    """Conversation API exposes the resolved kernel session JSONL when it exists."""
+    """IM treats the mirrored root as opaque and asks the owning Gateway for logs."""
     with make_app_client(tmp_path) as client:
         alice = register_user(client, username="alice", display_name="Alice")
         authorize(client, alice)
         connection = client.app.state.connection
-        workspace_root = tmp_path / "agent-1-workspace"
+        mirrored_remote_root = "/remote-gateway/agent-1-workspace"
         connection.execute(
             """
             INSERT INTO users(id, username, display_name, owner_id, created_at)
@@ -43,7 +42,7 @@ def test_agent_conversation_response_includes_source_jsonl_path(
                 "[]",
                 "manual",
                 None,
-                str(workspace_root),
+                mirrored_remote_root,
                 1,
             ),
         )
@@ -58,44 +57,36 @@ def test_agent_conversation_response_includes_source_jsonl_path(
         )
         assert conversation_resp.status_code == 201, conversation_resp.text
         conversation = conversation_resp.json()
-        session_path = workspace_root / ".nanoassistant" / "sessions" / "sess-1.jsonl"
-        session_path.parent.mkdir(parents=True)
-        session_path.write_text(
-            json.dumps(
-                {
-                    "type": "session_created",
-                    "session_id": "sess-1",
-                    "created_at": "2026-01-01T00:00:00Z",
-                    "workspace_root": str(workspace_root),
-                    "tool_allowlist": ["memory", "skill_view"],
-                    "metadata": {
-                        "workspace_config_dirname": ".nanoassistant",
-                        "agent_id": "agent-1",
-                        "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
-                        "conversation_id": conversation["id"],
-                        "config_profile_version": 1,
-                        "agent_custom_prompt": "You are Agent 1.",
-                        "agent_features": {},
-                        "conversation_type": "direct",
-                        "self_evolution": {
-                            "enabled": False,
-                            "mode": "observe",
-                        },
-                        "title": "Agent 1",
-                    },
-                }
-            )
-            + "\n",
-            encoding="utf-8",
+        session_path = "/remote-gateway/agent-1-workspace/.nanoassistant/sessions/sess-1.jsonl"
+        rpc_calls: list[dict[str, str]] = []
+
+        async def fake_request_session_log_path(**kwargs):
+            rpc_calls.append(kwargs)
+            return session_path
+
+        client.app.state.gateway_control.request_session_log_path = (
+            fake_request_session_log_path
         )
 
         listed = client.get("/im/v1/conversations").json()["items"]
         synced = client.get("/im/v1/sync").json()["items"]
 
         assert listed[0]["source_agent_id"] == "agent-1"
-        assert listed[0]["source_jsonl_path"] == str(session_path)
+        assert listed[0]["source_jsonl_path"] == session_path
         assert synced[0]["source_agent_id"] == "agent-1"
-        assert synced[0]["source_jsonl_path"] == str(session_path)
+        assert synced[0]["source_jsonl_path"] == session_path
+        assert rpc_calls == [
+            {
+                "target_node_id": "node-1",
+                "agent_id": "agent-1",
+                "conversation_id": conversation["id"],
+            },
+            {
+                "target_node_id": "node-1",
+                "agent_id": "agent-1",
+                "conversation_id": conversation["id"],
+            },
+        ]
 
 
 def test_patch_conversation_updates_title_pin_and_mute(tmp_path: Path) -> None:

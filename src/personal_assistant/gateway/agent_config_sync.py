@@ -210,6 +210,7 @@ class IMAgentConfigSync:
         )
         self._monotonic = monotonic
         self._sleep = sleep
+        self._agent_create_lock = threading.Lock()
         # feat-394-M3 fix: accept token_getter so auto-bind token refresh propagates
         # to config sync requests. Without this, sync_agent calls 401 after auto-bind
         # because the initial token is empty and is never updated. Mirrors the pattern
@@ -256,6 +257,13 @@ class IMAgentConfigSync:
         self, agent_payload: Mapping[str, object]
     ) -> dict[str, object]:
         """Create one local workspace or return a structured recoverable rejection."""
+        with self._agent_create_lock:
+            return self._handle_agent_create(agent_payload)
+
+    def _handle_agent_create(
+        self, agent_payload: Mapping[str, object]
+    ) -> dict[str, object]:
+        """Execute one serialized Agent create check-and-publish operation."""
         agent_id_raw = agent_payload.get("agent_id")
         if not isinstance(agent_id_raw, str) or not agent_id_raw.strip():
             raise ValueError("agent.create requires non-empty agent_id")
@@ -272,6 +280,24 @@ class IMAgentConfigSync:
             workspace_root = workspace_root.resolve()
         else:
             workspace_root = self._workspace_root_factory(agent_id).expanduser().resolve()
+
+        existing_agent = self._local_agent(agent_id)
+        if existing_agent is not None:
+            if (
+                existing_agent.workspace_root.expanduser().resolve() == workspace_root
+                and existing_agent.workspace_is_default == workspace_is_default
+            ):
+                description = agent_payload.get("description")
+                return self._agent_create_payload(
+                    existing_agent,
+                    description=(
+                        description.strip() if isinstance(description, str) else ""
+                    ),
+                )
+            return self._workspace_rejection(
+                code="agent_id_already_exists",
+                detail="Agent ID already exists on this node.",
+            )
 
         assigned_agent_id = self._assigned_agent_for_workspace(workspace_root)
         if assigned_agent_id is not None:
@@ -377,19 +403,26 @@ class IMAgentConfigSync:
                     "cron execution service may not be registered",
                     agent_id,
                 )
+        return self._agent_create_payload(agent_config, description=description_str)
+
+    @staticmethod
+    def _agent_create_payload(
+        agent: AgentWorkspaceConfig, *, description: str
+    ) -> dict[str, object]:
+        """Serialize the stable creation success payload for a local Agent config."""
         return {
-            "agent_id": agent_id,
-            "display_name": title,
-            "description": description_str,
-            "skills": list(skills),
-            "tool_allowlist": list(tool_allowlist),
-            "group_reply_policy": group_reply_policy,
-            "default_model": default_model,
-            "reasoning_effort": reasoning_effort,
-            "workspace_root": str(workspace_root),
-            "workspace_is_default": workspace_is_default,
-            "features": features,
-            "custom_prompt": custom_prompt,
+            "agent_id": agent.agent_id,
+            "display_name": agent.title or agent.agent_id,
+            "description": description,
+            "skills": list(agent.skills),
+            "tool_allowlist": list(agent.tool_allowlist),
+            "group_reply_policy": agent.group_reply_policy or "MENTION",
+            "default_model": agent.default_model,
+            "reasoning_effort": agent.reasoning_effort,
+            "workspace_root": str(agent.workspace_root),
+            "workspace_is_default": agent.workspace_is_default,
+            "features": dict(agent.features),
+            "custom_prompt": agent.custom_prompt,
         }
 
     def handle_agent_config_operation(

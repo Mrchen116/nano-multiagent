@@ -209,4 +209,30 @@ describe("agent create workspace selection", () => {
     expect(await screen.findByText(/project-analyst.*another path/i)).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
+
+  it.each([
+    ["workspace_parent_missing", /parent directory does not exist on MacBook/i],
+    ["workspace_parent_unusable", /parent directory is not usable on MacBook/i],
+    ["workspace_target_not_directory", /target exists but is not a directory/i],
+    ["workspace_initialization_failed", /selected node could not initialize this workspace/i],
+  ])("preserves the draft and localizes %s", async (code, expectedMessage) => {
+    const user = userEvent.setup();
+    apiMocks.createNodeAgentMock.mockRejectedValue(
+      Object.assign(new Error("raw server detail must not render"), { code }),
+    );
+    renderCreatePage();
+    await fillIdentity("agent-path-error");
+    await selectCustomPath(user, "/srv/projects/agent-path-error");
+    await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
+
+    expect(await screen.findByText(expectedMessage)).toBeInTheDocument();
+    expect(screen.queryByText(/raw server detail/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/^Agent ID/)).toHaveValue("agent-path-error");
+    expect(screen.getByLabelText(/^Display Name/)).toHaveValue("Workspace Agent");
+    expect(screen.getByRole("radio", { name: /Custom path/i })).toBeChecked();
+    expect(screen.getByLabelText(/^Workspace Root/)).toHaveValue(
+      "/srv/projects/agent-path-error",
+    );
+    expect(apiMocks.createNodeAgentMock).toHaveBeenCalledTimes(1);
+  });
 });

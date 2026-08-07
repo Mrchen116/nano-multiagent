@@ -199,7 +199,7 @@ async def node_prompt_preview(
     user: User = Depends(current_user),
     service: NodeService = Depends(get_node_service),
     gateway_handler: GatewayControl = Depends(get_gateway_control),
-) -> PromptPreviewResponse:
+) -> PromptPreviewResponse | JSONResponse:
     """Proxy a node-level prompt-preview request to the Gateway node (owner-scoped).
 
     feat-379-M9 (決策 11): Used by the agent-create page before an agent exists.
@@ -225,6 +225,15 @@ async def node_prompt_preview(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="target_node_id is not connected",
+        )
+    error_payload = result.get("error")
+    if isinstance(error_payload, dict):
+        error_response = _workspace_error_response(error_payload)
+        if error_response is not None:
+            return error_response
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="node returned an invalid workspace error",
         )
     raw_prompt = result.get("prompt")
     prompt = raw_prompt if isinstance(raw_prompt, str) else ""
@@ -275,7 +284,7 @@ async def create_node_agent(
     except (ConfigApplyPendingError, ConfigApplyProfileConflictError) as exc:
         _raise_operation_http_error(exc)
     existing = service.get_profile(agent_id=payload.agent_id)
-    if existing is not None and existing.owner_id.strip():
+    if existing is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="agent_id already exists"
         )
@@ -341,6 +350,7 @@ def _workspace_error_response(error: dict[str, object]) -> JSONResponse | None:
     if not isinstance(code, str) or not isinstance(detail, str):
         return None
     conflict_codes = {
+        "agent_id_already_exists",
         "workspace_confirmation_required",
         "workspace_already_assigned",
     }

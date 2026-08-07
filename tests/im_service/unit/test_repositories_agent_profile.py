@@ -5,7 +5,10 @@ from pathlib import Path
 import pytest
 
 from IM.infra.db import connect, initialize_schema
-from IM.infra.repositories.agents import AgentProfileRepository
+from IM.infra.repositories.agents import (
+    AgentProfileAlreadyExistsError,
+    AgentProfileRepository,
+)
 from IM.infra.repositories.agents import AgentProfileVersionConflictError
 from IM.infra.repositories.bindings import BindRepository
 from IM.infra.repositories.conversations import ConversationRepository
@@ -96,6 +99,44 @@ def test_agent_profile_roundtrip_and_optimistic_lock(tmp_path: Path) -> None:
             group_reply_policy="manual",
             default_model=None,
         )
+
+
+def test_create_profile_is_an_insert_only_store_boundary(tmp_path: Path) -> None:
+    """A duplicate create cannot mutate an existing profile through upsert semantics."""
+    _, _, _, profiles, _, _ = _build_repositories(tmp_path)
+    profiles.create_profile(
+        agent_id="fixed-agent",
+        owner_id="owner-1",
+        node_id="node-1",
+        display_name="Fixed",
+        description="",
+        skills=[],
+        tool_allowlist=[],
+        group_reply_policy="MENTION",
+        default_model=None,
+        workspace_root="/srv/agents/root-1",
+        workspace_is_default=False,
+    )
+
+    with pytest.raises(AgentProfileAlreadyExistsError):
+        profiles.create_profile(
+            agent_id="fixed-agent",
+            owner_id="owner-1",
+            node_id="node-1",
+            display_name="Replacement",
+            description="",
+            skills=[],
+            tool_allowlist=[],
+            group_reply_policy="MENTION",
+            default_model=None,
+            workspace_root="/srv/agents/root-2",
+            workspace_is_default=False,
+        )
+
+    stored = profiles.get_profile(agent_id="fixed-agent")
+    assert stored is not None
+    assert stored.display_name == "Fixed"
+    assert stored.workspace_root == "/srv/agents/root-1"
 
 
 def test_direct_conversation_agent_alias_freezes_profile_identity(

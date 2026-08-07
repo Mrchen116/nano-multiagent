@@ -216,6 +216,81 @@ def test_im_connection_replies_with_live_agent_config_snapshot(tmp_path: Path) -
     }
 
 
+def test_im_connection_resolves_nested_session_log_from_gateway_local_workspace(
+    tmp_path: Path,
+) -> None:
+    """The owning Gateway, not IM, scans and reads its local session metadata."""
+    workspace_root = tmp_path / "remote-workspace"
+    session_path = (
+        workspace_root
+        / ".nanoassistant"
+        / "sessions"
+        / "parent"
+        / "subagents"
+        / "session-a.jsonl"
+    )
+    session_path.parent.mkdir(parents=True)
+    session_path.write_text(
+        json.dumps({"type": "turn", "content": "prelude"})
+        + "\n"
+        + json.dumps(
+            {
+                "type": "session_created",
+                "metadata": {
+                    "agent_id": "agent-a",
+                    "conversation_id": "conversation-a",
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "session.log.resolve",
+                    "payload": {
+                        "request_id": "session-log-1",
+                        "agent_id": "agent-a",
+                        "conversation_id": "conversation-a",
+                    },
+                }
+            ),
+        ]
+    )
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(lambda _message: None)
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="http://im.local:9000"),
+        reporter=_minimal_reporter(tmp_path),
+        relay_adapter=relay_adapter,
+        agent_config_provider=lambda agent_id: {
+            "workspace_root": str(workspace_root) if agent_id == "agent-a" else ""
+        },
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - node.register ack
+        await manager._listen_once()  # noqa: SLF001 - session log request
+
+    asyncio.run(exercise())
+
+    assert json.loads(socket.sent[-1]) == {
+        "type": "session.log.resolved",
+        "payload": {
+            "request_id": "session-log-1",
+            "node_id": "n1",
+            "agent_id": "agent-a",
+            "conversation_id": "conversation-a",
+            "source_jsonl_path": str(session_path.resolve()),
+        },
+    }
+
+
 def test_im_connection_dispatches_session_fork_request(tmp_path: Path) -> None:
     """feat-445-M1 R3: a session.fork.request frame is routed to the injected handler,
     and its result is echoed back as session.fork.result with the request_id."""
@@ -739,6 +814,7 @@ def test_every_guarded_upstream_frame_carries_registered_node_identity(
         "node.cron.delete",
         "node.skills.usage",
         "session.fork.result",
+        "session.log.resolved",
         "channel.reconcile.result",
         "channels.bootstrap",
         "channel.status",

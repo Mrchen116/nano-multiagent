@@ -708,3 +708,44 @@ def test_node_prompt_preview_forwards_custom_workspace_without_interpreting_it(
         "agent_id_hint": None,
         "workspace_root": "/tmp/remote-node/agent-x",
     }
+
+
+def test_node_prompt_preview_maps_gateway_workspace_validation_to_422(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Preserve the correlated Gateway validation result at the HTTP boundary."""
+
+    async def fake_request(self, **_kwargs):  # noqa: ARG001
+        return {
+            "error": {
+                "code": "workspace_parent_unusable",
+                "detail": "workspace_root must be an absolute path or start with ~/",
+            }
+        }
+
+    monkeypatch.setattr(
+        GatewayControl, "request_node_prompt_preview", fake_request
+    )
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner = register_user(client, username="owner-preview-error")
+        authorize(client, owner)
+        NodeRepository(app.state.connection).upsert_node(
+            node_id="node-preview-error",
+            node_name="MacBook",
+            owner_id=owner.owner_id,
+        )
+        response = client.post(
+            "/im/v1/nodes/node-preview-error/prompt-preview",
+            json={
+                "workspace_mode": "custom",
+                "workspace_root": "relative/path",
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json() == {
+        "code": "workspace_parent_unusable",
+        "detail": "workspace_root must be an absolute path or start with ~/",
+    }

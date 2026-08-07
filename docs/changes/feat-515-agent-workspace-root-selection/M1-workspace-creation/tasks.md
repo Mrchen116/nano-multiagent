@@ -79,6 +79,15 @@
 
 ## Roadpoints
 
+### Round-1 correction checklist
+
+- [x] IM create ownership comes only from the authenticated user; duplicate Agent IDs are serialized before Gateway dispatch and protected again by an insert-only repository boundary.
+- [x] Gateway create is serialized, rejects a divergent root for an existing Agent ID before filesystem effects, and returns the existing success for a same-ID/same-root lost-response retry.
+- [x] Conversation repositories no longer inspect mirrored workspace roots; session-log discovery and JSONL reads run only on the target Gateway through a correlated RPC.
+- [x] Missing/unusable parent, non-directory target, and initialization failure have permanent 422/no-write HTTP coverage plus localized draft-preserving UI coverage.
+- [x] Invalid custom prompt-preview paths return a correlated validation result without disconnecting Gateway; ownerless register refreshes authoritative provenance.
+- [x] Rebase the correction onto latest `origin/unit/feat-515`, rerun final focused/full-enough gates, and publish the milestone commit.
+
 ### R1 — Gateway 本地 workspace creation boundary
 
 - 状态: DONE

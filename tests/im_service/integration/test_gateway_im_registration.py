@@ -89,12 +89,15 @@ def test_gateway_registration_materializes_runtime_agents_before_and_after_bind(
                 }
             )
             assert websocket.receive_json()["type"] == "ack"
-            preserved = app.state.connection.execute(
+            refreshed_ownerless_provenance = app.state.connection.execute(
                 "SELECT agent_id, workspace_is_default FROM agent_profiles "
                 "WHERE agent_id IN (?, ?) ORDER BY agent_id",
                 ("Alpha", "Beta"),
             ).fetchall()
-            assert [row["workspace_is_default"] for row in preserved] == [1, 0]
+            assert [
+                row["workspace_is_default"]
+                for row in refreshed_ownerless_provenance
+            ] == [0, 1]
             stored_rows = app.state.connection.execute(
                 "SELECT agent_id, workspace_root FROM agent_profiles WHERE agent_id IN (?, ?) ORDER BY agent_id",
                 ("Alpha", "Beta"),
