@@ -7,7 +7,7 @@
 这套 e2e **经真 Gateway 进程**（真 IM + 真 Gateway 子进程），把测试当成一个真实 IM 用户，只走 IM 对外 HTTP + WebSocket 接口发消息/读回复。按是否需要真模型分成两类：
 
 - **真 LLM proxy**（默认多数路径）：断言用户在 IM 上能否观察到预期结果；依赖 `:4000`。
-- **fake / recording LLM**（如 #14）：Gateway 的 `llm.providers[].base_url` 指向 `scripts/fixtures/anthropic_sse_ok_recording.py`，断言上游请求体（messages/tools）是否守住架构不变量；**不门控 / 不调用**真 proxy。
+- **fake / recording LLM**（如 #14、#15）：Gateway 的 `llm.providers[].base_url` 指向 `scripts/fixtures/anthropic_sse_ok_recording.py`，断言上游请求体或 Gateway 可观察日志是否守住架构不变量；**不门控 / 不调用**真 proxy。
 
 真 LLM 路径平时不跑（烧 token），**想测时一条命令全跑**：
 
@@ -29,7 +29,7 @@ PYTHONPATH=src pytest -m e2e tests/e2e/critical_paths/test_agent_config_context_
 
 ## v1 必保活路径
 
-> 「守护测试」列指向 `tests/e2e/critical_paths/` 下的测试函数，均经真 Gateway 进程真跑通过。heartbeat（原 #7）端到端不冒泡（真实产品 bug #126），其 e2e 旅程已写但标 `@pytest.mark.xfail(strict=True, #126)`（真跑 → 预期 XFAIL；#126 修复后转 XPASS 即 strict 报错提醒去 xfail），暂移至下方 backlog 段——故 v1 必保活当前为 13 条。
+> 「守护测试」列指向 `tests/e2e/critical_paths/` 下的测试函数，均经真 Gateway 进程真跑通过。heartbeat（原 #7）端到端不冒泡（真实产品 bug #126），其 e2e 旅程已写但标 `@pytest.mark.xfail(strict=True, #126)`（真跑 → 预期 XFAIL；#126 修复后转 XPASS 即 strict 报错提醒去 xfail），暂移至下方 backlog 段——故 v1 必保活当前为 14 条。
 
 | # | 用户旅程 | 守护测试 | 归属子系统 | 引入 unit |
 |---|---|---|---|---|
@@ -46,6 +46,7 @@ PYTHONPATH=src pytest -m e2e tests/e2e/critical_paths/test_agent_config_context_
 | 12 | **从消息 fork 出分支单聊**——在一条已完成 agent 回复上 fork，进入同 agent 的新分支单聊，分支带着到 fork 点的记忆（基于历史追问答得对）、不含 fork 点之后的消息，原会话保持不变（两线独立） | `test_message_fork_critical_path.py::test_fork_branch_carries_memory_and_leaves_source_intact` | im（`docs/specs/im/spec.md`）+ gateway + kernel | feat-445 |
 | 13 | **Gateway-IM 连接韧性**——节点 online 后 kill IM 再重启，**无需手动重启 Gateway**节点自动回 online；先起 Gateway（IM 未起）Gateway 不崩、IM 起后节点变 online（覆盖断网/休眠/IM 重启/启动早于 IM 四类瞬态故障，经 `/im/v1/nodes` 观察） | `test_gateway_im_resilience_critical_path.py::test_gateway_recovers_node_online_after_transient_faults`（驱动 `scripts/e2e-resilience.sh`；**不门控 LLM proxy**，连接韧性不调模型） | gateway（`docs/specs/gateway/spec.md`） | bugfix-446 |
 | 14 | **Agent 配置更新后上下文连续**——既有直聊先形成历史，再改 tools 等运行配置，回到同一聊天继续；Agent 仍带着改配置前的上文（不因换配置开空 session）。**fake LLM**：真 IM + 真 Gateway + recording Anthropic stub，断言最后一次上游请求 messages 同时含配置变更前后用户句；**不门控 / 不调用** `:4000` 真 proxy | `test_agent_config_context_continuity_critical_path.py::test_agent_config_update_keeps_chat_context_with_stub_llm` | gateway + kernel + im | bugfix-471 |
+| 15 | **高成本低 prompt cache 命中告警**——一次模型调用明确返回超过 30K 输入且低于 80% 缓存命中时，Gateway 记录可用 `agent_id + session_id` 定位 JSONL 的 warning，且不泄露用户 prompt。**fake LLM**：真 IM + 真 Gateway + recording Anthropic stub 以真实 `message_start`/`message_delta` usage 分帧返回；**不门控 / 不调用** `:4000` 真 proxy | `test_prompt_cache_alert_critical_path.py::test_gateway_logs_low_prompt_cache_hit_with_session_jsonl` | gateway + kernel + im | feat-516 |
 
 ## 已知缺口 / backlog（暂无 e2e 兜底）
 

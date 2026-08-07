@@ -404,8 +404,25 @@ async def test_connect_error_raises_model_error() -> None:
     ), f"ModelError 应反映连接被拒，实际: {err!r}"
 
 
-async def test_stream_usage_surfaces_cached_tokens() -> None:
-    """feat-439-M1: 流式终态 usage 暴露 prompt_tokens_details.cached_tokens。"""
+@pytest.mark.parametrize(
+    ("details", "expected_cache_read", "available"),
+    (
+        ({"cached_tokens": 80}, 80, True),
+        ({"cached_tokens": 0}, 0, True),
+        (None, 0, False),
+    ),
+)
+async def test_stream_usage_preserves_cache_availability(
+    details: dict[str, int] | None, expected_cache_read: int, available: bool
+) -> None:
+    """OpenAI cached_tokens 明确 0 与缺失字段必须有不同可用性语义。"""
+    usage: dict[str, object] = {
+        "prompt_tokens": 120,
+        "completion_tokens": 1,
+        "total_tokens": 121,
+    }
+    if details is not None:
+        usage["prompt_tokens_details"] = details
     chunks = [
         {
             "id": "chatcmpl-cache",
@@ -420,12 +437,7 @@ async def test_stream_usage_surfaces_cached_tokens() -> None:
         {
             "id": "chatcmpl-cache",
             "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-            "usage": {
-                "prompt_tokens": 120,
-                "completion_tokens": 1,
-                "total_tokens": 121,
-                "prompt_tokens_details": {"cached_tokens": 80},
-            },
+            "usage": usage,
         },
     ]
     body = _make_sse_body(chunks)
@@ -451,5 +463,6 @@ async def test_stream_usage_surfaces_cached_tokens() -> None:
     final = next((m for m in messages if m.usage is not None), None)
     assert final is not None and final.usage is not None
     assert final.usage.prompt_tokens == 120
-    assert final.usage.cache_read_tokens == 80
+    assert final.usage.cache_read_tokens == expected_cache_read
     assert final.usage.cache_total_input_tokens == 120
+    assert final.usage.cache_usage_available is available

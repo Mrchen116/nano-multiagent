@@ -4,6 +4,7 @@ Parallel tool calls and result compression are in separate files:
 - test_agent_loop_parallel_budget.py
 """
 
+import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -17,6 +18,7 @@ from agent.core.types import TokenUsage, ToolSpec
 from agent.core.hooks.context import HookContext
 from agent.core.hooks.registry import HookRegistry
 from agent.core.hooks.runner import HookRunner
+from agent.core.observability.logger import capture_logs
 from agent.core.llm.interfaces import (
     LLMGenerateRequest,
     LLMGenerateResponse,
@@ -106,6 +108,22 @@ class FakeToolRegistry:
         self.calls.append((name, dict(args), tool_call_id))
         if self._fail:
             raise RuntimeError("tool boom")
+        return {"echoed": args["text"]}
+
+
+class BlockingToolRegistry(FakeToolRegistry):
+    """Hold tool completion so a test can observe the model-call boundary."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def execute(
+        self, name, args, *, hook_context=None, session_file_state=None, out_meta=None
+    ):  # noqa: ANN201
+        self.started.set()
+        await self.release.wait()
         return {"echoed": args["text"]}
 
 
@@ -355,6 +373,196 @@ async def test_loop_accumulates_usage_across_multiple_model_calls() -> None:
     assert result.usage.completion_tokens == 22
     # total = last_prompt(80) + sum_completion(10+12=22) = 102, NOT raw total sum (110+92=202)
     assert result.usage.total_tokens == 102
+
+
+async def test_loop_warns_for_each_large_low_cache_gateway_model_call() -> None:
+    """Gateway agent 的每次高成本低命中模型调用都应独立留下可关联告警。"""
+    low_cache_usage = TokenUsage(
+        prompt_tokens=30_001,
+        completion_tokens=1,
+        total_tokens=30_002,
+        cache_read_tokens=0,
+        cache_total_input_tokens=30_001,
+        cache_usage_available=True,
+    )
+    client = FakeLLMClient(
+        responses=(
+            LLMGenerateResponse(
+                model="model-x",
+                message=LLMMessage(
+                    role="assistant",
+                    content="",
+                    tool_calls=(
+                        LLMToolCall(
+                            call_id="", name="echo", arguments={"text": "ping"}
+                        ),
+                    ),
+                ),
+                finish_reason="tool_calls",
+                usage=low_cache_usage,
+            ),
+            LLMGenerateResponse(
+                model="model-x",
+                message=LLMMessage(role="assistant", content="done"),
+                finish_reason="stop",
+                usage=low_cache_usage,
+            ),
+        )
+    )
+    loop = AgentLoop(
+        llm_client=client, model="model-x", tool_registry=FakeToolRegistry()
+    )
+    hook_ctx = HookContext(
+        session_id="sess_cache_alert",
+        turn_id="turn_cache_alert",
+        metadata={"agent_id": "agent-cache-alert"},
+    )
+
+    with capture_logs() as records:
+        await _run_loop(loop, _base_state(), hook_ctx=hook_ctx)
+
+    warnings = [
+        record
+        for record in records
+        if record["level"] == "warning"
+        and record["message"] == "low prompt cache hit rate"
+    ]
+    assert len(warnings) == 2
+    fields = warnings[0]["fields"]
+    assert fields == {
+        "agent_id": "agent-cache-alert",
+        "cache_hit_rate_percent": 0.0,
+        "cache_read_tokens": 0,
+        "input_tokens": 30_001,
+        "model": "model-x",
+        "session_id": "sess_cache_alert",
+        "tool_call_id": None,
+        "trace_id": None,
+        "turn_id": "turn_cache_alert",
+    }
+    assert "ping" not in fields
+
+
+async def test_loop_warns_before_waiting_for_a_tool_result() -> None:
+    """一旦模型流结束，慢工具不能推迟本次调用的成本告警。"""
+    usage = TokenUsage(
+        prompt_tokens=30_001,
+        completion_tokens=1,
+        total_tokens=30_002,
+        cache_total_input_tokens=30_001,
+        cache_usage_available=True,
+    )
+    client = FakeLLMClient(
+        responses=(
+            LLMGenerateResponse(
+                model="model-x",
+                message=LLMMessage(
+                    role="assistant",
+                    content="",
+                    tool_calls=(
+                        LLMToolCall(
+                            call_id="", name="echo", arguments={"text": "ping"}
+                        ),
+                    ),
+                ),
+                finish_reason="tool_calls",
+                usage=usage,
+            ),
+            LLMGenerateResponse(
+                model="model-x",
+                message=LLMMessage(role="assistant", content="done"),
+                finish_reason="stop",
+            ),
+        )
+    )
+    registry = BlockingToolRegistry()
+    loop = AgentLoop(llm_client=client, model="model-x", tool_registry=registry)
+    hook_ctx = HookContext(
+        session_id="sess_cache_alert", metadata={"agent_id": "agent-cache-alert"}
+    )
+
+    with capture_logs() as records:
+        task = asyncio.create_task(_run_loop(loop, _base_state(), hook_ctx=hook_ctx))
+        await asyncio.wait_for(registry.started.wait(), timeout=1.0)
+        assert [
+            record
+            for record in records
+            if record["message"] == "low prompt cache hit rate"
+        ]
+        registry.release.set()
+        await task
+
+
+@pytest.mark.parametrize(
+    ("usage", "metadata"),
+    (
+        (
+            TokenUsage(
+                prompt_tokens=30_000,
+                completion_tokens=1,
+                total_tokens=30_001,
+                cache_total_input_tokens=30_000,
+                cache_usage_available=True,
+            ),
+            {"agent_id": "agent-cache-alert"},
+        ),
+        (
+            TokenUsage(
+                prompt_tokens=30_001,
+                completion_tokens=1,
+                total_tokens=30_002,
+                cache_read_tokens=24_001,
+                cache_total_input_tokens=30_001,
+                cache_usage_available=True,
+            ),
+            {"agent_id": "agent-cache-alert"},
+        ),
+        (
+            TokenUsage(
+                prompt_tokens=30_001,
+                completion_tokens=1,
+                total_tokens=30_002,
+                cache_total_input_tokens=30_001,
+            ),
+            {"agent_id": "agent-cache-alert"},
+        ),
+        (
+            TokenUsage(
+                prompt_tokens=30_001,
+                completion_tokens=1,
+                total_tokens=30_002,
+                cache_total_input_tokens=30_001,
+                cache_usage_available=True,
+            ),
+            {},
+        ),
+    ),
+)
+async def test_loop_skips_cache_alert_outside_the_required_conditions(
+    usage: TokenUsage, metadata: dict[str, str]
+) -> None:
+    """30K 边界、80% 命中、未知缓存或非 Gateway 调用都不告警。"""
+    client = FakeLLMClient(
+        responses=(
+            LLMGenerateResponse(
+                model="model-x",
+                message=LLMMessage(role="assistant", content="done"),
+                finish_reason="stop",
+                usage=usage,
+            ),
+        )
+    )
+    loop = AgentLoop(llm_client=client, model="model-x")
+    hook_ctx = HookContext(
+        session_id="sess_cache_alert", turn_id="turn_cache_alert", metadata=metadata
+    )
+
+    with capture_logs() as records:
+        await _run_loop(loop, _base_state(), hook_ctx=hook_ctx)
+
+    assert not [
+        record for record in records if record["message"] == "low prompt cache hit rate"
+    ]
 
 
 async def test_loop_prompt_tokens_tracks_last_roundtrip_not_sum() -> None:

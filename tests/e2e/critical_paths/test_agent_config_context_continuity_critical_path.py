@@ -150,7 +150,9 @@ def _wait_gateway_custom_prompt(
 
 
 @pytest.fixture
-def stub_llm_stack(tmp_path: Path) -> Iterator[StubLLMStack]:
+def stub_llm_stack(
+    tmp_path: Path, request: pytest.FixtureRequest
+) -> Iterator[StubLLMStack]:
     """起 recording Anthropic stub + 真 IM/Gateway;Gateway 的 llm 全指向 stub。"""
     assert _E2E_CONFIG.is_file(), f"repository E2E config missing: {_E2E_CONFIG}"
     if not _RECORDING_STUB.exists():
@@ -160,11 +162,30 @@ def stub_llm_stack(tmp_path: Path) -> Iterator[StubLLMStack]:
         subprocess.check_output([str(_FREE_PORTS), "1"], text=True).split()[0]
     )
     record_path = tmp_path / "llm-requests.jsonl"
+    response_usage = getattr(request, "param", {})
+    if not isinstance(response_usage, dict):
+        raise ValueError("stub_llm_stack parameter must be a mapping")
+    start_usage = response_usage.get("message_start_usage")
+    delta_usage = response_usage.get("message_delta_usage")
+    if start_usage is not None and not isinstance(start_usage, dict):
+        raise ValueError("message_start_usage must be a mapping")
+    if delta_usage is not None and not isinstance(delta_usage, dict):
+        raise ValueError("message_delta_usage must be a mapping")
     stub_proc = subprocess.Popen(
         ["python3", str(_RECORDING_STUB), str(stub_port)],
         env={
             **os.environ,
             "NANO_FIXTURE_RECORD_PATH": str(record_path),
+            **(
+                {"NANO_FIXTURE_MESSAGE_START_USAGE": json.dumps(start_usage)}
+                if start_usage is not None
+                else {}
+            ),
+            **(
+                {"NANO_FIXTURE_MESSAGE_DELTA_USAGE": json.dumps(delta_usage)}
+                if delta_usage is not None
+                else {}
+            ),
         },
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,

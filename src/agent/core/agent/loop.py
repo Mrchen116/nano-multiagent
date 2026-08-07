@@ -506,6 +506,10 @@ class AgentLoop:
                                         result, active_hook_ctx, run_id
                                     )
 
+                    _warn_low_prompt_cache_hit(
+                        active_hook_ctx, model=active_model, usage=latest_usage
+                    )
+
                     # After stream ends, flush early results into LLM history in
                     # order, then wait for any remaining tools.
                     for result in early_tool_results:
@@ -1154,11 +1158,14 @@ def _accumulate_usage(
     - ``cache_read_tokens`` / ``cache_total_input_tokens`` are **summed** (feat-439-M1).
       Cache-hit rate is a whole-turn metric (spec Q1=B): numerator and denominator
       each accumulate across roundtrips, so the rate = Σcache_read / Σcache_total_input.
+
+    - ``cache_usage_available`` is per-call metadata for the Gateway alert and
+      intentionally does not propagate into this turn-level summary.
     """
     if update is None:
         return current
     if current is None:
-        return update
+        return replace(update, cache_usage_available=False)
     accumulated_completion = current.completion_tokens + update.completion_tokens
     return TokenUsage(
         # Take the latest prompt snapshot, not a running sum — see docstring.
@@ -1171,6 +1178,30 @@ def _accumulate_usage(
         cache_total_input_tokens=(
             current.cache_total_input_tokens + update.cache_total_input_tokens
         ),
+    )
+
+
+def _warn_low_prompt_cache_hit(
+    hook_ctx: HookContext, *, model: str, usage: TokenUsage | None
+) -> None:
+    """Log an expensive Gateway model call that missed the prompt cache."""
+    agent_id = hook_ctx.metadata.get("agent_id")
+    if not isinstance(agent_id, str) or not agent_id:
+        return
+    if usage is None or not usage.cache_usage_available:
+        return
+
+    input_tokens = usage.cache_total_input_tokens
+    if input_tokens <= 30_000 or usage.cache_read_tokens * 100 >= input_tokens * 80:
+        return
+
+    hook_ctx.logger.warning(
+        "low prompt cache hit rate",
+        model=model,
+        agent_id=agent_id,
+        input_tokens=input_tokens,
+        cache_read_tokens=usage.cache_read_tokens,
+        cache_hit_rate_percent=round(usage.cache_read_tokens * 100 / input_tokens, 1),
     )
 
 

@@ -152,7 +152,14 @@ class AnthropicClient(LLMClient):
                     details={"error_type": error_type, "raw": error_obj},
                 )
 
-            if event_type == "content_block_start":
+            if event_type == "message_start":
+                message = event.get("message")
+                if isinstance(message, Mapping):
+                    start_usage = message.get("usage")
+                    if isinstance(start_usage, Mapping):
+                        usage = dict(start_usage)
+
+            elif event_type == "content_block_start":
                 idx = event.get("index", 0)
                 block = event.get("content_block", {})
                 content_blocks[idx] = dict(block)
@@ -188,7 +195,9 @@ class AnthropicClient(LLMClient):
                 delta = event.get("delta", {})
                 if "stop_reason" in delta:
                     finish_reason = delta["stop_reason"]
-                usage = event.get("usage")
+                delta_usage = event.get("usage")
+                if isinstance(delta_usage, Mapping):
+                    usage = {**(usage or {}), **delta_usage}
 
             elif event_type == "message_stop":
                 got_terminal_event = True
@@ -312,9 +321,8 @@ def _parse_anthropic_usage(payload: dict[str, Any] | None) -> TokenUsage | None:
     cache_creation_tokens = (
         _extract_non_negative_int(payload.get("cache_creation_input_tokens")) or 0
     )
-    cache_read_tokens = (
-        _extract_non_negative_int(payload.get("cache_read_input_tokens")) or 0
-    )
+    cache_read = _extract_non_negative_int(payload.get("cache_read_input_tokens"))
+    cache_read_tokens = cache_read or 0
     if input_tokens is None and output_tokens is None:
         return None
 
@@ -327,6 +335,7 @@ def _parse_anthropic_usage(payload: dict[str, Any] | None) -> TokenUsage | None:
         # feat-439-M1: cache_read 已读、原先没存出来；逐请求总 input == prompt_tokens。
         cache_read_tokens=cache_read_tokens,
         cache_total_input_tokens=prompt_tokens,
+        cache_usage_available=cache_read is not None,
     )
 
 

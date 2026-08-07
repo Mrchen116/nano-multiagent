@@ -26,13 +26,21 @@ import sys
 import threading
 
 
-def _sse_ok(text: str) -> bytes:
+def _sse_ok(
+    text: str,
+    *,
+    message_start_usage: dict[str, object] | None,
+    message_delta_usage: dict[str, object],
+) -> bytes:
+    message: dict[str, object] = {"role": "assistant", "content": []}
+    if message_start_usage is not None:
+        message["usage"] = message_start_usage
     frames = [
         {
             "event": "message_start",
             "data": {
                 "type": "message_start",
-                "message": {"role": "assistant", "content": []},
+                "message": message,
             },
         },
         {
@@ -60,7 +68,7 @@ def _sse_ok(text: str) -> bytes:
             "data": {
                 "type": "message_delta",
                 "delta": {"stop_reason": "end_turn"},
-                "usage": {"input_tokens": 1, "output_tokens": 1},
+                "usage": message_delta_usage,
             },
         },
         {
@@ -78,6 +86,8 @@ def _sse_ok(text: str) -> bytes:
 
 class _Handler(http.server.BaseHTTPRequestHandler):
     record_path: str = ""
+    message_start_usage: dict[str, object] | None = None
+    message_delta_usage: dict[str, object] = {"input_tokens": 1, "output_tokens": 1}
     _lock = threading.Lock()
     _count = 0
 
@@ -99,7 +109,13 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()
-        self.wfile.write(_sse_ok(f"ACK-{n}"))
+        self.wfile.write(
+            _sse_ok(
+                f"ACK-{n}",
+                message_start_usage=self.message_start_usage,
+                message_delta_usage=self.message_delta_usage,
+            )
+        )
         self.wfile.flush()
 
     def log_message(self, format: str, *args: object) -> None:  # noqa: A002
@@ -113,6 +129,10 @@ def main() -> int:
         return 2
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 19995
     _Handler.record_path = record_path
+    _Handler.message_start_usage = _read_usage_env("NANO_FIXTURE_MESSAGE_START_USAGE")
+    _Handler.message_delta_usage = _read_usage_env(
+        "NANO_FIXTURE_MESSAGE_DELTA_USAGE"
+    ) or {"input_tokens": 1, "output_tokens": 1}
     # Truncate any prior run so callers can treat the file as this process's log.
     open(record_path, "w", encoding="utf-8").close()
     server = http.server.HTTPServer(("127.0.0.1", port), _Handler)
@@ -126,6 +146,16 @@ def main() -> int:
     except KeyboardInterrupt:
         pass
     return 0
+
+
+def _read_usage_env(name: str) -> dict[str, object] | None:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return None
+    value = json.loads(raw)
+    if not isinstance(value, dict):
+        raise ValueError(f"{name} must encode a JSON object")
+    return value
 
 
 if __name__ == "__main__":

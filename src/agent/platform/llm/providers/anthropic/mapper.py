@@ -375,9 +375,8 @@ def _parse_anthropic_usage(payload: Any) -> TokenUsage | None:
     cache_creation_tokens = (
         _extract_non_negative_int(payload.get("cache_creation_input_tokens")) or 0
     )
-    cache_read_tokens = (
-        _extract_non_negative_int(payload.get("cache_read_input_tokens")) or 0
-    )
+    cache_read = _extract_non_negative_int(payload.get("cache_read_input_tokens"))
+    cache_read_tokens = cache_read or 0
     if input_tokens is None and output_tokens is None:
         return None
 
@@ -390,6 +389,7 @@ def _parse_anthropic_usage(payload: Any) -> TokenUsage | None:
         # feat-439-M1: 与 client.py:_parse_anthropic_usage 同口径，避免两份漂移。
         cache_read_tokens=cache_read_tokens,
         cache_total_input_tokens=prompt_tokens,
+        cache_usage_available=cache_read is not None,
     )
 
 
