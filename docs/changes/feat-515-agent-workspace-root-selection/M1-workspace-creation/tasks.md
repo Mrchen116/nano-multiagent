@@ -81,13 +81,13 @@
 
 ### R1 — Gateway 本地 workspace creation boundary
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 先补红测；实现 default/custom provenance、canonical ownership、parent/target/confirmation/initialization outcome、本地 YAML/register 持久化和节点侧 preview root 解析。
 - 验证: Gateway focused pytest；文件系统副作用断言；preview/provider seam。
 
 ### R2 — WS/HTTP structured outcome 与 opaque IM mirror
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 先补红测；扩展 create 帧 outcome、HTTP code 映射、profile provenance schema/repository/migration/register，统一 opaque accessor 并迁移相关 RPC/read seam。
 - 验证: IM unit/integration/contract focused pytest；失败不建 profile；root 字符串原样往返。
 
