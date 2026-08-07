@@ -46,3 +46,12 @@ llm:
       models:
         - name: deepseek:deepseek-v4-flash
           context_window: 262144
+          reasoning:
+            default: high
+            levels: [high, max]
+        # E2E model catalog coverage: a fixed-thinking model and a model with
+        # no exposed reasoning control make the browser journey exercise all
+        # three UI states without reaching an external upstream.
+        - name: kimi:kimi-k3
+          reasoning: fixed
+        - name: openai:gpt-5.6-terra
