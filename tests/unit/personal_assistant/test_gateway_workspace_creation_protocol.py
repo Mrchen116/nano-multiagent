@@ -134,3 +134,69 @@ def test_node_preview_resolves_draft_workspace_on_gateway(
 
     assert resolver_calls == [("default", "draft-agent", None)]
     assert provider_roots == ["/gateway/default/draft-agent"]
+
+
+def test_invalid_custom_preview_returns_correlated_validation_without_disconnect(
+    tmp_path: Path,
+) -> None:
+    """A resolver ValueError becomes a typed result instead of escaping the listen loop."""
+    provider_called = False
+
+    def _resolve(_mode: str, _agent_id: str | None, _root: str | None) -> str:
+        raise ValueError("workspace_root must be an absolute path or start with ~/")
+
+    async def _preview(*_args) -> dict[str, object]:
+        nonlocal provider_called
+        provider_called = True
+        return {"prompt": "must not run"}
+
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "node.prompt.preview.request",
+                    "payload": {
+                        "request_id": "preview-invalid",
+                        "workspace_mode": "custom",
+                        "agent_id_hint": "draft-agent",
+                        "workspace_root": "relative/path",
+                        "features": {},
+                        "tool_ids": [],
+                        "skill_ids": [],
+                    },
+                }
+            ),
+        ]
+    )
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="ws://localhost:9999/ws", token="t"),
+        reporter=_minimal_reporter(tmp_path),
+        relay_adapter=_relay_adapter(),
+        prompt_preview_provider=_preview,
+        node_prompt_workspace_resolver=_resolve,
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def _exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - registration ack
+        await manager._listen_once()  # noqa: SLF001 - invalid preview request
+
+    asyncio.run(_exercise())
+
+    assert manager.connected is True
+    assert provider_called is False
+    assert json.loads(socket.sent[-1]) == {
+        "type": "node.prompt.preview",
+        "payload": {
+            "request_id": "preview-invalid",
+            "node_id": "n1",
+            "preview": {
+                "error": {
+                    "code": "workspace_parent_unusable",
+                    "detail": "workspace_root must be an absolute path or start with ~/",
+                }
+            },
+        },
+    }

@@ -1065,6 +1065,37 @@ class IMConnectionManager:
                 response_payload,
             )
             return
+        if message_type == "session.log.resolve":
+            request_id = _require_text(body.get("request_id"), field_name="request_id")
+            agent_id = _require_text(body.get("agent_id"), field_name="agent_id")
+            conversation_id = _require_text(
+                body.get("conversation_id"), field_name="conversation_id"
+            )
+            source_jsonl_path: str | None = None
+            if self._agent_config_provider is not None:
+                agent_payload = self._agent_config_provider(agent_id)
+                workspace_root = (
+                    agent_payload.get("workspace_root")
+                    if isinstance(agent_payload, Mapping)
+                    else None
+                )
+                if isinstance(workspace_root, str) and workspace_root.strip():
+                    source_jsonl_path = _resolve_session_jsonl_path(
+                        workspace_root=Path(workspace_root),
+                        conversation_id=conversation_id,
+                        agent_id=agent_id,
+                    )
+            await self.send_json(
+                "session.log.resolved",
+                {
+                    "request_id": request_id,
+                    "node_id": self._reporter.node_id,
+                    "agent_id": agent_id,
+                    "conversation_id": conversation_id,
+                    "source_jsonl_path": source_jsonl_path,
+                },
+            )
+            return
         if message_type == "session.fork.request":
             # feat-445-M1 (decision 2): IM delegates the session fork. The handler locates
             # the source kernel session via its binding, forks it at fork_point, binds the
@@ -1208,9 +1239,25 @@ class IMConnectionManager:
                     if isinstance(node_workspace_root_raw, str)
                     else None
                 )
-                node_workspace_root = self._node_prompt_workspace_resolver(
-                    workspace_mode_raw, agent_id_hint, custom_root
-                )
+                try:
+                    node_workspace_root = self._node_prompt_workspace_resolver(
+                        workspace_mode_raw, agent_id_hint, custom_root
+                    )
+                except ValueError as exc:
+                    await self.send_json(
+                        "node.prompt.preview",
+                        {
+                            "request_id": request_id,
+                            "node_id": self._reporter.node_id,
+                            "preview": {
+                                "error": {
+                                    "code": "workspace_parent_unusable",
+                                    "detail": str(exc),
+                                }
+                            },
+                        },
+                    )
+                    return
             features = body.get("features") or {}
             if not isinstance(features, dict):
                 features = {}
@@ -1972,6 +2019,36 @@ def _workspace_session_ids(workspace_root: Path) -> frozenset[str]:
     if not sessions_dir.is_dir():
         return frozenset()
     return frozenset(path.stem for path in sessions_dir.rglob("*.jsonl"))
+
+
+def _resolve_session_jsonl_path(
+    *, workspace_root: Path, conversation_id: str, agent_id: str
+) -> str | None:
+    """Locate one conversation transcript within this Gateway's local workspace."""
+    sessions_dir = workspace_root.expanduser() / _PA_WORKSPACE_CFG_DIR / "sessions"
+    if not sessions_dir.is_dir():
+        return None
+    for path in sorted(sessions_dir.rglob("*.jsonl")):
+        try:
+            with path.open("r", encoding="utf-8") as fh:
+                for line in fh:
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+                    record = json.loads(stripped)
+                    if record.get("type") != "session_created":
+                        continue
+                    metadata = record.get("metadata")
+                    if not isinstance(metadata, dict):
+                        continue
+                    if (
+                        metadata.get("conversation_id") == conversation_id
+                        and metadata.get("agent_id") == agent_id
+                    ):
+                        return str(path.resolve())
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+            continue
+    return None
 
 
 def _filter_shared_usage_for_workspace(

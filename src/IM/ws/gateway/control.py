@@ -32,6 +32,7 @@ class GatewayControl:
         self._cron_delete_waiters = {}
         self._skills_usage_waiters = {}
         self._session_fork_waiters = {}
+        self._session_log_waiters = {}
 
     async def push_heartbeat_trigger(
         self, *, target_node_id: str, agent_id: str, reason: str
@@ -230,6 +231,39 @@ class GatewayControl:
             async with self._lock:
                 self._session_fork_waiters.pop(request_id, None)
 
+    async def request_session_log_path(
+        self,
+        *,
+        target_node_id: str,
+        agent_id: str,
+        conversation_id: str,
+        timeout_seconds: float = 5.0,
+    ) -> str | None:
+        """Ask the owning Gateway to locate a conversation's local session log."""
+        request_id = f"session-log-{uuid4().hex}"
+        loop = asyncio.get_running_loop()
+        waiter: asyncio.Future[str | None] = loop.create_future()
+        async with self._lock:
+            self._session_log_waiters[request_id] = waiter
+        try:
+            pushed = await self._sessions.send(
+                target_node_id=target_node_id,
+                message_type="session.log.resolve",
+                payload={
+                    "request_id": request_id,
+                    "agent_id": agent_id,
+                    "conversation_id": conversation_id,
+                },
+            )
+            if not pushed:
+                return None
+            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            return None
+        finally:
+            async with self._lock:
+                self._session_log_waiters.pop(request_id, None)
+
     async def _handle_session_fork_result(
         self, *, payload: dict[str, object]
     ) -> dict[str, object]:
@@ -247,6 +281,35 @@ class GatewayControl:
                 "message_type": "session.fork.result",
                 "request_id": request_id,
                 "node_id": node_id,
+            },
+        }
+
+    async def _handle_session_log_resolved(
+        self, *, payload: dict[str, object]
+    ) -> dict[str, object]:
+        """Resolve one opaque session-log path returned by the owning Gateway."""
+        request_id = _require_text(payload.get("request_id"), field_name="request_id")
+        node_id = _require_text(payload.get("node_id"), field_name="node_id")
+        agent_id = _require_text(payload.get("agent_id"), field_name="agent_id")
+        conversation_id = _require_text(
+            payload.get("conversation_id"), field_name="conversation_id"
+        )
+        raw_path = payload.get("source_jsonl_path")
+        source_jsonl_path = (
+            raw_path.strip() if isinstance(raw_path, str) and raw_path.strip() else None
+        )
+        async with self._lock:
+            waiter = self._session_log_waiters.get(request_id)
+        if waiter is not None and not waiter.done():
+            waiter.set_result(source_jsonl_path)
+        return {
+            "type": "ack",
+            "payload": {
+                "message_type": "session.log.resolved",
+                "request_id": request_id,
+                "node_id": node_id,
+                "agent_id": agent_id,
+                "conversation_id": conversation_id,
             },
         }
 

@@ -15,6 +15,10 @@ class AgentProfileVersionConflictError(ValueError):
     """Raise when agent profile optimistic locking detects a stale version."""
 
 
+class AgentProfileAlreadyExistsError(ValueError):
+    """Raise when insert-only profile creation sees an existing Agent ID."""
+
+
 class AgentProfileRepository:
     """Persist and query agent configuration profiles."""
 
@@ -148,6 +152,7 @@ class AgentProfileRepository:
         node_id: str | None = None,
         features: dict[str, bool] | None = None,
         custom_prompt: str | None = None,
+        replace_workspace_provenance: bool = False,
     ) -> "AgentProfile":
         """Create or replace one seed profile without optimistic locking."""
         created_at = utc_now()
@@ -181,6 +186,8 @@ class AgentProfileRepository:
                     default_model = excluded.default_model,
                     workspace_root = excluded.workspace_root,
                     workspace_is_default = CASE
+                        WHEN ? = 1
+                        THEN excluded.workspace_is_default
                         WHEN agent_profiles.workspace_is_default IS NULL
                         THEN excluded.workspace_is_default
                         ELSE agent_profiles.workspace_is_default
@@ -216,8 +223,77 @@ class AgentProfileRepository:
                     created_at,
                     features_json,
                     custom_prompt,
+                    int(replace_workspace_provenance),
                 ),
             )
+        profile = self.get_profile(agent_id=agent_id)
+        assert profile is not None
+        return profile
+
+    def create_profile(
+        self,
+        *,
+        agent_id: str,
+        owner_id: str,
+        display_name: str,
+        description: str,
+        skills: list[str],
+        tool_allowlist: list[str],
+        group_reply_policy: str,
+        default_model: str | None,
+        workspace_root: str | None,
+        workspace_is_default: bool | None = None,
+        node_id: str | None = None,
+        features: dict[str, bool] | None = None,
+        custom_prompt: str | None = None,
+    ) -> AgentProfile:
+        """Insert one new profile without replacement semantics.
+
+        Raises:
+            AgentProfileAlreadyExistsError: When ``agent_id`` already exists.
+        """
+        created_at = utc_now()
+        features_json = (
+            json.dumps(features, ensure_ascii=False) if features is not None else None
+        )
+        try:
+            with self._connection:
+                self._connection.execute(
+                    """
+                    INSERT INTO agent_profiles(
+                        agent_id, owner_id, node_id, display_name, description,
+                        skills_json, tool_allowlist_json, group_reply_policy,
+                        default_model, workspace_root, workspace_is_default,
+                        profile_version, created_at, updated_at, features_json,
+                        custom_prompt
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, COALESCE(?, '{}'), ?)
+                    """,
+                    (
+                        agent_id,
+                        owner_id,
+                        node_id,
+                        display_name,
+                        description,
+                        _encode_json_list(skills),
+                        _encode_json_list(tool_allowlist),
+                        group_reply_policy,
+                        default_model,
+                        workspace_root,
+                        None
+                        if workspace_is_default is None
+                        else int(workspace_is_default),
+                        created_at,
+                        created_at,
+                        features_json,
+                        custom_prompt,
+                    ),
+                )
+        except sqlite3.IntegrityError as exc:
+            if "agent_profiles.agent_id" in str(exc):
+                raise AgentProfileAlreadyExistsError(
+                    "agent_id already exists"
+                ) from None
+            raise
         profile = self.get_profile(agent_id=agent_id)
         assert profile is not None
         return profile

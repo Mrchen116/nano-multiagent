@@ -96,3 +96,32 @@
 ## Promotion Candidates
 
 None.
+
+## Round 1 correction — duplicate immutability and remote session-log authority
+
+- Lineage:
+  - Verification failure snapshot: `015711133dbd10e9932e806ad1fb904178527b80`, `CRITICAL-1`, `CRITICAL-2`, and `WARNING-1` in `../verification.md`.
+  - Independent browser acceptance: `e813c45f10fc11a33f0e75358c810e1a0fe1aa5e`, which reproduced a second create changing `review_default_515` from its default root to `.review-duplicate-id-515`.
+  - Follow-up code review added lost-response retry, prompt-preview correlation, concurrent local create, and ownerless provenance refresh cases to the same correction.
+- Root causes:
+  - HTTP create trusted client `owner_id`, ignored ownerless duplicates, and composed a non-atomic read with profile upsert; Gateway creation likewise had no Agent-ID guard.
+  - `ConversationRepository` mixed durable IM projection with Gateway-local runtime discovery by recursively scanning and opening a mirrored workspace path.
+  - Prompt-preview let resolver `ValueError` escape the Gateway receive loop, and register upsert preserved stale ownerless provenance instead of the latest Gateway result.
+- Decisions:
+  - The app owns one serialized create check/Gateway/store boundary; repository creation is insert-only; authenticated owner is authoritative. Gateway serializes its local check/publish boundary, treats same-ID/same-root as an idempotent recovery, and rejects divergent roots before initialization.
+  - IM projects only `source_agent_id`; list/sync/detail ask the owning Gateway to resolve the session log using logical IDs. Only Gateway reads `.nanoassistant/sessions/**/*.jsonl`; the returned path remains opaque in IM.
+  - Node preview converts invalid path resolution into the existing structured workspace error envelope, while ownerless register explicitly refreshes `workspace_is_default` from the node seed.
+- Red-green evidence:
+  - Initial focused baseline: `55 passed, 2 warnings`.
+  - New tests first failed at the missing insert-only exception/API, then the complete correction matrix passed: `115 passed, 7 warnings`.
+  - Expanded IM + affected Gateway suite: `442 passed, 22 warnings in 45.13s`.
+  - Before rebase, the complete frontend suite passed with only existing test warnings.
+  - After rebasing onto `e813c45f10fc11a33f0e75358c810e1a0fe1aa5e`, the focused correction set passed `107 passed, 8 warnings`; the full non-E2E Python gate passed `3049 passed, 24 deselected, 22 warnings in 126.90s`.
+  - Final frontend workspace/API matrix: `22 passed`; `tsc -b` and production Vite build passed with only the existing chunk-size warning.
+  - Changed-file Ruff, Python compile, documentation integrity, and `git diff --check`: passed.
+- Test owners added or corrected:
+  - `test_agent_create_immutability_contract.py`: authenticated ownership, four stable 422/no-write failures, duplicate/concurrent guard, and lost-response IM retry.
+  - `test_gateway_workspace_creation_immutability.py`: Gateway divergent-root rejection, same-root recovery, and concurrent local serialization.
+  - Session-log tests now cover repository non-dereference, IM control correlation, Gateway nested-log lookup, and HTTP list/sync projection through RPC.
+- Runtime/cleanup: no production service, port, config, database, or workspace was touched. Frontend validation temporarily linked the main checkout's installed `node_modules` into this isolated worktree; the link, build output, and TypeScript build info were removed immediately after validation.
+- Durable detail: `evidence/correction-round-1.md`.

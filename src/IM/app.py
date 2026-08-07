@@ -374,6 +374,7 @@ def create_app(
         )
         app_instance.state.gateway_sessions = gateway_sessions
         app_instance.state.gateway_control = gateway_control
+        app_instance.state.agent_create_lock = asyncio.Lock()
         app_instance.state.gateway_channel_control = gateway_channel_control
         app_instance.state.gateway_relay = gateway_relay
         app_instance.state.gateway_execution = gateway_execution

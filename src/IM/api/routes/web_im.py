@@ -1,5 +1,7 @@
 """Conversation routes for IM HTTP APIs."""
 
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field, model_validator
 
@@ -170,6 +172,28 @@ def to_conversation_response(conversation: Conversation) -> ConversationResponse
     )
 
 
+async def _to_conversation_response_with_source(
+    conversation: Conversation,
+    *,
+    profiles: AgentProfileRepository,
+    gateway_control: GatewayControl,
+) -> ConversationResponse:
+    """Resolve runtime transcript location through the Agent's owning Gateway."""
+    response = to_conversation_response(conversation)
+    agent_id = conversation.source_agent_id
+    if not agent_id:
+        return response
+    profile = profiles.get_profile(agent_id=agent_id)
+    if profile is None or not profile.node_id:
+        return response
+    source_jsonl_path = await gateway_control.request_session_log_path(
+        target_node_id=profile.node_id,
+        agent_id=agent_id,
+        conversation_id=conversation.id,
+    )
+    return response.model_copy(update={"source_jsonl_path": source_jsonl_path})
+
+
 def _load_owner_scoped_conversation(
     *,
     service: WebIMService,
@@ -289,16 +313,25 @@ async def fork_conversation(
 
 
 @router.get("/im/v1/conversations", response_model=ListConversationsResponse)
-def list_conversations(
+async def list_conversations(
     user: User = Depends(current_user),
     service: WebIMService = Depends(get_web_im_service),
+    profiles: AgentProfileRepository = Depends(get_profile_repository),
+    gateway_control: GatewayControl = Depends(get_gateway_control),
 ) -> ListConversationsResponse:
     """List conversations visible in the caller's tenant scope."""
+    conversations = service.list_conversations_for_owner(owner_id=user.owner_id)
     return ListConversationsResponse(
-        items=[
-            to_conversation_response(item)
-            for item in service.list_conversations_for_owner(owner_id=user.owner_id)
-        ]
+        items=await asyncio.gather(
+            *(
+                _to_conversation_response_with_source(
+                    item,
+                    profiles=profiles,
+                    gateway_control=gateway_control,
+                )
+                for item in conversations
+            )
+        )
     )
 
 
@@ -347,16 +380,25 @@ def find_or_create_external_conversation(
 
 
 @router.get("/im/v1/sync", response_model=ImSyncResponse)
-def sync_im_state(
+async def sync_im_state(
     user: User = Depends(current_user),
     service: WebIMService = Depends(get_web_im_service),
     event_service: EventService = Depends(get_event_service),
+    profiles: AgentProfileRepository = Depends(get_profile_repository),
+    gateway_control: GatewayControl = Depends(get_gateway_control),
 ) -> ImSyncResponse:
     """返回会话列表与全局 max(event_id)，供用户 WebSocket resync_required 后对齐客户端游标。"""
-    items = [
-        to_conversation_response(item)
-        for item in service.list_conversations_for_owner(owner_id=user.owner_id)
-    ]
+    conversations = service.list_conversations_for_owner(owner_id=user.owner_id)
+    items = await asyncio.gather(
+        *(
+            _to_conversation_response_with_source(
+                item,
+                profiles=profiles,
+                gateway_control=gateway_control,
+            )
+            for item in conversations
+        )
+    )
     max_event_id = event_service.global_max_event_id()
     return ImSyncResponse(items=items, max_event_id=max_event_id)
 
@@ -364,16 +406,22 @@ def sync_im_state(
 @router.get(
     "/im/v1/conversations/{conversation_id}", response_model=ConversationResponse
 )
-def get_conversation(
+async def get_conversation(
     conversation_id: str,
     user: User = Depends(current_user),
     service: WebIMService = Depends(get_web_im_service),
+    profiles: AgentProfileRepository = Depends(get_profile_repository),
+    gateway_control: GatewayControl = Depends(get_gateway_control),
 ) -> ConversationResponse:
     """Return one conversation snapshot for the caller's tenant (404 otherwise)."""
     conversation = _load_owner_scoped_conversation(
         service=service, conversation_id=conversation_id, owner_id=user.owner_id
     )
-    return to_conversation_response(conversation)
+    return await _to_conversation_response_with_source(
+        conversation,
+        profiles=profiles,
+        gateway_control=gateway_control,
+    )
 
 
 @router.patch(

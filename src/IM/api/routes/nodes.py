@@ -1,5 +1,6 @@
 """Node board, capability, and node-scoped agent creation routes for IM HTTP APIs."""
 
+import asyncio
 from pathlib import Path
 from typing import Literal
 
@@ -9,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from IM.api.deps import (
     current_user,
+    get_agent_create_lock,
     get_config_service,
     get_node_service,
 )
@@ -187,7 +189,7 @@ async def node_prompt_preview(
     user: User = Depends(current_user),
     service: NodeService = Depends(get_node_service),
     gateway_handler: GatewayControl = Depends(get_gateway_control),
-) -> PromptPreviewResponse:
+) -> PromptPreviewResponse | JSONResponse:
     """Proxy a node-level prompt-preview request to the Gateway node (owner-scoped).
 
     feat-379-M9 (決策 11): Used by the agent-create page before an agent exists.
@@ -214,6 +216,15 @@ async def node_prompt_preview(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="target_node_id is not connected",
         )
+    error_payload = result.get("error")
+    if isinstance(error_payload, dict):
+        error_response = _workspace_error_response(error_payload)
+        if error_response is not None:
+            return error_response
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="node returned an invalid workspace error",
+        )
     raw_prompt = result.get("prompt")
     prompt = raw_prompt if isinstance(raw_prompt, str) else ""
     raw_count = result.get("section_count")
@@ -233,6 +244,7 @@ async def create_node_agent(
     node_service: NodeService = Depends(get_node_service),
     service: ConfigService = Depends(get_config_service),
     gateway_handler: GatewayControl = Depends(get_gateway_control),
+    create_lock: asyncio.Lock = Depends(get_agent_create_lock),
 ) -> AgentConfigResponse | JSONResponse:
     """Create one agent under the requested node using node-managed workspace allocation.
 
@@ -243,11 +255,6 @@ async def create_node_agent(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="node_id not found"
         )
-    existing = service.get_profile(agent_id=payload.agent_id)
-    if existing is not None and existing.owner_id.strip():
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="agent_id already exists"
-        )
     requested_skills: list[str] | None = payload.skills
     if "skills" not in payload.model_fields_set:
         requested_skills = None
@@ -256,6 +263,31 @@ async def create_node_agent(
         )
         if live_capabilities is not None:
             requested_skills = _default_on_names(live_capabilities.get("skills"))
+    async with create_lock:
+        return await _create_node_agent_locked(
+            node_id=node_id,
+            payload=payload,
+            user=user,
+            service=service,
+            gateway_handler=gateway_handler,
+            requested_skills=requested_skills,
+        )
+
+
+async def _create_node_agent_locked(
+    *,
+    node_id: str,
+    payload: CreateNodeAgentRequest,
+    user: User,
+    service: ConfigService,
+    gateway_handler: GatewayControl,
+    requested_skills: list[str] | None,
+) -> AgentConfigResponse | JSONResponse:
+    """Create one Agent while the app-scoped uniqueness lock is held."""
+    if service.get_profile(agent_id=payload.agent_id) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="agent_id already exists"
+        )
     create_payload: dict[str, object] = {
         "agent_id": payload.agent_id,
         "display_name": payload.display_name,
@@ -301,7 +333,7 @@ async def create_node_agent(
     try:
         created = service.create_profile(
             agent_id=payload.agent_id,
-            owner_id=payload.owner_id,
+            owner_id=user.owner_id,
             node_id=node_id,
             display_name=_coerce_text(
                 created_payload.get("display_name"), fallback=payload.display_name
@@ -355,6 +387,7 @@ def _workspace_error_response(error: dict[str, object]) -> JSONResponse | None:
     if not isinstance(code, str) or not isinstance(detail, str):
         return None
     conflict_codes = {
+        "agent_id_already_exists",
         "workspace_confirmation_required",
         "workspace_already_assigned",
     }

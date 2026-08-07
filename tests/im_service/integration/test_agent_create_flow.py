@@ -56,7 +56,7 @@ def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(
                         "node_id": "node-1",
                         "node_name": "MacBook",
                         "version": "1.0.0",
-                        "agents": [agent_user.id],
+                        "agents": [],
                         "capabilities": {"relay": True},
                     },
                 }
@@ -285,7 +285,7 @@ def test_create_agent_pushes_config_sync_to_connected_gateway(tmp_path: Path) ->
                         "node_id": "node-1",
                         "node_name": "MacBook",
                         "version": "1.0.0",
-                        "agents": [agent_user.id],
+                        "agents": [],
                         "capabilities": {"relay": True},
                     },
                 }
