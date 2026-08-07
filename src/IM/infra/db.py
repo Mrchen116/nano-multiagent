@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS agent_profiles (
     default_model TEXT,
     reasoning_effort TEXT,
     workspace_root TEXT,
+    workspace_is_default INTEGER,
     profile_version INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -677,6 +678,10 @@ def _migrate_agent_profile_tables(connection: sqlite3.Connection) -> None:
         )
     if agent_rows and "workspace_root" not in agent_column_names:
         connection.execute("ALTER TABLE agent_profiles ADD COLUMN workspace_root TEXT")
+    if agent_rows and "workspace_is_default" not in agent_column_names:
+        connection.execute(
+            "ALTER TABLE agent_profiles ADD COLUMN workspace_is_default INTEGER"
+        )
     if agent_rows and "workspace_root" in {
         row["name"]
         for row in connection.execute("PRAGMA table_info(agent_profiles)").fetchall()

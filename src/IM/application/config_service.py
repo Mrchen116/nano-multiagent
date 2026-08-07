@@ -7,7 +7,6 @@ from pathlib import Path
 from IM.domain.models import (
     AgentProfile,
     User,
-    is_managed_workspace_root,
     managed_workspace_root,
 )
 from IM.infra.repositories.agents import AgentProfileRepository
@@ -88,6 +87,7 @@ class ConfigService:
         default_model: str | None,
         workspace_root: str,
         reasoning_effort: str | None = None,
+        workspace_is_default: bool | None = None,
         features: dict[str, bool] | None = None,
         custom_prompt: str | None = None,
         notify_config_sync: bool = True,
@@ -124,6 +124,7 @@ class ConfigService:
             workspace_root=self.normalize_workspace_root(
                 agent_id=agent_id, workspace_root=workspace_root
             ),
+            workspace_is_default=workspace_is_default,
             features=features,
             custom_prompt=custom_prompt,
         )
@@ -227,16 +228,14 @@ class ConfigService:
         return updated
 
     def workspace_root_for_profile(self, profile: AgentProfile) -> str:
-        """Return the effective workspace root used by runtime sync and UI."""
+        """Return the opaque node-owned workspace root used by runtime sync and UI."""
         if profile.workspace_root:
-            return str(Path(profile.workspace_root).expanduser().resolve())
+            return profile.workspace_root
         return managed_workspace_root(profile.agent_id)
 
     def workspace_is_default_for_profile(self, profile: AgentProfile) -> bool:
-        """Return whether one profile is still using the managed default workspace."""
-        return is_managed_workspace_root(
-            agent_id=profile.agent_id, workspace_root=profile.workspace_root
-        )
+        """Return stored Gateway provenance; legacy rows remain conservatively false."""
+        return bool(profile.workspace_is_default)
 
     @staticmethod
     def normalize_workspace_root(*, agent_id: str, workspace_root: str | None) -> str:
@@ -244,17 +243,18 @@ class ConfigService:
 
         Blank values mean "use managed default" and are persisted as the canonical
         managed workspace path so later runtime/session refreshes can trust storage.
-        Non-blank values must be absolute after ``expanduser()``.
+        Non-blank values must use absolute syntax. IM deliberately does not resolve
+        node-local paths because the Gateway may run on a different host.
         """
         if workspace_root is None:
             return managed_workspace_root(agent_id)
         normalized = workspace_root.strip()
         if not normalized:
             return managed_workspace_root(agent_id)
-        path = Path(normalized).expanduser()
+        path = Path(normalized)
         if not path.is_absolute():
-            raise ValueError("workspace_root must be an absolute path or start with ~/")
-        return str(path.resolve())
+            raise ValueError("workspace_root must be an absolute path")
+        return normalized
 
     def _notify_config_sync(self, *, agent_id: str, profile_version: int) -> None:
         notifier = self._config_sync_notifier

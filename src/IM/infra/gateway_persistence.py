@@ -104,6 +104,7 @@ class GatewayNodePersistence:
         version: str,
         agent_ids: list[str],
         agent_workspaces: dict[str, str],
+        agent_workspace_is_default: dict[str, bool] | None = None,
         agent_skills: dict[str, list[str]] | None = None,
         agent_tool_allowlist: dict[str, list[str]] | None = None,
     ) -> GatewayRegistrationResult:
@@ -115,6 +116,7 @@ class GatewayNodePersistence:
             version: Gateway version string, or an empty string when omitted.
             agent_ids: Advertised agent identifiers in protocol order.
             agent_workspaces: Optional runtime workspace seed keyed by agent id.
+            agent_workspace_is_default: Optional Gateway-owned workspace provenance.
             agent_skills: Optional per-agent skill seed keyed by agent id.
                 Used only when creating a new profile (bugfix-467).
             agent_tool_allowlist: Optional per-agent tool allowlist seed keyed by agent id.
@@ -140,6 +142,7 @@ class GatewayNodePersistence:
         )
         skills_seed = agent_skills or {}
         tools_seed = agent_tool_allowlist or {}
+        provenance_seed = agent_workspace_is_default or {}
         for agent_id in agent_ids:
             existing = self._profiles.get_profile(agent_id=agent_id)
             owner_id = (
@@ -158,6 +161,7 @@ class GatewayNodePersistence:
                 workspace_root = agent_workspaces.get(
                     agent_id
                 ) or managed_workspace_root(agent_id)
+                workspace_is_default = provenance_seed.get(agent_id)
                 features: dict[str, bool] | None = None
                 custom_prompt = None
             else:
@@ -171,6 +175,9 @@ class GatewayNodePersistence:
                 workspace_root = existing.workspace_root or managed_workspace_root(
                     agent_id
                 )
+                workspace_is_default = existing.workspace_is_default
+                if workspace_is_default is None:
+                    workspace_is_default = provenance_seed.get(agent_id)
                 features = existing.features
                 custom_prompt = existing.custom_prompt
             if display_name == agent_id and agent_id.startswith("agent-"):
@@ -188,6 +195,7 @@ class GatewayNodePersistence:
                 default_model=default_model,
                 reasoning_effort=reasoning_effort,
                 workspace_root=workspace_root,
+                workspace_is_default=workspace_is_default,
                 features=features,
                 custom_prompt=custom_prompt,
             )

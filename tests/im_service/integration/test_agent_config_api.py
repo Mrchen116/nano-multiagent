@@ -127,7 +127,10 @@ def test_get_agent_config_prefers_live_gateway_snapshot(tmp_path: Path) -> None:
         assert response.json()["tool_allowlist"] == ["read"]
         assert response.json()["group_reply_policy"] == "auto"
         assert response.json()["default_model"] == "claude-sonnet-4"
-        assert response.json()["workspace_root"] == _WORKSPACE_PATH_SETTING
+        assert response.json()["workspace_root"] == mirror_response.json()[
+            "workspace_root"
+        ]
+        assert response.json()["workspace_root"] != _WORKSPACE_PATH_SETTING
         assert response.json()["owner_id"] == owner.owner_id
         assert response.json()["profile_version"] == 1
 

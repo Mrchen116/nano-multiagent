@@ -254,7 +254,6 @@ def _merge_live_agent_profile(
     group_reply_policy = payload.get("group_reply_policy")
     default_model = payload.get("default_model")
     reasoning_effort = payload.get("reasoning_effort")
-    workspace_root = payload.get("workspace_root")
     return AgentProfile(
         agent_id=profile.agent_id,
         owner_id=profile.owner_id,
@@ -284,9 +283,8 @@ def _merge_live_agent_profile(
         )
         if "reasoning_effort" in payload
         else profile.reasoning_effort,
-        workspace_root=workspace_root
-        if isinstance(workspace_root, str) and workspace_root.strip()
-        else profile.workspace_root,
+        workspace_root=profile.workspace_root,
+        workspace_is_default=profile.workspace_is_default,
         profile_version=profile.profile_version,
         # feat-379-M7 (ISSUE-2): live gateway snapshots do not carry features/custom_prompt
         # (those are IM-owned fields set via PATCH, not reported back by the node).

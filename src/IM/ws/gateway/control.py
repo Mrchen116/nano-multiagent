@@ -477,7 +477,9 @@ class GatewayControl:
         custom_prompt: str | None,
         tool_ids: list[str],
         scenario: str,
-        workspace_root: str = "",
+        workspace_mode: str,
+        agent_id_hint: str | None,
+        workspace_root: str | None,
         skill_ids: list[str] | None = None,
         timeout_seconds: float = 10.0,
     ) -> dict[str, object] | None:
@@ -485,8 +487,8 @@ class GatewayControl:
 
         feat-379-M9 (決策 11): node-level preview path used by the agent-create page
         before an agent exists.
-        feat-383-M1: workspace_root (IM-derived) and skill_ids are now forwarded so
-        the Gateway→kernel can resolve real workspace and skills.
+        Workspace intent is forwarded unchanged so the target Gateway resolves its
+        own filesystem path before asking the kernel for a preview.
 
         Returns:
             Preview payload dict or None when the node is not connected or times out.
@@ -502,6 +504,8 @@ class GatewayControl:
                 message_type="node.prompt.preview.request",
                 payload={
                     "request_id": request_id,
+                    "workspace_mode": workspace_mode,
+                    "agent_id_hint": agent_id_hint,
                     "workspace_root": workspace_root,
                     "features": features,
                     "custom_prompt": custom_prompt,
@@ -720,8 +724,15 @@ class GatewayControl:
             expected_operation_id, expected_fingerprint, waiter = waiter_entry
             if expected_operation_id is None:
                 agent_payload = _require_dict(payload.get("agent"), field_name="agent")
+                error_payload = payload.get("error")
+                if error_payload is not None and not isinstance(error_payload, dict):
+                    raise ValueError("error must be an object when provided")
                 if not waiter.done():
-                    waiter.set_result(dict(agent_payload))
+                    waiter.set_result(
+                        {"error": dict(error_payload)}
+                        if isinstance(error_payload, dict)
+                        else dict(agent_payload)
+                    )
             else:
                 result = _config_operation_result(
                     payload=payload,

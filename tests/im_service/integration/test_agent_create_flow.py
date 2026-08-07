@@ -101,6 +101,7 @@ def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(
                 "reasoning_effort": None,
                 "workspace_root": None,
                 "heartbeat_json": None,
+                "confirm_existing_workspace": False,
             }
             websocket.send_json(
                 {

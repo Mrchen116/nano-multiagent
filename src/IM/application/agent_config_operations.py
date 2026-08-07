@@ -30,7 +30,18 @@ _GATEWAY_CONFIG_KEYS = (
     "heartbeat_json",
 )
 _SAFE_REJECTION_CODES = frozenset(
-    {"invalid_agent_config", "operation_conflict", "operation_id_reused"}
+    {
+        "agent_id_already_exists",
+        "invalid_agent_config",
+        "operation_conflict",
+        "operation_id_reused",
+        "workspace_already_assigned",
+        "workspace_confirmation_required",
+        "workspace_initialization_failed",
+        "workspace_parent_missing",
+        "workspace_parent_unusable",
+        "workspace_target_not_directory",
+    }
 )
 
 
@@ -41,8 +52,16 @@ class ConfigApplyPendingError(RuntimeError):
 class ConfigApplyRejectedError(ValueError):
     """Expose a stable, API-safe Gateway rejection code."""
 
-    def __init__(self, code: str) -> None:
+    def __init__(
+        self,
+        code: str,
+        *,
+        message: str | None = None,
+        agent_id: str | None = None,
+    ) -> None:
         self.code = code if code in _SAFE_REJECTION_CODES else "invalid_agent_config"
+        self.message = message
+        self.agent_id = agent_id
         super().__init__(self.code)
 
 
@@ -85,7 +104,11 @@ class AgentConfigOperationCoordinator:
                 if operation.operation_kind == "compensation":
                     raise ConfigApplyPendingError("config_apply_pending")
                 self._record_rejected(operation=operation, result=result)
-                raise ConfigApplyRejectedError(_safe_result_error_code(result))
+                raise ConfigApplyRejectedError(
+                    _safe_result_error_code(result),
+                    message=_result_message(result),
+                    agent_id=_result_error_agent_id(result),
+                )
             operation = self._operations.mark_gateway_applied(
                 operation_id=operation.operation_id, result=result
             )
@@ -227,7 +250,11 @@ class AgentConfigOperationCoordinator:
     ) -> AgentConfigOperation:
         if _result_status(result) == "rejected":
             self._record_rejected(operation=operation, result=result)
-            raise ConfigApplyRejectedError(_safe_result_error_code(result))
+            raise ConfigApplyRejectedError(
+                _safe_result_error_code(result),
+                message=_result_message(result),
+                agent_id=_result_error_agent_id(result),
+            )
         return self._operations.mark_gateway_applied(
             operation_id=operation.operation_id, result=result
         )
@@ -309,6 +336,11 @@ class AgentConfigOperationCoordinator:
                 fallback=candidate.get("reasoning_effort"),
             ),
             workspace_root=workspace_root,
+            workspace_is_default=_bool_from_result(
+                result_agent,
+                "workspace_is_default",
+                fallback=candidate.get("workspace_is_default"),
+            ),
             features=_bool_dict_from_result(
                 result_agent, "features", fallback=candidate.get("features")
             ),
@@ -461,6 +493,10 @@ def gateway_candidate(candidate: dict[str, object]) -> dict[str, object]:
         projected["skills"] = (
             _operation_string_list(raw_skills) if isinstance(raw_skills, list) else None
         )
+    if "confirm_existing_workspace" in candidate:
+        projected["confirm_existing_workspace"] = (
+            candidate.get("confirm_existing_workspace") is True
+        )
     return projected
 
 
@@ -506,6 +542,16 @@ def _safe_result_error_code(result: dict[str, object]) -> str:
     if isinstance(value, str) and value in _SAFE_REJECTION_CODES:
         return value
     return "invalid_agent_config"
+
+
+def _result_message(result: dict[str, object]) -> str | None:
+    value = result.get("message")
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def _result_error_agent_id(result: dict[str, object]) -> str | None:
+    value = result.get("agent_id")
+    return value if isinstance(value, str) and value.strip() else None
 
 
 def _result_agent(result: dict[str, object] | None) -> dict[str, object]:
@@ -562,6 +608,13 @@ def _bool_dict_from_result(
         for key, item in value.items()
         if isinstance(key, str) and isinstance(item, bool)
     }
+
+
+def _bool_from_result(
+    result: dict[str, object], field: str, *, fallback: object
+) -> bool | None:
+    value = result[field] if field in result else fallback
+    return value if isinstance(value, bool) else None
 
 
 def _resolved_custom_prompt(

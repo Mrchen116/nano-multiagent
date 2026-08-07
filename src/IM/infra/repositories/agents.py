@@ -27,7 +27,7 @@ class AgentProfileRepository:
             """
             SELECT agent_id, owner_id, node_id, display_name, description, skills_json,
                    tool_allowlist_json, group_reply_policy, default_model, reasoning_effort,
-                   workspace_root, profile_version,
+                   workspace_root, workspace_is_default, profile_version,
                    is_stale, features_json, custom_prompt, heartbeat_json
             FROM agent_profiles
             ORDER BY created_at, rowid
@@ -48,7 +48,7 @@ class AgentProfileRepository:
             """
             SELECT ap.agent_id, ap.owner_id, ap.node_id, ap.display_name, ap.description, ap.skills_json,
                    ap.tool_allowlist_json, ap.group_reply_policy, ap.default_model, ap.reasoning_effort,
-                   ap.workspace_root, ap.profile_version,
+                   ap.workspace_root, ap.workspace_is_default, ap.profile_version,
                    ap.is_stale, ap.features_json, ap.custom_prompt, ap.heartbeat_json
             FROM agent_profiles ap
             JOIN nodes n ON n.node_id = ap.node_id
@@ -80,7 +80,7 @@ class AgentProfileRepository:
             """
             SELECT ap.agent_id, ap.owner_id, ap.node_id, ap.display_name, ap.description, ap.skills_json,
                    ap.tool_allowlist_json, ap.group_reply_policy, ap.default_model, ap.reasoning_effort,
-                   ap.workspace_root, ap.profile_version,
+                   ap.workspace_root, ap.workspace_is_default, ap.profile_version,
                    ap.is_stale, ap.features_json, ap.custom_prompt, ap.heartbeat_json
             FROM agent_profiles ap
             JOIN nodes n ON n.node_id = ap.node_id
@@ -125,7 +125,7 @@ class AgentProfileRepository:
             """
             SELECT agent_id, owner_id, node_id, display_name, description, skills_json,
                    tool_allowlist_json, group_reply_policy, default_model, reasoning_effort,
-                   workspace_root, profile_version,
+                   workspace_root, workspace_is_default, profile_version,
                    is_stale, features_json, custom_prompt, heartbeat_json
             FROM agent_profiles
             WHERE agent_id = ?
@@ -149,6 +149,7 @@ class AgentProfileRepository:
         default_model: str | None,
         workspace_root: str | None,
         reasoning_effort: str | None = None,
+        workspace_is_default: bool | None = None,
         node_id: str | None = None,
         features: dict[str, bool] | None = None,
         custom_prompt: str | None = None,
@@ -171,9 +172,10 @@ class AgentProfileRepository:
                 INSERT INTO agent_profiles(
                     agent_id, owner_id, node_id, display_name, description,
                     skills_json, tool_allowlist_json, group_reply_policy,
-                    default_model, reasoning_effort, workspace_root, profile_version, created_at, updated_at,
+                    default_model, reasoning_effort, workspace_root, workspace_is_default,
+                    profile_version, created_at, updated_at,
                     features_json, custom_prompt
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, '{}'), ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, '{}'), ?)
                 ON CONFLICT(agent_id) DO UPDATE SET
                     owner_id = excluded.owner_id,
                     node_id = excluded.node_id,
@@ -185,6 +187,11 @@ class AgentProfileRepository:
                     default_model = excluded.default_model,
                     reasoning_effort = excluded.reasoning_effort,
                     workspace_root = excluded.workspace_root,
+                    workspace_is_default = CASE
+                        WHEN agent_profiles.workspace_is_default IS NULL
+                        THEN excluded.workspace_is_default
+                        ELSE agent_profiles.workspace_is_default
+                    END,
                     updated_at = excluded.updated_at,
                     is_stale = 0,
                     staled_at = NULL,
@@ -211,6 +218,7 @@ class AgentProfileRepository:
                     default_model,
                     reasoning_effort,
                     workspace_root,
+                    None if workspace_is_default is None else int(workspace_is_default),
                     1,
                     created_at,
                     created_at,
@@ -401,6 +409,12 @@ class AgentProfileRepository:
             default_model=row["default_model"],
             reasoning_effort=row["reasoning_effort"],
             workspace_root=row["workspace_root"],
+            workspace_is_default=(
+                bool(row["workspace_is_default"])
+                if "workspace_is_default" in keys
+                and row["workspace_is_default"] is not None
+                else None
+            ),
             profile_version=int(row["profile_version"]),
             is_stale=is_stale,
             features=features,
