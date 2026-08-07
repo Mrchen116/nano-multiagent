@@ -1,4 +1,4 @@
-# refactor-513: 产品化 workspace 持久化目录
+# refactor-513: 产品化 workspace 与全局持久化目录
 
 ## Relations
 
@@ -19,6 +19,18 @@
 > ```
 
 > 那我觉得应该做的是PA首次启动的时候把.nano/tools、.nano/hooks 这类共享扩展拷贝到自己那里，然后不删除他原本的，CLI首次启动的时候则放到.nanocode里
+
+> 全局的还没考虑，卧槽。全局的有这种问题吗
+
+> 要扩大。你建议怎么整理
+
+> ```
+> nanoassistant我觉得也可以整合到.nanoassistant吧？有什么单独的必要性
+> ```
+
+> 旧的按照之前的原则，启动时一次性 搬迁，搬迁了就删掉
+
+> 绝对路径变了没事，workspace内相对路径没变就行。
 
 ## 澄清记录
 
@@ -67,17 +79,44 @@
   A(原话): 对
   Agent 解读: 首次初始化时，若 `.nanoassistant/HEARTBEAT.md` 不存在，则拷贝根目录旧 `HEARTBEAT.md`；保留来源且不覆盖已有目标文件。
 
+- Q11: 这次是否把 PA 的全局目录和默认 Agent workspace 根也纳入收敛范围？
+  A(原话): 要扩大。你建议怎么整理
+  Agent 解读: 本 unit 除 workspace 内目录规则外，还要收敛 PA 的全局配置、状态、扩展和默认创建的 Agent workspace 根。
+
+- Q12: PA 的默认 Agent workspace 是否单独保留在 `~/nanoassistant/`，还是也整合进隐藏的全局产品目录？
+  A(原话):
+  ```
+  nanoassistant我觉得也可以整合到.nanoassistant吧？有什么单独的必要性
+  ```
+  Agent 解读: 不保留单独的默认 workspace 父目录。PA 的全局产品 home 为 `~/.nanoassistant/`，默认 workspace 位于其 `workspaces/<agent-id>/` 下；用户显式指定的外部 workspace 不改变位置。
+
+- Q13: 旧的 PA 全局 home 与旧默认 workspace 根如何处理？
+  A(原话): 旧的按照之前的原则，启动时一次性 搬迁，搬迁了就删掉
+  Agent 解读: `~/.nano-assistant/` 和 `~/nano-assistant/` 均在 PA 首次启动时一次性迁往新的 `~/.nanoassistant/` 体系；迁移成功后删除相应旧源目录，不持续同步。
+
+- Q14: 整体迁移旧默认 workspace 后，旧根目录 `chat_history/` 与 `.nano/background-tasks/` 的绝对路径会改变；这是否推翻“不迁入产品目录”的既有决定？
+  A(原话): 绝对路径变了没事，workspace内相对路径没变就行。
+  Agent 解读: 旧默认 workspace 可以整体迁移。其遗留聊天副本和后台输出保留在迁后 workspace 根的原相对位置，不迁入 `<workspace>/.nanoassistant/` 或 `<workspace>/.nanocode/`；绝对路径变化可接受。
+
+- Q15: 若迁移目标已有同名但内容不同的 PA 全局配置或状态，是否应停止迁移、保留旧目录，而不是覆盖或删除数据？
+  A(原话): 好
+  Agent 解读: 迁移先检查冲突；不同内容的同名项使本次迁移失败，旧路径与既有目标均保留，PA 提示用户处理。仅无冲突时才完成搬迁并删除旧源。
+
 ## 现状痛点
 
 产品已经把会话、memory、skills 和 cron 等状态分别放入 `.nanoassistant/` 或 `.nanocode/`，但仍有 PA 的简化聊天记录写在 workspace 根目录，heartbeat 配置也写在根目录；后台 bash 输出则被内核硬编码到 `.nano/`。当 PA workspace 指向一个代码仓根目录时，这些产品产物混在项目资产中，既难以统一管理，也使仓库维护者难以判断哪些文件应纳入版本控制。
 
 `.nano` 同时承担了内核默认 workspace 命名空间和旧的仓库扩展入口；它与 PA/CLI 的产品目录没有统一的选择规则。因而产品明明传入了自己的配置目录，部分运行时文件仍落到 `.nano` 或根目录。
 
+PA 的全局数据也有同类分裂：`~/.nanoassistant/` 已承载全局扩展，`~/.nano-assistant/` 却承载 Gateway 配置和绑定状态，而默认 Agent workspace 又位于 `~/nano-assistant/`。用户需要区分三个近似名字，且无法从目录名判断哪些是 PA 的全局控制数据、哪些是 Agent 工作区。
+
 ## 目标状态
 
 内核对未声明产品目录的消费者仍以 `.nano` 作为 workspace 默认目录。产品可显式提供自己的目录名；一旦提供，所有该产品管理的 workspace 持久化、workspace extensions 与后台输出均使用该目录。PA 的目录为 `.nanoassistant/`，CLI 的目录为 `.nanocode/`。
 
 PA 继续提供人工可读的 `chat_history`，但它、heartbeat、会话和其他 PA 管理状态均收敛到 `.nanoassistant/`。CLI 不新增这份 PA 专属聊天副本。
+
+PA 的唯一全局产品 home 为 `~/.nanoassistant/`：全局配置、持久状态以及全局 skills、tools、hooks 均在此处。默认创建的 Agent workspace 位于 `~/.nanoassistant/workspaces/<agent-id>/`；其中的 PA workspace 状态仍遵循 `<workspace>/.nanoassistant/`。用户显式指定的代码仓或其他外部 workspace 保持原位置和相同的 workspace 内目录规则。
 
 ## 用户侧验收标准（不变性）
 
@@ -102,6 +141,32 @@ PA 继续提供人工可读的 `chat_history`，但它、heartbeat、会话和�
 - **GIVEN** 已有 PA workspace 的根目录中存在 `HEARTBEAT.md`，且 `.nanoassistant/HEARTBEAT.md` 尚不存在
 - **WHEN** 用户升级后首次启动 PA
 - **THEN** PA 在 `.nanoassistant/` 中保留可用的 heartbeat 配置并继续按原有配置执行，根目录旧文件不被删除
+
+### Requirement: PA 的全局数据与默认 workspace 收敛到 `~/.nanoassistant/`
+
+#### Scenario: 新建默认 PA Agent
+- **WHEN** 用户创建未显式指定 workspace 的 PA Agent
+- **THEN** 该 Agent 的 workspace 创建在 `~/.nanoassistant/workspaces/<agent-id>/`，其 PA 状态继续写入该 workspace 的 `.nanoassistant/`
+
+#### Scenario: 首次迁移没有冲突的旧 PA 全局数据和默认 workspaces
+- **GIVEN** 用户已有 `~/.nano-assistant/` 或 `~/nano-assistant/` 中的 PA 数据，且 `~/.nanoassistant/` 没有内容不同的同名项
+- **WHEN** 用户升级后首次启动 PA
+- **THEN** 全局配置、状态和默认 Agent workspaces 均可从 `~/.nanoassistant/` 继续使用，旧 `~/.nano-assistant/` 与旧 `~/nano-assistant/` 已被删除
+
+#### Scenario: 默认 workspace 的遗留运行文件随 workspace 保持相对位置
+- **GIVEN** 旧默认 workspace 根目录有 `chat_history/` 或 `.nano/background-tasks/`
+- **WHEN** 该默认 workspace 在首次启动时迁至 `~/.nanoassistant/workspaces/<agent-id>/`
+- **THEN** 这些遗留文件仍位于迁后 workspace 根的相同相对位置，不会被迁入该 workspace 的 `.nanoassistant/` 或 `.nanocode/`
+
+#### Scenario: 迁移遇到内容冲突
+- **GIVEN** 旧 PA 目录与 `~/.nanoassistant/` 存在内容不同的同名项
+- **WHEN** 用户首次启动 PA
+- **THEN** PA 明确告知迁移冲突，旧目录和已有目标内容均不被覆盖或删除
+
+#### Scenario: 用户指定外部 workspace
+- **GIVEN** PA Agent 的 workspace 被用户显式指定为一个外部目录或代码仓根目录
+- **WHEN** 用户升级后首次启动 PA
+- **THEN** 该 workspace 不被迁入 `~/.nanoassistant/workspaces/`，但 PA 状态仍按 `<workspace>/.nanoassistant/` 规则管理
 
 ### Requirement: CLI 的 workspace 状态遵循 `.nanocode/`
 
@@ -133,8 +198,8 @@ PA 继续提供人工可读的 `chat_history`，但它、heartbeat、会话和�
 
 ### Requirement: 旧运行数据与仓库版本控制不被静默改写
 
-#### Scenario: 旧聊天副本和后台输出保持可查看
-- **GIVEN** 旧 workspace 已有根目录 `chat_history/` 或 `.nano/background-tasks/`
+#### Scenario: 外部 workspace 的旧聊天副本和后台输出保持可查看
+- **GIVEN** 一个不属于 PA 默认 workspace 根的 workspace 已有根目录 `chat_history/` 或 `.nano/background-tasks/`
 - **WHEN** 用户升级并启动 PA 或 CLI
 - **THEN** 旧文件不被自动移动、删除或归属到某个产品；后续新数据按产品目录写入
 
@@ -146,7 +211,8 @@ PA 继续提供人工可读的 `chat_history`，但它、heartbeat、会话和�
 
 - 范围：把 workspace 目录选择收敛为“内核默认 `.nano`、产品显式目录覆盖”的一致规则，并使 PA 与 CLI 按各自产品目录写入和发现 workspace 资源。
 - 范围：PA 保留 `chat_history`，但将其和 `HEARTBEAT.md` 迁入 `.nanoassistant/`；CLI 适配同一目录选择规则，不新增聊天副本。
-- 非目标：自动迁移或删除旧 `chat_history/`、`.nano/background-tasks/`，或将其猜测性地归属到 PA/CLI。
+- 范围：PA 全局配置、持久状态、全局扩展和默认 Agent workspace 收敛到 `~/.nanoassistant/`；旧 `~/.nano-assistant/` 与 `~/nano-assistant/` 在无冲突首次迁移成功后删除。
+- 非目标：将遗留 `chat_history/`、`.nano/background-tasks/` 重新归属或搬入 PA/CLI 产品目录；默认 workspace 整体迁移时保留这些文件的 workspace 内相对位置。
 - 非目标：首次导入后持续同步 `.nano/tools`、`.nano/hooks`，覆盖或合并产品已有 extension，或自动修改 Git 忽略规则。
 - 非目标：改变未提供产品目录名的内核消费者的 `.nano` 默认行为。
 
@@ -154,6 +220,7 @@ PA 继续提供人工可读的 `chat_history`，但它、heartbeat、会话和�
 
 - 内核 workspace 目录选择，以及 session、background task 和 workspace extension 的一致性。
 - PA 的 workspace 初始化、heartbeat、聊天副本和 Agent workspace 运行。
+- PA 的全局配置、绑定状态、全局扩展发现和默认 workspace 创建/迁移。
 - CLI 的 workspace 初始化、workspace extension 与后台任务路径。
 - 相关的用户文档、行为契约与回归测试。
 
@@ -161,5 +228,7 @@ PA 继续提供人工可读的 `chat_history`，但它、heartbeat、会话和�
 
 - 对每个产品与 workspace，旧 `.nano/tools`、`.nano/hooks` 只在首次初始化时快照导入一次；只补缺失文件，保留旧来源和已有目标文件。
 - PA 首次初始化时，缺少目标 heartbeat 配置才从根目录拷贝旧 `HEARTBEAT.md`；不删除来源或覆盖目标。
-- 旧根目录聊天副本和 `.nano/background-tasks/` 不自动迁移；新版本只在产品目录写新文件。
-- 产品不自动改写 Git 忽略规则。回滚或升级失败不得删除旧来源、既有产品目录内容或历史运行数据；旧版本仍可使用其原有文件。
+- PA 首次启动前检查 `~/.nano-assistant/` 与 `~/nano-assistant/` 到 `~/.nanoassistant/` 的一次性迁移。无内容冲突时搬迁全局数据和默认 workspaces，成功后删除相应旧源目录；迁后默认 workspace 内遗留文件保留原相对位置。
+- 若迁移发现内容不同的同名项，不覆盖、不删除，保留旧源和既有目标并提示用户处理；不把半完成迁移视为成功。
+- 外部 workspace 的旧根目录聊天副本和 `.nano/background-tasks/` 不自动迁移；新版本只在产品目录写新文件。
+- 产品不自动改写 Git 忽略规则。迁移失败或升级在完成前中断时不得删除旧来源、既有产品目录内容或历史运行数据；成功迁移后旧路径按本单元约定删除。
