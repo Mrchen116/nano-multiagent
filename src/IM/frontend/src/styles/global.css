@@ -961,6 +961,44 @@ body {
   font-weight: 600;
 }
 
+.im-agent-reasoning-field {
+  padding-top: 0.15rem;
+}
+
+.im-agent-reasoning-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.im-agent-reasoning-readonly {
+  width: 100%;
+  border: 1px solid var(--im-border);
+  border-radius: 0.5rem;
+  background: var(--im-surface-2);
+  padding: 0.55rem 0.75rem;
+  color: var(--im-text);
+  font-size: 0.82rem;
+}
+
+.im-agent-reasoning-error,
+.im-agent-reasoning-pending {
+  margin: 0.35rem 0 0;
+  border: 1px solid oklch(0.85 0.08 25);
+  border-radius: 0.5rem;
+  background: oklch(0.97 0.025 25);
+  padding: 0.55rem 0.7rem;
+  color: var(--im-danger);
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.im-agent-reasoning-pending {
+  border-color: oklch(0.85 0.08 85);
+  background: oklch(0.97 0.035 85);
+  color: oklch(0.45 0.11 75);
+}
+
 .im-agent-textarea {
   width: 100%;
   border: 1px solid var(--im-border);

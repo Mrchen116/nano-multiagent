@@ -19,7 +19,14 @@ vi.mock("./im-agent-config-api", () => ({
   listNodes: apiMocks.listNodesMock,
   listAgentSummaries: apiMocks.listAgentSummariesMock,
   promptPreview: apiMocks.promptPreviewMock,
-  nodePromptPreview: apiMocks.nodePromptPreviewMock
+  nodePromptPreview: apiMocks.nodePromptPreviewMock,
+  isConfigApplyPendingError: (error: unknown) => error instanceof Error && error.message.includes("config_apply_pending"),
+  getAgentConfigRequestStatus: (error: unknown) => {
+    const match = error instanceof Error ? error.message.match(/failed:\s*(\d{3})\b/) : null;
+    return match ? Number(match[1]) : null;
+  },
+  getAgentConfigRequestDetail: (error: unknown) =>
+    error instanceof Error ? error.message.split(" failed: ").at(-1) ?? error.message : "request failed",
 }));
 
 import { AgentCreatePage } from "./agent-create-page";
@@ -156,7 +163,14 @@ describe("agent create page", () => {
           { name: "read", description: "Read files" },
           { name: "bash", description: "Run shell commands" }
         ],
-        model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }, { name: "kimiCoding:K2.6", provider: "anthropic" }],
+        model_options: [
+          { name: "codex_oauth:gpt-5.5", provider: "openai_compat" },
+          {
+            name: "kimiCoding:K2.6",
+            provider: "anthropic",
+            reasoning: { kind: "selectable", default: "high", levels: ["high", "max"] },
+          },
+        ],
         platform_default_model: "codex_oauth:gpt-5.5",
       }
     });
@@ -206,6 +220,7 @@ describe("agent create page", () => {
     await user.click(screen.getByRole("button", { name: /plan/i }));
     await user.click(screen.getByRole("button", { name: /read/i }));
     await user.selectOptions(screen.getByLabelText("Default Model"), "kimiCoding:K2.6");
+    await user.selectOptions(screen.getByLabelText("Reasoning effort"), "max");
 
     await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
 
@@ -221,6 +236,7 @@ describe("agent create page", () => {
         tool_allowlist: ["read"],
         group_reply_policy: "MENTION",
         default_model: "kimiCoding:K2.6",
+        reasoning_effort: "max",
         workspace_root: null
       });
     });
@@ -493,6 +509,52 @@ describe("agent create page", () => {
 
     expect(await screen.findByText(/409.*agent already exists/i)).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/settings/nodes/node-1/agents/new");
+  });
+
+  it("preserves the create draft and disables duplicate saves while apply confirmation is pending", async () => {
+    const user = userEvent.setup();
+    mockNodes();
+    apiMocks.getNodeCreateStateMock.mockResolvedValue({
+      node: {
+        node_id: "node-1",
+        owner_id: "owner-1",
+        node_name: "MacBook",
+        status: "online",
+        last_heartbeat_at: "2026-03-13T10:00:00Z",
+        agent_count: 0,
+        version: "1.0.0",
+      },
+      capabilities: {
+        node_id: "node-1",
+        node_name: "MacBook",
+        node_status: "online",
+        skills: [],
+        tools: [],
+        model_options: [{
+          name: "adjustable",
+          provider: "provider-a",
+          reasoning: { kind: "selectable", default: "medium", levels: ["medium", "high"] },
+        }],
+        platform_default_model: null,
+      },
+    });
+    apiMocks.createNodeAgentMock.mockRejectedValue(
+      new Error("POST /im/v1/nodes/node-1/agents failed: 503 (config_apply_pending)"),
+    );
+
+    renderCreatePage();
+    fireEvent.change(await screen.findByLabelText(/^Agent ID/), { target: { value: "pending-agent" } });
+    fireEvent.change(screen.getByLabelText(/^Display Name/), { target: { value: "Pending Agent" } });
+    await user.selectOptions(screen.getByLabelText("Default Model"), "adjustable");
+    await user.selectOptions(screen.getByLabelText("Reasoning effort"), "high");
+    await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(/Confirming the previous save/i);
+    expect(screen.getByLabelText(/^Agent ID/)).toHaveValue("pending-agent");
+    expect(screen.getByLabelText("Reasoning effort")).toHaveValue("high");
+    for (const button of screen.getAllByRole("button", { name: /Create agent/i })) {
+      expect(button).toBeDisabled();
+    }
   });
 
   it("shows the desktop agent rail and switches immediately from an untouched form", async () => {

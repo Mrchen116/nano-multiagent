@@ -10,6 +10,7 @@ import {
   reconnectAgentChannel,
   retryAgentChannelRemoval,
   normalizeAgentConfigResponse,
+  normalizeModelOptions,
   updateAgentConfig,
   updateAgentChannel,
 } from "./im-agent-config-api";
@@ -28,6 +29,7 @@ const BASE_RAW = {
   tool_allowlist: [],
   group_reply_policy: "MENTION",
   default_model: null,
+  reasoning_effort: null,
   workspace_root: "/tmp/ws",
   workspace_is_default: true,
   profile_version: 1,
@@ -60,6 +62,34 @@ describe("normalizeAgentConfigResponse heartbeat cadence", () => {
     ["enable-only", { ...BASE_RAW, heartbeat_json: JSON.stringify({ enabled: true }) }],
   ])("leaves heartbeat undefined when cadence is %s", (_case, raw) => {
     expect(normalizeAgentConfigResponse(raw).heartbeat).toBeUndefined();
+  });
+});
+
+describe("normalizeModelOptions reasoning descriptors", () => {
+  it("keeps valid public descriptors and drops malformed descriptors safely", () => {
+    expect(normalizeModelOptions({
+      model_options: [
+        {
+          name: "selectable",
+          provider: "provider-a",
+          reasoning: { kind: "selectable", default: "high", levels: ["low", "high", "high", ""] },
+        },
+        { name: "fixed", provider: "provider-b", reasoning: { kind: "fixed" } },
+        {
+          name: "malformed",
+          provider: "provider-c",
+          reasoning: { kind: "selectable", default: "max", levels: ["low"] },
+        },
+      ],
+    })).toEqual([
+      {
+        name: "selectable",
+        provider: "provider-a",
+        reasoning: { kind: "selectable", default: "high", levels: ["low", "high"] },
+      },
+      { name: "fixed", provider: "provider-b", reasoning: { kind: "fixed" } },
+      { name: "malformed", provider: "provider-c" },
+    ]);
   });
 });
 
@@ -113,11 +143,13 @@ describe("updateAgentConfig public prompt shape", () => {
       tool_allowlist: [],
       group_reply_policy: "MENTION",
       default_model: null,
+      reasoning_effort: "high",
     });
 
     const options = mockedFetch.mock.calls.at(-1)?.[1] as RequestInit;
     const body = JSON.parse(String(options.body)) as Record<string, unknown>;
     expect(body.custom_prompt).toBe("Visible role");
+    expect(body.reasoning_effort).toBe("high");
     expect(body).not.toHaveProperty("system_prompt");
   });
 });
