@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>refactor-483 · Current Agent configuration UX baseline</title>
+  <style>
+    :root {
+      --ink:#151b1f; --muted:#637078; --line:#d6dee3; --canvas:#edf2f4;
+      --paper:#fff; --nav:#10171b; --side:#192227; --teal:#008d7a; --teal-soft:#d9f1ed;
+      --red:#c7243a; --amber:#aa6500;
+    }
+    * { box-sizing:border-box; }
+    body {
+      margin:0; min-height:100vh; color:var(--ink);
+      background:radial-gradient(circle at 70% 0,rgba(0,141,122,.18),transparent 35rem),#0c1215;
+      font:14px/1.45 Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    }
+    button,input,select,textarea { font:inherit; }
+    .review-bar {
+      display:flex; justify-content:space-between; align-items:center; gap:18px; padding:16px 22px;
+      color:#edf5f4; border-bottom:1px solid rgba(255,255,255,.1);
+    }
+    .review-title strong { display:block; font-size:16px; }
+    .review-title span { color:#9eafb4; font-size:12px; }
+    .modes { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:7px; }
+    .modes button {
+      padding:6px 10px; color:#b8c4c8; background:#192227; border:1px solid #415057;
+      border-radius:999px; cursor:pointer;
+    }
+    .modes button.active { color:#fff; border-color:#09ac94; background:#007e6d; }
+    .wrap { padding:20px; overflow:auto; }
+    .app {
+      width:min(1440px,calc(100vw - 40px)); height:min(900px,calc(100vh - 108px)); min-height:680px;
+      margin:auto; overflow:hidden; background:var(--canvas); border:1px solid #344249; border-radius:12px;
+      box-shadow:0 28px 80px rgba(0,0,0,.38);
+    }
+    .topbar {
+      height:48px; display:grid; grid-template-columns:1fr auto 1fr; align-items:center; padding:0 16px;
+      color:#fff; background:var(--nav);
+    }
+    .brand,.profile { display:flex; align-items:center; gap:9px; font-weight:800; }
+    .brand-mark { display:grid; place-items:center; width:20px; height:20px; border-radius:5px; background:#00a38e; }
+    .internal { padding:2px 7px; color:#d9dddf; background:#30383d; border-radius:999px; font-size:10px; }
+    .top-tabs { display:flex; gap:8px; font-weight:750; }
+    .top-tabs span { padding:6px 12px; color:#acb6ba; }
+    .top-tabs .active { color:#fff; background:#222c31; border-radius:8px; }
+    .profile { justify-self:end; }
+    .avatar {
+      display:grid; place-items:center; flex:0 0 auto; width:34px; height:34px; color:#fff;
+      background:var(--teal); border-radius:50%; font-size:12px; font-weight:850;
+    }
+    .body { height:calc(100% - 48px); display:grid; grid-template-columns:240px 1fr; }
+    .sidebar { color:#fff; background:var(--side); }
+    .side-head { display:flex; align-items:center; justify-content:space-between; padding:16px 12px 10px; }
+    .eyebrow { color:#8e9a9f; font-size:10px; font-weight:900; letter-spacing:1.2px; }
+    .new { padding:7px 11px; background:#2b353a; border-radius:9px; font-weight:800; }
+    .agent-row {
+      display:flex; gap:10px; align-items:center; margin:0 7px; padding:12px 10px;
+      background:#243238; border:1px solid rgba(0,179,153,.38); border-radius:13px;
+    }
+    .agent-row strong,.agent-row small { display:block; }
+    .agent-row small { color:#8a999f; }
+    .main { position:relative; height:100%; overflow:auto; }
+    .page-head {
+      position:sticky; top:0; z-index:3; padding:14px 28px 0; background:#fff;
+      border-bottom:1px solid var(--line);
+    }
+    .head-row { display:flex; align-items:center; justify-content:space-between; min-height:52px; gap:16px; }
+    .head-title { display:flex; align-items:center; gap:12px; min-width:0; }
+    .head-title h1 { margin:0; font-size:19px; }
+    .head-title p { margin:2px 0 0; color:var(--muted); font-size:12px; }
+    .back { display:none; width:36px; height:36px; border:0; border-radius:10px; background:#e8edef; font-size:20px; }
+    .actions,.footer-actions { display:flex; align-items:center; gap:8px; }
+    .button {
+      display:inline-flex; align-items:center; justify-content:center; padding:8px 13px;
+      color:#253037; border:1px solid var(--line); border-radius:9px; background:#f5f7f8;
+      font-weight:800; text-decoration:none;
+    }
+    .button.primary { color:#fff; border-color:var(--teal); background:var(--teal); }
+    .button.disabled { color:#fff; border-color:#83c9bf; background:#83c9bf; }
+    .section-tabs {
+      display:flex; flex-wrap:wrap; gap:0; margin-top:10px; border-top:1px solid var(--line);
+    }
+    .section-tabs span {
+      flex:0 0 auto; padding:11px 15px 9px; color:#66737a; border-bottom:2px solid transparent;
+      font-size:13px; font-weight:750;
+    }
+    .section-tabs .active { color:var(--teal); border-color:var(--teal); }
+    .cards { display:grid; gap:14px; padding:20px 28px 96px; }
+    .card { padding:17px 16px; background:#fff; border:1px solid var(--line); border-radius:13px; }
+    .card h2 { margin:0; font-size:16px; }
+    .card > p { margin:2px 0 14px; color:var(--muted); font-size:12px; }
+    .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:13px; }
+    label,.label { display:block; font-size:12px; font-weight:800; }
+    .field { margin-top:13px; }
+    .input,.textarea,.select {
+      width:100%; min-height:42px; margin-top:5px; padding:9px 11px; color:#283137; background:#fff;
+      border:1px solid #d0d9de; border-radius:9px;
+    }
+    .input:disabled { color:#68757c; background:#f1f4f5; }
+    .mono,.textarea { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+    .textarea { min-height:88px; resize:none; }
+    .help { display:block; margin-top:4px; color:var(--muted); font-size:11px; font-weight:400; }
+    .error { display:none; margin-top:4px; color:var(--red); font-size:11px; }
+    .feature-list { display:grid; gap:8px; margin-top:8px; }
+    .feature { display:flex; gap:10px; padding:9px 11px; border:1px solid #dce3e7; border-radius:10px; }
+    .check {
+      display:grid; place-items:center; flex:0 0 auto; width:16px; height:16px; margin-top:2px;
+      color:#fff; background:var(--teal); border-radius:3px; font-size:11px;
+    }
+    .check.off { color:transparent; background:#d8dee1; }
+    .feature strong,.feature small { display:block; }
+    .feature small { color:#7b8790; }
+    .preview {
+      margin-top:12px; padding:10px 12px; color:#56636a; background:#f4f7f8;
+      border:1px solid #e0e6e9; border-radius:9px; font:11px ui-monospace,SFMono-Regular,Menlo,monospace;
+    }
+    .cols { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+    .subhead { margin:0 0 8px; font-size:12px; font-weight:850; }
+    .pills { display:flex; flex-wrap:wrap; gap:7px; min-height:34px; }
+    .pill {
+      padding:5px 9px; color:#56636a; background:#edf1f3; border:1px solid #d4dce0;
+      border-radius:999px; font:11px ui-monospace,SFMono-Regular,Menlo,monospace;
+    }
+    .pill.required { color:#006f61; background:var(--teal-soft); border-color:#91d3c8; }
+    .link { margin-top:4px; color:var(--teal); font-size:12px; font-weight:750; }
+    .schedule { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+    .schedule strong,.schedule small { display:block; }
+    .schedule small { color:var(--muted); }
+    .status-note { color:var(--amber); font-size:12px; font-weight:700; }
+    .constraint-copy { margin:8px 0 0; color:#067868; font-size:11px; }
+    .page-footer {
+      position:absolute; left:0; right:0; bottom:0; z-index:4; display:flex; align-items:center;
+      justify-content:space-between; gap:12px; padding:12px 20px; background:#fff;
+      border-top:1px solid var(--line);
+    }
+    .footer-status { color:var(--muted); font-size:12px; }
+
+    body[data-mode="create"] .edit-only,
+    body[data-mode="create-invalid"] .edit-only,
+    body[data-mode="mobile-create"] .edit-only { display:none !important; }
+    body[data-mode="detail-clean"] .create-only,
+    body[data-mode="detail-dirty"] .create-only,
+    body[data-mode="mobile-edit"] .create-only { display:none !important; }
+    body[data-mode="create"] .sidebar,
+    body[data-mode="create-invalid"] .sidebar { display:none; }
+    body[data-mode="create"] .body,
+    body[data-mode="create-invalid"] .body { grid-template-columns:1fr; }
+    body[data-mode="create"] .page-head,
+    body[data-mode="create-invalid"] .page-head { padding-bottom:14px; }
+    body[data-mode="create"] .page-footer,
+    body[data-mode="create-invalid"] .page-footer { display:none; }
+    body[data-mode="create-invalid"] .error { display:block; }
+    body[data-mode="create-invalid"] .invalid {
+      border-color:var(--red); box-shadow:0 0 0 2px rgba(199,36,58,.08);
+    }
+    body[data-mode="detail-clean"] .dirty-only,
+    body[data-mode="create"] .dirty-only,
+    body[data-mode="create-invalid"] .dirty-only,
+    body[data-mode="mobile-create"] .dirty-only { display:none !important; }
+    body[data-mode="detail-dirty"] .clean-only,
+    body[data-mode="mobile-edit"] .clean-only { display:none !important; }
+
+    body[data-mode="mobile-create"] .app,
+    body[data-mode="mobile-edit"] .app {
+      width:375px; height:790px; min-height:0; border-radius:20px;
+    }
+    body[data-mode="mobile-create"] .topbar,
+    body[data-mode="mobile-create"] .sidebar,
+    body[data-mode="mobile-edit"] .topbar,
+    body[data-mode="mobile-edit"] .sidebar { display:none; }
+    body[data-mode="mobile-create"] .body,
+    body[data-mode="mobile-edit"] .body { display:block; height:100%; }
+    body[data-mode="mobile-create"] .main,
+    body[data-mode="mobile-edit"] .main { height:100%; }
+    body[data-mode="mobile-create"] .page-head,
+    body[data-mode="mobile-edit"] .page-head { padding:10px 12px 0; }
+    body[data-mode="mobile-create"] .back,
+    body[data-mode="mobile-edit"] .back { display:inline-grid; place-items:center; }
+    body[data-mode="mobile-create"] .head-title .avatar,
+    body[data-mode="mobile-edit"] .head-title .avatar { display:none; }
+    body[data-mode="mobile-create"] .head-title h1,
+    body[data-mode="mobile-edit"] .head-title h1 { font-size:17px; }
+    body[data-mode="mobile-create"] .head-title p,
+    body[data-mode="mobile-edit"] .head-title p { display:none; }
+    body[data-mode="mobile-create"] .actions,
+    body[data-mode="mobile-edit"] .actions { display:none; }
+    body[data-mode="mobile-create"] .section-tabs { display:none; }
+    body[data-mode="mobile-create"] .page-head { padding-bottom:10px; }
+    body[data-mode="mobile-create"] .page-footer { display:none; }
+    body[data-mode="mobile-create"] .cards > .card.create-only .footer-actions { width:100%; }
+    body[data-mode="mobile-create"] .cards > .card.create-only .footer-actions .button { flex:1; }
+    body[data-mode="mobile-create"] .cards,
+    body[data-mode="mobile-edit"] .cards { padding:12px 12px 84px; }
+    body[data-mode="mobile-create"] .grid2,
+    body[data-mode="mobile-create"] .cols,
+    body[data-mode="mobile-edit"] .grid2,
+    body[data-mode="mobile-edit"] .cols { grid-template-columns:1fr; }
+    body[data-mode="mobile-edit"] .page-footer { padding-bottom:calc(12px + env(safe-area-inset-bottom,0px)); }
+    body[data-mode="mobile-edit"] .footer-status { display:none; }
+    @media(max-width:760px) {
+      .review-bar { align-items:flex-start; flex-direction:column; }
+      .modes { justify-content:flex-start; }
+      .wrap { padding:12px; }
+    }
+  </style>
+</head>
+<body data-mode="create">
+  <header class="review-bar">
+    <div class="review-title">
+      <strong>Agent configuration · current UX must-match baseline</strong>
+      <span>refactor-483 changes state ownership and persistence, not page information architecture.</span>
+    </div>
+    <nav class="modes" aria-label="Prototype states">
+      <button data-mode="create">Create desktop</button>
+      <button data-mode="create-invalid">Create validation</button>
+      <button data-mode="detail-clean">Detail clean</button>
+      <button data-mode="detail-dirty">Detail dirty + linkage</button>
+      <button data-mode="mobile-create">Mobile create</button>
+      <button data-mode="mobile-edit">Mobile edit</button>
+    </nav>
+  </header>
+
+  <main class="wrap">
+    <section class="app" aria-label="Nano IM Agent settings baseline">
+      <header class="topbar">
+        <div class="brand"><span class="brand-mark">✓</span> nano IM <span class="internal">Internal</span></div>
+        <div class="top-tabs"><span>Chat</span><span class="active">Agents</span></div>
+        <div class="profile"><span class="avatar">TE</span> Test User⌄</div>
+      </header>
+
+      <div class="body">
+        <aside class="sidebar">
+          <div class="side-head"><span class="eyebrow">AGENTS</span><span class="new">+ New</span></div>
+          <div class="agent-row">
+            <span class="avatar">M5</span>
+            <span><strong>M5 Test Agent</strong><small>agent-m5test</small></span>
+          </div>
+        </aside>
+
+        <section class="main">
+          <header class="page-head">
+            <div class="head-row">
+              <div class="head-title">
+                <button class="back" type="button" aria-label="Back">‹</button>
+                <span class="avatar create-only" style="background:#058eb5">??</span>
+                <span class="avatar edit-only">M5</span>
+                <span>
+                  <h1 class="create-only">New agent</h1>
+                  <h1 class="edit-only">M5 Test Agent</h1>
+                  <p class="create-only">Configure identity, behavior, and tool access.</p>
+                  <p class="edit-only">agent-m5test · <span style="color:#087c6d">● wt-test-node</span></p>
+                </span>
+              </div>
+              <div class="actions">
+                <span class="button edit-only">Open chat</span>
+                <span class="button create-only">Cancel</span>
+                <span class="button primary create-only">Create agent</span>
+                <span class="button disabled edit-only clean-only">No changes</span>
+                <span class="button primary edit-only dirty-only">Save changes</span>
+              </div>
+            </div>
+            <nav class="section-tabs edit-only" aria-label="Agent detail sections">
+              <span>Overview</span><span class="active">Config</span><span>Channels</span><span>Skills</span><span>Sessions</span>
+            </nav>
+          </header>
+
+          <div class="cards">
+            <section class="card">
+              <h2>Identity</h2>
+              <p class="create-only">Agent ID is permanent and used in mentions and API calls.</p>
+              <p class="edit-only">Name and purpose shown to users and other agents.</p>
+              <div class="grid2">
+                <label>Agent ID <span class="create-only">*</span>
+                  <input id="prototype-agent-id" class="input mono invalid" value="agent-m5test" aria-label="Agent ID">
+                  <span class="help create-only">Lowercase letters, numbers, _ and -</span>
+                  <span class="error">Use lowercase letters, numbers, _ or -.</span>
+                </label>
+                <label>Display Name *
+                  <input id="prototype-display-name" class="input invalid" value="M5 Test Agent" aria-label="Display Name">
+                  <span class="help edit-only">Shown in conversations and group chats.</span>
+                  <span class="error">Display name is required.</span>
+                </label>
+              </div>
+              <label class="field">Description
+                <input class="input" value="A precise research and architecture assistant." aria-label="Description">
+                <span class="help">Short summary shown in group chats.</span>
+              </label>
+              <label class="field create-only">Owning Node *
+                <select class="select" aria-label="Owning Node">
+                  <option>wt-primary (online)</option><option>wt-primary-fixture-b (online)</option>
+                </select>
+                <span class="help">The node that will host and run this agent.</span>
+              </label>
+            </section>
+
+            <section class="card">
+              <h2>Behavior</h2>
+              <p>Tune how this agent talks and what it does.</p>
+              <label>Custom Instructions
+                <textarea class="textarea">You are a careful architecture partner. Ground conclusions in current code.</textarea>
+                <span class="help">Layered on top of the standard prompt.</span>
+              </label>
+              <div class="field">
+                <span class="label">Features</span>
+                <span class="help">Toggle optional agent capabilities.</span>
+                <div class="feature-list">
+                  <div class="feature">
+                    <span class="check">✓</span>
+                    <span><strong>Memory Curation</strong><small>Maintain persistent memory across sessions.</small></span>
+                  </div>
+                  <div class="feature edit-only">
+                    <span class="check">✓</span>
+                    <span><strong>Heartbeat</strong><small>Run proactive turns on a cadence.</small></span>
+                  </div>
+                  <div class="feature edit-only">
+                    <span class="check">✓</span>
+                    <span><strong>Cron Scheduling</strong><small>Run scheduled agent jobs.</small></span>
+                  </div>
+                  <div class="feature">
+                    <span class="check off">✓</span>
+                    <span><strong>Skill Creation</strong><small>Allow this agent to create and manage skills.</small></span>
+                  </div>
+                  <div class="feature edit-only">
+                    <span class="check off">✓</span>
+                    <span><strong>legacy_feature (stored: false)</strong><small>Not advertised by this node; preserved as a read-only existing override.</small></span>
+                  </div>
+                </div>
+                <p class="constraint-copy dirty-only">Memory Curation requires <code>memory</code>; the form transition kept it in the explicit Tool Allowlist after capability refresh.</p>
+              </div>
+              <label class="field">Group Reply Policy
+                <select class="select" aria-label="Group Reply Policy"><option>MENTION — Reply only when @-mentioned</option></select>
+              </label>
+              <div class="preview">▾ Prompt preview · standard sections + custom instructions + enabled feature sections</div>
+            </section>
+
+            <section class="card edit-only">
+              <h2>Heartbeat</h2>
+              <p>Configure proactive check-ins while the Heartbeat feature is enabled.</p>
+              <div class="grid2">
+                <label>Every <select class="select"><option>30 minutes</option></select></label>
+                <label>Active hours <input class="input" value="09:00 – 22:00 · Asia/Shanghai"></label>
+              </div>
+            </section>
+
+            <section class="card edit-only">
+              <div class="schedule">
+                <span><h2>Cron Schedule</h2><small>Manage scheduled work for this agent.</small></span>
+                <span class="button">View cron jobs</span>
+              </div>
+            </section>
+
+            <section class="card">
+              <h2>Access &amp; Model</h2>
+              <p>Keep allowlists minimal.</p>
+              <div class="link edit-only">View skill statistics</div>
+              <div class="cols field">
+                <div>
+                  <div class="subhead">Skills</div>
+                  <div class="pills">
+                    <span class="pill">architecture-review</span>
+                    <span class="pill">change-design-author</span>
+                    <span class="pill">legacy-local-skill</span>
+                  </div>
+                </div>
+                <div>
+                  <div class="subhead">Tool Allowlist</div>
+                  <div class="pills">
+                    <span class="pill">read</span><span class="pill">write</span><span class="pill">edit</span>
+                    <span class="pill required dirty-only">memory</span>
+                  </div>
+                </div>
+              </div>
+              <label class="field">Default Model
+                <select id="prototype-default-model" class="select" aria-label="Default Model">
+                  <option value="">Platform default (kimiCoding:K2.6)</option>
+                  <option value="legacy:model-not-in-current-snapshot">legacy:model-not-in-current-snapshot · unavailable</option>
+                </select>
+              </label>
+              <p class="status-note dirty-only">Existing values missing from the live capability snapshot remain visible and are not removed on save.</p>
+            </section>
+
+            <section class="card edit-only">
+              <h2>Workspace</h2>
+              <p>Runtime-owned location and optimistic profile version.</p>
+              <div class="grid2">
+                <label>Workspace Root <input class="input mono" disabled value="/Users/test/nano-assistant/workspace/agent-m5test"></label>
+                <label>Profile Version <input class="input" disabled value="Version 12"></label>
+                <label>Owning Node <input class="input" disabled value="wt-test-node (online)"></label>
+                <label>Last Updated <input class="input" disabled value="Jul 25, 2026, 11:14"></label>
+              </div>
+            </section>
+
+            <section class="card create-only">
+              <div class="footer-actions" style="justify-content:flex-end">
+                <span class="button">Cancel</span><span class="button primary">Create agent →</span>
+              </div>
+            </section>
+          </div>
+
+          <footer class="page-footer">
+            <span class="footer-status edit-only clean-only">No unsaved changes.</span>
+            <span class="footer-status edit-only dirty-only">Unsaved changes.</span>
+            <div class="footer-actions">
+              <span class="button edit-only">Open chat</span>
+              <span class="button edit-only dirty-only">Discard</span>
+              <span class="button primary edit-only clean-only" style="opacity:.55">Save agent</span>
+              <span class="button primary edit-only dirty-only">Save agent</span>
+              <span class="button primary create-only">Create agent →</span>
+            </div>
+          </footer>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const allowed = new Set([
+      "create", "create-invalid", "detail-clean", "detail-dirty", "mobile-create", "mobile-edit"
+    ]);
+    const buttons = [...document.querySelectorAll("button[data-mode]")];
+
+    function applyState() {
+      const requested = location.hash.slice(1);
+      const mode = allowed.has(requested) ? requested : "create";
+      document.body.dataset.mode = mode;
+      document.getElementById("prototype-agent-id").value = mode === "create-invalid" ? "Agent M5!" : "agent-m5test";
+      document.getElementById("prototype-display-name").value = mode === "create-invalid" ? "" : "M5 Test Agent";
+      document.getElementById("prototype-default-model").value = mode.includes("detail") || mode === "mobile-edit"
+        ? "legacy:model-not-in-current-snapshot"
+        : "";
+      buttons.forEach((button) => button.classList.toggle("active", button.dataset.mode === mode));
+    }
+
+    buttons.forEach((button) => button.addEventListener("click", () => {
+      location.hash = button.dataset.mode;
+    }));
+    window.addEventListener("hashchange", applyState);
+    applyState();
+  </script>
+</body>
+</html>

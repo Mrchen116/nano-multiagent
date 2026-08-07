@@ -1,0 +1,85 @@
+## Design 评审:refactor-477-cli-session-stream-owner
+
+**结论**:Issues Found
+
+总体方向是对的：把 CLI 的 session event ownership 收成一个 owner，把 replay readiness 与 USER admission/settlement 的事实分别放回 Hub 和 Registry，也比继续给双订阅打去重补丁更治本。当前不能放行的原因不是模块拆分，而是四个承重协议仍不闭合：`IDLE → USER run` 缺少可实现的创建期 reservation；一次 settlement 可以产生多个 USER successor、单 slot 却没有队列语义；Ctrl-C 仍按 session 的易漂移 active map 选目标；renderer failure 的订阅切换与未 ack 重放不能同时兑现“至多一个订阅”和“可见副作用至多一次”。
+
+**核实台账**（逐条核过的承重原子；结论附独立取证）：
+
+| 原子 | 核实动作 | 结论 + 证据 |
+|---|---|---|
+| 现状：真实入口是 `coding_cli.main → commands.run_cli → _run_repl` | 从产品入口正向追调用链 | ✓ `src/coding_cli/main.py:1-7` 只委托 `run_cli`；`src/coding_cli/commands.py:185-292` 装配 Kernel 并进入 `_run_repl`，方案落点在真实生产路径。 |
+| 现状：初始 `--resume` 没有启动持久 stream | 对照 active session 初始化与 attach 调用点 | ✓ `_run_repl` 在 `src/coding_cli/commands.py:509` 只解析初始 session；持久 drain 只在 `/new`、`/use` 与懒创建后调用，见 `src/coding_cli/commands.py:772-795`。 |
+| 现状：同一 session 有持久 subscriber 与 per-send subscriber | 分别追 drain 与发送路径 | ✓ 持久 drain 在 `src/coding_cli/commands.py:548-584` 调 `kernel.stream`；每次发送又在 `src/coding_cli/commands.py:958-980` 建另一条 stream，Hub 对每个 subscriber fan-out，见 `src/agent/core/events/hub.py:99-109`。 |
+| 现状：当前队列满会静默丢、source failure 会静默停 | 查两条生产队列和异常分支 | ✓ 持久 drain 的 `put_nowait` 满时直接 `pass`，异常只 debug，见 `src/coding_cli/commands.py:568-582`；per-send 的 background queue 同样丢，见 `src/coding_cli/commands.py:970-979`。 |
+| 现状：Ctrl-C 有 session handler 与 per-send 私有事实源 | 追 signal callback 与发送 helper | ✓ 全局 handler 调 `kernel.interrupt(sid)` 但丢弃返回 id，见 `src/coding_cli/commands.py:606-623`；发送路径另持 `_interrupted`，见 `src/coding_cli/commands.py:942-956`。 |
+| 现状：`_active_run` 同时承担等待结果与 steer marker | 查 input-ready / run-ready 竞争路径 | ✓ `_active_run` 的双职责写在 `src/coding_cli/commands.py:640-649`，运行中输入据它调用 `submit(steer=True)`，见 `src/coding_cli/commands.py:803-838`。 |
+| 现状：terminal 可先于 pending settlement 可见 | 追 executor completion 到 Registry finish | ✓ executor 先完成 carrier cleanup 再回调 sink，见 `src/agent/core/runs/executor.py:443-480`；Registry 随后另起 `_finish`，terminal 发布与 `_settle_terminal_pending` 分处 `src/agent/core/runs/registry.py:485-528`。 |
+| 现状：异常终态按连续 origin batch 创建多个 continuation | 查 pending 数据结构与 settlement loop | ✓ `PendingMessage` 逐条保留 origin，见 `src/agent/core/agent/run_control.py:15-25`；settlement 对 `_group_pending_by_origin` 的每个 batch 各 `submit` 一次，见 `src/agent/core/runs/registry.py:550-589`、`src/agent/core/runs/registry.py:859-872`。 |
+| 现状：background notification 可与 USER steer 交错进入同一 controller | 追 background completion delivery | ✓ background 完成时向 active controller 注入 `RunOrigin.BACKGROUND_TASK`，见 `src/agent/platform/background_tasks/wiring.py:159-170`；CLI 普通 steer 注入 USER，因此 pending 序列可真实形成 USER/BACKGROUND/USER。 |
+| 现状：background processor 会滞留先到的 USER run event | 查 unknown route 与 user-origin status 分支 | ✓ unknown run 先进入 `pending_events`，而 user-origin `run_status` 直接 return 且不 pop，见 `src/coding_cli/events/background_runs.py:24-49`。 |
+| 现状：已有 normalizer 仍按旧嵌套 `data` 读取 | 对照 SDK flat event 与 normalizer | ✓ `normalize_session_event` 只读 `event["data"]`，见 `src/coding_cli/events/event_pipeline.py:253-269`；当前发送路径直接消费 flat keys，见 `src/coding_cli/commands.py:968-1018`。 |
+| 现状：Hub 是有界、lazy、best-effort replay | 查 publish、history 与 stream activation | ✓ history 默认 2000 且淘汰不记 per-session watermark，见 `src/agent/core/events/hub.py:54-59`、`src/agent/core/events/hub.py:82-97`；`stream_session` 到第一次迭代才注册并 snapshot，见 `src/agent/core/events/hub.py:178-210`。 |
+| 现状：`sequence_num` 全局单调、同 session 可跳号 | 查 publish 线性化点 | ✓ Hub 使用全局 `_next_sequence_num`，每次 publish 在锁内递增，见 `src/agent/core/events/hub.py:59-59`、`src/agent/core/events/hub.py:82-93`。 |
+| 现状：`current_event_sequence()` 已实现但 canonical 漂移 | 核 SDK 与 canonical allowlist | ✓ SDK 已有无参方法，见 `src/agent/sdk/kernel.py:1882-1894`；canonical 稳定方法列表尚未包含它，见 `docs/specs/kernel/sdk-boundary.md:86-93`，delta 修漂移有依据。 |
+| 现状：SDK ready handshake 可在 Hub 同一锁内实现 | 检查 snapshot 与 registration 的临界区 | ✓ 现有 Hub 已在同一锁内注册 subscriber 并截 history，见 `src/agent/core/events/hub.py:203-210`；补 session eviction watermark 不要求改变公开 event schema。 |
+| 现状：产品只能 import `agent.sdk` | 核顶层架构与 CLI canonical | ✓ `SPEC.md:120-137` 固定 SDK 唯一外面；`docs/specs/cli/spec.md:158-165` 有 import contract，方案把 owner 留在 CLI、事实 seam 留在 SDK，方向合规。 |
+| 现状：现有输出确有多条可见 side-effect 路径 | 追 live render、history 与 terminal summary | ✓ live text/tool 直接多次写 stdout，见 `src/coding_cli/commands.py:985-1010`；terminal 先 append history 再输出 summary，见 `src/coding_cli/commands.py:661-691`。 |
+| CC 对照：interactive 主链是单个 generator consumer，side queue 不是第二 conversation subscription | 查本地 CC 源码而非沿用文档结论 | ✓ `REPL.tsx:3403-3413` 对一次 query 只有一条 `for await`；`QueryEngine.ts:688-890` 在同一 generator 内归一化消息；`sdkEventQueue.ts:77-99` 明写只给 non-interactive mode drain。该对照只支持“权威入口唯一”，没有被误用成照抄 CC 文件结构。 |
+| 决策 1：process-scoped owner、attach 先停旧 stream | 对照入口、切换与需求 | ✓ 能修复 resume 漏订阅和双 subscriber；正常 attach 的 stop-old-before-open、per-session state 保留及 slash control gate 已拍死，见 `design.md:125-139`。但 renderer-failure 分支另有冲突，见 Issue 4。 |
+| 决策 2：ready strict subscription | 检查 gap 条件、registration/snapshot 顺序、兼容性 | ✓ `C < evicted_through` 的判据正确区分“已处理到被淘汰点”和“淘汰了未读事件”；同锁 register + snapshot 消除窗口，旧 lazy `stream()` 保持，见 `design.md:141-177`。 |
+| 决策 3：ordered committed ledger | 检查跨 session 数字空洞、ack 与 unknown route | ✓ 用 session receive-order settled prefix 而非数值 `+1` 正确；unknown route、bounded ledger、diagnostic 与 replay dedupe 的边界闭合，见 `design.md:179-212`。 |
+| 决策 4：Registry 原子 USER admission | 对照当前 lock/callback 与失败路径 | ✗ `IDLE → create` 没有创建期 reservation 状态。当前 executor admission 会在持有 executor guard 时同步回入 Registry，见 `src/agent/core/runs/executor.py:334-367`、`src/agent/core/runs/registry.py:447-463`；按文档字面持 Registry lock 创建会死锁/锁序倒置，释放锁又会让两个 caller 同时创建。见 Issue 1。 |
+| 决策 4：单 slot 直接移交 continuation | 构造 USER/BACKGROUND/USER stranded 序列 | ✗ 当前 origin-preserving settlement 会产生两个 USER successor 和一个 background successor，而文档与 delta 只定义“slot 指向一个 queued/running USER run”及单数移交，却又承诺 `continuation_run_ids` 可为多个。见 Issue 2。 |
+| 决策 4：settlement barrier 可被 terminal consumer 稳定等待 | 检查调用时序与结果生命周期 | ✗ owner 通常在 terminal event 到达后才调用 barrier，此时 executor 线程上的 settlement 可能已经完成；文档只说 future resolve，没有拍死 completed result 的保留期、late waiter、unknown/non-USER id 语义。若 worker 在 slot 释放时删 future，正常路径会查不到 barrier。并入 Issue 1。 |
+| 决策 5：唯一 bounded delivery arbiter | 删除测试与 backpressure 路径 | ✓ owner/arbiter 不是浅包装：删掉它会把 route、cursor、visible order、ack 与 source recovery 重新散回 `commands.py`。独立 pump 也使 admission 等 barrier 时仍可释放 queue，见 `design.md:264-323`。 |
+| 决策 5：renderer ack 后才提交 cursor | 用现有 terminal side effects 攻 partial failure | ✗ stdout/history/final summary 不是事务；renderer 可在 history 或部分 stdout 已生效后抛错。未 ack 会从旧 cursor 重放，现有设计没有 per-effect idempotency/checkpoint，却宣称 projection 至多一次。见 Issue 4。 |
+| 决策 6：Ctrl-C 同步 `interrupt(session) → mark(id)` | 追 interrupt 实际目标身份 | ✗ `interrupt(session_id)` 仍从 `_active_run_by_session` 选目标，见 `src/agent/core/runs/registry.py:258-315`；该 map 对所有 origin 写入，且 executor 在真正拿到 per-session turn gate 前就调用 `started`，见 `src/agent/core/runs/executor.py:443-451`、`src/agent/core/session/conversation.py:210-222`。精确 USER 身份尚未进入中断 seam，见 Issue 3。 |
+| 决策 7：source failure 先 ready recovery、再 cancel + barrier successor 链 | 推演 overflow、terminal 已发布与 continuation | ✓ 对已经结束/注销的坏 source，先 strict-open、再 cancel、递归 await successor、最后等 published watermark ack，能避免 cleanup event 掉进 registration 窗口；gap fail-closed 也与 motivation 一致，见 `design.md:366-397`。 |
+| 决策 7：renderer failure 建 future-only quarantine | 与决策 1 的单订阅 invariant 交叉核对 | ✗ renderer 抛错时原 subscription 仍健康，文档直接要求先 await 新 quarantine ready，却没有先 close/await 旧 reader或明确复用旧 subscription；照字面会短暂重建两个 ready subscriber，正好复发本 unit 要根治的问题。见 Issue 4。 |
+| spec：不按 `commands.py` 行数机械拆分 | 对照 clarification 与模块删除测试 | ✓ owner/arbiter/Registry/Hub 按事实归属拆，不按文件行数拆，符合 `motivation.md:19-24`。 |
+| spec Req：普通前台输出保持且每个事件一次 | 找 design 落点 | ✓ D1 单 subscriber、D3 ledger 与 D5 单 renderer 是对应落点；正常无故障路径覆盖。renderer partial-failure 的额外矛盾单列 Issue 4。 |
+| spec Req：journal 窗口内 A→B→A 精确补齐 | 找 cursor、strict replay 与 attach 落点 | ✓ D1 保存 per-session committed state，D2 strict-open，D3 replay merge/dedupe，覆盖 `motivation.md:70-78`。 |
+| spec Req：background 与前台交错 | 查 route 与投影边界 | ✓ origin-bearing `run_status` 建 route、unknown ledger 暂存、background processor 只接 owner 已归属事件，覆盖 `motivation.md:80-84`。但 M1 live journey 未给可复现驱动，见 Warning 1。 |
+| spec Req：USER continuation 存活时再次输入只 steer successor | 攻多 origin successor | ✗ D4 目标正确，但单 slot 无法表达当前合法的多个 USER successor，因而不能证明 `motivation.md:86-91`。见 Issue 2。 |
+| spec Req：Ctrl-C benign 且下一轮不混旧事件 | 对照目标选择与 settlement | ✗ mark 时序正确，但被 mark 的 id 可能不是 owner 当前 USER run，无法保证 `motivation.md:93-97`。见 Issue 3。 |
+| spec Req：source failure 先收口旧 USER flow、只显示一次错误 | 推演 recovery gate | ✓ strict ready replacement、cancel/barrier 递归、watermark ack 与 summary/notice 二选一均有落点，覆盖 `motivation.md:99-102`。 |
+| spec Req：replay gap 显式阻断 | 对照 gap state 与 escape commands | ✓ typed gap 在首 event 前失败，future-only quarantine 只用于收口且不 reset committed cursor；只放行 `/new`、`/use`、`/exit`，覆盖 `motivation.md:104-107`。 |
+| scope：不改 event dict schema、IM、Gateway 与旧 stream 默认语义 | 核接口与 delta 包 | ✓ raw key 保持 `sequence_num`，新 ready API opt-in，Gateway 仍可用 lazy stream；kernel + CLI 有 delta，IM/Gateway 明示 no delta，见 `design.md:491-503`。 |
+| canonical CLI：resume、slash commands、live output、steer、普通错误、SDK import | 对照相关 area 原句 | ✓ `docs/specs/cli/spec.md:35-114` 的既有行为均在 D1/D4/D5 中保留；unsafe source/gap 是条件更窄的新分支，不把普通 turn error 一律升级为阻断。 |
+| delta kernel/sdk-boundary：MODIFIED 稳定方法集 | 锚 canonical 同标题并核原 scenarios | ✓ 精确锚定 canonical `装配与会话分两层,内核产品中立`，原四个 scenario 全保留，只扩方法集，见 unit `specs/kernel/sdk-boundary.md:5-43`。 |
+| delta kernel/sdk-boundary：MODIFIED SDK-owned 类型 | 锚 canonical 同标题并核 ownership | ✓ 保留原 DTO 语义并加入四个新边界类型，core 不回引 SDK，见 unit `specs/kernel/sdk-boundary.md:45-60`。 |
+| delta kernel/runs：MODIFIED Session/Run DTO drift | 对照 canonical 漂移与真实 SDK | ✓ 两条 MODIFIED 精确修正 `Session → SessionInfo`、`RunRecord → RunInfo`，原 scenarios 未删，见 unit `specs/kernel/runs.md:3-28`。 |
+| delta kernel/runs：ADDED ready bounded replay | 判断是否真新增及 THEN 可观察 | ✓ canonical 无 strict-ready/gap 契约，ADDED 正确；窗口内 replay、gap-before-first-event、lazy compatibility 都从 SDK consumer 可观察，见 unit `specs/kernel/runs.md:30-78`。 |
+| delta kernel/runs：ADDED USER admission/settlement | 对照 design state machine | ✗ delta 自己同时写单 slot 与“一个或多个 continuation”，但没有定义多个 USER successor 的 steerable head；创建期 reservation与 late settlement 语义也缺失。见 Issue 1、2。 |
+| delta 完整性：Ctrl-C target semantics | 对照 D6 与 canonical interrupt | ✗ design 依赖“中断当前 USER flow”，canonical 仍只承诺 `interrupt(session)` 中断 session current active run，unit 没有 MODIFIED/ADDED delta。若 worker暗改 interrupt 优先 USER slot，会改变 Gateway/外部消费者语义；若不改则 D6 不成立。见 Issue 3。 |
+| delta cli：ADDED unsafe source/gap branch | 判断 ADDED/MODIFIED 与既有错误契约关系 | ✓ 它是普通 turn error 之外的平行条件分支，ADDED 合理；可观察结果是暂停输入、收口、一次错误或持续 gap block，见 unit `specs/cli/spec.md:3-39`。 |
+| M1：单垂直切片 | 检查横切、范围与中间态 | ✓ ready subscription、atomic admission、owner、arbiter 和 failure cleanup 必须一起切换；单 M1 有明确反拆举证，空 skeleton 符合 worker 后填 tasks 的约定，见 `design.md:583-592`。 |
+| M1：reviewer/worker 两轨退出与 Runbook | 核退出标准能否照文档复现 | ✗ worker 轨覆盖关键并发 invariants，真实 CLI 轨覆盖 normal/steer/Ctrl-C；但 reviewer 退出要求“后台交错”，Runbook 没有一条启动后台 bash/subagent 并在完成前继续前台输入的可运行驱动。见 Warning 1。 |
+| focused baseline | 运行现有窄测试，确认问题不是旧红测噪音 | ✓ `test_runs_registry_executor.py`、CLI background/steering/input、SDK surface/behavior 共 72 tests 全绿；本报告的问题来自设计状态机与现有锁/生命周期的组合，不是把已有失败误报成 design defect。 |
+
+**架构进攻**（四角度逐个走）：
+
+| 角度 | 攻的对象 | 发现 + 长远代价 |
+|---|---|---|
+| 归属 | CLI owner/arbiter；Hub ready replay；Registry USER lifecycle | ✓ 显示 route/投影留在产品层，journal readiness 与 run lifecycle 留在各自事实 owner，符合 `core → platform → sdk` 与产品只 import SDK 的边界。✗ 但 D6 仍让 session-scoped `_active_run_by_session` 决定 USER Ctrl-C 身份，精确控制事实没有跟 D4 一起收进 USER slot；长期会让每次新增 non-user run origin 都重新引入“中断错 run”的复发面。 |
+| 该不该存在 | `CliSessionEventOwner`、`CliDeliveryArbiter`、ready subscription、settlement barrier | ✓ 四者都通过删除测试：删除 owner 会重散 subscription/route/cursor；删除 arbiter 会重现多可见出口；删除 ready handshake 会重现 cleanup 注册窗口；删除 barrier 会把 terminal event 错当 settlement。没有存活的 YAGNI 抽象。 |
+| 深还是浅 | `user_admission_slot` 与 `UserSettlement` | ✗ 公共接口很小，但内部状态模型没有藏住最难的两件事：创建尚未 bind 的 provisional run，以及 origin-preserving fan-out 后多个 USER successor。worker 必须自行发明 reservation、锁序、rollback、late-result retention 与 steerable-head 规则；不同实现会产生不兼容的 run graph，说明当前抽象还不够深。 |
+| 治本还是补丁 | 单订阅 + strict replay + ack；renderer failure recovery | ✓ 正常/source-failure 主线是治本方案，不依赖 fingerprint。✗ sink failure 分支却可能在健康旧订阅旁先开 quarantine，并把非事务 visible side effect 留作未 ack replay；长期会以 failure-only 方式重新制造双订阅或重复 history/stdout，成为难复现的补丁债。 |
+
+**Issues**（按 CRITICAL > WARNING）：
+
+- [CRITICAL] [决策 4 / kernel runs delta：`IDLE → create` 线性化点不可按当前状态机实现]：文档只列 `IDLE/QUEUED/RUNNING/SETTLING`，并要求“在 Registry lock 内原子占 slot 并创建 run”。但当前创建链是 Registry 释放 `_lock` 后调用 executor，executor 持 `_guard` 同步 `sink.bind_target()`，后者再次获取 Registry `_lock`（`src/agent/core/runs/registry.py:186-247`、`src/agent/core/runs/executor.py:334-367`、`src/agent/core/runs/registry.py:447-463`）。持 Registry lock 穿过该链会形成重入/锁序风险；先释放又没有 `ADMITTING` reservation，会让并发 caller 都观察到 IDLE。简单地先放一个尚未 bind 的 controller 也不成立：第二个 caller 若立即得到 `STEERED`，随后 executor admission 失败，它已经收到成功但消息永远不会运行。正常 owner 还可能在 settlement 已完成后才调用 `wait_user_settlement`，当前设计没有 completed result 保留期或 late waiter 语义。不改，worker 只能在“死锁、双 fallback、成功 steer 到失败创建、late barrier 查不到”之间自行猜。退回 D4 拍死一个创建期状态/令牌与 future：并发 caller 在 bind 成功前只能等待；失败时原子 rollback 并保全所有输入；明确 Registry/Executor lock order；per-run settlement result 至少在正常 late waiter 可查询的生命周期内保留，并定义 unknown/non-USER id 的 typed 结果或错误。
+
+- [CRITICAL] [决策 4 / kernel runs delta：单 USER slot 无法表达合法的多个 USER successor]：现有异常 settlement 必须保留每条 pending 的 origin，并按连续 origin batch 各建 continuation（`src/agent/core/agent/run_control.py:15-25`、`src/agent/core/runs/registry.py:550-589`）。真实 background completion 会以 `BACKGROUND_TASK` 注入同一 controller（`src/agent/platform/background_tasks/wiring.py:159-170`），所以 `USER1 → BACKGROUND → USER2` 会产生 `U1、B1、U2` 三个 successor，其中两个 USER。delta 也明确允许 `continuation_run_ids` 为一个或多个（unit `specs/kernel/runs.md:122-126`），但 slot 只“指向 queued/running USER run”，设计只说单数“直接移交给 continuation”。不改，bind U2 时只能覆盖 U1、拒绝 U2、或让两者同时 nonterminal；三种都会造成丢 FIFO、steer 错 successor 或并行 USER flow。退回明确 run graph：要么把 slot 设计成有唯一 steerable head 的有序 USER lineage，并拍死每次 head 交接、background batch 与后续 USER batch 的调度；要么改变 continuation 形成规则但仍逐条保留 origin/FIFO。相应补 `USER/BACKGROUND/USER`、settlement 中再次 admission、多个 caller 的确定性契约测试。
+
+- [CRITICAL] [决策 6 / delta 完整性：Ctrl-C 仍没有精确 USER target]：D6 在 `kernel.interrupt(session_id)` 返回后才把 id 交给 owner；这只能标记“已经被 Kernel 选中的目标”，不能保证选中的是 owner 当前 USER run。当前 `_active_run_by_session` 对所有 origin 写入（`src/agent/core/runs/registry.py:471-483`），executor 又在真正取得 session `_turn_gate` 前就发 `started`（`src/agent/core/runs/executor.py:443-451`、`src/agent/core/session/conversation.py:210-222`），所以一个后绑定的 background/queued successor 可覆盖正在执行的 USER 身份。此时 Ctrl-C 会取消 background 或错误的 queued run，并把错误 id 标成 benign，而真正 USER run 继续输出；这直接破坏 motivation 的中断恢复与后台交错场景。退回选择并契约化一个精确 seam，例如 `interrupt_user(expected_run_id)`，或明确把 `interrupt(session)` 的选择权改为 USER slot 并给其它消费者定义兼容行为；同步补 sdk-boundary/runs delta，不能让 worker暗改现有 public interrupt 语义。
+
+- [CRITICAL] [决策 1 + 5 + 7：renderer-failure recovery 同时违反单订阅与未 ack 重放语义]：source failure 时旧 iterator 已终止，先开 replacement 合理；renderer exception 时旧 subscription 仍健康。D7 却要求“先 await future-only quarantine ready”，未规定先 close/await 旧 reader或复用旧 subscription，因此照字面会出现两个 ready subscriber，复发本 unit 的根因。即使补上串行换订阅，坏 envelope 的可见 side effects 也不是事务：当前 terminal 路径先 append history 再输出 summary（`src/coding_cli/commands.py:661-691`），live renderer 也由多次 stdout write 组成（`src/coding_cli/commands.py:985-1010`）；其中一步已生效后抛错，envelope 未 ack、cursor 不前进，恢复后 strict replay 会重复已生效部分。文档当前同时承诺“不 retry 坏 renderer”“恢复后从旧 cursor replay”“projection 至多一次”，三者不能靠一个 envelope ack 自动同时成立。不改，worker 要么重建双订阅，要么重复 history/终端输出，要么为避免重复而静默丢剩余 projection。退回拍死 sink-failure protocol：旧 subscription 的 reader/registration 是先关闭、还是原地降级为 quarantine；`SessionEventSubscription` 在 EOF/error/aclose 时如何确保 unregister；一个 terminal envelope 的 history/stdout/usage side effects 如何按 idempotency key 或 per-effect checkpoint 恢复。若通用 stdout 无法给 exactly-once，必须收窄该 failure guarantee并明确 blocked 后的可恢复边界，不能继续宣称未 ack replay 自然等于可见至多一次。
+
+- [WARNING] [Runbook / M1 reviewer 退出标准：后台交错没有可复现真实 CLI 驱动]：M1 reviewer 轨要求“普通前台、后台交错、Ctrl-C、A→B→A、source failure”旅程，但 Runbook 的真实 CLI 步骤只明确 normal、steer、Ctrl-C 与 session switch（`design.md:571-581`），没有让 `bash`/`agent` 真正进入 background、再在完成前继续输入的命令或 prompt。现有 fixture又被明确判定不能替代。下游 reviewer 很可能只跑普通 tool call 就误勾“后台交错”。补一条可照搬的真实旅程，例如显式要求 `bash` 以 background 模式运行一个有足够时长的命令，在它完成前提交前台输入，并写清预期 origin header、前台输出与唯一 completion notice；若模型调用不稳定，再指定哪条确定性 owner/Registry 测试作为证据，而不是留给 reviewer 自行发明。
+
+**Recommendations**（不阻断门禁，作者自行取舍）：
+
+- 修完以上四个协议后仍建议保持单 M1；当前问题发生在这些组件的交界，拆成多个横切 milestone 只会制造无法验收的中间态。
+- 把 D4 补成一张完整状态转移表（至少包括 `ADMITTING`、settled-result retention、一个或多个 USER successor 的唯一 steerable head），把 D7 补成 source-failure 与 sink-failure 两条不同的 subscription teardown 时序；这两张表会比继续加散文例外更容易让独立 worker 实现一致。
