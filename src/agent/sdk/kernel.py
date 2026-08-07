@@ -308,7 +308,9 @@ def build_kernel(
         tool_approval_model=resolved_tool_approval_model,
         tools=list(tools or ()),
         hooks=list(hooks or ()),
-        workspace_config_dirname=workspace_config_dirname or ".nano",
+        workspace_config_dirname=(
+            ".nano" if workspace_config_dirname is None else workspace_config_dirname
+        ),
         global_config_root=global_config_root,
         can_use_tool=can_use_tool,
         repo_root=repo_root,

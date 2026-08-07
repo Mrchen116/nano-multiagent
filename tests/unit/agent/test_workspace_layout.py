@@ -43,7 +43,7 @@ async def test_kernel_normalizes_workspace_config_dirname_before_session_storage
         live_kernel.close()
 
 
-@pytest.mark.parametrize("dirname", (".", ".."))
+@pytest.mark.parametrize("dirname", ("", ".", ".."))
 def test_kernel_rejects_invalid_workspace_dir_before_durable_storage(
     tmp_path: Path, dirname: str
 ) -> None:
