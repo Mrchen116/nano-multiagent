@@ -93,13 +93,13 @@
 
 ### R3 — Workspace 创建 UI 与 i18n
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 先写交互红测/状态清单；实现卡片、默认/custom payload、字段错误、已有目录确认重试、preview payload、响应式样式和中英 i18n。
 - 验证: frontend targeted Vitest、production build；确认 existing Agent detail 未新增 default/custom 标签。
 
 ### R4 — 回归矩阵与质量门禁
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 汇总/补齐 Gateway/IM/frontend 退出标准覆盖，处理受影响既有测试，运行针对性与风险扩展门禁。
 - 验证: focused/full-enough pytest、frontend test/build、ruff、diff check、docs check。
 
