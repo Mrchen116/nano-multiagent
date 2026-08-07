@@ -1061,7 +1061,7 @@ class IMAgentConfigSync:
 
     @staticmethod
     def _default_workspace_root(agent_id: str) -> Path:
-        return Path("~/nano-assistant/workspace").expanduser() / agent_id
+        return Path("~/.nanoassistant/workspaces").expanduser() / agent_id
 
 
 def _required_operation_text(payload: Mapping[str, object], field: str) -> str:
@@ -1157,8 +1157,8 @@ def _make_workspace_root_factory(
     When ``workspace_base`` is set, dynamically-created agents (built via IM
     ``agent.create`` without an explicit ``workspace_root``) get their workspace at
     ``<workspace_base>/<agent_id>`` — the same isolation root preset agents use.
-    Returns ``None`` when ``workspace_base`` is unset so the caller keeps its legacy
-    ``~/nano-assistant/workspace`` default, leaving existing deployments unchanged.
+    Returns ``None`` when ``workspace_base`` is unset so the caller uses the
+    managed ``~/.nanoassistant/workspaces`` default.
 
     Args:
         workspace_base: Base directory from ``node.workspace_base``, or None.

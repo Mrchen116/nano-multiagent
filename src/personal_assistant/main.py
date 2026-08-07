@@ -44,7 +44,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--config",
-        help="Path to local gateway config (defaults to ~/.nano-assistant/config.yaml)",
+        help="Path to local gateway config (defaults to ~/.nanoassistant/config.yaml)",
     )
     parser.add_argument(
         "--im-service-url",
@@ -75,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
         command_parser = subparsers.add_parser(command, help=help_text)
         command_parser.add_argument(
             "--config",
-            help="Path to local gateway config (defaults to ~/.nano-assistant/config.yaml)",
+            help="Path to local gateway config (defaults to ~/.nanoassistant/config.yaml)",
         )
         command_parser.add_argument(
             "--im-service-url",

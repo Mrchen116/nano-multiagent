@@ -30,15 +30,12 @@ from agent.sdk import (
 )
 
 from personal_assistant.scheduler.cron_execution_service import CronExecutionService
+from personal_assistant.defaults import WORKSPACE_CONFIG_DIRNAME
 from personal_assistant.tools import (
     SendMessageTool,
     WebSearchTool,
     make_cron_tool,
 )
-
-# Per-workspace config dir governing session JSONL / memory / skill layout.
-# Matches the legacy PERSONAL_ASSISTANT_PROFILE.workspace_config_dirname.
-WORKSPACE_CONFIG_DIRNAME = ".nanoassistant"
 
 # Deployment-level skill search roots shared across every PA agent (refactor-406-M2).
 # These reproduce the legacy reporter's 4-tier skill search: the per-workspace root
@@ -58,7 +55,7 @@ PA_SKILL_SEARCH_ROOTS: tuple[Path, ...] = (
 # the dissolved ConfigResolver.user_tool_roots() / user_hook_roots() global layer
 # (<global_config_home>/tools|hooks = ~/.nanoassistant/...). Passed to build_kernel as
 # tool_search_roots / hook_search_roots (consumer-supplied roots, no ConfigResolver);
-# the kernel also scans the workspace <repo>/.nano/{tools,hooks} on top.
+# the kernel also scans the per-workspace PA config root on top.
 PA_TOOL_SEARCH_ROOTS: tuple[Path, ...] = (Path("~/.nanoassistant/tools"),)
 PA_HOOK_SEARCH_ROOTS: tuple[Path, ...] = (Path("~/.nanoassistant/hooks"),)
 
@@ -414,7 +411,7 @@ def build_pa_kernel(
         WebSearchTool(),
     ]
     # refactor-406-M2: PA hooks supplied via build_kernel(hooks=…) (决策 2). chat_history
-    # persists each turn to <workspace>/chat_history/<session_id>.jsonl (M249 behavior;
+    # persists each turn to <workspace>/.nanoassistant/chat_history/<session_id>.jsonl.
     # M1 R6 migration gap — shipped hooks=[] and lost it — closed here).
     from personal_assistant.hooks import chat_history  # noqa: PLC0415
 
@@ -430,4 +427,5 @@ def build_pa_kernel(
         global_skill_root=PA_SKILL_SEARCH_ROOTS[0],
         tool_search_roots=PA_TOOL_SEARCH_ROOTS,  # #2: ~/.nanoassistant/tools
         hook_search_roots=PA_HOOK_SEARCH_ROOTS,  # #2: ~/.nanoassistant/hooks
+        global_config_root=Path("~/.nanoassistant"),
     )

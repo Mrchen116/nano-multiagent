@@ -59,7 +59,8 @@ class _FakeKernelClient:
 
 
 def _write_heartbeat(workspace_root: Path, content: str) -> Path:
-    path = workspace_root / "HEARTBEAT.md"
+    path = workspace_root / ".nanoassistant" / "HEARTBEAT.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
     return path
 

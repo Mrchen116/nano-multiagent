@@ -140,13 +140,14 @@ def test_im_config_sync_client_retries_until_live_agent_config_reaches_target_ve
     assert published.config.workspace_root == workspace_root
     assert sleeps == [0.1, 0.1]
     assert workspace_root.is_dir()
-    # feat-349-M3: MEMORY.md/USER.md seed under .nanoassistant/memory/;
-    # HEARTBEAT.md stays at workspace root.
+    # All PA-owned workspace state is seeded below .nanoassistant/.
     memory_seed = workspace_root / ".nanoassistant" / "memory" / "MEMORY.md"
     assert memory_seed.is_file() is True
-    assert (workspace_root / "HEARTBEAT.md").is_file() is True
+    assert (workspace_root / ".nanoassistant" / "HEARTBEAT.md").is_file() is True
     assert memory_seed.read_text(encoding="utf-8").strip()
-    assert (workspace_root / "HEARTBEAT.md").read_text(encoding="utf-8").strip()
+    assert (
+        workspace_root / ".nanoassistant" / "HEARTBEAT.md"
+    ).read_text(encoding="utf-8").strip()
 
 
 def test_im_config_sync_client_retains_existing_agent_session_bindings_after_profile_refresh(
@@ -223,10 +224,11 @@ def test_im_config_sync_client_does_not_overwrite_existing_workspace_files(
 ) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir(parents=True)
-    # feat-349-M3: MEMORY.md seeds under .nanoassistant/memory/; HEARTBEAT.md at root.
+    # All PA workspace state is below .nanoassistant/.
     memory_path = workspace_root / ".nanoassistant" / "memory" / "MEMORY.md"
     memory_path.parent.mkdir(parents=True, exist_ok=True)
-    heartbeat_path = workspace_root / "HEARTBEAT.md"
+    heartbeat_path = workspace_root / ".nanoassistant" / "HEARTBEAT.md"
+    heartbeat_path.parent.mkdir(parents=True, exist_ok=True)
     memory_path.write_text("existing memory\n", encoding="utf-8")
     heartbeat_path.write_text(
         "interval: 1h\n\n- Existing heartbeat\n", encoding="utf-8"
@@ -324,6 +326,7 @@ def test_im_config_sync_client_persists_agent_config_to_source_path(
         source_path=config_path,
     )
     owners = build_config_sync_test_owners(local_config)
+    managed_root = tmp_path / "managed"
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
@@ -336,6 +339,7 @@ def test_im_config_sync_client_persists_agent_config_to_source_path(
         ),
         monotonic=lambda: 0.0,
         sleep=lambda _seconds: None,
+        workspace_root_factory=lambda agent_id: managed_root / agent_id,
     )
 
     sync.sync_agent(agent_id="agent-live", profile_version=2)
@@ -349,9 +353,7 @@ def test_im_config_sync_client_persists_agent_config_to_source_path(
     assert agent.title == "Agent Live"
     # bugfix-404-M2: workspace_root comes from local config (factory default for new agents),
     # not from IM mirror.  agent-live is not in local_config.agents, so factory is used.
-    assert agent.workspace_root == (
-        (Path("~/nano-assistant/workspace") / "agent-live").expanduser().resolve()
-    )
+    assert agent.workspace_root == (managed_root / "agent-live").resolve()
     assert agent.skills == ("skill-a", "skill-b")
     assert agent.tool_allowlist == ("Read", "Bash")
     assert agent.custom_prompt == "Current instructions."
@@ -923,6 +925,7 @@ def test_sync_agent_passes_through_features(tmp_path: Path) -> None:
         ),
         monotonic=lambda: 0.0,
         sleep=lambda _: None,
+        workspace_root_factory=lambda agent_id: tmp_path / "managed" / agent_id,
     )
 
     sync.sync_agent(agent_id="alpha", profile_version=1)
@@ -1121,7 +1124,7 @@ def test_handle_agent_create_persists_default_model_to_source_path(
 
 def test_handle_agent_create_persists_to_default_config_path(tmp_path: Path) -> None:
     """bugfix-429 R4 (链路B, 默认路径场景): when the Gateway is started WITHOUT
-    ``--config`` (default ``~/.nano-assistant/config.yaml``), a dynamically-created
+    ``--config`` (default ``~/.nanoassistant/config.yaml``), a dynamically-created
     agent's default_model must still be written to that default path.
 
     Mirrors the operator's first-hand reproduction: ``source_path`` resolves to the
@@ -1129,7 +1132,7 @@ def test_handle_agent_create_persists_to_default_config_path(tmp_path: Path) -> 
     isolated HOME; this locks it as a regression independent of ``--config``.
     """
     # default_local_config_path() resolves to a tmp file we own (no HOME pollution).
-    default_cfg = tmp_path / ".nano-assistant" / "config.yaml"
+    default_cfg = tmp_path / ".nanoassistant" / "config.yaml"
     default_cfg.parent.mkdir(parents=True)
     (tmp_path / "seed").mkdir()
     workspace_root = tmp_path / "ws"
@@ -1216,7 +1219,7 @@ def test_handle_agent_create_derives_workspace_from_injected_base(
     tmp_path: Path,
 ) -> None:
     """bugfix-424 (#127): an agent created without an explicit workspace_root lands
-    under the injected factory base — not the hardcoded ~/nano-assistant/workspace."""
+    under the injected factory base — not the hardcoded ~/.nanoassistant/workspaces."""
     base = tmp_path / "iso-base"
     local_config = _make_local_config(tmp_path, tmp_path / "preset-ws")
     owners = build_config_sync_test_owners(local_config)
@@ -1243,7 +1246,7 @@ def test_handle_agent_create_derives_workspace_from_injected_base(
     registered = owners.catalog.require("dyn").config
     assert registered.workspace_root == expected
     # The hardcoded home default must NOT be used.
-    assert "nano-assistant/workspace" not in result["workspace_root"]
+    assert ".nanoassistant/workspaces" not in result["workspace_root"]
 
 
 # ---------------------------------------------------------------------------
@@ -1288,6 +1291,7 @@ def test_sync_agent_passes_through_heartbeat_enabled(tmp_path: Path) -> None:
         ),
         monotonic=lambda: 0.0,
         sleep=lambda _: None,
+        workspace_root_factory=lambda agent_id: tmp_path / "managed" / agent_id,
     )
 
     sync.sync_agent(agent_id="hb-agent", profile_version=1)
@@ -1327,6 +1331,7 @@ def test_sync_agent_heartbeat_disabled_by_default(tmp_path: Path) -> None:
         ),
         monotonic=lambda: 0.0,
         sleep=lambda _: None,
+        workspace_root_factory=lambda agent_id: tmp_path / "managed" / agent_id,
     )
 
     sync.sync_agent(agent_id="no-hb-agent", profile_version=1)
@@ -1426,6 +1431,7 @@ def test_im_config_sync_client_update_token_propagates_to_requests(
         ),
         monotonic=lambda: 0.0,
         sleep=lambda _: None,
+        workspace_root_factory=lambda agent_id: tmp_path / "managed" / agent_id,
     )
 
     # Simulate what the token_getter wrapper in main.py does: call update_token()
@@ -1477,6 +1483,7 @@ def test_im_config_sync_client_update_token_none_clears_auth(
         ),
         monotonic=lambda: 0.0,
         sleep=lambda _: None,
+        workspace_root_factory=lambda agent_id: tmp_path / "managed" / agent_id,
     )
 
     sync.update_token(None)

@@ -1714,7 +1714,12 @@ class Kernel:
         tool_registry = scope.tool_registry if scope is not None else self._c.tool_registry
         if tool_registry is None:
             return {}
-        return tool_registry.list_specs()
+        specs = tool_registry.list_specs()
+        session = self._c.directory.get(SessionRef(session_id, effective_root))
+        if session is None or session.tool_allowlist is None:
+            return specs
+        allowed = set(session.tool_allowlist)
+        return {tool_id: spec for tool_id, spec in specs.items() if tool_id in allowed}
 
     # ------------------------------------------------------------------
     # Capability queries (决策 4) — single-item neutral facts, SDK-owned DTOs.

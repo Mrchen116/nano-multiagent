@@ -389,7 +389,7 @@ def test_reconcile_ignores_mirror_workspace_root_and_uses_local_config(
 
     registered = owners.catalog.require("agent-local").config
     assert registered.workspace_root == local_ws
-    assert (local_ws / "HEARTBEAT.md").is_file()
+    assert (local_ws / ".nanoassistant" / "HEARTBEAT.md").is_file()
     assert not dirty_im_ws.exists()
 
 

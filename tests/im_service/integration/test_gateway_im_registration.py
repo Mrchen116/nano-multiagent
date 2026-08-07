@@ -73,7 +73,7 @@ def test_gateway_registration_materializes_runtime_agents_before_and_after_bind(
             assert [row["agent_id"] for row in stored_rows] == ["Alpha", "Beta"]
             assert [
                 row["workspace_root"].endswith(
-                    f"/nano-assistant/workspace/{row['agent_id']}"
+                    f"/.nanoassistant/workspaces/{row['agent_id']}"
                 )
                 for row in stored_rows
             ] == [True, True]

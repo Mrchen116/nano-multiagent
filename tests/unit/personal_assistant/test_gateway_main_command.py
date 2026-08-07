@@ -122,7 +122,7 @@ def test_main_defaults_to_canonical_config_path_when_flag_missing(
 
     assert exit_code == 0
     assert seen == {
-        "background": str((home_dir / ".nano-assistant" / "config.yaml").resolve())
+        "background": str((home_dir / ".nanoassistant" / "config.yaml").resolve())
     }
 
 
@@ -270,7 +270,7 @@ def test_main_stop_command_defaults_to_canonical_config_path_when_flag_missing(
 
     assert exit_code == 0
     assert seen == {
-        "config_path": str((home_dir / ".nano-assistant" / "config.yaml").resolve())
+        "config_path": str((home_dir / ".nanoassistant" / "config.yaml").resolve())
     }
     assert capsys.readouterr().out == "STOPPED pid=999\n"
 

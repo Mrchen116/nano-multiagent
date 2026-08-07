@@ -71,7 +71,9 @@ def _agent(tmp_path: Path, name: str = "agent-a") -> AgentWorkspaceConfig:
 
 
 def _write_heartbeat(workspace_root: Path, content: str) -> None:
-    (workspace_root / "HEARTBEAT.md").write_text(content, encoding="utf-8")
+    path = workspace_root / ".nanoassistant" / "HEARTBEAT.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
 
 
 def test_scheduler_skips_quietly_when_heartbeat_has_no_actionable_task(

@@ -20,6 +20,7 @@ from personal_assistant.config.model_reasoning import (
     ModelReasoningCapability,
     parse_model_reasoning,
 )
+from personal_assistant.defaults import WORKSPACE_CONFIG_DIRNAME
 
 # refactor-406-M2: the LLM config wire schema is owned by personal_assistant (its
 # gateway config layer), not re-exported from agent.sdk. The kernel consumes it via
@@ -71,7 +72,7 @@ class LLMConfigPayload:
 
 _log = logging.getLogger("personal_assistant.config.local_store")
 
-DEFAULT_LOCAL_CONFIG_DIR = Path("~/.nano-assistant").expanduser()
+DEFAULT_LOCAL_CONFIG_DIR = Path("~/.nanoassistant").expanduser()
 DEFAULT_LOCAL_CONFIG_PATH = DEFAULT_LOCAL_CONFIG_DIR / "config.yaml"
 _DEFAULT_STARTUP_TIMEOUT_SECONDS = 15.0
 _DEFAULT_SHUTDOWN_GRACE_SECONDS = 5.0
@@ -84,29 +85,19 @@ _DEFAULT_WORKSPACE_HEARTBEAT_CONTENT = (
     "<!-- Add one schedule (interval/at/cron) and actionable checklist items when heartbeat automation is needed. -->\n"
 )
 
-# Memory files (MEMORY.md + USER.md) live under .nanoassistant/memory/ so that
-# MemoryStore can read/write them without path gymnastics (feat-349-M3).
-# HEARTBEAT.md stays at workspace root (heartbeat scheduler reads it there).
-_WORKSPACE_MEMORY_SUBDIR = ".nanoassistant/memory"
-# feat-394: expose the per-workspace config directory name for intra-package callers
-# that need to locate session JSONL files (e.g. PollingHeartbeatRunner transcript trim).
-# Defines the PA workspace config dirname locally (refactor-406: products/ dissolved) without
-# crossing any personal_assistant → agent internals import boundary.
-WORKSPACE_CONFIG_DIRNAME: str = _WORKSPACE_MEMORY_SUBDIR.split("/")[0]
+# All PA-owned workspace state stays below the selected product config root.
+_WORKSPACE_MEMORY_SUBDIR = f"{WORKSPACE_CONFIG_DIRNAME}/memory"
 
 DEFAULT_WORKSPACE_MEMORY_FILES: tuple[tuple[str, str], ...] = (
     ("MEMORY.md", _DEFAULT_WORKSPACE_MEMORY_CONTENT),
     ("USER.md", _DEFAULT_WORKSPACE_USER_CONTENT),
 )
-DEFAULT_WORKSPACE_ROOT_FILES: tuple[tuple[str, str], ...] = (
+DEFAULT_WORKSPACE_CONFIG_FILES: tuple[tuple[str, str], ...] = (
     ("HEARTBEAT.md", _DEFAULT_WORKSPACE_HEARTBEAT_CONTENT),
 )
-
-# Retained for backward-compatibility with any external references; new code
-# should use DEFAULT_WORKSPACE_MEMORY_FILES + DEFAULT_WORKSPACE_ROOT_FILES.
 DEFAULT_WORKSPACE_FILES: tuple[tuple[str, str], ...] = (
     *DEFAULT_WORKSPACE_MEMORY_FILES,
-    *DEFAULT_WORKSPACE_ROOT_FILES,
+    *DEFAULT_WORKSPACE_CONFIG_FILES,
 )
 
 
@@ -116,10 +107,10 @@ def ensure_workspace_defaults(workspace_root: Path) -> Path:
     Memory files (``MEMORY.md``, ``USER.md``) are seeded under
     ``<workspace_root>/.nanoassistant/memory/`` so that ``MemoryStore`` can
     read/write them at its canonical path (feat-349-M3).
-    ``HEARTBEAT.md`` remains at the workspace root.
+    ``HEARTBEAT.md`` is also seeded below ``<workspace_root>/.nanoassistant/``.
 
     Args:
-        workspace_root: Workspace root that should contain stable MEMORY/HEARTBEAT files.
+        workspace_root: Workspace root whose PA config directory should contain the files.
 
     Returns:
         Resolved workspace path after ensuring the directory and default files exist.
@@ -141,9 +132,10 @@ def ensure_workspace_defaults(workspace_root: Path) -> Path:
             continue
         file_path.write_text(default_content, encoding="utf-8")
 
-    # Seed workspace-root files (HEARTBEAT.md).
-    for filename, default_content in DEFAULT_WORKSPACE_ROOT_FILES:
-        file_path = resolved_root / filename
+    # Heartbeat is PA-owned state too, so it stays beside memory under the config root.
+    config_dir = resolved_root / WORKSPACE_CONFIG_DIRNAME
+    for filename, default_content in DEFAULT_WORKSPACE_CONFIG_FILES:
+        file_path = config_dir / filename
         if file_path.exists():
             continue
         file_path.write_text(default_content, encoding="utf-8")
@@ -162,9 +154,7 @@ class NodeConfig:
             *dynamically created* agents (those built via IM ``agent.create``
             without an explicit ``workspace_root``) are derived as
             ``<workspace_base>/<agent_id>``. When absent, such agents fall back
-            to the hardcoded ``~/nano-assistant/workspace`` default — preserving
-            legacy behaviour for deployments that do not set this field
-            (bugfix-424 / #127). Preset agents are unaffected: their workspace
+            to ``~/.nanoassistant/workspaces``. Preset agents are unaffected: their workspace
             always comes from ``agents[].workspace_root``.
     """
 
@@ -626,7 +616,7 @@ def load_local_config(config_path: str | Path) -> LocalConfig:
 def default_local_config_path() -> Path:
     """Return the canonical Gateway config path under the user home directory."""
 
-    return Path("~/.nano-assistant/config.yaml").expanduser().resolve()
+    return Path("~/.nanoassistant/config.yaml").expanduser().resolve()
 
 
 def resolve_run_model(
@@ -1156,7 +1146,7 @@ def _parse_agents(
             item.get("workspace_root"), field_name=f"agents[{index}].workspace_root"
         )
         if workspace_text is None:
-            workspace_root = Path("~/nano-assistant/workspace").expanduser() / agent_id
+            workspace_root = Path("~/.nanoassistant/workspaces").expanduser() / agent_id
             # Default workspaces are gateway-managed local state, so config loading
             # creates them on demand instead of forcing operators to pre-seed paths.
         else:
