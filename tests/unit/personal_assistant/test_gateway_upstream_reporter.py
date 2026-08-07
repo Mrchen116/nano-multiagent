@@ -269,6 +269,7 @@ def test_send_register_includes_agent_workspaces(tmp_path: Path) -> None:
     assert payload["agent_workspaces"] == {"Arch": str(workspace)}, (
         "agent_workspaces 必须是 {agent_id: workspace_root} 映射"
     )
+    assert payload["agent_workspace_is_default"] == {"Arch": False}
 
 
 def test_send_register_includes_agent_skills_and_tool_allowlist(
