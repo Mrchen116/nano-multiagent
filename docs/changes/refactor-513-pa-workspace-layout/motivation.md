@@ -108,6 +108,10 @@
   A(原话): 对的
   Agent 解读: 所有历史目录整理均由首次部署前的人工迁移完成；产品运行时代码只使用终态路径，不包含首次启动复制、冲突检测、删除旧目录或同步逻辑。本结论覆盖 Q2、Q3、Q6、Q10、Q13、Q15 中“首次启动”的表述；其中 `.nano` extensions 的人工迁移仍遵循既定的只补缺失、保留旧来源和不持续同步规则。
 
+- Q17: 旧 `.nano/policy.toml` 是否也应随产品目录走，在人工迁移时进入 PA/CLI 各自目录，并由终态产品读取？
+  A(原话): 好
+  Agent 解读: `policy.toml` 是 workspace 安全配置的一部分。首次部署前按目标缺失才复制、保留旧来源和不持续同步的规则迁入 `.nanoassistant/` 或 `.nanocode/`；PA/CLI 终态只读取自己的产品策略，未指定产品目录的内核消费者仍使用 `.nano/policy.toml`。
+
 ## 现状痛点
 
 产品已经把会话、memory、skills 和 cron 等状态分别放入 `.nanoassistant/` 或 `.nanocode/`，但仍有 PA 的简化聊天记录写在 workspace 根目录，heartbeat 配置也写在根目录；后台 bash 输出则被内核硬编码到 `.nano/`。当 PA workspace 指向一个代码仓根目录时，这些产品产物混在项目资产中，既难以统一管理，也使仓库维护者难以判断哪些文件应纳入版本控制。
@@ -118,7 +122,7 @@ PA 的全局数据也有同类分裂：`~/.nanoassistant/` 已承载全局扩展
 
 ## 目标状态
 
-内核对未声明产品目录的消费者仍以 `.nano` 作为 workspace 默认目录。产品可显式提供自己的目录名；一旦提供，所有该产品管理的 workspace 持久化、workspace extensions 与后台输出均使用该目录。PA 的目录为 `.nanoassistant/`，CLI 的目录为 `.nanocode/`。
+内核对未声明产品目录的消费者仍以 `.nano` 作为 workspace 默认目录。产品可显式提供自己的目录名；一旦提供，所有该产品管理的 workspace 持久化、workspace extensions、安全策略与后台输出均使用该目录。PA 的目录为 `.nanoassistant/`，CLI 的目录为 `.nanocode/`。
 
 PA 继续提供人工可读的 `chat_history`，但它、heartbeat、会话和其他 PA 管理状态均收敛到 `.nanoassistant/`。CLI 不新增这份 PA 专属聊天副本。
 
@@ -204,6 +208,18 @@ PA 的唯一全局产品 home 为 `~/.nanoassistant/`：全局配置、持久状
 - **WHEN** 仓库作者在旧 `.nano/tools/` 或 `.nano/hooks/` 中新增或修改文件并再次启动产品
 - **THEN** 产品目录不再自动同步这些变化，产品继续使用自己的 extension 副本
 
+### Requirement: workspace 安全策略随实际产品目录生效
+
+#### Scenario: 人工迁移已有 workspace 的安全策略
+- **GIVEN** workspace 有 `.nano/policy.toml`，且对应产品目录中没有 `policy.toml`
+- **WHEN** 部署者按首次部署迁移步骤整理 PA 或 CLI workspace
+- **THEN** 原策略被复制到该产品目录，旧 `.nano/policy.toml` 保持不变
+
+#### Scenario: PA 或 CLI 运行 workspace 命令
+- **GIVEN** PA 或 CLI workspace 的产品目录中有 `policy.toml`
+- **WHEN** 用户通过该产品触发受安全策略约束的命令
+- **THEN** 该产品按自身目录中的策略执行，而不依赖旧 `.nano/policy.toml`
+
 ### Requirement: 旧运行数据与仓库版本控制不被静默改写
 
 #### Scenario: 外部 workspace 的旧聊天副本和后台输出保持可查看
@@ -226,6 +242,7 @@ PA 的唯一全局产品 home 为 `~/.nanoassistant/`：全局配置、持久状
 
 - 范围：把 workspace 目录选择收敛为“内核默认 `.nano`、产品显式目录覆盖”的一致规则，并使 PA 与 CLI 按各自产品目录写入和发现 workspace 资源。
 - 范围：PA 保留 `chat_history`，但将其和 `HEARTBEAT.md` 迁入 `.nanoassistant/`；CLI 适配同一目录选择规则，不新增聊天副本。
+- 范围：workspace 安全策略随实际产品目录生效；部署前人工将旧 `.nano/policy.toml` 按既定的安全分叉规则整理至产品目录。
 - 范围：PA 全局配置、持久状态、全局扩展和默认 Agent workspace 收敛到 `~/.nanoassistant/`；首次部署前由部署者将旧 `~/.nano-assistant/` 与 `~/nano-assistant/` 在无冲突时迁移并删除。
 - 非目标：将遗留 `chat_history/`、`.nano/background-tasks/` 重新归属或搬入 PA/CLI 产品目录；默认 workspace 整体迁移时保留这些文件的 workspace 内相对位置。
 - 非目标：首次导入后持续同步 `.nano/tools`、`.nano/hooks`，覆盖或合并产品已有 extension，或自动修改 Git 忽略规则。
@@ -235,6 +252,7 @@ PA 的唯一全局产品 home 为 `~/.nanoassistant/`：全局配置、持久状
 ## 影响范围
 
 - 内核 workspace 目录选择，以及 session、background task 和 workspace extension 的一致性。
+- 内核 workspace 安全策略路径与产品目录选择的一致性。
 - PA 的 workspace 初始化、heartbeat、聊天副本和 Agent workspace 运行。
 - PA 的全局配置、绑定状态、全局扩展发现和默认 workspace 创建/迁移。
 - CLI 的 workspace 初始化、workspace extension 与后台任务路径。
@@ -242,7 +260,7 @@ PA 的唯一全局产品 home 为 `~/.nanoassistant/`：全局配置、持久状
 
 ## 迁移与回滚策略
 
-- 首次部署前，部署者将旧 `.nano/tools`、`.nano/hooks` 快照导入相关产品目录：只补缺失文件，保留旧来源和已有目标文件；之后不持续同步。
+- 首次部署前，部署者将旧 `.nano/tools`、`.nano/hooks` 和 `.nano/policy.toml` 快照导入相关产品目录：只补缺失文件，保留旧来源和已有目标文件；之后不持续同步。
 - 首次部署前，部署者在目标缺少 heartbeat 配置时从 workspace 根复制旧 `HEARTBEAT.md`，不覆盖目标或删除来源。
 - 首次部署前，部署者将 `~/.nano-assistant/` 和 `~/nano-assistant/` 迁入 `~/.nanoassistant/`；无内容冲突时删除旧源目录，迁后默认 workspace 内遗留文件保留原相对位置。
 - 人工迁移发现内容不同的同名项时不覆盖、不删除，待部署者处理后重新执行；运行时代码不参与该判断。
