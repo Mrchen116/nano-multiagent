@@ -87,13 +87,13 @@
 
 ### R2 — WS/HTTP structured outcome 与 opaque IM mirror
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 先补红测；扩展 create 帧 outcome、HTTP code 映射、profile provenance schema/repository/migration/register，统一 opaque accessor 并迁移相关 RPC/read seam。
 - 验证: IM unit/integration/contract focused pytest；失败不建 profile；root 字符串原样往返。
 
 ### R3 — Workspace 创建 UI 与 i18n
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 先写交互红测/状态清单；实现卡片、默认/custom payload、字段错误、已有目录确认重试、preview payload、响应式样式和中英 i18n。
 - 验证: frontend targeted Vitest、production build；确认 existing Agent detail 未新增 default/custom 标签。
 

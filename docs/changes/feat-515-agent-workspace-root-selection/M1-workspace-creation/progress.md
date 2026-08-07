@@ -26,7 +26,20 @@
 
 ## R2 — WS/HTTP structured outcome 与 opaque IM mirror
 
-- Status: TODO
+- Context: IM 过去会在本机 `expanduser().resolve()` Gateway 返回的 root，live snapshot 也能覆盖持久化 mirror；`agent.created` 只支持成功 payload，profile 没有 nullable provenance。
+- Decision: `agent.created` waiter 透传 structured workspace error；HTTP 仅按稳定 code 映射 409/422，并在失败时不落 profile。SQLite 新增 nullable `workspace_is_default`，旧行保持 NULL/公开 false；register 只在 provenance 为空时补 seed。所有既有 Agent workspace RPC 使用不解析的持久化字符串，live snapshot 不再覆盖 root。节点级 preview 只转发 mode/id/custom root，由 Gateway 解析。
+- Rationale: IM 可能与 Gateway 分属不同主机；路径 canonicalization、filesystem validation 和 provenance 都必须由目标节点持有，IM 只保留 opaque routing value。
+- Evidence:
+  - Tests: focused IM contract/integration/schema suite 34 passed；扩展风险套件先得到 509 passed/1 个旧 live-root 断言失败，按新 opaque mirror 契约改写该断言后单测回归通过。
+  - Entry: 真 HTTP + Gateway WS correlation 覆盖 `workspace_confirmation_required` 顶层 409 且无 profile；API adapter 前端分支留 R3。
+  - Frontend State Matrix: N/A（R3）。
+  - Browser QA: N/A（R5）。
+  - E2E/Regression: `test_workspace_root_mirror_contract.py` 覆盖 mirror/live/capabilities/prompt/cron/skills/heartbeat 的同一 opaque 字符串；register 测试覆盖 true/false、旧帧 NULL 与非 NULL 不覆盖。
+  - Visual/Interaction: N/A（R5）。
+  - Prototype Comparison: N/A（R5）。
+- Rollback: revert `c1ee3b3bf`。
+- Commits: `c1ee3b3bf`
+- Next: R3 Workspace 创建卡、默认/custom payload、稳定错误码 UI 分支、确认重试与中英 i18n。
 
 ## R3 — Workspace 创建 UI 与 i18n
 
