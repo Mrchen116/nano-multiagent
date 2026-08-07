@@ -1934,6 +1934,7 @@ class AgentEngine:
             "system_prompt": rendered_system_prompt,
             "dropped_messages": dropped_messages,
             "model_override": self.resolve_run_model(session_id),
+            "hook_ctx": self._build_hook_context(session_id=session_id),
         }
         if reason is CompactionReason.MANUAL:
             summary_kwargs.update({"focus": focus, "strict": True})

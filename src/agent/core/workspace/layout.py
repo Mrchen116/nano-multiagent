@@ -22,7 +22,12 @@ class WorkspaceLayout:
     def __post_init__(self) -> None:
         root = self.workspace_root.expanduser().resolve()
         dirname = self.config_dirname.strip()
-        if not dirname.startswith(".") or "/" in dirname or "\\" in dirname:
+        if (
+            dirname in {".", ".."}
+            or not dirname.startswith(".")
+            or "/" in dirname
+            or "\\" in dirname
+        ):
             raise ValueError("workspace config directory must be a dot-prefixed name")
         object.__setattr__(self, "workspace_root", root)
         object.__setattr__(self, "config_dirname", dirname)

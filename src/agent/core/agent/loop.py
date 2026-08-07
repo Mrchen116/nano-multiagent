@@ -348,6 +348,7 @@ class AgentLoop:
                         real_prompt_tokens=real_prompt_tokens,
                         active_model=active_model,
                         workspace_root=workspace_root,
+                        hook_ctx=active_hook_ctx,
                     )
                     if compacted_msg is not None:
                         yield compacted_msg
@@ -973,6 +974,7 @@ class AgentLoop:
         real_prompt_tokens: int | None = None,
         active_model: str | None = None,
         workspace_root: Path | None = None,
+        hook_ctx: HookContext | None = None,
     ) -> Message | None:
         if not self._should_compact(
             llm_messages, rendered_system_prompt, real_prompt_tokens, active_model
@@ -1011,6 +1013,7 @@ class AgentLoop:
             # call site already does). The summary_model mutual-exclusion is owned
             # by CompactionSummarizer (bugfix-443 fix1 altitude #3).
             model_override=active_model,
+            hook_ctx=hook_ctx,
         )
 
         # Post-compact file restore: read up to 5 most recently accessed files.

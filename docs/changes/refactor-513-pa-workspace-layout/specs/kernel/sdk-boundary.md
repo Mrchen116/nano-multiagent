@@ -17,7 +17,7 @@
   `<workspace_root>/<workspace_config_dirname>/{tools,hooks,skills}` 运行时发现之外额外发现这些目录,
   空 → 仅工作区。`global_config_root` 是可选的、消费者拥有的 global auto-mode configuration root；
   省略时不加载 global auto-mode config，仍从 session 选定的 workspace config root 加载。模型注册表初始化在内部,
-  消费者无前置时序义务;装配完成后所有会话/运行均在进程内执行(无子进程、无 loopback HTTP)。
+  消费者无前置时序义务;`workspace_config_dirname` 必须是单层 dot-prefixed directory name（两端空白会归一化；`.`、`..` 与 path separator 拒绝），并在创建任何 session 文件前验证。装配完成后所有会话/运行均在进程内执行(无子进程、无 loopback HTTP)。
 - `create_session(workspace_root, enabled_tools, features, prompt, title=…, metadata=…)` —— 每 agent 带齐配置:`enabled_tools` 从工具目录选子集;`features` 开关内核通用 feature;`prompt` 为 SDK-owned `PromptSlots`。不收 `model`——model 是 per-run 的,消费者每轮经 `submit(model=...)` 提供。
 
 #### Scenario: 应用零前置调用直接装配

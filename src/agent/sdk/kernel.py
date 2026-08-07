@@ -641,6 +641,10 @@ def _build_kernel_base(
         .expanduser()
         .resolve()
     )
+    workspace_config_dirname = WorkspaceLayout(
+        workspace_root=resolved_repo_root,
+        config_dirname=workspace_config_dirname,
+    ).config_dirname
 
     _wire_console_tracer()
 
@@ -883,6 +887,7 @@ def _build_kernel_base(
         skill_batch_review_enqueue=engine_services.enqueue_skill_batch_review,
     )
     engine_services.set_execution_scope_resolver(capability_resolver.scope_for)
+    runs_registry.set_execution_scope_resolver(capability_resolver.scope_for)
 
     components = _KernelComponents(
         engine_services=engine_services,
@@ -1147,6 +1152,10 @@ class Kernel:
                 config_path
             )
 
+        # Resolve the selected workspace capabilities before creating durable
+        # session state. A malformed policy must fail explicitly, not leave an
+        # unusable transcript behind.
+        scope = self._scope_for(effective_root)
         conversation = self._c.directory.create(
             NewSession(
                 workspace_root=effective_root,
@@ -1173,7 +1182,6 @@ class Kernel:
         session = self._c.directory.get(conversation.ref)
         if session is None:  # pragma: no cover - durable create invariant.
             raise RuntimeError("session disappeared after durable creation")
-        scope = self._scope_for(effective_root)
         hook_ctx = HookContext(
             session_id=session.session_id,
             repo_root=effective_root,
