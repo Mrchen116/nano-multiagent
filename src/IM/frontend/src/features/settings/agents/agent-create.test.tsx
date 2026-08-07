@@ -241,7 +241,8 @@ describe("agent create page", () => {
         group_reply_policy: "MENTION",
         default_model: null,
         reasoning_effort: "max",
-        workspace_root: null
+        workspace_root: null,
+        confirm_existing_workspace: false
       });
     });
 
@@ -292,6 +293,40 @@ describe("agent create page", () => {
     expect(screen.getByText(/Display name is required/i)).toBeInTheDocument();
     expect(apiMocks.createNodeAgentMock).not.toHaveBeenCalled();
     expect(router.state.location.pathname).toBe("/settings/nodes/node-1/agents/new");
+  });
+
+  it("places Workspace between Identity and Behavior with default selected", async () => {
+    mockNodes();
+    mockCreateState();
+
+    renderCreatePage();
+    const form = await screen.findByTestId("agent-create");
+    expect(
+      Array.from(form.querySelectorAll(".im-agent-card-title"))
+        .slice(0, 3)
+        .map((heading) => heading.textContent),
+    ).toEqual(["Identity", "Workspace", "Behavior"]);
+    expect(screen.getByRole("radio", { name: /Use default directory/i })).toBeChecked();
+    expect(screen.queryByLabelText(/^Workspace Root/)).not.toBeInTheDocument();
+  });
+
+  it("rejects an empty custom workspace before calling the node", async () => {
+    const user = userEvent.setup();
+    mockNodes();
+    mockCreateState();
+
+    renderCreatePage();
+    fireEvent.change(await screen.findByLabelText(/^Agent ID/), {
+      target: { value: "agent-empty" },
+    });
+    fireEvent.change(screen.getByLabelText(/^Display Name/), {
+      target: { value: "Empty Path" },
+    });
+    await user.click(screen.getByRole("radio", { name: /Custom path/i }));
+    await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
+
+    expect(await screen.findByText(/Enter an absolute path/i)).toBeInTheDocument();
+    expect(apiMocks.createNodeAgentMock).not.toHaveBeenCalled();
   });
 
   it("materializes default-on global skills into the create payload", async () => {
@@ -592,6 +627,116 @@ describe("agent create page", () => {
     vi.useRealTimers();
   });
 
+  it("submits a custom absolute workspace and delegates validation to the node", async () => {
+    const user = userEvent.setup();
+    mockNodes();
+    mockCreateState();
+    apiMocks.createNodeAgentMock.mockResolvedValue({
+      agent_id: "agent-custom",
+      workspace_root: "/srv/agents/agent-custom",
+      workspace_is_default: false,
+    });
+
+    renderCreatePage();
+    fireEvent.change(await screen.findByLabelText(/^Agent ID/), {
+      target: { value: "agent-custom" },
+    });
+    fireEvent.change(screen.getByLabelText(/^Display Name/), {
+      target: { value: "Custom Agent" },
+    });
+    await user.click(screen.getByRole("radio", { name: /Custom path/i }));
+    fireEvent.change(screen.getByLabelText(/^Workspace Root/), {
+      target: { value: "/srv/agents/agent-custom" },
+    });
+    await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
+
+    await waitFor(() => {
+      expect(apiMocks.createNodeAgentMock).toHaveBeenCalledWith(
+        "node-1",
+        expect.objectContaining({
+          workspace_root: "/srv/agents/agent-custom",
+          confirm_existing_workspace: false,
+        }),
+      );
+    });
+  });
+
+  it("requires acknowledgement before retrying an existing workspace", async () => {
+    const user = userEvent.setup();
+    mockNodes();
+    mockCreateState();
+    apiMocks.createNodeAgentMock
+      .mockRejectedValueOnce(
+        Object.assign(new Error("Workspace target requires confirmation."), {
+          code: "workspace_confirmation_required",
+          detail: "Workspace target requires confirmation.",
+        }),
+      )
+      .mockResolvedValueOnce({
+        agent_id: "agent-existing",
+        workspace_root: "/srv/existing",
+        workspace_is_default: false,
+      });
+
+    renderCreatePage();
+    fireEvent.change(await screen.findByLabelText(/^Agent ID/), {
+      target: { value: "agent-existing" },
+    });
+    fireEvent.change(screen.getByLabelText(/^Display Name/), {
+      target: { value: "Existing Agent" },
+    });
+    await user.click(screen.getByRole("radio", { name: /Custom path/i }));
+    fireEvent.change(screen.getByLabelText(/^Workspace Root/), {
+      target: { value: "/srv/existing" },
+    });
+    await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
+
+    const notice = await screen.findByRole("alert");
+    expect(notice).toHaveTextContent(/existing directory/i);
+    expect(apiMocks.createNodeAgentMock).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole("checkbox", { name: /understand/i }));
+    await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
+
+    await waitFor(() => {
+      expect(apiMocks.createNodeAgentMock).toHaveBeenLastCalledWith(
+        "node-1",
+        expect.objectContaining({
+          workspace_root: "/srv/existing",
+          confirm_existing_workspace: true,
+        }),
+      );
+    });
+  });
+
+  it("shows the owning Agent for a stable workspace assignment conflict", async () => {
+    const user = userEvent.setup();
+    mockNodes();
+    mockCreateState();
+    apiMocks.createNodeAgentMock.mockRejectedValue(
+      Object.assign(new Error("Workspace is already assigned."), {
+        code: "workspace_already_assigned",
+        detail: "Workspace is already assigned.",
+        agentId: "project-analyst",
+      }),
+    );
+
+    renderCreatePage();
+    fireEvent.change(await screen.findByLabelText(/^Agent ID/), {
+      target: { value: "agent-conflict" },
+    });
+    fireEvent.change(screen.getByLabelText(/^Display Name/), {
+      target: { value: "Conflict" },
+    });
+    await user.click(screen.getByRole("radio", { name: /Custom path/i }));
+    fireEvent.change(screen.getByLabelText(/^Workspace Root/), {
+      target: { value: "/srv/assigned" },
+    });
+    await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
+
+    expect(await screen.findByText(/project-analyst.*another path/i)).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("shows the desktop agent rail and switches immediately from an untouched form", async () => {
     const user = userEvent.setup();
     mockNodes();
@@ -718,7 +863,14 @@ describe("agent create prompt preview", () => {
 
     const calls = apiMocks.nodePromptPreviewMock.mock.calls;
     const lastCall = calls[calls.length - 1];
-    const body = lastCall[1] as { skill_ids?: string[]; agent_id_hint?: string };
+    const body = lastCall[1] as {
+      skill_ids?: string[];
+      agent_id_hint?: string;
+      workspace_mode?: string;
+      workspace_root?: string | null;
+    };
     expect(body).toHaveProperty("skill_ids");
+    expect(body.workspace_mode).toBe("default");
+    expect(body.workspace_root).toBeNull();
   });
 });

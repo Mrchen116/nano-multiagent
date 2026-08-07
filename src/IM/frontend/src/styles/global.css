@@ -918,9 +918,115 @@ body {
   grid-template-columns: 1fr;
 }
 
+.im-workspace-modes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.im-workspace-mode {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid var(--im-border);
+  border-radius: 9px;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.im-workspace-mode.active {
+  border-color: var(--im-accent);
+  background: color-mix(in oklab, var(--im-accent) 6%, white);
+}
+
+.im-workspace-mode input {
+  width: 16px;
+  height: 16px;
+  margin: 1px 0 0;
+  accent-color: var(--im-accent);
+  flex: 0 0 auto;
+}
+
+.im-workspace-mode > span {
+  min-width: 0;
+}
+
+.im-workspace-mode strong {
+  display: block;
+  font-size: 0.8125rem;
+  color: var(--im-text);
+}
+
+.im-workspace-mode strong + span {
+  display: block;
+  margin-top: 2px;
+  color: var(--im-text-muted);
+  font-size: 0.75rem;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+
+.im-workspace-existing-notice {
+  display: grid;
+  gap: 10px;
+  padding: 11px;
+  border: 1px solid #f0c36c;
+  border-radius: 9px;
+  background: #fff8e6;
+  color: #825800;
+}
+
+.im-workspace-existing-notice p {
+  margin: 2px 0 0;
+  font-size: 0.75rem;
+}
+
+.im-workspace-existing-notice .im-workspace-existing-title {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 750;
+}
+
+.im-workspace-existing-notice label {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  color: #644800;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.im-workspace-existing-notice input {
+  width: 16px;
+  height: 16px;
+  margin: 1px 0 0;
+  accent-color: #a86b00;
+  flex: 0 0 auto;
+}
+
+.im-workspace-outcome {
+  margin: 0;
+  color: var(--im-text-muted);
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
 @media (min-width: 720px) {
   .im-agent-card-grid-2 {
     grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 719px) {
+  .im-workspace-modes {
+    grid-template-columns: 1fr;
   }
 }
 

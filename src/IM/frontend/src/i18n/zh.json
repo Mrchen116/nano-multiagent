@@ -451,6 +451,32 @@
         "owningNode": "所属节点",
         "lastUpdated": "最后更新"
       },
+      "workspaceCreate": {
+        "title": "Workspace",
+        "sub": "工作目录在创建后固定在选中的节点上，不能迁移或编辑。",
+        "modeLegend": "Workspace 位置",
+        "defaultMode": "使用默认目录",
+        "defaultModeHelp": "由 {{node}} 按节点配置分配并创建。",
+        "customMode": "自定义路径",
+        "customModeHelp": "使用 {{node}} 上的指定绝对路径。",
+        "workspaceRoot": "Workspace Root",
+        "pathPlaceholder": "/Users/me/projects/research-agent",
+        "pathHelp": "路径位于 {{node}}；父目录必须已存在。已有目录可使用，但需要你确认。",
+        "pathRequired": "请输入目标节点上的绝对路径。",
+        "pathAbsolute": "Workspace Root 必须是绝对路径或以 ~/ 开头。",
+        "parentMissing": "{{node}} 上的父目录不存在。",
+        "parentUnusable": "{{node}} 上的父目录不可用。",
+        "targetNotDirectory": "目标已存在，但不是目录。",
+        "initializationFailed": "选中的节点无法初始化这个 workspace。",
+        "alreadyAssigned": "该目录已经归属 Agent {{agent}}。请更换路径。",
+        "unknownAgent": "其他 Agent",
+        "existingTitle": "这是一个已有目录",
+        "existingBody": "创建后 Agent 会使用此目录。现有文件不会被覆盖，但缺失的 Agent 初始文件会在确认后补齐。",
+        "existingConfirm": "我了解并同意让这个 Agent 使用已有目录。",
+        "confirmRequired": "请先确认你了解这是一个已有目录。",
+        "defaultOutcome": "默认目录会由 {{node}} 创建。",
+        "customOutcome": "提交创建时由 {{node}} 再次校验这个路径。"
+      },
       "errors": {
         "required": "必填",
         "agentIdInvalid": "仅允许小写字母、数字、_ 和 -"
