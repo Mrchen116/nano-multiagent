@@ -21,11 +21,14 @@ production configuration.
   WebSocket RPC dispatch for create/apply/status.
 - Kept the cross-package operation fingerprint aligned with the IM owner: SHA-256
   over canonical JSON for the Gateway-owned Agent fields, with canonicalized
-  `heartbeat_json` and no description, secret, or provider request body.
+  `heartbeat_json`, create-time omitted skills represented as `null`, blank
+  optional text represented as `null`, and no description, secret, or provider
+  request body. Gateway resolves omitted create skills to its global defaults only
+  after verifying the external candidate fingerprint.
 
 ## Verification
 
-- 298 focused unit, contract, and integration tests passed, including both
+- 300 focused unit, contract, and integration tests passed, including both
   provider packet shapes, runtime round trips, config schema/projection, create
   and apply recovery at all four persistent boundaries, operation replay/CAS,
   and WebSocket create/apply/status handling.

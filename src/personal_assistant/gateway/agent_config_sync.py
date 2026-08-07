@@ -74,7 +74,9 @@ def canonical_agent_operation_payload(
     return {
         "agent_id": agent_id,
         "display_name": display_name,
-        "skills": list(_operation_string_tuple(raw_skills)),
+        "skills": list(_operation_string_tuple(raw_skills))
+        if isinstance(raw_skills, list)
+        else None,
         "tool_allowlist": list(_operation_string_tuple(raw_tools)),
         "group_reply_policy": _optional_operation_text(
             payload.get("group_reply_policy")
@@ -82,7 +84,7 @@ def canonical_agent_operation_payload(
         or "manual",
         "default_model": _optional_operation_text(payload.get("default_model")),
         "reasoning_effort": _optional_operation_text(payload.get("reasoning_effort")),
-        "workspace_root": workspace_root
+        "workspace_root": workspace_root.strip()
         if isinstance(workspace_root, str) and workspace_root.strip()
         else None,
         "features": {
@@ -484,6 +486,10 @@ class IMAgentConfigSync:
                 raise ValueError("workspace_root does not match Gateway local config")
         resolved = dict(candidate)
         resolved["workspace_root"] = str(workspace_root)
+        if candidate.get("skills") is None:
+            if kind == "apply":
+                raise ValueError("apply agent candidate requires skills")
+            resolved["skills"] = list(_default_pa_global_skill_names())
         return resolved
 
     def _resume_config_operation(
