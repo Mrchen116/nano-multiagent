@@ -10,7 +10,9 @@ import pytest
 import tests.conftest as _conftest
 
 from agent.core.llm.interfaces import LLMMessage, LLMToolCall
+from agent.core.session.types import SessionRef
 from agent.platform.config.auto_mode import AutoModeConfig
+from agent.platform.permissions.broker import PermissionDecision
 from agent.sdk import LLMConfig, build_kernel
 
 
@@ -76,6 +78,19 @@ def _write_scope_config(
         f'[bash]\nallow_prefixes = ["echo scope-{marker}"]\n',
         encoding="utf-8",
     )
+
+
+def _write_skill(workspace: Path, dirname: str, *, name: str, marker: str) -> None:
+    path = workspace / dirname / "skills" / name / "SKILL.md"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        f"---\nname: {name}\ndescription: {marker}\n---\n\n{marker}\n",
+        encoding="utf-8",
+    )
+
+
+async def _allow_all(_tool: str, _tool_input: Any, _context: Any) -> PermissionDecision:
+    return PermissionDecision(behavior="allow")
 
 
 class _CapturingLLM:
@@ -145,6 +160,73 @@ class _ConcurrentScopeLLM:
 
     async def _stop(self):
         yield LLMMessage(role="assistant", content="done", finish_reason="stop")
+
+
+class _EntryPointScopeLLM:
+    """Drive slash-skill and child-agent entry points through real turns."""
+
+    def __init__(self) -> None:
+        self.user_texts: list[str] = []
+
+    def generate(self, request: Any):  # noqa: ANN201
+        user_text = next(
+            (
+                str(message.content)
+                for message in reversed(request.messages)
+                if getattr(message, "role", None) == "user"
+            ),
+            "",
+        )
+        self.user_texts.append(user_text)
+        if getattr(request.messages[-1], "role", None) == "tool":
+            return self._stop()
+        if user_text.startswith("launch child"):
+            return self._launch_child()
+        if user_text.startswith("child scope"):
+            return self._run_child_extension()
+        return self._stop()
+
+    async def _launch_child(self):
+        yield LLMMessage(
+            role="assistant",
+            content="",
+            tool_calls=(
+                LLMToolCall(
+                    call_id="launch-child",
+                    name="agent",
+                    arguments={
+                        "description": "Run scoped child",
+                        "prompt": "child scope",
+                        "run_in_background": False,
+                    },
+                ),
+            ),
+            finish_reason=None,
+        )
+        yield LLMMessage(role="assistant", content="", finish_reason="tool_calls")
+
+    async def _run_child_extension(self):
+        yield LLMMessage(
+            role="assistant",
+            content="",
+            tool_calls=(
+                LLMToolCall(
+                    call_id="child-extension",
+                    name="scope_probe_child",
+                    arguments={},
+                ),
+            ),
+            finish_reason=None,
+        )
+        yield LLMMessage(role="assistant", content="", finish_reason="tool_calls")
+
+    async def _stop(self):
+        yield LLMMessage(role="assistant", content="done", finish_reason="stop")
+
+
+class _CompactionSummary:
+    async def summarize(self, **_kwargs: object) -> str:
+        return "scope compaction summary"
 
 
 async def _wait_for_terminal(kernel: Any, run_id: str) -> None:
@@ -337,3 +419,110 @@ async def test_concurrent_pretool_scopes_keep_extensions_policy_config_and_outpu
     assert len(b_outputs) == 1
     assert not list((workspace_a / ".nano" / "background-tasks").rglob("*.output"))
     assert not list((workspace_b / ".nano" / "background-tasks").rglob("*.output"))
+
+
+@pytest.mark.asyncio
+async def test_scope_is_preserved_by_slash_skill_subagent_and_compaction(
+    tmp_path: Path,
+) -> None:
+    """Every side entry point keeps the originating custom workspace scope."""
+
+    workspace_a = tmp_path / "skills-a"
+    workspace_b = tmp_path / "skills-b"
+    child_workspace = tmp_path / "child"
+    _write_skill(
+        workspace_a,
+        ".consumer",
+        name="scope-a",
+        marker="scope-a skill content",
+    )
+    _write_skill(
+        workspace_b,
+        ".consumer",
+        name="scope-b",
+        marker="scope-b skill content",
+    )
+    _write_scope_config(child_workspace, ".consumer", marker="child")
+    llm = _EntryPointScopeLLM()
+    kernel = _kernel(
+        tmp_path,
+        workspace_config_dirname=".consumer",
+        can_use_tool=_allow_all,
+        _llm_client_override=llm,
+    )
+    try:
+        session_a, session_b, parent = await asyncio.gather(
+            kernel.create_session(workspace_root=workspace_a),
+            kernel.create_session(workspace_root=workspace_b),
+            kernel.create_session(workspace_root=child_workspace),
+        )
+        slash_events_a, slash_events_b = await asyncio.gather(
+            _run_turn_and_collect(
+                kernel, session_a.session_id, workspace_a, "/skill:scope-a"
+            ),
+            _run_turn_and_collect(
+                kernel, session_b.session_id, workspace_b, "/skill:scope-b"
+            ),
+        )
+        parent_events = await _run_turn_and_collect(
+            kernel, parent.session_id, child_workspace, "launch child"
+        )
+
+        kernel._c.engine_services._compaction_summarizer = _CompactionSummary()  # noqa: SLF001
+        compacted = await kernel.compact(
+            session_a.session_id,
+            workspace_root=workspace_a,
+            idempotency_key="scope-compaction",
+        )
+        transcript_a = kernel._c.directory.open(  # noqa: SLF001
+            SessionRef(session_id=session_a.session_id, workspace_root=workspace_a)
+        )._transcript  # noqa: SLF001
+        transcript_b = kernel._c.directory.open(  # noqa: SLF001
+            SessionRef(session_id=session_b.session_id, workspace_root=workspace_b)
+        )._transcript  # noqa: SLF001
+        messages_a = [str(message.content) for message in transcript_a.load().messages]
+        messages_b = [str(message.content) for message in transcript_b.load().messages]
+        child_ref = kernel._c.directory.find_by_metadata(  # noqa: SLF001
+            workspace_root=child_workspace,
+            parent_session_id=parent.session_id,
+            query={"kind": "subagent"},
+        )
+        assert child_ref is not None
+        child_messages = [
+            (message.role, str(message.content))
+            for message in kernel._c.directory.open(child_ref)
+            ._transcript.load()
+            .messages  # noqa: SLF001
+        ]
+    finally:
+        kernel.close()
+
+    assert compacted is not None
+    slash_a_results = [
+        event for event in slash_events_a if event.get("event") == "tool_end"
+    ]
+    slash_b_results = [
+        event for event in slash_events_b if event.get("event") == "tool_end"
+    ]
+    assert any(event.get("name") == "skill_view" for event in slash_a_results)
+    assert any(event.get("name") == "skill_view" for event in slash_b_results)
+
+    assert any(
+        "system-reminder" in content and "scope-a skill content" in content
+        for content in messages_a
+    )
+    assert not any(
+        "system-reminder" in content and "scope-b skill content" in content
+        for content in messages_a
+    )
+    assert any("scope-b skill content" in content for content in messages_b)
+    assert not any("scope-a skill content" in content for content in messages_b)
+
+    assert any(
+        event.get("event") == "tool_end" and event.get("name") == "agent"
+        for event in parent_events
+    )
+    assert any(
+        role == "tool" and "tool-child" in content for role, content in child_messages
+    )
+    assert "child scope-hook-child" in llm.user_texts
