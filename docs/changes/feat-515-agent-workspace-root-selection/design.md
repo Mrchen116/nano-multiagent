@@ -252,11 +252,17 @@ arbitrary operation advertisements, operation mismatches, and any profile PATCH 
 keeps a lost `agent.created` response recoverable without treating registration itself as authorization.
 
 The earlier bounded worker model also left an uncancellable recursive `rglob` running after logical timeout and
-reported capacity pressure as a missing transcript. Gateway instead derives the exact JSONL location from its
-durable `ConversationSessionBinder` binding and performs only an async file existence check. One cancellable task
-is coalesced per `(agent_id, conversation_id)` and is cancelled on connection close. The result is explicitly
-`ready`, `missing`, or `unavailable`: only `missing` authorizes the UI's “No transcript” state; `unavailable`
-keeps the source disabled with a retryable availability message.
+reported capacity pressure as a missing transcript. Gateway instead projects the exact JSONL address from its
+durable `ConversationSessionBinder` binding without calling `Path.is_file()` or `Path.resolve()` on the receive
+loop. No binding is `missing`; a durable binding is `ready` even when its target workspace cannot be probed; an
+absent provider or binding/projection failure is `unavailable`. One cancellable task is coalesced per
+`(agent_id, conversation_id)` and is cancelled on connection close. Only `missing` authorizes the UI's “No
+transcript” state; `unavailable` keeps the source disabled with a retryable availability message.
+
+When a selected distillation source becomes `running`, lacks its source metadata, or is no longer `ready`, the
+client removes its id from the selection set. A later availability refresh or list reorder cannot restore that
+selection or change the selected Gateway node; the user must select it again. This preserves the one-node
+selection rule without a hidden disabled source steering a later distillation.
 
 ### 失败和并发边界
 

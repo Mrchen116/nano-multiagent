@@ -114,6 +114,14 @@
 - [x] Project transcript lookup as `ready` / `missing` / `unavailable`, so overload/provider failure never renders as “No transcript”.
 - [x] Update design, IM/Gateway delta, canonical specs, progress, and durable evidence; run focused, browser, full, docs, Ruff, and diff gates before publish.
 
+### Round-6 correction checklist
+
+- [x] Project durable session-binding JSONL addresses without synchronous workspace probes; keep receive-loop
+  control handling responsive and preserve `ready` / `missing` / `unavailable` meaning.
+- [x] Purge ineligible distillation selections so an unavailable source cannot later reappear and switch nodes.
+- [x] Snapshot complete pending `agent_profiles` and `agent_create_operations` rows across changed-request and
+  wrong-operation HTTP rejections.
+
 ### R1 — Gateway 本地 workspace creation boundary
 
 - 状态: DONE

@@ -60,6 +60,25 @@ def _register_created_agent(
     assert websocket.receive_json()["type"] == "ack"
 
 
+def _pending_rows(app: object, *, agent_id: str) -> dict[str, list[dict[str, object]]]:
+    """Capture every durable row that a rejected recovery retry must preserve."""
+    connection = app.state.connection
+    return {
+        "agent_profiles": [
+            dict(row)
+            for row in connection.execute(
+                "SELECT * FROM agent_profiles WHERE agent_id = ?", (agent_id,)
+            ).fetchall()
+        ],
+        "agent_create_operations": [
+            dict(row)
+            for row in connection.execute(
+                "SELECT * FROM agent_create_operations WHERE agent_id = ?", (agent_id,)
+            ).fetchall()
+        ],
+    }
+
+
 def test_ordinary_first_seen_registration_is_never_claimable(tmp_path: Path) -> None:
     """A pre-hosted first registration has no create-operation authority."""
     app = create_app(db_path=tmp_path / "im.db")
@@ -112,22 +131,7 @@ def test_lost_create_response_recovers_only_matching_durable_operation(tmp_path:
             _register_created_agent(
                 websocket, agent_id="recovered-agent", operation_id=operation
             )
-            pending_state = {
-                "profile": dict(
-                    app.state.connection.execute(
-                        "SELECT workspace_root, workspace_is_default, pending_create_operation_id "
-                        "FROM agent_profiles WHERE agent_id = ?",
-                        ("recovered-agent",),
-                    ).fetchone()
-                ),
-                "operation": dict(
-                    app.state.connection.execute(
-                        "SELECT operation_id, owner_id, node_id, agent_id, request_fingerprint "
-                        "FROM agent_create_operations WHERE operation_id = ?",
-                        (operation,),
-                    ).fetchone()
-                ),
-            }
+            pending_state = _pending_rows(app, agent_id="recovered-agent")
             dispatches: list[dict[str, object]] = []
 
             async def unexpected_dispatch(**kwargs):
@@ -139,22 +143,9 @@ def test_lost_create_response_recovers_only_matching_durable_operation(tmp_path:
                 "/im/v1/nodes/node-bound-seed/agents",
                 json={**payload, "display_name": "Different request"},
             )
-            state_after_different_request = {
-                "profile": dict(
-                    app.state.connection.execute(
-                        "SELECT workspace_root, workspace_is_default, pending_create_operation_id "
-                        "FROM agent_profiles WHERE agent_id = ?",
-                        ("recovered-agent",),
-                    ).fetchone()
-                ),
-                "operation": dict(
-                    app.state.connection.execute(
-                        "SELECT operation_id, owner_id, node_id, agent_id, request_fingerprint "
-                        "FROM agent_create_operations WHERE operation_id = ?",
-                        (operation,),
-                    ).fetchone()
-                ),
-            }
+            state_after_different_request = _pending_rows(
+                app, agent_id="recovered-agent"
+            )
 
             async def wrong_operation(**kwargs):
                 return {
@@ -170,22 +161,7 @@ def test_lost_create_response_recovers_only_matching_durable_operation(tmp_path:
             wrong_operation_rejected = client.post(
                 "/im/v1/nodes/node-bound-seed/agents", json=payload
             )
-            state_after_wrong_operation = {
-                "profile": dict(
-                    app.state.connection.execute(
-                        "SELECT workspace_root, workspace_is_default, pending_create_operation_id "
-                        "FROM agent_profiles WHERE agent_id = ?",
-                        ("recovered-agent",),
-                    ).fetchone()
-                ),
-                "operation": dict(
-                    app.state.connection.execute(
-                        "SELECT operation_id, owner_id, node_id, agent_id, request_fingerprint "
-                        "FROM agent_create_operations WHERE operation_id = ?",
-                        (operation,),
-                    ).fetchone()
-                ),
-            }
+            state_after_wrong_operation = _pending_rows(app, agent_id="recovered-agent")
 
             async def wrong_root(**kwargs):
                 return {

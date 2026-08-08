@@ -8,10 +8,16 @@ from pathlib import Path
 
 import pytest
 
-from personal_assistant.channels.base import InboundMessage
+from personal_assistant.channels.base import InboundMessage, ReplyContext
 from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
-from personal_assistant.config.local_store import NodeConfig
+from personal_assistant.config.local_store import AgentWorkspaceConfig, NodeConfig
 from personal_assistant.config.sync_client import ConfigSyncClient
+from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
+from personal_assistant.gateway.session_binder import (
+    GatewaySessionBinder,
+    build_session_log_path_provider,
+)
+from personal_assistant.gateway.session_keys import SessionBindingStore
 from personal_assistant.reporter.upstream_reporter import UpstreamReporter
 import personal_assistant.ws.im_connection as im_connection_module
 from personal_assistant.ws.im_connection import IMConnectionConfig, IMConnectionManager
@@ -219,7 +225,7 @@ def test_im_connection_replies_with_live_agent_config_snapshot(tmp_path: Path) -
 def test_im_connection_returns_exact_session_log_from_gateway_binding(
     tmp_path: Path,
 ) -> None:
-    """The owning Gateway returns its binding-derived root session path directly."""
+    """Production binding projection returns an address without probing its workspace."""
     workspace_root = tmp_path / "remote-workspace"
     session_path = (
         workspace_root
@@ -227,8 +233,18 @@ def test_im_connection_returns_exact_session_log_from_gateway_binding(
         / "sessions"
         / "session-a.jsonl"
     )
-    session_path.parent.mkdir(parents=True)
-    session_path.write_text("{}\n", encoding="utf-8")
+    agent = AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace_root)
+    bindings = SessionBindingStore()
+    bindings.bind(
+        session_key="web_relay:conversation-a:agent-a",
+        kernel_session_id="session-a",
+        reply_context=ReplyContext(
+            channel_name="web_relay", target_chat_id="conversation-a"
+        ),
+    )
+    session_binder = GatewaySessionBinder(
+        catalog=LiveAgentCatalog((agent,)), repository=bindings, kernel=object()
+    )
     socket = _FakeWebSocket(
         incoming=[
             json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
@@ -250,10 +266,10 @@ def test_im_connection_returns_exact_session_log_from_gateway_binding(
         config=IMConnectionConfig(url="http://im.local:9000"),
         reporter=_minimal_reporter(tmp_path),
         relay_adapter=relay_adapter,
-        session_log_path_provider=lambda agent_id, conversation_id: (
-            str(session_path.resolve())
-            if (agent_id, conversation_id) == ("agent-a", "conversation-a")
-            else None
+        session_log_path_provider=build_session_log_path_provider(
+            session_binder=session_binder,
+            channel_name="web_relay",
+            workspace_config_dirname=".nanoassistant",
         ),
         connect=lambda url, headers: _connect_fake(socket, [], url, headers),
     )
@@ -276,8 +292,85 @@ def test_im_connection_returns_exact_session_log_from_gateway_binding(
             "node_id": "n1",
             "agent_id": "agent-a",
             "conversation_id": "conversation-a",
-            "source_jsonl_path": str(session_path.resolve()),
+            "source_jsonl_path": str(session_path),
             "status": "ready",
+        },
+    }
+
+
+def test_production_session_log_resolution_keeps_receiving_control_frames(
+    tmp_path: Path,
+) -> None:
+    """The composed binding provider cannot hold a control frame behind an unavailable lookup."""
+    heartbeat_seen: list[tuple[str, str]] = []
+
+    class _UnavailableBindingSource:
+        def capture_binding_provenance(
+            self, _session_key: str, *, expected_agent_id: str
+        ) -> None:
+            assert expected_agent_id == "agent-a"
+            raise OSError("workspace binding temporarily unavailable")
+
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "session.log.resolve",
+                    "payload": {
+                        "request_id": "unavailable-log",
+                        "agent_id": "agent-a",
+                        "conversation_id": "conversation-a",
+                    },
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "heartbeat.trigger",
+                    "payload": {"agent_id": "agent-a", "reason": "manual"},
+                }
+            ),
+        ]
+    )
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(lambda _message: None)
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="http://im.local:9000"),
+        reporter=_minimal_reporter(tmp_path),
+        relay_adapter=relay_adapter,
+        heartbeat_trigger=lambda agent_id, reason: heartbeat_seen.append(
+            (agent_id, reason)
+        ),
+        session_log_path_provider=build_session_log_path_provider(
+            session_binder=_UnavailableBindingSource(),  # type: ignore[arg-type]
+            channel_name="web_relay",
+            workspace_config_dirname=".nanoassistant",
+        ),
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - node.register ack
+        await manager._listen_once()  # noqa: SLF001 - start session resolution
+        await manager._listen_once()  # noqa: SLF001 - control progress while resolution runs
+        for _ in range(20):
+            if any("session.log.resolved" in frame for frame in socket.sent):
+                break
+            await asyncio.sleep(0.01)
+
+    asyncio.run(exercise())
+
+    assert heartbeat_seen == [("agent-a", "manual")]
+    assert json.loads(socket.sent[-1]) == {
+        "type": "session.log.resolved",
+        "payload": {
+            "request_id": "unavailable-log",
+            "node_id": "n1",
+            "agent_id": "agent-a",
+            "conversation_id": "conversation-a",
+            "source_jsonl_path": None,
+            "status": "unavailable",
         },
     }
 
