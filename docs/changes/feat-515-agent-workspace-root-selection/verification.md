@@ -613,3 +613,84 @@ None.
 ## Corrected Delta Reconciliation
 
 N/A for full verification.
+
+# Round 8
+
+> Validation snapshot: `a5e64e4fa0565179417ed96056838ce40a69ebc6 -> 891aa54fd3a0ed68e1060552a4122d3dc3659151`
+
+## Summary
+
+Mode: full
+Delta range: `657a39c55..891aa54fd`
+Focus issues: Round-7 CRITICAL-1; copy-on-write startup hydration; receive/close independence from a held persistent lookup; projection consistency after every durable binding transition; all prior closures
+requires_full_verification: false
+
+| Dimension | Result |
+|---|---|
+| Completeness | 4/4 original requirements and 6/6 M1 exit criteria remain implemented; 1 added transcript projection transition is incomplete |
+| Correctness | 7/7 original top-level scenarios remain correct; the Round-7 event-loop blocker is closed, but one durable-write path returns stale `missing` state |
+| Coherence | One blocking deviation from the approved copy-on-write consistency design |
+
+1 critical issue(s), 0 warning(s) found. Fix before PR.
+
+## Prior-Issue Closure
+
+| Prior issue / requested boundary | Result | Evidence |
+|---|---|---|
+| Round-7 CRITICAL-1 / production SQLite lookup could block Gateway receive and close | closed | `GatewaySessionBinder` hydrates persistent rows before the receiver exists and publishes immutable mapping replacements (`src/personal_assistant/gateway/session_binder.py:249-263,764-778`); the provider reads only that projection (`src/personal_assistant/gateway/session_binder.py:935-965`). The real `PersistentSessionBindingStore` regression holds `get()` in another thread while heartbeat and `close()` complete and the prewarmed binding still resolves `ready` (`tests/unit/personal_assistant/test_gateway_im_connection_behavior.py:305-425`). |
+| Round-6 complete durable-row negative assertions | closed | The complete pending profile/operation snapshots and immediate rejected-state comparisons remain present and passed in the full non-E2E suite. |
+| Rounds 1-5 implementation closures | closed | Authenticated serialized creation, immutable Agent id/root, node-local canonical ownership, opaque root/provenance mirroring, exact durable-operation recovery, negative claim guards, migration, and unavailable-source projection remain present; their permanent owners passed in the full non-E2E suite. |
+| Original workspace-root user contract | unchanged and closed | The Round-7 delta changes only binder projection code, its Gateway delta/design, and focused tests/evidence. Default/custom creation, existing-directory confirmation, same-node uniqueness, and immutable detail behavior were not changed; the full non-E2E suite passed. |
+
+## Completeness
+
+- The original four workspace-root requirements, seven user scenarios, six M1 exit criteria, and prototype/reference contract remain implemented and unchanged by this internal delta.
+- Startup hydration, lock-free projection reads, and the real persistent-store receive/close regression close the exact Round-7 production-composition blocker.
+- The approved design and Gateway delta additionally require every later durable binding update to publish the affected projection entry (`docs/changes/feat-515-agent-workspace-root-selection/design.md:255-264`; `docs/changes/feat-515-agent-workspace-root-selection/specs/gateway/service-lifecycle.md:61-83`). The semantic conversation bind path persists a row without publishing it; therefore that added requirement is incomplete under CRITICAL-1.
+- Independent validation:
+  - binder/IM/persistent-store/session-fork focused suite: `61 passed, 2 warnings`;
+  - full non-E2E Python suite: `3063 passed, 24 deselected, 22 warnings`;
+  - changed-file Ruff: passed;
+  - `scripts/docs-check`: passed (`230` maintained Markdown sources, `66` required routes);
+  - `git diff --check a5e64e4f..HEAD` and `git diff --check 657a39c55..HEAD`: passed before this report.
+- This delta does not modify frontend sources, so no additional browser or frontend rerun was required to determine its internal projection verdict.
+
+## Correctness
+
+| Requirement / Scenario | Implementation and test evidence | Status |
+|---|---|---|
+| Default/custom workspace creation, parent validation, existing-directory confirmation, same-node uniqueness, and immutable root display | No production path for the original user contract changed in `657a39c55..891aa54fd`; all permanent Python owners passed. | covered |
+| Startup-hydrated projection avoids binder lock and SQLite on `session.log.resolve` | Construction hydrates `bindings_for_agent()` before IM receive (`src/personal_assistant/gateway/session_binder.py:249-263`); reads use `capture_session_log_projection()` (`src/personal_assistant/gateway/session_binder.py:702-715,950-965`). | covered |
+| Held production persistence lookup does not block heartbeat or close | Persistent-store regression holds `get()` at `tests/unit/personal_assistant/test_gateway_im_connection_behavior.py:305-343`, then proves heartbeat and close finish before release at `:385-425`. | covered |
+| Every later durable binding update publishes the exact projection | Ordinary resolve, reset publication, and runtime update paths call `_record_provenance()` (`src/personal_assistant/gateway/session_binder.py:297-328,391-428,501-566`). `bind_conversation()` instead writes the durable row and updates three legacy maps only (`src/personal_assistant/gateway/session_binder.py:613-651`), leaving `_session_log_projections` unchanged. | missing implementation and test; CRITICAL-1 |
+
+## Coherence
+
+| Design decision | Followed? | Evidence |
+|---|---|---|
+| Hydrate committed bindings before IM receive starts | Yes | Binder construction reads `bindings_for_agent()` and records each row before composition creates the IM connection. |
+| Session-log receive/close never waits on binder lock or SQLite | Yes | Provider uses the immutable projection; the held persistent-lookup regression proves control and close progress. |
+| Every later durable binding write replaces the affected projection entry | No | `bind_conversation()` persists a canonical conversation binding without calling `_record_provenance()` or otherwise replacing the projection entry. |
+| Original workspace-root architecture and user contract | Yes | The delta remains inside Gateway binder projection and does not alter cross-package dependencies or workspace creation behavior. |
+
+### Prototype / Reference Contract
+
+The four workspace-create `must-match` rows and one adaptive layout row are unchanged by this internal Gateway delta; prior repository-local browser evidence remains applicable.
+
+## Issues
+
+### CRITICAL (must fix before PR)
+
+- **CRITICAL-1 — `bind_conversation()` commits a durable conversation binding without publishing its copy-on-write transcript projection, so a newly forked/semantic conversation is falsely reported as `missing` until another update or Gateway restart.** The approved design says every later durable binding write replaces the affected projection entry (`docs/changes/feat-515-agent-workspace-root-selection/design.md:255-264`), and the Gateway delta requires publishing a new entry after every durable binding update (`docs/changes/feat-515-agent-workspace-root-selection/specs/gateway/service-lifecycle.md:61-83`). The ordinary resolve, reset, and runtime-write paths converge on `_record_provenance()` (`src/personal_assistant/gateway/session_binder.py:297-328,391-428,501-566`), but `bind_conversation()` directly calls repository `bind()` and updates `_binding_revisions`, `_binding_agents`, and `_session_agents` without updating `_session_log_projections` (`src/personal_assistant/gateway/session_binder.py:613-651`). Independent reproduction in this snapshot produced `bind_status=bound`, a present durable row from `binder.lookup()`, and `projected_log_path=None`. Route the successful semantic bind through the same projection publication helper after the durable write, and add a permanent regression that constructs the binder before the bind, calls `bind_conversation()`, and immediately asserts `build_session_log_path_provider()` returns the new kernel session's exact JSONL address; include rebinding the same conversation to a second kernel session so copy-on-write replacement, not only insertion, is protected.
+
+### WARNING (must fix before PR)
+
+None.
+
+### SUGGESTION (optional)
+
+None.
+
+## Corrected Delta Reconciliation
+
+N/A for full verification.
