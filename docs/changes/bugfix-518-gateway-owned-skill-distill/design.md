@@ -127,6 +127,25 @@ draft、普通 tool output/result 均不重做。唯一用户可见改变是不�
 两个隔离 Gateway 的 browser acceptance 只证明 IM 无法读取其 workspace、但同节点请求仍可取得 prompt 并完成既有
 distill；跨 node 被禁止。它是一次性 `progress.md` 证据，不扩为常驻 E2E suite。
 
+## Runbook for Reviewer
+
+本 unit 同时改动 IM、Gateway control 和 Web IM。验收前必须在 reviewer 自己的 worktree 无脑停-起，不能复用
+任何已有 IM、Gateway 或 Vite 进程。
+
+| 服务 | 停止命令 | 启动与新鲜度检查 | 健康检查 |
+|---|---|---|---|
+| 隔离 IM + 首个 Gateway | `./scripts/e2e-down.sh --wt "$WT_ROOT"` | `PATH="/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH" ./scripts/e2e-up.sh --wt "$WT_ROOT"`；用 worktree 内已有前端依赖运行 `npm run build`，并在 `dist/assets/` 确认 `distill-prompt` marker | `source .e2e-ports.env && curl -fsS "$IM_URL/openapi.json" >/dev/null`；确认 `.im.pid`、`.gateway.pid` 存活 |
+| Web IM Vite | 停止本轮自己的 Vite PID / tmux session | `source .e2e-ports.env` 后，以空闲端口运行 `VITE_IM_PROXY_TARGET="$IM_URL" npm run dev -- --host 127.0.0.1 --port "$VITE_PORT" --strictPort` | 浏览器经该 Vite 地址登录隔离测试用户 |
+| 第二个验收 Gateway | 停止本轮自己的第二 Gateway PID / tmux session | 从本轮生成的 Gateway config 复制到其**独立 runtime directory**；只保留 `web_relay`，并改写 `node.node_id`、`node.workspace_base`、Agent id 与 Agent workspace。它仍连接本轮 `IM_URL`、使用同一测试 owner，绝不复用第一个 Gateway 的 credentials/manifest/state。 | 在 IM agent 列表确认第二个 Agent 归属不同 node；为它建立一条 direct source conversation |
+
+浏览器使用 `.gateway-config.yaml` 的隔离 `im_service.username/password`（默认 `nano` / `nano1234`）。以 ordinary
+direct message 建立首个 Gateway source，使其产生本机 durable binding 和 JSONL；选择该 source 后，第二 Gateway
+source 必须显示为 `Different Gateway` 且不可选。随后选择同 Gateway execution Agent 和 scope，确认新单聊预填
+Gateway 返回的当前格式 prompt，并发送为普通消息。记录用户可见结果和 control/browser 仅提交 identity 的证据。
+
+结束时停止 Vite、第二 Gateway 与 `e2e-down.sh --wt "$WT_ROOT"` 启动的栈；确认本轮端口、PID、credentials、config
+和 manifest 均未残留或暂存。标准 E2E 数据仅可作为本地排障材料，不能提交。
+
 ### 受影响测试处置
 
 | 现有测试 | 处置 | 理由 |
