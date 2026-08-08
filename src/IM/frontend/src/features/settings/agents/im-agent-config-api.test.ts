@@ -152,6 +152,7 @@ describe("workspace creation transport", () => {
         tool_allowlist: [],
         group_reply_policy: "MENTION",
         default_model: null,
+        reasoning_effort: null,
         workspace_root: "/srv/shared",
         confirm_existing_workspace: false,
       }),
