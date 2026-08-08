@@ -402,3 +402,153 @@ None.
 - [x] `docs/specs/CONTRIBUTING.md`：无需更新。
 
 本轮未创建 out-of-unit GitHub issue。
+
+---
+
+# Round 5 — 2026-08-08
+
+> Validation snapshot: `a5e64e4fa0565179417ed96056838ce40a69ebc6 → 91bf97d94a5c5c64a76a9c993aebdc3a5041a23d`
+>
+> Revalidation mode: full（fix delta `bb9cb43e0457c9c67beb1eed7e81da607b988634..91bf97d94a5c5c64a76a9c993aebdc3a5041a23d`）
+
+## Highest Required Action
+
+`pass`
+
+## Verdict
+
+`pass`
+
+七个首文档 Scenario 与四条 prototype must-match 均在隔离双 Gateway 真栈和真实浏览器中通过。
+Round 5 重点回归同样通过：正常已存在 Agent `r5_default_515` 不能从新建页以另一 root 重新创建，
+页面返回 `409 (agent_id already exists)`、保留完整草稿且不发生成功跳转；default、custom、已有目录
+确认路径均未出现新错误。
+
+会话蒸馏来源的三个用户态得到同一真实 conversation 的连续证据：无消息时在线 Gateway 明确显示
+`No transcript` 并禁选；Gateway 临时离线时显示 `Transcript temporarily unavailable` 并禁选，
+没有误显示 `No transcript`；产生真实 transcript 后该来源可选并启用 `Distill to skill`。另一个
+Gateway 的 ready 来源在单独选择前可选，选择主 Gateway 来源后立即禁选并标记
+`Different Gateway node`。
+
+## User Journeys Exercised
+
+1. **默认创建、固定详情与 duplicate-ID（desktop 1440×1000）**
+   - 在主节点 `wt-review-feat-515-r5-62016` 使用默认选中的 `Use default directory` 创建
+     `r5_default_515`；详情显示节点分配的 `.gateway-workspace/r5_default_515`。
+   - `Workspace Root` disabled，且没有编辑或迁移入口。
+   - 回到新建页用同一 Agent ID、另一名称和 custom root 提交，页面显示
+     `409 (agent_id already exists)`；名称、描述、路径和 instructions 草稿全部保留。
+2. **自定义新路径与父目录错误**
+   - 使用 parent 已存在而 target 不存在的 `.r5-path-base/custom_target` 创建
+     `r5_custom_515`，详情显示 exact canonical root 且只读。
+   - 使用 `.r5-missing-parent/agent` 创建 `r5_bad_parent_515`，页面停留在原表单，并在 Workspace
+     字段旁显示目标节点的 `The parent directory does not exist ...`；未出现成功 Agent。
+3. **已有目录、Gateway 离线与重连恢复**
+   - 预置 `.r5-existing-515/user-file.txt`；第一次提交只出现醒目的 existing-directory alert 与
+     checkbox，确认前没有 `.nanoassistant`。
+   - 勾选确认后临时停止本轮主 Gateway；提交显示
+     `503 (target_node_id is not connected)`，路径、描述、确认状态和警示完整保留。
+   - 以同一隔离 config 重连同一 Gateway 后再次点击创建即成功；sentinel 内容未变，
+     `.nanoassistant` 只在成功后出现。
+4. **同节点占用与双节点同字符串路径**
+   - 主节点再以 `.r5-existing-515` 创建 `r5_conflict_515`，页面明确显示目录归属
+     `r5_existing_515`，没有转成 existing-directory 确认。
+   - 按 Runbook 在 `.gateway-node-2-runtime/` 启动独立 `e2e-node-2`；同一 root 字符串第一次只要求
+     existing-directory 确认，确认后 `r5_crossnode_515` 创建成功，详情 owning node 为
+     `e2e-node-2`。
+5. **transcript 状态与来源选择**
+   - 主节点无消息 conversation 在线时为 disabled `No transcript`；停止主 Gateway 后刷新为
+     disabled `Transcript temporarily unavailable`，文案没有混淆。
+   - 重连后通过真实聊天产生 transcript；该来源可选，选中后 `Distill to skill` enabled。
+   - 在第二 Gateway 的预置 `e2e-node-2` workspace（不是共享 root）产生第二条真实 transcript；
+     两个来源未选择时都可选，选中主节点来源后第二节点来源 disabled 且显示
+     `Different Gateway node`。
+6. **原型逐状态对照与 390×844 响应式**
+   - 通过 worktree-local HTTP 打开 `prototype.html` 的 default、custom、existing warning 状态，
+     与真实产品的对应状态逐项对照。
+   - Chrome 的 CSS viewport 实测为 `390×844`，`scrollWidth == clientWidth == 390`；default/custom
+     纵向堆叠，长 custom path 不造成横向溢出，Workspace 仍位于 Identity 与 Behavior 之间。
+
+## Reference Artifacts Reviewed
+
+| Reference | Required contract | Actual product evidence | Viewport / state | Comparison conclusion |
+|---|---|---|---|---|
+| `prototype.html` / card order | Workspace 位于 Identity 与 Behavior 之间 | 真实 Vite 页面截图 + accessibility DOM | desktop 1440×1000；CSS 390×844 | match |
+| `prototype.html` / mode chooser | default/custom 二选一且默认选中 | desktop 与 390px default checked；custom 切换后字段出现 | desktop + 390×844 | match |
+| `prototype.html` / custom path | 目标节点、父目录要求与字段错误 | helper 指向选中节点；missing parent 原因位于 Workspace 字段旁；长路径无横向溢出 | desktop error；390×844 custom | match |
+| `prototype.html` / existing directory | 醒目提示、确认框和再次提交 | alert + checkbox；确认前零初始化；503 保留确认草稿；重连后成功 | desktop existing / unavailable / recovered | match |
+
+## Acceptance Criteria Coverage
+
+### Requirement: 创建 Agent 时可选择默认目录或自定义路径 — 组内结论: pass
+
+| Scenario | 期望来源 | 验证方式（覆盖它的旅程） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 使用默认目录创建 Agent | `spec.md`；prototype mode chooser | Journey 1，真实 browser 创建与详情 | default 首屏 checked；详情显示节点分配 root | pass | duplicate-ID probe 也未改写原 Agent |
+| 使用自定义路径创建新的 workspace | `spec.md`；prototype custom state | Journey 2，提交 parent 可用的新 target | 创建成功；详情 root 为目标 canonical path | pass | default/custom 均无新错误 |
+| 自定义路径的父目录不可用 | `spec.md`；prototype field error | Journey 2，missing parent | Workspace 字段旁显示目标节点原因；草稿保留；无 Agent | pass | HTTP 422 为预期可恢复结果 |
+
+### Requirement: 采用已有目录前须提醒用户 — 组内结论: pass
+
+| Scenario | 期望来源 | 验证方式（覆盖它的旅程） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 自定义路径是已有目录 | `spec.md`；prototype existing state | Journey 3，确认前、Gateway 离线、重连重试 | alert + checkbox；确认前无初始化；503 保留确认；成功后 sentinel 保留 | pass | transient unavailable 可恢复 |
+
+### Requirement: 同节点 workspace root 只可归属一个 Agent — 组内结论: pass
+
+| Scenario | 期望来源 | 验证方式（覆盖它的旅程） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 同一节点的路径已被另一个 Agent 使用 | `spec.md` | Journey 4，主节点重复提交已归属 root | 字段显示归属 `r5_existing_515`；无确认框、无新 Agent | pass | ownership 与 existing 提示明确区分 |
+| 不同节点的同字符串路径 | `spec.md`；双节点 Runbook | Journey 4，两个在线 Gateway、相同 absolute string | 第二节点只要求 existing 确认；确认后成功，详情为 `e2e-node-2` | pass | 独立 config/runtime/node identity |
+
+### Requirement: 创建后 workspace root 固定 — 组内结论: pass
+
+| Scenario | 期望来源 | 验证方式（覆盖它的旅程） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 查看已有 Agent 的设置 | `spec.md`；Round 1 blocking issue | Journey 1，详情只读 + duplicate-ID 重新创建 | root disabled、无迁移入口；duplicate 返回 409 且不跳转 | pass | 正常 existing Agent 不可 re-create |
+
+## Additional Product Probes
+
+| Probe | Expected | Observed | Result |
+|---|---|---|---|
+| Existing Agent ID + divergent custom root | Reject without re-creating or reassigning | 409 on create form; full draft and original Agent preserved | pass |
+| Existing-directory submit while Gateway offline | Clear recoverable failure without losing confirmation | 503 inline; draft, checkbox and alert retained; reconnect retry succeeded | pass |
+| Explicit missing transcript | Only actual missing binding says `No transcript` | Online empty conversation disabled as `No transcript` | pass |
+| Temporarily unavailable transcript | Disabled, retryable wording; never `No transcript` | Same conversation offline became `Transcript temporarily unavailable` | pass |
+| Ready transcript selection | Ready source selectable and enables next action | Checkbox enabled; selection enabled `Distill to skill` | pass |
+| Cross-Gateway source selection | Do not mix transcript sources across nodes | Both ready initially; after one selection, other disabled as `Different Gateway node` | pass |
+
+## Issues
+
+None.
+
+## Side Findings
+
+None.
+
+## Environment and Cleanup
+
+- 隔离 IM: `http://127.0.0.1:52475`；Vite: `http://127.0.0.1:52501`；prototype HTTP:
+  `http://127.0.0.1:54827`。未使用生产 `:8011`、默认 Gateway config 或日常 workspace。
+- 主节点: `wt-review-feat-515-r5-62016`；第二节点: `e2e-node-2`。第二节点使用 Runbook 指定的
+  `.gateway-node-2-runtime/` 隔离 config、runtime state、workspace base、node identity 和进程；
+  文档可直接完成双节点旅程。
+- desktop 使用 Codex in-app browser；390×844 使用 Chrome，并以页面实时值确认
+  `innerWidth=390`、`innerHeight=844`、`scrollWidth=clientWidth=390`。三个相关 browser tab 的
+  console warning/error 列表均为空。
+- 结束时依次停止第二 Gateway、重连后的主 Gateway、Vite、prototype server，再执行 worktree
+  `e2e-down.sh`；确认 `52475`、`52501`、`54827` 均无 listener，且无本轮 tmux session。
+- 本轮 runtime config、日志、SQLite、测试 workspace、sentinel 目录和临时 `node_modules` symlink
+  均移入废纸篓，可恢复；`git status` 在写报告前为 clean。
+
+## Upper-level Documentation Sync
+
+- [x] `SPEC.md`（跨包顶点架构）：无需更新；本 unit 不改变跨包依赖或部署拓扑。
+- [x] `docs/specs/im/` 与 `docs/specs/gateway/`：unit delta 已覆盖创建选择、确认、node-scoped
+  ownership、fixed root、operation-correlated recovery，以及 transcript `ready/missing/unavailable`；
+  current `docs/specs/im/web-chat-ux.md` 已包含 unavailable 与 missing 的用户可见区分，待 orchestrator
+  收尾归并其余 delta。
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新。
+- [x] `docs/specs/CONTRIBUTING.md`：无需更新。
+
+本轮未创建 out-of-unit GitHub issue。
