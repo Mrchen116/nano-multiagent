@@ -137,6 +137,15 @@
 - [x] Regress the fork handler followed immediately by the production provider; it returns the exact fork-session
   JSONL address rather than treating the just-bound conversation as missing.
 
+### Round-9 final regression checklist
+
+- [x] Bind the same canonical conversation to A then B through `bind_conversation()` and prove the production
+  provider replaces A's immediate address with B's exact JSONL address.
+- [x] Inject a repository `bind()` failure for C and prove the durable row, copy-on-write provider projection, and
+  in-memory session provenance remain at B with no phantom C address.
+- [x] Keep the permanent Binder owner below 400 lines by moving the pre-existing old-binding reuse race to the
+  dedicated concurrency owner.
+
 ### R1 — Gateway 本地 workspace creation boundary
 
 - 状态: DONE
