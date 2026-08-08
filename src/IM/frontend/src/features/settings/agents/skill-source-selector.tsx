@@ -10,6 +10,9 @@ function normalizePath(value: string | null | undefined) {
 function skillSourceKey(option: AgentAllowlistOption, workspaceRoot: string): "global" | "local" | "other" {
   const location = normalizePath(option.location);
   const root = normalizePath(workspaceRoot);
+  if (!root) {
+    return option.default_on === true ? "global" : "other";
+  }
   if (location && root && location.startsWith(`${root}/.nanoassistant/skills/`)) {
     return "local";
   }

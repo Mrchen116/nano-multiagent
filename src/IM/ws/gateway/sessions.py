@@ -283,6 +283,26 @@ class GatewaySessions:
             if isinstance(raw_workspaces, dict)
             else {}
         )
+        raw_workspace_provenance = payload.get("agent_workspace_is_default")
+        agent_workspace_is_default: dict[str, bool] = (
+            {
+                key: value
+                for key, value in raw_workspace_provenance.items()
+                if isinstance(key, str) and isinstance(value, bool)
+            }
+            if isinstance(raw_workspace_provenance, dict)
+            else {}
+        )
+        raw_create_operations = payload.get("agent_create_operations")
+        agent_create_operations: dict[str, str] = (
+            {
+                key: value.strip()
+                for key, value in raw_create_operations.items()
+                if isinstance(key, str) and isinstance(value, str) and value.strip()
+            }
+            if isinstance(raw_create_operations, dict)
+            else {}
+        )
         # bugfix-467: optional per-agent skills/tool_allowlist seeds.  Older gateways
         # omit these fields; IM creates an empty-shell profile as before.
         raw_skills = payload.get("agent_skills")
@@ -325,6 +345,8 @@ class GatewaySessions:
                 version=version,
                 agent_ids=agents,
                 agent_workspaces=agent_workspaces,
+                agent_workspace_is_default=agent_workspace_is_default,
+                agent_create_operations=agent_create_operations,
                 agent_skills=agent_skills,
                 agent_tool_allowlist=agent_tool_allowlist,
             )

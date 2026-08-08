@@ -30,7 +30,18 @@ _GATEWAY_CONFIG_KEYS = (
     "heartbeat_json",
 )
 _SAFE_REJECTION_CODES = frozenset(
-    {"invalid_agent_config", "operation_conflict", "operation_id_reused"}
+    {
+        "agent_id_already_exists",
+        "invalid_agent_config",
+        "operation_conflict",
+        "operation_id_reused",
+        "workspace_already_assigned",
+        "workspace_confirmation_required",
+        "workspace_initialization_failed",
+        "workspace_parent_missing",
+        "workspace_parent_unusable",
+        "workspace_target_not_directory",
+    }
 )
 
 
@@ -41,8 +52,16 @@ class ConfigApplyPendingError(RuntimeError):
 class ConfigApplyRejectedError(ValueError):
     """Expose a stable, API-safe Gateway rejection code."""
 
-    def __init__(self, code: str) -> None:
+    def __init__(
+        self,
+        code: str,
+        *,
+        message: str | None = None,
+        agent_id: str | None = None,
+    ) -> None:
         self.code = code if code in _SAFE_REJECTION_CODES else "invalid_agent_config"
+        self.message = message
+        self.agent_id = agent_id
         super().__init__(self.code)
 
 
@@ -85,7 +104,11 @@ class AgentConfigOperationCoordinator:
                 if operation.operation_kind == "compensation":
                     raise ConfigApplyPendingError("config_apply_pending")
                 self._record_rejected(operation=operation, result=result)
-                raise ConfigApplyRejectedError(_safe_result_error_code(result))
+                raise ConfigApplyRejectedError(
+                    _safe_result_error_code(result),
+                    message=_result_message(result),
+                    agent_id=_result_error_agent_id(result),
+                )
             operation = self._operations.mark_gateway_applied(
                 operation_id=operation.operation_id, result=result
             )
@@ -114,11 +137,13 @@ class AgentConfigOperationCoordinator:
                 expected_previous_fingerprint=None,
                 expected_profile_version=None,
             )
+            create_payload = gateway_candidate(candidate)
+            create_payload["create_operation_id"] = operation.operation_id
             result = await self._gateway.request_agent_create(
                 target_node_id=node_id,
                 operation_id=operation.operation_id,
                 candidate_fingerprint=operation.candidate_fingerprint,
-                payload=gateway_candidate(candidate),
+                payload=create_payload,
             )
             result = await self._resolve_initial_result(operation, result)
             operation = self._accept_applied(operation=operation, result=result)
@@ -227,7 +252,11 @@ class AgentConfigOperationCoordinator:
     ) -> AgentConfigOperation:
         if _result_status(result) == "rejected":
             self._record_rejected(operation=operation, result=result)
-            raise ConfigApplyRejectedError(_safe_result_error_code(result))
+            raise ConfigApplyRejectedError(
+                _safe_result_error_code(result),
+                message=_result_message(result),
+                agent_id=_result_error_agent_id(result),
+            )
         return self._operations.mark_gateway_applied(
             operation_id=operation.operation_id, result=result
         )
@@ -267,8 +296,94 @@ class AgentConfigOperationCoordinator:
         )
         if workspace_root is None:
             raise ConfigApplyPendingError("config_apply_pending")
+        workspace_is_default = _bool_from_result(
+            result_agent,
+            "workspace_is_default",
+            fallback=candidate.get("workspace_is_default"),
+        )
+        display_name = (
+            _text_from_result(
+                result_agent, "display_name", fallback=candidate.get("display_name")
+            )
+            or operation.agent_id
+        )
+        description = str(candidate.get("description") or "")
+        skills = _string_list_from_result(
+            result_agent, "skills", fallback=candidate.get("skills")
+        )
+        tool_allowlist = _string_list_from_result(
+            result_agent, "tool_allowlist", fallback=candidate.get("tool_allowlist")
+        )
+        group_reply_policy = (
+            _text_from_result(
+                result_agent,
+                "group_reply_policy",
+                fallback=candidate.get("group_reply_policy"),
+            )
+            or "manual"
+        )
+        default_model = _optional_text_from_result(
+            result_agent, "default_model", fallback=candidate.get("default_model")
+        )
+        reasoning_effort = _optional_text_from_result(
+            result_agent,
+            "reasoning_effort",
+            fallback=candidate.get("reasoning_effort"),
+        )
+        features = _bool_dict_from_result(
+            result_agent, "features", fallback=candidate.get("features")
+        )
+        custom_prompt = _optional_text_from_result(
+            result_agent, "custom_prompt", fallback=candidate.get("custom_prompt")
+        )
         existing = self._service.get_profile(agent_id=operation.agent_id)
-        if existing is not None and existing.owner_id.strip():
+        if existing is not None:
+            is_registration_seed = (
+                existing.owner_id in {"", operation.owner_id}
+                and existing.node_id == operation.node_id
+                and self._service.is_registration_seed(
+                    agent_id=operation.agent_id,
+                    owner_id=existing.owner_id,
+                    node_id=operation.node_id,
+                )
+            )
+            if is_registration_seed:
+                result_display_name = result_agent.get("display_name")
+                if (
+                    existing.workspace_root != workspace_root
+                    or existing.workspace_is_default is not workspace_is_default
+                    or workspace_is_default is None
+                    or not isinstance(result_display_name, str)
+                    or result_display_name.strip()
+                    != str(candidate.get("display_name") or "")
+                ):
+                    self._operations.mark_rejected(
+                        operation_id=operation.operation_id,
+                        error_code="agent_id_already_exists",
+                        error_message="agent_id already exists",
+                        result=operation.gateway_result,
+                    )
+                    raise ConfigApplyRejectedError(
+                        "agent_id_already_exists",
+                        message="agent_id already exists",
+                    )
+                return self._service.claim_registration_seed_profile(
+                    agent_id=operation.agent_id,
+                    owner_id=operation.owner_id,
+                    expected_owner_id=existing.owner_id,
+                    node_id=operation.node_id,
+                    expected_workspace_root=workspace_root,
+                    expected_workspace_is_default=workspace_is_default,
+                    display_name=display_name,
+                    description=description,
+                    skills=skills,
+                    tool_allowlist=tool_allowlist,
+                    group_reply_policy=group_reply_policy,
+                    default_model=default_model,
+                    reasoning_effort=reasoning_effort,
+                    features=features,
+                    custom_prompt=custom_prompt,
+                )
             if _profile_matches_create_result(
                 existing,
                 operation=operation,
@@ -281,40 +396,17 @@ class AgentConfigOperationCoordinator:
             agent_id=operation.agent_id,
             owner_id=operation.owner_id,
             node_id=operation.node_id,
-            display_name=_text_from_result(
-                result_agent, "display_name", fallback=candidate.get("display_name")
-            )
-            or operation.agent_id,
-            description=str(candidate.get("description") or ""),
-            skills=_string_list_from_result(
-                result_agent, "skills", fallback=candidate.get("skills")
-            ),
-            tool_allowlist=_string_list_from_result(
-                result_agent,
-                "tool_allowlist",
-                fallback=candidate.get("tool_allowlist"),
-            ),
-            group_reply_policy=_text_from_result(
-                result_agent,
-                "group_reply_policy",
-                fallback=candidate.get("group_reply_policy"),
-            )
-            or "manual",
-            default_model=_optional_text_from_result(
-                result_agent, "default_model", fallback=candidate.get("default_model")
-            ),
-            reasoning_effort=_optional_text_from_result(
-                result_agent,
-                "reasoning_effort",
-                fallback=candidate.get("reasoning_effort"),
-            ),
+            display_name=display_name,
+            description=description,
+            skills=skills,
+            tool_allowlist=tool_allowlist,
+            group_reply_policy=group_reply_policy,
+            default_model=default_model,
+            reasoning_effort=reasoning_effort,
             workspace_root=workspace_root,
-            features=_bool_dict_from_result(
-                result_agent, "features", fallback=candidate.get("features")
-            ),
-            custom_prompt=_optional_text_from_result(
-                result_agent, "custom_prompt", fallback=candidate.get("custom_prompt")
-            ),
+            workspace_is_default=workspace_is_default,
+            features=features,
+            custom_prompt=custom_prompt,
             notify_config_sync=False,
         )
 
@@ -461,6 +553,10 @@ def gateway_candidate(candidate: dict[str, object]) -> dict[str, object]:
         projected["skills"] = (
             _operation_string_list(raw_skills) if isinstance(raw_skills, list) else None
         )
+    if "confirm_existing_workspace" in candidate:
+        projected["confirm_existing_workspace"] = (
+            candidate.get("confirm_existing_workspace") is True
+        )
     return projected
 
 
@@ -506,6 +602,16 @@ def _safe_result_error_code(result: dict[str, object]) -> str:
     if isinstance(value, str) and value in _SAFE_REJECTION_CODES:
         return value
     return "invalid_agent_config"
+
+
+def _result_message(result: dict[str, object]) -> str | None:
+    value = result.get("message")
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def _result_error_agent_id(result: dict[str, object]) -> str | None:
+    value = result.get("agent_id")
+    return value if isinstance(value, str) and value.strip() else None
 
 
 def _result_agent(result: dict[str, object] | None) -> dict[str, object]:
@@ -562,6 +668,13 @@ def _bool_dict_from_result(
         for key, item in value.items()
         if isinstance(key, str) and isinstance(item, bool)
     }
+
+
+def _bool_from_result(
+    result: dict[str, object], field: str, *, fallback: object
+) -> bool | None:
+    value = result[field] if field in result else fallback
+    return value if isinstance(value, bool) else None
 
 
 def _resolved_custom_prompt(

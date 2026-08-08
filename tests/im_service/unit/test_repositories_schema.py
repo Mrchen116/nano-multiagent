@@ -99,11 +99,12 @@ def test_initialize_schema_backfills_missing_agent_workspace_roots(
     initialize_schema(connection)
 
     row = connection.execute(
-        "SELECT workspace_root FROM agent_profiles WHERE agent_id = ?",
+        "SELECT workspace_root, workspace_is_default FROM agent_profiles WHERE agent_id = ?",
         ("agent-legacy",),
     ).fetchone()
     assert row is not None
     assert row["workspace_root"].endswith("/.nanoassistant/workspaces/agent-legacy")
+    assert row["workspace_is_default"] is None
 
 
 def test_initialize_schema_backfills_last_message_preview_from_latest_message(

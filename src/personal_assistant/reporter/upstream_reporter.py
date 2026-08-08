@@ -275,6 +275,14 @@ class UpstreamReporter:
                 for agent in self._agents
                 if agent.workspace_root is not None
             },
+            "agent_workspace_is_default": {
+                agent.agent_id: agent.workspace_is_default for agent in self._agents
+            },
+            "agent_create_operations": {
+                agent.agent_id: agent.create_operation_id
+                for agent in self._agents
+                if agent.create_operation_id is not None
+            },
             # bugfix-467: seed skills/tool_allowlist on first profile creation so
             # the IM mirror is born with the YAML truth, avoiding reconcile from
             # treating an empty v1 shell as authoritative and wiping the agent.

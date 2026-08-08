@@ -3,10 +3,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { authFetch } from "../../auth/auth-fetch";
 import {
   createAgentChannel,
+  createNodeAgent,
   deleteAgentChannel,
   getAgentConfig,
   getAgentSkillsUsage,
   listAgentChannels,
+  nodePromptPreview,
   reconnectAgentChannel,
   retryAgentChannelRemoval,
   normalizeAgentConfigResponse,
@@ -120,6 +122,69 @@ describe("getAgentConfig source selection", () => {
       "/im/v1/agents/a1/config?source=live",
       expect.anything(),
     );
+  });
+});
+
+describe("workspace creation transport", () => {
+  const mockedFetch = vi.mocked(authFetch);
+
+  beforeEach(() => mockedFetch.mockReset());
+
+  it("preserves stable workspace error fields for UI branching", async () => {
+    mockedFetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          code: "workspace_already_assigned",
+          detail: "Workspace is already assigned.",
+          agent_id: "agent-owner",
+        }),
+        { status: 409, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    await expect(
+      createNodeAgent("node-1", {
+        agent_id: "agent-new",
+        owner_id: "",
+        display_name: "New",
+        description: "",
+        skills: [],
+        tool_allowlist: [],
+        group_reply_policy: "MENTION",
+        default_model: null,
+        reasoning_effort: null,
+        workspace_root: "/srv/shared",
+        confirm_existing_workspace: false,
+      }),
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "workspace_already_assigned",
+      detail: "Workspace is already assigned.",
+      agentId: "agent-owner",
+    });
+  });
+
+  it("forwards node-owned workspace preview intent", async () => {
+    mockedFetch.mockResolvedValue(
+      new Response(JSON.stringify({ prompt: "preview" }), { status: 200 }),
+    );
+
+    await nodePromptPreview("node-1", {
+      features: {},
+      custom_prompt: "",
+      workspace_mode: "custom",
+      workspace_root: "/srv/agent-new",
+      agent_id_hint: "agent-new",
+    });
+
+    const body = JSON.parse(
+      String((mockedFetch.mock.calls.at(-1)?.[1] as RequestInit).body),
+    );
+    expect(body).toMatchObject({
+      workspace_mode: "custom",
+      workspace_root: "/srv/agent-new",
+      agent_id_hint: "agent-new",
+    });
   });
 });
 

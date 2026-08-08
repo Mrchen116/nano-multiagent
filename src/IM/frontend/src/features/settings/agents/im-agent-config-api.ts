@@ -106,6 +106,7 @@ export interface CapabilitySnapshot {
   tools: AgentAllowlistOption[];
   model_options: ModelOption[];
   platform_default_model: string | null;
+  default_workspace_template?: string | null;
   // feat-379-M3: feature toggle list; absent from older Gateway versions → treat as []
   features?: AgentFeature[];
 }
@@ -151,6 +152,7 @@ export interface NodeAgentCreateRequest {
   default_model: string | null;
   reasoning_effort: string | null;
   workspace_root: string | null;
+  confirm_existing_workspace?: boolean;
 }
 
 export interface CreateAgentRequest extends NodeAgentCreateRequest {
@@ -285,6 +287,7 @@ interface NodeCapabilitiesWire {
   skills: Array<string | AgentAllowlistOption>;
   tools: Array<string | AgentAllowlistOption>;
   platform_default_model?: string | null;
+  default_workspace_template?: string | null;
   // feat-379-M7 (ISSUE-1): node capabilities now carry FEATURE_REGISTRY projection
   // so the agent-create page can render feature toggles without a per-agent context.
   features?: AgentFeature[];
@@ -370,6 +373,8 @@ function toCapabilitySnapshot(
     tools: normalizeAllowlistOptions(raw.tools),
     model_options: normalizeModelOptions(raw),
     platform_default_model: raw.platform_default_model ?? null,
+    default_workspace_template:
+      "default_workspace_template" in raw ? raw.default_workspace_template ?? null : null,
     // feat-379-M3: carry through feature toggles; NodeCapabilitiesWire has no features field → []
     features: "features" in raw && Array.isArray(raw.features) ? raw.features : [],
   };
@@ -411,12 +416,23 @@ function withBase(path: string) {
 export class AgentConfigRequestError extends Error {
   status: number;
   detail: string;
+  code: string | null;
+  agentId: string | null;
 
-  constructor(input: { status: number; detail: string; method: string; path: string }) {
+  constructor(input: {
+    status: number;
+    detail: string;
+    method: string;
+    path: string;
+    code?: string | null;
+    agentId?: string | null;
+  }) {
     super(`${input.method} ${input.path} failed: ${input.status} (${input.detail})`);
     this.name = "AgentConfigRequestError";
     this.status = input.status;
     this.detail = input.detail;
+    this.code = input.code ?? null;
+    this.agentId = input.agentId ?? null;
   }
 }
 
@@ -450,16 +466,31 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     const method = init?.method ?? "GET";
     let detail = response.statusText || "request failed";
+    let code: string | null = null;
+    let agentId: string | null = null;
     const rawBody = await response.text();
     if (rawBody) {
       try {
-        const parsed = JSON.parse(rawBody) as { detail?: string };
+        const parsed = JSON.parse(rawBody) as {
+          detail?: string;
+          code?: string;
+          agent_id?: string;
+        };
         detail = typeof parsed.detail === "string" && parsed.detail.length > 0 ? parsed.detail : rawBody;
+        code = typeof parsed.code === "string" ? parsed.code : null;
+        agentId = typeof parsed.agent_id === "string" ? parsed.agent_id : null;
       } catch {
         detail = rawBody;
       }
     }
-    throw new AgentConfigRequestError({ status: response.status, detail, method, path });
+    throw new AgentConfigRequestError({
+      status: response.status,
+      detail,
+      method,
+      path,
+      code,
+      agentId,
+    });
   }
   return (await response.json()) as T;
 }
@@ -707,6 +738,8 @@ export async function nodePromptPreview(
     tool_ids?: string[];
     skill_ids?: string[];
     agent_id_hint?: string;
+    workspace_mode?: "default" | "custom";
+    workspace_root?: string | null;
   }
 ): Promise<string> {
   const result = await requestJson<{ prompt: string }>(`/im/v1/nodes/${nodeId}/prompt-preview`, {

@@ -17,7 +17,7 @@ def test_agent_create_contract_shape_and_validation(tmp_path: Path) -> None:
         owner = register_user(client, username="owner", display_name="Owner")
         authorize(client, owner)
         NodeRepository(app.state.connection).upsert_node(
-            node_id="node-1", node_name="MacBook"
+            node_id="node-1", node_name="MacBook", owner_id=owner.owner_id
         )
 
         async def fake_request_agent_create(
@@ -37,6 +37,7 @@ def test_agent_create_contract_shape_and_validation(tmp_path: Path) -> None:
                 "agent": {
                     "agent_id": payload["agent_id"],
                     "display_name": payload["display_name"],
+                    "description": "first runtime agent",
                     "custom_prompt": payload["custom_prompt"],
                     "features": payload["features"],
                     "skills": payload["skills"],
@@ -44,6 +45,7 @@ def test_agent_create_contract_shape_and_validation(tmp_path: Path) -> None:
                     "group_reply_policy": payload["group_reply_policy"],
                     "default_model": payload["default_model"],
                     "workspace_root": "/srv/agents/agent-1",
+                    "workspace_is_default": True,
                 },
                 "candidate_fingerprint": candidate_fingerprint,
             }
@@ -90,7 +92,7 @@ def test_agent_create_contract_shape_and_validation(tmp_path: Path) -> None:
         }
         assert created.json()["node_id"] == "node-1"
         assert created.json()["workspace_root"] == "/srv/agents/agent-1"
-        assert created.json()["workspace_is_default"] is False
+        assert created.json()["workspace_is_default"] is True
         assert isinstance(created.json()["updated_at"], str)
         assert created.json()["profile_version"] == 1
 
@@ -129,6 +131,53 @@ def test_agent_create_contract_shape_and_validation(tmp_path: Path) -> None:
         # reaching the gateway dispatch.
         assert missing_node.status_code == 404
         assert missing_node.json() == {"detail": "node_id not found"}
+
+
+def test_agent_create_surfaces_gateway_workspace_errors_without_persisting(
+    tmp_path: Path,
+) -> None:
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner = register_user(client, username="owner", display_name="Owner")
+        authorize(client, owner)
+        NodeRepository(app.state.connection).upsert_node(
+            node_id="node-1", node_name="MacBook", owner_id=owner.owner_id
+        )
+
+        async def fake_request_agent_create(**_kwargs):
+            return {
+                "status": "rejected",
+                "error_code": "workspace_confirmation_required",
+                "message": "workspace already exists",
+                "agent_id": "agent-1",
+            }
+
+        app.state.gateway_control.request_agent_create = fake_request_agent_create
+        response = client.post(
+            "/im/v1/nodes/node-1/agents",
+            json={
+                "agent_id": "agent-1",
+                "owner_id": owner.owner_id,
+                "display_name": "Alpha",
+                "skills": [],
+                "tool_allowlist": [],
+                "group_reply_policy": "MENTION",
+                "workspace_root": "/srv/existing",
+            },
+        )
+
+        assert response.status_code == 409
+        assert response.json() == {
+            "code": "workspace_confirmation_required",
+            "detail": "workspace already exists",
+            "agent_id": "agent-1",
+        }
+        assert (
+            app.state.connection.execute(
+                "SELECT 1 FROM agent_profiles WHERE agent_id = ?", ("agent-1",)
+            ).fetchone()
+            is None
+        )
 
 
 def test_agent_create_defaults_omitted_skills_from_node_capabilities(

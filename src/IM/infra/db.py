@@ -62,9 +62,22 @@ CREATE TABLE IF NOT EXISTS agent_profiles (
     default_model TEXT,
     reasoning_effort TEXT,
     workspace_root TEXT,
+    workspace_is_default INTEGER,
+    registration_seed INTEGER NOT NULL DEFAULT 0,
+    pending_create_operation_id TEXT,
     profile_version INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS agent_create_operations (
+    operation_id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    request_fingerprint TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(owner_id, node_id, agent_id)
 );
 
 CREATE TABLE IF NOT EXISTS nodes (
@@ -677,6 +690,18 @@ def _migrate_agent_profile_tables(connection: sqlite3.Connection) -> None:
         )
     if agent_rows and "workspace_root" not in agent_column_names:
         connection.execute("ALTER TABLE agent_profiles ADD COLUMN workspace_root TEXT")
+    if agent_rows and "workspace_is_default" not in agent_column_names:
+        connection.execute(
+            "ALTER TABLE agent_profiles ADD COLUMN workspace_is_default INTEGER"
+        )
+    if agent_rows and "registration_seed" not in agent_column_names:
+        connection.execute(
+            "ALTER TABLE agent_profiles ADD COLUMN registration_seed INTEGER NOT NULL DEFAULT 0"
+        )
+    if agent_rows and "pending_create_operation_id" not in agent_column_names:
+        connection.execute(
+            "ALTER TABLE agent_profiles ADD COLUMN pending_create_operation_id TEXT"
+        )
     if agent_rows and "workspace_root" in {
         row["name"]
         for row in connection.execute("PRAGMA table_info(agent_profiles)").fetchall()

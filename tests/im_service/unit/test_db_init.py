@@ -62,6 +62,83 @@ def test_initialize_schema_is_idempotent(tmp_path: Path) -> None:
     } <= boundary_columns
 
 
+def test_initialize_schema_migrates_old_profile_without_granting_recovery_marker(
+    tmp_path: Path,
+) -> None:
+    """A pre-operation row keeps its fields and receives no create claim authority."""
+    connection = connect(tmp_path / "legacy-agent.db")
+    connection.execute(
+        """
+        CREATE TABLE agent_profiles (
+            agent_id TEXT PRIMARY KEY,
+            owner_id TEXT NOT NULL,
+            node_id TEXT,
+            display_name TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            skills_json TEXT NOT NULL DEFAULT '[]',
+            tool_allowlist_json TEXT NOT NULL DEFAULT '[]',
+            group_reply_policy TEXT NOT NULL DEFAULT 'manual',
+            default_model TEXT,
+            workspace_root TEXT,
+            workspace_is_default INTEGER,
+            profile_version INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO agent_profiles(
+            agent_id, owner_id, node_id, display_name, description, skills_json,
+            tool_allowlist_json, group_reply_policy, default_model, workspace_root,
+            workspace_is_default, profile_version, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "legacy-agent",
+            "owner-a",
+            "node-a",
+            "Legacy",
+            "unchanged",
+            '["plan"]',
+            '["read"]',
+            "MENTION",
+            "model-a",
+            "/srv/legacy",
+            0,
+            7,
+            "2026-08-08T00:00:00Z",
+            "2026-08-08T00:00:00Z",
+        ),
+    )
+    connection.commit()
+
+    initialize_schema(connection)
+
+    row = connection.execute(
+        """
+        SELECT owner_id, node_id, display_name, description, skills_json,
+               tool_allowlist_json, workspace_root, workspace_is_default,
+               registration_seed, pending_create_operation_id, profile_version
+        FROM agent_profiles WHERE agent_id = 'legacy-agent'
+        """
+    ).fetchone()
+    assert dict(row) == {
+        "owner_id": "owner-a",
+        "node_id": "node-a",
+        "display_name": "Legacy",
+        "description": "unchanged",
+        "skills_json": '["plan"]',
+        "tool_allowlist_json": '["read"]',
+        "workspace_root": "/srv/legacy",
+        "workspace_is_default": 0,
+        "registration_seed": 0,
+        "pending_create_operation_id": None,
+        "profile_version": 7,
+    }
+
+
 def test_initialize_schema_replaces_global_caller_idempotency_index(
     tmp_path: Path,
 ) -> None:

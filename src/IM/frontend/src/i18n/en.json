@@ -454,6 +454,30 @@
         "owningNode": "Owning Node",
         "lastUpdated": "Last Updated"
       },
+      "workspaceCreate": {
+        "title": "Workspace",
+        "sub": "Files are stored here. This path cannot be changed after creation.",
+        "defaultPathLabel": "Default path",
+        "agentIdPlaceholder": "<agent-id>",
+        "defaultPathUnavailable": "Assigned automatically by the selected node",
+        "changePath": "Change",
+        "customPathLabel": "Custom path",
+        "useDefault": "Use default",
+        "pathPlaceholder": "/Users/me/projects/research-agent",
+        "pathHelp": "Absolute path on the selected node. The parent directory must exist; existing directories require confirmation.",
+        "pathRequired": "Enter an absolute path on the target node.",
+        "pathAbsolute": "Workspace Root must be an absolute path or start with ~/.",
+        "parentMissing": "The parent directory does not exist on {{node}}.",
+        "parentUnusable": "The parent directory is not usable on {{node}}.",
+        "targetNotDirectory": "The target exists but is not a directory.",
+        "initializationFailed": "The selected node could not initialize this workspace.",
+        "alreadyAssigned": "This directory already belongs to Agent {{agent}}. Choose another path.",
+        "unknownAgent": "another Agent",
+        "existingTitle": "This is an existing directory",
+        "existingBody": "The Agent will use this directory. Existing files will not be overwritten; missing Agent starter files are added after confirmation.",
+        "existingConfirm": "I understand and agree to let this Agent use the existing directory.",
+        "confirmRequired": "Confirm that you understand this is an existing directory."
+      },
       "errors": {
         "required": "Required",
         "agentIdInvalid": "Lowercase letters, numbers, _ and - only"

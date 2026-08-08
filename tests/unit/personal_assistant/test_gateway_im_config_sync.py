@@ -890,6 +890,7 @@ def test_sync_agent_repairs_static_feishu_mirror_once_before_publish(
         "reasoning_effort": None,
         "workspace_root": str(workspace_root),
         "features": {},
+        "workspace_is_default": False,
         "custom_prompt": None,
         "heartbeat_json": None,
     }
@@ -963,6 +964,7 @@ def test_handle_agent_create_passes_through_features(tmp_path: Path) -> None:
         {
             "agent_id": "beta",
             "workspace_root": str(workspace_root),
+            "confirm_existing_workspace": True,
             "features": {"skill_creation": False},
             "custom_prompt": "You are a chef.",
         }
@@ -1007,7 +1009,11 @@ def test_handle_agent_create_defaults_to_pa_global_skills(
     )
 
     result = sync.handle_agent_create(
-        {"agent_id": "beta", "workspace_root": str(workspace_root)}
+        {
+            "agent_id": "beta",
+            "workspace_root": str(workspace_root),
+            "confirm_existing_workspace": True,
+        }
     )
 
     assert result["skills"] == ["global-helper"]
@@ -1045,7 +1051,12 @@ def test_handle_agent_create_respects_explicit_empty_skills(
     )
 
     result = sync.handle_agent_create(
-        {"agent_id": "beta", "workspace_root": str(workspace_root), "skills": []}
+        {
+            "agent_id": "beta",
+            "workspace_root": str(workspace_root),
+            "confirm_existing_workspace": True,
+            "skills": [],
+        }
     )
 
     assert result["skills"] == []
@@ -1114,6 +1125,7 @@ def test_handle_agent_create_persists_default_model_to_source_path(
         {
             "agent_id": "gpt-probe",
             "workspace_root": str(workspace_root),
+            "confirm_existing_workspace": True,
             "default_model": "codex_oauth:gpt-5.5",
         }
     )
@@ -1187,6 +1199,7 @@ def test_handle_agent_create_persists_to_default_config_path(tmp_path: Path) -> 
         {
             "agent_id": "gpt-probe",
             "workspace_root": str(workspace_root),
+            "confirm_existing_workspace": True,
             "default_model": "codex_oauth:gpt-5.5",
         }
     )

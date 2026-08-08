@@ -241,7 +241,8 @@ describe("agent create page", () => {
         group_reply_policy: "MENTION",
         default_model: null,
         reasoning_effort: "max",
-        workspace_root: null
+        workspace_root: null,
+        confirm_existing_workspace: false
       });
     });
 
@@ -718,7 +719,14 @@ describe("agent create prompt preview", () => {
 
     const calls = apiMocks.nodePromptPreviewMock.mock.calls;
     const lastCall = calls[calls.length - 1];
-    const body = lastCall[1] as { skill_ids?: string[]; agent_id_hint?: string };
+    const body = lastCall[1] as {
+      skill_ids?: string[];
+      agent_id_hint?: string;
+      workspace_mode?: string;
+      workspace_root?: string | null;
+    };
     expect(body).toHaveProperty("skill_ids");
+    expect(body.workspace_mode).toBe("default");
+    expect(body.workspace_root).toBeNull();
   });
 });

@@ -16,6 +16,12 @@ Gateway 处理 IM 下行的 `agent.create` 时，在**本节点**决定 workspac
 - **THEN** Gateway 使用节点默认 workspace factory 创建 Agent、注册 live 路由并回传非空绝对
   `workspace_root` 与 `workspace_is_default == true`
 
+#### Scenario: 节点能力提供默认路径模板供创建页展示
+- **WHEN** IM 请求 `node.capabilities`
+- **THEN** Gateway 复用默认 workspace resolver 返回 canonical `default_workspace_template`，只把
+  Agent ID 位置保留为 `{agent_id}` 占位符
+- **AND** 该模板只供页面展示；默认创建仍由 Gateway 在收到 `agent.create` 时重新解析最终路径
+
 #### Scenario: 新自定义 root 只在已有 parent 下创建
 - **GIVEN** 下发的自定义 target P 不存在，P 的 canonical parent 已存在、为目录且可用
 - **WHEN** Gateway 处理 `agent.create`
@@ -44,3 +50,40 @@ Gateway 处理 IM 下行的 `agent.create` 时，在**本节点**决定 workspac
 - **GIVEN** Gateway 为 Agent X 成功创建并持久化 root P
 - **WHEN** 后续 IM 配置同步携带不同的镜像 root Q
 - **THEN** Gateway runtime 继续以本地 config 的 P 读写 workspace；不迁移或覆盖 P
+
+### Requirement: 创建 operation 仅用于同一丢失响应的重连恢复
+
+下行 `agent.create` 可带 opaque `create_operation_id`。Gateway 成功创建时把它与 workspace root/provenance
+一起持久化，`agent.created` 回包和以后 `node.register.agent_create_operations` 映射均回传同一 id。对于
+已经存在的 Agent，Gateway 只接受同一 operation id 的恢复请求；缺失或不同 id 仍为 duplicate create，
+不得借常规注册广告产生、替换或刷新 operation。
+
+#### Scenario: Gateway 回显已持久化的 operation
+- **GIVEN** IM 下发带 operation X 的 `agent.create`
+- **WHEN** Gateway 已写入本地 Agent config
+- **THEN** `agent.created` 及随后的 `node.register` 都为该 Agent 回传 X
+- **AND** 不同 X 的恢复请求不能改写已持久化 Agent
+
+### Requirement: 会话 JSONL 地址从 durable binding 投影且不阻塞 Gateway 接收循环
+
+Gateway 收到 `session.log.resolve` 时，只从 durable conversation binding 投影
+`<workspace>/.nanoassistant/sessions/<kernel-session-id>.jsonl`。Gateway 在 IM receive loop 启动前将
+committed binding hydrate 为 copy-on-write 的进程内投影，并在每次 durable binding 更新后发布新 entry；
+receive task 只读该投影，不获取 binder threading lock、不查询 SQLite，也不调用 `Path.is_file()`、
+`Path.resolve()` 或扫描 workspace。请求在可取消且按 `(agent_id, conversation_id)` coalesce 的任务中执行，
+连接关闭只取消其 task，不等待被其他业务持有的 persistence lookup。
+
+缺少 durable binding 时回 `status="missing"`；存在 binding 时回投影地址和 `status="ready"`，即使该
+路径的文件状态无法被探测。provider 缺失或 binding/projection 出错时回
+`status="unavailable"`，不得伪装为 `missing`。
+
+#### Scenario: 慢或不可用 workspace 不阻塞 control frame
+- **GIVEN** Gateway 已开始一个 `session.log.resolve`，其 binding provider 随后不可用
+- **WHEN** IM 在该解析完成前下发 heartbeat 或其他 control frame
+- **THEN** Gateway 继续处理 control frame，并最终为该解析回 `status="unavailable"`
+
+#### Scenario: 持久化 binding lookup 被占用时 receive 与关闭仍前进
+- **GIVEN** 另一 Gateway 业务正持有 `GatewaySessionBinder` 的 binding lookup 和对应 SQLite read
+- **WHEN** IM 下发 `session.log.resolve`，随后下发 heartbeat 或 Gateway 开始关闭连接
+- **THEN** receive task 只读取已发布的 binding projection，heartbeat 或关闭在该 lookup 释放前完成
+- **AND** 已 durable 的 binding 仍返回其 exact JSONL 地址与 `status="ready"`

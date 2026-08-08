@@ -2,12 +2,10 @@
 
 import asyncio
 from collections.abc import Callable
-from pathlib import Path
 
 from IM.domain.models import (
     AgentProfile,
     User,
-    is_managed_workspace_root,
     managed_workspace_root,
 )
 from IM.infra.repositories.agents import AgentProfileRepository
@@ -88,13 +86,14 @@ class ConfigService:
         default_model: str | None,
         workspace_root: str,
         reasoning_effort: str | None = None,
+        workspace_is_default: bool | None = None,
         features: dict[str, bool] | None = None,
         custom_prompt: str | None = None,
         notify_config_sync: bool = True,
     ) -> AgentProfile:
         """Create one agent profile under exactly one known node."""
         existing = self._profiles.get_profile(agent_id=agent_id)
-        if existing is not None and existing.owner_id.strip():
+        if existing is not None:
             raise ValueError("agent_id already exists")
         if self._nodes is None:
             raise LookupError("node_id not found")
@@ -110,9 +109,9 @@ class ConfigService:
             raise ValueError("node_id owned by another owner")
         if not node.owner_id.strip() and normalized_owner_id:
             self._nodes.assign_owner(node_id=node_id, owner_id=normalized_owner_id)
-        created = self._profiles.upsert_profile(
+        created = self._profiles.create_profile(
             agent_id=agent_id,
-            owner_id=owner_id,
+            owner_id=normalized_owner_id,
             node_id=node_id,
             display_name=display_name,
             description=description,
@@ -124,6 +123,7 @@ class ConfigService:
             workspace_root=self.normalize_workspace_root(
                 agent_id=agent_id, workspace_root=workspace_root
             ),
+            workspace_is_default=workspace_is_default,
             features=features,
             custom_prompt=custom_prompt,
         )
@@ -137,6 +137,205 @@ class ConfigService:
                 agent_id=agent_id, profile_version=created.profile_version
             )
         return created
+
+    def claim_registration_seed_profile(
+        self,
+        *,
+        agent_id: str,
+        owner_id: str,
+        expected_owner_id: str,
+        node_id: str,
+        expected_workspace_root: str,
+        expected_workspace_is_default: bool,
+        display_name: str,
+        description: str,
+        skills: list[str],
+        tool_allowlist: list[str],
+        group_reply_policy: str,
+        default_model: str | None,
+        reasoning_effort: str | None,
+        features: dict[str, bool],
+        custom_prompt: str | None,
+    ) -> AgentProfile:
+        """Claim the exact Gateway registration seed for an active create operation."""
+        if self._nodes is None:
+            raise LookupError("node_id not found")
+        node = self._nodes.get_node(node_id=node_id)
+        if node is None:
+            raise LookupError("node_id not found")
+        normalized_owner_id = owner_id.strip()
+        if node.owner_id.strip() and node.owner_id != normalized_owner_id:
+            raise ValueError("node_id owned by another owner")
+        claimed = self._profiles.claim_registration_seed_profile(
+            agent_id=agent_id,
+            owner_id=normalized_owner_id,
+            expected_owner_id=expected_owner_id,
+            node_id=node_id,
+            expected_workspace_root=expected_workspace_root,
+            expected_workspace_is_default=expected_workspace_is_default,
+            display_name=display_name,
+            description=description,
+            skills=skills,
+            tool_allowlist=tool_allowlist,
+            group_reply_policy=group_reply_policy,
+            default_model=default_model,
+            reasoning_effort=reasoning_effort,
+            features=features,
+            custom_prompt=custom_prompt,
+        )
+        if claimed is None:
+            raise ValueError("agent_id already exists")
+        if not node.owner_id.strip() and normalized_owner_id:
+            self._nodes.assign_owner(node_id=node_id, owner_id=normalized_owner_id)
+        self.ensure_agent_user(agent_id=agent_id, display_name=claimed.display_name)
+        self._notify_config_sync(
+            agent_id=agent_id, profile_version=claimed.profile_version
+        )
+        return claimed
+
+    def is_registration_seed(
+        self, *, agent_id: str, owner_id: str, node_id: str
+    ) -> bool:
+        """Return whether an advertised profile is still eligible for recovery."""
+        return self._profiles.is_registration_seed(
+            agent_id=agent_id, owner_id=owner_id, node_id=node_id
+        )
+
+    def claim_pending_create_profile(
+        self,
+        *,
+        agent_id: str,
+        owner_id: str,
+        expected_owner_id: str,
+        node_id: str,
+        expected_workspace_root: str,
+        expected_workspace_is_default: bool,
+        operation_id: str,
+        display_name: str,
+        description: str,
+        skills: list[str],
+        tool_allowlist: list[str],
+        group_reply_policy: str,
+        default_model: str | None,
+        reasoning_effort: str | None,
+        features: dict[str, bool],
+        custom_prompt: str | None,
+    ) -> AgentProfile:
+        """Claim a matching Gateway create operation after a lost response.
+
+        The caller holds the app-scoped create lock.  This method accepts only the
+        durable root/provenance pair and operation reservation, so it cannot turn a
+        retried request into an overwrite of another Agent's workspace binding.
+        """
+        if self._nodes is None:
+            raise LookupError("node_id not found")
+        node = self._nodes.get_node(node_id=node_id)
+        if node is None:
+            raise LookupError("node_id not found")
+        normalized_owner_id = owner_id.strip()
+        if (
+            node.owner_id.strip()
+            and normalized_owner_id
+            and node.owner_id != normalized_owner_id
+        ):
+            raise ValueError("node_id owned by another owner")
+        claimed = self._profiles.claim_pending_create_profile(
+            agent_id=agent_id,
+            owner_id=normalized_owner_id,
+            expected_owner_id=expected_owner_id,
+            node_id=node_id,
+            expected_workspace_root=expected_workspace_root,
+            expected_workspace_is_default=expected_workspace_is_default,
+            operation_id=operation_id,
+            display_name=display_name,
+            description=description,
+            skills=skills,
+            tool_allowlist=tool_allowlist,
+            group_reply_policy=group_reply_policy,
+            default_model=default_model,
+            reasoning_effort=reasoning_effort,
+            features=features,
+            custom_prompt=custom_prompt,
+        )
+        if claimed is None:
+            raise ValueError("agent_id already exists")
+        if not node.owner_id.strip() and normalized_owner_id:
+            self._nodes.assign_owner(node_id=node_id, owner_id=normalized_owner_id)
+        if self._users is not None:
+            agent_user = self.ensure_agent_user(
+                agent_id=agent_id, display_name=claimed.display_name
+            )
+            if (
+                agent_user is not None
+                and agent_user.display_name != claimed.display_name
+            ):
+                self._users.update_user(
+                    user_id=agent_user.id,
+                    display_name=claimed.display_name,
+                    default_entry_node_id=agent_user.default_entry_node_id,
+                )
+        self._notify_config_sync(
+            agent_id=agent_id, profile_version=claimed.profile_version
+        )
+        return claimed
+
+    def reserve_create_operation(
+        self,
+        *,
+        owner_id: str,
+        node_id: str,
+        agent_id: str,
+        request_fingerprint: str,
+    ) -> str:
+        """Reserve the IM-side half of one recoverable Gateway create operation."""
+        return self._profiles.reserve_create_operation(
+            owner_id=owner_id,
+            node_id=node_id,
+            agent_id=agent_id,
+            request_fingerprint=request_fingerprint,
+        )
+
+    def existing_create_operation(
+        self,
+        *,
+        owner_id: str,
+        node_id: str,
+        agent_id: str,
+        request_fingerprint: str,
+    ) -> str | None:
+        """Find an exact pre-existing create operation without reserving a new one."""
+        return self._profiles.existing_create_operation(
+            owner_id=owner_id,
+            node_id=node_id,
+            agent_id=agent_id,
+            request_fingerprint=request_fingerprint,
+        )
+
+    def is_pending_create_operation(
+        self,
+        *,
+        agent_id: str,
+        profile_owner_id: str,
+        owner_id: str,
+        node_id: str,
+        operation_id: str,
+    ) -> bool:
+        """Return whether a profile is the exact abandoned-response create result."""
+        return self._profiles.is_pending_create_operation(
+            agent_id=agent_id,
+            profile_owner_id=profile_owner_id,
+            owner_id=owner_id,
+            node_id=node_id,
+            operation_id=operation_id,
+        )
+
+    def abandon_create_operation(self, *, operation_id: str) -> None:
+        """Drop a reservation after Gateway rejected creation without side effects."""
+        self._profiles.abandon_create_operation(operation_id=operation_id)
+
+    def complete_create_operation(self, *, operation_id: str) -> None:
+        """Retire the reservation once a normal create profile is durable."""
+        self._profiles.complete_create_operation(operation_id=operation_id)
 
     def list_profiles(self) -> list[AgentProfile]:
         """List all agent profiles in storage order."""
@@ -227,16 +426,14 @@ class ConfigService:
         return updated
 
     def workspace_root_for_profile(self, profile: AgentProfile) -> str:
-        """Return the effective workspace root used by runtime sync and UI."""
+        """Return the opaque node-owned workspace root used by runtime sync and UI."""
         if profile.workspace_root:
-            return str(Path(profile.workspace_root).expanduser().resolve())
+            return profile.workspace_root
         return managed_workspace_root(profile.agent_id)
 
     def workspace_is_default_for_profile(self, profile: AgentProfile) -> bool:
-        """Return whether one profile is still using the managed default workspace."""
-        return is_managed_workspace_root(
-            agent_id=profile.agent_id, workspace_root=profile.workspace_root
-        )
+        """Return stored Gateway provenance; legacy rows remain conservatively false."""
+        return bool(profile.workspace_is_default)
 
     @staticmethod
     def normalize_workspace_root(*, agent_id: str, workspace_root: str | None) -> str:
@@ -244,17 +441,14 @@ class ConfigService:
 
         Blank values mean "use managed default" and are persisted as the canonical
         managed workspace path so later runtime/session refreshes can trust storage.
-        Non-blank values must be absolute after ``expanduser()``.
+        Non-blank values remain opaque to IM.  The owning Gateway validates and
+        interprets its node-local syntax, which can differ from the IM host.
         """
         if workspace_root is None:
             return managed_workspace_root(agent_id)
-        normalized = workspace_root.strip()
-        if not normalized:
+        if not workspace_root.strip():
             return managed_workspace_root(agent_id)
-        path = Path(normalized).expanduser()
-        if not path.is_absolute():
-            raise ValueError("workspace_root must be an absolute path or start with ~/")
-        return str(path.resolve())
+        return workspace_root
 
     def _notify_config_sync(self, *, agent_id: str, profile_version: int) -> None:
         notifier = self._config_sync_notifier

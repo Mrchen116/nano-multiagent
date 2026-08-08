@@ -167,20 +167,66 @@ IM 进程**绝不**直读 gateway 侧 workspace 文件（IM 与 gateway 可跨�
 - **WHEN** 前端 `DELETE /im/v1/agents/{id}/cron-jobs/{job_id}`
 - **THEN** 204 表示删除成功；节点离线或 RPC 超时或 job_id 不存在均返回 404
 
-### Requirement: Agent 创建必须挂在已绑定且在线的节点下,workspace_root 由节点分配
+### Requirement: Agent 创建必须挂在已绑定且在线的节点下,workspace_root 仅在创建时由节点确定
 
-前端在节点下创建 Agent(`POST /im/v1/nodes/{node_id}/agents`):IM 校验该节点已绑定、归属当前 owner; 经网关 `agent.create` 由节点分配并回传 `workspace_root`,IM 持久化为 `AgentProfile`。未知节点在 owner 门禁处 404,重复 `agent_id` 409。
+前端在节点下创建 Agent(`POST /im/v1/nodes/{node_id}/agents`):IM 校验该节点已绑定、归属当前
+owner；经网关 `agent.create` 由节点分配或校验 workspace root，成功回传 canonical
+`workspace_root` 与 `workspace_is_default` 后 IM 才持久化 `AgentProfile`。创建页初态只显示目标
+Gateway 返回的默认路径模板，以当前 Agent ID 展开；用户不修改时不发送该展示路径。用户点击路径
+后，页面原地显示预填该默认路径的自定义输入框，只有编辑态的非空输入才作为 custom root 原样发给
+Gateway。未知节点在 owner 门禁处 404，重复 `agent_id` 409。
+
+IM 为每个尚未落 profile 的创建请求先持久化一个仅限该请求的 `create_operation_id`，并把它随
+`agent.create` 发送给目标 Gateway。Gateway 仅把已持久化的 operation id 写入新 Agent 本地配置，
+在 `agent.created` 和后续 `node.register.agent_create_operations` 中原样回传。若 Gateway 已落地而
+`agent.created` 响应丢失，只有同一 owner、node、agent 与请求内容的重试，且 Gateway 回传同一
+operation id、已持久化 root/provenance/display identity 时，才能原子认领那条待认领 profile；成功
+认领后 operation 与待认领标记都清除。普通 `node.register` 首见 profile、预配置 Agent 和任意
+operation-id 广告都不是可认领证据；任意一次正常 profile 更新也会清除未认领标记。
+
+#### Scenario: 创建页显示真实默认路径并原地编辑
+- **GIVEN** 当前 owner 选中在线节点 `node-1` 并填写 Agent ID A
+- **WHEN** 页面取得节点能力
+- **THEN** Workspace 区只显示 `default_workspace_template` 以 A 展开的真实默认路径，不显示默认/自定义
+  模式选择器、重复节点 ID 或重复 outcome 文案
+- **WHEN** 用户点击路径或“修改”
+- **THEN** 原地显示自动聚焦的自定义路径输入框，且初始值为刚才显示的默认路径
 
 #### Scenario: 在已知节点创建返回带 node_id+workspace_root 的配置
 - **GIVEN** 当前 owner 名下一个已知节点 `node-1`
-- **WHEN** 前端 `POST /im/v1/nodes/node-1/agents {agent_id, display_name, skills, tool_allowlist, ...}`
+- **WHEN** 用户不修改默认路径并创建 Agent
 - **THEN** 201 返回与 `GET .../config` 同形的配置体,`node_id == "node-1"`、`workspace_root` 为节点回传值、`workspace_is_default` 反映是否默认路径、`profile_version == 1`
+
+#### Scenario: 修改预填路径后创建自定义 workspace
+- **GIVEN** 用户把预填路径修改为 P，P 尚不存在且父目录存在并可用
+- **WHEN** 用户完成创建
+- **THEN** 201 返回 Gateway canonicalized 的 `workspace_root == P`、`workspace_is_default == false`
+
+#### Scenario: 自定义路径由节点校验并在已有目录前确认
+- **WHEN** P 的父目录不存在或不可用，或 P 存在但不是目录
+- **THEN** 不创建 AgentProfile，页面在路径字段说明 Gateway 返回的稳定错误原因
+- **WHEN** P 是已有目录
+- **THEN** 第一次提交不创建并明确提醒；用户确认后才创建，且不覆盖已有文件
+- **AND** 同一 canonical root 在同一节点只可归属一个 Agent，不同节点不共享该唯一性
 
 #### Scenario: 重复 agent_id 与未知节点被拒
 - **WHEN** 前端以已存在的 `agent_id` 再次创建
 - **THEN** 409 `{detail:"agent_id already exists"}`
 - **WHEN** 前端向不存在的 `node_id` 创建
 - **THEN** 404 `{detail:"node_id not found"}`(owner-scope 门禁先于网关派发拦下)
+
+#### Scenario: 丢失创建响应可由同一 durable operation 恢复一次
+- **GIVEN** IM 已为 owner O 在节点 N 创建 Agent A 保留 operation X，Gateway 已持久化 A 但
+  `agent.created` 响应在 IM 落 profile 前丢失
+- **WHEN** Gateway 重连并以 `agent_create_operations[A] == X` 注册，O 以同一创建内容重试
+- **THEN** IM 仅在 Gateway 回传同一 X、root/provenance 与已注册镜像一致且 display identity 不变时
+  原子认领 A，并返回 201
+- **AND** 认领后任意重复创建仍返回 409
+
+#### Scenario: 常规注册或 profile 更新不可成为创建恢复凭据
+- **GIVEN** A 是普通 `node.register` 首见 profile、预配置 Agent，或其 profile 已通过 PATCH 正常更新
+- **WHEN** 任意用户对 A 发送创建请求，或 Gateway 广告不存在/不匹配的 operation id
+- **THEN** IM 返回 409，不派发恢复式创建，也不改变 A 的 owner、root、provenance 或展示字段
 
 ### Requirement: 桌面 Agent 页面提供连续导航，并保护新建草稿
 
@@ -202,9 +248,9 @@ IM 进程**绝不**直读 gateway 侧 workspace 文件（IM 与 gateway 可跨�
 - **THEN** 页面要求确认退出，取消确认后保留当前草稿
 - **AND** 用户确认后才进入原目标
 
-### Requirement: node.register 首见 agent 时以上报种子值落库（bugfix-404-M2 / bugfix-467）
+### Requirement: node.register 首见 agent 时以上报种子值落库，且不伪造创建恢复凭据（bugfix-404-M2 / bugfix-467）
 
-IM 处理 `node.register` 时,对帧中**首次出现**(无既有 profile)的 agent,以帧内种子值落库: workspace_root 取 `agent_workspaces` 上报值(缺失时回落 managed default),skills / tool_allowlist 取 `agent_skills` / `agent_tool_allowlist` 上报值(帧未携带或单 agent 值非法时按空落库,兼容旧帧; 单 agent 值内混入非法项时仅丢弃非法项)。已存在 profile 的 agent,其各字段保持既有值不被注册改写(重连重发幂等),以保护用户经配置更新(含特意清空)后的收敛。
+IM 处理 `node.register` 时,对帧中**首次出现**(无既有 profile)的 agent,以帧内种子值落库: workspace_root 取 `agent_workspaces` 上报值(缺失时回落 managed default),skills / tool_allowlist 取 `agent_skills` / `agent_tool_allowlist` 上报值(帧未携带或单 agent 值非法时按空落库,兼容旧帧; 单 agent 值内混入非法项时仅丢弃非法项)。已存在 profile 的 agent,其各字段保持既有值不被注册改写(重连重发幂等),以保护用户经配置更新(含特意清空)后的收敛。帧可选的 `agent_create_operations` 仅在该 agent 首见、值对应 IM 已保留的同一 node/agent 创建 operation 时写入待认领标记；它不改变普通注册的语义，也不凭自身创建或重开恢复资格。
 
 #### Scenario: 首见 agent 用上报值落库
 - **GIVEN** IM 中无 agent X 的 profile
@@ -302,13 +348,14 @@ bearer.<jwt>` 子协议),无 token / 非法 token 立即关闭;身份只认 JWT,
 新建/编辑 Agent 页需要的 runtime 候选项(skills / tools / models / features)由 IM
 **当场**经 gateway WS 向在线节点解析后返回,IM 不在本地持久化该能力目录,也不据 IM 部署机文件系统推断。
 节点级 `GET /im/v1/nodes/{id}/capabilities`(agent 尚不存在时用)与 agent 级 `GET /im/v1/agents/{id}/
-capabilities` 都把网关返回的 `features` 和每模型安全的 reasoning descriptor 透传给前端。
+capabilities` 都把网关返回的 `features` 和每模型安全的 reasoning descriptor 透传给前端；节点级响应
+另透传可选的 `default_workspace_template`，供创建页展示该 Gateway 的默认路径，IM 不自行推导。
 
 #### Scenario: 节点能力含 features 列表供创建页渲染
 - **GIVEN** 一个已知节点,网关在线
 - **WHEN** 前端 `GET /im/v1/nodes/{id}/capabilities`
 - **THEN** 200 返回 `{node_id, skills:[{name,description}], tools:[{name,description}], models:[...],
-  platform_default_model, features:[...]}`;网关 payload 无 features 时 IM 返回
+  platform_default_model, default_workspace_template?, features:[...]}`;网关 payload 无 features 时 IM 返回
   空 `features` 列表(优雅降级)
 
 #### Scenario: agent 能力透传 features 五元字段

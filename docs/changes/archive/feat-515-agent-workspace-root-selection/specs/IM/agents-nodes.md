@@ -4,20 +4,30 @@
 
 前端在节点下创建 Agent (`POST /im/v1/nodes/{node_id}/agents`): IM 校验该节点已绑定、归属当前
 owner；经网关 `agent.create` 由节点分配或校验 workspace root，成功回传 canonical absolute
-`workspace_root` 及 `workspace_is_default` 后 IM 才持久化 `AgentProfile`。创建表单可选择
-“使用默认目录”（不指定路径，由节点分配）或“自定义路径”（目标节点上的绝对路径）。未知节点在
+`workspace_root` 及 `workspace_is_default` 后 IM 才持久化 `AgentProfile`。创建表单初态显示目标
+Gateway 返回的默认路径模板（以当前 Agent ID 展开），但不发送该展示值；
+用户不修改时仍不指定路径，由节点分配。用户点击路径后，输入框预填该默认路径并进入自定义状态，
+只有修改态的非空输入才向目标节点原样转发；仅目标 Gateway 判断其本机路径是否绝对并 canonicalize。未知节点在
 owner 门禁处 404，重复 `agent_id` 为 409；节点离线保持 503。
+
+#### Scenario: 创建页克制地展示默认路径并原地编辑
+- **GIVEN** 当前 owner 选中在线节点 `node-1` 并填写 Agent ID A
+- **WHEN** 页面取得节点能力
+- **THEN** Workspace 区只显示 `default_workspace_template` 以 A 展开的真实默认路径，不显示默认/自定义
+  模式选择器、重复节点 ID 或重复 outcome 文案
+- **WHEN** 用户点击该路径或“修改”
+- **THEN** 原地显示自动聚焦的自定义路径输入框，且初始值为刚才显示的默认路径
 
 #### Scenario: 默认目录由节点分配并回传
 - **GIVEN** 当前 owner 名下一个已知在线节点 `node-1`
-- **WHEN** 用户选择“使用默认目录”并在 `node-1` 创建 Agent
+- **WHEN** 用户不修改页面显示的默认路径并在 `node-1` 创建 Agent
 - **THEN** 201 返回与 `GET .../config` 同形的配置体，`node_id == "node-1"`，
   `workspace_root` 为节点回传的非空绝对路径，`workspace_is_default == true`，
   `profile_version == 1`
 
 #### Scenario: 以可用父目录下的新自定义路径创建
 - **GIVEN** 用户选择节点 `node-1` 上的路径 P，P 不存在而 P 的父目录存在且可用
-- **WHEN** 用户以“自定义路径”创建 Agent
+- **WHEN** 用户点击默认路径、修改预填值并创建 Agent
 - **THEN** 201 返回 `workspace_root == P` 的节点 canonical path，
   `workspace_is_default == false`
 
@@ -56,3 +66,22 @@ owner 门禁处 404，重复 `agent_id` 为 409；节点离线保持 503。
 - **GIVEN** Agent X 在创建时获得 workspace root P
 - **WHEN** 用户打开其设置或调用 update config 修改其他字段，即使 payload 含 workspace_root Q
 - **THEN** 页面没有 root 编辑或迁移操作，已存 `workspace_root` 仍为 P
+
+### Requirement: 仅同一持久化创建 operation 可以恢复丢失的成功回包
+
+在 IM 首次向节点下发 `agent.create` 前，IM 必须保留 `(owner_id, node_id, agent_id, request fingerprint)`
+唯一的 create operation，并将其 opaque `create_operation_id` 带给 Gateway。Gateway 成功时将该 id
+写入本地 Agent config，随 `agent.created` 回显，并在以后 `node.register.agent_create_operations` 映射
+中回传。只有该 id 仍对应同一 IM operation、Gateway 回传相同 id，且已经注册的 root、provenance、
+display identity 都不变时，IM 才能把该等待中的 first-registration profile 原子认领给原 owner。认领
+完成或正常 profile PATCH 后，待认领标记消失；任何普通首见 register、预配置 Agent、错误 node/owner/
+operation，或第一次完成后的重试都保持 duplicate 409。
+
+#### Scenario: 回复丢失后的重连恢复
+- **GIVEN** Gateway 已完成 operation X 的本地持久化，但 `agent.created` 在 IM 写 profile 前丢失
+- **WHEN** Gateway 重连并广告 X，原 owner 提交同一请求
+- **THEN** IM 以 X 及 immutable Gateway result 原子认领 profile，返回 201
+
+#### Scenario: 普通 node.register 不产生可认领 profile
+- **WHEN** Gateway 广告没有有效 IM operation 的 prehosted 或常规 Agent
+- **THEN** IM 只建立普通 profile；后续 `POST .../agents` 仍为 409，且不派发恢复式 `agent.create`
