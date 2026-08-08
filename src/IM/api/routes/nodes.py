@@ -286,10 +286,15 @@ async def _create_node_agent_locked(
     existing = service.get_profile(agent_id=payload.agent_id)
     seeded_claim_candidate = (
         existing is not None
-        and not existing.owner_id.strip()
+        and existing.owner_id in {"", user.owner_id}
         and existing.node_id == node_id
         and existing.workspace_root is not None
         and existing.workspace_is_default is not None
+        and service.is_registration_seed(
+            agent_id=payload.agent_id,
+            owner_id=existing.owner_id,
+            node_id=node_id,
+        )
     )
     if existing is not None and not seeded_claim_candidate:
         raise HTTPException(
@@ -365,20 +370,19 @@ async def _create_node_agent_locked(
     try:
         if seeded_claim_candidate:
             assert existing is not None
+            gateway_display_name = created_payload.get("display_name")
             if (
                 workspace_root != existing.workspace_root
                 or resolved_workspace_is_default != existing.workspace_is_default
-                or display_name != payload.display_name
-                or (
-                    payload.workspace_root is not None
-                    and payload.workspace_root != workspace_root
-                )
+                or not isinstance(gateway_display_name, str)
+                or gateway_display_name.strip() != payload.display_name
             ):
                 raise ValueError("agent_id already exists")
             assert resolved_workspace_is_default is not None
             created = service.claim_seeded_profile(
                 agent_id=payload.agent_id,
                 owner_id=user.owner_id,
+                expected_owner_id=existing.owner_id,
                 node_id=node_id,
                 expected_workspace_root=workspace_root,
                 expected_workspace_is_default=resolved_workspace_is_default,

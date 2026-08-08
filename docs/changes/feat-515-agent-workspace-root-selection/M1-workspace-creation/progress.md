@@ -44,7 +44,7 @@
 ## R3 — Workspace 创建 UI 与 i18n
 
 - Context: 创建页过去把 `workspace_root` 强制归一为 null；API error 只保留 status/detail，无法按 Gateway 稳定 code 呈现确认、占用和路径问题；preview 也没有传 workspace intent。
-- Decision: 在 Identity 与 Behavior 之间加入默认选中的 Workspace 卡；custom 模式提交目标节点路径，客户端只检查空值/绝对路径语法，节点负责其余校验。`AgentConfigRequestError` 保留 `code`/`agent_id`；existing-directory 409 展示醒目确认区，勾选后用同一草稿重试并仅把 `confirm_existing_workspace` 改为 true。preview 同步传 mode/id/root。样式在 720px 下切单列，中英文文案完整。
+- Decision: 在 Identity 与 Behavior 之间加入默认选中的 Workspace 卡；custom 模式提交目标节点输入，客户端只检查空值，节点负责其余校验。`AgentConfigRequestError` 保留 `code`/`agent_id`；existing-directory 409 展示醒目确认区，勾选后用同一草稿重试并仅把 `confirm_existing_workspace` 改为 true。preview 同步传 mode/id/root。样式在 720px 下切单列，中英文文案完整。
 - Rationale: 稳定 code 是交互分支契约，路径 detail 只是展示信息；确认必须可恢复且不能丢失表单草稿。创建页选择不改变既有详情页的只读 Workspace & Runtime 展示。
 - Evidence:
   - Tests: targeted API/create Vitest 28 passed；frontend 全套 63 files / 611 tests passed（保留既有 act/user-stream stderr）；production `tsc -b && vite build` 成功，仅既有 chunk-size warning。
@@ -133,3 +133,12 @@ None.
 - Evidence: focused Python owners — 17 passed; Gateway connection behavior plus the new concurrency owner — 29 passed; frontend targeted owners — 69 passed; production frontend build passed. A real isolated IM/Gateway/Vite browser run submitted `C:\\Gateway Data\\windows_ui_round2`; it reached the target Gateway and rendered its node-side parent error, rather than a client-side POSIX syntax rejection.
 - Browser cleanup: stopped the isolated IM/Gateway/Vite processes and confirmed both generated ports were released. Runtime files remain ignored and unstaged.
 - Durable detail: `evidence/correction-round-2.md`.
+
+## Round 3 correction — bound registration seeds and bounded Gateway log resolution
+
+- Context: Round-3 verification found that a normal owner-bound `node.register` profile was indistinguishable from a completed profile, so a lost `agent.created` response could not safely recover. It also found that IM compared raw browser root text after Gateway canonicalization, Gateway scan background work could accumulate logical tasks past the IM timeout, and the create selector used a draft target root to classify a source as local.
+- Decision: Only the first profile written by `node.register` carries a durable `registration_seed`; an atomic claim matches its owner, node, canonical root and provenance, then clears the marker. Gateway's returned display name must equal the original requested display identity. IM no longer compares raw input root text. Gateway uses a fixed four-worker executor, per-conversation coalescing, a 4.5-second logical expiry, and immediate null resolution when capacity is unavailable. The create selector receives no draft root, so only a persisted canonical profile root can classify a source as local.
+- Rationale: Gateway is the only authority for target-host path interpretation, and a marker—not an owner-shape heuristic—separates an incomplete registration projection from a normal profile. A bounded physical executor and expired logical waiter state keep WebSocket receive work responsive without discarding a safe in-flight scan.
+- Evidence: new recovery, overload/expiry, and selector regressions were red before implementation. The focused Python correction matrix then passed `43 passed, 7 warnings`; the targeted frontend Workspace suite passed `11 passed`. Final expanded gates and browser evidence are recorded in `evidence/correction-round-3.md`.
+- Runtime/cleanup: no production service, port, config, database, or workspace is used; any browser acceptance stack is isolated to this worktree and is stopped after evidence capture.
+- Durable detail: `evidence/correction-round-3.md`.

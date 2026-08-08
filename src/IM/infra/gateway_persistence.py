@@ -193,6 +193,7 @@ class GatewayNodePersistence:
                 default_model=default_model,
                 workspace_root=workspace_root,
                 workspace_is_default=workspace_is_default,
+                registration_seed=existing is None,
                 features=features,
                 custom_prompt=custom_prompt,
             )

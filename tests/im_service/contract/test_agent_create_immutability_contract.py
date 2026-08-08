@@ -299,12 +299,14 @@ def test_agent_create_claims_matching_ownerless_registration_seed_after_lost_res
             )
             assert websocket.receive_json()["type"] == "ack"
 
-            async def fake_request_agent_create(**_kwargs):
+            async def fake_request_agent_create(**kwargs):
+                requested = kwargs["payload"]
+                root = requested["workspace_root"]
                 return {
                     "agent_id": "seed-agent",
                     "display_name": "Seed Agent",
                     "description": "Created before the response was lost.",
-                    "workspace_root": "/gateway/seed-agent",
+                    "workspace_root": root,
                     "workspace_is_default": False,
                 }
 
