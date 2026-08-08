@@ -34,7 +34,6 @@ export interface ConversationSidebarProps {
   agents?: SidebarAgent[];
   distillMode?: boolean;
   selectedDistillConversationIds?: Set<string>;
-  selectedDistillSourceNodeId?: string | null;
   selectedDistillEligibleCount?: number;
   distillNotice?: string | null;
   onToggleDistillConversation?(conversationId: string): void;
@@ -70,7 +69,6 @@ export function ConversationSidebar({
   agents,
   distillMode = false,
   selectedDistillConversationIds = new Set(),
-  selectedDistillSourceNodeId = null,
   selectedDistillEligibleCount = 0,
   distillNotice = null,
   onToggleDistillConversation,
@@ -182,16 +180,12 @@ export function ConversationSidebar({
             const active = c.id === activeConversationId;
             const dateStr = formatDate(c.last_message_at);
             const kind = classifyConversationKind(c);
-            const distillUnavailableKey = getDistillConversationUnavailableKey(
-              c,
-              selectedDistillSourceNodeId,
-            );
+            const distillUnavailableKey = getDistillConversationUnavailableKey(c);
             const distillUnavailableReason = distillUnavailableKey
               ? t(`chat.list.${distillUnavailableKey}`)
               : null;
             const distillDisabled = distillUnavailableReason !== null;
             const distillSelected = isDistillConversationEligible(c)
-              && c.source_node_id === selectedDistillSourceNodeId
               && selectedDistillConversationIds.has(c.id);
             const agentParticipant = c.participants.find((p) => p.type === "agent");
             const agentRow = agentParticipant

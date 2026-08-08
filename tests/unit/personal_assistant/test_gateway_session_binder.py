@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from threading import Event as ThreadEvent
 from types import SimpleNamespace
 from typing import Any
-
-import pytest
 
 from personal_assistant.channels.base import InboundMessage, ReplyContext
 from personal_assistant.config.local_store import AgentWorkspaceConfig
@@ -16,7 +15,6 @@ from personal_assistant.gateway.session_binder import (
     ConversationBindingRequest,
     GatewaySessionBinder,
     SessionBindingRequest,
-    build_session_log_path_provider,
 )
 from personal_assistant.gateway.session_keys import (
     PersistentSessionBindingStore,
@@ -46,6 +44,35 @@ class _Kernel:
         if actual != str(workspace_root):
             raise RuntimeError(f"missing session {session_id}")
         return {"session_id": session_id, "workspace_root": actual}
+
+
+class _BlockingReuseStore(SessionBindingStore):
+    """Pause one old-session refresh while config publication races it."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.block_session_id: str | None = None
+        self.bind_started = ThreadEvent()
+        self.release_bind = ThreadEvent()
+
+    def bind(
+        self,
+        *,
+        session_key: str,
+        kernel_session_id: str,
+        reply_context: ReplyContext,
+        **kwargs: Any,
+    ):
+        if kernel_session_id == self.block_session_id:
+            self.bind_started.set()
+            if not self.release_bind.wait(timeout=5):
+                raise TimeoutError("timed out waiting to release old binding reuse")
+        return super().bind(
+            session_key=session_key,
+            kernel_session_id=kernel_session_id,
+            reply_context=reply_context,
+            **kwargs,
+        )
 
 
 def _agent(
@@ -171,6 +198,57 @@ async def test_publish_during_create_returns_old_session_without_stale_writeback
     assert binder.lookup(result.session_key) is None
 
 
+async def test_publish_during_old_binding_reuse_retains_stable_row(
+    tmp_path: Path,
+) -> None:
+    old_agent = _agent(tmp_path, title="Agent A old")
+    catalog = LiveAgentCatalog((old_agent,))
+    kernel = _Kernel()
+    kernel.sessions["persisted-old-session"] = str(old_agent.workspace_root)
+    store = _BlockingReuseStore()
+    request = _request(conversation_id="conv-reuse-race")
+    store.bind(
+        session_key=request.session_key,
+        kernel_session_id="persisted-old-session",
+        reply_context=ReplyContext(channel_name="web_relay", target_chat_id="old"),
+    )
+    store.block_session_id = "persisted-old-session"
+    binder = GatewaySessionBinder(catalog=catalog, repository=store, kernel=kernel)
+    old_snapshot = catalog.require("agent-a")
+
+    resolving = asyncio.create_task(
+        asyncio.to_thread(
+            lambda: asyncio.run(binder.resolve(request, old_snapshot)),
+        )
+    )
+    await asyncio.wait_for(asyncio.to_thread(store.bind_started.wait), timeout=2)
+    current = catalog.publish(_agent(tmp_path, title="Agent A new"))
+    invalidation_started = ThreadEvent()
+
+    def _invalidate() -> None:
+        invalidation_started.set()
+        binder.invalidate_stale("agent-a", current_revision=current.revision)
+
+    invalidating = asyncio.create_task(asyncio.to_thread(_invalidate))
+    await asyncio.wait_for(asyncio.to_thread(invalidation_started.wait), timeout=2)
+    store.release_bind.set()
+
+    old_result = await resolving
+    await invalidating
+
+    assert old_result.kernel_session_id == "persisted-old-session"
+    assert old_result.reply_context == request.reply_context
+    assert binder.lookup(request.session_key) is not None
+
+    new_result = await binder.resolve(request, current)
+
+    assert new_result.kernel_session_id == "session-1"
+    assert new_result.kernel_session_id != old_result.kernel_session_id
+    assert binder.lookup(request.session_key) == new_result
+    assert len(kernel.create_calls) == 1
+    assert kernel.create_calls[0]["workspace_root"] == current.config.workspace_root
+
+
 def test_persistent_invalidation_keeps_agent_bindings(
     tmp_path: Path,
 ) -> None:
@@ -258,63 +336,6 @@ def test_conversation_bind_rejects_guard_captured_before_publish(
     assert binder.lookup("web_relay:conv-stale:agent-a") is None
 
 
-def test_conversation_bind_publishes_only_successful_projection_replacements(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    agent = _agent(tmp_path)
-    catalog = LiveAgentCatalog((agent,))
-    store = PersistentSessionBindingStore(db_path=tmp_path / "bindings.sqlite3")
-    binder = GatewaySessionBinder(catalog=catalog, repository=store, kernel=_Kernel())
-    snapshot = catalog.require("agent-a")
-    provider = build_session_log_path_provider(
-        session_binder=binder,
-        channel_name="web_relay",
-        workspace_config_dirname=".nanoassistant",
-    )
-
-    def bind(kernel_session_id: str):
-        return binder.bind_conversation(
-            ConversationBindingRequest(
-                channel_name="web_relay",
-                conversation_id="conv-projection",
-                agent_id="agent-a",
-                kernel_session_id=kernel_session_id,
-                guard=binder.capture_write_guard(snapshot),
-            ),
-            snapshot,
-        )
-
-    assert bind("session-a").status == "bound"
-    assert provider("agent-a", "conv-projection") == str(
-        agent.workspace_root / ".nanoassistant" / "sessions" / "session-a.jsonl"
-    )
-    second = bind("session-b")
-    assert second.status == "bound"
-    assert provider("agent-a", "conv-projection") == str(
-        agent.workspace_root / ".nanoassistant" / "sessions" / "session-b.jsonl"
-    )
-
-    def fail_bind(**_: Any) -> None:
-        raise OSError("injected durable bind failure")
-
-    monkeypatch.setattr(store, "bind", fail_bind)
-    with pytest.raises(OSError, match="injected durable bind failure"):
-        bind("session-c")
-
-    assert store.get("web_relay:conv-projection:agent-a") == second.binding
-    assert provider("agent-a", "conv-projection") == str(
-        agent.workspace_root / ".nanoassistant" / "sessions" / "session-b.jsonl"
-    )
-    assert (
-        binder.capture_session_provenance("session-b", expected_agent_id="agent-a")
-        is not None
-    )
-    assert (
-        binder.capture_session_provenance("session-c", expected_agent_id="agent-a")
-        is None
-    )
-
-
 def test_reverse_and_canonical_lookups_only_expose_current_bindings(
     tmp_path: Path,
 ) -> None:
@@ -324,20 +345,26 @@ def test_reverse_and_canonical_lookups_only_expose_current_bindings(
     binder = GatewaySessionBinder(catalog=catalog, repository=store, kernel=_Kernel())
     snapshot = catalog.require("agent-a")
 
-    def bind(conversation_id: str, kernel_session_id: str):
-        return binder.bind_conversation(
-            ConversationBindingRequest(
-                channel_name="web_relay",
-                conversation_id=conversation_id,
-                agent_id="agent-a",
-                kernel_session_id=kernel_session_id,
-                guard=binder.capture_write_guard(snapshot),
-            ),
-            snapshot,
-        )
-
-    first = bind("conv-first", "session-first")
-    second = bind("conv-second", "session-second")
+    first = binder.bind_conversation(
+        ConversationBindingRequest(
+            channel_name="web_relay",
+            conversation_id="conv-first",
+            agent_id="agent-a",
+            kernel_session_id="session-first",
+            guard=binder.capture_write_guard(snapshot),
+        ),
+        snapshot,
+    )
+    second = binder.bind_conversation(
+        ConversationBindingRequest(
+            channel_name="web_relay",
+            conversation_id="conv-second",
+            agent_id="agent-a",
+            kernel_session_id="session-second",
+            guard=binder.capture_write_guard(snapshot),
+        ),
+        snapshot,
+    )
 
     assert first.status == second.status == "bound"
     assert binder.find_by_kernel_session_id("session-second") == second.binding

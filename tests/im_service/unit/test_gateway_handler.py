@@ -1319,69 +1319,10 @@ def test_node_local_rpcs_return_none_when_node_is_offline(tmp_path: Path) -> Non
         )
     )
 
-    session_log = asyncio.run(
-        handler.control.request_session_log_path(
-            target_node_id="offline-node",
-            agent_id="agent-x",
-            conversation_id="conversation-x",
-            timeout_seconds=0.1,
-        )
-    )
-
     assert heartbeat is None
     assert cron_jobs is None
     assert skill_usage is None
     assert cron_delete is None
-    assert session_log.source_jsonl_path is None
-    assert session_log.status == "unavailable"
-
-
-def test_session_log_rpc_correlates_gateway_result_without_workspace_root(
-    tmp_path: Path,
-) -> None:
-    """IM sends only logical IDs and treats the Gateway-returned path as opaque."""
-    handler = _build_handler(tmp_path)
-    websocket = StubWebSocket()
-
-    async def exercise() -> tuple[object, dict[str, object]]:
-        await handler.runtime.handle_message(
-            websocket=websocket,
-            message_type="node.register",
-            payload={"node_id": "node-1", "agents": [], "capabilities": {}},
-        )
-        result_task = asyncio.create_task(
-            handler.control.request_session_log_path(
-                target_node_id="node-1",
-                agent_id="agent-a",
-                conversation_id="conversation-a",
-            )
-        )
-        await asyncio.sleep(0)
-        request = websocket.sent_json[-1]
-        response = await handler.runtime.handle_message(
-            websocket=websocket,
-            message_type="session.log.resolved",
-            payload={
-                "request_id": request["payload"]["request_id"],
-                "node_id": "node-1",
-                "agent_id": "agent-a",
-                "conversation_id": "conversation-a",
-                "source_jsonl_path": "/remote/node/session.jsonl",
-            },
-        )
-        assert response is not None
-        return await result_task, response
-
-    result, response = asyncio.run(exercise())
-
-    request = websocket.sent_json[-1]
-    assert request["type"] == "session.log.resolve"
-    assert request["payload"]["agent_id"] == "agent-a"
-    assert request["payload"]["conversation_id"] == "conversation-a"
-    assert "workspace_root" not in request["payload"]
-    assert result.source_jsonl_path == "/remote/node/session.jsonl"
-    assert result.status == "ready"
-    assert response["type"] == "ack"
 
 
 # ---------------------------------------------------------------------------

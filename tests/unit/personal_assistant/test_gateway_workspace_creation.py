@@ -143,31 +143,6 @@ def test_custom_workspace_is_untouched_when_candidate_model_is_invalid(
     assert owners.catalog.get("invalid-model") is None
 
 
-def test_custom_workspace_rejects_unusable_parent_without_creating_target(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Report an unusable existing parent before attempting target creation."""
-    sync, owners = _build_sync(tmp_path)
-    parent = tmp_path / "read-only-parent"
-    parent.mkdir()
-    target = parent / "agent"
-    monkeypatch.setattr(agent_config_sync_module.os, "access", lambda *_args: False)
-
-    result = sync.handle_agent_create(
-        {"agent_id": "unusable", "workspace_root": str(target)}
-    )
-
-    assert result == {
-        "error": {
-            "code": "workspace_parent_unusable",
-            "detail": "Workspace parent directory is not usable.",
-        }
-    }
-    assert not target.exists()
-    assert owners.catalog.get("unusable") is None
-
-
 def test_initialization_failure_does_not_publish_agent(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

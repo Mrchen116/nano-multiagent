@@ -9,10 +9,7 @@ import pytest
 from personal_assistant.channels.base import ReplyContext
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
-from personal_assistant.gateway.session_binder import (
-    GatewaySessionBinder,
-    build_session_log_path_provider,
-)
+from personal_assistant.gateway.session_binder import GatewaySessionBinder
 from personal_assistant.gateway.session_keys import (
     PersistentSessionBindingStore,
     bind_conversation_session,
@@ -42,25 +39,14 @@ def _store(tmp_path: Path) -> PersistentSessionBindingStore:
 def _handler(tmp_path: Path, kernel: _FakeKernel, store: PersistentSessionBindingStore):
     from personal_assistant.gateway.session_binder import build_session_fork_handler
 
-    return _handler_and_binder(tmp_path, kernel, store)[0]
-
-
-def _handler_and_binder(
-    tmp_path: Path, kernel: _FakeKernel, store: PersistentSessionBindingStore
-):
-    from personal_assistant.gateway.session_binder import build_session_fork_handler
-
     catalog = LiveAgentCatalog(
         (AgentWorkspaceConfig(agent_id="alpha", workspace_root=tmp_path / "ws-alpha"),)
     )
     binder = GatewaySessionBinder(catalog=catalog, repository=store, kernel=kernel)
-    return (
-        build_session_fork_handler(
-            kernel=kernel,
-            session_binder=binder,
-            channel_name="web_relay",
-        ),
-        binder,
+    return build_session_fork_handler(
+        kernel=kernel,
+        session_binder=binder,
+        channel_name="web_relay",
     )
 
 
@@ -76,7 +62,7 @@ async def test_fork_handler_locates_source_forks_and_binds_new(tmp_path: Path) -
         agent_id="alpha",
         kernel_session_id="ksess-src",
     )
-    handler, binder = _handler_and_binder(tmp_path, kernel, store)
+    handler = _handler(tmp_path, kernel, store)
 
     result = await handler(
         {
@@ -107,13 +93,6 @@ async def test_fork_handler_locates_source_forks_and_binds_new(tmp_path: Path) -
     )
     assert new_binding is not None
     assert new_binding.kernel_session_id == "ksess-src-fork"
-    assert build_session_log_path_provider(
-        session_binder=binder,
-        channel_name="web_relay",
-        workspace_config_dirname=".nanoassistant",
-    )("alpha", "conv-new") == str(
-        tmp_path / "ws-alpha" / ".nanoassistant" / "sessions" / "ksess-src-fork.jsonl"
-    )
 
 
 @pytest.mark.asyncio

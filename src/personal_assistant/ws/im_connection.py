@@ -166,10 +166,6 @@ SessionForkHandler = Callable[
     [Mapping[str, object]],
     Awaitable[Mapping[str, object]] | Mapping[str, object],
 ]
-# Resolve a Gateway-owned conversation binding to its exact root-session JSONL.
-# The provider must not walk the workspace tree: its lookup comes from the durable
-# session binding already held by the Gateway runtime.
-SessionLogPathProvider = Callable[[str, str], Awaitable[str | None] | str | None]
 # Provides encrypted managed-channel items for a newly bound IM. The IM owner id
 # is needed to re-seal a cache that was associated with a different IM instance.
 ChannelBootstrapItemsProvider = Callable[[str], list[Mapping[str, object]]]
@@ -305,7 +301,6 @@ class IMConnectionManager:
         prompt_preview_provider: PromptPreviewProvider | None = None,
         node_prompt_workspace_resolver: NodePromptWorkspaceResolver | None = None,
         session_fork_handler: SessionForkHandler | None = None,
-        session_log_path_provider: SessionLogPathProvider | None = None,
         token_getter: TokenGetter | None = None,
         permission_response_handler: PermissionResponseHandler | None = None,
         on_connected: Callable[[ManagedChannelConnectionSender], Awaitable[None]]
@@ -331,7 +326,6 @@ class IMConnectionManager:
         self._node_prompt_workspace_resolver = node_prompt_workspace_resolver
         # feat-445-M1: handler for IM-delegated session fork (decision 2).
         self._session_fork_handler = session_fork_handler
-        self._session_log_path_provider = session_log_path_provider
         # Called when IM pushes a permission_response so PA can POST it to the agent.
         self._permission_response_handler = permission_response_handler
         # token_getter is called on each connect attempt to supply a fresh access token.
@@ -376,10 +370,6 @@ class IMConnectionManager:
         self._event_loop: asyncio.AbstractEventLoop | None = None
         self._latest_channel_manifest_revision = 0
         self._channel_manifest_retry_task: asyncio.Task[None] | None = None
-        self._session_log_waiters: dict[
-            tuple[str, str], list[tuple[str, str, str]]
-        ] = {}
-        self._session_log_tasks: set[asyncio.Task[None]] = set()
 
     @property
     def connected(self) -> bool:
@@ -482,12 +472,6 @@ class IMConnectionManager:
         if retry_task is not None and retry_task is not asyncio.current_task():
             with contextlib.suppress(asyncio.CancelledError):
                 await retry_task
-        session_log_tasks = tuple(self._session_log_tasks)
-        for task in session_log_tasks:
-            task.cancel()
-        if session_log_tasks:
-            await asyncio.gather(*session_log_tasks, return_exceptions=True)
-        self._session_log_waiters.clear()
         self._events.append({"event": "closed"})
 
     async def drain(self, deadline: float) -> None:
@@ -1138,18 +1122,6 @@ class IMConnectionManager:
                 },
             )
             return
-        if message_type == "session.log.resolve":
-            request_id = _require_text(body.get("request_id"), field_name="request_id")
-            agent_id = _require_text(body.get("agent_id"), field_name="agent_id")
-            conversation_id = _require_text(
-                body.get("conversation_id"), field_name="conversation_id"
-            )
-            await self._start_session_log_resolution(
-                request_id=request_id,
-                agent_id=agent_id,
-                conversation_id=conversation_id,
-            )
-            return
         if message_type == "session.fork.request":
             # feat-445-M1 (decision 2): IM delegates the session fork. The handler locates
             # the source kernel session via its binding, forks it at fork_point, binds the
@@ -1524,79 +1496,6 @@ class IMConnectionManager:
                 await self._flush_pending_frames()
             return
         raise ValueError(f"unsupported downstream message type: {message_type}")
-
-    async def _start_session_log_resolution(
-        self, *, request_id: str, agent_id: str, conversation_id: str
-    ) -> None:
-        """Coalesce an exact binding lookup outside the downstream receive owner."""
-        key = (agent_id, conversation_id)
-        waiter = (request_id, agent_id, conversation_id)
-        pending_waiters = self._session_log_waiters.get(key)
-        if pending_waiters is not None:
-            pending_waiters.append(waiter)
-            return
-        self._session_log_waiters[key] = [waiter]
-        task = asyncio.create_task(self._resolve_session_log(key=key))
-        self._session_log_tasks.add(task)
-        task.add_done_callback(self._session_log_tasks.discard)
-
-    async def _resolve_session_log(self, *, key: tuple[str, str]) -> None:
-        """Await one cancellable exact lookup and answer every coalesced waiter."""
-        source_jsonl_path: str | None = None
-        resolution_status = "unavailable"
-        try:
-            provider = self._session_log_path_provider
-            if provider is not None:
-                resolved = provider(*key)
-                source_jsonl_path = (
-                    await resolved if isinstance(resolved, Awaitable) else resolved
-                )
-                if isinstance(source_jsonl_path, str) and source_jsonl_path.strip():
-                    source_jsonl_path = source_jsonl_path.strip()
-                    resolution_status = "ready"
-                else:
-                    source_jsonl_path = None
-                    resolution_status = "missing"
-        except asyncio.CancelledError:
-            raise
-        except Exception:  # noqa: BLE001 - a local provider failure is retryable
-            _log.exception("Could not resolve Gateway session log binding")
-        waiters = self._session_log_waiters.pop(key, [])
-        for request_id, agent_id, conversation_id in waiters:
-            await self._send_session_log_resolution(
-                request_id=request_id,
-                agent_id=agent_id,
-                conversation_id=conversation_id,
-                source_jsonl_path=source_jsonl_path,
-                status=resolution_status,
-            )
-
-    async def _send_session_log_resolution(
-        self,
-        *,
-        request_id: str,
-        agent_id: str,
-        conversation_id: str,
-        source_jsonl_path: str | None,
-        status: Literal["ready", "missing", "unavailable"],
-    ) -> None:
-        """Send one logical transcript lookup result through the normal ACK lane."""
-        try:
-            await self.send_json(
-                "session.log.resolved",
-                {
-                    "request_id": request_id,
-                    "node_id": self._reporter.node_id,
-                    "agent_id": agent_id,
-                    "conversation_id": conversation_id,
-                    "source_jsonl_path": source_jsonl_path,
-                    "status": status,
-                },
-            )
-        except asyncio.CancelledError:
-            raise
-        except Exception:  # noqa: BLE001 - connection lifecycle owns retry/reconnect
-            _log.exception("Could not send Gateway session log resolution")
 
     async def _flush_pending_frames(
         self,

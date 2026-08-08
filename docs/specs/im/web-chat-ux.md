@@ -281,12 +281,6 @@ Web IM SHALL 为 Agent Markdown 中的每个 block code 提供独立、可访问
 - **WHEN** 用户在 conversation 列表中进入"生成 skill"多选模式
 - **THEN** 提供 checkbox 选择入口;`run_state=idle` 的 conversation 可选,`run_state=running` 的 conversation 禁选并显示"运行中"
 
-#### Scenario: transcript 暂不可用不被误报为不存在
-- **GIVEN** 一个 `run_state=idle` conversation 的所属 Gateway 无法在当前请求取得其确切 session binding
-- **WHEN** conversation 列表返回 `source_jsonl_status="unavailable"`
-- **THEN** 该 conversation 在蒸馏选择中禁选并显示"Transcript temporarily unavailable"（中文界面为等价文案）
-- **AND** 页面不得显示“No transcript”，该文案只对应 Gateway 明确返回 `source_jsonl_status="missing"`
-
 #### Scenario: 单一来源 agent 时自动确定执行 agent
 - **GIVEN** 用户已选择一个或多个 `run_state=idle` 的 conversation
 - **WHEN** 用户点击"生成 skill"

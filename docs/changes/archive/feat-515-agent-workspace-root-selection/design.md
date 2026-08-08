@@ -6,8 +6,7 @@
 
 ## Changelog
 
-- Round 4: replaces the generic first-registration recovery marker with an IM-reserved, Gateway-persisted create operation; replaces cancellability-free recursive transcript scans with a cancellable exact session-binding lookup and explicit readiness status.
-- Round 7: the transcript provider reads a startup-hydrated, copy-on-write binding projection instead of acquiring the binder lock or SQLite connection from the Gateway receive loop.
+- Round 4: replaces the generic first-registration recovery marker with an IM-reserved, Gateway-persisted create operation.
 
 ## 现状分析
 
@@ -237,7 +236,7 @@ sequenceDiagram
     F-->>U: 跳转 Agent 详情，显示固定的 workspace root
 ```
 
-### Round-4 correction: create recovery and transcript availability
+### Round-4 correction: create recovery
 
 The earlier registration-seed correction was too broad: a first ordinary `node.register` profile cannot prove
 that it resulted from a particular IM `agent.create`. Before the first outbound create, IM now reserves a durable
@@ -251,22 +250,6 @@ owner/node/Agent, canonical root, provenance, original display identity, and Gat
 match; the atomic claim clears both the pending marker and operation. Normal prehosted/first-registered profiles,
 arbitrary operation advertisements, operation mismatches, and any profile PATCH stay ordinary duplicates. This
 keeps a lost `agent.created` response recoverable without treating registration itself as authorization.
-
-The earlier bounded worker model also left an uncancellable recursive `rglob` running after logical timeout and
-reported capacity pressure as a missing transcript. Gateway instead projects the exact JSONL address from its
-durable `ConversationSessionBinder` binding without calling `Path.is_file()` or `Path.resolve()` on the receive
-loop. At Gateway construction, committed bindings are hydrated into an immutable copy-on-write projection; every
-later durable binding write replaces the affected projection entry. The receive task reads that projection only: it
-does not acquire the binder's thread lock or query SQLite, so a held persistence lookup cannot delay a control frame
-or `close()`. No binding is `missing`; a durable binding is `ready` even when its target workspace cannot be probed;
-an absent provider or binding/projection failure is `unavailable`. One cancellable task is coalesced per
-`(agent_id, conversation_id)` and is cancelled on connection close. Only `missing` authorizes the UI's “No
-transcript” state; `unavailable` keeps the source disabled with a retryable availability message.
-
-When a selected distillation source becomes `running`, lacks its source metadata, or is no longer `ready`, the
-client removes its id from the selection set. A later availability refresh or list reorder cannot restore that
-selection or change the selected Gateway node; the user must select it again. This preserves the one-node
-selection rule without a hidden disabled source steering a later distillation.
 
 ### 失败和并发边界
 

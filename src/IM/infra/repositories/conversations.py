@@ -1,6 +1,8 @@
 """SQLite repositories for IM users, conversations, and messages."""
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 import sqlite3
 from uuid import uuid4
 
@@ -11,6 +13,9 @@ from IM.domain.models import (
 
 
 from IM.infra._timestamps import utc_now
+
+_PA_WORKSPACE_CONFIG_DIRNAME = ".nanoassistant"
+
 
 _ACTIVE_AGENT_DELIVERY_STATUSES = frozenset({"sent", "running"})
 
@@ -639,7 +644,10 @@ class ConversationRepository:
             participants=participants,
             run_state=self._resolve_run_state(conversation_id=conversation_id),
             source_agent_id=source_agent_id,
-            source_jsonl_path=None,
+            source_jsonl_path=self._resolve_source_jsonl_path(
+                conversation_id=conversation_id,
+                source_agent_id=source_agent_id,
+            ),
         )
 
     @staticmethod
@@ -671,6 +679,63 @@ class ConversationRepository:
             (conversation_id, *_ACTIVE_AGENT_DELIVERY_STATUSES),
         ).fetchone()
         return "running" if row is not None else "idle"
+
+    def _resolve_source_jsonl_path(
+        self, *, conversation_id: str, source_agent_id: str | None
+    ) -> str | None:
+        """Find the actual PA session JSONL whose metadata points at this conversation."""
+        if not source_agent_id:
+            return None
+        profile_row = self._connection.execute(
+            "SELECT workspace_root FROM agent_profiles WHERE agent_id = ?",
+            (source_agent_id,),
+        ).fetchone()
+        if profile_row is None or profile_row["workspace_root"] is None:
+            return None
+        workspace_root = str(profile_row["workspace_root"]).strip()
+        if not workspace_root:
+            return None
+        sessions_dir = (
+            Path(workspace_root).expanduser()
+            / _PA_WORKSPACE_CONFIG_DIRNAME
+            / "sessions"
+        )
+        if not sessions_dir.is_dir():
+            return None
+        for path in sorted(sessions_dir.rglob("*.jsonl")):
+            if self._session_jsonl_matches_conversation(
+                path=path,
+                conversation_id=conversation_id,
+                source_agent_id=source_agent_id,
+            ):
+                return str(path.resolve())
+        return None
+
+    @staticmethod
+    def _session_jsonl_matches_conversation(
+        *, path: Path, conversation_id: str, source_agent_id: str
+    ) -> bool:
+        """Return whether one kernel session file was created for this IM conversation."""
+        try:
+            with path.open("r", encoding="utf-8") as fh:
+                for line in fh:
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+                    record = json.loads(stripped)
+                    if record.get("type") != "session_created":
+                        continue
+                    metadata = record.get("metadata")
+                    if not isinstance(metadata, dict):
+                        continue
+                    if (
+                        metadata.get("conversation_id") == conversation_id
+                        and metadata.get("agent_id") == source_agent_id
+                    ):
+                        return True
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+            return False
+        return False
 
     def _resolve_participant_user_row(self, *, reference: str) -> sqlite3.Row | None:
         """Resolve one participant reference into a concrete IM user row."""

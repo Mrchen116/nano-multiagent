@@ -5,23 +5,13 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from threading import Event, Thread
 
 import pytest
 
-from personal_assistant.channels.base import InboundMessage, ReplyContext
+from personal_assistant.channels.base import InboundMessage
 from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
-from personal_assistant.config.local_store import AgentWorkspaceConfig, NodeConfig
+from personal_assistant.config.local_store import NodeConfig
 from personal_assistant.config.sync_client import ConfigSyncClient
-from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
-from personal_assistant.gateway.session_binder import (
-    GatewaySessionBinder,
-    build_session_log_path_provider,
-)
-from personal_assistant.gateway.session_keys import (
-    PersistentSessionBindingStore,
-    SessionBindingStore,
-)
 from personal_assistant.reporter.upstream_reporter import UpstreamReporter
 import personal_assistant.ws.im_connection as im_connection_module
 from personal_assistant.ws.im_connection import IMConnectionConfig, IMConnectionManager
@@ -222,200 +212,6 @@ def test_im_connection_replies_with_live_agent_config_snapshot(tmp_path: Path) -
                 "default_model": "claude-sonnet-4",
                 "workspace_root": "/tmp/agent-a",
             },
-        },
-    }
-
-
-def test_im_connection_returns_exact_session_log_from_gateway_binding(
-    tmp_path: Path,
-) -> None:
-    """Production binding projection returns an address without probing its workspace."""
-    workspace_root = tmp_path / "remote-workspace"
-    session_path = workspace_root / ".nanoassistant" / "sessions" / "session-a.jsonl"
-    agent = AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace_root)
-    bindings = SessionBindingStore()
-    bindings.bind(
-        session_key="web_relay:conversation-a:agent-a",
-        kernel_session_id="session-a",
-        reply_context=ReplyContext(
-            channel_name="web_relay", target_chat_id="conversation-a"
-        ),
-    )
-    session_binder = GatewaySessionBinder(
-        catalog=LiveAgentCatalog((agent,)), repository=bindings, kernel=object()
-    )
-    socket = _FakeWebSocket(
-        incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
-            json.dumps(
-                {
-                    "type": "session.log.resolve",
-                    "payload": {
-                        "request_id": "session-log-1",
-                        "agent_id": "agent-a",
-                        "conversation_id": "conversation-a",
-                    },
-                }
-            ),
-        ]
-    )
-    relay_adapter = WebRelayAdapter()
-    relay_adapter.start(lambda _message: None)
-    manager = IMConnectionManager(
-        config=IMConnectionConfig(url="http://im.local:9000"),
-        reporter=_minimal_reporter(tmp_path),
-        relay_adapter=relay_adapter,
-        session_log_path_provider=build_session_log_path_provider(
-            session_binder=session_binder,
-            channel_name="web_relay",
-            workspace_config_dirname=".nanoassistant",
-        ),
-        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
-    )
-
-    async def exercise() -> None:
-        await manager.connect_once()
-        await manager._listen_once()  # noqa: SLF001 - node.register ack
-        await manager._listen_once()  # noqa: SLF001 - session log request
-        for _ in range(20):
-            if any("session.log.resolved" in frame for frame in socket.sent):
-                break
-            await asyncio.sleep(0.01)
-
-    asyncio.run(exercise())
-
-    assert json.loads(socket.sent[-1]) == {
-        "type": "session.log.resolved",
-        "payload": {
-            "request_id": "session-log-1",
-            "node_id": "n1",
-            "agent_id": "agent-a",
-            "conversation_id": "conversation-a",
-            "source_jsonl_path": str(session_path),
-            "status": "ready",
-        },
-    }
-
-
-def test_production_session_log_projection_bypasses_held_persistent_binding_lookup(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A held durable lookup cannot hold Gateway receive or close behind it."""
-    workspace_root = tmp_path / "workspace"
-    session_key = "web_relay:conversation-a:agent-a"
-    bindings = PersistentSessionBindingStore(db_path=tmp_path / "bindings.sqlite3")
-    bindings.bind(
-        session_key=session_key,
-        kernel_session_id="session-a",
-        reply_context=ReplyContext(
-            channel_name="web_relay", target_chat_id="conversation-a"
-        ),
-    )
-    session_binder = GatewaySessionBinder(
-        catalog=LiveAgentCatalog(
-            (AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace_root),)
-        ),
-        repository=bindings,
-        kernel=object(),
-    )
-    lookup_started = Event()
-    release_lookup = Event()
-    original_get = bindings.get
-
-    def held_get(key: str):
-        lookup_started.set()
-        release_lookup.wait()
-        return original_get(key)
-
-    monkeypatch.setattr(bindings, "get", held_get)
-    held_lookup = Thread(
-        target=lambda: session_binder.capture_binding_provenance(
-            session_key, expected_agent_id="agent-a"
-        ),
-        daemon=True,
-    )
-    held_lookup.start()
-    assert lookup_started.wait(timeout=0.5)
-
-    heartbeat_seen = Event()
-    closed = Event()
-    driver_errors: list[BaseException] = []
-
-    socket = _FakeWebSocket(
-        incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
-            json.dumps(
-                {
-                    "type": "session.log.resolve",
-                    "payload": {
-                        "request_id": "held-log",
-                        "agent_id": "agent-a",
-                        "conversation_id": "conversation-a",
-                    },
-                }
-            ),
-            json.dumps(
-                {
-                    "type": "heartbeat.trigger",
-                    "payload": {"agent_id": "agent-a", "reason": "manual"},
-                }
-            ),
-        ]
-    )
-    relay_adapter = WebRelayAdapter()
-    relay_adapter.start(lambda _message: None)
-    manager = IMConnectionManager(
-        config=IMConnectionConfig(url="http://im.local:9000"),
-        reporter=_minimal_reporter(tmp_path),
-        relay_adapter=relay_adapter,
-        heartbeat_trigger=lambda _agent_id, _reason: heartbeat_seen.set(),
-        session_log_path_provider=build_session_log_path_provider(
-            session_binder=session_binder,
-            channel_name="web_relay",
-            workspace_config_dirname=".nanoassistant",
-        ),
-        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
-    )
-
-    async def exercise() -> None:
-        await manager.connect_once()
-        await manager._listen_once()  # noqa: SLF001 - node.register ack
-        await manager._listen_once()  # noqa: SLF001 - start session resolution
-        await asyncio.sleep(0)
-        await manager._listen_once()  # noqa: SLF001 - heartbeat while lookup is held
-        await manager.close()
-        closed.set()
-
-    def drive() -> None:
-        try:
-            asyncio.run(exercise())
-        except BaseException as exc:  # noqa: BLE001 - surface worker failures below
-            driver_errors.append(exc)
-
-    driver = Thread(target=drive, daemon=True)
-    driver.start()
-    try:
-        assert heartbeat_seen.wait(timeout=0.5)
-        assert closed.wait(timeout=0.5)
-    finally:
-        release_lookup.set()
-        held_lookup.join(timeout=0.5)
-        driver.join(timeout=0.5)
-
-    assert not held_lookup.is_alive()
-    assert not driver.is_alive()
-    assert not driver_errors
-    assert json.loads(socket.sent[-1]) == {
-        "type": "session.log.resolved",
-        "payload": {
-            "request_id": "held-log",
-            "node_id": "n1",
-            "agent_id": "agent-a",
-            "conversation_id": "conversation-a",
-            "source_jsonl_path": str(
-                workspace_root / ".nanoassistant" / "sessions" / "session-a.jsonl"
-            ),
-            "status": "ready",
         },
     }
 
@@ -943,7 +739,6 @@ def test_every_guarded_upstream_frame_carries_registered_node_identity(
         "node.cron.delete",
         "node.skills.usage",
         "session.fork.result",
-        "session.log.resolved",
         "channel.reconcile.result",
         "channels.bootstrap",
         "channel.status",

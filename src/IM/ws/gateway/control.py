@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
 from uuid import uuid4
 
 
@@ -42,14 +41,6 @@ def _config_operation_result(
     return dict(payload)
 
 
-@dataclass(frozen=True, slots=True)
-class SessionLogResolution:
-    """Describe whether a Gateway could make a transcript available now."""
-
-    source_jsonl_path: str | None
-    status: str
-
-
 class GatewayControl:
     """Own Gateway control RPC request/result correlation and waiters."""
 
@@ -70,7 +61,6 @@ class GatewayControl:
         self._skills_usage_waiters = {}
         self._session_fork_waiters = {}
         self._config_operation_locks: dict[str, asyncio.Lock] = {}
-        self._session_log_waiters = {}
 
     async def config_operation_lock(self, *, agent_id: str) -> asyncio.Lock:
         """Return the app-scoped serialization lock for one Agent config mutation."""
@@ -370,39 +360,6 @@ class GatewayControl:
             async with self._lock:
                 self._session_fork_waiters.pop(request_id, None)
 
-    async def request_session_log_path(
-        self,
-        *,
-        target_node_id: str,
-        agent_id: str,
-        conversation_id: str,
-        timeout_seconds: float = 5.0,
-    ) -> SessionLogResolution:
-        """Ask the owning Gateway for its exact conversation transcript binding."""
-        request_id = f"session-log-{uuid4().hex}"
-        loop = asyncio.get_running_loop()
-        waiter: asyncio.Future[SessionLogResolution] = loop.create_future()
-        async with self._lock:
-            self._session_log_waiters[request_id] = waiter
-        try:
-            pushed = await self._sessions.send(
-                target_node_id=target_node_id,
-                message_type="session.log.resolve",
-                payload={
-                    "request_id": request_id,
-                    "agent_id": agent_id,
-                    "conversation_id": conversation_id,
-                },
-            )
-            if not pushed:
-                return SessionLogResolution(None, "unavailable")
-            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
-        except asyncio.TimeoutError:
-            return SessionLogResolution(None, "unavailable")
-        finally:
-            async with self._lock:
-                self._session_log_waiters.pop(request_id, None)
-
     async def _handle_session_fork_result(
         self, *, payload: dict[str, object]
     ) -> dict[str, object]:
@@ -420,44 +377,6 @@ class GatewayControl:
                 "message_type": "session.fork.result",
                 "request_id": request_id,
                 "node_id": node_id,
-            },
-        }
-
-    async def _handle_session_log_resolved(
-        self, *, payload: dict[str, object]
-    ) -> dict[str, object]:
-        """Resolve one opaque session-log path returned by the owning Gateway."""
-        request_id = _require_text(payload.get("request_id"), field_name="request_id")
-        node_id = _require_text(payload.get("node_id"), field_name="node_id")
-        agent_id = _require_text(payload.get("agent_id"), field_name="agent_id")
-        conversation_id = _require_text(
-            payload.get("conversation_id"), field_name="conversation_id"
-        )
-        raw_path = payload.get("source_jsonl_path")
-        source_jsonl_path = (
-            raw_path.strip() if isinstance(raw_path, str) and raw_path.strip() else None
-        )
-        raw_status = payload.get("status")
-        if raw_status in {"ready", "missing", "unavailable"}:
-            resolution_status = raw_status
-        else:
-            resolution_status = "ready" if source_jsonl_path else "missing"
-        if resolution_status == "ready" and source_jsonl_path is None:
-            resolution_status = "unavailable"
-        async with self._lock:
-            waiter = self._session_log_waiters.get(request_id)
-        if waiter is not None and not waiter.done():
-            waiter.set_result(
-                SessionLogResolution(source_jsonl_path, resolution_status)
-            )
-        return {
-            "type": "ack",
-            "payload": {
-                "message_type": "session.log.resolved",
-                "request_id": request_id,
-                "node_id": node_id,
-                "agent_id": agent_id,
-                "conversation_id": conversation_id,
             },
         }
 

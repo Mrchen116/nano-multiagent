@@ -309,20 +309,6 @@ export function ChatWorkspacePage() {
   });
   const sidebarConversations = useLocalUnreadFeedback(conversationsQuery.data ?? []);
 
-  useEffect(() => {
-    const eligibleConversationIds = new Set(
-      (conversationsQuery.data ?? [])
-        .filter(isDistillConversationEligible)
-        .map((conversation) => conversation.id),
-    );
-    setSelectedDistillConversationIds((current) => {
-      const next = new Set(
-        [...current].filter((conversationId) => eligibleConversationIds.has(conversationId)),
-      );
-      return next.size === current.size ? current : next;
-    });
-  }, [conversationsQuery.data]);
-
   const activeConversation: Conversation | null = useMemo(() => {
     if (!conversationId) return null;
     return conversationsQuery.data?.find((c) => c.id === conversationId) ?? null;
@@ -458,17 +444,10 @@ export function ChatWorkspacePage() {
 
   const selectedDistillConversations = useMemo(() => {
     const byId = new Set(selectedDistillConversationIds);
-    const selected = (conversationsQuery.data ?? []).filter(
+    return (conversationsQuery.data ?? []).filter(
       (c) => byId.has(c.id) && isDistillConversationEligible(c)
     );
-    const sourceNodeId = selected[0]?.source_node_id;
-    return sourceNodeId
-      ? selected.filter((c) => c.source_node_id === sourceNodeId)
-      : [];
   }, [conversationsQuery.data, selectedDistillConversationIds]);
-
-  const selectedDistillSourceNodeId =
-    selectedDistillConversations[0]?.source_node_id ?? null;
 
   const distillSourceAgentOptions = useMemo(() => {
     const seen = new Set<string>();
@@ -914,13 +893,6 @@ export function ChatWorkspacePage() {
         return;
       }
       setSelectedDistillConversationIds((prev) => {
-        if (
-          selectedDistillSourceNodeId
-          && conversation.source_node_id !== selectedDistillSourceNodeId
-        ) {
-          setDistillNotice(t("chat.distill.sameNodeRequired"));
-          return prev;
-        }
         const next = new Set(prev);
         next.add(conversationId);
         return next;
@@ -939,14 +911,6 @@ export function ChatWorkspacePage() {
   function toggleDistillConversation(conversationId: string) {
     const conversation = (conversationsQuery.data ?? []).find((item) => item.id === conversationId);
     if (!conversation || !isDistillConversationEligible(conversation)) return;
-    if (
-      selectedDistillSourceNodeId
-      && conversation.source_node_id !== selectedDistillSourceNodeId
-      && !selectedDistillConversationIds.has(conversationId)
-    ) {
-      setDistillNotice(t("chat.distill.sameNodeRequired"));
-      return;
-    }
     setDistillNotice(null);
     setSelectedDistillConversationIds((prev) => {
       const next = new Set(prev);
@@ -992,12 +956,6 @@ export function ChatWorkspacePage() {
     if (selectedDistillConversations.length === 0) {
       setDistillError(t("chat.distill.selectionRequired"));
       setDistillNotice(t("chat.distill.selectionRequired"));
-      return;
-    }
-    if (
-      new Set(selectedDistillConversations.map((c) => c.source_node_id)).size !== 1
-    ) {
-      setDistillError(t("chat.distill.sameNodeRequired"));
       return;
     }
     setDistillSubmitting(true);
@@ -1109,7 +1067,6 @@ export function ChatWorkspacePage() {
           onNewGroup={() => setShowNewGroup(true)}
           distillMode={distillMode}
           selectedDistillConversationIds={selectedDistillConversationIds}
-          selectedDistillSourceNodeId={selectedDistillSourceNodeId}
           selectedDistillEligibleCount={selectedDistillConversations.length}
           distillNotice={distillNotice}
           onToggleDistillConversation={toggleDistillConversation}

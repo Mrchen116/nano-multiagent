@@ -1,258 +1,29 @@
 # feat-515-M1 — Progress
 
-## Baseline
+## Delivered scope
 
-- Branch: `milestone/feat-515-M1` at `a5e64e4fa0565179417ed96056838ce40a69ebc6`.
-- Python: related Gateway/IM ownership, protocol, create, DB and config contract tests — 91 passed, 2 dependency deprecation warnings.
-- Frontend: `agent-create.test.tsx` + `im-agent-config-api.test.ts` — 21 passed.
-- Prototype: `../prototype.html`; four `must-match` rows copied into `tasks.md`.
+- Gateway owns default/custom Workspace Root selection, target-parent validation,
+  existing-directory confirmation, initialization, and node-local uniqueness.
+- IM keeps a successful root as an opaque mirror; it neither canonicalizes nor
+  validates a Gateway-local path.
+- Workspace Root and its default/custom provenance are immutable after creation.
+- A create operation is durable enough to recover one lost `agent.created` ACK,
+  without allowing ordinary registration or a changed request to claim an Agent.
+- The create page exposes default/custom modes, preserves the draft on a typed
+  rejection, and gives an explicit existing-directory warning.
 
-## R1 — Gateway 本地 workspace creation boundary
+## Scope boundary
 
-- Context: 既有 handler 在校验前直接 `ensure_workspace_defaults()`，没有 existing-directory 确认、canonical ownership 或来源持久化；新建前 preview root 由 IM 主机派生。
-- Decision: Gateway handler 现以本地 config + 文件系统为创建边界，先 canonicalize/查占用/查 parent 与 target，再按确认状态初始化；错误返回 typed outcome。`AgentWorkspaceConfig` 持久化 `workspace_is_default` 并随 register 上报；preview 通过同一节点 factory 只解析不创建。
-- Rationale: 路径语义、ownership 与 runtime 都属于选中节点；IM 与浏览器不具备可靠的远端文件系统视角。
-- Evidence:
-  - Tests: 新增/扩展 Gateway creation/protocol/YAML/register 测试；focused suite 79 passed, 2 dependency deprecation warnings。
-  - Entry: Gateway 的公开 `handle_agent_create` seam 覆盖 default/custom、missing/unusable parent、non-directory、confirmation、initialization failure、canonical collision 与 node-scoped ownership；真 HTTP/WS 入口留 R2/R5。
-  - Frontend State Matrix: N/A（R3）。
-  - Browser QA: N/A（R5）。
-  - E2E/Regression: `tests/unit/personal_assistant/test_gateway_workspace_creation.py`、`test_gateway_workspace_creation_protocol.py`、`config/test_workspace_provenance.py`；79 passed 汇总包含受影响旧 Gateway 测试。
-  - Visual/Interaction: N/A（R5）。
-  - Prototype Comparison: N/A（R5）。
-- Rollback: revert `f542787d8`。
-- Commits: `f542787d8`
-- Next: R2 structured IM outcome、opaque mirror/provenance、migration/register 和 HTTP 契约。
+Conversation JSONL discovery, transcript availability states, and cross-Gateway
+skill-distillation selection are not part of feat-515. They are deferred to the
+follow-up bugfix where the owning Gateway reads its own JSONL and performs the
+distillation.
 
-## R2 — WS/HTTP structured outcome 与 opaque IM mirror
+## Milestone record
 
-- Context: IM 过去会在本机 `expanduser().resolve()` Gateway 返回的 root，live snapshot 也能覆盖持久化 mirror；`agent.created` 只支持成功 payload，profile 没有 nullable provenance。
-- Decision: `agent.created` waiter 透传 structured workspace error；HTTP 仅按稳定 code 映射 409/422，并在失败时不落 profile。SQLite 新增 nullable `workspace_is_default`，旧行保持 NULL/公开 false；register 只在 provenance 为空时补 seed。所有既有 Agent workspace RPC 使用不解析的持久化字符串，live snapshot 不再覆盖 root。节点级 preview 只转发 mode/id/custom root，由 Gateway 解析。
-- Rationale: IM 可能与 Gateway 分属不同主机；路径 canonicalization、filesystem validation 和 provenance 都必须由目标节点持有，IM 只保留 opaque routing value。
-- Evidence:
-  - Tests: focused IM contract/integration/schema suite 34 passed；扩展风险套件先得到 509 passed/1 个旧 live-root 断言失败，按新 opaque mirror 契约改写该断言后单测回归通过。
-  - Entry: 真 HTTP + Gateway WS correlation 覆盖 `workspace_confirmation_required` 顶层 409 且无 profile；API adapter 前端分支留 R3。
-  - Frontend State Matrix: N/A（R3）。
-  - Browser QA: N/A（R5）。
-  - E2E/Regression: `test_workspace_root_mirror_contract.py` 覆盖 mirror/live/capabilities/prompt/cron/skills/heartbeat 的同一 opaque 字符串；register 测试覆盖 true/false、旧帧 NULL 与非 NULL 不覆盖。
-  - Visual/Interaction: N/A（R5）。
-  - Prototype Comparison: N/A（R5）。
-- Rollback: revert `c1ee3b3bf`。
-- Commits: `c1ee3b3bf`
-- Next: R3 Workspace 创建卡、默认/custom payload、稳定错误码 UI 分支、确认重试与中英 i18n。
-
-## R3 — Workspace 创建 UI 与 i18n
-
-- Context: 创建页过去把 `workspace_root` 强制归一为 null；API error 只保留 status/detail，无法按 Gateway 稳定 code 呈现确认、占用和路径问题；preview 也没有传 workspace intent。
-- Decision: 在 Identity 与 Behavior 之间加入默认选中的 Workspace 卡；custom 模式提交目标节点输入，客户端只检查空值，节点负责其余校验。`AgentConfigRequestError` 保留 `code`/`agent_id`；existing-directory 409 展示醒目确认区，勾选后用同一草稿重试并仅把 `confirm_existing_workspace` 改为 true。preview 同步传 mode/id/root。样式在 720px 下切单列，中英文文案完整。
-- Rationale: 稳定 code 是交互分支契约，路径 detail 只是展示信息；确认必须可恢复且不能丢失表单草稿。创建页选择不改变既有详情页的只读 Workspace & Runtime 展示。
-- Evidence:
-  - Tests: targeted API/create Vitest 28 passed；frontend 全套 63 files / 611 tests passed（保留既有 act/user-stream stderr）；production `tsc -b && vite build` 成功，仅既有 chunk-size warning。
-  - Entry: API adapter test 覆盖 code/agent_id 与 preview intent；创建页覆盖默认 null、custom root、空路径、confirmation retry、assigned Agent、卡片顺序与 preview default intent。
-  - Frontend State Matrix: default/custom/empty/error/submitting/confirmation/mobile CSS 均落到组件或测试；offline/loading 沿用原页面门禁。
-  - Browser QA: 真浏览器截图、console/network 与 390px 检查留 R5。
-  - E2E/Regression: 全 frontend suite 611 passed；既有 Agent detail 测试包含在全套且实现文件未增加 default/custom 来源标签。
-  - Visual/Interaction: `.im-workspace-*` 复用现有卡片 token，desktop 两列、窄屏单列，长路径 `overflow-wrap:anywhere`。
-  - Prototype Comparison: Workspace 卡位置、二选一、字段说明与 existing notice 已实现；真实截图对照留 R5。
-- Rollback: revert `c2bb68918`。
-- Commits: `c2bb68918`
-- Next: R4 全量风险门禁与 docs，然后 R5 隔离真栈/浏览器验收。
-
-## R4 — 回归矩阵与质量门禁
-
-- Context: R1-R3 改动同时跨 Gateway/IM/SQLite/React；新增 workspace 交互最初继续扩展了已超过 400 行的 `agent-create.test.tsx`，不符合测试文件结构约束。
-- Decision: 将五条 Workspace 创建交互移到 204 行的 `agent-create-workspace.test.tsx`，原文件只保留原有创建/离开/能力行为和默认 payload 接线。全仓 Python、前端单 worker、ruff、build、docs 与 diff 门禁统一重跑。
-- Rationale: 新行为拥有清晰语义 owner，且单 worker frontend 全套能规避当前机器高负载下默认并发的无关 5 秒 timeout，不掩盖真实失败。
-- Evidence:
-  - Tests: Python `pytest -m 'not e2e' -q` — 3035 passed, 24 deselected, 16 dependency warnings；frontend `--no-file-parallelism --maxWorkers=1` — 64 files / 611 tests passed。
-  - Entry: Gateway/IM/HTTP/frontend 所有本 milestone focused owners 均包含在全套门禁。
-  - Frontend State Matrix: targeted 28 passed，production build 成功；UI 真浏览器状态留 R5。
-  - Browser QA: N/A（R5）。
-  - E2E/Regression: `ruff check .`、`git diff --check` 通过；`scripts/docs-check` — 220 maintained Markdown sources / 66 required routes。
-  - Visual/Interaction: N/A（R5）。
-  - Prototype Comparison: N/A（R5）。
-- Rollback: revert `0198d43c1`（测试结构）；R1-R3 功能 commit 分别见前述 roadpoint。
-- Commits: `0198d43c1`
-- Next: R5 隔离单/双 Gateway 真栈、desktop/390px 浏览器验收与证据落盘。
-
-## R5 — 隔离真栈与浏览器原型对照
-
-- Context: unit/integration 测试已覆盖协议和路径分支，但仍需证明真实 IM/Gateway/Vite/Chromium 组合、窄屏布局以及 node-local ownership 在两个进程中成立。
-- Decision: 用 worktree runbook 启动端口隔离的 IM、主 Gateway 和 Vite；第二 Gateway 使用独立 config/runtime/workspace base/node identity/process 接入同一 IM。浏览器完成 default/custom、已有目录首次拒绝和确认重试，API 补测 missing parent、同节点冲突和跨节点同字符串 root；SQLite/YAML/文件系统逐项取证。
-- Rationale: 浏览器证据验证用户可见状态和恢复式交互，双 Gateway 证据验证 ownership 位于节点而非 IM；二者不能由组件测试互相替代。
-- Evidence:
-  - Tests: 浏览器网络记录显示已有目录 `409 workspace_confirmation_required` 后相同草稿确认重试 `201`；default 创建 `201`；真实 API 得到 `422 workspace_parent_missing` 和 `409 workspace_already_assigned`。
-  - Entry: 主节点 `wt-feat-515-M1-98571` 和第二节点 `wt-feat-515-M1-second` 同时 online；IM 为 `127.0.0.1:60550`，Vite 为 `127.0.0.1:60599`。
-  - Frontend State Matrix: desktop default/custom、existing confirmation、dual-node selection、390px custom card 均完成真实 Chromium 验收。
-  - Browser QA: 最终 console 为 0 errors / 0 warnings；network 含预期 409、随后 201 与成功 follow-up reads；既有详情只展示 read-only Workspace Root，无来源标签。
-  - E2E/Regression: 首次 existing 请求后 profile/YAML 均无写入；确认后 root/provenance 为 exact canonical string/false，sentinel 未变；default root/provenance 为 Gateway base 下路径/true；missing/assigned 失败均无 profile/YAML/path 副作用。
-  - Visual/Interaction: 1440 x 1000 和 390 x 844 截图与完整结果位于 `evidence/acceptance.md`；长路径不撑破卡片，窄屏模式卡单列。
-  - Prototype Comparison: Identity -> Workspace -> Behavior、默认选中、custom 节点说明、existing warning/checkbox 四项 must-match 全部满足。
-  - Dual Gateway: 第二节点以已由主节点 Agent 使用的同字符串 root 创建另一 Agent 得到 HTTP 201；SQLite 中两个不同 `node_id` 保留同一 root，两个 Gateway YAML 分别持有本地 assignment，sentinel 未变。
-- Rollback: revert `d521f05d5`（durable evidence）；功能 rollback 见 R1-R4。
-- Commits: `d521f05d5`
-- Next: milestone 集成到 `unit/feat-515`，释放浏览器、双 Gateway、IM/Vite 与所有 worktree runtime 文件。
-
-## Promotion Candidates
-
-None.
-
-## Round 1 correction — duplicate immutability and remote session-log authority
-
-- Lineage:
-  - Verification failure snapshot: `015711133dbd10e9932e806ad1fb904178527b80`, `CRITICAL-1`, `CRITICAL-2`, and `WARNING-1` in `../verification.md`.
-  - Independent browser acceptance: `e813c45f10fc11a33f0e75358c810e1a0fe1aa5e`, which reproduced a second create changing `review_default_515` from its default root to `.review-duplicate-id-515`.
-  - Follow-up code review added lost-response retry, prompt-preview correlation, concurrent local create, and ownerless provenance refresh cases to the same correction.
-- Root causes:
-  - HTTP create trusted client `owner_id`, ignored ownerless duplicates, and composed a non-atomic read with profile upsert; Gateway creation likewise had no Agent-ID guard.
-  - `ConversationRepository` mixed durable IM projection with Gateway-local runtime discovery by recursively scanning and opening a mirrored workspace path.
-  - Prompt-preview let resolver `ValueError` escape the Gateway receive loop, and register upsert preserved stale ownerless provenance instead of the latest Gateway result.
-- Decisions:
-  - The app owns one serialized create check/Gateway/store boundary; repository creation is insert-only; authenticated owner is authoritative. Gateway serializes its local check/publish boundary, treats same-ID/same-root as an idempotent recovery, and rejects divergent roots before initialization.
-  - IM projects only `source_agent_id`; list/sync/detail ask the owning Gateway to resolve the session log using logical IDs. Only Gateway reads `.nanoassistant/sessions/**/*.jsonl`; the returned path remains opaque in IM.
-  - Node preview converts invalid path resolution into the existing structured workspace error envelope, while ownerless register explicitly refreshes `workspace_is_default` from the node seed.
-- Red-green evidence:
-  - Initial focused baseline: `55 passed, 2 warnings`.
-  - New tests first failed at the missing insert-only exception/API, then the complete correction matrix passed: `115 passed, 7 warnings`.
-  - Expanded IM + affected Gateway suite: `442 passed, 22 warnings in 45.13s`.
-  - Before rebase, the complete frontend suite passed with only existing test warnings.
-  - After rebasing onto `e813c45f10fc11a33f0e75358c810e1a0fe1aa5e`, the focused correction set passed `107 passed, 8 warnings`; the full non-E2E Python gate passed `3049 passed, 24 deselected, 22 warnings in 126.90s`.
-  - Final frontend workspace/API matrix: `22 passed`; `tsc -b` and production Vite build passed with only the existing chunk-size warning.
-  - Changed-file Ruff, Python compile, documentation integrity, and `git diff --check`: passed.
-- Test owners added or corrected:
-  - `test_agent_create_immutability_contract.py`: authenticated ownership, four stable 422/no-write failures, duplicate/concurrent guard, and lost-response IM retry.
-  - `test_gateway_workspace_creation_immutability.py`: Gateway divergent-root rejection, same-root recovery, and concurrent local serialization.
-  - Session-log tests now cover repository non-dereference, IM control correlation, Gateway nested-log lookup, and HTTP list/sync projection through RPC.
-- Runtime/cleanup: no production service, port, config, database, or workspace was touched. Frontend validation temporarily linked the main checkout's installed `node_modules` into this isolated worktree; the link, build output, and TypeScript build info were removed immediately after validation.
-- Durable detail: `evidence/correction-round-1.md`.
-
-## Round 2 correction — provenance coherence, opaque target roots, and distill/session boundaries
-
-- Context: Round-2 verification found that an ownerless re-registration could refresh a non-NULL provenance while retaining the old root. It also identified IM-host POSIX validation, a lost-response gap after real registration, cross-node distillation selection, and serial JSONL scans on the Gateway receive owner.
-- Decision: register and repository upsert now fill only NULL provenance. Successful Gateway roots are opaque outside the Gateway. A serialized claim finalizes only an ownerless seed with the same node/root/provenance and the Gateway's original display name. Transcript-capable conversation projections carry `source_node_id`, and the distill picker disables other-node paths. Gateway session-log scans run as bounded background tasks.
-- Evidence: focused Python owners — 17 passed; Gateway connection behavior plus the new concurrency owner — 29 passed; frontend targeted owners — 69 passed; production frontend build passed. A real isolated IM/Gateway/Vite browser run submitted `C:\\Gateway Data\\windows_ui_round2`; it reached the target Gateway and rendered its node-side parent error, rather than a client-side POSIX syntax rejection.
-- Browser cleanup: stopped the isolated IM/Gateway/Vite processes and confirmed both generated ports were released. Runtime files remain ignored and unstaged.
-- Durable detail: `evidence/correction-round-2.md`.
-
-## Round 3 correction — bound registration seeds and bounded Gateway log resolution
-
-- Context: Round-3 verification found that a normal owner-bound `node.register` profile was indistinguishable from a completed profile, so a lost `agent.created` response could not safely recover. It also found that IM compared raw browser root text after Gateway canonicalization, Gateway scan background work could accumulate logical tasks past the IM timeout, and the create selector used a draft target root to classify a source as local.
-- Decision: Only the first profile written by `node.register` carries a durable `registration_seed`; an atomic claim matches its owner, node, canonical root and provenance, then clears the marker. Gateway's returned display name must equal the original requested display identity. IM no longer compares raw input root text. Gateway uses a fixed four-worker executor, per-conversation coalescing, a 4.5-second logical expiry, and immediate null resolution when capacity is unavailable. The create selector receives no draft root, so only a persisted canonical profile root can classify a source as local.
-- Rationale: Gateway is the only authority for target-host path interpretation, and a marker—not an owner-shape heuristic—separates an incomplete registration projection from a normal profile. A bounded physical executor and expired logical waiter state keep WebSocket receive work responsive without discarding a safe in-flight scan.
-- Evidence: new recovery, overload/expiry, and selector regressions were red before implementation. The focused Python correction matrix then passed `43 passed, 7 warnings`; the targeted frontend Workspace suite passed `11 passed`. Final expanded gates and browser evidence are recorded in `evidence/correction-round-3.md`.
-- Runtime/cleanup: no production service, port, config, database, or workspace is used; any browser acceptance stack is isolated to this worktree and is stopped after evidence capture.
-- Durable detail: `evidence/correction-round-3.md`.
-
-## Round 4 correction — operation-correlated recovery and cancellable transcript binding
-
-- Context: the Round-3 marker was assigned to every first `node.register` profile, so it did not prove that a
-  profile came from a particular original `agent.create`. The bounded scan design also left filesystem work in a
-  non-cancellable thread and returned capacity/provider failure as a false missing transcript.
-- Decision: IM reserves a durable create operation before outbound creation. Gateway persists the opaque operation
-  id in the Agent config, returns it in `agent.created`, and includes it in `node.register`; only that exact
-  operation can make a first registration pending and only an atomic owner/node/root/provenance/display/operation
-  match can claim it. A normal profile update clears pending state. Gateway now derives the exact transcript JSONL
-  from its durable session binding with a cancellable, coalesced async lookup and reports `ready`, `missing`, or
-  `unavailable` explicitly.
-- Rationale: registration is a discovery protocol, not proof of create intent; a durable operation makes the
-  one permitted recovery attributable. Exact binding lookup avoids recursive work and preserves the distinction
-  between no transcript and a temporary inability to determine it.
-- Evidence:
-  - Tests: targeted recovery, migration, Gateway immutability, session-resolution, control, and API suite passed
-    `90 passed`; expanded recovery/migration/create suite passed `16 passed`; regression subset passed `13 passed`.
-  - Entry: the recovery contract covers lost response + actual reconnect, ordinary/prehosted registration, wrong
-    owner/root/provenance/display, post-PATCH, and one-shot duplicate behavior. Session-resolution owners cover
-    arbitrary concurrency, coalescing, unavailable state, cancellation, close, and normal ready resolution.
-  - Frontend State Matrix: `source_jsonl_status="unavailable"` disables selection with a distinct localized
-    message; only explicit `missing` maps to “No transcript”.
-  - Documentation: current IM/Gateway specs, both delta surfaces, and the design record the operation and status
-    contracts; detailed commands and final gates are in `evidence/correction-round-4.md`.
-- Rollback: revert this correction commit; no data migration deletes prior profiles or Agent configs.
-- Next: rebase this isolated milestone on the current unit branch, publish it, and let the orchestrator run final
-  integration review.
-
-## Round 5 correction — strict Gateway replay and unavailable source projection
-
-- Context: code review found that a missing `create_operation_id` could replay an existing Gateway Agent, and an
-  Agent-sourced conversation whose profile was missing or had no node projected as “No transcript.” The recovery
-  contract also needed direct HTTP proof that a divergent request or wrong echoed operation cannot consume a pending
-  claim.
-- Decision: Gateway replays an existing local Agent only for the exact non-empty persisted operation id. IM now
-  projects an Agent source without a routable profile as `source_jsonl_status="unavailable"`; the distill selector
-  prioritizes that status over a missing source node. The HTTP recovery contract preserves its operation/profile
-  marker before the one valid claim and asserts that divergent requests never dispatch to Gateway.
-- Rationale: a Gateway registration is not authority to recover a create result; only the durable operation binds the
-  original IM request. Lack of a route is temporary availability uncertainty, not proof that a transcript does not
-  exist.
-- Evidence: red tests then passed for no-id and wrong-id replay, absent/null-node source projection, unavailable UI
-  precedence, divergent no-dispatch state preservation, and wrong echoed-operation state preservation. The expanded
-  Python owner suite passed `97 passed, 2 warnings`; targeted sidebar Vitest passed `12 tests`. A real isolated
-  IM/Gateway/Vite browser flow stopped only the worktree Gateway and rendered disabled **Transcript temporarily
-  unavailable** with no console errors or warnings; all processes and ports were released. Full Python (`3062 passed,
-  24 deselected`), full frontend/build, Ruff, docs, and diff gates passed. Durable detail:
-  `evidence/correction-round-5.md`.
-- Next: commit the constrained correction, rebase on the current unit tip, and publish only the milestone branch.
-
-## Round 6 correction — non-blocking durable transcript projection and stable selection
-
-- Context: the production session-binding provider still synchronously called `Path.is_file()` and `Path.resolve()`
-  before its resolution task yielded, so a slow or unavailable custom workspace could stall Gateway receive work.
-  The distill selector retained disabled ids in state, letting a later refresh reorder the active source node. The
-  pending-recovery HTTP negatives also compared only partial durable rows.
-- Decision: project the exact JSONL path directly from a durable binding and never probe its workspace on the
-  receive loop. `missing` now means no binding; `ready` means a binding-derived address; provider/binding failures
-  remain `unavailable`. The client removes selected ids that are no longer eligible. Pending retry tests snapshot
-  complete `agent_profiles` and `agent_create_operations` rows before and immediately after both rejections.
-- Evidence: `evidence/correction-round-6.md` records the production binding/control-frame, selection reorder, and
-  persistence owner regressions; focused Python (35 passed), targeted frontend (49 passed), full non-E2E Python
-  (3063 passed, 24 deselected), frontend suite/build, isolated Chromium acceptance, Ruff, docs, and diff gates all
-  passed.
-- Next: rebase and publish only this milestone branch.
-
-## Round 7 critical correction — lock-free durable transcript projection
-
-- Context: Round 6 removed filesystem probes, but its production provider still entered
-  `GatewaySessionBinder.capture_binding_provenance()`, taking the binder's `threading.Lock` and querying the
-  `PersistentSessionBindingStore` from the IM event loop before its resolution task reached an await point.
-- Decision: hydrate committed bindings during binder construction and copy-on-write publish each durable binding
-  update. The transcript provider reads this immutable projection only; it never touches the binder lock or SQLite.
-  `ready` / `missing` / `unavailable` wire meanings remain unchanged, and `close()` only cancels pending resolution
-  tasks rather than waiting behind another persistence lookup.
-- Rationale: a projection derived only from committed durable records preserves the Gateway-only ownership boundary
-  while removing the unsafe cross-thread SQLite alternative and the event-loop lock wait.
-- Process: reviewer-loop light flow omits a new §3 plan because this self-contained correction has one code path,
-  one existing regression owner, and one revertible commit.
-- Evidence: `evidence/correction-round-7.md` records the red-to-green production-composition regression, focused
-  owner suite (35 passed), full non-E2E Python gate (3063 passed, 24 deselected), Ruff, docs, and diff gates.
-- Next: rebase and publish only this milestone branch.
-
-## Round 8 critical correction — publish semantic conversation binds
-
-- Context: `bind_conversation()` committed a durable fork/new-conversation binding but updated only two legacy
-  in-memory maps. It bypassed `_record_provenance()`, the canonical publisher of the Round-7 copy-on-write
-  transcript projection, so an immediate `session.log.resolve` incorrectly returned `missing`.
-- Decision: after the durable write and binding revision update, `bind_conversation()` now calls
-  `_record_provenance(..., persist_binding=True)` instead of duplicating selected map writes. The existing design and
-  delta already require each durable binding update to publish the projection, so no contract change is needed.
-- Rationale: one provenance publisher keeps the fork/session bind path coherent with startup hydration and all other
-  durable write paths without reintroducing a lock or SQLite read on the receive loop.
-- Process: reviewer-loop light flow omits a new §3 plan because this is a self-contained one-path correction with an
-  existing semantic test owner and one revertible commit.
-- Evidence: `evidence/correction-round-8.md` records red-to-green immediate fork resolution, focused owner suite
-  (46 passed), full non-E2E Python (3063 passed, 24 deselected), Ruff, docs, and diff gates.
-- Next: rebase and publish only this milestone branch.
-
-## Round 9 final regression closure — durable projection replacement and failure atomicity
-
-- Context: Round 9 verified that the Round-8 publisher is implemented correctly, but its only permanent provider
-  assertion covered absent-to-present insertion. It did not protect same-key A-to-B copy-on-write replacement or a
-  repository `bind()` exception after B against a later C projection.
-- Decision: the lowest-layer Binder owner now binds one canonical conversation to A, then B, and observes the exact
-  production provider address after each write. It next injects a persistent-store `bind()` failure for C and proves
-  the durable row and provider remain B while C has no session provenance.
-- Rationale: observing the public provider alongside the durable row catches a stale immutable projection without
-  coupling the test to private maps; the absent C provenance also protects the mutable map side of the transaction.
-- Process: this self-contained reviewer-loop closure adds only permanent test and evidence changes. The existing
-  old-binding reuse race moved to the concurrency owner so both test files remain below the 400-line test-file limit.
-- Evidence: `evidence/correction-round-9.md` records the focused owners and final quality gates.
-- Next: rebase and publish only this milestone branch.
+1. Gateway-local workspace creation and persisted provenance.
+2. Typed IM/Gateway create outcome and opaque IM mirror.
+3. Default/custom workspace create UI and localized recovery states.
+4. Focused creation, immutable-root, and lost-ACK recovery verification.
+5. Isolated browser acceptance for default/custom, existing-directory
+   confirmation, and independent node-local roots.

@@ -511,8 +511,6 @@
       "cancel": "取消",
       "running": "运行中",
       "noTranscript": "无 transcript",
-      "transcriptUnavailable": "Transcript 暂时不可用",
-      "differentNode": "不同 Gateway 节点",
       "empty": "暂无会话"
     },
     "kindBadge": {
@@ -537,7 +535,6 @@
       "subtitle": "新建执行 agent 单聊，并在普通输入框中预填 skill 命令。",
       "scope": "写入范围",
       "selectionRequired": "请选择至少一个已结束且带 transcript 的会话。",
-      "sameNodeRequired": "请选择来自同一个 Gateway 节点的会话。",
       "requireDistiller": "开始前请先为执行 agent 启用 conversation-skill-distiller。",
       "requireSkillView": "开始前请先为执行 agent 启用 skill_view。",
       "requireDistillerAndSkillView": "开始前请先为执行 agent 同时启用 conversation-skill-distiller 和 skill_view。",

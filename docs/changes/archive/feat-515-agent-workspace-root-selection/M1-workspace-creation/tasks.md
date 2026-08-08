@@ -83,7 +83,6 @@
 
 - [x] IM create ownership comes only from the authenticated user; duplicate Agent IDs are serialized before Gateway dispatch and protected again by an insert-only repository boundary.
 - [x] Gateway create is serialized, rejects a divergent root for an existing Agent ID before filesystem effects, and returns the existing success for a same-ID/same-root lost-response retry.
-- [x] Conversation repositories no longer inspect mirrored workspace roots; session-log discovery and JSONL reads run only on the target Gateway through a correlated RPC.
 - [x] Missing/unusable parent, non-directory target, and initialization failure have permanent 422/no-write HTTP coverage plus localized draft-preserving UI coverage.
 - [x] Invalid custom prompt-preview paths return a correlated validation result without disconnecting Gateway; ownerless register refreshes authoritative provenance.
 - [x] Rebase the correction onto latest `origin/unit/feat-515`, rerun final focused/full-enough gates, and publish the milestone commit.
@@ -93,15 +92,12 @@
 - [x] Restore fill-NULL-only register provenance so an existing root/provenance pair is never split by a later ownerless advertisement.
 - [x] Keep successful target-Gateway roots opaque in IM and the create page; only blank values receive local validation.
 - [x] Let a same-root/name retry claim the exact ownerless `node.register` seed after a lost `agent.created` response, without permitting root/name overwrite.
-- [x] Return the source Gateway node with transcript-capable conversations and allow one-node-only distillation selection.
-- [x] Move Gateway JSONL discovery off the WebSocket receive owner with bounded concurrent scans and a receive-loop regression.
 - [x] Rebase onto latest `origin/unit/feat-515`, complete final gates, and publish the correction commit.
 
 ### Round-3 correction checklist
 
 - [x] Mark the first profile from `node.register` as a durable registration seed so a same-owner lost-response retry can finalize only one matching Gateway root/provenance/name result.
 - [x] Remove IM raw input root equality from seed recovery; allow target-Gateway `~`, `..`, and symlink canonical aliases while rejecting a different canonical root or persisted display identity.
-- [x] Coalesce transcript lookups, cap physical scans, expire logical requests before the IM timeout, and keep ordinary receive-loop work responsive under overload.
 - [x] Do not classify an uncanonicalized target-Gateway create draft as a local skill source.
 - [x] Align design/delta wording with opaque nonblank forwarding and give the second Gateway Runbook a config-adjacent isolated runtime directory.
 - [x] Rebase onto latest `origin/unit/feat-515`, complete final gates, and publish the correction commit.
@@ -110,41 +106,7 @@
 
 - [x] Reserve a durable IM create operation before `agent.create`; Gateway persists and re-advertises exactly that operation, and recovery atomically requires the matching owner/node/operation/root/provenance/display identity.
 - [x] Keep ordinary first `node.register`, prehosted Agent, wrong operation/owner/root/provenance/display, post-PATCH profile, concurrent duplicate, and completed-operation retries unclaimable.
-- [x] Replace recursive threaded JSONL discovery with one cancellable, coalesced exact binding lookup per conversation; close cancels outstanding lookup tasks.
-- [x] Project transcript lookup as `ready` / `missing` / `unavailable`, so overload/provider failure never renders as “No transcript”.
 - [x] Update design, IM/Gateway delta, canonical specs, progress, and durable evidence; run focused, browser, full, docs, Ruff, and diff gates before publish.
-
-### Round-6 correction checklist
-
-- [x] Project durable session-binding JSONL addresses without synchronous workspace probes; keep receive-loop
-  control handling responsive and preserve `ready` / `missing` / `unavailable` meaning.
-- [x] Purge ineligible distillation selections so an unavailable source cannot later reappear and switch nodes.
-- [x] Snapshot complete pending `agent_profiles` and `agent_create_operations` rows across changed-request and
-  wrong-operation HTTP rejections.
-
-### Round-7 critical correction checklist
-
-- [x] Hydrate durable bindings before IM receive and publish later updates through a copy-on-write projection, so
-  transcript resolution reads neither the binder lock nor SQLite on Gateway's event loop.
-- [x] Cover the actual `PersistentSessionBindingStore` + `GatewaySessionBinder` + IM connection composition while a
-  second binding lookup holds the lock; heartbeat and `close()` complete before release and the ready projection is
-  preserved.
-
-### Round-8 critical correction checklist
-
-- [x] Publish every successful `bind_conversation()` result through the canonical provenance update path, so a fork's
-  new durable binding immediately enters the lock-free session-log projection.
-- [x] Regress the fork handler followed immediately by the production provider; it returns the exact fork-session
-  JSONL address rather than treating the just-bound conversation as missing.
-
-### Round-9 final regression checklist
-
-- [x] Bind the same canonical conversation to A then B through `bind_conversation()` and prove the production
-  provider replaces A's immediate address with B's exact JSONL address.
-- [x] Inject a repository `bind()` failure for C and prove the durable row, copy-on-write provider projection, and
-  in-memory session provenance remain at B with no phantom C address.
-- [x] Keep the permanent Binder owner below 400 lines by moving the pre-existing old-binding reuse race to the
-  dedicated concurrency owner.
 
 ### R1 — Gateway 本地 workspace creation boundary
 
