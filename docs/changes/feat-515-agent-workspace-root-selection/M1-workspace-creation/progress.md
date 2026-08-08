@@ -225,3 +225,19 @@ None.
 - Evidence: `evidence/correction-round-7.md` records the red-to-green production-composition regression, focused
   owner suite (35 passed), full non-E2E Python gate (3063 passed, 24 deselected), Ruff, docs, and diff gates.
 - Next: rebase and publish only this milestone branch.
+
+## Round 8 critical correction — publish semantic conversation binds
+
+- Context: `bind_conversation()` committed a durable fork/new-conversation binding but updated only two legacy
+  in-memory maps. It bypassed `_record_provenance()`, the canonical publisher of the Round-7 copy-on-write
+  transcript projection, so an immediate `session.log.resolve` incorrectly returned `missing`.
+- Decision: after the durable write and binding revision update, `bind_conversation()` now calls
+  `_record_provenance(..., persist_binding=True)` instead of duplicating selected map writes. The existing design and
+  delta already require each durable binding update to publish the projection, so no contract change is needed.
+- Rationale: one provenance publisher keeps the fork/session bind path coherent with startup hydration and all other
+  durable write paths without reintroducing a lock or SQLite read on the receive loop.
+- Process: reviewer-loop light flow omits a new §3 plan because this is a self-contained one-path correction with an
+  existing semantic test owner and one revertible commit.
+- Evidence: `evidence/correction-round-8.md` records red-to-green immediate fork resolution, focused owner suite
+  (46 passed), full non-E2E Python (3063 passed, 24 deselected), Ruff, docs, and diff gates.
+- Next: rebase and publish only this milestone branch.

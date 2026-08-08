@@ -642,8 +642,7 @@ class GatewaySessionBinder:
                 ),
             )
             self._binding_revisions[binding.session_key] = agent.revision
-            self._binding_agents[binding.session_key] = agent
-            self._session_agents[request.kernel_session_id] = agent
+            self._record_provenance(binding, agent=agent, persist_binding=True)
             # A semantic bind can point an existing conversation key at another
             # Kernel session. The next resolve must establish workspace ownership
             # for that exact key/session pair before it enters the stable hot path.

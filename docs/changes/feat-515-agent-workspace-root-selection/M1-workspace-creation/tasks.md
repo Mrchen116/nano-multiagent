@@ -130,6 +130,13 @@
   second binding lookup holds the lock; heartbeat and `close()` complete before release and the ready projection is
   preserved.
 
+### Round-8 critical correction checklist
+
+- [x] Publish every successful `bind_conversation()` result through the canonical provenance update path, so a fork's
+  new durable binding immediately enters the lock-free session-log projection.
+- [x] Regress the fork handler followed immediately by the production provider; it returns the exact fork-session
+  JSONL address rather than treating the just-bound conversation as missing.
+
 ### R1 — Gateway 本地 workspace creation boundary
 
 - 状态: DONE
