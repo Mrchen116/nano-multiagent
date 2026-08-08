@@ -196,6 +196,7 @@ class GatewayNodePersistence:
                 reasoning_effort=reasoning_effort,
                 workspace_root=workspace_root,
                 workspace_is_default=workspace_is_default,
+                registration_seed=existing is None,
                 features=features,
                 custom_prompt=custom_prompt,
             )

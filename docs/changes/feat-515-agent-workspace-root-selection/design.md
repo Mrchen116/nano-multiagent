@@ -96,19 +96,20 @@ flowchart LR
 备选的前端仅提示或 IM 先行检查都会让用户看到不可靠的状态：前者无法保证真正的节点确认，
 后者会把远端路径当成本地路径。单独的预检 RPC 同样会产生陈旧结果，且增加一条浅层协议。
 
-### **默认模式只表达“交给节点”，自定义模式才传绝对路径。**
+### **默认模式只表达“交给节点”，自定义模式透传非空目标节点输入。**
 
 前端的表单状态新增 `workspaceMode: "default" | "custom"`，它不是持久化配置。默认模式
 发送 `workspace_root: null`；Gateway 继续通过既有 factory 在其 `workspace_base` 下分配根。
-自定义模式发送用户填写值，Gateway 展开 `~` 并取得 canonical absolute path。成功 outcome 必须
+自定义模式发送用户填写的非空 opaque value；仅 Gateway 依据本机规则判断其是否是可接受路径、展开
+`~` 并取得 canonical absolute path。成功 outcome 必须
 同时回传 `{workspace_root: canonicalPath, workspace_is_default: boolean}`：default 为 `true`，
 custom 为 `false`，由 Gateway 连同 root 写入自己的 `AgentWorkspaceConfig`。页面和 IM 都使用
 Gateway 回传的 canonical path 与 provenance，而不使用输入字符串或 IM 主机路径猜测结果。
 
-这保留默认目录的既有行为，也让 `~`、相对路径、符号链接等只按目标节点的语义处理。自定义
-输入为空或不是绝对路径是本地可立即提示的表单错误；Gateway 仍是最终裁决者。`workspace_is_default`
-的意思固定为“这次 root 是否由 Gateway 默认 factory 分配”，不是“这个字符串是否碰巧等于 IM
-主机上的某个目录”。
+这保留默认目录的既有行为，也让 `~`、相对路径、符号链接等只按目标节点的语义处理。前端和 IM
+只拒绝空自定义输入，并将其他文本作为 opaque value 原样转发；**目标 Gateway 独自判断其本机
+路径是否绝对、如何展开及 canonicalize**。`workspace_is_default` 的意思固定为“这次 root 是否由
+Gateway 默认 factory 分配”，不是“这个字符串是否碰巧等于 IM 主机上的某个目录”。
 
 新建前 prompt preview 也必须遵守同一归属：IM 不再根据 `agent_id_hint` 派生 root。它把模式、
 agent id hint 和可选 custom 输入透传给节点；Gateway 用同一个 default factory 做**不创建目录**的
@@ -149,7 +150,7 @@ canonicalization 规则比较。命中时拒绝 `workspace_already_assigned`，�
 Gateway 离线、超时或非法回包才保留现有 503/502 语义。IM profile 仅在 success outcome 后
 创建，因此失败不会遗留 AgentProfile。
 
-IM 把 Gateway root 当 opaque node-local routing/display value：创建时只做非空绝对路径格式守卫并
+IM 把 Gateway root 当 opaque node-local routing/display value：创建时只做非空守卫并
 原样存储，所有 profile response、`config.sync`、capabilities、prompt preview、cron、skill usage
 和 heartbeat RPC 都经同一个 accessor 原样读取，绝不调用本机 `Path.expanduser()` / `resolve()`。
 Gateway live snapshot 也不得用另一个 root 覆盖 profile 的镜像 root。这样跨机部署时，P 从创建成功
@@ -307,10 +308,12 @@ local config** 的 Gateway。它不启动第二个 IM，也不使用用户日常
 不同的预置 Agent，因为当前 Gateway 配置校验要求 agents 非空。
 
 ```bash
-SECOND_GW_CONFIG="$WT_ROOT/.gateway-node-2.yaml"
-SECOND_GW_ROOT="$WT_ROOT/.gateway-node-2-workspace"
-SECOND_GW_PID="$WT_ROOT/.gateway-node-2.pid"
+SECOND_GW_RUNTIME_DIR="$WT_ROOT/.gateway-node-2-runtime"
+SECOND_GW_CONFIG="$SECOND_GW_RUNTIME_DIR/gateway.yaml"
+SECOND_GW_ROOT="$SECOND_GW_RUNTIME_DIR/workspace"
+SECOND_GW_PID="$SECOND_GW_RUNTIME_DIR/gateway.pid"
 
+mkdir -p "$SECOND_GW_RUNTIME_DIR"
 cp "$WT_ROOT/.gateway-config.yaml" "$SECOND_GW_CONFIG"
 SECOND_GW_CONFIG="$SECOND_GW_CONFIG" SECOND_GW_ROOT="$SECOND_GW_ROOT" \
   "$NANO_MAIN_ROOT/.venv/bin/python" - <<'PY'
@@ -337,11 +340,12 @@ PY
 
 PYTHONPATH="$REPO_ROOT/src" "$NANO_MAIN_ROOT/.venv/bin/python" -m personal_assistant.main \
   --config "$SECOND_GW_CONFIG" --im-service-url "$IM_URL" --foreground --auto-bind \
-  > "$WT_ROOT/.gateway-node-2.log" 2>&1 &
+  > "$SECOND_GW_RUNTIME_DIR/gateway.log" 2>&1 &
 echo $! > "$SECOND_GW_PID"
 ```
 
-等待 `.gateway-node-2.log` 出现 `auto-bound to IM`（并以 `kill -0 "$(cat "$SECOND_GW_PID")"`
+该 runtime 目录必须与第二 Gateway config 同级，避免 Gateway 的 config-adjacent runtime state 与主
+Gateway 混用。等待 `.gateway-node-2-runtime/gateway.log` 出现 `auto-bound to IM`（并以 `kill -0 "$(cat "$SECOND_GW_PID")"`
 确认进程仍存活）后，在两个节点各创建一个 Agent，均提交同一 disposable absolute path
 `$WT_ROOT/.multi-node-shared-root`。第二个节点仍会看到“已有目录”确认，因为两条测试进程共享
 同一台开发机；确认后它必须成功，且不得出现“已归属另一 Agent”的错误。该受控真栈只验证

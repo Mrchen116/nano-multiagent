@@ -336,14 +336,16 @@ class AgentConfigOperationCoordinator:
         )
         existing = self._service.get_profile(agent_id=operation.agent_id)
         if existing is not None:
-            if _profile_matches_create_result(
-                existing,
-                operation=operation,
-                workspace_root=workspace_root,
-                service=self._service,
-            ):
-                return existing
-            if existing.owner_id == "" and existing.node_id == operation.node_id:
+            is_registration_seed = (
+                existing.owner_id in {"", operation.owner_id}
+                and existing.node_id == operation.node_id
+                and self._service.is_registration_seed(
+                    agent_id=operation.agent_id,
+                    owner_id=existing.owner_id,
+                    node_id=operation.node_id,
+                )
+            )
+            if is_registration_seed:
                 result_display_name = result_agent.get("display_name")
                 if (
                     existing.workspace_root != workspace_root
@@ -365,6 +367,7 @@ class AgentConfigOperationCoordinator:
                 return self._service.claim_seeded_profile(
                     agent_id=operation.agent_id,
                     owner_id=operation.owner_id,
+                    expected_owner_id=existing.owner_id,
                     node_id=operation.node_id,
                     expected_workspace_root=workspace_root,
                     expected_workspace_is_default=workspace_is_default,
@@ -378,6 +381,13 @@ class AgentConfigOperationCoordinator:
                     features=features,
                     custom_prompt=custom_prompt,
                 )
+            if _profile_matches_create_result(
+                existing,
+                operation=operation,
+                workspace_root=workspace_root,
+                service=self._service,
+            ):
+                return existing
             raise ConfigApplyPendingError("config_apply_pending")
         return self._service.create_profile(
             agent_id=operation.agent_id,

@@ -143,6 +143,7 @@ class ConfigService:
         *,
         agent_id: str,
         owner_id: str,
+        expected_owner_id: str,
         node_id: str,
         expected_workspace_root: str,
         expected_workspace_is_default: bool,
@@ -156,7 +157,7 @@ class ConfigService:
         features: dict[str, bool],
         custom_prompt: str | None,
     ) -> AgentProfile:
-        """Claim a matching ownerless Gateway seed after a lost create response.
+        """Claim a matching Gateway registration seed after a lost create response.
 
         The caller holds the app-scoped create lock.  This method accepts only the
         durable root/provenance pair seeded by the same node, so it cannot turn a
@@ -177,6 +178,7 @@ class ConfigService:
         claimed = self._profiles.claim_seeded_profile(
             agent_id=agent_id,
             owner_id=normalized_owner_id,
+            expected_owner_id=expected_owner_id,
             node_id=node_id,
             expected_workspace_root=expected_workspace_root,
             expected_workspace_is_default=expected_workspace_is_default,
@@ -208,6 +210,14 @@ class ConfigService:
             agent_id=agent_id, profile_version=claimed.profile_version
         )
         return claimed
+
+    def is_registration_seed(
+        self, *, agent_id: str, owner_id: str, node_id: str
+    ) -> bool:
+        """Return whether a Gateway-advertised profile may finalize one lost response."""
+        return self._profiles.is_registration_seed(
+            agent_id=agent_id, owner_id=owner_id, node_id=node_id
+        )
 
     def list_profiles(self) -> list[AgentProfile]:
         """List all agent profiles in storage order."""

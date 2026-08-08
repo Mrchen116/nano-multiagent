@@ -5,7 +5,8 @@
 前端在节点下创建 Agent (`POST /im/v1/nodes/{node_id}/agents`): IM 校验该节点已绑定、归属当前
 owner；经网关 `agent.create` 由节点分配或校验 workspace root，成功回传 canonical absolute
 `workspace_root` 及 `workspace_is_default` 后 IM 才持久化 `AgentProfile`。创建表单可选择
-“使用默认目录”（不指定路径，由节点分配）或“自定义路径”（目标节点上的绝对路径）。未知节点在
+“使用默认目录”（不指定路径，由节点分配）或“自定义路径”（向目标节点原样转发非空输入）；仅目标
+Gateway 判断其本机路径是否绝对并 canonicalize。未知节点在
 owner 门禁处 404，重复 `agent_id` 为 409；节点离线保持 503。
 
 #### Scenario: 默认目录由节点分配并回传

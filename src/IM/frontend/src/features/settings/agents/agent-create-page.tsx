@@ -943,7 +943,6 @@ export function AgentCreatePage() {
               label={t("agents.form.access.skills")}
               selected={draft.skills}
               options={capabilities.skills}
-              workspaceRoot={draft.workspace_root}
               isLoading={createStateQuery.isLoading}
               errorMessage={createStateQuery.isError ? queryErrorDetail : null}
               onRetry={() => void createStateQuery.refetch()}

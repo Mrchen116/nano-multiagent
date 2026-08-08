@@ -4,7 +4,7 @@
 
 ## 目标
 
-用户能在 Agent 创建页选择节点默认目录或目标节点上的自定义绝对路径；Gateway 在节点本地完成
+用户能在 Agent 创建页选择节点默认目录或非空的目标节点自定义输入；Gateway 在节点本地完成
 路径解析、确认、唯一性、初始化和 provenance 持久化，IM 只转发结构化结果并原样镜像 root。
 
 ## 退出标准
@@ -95,6 +95,15 @@
 - [x] Let a same-root/name retry claim the exact ownerless `node.register` seed after a lost `agent.created` response, without permitting root/name overwrite.
 - [x] Return the source Gateway node with transcript-capable conversations and allow one-node-only distillation selection.
 - [x] Move Gateway JSONL discovery off the WebSocket receive owner with bounded concurrent scans and a receive-loop regression.
+- [x] Rebase onto latest `origin/unit/feat-515`, complete final gates, and publish the correction commit.
+
+### Round-3 correction checklist
+
+- [x] Mark the first profile from `node.register` as a durable registration seed so a same-owner lost-response retry can finalize only one matching Gateway root/provenance/name result.
+- [x] Remove IM raw input root equality from seed recovery; allow target-Gateway `~`, `..`, and symlink canonical aliases while rejecting a different canonical root or persisted display identity.
+- [x] Coalesce transcript lookups, cap physical scans, expire logical requests before the IM timeout, and keep ordinary receive-loop work responsive under overload.
+- [x] Do not classify an uncanonicalized target-Gateway create draft as a local skill source.
+- [x] Align design/delta wording with opaque nonblank forwarding and give the second Gateway Runbook a config-adjacent isolated runtime directory.
 - [x] Rebase onto latest `origin/unit/feat-515`, complete final gates, and publish the correction commit.
 
 ### R1 — Gateway 本地 workspace creation boundary

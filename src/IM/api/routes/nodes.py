@@ -285,10 +285,15 @@ async def create_node_agent(
         _raise_operation_http_error(exc)
     existing = service.get_profile(agent_id=payload.agent_id)
     if existing is not None and not (
-        existing.owner_id == ""
+        existing.owner_id in {"", user.owner_id}
         and existing.node_id == node_id
         and existing.workspace_root is not None
         and existing.workspace_is_default is not None
+        and service.is_registration_seed(
+            agent_id=payload.agent_id,
+            owner_id=existing.owner_id,
+            node_id=node_id,
+        )
     ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="agent_id already exists"

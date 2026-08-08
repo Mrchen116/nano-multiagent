@@ -179,6 +179,32 @@ describe("agent create workspace selection", () => {
     });
   });
 
+  it("does not classify a target-Gateway draft root as a local skill source", async () => {
+    const user = userEvent.setup();
+    apiMocks.getNodeCreateStateMock.mockResolvedValue({
+      node: {
+        node_id: "node-1", owner_id: "owner-1", node_name: "MacBook", status: "online",
+        last_heartbeat_at: "2026-08-07T00:00:00Z", agent_count: 0, version: "1.0.0",
+      },
+      capabilities: {
+        node_id: "node-1", node_name: "MacBook", node_status: "online",
+        skills: [{
+          name: "target-local",
+          description: "Provided by the target Gateway.",
+          location: "/gateway/draft/.nanoassistant/skills/target-local/SKILL.md",
+        }],
+        tools: [], model_options: [], platform_default_model: null,
+      },
+    });
+    renderCreatePage();
+    await screen.findByRole("radio", { name: /Custom path/i });
+    await selectCustomPath(user, "/gateway/draft");
+
+    expect(await screen.findByRole("button", { name: "target-local" })).toBeInTheDocument();
+    expect(screen.queryByText("Local")).not.toBeInTheDocument();
+    expect(screen.getByText("Compatibility (Claude/Codex)")).toBeInTheDocument();
+  });
+
   it("requires acknowledgement before retrying an existing workspace", async () => {
     const user = userEvent.setup();
     apiMocks.createNodeAgentMock

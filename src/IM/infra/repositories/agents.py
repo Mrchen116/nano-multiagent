@@ -154,6 +154,7 @@ class AgentProfileRepository:
         workspace_root: str | None,
         reasoning_effort: str | None = None,
         workspace_is_default: bool | None = None,
+        registration_seed: bool = False,
         node_id: str | None = None,
         features: dict[str, bool] | None = None,
         custom_prompt: str | None = None,
@@ -177,9 +178,9 @@ class AgentProfileRepository:
                     agent_id, owner_id, node_id, display_name, description,
                     skills_json, tool_allowlist_json, group_reply_policy,
                     default_model, reasoning_effort, workspace_root, workspace_is_default,
-                    profile_version, created_at, updated_at,
+                    registration_seed, profile_version, created_at, updated_at,
                     features_json, custom_prompt
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, '{}'), ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, '{}'), ?)
                 ON CONFLICT(agent_id) DO UPDATE SET
                     owner_id = excluded.owner_id,
                     node_id = excluded.node_id,
@@ -196,6 +197,7 @@ class AgentProfileRepository:
                         THEN excluded.workspace_is_default
                         ELSE agent_profiles.workspace_is_default
                     END,
+                    registration_seed = agent_profiles.registration_seed,
                     updated_at = excluded.updated_at,
                     is_stale = 0,
                     staled_at = NULL,
@@ -223,6 +225,7 @@ class AgentProfileRepository:
                     reasoning_effort,
                     workspace_root,
                     None if workspace_is_default is None else int(workspace_is_default),
+                    int(registration_seed),
                     1,
                     created_at,
                     created_at,
@@ -234,11 +237,31 @@ class AgentProfileRepository:
         assert profile is not None
         return profile
 
+    def is_registration_seed(
+        self, *, agent_id: str, owner_id: str, node_id: str
+    ) -> bool:
+        """Return whether one exact profile is still a Gateway registration seed."""
+        return (
+            self._connection.execute(
+                """
+                SELECT 1
+                FROM agent_profiles
+                WHERE agent_id = ?
+                  AND owner_id = ?
+                  AND node_id = ?
+                  AND registration_seed = 1
+                """,
+                (agent_id, owner_id, node_id),
+            ).fetchone()
+            is not None
+        )
+
     def claim_seeded_profile(
         self,
         *,
         agent_id: str,
         owner_id: str,
+        expected_owner_id: str,
         node_id: str,
         expected_workspace_root: str,
         expected_workspace_is_default: bool,
@@ -252,7 +275,7 @@ class AgentProfileRepository:
         features: dict[str, bool],
         custom_prompt: str | None,
     ) -> AgentProfile | None:
-        """Finalize exactly one matching ownerless Gateway registration seed.
+        """Finalize exactly one matching Gateway registration seed.
 
         The workspace root/provenance pair is deliberately part of the ``WHERE``
         clause and never the update.  A lost ``agent.created`` response may be
@@ -268,12 +291,13 @@ class AgentProfileRepository:
                     skills_json = ?, tool_allowlist_json = ?,
                     group_reply_policy = ?, default_model = ?, reasoning_effort = ?,
                     features_json = ?, custom_prompt = ?, updated_at = ?,
-                    is_stale = 0, staled_at = NULL
+                    is_stale = 0, staled_at = NULL, registration_seed = 0
                 WHERE agent_id = ?
-                  AND owner_id = ''
+                  AND owner_id = ?
                   AND node_id = ?
                   AND workspace_root = ?
                   AND workspace_is_default = ?
+                  AND registration_seed = 1
                 """,
                 (
                     owner_id,
@@ -288,6 +312,7 @@ class AgentProfileRepository:
                     custom_prompt,
                     updated_at,
                     agent_id,
+                    expected_owner_id,
                     node_id,
                     expected_workspace_root,
                     int(expected_workspace_is_default),
