@@ -187,7 +187,7 @@ async def _to_conversation_response_with_source(
         return response
     profile = profiles.get_profile(agent_id=agent_id)
     if profile is None or not profile.node_id:
-        return response
+        return response.model_copy(update={"source_jsonl_status": "unavailable"})
     response = response.model_copy(update={"source_node_id": profile.node_id})
     resolution = await gateway_control.request_session_log_path(
         target_node_id=profile.node_id,

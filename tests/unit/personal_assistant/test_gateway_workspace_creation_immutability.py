@@ -42,10 +42,10 @@ def test_create_rejects_existing_agent_id_before_initializing_a_new_root(
     assert not (tmp_path / "config.yaml").exists()
 
 
-def test_create_retry_for_same_agent_and_root_returns_existing_success(
+def test_create_retry_without_operation_id_rejects_legacy_agent(
     tmp_path: Path,
 ) -> None:
-    """Recover when Gateway committed create but IM missed the successful response."""
+    """Reject no-id retries against an existing legacy Gateway Agent."""
     sync, owners = _build_sync(tmp_path)
     workspace = tmp_path / "retry-root"
     first = sync.handle_agent_create(
@@ -58,9 +58,13 @@ def test_create_retry_for_same_agent_and_root_returns_existing_success(
         {"agent_id": "retry-agent", "workspace_root": str(workspace)}
     )
 
-    assert retried["agent_id"] == first["agent_id"] == "retry-agent"
-    assert retried["workspace_root"] == first["workspace_root"]
-    assert retried["workspace_is_default"] is False
+    assert first["agent_id"] == "retry-agent"
+    assert retried == {
+        "error": {
+            "code": "agent_id_already_exists",
+            "detail": "Agent ID already exists on this node.",
+        }
+    }
     assert sentinel.read_text(encoding="utf-8") == "keep\n"
     assert owners.catalog.require("retry-agent").config.workspace_root == workspace
 
@@ -93,6 +97,12 @@ def test_create_retry_requires_the_original_durable_operation_id(
             "create_operation_id": "op-other",
         }
     )
+    missing_operation = sync.handle_agent_create(
+        {
+            "agent_id": "operation-agent",
+            "workspace_root": str(workspace),
+        }
+    )
 
     assert first["create_operation_id"] == "op-original"
     assert retry["create_operation_id"] == "op-original"
@@ -102,6 +112,7 @@ def test_create_retry_requires_the_original_durable_operation_id(
             "detail": "Agent ID already exists on this node.",
         }
     }
+    assert missing_operation == wrong_operation
 
 
 def test_concurrent_divergent_creates_cannot_replace_same_local_agent_id(

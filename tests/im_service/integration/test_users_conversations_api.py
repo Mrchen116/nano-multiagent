@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+import pytest
 
 from IM.ws.gateway.control import SessionLogResolution
 
@@ -93,6 +94,70 @@ def test_conversation_list_and_sync_resolve_session_log_through_target_gateway(
                 "conversation_id": conversation["id"],
             },
         ]
+
+
+@pytest.mark.parametrize("create_profile", [False, True], ids=["absent", "without-node"])
+def test_conversation_source_without_routable_profile_is_temporarily_unavailable(
+    tmp_path: Path, create_profile: bool
+) -> None:
+    """Keep an Agent-sourced transcript temporary when its node cannot be routed."""
+    with make_app_client(tmp_path) as client:
+        alice = register_user(client, username="alice")
+        authorize(client, alice)
+        connection = client.app.state.connection
+        connection.execute(
+            """
+            INSERT INTO users(id, username, display_name, owner_id, created_at)
+            VALUES (?, ?, ?, ?, datetime('now'))
+            """,
+            ("agent-user-1", "agent:agent-1", "Agent 1", alice.owner_id),
+        )
+        if create_profile:
+            connection.execute(
+                """
+                INSERT INTO agent_profiles(
+                    agent_id, owner_id, node_id, display_name, description, custom_prompt,
+                    skills_json, tool_allowlist_json, group_reply_policy, default_model,
+                    workspace_root, profile_version, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+                """,
+                (
+                    "agent-1",
+                    alice.owner_id,
+                    None,
+                    "Agent 1",
+                    "",
+                    "You are Agent 1.",
+                    "[]",
+                    "[]",
+                    "manual",
+                    None,
+                    "/remote-gateway/agent-1-workspace",
+                    1,
+                ),
+            )
+        connection.commit()
+        conversation = client.post(
+            "/im/v1/conversations",
+            json={
+                "title": "Alice & Agent",
+                "participant_ids": [alice.id, "agent-user-1"],
+            },
+        )
+        assert conversation.status_code == 201, conversation.text
+
+        async def unexpected_resolution(**_kwargs):
+            raise AssertionError("an unroutable Agent must not invoke Gateway resolution")
+
+        client.app.state.gateway_control.request_session_log_path = unexpected_resolution
+        listed = client.get("/im/v1/conversations").json()["items"]
+        synced = client.get("/im/v1/sync").json()["items"]
+
+    for response in (listed[0], synced[0]):
+        assert response["source_agent_id"] == "agent-1"
+        assert response["source_node_id"] is None
+        assert response["source_jsonl_path"] is None
+        assert response["source_jsonl_status"] == "unavailable"
 
 
 def test_patch_conversation_updates_title_pin_and_mute(tmp_path: Path) -> None:

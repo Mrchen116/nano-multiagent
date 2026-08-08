@@ -196,7 +196,6 @@ describe("ConversationSidebar", () => {
             id: "unavailable-transcript",
             title: "Unavailable transcript",
             source_agent_id: "a1",
-            source_node_id: "node-1",
             source_jsonl_path: null,
             source_jsonl_status: "unavailable"
           })
