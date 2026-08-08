@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextvars import ContextVar
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -30,15 +31,18 @@ def _make_session(
 def _make_runtime_with_specs(
     tool_names: list[str], default_tool_ids: list[str] | None = None
 ):
-    """Build a minimal AgentEngine with a mock loop returning fixed specs."""
+    """Build a minimal AgentEngine with a fixed base tool registry."""
     from agent.core.agent.runtime import AgentEngine
 
     engine = AgentEngine.__new__(AgentEngine)
-    mock_loop = MagicMock()
     all_specs = tuple(_make_spec(n) for n in tool_names)
-    mock_loop.active_tool_specs.return_value = all_specs
-    engine._loop = mock_loop
+    tool_registry = MagicMock()
+    tool_registry.list_specs.return_value = all_specs
+    engine._tool_registry = tool_registry
     engine._default_tool_ids = default_tool_ids
+    engine._active_execution_scope = ContextVar(
+        "test_workspace_execution_scope", default=None
+    )
     return engine
 
 

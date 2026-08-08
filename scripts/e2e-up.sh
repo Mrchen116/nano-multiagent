@@ -19,7 +19,7 @@
 #   .e2e-ports.env            (source this in your shell to expose ports)
 #   .e2e-jwt-secret           (random IM JWT secret for this run)
 #   .gateway-config.yaml      (isolated copy of main config)
-#   .gateway-workspace/       (per-agent workspaces, replacing ~/nano-assistant/workspace)
+#   .gateway-workspace/       (per-agent workspaces isolated from the user home)
 #   .im.pid / .gateway.pid
 #   .im.log / .api.log / .gateway.log
 
@@ -364,5 +364,5 @@ echo "  IM   $IM_PORT  ($WT_ROOT/.im.log)"
 echo "  GW   pid=$(cat "$WT_ROOT/.gateway.pid")  ($WT_ROOT/.gateway.log)"
 echo "  profile $E2E_PROFILE"
 echo "source $WT_ROOT/.e2e-ports.env to expose ports"
-echo "hint: the default profile uses config/e2e/gateway.yaml, never ~/.nano-assistant"
+echo "hint: the default profile uses config/e2e/gateway.yaml, never ~/.nanoassistant"
 echo "      Feishu requires --feishu and the private profile documented in worktree-runtime.md"

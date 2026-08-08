@@ -21,6 +21,7 @@ from agent.core.runs.executor import KernelExecutor, TargetCompletion, TargetTok
 from agent.core.session.directory import SessionDirectory
 from agent.core.session.types import SessionRef, TurnRequest
 from agent.core.agent.run_control import PendingMessage, RunController
+from agent.core.workspace import WorkspaceExecutionScope
 
 
 class RegistryClosedError(RuntimeError):
@@ -120,6 +121,9 @@ class RunsRegistry:
         self._executor = executor
         self._event_hub = event_hub
         self._hook_runner = hook_runner
+        self._execution_scope_resolver: (
+            Callable[[Path], WorkspaceExecutionScope] | None
+        ) = None
         # Injected port (core stays platform-free): kills the in-flight foreground
         # tool's subprocess tree for a session and reports whether one existed.
         # Wired by the kernel to ForegroundExecutionRegistry.stop_for_session
@@ -254,6 +258,13 @@ class RunsRegistry:
         so the narrow stopper port remains late-bound without exposing executor state.
         """
         self._foreground_stopper = stopper
+
+    def set_execution_scope_resolver(
+        self, resolver: Callable[[Path], WorkspaceExecutionScope] | None
+    ) -> None:
+        """Install the workspace scope resolver used for terminal run hooks."""
+
+        self._execution_scope_resolver = resolver
 
     def get_active_run_id(self, session_id: str) -> str | None:
         """Return the run_id of the currently-executing run for a session, or None."""
@@ -677,18 +688,7 @@ class RunsRegistry:
                 trace_id=updated.trace_id,
                 error=message,
             )
-            hook_ctx_metadata: dict[str, Any] = {}
-            if updated.trace_id:
-                hook_ctx_metadata["trace_id"] = updated.trace_id
-            hook_ctx = HookContext(
-                session_id=updated.session_id,
-                turn_id=updated.turn_id,
-                metadata=hook_ctx_metadata,
-                session_event_publisher=_resolve_session_event_publisher(
-                    hook_runner=self._hook_runner,
-                    session_id=updated.session_id,
-                ),
-            )
+            hook_runner, hook_ctx = self._hook_context_for(updated)
             await self._dispatch_observe_async(
                 "run_error",
                 {
@@ -697,6 +697,7 @@ class RunsRegistry:
                     "error": updated.error,
                 },
                 hook_ctx,
+                hook_runner=hook_runner,
             )
         return updated
 
@@ -746,18 +747,7 @@ class RunsRegistry:
                 trace_id=updated.trace_id,
                 error=message,
             )
-            hook_ctx_metadata: dict[str, Any] = {}
-            if updated.trace_id:
-                hook_ctx_metadata["trace_id"] = updated.trace_id
-            hook_ctx = HookContext(
-                session_id=updated.session_id,
-                turn_id=updated.turn_id,
-                metadata=hook_ctx_metadata,
-                session_event_publisher=_resolve_session_event_publisher(
-                    hook_runner=self._hook_runner,
-                    session_id=updated.session_id,
-                ),
-            )
+            hook_runner, hook_ctx = self._hook_context_for(updated)
             await self._dispatch_observe_async(
                 "run_timeout",
                 {
@@ -766,6 +756,7 @@ class RunsRegistry:
                     "error": updated.error,
                 },
                 hook_ctx,
+                hook_runner=hook_runner,
             )
         return updated
 
@@ -774,11 +765,14 @@ class RunsRegistry:
         event: str,
         payload: Mapping[str, Any],
         hook_ctx: HookContext,
+        *,
+        hook_runner: HookRunner | None = None,
     ) -> None:
-        if self._hook_runner is None:
+        effective_hook_runner = hook_runner or self._hook_runner
+        if effective_hook_runner is None:
             return
         try:
-            diagnostics = await self._hook_runner.dispatch_observe(
+            diagnostics = await effective_hook_runner.dispatch_observe(
                 event,
                 payload,
                 hook_ctx,
@@ -789,6 +783,42 @@ class RunsRegistry:
             )
             return
         log_hook_diagnostics(hook_ctx, event=event, diagnostics=diagnostics)
+
+    def _hook_context_for(
+        self, record: RunRecord
+    ) -> tuple[HookRunner | None, HookContext]:
+        """Build terminal-hook context from the run's selected workspace scope."""
+
+        scope = (
+            self._execution_scope_resolver(record.workspace_root)
+            if self._execution_scope_resolver is not None
+            and record.workspace_root is not None
+            else None
+        )
+        hook_runner = scope.hook_runner if scope is not None else self._hook_runner
+        metadata: Mapping[str, Any] = (
+            {
+                "trace_id": record.trace_id,
+            }
+            if record.trace_id
+            else {}
+        )
+        if scope is not None:
+            metadata = scope.metadata(metadata)
+        return hook_runner, HookContext(
+            session_id=record.session_id,
+            turn_id=record.turn_id,
+            repo_root=(
+                scope.layout.workspace_root
+                if scope is not None
+                else record.workspace_root
+            ),
+            metadata=metadata,
+            session_event_publisher=_resolve_session_event_publisher(
+                hook_runner=hook_runner,
+                session_id=record.session_id,
+            ),
+        )
 
     def _persist_run_status_entry(self, record: RunRecord) -> None:
         # JSONL architecture keeps run status in the event hub; this remains a

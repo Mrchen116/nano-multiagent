@@ -1,6 +1,6 @@
 # cli (coding_cli) Specification
 
-> 对齐: refactor-486-agent-native-repository-knowledge-system
+> 对齐: refactor-513
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本契约层只收 **终端用户在 CLI 上可观察的对外行为**；CLI 内部如何编排内核、渲染、消费事件不在此层。每条 Scenario 的主语是在终端敲命令或读输出的人、消费 JSON/NDJSON 的脚本，或契约测试。
 

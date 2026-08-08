@@ -36,7 +36,8 @@ Skill 是按需加载的专业知识或工作流，不会因为处于启用状�
 
 1. **聊天历史**：属于具体 conversation，支持同一会话继续、Gateway 重启恢复和配置变更后延续。
 2. **Memory**：保存跨会话仍有价值的稳定事实。`user` 目标记录用户身份、偏好和沟通习惯；`memory` 目标记录环境事实、约定、工具特点和长期经验。
-3. **工作文件**：位于 Agent workspace，例如 `HEARTBEAT.md` 和 cron job 数据，不等同于聊天或 memory。
+3. **工作文件**：位于 `<workspace>/.nanoassistant/`，例如 `HEARTBEAT.md` 和 cron job 数据，不等同于聊天或 memory。
+4. **可读聊天副本**：`<workspace>/.nanoassistant/chat_history/` 是便于用户查看的 user/assistant JSONL 副本；会话恢复仍使用内核 session transcript。
 
 使用 memory 时：
 

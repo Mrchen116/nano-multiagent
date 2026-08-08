@@ -1363,7 +1363,9 @@ def test_im_connection_handles_heartbeat_md_request(tmp_path: Path) -> None:
     workspace = tmp_path / "agent-ws"
     workspace.mkdir()
     md_content = "# HEARTBEAT\n- Watch server uptime daily"
-    (workspace / "HEARTBEAT.md").write_text(md_content)
+    heartbeat = workspace / ".nanoassistant" / "HEARTBEAT.md"
+    heartbeat.parent.mkdir()
+    heartbeat.write_text(md_content)
 
     socket = _FakeWebSocket(
         incoming=[

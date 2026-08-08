@@ -4,7 +4,7 @@
 
 ### Requirement: IM 独立判定 PA 托管默认 workspace
 
-IM 自己维护 PA 托管默认 workspace 的路径规则，不 import `personal_assistant` 或 `agent`：未显式 workspace 的 Agent 为 `~/.nanoassistant/workspaces/<agent-id>/`，并以该路径判定 `workspace_is_default`。IM 只保存和转发这一路径；实际 workspace 文件仍由 Gateway 读写。显式外部 workspace 保持非默认。部署前人工把既有 IM 持久化 profile 中旧 `~/nano-assistant/workspace/<agent-id>/` 默认路径改到新路径；运行时不探测或兼容旧路径。
+IM 自己维护 PA 托管默认 workspace 的路径规则，不 import `personal_assistant` 或 `agent`：未显式 workspace 的 Agent 为 `~/.nanoassistant/workspaces/<agent-id>/`，并以该路径判定 `workspace_is_default`。IM 只保存和转发这一路径；实际 workspace 文件仍由 Gateway 读写。显式外部 workspace 保持非默认。
 
 #### Scenario: 新建未指定 workspace 的 Agent 使用新托管默认路径
 - **WHEN** IM 为在线节点创建一个未显式 workspace_root 的 Agent

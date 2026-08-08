@@ -15,7 +15,7 @@
 默认 config 的基础证据：
 
 ```bash
-GATEWAY_DIR="$HOME/.nano-assistant"
+GATEWAY_DIR="$HOME/.nanoassistant"
 
 curl -fsS http://127.0.0.1:8011/openapi.json >/dev/null
 test -f "$GATEWAY_DIR/.gateway-state.json" && sed -n '1,120p' "$GATEWAY_DIR/.gateway-state.json"

@@ -33,7 +33,9 @@ class _Kernel:
 
 def _agent(workspace: Path, *, prompt: str) -> AgentWorkspaceConfig:
     workspace.mkdir()
-    (workspace / "HEARTBEAT.md").write_text("- check\n", encoding="utf-8")
+    heartbeat = workspace / ".nanoassistant" / "HEARTBEAT.md"
+    heartbeat.parent.mkdir(parents=True)
+    heartbeat.write_text("- check\n", encoding="utf-8")
     return AgentWorkspaceConfig(
         agent_id="agent-a",
         workspace_root=workspace,

@@ -7,6 +7,7 @@
 | 任务 | 先读 |
 |---|---|
 | 个人生产：mini 唯一 IM + 本机/mini 双 Gateway | [`prod-fleet.md`](prod-fleet.md)；执行部署用 skill [`prod-fleet-deploy`](../../.claude/skills/prod-fleet-deploy/SKILL.md) |
+| 首次升级 PA workspace/global home 目录 | [`pa-workspace-layout-migration.md`](pa-workspace-layout-migration.md)；完成后再按生产舰队流程启动 |
 | 第一次启动本机 IM + Gateway + Web IM（开发主链路） | [`local-stack.md`](local-stack.md) |
 | 编写 Gateway 配置，执行 start / stop / restart | [`gateway.md`](gateway.md) |
 | 配置飞书通道或 `web_search` provider | [`gateway.md`](gateway.md) |

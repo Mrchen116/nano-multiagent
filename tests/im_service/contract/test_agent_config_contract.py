@@ -58,7 +58,7 @@ def test_agent_config_contract_shape_and_conflict_status(tmp_path: Path) -> None
             "heartbeat_json",
         }
         assert response.json()["workspace_root"].endswith(
-            "/nano-assistant/workspace/agent-1"
+            "/.nanoassistant/workspaces/agent-1"
         )
         assert response.json()["workspace_is_default"] is True
 

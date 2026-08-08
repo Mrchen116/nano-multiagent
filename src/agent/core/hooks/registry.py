@@ -120,6 +120,25 @@ class HookRegistry:
         all_items.sort(key=lambda item: (item.event, item.priority, item.order))
         return tuple(all_items)
 
+    def clone(self, *, share_extension_state: bool = True) -> "HookRegistry":
+        """Copy registrations for one workspace while retaining shared hook state.
+
+        Kernel-wide extension state contains bindings such as session-event
+        publishers.  Workspace handlers get isolated registrations, while those
+        bindings intentionally remain visible to every scope.
+        """
+
+        clone = HookRegistry()
+        clone._registrations = {
+            event: list(registrations)
+            for event, registrations in self._registrations.items()
+        }
+        clone._next_order = self._next_order
+        if share_extension_state:
+            clone._extension_state = self._extension_state
+            clone._extension_state_lock = self._extension_state_lock
+        return clone
+
     def set_extension_state(self, key: str, value: object | None) -> None:
         """Store extension state scoped to this registry instance."""
 

@@ -19,8 +19,8 @@ Event chain per turn:
 JSONL format (one object per line, append mode):
     {"ts": "<ISO8601Z>", "role": "user"|"assistant", "content": "<text>"}
 
-Path convention (SPEC §12):
-    <workspace_root>/chat_history/<session_id>.jsonl
+Path convention:
+    <workspace_root>/.nanoassistant/chat_history/<session_id>.jsonl
 """
 
 from __future__ import annotations
@@ -29,6 +29,8 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
+
+from personal_assistant.defaults import WORKSPACE_CONFIG_DIRNAME
 
 # Module-level state: keyed by session_id, holds captured turn data.
 # Dict access is GIL-protected for simple get/set; no explicit lock needed.
@@ -103,7 +105,12 @@ def setup(hooks: Any) -> None:  # noqa: ANN401
         user_text = session_state.get("user_text", "")
         assistant_text = session_state.get("assistant_text", "")
 
-        jsonl_path = Path(workspace_root) / "chat_history" / f"{ctx.session_id}.jsonl"
+        config_root = (
+            ctx.metadata.get("workspace_config_root") if ctx.metadata else None
+        )
+        if not isinstance(config_root, str) or not config_root:
+            config_root = str(Path(workspace_root) / WORKSPACE_CONFIG_DIRNAME)
+        jsonl_path = Path(config_root) / "chat_history" / f"{ctx.session_id}.jsonl"
         _append_line(
             jsonl_path, {"ts": _now_iso(), "role": "user", "content": user_text}
         )

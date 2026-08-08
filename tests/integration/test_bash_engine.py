@@ -88,10 +88,15 @@ class _BashThenStopLLM:
             )
 
 
-def _build(tmp_path: Path, llm_client: Any) -> Any:
+def _build(
+    tmp_path: Path,
+    llm_client: Any,
+    *,
+    workspace_config_dirname: str = ".nanocode",
+) -> Any:
     return build_kernel(
         llm=_llm_config(),
-        workspace_config_dirname=".nanocode",
+        workspace_config_dirname=workspace_config_dirname,
         can_use_tool=_allow_all,
         repo_root=tmp_path,
         _llm_client_override=llm_client,
@@ -179,6 +184,33 @@ async def test_bash_timeout_surfaces_tool_timeout_reason_through_build_kernel(
     assert bash_end.get("reason_code") == "tool_timeout", (
         f"bash timeout did not surface reason_code=tool_timeout: {bash_end!r}"
     )
+
+
+@pytest.mark.asyncio
+async def test_bash_pretool_policy_uses_selected_workspace_config_root(
+    tmp_path: Path,
+) -> None:
+    """The real pre-tool chain reads policy.toml from the session's selected root."""
+    policy_path = tmp_path / ".consumer" / "policy.toml"
+    policy_path.parent.mkdir()
+    policy_path.write_text('[bash]\ndeny_commands = ["echo"]\n', encoding="utf-8")
+    kernel = _build(
+        tmp_path,
+        _BashThenStopLLM(command="echo must-not-run", timeout=None),
+        workspace_config_dirname=".consumer",
+    )
+    try:
+        session = await kernel.create_session(workspace_root=tmp_path)
+        events = await _run_turn_and_collect(
+            kernel, session.session_id, tmp_path, "run the command"
+        )
+    finally:
+        kernel.close()
+
+    tool_ends = [event for event in events if event.get("event") == "tool_end"]
+    bash_end = next((event for event in tool_ends if event.get("name") == "bash"), None)
+    assert bash_end is not None, f"no bash tool_end; events: {events!r}"
+    assert bash_end.get("reason_code") == "denied", bash_end
 
 
 class _SlowSleepTool:

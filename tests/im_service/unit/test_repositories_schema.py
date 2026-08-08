@@ -103,7 +103,7 @@ def test_initialize_schema_backfills_missing_agent_workspace_roots(
         ("agent-legacy",),
     ).fetchone()
     assert row is not None
-    assert row["workspace_root"].endswith("/nano-assistant/workspace/agent-legacy")
+    assert row["workspace_root"].endswith("/.nanoassistant/workspaces/agent-legacy")
 
 
 def test_initialize_schema_backfills_last_message_preview_from_latest_message(

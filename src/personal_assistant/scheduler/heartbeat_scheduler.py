@@ -11,6 +11,7 @@ from pathlib import Path
 from personal_assistant.config.local_store import (
     AgentWorkspaceConfig,
 )
+from personal_assistant.defaults import WORKSPACE_CONFIG_DIRNAME
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog, LiveAgentSnapshot
 from personal_assistant.scheduler._schedule_primitives import (
     _INTERVAL_PATTERN,
@@ -345,7 +346,9 @@ class HeartbeatScheduler:
                 if self._is_session_busy(_canonical_session_key):
                     skipped_agents.append(agent.agent_id)
                     continue
-            heartbeat_path = agent.workspace_root / "HEARTBEAT.md"
+            heartbeat_path = (
+                agent.workspace_root / WORKSPACE_CONFIG_DIRNAME / "HEARTBEAT.md"
+            )
             spec = _load_heartbeat_spec(heartbeat_path)
             if spec is None:
                 skipped_agents.append(agent.agent_id)
@@ -822,7 +825,7 @@ def _is_within_active_hours(
 # behaviour matches openclaw expectations (HEARTBEAT_OK silence + HEARTBEAT.md follow).
 # feat-394-M3 WARNING-2 fix: replace custom rewording with the openclaw original.
 _OPENCLAW_HEARTBEAT_PROMPT = (
-    "Read HEARTBEAT.md if it exists (workspace context). "
+    "Read .nanoassistant/HEARTBEAT.md if it exists (workspace context). "
     "Follow it strictly. "
     "Do not infer or repeat old tasks from prior chats. "
     "If nothing needs attention, reply HEARTBEAT_OK."

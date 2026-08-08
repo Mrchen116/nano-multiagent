@@ -237,7 +237,8 @@ class BashTool(WiringMixin):
             return PermissionDecision(behavior="passthrough")
 
         try:
-            decision = check_command_policy(command)
+            overrides = getattr(ctx, "metadata", {}).get("bash_policy_overrides")
+            decision = check_command_policy(command, overrides=overrides)
         except Exception:
             # Unparseable command — fail open; let tool body raise ToolError.
             return PermissionDecision(behavior="passthrough")
@@ -350,7 +351,8 @@ class BashTool(WiringMixin):
         parent_session_id = ctx.session_id or ""
         effective_description = description or command[:50]
 
-        output_file = wiring.output.open(parent_session_id, task_id)
+        output = self._output_for_context(ctx, fallback=wiring.output)
+        output_file = output.open(parent_session_id, task_id)
 
         registry.register_bash(
             task_id=task_id,
@@ -365,7 +367,7 @@ class BashTool(WiringMixin):
         stopper = wiring.bash_runner.start(
             command=command,
             cwd=ctx.cwd,
-            output=wiring.output,
+            output=output,
             task_id=task_id,
             timeout=timeout_value,
             on_complete=_make_bash_on_complete(registry, task_id),
@@ -400,7 +402,8 @@ class BashTool(WiringMixin):
         parent_session_id = ctx.session_id or ""
         effective_description = description or command[:50]
 
-        output_file = wiring.output.open(parent_session_id, task_id)
+        output = self._output_for_context(ctx, fallback=wiring.output)
+        output_file = output.open(parent_session_id, task_id)
 
         completed_event = threading.Event()
         result_holder: dict[str, Any] = {}
@@ -454,7 +457,7 @@ class BashTool(WiringMixin):
         stopper = wiring.bash_runner.start(
             command=command,
             cwd=ctx.cwd,
-            output=wiring.output,
+            output=output,
             task_id=task_id,
             timeout=timeout_value,
             on_complete=on_complete,
@@ -681,6 +684,17 @@ class BashTool(WiringMixin):
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _output_for_context(ctx: ToolContext, *, fallback: Any) -> Any:
+        """Select output storage from the immutable session workspace scope."""
+
+        config_root = ctx.session_metadata.get("workspace_config_root")
+        if not isinstance(config_root, str) or not config_root:
+            return fallback
+        from agent.platform.background_tasks.file_output import BashFileOutput
+
+        return BashFileOutput(output_root=Path(config_root) / "background-tasks")
 
 
 def _make_bash_on_complete(registry: Any, task_id: str) -> Any:

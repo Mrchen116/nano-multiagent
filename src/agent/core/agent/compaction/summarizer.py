@@ -4,6 +4,7 @@ import logging
 from typing import TYPE_CHECKING, Sequence
 
 from agent.core.agent.state import AgentState, InputPart
+from agent.core.hooks.context import HookContext
 from agent.core.session.context_state import SessionFileState
 from agent.core.types import Message
 
@@ -37,6 +38,7 @@ class CompactionSummarizer:
         model_override: str | None = None,
         focus: str | None = None,
         strict: bool = False,
+        hook_ctx: HookContext | None = None,
     ) -> str | None:
         """Summarize dropped messages for compaction record.
 
@@ -81,6 +83,7 @@ class CompactionSummarizer:
                 # build-time default. bugfix-443 fix1: a dedicated summary_model
                 # fork keeps its own model — ignore the per-run override for it.
                 model_override=(None if self._has_dedicated_model else model_override),
+                hook_ctx=hook_ctx,
             )
             summary = result.messages[-1].content.strip() if result.messages else ""
             if summary:

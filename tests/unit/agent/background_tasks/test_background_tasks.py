@@ -509,7 +509,7 @@ def _make_fake_wiring(registry: BackgroundTaskRegistry) -> Any:
     from agent.platform.background_tasks.file_output import BashFileOutput
 
     tmpdir = tempfile.mkdtemp()
-    output = BashFileOutput(workspace_root=Path(tmpdir))
+    output = BashFileOutput(output_root=Path(tmpdir) / ".nano" / "background-tasks")
 
     runner_stub = MagicMock()
 

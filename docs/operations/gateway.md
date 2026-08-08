@@ -4,7 +4,7 @@
 
 ## 持久配置
 
-默认 config 是 `~/.nano-assistant/config.yaml`。它属于本机运行配置，可能包含上游地址和登录凭据，不提交仓库。使用其他 config 时，start、stop 和 restart 都应传同一绝对路径。
+默认 config 是 `~/.nanoassistant/config.yaml`。它属于本机运行配置，可能包含上游地址和登录凭据，不提交仓库。使用其他 config 时，start、stop 和 restart 都应传同一绝对路径。
 
 下面是结构示例；把尖括号内容替换成本机实际值：
 
@@ -43,7 +43,7 @@ llm:
 - 修改 `llm.tool_approval_model` 后需要重启 Gateway；运行中的进程不会热加载该字段。
 - provider name 使用 `anthropic` 或 `openai_compat`，与上游接口协议匹配。
 - `im_service` 存在时需要启用内置 `web_relay`。
-- `agents[].workspace_root` 省略时，Gateway 为该 Agent 使用默认 workspace；需要固定位置时显式填写绝对路径。
+- `agents[].workspace_root` 省略时，Gateway 在 `~/.nanoassistant/workspaces/<agent-id>/` 创建默认 workspace；需要固定位置时显式填写绝对路径。
 - `im_service.username` / `password` 可用于 Gateway 首次登录和 token 刷新失败后的凭据回退。
 - 本地 LLM 代理配置、协议、交互日志和验证方法见 [`../development/llm-integration.md`](../development/llm-integration.md)。
 

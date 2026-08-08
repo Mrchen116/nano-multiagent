@@ -1298,7 +1298,7 @@ class IMConnectionManager:
             if workspace_root:
                 from pathlib import Path as _Path  # noqa: PLC0415 — avoid top-level import
 
-                hb_path = _Path(workspace_root) / "HEARTBEAT.md"
+                hb_path = _Path(workspace_root) / _PA_WORKSPACE_CFG_DIR / "HEARTBEAT.md"
                 if hb_path.exists():
                     try:
                         content = hb_path.read_text(encoding="utf-8")

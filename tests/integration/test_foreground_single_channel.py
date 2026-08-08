@@ -128,3 +128,5 @@ async def test_run_in_background_command_still_emits_task_notification(
         "run_in_background command completed but no <task-notification> was delivered "
         "— the background notification path regressed"
     )
+    assert list((tmp_path / ".nanocode" / "background-tasks").rglob("*.output"))
+    assert not (tmp_path / ".nano" / "background-tasks").exists()

@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Service Lifecycle Specification
 
-> 对齐: feat-516
+> 对齐: refactor-513
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -10,6 +10,14 @@
 后台服务管理、IM 长连接、断线恢复和节点绑定的 Gateway 契约。
 
 ## Requirements
+
+### Requirement: Gateway 的默认本机 home 与默认 Agent workspace 有唯一归属
+
+Gateway 的默认本机 config、持久状态和全局 extensions 归入 `~/.nanoassistant/`；未显式指定 workspace 的 Agent 创建在 `~/.nanoassistant/workspaces/<agent-id>/`。本地 config 中显式的 `agents[].workspace_root` 或 `node.workspace_base` 仍优先，外部代码仓不被移动。
+
+#### Scenario: 未指定 workspace 的 Agent 落到默认产品 home
+- **WHEN** Gateway 创建一个未显式提供 workspace_root 的 Agent
+- **THEN** 回报并使用 `~/.nanoassistant/workspaces/<agent-id>/` 作为其本机 workspace
 
 ### Requirement: 运维者用启停命令把 Gateway 当后台服务管理
 
@@ -104,7 +112,7 @@ Gateway 始终**主动**向 IM 服务发起 WebSocket 持久连接(因其在 NAT
 
 #### Scenario: IM 经 RPC 请求读取 HEARTBEAT.md 预览内容（feat-394-M13 决策 G）
 - **WHEN** IM 服务下发 `node.heartbeat.md.request`（含 agent_id / workspace_root）
-- **THEN** Gateway 读取 `<workspace_root>/HEARTBEAT.md`，回帧 `node.heartbeat.md`（含 content；文件不存在则 content 为空串）；IM 进程**绝不**直读 gateway 侧 workspace 文件（IM 与 gateway 可跨机）
+- **THEN** Gateway 读取 `<workspace_root>/.nanoassistant/HEARTBEAT.md`，回帧 `node.heartbeat.md`（含 content；文件不存在则 content 为空串）；IM 进程**绝不**直读 gateway 侧 workspace 文件（IM 与 gateway 可跨机）
 
 #### Scenario: IM 经 RPC 请求列出 cron 任务（feat-394-M13 决策 G）
 - **WHEN** IM 服务下发 `node.cron.jobs.request`（含 agent_id / workspace_root）

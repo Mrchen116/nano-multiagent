@@ -38,6 +38,7 @@ from agent.core.skills import (
 )
 from agent.core.skills.usage import SkillSessionRef, skill_refs_for_session
 from agent.core.tools.result_budget import ToolResultCompressor
+from agent.core.workspace import WorkspaceExecutionScope
 from agent.core.session.context_state import (
     MemorySnapshot,
     SessionFileState,
@@ -143,6 +144,8 @@ class AgentEngine:
         default_tool_ids: list[str] | None = None,
         permission_broker: Any | None = None,
         prompt_sections: Sequence[PromptSection] | None = None,
+        execution_scope_resolver: Callable[[Path], WorkspaceExecutionScope]
+        | None = None,
     ) -> None:
         env_llm_config = LLMFactoryConfig.from_env()
         self._llm_config = LLMFactoryConfig(
@@ -195,8 +198,12 @@ class AgentEngine:
         # None means "all tools in registry" (platform default behavior).
         self._default_tool_ids = default_tool_ids
         self._tool_registry = tool_registry
+        self._execution_scope_resolver = execution_scope_resolver
         self._active_state: ContextVar[ConversationState | None] = ContextVar(
             "agent_engine_active_conversation", default=None
+        )
+        self._active_execution_scope: ContextVar[WorkspaceExecutionScope | None] = (
+            ContextVar("agent_engine_workspace_execution_scope", default=None)
         )
         # Prompt sections for segment-based assembly; empty list = no sections registered (legacy path).
         self._prompt_sections: list[PromptSection] = (
@@ -270,6 +277,9 @@ class AgentEngine:
         """Execute one turn while the owning ConversationSession holds its gate."""
 
         token = self._active_state.set(state)
+        scope_token = self._active_execution_scope.set(
+            self._scope_for_workspace(state.config.workspace_root)
+        )
         try:
             return await self._run_locked(
                 session_id=state.ref.session_id,
@@ -283,6 +293,7 @@ class AgentEngine:
                 model=request.model,
             )
         finally:
+            self._active_execution_scope.reset(scope_token)
             self._active_state.reset(token)
 
     def _state(self) -> ConversationState:
@@ -301,6 +312,9 @@ class AgentEngine:
         """Run manual compaction against one caller-owned conversation state."""
 
         token = self._active_state.set(state)
+        scope_token = self._active_execution_scope.set(
+            self._scope_for_workspace(state.config.workspace_root)
+        )
         try:
             return await self._compact_session(
                 session_id=state.ref.session_id,
@@ -309,7 +323,34 @@ class AgentEngine:
                 idempotency_key=idempotency_key,
             )
         finally:
+            self._active_execution_scope.reset(scope_token)
             self._active_state.reset(token)
+
+    def set_execution_scope_resolver(
+        self, resolver: Callable[[Path], WorkspaceExecutionScope] | None
+    ) -> None:
+        """Install the SDK-owned resolver used at each session execution boundary."""
+
+        self._execution_scope_resolver = resolver
+
+    def _scope_for_workspace(
+        self, workspace_root: Path
+    ) -> WorkspaceExecutionScope | None:
+        resolver = self._execution_scope_resolver
+        return resolver(workspace_root) if resolver is not None else None
+
+    def _current_scope(self) -> WorkspaceExecutionScope | None:
+        """Return the immutable scope captured for the active turn, if any."""
+
+        return self._active_execution_scope.get()
+
+    def _current_tool_registry(self) -> ToolRegistryLike | None:
+        scope = self._current_scope()
+        return scope.tool_registry if scope is not None else self._tool_registry
+
+    def _current_hook_runner(self) -> HookRunner | None:
+        scope = self._current_scope()
+        return scope.hook_runner if scope is not None else self._hook_runner
 
     async def _run_locked(
         self,
@@ -519,7 +560,7 @@ class AgentEngine:
         preloop_messages: list[Message] = []
         if (
             slash_skill_command is not None
-            and self._tool_registry is not None
+            and self._current_tool_registry() is not None
             and any(tool.name == "skill_view" for tool in session_available_tools)
         ):
             preloop_messages = await self._execute_slash_skill_view(
@@ -793,9 +834,10 @@ class AgentEngine:
         # because the side-chain runs via AgentContextFork which has no hook_runner
         # with background registrations — but we also set fork_conversation=None when
         # building contexts for fork side-chains as an explicit belt-and-suspenders guard.
-        if self._hook_runner is not None:
-            background_registrations = (
-                self._hook_runner.registry.background_handlers_for("agent_end")
+        hook_runner = self._current_hook_runner()
+        if hook_runner is not None:
+            background_registrations = hook_runner.registry.background_handlers_for(
+                "agent_end"
             )
             if background_registrations:
                 from agent.core.agent.context_fork import make_fork_conversation
@@ -840,7 +882,7 @@ class AgentEngine:
                 # attaching fork_conversation. The hand-listed rebuild had been
                 # dropping permission_requester + message_history.
                 background_hook_ctx = replace(hook_ctx, fork_conversation=fork_fn)
-                self._hook_runner.dispatch_background(
+                hook_runner.dispatch_background(
                     "agent_end", agent_end_payload, background_hook_ctx
                 )
 
@@ -941,7 +983,7 @@ class AgentEngine:
     def hook_runner(self) -> HookRunner | None:
         """Expose active hook runner."""
 
-        return self._hook_runner
+        return self._current_hook_runner()
 
     def resolve_available_skills(
         self,
@@ -982,9 +1024,10 @@ class AgentEngine:
     def hook_registry(self) -> "HookRegistry | None":
         """Expose active hook registry when runner is configured."""
 
-        if self._hook_runner is None:
+        hook_runner = self._current_hook_runner()
+        if hook_runner is None:
             return None
-        return self._hook_runner.registry
+        return hook_runner.registry
 
     def resolve_run_model(self, session_id: str | None) -> str | None:
         """Return the model registered for an active run's session, or ``None``.
@@ -1152,17 +1195,16 @@ class AgentEngine:
     def _resolve_session_available_tools_from_config(
         self, config: SessionConfig
     ) -> tuple[ToolSpec, ...]:
+        registry = self._current_tool_registry()
+        all_specs = registry.list_specs() if registry is not None else ()
         if config.tool_allowlist is None:
-            all_specs = self._loop.active_tool_specs()
             default_ids = self._default_tool_ids
             if default_ids is None:
                 return all_specs
             allowed_set = set(default_ids)
             return tuple(spec for spec in all_specs if spec.name in allowed_set)
         requested = set(config.tool_allowlist)
-        return tuple(
-            tool for tool in self._loop.active_tool_specs() if tool.name in requested
-        )
+        return tuple(tool for tool in all_specs if tool.name in requested)
 
     async def _dispatch_intercept(
         self,
@@ -1170,10 +1212,11 @@ class AgentEngine:
         payload: Mapping[str, Any],
         hook_ctx: HookContext,
     ) -> tuple[dict[str, Any], bool]:
-        if self._hook_runner is None:
+        hook_runner = self._current_hook_runner()
+        if hook_runner is None:
             return dict(payload), False
         try:
-            dispatch_result = await self._hook_runner.dispatch_intercept(
+            dispatch_result = await hook_runner.dispatch_intercept(
                 event,
                 payload,
                 hook_ctx,
@@ -1194,10 +1237,11 @@ class AgentEngine:
         payload: Mapping[str, Any],
         hook_ctx: HookContext,
     ) -> None:
-        if self._hook_runner is None:
+        hook_runner = self._current_hook_runner()
+        if hook_runner is None:
             return
         try:
-            diagnostics = await self._hook_runner.dispatch_observe(
+            diagnostics = await hook_runner.dispatch_observe(
                 event,
                 payload,
                 hook_ctx,
@@ -1218,9 +1262,11 @@ class AgentEngine:
         controller: RunController | None = None,
     ) -> HookContext:
         session_event_publisher = None
-        if self._hook_runner is not None:
+        scope = self._current_scope()
+        hook_runner = self._current_hook_runner()
+        if hook_runner is not None:
             session_event_publisher = _resolve_session_event_publisher(
-                registry=self._hook_runner.registry,
+                registry=hook_runner.registry,
                 session_id=session_id,
             )
         if session_event_publisher is not None and controller is not None:
@@ -1446,14 +1492,23 @@ class AgentEngine:
         # Without this injection metadata.get("tool_registry") is always None, making
         # the bypass-immune safety_check chain (W1) and WebFetch preapproved logic (S1)
         # silently inactive even though tool.check_permissions is correctly implemented.
-        if self._tool_registry is not None:
-            resolved_metadata["tool_registry"] = self._tool_registry
+        registry = self._current_tool_registry()
+        if registry is not None:
+            resolved_metadata["tool_registry"] = registry
+
+        final_metadata: Mapping[str, Any] = (
+            scope.metadata(resolved_metadata)
+            if scope is not None
+            else resolved_metadata
+        )
 
         return HookContext(
             session_id=session_id,
             turn_id=turn_id,
-            repo_root=self._repo_root,
-            metadata=resolved_metadata,
+            repo_root=(
+                scope.layout.workspace_root if scope is not None else self._repo_root
+            ),
+            metadata=final_metadata,
             model_caller=self._call_hook_model,
             session_event_publisher=session_event_publisher,
             permission_requester=permission_requester,
@@ -1550,7 +1605,7 @@ class AgentEngine:
     ) -> list[Message]:
         """Execute `/skill:<name>` through the normal `skill_view` tool pipeline."""
 
-        registry = self._tool_registry
+        registry = self._current_tool_registry()
         if registry is None or registry.get("skill_view") is None:
             return []
         call_id = make_tool_call_id()
@@ -1879,6 +1934,7 @@ class AgentEngine:
             "system_prompt": rendered_system_prompt,
             "dropped_messages": dropped_messages,
             "model_override": self.resolve_run_model(session_id),
+            "hook_ctx": self._build_hook_context(session_id=session_id),
         }
         if reason is CompactionReason.MANUAL:
             summary_kwargs.update({"focus": focus, "strict": True})

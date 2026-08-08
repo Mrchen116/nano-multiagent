@@ -103,7 +103,13 @@ class _FakeCompactionSummarizer:
     """Summarizer that returns a fixed summary."""
 
     async def summarize(
-        self, *, session_id, system_prompt, dropped_messages, model_override=None
+        self,
+        *,
+        session_id,
+        system_prompt,
+        dropped_messages,
+        model_override=None,
+        hook_ctx=None,
     ):
         return "Compact summary: context was too long."
 
@@ -562,7 +568,13 @@ class _RecordingCompactionSummarizer:
         self.model_overrides: list[str | None] = []
 
     async def summarize(
-        self, *, session_id, system_prompt, dropped_messages, model_override=None
+        self,
+        *,
+        session_id,
+        system_prompt,
+        dropped_messages,
+        model_override=None,
+        hook_ctx=None,
     ):
         self.model_overrides.append(model_override)
         return "Compact summary: context was too long."

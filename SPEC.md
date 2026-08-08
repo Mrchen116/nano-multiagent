@@ -74,10 +74,10 @@ nano-multiagent 是一个 Python 多模型 Agent 框架，由四个独立可部�
 │                                                                  │
 │  ┌─ Agent Workspaces ─────────────────────────────────────────┐  │
 │  │  agent-A/                       agent-B/                    │  │
-│  │  ├── MEMORY.md                  ├── MEMORY.md               │  │
-│  │  ├── HEARTBEAT.md               ├── HEARTBEAT.md            │  │
-│  │  └── .nano-assistant/           └── .nano-assistant/        │  │
-│  │      tools/│hooks/│skills/          tools/│hooks/│skills/   │  │
+│  │  └── .nanoassistant/            └── .nanoassistant/         │  │
+│  │      sessions/│memory/              sessions/│memory/        │  │
+│  │      skills/│tools/│hooks/          skills/│tools/│hooks/    │  │
+│  │      chat_history/│HEARTBEAT.md    chat_history/│HEARTBEAT.md│  │
 │  └─────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────┘
 ```

@@ -62,7 +62,7 @@ llm:
 说明：
 - `im_service.url` 应填写 Gateway 实际要连接的 IM 服务地址；可以是本机，也可以是远端内网/公网地址。
 - 临时覆盖某次启动的 IM 地址时，可在命令行追加 `--im-service-url http://<im-host>:8011`。
-- 省略 `agents[].workspace_root` 时，默认使用 `~/nano-assistant/workspace/<agent_id>/`，并在首次加载配置时自动创建目录。
+- 省略 `agents[].workspace_root` 时，默认使用 `~/.nanoassistant/workspaces/<agent_id>/`，并在首次加载配置时自动创建目录。
 - `llm` 段为必填；上例假定本机已有 LLM 代理监听在 `127.0.0.1:4000`。
 
 ### 3. 启动 Gateway

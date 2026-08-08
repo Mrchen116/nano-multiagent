@@ -369,10 +369,10 @@ IM 以新的 compensation operation 回推之前已确认的完整 profile，并
 
    ```bash
    # mac-mini（只停止 Gateway，绝不停止 mini 上唯一的 IM :8011）
-   ssh mini 'cd /Users/czj/Repos/nano-multiagent && PYTHONPATH=src .venv/bin/python -m personal_assistant.main stop --config /Users/czj/.nano-assistant/config.yaml'
+   ssh mini 'cd /Users/czj/Repos/nano-multiagent && PYTHONPATH=src .venv/bin/python -m personal_assistant.main stop --config /Users/czj/.nanoassistant/config.yaml'
 
    # macbook-air（在本仓根执行；本机不运行生产 IM）
-   TASK_CONFIG="/Users/czj/.nano-assistant/config.yaml"
+   TASK_CONFIG="/Users/czj/.nanoassistant/config.yaml"
    PYTHONPATH=src .venv/bin/python -m personal_assistant.main stop --config "$TASK_CONFIG"
    ```
 
@@ -381,7 +381,7 @@ IM 以新的 compensation operation 回推之前已确认的完整 profile，并
 3. 以相同 config 启动 Gateway；mini 不重启 IM，本机确保没有监听 `:8011`：
 
    ```bash
-   ssh mini 'cd /Users/czj/Repos/nano-multiagent && PYTHONPATH=src .venv/bin/python -m personal_assistant.main --config /Users/czj/.nano-assistant/config.yaml'
+   ssh mini 'cd /Users/czj/Repos/nano-multiagent && PYTHONPATH=src .venv/bin/python -m personal_assistant.main --config /Users/czj/.nanoassistant/config.yaml'
    PYTHONPATH=src .venv/bin/python -m personal_assistant.main --config "$TASK_CONFIG"
    lsof -tiTCP:8011 -sTCP:LISTEN
    ```
@@ -391,10 +391,10 @@ IM 以新的 compensation operation 回推之前已确认的完整 profile，并
    读取 live capability；值必须匹配上表：
 
    ```bash
-   test -s /Users/czj/.nano-assistant/.gateway-state.json
-   tail -n 80 /Users/czj/.nano-assistant/gateway.log
+   test -s /Users/czj/.nanoassistant/.gateway-state.json
+   tail -n 80 /Users/czj/.nanoassistant/gateway.log
    curl -fsS -H "Authorization: Bearer $IM_BEARER_TOKEN" "$IM_URL/im/v1/nodes/$NODE_ID/capabilities" | jq '.models[] | {name, reasoning}'
-   ssh mini 'test -s /Users/czj/.nano-assistant/.gateway-state.json && tail -n 80 /Users/czj/.nano-assistant/gateway.log'
+   ssh mini 'test -s /Users/czj/.nanoassistant/.gateway-state.json && tail -n 80 /Users/czj/.nanoassistant/gateway.log'
    ```
 
    再从 Web IM 各打开一个 Agent capability，检查 node online、node identity 和模型 descriptor，最后以
@@ -436,7 +436,7 @@ Gateway restart 后刷新页面，确认它从确认中变为同一 saved/reject
 `./scripts/e2e-down.sh --wt "$WT_ROOT"`。
 
 生产配置仅在代码和隔离栈验收完成后执行：先停止 mac-mini 和 macbook-air 的 Gateway，修改
-各自 `~/.nano-assistant/config.yaml` 的模型 `reasoning` 段，重启对应 Gateway，并分别确认
+各自 `~/.nanoassistant/config.yaml` 的模型 `reasoning` 段，重启对应 Gateway，并分别确认
 health、node identity 和 IM capability。Mac mini 是唯一运行 IM `:8011` 的节点；本机只重启
 它自己的 Gateway。
 

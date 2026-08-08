@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 
-_MANAGED_WORKSPACE_ROOT = Path("~/nano-assistant/workspace").expanduser()
+_MANAGED_WORKSPACE_ROOT = Path("~/.nanoassistant/workspaces").expanduser()
 
 
 def managed_workspace_root(agent_id: str) -> str:

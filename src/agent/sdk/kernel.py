@@ -47,9 +47,10 @@ from agent.core.session.types import (
     SessionRef,
 )
 from agent.core.utils.time import utc_now_iso as _utc_now_iso
+from agent.core.workspace import WorkspaceExecutionScope, WorkspaceLayout
 from agent.platform.background_tasks.wiring import wire_background_tasks
-from agent.platform.config.auto_mode import AutoModeConfig
-from agent.platform.hooks.loader import build_hook_registry
+from agent.platform.config.auto_mode import AutoModeConfig, load_auto_mode_config
+from agent.platform.hooks.loader import build_hook_registry, load_hooks_into_registry
 from agent.platform.hooks.session_events import set_session_event_publisher_factory
 from agent.platform.llm.factory import create_llm_client as _platform_create_llm_client
 from agent.platform.permissions.broker import (
@@ -234,6 +235,7 @@ def build_kernel(
     tools: Sequence[Any] | None = None,
     hooks: Sequence[Callable[[Any], None]] | None = None,
     workspace_config_dirname: str | None = None,
+    global_config_root: Path | None = None,
     can_use_tool: CanUseToolFn | None = None,
     repo_root: Path | None = None,
     skill_search_roots: Sequence[Path] = (),
@@ -266,6 +268,8 @@ def build_kernel(
         hooks: ``setup(hooks)`` callables registered into the hook registry.
         workspace_config_dirname: Per-workspace config dir name (e.g. ``.nanocode``)
             governing session JSONL / memory / skill layout.
+        global_config_root: Optional consumer-owned global auto-mode config root.
+            Omitted means auto-mode reads no deployment-level global config.
         can_use_tool: Optional async permission callback; None → IM card flow.
         repo_root: Repository/workspace root for tool/hook discovery.
         skill_search_roots: Deployment-level skill directories shared across every
@@ -278,11 +282,13 @@ def build_kernel(
             ``workspace_config_dirname``). Empty → workspace-only skills.
         tool_search_roots: Deployment-level user tool-plugin directories shared across
             workspaces (e.g. ``~/.<product>/tools``), discovered in addition to the
-            workspace ``<repo_root>/.nano/tools``. Same consumer-supplied-roots pattern
-            as ``skill_search_roots`` — no ConfigResolver. Empty → workspace-only.
+            selected workspace ``<repo_root>/<workspace_config_dirname>/tools``.
+            Same consumer-supplied-roots pattern as ``skill_search_roots`` — no
+            ConfigResolver. Empty → workspace-only.
         hook_search_roots: Deployment-level user hook directories shared across
             workspaces (e.g. ``~/.<product>/hooks``), discovered in addition to the
-            workspace ``<repo_root>/.nano/hooks``. Same pattern. Empty → workspace-only.
+            selected workspace ``<repo_root>/<workspace_config_dirname>/hooks``.
+            Same pattern. Empty → workspace-only.
         _llm_client_override: Test-only LLM client.
 
     Returns:
@@ -302,7 +308,10 @@ def build_kernel(
         tool_approval_model=resolved_tool_approval_model,
         tools=list(tools or ()),
         hooks=list(hooks or ()),
-        workspace_config_dirname=workspace_config_dirname or ".nano",
+        workspace_config_dirname=(
+            ".nano" if workspace_config_dirname is None else workspace_config_dirname
+        ),
+        global_config_root=global_config_root,
         can_use_tool=can_use_tool,
         repo_root=repo_root,
         skill_search_roots=tuple(skill_search_roots),
@@ -484,10 +493,10 @@ class _SearchRootsResolver:
 
     Satisfies the hook loader's ``_HookRootResolver`` Protocol (``user_hook_roots``)
     from consumer-supplied deployment roots — NOT a ConfigResolver. ``user_hook_roots()``
-    returns the per-workspace ``.nano/hooks`` dir FIRST then the deployment ``extra_roots``,
-    deduped, so the loader discovers both the workspace dir (unchanged behavior) and the
-    user-level dirs. Same model as ``skill_search_roots``: the consumer factory owns these
-    product paths.
+    returns the selected per-workspace hooks directory FIRST, then the deployment
+    ``extra_roots``, deduped, so the loader discovers both the workspace dir (unchanged
+    behavior) and the user-level dirs. Same model as ``skill_search_roots``: the consumer
+    factory owns these product paths.
 
     Only the hook registry uses a resolver; the tool path loads tool_search_roots directly
     via ``_load_tools_from_single_dir`` in ``_build_kernel_base`` (no resolver indirection),
@@ -506,6 +515,87 @@ class _SearchRootsResolver:
         return self._roots
 
 
+class _SessionCapabilityResolver:
+    """Build and cache immutable workspace capabilities for one shared Kernel."""
+
+    def __init__(
+        self,
+        *,
+        workspace_config_dirname: str,
+        global_config_root: Path | None,
+        base_tool_registry: Any,
+        base_hook_registry: HookRegistry,
+        llm_client: LLMClient | None,
+        skill_batch_review_enqueue: Callable[[Any], bool],
+    ) -> None:
+        self._workspace_config_dirname = workspace_config_dirname
+        self._global_config_root = (
+            global_config_root.expanduser().resolve()
+            if global_config_root is not None
+            else None
+        )
+        self._base_tool_registry = base_tool_registry
+        self._base_hook_registry = base_hook_registry
+        self._llm_client = llm_client
+        self._skill_batch_review_enqueue = skill_batch_review_enqueue
+        self._scopes: dict[Path, WorkspaceExecutionScope] = {}
+
+    def scope_for(self, workspace_root: Path) -> WorkspaceExecutionScope:
+        """Return the first-use snapshot for one canonical workspace root."""
+
+        layout = WorkspaceLayout(
+            workspace_root=workspace_root,
+            config_dirname=self._workspace_config_dirname,
+        )
+        cached = self._scopes.get(layout.workspace_root)
+        if cached is not None:
+            return cached
+
+        from agent.core.tools.base import ToolContext  # noqa: PLC0415
+        from agent.core.tools.result_budget import ToolResultCompressor  # noqa: PLC0415
+        from agent.platform.tools.builtins.bash_policy import (  # noqa: PLC0415
+            load_bash_policy_overrides_at,
+        )
+        from agent.platform.tools.loader import _load_tools_from_single_dir  # noqa: PLC0415
+        from agent.platform.tools.safety import load_tool_safety_config  # noqa: PLC0415
+
+        hook_registry = self._base_hook_registry.clone(share_extension_state=True)
+        load_hooks_into_registry(
+            registry=hook_registry,
+            directory=layout.hooks,
+            source="workspace",
+        )
+        hook_runner = HookRunner(registry=hook_registry)
+        context = ToolContext.create(
+            repo_root=layout.workspace_root,
+            safety_config=load_tool_safety_config(repo_root=layout.workspace_root),
+            llm_client=self._llm_client,
+            skill_batch_review_enqueue=self._skill_batch_review_enqueue,
+        )
+        tool_registry = self._base_tool_registry.clone_for(
+            context=context,
+            hook_runner=hook_runner,
+        )
+        _load_tools_from_single_dir(
+            tool_root=layout.tools,
+            registry=tool_registry,
+            replace=True,
+        )
+        scope = WorkspaceExecutionScope(
+            layout=layout,
+            tool_registry=tool_registry,
+            hook_runner=hook_runner,
+            tool_result_compressor=ToolResultCompressor(layout.tool_results),
+            bash_policy_overrides=load_bash_policy_overrides_at(layout.policy),
+            auto_mode_config_loader=lambda: load_auto_mode_config(
+                global_config_dir=self._global_config_root,
+                workspace_config_dir=layout.config_root,
+            ),
+        )
+        self._scopes[layout.workspace_root] = scope
+        return scope
+
+
 def _build_kernel_base(
     *,
     llm: LLMConfig,
@@ -513,6 +603,7 @@ def _build_kernel_base(
     tools: list[Any],
     hooks: list[Callable[[Any], None]],
     workspace_config_dirname: str,
+    global_config_root: Path | None,
     can_use_tool: CanUseToolFn | None,
     repo_root: Path | None,
     skill_search_roots: tuple[Path, ...] = (),
@@ -552,6 +643,10 @@ def _build_kernel_base(
         .expanduser()
         .resolve()
     )
+    workspace_config_dirname = WorkspaceLayout(
+        workspace_root=resolved_repo_root,
+        config_dirname=workspace_config_dirname,
+    ).config_dirname
 
     _wire_console_tracer()
 
@@ -568,25 +663,22 @@ def _build_kernel_base(
 
     permission_broker = PermissionBroker(config=AutoModeConfig())
 
-    # Hook registry: built-in hooks + consumer setup callables (决策 2).
-    # refactor-406-M3fix #2: when the consumer supplies deployment-level hook dirs
-    # (hook_search_roots, same pattern as skill_search_roots — no ConfigResolver), feed
-    # them via a minimal resolver whose user_hook_roots() = workspace <repo>/.nano/hooks
-    # FIRST then the deployment roots, so build_hook_registry discovers both. Absent →
-    # the resolver-less path which already scans <repo>/.nano/hooks (unchanged behavior).
-    if hook_search_roots:
-        hook_resolver = _SearchRootsResolver(
-            workspace_dir=resolved_repo_root / ".nano" / "hooks",
-            extra_roots=hook_search_roots,
-        )
-        hook_registry = build_hook_registry(
-            repo_root=resolved_repo_root, config_resolver=hook_resolver
-        )
-    else:
-        hook_registry = build_hook_registry(repo_root=resolved_repo_root)
+    # Shared hook base: built-ins, consumer setup and deployment-global
+    # extensions. Workspace hooks are intentionally excluded here; a session
+    # scope clones this registry and appends its own selected layout layer.
+    hook_registry = build_hook_registry(
+        repo_root=resolved_repo_root,
+        include_default_workspace=False,
+    )
     set_tool_approval_model(hook_registry, tool_approval_model)
     for setup in hooks:
         setup(hook_registry)
+    for hook_root in hook_search_roots:
+        load_hooks_into_registry(
+            registry=hook_registry,
+            directory=Path(hook_root).expanduser().resolve(),
+            source="global",
+        )
     hook_runner = HookRunner(registry=hook_registry)
 
     owned_llm_clients: list[LLMClient] = []
@@ -769,28 +861,12 @@ def _build_kernel_base(
     for tool in tools:
         tool_registry.register(tool, replace=True)
 
-    # refactor-406-M3fix #1 (决策2 红线)：恢复工作区 `<repo_root>/.nano/tools` 运行时
-    # 工具发现——决策2 明写「.nano/tools 运行时发现机制不变」，但新 build_kernel 直接手搓
-    # registry（builtins + 显式 tools=）跳过了它。仅扫 workspace .nano/tools（字面 .nano，
-    # 非 workspace_config_dirname），不经 ConfigResolver。
-    # refactor-406-M3fix-r2 R2-1 (崩溃回归修)：用 _load_tools_from_single_dir(replace=True)
-    # 而非 load_tools_from_directory(replace=False)——后者遇到工作区 .nano/tools 里与内置
-    # 同名的 override（如 bash.py 导出 name='bash'）会 register 抛 ValueError → build_kernel
-    # 崩溃、Gateway/CLI 起不来。旧行为允许 .nano/tools override 内置（replace=True），且与下方
-    # user-root 加载一致。
+    # Deployment-global extension roots are part of the shared base.  The
+    # workspace layer is discovered only by _SessionCapabilityResolver.
     from agent.platform.tools.loader import (  # noqa: PLC0415
         _load_tools_from_single_dir,
     )
 
-    workspace_tools_dir = resolved_repo_root / ".nano" / "tools"
-    if workspace_tools_dir.is_dir():
-        _load_tools_from_single_dir(
-            tool_root=workspace_tools_dir, registry=tool_registry, replace=True
-        )
-
-    # refactor-406-M3fix #2: deployment-level user tool dirs (tool_search_roots, same
-    # consumer-supplied-roots pattern as skill_search_roots — no ConfigResolver). Loaded
-    # after workspace .nano/tools so user-level plugins are discovered too.
     for tool_root in tool_search_roots:
         resolved_tool_root = Path(tool_root).expanduser().resolve()
         if resolved_tool_root.is_dir():
@@ -804,6 +880,16 @@ def _build_kernel_base(
         wiring=background_task_wiring,
     )
     engine_services.bind_tool_registry(tool_registry)
+    capability_resolver = _SessionCapabilityResolver(
+        workspace_config_dirname=workspace_config_dirname,
+        global_config_root=global_config_root,
+        base_tool_registry=tool_registry,
+        base_hook_registry=hook_registry,
+        llm_client=getattr(engine_services, "_llm_client", None),
+        skill_batch_review_enqueue=engine_services.enqueue_skill_batch_review,
+    )
+    engine_services.set_execution_scope_resolver(capability_resolver.scope_for)
+    runs_registry.set_execution_scope_resolver(capability_resolver.scope_for)
 
     components = _KernelComponents(
         engine_services=engine_services,
@@ -825,6 +911,7 @@ def _build_kernel_base(
         repo_root=resolved_repo_root,
         llm_catalog=llm,
         workspace_config_dirname=workspace_config_dirname,
+        capability_resolver=capability_resolver,
         skill_search_roots=tuple(
             Path(r).expanduser().resolve() for r in skill_search_roots
         ),
@@ -954,6 +1041,7 @@ class Kernel:
         llm_catalog: LLMConfig | None = None,
         workspace_config_dirname: str | None = None,
         skill_search_roots: tuple[Path, ...] = (),
+        capability_resolver: _SessionCapabilityResolver | None = None,
     ) -> None:
         self._c = components
         self._repo_root = repo_root
@@ -968,10 +1056,17 @@ class Kernel:
         # list_skills appends them after the per-workspace root, deduplicating. The
         # consumer factory owns these product paths; the kernel stays neutral.
         self._skill_search_roots = skill_search_roots
+        self._capability_resolver = capability_resolver
 
         # Per-conversation engines receive this callback from the composition root.
         # Keep the argument on Kernel for the public constructor shape only.
         del can_use_tool
+
+    def _scope_for(self, workspace_root: Path) -> WorkspaceExecutionScope | None:
+        """Resolve the immutable capability snapshot for one workspace."""
+
+        resolver = self._capability_resolver
+        return resolver.scope_for(workspace_root) if resolver is not None else None
 
     # ------------------------------------------------------------------
     # Public API — mirrors design.md §接口与数据流
@@ -1059,6 +1154,10 @@ class Kernel:
                 config_path
             )
 
+        # Resolve the selected workspace capabilities before creating durable
+        # session state. A malformed policy must fail explicitly, not leave an
+        # unusable transcript behind.
+        scope = self._scope_for(effective_root)
         conversation = self._c.directory.create(
             NewSession(
                 workspace_root=effective_root,
@@ -1088,12 +1187,16 @@ class Kernel:
         hook_ctx = HookContext(
             session_id=session.session_id,
             repo_root=effective_root,
+            metadata=scope.metadata() if scope is not None else {},
             session_event_publisher=_build_session_event_publisher_factory(
                 event_hub=self._c.event_hub
             )(session.session_id),
         )
         try:
-            diagnostics = await self._c.hook_runner.dispatch_observe(
+            hook_runner = (
+                scope.hook_runner if scope is not None else self._c.hook_runner
+            )
+            diagnostics = await hook_runner.dispatch_observe(
                 "session_start", {"session_id": session.session_id}, hook_ctx
             )
         except Exception as exc:  # pragma: no cover - defensive fail-open fallback.
@@ -1620,13 +1723,29 @@ class Kernel:
         Returns:
             ToolsInfo describing available tools.
         """
-        tool_registry = self._c.tool_registry
+        effective_root = Path(workspace_root or self._repo_root).expanduser().resolve()
+        scope = self._scope_for(effective_root)
+        tool_registry = (
+            scope.tool_registry if scope is not None else self._c.tool_registry
+        )
         if tool_registry is None:
-            return {}
-        list_tools = getattr(tool_registry, "list_tools", None)
-        if callable(list_tools):
-            return list_tools(session_id=session_id)
-        return {}
+            return {"session_id": session_id, "tools": []}
+        specs = tool_registry.list_specs()
+        session = self._c.directory.get(SessionRef(session_id, effective_root))
+        if session is not None and session.tool_allowlist is not None:
+            allowed = set(session.tool_allowlist)
+            specs = tuple(spec for spec in specs if spec.name in allowed)
+        return {
+            "session_id": session_id,
+            "tools": [
+                {
+                    "name": spec.name,
+                    "description": spec.description,
+                    "input_schema": dict(spec.input_schema),
+                }
+                for spec in specs
+            ],
+        }
 
     # ------------------------------------------------------------------
     # Capability queries (决策 4) — single-item neutral facts, SDK-owned DTOs.

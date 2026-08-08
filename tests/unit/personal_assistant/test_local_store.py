@@ -75,18 +75,22 @@ def test_load_local_config_defaults_workspace_root_to_user_workspace(
 
     config = load_local_config(config_path)
 
-    expected_root = home_dir / "nano-assistant" / "workspace" / "assistant-a"
+    expected_root = home_dir / ".nanoassistant" / "workspaces" / "assistant-a"
     assert config.agents[0].workspace_root == expected_root.resolve()
     assert expected_root.is_dir() is True
     # MEMORY.md and USER.md seeded under .nanoassistant/memory/ (feat-349-M3 migration).
     assert (expected_root / ".nanoassistant" / "memory" / "MEMORY.md").is_file() is True
-    assert (expected_root / "HEARTBEAT.md").is_file() is True
+    assert (expected_root / ".nanoassistant" / "HEARTBEAT.md").is_file() is True
     assert (
         (expected_root / ".nanoassistant" / "memory" / "MEMORY.md")
         .read_text(encoding="utf-8")
         .strip()
     )
-    assert (expected_root / "HEARTBEAT.md").read_text(encoding="utf-8").strip()
+    assert (
+        (expected_root / ".nanoassistant" / "HEARTBEAT.md")
+        .read_text(encoding="utf-8")
+        .strip()
+    )
 
 
 def test_load_local_config_backfills_default_workspace_files_for_explicit_root(
@@ -117,7 +121,7 @@ def test_load_local_config_backfills_default_workspace_files_for_explicit_root(
     assert (
         workspace_root / ".nanoassistant" / "memory" / "MEMORY.md"
     ).is_file() is True
-    assert (workspace_root / "HEARTBEAT.md").is_file() is True
+    assert (workspace_root / ".nanoassistant" / "HEARTBEAT.md").is_file() is True
 
 
 def test_load_local_config_does_not_overwrite_existing_workspace_files(
@@ -129,7 +133,8 @@ def test_load_local_config_does_not_overwrite_existing_workspace_files(
     memory_dir = workspace_root / ".nanoassistant" / "memory"
     memory_dir.mkdir(parents=True)
     memory_path = memory_dir / "MEMORY.md"
-    heartbeat_path = workspace_root / "HEARTBEAT.md"
+    heartbeat_path = workspace_root / ".nanoassistant" / "HEARTBEAT.md"
+    heartbeat_path.parent.mkdir(parents=True, exist_ok=True)
     memory_path.write_text("existing memory\n", encoding="utf-8")
     heartbeat_path.write_text(
         "interval: 1h\n\n- Existing heartbeat\n", encoding="utf-8"
@@ -591,7 +596,7 @@ def test_default_local_config_path_uses_user_home(
 
     assert (
         default_local_config_path()
-        == (home_dir / ".nano-assistant" / "config.yaml").resolve()
+        == (home_dir / ".nanoassistant" / "config.yaml").resolve()
     )
 
 
@@ -699,15 +704,16 @@ def test_ensure_workspace_defaults_seeds_user_under_nanoassistant_memory(
     assert user_path.is_file(), f"Expected {user_path} to exist"
 
 
-def test_ensure_workspace_defaults_seeds_heartbeat_at_workspace_root(
+def test_ensure_workspace_defaults_seeds_heartbeat_in_nanoassistant(
     tmp_path: Path,
 ) -> None:
-    """HEARTBEAT.md remains at workspace root (not under .nanoassistant/)."""
+    """HEARTBEAT.md is seeded in the PA workspace config directory."""
     from personal_assistant.config.local_store import ensure_workspace_defaults
 
     resolved = ensure_workspace_defaults(tmp_path)
-    heartbeat_path = resolved / "HEARTBEAT.md"
+    heartbeat_path = resolved / ".nanoassistant" / "HEARTBEAT.md"
     assert heartbeat_path.is_file(), f"Expected {heartbeat_path} to exist"
+    assert not (resolved / "HEARTBEAT.md").exists()
 
 
 def test_ensure_workspace_defaults_does_not_overwrite_existing_memory(

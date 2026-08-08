@@ -3,6 +3,7 @@
 import json
 import time
 from collections.abc import AsyncIterator, Callable
+from contextvars import ContextVar
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Mapping, Protocol
@@ -119,6 +120,15 @@ class AgentLoop:
         self._capture_compaction_epoch = capture_compaction_epoch
         self._commit_compaction = commit_compaction
         self._build_skill_reinjection = build_skill_reinjection
+        self._active_tool_registry: ContextVar[ToolRegistryLike | None] = ContextVar(
+            "agent_loop_workspace_tool_registry", default=None
+        )
+        self._active_hook_runner: ContextVar[HookRunner | None] = ContextVar(
+            "agent_loop_workspace_hook_runner", default=None
+        )
+        self._active_tool_result_compressor: ContextVar[Any | None] = ContextVar(
+            "agent_loop_workspace_tool_result_compressor", default=None
+        )
 
     @property
     def available_skills(self) -> tuple[SkillMetadata, ...]:
@@ -128,6 +138,21 @@ class AgentLoop:
         """Hot-swap tool registry used by subsequent turns."""
 
         self._tool_registry = tool_registry
+
+    def _current_tool_registry(self) -> ToolRegistryLike | None:
+        """Return the immutable scope registry captured for this turn."""
+
+        return self._active_tool_registry.get() or self._tool_registry
+
+    def _current_hook_runner(self) -> HookRunner | None:
+        """Return the immutable scope hook runner captured for this turn."""
+
+        return self._active_hook_runner.get() or self._hook_runner
+
+    def _current_tool_result_compressor(self) -> Any | None:
+        """Return the scope-local oversized-result store for this turn."""
+
+        return self._active_tool_result_compressor.get() or self._tool_result_compressor
 
     def _client_for_model(self, model: str) -> LLMClient:
         """Select the LLM client registered for ``model``'s provider (bugfix-429).
@@ -210,6 +235,14 @@ class AgentLoop:
         active_client = self._client_for_model(active_model)
         active_hook_ctx = hook_ctx or HookContext(
             session_id=state.session_id, turn_id=state.turn_id
+        )
+        scope = active_hook_ctx.metadata.get("_workspace_execution_scope")
+        registry_token = self._active_tool_registry.set(
+            getattr(scope, "tool_registry", None)
+        )
+        runner_token = self._active_hook_runner.set(getattr(scope, "hook_runner", None))
+        compressor_token = self._active_tool_result_compressor.set(
+            getattr(scope, "tool_result_compressor", None)
         )
         run_id = _resolve_hook_run_id(active_hook_ctx)
         await self._dispatch_observe_async(
@@ -315,6 +348,7 @@ class AgentLoop:
                         real_prompt_tokens=real_prompt_tokens,
                         active_model=active_model,
                         workspace_root=workspace_root,
+                        hook_ctx=active_hook_ctx,
                     )
                     if compacted_msg is not None:
                         yield compacted_msg
@@ -354,13 +388,13 @@ class AgentLoop:
 
                     executor = (
                         StreamingToolExecutor(
-                            self._tool_registry,
+                            self._current_tool_registry(),
                             hook_context=active_hook_ctx,
                             session_file_state=session_file_state,
                             tool_execution_allowlist=tool_execution_allowlist,
                             is_fork_sidechain=is_fork_sidechain,
                         )
-                        if self._tool_registry is not None
+                        if self._current_tool_registry() is not None
                         else None
                     )
                     iteration_tool_calls: list[ToolCall] = []
@@ -599,7 +633,7 @@ class AgentLoop:
                         _loop_succeeded = True
                         break
 
-                    if self._tool_registry is None:
+                    if self._current_tool_registry() is None:
                         # bugfix-426-M4 V1: hard stop — commit the terminal. Without a
                         # tool registry the loop cannot run another round, so a steer
                         # racing this exit must go to a fresh run (inject rejected after
@@ -655,6 +689,9 @@ class AgentLoop:
                     turn_end_payload,
                     active_hook_ctx,
                 )
+            self._active_tool_registry.reset(registry_token)
+            self._active_hook_runner.reset(runner_token)
+            self._active_tool_result_compressor.reset(compressor_token)
 
     async def _dispatch_message_hooks(
         self,
@@ -788,10 +825,11 @@ class AgentLoop:
         payload: Mapping[str, Any],
         hook_ctx: HookContext,
     ) -> None:
-        if self._hook_runner is None:
+        hook_runner = self._current_hook_runner()
+        if hook_runner is None:
             return
         try:
-            diagnostics = await self._hook_runner.dispatch_observe(
+            diagnostics = await hook_runner.dispatch_observe(
                 event,
                 payload,
                 hook_ctx,
@@ -804,15 +842,17 @@ class AgentLoop:
         log_hook_diagnostics(hook_ctx, event=event, diagnostics=diagnostics)
 
     def active_tool_specs(self) -> tuple[ToolSpec, ...]:
-        if self._tool_registry is not None:
-            return self._tool_registry.list_specs()
+        registry = self._current_tool_registry()
+        if registry is not None:
+            return registry.list_specs()
         if self._available_tools is not None:
             return self._available_tools
         return ()
 
     def _active_tool_specs(self) -> tuple[ToolSpec, ...]:
-        if self._tool_registry is not None:
-            return self._tool_registry.list_specs()
+        registry = self._current_tool_registry()
+        if registry is not None:
+            return registry.list_specs()
         if self._available_tools is not None:
             return self._available_tools
         return ()
@@ -820,11 +860,8 @@ class AgentLoop:
     def _serialize_tool_result(self, result: ToolResult, *, session_id: str) -> str:
         """Serialize tool result via tool adapter, then apply budget compression."""
 
-        tool = (
-            self._tool_registry.get(result.name)
-            if self._tool_registry is not None
-            else None
-        )
+        registry = self._current_tool_registry()
+        tool = registry.get(result.name) if registry is not None else None
         if tool is not None and hasattr(tool, "serialize_result"):
             try:
                 raw_content = tool.serialize_result(result.output, result.error)
@@ -833,7 +870,7 @@ class AgentLoop:
         else:
             raw_content = _serialize_tool_result_content(result)
 
-        compressor = self._tool_result_compressor
+        compressor = self._current_tool_result_compressor()
         if compressor is not None and result.call_id:
             max_size = getattr(
                 tool, "max_result_size_chars", DEFAULT_MAX_RESULT_SIZE_CHARS
@@ -937,6 +974,7 @@ class AgentLoop:
         real_prompt_tokens: int | None = None,
         active_model: str | None = None,
         workspace_root: Path | None = None,
+        hook_ctx: HookContext | None = None,
     ) -> Message | None:
         if not self._should_compact(
             llm_messages, rendered_system_prompt, real_prompt_tokens, active_model
@@ -975,6 +1013,7 @@ class AgentLoop:
             # call site already does). The summary_model mutual-exclusion is owned
             # by CompactionSummarizer (bugfix-443 fix1 altitude #3).
             model_override=active_model,
+            hook_ctx=hook_ctx,
         )
 
         # Post-compact file restore: read up to 5 most recently accessed files.

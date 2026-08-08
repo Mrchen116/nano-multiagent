@@ -155,7 +155,13 @@ def load_bash_policy_overrides(repo_root: Path) -> BashPolicyOverrides:
       deny_commands   → BashPolicyOverrides.blocked_commands
       deny_fragments  → BashPolicyOverrides.blocked_fragments
     """
-    policy_path = (repo_root / ".nano" / "policy.toml").expanduser().resolve()
+    return load_bash_policy_overrides_at(repo_root / ".nano" / "policy.toml")
+
+
+def load_bash_policy_overrides_at(policy_path: Path) -> BashPolicyOverrides:
+    """Load bash policy overrides from one already-selected policy file."""
+
+    policy_path = policy_path.expanduser().resolve()
     if not policy_path.is_file():
         return BashPolicyOverrides()
 

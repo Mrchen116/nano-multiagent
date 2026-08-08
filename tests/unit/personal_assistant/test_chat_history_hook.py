@@ -2,7 +2,7 @@
 
 Tests verify that the after_agent_reply-equivalent hook (implemented via
 input/message_end/agent_end) appends JSONL entries to
-<workspace_root>/chat_history/<session_id>.jsonl after each turn.
+<workspace_root>/.nanoassistant/chat_history/<session_id>.jsonl after each turn.
 """
 
 from __future__ import annotations
@@ -23,11 +23,18 @@ from agent.core.hooks.registry import HookAPI, HookRegistry
 # ---------------------------------------------------------------------------
 
 
-def _make_ctx(*, session_id: str = "sess-test", cwd: str | None = None) -> HookContext:
+def _make_ctx(
+    *,
+    session_id: str = "sess-test",
+    cwd: str | None = None,
+    workspace_config_root: str | None = None,
+) -> HookContext:
     """Build a HookContext with optional cwd metadata injected by runtime."""
     metadata: dict[str, Any] = {}
     if cwd is not None:
         metadata["cwd"] = cwd
+    if workspace_config_root is not None:
+        metadata["workspace_config_root"] = workspace_config_root
     return HookContext(session_id=session_id, metadata=metadata)
 
 
@@ -108,8 +115,9 @@ def test_writes_user_and_assistant_lines_after_agent_end(tmp_path: Path) -> None
         assistant_text="hi there",
     )
 
-    jsonl_path = tmp_path / "chat_history" / f"{session_id}.jsonl"
+    jsonl_path = tmp_path / ".nanoassistant" / "chat_history" / f"{session_id}.jsonl"
     assert jsonl_path.exists(), "JSONL file not created"
+    assert not (tmp_path / "chat_history").exists()
     lines = [
         json.loads(line) for line in jsonl_path.read_text().splitlines() if line.strip()
     ]
@@ -121,13 +129,13 @@ def test_writes_user_and_assistant_lines_after_agent_end(tmp_path: Path) -> None
 
 
 def test_creates_directory_if_missing(tmp_path: Path) -> None:
-    """chat_history/ subdirectory is created automatically when absent."""
+    """The PA config-root chat_history directory is created automatically."""
     registry, mod = _setup_registry()
     mod._pending.clear()
 
     session_id = "sess-dir-create"
     workspace = tmp_path / "agent_workspace"
-    # workspace itself exists but chat_history/ does not
+    # workspace itself exists but the PA config-root history directory does not
     workspace.mkdir()
 
     _simulate_turn(
@@ -138,9 +146,33 @@ def test_creates_directory_if_missing(tmp_path: Path) -> None:
         assistant_text="yes",
     )
 
-    chat_dir = workspace / "chat_history"
+    chat_dir = workspace / ".nanoassistant" / "chat_history"
     assert chat_dir.is_dir(), "chat_history directory was not created"
     assert (chat_dir / f"{session_id}.jsonl").exists()
+
+
+def test_uses_workspace_execution_scope_config_root(tmp_path: Path) -> None:
+    """The kernel-provided config root is the authoritative history location."""
+    registry, mod = _setup_registry()
+    mod._pending.clear()
+    config_root = tmp_path / ".custom-pa"
+    ctx = _make_ctx(
+        session_id="sess-scoped",
+        cwd=str(tmp_path),
+        workspace_config_root=str(config_root),
+    )
+
+    _call_handler(registry, "input", {"text": "hello"}, ctx)
+    _call_handler(
+        registry,
+        "message_end",
+        {"content": "hi", "role": "assistant"},
+        ctx,
+    )
+    _call_handler(registry, "agent_end", {}, ctx)
+
+    assert (config_root / "chat_history" / "sess-scoped.jsonl").is_file()
+    assert not (tmp_path / ".nanoassistant" / "chat_history").exists()
 
 
 def test_appends_across_multiple_turns(tmp_path: Path) -> None:
@@ -158,7 +190,7 @@ def test_appends_across_multiple_turns(tmp_path: Path) -> None:
             assistant_text=f"turn {i} assistant",
         )
 
-    jsonl_path = tmp_path / "chat_history" / f"{session_id}.jsonl"
+    jsonl_path = tmp_path / ".nanoassistant" / "chat_history" / f"{session_id}.jsonl"
     lines = [
         json.loads(line) for line in jsonl_path.read_text().splitlines() if line.strip()
     ]
@@ -220,7 +252,7 @@ def test_jsonl_line_fields_valid(tmp_path: Path) -> None:
         assistant_text="all good",
     )
 
-    jsonl_path = tmp_path / "chat_history" / f"{session_id}.jsonl"
+    jsonl_path = tmp_path / ".nanoassistant" / "chat_history" / f"{session_id}.jsonl"
     lines = [
         json.loads(line) for line in jsonl_path.read_text().splitlines() if line.strip()
     ]
