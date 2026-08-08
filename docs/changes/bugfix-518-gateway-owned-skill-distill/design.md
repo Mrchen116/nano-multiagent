@@ -11,6 +11,7 @@
 | v5.2 | 使 conversation pin 在服务端优先于 legacy message `target_node_id` hint，并把受影响 HTTP/control 测试归属写入 tasks。 |
 | v5.3 | 保留既有 external shadow conversation 的 binding fallback：browser 仍只提交 source ID，IM 仅在已有 external identity 时将其随 control request 交给 Gateway。 |
 | v5.4 | 补齐 reviewer 的隔离 IM/Gateway/Vite 双节点验收 runbook；不改变产品或协议决策。 |
+| v5.5 | 给第二个隔离 Gateway 的验收 Agent 显式去除 `skill_view`，使 reviewer 可走真实的 preflight 失败态。 |
 
 ## 问题与边界
 
@@ -165,7 +166,8 @@ cp "$WT_ROOT/.gateway-config.yaml" "$NODE2_DIR/gateway.yaml"
 NODE2_ID="$NODE2_ID" NODE2_WORKSPACE="$NODE2_WORKSPACE" yq -i '
   .node.node_id = strenv(NODE2_ID) |
   .node.workspace_base = strenv(NODE2_WORKSPACE) |
-  .agents = [.agents[0] | .agent_id = "e2e-second" | .title = "E2E second" |
+  .agents = [.agents[0] | .agent_id = "e2e-second" | .title = "E2E second (no skill_view)" |
+    .tool_allowlist = ["read"] |
     .workspace_root = (strenv(NODE2_WORKSPACE) + "/e2e-second")] |
   .channels = [{"name": "web_relay"}]' "$NODE2_DIR/gateway.yaml"
 tmux new-session -d -s bugfix518-review-node2 -c "$WT_ROOT" \
@@ -181,6 +183,10 @@ curl -fsS -H "Authorization: Bearer $NODE2_TOKEN" "$IM_URL/im/v1/agents?limit=50
 direct message 建立首个 Gateway source，使其产生本机 durable binding 和 JSONL；选择该 source 后，第二 Gateway
 source 必须显示为 `Different Gateway` 且不可选。随后选择同 Gateway execution Agent 和 scope，确认新单聊预填
 Gateway 返回的当前格式 prompt，并发送为普通消息。记录用户可见结果和 control/browser 仅提交 identity 的证据。
+
+第二 Gateway 的 `e2e-second` 是受控缺能力 fixture：它没有 `skill_view`。为它建立一条完成的 direct source
+conversation 后，只选择该 source 并把它选为 execution Agent；开始蒸馏必须在 dialog 显示缺 `skill_view` 的原因，且不
+请求 prompt、不新建或导航到 `Skill distill` conversation。该 setup 只服务本轮隔离验收，不改变任何产品默认 Agent。
 
 结束时停止 Vite、第二 Gateway 与 `e2e-down.sh --wt "$WT_ROOT"` 启动的栈；确认本轮端口、PID、credentials、config
 和 manifest 均未残留或暂存。标准 E2E 数据仅可作为本地排障材料，不能提交。
