@@ -134,9 +134,47 @@ distill；跨 node 被禁止。它是一次性 `progress.md` 证据，不扩为�
 
 | 服务 | 停止命令 | 启动与新鲜度检查 | 健康检查 |
 |---|---|---|---|
-| 隔离 IM + 首个 Gateway | `./scripts/e2e-down.sh --wt "$WT_ROOT"` | `PATH="/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH" ./scripts/e2e-up.sh --wt "$WT_ROOT"`；用 worktree 内已有前端依赖运行 `npm run build`，并在 `dist/assets/` 确认 `distill-prompt` marker | `source .e2e-ports.env && curl -fsS "$IM_URL/openapi.json" >/dev/null`；确认 `.im.pid`、`.gateway.pid` 存活 |
-| Web IM Vite | 停止本轮自己的 Vite PID / tmux session | `source .e2e-ports.env` 后，以空闲端口运行 `VITE_IM_PROXY_TARGET="$IM_URL" npm run dev -- --host 127.0.0.1 --port "$VITE_PORT" --strictPort` | 浏览器经该 Vite 地址登录隔离测试用户 |
-| 第二个验收 Gateway | 停止本轮自己的第二 Gateway PID / tmux session | 从本轮生成的 Gateway config 复制到其**独立 runtime directory**；只保留 `web_relay`，并改写 `node.node_id`、`node.workspace_base`、Agent id 与 Agent workspace。它仍连接本轮 `IM_URL`、使用同一测试 owner，绝不复用第一个 Gateway 的 credentials/manifest/state。 | 在 IM agent 列表确认第二个 Agent 归属不同 node；为它建立一条 direct source conversation |
+| 隔离 IM + 首个 Gateway | `./scripts/e2e-down.sh --wt "$WT_ROOT"` | `PATH="$NANO_MAIN_ROOT/.venv/bin:$PATH" ./scripts/e2e-up.sh --wt "$WT_ROOT"` | `source .e2e-ports.env && curl -fsS "$IM_URL/openapi.json" >/dev/null`；确认 `.im.pid`、`.gateway.pid` 存活 |
+| Web IM Vite | 停止本轮自己的 Vite PID / tmux session | 在 `$WT_ROOT/src/IM/frontend` 以现有依赖运行 `npm run build`，再按下方命令起 Vite | 浏览器经该 Vite 地址登录隔离测试用户 |
+| 第二个验收 Gateway | 停止本轮自己的第二 Gateway PID / tmux session | 按下方命令在独立 runtime directory 派生 config、启动 | IM agent 列表出现 `e2e-second`，其 node 与首 Gateway 不同 |
+
+启动前设 `WT_ROOT="$(git rev-parse --show-toplevel)"`，并将 `NANO_MAIN_ROOT` 设为含受控 `.venv` 和已安装前端
+依赖的主 checkout。reviewer 不运行包安装；若自己的前端 `node_modules` 缺失，只链接
+`$NANO_MAIN_ROOT/src/IM/frontend/node_modules`。构建和 Vite 必须在前端目录执行：
+
+```bash
+cd "$WT_ROOT/src/IM/frontend"
+npm run build
+rg -l 'distill-prompt' dist/assets/
+source "$WT_ROOT/.e2e-ports.env"
+VITE_PORT="$("$WT_ROOT/scripts/free-ports.sh" 1)"
+VITE_IM_PROXY_TARGET="$IM_URL" npm run dev -- --host 127.0.0.1 --port "$VITE_PORT" --strictPort
+```
+
+第二 Gateway 只用于本次跨节点 UI 验收。以下派生物必须留在 `$WT_ROOT`、不可提交；以 tmux 启动后，查询 IM
+确认它已注册，再为它建立一条 direct source conversation：
+
+```bash
+source "$WT_ROOT/.e2e-ports.env"
+NODE2_DIR="$WT_ROOT/.review-node2"
+NODE2_WORKSPACE="$WT_ROOT/.review-node2-workspace"
+NODE2_ID="${NODE_ID}-review-node2"
+mkdir -p "$NODE2_DIR" "$NODE2_WORKSPACE/e2e-second"
+cp "$WT_ROOT/.gateway-config.yaml" "$NODE2_DIR/gateway.yaml"
+NODE2_ID="$NODE2_ID" NODE2_WORKSPACE="$NODE2_WORKSPACE" yq -i '
+  .node.node_id = strenv(NODE2_ID) |
+  .node.workspace_base = strenv(NODE2_WORKSPACE) |
+  .agents = [.agents[0] | .agent_id = "e2e-second" | .title = "E2E second" |
+    .workspace_root = (strenv(NODE2_WORKSPACE) + "/e2e-second")] |
+  .channels = [{"name": "web_relay"}]' "$NODE2_DIR/gateway.yaml"
+tmux new-session -d -s bugfix518-review-node2 -c "$WT_ROOT" \
+  "PYTHONPATH=$WT_ROOT/src $NANO_MAIN_ROOT/.venv/bin/python -m personal_assistant.main \
+  --config $NODE2_DIR/gateway.yaml --im-service-url $IM_URL --foreground --auto-bind \
+  > $NODE2_DIR/gateway.log 2>&1"
+NODE2_TOKEN="$(yq -r '.im_service.token' "$NODE2_DIR/gateway.yaml")"
+curl -fsS -H "Authorization: Bearer $NODE2_TOKEN" "$IM_URL/im/v1/agents?limit=50" \
+  | jq -e --arg node "$NODE2_ID" '.[] | select(.agent_id == "e2e-second" and .node_id == $node)' >/dev/null
+```
 
 浏览器使用 `.gateway-config.yaml` 的隔离 `im_service.username/password`（默认 `nano` / `nano1234`）。以 ordinary
 direct message 建立首个 Gateway source，使其产生本机 durable binding 和 JSONL；选择该 source 后，第二 Gateway
