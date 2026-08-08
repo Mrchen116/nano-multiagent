@@ -468,3 +468,376 @@ None.
 The v4 UX correction restores the intended visible command without reintroducing
 path transport, transcript exposure, or browser authority over Gateway execution.
 R3's approval remains valid; the design is ready for implementation.
+
+## Round 5
+
+### Metadata
+
+| Field | Value |
+|---|---|
+| Reviewer target | `bugfix-518-gateway-owned-skill-distill@design-v5` |
+| Review mode | full |
+| Mode reason | v5 deliberately replaces v1–v4's identity-only relay, hidden local activation and delivery-lifecycle design with a Gateway-produced, current-format visible prompt followed by ordinary relay. That changes the trust boundary, path exposure, protocol and acceptance target, so the earlier delta approvals cannot be carried forward. |
+| Started | 2026-08-09T01:56:00+08:00 |
+| Finished | 2026-08-09T02:12:31+08:00 |
+| Duration | 16m 31s |
+
+### Verdict
+
+**REVISE — 3 CRITICAL / 2 WARNING.** The intended minimal shape is good: IM no
+longer scans a remote filesystem, one selected Gateway builds the existing prompt,
+and ordinary chat/builtin execution are retained. The current v5 documents three
+contradictory or unproved conditions, however: it has not formally accepted the
+new path-exposure contract; it cannot guarantee that the returned paths are sent
+back to their issuing Gateway; and it drops an existing capability failure before
+the new chat is created. These are contract corrections, not a return to the
+withdrawn metadata/recovery/transcript subsystem.
+
+### Historical issues and v5 supersession
+
+| Earlier item | v5 disposition | Review result |
+|---|---|---|
+| R1-C1 / R2-C1 / R3 approval: typed identity-only relay and Gateway-final runtime guard | v5 explicitly withdraws that action and instead adds a prompt control RPC followed by ordinary relay. | **Superseded, not retained closed.** Its no-path and pre-submit guarantees cannot be cited for v5. R5-C1/C3 record the corresponding v5 contracts that must now be made explicit. |
+| R1-C2 / R2-C2 / R3 approval: hidden internal command/context activation | v5 explicitly withdraws internal injection and returns the existing visible command plus paths as the ordinary draft. | **Superseded.** This is consistent with the user's chosen minimal architecture; do not restore hidden input parts. |
+| R1-C3 / R4 approval: familiar visible slash prefill | v5 preserves and expands it to the complete current prompt. | **Retained, subject to R5-C1.** The familiar prompt is correct only after the incident/current-contract change says paths are deliberately visible again. |
+| R1-W1 / R2-W1: special delivery failure and receipt lifecycle | v5 moves all prompt failure before a user message/direct conversation exists and uses ordinary chat only after a prompt succeeds. | **Superseded.** No special receipt/recovery design should be restored. |
+
+### Issues
+
+- **[R5-C1][CRITICAL] [Incident Q2, repair direction, D3, delta specs] v5 deliberately exposes absolute JSONL paths but the unit's authoritative incident still forbids exactly that.**
+
+  `incident.md:15-18, 42-48` says IM must not expose Gateway-local absolute paths
+  to the browser or ordinary chat, and makes absence from the IM API, browser and
+  Agent prompt an acceptance proof. v5 D3 instead says paths may appear in all
+  three (`design.md:65-70`), while both new deltas require a prefill containing
+  `source_jsonl_paths` (`specs/im/web-chat-ux.md:17-22`,
+  `specs/gateway/relay-protocol.md:12-16`). This is an intentional product
+  decision, but it is undocumented as a supersession; the same unit currently has
+  mutually exclusive acceptance criteria.
+
+  **Required revision.** Amend the incident's Q2/repair direction with a dated
+  v5 clarification: the product now accepts the *current-format* prompt carrying
+  Gateway-produced local paths through IM/browser/ordinary relay, solely for a
+  same-Gateway execution; IM still must never scan, read, parse, generate or use
+  them to select a source. Replace the obsolete no-path acceptance claim with
+  proof of that ownership boundary. This is not a request to reintroduce the old
+  metadata or transcript subsystem.
+
+- **[R5-C2][CRITICAL] [D1–D3, M1] “IM has guaranteed the ordinary message returns to the issuing Gateway” is false under the current ordinary-relay seam.**
+
+  D3 relies on that guarantee to justify forwarding the paths
+  (`design.md:67-70`). But a normal `createMessage` resolves its target at send
+  time from the current profile node (`src/IM/api/routes/messages.py:413-459`;
+  `src/IM/application/relay_service.py:302-332`), and a direct conversation only
+  freezes `config_agent_id`/profile version, not node id
+  (`src/IM/infra/repositories/conversations.py:122-163, 826-865`). A Gateway
+  registration may rebind an existing agent profile's `node_id`
+  (`src/IM/infra/gateway_persistence.py:143-205`). Thus the D2 equality check can
+  succeed and Gateway A can return A-local paths, yet a later ordinary send can be
+  routed to Gateway B. The promise in the sequence diagram and Gateway delta
+  (“same Gateway receives ordinary relay”) is therefore not an implementation
+  consequence of v5's stated flow.
+
+  **Required revision.** Name the smallest authoritative binding that preserves
+  the selected node from prompt generation through the first ordinary send (or
+  state and enforce a real immutability invariant that makes such a rebind
+  impossible). It must remain IM-owned and opaque to the browser; do not add a
+  second relay/action protocol. Add one focused outcome covering a changed/stale
+  execution-node assignment: the prompt is never delivered to a different node
+  with its old paths. The author may choose the storage/route detail, but cannot
+  retain D3's guarantee without one.
+
+- **[R5-C3][CRITICAL] [D2/D4, Web IM delta] v5 drops the existing distiller/`skill_view` readiness gate and does not make its Gateway replacement explicit.**
+
+  The current journey reads live agent configuration/capabilities and keeps the
+  dialog open before creating a direct chat when the distiller or `skill_view` is
+  unavailable (`chat-workspace-page.tsx:936-976`); the current canonical Web IM
+  spec also requires the missing-distiller no-navigation outcome
+  (`docs/specs/im/web-chat-ux.md:298-302`). The incident continues to require a
+  clear unavailable skill/tool failure (`incident.md:47`). v5 D2 validates only
+  owner/idle/node, its Gateway delta resolves only bindings/paths, and the v5
+  Web-IM delta has no capability-failure scenario. A current-format draft could
+  therefore create a chat and only later fail to activate/read/write the skill,
+  contrary to D4's “failure before chat” claim.
+
+  **Required revision.** Retain the existing browser readiness check as the fast
+  UI preflight and specify a final local Gateway readiness check in the same
+  prompt RPC before it returns a prompt. It should report an actionable error and
+  leave the dialog/no-conversation state intact; it must not add a new execution
+  path or lifecycle. Add this one error outcome to the Web IM/Gateway deltas and
+  extend the existing frontend/control seam tests rather than creating a new test
+  suite.
+
+- **[R5-W1][WARNING] [D2, gateway relay-protocol delta] The new control RPC is named but not a complete correlated protocol contract.**
+
+  v5 says there is “no new message type” (`design.md:17-20`) while simultaneously
+  introducing `node.distill.prompt.request` and `node.distill.prompt`
+  (`design.md:34-38, 60-63`). The current control boundary requires a request id,
+  authenticated returned node id and a registered waiter/result handler (compare
+  `GatewayControl.request_node_prompt_preview()` and
+  `_handle_node_prompt_preview()` at `src/IM/ws/gateway/control.py:472-520,
+  863-887`, plus `GatewayRuntime` dispatch at `runtime.py:24-50, 145-161`). The
+  delta says only “prompt or understandable error”, leaving result shape,
+  correlation and malformed/wrong-node response handling to worker inference.
+
+  **Recommended revision.** Say “no new *ordinary relay* message type”, and add
+  the lean request/result schema: generated `request_id`, authenticated `node_id`,
+  success `{prompt}` or stable actionable error; the IM waiter treats disconnect/
+  timeout as the existing prompt-error state. This is a single control RPC, not a
+  recovery protocol or a new relay lifecycle.
+
+- **[R5-W2][WARNING] [tasks.md test strategy] The test plan has the right small shape but does not satisfy the repository's required affected-test disposition, making the requested test pruning unverifiable.**
+
+  The proposed permanent seams are appropriately few: rewrite the conversation
+  API/repository projection, extend a control/API seam and the existing frontend
+  journey, plus one semantic Gateway resolver test; the two-Gateway browser run is
+  correctly temporary (`tasks.md:16-27`). That is consistent with
+  `docs/development/testing.md:7-20, 75-82`. But the file does not name current
+  tests or give `keep`/`rewrite-merge`/`delete` dispositions as required by
+  `testing.md:22-32, 95-113`. The affected set is already concrete:
+  `tests/im_service/integration/test_users_conversations_api.py`,
+  `tests/im_service/unit/test_repositories_user_conversation.py`,
+  `chat-workspace.integration.test.tsx`, and
+  `components/conversation-sidebar.test.tsx`. In particular, the nested scanner
+  test is genuinely retired, while the API/repository and frontend user outcomes
+  need rewrite/merge rather than blind deletion.
+
+  **Recommended revision.** Add the compact required table and name the existing
+  control seam and the proposed resolver test's final owner/path. Do not add
+  duplicate browser/E2E coverage; retain the one-off dual-Gateway evidence only.
+
+### Recommendations
+
+1. Keep v5's minimal sequence and its removal of recovery, metadata and hidden
+   injection. Resolve C1–C3 by stating the now-visible path policy, one durable
+   same-node handoff, and one local capability preflight.
+2. Make the control RPC as small as the existing prompt-preview RPC rather than
+   inventing an operation log, receipt or transcript transport.
+3. In the test table, delete scanner-specific assertions, rewrite only the
+   formerly path-based public/selection assertions into `source_node_id` and
+   prompt-result behaviour, and leave two-Gateway validation as progress evidence.
+
+### Full coverage inventory
+
+| Inventory | Atoms reviewed | Result and disposition |
+|---|---|---|
+| Current-state assertion | IM scans `workspace_root` to project `source_jsonl_path` (`design.md:13-15`) | **Pass.** Repository code performs this scan and returns the resolved path (`src/IM/infra/repositories/conversations.py:683-737`); deleting it directly addresses the cross-host defect. |
+| Current-state assertion | Browser treats the path as eligibility and builds the visible ordinary draft | **Pass.** Current `distill-selection.ts:3-18` and `chat-workspace-page.tsx:195-213, 980-995` match v5's replacement source of truth. |
+| Current-state assertion | Existing skill/capability preflight | **Blocked by R5-C3.** It is a user-visible pre-chat protection, not scanner baggage; v5 must retain it or explicitly replace it locally. |
+| Current-state assertion | Ordinary relay selects a node at send time | **Blocked by R5-C2.** The current code proves that v5 cannot merely assert the necessary node continuity. |
+| Current-state assertion | Gateway-local binding and builtin read the current-format paths | **Pass.** This is the correct local owner for v5; no transcript bytes need cross the RPC boundary. |
+| Incident reproduction/RCA | Separate IM/Gateway filesystems make IM scanning invalid (`incident.md:20-40`) | **Pass.** v5 removes the invalid scan rather than adding a host-sharing assumption. |
+| Incident Q1 / non-goal | feat-515 creation recovery remains separate | **Pass.** v5 correctly withdraws all recovery work. |
+| Incident Q2 / repair direction | Gateway ownership and no path exposure | **Blocked by R5-C1.** Ownership is right; the stipulated visibility is intentionally reversed without an authoritative clarification. |
+| Incident Q3 | One selected Gateway only | **Blocked by R5-C2.** D1/D2 preflight selection is correct, but its promise must survive the subsequent ordinary send. |
+| Incident unavailable/offline requirement | Clear pre-chat source/capability/offline feedback | **Blocked by R5-C3; otherwise Pass.** Binding/path/offline failures are specified; capability is omitted. |
+| Incident acceptance proof | Isolated filesystems and no IM path access | **Blocked by R5-C1.** Keep the isolated-topology proof, but change the obsolete “path never appears” assertion to “IM never owns filesystem access”. |
+| D1 | `source_node_id` projection, same-node selection and executor picker | **Pass with R5-C2.** It removes path-derived eligibility and correctly limits UI selection; source/executor ownership must be tied to the later handoff. |
+| D2 | Owner/idle/node validation and prompt request before conversation creation | **Blocked by R5-C3 and R5-W1.** The ordering and IM-owned validation are right; local capability and the RPC result contract are incomplete. |
+| D3 | Raw returned prompt, editable intent, ordinary relay and unchanged builtin | **Blocked by R5-C1/C2.** This is the user-chosen minimal execution path once visible-path policy and selected-node continuity are made true. |
+| D4 | Error before direct chat; post-success ordinary semantics unchanged | **Blocked by R5-C3.** It must include the retained capability failure. It correctly avoids special receipts/lifecycle for prompt-time errors. |
+| Interface table | Browser/IM/Gateway/ordinary-chat ownership | **Blocked by R5-C2/W1.** The owner split is sound; “ordinary chat” needs an authoritative selected-node association and control-frame result handling needs a precise home. |
+| Frontend/prototype | Same-node selection, existing dialog and current-format visible draft | **Pass with R5-C1/C3.** No visual rebuild is required; prototype acceptance must use the revised path policy and readiness failure. |
+| IM Web Chat delta | Same-node source/executor, raw prompt prefill, prompt error/no empty chat, ordinary sidebar | **Blocked by R5-C3.** Add missing distiller/tool unavailable Scenario and the explicit post-prompt same-node guarantee from R5-C2. |
+| IM gateway-relay delta | No ordinary relay metadata/receipt/idempotency change | **Pass.** This correctly captures v5's decision; do not revive the v1–v4 action protocol. |
+| Gateway relay-protocol delta | Binding-to-path prompt, no transcript/model/session creation, all-or-nothing source failure | **Blocked by R5-C2/C3/W1.** Add only local readiness and correlated control-result semantics; it must not describe a new model run or transcript API. |
+| Kernel/CLI delta | None | **Pass.** v5 leaves builtin parsing/execution and CLI untouched. |
+| M1 exit | Cross-host same-node prompt→ordinary-message journey; no IM scan; cross/running/offline/unparsable pre-chat failures | **Blocked by R5-C2/C3.** Add selected-node continuity and unavailable-skill outcome; no recovery or permanent E2E expansion. |
+| Test plan and temporary acceptance | Projection rewrite, sidebar lock, resolver, control/API, frontend journey, one-off dual Gateway | **Warning R5-W2.** The test count/layers are restrained and appropriate, but exact old-test disposition and permanent owner paths must be written. |
+
+### Architecture attack
+
+| Angle | Assessment |
+|---|---|
+| Ownership | v5 correctly transfers filesystem access to Gateway. R5-C1 makes the changed visibility decision explicit; R5-C2 prevents an A-local path from reaching B; R5-C3 keeps runtime skill availability with its local owner. |
+| Necessity | A prompt RPC plus unchanged ordinary relay is the narrow solution requested. A transcript RPC, hidden injection, durable operation/recovery protocol, new receipt lifecycle, cross-Gateway transfer, or permanent full-stack E2E is unnecessary. |
+| Deep vs. shallow | Gateway should hide binding→path discovery behind its prompt handler; IM should only validate user/conversation/node identity and await one result. R5-W1 asks for the smallest observable wire, not an abstraction layer. |
+| Root cause | Removing IM scanning eliminates the actual cross-machine failure. Letting its returned paths route to a different Gateway would recreate the failure at a later boundary, which is why R5-C2 is essential. |
+
+### Conclusion
+
+Return v5 to `change-design-author` for a narrow v5.1. It should clarify the
+intentional visible-path policy, make “same Gateway through ordinary send” true,
+retain the local capability preflight, and write the standard small test
+disposition table. Once those changes are made, the unit can return for a delta
+closure review; it does **not** need a return to the abandoned recovery/transcript
+or metadata architecture.
+
+## Round 6
+
+### Metadata
+
+| Field | Value |
+|---|---|
+| Reviewer target | `bugfix-518-gateway-owned-skill-distill@design-v5.1` |
+| Review mode | delta |
+| Mode reason | v5.1 is bounded to R5's visible-path clarification, correlated control RPC, node-pinned direct conversation, readiness retention and test disposition. The previous full inventory remains valid except for those changed atoms and their ordinary-relay/control-boundary effects. |
+| Started | 2026-08-09T02:13:00+08:00 |
+| Finished | 2026-08-09T02:19:28+08:00 |
+| Duration | 6m 28s |
+
+### Verdict
+
+**REVISE — 1 CRITICAL / 1 WARNING.** v5.1 correctly keeps the requested minimal
+architecture and closes four of the five R5 findings. Its node pin is not yet
+authoritative against the existing public message-request override, so the core
+same-Gateway guarantee can still be bypassed. No recovery, metadata relay or
+hidden input injection should be restored.
+
+### Historical issues closure
+
+| Historical item | Author resolution | This-round verification | Status |
+|---|---|---|---|
+| R5-C1 | Incident Q2 and repair direction now explicitly accept Gateway-produced paths in the prompt/IM/browser/ordinary message, while forbidding IM filesystem ownership. | `incident.md:15-19, 45-51` and `design.md:18-26` agree on the intentional visible-path policy and replace the obsolete no-path acceptance claim with no-IM-access evidence. | **closed** |
+| R5-C2 | Prompt success creates a conversation with opaque `target_node_id`; ordinary direct relay is declared to prefer it over later profile rebind. | This is the right minimal state owner and handles profile re-registration (`design.md:72-79`; `specs/im/gateway-relay.md:3-7`). However the current message API lets its caller override resolution with `target_node_id`; see R6-C1. | **partially closed; reopened narrowly as R6-C1** |
+| R5-C3 | Retain browser distiller/`skill_view` preflight and repeat the final check locally in Gateway prompt generation. | D2/D4, Web IM and Gateway deltas consistently require pre-chat failure/no conversation, with no new execution lifecycle (`design.md:56-70, 81-85`; `specs/im/web-chat-ux.md:26-34`; `specs/gateway/relay-protocol.md:25-28`). | **closed** |
+| R5-W1 | Define request id, authenticated node id, success/error result and timeout/malformed handling as one short-lived control waiter. | D2 now mirrors the existing authenticated control pattern: `GatewayRuntime` authorizes and normalizes sender node identity before dispatch (`src/IM/ws/gateway/runtime.py:109-161`; `src/IM/ws/gateway/sessions.py:350-391`). The contract is sufficient without a durable operation. | **closed** |
+| R5-W2 | Add affected-test disposition and retain a small permanent test shape. | `design.md:124-132` names the path/scanner/frontend dispositions and `tasks.md:20-30` stays appropriately lean. The required disposition table still belongs in `tasks.md`, and the control seam is not named; see R6-W1. | **partially closed** |
+
+### Issues
+
+- **[R6-C1][CRITICAL] [D3, IM gateway-relay delta, M1] A pinned conversation does not win over the existing caller-controlled `target_node_id`, so it cannot yet guarantee same-Gateway path use.**
+
+  D3 says the browser cannot specify a target node and ordinary relay prefers the
+  conversation pin (`design.md:74-79`). In the actual public message request,
+  however, `CreateMessageRequest` accepts `target_node_id`
+  (`src/IM/api/routes/messages.py:70-86`) and the route selects that value *before*
+  `service.resolve_target_node_id()` (`messages.py:413-421`). A caller can therefore
+  post a message in the new pinned distill conversation with node B, bypass the
+  A pin, and send A-local paths to B. The frontend not rendering the field does not
+  enforce the claimed service contract.
+
+  **Required revision.** Specify that for a direct conversation with an internal
+  non-empty pin, IM ignores or rejects any caller-supplied `target_node_id` and
+  resolves to the pin before the legacy client hint; unpinned conversations retain
+  their current route behaviour. Add the lowest HTTP/relay outcome to the existing
+  message API seam: a pinned distill conversation receives a caller hint for B
+  after its Agent rebinds, but its relay task still targets A (or the request is
+  explicitly rejected). Without this, worker implementation can pass a benign
+  rebind test yet leave the cross-Gateway path failure reachable through the
+  existing API.
+
+- **[R6-W1][WARNING] [tasks.md test strategy] The R5 test-pruning disposition is in `design.md`, but still not in the required `tasks.md` table and leaves the real control/message test owners unnamed.**
+
+  The proposed tests are not excessive: Gateway request/result behaviour already
+  has focused owners in `tests/im_service/unit/test_gateway_handler.py` and
+  `tests/unit/personal_assistant/test_gateway_im_connection_behavior.py`; the
+  caller-override outcome belongs in the existing HTTP seam
+  `tests/im_service/integration/test_messages_api.py`. `tasks.md:18-30` instead
+  says only “existing Gateway control/API seam”, while the required
+  per-affected-test disposition table remains only in `design.md:124-132`.
+  `docs/development/testing.md:22-41, 95-113` requires that table and a concrete
+  owner in `tasks.md`.
+
+  **Recommended revision.** Copy a compact disposition table into `tasks.md`, name
+  the above existing files, and add the R6-C1 assertion there. Keep the one new
+  semantic resolver test and temporary dual-Gateway browser evidence; do not add a
+  parallel transport matrix or permanent browser E2E.
+
+### Recommendations
+
+1. Make the direct-conversation pin authoritative at the existing message-route
+   selection point; it is a narrow priority rule, not a special relay protocol.
+2. Retain the v5.1 design otherwise: short-lived correlated RPC, Gateway-local
+   readiness/path discovery, visible current-format draft and ordinary builtin.
+3. Finish the test record in `tasks.md` so scanner-only assertions are deleted and
+   every retained permanent test has one clear seam owner.
+
+### Delta coverage
+
+| Rechecked atom | Evidence and result |
+|---|---|
+| Visible-path policy / incident repair | **Pass.** Incident, D3 and both user-facing deltas now make the user-approved tradeoff explicit; the boundary is IM filesystem access, not path-string display. |
+| D2 correlated prompt control RPC | **Pass.** The request/result carries the only needed correlation and uses authenticated sender-node normalization. It names disconnect, timeout, malformed and wrong-node outcomes without creating recovery state (`design.md:64-70`). |
+| D3 node-pinned direct conversation | **Blocked by R6-C1.** Storing a server-only conversation pin is the correct minimal design and survives profile rebind, but current message API precedence must be reversed/restricted for the pin to be authoritative. |
+| D4 browser plus Gateway readiness | **Pass.** Browser preflight gives immediate dialog feedback; Gateway recheck covers stale/direct callers before prompt creation. Neither creates a new model, session or delivery path. |
+| IM Web Chat delta | **Pass except R6-C1.** It preserves selection, no-empty-chat error, visible prompt and normal sidebar, and now specifies same-Gateway ordinary send (`specs/im/web-chat-ux.md:7-38`). |
+| IM gateway-relay delta | **Pass except R6-C1.** It correctly has no new relay wire contract; its stated pin guarantee needs the server-side precedence rule. |
+| Gateway relay-protocol delta | **Pass.** It remains consumer-observable: local binding/readiness, correlated prompt/error and no transcript/model/session creation (`specs/gateway/relay-protocol.md:5-28`). |
+| M1 / tests | **Warning R6-W1.** The coverage dimensions are now the right minimum—projection, selection, control, pin/rebind, readiness, resolver and temporary real topology—but `tasks.md` needs exact existing-test ownership and the client-hint adversarial case. |
+| Retained-from Round 5 | No recovery, metadata relay, internal prompt injection, builtin rewrite, Kernel/CLI delta, cross-Gateway transfer and permanent E2E remain out of scope; no v5.1 change invalidates that assessment. |
+
+### Affected architecture attack
+
+| Angle | Assessment |
+|---|---|
+| Ownership | Conversation-scoped node affinity belongs in IM, which already owns conversation routing. R6-C1 prevents a browser HTTP field from becoming a competing routing authority for the one conversation that carries Gateway-local paths. |
+| Necessity | The pin is necessary only because v5 restores visible paths; short-lived control correlation and two readiness checks are sufficient. No durable prompt operation, receipt protocol or transcript service is justified. |
+| Depth | Gateway still hides binding→path/readiness behind one prompt response; IM hides pin storage and route selection. Reversing a single priority rule is deeper and smaller than inventing special metadata. |
+| Root cause | v5.1 removes IM's remote scan. Enforcing the pin closes the remaining route by which an A-local path can be delivered to B despite that fix. |
+
+### Conclusion
+
+Return to `change-design-author` for one v5.2 correction: make the internal
+conversation pin override/reject the request's target-node hint, and record its
+single existing HTTP/control test owners in `tasks.md`. With that closure, the
+minimal Gateway-owned-prompt design can proceed without reviving any withdrawn
+subsystem.
+
+## Round 7
+
+### Metadata
+
+| Field | Value |
+|---|---|
+| Reviewer target | `bugfix-518-gateway-owned-skill-distill@design-v5.2` |
+| Review mode | delta |
+| Mode reason | v5.2 is confined to the two R6 corrections: server-pinned direct-conversation routing takes priority over the legacy client hint, and `tasks.md` now records the affected-test dispositions. The prior full review remains valid for all other atoms. |
+| Started | 2026-08-09T02:20:00+08:00 |
+| Finished | 2026-08-09T02:24:17+08:00 |
+| Duration | 4m 17s |
+
+### Verdict
+
+**APPROVE — 0 CRITICAL / 0 WARNING.** v5.2 closes both R6 findings with one
+server-side route-priority rule and focused ownership of existing test seams.
+The resulting journey is still exactly the approved minimum: choose an Agent on
+one Gateway → that Gateway returns the existing complete prompt → ordinary chat
+continues on the same Gateway. It introduces no recovery, transcript, relay
+metadata, or prompt-injection subsystem.
+
+### Historical issues closure
+
+| Historical item | Author resolution | This-round verification | Status |
+|---|---|---|---|
+| R6-C1 | A direct conversation with a non-empty internal `target_node_id` pin resolves that pin before the legacy `CreateMessageRequest.target_node_id`; the caller hint is ignored. Unpinned conversations retain existing routing. | D3, the Web Chat delta and the IM gateway-relay delta now state the same server-authoritative rule; `tasks.md` assigns the rebind-plus-conflicting-hint outcome to `tests/im_service/integration/test_messages_api.py`. This removes the only route by which an A-local prompt could be redirected to B through the public API. | **closed** |
+| R6-W1 | `tasks.md` now contains an affected-test disposition table and names the existing Gateway-handler, Gateway-connection, and message-API seams. | The table preserves the required scanner/frontend rewrites, retains one focused control seam and one message-routing seam, and deletes no required behavioral coverage. It follows `docs/development/testing.md` without adding a parallel transport matrix or permanent browser E2E. | **closed** |
+| R5 closures retained in R6 | Visible user-approved paths, correlated short-lived control RPC, and browser-plus-Gateway readiness checks were already closed. | v5.2 changes none of their ownership or failure semantics. The mandatory pin priority is a single IM message-route rule, not a new Gateway protocol. | **remain closed** |
+
+### Issues
+
+None.
+
+### Recommendations
+
+1. Implement the documented priority at the existing IM direct-message route:
+   read the conversation's internal pin first, then consult the legacy client
+   hint only when that pin is absent.
+2. Keep the named focused tests; do not revive removed scanner-only tests,
+   transport duplication, or a permanent two-Gateway browser suite.
+
+### Delta coverage
+
+| Rechecked atom | Evidence and result |
+|---|---|
+| Authoritative same-Gateway route | **Pass.** `design.md` D3 gives the server-side conversation pin precedence over the legacy request hint and preserves legacy behavior only for unpinned conversations. The corresponding IM/Web deltas make the rule externally consistent. |
+| Rebind plus conflicting client hint | **Pass.** The single message-API test disposition covers the exact prior escape hatch: even after later profile rebind and a caller hint for B, the pinned conversation routes to A. |
+| Gateway-owned prompt boundary | **Pass.** D2/D4 retain local Gateway binding/readiness and return the existing complete prompt through one correlated request/result. IM neither scans nor reads a Gateway filesystem path. |
+| Minimal user journey | **Pass.** Selection remains scoped to one ready Agent/Gateway; success creates the normal direct conversation and uses normal chat. No intermediate delivery chain, special message type, or UI-managed transcript is specified. |
+| Scope exclusions | **Pass.** `design.md` and all three current-spec deltas continue to exclude recovery state, transcript retrieval, relay metadata, internal prompt injection, model/session creation, cross-Gateway transfer, and builtin rewrite. |
+| Test disposition | **Pass.** `tasks.md` has the required affected-test table with concrete owners for control and routing semantics, while keeping temporary real-topology evidence non-permanent. |
+
+### Affected architecture attack
+
+| Angle | Assessment |
+|---|---|
+| Ownership | IM owns the conversation and its internal route pin; Gateway owns local path discovery and prompt construction. The browser has no routing authority for a pinned conversation. |
+| Necessity | One priority check at the existing message-routing seam is sufficient to preserve the restored visible-path experience safely. A separate route protocol or metadata channel would add no user value. |
+| Depth | The pin remains an opaque conversation detail and the Gateway exposes only a prompt/error result. Existing normal-chat and builtin behavior stay undisturbed. |
+| Root cause | The former defect was IM-side remote filesystem discovery. The design removes it, and the pin rule prevents the remaining client hint from sending the returned local path to another Gateway. |
+
+### Conclusion
+
+v5.2 is ready for `change-orchestrator`. Implement the narrow IM pin-priority
+rule and the listed focused tests; keep the Gateway control RPC and normal-chat
+path otherwise unchanged.

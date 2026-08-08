@@ -2,33 +2,27 @@
 
 ## ADDED Requirements
 
-### Requirement: Gateway 对历史会话蒸馏在本机 materialize source transcript
+### Requirement: Gateway 为同节点历史会话生成 distill prompt
 
-Gateway 收到由 IM 中继的历史会话蒸馏 source identities 时，只在自己拥有的 Agent workspace 中，
-通过 durable conversation/session binding 定位并读取 JSONL，再把已验证的 source context 用于该次
-execution Agent run。Gateway 不接受 IM/browser 提供的 transcript path，不跨 Gateway 拼接来源；任一
-来源不能验证、正在运行、缺失或损坏时，整次操作不给模型 partial context，也不创建 skill。
+IM 请求已选择的同节点 source conversations 的 distill prompt 时，Gateway 用自己持有的 durable
+conversation/session binding 在本机解析 JSONL paths，并复核 execution Agent 的
+`conversation-skill-distiller` 和 `skill_view`。它以 request_id 返回当前普通
+`conversation-skill-distiller` 消息格式的 prompt 或 actionable error。Gateway 不返回 transcript 内容，也不执行
+模型或 skill；后续由 IM 固定路由的普通聊天 relay 回到同一 Gateway 并按该 prompt 读取本机 paths。
 
-#### Scenario: 同 Gateway 来源被本机读取并产生普通聊天结果
-- **GIVEN** 所有 source conversations 与 execution Agent 均属于当前 Gateway，且每个来源有可读的
-  durable binding 与 JSONL
-- **WHEN** Gateway 收到该普通蒸馏消息
-- **THEN** Gateway 在本机 materialize 所有来源并执行历史会话蒸馏
-- **AND** source data 不跨 relay 返回 IM/browser，普通消息历史也不暴露内部处理细节
-- **AND** skill 的写入结果经既有普通聊天/tool relay 展示
+#### Scenario: 本机 binding 生成可直接预填的 prompt
+- **GIVEN** 所有 source conversation/Agent 与 execution Agent 都属于当前 Gateway，且 source 有本机可读 binding
+- **WHEN** Gateway 收到 `node.distill.prompt.request`
+- **THEN** 它以相同 request_id 和 node_id 返回当前 distiller 格式的 prompt，包含 slash command、全部本机 JSONL paths、execution Agent 与 scope
+- **AND** 不读取 transcript、不启动模型、不创建 session 或 skill
 
-#### Scenario: Gateway 不接受或传播 transcript path
-- **WHEN** Gateway 处理历史会话蒸馏请求
-- **THEN** 请求 wire contract 只使用 conversation/Agent identity 与 scope
-- **AND** Gateway 不向 IM、browser、普通 message 或模型可见用户意图输出本机 JSONL/workspace 绝对路径
+#### Scenario: 任一 source 不能解析时不返回部分 prompt
+- **GIVEN** 至少一个 source binding 缺失、path 不可读或不是当前 Gateway 的本机 source
+- **WHEN** Gateway 收到 prompt request
+- **THEN** 它以相同 request_id 和 node_id 返回可理解错误而非部分 prompt
+- **AND** 不读取其余 transcript、不启动模型、不创建 session 或 skill
 
-#### Scenario: source 不能完整 materialize 时不部分蒸馏
-- **GIVEN** 至少一个来源的 binding 缺失、记录不可读/损坏，或来源正在运行
-- **WHEN** Gateway 准备蒸馏输入
-- **THEN** Gateway 返回可理解的失败反馈，不运行 distiller、不给模型其余来源，也不写入 skill
-- **AND** 该反馈经既有普通 reply 与 failed delivery receipt 返回，且不创建 execution session/binding
-
-#### Scenario: 跨 Gateway 组合不被执行
-- **WHEN** 请求的任一 source 或 execution Agent 不属于收到请求的 Gateway
-- **THEN** Gateway 拒绝该请求并提示重新选择同一 Gateway 的会话
-- **AND** 不转发、不分批也不尝试远端读取
+#### Scenario: execution Agent 缺少 distiller 能力时不返回 prompt
+- **WHEN** Gateway 收到 prompt request，但 execution Agent 缺少 `conversation-skill-distiller` 或 `skill_view`
+- **THEN** 它以相同 request_id 和 node_id 返回可理解错误
+- **AND** 不读取 transcript、不启动模型、不创建 session 或 skill

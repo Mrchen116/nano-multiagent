@@ -80,7 +80,7 @@
     </style>
   </head>
   <body>
-    <p class="caption">Prototype · desktop shows the source-selection state; at ≤640px the same dialog becomes a bottom sheet.</p>
+    <p class="caption">Prototype · desktop shows same-Gateway source selection; at ≤640px the same dialog becomes a bottom sheet.</p>
     <main class="shell">
       <aside class="sidebar" aria-label="会话列表">
         <div class="side-header"><strong>会话</strong><button class="quit">取消</button></div>
@@ -99,16 +99,16 @@
       <section class="main" aria-label="聊天">
         <header class="main-header"><span>‹</span><h1>Skill distill · Planner</h1><span>Mac mini</span></header>
         <div class="timeline">
-          <div class="notice">这是一条普通聊天。来源会话只由执行 Gateway 在本机读取。</div>
-          <div class="bubble user">请从我选中的会话中提炼一个可复用的工作方式；重点保留判断节点和验收标准。</div>
+          <div class="notice">Gateway 已按所选会话生成当前格式的 distill prompt；你可以继续补充意图。</div>
+          <div class="bubble user">/skill:conversation-skill-distiller<br />source_jsonl_paths: …</div>
           <div class="tool">✓ 已创建 skill · <b>evidence-led-product-review</b> · agent scope</div>
           <div class="bubble agent">已根据两个来源中的重复决策与验收步骤创建 skill；没有把原始会话或本机文件位置写进结果。</div>
         </div>
-        <div class="composer"><div class="draft">/skill:conversation-skill-distiller<br />请基于已选会话生成一个可复用的 skill…</div><button class="send">发送</button></div>
+        <div class="composer"><div class="draft">/skill:conversation-skill-distiller<br />source_jsonl_paths:<br />  /Gateway Data/Planner/.nanoassistant/sessions/abc.jsonl<br />  /Gateway Data/Writer/.nanoassistant/sessions/def.jsonl<br />execution_agent_id: planner<br />target_scope: agent<br /><br />请基于已选会话生成一个可复用的 skill…</div><button class="send">发送</button></div>
         <div class="scrim" aria-label="生成 skill 设置">
           <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
             <h2 id="dialog-title">生成 skill</h2>
-            <p>来源会话会由它们所属的 Gateway 在本机读取。当前选择都在 <b>Mac mini</b>。</p>
+            <p>当前选择都在 <b>Mac mini</b>。确认后将由这个 Gateway 生成可编辑的 distill prompt。</p>
             <div class="selection"><span>✓</span><span><b>2 个已结束会话</b><br />Planner、Writer · Mac mini</span></div>
             <label for="agent">执行 Agent</label>
             <select id="agent"><option>Planner · Mac mini</option><option>Writer · Mac mini</option></select>
@@ -119,6 +119,6 @@
         </div>
       </section>
     </main>
-    <p class="footnote">Must-match: checkbox 只在选择模式出现；不同 Gateway 与运行中来源不可选且给出原因；dialog 不展示路径；composer 保留可见的 distiller command 但没有路径；生成后继续使用普通 tool output 与 assistant 气泡。Gateway 的 source context 为内部输入，不显示为历史消息。</p>
+    <p class="footnote">Must-match: checkbox 只在选择模式出现；不同 Gateway 与运行中来源不可选且给出原因；确认后由同一 Gateway 返回当前格式的 prompt（含 paths）；composer、普通 relay、tool output 与 assistant 气泡保持既有行为。</p>
   </body>
 </html>
