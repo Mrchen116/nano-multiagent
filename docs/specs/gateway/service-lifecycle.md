@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Service Lifecycle Specification
 
-> 对齐: bugfix-506
+> 对齐: feat-516
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -48,6 +48,21 @@
 #### Scenario: 真实故障在关闭后仍是主要错误
 - **WHEN** Gateway 因运行故障进入关闭流程
 - **THEN** 日志保留原始首因;任何资源关闭失败只作为次要诊断,不替换首因
+
+### Requirement: 高成本低 prompt cache 命中模型调用留下可定位告警
+
+Gateway 每次模型调用独立观察已归一的总输入 token 与缓存读取 token；当 provider 明确报告缓存命中数据、总输入超过 30,000 且缓存命中率低于 80% 时，在既有 `gateway.log` 写一条 warning。warning 固定包含 model、agent_id、session_id、input_tokens、cache_read_tokens 与 cache_hit_rate_percent，不包含 prompt 或用户文本；阈值不提供额外配置。没有 `agent_id` 的非 Gateway 运行、缓存字段未返回、总输入不超过 30,000 或命中率不低于 80% 时不写此 warning。
+
+#### Scenario: 运维者从 warning 定位高成本缓存未命中会话
+- **GIVEN** Gateway 的某次模型调用返回总输入 30,001 token 和 `cache_read_tokens=0`
+- **WHEN** 该次调用结束
+- **THEN** `gateway.log` 出现低 prompt cache 命中 warning，包含该调用的 model、agent_id、session_id、input_tokens、cache_read_tokens 与 cache_hit_rate_percent
+- **AND** 运维者可用 `agent_id + session_id` 定位该 Agent workspace 下对应 `.nanoassistant/sessions/<session_id>.jsonl`
+- **AND** warning 不包含该次调用的 prompt 或用户文本
+
+#### Scenario: 缓存数据未知或无需告警时保持静默
+- **WHEN** provider 未返回缓存读取字段，或某次调用的总输入不超过 30,000，或缓存命中率不低于 80%
+- **THEN** Gateway 不为该次调用写低 prompt cache 命中 warning
 
 ### Requirement: Gateway lifecycle timing 由 Gateway 配置拥有
 

@@ -307,6 +307,7 @@ def test_map_generate_response_surfaces_cache_hit_fields() -> None:
     assert response.usage.cache_read_tokens == 2
     # 归一：逐请求 cache_total_input_tokens == prompt_tokens
     assert response.usage.cache_total_input_tokens == 107
+    assert response.usage.cache_usage_available is True
 
 
 def test_map_generate_response_cache_fields_default_zero_without_cache() -> None:
@@ -329,3 +330,29 @@ def test_map_generate_response_cache_fields_default_zero_without_cache() -> None
     assert response.usage.prompt_tokens == 50
     assert response.usage.cache_read_tokens == 0
     assert response.usage.cache_total_input_tokens == 50
+    assert response.usage.cache_usage_available is False
+
+
+def test_map_generate_response_marks_explicit_zero_cache_as_available() -> None:
+    """显式返回 0 代表已知未命中，不等同于 provider 未返回缓存字段。"""
+    mapper = AnthropicMapper()
+
+    response = mapper.map_generate_response(
+        {
+            "id": "msg_3",
+            "type": "message",
+            "role": "assistant",
+            "model": "kimiCoding:K2.6",
+            "stop_reason": "end_turn",
+            "usage": {
+                "input_tokens": 50,
+                "output_tokens": 10,
+                "cache_read_input_tokens": 0,
+            },
+            "content": [{"type": "text", "text": "ok"}],
+        }
+    )
+
+    assert response.usage is not None
+    assert response.usage.cache_read_tokens == 0
+    assert response.usage.cache_usage_available is True

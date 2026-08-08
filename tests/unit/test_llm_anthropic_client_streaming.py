@@ -709,10 +709,38 @@ async def test_connect_error_raises_model_error() -> None:
     ), f"ModelError 应反映连接被拒，实际: {err!r}"
 
 
-async def test_stream_usage_surfaces_cache_hit_fields() -> None:
-    """feat-439-M1: 流式终态 message_stop 的 usage 暴露缓存读取量。"""
+@pytest.mark.parametrize(
+    ("start_usage", "expected_prompt_tokens", "expected_cache_read", "available"),
+    (
+        (
+            {
+                "input_tokens": 100,
+                "cache_creation_input_tokens": 5,
+                "cache_read_input_tokens": 2,
+            },
+            107,
+            2,
+            True,
+        ),
+        ({"input_tokens": 100, "cache_read_input_tokens": 0}, 100, 0, True),
+        ({"input_tokens": 100}, 100, 0, False),
+    ),
+)
+async def test_stream_usage_preserves_cache_availability_from_message_start(
+    start_usage: dict[str, int],
+    expected_prompt_tokens: int,
+    expected_cache_read: int,
+    available: bool,
+) -> None:
+    """Anthropic 的 start-cache usage 区分命中、明确 0 与字段缺失。"""
     events = [
-        {"type": "message_start", "message": {"role": "assistant"}},
+        {
+            "type": "message_start",
+            "message": {
+                "role": "assistant",
+                "usage": start_usage,
+            },
+        },
         {
             "type": "content_block_start",
             "index": 0,
@@ -727,12 +755,7 @@ async def test_stream_usage_surfaces_cache_hit_fields() -> None:
         {
             "type": "message_delta",
             "delta": {"stop_reason": "end_turn"},
-            "usage": {
-                "input_tokens": 100,
-                "output_tokens": 8,
-                "cache_creation_input_tokens": 5,
-                "cache_read_input_tokens": 2,
-            },
+            "usage": {"output_tokens": 8},
         },
         {"type": "message_stop"},
     ]
@@ -758,6 +781,7 @@ async def test_stream_usage_surfaces_cache_hit_fields() -> None:
     )
     final = next((m for m in messages if m.usage is not None), None)
     assert final is not None and final.usage is not None
-    assert final.usage.prompt_tokens == 107
-    assert final.usage.cache_read_tokens == 2
-    assert final.usage.cache_total_input_tokens == 107
+    assert final.usage.prompt_tokens == expected_prompt_tokens
+    assert final.usage.cache_read_tokens == expected_cache_read
+    assert final.usage.cache_total_input_tokens == expected_prompt_tokens
+    assert final.usage.cache_usage_available is available

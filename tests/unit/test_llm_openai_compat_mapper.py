@@ -124,6 +124,7 @@ def test_map_generate_response_reads_cached_tokens() -> None:
     assert response.usage.prompt_tokens == 120
     assert response.usage.cache_read_tokens == 80
     assert response.usage.cache_total_input_tokens == 120
+    assert response.usage.cache_usage_available is True
 
 
 def test_map_generate_response_cache_zero_without_details() -> None:
@@ -149,3 +150,33 @@ def test_map_generate_response_cache_zero_without_details() -> None:
     assert response.usage.prompt_tokens == 40
     assert response.usage.cache_read_tokens == 0
     assert response.usage.cache_total_input_tokens == 40
+    assert response.usage.cache_usage_available is False
+
+
+def test_map_generate_response_marks_explicit_zero_cache_as_available() -> None:
+    """显式 cached_tokens=0 仍是可用于告警判定的缓存数据。"""
+    mapper = OpenAICompatMapper()
+
+    response = mapper.map_generate_response(
+        {
+            "id": "chatcmpl-3",
+            "model": "kimi-k2",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "hi"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 40,
+                "completion_tokens": 5,
+                "total_tokens": 45,
+                "prompt_tokens_details": {"cached_tokens": 0},
+            },
+        }
+    )
+
+    assert response.usage is not None
+    assert response.usage.cache_read_tokens == 0
+    assert response.usage.cache_usage_available is True
