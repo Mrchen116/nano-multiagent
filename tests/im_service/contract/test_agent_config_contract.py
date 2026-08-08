@@ -177,6 +177,7 @@ def test_node_capabilities_contract_shape(
             "skills": ["plan"],
             "tools": ["read"],
             "platform_default_model": None,
+            "default_workspace_template": "/srv/agents/{agent_id}",
         }
 
     monkeypatch.setattr(
@@ -222,6 +223,7 @@ def test_node_capabilities_contract_shape(
         {"name": "read", "description": "", "default_on": False, "location": None}
     ]
     assert body["platform_default_model"] is None
+    assert body["default_workspace_template"] == "/srv/agents/{agent_id}"
     assert "default_system_prompt" not in body
     assert "features" in body
     # Gateway payload has no features field → IM returns empty list (graceful degradation)

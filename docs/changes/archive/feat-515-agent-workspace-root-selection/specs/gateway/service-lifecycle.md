@@ -16,6 +16,12 @@ Gateway 处理 IM 下行的 `agent.create` 时，在**本节点**决定 workspac
 - **THEN** Gateway 使用节点默认 workspace factory 创建 Agent、注册 live 路由并回传非空绝对
   `workspace_root` 与 `workspace_is_default == true`
 
+#### Scenario: 节点能力提供默认路径模板供创建页展示
+- **WHEN** IM 请求 `node.capabilities`
+- **THEN** Gateway 复用默认 workspace resolver 返回 canonical `default_workspace_template`，只把
+  Agent ID 位置保留为 `{agent_id}` 占位符
+- **AND** 该模板只供页面展示；默认创建仍由 Gateway 在收到 `agent.create` 时重新解析最终路径
+
 #### Scenario: 新自定义 root 只在已有 parent 下创建
 - **GIVEN** 下发的自定义 target P 不存在，P 的 canonical parent 已存在、为目录且可用
 - **WHEN** Gateway 处理 `agent.create`

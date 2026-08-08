@@ -118,6 +118,7 @@ class NodeCapabilitiesResponse(BaseModel):
     skills: list[AllowlistOptionResponse] = Field(default_factory=list)
     tools: list[AllowlistOptionResponse] = Field(default_factory=list)
     platform_default_model: str | None = None
+    default_workspace_template: str | None = None
     # feat-379-M6 (ISSUE-1): expose feature toggles so agent-create page can render
     # the Features section without a per-agent capabilities call (agent not yet created).
     features: list[FeatureCapabilityResponse] = Field(default_factory=list)
@@ -183,6 +184,9 @@ async def get_node_capabilities(
         tools=coerce_allowlist_options(live.get("tools")),
         platform_default_model=_coerce_optional_text(
             live.get("platform_default_model"), fallback=None
+        ),
+        default_workspace_template=_coerce_optional_text(
+            live.get("default_workspace_template"), fallback=None
         ),
         # feat-379-M6 (ISSUE-1): forward features from Gateway so agent-create page
         # can render the Features section without a per-agent capabilities call.

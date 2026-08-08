@@ -432,6 +432,14 @@ export function AgentCreatePage() {
   const nodeLabel = selectedNode?.alias ?? capabilities?.node_name ?? node?.node_name ?? selectedNodeId;
   const nodeStatus = (capabilities?.node_status ?? node?.status ?? "unknown").toLowerCase();
   const isNodeOnline = nodeStatus === "online";
+  const resolvedDefaultWorkspacePath = capabilities?.default_workspace_template
+    ? capabilities.default_workspace_template.replace(
+        "{agent_id}",
+        draft.agent_id.trim() || t("agents.form.workspaceCreate.agentIdPlaceholder"),
+      )
+    : null;
+  const defaultWorkspacePath =
+    resolvedDefaultWorkspacePath ?? t("agents.form.workspaceCreate.defaultPathUnavailable");
   const queryErrorDetail =
     createStateQuery.error instanceof Error
       ? createStateQuery.error.message.split(" failed: ").at(-1) ?? createStateQuery.error.message
@@ -797,60 +805,49 @@ export function AgentCreatePage() {
               {t("agents.form.workspaceCreate.sub")}
             </p>
           </div>
-          <fieldset className="im-workspace-modes">
-            <legend className="sr-only">{t("agents.form.workspaceCreate.modeLegend")}</legend>
-            <label
-              className={`im-workspace-mode ${workspaceMode === "default" ? "active" : ""}`}
+          {workspaceMode === "default" ? (
+            <button
+              className="im-workspace-path-summary"
+              type="button"
+              onClick={() => {
+                setDraft((current) => ({
+                  ...current,
+                  workspace_root: resolvedDefaultWorkspacePath ?? "",
+                }));
+                setWorkspaceMode("custom");
+                resetWorkspaceFeedback();
+                setIsDirty(true);
+              }}
             >
-              <input
-                type="radio"
-                name="workspace-mode"
-                value="default"
-                checked={workspaceMode === "default"}
-                onChange={() => {
-                  setWorkspaceMode("default");
-                  resetWorkspaceFeedback();
-                  setIsDirty(true);
-                }}
-              />
-              <span>
-                <strong>{t("agents.form.workspaceCreate.defaultMode")}</strong>
-                <span>
-                  {t("agents.form.workspaceCreate.defaultModeHelp", { node: nodeLabel })}
-                </span>
+              <span className="im-workspace-path-copy">
+                <span>{t("agents.form.workspaceCreate.defaultPathLabel")}</span>
+                <code>{defaultWorkspacePath}</code>
               </span>
-            </label>
-            <label
-              className={`im-workspace-mode ${workspaceMode === "custom" ? "active" : ""}`}
-            >
-              <input
-                type="radio"
-                name="workspace-mode"
-                value="custom"
-                checked={workspaceMode === "custom"}
-                onChange={() => {
-                  setWorkspaceMode("custom");
-                  resetWorkspaceFeedback();
-                  setIsDirty(true);
-                }}
-              />
-              <span>
-                <strong>{t("agents.form.workspaceCreate.customMode")}</strong>
-                <span>
-                  {t("agents.form.workspaceCreate.customModeHelp", { node: nodeLabel })}
-                </span>
+              <span className="im-workspace-path-action">
+                {t("agents.form.workspaceCreate.changePath")}
               </span>
-            </label>
-          </fieldset>
-
-          {workspaceMode === "custom" ? (
+            </button>
+          ) : (
             <div className="im-agent-field">
-              <Label.Root htmlFor="workspace-create-root">
-                {t("agents.form.workspaceCreate.workspaceRoot")}
-              </Label.Root>
+              <div className="im-workspace-custom-header">
+                <Label.Root htmlFor="workspace-create-root">
+                  {t("agents.form.workspaceCreate.customPathLabel")}
+                </Label.Root>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setWorkspaceMode("default");
+                    resetWorkspaceFeedback();
+                    setIsDirty(true);
+                  }}
+                >
+                  {t("agents.form.workspaceCreate.useDefault")}
+                </button>
+              </div>
               <input
                 id="workspace-create-root"
                 className="im-input im-agent-input-mono"
+                autoFocus
                 value={draft.workspace_root ?? ""}
                 placeholder={t("agents.form.workspaceCreate.pathPlaceholder")}
                 aria-describedby="workspace-create-help workspace-create-error"
@@ -862,7 +859,7 @@ export function AgentCreatePage() {
                 }}
               />
               <p id="workspace-create-help" className="im-agent-field-help">
-                {t("agents.form.workspaceCreate.pathHelp", { node: nodeLabel })}
+                {t("agents.form.workspaceCreate.pathHelp")}
               </p>
               {workspaceError ? (
                 <p id="workspace-create-error" className="im-agent-field-error">
@@ -870,7 +867,7 @@ export function AgentCreatePage() {
                 </p>
               ) : null}
             </div>
-          ) : null}
+          )}
 
           {existingConfirmationRequired ? (
             <div className="im-workspace-existing-notice" role="alert">
@@ -893,12 +890,6 @@ export function AgentCreatePage() {
               </label>
             </div>
           ) : null}
-
-          <p className="im-workspace-outcome">
-            {workspaceMode === "custom"
-              ? t("agents.form.workspaceCreate.customOutcome", { node: nodeLabel })
-              : t("agents.form.workspaceCreate.defaultOutcome", { node: nodeLabel })}
-          </p>
         </section>
 
         {/* feat-379-M5 (ISSUE-1): Behavior card — Custom Instructions + Features + Preview */}

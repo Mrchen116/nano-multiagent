@@ -633,9 +633,16 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
                     reasoning_catalog=reasoning_catalog,
                 )
             ),
-            node_capabilities_provider=lambda: build_node_capabilities_payload(
-                kernel, reasoning_catalog=reasoning_catalog
-            ),
+            node_capabilities_provider=lambda: {
+                **build_node_capabilities_payload(
+                    kernel, reasoning_catalog=reasoning_catalog
+                ),
+                "default_workspace_template": im_config_sync_client.resolve_preview_workspace(
+                    workspace_mode="default",
+                    agent_id_hint="{agent_id}",
+                    workspace_root=None,
+                ),
+            },
             prompt_preview_provider=_make_prompt_preview_provider(kernel),
             node_prompt_workspace_resolver=lambda mode, agent_id_hint, workspace_root: (
                 im_config_sync_client.resolve_preview_workspace(

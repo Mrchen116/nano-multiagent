@@ -83,6 +83,7 @@ beforeEach(() => {
       tools: [],
       model_options: [],
       platform_default_model: null,
+      default_workspace_template: "/srv/agents/{agent_id}",
     },
   });
 });
@@ -100,10 +101,10 @@ async function fillIdentity(agentId: string) {
   });
 }
 
-async function selectCustomPath(user: ReturnType<typeof userEvent.setup>, path = "") {
-  await user.click(screen.getByRole("radio", { name: /Custom path/i }));
-  if (path) {
-    fireEvent.change(screen.getByLabelText(/^Workspace Root/), {
+async function selectCustomPath(user: ReturnType<typeof userEvent.setup>, path?: string) {
+  await user.click(screen.getByRole("button", { name: /Default path.*Change/i }));
+  if (path !== undefined) {
+    fireEvent.change(screen.getByLabelText(/^Custom path/), {
       target: { value: path },
     });
   }
@@ -114,11 +115,23 @@ describe("agent create workspace selection", () => {
     const user = userEvent.setup();
     renderCreatePage();
     await fillIdentity("agent-empty");
-    await selectCustomPath(user);
+    await selectCustomPath(user, "");
     await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
 
     expect(await screen.findByText(/Enter an absolute path on the target node/i)).toBeInTheDocument();
     expect(apiMocks.createNodeAgentMock).not.toHaveBeenCalled();
+  });
+
+  it("prefills the resolved default path when the user changes it", async () => {
+    const user = userEvent.setup();
+    renderCreatePage();
+    await fillIdentity("agent-edited-path");
+
+    await selectCustomPath(user);
+
+    expect(screen.getByLabelText(/^Custom path/)).toHaveValue(
+      "/srv/agents/agent-edited-path",
+    );
   });
 
   it("submits a custom absolute workspace for node-side validation", async () => {
@@ -238,8 +251,7 @@ describe("agent create workspace selection", () => {
     expect(screen.queryByText(/raw server detail/i)).not.toBeInTheDocument();
     expect(screen.getByLabelText(/^Agent ID/)).toHaveValue("agent-path-error");
     expect(screen.getByLabelText(/^Display Name/)).toHaveValue("Workspace Agent");
-    expect(screen.getByRole("radio", { name: /Custom path/i })).toBeChecked();
-    expect(screen.getByLabelText(/^Workspace Root/)).toHaveValue(
+    expect(screen.getByLabelText(/^Custom path/)).toHaveValue(
       "/srv/projects/agent-path-error",
     );
     expect(apiMocks.createNodeAgentMock).toHaveBeenCalledTimes(1);

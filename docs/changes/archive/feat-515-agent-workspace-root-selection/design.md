@@ -260,29 +260,36 @@ keeps a lost `agent.created` response recoverable without treating registration 
 - 任何可预期失败都必须在初始化和 local config 持久化之前返回。持久化之后发生的现有系统级
   故障由 Gateway 记录为失败；本期不尝试删除用户目录或回收初始文件，避免破坏已有数据。
 
-## 前端原型
+## 前端 UX 最终实现（implementation 后 as-built 校正）
 
-- 原型文件: [prototype.html](prototype.html)
-- 覆盖范围: 默认目录初态、自定义路径输入、已有目录的二次确认、同节点路径冲突，以及窄屏
-  单栏布局。它是可交互的视觉/状态说明，不替代现有表单的路由、节点加载和草稿离开保护。
+最初的 [prototype.html](prototype.html) 和首轮实现用两个并排的大选项卡呈现“默认目录 / 自定义
+路径”。用户在真实页面验收时明确否定了这个方案；该文件只保留为历史证据，不再是实现或验收契约。
+最终实现以本轮用户逐步确认后的真实页面为准：Workspace 是创建表单中的一项路径设置，不是需要
+单独理解的模式选择任务。
 
-### 现有 UX grounding
+### 数据流
 
-| 当前产品入口 / 组件 | 必须继承的 UX 特征 | 本次增量如何嵌入 |
+1. Gateway 复用 `IMAgentConfigSync.resolve_preview_workspace()`，用 `{agent_id}` 占位符解析本节点的
+   canonical 默认路径模板；路径语义仍完全由 Gateway 所在机器决定。
+2. `node.capabilities` 携 `default_workspace_template`，IM 的节点能力 HTTP API 只做可选字段透传，
+   不读取、拼接或猜测 Gateway 文件系统路径。
+3. `AgentCreatePage` 用当前 Agent ID 替换占位符并显示真实默认路径；Agent ID 为空时只在末段显示
+   `<agent-id>`，旧 Gateway 未提供模板时退化为“由所选节点自动分配”。
+4. 点击路径行进入 custom 状态时，把已解析的默认路径写入输入草稿并自动聚焦。用户可直接改父目录
+   或末段；点击“使用默认路径”回到 default 状态。提交时 default 仍发送 `workspace_root: null`，
+   custom 才发送输入值，因此展示默认路径没有改变 Gateway 最终分配权。
+
+### 最终状态契约
+
+| 状态 | 页面行为 | 提交语义 |
 |---|---|---|
-| `/settings/agents/new`、`AgentCreatePage` | 白色页头、节点状态、灰底内容区、连续创建表单、取消/创建 footer | 保留整体面板和按钮位置，只在 Identity 与 Behavior 之间插入 Workspace 卡片。 |
-| `.im-agent-card` / `.im-agent-card-grid-2` | 12px 圆角白卡、紧凑标题/辅助文字、桌面双列、720px 以下单列 | Workspace 使用同一白卡；两种模式在桌面并排，在窄屏堆叠。 |
-| 既有表单错误与草稿行为 | 字段附近给出原因，草稿离开时确认 | 路径错误、目录占用和已有目录提示均定位在 Workspace 卡；不重置其它草稿字段。 |
+| 默认 | Workspace 卡只显示一条真实默认路径和弱化的“修改”动作，不显示模式选择器、节点长 ID 或重复说明 | `workspace_root: null`，Gateway 重新解析并创建默认路径 |
+| 编辑 | 原地显示自动聚焦的路径输入框，初始值为刚才显示的默认路径，并提供“使用默认路径”回退 | 非空输入作为 custom path 原样交给 Gateway |
+| 已有目录 | 保留醒目提示与确认框，未确认不创建 | 确认后以同一草稿重试 |
+| 路径错误或冲突 | 错误留在 Workspace 卡内，其它表单草稿不重置 | 不创建 AgentProfile |
 
-### 原型对齐契约
-
-| 原型区域 / 状态 | 对齐级别 | 产品入口 | 必验 viewport / 状态 | 下游验收投影 |
-|---|---|---|---|---|
-| Workspace 卡位于 Identity 与 Behavior 之间 | must-match | `/settings/agents/new` | desktop 新建页 | M1 [reviewer] #1；M1 [worker] #1 |
-| “使用默认目录 / 自定义路径”二选一及默认选中 | must-match | `/settings/agents/new` | desktop 与 390px 窄屏 | M1 [reviewer] #1；M1 [worker] #2 |
-| 自定义路径字段说明“目标节点”、父目录要求与字段错误 | must-match | `/settings/agents/new` | custom / parent 无效 | M1 [reviewer] #2；M1 [worker] #3 |
-| 已有目录醒目提示、确认框和再次提交 | must-match | `/settings/agents/new` | custom / existing directory | M1 [reviewer] #3；M1 [worker] #4 |
-| 颜色、间距、控件实现 | may-adapt | Agent 现有样式与 design tokens | desktop / narrow | 不得改变既有 Agent 面板层级 |
+Workspace 卡继续位于 Identity 与 Behavior 之间并沿用现有 `.im-agent-card` 层级。最终实现不再要求
+桌面并排、窄屏堆叠等旧二选一布局；桌面与窄屏都使用同一条路径行和原地编辑流程。
 
 ## 契约层增量 (delta-spec)
 
@@ -295,7 +302,7 @@ keeps a lost `agent.created` response recoverable without treating registration 
 
 | 风险 | 控制措施 | 回退 |
 |---|---|---|
-| IM 与 Gateway 的路径语义不一致 | Gateway 产出 canonical root + provenance；IM 以 opaque accessor 统一读/转发，preview 也交回节点解析 | 回退前端选择 UI 与新增 outcome 映射，默认创建路径仍由既有 factory 提供。 |
+| IM 与 Gateway 的路径语义不一致 | Gateway 产出 canonical root、provenance 和默认路径模板；IM 只透传，创建时仍由 Gateway 最终解析 | 回退默认路径展示字段时，默认创建仍发送 `workspace_root: null` 并沿用既有 factory。 |
 | 用户误把已有项目交给 Agent | 第一次请求零副作用；确认框说明会使用该目录；已有文件不覆盖 | 取消或不勾选确认不会留下 Agent、配置或初始化文件。 |
 | 两次创建争用同一目录 | Gateway 在持久化前后顺序收口、以本地 canonical root 重查 | 后到请求收到可理解的 409，用户选择另一目录。 |
 | 远端权限或挂载状态在确认后变化 | 第二次请求重新 stat/创建并返回字段错误，不信任旧提示 | 不自动创建父级、不删除已有目录；用户修正节点目录后重试。 |
@@ -386,4 +393,4 @@ wait "$(cat "$SECOND_GW_PID")" || true
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| feat-515-M1 | 创建时选择并固定 Agent workspace root | 无 | A | Gateway workspace creation outcome、WS/HTTP 映射、opaque IM mirror/provenance、Agent 创建页与 i18n、IM/Gateway delta specs、自动化与真栈验收 | [reviewer] 1. 在桌面和 390px 窄屏真实创建页，Identity 与 Behavior 之间有 Workspace 卡，默认模式默认选中，可切换自定义且保持既有草稿离开保护。<br>[reviewer] 2. 默认模式成功由选中节点分配路径；自定义新路径仅在父目录已存在时成功，详情显示该固定 root，已有 Agent 页面无修改/迁移操作。API 在两种成功场景分别返回正确的 default/custom provenance。<br>[reviewer] 3. 父目录无效、目标不是目录、同节点已归属根均不创建 Agent，且路径字段显示明确原因；按 Runbook 启动第二 Gateway 后，另一节点可在确认已有目录后采用同字符串路径。<br>[reviewer] 4. 已有目录第一次提交不创建任何 Agent 或 `.nanoassistant` 初始化内容，页面显著提示；确认后才创建，并保留已有文件。<br>[worker] 1. 以真实浏览器在 desktop + 390px 截图/录屏对照 [prototype.html](prototype.html)，记录在 `M1-workspace-creation/progress.md`，四项 must-match 均为通过。<br>[worker] 2. 前端测试覆盖默认 `null`、自定义 path、确认重试、路径冲突与 gateway code 解析；`npm` 相关测试和 production build 通过。<br>[worker] 3. Gateway/IM 测试覆盖 canonical 同节点唯一性、不同节点隔离、缺失/不可用 parent、已有目录无副作用/确认后不覆盖、HTTP/WS code 映射以及成功后才建 profile；覆盖 canonical root 与 default/custom provenance 的 Gateway 回包、register seed、SQLite migration、legacy fallback，以及 config/list、capabilities、preview、cron、skill usage、heartbeat 只原样转发 root。<br>[worker] 4. 运行针对性 Python 测试、`ruff`、`git diff --check`、docs check；使用 Runbook 的单/双 Gateway 隔离真栈完成完整旅程，停止全部服务并留下命令和结果证据。 |
+| feat-515-M1 | 创建时选择并固定 Agent workspace root | 无 | A | Gateway workspace creation outcome、WS/HTTP 映射、opaque IM mirror/provenance、Agent 创建页与 i18n、IM/Gateway delta specs、自动化与真栈验收 | [reviewer] 1. 在真实创建页，Identity 与 Behavior 之间有 Workspace 卡；初态只显示 Gateway 解析的默认路径，点击后原地预填并编辑，不出现模式选择器，且保持既有草稿离开保护。<br>[reviewer] 2. 默认路径成功由选中节点分配；修改后的新路径仅在父目录已存在时成功，详情显示该固定 root，已有 Agent 页面无修改/迁移操作。API 在两种成功场景分别返回正确的 default/custom provenance。<br>[reviewer] 3. 父目录无效、目标不是目录、同节点已归属根均不创建 Agent，且路径字段显示明确原因；按 Runbook 启动第二 Gateway 后，另一节点可在确认已有目录后采用同字符串路径。<br>[reviewer] 4. 已有目录第一次提交不创建任何 Agent 或 `.nanoassistant` 初始化内容，页面显著提示；确认后才创建，并保留已有文件。<br>[worker] 1. 真实浏览器验证默认路径展示、随 Agent ID 更新、点击预填和返回默认路径；用户在临时服务亲自验收并确认最终交互。<br>[worker] 2. 前端测试覆盖默认路径预填、默认 `null`、自定义 path、确认重试、路径冲突与 gateway code 解析；`npm` 相关测试和 production build 通过。<br>[worker] 3. Gateway/IM 测试覆盖 canonical 同节点唯一性、不同节点隔离、缺失/不可用 parent、已有目录无副作用/确认后不覆盖、HTTP/WS code 映射以及成功后才建 profile；覆盖 canonical root 与 default/custom provenance 的 Gateway 回包、register seed、SQLite migration、legacy fallback，以及 config/list、capabilities、preview、cron、skill usage、heartbeat 只原样转发 root。<br>[worker] 4. 运行针对性 Python 测试、`ruff`、`git diff --check`、docs check；使用 Runbook 的单/双 Gateway 隔离真栈完成完整旅程，停止全部服务并留下命令和结果证据。 |

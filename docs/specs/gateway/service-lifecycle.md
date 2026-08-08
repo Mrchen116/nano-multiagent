@@ -106,6 +106,12 @@ Gateway 始终**主动**向 IM 服务发起 WebSocket 持久连接(因其在 NAT
 - **WHEN** IM 服务经下行请求在本节点创建一个 Agent
 - **THEN** Gateway 在本地建该 Agent 工作区、注册进 live 路由,并在回包中返回非空 `workspace_root`(绝对路径);该 Agent 配置写回本地持久化 config
 
+#### Scenario: 节点能力提供默认 workspace 路径模板
+- **WHEN** IM 请求 `node.capabilities`
+- **THEN** Gateway 复用默认 workspace resolver 返回 canonical `default_workspace_template`，Agent ID
+  位置保留为 `{agent_id}` 占位符
+- **AND** 该模板只供创建页展示；默认 `agent.create` 仍在 Gateway 本机重新解析最终路径
+
 #### Scenario: IM 创建 operation 由 Gateway 原样持久化并回显
 - **GIVEN** 下行 `agent.create` 携带 `create_operation_id` X
 - **WHEN** Gateway 成功持久化新 Agent
