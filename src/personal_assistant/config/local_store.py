@@ -176,6 +176,8 @@ class AgentWorkspaceConfig:
         agent_id: Stable agent identifier used by gateway routing.
         workspace_root: Existing workspace root bound to sessions created for the agent.
         workspace_is_default: Whether Gateway assigned the root from its default factory.
+        create_operation_id: Durable IM ``agent.create`` operation that created this
+            local binding.  Absent for pre-hosted/local configuration agents.
         title: Optional operator-facing label.
         skills: Enabled skill identifiers for this agent.
         tool_allowlist: Allowed tool names restricting the agent's tool access.
@@ -210,6 +212,7 @@ class AgentWorkspaceConfig:
     agent_id: str
     workspace_root: Path
     workspace_is_default: bool = False
+    create_operation_id: str | None = None
     title: str | None = None
     skills: tuple[str, ...] = ()
     tool_allowlist: tuple[str, ...] = ()
@@ -807,6 +810,8 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
             "workspace_root": str(agent.workspace_root),
             "workspace_is_default": agent.workspace_is_default,
         }
+        if agent.create_operation_id is not None:
+            agent_dict["create_operation_id"] = agent.create_operation_id
         if agent.title is not None:
             agent_dict["title"] = agent.title
         if agent.skills:
@@ -1120,6 +1125,10 @@ def _parse_agents(
             if isinstance(workspace_is_default_raw, bool)
             else workspace_text is None
         )
+        create_operation_id = _optional_string(
+            item.get("create_operation_id"),
+            field_name=f"agents[{index}].create_operation_id",
+        )
         if workspace_text is None:
             workspace_root = Path("~/nano-assistant/workspace").expanduser() / agent_id
             # Default workspaces are gateway-managed local state, so config loading
@@ -1208,6 +1217,7 @@ def _parse_agents(
                 agent_id=agent_id,
                 workspace_root=workspace_root,
                 workspace_is_default=workspace_is_default,
+                create_operation_id=create_operation_id,
                 title=title,
                 skills=skills,
                 tool_allowlist=tool_allowlist,

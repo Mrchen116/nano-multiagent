@@ -216,35 +216,19 @@ def test_im_connection_replies_with_live_agent_config_snapshot(tmp_path: Path) -
     }
 
 
-def test_im_connection_resolves_nested_session_log_from_gateway_local_workspace(
+def test_im_connection_returns_exact_session_log_from_gateway_binding(
     tmp_path: Path,
 ) -> None:
-    """The owning Gateway, not IM, scans and reads its local session metadata."""
+    """The owning Gateway returns its binding-derived root session path directly."""
     workspace_root = tmp_path / "remote-workspace"
     session_path = (
         workspace_root
         / ".nanoassistant"
         / "sessions"
-        / "parent"
-        / "subagents"
         / "session-a.jsonl"
     )
     session_path.parent.mkdir(parents=True)
-    session_path.write_text(
-        json.dumps({"type": "turn", "content": "prelude"})
-        + "\n"
-        + json.dumps(
-            {
-                "type": "session_created",
-                "metadata": {
-                    "agent_id": "agent-a",
-                    "conversation_id": "conversation-a",
-                },
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
+    session_path.write_text("{}\n", encoding="utf-8")
     socket = _FakeWebSocket(
         incoming=[
             json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
@@ -266,9 +250,11 @@ def test_im_connection_resolves_nested_session_log_from_gateway_local_workspace(
         config=IMConnectionConfig(url="http://im.local:9000"),
         reporter=_minimal_reporter(tmp_path),
         relay_adapter=relay_adapter,
-        agent_config_provider=lambda agent_id: {
-            "workspace_root": str(workspace_root) if agent_id == "agent-a" else ""
-        },
+        session_log_path_provider=lambda agent_id, conversation_id: (
+            str(session_path.resolve())
+            if (agent_id, conversation_id) == ("agent-a", "conversation-a")
+            else None
+        ),
         connect=lambda url, headers: _connect_fake(socket, [], url, headers),
     )
 
@@ -291,6 +277,7 @@ def test_im_connection_resolves_nested_session_log_from_gateway_local_workspace(
             "agent_id": "agent-a",
             "conversation_id": "conversation-a",
             "source_jsonl_path": str(session_path.resolve()),
+            "status": "ready",
         },
     }
 

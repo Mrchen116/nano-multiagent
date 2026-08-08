@@ -134,7 +134,7 @@ class ConfigService:
         )
         return created
 
-    def claim_seeded_profile(
+    def claim_pending_create_profile(
         self,
         *,
         agent_id: str,
@@ -143,6 +143,7 @@ class ConfigService:
         node_id: str,
         expected_workspace_root: str,
         expected_workspace_is_default: bool,
+        operation_id: str,
         display_name: str,
         description: str,
         skills: list[str],
@@ -152,10 +153,10 @@ class ConfigService:
         features: dict[str, bool],
         custom_prompt: str | None,
     ) -> AgentProfile:
-        """Claim a matching Gateway registration seed after a lost create response.
+        """Claim a matching Gateway create operation after a lost response.
 
         The caller holds the app-scoped create lock.  This method accepts only the
-        durable root/provenance pair seeded by the same node, so it cannot turn a
+        durable root/provenance pair and operation reservation, so it cannot turn a
         retried request into an overwrite of another Agent's workspace binding.
         """
         if self._nodes is None:
@@ -170,13 +171,14 @@ class ConfigService:
             and node.owner_id != normalized_owner_id
         ):
             raise ValueError("node_id owned by another owner")
-        claimed = self._profiles.claim_seeded_profile(
+        claimed = self._profiles.claim_pending_create_profile(
             agent_id=agent_id,
             owner_id=normalized_owner_id,
             expected_owner_id=expected_owner_id,
             node_id=node_id,
             expected_workspace_root=expected_workspace_root,
             expected_workspace_is_default=expected_workspace_is_default,
+            operation_id=operation_id,
             display_name=display_name,
             description=description,
             skills=skills,
@@ -205,13 +207,63 @@ class ConfigService:
         )
         return claimed
 
-    def is_registration_seed(
-        self, *, agent_id: str, owner_id: str, node_id: str
-    ) -> bool:
-        """Return whether a Gateway-advertised profile may finalize one lost response."""
-        return self._profiles.is_registration_seed(
-            agent_id=agent_id, owner_id=owner_id, node_id=node_id
+    def reserve_create_operation(
+        self,
+        *,
+        owner_id: str,
+        node_id: str,
+        agent_id: str,
+        request_fingerprint: str,
+    ) -> str:
+        """Reserve the IM-side half of one recoverable Gateway create operation."""
+        return self._profiles.reserve_create_operation(
+            owner_id=owner_id,
+            node_id=node_id,
+            agent_id=agent_id,
+            request_fingerprint=request_fingerprint,
         )
+
+    def existing_create_operation(
+        self,
+        *,
+        owner_id: str,
+        node_id: str,
+        agent_id: str,
+        request_fingerprint: str,
+    ) -> str | None:
+        """Find an exact pre-existing create operation without reserving a new one."""
+        return self._profiles.existing_create_operation(
+            owner_id=owner_id,
+            node_id=node_id,
+            agent_id=agent_id,
+            request_fingerprint=request_fingerprint,
+        )
+
+    def is_pending_create_operation(
+        self,
+        *,
+        agent_id: str,
+        profile_owner_id: str,
+        owner_id: str,
+        node_id: str,
+        operation_id: str,
+    ) -> bool:
+        """Return whether a profile is the exact abandoned-response create result."""
+        return self._profiles.is_pending_create_operation(
+            agent_id=agent_id,
+            profile_owner_id=profile_owner_id,
+            owner_id=owner_id,
+            node_id=node_id,
+            operation_id=operation_id,
+        )
+
+    def abandon_create_operation(self, *, operation_id: str) -> None:
+        """Drop a reservation after Gateway rejected creation without side effects."""
+        self._profiles.abandon_create_operation(operation_id=operation_id)
+
+    def complete_create_operation(self, *, operation_id: str) -> None:
+        """Retire the reservation once a normal create profile is durable."""
+        self._profiles.complete_create_operation(operation_id=operation_id)
 
     def list_profiles(self) -> list[AgentProfile]:
         """List all agent profiles in storage order."""

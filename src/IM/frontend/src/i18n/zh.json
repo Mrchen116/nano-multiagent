@@ -487,6 +487,7 @@
       "cancel": "取消",
       "running": "运行中",
       "noTranscript": "无 transcript",
+      "transcriptUnavailable": "Transcript 暂时不可用",
       "differentNode": "不同 Gateway 节点",
       "empty": "暂无会话"
     },

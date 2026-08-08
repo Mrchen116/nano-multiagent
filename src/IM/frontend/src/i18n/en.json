@@ -490,6 +490,7 @@
       "cancel": "Cancel",
       "running": "Running",
       "noTranscript": "No transcript",
+      "transcriptUnavailable": "Transcript temporarily unavailable",
       "differentNode": "Different Gateway node",
       "empty": "No conversations"
     },

@@ -86,7 +86,9 @@ def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(
             create_request = websocket.receive_json()
             assert create_request["type"] == "agent.create"
             request_id = create_request["payload"]["request_id"]
-            assert create_request["payload"]["agent"] == {
+            create_agent_payload = dict(create_request["payload"]["agent"])
+            assert isinstance(create_agent_payload.pop("create_operation_id"), str)
+            assert create_agent_payload == {
                 "agent_id": agent_user.id,
                 "display_name": "Agent New",
                 "description": "runtime-created helper",

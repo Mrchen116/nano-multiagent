@@ -1,6 +1,7 @@
 """Node board, capability, and node-scoped agent creation routes for IM HTTP APIs."""
 
 import asyncio
+import json
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -284,22 +285,6 @@ async def _create_node_agent_locked(
 ) -> AgentConfigResponse | JSONResponse:
     """Create one Agent while the app-scoped uniqueness lock is held."""
     existing = service.get_profile(agent_id=payload.agent_id)
-    seeded_claim_candidate = (
-        existing is not None
-        and existing.owner_id in {"", user.owner_id}
-        and existing.node_id == node_id
-        and existing.workspace_root is not None
-        and existing.workspace_is_default is not None
-        and service.is_registration_seed(
-            agent_id=payload.agent_id,
-            owner_id=existing.owner_id,
-            node_id=node_id,
-        )
-    )
-    if existing is not None and not seeded_claim_candidate:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="agent_id already exists"
-        )
     create_payload: dict[str, object] = {
         "agent_id": payload.agent_id,
         "display_name": payload.display_name,
@@ -314,6 +299,48 @@ async def _create_node_agent_locked(
     }
     if requested_skills is not None:
         create_payload["skills"] = requested_skills
+    request_fingerprint = json.dumps(
+        create_payload, ensure_ascii=True, sort_keys=True, separators=(",", ":")
+    )
+    if existing is None:
+        try:
+            operation_id = service.reserve_create_operation(
+                owner_id=user.owner_id,
+                node_id=node_id,
+                agent_id=payload.agent_id,
+                request_fingerprint=request_fingerprint,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+            ) from exc
+        pending_claim_candidate = False
+    else:
+        operation_id = service.existing_create_operation(
+            owner_id=user.owner_id,
+            node_id=node_id,
+            agent_id=payload.agent_id,
+            request_fingerprint=request_fingerprint,
+        )
+        pending_claim_candidate = (
+            operation_id is not None
+            and existing.owner_id in {"", user.owner_id}
+            and existing.node_id == node_id
+            and existing.workspace_root is not None
+            and existing.workspace_is_default is not None
+            and service.is_pending_create_operation(
+                agent_id=payload.agent_id,
+                profile_owner_id=existing.owner_id,
+                owner_id=user.owner_id,
+                node_id=node_id,
+                operation_id=operation_id,
+            )
+        )
+        if not pending_claim_candidate:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="agent_id already exists"
+            )
+    create_payload["create_operation_id"] = operation_id
     created_payload = await gateway_handler.request_agent_create(
         target_node_id=node_id,
         payload=create_payload,
@@ -325,6 +352,7 @@ async def _create_node_agent_locked(
         )
     error_payload = created_payload.get("error")
     if isinstance(error_payload, dict):
+        service.abandon_create_operation(operation_id=operation_id)
         error_response = _workspace_error_response(error_payload)
         if error_response is not None:
             return error_response
@@ -368,24 +396,27 @@ async def _create_node_agent_locked(
         created_payload.get("custom_prompt"), fallback=payload.custom_prompt
     )
     try:
-        if seeded_claim_candidate:
+        if pending_claim_candidate:
             assert existing is not None
             gateway_display_name = created_payload.get("display_name")
+            gateway_operation_id = created_payload.get("create_operation_id")
             if (
                 workspace_root != existing.workspace_root
                 or resolved_workspace_is_default != existing.workspace_is_default
+                or gateway_operation_id != operation_id
                 or not isinstance(gateway_display_name, str)
                 or gateway_display_name.strip() != payload.display_name
             ):
                 raise ValueError("agent_id already exists")
             assert resolved_workspace_is_default is not None
-            created = service.claim_seeded_profile(
+            created = service.claim_pending_create_profile(
                 agent_id=payload.agent_id,
                 owner_id=user.owner_id,
                 expected_owner_id=existing.owner_id,
                 node_id=node_id,
                 expected_workspace_root=workspace_root,
                 expected_workspace_is_default=resolved_workspace_is_default,
+                operation_id=operation_id,
                 display_name=display_name,
                 description=description,
                 skills=skills,
@@ -411,6 +442,7 @@ async def _create_node_agent_locked(
                 features=features,
                 custom_prompt=custom_prompt,
             )
+            service.complete_create_operation(operation_id=operation_id)
     except LookupError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)

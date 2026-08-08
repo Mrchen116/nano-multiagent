@@ -6,6 +6,8 @@
 
 ## Changelog
 
+- Round 4: replaces the generic first-registration recovery marker with an IM-reserved, Gateway-persisted create operation; replaces cancellability-free recursive transcript scans with a cancellable exact session-binding lookup and explicit readiness status.
+
 ## 现状分析
 
 ### 涉及范围
@@ -233,6 +235,28 @@ sequenceDiagram
     I-->>F: 201 AgentProfile
     F-->>U: 跳转 Agent 详情，显示固定的 workspace root
 ```
+
+### Round-4 correction: create recovery and transcript availability
+
+The earlier registration-seed correction was too broad: a first ordinary `node.register` profile cannot prove
+that it resulted from a particular IM `agent.create`. Before the first outbound create, IM now reserves a durable
+operation keyed by authenticated owner, target node, Agent id, and the immutable request fingerprint. IM supplies
+the opaque `create_operation_id` to Gateway; Gateway persists it in the created Agent config, returns it in
+`agent.created`, and re-advertises it from that config in `node.register.agent_create_operations`. Only an IM
+operation that exactly matches that advertised id can place the first registered profile in a pending-claim state.
+
+The retry still delegates path interpretation to Gateway. It can claim only when the stored pending operation,
+owner/node/Agent, canonical root, provenance, original display identity, and Gateway's echoed operation id all
+match; the atomic claim clears both the pending marker and operation. Normal prehosted/first-registered profiles,
+arbitrary operation advertisements, operation mismatches, and any profile PATCH stay ordinary duplicates. This
+keeps a lost `agent.created` response recoverable without treating registration itself as authorization.
+
+The earlier bounded worker model also left an uncancellable recursive `rglob` running after logical timeout and
+reported capacity pressure as a missing transcript. Gateway instead derives the exact JSONL location from its
+durable `ConversationSessionBinder` binding and performs only an async file existence check. One cancellable task
+is coalesced per `(agent_id, conversation_id)` and is cancelled on connection close. The result is explicitly
+`ready`, `missing`, or `unavailable`: only `missing` authorizes the UI's “No transcript” state; `unavailable`
+keeps the source disabled with a retryable availability message.
 
 ### 失败和并发边界
 

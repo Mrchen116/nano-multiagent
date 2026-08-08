@@ -147,6 +147,14 @@ IM 进程**绝不**直读 gateway 侧 workspace 文件（IM 与 gateway 可跨�
 
 前端在节点下创建 Agent(`POST /im/v1/nodes/{node_id}/agents`):IM 校验该节点已绑定、归属当前 owner; 经网关 `agent.create` 由节点分配并回传 `workspace_root`,IM 持久化为 `AgentProfile`。未知节点在 owner 门禁处 404,重复 `agent_id` 409。
 
+IM 为每个尚未落 profile 的创建请求先持久化一个仅限该请求的 `create_operation_id`，并把它随
+`agent.create` 发送给目标 Gateway。Gateway 仅把已持久化的 operation id 写入新 Agent 本地配置，
+在 `agent.created` 和后续 `node.register.agent_create_operations` 中原样回传。若 Gateway 已落地而
+`agent.created` 响应丢失，只有同一 owner、node、agent 与请求内容的重试，且 Gateway 回传同一
+operation id、已持久化 root/provenance/display identity 时，才能原子认领那条待认领 profile；成功
+认领后 operation 与待认领标记都清除。普通 `node.register` 首见 profile、预配置 Agent 和任意
+operation-id 广告都不是可认领证据；任意一次正常 profile 更新也会清除未认领标记。
+
 #### Scenario: 在已知节点创建返回带 node_id+workspace_root 的配置
 - **GIVEN** 当前 owner 名下一个已知节点 `node-1`
 - **WHEN** 前端 `POST /im/v1/nodes/node-1/agents {agent_id, display_name, skills, tool_allowlist, ...}`
@@ -157,6 +165,19 @@ IM 进程**绝不**直读 gateway 侧 workspace 文件（IM 与 gateway 可跨�
 - **THEN** 409 `{detail:"agent_id already exists"}`
 - **WHEN** 前端向不存在的 `node_id` 创建
 - **THEN** 404 `{detail:"node_id not found"}`(owner-scope 门禁先于网关派发拦下)
+
+#### Scenario: 丢失创建响应可由同一 durable operation 恢复一次
+- **GIVEN** IM 已为 owner O 在节点 N 创建 Agent A 保留 operation X，Gateway 已持久化 A 但
+  `agent.created` 响应在 IM 落 profile 前丢失
+- **WHEN** Gateway 重连并以 `agent_create_operations[A] == X` 注册，O 以同一创建内容重试
+- **THEN** IM 仅在 Gateway 回传同一 X、root/provenance 与已注册镜像一致且 display identity 不变时
+  原子认领 A，并返回 201
+- **AND** 认领后任意重复创建仍返回 409
+
+#### Scenario: 常规注册或 profile 更新不可成为创建恢复凭据
+- **GIVEN** A 是普通 `node.register` 首见 profile、预配置 Agent，或其 profile 已通过 PATCH 正常更新
+- **WHEN** 任意用户对 A 发送创建请求，或 Gateway 广告不存在/不匹配的 operation id
+- **THEN** IM 返回 409，不派发恢复式创建，也不改变 A 的 owner、root、provenance 或展示字段
 
 ### Requirement: 桌面 Agent 页面提供连续导航，并保护新建草稿
 
@@ -178,9 +199,9 @@ IM 进程**绝不**直读 gateway 侧 workspace 文件（IM 与 gateway 可跨�
 - **THEN** 页面要求确认退出，取消确认后保留当前草稿
 - **AND** 用户确认后才进入原目标
 
-### Requirement: node.register 首见 agent 时以上报种子值落库（bugfix-404-M2 / bugfix-467）
+### Requirement: node.register 首见 agent 时以上报种子值落库，且不伪造创建恢复凭据（bugfix-404-M2 / bugfix-467）
 
-IM 处理 `node.register` 时,对帧中**首次出现**(无既有 profile)的 agent,以帧内种子值落库: workspace_root 取 `agent_workspaces` 上报值(缺失时回落 managed default),skills / tool_allowlist 取 `agent_skills` / `agent_tool_allowlist` 上报值(帧未携带或单 agent 值非法时按空落库,兼容旧帧; 单 agent 值内混入非法项时仅丢弃非法项)。已存在 profile 的 agent,其各字段保持既有值不被注册改写(重连重发幂等),以保护用户经配置更新(含特意清空)后的收敛。
+IM 处理 `node.register` 时,对帧中**首次出现**(无既有 profile)的 agent,以帧内种子值落库: workspace_root 取 `agent_workspaces` 上报值(缺失时回落 managed default),skills / tool_allowlist 取 `agent_skills` / `agent_tool_allowlist` 上报值(帧未携带或单 agent 值非法时按空落库,兼容旧帧; 单 agent 值内混入非法项时仅丢弃非法项)。已存在 profile 的 agent,其各字段保持既有值不被注册改写(重连重发幂等),以保护用户经配置更新(含特意清空)后的收敛。帧可选的 `agent_create_operations` 仅在该 agent 首见、值对应 IM 已保留的同一 node/agent 创建 operation 时写入待认领标记；它不改变普通注册的语义，也不凭自身创建或重开恢复资格。
 
 #### Scenario: 首见 agent 用上报值落库
 - **GIVEN** IM 中无 agent X 的 profile

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from threading import Lock
 from typing import Any, Literal, Protocol
 
@@ -891,6 +892,42 @@ def _optional_text(value: object) -> str | None:
         return None
     normalized = value.strip()
     return normalized or None
+
+
+def build_session_log_path_provider(
+    *,
+    session_binder: GatewaySessionBinder,
+    channel_name: str,
+    workspace_config_dirname: str,
+) -> Callable[[str, str], str | None]:
+    """Resolve a Web IM conversation through its durable Gateway session binding.
+
+    The binding already records the root Kernel session id and its captured Agent
+    workspace.  Deriving that one address avoids an unbounded filesystem scan on
+    the Gateway receive loop; a missing binding or file is an actual missing
+    transcript, while an unavailable provider remains a distinct wire state.
+    """
+
+    def resolve(agent_id: str, conversation_id: str) -> str | None:
+        source = session_binder.capture_binding_provenance(
+            build_conversation_session_key(
+                channel_name=channel_name,
+                conversation_id=conversation_id,
+                agent_id=agent_id,
+            ),
+            expected_agent_id=agent_id,
+        )
+        if source is None:
+            return None
+        path = (
+            Path(source.agent.config.workspace_root)
+            / workspace_config_dirname
+            / "sessions"
+            / f"{source.binding.kernel_session_id}.jsonl"
+        )
+        return str(path.resolve()) if path.is_file() else None
+
+    return resolve
 
 
 def build_session_fork_handler(

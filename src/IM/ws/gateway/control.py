@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from uuid import uuid4
 
 
@@ -13,6 +14,14 @@ from .protocol import (
 _logger = logging.getLogger(__name__)
 
 from .sessions import GatewaySessions
+
+
+@dataclass(frozen=True, slots=True)
+class SessionLogResolution:
+    """Describe whether a Gateway could make a transcript available now."""
+
+    source_jsonl_path: str | None
+    status: str
 
 
 class GatewayControl:
@@ -238,11 +247,11 @@ class GatewayControl:
         agent_id: str,
         conversation_id: str,
         timeout_seconds: float = 5.0,
-    ) -> str | None:
-        """Ask the owning Gateway to locate a conversation's local session log."""
+    ) -> SessionLogResolution:
+        """Ask the owning Gateway for its exact conversation transcript binding."""
         request_id = f"session-log-{uuid4().hex}"
         loop = asyncio.get_running_loop()
-        waiter: asyncio.Future[str | None] = loop.create_future()
+        waiter: asyncio.Future[SessionLogResolution] = loop.create_future()
         async with self._lock:
             self._session_log_waiters[request_id] = waiter
         try:
@@ -256,10 +265,10 @@ class GatewayControl:
                 },
             )
             if not pushed:
-                return None
+                return SessionLogResolution(None, "unavailable")
             return await asyncio.wait_for(waiter, timeout=timeout_seconds)
         except asyncio.TimeoutError:
-            return None
+            return SessionLogResolution(None, "unavailable")
         finally:
             async with self._lock:
                 self._session_log_waiters.pop(request_id, None)
@@ -298,10 +307,19 @@ class GatewayControl:
         source_jsonl_path = (
             raw_path.strip() if isinstance(raw_path, str) and raw_path.strip() else None
         )
+        raw_status = payload.get("status")
+        if raw_status in {"ready", "missing", "unavailable"}:
+            resolution_status = raw_status
+        else:
+            resolution_status = "ready" if source_jsonl_path else "missing"
+        if resolution_status == "ready" and source_jsonl_path is None:
+            resolution_status = "unavailable"
         async with self._lock:
             waiter = self._session_log_waiters.get(request_id)
         if waiter is not None and not waiter.done():
-            waiter.set_result(source_jsonl_path)
+            waiter.set_result(
+                SessionLogResolution(source_jsonl_path, resolution_status)
+            )
         return {
             "type": "ack",
             "payload": {

@@ -188,6 +188,37 @@ describe("ConversationSidebar", () => {
     expect(screen.getByRole("button", { name: "Distill to skill" })).toBeDisabled();
   });
 
+  it("distinguishes a temporarily unavailable transcript from a missing one", () => {
+    render(
+      <ConversationSidebar
+        conversations={[
+          conv({
+            id: "unavailable-transcript",
+            title: "Unavailable transcript",
+            source_agent_id: "a1",
+            source_node_id: "node-1",
+            source_jsonl_path: null,
+            source_jsonl_status: "unavailable"
+          })
+        ]}
+        activeConversationId={null}
+        onSelect={() => {}}
+        onNewGroup={() => {}}
+        distillMode
+        selectedDistillConversationIds={new Set()}
+        selectedDistillEligibleCount={0}
+        onToggleDistillConversation={() => {}}
+        onEnterDistillMode={() => {}}
+        onCancelDistillMode={() => {}}
+        onStartDistill={() => {}}
+      />
+    );
+
+    expect(screen.getByRole("checkbox", { name: /Unavailable transcript/ })).toBeDisabled();
+    expect(screen.getByText("Transcript temporarily unavailable")).toBeInTheDocument();
+    expect(screen.queryByText("No transcript")).not.toBeInTheDocument();
+  });
+
   it("disables a transcript on another Gateway node after a source node is selected", () => {
     render(
       <ConversationSidebar

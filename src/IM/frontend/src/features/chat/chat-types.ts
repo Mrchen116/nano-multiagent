@@ -205,6 +205,8 @@ export interface Conversation {
   source_node_id?: string | null;
   /** feat-446-M3: readable kernel session JSONL path for conversation distillation. */
   source_jsonl_path?: string | null;
+  /** Availability of the owning Gateway's exact transcript binding. */
+  source_jsonl_status?: "ready" | "missing" | "unavailable" | null;
   /** Existing REST identity for a conversation mirrored from an external channel. */
   external_source?: string | null;
   external_chat_id?: string | null;

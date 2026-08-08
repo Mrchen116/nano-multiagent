@@ -65,6 +65,45 @@ def test_create_retry_for_same_agent_and_root_returns_existing_success(
     assert owners.catalog.require("retry-agent").config.workspace_root == workspace
 
 
+def test_create_retry_requires_the_original_durable_operation_id(
+    tmp_path: Path,
+) -> None:
+    """Gateway exposes a local create result only to its original IM operation."""
+    sync, _owners = _build_sync(tmp_path)
+    workspace = tmp_path / "operation-root"
+
+    first = sync.handle_agent_create(
+        {
+            "agent_id": "operation-agent",
+            "workspace_root": str(workspace),
+            "create_operation_id": "op-original",
+        }
+    )
+    retry = sync.handle_agent_create(
+        {
+            "agent_id": "operation-agent",
+            "workspace_root": str(workspace),
+            "create_operation_id": "op-original",
+        }
+    )
+    wrong_operation = sync.handle_agent_create(
+        {
+            "agent_id": "operation-agent",
+            "workspace_root": str(workspace),
+            "create_operation_id": "op-other",
+        }
+    )
+
+    assert first["create_operation_id"] == "op-original"
+    assert retry["create_operation_id"] == "op-original"
+    assert wrong_operation == {
+        "error": {
+            "code": "agent_id_already_exists",
+            "detail": "Agent ID already exists on this node.",
+        }
+    }
+
+
 def test_concurrent_divergent_creates_cannot_replace_same_local_agent_id(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

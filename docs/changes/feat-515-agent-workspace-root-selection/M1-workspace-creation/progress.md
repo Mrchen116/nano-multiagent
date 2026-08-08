@@ -142,3 +142,31 @@ None.
 - Evidence: new recovery, overload/expiry, and selector regressions were red before implementation. The focused Python correction matrix then passed `43 passed, 7 warnings`; the targeted frontend Workspace suite passed `11 passed`. Final expanded gates and browser evidence are recorded in `evidence/correction-round-3.md`.
 - Runtime/cleanup: no production service, port, config, database, or workspace is used; any browser acceptance stack is isolated to this worktree and is stopped after evidence capture.
 - Durable detail: `evidence/correction-round-3.md`.
+
+## Round 4 correction — operation-correlated recovery and cancellable transcript binding
+
+- Context: the Round-3 marker was assigned to every first `node.register` profile, so it did not prove that a
+  profile came from a particular original `agent.create`. The bounded scan design also left filesystem work in a
+  non-cancellable thread and returned capacity/provider failure as a false missing transcript.
+- Decision: IM reserves a durable create operation before outbound creation. Gateway persists the opaque operation
+  id in the Agent config, returns it in `agent.created`, and includes it in `node.register`; only that exact
+  operation can make a first registration pending and only an atomic owner/node/root/provenance/display/operation
+  match can claim it. A normal profile update clears pending state. Gateway now derives the exact transcript JSONL
+  from its durable session binding with a cancellable, coalesced async lookup and reports `ready`, `missing`, or
+  `unavailable` explicitly.
+- Rationale: registration is a discovery protocol, not proof of create intent; a durable operation makes the
+  one permitted recovery attributable. Exact binding lookup avoids recursive work and preserves the distinction
+  between no transcript and a temporary inability to determine it.
+- Evidence:
+  - Tests: targeted recovery, migration, Gateway immutability, session-resolution, control, and API suite passed
+    `90 passed`; expanded recovery/migration/create suite passed `16 passed`; regression subset passed `13 passed`.
+  - Entry: the recovery contract covers lost response + actual reconnect, ordinary/prehosted registration, wrong
+    owner/root/provenance/display, post-PATCH, and one-shot duplicate behavior. Session-resolution owners cover
+    arbitrary concurrency, coalescing, unavailable state, cancellation, close, and normal ready resolution.
+  - Frontend State Matrix: `source_jsonl_status="unavailable"` disables selection with a distinct localized
+    message; only explicit `missing` maps to “No transcript”.
+  - Documentation: current IM/Gateway specs, both delta surfaces, and the design record the operation and status
+    contracts; detailed commands and final gates are in `evidence/correction-round-4.md`.
+- Rollback: revert this correction commit; no data migration deletes prior profiles or Agent configs.
+- Next: rebase this isolated milestone on the current unit branch, publish it, and let the orchestrator run final
+  integration review.

@@ -178,6 +178,12 @@ class IMAgentConfigSync:
         if not isinstance(agent_id_raw, str) or not agent_id_raw.strip():
             raise ValueError("agent.create requires non-empty agent_id")
         agent_id = agent_id_raw.strip()
+        create_operation_raw = agent_payload.get("create_operation_id")
+        create_operation_id = (
+            create_operation_raw.strip()
+            if isinstance(create_operation_raw, str) and create_operation_raw.strip()
+            else None
+        )
         ws_raw = agent_payload.get("workspace_root")
         workspace_is_default = not (isinstance(ws_raw, str) and ws_raw.strip())
         if isinstance(ws_raw, str) and ws_raw.strip():
@@ -196,6 +202,10 @@ class IMAgentConfigSync:
             if (
                 existing_agent.workspace_root.expanduser().resolve() == workspace_root
                 and existing_agent.workspace_is_default == workspace_is_default
+                and (
+                    create_operation_id is None
+                    or existing_agent.create_operation_id == create_operation_id
+                )
             ):
                 description = agent_payload.get("description")
                 return self._agent_create_payload(
@@ -287,6 +297,7 @@ class IMAgentConfigSync:
             agent_id=agent_id,
             workspace_root=workspace_root,
             workspace_is_default=workspace_is_default,
+            create_operation_id=create_operation_id,
             title=title,
             skills=skills,
             tool_allowlist=tool_allowlist,
@@ -314,7 +325,7 @@ class IMAgentConfigSync:
         agent: AgentWorkspaceConfig, *, description: str
     ) -> dict[str, object]:
         """Serialize the stable creation success payload for a local Agent config."""
-        return {
+        payload: dict[str, object] = {
             "agent_id": agent.agent_id,
             "display_name": agent.title or agent.agent_id,
             "description": description,
@@ -327,6 +338,9 @@ class IMAgentConfigSync:
             "features": dict(agent.features),
             "custom_prompt": agent.custom_prompt,
         }
+        if agent.create_operation_id is not None:
+            payload["create_operation_id"] = agent.create_operation_id
+        return payload
 
     def resolve_preview_workspace(
         self,
@@ -740,13 +754,17 @@ class IMAgentConfigSync:
 
         raw_skills = payload.get("skills")
         raw_tools = payload.get("tool_allowlist")
+        existing_agent = self._local_agent(agent_id)
         return AgentWorkspaceConfig(
             agent_id=agent_id,
             workspace_root=workspace_root,
             workspace_is_default=(
-                self._local_agent(agent_id).workspace_is_default
-                if self._local_agent(agent_id) is not None
+                existing_agent.workspace_is_default
+                if existing_agent is not None
                 else True
+            ),
+            create_operation_id=(
+                existing_agent.create_operation_id if existing_agent is not None else None
             ),
             title=str(payload.get("display_name") or agent_id),
             skills=tuple(
