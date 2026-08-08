@@ -1,0 +1,4 @@
+interface:
+  display_name: "Reverse Engineer Claude Code"
+  short_description: "Triangulate current Claude Code behavior from three sources"
+  default_prompt: "Use $reverse-engineer-claude-code to reconstruct this Claude Code feature from source, official docs, and a low-cost Luna trace."
