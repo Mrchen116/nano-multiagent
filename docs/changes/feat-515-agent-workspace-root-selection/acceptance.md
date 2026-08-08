@@ -651,3 +651,105 @@ None.
 - [x] `docs/specs/CONTRIBUTING.md`：无需更新。
 
 本轮未创建 out-of-unit GitHub issue。
+
+---
+
+# Round 7 — 2026-08-08
+
+> Validation snapshot: `a5e64e4fa0565179417ed96056838ce40a69ebc6 → 2bbaa6e77887dce9a17d7e1a29c3461e5df8da8d`
+>
+> Revalidation mode: targeted（fix delta `b6ffab941..2bbaa6e77`；继承 Round 6 pass 覆盖）
+
+## Highest Required Action
+
+`pass`
+
+## Verdict
+
+`pass`
+
+Round 7 的 selection delta 在隔离双 Gateway 真栈和真实浏览器中通过。主节点上已选中的 ready
+conversation 因节点离线变为 `Transcript temporarily unavailable` 后，在下一次真实 conversation
+列表更新中立即取消选择；`Distill to skill` 同步禁用，另一在线节点来源保持可选但没有被自动选中。
+
+主节点恢复后，原来源恢复为 ready，但没有静默恢复旧选择。用户显式选择第二节点来源后，主节点
+conversation 的新消息触发列表置顶重排；第二节点选择仍保持，主节点来源只显示
+`Different Gateway node` 且未被选中。整个变化过程没有卡死、空白状态或 transcript 状态歧义。
+默认目录、自定义新目录、已有目录提醒与确认三条 workspace 创建主路径也保持可用。
+
+## User Journeys Exercised
+
+1. **不可用来源自动清选且不跨节点切换**
+   - 在主节点 `wt-review-feat-515-r7-22324` 与第二节点 `e2e-node-2-r7` 各产生一条真实 transcript。
+   - 选中主节点 `e2e` 后，停止仅本轮主 Gateway；第二节点的新消息触发列表更新，`e2e` 变为
+     disabled `Transcript temporarily unavailable` 且不再 checked，第二节点保持 enabled 但未 checked，
+     `Distill to skill` disabled。
+2. **恢复、显式重选与列表重排**
+   - 重启同一主 Gateway 并触发列表更新；`e2e` 恢复 ready，但没有恢复此前选择。
+   - 用户显式选择 `e2e-node-2-r7` 后，`Distill to skill` enabled；随后向 `e2e` 发送消息使其置顶，
+     第二节点仍 checked，`e2e` 仍 disabled 为 `Different Gateway node`，没有选择节点漂移。
+3. **workspace 创建回归冒烟**
+   - 默认模式创建 `r7_default_515`，详情显示节点分配 root 且 Workspace Root disabled。
+   - custom 模式创建 `r7_custom_515`，详情显示输入的 canonical root 且只读。
+   - existing directory 首次提交 `r7_existing_515` 时先显示 alert 与确认框；勾选后再次提交成功，
+     详情显示该 fixed root。
+
+## Reference Artifacts Reviewed
+
+Round 5 已完成 `prototype.html` 四条 must-match 的 desktop + 390px 真浏览器对照。本轮 delta 不触及
+创建页视觉契约；workspace 冒烟仍观察到正确卡片顺序、default 默认选中、custom helper 与 existing
+alert + checkbox，未见视觉回归。
+
+## Acceptance Criteria Coverage
+
+| Requirement / Scenario | Round 7 验证 | 结果 | 备注 |
+|---|---|---|---|
+| 创建 Agent / 使用默认目录 | Journey 3，真实浏览器创建与只读详情 | pass | 本轮重跑 |
+| 创建 Agent / 使用自定义新路径 | Journey 3，真实浏览器创建与只读详情 | pass | 本轮重跑 |
+| 创建 Agent / 父目录不可用 | 继承 Round 5 完整真栈证据 | pass | delta 未触及 |
+| 已有目录前提醒 | Journey 3，alert、checkbox、确认后成功 | pass | 本轮重跑 |
+| 同节点路径已归属 | 继承 Round 5 完整真栈证据 | pass | delta 未触及 |
+| 不同节点同字符串路径 | 继承 Round 5 双 Gateway 证据 | pass | delta 未触及 |
+| 创建后 workspace root 固定 | Journey 3，三类详情 root 均只读 | pass | Round 6 duplicate-ID 证据继续继承 |
+
+## Delta Scenario Matrix
+
+| Scenario | Expected | Observed | Result |
+|---|---|---|---|
+| Selected source becomes unavailable | 清除失效选择并禁用下一步 | `Transcript temporarily unavailable`、unchecked；Distill disabled | pass |
+| No cross-node auto-selection | 不得悄悄选中另一节点 | 第二节点保持 enabled 但 unchecked | pass |
+| Previously unavailable source recovers | 不得静默恢复旧选择 | 主节点恢复 ready 后仍 unchecked | pass |
+| User makes a valid explicit selection | 可主动选择当前有效来源 | 第二节点可选；选择后 Distill enabled | pass |
+| Reorder after explicit selection | 不得恢复旧选择或改变 selected node | 主节点置顶后第二节点仍 checked；主节点为 `Different Gateway node` | pass |
+| Transcript status clarity | 文案清楚且界面不卡死 | `No transcript`、`Transcript temporarily unavailable`、`Different Gateway node` 互不混淆 | pass |
+| Default / custom / confirmation smoke | 三条创建路径不回归 | 三条均成功且详情 root fixed/read-only | pass |
+
+## Issues
+
+None.
+
+## Side Findings
+
+- `e2e-up.sh` 两次在 IM 已监听且 `/openapi.json` 可访问时先报告 IM startup failure；本轮复用脚本生成的
+  隔离 secret/config/SQLite，按 `worktree-runtime.md` 手工持有同一 IM、两个 Gateway 和 Vite。该环境
+  现象未造成产品旅程歧义，也未触碰生产/default config。
+
+## Environment and Cleanup
+
+- 隔离 IM `http://127.0.0.1:61029`；Vite `http://127.0.0.1:61253`；节点
+  `wt-review-feat-515-r7-22324` 与 `e2e-node-2-r7`。
+- 真实浏览器在失效清选、显式重选和跨节点置顶重排后均取 DOM 证据，并采集失效状态截图；两个 tab
+  的 console warning/error 均为空。
+- 已关闭 browser tabs，停止两个 Gateway、Vite 与 IM；`61029`、`61253` 无 listener，无
+  `feat515-r7-*` tmux session。runtime、日志、SQLite、测试 workspace 与临时 `node_modules` symlink
+  已移入废纸篓，可恢复；写报告前 `git status` clean。
+
+## Upper-level Documentation Sync
+
+- [x] `SPEC.md`：无需更新；不改变跨包依赖或部署拓扑。
+- [x] `docs/specs/im/` 与 `docs/specs/gateway/`：现有 delta/current spec 已表达 transcript
+  `ready/missing/unavailable`、单节点选择约束与 fixed workspace root，本轮无需新增契约。
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新。
+- [x] `docs/specs/CONTRIBUTING.md`：无需更新。
+
+本轮未创建 out-of-unit GitHub issue。
