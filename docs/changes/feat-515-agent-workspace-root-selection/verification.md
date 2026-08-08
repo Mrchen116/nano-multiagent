@@ -694,3 +694,77 @@ None.
 ## Corrected Delta Reconciliation
 
 N/A for full verification.
+
+# Round 9
+
+> Validation snapshot: `a5e64e4fa0565179417ed96056838ce40a69ebc6 -> 4ad4a02d653ef5fe2b885524d6bb3f7810758db4`
+
+## Summary
+
+Mode: targeted-closure
+Delta range: `a3ac7d5fc..4ad4a02d6`
+Focus issues: Round-8 CRITICAL-1; persistence-before-publication, immediate fork projection, error atomicity/no stale projection, and unchanged original workspace contract
+requires_full_verification: false
+
+| Dimension | Result |
+|---|---|
+| Completeness | Round-8 implementation gap closed; 4/4 original requirements and 6/6 M1 exit criteria remain implemented |
+| Correctness | Focus behavior is correct; replacement/error atomicity lack permanent provider-seam coverage |
+| Coherence | Followed |
+
+0 critical issue(s), 1 warning(s) found. Fix before PR.
+
+## Prior-Issue Closure
+
+| Boundary | Result | Evidence |
+|---|---|---|
+| Round-8 CRITICAL-1 / successful semantic bind omitted COW publication | closed in implementation | Durable `bind()` precedes `_record_provenance(..., persist_binding=True)` at `src/personal_assistant/gateway/session_binder.py:625-650`; the helper replaces the immutable-map entry at `:763-777`. |
+| Immediate provider result on the fork path | closed | The binder exists before the fork, then the permanent regression immediately observes the exact fork-session JSONL path at `tests/unit/personal_assistant/test_session_fork_handler.py:67-116`. |
+| Error atomicity / no stale projection | correct; permanent coverage incomplete | Stale guards exit before persistence/publication at `src/personal_assistant/gateway/session_binder.py:625-631`; repository exceptions occur before publication at `:632-645`. An independent read-only probe proved insertion, same-key A→B replacement, and an injected C persistence failure retaining durable/projection B. Existing error/race tests assert no durable destination at `tests/unit/personal_assistant/test_session_fork_handler.py:190-240,243-319`, but not the provider; see WARNING-1. |
+| Original workspace-root contract | unchanged | The delta changes one internal Gateway binder call plus focused test/docs/evidence; no IM/frontend/create/ownership/root implementation changed, and the full non-E2E suite passed. |
+
+## Completeness
+
+- The missing semantic-bind publisher is present and converges on the established COW publisher.
+- Original default/custom selection, target-node validation, existing-directory confirmation, same-node uniqueness, immutable-root display, and opaque cross-machine root behavior are untouched.
+- Evidence: focused owners `46 passed, 2 warnings`; independent insertion/rebind/failure probe passed; full non-E2E Python `3063 passed, 24 deselected, 22 warnings`; changed-file Ruff passed; docs-check passed (`231` maintained sources, `66` routes); delta `git diff --check` passed.
+
+## Correctness
+
+| Requirement / Scenario | Evidence | Status |
+|---|---|---|
+| Publish only after successful durable bind | `src/personal_assistant/gateway/session_binder.py:632-645` | covered implementation; WARNING-1 test gap |
+| Successful fork immediately resolves its exact JSONL address | `src/personal_assistant/gateway/session_binder.py:1029-1048,934-968`; `tests/unit/personal_assistant/test_session_fork_handler.py:67-116` | covered |
+| Same-conversation rebind replaces the old projection | map replacement at `src/personal_assistant/gateway/session_binder.py:763-777`; independent A→B probe | covered implementation; WARNING-1 test gap |
+| Kernel/stale/persistence errors publish no destination or stale projection | exits at `src/personal_assistant/gateway/session_binder.py:625-645,1021-1043`; durable-store tests and independent failure probe | covered implementation; WARNING-1 provider gap |
+| Original workspace-root scenarios | no original-contract production path changed; full suite green | covered / unchanged |
+
+## Coherence
+
+| Design decision | Followed? | Evidence |
+|---|---|---|
+| Every successful durable binding update replaces the affected projection | Yes | `bind_conversation()` converges on `_record_provenance()` at `src/personal_assistant/gateway/session_binder.py:632-645`. |
+| Receive reads remain lock-free and SQLite-free | Yes | Provider reads only the immutable projection at `src/personal_assistant/gateway/session_binder.py:934-968`. |
+| Original package/deployment/workspace boundaries | Yes | Production delta is confined to the Gateway binder. |
+
+### Prototype / Reference Contract
+
+Unchanged; prior repository-local workspace-create browser evidence remains applicable.
+
+## Issues
+
+### CRITICAL (must fix before PR)
+
+None.
+
+### WARNING (must fix before PR)
+
+- **WARNING-1 — Permanent coverage proves first insertion only, not COW replacement or persistence-failure atomicity at the provider seam.** The new assertion at `tests/unit/personal_assistant/test_session_fork_handler.py:67-116` observes only absent→present; error/race owners at `:190-240,243-319` never query the provider. Add one lowest-layer regression in `tests/unit/personal_assistant/test_gateway_session_binder.py` that binds the same conversation to session A and asserts provider A, rebinds to B and asserts provider B, then injects a repository `bind()` failure for C and asserts both durable row and provider remain B. Add provider-absence assertions to fork failure owners only if needed for their distinct handler wiring; do not duplicate binder state-transition coverage.
+
+### SUGGESTION (optional)
+
+None.
+
+## Corrected Delta Reconciliation
+
+N/A for targeted-closure verification.
