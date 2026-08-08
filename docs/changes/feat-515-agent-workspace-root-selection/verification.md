@@ -768,3 +768,79 @@ None.
 ## Corrected Delta Reconciliation
 
 N/A for targeted-closure verification.
+
+# Round 10
+
+> Validation snapshot: `a5e64e4fa0565179417ed96056838ce40a69ebc6 -> 1ffc6d819a518420ba3984feb4ef821e96f21487`
+
+## Summary
+
+Mode: targeted-closure
+Delta range: `a3ac7d5fc..1ffc6d819`
+Focus issues: Round-9 WARNING-1; same-conversation COW provider replacement; persistence-failure atomicity; preservation of coverage while splitting Binder concurrency tests
+requires_full_verification: false
+
+| Dimension | Result |
+|---|---|
+| Completeness | Round-9 permanent-regression gap closed; original requirements and M1 exit criteria remain unchanged |
+| Correctness | 3/3 focused closure boundaries are permanently covered |
+| Coherence | Followed |
+
+0 critical issue(s), 0 warning(s) found. All checks passed. Ready for PR.
+
+## Prior-Issue Closure
+
+| Boundary | Result | Evidence |
+|---|---|---|
+| Same-conversation COW replacement is immediately visible at the production provider seam | closed | `test_conversation_bind_publishes_only_successful_projection_replacements` creates the binder/provider before any bind, binds `conv-projection` to session A and then B, and immediately observes A's and B's exact JSONL addresses (`tests/unit/personal_assistant/test_gateway_session_binder.py:261-295`). |
+| Persistence error leaves durable state, provider projection, and provenance maps unmodified | closed | The same test injects `PersistentSessionBindingStore.bind()` failure for session C, then proves the durable row and provider remain B, B provenance remains present, and C provenance is absent (`tests/unit/personal_assistant/test_gateway_session_binder.py:297-315`). Because `bind_conversation()` calls the repository before `_record_provenance()`, the failure cannot publish C (`src/personal_assistant/gateway/session_binder.py:632-645`). |
+| Test split preserves all former coverage | closed | The old-binding reuse race moved intact to the dedicated concurrency owner (`tests/unit/personal_assistant/test_gateway_session_binder_concurrency.py:50-76,192-237`). An independent AST test-id comparison across both files found no removed tests and exactly one added regression; the files are 347 and 264 lines. |
+
+## Completeness
+
+- Round-9 WARNING-1 requested one lowest-layer Binder regression covering A-to-B provider replacement and failed-C atomicity. That exact regression is present in the permanent Binder owner.
+- The test-only delta does not change the original workspace-root behavior, architecture boundaries, or prototype/reference contract.
+- Independent validation:
+  - focused Binder/fork/provider owners: `50 passed, 2 warnings`;
+  - changed-file Ruff: passed;
+  - `scripts/docs-check`: passed (`232` maintained Markdown sources, `66` required routes);
+  - `git diff --check a3ac7d5fc..1ffc6d819`: passed;
+  - old/new test-id comparison across the Binder and Binder-concurrency owners: no removals, one addition.
+
+## Correctness
+
+| Requirement / Scenario | Evidence | Status |
+|---|---|---|
+| Same conversation rebind replaces A with B in the already-created provider | `tests/unit/personal_assistant/test_gateway_session_binder.py:261-295` | covered |
+| Failed persistence of C leaves maps and provider at B | `tests/unit/personal_assistant/test_gateway_session_binder.py:297-315`; write-before-publication ordering at `src/personal_assistant/gateway/session_binder.py:632-645` | covered |
+| Moving the old-binding reuse race does not drop its original assertions | `tests/unit/personal_assistant/test_gateway_session_binder_concurrency.py:192-237`; no removed test ids across the split | covered |
+
+## Coherence
+
+| Design decision | Followed? | Evidence |
+|---|---|---|
+| Observe COW behavior through the public production provider, not private projection internals | Yes | The regression builds and calls `build_session_log_path_provider()` at `tests/unit/personal_assistant/test_gateway_session_binder.py:269-295,304-307`. |
+| Publish only after a successful durable binding write | Yes | Persistence occurs before `_record_provenance()` at `src/personal_assistant/gateway/session_binder.py:632-645`, and the failure regression protects that ordering. |
+| Keep concurrency behavior in its dedicated owner without reducing coverage | Yes | The moved blocking-store helper and reuse race are co-located in `test_gateway_session_binder_concurrency.py`; all prior test ids remain collected. |
+
+### Prototype / Reference Contract
+
+Unchanged; this targeted delta changes only permanent Gateway Binder test coverage and its unit evidence.
+
+## Issues
+
+### CRITICAL (must fix before PR)
+
+None.
+
+### WARNING (must fix before PR)
+
+None.
+
+### SUGGESTION (optional)
+
+None.
+
+## Corrected Delta Reconciliation
+
+N/A for targeted-closure verification.
