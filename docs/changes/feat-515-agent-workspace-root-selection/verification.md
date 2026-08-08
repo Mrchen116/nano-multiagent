@@ -291,3 +291,77 @@ None.
 ## Corrected Delta Reconciliation
 
 N/A for full verification.
+
+# Round 4
+
+Validated at: `101f72f583729c5b90a6c824162b02135d0061c8`
+
+## Summary
+
+Mode: full
+Delta range: `c5ec433576d6a24854dca243471dbda28c2cc6c2..101f72f583729c5b90a6c824162b02135d0061c8`
+Focus issues: all Round 1-3 findings, especially registration-seed migration/exact claims, canonical aliases, bounded session-log resolution, draft-root classification, and design/delta/Runbook corrections
+requires_full_verification: false
+
+| Dimension | Result |
+|---|---|
+| Completeness | 4/4 spec requirements and 6/6 M1 exit criteria implemented; one required permanent-test boundary remains incomplete |
+| Correctness | 7/7 top-level spec scenarios implemented; one adjacent recovery/migration coverage gap remains |
+| Coherence | Followed |
+
+0 critical issue(s), 1 warning(s) found. Fix before PR.
+
+## Prior-Issue Closure
+
+| Prior issue / required boundary | Result | Evidence |
+|---|---|---|
+| Round-1 duplicate create/fixed-root violations | closed | The create lock, insert-only profile path, and Gateway same-root/provenance retry guard remain in place; duplicate/concurrency regressions passed. |
+| Round-1 IM dereferenced Gateway-local transcripts | closed | IM delegates lookup to the owning Gateway; the resolver at `src/personal_assistant/ws/im_connection.py:1480-1587` passed its cross-machine owners. |
+| Round-1 parent/target error coverage | closed | Four stable 422/no-write mappings and draft-preserving UI assertions remain present. |
+| Round-2 split root/provenance refresh | closed | Register retains the root and non-NULL provenance and only fills NULL provenance. |
+| Round-2 cross-OS opaque roots | closed | Browser/IM reject only blank custom values; revised design/delta and code delegate syntax to Gateway. |
+| Round-2 canonical-alias seed recovery | closed in implementation | IM removed raw browser-text equality. The positive alias regression passes and the atomic claim matches the persisted decision; permanent negatives are incomplete under WARNING-1. |
+| Round-2 one-node distillation | closed | Source-node projection and one-node-only selection remain covered. |
+| Round-2/3 session-log bounds | closed | Fixed slots, per-key coalescing, 4.5-second expiry, and immediate overload null response are at `src/personal_assistant/ws/im_connection.py:1480-1562`; focused tests passed. |
+| Round-3 draft-root classification | closed | Create no longer passes a draft root to `SkillSourceSelector`; see `src/IM/frontend/src/features/settings/agents/agent-create-workspace.test.tsx:174-199`. |
+| Round-3 design/delta and Runbook | closed | Opaque forwarding is documented and the second Gateway uses one isolated config-adjacent runtime directory. |
+
+## Completeness and Correctness
+
+- All M1 checkboxes, six exit criteria, four spec requirements, seven top-level scenarios, and five prototype/reference rows have implementation/evidence.
+- Root immutability remains enforced at IM create, atomic profile insert/claim, Gateway local config, and the read-only detail UI. No prohibited import or IM-host workspace dereference appears in the diff.
+- Independent validation:
+  - focused registration/create/mirror/session-log/workspace matrix: `55 passed, 7 warnings`;
+  - architecture contract suite: `148 passed`;
+  - Ruff, docs check (`226` sources/`66` routes), and `git diff --check a5e64e4f..HEAD`: passed;
+  - temporary legacy-schema probe restored the removed `registration_seed` column, retained owner/root/provenance, and assigned the legacy row marker `0`.
+- This verifier did not rerun the complete Python or frontend suites. The detached worktree has no local frontend dependencies, so frontend source/tests were inspected without linking dependencies into it.
+
+## Coherence
+
+| Design decision | Followed? | Evidence |
+|---|---|---|
+| Side-effect-free existing-directory check and confirmed retry | Yes | Gateway validates before initialization/persistence. |
+| Custom input opaque outside target Gateway | Yes | Revised design/delta, Windows-root regression, and alias path agree. |
+| Canonical Gateway-local uniqueness | Yes | No IM/global path index was introduced. |
+| Inseparable root/provenance mirror | Yes | Register fills only NULL provenance; creation/claim never rewrites the pair independently. |
+| One marked same-owner/node/root/provenance/display seed claim | Yes in implementation | API checks are at `src/IM/api/routes/nodes.py:287-397`; atomic conditions/clear are at `src/IM/infra/repositories/agents.py:232-309`. |
+| Gateway-local bounded session-log work | Yes | `src/personal_assistant/ws/im_connection.py:1480-1587`. |
+
+## Issues
+
+### CRITICAL (must fix before PR)
+
+None.
+
+### WARNING (must fix before PR)
+
+- **WARNING-1 — The durable registration-seed migration and exact claim boundary lack permanent negative regression coverage.** The upgrade adds `registration_seed INTEGER NOT NULL DEFAULT 0` at `src/IM/infra/db.py:661-664`, but no schema test removes/omits that column and proves an existing row upgrades with owner/root/provenance unchanged and a non-claimable marker; `tests/im_service/unit/test_repositories_schema.py:8-61` initializes the current schema first, so it never executes this `ALTER TABLE`. The HTTP contract at `tests/im_service/contract/test_agent_registration_seed_recovery.py:11-113` proves a positive same-owner alias claim and one-shot clearing, but its changed-root/name requests occur after the successful claim cleared the marker, and it never drives owner or provenance mismatch through a still-marked claim. The implementation and temporary probe behaved correctly, but M1 explicitly requires SQLite migration coverage. Add an old-schema migration test asserting marker `0` without owner/root/provenance changes, plus pre-claim negatives for wrong owner, canonical root, provenance, and Gateway display; each must return 409 and leave the row/marker unchanged, then retain the positive alias/one-shot case.
+
+### SUGGESTION (optional)
+
+None.
+
+## Corrected Delta Reconciliation
+
+N/A for full verification.
