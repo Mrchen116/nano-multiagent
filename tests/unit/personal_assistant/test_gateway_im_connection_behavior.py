@@ -276,6 +276,10 @@ def test_im_connection_resolves_nested_session_log_from_gateway_local_workspace(
         await manager.connect_once()
         await manager._listen_once()  # noqa: SLF001 - node.register ack
         await manager._listen_once()  # noqa: SLF001 - session log request
+        for _ in range(20):
+            if any("session.log.resolved" in frame for frame in socket.sent):
+                break
+            await asyncio.sleep(0.01)
 
     asyncio.run(exercise())
 

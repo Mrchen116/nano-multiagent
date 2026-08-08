@@ -130,7 +130,7 @@ describe("agent create workspace selection", () => {
     await selectCustomPath(user);
     await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
 
-    expect(await screen.findByText(/Enter an absolute path/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Enter an absolute path on the target node/i)).toBeInTheDocument();
     expect(apiMocks.createNodeAgentMock).not.toHaveBeenCalled();
   });
 
@@ -152,6 +152,28 @@ describe("agent create workspace selection", () => {
         expect.objectContaining({
           workspace_root: "/srv/agents/agent-custom",
           confirm_existing_workspace: false,
+        }),
+      );
+    });
+  });
+
+  it("forwards a custom target-Gateway path without POSIX syntax validation", async () => {
+    const user = userEvent.setup();
+    apiMocks.createNodeAgentMock.mockResolvedValue({
+      agent_id: "agent-windows",
+      workspace_root: "C:\\Gateway Data\\agent-windows",
+      workspace_is_default: false,
+    });
+    renderCreatePage();
+    await fillIdentity("agent-windows");
+    await selectCustomPath(user, "C:\\Gateway Data\\agent-windows");
+    await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
+
+    await waitFor(() => {
+      expect(apiMocks.createNodeAgentMock).toHaveBeenCalledWith(
+        "node-1",
+        expect.objectContaining({
+          workspace_root: "C:\\Gateway Data\\agent-windows",
         }),
       );
     });

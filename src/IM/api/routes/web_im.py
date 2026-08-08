@@ -106,6 +106,7 @@ class ConversationResponse(BaseModel):
     created_at: str
     run_state: str
     source_agent_id: str | None = None
+    source_node_id: str | None = None
     source_jsonl_path: str | None = None
 
 
@@ -186,6 +187,7 @@ async def _to_conversation_response_with_source(
     profile = profiles.get_profile(agent_id=agent_id)
     if profile is None or not profile.node_id:
         return response
+    response = response.model_copy(update={"source_node_id": profile.node_id})
     source_jsonl_path = await gateway_control.request_session_log_path(
         target_node_id=profile.node_id,
         agent_id=agent_id,

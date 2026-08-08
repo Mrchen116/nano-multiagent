@@ -157,7 +157,6 @@ class AgentProfileRepository:
         node_id: str | None = None,
         features: dict[str, bool] | None = None,
         custom_prompt: str | None = None,
-        replace_workspace_provenance: bool = False,
     ) -> "AgentProfile":
         """Create or replace one seed profile without optimistic locking."""
         created_at = utc_now()
@@ -193,8 +192,6 @@ class AgentProfileRepository:
                     reasoning_effort = excluded.reasoning_effort,
                     workspace_root = excluded.workspace_root,
                     workspace_is_default = CASE
-                        WHEN ? = 1
-                        THEN excluded.workspace_is_default
                         WHEN agent_profiles.workspace_is_default IS NULL
                         THEN excluded.workspace_is_default
                         ELSE agent_profiles.workspace_is_default
@@ -231,9 +228,73 @@ class AgentProfileRepository:
                     created_at,
                     features_json,
                     custom_prompt,
-                    int(replace_workspace_provenance),
                 ),
             )
+        profile = self.get_profile(agent_id=agent_id)
+        assert profile is not None
+        return profile
+
+    def claim_seeded_profile(
+        self,
+        *,
+        agent_id: str,
+        owner_id: str,
+        node_id: str,
+        expected_workspace_root: str,
+        expected_workspace_is_default: bool,
+        display_name: str,
+        description: str,
+        skills: list[str],
+        tool_allowlist: list[str],
+        group_reply_policy: str,
+        default_model: str | None,
+        reasoning_effort: str | None,
+        features: dict[str, bool],
+        custom_prompt: str | None,
+    ) -> AgentProfile | None:
+        """Finalize exactly one matching ownerless Gateway registration seed.
+
+        The workspace root/provenance pair is deliberately part of the ``WHERE``
+        clause and never the update.  A lost ``agent.created`` response may be
+        recovered only when the Gateway's persisted result proves it is the same
+        Agent creation, not a request to repurpose an advertised profile.
+        """
+        updated_at = utc_now()
+        with self._connection:
+            cursor = self._connection.execute(
+                """
+                UPDATE agent_profiles
+                SET owner_id = ?, display_name = ?, description = ?,
+                    skills_json = ?, tool_allowlist_json = ?,
+                    group_reply_policy = ?, default_model = ?, reasoning_effort = ?,
+                    features_json = ?, custom_prompt = ?, updated_at = ?,
+                    is_stale = 0, staled_at = NULL
+                WHERE agent_id = ?
+                  AND owner_id = ''
+                  AND node_id = ?
+                  AND workspace_root = ?
+                  AND workspace_is_default = ?
+                """,
+                (
+                    owner_id,
+                    display_name,
+                    description,
+                    _encode_json_list(skills),
+                    _encode_json_list(tool_allowlist),
+                    group_reply_policy,
+                    default_model,
+                    reasoning_effort,
+                    json.dumps(features, ensure_ascii=False),
+                    custom_prompt,
+                    updated_at,
+                    agent_id,
+                    node_id,
+                    expected_workspace_root,
+                    int(expected_workspace_is_default),
+                ),
+            )
+        if cursor.rowcount != 1:
+            return None
         profile = self.get_profile(agent_id=agent_id)
         assert profile is not None
         return profile

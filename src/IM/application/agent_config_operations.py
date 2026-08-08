@@ -294,6 +294,46 @@ class AgentConfigOperationCoordinator:
         )
         if workspace_root is None:
             raise ConfigApplyPendingError("config_apply_pending")
+        workspace_is_default = _bool_from_result(
+            result_agent,
+            "workspace_is_default",
+            fallback=candidate.get("workspace_is_default"),
+        )
+        display_name = (
+            _text_from_result(
+                result_agent, "display_name", fallback=candidate.get("display_name")
+            )
+            or operation.agent_id
+        )
+        description = str(candidate.get("description") or "")
+        skills = _string_list_from_result(
+            result_agent, "skills", fallback=candidate.get("skills")
+        )
+        tool_allowlist = _string_list_from_result(
+            result_agent, "tool_allowlist", fallback=candidate.get("tool_allowlist")
+        )
+        group_reply_policy = (
+            _text_from_result(
+                result_agent,
+                "group_reply_policy",
+                fallback=candidate.get("group_reply_policy"),
+            )
+            or "manual"
+        )
+        default_model = _optional_text_from_result(
+            result_agent, "default_model", fallback=candidate.get("default_model")
+        )
+        reasoning_effort = _optional_text_from_result(
+            result_agent,
+            "reasoning_effort",
+            fallback=candidate.get("reasoning_effort"),
+        )
+        features = _bool_dict_from_result(
+            result_agent, "features", fallback=candidate.get("features")
+        )
+        custom_prompt = _optional_text_from_result(
+            result_agent, "custom_prompt", fallback=candidate.get("custom_prompt")
+        )
         existing = self._service.get_profile(agent_id=operation.agent_id)
         if existing is not None:
             if _profile_matches_create_result(
@@ -303,50 +343,57 @@ class AgentConfigOperationCoordinator:
                 service=self._service,
             ):
                 return existing
+            if existing.owner_id == "" and existing.node_id == operation.node_id:
+                result_display_name = result_agent.get("display_name")
+                if (
+                    existing.workspace_root != workspace_root
+                    or existing.workspace_is_default is not workspace_is_default
+                    or workspace_is_default is None
+                    or not isinstance(result_display_name, str)
+                    or result_display_name.strip() != str(candidate.get("display_name") or "")
+                ):
+                    self._operations.mark_rejected(
+                        operation_id=operation.operation_id,
+                        error_code="agent_id_already_exists",
+                        error_message="agent_id already exists",
+                        result=operation.gateway_result,
+                    )
+                    raise ConfigApplyRejectedError(
+                        "agent_id_already_exists",
+                        message="agent_id already exists",
+                    )
+                return self._service.claim_seeded_profile(
+                    agent_id=operation.agent_id,
+                    owner_id=operation.owner_id,
+                    node_id=operation.node_id,
+                    expected_workspace_root=workspace_root,
+                    expected_workspace_is_default=workspace_is_default,
+                    display_name=display_name,
+                    description=description,
+                    skills=skills,
+                    tool_allowlist=tool_allowlist,
+                    group_reply_policy=group_reply_policy,
+                    default_model=default_model,
+                    reasoning_effort=reasoning_effort,
+                    features=features,
+                    custom_prompt=custom_prompt,
+                )
             raise ConfigApplyPendingError("config_apply_pending")
         return self._service.create_profile(
             agent_id=operation.agent_id,
             owner_id=operation.owner_id,
             node_id=operation.node_id,
-            display_name=_text_from_result(
-                result_agent, "display_name", fallback=candidate.get("display_name")
-            )
-            or operation.agent_id,
-            description=str(candidate.get("description") or ""),
-            skills=_string_list_from_result(
-                result_agent, "skills", fallback=candidate.get("skills")
-            ),
-            tool_allowlist=_string_list_from_result(
-                result_agent,
-                "tool_allowlist",
-                fallback=candidate.get("tool_allowlist"),
-            ),
-            group_reply_policy=_text_from_result(
-                result_agent,
-                "group_reply_policy",
-                fallback=candidate.get("group_reply_policy"),
-            )
-            or "manual",
-            default_model=_optional_text_from_result(
-                result_agent, "default_model", fallback=candidate.get("default_model")
-            ),
-            reasoning_effort=_optional_text_from_result(
-                result_agent,
-                "reasoning_effort",
-                fallback=candidate.get("reasoning_effort"),
-            ),
+            display_name=display_name,
+            description=description,
+            skills=skills,
+            tool_allowlist=tool_allowlist,
+            group_reply_policy=group_reply_policy,
+            default_model=default_model,
+            reasoning_effort=reasoning_effort,
             workspace_root=workspace_root,
-            workspace_is_default=_bool_from_result(
-                result_agent,
-                "workspace_is_default",
-                fallback=candidate.get("workspace_is_default"),
-            ),
-            features=_bool_dict_from_result(
-                result_agent, "features", fallback=candidate.get("features")
-            ),
-            custom_prompt=_optional_text_from_result(
-                result_agent, "custom_prompt", fallback=candidate.get("custom_prompt")
-            ),
+            workspace_is_default=workspace_is_default,
+            features=features,
+            custom_prompt=custom_prompt,
             notify_config_sync=False,
         )
 

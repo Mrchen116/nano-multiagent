@@ -88,6 +88,15 @@
 - [x] Invalid custom prompt-preview paths return a correlated validation result without disconnecting Gateway; ownerless register refreshes authoritative provenance.
 - [x] Rebase the correction onto latest `origin/unit/feat-515`, rerun final focused/full-enough gates, and publish the milestone commit.
 
+### Round-2 correction checklist
+
+- [x] Restore fill-NULL-only register provenance so an existing root/provenance pair is never split by a later ownerless advertisement.
+- [x] Keep successful target-Gateway roots opaque in IM and the create page; only blank values receive local validation.
+- [x] Let a same-root/name retry claim the exact ownerless `node.register` seed after a lost `agent.created` response, without permitting root/name overwrite.
+- [x] Return the source Gateway node with transcript-capable conversations and allow one-node-only distillation selection.
+- [x] Move Gateway JSONL discovery off the WebSocket receive owner with bounded concurrent scans and a receive-loop regression.
+- [x] Rebase onto latest `origin/unit/feat-515`, complete final gates, and publish the correction commit.
+
 ### R1 — Gateway 本地 workspace creation boundary
 
 - 状态: DONE

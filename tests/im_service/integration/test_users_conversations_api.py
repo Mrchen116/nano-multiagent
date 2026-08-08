@@ -72,8 +72,10 @@ def test_conversation_list_and_sync_resolve_session_log_through_target_gateway(
         synced = client.get("/im/v1/sync").json()["items"]
 
         assert listed[0]["source_agent_id"] == "agent-1"
+        assert listed[0]["source_node_id"] == "node-1"
         assert listed[0]["source_jsonl_path"] == session_path
         assert synced[0]["source_agent_id"] == "agent-1"
+        assert synced[0]["source_node_id"] == "node-1"
         assert synced[0]["source_jsonl_path"] == session_path
         assert rpc_calls == [
             {

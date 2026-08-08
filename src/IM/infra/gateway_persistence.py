@@ -176,9 +176,7 @@ class GatewayNodePersistence:
                     agent_id
                 )
                 workspace_is_default = existing.workspace_is_default
-                if not existing.owner_id.strip() and agent_id in provenance_seed:
-                    workspace_is_default = provenance_seed[agent_id]
-                elif workspace_is_default is None:
+                if workspace_is_default is None:
                     workspace_is_default = provenance_seed.get(agent_id)
                 features = existing.features
                 custom_prompt = existing.custom_prompt
@@ -200,11 +198,6 @@ class GatewayNodePersistence:
                 workspace_is_default=workspace_is_default,
                 features=features,
                 custom_prompt=custom_prompt,
-                replace_workspace_provenance=(
-                    existing is not None
-                    and not existing.owner_id.strip()
-                    and agent_id in provenance_seed
-                ),
             )
             if self._users.get_user_by_username(username=f"agent:{agent_id}") is None:
                 self._users.create_user(

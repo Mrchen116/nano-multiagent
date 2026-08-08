@@ -284,7 +284,12 @@ async def create_node_agent(
     except (ConfigApplyPendingError, ConfigApplyProfileConflictError) as exc:
         _raise_operation_http_error(exc)
     existing = service.get_profile(agent_id=payload.agent_id)
-    if existing is not None:
+    if existing is not None and not (
+        existing.owner_id == ""
+        and existing.node_id == node_id
+        and existing.workspace_root is not None
+        and existing.workspace_is_default is not None
+    ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="agent_id already exists"
         )

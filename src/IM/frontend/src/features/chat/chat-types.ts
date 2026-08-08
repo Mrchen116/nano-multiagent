@@ -201,6 +201,8 @@ export interface Conversation {
   run_state?: "idle" | "running";
   /** feat-446-M3: canonical source agent that owns the JSONL transcript, when derivable. */
   source_agent_id?: string | null;
+  /** Owning Gateway node for the source transcript; distillation never crosses it. */
+  source_node_id?: string | null;
   /** feat-446-M3: readable kernel session JSONL path for conversation distillation. */
   source_jsonl_path?: string | null;
   /** Existing REST identity for a conversation mirrored from an external channel. */

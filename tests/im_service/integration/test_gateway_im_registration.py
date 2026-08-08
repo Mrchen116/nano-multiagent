@@ -41,6 +41,10 @@ def test_gateway_registration_materializes_runtime_agents_before_and_after_bind(
                         "node_name": "MacBook",
                         "version": "1.0.0",
                         "agents": ["Alpha", "Beta"],
+                        "agent_workspaces": {
+                            "Alpha": "/gateway/first-alpha",
+                            "Beta": "/gateway/first-beta",
+                        },
                         "agent_workspace_is_default": {"Alpha": True, "Beta": False},
                         "capabilities": {"relay": True},
                     },
@@ -81,6 +85,10 @@ def test_gateway_registration_materializes_runtime_agents_before_and_after_bind(
                         "node_name": "MacBook",
                         "version": "1.0.1",
                         "agents": ["Alpha", "Beta"],
+                        "agent_workspaces": {
+                            "Alpha": "/gateway/second-alpha",
+                            "Beta": "/gateway/second-beta",
+                        },
                         "agent_workspace_is_default": {
                             "Alpha": False,
                             "Beta": True,
@@ -97,18 +105,16 @@ def test_gateway_registration_materializes_runtime_agents_before_and_after_bind(
             assert [
                 row["workspace_is_default"]
                 for row in refreshed_ownerless_provenance
-            ] == [0, 1]
+            ] == [1, 0]
             stored_rows = app.state.connection.execute(
                 "SELECT agent_id, workspace_root FROM agent_profiles WHERE agent_id IN (?, ?) ORDER BY agent_id",
                 ("Alpha", "Beta"),
             ).fetchall()
             assert [row["agent_id"] for row in stored_rows] == ["Alpha", "Beta"]
-            assert [
-                row["workspace_root"].endswith(
-                    f"/.nanoassistant/workspaces/{row['agent_id']}"
-                )
-                for row in stored_rows
-            ] == [True, True]
+            assert [row["workspace_root"] for row in stored_rows] == [
+                "/gateway/first-alpha",
+                "/gateway/first-beta",
+            ]
 
             bind_start = client.post(
                 "/im/v1/bind", json={"action": "start", "node_id": "node-1"}
