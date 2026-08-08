@@ -40,7 +40,7 @@ describe("agent edit page", () => {
       skills: ["tdd-execution-worker", "playwright"],
       tool_allowlist: ["bash", "read_file"],
       group_reply_policy: "MENTION",
-      default_model: "codex_oauth:gpt-5.5",
+      default_model: null,
       reasoning_effort: null,
       workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
       workspace_is_default: true,
@@ -108,7 +108,7 @@ describe("agent edit page", () => {
           skills: string[];
           tool_allowlist: string[];
           group_reply_policy: string;
-          default_model: string;
+          default_model: string | null;
           reasoning_effort: string | null;
           workspace_root: string | null;
         };
@@ -163,6 +163,10 @@ describe("agent edit page", () => {
     expect(screen.getByRole("button", { name: /read_file/i })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: /^Save Agent$/ })).toBeDisabled();
 
+    const reasoning = await screen.findByLabelText("Reasoning effort");
+    expect(reasoning).toHaveValue("high");
+    await user.selectOptions(reasoning, "max");
+
     fireEvent.change(input, { target: { value: "Core Planner X" } });
     await user.click(screen.getByRole("button", { name: /playwright/i }));
     await user.click(screen.getByRole("button", { name: /^plan$/i }));
@@ -192,8 +196,8 @@ describe("agent edit page", () => {
             skills: ["tdd-execution-worker", "plan"],
             tool_allowlist: ["read_file"],
             group_reply_policy: "MENTION",
-            default_model: "codex_oauth:gpt-5.5",
-            reasoning_effort: "high"
+            default_model: null,
+            reasoning_effort: "max"
           })
         })
       );

@@ -10,6 +10,7 @@ import { createConversation } from "../../chat/chat-api";
 import { Avatar, colorForAgent } from "../../chat/components/avatar";
 import { AgentsRailDesktop } from "./agents-rail-desktop";
 import {
+  effectiveReasoningModel,
   isStaleReasoningEffort,
   ModelReasoningField,
   normalizeReasoningEffort,
@@ -1297,6 +1298,7 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
   const capabilities = detailQuery.data?.capabilities;
   const owningNode = detailQuery.data?.owningNode ?? null;
   const modelOptions = capabilities?.model_options ?? [];
+  const platformDefaultModel = capabilities?.platform_default_model ?? null;
   const normalizedDraft = useMemo(
     () => (draft ? normalizeAgentConfig(draft, modelOptions) : null),
     [draft, modelOptions],
@@ -1309,12 +1311,11 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
     () => resolveModelOptions(capabilities?.model_options, draft?.default_model ?? null),
     [capabilities?.model_options, draft?.default_model]
   );
-  const platformDefaultModel = capabilities?.platform_default_model ?? null;
   const validationErrors = useMemo(() => (normalizedDraft ? validateDraft(normalizedDraft) : {}), [normalizedDraft]);
   const hasValidationErrors = Object.keys(validationErrors).length > 0;
   const hasStaleReasoning = isStaleReasoningEffort(
     modelOptions,
-    draft?.default_model ?? null,
+    effectiveReasoningModel(draft?.default_model ?? null, platformDefaultModel),
     draft?.reasoning_effort ?? null,
   );
   const isDirty =
@@ -1876,12 +1877,13 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
                 setSaved(false);
                 setErrorMessage(null);
                 const defaultModel = event.target.value || null;
+                const effectiveModel = effectiveReasoningModel(defaultModel, platformDefaultModel);
                 setDraft({
                   ...draft,
                   default_model: defaultModel,
                   reasoning_effort: reasoningEffortAfterModelChange(
                     modelOptions,
-                    defaultModel,
+                    effectiveModel,
                     draft.reasoning_effort,
                   ),
                 });
@@ -1908,7 +1910,7 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
           <ModelReasoningField
             idPrefix="detail-agent"
             modelOptions={modelOptions}
-            selectedModel={draft.default_model}
+            selectedModel={effectiveReasoningModel(draft.default_model, platformDefaultModel)}
             value={draft.reasoning_effort}
             applyPending={applyPending}
             onChange={(reasoningEffort) => {

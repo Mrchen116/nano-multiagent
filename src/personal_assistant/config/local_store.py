@@ -185,7 +185,7 @@ class AgentWorkspaceConfig:
         tool_allowlist: Allowed tool names restricting the agent's tool access.
         group_reply_policy: Reply policy in group conversations (e.g. "always", "mention_only").
         default_model: Default LLM model identifier for this agent.
-        reasoning_effort: Optional selectable reasoning level for ``default_model``.
+        reasoning_effort: Optional selectable reasoning level for the effective model.
         features: Per-agent feature-flag overrides keyed by FEATURE_REGISTRY key.
             Absent keys inherit the registry default_on value at session creation time.
             Heartbeat and cron enabling lives here: features["heartbeat"] and

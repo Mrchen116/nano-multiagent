@@ -164,7 +164,11 @@ describe("agent create page", () => {
           { name: "bash", description: "Run shell commands" }
         ],
         model_options: [
-          { name: "codex_oauth:gpt-5.5", provider: "openai_compat" },
+          {
+            name: "codex_oauth:gpt-5.5",
+            provider: "openai_compat",
+            reasoning: { kind: "selectable", default: "high", levels: ["high", "max"] },
+          },
           {
             name: "kimiCoding:K2.6",
             provider: "anthropic",
@@ -182,7 +186,8 @@ describe("agent create page", () => {
       skills: ["plan"],
       tool_allowlist: ["read"],
       group_reply_policy: "MENTION",
-      default_model: "kimiCoding:K2.6",
+      default_model: null,
+      reasoning_effort: "max",
       workspace_root: "/tmp/agent-new-workspace",
       workspace_is_default: false,
       profile_version: 1,
@@ -199,7 +204,7 @@ describe("agent create page", () => {
         display_name: "Agent New",
         description: "runtime-created helper",
         profile_version: 1,
-        default_model: "kimiCoding:K2.6",
+        default_model: null,
         workspace_root: "/tmp/agent-new-workspace",
         workspace_is_default: false,
         node_status: "online"
@@ -219,7 +224,6 @@ describe("agent create page", () => {
     fireEvent.change(screen.getByLabelText(/^Custom Instructions/), { target: { value: "You are Agent New." } });
     await user.click(screen.getByRole("button", { name: /plan/i }));
     await user.click(screen.getByRole("button", { name: /read/i }));
-    await user.selectOptions(screen.getByLabelText("Default Model"), "kimiCoding:K2.6");
     await user.selectOptions(screen.getByLabelText("Reasoning effort"), "max");
 
     await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
@@ -235,7 +239,7 @@ describe("agent create page", () => {
         skills: ["plan"],
         tool_allowlist: ["read"],
         group_reply_policy: "MENTION",
-        default_model: "kimiCoding:K2.6",
+        default_model: null,
         reasoning_effort: "max",
         workspace_root: null
       });

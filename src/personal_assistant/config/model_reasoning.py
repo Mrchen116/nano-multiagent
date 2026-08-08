@@ -84,6 +84,7 @@ class ModelReasoningCatalog:
     """
 
     def __init__(self, llm_config: object) -> None:
+        self._default_model = str(getattr(llm_config, "default_model", ""))
         self._capabilities: dict[str, ModelReasoningCapability | None] = {}
         for provider in tuple(getattr(llm_config, "providers", ()) or ()):
             for model in tuple(getattr(provider, "models", ()) or ()):
@@ -98,19 +99,14 @@ class ModelReasoningCatalog:
         """Validate one persisted model/effort pairing.
 
         Args:
-            model: Explicit model id, or ``None`` for product-default selection.
+            model: Explicit model id, or ``None`` to use the configured product default.
             selected_effort: Persisted selectable effort.
 
         Raises:
             ValueError: When the model is unknown or the pairing is invalid.
         """
 
-        if model is None:
-            if selected_effort is not None:
-                raise ValueError(
-                    "reasoning_effort requires an explicitly selected model"
-                )
-            return
+        model = model or self._default_model
         if model not in self._capabilities:
             raise ValueError(f"unknown model: {model}")
         capability = self._capabilities[model]

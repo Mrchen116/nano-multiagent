@@ -274,3 +274,13 @@ report_path: docs/changes/feat-514-model-reasoning-effort/acceptance.md
 top_concern: Normal fixed and no-capability clears succeed, but a real submitted-pending operation still lacks an acceptance-safe trigger and user-journey proof.
 needs_re_review: true
 ```
+
+---
+
+## Post-deployment correction — 2026-08-09
+
+用户在生产 Web IM 发现 Agent 继承平台默认 `deepseek:deepseek-v4-flash` 时，页面错误显示“先选择模型”，因而隐藏了该有效模型实际支持的 `High` / `Maximum`。该路径还会被 Gateway 拒绝保存：旧校验把空 `default_model` 视为没有可验证的模型。
+
+本次按用户指示不新开 change unit，修正 feat-514 的有效模型语义：`default_model` 为空表示继承而非未选择；IM 以 Gateway 上报的 `platform_default_model` 展示该模型的 descriptor，Gateway 以自己的 LLM default 验证强度。保存 `reasoning_effort` 不会写入 `default_model`，运行时仍按届时的有效模型投影请求。
+
+验证：创建和编辑页回归覆盖“继承可调平台默认 → 显示 selector → 保存 `default_model: null, reasoning_effort: max`”；Gateway config-operation 回归覆盖同一候选可 apply 并 round-trip；运行时投影回归覆盖继承模型使用保存的强度。最终针对 Gateway 的 57 项和前端的 21 项测试均通过，当前长期契约已同步到 `docs/specs/im/agents-nodes.md` 与 `docs/specs/gateway/agent-capabilities.md`。

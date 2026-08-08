@@ -264,6 +264,25 @@ def test_reasoning_catalog_resolves_default_and_runtime_projection(
     assert catalog.resolve("kimiCoding:K2.6", None) == "high"
     assert projected.runtime.reasoning_effort == "high"
 
+    inherited_agent = LiveAgentCatalog(
+        (
+            AgentWorkspaceConfig(
+                agent_id="inherited",
+                workspace_root=tmp_path / "ws",
+                reasoning_effort="low",
+            ),
+        )
+    ).require("inherited")
+    inherited = project_agent_runtime(
+        inherited_agent,
+        scenario={},
+        resolved_model="kimiCoding:K2.6",
+        reasoning_catalog=catalog,
+    )
+
+    catalog.validate(None, "low")
+    assert inherited.runtime.reasoning_effort == "low"
+
 
 def test_agent_reasoning_effort_round_trips_local_config(tmp_path: Path) -> None:
     from personal_assistant.config.local_store import (

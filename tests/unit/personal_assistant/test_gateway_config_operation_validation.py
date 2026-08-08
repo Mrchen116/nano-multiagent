@@ -83,6 +83,49 @@ def test_config_operation_rejects_invalid_effort_and_operation_id_reuse(
     assert reused["error_code"] == "operation_id_reused"
 
 
+def test_config_operation_accepts_effort_for_inherited_default_model(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "seed"
+    workspace.mkdir()
+    agent = AgentWorkspaceConfig(agent_id="seed", workspace_root=workspace)
+    config = LocalConfig(
+        node=NodeConfig(node_id="node-1"),
+        agents=(agent,),
+        channels=(),
+        gateway=GatewayLifecycleConfig(),
+        heartbeat=HeartbeatConfig(),
+        im_service=None,
+        llm=_llm(),
+        source_path=tmp_path / "config.yaml",
+    )
+    save_local_config(config, config.source_path)
+    gateway = _sync(
+        config,
+        receipts=ConfigApplyReceiptStore(tmp_path / "receipts.json"),
+    )
+    candidate = {**_agent_payload(agent), "reasoning_effort": "max"}
+
+    result = gateway.handle_agent_config_operation(
+        "apply",
+        {
+            "operation_id": "op-inherited-default-effort",
+            "candidate_fingerprint": agent_operation_fingerprint(candidate),
+            "expected_previous_fingerprint": agent_operation_fingerprint(
+                _agent_payload(agent)
+            ),
+            "agent": candidate,
+        },
+    )
+
+    assert result["status"] == "applied"
+    assert result["agent"]["default_model"] is None
+    assert result["agent"]["reasoning_effort"] == "max"
+    restored = load_local_config(config.source_path)
+    assert restored.agents[0].default_model is None
+    assert restored.agents[0].reasoning_effort == "max"
+
+
 def test_config_operation_rejects_operation_id_reused_with_new_expected_state(
     tmp_path: Path,
 ) -> None:

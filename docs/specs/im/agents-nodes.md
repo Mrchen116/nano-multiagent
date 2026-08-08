@@ -30,8 +30,8 @@ Agent 配置中心、外部 channel 控制面、节点绑定、节点状态、ru
 - **WHEN** 用户成功更新 Agent 运行配置后回到该聊天发消息
 - **THEN** 下一轮新回复使用更新后的模型和推理强度，并延续原聊天历史
 
-#### Scenario: 保存的推理强度必须属于 Gateway apply 时的当前模型目录
-- **GIVEN** Agent 明确选择模型 M
+#### Scenario: 保存的推理强度必须属于 Gateway apply 时的有效模型目录
+- **GIVEN** Agent 明确选择模型 M，或继承 Gateway 的平台默认模型 M
 - **WHEN** 前端保存 M 的推理强度
 - **THEN** Gateway 在 apply 时以 M 的当前能力验证该选择并确认其本地配置已落地后，IM 才持久化
 - **AND** 当目录已更新而该强度失效时返回冲突、不写新 profile，也不表示保存成功
@@ -319,12 +319,13 @@ capabilities` 都把网关返回的 `features` 和每模型安全的 reasoning d
 - **WHEN** 前端 `GET /im/v1/nodes/{id}/capabilities` 或 `GET /im/v1/agents/{id}/capabilities`
 - **THEN** 返回的 `models` 列表中每项带有它注册的 provider(例:`codex_oauth:gpt-5.5` → `openai_compat`, `kimiCoding:K2.6` → `anthropic`),供 agent 配置页模型下拉展示格式
 
-#### Scenario: 用户按模型能力选择推理设置
+#### Scenario: 用户按有效模型能力选择推理设置
 - **GIVEN** 创建或编辑页已取得在线节点能力
-- **WHEN** 用户先选择一个可调推理模型
+- **WHEN** 用户选择一个可调推理模型，或当前继承的 platform default 是可调推理模型
 - **THEN** 页面只提供该 model descriptor 声明的 levels，并初始选择其 default
-- **WHEN** 用户选择 fixed 模型、未选择模型或目录未声明推理能力的模型
-- **THEN** 页面分别显示固定思考说明、需先选模型说明或不可配置说明，不提交脱离模型的强度
+- **AND** 继承 default 时保存的 `default_model` 仍为空，只持久化用户明确选择的强度
+- **WHEN** 有效模型是 fixed、平台默认不可解析，或目录未声明推理能力
+- **THEN** 页面分别显示固定思考、无法确定模型或不可配置说明，不提交不属于有效模型的强度
 
 #### Scenario: 可选模型列表每项携带安全的推理能力
 - **WHEN** 前端 `GET /im/v1/nodes/{id}/capabilities` 或 `GET /im/v1/agents/{id}/capabilities`

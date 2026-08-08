@@ -22,6 +22,13 @@ function descriptorForModel(
   return modelOptions.find((option) => option.name === modelName)?.reasoning;
 }
 
+export function effectiveReasoningModel(
+  selectedModel: string | null,
+  platformDefaultModel: string | null,
+): string | null {
+  return selectedModel ?? platformDefaultModel;
+}
+
 export function reasoningEffortAfterModelChange(
   modelOptions: ModelOption[],
   modelName: string | null,

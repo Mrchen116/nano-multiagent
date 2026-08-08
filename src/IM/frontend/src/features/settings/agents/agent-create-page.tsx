@@ -7,6 +7,7 @@ import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
 import { AgentsRailDesktop } from "./agents-rail-desktop";
 import {
+  effectiveReasoningModel,
   isStaleReasoningEffort,
   ModelReasoningField,
   normalizeReasoningEffort,
@@ -373,12 +374,13 @@ export function AgentCreatePage() {
 
   const capabilities = createStateQuery.data?.capabilities;
   const modelOptions = capabilities?.model_options ?? [];
+  const platformDefaultModel = capabilities?.platform_default_model ?? null;
   const normalizedDraft = useMemo(() => normalizeDraft(draft, modelOptions), [draft, modelOptions]);
   const validationErrors = useMemo(() => validateDraft(normalizedDraft), [normalizedDraft]);
   const hasValidationErrors = Object.keys(validationErrors).length > 0;
   const hasStaleReasoning = isStaleReasoningEffort(
     modelOptions,
-    draft.default_model,
+    effectiveReasoningModel(draft.default_model, platformDefaultModel),
     draft.reasoning_effort,
   );
   const node = createStateQuery.data?.node ?? null;
@@ -779,12 +781,13 @@ export function AgentCreatePage() {
                 setErrorMessage(null);
                 setIsDirty(true);
                 const defaultModel = event.target.value || null;
+                const effectiveModel = effectiveReasoningModel(defaultModel, platformDefaultModel);
                 setDraft({
                   ...draft,
                   default_model: defaultModel,
                   reasoning_effort: reasoningEffortAfterModelChange(
                     modelOptions,
-                    defaultModel,
+                    effectiveModel,
                     draft.reasoning_effort,
                   ),
                 });
@@ -811,7 +814,7 @@ export function AgentCreatePage() {
           <ModelReasoningField
             idPrefix="create-agent"
             modelOptions={modelOptions}
-            selectedModel={draft.default_model}
+            selectedModel={effectiveReasoningModel(draft.default_model, platformDefaultModel)}
             value={draft.reasoning_effort}
             applyPending={applyPending}
             onChange={(reasoningEffort) => {

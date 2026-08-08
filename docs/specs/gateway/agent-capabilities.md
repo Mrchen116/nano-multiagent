@@ -13,7 +13,7 @@ agent 模型选择、工具白名单、上下文窗口和内置 skills 自举的
 
 ### Requirement: Agent 选定的模型在每次新回复开始时生效
 
-Gateway 在每次新回复开始时按 Agent 当前 `default_model` 选择模型；未选模型时回退产品层全局默认。模型声明可调推理能力时，Gateway 为该轮使用 Agent 已保存的 `reasoning_effort`；未保存时使用该模型配置的推荐 default。既有聊天改模型或推理强度不创建空会话，模型与同代 prompt、skills、tools、features 一起生效并保留历史。已经开始的整轮及其采纳的插话继续使用启动时的完整配置。
+Gateway 在每次新回复开始时按 Agent 当前 `default_model` 选择模型；未选模型时回退产品层全局默认。这个结果是 Agent 的有效模型。有效模型声明可调推理能力时，Gateway 为该轮使用 Agent 已保存的 `reasoning_effort`；未保存时使用该模型配置的推荐 default。`default_model` 为空时也可以保存属于平台默认模型的 `reasoning_effort`，且不因此把 Agent 固定到该模型。既有聊天改模型或推理强度不创建空会话，模型与同代 prompt、skills、tools、features 一起生效并保留历史。已经开始的整轮及其采纳的插话继续使用启动时的完整配置。
 
 #### Scenario: Agent 选定模型和推理强度后对话使用这一组配置
 - **GIVEN** 某 Agent 配置模型 B 和 B 支持的推理强度 H
@@ -30,11 +30,11 @@ Gateway 在每次新回复开始时按 Agent 当前 `default_model` 选择模型
 - **WHEN** 配置改为模型 B 或强度 Y，且用户插话被纳入当前回复
 - **THEN** 当前整轮仍使用 A 和 X，下一轮新回复才使用成功保存的完整配置
 
-#### Scenario: Agent 未选模型时用产品层默认与其推荐强度
+#### Scenario: Agent 未选模型时可覆盖产品层默认模型的推理强度
 - **GIVEN** Agent 的 `default_model` 为空
-- **WHEN** 与其开始一轮新交流
-- **THEN** 使用 Gateway 产品默认模型正常回复
-- **AND** 若该默认模型声明可调推理能力，使用其推荐强度而不要求 Agent 持久化独立选择
+- **WHEN** 用户保存该产品默认模型支持的推理强度 H 后开始一轮新交流
+- **THEN** 使用 Gateway 产品默认模型和 H 正常回复
+- **AND** Agent 的 `default_model` 仍为空，不持久化该模型名
 
 #### Scenario: heartbeat 复用专用会话时采用当前完整配置
 - **GIVEN** heartbeat 专用会话已用配置 A 形成历史
