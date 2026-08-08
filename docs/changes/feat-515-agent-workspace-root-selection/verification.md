@@ -769,6 +769,85 @@ None.
 
 N/A for targeted-closure verification.
 
+# Round 12
+
+> Validation snapshot: `ff665108fd61d19c5af7b9c39bd61566c67b43c8 -> 9dd0d2dadfba1bb99aa7f9c905542cade9e4c43f`
+
+## Summary
+
+Mode: targeted-closure
+Delta range: `ff665108f..9dd0d2dad`
+Focus issues: Round-11 CRITICAL-1 — invalid model or reasoning input must not create or initialize a default or custom workspace
+requires_full_verification: false
+
+| Dimension | Result |
+|---|---|
+| Completeness | The two create paths now validate candidate model/reasoning before their respective workspace setup; the Round-11 missing boundary is closed. |
+| Correctness | Direct and durable create reject invalid model/reasoning before default/custom initialization; rejected operations are stable and cannot be repurposed. |
+| Coherence | Followed: the Gateway remains the sole node-local filesystem authority, and the fix adds no IM-side path handling or new cross-package dependency. |
+
+0 critical issue(s), 0 warning(s) found. All checks passed. Ready for PR.
+
+## Prior-Issue Closure
+
+| Boundary | Result | Evidence |
+|---|---|---|
+| Direct `agent.create` must reject invalid model/reasoning before default or custom workspace initialization | closed | `IMAgentConfigSync._handle_agent_create()` normalizes and validates the pair at `src/personal_assistant/gateway/agent_config_sync.py:318-325`, before either default `ensure_workspace_defaults()` at `:327-334` or custom preparation/initialization at `:335-349`. The permanent custom-root regression is `tests/unit/personal_assistant/test_gateway_workspace_creation.py:124-143`; an isolated probe covered both direct default/invalid-model and direct custom/invalid-reasoning cases. |
+| Durable create operation must establish a terminal rejected receipt without resolving/initializing a target when its model/reasoning is invalid | closed | `handle_agent_config_operation()` validates at `src/personal_assistant/gateway/agent_config_sync.py:511-542` before `_resolve_operation_workspace()` at `:543-548`, whose default/custom mutation points are at `:663-690`. The persistent custom-root regression is `tests/unit/personal_assistant/test_gateway_config_operation_validation.py:86-137`; the isolated probe covers default and custom targets plus invalid model and invalid reasoning. |
+| Rejected operation remains idempotent and its id cannot name a changed intent | closed | `ConfigApplyReceiptStore.prepare()` rejects a different `(kind, fingerprint, expected state)` for the same ID at `src/personal_assistant/gateway/config_apply_receipts.py:78-102`; terminal rejects are returned unchanged by `finish()` at `:104-131`. `tests/unit/personal_assistant/test_gateway_config_operation_validation.py:31-83` covers reuse after invalid reasoning, and the isolated custom-root probe verifies exact retry remains `invalid_agent_config`, changed intent is `operation_id_reused`, and the durable receipt remains rejected. |
+| An existing approved user directory remains protected by the confirmation boundary and retains user content | remains correct | `_prepare_custom_workspace()` remains before initialization only for a valid candidate (`src/personal_assistant/gateway/agent_config_sync.py:673-690`); `tests/unit/personal_assistant/test_gateway_workspace_creation.py:199-235` preserves `README.md` through confirmation. The isolated probe repeated the valid-confirm path and verified user content intact before and after initialization. |
+
+## Completeness
+
+- Round 11 identified one incomplete failure ordering. The P1 delta moves the direct create validation ahead of the two workspace branches and establishes the same ordering in the durable create operation before `_resolve_operation_workspace()`.
+- The delta does not change the approved Workspace Root UI, root ownership/immutability, confirmation copy, default/custom request shape, or Gateway-local canonicalization; the original M1 completion and browser evidence therefore remain applicable.
+- Validation at this snapshot (all Python commands explicitly set `PYTHONPATH=src` so imports resolve to this detached candidate tree):
+  - focused direct and durable Gateway owners: `14 passed`;
+  - affected Gateway/IM contract and integration owners: `54 passed, 7 warnings` (dependency/deprecation warnings only);
+  - independent `TemporaryDirectory` probe: default/custom × direct/durable invalid candidates leave no target or config, exact rejected retries are stable, changed reuse is rejected, and confirmed existing user content is retained;
+  - changed-file Ruff and `git diff --check origin/main...HEAD`: passed.
+- The orchestrator's final full non-E2E run on this same candidate reports `3101 passed`; this targeted verifier did not rerun that broader suite.
+
+## Correctness
+
+| Requirement / closure scenario | Implementation | Permanent and independent evidence | Status |
+|---|---|---|---|
+| Invalid model cannot initialize a missing custom target via the direct create entry point | validation at `agent_config_sync.py:318-325` precedes `:335-349` | `test_custom_workspace_is_untouched_when_candidate_model_is_invalid` at `test_gateway_workspace_creation.py:124-143`; focused suite passed | covered |
+| Invalid reasoning/model cannot initialize a default or custom target via durable create | validation at `agent_config_sync.py:511-542` precedes resolver mutation at `:663-690` | `test_create_operation_rejects_invalid_model_before_custom_workspace_setup` at `test_gateway_config_operation_validation.py:86-137`; independent four-mode probe passed | covered |
+| Exact retry of an invalid operation returns its durable terminal rejection, not a new attempt | receipt lookup plus terminal receipt return at `agent_config_sync.py:511-551,581-584` | independent probe observes two `invalid_agent_config` results and a persisted `rejected` receipt | covered |
+| Same operation ID cannot become a valid/default or custom create by changing the candidate | fingerprint/intent comparison at `config_apply_receipts.py:78-102` | `test_config_operation_rejects_invalid_effort_and_operation_id_reuse` at `test_gateway_config_operation_validation.py:31-83`; independent custom and default probes assert `operation_id_reused` and no target | covered |
+| Confirmed existing user directory remains adopted without overwriting user content | valid custom branch unchanged at `agent_config_sync.py:673-690` | `test_existing_workspace_requires_confirmation_then_preserves_files` at `test_gateway_workspace_creation.py:199-235`; independent probe passed | covered |
+
+## Coherence
+
+| Design decision | Followed? | Evidence |
+|---|---|---|
+| Validate a candidate before any workspace mutation | Yes | Both create entry points now call the same Gateway-local reasoning catalog before their default/custom initialization branches at `src/personal_assistant/gateway/agent_config_sync.py:318-349,511-548`. |
+| Existing directories require explicit confirmation and preserve pre-existing content | Yes | The validation move does not bypass `_prepare_custom_workspace()` or alter `ensure_workspace_defaults()` timing for a valid confirmed request at `src/personal_assistant/gateway/agent_config_sync.py:673-690`. |
+| Gateway alone interprets and mutates node-local workspace paths | Yes | This delta is confined to Gateway candidate validation, receipt handling, and Gateway unit tests; it introduces no IM filesystem access or package dependency. |
+
+### Prototype / Reference Contract
+
+Unchanged. This P1 delta has no create-page or style change; the repository-local desktop, mobile, custom, and existing-directory acceptance evidence from M1 remains applicable.
+
+## Issues
+
+### CRITICAL (must fix before PR)
+
+None.
+
+### WARNING (must fix before PR)
+
+None.
+
+### SUGGESTION (optional)
+
+None.
+
+## Corrected Delta Reconciliation
+
+N/A for targeted-closure verification.
+
 # Round 11
 
 > Validation snapshot: `f18b345c61d94bfa202ea693a539102044d49052 -> 307baeba36e93406008cc6a2545afb1e8a2aacfc`
