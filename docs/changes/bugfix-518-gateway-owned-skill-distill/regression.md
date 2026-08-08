@@ -81,3 +81,51 @@ write a skill for the intentionally trivial one-turn source; that is expected sk
 - [x] `docs/specs/<包>/`（长青行为契约层）：需要在 close-out 将本 unit 的 IM/Gateway delta 合并入 canonical specs；当前 delta 已存在，reviewer 未改写它。
 - [x] `AGENTS.md` / `CLAUDE.md`：无需更新。
 - [x] `docs/specs/CONTRIBUTING.md`：无需更新；本 unit 未改变文档体系。
+
+---
+
+# Round 2 — 2026-08-09 (targeted AR-1 re-acceptance)
+
+> Validation snapshot: `ff27a30b4 → 4bf7f51de`
+
+## Verdict
+
+**fail**
+
+**Highest Required Action:** `fix-implementation`
+
+v5.5 runbook 提供了受控的第二 Gateway fixture：`e2e-second` 的 `tool_allowlist` 只有 `read`，并已为它建立
+completed direct source。这个 fixture 消除了 Round 1 的证据缺口，却暴露出用户面失败：点击 **Generate skill**
+没有进入选择模式、没有 dialog、没有错误提示。
+
+## Targeted Journey Exercised
+
+1. 用新隔离 IM、首 Gateway、Vite 与第二 Gateway 启动 v5.5 fixture；第二 Gateway 以 `e2e-second` / `read`
+   tool allowlist 注册。
+2. 以 ordinary direct message 为 `e2e-second` 建立 `Review source: missing skill_view`，收到 `ready.` 并确认
+   conversation 是 idle、属于第二 node。
+3. 浏览器登录同一隔离用户后，在聊天列表看见该 source。依次以 semantic click、force click、DOM click 与
+   visible pointer click 使用 **Generate skill**；均无用户可见状态变化、dialog 或错误。
+4. 额外建立一个不参与选择的正常首 Gateway direct source 后重试，结果相同，因此不是“列表只有一个来源”的
+   前置条件问题。
+
+## 覆盖表更新
+
+| Scenario | Result | Evidence / conclusion |
+|---|---|---|
+| execution Agent 不具备 distiller 或 skill_view 时不创建空聊天 | **fail** | 可见的 completed `Review source: missing skill_view` fixture 已在列表中，但 **Generate skill** 无论何种正常可见点击方式都保持普通列表状态。期望的选择模式、dialog 中的缺 `skill_view` 原因均未出现。没有新 `Skill distill` chat 或导航，但这不能弥补缺失的可理解反馈。 |
+| Gateway execution Agent 缺少 distiller 能力时不返回 prompt | **fail** | 这条 Gateway requirement 的用户面结果与上项相同：入口静默停留，未能让用户看到可操作的 capability failure。request 是否发出属于非用户可观察实现语义，reviewer 未用内部链路推断。 |
+
+## Issues update
+
+### AR-1 — 缺能力 execution Agent 的入口静默失败
+
+- **Severity:** major
+- **Regression Relation:** direct
+- **Observed / expected:** 在真实、受控的 no-`skill_view` Gateway fixture 中，用户能看到 completed source，却不能进入
+  skill selection，也没有任何失败提示。规格要求用户在 dialog 获得不可执行原因，且不创建空聊天。
+- **Recommended Action:** `fix-implementation`
+- **Action Rationale:** 该问题直接违反 `specs/im/web-chat-ux.md` 的 capability failure Scenario。Round 1 的
+  fixture 缺口已由 v5.5 消除；本轮是实际用户行为失败，不是未覆盖。
+
+No GitHub issue was filed: the symptom is directly in this unit's entry path.
