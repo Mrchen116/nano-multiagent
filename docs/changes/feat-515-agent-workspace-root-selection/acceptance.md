@@ -552,3 +552,102 @@ None.
 - [x] `docs/specs/CONTRIBUTING.md`：无需更新。
 
 本轮未创建 out-of-unit GitHub issue。
+
+---
+
+# Round 6 — 2026-08-08
+
+> Validation snapshot: `a5e64e4fa0565179417ed96056838ce40a69ebc6 → 85d4f98948526b3316344e515c74ffc0e41408ec`
+>
+> Revalidation mode: targeted（fix delta `2bd4af837..85d4f9894`；继承 Round 5 完整覆盖）
+
+## Highest Required Action
+
+`pass`
+
+## Verdict
+
+`pass`
+
+Round 6 的 transcript 状态修复在隔离真栈和真实浏览器中通过：正常在线、明确没有 transcript 的
+conversation 仍显示 `No transcript`；删除专用测试 AgentProfile 后保留的 legacy conversation 显示
+`Transcript temporarily unavailable`；停止其所属隔离 Gateway 后，正常 Agent conversation 也显示
+`Transcript temporarily unavailable`，两种 unavailable 状态均禁选且未误报为 `No transcript`。
+
+同时重跑了创建主路径冒烟：默认目录、自定义新目录、已有目录二次确认均成功，详情 root 只读；
+用正常已有 Agent ID 从新建页提交另一 root 仍返回 `409 (agent_id already exists)`，原 root 未改变。
+
+## User Journeys Exercised
+
+1. **workspace 创建冒烟**
+   - 默认选中的 `Use default directory` 创建 `r6_default_515`，详情显示节点分配 root 且只读。
+   - `Custom path` 创建 `r6_custom_515`，详情显示目标节点 canonical root。
+   - 已有目录第一次提交只显示醒目 alert 与确认 checkbox；确认后 `r6_existing_515` 创建成功。
+2. **transcript 三态 delta**
+   - 在线 Gateway 下打开 `r6_default_515` 的空 conversation；Generate skill 中为 disabled
+     `No transcript`。
+   - 停止仅本轮 Gateway 并刷新；同一 conversation 变为 disabled
+     `Transcript temporarily unavailable`。
+   - 重连后创建专用 `r6_legacy_515` conversation；精确确认隔离数据库、fixture Agent、conversation、
+     user 与 node 后，仅删除该 AgentProfile 一行。真实浏览器刷新后，conversation 保留并显示 disabled
+     `Transcript temporarily unavailable`。
+3. **正常已有 Agent 不可重新创建**
+   - 从新建页以 `r6_default_515` 和另一 custom root 提交，页面保留草稿并显示
+     `409 (agent_id already exists)`；随后详情仍显示原 Agent ID 与原 default root。
+
+## Reference Artifacts Reviewed
+
+Round 5 对 `prototype.html` 四条 must-match 已完成 desktop + 390px 真浏览器对照。本轮 delta 不触及这些
+视觉契约；targeted 复验以真实 desktop 创建页确认 Workspace 卡顺序、default/custom chooser、custom
+helper、existing alert 与 checkbox 均未回归。
+
+## Acceptance Criteria Coverage
+
+| Requirement / Scenario | Round 6 验证 | 结果 | 备注 |
+|---|---|---|---|
+| 创建 Agent / 使用默认目录 | Journey 1，真实浏览器创建与只读详情 | pass | 本轮重跑 |
+| 创建 Agent / 使用自定义新路径 | Journey 1，真实浏览器创建与只读详情 | pass | 本轮重跑 |
+| 创建 Agent / 父目录不可用 | 继承 Round 5 完整真栈证据 | pass | delta 未触及 |
+| 已有目录前提醒 | Journey 1，alert、checkbox、确认后成功 | pass | 本轮重跑 |
+| 同节点路径已归属 | 继承 Round 5 完整真栈证据 | pass | delta 未触及 |
+| 不同节点同字符串路径 | 继承 Round 5 双 Gateway 证据 | pass | delta 未触及 |
+| 创建后 workspace root 固定 | Journey 3，duplicate-ID 409 + 原详情 root 不变 | pass | 本轮重跑 |
+
+## Delta Scenario Matrix
+
+| Scenario | Expected | Observed | Result |
+|---|---|---|---|
+| Explicit missing transcript | 仅 Gateway 明确确认缺失时显示 `No transcript` | 在线空 conversation disabled 为 `No transcript` | pass |
+| Gateway unavailable | 显示 retryable unavailable，不误报 missing | Gateway offline 后 disabled 为 `Transcript temporarily unavailable` | pass |
+| Legacy / missing Agent binding | 无可路由 AgentProfile 时显示 unavailable | 专用 AgentProfile 删除后 conversation 保留，disabled 为 `Transcript temporarily unavailable` | pass |
+| Normal existing Agent create | 不得重新创建或改变 root | 409；草稿保留；详情仍为原 default root | pass |
+| Default / custom / confirmation smoke | 三条创建路径不回归 | 三条均成功且 fixed root 正确 | pass |
+
+## Issues
+
+None.
+
+## Side Findings
+
+None.
+
+## Environment and Cleanup
+
+- 隔离 IM: `http://127.0.0.1:64350`；Vite: `http://127.0.0.1:62027`；节点:
+  `wt-review-feat-515-r6-96216`。未使用生产 `:8011`、默认 Gateway config 或日常 workspace。
+- `e2e-up.sh` 在本机慢启动时先于 IM readiness 报超时；仅使用其生成的本轮 config/secret/SQLite，
+  按 `worktree-runtime.md` 的同一隔离拓扑手工持有 IM、Gateway 与 Vite。该现象未改变产品结论。
+- legacy fixture 删除前通过 API 与隔离 SQLite 同时确认 `agent_id=r6_legacy_515`；删除结果恰为一行，
+  并复核 conversation、Agent user、node 均仍各保留一行。
+- 真实浏览器最终 console warning/error 为空；所有本轮浏览器 tab、tmux session、监听端口、runtime
+  文件与临时 `node_modules` symlink 在提交前清理并复核。
+
+## Upper-level Documentation Sync
+
+- [x] `SPEC.md`：无需更新；不改变跨包依赖或部署拓扑。
+- [x] `docs/specs/im/` 与 `docs/specs/gateway/`：现有 delta/current spec 已表达 transcript
+  `ready/missing/unavailable` 和 fixed workspace root，本轮无需新增契约。
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新。
+- [x] `docs/specs/CONTRIBUTING.md`：无需更新。
+
+本轮未创建 out-of-unit GitHub issue。
