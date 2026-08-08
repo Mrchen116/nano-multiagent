@@ -188,3 +188,106 @@ None.
 ## Corrected Delta Reconciliation
 
 N/A for full verification.
+
+# Round 3
+
+> Validation snapshot: `a5e64e4fa0565179417ed96056838ce40a69ebc6 -> 22be44246870caf59920e593976667c5a7fd7c9b`
+
+## Summary
+
+Mode: full
+Delta range: `6b6d550353f6a0b18dd8be474fe762b1aa45fa99..22be44246870caf59920e593976667c5a7fd7c9b`
+Focus issues: round-2 WARNING-1 plus provenance pair fill-NULL-only, cross-OS opaque roots, seeded lost-response recovery, one-node distillation, and bounded background session-log lookup
+requires_full_verification: false
+
+| Dimension | Result |
+|---|---|
+| Completeness | 4/4 spec requirements and 6/6 M1 exit criteria covered |
+| Correctness | 7/7 top-level spec scenarios covered; one adjacent recovery case remains incorrect |
+| Coherence | Two blocking design/implementation deviations remain |
+
+0 critical issue(s), 2 warning(s) found. Fix before PR.
+
+## Prior-Issue Closure
+
+| Prior issue / required boundary | Result | Evidence |
+|---|---|---|
+| Round-2 WARNING-1 / registration could split root and non-NULL provenance | closed | Existing profiles retain both the stored root and any non-NULL provenance at `src/IM/infra/gateway_persistence.py:166-195`; repository conflict handling only fills a NULL provenance at `src/IM/infra/repositories/agents.py:177-191`. A changed-root/changed-provenance re-registration retains the first pair at `tests/im_service/integration/test_gateway_im_registration.py:39-117`. |
+| Cross-OS target roots must remain opaque outside the Gateway | closed | IM accepts and persists any non-blank Gateway root at `src/IM/api/routes/nodes.py:330-339` and `src/IM/application/config_service.py:303-316`; the create page forwards Windows syntax at `src/IM/frontend/src/features/settings/agents/agent-create-page.tsx:563-580`. HTTP and component regressions are at `tests/im_service/contract/test_agent_create_immutability_contract.py:240-275` and `src/IM/frontend/src/features/settings/agents/agent-create-workspace.test.tsx:152-172`. The stale design wording is separately reported as WARNING-2. |
+| Lost `agent.created` recovery may claim only the matching ownerless registration seed | partially closed | The app create lock contains seed detection, Gateway dispatch, and claim at `src/IM/api/routes/nodes.py:265-293,365-393`; the repository claim atomically requires ownerless + same node/root/provenance and never updates the pair at `src/IM/infra/repositories/agents.py:229-290`. The seeded HTTP regression rejects changed literal root/name and accepts an exact canonical string at `tests/im_service/contract/test_agent_create_immutability_contract.py:278-348`. A valid non-canonical alias of that same root is still rejected; see WARNING-1. |
+| Distillation must not combine transcript paths from different Gateway nodes | closed | Conversation list/sync returns `source_node_id` with the Gateway-resolved path at `src/IM/api/routes/web_im.py:182-196`; eligibility and selection require one source node at `src/IM/frontend/src/features/chat/components/distill-selection.ts:3-27` and `src/IM/frontend/src/features/chat/chat-workspace-page.tsx:445-457,925-988`. HTTP projection and disabled-other-node UI coverage are at `tests/im_service/integration/test_users_conversations_api.py:10-91` and `src/IM/frontend/src/features/chat/components/conversation-sidebar.test.tsx:191-217`. |
+| Session-log lookup must not block the Gateway receive owner and must bound filesystem scans | closed | Resolve frames schedule background tasks at `src/personal_assistant/ws/im_connection.py:1081-1092,1470-1482`; scans run through `asyncio.to_thread` under a four-slot semaphore at `src/personal_assistant/ws/im_connection.py:38-39,364-373,1484-1504`, and close cancels outstanding tasks at `src/personal_assistant/ws/im_connection.py:450-482`. `tests/unit/personal_assistant/test_gateway_session_log_resolution.py:17-107` proves a second resolve reaches the receive owner while the first scan is blocked. |
+
+## Completeness
+
+- Tasks: all 6 M1 exit criteria and all 6 round-2 correction checklist items have implementation and durable evidence.
+- Spec coverage:
+  - `创建 Agent 时可选择默认目录或自定义路径`: covered by the default/custom create UI, target-Gateway path authority, and structured HTTP/WS outcome.
+  - `采用已有目录前须提醒用户`: covered by side-effect-free confirmation rejection and the explicit confirmed retry.
+  - `同节点 workspace root 只可归属一个 Agent`: covered by canonical Gateway-local comparison; different Gateway configs do not share an ownership index.
+  - `创建后 workspace root 固定`: covered by duplicate-ID serialization/insert-only storage, Gateway immutability, and the read-only detail page.
+- Prototype / reference coverage: all four `must-match` rows remain projected into M1 exit criteria, code, repository-local desktop/mobile/confirmation screenshots, and `M1-workspace-creation/evidence/acceptance.md`.
+- Independent validation at this snapshot:
+  - Affected Python feature/contract/integration/unit owners: `179 passed, 8 warnings`.
+  - Focused core seam subset: `71 passed, 8 warnings`.
+  - Changed Python files Ruff: passed.
+  - `PYTHON=.venv/bin/python scripts/docs-check`: passed (`225` maintained Markdown sources, `66` required routes).
+  - `git diff --check a5e64e4f..HEAD`: passed.
+  - The orchestrator-reported full non-E2E Python gate is `3052 passed, 24 deselected`; this verifier did not duplicate that complete run.
+  - Frontend Vitest/build could not be independently rerun without writing a dependency link into this read-only worktree: it has no local `node_modules`, while the main checkout dependency tree is outside the worktree's normal module-resolution ancestry. The committed correction evidence records `69 passed` and a successful production build; this verifier inspected the relevant assertions directly.
+
+## Correctness
+
+| Requirement / Scenario | Implementation location | Permanent test / evidence | Status |
+|---|---|---|---|
+| Default directory creation | `src/IM/frontend/src/features/settings/agents/agent-create-page.tsx:388-396`; `src/personal_assistant/gateway/agent_config_sync.py:181-227` | Gateway create, HTTP success, default payload, and real-stack evidence | covered |
+| New custom workspace under usable parent | `src/personal_assistant/gateway/agent_config_sync.py:181-243,377-432` | canonical custom-root unit test, HTTP/UI coverage, real-stack evidence | covered |
+| Missing/unusable parent or non-directory target | `src/personal_assistant/gateway/agent_config_sync.py:377-426`; `src/IM/api/routes/nodes.py:321-328,424-449`; UI mapping at `src/IM/frontend/src/features/settings/agents/agent-create-page.tsx:459-487` | producer plus four-code HTTP/no-write and UI/draft-preservation coverage | covered |
+| Existing directory requires confirmation | `src/personal_assistant/gateway/agent_config_sync.py:427-432`; `src/IM/frontend/src/features/settings/agents/agent-create-page.tsx:825-845` | Gateway, HTTP/WS, UI retry, and real-stack evidence | covered |
+| Same-node canonical root already assigned | `src/personal_assistant/gateway/agent_config_sync.py:212-218,370-375` | canonical symlink alias and owning-Agent UI coverage | covered |
+| Same string root on different nodes | ownership reads only the active Gateway config at `src/personal_assistant/gateway/agent_config_sync.py:370-375` | independent-config unit test and dual-Gateway acceptance | covered |
+| Existing Agent root visible and immutable | IM create serialization at `src/IM/api/routes/nodes.py:265-297`; repository insert/claim boundaries at `src/IM/infra/repositories/agents.py:229-352`; Gateway duplicate guard at `src/personal_assistant/gateway/agent_config_sync.py:194-210`; detail root is omitted from PATCH and disabled at `src/IM/frontend/src/features/settings/agents/agent-detail-page.tsx:1303-1316,1845-1858` | UI-shaped/concurrent duplicates, Gateway divergent roots, PATCH/detail, and real browser evidence | covered |
+
+## Coherence
+
+| Design decision | Followed? | Evidence |
+|---|---|---|
+| Existing directory uses an explicit second request with no first-request side effects | Yes | `src/personal_assistant/gateway/agent_config_sync.py:377-432`; `src/IM/frontend/src/features/settings/agents/agent-create-page.tsx:825-845` |
+| Default delegates to the node and custom roots are interpreted only by the target node | Yes in implementation | `src/IM/frontend/src/features/settings/agents/agent-create-page.tsx:388-396,563-580`; `src/personal_assistant/gateway/agent_config_sync.py:181-192`; stale local-validation prose remains in WARNING-2 |
+| Same-node uniqueness uses canonical roots in Gateway-local config | Yes | `src/personal_assistant/gateway/agent_config_sync.py:212-218,370-375` |
+| Parent/target validation precedes initialization and persistence | Yes | `src/personal_assistant/gateway/agent_config_sync.py:220-243,377-432` |
+| Success alone creates the IM mirror and stable failures map to 409/422 | Yes | `src/IM/api/routes/nodes.py:312-328,394-421,424-449` |
+| Root/provenance is an inseparable opaque mirror; registration fills provenance only when NULL | Yes | `src/IM/infra/gateway_persistence.py:145-195`; `src/IM/infra/repositories/agents.py:177-191` |
+| A lost response is safely retriable only for the same canonical workspace decision | No for aliased custom input | Gateway canonicalizes it, but IM compares raw request text at `src/IM/api/routes/nodes.py:368-375`; see WARNING-1 |
+| IM never dereferences Gateway-local transcript files | Yes | `src/IM/infra/repositories/conversations.py:635-657`; `src/IM/api/routes/web_im.py:182-196`; Gateway resolver at `src/personal_assistant/ws/im_connection.py:1484-1519` |
+| Package dependency and cross-machine boundaries | Yes | IM communicates with `personal_assistant` only through HTTP/WS; no new prohibited cross-package imports are present in the unit diff |
+
+### Prototype / Reference Contract
+
+| Reference contract | Milestone projection | Implementation evidence | Durable evidence | Status |
+|---|---|---|---|---|
+| Workspace card between Identity and Behavior | M1 worker/reviewer #1 | `src/IM/frontend/src/features/settings/agents/agent-create-page.tsx:646-852` | desktop default/custom screenshots | covered |
+| Default/custom exclusive choice; default selected | M1 worker/reviewer #1/#2 | `src/IM/frontend/src/features/settings/agents/agent-create-page.tsx:343,750-794` | desktop and 390px screenshots | covered |
+| Target-node copy, parent rule, and field errors | M1 worker/reviewer #2/#3 | `src/IM/frontend/src/features/settings/agents/agent-create-page.tsx:796-822`; stable error mapping at `:474-487` | custom/mobile screenshots and acceptance report | covered |
+| Existing-directory warning, checkbox, and retry | M1 worker/reviewer #3/#4 | `src/IM/frontend/src/features/settings/agents/agent-create-page.tsx:825-845` | existing-confirmation screenshot and acceptance report | covered |
+| Colors, spacing, and controls may adapt to existing tokens | M1 visual evidence | `src/IM/frontend/src/styles/global.css` workspace selectors | desktop/390px screenshots | covered |
+
+## Issues
+
+### CRITICAL (must fix before PR)
+
+None.
+
+### WARNING (must fix before PR)
+
+- **WARNING-1 — A lost-response retry for a valid custom-path alias cannot claim its matching canonical registration seed.** The target Gateway intentionally canonicalizes `..`, `~`, and symlink aliases before persistence (`src/personal_assistant/gateway/agent_config_sync.py:181-190`), and the ownerless seed and `agent.created` result therefore both contain canonical P. IM correctly proves that pair matches the seed, but then additionally requires the browser's raw `payload.workspace_root` string to equal canonical P (`src/IM/api/routes/nodes.py:368-375`). An independent HTTP + real `node.register` reproduction submitted `/x/staging/../seed-agent`, received canonical `/x/seed-agent` from the Gateway stub, and was rejected with 409 `agent_id already exists`. This leaves the lost-response recovery incomplete for a path form explicitly supported by the approved design. Remove the IM-host literal comparison and rely on the already-correlated Gateway result plus the atomic node/root/provenance seed claim, or have the Gateway return an opaque request identity that proves the retry; add a seeded HTTP regression using `..` or a symlink alias and assert the owner claim succeeds without changing the stored canonical pair.
+
+- **WARNING-2 — The approved design still requires IM/frontend host absolute-path checks that the cross-OS correction correctly removed.** `docs/changes/feat-515-agent-workspace-root-selection/design.md:108-111` says a non-absolute custom input is an immediate local form error, and `docs/changes/feat-515-agent-workspace-root-selection/design.md:152-154` says IM applies an absolute-path format guard. The round-2 implementation instead treats any non-blank target root as opaque and delegates syntax to the selected Gateway (`src/IM/application/config_service.py:303-316`; `src/IM/frontend/src/features/settings/agents/agent-create-page.tsx:563-580`), which is necessary for Windows Gateway roots and matches the correction checklist. Amend those design statements to say only blank values are rejected outside the Gateway and that target-node validation decides absoluteness; retain the cross-OS HTTP/UI regressions so the documentation correction cannot reintroduce POSIX-only behavior.
+
+### SUGGESTION (optional)
+
+None.
+
+## Corrected Delta Reconciliation
+
+N/A for full verification.
