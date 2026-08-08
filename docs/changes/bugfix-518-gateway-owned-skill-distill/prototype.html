@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>bugfix-518 · Gateway-owned skill distillation</title>
+    <style>
+      :root {
+        color: #172033;
+        background: #edf1f6;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 28px; min-width: 320px; }
+      .caption { max-width: 1120px; margin: 0 auto 14px; color: #68738a; font-size: 13px; }
+      .shell { max-width: 1120px; min-height: 650px; margin: auto; overflow: hidden; border: 1px solid #dce2ec; border-radius: 22px; background: #fff; box-shadow: 0 24px 70px rgba(40, 55, 84, .13); display: grid; grid-template-columns: 328px 1fr; }
+      .sidebar { padding: 22px 14px; background: #f8fafc; border-right: 1px solid #e6ebf2; }
+      .side-header { display: flex; justify-content: space-between; align-items: center; padding: 0 8px 16px; }
+      .side-header strong { font-size: 15px; }
+      .quit { appearance: none; border: 0; border-radius: 8px; padding: 7px 9px; background: #e9eef7; color: #50607b; font-size: 12px; }
+      .mode { display: flex; align-items: center; gap: 8px; margin: 0 8px 12px; padding: 10px; border: 1px solid #dbe4f2; border-radius: 11px; color: #34517d; background: #eff6ff; font-size: 12px; }
+      .mode svg { flex: 0 0 auto; }
+      .group-label { margin: 17px 8px 7px; color: #8a95a8; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+      .conversation { width: 100%; display: grid; grid-template-columns: 20px 34px 1fr; align-items: center; gap: 8px; padding: 10px 8px; border: 1px solid transparent; border-radius: 12px; text-align: left; background: transparent; color: inherit; }
+      .conversation + .conversation { margin-top: 3px; }
+      .conversation.selected { border-color: #bcd5ff; background: #eaf3ff; }
+      .conversation.disabled { opacity: .56; cursor: not-allowed; }
+      input[type="checkbox"] { width: 15px; height: 15px; accent-color: #356ae6; }
+      .avatar { width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; color: #fff; font-size: 12px; font-weight: 700; background: linear-gradient(145deg, #6a79e7, #4652bd); }
+      .avatar.teal { background: linear-gradient(145deg, #22a49c, #23736e); }
+      .avatar.muted { background: #a4afc2; }
+      .row-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 630; }
+      .row-meta { display: flex; gap: 5px; align-items: center; margin-top: 3px; color: #8791a4; font-size: 11px; }
+      .pill { display: inline-flex; align-items: center; border-radius: 99px; padding: 2px 6px; background: #e1f6ee; color: #167357; font-size: 10px; }
+      .pill.warn { background: #fef0e4; color: #a25119; }
+      .pill.cross { background: #f0f2f6; color: #68748a; }
+      .action { width: calc(100% - 16px); margin: 20px 8px 0; padding: 10px 12px; border: 0; border-radius: 10px; color: #fff; background: #315fcf; font-weight: 650; font-size: 13px; }
+      .main { position: relative; display: grid; grid-template-rows: 72px 1fr 94px; min-width: 0; }
+      .main-header { display: flex; align-items: center; gap: 10px; padding: 0 30px; border-bottom: 1px solid #edf0f5; }
+      .main-header h1 { margin: 0; font-size: 16px; }
+      .main-header span { color: #7d8ba2; font-size: 12px; }
+      .timeline { padding: 38px max(30px, 7%); }
+      .notice { max-width: 560px; margin: 0 auto 24px; padding: 11px 13px; border: 1px solid #e2e8f2; border-radius: 10px; color: #65738b; background: #fafcff; font-size: 12px; }
+      .bubble { max-width: 630px; margin: 16px auto; padding: 13px 15px; border-radius: 15px; font-size: 14px; line-height: 1.55; }
+      .bubble.user { margin-right: 0; color: #fff; background: #3566d8; border-bottom-right-radius: 4px; }
+      .bubble.agent { margin-left: 0; background: #f3f6fb; border-bottom-left-radius: 4px; }
+      .tool { max-width: 630px; margin: 7px 0; padding: 10px 13px; border: 1px solid #d9e7df; border-radius: 10px; color: #386a55; background: #f4fbf7; font-size: 12px; }
+      .composer { display: flex; gap: 10px; align-items: end; padding: 16px 30px; border-top: 1px solid #edf0f5; background: #fff; }
+      .draft { flex: 1; min-height: 48px; padding: 12px 14px; border: 1px solid #cfd8e6; border-radius: 12px; color: #3d4960; background: #fbfcff; font-size: 13px; }
+      .send { border: 0; border-radius: 10px; padding: 11px 15px; color: #fff; background: #315fcf; font-weight: 650; }
+      .scrim { position: absolute; inset: 0; display: grid; place-items: center; padding: 22px; background: rgba(22, 35, 57, .27); }
+      .dialog { width: min(466px, 100%); padding: 22px; border-radius: 18px; background: #fff; box-shadow: 0 20px 56px rgba(26, 39, 64, .28); }
+      .dialog h2 { margin: 0; font-size: 18px; }
+      .dialog > p { margin: 8px 0 18px; color: #69758a; font-size: 13px; line-height: 1.45; }
+      .selection { display: flex; align-items: center; gap: 9px; margin-bottom: 17px; padding: 10px 12px; border-radius: 10px; background: #f4f7fb; color: #4d5d75; font-size: 12px; }
+      .selection b { color: #26344b; }
+      label { display: block; margin: 13px 0 6px; color: #58667e; font-size: 12px; font-weight: 650; }
+      select { width: 100%; padding: 10px 11px; border: 1px solid #cfd8e6; border-radius: 10px; color: #26344b; background: #fff; }
+      .scope { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+      .scope div { padding: 11px; border: 1px solid #cbd8ef; border-radius: 11px; background: #f8fbff; }
+      .scope div:last-child { border-color: #e4e8ee; color: #718096; background: #fafafa; }
+      .scope b, .scope span { display: block; }
+      .scope b { font-size: 13px; }
+      .scope span { margin-top: 3px; font-size: 11px; line-height: 1.35; }
+      .dialog-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 21px; }
+      .secondary { border: 0; border-radius: 9px; padding: 9px 12px; color: #58667e; background: #eef1f5; }
+      .primary { border: 0; border-radius: 9px; padding: 9px 13px; color: #fff; background: #315fcf; font-weight: 650; }
+      .footnote { max-width: 1120px; margin: 14px auto 0; color: #6c7790; font-size: 12px; line-height: 1.5; }
+      @media (max-width: 640px) {
+        body { padding: 12px; }
+        .shell { min-height: 760px; grid-template-columns: 1fr; }
+        .sidebar { display: none; }
+        .main { grid-template-rows: 64px 1fr 96px; }
+        .main-header { padding: 0 17px; }
+        .timeline { padding: 24px 17px; }
+        .composer { padding: 14px 17px; }
+        .scrim { align-items: end; padding: 12px; }
+        .dialog { border-radius: 18px 18px 12px 12px; }
+      }
+    </style>
+  </head>
+  <body>
+    <p class="caption">Prototype · desktop shows the source-selection state; at ≤640px the same dialog becomes a bottom sheet.</p>
+    <main class="shell">
+      <aside class="sidebar" aria-label="会话列表">
+        <div class="side-header"><strong>会话</strong><button class="quit">取消</button></div>
+        <div class="mode">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+          已选择 2 个会话 · 仅限同一 Gateway
+        </div>
+        <p class="group-label">Gateway · Mac mini</p>
+        <button class="conversation selected"><input type="checkbox" checked /><span class="avatar">P</span><span><span class="row-title">调研与产品决策</span><span class="row-meta"><span class="pill">已结束</span> Planner</span></span></button>
+        <button class="conversation selected"><input type="checkbox" checked /><span class="avatar teal">W</span><span><span class="row-title">实现与验收记录</span><span class="row-meta"><span class="pill">已结束</span> Writer</span></span></button>
+        <button class="conversation disabled"><input type="checkbox" disabled /><span class="avatar muted">R</span><span><span class="row-title">仍在运行的排查</span><span class="row-meta"><span class="pill warn">运行中</span></span></span></button>
+        <p class="group-label">Gateway · Laptop</p>
+        <button class="conversation disabled"><input type="checkbox" disabled /><span class="avatar muted">A</span><span><span class="row-title">另一台机器上的会话</span><span class="row-meta"><span class="pill cross">不同 Gateway</span></span></span></button>
+        <button class="action">生成 skill</button>
+      </aside>
+      <section class="main" aria-label="聊天">
+        <header class="main-header"><span>‹</span><h1>Skill distill · Planner</h1><span>Mac mini</span></header>
+        <div class="timeline">
+          <div class="notice">这是一条普通聊天。来源会话只由执行 Gateway 在本机读取。</div>
+          <div class="bubble user">请从我选中的会话中提炼一个可复用的工作方式；重点保留判断节点和验收标准。</div>
+          <div class="tool">✓ 已创建 skill · <b>evidence-led-product-review</b> · agent scope</div>
+          <div class="bubble agent">已根据两个来源中的重复决策与验收步骤创建 skill；没有把原始会话或本机文件位置写进结果。</div>
+        </div>
+        <div class="composer"><div class="draft">请基于已选会话生成一个可复用的 skill…</div><button class="send">发送</button></div>
+        <div class="scrim" aria-label="生成 skill 设置">
+          <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+            <h2 id="dialog-title">生成 skill</h2>
+            <p>来源会话会由它们所属的 Gateway 在本机读取。当前选择都在 <b>Mac mini</b>。</p>
+            <div class="selection"><span>✓</span><span><b>2 个已结束会话</b><br />Planner、Writer · Mac mini</span></div>
+            <label for="agent">执行 Agent</label>
+            <select id="agent"><option>Planner · Mac mini</option><option>Writer · Mac mini</option></select>
+            <label>写入范围</label>
+            <div class="scope"><div><b>Agent</b><span>只给当前执行 Agent 使用</span></div><div><b>Global</b><span>写入当前 Gateway 的全局 skills</span></div></div>
+            <div class="dialog-actions"><button class="secondary">返回选择</button><button class="primary">开始蒸馏</button></div>
+          </section>
+        </div>
+      </section>
+    </main>
+    <p class="footnote">Must-match: checkbox 只在选择模式出现；不同 Gateway 与运行中来源不可选且给出原因；dialog 不展示路径；生成后继续使用普通 composer、tool output 与 assistant 气泡。Gateway 的 skill activation 与 source context 为内部输入，不显示为 composer 文本或历史消息。</p>
+  </body>
+</html>
