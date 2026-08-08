@@ -365,3 +365,77 @@ None.
 ## Corrected Delta Reconciliation
 
 N/A for full verification.
+
+# Round 5
+
+> Validation snapshot: `a5e64e4fa0565179417ed96056838ce40a69ebc6 -> 91bf97d94a5c5c64a76a9c993aebdc3a5041a23d`
+
+## Summary
+
+Mode: full
+Delta range: `bb9cb43e0457c9c67beb1eed7e81da607b988634..91bf97d94a5c5c64a76a9c993aebdc3a5041a23d`
+Focus issues: Round-4 WARNING-1 plus durable operation correlation, all negative claims, transcript state/one-node selection, remote-filesystem ownership, and cancellation/overload semantics
+requires_full_verification: false
+
+| Dimension | Result |
+|---|---|
+| Completeness | 4/4 requirements and 6/6 M1 exit criteria implemented; one permanent recovery-test boundary remains incomplete |
+| Correctness | 7/7 top-level scenarios implemented; exact-operation negative coverage is incomplete |
+| Coherence | Followed |
+
+0 critical issue(s), 1 warning(s) found. Fix before PR.
+
+## Prior-Issue Closure
+
+| Prior issue / boundary | Result | Evidence |
+|---|---|---|
+| Round-4 legacy-schema migration | closed | `tests/im_service/unit/test_db_init.py:65-128` runs the real migration and preserves owner/node/root/provenance/profile version while adding non-claimable markers. |
+| Arbitrary registration | closed | A registration marker requires an existing IM reservation for the same node/Agent (`src/IM/infra/gateway_persistence.py:201-210`); `tests/im_service/contract/test_agent_registration_seed_recovery.py:63-91` rejects an arbitrary advertisement. |
+| Wrong owner/root/provenance/display and completed operation | closed | Pending detection and atomic claim require owner/node/Agent/operation and the stored root/provenance pair (`src/IM/infra/repositories/agents.py:299-419`); pre-claim negatives and one-shot retirement pass at `tests/im_service/contract/test_agent_registration_seed_recovery.py:94-231`. |
+| Profile PATCH | closed in implementation | Normal update clears the pending marker at `src/IM/infra/repositories/agents.py:582-615`; repository coverage is `tests/im_service/unit/test_repositories_agent_profile.py:288-331`. |
+| Durable reconnect recovery | closed | Gateway persists/advertises the operation (`src/personal_assistant/gateway/agent_config_sync.py:296-343`; `src/personal_assistant/reporter/upstream_reporter.py:250-262`); real HTTP/WS reconnect succeeds once at `tests/im_service/contract/test_agent_registration_seed_recovery.py:234-308`. |
+| Transcript states and one-node selection | closed | IM projects owning node/path/status (`src/IM/api/routes/web_im.py:177-202`); selection and submission retain one node (`src/IM/frontend/src/features/chat/chat-workspace-page.tsx:445-457,925-988`), and `unavailable` differs from `missing` (`src/IM/frontend/src/features/chat/components/distill-selection.ts:13-26`). |
+| No remote filesystem dereference in IM | closed | Exact path derivation/file existence lives only on Gateway at `src/personal_assistant/gateway/session_binder.py:897-930`; IM routes the opaque result. |
+| Cancellation/overload | closed | Per-key coalescing, independent pending lookups without capacity false-negatives, close cancellation, and `unavailable` provider failure are covered by `src/personal_assistant/ws/im_connection.py:375-378,481-486,1475-1523` and `tests/unit/personal_assistant/test_gateway_session_log_resolution.py:34-155`. |
+
+## Completeness and Correctness
+
+- All six exit criteria, five roadpoints, four requirements, seven scenarios, and five prototype/reference rows have implementation and evidence. Round-4's claim that every negative operation boundary has permanent coverage remains incomplete under WARNING-1.
+- The create flow still covers default/custom roots, parent/target failures, explicit existing-directory confirmation, canonical same-node uniqueness, cross-node independence, opaque root/provenance mirroring, and fixed roots.
+- Durable create recovery is implemented as an IM SQLite reservation/fingerprint (`src/IM/api/routes/nodes.py:302-343`), Gateway YAML operation (`src/personal_assistant/gateway/agent_config_sync.py:181-220,296-343`), operation-correlated registration, atomic claim, and retirement (`src/IM/infra/repositories/agents.py:234-431`).
+- Independent validation: recovery/migration/profile/session matrix `98 passed, 2 warnings`; create/mirror/reconnect/transcript matrix `45 passed, 7 warnings`; architecture contracts `148 passed`; changed-file Ruff passed; docs check passed (`227` sources / `66` routes); `git diff --check a5e64e4f..HEAD` passed.
+- The committed correction evidence records full non-E2E Python `3060 passed, 24 deselected`, focused frontend `60 passed`, and a successful production build. This detached worktree has no frontend dependencies, so Vitest/build were inspected but not independently rerun.
+
+## Coherence
+
+| Design decision | Followed? | Evidence |
+|---|---|---|
+| Side-effect-free existing-directory check and confirmed retry | Yes | Gateway validates before initialization/persistence. |
+| Custom input opaque outside target Gateway | Yes | Browser/IM reject only blank input; Gateway resolves/canonicalizes it. |
+| Canonical Gateway-local uniqueness and immutable root | Yes | No IM-global root index or root-update path was introduced. |
+| Inseparable opaque root/provenance mirror | Yes | Registration fills only NULL provenance; IM does not resolve non-empty Gateway roots. |
+| Only one request-correlated durable operation may recover | Yes in implementation | Reservation, YAML echo, pending registration, atomic claim, and retirement form one persisted chain. |
+| Exact-binding transcript lookup is Gateway-local, coalesced, cancellable, and status-bearing | Yes | No recursive scan or IM-host file read remains. |
+| Package/deployment boundaries | Yes | HTTP/WS remains the IM↔Gateway boundary; architecture contracts passed. |
+
+### Prototype / Reference Contract
+
+All four `must-match` rows (card order, mode choice, target-node/path error presentation, existing-directory confirmation) and the one `may-adapt` token/layout row remain covered by the implementation, repository-local desktop/390px screenshots, and acceptance evidence.
+
+## Issues
+
+### CRITICAL (must fix before PR)
+
+None.
+
+### WARNING (must fix before PR)
+
+- **WARNING-1 — The exact create-operation contract still lacks permanent tests for a different HTTP request and a wrong echoed operation while the pending marker is live.** The implementation fingerprints the effective outbound payload and rejects a non-matching retry before dispatch (`src/IM/api/routes/nodes.py:302-342`), and rejects an otherwise matching result whose `create_operation_id` differs (`src/IM/api/routes/nodes.py:400-410`). But `tests/im_service/contract/test_agent_registration_seed_recovery.py:94-231` always retries the original HTTP payload and always echoes the operation received from IM; the wrong-operation Gateway unit at `tests/unit/personal_assistant/test_gateway_workspace_creation_immutability.py:68-104` does not exercise IM pending-profile claim. Extend the HTTP contract before its positive claim with (1) a changed effective request field that returns 409 without Gateway dispatch and leaves the operation/profile marker unchanged, and (2) a same-root/provenance/display response carrying another operation id with the same unchanged-state assertions. Retain the positive reconnect and one-shot checks.
+
+### SUGGESTION (optional)
+
+None.
+
+## Corrected Delta Reconciliation
+
+N/A for full verification.
