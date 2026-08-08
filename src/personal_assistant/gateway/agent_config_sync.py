@@ -315,6 +315,15 @@ class IMAgentConfigSync:
                 agent_id=assigned_agent_id,
             )
 
+        dm = agent_payload.get("default_model")
+        default_model = dm.strip() if isinstance(dm, str) and dm.strip() else None
+        effort = agent_payload.get("reasoning_effort")
+        reasoning_effort = (
+            effort.strip() if isinstance(effort, str) and effort.strip() else None
+        )
+        # Validate the candidate before any workspace setup can mutate its path.
+        self._reasoning_catalog.validate(default_model, reasoning_effort)
+
         if workspace_is_default:
             try:
                 workspace_root = ensure_workspace_defaults(workspace_root)
@@ -364,13 +373,6 @@ class IMAgentConfigSync:
         group_reply_policy = (
             grp.strip() if isinstance(grp, str) and grp.strip() else "MENTION"
         )
-        dm = agent_payload.get("default_model")
-        default_model = dm.strip() if isinstance(dm, str) and dm.strip() else None
-        effort = agent_payload.get("reasoning_effort")
-        reasoning_effort = (
-            effort.strip() if isinstance(effort, str) and effort.strip() else None
-        )
-        self._reasoning_catalog.validate(default_model, reasoning_effort)
         # feat-379-M2: per-agent features and custom_prompt from IM push payload
         raw_features = agent_payload.get("features")
         features = (
@@ -507,16 +509,45 @@ class IMAgentConfigSync:
         with self._operation_lock:
             try:
                 existing_receipt = self._operation_receipts.get(operation_id)
-                candidate = (
-                    dict(existing_receipt.candidate)
-                    if existing_receipt is not None
-                    else self._resolve_operation_workspace(
+                if existing_receipt is None:
+                    # Validate deterministic candidate fields before workspace
+                    # setup can create or initialize a custom directory.
+                    try:
+                        self._reasoning_catalog.validate(
+                            _optional_operation_text(
+                                canonical_request.get("default_model")
+                            ),
+                            _optional_operation_text(
+                                canonical_request.get("reasoning_effort")
+                            ),
+                        )
+                    except ValueError as exc:
+                        receipt = self._operation_receipts.prepare(
+                            operation_id=operation_id,
+                            kind=kind,
+                            candidate_fingerprint=candidate_fingerprint,
+                            expected_previous_fingerprint=expected_previous,
+                            candidate=canonical_request,
+                            desired_state_fingerprint=agent_operation_fingerprint(
+                                canonical_request
+                            ),
+                        )
+                        return _receipt_result(
+                            self._operation_receipts.finish(
+                                receipt.operation_id,
+                                status="rejected",
+                                error_code="invalid_agent_config",
+                                message=str(exc),
+                            )
+                        )
+                    candidate = self._resolve_operation_workspace(
                         kind=kind,
                         candidate=canonical_request,
                         confirm_existing=raw_candidate.get("confirm_existing_workspace")
                         is True,
                     )
-                )
+                else:
+                    candidate = dict(existing_receipt.candidate)
                 receipt = self._operation_receipts.prepare(
                     operation_id=operation_id,
                     kind=kind,

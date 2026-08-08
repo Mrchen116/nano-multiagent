@@ -126,6 +126,60 @@ def test_config_operation_accepts_effort_for_inherited_default_model(
     assert restored.agents[0].reasoning_effort == "max"
 
 
+def test_create_operation_rejects_invalid_model_before_custom_workspace_setup(
+    tmp_path: Path,
+) -> None:
+    """Do not create a custom root when its candidate cannot be applied."""
+    seed = tmp_path / "seed"
+    seed.mkdir()
+    config = LocalConfig(
+        node=NodeConfig(node_id="node-1"),
+        agents=(AgentWorkspaceConfig(agent_id="seed", workspace_root=seed),),
+        channels=(),
+        gateway=GatewayLifecycleConfig(),
+        heartbeat=HeartbeatConfig(),
+        im_service=None,
+        llm=_llm(),
+        source_path=tmp_path / "config.yaml",
+    )
+    save_local_config(config, config.source_path)
+    gateway = _sync(
+        config,
+        receipts=ConfigApplyReceiptStore(tmp_path / "receipts.json"),
+    )
+    parent = tmp_path / "projects"
+    parent.mkdir()
+    target = parent / "invalid-model"
+    agent = {
+        "agent_id": "invalid-model",
+        "display_name": "Invalid model",
+        "skills": [],
+        "tool_allowlist": [],
+        "group_reply_policy": "manual",
+        "default_model": "missing:model",
+        "reasoning_effort": None,
+        "workspace_root": str(target),
+        "features": {},
+        "custom_prompt": None,
+        "heartbeat_json": None,
+    }
+
+    rejected = gateway.handle_agent_config_operation(
+        "create",
+        {
+            "operation_id": "op-invalid-model",
+            "candidate_fingerprint": agent_operation_fingerprint(agent),
+            "expected_previous_fingerprint": None,
+            "agent": agent,
+        },
+    )
+
+    assert rejected["status"] == "rejected"
+    assert rejected["error_code"] == "invalid_agent_config"
+    assert not target.exists()
+    assert not (target / ".nanoassistant").exists()
+
+
 def test_config_operation_rejects_operation_id_reused_with_new_expected_state(
     tmp_path: Path,
 ) -> None:

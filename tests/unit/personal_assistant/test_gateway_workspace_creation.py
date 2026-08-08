@@ -121,6 +121,28 @@ def test_custom_workspace_rejects_invalid_parent_and_non_directory_target(
     assert owners.catalog.get("file") is None
 
 
+def test_custom_workspace_is_untouched_when_candidate_model_is_invalid(
+    tmp_path: Path,
+) -> None:
+    """Reject an invalid candidate before creating its custom workspace."""
+    sync, owners = _build_sync(tmp_path)
+    parent = tmp_path / "projects"
+    parent.mkdir()
+    target = parent / "invalid-model"
+
+    with pytest.raises(ValueError, match="unknown model"):
+        sync.handle_agent_create(
+            {
+                "agent_id": "invalid-model",
+                "workspace_root": str(target),
+                "default_model": "missing-model",
+            }
+        )
+
+    assert not target.exists()
+    assert owners.catalog.get("invalid-model") is None
+
+
 def test_custom_workspace_rejects_unusable_parent_without_creating_target(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
