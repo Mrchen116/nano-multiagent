@@ -517,3 +517,99 @@ None.
 ## Corrected Delta Reconciliation
 
 N/A for full verification.
+
+# Round 7
+
+> Validation snapshot: `a5e64e4fa0565179417ed96056838ce40a69ebc6 -> 2bbaa6e77887dce9a17d7e1a29c3461e5df8da8d`
+
+## Summary
+
+Mode: full
+Delta range: `b6ffab941bb7c420b58916c45cafe854a7bca764..2bbaa6e77887dce9a17d7e1a29c3461e5df8da8d`
+Focus issues: Round-6 WARNING-1; synchronous Gateway receive-path filesystem work; transcript `ready` / `missing` / `unavailable`; selection purge and one-node stability; complete durable-row negative assertions; all prior closures
+requires_full_verification: false
+
+| Dimension | Result |
+|---|---|
+| Completeness | 4/4 original requirements and 6/6 M1 exit criteria remain implemented; 1 added transcript non-blocking requirement is incomplete |
+| Correctness | 7/7 original top-level scenarios remain correct; 1/3 Round-6 correction boundaries is not correct in production composition |
+| Coherence | One blocking deviation from the approved async Gateway design |
+
+1 critical issue(s), 0 warning(s) found. Fix before PR.
+
+## Prior-Issue Closure
+
+| Prior issue / requested boundary | Result | Evidence |
+|---|---|---|
+| Round-6 WARNING-1 / complete profile and operation snapshots | closed | `_pending_rows()` selects every column from both durable tables (`tests/im_service/contract/test_agent_registration_seed_recovery.py:63-79`), and both the divergent-request and wrong-operation paths compare their immediate complete snapshots with the pre-rejection state (`tests/im_service/contract/test_agent_registration_seed_recovery.py:134-164,258-263`). |
+| Transcript status semantics | closed | A durable binding projects the exact address without probing the JSONL (`src/personal_assistant/gateway/session_binder.py:897-931`); the resolution owner maps a nonempty projection to `ready`, no binding to `missing`, and provider failure to `unavailable` (`src/personal_assistant/ws/im_connection.py:1492-1523`). IM preserves those states (`src/IM/api/routes/web_im.py:177-201`), and the selector gives `unavailable` its distinct message before missing checks (`src/IM/frontend/src/features/chat/components/distill-selection.ts:13-26`). |
+| Ineligible selection purge and no cross-node switch | closed | The query-data effect removes every selected id that is no longer eligible (`src/IM/frontend/src/features/chat/chat-workspace-page.tsx:311-322`); selected rows are then restricted to the first selected node (`src/IM/frontend/src/features/chat/chat-workspace-page.tsx:459-471`). The refresh regression proves unavailable A is purged, B can be selected, and a later ready/reordered A stays disabled while B stays checked (`src/IM/frontend/src/features/chat/chat-workspace.integration.test.tsx:536-587`). |
+| No synchronous filesystem work in the Gateway receive flow | still open | The removed `Path.is_file()` / `Path.resolve()` calls do not eliminate the production synchronous SQLite read. See CRITICAL-1. |
+| Rounds 1-5 implementation closures | closed | Authenticated serialized creation, immutable Agent id/root, node-local canonical ownership, opaque IM root/provenance, exact durable operation recovery, negative claim guards, legacy migration, and unavailable-source projection remain present and passed their permanent owner suites. |
+
+## Completeness
+
+- Tasks: the six original M1 exit criteria and the Round-6 selection/snapshot corrections are implemented. The new task claiming that durable transcript projection cannot stall Gateway control handling is contradicted by production composition and is incomplete under CRITICAL-1.
+- Original spec coverage remains complete:
+  - default/custom creation and node-side validation are implemented at `src/IM/frontend/src/features/settings/agents/agent-create-page.tsx:343-396` and `src/personal_assistant/gateway/agent_config_sync.py:181-248,383-447`;
+  - existing-directory confirmation and typed errors remain mapped at `src/IM/frontend/src/features/settings/agents/agent-create-page.tsx:468-485`;
+  - canonical same-node uniqueness remains enforced at `src/personal_assistant/gateway/agent_config_sync.py:203-225`;
+  - immutable creation/recovery remains serialized at `src/IM/api/routes/nodes.py:266-430` and persisted through the repository claim/create boundaries at `src/IM/infra/repositories/agents.py:234-431`.
+- Prototype/reference coverage remains unchanged and complete: the four `must-match` rows and one adaptive layout row still have code, repository-local desktop/mobile screenshots, and durable browser evidence under `M1-workspace-creation/evidence/`.
+- Independent validation at this snapshot:
+  - focused transcript/recovery owner suite: `35 passed, 2 warnings`;
+  - architecture/create/mirror seam: `19 passed, 5 warnings`;
+  - full non-E2E Python: `3063 passed, 24 deselected, 22 warnings`;
+  - changed Python Ruff: passed;
+  - `scripts/docs-check`: passed (`229` maintained Markdown sources, `66` required routes);
+  - `git diff --check a5e64e4f..HEAD`: passed.
+- This detached verifier worktree has no frontend dependency tree. Targeted frontend behavior was source-inspected; the committed Round-6 evidence records `49 passed`, full frontend/build success, and isolated Chromium acceptance.
+
+## Correctness
+
+| Requirement / Scenario | Implementation and test evidence | Status |
+|---|---|---|
+| Default directory creation | Default mode emits no custom root (`src/IM/frontend/src/features/settings/agents/agent-create-page.tsx:343-396`); Gateway default factory/persistence owners passed. | covered |
+| New custom root below a usable parent | Node-local validation and initialization remain at `src/personal_assistant/gateway/agent_config_sync.py:383-447`; Gateway and HTTP owners passed. | covered |
+| Missing/unusable parent or invalid target | Stable producer codes at `src/personal_assistant/gateway/agent_config_sync.py:400-436` map to localized field errors at `src/IM/frontend/src/features/settings/agents/agent-create-page.tsx:475-485`; permanent HTTP/UI coverage remains. | covered |
+| Existing directory requires explicit confirmation | First rejection and confirmation retry remain at `src/personal_assistant/gateway/agent_config_sync.py:436-447` and `src/IM/frontend/src/features/settings/agents/agent-create-page.tsx:468-485`. | covered |
+| Same-node root uniqueness and cross-node independence | Ownership checks only the target Gateway config (`src/personal_assistant/gateway/agent_config_sync.py:203-225`); canonical alias and independent-node owners remain. | covered |
+| Created root remains visible and immutable | The detail root remains read-only (`src/IM/frontend/src/features/settings/agents/agent-detail-page.tsx:1856`); IM/Gateway duplicate and claim boundaries passed. | covered |
+| Exact-operation lost-response recovery | Reservation, echoed operation, atomic claim, retirement, and complete negative snapshots remain covered at `src/IM/api/routes/nodes.py:307-430` and `tests/im_service/contract/test_agent_registration_seed_recovery.py:113-286`. | covered |
+| Binding projection returns `ready` / `missing` / `unavailable` accurately | Projection and status mapping at `src/personal_assistant/gateway/session_binder.py:897-931` and `src/personal_assistant/ws/im_connection.py:1492-1523` match the delta contract. | covered |
+| Slow/unavailable durable binding lookup does not block Gateway control frames | Production uses SQLite-backed bindings (`src/personal_assistant/gateway/composition.py:242-253`); the lookup synchronously executes SQLite on the event loop (`src/personal_assistant/gateway/session_keys.py:695-736`). The current fake-provider test does not exercise this seam. | missing implementation and test; CRITICAL-1 |
+| Ineligible source purge and one-node selection | Effect, node filter, and refresh regression at `src/IM/frontend/src/features/chat/chat-workspace-page.tsx:311-322,459-471` and `src/IM/frontend/src/features/chat/chat-workspace.integration.test.tsx:536-587`. | covered |
+
+## Coherence
+
+| Design decision | Followed? | Evidence |
+|---|---|---|
+| Side-effect-free existing-directory check and confirmed retry | Yes | Gateway validation precedes initialization and persistence. |
+| Custom roots are interpreted only on the target Gateway | Yes | Browser/IM treat the input as opaque; Gateway alone resolves it. |
+| Canonical node-local uniqueness and immutable root/provenance | Yes | No IM-global root index or root-update path was introduced. |
+| Only the exact persisted create operation may recover | Yes | Request fingerprint, operation echo, pending claim, and retirement remain a single durable chain. |
+| Transcript status distinguishes ready, missing, and unavailable | Yes | Binding-derived address and explicit wire status are preserved end to end. |
+| Transcript binding lookup is cancellable and cannot stall Gateway receive/control handling | No | `asyncio.create_task()` moves ownership out of `_listen_once`, but its synchronous provider still performs the production SQLite lookup on the same event-loop thread. Cancellation cannot preempt that call. |
+| Package and deployment boundaries | Yes | IM and Gateway communicate over HTTP/WS; architecture seam tests passed. |
+
+### Prototype / Reference Contract
+
+All four `must-match` rows (card order, default/custom mode, target-node/path-error presentation, and existing-directory confirmation) plus the adaptive layout row remain covered by implementation, repository-local desktop/390px screenshots, and acceptance evidence.
+
+## Issues
+
+### CRITICAL (must fix before PR)
+
+- **CRITICAL-1 — The production durable-binding projection still performs synchronous SQLite filesystem I/O on the Gateway event loop, so a slow binding read can stall later control frames.** The runtime composes `GatewaySessionBinder` with `PersistentSessionBindingStore` (`src/personal_assistant/gateway/composition.py:242-253`). A `session.log.resolve` schedules `_resolve_session_log()` (`src/personal_assistant/ws/im_connection.py:1475-1490`), but that coroutine immediately calls the synchronous provider before its first await (`src/personal_assistant/ws/im_connection.py:1492-1504`). The provider calls `capture_binding_provenance()` (`src/personal_assistant/gateway/session_binder.py:912-920`), which calls repository `get()` under its lock (`src/personal_assistant/gateway/session_binder.py:661-675`); the production `get()` executes SQLite synchronously (`src/personal_assistant/gateway/session_keys.py:695-736`). `asyncio.create_task()` therefore does not move the I/O off the event-loop thread, and cancelling the task cannot interrupt a blocked SQLite call. The new control-progress regression uses an immediate in-memory fake that raises before any await (`tests/unit/personal_assistant/test_gateway_im_connection_behavior.py:301-369`), so it stays green even if the production seam blocks. Make the production binding capture non-blocking (for example, expose an async projection that offloads the persistent read away from the receive event loop, or maintain an authoritative in-memory binding snapshot), then add a regression around the real production composition/store whose binding read is held until after a heartbeat/control frame is observed; also assert close cancellation does not wait on that held read.
+
+### WARNING (must fix before PR)
+
+None.
+
+### SUGGESTION (optional)
+
+None.
+
+## Corrected Delta Reconciliation
+
+N/A for full verification.
