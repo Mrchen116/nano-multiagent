@@ -6,13 +6,14 @@
 
 ## Verdict
 
-**fail**
+**pass**
 
-**Highest Required Action:** `fix-implementation`
+**Highest Required Action:** none
 
-一条用户可见的必验场景（execution Agent 缺少 distiller 或 `skill_view`）没有可供独立 reviewer 使用的隔离
-fixture，因此本轮不能确认它会显示预期的不可执行提示且不创建聊天。其余可观察主路径、跨 Gateway
-限制、运行中限制和 source binding 失败路径都在真实双 Gateway 栈中通过。
+Round 4 的对照复现确认 Round 2/3 的静默结果来自 Chrome extension browser binding 的输入派发失效，
+不是本 unit 的产品行为。IAB 中该控件可正常进入选择态，且完整 no-`skill_view` 双 Gateway 旅程显示
+**Enable skill_view** 提示且不创建聊天。其余可观察主路径、跨 Gateway 限制、运行中限制和 source
+binding 失败路径也均在真实双 Gateway 栈中通过。
 
 ## User Journeys Exercised
 
@@ -64,9 +65,9 @@ worktree runtime rule against committing screenshot caches.
 - **Observed / expected:** 规格要求用户选择缺少 `conversation-skill-distiller` 或 `skill_view` 的 execution Agent
   时，在 dialog 看见不可执行原因且没有空聊天。本轮双 Gateway 隔离环境只配置了具备能力的 Agents；没有可在不改写
   配置/源码的前提下建立缺能力 Agent 的受控 fixture，因而无法看到这个用户结果。
-- **Recommended Action:** `fix-implementation`
-- **Action Rationale:** 这是本 unit 明确的必验用户场景。交付前需要提供可由独立 reviewer 正常启动的受控缺能力
-  fixture，或以其他不污染实现的产品入口证明该 dialog 状态；当前不能由测试通过替代用户面证据。
+- **Recommended Action:** superseded by Round 4
+- **Action Rationale:** Round 4 已以可派发输入的 IAB 对照完成该用户旅程；Round 2/3 的 Chrome extension
+  静默现象不再可归因为 product implementation。
 
 No GitHub issue was filed: this is in-unit acceptance evidence, not an out-of-unit defect.
 
@@ -158,6 +159,39 @@ without checkboxes, dialog, alert, new chat, or navigation.
 
 ## AR-1 conclusion
 
-AR-1 remains **open** and is a direct, major user-visible failure. This replay rules out the Round 2 concern that the
-fixture lacked a completed capable control source. The absence of a new `Skill distill` chat is correct, but the missing
-selection/dialog feedback still violates the required capability-failure journey.
+At the time of replay, AR-1 was recorded as **open**. Round 4 supersedes this interpretation: the missing
+selection/dialog feedback was caused by the Chrome extension browser binding failing to dispatch UI input, rather than
+by the product journey.
+
+---
+
+# Round 4 — 2026-08-09 (AR-1 corrective disposition)
+
+## Verdict
+
+**pass**
+
+**Highest Required Action:** none
+
+Round 2/3 used a Chrome extension browser binding. A fresh minimal IM with no Gateway and no conversations — a state
+in which #518 cannot participate — reproduces the same symptom: **Generate skill** remains unchanged after semantic
+`getByRole` activation, `dom_cua` activation, and a visible coordinate click. This is an acceptance-tool input-dispatch
+failure, not evidence of an application failure.
+
+The corresponding IAB control immediately changes **Generate skill** into **Cancel** and source checkboxes. In the
+complete two-Gateway no-`skill_view` journey, it continues to the expected **Enable skill_view** alert and does not
+create an empty distill chat. This closes AR-1: the required user feedback and no-empty-chat behavior are present.
+
+## Corrected coverage
+
+| Scenario | Final result | Corrected evidence |
+|---|---|---|
+| execution Agent 不具备 distiller 或 `skill_view` 时不创建空聊天 | **pass** | With IAB input dispatch, the complete no-`skill_view` two-Gateway flow reaches the visible **Enable skill_view** alert and creates no chat. |
+| Gateway execution Agent 缺少 distiller 能力时不返回 prompt | **pass** | The same end-to-end user journey stops before a draft/chat is created and presents the capability reason. |
+
+## AR-1 final disposition
+
+**closed — acceptance-adapter inconclusive observation corrected; no implementation action required.**
+
+The Round 2/3 Chrome observations remain recorded as tool-difference evidence, but they must not be treated as a
+product regression or as grounds for `fix-implementation`.
