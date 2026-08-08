@@ -21,7 +21,7 @@
 - Q3: 完成口径是否包含 Claude Code 当前完整 Workflow 能力——生成与后台执行、`agent`/`parallel`/`pipeline`、保存与按名运行、进度查看、暂停/停止/恢复、权限继承、成本和规模提示？
   A(原话): 对。但是有一个考虑是，能不能在开这个工具的时候，包含对应的一些系统提示，但是不开这个工具的时候不包含。因为我的IM界面上是可以给agent选择工具的，这样我就可以有这个工具没这个工具做对比。
   Agent 解读: 完整能力都在范围内；Workflow 工具是否启用必须同时控制工具定义、Workflow 专属提示与相关入口，使 IM 中选择或取消该工具形成干净的有/无能力对照。
-- Q4: IM 中取消 `workflow` 工具时，是否将 Workflow tool schema/description、opt-in/ultracode reminder、专属运行指导、保存的 Workflow 命令和管理入口全部移除，并在重新勾选后的下一轮全部恢复？
+- Q4: IM 中取消 `Workflow` 工具时，是否将 Workflow tool schema/description、opt-in/ultracode reminder、专属运行指导、保存的 Workflow 命令和管理入口全部移除，并在重新勾选后的下一轮全部恢复？
   A(原话): 对
 
 ## 用户场景
@@ -32,7 +32,7 @@ Agent 先生成可检查的 Python 编排脚本。脚本负责循环、分支、
 
 用户可以暂停、停止、恢复或重新运行 Workflow；已经完成且仍位于相同调用前缀中的 Agent 结果会被复用。一次满意的运行可以保存为项目或个人 Workflow，之后通过名称和参数再次运行。相同能力在 `coding_cli`、Web IM 和外部 IM 中都可到达，呈现形式可以适配各入口，但运行语义一致。
 
-个人助手的 Agent 配置继续以现有工具选择为准。勾选 `workflow` 后，下一轮同时获得 Workflow 工具及其专属 model-facing 指令和入口；取消后，下一轮不再看到该工具、提示、关键词触发、保存命令或管理入口。用户因此可以用同一个 Agent、同一个任务对比启用与禁用 Workflow 的行为，而不会让隐藏提示继续影响“无 Workflow”一侧。
+个人助手的 Agent 配置继续以现有工具选择为准。勾选 `Workflow` 后，下一轮同时获得 Workflow 工具及其专属 model-facing 指令和入口；取消后，下一轮不再看到该工具、提示、关键词触发、保存命令或管理入口。用户因此可以用同一个 Agent、同一个任务对比启用与禁用 Workflow 的行为，而不会让隐藏提示继续影响“无 Workflow”一侧。
 
 本功能以本机已取证的 Claude Code 2.1.226 Dynamic Workflows 及实现期当前官方契约为行为基线。唯一主动改变是把 Workflow 脚本语言由 JavaScript 换成 Python；不因移植而额外发明激活、安全、调度、权限或产品规则。
 
@@ -46,19 +46,19 @@ Agent 先生成可检查的 Python 编排脚本。脚本负责循环、分支、
 - **THEN** Agent 可以生成并发起 Python Workflow，并向用户展示其后台运行状态
 
 #### Scenario: 个人助手勾选 Workflow
-- **GIVEN** 用户在 IM 的 Agent 工具选择中勾选 `workflow`
+- **GIVEN** 用户在 IM 的 Agent 工具选择中勾选 `Workflow`
 - **WHEN** 该 Agent 开始下一轮新回复
 - **THEN** Web IM、飞书等该 Agent 可用的对话入口都能按相同语义发起和管理 Python Workflow
 
 #### Scenario: 个人助手取消 Workflow
-- **GIVEN** 用户在 IM 的 Agent 工具选择中取消 `workflow`
+- **GIVEN** 用户在 IM 的 Agent 工具选择中取消 `Workflow`
 - **WHEN** 该 Agent 开始下一轮新回复
 - **THEN** Agent 不再提供 Workflow 工具、Workflow 专属提示、保存或管理入口，`ultracode` 也不再触发 Workflow
 - **AND** 用户明确要求使用 Workflow 时，Agent 不会发起 Workflow 调用
 
 #### Scenario: 运行中修改工具选择
 - **GIVEN** 某轮已经按启动时配置开始执行
-- **WHEN** 用户在 IM 中勾选或取消 `workflow`
+- **WHEN** 用户在 IM 中勾选或取消 `Workflow`
 - **THEN** 正在执行的整轮保持其启动时能力，更新后的完整有/无 Workflow 配置从下一轮新回复生效
 
 ### Requirement: 默认模式只响应明确 opt-in，ultracode 模式允许 Agent 自主编排
@@ -201,7 +201,7 @@ Agent 先生成可检查的 Python 编排脚本。脚本负责循环、分支、
 - **THEN** 对应 Python Workflow 按其命名空间运行，并使用相同的审批、进度、权限和恢复能力
 
 #### Scenario: Workflow 工具关闭时命名入口消失
-- **GIVEN** 当前 Agent 未启用 `workflow`
+- **GIVEN** 当前 Agent 未启用 `Workflow`
 - **WHEN** 用户查看命令发现或尝试运行保存、内置、插件 Workflow
 - **THEN** 相关命令不出现在可用入口中，也不会绕过工具选择启动运行
 

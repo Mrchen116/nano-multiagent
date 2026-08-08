@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="data:," />
+  <title>Python Dynamic Workflows — Interaction Prototype</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f3f6f7;
+      --panel: rgba(255, 255, 255, 0.94);
+      --line: #dce4e7;
+      --ink: #132128;
+      --muted: #667982;
+      --teal: #0f766e;
+      --teal-soft: #e8f7f4;
+      --amber: #a15c06;
+      --amber-soft: #fff7e7;
+      --rose: #b4233f;
+      --slate: #1e293b;
+      --shadow: 0 18px 50px rgba(31, 52, 60, 0.12);
+      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: radial-gradient(circle at 15% 0%, #e5f4f2 0, transparent 32%), var(--bg); color: var(--ink); }
+    button, select { font: inherit; }
+    button { cursor: pointer; }
+    .shell { min-height: 100vh; display: grid; grid-template-columns: 238px 1fr; }
+    .rail { background: #16252b; color: #dbe7e9; padding: 22px 18px; display: grid; align-content: start; gap: 24px; }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 760; letter-spacing: -0.02em; }
+    .brand-mark { width: 30px; height: 30px; border-radius: 10px; background: linear-gradient(145deg, #56d3c5, #0f766e); display: grid; place-items: center; color: white; }
+    .nav { display: grid; gap: 8px; }
+    .nav button { border: 0; background: transparent; color: #9fb0b5; text-align: left; border-radius: 10px; padding: 10px 12px; }
+    .nav button.active { color: white; background: rgba(255,255,255,.1); }
+    main { min-width: 0; padding: 30px; }
+    .top { display: flex; align-items: end; justify-content: space-between; gap: 18px; margin-bottom: 22px; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { font-size: 27px; letter-spacing: -0.035em; margin-bottom: 6px; }
+    .sub { color: var(--muted); margin: 0; font-size: 14px; }
+    .prototype-switch { display: flex; gap: 6px; background: #e6edef; padding: 4px; border-radius: 12px; }
+    .prototype-switch button { border: 0; padding: 8px 12px; border-radius: 9px; color: var(--muted); background: transparent; }
+    .prototype-switch button.active { color: var(--ink); background: white; box-shadow: 0 2px 8px rgba(20,40,48,.1); }
+    .view { display: none; }
+    .view.active { display: block; }
+    .card { border: 1px solid var(--line); background: var(--panel); border-radius: 18px; box-shadow: 0 6px 24px rgba(31,52,60,.06); }
+    .settings-card { max-width: 930px; padding: 22px; }
+    .section-head { display: flex; justify-content: space-between; gap: 12px; align-items: start; margin-bottom: 18px; }
+    .section-head h2 { font-size: 18px; margin-bottom: 6px; }
+    .tag { font-size: 12px; border-radius: 999px; padding: 5px 9px; background: #eef2f4; color: var(--muted); white-space: nowrap; }
+    .tool-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .tool { display: grid; grid-template-columns: 22px 1fr; gap: 11px; border: 1px solid var(--line); border-radius: 16px; padding: 14px; background: white; transition: .18s ease; }
+    .tool.selected { border-color: #8ed8cf; background: var(--teal-soft); box-shadow: inset 0 0 0 1px rgba(15,118,110,.08); }
+    .tool input { margin-top: 3px; accent-color: var(--teal); }
+    .tool strong { display: block; font-size: 14px; margin-bottom: 5px; }
+    .tool p { color: var(--muted); font-size: 12px; line-height: 1.5; margin-bottom: 0; }
+    .workflow-settings { grid-column: 1 / -1; margin-top: 4px; padding: 14px; border-top: 1px solid rgba(15,118,110,.18); display: none; }
+    .tool.selected .workflow-settings { display: block; }
+    .field-label { font-size: 12px; font-weight: 700; display: block; margin-bottom: 7px; }
+    select { width: 210px; max-width: 100%; padding: 9px 11px; border: 1px solid #b8c7cc; border-radius: 10px; background: white; color: var(--ink); }
+    .hint { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
+    .save-row { display: flex; justify-content: flex-end; gap: 9px; border-top: 1px solid var(--line); margin-top: 18px; padding-top: 16px; }
+    .btn { border: 1px solid var(--line); border-radius: 10px; background: white; padding: 9px 14px; color: var(--ink); }
+    .btn.primary { background: var(--teal); color: white; border-color: var(--teal); }
+    .btn.danger { color: var(--rose); border-color: #efbdc7; }
+
+    .chat-stage { max-width: 980px; height: 740px; border: 1px solid var(--line); background: #fbfcfc; border-radius: 20px; overflow: hidden; box-shadow: var(--shadow); display: grid; grid-template-rows: auto 1fr auto; }
+    .chat-head { height: 68px; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); background: white; }
+    .agent-id { display: flex; gap: 11px; align-items: center; }
+    .avatar { width: 38px; height: 38px; border-radius: 12px; background: #dff3ef; display: grid; place-items: center; color: var(--teal); font-weight: 800; }
+    .agent-id strong { display: block; font-size: 14px; }
+    .agent-id span { font-size: 12px; color: var(--muted); }
+    .chat-body { padding: 24px; overflow: auto; display: grid; align-content: start; gap: 16px; }
+    .bubble { max-width: 78%; border-radius: 17px; padding: 13px 15px; font-size: 14px; line-height: 1.55; }
+    .bubble.user { justify-self: end; background: #dff3ef; }
+    .bubble.agent { background: white; border: 1px solid var(--line); }
+    .tool-row { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 9px; color: var(--muted); font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .approval { width: min(630px, 100%); background: var(--slate); color: #e7eef1; border-radius: 16px; padding: 17px; box-shadow: 0 12px 28px rgba(15,23,42,.22); }
+    .approval-head { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+    .approval-head strong { color: white; }
+    .pulse { width: 8px; height: 8px; border-radius: 99px; background: #fbbf24; display: inline-block; margin-right: 6px; box-shadow: 0 0 0 5px rgba(251,191,36,.12); }
+    .approval small { color: #aebbc2; }
+    .approval h3 { margin: 16px 0 5px; font-size: 15px; }
+    .phase-list { display: grid; gap: 7px; margin: 13px 0; }
+    .phase { padding: 9px 10px; border: 1px solid #425360; border-radius: 10px; display: flex; gap: 10px; font-size: 12px; }
+    .phase b { color: #7ee3d7; min-width: 57px; }
+    .caution { background: rgba(245,158,11,.12); color: #fbd38d; border: 1px solid rgba(245,158,11,.28); padding: 9px 10px; border-radius: 10px; font-size: 12px; }
+    .script-link { border: 0; background: transparent; color: #7ee3d7; padding: 0; margin-top: 10px; font-size: 12px; }
+    .approval-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 15px; }
+    .approval-actions .btn { background: #2e3d47; border-color: #465964; color: white; }
+    .approval-actions .btn.primary { background: #0d9488; border-color: #0d9488; }
+    .approval-actions .btn.danger { color: #fecdd3; }
+    .raw-script { display: none; margin-top: 12px; max-height: 170px; overflow: auto; white-space: pre-wrap; border: 1px solid #425360; background: #101b22; border-radius: 10px; padding: 11px; font: 11px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .raw-script.open { display: block; }
+
+    .composer-wrap { padding: 0 18px 17px; background: white; }
+    .progress-strip { display: flex; align-items: center; gap: 10px; border: 1px solid #a9ded7; background: var(--teal-soft); padding: 10px 12px; border-radius: 12px 12px 5px 5px; margin-bottom: 7px; }
+    .progress-strip.paused { border-color: #efc887; background: var(--amber-soft); }
+    .progress-icon { width: 25px; height: 25px; border-radius: 9px; display: grid; place-items: center; background: white; color: var(--teal); }
+    .progress-copy { min-width: 0; flex: 1; }
+    .progress-copy strong { display: block; font-size: 12px; }
+    .progress-copy span { display: block; color: var(--muted); font-size: 11px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .progress-strip button { border: 0; background: transparent; color: var(--teal); font-size: 12px; font-weight: 700; }
+    .composer { border: 1px solid #bbc8cc; border-radius: 13px; min-height: 64px; padding: 12px; color: #819098; font-size: 13px; }
+
+    .sheet-backdrop { position: fixed; inset: 0; background: rgba(15,23,42,.38); display: none; justify-content: flex-end; z-index: 10; }
+    .sheet-backdrop.open { display: flex; }
+    .sheet { width: min(610px, 100%); height: 100%; background: #f8fafb; box-shadow: -20px 0 50px rgba(15,23,42,.2); padding: 22px; overflow: auto; }
+    .sheet-head { display: flex; justify-content: space-between; gap: 10px; }
+    .sheet-head button { border: 0; background: #e8eef0; border-radius: 9px; width: 32px; height: 32px; }
+    .run-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; margin: 17px 0; }
+    .metric { background: white; border: 1px solid var(--line); border-radius: 13px; padding: 12px; }
+    .metric span { display: block; color: var(--muted); font-size: 11px; }
+    .metric strong { display: block; margin-top: 4px; font-size: 15px; }
+    .tree { display: grid; gap: 10px; }
+    .tree-group { background: white; border: 1px solid var(--line); border-radius: 15px; padding: 14px; }
+    .tree-group h3 { font-size: 13px; margin-bottom: 10px; }
+    .agent-row { display: grid; grid-template-columns: 10px 1fr auto; align-items: center; gap: 9px; padding: 9px 0; border-top: 1px solid #edf1f2; font-size: 12px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #20a596; }
+    .dot.wait { background: #b6c1c5; }
+    .agent-row span { color: var(--muted); }
+    .controls { position: sticky; bottom: -22px; display: flex; flex-wrap: wrap; gap: 8px; background: rgba(248,250,251,.94); border-top: 1px solid var(--line); padding: 15px 0 22px; margin-top: 20px; backdrop-filter: blur(8px); }
+    .disabled-note { display: none; border: 1px dashed #bdc9cd; border-radius: 14px; padding: 14px; color: var(--muted); background: white; margin-top: 15px; font-size: 13px; }
+    body.workflow-off .progress-strip, body.workflow-off .approval { display: none; }
+    body.workflow-off .disabled-note { display: block; }
+
+    @media (max-width: 760px) {
+      .shell { grid-template-columns: 1fr; }
+      .rail { display: none; }
+      main { padding: 14px; }
+      .top { align-items: start; flex-direction: column; }
+      .tool-grid { grid-template-columns: 1fr; }
+      .workflow-settings { grid-column: auto; }
+      .chat-stage { height: calc(100vh - 145px); border-radius: 15px; }
+      .chat-body { padding: 14px; }
+      .bubble { max-width: 92%; }
+      .composer-wrap { padding: 0 10px 10px; }
+      .approval { border-radius: 13px; }
+      .run-summary { grid-template-columns: 1fr; }
+      .sheet { padding: 17px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="rail">
+      <div class="brand"><span class="brand-mark">N</span><span>nano assistant</span></div>
+      <nav class="nav" aria-label="Prototype navigation">
+        <button id="nav-settings" class="active" onclick="showView('settings')">Agent 设置</button>
+        <button id="nav-chat" onclick="showView('chat')">聊天与运行</button>
+      </nav>
+    </aside>
+    <main>
+      <header class="top">
+        <div>
+          <h1>Python Dynamic Workflows</h1>
+          <p class="sub">设计原型：工具选择完整开关、启动批准、后台进度与控制</p>
+        </div>
+        <div class="prototype-switch" aria-label="Workflow capability state">
+          <button id="cap-on" class="active" onclick="setCapability(true)">Workflow 开</button>
+          <button id="cap-off" onclick="setCapability(false)">Workflow 关</button>
+        </div>
+      </header>
+
+      <section id="view-settings" class="view active">
+        <div class="card settings-card">
+          <div class="section-head">
+            <div><h2>Tools</h2><p class="sub">选中的工具会在 Agent 下一轮新回复整体生效。</p></div>
+            <span class="tag">Behavior</span>
+          </div>
+          <div class="tool-grid">
+            <label class="tool selected"><input type="checkbox" checked /><span><strong>read</strong><p>读取工作区文件。</p></span></label>
+            <label class="tool selected"><input type="checkbox" checked /><span><strong>agent</strong><p>派发一个独立子 Agent。</p></span></label>
+            <label id="workflow-tool" class="tool selected" style="grid-column:1/-1">
+              <input id="workflow-checkbox" type="checkbox" checked onchange="setCapability(this.checked)" />
+              <span>
+                <strong>Workflow <span class="tag" style="margin-left:6px;background:#d5eee9;color:#0f766e">optional</span></strong>
+                <p>生成并在后台执行 Python 多 Agent 编排；同时启用 ultracode、保存命令和运行管理入口。</p>
+              </span>
+              <div class="workflow-settings">
+                <label class="field-label" for="size-guideline">Workflow size guideline</label>
+                <select id="size-guideline">
+                  <option>small · under 5 agents</option>
+                  <option selected>medium · under 15 agents</option>
+                  <option>large · under 50 agents</option>
+                  <option>unrestricted</option>
+                </select>
+                <p class="hint">这是生成规模建议，不替代并发、总 Agent 数和 token budget 的硬上限。</p>
+              </div>
+            </label>
+          </div>
+          <div id="settings-disabled" class="disabled-note">保存后，下一轮不再向模型提供 Workflow tool prompt；`ultracode`、`/workflows`、saved commands 和新运行入口同时消失。</div>
+          <div class="save-row"><button class="btn">取消</button><button class="btn primary">保存 Agent</button></div>
+        </div>
+      </section>
+
+      <section id="view-chat" class="view">
+        <div class="chat-stage">
+          <div class="chat-head">
+            <div class="agent-id"><span class="avatar">A</span><span><strong>Architecture Agent</strong><span>codexOAuth:gpt-5.6-sol · high</span></span></div>
+            <span class="tag">direct chat</span>
+          </div>
+          <div class="chat-body">
+            <div class="bubble user">用 workflow 并行审查这个改动，并对每条发现做独立验证。</div>
+            <div class="bubble agent">我会先生成一个两阶段 Python Workflow：并行审查，然后逐条验证。
+              <div class="tool-row">◌ Workflow · launch review-changes · wf_c91f2a</div>
+            </div>
+            <div class="approval">
+              <div class="approval-head"><strong>Workflow</strong><small><span class="pulse"></span>需要确认</small></div>
+              <h3>review-changes</h3>
+              <small>Review changed files across dimensions and verify every finding.</small>
+              <div class="phase-list">
+                <div class="phase"><b>Review</b><span>4 independent review dimensions</span></div>
+                <div class="phase"><b>Verify</b><span>adversarial check for every finding</span></div>
+              </div>
+              <div class="caution">Medium guideline · 预计 8–14 Agents。运行会消耗额外 token，可随时停止。</div>
+              <button class="script-link" onclick="document.getElementById('raw-script').classList.toggle('open')">查看原始 Python ▾</button>
+              <pre id="raw-script" class="raw-script">meta = {
+    "name": "review-changes",
+    "description": "Review and verify changes",
+    "phases": [{"title": "Review"}, {"title": "Verify"}],
+}
+
+async def main():
+    reviews = await pipeline(args["dimensions"], ...)
+    return {"confirmed": reviews}</pre>
+              <div class="approval-actions">
+                <button class="btn primary" onclick="approveWorkflow()">本次允许</button>
+                <button class="btn">总是允许</button>
+                <button class="btn danger">拒绝</button>
+              </div>
+            </div>
+            <div id="chat-disabled" class="disabled-note">Workflow 未启用。Slash picker 不显示 `/workflows`、`/deep-research` 或保存的 Workflow；输入 `ultracode` 也只是普通文本。</div>
+          </div>
+          <div class="composer-wrap">
+            <div id="progress" class="progress-strip">
+              <span class="progress-icon">↻</span>
+              <div class="progress-copy"><strong>review-changes · Review</strong><span>3 running · 2 completed · 48.2k tokens · 01:18</span></div>
+              <button onclick="openSheet()">查看</button>
+            </div>
+            <div class="composer">继续发消息…　输入 / 查看命令</div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="sheet-backdrop" class="sheet-backdrop" onclick="closeSheet(event)">
+    <aside class="sheet" aria-label="Workflow detail">
+      <div class="sheet-head"><div><h2 style="margin-bottom:5px">review-changes</h2><p class="sub">wf_c91f2a · running · medium</p></div><button onclick="closeSheet()">×</button></div>
+      <div class="run-summary">
+        <div class="metric"><span>Agents</span><strong>5 / 11</strong></div>
+        <div class="metric"><span>Output tokens</span><strong>48.2k</strong></div>
+        <div class="metric"><span>Elapsed</span><strong>01:18</strong></div>
+      </div>
+      <div class="tree">
+        <section class="tree-group"><h3>✓ Review</h3>
+          <div class="agent-row"><i class="dot"></i><b>review:correctness</b><span>completed · 12.4k</span></div>
+          <div class="agent-row"><i class="dot"></i><b>review:security</b><span>completed · 9.8k</span></div>
+          <div class="agent-row"><i class="dot"></i><b>review:performance</b><span>completed · 8.1k</span></div>
+          <div class="agent-row"><i class="dot"></i><b>review:maintainability</b><span>completed · 10.7k</span></div>
+        </section>
+        <section class="tree-group"><h3>↻ Verify</h3>
+          <div class="agent-row"><i class="dot"></i><b>verify:race-condition</b><span>running · 7.2k</span></div>
+          <div class="agent-row"><i class="dot wait"></i><b>verify:error-path</b><span>queued</span></div>
+          <div class="agent-row"><i class="dot wait"></i><b>verify:permission</b><span>queued</span></div>
+        </section>
+      </div>
+      <div class="controls">
+        <button id="pause-button" class="btn" onclick="togglePause()">暂停</button>
+        <button class="btn">重启选中 Agent</button>
+        <button class="btn danger">停止运行</button>
+        <button class="btn">保存 Workflow</button>
+      </div>
+    </aside>
+  </div>
+
+  <script>
+    function showView(name) {
+      document.querySelectorAll('.view').forEach((el) => el.classList.remove('active'));
+      document.querySelectorAll('.nav button').forEach((el) => el.classList.remove('active'));
+      document.getElementById(`view-${name}`).classList.add('active');
+      document.getElementById(`nav-${name}`).classList.add('active');
+    }
+    function setCapability(enabled) {
+      document.body.classList.toggle('workflow-off', !enabled);
+      document.getElementById('workflow-checkbox').checked = enabled;
+      document.getElementById('workflow-tool').classList.toggle('selected', enabled);
+      document.getElementById('cap-on').classList.toggle('active', enabled);
+      document.getElementById('cap-off').classList.toggle('active', !enabled);
+    }
+    function approveWorkflow() {
+      document.querySelector('.approval').style.display = 'none';
+    }
+    function openSheet() { document.getElementById('sheet-backdrop').classList.add('open'); }
+    function closeSheet(event) {
+      if (event && event.target !== document.getElementById('sheet-backdrop')) return;
+      document.getElementById('sheet-backdrop').classList.remove('open');
+    }
+    function togglePause() {
+      const button = document.getElementById('pause-button');
+      const strip = document.getElementById('progress');
+      const paused = button.textContent === '继续';
+      button.textContent = paused ? '暂停' : '继续';
+      strip.classList.toggle('paused', !paused);
+      strip.querySelector('strong').textContent = paused ? 'review-changes · Verify' : 'review-changes · 已暂停';
+    }
+  </script>
+</body>
+</html>
