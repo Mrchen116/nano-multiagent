@@ -21,6 +21,10 @@ class TokenUsage:
     # 故命中率分子/分母需独立的可累加字段。默认 0 → 不带缓存的 provider / 旧持久化天然兼容。
     cache_read_tokens: int = 0
     cache_total_input_tokens: int = 0
+    # This is provider-call metadata used only by the Gateway cache-cost alert.
+    # ``0`` may mean an explicit cache miss, so only providers that returned the
+    # cache-read field set this flag. It is deliberately not relayed or persisted.
+    cache_usage_available: bool = False
 
 
 @dataclass(frozen=True, slots=True)

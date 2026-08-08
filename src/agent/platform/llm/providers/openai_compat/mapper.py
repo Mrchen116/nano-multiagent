@@ -322,17 +322,19 @@ def _parse_openai_usage(payload: Any) -> TokenUsage | None:
     )
     # feat-439-M1: 与 client.py:_parse_openai_usage 同口径，避免两份漂移。
     details = payload.get("prompt_tokens_details")
-    cached = (
+    cached_value = (
         _extract_non_negative_int(details.get("cached_tokens"))
         if isinstance(details, Mapping)
         else None
-    ) or 0
+    )
+    cached = cached_value or 0
     return TokenUsage(
         prompt_tokens=resolved_prompt,
         completion_tokens=resolved_completion,
         total_tokens=resolved_total,
         cache_read_tokens=cached,
         cache_total_input_tokens=resolved_prompt,
+        cache_usage_available=cached_value is not None,
     )
 
 

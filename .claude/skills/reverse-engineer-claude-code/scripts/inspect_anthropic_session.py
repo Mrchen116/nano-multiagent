@@ -154,7 +154,9 @@ def main() -> int:
     args = parse_args()
     captures = load_requests(args.session_dir)
     if not captures:
-        raise SystemExit(f"no Anthropic request captures found under {args.session_dir}")
+        raise SystemExit(
+            f"no Anthropic request captures found under {args.session_dir}"
+        )
 
     if args.as_json:
         result: dict[str, Any] = {
@@ -174,7 +176,10 @@ def main() -> int:
             ]
         if args.show_last_message:
             result["last_messages"] = [
-                {"file": path.name, "message": redact((request.get("messages") or [None])[-1])}
+                {
+                    "file": path.name,
+                    "message": redact((request.get("messages") or [None])[-1]),
+                }
                 for path, request in captures
             ]
         print(json.dumps(result, ensure_ascii=False, indent=2))

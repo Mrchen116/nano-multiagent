@@ -1,6 +1,6 @@
 # gateway (personal_assistant) Specification
 
-> 对齐: feat-514
+> 对齐: feat-516
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
 
@@ -19,7 +19,7 @@
 | Area | Covers | Requirements |
 |---|---|---|
 | [Routing and Delivery](routing-delivery.md) | 入站路由、群聊触发、/stop、/new、/compact、运行中插话、配置边界、回复线程、会话映射、产品投递、失败反馈 | 13 |
-| [Service Lifecycle](service-lifecycle.md) | 启停、IM WS、reconnect/ack、auto-bind | 5 |
+| [Service Lifecycle](service-lifecycle.md) | 启停、IM WS、reconnect/ack、auto-bind、cache warning | 6 |
 | [Agent Capabilities](agent-capabilities.md) | 完整运行配置、模型配置、推理能力、可恢复配置 operation、tool_allowlist、context window、PA 产品手册与内置 skill bundle | 10 |
 | [Heartbeat and Cron](heartbeat-cron.md) | per-agent heartbeat / cron 开关、调度、错过周期语义 | 1 |
 | [Relay Protocol](relay-protocol.md) | tool relay、skill usage RPC、附件透传、tool terminal events、图片、授权决策、cache/thinking、fork、配置边界、shadow mirror 与自进化通知 | 12 |
