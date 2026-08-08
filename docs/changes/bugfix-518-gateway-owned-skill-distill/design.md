@@ -10,6 +10,7 @@
 | v5.1 | 记录用户确认的 visible-path policy；把 prompt 生成与 execution direct conversation 的同节点路由绑定为一个 IM operation；保留既有 skill readiness，并补全 control RPC/result 与测试处置。 |
 | v5.2 | 使 conversation pin 在服务端优先于 legacy message `target_node_id` hint，并把受影响 HTTP/control 测试归属写入 tasks。 |
 | v5.3 | 保留既有 external shadow conversation 的 binding fallback：browser 仍只提交 source ID，IM 仅在已有 external identity 时将其随 control request 交给 Gateway。 |
+| v5.4 | 补齐 reviewer 的隔离 IM/Gateway/Vite 双节点验收 runbook；不改变产品或协议决策。 |
 
 ## 问题与边界
 

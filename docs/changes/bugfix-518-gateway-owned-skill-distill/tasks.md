@@ -1,6 +1,6 @@
 # bugfix-518-M1: Gateway-owned distill prompt — Tasks
 
-> 对齐: [design.md](design.md) v5.3
+> 对齐: [design.md](design.md) v5.4
 
 ## 实施清单
 

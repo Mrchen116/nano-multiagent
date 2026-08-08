@@ -863,3 +863,31 @@ second transcript mechanism.
 ### Conclusion
 
 v5.3 remains ready for implementation and verification.
+
+## Round 9
+
+### Metadata
+
+| Field | Value |
+|---|---|
+| Reviewer target | fallback independent reviewer `bugfix_518_code_finder` |
+| Review mode | narrow delta |
+| Mode reason | The original reviewer could not be resumed because the agent-thread limit was reached. This round covers only v5.4's reviewer runbook. |
+
+### Verdict
+
+**APPROVE — 0 CRITICAL / 0 WARNING.** The runbook now gives the reviewer direct
+frontend cwd/port commands, a distinct second-Gateway config/runtime/workspace,
+explicit launch and authenticated registration check, plus cleanup. It is
+operational acceptance guidance only and changes no product behavior,
+architecture, or protocol contract.
+
+### Historical issue closure
+
+| Item | Resolution | Status |
+|---|---|---|
+| R9-W1 | Added explicit Vite cwd/free port and second Gateway derivation/start/readiness commands. | **closed** |
+
+### Conclusion
+
+v5.4 is ready for the independent reviewer and verifier gates.
