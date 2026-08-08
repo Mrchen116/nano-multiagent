@@ -170,3 +170,25 @@ None.
 - Rollback: revert this correction commit; no data migration deletes prior profiles or Agent configs.
 - Next: rebase this isolated milestone on the current unit branch, publish it, and let the orchestrator run final
   integration review.
+
+## Round 5 correction — strict Gateway replay and unavailable source projection
+
+- Context: code review found that a missing `create_operation_id` could replay an existing Gateway Agent, and an
+  Agent-sourced conversation whose profile was missing or had no node projected as “No transcript.” The recovery
+  contract also needed direct HTTP proof that a divergent request or wrong echoed operation cannot consume a pending
+  claim.
+- Decision: Gateway replays an existing local Agent only for the exact non-empty persisted operation id. IM now
+  projects an Agent source without a routable profile as `source_jsonl_status="unavailable"`; the distill selector
+  prioritizes that status over a missing source node. The HTTP recovery contract preserves its operation/profile
+  marker before the one valid claim and asserts that divergent requests never dispatch to Gateway.
+- Rationale: a Gateway registration is not authority to recover a create result; only the durable operation binds the
+  original IM request. Lack of a route is temporary availability uncertainty, not proof that a transcript does not
+  exist.
+- Evidence: red tests then passed for no-id and wrong-id replay, absent/null-node source projection, unavailable UI
+  precedence, divergent no-dispatch state preservation, and wrong echoed-operation state preservation. The expanded
+  Python owner suite passed `97 passed, 2 warnings`; targeted sidebar Vitest passed `12 tests`. A real isolated
+  IM/Gateway/Vite browser flow stopped only the worktree Gateway and rendered disabled **Transcript temporarily
+  unavailable** with no console errors or warnings; all processes and ports were released. Full Python (`3062 passed,
+  24 deselected`), full frontend/build, Ruff, docs, and diff gates passed. Durable detail:
+  `evidence/correction-round-5.md`.
+- Next: commit the constrained correction, rebase on the current unit tip, and publish only the milestone branch.

@@ -202,10 +202,8 @@ class IMAgentConfigSync:
             if (
                 existing_agent.workspace_root.expanduser().resolve() == workspace_root
                 and existing_agent.workspace_is_default == workspace_is_default
-                and (
-                    create_operation_id is None
-                    or existing_agent.create_operation_id == create_operation_id
-                )
+                and create_operation_id is not None
+                and existing_agent.create_operation_id == create_operation_id
             ):
                 description = agent_payload.get("description")
                 return self._agent_create_payload(

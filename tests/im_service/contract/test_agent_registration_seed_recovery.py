@@ -112,6 +112,80 @@ def test_lost_create_response_recovers_only_matching_durable_operation(tmp_path:
             _register_created_agent(
                 websocket, agent_id="recovered-agent", operation_id=operation
             )
+            pending_state = {
+                "profile": dict(
+                    app.state.connection.execute(
+                        "SELECT workspace_root, workspace_is_default, pending_create_operation_id "
+                        "FROM agent_profiles WHERE agent_id = ?",
+                        ("recovered-agent",),
+                    ).fetchone()
+                ),
+                "operation": dict(
+                    app.state.connection.execute(
+                        "SELECT operation_id, owner_id, node_id, agent_id, request_fingerprint "
+                        "FROM agent_create_operations WHERE operation_id = ?",
+                        (operation,),
+                    ).fetchone()
+                ),
+            }
+            dispatches: list[dict[str, object]] = []
+
+            async def unexpected_dispatch(**kwargs):
+                dispatches.append(kwargs)
+                raise AssertionError("a divergent retry must not reach Gateway")
+
+            app.state.gateway_control.request_agent_create = unexpected_dispatch
+            different_request = client.post(
+                "/im/v1/nodes/node-bound-seed/agents",
+                json={**payload, "display_name": "Different request"},
+            )
+            state_after_different_request = {
+                "profile": dict(
+                    app.state.connection.execute(
+                        "SELECT workspace_root, workspace_is_default, pending_create_operation_id "
+                        "FROM agent_profiles WHERE agent_id = ?",
+                        ("recovered-agent",),
+                    ).fetchone()
+                ),
+                "operation": dict(
+                    app.state.connection.execute(
+                        "SELECT operation_id, owner_id, node_id, agent_id, request_fingerprint "
+                        "FROM agent_create_operations WHERE operation_id = ?",
+                        (operation,),
+                    ).fetchone()
+                ),
+            }
+
+            async def wrong_operation(**kwargs):
+                return {
+                    "agent_id": "recovered-agent",
+                    "display_name": "Recovered Agent",
+                    "description": "Recovered after a lost response.",
+                    "workspace_root": "/gateway/recovered-agent",
+                    "workspace_is_default": False,
+                    "create_operation_id": "wrong-operation-id",
+                }
+
+            app.state.gateway_control.request_agent_create = wrong_operation
+            wrong_operation_rejected = client.post(
+                "/im/v1/nodes/node-bound-seed/agents", json=payload
+            )
+            state_after_wrong_operation = {
+                "profile": dict(
+                    app.state.connection.execute(
+                        "SELECT workspace_root, workspace_is_default, pending_create_operation_id "
+                        "FROM agent_profiles WHERE agent_id = ?",
+                        ("recovered-agent",),
+                    ).fetchone()
+                ),
+                "operation": dict(
+                    app.state.connection.execute(
+                        "SELECT operation_id, owner_id, node_id, agent_id, request_fingerprint "
+                        "FROM agent_create_operations WHERE operation_id = ?",
+                        (operation,),
+                    ).fetchone()
+                ),
+            }
 
             async def wrong_root(**kwargs):
                 return {
@@ -206,6 +280,11 @@ def test_lost_create_response_recovers_only_matching_durable_operation(tmp_path:
             websocket.__exit__(None, None, None)
 
     assert initial.status_code == 503
+    assert different_request.status_code == 409
+    assert dispatches == []
+    assert state_after_different_request == pending_state
+    assert wrong_operation_rejected.status_code == 409
+    assert state_after_wrong_operation == pending_state
     assert [
         root_rejected.status_code,
         provenance_rejected.status_code,
