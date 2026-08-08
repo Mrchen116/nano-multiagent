@@ -1,7 +1,6 @@
 """Node board, capability, and node-scoped agent creation routes for IM HTTP APIs."""
 
 import asyncio
-from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -284,7 +283,15 @@ async def _create_node_agent_locked(
     requested_skills: list[str] | None,
 ) -> AgentConfigResponse | JSONResponse:
     """Create one Agent while the app-scoped uniqueness lock is held."""
-    if service.get_profile(agent_id=payload.agent_id) is not None:
+    existing = service.get_profile(agent_id=payload.agent_id)
+    seeded_claim_candidate = (
+        existing is not None
+        and not existing.owner_id.strip()
+        and existing.node_id == node_id
+        and existing.workspace_root is not None
+        and existing.workspace_is_default is not None
+    )
+    if existing is not None and not seeded_claim_candidate:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="agent_id already exists"
         )
@@ -321,52 +328,85 @@ async def _create_node_agent_locked(
             detail="node returned an invalid workspace error",
         )
     workspace_root = created_payload.get("workspace_root")
-    if (
-        not isinstance(workspace_root, str)
-        or not workspace_root.strip()
-        or not Path(workspace_root).is_absolute()
-    ):
+    if not isinstance(workspace_root, str) or not workspace_root.strip():
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="node did not return workspace_root",
         )
+    workspace_is_default = created_payload.get("workspace_is_default")
+    resolved_workspace_is_default = (
+        workspace_is_default if isinstance(workspace_is_default, bool) else None
+    )
+    display_name = _coerce_text(
+        created_payload.get("display_name"), fallback=payload.display_name
+    )
+    description = _coerce_text(
+        created_payload.get("description"), fallback=payload.description
+    )
+    skills = _coerce_string_list(
+        created_payload.get("skills"), fallback=requested_skills
+    )
+    tool_allowlist = _coerce_string_list(
+        created_payload.get("tool_allowlist"), fallback=payload.tool_allowlist
+    )
+    group_reply_policy = _coerce_text(
+        created_payload.get("group_reply_policy"),
+        fallback=payload.group_reply_policy,
+    )
+    default_model = _coerce_optional_text(
+        created_payload.get("default_model"), fallback=payload.default_model
+    )
+    features = _coerce_bool_dict(
+        created_payload.get("features"), fallback=payload.features
+    )
+    custom_prompt = _coerce_optional_text(
+        created_payload.get("custom_prompt"), fallback=payload.custom_prompt
+    )
     try:
-        created = service.create_profile(
-            agent_id=payload.agent_id,
-            owner_id=user.owner_id,
-            node_id=node_id,
-            display_name=_coerce_text(
-                created_payload.get("display_name"), fallback=payload.display_name
-            ),
-            description=_coerce_text(
-                created_payload.get("description"), fallback=payload.description
-            ),
-            skills=_coerce_string_list(
-                created_payload.get("skills"), fallback=requested_skills
-            ),
-            tool_allowlist=_coerce_string_list(
-                created_payload.get("tool_allowlist"), fallback=payload.tool_allowlist
-            ),
-            group_reply_policy=_coerce_text(
-                created_payload.get("group_reply_policy"),
-                fallback=payload.group_reply_policy,
-            ),
-            default_model=_coerce_optional_text(
-                created_payload.get("default_model"), fallback=payload.default_model
-            ),
-            workspace_root=workspace_root,
-            workspace_is_default=(
-                created_payload.get("workspace_is_default")
-                if isinstance(created_payload.get("workspace_is_default"), bool)
-                else None
-            ),
-            features=_coerce_bool_dict(
-                created_payload.get("features"), fallback=payload.features
-            ),
-            custom_prompt=_coerce_optional_text(
-                created_payload.get("custom_prompt"), fallback=payload.custom_prompt
-            ),
-        )
+        if seeded_claim_candidate:
+            assert existing is not None
+            if (
+                workspace_root != existing.workspace_root
+                or resolved_workspace_is_default != existing.workspace_is_default
+                or display_name != payload.display_name
+                or (
+                    payload.workspace_root is not None
+                    and payload.workspace_root != workspace_root
+                )
+            ):
+                raise ValueError("agent_id already exists")
+            assert resolved_workspace_is_default is not None
+            created = service.claim_seeded_profile(
+                agent_id=payload.agent_id,
+                owner_id=user.owner_id,
+                node_id=node_id,
+                expected_workspace_root=workspace_root,
+                expected_workspace_is_default=resolved_workspace_is_default,
+                display_name=display_name,
+                description=description,
+                skills=skills,
+                tool_allowlist=tool_allowlist,
+                group_reply_policy=group_reply_policy,
+                default_model=default_model,
+                features=features,
+                custom_prompt=custom_prompt,
+            )
+        else:
+            created = service.create_profile(
+                agent_id=payload.agent_id,
+                owner_id=user.owner_id,
+                node_id=node_id,
+                display_name=display_name,
+                description=description,
+                skills=skills,
+                tool_allowlist=tool_allowlist,
+                group_reply_policy=group_reply_policy,
+                default_model=default_model,
+                workspace_root=workspace_root,
+                workspace_is_default=resolved_workspace_is_default,
+                features=features,
+                custom_prompt=custom_prompt,
+            )
     except LookupError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)

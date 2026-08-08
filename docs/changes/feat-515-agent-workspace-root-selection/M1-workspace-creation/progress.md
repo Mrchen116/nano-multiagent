@@ -125,3 +125,11 @@ None.
   - Session-log tests now cover repository non-dereference, IM control correlation, Gateway nested-log lookup, and HTTP list/sync projection through RPC.
 - Runtime/cleanup: no production service, port, config, database, or workspace was touched. Frontend validation temporarily linked the main checkout's installed `node_modules` into this isolated worktree; the link, build output, and TypeScript build info were removed immediately after validation.
 - Durable detail: `evidence/correction-round-1.md`.
+
+## Round 2 correction — provenance coherence, opaque target roots, and distill/session boundaries
+
+- Context: Round-2 verification found that an ownerless re-registration could refresh a non-NULL provenance while retaining the old root. It also identified IM-host POSIX validation, a lost-response gap after real registration, cross-node distillation selection, and serial JSONL scans on the Gateway receive owner.
+- Decision: register and repository upsert now fill only NULL provenance. Successful Gateway roots are opaque outside the Gateway. A serialized claim finalizes only an ownerless seed with the same node/root/provenance and the Gateway's original display name. Transcript-capable conversation projections carry `source_node_id`, and the distill picker disables other-node paths. Gateway session-log scans run as bounded background tasks.
+- Evidence: focused Python owners — 17 passed; Gateway connection behavior plus the new concurrency owner — 29 passed; frontend targeted owners — 69 passed; production frontend build passed. A real isolated IM/Gateway/Vite browser run submitted `C:\\Gateway Data\\windows_ui_round2`; it reached the target Gateway and rendered its node-side parent error, rather than a client-side POSIX syntax rejection.
+- Browser cleanup: stopped the isolated IM/Gateway/Vite processes and confirmed both generated ports were released. Runtime files remain ignored and unstaged.
+- Durable detail: `evidence/correction-round-2.md`.

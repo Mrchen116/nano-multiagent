@@ -235,3 +235,114 @@ def test_concurrent_duplicate_http_creates_dispatch_only_one_gateway_create(
         ).fetchone()
         assert stored is not None
         assert stored["workspace_root"] == gateway_calls[0]
+
+
+def test_agent_create_accepts_target_gateway_workspace_syntax(
+    tmp_path: Path,
+) -> None:
+    """IM persists a successful Gateway root without applying the IM host's path rules."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner = register_user(client, username="owner-windows")
+        authorize(client, owner)
+        NodeRepository(app.state.connection).upsert_node(
+            node_id="node-windows", node_name="Windows Gateway", owner_id=owner.owner_id
+        )
+
+        async def fake_request_agent_create(**_kwargs):
+            return {
+                "agent_id": "windows-agent",
+                "display_name": "Windows Agent",
+                "workspace_root": r"C:\\Gateway Data\\windows-agent",
+                "workspace_is_default": False,
+            }
+
+        app.state.gateway_control.request_agent_create = fake_request_agent_create
+        response = client.post(
+            "/im/v1/nodes/node-windows/agents",
+            json={
+                "agent_id": "windows-agent",
+                "owner_id": "",
+                "display_name": "Windows Agent",
+                "skills": [],
+                "tool_allowlist": [],
+                "group_reply_policy": "MENTION",
+                "workspace_root": r"C:\\Gateway Data\\windows-agent",
+            },
+        )
+
+        assert response.status_code == 201, response.text
+        assert response.json()["workspace_root"] == r"C:\\Gateway Data\\windows-agent"
+
+
+def test_agent_create_claims_matching_ownerless_registration_seed_after_lost_response(
+    tmp_path: Path,
+) -> None:
+    """A same-root/name retry can finalize the real Gateway registration seed only."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner = register_user(client, username="owner-seed")
+        authorize(client, owner)
+        with client.websocket_connect("/im/ws/gateway") as websocket:
+            websocket.send_json(
+                {
+                    "type": "node.register",
+                    "payload": {
+                        "node_id": "node-seed",
+                        "node_name": "Gateway",
+                        "version": "1.0.0",
+                        "agents": ["seed-agent"],
+                        "agent_workspaces": {"seed-agent": "/gateway/seed-agent"},
+                        "agent_workspace_is_default": {"seed-agent": False},
+                    },
+                }
+            )
+            assert websocket.receive_json()["type"] == "ack"
+
+            async def fake_request_agent_create(**_kwargs):
+                return {
+                    "agent_id": "seed-agent",
+                    "display_name": "Seed Agent",
+                    "description": "Created before the response was lost.",
+                    "workspace_root": "/gateway/seed-agent",
+                    "workspace_is_default": False,
+                }
+
+            app.state.gateway_control.request_agent_create = fake_request_agent_create
+            payload = {
+                "agent_id": "seed-agent",
+                "owner_id": "",
+                "display_name": "Seed Agent",
+                "description": "Created before the response was lost.",
+                "skills": [],
+                "tool_allowlist": [],
+                "group_reply_policy": "MENTION",
+                "workspace_root": "/gateway/seed-agent",
+            }
+            changed_root = client.post(
+                "/im/v1/nodes/node-seed/agents",
+                json={**payload, "workspace_root": "/gateway/other"},
+            )
+            changed_name = client.post(
+                "/im/v1/nodes/node-seed/agents",
+                json={**payload, "display_name": "Other Name"},
+            )
+            claimed = client.post("/im/v1/nodes/node-seed/agents", json=payload)
+
+        assert changed_root.status_code == 409
+        assert changed_name.status_code == 409
+        assert claimed.status_code == 201, claimed.text
+        assert claimed.json()["owner_id"] == owner.owner_id
+        assert claimed.json()["display_name"] == "Seed Agent"
+        stored = app.state.connection.execute(
+            "SELECT owner_id, display_name, description, workspace_root, workspace_is_default "
+            "FROM agent_profiles WHERE agent_id = ?",
+            ("seed-agent",),
+        ).fetchone()
+        assert dict(stored) == {
+            "owner_id": owner.owner_id,
+            "display_name": "Seed Agent",
+            "description": "Created before the response was lost.",
+            "workspace_root": "/gateway/seed-agent",
+            "workspace_is_default": 0,
+        }

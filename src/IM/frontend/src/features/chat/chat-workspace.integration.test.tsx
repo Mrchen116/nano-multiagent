@@ -80,6 +80,7 @@ const FIXTURES = {
       created_at: "2026-05-01T00:00:00Z",
       run_state: "idle",
       source_agent_id: "a-planner",
+      source_node_id: "node-prod",
       source_jsonl_path: "/tmp/planner-session.jsonl"
     },
     {
@@ -103,6 +104,7 @@ const FIXTURES = {
       created_at: "2026-05-01T00:00:00Z",
       run_state: "idle",
       source_agent_id: "a-writer",
+      source_node_id: "node-prod",
       source_jsonl_path: "/tmp/writer-session.jsonl"
     },
     {
@@ -124,6 +126,7 @@ const FIXTURES = {
       created_at: "2026-05-01T00:00:00Z",
       run_state: "idle",
       source_agent_id: null,
+      source_node_id: null,
       source_jsonl_path: null
     }
   ] satisfies Conversation[],
@@ -209,6 +212,7 @@ function mockFetch(opts: {
         created_at: "2026-05-01T00:02:00Z",
         run_state: "idle",
         source_agent_id: agentId,
+        source_node_id: "node-prod",
         source_jsonl_path: null
       };
       conversations.unshift(created);

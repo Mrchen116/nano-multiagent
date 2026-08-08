@@ -571,10 +571,6 @@ export function AgentCreatePage() {
             setWorkspaceError(t("agents.form.workspaceCreate.pathRequired"));
             return;
           }
-          if (!workspaceRoot.startsWith("/") && !workspaceRoot.startsWith("~/")) {
-            setWorkspaceError(t("agents.form.workspaceCreate.pathAbsolute"));
-            return;
-          }
           if (existingConfirmationRequired && !existingConfirmed) {
             setWorkspaceError(t("agents.form.workspaceCreate.confirmRequired"));
             return;

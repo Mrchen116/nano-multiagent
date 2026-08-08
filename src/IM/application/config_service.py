@@ -2,7 +2,6 @@
 
 import asyncio
 from collections.abc import Callable
-from pathlib import Path
 
 from IM.domain.models import (
     AgentProfile,
@@ -135,6 +134,75 @@ class ConfigService:
         )
         return created
 
+    def claim_seeded_profile(
+        self,
+        *,
+        agent_id: str,
+        owner_id: str,
+        node_id: str,
+        expected_workspace_root: str,
+        expected_workspace_is_default: bool,
+        display_name: str,
+        description: str,
+        skills: list[str],
+        tool_allowlist: list[str],
+        group_reply_policy: str,
+        default_model: str | None,
+        features: dict[str, bool],
+        custom_prompt: str | None,
+    ) -> AgentProfile:
+        """Claim a matching ownerless Gateway seed after a lost create response.
+
+        The caller holds the app-scoped create lock.  This method accepts only the
+        durable root/provenance pair seeded by the same node, so it cannot turn a
+        retried request into an overwrite of another Agent's workspace binding.
+        """
+        if self._nodes is None:
+            raise LookupError("node_id not found")
+        node = self._nodes.get_node(node_id=node_id)
+        if node is None:
+            raise LookupError("node_id not found")
+        normalized_owner_id = owner_id.strip()
+        if (
+            node.owner_id.strip()
+            and normalized_owner_id
+            and node.owner_id != normalized_owner_id
+        ):
+            raise ValueError("node_id owned by another owner")
+        claimed = self._profiles.claim_seeded_profile(
+            agent_id=agent_id,
+            owner_id=normalized_owner_id,
+            node_id=node_id,
+            expected_workspace_root=expected_workspace_root,
+            expected_workspace_is_default=expected_workspace_is_default,
+            display_name=display_name,
+            description=description,
+            skills=skills,
+            tool_allowlist=tool_allowlist,
+            group_reply_policy=group_reply_policy,
+            default_model=default_model,
+            features=features,
+            custom_prompt=custom_prompt,
+        )
+        if claimed is None:
+            raise ValueError("agent_id already exists")
+        if not node.owner_id.strip() and normalized_owner_id:
+            self._nodes.assign_owner(node_id=node_id, owner_id=normalized_owner_id)
+        if self._users is not None:
+            agent_user = self.ensure_agent_user(
+                agent_id=agent_id, display_name=claimed.display_name
+            )
+            if agent_user is not None and agent_user.display_name != claimed.display_name:
+                self._users.update_user(
+                    user_id=agent_user.id,
+                    display_name=claimed.display_name,
+                    default_entry_node_id=agent_user.default_entry_node_id,
+                )
+        self._notify_config_sync(
+            agent_id=agent_id, profile_version=claimed.profile_version
+        )
+        return claimed
+
     def list_profiles(self) -> list[AgentProfile]:
         """List all agent profiles in storage order."""
         return self._profiles.list_profiles()
@@ -235,18 +303,14 @@ class ConfigService:
 
         Blank values mean "use managed default" and are persisted as the canonical
         managed workspace path so later runtime/session refreshes can trust storage.
-        Non-blank values must use absolute syntax. IM deliberately does not resolve
-        node-local paths because the Gateway may run on a different host.
+        Non-blank values remain opaque to IM.  The owning Gateway validates and
+        interprets its node-local syntax, which can differ from the IM host.
         """
         if workspace_root is None:
             return managed_workspace_root(agent_id)
-        normalized = workspace_root.strip()
-        if not normalized:
+        if not workspace_root.strip():
             return managed_workspace_root(agent_id)
-        path = Path(normalized)
-        if not path.is_absolute():
-            raise ValueError("workspace_root must be an absolute path")
-        return normalized
+        return workspace_root
 
     def _notify_config_sync(self, *, agent_id: str, profile_version: int) -> None:
         notifier = self._config_sync_notifier

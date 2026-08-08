@@ -122,6 +122,7 @@ describe("ConversationSidebar", () => {
             title: "Idle chat",
             run_state: "idle",
             source_agent_id: "a1",
+            source_node_id: "node-1",
             source_jsonl_path: "/tmp/idle.jsonl"
           }),
           conv({
@@ -129,6 +130,7 @@ describe("ConversationSidebar", () => {
             title: "Running chat",
             run_state: "running",
             source_agent_id: "a1",
+            source_node_id: "node-1",
             source_jsonl_path: "/tmp/running.jsonl"
           })
         ]}
@@ -186,6 +188,34 @@ describe("ConversationSidebar", () => {
     expect(screen.getByRole("button", { name: "Distill to skill" })).toBeDisabled();
   });
 
+  it("disables a transcript on another Gateway node after a source node is selected", () => {
+    render(
+      <ConversationSidebar
+        conversations={[
+          conv({
+            id: "node-1", title: "Node one", source_agent_id: "a1",
+            source_node_id: "node-1", source_jsonl_path: "/tmp/node-1.jsonl"
+          }),
+          conv({
+            id: "node-2", title: "Node two", source_agent_id: "a2",
+            source_node_id: "node-2", source_jsonl_path: "/tmp/node-2.jsonl"
+          })
+        ]}
+        activeConversationId={null}
+        onSelect={() => {}}
+        onNewGroup={() => {}}
+        distillMode
+        selectedDistillConversationIds={new Set(["node-1"])}
+        selectedDistillSourceNodeId="node-1"
+        selectedDistillEligibleCount={1}
+      />
+    );
+
+    expect(screen.getByRole("checkbox", { name: /Node one/ })).toBeEnabled();
+    expect(screen.getByRole("checkbox", { name: /Node two/ })).toBeDisabled();
+    expect(screen.getByText("Different Gateway node")).toBeInTheDocument();
+  });
+
   it("opens a right-click menu entry that enters skill distill multi-select", async () => {
     const user = userEvent.setup();
     const onEnter = vi.fn();
@@ -197,6 +227,7 @@ describe("ConversationSidebar", () => {
             title: "Idle chat",
             run_state: "idle",
             source_agent_id: "a1",
+            source_node_id: "node-1",
             source_jsonl_path: "/tmp/idle.jsonl"
           })
         ]}
