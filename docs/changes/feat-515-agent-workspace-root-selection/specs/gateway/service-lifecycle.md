@@ -61,9 +61,11 @@ Gateway 处理 IM 下行的 `agent.create` 时，在**本节点**决定 workspac
 ### Requirement: 会话 JSONL 地址从 durable binding 投影且不阻塞 Gateway 接收循环
 
 Gateway 收到 `session.log.resolve` 时，只从 durable conversation binding 投影
-`<workspace>/.nanoassistant/sessions/<kernel-session-id>.jsonl`。它不在 WebSocket receive loop 调用
-`Path.is_file()`、`Path.resolve()` 或扫描 workspace。请求在可取消且按 `(agent_id, conversation_id)`
-coalesce 的任务中执行，连接关闭会取消该任务。
+`<workspace>/.nanoassistant/sessions/<kernel-session-id>.jsonl`。Gateway 在 IM receive loop 启动前将
+committed binding hydrate 为 copy-on-write 的进程内投影，并在每次 durable binding 更新后发布新 entry；
+receive task 只读该投影，不获取 binder threading lock、不查询 SQLite，也不调用 `Path.is_file()`、
+`Path.resolve()` 或扫描 workspace。请求在可取消且按 `(agent_id, conversation_id)` coalesce 的任务中执行，
+连接关闭只取消其 task，不等待被其他业务持有的 persistence lookup。
 
 缺少 durable binding 时回 `status="missing"`；存在 binding 时回投影地址和 `status="ready"`，即使该
 路径的文件状态无法被探测。provider 缺失或 binding/projection 出错时回
@@ -73,3 +75,9 @@ coalesce 的任务中执行，连接关闭会取消该任务。
 - **GIVEN** Gateway 已开始一个 `session.log.resolve`，其 binding provider 随后不可用
 - **WHEN** IM 在该解析完成前下发 heartbeat 或其他 control frame
 - **THEN** Gateway 继续处理 control frame，并最终为该解析回 `status="unavailable"`
+
+#### Scenario: 持久化 binding lookup 被占用时 receive 与关闭仍前进
+- **GIVEN** 另一 Gateway 业务正持有 `GatewaySessionBinder` 的 binding lookup 和对应 SQLite read
+- **WHEN** IM 下发 `session.log.resolve`，随后下发 heartbeat 或 Gateway 开始关闭连接
+- **THEN** receive task 只读取已发布的 binding projection，heartbeat 或关闭在该 lookup 释放前完成
+- **AND** 已 durable 的 binding 仍返回其 exact JSONL 地址与 `status="ready"`

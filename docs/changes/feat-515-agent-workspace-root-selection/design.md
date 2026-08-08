@@ -7,6 +7,7 @@
 ## Changelog
 
 - Round 4: replaces the generic first-registration recovery marker with an IM-reserved, Gateway-persisted create operation; replaces cancellability-free recursive transcript scans with a cancellable exact session-binding lookup and explicit readiness status.
+- Round 7: the transcript provider reads a startup-hydrated, copy-on-write binding projection instead of acquiring the binder lock or SQLite connection from the Gateway receive loop.
 
 ## 现状分析
 
@@ -254,8 +255,11 @@ keeps a lost `agent.created` response recoverable without treating registration 
 The earlier bounded worker model also left an uncancellable recursive `rglob` running after logical timeout and
 reported capacity pressure as a missing transcript. Gateway instead projects the exact JSONL address from its
 durable `ConversationSessionBinder` binding without calling `Path.is_file()` or `Path.resolve()` on the receive
-loop. No binding is `missing`; a durable binding is `ready` even when its target workspace cannot be probed; an
-absent provider or binding/projection failure is `unavailable`. One cancellable task is coalesced per
+loop. At Gateway construction, committed bindings are hydrated into an immutable copy-on-write projection; every
+later durable binding write replaces the affected projection entry. The receive task reads that projection only: it
+does not acquire the binder's thread lock or query SQLite, so a held persistence lookup cannot delay a control frame
+or `close()`. No binding is `missing`; a durable binding is `ready` even when its target workspace cannot be probed;
+an absent provider or binding/projection failure is `unavailable`. One cancellable task is coalesced per
 `(agent_id, conversation_id)` and is cancelled on connection close. Only `missing` authorizes the UI's “No
 transcript” state; `unavailable` keeps the source disabled with a retryable availability message.
 
