@@ -243,3 +243,91 @@ Approved — 0 CRITICAL / 0 WARNING
 ### Recommendations
 
 - [R3-R1] Gate 2 已通过，可进入 `change-orchestrator`；实现与验收按 M1→M2 的 `[worker]` / `[reviewer]` 两轨执行。
+
+## Round 4
+
+### Metadata
+
+- reviewer: `/root/feat_517_design_reviewer`
+- review_mode: `delta`
+- mode_reason: 用户最终设计 review 只改变 Web Agent 设置的呈现与 guideline 配置入口：旧 checkbox/card 改为 current `PillSelector`，移除可见说明、独立 Workflow 开关和卡内 guideline，并把 PA guideline 契约收敛到 `/config`。需求范围、Workflow runtime、跨包架构、SDK/protocol 主干和 M1→M2 切片未变化，影响边界可枚举。
+- started_at: `2026-08-09T02:39:31+08:00`
+- completed_at: `2026-08-09T02:42:22+08:00`
+- duration: `2m51s`
+
+### Verdict
+
+Approved — 0 CRITICAL / 1 WARNING
+
+### Coverage
+
+- changed_atoms: Web Agent detail 的工具选择 current fact、`prototype.html` 的 selected/deselected 交互、PA guideline 配置入口、gateway `agent-capabilities`/`workflows` delta、IM `agents-nodes`/package-index delta、M2 prototype must-match 与 reviewer journey。
+- current_source_check: `agent-detail-page.tsx:1844-1866` 直接渲染 `PillSelector`；`pill-selector.tsx:59-86` 以 `button[aria-pressed]` 平铺 pill，正文只渲染 `opt.name`，description 只进入原生 `title`。
+- retained_from: Round 3 — Python runtime、admission/replay、prompt placement、权限、模型路由、SDK/relay、保存发现、其余 delta 和 milestone 纵向结构均未被本轮 UI/config 修订触碰，Round 2/3 的核实证据仍有效。
+
+### 历史问题闭环
+
+| 历史项 | 本轮核实 | 状态 |
+|---|---|---|
+| R1-C1..C6 / R1-W1..W2 | 本轮只改 Agent 设置呈现和 guideline 的产品入口；ordinal、canonical MODIFIED、save symlink、model override、provider reminder 与 milestone 两轨原文未变 | closed |
+| R2-C1 | `agents-nodes` 仍只新增 1 条 Requirement，删除的是其中 2 个旧 Scenario；归并后 IM Agents and Nodes 仍为 21。Gateway Agent Capabilities 仍新增 1 条 Requirement、Workflows 仍新增 5 条，既有 index future counts 不变 | closed |
+| R2-W1 | reviewer runbook 仍为 `PYTHON="$PYTHON" ./scripts/docs-check`，本轮未回退调用方式 | closed |
+
+### 本轮核实台账
+
+| Changed atom / 波及链 | 独立核实 | 结果 |
+|---|---|---|
+| current Agent detail → prototype | 生产 detail 使用紧凑 `PillSelector`，选中真值来自 `tool_allowlist`；原型工具行只含 `read`、`agent`、`Workflow` 名称，Workflow 以同一 pill 的 `aria-pressed` 切换，无 header 二次开关、checkbox grid、说明行或嵌套设置 | pass |
+| Agent tool single source → design / IM delta | `design.md:447,469,479` 与 `specs/im/agents-nodes.md:5-19` 均把现有 Workflow pill 写成 Agent 页唯一能力选择，并保留保存后 next-turn 生效/取消后完整移除语义 | pass |
+| guideline → PA/CLI config command | `design.md:425-431` 明确 PA 只经 `/config workflowSizeGuideline <value>` 修改保存值、Web Agent 设置不提供控件；Gateway delta `workflows.md:34-38` 承担用户可观察配置契约，IM slash delta已有 active 时 config discovery，CLI delta也保留同形入口 | pass |
+| delta 归属与归并计数 | Agent tool 可选/默认关闭留在 gateway Agent Capabilities；guideline 移到 Gateway Workflows；IM Agents and Nodes 只描述 pill 呈现。均为语义最窄 target，Requirement 数未因 Scenario 移动而变化 | pass |
+| prototype must-match → M2 验收 | must-match 已改为“现有工具 pill 行里的 Workflow”，覆盖 desktop/mobile 与 selected/deselected；M2 reviewer 仍要求隔离真栈验证 tool selection next-turn A/B 和 desktop/mobile，未遗留旧 guideline 表单验收 | pass |
+
+### 架构进攻（受影响角度）
+
+| 角度 | 重查结果 |
+|---|---|
+| 归属 | Agent 页只写既有 `tool_allowlist`；PA runtime config 保存 guideline，Gateway command 修改，IM 只发现/转交命令。没有把 Agent runtime 配置真源复制到浏览器，也没有引入 IM→agent 依赖。 |
+| 该不该存在 / 深浅 | 删除 Workflow 专属 card、feature toggle 与嵌套 guideline 后，UI 复用现有窄 pill seam；配置仍由同形 `/config` 入口承载，没有为单字段创建新的表单或前端状态层。 |
+| 治本还是补丁 | `Workflow in tool_allowlist` 继续统一控制 tool/prompt/commands，修订消除了第二开关和卡内配置造成的双真源风险。唯一残留是现状表中的旧组件 locator，见 R4-W1。 |
+
+### Issues
+
+- [R4-W1][WARNING] [本仓当前接缝 `design.md:53`]: 现状表仍把 Agent allowlist 的代码入口写成 `allowlist-selector.tsx`，但当前 Agent detail 的生产路径实际在 `agent-detail-page.tsx:1844-1866` 渲染 `PillSelector`；`allowlist-selector.tsx` 是旧 checkbox/card 实现，当前 production source 没有 import。后面的 UX grounding、prototype 和 delta 已明确禁止旧 grid，所以这不再造成架构两解；但 worker 若从“当前接缝”表选改动入口，会扩展一个未消费的旧组件，或者把已删除的 checkbox/card 重新带回，最终在 M2 真浏览器验收才暴露。应把该行 locator 改成 `pill-selector.tsx` + `agent-detail-page.tsx`，并把结论中的 allowlist 组件语言明确为 tool pill 行。
+
+### Recommendations
+
+- [R4-R1] Gate 2 仍可进入 `change-orchestrator`；实施派发前先收掉 R4-W1 这一处 stale locator，随后按 M2 must-match 直接复用 `PillSelector`，不要修改或复活 `AllowlistSelector`。
+
+### Author Resolutions
+
+- [R4-W1] Accepted：将“本仓当前接缝”的旧 `allowlist-selector.tsx` locator 改为 production 实际消费的 `agents/pill-selector.tsx` 与 `agents/agent-detail-page.tsx`，并明确 M2 复用现有 tool pill 行、不得复活 checkbox/card allowlist。
+
+## Round 5
+
+### Metadata
+
+- reviewer: `/root/feat_517_design_reviewer`
+- review_mode: `closure`
+- mode_reason: R4 后只修正一处 current-source locator 和对应消歧措辞；没有改变需求、架构、接口、数据流、delta-spec 或 milestone 语义，影响边界完全封闭。
+- started_at: `2026-08-09T02:44:33+08:00`
+- completed_at: `2026-08-09T02:44:44+08:00`
+- duration: `11s`
+
+### Verdict
+
+Approved — 0 CRITICAL / 0 WARNING
+
+### 历史问题闭环
+
+| 历史项 | Author Resolution | 本轮核实 | 状态 |
+|---|---|---|---|
+| R4-W1 | current seam 改为 production 实际消费的 `agents/pill-selector.tsx` + `agents/agent-detail-page.tsx`，并明确不得复活 checkbox/card allowlist | `agent-detail-page.tsx:19,1844-1866` 确实 import 并渲染 `PillSelector`；`pill-selector.tsx:59-86` 确实以 tool pill button/`aria-pressed` 呈现名称。`design.md:53` 现在列出这两个真实入口，结论也明确复用 tool pill 行和禁止恢复旧 allowlist，worker 不再会被导向 dormant `AllowlistSelector` | closed |
+
+### Issues
+
+- None.
+
+### Recommendations
+
+- [R5-R1] Gate 2 已完整收口，可放心进入 `change-orchestrator`；M2 直接沿 production `PillSelector` seam 实施并按既有 must-match 契约验收。

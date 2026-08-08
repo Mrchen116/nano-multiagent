@@ -31,6 +31,12 @@
 - **THEN** Gateway 不再提供 Workflow tool、reminder、ultracode mode/command、命名 Workflow 或新运行管理入口
 - **AND** 已在旧轮启动的 Workflow 仍可被用户查看和停止直到终态
 
+#### Scenario: 通过 Workflow config 命令调整规模 guideline
+- **GIVEN** Agent 已启用 `Workflow`
+- **WHEN** 人工用户执行 `/config workflowSizeGuideline` 并选择 unrestricted、small、medium 或 large
+- **THEN** Gateway 保存该值，并从下一轮起用于 Workflow tool description 与运行反馈
+- **AND** 未设置时使用 medium
+
 ### Requirement: Gateway 把 Workflow 运行投影为可恢复、可去重的跨 IM 状态
 
 #### Scenario: 运行进度发送到 IM

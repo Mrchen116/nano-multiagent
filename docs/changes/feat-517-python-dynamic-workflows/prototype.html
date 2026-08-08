@@ -38,28 +38,25 @@
     h1, h2, h3, p { margin-top: 0; }
     h1 { font-size: 27px; letter-spacing: -0.035em; margin-bottom: 6px; }
     .sub { color: var(--muted); margin: 0; font-size: 14px; }
-    .prototype-switch { display: flex; gap: 6px; background: #e6edef; padding: 4px; border-radius: 12px; }
-    .prototype-switch button { border: 0; padding: 8px 12px; border-radius: 9px; color: var(--muted); background: transparent; }
-    .prototype-switch button.active { color: var(--ink); background: white; box-shadow: 0 2px 8px rgba(20,40,48,.1); }
     .view { display: none; }
     .view.active { display: block; }
     .card { border: 1px solid var(--line); background: var(--panel); border-radius: 18px; box-shadow: 0 6px 24px rgba(31,52,60,.06); }
-    .settings-card { max-width: 930px; padding: 22px; }
-    .section-head { display: flex; justify-content: space-between; gap: 12px; align-items: start; margin-bottom: 18px; }
-    .section-head h2 { font-size: 18px; margin-bottom: 6px; }
+    .settings-card { width: min(880px, 100%); padding: 14px 16px; display: grid; gap: 14px; border-radius: 12px; }
+    .section-head h2 { font-size: 15px; margin-bottom: 3px; }
+    .section-head .sub { font-size: 12.5px; }
+    .field { display: flex; flex-direction: column; gap: 4px; }
+    .field-label { font-size: 12.5px; font-weight: 600; display: block; }
+    .pill-row { display: flex; flex-wrap: wrap; gap: 6px; }
+    .pill { padding: 4px 11px; border-radius: 999px; border: 1px solid #e1e6e8; background: #f2f4f5; color: #718087; font: 600 12px ui-monospace, SFMono-Regular, Menlo, monospace; transition: background-color .16s, border-color .16s, color .16s; }
+    .pill:hover { background: #eceff0; }
+    .pill.selected { background: #dff3ec; color: #126b61; border-color: #8acfc0; }
+    .divider { height: 1px; background: var(--line); }
+    .access-link { margin-top: 7px; padding: 0; border: 0; background: transparent; color: var(--teal); font-size: 12.5px; font-weight: 600; }
+    .access-link:hover { text-decoration: underline; }
+    .model-fields { display: grid; gap: 14px; }
     .tag { font-size: 12px; border-radius: 999px; padding: 5px 9px; background: #eef2f4; color: var(--muted); white-space: nowrap; }
-    .tool-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    .tool { display: grid; grid-template-columns: 22px 1fr; gap: 11px; border: 1px solid var(--line); border-radius: 16px; padding: 14px; background: white; transition: .18s ease; }
-    .tool.selected { border-color: #8ed8cf; background: var(--teal-soft); box-shadow: inset 0 0 0 1px rgba(15,118,110,.08); }
-    .tool input { margin-top: 3px; accent-color: var(--teal); }
-    .tool strong { display: block; font-size: 14px; margin-bottom: 5px; }
-    .tool p { color: var(--muted); font-size: 12px; line-height: 1.5; margin-bottom: 0; }
-    .workflow-settings { grid-column: 1 / -1; margin-top: 4px; padding: 14px; border-top: 1px solid rgba(15,118,110,.18); display: none; }
-    .tool.selected .workflow-settings { display: block; }
-    .field-label { font-size: 12px; font-weight: 700; display: block; margin-bottom: 7px; }
-    select { width: 210px; max-width: 100%; padding: 9px 11px; border: 1px solid #b8c7cc; border-radius: 10px; background: white; color: var(--ink); }
-    .hint { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
-    .save-row { display: flex; justify-content: flex-end; gap: 9px; border-top: 1px solid var(--line); margin-top: 18px; padding-top: 16px; }
+    select { width: 100%; max-width: 100%; padding: 9px 11px; border: 1px solid #b8c7cc; border-radius: 8px; background: white; color: var(--ink); }
+    .save-row { display: flex; justify-content: flex-end; gap: 9px; margin-top: 2px; }
     .btn { border: 1px solid var(--line); border-radius: 10px; background: white; padding: 9px 14px; color: var(--ink); }
     .btn.primary { background: var(--teal); color: white; border-color: var(--teal); }
     .btn.danger { color: var(--rose); border-color: #efbdc7; }
@@ -129,8 +126,6 @@
       .rail { display: none; }
       main { padding: 14px; }
       .top { align-items: start; flex-direction: column; }
-      .tool-grid { grid-template-columns: 1fr; }
-      .workflow-settings { grid-column: auto; }
       .chat-stage { height: calc(100vh - 145px); border-radius: 15px; }
       .chat-body { padding: 14px; }
       .bubble { max-width: 92%; }
@@ -156,40 +151,45 @@
           <h1>Python Dynamic Workflows</h1>
           <p class="sub">设计原型：工具选择完整开关、启动批准、后台进度与控制</p>
         </div>
-        <div class="prototype-switch" aria-label="Workflow capability state">
-          <button id="cap-on" class="active" onclick="setCapability(true)">Workflow 开</button>
-          <button id="cap-off" onclick="setCapability(false)">Workflow 关</button>
-        </div>
       </header>
 
       <section id="view-settings" class="view active">
         <div class="card settings-card">
           <div class="section-head">
-            <div><h2>Tools</h2><p class="sub">选中的工具会在 Agent 下一轮新回复整体生效。</p></div>
-            <span class="tag">Behavior</span>
+            <h2>访问与模型</h2>
+            <p class="sub">允许列表保持最小。</p>
+            <button class="access-link" type="button">View skill statistics</button>
           </div>
-          <div class="tool-grid">
-            <label class="tool selected"><input type="checkbox" checked /><span><strong>read</strong><p>读取工作区文件。</p></span></label>
-            <label class="tool selected"><input type="checkbox" checked /><span><strong>agent</strong><p>派发一个独立子 Agent。</p></span></label>
-            <label id="workflow-tool" class="tool selected" style="grid-column:1/-1">
-              <input id="workflow-checkbox" type="checkbox" checked onchange="setCapability(this.checked)" />
-              <span>
-                <strong>Workflow <span class="tag" style="margin-left:6px;background:#d5eee9;color:#0f766e">optional</span></strong>
-                <p>生成并在后台执行 Python 多 Agent 编排；同时启用 ultracode、保存命令和运行管理入口。</p>
-              </span>
-              <div class="workflow-settings">
-                <label class="field-label" for="size-guideline">Workflow size guideline</label>
-                <select id="size-guideline">
-                  <option>small · under 5 agents</option>
-                  <option selected>medium · under 15 agents</option>
-                  <option>large · under 50 agents</option>
-                  <option>unrestricted</option>
-                </select>
-                <p class="hint">这是生成规模建议，不替代并发、总 Agent 数和 token budget 的硬上限。</p>
-              </div>
-            </label>
+          <div class="field">
+            <span class="field-label">技能</span>
+            <div class="pill-row" role="group" aria-label="技能">
+              <button class="pill selected" type="button" aria-pressed="true">codebase-design</button>
+              <button class="pill selected" type="button" aria-pressed="true">systematic-debugging</button>
+            </div>
           </div>
-          <div id="settings-disabled" class="disabled-note">保存后，下一轮不再向模型提供 Workflow tool prompt；`ultracode`、`/workflows`、saved commands 和新运行入口同时消失。</div>
+          <div class="divider" aria-hidden="true"></div>
+          <div class="field">
+            <span class="field-label">工具允许列表</span>
+            <div class="pill-row" role="group" aria-label="工具允许列表">
+              <button class="pill selected" type="button" aria-pressed="true" title="read">read</button>
+              <button class="pill selected" type="button" aria-pressed="true" title="agent">agent</button>
+              <button id="workflow-tool" class="pill selected" type="button" aria-pressed="true" title="Workflow" onclick="setCapability(this.getAttribute('aria-pressed') !== 'true')">Workflow</button>
+            </div>
+          </div>
+          <div class="model-fields">
+            <div class="field">
+              <label class="field-label" for="default-model">默认模型</label>
+              <select id="default-model">
+                <option selected>平台默认 (codexOAuth:gpt-5.6-sol)</option>
+                <option>codexOAuth:gpt-5.6-terra</option>
+                <option>codexOAuth:gpt-5.6-luna</option>
+              </select>
+            </div>
+            <div class="field">
+              <label class="field-label" for="reasoning-effort">推理强度</label>
+              <select id="reasoning-effort"><option selected>high</option><option>xhigh</option><option>max</option></select>
+            </div>
+          </div>
           <div class="save-row"><button class="btn">取消</button><button class="btn primary">保存 Agent</button></div>
         </div>
       </section>
@@ -284,10 +284,9 @@ async def main():
     }
     function setCapability(enabled) {
       document.body.classList.toggle('workflow-off', !enabled);
-      document.getElementById('workflow-checkbox').checked = enabled;
-      document.getElementById('workflow-tool').classList.toggle('selected', enabled);
-      document.getElementById('cap-on').classList.toggle('active', enabled);
-      document.getElementById('cap-off').classList.toggle('active', !enabled);
+      const workflowTool = document.getElementById('workflow-tool');
+      workflowTool.classList.toggle('selected', enabled);
+      workflowTool.setAttribute('aria-pressed', String(enabled));
     }
     function approveWorkflow() {
       document.querySelector('.approval').style.display = 'none';

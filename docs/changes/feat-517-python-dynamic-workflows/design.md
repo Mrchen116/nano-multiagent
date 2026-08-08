@@ -8,6 +8,7 @@
 
 - 2026-08-09：完成初稿；补录 Claude Code 2.1.226 `/effort ultracode` 的 Luna 最小 trace，确认会话态 reminder 的逐字内容与 tool schema 同时进入 provider 请求。
 - 2026-08-09：按独立设计审查 R1 收口并发 ordinal、provider reminder placement、模型 override、save symlink 与 canonical MODIFIED 契约。
+- 2026-08-09：按用户最终设计 review 纠正 Web Agent 设置原型：以当前 `PillSelector` 为准，移除旧 checkbox/card、可见工具说明、独立 Workflow 开关及卡内 size guideline。
 
 ## 现状分析
 
@@ -49,7 +50,7 @@ The user included the keyword "ultracode", opting this turn into multi-agent orc
 | 已有后台任务注册、stop handle、单次通知 | `BackgroundTaskRegistry`、`_NotifyingStore`、`task_stop` | 增加 `WORKFLOW` 类型作为顶层 task handle；详细 phase/agent/journal 仍归 Workflow manager，不把通用 registry 变成工作流数据库 |
 | 已有 permission broker 与 Web/飞书批准面 | `auto_mode_gate`、`PermissionBroker`、`PermissionCard`、`FeishuPermissionApprovalSurface` | 扩展 request presentation 和一次 tool-owned decision callback；继续使用同一 broker/request id，不建第二条审批链 |
 | PA 工具为显式真白名单，配置下一轮整体生效 | `resolve_enabled_tools()`、`SessionComposition`、`PA_OPTIONAL_TOOL_IDS` | `Workflow` 是 optional、默认关闭；勾选后下一轮完整出现，取消后下一轮完整消失，进行中的旧轮次保持启动快照 |
-| Web IM 已有 slash picker、工具时间线和 Agent allowlist | `slash-candidates.ts`、`tool-calls-panel.tsx`、`allowlist-selector.tsx` | 复用现有组件语言；新增运行进度层和 Workflow 特化批准卡，不把进度塞进普通 tool output 长文本 |
+| Web IM 已有 slash picker、工具时间线和 Agent tool pills | `slash-candidates.ts`、`tool-calls-panel.tsx`、`agents/pill-selector.tsx`、`agents/agent-detail-page.tsx` | 复用现有 tool pill 行；新增运行进度层和 Workflow 特化批准卡，不把进度塞进普通 tool output 长文本，也不复活旧 checkbox/card allowlist |
 | Session JSONL 根由 product config dirname 派生 | `JsonlSessionFiles` | Workflow artifact 与 session 同根，不硬编码 `.nanocode`/`.nanoassistant` |
 
 ### 既有约束
@@ -425,7 +426,7 @@ resumed_from, result, error
 
 resolved setting 值为 `unrestricted|small|medium|large`，默认 `medium`；tool description 末尾动态附当前值：small `<5`、medium `<15`、large `<50`、unrestricted 无建议上限。运行计划超过 25 Agent 或预计 1.5M tokens 时显示 `Large workflow`；若用户明确选了 guideline，则 Agent count warning threshold 使用该 guideline 边界；ultracode 隐藏 advisory warning。warning 不自动暂停。
 
-CLI 从 `~/.nanocode/config.yaml` 与最近 workspace `.nanocode/config.yaml` 解析 `workflows.size_guideline`、`workflows.disabled`，workspace 覆盖 global；环境变量 `NANOCODE_DISABLE_WORKFLOWS=1` 是最终 disable。PA 的 Agent config 增加 `workflow_size_guideline`，只有 `Workflow` tool active 时参与下一轮 runtime snapshot；取消工具不删除保存值。Web Agent 设置在 Workflow card 内提供同一四档选择，外部 IM 可用 `/config workflowSizeGuideline <value>` 修改该 Agent。CLI 也提供相同窄 `/config` 子命令，不借本 unit 扩成通用 settings framework。
+CLI 从 `~/.nanocode/config.yaml` 与最近 workspace `.nanocode/config.yaml` 解析 `workflows.size_guideline`、`workflows.disabled`，workspace 覆盖 global；环境变量 `NANOCODE_DISABLE_WORKFLOWS=1` 是最终 disable。PA 在 Agent runtime config 中保存 `workflow_size_guideline`，仅通过 Claude Code 同形的 `/config workflowSizeGuideline <value>` 修改；只有 `Workflow` tool active 时该值才参与下一轮 runtime snapshot，取消工具不删除保存值。Web Agent 设置只沿用现有 tool allowlist，不为 guideline 发明表单控件。CLI 提供相同的窄 `/config` 子命令，不借本 unit 扩成通用 settings framework。
 
 Agent model/effort 默认继承 parent resolved runtime；`agent(model=..., effort=...)` 可覆盖。为机械对应 Claude Code 的 child override，nano 新增唯一进程配置 `NANO_MULTIAGENT_WORKFLOW_SUBAGENT_MODEL`：CLI 与 PA factory 都读取它并传给 `build_kernel(workflow_subagent_model=...)`，任意外部 SDK 消费者也可直接传同名参数。解析优先级固定为 `workflow_subagent_model > agent(model=...) > parent resolved model`，不读取 `CLAUDE_CODE_SUBAGENT_MODEL`，也不复用会改变父模型的 `NANO_MULTIAGENT_LLM_MODEL`。
 
@@ -443,7 +444,7 @@ Agent model/effort 默认继承 parent resolved runtime；`agent(model=..., effo
 
 #### Web IM
 
-- Agent 设置沿用 allowlist card；`Workflow` 是 optional、默认未勾选，勾选后显示四档 guideline。
+- Agent 设置沿用当前 `PillSelector`；`Workflow` 只是工具允许列表中的一个 optional pill、默认未选中，不增加可见说明、独立 feature toggle 或嵌套配置。
 - chat composer 上方只在当前会话有 active run 时显示紧凑 progress strip；点击或 `/workflows` 打开 detail sheet。
 - detail 显示 phase、agent status/count、token/time、logs；选择 Agent 显示 prompt、recent tools、result/error、worktree path；提供 pause/resume/stop/restart/save。
 - launch approval 用 Workflow-specific presentation：名称、说明、phases、规模/token caution、查看原始 Python；按钮 Once/Always/Deny。
@@ -465,7 +466,7 @@ Agent model/effort 默认继承 parent resolved runtime；`agent(model=..., effo
 
 | 当前入口/组件 | 必须继承 | 本次嵌入 |
 |---|---|---|
-| `AllowlistSelector` / Agent detail | 白卡、teal selected state、现有工具真值 | 直接出现 `Workflow` option；选中后在卡内展开 guideline，不加另一枚 feature toggle |
+| `PillSelector` / Agent detail | `访问与模型`白卡、紧凑工具 pill、teal selected state；界面只显示工具名，description 仅在原生 `title` | 在现有工具 pill 行直接增加 `Workflow`；不使用已被替换的 checkbox grid，不渲染第二行说明、不展开 guideline、不加另一枚开关 |
 | `MessagePane` / composer | 对话主体和 composer 层级稳定 | progress strip 贴 composer 上方，不占 assistant bubble，不挤走 slash picker |
 | `SlashPicker` | `/` 起始触发、command/skill 同一候选语言 | active 时加入 `/workflows`、`/deep-research`、saved/plugin workflows；inactive 时完全不组装 |
 | `PermissionCard` | inline pending、resolved 后由 tool row 留审计结论 | `presentation.kind=workflow_launch` 选择 Workflow 专属正文，提交仍走原 permission endpoint |
@@ -475,7 +476,7 @@ Agent model/effort 默认继承 parent resolved runtime；`agent(model=..., effo
 
 | 原型区域/状态 | 对齐级别 | viewport/状态 | 下游验收 |
 |---|---|---|---|
-| Agent 设置中单一 Workflow tool card + guideline | must-match | desktop / mobile；selected / deselected | M2 worker #1；M2 reviewer #1 |
+| Agent 设置中现有工具 pill 行里的 `Workflow` | must-match | desktop / mobile；selected / deselected | M2 worker #1；M2 reviewer #1 |
 | Workflow launch approval 的 meta/phases/caution/raw script | must-match | pending / resolved / denied | M2 worker #2；M2 reviewer #2 |
 | composer 上方 compact progress strip | must-match | running / paused / no active run | M2 worker #3；M2 reviewer #3 |
 | run detail phases/agents/usage/control | must-match | running / failed / completed | M2 worker #4；M2 reviewer #4 |
