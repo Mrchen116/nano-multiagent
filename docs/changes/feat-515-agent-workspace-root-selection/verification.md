@@ -439,3 +439,81 @@ None.
 ## Corrected Delta Reconciliation
 
 N/A for full verification.
+
+# Round 6
+
+> Validation snapshot: `a5e64e4fa0565179417ed96056838ce40a69ebc6 -> 85d4f98948526b3316344e515c74ffc0e41408ec`
+
+## Summary
+
+Mode: full
+Delta range: `2bd4af837e232ec2c6b1978968df9e4d82a4caf1..85d4f98948526b3316344e515c74ffc0e41408ec`
+Focus issues: Round-5 WARNING-1; Gateway no-ID/different-ID replay rejection; absent/unroutable source projection; exact pending-operation HTTP negatives; all prior issue closures
+requires_full_verification: false
+
+| Dimension | Result |
+|---|---|
+| Completeness | 4/4 original requirements and 6/6 M1 exit criteria implemented; one required permanent recovery assertion remains incomplete |
+| Correctness | 7/7 original top-level scenarios implemented; the exact rejected-recovery state contract is not fully protected |
+| Coherence | Followed |
+
+0 critical issue(s), 1 warning(s) found. Fix before PR.
+
+## Prior-Issue Closure
+
+| Prior issue / boundary | Result | Evidence |
+|---|---|---|
+| Round-1 duplicate create and fixed-root violations | closed | Authenticated-owner create serialization, insert/claim boundaries, Gateway-local immutability, and duplicate/concurrent regressions remain present and passed. |
+| Round-1 remote workspace dereference and parent/target HTTP/UI coverage | closed | IM routes transcript and workspace RPCs to Gateway; four stable 422/no-write paths and draft-preserving UI owners remain present. |
+| Round-2 root/provenance split, opaque cross-OS roots, canonical aliases, and one-node distillation | closed | Register remains fill-NULL-only, nonblank roots stay opaque outside Gateway, alias recovery passes, and source-node selection remains enforced. |
+| Round-3 registration marker, transcript bounds, draft-root classification, and design/delta/Runbook coherence | closed | Durable operation correlation replaced the generic marker; exact binding lookup is Gateway-local/cancellable/status-bearing; documentation and selector behavior remain aligned. |
+| Round-4 migration and operation-correlated recovery negatives | closed in implementation | Migration, arbitrary/prehosted registration, wrong owner/root/provenance/display, PATCH, reconnect, one-shot retirement, and transcript status/cancellation owners all passed. |
+| Round-5 Gateway no-ID/different-ID replay | closed | Existing Gateway Agents replay only when the incoming operation is nonempty and exactly equals the persisted operation (`src/personal_assistant/gateway/agent_config_sync.py:181-218`). Permanent no-ID legacy, missing-ID persisted-operation, and different-ID regressions are in `tests/unit/personal_assistant/test_gateway_workspace_creation_immutability.py:43-112`. |
+| Round-5 absent/null-node Agent source | closed | IM projects `source_jsonl_status="unavailable"` without invoking Gateway resolution (`src/IM/api/routes/web_im.py:177-202`), and UI status precedence is enforced at `src/IM/frontend/src/features/chat/components/distill-selection.ts:13-26`; Python and sidebar owners cover absent and null-node cases. |
+| Round-5 exact HTTP pending-operation negatives | partially closed | A changed effective request is rejected before dispatch and a wrong echoed operation is rejected before claim; both immediate snapshots preserve the operation row and the root/provenance/pending-id subset. The required exact profile-state assertion remains incomplete under WARNING-1. |
+
+## Completeness and Correctness
+
+- All six M1 exit criteria, five roadpoints, four original requirements, seven original top-level scenarios, and all five prototype/reference rows still have implementation and durable evidence.
+- Gateway default/custom creation, parent and target failures, existing-directory confirmation, canonical node-local uniqueness, cross-node independence, immutable root/provenance mirroring, and read-only existing-Agent UX remain covered.
+- Durable recovery remains a single IM-reserved request fingerprint, Gateway-persisted and echoed operation, operation-correlated registration marker, atomic immutable-result claim, and one-shot retirement (`src/IM/api/routes/nodes.py:277-457`; `src/IM/infra/repositories/agents.py:234-431`).
+- Transcript resolution remains Gateway-local and distinguishes `ready`, `missing`, and `unavailable`; absent or unroutable Agent profiles now use the temporary-unavailable projection rather than the permanent missing state.
+- Independent validation:
+  - expanded Gateway/IM/create/recovery/transcript/architecture matrix: `285 passed, 8 warnings`;
+  - full non-E2E Python suite: `3062 passed, 24 deselected, 22 warnings`;
+  - changed Python Ruff, `git diff --check a5e64e4f..HEAD`, and docs check (`228` maintained sources / `66` required routes): passed.
+- This detached verifier worktree has no frontend dependency tree, so Vitest/build were source-inspected rather than independently rerun. The committed Round-5 evidence records full frontend/build success and a real isolated unavailable-source browser journey.
+
+## Coherence
+
+| Design decision | Followed? | Evidence |
+|---|---|---|
+| Side-effect-free existing-directory check and confirmed retry | Yes | Gateway validates before initialization and persistence. |
+| Custom input remains opaque outside the target Gateway | Yes | Browser/IM reject only blank input; Gateway alone resolves and canonicalizes it. |
+| Canonical Gateway-local uniqueness and immutable workspace root | Yes | No IM-global root index or root-update path exists. |
+| Root/provenance is an inseparable opaque mirror | Yes | Registration fills only NULL provenance and IM does not resolve nonempty Gateway roots. |
+| Only the exact persisted create operation may replay or recover | Yes in implementation | Gateway rejects absent/different operation ids; IM fingerprints the effective request and verifies the echoed operation before atomic claim. |
+| Transcript lookup is Gateway-local, exact-binding, cancellable, and status-bearing | Yes | IM holds only routing/projection responsibility and unavailable state is not collapsed into missing. |
+| Package and deployment boundaries | Yes | IM and Gateway communicate only over HTTP/WS; architecture contracts passed. |
+
+### Prototype / Reference Contract
+
+All four `must-match` rows (card order, default/custom mode, target-node/path error presentation, and existing-directory confirmation) plus the one `may-adapt` layout row remain covered by implementation, repository-local desktop/390px screenshots, and acceptance evidence.
+
+## Issues
+
+### CRITICAL (must fix before PR)
+
+None.
+
+### WARNING (must fix before PR)
+
+- **WARNING-1 — The new pending-operation HTTP negatives do not assert that the complete profile and operation records remain unchanged.** The current spec requires invalid recovery attempts to leave owner, root, provenance, and display fields unchanged (`docs/specs/im/agents-nodes.md:177-180`), and the approved recovery decision additionally binds node, operation, and immutable display identity. However, `pending_state`, `state_after_different_request`, and `state_after_wrong_operation` select only `workspace_root`, `workspace_is_default`, and `pending_create_operation_id` from the profile and omit `created_at` from the operation (`tests/im_service/contract/test_agent_registration_seed_recovery.py:115-188`). A regression that writes display/description/config fields, bumps profile metadata, or rewrites an omitted operation column before returning 409 can therefore pass these immediate equality assertions; later requests and the successful claim can overwrite or mask that mutation. Snapshot the complete `agent_profiles` and `agent_create_operations` rows before the two negatives and compare the complete rows immediately after each rejection (or explicitly include every immutable/profile-version/timestamp column). Retain the no-dispatch assertion for the different request, the wrong-operation Gateway response, and the subsequent valid one-shot claim.
+
+### SUGGESTION (optional)
+
+None.
+
+## Corrected Delta Reconciliation
+
+N/A for full verification.
