@@ -125,3 +125,32 @@ None.
 None.
 
 0 critical issue(s), 2 warning(s) found. Fix before PR.
+
+---
+
+## Round 2 — Targeted Closure
+
+> Validation snapshot: `fbf855db1690452c388ea0ac0bd0501c316aa984 → 1ae49f87bfa3967b33f5c702ffbce288873ffc6e`
+
+Mode: targeted closure
+Delta range: `fbf855db..1ae49f87b`
+Focus issues: V1-W1, V1-W2
+requires_full_verification: false
+
+| Previous issue | Closure evidence | Result |
+|---|---|---|
+| V1-W1 — direct callers could bypass the UI without a server-boundary regression test | `tests/im_service/integration/test_users_conversations_api.py:145-192` creates a second execution Agent on `node-2`, replaces control RPC with a fail-fast stub, submits the source on `node-1`, and asserts `409` plus an unchanged conversation count. The stub's successful absence proves rejection occurs before the control request. | resolved |
+| V1-W2 — external fallback test did not establish normal-binding precedence | `tests/unit/personal_assistant/test_gateway_distill_prompt_resolver.py:156-214` first proves external fallback, then binds a distinct normal `web_relay` session and asserts the returned prompt contains the normal session path. A reversed lookup would return the external path and fail. | resolved |
+
+### Targeted validation
+
+- `PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/pytest -q tests/im_service/integration/test_users_conversations_api.py tests/unit/personal_assistant/test_gateway_distill_prompt_resolver.py` — **7 passed**.
+- `/Users/czj/Repos/nano-multiagent/.venv/bin/ruff check tests/im_service/integration/test_users_conversations_api.py tests/unit/personal_assistant/test_gateway_distill_prompt_resolver.py` — **passed**.
+- `git diff --check fbf855db1690452c388ea0ac0bd0501c316aa984..1ae49f87bfa3967b33f5c702ffbce288873ffc6e` — **passed**.
+
+The candidate changes only the two existing regression seams identified in Round 1;
+they add no production behavior, public API, architecture, or document-contract
+delta. Both warnings are closed, and the prior full-verification evidence remains
+applicable. No full re-verification is required.
+
+Verdict: **pass** — 0 critical issue(s), 0 warning(s), 0 suggestion(s).
