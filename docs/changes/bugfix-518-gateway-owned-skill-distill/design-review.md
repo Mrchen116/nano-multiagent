@@ -44,7 +44,7 @@ prior issue IDs to close, so no historical item is carried forward.
   relaying (`src/IM/api/routes/messages.py:70-86`, `392-451`). The leaf
   `RelayService.enqueue_message_relay()` can persist `extra_metadata`, but the
   public all-relay path used by the route cannot accept or pass it
-  (`src/IM/application/relay_service.py:43-115`, `223-300`; 
+  (`src/IM/application/relay_service.py:43-115`, `223-300`;
   `src/IM/application/web_im_service.py:567-604`). On the other side, Web Relay
   parses arbitrary opaque metadata and forwards it unchanged, and the inbound
   pipeline selects the relay's `agent_id` without recognizing a distillation
@@ -104,7 +104,7 @@ prior issue IDs to close, so no historical item is carried forward.
   (`src/personal_assistant/gateway/session_run_coordinator.py:1125-1167`,
   `1714-1741`). The Kernel invokes `skill_view` only when a complete text part
   matches the `/skill:` command parser
-  (`src/agent/core/agent/skill_commands.py:15-39`; 
+  (`src/agent/core/agent/skill_commands.py:15-39`;
   `src/agent/core/agent/runtime.py:405-420`, `520-538`). Updating the builtin
   SKILL.md alone therefore cannot make a plain ordinary prompt load its
   instructions.
@@ -273,7 +273,7 @@ Gateway contract.
   Agent's *runtime* capability includes the distiller, `skill_view`, and
   `skill_manage` (`design.md:112-117`). That service currently owns only
   conversation/message/relay repositories (`src/IM/application/web_im_service.py:47-71`). The real capability source is an asynchronous IM→Gateway control RPC
-  (`src/IM/api/routes/agents.py:409-435`; 
+  (`src/IM/api/routes/agents.py:409-435`;
   `src/IM/ws/gateway/control.py:280-311`), and its existing request even takes a
   workspace root from IM. Meanwhile D6's final Gateway guard checks only schema,
   scope, relay target and Gateway membership (`design.md:151-155`), not the three
@@ -326,7 +326,7 @@ Gateway contract.
   relay delta's modified requirement and retained receipt Scenario still only
   describe `sent → completed` (`specs/im/gateway-relay.md:7-12, 30-32`), although
   the actual relay service already applies `failed` and publishes a failed
-  delivery state (`src/IM/application/relay_service.py:647-672`; 
+  delivery state (`src/IM/application/relay_service.py:647-672`;
   `src/IM/ws/gateway/relay.py:539-603`).
 
   Without the scenario, the final canonical IM contract does not say what its
