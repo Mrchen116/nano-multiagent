@@ -285,7 +285,9 @@ class IMAgentConfigSync:
                 )
             workspace_root = workspace_root.resolve()
         else:
-            workspace_root = self._workspace_root_factory(agent_id).expanduser().resolve()
+            workspace_root = (
+                self._workspace_root_factory(agent_id).expanduser().resolve()
+            )
 
         existing_agent = self._local_agent(agent_id)
         if existing_agent is not None:
@@ -1272,7 +1274,9 @@ class IMAgentConfigSync:
                 else True
             ),
             create_operation_id=(
-                existing_agent.create_operation_id if existing_agent is not None else None
+                existing_agent.create_operation_id
+                if existing_agent is not None
+                else None
             ),
             title=str(payload.get("display_name") or agent_id),
             skills=tuple(

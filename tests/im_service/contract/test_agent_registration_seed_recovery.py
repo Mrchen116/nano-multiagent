@@ -75,7 +75,9 @@ def test_lost_create_response_claims_matching_registration_seed(tmp_path: Path) 
     with TestClient(app) as client:
         owner = register_user(client, username="owner")
         authorize(client, owner)
-        _register_seed(client, agent_id="placeholder", workspace_root="/gateway/placeholder")
+        _register_seed(
+            client, agent_id="placeholder", workspace_root="/gateway/placeholder"
+        )
         payload = _payload("recovered-agent")
 
         async def lost_response(**_kwargs):
@@ -93,10 +95,13 @@ def test_lost_create_response_claims_matching_registration_seed(tmp_path: Path) 
             agent_id="recovered-agent",
             workspace_root="/gateway/recovered-agent",
         )
-        assert app.state.connection.execute(
-            "SELECT registration_seed FROM agent_profiles WHERE agent_id = ?",
-            ("recovered-agent",),
-        ).fetchone()["registration_seed"] == 1
+        assert (
+            app.state.connection.execute(
+                "SELECT registration_seed FROM agent_profiles WHERE agent_id = ?",
+                ("recovered-agent",),
+            ).fetchone()["registration_seed"]
+            == 1
+        )
 
         async def recovered_status(**_kwargs):
             return {
@@ -111,7 +116,9 @@ def test_lost_create_response_claims_matching_registration_seed(tmp_path: Path) 
                 },
             }
 
-        app.state.gateway_control.request_agent_config_operation_status = recovered_status
+        app.state.gateway_control.request_agent_config_operation_status = (
+            recovered_status
+        )
         recovered = client.post("/im/v1/nodes/node-seed/agents", json=payload)
         repeated = client.post("/im/v1/nodes/node-seed/agents", json=payload)
         stored = app.state.connection.execute(

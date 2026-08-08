@@ -265,7 +265,10 @@ class ConfigService:
             agent_user = self.ensure_agent_user(
                 agent_id=agent_id, display_name=claimed.display_name
             )
-            if agent_user is not None and agent_user.display_name != claimed.display_name:
+            if (
+                agent_user is not None
+                and agent_user.display_name != claimed.display_name
+            ):
                 self._users.update_user(
                     user_id=agent_user.id,
                     display_name=claimed.display_name,

@@ -96,9 +96,20 @@ def test_initialize_schema_migrates_old_profile_without_granting_recovery_marker
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            "legacy-agent", "owner-a", "node-a", "Legacy", "unchanged", '["plan"]',
-            '["read"]', "MENTION", "model-a", "/srv/legacy", 0, 7,
-            "2026-08-08T00:00:00Z", "2026-08-08T00:00:00Z",
+            "legacy-agent",
+            "owner-a",
+            "node-a",
+            "Legacy",
+            "unchanged",
+            '["plan"]',
+            '["read"]',
+            "MENTION",
+            "model-a",
+            "/srv/legacy",
+            0,
+            7,
+            "2026-08-08T00:00:00Z",
+            "2026-08-08T00:00:00Z",
         ),
     )
     connection.commit()

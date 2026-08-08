@@ -78,13 +78,12 @@ def test_remote_workspace_root_is_never_resolved_or_overwritten_by_live_data(
         assert live.json()["workspace_root"] == remote_root
 
         assert client.get("/im/v1/agents/agent-1/capabilities").status_code == 200
-        assert client.post(
-            "/im/v1/agents/agent-1/prompt-preview", json={}
-        ).status_code == 200
+        assert (
+            client.post("/im/v1/agents/agent-1/prompt-preview", json={}).status_code
+            == 200
+        )
         assert client.get("/im/v1/agents/agent-1/cron/jobs").status_code == 200
-        assert client.delete(
-            "/im/v1/agents/agent-1/cron/jobs/job-1"
-        ).status_code == 204
+        assert client.delete("/im/v1/agents/agent-1/cron/jobs/job-1").status_code == 204
         assert client.get("/im/v1/agents/agent-1/skills/usage").status_code == 200
         assert client.get("/im/v1/agents/agent-1/heartbeat-md").status_code == 200
 

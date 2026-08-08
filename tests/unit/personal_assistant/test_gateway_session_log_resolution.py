@@ -104,7 +104,9 @@ def test_session_log_resolution_reports_unavailable_not_missing_transcript(
 
     async def exercise() -> None:
         await manager._start_session_log_resolution(  # noqa: SLF001
-            request_id="unavailable", agent_id="agent-a", conversation_id="conversation-a"
+            request_id="unavailable",
+            agent_id="agent-a",
+            conversation_id="conversation-a",
         )
         await asyncio.gather(*tuple(manager._session_log_tasks))  # noqa: SLF001
         await manager.close()

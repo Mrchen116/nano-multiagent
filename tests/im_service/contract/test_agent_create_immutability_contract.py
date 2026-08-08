@@ -66,12 +66,18 @@ def test_agent_create_maps_workspace_validation_errors_to_422_without_im_writes(
             "code": code,
             "detail": f"node rejected: {code}",
         }
-        assert app.state.connection.execute(
-            "SELECT 1 FROM agent_profiles WHERE agent_id = ?", ("agent-invalid",)
-        ).fetchone() is None
-        assert app.state.connection.execute(
-            "SELECT 1 FROM users WHERE username = ?", ("agent:agent-invalid",)
-        ).fetchone() is None
+        assert (
+            app.state.connection.execute(
+                "SELECT 1 FROM agent_profiles WHERE agent_id = ?", ("agent-invalid",)
+            ).fetchone()
+            is None
+        )
+        assert (
+            app.state.connection.execute(
+                "SELECT 1 FROM users WHERE username = ?", ("agent:agent-invalid",)
+            ).fetchone()
+            is None
+        )
 
 
 def test_ui_shaped_duplicate_create_keeps_authenticated_owner_and_first_root(
@@ -88,7 +94,11 @@ def test_ui_shaped_duplicate_create_keeps_authenticated_owner_and_first_root(
         gateway_calls: list[str] = []
 
         async def fake_request_agent_create(
-            *, operation_id: str, candidate_fingerprint: str, payload: dict[str, object], **_kwargs
+            *,
+            operation_id: str,
+            candidate_fingerprint: str,
+            payload: dict[str, object],
+            **_kwargs,
         ):
             root = f"/srv/agents/root-{len(gateway_calls) + 1}"
             gateway_calls.append(root)
@@ -162,7 +172,11 @@ def test_create_recovers_when_gateway_succeeded_before_im_profile_write_failed(
         gateway_calls = 0
 
         async def fake_request_agent_create(
-            *, operation_id: str, candidate_fingerprint: str, payload: dict[str, object], **_kwargs
+            *,
+            operation_id: str,
+            candidate_fingerprint: str,
+            payload: dict[str, object],
+            **_kwargs,
         ):
             nonlocal gateway_calls
             gateway_calls += 1
@@ -212,7 +226,11 @@ def test_concurrent_duplicate_http_creates_dispatch_only_one_gateway_create(
         gateway_calls: list[str] = []
 
         async def fake_request_agent_create(
-            *, operation_id: str, candidate_fingerprint: str, payload: dict[str, object], **_kwargs
+            *,
+            operation_id: str,
+            candidate_fingerprint: str,
+            payload: dict[str, object],
+            **_kwargs,
         ):
             gateway_calls.append(str(payload["workspace_root"]))
             await asyncio.sleep(0.05)
@@ -272,7 +290,11 @@ def test_agent_create_accepts_target_gateway_workspace_syntax(
         )
 
         async def fake_request_agent_create(
-            *, operation_id: str, candidate_fingerprint: str, payload: dict[str, object], **_kwargs
+            *,
+            operation_id: str,
+            candidate_fingerprint: str,
+            payload: dict[str, object],
+            **_kwargs,
         ):
             return {
                 "operation_id": operation_id,

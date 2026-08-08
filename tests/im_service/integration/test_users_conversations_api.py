@@ -60,7 +60,9 @@ def test_conversation_list_and_sync_resolve_session_log_through_target_gateway(
         )
         assert conversation_resp.status_code == 201, conversation_resp.text
         conversation = conversation_resp.json()
-        session_path = "/remote-gateway/agent-1-workspace/.nanoassistant/sessions/sess-1.jsonl"
+        session_path = (
+            "/remote-gateway/agent-1-workspace/.nanoassistant/sessions/sess-1.jsonl"
+        )
         rpc_calls: list[dict[str, str]] = []
 
         async def fake_request_session_log_path(**kwargs):
@@ -96,7 +98,9 @@ def test_conversation_list_and_sync_resolve_session_log_through_target_gateway(
         ]
 
 
-@pytest.mark.parametrize("create_profile", [False, True], ids=["absent", "without-node"])
+@pytest.mark.parametrize(
+    "create_profile", [False, True], ids=["absent", "without-node"]
+)
 def test_conversation_source_without_routable_profile_is_temporarily_unavailable(
     tmp_path: Path, create_profile: bool
 ) -> None:
@@ -147,9 +151,13 @@ def test_conversation_source_without_routable_profile_is_temporarily_unavailable
         assert conversation.status_code == 201, conversation.text
 
         async def unexpected_resolution(**_kwargs):
-            raise AssertionError("an unroutable Agent must not invoke Gateway resolution")
+            raise AssertionError(
+                "an unroutable Agent must not invoke Gateway resolution"
+            )
 
-        client.app.state.gateway_control.request_session_log_path = unexpected_resolution
+        client.app.state.gateway_control.request_session_log_path = (
+            unexpected_resolution
+        )
         listed = client.get("/im/v1/conversations").json()["items"]
         synced = client.get("/im/v1/sync").json()["items"]
 

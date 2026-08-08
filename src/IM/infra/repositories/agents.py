@@ -346,7 +346,14 @@ class AgentProfileRepository:
                     request_fingerprint, created_at
                 ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (operation_id, owner_id, node_id, agent_id, request_fingerprint, utc_now()),
+                (
+                    operation_id,
+                    owner_id,
+                    node_id,
+                    agent_id,
+                    request_fingerprint,
+                    utc_now(),
+                ),
             )
         return operation_id
 

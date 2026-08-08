@@ -103,8 +103,7 @@ def test_gateway_registration_materializes_runtime_agents_before_and_after_bind(
                 ("Alpha", "Beta"),
             ).fetchall()
             assert [
-                row["workspace_is_default"]
-                for row in refreshed_ownerless_provenance
+                row["workspace_is_default"] for row in refreshed_ownerless_provenance
             ] == [1, 0]
             stored_rows = app.state.connection.execute(
                 "SELECT agent_id, workspace_root FROM agent_profiles WHERE agent_id IN (?, ?) ORDER BY agent_id",
@@ -171,8 +170,7 @@ def test_gateway_reregistration_preserves_canonical_agent_labels_after_restart(
             "M170 Beta",
         ]
         legacy_provenance = app.state.connection.execute(
-            "SELECT workspace_is_default FROM agent_profiles "
-            "WHERE agent_id = ?",
+            "SELECT workspace_is_default FROM agent_profiles WHERE agent_id = ?",
             ("agent-m170-alpha",),
         ).fetchone()
         assert legacy_provenance["workspace_is_default"] is None

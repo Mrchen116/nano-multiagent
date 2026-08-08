@@ -724,9 +724,7 @@ def test_node_prompt_preview_maps_gateway_workspace_validation_to_422(
             }
         }
 
-    monkeypatch.setattr(
-        GatewayControl, "request_node_prompt_preview", fake_request
-    )
+    monkeypatch.setattr(GatewayControl, "request_node_prompt_preview", fake_request)
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         owner = register_user(client, username="owner-preview-error")

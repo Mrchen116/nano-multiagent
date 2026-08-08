@@ -354,7 +354,8 @@ class AgentConfigOperationCoordinator:
                     or existing.workspace_is_default is not workspace_is_default
                     or workspace_is_default is None
                     or not isinstance(result_display_name, str)
-                    or result_display_name.strip() != str(candidate.get("display_name") or "")
+                    or result_display_name.strip()
+                    != str(candidate.get("display_name") or "")
                 ):
                     self._operations.mark_rejected(
                         operation_id=operation.operation_id,

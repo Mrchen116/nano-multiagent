@@ -290,7 +290,9 @@ def test_workspace_ownership_is_scoped_to_each_gateway_config(tmp_path: Path) ->
     )
 
     assert result["workspace_root"] == str(workspace.resolve())
-    assert node_b_owners.catalog.require("node-b-agent").config.workspace_root == workspace
+    assert (
+        node_b_owners.catalog.require("node-b-agent").config.workspace_root == workspace
+    )
 
 
 def test_preview_workspace_resolution_uses_gateway_paths_without_initializing(

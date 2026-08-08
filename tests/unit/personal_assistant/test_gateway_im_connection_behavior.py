@@ -231,12 +231,7 @@ def test_im_connection_returns_exact_session_log_from_gateway_binding(
 ) -> None:
     """Production binding projection returns an address without probing its workspace."""
     workspace_root = tmp_path / "remote-workspace"
-    session_path = (
-        workspace_root
-        / ".nanoassistant"
-        / "sessions"
-        / "session-a.jsonl"
-    )
+    session_path = workspace_root / ".nanoassistant" / "sessions" / "session-a.jsonl"
     agent = AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace_root)
     bindings = SessionBindingStore()
     bindings.bind(

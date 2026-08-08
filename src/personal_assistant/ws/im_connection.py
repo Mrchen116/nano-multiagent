@@ -169,9 +169,7 @@ SessionForkHandler = Callable[
 # Resolve a Gateway-owned conversation binding to its exact root-session JSONL.
 # The provider must not walk the workspace tree: its lookup comes from the durable
 # session binding already held by the Gateway runtime.
-SessionLogPathProvider = Callable[
-    [str, str], Awaitable[str | None] | str | None
-]
+SessionLogPathProvider = Callable[[str, str], Awaitable[str | None] | str | None]
 # Provides encrypted managed-channel items for a newly bound IM. The IM owner id
 # is needed to re-seal a cache that was associated with a different IM instance.
 ChannelBootstrapItemsProvider = Callable[[str], list[Mapping[str, object]]]
@@ -1286,9 +1284,7 @@ class IMConnectionManager:
             ):
                 agent_id_hint_raw = body.get("agent_id_hint")
                 agent_id_hint = (
-                    agent_id_hint_raw
-                    if isinstance(agent_id_hint_raw, str)
-                    else None
+                    agent_id_hint_raw if isinstance(agent_id_hint_raw, str) else None
                 )
                 custom_root = (
                     node_workspace_root_raw
@@ -1540,15 +1536,11 @@ class IMConnectionManager:
             pending_waiters.append(waiter)
             return
         self._session_log_waiters[key] = [waiter]
-        task = asyncio.create_task(
-            self._resolve_session_log(key=key)
-        )
+        task = asyncio.create_task(self._resolve_session_log(key=key))
         self._session_log_tasks.add(task)
         task.add_done_callback(self._session_log_tasks.discard)
 
-    async def _resolve_session_log(
-        self, *, key: tuple[str, str]
-    ) -> None:
+    async def _resolve_session_log(self, *, key: tuple[str, str]) -> None:
         """Await one cancellable exact lookup and answer every coalesced waiter."""
         source_jsonl_path: str | None = None
         resolution_status = "unavailable"

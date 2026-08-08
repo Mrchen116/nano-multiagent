@@ -1157,9 +1157,7 @@ def _parse_agents(
         if workspace_is_default_raw is not None and not isinstance(
             workspace_is_default_raw, bool
         ):
-            raise ValueError(
-                f"agents[{index}].workspace_is_default must be a boolean"
-            )
+            raise ValueError(f"agents[{index}].workspace_is_default must be a boolean")
         workspace_is_default = (
             workspace_is_default_raw
             if isinstance(workspace_is_default_raw, bool)
