@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Link, createMemoryRouter, RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -19,7 +19,14 @@ vi.mock("./im-agent-config-api", () => ({
   listNodes: apiMocks.listNodesMock,
   listAgentSummaries: apiMocks.listAgentSummariesMock,
   promptPreview: apiMocks.promptPreviewMock,
-  nodePromptPreview: apiMocks.nodePromptPreviewMock
+  nodePromptPreview: apiMocks.nodePromptPreviewMock,
+  isConfigApplyPendingError: (error: unknown) => error instanceof Error && error.message.includes("config_apply_pending"),
+  getAgentConfigRequestStatus: (error: unknown) => {
+    const match = error instanceof Error ? error.message.match(/failed:\s*(\d{3})\b/) : null;
+    return match ? Number(match[1]) : null;
+  },
+  getAgentConfigRequestDetail: (error: unknown) =>
+    error instanceof Error ? error.message.split(" failed: ").at(-1) ?? error.message : "request failed",
 }));
 
 import { AgentCreatePage } from "./agent-create-page";
@@ -156,7 +163,14 @@ describe("agent create page", () => {
           { name: "read", description: "Read files" },
           { name: "bash", description: "Run shell commands" }
         ],
-        model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }, { name: "kimiCoding:K2.6", provider: "anthropic" }],
+        model_options: [
+          { name: "codex_oauth:gpt-5.5", provider: "openai_compat" },
+          {
+            name: "kimiCoding:K2.6",
+            provider: "anthropic",
+            reasoning: { kind: "selectable", default: "high", levels: ["high", "max"] },
+          },
+        ],
         platform_default_model: "codex_oauth:gpt-5.5",
       }
     });
@@ -206,6 +220,7 @@ describe("agent create page", () => {
     await user.click(screen.getByRole("button", { name: /plan/i }));
     await user.click(screen.getByRole("button", { name: /read/i }));
     await user.selectOptions(screen.getByLabelText("Default Model"), "kimiCoding:K2.6");
+    await user.selectOptions(screen.getByLabelText("Reasoning effort"), "max");
 
     await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
 
@@ -221,6 +236,7 @@ describe("agent create page", () => {
         tool_allowlist: ["read"],
         group_reply_policy: "MENTION",
         default_model: "kimiCoding:K2.6",
+        reasoning_effort: "max",
         workspace_root: null
       });
     });
@@ -493,6 +509,83 @@ describe("agent create page", () => {
 
     expect(await screen.findByText(/409.*agent already exists/i)).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/settings/nodes/node-1/agents/new");
+  });
+
+  it("retries a pending create and opens the recovered agent", async () => {
+    const user = userEvent.setup();
+    mockNodes();
+    apiMocks.getNodeCreateStateMock.mockResolvedValue({
+      node: {
+        node_id: "node-1",
+        owner_id: "owner-1",
+        node_name: "MacBook",
+        status: "online",
+        last_heartbeat_at: "2026-03-13T10:00:00Z",
+        agent_count: 0,
+        version: "1.0.0",
+      },
+      capabilities: {
+        node_id: "node-1",
+        node_name: "MacBook",
+        node_status: "online",
+        skills: [],
+        tools: [],
+        model_options: [{
+          name: "adjustable",
+          provider: "provider-a",
+          reasoning: { kind: "selectable", default: "medium", levels: ["medium", "high"] },
+        }],
+        platform_default_model: null,
+      },
+    });
+    apiMocks.createNodeAgentMock
+      .mockRejectedValueOnce(
+        new Error("POST /im/v1/nodes/node-1/agents failed: 503 (config_apply_pending)"),
+      )
+      .mockResolvedValueOnce({
+        agent_id: "pending-agent",
+        owner_id: "owner-1",
+        display_name: "Pending Agent",
+        description: "",
+        skills: [],
+        tool_allowlist: [],
+        group_reply_policy: "MENTION",
+        default_model: "adjustable",
+        reasoning_effort: "high",
+        workspace_root: "/tmp/pending-agent",
+        workspace_is_default: true,
+        profile_version: 1,
+        node_id: "node-1",
+        node_name: "MacBook",
+        node_status: "online",
+        bound_nodes: ["node-1"],
+        updated_at: "2026-03-13T10:00:00Z",
+      });
+
+    const { router } = renderCreatePage();
+    fireEvent.change(await screen.findByLabelText(/^Agent ID/), { target: { value: "pending-agent" } });
+    fireEvent.change(screen.getByLabelText(/^Display Name/), { target: { value: "Pending Agent" } });
+    await user.selectOptions(screen.getByLabelText("Default Model"), "adjustable");
+    await user.selectOptions(screen.getByLabelText("Reasoning effort"), "high");
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole("button", { name: /^Create agent$/i }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(screen.getByRole("status")).toHaveTextContent(/Confirming the previous save/i);
+    expect(screen.getByLabelText(/^Agent ID/)).toHaveValue("pending-agent");
+    expect(screen.getByLabelText("Reasoning effort")).toHaveValue("high");
+    for (const button of screen.getAllByRole("button", { name: /Create agent/i })) {
+      expect(button).toBeDisabled();
+    }
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(apiMocks.createNodeAgentMock).toHaveBeenCalledTimes(2);
+    expect(router.state.location.pathname).toBe("/settings/agents/pending-agent");
+    vi.useRealTimers();
   });
 
   it("shows the desktop agent rail and switches immediately from an untouched form", async () => {

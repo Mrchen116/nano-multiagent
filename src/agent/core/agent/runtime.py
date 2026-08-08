@@ -30,7 +30,7 @@ from agent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage
 from agent.core.llm.model_registry import context_window_for_model, provider_of
 from agent.core.session.conversation import ConversationState
 from agent.core.session.transcript import USER_INTERRUPT_RECOVERY_CONTENT
-from agent.core.session.types import SessionConfig, TurnRequest
+from agent.core.session.types import INTERNAL_RUNTIME_KEY, SessionConfig, TurnRequest
 from agent.core.skills import (
     SkillMetadata,
     make_skill_resolver,
@@ -1660,6 +1660,13 @@ class AgentEngine:
         # the empty tuple), narrow execution to the resolved available tools.
         # None keeps the legacy unrestricted path for CLI / kernel defaults.
         config = self._state().config
+        runtime_payload = config.metadata.get(INTERNAL_RUNTIME_KEY)
+        reasoning_effort = (
+            runtime_payload.get("reasoning_effort")
+            if isinstance(runtime_payload, Mapping)
+            and isinstance(runtime_payload.get("reasoning_effort"), str)
+            else None
+        )
         if config.tool_allowlist is not None:
             tool_execution_allowlist = tuple(
                 tool.name for tool in (available_tools_override or ())
@@ -1689,6 +1696,7 @@ class AgentEngine:
             session_file_state=session_file_state,
             tool_execution_allowlist=tool_execution_allowlist,
             model_override=model_override,
+            reasoning_effort=reasoning_effort,
             prior_prompt_tokens=self._state().last_prompt_tokens,
             on_progress=self._record_turn_progress,
         ):

@@ -18,6 +18,15 @@ from .conftest import authorize, register_user
 _WORKSPACE_PATH_SETTING = str(Path("/tmp/nano-test/workspace/test-agent").resolve())
 
 
+async def _applied_config_operation(**kwargs):
+    return {
+        "operation_id": kwargs["operation_id"],
+        "status": "applied",
+        "candidate_fingerprint": kwargs["candidate_fingerprint"],
+        "agent": kwargs["payload"],
+    }
+
+
 def test_get_agent_config_prefers_live_gateway_snapshot(tmp_path: Path) -> None:
     """Read agent config through the connected gateway so IM cache becomes a mirror, not the runtime source."""
     app = create_app(db_path=tmp_path / "im.db")
@@ -236,6 +245,10 @@ def test_profile_updates_only_affect_new_conversations(tmp_path: Path) -> None:
         owner = register_user(client, username="owner", display_name="Owner")
         authorize(client, owner)
         profiles = AgentProfileRepository(app.state.connection)
+        NodeRepository(app.state.connection).upsert_node(
+            node_id="node-1", node_name="MacBook"
+        )
+        app.state.gateway_control.request_agent_config_apply = _applied_config_operation
         profiles.upsert_profile(
             agent_id="agent-1",
             owner_id=owner.owner_id,
@@ -246,6 +259,7 @@ def test_profile_updates_only_affect_new_conversations(tmp_path: Path) -> None:
             group_reply_policy="manual",
             default_model=None,
             workspace_root=None,
+            node_id="node-1",
         )
 
         agent_participant = users.create_user(
@@ -379,6 +393,7 @@ def test_bound_agent_survives_fresh_reregistration_and_remains_updatable(
         after_reregister = client.get("/im/v1/agents/agent-m170-alpha/config")
         assert after_reregister.status_code == 200
         assert after_reregister.json()["owner_id"] == owner.owner_id
+        app.state.gateway_control.request_agent_config_apply = _applied_config_operation
 
         patch_resp = client.patch(
             "/im/v1/agents/agent-m170-alpha/config",

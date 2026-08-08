@@ -83,10 +83,15 @@ class JsonlTranscript:
         transcript = cls(ref=ref, files=files, writer=writer, known_empty=True)
         metadata = internal_metadata(spec.metadata, prompt_seed=spec.prompt_seed)
         if spec.runtime_model is not None:
-            metadata[INTERNAL_RUNTIME_KEY] = {
-                "model": spec.runtime_model,
-                "features": spec.runtime_features,
-            }
+            runtime_metadata = dict(metadata.get(INTERNAL_RUNTIME_KEY) or {})
+            runtime_metadata.update(
+                {
+                    "model": spec.runtime_model,
+                    "features": spec.runtime_features,
+                    "reasoning_effort": spec.runtime_reasoning_effort,
+                }
+            )
+            metadata[INTERNAL_RUNTIME_KEY] = runtime_metadata
         if spec.title is not None:
             metadata["title"] = spec.title
         entry: dict[str, Any] = {

@@ -124,6 +124,13 @@ tail -n 50 "$WT_ROOT/.gateway.log"
 
 `e2e-up.sh` 的 readiness 只证明启动阶段通过。具体功能仍应执行与 change 对应的 API、E2E 或产品验收。
 
+### 浏览器验收身份
+
+脚本会按源 Gateway config 的 `im_service.username` 和 `im_service.password` 注册并绑定隔离用户；
+浏览器验收必须以这一账号登录，不能临时注册另一个用户（新用户不会拥有这次 Gateway node）。仓库默认
+`config/e2e/gateway.yaml` 使用 `nano` / `nano1234`；受控替代 config 则以其自身的 `im_service` 字段为准。
+这只是隔离栈的测试身份，不得用于生产服务。
+
 ## 可选：启动 Vite
 
 `e2e-up.sh` 只启动 IM 和 Gateway，不启动 Vite。需要前端 dev server 时，先加载它生成的代理目标，再单独分配端口：

@@ -86,17 +86,21 @@ def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(
             create_request = websocket.receive_json()
             assert create_request["type"] == "agent.create"
             request_id = create_request["payload"]["request_id"]
+            operation_id = create_request["payload"]["operation_id"]
+            candidate_fingerprint = create_request["payload"]["candidate_fingerprint"]
+            assert create_request["payload"]["expected_previous_fingerprint"] is None
             assert create_request["payload"]["agent"] == {
                 "agent_id": agent_user.id,
                 "display_name": "Agent New",
-                "description": "runtime-created helper",
                 "features": {},
                 "custom_prompt": "You are Agent New.",
                 "skills": ["plan"],
                 "tool_allowlist": ["read"],
                 "group_reply_policy": "MENTION",
                 "default_model": "claude-sonnet-4",
+                "reasoning_effort": None,
                 "workspace_root": None,
+                "heartbeat_json": None,
             }
             websocket.send_json(
                 {
@@ -104,6 +108,9 @@ def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(
                     "payload": {
                         "request_id": request_id,
                         "node_id": "node-1",
+                        "operation_id": operation_id,
+                        "status": "applied",
+                        "candidate_fingerprint": candidate_fingerprint,
                         "agent": {
                             "agent_id": agent_user.id,
                             "display_name": "Agent New",
@@ -114,7 +121,9 @@ def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(
                             "tool_allowlist": ["read"],
                             "group_reply_policy": "MENTION",
                             "default_model": "claude-sonnet-4",
+                            "reasoning_effort": None,
                             "workspace_root": _WORKSPACE_PATH_SETTING,
+                            "heartbeat_json": None,
                         },
                     },
                 }
@@ -126,10 +135,6 @@ def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(
                     "request_id": request_id,
                     "node_id": "node-1",
                 },
-            }
-            assert websocket.receive_json() == {
-                "type": "config.sync",
-                "payload": {"agent_id": agent_user.id, "profile_version": 1},
             }
             creation_worker.join(timeout=5)
             created = creation_result["response"]
@@ -262,8 +267,8 @@ def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(
         assert relay_task["target_node_id"] == "node-1"
 
 
-def test_create_agent_pushes_config_sync_to_connected_gateway(tmp_path: Path) -> None:
-    """Notify a connected bound node immediately when a new agent is created."""
+def test_create_agent_commits_after_gateway_terminal_result(tmp_path: Path) -> None:
+    """Treat the Gateway operation result itself as the create success condition."""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         users = UserRepository(app.state.connection)
@@ -314,12 +319,17 @@ def test_create_agent_pushes_config_sync_to_connected_gateway(tmp_path: Path) ->
             create_request = websocket.receive_json()
             assert create_request["type"] == "agent.create"
             request_id = create_request["payload"]["request_id"]
+            operation_id = create_request["payload"]["operation_id"]
+            candidate_fingerprint = create_request["payload"]["candidate_fingerprint"]
             websocket.send_json(
                 {
                     "type": "agent.created",
                     "payload": {
                         "request_id": request_id,
                         "node_id": "node-1",
+                        "operation_id": operation_id,
+                        "status": "applied",
+                        "candidate_fingerprint": candidate_fingerprint,
                         "agent": {
                             "agent_id": agent_user.id,
                             "display_name": "Agent Live",
@@ -329,7 +339,9 @@ def test_create_agent_pushes_config_sync_to_connected_gateway(tmp_path: Path) ->
                             "tool_allowlist": ["read"],
                             "group_reply_policy": "MENTION",
                             "default_model": "claude-sonnet-4",
+                            "reasoning_effort": None,
                             "workspace_root": _WORKSPACE_PATH_SETTING,
+                            "heartbeat_json": None,
                         },
                     },
                 }
@@ -342,10 +354,6 @@ def test_create_agent_pushes_config_sync_to_connected_gateway(tmp_path: Path) ->
                     "request_id": request_id,
                     "node_id": "node-1",
                 },
-            }
-            assert websocket.receive_json() == {
-                "type": "config.sync",
-                "payload": {"agent_id": agent_user.id, "profile_version": 1},
             }
             creation_worker.join(timeout=5)
             created = creation_result["response"]

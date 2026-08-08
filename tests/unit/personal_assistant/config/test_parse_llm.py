@@ -13,10 +13,14 @@ llm:
       base_url: http://127.0.0.1:4000
       models:
         - name: kimiCoding:K2.6
+          reasoning:
+            default: high
+            levels: [low, high]
           extra_request_body:
             thinking:
               type: adaptive
         - name: volcanoArk:doubao-seed-2-0-code-preview-260215
+          reasoning: fixed
           extra_request_body:
             thinking:
               type: adaptive
@@ -56,6 +60,16 @@ def test_load_local_config_parses_llm_payload(tmp_path: Path) -> None:
     assert anthropic.base_url == "http://127.0.0.1:4000"
     k26 = next(m for m in anthropic.models if m.name == "kimiCoding:K2.6")
     assert k26.extra_request_body == {"thinking": {"type": "adaptive"}}
+    assert k26.reasoning is not None
+    assert k26.reasoning.default == "high"
+    assert k26.reasoning.levels == ("low", "high")
+    fixed = next(
+        m
+        for m in anthropic.models
+        if m.name == "volcanoArk:doubao-seed-2-0-code-preview-260215"
+    )
+    assert fixed.reasoning is not None
+    assert fixed.reasoning.kind == "fixed"
     assert config.llm.tool_approval_model is None
 
 
@@ -115,6 +129,21 @@ def test_load_local_config_agent_default_model_validated_against_llm(
         load_local_config(cfg)
 
 
+def test_load_local_config_rejects_duplicate_model_names_across_providers(
+    tmp_path: Path,
+) -> None:
+    """One model id cannot name different provider routes and capabilities."""
+    from personal_assistant.config.local_store import load_local_config
+
+    duplicate_model_yaml = _LLM_YAML.replace(
+        "        - name: codex_oauth:gpt-5.5\n",
+        "        - name: kimiCoding:K2.6\n",
+    )
+
+    with pytest.raises(ValueError, match="must not repeat a model name"):
+        load_local_config(_make_config(tmp_path, duplicate_model_yaml))
+
+
 def test_load_local_config_agent_no_default_model_ok(tmp_path: Path) -> None:
     """agent without default_model must load fine (falls back to llm.default_model at runtime)."""
     from personal_assistant.config.local_store import load_local_config
@@ -150,7 +179,113 @@ def test_save_and_reload_preserves_llm(tmp_path: Path) -> None:
     orig_k26 = next(m for m in orig_anthropic.models if m.name == "kimiCoding:K2.6")
     rest_k26 = next(m for m in rest_anthropic.models if m.name == "kimiCoding:K2.6")
     assert rest_k26.extra_request_body == orig_k26.extra_request_body
+    assert rest_k26.reasoning == orig_k26.reasoning
     assert restored.llm.tool_approval_model == "codex_oauth:gpt-5.5"
+
+
+@pytest.mark.parametrize(
+    "reasoning_yaml",
+    [
+        "reasoning: variable",
+        "reasoning: {default: high, levels: []}",
+        "reasoning: {default: high, levels: [low]}",
+        "reasoning: {default: high, levels: [high, high]}",
+    ],
+)
+def test_load_local_config_rejects_invalid_reasoning_schema(
+    tmp_path: Path, reasoning_yaml: str
+) -> None:
+    from personal_assistant.config.local_store import load_local_config
+
+    llm_yaml = _LLM_YAML.replace(
+        "          reasoning:\n"
+        "            default: high\n"
+        "            levels: [low, high]\n",
+        f"          {reasoning_yaml}\n",
+    )
+
+    with pytest.raises(ValueError, match="reasoning"):
+        load_local_config(_make_config(tmp_path, llm_yaml))
+
+
+def test_stale_agent_reasoning_loads_but_runtime_resolution_rejects(
+    tmp_path: Path,
+) -> None:
+    from personal_assistant.config.local_store import load_local_config
+    from personal_assistant.config.model_reasoning import ModelReasoningCatalog
+
+    config_path = _make_config(tmp_path, _LLM_YAML)
+    text = config_path.read_text(encoding="utf-8").replace(
+        "    workspace_root:",
+        "    default_model: kimiCoding:K2.6\n"
+        "    reasoning_effort: max\n"
+        "    workspace_root:",
+    )
+    config_path.write_text(text, encoding="utf-8")
+
+    config = load_local_config(config_path)
+
+    with pytest.raises(ValueError, match="reasoning_effort"):
+        ModelReasoningCatalog(config.llm).resolve(
+            "kimiCoding:K2.6", config.agents[0].reasoning_effort
+        )
+
+
+def test_reasoning_catalog_resolves_default_and_runtime_projection(
+    tmp_path: Path,
+) -> None:
+    from personal_assistant.config.local_store import (
+        AgentWorkspaceConfig,
+        load_local_config,
+    )
+    from personal_assistant.config.model_reasoning import ModelReasoningCatalog
+    from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
+    from personal_assistant.gateway.session_composition import project_agent_runtime
+
+    config = load_local_config(_make_config(tmp_path, _LLM_YAML))
+    catalog = ModelReasoningCatalog(config.llm)
+    agent = LiveAgentCatalog(
+        (
+            AgentWorkspaceConfig(
+                agent_id="a",
+                workspace_root=tmp_path / "ws",
+                default_model="kimiCoding:K2.6",
+            ),
+        )
+    ).require("a")
+
+    projected = project_agent_runtime(
+        agent,
+        scenario={},
+        resolved_model="kimiCoding:K2.6",
+        reasoning_catalog=catalog,
+    )
+
+    assert catalog.resolve("kimiCoding:K2.6", None) == "high"
+    assert projected.runtime.reasoning_effort == "high"
+
+
+def test_agent_reasoning_effort_round_trips_local_config(tmp_path: Path) -> None:
+    from personal_assistant.config.local_store import (
+        load_local_config,
+        save_local_config,
+    )
+
+    config_path = _make_config(tmp_path, _LLM_YAML)
+    text = config_path.read_text(encoding="utf-8").replace(
+        "    workspace_root:",
+        "    default_model: kimiCoding:K2.6\n"
+        "    reasoning_effort: low\n"
+        "    workspace_root:",
+    )
+    config_path.write_text(text, encoding="utf-8")
+
+    loaded = load_local_config(config_path)
+    save_local_config(loaded, config_path)
+    restored = load_local_config(config_path)
+
+    assert restored.agents[0].default_model == "kimiCoding:K2.6"
+    assert restored.agents[0].reasoning_effort == "low"
 
 
 _LLM_YAML_CONTEXT_WINDOW = """

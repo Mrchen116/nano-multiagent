@@ -47,6 +47,7 @@ export interface AgentConfig {
   tool_allowlist: string[];
   group_reply_policy: "ALWAYS" | "MENTION" | "NO_REPLY" | string;
   default_model: string | null;
+  reasoning_effort: string | null;
   workspace_root: string;
   workspace_is_default: boolean;
   profile_version: number;
@@ -68,9 +69,20 @@ export interface AgentAllowlistOption {
 
 // bugfix-429 R5: a selectable model with its registered provider/format, so the
 // agent-config dropdown can label each option (e.g. "codex_oauth:gpt-5.5 · openai_compat").
+export type ModelReasoningDescriptor =
+  | {
+      kind: "selectable";
+      default: string;
+      levels: string[];
+    }
+  | {
+      kind: "fixed";
+    };
+
 export interface ModelOption {
   name: string;
   provider: string;
+  reasoning?: ModelReasoningDescriptor;
 }
 
 // feat-379-M3: feature toggle descriptor from FEATURE_REGISTRY (decision 7).
@@ -137,6 +149,7 @@ export interface NodeAgentCreateRequest {
   tool_allowlist: string[];
   group_reply_policy: "ALWAYS" | "MENTION" | "NO_REPLY" | string;
   default_model: string | null;
+  reasoning_effort: string | null;
   workspace_root: string | null;
 }
 
@@ -158,6 +171,7 @@ export interface UpdateAgentConfigRequest {
   tool_allowlist: string[];
   group_reply_policy: "ALWAYS" | "MENTION" | "NO_REPLY" | string;
   default_model: string | null;
+  reasoning_effort: string | null;
 }
 
 export interface AgentDetailState {
@@ -239,6 +253,12 @@ export interface UpdateAgentChannelInput {
   credentials: ChannelCredentialsInput;
 }
 
+interface ModelOptionWire {
+  name: string;
+  provider?: string;
+  reasoning?: unknown;
+}
+
 interface AgentCapabilitiesWire {
   agent_id?: string;
   node_id: string;
@@ -246,8 +266,8 @@ interface AgentCapabilitiesWire {
   node_name?: string;
   node_status?: string;
   capabilities_updated_at?: string | null;
-  models?: Array<string | ModelOption>;
-  model_options?: Array<string | ModelOption>;
+  models?: Array<string | ModelOptionWire>;
+  model_options?: Array<string | ModelOptionWire>;
   skills: Array<string | AgentAllowlistOption>;
   tools: Array<string | AgentAllowlistOption>;
   platform_default_model?: string | null;
@@ -260,8 +280,8 @@ interface NodeCapabilitiesWire {
   node_name?: string;
   node_status?: string;
   capabilities_updated_at?: string | null;
-  models?: Array<string | ModelOption>;
-  model_options?: Array<string | ModelOption>;
+  models?: Array<string | ModelOptionWire>;
+  model_options?: Array<string | ModelOptionWire>;
   skills: Array<string | AgentAllowlistOption>;
   tools: Array<string | AgentAllowlistOption>;
   platform_default_model?: string | null;
@@ -290,9 +310,25 @@ export function normalizeAllowlistOptions(values: Array<string | AgentAllowlistO
   });
 }
 
-function normalizeModelOptions(raw: {
-  models?: Array<string | ModelOption>;
-  model_options?: Array<string | ModelOption>;
+function normalizeReasoningDescriptor(value: unknown): ModelReasoningDescriptor | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Record<string, unknown>;
+  if (raw.kind === "fixed") return { kind: "fixed" };
+  if (raw.kind !== "selectable" || typeof raw.default !== "string" || !Array.isArray(raw.levels)) {
+    return undefined;
+  }
+
+  const levels = Array.from(
+    new Set(raw.levels.flatMap((level) => (typeof level === "string" && level.trim() ? [level.trim()] : []))),
+  );
+  const defaultLevel = raw.default.trim();
+  if (!defaultLevel || !levels.includes(defaultLevel)) return undefined;
+  return { kind: "selectable", default: defaultLevel, levels };
+}
+
+export function normalizeModelOptions(raw: {
+  models?: Array<string | ModelOptionWire>;
+  model_options?: Array<string | ModelOptionWire>;
 }): ModelOption[] {
   // bugfix-429 R5: keep each model's provider. Tolerate bare strings (older
   // Gateway) by emitting an empty provider so the dropdown degrades to name-only.
@@ -303,7 +339,8 @@ function normalizeModelOptions(raw: {
     if (!name || seen.has(name)) continue;
     seen.add(name);
     const provider = typeof value === "string" ? "" : value?.provider ?? "";
-    options.push({ name, provider });
+    const reasoning = typeof value === "string" ? undefined : normalizeReasoningDescriptor(value?.reasoning);
+    options.push({ name, provider, ...(reasoning ? { reasoning } : {}) });
   }
   return options;
 }
@@ -343,7 +380,7 @@ function toAllowlistOptions(values: string[]): AgentAllowlistOption[] {
 }
 
 function enrichCapabilitySnapshot(
-  raw: { node_id: string; skills: string[]; tools: string[]; models: Array<string | ModelOption> },
+  raw: { node_id: string; skills: string[]; tools: string[]; models: Array<string | ModelOptionWire> },
   node: NodeSummary | null
 ): CapabilitySnapshot {
   return {
@@ -371,7 +408,7 @@ function withBase(path: string) {
   return `${getApiBaseUrl()}${path}`;
 }
 
-class AgentConfigRequestError extends Error {
+export class AgentConfigRequestError extends Error {
   status: number;
   detail: string;
 
@@ -381,6 +418,25 @@ class AgentConfigRequestError extends Error {
     this.status = input.status;
     this.detail = input.detail;
   }
+}
+
+export function isConfigApplyPendingError(error: unknown): boolean {
+  if (error instanceof AgentConfigRequestError) {
+    return error.status === 503 && error.detail.includes("config_apply_pending");
+  }
+  return error instanceof Error && error.message.includes("config_apply_pending");
+}
+
+export function getAgentConfigRequestStatus(error: unknown): number | null {
+  if (error instanceof AgentConfigRequestError) return error.status;
+  if (!(error instanceof Error)) return null;
+  const match = error.message.match(/failed:\s*(\d{3})\b/);
+  return match ? Number(match[1]) : null;
+}
+
+export function getAgentConfigRequestDetail(error: unknown): string {
+  if (error instanceof AgentConfigRequestError) return error.detail;
+  return error instanceof Error ? error.message.split(" failed: ").at(-1) ?? error.message : "request failed";
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -450,7 +506,14 @@ export function normalizeAgentConfigResponse(raw: Record<string, unknown>): Agen
     }
   }
 
-  return { ...config, heartbeat };
+  return {
+    ...config,
+    heartbeat,
+    reasoning_effort:
+      typeof config.reasoning_effort === "string" && config.reasoning_effort.trim()
+        ? config.reasoning_effort.trim()
+        : null,
+  };
 }
 
 /**
@@ -486,10 +549,11 @@ export async function getNodeCapabilities(nodeId: string) {
 }
 
 export async function createNodeAgent(nodeId: string, next: NodeAgentCreateRequest) {
-  return requestJson<AgentConfig>(`/im/v1/nodes/${nodeId}/agents`, {
+  const raw = await requestJson<Record<string, unknown>>(`/im/v1/nodes/${nodeId}/agents`, {
     method: "POST",
     body: JSON.stringify(next),
   });
+  return normalizeAgentConfigResponse(raw);
 }
 
 export async function getAgentDetailState(agentId: string): Promise<AgentDetailState> {
@@ -544,6 +608,7 @@ export async function updateAgentConfig(agentId: string, next: UpdateAgentConfig
       tool_allowlist: next.tool_allowlist,
       group_reply_policy: next.group_reply_policy,
       default_model: next.default_model,
+      reasoning_effort: next.reasoning_effort,
     }),
   });
   return normalizeAgentConfigResponse(raw);

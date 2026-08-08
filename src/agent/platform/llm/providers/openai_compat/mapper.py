@@ -41,6 +41,8 @@ class OpenAICompatMapper:
             payload["tool_choice"] = "auto"
         if request.extra_body:
             payload.update(request.extra_body)
+        if request.reasoning_effort is not None:
+            payload["reasoning_effort"] = request.reasoning_effort
         return payload
 
     def map_generate_response(self, payload: Mapping[str, Any]) -> LLMGenerateResponse:

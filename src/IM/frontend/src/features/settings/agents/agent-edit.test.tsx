@@ -1,5 +1,5 @@
 import userEvent from "@testing-library/user-event";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
 
 import { appRoutes } from "../../../app/router";
@@ -10,6 +10,7 @@ const fetchMock = vi.fn();
 globalThis.fetch = fetchMock as typeof fetch;
 
 afterEach(() => {
+  vi.useRealTimers();
   fetchMock.mockReset();
 });
 
@@ -25,6 +26,7 @@ describe("agent edit page", () => {
       tool_allowlist: string[];
       group_reply_policy: string;
       default_model: string | null;
+      reasoning_effort: string | null;
       workspace_root: string;
       workspace_is_default: boolean;
       profile_version: number;
@@ -39,6 +41,7 @@ describe("agent edit page", () => {
       tool_allowlist: ["bash", "read_file"],
       group_reply_policy: "MENTION",
       default_model: "codex_oauth:gpt-5.5",
+      reasoning_effort: null,
       workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
       workspace_is_default: true,
       profile_version: 12,
@@ -83,7 +86,14 @@ describe("agent edit page", () => {
               { name: "read_file", description: "Read files" },
               { name: "task", description: "Dispatch a subtask" }
             ],
-            model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }, { name: "kimiCoding:K2.6", provider: "anthropic" }],
+            model_options: [
+              {
+                name: "codex_oauth:gpt-5.5",
+                provider: "openai_compat",
+                reasoning: { kind: "selectable", default: "high", levels: ["high", "max"] },
+              },
+              { name: "kimiCoding:K2.6", provider: "anthropic" },
+            ],
             platform_default_model: "codex_oauth:gpt-5.5",
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
@@ -99,6 +109,7 @@ describe("agent edit page", () => {
           tool_allowlist: string[];
           group_reply_policy: string;
           default_model: string;
+          reasoning_effort: string | null;
           workspace_root: string | null;
         };
 
@@ -181,7 +192,8 @@ describe("agent edit page", () => {
             skills: ["tdd-execution-worker", "plan"],
             tool_allowlist: ["read_file"],
             group_reply_policy: "MENTION",
-            default_model: "codex_oauth:gpt-5.5"
+            default_model: "codex_oauth:gpt-5.5",
+            reasoning_effort: "high"
           })
         })
       );
@@ -422,5 +434,79 @@ describe("agent edit page", () => {
 
     expect(await screen.findByText(/409.*profile_version conflict/i)).toBeInTheDocument();
     expect((screen.getByLabelText("Profile Version") as HTMLInputElement).value).toBe("v12");
+  });
+
+  it("refreshes the detail when a pending apply is confirmed", async () => {
+    const user = userEvent.setup();
+    let applyPending = false;
+
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url === "/im/v1/nodes" || url === "/im/v1/agents") {
+        return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (url === "/im/v1/agents/agent-core-1/capabilities") {
+        return new Response(JSON.stringify({
+          node_id: "node-1",
+          node_name: "MacBook",
+          node_status: "online",
+          skills: [],
+          tools: [],
+          model_options: [{
+            name: "adjustable",
+            provider: "provider-a",
+            reasoning: { kind: "selectable", default: "medium", levels: ["medium", "high"] },
+          }],
+          platform_default_model: null,
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (url === "/im/v1/agents/agent-core-1/config" && init?.method === "PATCH") {
+        applyPending = true;
+        return new Response(JSON.stringify({ detail: "config_apply_pending" }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url === "/im/v1/agents/agent-core-1/config?source=mirror") {
+        return new Response(JSON.stringify({
+          agent_id: "agent-core-1",
+          owner_id: "owner-1",
+          display_name: "Core Planner",
+          description: "",
+          skills: [],
+          tool_allowlist: [],
+          group_reply_policy: "MENTION",
+          default_model: "adjustable",
+          reasoning_effort: applyPending ? "high" : "medium",
+          workspace_root: "/tmp/agent-core-1",
+          workspace_is_default: true,
+          profile_version: applyPending ? 13 : 12,
+          node_id: "node-1",
+          updated_at: "2026-03-13T10:00:00Z",
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response(null, { status: 404 });
+    });
+
+    renderRouter({ routes: appRoutes, initialEntries: ["/settings/agents/agent-core-1"] });
+
+    const reasoning = await screen.findByLabelText("Reasoning effort");
+    await user.selectOptions(reasoning, "high");
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole("button", { name: /^Save Agent$/ }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(screen.getByRole("status")).toHaveTextContent(/Confirming the previous save/i);
+    expect(reasoning).toHaveValue("high");
+    expect(screen.getByRole("button", { name: /^Save Agent$/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^Saving…$/ })).toBeDisabled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect((screen.getByLabelText("Profile Version") as HTMLInputElement).value).toBe("v13");
   });
 });

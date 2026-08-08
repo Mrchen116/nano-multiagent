@@ -9,6 +9,12 @@ import { useTranslation } from "../../../i18n";
 import { createConversation } from "../../chat/chat-api";
 import { Avatar, colorForAgent } from "../../chat/components/avatar";
 import { AgentsRailDesktop } from "./agents-rail-desktop";
+import {
+  isStaleReasoningEffort,
+  ModelReasoningField,
+  normalizeReasoningEffort,
+  reasoningEffortAfterModelChange,
+} from "./model-reasoning-field";
 import { PillSelector } from "./pill-selector";
 import { SkillSourceSelector } from "./skill-source-selector";
 import { AgentChannelsPanel } from "./agent-channels-panel";
@@ -21,11 +27,14 @@ import {
   SkillUsageItem,
   SkillsUsageResponse,
   getAgentDetailState,
+  getAgentConfigRequestDetail,
+  getAgentConfigRequestStatus,
   getAgentHeartbeatMd,
   getAgentSkillsUsage,
   listAgentCronJobs,
   deleteAgentCronJob,
   promptPreview,
+  isConfigApplyPendingError,
   updateAgentConfig
 } from "./im-agent-config-api";
 
@@ -39,7 +48,11 @@ function normalizeText(value: string) {
   return value.trim();
 }
 
-function normalizeAgentConfig(config: AgentConfigFormState): AgentConfigFormState {
+function normalizeAgentConfig(
+  config: AgentConfigFormState,
+  modelOptions: ModelOption[],
+): AgentConfigFormState {
+  const defaultModel = normalizeText(config.default_model ?? "") || null;
   return {
     ...config,
     display_name: normalizeText(config.display_name),
@@ -47,7 +60,8 @@ function normalizeAgentConfig(config: AgentConfigFormState): AgentConfigFormStat
     custom_prompt: (config.custom_prompt ?? "").trim(),
     skills: normalizeAllowlist(config.skills),
     tool_allowlist: normalizeAllowlist(config.tool_allowlist),
-    default_model: normalizeText(config.default_model ?? "") || null
+    default_model: defaultModel,
+    reasoning_effort: normalizeReasoningEffort(modelOptions, defaultModel, config.reasoning_effort),
   };
 }
 
@@ -83,7 +97,7 @@ function resolveModelOptions(modelOptions: ModelOption[] | undefined, currentMod
     const name = option.name.trim();
     if (!name || seen.has(name)) continue;
     seen.add(name);
-    resolved.push({ name, provider: option.provider });
+    resolved.push({ ...option, name });
   }
   // bugfix-429 R5: keep the agent's current model selectable even if it is no
   // longer advertised by the node (provider unknown → label degrades to name).
@@ -1255,6 +1269,7 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
   const [draft, setDraft] = useState<AgentConfigFormState | null>(null);
   const [saved, setSaved] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [applyPending, setApplyPending] = useState(false);
   const [hasAttemptedSave, setHasAttemptedSave] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [activeSection, setActiveSection] = useState<AgentDetailSection>("config");
@@ -1281,10 +1296,14 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
 
   const capabilities = detailQuery.data?.capabilities;
   const owningNode = detailQuery.data?.owningNode ?? null;
-  const normalizedDraft = useMemo(() => (draft ? normalizeAgentConfig(draft) : null), [draft]);
+  const modelOptions = capabilities?.model_options ?? [];
+  const normalizedDraft = useMemo(
+    () => (draft ? normalizeAgentConfig(draft, modelOptions) : null),
+    [draft, modelOptions],
+  );
   const normalizedServerState = useMemo(
-    () => (detailQuery.data?.config ? normalizeAgentConfig(detailQuery.data.config) : null),
-    [detailQuery.data]
+    () => (detailQuery.data?.config ? normalizeAgentConfig(detailQuery.data.config, modelOptions) : null),
+    [detailQuery.data, modelOptions],
   );
   const availableModels = useMemo(
     () => resolveModelOptions(capabilities?.model_options, draft?.default_model ?? null),
@@ -1293,6 +1312,11 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
   const platformDefaultModel = capabilities?.platform_default_model ?? null;
   const validationErrors = useMemo(() => (normalizedDraft ? validateDraft(normalizedDraft) : {}), [normalizedDraft]);
   const hasValidationErrors = Object.keys(validationErrors).length > 0;
+  const hasStaleReasoning = isStaleReasoningEffort(
+    modelOptions,
+    draft?.default_model ?? null,
+    draft?.reasoning_effort ?? null,
+  );
   const isDirty =
     normalizedDraft && normalizedServerState ? JSON.stringify(normalizedDraft) !== JSON.stringify(normalizedServerState) : false;
   const queryErrorDetail =
@@ -1316,6 +1340,7 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
       return updateAgentConfig(agentId, payload);
     },
     onSuccess: async (updated) => {
+      setApplyPending(false);
       setErrorMessage(null);
       setSaved(true);
       setHasAttemptedSave(false);
@@ -1342,11 +1367,38 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
     },
     onError: (error) => {
       setSaved(false);
+      if (isConfigApplyPendingError(error)) {
+        setApplyPending(true);
+        setErrorMessage(null);
+        return;
+      }
+      setApplyPending(false);
+      const detail = getAgentConfigRequestDetail(error);
+      const status = getAgentConfigRequestStatus(error);
       setErrorMessage(
-        error instanceof Error ? error.message.split(" failed: ").at(-1) ?? error.message : "Save failed"
+        status === 409
+          ? t("agents.form.access.reasoning.saveConflict", { detail: `${status}: ${detail}` })
+          : detail,
       );
     }
   });
+
+  useEffect(() => {
+    if (!applyPending) return;
+    const retryInterval = window.setInterval(() => {
+      void detailQuery.refetch().then((result) => {
+        if (result.isSuccess) {
+          setApplyPending(false);
+          return;
+        }
+        if (result.error && !isConfigApplyPendingError(result.error)) {
+          setApplyPending(false);
+          setErrorMessage(getAgentConfigRequestDetail(result.error));
+        }
+      });
+    }, 1_000);
+    return () => window.clearInterval(retryInterval);
+  }, [applyPending, detailQuery.refetch]);
 
   const openDirectChatMutation = useMutation({
     mutationFn: async () => {
@@ -1458,9 +1510,13 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
   if (errorMessage) {
     footerStatusClass = "im-agent-footer-status error";
     footerStatusText = errorMessage;
-  } else if (hasAttemptedSave && hasValidationErrors) {
+  } else if (hasAttemptedSave && (hasValidationErrors || hasStaleReasoning)) {
     footerStatusClass = "im-agent-footer-status error";
-    footerStatusText = t("agents.form.errors.required");
+    footerStatusText = hasStaleReasoning
+      ? t("agents.form.access.reasoning.staleError")
+      : t("agents.form.errors.required");
+  } else if (applyPending) {
+    footerStatusText = t("agents.form.access.reasoning.applyPending");
   } else if (mutation.isPending) {
     footerStatusClass = "im-agent-footer-status";
     footerStatusText = t("agents.detail.saving");
@@ -1471,7 +1527,7 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
     footerStatusClass = "im-agent-footer-status dirty";
     footerStatusText = t("agents.detail.unsavedChanges");
   }
-  const headerSaveText = mutation.isPending
+  const headerSaveText = mutation.isPending || applyPending
     ? t("agents.detail.saving")
     : saved
       ? t("agents.detail.saved")
@@ -1483,7 +1539,7 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
     event.preventDefault();
     setHasAttemptedSave(true);
     setErrorMessage(null);
-    if (hasValidationErrors || !isDirty || !normalizedDraft) return;
+    if (hasValidationErrors || hasStaleReasoning || applyPending || !isDirty || !normalizedDraft) return;
     mutation.mutate(normalizedDraft);
   }
 
@@ -1547,7 +1603,7 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
               <button
                 className="rounded-lg border border-[var(--im-border)] bg-[var(--im-surface)] px-3 py-[5px] text-[0.75rem] font-semibold text-[var(--im-text)] hover:bg-[var(--im-surface-2)] disabled:cursor-not-allowed disabled:opacity-60"
                 type="submit"
-                disabled={mutation.isPending || !isDirty}
+                disabled={mutation.isPending || applyPending || hasStaleReasoning || !isDirty}
               >
                 {headerSaveText}
               </button>
@@ -1819,7 +1875,16 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
               onChange={(event) => {
                 setSaved(false);
                 setErrorMessage(null);
-                setDraft({ ...draft, default_model: event.target.value || null });
+                const defaultModel = event.target.value || null;
+                setDraft({
+                  ...draft,
+                  default_model: defaultModel,
+                  reasoning_effort: reasoningEffortAfterModelChange(
+                    modelOptions,
+                    defaultModel,
+                    draft.reasoning_effort,
+                  ),
+                });
               }}
             >
               <option value="">
@@ -1840,6 +1905,18 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
               })}
             </select>
           </div>
+          <ModelReasoningField
+            idPrefix="detail-agent"
+            modelOptions={modelOptions}
+            selectedModel={draft.default_model}
+            value={draft.reasoning_effort}
+            applyPending={applyPending}
+            onChange={(reasoningEffort) => {
+              setSaved(false);
+              setErrorMessage(null);
+              setDraft({ ...draft, reasoning_effort: reasoningEffort });
+            }}
+          />
         </section>
 
         <section className="im-agent-card">
@@ -1906,13 +1983,17 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
               <button
                 className="im-btn im-btn-muted"
                 type="button"
-                disabled={mutation.isPending}
+                disabled={mutation.isPending || applyPending}
                 onClick={handleDiscard}
               >
                 {t("agents.detail.discard")}
               </button>
             )}
-            <button className="im-btn im-btn-primary" type="submit" disabled={mutation.isPending || !isDirty}>
+            <button
+              className="im-btn im-btn-primary"
+              type="submit"
+              disabled={mutation.isPending || applyPending || hasStaleReasoning || !isDirty}
+            >
               {mutation.isPending ? t("agents.detail.saving") : t("agents.detail.saveAgent")}
             </button>
           </div>

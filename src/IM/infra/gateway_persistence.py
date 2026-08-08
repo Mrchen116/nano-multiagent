@@ -154,6 +154,7 @@ class GatewayNodePersistence:
                 tool_allowlist = list(tools_seed.get(agent_id, []))
                 group_reply_policy = "MENTION"
                 default_model: str | None = None
+                reasoning_effort: str | None = None
                 workspace_root = agent_workspaces.get(
                     agent_id
                 ) or managed_workspace_root(agent_id)
@@ -166,6 +167,7 @@ class GatewayNodePersistence:
                 tool_allowlist = existing.tool_allowlist
                 group_reply_policy = existing.group_reply_policy
                 default_model = existing.default_model
+                reasoning_effort = existing.reasoning_effort
                 workspace_root = existing.workspace_root or managed_workspace_root(
                     agent_id
                 )
@@ -184,6 +186,7 @@ class GatewayNodePersistence:
                 tool_allowlist=tool_allowlist,
                 group_reply_policy=group_reply_policy,
                 default_model=default_model,
+                reasoning_effort=reasoning_effort,
                 workspace_root=workspace_root,
                 features=features,
                 custom_prompt=custom_prompt,

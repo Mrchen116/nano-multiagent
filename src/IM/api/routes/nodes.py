@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 from IM.api.deps import (
     current_user,
+    get_agent_config_operation_repository,
     get_config_service,
     get_node_service,
 )
@@ -15,16 +16,27 @@ from IM.api.routes.agents import (
     ModelOptionResponse,
     PromptPreviewResponse,
     _coerce_feature_list,
+    _raise_operation_http_error,
     coerce_allowlist_options,
     coerce_model_options,
     to_agent_config_response,
 )
 from IM.application.config_service import ConfigService
+from IM.application.agent_config_operations import (
+    AgentConfigOperationCoordinator,
+    ConfigApplyPendingError,
+    ConfigApplyProfileConflictError,
+    ConfigApplyRejectedError,
+)
 from IM.application.node_service import NodeService
 from IM.api.deps import get_gateway_control, get_gateway_sessions
 from IM.ws.gateway.control import GatewayControl
 from IM.ws.gateway.sessions import GatewaySessions
 from IM.domain.models import NodeStatus, User, managed_workspace_root
+from IM.infra.repositories.agent_config_operations import (
+    AgentConfigOperationPendingError,
+    AgentConfigOperationRepository,
+)
 
 router = APIRouter(tags=["nodes"])
 
@@ -88,6 +100,7 @@ class CreateNodeAgentRequest(BaseModel):
     tool_allowlist: list[str] = Field(default_factory=list)
     group_reply_policy: str = Field(min_length=1)
     default_model: str | None = None
+    reasoning_effort: str | None = None
     workspace_root: str | None = None
 
 
@@ -228,6 +241,9 @@ async def create_node_agent(
     node_service: NodeService = Depends(get_node_service),
     service: ConfigService = Depends(get_config_service),
     gateway_handler: GatewayControl = Depends(get_gateway_control),
+    operations: AgentConfigOperationRepository = Depends(
+        get_agent_config_operation_repository
+    ),
 ) -> AgentConfigResponse:
     """Create one agent under the requested node using node-managed workspace allocation.
 
@@ -237,6 +253,26 @@ async def create_node_agent(
     if node_service.get_node_for_owner(node_id=node_id, owner_id=user.owner_id) is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="node_id not found"
+        )
+    coordinator = AgentConfigOperationCoordinator(
+        service=service, operations=operations, gateway=gateway_handler
+    )
+    try:
+        recovered = await coordinator.recover_active(
+            agent_id=payload.agent_id, owner_id=user.owner_id
+        )
+        if recovered is not None:
+            return to_agent_config_response(recovered, service=service)
+    except (
+        ConfigApplyPendingError,
+        ConfigApplyRejectedError,
+        ConfigApplyProfileConflictError,
+    ) as exc:
+        _raise_operation_http_error(exc)
+    existing = service.get_profile(agent_id=payload.agent_id)
+    if existing is not None and existing.owner_id.strip():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="agent_id already exists"
         )
     requested_skills: list[str] | None = payload.skills
     if "skills" not in payload.model_fields_set:
@@ -255,57 +291,26 @@ async def create_node_agent(
         "tool_allowlist": payload.tool_allowlist,
         "group_reply_policy": payload.group_reply_policy,
         "default_model": payload.default_model,
+        "reasoning_effort": payload.reasoning_effort,
         "workspace_root": payload.workspace_root,
+        "heartbeat_json": None,
+        "owner_id": user.owner_id,
     }
     if requested_skills is not None:
         create_payload["skills"] = requested_skills
-    created_payload = await gateway_handler.request_agent_create(
-        target_node_id=node_id,
-        payload=create_payload,
-    )
-    if created_payload is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="target_node_id is not connected",
-        )
-    workspace_root = created_payload.get("workspace_root")
-    if not isinstance(workspace_root, str) or not workspace_root.strip():
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="node did not return workspace_root",
-        )
     try:
-        created = service.create_profile(
-            agent_id=payload.agent_id,
-            owner_id=payload.owner_id,
+        created = await coordinator.create_agent(
+            owner_id=user.owner_id,
             node_id=node_id,
-            display_name=_coerce_text(
-                created_payload.get("display_name"), fallback=payload.display_name
-            ),
-            description=_coerce_text(
-                created_payload.get("description"), fallback=payload.description
-            ),
-            skills=_coerce_string_list(
-                created_payload.get("skills"), fallback=requested_skills
-            ),
-            tool_allowlist=_coerce_string_list(
-                created_payload.get("tool_allowlist"), fallback=payload.tool_allowlist
-            ),
-            group_reply_policy=_coerce_text(
-                created_payload.get("group_reply_policy"),
-                fallback=payload.group_reply_policy,
-            ),
-            default_model=_coerce_optional_text(
-                created_payload.get("default_model"), fallback=payload.default_model
-            ),
-            workspace_root=workspace_root,
-            features=_coerce_bool_dict(
-                created_payload.get("features"), fallback=payload.features
-            ),
-            custom_prompt=_coerce_optional_text(
-                created_payload.get("custom_prompt"), fallback=payload.custom_prompt
-            ),
+            candidate=create_payload,
         )
+    except (
+        AgentConfigOperationPendingError,
+        ConfigApplyPendingError,
+        ConfigApplyRejectedError,
+        ConfigApplyProfileConflictError,
+    ) as exc:
+        _raise_operation_http_error(exc)
     except LookupError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
@@ -346,32 +351,10 @@ def update_node_config(
     return to_node_response(updated)
 
 
-def _coerce_string_list(value: object, fallback: list[str] | None = None) -> list[str]:
-    if isinstance(value, list):
-        return [item for item in value if isinstance(item, str)]
-    return list(fallback or [])
-
-
-def _coerce_bool_dict(value: object, *, fallback: dict[str, bool]) -> dict[str, bool]:
-    if not isinstance(value, dict):
-        return dict(fallback)
-    return {
-        key: item
-        for key, item in value.items()
-        if isinstance(key, str) and isinstance(item, bool)
-    }
-
-
 def _default_on_names(value: object) -> list[str]:
     return [
         item.name for item in coerce_allowlist_options(value) if item.default_on is True
     ]
-
-
-def _coerce_text(value: object, *, fallback: str) -> str:
-    if isinstance(value, str) and value.strip():
-        return value
-    return fallback
 
 
 def _coerce_optional_text(value: object, *, fallback: str | None) -> str | None:

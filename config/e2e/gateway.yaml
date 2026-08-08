@@ -46,3 +46,12 @@ llm:
       models:
         - name: deepseek:deepseek-v4-flash
           context_window: 262144
+          reasoning:
+            default: high
+            levels: [high, max]
+        # E2E model catalog coverage: routable models with fixed and absent
+        # reasoning declarations let browser acceptance exercise all three UI
+        # states without exposing a model that cannot complete a real chat.
+        - name: kimiCoding:kimi-for-coding
+          reasoning: fixed
+        - name: mimo:mimo-v2.5-pro

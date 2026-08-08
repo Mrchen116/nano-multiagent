@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+from hashlib import sha256
 import logging
 import time
+import threading
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
@@ -21,8 +23,14 @@ from personal_assistant.config.local_store import (
     ensure_workspace_defaults,
     save_sensitive_local_config,
 )
+from personal_assistant.config.model_reasoning import ModelReasoningCatalog
 from personal_assistant.builtin_skills.lark_bundle import lark_skill_names
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
+from personal_assistant.gateway.config_apply_receipts import (
+    ConfigApplyReceiptStore,
+    ConfigOperationReceipt,
+    OperationIdReusedError,
+)
 from personal_assistant.gateway.im_http_transport import (
     build_im_http_headers,
     normalize_im_http_base_url,
@@ -40,6 +48,65 @@ _PA_GLOBAL_SKILL_ROOT = Path("~/.nanoassistant/skills")
 BootstrapClientFactory = Callable[[str], httpx.Client]
 Monotonic = Callable[[], float]
 Sleep = Callable[[float], None]
+OperationPhaseHook = Callable[[str], None]
+
+
+def _canonical_heartbeat_json(value: object) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    parsed = json.loads(value)
+    if not isinstance(parsed, dict):
+        raise ValueError("heartbeat_json must encode an object")
+    return json.dumps(parsed, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+
+
+def canonical_agent_operation_payload(
+    payload: Mapping[str, object],
+) -> dict[str, object]:
+    """Return the stable non-secret Agent config projection used for fingerprints."""
+
+    agent_id = str(payload.get("agent_id") or "").strip()
+    display_name = str(payload.get("display_name") or agent_id).strip()
+    raw_skills = payload.get("skills")
+    raw_tools = payload.get("tool_allowlist")
+    raw_features = payload.get("features")
+    workspace_root = payload.get("workspace_root")
+    return {
+        "agent_id": agent_id,
+        "display_name": display_name,
+        "skills": list(_operation_string_tuple(raw_skills))
+        if isinstance(raw_skills, list)
+        else None,
+        "tool_allowlist": list(_operation_string_tuple(raw_tools)),
+        "group_reply_policy": _optional_operation_text(
+            payload.get("group_reply_policy")
+        )
+        or "manual",
+        "default_model": _optional_operation_text(payload.get("default_model")),
+        "reasoning_effort": _optional_operation_text(payload.get("reasoning_effort")),
+        "workspace_root": workspace_root.strip()
+        if isinstance(workspace_root, str) and workspace_root.strip()
+        else None,
+        "features": {
+            key: value
+            for key, value in raw_features.items()
+            if isinstance(key, str) and isinstance(value, bool)
+        }
+        if isinstance(raw_features, Mapping)
+        else {},
+        "custom_prompt": _optional_operation_text(payload.get("custom_prompt")),
+        "heartbeat_json": _canonical_heartbeat_json(payload.get("heartbeat_json")),
+    }
+
+
+def agent_operation_fingerprint(payload: Mapping[str, object]) -> str:
+    """Fingerprint one canonical Gateway-owned Agent configuration."""
+
+    canonical = canonical_agent_operation_payload(payload)
+    encoded = json.dumps(
+        canonical, ensure_ascii=True, sort_keys=True, separators=(",", ":")
+    )
+    return sha256(encoded.encode()).hexdigest()
 
 
 def _default_pa_global_skill_names() -> tuple[str, ...]:
@@ -102,6 +169,9 @@ class IMAgentConfigSync:
         sleep: Sleep = time.sleep,
         token_getter: Callable[[], Awaitable[str | None]] | None = None,
         on_agent_created: Callable[[str, Path], None] | None = None,
+        reasoning_catalog: ModelReasoningCatalog | None = None,
+        operation_receipts: ConfigApplyReceiptStore | None = None,
+        operation_phase_hook: OperationPhaseHook | None = None,
     ) -> None:
         self._base_url = normalize_im_http_base_url(base_url)
         self._base_headers = build_im_http_headers(token)
@@ -130,6 +200,14 @@ class IMAgentConfigSync:
         # because the initial token is empty and is never updated. Mirrors the pattern
         # used by _IMBootstrapClient (main.py:599-613).
         self._token_getter = token_getter
+        self._reasoning_catalog = reasoning_catalog or ModelReasoningCatalog(
+            local_config.llm
+        )
+        self._operation_receipts = operation_receipts or ConfigApplyReceiptStore(
+            local_config.source_path.parent / "config-apply-receipts-v1.json"
+        )
+        self._operation_phase_hook = operation_phase_hook
+        self._operation_lock = threading.RLock()
 
     def sync_agent(self, *, agent_id: str, profile_version: int) -> None:
         deadline = self._monotonic() + self._timeout_seconds
@@ -206,6 +284,11 @@ class IMAgentConfigSync:
         )
         dm = agent_payload.get("default_model")
         default_model = dm.strip() if isinstance(dm, str) and dm.strip() else None
+        effort = agent_payload.get("reasoning_effort")
+        reasoning_effort = (
+            effort.strip() if isinstance(effort, str) and effort.strip() else None
+        )
+        self._reasoning_catalog.validate(default_model, reasoning_effort)
         # feat-379-M2: per-agent features and custom_prompt from IM push payload
         raw_features = agent_payload.get("features")
         features = (
@@ -229,6 +312,7 @@ class IMAgentConfigSync:
             tool_allowlist=tool_allowlist,
             group_reply_policy=group_reply_policy,
             default_model=default_model,
+            reasoning_effort=reasoning_effort,
             features=features,
             custom_prompt=custom_prompt,
         )
@@ -252,10 +336,289 @@ class IMAgentConfigSync:
             "tool_allowlist": list(tool_allowlist),
             "group_reply_policy": group_reply_policy,
             "default_model": default_model,
+            "reasoning_effort": reasoning_effort,
             "workspace_root": str(workspace_root),
             "features": features,
             "custom_prompt": custom_prompt,
         }
+
+    def handle_agent_config_operation(
+        self, kind: str, payload: Mapping[str, object]
+    ) -> dict[str, object]:
+        """Apply or recover one write-ahead Agent configuration operation.
+
+        Args:
+            kind: ``create`` or ``apply``.
+            payload: Gateway RPC payload containing operation identity and candidate.
+
+        Returns:
+            Canonical applied/rejected/pending operation result.
+        """
+
+        if kind not in {"create", "apply"}:
+            raise ValueError("config operation kind must be create or apply")
+        operation_id = _required_operation_text(payload, "operation_id")
+        candidate_fingerprint = _required_operation_text(
+            payload, "candidate_fingerprint"
+        )
+        expected_raw = payload.get("expected_previous_fingerprint")
+        expected_previous = (
+            expected_raw.strip()
+            if isinstance(expected_raw, str) and expected_raw.strip()
+            else None
+        )
+        if kind == "apply" and expected_previous is None:
+            return _operation_rejection(
+                operation_id,
+                candidate_fingerprint,
+                "invalid_agent_config",
+                "apply requires expected_previous_fingerprint",
+            )
+        if kind == "create" and expected_previous is not None:
+            return _operation_rejection(
+                operation_id,
+                candidate_fingerprint,
+                "invalid_agent_config",
+                "create expected_previous_fingerprint must be null",
+            )
+        raw_candidate = payload.get("agent")
+        if not isinstance(raw_candidate, Mapping):
+            return _operation_rejection(
+                operation_id,
+                candidate_fingerprint,
+                "invalid_agent_config",
+                "agent candidate is required",
+            )
+        try:
+            canonical_request = canonical_agent_operation_payload(raw_candidate)
+            actual_fingerprint = agent_operation_fingerprint(canonical_request)
+        except (TypeError, ValueError) as exc:
+            return _operation_rejection(
+                operation_id,
+                candidate_fingerprint,
+                "invalid_agent_config",
+                str(exc),
+            )
+        if actual_fingerprint != candidate_fingerprint:
+            return _operation_rejection(
+                operation_id,
+                candidate_fingerprint,
+                "invalid_agent_config",
+                "candidate_fingerprint does not match agent candidate",
+            )
+
+        with self._operation_lock:
+            try:
+                candidate = self._resolve_operation_workspace(
+                    kind=kind, candidate=canonical_request
+                )
+                receipt = self._operation_receipts.prepare(
+                    operation_id=operation_id,
+                    kind=kind,
+                    candidate_fingerprint=candidate_fingerprint,
+                    expected_previous_fingerprint=expected_previous,
+                    candidate=candidate,
+                    desired_state_fingerprint=agent_operation_fingerprint(candidate),
+                )
+            except OperationIdReusedError as exc:
+                return _operation_rejection(
+                    operation_id,
+                    candidate_fingerprint,
+                    "operation_id_reused",
+                    str(exc),
+                )
+            except ValueError as exc:
+                return _operation_rejection(
+                    operation_id,
+                    candidate_fingerprint,
+                    "invalid_agent_config",
+                    str(exc),
+                )
+            if receipt.status != "prepared":
+                return _receipt_result(receipt)
+            self._notify_operation_phase("prepared")
+            return self._resume_config_operation(receipt)
+
+    def config_operation_status(
+        self, payload: Mapping[str, object]
+    ) -> dict[str, object]:
+        """Return or recover one durable config-operation result."""
+
+        operation_id = _required_operation_text(payload, "operation_id")
+        with self._operation_lock:
+            receipt = self._operation_receipts.get(operation_id)
+            if receipt is None:
+                return {
+                    "operation_id": operation_id,
+                    "status": "pending",
+                }
+            if receipt.status == "prepared":
+                return self._resume_config_operation(receipt)
+            return _receipt_result(receipt)
+
+    def _resolve_operation_workspace(
+        self, *, kind: str, candidate: Mapping[str, object]
+    ) -> dict[str, object]:
+        agent_id = str(candidate.get("agent_id") or "").strip()
+        if not agent_id:
+            raise ValueError("agent candidate requires non-empty agent_id")
+        existing = self._local_agent(agent_id)
+        raw_workspace = candidate.get("workspace_root")
+        if kind == "create":
+            if existing is not None:
+                workspace_root = existing.workspace_root
+            elif isinstance(raw_workspace, str) and raw_workspace.strip():
+                workspace_root = Path(raw_workspace).expanduser()
+                if not workspace_root.is_absolute():
+                    raise ValueError("workspace_root must be absolute")
+                workspace_root = workspace_root.resolve()
+            else:
+                workspace_root = self._workspace_root_factory(agent_id).resolve()
+        else:
+            if existing is None:
+                raise ValueError(f"agent {agent_id!r} does not exist")
+            workspace_root = existing.workspace_root.resolve()
+            if (
+                isinstance(raw_workspace, str)
+                and raw_workspace.strip()
+                and Path(raw_workspace).expanduser().resolve() != workspace_root
+            ):
+                raise ValueError("workspace_root does not match Gateway local config")
+        resolved = dict(candidate)
+        resolved["workspace_root"] = str(workspace_root)
+        if candidate.get("skills") is None:
+            if kind == "apply":
+                raise ValueError("apply agent candidate requires skills")
+            resolved["skills"] = list(_default_pa_global_skill_names())
+        return resolved
+
+    def _resume_config_operation(
+        self, receipt: ConfigOperationReceipt
+    ) -> dict[str, object]:
+        if receipt.status != "prepared":
+            return _receipt_result(receipt)
+        try:
+            candidate_config = self._decode_operation_agent(receipt.candidate)
+            self._reasoning_catalog.validate(
+                candidate_config.default_model, candidate_config.reasoning_effort
+            )
+        except ValueError as exc:
+            return _receipt_result(
+                self._operation_receipts.finish(
+                    receipt.operation_id,
+                    status="rejected",
+                    error_code="invalid_agent_config",
+                    message=str(exc),
+                )
+            )
+
+        ensure_workspace_defaults(candidate_config.workspace_root)
+        self._notify_operation_phase("workspace_initialized")
+        conflict = False
+
+        def update(current: LocalConfig) -> LocalConfig:
+            nonlocal conflict
+            agents = list(current.agents)
+            index = next(
+                (
+                    item_index
+                    for item_index, agent in enumerate(agents)
+                    if agent.agent_id == candidate_config.agent_id
+                ),
+                None,
+            )
+            existing = agents[index] if index is not None else None
+            existing_fingerprint = (
+                agent_operation_fingerprint(_agent_operation_payload(existing))
+                if existing is not None
+                else None
+            )
+            if existing_fingerprint == receipt.desired_state_fingerprint:
+                return current
+            if existing_fingerprint != receipt.expected_previous_fingerprint:
+                conflict = True
+                return current
+            if index is None:
+                agents.append(candidate_config)
+            else:
+                agents[index] = candidate_config
+            return replace(current, agents=tuple(agents))
+
+        self._config_owner.persist(update, save_config=save_local_config)
+        if conflict:
+            return _receipt_result(
+                self._operation_receipts.finish(
+                    receipt.operation_id,
+                    status="rejected",
+                    error_code="operation_conflict",
+                    message="Gateway Agent config no longer matches expected previous state",
+                )
+            )
+        self._notify_operation_phase("config_persisted")
+        live = self._agent_catalog.get(candidate_config.agent_id)
+        published = live is None or live.config != candidate_config
+        if published:
+            self._agent_catalog.publish(candidate_config)
+        if self._reporter is not None:
+            self._reporter.replace_agents(tuple(self._config_snapshot().agents))
+        if (
+            published
+            and receipt.kind == "create"
+            and self._on_agent_created is not None
+        ):
+            self._on_agent_created(
+                candidate_config.agent_id, candidate_config.workspace_root
+            )
+        self._notify_operation_phase("published")
+        terminal = self._operation_receipts.finish(
+            receipt.operation_id, status="applied"
+        )
+        return _receipt_result(terminal)
+
+    def _decode_operation_agent(
+        self, payload: Mapping[str, object]
+    ) -> AgentWorkspaceConfig:
+        agent_id = str(payload.get("agent_id") or "").strip()
+        workspace_text = str(payload.get("workspace_root") or "").strip()
+        if not agent_id or not workspace_text:
+            raise ValueError("operation candidate requires agent_id and workspace_root")
+        raw_features = payload.get("features")
+        heartbeat_raw = payload.get("heartbeat_json")
+        heartbeat_payload = json.loads(heartbeat_raw) if heartbeat_raw else None
+        heartbeat_every, hb_start, hb_end, hb_timezone = (
+            _parse_heartbeat_from_im_payload(heartbeat_payload)
+        )
+        default_model = _optional_operation_text(payload.get("default_model"))
+        reasoning_effort = _optional_operation_text(payload.get("reasoning_effort"))
+        self._reasoning_catalog.validate(default_model, reasoning_effort)
+        return AgentWorkspaceConfig(
+            agent_id=agent_id,
+            workspace_root=Path(workspace_text).expanduser().resolve(),
+            title=str(payload.get("display_name") or agent_id),
+            skills=_operation_string_tuple(payload.get("skills")),
+            tool_allowlist=_operation_string_tuple(payload.get("tool_allowlist")),
+            group_reply_policy=_optional_operation_text(
+                payload.get("group_reply_policy")
+            ),
+            default_model=default_model,
+            reasoning_effort=reasoning_effort,
+            features={
+                key: value
+                for key, value in raw_features.items()
+                if isinstance(key, str) and isinstance(value, bool)
+            }
+            if isinstance(raw_features, Mapping)
+            else {},
+            custom_prompt=_optional_operation_text(payload.get("custom_prompt")),
+            heartbeat_every=heartbeat_every,
+            heartbeat_active_hours_start=hb_start,
+            heartbeat_active_hours_end=hb_end,
+            heartbeat_active_hours_timezone=hb_timezone,
+        )
+
+    def _notify_operation_phase(self, phase: str) -> None:
+        if self._operation_phase_hook is not None:
+            self._operation_phase_hook(phase)
 
     def ensure_agent_skills_enabled(
         self, agent_id: str, skill_ids: tuple[str, ...]
@@ -379,6 +742,9 @@ class IMAgentConfigSync:
             "group_reply_policy": str(payload.get("group_reply_policy") or "manual"),
             "default_model": payload.get("default_model")
             if isinstance(payload.get("default_model"), str)
+            else None,
+            "reasoning_effort": payload.get("reasoning_effort")
+            if isinstance(payload.get("reasoning_effort"), str)
             else None,
             "features": raw_features if isinstance(raw_features, dict) else {},
             "custom_prompt": payload.get("custom_prompt")
@@ -557,6 +923,9 @@ class IMAgentConfigSync:
 
         raw_skills = payload.get("skills")
         raw_tools = payload.get("tool_allowlist")
+        default_model = _optional_text("default_model")
+        reasoning_effort = _optional_text("reasoning_effort")
+        self._reasoning_catalog.validate(default_model, reasoning_effort)
         return AgentWorkspaceConfig(
             agent_id=agent_id,
             workspace_root=workspace_root,
@@ -572,7 +941,8 @@ class IMAgentConfigSync:
                 if isinstance(item, str) and item.strip()
             ),
             group_reply_policy=_optional_text("group_reply_policy"),
-            default_model=_optional_text("default_model"),
+            default_model=default_model,
+            reasoning_effort=reasoning_effort,
             features=features,
             custom_prompt=_optional_text("custom_prompt"),
             heartbeat_every=heartbeat_every,
@@ -635,10 +1005,12 @@ class IMAgentConfigSync:
                 "tool_allowlist": list(agent.tool_allowlist),
                 "group_reply_policy": agent.group_reply_policy or "manual",
                 "default_model": agent.default_model,
+                "reasoning_effort": agent.reasoning_effort,
                 "workspace_root": str(agent.workspace_root),
                 # feat-379-M2: expose per-agent features/custom_prompt for capabilities reporting
                 "features": dict(agent.features),
                 "custom_prompt": agent.custom_prompt,
+                "heartbeat_json": _heartbeat_json_for_agent(agent),
             }
             return payload
         return None
@@ -690,6 +1062,91 @@ class IMAgentConfigSync:
     @staticmethod
     def _default_workspace_root(agent_id: str) -> Path:
         return Path("~/nano-assistant/workspace").expanduser() / agent_id
+
+
+def _required_operation_text(payload: Mapping[str, object], field: str) -> str:
+    value = payload.get(field)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field} is required")
+    return value.strip()
+
+
+def _optional_operation_text(value: object) -> str | None:
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _operation_string_tuple(value: object) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        return ()
+    return tuple(
+        item.strip() for item in value if isinstance(item, str) and item.strip()
+    )
+
+
+def _heartbeat_json_for_agent(agent: AgentWorkspaceConfig) -> str | None:
+    heartbeat: dict[str, object] = {}
+    if agent.heartbeat_every is not None:
+        heartbeat["every"] = agent.heartbeat_every
+    active_hours: dict[str, str] = {}
+    if agent.heartbeat_active_hours_start is not None:
+        active_hours["start"] = agent.heartbeat_active_hours_start
+    if agent.heartbeat_active_hours_end is not None:
+        active_hours["end"] = agent.heartbeat_active_hours_end
+    if agent.heartbeat_active_hours_timezone is not None:
+        active_hours["timezone"] = agent.heartbeat_active_hours_timezone
+    if active_hours:
+        heartbeat["active_hours"] = active_hours
+    if not heartbeat:
+        return None
+    return json.dumps(
+        heartbeat, ensure_ascii=True, sort_keys=True, separators=(",", ":")
+    )
+
+
+def _agent_operation_payload(agent: AgentWorkspaceConfig) -> dict[str, object]:
+    return {
+        "agent_id": agent.agent_id,
+        "display_name": agent.title or agent.agent_id,
+        "skills": list(agent.skills),
+        "tool_allowlist": list(agent.tool_allowlist),
+        "group_reply_policy": agent.group_reply_policy or "manual",
+        "default_model": agent.default_model,
+        "reasoning_effort": agent.reasoning_effort,
+        "workspace_root": str(agent.workspace_root),
+        "features": dict(agent.features),
+        "custom_prompt": agent.custom_prompt,
+        "heartbeat_json": _heartbeat_json_for_agent(agent),
+    }
+
+
+def _receipt_result(receipt: ConfigOperationReceipt) -> dict[str, object]:
+    result: dict[str, object] = {
+        "operation_id": receipt.operation_id,
+        "candidate_fingerprint": receipt.candidate_fingerprint,
+        "status": receipt.status if receipt.status != "prepared" else "pending",
+    }
+    if receipt.status == "applied":
+        result["agent"] = dict(receipt.candidate)
+    if receipt.error_code is not None:
+        result["error_code"] = receipt.error_code
+    if receipt.message is not None:
+        result["message"] = receipt.message
+    return result
+
+
+def _operation_rejection(
+    operation_id: str,
+    candidate_fingerprint: str,
+    error_code: str,
+    message: str,
+) -> dict[str, object]:
+    return {
+        "operation_id": operation_id,
+        "candidate_fingerprint": candidate_fingerprint,
+        "status": "rejected",
+        "error_code": error_code,
+        "message": message,
+    }
 
 
 def _make_workspace_root_factory(

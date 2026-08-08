@@ -6,6 +6,12 @@ import { Link, useBlocker, useNavigate, useParams } from "react-router-dom";
 import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
 import { AgentsRailDesktop } from "./agents-rail-desktop";
+import {
+  isStaleReasoningEffort,
+  ModelReasoningField,
+  normalizeReasoningEffort,
+  reasoningEffortAfterModelChange,
+} from "./model-reasoning-field";
 import { PillSelector } from "./pill-selector";
 import { SkillSourceSelector } from "./skill-source-selector";
 import {
@@ -13,7 +19,11 @@ import {
   AgentSummary,
   createNodeAgent,
   getNodeCreateState,
+  getAgentConfigRequestDetail,
+  getAgentConfigRequestStatus,
+  isConfigApplyPendingError,
   listNodes,
+  ModelOption,
   NodeAgentCreateRequest,
   nodePromptPreview
 } from "./im-agent-config-api";
@@ -40,7 +50,8 @@ function normalizeText(value: string) {
   return value.trim();
 }
 
-function normalizeDraft(draft: CreateAgentFormState): CreateAgentFormState {
+function normalizeDraft(draft: CreateAgentFormState, modelOptions: ModelOption[]): CreateAgentFormState {
+  const defaultModel = normalizeText(draft.default_model ?? "") || null;
   return {
     ...draft,
     agent_id: normalizeText(draft.agent_id),
@@ -50,7 +61,8 @@ function normalizeDraft(draft: CreateAgentFormState): CreateAgentFormState {
     features: draft.features ?? {},
     skills: normalizeAllowlist(draft.skills),
     tool_allowlist: normalizeAllowlist(draft.tool_allowlist),
-    default_model: normalizeText(draft.default_model ?? "") || null,
+    default_model: defaultModel,
+    reasoning_effort: normalizeReasoningEffort(modelOptions, defaultModel, draft.reasoning_effort),
     workspace_root: null
   };
 }
@@ -89,6 +101,7 @@ const EMPTY_DRAFT: CreateAgentFormState = {
   tool_allowlist: [],
   group_reply_policy: "MENTION",
   default_model: null,
+  reasoning_effort: null,
   workspace_root: null
 };
 
@@ -314,6 +327,7 @@ export function AgentCreatePage() {
   const [draft, setDraft] = useState<CreateAgentFormState>(EMPTY_DRAFT);
   const [selectedNodeId, setSelectedNodeId] = useState(nodeId);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [applyPending, setApplyPending] = useState(false);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [isDirty, setIsDirty] = useState(false);
@@ -341,7 +355,13 @@ export function AgentCreatePage() {
     autoDefaultSkillsRef.current = [];
     toolsEditedRef.current = false;
     autoDefaultToolsRef.current = [];
-    setDraft((current) => ({ ...current, skills: [], tool_allowlist: [] }));
+    setDraft((current) => ({
+      ...current,
+      skills: [],
+      tool_allowlist: [],
+      default_model: null,
+      reasoning_effort: null,
+    }));
   }, [selectedNodeId]);
 
   const createStateQuery = useQuery({
@@ -351,10 +371,16 @@ export function AgentCreatePage() {
     staleTime: 30_000
   });
 
-  const normalizedDraft = useMemo(() => normalizeDraft(draft), [draft]);
+  const capabilities = createStateQuery.data?.capabilities;
+  const modelOptions = capabilities?.model_options ?? [];
+  const normalizedDraft = useMemo(() => normalizeDraft(draft, modelOptions), [draft, modelOptions]);
   const validationErrors = useMemo(() => validateDraft(normalizedDraft), [normalizedDraft]);
   const hasValidationErrors = Object.keys(validationErrors).length > 0;
-  const capabilities = createStateQuery.data?.capabilities;
+  const hasStaleReasoning = isStaleReasoningEffort(
+    modelOptions,
+    draft.default_model,
+    draft.reasoning_effort,
+  );
   const node = createStateQuery.data?.node ?? null;
   const availableModels = capabilities?.model_options ?? [];
   const nodes = nodesQuery.data ?? [];
@@ -401,6 +427,7 @@ export function AgentCreatePage() {
   const mutation = useMutation({
     mutationFn: (next: CreateAgentFormState) => createNodeAgent(selectedNodeId, next),
     onSuccess: async (created) => {
+      setApplyPending(false);
       setErrorMessage(null);
       queryClient.setQueryData(["settings", "agents", created.agent_id], created);
       queryClient.setQueryData(["settings", "agents"], (current: AgentSummary[] | undefined) => {
@@ -414,11 +441,27 @@ export function AgentCreatePage() {
       navigate(`/settings/agents/${created.agent_id}`);
     },
     onError: (error) => {
+      if (isConfigApplyPendingError(error)) {
+        setApplyPending(true);
+        setErrorMessage(null);
+        return;
+      }
+      setApplyPending(false);
+      const detail = getAgentConfigRequestDetail(error);
+      const status = getAgentConfigRequestStatus(error);
       setErrorMessage(
-        error instanceof Error ? error.message.split(" failed: ").at(-1) ?? error.message : "Create failed"
+        status === 409
+          ? t("agents.form.access.reasoning.saveConflict", { detail: `${status}: ${detail}` })
+          : detail,
       );
     }
   });
+
+  useEffect(() => {
+    if (!applyPending || mutation.isPending) return;
+    const retryTimer = window.setTimeout(() => mutation.mutate(normalizedDraft), 1_000);
+    return () => window.clearTimeout(retryTimer);
+  }, [applyPending, mutation.isPending, mutation.mutate, normalizedDraft]);
 
   function markTouched(field: "agent_id" | "display_name") {
     setTouched((current) => ({ ...current, [field]: true }));
@@ -486,7 +529,7 @@ export function AgentCreatePage() {
         event.preventDefault();
         setHasSubmitted(true);
         setErrorMessage(null);
-        if (hasValidationErrors || !isNodeOnline || !selectedNodeId) return;
+        if (hasValidationErrors || hasStaleReasoning || applyPending || !isNodeOnline || !selectedNodeId) return;
         mutation.mutate(normalizedDraft);
       }}
     >
@@ -541,7 +584,11 @@ export function AgentCreatePage() {
               >
                 {t("agents.create.cancel")}
               </Link>
-              <button className="im-btn im-btn-primary" type="submit" disabled={mutation.isPending || !isNodeOnline}>
+              <button
+                className="im-btn im-btn-primary"
+                type="submit"
+                disabled={mutation.isPending || applyPending || hasStaleReasoning || !isNodeOnline}
+              >
                 {t("agents.create.submit")}
               </button>
             </div>
@@ -731,7 +778,16 @@ export function AgentCreatePage() {
               onChange={(event) => {
                 setErrorMessage(null);
                 setIsDirty(true);
-                setDraft({ ...draft, default_model: event.target.value || null });
+                const defaultModel = event.target.value || null;
+                setDraft({
+                  ...draft,
+                  default_model: defaultModel,
+                  reasoning_effort: reasoningEffortAfterModelChange(
+                    modelOptions,
+                    defaultModel,
+                    draft.reasoning_effort,
+                  ),
+                });
               }}
             >
               <option value="">
@@ -752,6 +808,18 @@ export function AgentCreatePage() {
               })}
             </select>
           </div>
+          <ModelReasoningField
+            idPrefix="create-agent"
+            modelOptions={modelOptions}
+            selectedModel={draft.default_model}
+            value={draft.reasoning_effort}
+            applyPending={applyPending}
+            onChange={(reasoningEffort) => {
+              setErrorMessage(null);
+              setIsDirty(true);
+              setDraft({ ...draft, reasoning_effort: reasoningEffort });
+            }}
+          />
         </section>
 
         {/* Error / status banner */}
@@ -796,7 +864,7 @@ export function AgentCreatePage() {
           <button
             className="im-btn im-btn-primary"
             type="submit"
-            disabled={mutation.isPending || !isNodeOnline}
+            disabled={mutation.isPending || applyPending || hasStaleReasoning || !isNodeOnline}
             style={{ flex: isMobile ? 1 : undefined }}
           >
             {mutation.isPending ? t("agents.detail.saving") : t("agents.create.submitArrow")}

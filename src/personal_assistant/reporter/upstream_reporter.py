@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Mapping
 
 from personal_assistant.config.local_store import AgentWorkspaceConfig, NodeConfig
+from personal_assistant.config.model_reasoning import ModelReasoningCatalog
 from personal_assistant.reporter.capability_projection import (
     project_features,
     project_tools,
@@ -39,7 +40,7 @@ class ReporterCapabilities:
     channel_bootstrap: bool = True
     # bugfix-429 R5: each entry is ``{"name", "provider"}`` so the IM dropdown can
     # label a model's registered format (was a bare model-id tuple).
-    models: tuple[dict[str, str], ...] = ()
+    models: tuple[dict[str, object], ...] = ()
     skills: tuple[dict[str, object], ...] = ()
     # feat-394 M9 R5: tools changed from bare str tuple to rich dict tuple carrying
     # {name, description, default_on}.  IM frontend uses default_on to render tool
@@ -71,7 +72,9 @@ class ReporterCapabilities:
         }
 
 
-def _models_from_kernel(kernel: "Kernel") -> tuple[dict[str, str], ...]:
+def _models_from_kernel(
+    kernel: "Kernel", reasoning_catalog: ModelReasoningCatalog | None = None
+) -> tuple[dict[str, object], ...]:
     """Project ``kernel.list_models()`` into deduped ``{name, provider}`` entries.
 
     bugfix-429 R5: the kernel's ``ModelInfo`` already carries ``provider``; keep it
@@ -79,13 +82,24 @@ def _models_from_kernel(kernel: "Kernel") -> tuple[dict[str, str], ...]:
     registered format (anthropic / openai_compat). Dedupe by name, preserve order.
     """
     seen: set[str] = set()
-    entries: list[dict[str, str]] = []
+    entries: list[dict[str, object]] = []
     for m in kernel.list_models():
         name = m.name.strip()
         if not name or name in seen:
             continue
         seen.add(name)
-        entries.append({"name": name, "provider": getattr(m, "provider", "") or ""})
+        entry: dict[str, object] = {
+            "name": name,
+            "provider": getattr(m, "provider", "") or "",
+        }
+        capability = (
+            reasoning_catalog.capability_for(name)
+            if reasoning_catalog is not None
+            else None
+        )
+        if capability is not None:
+            entry["reasoning"] = capability.as_payload()
+        entries.append(entry)
     return tuple(entries)
 
 
@@ -140,7 +154,9 @@ def _skills_from_kernel(
     ]
 
 
-def build_runtime_capabilities(kernel: "Kernel") -> ReporterCapabilities:
+def build_runtime_capabilities(
+    kernel: "Kernel", *, reasoning_catalog: ModelReasoningCatalog | None = None
+) -> ReporterCapabilities:
     """Build node-level selectable runtime items projected from ``kernel.list_*``.
 
     Args:
@@ -150,14 +166,16 @@ def build_runtime_capabilities(kernel: "Kernel") -> ReporterCapabilities:
     """
 
     return ReporterCapabilities(
-        models=_models_from_kernel(kernel),
+        models=_models_from_kernel(kernel, reasoning_catalog),
         skills=tuple(_skills_from_kernel(kernel, workspace_root=None)),
         tools=_tools_from_kernel(kernel),
         platform_default_model=_platform_default_model_from_kernel(kernel),
     )
 
 
-def build_node_capabilities_payload(kernel: "Kernel") -> dict[str, object]:
+def build_node_capabilities_payload(
+    kernel: "Kernel", *, reasoning_catalog: ModelReasoningCatalog | None = None
+) -> dict[str, object]:
     """Build node-level capability payload with the Gateway feature projection.
 
     The agent-create page queries GET /im/v1/nodes/{id}/capabilities (no per-agent
@@ -169,7 +187,9 @@ def build_node_capabilities_payload(kernel: "Kernel") -> dict[str, object]:
     Returns:
         Capability dict suitable for node.capabilities response frames.
     """
-    base = build_runtime_capabilities(kernel).as_payload()
+    base = build_runtime_capabilities(
+        kernel, reasoning_catalog=reasoning_catalog
+    ).as_payload()
     base["features"] = project_features(tool_allowlist=None)
     return base
 
@@ -179,6 +199,7 @@ def build_agent_capabilities_payload(
     *,
     workspace_root: str,
     tool_allowlist: tuple[str, ...] = (),
+    reasoning_catalog: ModelReasoningCatalog | None = None,
 ) -> dict[str, object]:
     """按 Agent 工作区根路径解析可选技能（含描述），供 agent.capabilities.resolve 响应。
 
@@ -189,7 +210,9 @@ def build_agent_capabilities_payload(
         tool_allowlist: Tool names enabled for this agent.  Used to determine
             whether feature-gated tools are available (feat-379 decision 7).
     """
-    base = build_runtime_capabilities(kernel).as_payload()
+    base = build_runtime_capabilities(
+        kernel, reasoning_catalog=reasoning_catalog
+    ).as_payload()
     base["skills"] = _skills_from_kernel(kernel, workspace_root=workspace_root)
     base["features"] = project_features(tool_allowlist=tool_allowlist)
     return base

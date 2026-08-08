@@ -395,7 +395,31 @@
         "model": "Default Model",
         "modelPlatformDefault": "Platform default ({{model}})",
         "modelPlatformDefaultPlain": "Platform default",
-        "modelDefaultSuffix": "(default)"
+        "modelDefaultSuffix": "(default)",
+        "reasoning": {
+          "label": "Reasoning effort",
+          "shortLabel": "Reasoning",
+          "selectModelFirst": "Select a model before configuring reasoning effort",
+          "platformDefaultHelp": "When the platform default is used, the Gateway applies that model's recommended effort.",
+          "fixedState": "Reasoning is always on and controlled by the model",
+          "fixedHelp": "This model does not provide configurable reasoning effort.",
+          "unavailableState": "This model does not expose configurable reasoning settings",
+          "unavailableHelp": "The node has not declared a reasoning control for this model.",
+          "selectableHelp": "Recommended for this model: {{level}}. Switching models keeps the effort only when the new model also supports it.",
+          "staleError": "This model's available efforts changed. Refresh the configuration and select an available effort before saving.",
+          "staleUnavailableError": "This model no longer accepts the saved reasoning effort. Remove it before saving.",
+          "clearUnavailable": "Remove unavailable reasoning setting",
+          "saveConflict": "The configuration changed before it could be saved. Refresh it, choose again, and retry. Details: {{detail}}",
+          "applyPending": "Confirming the previous save. Do not submit another edit yet; your draft is preserved.",
+          "levels": {
+            "none": "None",
+            "low": "Low",
+            "medium": "Medium",
+            "high": "High",
+            "xhigh": "Extra high",
+            "max": "Maximum"
+          }
+        }
       },
       "heartbeat": {
         "title": "Heartbeat",

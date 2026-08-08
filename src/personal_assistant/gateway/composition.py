@@ -26,6 +26,7 @@ from personal_assistant.config.local_store import (
     RuntimeConfigOwner,
     build_feishu_owner_open_id_binder,
 )
+from personal_assistant.config.model_reasoning import ModelReasoningCatalog
 from personal_assistant.config.sync_client import ConfigSyncClient
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.channel_manifest_store import ChannelManifestStore
@@ -44,6 +45,7 @@ from personal_assistant.gateway.agent_config_sync import (
     IMAgentConfigSync,
     _make_workspace_root_factory,
 )
+from personal_assistant.gateway.config_apply_receipts import ConfigApplyReceiptStore
 from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.gateway.background_subscriptions import (
     BackgroundSubscriptionManager,
@@ -192,6 +194,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
     # K2.6 thinking config) flow into build_kernel and the model registry.  decision 5:
     # build_kernel owns registry init internally from this LLMConfig.
     llm = LLMConfig.from_payload(config.llm)
+    reasoning_catalog = ModelReasoningCatalog(config.llm)
 
     config_owner = RuntimeConfigOwner(config)
 
@@ -249,6 +252,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         catalog=agent_catalog,
         repository=session_store,
         kernel=kernel,
+        reasoning_catalog=reasoning_catalog,
     )
     boundary_outbox = BoundaryOutboxDispatcher(store=session_store)
     kernel_shim = kernel_client.InProcessKernelClient(
@@ -256,6 +260,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         agent_catalog=agent_catalog,
         session_binder=session_binder,
         product_default_model=config.llm.default_model,
+        reasoning_catalog=reasoning_catalog,
     )
     # feat-394 decision 3: canonical direct-chat kernel session store.
     # Updated by HeartbeatScheduler.tick() via session_store.find_direct_by_agent()
@@ -356,7 +361,9 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
             node=config.node,
             agents=config.agents,
             send_frame=lambda _message_type, _payload: None,
-            capabilities=build_runtime_capabilities(kernel),
+            capabilities=build_runtime_capabilities(
+                kernel, reasoning_catalog=reasoning_catalog
+            ),
             channel_credential_key=channel_key.registration_payload(),
         )
         # bugfix-424 (#127): derive dynamically-created agents' workspace from the
@@ -379,6 +386,10 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
             workspace_root_factory=workspace_root_factory,
             global_skill_root=PA_SKILL_SEARCH_ROOTS[0],
             on_agent_created=cron_runtime.on_agent_created,
+            reasoning_catalog=reasoning_catalog,
+            operation_receipts=ConfigApplyReceiptStore(
+                runtime_dir / "config-apply-receipts-v1.json"
+            ),
         )
         # Build a token_getter closure that auto-refreshes the access token on reconnect.
         # The auth client uses the IM HTTP base URL so it can reach /im/v1/auth/* endpoints.
@@ -522,6 +533,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         gateway_internal_port=_gateway_internal_port,
         gateway_dispatch_url_provider=_internal_dispatch_endpoint.current_url,
         product_default_model=config.llm.default_model,
+        reasoning_catalog=reasoning_catalog,
         relay_lifecycle_callback=relay_lifecycle_callback,
         kernel_event_observer=_kernel_event_observer,
         shadow_output_prepare=shadow_output_prepare,
@@ -619,11 +631,19 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
                     tool_allowlist=_resolve_agent_tool_allowlist(
                         im_config_sync_client, agent_id
                     ),
+                    reasoning_catalog=reasoning_catalog,
                 )
             ),
-            node_capabilities_provider=lambda: build_node_capabilities_payload(kernel),
+            node_capabilities_provider=lambda: build_node_capabilities_payload(
+                kernel, reasoning_catalog=reasoning_catalog
+            ),
             prompt_preview_provider=_make_prompt_preview_provider(kernel),
             agent_create_handler=im_config_sync_client.handle_agent_create,
+            agent_config_operation_handler=lambda kind, payload: (
+                im_config_sync_client.config_operation_status(payload)
+                if kind == "status"
+                else im_config_sync_client.handle_agent_config_operation(kind, payload)
+            ),
             session_fork_handler=build_session_fork_handler(
                 kernel=kernel,
                 session_binder=session_binder,

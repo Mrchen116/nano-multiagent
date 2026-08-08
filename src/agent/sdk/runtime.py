@@ -24,6 +24,7 @@ class SessionRuntimeConfig:
         skills: Explicit skills, or ``None`` for default discovery.
         enabled_tools: Explicit future tool allowlist; empty disables all tools.
         features: Explicit feature overrides, or ``None`` for defaults.
+        reasoning_effort: Provider-neutral effort for future normal model requests.
     """
 
     model: str
@@ -31,6 +32,7 @@ class SessionRuntimeConfig:
     skills: list[str] | None
     enabled_tools: list[str]
     features: dict[str, bool] | None
+    reasoning_effort: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +81,7 @@ def identify_runtime(runtime: SessionRuntimeConfig) -> SessionRuntimeIdentity:
         "skills": runtime.skills,
         "enabled_tools": runtime.enabled_tools,
         "features": runtime.features,
+        "reasoning_effort": runtime.reasoning_effort,
     }
     encoded = json.dumps(
         payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
@@ -98,6 +101,7 @@ def runtime_metadata(
     metadata[INTERNAL_RUNTIME_KEY] = {
         "model": runtime.model,
         "features": dict(runtime.features) if runtime.features is not None else None,
+        "reasoning_effort": runtime.reasoning_effort,
     }
     return metadata
 

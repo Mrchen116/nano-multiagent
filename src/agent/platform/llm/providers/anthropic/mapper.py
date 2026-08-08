@@ -87,6 +87,13 @@ class AnthropicMapper:
             ]
         if request.extra_body:
             payload.update(request.extra_body)
+        if request.reasoning_effort is not None:
+            output_config = payload.get("output_config")
+            merged_output_config = (
+                dict(output_config) if isinstance(output_config, Mapping) else {}
+            )
+            merged_output_config["effort"] = request.reasoning_effort
+            payload["output_config"] = merged_output_config
         return payload
 
     def map_generate_response(self, payload: Mapping[str, Any]) -> LLMGenerateResponse:

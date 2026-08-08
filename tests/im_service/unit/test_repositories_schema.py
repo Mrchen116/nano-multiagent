@@ -5,6 +5,52 @@ from pathlib import Path
 from IM.infra.db import connect, initialize_schema
 
 
+def test_initialize_schema_adds_nullable_reasoning_effort_to_legacy_profiles(
+    tmp_path: Path,
+) -> None:
+    """Upgrade existing profile rows without inventing a reasoning selection."""
+    connection = connect(tmp_path / "legacy.db")
+    connection.execute(
+        """
+        CREATE TABLE agent_profiles (
+            agent_id TEXT PRIMARY KEY,
+            owner_id TEXT NOT NULL,
+            node_id TEXT,
+            display_name TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            skills_json TEXT NOT NULL DEFAULT '[]',
+            tool_allowlist_json TEXT NOT NULL DEFAULT '[]',
+            group_reply_policy TEXT NOT NULL DEFAULT 'manual',
+            default_model TEXT,
+            workspace_root TEXT,
+            profile_version INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO agent_profiles(
+            agent_id, owner_id, display_name, default_model, workspace_root,
+            created_at, updated_at
+        ) VALUES ('legacy', 'owner', 'Legacy', 'model-a', '/srv/legacy', 't0', 't0')
+        """
+    )
+    connection.commit()
+
+    initialize_schema(connection)
+
+    columns = {
+        row["name"] for row in connection.execute("PRAGMA table_info(agent_profiles)")
+    }
+    row = connection.execute(
+        "SELECT reasoning_effort FROM agent_profiles WHERE agent_id = 'legacy'"
+    ).fetchone()
+    assert "reasoning_effort" in columns
+    assert row["reasoning_effort"] is None
+
+
 def test_initialize_schema_backfills_missing_agent_workspace_roots(
     tmp_path: Path,
 ) -> None:

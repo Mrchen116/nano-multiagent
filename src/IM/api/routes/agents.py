@@ -1,24 +1,35 @@
 """Agent configuration and capability routes for IM HTTP APIs."""
 
 import json
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field, model_validator
-from typing import Any
+from pydantic import BaseModel, Field, model_serializer, model_validator
 
 from IM.api.deps import (
     current_user,
+    get_agent_config_operation_repository,
     get_config_service,
     get_node_service,
     get_user_service,
 )
 from IM.application.config_service import ConfigService
+from IM.application.agent_config_operations import (
+    AgentConfigOperationCoordinator,
+    ConfigApplyPendingError,
+    ConfigApplyProfileConflictError,
+    ConfigApplyRejectedError,
+    candidate_from_profile,
+)
 from IM.application.node_service import NodeService
 from IM.application.user_service import UserService
 from IM.api.deps import get_gateway_control
 from IM.ws.gateway.control import GatewayControl
 from IM.domain.models import AgentProfile, User
-from IM.infra.repositories.agents import AgentProfileVersionConflictError
+from IM.infra.repositories.agent_config_operations import (
+    AgentConfigOperationPendingError,
+    AgentConfigOperationRepository,
+)
 
 router = APIRouter(tags=["agents"])
 
@@ -35,6 +46,7 @@ class AgentConfigResponse(BaseModel):
     tool_allowlist: list[str]
     group_reply_policy: str
     default_model: str | None
+    reasoning_effort: str | None = None
     workspace_root: str
     workspace_is_default: bool
     profile_version: int
@@ -60,6 +72,7 @@ class UpdateAgentConfigRequest(BaseModel):
     tool_allowlist: list[str] = Field(default_factory=list)
     group_reply_policy: str = Field(min_length=1)
     default_model: str | None = None
+    reasoning_effort: str | None = None
     # feat-379-M5 (ISSUE-2): per-agent feature flags and custom prompt supplement
     features: dict[str, bool] = Field(default_factory=dict)
     custom_prompt: str | None = None
@@ -134,6 +147,20 @@ class AllowlistOptionResponse(BaseModel):
     location: str | None = None
 
 
+class SelectableReasoningResponse(BaseModel):
+    """A model's deployment-configured selectable reasoning levels."""
+
+    kind: Literal["selectable"]
+    default: str
+    levels: list[str]
+
+
+class FixedReasoningResponse(BaseModel):
+    """A model whose thinking behavior is fixed by the upstream model."""
+
+    kind: Literal["fixed"]
+
+
 class ModelOptionResponse(BaseModel):
     """One selectable model with its registered provider/format (bugfix-429 R5).
 
@@ -144,6 +171,14 @@ class ModelOptionResponse(BaseModel):
 
     name: str
     provider: str = ""
+    reasoning: SelectableReasoningResponse | FixedReasoningResponse | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_absent_reasoning(self, serializer):
+        serialized = serializer(self)
+        if self.reasoning is None:
+            serialized.pop("reasoning", None)
+        return serialized
 
 
 class FeatureCapabilityResponse(BaseModel):
@@ -191,6 +226,7 @@ def to_agent_config_response(
         tool_allowlist=profile.tool_allowlist,
         group_reply_policy=profile.group_reply_policy,
         default_model=profile.default_model,
+        reasoning_effort=profile.reasoning_effort,
         workspace_root=service.workspace_root_for_profile(profile),
         workspace_is_default=service.workspace_is_default_for_profile(profile),
         profile_version=profile.profile_version,
@@ -217,6 +253,7 @@ def _merge_live_agent_profile(
     tool_allowlist = payload.get("tool_allowlist")
     group_reply_policy = payload.get("group_reply_policy")
     default_model = payload.get("default_model")
+    reasoning_effort = payload.get("reasoning_effort")
     workspace_root = payload.get("workspace_root")
     return AgentProfile(
         agent_id=profile.agent_id,
@@ -240,6 +277,13 @@ def _merge_live_agent_profile(
         default_model=default_model
         if isinstance(default_model, str) or default_model is None
         else profile.default_model,
+        reasoning_effort=(
+            reasoning_effort
+            if isinstance(reasoning_effort, str) or reasoning_effort is None
+            else profile.reasoning_effort
+        )
+        if "reasoning_effort" in payload
+        else profile.reasoning_effort,
         workspace_root=workspace_root
         if isinstance(workspace_root, str) and workspace_root.strip()
         else profile.workspace_root,
@@ -318,12 +362,26 @@ async def get_agent_config(
     user: User = Depends(current_user),
     service: ConfigService = Depends(get_config_service),
     gateway_handler: GatewayControl = Depends(get_gateway_control),
+    operations: AgentConfigOperationRepository = Depends(
+        get_agent_config_operation_repository
+    ),
 ) -> AgentConfigResponse:
     """Return one agent configuration profile, owner-scoped to the caller's tenant.
 
     `source=live` prefers a live Gateway snapshot when available.
     `source=mirror` forces the IM-stored mirror row so Gateway config.sync fetches do not reflect stale local state back to themselves.
     """
+    coordinator = AgentConfigOperationCoordinator(
+        service=service, operations=operations, gateway=gateway_handler
+    )
+    try:
+        await coordinator.recover_active(agent_id=agent_id, owner_id=user.owner_id)
+    except (
+        ConfigApplyPendingError,
+        ConfigApplyRejectedError,
+        ConfigApplyProfileConflictError,
+    ) as exc:
+        _raise_operation_http_error(exc)
     profile = service.get_profile_for_owner(agent_id=agent_id, owner_id=user.owner_id)
     if profile is None:
         raise HTTPException(
@@ -397,51 +455,78 @@ async def get_agent_capabilities(
 
 
 @router.patch("/im/v1/agents/{agent_id}/config", response_model=AgentConfigResponse)
-def update_agent_config(
+async def update_agent_config(
     agent_id: str,
     payload: UpdateAgentConfigRequest,
     user: User = Depends(current_user),
     service: ConfigService = Depends(get_config_service),
+    gateway_handler: GatewayControl = Depends(get_gateway_control),
+    operations: AgentConfigOperationRepository = Depends(
+        get_agent_config_operation_repository
+    ),
 ) -> AgentConfigResponse:
     """Update one agent configuration profile with optimistic locking (owner-scoped)."""
-    if service.get_profile_for_owner(agent_id=agent_id, owner_id=user.owner_id) is None:
+    coordinator = AgentConfigOperationCoordinator(
+        service=service, operations=operations, gateway=gateway_handler
+    )
+    try:
+        recovered = await coordinator.recover_active(
+            agent_id=agent_id, owner_id=user.owner_id
+        )
+        if recovered is not None:
+            return to_agent_config_response(recovered, service=service)
+    except (
+        ConfigApplyPendingError,
+        ConfigApplyRejectedError,
+        ConfigApplyProfileConflictError,
+    ) as exc:
+        _raise_operation_http_error(exc)
+    profile = service.get_profile_for_owner(agent_id=agent_id, owner_id=user.owner_id)
+    if profile is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="agent_id not found"
         )
-    try:
-        # feat-379-M5 (ISSUE-2): pass features + custom_prompt through so they
-        # are written to the DB and returned in the response.
-        # feat-379-M7 (ISSUE-2): use `is not None` instead of falsy check.
-        # An empty dict `{}` is falsy in Python but is a valid payload meaning
-        # "the user cleared all feature overrides" — the old `if payload.features`
-        # turned it into None, causing update_profile to fall back to the stored
-        # value and silently drop the intentional update.
-        updated = service.update_profile(
-            agent_id=agent_id,
-            profile_version=payload.profile_version,
-            display_name=payload.display_name,
-            description=payload.description,
-            skills=payload.skills,
-            tool_allowlist=payload.tool_allowlist,
-            group_reply_policy=payload.group_reply_policy,
-            default_model=payload.default_model,
-            # bugfix-404-M2: workspace_root removed from update_profile — immutable after creation
-            features=payload.features if payload.features is not None else None,
-            custom_prompt=payload.custom_prompt,
-            heartbeat_json=payload.heartbeat_json,
+    if profile.node_id is None or not profile.node_id.strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "agent_not_bound",
+                "message": "The Agent is not bound to a Gateway node.",
+            },
         )
-    except AgentProfileVersionConflictError as exc:
+    if profile.profile_version != payload.profile_version:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
-        ) from exc
-    except LookupError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
-        ) from exc
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
-        ) from exc
+            status_code=status.HTTP_409_CONFLICT, detail="profile_version conflict"
+        )
+    try:
+        candidate = candidate_from_profile(profile, service=service)
+        candidate.update(
+            {
+                "display_name": payload.display_name,
+                "description": payload.description,
+                "skills": list(payload.skills),
+                "tool_allowlist": list(payload.tool_allowlist),
+                "group_reply_policy": payload.group_reply_policy,
+                "default_model": payload.default_model,
+                "features": dict(payload.features),
+            }
+        )
+        if "reasoning_effort" in payload.model_fields_set:
+            candidate["reasoning_effort"] = payload.reasoning_effort
+        if payload.custom_prompt is not None:
+            candidate["custom_prompt"] = payload.custom_prompt
+        if payload.heartbeat_json is not None:
+            candidate["heartbeat_json"] = payload.heartbeat_json
+        updated = await coordinator.update_agent(
+            profile=profile, owner_id=user.owner_id, candidate=candidate
+        )
+    except (
+        AgentConfigOperationPendingError,
+        ConfigApplyPendingError,
+        ConfigApplyRejectedError,
+        ConfigApplyProfileConflictError,
+    ) as exc:
+        _raise_operation_http_error(exc)
     return to_agent_config_response(updated, service=service)
 
 
@@ -467,9 +552,63 @@ def coerce_model_options(value: object) -> list[ModelOptionResponse]:
                 ModelOptionResponse(
                     name=name,
                     provider=provider if isinstance(provider, str) else "",
+                    reasoning=_coerce_reasoning_capability(item.get("reasoning")),
                 )
             )
     return options
+
+
+def _coerce_reasoning_capability(
+    value: object,
+) -> SelectableReasoningResponse | FixedReasoningResponse | None:
+    if not isinstance(value, dict):
+        return None
+    kind = value.get("kind")
+    if kind == "fixed":
+        return FixedReasoningResponse(kind="fixed")
+    if kind != "selectable":
+        return None
+    raw_levels = value.get("levels")
+    default = value.get("default")
+    if not isinstance(raw_levels, list) or not isinstance(default, str):
+        return None
+    levels: list[str] = []
+    for item in raw_levels:
+        if isinstance(item, str) and item.strip() and item.strip() not in levels:
+            levels.append(item.strip())
+    if not levels or default not in levels:
+        return None
+    return SelectableReasoningResponse(
+        kind="selectable", default=default, levels=levels
+    )
+
+
+def _raise_operation_http_error(exc: Exception) -> None:
+    if isinstance(exc, (AgentConfigOperationPendingError, ConfigApplyPendingError)):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "config_apply_pending",
+                "message": "The previous configuration save is still being confirmed.",
+            },
+        ) from exc
+    if isinstance(exc, ConfigApplyRejectedError):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": exc.code,
+                "message": "The Gateway rejected this configuration; refresh capabilities and choose again.",
+            },
+        ) from exc
+    if isinstance(exc, ConfigApplyProfileConflictError):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "profile_version_conflict",
+                "message": "The Agent configuration changed while this save was in progress.",
+            },
+        ) from exc
+    raise exc
 
 
 def _coerce_feature_list(value: object) -> list[FeatureCapabilityResponse]:

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from personal_assistant.config.local_store import resolve_run_model
+from personal_assistant.config.model_reasoning import ModelReasoningCatalog
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog, LiveAgentSnapshot
 from personal_assistant.gateway.session_binder import GatewaySessionBinder
 from personal_assistant.gateway.session_composition import (
@@ -36,6 +37,7 @@ class InProcessKernelClient:
         agent_catalog: LiveAgentCatalog | None = None,
         session_binder: GatewaySessionBinder | None = None,
         product_default_model: str | None = None,
+        reasoning_catalog: ModelReasoningCatalog | None = None,
     ) -> None:
         self._kernel = kernel
         # refactor-406-M1 R6: per-agent config for building PromptSlots at
@@ -47,6 +49,7 @@ class InProcessKernelClient:
         # Callers pass the agent's selected model (may be None); the adapter falls
         # back to this so unattended runs use the same default as user turns.
         self._product_default_model = product_default_model
+        self._reasoning_catalog = reasoning_catalog
 
     async def create_session(
         self,
@@ -80,6 +83,7 @@ class InProcessKernelClient:
                     snapshot,
                     scenario=metadata or {},
                     resolved_model=model,
+                    reasoning_catalog=self._reasoning_catalog,
                 ).runtime
             else:
                 capabilities = project_agent_session_capabilities(
@@ -146,6 +150,7 @@ class InProcessKernelClient:
             agent_snapshot,
             scenario=metadata or {"agent_id": agent_snapshot.agent_id},
             resolved_model=model,
+            reasoning_catalog=self._reasoning_catalog,
         ).runtime
         desired = self._kernel.identify_runtime(runtime=runtime)
         current = await self._kernel.get_session_runtime(
