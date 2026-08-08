@@ -137,11 +137,13 @@ class AgentConfigOperationCoordinator:
                 expected_previous_fingerprint=None,
                 expected_profile_version=None,
             )
+            create_payload = gateway_candidate(candidate)
+            create_payload["create_operation_id"] = operation.operation_id
             result = await self._gateway.request_agent_create(
                 target_node_id=node_id,
                 operation_id=operation.operation_id,
                 candidate_fingerprint=operation.candidate_fingerprint,
-                payload=gateway_candidate(candidate),
+                payload=create_payload,
             )
             result = await self._resolve_initial_result(operation, result)
             operation = self._accept_applied(operation=operation, result=result)
@@ -364,7 +366,7 @@ class AgentConfigOperationCoordinator:
                         "agent_id_already_exists",
                         message="agent_id already exists",
                     )
-                return self._service.claim_seeded_profile(
+                return self._service.claim_registration_seed_profile(
                     agent_id=operation.agent_id,
                     owner_id=operation.owner_id,
                     expected_owner_id=existing.owner_id,

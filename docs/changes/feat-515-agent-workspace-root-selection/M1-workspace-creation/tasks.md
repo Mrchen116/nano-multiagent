@@ -106,6 +106,14 @@
 - [x] Align design/delta wording with opaque nonblank forwarding and give the second Gateway Runbook a config-adjacent isolated runtime directory.
 - [x] Rebase onto latest `origin/unit/feat-515`, complete final gates, and publish the correction commit.
 
+### Round-4 correction checklist
+
+- [x] Reserve a durable IM create operation before `agent.create`; Gateway persists and re-advertises exactly that operation, and recovery atomically requires the matching owner/node/operation/root/provenance/display identity.
+- [x] Keep ordinary first `node.register`, prehosted Agent, wrong operation/owner/root/provenance/display, post-PATCH profile, concurrent duplicate, and completed-operation retries unclaimable.
+- [x] Replace recursive threaded JSONL discovery with one cancellable, coalesced exact binding lookup per conversation; close cancels outstanding lookup tasks.
+- [x] Project transcript lookup as `ready` / `missing` / `unavailable`, so overload/provider failure never renders as “No transcript”.
+- [x] Update design, IM/Gateway delta, canonical specs, progress, and durable evidence; run focused, browser, full, docs, Ruff, and diff gates before publish.
+
 ### R1 — Gateway 本地 workspace creation boundary
 
 - 状态: DONE

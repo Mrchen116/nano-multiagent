@@ -105,6 +105,7 @@ class GatewayNodePersistence:
         agent_ids: list[str],
         agent_workspaces: dict[str, str],
         agent_workspace_is_default: dict[str, bool] | None = None,
+        agent_create_operations: dict[str, str] | None = None,
         agent_skills: dict[str, list[str]] | None = None,
         agent_tool_allowlist: dict[str, list[str]] | None = None,
     ) -> GatewayRegistrationResult:
@@ -117,6 +118,9 @@ class GatewayNodePersistence:
             agent_ids: Advertised agent identifiers in protocol order.
             agent_workspaces: Optional runtime workspace seed keyed by agent id.
             agent_workspace_is_default: Optional Gateway-owned workspace provenance.
+            agent_create_operations: Optional durable IM-originated create operation
+                id keyed by agent id.  Only this mapping can authorize recovery of
+                a lost ``agent.created`` response; ordinary registrations omit it.
             agent_skills: Optional per-agent skill seed keyed by agent id.
                 Used only when creating a new profile (bugfix-467).
             agent_tool_allowlist: Optional per-agent tool allowlist seed keyed by agent id.
@@ -143,6 +147,7 @@ class GatewayNodePersistence:
         skills_seed = agent_skills or {}
         tools_seed = agent_tool_allowlist or {}
         provenance_seed = agent_workspace_is_default or {}
+        create_operations = agent_create_operations or {}
         for agent_id in agent_ids:
             existing = self._profiles.get_profile(agent_id=agent_id)
             owner_id = (
@@ -197,6 +202,17 @@ class GatewayNodePersistence:
                 workspace_root=workspace_root,
                 workspace_is_default=workspace_is_default,
                 registration_seed=existing is None,
+                pending_create_operation_id=(
+                    create_operations.get(agent_id)
+                    if existing is None
+                    and isinstance(create_operations.get(agent_id), str)
+                    and self._profiles.has_create_operation(
+                        operation_id=create_operations[agent_id],
+                        node_id=node_id,
+                        agent_id=agent_id,
+                    )
+                    else None
+                ),
                 features=features,
                 custom_prompt=custom_prompt,
             )

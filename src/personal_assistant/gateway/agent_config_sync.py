@@ -268,6 +268,12 @@ class IMAgentConfigSync:
         if not isinstance(agent_id_raw, str) or not agent_id_raw.strip():
             raise ValueError("agent.create requires non-empty agent_id")
         agent_id = agent_id_raw.strip()
+        create_operation_raw = agent_payload.get("create_operation_id")
+        create_operation_id = (
+            create_operation_raw.strip()
+            if isinstance(create_operation_raw, str) and create_operation_raw.strip()
+            else None
+        )
         ws_raw = agent_payload.get("workspace_root")
         workspace_is_default = not (isinstance(ws_raw, str) and ws_raw.strip())
         if isinstance(ws_raw, str) and ws_raw.strip():
@@ -286,6 +292,10 @@ class IMAgentConfigSync:
             if (
                 existing_agent.workspace_root.expanduser().resolve() == workspace_root
                 and existing_agent.workspace_is_default == workspace_is_default
+                and (
+                    create_operation_id is None
+                    or existing_agent.create_operation_id == create_operation_id
+                )
             ):
                 description = agent_payload.get("description")
                 return self._agent_create_payload(
@@ -382,6 +392,7 @@ class IMAgentConfigSync:
             agent_id=agent_id,
             workspace_root=workspace_root,
             workspace_is_default=workspace_is_default,
+            create_operation_id=create_operation_id,
             title=title,
             skills=skills,
             tool_allowlist=tool_allowlist,
@@ -410,7 +421,7 @@ class IMAgentConfigSync:
         agent: AgentWorkspaceConfig, *, description: str
     ) -> dict[str, object]:
         """Serialize the stable creation success payload for a local Agent config."""
-        return {
+        payload: dict[str, object] = {
             "agent_id": agent.agent_id,
             "display_name": agent.title or agent.agent_id,
             "description": description,
@@ -424,6 +435,9 @@ class IMAgentConfigSync:
             "features": dict(agent.features),
             "custom_prompt": agent.custom_prompt,
         }
+        if agent.create_operation_id is not None:
+            payload["create_operation_id"] = agent.create_operation_id
+        return payload
 
     def handle_agent_config_operation(
         self, kind: str, payload: Mapping[str, object]
@@ -489,6 +503,8 @@ class IMAgentConfigSync:
                 "invalid_agent_config",
                 "candidate_fingerprint does not match agent candidate",
             )
+        if kind == "create":
+            canonical_request["create_operation_id"] = operation_id
 
         with self._operation_lock:
             try:
@@ -571,14 +587,6 @@ class IMAgentConfigSync:
             isinstance(raw_workspace, str) and raw_workspace.strip()
         )
         if kind == "create":
-            if existing is not None:
-                raise _WorkspaceOperationRejected(
-                    {
-                        "code": "agent_id_already_exists",
-                        "detail": "Agent ID already exists on this node.",
-                        "agent_id": agent_id,
-                    }
-                )
             if isinstance(raw_workspace, str) and raw_workspace.strip():
                 workspace_root = Path(raw_workspace).expanduser()
                 if not workspace_root.is_absolute():
@@ -591,6 +599,29 @@ class IMAgentConfigSync:
                 workspace_root = workspace_root.resolve()
             else:
                 workspace_root = self._workspace_root_factory(agent_id).resolve()
+            if existing is not None:
+                operation_id = candidate.get("create_operation_id")
+                if (
+                    isinstance(operation_id, str)
+                    and operation_id == existing.create_operation_id
+                    and workspace_root == existing.workspace_root.resolve()
+                    and workspace_is_default == existing.workspace_is_default
+                    and str(candidate.get("display_name") or agent_id)
+                    == (existing.title or agent_id)
+                ):
+                    resolved = _agent_operation_payload(existing)
+                    resolved["workspace_root"] = str(workspace_root)
+                    resolved["workspace_is_default"] = workspace_is_default
+                    resolved["create_operation_id"] = operation_id
+                    resolved["confirm_existing_workspace"] = confirm_existing
+                    return resolved
+                raise _WorkspaceOperationRejected(
+                    {
+                        "code": "agent_id_already_exists",
+                        "detail": "Agent ID already exists on this node.",
+                        "agent_id": agent_id,
+                    }
+                )
             assigned_agent_id = self._assigned_agent_for_workspace(workspace_root)
             if assigned_agent_id is not None:
                 raise _WorkspaceOperationRejected(
@@ -754,6 +785,9 @@ class IMAgentConfigSync:
                 payload.get("workspace_is_default")
                 if isinstance(payload.get("workspace_is_default"), bool)
                 else True
+            ),
+            create_operation_id=_optional_operation_text(
+                payload.get("create_operation_id")
             ),
             title=str(payload.get("display_name") or agent_id),
             skills=_operation_string_tuple(payload.get("skills")),
@@ -1199,13 +1233,17 @@ class IMAgentConfigSync:
         default_model = _optional_text("default_model")
         reasoning_effort = _optional_text("reasoning_effort")
         self._reasoning_catalog.validate(default_model, reasoning_effort)
+        existing_agent = self._local_agent(agent_id)
         return AgentWorkspaceConfig(
             agent_id=agent_id,
             workspace_root=workspace_root,
             workspace_is_default=(
-                self._local_agent(agent_id).workspace_is_default
-                if self._local_agent(agent_id) is not None
+                existing_agent.workspace_is_default
+                if existing_agent is not None
                 else True
+            ),
+            create_operation_id=(
+                existing_agent.create_operation_id if existing_agent is not None else None
             ),
             title=str(payload.get("display_name") or agent_id),
             skills=tuple(

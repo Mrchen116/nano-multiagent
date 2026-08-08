@@ -108,6 +108,7 @@ class ConversationResponse(BaseModel):
     source_agent_id: str | None = None
     source_node_id: str | None = None
     source_jsonl_path: str | None = None
+    source_jsonl_status: str | None = None
 
 
 class ExternalFindOrCreateConversationRequest(BaseModel):
@@ -188,12 +189,17 @@ async def _to_conversation_response_with_source(
     if profile is None or not profile.node_id:
         return response
     response = response.model_copy(update={"source_node_id": profile.node_id})
-    source_jsonl_path = await gateway_control.request_session_log_path(
+    resolution = await gateway_control.request_session_log_path(
         target_node_id=profile.node_id,
         agent_id=agent_id,
         conversation_id=conversation.id,
     )
-    return response.model_copy(update={"source_jsonl_path": source_jsonl_path})
+    return response.model_copy(
+        update={
+            "source_jsonl_path": resolution.source_jsonl_path,
+            "source_jsonl_status": resolution.status,
+        }
+    )
 
 
 def _load_owner_scoped_conversation(

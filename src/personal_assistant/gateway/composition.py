@@ -90,7 +90,9 @@ from personal_assistant.gateway.session_keys import PersistentSessionBindingStor
 from personal_assistant.gateway.session_binder import (
     GatewaySessionBinder,
     build_session_fork_handler,
+    build_session_log_path_provider,
 )
+from personal_assistant.defaults import WORKSPACE_CONFIG_DIRNAME
 from personal_assistant.gateway.session_run_coordinator import SessionRunCoordinator
 from personal_assistant.gateway.shadow_sync import IMShadowConversationSync
 from personal_assistant.reporter.upstream_reporter import (
@@ -654,6 +656,11 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
                 kernel=kernel,
                 session_binder=session_binder,
                 channel_name=WebRelayAdapter.name,
+            ),
+            session_log_path_provider=build_session_log_path_provider(
+                session_binder=session_binder,
+                channel_name=WebRelayAdapter.name,
+                workspace_config_dirname=WORKSPACE_CONFIG_DIRNAME,
             ),
             token_getter=token_getter,
             connect=_connect_websocket,

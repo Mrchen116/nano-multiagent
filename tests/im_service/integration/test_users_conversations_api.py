@@ -4,6 +4,8 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from IM.ws.gateway.control import SessionLogResolution
+
 from .conftest import make_app_client, register_user, authorize
 
 
@@ -62,7 +64,7 @@ def test_conversation_list_and_sync_resolve_session_log_through_target_gateway(
 
         async def fake_request_session_log_path(**kwargs):
             rpc_calls.append(kwargs)
-            return session_path
+            return SessionLogResolution(session_path, "ready")
 
         client.app.state.gateway_control.request_session_log_path = (
             fake_request_session_log_path
@@ -74,9 +76,11 @@ def test_conversation_list_and_sync_resolve_session_log_through_target_gateway(
         assert listed[0]["source_agent_id"] == "agent-1"
         assert listed[0]["source_node_id"] == "node-1"
         assert listed[0]["source_jsonl_path"] == session_path
+        assert listed[0]["source_jsonl_status"] == "ready"
         assert synced[0]["source_agent_id"] == "agent-1"
         assert synced[0]["source_node_id"] == "node-1"
         assert synced[0]["source_jsonl_path"] == session_path
+        assert synced[0]["source_jsonl_status"] == "ready"
         assert rpc_calls == [
             {
                 "target_node_id": "node-1",

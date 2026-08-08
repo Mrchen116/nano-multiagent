@@ -57,3 +57,22 @@ owner 门禁处 404，重复 `agent_id` 为 409；节点离线保持 503。
 - **GIVEN** Agent X 在创建时获得 workspace root P
 - **WHEN** 用户打开其设置或调用 update config 修改其他字段，即使 payload 含 workspace_root Q
 - **THEN** 页面没有 root 编辑或迁移操作，已存 `workspace_root` 仍为 P
+
+### Requirement: 仅同一持久化创建 operation 可以恢复丢失的成功回包
+
+在 IM 首次向节点下发 `agent.create` 前，IM 必须保留 `(owner_id, node_id, agent_id, request fingerprint)`
+唯一的 create operation，并将其 opaque `create_operation_id` 带给 Gateway。Gateway 成功时将该 id
+写入本地 Agent config，随 `agent.created` 回显，并在以后 `node.register.agent_create_operations` 映射
+中回传。只有该 id 仍对应同一 IM operation、Gateway 回传相同 id，且已经注册的 root、provenance、
+display identity 都不变时，IM 才能把该等待中的 first-registration profile 原子认领给原 owner。认领
+完成或正常 profile PATCH 后，待认领标记消失；任何普通首见 register、预配置 Agent、错误 node/owner/
+operation，或第一次完成后的重试都保持 duplicate 409。
+
+#### Scenario: 回复丢失后的重连恢复
+- **GIVEN** Gateway 已完成 operation X 的本地持久化，但 `agent.created` 在 IM 写 profile 前丢失
+- **WHEN** Gateway 重连并广告 X，原 owner 提交同一请求
+- **THEN** IM 以 X 及 immutable Gateway result 原子认领 profile，返回 201
+
+#### Scenario: 普通 node.register 不产生可认领 profile
+- **WHEN** Gateway 广告没有有效 IM operation 的 prehosted 或常规 Agent
+- **THEN** IM 只建立普通 profile；后续 `POST .../agents` 仍为 409，且不派发恢复式 `agent.create`

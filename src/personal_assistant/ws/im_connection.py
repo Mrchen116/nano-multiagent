@@ -8,10 +8,8 @@ import json
 import logging
 from collections import deque
 from collections.abc import Awaitable, Callable
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
-from functools import partial
 from pathlib import Path
 from typing import Any, Literal, Mapping, Protocol
 from urllib.parse import urlparse
@@ -40,8 +38,6 @@ _PA_SHARED_SKILL_ROOTS: tuple[Path, ...] = (
     Path("~/.claude/skills"),
     Path("~/.codex/skills"),
 )
-_MAX_CONCURRENT_SESSION_LOG_SCANS = 4
-_SESSION_LOG_RESOLUTION_TIMEOUT_SECONDS = 4.5
 
 
 class _RegistrationAckDeadlineExpired(TimeoutError):
@@ -169,6 +165,12 @@ PermissionResponseHandler = Callable[[Mapping[str, object]], bool | None]
 SessionForkHandler = Callable[
     [Mapping[str, object]],
     Awaitable[Mapping[str, object]] | Mapping[str, object],
+]
+# Resolve a Gateway-owned conversation binding to its exact root-session JSONL.
+# The provider must not walk the workspace tree: its lookup comes from the durable
+# session binding already held by the Gateway runtime.
+SessionLogPathProvider = Callable[
+    [str, str], Awaitable[str | None] | str | None
 ]
 # Provides encrypted managed-channel items for a newly bound IM. The IM owner id
 # is needed to re-seal a cache that was associated with a different IM instance.
@@ -305,6 +307,7 @@ class IMConnectionManager:
         prompt_preview_provider: PromptPreviewProvider | None = None,
         node_prompt_workspace_resolver: NodePromptWorkspaceResolver | None = None,
         session_fork_handler: SessionForkHandler | None = None,
+        session_log_path_provider: SessionLogPathProvider | None = None,
         token_getter: TokenGetter | None = None,
         permission_response_handler: PermissionResponseHandler | None = None,
         on_connected: Callable[[ManagedChannelConnectionSender], Awaitable[None]]
@@ -330,6 +333,7 @@ class IMConnectionManager:
         self._node_prompt_workspace_resolver = node_prompt_workspace_resolver
         # feat-445-M1: handler for IM-delegated session fork (decision 2).
         self._session_fork_handler = session_fork_handler
+        self._session_log_path_provider = session_log_path_provider
         # Called when IM pushes a permission_response so PA can POST it to the agent.
         self._permission_response_handler = permission_response_handler
         # token_getter is called on each connect attempt to supply a fresh access token.
@@ -374,14 +378,6 @@ class IMConnectionManager:
         self._event_loop: asyncio.AbstractEventLoop | None = None
         self._latest_channel_manifest_revision = 0
         self._channel_manifest_retry_task: asyncio.Task[None] | None = None
-        # Transcript lookup walks the complete workspace session tree.  Keep it off
-        # the downstream receive owner and bound concurrent filesystem work without
-        # adding a persistent cache for node-local paths.
-        self._session_log_scan_executor = ThreadPoolExecutor(
-            max_workers=_MAX_CONCURRENT_SESSION_LOG_SCANS,
-            thread_name_prefix="gateway-session-log",
-        )
-        self._session_log_scans: dict[tuple[str, str], asyncio.Future[str | None]] = {}
         self._session_log_waiters: dict[
             tuple[str, str], list[tuple[str, str, str]]
         ] = {}
@@ -494,7 +490,6 @@ class IMConnectionManager:
         if session_log_tasks:
             await asyncio.gather(*session_log_tasks, return_exceptions=True)
         self._session_log_waiters.clear()
-        self._session_log_scan_executor.shutdown(wait=False, cancel_futures=True)
         self._events.append({"event": "closed"})
 
     async def drain(self, deadline: float) -> None:
@@ -1537,78 +1532,43 @@ class IMConnectionManager:
     async def _start_session_log_resolution(
         self, *, request_id: str, agent_id: str, conversation_id: str
     ) -> None:
-        """Coalesce or bound one local transcript lookup outside the receive owner."""
+        """Coalesce an exact binding lookup outside the downstream receive owner."""
         key = (agent_id, conversation_id)
         waiter = (request_id, agent_id, conversation_id)
         pending_waiters = self._session_log_waiters.get(key)
         if pending_waiters is not None:
             pending_waiters.append(waiter)
             return
-        if (
-            key in self._session_log_scans
-            or len(self._session_log_scans) >= _MAX_CONCURRENT_SESSION_LOG_SCANS
-        ):
-            await self._send_session_log_resolution(
-                request_id=request_id,
-                agent_id=agent_id,
-                conversation_id=conversation_id,
-                source_jsonl_path=None,
-            )
-            return
-        workspace_root: str | None = None
-        if self._agent_config_provider is not None:
-            agent_payload = self._agent_config_provider(agent_id)
-            raw_workspace_root = (
-                agent_payload.get("workspace_root")
-                if isinstance(agent_payload, Mapping)
-                else None
-            )
-            if isinstance(raw_workspace_root, str) and raw_workspace_root.strip():
-                workspace_root = raw_workspace_root
-        if workspace_root is None:
-            await self._send_session_log_resolution(
-                request_id=request_id,
-                agent_id=agent_id,
-                conversation_id=conversation_id,
-                source_jsonl_path=None,
-            )
-            return
-        loop = asyncio.get_running_loop()
-        scan = loop.run_in_executor(
-            self._session_log_scan_executor,
-            partial(
-                _resolve_session_jsonl_path,
-                workspace_root=Path(workspace_root),
-                conversation_id=conversation_id,
-                agent_id=agent_id,
-            ),
-        )
-        self._session_log_scans[key] = scan
-        scan.add_done_callback(lambda _completed: self._session_log_scans.pop(key, None))
         self._session_log_waiters[key] = [waiter]
         task = asyncio.create_task(
-            self._resolve_session_log(key=key, scan=scan)
+            self._resolve_session_log(key=key)
         )
         self._session_log_tasks.add(task)
         task.add_done_callback(self._session_log_tasks.discard)
 
     async def _resolve_session_log(
-        self, *, key: tuple[str, str], scan: asyncio.Future[str | None]
+        self, *, key: tuple[str, str]
     ) -> None:
-        """Await one bounded transcript lookup and answer every coalesced waiter."""
+        """Await one cancellable exact lookup and answer every coalesced waiter."""
         source_jsonl_path: str | None = None
+        resolution_status = "unavailable"
         try:
-            source_jsonl_path = await asyncio.wait_for(
-                asyncio.shield(scan), timeout=_SESSION_LOG_RESOLUTION_TIMEOUT_SECONDS
-            )
-        except TimeoutError:
-            # IM gives up after five seconds. The physical scan remains in the fixed
-            # executor, while this logical request expires instead of queuing new work.
-            source_jsonl_path = None
+            provider = self._session_log_path_provider
+            if provider is not None:
+                resolved = provider(*key)
+                source_jsonl_path = (
+                    await resolved if isinstance(resolved, Awaitable) else resolved
+                )
+                if isinstance(source_jsonl_path, str) and source_jsonl_path.strip():
+                    source_jsonl_path = source_jsonl_path.strip()
+                    resolution_status = "ready"
+                else:
+                    source_jsonl_path = None
+                    resolution_status = "missing"
         except asyncio.CancelledError:
             raise
-        except Exception:  # noqa: BLE001 - background lookup must still answer the RPC
-            _log.exception("Could not resolve Gateway session log")
+        except Exception:  # noqa: BLE001 - a local provider failure is retryable
+            _log.exception("Could not resolve Gateway session log binding")
         waiters = self._session_log_waiters.pop(key, [])
         for request_id, agent_id, conversation_id in waiters:
             await self._send_session_log_resolution(
@@ -1616,6 +1576,7 @@ class IMConnectionManager:
                 agent_id=agent_id,
                 conversation_id=conversation_id,
                 source_jsonl_path=source_jsonl_path,
+                status=resolution_status,
             )
 
     async def _send_session_log_resolution(
@@ -1625,6 +1586,7 @@ class IMConnectionManager:
         agent_id: str,
         conversation_id: str,
         source_jsonl_path: str | None,
+        status: Literal["ready", "missing", "unavailable"],
     ) -> None:
         """Send one logical transcript lookup result through the normal ACK lane."""
         try:
@@ -1636,6 +1598,7 @@ class IMConnectionManager:
                     "agent_id": agent_id,
                     "conversation_id": conversation_id,
                     "source_jsonl_path": source_jsonl_path,
+                    "status": status,
                 },
             )
         except asyncio.CancelledError:
@@ -2189,36 +2152,6 @@ def _workspace_session_ids(workspace_root: Path) -> frozenset[str]:
     if not sessions_dir.is_dir():
         return frozenset()
     return frozenset(path.stem for path in sessions_dir.rglob("*.jsonl"))
-
-
-def _resolve_session_jsonl_path(
-    *, workspace_root: Path, conversation_id: str, agent_id: str
-) -> str | None:
-    """Locate one conversation transcript within this Gateway's local workspace."""
-    sessions_dir = workspace_root.expanduser() / _PA_WORKSPACE_CFG_DIR / "sessions"
-    if not sessions_dir.is_dir():
-        return None
-    for path in sorted(sessions_dir.rglob("*.jsonl")):
-        try:
-            with path.open("r", encoding="utf-8") as fh:
-                for line in fh:
-                    stripped = line.strip()
-                    if not stripped:
-                        continue
-                    record = json.loads(stripped)
-                    if record.get("type") != "session_created":
-                        continue
-                    metadata = record.get("metadata")
-                    if not isinstance(metadata, dict):
-                        continue
-                    if (
-                        metadata.get("conversation_id") == conversation_id
-                        and metadata.get("agent_id") == agent_id
-                    ):
-                        return str(path.resolve())
-        except (OSError, json.JSONDecodeError, UnicodeDecodeError):
-            continue
-    return None
 
 
 def _filter_shared_usage_for_workspace(

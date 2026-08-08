@@ -89,7 +89,9 @@ def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(
             operation_id = create_request["payload"]["operation_id"]
             candidate_fingerprint = create_request["payload"]["candidate_fingerprint"]
             assert create_request["payload"]["expected_previous_fingerprint"] is None
-            assert create_request["payload"]["agent"] == {
+            create_agent_payload = dict(create_request["payload"]["agent"])
+            assert create_agent_payload.pop("create_operation_id") == operation_id
+            assert create_agent_payload == {
                 "agent_id": agent_user.id,
                 "display_name": "Agent New",
                 "features": {},

@@ -44,3 +44,16 @@ Gateway 处理 IM 下行的 `agent.create` 时，在**本节点**决定 workspac
 - **GIVEN** Gateway 为 Agent X 成功创建并持久化 root P
 - **WHEN** 后续 IM 配置同步携带不同的镜像 root Q
 - **THEN** Gateway runtime 继续以本地 config 的 P 读写 workspace；不迁移或覆盖 P
+
+### Requirement: 创建 operation 仅用于同一丢失响应的重连恢复
+
+下行 `agent.create` 可带 opaque `create_operation_id`。Gateway 成功创建时把它与 workspace root/provenance
+一起持久化，`agent.created` 回包和以后 `node.register.agent_create_operations` 映射均回传同一 id。对于
+已经存在的 Agent，Gateway 只接受同一 operation id 的恢复请求；缺失或不同 id 仍为 duplicate create，
+不得借常规注册广告产生、替换或刷新 operation。
+
+#### Scenario: Gateway 回显已持久化的 operation
+- **GIVEN** IM 下发带 operation X 的 `agent.create`
+- **WHEN** Gateway 已写入本地 Agent config
+- **THEN** `agent.created` 及随后的 `node.register` 都为该 Agent 回传 X
+- **AND** 不同 X 的恢复请求不能改写已持久化 Agent

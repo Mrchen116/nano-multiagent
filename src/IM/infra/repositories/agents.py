@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+from uuid import uuid4
 
 from IM.domain.models import (
     AgentProfile,
@@ -155,6 +156,7 @@ class AgentProfileRepository:
         reasoning_effort: str | None = None,
         workspace_is_default: bool | None = None,
         registration_seed: bool = False,
+        pending_create_operation_id: str | None = None,
         node_id: str | None = None,
         features: dict[str, bool] | None = None,
         custom_prompt: str | None = None,
@@ -178,9 +180,9 @@ class AgentProfileRepository:
                     agent_id, owner_id, node_id, display_name, description,
                     skills_json, tool_allowlist_json, group_reply_policy,
                     default_model, reasoning_effort, workspace_root, workspace_is_default,
-                    registration_seed, profile_version, created_at, updated_at,
-                    features_json, custom_prompt
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, '{}'), ?)
+                    registration_seed, pending_create_operation_id, profile_version,
+                    created_at, updated_at, features_json, custom_prompt
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, '{}'), ?)
                 ON CONFLICT(agent_id) DO UPDATE SET
                     owner_id = excluded.owner_id,
                     node_id = excluded.node_id,
@@ -198,6 +200,7 @@ class AgentProfileRepository:
                         ELSE agent_profiles.workspace_is_default
                     END,
                     registration_seed = agent_profiles.registration_seed,
+                    pending_create_operation_id = agent_profiles.pending_create_operation_id,
                     updated_at = excluded.updated_at,
                     is_stale = 0,
                     staled_at = NULL,
@@ -226,6 +229,7 @@ class AgentProfileRepository:
                     workspace_root,
                     None if workspace_is_default is None else int(workspace_is_default),
                     int(registration_seed),
+                    pending_create_operation_id,
                     1,
                     created_at,
                     created_at,
@@ -240,15 +244,12 @@ class AgentProfileRepository:
     def is_registration_seed(
         self, *, agent_id: str, owner_id: str, node_id: str
     ) -> bool:
-        """Return whether one exact profile is still a Gateway registration seed."""
+        """Return whether one exact profile remains an unclaimed registration seed."""
         return (
             self._connection.execute(
                 """
-                SELECT 1
-                FROM agent_profiles
-                WHERE agent_id = ?
-                  AND owner_id = ?
-                  AND node_id = ?
+                SELECT 1 FROM agent_profiles
+                WHERE agent_id = ? AND owner_id = ? AND node_id = ?
                   AND registration_seed = 1
                 """,
                 (agent_id, owner_id, node_id),
@@ -256,7 +257,7 @@ class AgentProfileRepository:
             is not None
         )
 
-    def claim_seeded_profile(
+    def claim_registration_seed_profile(
         self,
         *,
         agent_id: str,
@@ -275,12 +276,173 @@ class AgentProfileRepository:
         features: dict[str, bool],
         custom_prompt: str | None,
     ) -> AgentProfile | None:
-        """Finalize exactly one matching Gateway registration seed.
+        """Atomically claim only the seed matching its Gateway-owned workspace."""
+        with self._connection:
+            cursor = self._connection.execute(
+                """
+                UPDATE agent_profiles
+                SET owner_id = ?, display_name = ?, description = ?,
+                    skills_json = ?, tool_allowlist_json = ?,
+                    group_reply_policy = ?, default_model = ?, reasoning_effort = ?,
+                    features_json = ?, custom_prompt = ?, updated_at = ?,
+                    is_stale = 0, staled_at = NULL, registration_seed = 0,
+                    pending_create_operation_id = NULL
+                WHERE agent_id = ? AND owner_id = ? AND node_id = ?
+                  AND workspace_root = ? AND workspace_is_default = ?
+                  AND registration_seed = 1
+                """,
+                (
+                    owner_id,
+                    display_name,
+                    description,
+                    _encode_json_list(skills),
+                    _encode_json_list(tool_allowlist),
+                    group_reply_policy,
+                    default_model,
+                    reasoning_effort,
+                    json.dumps(features, ensure_ascii=False),
+                    custom_prompt,
+                    utc_now(),
+                    agent_id,
+                    expected_owner_id,
+                    node_id,
+                    expected_workspace_root,
+                    int(expected_workspace_is_default),
+                ),
+            )
+        if cursor.rowcount != 1:
+            return None
+        profile = self.get_profile(agent_id=agent_id)
+        assert profile is not None
+        return profile
 
-        The workspace root/provenance pair is deliberately part of the ``WHERE``
-        clause and never the update.  A lost ``agent.created`` response may be
-        recovered only when the Gateway's persisted result proves it is the same
-        Agent creation, not a request to repurpose an advertised profile.
+    def reserve_create_operation(
+        self,
+        *,
+        owner_id: str,
+        node_id: str,
+        agent_id: str,
+        request_fingerprint: str,
+    ) -> str:
+        """Reserve (or recover) one durable IM-originated create operation."""
+        row = self._connection.execute(
+            """
+            SELECT operation_id, request_fingerprint
+            FROM agent_create_operations
+            WHERE owner_id = ? AND node_id = ? AND agent_id = ?
+            """,
+            (owner_id, node_id, agent_id),
+        ).fetchone()
+        if row is not None:
+            if str(row["request_fingerprint"]) != request_fingerprint:
+                raise ValueError("agent_id already exists")
+            return str(row["operation_id"])
+        operation_id = uuid4().hex
+        with self._connection:
+            self._connection.execute(
+                """
+                INSERT INTO agent_create_operations(
+                    operation_id, owner_id, node_id, agent_id,
+                    request_fingerprint, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (operation_id, owner_id, node_id, agent_id, request_fingerprint, utc_now()),
+            )
+        return operation_id
+
+    def existing_create_operation(
+        self, *, owner_id: str, node_id: str, agent_id: str, request_fingerprint: str
+    ) -> str | None:
+        """Return a matching durable operation without creating a new reservation."""
+        row = self._connection.execute(
+            """
+            SELECT operation_id, request_fingerprint
+            FROM agent_create_operations
+            WHERE owner_id = ? AND node_id = ? AND agent_id = ?
+            """,
+            (owner_id, node_id, agent_id),
+        ).fetchone()
+        if row is None or str(row["request_fingerprint"]) != request_fingerprint:
+            return None
+        return str(row["operation_id"])
+
+    def has_create_operation(
+        self, *, operation_id: str, node_id: str, agent_id: str
+    ) -> bool:
+        """Return whether a Gateway-advertised operation was reserved by IM."""
+        return (
+            self._connection.execute(
+                """
+                SELECT 1 FROM agent_create_operations
+                WHERE operation_id = ? AND node_id = ? AND agent_id = ?
+                """,
+                (operation_id, node_id, agent_id),
+            ).fetchone()
+            is not None
+        )
+
+    def is_pending_create_operation(
+        self,
+        *,
+        agent_id: str,
+        profile_owner_id: str,
+        owner_id: str,
+        node_id: str,
+        operation_id: str,
+    ) -> bool:
+        """Return whether an exact pending profile was produced by this create."""
+        return (
+            self._connection.execute(
+                """
+                SELECT 1
+                FROM agent_profiles ap
+                JOIN agent_create_operations op
+                  ON op.operation_id = ap.pending_create_operation_id
+                WHERE ap.agent_id = ?
+                  AND ap.owner_id = ?
+                  AND ap.node_id = ?
+                  AND ap.pending_create_operation_id = ?
+                  AND op.owner_id = ?
+                  AND op.node_id = ?
+                  AND op.agent_id = ?
+                """,
+                (
+                    agent_id,
+                    profile_owner_id,
+                    node_id,
+                    operation_id,
+                    owner_id,
+                    node_id,
+                    agent_id,
+                ),
+            ).fetchone()
+            is not None
+        )
+
+    def claim_pending_create_profile(
+        self,
+        *,
+        agent_id: str,
+        owner_id: str,
+        expected_owner_id: str,
+        node_id: str,
+        expected_workspace_root: str,
+        expected_workspace_is_default: bool,
+        operation_id: str,
+        display_name: str,
+        description: str,
+        skills: list[str],
+        tool_allowlist: list[str],
+        group_reply_policy: str,
+        default_model: str | None,
+        reasoning_effort: str | None,
+        features: dict[str, bool],
+        custom_prompt: str | None,
+    ) -> AgentProfile | None:
+        """Finalize exactly one matching Gateway create operation.
+
+        The workspace root/provenance pair and operation correlation are part of
+        the ``WHERE`` clause and never the update.
         """
         updated_at = utc_now()
         with self._connection:
@@ -291,13 +453,22 @@ class AgentProfileRepository:
                     skills_json = ?, tool_allowlist_json = ?,
                     group_reply_policy = ?, default_model = ?, reasoning_effort = ?,
                     features_json = ?, custom_prompt = ?, updated_at = ?,
-                    is_stale = 0, staled_at = NULL, registration_seed = 0
+                    is_stale = 0, staled_at = NULL, registration_seed = 0,
+                    pending_create_operation_id = NULL
                 WHERE agent_id = ?
                   AND owner_id = ?
                   AND node_id = ?
                   AND workspace_root = ?
                   AND workspace_is_default = ?
-                  AND registration_seed = 1
+                  AND pending_create_operation_id = ?
+                  AND EXISTS (
+                      SELECT 1
+                      FROM agent_create_operations op
+                      WHERE op.operation_id = ?
+                        AND op.owner_id = ?
+                        AND op.node_id = ?
+                        AND op.agent_id = ?
+                  )
                 """,
                 (
                     owner_id,
@@ -316,13 +487,35 @@ class AgentProfileRepository:
                     node_id,
                     expected_workspace_root,
                     int(expected_workspace_is_default),
+                    operation_id,
+                    operation_id,
+                    owner_id,
+                    node_id,
+                    agent_id,
                 ),
             )
+            if cursor.rowcount == 1:
+                self._connection.execute(
+                    "DELETE FROM agent_create_operations WHERE operation_id = ?",
+                    (operation_id,),
+                )
         if cursor.rowcount != 1:
             return None
         profile = self.get_profile(agent_id=agent_id)
         assert profile is not None
         return profile
+
+    def abandon_create_operation(self, *, operation_id: str) -> None:
+        """Remove a reservation only after Gateway reported no local creation."""
+        with self._connection:
+            self._connection.execute(
+                "DELETE FROM agent_create_operations WHERE operation_id = ?",
+                (operation_id,),
+            )
+
+    def complete_create_operation(self, *, operation_id: str) -> None:
+        """Retire an operation after IM durably created its final profile."""
+        self.abandon_create_operation(operation_id=operation_id)
 
     def create_profile(
         self,
@@ -491,7 +684,9 @@ class AgentProfileRepository:
                     updated_at = ?,
                     features_json = ?,
                     custom_prompt = ?,
-                    heartbeat_json = ?
+                    heartbeat_json = ?,
+                    pending_create_operation_id = NULL,
+                    registration_seed = 0
                 WHERE agent_id = ? AND profile_version = ?
                 """,
                 (

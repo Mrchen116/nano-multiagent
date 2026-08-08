@@ -1332,7 +1332,8 @@ def test_node_local_rpcs_return_none_when_node_is_offline(tmp_path: Path) -> Non
     assert cron_jobs is None
     assert skill_usage is None
     assert cron_delete is None
-    assert session_log is None
+    assert session_log.source_jsonl_path is None
+    assert session_log.status == "unavailable"
 
 
 def test_session_log_rpc_correlates_gateway_result_without_workspace_root(
@@ -1342,7 +1343,7 @@ def test_session_log_rpc_correlates_gateway_result_without_workspace_root(
     handler = _build_handler(tmp_path)
     websocket = StubWebSocket()
 
-    async def exercise() -> tuple[str | None, dict[str, object]]:
+    async def exercise() -> tuple[object, dict[str, object]]:
         await handler.runtime.handle_message(
             websocket=websocket,
             message_type="node.register",
@@ -1378,7 +1379,8 @@ def test_session_log_rpc_correlates_gateway_result_without_workspace_root(
     assert request["payload"]["agent_id"] == "agent-a"
     assert request["payload"]["conversation_id"] == "conversation-a"
     assert "workspace_root" not in request["payload"]
-    assert result == "/remote/node/session.jsonl"
+    assert result.source_jsonl_path == "/remote/node/session.jsonl"
+    assert result.status == "ready"
     assert response["type"] == "ack"
 
 
