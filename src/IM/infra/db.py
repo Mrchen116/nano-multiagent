@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS conversations (
     config_profile_version INTEGER,
     external_source TEXT,
     external_chat_id TEXT,
+    target_node_id TEXT,
     created_at TEXT NOT NULL
 );
 
@@ -501,6 +502,8 @@ def _migrate_conversations_metadata(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE conversations ADD COLUMN external_source TEXT")
     if "external_chat_id" not in column_names:
         connection.execute("ALTER TABLE conversations ADD COLUMN external_chat_id TEXT")
+    if "target_node_id" not in column_names:
+        connection.execute("ALTER TABLE conversations ADD COLUMN target_node_id TEXT")
     _deduplicate_external_conversations(connection)
     connection.execute(
         """

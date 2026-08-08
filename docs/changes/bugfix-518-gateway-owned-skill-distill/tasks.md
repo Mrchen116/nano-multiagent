@@ -1,19 +1,19 @@
 # bugfix-518-M1: Gateway-owned distill prompt — Tasks
 
-> 对齐: [design.md](design.md) v5.2
+> 对齐: [design.md](design.md) v5.3
 
 ## 实施清单
 
-- [ ] 移除 IM `source_jsonl_path` 和本机 JSONL scanner，改为 `source_node_id` projection。
-- [ ] 增加 owner-scoped IM distill-prompt endpoint：保留 frontend distiller/`skill_view` preflight，校验
+- [x] 移除 IM `source_jsonl_path` 和本机 JSONL scanner，改为 `source_node_id` projection。
+- [x] 增加 owner-scoped IM distill-prompt endpoint：保留 frontend distiller/`skill_view` preflight，校验
   source/executor 同 node、idle 与 owner 后，以 request_id 请求该 Gateway。
-- [ ] Gateway 增加 correlated `node.distill.prompt.request/result` handler：从 durable binding 解析本机 JSONL
-  path，并复核 distiller/`skill_view`，按现有 `buildDistillDraft` 格式返回 prompt/error。
-- [ ] sidebar 以 node 限制多选；dialog 成功取回 prompt 后，IM 在同一 operation 创建固定 `target_node_id` 的
+- [x] Gateway 增加 correlated `node.distill.prompt.request/result` handler：从 durable binding 解析本机 JSONL
+  path（保留 external shadow binding fallback），并复核 distiller/`skill_view`，按现有 `buildDistillDraft` 格式返回 prompt/error。
+- [x] sidebar 以 node 限制多选；dialog 成功取回 prompt 后，IM 在同一 operation 创建固定 `target_node_id` 的
   direct conversation；composer 原样预填该 prompt，普通 relay 的 server pin 优先于 request `target_node_id` hint。
-- [ ] 删除为 IM directory scan、metadata relay、internal input injection 设计的代码/测试；builtin skill 和普通
+- [x] 删除为 IM directory scan、metadata relay、internal input injection 设计的代码/测试；builtin skill 和普通
   message relay 不改。
-- [ ] 记录双 Gateway browser acceptance 至 `M1-gateway-owned-distill/progress.md`。
+- [x] 记录双 Gateway browser acceptance 至 `M1-gateway-owned-distill/progress.md`。
 
 ## 测试策略
 

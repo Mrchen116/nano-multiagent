@@ -4,6 +4,7 @@ import { useAuthStore } from "../auth/auth-store";
 import {
   addParticipants,
   createConversation,
+  createDistillPrompt,
   createMessage,
   deleteConversation,
   forkConversation,
@@ -128,6 +129,33 @@ describe("chat-api", () => {
       { type: "agent", id: "agent-a" },
       { type: "agent", id: "agent-b" }
     ]);
+  });
+
+  it("createDistillPrompt sends only source identities to the Gateway-owned prompt endpoint", async () => {
+    const f = fetch as unknown as ReturnType<typeof vi.fn>;
+    f.mockResolvedValueOnce(jsonResponse({
+      conversation: {
+        id: "d1", title: "Generate skill", participants: [], participant_ids: [], type: "direct", direct_kind: "agent",
+        owner_id: "user-1", creator_id: "user-1", is_pinned: false, is_muted: false, unread_count: 0,
+        last_message_preview: null, last_message_at: null, created_at: "2026-01-01T00:00:03Z"
+      },
+      prompt: "/skill:conversation-skill-distiller"
+    }, 201));
+
+    const result = await createDistillPrompt({
+      sources: [{ conversationId: "c1", sourceAgentId: "agent-a" }],
+      executionAgentId: "agent-b",
+      targetScope: "global"
+    });
+
+    expect(result.prompt).toBe("/skill:conversation-skill-distiller");
+    const call = f.mock.calls[0]!;
+    expect(call[0]).toMatch(/\/im\/v1\/conversations\/distill-prompt$/);
+    expect(JSON.parse((call[1] as RequestInit).body as string)).toEqual({
+      sources: [{ conversation_id: "c1", source_agent_id: "agent-a" }],
+      execution_agent_id: "agent-b",
+      target_scope: "global"
+    });
   });
 
   function groupBody() {

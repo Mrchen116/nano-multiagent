@@ -458,6 +458,52 @@ def test_request_agent_config_timeout_returns_none_for_connected_gateway(
     assert websocket.sent_json[-1]["payload"]["agent_id"] == "agent-a"
 
 
+def test_distill_prompt_waiter_accepts_only_the_target_gateway_result(
+    tmp_path: Path,
+) -> None:
+    """A same request id from another node cannot produce a local-path prompt."""
+    handler = _build_handler(tmp_path)
+    websocket = StubWebSocket()
+
+    async def _request_and_correlate() -> dict[str, object] | None:
+        await handler.runtime.handle_message(
+            websocket=websocket,
+            message_type="node.register",
+            payload={"node_id": "node-1", "agents": ["agent-a"], "capabilities": {}},
+        )
+        request = asyncio.create_task(
+            handler.control.request_distill_prompt(
+                target_node_id="node-1",
+                sources=[{"conversation_id": "conv-1", "source_agent_id": "agent-a"}],
+                execution_agent_id="agent-a",
+                target_scope="agent",
+                timeout_seconds=0.5,
+            )
+        )
+        await asyncio.sleep(0)
+        request_id = websocket.sent_json[-1]["payload"]["request_id"]
+        assert isinstance(request_id, str)
+        await handler.control._handle_distill_prompt(  # noqa: SLF001 - drive correlation seam
+            payload={
+                "request_id": request_id,
+                "node_id": "node-2",
+                "prompt": "wrong gateway",
+            }
+        )
+        assert not request.done()
+        await handler.control._handle_distill_prompt(  # noqa: SLF001 - drive correlation seam
+            payload={
+                "request_id": request_id,
+                "node_id": "node-1",
+                "prompt": "local gateway",
+            }
+        )
+        return await request
+
+    assert asyncio.run(_request_and_correlate()) == {"prompt": "local gateway"}
+    assert websocket.sent_json[-1]["type"] == "node.distill.prompt.request"
+
+
 def test_stale_disconnect_preserves_replacement_connection(tmp_path: Path) -> None:
     """Keep a newer websocket when delayed cleanup arrives from the replaced socket."""
     handler = _build_handler(tmp_path)

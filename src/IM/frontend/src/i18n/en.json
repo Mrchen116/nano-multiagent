@@ -511,7 +511,8 @@
       "distillToSkill": "Distill to skill",
       "cancel": "Cancel",
       "running": "Running",
-      "noTranscript": "No transcript",
+      "noTranscript": "Source unavailable",
+      "differentGateway": "Different Gateway",
       "empty": "No conversations"
     },
     "kindBadge": {
@@ -535,7 +536,7 @@
       "title": "Distill conversations",
       "subtitle": "Create a new chat with the execution agent and prefill a normal skill command.",
       "scope": "Write scope",
-      "selectionRequired": "Select at least one finished conversation with a transcript.",
+      "selectionRequired": "Select at least one finished conversation on one Gateway.",
       "requireDistiller": "Enable conversation-skill-distiller for the execution agent before starting.",
       "requireSkillView": "Enable skill_view for the execution agent before starting.",
       "requireDistillerAndSkillView": "Enable conversation-skill-distiller and skill_view for the execution agent before starting.",

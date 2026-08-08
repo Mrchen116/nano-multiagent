@@ -166,6 +166,12 @@ SessionForkHandler = Callable[
     [Mapping[str, object]],
     Awaitable[Mapping[str, object]] | Mapping[str, object],
 ]
+# Gateway resolves local durable bindings into the existing distill prompt.  The
+# request contains identities only; its result carries either prompt or error.
+DistillPromptHandler = Callable[
+    [Mapping[str, object]],
+    Awaitable[Mapping[str, object]] | Mapping[str, object],
+]
 # Provides encrypted managed-channel items for a newly bound IM. The IM owner id
 # is needed to re-seal a cache that was associated with a different IM instance.
 ChannelBootstrapItemsProvider = Callable[[str], list[Mapping[str, object]]]
@@ -301,6 +307,7 @@ class IMConnectionManager:
         prompt_preview_provider: PromptPreviewProvider | None = None,
         node_prompt_workspace_resolver: NodePromptWorkspaceResolver | None = None,
         session_fork_handler: SessionForkHandler | None = None,
+        distill_prompt_handler: DistillPromptHandler | None = None,
         token_getter: TokenGetter | None = None,
         permission_response_handler: PermissionResponseHandler | None = None,
         on_connected: Callable[[ManagedChannelConnectionSender], Awaitable[None]]
@@ -326,6 +333,7 @@ class IMConnectionManager:
         self._node_prompt_workspace_resolver = node_prompt_workspace_resolver
         # feat-445-M1: handler for IM-delegated session fork (decision 2).
         self._session_fork_handler = session_fork_handler
+        self._distill_prompt_handler = distill_prompt_handler
         # Called when IM pushes a permission_response so PA can POST it to the agent.
         self._permission_response_handler = permission_response_handler
         # token_getter is called on each connect attempt to supply a fresh access token.
@@ -1134,6 +1142,23 @@ class IMConnectionManager:
             result_payload = dict(result) if isinstance(result, Mapping) else {}
             await self.send_json(
                 "session.fork.result",
+                {
+                    "request_id": request_id,
+                    "node_id": self._reporter.node_id,
+                    **result_payload,
+                },
+            )
+            return
+        if message_type == "node.distill.prompt.request":
+            request_id = _require_text(body.get("request_id"), field_name="request_id")
+            if self._distill_prompt_handler is None:
+                raise RuntimeError(
+                    "node.distill.prompt.request requires distill_prompt_handler"
+                )
+            result = await _maybe_await(self._distill_prompt_handler(body))
+            result_payload = dict(result) if isinstance(result, Mapping) else {}
+            await self.send_json(
+                "node.distill.prompt",
                 {
                     "request_id": request_id,
                     "node_id": self._reporter.node_id,

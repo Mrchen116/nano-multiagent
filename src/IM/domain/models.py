@@ -155,7 +155,10 @@ class Conversation:
     participants: list[Actor] = field(default_factory=list)
     run_state: str = "idle"
     source_agent_id: str | None = None
-    source_jsonl_path: str | None = None
+    source_node_id: str | None = None
+    # Internal route affinity for a direct conversation seeded with Gateway-local
+    # paths. It is never exposed through the browser conversation payload.
+    target_node_id: str | None = None
 
     def __post_init__(self) -> None:
         if self.run_state not in {"idle", "running"}:

@@ -99,6 +99,38 @@ export async function createConversation(req: CreateConversationRequest): Promis
   );
 }
 
+export interface CreateDistillPromptRequest {
+  sources: Array<{ conversationId: string; sourceAgentId: string }>;
+  executionAgentId: string;
+  targetScope: "agent" | "global";
+}
+
+export interface CreateDistillPromptResult {
+  conversation: Conversation;
+  prompt: string;
+}
+
+/** Request a Gateway-produced draft and its same-Gateway execution chat. */
+export async function createDistillPrompt(
+  req: CreateDistillPromptRequest,
+): Promise<CreateDistillPromptResult> {
+  return authFetchJson<CreateDistillPromptResult>(
+    "/im/v1/conversations/distill-prompt",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        sources: req.sources.map((source) => ({
+          conversation_id: source.conversationId,
+          source_agent_id: source.sourceAgentId,
+        })),
+        execution_agent_id: req.executionAgentId,
+        target_scope: req.targetScope,
+      }),
+    },
+    "createDistillPrompt",
+  );
+}
+
 /**
  * feat-445-M1: fork a direct agent chat at one completed agent reply. Returns the new
  * branch conversation (same agent, history copied through the fork point). Throws on

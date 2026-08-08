@@ -8,7 +8,9 @@ IM 请求已选择的同节点 source conversations 的 distill prompt 时，Gat
 conversation/session binding 在本机解析 JSONL paths，并复核 execution Agent 的
 `conversation-skill-distiller` 和 `skill_view`。它以 request_id 返回当前普通
 `conversation-skill-distiller` 消息格式的 prompt 或 actionable error。Gateway 不返回 transcript 内容，也不执行
-模型或 skill；后续由 IM 固定路由的普通聊天 relay 回到同一 Gateway 并按该 prompt 读取本机 paths。
+模型或 skill；后续由 IM 固定路由的普通聊天 relay 回到同一 Gateway 并按该 prompt 读取本机 paths。对已有
+external shadow conversation，Gateway 先查常规 `web_relay` binding；仅当它不存在时，才用 IM 从已授权 shadow
+record 附带的既有 external identity 查常规 external binding。这个 fallback 不成为 browser 或 ordinary relay 字段。
 
 #### Scenario: 本机 binding 生成可直接预填的 prompt
 - **GIVEN** 所有 source conversation/Agent 与 execution Agent 都属于当前 Gateway，且 source 有本机可读 binding
@@ -26,3 +28,9 @@ conversation/session binding 在本机解析 JSONL paths，并复核 execution A
 - **WHEN** Gateway 收到 prompt request，但 execution Agent 缺少 `conversation-skill-distiller` 或 `skill_view`
 - **THEN** 它以相同 request_id 和 node_id 返回可理解错误
 - **AND** 不读取 transcript、不启动模型、不创建 session 或 skill
+
+#### Scenario: 已有 external shadow source 沿用 external binding
+- **GIVEN** source 是同节点的已有 external shadow conversation，且没有 `web_relay` binding、但其既有 external binding 存在
+- **WHEN** Gateway 收到由 IM 授权 shadow record 补充 external identity 的 prompt request
+- **THEN** Gateway 用该 external binding 解析本机 JSONL path 并返回当前格式 prompt
+- **AND** browser 不获得或提交 external identity

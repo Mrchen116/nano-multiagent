@@ -841,3 +841,25 @@ None.
 v5.2 is ready for `change-orchestrator`. Implement the narrow IM pin-priority
 rule and the listed focused tests; keep the Gateway control RPC and normal-chat
 path otherwise unchanged.
+
+## Round 8
+
+### Metadata
+
+| Field | Value |
+|---|---|
+| Reviewer target | `bugfix-518-gateway-owned-skill-distill@design-v5.3` |
+| Review mode | delta |
+| Mode reason | v5.3 only records the retained external-shadow binding fallback in the Gateway relay delta. |
+
+### Verdict
+
+**APPROVE — 0 CRITICAL / 0 WARNING.** The delta keeps the external identity
+private to IM→Gateway control, tries the normal `web_relay` durable binding
+first, and falls back only when an existing external-shadow binding is present.
+It does not reintroduce IM filesystem access, browser-provided paths, or a
+second transcript mechanism.
+
+### Conclusion
+
+v5.3 remains ready for implementation and verification.

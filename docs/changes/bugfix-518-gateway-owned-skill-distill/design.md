@@ -9,6 +9,7 @@
 | v5 | 按用户确认收口为最小修复：同 Gateway 选择后，IM 向该 Gateway 请求当前格式的 distill prompt；不再由 IM 扫描 JSONL。此前 metadata、内部 prompt 注入和新 delivery lifecycle 设计全部撤回。 |
 | v5.1 | 记录用户确认的 visible-path policy；把 prompt 生成与 execution direct conversation 的同节点路由绑定为一个 IM operation；保留既有 skill readiness，并补全 control RPC/result 与测试处置。 |
 | v5.2 | 使 conversation pin 在服务端优先于 legacy message `target_node_id` hint，并把受影响 HTTP/control 测试归属写入 tasks。 |
+| v5.3 | 保留既有 external shadow conversation 的 binding fallback：browser 仍只提交 source ID，IM 仅在已有 external identity 时将其随 control request 交给 Gateway。 |
 
 ## 问题与边界
 
@@ -62,9 +63,11 @@ Web IM 保留当前 execution Agent 的 distiller/`skill_view` capability prefli
 source 与 execution Agent 的 `node_id` 相同，并用这个计算出的 node 发送控制帧
 `node.distill.prompt.request`。browser 不传 node、workspace 或 path。
 
-该 RPC 的 payload 为：`sources[{conversation_id, source_agent_id}]`、`execution_agent_id`、
-`target_scope(agent|global)` 和 IM 生成的 `request_id`。Gateway 以自己的 durable session binding 找到这些 source
-在本机的 JSONL path，并在本机复核 distiller/`skill_view` readiness。它返回
+browser 请求和其对 Gateway 的普通 source identity 始终为：`sources[{conversation_id, source_agent_id}]`、
+`execution_agent_id`、`target_scope(agent|global)`。IM 生成 `request_id`；若 source 是已有 external shadow
+conversation，则仅把 IM 已持有的 `external_source`/`external_chat_id` 附到对应 control source，供 Gateway 在正常
+`web_relay` binding 不存在时沿用既有 external binding fallback。browser 不传这些字段。Gateway 以自己的 durable
+session binding 找到这些 source 在本机的 JSONL path，并在本机复核 distiller/`skill_view` readiness。它返回
 `node.distill.prompt{request_id,node_id,prompt}` 或
 `node.distill.prompt{request_id,node_id,error_code,message}`；IM 只接受 request_id 和 authenticated node_id 都匹配的
 结果。连接中断、timeout、malformed 或错误 node result 都是当前 dialog 的可理解 prompt error，不创建聊天。

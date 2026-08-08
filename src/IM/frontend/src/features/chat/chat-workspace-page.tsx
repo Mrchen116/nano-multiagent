@@ -10,6 +10,7 @@ import { colorForAgent } from "./components/avatar";
 import {
   addParticipants,
   createConversation,
+  createDistillPrompt,
   createMessage,
   deleteConversation,
   forkConversation,
@@ -190,27 +191,6 @@ async function fetchNodes(): Promise<NodeRow[]> {
   const res = await authFetch("/im/v1/nodes");
   if (!res.ok) throw new Error(`listNodes failed: ${res.status}`);
   return (await res.json()) as NodeRow[];
-}
-
-function buildDistillDraft(input: {
-  sourceJsonlPaths: string[];
-  executionAgentId: string;
-  targetScope: DistillTargetScope;
-}): string {
-  const scopeLabel = input.targetScope === "global" ? "global" : "agent";
-  return [
-    `/skill:${DISTILL_SKILL_NAME}`,
-    "source_jsonl_paths:",
-    ...input.sourceJsonlPaths.map((path) => `  ${path}`),
-    `execution_agent_id: ${input.executionAgentId}`,
-    `target_scope: ${input.targetScope}`,
-    "",
-    `请基于上述会话 transcript，总结我反复使用且值得复用的工作方式，直接生成并写入一个 ${scopeLabel} 级 skill。重点关注：`,
-    "- 触发这个 skill 的场景",
-    "- 应遵循的步骤/检查点",
-    "- 失败或边界情况",
-    "如果这些会话不足以形成稳定模式，请说明原因，不要创建 skill。"
-  ].join("\n");
 }
 
 function resolveEnabledTools(
@@ -449,22 +429,14 @@ export function ChatWorkspacePage() {
     );
   }, [conversationsQuery.data, selectedDistillConversationIds]);
 
-  const distillSourceAgentOptions = useMemo(() => {
-    const seen = new Set<string>();
-    const options: { agentId: string; displayName: string }[] = [];
-    for (const c of selectedDistillConversations) {
-      const agentId = c.source_agent_id;
-      if (!agentId || seen.has(agentId)) continue;
-      seen.add(agentId);
-      const row = (agentsQuery.data ?? []).find((a) => a.agent_id === agentId);
-      const participant = c.participants.find((p) => p.type === "agent" && p.id === agentId);
-      options.push({
-        agentId,
-        displayName: row?.display_name ?? participant?.display_name ?? agentId,
-      });
-    }
-    return options;
-  }, [agentsQuery.data, selectedDistillConversations]);
+  const selectedDistillSourceNodeId = selectedDistillConversations[0]?.source_node_id ?? null;
+
+  const distillExecutionAgentOptions = useMemo(() => {
+    if (!selectedDistillSourceNodeId) return [];
+    return (agentsQuery.data ?? [])
+      .filter((agent) => agent.node_id === selectedDistillSourceNodeId)
+      .map((agent) => ({ agentId: agent.agent_id, displayName: agent.display_name }));
+  }, [agentsQuery.data, selectedDistillSourceNodeId]);
 
   // For direct-agent conversations, surface the agent's owning node (name +
   // online status) and the agent_id used by the ⚙ Config navigation.
@@ -911,6 +883,12 @@ export function ChatWorkspacePage() {
   function toggleDistillConversation(conversationId: string) {
     const conversation = (conversationsQuery.data ?? []).find((item) => item.id === conversationId);
     if (!conversation || !isDistillConversationEligible(conversation)) return;
+    if (
+      selectedDistillSourceNodeId
+      && conversation.source_node_id !== selectedDistillSourceNodeId
+    ) {
+      return;
+    }
     setDistillNotice(null);
     setSelectedDistillConversationIds((prev) => {
       const next = new Set(prev);
@@ -926,8 +904,11 @@ export function ChatWorkspacePage() {
       return;
     }
     setDistillNotice(null);
-    const sourceAgentIds = [...new Set(selectedDistillConversations.map((c) => c.source_agent_id).filter(Boolean) as string[])];
-    setDistillExecutionAgentId(sourceAgentIds.length === 1 ? sourceAgentIds[0]! : "");
+    const sourceAgentId = selectedDistillConversations[0]?.source_agent_id;
+    const initialExecutionAgent = distillExecutionAgentOptions.find(
+      (agent) => agent.agentId === sourceAgentId,
+    ) ?? distillExecutionAgentOptions[0];
+    setDistillExecutionAgentId(initialExecutionAgent?.agentId ?? "");
     setDistillTargetScope("agent");
     setDistillError(null);
     setShowDistillDialog(true);
@@ -974,24 +955,22 @@ export function ChatWorkspacePage() {
         setDistillError(t("chat.distill.requireSkillView"));
         return;
       }
-      const agentName =
-        distillSourceAgentOptions.find((a) => a.agentId === distillExecutionAgentId)?.displayName
-        ?? distillExecutionAgentId;
-      const conv = await createConversation({
-        title: `Skill distill · ${agentName}`,
-        agentIds: [distillExecutionAgentId],
+      const result = await createDistillPrompt({
+        sources: selectedDistillConversations.map((conversation) => ({
+          conversationId: conversation.id,
+          sourceAgentId: conversation.source_agent_id!,
+        })),
+        executionAgentId: distillExecutionAgentId,
+        targetScope: distillTargetScope,
       });
+      const conv = result.conversation;
       queryClient.setQueryData<Conversation[] | undefined>(["chat", "conversations"], (prev) => {
         const rest = (prev ?? []).filter((c) => c.id !== conv.id);
         return [conv, ...rest];
       });
       setDraftSeed({
         id: `distill-${conv.id}-${Date.now()}`,
-        text: buildDistillDraft({
-          sourceJsonlPaths: selectedDistillConversations.map((c) => c.source_jsonl_path!).filter(Boolean),
-          executionAgentId: distillExecutionAgentId,
-          targetScope: distillTargetScope,
-        }),
+        text: result.prompt,
       });
       setShowDistillDialog(false);
       setDistillMode(false);
@@ -1067,6 +1046,7 @@ export function ChatWorkspacePage() {
           onNewGroup={() => setShowNewGroup(true)}
           distillMode={distillMode}
           selectedDistillConversationIds={selectedDistillConversationIds}
+          selectedDistillSourceNodeId={selectedDistillSourceNodeId}
           selectedDistillEligibleCount={selectedDistillConversations.length}
           distillNotice={distillNotice}
           onToggleDistillConversation={toggleDistillConversation}
@@ -1159,11 +1139,11 @@ export function ChatWorkspacePage() {
               <p>{t("chat.distill.subtitle")}</p>
             </header>
             <div className="chat-modal-body">
-              {distillSourceAgentOptions.length > 1 && (
+              {distillExecutionAgentOptions.length > 1 && (
                 <section className="chat-modal-section">
                   <p className="chat-modal-section-label">Execution agent</p>
                   <ul className="chat-modal-agents">
-                    {distillSourceAgentOptions.map((agent) => (
+                    {distillExecutionAgentOptions.map((agent) => (
                       <li key={agent.agentId}>
                         <label className={`chat-modal-agent${distillExecutionAgentId === agent.agentId ? " chat-modal-agent--on" : ""}`}>
                           <input
@@ -1182,11 +1162,11 @@ export function ChatWorkspacePage() {
                   </ul>
                 </section>
               )}
-              {distillSourceAgentOptions.length === 1 && (
+              {distillExecutionAgentOptions.length === 1 && (
                 <section className="chat-modal-section">
                   <p className="chat-modal-section-label">Execution agent</p>
                   <p className="chat-distill-static-agent">
-                    {distillSourceAgentOptions[0]!.displayName}
+                    {distillExecutionAgentOptions[0]!.displayName}
                   </p>
                 </section>
               )}

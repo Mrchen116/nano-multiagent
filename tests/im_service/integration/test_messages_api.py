@@ -10,6 +10,7 @@ from IM.app import create_app
 from IM.domain.models import SystemNotice
 from IM.infra.repositories.messages import MessageRepository
 from IM.infra.repositories.agents import AgentProfileRepository
+from IM.infra.repositories.conversations import ConversationRepository
 from IM.infra.repositories.nodes import NodeRepository
 from IM.infra.repositories.users import UserRepository
 
@@ -48,6 +49,52 @@ def _create_conversation(client: TestClient, user_id: str, title: str) -> str:
 def _message_items(timeline_items: list[dict]) -> list[dict]:
     """Extract normal messages from a typed conversation timeline response."""
     return [item["message"] for item in timeline_items if item["type"] == "message"]
+
+
+def test_pinned_direct_conversation_ignores_client_target_node_hint(
+    tmp_path: Path,
+) -> None:
+    """A Gateway-local distill prompt cannot be redirected after agent rebind."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner_id = _create_user(client, "owner")
+        agent_user_id = _create_user(client, "agent:writer")
+        owner = UserRepository(app.state.connection).get_user(user_id=owner_id)
+        assert owner is not None
+        AgentProfileRepository(app.state.connection).upsert_profile(
+            agent_id="writer",
+            owner_id=owner.owner_id,
+            display_name="Writer",
+            description="",
+            skills=[],
+            tool_allowlist=[],
+            group_reply_policy="manual",
+            default_model=None,
+            workspace_root="",
+            node_id="node-b",
+        )
+        conversation = ConversationRepository(app.state.connection).create_conversation(
+            title="Skill distill · Writer",
+            participant_ids=[owner_id, agent_user_id],
+            caller_owner_id=owner.owner_id,
+            target_node_id="node-a",
+        )
+
+        created = client.post(
+            f"/im/v1/conversations/{conversation.id}/messages",
+            json={
+                "sender_user_id": owner_id,
+                "content": "/skill:conversation-skill-distiller",
+                "target_node_id": "node-b",
+            },
+        )
+
+        assert created.status_code == 503
+        relay = app.state.connection.execute(
+            "SELECT target_node_id FROM relay_tasks WHERE conversation_id = ?",
+            (conversation.id,),
+        ).fetchone()
+        assert relay["target_node_id"] == "node-a"
 
 
 def test_external_find_or_create_and_message_display_name_roundtrip(

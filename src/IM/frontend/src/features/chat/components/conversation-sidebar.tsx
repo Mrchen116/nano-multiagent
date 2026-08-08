@@ -34,6 +34,7 @@ export interface ConversationSidebarProps {
   agents?: SidebarAgent[];
   distillMode?: boolean;
   selectedDistillConversationIds?: Set<string>;
+  selectedDistillSourceNodeId?: string | null;
   selectedDistillEligibleCount?: number;
   distillNotice?: string | null;
   onToggleDistillConversation?(conversationId: string): void;
@@ -69,6 +70,7 @@ export function ConversationSidebar({
   agents,
   distillMode = false,
   selectedDistillConversationIds = new Set(),
+  selectedDistillSourceNodeId = null,
   selectedDistillEligibleCount = 0,
   distillNotice = null,
   onToggleDistillConversation,
@@ -181,7 +183,14 @@ export function ConversationSidebar({
             const dateStr = formatDate(c.last_message_at);
             const kind = classifyConversationKind(c);
             const distillUnavailableKey = getDistillConversationUnavailableKey(c);
-            const distillUnavailableReason = distillUnavailableKey
+            const crossGateway = Boolean(
+              selectedDistillSourceNodeId
+              && c.source_node_id
+              && c.source_node_id !== selectedDistillSourceNodeId
+            );
+            const distillUnavailableReason = crossGateway
+              ? t("chat.list.differentGateway")
+              : distillUnavailableKey
               ? t(`chat.list.${distillUnavailableKey}`)
               : null;
             const distillDisabled = distillUnavailableReason !== null;
