@@ -120,6 +120,144 @@
 
 ---
 
+# Round 4 — 2026-08-08
+
+> Validation snapshot: `a5e64e4fa0565179417ed96056838ce40a69ebc6 → 101f72f583729c5b90a6c824162b02135d0061c8`
+>
+> Revalidation mode: delta（fix delta `c5ec433576d6a24854dca243471dbda28c2cc6c2..101f72f583729c5b90a6c824162b02135d0061c8`）+ core journey regression
+
+## Highest Required Action
+
+`pass`
+
+## Verdict
+
+`pass`
+
+七个首文档 Scenario 均通过。Round 3 已通过的默认、自定义、错误、确认、唯一性和固定 root
+主路径在隔离双 Gateway 真栈中保持可用；本轮 delta 重点也得到真实用户面证据：一个含 `..` 的
+有效非 canonical custom value 在创建表单中没有被归类成 workspace-local skill，提交后由目标
+Gateway 接受并返回 canonical root。
+
+已有目录确认流程还完成了一次用户可见的 transient reconnect 重试：勾选确认后主 Gateway 临时
+离线，提交明确显示 `503 (target_node_id is not connected)`，整份草稿、确认状态和 existing-directory
+提示均保留；同一隔离 Gateway 重连后再次点击创建即成功，sentinel 文件保留且初始化内容只在成功后
+出现。
+
+## User Journeys Exercised
+
+1. **默认创建与固定详情（desktop 1440×1000）**
+   - 在主节点 `wt-review-feat-515-r4-36191` 使用默认选中的 `Use default directory` 创建
+     `r4_default_515`。
+   - 详情显示节点分配的 `.gateway-workspace/r4_default_515`；Workspace Root disabled，页面没有
+     修改或迁移入口。
+   - 从新建页用同一 Agent ID、不同名称和 `.r4-duplicate-root` 再次提交，页面保留表单并显示
+     `409 (agent_id already exists)`，没有成功跳转或重新分配。
+2. **有效非 canonical custom root、skill 分组与父目录错误**
+   - 在 custom 表单填写
+     `.r4-path-base/intermediate/../custom_target`。填写后 Skills 只显示 `Global` 与
+     `Compatibility (Claude/Codex)`，没有 `Local` 分组。
+   - `r4_noncanon_515` 创建成功；详情 root 为目标 Gateway canonicalize 后的
+     `.r4-path-base/custom_target`，证明原始非空值到达目标节点并由节点解释。
+   - 以 `.r4-missing-parent/agent` 提交 `r4_bad_parent_515`，页面留在原表单，Workspace 字段显示
+     `The parent directory does not exist on wt-review-feat-515-r4-36191.`。
+3. **已有目录、transient reconnect 与同节点占用**
+   - 预置 `.r4-existing-515/user-file.txt`；第一次提交 `r4_existing_515` 只出现黄色 existing-directory
+     提示与确认框，此时没有 `.nanoassistant`。
+   - 勾选确认后临时停止本轮主 Gateway，创建显示 503 且草稿和确认状态不丢失；用同一隔离 config
+     重连后再次提交成功，详情显示固定 root，sentinel 保留，`.nanoassistant` 此时才出现。
+   - 主节点再用同一路径创建 `r4_conflict_515` 时，Workspace 字段明确显示该目录已归属
+     `r4_existing_515`，没有转成已有目录确认流程。
+4. **双节点同字符串路径**
+   - 第二 Gateway 按校正后的 Runbook 使用 `.gateway-node-2-runtime/` 内独立 config、PID、log、
+     workspace base 和 config-adjacent runtime state，并连接同一隔离 IM。
+   - 在 `e2e-node-2` 用与主节点完全相同的 `.r4-existing-515` 创建 `r4_crossnode_515`；第一次只提示
+     existing directory，确认后成功，详情显示 owning node `e2e-node-2` 和相同 root 字符串。
+5. **原型与 390×844 响应式回归**
+   - 通过 worktree-local HTTP 直接打开 `prototype.html` 的 default、custom、existing warning 状态，
+     与真实产品逐状态对照。
+   - 产品 390×844 页面保持 Identity → Workspace → Behavior 顺序；default/custom 纵向排列，custom
+     helper 明确目标节点和 parent 约束，无横向溢出。
+
+## Reference Artifacts Reviewed
+
+| Reference | Required contract | Actual product evidence | Viewport / state | Comparison conclusion |
+|---|---|---|---|---|
+| `prototype.html` / card order | Workspace 位于 Identity 与 Behavior 之间 | 真实 Vite 页面 snapshot + screenshot | 1440×1000；390×844 | match |
+| `prototype.html` / mode chooser | default/custom 二选一且默认选中 | desktop 与 mobile 首屏 default checked；custom 切换后字段出现 | desktop + 390×844 | match |
+| `prototype.html` / custom path | 目标节点、父目录要求与字段错误 | helper 指向选中节点；missing parent 原因在 Workspace 字段旁 | desktop custom/error；390×844 custom | match |
+| `prototype.html` / existing directory | 醒目提示、确认框和再次提交 | 黄色 alert、确认前零初始化；503 后草稿保留；重连重试成功 | desktop existing + transient reconnect | match |
+
+## Acceptance Criteria Coverage
+
+### Requirement: 创建 Agent 时可选择默认目录或自定义路径 — 组内结论: pass
+
+| Scenario | 期望来源 | 验证方式（覆盖它的旅程） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 使用默认目录创建 Agent | `spec.md`；prototype mode chooser | Journey 1，真实 desktop 创建与详情 | default radio 首屏 checked；详情显示节点分配 root | pass | Round 3 结论得到本轮真实回归 |
+| 使用自定义路径创建新的 workspace | `spec.md`；design opaque forwarding | Journey 2，提交有效非 canonical path | 创建成功；详情显示目标节点 canonical root；草稿 Skills 无 `Local` 分组 | pass | target Gateway 独自解释路径 |
+| 自定义路径的父目录不可用 | `spec.md`；prototype custom error | Journey 2，missing parent | 字段旁显示目标节点原因；表单保留；未创建 Agent | pass | HTTP 422 是预期可恢复结果 |
+
+### Requirement: 采用已有目录前须提醒用户 — 组内结论: pass
+
+| Scenario | 期望来源 | 验证方式（覆盖它的旅程） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 自定义路径是已有目录 | `spec.md`；prototype existing state | Journey 3，确认前、503、重连重试 | 黄色 alert + checkbox；确认前无初始化；503 保留草稿；重连后成功且 sentinel 保留 | pass | 完成产品流 transient retry |
+
+### Requirement: 同节点 workspace root 只可归属一个 Agent — 组内结论: pass
+
+| Scenario | 期望来源 | 验证方式（覆盖它的旅程） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 同一节点的路径已被另一个 Agent 使用 | `spec.md` | Journey 3，主节点重复提交已归属 root | 字段显示归属 `r4_existing_515`；无确认框、无新 Agent | pass | ownership 提示与 existing 提示可区分 |
+| 不同节点的同字符串路径 | `spec.md`；校正后的双节点 Runbook | Journey 4，两个在线 Gateway、相同 absolute string | 第二节点仅要求 existing 确认；确认后成功且详情为 `e2e-node-2` | pass | distinct runtime directory 可照文档执行 |
+
+### Requirement: 创建后 workspace root 固定 — 组内结论: pass
+
+| Scenario | 期望来源 | 验证方式（覆盖它的旅程） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 查看已有 Agent 的设置 | `spec.md`；Round 1 blocking issue | Journey 1，详情只读检查 + duplicate-ID poke | root disabled、无迁移入口；重复 ID 显示 409 且不跳转 | pass | Round 1 问题持续关闭 |
+
+## Additional Product Probes
+
+| Probe | Expected | Observed | Result |
+|---|---|---|---|
+| Valid noncanonical custom draft | Forward to target Gateway; do not classify as local workspace | No `Local` skill group; create succeeded with canonical target root | pass |
+| Existing-directory retry across reconnect | Recover without losing confirmation draft | Offline submit showed 503; reconnect + same-form retry succeeded | pass |
+| Duplicate Agent ID with divergent root | Reject before reassignment | 409 on create form; no success navigation | pass |
+| Expected HTTP errors | Surface inline without unrelated product failure | 422/409/503 appeared with corresponding inline messages; no unexpected console error | pass |
+
+## Issues
+
+None.
+
+## Side Findings
+
+None.
+
+## Environment and Cleanup
+
+- 隔离 IM: `http://127.0.0.1:59553`；Vite: `http://127.0.0.1:59620`；prototype HTTP:
+  `http://127.0.0.1:61004`。未使用生产 `:8011`、默认 Gateway config 或日常 workspace。
+- 主节点: `wt-review-feat-515-r4-36191`；第二节点: `e2e-node-2`。第二节点完全使用
+  `.gateway-node-2-runtime/`，校正后的 Runbook 可直接执行。
+- 浏览器 console 只有 React development 提示、prototype favicon 404，以及旅程预期触发的
+  HTTP 422/409/503 resource entries；没有额外产品异常。
+- 完成后按持有的 PID/session 停止第二 Gateway、重连后的主 Gateway、Vite、prototype server，
+  再执行 worktree `e2e-down.sh`；确认三个监听端口释放。主会话授权提供的临时 `node_modules`
+  symlink 在清理时删除，未提交。
+
+## Upper-level Documentation Sync
+
+- [x] `SPEC.md`（跨包顶点架构）：无需更新；本 unit 不改变跨包依赖或部署拓扑。
+- [x] `docs/specs/im/` 与 `docs/specs/gateway/`：unit delta 已覆盖创建选择、节点路径语义、确认、
+  node-scoped ownership、opaque mirror/provenance 和 fixed-root；待 orchestrator 收尾归并 canonical。
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新。
+- [x] `docs/specs/CONTRIBUTING.md`：无需更新。
+
+本轮未创建 out-of-unit GitHub issue。
+
+---
+
 # Round 3 — 2026-08-08
 
 > Validation snapshot: `a5e64e4fa0565179417ed96056838ce40a69ebc6 → 22be44246870caf59920e593976667c5a7fd7c9b`
