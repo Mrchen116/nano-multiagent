@@ -769,6 +769,95 @@ None.
 
 N/A for targeted-closure verification.
 
+# Round 11
+
+> Validation snapshot: `f18b345c61d94bfa202ea693a539102044d49052 -> 307baeba36e93406008cc6a2545afb1e8a2aacfc`
+
+## Summary
+
+Mode: full
+Delta range: `f18b345c..307baeba3`
+Focus issues: final rebase on current `origin/main` and the final Agent-create frontend fixture alignment
+requires_full_verification: false
+
+| Dimension | Result |
+|---|---|
+| Completeness | 4/4 original requirements and 6/6 M1 exit criteria are present, but one creation-failure boundary is incomplete |
+| Correctness | Original user scenarios, create-recovery guards, opaque root/provenance propagation, and transcript projection additions are covered; invalid create candidates can leave workspace side effects |
+| Coherence | One blocking ordering deviation |
+
+1 critical issue(s), 0 warning(s) found. Fix before PR.
+
+## Prior-Issue Closure
+
+| Boundary | Result | Evidence |
+|---|---|---|
+| Round-10 COW replacement and failed-write atomicity | remains closed after rebase | `tests/unit/personal_assistant/test_gateway_session_binder.py:261-315` passed in the focused and full suites; `GatewaySessionBinder.bind_conversation()` persists before publishing the replacement projection (`src/personal_assistant/gateway/session_binder.py:632-645`). |
+| Original workspace-root contract | reopen: invalid candidate no-side-effect boundary | The final rebase preserves the Gateway-local create authority, IM structured forwarding/mirror, and create-page flow; independent code review found model/reasoning validation occurs after custom workspace initialization. |
+
+## Completeness
+
+- M1's checked task record remains complete: the Workspace card, canonical default/custom outcomes, no-write rejections, confirmed existing-directory adoption, node-local ownership, opaque IM mirror, permanent tests, build/static gates, and isolated browser evidence are recorded in `docs/changes/feat-515-agent-workspace-root-selection/M1-workspace-creation/tasks.md:9-67` and `progress.md`.
+- The approved prototype's four must-match rows have durable desktop/mobile/confirmation evidence and a passing product acceptance record in `M1-workspace-creation/evidence/` and `acceptance.md`; this rebase does not alter the create-page component or its styles.
+- Re-executed final gates at this exact snapshot:
+  - focused Gateway/IM/recovery/transcript suite: `169 passed, 7 warnings`;
+  - full Python non-E2E suite: `3099 passed, 24 deselected, 22 warnings in 143.01s`;
+  - final-create frontend owners: `25 passed` across `agent-create-workspace.test.tsx` and `im-agent-config-api.test.ts`;
+  - `ruff check src/IM src/personal_assistant tests/im_service tests/unit/personal_assistant`, `git diff --check origin/main...HEAD`, and `scripts/docs-check`: passed (`229` maintained Markdown sources, `66` required routes).
+- The existing permanent tests do not exercise an invalid `default_model` or `reasoning_effort` with a missing custom target, so they do not protect the ordering of candidate validation and filesystem initialization.
+
+## Correctness
+
+| Requirement / Scenario | Implementation evidence | Test evidence | Status |
+|---|---|---|---|
+| Default directory is selected at creation and the node returns its root/provenance | `src/IM/frontend/src/features/settings/agents/agent-create-page.tsx:798-842`; `src/personal_assistant/gateway/agent_config_sync.py:278-321` | `tests/unit/personal_assistant/test_gateway_workspace_creation.py`; `src/IM/frontend/src/features/settings/agents/agent-create-workspace.test.tsx` | covered |
+| A missing custom target is created only under an existing usable parent | `src/personal_assistant/gateway/agent_config_sync.py:842-900` | `tests/unit/personal_assistant/test_gateway_workspace_creation.py`; `tests/im_service/contract/test_agent_create_immutability_contract.py:17-75` | covered |
+| Invalid/unusable parent or non-directory target is a field-presentable 422 with no IM profile | `src/IM/api/routes/nodes.py:361-402`; `src/IM/application/agent_config_operations.py:18-55` | `tests/im_service/contract/test_agent_create_immutability_contract.py:17-75`; `tests/im_service/integration/test_agent_create_workspace_error_flow.py` | covered |
+| Existing directory requires an explicit second submission and preserves existing contents | `src/personal_assistant/gateway/agent_config_sync.py:901-919`; `src/IM/application/agent_config_operations.py:524-559` | `tests/unit/personal_assistant/test_gateway_workspace_creation.py`; `src/IM/frontend/src/features/settings/agents/agent-create-workspace.test.tsx` | covered |
+| Invalid model/reasoning input has no custom-workspace side effect | `src/personal_assistant/gateway/agent_config_sync.py:321-341` initializes a valid custom target before `_reasoning_catalog.validate()` at `:367-373` | missing | **CRITICAL-1** |
+| Canonical root is unique only in the target Gateway config; another node may use the same string | `src/personal_assistant/gateway/agent_config_sync.py:300-317,842-879` | `tests/unit/personal_assistant/test_gateway_workspace_creation.py:211-271`; recorded two-Gateway acceptance evidence | covered |
+| Existing Agent root remains immutable | `src/IM/api/routes/agents.py:63-66`; `src/IM/application/config_service.py:383-423`; existing detail API only reads the stored mirror | `tests/im_service/contract/test_agent_create_immutability_contract.py`; `tests/unit/personal_assistant/test_gateway_workspace_creation_immutability.py` | covered |
+| Lost successful create is recoverable only through the exact durable operation; ordinary registration cannot be claimed | `src/IM/application/agent_config_operations.py:71-145,291-410`; `src/IM/infra/repositories/agents.py:400-489` | `tests/im_service/contract/test_agent_registration_seed_recovery.py`; `tests/im_service/contract/test_agent_create_immutability_contract.py:139-198,306-372` | covered |
+| IM keeps a successful Gateway root opaque and returns/routs the same provenance | `src/IM/application/config_service.py:425-448`; `src/IM/api/routes/agents.py:225-235,419-446` | `tests/im_service/contract/test_workspace_root_mirror_contract.py` | covered |
+| Binding-derived transcript resolution remains lock-free and truthful | `src/personal_assistant/gateway/session_binder.py:632-645,934-968`; `src/personal_assistant/ws/im_connection.py` | `tests/unit/personal_assistant/test_gateway_session_binder.py`; `test_gateway_session_binder_concurrency.py`; `test_gateway_session_log_resolution.py` | covered |
+
+## Coherence
+
+| Design decision | Followed? | Code evidence |
+|---|---|---|
+| Gateway alone interprets node-local filesystem paths; IM mirrors a nonblank successful root | Yes | Local `Path` validation is in `src/personal_assistant/gateway/agent_config_sync.py:278-329,842-919`; IM's one accessor returns the stored value without path interpretation at `src/IM/application/config_service.py:425-448`. |
+| Root/provenance are creation facts and cannot be overwritten by a profile edit or normal registration | Yes | `ConfigService.update_profile()` has no workspace parameter (`src/IM/application/config_service.py:383-423`); claim predicates require exact root/provenance/operation (`src/IM/infra/repositories/agents.py:400-489`). |
+| Recovery must not turn a prehosted or ordinary registered Agent into a create result | Yes | Gateway persists and re-advertises the operation; IM only accepts the exact pending operation in `src/IM/application/agent_config_operations.py:71-145,339-393`, with permanent negative contracts. |
+| IM must not access a Gateway workspace directly, and Gateway control receive must not block on SQLite | Yes | Workspace RPCs use the Gateway control boundary, while the session provider reads the COW projection; no new cross-product import or IM-side workspace filesystem access is introduced by this unit diff. |
+| Validate all candidate model/reasoning inputs before filesystem mutation | No | Custom `ensure_workspace_defaults()` runs at `src/personal_assistant/gateway/agent_config_sync.py:321-341`, while candidate model/reasoning validation is deferred until `:367-373`. |
+
+### Prototype / Reference Contract
+
+| Reference contract | Milestone projection | Implementation evidence | Durable evidence | Status |
+|---|---|---|---|---|
+| Workspace card is between Identity and Behavior | M1 reviewer/worker exit criteria | `agent-create-page.tsx:785-865` | `M1-workspace-creation/evidence/create-desktop-default.png`; `acceptance.md` | covered |
+| Default/custom chooser and custom target-node guidance | M1 reviewer/worker exit criteria | `agent-create-page.tsx:798-850` | `create-desktop-custom.png`; `create-mobile-custom.png`; frontend owner tests | covered |
+| Existing-directory alert and confirmed retry | M1 reviewer/worker exit criteria | `agent-create-page.tsx:503-528,844-900` | `create-existing-confirmation.png`; frontend owner tests | covered |
+| Narrow layout remains a single-column card flow | M1 reviewer/worker exit criteria | `src/IM/frontend/src/styles/global.css` | `create-mobile-workspace.png`; acceptance report | covered |
+
+## Issues
+
+### CRITICAL (must fix before PR)
+
+- **CRITICAL-1 — invalid `default_model` or `reasoning_effort` can initialize a new custom workspace before the Gateway rejects the candidate.** `AgentConfigSync._handle_agent_create()` prepares and initializes a non-existing custom target at `src/personal_assistant/gateway/agent_config_sync.py:321-341`; it validates the model/reasoning pair only at `:367-373`. Thus an invalid candidate can create the target and `.nanoassistant` content even though no Agent config/profile is committed, violating the design's expected-failure-before-initialization boundary. Move `_reasoning_catalog.validate(default_model, reasoning_effort)` ahead of `_prepare_custom_workspace()` / `ensure_workspace_defaults()` while retaining the existing payload normalization. Add a lowest-layer regression in `tests/unit/personal_assistant/test_gateway_workspace_creation.py` that submits a missing custom target with an invalid model or reasoning effort and asserts the target, `.nanoassistant`, local Agent config, and returned successful payload are all absent.
+
+### WARNING (must fix before PR)
+
+None.
+
+### SUGGESTION (optional)
+
+None.
+
+## Corrected Delta Reconciliation
+
+N/A for full verification.
+
 # Round 10
 
 > Validation snapshot: `a5e64e4fa0565179417ed96056838ce40a69ebc6 -> 1ffc6d819a518420ba3984feb4ef821e96f21487`
