@@ -208,3 +208,20 @@ None.
   (3063 passed, 24 deselected), frontend suite/build, isolated Chromium acceptance, Ruff, docs, and diff gates all
   passed.
 - Next: rebase and publish only this milestone branch.
+
+## Round 7 critical correction — lock-free durable transcript projection
+
+- Context: Round 6 removed filesystem probes, but its production provider still entered
+  `GatewaySessionBinder.capture_binding_provenance()`, taking the binder's `threading.Lock` and querying the
+  `PersistentSessionBindingStore` from the IM event loop before its resolution task reached an await point.
+- Decision: hydrate committed bindings during binder construction and copy-on-write publish each durable binding
+  update. The transcript provider reads this immutable projection only; it never touches the binder lock or SQLite.
+  `ready` / `missing` / `unavailable` wire meanings remain unchanged, and `close()` only cancels pending resolution
+  tasks rather than waiting behind another persistence lookup.
+- Rationale: a projection derived only from committed durable records preserves the Gateway-only ownership boundary
+  while removing the unsafe cross-thread SQLite alternative and the event-loop lock wait.
+- Process: reviewer-loop light flow omits a new §3 plan because this self-contained correction has one code path,
+  one existing regression owner, and one revertible commit.
+- Evidence: `evidence/correction-round-7.md` records the red-to-green production-composition regression, focused
+  owner suite (35 passed), full non-E2E Python gate (3063 passed, 24 deselected), Ruff, docs, and diff gates.
+- Next: rebase and publish only this milestone branch.

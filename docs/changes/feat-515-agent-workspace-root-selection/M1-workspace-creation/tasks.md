@@ -122,6 +122,14 @@
 - [x] Snapshot complete pending `agent_profiles` and `agent_create_operations` rows across changed-request and
   wrong-operation HTTP rejections.
 
+### Round-7 critical correction checklist
+
+- [x] Hydrate durable bindings before IM receive and publish later updates through a copy-on-write projection, so
+  transcript resolution reads neither the binder lock nor SQLite on Gateway's event loop.
+- [x] Cover the actual `PersistentSessionBindingStore` + `GatewaySessionBinder` + IM connection composition while a
+  second binding lookup holds the lock; heartbeat and `close()` complete before release and the ready projection is
+  preserved.
+
 ### R1 — Gateway 本地 workspace creation boundary
 
 - 状态: DONE

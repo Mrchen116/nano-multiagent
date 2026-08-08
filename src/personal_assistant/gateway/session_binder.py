@@ -7,6 +7,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
+from types import MappingProxyType
 from typing import Any, Literal, Protocol
 
 from personal_assistant.channels.base import InboundMessage, ReplyContext
@@ -190,6 +191,14 @@ class BindingProvenance:
 
 
 @dataclass(frozen=True, slots=True)
+class _SessionLogBindingProjection:
+    """Expose the immutable durable facts required for one transcript address."""
+
+    binding: SessionBinding
+    agent: LiveAgentSnapshot
+
+
+@dataclass(frozen=True, slots=True)
 class ResetCandidate:
     """Hold an unbound fresh session until the coordinator can publish it."""
 
@@ -237,12 +246,21 @@ class GatewaySessionBinder:
         self._binding_revisions: dict[str, int] = {}
         self._binding_agents: dict[str, LiveAgentSnapshot] = {}
         self._session_agents: dict[str, LiveAgentSnapshot] = {}
+        self._session_log_projections: Mapping[str, _SessionLogBindingProjection] = (
+            MappingProxyType({})
+        )
         self._verified_binding_ownership: dict[str, _VerifiedBindingOwnership] = {}
         self._generations: dict[str, int] = {}
         self._startup_revisions = {
             snapshot.agent_id: snapshot.revision
             for snapshot in catalog.values_snapshot()
         }
+        # Read the durable rows before the IM receiver exists. Thereafter the
+        # receiver reads this copy-on-write projection without taking the binder
+        # lock or touching SQLite.
+        for agent in catalog.values_snapshot():
+            for binding in repository.bindings_for_agent(agent.agent_id):
+                self._record_provenance(binding, agent=agent, persist_binding=True)
 
     async def resolve(
         self,
@@ -681,6 +699,21 @@ class GatewaySessionBinder:
                 guard=self._guard_for(agent),
             )
 
+    def capture_session_log_projection(
+        self, session_key: str, *, expected_agent_id: str
+    ) -> _SessionLogBindingProjection | None:
+        """Return an immutable binding projection without blocking the IM receiver.
+
+        The mapping is populated from committed persistent rows during Gateway
+        startup and replaced after each later durable binding update. Its readers
+        never take the binder lock or query SQLite.
+        """
+
+        projection = self._session_log_projections.get(session_key)
+        if projection is None or projection.agent.agent_id != expected_agent_id:
+            return None
+        return projection
+
     def find_by_kernel_session_id(
         self, kernel_session_id: str
     ) -> SessionBinding | None:
@@ -738,6 +771,11 @@ class GatewaySessionBinder:
         self._session_agents[binding.kernel_session_id] = agent
         if persist_binding:
             self._binding_agents[binding.session_key] = agent
+            projections = dict(self._session_log_projections)
+            projections[binding.session_key] = _SessionLogBindingProjection(
+                binding=binding, agent=agent
+            )
+            self._session_log_projections = MappingProxyType(projections)
 
     def _ownership_is_verified(
         self,
@@ -910,7 +948,7 @@ def build_session_log_path_provider(
     """
 
     def resolve(agent_id: str, conversation_id: str) -> str | None:
-        source = session_binder.capture_binding_provenance(
+        source = session_binder.capture_session_log_projection(
             build_conversation_session_key(
                 channel_name=channel_name,
                 conversation_id=conversation_id,
