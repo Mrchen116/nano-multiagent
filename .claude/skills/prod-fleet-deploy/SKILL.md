@@ -19,6 +19,15 @@ description: 个人生产双节点舰队部署/更新：Mac mini 常驻唯一 IM
 
 本 skill 覆盖完整闭环，也支持用户指定局部动作（见「局部动作」）。
 
+## refactor-513 首次迁移 gate
+
+本 skill 的常规命令只适用于终态目录。部署含 refactor-513 的首个生产版本前，先检查两机是否仍使用旧 global home `~/.nano-assistant/` 或旧默认 workspace 根 `~/nano-assistant/`：
+
+- 若旧布局尚未迁移，不得直接执行下面的常规重启或局部动作；在 refactor-513 已合入 `main` 后，先完整执行 [`docs/operations/pa-workspace-layout-migration.md`](../../../docs/operations/pa-workspace-layout-migration.md)。
+- 一次性迁移必须先盘点与备份，按 manifest 做无覆盖迁移，保持 IM signing key 内容不变；不生成新 secret，不依赖运行时旧路径 fallback。
+- 只有迁移 prompt 的双节点、owner、workspace 路径和真实 PA/CLI journey 验证全部通过后，才进入本 skill 的常规部署闭环。
+- 迁移完成后的日常部署只读写 `~/.nanoassistant/`；不得把命令改回旧 global home。
+
 ## 连接与机器事实
 
 ```bash
@@ -42,8 +51,8 @@ ssh mini                  # Host mini -> 100.88.34.122, user czj, id_rsa 免密
 | Mac mini | `mac-mini` | `http://127.0.0.1:8011` | `http://127.0.0.1:4000`（LLM_Bridge） |
 | 本机 | `macbook-air` | `http://100.88.34.122:8011` | `http://127.0.0.1:4000`（LLM_PROXY） |
 
-- 两边 Gateway 用各自机器上的 `~/.nano-assistant/config.yaml`（不提交仓库）。
-- IM 凭据只保存在各机的本地 secret store 或 `~/.nano-assistant/config.yaml`；不得写入仓库、命令历史或本 skill。
+- 两边 Gateway 用各自机器上的 `~/.nanoassistant/config.yaml`（不提交仓库）。
+- IM 凭据只保存在各机的本地 secret store 或 `~/.nanoassistant/config.yaml`；不得写入仓库、命令历史或本 skill。
 - **`node.user_id` 必须是 IM 真实用户 UUID**（`GET /im/v1/me` 的 `id` / `owner_id`），**不是**用户名 `nano`，也**不是**占位符 `demo-user`。两边 Gateway 应对齐同一 IM owner。错了会出现：飞书/外部 channel 仍能回，但影子会话写不进内部 IM（`configured node owner differs from authenticated IM owner`）。部署或改 config 后**必须**用下方验证清单核对。
 - **禁止**两台机器共用同一个 `node_id`（后连会踢掉先连）。
 - 生产 mini 的 `node_id` 已是 `mac-mini`。若再改名 = 新节点身份，需重新 bind，旧 Agent 路由不会自动迁移；**不要静默改名**。
@@ -57,12 +66,12 @@ ssh mini                  # Host mini -> 100.88.34.122, user czj, id_rsa 免密
 ## 硬事实
 
 1. **解释器必须用各 repo `.venv/bin/python`**。homebrew 裸 python 缺依赖。重启 Gateway / LLM 代理禁止用 `python3` / `/opt/homebrew/bin/python3.*` 裸起。
-2. **Gateway 配置 = `~/.nano-assistant/config.yaml`**（默认路径）。运行中会把刷新后的 IM token **回写**该文件（备份在 `~/.nano-assistant/backups/`）。**改配置必须先 stop → 改 → start/restart**，否则内存态回写冲掉编辑。
+2. **Gateway 配置 = `~/.nanoassistant/config.yaml`**（默认路径）。运行中会把刷新后的 IM token **回写**该文件（备份在 `~/.nanoassistant/backups/`）。**改配置必须先 stop → 改 → start/restart**，否则内存态回写冲掉编辑。
 3. **`node.user_id` = IM owner UUID**（见「节点身份」）。部署闭环结束前必须跑验证清单里的 assert；未对齐不算舰队健康。
 4. **Gateway CLI**：只有 `stop` / `restart`；不带参数裸跑 = start。没有 `start` 子命令。
 5. **本机禁止起 IM `:8011`**。Web IM 入口：`http://100.88.34.122:8011/`。
 6. **IM 前端 `src/IM/frontend/dist` 被 gitignore**——mini 上 pull 到前端改动后必须 `npm ci && npm run build`。
-7. **IM 签名密钥只保存在 mini `~/.nano-assistant/im-jwt-secret`（`0600`）**；不得把值写进仓库、shell history 或临时命令。常规部署在停止旧 IM 前读出并复用它；文件缺失或为空时必须直接失败。主动换钥才覆盖该文件，并会使 Web IM 既有登录态失效。
+7. **IM 签名密钥只保存在 mini `~/.nanoassistant/im-jwt-secret`（`0600`）**；不得把值写进仓库、shell history 或临时命令。常规部署在停止旧 IM 前读出并复用它；文件缺失或为空时必须直接失败。主动换钥才覆盖该文件，并会使 Web IM 既有登录态失效。
 8. **两边 Gateway 启动都带 `SEARXNG_URL=http://100.88.34.122:8888`**（SearXNG 只在 mini；本机经 Tailscale 访问）。mini 上也可用 `http://127.0.0.1:8888`。
 9. **LLM 代理配置只在启动时加载**；改 `upstreams.json` / `.env` 必须重启对应代理。改前留 `.bak`。
 10. 顺序：**IM →（各机 LLM 代理若需要）→ 两边 Gateway**。Gateway 启动即连 IM。
@@ -81,7 +90,7 @@ ssh mini 'zsh -lc "cd ~/Repos/nano-multiagent/src/IM/frontend && npm ci && npm r
 
 # 3. 读取持久密钥后重启 IM（普通更新不换钥）
 ssh mini 'zsh -lc '"'"'
-  secret_file="$HOME/.nano-assistant/im-jwt-secret"
+  secret_file="$HOME/.nanoassistant/im-jwt-secret"
   [[ -s "$secret_file" ]] || { print -u2 -r -- "IM secret missing: $secret_file"; exit 1; }
   im_secret=$(<"$secret_file")
   pids=("${(@f)$(lsof -tiTCP:8011 -sTCP:LISTEN)}")
@@ -130,7 +139,7 @@ cd ~/Repos/nano-multiagent && \
 | 只更新 mini 代码+服务 | 步骤 1–5 + 验证 |
 | 只更新本机 Gateway | 步骤 6–9 + 验证本机 node |
 | 只重启 LLM 代理 | mini→步骤 4；本机→步骤 8；改模型目录见下 |
-| 改 Gateway config | 目标机：`stop` → 编辑 `~/.nano-assistant/config.yaml` → 裸跑或 `restart` |
+| 改 Gateway config | 目标机：`stop` → 编辑 `~/.nanoassistant/config.yaml` → 裸跑或 `restart` |
 
 ### 显式换 IM 签名密钥
 
@@ -138,7 +147,7 @@ cd ~/Repos/nano-multiagent && \
 
 ```bash
 # mini：生成并保存新值，权限仅限当前用户读取
-ssh mini 'cd ~/Repos/nano-multiagent && umask 077 && .venv/bin/python -c '"'"'import secrets; print(secrets.token_urlsafe(48))'"'"' > ~/.nano-assistant/im-jwt-secret && chmod 600 ~/.nano-assistant/im-jwt-secret'
+ssh mini 'cd ~/Repos/nano-multiagent && umask 077 && .venv/bin/python -c '"'"'import secrets; print(secrets.token_urlsafe(48))'"'"' > ~/.nanoassistant/im-jwt-secret && chmod 600 ~/.nanoassistant/im-jwt-secret'
 
 # 接着执行完整闭环的步骤 3 重启 IM；随后两个 Gateway 用保存的账号凭据重新认证
 
@@ -173,12 +182,12 @@ echo "IM owner=$OWNER"
 curl -s "$IM/im/v1/nodes" -H "Authorization: Bearer $TOKEN"
 
 # 强制：两边 Gateway config 的 node.user_id == IM owner（错则飞书影子会话会静默失败）
-ssh mini "python3 -c \"import yaml;from pathlib import Path;u=yaml.safe_load(Path.home().joinpath('.nano-assistant/config.yaml').read_text())['node']['user_id'];print(u);assert u=='$OWNER', u\""
-python3 -c "import yaml;from pathlib import Path;u=yaml.safe_load(Path.home().joinpath('.nano-assistant/config.yaml').read_text())['node']['user_id'];print(u);assert u=='$OWNER', u"
+ssh mini "python3 -c \"import yaml;from pathlib import Path;u=yaml.safe_load(Path.home().joinpath('.nanoassistant/config.yaml').read_text())['node']['user_id'];print(u);assert u=='$OWNER', u\""
+python3 -c "import yaml;from pathlib import Path;u=yaml.safe_load(Path.home().joinpath('.nanoassistant/config.yaml').read_text())['node']['user_id'];print(u);assert u=='$OWNER', u"
 
 # Gateway 日志不应在刷 owner differs（有则 shadow sync 坏了）
-ssh mini 'tail -n 80 ~/.nano-assistant/gateway.log | grep -c "configured node owner differs" || true'
-# 期望 0；非 0 则先 stop → 改对 user_id → 必要时清理 ~/.nano-assistant/external_shadow_sagas.sqlite3 里 stale owner 的 pending → restart
+ssh mini 'tail -n 80 ~/.nanoassistant/gateway.log | grep -c "configured node owner differs" || true'
+# 期望 0；非 0 则先 stop → 改对 user_id → 必要时清理 ~/.nanoassistant/external_shadow_sagas.sqlite3 里 stale owner 的 pending → restart
 
 # 本机未占 8011
 lsof -ti:8011 && echo "FAIL: local IM running" || echo "ok: no local IM"
@@ -192,7 +201,7 @@ ssh mini 'curl -s --max-time 15 "http://127.0.0.1:8888/search?q=test&format=json
 | 服务 | 位置 |
 |---|---|
 | IM | mini `~/Repos/nano-multiagent/im-service.log` |
-| Gateway（每机各自） | 该机 `~/.nano-assistant/gateway.log`；PID 见同目录 `.gateway-state.json` |
+| Gateway（每机各自） | 该机 `~/.nanoassistant/gateway.log`；PID 见同目录 `.gateway-state.json` |
 | LLM_Bridge | mini `~/Repos/LLM_Bridge/nohup.out` |
 | LLM_PROXY | 本机 `~/Repos/LLM_PROXY/nohup.out` |
 

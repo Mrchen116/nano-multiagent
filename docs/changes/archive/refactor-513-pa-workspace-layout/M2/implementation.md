@@ -29,3 +29,15 @@
   scoped chat-history coverage proving the kernel-provided config root wins.
 - `ruff check` passed for all changed M2 source and test files.
 - `git diff --check` passed.
+
+## Delivery follow-up
+
+- Updated the long-lived `prod-fleet-deploy` skill to use only the terminal
+  `~/.nanoassistant/` config, secret, state and log paths.
+- Added a first-deployment gate that routes unmigrated installations through
+  `docs/operations/pa-workspace-layout-migration.md` before any routine or
+  partial fleet restart.
+- Audited maintained README, architecture, operations and current-spec
+  documents: terminal paths and the one-time migration entry are synchronized.
+  Old global/default paths remain only where they identify migration sources
+  or preserve historical review evidence.

@@ -369,9 +369,8 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         # bugfix-424 (#127): derive dynamically-created agents' workspace from the
         # node's configured workspace_base so they land under the same isolation
         # root as preset agents (e.g. a worktree's `.gateway-workspace`) instead of
-        # the hardcoded `~/nano-assistant/workspace` default. When workspace_base is
-        # unset the factory stays None and the config sync keeps its legacy
-        # default — existing deployments are unaffected.
+        # the managed product default. When workspace_base is unset, the factory
+        # stays None and config sync uses `~/.nanoassistant/workspaces`.
         workspace_root_factory = _make_workspace_root_factory(
             config.node.workspace_base
         )
