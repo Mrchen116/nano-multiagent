@@ -309,6 +309,20 @@ export function ChatWorkspacePage() {
   });
   const sidebarConversations = useLocalUnreadFeedback(conversationsQuery.data ?? []);
 
+  useEffect(() => {
+    const eligibleConversationIds = new Set(
+      (conversationsQuery.data ?? [])
+        .filter(isDistillConversationEligible)
+        .map((conversation) => conversation.id),
+    );
+    setSelectedDistillConversationIds((current) => {
+      const next = new Set(
+        [...current].filter((conversationId) => eligibleConversationIds.has(conversationId)),
+      );
+      return next.size === current.size ? current : next;
+    });
+  }, [conversationsQuery.data]);
+
   const activeConversation: Conversation | null = useMemo(() => {
     if (!conversationId) return null;
     return conversationsQuery.data?.find((c) => c.id === conversationId) ?? null;

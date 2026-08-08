@@ -169,6 +169,7 @@ function jsonResponse(data: unknown, init: ResponseInit = {}): Response {
 type UploadOutcome = { status: number; body?: string } | { error: Error } | null;
 
 function mockFetch(opts: {
+  conversations?: Conversation[];
   distillerVisible?: boolean;
   toolAllowlist?: string[];
   skillViewToolVisible?: boolean;
@@ -181,7 +182,7 @@ function mockFetch(opts: {
   const skillViewDefaultOn = opts.skillViewDefaultOn ?? true;
   const uploadOutcomes = [...(opts.uploadOutcomes ?? [])];
   const sent: { url: string; init?: RequestInit }[] = [];
-  const conversations: Conversation[] = [...FIXTURES.conversations];
+  const conversations: Conversation[] = [...(opts.conversations ?? FIXTURES.conversations)];
   const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
     sent.push({ url, init });
@@ -312,7 +313,8 @@ function mockFetch(opts: {
     }
     return new Response("not found", { status: 404 });
   });
-  (fn as unknown as { sent: typeof sent }).sent = sent;
+  (fn as unknown as { sent: typeof sent; conversations: Conversation[] }).sent = sent;
+  (fn as unknown as { sent: typeof sent; conversations: Conversation[] }).conversations = conversations;
   return fn;
 }
 
@@ -529,6 +531,60 @@ describe("ChatWorkspacePage — integration", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(
       "Select at least one finished conversation with a transcript.",
     );
+  });
+
+  it("purges an unavailable selection before another node can be selected", async () => {
+    const user = userEvent.setup();
+    const sourceA: Conversation = {
+      ...FIXTURES.conversations[0],
+      id: "source-a",
+      title: "Source A",
+      source_node_id: "node-a",
+      source_jsonl_path: "/tmp/source-a.jsonl",
+      source_jsonl_status: "ready",
+    };
+    const sourceB: Conversation = {
+      ...FIXTURES.conversations[1],
+      id: "source-b",
+      title: "Source B",
+      source_node_id: "node-b",
+      source_jsonl_path: "/tmp/source-b.jsonl",
+      source_jsonl_status: "ready",
+    };
+    fetchSpy = mockFetch({ conversations: [sourceA, sourceB] });
+    vi.stubGlobal("fetch", fetchSpy);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderAtRoute("/chat", queryClient);
+
+    await screen.findByRole("button", { name: /Source A/ });
+    await user.click(screen.getByRole("button", { name: "Generate skill" }));
+    await user.click(screen.getByRole("checkbox", { name: /Source A/ }));
+
+    const conversations = (fetchSpy as unknown as { conversations: Conversation[] }).conversations;
+    conversations.splice(0, 1, {
+      ...sourceA,
+      source_jsonl_path: null,
+      source_jsonl_status: "unavailable",
+    });
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("checkbox", { name: /Source A/ })).toBeDisabled();
+      expect(screen.getByRole("checkbox", { name: /Source B/ })).toBeEnabled();
+    });
+    await user.click(screen.getByRole("checkbox", { name: /Source B/ }));
+
+    conversations.splice(0, 2, sourceA, sourceB);
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText("Transcript temporarily unavailable")).not.toBeInTheDocument();
+      expect(screen.getByRole("checkbox", { name: /Source A/ })).toBeDisabled();
+      expect(screen.getByRole("checkbox", { name: /Source B/ })).toBeChecked();
+    });
   });
 
   it("requires an execution agent for cross-agent distillation sources", async () => {

@@ -907,9 +907,10 @@ def build_session_log_path_provider(
     """Resolve a Web IM conversation through its durable Gateway session binding.
 
     The binding already records the root Kernel session id and its captured Agent
-    workspace.  Deriving that one address avoids an unbounded filesystem scan on
-    the Gateway receive loop; a missing binding or file is an actual missing
-    transcript, while an unavailable provider remains a distinct wire state.
+    workspace. Deriving that address avoids filesystem probing on the Gateway
+    receive loop: a missing binding is a missing transcript, while a durable
+    binding projects its path as ready. Provider failures remain a distinct
+    unavailable wire state.
     """
 
     def resolve(agent_id: str, conversation_id: str) -> str | None:
@@ -929,7 +930,7 @@ def build_session_log_path_provider(
             / "sessions"
             / f"{source.binding.kernel_session_id}.jsonl"
         )
-        return str(path.resolve()) if path.is_file() else None
+        return str(path)
 
     return resolve
 

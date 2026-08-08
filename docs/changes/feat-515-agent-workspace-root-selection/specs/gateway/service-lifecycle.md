@@ -57,3 +57,19 @@ Gateway 处理 IM 下行的 `agent.create` 时，在**本节点**决定 workspac
 - **WHEN** Gateway 已写入本地 Agent config
 - **THEN** `agent.created` 及随后的 `node.register` 都为该 Agent 回传 X
 - **AND** 不同 X 的恢复请求不能改写已持久化 Agent
+
+### Requirement: 会话 JSONL 地址从 durable binding 投影且不阻塞 Gateway 接收循环
+
+Gateway 收到 `session.log.resolve` 时，只从 durable conversation binding 投影
+`<workspace>/.nanoassistant/sessions/<kernel-session-id>.jsonl`。它不在 WebSocket receive loop 调用
+`Path.is_file()`、`Path.resolve()` 或扫描 workspace。请求在可取消且按 `(agent_id, conversation_id)`
+coalesce 的任务中执行，连接关闭会取消该任务。
+
+缺少 durable binding 时回 `status="missing"`；存在 binding 时回投影地址和 `status="ready"`，即使该
+路径的文件状态无法被探测。provider 缺失或 binding/projection 出错时回
+`status="unavailable"`，不得伪装为 `missing`。
+
+#### Scenario: 慢或不可用 workspace 不阻塞 control frame
+- **GIVEN** Gateway 已开始一个 `session.log.resolve`，其 binding provider 随后不可用
+- **WHEN** IM 在该解析完成前下发 heartbeat 或其他 control frame
+- **THEN** Gateway 继续处理 control frame，并最终为该解析回 `status="unavailable"`

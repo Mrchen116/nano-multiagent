@@ -192,3 +192,19 @@ None.
   24 deselected`), full frontend/build, Ruff, docs, and diff gates passed. Durable detail:
   `evidence/correction-round-5.md`.
 - Next: commit the constrained correction, rebase on the current unit tip, and publish only the milestone branch.
+
+## Round 6 correction — non-blocking durable transcript projection and stable selection
+
+- Context: the production session-binding provider still synchronously called `Path.is_file()` and `Path.resolve()`
+  before its resolution task yielded, so a slow or unavailable custom workspace could stall Gateway receive work.
+  The distill selector retained disabled ids in state, letting a later refresh reorder the active source node. The
+  pending-recovery HTTP negatives also compared only partial durable rows.
+- Decision: project the exact JSONL path directly from a durable binding and never probe its workspace on the
+  receive loop. `missing` now means no binding; `ready` means a binding-derived address; provider/binding failures
+  remain `unavailable`. The client removes selected ids that are no longer eligible. Pending retry tests snapshot
+  complete `agent_profiles` and `agent_create_operations` rows before and immediately after both rejections.
+- Evidence: `evidence/correction-round-6.md` records the production binding/control-frame, selection reorder, and
+  persistence owner regressions; focused Python (35 passed), targeted frontend (49 passed), full non-E2E Python
+  (3063 passed, 24 deselected), frontend suite/build, isolated Chromium acceptance, Ruff, docs, and diff gates all
+  passed.
+- Next: rebase and publish only this milestone branch.
