@@ -72,12 +72,13 @@ def _handler(
             channel_name=WebRelayAdapter.name,
         ),
         source_root,
+        store,
     )
 
 
 def test_gateway_resolves_its_local_binding_into_current_distill_prompt(tmp_path: Path) -> None:
     """The Gateway, not IM, supplies a complete ordinary-chat draft."""
-    handler, source_root = _handler(tmp_path)
+    handler, source_root, _ = _handler(tmp_path)
     session_path = source_root / ".nanoassistant" / "sessions" / "session-1.jsonl"
     session_path.parent.mkdir(parents=True)
     session_path.write_text("{}\n", encoding="utf-8")
@@ -104,7 +105,7 @@ def test_gateway_returns_no_partial_prompt_when_any_source_or_capability_is_unav
     tmp_path: Path,
 ) -> None:
     """A missing source or unavailable execution capability stops before a draft."""
-    handler, _ = _handler(tmp_path)
+    handler, _, _ = _handler(tmp_path)
 
     missing_source = asyncio.run(
         handler(
@@ -126,7 +127,7 @@ def test_gateway_returns_no_partial_prompt_when_any_source_or_capability_is_unav
         "message": "source session file is unavailable",
     }
 
-    missing_skill_view, source_root = _handler(tmp_path, tool_allowlist=("read",))
+    missing_skill_view, source_root, _ = _handler(tmp_path, tool_allowlist=("read",))
     session_path = source_root / ".nanoassistant" / "sessions" / "session-1.jsonl"
     session_path.parent.mkdir(parents=True)
     session_path.write_text("{}\n", encoding="utf-8")
@@ -154,7 +155,7 @@ def test_gateway_returns_no_partial_prompt_when_any_source_or_capability_is_unav
 
 def test_gateway_preserves_external_shadow_binding_fallback(tmp_path: Path) -> None:
     """Existing external shadows still resolve through their durable external key."""
-    handler, source_root = _handler(
+    handler, source_root, store = _handler(
         tmp_path,
         external_identity=("feishu", "chat-1"),
     )
@@ -162,7 +163,7 @@ def test_gateway_preserves_external_shadow_binding_fallback(tmp_path: Path) -> N
     session_path.parent.mkdir(parents=True)
     session_path.write_text("{}\n", encoding="utf-8")
 
-    result = asyncio.run(
+    fallback_result = asyncio.run(
         handler(
             {
                 "sources": [
@@ -179,7 +180,38 @@ def test_gateway_preserves_external_shadow_binding_fallback(tmp_path: Path) -> N
         )
     )
 
-    assert result["prompt"] == _prompt_with_path(session_path)
+    assert fallback_result["prompt"] == _prompt_with_path(session_path)
+
+    normal_path = source_root / ".nanoassistant" / "sessions" / "normal-session.jsonl"
+    normal_path.write_text("{}\n", encoding="utf-8")
+    store.bind(
+        session_key=build_conversation_session_key(
+            channel_name=WebRelayAdapter.name,
+            conversation_id="shadow-conversation",
+            agent_id="source",
+        ),
+        kernel_session_id="normal-session",
+        reply_context=SimpleNamespace(),
+    )
+
+    normal_result = asyncio.run(
+        handler(
+            {
+                "sources": [
+                    {
+                        "conversation_id": "shadow-conversation",
+                        "source_agent_id": "source",
+                        "external_source": "feishu",
+                        "external_chat_id": "chat-1",
+                    }
+                ],
+                "execution_agent_id": "execution",
+                "target_scope": "agent",
+            }
+        )
+    )
+
+    assert normal_result["prompt"] == _prompt_with_path(normal_path)
 
 
 def _prompt_with_path(session_path: Path) -> str:

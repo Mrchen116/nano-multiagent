@@ -142,6 +142,55 @@ def test_agent_conversation_projects_source_node_and_creates_gateway_prompt(
         assert blank.status_code == 409
         assert connection.execute("SELECT COUNT(*) FROM conversations").fetchone()[0] == before
 
+        connection.execute(
+            """
+            INSERT INTO agent_profiles(
+                agent_id, owner_id, node_id, display_name, description, custom_prompt,
+                skills_json, tool_allowlist_json, group_reply_policy, default_model,
+                workspace_root, profile_version, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+            """,
+            (
+                "agent-2",
+                alice.owner_id,
+                "node-2",
+                "Agent 2",
+                "",
+                "You are Agent 2.",
+                "[]",
+                "[]",
+                "manual",
+                None,
+                "/not-accessed-by-im",
+                1,
+            ),
+        )
+        connection.commit()
+
+        async def _must_not_call_gateway(**_kwargs):
+            raise AssertionError("cross-Gateway request must fail before control RPC")
+
+        client.app.state.gateway_control.request_distill_prompt = _must_not_call_gateway
+        cross_gateway = client.post(
+            "/im/v1/conversations/distill-prompt",
+            json={
+                "sources": [
+                    {
+                        "conversation_id": conversation["id"],
+                        "source_agent_id": "agent-1",
+                    }
+                ],
+                "execution_agent_id": "agent-2",
+                "target_scope": "agent",
+            },
+        )
+
+        assert cross_gateway.status_code == 409
+        assert cross_gateway.json()["detail"] == (
+            "execution agent must belong to the selected Gateway"
+        )
+        assert connection.execute("SELECT COUNT(*) FROM conversations").fetchone()[0] == before
+
 
 def test_patch_conversation_updates_title_pin_and_mute(tmp_path: Path) -> None:
     """Allow Web IM to update mutable conversation metadata."""
