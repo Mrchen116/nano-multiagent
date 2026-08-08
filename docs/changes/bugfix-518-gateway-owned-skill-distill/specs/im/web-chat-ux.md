@@ -30,7 +30,8 @@
 #### Scenario: 提交蒸馏时不暴露本机路径
 - **GIVEN** 用户在新对话补充意图并提交蒸馏
 - **WHEN** IM 持久化并中继该普通用户消息
-- **THEN** relay 只携带来源 conversation/Agent identity、execution Agent 与 target scope
+- **THEN** composer 保留既有 `/skill:conversation-skill-distiller` 预填，用户可编辑蒸馏意图
+- **AND** relay 只携带来源 conversation/Agent identity、execution Agent 与 target scope
 - **AND** browser composer、conversation API、IM relay payload 与普通消息正文均不含
   `source_jsonl_paths`、workspace root 或 JSONL 绝对路径
 

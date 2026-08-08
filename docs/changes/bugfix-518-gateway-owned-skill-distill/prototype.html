@@ -104,7 +104,7 @@
           <div class="tool">✓ 已创建 skill · <b>evidence-led-product-review</b> · agent scope</div>
           <div class="bubble agent">已根据两个来源中的重复决策与验收步骤创建 skill；没有把原始会话或本机文件位置写进结果。</div>
         </div>
-        <div class="composer"><div class="draft">请基于已选会话生成一个可复用的 skill…</div><button class="send">发送</button></div>
+        <div class="composer"><div class="draft">/skill:conversation-skill-distiller<br />请基于已选会话生成一个可复用的 skill…</div><button class="send">发送</button></div>
         <div class="scrim" aria-label="生成 skill 设置">
           <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
             <h2 id="dialog-title">生成 skill</h2>
@@ -119,6 +119,6 @@
         </div>
       </section>
     </main>
-    <p class="footnote">Must-match: checkbox 只在选择模式出现；不同 Gateway 与运行中来源不可选且给出原因；dialog 不展示路径；生成后继续使用普通 composer、tool output 与 assistant 气泡。Gateway 的 skill activation 与 source context 为内部输入，不显示为 composer 文本或历史消息。</p>
+    <p class="footnote">Must-match: checkbox 只在选择模式出现；不同 Gateway 与运行中来源不可选且给出原因；dialog 不展示路径；composer 保留可见的 distiller command 但没有路径；生成后继续使用普通 tool output 与 assistant 气泡。Gateway 的 source context 为内部输入，不显示为历史消息。</p>
   </body>
 </html>

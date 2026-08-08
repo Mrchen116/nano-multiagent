@@ -9,6 +9,7 @@
 | v1 | Initial design. |
 | v2 | Close R1-C1/C2/C3 and R1-W1: define the typed one-shot wire, Gateway activation and failure lifecycle, and retained Web IM contracts. |
 | v3 | Close R2-C1/C2/W1: keep IM capability preflight non-authoritative, make Gateway final authority, keep private activation out of protocol delta, and retain failed-receipt state. |
+| v4 | Preserve the existing visible distiller-command prefill while removing only its path payload; Gateway remains the sole authority for local source context and activation. |
 
 ## 现状分析
 
@@ -95,7 +96,9 @@ IM 从来源 Agent profile 投影 `source_node_id`（不是 workspace path）。
 浏览器保持目前“新建 execution Agent 对话、用户补充意图后发送”的旅程。新建对话完成后，
 `ChatWorkspacePage` 在该 conversation 的 composer state 保有一个 one-shot
 `distillation_request`；只随**该 conversation 第一次** `createMessage` 发送，发送、取消或离开页面即清除。
-用户可编辑的正文和附件仍按普通消息展示；action 不写入 `Message`、browser history 或后续 draft。
+为保留既有认知，composer 仍预填 `/skill:conversation-skill-distiller` 和一段用户可编辑的蒸馏意图；不同的是，
+预填文本只可提及所选会话的可读名称/范围，绝不再含 path。正文和附件仍按普通消息展示；action 不写入
+`Message`、browser history 或后续 draft。
 
 `POST /messages` 的 `CreateMessageRequest` 为此增加可选 typed field：
 
@@ -133,11 +136,12 @@ JSONL。它验证来源完成、Agent/工作区仍匹配、记录可读且可解
 
 ### **D4：Gateway 显式激活 distiller，并将验证后的 transcripts 注入这一次 run。**
 
-成功 materialize 后，coordinator 以此 typed run 替换默认正文 parts，按如下固定顺序生成
+可见的预填命令只说明用户正在发起什么，不是本地数据或权限边界。成功 materialize 后，coordinator 以此 typed
+run 替换默认正文 parts，按如下固定顺序生成
 `kernel_input_parts`：第一段 text **恰为** `/skill:conversation-skill-distiller`；第二段为有长度上限、明确标记的
 Gateway-provided context，内含 target scope、用户在 composer 中可见的意图以及所有 materialized transcript。
-这复用内核既有 `/skill:` activation，不要求前端拼接特权命令。该内部 command/context 不回写 Web IM history
-或 reply context。
+这复用内核既有 `/skill:` activation；前端预填的同名 command 保持原有 UX，但 Gateway 不信任它来提供
+source context 或决定是否 activation。该内部 context 不回写 Web IM history 或 reply context。
 
 builtin distiller 改为只消费该标记的 Gateway context，始终把 transcript 作为数据而非指令；普通手工
 `/skill:conversation-skill-distiller` 而没有该 context 时给出可理解的不足证据失败。它不再接受或读取
@@ -183,7 +187,7 @@ conversation projection 改为可选 `source_node_id`，并移除 `source_jsonl_
 
 | Boundary | Input / authority | Guaranteed outcome |
 |---|---|---|
-| Browser one-shot action | `createMessage` of the just-created direct execution conversation | Sends visible intent plus identity-only DTO once; never chooses a node or writes an action into history. |
+| Browser one-shot action | `createMessage` of the just-created direct execution conversation | Keeps the visible distiller-command prefill and intent, and sends identity-only DTO once; never chooses a node or writes an action into history. |
 | IM `create_distillation_message` | Owner-scoped current conversations/profiles and target direct conversation | Rejects stale/malformed/cross-node/ineligible identity input before a relay exists; creates one normal message and one canonical direct relay payload. |
 | Gateway `parse_and_guard` | Durable relay payload plus resolved relay target Agent | Rejects malformed or mismatched metadata before local I/O; only the target executor can request materialization. |
 | Coordinator before-submit | Local execution runtime plus `GatewayDistillationSources` result | Is the final capability authority; either calls `fail_distillation_before_submit()` for a normal failed reply/receipt with no run/session, or activates the builtin with trusted local context. |
@@ -245,7 +249,7 @@ flowchart TD
 |---|---|---|---|---|
 | Sidebar 的 distill mode 与 checkbox | must-match | `ConversationSidebar` | desktop、390px；idle/running/cross-node | M1 reviewer-1、worker-1 |
 | Scope dialog 的 executor/range | must-match | `ChatWorkspacePage` | desktop、390px；single-node sources | M1 reviewer-1、worker-1 |
-| 新对话 composer 与聊天结果 | must-match | `MessagePane` | send 后，不出现 path 或专门结果卡 | M1 reviewer-2、worker-1 |
+| 新对话 composer 与聊天结果 | must-match | `MessagePane` | command prefill、send 后不出现 path 或专门结果卡 | M1 reviewer-2、worker-1 |
 | 颜色、圆角、文案微调 | may-adapt | existing IM design tokens/i18n | desktop、390px | M1 worker-1 |
 
 ## 契约层增量 (delta-spec)

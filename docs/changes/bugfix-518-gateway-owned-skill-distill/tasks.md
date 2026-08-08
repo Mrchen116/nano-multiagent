@@ -10,8 +10,8 @@
   `WebIMService.create_distillation_message` authoritative 校验 owner、source/executor 同 node、source idle、
   direct participant，再经 single-target relay 持久化 frozen identity-only payload；既有浏览器 capability 读取
   只保留为创建对话前的 preflight。
-- [ ] 修改 sidebar/dialog/composer 状态：同 Gateway selection、cross-node 禁选说明、同 node executor、
-  可见 draft 不包含路径；保持普通聊天的意图补充与结果显示。
+- [ ] 修改 sidebar/dialog/composer 状态：同 Gateway selection、cross-node 禁选说明、同 node executor；保留
+  可见的 distiller-command 预填和普通聊天的意图补充/结果显示，但删除 draft 中的路径。
 - [ ] 新增 Gateway-local `GatewayDistillationSources`：从 exact durable binding 取得本机 JSONL、
   all-or-nothing materialize source context；在 `InboundPipeline` typed guard 后由 coordinator before-submit
   hook 以本地 runtime 做最终 distiller/tool 复核；malformed/capability/source failure 均由
@@ -47,7 +47,7 @@
 | 风险 / 行为 | 既有测试 | 处置 | 理由与保留或替代保护 | 验证 |
 |---|---|---|---|---|
 | conversation API 不泄露 Gateway 文件位置 | `tests/im_service/integration/test_users_conversations_api.py` 的 source JSONL assertions | rewrite-merge | 同一 API seam 改为 source agent/node；路径断言删除，新的 response assertion 防止字段复活。 | focused pytest |
-| sidebar 选择与生成 draft | `chat-workspace.integration.test.tsx` 的 `source_jsonl_paths` draft assertion | rewrite-merge | 保留选择、scope、普通 composer 旅程；改断言为同 node identity request/no path。 | focused Vitest |
+| sidebar 选择与生成 draft | `chat-workspace.integration.test.tsx` 的 `source_jsonl_paths` draft assertion | rewrite-merge | 保留选择、scope、可见 distiller-command 预填与普通 composer 旅程；改断言为同 node identity request/no path。 | focused Vitest |
 | capability failure 与普通 sidebar | 同一 `chat-workspace.integration.test.tsx` 的 distill mode journey | rewrite-merge | execution Agent 缺 distiller/required tools 时不创建或跳转新对话；normal mode 不显示 running/cross-node label。 | focused Vitest |
 | 绑定的 stable identity | `tests/unit/personal_assistant/test_gateway_session_binder.py` | keep | conversation-to-kernel binding 仍是 Gateway local resolver 的前置保障，风险未变。 | focused pytest |
 | typed relay 到 Gateway 的失败可见性 | 现有 relay/inbound coordinator tests | rewrite-merge | 以 canonical relay、Gateway local capability guard、normal failure reply 与 failed receipt 保护 action lifecycle，不以 adapter 私有调用次序建平行测试。 | focused pytest |

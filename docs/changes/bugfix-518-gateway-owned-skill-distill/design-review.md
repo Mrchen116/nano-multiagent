@@ -417,3 +417,54 @@ None.
 
 R2-C1, R2-C2, and R2-W1 are closed without reopening any R1 closure or expanding
 the unit. The design is ready for implementation.
+
+## Round 4
+
+### Metadata
+
+| Field | Value |
+|---|---|
+| Reviewer target | `bugfix-518-gateway-owned-skill-distill@design-v4` |
+| Review mode | delta |
+| Mode reason | v4 makes one bounded, user-visible UX correction: preserve the existing visible distiller-command prefill while removing its path payload. The identity relay, Gateway authority, activation mechanism, failure lifecycle, delta ownership, M1, and test topology remain unchanged. |
+| Started | 2026-08-09T01:52:00+08:00 |
+| Finished | 2026-08-09T01:55:59+08:00 |
+| Duration | 3m 59s |
+
+### Verdict
+
+**APPROVE — 0 CRITICAL / 0 WARNING.**
+
+### 历史问题与本轮 delta 闭环
+
+| Item | v4 change | Verification | Status |
+|---|---|---|---|
+| R2-C1 / R3 approval: Gateway remains final authority | D2 restores only a visible command/intention prefill; D4 explicitly treats it as non-authoritative and still replaces default parts after local materialization. | The browser sends the same identity-only one-shot DTO and no path (`design.md:94-128, 182-193`). The Gateway alone supplies the fixed internal activation command and local source context, and does not trust the visible command for data or activation (`design.md:137-148`). | **retained closed** |
+| R2-C2 / R3 approval: public Gateway delta stays consumer-observable | No private command/context detail was reintroduced into the Gateway delta. | `specs/gateway/relay-protocol.md:12-18` remains limited to local materialization, non-disclosure and normal result relay. | **retained closed** |
+| UX regression reported by user | The Web IM delta and task explicitly retain `/skill:conversation-skill-distiller` in the editable composer while forbidding all path forms. | The user-visible scenario requires the prefill and separately forbids `source_jsonl_paths`, workspace root and JSONL absolute paths (`specs/im/web-chat-ux.md:30-36`); `tasks.md:13-14, 49-50` keeps the existing frontend journey as the single seam that tests both facts. | **closed** |
+
+### Issues
+
+None.
+
+### Recommendations
+
+- **[R4-R1]** In the existing frontend journey test, assert the visible slash
+  prefill and the absence of every path field in the same draft/send flow. Keep
+  the existing Gateway activation test independent: it verifies that the local
+  typed action, rather than editable visible text, determines execution.
+
+### Coverage
+
+| Changed atom | Result |
+|---|---|
+| D2 visible composer contract | **Pass.** The prefill restores the familiar user journey but is restricted to readable names/range and cannot contain local file identity (`design.md:94-101, 113-114`). |
+| D4 trust/activation boundary | **Pass.** Internal first command plus Gateway-provided context remain the only Kernel input authority; visible text is retained only as user intent (`design.md:137-148`). |
+| IM Web Chat delta | **Pass.** The scenario is user-observable and preserves both the visible command and the no-path contract (`specs/im/web-chat-ux.md:30-36`). |
+| Task/test scope | **Pass.** The existing frontend integration journey absorbs the UX assertion; no new test file or E2E layer is introduced (`tasks.md:33-40, 49-53`). |
+
+### Conclusion
+
+The v4 UX correction restores the intended visible command without reintroducing
+path transport, transcript exposure, or browser authority over Gateway execution.
+R3's approval remains valid; the design is ready for implementation.
