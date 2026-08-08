@@ -241,3 +241,18 @@ None.
 - Evidence: `evidence/correction-round-8.md` records red-to-green immediate fork resolution, focused owner suite
   (46 passed), full non-E2E Python (3063 passed, 24 deselected), Ruff, docs, and diff gates.
 - Next: rebase and publish only this milestone branch.
+
+## Round 9 final regression closure — durable projection replacement and failure atomicity
+
+- Context: Round 9 verified that the Round-8 publisher is implemented correctly, but its only permanent provider
+  assertion covered absent-to-present insertion. It did not protect same-key A-to-B copy-on-write replacement or a
+  repository `bind()` exception after B against a later C projection.
+- Decision: the lowest-layer Binder owner now binds one canonical conversation to A, then B, and observes the exact
+  production provider address after each write. It next injects a persistent-store `bind()` failure for C and proves
+  the durable row and provider remain B while C has no session provenance.
+- Rationale: observing the public provider alongside the durable row catches a stale immutable projection without
+  coupling the test to private maps; the absent C provenance also protects the mutable map side of the transaction.
+- Process: this self-contained reviewer-loop closure adds only permanent test and evidence changes. The existing
+  old-binding reuse race moved to the concurrency owner so both test files remain below the 400-line test-file limit.
+- Evidence: `evidence/correction-round-9.md` records the focused owners and final quality gates.
+- Next: rebase and publish only this milestone branch.

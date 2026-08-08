@@ -47,6 +47,35 @@ class _SlowValidationKernel:
         return SimpleNamespace(session_id=session_id)
 
 
+class _BlockingReuseStore(SessionBindingStore):
+    """Pause one old-session refresh while config publication races it."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.block_session_id: str | None = None
+        self.bind_started = ThreadEvent()
+        self.release_bind = ThreadEvent()
+
+    def bind(
+        self,
+        *,
+        session_key: str,
+        kernel_session_id: str,
+        reply_context: ReplyContext,
+        **kwargs: Any,
+    ):
+        if kernel_session_id == self.block_session_id:
+            self.bind_started.set()
+            if not self.release_bind.wait(timeout=5):
+                raise TimeoutError("timed out waiting to release old binding reuse")
+        return super().bind(
+            session_key=session_key,
+            kernel_session_id=kernel_session_id,
+            reply_context=reply_context,
+            **kwargs,
+        )
+
+
 def _agent(
     tmp_path: Path, agent_id: str, *, version: str = "v1"
 ) -> AgentWorkspaceConfig:
@@ -156,6 +185,54 @@ async def test_publish_during_slow_validation_never_republishes_stale_binding(
     assert retained.kernel_session_id == "session-agent-a"
     new_result = await binder.resolve(request, current)
     assert new_result.kernel_session_id == "created-1"
+    assert binder.lookup(request.session_key) == new_result
+    assert kernel.create_calls == [str(current.config.workspace_root)]
+
+
+async def test_publish_during_old_binding_reuse_retains_stable_row(
+    tmp_path: Path,
+) -> None:
+    old_agent = _agent(tmp_path, "agent-a", version="old")
+    catalog = LiveAgentCatalog((old_agent,))
+    kernel = _SlowValidationKernel(slow_session_id="never-slow")
+    kernel.sessions["persisted-old-session"] = str(old_agent.workspace_root)
+    store = _BlockingReuseStore()
+    request = _request("agent-a")
+    store.bind(
+        session_key=request.session_key,
+        kernel_session_id="persisted-old-session",
+        reply_context=ReplyContext(channel_name="web_relay", target_chat_id="old"),
+    )
+    store.block_session_id = "persisted-old-session"
+    binder = GatewaySessionBinder(catalog=catalog, repository=store, kernel=kernel)
+    old_snapshot = catalog.require("agent-a")
+
+    resolving = asyncio.create_task(
+        asyncio.to_thread(lambda: asyncio.run(binder.resolve(request, old_snapshot)))
+    )
+    await asyncio.wait_for(asyncio.to_thread(store.bind_started.wait), timeout=2)
+    current = catalog.publish(_agent(tmp_path, "agent-a", version="new"))
+    invalidation_started = ThreadEvent()
+
+    def invalidate() -> None:
+        invalidation_started.set()
+        binder.invalidate_stale("agent-a", current_revision=current.revision)
+
+    invalidating = asyncio.create_task(asyncio.to_thread(invalidate))
+    await asyncio.wait_for(asyncio.to_thread(invalidation_started.wait), timeout=2)
+    store.release_bind.set()
+
+    old_result = await resolving
+    await invalidating
+
+    assert old_result.kernel_session_id == "persisted-old-session"
+    assert old_result.reply_context == request.reply_context
+    assert binder.lookup(request.session_key) is not None
+
+    new_result = await binder.resolve(request, current)
+
+    assert new_result.kernel_session_id == "created-1"
+    assert new_result.kernel_session_id != old_result.kernel_session_id
     assert binder.lookup(request.session_key) == new_result
     assert kernel.create_calls == [str(current.config.workspace_root)]
 
