@@ -129,3 +129,35 @@ completed direct source。这个 fixture 消除了 Round 1 的证据缺口，却
   fixture 缺口已由 v5.5 消除；本轮是实际用户行为失败，不是未覆盖。
 
 No GitHub issue was filed: the symptom is directly in this unit's entry path.
+
+---
+
+# Round 3 — 2026-08-09 (targeted AR-1 independent replay)
+
+> Validation snapshot: `ff27a30b4 → c7cb087fd`
+
+## Verdict
+
+**fail**
+
+**Highest Required Action:** `fix-implementation`
+
+Round 3 independently rebuilt the v5.5 two-Gateway fixture rather than reusing Round 2 state. The result confirms Round 2:
+the missing-`skill_view` source is visible and completed, yet **Generate skill** leaves the user in the ordinary sidebar
+without checkboxes, dialog, alert, new chat, or navigation.
+
+## Targeted Journey Exercised
+
+1. Started a fresh isolated IM, first Gateway, Vite, and second `e2e-second` Gateway with the v5.5 `tool_allowlist: [read]`
+   fixture.
+2. Created completed direct sources on both nodes: `Round 3 source: capable control` and
+   `Round 3 source: missing skill_view`. Both were idle and visibly showed `ready.` in Web IM before testing.
+3. In a real browser, clicked **Generate skill** from that two-source list. Checked the page after semantic click and focused
+   Enter activation: the normal list remained unchanged. The required selection-mode controls and failure dialog never
+   appeared.
+
+## AR-1 conclusion
+
+AR-1 remains **open** and is a direct, major user-visible failure. This replay rules out the Round 2 concern that the
+fixture lacked a completed capable control source. The absence of a new `Skill distill` chat is correct, but the missing
+selection/dialog feedback still violates the required capability-failure journey.
