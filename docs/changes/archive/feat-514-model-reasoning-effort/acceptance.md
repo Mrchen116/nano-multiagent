@@ -284,3 +284,5 @@ needs_re_review: true
 本次按用户指示不新开 change unit，修正 feat-514 的有效模型语义：`default_model` 为空表示继承而非未选择；IM 以 Gateway 上报的 `platform_default_model` 展示该模型的 descriptor，Gateway 以自己的 LLM default 验证强度。保存 `reasoning_effort` 不会写入 `default_model`，运行时仍按届时的有效模型投影请求。
 
 验证：创建和编辑页回归覆盖“继承可调平台默认 → 显示 selector → 保存 `default_model: null, reasoning_effort: max`”；Gateway config-operation 回归覆盖同一候选可 apply 并 round-trip；运行时投影回归覆盖继承模型使用保存的强度。最终针对 Gateway 的 57 项和前端的 21 项测试均通过，当前长期契约已同步到 `docs/specs/im/agents-nodes.md` 与 `docs/specs/gateway/agent-capabilities.md`。
+
+生产验证：`main` 的 `18c79ffd9` 已部署到 mini 的 IM 与两台 Gateway。认证后的 live API 确认 `default-agent.default_model == null`、platform default 是 `deepseek:deepseek-v4-flash`，其 descriptor 为 `high` / `max` 且推荐 `high`；两节点 online 且 owner 对齐。现有 Chrome 设置页在无未保存改动的前提下切到新前端 bundle 后，实际显示默认 DeepSeek、可选 `High` / `Maximum` 的 reasoning select。该检查没有保存或改变 Agent 配置。
