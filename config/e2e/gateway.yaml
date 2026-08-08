@@ -49,6 +49,21 @@ llm:
           reasoning:
             default: high
             levels: [high, max]
+        - name: codexOAuth:gpt-5.6-sol
+          context_window: 258400
+          reasoning:
+            default: medium
+            levels: [none, low, medium, high, xhigh, max]
+        - name: codexOAuth:gpt-5.6-terra
+          context_window: 258400
+          reasoning:
+            default: medium
+            levels: [none, low, medium, high, xhigh, max]
+        - name: codexOAuth:gpt-5.6-luna
+          context_window: 258400
+          reasoning:
+            default: medium
+            levels: [none, low, medium, high, xhigh, max]
         # E2E model catalog coverage: routable models with fixed and absent
         # reasoning declarations let browser acceptance exercise all three UI
         # states without exposing a model that cannot complete a real chat.
