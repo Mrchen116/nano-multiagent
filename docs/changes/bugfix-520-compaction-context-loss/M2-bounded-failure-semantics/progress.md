@@ -104,3 +104,24 @@ None.
 - Rollback: 回退 runtime/tests commit 可移除本 roadpoint，不影响 R1-R5 已实现语义。
 - Commits: `0ccd59484`。
 - Next: rebase 最新 unit、复跑门禁并合入 `unit/bugfix-520`。
+
+## Reviewer fix round 2
+
+### R7 — side-chain 事件隔离且保留 workspace hook scope
+
+- Context: R5 把 summary fork 的 `hook_ctx` 整体置空，虽然阻断了 realtime assistant/turn 泄露，也同时丢掉 `_workspace_execution_scope` metadata，导致 summary fork 不再通过 originating workspace hooks。
+- Decision: 从父 `HookContext` 派生不可变副本，只把 `session_event_publisher` 替换为内部 no-op sink；workspace metadata、hook runner、model caller 和其余 routing 字段保持原值。不改 scope 架构、不新增 abstraction。
+- Rationale: summary side-chain 需要继承运行作用域，但其内部消息不是父会话用户事件；publisher 是两种语义的唯一冲突字段。
+- Evidence:
+  - Tests: Red 1 为 `test_manual_compaction_summary_keeps_workspace_hook_scope` 等待 observer 输出超时；Red 2 为增强后的 side-chain 测试观察到 fork `hook_ctx is None`。Green 两条交叉测试 `2 passed`，相关 compaction/workspace hook suite `46 passed`，扩展 focused suite `76 passed`。
+  - Entry: public `Kernel.compact()` 真实 workspace hook 文件在 summary fork 的 `turn_start` 收到 `.consumer` scope。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression: `tests/unit/agent/test_workspace_scope_observer_hooks.py::test_manual_compaction_summary_keeps_workspace_hook_scope` 与 `tests/unit/test_loop_compact.py::test_compaction_summarizer_does_not_publish_sidechain_events`。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退本 reviewer-fix commit 可恢复 R5 行为。
+- Commits: 本 reviewer-fix commit。
+- Next: rebase 最新 unit、复跑门禁并合入 `unit/bugfix-520`。
+
+Reviewer-fix 轻量化说明：本轮是 2 个实现/测试文件内的单一数据流修复，省略新 tasks 模板与多 roadpoint 拆分；TDD、架构边界和 unit 集成流程不省略。

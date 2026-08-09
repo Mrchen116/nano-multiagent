@@ -72,3 +72,9 @@
 - 状态: DONE
 - 步骤: 红测锁定 reinjection restart 可达、overflow retry typed failure 仍先提示、manual/overflow 成功清空旧 token usage；修正 runtime 后跑完整门禁。
 - 验证: `tests/unit/agent/test_kernel_manual_compact.py`、`tests/integration/test_conversation_compaction_integration.py`、focused suite、Ruff/docs/diff check。
+
+### R7 — Review fix：side-chain 事件隔离且保留 workspace hook scope
+
+- 状态: DONE
+- 步骤: 复现 manual compaction summary 丢失 workspace hook scope，并增强 side-chain 测试同时锁定派生 context metadata 与父 session event 隔离；以仅替换 publisher 的派生 `HookContext` 修复。
+- 验证: 两条交叉回归、compaction/workspace hook focused suite、Ruff/docs/diff check。

@@ -669,11 +669,13 @@ async def test_compaction_summarizer_does_not_publish_sidechain_events() -> None
         async def execute(
             self, *, state, hook_ctx=None, model_override=None, **_kwargs
         ):  # noqa: ANN001, ANN003, ANN201
-            if hook_ctx is not None:
-                hook_ctx.publish_session_event(
-                    event="assistant_message", data={"content": "internal summary"}
-                )
-                hook_ctx.publish_session_event(event="turn_end", data={})
+            assert hook_ctx is not None
+            assert hook_ctx is not parent_hook_ctx
+            assert hook_ctx.metadata == parent_hook_ctx.metadata
+            hook_ctx.publish_session_event(
+                event="assistant_message", data={"content": "internal summary"}
+            )
+            hook_ctx.publish_session_event(event="turn_end", data={})
             assert model_override == "run-model"
             return build_turn_result(
                 state.session_id,
@@ -684,6 +686,7 @@ async def test_compaction_summarizer_does_not_publish_sidechain_events() -> None
     summarizer = CompactionSummarizer(fork=_PublishingFork())
     parent_hook_ctx = HookContext(
         session_id="sess_x",
+        metadata={"workspace_config_dirname": ".consumer"},
         session_event_publisher=lambda event, data: published.append(
             (event, dict(data))
         ),
