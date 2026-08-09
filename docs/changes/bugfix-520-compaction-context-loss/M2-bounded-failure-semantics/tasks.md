@@ -39,13 +39,13 @@
 
 ### R1 — 失败值与会话计数契约
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 先为 summarizer 无 fallback、`CompactionError` 序列化和 session-owned tracker 写红测，再补最小 domain 实现。
 - 验证: `tests/unit/test_core_errors.py`、`tests/unit/test_loop_compact.py`、`tests/unit/agent/session/test_conversation_session.py` focused tests。
 
 ### R2 — threshold bounded retry 与 commit 分流
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 用 loop 红测锁定前两次 no-commit/no-summary、第三次 typed failure、成功 reset、stale 不计数、persistence 立即失败。
 - 验证: `tests/unit/test_loop_compact.py`。
 

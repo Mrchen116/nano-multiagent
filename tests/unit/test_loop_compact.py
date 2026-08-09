@@ -465,13 +465,12 @@ async def test_manual_compaction_focus_is_only_a_summary_instruction() -> None:
         system_prompt="sys",
         dropped_messages=[Message(message_id="d", role="user", content="old")],
         focus="保留认证方案与未完成项",
-        strict=True,
     )
 
     assert "保留认证方案与未完成项" in fork.user_prompts[0]
 
 
-async def test_strict_manual_compaction_never_returns_the_automatic_fallback() -> None:
+async def test_compaction_summarizer_returns_none_without_dropped_messages() -> None:
     from agent.core.agent.compaction.summarizer import CompactionSummarizer
 
     summarizer = CompactionSummarizer(fork=_RecordingFork())
@@ -481,7 +480,25 @@ async def test_strict_manual_compaction_never_returns_the_automatic_fallback() -
             session_id="sess_x",
             system_prompt="sys",
             dropped_messages=(),
-            strict=True,
+        )
+        is None
+    )
+
+
+async def test_compaction_summarizer_returns_none_when_provider_fails() -> None:
+    from agent.core.agent.compaction.summarizer import CompactionSummarizer
+
+    class _RaisingFork:
+        async def execute(self, **_kwargs):  # noqa: ANN003, ANN201
+            raise RuntimeError("summary provider unavailable")
+
+    summarizer = CompactionSummarizer(fork=_RaisingFork())
+
+    assert (
+        await summarizer.summarize(
+            session_id="sess_x",
+            system_prompt="sys",
+            dropped_messages=[Message(message_id="d", role="user", content="old")],
         )
         is None
     )

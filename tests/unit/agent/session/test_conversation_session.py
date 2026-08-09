@@ -70,6 +70,24 @@ class _PartialBlockingEngine(_BlockingEngine):
         return await super().execute_turn(state, request)
 
 
+class _FailureTrackerEngine:
+    def __init__(self) -> None:
+        self.trackers = []
+
+    async def execute_turn(self, state, request: TurnRequest) -> TurnResult:
+        tracker = state.automatic_compaction_failures
+        self.trackers.append(tracker)
+        if len(self.trackers) == 1:
+            tracker.record_summary_failure()
+        return TurnResult(
+            session_id=state.ref.session_id,
+            turn_id=f"turn_{len(self.trackers)}",
+            messages=(),
+            completed=True,
+            stop_reason="completed",
+        )
+
+
 def _conversation(
     tmp_path: Path,
     *,
@@ -214,6 +232,27 @@ async def test_external_append_between_cold_load_and_publish_stays_visible(
     await session.submit_turn(TurnRequest(parts=({"type": "text", "text": "second"},)))
 
     assert "during-cold-load" in engine.histories[-1]
+
+
+@pytest.mark.asyncio
+async def test_automatic_compaction_failures_survive_payload_reload_and_eviction(
+    tmp_path: Path,
+) -> None:
+    engine = _FailureTrackerEngine()
+    session, _files, _selected = _conversation(tmp_path, engine=engine)
+
+    await session.submit_turn(TurnRequest(parts=({"type": "text", "text": "one"},)))
+    session.append_external(
+        ExternalMessage(role="user", content="external", message_id="external-1")
+    )
+    await session.submit_turn(TurnRequest(parts=({"type": "text", "text": "two"},)))
+    assert session.try_evict_payload() is True
+    await session.submit_turn(
+        TurnRequest(parts=({"type": "text", "text": "three"},))
+    )
+
+    assert engine.trackers[0] is engine.trackers[1] is engine.trackers[2]
+    assert engine.trackers[-1].consecutive_failures == 1
 
 
 @pytest.mark.asyncio

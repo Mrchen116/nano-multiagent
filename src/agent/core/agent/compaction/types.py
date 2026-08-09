@@ -14,6 +14,24 @@ class CompactionReason(StrEnum):
     MANUAL = "manual"
 
 
+@dataclass(slots=True)
+class AutomaticCompactionFailureTracker:
+    """Track consecutive automatic summary failures for one conversation."""
+
+    consecutive_failures: int = 0
+
+    def record_summary_failure(self) -> int:
+        """Increment and return the conversation's consecutive failure count."""
+
+        self.consecutive_failures += 1
+        return self.consecutive_failures
+
+    def reset(self) -> None:
+        """Clear failures after a successfully committed compaction."""
+
+        self.consecutive_failures = 0
+
+
 @dataclass(frozen=True, slots=True)
 class CompactionSettings:
     """Configure runtime compaction thresholds and summarization behavior."""
