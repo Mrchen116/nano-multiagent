@@ -172,12 +172,13 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
             if kind == "summary":
                 calls, results = _tool_pair_ids(body)
-                valid = (
-                    calls == results == {"compaction-read-1"}
-                    and self.sentinel in json.dumps(body, ensure_ascii=False)
-                )
+                valid = calls == results == {
+                    "compaction-read-1"
+                } and self.sentinel in json.dumps(body, ensure_ascii=False)
                 if not valid:
-                    self.send_error(422, "summary request lost tool pairing or objective")
+                    self.send_error(
+                        422, "summary request lost tool pairing or objective"
+                    )
                     return
                 type(self)._summary_completed = True
                 summary = (
@@ -198,9 +199,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 response = _sse_text("<block>no</block>", input_tokens=100)
             elif kind == "post_summary":
                 type(self)._post_summary_count += 1
-                prefix = (
-                    "CONTINUED" if self._post_summary_count == 1 else "RESTARTED"
-                )
+                prefix = "CONTINUED" if self._post_summary_count == 1 else "RESTARTED"
                 response = _sse_text(f"{prefix} {self.sentinel}", input_tokens=100)
             else:
                 response = _sse_read_call()
@@ -220,7 +219,9 @@ def main() -> int:
     record_path = os.environ.get("NANO_FIXTURE_RECORD_PATH", "").strip()
     sentinel = os.environ.get("NANO_FIXTURE_SENTINEL", "").strip()
     if not record_path or not sentinel:
-        sys.stderr.write("NANO_FIXTURE_RECORD_PATH and NANO_FIXTURE_SENTINEL are required\n")
+        sys.stderr.write(
+            "NANO_FIXTURE_RECORD_PATH and NANO_FIXTURE_SENTINEL are required\n"
+        )
         return 2
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 19995
     _Handler.record_path = record_path

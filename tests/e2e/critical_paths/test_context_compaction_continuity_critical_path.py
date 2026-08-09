@@ -102,8 +102,10 @@ def test_tool_history_compacts_and_survives_gateway_restart(
         client.send_message(conversation_id, "现在继续原任务，并原样给出目标标记。")
         second = ws.wait_for_event(
             "message.completed",
-            lambda frame: frame.conversation_id == conversation_id
-            and _SENTINEL in str(frame.data.get("content") or ""),
+            lambda frame: (
+                frame.conversation_id == conversation_id
+                and _SENTINEL in str(frame.data.get("content") or "")
+            ),
         )
         assert _SENTINEL in str(second.data.get("content") or "")
     finally:
@@ -146,8 +148,10 @@ def test_tool_history_compacts_and_survives_gateway_restart(
         client.send_message(conversation_id, "重启后再次原样给出之前的目标标记。")
         restarted = ws_after_restart.wait_for_event(
             "message.completed",
-            lambda frame: frame.conversation_id == conversation_id
-            and _SENTINEL in str(frame.data.get("content") or ""),
+            lambda frame: (
+                frame.conversation_id == conversation_id
+                and _SENTINEL in str(frame.data.get("content") or "")
+            ),
         )
         assert _SENTINEL in str(restarted.data.get("content") or "")
     finally:

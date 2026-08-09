@@ -92,9 +92,7 @@ class AgentLoop:
         compaction_planner: CompactionPlanner | None = None,
         compaction_summarizer: CompactionSummarizer | None = None,
         compaction_settings: CompactionSettings | None = None,
-        automatic_compaction_failures: Callable[
-            [], AutomaticCompactionFailureTracker
-        ]
+        automatic_compaction_failures: Callable[[], AutomaticCompactionFailureTracker]
         | None = None,
         on_compaction: Callable[[str], None] | None = None,
         capture_compaction_epoch: Callable[[], int] | None = None,

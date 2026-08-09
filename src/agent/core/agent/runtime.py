@@ -1917,9 +1917,7 @@ class AgentEngine:
     ) -> None:
         """Publish the safe user notice before the run reaches failed terminal."""
 
-        message = _build_compaction_error_message(
-            parent_message_id=parent_message_id
-        )
+        message = _build_compaction_error_message(parent_message_id=parent_message_id)
         run_id = hook_ctx.metadata.get("run_id")
         message_payload: dict[str, Any] = {
             "session_id": session_id,

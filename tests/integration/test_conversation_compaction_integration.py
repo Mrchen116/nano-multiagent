@@ -58,9 +58,7 @@ async def _submit_and_collect(kernel, session_id: str, workspace: Path, text: st
         workspace_root=workspace,
     )
     events: list[dict[str, Any]] = []
-    async for event in kernel.stream(
-        session_id, after_sequence=run.start_sequence
-    ):
+    async for event in kernel.stream(session_id, after_sequence=run.start_sequence):
         if event.get("run_id") != run.run_id:
             continue
         events.append(event)

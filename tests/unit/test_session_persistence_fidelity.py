@@ -389,9 +389,7 @@ def test_compaction_projection_matches_latest_recoverable_transcript(
                 parent_message_id="compact-summary",
                 role="user",
                 content="inspect the structured source",
-                parts=(
-                    {"type": "text", "text": "inspect the structured source"},
-                ),
+                parts=({"type": "text", "text": "inspect the structured source"},),
             ),
             Message(
                 message_id="normal-tool-call",
