@@ -6,12 +6,39 @@ from enum import StrEnum
 from agent.core.session.entries import SessionEntry
 
 
+AUTOMATIC_COMPACTION_FAILURE_LIMIT = 3
+
+
 class CompactionReason(StrEnum):
     """Enumerate reasons that can trigger context compaction."""
 
     THRESHOLD = "threshold"
     OVERFLOW = "overflow"
     MANUAL = "manual"
+
+
+@dataclass(slots=True)
+class AutomaticCompactionFailureTracker:
+    """Track consecutive automatic summary failures for one conversation."""
+
+    consecutive_failures: int = 0
+
+    def record_summary_failure(self) -> int:
+        """Increment and return the conversation's consecutive failure count."""
+
+        self.consecutive_failures += 1
+        return self.consecutive_failures
+
+    def reset(self) -> None:
+        """Clear failures after a successfully committed compaction."""
+
+        self.consecutive_failures = 0
+
+    @property
+    def exhausted(self) -> bool:
+        """Return whether automatic summarization must remain open-circuited."""
+
+        return self.consecutive_failures >= AUTOMATIC_COMPACTION_FAILURE_LIMIT
 
 
 @dataclass(frozen=True, slots=True)

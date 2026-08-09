@@ -5,8 +5,15 @@ from typing import Any
 
 from agent.core.errors import ModelError
 from agent.core.llm.interfaces import LLMGenerateRequest, LLMMessage
+from agent.core.session.types import SessionRef
 from agent.core.types import TokenUsage
 from agent.sdk import LLMConfig, LLMModel, LLMProvider, build_kernel
+
+
+COMPACTION_FAILURE_TEXT = (
+    "上下文压缩失败，已停止本轮以避免丢失对话内容。原对话仍保留。"
+    "请稍后重试，或发送 /compact <希望保留的重点> 后继续。"
+)
 
 
 def _is_summary_request(request: LLMGenerateRequest) -> bool:
@@ -42,6 +49,53 @@ async def _wait_for_terminal(kernel, run_id: str, *, timeout: float = 3.0):  # n
             return record
         await asyncio.sleep(0.02)
     raise AssertionError(f"run {run_id} did not finish")
+
+
+async def _submit_and_collect(kernel, session_id: str, workspace: Path, text: str):  # noqa: ANN001, ANN201
+    run = kernel.submit(
+        session_id=session_id,
+        parts=[{"type": "text", "text": text}],
+        workspace_root=workspace,
+    )
+    events: list[dict[str, Any]] = []
+    async for event in kernel.stream(
+        session_id, after_sequence=run.start_sequence
+    ):
+        if event.get("run_id") != run.run_id:
+            continue
+        events.append(event)
+        if event.get("event") == "run_status" and event.get("status") in {
+            "completed",
+            "failed",
+            "cancelled",
+        }:
+            break
+    record = kernel.get_run(run.run_id)
+    assert record is not None
+    return record, events
+
+
+def _assert_compaction_prompt_before_failed(events: list[dict[str, Any]]) -> None:
+    prompt_index = next(
+        index
+        for index, event in enumerate(events)
+        if event.get("event") == "assistant_message"
+        and event.get("content") == COMPACTION_FAILURE_TEXT
+    )
+    failed_index = next(
+        index
+        for index, event in enumerate(events)
+        if event.get("event") == "run_status" and event.get("status") == "failed"
+    )
+    assert prompt_index < failed_index
+
+
+def _terminal_error(events: list[dict[str, Any]]) -> dict[str, Any]:
+    return next(
+        event["error"]
+        for event in events
+        if event.get("event") == "run_status" and event.get("status") == "failed"
+    )
 
 
 def _request_text(request: LLMGenerateRequest) -> str:
@@ -321,3 +375,337 @@ async def test_overflow_compaction_retries_and_reopens_from_jsonl(
         assert "OVERFLOW-REPLAY" in _request_text(reopened_requests[-1])
     finally:
         second_kernel.close()
+
+
+async def test_threshold_summary_failure_stops_on_third_attempt_without_boundary(
+    tmp_path: Path,
+) -> None:
+    class _Client:
+        def __init__(self) -> None:
+            self.summary_calls = 0
+
+        async def generate(self, request: LLMGenerateRequest):  # noqa: ANN201
+            if _is_summary_request(request):
+                self.summary_calls += 1
+                yield LLMMessage(role="assistant", content="")
+                yield LLMMessage(role="assistant", content="", finish_reason="stop")
+                return
+            yield LLMMessage(role="assistant", content="continued")
+            yield LLMMessage(
+                role="assistant",
+                content="",
+                finish_reason="stop",
+                usage=TokenUsage(10_000, 10, 10_010),
+            )
+
+    client = _Client()
+    kernel = build_kernel(
+        llm=_compaction_llm(),
+        repo_root=tmp_path,
+        _llm_client_override=client,
+    )
+    try:
+        session = await kernel.create_session(workspace_root=tmp_path)
+        for text in ("seed", "failure-one", "failure-two"):
+            record, _events = await _submit_and_collect(
+                kernel, session.session_id, tmp_path, text
+            )
+            assert record.status == "completed"
+
+        failed, events = await _submit_and_collect(
+            kernel, session.session_id, tmp_path, "failure-three"
+        )
+
+        assert failed.status == "failed"
+        assert _terminal_error(events) == {
+            "code": "compaction_failed",
+            "message": "context compaction failed",
+            "retryable": True,
+            "details": {
+                "trigger": "threshold",
+                "failure_kind": "summary",
+                "consecutive_failures": 3,
+            },
+        }
+        assert client.summary_calls == 3
+        _assert_compaction_prompt_before_failed(events)
+        transcript = kernel._c.directory.open(  # noqa: SLF001
+            SessionRef(session_id=session.session_id, workspace_root=tmp_path)
+        )._transcript
+        assert not any(
+            entry.__class__.__name__ == "CompactionEntry"
+            for entry in transcript.list_event_entries()
+        )
+        assert COMPACTION_FAILURE_TEXT not in {
+            message.content for message in transcript.load().messages
+        }
+    finally:
+        kernel.close()
+
+
+async def test_overflow_summary_failure_stops_without_retry_or_boundary(
+    tmp_path: Path,
+) -> None:
+    class _Client:
+        def __init__(self) -> None:
+            self.normal_calls = 0
+            self.summary_calls = 0
+
+        async def generate(self, request: LLMGenerateRequest):  # noqa: ANN201
+            if _is_summary_request(request):
+                self.summary_calls += 1
+                yield LLMMessage(role="assistant", content="")
+                yield LLMMessage(role="assistant", content="", finish_reason="stop")
+                return
+            self.normal_calls += 1
+            if self.normal_calls == 2:
+                raise ModelError(
+                    "context overflow",
+                    details={"response": "maximum context length exceeded"},
+                )
+            yield LLMMessage(role="assistant", content="seeded")
+            yield LLMMessage(role="assistant", content="", finish_reason="stop")
+
+    client = _Client()
+    kernel = build_kernel(
+        llm=_compaction_llm(),
+        repo_root=tmp_path,
+        _llm_client_override=client,
+    )
+    try:
+        session = await kernel.create_session(workspace_root=tmp_path)
+        seeded, _events = await _submit_and_collect(
+            kernel, session.session_id, tmp_path, "seed"
+        )
+        assert seeded.status == "completed"
+
+        failed, events = await _submit_and_collect(
+            kernel, session.session_id, tmp_path, "overflow-now"
+        )
+
+        assert failed.status == "failed"
+        assert _terminal_error(events) == {
+            "code": "compaction_failed",
+            "message": "context compaction failed",
+            "retryable": True,
+            "details": {
+                "trigger": "overflow",
+                "failure_kind": "summary",
+                "consecutive_failures": 1,
+                "overflow_cause": {
+                    "code": "model_error",
+                    "message": "context overflow",
+                    "retryable": True,
+                    "details": {"response": "maximum context length exceeded"},
+                },
+            },
+        }
+        assert client.normal_calls == 2
+        assert client.summary_calls == 1
+        _assert_compaction_prompt_before_failed(events)
+        transcript = kernel._c.directory.open(  # noqa: SLF001
+            SessionRef(session_id=session.session_id, workspace_root=tmp_path)
+        )._transcript
+        assert not any(
+            entry.__class__.__name__ == "CompactionEntry"
+            for entry in transcript.list_event_entries()
+        )
+        assert COMPACTION_FAILURE_TEXT not in {
+            message.content for message in transcript.load().messages
+        }
+    finally:
+        kernel.close()
+
+
+async def test_threshold_persistence_failure_is_visible_and_atomic(
+    tmp_path: Path, monkeypatch
+) -> None:  # noqa: ANN001
+    class _Client:
+        def __init__(self) -> None:
+            self.normal_calls = 0
+
+        async def generate(self, request: LLMGenerateRequest):  # noqa: ANN201
+            if _is_summary_request(request):
+                yield LLMMessage(role="assistant", content="durable summary")
+                yield LLMMessage(role="assistant", content="", finish_reason="stop")
+                return
+            self.normal_calls += 1
+            yield LLMMessage(role="assistant", content="continued")
+            yield LLMMessage(
+                role="assistant",
+                content="",
+                finish_reason="stop",
+                usage=TokenUsage(10_000, 10, 10_010),
+            )
+
+    kernel = build_kernel(
+        llm=_compaction_llm(),
+        repo_root=tmp_path,
+        _llm_client_override=_Client(),
+    )
+    try:
+        session = await kernel.create_session(workspace_root=tmp_path)
+        seeded, _events = await _submit_and_collect(
+            kernel, session.session_id, tmp_path, "seed"
+        )
+        assert seeded.status == "completed"
+        transcript = kernel._c.directory.open(  # noqa: SLF001
+            SessionRef(session_id=session.session_id, workspace_root=tmp_path)
+        )._transcript
+        before = transcript._path.read_bytes()  # noqa: SLF001
+
+        def _fail_append(**_kwargs):  # noqa: ANN003, ANN202
+            raise OSError("disk unavailable")
+
+        monkeypatch.setattr(transcript, "append_compaction", _fail_append)
+        failed, events = await _submit_and_collect(
+            kernel, session.session_id, tmp_path, "persist-failure"
+        )
+
+        assert failed.status == "failed"
+        assert _terminal_error(events) == {
+            "code": "compaction_failed",
+            "message": "context compaction failed",
+            "retryable": True,
+            "details": {
+                "trigger": "threshold",
+                "failure_kind": "persistence",
+                "consecutive_failures": 0,
+                "cause": {"type": "OSError", "message": "disk unavailable"},
+            },
+        }
+        _assert_compaction_prompt_before_failed(events)
+        assert transcript._path.read_bytes() != before  # current user turn is durable
+        assert not any(
+            entry.__class__.__name__ == "CompactionEntry"
+            for entry in transcript.list_event_entries()
+        )
+        assert COMPACTION_FAILURE_TEXT not in {
+            message.content for message in transcript.load().messages
+        }
+    finally:
+        kernel.close()
+
+
+async def test_overflow_persistence_failure_preserves_both_causes(
+    tmp_path: Path, monkeypatch
+) -> None:  # noqa: ANN001
+    class _Client:
+        def __init__(self) -> None:
+            self.normal_calls = 0
+
+        async def generate(self, request: LLMGenerateRequest):  # noqa: ANN201
+            if _is_summary_request(request):
+                yield LLMMessage(role="assistant", content="summary")
+                yield LLMMessage(role="assistant", content="", finish_reason="stop")
+                return
+            self.normal_calls += 1
+            if self.normal_calls == 2:
+                raise ModelError(
+                    "context overflow",
+                    details={"response": "maximum context length exceeded"},
+                )
+            yield LLMMessage(role="assistant", content="seeded")
+            yield LLMMessage(role="assistant", content="", finish_reason="stop")
+
+    kernel = build_kernel(
+        llm=_compaction_llm(), repo_root=tmp_path, _llm_client_override=_Client()
+    )
+    try:
+        session = await kernel.create_session(workspace_root=tmp_path)
+        seeded, _events = await _submit_and_collect(
+            kernel, session.session_id, tmp_path, "seed"
+        )
+        assert seeded.status == "completed"
+        transcript = kernel._c.directory.open(  # noqa: SLF001
+            SessionRef(session_id=session.session_id, workspace_root=tmp_path)
+        )._transcript
+
+        def _fail_append(**_kwargs):  # noqa: ANN003, ANN202
+            raise OSError("disk unavailable")
+
+        monkeypatch.setattr(transcript, "append_compaction", _fail_append)
+        failed, events = await _submit_and_collect(
+            kernel, session.session_id, tmp_path, "overflow"
+        )
+
+        terminal_error = _terminal_error(events)
+        assert terminal_error["code"] == "compaction_failed"
+        assert terminal_error["details"] == {
+            "trigger": "overflow",
+            "failure_kind": "persistence",
+            "consecutive_failures": 0,
+            "cause": {"type": "OSError", "message": "disk unavailable"},
+            "overflow_cause": {
+                "code": "model_error",
+                "message": "context overflow",
+                "retryable": True,
+                "details": {"response": "maximum context length exceeded"},
+            },
+        }
+        _assert_compaction_prompt_before_failed(events)
+    finally:
+        kernel.close()
+
+
+async def test_overflow_stale_commit_keeps_original_error_and_does_not_count(
+    tmp_path: Path, monkeypatch
+) -> None:  # noqa: ANN001
+    class _Client:
+        def __init__(self) -> None:
+            self.normal_calls = 0
+            self.summary_calls = 0
+
+        async def generate(self, request: LLMGenerateRequest):  # noqa: ANN201
+            if _is_summary_request(request):
+                self.summary_calls += 1
+                content = "stale summary" if self.summary_calls == 1 else ""
+                yield LLMMessage(role="assistant", content=content)
+                yield LLMMessage(role="assistant", content="", finish_reason="stop")
+                return
+            self.normal_calls += 1
+            if self.normal_calls >= 2:
+                raise ModelError(
+                    "context overflow",
+                    details={"response": "maximum context length exceeded"},
+                )
+            yield LLMMessage(role="assistant", content="seeded")
+            yield LLMMessage(role="assistant", content="", finish_reason="stop")
+
+    client = _Client()
+    kernel = build_kernel(
+        llm=_compaction_llm(), repo_root=tmp_path, _llm_client_override=client
+    )
+    try:
+        session = await kernel.create_session(workspace_root=tmp_path)
+        seeded, _events = await _submit_and_collect(
+            kernel, session.session_id, tmp_path, "seed"
+        )
+        assert seeded.status == "completed"
+        transcript = kernel._c.directory.open(  # noqa: SLF001
+            SessionRef(session_id=session.session_id, workspace_root=tmp_path)
+        )._transcript
+        original_append = transcript.append_compaction
+        monkeypatch.setattr(transcript, "append_compaction", lambda **_kwargs: False)
+
+        stale, stale_events = await _submit_and_collect(
+            kernel, session.session_id, tmp_path, "stale-overflow"
+        )
+
+        assert _terminal_error(stale_events) == {
+            "code": "run_execution_failed",
+            "message": "context overflow",
+        }
+        assert not any(
+            event.get("content") == COMPACTION_FAILURE_TEXT for event in stale_events
+        )
+
+        monkeypatch.setattr(transcript, "append_compaction", original_append)
+        failed, events = await _submit_and_collect(
+            kernel, session.session_id, tmp_path, "summary-failure"
+        )
+
+        assert _terminal_error(events)["details"]["consecutive_failures"] == 1
+        _assert_compaction_prompt_before_failed(events)
+    finally:
+        kernel.close()

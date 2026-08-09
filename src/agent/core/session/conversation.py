@@ -9,7 +9,10 @@ from enum import StrEnum
 from typing import Protocol
 
 from agent.core.types import Message, TokenUsage, ToolCall, TurnResult
-from agent.core.agent.compaction.types import CompactionResult
+from agent.core.agent.compaction.types import (
+    AutomaticCompactionFailureTracker,
+    CompactionResult,
+)
 
 from .context_state import MemorySnapshot, SessionFileState
 from .transcript import JsonlTranscript
@@ -35,6 +38,7 @@ class ConversationState:
     prompt_seed: PromptSlotSeed
     transcript: JsonlTranscript
     file_state: SessionFileState
+    automatic_compaction_failures: AutomaticCompactionFailureTracker
     memory_snapshot: MemorySnapshot | None = None
     last_prompt_tokens: int | None = None
     partial_turn_id: str | None = None
@@ -175,6 +179,7 @@ class ConversationSession:
         self._transcript = transcript
         self._engine = engine
         self._subagent_control = subagent_control
+        self._automatic_compaction_failures = AutomaticCompactionFailureTracker()
         self._lifecycle = _LifecyclePermitGate()
         self._turn_gate = asyncio.Lock()
         self._load_gate = asyncio.Lock()
@@ -422,6 +427,7 @@ class ConversationSession:
                 prompt_seed=loaded.prompt_seed,
                 transcript=self._transcript,
                 file_state=SessionFileState(),
+                automatic_compaction_failures=self._automatic_compaction_failures,
                 subagent_control=self._subagent_control,
             )
             with self._state_guard:
