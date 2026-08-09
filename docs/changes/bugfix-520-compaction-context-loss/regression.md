@@ -251,3 +251,67 @@ PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/pytest -q \
 ## Recommended Action
 
 `pass`。五项 focus 已关闭，继续 verifier / code review / PR 收尾；`needs_re_review=false`。
+
+---
+
+# Round 3 — 2026-08-10
+
+> Validation snapshot: `1d0c2cb45b887162912402b0fb489cdf3a1ad9c9 → 52756f1e0acaa51b4449ee365a40d541cc93a4e8`
+>
+> Revalidation mode: `targeted`（Fast-lane）
+>
+> Fix delta: `f9db02d958e9972e229a774036eaa40df8d454c4..52756f1e0acaa51b4449ee365a40d541cc93a4e8`
+
+## Verdict
+
+- **Verdict**: `pass`
+- **Highest Required Action**: `pass`
+- **Issues**: blocking 0 / major 0 / minor 0
+- **结论**: R7 的两项消费者结果可以同时成立：manual compaction summary 继续经过正确 workspace observer scope；其内部 assistant/turn event 仍不进入 parent Kernel stream，因此不会进入飞书 original-chat / IM-shadow 投递 seam。无需扩回 full review。
+
+## Fast-lane 范围
+
+R7 只调整 summary side-chain 的 hook context 传播。本轮继承 Round 1/2 全部未受影响结论，只复验：
+
+1. public `Kernel.compact()` 触发 summary 时，originating workspace 的 observer hook 仍以正确 consumer scope 执行。
+2. 同一次内部 summary 的 assistant/turn event 不发布到 parent Kernel stream；正常用户 assistant/control text 的 Feishu external + IM shadow 投递保持可用。
+
+## Targeted Coverage
+
+| Focus Scenario | Consumer 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|
+| public Kernel manual compact 保留 workspace observer hook scope | 真实 workspace hook 文件 + public `Kernel.compact()` | `test_manual_compaction_summary_keeps_workspace_hook_scope` | pass | observer 收到 originating `.consumer` scope |
+| summary assistant/turn 不进入 parent Kernel stream | parent session event publisher seam | `test_compaction_summarizer_does_not_publish_sidechain_events` | pass | 内部 summary 文本不成为用户事件 |
+| 无内部 event 时不会误投递飞书 original chat / IM shadow，正常用户文本投递不受损 | 受控 Feishu external + durable shadow adapter | 两个 external-visible-delivery scenarios | pass | event isolation 与正常 delivery 同时成立 |
+
+## Validation Evidence
+
+```text
+PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/pytest -vv \
+  tests/unit/agent/test_workspace_scope_observer_hooks.py::test_manual_compaction_summary_keeps_workspace_hook_scope \
+  tests/unit/test_loop_compact.py::test_compaction_summarizer_does_not_publish_sidechain_events \
+  tests/unit/personal_assistant/test_external_visible_delivery.py::test_feishu_intermediate_reply_goes_to_external_without_im_manager \
+  tests/unit/personal_assistant/test_external_visible_delivery.py::test_feishu_visible_control_text_goes_to_external_and_shadow_im
+→ 4 passed, 2 third-party deprecation warnings in 5.23s
+```
+
+本 delta 仅触及 summary side-chain hook context 与对应测试；targeted 旅程通过，未观察到新副作用或 stale service 风险，因此 Fast-lane 不升级为完整验收。
+
+## Issues
+
+无。
+
+## Side Findings
+
+无。两条 `lark_oapi` deprecation warning 与前两轮一致，不影响本 unit 用户旅程。
+
+## 上层文档同步
+
+- [x] `SPEC.md`：**无需更新**。
+- [x] `docs/specs/<包>/`：**维持 Round 1/2 结论**；R7 不改变用户契约，仅恢复既有 workspace observer routing。
+- [x] `AGENTS.md` / `CLAUDE.md`：**无需更新**。
+- [x] `docs/specs/CONTRIBUTING.md`：**无需更新**。
+
+## Recommended Action
+
+`pass`。R7 targeted concern 已关闭；继续最终 verifier / code review / PR 收尾，`needs_re_review=false`。
