@@ -174,7 +174,7 @@ class JsonlTranscript:
         with self._mutex:
             self._writer.durable_barrier(self._path)
             raw_lines = list(self._files.read_raw_entries(self._ref))
-        turns = {
+        raw_turns = {
             raw["uuid"]: raw
             for raw in raw_lines
             if raw.get("type") == "turn" and isinstance(raw.get("uuid"), str)
@@ -193,22 +193,9 @@ class JsonlTranscript:
                         data=raw,
                     )
                 )
-            elif entry_type == "turn":
-                entries.append(
-                    new_turn_appended_entry(
-                        session_id=self._ref.session_id,
-                        turn_id=str(raw.get("turn_id") or ""),
-                        role=str(raw.get("role") or ""),
-                        content=str(raw.get("content") or ""),
-                        message_id=str(raw.get("uuid") or ""),
-                        parts=raw.get("parts"),
-                        metadata=_turn_metadata(raw),
-                        created_at=created_at,
-                    )
-                )
             elif entry_type == "compact_boundary":
                 summary_uuid = raw.get("summary_uuid")
-                summary = turns.get(summary_uuid, {}).get("content", "")
+                summary = raw_turns.get(summary_uuid, {}).get("content", "")
                 entries.append(
                     new_compaction_entry(
                         session_id=self._ref.session_id,
@@ -220,6 +207,25 @@ class JsonlTranscript:
                         created_at=created_at,
                     )
                 )
+        for message in _project_recoverable_messages(raw_lines):
+            raw = raw_turns.get(message.message_id, {})
+            entries.append(
+                new_turn_appended_entry(
+                    session_id=self._ref.session_id,
+                    turn_id=str(raw.get("turn_id") or ""),
+                    role=message.role,
+                    content=message.content,
+                    message_id=message.message_id,
+                    parent_message_id=message.parent_message_id,
+                    tool_call_id=message.tool_call_id,
+                    group_id=message.group_id,
+                    reasoning_content=message.reasoning_content,
+                    reasoning_signature=message.reasoning_signature,
+                    parts=message.parts,
+                    metadata=message.metadata,
+                    created_at=str(raw.get("timestamp") or utc_now_iso()),
+                )
+            )
         return tuple(entries)
 
     def append_messages(
@@ -311,6 +317,7 @@ class JsonlTranscript:
                     role=role,
                     content=request.content,
                     message_id=message_id,
+                    parent_message_id=entry.get("parent_uuid"),
                     parts=request.parts,
                     metadata=metadata,
                 ),
@@ -629,6 +636,11 @@ class JsonlTranscript:
                 role=str(entry.get("role") or "user"),
                 content=str(entry.get("content") or ""),
                 message_id=str(entry.get("uuid") or ""),
+                parent_message_id=entry.get("parent_uuid"),
+                tool_call_id=entry.get("tool_call_id"),
+                group_id=entry.get("group_id"),
+                reasoning_content=entry.get("reasoning_content"),
+                reasoning_signature=entry.get("reasoning_signature"),
                 parts=entry.get("parts"),
                 metadata=metadata,
                 created_at=str(entry.get("timestamp") or utc_now_iso()),
@@ -658,20 +670,32 @@ def _materialize(
         raw = raw[: cut + 1]
 
     config: dict[str, Any] = {}
-    boundary = -1
-    for index, entry in enumerate(raw):
+    for entry in raw:
         entry_type = entry.get("type")
         if entry_type == "session_created":
             config = _extract_config(entry)
         elif entry_type == "config_update":
             config = _merge_config(config, entry)
-        elif entry_type == "compact_boundary":
-            boundary = index
     resolved = _to_config(ref, config)
     prompt_seed = PromptSlotSeed.from_metadata(
         resolved.metadata.get(INTERNAL_PROMPT_SLOTS_KEY)
     )
 
+    messages = _project_recoverable_messages(raw)
+    return TranscriptLoad(config=resolved, messages=messages, prompt_seed=prompt_seed)
+
+
+def _project_recoverable_messages(raw: list[dict[str, Any]]) -> list[Message]:
+    """Materialize the latest active branch with persisted tool recoveries."""
+
+    boundary = max(
+        (
+            index
+            for index, entry in enumerate(raw)
+            if entry.get("type") == "compact_boundary"
+        ),
+        default=-1,
+    )
     recoveries: dict[str, dict[str, Any]] = {}
     for entry in raw:
         if entry.get("type") != "tool_call_recovery":
@@ -681,9 +705,7 @@ def _materialize(
             recoveries.setdefault(call_id, entry)
     source = raw[boundary + 1 :] if boundary >= 0 else raw
     turns = [entry for entry in source if entry.get("type") == "turn"]
-    messages = _materialize_turns(turns)
-    messages = _inject_recovery_messages(messages, recoveries)
-    return TranscriptLoad(config=resolved, messages=messages, prompt_seed=prompt_seed)
+    return _inject_recovery_messages(_materialize_turns(turns), recoveries)
 
 
 def _materialize_turns(turns: list[dict[str, Any]]) -> list[Message]:

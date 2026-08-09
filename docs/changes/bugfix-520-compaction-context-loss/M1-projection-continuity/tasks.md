@@ -35,13 +35,13 @@
 
 ### R1 — canonical recoverable projection 与字段对称
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 先补真实 transcript 双路径语义等价红测，再让 `load()` / event projection 共享 latest-boundary active/recovery materialization，并对称搬运 durable Message 字段。
 - 验证: persistence fidelity 整文件；provider mapper 能接受 projected normal/recovery tool pairs。
 
 ### R2 — recording fixture 与真进程压缩/重启旅程
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 先落会在旧投影上失败的 E2E；新增短状态机 recording fixture，泛化既有 stack fixture 的 script/env/context window，跑通真实工具、threshold compact、继续、Gateway restart、继续。
 - 验证: 新 E2E 单独绿色，recording request 与 session JSONL 同时证明有效 summary/boundary。
 
