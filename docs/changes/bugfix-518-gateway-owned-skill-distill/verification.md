@@ -157,8 +157,8 @@ Verdict: **pass** — 0 critical issue(s), 0 warning(s), 0 suggestion(s).
 
 ## Corrected Delta Reconciliation
 
-> Mode: `corrected-delta`  
-> Code snapshot: `ff27a30b4ab3759213ec148ae46f0a6a6d23a12a → dd51b57d1b5fadec3bc657faf0be05e8891cad45`  
+> Mode: `corrected-delta`
+> Code snapshot: `ff27a30b4ab3759213ec148ae46f0a6a6d23a12a → dd51b57d1b5fadec3bc657faf0be05e8891cad45`
 > Canonical-doc input: the uncommitted changes to `docs/specs/im/web-chat-ux.md`,
 > `docs/specs/gateway/relay-protocol.md`, and `docs/specs/gateway/spec.md` in the
 > unit worktree (patch SHA-256 `de4f826fa2569bae136669526584e46e8dbd7cb6a044d3905f6dbd468637300d`).
