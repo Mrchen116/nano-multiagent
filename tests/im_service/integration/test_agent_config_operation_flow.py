@@ -6,6 +6,10 @@ import threading
 from fastapi.testclient import TestClient
 
 from IM.app import create_app
+from IM.application.agent_config_operations import candidate_fingerprint
+from IM.infra.repositories.agent_config_operations import (
+    AgentConfigOperationRepository,
+)
 from IM.infra.repositories.agents import AgentProfileRepository
 from IM.infra.repositories.nodes import NodeRepository
 
@@ -99,6 +103,77 @@ def test_pending_apply_recovers_from_status_before_profile_read(tmp_path: Path) 
             (captured["operation_id"],),
         ).fetchone()
         assert operation["status"] == "committed"
+
+
+def test_pending_explicit_empty_skills_recovery_preserves_canonical_candidate(
+    tmp_path: Path,
+) -> None:
+    """Keep explicit zero-Skill selection intact across lost-ACK recovery."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner = register_user(client, username="owner", display_name="Owner")
+        authorize(client, owner)
+        _seed_agent(app, owner_id=owner.owner_id)
+        captured: dict[str, object] = {}
+        payload = _update_payload()
+        payload.update(
+            skills=[],
+            skills_selection_mode="explicit_allowlist",
+        )
+
+        async def lost_apply(**kwargs):
+            captured.update(kwargs)
+            return None
+
+        async def pending_status(**kwargs):
+            return {"operation_id": kwargs["operation_id"], "status": "pending"}
+
+        app.state.gateway_control.request_agent_config_apply = lost_apply
+        app.state.gateway_control.request_agent_config_operation_status = pending_status
+        pending = client.patch("/im/v1/agents/agent-1/config", json=payload)
+
+        assert pending.status_code == 503
+        assert captured["payload"]["skills"] == []
+        assert captured["payload"]["skills_selection_mode"] == "explicit_allowlist"
+        operation = AgentConfigOperationRepository(app.state.connection).get(
+            operation_id=str(captured["operation_id"])
+        )
+        assert operation is not None
+        assert operation.candidate["skills"] == []
+        assert operation.candidate["skills_selection_mode"] == "explicit_allowlist"
+        assert operation.candidate_fingerprint == candidate_fingerprint(
+            operation.candidate
+        )
+        assert operation.candidate_fingerprint == captured["candidate_fingerprint"]
+
+        async def applied_status(**kwargs):
+            return {
+                "operation_id": kwargs["operation_id"],
+                "status": "applied",
+                "candidate_fingerprint": captured["candidate_fingerprint"],
+                "agent": captured["payload"],
+            }
+
+        app.state.gateway_control.request_agent_config_operation_status = applied_status
+        recovered = client.get("/im/v1/agents/agent-1/config?source=mirror")
+
+        assert recovered.status_code == 200
+        assert recovered.json()["skills"] == []
+        assert recovered.json()["skills_selection_mode"] == "explicit_allowlist"
+        assert recovered.json()["profile_version"] == 2
+        stored = AgentProfileRepository(app.state.connection).get_profile(
+            agent_id="agent-1"
+        )
+        assert stored is not None
+        assert stored.skills == []
+        assert stored.skills_selection_mode == "explicit_allowlist"
+        committed = AgentConfigOperationRepository(app.state.connection).get(
+            operation_id=str(captured["operation_id"])
+        )
+        assert committed is not None
+        assert committed.status == "committed"
+        assert committed.candidate["skills"] == []
+        assert committed.candidate["skills_selection_mode"] == "explicit_allowlist"
 
 
 def test_pending_apply_surfaces_recovered_rejection(tmp_path: Path) -> None:
@@ -281,6 +356,11 @@ def test_im_cas_loss_recovers_compensation_before_conflict(tmp_path: Path) -> No
         authorize(client, owner)
         _seed_agent(app, owner_id=owner.owner_id)
         calls: list[dict[str, object]] = []
+        payload = _update_payload()
+        payload.update(
+            skills=[],
+            skills_selection_mode="explicit_allowlist",
+        )
 
         async def applied_with_concurrent_im_write(**kwargs):
             calls.append(kwargs)
@@ -290,7 +370,8 @@ def test_im_cas_loss_recovers_compensation_before_conflict(tmp_path: Path) -> No
                     profile_version=1,
                     display_name="Concurrent winner",
                     description="winner",
-                    skills=["plan"],
+                    skills=[],
+                    skills_selection_mode="explicit_allowlist",
                     tool_allowlist=["read"],
                     group_reply_policy="manual",
                     default_model="model-a",
@@ -308,16 +389,31 @@ def test_im_cas_loss_recovers_compensation_before_conflict(tmp_path: Path) -> No
         app.state.gateway_control.request_agent_config_apply = (
             applied_with_concurrent_im_write
         )
-        response = client.patch("/im/v1/agents/agent-1/config", json=_update_payload())
+        response = client.patch("/im/v1/agents/agent-1/config", json=payload)
 
         assert response.status_code == 503
         assert response.json()["detail"]["code"] == "config_apply_pending"
         assert len(calls) == 2
+        assert calls[0]["payload"]["skills"] == []
+        assert calls[0]["payload"]["skills_selection_mode"] == "explicit_allowlist"
         assert calls[1]["payload"]["display_name"] == "Concurrent winner"
+        assert calls[1]["payload"]["skills"] == []
+        assert calls[1]["payload"]["skills_selection_mode"] == "explicit_allowlist"
         assert (
             calls[1]["expected_previous_fingerprint"]
             == calls[0]["candidate_fingerprint"]
         )
+        compensation = AgentConfigOperationRepository(app.state.connection).get_active(
+            agent_id="agent-1", owner_id=owner.owner_id
+        )
+        assert compensation is not None
+        assert compensation.operation_kind == "compensation"
+        assert compensation.candidate["skills"] == []
+        assert compensation.candidate["skills_selection_mode"] == "explicit_allowlist"
+        assert compensation.candidate_fingerprint == candidate_fingerprint(
+            compensation.candidate
+        )
+        assert compensation.candidate_fingerprint == calls[1]["candidate_fingerprint"]
 
         async def applied_status(**kwargs):
             assert kwargs["operation_id"] == calls[1]["operation_id"]
@@ -337,8 +433,15 @@ def test_im_cas_loss_recovers_compensation_before_conflict(tmp_path: Path) -> No
         )
         assert stored is not None
         assert stored.display_name == "Concurrent winner"
+        assert stored.skills == []
+        assert stored.skills_selection_mode == "explicit_allowlist"
         assert stored.reasoning_effort == "low"
         assert stored.profile_version == 2
+        committed_compensation = AgentConfigOperationRepository(
+            app.state.connection
+        ).get(operation_id=str(calls[1]["operation_id"]))
+        assert committed_compensation is not None
+        assert committed_compensation.status == "committed"
         statuses = [
             row["status"]
             for row in app.state.connection.execute(

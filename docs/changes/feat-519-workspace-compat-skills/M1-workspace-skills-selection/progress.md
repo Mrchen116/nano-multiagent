@@ -2,7 +2,8 @@
 
 ## Status
 
-- State: implementation complete; independent gates pending.
+- State: implementation complete; verifier round-one implementation fixes complete;
+  independent gates pending.
 - Executed base: `1d0c2cb45`.
 - Baseline: 27 focused Python tests and 37 focused frontend tests passed.
 
@@ -30,6 +31,16 @@ runtime projection, and the Web IM create/detail/chat surfaces.
 - Static Feishu bundle reconciliation now persists `explicit_allowlist` when it
   actually appends names to a legacy non-empty allowlist. It leaves legacy/default
   zero-Skill selections and already-complete legacy allowlists unmigrated.
+- Kernel session creation preserves the distinction between omitted Skills and an
+  explicit empty allowlist. A real-session regression verifies both the stored
+  runtime and model/tool boundary, including rejection of `skill_view` without
+  exposing the discovered Skill body.
+- Agent detail prompt preview projects the effective selection rather than the
+  stored names alone: default discovery sends the current capability names, while
+  explicit mode sends the exact allowlist, including empty.
+- Lost-ACK recovery keeps explicit-empty Skill intent in the durable candidate,
+  canonical fingerprint, Gateway apply payload, and committed IM profile. The
+  existing CAS-loss compensation path now protects the same tri-state fields.
 
 ## Evidence
 
@@ -47,6 +58,27 @@ runtime projection, and the Web IM create/detail/chat surfaces.
 - Gate follow-up: `pytest -q tests/unit/personal_assistant/test_gateway_launch.py`
   → 10 passed, including the persisted YAML regression. The expanded Gateway
   reconciliation suite → 47 passed.
+- Verifier round-one focused regressions:
+  - `pytest -q tests/integration/test_empty_skill_allowlist_wiring.py` → 1 passed.
+  - `pytest -q tests/im_service/integration/test_agent_config_operation_flow.py -k
+    'explicit_empty or compensation'` → 2 passed.
+  - `npm test -- --run
+    src/features/settings/agents/agent-detail-page.test.tsx` → 18 passed; only
+    pre-existing React `act(...)` warnings were emitted.
+- Verifier round-one expanded regression suites:
+  - `pytest -q tests/integration/test_empty_skill_allowlist_wiring.py
+    tests/integration/test_empty_tool_allowlist_wiring.py
+    tests/integration/test_session_run_coordinator_real_kernel.py
+    tests/im_service/integration/test_agent_config_operation_flow.py
+    tests/im_service/unit/test_agent_config_operations.py` → 16 passed.
+  - `npm test -- --run
+    src/features/settings/agents/agent-detail-page.test.tsx
+    src/features/settings/agents/agent-edit.test.tsx
+    src/features/settings/agents/im-agent-config-api.test.ts` → 39 passed; only
+    pre-existing React `act(...)` and test-runtime warnings were emitted.
+  - `npm run build` passed; Vite retained its existing large-chunk warning.
+  - `ruff check src tests`, `ruff format --check src tests`, `git diff --check`,
+    and `PYTHON=/Users/czj/miniforge3/bin/python ./scripts/docs-check` passed.
 
 ## Remaining gates
 

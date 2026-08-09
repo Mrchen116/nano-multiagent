@@ -21,6 +21,7 @@ import { SkillSourceSelector } from "./skill-source-selector";
 import { AgentChannelsPanel } from "./agent-channels-panel";
 import { useAgentStatusBroadcastConsumer } from "./agent-status-ws-consumer";
 import {
+  AgentAllowlistOption,
   AgentConfig,
   AgentFeature,
   CronJobSummary,
@@ -120,6 +121,7 @@ interface BehaviorCardProps {
   agentId: string;
   draft: AgentConfigFormState;
   capabilityFeatures: AgentFeature[];
+  capabilitySkills: AgentAllowlistOption[];
   onCustomPromptChange: (value: string) => void;
   onFeatureToggle: (key: string, value: boolean) => void;
   onPolicyChange: (value: string) => void;
@@ -129,6 +131,7 @@ function BehaviorCard({
   agentId,
   draft,
   capabilityFeatures,
+  capabilitySkills,
   onCustomPromptChange,
   onFeatureToggle,
   onPolicyChange
@@ -145,6 +148,12 @@ function BehaviorCard({
     () => resolveEffectiveFeatures(draft.features, capabilityFeatures),
     [draft.features, capabilityFeatures]
   );
+  const effectiveSkillIds = useMemo(() => {
+    const mode = draft.skills_selection_mode ??
+      ((draft.skills?.length ?? 0) > 0 ? "explicit_allowlist" : "default_discovery");
+    if (mode === "explicit_allowlist") return draft.skills ?? [];
+    return capabilitySkills.map((skill) => skill.name);
+  }, [capabilitySkills, draft.skills, draft.skills_selection_mode]);
 
   // Fetch preview when opened or when draft changes while open.
   // feat-379-M9 (決策 14): tool_ids comes directly from draft.tool_allowlist; the old
@@ -158,7 +167,7 @@ function BehaviorCard({
         features: effectiveFeatures,
         custom_prompt: draft.custom_prompt ?? "",
         tool_ids: draft.tool_allowlist ?? [],
-        skill_ids: draft.skills ?? []
+        skill_ids: effectiveSkillIds
       });
       setPreviewText(text);
     } catch (err) {
@@ -166,7 +175,7 @@ function BehaviorCard({
     } finally {
       setPreviewLoading(false);
     }
-  }, [agentId, effectiveFeatures, draft.custom_prompt, draft.tool_allowlist, draft.skills]);
+  }, [agentId, effectiveFeatures, draft.custom_prompt, draft.tool_allowlist, effectiveSkillIds]);
 
   // Debounce preview re-fetch when draft changes while preview is open.
   useEffect(() => {
@@ -175,7 +184,7 @@ function BehaviorCard({
     previewTimer.current = setTimeout(() => { void fetchPreview(); }, 600);
     return () => { if (previewTimer.current) clearTimeout(previewTimer.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewOpen, draft.custom_prompt, draft.features, draft.tool_allowlist, draft.skills]);
+  }, [previewOpen, draft.custom_prompt, draft.features, draft.tool_allowlist, effectiveSkillIds]);
 
   function handlePreviewToggle() {
     if (!previewOpen) {
@@ -1722,6 +1731,7 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
           agentId={agentId}
           draft={draft}
           capabilityFeatures={capabilities.features ?? []}
+          capabilitySkills={capabilities.skills ?? []}
           onCustomPromptChange={(value) => {
             setSaved(false);
             setErrorMessage(null);

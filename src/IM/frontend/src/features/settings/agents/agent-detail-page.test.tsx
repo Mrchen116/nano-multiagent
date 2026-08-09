@@ -738,6 +738,28 @@ describe("agent prompt preview", () => {
     };
   }
 
+  function makeStateWithSkillSelection(
+    mode: "default_discovery" | "explicit_allowlist",
+    skills: string[],
+  ) {
+    const state = makeStateWithMemoryInAllowlist();
+    return {
+      ...state,
+      config: {
+        ...state.config,
+        skills,
+        skills_selection_mode: mode,
+      },
+      capabilities: {
+        ...state.capabilities,
+        skills: [
+          { name: "workspace-skill", description: "Workspace" },
+          { name: "shared-skill", description: "Shared" },
+        ],
+      },
+    };
+  }
+
   beforeEach(() => {
     apiMocks.listAgentSummariesMock.mockResolvedValue([
       { agent_id: "agent-core-1", display_name: "Mem Agent", owner_id: "owner-1", description: "", profile_version: 1, default_model: null, workspace_root: "", workspace_is_default: false }
@@ -764,6 +786,29 @@ describe("agent prompt preview", () => {
     const lastCall = calls[calls.length - 1];
     const body = lastCall[1] as { tool_ids?: string[] };
     expect(body.tool_ids).toEqual(["memory"]);
+  });
+
+  it.each([
+    ["default discovery", "default_discovery", [], ["workspace-skill", "shared-skill"]],
+    ["explicit names", "explicit_allowlist", ["shared-skill", "hidden-skill"], ["shared-skill", "hidden-skill"]],
+    ["explicit empty", "explicit_allowlist", [], []],
+  ] as const)("projects %s into the preview skill ids", async (_case, mode, skills, expected) => {
+    const user = userEvent.setup();
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(
+      makeStateWithSkillSelection(mode, [...skills]),
+    );
+    apiMocks.promptPreviewMock.mockResolvedValue("## Preview");
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Mem Agent" });
+    await user.click(
+      screen.getByRole("button", { name: /Preview stable system prompt/i }),
+    );
+
+    await waitFor(() => expect(apiMocks.promptPreviewMock).toHaveBeenCalled());
+    const lastCall = apiMocks.promptPreviewMock.mock.calls.at(-1);
+    const body = lastCall?.[1] as { skill_ids?: string[] };
+    expect(body.skill_ids).toEqual([...expected]);
   });
 });
 

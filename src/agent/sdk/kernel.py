@@ -1195,7 +1195,7 @@ class Kernel:
                     runtime.reasoning_effort if runtime is not None else None
                 ),
                 title=title,
-                skills=tuple(skills) if skills else None,
+                skills=tuple(skills) if skills is not None else None,
                 tool_allowlist=(
                     tuple(effective_allowlist)
                     if effective_allowlist is not None
