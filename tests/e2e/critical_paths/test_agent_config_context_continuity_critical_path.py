@@ -21,7 +21,7 @@ import secrets
 import subprocess
 import sys
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -36,7 +36,8 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 _E2E_UP = _REPO_ROOT / "scripts" / "e2e-up.sh"
 _E2E_DOWN = _REPO_ROOT / "scripts" / "e2e-down.sh"
 _FREE_PORTS = _REPO_ROOT / "scripts" / "free-ports.sh"
-_RECORDING_STUB = _REPO_ROOT / "scripts" / "fixtures" / "anthropic_sse_ok_recording.py"
+_FIXTURE_DIR = _REPO_ROOT / "scripts" / "fixtures"
+_RECORDING_STUB = _FIXTURE_DIR / "anthropic_sse_ok_recording.py"
 _E2E_CONFIG = _REPO_ROOT / "config" / "e2e" / "gateway.yaml"
 _LEGACY_PROMPT = "BUGFIX-507 LEGACY VISIBLE ROLE"
 _UPDATED_PROMPT = "BUGFIX-507 UPDATED VISIBLE ROLE"
@@ -118,7 +119,13 @@ def _wait_records(path: Path, minimum: int, *, timeout: float = 60.0) -> list[di
     )
 
 
-def _rewrite_llm_to_stub(src: Path, dst: Path, stub_url: str) -> None:
+def _rewrite_llm_to_stub(
+    src: Path,
+    dst: Path,
+    stub_url: str,
+    *,
+    context_window: int | None = None,
+) -> None:
     cfg = yaml.safe_load(src.read_text(encoding="utf-8"))
     llm = cfg.setdefault("llm", {})
     providers = llm.get("providers") or []
@@ -130,6 +137,8 @@ def _rewrite_llm_to_stub(src: Path, dst: Path, stub_url: str) -> None:
     for provider in providers:
         for model in provider.get("models") or []:
             model.pop("extra_request_body", None)
+            if context_window is not None:
+                model["context_window"] = context_window
     dst.write_text(
         yaml.safe_dump(cfg, allow_unicode=True, sort_keys=False),
         encoding="utf-8",
@@ -155,27 +164,40 @@ def stub_llm_stack(
 ) -> Iterator[StubLLMStack]:
     """起 recording Anthropic stub + 真 IM/Gateway;Gateway 的 llm 全指向 stub。"""
     assert _E2E_CONFIG.is_file(), f"repository E2E config missing: {_E2E_CONFIG}"
-    if not _RECORDING_STUB.exists():
-        pytest.fail(f"missing fixture script: {_RECORDING_STUB}")
 
     stub_port = int(
         subprocess.check_output([str(_FREE_PORTS), "1"], text=True).split()[0]
     )
     record_path = tmp_path / "llm-requests.jsonl"
-    response_usage = getattr(request, "param", {})
-    if not isinstance(response_usage, dict):
+    options = getattr(request, "param", {})
+    if not isinstance(options, dict):
         raise ValueError("stub_llm_stack parameter must be a mapping")
-    start_usage = response_usage.get("message_start_usage")
-    delta_usage = response_usage.get("message_delta_usage")
+    script_name = options.get("script", _RECORDING_STUB.name)
+    if not isinstance(script_name, str) or Path(script_name).name != script_name:
+        raise ValueError("stub fixture script must be a filename")
+    recording_stub = _FIXTURE_DIR / script_name
+    if not recording_stub.is_file():
+        pytest.fail(f"missing fixture script: {recording_stub}")
+    extra_env = options.get("env", {})
+    if not isinstance(extra_env, Mapping):
+        raise ValueError("stub fixture env must be a mapping")
+    context_window = options.get("context_window")
+    if context_window is not None and (
+        not isinstance(context_window, int) or context_window <= 0
+    ):
+        raise ValueError("context_window must be a positive integer")
+    start_usage = options.get("message_start_usage")
+    delta_usage = options.get("message_delta_usage")
     if start_usage is not None and not isinstance(start_usage, dict):
         raise ValueError("message_start_usage must be a mapping")
     if delta_usage is not None and not isinstance(delta_usage, dict):
         raise ValueError("message_delta_usage must be a mapping")
     stub_proc = subprocess.Popen(
-        ["python3", str(_RECORDING_STUB), str(stub_port)],
+        [sys.executable, str(recording_stub), str(stub_port)],
         env={
             **os.environ,
             "NANO_FIXTURE_RECORD_PATH": str(record_path),
+            **{str(key): str(value) for key, value in extra_env.items()},
             **(
                 {"NANO_FIXTURE_MESSAGE_START_USAGE": json.dumps(start_usage)}
                 if start_usage is not None
@@ -209,7 +231,12 @@ def stub_llm_stack(
         pytest.fail("recording stub did not listen in time")
 
     main_for_up = tmp_path / "main-config-stubbed.yaml"
-    _rewrite_llm_to_stub(_E2E_CONFIG, main_for_up, f"http://127.0.0.1:{stub_port}")
+    _rewrite_llm_to_stub(
+        _E2E_CONFIG,
+        main_for_up,
+        f"http://127.0.0.1:{stub_port}",
+        context_window=context_window,
+    )
 
     wt_dir = tmp_path / "stack"
     wt_dir.mkdir()
