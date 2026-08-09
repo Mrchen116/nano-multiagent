@@ -135,3 +135,119 @@ PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/pytest -q \
 ## Recommended Action
 
 `pass`。进入 verifier / code review 与 canonical spec 归并、归档、PR 阶段；无需 fix-implementation 或 revise-design。
+
+---
+
+# Round 2 — 2026-08-10
+
+> Validation snapshot: `1d0c2cb45b887162912402b0fb489cdf3a1ad9c9 → 8a01c838fda8b4ef68dd3a741f60c17ad28dc77d`
+>
+> Revalidation mode: `targeted`（Fast-lane）
+>
+> Fix delta: `f50c59d41a29e9bb9892292c30cd952934574ff6..8a01c838fda8b4ef68dd3a741f60c17ad28dc77d`
+
+## Verdict
+
+- **Verdict**: `pass`
+- **Highest Required Action**: `pass`
+- **Issues**: blocking 0 / major 0 / minor 0
+- **结论**: code-review fix delta 影响的五个 consumer 场景全部通过；Round 1 未受影响的覆盖表结论继续有效，无需升级为 full revalidation。
+
+## Fast-lane 范围
+
+本轮只复验以下受 delta 影响的用户/consumer 结果：
+
+1. 成功压缩包含 skill reinjection 时，Kernel close/reopen 后同时恢复 summary 与 reinjection。
+2. automatic summary side-chain 的内部 assistant/turn 事件不进入用户 event stream；Web/飞书不会看到内部摘要文本，前两次 threshold summary failure 保持静默。
+3. overflow 成功压缩后的模型 retry 若再次遇到 compaction failure，仍先发送固定 assistant 安全提示，再进入 failed terminal。
+4. manual/overflow 成功压缩后清除压缩前 usage，不立即产生 summary-of-summary。
+5. provider 只返回 analysis、格式化后正文为空时不提交 compaction。
+
+Round 1 的 tool pair 投影、三入口基础 no-replacement、连续失败 tracker、普通 overflow summary failure、external reload/LRU、catalog 14→15 等结论不受此 delta 影响，按 Fast-lane 规则继承。
+
+## Targeted User Journeys Exercised
+
+### Journey A：成功压缩与重启恢复
+
+- 经 public Kernel manual compact 形成 summary + skill reinjection，关闭并重新打开 Kernel session；恢复结果同时含 summary 与 reinjection。
+- 重跑真 IM + 真 Gateway + recording LLM 的 tool → threshold compaction → continue → Gateway restart 旅程；压缩后和重启后继续任务均成功。
+
+### Journey B：内部摘要与失败事件可见性
+
+- summary side-chain 产出的内部 assistant/turn event 未发布到用户 stream。
+- threshold summary 前两次失败继续原上下文且没有失败提示；第三次才出现固定 assistant 安全提示并进入 failed。
+- 既有 Feishu original-chat 与 IM-shadow delivery seam 复验通过，因此真正的用户 assistant 文本仍能正确投递，而内部 side-chain 文本不会因缺少用户事件进入该 seam。
+
+### Journey C：overflow retry 再失败
+
+- 第一次 overflow 成功压缩后进行唯一一次模型 retry；retry 若再触发 compaction failure，event stream 仍观察到 assistant 安全提示先于 failed terminal。
+
+### Journey D：成功后的 token freshness 与空摘要拒绝
+
+- manual compact 成功后的下一轮，以及 overflow 成功后的 retry，均不沿用压缩前 usage 立即二次摘要。
+- analysis-only response 格式化后无正文，结果被视为摘要失败，不产生假成功 compaction。
+
+## Targeted Coverage
+
+| Focus Scenario | Consumer 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|
+| summary + skill reinjection 跨 restart 均可恢复 | public Kernel compact + close/reopen | `test_kernel_manual_compact_reinjection_survives_restart` | pass | 可恢复分支不再只剩 summary |
+| summary side-chain assistant/turn event 不对 Web/Feishu 可见 | 用户 event publisher seam + Gateway external delivery seam | `test_compaction_summarizer_does_not_publish_sidechain_events`；两个 external-visible-delivery scenario | pass | 内部摘要不发布；标准用户文本投递仍正常 |
+| threshold 前两次 summary failure 静默，第三次才提示并 failed | public Kernel submit/stream | `test_threshold_summary_failure_stops_on_third_attempt_without_boundary` | pass | 原上下文与 boundary 保持不变 |
+| overflow successful compact 后 retry 再遇 compaction failure 仍 assistant-before-failed | public Kernel submit/stream | `test_overflow_retry_compaction_error_is_visible_before_failed` | pass | 没有绕过用户安全提示 seam |
+| manual 成功后不立即 summary-of-summary | public Kernel compact 后续 submit | `test_manual_compaction_clears_prior_usage_before_followup` | pass | 使用压缩后新鲜 usage |
+| overflow 成功后 retry 不立即 summary-of-summary | public Kernel overflow recovery | `test_overflow_success_clears_prior_usage_before_retry` | pass | 只进行预期的一次恢复 retry |
+| analysis-only / 格式化空正文不提交摘要 | compaction summarizer consumer result | `test_compaction_summarizer_rejects_analysis_only_response` | pass | 空业务正文不再是假成功 |
+| 真 IM/Gateway 成功压缩与 restart 旅程无回归 | IM HTTP/WS + 真 Gateway + recording LLM | critical-path E2E `1 passed in 26.91s` | pass | fixture 退出后无进程/配置残留 |
+
+## Validation Evidence
+
+定向 public Kernel / event-stream 场景：
+
+```text
+PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/pytest -vv \
+  tests/unit/test_loop_compact.py::test_compaction_summarizer_rejects_analysis_only_response \
+  tests/unit/test_loop_compact.py::test_compaction_summarizer_does_not_publish_sidechain_events \
+  tests/unit/agent/test_kernel_manual_compact.py::test_kernel_manual_compact_reinjection_survives_restart \
+  tests/integration/test_conversation_compaction_integration.py::test_manual_compaction_clears_prior_usage_before_followup \
+  tests/integration/test_conversation_compaction_integration.py::test_overflow_success_clears_prior_usage_before_retry \
+  tests/integration/test_conversation_compaction_integration.py::test_overflow_retry_compaction_error_is_visible_before_failed \
+  tests/integration/test_conversation_compaction_integration.py::test_threshold_summary_failure_stops_on_third_attempt_without_boundary
+→ 7 passed in 10.31s
+```
+
+真实成功旅程：
+
+```text
+PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/pytest -vv -s \
+  tests/e2e/critical_paths/test_context_compaction_continuity_critical_path.py
+→ 1 passed in 26.91s
+```
+
+外部/影子投递 seam：
+
+```text
+PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/pytest -q \
+  tests/unit/personal_assistant/test_external_visible_delivery.py::test_feishu_intermediate_reply_goes_to_external_without_im_manager \
+  tests/unit/personal_assistant/test_external_visible_delivery.py::test_feishu_visible_control_text_goes_to_external_and_shadow_im
+→ 2 passed in 2.49s
+```
+
+## Issues
+
+无。
+
+## Side Findings
+
+无。外部投递测试仍仅出现 Round 1 已记录的第三方 `lark_oapi` deprecation warning。
+
+## 上层文档同步
+
+- [x] `SPEC.md`：**无需更新**；本轮 delta 不改变包边界或部署拓扑。
+- [x] `docs/specs/<包>/`：**维持 Round 1 结论**；kernel delta 仍需在 orchestrator 收尾归并，新增 fix 未改变已写的用户契约。
+- [x] `AGENTS.md` / `CLAUDE.md`：**无需更新**。
+- [x] `docs/specs/CONTRIBUTING.md`：**无需更新**。
+
+## Recommended Action
+
+`pass`。五项 focus 已关闭，继续 verifier / code review / PR 收尾；`needs_re_review=false`。
