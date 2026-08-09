@@ -198,6 +198,11 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             elif kind == "classifier":
                 response = _sse_text("<block>no</block>", input_tokens=100)
             elif kind == "post_summary":
+                if self.sentinel not in json.dumps(
+                    body.get("messages") or [], ensure_ascii=False
+                ):
+                    self.send_error(422, "post-summary request lost the objective")
+                    return
                 type(self)._post_summary_count += 1
                 prefix = "CONTINUED" if self._post_summary_count == 1 else "RESTARTED"
                 response = _sse_text(f"{prefix} {self.sentinel}", input_tokens=100)

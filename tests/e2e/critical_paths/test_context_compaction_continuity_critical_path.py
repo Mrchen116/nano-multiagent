@@ -157,3 +157,15 @@ def test_tool_history_compacts_and_survives_gateway_restart(
     finally:
         ws_after_restart.close()
         client.close()
+
+    final_records = _wait_records(record_path, len(records) + 1)
+    post_summary_requests = [
+        record["request"]
+        for record in final_records
+        if record.get("kind") == "post_summary"
+    ]
+    assert len(post_summary_requests) == 2
+    assert all(
+        _SENTINEL in json.dumps(request.get("messages") or [], ensure_ascii=False)
+        for request in post_summary_requests
+    )
