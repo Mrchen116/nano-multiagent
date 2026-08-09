@@ -125,3 +125,24 @@ None.
 - Next: rebase 最新 unit、复跑门禁并合入 `unit/bugfix-520`。
 
 Reviewer-fix 轻量化说明：本轮是 2 个实现/测试文件内的单一数据流修复，省略新 tasks 模板与多 roadpoint 拆分；TDD、架构边界和 unit 集成流程不省略。
+
+## Reviewer fix round 3
+
+### R8 — side-chain permission fail-closed
+
+- Context: R7 仅替换 direct `session_event_publisher`；父 `permission_requester` 是 runtime 构建时已捕获父 publisher 的闭包。summary workspace hook 调 `ctx.request_permission()` 时仍会打开父 Kernel 的 permission request/resolution 流。
+- Decision: 派生 side-chain `HookContext` 时同时设置 `permission_requester=None`，复用 `HookContext.request_permission()` 既有 fail-closed deny；workspace metadata/model routing 与 no-op direct publisher 保持不变。
+- Rationale: 已确认泄露路径只来自父 permission requester 闭包；清除该能力字段在来源处闭合边界，不扩展到无证据字段或新增 abstraction。
+- Evidence:
+  - Tests: Red 的 public `Kernel.compact()` 回归观察到 hook 决策 `allow_once`，父 stream 出现 `permission_request` 与 `permission_resolved`；Green 后 hook 得到 `deny`，父 stream 无 request/resolved/permission heartbeat。三项交叉回归 `3 passed`，扩展 focused suite `77 passed`。
+  - Entry: public `Kernel.compact()` 加载真实 workspace `turn_start` hook，hook 调用 `ctx.request_permission()` 并将决策写入文件，同时通过 public `Kernel.stream()` 检查父事件流。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression: `tests/unit/agent/test_workspace_scope_observer_hooks.py::test_manual_compaction_summary_permission_fails_closed_without_parent_events`；R7 的 workspace scope 与 assistant/turn 隔离用例继续绿色。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退本 reviewer-fix commit 可恢复 R7 状态。
+- Commits: 本 reviewer-fix commit。
+- Next: rebase 最新 unit、复跑门禁并合入 `unit/bugfix-520`。
+
+Reviewer-fix 轻量化说明：本轮是现有派生 context 的单字段能力收窄，省略新 tasks 模板与多 roadpoint 拆分；TDD、public entry regression、架构边界和 unit 集成流程不省略。

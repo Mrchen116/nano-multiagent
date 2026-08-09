@@ -73,6 +73,7 @@ class CompactionSummarizer:
             replace(
                 hook_ctx,
                 session_event_publisher=lambda _event, _data: None,
+                permission_requester=None,
             )
             if hook_ctx is not None
             else None
