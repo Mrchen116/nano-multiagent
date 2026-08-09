@@ -89,6 +89,7 @@ def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(
             operation_id = create_request["payload"]["operation_id"]
             candidate_fingerprint = create_request["payload"]["candidate_fingerprint"]
             assert create_request["payload"]["expected_previous_fingerprint"] is None
+            assert create_request["payload"]["fingerprint_schema"] == "agent-config-v1"
             create_agent_payload = dict(create_request["payload"]["agent"])
             assert create_agent_payload.pop("create_operation_id") == operation_id
             assert create_agent_payload == {
@@ -97,7 +98,6 @@ def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(
                 "features": {},
                 "custom_prompt": "You are Agent New.",
                 "skills": ["plan"],
-                "skills_selection_mode": "explicit_allowlist",
                 "tool_allowlist": ["read"],
                 "group_reply_policy": "MENTION",
                 "default_model": "claude-sonnet-4",

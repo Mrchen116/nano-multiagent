@@ -80,6 +80,22 @@ describe("normalizeAgentConfigResponse legacy skill selection", () => {
         .skills_selection_mode,
     ).toBe("explicit_allowlist");
   });
+
+  it("maps null mirror modes from the legacy skill list", () => {
+    expect(
+      normalizeAgentConfigResponse({
+        ...BASE_RAW,
+        skills_selection_mode: null,
+      }).skills_selection_mode,
+    ).toBe("default_discovery");
+    expect(
+      normalizeAgentConfigResponse({
+        ...BASE_RAW,
+        skills: ["plan"],
+        skills_selection_mode: null,
+      }).skills_selection_mode,
+    ).toBe("explicit_allowlist");
+  });
 });
 
 describe("normalizeModelOptions reasoning descriptors", () => {

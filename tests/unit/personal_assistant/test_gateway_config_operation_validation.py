@@ -21,6 +21,8 @@ from personal_assistant.config.local_store import (
 )
 from personal_assistant.gateway import agent_config_sync as sync_module
 from personal_assistant.gateway.agent_config_sync import (
+    AGENT_CONFIG_FINGERPRINT_V1,
+    AGENT_CONFIG_FINGERPRINT_V2,
     agent_operation_fingerprint,
     canonical_agent_operation_payload,
 )
@@ -187,9 +189,14 @@ def test_config_operation_accepts_im_legacy_previous_for_explicit_empty_skills(
     result = gateway.handle_agent_config_operation(
         "apply",
         {
+            "fingerprint_schema": AGENT_CONFIG_FINGERPRINT_V2,
             "operation_id": "op-im-explicit-empty",
-            "candidate_fingerprint": candidate_fingerprint(candidate),
-            "expected_previous_fingerprint": candidate_fingerprint(previous),
+            "candidate_fingerprint": candidate_fingerprint(
+                candidate, fingerprint_schema=AGENT_CONFIG_FINGERPRINT_V2
+            ),
+            "expected_previous_fingerprint": candidate_fingerprint(
+                previous, fingerprint_schema=AGENT_CONFIG_FINGERPRINT_V2
+            ),
             "agent": candidate_payload,
         },
     )
@@ -200,6 +207,60 @@ def test_config_operation_accepts_im_legacy_previous_for_explicit_empty_skills(
     restored = load_local_config(config.source_path)
     assert restored.agents[0].skills == ()
     assert restored.agents[0].skills_selection_mode == "explicit_allowlist"
+
+
+def test_new_gateway_accepts_old_im_v1_apply_without_selection_mode(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "seed"
+    workspace.mkdir()
+    agent = AgentWorkspaceConfig(
+        agent_id="seed",
+        workspace_root=workspace,
+        title="Seed",
+        skills=("plan",),
+        skills_selection_mode="explicit_allowlist",
+    )
+    config = LocalConfig(
+        node=NodeConfig(node_id="node-1"),
+        agents=(agent,),
+        channels=(),
+        gateway=GatewayLifecycleConfig(),
+        heartbeat=HeartbeatConfig(),
+        im_service=None,
+        llm=_llm(),
+        source_path=tmp_path / "config.yaml",
+    )
+    save_local_config(config, config.source_path)
+    gateway = _sync(
+        config,
+        receipts=ConfigApplyReceiptStore(tmp_path / "receipts.json"),
+    )
+    previous = _agent_payload(agent)
+    previous.pop("skills_selection_mode", None)
+    candidate = {**previous, "skills": ["plan", "review"]}
+
+    result = gateway.handle_agent_config_operation(
+        "apply",
+        {
+            # Old IM sends no fingerprint_schema; new Gateway must treat it as v1.
+            "operation_id": "op-old-im-v1",
+            "candidate_fingerprint": agent_operation_fingerprint(
+                candidate, fingerprint_schema=AGENT_CONFIG_FINGERPRINT_V1
+            ),
+            "expected_previous_fingerprint": agent_operation_fingerprint(
+                previous, fingerprint_schema=AGENT_CONFIG_FINGERPRINT_V1
+            ),
+            "agent": candidate,
+        },
+    )
+
+    assert result["status"] == "applied"
+    assert result["fingerprint_schema"] == AGENT_CONFIG_FINGERPRINT_V1
+    assert "skills_selection_mode" not in result["agent"]
+    restored = load_local_config(config.source_path)
+    assert restored.agents[0].skills == ("plan", "review")
+    assert restored.agents[0].skills_selection_mode is None
 
 
 def test_create_operation_rejects_invalid_model_before_custom_workspace_setup(

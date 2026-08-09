@@ -839,6 +839,8 @@ describe("feature tool linkage with an empty allowlist", () => {
 
   it("adds only the required tool when enabling a tool-backed feature", async () => {
     const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
 
     const baseConfig = makeFeatureToggleConfig({ agent_id: "bugfix-cron-1", display_name: "Cron Agent" });
     const state = {
@@ -878,7 +880,7 @@ describe("feature tool linkage with an empty allowlist", () => {
     apiMocks.listAgentsMock.mockResolvedValue([]);
     apiMocks.updateAgentConfigMock.mockResolvedValue(baseConfig);
 
-    renderDetailPage();
+    renderDetailPage(queryClient);
     await screen.findByRole("heading", { name: "Cron Agent" });
 
     const cronCheckbox = document.querySelector<HTMLInputElement>(
@@ -900,6 +902,9 @@ describe("feature tool linkage with an empty allowlist", () => {
     const patchBody = lastCall[1] as { tool_allowlist?: string[] };
 
     expect(patchBody.tool_allowlist).toEqual(["cron_tool"]);
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ["chat", "slash-skills"],
+    });
   });
 
   it("does not add default tools for a feature without a tool requirement", async () => {

@@ -14,6 +14,7 @@ from typing import Any
 from unittest.mock import AsyncMock, call
 
 import httpx
+import pytest
 
 from personal_assistant.config.local_store import (
     AgentWorkspaceConfig,
@@ -24,6 +25,7 @@ from personal_assistant.config.local_store import (
     LocalConfig,
     NodeConfig,
     load_local_config,
+    save_local_config,
 )
 from personal_assistant.gateway.agent_config_sync import (
     IMAgentConfigSync as _IMConfigSyncClient,
@@ -193,6 +195,63 @@ def test_reconcile_persists_enabled_skills_for_live_config_after_restart(
     ]
     persisted = load_local_config(local_config.source_path)
     assert persisted.agents[0].skills == expected
+
+
+@pytest.mark.parametrize(
+    "skills",
+    [
+        pytest.param((), id="legacy-empty"),
+        pytest.param(("plan",), id="legacy-nonempty"),
+    ],
+)
+def test_reconcile_mirror_read_does_not_migrate_legacy_selection_mode(
+    tmp_path: Path, skills: tuple[str, ...]
+) -> None:
+    local_config = _make_local_config(
+        tmp_path,
+        [
+            (
+                "legacy-agent",
+                {
+                    "title": "Legacy",
+                    "skills": skills,
+                    "skills_selection_mode": None,
+                },
+            )
+        ],
+    )
+    save_local_config(local_config, local_config.source_path)
+    owners = build_config_sync_test_owners(local_config)
+    payload = {
+        "agent_id": "legacy-agent",
+        "display_name": "Legacy",
+        "profile_version": 1,
+        "workspace_root": str(tmp_path / "legacy-agent"),
+        "skills": list(skills),
+        "skills_selection_mode": None,
+        "tool_allowlist": [],
+        "features": {},
+    }
+    sync_client = _IMConfigSyncClient(
+        base_url="http://im.local:9000",
+        token="tok",
+        **owners.kwargs(),
+        local_config=local_config,
+        client=httpx.Client(
+            base_url="http://im.local:9000",
+            transport=httpx.MockTransport(
+                lambda _request: httpx.Response(200, json=payload)
+            ),
+        ),
+    )
+
+    sync_client.reconcile_all_agents()
+
+    assert owners.catalog.require("legacy-agent").config.skills_selection_mode is None
+    assert (
+        load_local_config(local_config.source_path).agents[0].skills_selection_mode
+        is None
+    )
 
 
 # ---------------------------------------------------------------------------

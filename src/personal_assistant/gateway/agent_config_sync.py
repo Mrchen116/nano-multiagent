@@ -57,6 +57,12 @@ BootstrapClientFactory = Callable[[str], httpx.Client]
 Monotonic = Callable[[], float]
 Sleep = Callable[[float], None]
 OperationPhaseHook = Callable[[str], None]
+AGENT_CONFIG_FINGERPRINT_V1 = "agent-config-v1"
+AGENT_CONFIG_FINGERPRINT_V2 = "agent-config-v2"
+_AGENT_CONFIG_FINGERPRINT_SCHEMAS = {
+    AGENT_CONFIG_FINGERPRINT_V1,
+    AGENT_CONFIG_FINGERPRINT_V2,
+}
 
 
 def _selection_mode(value: object) -> str | None:
@@ -64,6 +70,13 @@ def _selection_mode(value: object) -> str | None:
     if mode is not None and mode not in VALID_SELECTION_MODES:
         raise ValueError("invalid skills_selection_mode")
     return mode
+
+
+def _fingerprint_schema(value: object) -> str:
+    schema = value.strip() if isinstance(value, str) else AGENT_CONFIG_FINGERPRINT_V1
+    if schema not in _AGENT_CONFIG_FINGERPRINT_SCHEMAS:
+        raise ValueError("invalid agent config fingerprint schema")
+    return schema
 
 
 class _WorkspaceOperationRejected(ValueError):
@@ -90,9 +103,23 @@ def _canonical_heartbeat_json(value: object) -> str | None:
 
 def canonical_agent_operation_payload(
     payload: Mapping[str, object],
+    *,
+    fingerprint_schema: str = AGENT_CONFIG_FINGERPRINT_V1,
 ) -> dict[str, object]:
-    """Return the stable non-secret Agent config projection used for fingerprints."""
+    """Return the schema-specific non-secret Agent config fingerprint projection.
 
+    Args:
+        payload: Gateway Agent config candidate.
+        fingerprint_schema: Canonical rolling protocol schema.
+
+    Returns:
+        Stable projection for hashing and receipt persistence.
+
+    Raises:
+        ValueError: If the schema or candidate fields are invalid.
+    """
+
+    schema = _fingerprint_schema(fingerprint_schema)
     agent_id = str(payload.get("agent_id") or "").strip()
     display_name = str(payload.get("display_name") or agent_id).strip()
     raw_skills = payload.get("skills")
@@ -109,11 +136,10 @@ def canonical_agent_operation_payload(
         skills_selection_mode = effective_skills_selection_mode(
             skills_selection_mode, tuple(skills)
         )
-    return {
+    canonical = {
         "agent_id": agent_id,
         "display_name": display_name,
         "skills": skills,
-        "skills_selection_mode": skills_selection_mode,
         "tool_allowlist": list(_operation_string_tuple(raw_tools)),
         "group_reply_policy": _optional_operation_text(
             payload.get("group_reply_policy")
@@ -134,12 +160,32 @@ def canonical_agent_operation_payload(
         "custom_prompt": _optional_operation_text(payload.get("custom_prompt")),
         "heartbeat_json": _canonical_heartbeat_json(payload.get("heartbeat_json")),
     }
+    if schema == AGENT_CONFIG_FINGERPRINT_V2:
+        canonical["skills_selection_mode"] = skills_selection_mode
+    return canonical
 
 
-def agent_operation_fingerprint(payload: Mapping[str, object]) -> str:
-    """Fingerprint one canonical Gateway-owned Agent configuration."""
+def agent_operation_fingerprint(
+    payload: Mapping[str, object],
+    *,
+    fingerprint_schema: str = AGENT_CONFIG_FINGERPRINT_V1,
+) -> str:
+    """Fingerprint one Gateway-owned Agent configuration under a protocol schema.
 
-    canonical = canonical_agent_operation_payload(payload)
+    Args:
+        payload: Gateway Agent config candidate.
+        fingerprint_schema: Canonical rolling protocol schema.
+
+    Returns:
+        Stable SHA-256 fingerprint for the selected schema.
+
+    Raises:
+        ValueError: If the schema or candidate fields are invalid.
+    """
+
+    canonical = canonical_agent_operation_payload(
+        payload, fingerprint_schema=fingerprint_schema
+    )
     encoded = json.dumps(
         canonical, ensure_ascii=True, sort_keys=True, separators=(",", ":")
     )
@@ -489,6 +535,15 @@ class IMAgentConfigSync:
         candidate_fingerprint = _required_operation_text(
             payload, "candidate_fingerprint"
         )
+        try:
+            fingerprint_schema = _fingerprint_schema(payload.get("fingerprint_schema"))
+        except ValueError as exc:
+            return _operation_rejection(
+                operation_id,
+                candidate_fingerprint,
+                "invalid_agent_config",
+                str(exc),
+            )
         expected_raw = payload.get("expected_previous_fingerprint")
         expected_previous = (
             expected_raw.strip()
@@ -501,6 +556,7 @@ class IMAgentConfigSync:
                 candidate_fingerprint,
                 "invalid_agent_config",
                 "apply requires expected_previous_fingerprint",
+                fingerprint_schema=fingerprint_schema,
             )
         if kind == "create" and expected_previous is not None:
             return _operation_rejection(
@@ -508,6 +564,7 @@ class IMAgentConfigSync:
                 candidate_fingerprint,
                 "invalid_agent_config",
                 "create expected_previous_fingerprint must be null",
+                fingerprint_schema=fingerprint_schema,
             )
         raw_candidate = payload.get("agent")
         if not isinstance(raw_candidate, Mapping):
@@ -516,16 +573,22 @@ class IMAgentConfigSync:
                 candidate_fingerprint,
                 "invalid_agent_config",
                 "agent candidate is required",
+                fingerprint_schema=fingerprint_schema,
             )
         try:
-            canonical_request = canonical_agent_operation_payload(raw_candidate)
-            actual_fingerprint = agent_operation_fingerprint(canonical_request)
+            canonical_request = canonical_agent_operation_payload(
+                raw_candidate, fingerprint_schema=fingerprint_schema
+            )
+            actual_fingerprint = agent_operation_fingerprint(
+                canonical_request, fingerprint_schema=fingerprint_schema
+            )
         except (TypeError, ValueError) as exc:
             return _operation_rejection(
                 operation_id,
                 candidate_fingerprint,
                 "invalid_agent_config",
                 str(exc),
+                fingerprint_schema=fingerprint_schema,
             )
         if actual_fingerprint != candidate_fingerprint:
             return _operation_rejection(
@@ -533,6 +596,7 @@ class IMAgentConfigSync:
                 candidate_fingerprint,
                 "invalid_agent_config",
                 "candidate_fingerprint does not match agent candidate",
+                fingerprint_schema=fingerprint_schema,
             )
         if kind == "create":
             canonical_request["create_operation_id"] = operation_id
@@ -560,8 +624,10 @@ class IMAgentConfigSync:
                             expected_previous_fingerprint=expected_previous,
                             candidate=canonical_request,
                             desired_state_fingerprint=agent_operation_fingerprint(
-                                canonical_request
+                                canonical_request,
+                                fingerprint_schema=fingerprint_schema,
                             ),
+                            fingerprint_schema=fingerprint_schema,
                         )
                         return _receipt_result(
                             self._operation_receipts.finish(
@@ -579,13 +645,18 @@ class IMAgentConfigSync:
                     )
                 else:
                     candidate = dict(existing_receipt.candidate)
+                if fingerprint_schema == AGENT_CONFIG_FINGERPRINT_V1:
+                    candidate.pop("skills_selection_mode", None)
                 receipt = self._operation_receipts.prepare(
                     operation_id=operation_id,
                     kind=kind,
                     candidate_fingerprint=candidate_fingerprint,
                     expected_previous_fingerprint=expected_previous,
                     candidate=candidate,
-                    desired_state_fingerprint=agent_operation_fingerprint(candidate),
+                    desired_state_fingerprint=agent_operation_fingerprint(
+                        candidate, fingerprint_schema=fingerprint_schema
+                    ),
+                    fingerprint_schema=fingerprint_schema,
                 )
             except OperationIdReusedError as exc:
                 return _operation_rejection(
@@ -593,6 +664,7 @@ class IMAgentConfigSync:
                     candidate_fingerprint,
                     "operation_id_reused",
                     str(exc),
+                    fingerprint_schema=fingerprint_schema,
                 )
             except _WorkspaceOperationRejected as exc:
                 return _operation_rejection(
@@ -601,6 +673,7 @@ class IMAgentConfigSync:
                     exc.code,
                     exc.detail,
                     agent_id=exc.agent_id,
+                    fingerprint_schema=fingerprint_schema,
                 )
             except ValueError as exc:
                 return _operation_rejection(
@@ -608,6 +681,7 @@ class IMAgentConfigSync:
                     candidate_fingerprint,
                     "invalid_agent_config",
                     str(exc),
+                    fingerprint_schema=fingerprint_schema,
                 )
             if receipt.status != "prepared":
                 return _receipt_result(receipt)
@@ -620,13 +694,23 @@ class IMAgentConfigSync:
         """Return or recover one durable config-operation result."""
 
         operation_id = _required_operation_text(payload, "operation_id")
+        requested_schema = _fingerprint_schema(payload.get("fingerprint_schema"))
         with self._operation_lock:
             receipt = self._operation_receipts.get(operation_id)
             if receipt is None:
                 return {
                     "operation_id": operation_id,
                     "status": "pending",
+                    "fingerprint_schema": requested_schema,
                 }
+            if receipt.fingerprint_schema != requested_schema:
+                return _operation_rejection(
+                    operation_id,
+                    receipt.candidate_fingerprint,
+                    "operation_id_reused",
+                    "operation status fingerprint schema does not match receipt",
+                    fingerprint_schema=requested_schema,
+                )
             if receipt.status == "prepared":
                 return self._resume_config_operation(receipt)
             return _receipt_result(receipt)
@@ -776,7 +860,10 @@ class IMAgentConfigSync:
             )
             existing = agents[index] if index is not None else None
             existing_fingerprint = (
-                agent_operation_fingerprint(_agent_operation_payload(existing))
+                agent_operation_fingerprint(
+                    _agent_operation_payload(existing),
+                    fingerprint_schema=receipt.fingerprint_schema,
+                )
                 if existing is not None
                 else None
             )
@@ -1537,6 +1624,7 @@ def _receipt_result(receipt: ConfigOperationReceipt) -> dict[str, object]:
         "operation_id": receipt.operation_id,
         "candidate_fingerprint": receipt.candidate_fingerprint,
         "status": receipt.status if receipt.status != "prepared" else "pending",
+        "fingerprint_schema": receipt.fingerprint_schema,
     }
     if receipt.status == "applied":
         result["agent"] = dict(receipt.candidate)
@@ -1554,6 +1642,7 @@ def _operation_rejection(
     message: str,
     *,
     agent_id: str | None = None,
+    fingerprint_schema: str = AGENT_CONFIG_FINGERPRINT_V1,
 ) -> dict[str, object]:
     result: dict[str, object] = {
         "operation_id": operation_id,
@@ -1561,6 +1650,7 @@ def _operation_rejection(
         "status": "rejected",
         "error_code": error_code,
         "message": message,
+        "fingerprint_schema": fingerprint_schema,
     }
     if agent_id is not None:
         result["agent_id"] = agent_id

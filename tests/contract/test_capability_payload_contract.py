@@ -230,6 +230,7 @@ GOLDEN_FLAGS = {
     "send_message": True,
     "config_sync": True,
     "channel_bootstrap": True,
+    "agent_config_fingerprint_schema": "agent-config-v2",
 }
 
 

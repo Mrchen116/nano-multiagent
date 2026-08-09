@@ -21,11 +21,16 @@ from IM.infra.repositories.agent_config_operations import (
 from IM.ws.gateway.control import GatewayControl
 
 
-_GATEWAY_CONFIG_KEYS = (
+AGENT_CONFIG_FINGERPRINT_V1 = "agent-config-v1"
+AGENT_CONFIG_FINGERPRINT_V2 = "agent-config-v2"
+_VALID_FINGERPRINT_SCHEMAS = {
+    AGENT_CONFIG_FINGERPRINT_V1,
+    AGENT_CONFIG_FINGERPRINT_V2,
+}
+_GATEWAY_CONFIG_V1_KEYS = (
     "agent_id",
     "display_name",
     "skills",
-    "skills_selection_mode",
     "tool_allowlist",
     "group_reply_policy",
     "default_model",
@@ -35,10 +40,12 @@ _GATEWAY_CONFIG_KEYS = (
     "custom_prompt",
     "heartbeat_json",
 )
+_GATEWAY_CONFIG_V2_KEYS = (*_GATEWAY_CONFIG_V1_KEYS, "skills_selection_mode")
 _SAFE_REJECTION_CODES = frozenset(
     {
         "agent_id_already_exists",
         "invalid_agent_config",
+        "gateway_upgrade_required",
         "operation_conflict",
         "operation_id_reused",
         "workspace_already_assigned",
@@ -131,6 +138,19 @@ class AgentConfigOperationCoordinator:
         agent_id = _required_candidate_text(candidate, "agent_id")
         lock = await self._gateway.config_operation_lock(agent_id=agent_id)
         async with lock:
+            fingerprint_schema = (
+                await self._gateway.config_operation_fingerprint_schema(
+                    target_node_id=node_id
+                )
+            )
+            try:
+                create_payload = gateway_candidate(
+                    candidate, fingerprint_schema=fingerprint_schema
+                )
+            except ValueError as exc:
+                if str(exc) == "gateway_upgrade_required":
+                    raise ConfigApplyRejectedError("gateway_upgrade_required") from exc
+                raise
             operation = self._operations.create(
                 operation_id=uuid4().hex,
                 agent_id=agent_id,
@@ -139,16 +159,19 @@ class AgentConfigOperationCoordinator:
                 operation_kind="create",
                 candidate=candidate,
                 previous_candidate=None,
-                candidate_fingerprint=candidate_fingerprint(candidate),
+                candidate_fingerprint=candidate_fingerprint(
+                    candidate, fingerprint_schema=fingerprint_schema
+                ),
                 expected_previous_fingerprint=None,
                 expected_profile_version=None,
+                fingerprint_schema=fingerprint_schema,
             )
-            create_payload = gateway_candidate(candidate)
             create_payload["create_operation_id"] = operation.operation_id
             result = await self._gateway.request_agent_create(
                 target_node_id=node_id,
                 operation_id=operation.operation_id,
                 candidate_fingerprint=operation.candidate_fingerprint,
+                **_schema_request_kwargs(operation.fingerprint_schema),
                 payload=create_payload,
             )
             result = await self._resolve_initial_result(operation, result)
@@ -168,6 +191,22 @@ class AgentConfigOperationCoordinator:
         lock = await self._gateway.config_operation_lock(agent_id=profile.agent_id)
         async with lock:
             previous_candidate = candidate_from_profile(profile, service=self._service)
+            fingerprint_schema = (
+                await self._gateway.config_operation_fingerprint_schema(
+                    target_node_id=_required_profile_node(profile)
+                )
+            )
+            try:
+                apply_payload = gateway_candidate(
+                    candidate, fingerprint_schema=fingerprint_schema
+                )
+                gateway_candidate(
+                    previous_candidate, fingerprint_schema=fingerprint_schema
+                )
+            except ValueError as exc:
+                if str(exc) == "gateway_upgrade_required":
+                    raise ConfigApplyRejectedError("gateway_upgrade_required") from exc
+                raise
             operation = self._operations.create(
                 operation_id=uuid4().hex,
                 agent_id=profile.agent_id,
@@ -176,9 +215,14 @@ class AgentConfigOperationCoordinator:
                 operation_kind="apply",
                 candidate=candidate,
                 previous_candidate=previous_candidate,
-                candidate_fingerprint=candidate_fingerprint(candidate),
-                expected_previous_fingerprint=candidate_fingerprint(previous_candidate),
+                candidate_fingerprint=candidate_fingerprint(
+                    candidate, fingerprint_schema=fingerprint_schema
+                ),
+                expected_previous_fingerprint=candidate_fingerprint(
+                    previous_candidate, fingerprint_schema=fingerprint_schema
+                ),
                 expected_profile_version=profile.profile_version,
+                fingerprint_schema=fingerprint_schema,
             )
             result = await self._gateway.request_agent_config_apply(
                 target_node_id=operation.node_id,
@@ -187,7 +231,8 @@ class AgentConfigOperationCoordinator:
                 expected_previous_fingerprint=(
                     operation.expected_previous_fingerprint or ""
                 ),
-                payload=gateway_candidate(candidate),
+                **_schema_request_kwargs(operation.fingerprint_schema),
+                payload=apply_payload,
             )
             result = await self._resolve_initial_result(operation, result)
             operation = self._accept_applied(operation=operation, result=result)
@@ -224,6 +269,7 @@ class AgentConfigOperationCoordinator:
             target_node_id=operation.node_id,
             operation_id=operation.operation_id,
             candidate_fingerprint=operation.candidate_fingerprint,
+            **_schema_request_kwargs(operation.fingerprint_schema),
         )
         if result is None or _result_status(result) != "pending":
             return result
@@ -238,7 +284,11 @@ class AgentConfigOperationCoordinator:
                 target_node_id=operation.node_id,
                 operation_id=operation.operation_id,
                 candidate_fingerprint=operation.candidate_fingerprint,
-                payload=gateway_candidate(operation.candidate),
+                **_schema_request_kwargs(operation.fingerprint_schema),
+                payload=gateway_candidate(
+                    operation.candidate,
+                    fingerprint_schema=operation.fingerprint_schema,
+                ),
             )
         return await self._gateway.request_agent_config_apply(
             target_node_id=operation.node_id,
@@ -247,7 +297,11 @@ class AgentConfigOperationCoordinator:
             expected_previous_fingerprint=(
                 operation.expected_previous_fingerprint or ""
             ),
-            payload=gateway_candidate(operation.candidate),
+            **_schema_request_kwargs(operation.fingerprint_schema),
+            payload=gateway_candidate(
+                operation.candidate,
+                fingerprint_schema=operation.fingerprint_schema,
+            ),
         )
 
     def _accept_applied(
@@ -484,7 +538,9 @@ class AgentConfigOperationCoordinator:
             source_operation_id=operation.operation_id,
             compensation_operation_id=uuid4().hex,
             candidate=old_candidate,
-            candidate_fingerprint=candidate_fingerprint(old_candidate),
+            candidate_fingerprint=candidate_fingerprint(
+                old_candidate, fingerprint_schema=operation.fingerprint_schema
+            ),
             expected_previous_fingerprint=operation.candidate_fingerprint,
         )
         result = await self._gateway.request_agent_config_apply(
@@ -494,7 +550,11 @@ class AgentConfigOperationCoordinator:
             expected_previous_fingerprint=(
                 compensation.expected_previous_fingerprint or ""
             ),
-            payload=gateway_candidate(old_candidate),
+            **_schema_request_kwargs(compensation.fingerprint_schema),
+            payload=gateway_candidate(
+                old_candidate,
+                fingerprint_schema=compensation.fingerprint_schema,
+            ),
         )
         result = await self._resolve_initial_result(compensation, result)
         if _result_status(result) != "applied":
@@ -541,8 +601,24 @@ def candidate_from_profile(
     }
 
 
-def gateway_candidate(candidate: dict[str, object]) -> dict[str, object]:
-    """Return only fields durably owned by the Gateway Agent configuration."""
+def gateway_candidate(
+    candidate: dict[str, object],
+    *,
+    fingerprint_schema: str = AGENT_CONFIG_FINGERPRINT_V2,
+) -> dict[str, object]:
+    """Return the schema-specific durable Gateway Agent projection.
+
+    Args:
+        candidate: Complete IM-owned operation candidate.
+        fingerprint_schema: Rolling protocol schema supported by the target Gateway.
+
+    Returns:
+        Canonical Gateway-owned fields accepted by the target protocol.
+
+    Raises:
+        ValueError: If the schema or selection intent is invalid or not representable.
+    """
+    schema = _validated_fingerprint_schema(fingerprint_schema)
     agent_id = str(candidate.get("agent_id") or "").strip()
     raw_features = candidate.get("features")
     projected: dict[str, object] = {
@@ -573,10 +649,22 @@ def gateway_candidate(candidate: dict[str, object]) -> dict[str, object]:
             _operation_string_list(raw_skills) if isinstance(raw_skills, list) else None
         )
     if "skills" in candidate or "skills_selection_mode" in candidate:
-        projected["skills_selection_mode"] = _canonical_skills_selection_mode(
+        selection_mode = _canonical_skills_selection_mode(
             candidate.get("skills_selection_mode"),
             projected.get("skills"),
         )
+        if schema == AGENT_CONFIG_FINGERPRINT_V1:
+            if "skills_selection_mode" in candidate and "skills" not in candidate:
+                raise ValueError("gateway_upgrade_required")
+            if isinstance(projected.get("skills"), list):
+                skills = projected["skills"]
+                representable_mode = (
+                    DEFAULT_DISCOVERY if not skills else EXPLICIT_ALLOWLIST
+                )
+                if selection_mode != representable_mode:
+                    raise ValueError("gateway_upgrade_required")
+        else:
+            projected["skills_selection_mode"] = selection_mode
     if "confirm_existing_workspace" in candidate:
         projected["confirm_existing_workspace"] = (
             candidate.get("confirm_existing_workspace") is True
@@ -584,16 +672,49 @@ def gateway_candidate(candidate: dict[str, object]) -> dict[str, object]:
     return projected
 
 
-def candidate_fingerprint(candidate: dict[str, object]) -> str:
-    """Hash the shared canonical Gateway configuration projection."""
-    projected = gateway_candidate(candidate)
+def candidate_fingerprint(
+    candidate: dict[str, object],
+    *,
+    fingerprint_schema: str = AGENT_CONFIG_FINGERPRINT_V2,
+) -> str:
+    """Hash the shared Gateway configuration projection under one schema.
+
+    Args:
+        candidate: Complete IM-owned operation candidate.
+        fingerprint_schema: Canonical protocol schema used by the operation.
+
+    Returns:
+        Stable SHA-256 fingerprint for the selected protocol schema.
+
+    Raises:
+        ValueError: If the schema or candidate selection intent is invalid.
+    """
+    schema = _validated_fingerprint_schema(fingerprint_schema)
+    projected = gateway_candidate(candidate, fingerprint_schema=schema)
+    keys = (
+        _GATEWAY_CONFIG_V1_KEYS
+        if schema == AGENT_CONFIG_FINGERPRINT_V1
+        else _GATEWAY_CONFIG_V2_KEYS
+    )
     encoded = json.dumps(
-        {key: projected.get(key) for key in _GATEWAY_CONFIG_KEYS},
+        {key: projected.get(key) for key in keys},
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=True,
     ).encode("utf-8")
     return sha256(encoded).hexdigest()
+
+
+def _validated_fingerprint_schema(value: str) -> str:
+    if value not in _VALID_FINGERPRINT_SCHEMAS:
+        raise ValueError("invalid agent config fingerprint schema")
+    return value
+
+
+def _schema_request_kwargs(fingerprint_schema: str) -> dict[str, str]:
+    if fingerprint_schema == AGENT_CONFIG_FINGERPRINT_V2:
+        return {"fingerprint_schema": fingerprint_schema}
+    return {}
 
 
 def _canonical_heartbeat_json(value: object) -> str | None:
@@ -736,8 +857,13 @@ def _profile_matches_create_result(
         profile.owner_id == operation.owner_id
         and profile.node_id == operation.node_id
         and profile.description == str(operation.candidate.get("description") or "")
-        and candidate_fingerprint(candidate_from_profile(profile, service=service))
-        == candidate_fingerprint(expected)
+        and candidate_fingerprint(
+            candidate_from_profile(profile, service=service),
+            fingerprint_schema=operation.fingerprint_schema,
+        )
+        == candidate_fingerprint(
+            expected, fingerprint_schema=operation.fingerprint_schema
+        )
     )
 
 
@@ -755,6 +881,9 @@ def _profile_matches_committed_update(
         and profile.owner_id == operation.owner_id
         and profile.node_id == operation.node_id
         and profile.description == str(operation.candidate.get("description") or "")
-        and candidate_fingerprint(candidate_from_profile(profile, service=service))
+        and candidate_fingerprint(
+            candidate_from_profile(profile, service=service),
+            fingerprint_schema=operation.fingerprint_schema,
+        )
         == operation.candidate_fingerprint
     )

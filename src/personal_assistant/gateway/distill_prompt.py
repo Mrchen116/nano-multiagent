@@ -12,6 +12,10 @@ from personal_assistant.gateway.session_keys import (
     build_conversation_session_key,
     build_external_session_key,
 )
+from personal_assistant.config.skill_selection import (
+    EXPLICIT_ALLOWLIST,
+    effective_skills_selection_mode,
+)
 
 
 _DISTILL_SKILL = "conversation-skill-distiller"
@@ -109,7 +113,11 @@ def _readiness_error(
 ) -> Mapping[str, object] | None:
     """Return a current local capability error before any source is resolved."""
     configured_skills = set(execution_agent.config.skills)
-    if configured_skills and _DISTILL_SKILL not in configured_skills:
+    selection_mode = effective_skills_selection_mode(
+        execution_agent.config.skills_selection_mode,
+        execution_agent.config.skills,
+    )
+    if selection_mode == EXPLICIT_ALLOWLIST and _DISTILL_SKILL not in configured_skills:
         return _error(
             "distiller_unavailable", "execution agent lacks the distiller skill"
         )

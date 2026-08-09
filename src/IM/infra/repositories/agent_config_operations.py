@@ -23,6 +23,7 @@ class AgentConfigOperation:
     owner_id: str
     node_id: str
     operation_kind: str
+    fingerprint_schema: str
     status: str
     candidate: dict[str, object]
     previous_candidate: dict[str, object] | None
@@ -54,6 +55,7 @@ class AgentConfigOperationRepository:
         expected_previous_fingerprint: str | None,
         expected_profile_version: int | None,
         root_operation_id: str | None = None,
+        fingerprint_schema: str = "agent-config-v1",
     ) -> AgentConfigOperation:
         """Create a pending record, rejecting a second active operation per agent."""
         now = utc_now()
@@ -63,11 +65,11 @@ class AgentConfigOperationRepository:
                     """
                     INSERT INTO agent_config_operations(
                         operation_id, root_operation_id, agent_id, owner_id, node_id,
-                        operation_kind, status, candidate_json, candidate_fingerprint,
+                        operation_kind, fingerprint_schema, status, candidate_json, candidate_fingerprint,
                         previous_candidate_json,
                         expected_previous_fingerprint, expected_profile_version,
                         created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         operation_id,
@@ -76,6 +78,7 @@ class AgentConfigOperationRepository:
                         owner_id,
                         node_id,
                         operation_kind,
+                        fingerprint_schema,
                         _encode_object(candidate),
                         candidate_fingerprint,
                         _encode_object(previous_candidate)
@@ -102,6 +105,7 @@ class AgentConfigOperationRepository:
             """
             SELECT operation_id, root_operation_id, agent_id, owner_id, node_id,
                    operation_kind, status, candidate_json, candidate_fingerprint,
+                   fingerprint_schema,
                    previous_candidate_json,
                    expected_previous_fingerprint, expected_profile_version,
                    gateway_result_json, error_code, error_message
@@ -135,6 +139,7 @@ class AgentConfigOperationRepository:
             f"""
             SELECT operation_id, root_operation_id, agent_id, owner_id, node_id,
                    operation_kind, status, candidate_json, candidate_fingerprint,
+                   fingerprint_schema,
                    previous_candidate_json,
                    expected_previous_fingerprint, expected_profile_version,
                    gateway_result_json, error_code, error_message
@@ -219,11 +224,11 @@ class AgentConfigOperationRepository:
                 """
                 INSERT INTO agent_config_operations(
                     operation_id, root_operation_id, agent_id, owner_id, node_id,
-                    operation_kind, status, candidate_json, candidate_fingerprint,
+                    operation_kind, fingerprint_schema, status, candidate_json, candidate_fingerprint,
                     previous_candidate_json,
                     expected_previous_fingerprint, expected_profile_version,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, 'compensation', 'pending', ?, ?, NULL, ?, NULL, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, 'compensation', ?, 'pending', ?, ?, NULL, ?, NULL, ?, ?)
                 """,
                 (
                     compensation_operation_id,
@@ -231,6 +236,7 @@ class AgentConfigOperationRepository:
                     source.agent_id,
                     source.owner_id,
                     source.node_id,
+                    source.fingerprint_schema,
                     _encode_object(candidate),
                     candidate_fingerprint,
                     expected_previous_fingerprint,
@@ -314,6 +320,7 @@ class AgentConfigOperationRepository:
             owner_id=str(row["owner_id"]),
             node_id=str(row["node_id"]),
             operation_kind=str(row["operation_kind"]),
+            fingerprint_schema=str(row["fingerprint_schema"]),
             status=str(row["status"]),
             candidate=_decode_object(row["candidate_json"]) or {},
             previous_candidate=_decode_object(row["previous_candidate_json"]),

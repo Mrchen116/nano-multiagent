@@ -80,6 +80,7 @@ def test_upstream_reporter_builds_register_heartbeat_report_and_receipt(
         "send_message": True,
         "config_sync": True,
         "channel_bootstrap": True,
+        "agent_config_fingerprint_schema": "agent-config-v2",
     }
     assert "capabilities" not in heartbeat
     assert heartbeat["running_runs"] == 2

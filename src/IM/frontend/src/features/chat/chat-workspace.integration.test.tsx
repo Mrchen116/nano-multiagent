@@ -167,6 +167,7 @@ type UploadOutcome = { status: number; body?: string } | { error: Error } | null
 
 function mockFetch(opts: {
   distillerVisible?: boolean;
+  skillsSelectionMode?: "default_discovery" | "explicit_allowlist";
   toolAllowlist?: string[];
   skillViewToolVisible?: boolean;
   skillViewDefaultOn?: boolean;
@@ -174,6 +175,7 @@ function mockFetch(opts: {
   uploadOutcomes?: UploadOutcome[];
 } = {}): ReturnType<typeof vi.fn> {
   const distillerVisible = opts.distillerVisible ?? true;
+  const skillsSelectionMode = opts.skillsSelectionMode;
   const toolAllowlist = opts.toolAllowlist ?? ["skill_view"];
   const skillViewToolVisible = opts.skillViewToolVisible ?? true;
   const skillViewDefaultOn = opts.skillViewDefaultOn ?? true;
@@ -288,6 +290,7 @@ function mockFetch(opts: {
         display_name: agentId === "a-writer" ? "Writer" : "Planner",
         description: "",
         skills: [],
+        ...(skillsSelectionMode ? { skills_selection_mode: skillsSelectionMode } : {}),
         tool_allowlist: toolAllowlist,
         group_reply_policy: "manual",
         default_model: null,
@@ -612,6 +615,26 @@ describe("ChatWorkspacePage — integration", () => {
       (r) => r.url.endsWith("/im/v1/conversations") && r.init?.method === "POST"
     );
     expect(postedConversation).toBeUndefined();
+  });
+
+  it("does not prefill distillation when the execution agent explicitly selects zero skills", async () => {
+    const user = userEvent.setup();
+    fetchSpy = mockFetch({ skillsSelectionMode: "explicit_allowlist" });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    renderAtRoute("/chat");
+    await screen.findByRole("button", { name: /Planner/ });
+    await user.click(screen.getByRole("button", { name: "Generate skill" }));
+    await user.click(screen.getByRole("checkbox", { name: /Planner/ }));
+    await user.click(screen.getByRole("button", { name: "Distill to skill" }));
+    await user.click(screen.getByRole("button", { name: "Start distillation" }));
+
+    expect(await screen.findByText(/Enable conversation-skill-distiller/)).toBeInTheDocument();
+    const request = (fetchSpy as unknown as { sent: { url: string; init?: RequestInit }[] }).sent.find(
+      (item) => item.url.endsWith("/im/v1/conversations/distill-prompt") && item.init?.method === "POST"
+    );
+    expect(request).toBeUndefined();
+    expect(screen.queryByDisplayValue(/conversation-skill-distiller/)).not.toBeInTheDocument();
   });
 
   it("does not create the distill conversation when the execution agent lacks skill_view", async () => {

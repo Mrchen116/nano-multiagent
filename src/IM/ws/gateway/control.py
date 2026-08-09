@@ -15,16 +15,29 @@ _logger = logging.getLogger(__name__)
 from .sessions import GatewaySessions
 
 
+_AGENT_CONFIG_FINGERPRINT_V1 = "agent-config-v1"
+_AGENT_CONFIG_FINGERPRINT_V2 = "agent-config-v2"
+
+
 def _config_operation_result(
     *,
     payload: dict[str, object],
     expected_operation_id: str,
     expected_candidate_fingerprint: str,
+    expected_fingerprint_schema: str,
 ) -> dict[str, object]:
     """Validate and copy one correlated Gateway config operation result."""
     operation_id = _require_text(payload.get("operation_id"), field_name="operation_id")
     if operation_id != expected_operation_id:
         raise ValueError("operation_id does not match request")
+    raw_schema = payload.get("fingerprint_schema")
+    fingerprint_schema = (
+        raw_schema.strip()
+        if isinstance(raw_schema, str) and raw_schema.strip()
+        else _AGENT_CONFIG_FINGERPRINT_V1
+    )
+    if fingerprint_schema != expected_fingerprint_schema:
+        raise ValueError("fingerprint_schema does not match request")
     result_status = _require_text(payload.get("status"), field_name="status")
     if result_status not in {"applied", "rejected", "pending"}:
         raise ValueError("status must be applied, rejected, or pending")
@@ -71,6 +84,25 @@ class GatewayControl:
                 lock = asyncio.Lock()
                 self._config_operation_locks[agent_id] = lock
             return lock
+
+    async def config_operation_fingerprint_schema(self, *, target_node_id: str) -> str:
+        """Return the strongest config-operation schema advertised by a node.
+
+        Args:
+            target_node_id: Connected Gateway node that will receive the operation.
+
+        Returns:
+            ``agent-config-v2`` when advertised, otherwise rolling-safe v1.
+        """
+
+        connection = await self._sessions.snapshot_connection(node_id=target_node_id)
+        if (
+            connection is not None
+            and connection.capabilities.get("agent_config_fingerprint_schema")
+            == _AGENT_CONFIG_FINGERPRINT_V2
+        ):
+            return _AGENT_CONFIG_FINGERPRINT_V2
+        return _AGENT_CONFIG_FINGERPRINT_V1
 
     async def push_heartbeat_trigger(
         self, *, target_node_id: str, agent_id: str, reason: str
@@ -165,6 +197,7 @@ class GatewayControl:
         payload: dict[str, object],
         operation_id: str | None = None,
         candidate_fingerprint: str | None = None,
+        fingerprint_schema: str = _AGENT_CONFIG_FINGERPRINT_V1,
         timeout_seconds: float = 5.0,
     ) -> dict[str, object] | None:
         """Request Gateway creation, optionally using the durable operation protocol."""
@@ -175,6 +208,7 @@ class GatewayControl:
             self._agent_create_waiters[request_id] = (
                 operation_id,
                 candidate_fingerprint,
+                fingerprint_schema,
                 waiter,
             )
         request_payload: dict[str, object] = {
@@ -187,6 +221,7 @@ class GatewayControl:
                     "operation_id": operation_id,
                     "candidate_fingerprint": candidate_fingerprint or "",
                     "expected_previous_fingerprint": None,
+                    "fingerprint_schema": fingerprint_schema,
                 }
             )
         try:
@@ -212,6 +247,7 @@ class GatewayControl:
         candidate_fingerprint: str,
         expected_previous_fingerprint: str,
         payload: dict[str, object],
+        fingerprint_schema: str = _AGENT_CONFIG_FINGERPRINT_V1,
         timeout_seconds: float = 5.0,
     ) -> dict[str, object] | None:
         """Apply a complete Agent config and await its terminal Gateway result."""
@@ -222,6 +258,7 @@ class GatewayControl:
             self._agent_config_apply_waiters[request_id] = (
                 operation_id,
                 candidate_fingerprint,
+                fingerprint_schema,
                 waiter,
             )
         try:
@@ -233,6 +270,7 @@ class GatewayControl:
                     "operation_id": operation_id,
                     "candidate_fingerprint": candidate_fingerprint,
                     "expected_previous_fingerprint": expected_previous_fingerprint,
+                    "fingerprint_schema": fingerprint_schema,
                     "agent": dict(payload),
                 },
             )
@@ -251,6 +289,7 @@ class GatewayControl:
         target_node_id: str,
         operation_id: str,
         candidate_fingerprint: str,
+        fingerprint_schema: str = _AGENT_CONFIG_FINGERPRINT_V1,
         timeout_seconds: float = 5.0,
     ) -> dict[str, object] | None:
         """Recover the canonical result of a previously submitted config operation."""
@@ -261,13 +300,18 @@ class GatewayControl:
             self._agent_config_operation_status_waiters[request_id] = (
                 operation_id,
                 candidate_fingerprint,
+                fingerprint_schema,
                 waiter,
             )
         try:
             pushed = await self._sessions.send(
                 target_node_id=target_node_id,
                 message_type="agent.config.operation.status",
-                payload={"request_id": request_id, "operation_id": operation_id},
+                payload={
+                    "request_id": request_id,
+                    "operation_id": operation_id,
+                    "fingerprint_schema": fingerprint_schema,
+                },
             )
             if not pushed:
                 return None
@@ -787,7 +831,9 @@ class GatewayControl:
         async with self._lock:
             waiter_entry = self._agent_create_waiters.get(request_id)
         if waiter_entry is not None:
-            expected_operation_id, expected_fingerprint, waiter = waiter_entry
+            expected_operation_id, expected_fingerprint, expected_schema, waiter = (
+                waiter_entry
+            )
             if expected_operation_id is None:
                 agent_payload = _require_dict(payload.get("agent"), field_name="agent")
                 error_payload = payload.get("error")
@@ -804,6 +850,7 @@ class GatewayControl:
                     payload=payload,
                     expected_operation_id=expected_operation_id,
                     expected_candidate_fingerprint=expected_fingerprint,
+                    expected_fingerprint_schema=expected_schema,
                 )
                 if not waiter.done():
                     waiter.set_result(result)
@@ -848,11 +895,14 @@ class GatewayControl:
         async with self._lock:
             waiter_entry = waiters.get(request_id)
         if waiter_entry is not None:
-            expected_operation_id, expected_fingerprint, waiter = waiter_entry
+            expected_operation_id, expected_fingerprint, expected_schema, waiter = (
+                waiter_entry
+            )
             result = _config_operation_result(
                 payload=payload,
                 expected_operation_id=expected_operation_id,
                 expected_candidate_fingerprint=expected_fingerprint,
+                expected_fingerprint_schema=expected_schema,
             )
             if not waiter.done():
                 waiter.set_result(result)

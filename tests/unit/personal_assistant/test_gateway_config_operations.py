@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,7 @@ from personal_assistant.config.local_store import (
 )
 from personal_assistant.gateway import agent_config_sync as sync_module
 from personal_assistant.gateway.agent_config_sync import agent_operation_fingerprint
+from personal_assistant.gateway.agent_config_sync import AGENT_CONFIG_FINGERPRINT_V1
 from personal_assistant.gateway.config_apply_receipts import ConfigApplyReceiptStore
 from tests.unit.personal_assistant._config_operation_helpers import (
     _agent_payload,
@@ -142,3 +144,75 @@ def test_config_operation_recovers_each_write_boundary_once(
     ]
     assert len(final_agents) == 1
     assert final_agents[0].reasoning_effort == applied_agent["reasoning_effort"]
+
+
+def test_legacy_prepared_receipt_replays_as_v1_after_gateway_upgrade(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "target"
+    workspace.mkdir()
+    target = AgentWorkspaceConfig(
+        agent_id="target", workspace_root=workspace, skills=("plan",)
+    )
+    config = LocalConfig(
+        node=NodeConfig(node_id="node-1"),
+        agents=(target,),
+        channels=(),
+        gateway=GatewayLifecycleConfig(),
+        heartbeat=HeartbeatConfig(),
+        im_service=None,
+        llm=_llm(),
+        source_path=tmp_path / "config.yaml",
+    )
+    save_local_config(config, config.source_path)
+    previous = _agent_payload(target)
+    previous.pop("skills_selection_mode", None)
+    candidate = {
+        **previous,
+        "skills": ["plan", "review"],
+        "skills_selection_mode": "explicit_allowlist",
+    }
+    operation_id = "legacy-prepared"
+    receipt_path = tmp_path / "receipts.json"
+    receipt_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "operations": {
+                    operation_id: {
+                        "operation_id": operation_id,
+                        "kind": "apply",
+                        "candidate_fingerprint": agent_operation_fingerprint(
+                            candidate,
+                            fingerprint_schema=AGENT_CONFIG_FINGERPRINT_V1,
+                        ),
+                        "expected_previous_fingerprint": agent_operation_fingerprint(
+                            previous,
+                            fingerprint_schema=AGENT_CONFIG_FINGERPRINT_V1,
+                        ),
+                        "candidate": candidate,
+                        "desired_state_fingerprint": agent_operation_fingerprint(
+                            candidate,
+                            fingerprint_schema=AGENT_CONFIG_FINGERPRINT_V1,
+                        ),
+                        "status": "prepared",
+                        "error_code": None,
+                        "message": None,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = _sync(
+        config, receipts=ConfigApplyReceiptStore(receipt_path)
+    ).config_operation_status({"operation_id": operation_id})
+
+    assert result["status"] == "applied"
+    assert result["fingerprint_schema"] == AGENT_CONFIG_FINGERPRINT_V1
+    assert "skills_selection_mode" not in result["agent"]
+    assert load_local_config(config.source_path).agents[0].skills == (
+        "plan",
+        "review",
+    )

@@ -2,8 +2,8 @@
 
 ## Status
 
-- State: implementation complete; verifier round two passed; acceptance round-one
-  fingerprint fix complete; acceptance rerun and remaining independent gates pending.
+- State: implementation complete; verifier and acceptance passed; code-review
+  rolling-compatibility and follow-up fixes complete; remaining gates pending.
 - Executed base: `1d0c2cb45`.
 - Baseline: 27 focused Python tests and 37 focused frontend tests passed.
 
@@ -45,6 +45,26 @@ runtime projection, and the Web IM create/detail/chat surfaces.
   Gateway validates it through the existing selection-mode helper, while its
   local previous-state projection retains the persisted raw mode so legacy
   absence remains hashable without eager migration.
+- Config operations now negotiate an explicit `agent-config-v1`/`agent-config-v2`
+  fingerprint schema from the target Gateway registration. v1 exactly preserves
+  the pre-feat-519 names-only canonical payload; v2 includes effective selection
+  intent. IM operations and Gateway receipts persist the chosen schema through
+  initial submit, resubmit, status recovery, compensation, replay, and terminal
+  idempotency. Legacy SQLite rows and JSON receipts migrate to v1.
+- During an IM-first rolling deploy, old Gateways accept representable v1 create
+  and apply intents, while explicit-empty and default-with-names fail before RPC
+  with `gateway_upgrade_required`. New Gateways accept old IM requests that omit
+  the schema and replay prepared v1 receipts under v1 after upgrade.
+- Distillation readiness now honors the effective selection mode on both Gateway
+  and Web IM: explicit mode must actually include `conversation-skill-distiller`,
+  including rejecting explicit empty before any prompt is generated.
+- A successful Agent detail save invalidates the shared
+  `['chat', 'slash-skills']` query prefix, so returning to an existing conversation
+  cannot reuse the prior 60-second candidate set.
+- `source=mirror` preserves raw legacy `skills_selection_mode=None`; live/default
+  reads and write responses remain effective. Frontend normalization retains the
+  effective UI contract, while reconnect reconciliation no longer rewrites legacy
+  empty or non-empty YAML merely because the mirror was read.
 
 ## Evidence
 
@@ -100,6 +120,20 @@ runtime projection, and the Web IM create/detail/chat surfaces.
   - The combined related suite passed 57 tests; `ruff check src tests`,
     `ruff format --check src tests`, `git diff --check`, and
     `PYTHON=/Users/czj/miniforge3/bin/python ./scripts/docs-check` also passed.
+- Code-review fix round:
+  - TDD red: backend schema tests could not import the absent v1/v2 protocol API;
+    the explicit-empty frontend distill journey generated a prompt; and Agent
+    detail save invalidated only the settings cache. Mirror contract tests also
+    observed effective modes instead of raw `None`.
+  - Rolling protocol and recovery suites, including old/new Gateway WS paths,
+    legacy receipt replay, SQLite migration, compensation, distill, mirror
+    reconciliation, and config validation → 132 passed. The consolidated related
+    IM/Gateway/DB suite → 109 passed.
+  - Frontend chat integration, chat API, SlashPicker, Agent detail, and config API
+    suites → 112 passed. `npm run build` passed with the existing Vite large-chunk
+    warning.
+  - `pytest -q -m 'not e2e'` → 3169 passed, 25 deselected; only existing dependency,
+    deprecation, and test-key warnings were emitted.
 
 ## Remaining gates
 
@@ -109,6 +143,7 @@ and remote CI. This worker intentionally did not run or mark those gates complet
 
 ## Rollback
 
-Revert the M1 implementation commit. The SQLite addition is nullable and Gateway
-YAML omission remains readable, so rollback does not require destructive data
+Revert the M1 implementation commits. The Skill-selection SQLite addition is
+nullable, the operation-schema column defaults to the old v1 protocol, and
+Gateway YAML omission remains readable, so rollback requires no destructive data
 migration.

@@ -516,7 +516,10 @@ export async function listAgentSummaries() {
  * Exported for unit testing only — prefer calling getAgentConfig / updateAgentConfig.
  */
 /** Response shape that includes the backend's raw heartbeat_json string field. */
-type AgentConfigRaw = AgentConfig & { heartbeat_json?: string | null };
+type AgentConfigRaw = Omit<AgentConfig, "skills_selection_mode"> & {
+  heartbeat_json?: string | null;
+  skills_selection_mode?: "default_discovery" | "explicit_allowlist" | null;
+};
 
 export function normalizeAgentConfigResponse(raw: Record<string, unknown>): AgentConfig {
   // Two-step cast: Record<string,unknown> → unknown → target type avoids the TS2352

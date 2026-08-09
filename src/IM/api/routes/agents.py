@@ -44,7 +44,7 @@ class AgentConfigResponse(BaseModel):
     display_name: str
     description: str
     skills: list[str]
-    skills_selection_mode: Literal["default_discovery", "explicit_allowlist"]
+    skills_selection_mode: Literal["default_discovery", "explicit_allowlist"] | None
     tool_allowlist: list[str]
     group_reply_policy: str
     default_model: str | None
@@ -224,9 +224,21 @@ class AgentCapabilitiesResponse(BaseModel):
 
 
 def to_agent_config_response(
-    profile: AgentProfile, *, service: ConfigService
+    profile: AgentProfile,
+    *,
+    service: ConfigService,
+    preserve_raw_selection_mode: bool = False,
 ) -> AgentConfigResponse:
-    """Convert a domain profile to the config response model."""
+    """Convert a domain profile to the config response model.
+
+    Args:
+        profile: Persisted or live-merged Agent profile.
+        service: Workspace and timestamp projection owner.
+        preserve_raw_selection_mode: Keep legacy ``None`` for mirror reads.
+
+    Returns:
+        API response with raw mirror or effective user-facing selection intent.
+    """
     # feat-379-M5 (ISSUE-2): features/custom_prompt must be round-tripped so the
     # frontend can restore toggle state and custom text on page load.
     return AgentConfigResponse(
@@ -236,8 +248,12 @@ def to_agent_config_response(
         display_name=profile.display_name,
         description=profile.description,
         skills=profile.skills,
-        skills_selection_mode=effective_skills_selection_mode(
-            profile.skills_selection_mode, profile.skills
+        skills_selection_mode=(
+            profile.skills_selection_mode
+            if preserve_raw_selection_mode
+            else effective_skills_selection_mode(
+                profile.skills_selection_mode, profile.skills
+            )
         ),
         tool_allowlist=profile.tool_allowlist,
         group_reply_policy=profile.group_reply_policy,
@@ -408,7 +424,9 @@ async def get_agent_config(
             status_code=status.HTTP_404_NOT_FOUND, detail="agent_id not found"
         )
     if source == "mirror":
-        return to_agent_config_response(profile, service=service)
+        return to_agent_config_response(
+            profile, service=service, preserve_raw_selection_mode=True
+        )
     if source != "live":
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -615,6 +633,14 @@ def _raise_operation_http_error(exc: Exception) -> None:
             },
         ) from exc
     if isinstance(exc, ConfigApplyRejectedError):
+        if exc.code == "gateway_upgrade_required":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": exc.code,
+                    "message": "Update this Agent's Gateway before saving this skill selection.",
+                },
+            ) from exc
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={

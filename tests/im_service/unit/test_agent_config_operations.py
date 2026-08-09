@@ -5,6 +5,8 @@ from pathlib import Path
 import pytest
 
 from IM.application.agent_config_operations import (
+    AGENT_CONFIG_FINGERPRINT_V1,
+    AGENT_CONFIG_FINGERPRINT_V2,
     candidate_fingerprint,
     gateway_candidate,
 )
@@ -51,9 +53,12 @@ def test_omitted_create_skills_have_a_distinct_fingerprint() -> None:
     candidate = {"agent_id": "agent-1"}
 
     assert "skills" not in gateway_candidate(candidate)
-    assert candidate_fingerprint(candidate) != candidate_fingerprint(
-        {**candidate, "skills": []}
-    )
+    for schema in (AGENT_CONFIG_FINGERPRINT_V1, AGENT_CONFIG_FINGERPRINT_V2):
+        assert candidate_fingerprint(
+            candidate, fingerprint_schema=schema
+        ) != candidate_fingerprint(
+            {**candidate, "skills": []}, fingerprint_schema=schema
+        )
 
 
 @pytest.mark.parametrize(
@@ -108,7 +113,58 @@ def test_im_and_gateway_candidate_fingerprints_share_selection_schema(
     projected = gateway_candidate(candidate)
 
     assert projected["skills_selection_mode"] == expected_mode
-    assert candidate_fingerprint(candidate) == agent_operation_fingerprint(projected)
+    assert candidate_fingerprint(
+        candidate, fingerprint_schema=AGENT_CONFIG_FINGERPRINT_V2
+    ) == agent_operation_fingerprint(
+        projected, fingerprint_schema=AGENT_CONFIG_FINGERPRINT_V2
+    )
+
+
+@pytest.mark.parametrize(
+    ("skills", "selection_mode"),
+    [
+        pytest.param([], "default_discovery", id="default-empty"),
+        pytest.param(["plan"], "explicit_allowlist", id="explicit-nonempty"),
+    ],
+)
+def test_im_and_gateway_v1_fingerprint_omits_selection_mode(
+    skills: list[str], selection_mode: str
+) -> None:
+    candidate = {
+        "agent_id": "agent-1",
+        "skills": skills,
+        "skills_selection_mode": selection_mode,
+    }
+
+    projected = gateway_candidate(
+        candidate, fingerprint_schema=AGENT_CONFIG_FINGERPRINT_V1
+    )
+
+    assert "skills_selection_mode" not in projected
+    assert candidate_fingerprint(
+        candidate, fingerprint_schema=AGENT_CONFIG_FINGERPRINT_V1
+    ) == agent_operation_fingerprint(
+        projected, fingerprint_schema=AGENT_CONFIG_FINGERPRINT_V1
+    )
+
+
+def test_v1_representability_rejects_selection_intent_that_names_cannot_encode() -> (
+    None
+):
+    for candidate in (
+        {
+            "agent_id": "agent-1",
+            "skills": [],
+            "skills_selection_mode": "explicit_allowlist",
+        },
+        {
+            "agent_id": "agent-1",
+            "skills": ["plan"],
+            "skills_selection_mode": "default_discovery",
+        },
+    ):
+        with pytest.raises(ValueError, match="gateway_upgrade_required"):
+            gateway_candidate(candidate, fingerprint_schema=AGENT_CONFIG_FINGERPRINT_V1)
 
 
 @pytest.mark.parametrize(
@@ -127,8 +183,11 @@ def test_legacy_selection_fingerprint_matches_explicit_effective_mode(
         "skills_selection_mode": effective_mode,
     }
 
-    assert candidate_fingerprint(legacy) == agent_operation_fingerprint(
-        gateway_candidate(explicit)
+    assert candidate_fingerprint(
+        legacy, fingerprint_schema=AGENT_CONFIG_FINGERPRINT_V2
+    ) == agent_operation_fingerprint(
+        gateway_candidate(explicit),
+        fingerprint_schema=AGENT_CONFIG_FINGERPRINT_V2,
     )
 
 
@@ -176,3 +235,45 @@ def test_active_operation_collision_returns_pending_instead_of_sqlite_error(
 
     with pytest.raises(AgentConfigOperationPendingError, match="config_apply_pending"):
         repository.create(operation_id="operation-2", **kwargs)
+
+
+def test_agent_config_operation_schema_migration_defaults_legacy_rows_to_v1(
+    tmp_path: Path,
+) -> None:
+    connection = connect(tmp_path / "legacy.db")
+    connection.executescript(
+        """
+        CREATE TABLE agent_config_operations (
+            operation_id TEXT PRIMARY KEY,
+            root_operation_id TEXT,
+            agent_id TEXT NOT NULL,
+            owner_id TEXT NOT NULL,
+            node_id TEXT NOT NULL,
+            operation_kind TEXT NOT NULL,
+            status TEXT NOT NULL,
+            candidate_json TEXT NOT NULL,
+            previous_candidate_json TEXT,
+            candidate_fingerprint TEXT NOT NULL,
+            expected_previous_fingerprint TEXT,
+            expected_profile_version INTEGER,
+            gateway_result_json TEXT,
+            error_code TEXT,
+            error_message TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        INSERT INTO agent_config_operations(
+            operation_id, agent_id, owner_id, node_id, operation_kind, status,
+            candidate_json, candidate_fingerprint, created_at, updated_at
+        ) VALUES (
+            'legacy-op', 'agent-1', 'owner-1', 'node-1', 'apply', 'pending',
+            '{"agent_id":"agent-1","skills":[]}', 'legacy-hash', 'now', 'now'
+        );
+        """
+    )
+
+    initialize_schema(connection)
+
+    operation = AgentConfigOperationRepository(connection).get(operation_id="legacy-op")
+    assert operation is not None
+    assert operation.fingerprint_schema == AGENT_CONFIG_FINGERPRINT_V1
