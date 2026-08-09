@@ -381,3 +381,298 @@ verification worktree remained clean.
 ### Verdict
 
 All checks passed. Ready for PR.
+
+# Round 3
+
+## Verification Report: feat-519-workspace-compat-skills
+
+### Metadata
+
+- Verification mode: full independent implementation verification
+- Validated at: `2026-08-10T03:22:59+08:00`
+- Validated implementation commit: `7be956bc85bfb1f13ff1e02f11b2dd4e001ae0c0`
+- Executed base: `1d0c2cb45b887162912402b0fb489cdf3a1ad9c9`
+- Verification branch: `review/feat-519-verification-r3`
+- Requires full verification: `false`
+- Verdict: **PASS**
+- Findings: 0 CRITICAL, 0 WARNING, 1 SUGGESTION
+
+Round 3 re-read the unit source documents and verified the final implementation
+without inheriting a result from Round 1 or Round 2. The verified document set is
+`spec.md`, `design.md`, all five delta-specs, and M1 `tasks.md`/`progress.md`.
+The implementation range, affected current code, relevant current specs and tests
+were inspected independently.
+
+### Executive result
+
+The final implementation satisfies all **16 requirements and 58 scenarios**, all
+six design decisions, and the single M1 worker exit criterion. In particular, the
+five-state selection matrix now retains the same meaning at IM persistence,
+Gateway YAML and operation boundaries, session composition, Kernel execution,
+preview, SlashPicker and automatic-writer boundaries. IM and Gateway compute the
+same canonical operation fingerprint for legacy-equivalent states, while explicit
+empty remains distinguishable from default discovery.
+
+No implementation defect or missing regression was found. The only finding is a
+non-blocking process-document suggestion: the implemented test coverage is broad
+and green, but the prose in M1 `tasks.md` does not use the repository's mandatory
+structured test-strategy template.
+
+### Completeness and coherence scorecards
+
+| Dimension | Result | Evidence |
+|---|---:|---|
+| Requirements | 16/16 PASS | Unit spec plus CLI, Gateway, IM, SDK-boundary and kernel-skills deltas |
+| Scenarios | 58/58 PASS | Per-scenario ledger below; source inspection and focused/full regressions |
+| Design decisions | 6/6 PASS | Decision ledger below |
+| M1 worker exit criteria | 1/1 PASS | Ordered readers/native writer, mode matrix, UI semantics and CI-equivalent validation |
+| Worker checklist | 7/7 implementation items complete | M1 `tasks.md`; final unchecked item is explicitly orchestrator-owned |
+| Architecture boundaries | PASS | Contract suite included in full Python run; no forbidden product/package dependency found |
+
+### Requirement and scenario coverage ledger
+
+Every scenario below was checked against final source and a matching focused or
+full-suite regression. `PASS` means both the implementation path and its durable
+test protection were present.
+
+#### Unit `spec.md` — 5 requirements / 12 scenarios
+
+| Requirement | Scenario | Result | Primary evidence |
+|---|---|---:|---|
+| PA 与 Coding CLI 一致发现指定的 Claude/Codex 兼容根目录 | PA 配置页提供工作区与用户主目录的兼容 Skill | PASS | `personal_assistant/product.py`, product-layout and reporter tests |
+| same | Coding CLI 在同一项目中提供兼容 Skill 候选 | PASS | `coding_cli/product.py`, CLI product-layout tests |
+| same | 原生与既有兼容来源保持可用 | PASS | exact ordered-root assertions in PA/CLI tests |
+| 同名 Skill 按统一、可预测的来源优先级解析 | PA 中同名 Skill 选择最优先来源 | PASS | shared root builder/registry plus PA same-source runtime tests |
+| same | Coding CLI 中同名 Skill 选择最优先来源 | PASS | CLI layout and core resolver first-root-wins tests |
+| PA 配置显式选择兼容 Skill 后才在下一轮生效 | 新发现的兼容 Skill 不静默扩大已保存 Agent 的能力 | PASS | explicit mode session projection and writer-mode tests |
+| same | 开发者选择兼容 Skill 后继续既有聊天 | PASS | session binder/composition and real Kernel session integration |
+| PA 配置支持按已显示的 Skill 分组批量选择 | 开发者以一个分组为单位调整 Skill 选择 | PASS | `skill-source-selector` plus create/detail tests |
+| same | 分组状态如实反映单项选择 | PASS | none/partial/all and pill-follow-up tests |
+| same | 批量选择自然融入既有配置体验 | PASS | inline control, native keyboard/focus and wrapping semantics |
+| 可选兼容目录缺失时保持正常使用 | 工作区不含某个兼容目录 | PASS | resolver and product missing-root tests |
+| same | 兼容目录没有有效 Skill | PASS | registry skip/empty-root regressions |
+
+#### CLI delta — 1 requirement / 5 scenarios
+
+| Scenario | Result | Primary evidence |
+|---|---:|---|
+| CLI 装配保持在产品包 | PASS | `coding_cli/product.py`; architecture contract suite |
+| CLI 在工作区发现 Claude/Codex Skill | PASS | `test_cli_product_workspace_layout.py` |
+| CLI 发现用户主目录 Claude Skill | PASS | exact shared-root assertions |
+| workspace 与全局扩展目录被纳入 | PASS | product layout passed to SDK ordered builder |
+| 缺失可选兼容目录不影响 CLI 启动 | PASS | missing-root regression |
+
+#### Gateway delta — 3 requirements / 20 scenarios
+
+| Requirement | Scenario | Result | Primary evidence |
+|---|---|---:|---|
+| PA 内置 skill 启动自举 | 新安装发现产品说明书与完整 Lark bundle | PASS | builtin bootstrap tests |
+| same | 升级刷新全部随包内置 skills | PASS | builtin refresh tests |
+| same | 非内置用户 skill 保持不变 | PASS | bootstrap preservation regression |
+| same | 刷新失败保留旧完整目录并继续启动 | PASS | atomic refresh failure regression |
+| same | backup 清理失败不遮蔽已切换的新版本 | PASS | post-switch cleanup regression |
+| same | 共享全局 root 的并发 Gateway 刷新保持完整版本 | PASS | concurrent bootstrap regression |
+| same | 显式 skill allowlist 不因资源刷新改变 | PASS | bootstrap/local-store assertions |
+| same | 显式非空 allowlist 的飞书 Agent 获得完整 bundle | PASS | static/managed Feishu reconciliation tests |
+| same | 默认发现的飞书 Agent 不物化 bundle | PASS | mode-matrix channel tests |
+| same | 显式空 allowlist 不因飞书 channel 调和扩宽 | PASS | explicit-empty channel regression |
+| same | 静态 Feishu Agent 的 IM profile ingress 保留完整 bundle | PASS | Gateway/IM sync regression |
+| same | 用户明确请求独立 Lark 事件监听 | PASS | bundled capability/bootstrap coverage |
+| PA Agent 从有序的工作区与全局 Claude/Codex 兼容根发现 Skill | 工作区 Claude/Codex Skill 出现在 Agent capability 中 | PASS | PA layout and upstream reporter tests |
+| same | PA 新回复与 capability 使用同一同名覆盖结果 | PASS | runtime same-source integration |
+| same | 缺失兼容目录不阻断 PA Agent | PASS | product/resolver missing-root tests |
+| same | 新建页只取得全局 Skill candidates | PASS | `Kernel.list_shared_skills` and shared-only capability tests |
+| PA Agent 配置区分默认发现与显式空 Skill 选择 | 用户显式清空全部 Skill 后下一轮不再发现 Skill | PASS | real session integration; prompt and `skill_view` expose no hidden Skill |
+| same | 旧空配置升级后保持历史行为 | PASS | legacy absent empty/nonempty matrix |
+| same | 自动 Skill 写回保留 selection mode | PASS | Feishu/static/IM-ingress/`skill_created` writer matrix |
+| same | 成功创建 Skill 后按当前 mode 变为可用 | PASS | default republish and explicit-list mutation tests |
+
+#### IM delta — 3 requirements / 11 scenarios
+
+| Requirement | Scenario | Result | Primary evidence |
+|---|---|---:|---|
+| 节点 runtime 能力按需向在线网关解析,不入库快照 | 节点能力含 features 列表供创建页渲染 | PASS | existing capability contract/full suite |
+| same | agent 能力透传 features 五元字段 | PASS | agent capability contract/full suite |
+| same | 可选模型列表每项携带其注册的 provider | PASS | capability contract/full suite |
+| same | 用户按有效模型能力选择推理设置 | PASS | frontend/current capability regressions |
+| same | 可选模型列表每项携带安全的推理能力 | PASS | capability schema tests |
+| same | agent 能力的 skills 项携带 location 与来源分组 | PASS | reporter → IM optional field → frontend normalization tests |
+| same | 旧节点未提供来源分组时安全降级 | PASS | legacy location/default-on fallback test |
+| Agent 配置页可按 Skill 来源分组批量调整选择 | 用户批量选择一个来源分组后继续逐项调整 | PASS | group selector plus create/detail tests |
+| same | 用户批量取消部分已选分组 | PASS | tri-state visible-group regression |
+| same | 窄屏配置仍保持清晰的分组操作 | PASS | wrapping/compact selector assertions and build |
+| 配置 API 表达默认 Skill discovery 与显式 allowlist 的不同意图 | 显式空选择在配置页和后续回复中一致 | PASS | API/repository/config-operation/real session/frontend tests |
+
+#### Kernel SDK-boundary delta — 1 requirement / 4 scenarios
+
+| Scenario | Result | Primary evidence |
+|---|---:|---|
+| 能力查询与运行时事实一致 | PASS | Kernel list/preview/runtime same-root tests |
+| 消费者可在工具目录中启用 `skill_view` | PASS | `test_skill_view.py` and real session integration |
+| 部署级共享 skill 根叠加在每 workspace 布局之后 | PASS | exact root-sequence unit tests |
+| 无真实 workspace 时只查询共享 Skill | PASS | `list_shared_skills` shared-only test |
+
+#### Kernel skills delta — 3 requirements / 6 scenarios
+
+| Requirement | Scenario | Result | Primary evidence |
+|---|---|---:|---|
+| 同一 workspace 下 preview、list_skills 与运行时注入的技能集合一致 | 多个有序工作区目录在各读取路径中一致 | PASS | common builder and focused 62-test root suite |
+| same | 预览与运行时技能一致 | PASS | preview/runtime same-source tests |
+| same | 未提供额外 workspace Skill layout 时保持既有单目录默认 | PASS | default-layout compatibility tests |
+| same | list_skills 返回项携带 SKILL.md 路径 | PASS | Kernel list capability-query tests |
+| Skill 管理写入不因兼容读取 root 改变目标目录 | 管理工具从兼容 root 读取但写入原生 root | PASS | `test_skill_manage_tool.py` native-writer regression |
+| SDK 消费者可在没有真实 workspace 时只查询共享 Skill roots | prospective Agent capability 不把 repo workspace Skill 当候选 | PASS | shared-only query regression |
+
+### Focused semantic matrices
+
+#### Selection intent and persistence
+
+| Stored state | Effective meaning | Session projection | Writer behavior | Result |
+|---|---|---|---|---:|
+| legacy mode absent, `skills=[]` | default discovery | `None` → discover | no eager migration | PASS |
+| legacy mode absent, non-empty skills | explicit allowlist | exact tuple | materialize explicit only when an actual mutation is required | PASS |
+| `default_discovery` | default discovery | `None` → discover | republish/no list widening | PASS |
+| `explicit_allowlist`, non-empty | exact allowlist | exact tuple | retain mode; add only on explicit capability mutation | PASS |
+| `explicit_allowlist`, empty | disable all Skill discovery | empty tuple | retain empty through Feishu/config/created paths | PASS |
+
+The repository, API and wire representations retain raw legacy absence where no
+mutation is required. Effective-mode helpers are used only at behavior and
+canonical comparison boundaries. `Kernel.create_session` distinguishes
+`skills is None` from `skills == []`; the real-session regression persists `[]`,
+runs a model turn, verifies the model prompt does not advertise the hidden Skill,
+and verifies `skill_view` cannot reveal it.
+
+#### IM/Gateway fingerprint and operation lifecycle
+
+| Boundary/path | Verified invariant | Result |
+|---|---|---:|
+| IM `gateway_candidate` vs Gateway `canonical_agent_operation_payload` | identical canonical projection for all five states | PASS |
+| legacy absent empty vs explicit effective default | equal fingerprints | PASS |
+| legacy absent non-empty vs explicit effective allowlist | equal fingerprints | PASS |
+| default vs explicit empty | different fingerprints | PASS |
+| invalid explicit mode | rejected on both sides | PASS |
+| real apply | legacy/default local profile can apply explicit empty and persist it in YAML | PASS |
+| lost-ACK recovery | candidate, fingerprint, applied payload and committed profile retain explicit empty | PASS |
+| CAS-loss compensation | compensation payload and terminal recovery retain explicit empty | PASS |
+
+Primary code evidence is IM `application/agent_config_operations.py:544-621`
+and Gateway `gateway/agent_config_sync.py:91-142,1518-1524`; matrix, apply,
+lost-ACK and compensation regressions are in
+`test_agent_config_operations.py`,
+`test_gateway_config_operation_validation.py` and
+`test_agent_config_operation_flow.py`.
+
+#### Ordered roots and consumers
+
+| Surface | Uses shared ordered roots | Same-name first wins | Native writer unchanged | Result |
+|---|---:|---:|---:|---:|
+| Kernel `list_skills` / preview | yes | yes | N/A | PASS |
+| Agent runtime prompt and compaction | yes | yes | N/A | PASS |
+| `skill_view` | yes | yes | N/A | PASS |
+| `skill_manage list` / reads | yes | yes | yes | PASS |
+| PA capability and new session | yes | yes | N/A | PASS |
+| Coding CLI | yes | yes | N/A | PASS |
+| shared-only prospective query | shared roots only | yes | N/A | PASS |
+
+The single builder is `agent/core/skills/discovery.py:18-48`. PA orders
+`.nanoassistant`, `.claude`, `.codex` before its shared roots; Coding CLI orders
+`.nanocode`, `.claude`, `.codex` before its shared roots. Every listed reader
+receives the same sequence. `skill_manage` continues to write only beneath the
+product-native workspace directory.
+
+#### Automatic writers and user-facing consumers
+
+| Surface | States/behavior independently checked | Result |
+|---|---|---:|
+| Static Feishu reconciliation | legacy empty, legacy non-empty, default, explicit non-empty, explicit empty | PASS |
+| Managed Feishu reconciliation | effective mode respected; explicit empty not widened | PASS |
+| Static IM profile ingress | only required non-empty explicit bundle repair | PASS |
+| `skill_created` | default/legacy-empty republish; explicit lists mutate; legacy non-empty materializes | PASS |
+| Agent detail preview | default = capabilities; explicit non-empty = exact names; explicit empty = `[]` | PASS |
+| Runtime/SlashPicker | default discovers; explicit exact intersection; explicit empty none; old absent payload inferred | PASS |
+| `source_group` | structured workspace/global/compatibility projection; old payload fallback | PASS |
+| Create/detail selector | default → explicit on first edit; tri-state group control; hidden names preserved | PASS |
+
+### Six design decisions
+
+| Design decision | Final implementation result | Evidence |
+|---|---:|---|
+| 1. Explicit ordered workspace directory layout | PASS | SDK accepts ordered dirnames; PA/CLI provide exact product layouts |
+| 2. One root-sequence builder for readers, native writer fixed | PASS | all seven reader/native-writer surfaces above |
+| 3. Structured PA `source_group`, safe legacy fallback | PASS | reporter, IM optional schema, frontend fallback tests |
+| 4. Explicit selection intent distinguishes clear-all from default | PASS | full five-state persistence/runtime/fingerprint matrix |
+| 5. Inline tri-state group micro-interaction | PASS | checkbox semantics, count/state action, focus/keyboard and wrapping tests |
+| 6. Create page uses shared/global Skills only | PASS | `list_shared_skills`, create flow and shared-only leakage regression |
+
+The prototype's three must-match projections are represented in the production
+component and regressions: default-to-explicit transition, none/partial/all group
+state with compact count/action, and pill/group linkage at desktop/mobile layout.
+Real browser product acceptance remains the downstream `change-reviewer` gate;
+it is not substituted by this implementation verification.
+
+### M1 worker exit-criteria ledger
+
+| Worker exit clause | Result | Evidence |
+|---|---:|---|
+| list/preview/runtime/`skill_view` share one ordered layout | PASS | common builder plus 62 focused ordered-root tests |
+| native writer root remains unchanged | PASS | `skill_manage` writer regression |
+| legacy absent/default/explicit non-empty/empty remain coherent through IM DB and Gateway YAML | PASS | repository/API/local-store/mode tests |
+| config operation recovery preserves intent | PASS | canonical matrix, real apply, lost-ACK and compensation tests |
+| Feishu bundle, `skill_created` and session projection preserve intent | PASS | automatic-writer matrix and real session integration |
+| group control has keyboard/focus/tri-state semantics | PASS | selector tests and production build |
+| group changes only visible names and retains invisible names | PASS | hidden-name create/detail regression |
+| old and new capability payloads render safely | PASS | API normalization and legacy source fallback tests |
+| narrow-to-CI-equivalent related validation is green | PASS | command table below |
+
+All seven worker implementation checklist items in `tasks.md` are complete. The
+remaining unchecked checklist line combines real product journeys, independent
+review gates, canonical-spec merge and archive; `tasks.md:24-25` explicitly owns
+those final lifecycle actions to the orchestrator, so it is not an incomplete
+worker implementation criterion.
+
+### Findings
+
+#### SUGGESTION S1 — M1 test strategy should use the mandatory structured template
+
+**Evidence:** `M1-workspace-skills-selection/tasks.md:27-33` describes coverage in
+five prose bullets. `docs/development/testing.md:95-113` says this section MUST
+state the protected seam, existing-test disposition and de-duplication rationale,
+layer/directory/marker rationale, file ownership, optional dependency policy,
+one-off evidence, and an affected-existing-tests disposition table. Several of
+those fields and the table are absent.
+
+**Impact:** non-blocking process/documentation debt only. Source behavior is
+protected by durable tests, the focused suites and CI-equivalent full suites pass,
+and no implementation requirement is falsified.
+
+**Precise fix routing:** M1 documentation owner should rewrite only the Test
+strategy section using the template in `docs/development/testing.md`, naming the
+existing files already used here and adding the affected-existing-tests table.
+No production-code or test-code change is requested.
+
+### Command evidence
+
+| Command/scope | Result |
+|---|---|
+| `pytest -q -m 'not e2e'` | **3155 passed**, 25 deselected, 22 existing dependency/deprecation warnings; 153.78s |
+| IM/Gateway selection, persistence, config-operation, session suite (11 files) | **101 passed**, 3 existing warnings; 8.76s |
+| ordered roots/list/preview/runtime/`skill_view`/writer/product layouts (7 files) | **62 passed**; 0.40s |
+| six focused frontend selector/create/edit/detail/API/SlashPicker files | **66 passed**; 3.15s |
+| full frontend `npm test -- --reporter=dot` | **66 files, 638 tests passed**; 14.39s; existing `act(...)`, local-storage and mocked user-stream warnings only |
+| frontend `npm run build` | PASS; 504 modules transformed; existing >500 kB chunk warning only |
+| `ruff check src tests` | PASS |
+| `ruff format --check src tests` | PASS; 853 files already formatted |
+| `git diff --check 1d0c2cb45b887162912402b0fb489cdf3a1ad9c9..7be956bc85bfb1f13ff1e02f11b2dd4e001ae0c0` | PASS |
+| `PYTHON=/Users/czj/miniforge3/bin/python ./scripts/docs-check` | PASS; 226 maintained Markdown sources and 67 required routes |
+
+Frontend verification reused the main checkout's installed `node_modules`
+through a temporary worktree-local symlink. It was removed after each command;
+the only intended Round 3 worktree modification is this report.
+
+### Verdict
+
+**PASS.** Blocking findings: **0**. Non-blocking findings: **1 SUGGESTION**.
+All implementation requirements, scenarios, design decisions and M1 worker exit
+criteria pass at the validated commit. `requires_full_verification: false`.
+
+All checks passed. Ready for PR.
