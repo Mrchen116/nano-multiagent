@@ -2,8 +2,8 @@
 
 ## Status
 
-- State: implementation complete; verifier and acceptance passed; code-review
-  rolling-compatibility and follow-up fixes complete; remaining gates pending.
+- State: delivery complete; verifier, acceptance, code review, corrected-delta,
+  canonical merge, and local CI-equivalent gates passed.
 - Executed base: `1d0c2cb45`.
 - Baseline: 27 focused Python tests and 37 focused frontend tests passed.
 
@@ -135,11 +135,21 @@ runtime projection, and the Web IM create/detail/chat surfaces.
   - `pytest -q -m 'not e2e'` → 3169 passed, 25 deselected; only existing dependency,
     deprecation, and test-key warnings were emitted.
 
-## Remaining gates
+- Final delivery gates:
+  - Change-code-review closure returned `[]`; all four confirmed findings closed.
+  - Verification round 4 passed with no issue; corrected-delta verification found
+    no delta or implementation mismatch.
+  - Product acceptance round 4 passed with no blocking, major, or minor issue on
+    a fresh IM/Gateway/browser stack.
+  - Final local CI-equivalent run: Ruff check/format passed; Python non-E2E
+    `3169 passed`; frontend critical audit passed and Vitest `640 passed` across
+    66 files; canonical requirement merge comparison and docs-check passed.
 
-The orchestrator still owns real Coding CLI/PA/browser acceptance, independent
-verifier/reviewer/code-review gates, canonical spec merge, archive, PR creation,
-and remote CI. This worker intentionally did not run or mark those gates complete.
+## Delivery status
+
+The implementation and local delivery gates are complete. The orchestrator archives
+this unit before opening the Ready PR; branch and remote CI status remain live GitHub
+state and are intentionally not copied into this progress snapshot.
 
 ## Rollback
 

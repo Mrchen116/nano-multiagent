@@ -19,10 +19,11 @@ Deliver workspace Claude/Codex Skill compatibility and truthful grouped Skill se
 - [x] Make SlashPicker and runtime distinguish default discovery from explicit allowlists, including explicit empty.
 - [x] Implement default-to-explicit grouped tri-state selection in create/detail pages with keyboard/focus/mobile behavior and invisible-name preservation.
 - [x] Add focused Python, contract, repository/API, Gateway, and frontend tests.
-- [ ] Run focused validation, real CLI/PA/browser journeys, full verifier/reviewer/code-review gates, CI-equivalent checks, canonical spec merge, and archive.
+- [x] Run focused validation, real CLI/PA/browser journeys, full verifier/reviewer/code-review gates, CI-equivalent checks, canonical spec merge, and archive.
 
-Worker-side automated validation is complete; real product journeys, independent gates,
-canonical spec merge, and archive remain owned by the orchestrator.
+Automated validation, real product journeys, independent gates, canonical spec merge,
+and local CI-equivalent checks are complete; the orchestrator owns the final archive
+move and PR/remote-CI publication.
 
 ## Test strategy
 
