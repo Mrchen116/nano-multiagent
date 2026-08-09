@@ -272,3 +272,112 @@ allowlist. W1 must be corrected for the design's preview/runtime truthfulness,
 and W2 must add the explicitly required recovery coverage before the next focused
 verification round. A full verification rerun is not required after these scoped
 fixes; round 2 may validate the three findings plus the affected focused suites.
+
+# Round 2
+
+## Verification Report: feat-519-workspace-compat-skills
+
+### Summary
+
+- Mode: `targeted-closure`
+- Delta range: `85d9883f86334315da633e7a0ab81260c83b818e..520cb5c371c9beb2b0f9b20a2d69665d35fc0d5e`
+- Focus issues: C1, W1, W2
+- Validated at: `2026-08-10T01:53:41+08:00`
+- Validated implementation commit: `520cb5c371c9beb2b0f9b20a2d69665d35fc0d5e`
+- Executed base: `1d0c2cb45`
+- `requires_full_verification: false`
+
+| Dimension | Result |
+|---|---|
+| Completeness | 3/3 focus issues closed |
+| Correctness | 3/3 affected contracts and regressions pass |
+| Coherence | Followed; fixes stay within existing Kernel, preview and config-operation mechanisms |
+
+### Focus-issue closure
+
+#### C1 — CLOSED: explicit empty survives a real Kernel session
+
+`Kernel.create_session()` now distinguishes `None` from an empty list when it
+builds the durable `NewSession` (`src/agent/sdk/kernel.py:1198`). The added
+integration regression creates a discoverable `secret-skill`, opens a real
+session with `SessionRuntimeConfig(skills=[])`, reads the persisted runtime,
+executes a model turn, and makes the model attempt `skill_view`
+(`tests/integration/test_empty_skill_allowlist_wiring.py:62-116`). It verifies:
+
+- persisted `runtime.skills` remains `[]`;
+- the first model request does not expose `<name>secret-skill</name>`;
+- `skill_view` returns “not enabled for this session” even though the tool itself
+  is enabled;
+- the Skill body is never exposed to the model.
+
+The test passes together with zero-tool wiring, real session coordinator,
+`skill_view`, and PA selection-mode regressions. The Gateway/IM explicit-empty
+scenarios that failed in Round 1 are therefore restored.
+
+#### W1 — CLOSED: preview projects default, explicit non-empty and explicit empty
+
+`BehaviorCard` now receives the current capability Skills and computes preview
+IDs from the effective mode (`agent-detail-page.tsx:120-156`). Default discovery
+materializes the current capability names for this preview request; explicit mode
+uses the exact saved names, including an empty list. Fetch and debounce
+dependencies use that effective list (`agent-detail-page.tsx:162-187`), and the
+real detail page passes the live capability list into the card (`:1729-1735`).
+
+The parameterized frontend regression covers all three required states:
+
+| State | Expected `skill_ids` | Result |
+|---|---|---|
+| `default_discovery`, stored `[]` | all current capability names | PASS |
+| `explicit_allowlist`, non-empty including a hidden name | exact saved names | PASS |
+| `explicit_allowlist`, stored `[]` | `[]` | PASS |
+
+Evidence: `agent-detail-page.test.tsx:741-812`; affected frontend suites report
+39 passing tests and the production build succeeds.
+
+#### W2 — CLOSED: explicit-empty operation recovery and compensation are guarded
+
+The new lost-ACK regression persists and inspects the complete operation
+candidate, verifies its canonical fingerprint matches the Gateway apply
+fingerprint, recovers an `applied` status, and confirms the committed IM profile
+and durable operation still contain `skills=[]` plus
+`skills_selection_mode="explicit_allowlist"`
+(`tests/im_service/integration/test_agent_config_operation_flow.py:108-176`).
+
+The existing CAS-loss compensation scenario now uses explicit empty on both the
+losing request and concurrent winner. It verifies the compensation apply payload,
+candidate, fingerprint, recovered profile and terminal operation status retain
+the same intent (`test_agent_config_operation_flow.py:351-451`). Both paths pass.
+
+### Affected requirement and design coverage
+
+| Contract | Round 2 result |
+|---|---|
+| Gateway: explicit clear means the next new session discovers no Skill | PASS |
+| IM: explicit empty is consistent between configuration and later replies | PASS |
+| Design decision 4: default vs explicit intent stays authoritative at session and preview boundaries | PASS |
+| M1: config-operation lost-ACK recovery and compensation retain selection intent | PASS |
+
+### Regression review
+
+The fix delta changes one Kernel truthiness condition and adds mode-aware preview
+projection; the remaining runtime/config implementation is untouched. The
+operation changes are regression tests only. No new dependency direction,
+cross-process boundary or parallel persistence mechanism was introduced.
+
+Executed evidence:
+
+| Command scope | Result |
+|---|---|
+| Explicit-empty session, zero-tool session, real session coordinator, config operations, `skill_view`, PA mode | **30 passed**, 2 unrelated dependency deprecation warnings |
+| Agent detail/edit/API frontend suites | **39 passed**; pre-existing React `act(...)` and test user-stream warnings only |
+| Frontend `npm run build` | PASS; existing large-chunk warning only |
+| Ruff check and format-check on changed Python files | PASS |
+| Fix-range `git diff --check` | PASS |
+
+Frontend verification reused the main checkout's existing `node_modules` through
+a temporary worktree-local symlink. The command trap removed it afterward; the
+verification worktree remained clean.
+
+### Verdict
+
+All checks passed. Ready for PR.
