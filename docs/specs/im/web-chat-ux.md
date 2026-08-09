@@ -1,6 +1,6 @@
 # IM - Web Chat UX Specification
 
-> 对齐: bugfix-512
+> 对齐: bugfix-518
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -275,47 +275,39 @@ Web IM SHALL 为 Agent Markdown 中的每个 block code 提供独立、可访问
 
 ### Requirement: 历史会话蒸馏 conversation 选择入口
 
-用户可从 IM 左侧 conversation 列表选择已完成会话,生成一条普通聊天消息来调用历史会话蒸馏 skill。IM 负责选择来源、执行 agent 与写入范围;Gateway 不解析蒸馏路径或注入 transcript 上下文。
+用户可从 IM 左侧 conversation 列表选择已完成、属于同一 Gateway 的会话生成 skill。IM 只按 source Agent
+与其 `source_node_id` 做 owner、idle 和同节点选择；不扫描或读取 Gateway JSONL。用户确认 execution Agent 与
+scope 后，IM 保留既有 distiller/`skill_view` preflight，并向该 Gateway 请求当前格式的 distill prompt。成功才新建
+固定到该 node 的 execution Agent 单聊并原样预填 prompt；后续普通 relay 优先该固定 node，不因 Agent profile
+重新注册而改送其他 Gateway。用户随后按既有普通聊天发送；builtin skill 继续从 prompt fields 读取该 Gateway
+本机的 JSONL paths。
 
-#### Scenario: 用户在 IM 左侧面板选择 conversation 发起蒸馏
-- **WHEN** 用户在 conversation 列表中进入"生成 skill"多选模式
-- **THEN** 提供 checkbox 选择入口;`run_state=idle` 的 conversation 可选,`run_state=running` 的 conversation 禁选并显示"运行中"
+#### Scenario: 选择第一个来源后锁定同一 Gateway
+- **WHEN** 用户在 conversation 列表进入“生成 skill”多选模式并选择一个 idle、带 source Agent 的会话
+- **THEN** IM 用该会话的 `source_node_id` 锁定本次选择
+- **AND** running、无 source Agent 或其他 Gateway 的会话不可选，并显示现有可理解原因
 
-#### Scenario: 单一来源 agent 时自动确定执行 agent
-- **GIVEN** 用户已选择一个或多个 `run_state=idle` 的 conversation
-- **WHEN** 用户点击"生成 skill"
-- **THEN** 若所选 conversation 都属于同一个 agent,IM 自动把该 agent 作为执行 agent
-- **AND** IM 弹窗让用户选择 agent 级或 PA 产品级写入范围
-- **AND** 用户确认后跳转到执行 agent 的新对话
+#### Scenario: Gateway 返回当前格式 prompt 后预填普通聊天
+- **GIVEN** 用户选择同 Gateway sources、execution Agent 与 target scope
+- **WHEN** IM 通过该 Gateway 成功取得 distill prompt
+- **THEN** IM 创建 execution Agent 的 direct conversation，并原样预填包含
+  `/skill:conversation-skill-distiller`、`source_jsonl_paths`、`execution_agent_id` 与 `target_scope` 的 prompt
+- **AND** 用户可按既有方式补充意图并作为普通聊天消息发送；服务端固定路由优先于任何 client node hint，消息仍到生成该 prompt 的同一 Gateway
 
-#### Scenario: 跨 agent 来源时选择执行 agent
-- **GIVEN** 用户已选择多个 `run_state=idle` 的 conversation,且这些 conversation 来自多个 agent
-- **WHEN** 用户点击"生成 skill"
-- **THEN** IM 弹窗让用户选择一个执行 agent
-- **AND** 同一弹窗让用户选择 agent 级或 PA 产品级写入范围
-- **AND** 用户确认后跳转到执行 agent 的新对话
+#### Scenario: execution Agent 不具备 distiller 或 skill_view 时不创建空聊天
+- **WHEN** execution Agent 缺少 `conversation-skill-distiller` 或 `skill_view`
+- **THEN** dialog 显示不可执行原因，且不请求或不接受 prompt
+- **AND** 不创建或导航到新的 execution conversation
 
-#### Scenario: 执行 agent 未启用历史会话蒸馏 skill
-- **GIVEN** 执行 agent 的可见 skill 集合不包含 `conversation-skill-distiller`
-- **WHEN** 用户点击"生成 skill"
-- **THEN** IM 提示执行 agent 未启用历史会话蒸馏 skill
-- **AND** 不跳转新对话,也不预填 `/skill:conversation-skill-distiller`
+#### Scenario: 取得 prompt 失败时不创建空聊天
+- **WHEN** target Gateway 离线，或不能为任一 source 解析本机 path
+- **THEN** IM 在 dialog 显示可理解失败原因
+- **AND** 不创建或导航到新的 execution conversation，也不发送普通 relay
 
-#### Scenario: 默认 conversation 列表不显示运行态标签
-- **WHEN** 用户正常浏览 IM 左侧 conversation 列表,且未进入"生成 skill"多选模式
-- **THEN** conversation 行不显示"已结束/运行中"这类运行态标签
-
-#### Scenario: 用户通过范围弹窗指定生成级别后提交蒸馏
-- **GIVEN** 新对话已预填所选 conversation 对应的 `source_jsonl_paths`
-- **WHEN** 用户补充意图说明并提交
-- **THEN** 对话将 `/skill:conversation-skill-distiller`、`source_jsonl_paths`、用户意图、`execution_agent_id` 与 `target_scope` 预填为用户可见消息
-- **AND** 该消息按普通聊天消息发送;Gateway 不解析 `source_jsonl_paths`,不注入 transcript 上下文
-
-#### Scenario: 蒸馏写入结果复用现有对话展示
-- **GIVEN** 用户已发送预填后的蒸馏消息
-- **WHEN** agent 成功调用 `skill_manage(create)` 写入 skill
-- **THEN** IM 通过现有工具调用展示或普通 assistant 消息展示写入结果
-- **AND** 不新增专门的 SKILL.md 草稿预览卡片、确认写入按钮或取消按钮
+#### Scenario: 普通 sidebar 浏览不显示蒸馏选择状态
+- **WHEN** 用户未进入“生成 skill”选择模式
+- **THEN** conversation 列表保持既有普通浏览外观
+- **AND** 不显示 running、different Gateway 或 checkbox 等只服务于蒸馏选择的标签
 
 ### Requirement: Web IM 聊天输入框支持把剪贴板图片加入待发附件
 
