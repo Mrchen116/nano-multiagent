@@ -35,12 +35,7 @@
 - **WHEN** 自动阈值、overflow 或手动压缩成功，随后消费者继续运行该会话或在进程重启后恢复它
 - **THEN** 后续运行仍能延续压缩前的用户目标与未完成事项，且会话可从已提交的 compaction record 恢复
 
-#### Scenario: 自动压缩不继承手动关注点
-- **GIVEN** 一个 session 曾以 focus 完成手动压缩
-- **WHEN** 该 session 后续因 token threshold 或 overflow 自动压缩
-- **THEN** 自动压缩按既有 planner 和摘要策略执行，不复用先前手动 focus
-
-#### Scenario: 相同手动操作 identity 不重复压缩
+#### Scenario: 相同手动操作 identity 返回已提交结果
 - **GIVEN** 消费者已使用非空 `idempotency_key` 成功完成一次手动压缩
 - **WHEN** 消费者因重放或响应丢失以相同 key 再次调用 `kernel.compact`
 - **THEN** 内核返回第一次已提交的手动压缩结果
