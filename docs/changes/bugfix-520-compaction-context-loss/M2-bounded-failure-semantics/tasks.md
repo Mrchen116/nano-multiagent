@@ -69,6 +69,6 @@
 
 ### R6 — Review fix：成功恢复链与 retry 失败闭环
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 红测锁定 reinjection restart 可达、overflow retry typed failure 仍先提示、manual/overflow 成功清空旧 token usage；修正 runtime 后跑完整门禁。
 - 验证: `tests/unit/agent/test_kernel_manual_compact.py`、`tests/integration/test_conversation_compaction_integration.py`、focused suite、Ruff/docs/diff check。
