@@ -9,6 +9,7 @@ import pytest
 from agent.core.agent.compaction.summarizer import CompactionSummarizer
 from agent.core.errors import CompactionError
 from agent.core.session.types import SessionRef
+from agent.core.skills.usage import bump_skill_usage
 from agent.sdk import LLMConfig, build_kernel
 
 
@@ -247,5 +248,52 @@ async def test_kernel_manual_compact_keeps_a_following_public_append_reachable(
         raw = transcript._files.read_raw_entries(transcript._ref)  # noqa: SLF001
         after = next(entry for entry in raw if entry.get("uuid") == "after-compact")
         assert after["parent_uuid"] == result.entry_id
+    finally:
+        restarted.close()
+
+
+@pytest.mark.asyncio
+async def test_kernel_manual_compact_reinjection_survives_restart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    skill_root = tmp_path / ".nano" / "skills"
+    skill_file = skill_root / "review" / "SKILL.md"
+    skill_file.parent.mkdir(parents=True)
+    skill_file.write_text("# Review skill\n", encoding="utf-8")
+    kernel = _kernel(tmp_path)
+    session, _transcript = await _seed_session(kernel, tmp_path)
+    bump_skill_usage(
+        skill_root=skill_root,
+        skill_name="review",
+        session_id=session.session_id,
+        tool_call_id="skill-call-1",
+        source="F1",
+        location=skill_file,
+    )
+    monkeypatch.setattr(kernel._c.engine_services, "_compaction_summarizer", _Summary())  # noqa: SLF001
+    try:
+        compacted = await kernel.compact(
+            session.session_id,
+            workspace_root=tmp_path,
+        )
+        assert compacted is not None
+    finally:
+        kernel.close()
+
+    restarted = _kernel(tmp_path)
+    try:
+        transcript = restarted._c.directory.open(  # noqa: SLF001
+            SessionRef(session_id=session.session_id, workspace_root=tmp_path)
+        )._transcript
+        messages = transcript.load().messages
+
+        assert [
+            message.metadata.get("is_skill_reinjection") for message in messages
+        ] == [
+            None,
+            True,
+        ]
+        assert messages[0].message_id == compacted.entry_id
+        assert messages[1].parent_message_id == compacted.entry_id
     finally:
         restarted.close()

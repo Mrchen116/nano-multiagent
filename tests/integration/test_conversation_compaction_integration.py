@@ -3,7 +3,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from agent.core.errors import ModelError
+from agent.core.errors import CompactionError, ModelError
 from agent.core.llm.interfaces import LLMGenerateRequest, LLMMessage
 from agent.core.session.types import SessionRef
 from agent.core.types import TokenUsage
@@ -373,6 +373,148 @@ async def test_overflow_compaction_retries_and_reopens_from_jsonl(
         assert "OVERFLOW-REPLAY" in _request_text(reopened_requests[-1])
     finally:
         second_kernel.close()
+
+
+async def test_manual_compaction_clears_prior_usage_before_followup(
+    tmp_path: Path,
+) -> None:
+    class _Client:
+        def __init__(self) -> None:
+            self.summary_calls = 0
+
+        async def generate(self, request: LLMGenerateRequest):  # noqa: ANN201
+            if _is_summary_request(request):
+                self.summary_calls += 1
+                yield LLMMessage(role="assistant", content="manual summary")
+                yield LLMMessage(role="assistant", content="", finish_reason="stop")
+                return
+            yield LLMMessage(role="assistant", content="ack")
+            yield LLMMessage(role="assistant", content="", finish_reason="stop")
+
+    client = _Client()
+    kernel = build_kernel(
+        llm=_compaction_llm(), repo_root=tmp_path, _llm_client_override=client
+    )
+    try:
+        session = await kernel.create_session(workspace_root=tmp_path)
+        seeded, _events = await _submit_and_collect(
+            kernel, session.session_id, tmp_path, "seed"
+        )
+        assert seeded.status == "completed"
+        conversation = kernel._c.directory.open(  # noqa: SLF001
+            SessionRef(session_id=session.session_id, workspace_root=tmp_path)
+        )
+        conversation._state.last_prompt_tokens = 10_000  # noqa: SLF001
+
+        assert (
+            await kernel.compact(session.session_id, workspace_root=tmp_path)
+            is not None
+        )
+        followed, _events = await _submit_and_collect(
+            kernel, session.session_id, tmp_path, "followup"
+        )
+
+        assert followed.status == "completed"
+        assert client.summary_calls == 1
+    finally:
+        kernel.close()
+
+
+async def test_overflow_success_clears_prior_usage_before_retry(tmp_path: Path) -> None:
+    conversation = None
+
+    class _Client:
+        def __init__(self) -> None:
+            self.normal_calls = 0
+            self.summary_calls = 0
+
+        async def generate(self, request: LLMGenerateRequest):  # noqa: ANN201
+            if _is_summary_request(request):
+                self.summary_calls += 1
+                yield LLMMessage(role="assistant", content="overflow summary")
+                yield LLMMessage(role="assistant", content="", finish_reason="stop")
+                return
+            self.normal_calls += 1
+            if self.normal_calls == 2:
+                assert conversation is not None
+                conversation._state.last_prompt_tokens = 10_000  # noqa: SLF001
+                raise ModelError(
+                    "context overflow",
+                    details={"response": "maximum context length exceeded"},
+                )
+            yield LLMMessage(role="assistant", content="ok")
+            yield LLMMessage(role="assistant", content="", finish_reason="stop")
+
+    client = _Client()
+    kernel = build_kernel(
+        llm=_compaction_llm(), repo_root=tmp_path, _llm_client_override=client
+    )
+    try:
+        session = await kernel.create_session(workspace_root=tmp_path)
+        conversation = kernel._c.directory.open(  # noqa: SLF001
+            SessionRef(session_id=session.session_id, workspace_root=tmp_path)
+        )
+        seeded, _events = await _submit_and_collect(
+            kernel, session.session_id, tmp_path, "seed"
+        )
+        assert seeded.status == "completed"
+        recovered, _events = await _submit_and_collect(
+            kernel, session.session_id, tmp_path, "overflow"
+        )
+
+        assert recovered.status == "completed"
+        assert client.normal_calls == 3
+        assert client.summary_calls == 1
+    finally:
+        kernel.close()
+
+
+async def test_overflow_retry_compaction_error_is_visible_before_failed(
+    tmp_path: Path,
+) -> None:
+    class _Client:
+        def __init__(self) -> None:
+            self.normal_calls = 0
+
+        async def generate(self, request: LLMGenerateRequest):  # noqa: ANN201
+            if _is_summary_request(request):
+                yield LLMMessage(role="assistant", content="overflow summary")
+                yield LLMMessage(role="assistant", content="", finish_reason="stop")
+                return
+            self.normal_calls += 1
+            if self.normal_calls == 2:
+                raise ModelError(
+                    "context overflow",
+                    details={"response": "maximum context length exceeded"},
+                )
+            if self.normal_calls == 3:
+                raise CompactionError(
+                    trigger="threshold",
+                    failure_kind="summary",
+                    consecutive_failures=3,
+                )
+            yield LLMMessage(role="assistant", content="seeded")
+            yield LLMMessage(role="assistant", content="", finish_reason="stop")
+
+    client = _Client()
+    kernel = build_kernel(
+        llm=_compaction_llm(), repo_root=tmp_path, _llm_client_override=client
+    )
+    try:
+        session = await kernel.create_session(workspace_root=tmp_path)
+        seeded, _events = await _submit_and_collect(
+            kernel, session.session_id, tmp_path, "seed"
+        )
+        assert seeded.status == "completed"
+
+        failed, events = await _submit_and_collect(
+            kernel, session.session_id, tmp_path, "overflow"
+        )
+
+        assert failed.status == "failed"
+        _assert_compaction_prompt_before_failed(events)
+    finally:
+        kernel.close()
 
 
 async def test_threshold_summary_failure_stops_on_third_attempt_without_boundary(

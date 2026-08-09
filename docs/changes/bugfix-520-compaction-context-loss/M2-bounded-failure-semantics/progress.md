@@ -77,3 +77,30 @@
 ## Promotion Candidates
 
 None.
+
+## Reviewer fix round 1
+
+- Context: change-code-review 独立确认五项 substantive 缺口：analysis-only 假成功、summary side-chain 事件泄露、skill reinjection parent 缺失、overflow retry 的 typed failure 未提示，以及 manual/overflow 成功后旧 token usage 未清理。
+- Decision: 不改 design/spec，在 R5/R6 以可观察红测修复原架构 seam。
+
+### R5 — 摘要有效性与 side-chain 隔离
+
+- Context: provider 非空原文格式化后可能为空；父 HookContext 会让内部 summary side-chain 获得用户会话 publisher。
+- Decision: 以格式化后的非空文本作为唯一成功判据，并显式不给 summary fork 传父 HookContext；模型 override 与 trace ContextVar 保留。
+- Evidence: 两项红测分别观察到 `''` 假成功和内部 `assistant_message/turn_end` 泄露；Green 为 `tests/unit/test_loop_compact.py` → `22 passed`。
+- Rollback: 回退本 roadpoint commit。
+- Commits: `b52a9c575`。
+- Next: R6 runtime 恢复链、retry failure 与 token freshness。
+
+### R6 — 成功恢复链与 retry 失败闭环
+
+- Context: compaction boundary 后的 skill reinjection 没有 parent，restart active branch 会丢掉 reinjection；manual/overflow 成功仍沿用 compact 前 prompt usage，可能立即再次 threshold compact；overflow 恢复后的 retry 抛 typed failure 时绕过了用户提示 seam。
+- Decision: reinjection 明确挂到 compact entry；manual/overflow durable commit 后清空 prior prompt usage；overflow retry 单独捕获 `CompactionError` 并复用统一 `_emit_compaction_failure`。
+- Evidence:
+  - Tests: Red 为 restart 只恢复 summary、manual/overflow summary call 各多一次、retry terminal 前无 assistant 提示；Green 为新增 4 项回归全绿，M2 focused suite `71 passed`。
+  - Entry: public Kernel manual compact + close/reopen 从真实 JSONL active branch 恢复 summary 和 reinjection；public Kernel submit/stream 观察 overflow retry 的 assistant-before-failed。
+  - E2E/Regression: `tests/unit/agent/test_kernel_manual_compact.py::test_kernel_manual_compact_reinjection_survives_restart`；`tests/integration/test_conversation_compaction_integration.py::{test_manual_compaction_clears_prior_usage_before_followup,test_overflow_success_clears_prior_usage_before_retry,test_overflow_retry_compaction_error_is_visible_before_failed}`。
+  - Gates: Ruff `All checks passed`；docs-check `documentation integrity passed: 232 maintained Markdown sources, 67 required routes`；`git diff --check` 通过。
+- Rollback: 回退 runtime/tests commit 可移除本 roadpoint，不影响 R1-R5 已实现语义。
+- Commits: `0ccd59484`。
+- Next: rebase 最新 unit、复跑门禁并合入 `unit/bugfix-520`。

@@ -81,11 +81,14 @@ class CompactionSummarizer:
                 # build-time default. bugfix-443 fix1: a dedicated summary_model
                 # fork keeps its own model — ignore the per-run override for it.
                 model_override=(None if self._has_dedicated_model else model_override),
-                hook_ctx=hook_ctx,
+                # The summary loop is an internal side-chain. Reusing the parent
+                # publisher would expose its assistant/turn events as user output.
+                # Trace ContextVars and model_override still route the provider call.
+                hook_ctx=None,
             )
             summary = result.messages[-1].content.strip() if result.messages else ""
             if summary:
-                return format_compact_summary(summary)
+                return format_compact_summary(summary) or None
             return None
         except Exception as exc:
             _log.warning("compaction summarizer failed: %s", exc)
