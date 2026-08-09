@@ -227,3 +227,59 @@ None.
 None. 对 `executed_base..validated_at` 的全部生产 diff 反向扫描后，新增/改变的消费者行为均已由本 delta 的 requirement 或 scenario 覆盖；其余改动是对应 carrier、测试、fixture 与 unit evidence。
 
 Outcome: aligned
+
+# Round 4
+
+> Validation snapshot: `1d0c2cb45b887162912402b0fb489cdf3a1ad9c9 → d502ec617512cdf57603d7eba76ff94bea96a108`
+
+## Summary
+
+Mode: targeted-closure
+
+Delta range: `f9db02d958e9972e229a774036eaa40df8d454c4..d502ec617512cdf57603d7eba76ff94bea96a108`
+
+Focus issues: R7/R8 摘要 side-chain 必须保留 workspace hook scope/model routing，同时隔离父会话的 assistant/turn 与 permission 事件
+
+requires_full_verification: false
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | R7/R8 2/2 target contracts closed |
+| Correctness | Derived context preserves routing and fail-closes permission without parent event leakage |
+| Coherence | Existing HookContext/workspace scope seams reused; no new abstraction or package boundary |
+
+All checks passed. Ready for PR.
+
+## Targeted Closure
+
+| Target | Implementation evidence | Permanent regression | Status |
+|---|---|---|---|
+| 恢复 summary fork 的 originating workspace hook scope 与模型路由 | `src/agent/core/agent/compaction/summarizer.py:72-96` 用 `dataclasses.replace()` 派生不可变 `HookContext`，保留 metadata/model caller 等 routing 字段；`model_override` 仍按 shared/dedicated summary model 旧契约传递。`src/agent/core/agent/loop.py:242-267` 仍从 `_workspace_execution_scope` 选择 hook runner | `tests/unit/agent/test_workspace_scope_observer_hooks.py:88-121` 从 public `Kernel.compact()` 证明 `.consumer` workspace `turn_start` hook 确实运行；`tests/unit/test_loop_compact.py:663-704` 同时锁定 metadata 与 run model override | closed |
+| 摘要内部 assistant/turn 事件不进入父会话消费流 | 派生 context 只把 `session_event_publisher` 替换为 no-op，不改动 scope 和 model routing | `tests/unit/test_loop_compact.py:663-704` 主动在 summary fork 发布 `assistant_message`/`turn_end`，并断言父 publisher 无事件 | closed |
+| summary workspace hook 不能绕过 no-op publisher 打开父 permission 流 | `src/agent/core/agent/compaction/summarizer.py:72-80` 进一步将派生 context 的 `permission_requester=None`；`src/agent/core/hooks/context.py:243-269` 使无 channel 请求按现有契约 fail-closed 为 `deny` | `tests/unit/agent/test_workspace_scope_observer_hooks.py:124-180` 的 public Kernel 回归证明 hook 确实执行并得到 `deny`，父 stream 无 `permission_request`/`permission_resolved`/权限 heartbeat | closed |
+
+R7 中间快照仅替换 direct publisher，会保留一个已捕获父 publisher 的 `permission_requester` 闭包；R8 在同一派生 seam 清除该能力字段，已关闭这个确认过的 P2 泄漏路径。最终 delta 没有改变 JSONL schema、wire event、durable owner 或产品入口；只在现有 `HookContext` 不可变数据面上收窄 side-chain 用户事件与交互权限能力。Round 3 与 corrected-delta 的 full 结论不受影响，无需升级 full verification。
+
+## Validation Evidence
+
+- Three cross-contract regressions: `3 passed in 0.24s`.
+- Extended affected compaction/workspace suite: `80 passed in 27.64s`.
+- Context-sensitive compaction/restart E2E: `1 passed in 26.41s`.
+- Core/package architecture contracts: `7 passed in 0.20s`.
+- Ruff on all R7/R8 Python delta files: `All checks passed!`.
+- Docs integrity: `232 maintained Markdown sources, 67 required routes`.
+- `git diff --check` for the complete R7/R8 delta: passed.
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+None.
+
+### WARNING（提 PR 前必须修）
+
+None.
+
+### SUGGESTION（可以修）
+
+None.
