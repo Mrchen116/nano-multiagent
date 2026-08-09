@@ -523,3 +523,183 @@ None. The next-round real model response is inherently model-decided, but the ex
 ## Round 3 Cleanup Confirmation
 
 Playwright、Vite、IM 与 Gateway 均已关闭，`56947` 与 `56991` 已确认无监听；临时 `node_modules` symlink 已解除。截图、trace、日志、数据库、receipts 与 workspace fixtures 已移至 `/tmp/nano-feat519-r3-review-artifacts-20260810` 的本机私有证据目录；worktree runtime config 与 credential material 已由 runbook 清理，均未纳入提交。
+
+---
+
+# Round 4 — 2026-08-10
+
+## Verdict
+
+- **Verdict:** PASS
+- **Highest Required Action:** pass
+- **Blocking issues:** 0
+- **Major issues:** 0
+- **Minor issues:** 0
+- **Validated at:** 2026-08-10T04:33:02+08:00
+- **Validated commit:** `fbdddd8812c47f687278758de1b5af51c6d032e0`
+- **Executed base:** `1d0c2cb45b887162912402b0fb489cdf3a1ad9c9`
+- **Targeted fix delta:** `7be956bc85bfb1f13ff1e02f11b2dd4e001ae0c0..05b5a777da4a47eebe8dbd15ef7e29fc0a57459d`
+- **Review round:** 4
+- **Revalidation mode:** targeted / closure
+
+R1/R2 的 B1 保持关闭。Round 4 针对 code-review 后的四项风险重新建立全新隔离 IM、Gateway、Vite、数据库、workspace 和 node identity：新 IM 与新 Gateway 的两次真实保存均协商 `agent-config-v2`；已缓存的单项 SlashPicker 在显式清空保存后立即失效；Distill 对显式空执行 Agent 给出明确拒绝；legacy raw mode 在完整 Gateway 重连调和后仍保持未物化。既有聊天历史、下一轮真实 session admission、桌面与 `375x812` 移动端均未回归。
+
+## Closure Findings
+
+### C1 — CLOSED: 新新真栈使用 v2，跨版本状态有自动协议守护
+
+- 从 profile v1 的 `default_discovery` 保存单项 `r4-claude-one`：浏览器 PATCH 200，profile 升至 v2；IM operation `05740b7b50b247f3bb4d9810d59294a0` 为 `committed`，其 `fingerprint_schema=agent-config-v2`；Gateway result 与 durable receipt 均为 `applied` / `agent-config-v2`。
+- 从单项保存显式空：浏览器 PATCH 200，profile 升至 v3；operation `4b88f5d10c0449c3bb94f791fa6cb61c` 同样为 `committed` / `agent-config-v2`，Gateway result 与 receipt 为 `applied` / `agent-config-v2`。
+- 两次保存后的 live API、mirror API、IM raw row、Gateway YAML 与 receipt 均分别一致为 `explicit_allowlist + [r4-claude-one]` 和 `explicit_allowlist + []`；真正 reload 后页面仍是对应状态。
+- 自动协议回归覆盖旧 Gateway 的 v1-representable 保存、新 IM 对旧 Gateway 的不可表达状态提前返回 upgrade-required、新 Gateway 接受省略 schema 的旧 IM 请求、legacy prepared receipt 按 v1 replay、旧 SQLite operation row 缺列迁移为 v1，以及 v1/v2 WebSocket terminal result correlation。
+
+### C2 — CLOSED: Agent 保存后立即刷新 SlashPicker 候选
+
+1. 在单项 `r4-claude-one` 已保存时打开真实 chat，输入 `/`，SlashPicker 只有三个 commands 与该一个 Skill；这一步先建立浏览器的 Slash Skill query cache。
+2. 从 chat 进入同一 Agent Config，清空最后一个 Skill 并保存；PATCH 200 后立即用浏览器 back 返回原 chat，未等待 60 秒。
+3. 重新输入 `/`，listbox 只有 `/stop`、`/new`、`/compact`，不存在 Skills 分组，也不存在先前缓存的 `r4-claude-one`。
+
+证据：
+
+- `/tmp/nano-feat519-r4-review-artifacts-20260810/output/playwright/feat-519-r4-single-slash-cached.png`
+- `/tmp/nano-feat519-r4-review-artifacts-20260810/output/playwright/feat-519-r4-empty-slash-immediate.png`
+
+### C3 — CLOSED: 显式空不能启动 Distill
+
+- 在显式空 Agent 上进入 Generate skill，选择有真实历史的 source conversation 后点击 `Start distillation`，dialog 原地保留并显示 `Enable conversation-skill-distiller for the execution agent before starting.`，未创建误导性的 execution chat 或 prompt。
+- 对同一真实隔离栈直接调用公开 distill endpoint 返回 HTTP 409，detail 为 `execution agent lacks the distiller skill`。
+- Gateway 定向协议回归 `test_gateway_rejects_explicit_empty_distiller_selection_before_source_resolution` 通过，并验证后端返回稳定错误码 `distiller_unavailable`、在 source resolution 前终止且不产生 partial prompt。
+
+证据：`/tmp/nano-feat519-r4-review-artifacts-20260810/output/playwright/feat-519-r4-distill-rejected.png`。
+
+### C4 — CLOSED: mirror/reconcile 不 eager-migrate legacy raw mode
+
+未修改的预置 Agent `e2e-peer` 是本轮 legacy fixture。首次 Gateway 上线后，其 Gateway YAML 仍同时省略 `skills` 与 `skills_selection_mode`；IM mirror API 与 raw `agent_profiles` row 均为 `skills=[]`、`skills_selection_mode=null`，而 live API 才投影 effective `default_discovery`。
+
+随后完整停止并重新启动同一隔离 Gateway，等待 node 重新 online，再次读取 mirror/live/DB/YAML：raw mode 仍为 `null`，live 仍为 `default_discovery`，且该 Agent 的 config operation 数量始终为 0。重连调和没有通过旁路写入物化 legacy mode。
+
+## User Journeys Exercised
+
+### 1. default discovery → 单项 → 显式空
+
+真实 Agent detail 初始为 `Using all currently discoverable skills`，Workspace `4/4`、Global `29/29`、Compatibility `13/13`。先清空三组、选回 workspace `.claude/skills/r4-claude-one`，页面显示 `1 selected` 与 Workspace `1/4 mixed`，保存和 reload 保持；再取消最后一项，显示 `0 selected`，第二次保存和 reload 保持。两次均由新新真栈使用 v2 operation applied。
+
+### 2. 缓存中的 SlashPicker 随保存即时收窄
+
+该旅程按 C2 先缓存单项候选，再保存显式空并立即回到原 chat。用户不需要刷新页面或等待 cache stale time，旧 Skill 立即消失。
+
+### 3. Distill explicit-empty 拒绝闭环
+
+该旅程按 C3 从真实聊天列表选择已有历史，完整走到 `Start distillation`。前端给出可恢复、指向明确的启用提示；公开 HTTP 与 Gateway protocol 均拒绝，没有静默生成错误 prompt。
+
+### 4. 历史、Gateway 重连与下一轮 runtime
+
+配置变更前在 direct chat `f8fbc3879b3741cb9f8bb78a01216b93` 发送 `R4-HISTORY-MARKER`，真实模型返回 `HISTORY_OK`。完成单项、显式空以及 Gateway 完整重连后再次打开原 chat，marker 和回复仍存在，并出现配置更新分隔提示。
+
+随后在同一历史 chat 请求模型用 `skill_view` 查看 `r4-claude-one`。真实模型发起一次 tool call；产品 Process 视图显示 `Skill 'r4-claude-one' is not enabled for this session`，最终回复 `SKILL_UNAVAILABLE`。这同时证明重连后下一轮 session 仍使用显式空，而不是 default discovery。
+
+证据：
+
+- `/tmp/nano-feat519-r4-review-artifacts-20260810/output/playwright/feat-519-r4-history-after-reconnect.png`
+- `/tmp/nano-feat519-r4-review-artifacts-20260810/output/playwright/feat-519-r4-empty-runtime-history.png`
+
+### 5. `375x812` mobile smoke
+
+显式空详情页在 `375x812` 下仍显示 Workspace、Global、Compatibility 三组，标题控件、pills、底部保存区和 mobile navigation 无遮挡或横向溢出。Workspace 分组真实操作由 `0/4` 到全选后再取消单项，稳定呈现 `3/4 mixed`；随后 Discard，持久配置仍为显式空。
+
+证据：
+
+- `/tmp/nano-feat519-r4-review-artifacts-20260810/output/playwright/feat-519-r4-mobile-empty.png`
+- `/tmp/nano-feat519-r4-review-artifacts-20260810/output/playwright/feat-519-r4-mobile-mixed.png`
+
+## Round 4 Scenario Coverage
+
+| Spec scenario | Result | Round 4 evidence |
+|---|---|---|
+| PA 配置页提供工作区与用户主目录的兼容 Skill | PASS | live detail 发现 `r4-claude-one` / `r4-codex-one` 并完成两次 v2 保存、reload |
+| Coding CLI 在同一项目中提供兼容 Skill 候选 | PASS | 继承 R3 的当前候选/preview 真入口证据；本轮 fix 未触及 discovery composition |
+| 原生与既有兼容来源保持可用 | PASS | live detail 同时展示 native、Claude/Codex workspace、Global/Compatibility，未观察回归 |
+| PA 中同名 Skill 选择最优先来源 | PASS | live detail 对 `r4-priority` 只展示 native winner 描述；继承 R3 runtime/preview 证据 |
+| Coding CLI 中同名 Skill 选择最优先来源 | PASS | 继承 R3 的 CLI native-wins 真入口证据；本轮 fix 未触及 root order |
+| 新发现的兼容 Skill 不静默扩大已保存 Agent 的能力 | PASS | 显式单项/空经 v2 operation 保存；reconnect 后没有扩张，SlashPicker/runtime 仍为空 |
+| 开发者选择兼容 Skill 后继续既有聊天 | PASS | 原 chat 历史保留；配置更新后下一轮真实 `skill_view` 按显式空拒绝 |
+| 开发者以一个分组为单位调整 Skill 选择 | PASS | desktop 清空三组；mobile Workspace 全选后仍可取消单项 |
+| 分组状态如实反映单项选择 | PASS | desktop `1/4 mixed`；mobile `0/4 → 4/4 → 3/4 mixed` |
+| 批量选择自然融入既有配置体验 | PASS | desktop 与 `375x812` 均为紧凑组标题控件，无独立批量区或布局回归 |
+| 工作区不含某个兼容目录 | PASS | 继承 R3 缺失目录真入口证据；本轮隔离 `e2e-peer` 未要求补目录即可 reconcile |
+| 兼容目录没有有效 Skill | PASS | 继承 R3 空/无效目录证据；本轮 live config/capability 未误报失败 |
+
+## Automated Protocol Evidence
+
+```text
+pytest -q \
+  tests/unit/personal_assistant/test_gateway_config_operation_validation.py \
+  tests/unit/personal_assistant/test_gateway_config_operations.py \
+  tests/unit/personal_assistant/test_gateway_distill_prompt_resolver.py \
+  tests/unit/personal_assistant/test_gateway_reconcile_on_connect.py \
+  tests/im_service/unit/test_agent_config_operations.py \
+  tests/im_service/integration/test_agent_config_operation_flow.py
+→ 57 passed in 2.83s
+
+npm test -- --run \
+  src/features/chat/chat-workspace.integration.test.tsx \
+  src/features/settings/agents/agent-detail-page.test.tsx
+→ 69 passed across 2 files
+```
+
+协议集明确包含 old Gateway v1 / new Gateway v2 WebSocket 关联、不可表达 selection 的 upgrade-required、旧 IM 省略 schema、legacy receipt replay、operation DB migration、explicit-empty distiller 拒绝、mirror legacy empty/non-empty 无迁移。前端仅输出已有 React `act(...)` test warning；测试全绿。
+
+## Browser, Console and Network Record
+
+- Viewports: desktop `1280x720`; mobile `375x812`。
+- 登录、Agent config/capability、两次保存、聊天、真实模型消息、Distill preflight 与 tool process 均通过真实 UI。
+- Playwright console：3 条普通消息，0 errors，0 warnings。
+- 用户正常旅程 HTTP response `>=400`：0；两次 Agent config PATCH 均为 200。
+- 单独的 Distill negative API probe 预期返回 409，不计为浏览器旅程异常。
+- 完整 trace：`/tmp/nano-feat519-r4-review-artifacts-20260810/.playwright-cli/traces/trace-1786306647337.trace`。trace/network 可能包含隔离登录 header，仅保存在本机私有临时目录，未提交。
+
+## Reference Artifacts Reviewed
+
+- `spec.md`、`design.md`、`prototype.html`
+- 本报告 R1-R3、`M1-workspace-skills-selection/progress.md`、`verification-report.md`
+- unit delta specs，以及 worktree runtime / operations runbook
+
+原型 must-match 状态以真实 desktop/mobile 复验：默认态、首次编辑后的 explicit 单项、explicit empty、分组标题紧凑三态、单项联动、窄屏换行与保存区均匹配；code-review fix 未引入视觉或交互回归。
+
+## Commands and Isolation
+
+主要入口（敏感值未记录）：
+
+```bash
+PATH="/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH" ./scripts/e2e-up.sh --wt "$PWD"
+VITE_IM_PROXY_TARGET="$IM_URL" npm run dev -- --host 127.0.0.1 --port 63654 --strictPort
+PLAYWRIGHT_CLI_SESSION=feat519-r4 playwright-cli ...
+sqlite3 data/im_service.sqlite3 <sanitized profile/operation queries>
+jq <sanitized receipt projection>
+```
+
+本机冷启动时 `e2e-up.sh` 的短 IM readiness 窗口先于 uvicorn 完成而退出；uvicorn 随后健康。reviewer 按 worktree runbook 的手工隔离契约继续启动同一 worktree-local Gateway，并在所有旅程前确认 IM health、Gateway node online、唯一 node identity 与真实 browser login。该环境现象没有改变产品判据或证据来源。
+
+隔离资源：
+
+- worktree / branch: `.worktrees/review-feat-519-r4` / `review/feat-519-acceptance-r4`
+- IM: `127.0.0.1:63436`
+- Vite: `127.0.0.1:63654`
+- Gateway node: `wt-review-feat-519-r4-91117`
+- database、Gateway YAML、receipt、workspace、截图和 trace 均为本 worktree 专属
+
+## Risks and Side Findings
+
+None.
+
+## Document Lifecycle Check
+
+- `SPEC.md`: 本轮未发现需新增的跨包顶点架构事实。
+- `docs/specs/*`: 最终实现与 active delta-spec 的 selection / discovery 语义一致；协议 rolling-compatibility 的 canonical 归并由 orchestrator 收尾处理。
+- `AGENTS.md` / `CLAUDE.md`: 无新开发约束。
+- `docs/specs/CONTRIBUTING.md`: 无文档体系变更。
+- 本轮只追加本验收报告。
+
+## Round 4 Cleanup Confirmation
+
+Playwright、Vite、IM 与 Gateway 均已关闭，`63436` 与 `63654` 已确认无监听；临时 frontend `node_modules` symlink 已解除。截图、trace、日志、数据库、Gateway receipts 与 workspace fixtures 已移至 `/tmp/nano-feat519-r4-review-artifacts-20260810`，worktree runtime config、PID 与 credential material 已由 runbook 清理，均未纳入提交。
