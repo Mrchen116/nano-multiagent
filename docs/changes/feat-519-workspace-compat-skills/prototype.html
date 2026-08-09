@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>feat-519 · Agent Skill 分组选择原型</title>
+  <style>
+    :root {
+      --bg: oklch(0.975 0.004 240);
+      --surface: #fff;
+      --surface-2: oklch(0.965 0.005 240);
+      --text: oklch(0.24 0.016 240);
+      --muted: oklch(0.53 0.012 240);
+      --border: oklch(0.88 0.008 240);
+      --border-strong: oklch(0.76 0.02 240);
+      --accent: oklch(0.58 0.14 240);
+      --active-bg: oklch(0.93 0.08 180);
+      --active-text: oklch(0.35 0.14 180);
+      --active-border: oklch(0.75 0.12 180);
+      --focus: oklch(0.58 0.14 240 / .42);
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      color: var(--text);
+      background: var(--bg);
+      font: 14px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    .shell { width: min(880px, calc(100% - 38px)); margin: 0 auto; padding: 36px 0 60px; }
+    .crumb { margin: 0 0 14px; color: var(--muted); font-size: 12px; }
+    .page-title { margin: 0; font-size: 20px; letter-spacing: -.01em; }
+    .page-subtitle { margin: 5px 0 22px; color: var(--muted); font-size: 13px; }
+    .card { display: grid; gap: 14px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+    .card-title-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+    .card-title { margin: 0; font-size: 15px; font-weight: 750; }
+    .status { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+    .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--border-strong); }
+    .status[data-mode="explicit_allowlist"] .status-dot { background: var(--accent); }
+    .hint { margin: -6px 0 0; color: var(--muted); font-size: 12px; }
+
+    .skill-group { display: grid; gap: 7px; padding-top: 3px; }
+    .group-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; }
+    .group-copy { display: flex; min-width: 0; align-items: baseline; gap: 7px; }
+    .group-name { color: var(--muted); font-size: 11px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+    .group-count { color: var(--muted); font-family: var(--mono); font-size: 11px; }
+    .group-toggle {
+      display: inline-flex;
+      flex: 0 0 auto;
+      align-items: center;
+      gap: 6px;
+      min-height: 25px;
+      padding: 2px 5px;
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--muted);
+      font: inherit;
+      font-size: 11px;
+      font-weight: 650;
+      cursor: pointer;
+    }
+    .group-toggle:hover { color: var(--text); background: var(--surface-2); }
+    .group-toggle:focus-visible, .pill:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+    .check {
+      display: grid;
+      width: 15px;
+      height: 15px;
+      place-items: center;
+      border: 1px solid var(--border-strong);
+      border-radius: 4px;
+      background: var(--surface);
+      color: white;
+      font-size: 11px;
+      line-height: 1;
+    }
+    .group-toggle[data-state="all"] .check { border-color: var(--accent); background: var(--accent); }
+    .group-toggle[data-state="partial"] .check { border-color: var(--accent); background: var(--accent); }
+    .group-toggle[data-state="partial"] .check::before { content: ""; width: 7px; height: 2px; border-radius: 2px; background: white; }
+    .group-toggle[data-state="all"] .check::before { content: "✓"; }
+    .group-toggle[data-state="none"] .toggle-copy::before { content: "选择本组"; }
+    .group-toggle[data-state="partial"] .toggle-copy::before { content: "补全本组"; }
+    .group-toggle[data-state="all"] .toggle-copy::before { content: "取消本组"; }
+
+    .pills { display: flex; flex-wrap: wrap; gap: 6px; }
+    .pill {
+      padding: 4px 11px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--surface-2);
+      color: var(--muted);
+      font: 650 12px/1.25 var(--mono);
+      cursor: pointer;
+      transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+    }
+    .pill[aria-pressed="true"] { border-color: var(--active-border); background: var(--active-bg); color: var(--active-text); }
+    .pill:hover { border-color: var(--border-strong); }
+    .skill-group + .skill-group { margin-top: 3px; }
+
+    .footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+    .footer-copy { color: var(--muted); font-size: 12px; }
+    .save { padding: 8px 13px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+    .save:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+    .annotation { margin: 22px 0 0; padding: 12px 14px; border: 1px dashed var(--border-strong); border-radius: 10px; color: var(--muted); font-size: 12px; }
+    .annotation strong { color: var(--text); }
+
+    @media (max-width: 540px) {
+      .shell { width: calc(100% - 24px); padding-top: 22px; }
+      .card { padding: 14px; }
+      .card-title-row { align-items: flex-start; flex-direction: column; gap: 3px; }
+      .group-heading { align-items: flex-start; }
+      .group-copy { flex-direction: column; gap: 0; }
+      .group-toggle { margin-top: -2px; }
+      .footer { align-items: flex-start; flex-direction: column; }
+      .save { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <p class="crumb">Agents / Research Assistant / 配置</p>
+    <h1 class="page-title">访问权限</h1>
+    <p class="page-subtitle">选择 Agent 在下一轮回复中可使用的能力。</p>
+
+    <section class="card" aria-labelledby="skills-heading">
+      <div class="card-title-row">
+        <h2 id="skills-heading" class="card-title">Skills</h2>
+        <span class="status" id="selection-status" data-mode="default_discovery"><span class="status-dot"></span><span id="selection-status-copy">按当前可发现 Skill 使用</span></span>
+      </div>
+      <p class="hint">按来源管理；可整组选择，也可继续调整任一项。悬停 Skill 可查看精确来源。</p>
+      <div id="skill-groups"></div>
+    </section>
+
+    <div class="footer" aria-live="polite">
+      <span class="footer-copy" id="footer-copy">当前是默认发现；首次调整后将保存为显式选择。</span>
+      <button class="save" type="button" id="save">保存配置</button>
+    </div>
+
+    <p class="annotation"><strong>设计要点：</strong>默认发现时所有当前候选以有效选中态呈现；用户第一次调整单项或分组后转为显式选择。分组标题中的小型三态控件承担“整组”操作，不增加全局工具栏或大按钮。</p>
+  </main>
+
+  <script>
+    const groups = [
+      { id: "workspace", label: "工作区", hint: "当前项目携带的 Skill", skills: ["change-design-author", "repo-review", "release-notes"] },
+      { id: "global", label: "全局", hint: "PA 默认 Skill", skills: ["nanoassistant-docs", "lark-im"] },
+      { id: "compatibility", label: "兼容来源", hint: "用户主目录的 Claude / Codex Skill", skills: ["playwright", "pdf-workflow", "legacy-migration"] }
+    ];
+
+    const selected = new Set(groups.flatMap((group) => group.skills));
+    let selectionMode = "default_discovery";
+    let dirty = false;
+
+    const groupState = (group) => {
+      const count = group.skills.filter((skill) => selected.has(skill)).length;
+      return count === 0 ? "none" : count === group.skills.length ? "all" : "partial";
+    };
+
+    const beginExplicitEdit = () => {
+      selectionMode = "explicit_allowlist";
+      dirty = true;
+      document.getElementById("footer-copy").textContent = "配置有修改，保存后在下一轮回复生效。";
+    };
+
+    function render() {
+      const status = document.getElementById("selection-status");
+      status.dataset.mode = selectionMode;
+      document.getElementById("selection-status-copy").textContent = selectionMode === "default_discovery"
+        ? "按当前可发现 Skill 使用"
+        : "已自定义选择";
+      const container = document.getElementById("skill-groups");
+      container.innerHTML = "";
+      for (const group of groups) {
+        const count = group.skills.filter((skill) => selected.has(skill)).length;
+        const state = groupState(group);
+        const section = document.createElement("section");
+        section.className = "skill-group";
+        section.setAttribute("aria-label", `${group.label} Skill`);
+        section.innerHTML = `
+          <div class="group-heading">
+            <div class="group-copy"><span class="group-name">${group.label}</span><span class="group-count">${count}/${group.skills.length}</span></div>
+            <button class="group-toggle" type="button" data-group="${group.id}" data-state="${state}" role="checkbox" aria-checked="${state === "partial" ? "mixed" : String(state === "all")}" aria-label="${group.label}：${count} 个已选（${group.hint}）">
+              <span class="check" aria-hidden="true"></span><span class="toggle-copy" aria-hidden="true"></span>
+            </button>
+          </div>
+          <div class="pills"></div>`;
+        const pills = section.querySelector(".pills");
+        for (const skill of group.skills) {
+          const pill = document.createElement("button");
+          pill.className = "pill";
+          pill.type = "button";
+          pill.textContent = skill;
+          pill.dataset.skill = skill;
+          pill.setAttribute("aria-pressed", String(selected.has(skill)));
+          pill.title = `${skill}\n${group.hint}`;
+          pill.addEventListener("click", () => { beginExplicitEdit(); selected.has(skill) ? selected.delete(skill) : selected.add(skill); render(); });
+          pills.appendChild(pill);
+        }
+        section.querySelector(".group-toggle").addEventListener("click", () => {
+          beginExplicitEdit();
+          const shouldSelect = state !== "all";
+          group.skills.forEach((skill) => shouldSelect ? selected.add(skill) : selected.delete(skill));
+          render();
+        });
+        container.appendChild(section);
+      }
+    }
+
+    document.getElementById("save").addEventListener("click", () => {
+      dirty = false;
+      document.getElementById("footer-copy").textContent = selectionMode === "default_discovery"
+        ? "仍按当前可发现 Skill 使用。"
+        : `已保存 ${selected.size} 个 Skill；下一轮回复将采用此显式选择。`;
+    });
+    render();
+  </script>
+</body>
+</html>
