@@ -1,55 +1,53 @@
-# Installed package and binary analysis playbook
+# 已安装包与二进制文件分析手册
 
-Use this escalation only when the three primary lanes leave a material implementation decision unresolved. Prefer the highest-level artifact that answers the question; native disassembly is the last step, not the first.
+只有三条主要证据路径仍留下影响实现决策的重大问题时，才升级到本手册。优先使用能够回答问题的最高层级产物；原生反汇编是最后一步，而不是第一步。
 
-## Evidence ladder
+## 证据阶梯
 
-1. **Package surface** — resolve the executable, inspect package metadata, wrappers, adjacent source/maps/type declarations, and version.
-2. **Binary identity** — record file type, architecture, size, SHA-256, code signature, linked libraries, and build/runtime markers.
-3. **Feature strings** — search exact tool errors, schema fields, notification text, environment variables, and generated artifact names.
-4. **Embedded source** — bundled Bun/Node/Deno binaries often contain minified JavaScript. Recover the feature-specific validation → compile → execute call chain before inspecting native instructions.
-5. **Native symbols/disassembly** — use only when the behavior is implemented natively or embedded source cannot answer the discriminating question.
-6. **Dynamic observation** — process/file tracing or debugger attachment only when static evidence remains ambiguous and it can be done without exposing credentials or altering behavior.
+1. **软件包表面** — 定位可执行文件，检查包元数据、wrapper、相邻源码、source map、类型声明和版本。
+2. **二进制身份** — 记录 `claude --version` 的输出、文件路径、类型、架构、大小、代码签名、链接库和构建或运行时标记。
+3. **功能字符串** — 搜索精确的工具错误、schema 字段、通知文本、环境变量和生成产物名称。
+4. **内嵌源码** — 打包的 Bun/Node/Deno 二进制文件通常包含压缩的 JavaScript。检查原生指令前，先恢复功能特定的“验证 → 编译 → 执行”调用链。
+5. **原生符号与反汇编** — 只有行为由原生代码实现，或内嵌源码无法回答判别问题时才使用。
+6. **动态观察** — 只有静态证据仍有歧义，且不会暴露凭据或改变行为时，才使用进程/文件追踪或调试器附加。
 
-## Read-only baseline
+## 只读基线
 
-Representative macOS commands:
+以下是有代表性的 macOS 命令：
 
 ```bash
 BIN="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$(command -v claude)")"
 claude --version
 file "$BIN"
-shasum -a 256 "$BIN"
 otool -L "$BIN"
 codesign -dvv "$BIN"
 strings -a "$BIN" | rg 'Workflow launched|resumeFromRunId|journal\.jsonl'
 ```
 
-Do not reuse broad system variables such as `HOME`. Do not patch, re-sign, inject libraries into, or redistribute the executable.
+不要复用 `HOME` 等宽泛系统变量。不得修改、重新签名、向可执行文件注入库或重新分发该文件。
 
-## Bundled JavaScript procedure
+## 打包 JavaScript 分析流程
 
-When a binary contains a JavaScript runtime such as Bun/JavaScriptCore:
+当二进制文件包含 Bun/JavaScriptCore 等 JavaScript 运行时时：
 
-1. Search for an exact feature string and record all byte offsets.
-2. Extract a small printable window around the feature occurrence for local inspection; do not commit a vendor bundle dump.
-3. Identify feature-specific function boundaries and imports such as parser, VM, worker, process, or filesystem APIs.
-4. Follow the same minified identifiers across validation, compilation, launch, and execution.
-5. Require an actual call-site chain before concluding that a bundled library is used by the feature.
+1. 搜索精确功能字符串，记录全部字节偏移。
+2. 在功能字符串附近提取一小段可打印窗口供本地检查；不要提交厂商 bundle dump。
+3. 识别功能特定的函数边界，以及 parser、VM、worker、process 或文件系统 API 等 import。
+4. 沿验证、编译、启动和执行过程追踪同一组压缩标识符。
+5. 必须找到实际调用点链路，才能断定功能使用了某个打包库。
 
-Examples of evidence strength:
+证据强度示例：
 
-- `node:vm` exists somewhere in a Bun binary — weak; it may be runtime baggage.
-- The Workflow compiler constructs `new vm.Script(...)`, its launcher passes that object to the runner, and the runner calls `runInContext(...)` — strong.
-- Acorn is bundled — weak.
-- The Workflow metadata parser calls Acorn, traverses the resulting AST, rejects nodes, then rewrites selected await/return/yield ranges — strong.
+- `node:vm` 出现在 Bun 二进制文件中的某处 — 弱证据；它可能只是运行时附带内容。
+- Workflow 编译器构造 `new vm.Script(...)`，launcher 把该对象传给 runner，且 runner 调用 `runInContext(...)` — 强证据。
+- bundle 中包含 Acorn — 弱证据。
+- Workflow 元数据 parser 调用 Acorn、遍历生成的 AST、拒绝部分节点，然后重写选定的 await/return/yield 区间 — 强证据。
 
-## Provenance record
+## 来源记录
 
 ```text
 installed_version:
 binary_path:
-sha256:
 file_format_arch:
 signer:
 runtime_markers:
@@ -60,12 +58,12 @@ observation:
 limit:
 ```
 
-Minified function names and byte offsets are build-specific. Never present them as stable public APIs. Distinguish:
+压缩函数名和字节偏移只适用于对应 build，不得把它们描述为稳定公开 API。区分：
 
-- **package observation** — wrapper/manifest/source shipped beside the binary;
-- **binary observation** — exact bytes or embedded call sites in the hashed executable;
-- **inference** — interpretation not directly established by the recovered call chain.
+- **package observation** — 与二进制文件一同发布的 wrapper、manifest 或源码；
+- **binary observation** — 已记录安装版本中的精确字节或内嵌调用点；
+- **inference** — 无法由恢复的调用链直接证明的解释。
 
-## Stop conditions
+## 停止条件
 
-Stop when the recovered call chain answers the discriminating implementation question. Do not continue into disassembly merely to make the investigation look deeper. If strings or embedded source reveal secrets, personal data, credentials, or unrelated proprietary content, do not copy or report it.
+恢复出的调用链能够回答判别问题时立即停止。不要仅为让调查显得更深入而继续反汇编。如果字符串或内嵌源码暴露了秘密、个人数据、凭据或无关专有内容，不要复制或报告它们。

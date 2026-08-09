@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 from pathlib import Path
@@ -45,10 +44,6 @@ def system_text(system: Any) -> str:
     return ""
 
 
-def digest(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
-
-
 def effort_of(request: dict[str, Any]) -> Any:
     output_config = request.get("output_config")
     if isinstance(output_config, dict) and "effort" in output_config:
@@ -75,7 +70,6 @@ def summarize(path: Path, request: dict[str, Any]) -> dict[str, Any]:
         "model": request.get("model"),
         "effort": effort_of(request),
         "system_chars": len(prompt),
-        "system_sha256_16": digest(prompt),
         "messages": len(request.get("messages") or []),
         "tools": tool_names,
     }
@@ -90,10 +84,9 @@ def matching_tools(
             if not isinstance(tool, dict) or tool.get("name") != tool_name:
                 continue
             canonical = json.dumps(tool, ensure_ascii=False, sort_keys=True)
-            key = digest(canonical)
             found.setdefault(
-                key,
-                {"sha256_16": key, "first_seen": path.name, "tool": redact(tool)},
+                canonical,
+                {"first_seen": path.name, "tool": redact(tool)},
             )
     return list(found.values())
 
@@ -114,21 +107,17 @@ def render_text(
 
     if tool_name:
         for item in matching_tools(captures, tool_name):
-            print(
-                f"\n=== tool {tool_name} sha256:{item['sha256_16']} "
-                f"first_seen:{item['first_seen']} ==="
-            )
+            print(f"\n=== tool {tool_name} first_seen:{item['first_seen']} ===")
             print(json.dumps(item["tool"], ensure_ascii=False, indent=2))
 
     if show_system:
         seen: set[str] = set()
         for path, request in captures:
             prompt = system_text(request.get("system"))
-            key = digest(prompt)
-            if key in seen:
+            if prompt in seen:
                 continue
-            seen.add(key)
-            print(f"\n=== system sha256:{key} first_seen:{path.name} ===")
+            seen.add(prompt)
+            print(f"\n=== system first_seen:{path.name} ===")
             print(redact(prompt))
 
     if show_last_message:
@@ -169,7 +158,6 @@ def main() -> int:
             result["systems"] = [
                 {
                     "file": path.name,
-                    "sha256_16": digest(system_text(request.get("system"))),
                     "text": redact(system_text(request.get("system"))),
                 }
                 for path, request in captures

@@ -1,4 +1,4 @@
 interface:
-  display_name: "Reverse Engineer Claude Code"
-  short_description: "Triangulate current Claude Code behavior from three sources"
-  default_prompt: "Use $reverse-engineer-claude-code to reconstruct this Claude Code feature from source, official docs, and a low-cost Luna trace."
+  display_name: "逆向研究 Claude Code"
+  short_description: "从多条证据路径重建当前 Claude Code 行为"
+  default_prompt: "使用 $reverse-engineer-claude-code，从源码、官方文档和低成本 Luna 轨迹重建这项 Claude Code 功能。"
