@@ -20,7 +20,7 @@
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: 回退本 roadpoint commit 可恢复原 summarizer/ConversationState 契约。
-- Commits: 本 roadpoint commit。
+- Commits: `724ca313b`。
 - Next: R2 threshold bounded retry 与 commit 分流。
 
 ## R2 — threshold bounded retry 与 commit 分流
@@ -37,7 +37,7 @@
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: 回退本 roadpoint commit 可移除 threshold policy callback，R1 domain 不受影响。
-- Commits: 本 roadpoint commit。
+- Commits: `d5997a17e`。
 - Next: R3 public Kernel manual/overflow failure 与 automatic 用户提示。
 
 ## R3 — manual/overflow 与 automatic 用户提示
@@ -54,7 +54,7 @@
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: 回退本 roadpoint commit 可恢复旧 runtime 编排，R1/R2 domain 与 loop policy 保留。
-- Commits: 本 roadpoint commit。
+- Commits: `b83fbd948`。
 - Next: R4 RunsRegistry 结构化 terminal、成功 reset/重载持续性与完整门禁。
 
 ## R4 — terminal 诊断、会话重载持续性与最终门禁
@@ -71,7 +71,7 @@
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: 回退本 roadpoint commit 恢复 generic registry terminal，并保留 R1-R3 已实现的运行时语义。
-- Commits: 本 roadpoint commit。
+- Commits: `60c3a5871`。
 - Next: rebase、复跑门禁并合入 `unit/bugfix-520`。
 
 ## Promotion Candidates
