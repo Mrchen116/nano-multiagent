@@ -57,6 +57,23 @@
 - Commits: 本 roadpoint commit。
 - Next: R4 RunsRegistry 结构化 terminal、成功 reset/重载持续性与完整门禁。
 
+## R4 — terminal 诊断、会话重载持续性与最终门禁
+
+- Context: registry 原先把所有异常 stringify 为 `run_execution_failed`；还需闭合 overflow persistence/stale、外部重载/LRU 后第三次熔断和成功 reset 的矩阵。
+- Decision: RunsRegistry 只识别 `CompactionError.to_dict()`，普通异常保持旧 payload；补齐 overflow 双 cause/stale 不计数、session tracker 跨重建及 manual success reset 回归。
+- Rationale: terminal writer 是稳定诊断的唯一 owner；不同失败原因在最低层各守一次，再由 public Kernel integration 守事件顺序与 durable history。
+- Evidence:
+  - Tests: Red 为 typed error 被压成 generic；Green 为 design M2 focused suite `65 passed`，Ruff `All checks passed`，`git diff --check` 通过。
+  - Entry: public Kernel submit/stream 覆盖 threshold、overflow、persistence 的 assistant-before-failed 与结构化 terminal；public Kernel compact 覆盖 manual atomicity/success reset。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression: `tests/integration/test_conversation_compaction_integration.py`；既有 `tests/unit/personal_assistant/test_external_visible_delivery.py::test_feishu_intermediate_reply_goes_to_external_without_im_manager` 在完整 suite 保持绿色。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退本 roadpoint commit 恢复 generic registry terminal，并保留 R1-R3 已实现的运行时语义。
+- Commits: 本 roadpoint commit。
+- Next: rebase、复跑门禁并合入 `unit/bugfix-520`。
+
 ## Promotion Candidates
 
 None.

@@ -208,6 +208,11 @@ async def test_kernel_manual_compact_keeps_a_following_public_append_reachable(
     """The next public message remains chained to the compact summary after restart."""
     kernel = _kernel(tmp_path)
     session, transcript = await _seed_session(kernel, tmp_path)
+    conversation = kernel._c.directory.open(  # noqa: SLF001
+        SessionRef(session_id=session.session_id, workspace_root=tmp_path)
+    )
+    conversation._automatic_compaction_failures.record_summary_failure()  # noqa: SLF001
+    conversation._automatic_compaction_failures.record_summary_failure()  # noqa: SLF001
     monkeypatch.setattr(kernel._c.engine_services, "_compaction_summarizer", _Summary())  # noqa: SLF001
     try:
         result = await kernel.compact(
@@ -216,6 +221,9 @@ async def test_kernel_manual_compact_keeps_a_following_public_append_reachable(
             idempotency_key="manual-continue",
         )
         assert result is not None
+        assert (  # noqa: SLF001
+            conversation._automatic_compaction_failures.consecutive_failures == 0
+        )
         kernel.append_message(
             session.session_id,
             workspace_root=tmp_path,

@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from agent.core.errors import CompactionError
 from agent.core.agent.runtime import AgentEngine
 from agent.core.llm.interfaces import LLMGenerateRequest, LLMMessage
 from agent.core.session.conversation import ConversationSession
@@ -77,8 +78,13 @@ class _FailureTrackerEngine:
     async def execute_turn(self, state, request: TurnRequest) -> TurnResult:
         tracker = state.automatic_compaction_failures
         self.trackers.append(tracker)
-        if len(self.trackers) == 1:
-            tracker.record_summary_failure()
+        failures = tracker.record_summary_failure()
+        if failures >= 3:
+            raise CompactionError(
+                trigger="threshold",
+                failure_kind="summary",
+                consecutive_failures=failures,
+            )
         return TurnResult(
             session_id=state.ref.session_id,
             turn_id=f"turn_{len(self.trackers)}",
@@ -247,12 +253,13 @@ async def test_automatic_compaction_failures_survive_payload_reload_and_eviction
     )
     await session.submit_turn(TurnRequest(parts=({"type": "text", "text": "two"},)))
     assert session.try_evict_payload() is True
-    await session.submit_turn(
-        TurnRequest(parts=({"type": "text", "text": "three"},))
-    )
+    with pytest.raises(CompactionError):
+        await session.submit_turn(
+            TurnRequest(parts=({"type": "text", "text": "three"},))
+        )
 
     assert engine.trackers[0] is engine.trackers[1] is engine.trackers[2]
-    assert engine.trackers[-1].consecutive_failures == 1
+    assert engine.trackers[-1].consecutive_failures == 3
 
 
 @pytest.mark.asyncio

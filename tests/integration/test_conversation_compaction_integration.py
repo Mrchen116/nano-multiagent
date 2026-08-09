@@ -90,6 +90,14 @@ def _assert_compaction_prompt_before_failed(events: list[dict[str, Any]]) -> Non
     assert prompt_index < failed_index
 
 
+def _terminal_error(events: list[dict[str, Any]]) -> dict[str, Any]:
+    return next(
+        event["error"]
+        for event in events
+        if event.get("event") == "run_status" and event.get("status") == "failed"
+    )
+
+
 def _request_text(request: LLMGenerateRequest) -> str:
     return "\n".join(str(message.content) for message in request.messages)
 
@@ -409,6 +417,16 @@ async def test_threshold_summary_failure_stops_on_third_attempt_without_boundary
         )
 
         assert failed.status == "failed"
+        assert _terminal_error(events) == {
+            "code": "compaction_failed",
+            "message": "context compaction failed",
+            "retryable": True,
+            "details": {
+                "trigger": "threshold",
+                "failure_kind": "summary",
+                "consecutive_failures": 3,
+            },
+        }
         assert client.summary_calls == 3
         _assert_compaction_prompt_before_failed(events)
         transcript = kernel._c.directory.open(  # noqa: SLF001
@@ -466,6 +484,22 @@ async def test_overflow_summary_failure_stops_without_retry_or_boundary(
         )
 
         assert failed.status == "failed"
+        assert _terminal_error(events) == {
+            "code": "compaction_failed",
+            "message": "context compaction failed",
+            "retryable": True,
+            "details": {
+                "trigger": "overflow",
+                "failure_kind": "summary",
+                "consecutive_failures": 1,
+                "overflow_cause": {
+                    "code": "model_error",
+                    "message": "context overflow",
+                    "retryable": True,
+                    "details": {"response": "maximum context length exceeded"},
+                },
+            },
+        }
         assert client.normal_calls == 2
         assert client.summary_calls == 1
         _assert_compaction_prompt_before_failed(events)
@@ -529,6 +563,17 @@ async def test_threshold_persistence_failure_is_visible_and_atomic(
         )
 
         assert failed.status == "failed"
+        assert _terminal_error(events) == {
+            "code": "compaction_failed",
+            "message": "context compaction failed",
+            "retryable": True,
+            "details": {
+                "trigger": "threshold",
+                "failure_kind": "persistence",
+                "consecutive_failures": 0,
+                "cause": {"type": "OSError", "message": "disk unavailable"},
+            },
+        }
         _assert_compaction_prompt_before_failed(events)
         assert transcript._path.read_bytes() != before  # current user turn is durable
         assert not any(
@@ -538,5 +583,129 @@ async def test_threshold_persistence_failure_is_visible_and_atomic(
         assert COMPACTION_FAILURE_TEXT not in {
             message.content for message in transcript.load().messages
         }
+    finally:
+        kernel.close()
+
+
+async def test_overflow_persistence_failure_preserves_both_causes(
+    tmp_path: Path, monkeypatch
+) -> None:  # noqa: ANN001
+    class _Client:
+        def __init__(self) -> None:
+            self.normal_calls = 0
+
+        async def generate(self, request: LLMGenerateRequest):  # noqa: ANN201
+            if _is_summary_request(request):
+                yield LLMMessage(role="assistant", content="summary")
+                yield LLMMessage(role="assistant", content="", finish_reason="stop")
+                return
+            self.normal_calls += 1
+            if self.normal_calls == 2:
+                raise ModelError(
+                    "context overflow",
+                    details={"response": "maximum context length exceeded"},
+                )
+            yield LLMMessage(role="assistant", content="seeded")
+            yield LLMMessage(role="assistant", content="", finish_reason="stop")
+
+    kernel = build_kernel(
+        llm=_compaction_llm(), repo_root=tmp_path, _llm_client_override=_Client()
+    )
+    try:
+        session = await kernel.create_session(workspace_root=tmp_path)
+        seeded, _events = await _submit_and_collect(
+            kernel, session.session_id, tmp_path, "seed"
+        )
+        assert seeded.status == "completed"
+        transcript = kernel._c.directory.open(  # noqa: SLF001
+            SessionRef(session_id=session.session_id, workspace_root=tmp_path)
+        )._transcript
+
+        def _fail_append(**_kwargs):  # noqa: ANN003, ANN202
+            raise OSError("disk unavailable")
+
+        monkeypatch.setattr(transcript, "append_compaction", _fail_append)
+        failed, events = await _submit_and_collect(
+            kernel, session.session_id, tmp_path, "overflow"
+        )
+
+        terminal_error = _terminal_error(events)
+        assert terminal_error["code"] == "compaction_failed"
+        assert terminal_error["details"] == {
+            "trigger": "overflow",
+            "failure_kind": "persistence",
+            "consecutive_failures": 0,
+            "cause": {"type": "OSError", "message": "disk unavailable"},
+            "overflow_cause": {
+                "code": "model_error",
+                "message": "context overflow",
+                "retryable": True,
+                "details": {"response": "maximum context length exceeded"},
+            },
+        }
+        _assert_compaction_prompt_before_failed(events)
+    finally:
+        kernel.close()
+
+
+async def test_overflow_stale_commit_keeps_original_error_and_does_not_count(
+    tmp_path: Path, monkeypatch
+) -> None:  # noqa: ANN001
+    class _Client:
+        def __init__(self) -> None:
+            self.normal_calls = 0
+            self.summary_calls = 0
+
+        async def generate(self, request: LLMGenerateRequest):  # noqa: ANN201
+            if _is_summary_request(request):
+                self.summary_calls += 1
+                content = "stale summary" if self.summary_calls == 1 else ""
+                yield LLMMessage(role="assistant", content=content)
+                yield LLMMessage(role="assistant", content="", finish_reason="stop")
+                return
+            self.normal_calls += 1
+            if self.normal_calls >= 2:
+                raise ModelError(
+                    "context overflow",
+                    details={"response": "maximum context length exceeded"},
+                )
+            yield LLMMessage(role="assistant", content="seeded")
+            yield LLMMessage(role="assistant", content="", finish_reason="stop")
+
+    client = _Client()
+    kernel = build_kernel(
+        llm=_compaction_llm(), repo_root=tmp_path, _llm_client_override=client
+    )
+    try:
+        session = await kernel.create_session(workspace_root=tmp_path)
+        seeded, _events = await _submit_and_collect(
+            kernel, session.session_id, tmp_path, "seed"
+        )
+        assert seeded.status == "completed"
+        transcript = kernel._c.directory.open(  # noqa: SLF001
+            SessionRef(session_id=session.session_id, workspace_root=tmp_path)
+        )._transcript
+        original_append = transcript.append_compaction
+        monkeypatch.setattr(transcript, "append_compaction", lambda **_kwargs: False)
+
+        stale, stale_events = await _submit_and_collect(
+            kernel, session.session_id, tmp_path, "stale-overflow"
+        )
+
+        assert _terminal_error(stale_events) == {
+            "code": "run_execution_failed",
+            "message": "context overflow",
+        }
+        assert not any(
+            event.get("content") == COMPACTION_FAILURE_TEXT for event in stale_events
+        )
+
+        monkeypatch.setattr(transcript, "append_compaction", original_append)
+        failed, events = await _submit_and_collect(
+            kernel, session.session_id, tmp_path, "summary-failure"
+        )
+
+        assert _terminal_error(events)["details"]["consecutive_failures"] == 1
+        _assert_compaction_prompt_before_failed(events)
     finally:
         kernel.close()

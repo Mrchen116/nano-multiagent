@@ -681,7 +681,7 @@ class AgentEngine:
             # semantics for the caller (gateway watchdog / interrupt).
             _run_cancelled = True
             raise
-        except CompactionError as exc:
+        except CompactionError:
             await self._emit_compaction_failure(
                 session_id=session_id,
                 turn_id=turn_id,

@@ -8,12 +8,12 @@
 
 ## 退出标准
 
-- [ ] manual、threshold、overflow 的 summary/persistence failure 不新增 boundary、不替换可恢复历史。
-- [ ] threshold 前两次 summary failure 静默沿用原上下文，第三次熔断；overflow summary failure 立即熔断，manual 不计数。
-- [ ] automatic 终止前发送固定 assistant 提示，且提示不写入 kernel transcript；既有飞书 assistant delivery seam 保持绿色。
-- [ ] failure tracker 归属稳定 `ConversationSession`，external reload/LRU eviction 不重置，成功 compact 重置。
-- [ ] stale、persistence exception、summary failure 分流正确；只有 automatic summary failure 计数。
-- [ ] `CompactionError` 通过 RunsRegistry 保留稳定 code/details，普通异常协议不变。
+- [x] manual、threshold、overflow 的 summary/persistence failure 不新增 boundary、不替换可恢复历史。
+- [x] threshold 前两次 summary failure 静默沿用原上下文，第三次熔断；overflow summary failure 立即熔断，manual 不计数。
+- [x] automatic 终止前发送固定 assistant 提示，且提示不写入 kernel transcript；既有飞书 assistant delivery seam 保持绿色。
+- [x] failure tracker 归属稳定 `ConversationSession`，external reload/LRU eviction 不重置，成功 compact 重置。
+- [x] stale、persistence exception、summary failure 分流正确；只有 automatic summary failure 计数。
+- [x] `CompactionError` 通过 RunsRegistry 保留稳定 code/details，普通异常协议不变。
 
 ## 测试策略
 
@@ -57,6 +57,6 @@
 
 ### R4 — terminal 诊断、会话重载持续性与最终门禁
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 扩展 RunsRegistry typed error/ordinary error tests，验证 external reload/LRU 持续计数、成功 reset、飞书通用投递 seam 与完整 M2 回归。
 - 验证: design runbook 的 M2 focused suite、Ruff、`git diff --check`。
