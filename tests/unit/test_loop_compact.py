@@ -17,7 +17,12 @@ from agent.core.agent.loop import AgentLoop
 from agent.core.agent.prompting import build_system_prompt, estimate_llm_context_tokens
 from agent.core.agent.runtime import build_turn_result
 from agent.core.agent.state import AgentState
-from agent.core.agent.compaction.types import CompactionSettings
+from agent.core.agent.compaction.types import (
+    AutomaticCompactionFailureTracker,
+    CompactionSettings,
+)
+from agent.core.errors import CompactionError
+from agent.core.hooks.context import HookContext
 from agent.core.llm.interfaces import (
     LLMGenerateRequest,
     LLMGenerateResponse,
@@ -112,6 +117,15 @@ class _FakeCompactionSummarizer:
         hook_ctx=None,
     ):
         return "Compact summary: context was too long."
+
+
+class _NoneCompactionSummarizer:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def summarize(self, **_kwargs):  # noqa: ANN003, ANN201
+        self.calls += 1
+        return None
 
 
 def _make_state(
@@ -341,6 +355,119 @@ async def test_loop_fires_on_compaction_callback_with_session_id() -> None:
     )
 
 
+def _make_failure_policy_loop(
+    *,
+    tracker: AutomaticCompactionFailureTracker,
+    summarizer,
+    commit_compaction=None,
+) -> tuple[AgentLoop, AgentState, _FakeLLMClient]:  # noqa: ANN001
+    history = tuple(
+        Message(
+            message_id=f"failure-msg-{i}",
+            role="user" if i % 2 == 0 else "assistant",
+            content="x" * 800,
+        )
+        for i in range(10)
+    )
+    llm = _FakeLLMClient(content="continued-with-original-context")
+    loop = AgentLoop(
+        llm_client=llm,
+        model="test-model",
+        compaction_settings=CompactionSettings(
+            enabled=True, context_window=100, reserve_tokens=10
+        ),
+        compaction_planner=_FakeCompactionPlanner(),
+        compaction_summarizer=summarizer,
+        compaction_entries=lambda: _FakeCompactionEntries(history).list_entries(
+            "sess-failure"
+        ),
+        automatic_compaction_failures=lambda: tracker,
+        commit_compaction=commit_compaction,
+    )
+    return (
+        loop,
+        _make_state(
+            session_id="sess-failure",
+            history_messages=history,
+            user_text="trigger",
+        ),
+        llm,
+    )
+
+
+async def test_threshold_summary_failure_continues_twice_then_stops() -> None:
+    tracker = AutomaticCompactionFailureTracker()
+    summarizer = _NoneCompactionSummarizer()
+    loop, state, llm = _make_failure_policy_loop(
+        tracker=tracker,
+        summarizer=summarizer,
+    )
+
+    first = await _run_loop(loop, state)
+    second = await _run_loop(loop, state)
+
+    assert first.messages[-1].content == "continued-with-original-context"
+    assert second.messages[-1].content == "continued-with-original-context"
+    assert tracker.consecutive_failures == 2
+    with pytest.raises(CompactionError) as raised:
+        await _run_loop(loop, state)
+    assert raised.value.details == {
+        "trigger": "threshold",
+        "failure_kind": "summary",
+        "consecutive_failures": 3,
+    }
+    assert summarizer.calls == 3
+    assert len(llm.requests) == 2
+
+    with pytest.raises(CompactionError):
+        await _run_loop(loop, state)
+    assert summarizer.calls == 3
+
+
+async def test_threshold_success_resets_failures_but_stale_commit_does_not() -> None:
+    tracker = AutomaticCompactionFailureTracker(consecutive_failures=2)
+    loop, state, _llm = _make_failure_policy_loop(
+        tracker=tracker,
+        summarizer=_FakeCompactionSummarizer(),
+        commit_compaction=lambda *_args: False,
+    )
+
+    await _run_loop(loop, state)
+    assert tracker.consecutive_failures == 2
+
+    loop, state, _llm = _make_failure_policy_loop(
+        tracker=tracker,
+        summarizer=_FakeCompactionSummarizer(),
+        commit_compaction=lambda *_args: True,
+    )
+    await _run_loop(loop, state)
+    assert tracker.consecutive_failures == 0
+
+
+async def test_threshold_persistence_failure_stops_without_incrementing_count() -> None:
+    tracker = AutomaticCompactionFailureTracker(consecutive_failures=1)
+
+    def _fail_commit(*_args):  # noqa: ANN002, ANN202
+        raise OSError("disk unavailable")
+
+    loop, state, _llm = _make_failure_policy_loop(
+        tracker=tracker,
+        summarizer=_FakeCompactionSummarizer(),
+        commit_compaction=_fail_commit,
+    )
+
+    with pytest.raises(CompactionError) as raised:
+        await _run_loop(loop, state)
+
+    assert raised.value.details == {
+        "trigger": "threshold",
+        "failure_kind": "persistence",
+        "consecutive_failures": 1,
+        "cause": {"type": "OSError", "message": "disk unavailable"},
+    }
+    assert tracker.consecutive_failures == 1
+
+
 # ---------------------------------------------------------------------------
 # bugfix-412 #103: real-token-driven compaction trigger
 # ---------------------------------------------------------------------------
@@ -465,13 +592,12 @@ async def test_manual_compaction_focus_is_only_a_summary_instruction() -> None:
         system_prompt="sys",
         dropped_messages=[Message(message_id="d", role="user", content="old")],
         focus="保留认证方案与未完成项",
-        strict=True,
     )
 
     assert "保留认证方案与未完成项" in fork.user_prompts[0]
 
 
-async def test_strict_manual_compaction_never_returns_the_automatic_fallback() -> None:
+async def test_compaction_summarizer_returns_none_without_dropped_messages() -> None:
     from agent.core.agent.compaction.summarizer import CompactionSummarizer
 
     summarizer = CompactionSummarizer(fork=_RecordingFork())
@@ -481,10 +607,101 @@ async def test_strict_manual_compaction_never_returns_the_automatic_fallback() -
             session_id="sess_x",
             system_prompt="sys",
             dropped_messages=(),
-            strict=True,
         )
         is None
     )
+
+
+async def test_compaction_summarizer_returns_none_when_provider_fails() -> None:
+    from agent.core.agent.compaction.summarizer import CompactionSummarizer
+
+    class _RaisingFork:
+        async def execute(self, **_kwargs):  # noqa: ANN003, ANN201
+            raise RuntimeError("summary provider unavailable")
+
+    summarizer = CompactionSummarizer(fork=_RaisingFork())
+
+    assert (
+        await summarizer.summarize(
+            session_id="sess_x",
+            system_prompt="sys",
+            dropped_messages=[Message(message_id="d", role="user", content="old")],
+        )
+        is None
+    )
+
+
+async def test_compaction_summarizer_rejects_analysis_only_response() -> None:
+    from agent.core.agent.compaction.summarizer import CompactionSummarizer
+
+    class _AnalysisOnlyFork:
+        async def execute(self, *, state, **_kwargs):  # noqa: ANN001, ANN003
+            return build_turn_result(
+                state.session_id,
+                state.turn_id,
+                [
+                    Message(
+                        message_id="analysis-only",
+                        role="assistant",
+                        content="<analysis>scratch</analysis>",
+                    )
+                ],
+            )
+
+    summarizer = CompactionSummarizer(fork=_AnalysisOnlyFork())
+
+    assert (
+        await summarizer.summarize(
+            session_id="sess_x",
+            system_prompt="sys",
+            dropped_messages=[Message(message_id="d", role="user", content="old")],
+        )
+        is None
+    )
+
+
+async def test_compaction_summarizer_does_not_publish_sidechain_events() -> None:
+    from agent.core.agent.compaction.summarizer import CompactionSummarizer
+
+    published: list[tuple[str, dict]] = []
+
+    class _PublishingFork:
+        async def execute(
+            self, *, state, hook_ctx=None, model_override=None, **_kwargs
+        ):  # noqa: ANN001, ANN003, ANN201
+            assert hook_ctx is not None
+            assert hook_ctx is not parent_hook_ctx
+            assert hook_ctx.metadata == parent_hook_ctx.metadata
+            hook_ctx.publish_session_event(
+                event="assistant_message", data={"content": "internal summary"}
+            )
+            hook_ctx.publish_session_event(event="turn_end", data={})
+            assert model_override == "run-model"
+            return build_turn_result(
+                state.session_id,
+                state.turn_id,
+                [Message(message_id="summary", role="assistant", content="summary")],
+            )
+
+    summarizer = CompactionSummarizer(fork=_PublishingFork())
+    parent_hook_ctx = HookContext(
+        session_id="sess_x",
+        metadata={"workspace_config_dirname": ".consumer"},
+        session_event_publisher=lambda event, data: published.append(
+            (event, dict(data))
+        ),
+    )
+
+    result = await summarizer.summarize(
+        session_id="sess_x",
+        system_prompt="sys",
+        dropped_messages=[Message(message_id="d", role="user", content="old")],
+        model_override="run-model",
+        hook_ctx=parent_hook_ctx,
+    )
+
+    assert result == "summary"
+    assert published == []
 
 
 def _init_per_model_window_registry() -> None:

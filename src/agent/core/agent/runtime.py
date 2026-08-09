@@ -13,7 +13,7 @@ from agent.core.agent.liveness import (
     _broker_publish_adapter,
     _emit_liveness_heartbeats,
 )
-from agent.core.errors import ModelError
+from agent.core.errors import CompactionError, ModelError
 from agent.core.ids import make_message_id, make_tool_call_id, make_turn_id
 from agent.core.types import (
     Message,
@@ -265,6 +265,9 @@ class AgentEngine:
             compaction_planner=self._compaction_planner,
             compaction_summarizer=self._compaction_summarizer,
             compaction_settings=self._compaction_settings,
+            automatic_compaction_failures=lambda: (
+                self._state().automatic_compaction_failures
+            ),
             on_compaction=self._invalidate_memory_snapshot,
             capture_compaction_epoch=lambda: self._state().transcript.external_epoch,
             commit_compaction=self._commit_threshold_compaction,
@@ -678,6 +681,14 @@ class AgentEngine:
             # semantics for the caller (gateway watchdog / interrupt).
             _run_cancelled = True
             raise
+        except CompactionError:
+            await self._emit_compaction_failure(
+                session_id=session_id,
+                turn_id=turn_id,
+                parent_message_id=user_msg.message_id,
+                hook_ctx=hook_ctx,
+            )
+            raise
         except ModelError as exc:
             await state.transcript.flush_async()
             # Attempt overflow recovery: compact then retry once.
@@ -687,9 +698,20 @@ class AgentEngine:
                 and self._compaction_settings.enabled
             ):
                 _overflow_retried = True
-                compact_result = await self._compact_session(
-                    session_id=session_id, reason=CompactionReason.OVERFLOW
-                )
+                try:
+                    compact_result = await self._compact_session(
+                        session_id=session_id,
+                        reason=CompactionReason.OVERFLOW,
+                        overflow_cause=exc,
+                    )
+                except CompactionError:
+                    await self._emit_compaction_failure(
+                        session_id=session_id,
+                        turn_id=turn_id,
+                        parent_message_id=user_msg.message_id,
+                        hook_ctx=hook_ctx,
+                    )
+                    raise
                 if compact_result is not None:
                     # Rebuild history from session store after compaction.
                     reloaded = state.transcript.load().messages
@@ -702,44 +724,53 @@ class AgentEngine:
                     )
                     all_messages = [user_msg]
                     state.partial_messages = all_messages
-                    async for msg in self._execute_loop(
-                        session_id=session_id,
-                        turn_id=turn_id,
-                        turn_count=turn_count,
-                        history=retry_history,
-                        input_parts=effective_input_parts,
-                        user_text=effective_user_text,
-                        user_message_id=user_msg.message_id,
-                        hook_ctx=hook_ctx,
-                        system_prompt_override=system_prompt_override,
-                        pre_rendered_system_prompt=pre_rendered_system_prompt,
-                        llm_session_id=llm_session_id,
-                        session_created_at=session_created_at,
-                        current_working_directory_override=session_workspace_root,
-                        workspace_root=session_workspace_root,
-                        available_skills_override=()
-                        if use_frozen_system_prompt
-                        else session_available_skills,
-                        available_tools_override=session_available_tools,
-                        controller=controller,
-                        model_override=model,
-                    ):
-                        if msg.role == "turn_meta":
-                            all_messages.append(msg)
-                            continue
-                        all_messages.append(msg)
-                        if msg.metadata.get("is_compact_summary"):
-                            post_compact_messages = _post_compact_messages_from(msg)
-                            history[:] = [msg, *post_compact_messages]
-                            all_messages.extend(post_compact_messages)
-                            continue
-                        history.append(msg)
-                        state.transcript.append_messages(
-                            [msg],
-                            durable=msg.role == "tool",
+                    try:
+                        async for msg in self._execute_loop(
+                            session_id=session_id,
                             turn_id=turn_id,
+                            turn_count=turn_count,
+                            history=retry_history,
+                            input_parts=effective_input_parts,
+                            user_text=effective_user_text,
+                            user_message_id=user_msg.message_id,
+                            hook_ctx=hook_ctx,
+                            system_prompt_override=system_prompt_override,
+                            pre_rendered_system_prompt=pre_rendered_system_prompt,
+                            llm_session_id=llm_session_id,
+                            session_created_at=session_created_at,
+                            current_working_directory_override=session_workspace_root,
+                            workspace_root=session_workspace_root,
+                            available_skills_override=()
+                            if use_frozen_system_prompt
+                            else session_available_skills,
+                            available_tools_override=session_available_tools,
+                            controller=controller,
+                            model_override=model,
+                        ):
+                            if msg.role == "turn_meta":
+                                all_messages.append(msg)
+                                continue
+                            all_messages.append(msg)
+                            if msg.metadata.get("is_compact_summary"):
+                                post_compact_messages = _post_compact_messages_from(msg)
+                                history[:] = [msg, *post_compact_messages]
+                                all_messages.extend(post_compact_messages)
+                                continue
+                            history.append(msg)
+                            state.transcript.append_messages(
+                                [msg],
+                                durable=msg.role == "tool",
+                                turn_id=turn_id,
+                            )
+                        await state.transcript.flush_async()
+                    except CompactionError:
+                        await self._emit_compaction_failure(
+                            session_id=session_id,
+                            turn_id=turn_id,
+                            parent_message_id=user_msg.message_id,
+                            hook_ctx=hook_ctx,
                         )
-                    await state.transcript.flush_async()
+                        raise
                 else:
                     raise
             else:
@@ -1885,6 +1916,36 @@ class AgentEngine:
             expected_external_epoch=expected_external_epoch,
         )
 
+    async def _emit_compaction_failure(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        parent_message_id: str,
+        hook_ctx: HookContext,
+    ) -> None:
+        """Publish the safe user notice before the run reaches failed terminal."""
+
+        message = _build_compaction_error_message(parent_message_id=parent_message_id)
+        run_id = hook_ctx.metadata.get("run_id")
+        message_payload: dict[str, Any] = {
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "message_id": message.message_id,
+            "content": message.content,
+            "role": "assistant",
+        }
+        turn_end_payload: dict[str, Any] = {
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "completed": False,
+        }
+        if isinstance(run_id, str) and run_id.strip():
+            message_payload["run_id"] = run_id.strip()
+            turn_end_payload["run_id"] = run_id.strip()
+        await self._dispatch_observe("message_end", message_payload, hook_ctx)
+        await self._dispatch_observe("turn_end", turn_end_payload, hook_ctx)
+
     async def _compact_session(
         self,
         *,
@@ -1892,10 +1953,12 @@ class AgentEngine:
         reason: CompactionReason,
         focus: str | None = None,
         idempotency_key: str | None = None,
+        overflow_cause: ModelError | None = None,
     ) -> CompactionResult | None:
         # Compaction always runs on a session that has been loaded by a prior
         # run(), so its config (and thus workspace_root) is cached here.
         conversation = self._state()
+        failure_tracker = conversation.automatic_compaction_failures
         if reason is CompactionReason.MANUAL and idempotency_key:
             prior = conversation.transcript.find_manual_compaction(idempotency_key)
             if prior is not None:
@@ -1937,12 +2000,29 @@ class AgentEngine:
             "hook_ctx": self._build_hook_context(session_id=session_id),
         }
         if reason is CompactionReason.MANUAL:
-            summary_kwargs.update({"focus": focus, "strict": True})
+            summary_kwargs["focus"] = focus
+        if reason is CompactionReason.OVERFLOW and failure_tracker.exhausted:
+            raise CompactionError(
+                trigger=reason.value,
+                failure_kind="summary",
+                consecutive_failures=failure_tracker.consecutive_failures,
+                overflow_cause=overflow_cause,
+            )
         summary = await self._compaction_summarizer.summarize(
             **summary_kwargs,
         )
         if summary is None:
-            raise RuntimeError("manual compaction summary could not be generated")
+            consecutive_failures = (
+                failure_tracker.record_summary_failure()
+                if reason is CompactionReason.OVERFLOW
+                else failure_tracker.consecutive_failures
+            )
+            raise CompactionError(
+                trigger=reason.value,
+                failure_kind="summary",
+                consecutive_failures=consecutive_failures,
+                overflow_cause=overflow_cause,
+            )
 
         # Post-compact file restore: read up to 5 most recently accessed files.
         file_state = conversation.file_state
@@ -2003,26 +2083,41 @@ class AgentEngine:
             summary=summary,
             summary_uuid=summary_msg.message_id,
         )
-        committed = conversation.transcript.append_compaction(
-            summary=summary_msg,
-            reinjections=(reinjection_msg,) if reinjection_msg is not None else (),
-            reason=reason.value,
-            restored_files=restored_files,
-            expected_external_epoch=captured_external_epoch,
-            manual_idempotency_key=(
-                idempotency_key if reason is CompactionReason.MANUAL else None
-            ),
-            result_data={
-                "first_kept_event_id": result.first_kept_event_id,
-                "dropped_event_ids": list(result.dropped_event_ids),
-                "kept_event_ids": list(result.kept_event_ids),
-            },
-        )
+        try:
+            committed = conversation.transcript.append_compaction(
+                summary=summary_msg,
+                reinjections=(reinjection_msg,) if reinjection_msg is not None else (),
+                reason=reason.value,
+                restored_files=restored_files,
+                expected_external_epoch=captured_external_epoch,
+                manual_idempotency_key=(
+                    idempotency_key if reason is CompactionReason.MANUAL else None
+                ),
+                result_data={
+                    "first_kept_event_id": result.first_kept_event_id,
+                    "dropped_event_ids": list(result.dropped_event_ids),
+                    "kept_event_ids": list(result.kept_event_ids),
+                },
+            )
+        except Exception as exc:
+            raise CompactionError(
+                trigger=reason.value,
+                failure_kind="persistence",
+                consecutive_failures=failure_tracker.consecutive_failures,
+                cause=exc,
+                overflow_cause=overflow_cause,
+            ) from exc
         if not committed:
             if reason is CompactionReason.MANUAL:
-                raise RuntimeError("manual compaction was not committed")
+                raise CompactionError(
+                    trigger=reason.value,
+                    failure_kind="stale",
+                    consecutive_failures=failure_tracker.consecutive_failures,
+                )
             return None
         conversation.history[:] = compacted_messages
+        conversation.last_prompt_tokens = None
+        failure_tracker.reset()
         self._invalidate_memory_snapshot(session_id)
 
         # Build the result object from the already-persisted direct write (no
@@ -2060,6 +2155,7 @@ class AgentEngine:
             message_id=make_message_id(),
             role="user",
             content=content,
+            parent_message_id=compact_entry_id,
             metadata={
                 "is_meta": True,
                 "is_skill_reinjection": True,
@@ -2311,6 +2407,11 @@ def _skill_batch_review_root_key(skill_root: Any) -> str | None:
 # bugfix-380: maximum length for provider error text embedded in the assistant message content.
 _PROVIDER_ERROR_MAX_CHARS = 1024
 
+_COMPACTION_FAILURE_TEXT = (
+    "上下文压缩失败，已停止本轮以避免丢失对话内容。原对话仍保留。"
+    "请稍后重试，或发送 /compact <希望保留的重点> 后继续。"
+)
+
 
 def _build_provider_error_message(
     exc: ModelError,
@@ -2332,6 +2433,18 @@ def _build_provider_error_message(
         role="assistant",
         content=content,
         metadata={"is_provider_error": True},
+    )
+
+
+def _build_compaction_error_message(*, parent_message_id: str | None = None) -> Message:
+    """Build the non-persisted assistant notice for automatic compaction failure."""
+
+    return Message(
+        message_id=make_message_id(),
+        parent_message_id=parent_message_id,
+        role="assistant",
+        content=_COMPACTION_FAILURE_TEXT,
+        metadata={"is_compaction_error": True},
     )
 
 

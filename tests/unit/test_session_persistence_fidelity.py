@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from agent.core.ids import make_message_id
+from agent.core.llm.interfaces import LLMGenerateRequest
 from agent.core.types import Message
 from agent.core.agent.prompting import build_chat_messages
 from agent.core.session.entries import (
@@ -28,6 +29,7 @@ from agent.core.session.jsonl_files import JsonlSessionFiles
 from agent.core.session.jsonl_writer import JsonlWriter
 from agent.core.session.transcript import JsonlTranscript, _message_to_raw, _to_message
 from agent.core.session.types import NewSession, SessionRef
+from agent.platform.llm.providers.anthropic.mapper import AnthropicMapper
 
 
 # ---------------------------------------------------------------------------
@@ -65,46 +67,9 @@ def _make_tool_msg(*, call_id: str, tool_name: str, result: str) -> Message:
     )
 
 
-def _entry_to_message(entry: dict) -> Message:
-    """Simulate what session restore does: JSONL dict → SessionEntry → Message.
-
-    Mirrors the real restore path in jsonl_store._to_message + _build_turn_metadata,
-    which reads reasoning/tool fields from JSONL top-level into metadata.
-    """
-    se = SessionEntry(
-        entry_id=entry.get("uuid", make_message_id()),
-        session_id=entry.get("session_id", "test-session"),
-        created_at=entry.get("timestamp", "2026-01-01T00:00:00+00:00"),
-        kind=SessionEntryKind.TURN_APPENDED,
-        data={
-            "turn_id": "turn-1",
-            "message_id": entry.get("uuid"),
-            "role": entry["role"],
-            "content": entry["content"],
-            "tool_call_id": entry.get("tool_call_id"),
-            "group_id": entry.get("group_id"),
-            "parts": [],
-            "metadata": {
-                k: entry[k]
-                for k in (
-                    "tool_calls",
-                    "tool_name",
-                    "tool_error",
-                    "tool_output",
-                    "reasoning_content",
-                    "reasoning_signature",
-                )
-                if k in entry
-            },
-        },
-    )
-    return message_from_turn_entry(se)
-
-
 def _roundtrip(msg: Message) -> Message:
     """Persist msg → JSONL entry → restore as Message."""
-    entry = _message_to_raw(msg, session_id="test-session")
-    return _entry_to_message(entry)
+    return _to_message(_message_to_raw(msg, session_id="test-session"))
 
 
 def _make_transcript(
@@ -116,6 +81,28 @@ def _make_transcript(
         spec=NewSession(workspace_root=tmp_path),
         files=JsonlSessionFiles(data_dir=tmp_path),
         writer=JsonlWriter(),
+    )
+
+
+def _recoverable_semantics(message: Message) -> tuple[object, ...]:
+    """Return durable Message semantics, ignoring synthetic recovery identity."""
+
+    message_id = (
+        "<synthetic-recovery>"
+        if message.metadata.get("is_recovery")
+        else message.message_id
+    )
+    return (
+        message_id,
+        message.role,
+        message.content,
+        message.parent_message_id,
+        message.group_id,
+        message.tool_call_id,
+        message.reasoning_content,
+        message.reasoning_signature,
+        tuple(dict(part) for part in message.parts or ()),
+        dict(message.metadata),
     )
 
 
@@ -357,6 +344,139 @@ def test_message_jsonl_roundtrip_field_conservation_guard():
         assert getattr(restored, fname) == getattr(msg, fname), (
             f"field '{fname}' dropped in Message↔JSONL round-trip"
         )
+
+
+def test_compaction_projection_matches_latest_recoverable_transcript(
+    tmp_path: Path,
+) -> None:
+    """Compaction sees the same active, tool-closed durable messages as load()."""
+
+    transcript = _make_transcript(tmp_path, "sess-compaction-projection")
+    transcript.append_messages(
+        [
+            Message(message_id="pre-user", role="user", content="obsolete request"),
+            Message(
+                message_id="pre-assistant",
+                parent_message_id="pre-user",
+                role="assistant",
+                content="obsolete answer",
+            ),
+        ],
+        durable=True,
+    )
+    assert transcript.append_compaction(
+        summary=Message(
+            message_id="compact-summary",
+            parent_message_id="pre-assistant",
+            role="user",
+            content="Summary: keep the active objective",
+            metadata={"is_compact_summary": True},
+        ),
+        reason="threshold",
+    )
+
+    transcript.append_messages_snapshot(
+        [
+            Message(
+                message_id="abandoned-assistant",
+                parent_message_id="compact-summary",
+                group_id="abandoned-group",
+                role="assistant",
+                content="abandoned branch must not be summarized",
+            ),
+            Message(
+                message_id="active-user",
+                parent_message_id="compact-summary",
+                role="user",
+                content="inspect the structured source",
+                parts=({"type": "text", "text": "inspect the structured source"},),
+            ),
+            Message(
+                message_id="normal-tool-call",
+                parent_message_id="active-user",
+                group_id="parallel-group",
+                role="assistant",
+                content="checking",
+                metadata={
+                    "tool_calls": [
+                        {
+                            "call_id": "call-normal",
+                            "name": "read",
+                            "arguments": {"path": "active.txt"},
+                        }
+                    ]
+                },
+                reasoning_content="need the source before continuing",
+                reasoning_signature="sig-active",
+            ),
+            Message(
+                message_id="normal-tool-result",
+                parent_message_id="normal-tool-call",
+                group_id="parallel-group",
+                role="tool",
+                content="active source",
+                tool_call_id="call-normal",
+                metadata={"tool_name": "read"},
+            ),
+            Message(
+                message_id="recovered-tool-call",
+                parent_message_id="normal-tool-result",
+                role="assistant",
+                content="",
+                metadata={
+                    "tool_calls": [
+                        {
+                            "call_id": "call-recovered",
+                            "name": "bash",
+                            "arguments": {"command": "long task"},
+                        }
+                    ]
+                },
+            ),
+        ]
+    )
+    transcript.append_tool_call_recovery(
+        tool_call_id="call-recovered",
+        tool_name="bash",
+        reason="interrupted",
+        durable=True,
+    )
+
+    loaded = transcript.load().messages
+    projected = [
+        message_from_turn_entry(entry)
+        for entry in transcript.list_event_entries()
+        if isinstance(entry, SessionEntry)
+        and entry.kind is SessionEntryKind.TURN_APPENDED
+    ]
+
+    assert [_recoverable_semantics(message) for message in projected] == [
+        _recoverable_semantics(message) for message in loaded
+    ]
+    assert "abandoned-assistant" not in {message.message_id for message in projected}
+
+    request = LLMGenerateRequest(
+        session_id="sess-compaction-projection",
+        model="test-model",
+        messages=build_chat_messages(
+            history_messages=tuple(projected),
+            user_text="continue",
+        ),
+    )
+    payload = AnthropicMapper().map_generate_request(request)
+    tool_use_ids = {
+        block["id"]
+        for message in payload["messages"]
+        for block in message["content"]
+        if block.get("type") == "tool_use"
+    }
+    tool_result_ids = {
+        block["tool_use_id"]
+        for message in payload["messages"]
+        for block in message["content"]
+        if block.get("type") == "tool_result"
+    }
+    assert tool_use_ids == tool_result_ids == {"call-normal", "call-recovered"}
 
 
 # ---------------------------------------------------------------------------

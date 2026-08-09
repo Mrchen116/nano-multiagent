@@ -4,6 +4,7 @@ import time
 from pathlib import Path
 
 from agent.core.llm.interfaces import LLMMessage
+from agent.core.errors import CompactionError
 from agent.core.runs.executor import KernelExecutor
 from agent.core.runs.registry import RunStatus, RunsRegistry
 from agent.core.session.directory import SessionDirectory
@@ -52,6 +53,15 @@ class _Conversation:
         return None
 
 
+class _FailingConversation(_Conversation):
+    def __init__(self, *, error: Exception, **kwargs) -> None:  # noqa: ANN003
+        super().__init__(**kwargs)
+        self.error = error
+
+    async def submit_turn(self, request: TurnRequest) -> TurnResult:
+        raise self.error
+
+
 def _wait_for(predicate, timeout: float = 1.0) -> None:  # noqa: ANN001
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -94,6 +104,45 @@ def test_registry_is_semantic_writer_while_executor_owns_cleanup(
     assert conversations[0].requests[0].model == "test:model"
     _wait_for(lambda: executor.active_target_count == 0)
     registry.shutdown()
+
+
+def _run_failed_record(tmp_path: Path, error: Exception):  # noqa: ANN201
+    def factory(ref, transcript):  # noqa: ANN001, ANN202
+        return _FailingConversation(ref=ref, transcript=transcript, error=error)
+
+    directory = SessionDirectory(
+        files=JsonlSessionFiles(data_dir=tmp_path / "data"),
+        writer=JsonlWriter(),
+        conversation_factory=factory,
+    )
+    session = directory.create(NewSession(workspace_root=tmp_path))
+    executor = KernelExecutor()
+    registry = RunsRegistry(directory=directory, executor=executor)
+    submitted = registry.submit(
+        session_id=session.ref.session_id,
+        workspace_root=tmp_path,
+        parts=[{"type": "text", "text": "fail"}],
+    )
+    _wait_for(lambda: registry.get(submitted.run_id).status is RunStatus.FAILED)
+    record = registry.get(submitted.run_id)
+    registry.shutdown()
+    assert record is not None
+    return record
+
+
+def test_registry_preserves_only_typed_compaction_error_payload(tmp_path: Path) -> None:
+    compaction = CompactionError(
+        trigger="overflow",
+        failure_kind="summary",
+        consecutive_failures=1,
+        overflow_cause=RuntimeError("maximum context length exceeded"),
+    )
+
+    typed = _run_failed_record(tmp_path / "typed", compaction)
+    ordinary = _run_failed_record(tmp_path / "ordinary", RuntimeError("boom"))
+
+    assert typed.error == compaction.to_dict()
+    assert ordinary.error == {"code": "run_execution_failed", "message": "boom"}
 
 
 def test_interrupt_parks_pending_synchronously_before_next_submit(

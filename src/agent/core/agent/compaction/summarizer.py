@@ -1,6 +1,7 @@
 """Generate compaction summaries from dropped conversation history."""
 
 import logging
+from dataclasses import replace
 from typing import TYPE_CHECKING, Sequence
 
 from agent.core.agent.state import AgentState, InputPart
@@ -17,7 +18,7 @@ _log = logging.getLogger("agent.core.agent.compaction")
 
 
 class CompactionSummarizer:
-    """Summarize dropped history via LLM with deterministic fallback."""
+    """Summarize dropped history without fabricating a successful result."""
 
     def __init__(
         self, *, fork: "AgentContextFork", has_dedicated_model: bool = False
@@ -37,7 +38,6 @@ class CompactionSummarizer:
         dropped_messages: Sequence[Message],
         model_override: str | None = None,
         focus: str | None = None,
-        strict: bool = False,
         hook_ctx: HookContext | None = None,
     ) -> str | None:
         """Summarize dropped messages for compaction record.
@@ -52,12 +52,11 @@ class CompactionSummarizer:
             dropped_messages: Messages that will be removed from active context.
 
         Returns:
-            Generated summary, fallback summary for automatic compaction, or ``None``
-            when strict manual compaction cannot safely summarize.
+            Generated summary, or ``None`` when no valid summary was produced.
         """
 
         if not dropped_messages:
-            return None if strict else _fallback_summary()
+            return None
 
         history = list(dropped_messages)
         summary_prompt = get_compact_prompt(focus=focus)
@@ -69,6 +68,15 @@ class CompactionSummarizer:
             history_messages=tuple(history),
             input_parts=(InputPart(type="text", text=""),),
             user_text=summary_prompt,
+        )
+        sidechain_hook_ctx = (
+            replace(
+                hook_ctx,
+                session_event_publisher=lambda _event, _data: None,
+                permission_requester=None,
+            )
+            if hook_ctx is not None
+            else None
         )
 
         try:
@@ -83,32 +91,14 @@ class CompactionSummarizer:
                 # build-time default. bugfix-443 fix1: a dedicated summary_model
                 # fork keeps its own model — ignore the per-run override for it.
                 model_override=(None if self._has_dedicated_model else model_override),
-                hook_ctx=hook_ctx,
+                # Preserve workspace-scoped hooks and model routing, but keep the
+                # internal summary stream out of the parent session event channel.
+                hook_ctx=sidechain_hook_ctx,
             )
             summary = result.messages[-1].content.strip() if result.messages else ""
             if summary:
-                return format_compact_summary(summary)
-            return None if strict else _fallback_summary()
+                return format_compact_summary(summary) or None
+            return None
         except Exception as exc:
-            if strict:
-                _log.warning("manual compaction summarizer failed: %s", exc)
-                return None
-            _log.exception(
-                "compaction summarizer failed; using fallback summary: %s", exc
-            )
-            return _fallback_summary()
-
-
-def _fallback_summary() -> str:
-    return (
-        "Summary:\n"
-        "1. Primary Request and Intent: Session continuity maintained.\n"
-        "2. Key Technical Concepts: None.\n"
-        "3. Files and Code Sections: None.\n"
-        "4. Errors and fixes: None.\n"
-        "5. Problem Solving: None.\n"
-        "6. All user messages: None.\n"
-        "7. Pending Tasks: Continue the latest user request.\n"
-        "8. Current Work: Context compaction was performed.\n"
-        "9. Optional Next Step: Resume directly from the latest user request."
-    )
+            _log.warning("compaction summarizer failed: %s", exc)
+            return None

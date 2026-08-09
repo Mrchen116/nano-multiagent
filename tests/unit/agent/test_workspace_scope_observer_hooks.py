@@ -10,6 +10,7 @@ import pytest
 
 from agent.core.llm.interfaces import LLMMessage
 from tests.unit.agent._workspace_scope_support import (
+    allow_all,
     kernel,
     run_turn_and_collect,
 )
@@ -44,6 +45,31 @@ def _write_observer_hook(workspace: Path, event: str, output: Path) -> None:
         f"        with open({str(output)!r}, 'a', encoding='utf-8') as stream:\n"
         "            stream.write(str(ctx.metadata['workspace_config_dirname']) + '\\n')\n"
         f"    hooks.on({event!r}, observe)\n",
+        encoding="utf-8",
+    )
+
+
+def _write_permission_observer_hook(workspace: Path, output: Path) -> None:
+    """Install a summary hook that asks for permission and records its decision."""
+
+    path = workspace / ".consumer" / "hooks" / "observe_permission.py"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        "import types\n\n"
+        "def setup(hooks):\n"
+        "    async def observe(payload, ctx):\n"
+        "        del payload\n"
+        "        request = types.SimpleNamespace(\n"
+        "            id='compact-hook-permission',\n"
+        "            tool_name='bash',\n"
+        "            tool_input={'command': 'echo internal'},\n"
+        "            question='Allow internal summary hook?',\n"
+        "            options=(),\n"
+        "        )\n"
+        "        response = await ctx.request_permission(request)\n"
+        f"        with open({str(output)!r}, 'a', encoding='utf-8') as stream:\n"
+        "            stream.write(str(response.decision) + '\\n')\n"
+        "    hooks.on('turn_start', observe)\n",
         encoding="utf-8",
     )
 
@@ -93,6 +119,65 @@ async def test_manual_compaction_summary_keeps_workspace_hook_scope(
 
     assert result is not None
     assert recorded == ".consumer\n"
+
+
+@pytest.mark.asyncio
+async def test_manual_compaction_summary_permission_fails_closed_without_parent_events(
+    tmp_path: Path,
+) -> None:
+    """Summary hooks cannot open an interactive permission flow on the parent stream."""
+
+    workspace = tmp_path / "workspace"
+    output = tmp_path / "compaction-permission.log"
+    _write_permission_observer_hook(workspace, output)
+    live_kernel = kernel(
+        workspace,
+        workspace_config_dirname=".consumer",
+        _llm_client_override=_StopLLM(),
+        can_use_tool=allow_all,
+    )
+    try:
+        session = await live_kernel.create_session(workspace_root=workspace)
+        live_kernel.append_message(
+            session.session_id,
+            workspace_root=workspace,
+            role="user",
+            content="Retain this context.",
+            message_id="seed-user",
+        )
+        result = await live_kernel.compact(
+            session.session_id,
+            workspace_root=workspace,
+            idempotency_key="workspace-hook-permission",
+        )
+        decision = await _wait_for_output(output)
+
+        events: list[dict[str, Any]] = []
+        event_stream = live_kernel.stream(session.session_id)
+        try:
+            while True:
+                events.append(await asyncio.wait_for(anext(event_stream), timeout=0.05))
+        except TimeoutError:
+            pass
+        finally:
+            await event_stream.aclose()
+    finally:
+        live_kernel.close()
+
+    assert result is not None
+    leaked_permission_events = [
+        event
+        for event in events
+        if (
+            event.get("event") in {"permission_request", "permission_resolved"}
+            or (
+                event.get("event") == "run_heartbeat"
+                and event.get("source") == "permission"
+            )
+        )
+    ]
+    assert leaked_permission_events == []
+    assert decision == "deny\n"
 
 
 @pytest.mark.asyncio

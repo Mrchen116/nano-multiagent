@@ -60,6 +60,43 @@ class ModelError(NanoMultiAgentError):
         )
 
 
+class CompactionError(NanoMultiAgentError):
+    """Report a context-compaction failure without exposing it as provider text.
+
+    Args:
+        trigger: Compaction entry point: manual, threshold, or overflow.
+        failure_kind: Stable failure category such as summary or persistence.
+        consecutive_failures: Current automatic summary failure count.
+        cause: Immediate compaction failure, when one is available.
+        overflow_cause: Original provider overflow that required compaction.
+    """
+
+    def __init__(
+        self,
+        *,
+        trigger: str,
+        failure_kind: str,
+        consecutive_failures: int = 0,
+        cause: BaseException | None = None,
+        overflow_cause: BaseException | None = None,
+    ) -> None:
+        details: dict[str, Any] = {
+            "trigger": trigger,
+            "failure_kind": failure_kind,
+            "consecutive_failures": consecutive_failures,
+        }
+        if cause is not None:
+            details["cause"] = _serialize_cause(cause)
+        if overflow_cause is not None:
+            details["overflow_cause"] = _serialize_cause(overflow_cause)
+        super().__init__(
+            "context compaction failed",
+            code="compaction_failed",
+            retryable=True,
+            details=details,
+        )
+
+
 class ToolError(NanoMultiAgentError):
     """Wrap tool execution failures with call context."""
 
@@ -99,3 +136,9 @@ class PolicyViolation(NanoMultiAgentError):
             retryable=False,
             details=details,
         )
+
+
+def _serialize_cause(exc: BaseException) -> dict[str, Any]:
+    if isinstance(exc, NanoMultiAgentError):
+        return exc.to_dict()
+    return {"type": type(exc).__name__, "message": str(exc)}

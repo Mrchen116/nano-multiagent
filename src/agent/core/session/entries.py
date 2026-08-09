@@ -96,12 +96,37 @@ def new_turn_appended_entry(
     role: str,
     content: str,
     message_id: str | None = None,
+    parent_message_id: str | None = None,
+    tool_call_id: str | None = None,
+    group_id: str | None = None,
+    reasoning_content: str | None = None,
+    reasoning_signature: str | None = None,
     parts: Sequence[Mapping[str, Any]] | None = None,
     metadata: Mapping[str, Any] | None = None,
     created_at: str | None = None,
     entry_id: str | None = None,
 ) -> SessionEntry:
-    """Create a turn-appended event with normalized parts/metadata containers."""
+    """Create a turn-appended event from durable Message fields.
+
+    Args:
+        session_id: Owning session identity.
+        turn_id: Owning model-turn identity, or an empty string when unavailable.
+        role: Persisted message role.
+        content: Plain-text message projection.
+        message_id: Stable persisted message identity when present.
+        parent_message_id: Parent message in the active transcript graph.
+        tool_call_id: Assistant tool call closed by a tool-role message.
+        group_id: Parallel message group identity.
+        reasoning_content: Provider reasoning payload persisted for replay.
+        reasoning_signature: Provider signature paired with reasoning content.
+        parts: Non-empty structured content blocks.
+        metadata: Persisted auxiliary message metadata.
+        created_at: Original event timestamp when known.
+        entry_id: Optional caller-supplied event identity.
+
+    Returns:
+        A normalized turn-appended session event.
+    """
 
     payload: dict[str, Any] = {
         "turn_id": turn_id,
@@ -110,6 +135,16 @@ def new_turn_appended_entry(
         "content": content,
         "metadata": dict(metadata or {}),
     }
+    if parent_message_id is not None:
+        payload["parent_message_id"] = parent_message_id
+    if tool_call_id is not None:
+        payload["tool_call_id"] = tool_call_id
+    if group_id is not None:
+        payload["group_id"] = group_id
+    if reasoning_content is not None:
+        payload["reasoning_content"] = reasoning_content
+    if reasoning_signature is not None:
+        payload["reasoning_signature"] = reasoning_signature
     # Keep the event projection aligned with Transcript's Message serializer: only
     # non-empty structured parts are persisted for an otherwise plain-text turn.
     # A text-only turn must not carry `parts: []` — that asymmetry made the two write
@@ -155,11 +190,12 @@ def message_from_turn_entry(entry: SessionEntry) -> Message:
         message_id=str(entry.data.get("message_id", "")),
         role=str(entry.data.get("role", "")),
         content=str(entry.data.get("content", "")),
+        parent_message_id=entry.data.get("parent_message_id") or None,
         tool_call_id=entry.data.get("tool_call_id") or None,
         group_id=entry.data.get("group_id") or None,
         metadata=metadata,
-        reasoning_content=metadata.get("reasoning_content") or None,
-        reasoning_signature=metadata.get("reasoning_signature") or None,
+        reasoning_content=entry.data.get("reasoning_content") or None,
+        reasoning_signature=entry.data.get("reasoning_signature") or None,
         parts=parts,
     )
 

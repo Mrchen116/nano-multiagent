@@ -9,6 +9,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any, Mapping, Protocol, Sequence
 
 from agent.core.ids import make_run_id
+from agent.core.errors import CompactionError
 from agent.core.utils.time import utc_now_iso as _utc_now_iso
 from agent.core.llm.interfaces import LLMMessage
 from agent.core.runs.origin import RunOrigin
@@ -521,7 +522,15 @@ class RunsRegistry:
                         )
                     elif completion.error is not None:
                         await self._mark_failed_async(
-                            run_id, message=str(completion.error)
+                            run_id,
+                            error=(
+                                completion.error.to_dict()
+                                if isinstance(completion.error, CompactionError)
+                                else {
+                                    "code": "run_execution_failed",
+                                    "message": str(completion.error),
+                                }
+                            ),
                         )
                     elif completion.result is not None:
                         if completion.result.stop_reason == "aborted":
@@ -672,12 +681,12 @@ class RunsRegistry:
         return updated
 
     async def _mark_failed_async(
-        self, run_id: str, *, message: str
+        self, run_id: str, *, error: Mapping[str, Any]
     ) -> RunRecord | None:
         updated = self._set_status(
             run_id,
             status=RunStatus.FAILED,
-            error={"code": "run_execution_failed", "message": message},
+            error=error,
             only_if={RunStatus.RUNNING},
         )
         if updated is not None and updated.status is RunStatus.FAILED:
@@ -686,7 +695,7 @@ class RunsRegistry:
                 run_id=run_id,
                 session_id=updated.session_id,
                 trace_id=updated.trace_id,
-                error=message,
+                error=str(error.get("message", "run failed")),
             )
             hook_runner, hook_ctx = self._hook_context_for(updated)
             await self._dispatch_observe_async(

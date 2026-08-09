@@ -7,7 +7,9 @@ from pathlib import Path
 import pytest
 
 from agent.core.agent.compaction.summarizer import CompactionSummarizer
+from agent.core.errors import CompactionError
 from agent.core.session.types import SessionRef
+from agent.core.skills.usage import bump_skill_usage
 from agent.sdk import LLMConfig, build_kernel
 
 
@@ -74,12 +76,18 @@ async def test_kernel_manual_compact_summary_failure_is_atomic(
             kernel._c.engine_services, "_compaction_summarizer", summarizer
         )  # noqa: SLF001
 
-        with pytest.raises(RuntimeError, match="summary could not be generated"):
+        with pytest.raises(CompactionError) as raised:
             await kernel.compact(
                 session.session_id,
                 workspace_root=tmp_path,
                 idempotency_key="manual-failure",
             )
+
+        assert raised.value.details == {
+            "trigger": "manual",
+            "failure_kind": "summary",
+            "consecutive_failures": 0,
+        }
 
         assert _history_ids(transcript) == before
         assert not any(
@@ -107,12 +115,19 @@ async def test_kernel_manual_compact_append_failure_is_atomic(
             raise OSError("disk unavailable")
 
         monkeypatch.setattr("agent.core.session.jsonl_writer.os.replace", _fail_replace)
-        with pytest.raises(OSError, match="disk unavailable"):
+        with pytest.raises(CompactionError) as raised:
             await kernel.compact(
                 session.session_id,
                 workspace_root=tmp_path,
                 idempotency_key="manual-append-failure",
             )
+
+        assert raised.value.details == {
+            "trigger": "manual",
+            "failure_kind": "persistence",
+            "consecutive_failures": 0,
+            "cause": {"type": "OSError", "message": "disk unavailable"},
+        }
 
         assert transcript._path.read_bytes() == before  # noqa: SLF001
     finally:
@@ -120,6 +135,32 @@ async def test_kernel_manual_compact_append_failure_is_atomic(
             kernel.close()
         except OSError:
             pass
+
+
+@pytest.mark.asyncio
+async def test_kernel_manual_compact_stale_commit_is_atomic(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    kernel = _kernel(tmp_path)
+    try:
+        session, transcript = await _seed_session(kernel, tmp_path)
+        before = _history_ids(transcript)
+        monkeypatch.setattr(
+            kernel._c.engine_services, "_compaction_summarizer", _Summary()
+        )  # noqa: SLF001
+        monkeypatch.setattr(transcript, "append_compaction", lambda **_kwargs: False)
+
+        with pytest.raises(CompactionError) as raised:
+            await kernel.compact(session.session_id, workspace_root=tmp_path)
+
+        assert raised.value.details == {
+            "trigger": "manual",
+            "failure_kind": "stale",
+            "consecutive_failures": 0,
+        }
+        assert _history_ids(transcript) == before
+    finally:
+        kernel.close()
 
 
 @pytest.mark.asyncio
@@ -168,6 +209,11 @@ async def test_kernel_manual_compact_keeps_a_following_public_append_reachable(
     """The next public message remains chained to the compact summary after restart."""
     kernel = _kernel(tmp_path)
     session, transcript = await _seed_session(kernel, tmp_path)
+    conversation = kernel._c.directory.open(  # noqa: SLF001
+        SessionRef(session_id=session.session_id, workspace_root=tmp_path)
+    )
+    conversation._automatic_compaction_failures.record_summary_failure()  # noqa: SLF001
+    conversation._automatic_compaction_failures.record_summary_failure()  # noqa: SLF001
     monkeypatch.setattr(kernel._c.engine_services, "_compaction_summarizer", _Summary())  # noqa: SLF001
     try:
         result = await kernel.compact(
@@ -176,6 +222,9 @@ async def test_kernel_manual_compact_keeps_a_following_public_append_reachable(
             idempotency_key="manual-continue",
         )
         assert result is not None
+        assert (  # noqa: SLF001
+            conversation._automatic_compaction_failures.consecutive_failures == 0
+        )
         kernel.append_message(
             session.session_id,
             workspace_root=tmp_path,
@@ -199,5 +248,52 @@ async def test_kernel_manual_compact_keeps_a_following_public_append_reachable(
         raw = transcript._files.read_raw_entries(transcript._ref)  # noqa: SLF001
         after = next(entry for entry in raw if entry.get("uuid") == "after-compact")
         assert after["parent_uuid"] == result.entry_id
+    finally:
+        restarted.close()
+
+
+@pytest.mark.asyncio
+async def test_kernel_manual_compact_reinjection_survives_restart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    skill_root = tmp_path / ".nano" / "skills"
+    skill_file = skill_root / "review" / "SKILL.md"
+    skill_file.parent.mkdir(parents=True)
+    skill_file.write_text("# Review skill\n", encoding="utf-8")
+    kernel = _kernel(tmp_path)
+    session, _transcript = await _seed_session(kernel, tmp_path)
+    bump_skill_usage(
+        skill_root=skill_root,
+        skill_name="review",
+        session_id=session.session_id,
+        tool_call_id="skill-call-1",
+        source="F1",
+        location=skill_file,
+    )
+    monkeypatch.setattr(kernel._c.engine_services, "_compaction_summarizer", _Summary())  # noqa: SLF001
+    try:
+        compacted = await kernel.compact(
+            session.session_id,
+            workspace_root=tmp_path,
+        )
+        assert compacted is not None
+    finally:
+        kernel.close()
+
+    restarted = _kernel(tmp_path)
+    try:
+        transcript = restarted._c.directory.open(  # noqa: SLF001
+            SessionRef(session_id=session.session_id, workspace_root=tmp_path)
+        )._transcript
+        messages = transcript.load().messages
+
+        assert [
+            message.metadata.get("is_skill_reinjection") for message in messages
+        ] == [
+            None,
+            True,
+        ]
+        assert messages[0].message_id == compacted.entry_id
+        assert messages[1].parent_message_id == compacted.entry_id
     finally:
         restarted.close()
