@@ -133,3 +133,63 @@ None.
 ### SUGGESTION（可以修）
 
 None.
+
+# Round 3
+
+> Validation snapshot: `1d0c2cb45b887162912402b0fb489cdf3a1ad9c9 → 8a01c838fda8b4ef68dd3a741f60c17ad28dc77d`
+
+## Summary
+
+Mode: delta
+
+Delta range: `f50c59d41a29e9bb9892292c30cd952934574ff6..8a01c838fda8b4ef68dd3a741f60c17ad28dc77d`
+
+Focus issues: N/A
+
+requires_full_verification: false
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 6/6 code-review substantive closures proven |
+| Correctness | Added regressions and affected compaction journey pass |
+| Coherence | No new spec/design/architecture deviation |
+
+All checks passed. Ready for PR.
+
+## Delta Verification
+
+| Closure | Implementation evidence | Permanent regression | Status |
+|---|---|---|---|
+| 格式化后为空的 summary 不得假成功 | `src/agent/core/agent/compaction/summarizer.py:72-90` 对格式化结果再次判空，仅返回有效文本或 `None` | `tests/unit/test_loop_compact.py:634` | closed |
+| compaction summary side-chain 不泄露用户可见事件 | `src/agent/core/agent/compaction/summarizer.py:84-88` 不把父 `HookContext` publisher 传入内部 fork；run model override 与 trace ContextVar 路由保持 | `tests/unit/test_loop_compact.py:663` | closed |
+| skill reinjection 在 durable active branch 与 restart 后可达 | `src/agent/core/agent/runtime.py:2154-2165` 将 reinjection 的 parent 明确设为 compact summary entry | `tests/unit/agent/test_kernel_manual_compact.py:255` 从真实 JSONL close/reopen 后同时恢复 summary 与 reinjection | closed |
+| overflow 恢复后的 retry 若再抛 `CompactionError`，仍先提示再 failed | `src/agent/core/agent/runtime.py:727-773` 在 retry seam 捕获 typed failure 并复用 `_emit_compaction_failure()` | `tests/integration/test_conversation_compaction_integration.py:472` | closed |
+| manual 成功后旧 prompt usage 不触发伪 threshold | `src/agent/core/agent/runtime.py:2118-2121` 仅在 durable commit 成功后清空 `last_prompt_tokens` | `tests/integration/test_conversation_compaction_integration.py:378` | closed |
+| overflow 成功后旧 prompt usage 不污染 retry | 同一成功 commit seam 清空 prior usage，stale/persistence 失败路径不触达 | `tests/integration/test_conversation_compaction_integration.py:423` | closed |
+
+本 delta 只加深既有 `agent.core` summarizer/runtime seam，没有新增产品入口、JSONL schema、wire event 或 durable owner。格式化后判空仍是 design 决策 2 的“有效文本或未生成”，不是摘要质量启发式；reinjection 父链、成功后的 prompt-window refresh 和 retry 失败提示分别闭合 design 决策 1、3、4。Round 2 已关闭的上下文敏感 E2E oracle 未被改写，真 IM + 真 Gateway 旅程在本 snapshot 仍通过。因此此前 full/targeted-closure 结论可保留，无需升级 full verification。
+
+## Validation Evidence
+
+- Six new substantive regressions: `6 passed in 6.46s`.
+- Focused unit/integration compaction suite: `92 passed in 22.67s`.
+- Context-sensitive compaction/restart E2E: `1 passed in 27.60s`.
+- Core/compaction/replay architecture contracts: `6 passed`.
+- Hook integration and test naming/size contracts: `6 passed`.
+- Ruff on all changed Python files: `All checks passed!`.
+- Docs integrity: `232 maintained Markdown sources, 67 required routes`.
+- `git diff --check` for the delta: passed.
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+None.
+
+### WARNING（提 PR 前必须修）
+
+None.
+
+### SUGGESTION（可以修）
+
+None.
