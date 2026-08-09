@@ -859,3 +859,110 @@ preservation **closed**; Round 3 S1 **closed**.
 `requires_full_verification: false`.
 
 All checks passed. Ready for PR.
+
+# Corrected Delta Reconciliation
+
+## Metadata
+
+- Verification mode: `corrected-delta`
+- Validated at: `2026-08-10T04:26:06+08:00`
+- Validated unit commit: `6790ad5e9ab406d68981f21b41985bd58ebd21cf`
+- Validated implementation commit: `fbdddd8812c47f687278758de1b5af51c6d032e0`
+- Corrected delta commit/range: `fbdddd8812c47f687278758de1b5af51c6d032e0..c146cc555b054165bf5adea283f7c3f5aa077f01`
+- Executed base: `1d0c2cb45b887162912402b0fb489cdf3a1ad9c9`
+- Verification branch: `review/feat-519-corrected-delta`
+- Outcome: **aligned**
+- Issues: **0 delta-mismatch, 0 implementation-mismatch, 0 suggestion**
+
+This pass re-read the original `spec.md`, final `design.md`, all five delta-specs,
+their matching canonical current requirements, the final production diff and the
+permanent tests. Round 4 already passed the implementation at `fbdddd881...`; only
+unit documentation changed between that snapshot and the validated unit commit.
+
+## Corrected items
+
+| Contract correction | Implementation evidence | Test evidence | Outcome |
+|---|---|---|---:|
+| D4 negotiates durable `agent-config-v1`/`agent-config-v2`; v1 stays names-only, missing capability/schema means v1, and v1-unrepresentable intent is rejected before operation/write | `src/IM/application/agent_config_operations.py:24-43,141-225,604-717`; `src/IM/ws/gateway/control.py:18-40,88-105`; `src/personal_assistant/reporter/upstream_reporter.py:32-42,74`; `src/personal_assistant/gateway/agent_config_sync.py:60-187,539-712` | `tests/im_service/unit/test_agent_config_operations.py:45-210`; `tests/im_service/integration/test_agent_config_operation_flow.py:215-395`; `tests/unit/personal_assistant/test_gateway_config_operation_validation.py:175-263` | aligned |
+| Selected schema survives IM persistence, retry/status recovery and compensation; new Gateway resumes old v1 prepared receipts | `src/IM/application/agent_config_operations.py:154-305,533-565,845-889`; `src/IM/infra/repositories/agent_config_operations.py:44-100,199-249`; `src/personal_assistant/gateway/config_apply_receipts.py:37-106,155-164` | lost-ACK/compensation tests in `test_agent_config_operation_flow.py:125-185,431-530`; legacy receipt tests in `test_gateway_config_operations.py:155-214` | aligned |
+| Mirror read preserves raw legacy `skills_selection_mode=null`; live/write use effective intent; reconnect alone does not migrate YAML | `src/IM/api/routes/agents.py:226-269,394-441`; `src/personal_assistant/gateway/agent_config_sync.py:1300-1447`; `src/IM/frontend/src/features/settings/agents/im-agent-config-api.ts:517-563` | `tests/im_service/contract/test_agent_config_contract.py:68-103`; `tests/unit/personal_assistant/test_gateway_reconcile_on_connect.py:200-254`; frontend API normalization tests | aligned |
+| Explicit-empty selection has no Skill distillation readiness and produces no prompt | `src/personal_assistant/gateway/distill_prompt.py:111-135`; `src/IM/frontend/src/features/chat/chat-workspace-page.tsx:918-934` | `test_gateway_distill_prompt_resolver.py:164-195`; `chat-workspace.integration.test.tsx:620-638` | aligned |
+| Successful Agent save immediately invalidates cached SlashPicker candidates | `src/IM/frontend/src/features/settings/agents/agent-detail-page.tsx:1352-1373`; query prefix at `chat-workspace-page.tsx:381-423` | `agent-detail-page.test.tsx:843-907` | aligned |
+
+The D4 correction now distinguishes raw transport preservation from effective
+behavior and records the rolling protocol required to keep pre-feature fingerprints
+stable. It preserves the original acceptance: new discovery never widens an
+explicit selection, successful saves govern the next new reply, and clear-all is
+not reinterpreted as default discovery.
+
+## Complete delta ledger
+
+The five delta files contain **12 requirements / 54 scenarios**. Together with the
+original unit spec, the final target is **17 requirements / 66 scenarios**. Every
+delta scenario is explicitly accounted for below.
+
+| Delta requirement | Scenarios reconciled | Evidence/result |
+|---|---|---|
+| CLI MODIFIED — CLI 自有装配定义产品 prompt、工具集合和扩展目录 | 装配保持在产品包; 工作区 Claude/Codex; 用户主目录 Claude; workspace 与全局目录; 缺失兼容目录 | CLI product-layout, resolver and architecture-contract tests — aligned |
+| Gateway MODIFIED — PA 内置 skill 启动自举 | 新安装; 升级刷新; 非内置保留; 刷新失败; backup 清理失败; 并发刷新; 显式选择不因刷新改变; 显式非空 Feishu bundle; default 不物化; explicit-empty 不扩宽; 静态 Feishu IM ingress; 独立 Lark 监听 | bootstrap/atomic-refresh and complete Feishu mode matrix — aligned |
+| Gateway MODIFIED — Gateway 配置 operation 可幂等恢复 | applied retry; status recovery; all persistent crash boundaries; operation-id reuse rejection; rolling old/new IM/Gateway | versioned canonicalization, stored schema, receipt replay/status and recovery tests cited above — aligned |
+| Gateway ADDED — PA Agent 从有序工作区与全局兼容根发现 Skill | workspace capability; capability/runtime same source; missing roots; shared-only create candidates | PA layout/common resolver/reporter/runtime/shared-only tests — aligned |
+| Gateway ADDED — PA Agent 配置区分默认发现与显式空选择 | explicit clear; legacy empty; automatic writers; `skill_created`; explicit-empty distill | five-state session/writer/distill matrix — aligned |
+| IM MODIFIED — 节点 runtime 能力按需解析 | node features; agent feature fields; model provider; effective-model reasoning UX; safe reasoning descriptor; Skill location/source_group; old payload fallback | capability proxy/contracts and frontend normalization/fallback tests — aligned |
+| IM ADDED — 配置页按 Skill 来源分组批量调整 | group select then item edit; group cancel/tri-state; narrow layout | selector/create/detail tests including keyboard, focus, wrapping and hidden names — aligned |
+| IM ADDED — API 区分 default discovery 与 explicit allowlist | explicit-empty page/runtime; post-save SlashPicker refresh; mirror raw-null preservation | repository/API/session/cache/mirror tests — aligned |
+| Kernel SDK MODIFIED — Kernel 提供中立能力查询 | runtime-consistent queries; `skill_view`; workspace-then-shared ordering; shared-only query | SDK query and ordered/shared-only contract tests — aligned |
+| Kernel skills MODIFIED — preview/list/runtime 集合一致 | multiple ordered roots; preview/runtime parity; legacy single-directory default; returned location | common root builder and list/preview/runtime/`skill_view` tests — aligned |
+| Kernel skills ADDED — 兼容读取不改变管理写入 root | compatibility read and native-root write | `skill_manage` native-writer regression — aligned |
+| Kernel skills ADDED — 无真实 workspace 时只查 shared roots | prospective candidates exclude repo workspace | `list_shared_skills` leakage regression — aligned |
+
+## Canonical merge fitness
+
+All six `MODIFIED` requirements are complete replacements:
+
+| Requirement | Full-replacement audit |
+|---|---|
+| CLI product integration | Retains both current scenarios and adds three compatible-root cases |
+| Gateway builtin bootstrap | Retains bootstrap/refresh/failure/concurrency/listener behavior; refines former generic/empty allowlist cases into explicit-nonempty, default and explicit-empty outcomes |
+| Gateway config operation recovery | Retains all four current idempotency/recovery scenarios and adds rolling schema negotiation |
+| IM runtime capability proxy | Retains all six current feature/model/location scenarios, extends grouping and adds old-payload fallback |
+| Kernel neutral capability query | Retains all three current scenarios and adds shared-only prospective query |
+| Kernel preview/list/runtime consistency | Retains preview/runtime/location behavior; deliberately replaces the stale omitted-dir scenario with the documented current `.nano` default and adds ordered readers |
+
+The six `ADDED` requirements are complete and there are no `REMOVED` items. Their
+scenarios describe durable consumer-visible behavior. No delta names functions,
+classes, tests or incidental storage layout. Operation id/fingerprint/receipt/status
+and stable error-code terms are IM↔Gateway protocol guarantees already present in
+canonical requirements, not an implementation walkthrough. Mirror `null`,
+distiller-unavailable and SlashPicker refresh are observable wire/UI contracts.
+
+Original `spec.md` acceptance remains fully projected: compatible-root discovery,
+first-root-wins resolution, explicit selection on the next reply, grouped selection
+and missing-root tolerance all map to the final CLI/Gateway/IM/Kernel deltas.
+
+## Uncovered Observable Behavior
+
+None. The final production diff is covered by ordered roots/native writer; CLI/PA
+composition; capability `location`/`source_group`; selection persistence and all
+automatic writers; IM/Gateway operations and mirror projection; preview/runtime/
+SlashPicker/distill; and grouped create/detail UI contracts.
+
+## Command evidence
+
+| Command/scope | Result |
+|---|---|
+| `git diff --name-status fbdddd881..c146cc555` | only `design.md` and Gateway/IM delta-specs changed |
+| `git merge-base --is-ancestor c146cc555 6790ad5e9` | PASS |
+| non-doc diff `fbdddd881..6790ad5e9` | empty; implementation snapshot unchanged |
+| delta heading audit | 12 requirements / 54 scenarios; 6 MODIFIED, 6 ADDED, 0 REMOVED |
+| `git diff --check fbdddd881..c146cc555` | PASS |
+| `PYTHON=/Users/czj/miniforge3/bin/python ./scripts/docs-check` | PASS; 226 maintained Markdown sources and 67 required routes |
+| retained Round 4 implementation evidence | 93 affected Python, 98 focused frontend, 3169 full Python, 640 full frontend; build/Ruff/format all PASS |
+
+## Findings and outcome
+
+No delta-mismatch, implementation-mismatch or non-blocking suggestion.
+
+Outcome: **aligned**. The corrected design and Gateway/IM delta-specs match the
+final implementation, original acceptance criteria and canonical current
+requirements, and are suitable for canonical merge.
