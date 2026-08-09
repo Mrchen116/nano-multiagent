@@ -11,6 +11,7 @@ from IM.domain.models import (
 
 
 from IM.infra._timestamps import utc_now
+
 _ACTIVE_AGENT_DELIVERY_STATUSES = frozenset({"sent", "running"})
 
 
@@ -644,7 +645,9 @@ class ConversationRepository:
             participants=participants,
             run_state=self._resolve_run_state(conversation_id=conversation_id),
             source_agent_id=source_agent_id,
-            source_node_id=self._resolve_source_node_id(source_agent_id=source_agent_id),
+            source_node_id=self._resolve_source_node_id(
+                source_agent_id=source_agent_id
+            ),
             target_node_id=(
                 str(row["target_node_id"])
                 if "target_node_id" in row_keys and row["target_node_id"] is not None
@@ -682,9 +685,7 @@ class ConversationRepository:
         ).fetchone()
         return "running" if row is not None else "idle"
 
-    def _resolve_source_node_id(
-        self, *, source_agent_id: str | None
-    ) -> str | None:
+    def _resolve_source_node_id(self, *, source_agent_id: str | None) -> str | None:
         """Project the owning Gateway identity without touching its workspace."""
         if not source_agent_id:
             return None

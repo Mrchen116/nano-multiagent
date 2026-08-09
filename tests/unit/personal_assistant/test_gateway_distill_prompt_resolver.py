@@ -21,7 +21,9 @@ from personal_assistant.gateway.session_keys import (
 class _Kernel:
     """Expose just the local skill discovery used by the resolver."""
 
-    def __init__(self, *, skills: tuple[str, ...] = ("conversation-skill-distiller",)) -> None:
+    def __init__(
+        self, *, skills: tuple[str, ...] = ("conversation-skill-distiller",)
+    ) -> None:
         self._skills = skills
 
     def list_skills(self, workspace_root: Path) -> list[SimpleNamespace]:
@@ -33,7 +35,7 @@ def _handler(
     tmp_path: Path,
     *,
     skills: tuple[str, ...] = ("conversation-skill-distiller",),
-    tool_allowlist: tuple[str, ...] = (),
+    tool_allowlist: tuple[str, ...] = ("skill_view",),
     external_identity: tuple[str, str] | None = None,
 ):
     source_root = tmp_path / "source"
@@ -76,7 +78,9 @@ def _handler(
     )
 
 
-def test_gateway_resolves_its_local_binding_into_current_distill_prompt(tmp_path: Path) -> None:
+def test_gateway_resolves_its_local_binding_into_current_distill_prompt(
+    tmp_path: Path,
+) -> None:
     """The Gateway, not IM, supplies a complete ordinary-chat draft."""
     handler, source_root, _ = _handler(tmp_path)
     session_path = source_root / ".nanoassistant" / "sessions" / "session-1.jsonl"
@@ -127,7 +131,7 @@ def test_gateway_returns_no_partial_prompt_when_any_source_or_capability_is_unav
         "message": "source session file is unavailable",
     }
 
-    missing_skill_view, source_root, _ = _handler(tmp_path, tool_allowlist=("read",))
+    missing_skill_view, source_root, _ = _handler(tmp_path, tool_allowlist=())
     session_path = source_root / ".nanoassistant" / "sessions" / "session-1.jsonl"
     session_path.parent.mkdir(parents=True)
     session_path.write_text("{}\n", encoding="utf-8")

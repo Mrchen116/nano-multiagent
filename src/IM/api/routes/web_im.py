@@ -322,7 +322,9 @@ async def create_distill_prompt(
     if not isinstance(prompt, str) or not prompt.strip():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=str(result.get("message") or "selected Gateway cannot distill these sources"),
+            detail=str(
+                result.get("message") or "selected Gateway cannot distill these sources"
+            ),
         )
 
     try:

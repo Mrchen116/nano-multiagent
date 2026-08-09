@@ -72,7 +72,9 @@ def test_agent_conversation_projects_source_node_and_creates_gateway_prompt(
                     "source_agent_id": "agent-1",
                 }
             ]
-            return {"prompt": "/skill:conversation-skill-distiller\nsource_jsonl_paths:\n  /gateway/session.jsonl"}
+            return {
+                "prompt": "/skill:conversation-skill-distiller\nsource_jsonl_paths:\n  /gateway/session.jsonl"
+            }
 
         client.app.state.gateway_control.request_distill_prompt = _gateway_prompt
         created = client.post(
@@ -90,7 +92,9 @@ def test_agent_conversation_projects_source_node_and_creates_gateway_prompt(
         )
 
         assert created.status_code == 201, created.text
-        assert created.json()["prompt"].startswith("/skill:conversation-skill-distiller")
+        assert created.json()["prompt"].startswith(
+            "/skill:conversation-skill-distiller"
+        )
         direct = created.json()["conversation"]
         assert "target_node_id" not in direct
         pinned = connection.execute(
@@ -99,9 +103,14 @@ def test_agent_conversation_projects_source_node_and_creates_gateway_prompt(
         assert pinned["target_node_id"] == "node-1"
 
         async def _unavailable_gateway_prompt(**_kwargs):
-            return {"error_code": "source_unavailable", "message": "source session file is unavailable"}
+            return {
+                "error_code": "source_unavailable",
+                "message": "source session file is unavailable",
+            }
 
-        client.app.state.gateway_control.request_distill_prompt = _unavailable_gateway_prompt
+        client.app.state.gateway_control.request_distill_prompt = (
+            _unavailable_gateway_prompt
+        )
         before = connection.execute("SELECT COUNT(*) FROM conversations").fetchone()[0]
         unavailable = client.post(
             "/im/v1/conversations/distill-prompt",
@@ -119,7 +128,10 @@ def test_agent_conversation_projects_source_node_and_creates_gateway_prompt(
 
         assert unavailable.status_code == 409
         assert unavailable.json()["detail"] == "source session file is unavailable"
-        assert connection.execute("SELECT COUNT(*) FROM conversations").fetchone()[0] == before
+        assert (
+            connection.execute("SELECT COUNT(*) FROM conversations").fetchone()[0]
+            == before
+        )
 
         async def _blank_gateway_prompt(**_kwargs):
             return {"prompt": ""}
@@ -140,7 +152,10 @@ def test_agent_conversation_projects_source_node_and_creates_gateway_prompt(
         )
 
         assert blank.status_code == 409
-        assert connection.execute("SELECT COUNT(*) FROM conversations").fetchone()[0] == before
+        assert (
+            connection.execute("SELECT COUNT(*) FROM conversations").fetchone()[0]
+            == before
+        )
 
         connection.execute(
             """
@@ -189,7 +204,10 @@ def test_agent_conversation_projects_source_node_and_creates_gateway_prompt(
         assert cross_gateway.json()["detail"] == (
             "execution agent must belong to the selected Gateway"
         )
-        assert connection.execute("SELECT COUNT(*) FROM conversations").fetchone()[0] == before
+        assert (
+            connection.execute("SELECT COUNT(*) FROM conversations").fetchone()[0]
+            == before
+        )
 
 
 def test_patch_conversation_updates_title_pin_and_mute(tmp_path: Path) -> None:

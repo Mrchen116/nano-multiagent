@@ -287,7 +287,12 @@ def test_im_connection_dispatches_gateway_owned_distill_prompt_request(
                     "type": "node.distill.prompt.request",
                     "payload": {
                         "request_id": "distill-req-1",
-                        "sources": [{"conversation_id": "conv-src", "source_agent_id": "agent-a"}],
+                        "sources": [
+                            {
+                                "conversation_id": "conv-src",
+                                "source_agent_id": "agent-a",
+                            }
+                        ],
                         "execution_agent_id": "agent-a",
                         "target_scope": "agent",
                     },
@@ -322,12 +327,14 @@ def test_im_connection_dispatches_gateway_owned_distill_prompt_request(
 
     asyncio.run(_exercise())
 
-    assert seen == [{
-        "request_id": "distill-req-1",
-        "sources": [{"conversation_id": "conv-src", "source_agent_id": "agent-a"}],
-        "execution_agent_id": "agent-a",
-        "target_scope": "agent",
-    }]
+    assert seen == [
+        {
+            "request_id": "distill-req-1",
+            "sources": [{"conversation_id": "conv-src", "source_agent_id": "agent-a"}],
+            "execution_agent_id": "agent-a",
+            "target_scope": "agent",
+        }
+    ]
     response_frame = json.loads(socket.sent[-1])
     assert response_frame == {
         "type": "node.distill.prompt",

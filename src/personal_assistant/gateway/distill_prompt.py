@@ -12,7 +12,6 @@ from personal_assistant.gateway.session_keys import (
     build_conversation_session_key,
     build_external_session_key,
 )
-from personal_assistant.reporter.capability_projection import PA_DEFAULT_TOOL_IDS
 
 
 _DISTILL_SKILL = "conversation-skill-distiller"
@@ -44,7 +43,9 @@ def build_distill_prompt_handler(
             execution_agent = session_binder.current_agent(execution_agent_id)
         except ValueError:
             return _error("execution_unavailable", "execution agent is unavailable")
-        readiness_error = _readiness_error(kernel=kernel, execution_agent=execution_agent)
+        readiness_error = _readiness_error(
+            kernel=kernel, execution_agent=execution_agent
+        )
         if readiness_error is not None:
             return readiness_error
 
@@ -77,7 +78,9 @@ def build_distill_prompt_handler(
                         expected_agent_id=source_agent_id,
                     )
             if source is None:
-                return _error("source_unavailable", "source session binding is unavailable")
+                return _error(
+                    "source_unavailable", "source session binding is unavailable"
+                )
             session_path = (
                 source.agent.config.workspace_root
                 / ".nanoassistant"
@@ -85,7 +88,9 @@ def build_distill_prompt_handler(
                 / f"{source.binding.kernel_session_id}.jsonl"
             )
             if not session_path.is_file():
-                return _error("source_unavailable", "source session file is unavailable")
+                return _error(
+                    "source_unavailable", "source session file is unavailable"
+                )
             source_paths.append(session_path.resolve())
 
         return {
@@ -99,18 +104,24 @@ def build_distill_prompt_handler(
     return handle
 
 
-def _readiness_error(*, kernel: Any, execution_agent: Any) -> Mapping[str, object] | None:
+def _readiness_error(
+    *, kernel: Any, execution_agent: Any
+) -> Mapping[str, object] | None:
     """Return a current local capability error before any source is resolved."""
     configured_skills = set(execution_agent.config.skills)
     if configured_skills and _DISTILL_SKILL not in configured_skills:
-        return _error("distiller_unavailable", "execution agent lacks the distiller skill")
+        return _error(
+            "distiller_unavailable", "execution agent lacks the distiller skill"
+        )
     discovered_skills = {
         str(getattr(skill, "name", ""))
         for skill in kernel.list_skills(execution_agent.config.workspace_root)
     }
     if _DISTILL_SKILL not in discovered_skills:
-        return _error("distiller_unavailable", "execution agent lacks the distiller skill")
-    tools = set(execution_agent.config.tool_allowlist) or set(PA_DEFAULT_TOOL_IDS)
+        return _error(
+            "distiller_unavailable", "execution agent lacks the distiller skill"
+        )
+    tools = set(execution_agent.config.tool_allowlist)
     if "skill_view" not in tools:
         return _error("skill_view_unavailable", "execution agent lacks skill_view")
     return None

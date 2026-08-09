@@ -174,7 +174,7 @@ function mockFetch(opts: {
   uploadOutcomes?: UploadOutcome[];
 } = {}): ReturnType<typeof vi.fn> {
   const distillerVisible = opts.distillerVisible ?? true;
-  const toolAllowlist = opts.toolAllowlist ?? [];
+  const toolAllowlist = opts.toolAllowlist ?? ["skill_view"];
   const skillViewToolVisible = opts.skillViewToolVisible ?? true;
   const skillViewDefaultOn = opts.skillViewDefaultOn ?? true;
   const distillPromptError = opts.distillPromptError;
@@ -617,6 +617,25 @@ describe("ChatWorkspacePage — integration", () => {
   it("does not create the distill conversation when the execution agent lacks skill_view", async () => {
     const user = userEvent.setup();
     fetchSpy = mockFetch({ toolAllowlist: ["read"] });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    renderAtRoute("/chat");
+    await screen.findByRole("button", { name: /Planner/ });
+    await user.click(screen.getByRole("button", { name: "Generate skill" }));
+    await user.click(screen.getByRole("checkbox", { name: /Planner/ }));
+    await user.click(screen.getByRole("button", { name: "Distill to skill" }));
+    await user.click(screen.getByRole("button", { name: "Start distillation" }));
+
+    expect(await screen.findByText(/Enable skill_view/)).toBeInTheDocument();
+    const postedConversation = (fetchSpy as unknown as { sent: { url: string; init?: RequestInit }[] }).sent.find(
+      (r) => r.url.endsWith("/im/v1/conversations") && r.init?.method === "POST"
+    );
+    expect(postedConversation).toBeUndefined();
+  });
+
+  it("does not create the distill conversation when the execution agent has no tools", async () => {
+    const user = userEvent.setup();
+    fetchSpy = mockFetch({ toolAllowlist: [] });
     vi.stubGlobal("fetch", fetchSpy);
 
     renderAtRoute("/chat");

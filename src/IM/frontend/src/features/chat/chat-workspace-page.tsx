@@ -197,9 +197,6 @@ function resolveEnabledTools(
   allowlist: string[],
   capabilityTools: Array<{ name: string; default_on?: boolean }>,
 ): string[] {
-  if (allowlist.length === 0) {
-    return capabilityTools.filter((tool) => tool.default_on === true).map((tool) => tool.name);
-  }
   const allowed = new Set(allowlist);
   return capabilityTools.filter((tool) => allowed.has(tool.name)).map((tool) => tool.name);
 }
