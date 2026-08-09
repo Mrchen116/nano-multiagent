@@ -193,3 +193,37 @@ None.
 ### SUGGESTION（可以修）
 
 None.
+
+## Corrected Delta Reconciliation
+
+> Validation snapshot: `1d0c2cb45b887162912402b0fb489cdf3a1ad9c9 → 647be9717c83997e10e6372f17f01c4ef7595338`
+
+| Delta item | Implementation evidence | Test evidence | Outcome |
+|---|---|---|---|
+| MODIFIED Requirement：上下文压缩在长会话中保持可恢复 | `src/agent/core/session/entries.py:92-200`; `src/agent/core/session/transcript.py:171-229`; `src/agent/core/agent/compaction/summarizer.py:57-95`; `src/agent/core/agent/loop.py:1010-1128`; `src/agent/core/agent/runtime.py:684-775,1919-2165` | `tests/unit/test_session_persistence_fidelity.py:349`; focused suite；critical-path E2E | aligned |
+| Scenario：手动触发压缩 | `src/agent/sdk/kernel.py:1353-1381`; `src/agent/core/agent/runtime.py:308-327,1949-2137` | `tests/integration/test_conversation_compaction_integration.py:233` | aligned |
+| Scenario：focus 指导手动压缩的后续上下文 | `src/agent/core/agent/runtime.py:1995-2003`; `src/agent/core/agent/compaction/prompts.py:124-134` | `tests/unit/test_loop_compact.py:584`; `tests/unit/personal_assistant/test_gateway_stop_command.py:560` | aligned |
+| Scenario：手动压缩摘要失败不改变上下文 | `src/agent/core/agent/runtime.py:2011-2025,2086-2117` | `tests/unit/agent/test_kernel_manual_compact.py:67,102,141` | aligned |
+| Scenario：自动阈值压缩失败不伪装成功 | `src/agent/core/agent/loop.py:1027-1050,1095-1119` | `tests/unit/test_loop_compact.py:398`; `tests/integration/test_conversation_compaction_integration.py:520` | aligned |
+| Scenario：只有 reasoning 的摘要响应视为失败 | `src/agent/core/agent/compaction/summarizer.py:89-95`; `src/agent/core/agent/compaction/prompts.py:137-158` | `tests/unit/test_loop_compact.py:634` | aligned |
+| Scenario：摘要生成的内部事件不泄露给消费者 | `src/agent/core/agent/compaction/summarizer.py:72-95` 统一隔离 threshold、overflow、manual 共用 summarizer 的父 publisher | `tests/unit/test_loop_compact.py:663` | aligned |
+| Scenario：连续自动压缩失败有界并可诊断 | `src/agent/core/agent/compaction/types.py:9-41`; `src/agent/core/session/conversation.py:182,423-431`; `src/agent/core/agent/loop.py:1010-1050`; `src/agent/core/agent/runtime.py:684-691,1919-1947` | `tests/unit/test_loop_compact.py:398,427`; `tests/unit/agent/session/test_conversation_session.py:244`; `tests/integration/test_conversation_compaction_integration.py:520` | aligned |
+| Scenario：overflow 恢复摘要失败保留原错误与历史 | `src/agent/core/agent/runtime.py:692-775,1949-2025`; `src/agent/core/errors.py:63-97`; `src/agent/core/runs/registry.py:523-534` | `tests/integration/test_conversation_compaction_integration.py:586` | aligned |
+| Scenario：压缩记录持久化失败不暴露半提交上下文 | `src/agent/core/agent/loop.py:1095-1119`; `src/agent/core/agent/runtime.py:2086-2117` | `tests/unit/agent/test_kernel_manual_compact.py:102`; `tests/integration/test_conversation_compaction_integration.py:660,730` | aligned |
+| Scenario：含工具历史的压缩在重启后继续任务 | `src/agent/core/session/entries.py:92-200`; `src/agent/core/session/transcript.py:171-229,688-708`; `src/agent/core/agent/runtime.py:2057-2165` | `tests/unit/test_session_persistence_fidelity.py:349`; `tests/unit/agent/test_kernel_manual_compact.py:256`; `tests/e2e/critical_paths/test_context_compaction_continuity_critical_path.py:71` | aligned |
+| Scenario：成功压缩后不沿用压缩前的 token 判定重复压缩 | `src/agent/core/agent/runtime.py:2118-2121`，仅在 durable commit 成功后清空旧 usage | `tests/integration/test_conversation_compaction_integration.py:378,423` | aligned |
+| Scenario：自动压缩不继承手动关注点 | `src/agent/core/agent/runtime.py:1995-2003` 只在 manual 分支传 focus；threshold/overflow 调用点不接收 focus | `tests/unit/test_loop_compact.py:584` + call-site inspection | aligned |
+| Scenario：相同手动操作 identity 不重复压缩 | `src/agent/core/agent/runtime.py:1962-1972,2087-2100`; `src/agent/core/session/transcript.py:438-470` | `tests/unit/agent/test_kernel_manual_compact.py:167` | aligned |
+| Scenario：按当前轮模型的窗口判定压缩 | `src/agent/core/agent/loop.py:934-973`; `src/agent/core/agent/runtime.py:405-409` | `tests/unit/test_loop_compact.py:731` | aligned |
+| Scenario：未声明窗口的模型回退默认上限 | `src/agent/core/agent/loop.py:934-973` | `tests/unit/test_loop_compact.py:748` | aligned |
+| Scenario：工作区绑定的会话压缩落盘后运行透明继续 | `src/agent/core/agent/runtime.py:1973-2001,2027-2047,2086-2137` | `tests/integration/test_conversation_compaction_integration.py:103,233,294` | aligned |
+
+校准新增的 reasoning-only、summary side-chain 隔离、reinjection 父链与 manual/overflow token freshness 都是 approved design 中“有效摘要或失败”“内部摘要不是用户事件”“durable replacement 可恢复”“成功后刷新 prompt window”的直接消费者投影，没有扩大 JSONL schema、产品入口或跨包协议。持久化异常与 external-epoch stale 继续按 design 分流：前者进入 typed automatic failure，后者保留原上下文并重算或保留原 overflow；delta 没有把 stale 错写为 persistence exception。
+
+验证证据：focused unit/integration compaction suite `92 passed in 22.87s`；上下文敏感真 IM + 真 Gateway compaction/restart E2E `1 passed in 25.77s`；PA `/compact focus` consumer seam `1 passed in 2.63s`。
+
+### Uncovered Observable Behavior
+
+None. 对 `executed_base..validated_at` 的全部生产 diff 反向扫描后，新增/改变的消费者行为均已由本 delta 的 requirement 或 scenario 覆盖；其余改动是对应 carrier、测试、fixture 与 unit evidence。
+
+Outcome: aligned
