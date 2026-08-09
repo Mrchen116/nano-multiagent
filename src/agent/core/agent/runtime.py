@@ -724,44 +724,53 @@ class AgentEngine:
                     )
                     all_messages = [user_msg]
                     state.partial_messages = all_messages
-                    async for msg in self._execute_loop(
-                        session_id=session_id,
-                        turn_id=turn_id,
-                        turn_count=turn_count,
-                        history=retry_history,
-                        input_parts=effective_input_parts,
-                        user_text=effective_user_text,
-                        user_message_id=user_msg.message_id,
-                        hook_ctx=hook_ctx,
-                        system_prompt_override=system_prompt_override,
-                        pre_rendered_system_prompt=pre_rendered_system_prompt,
-                        llm_session_id=llm_session_id,
-                        session_created_at=session_created_at,
-                        current_working_directory_override=session_workspace_root,
-                        workspace_root=session_workspace_root,
-                        available_skills_override=()
-                        if use_frozen_system_prompt
-                        else session_available_skills,
-                        available_tools_override=session_available_tools,
-                        controller=controller,
-                        model_override=model,
-                    ):
-                        if msg.role == "turn_meta":
-                            all_messages.append(msg)
-                            continue
-                        all_messages.append(msg)
-                        if msg.metadata.get("is_compact_summary"):
-                            post_compact_messages = _post_compact_messages_from(msg)
-                            history[:] = [msg, *post_compact_messages]
-                            all_messages.extend(post_compact_messages)
-                            continue
-                        history.append(msg)
-                        state.transcript.append_messages(
-                            [msg],
-                            durable=msg.role == "tool",
+                    try:
+                        async for msg in self._execute_loop(
+                            session_id=session_id,
                             turn_id=turn_id,
+                            turn_count=turn_count,
+                            history=retry_history,
+                            input_parts=effective_input_parts,
+                            user_text=effective_user_text,
+                            user_message_id=user_msg.message_id,
+                            hook_ctx=hook_ctx,
+                            system_prompt_override=system_prompt_override,
+                            pre_rendered_system_prompt=pre_rendered_system_prompt,
+                            llm_session_id=llm_session_id,
+                            session_created_at=session_created_at,
+                            current_working_directory_override=session_workspace_root,
+                            workspace_root=session_workspace_root,
+                            available_skills_override=()
+                            if use_frozen_system_prompt
+                            else session_available_skills,
+                            available_tools_override=session_available_tools,
+                            controller=controller,
+                            model_override=model,
+                        ):
+                            if msg.role == "turn_meta":
+                                all_messages.append(msg)
+                                continue
+                            all_messages.append(msg)
+                            if msg.metadata.get("is_compact_summary"):
+                                post_compact_messages = _post_compact_messages_from(msg)
+                                history[:] = [msg, *post_compact_messages]
+                                all_messages.extend(post_compact_messages)
+                                continue
+                            history.append(msg)
+                            state.transcript.append_messages(
+                                [msg],
+                                durable=msg.role == "tool",
+                                turn_id=turn_id,
+                            )
+                        await state.transcript.flush_async()
+                    except CompactionError:
+                        await self._emit_compaction_failure(
+                            session_id=session_id,
+                            turn_id=turn_id,
+                            parent_message_id=user_msg.message_id,
+                            hook_ctx=hook_ctx,
                         )
-                    await state.transcript.flush_async()
+                        raise
                 else:
                     raise
             else:
@@ -2107,6 +2116,7 @@ class AgentEngine:
                 )
             return None
         conversation.history[:] = compacted_messages
+        conversation.last_prompt_tokens = None
         failure_tracker.reset()
         self._invalidate_memory_snapshot(session_id)
 
@@ -2145,6 +2155,7 @@ class AgentEngine:
             message_id=make_message_id(),
             role="user",
             content=content,
+            parent_message_id=compact_entry_id,
             metadata={
                 "is_meta": True,
                 "is_skill_reinjection": True,
