@@ -315,3 +315,75 @@ PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/pytest -vv \
 ## Recommended Action
 
 `pass`。R7 targeted concern 已关闭；继续最终 verifier / code review / PR 收尾，`needs_re_review=false`。
+
+---
+
+# Round 4 — 2026-08-10
+
+> Validation snapshot: `1d0c2cb45b887162912402b0fb489cdf3a1ad9c9 → d502ec617512cdf57603d7eba76ff94bea96a108`
+>
+> Revalidation mode: `targeted`（Fast-lane）
+>
+> Fix delta: `18214886c914efb173efc9eb0f4639a1522bb269..d502ec617512cdf57603d7eba76ff94bea96a108`
+
+## Verdict
+
+- **Verdict**: `pass`
+- **Highest Required Action**: `pass`
+- **Issues**: blocking 0 / major 0 / minor 0
+- **结论**: R8 已关闭 summary side-chain 的 permission 用户事件旁路；workspace hook 的 permission 请求在内部 fail-closed deny，父 public stream 不出现 permission request、permission resolved 或 permission heartbeat。同时 R7 的 workspace observer scope 与 assistant/turn 隔离继续成立，正常飞书 external + IM shadow delivery 无回归。
+
+## Fast-lane 范围
+
+本轮只复验 R8 直接影响的用户事件边界，并交叉验证 R7 两项结论：
+
+1. public `Kernel.compact()` 的 summary workspace hook 调用 permission 时得到 fail-closed deny。
+2. parent Kernel stream 不出现该内部 permission 的 request/resolved/heartbeat。
+3. originating workspace observer scope 仍被保留。
+4. summary assistant/turn 仍不发布到 parent stream。
+5. 正常用户 assistant/control text 仍能到达飞书 original chat 与 IM shadow。
+
+Round 1–3 的其他成功/失败、restart、no-replacement、bounded retry 与 catalog 结论均不受该单字段能力收窄影响，按 Fast-lane 规则继承。
+
+## Targeted Coverage
+
+| Focus Scenario | Consumer 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|
+| summary workspace hook permission fail-closed | 真实 workspace hook + public `Kernel.compact()` | `test_manual_compaction_summary_permission_fails_closed_without_parent_events` | pass | hook 观察到 deny，不打开用户审批流程 |
+| parent Kernel stream 无 permission request/resolved/heartbeat | public `Kernel.stream()` | 同一 permission fail-closed scenario | pass | 内部 summary 不在 Web/飞书制造审批事件或 heartbeat |
+| originating workspace observer scope 仍触发正确 | 真实 workspace observer hook | `test_manual_compaction_summary_keeps_workspace_hook_scope` | pass | R7 能力未被 R8 回退 |
+| summary assistant/turn 仍不进入 parent stream | parent session event publisher seam | `test_compaction_summarizer_does_not_publish_sidechain_events` | pass | R7 assistant/turn 隔离保持 |
+| 正常用户文本仍到达飞书 original chat 与 IM shadow | 受控 external + durable shadow adapter | 两个 external-visible-delivery scenarios | pass | permission/event 隔离未破坏正常 delivery |
+
+## Validation Evidence
+
+```text
+PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/pytest -vv \
+  tests/unit/agent/test_workspace_scope_observer_hooks.py::test_manual_compaction_summary_permission_fails_closed_without_parent_events \
+  tests/unit/agent/test_workspace_scope_observer_hooks.py::test_manual_compaction_summary_keeps_workspace_hook_scope \
+  tests/unit/test_loop_compact.py::test_compaction_summarizer_does_not_publish_sidechain_events \
+  tests/unit/personal_assistant/test_external_visible_delivery.py::test_feishu_intermediate_reply_goes_to_external_without_im_manager \
+  tests/unit/personal_assistant/test_external_visible_delivery.py::test_feishu_visible_control_text_goes_to_external_and_shadow_im
+→ 5 passed, 2 third-party deprecation warnings in 1.99s
+```
+
+R8 delta 只收窄 summary side-chain 的 permission capability；定向交叉旅程全部通过，未观察到新的 consumer 副作用或 stale-service 风险，因此不升级为完整验收。
+
+## Issues
+
+无。
+
+## Side Findings
+
+无。两条 `lark_oapi` deprecation warning 与前轮一致，不影响本 unit 用户旅程。
+
+## 上层文档同步
+
+- [x] `SPEC.md`：**无需更新**。
+- [x] `docs/specs/<包>/`：**维持前轮结论**；R8 是内部 side-chain 权限收窄，不改变本 unit 已写的用户契约。
+- [x] `AGENTS.md` / `CLAUDE.md`：**无需更新**。
+- [x] `docs/specs/CONTRIBUTING.md`：**无需更新**。
+
+## Recommended Action
+
+`pass`。R8 permission 旁路已关闭且 R7 契约未回归；继续最终 verifier / code review / PR 收尾，`needs_re_review=false`。
