@@ -99,13 +99,21 @@ def canonical_agent_operation_payload(
     raw_tools = payload.get("tool_allowlist")
     raw_features = payload.get("features")
     workspace_root = payload.get("workspace_root")
+    skills = (
+        list(_operation_string_tuple(raw_skills))
+        if isinstance(raw_skills, list)
+        else None
+    )
+    skills_selection_mode = _selection_mode(payload.get("skills_selection_mode"))
+    if skills is not None:
+        skills_selection_mode = effective_skills_selection_mode(
+            skills_selection_mode, tuple(skills)
+        )
     return {
         "agent_id": agent_id,
         "display_name": display_name,
-        "skills": list(_operation_string_tuple(raw_skills))
-        if isinstance(raw_skills, list)
-        else None,
-        "skills_selection_mode": _selection_mode(payload.get("skills_selection_mode")),
+        "skills": skills,
+        "skills_selection_mode": skills_selection_mode,
         "tool_allowlist": list(_operation_string_tuple(raw_tools)),
         "group_reply_policy": _optional_operation_text(
             payload.get("group_reply_policy")

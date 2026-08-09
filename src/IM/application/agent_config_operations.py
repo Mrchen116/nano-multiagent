@@ -8,6 +8,11 @@ from uuid import uuid4
 
 from IM.application.config_service import ConfigService
 from IM.domain.models import AgentProfile
+from IM.domain.skill_selection import (
+    DEFAULT_DISCOVERY,
+    EXPLICIT_ALLOWLIST,
+    effective_skills_selection_mode,
+)
 from IM.infra.repositories.agents import AgentProfileVersionConflictError
 from IM.infra.repositories.agent_config_operations import (
     AgentConfigOperation,
@@ -567,9 +572,10 @@ def gateway_candidate(candidate: dict[str, object]) -> dict[str, object]:
         projected["skills"] = (
             _operation_string_list(raw_skills) if isinstance(raw_skills, list) else None
         )
-    if "skills_selection_mode" in candidate:
-        projected["skills_selection_mode"] = _optional_operation_text(
-            candidate.get("skills_selection_mode")
+    if "skills" in candidate or "skills_selection_mode" in candidate:
+        projected["skills_selection_mode"] = _canonical_skills_selection_mode(
+            candidate.get("skills_selection_mode"),
+            projected.get("skills"),
         )
     if "confirm_existing_workspace" in candidate:
         projected["confirm_existing_workspace"] = (
@@ -604,6 +610,15 @@ def _operation_string_list(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
     return [item.strip() for item in value if isinstance(item, str) and item.strip()]
+
+
+def _canonical_skills_selection_mode(mode: object, skills: object) -> str | None:
+    normalized = _optional_operation_text(mode)
+    if normalized not in {None, DEFAULT_DISCOVERY, EXPLICIT_ALLOWLIST}:
+        raise ValueError("invalid skills_selection_mode")
+    if not isinstance(skills, list):
+        return normalized
+    return effective_skills_selection_mode(normalized, skills)
 
 
 def _optional_operation_text(value: object) -> str | None:

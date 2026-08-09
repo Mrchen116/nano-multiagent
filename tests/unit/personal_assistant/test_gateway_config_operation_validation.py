@@ -141,18 +141,18 @@ def test_config_operation_accepts_effort_for_inherited_default_model(
     assert restored.agents[0].reasoning_effort == "max"
 
 
-def test_config_operation_accepts_im_fingerprint_for_explicit_empty_skills(
+def test_config_operation_accepts_im_legacy_previous_for_explicit_empty_skills(
     tmp_path: Path,
 ) -> None:
-    """Apply IM's canonical explicit-empty candidate through the real handler."""
+    """Treat IM legacy empty and local persisted default as the same prior state."""
     workspace = tmp_path / "seed"
     workspace.mkdir()
     agent = AgentWorkspaceConfig(
         agent_id="seed",
         workspace_root=workspace,
         title="Seed",
-        skills=("plan",),
-        skills_selection_mode="explicit_allowlist",
+        skills=(),
+        skills_selection_mode="default_discovery",
         tool_allowlist=("read",),
         group_reply_policy="manual",
         default_model="test:model",
@@ -175,7 +175,7 @@ def test_config_operation_accepts_im_fingerprint_for_explicit_empty_skills(
     )
     previous = {
         **_agent_payload(agent),
-        "skills_selection_mode": "explicit_allowlist",
+        "skills_selection_mode": None,
     }
     candidate = {
         **previous,
