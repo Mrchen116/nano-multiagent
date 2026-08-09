@@ -77,3 +77,8 @@
 ## Promotion Candidates
 
 None.
+
+## Reviewer fix round 1
+
+- Context: change-code-review 独立确认五项 substantive 缺口：analysis-only 假成功、summary side-chain 事件泄露、skill reinjection parent 缺失、overflow retry 的 typed failure 未提示，以及 manual/overflow 成功后旧 token usage 未清理。
+- Decision: 不改 design/spec，在 R5/R6 以可观察红测修复原架构 seam。
