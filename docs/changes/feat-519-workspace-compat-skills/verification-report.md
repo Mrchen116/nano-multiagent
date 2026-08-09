@@ -676,3 +676,186 @@ All implementation requirements, scenarios, design decisions and M1 worker exit
 criteria pass at the validated commit. `requires_full_verification: false`.
 
 All checks passed. Ready for PR.
+
+# Round 4
+
+## Verification Report: feat-519-workspace-compat-skills
+
+### Summary
+
+Mode: `targeted-closure`
+
+Validated at: `2026-08-10T04:17:14+08:00`
+
+Validated implementation commit: `fbdddd8812c47f687278758de1b5af51c6d032e0`
+
+Executed base: `1d0c2cb45b887162912402b0fb489cdf3a1ad9c9`
+
+Fix delta range: `7be956bc85bfb1f13ff1e02f11b2dd4e001ae0c0..fbdddd8812c47f687278758de1b5af51c6d032e0`
+
+Implementation-fix commit: `05b5a777da4a47eebe8dbd15ef7e29fc0a57459d`
+
+Focus issues:
+
+1. `agent-config-v1`/`agent-config-v2` rolling protocol and legacy operation/receipt recovery.
+2. Explicit-empty selection must not generate a distillation prompt.
+3. Successful Agent save must invalidate the SlashPicker capability cache.
+4. `source=mirror` must preserve raw legacy `skills_selection_mode=null` without eager migration.
+5. Round 3 S1: M1 test strategy must use the structured repository template.
+
+`requires_full_verification: false`
+
+| Dimension | Result |
+|---|---:|
+| Completeness | 5/5 focus issues closed |
+| Correctness | 5/5 focus contracts and regressions pass |
+| Coherence | Followed; existing IM/Gateway operation, mirror and frontend query mechanisms were extended |
+
+The delta is bounded to existing Agent config-operation negotiation/recovery,
+distill readiness, mirror projection and frontend query invalidation seams. It
+does not add a forbidden dependency direction, cross-machine filesystem access or
+parallel persistence mechanism. Focused suites plus complete Python and frontend
+regressions passed, so the Round 3 full-verification conclusion remains usable and
+this round does not require another full requirement ledger.
+
+### Focus-issue closure
+
+#### 1. CLOSED — rolling fingerprint protocol and old operation/receipt recovery
+
+The final implementation makes the fingerprint schema an operation-level durable
+fact instead of inferring it again during recovery:
+
+- Gateway registration advertises `agent-config-v2`; IM selects v2 only when the
+  target connection advertises it and otherwise falls back to v1
+  (`upstream_reporter.py:57-82`, `IM/ws/gateway/control.py:88-105`).
+- IM v1 canonicalization retains the pre-feature names-only payload. V2 adds the
+  effective selection mode. Explicit empty and default-with-names are rejected as
+  `gateway_upgrade_required` before an old-Gateway RPC or IM operation row is
+  created (`IM/application/agent_config_operations.py:141-225,604-717`).
+- The selected schema is stored on IM operation rows, inherited by compensation,
+  and reused for status recovery/resubmit and commit recognition
+  (`IM/infra/db.py:189-208,386-399`,
+  `IM/infra/repositories/agent_config_operations.py:44-100,199-249`,
+  `IM/application/agent_config_operations.py:263-305,533-565,845-889`).
+- Gateway request validation, receipt preparation, replay, status and terminal
+  results all retain the schema. Missing schema remains v1 for old IM/Gateway
+  interoperability (`gateway/agent_config_sync.py:60-192,519-716,827-910`,
+  `gateway/config_apply_receipts.py:14-191`,
+  `IM/ws/gateway/control.py:22-54,193-323,826-916`).
+- Existing SQLite rows and JSON receipts without the field load as v1; legacy
+  receipt candidates cannot acquire `skills_selection_mode` during read/replay.
+
+Permanent regressions verify IM/Gateway v1 parity, v1 representability gates,
+old/new Gateway WebSocket negotiation, an old IM request handled by a new Gateway,
+legacy SQLite migration, a prepared legacy receipt resumed after Gateway upgrade,
+lost-result status recovery, replay and v2 compensation. No old receipt is
+re-fingerprinted under v2.
+
+Result: **CLOSED**.
+
+#### 2. CLOSED — explicit-empty distillation is rejected on both boundaries
+
+Gateway readiness now computes the effective selection mode and requires the
+distiller name whenever the mode is explicit
+(`personal_assistant/gateway/distill_prompt.py:111-135`). Therefore explicit empty
+returns `distiller_unavailable` before source resolution and never creates a
+prompt. Web IM passes `config.skills_selection_mode` to the same SlashPicker
+selection resolver before calling the distill API
+(`chat-workspace-page.tsx:918-934`).
+
+The Gateway regression asserts no `prompt` key for explicit empty
+(`test_gateway_distill_prompt_resolver.py:164-195`); the frontend journey asserts
+the unavailable message and absence of both the distill POST and prefilled command
+(`chat-workspace.integration.test.tsx:620-638`). Default discovery remains able to
+use a discovered distiller.
+
+Result: **CLOSED**.
+
+#### 3. CLOSED — Agent save invalidates the SlashPicker cache
+
+The Agent detail save success handler invalidates the shared
+`["chat", "slash-skills"]` query prefix
+(`agent-detail-page.tsx:1352-1373`). The chat query key is that exact prefix plus
+the sorted conversation Agent ids (`chat-workspace-page.tsx:381-423`), so every
+cached conversation combination containing the changed Agent is marked stale
+before the user returns to chat. The Agent detail regression spies on the shared
+`QueryClient` and verifies the exact invalidation call
+(`agent-detail-page.test.tsx:847-907`).
+
+Result: **CLOSED**.
+
+#### 4. CLOSED — mirror reads retain raw null without eager migration
+
+The IM config serializer now distinguishes transport ownership from user-facing
+effective projection. `source=mirror` returns the persisted raw mode, including
+`null`; normal/live and write responses continue to expose the effective mode
+(`IM/api/routes/agents.py:226-269,394-441`). Gateway mirror decoding stores that
+raw value unchanged, while its behavior boundaries continue to use the effective
+helper (`gateway/agent_config_sync.py:1300-1447`). Frontend wire normalization
+accepts `null` and maps legacy empty/non-empty lists to default/explicit UI intent
+(`im-agent-config-api.ts:517-563`).
+
+Contract tests cover mirror raw null plus live effective projection for legacy
+empty and non-empty rows. Reconnect reconciliation covers both list states and
+asserts that neither in-memory nor persisted Gateway YAML eagerly gains a mode
+(`test_agent_config_contract.py:68-103`,
+`test_gateway_reconcile_on_connect.py:200-254`). Frontend normalization covers the
+same two legacy forms.
+
+Result: **CLOSED**.
+
+#### 5. CLOSED — Round 3 S1 structured test strategy
+
+`M1-workspace-skills-selection/tasks.md:27-43` now contains all six required
+judgments from `docs/development/testing.md:95-113`: protected seam, existing-test
+disposition/de-duplication rationale, layer and marker rationale, file ownership,
+optional-dependency policy, one-off evidence, and the affected-existing-tests
+disposition table. It also records the new rolling operation and post-save
+SlashPicker risks.
+
+Result: **CLOSED**. No Round 3 suggestion remains open.
+
+### Related contract and design coverage
+
+| Contract/decision | Round 4 result |
+|---|---:|
+| Gateway delta: old empty config keeps historical behavior | PASS |
+| Gateway delta: explicit empty disables Skill discovery and automatic writers preserve mode | PASS |
+| IM delta: explicit empty remains consistent between configuration and later behavior | PASS |
+| Design decision 4: default discovery and explicit intent remain authoritative at every consumer | PASS |
+| M1 worker criterion: operation recovery, SlashPicker and legacy/default/explicit states remain coherent | PASS |
+| Existing architecture: IM owns durable operations; Gateway owns local YAML/receipts; WS remains the cross-process boundary | PASS |
+
+### Regression and command evidence
+
+| Command/scope | Result |
+|---|---|
+| 11 affected Python files covering schema negotiation, DB/receipt migration, create/apply/recovery, distill and mirror reconciliation | **93 passed**, 3 existing deprecation warnings; 11.16s |
+| Focused frontend chat/SlashPicker/Agent-detail/config-API suites | **4 files, 98 tests passed**; existing React `act(...)` and local-storage warnings only; 4.67s |
+| `pytest -q -m 'not e2e'` | **3169 passed**, 25 deselected, 22 existing dependency/deprecation/test-key warnings; 155.96s |
+| Full frontend `npm test -- --reporter=dot` | **66 files, 640 tests passed**; existing test-runtime warnings only; 16.72s |
+| Frontend `npm run build` | PASS; 504 modules transformed; existing >500 kB chunk warning only |
+| `ruff check src tests` | PASS |
+| `ruff format --check src tests` | PASS; 853 files already formatted |
+| `git diff --check 7be956bc85bfb1f13ff1e02f11b2dd4e001ae0c0..fbdddd8812c47f687278758de1b5af51c6d032e0` | PASS |
+| `git diff --check 1d0c2cb45b887162912402b0fb489cdf3a1ad9c9..fbdddd8812c47f687278758de1b5af51c6d032e0` | PASS |
+| `PYTHON=/Users/czj/miniforge3/bin/python ./scripts/docs-check` | PASS; 226 maintained Markdown sources and 67 required routes |
+
+Frontend commands reused the main checkout's installed `node_modules` through a
+temporary worktree-local symlink. It was removed after each command.
+
+### Findings
+
+No CRITICAL, WARNING or SUGGESTION findings.
+
+### Verdict
+
+**PASS.** Blocking findings: **0**. Non-blocking findings: **0**.
+
+Validated issues: rolling protocol/legacy recovery **closed**; explicit-empty
+distill **closed**; SlashPicker cache invalidation **closed**; mirror raw-null
+preservation **closed**; Round 3 S1 **closed**.
+
+`requires_full_verification: false`.
+
+All checks passed. Ready for PR.
