@@ -1,6 +1,7 @@
 """Generate compaction summaries from dropped conversation history."""
 
 import logging
+from dataclasses import replace
 from typing import TYPE_CHECKING, Sequence
 
 from agent.core.agent.state import AgentState, InputPart
@@ -68,6 +69,14 @@ class CompactionSummarizer:
             input_parts=(InputPart(type="text", text=""),),
             user_text=summary_prompt,
         )
+        sidechain_hook_ctx = (
+            replace(
+                hook_ctx,
+                session_event_publisher=lambda _event, _data: None,
+            )
+            if hook_ctx is not None
+            else None
+        )
 
         try:
             result = await self._fork.execute(
@@ -81,10 +90,9 @@ class CompactionSummarizer:
                 # build-time default. bugfix-443 fix1: a dedicated summary_model
                 # fork keeps its own model — ignore the per-run override for it.
                 model_override=(None if self._has_dedicated_model else model_override),
-                # The summary loop is an internal side-chain. Reusing the parent
-                # publisher would expose its assistant/turn events as user output.
-                # Trace ContextVars and model_override still route the provider call.
-                hook_ctx=None,
+                # Preserve workspace-scoped hooks and model routing, but keep the
+                # internal summary stream out of the parent session event channel.
+                hook_ctx=sidechain_hook_ctx,
             )
             summary = result.messages[-1].content.strip() if result.messages else ""
             if summary:
