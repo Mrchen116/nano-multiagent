@@ -21,7 +21,7 @@
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: 回退到 `a9b1a1885`。
-- Commits: 本 roadpoint commit。
+- Commits: `191d34a6f`。
 - Next: R2 recording fixture 与真进程 compaction/restart journey。
 
 ## R2 — recording fixture 与真进程压缩/重启旅程
@@ -39,8 +39,26 @@
   - Prototype Comparison: N/A。
 - Debugging: 首次接线后第二轮先观察到空 `message.completed`。边界取证显示 recording 已收到合法 summary + post-summary 请求，JSONL 已持久化 `CONTINUED ...`；根因是 compaction 期间存在一个中间 completed 帧，而测试 predicate 误把它当最终回复。最小修正为等待同 conversation 且含 sentinel 的用户可见完成帧，没有改产品逻辑或增加 sleep。
 - Rollback: 回退到 `191d34a6f`。
-- Commits: 本 roadpoint commit。
+- Commits: `be7f09779`。
 - Next: R3 catalog 与 milestone 全门禁。
+
+## R3 — catalog 与 milestone 全门禁
+
+- Context: 真进程旅程需要进入长期 catalog 并证明共享 fake-LLM harness 没有破坏已有配置连续性和 cache 告警路径。
+- Decision: v1 必保活仅新增 #16“含工具历史的上下文压缩与重启连续”，总数 14→15；删除同名 backlog，保留现有数字 identity 不重排。
+- Rationale: catalog 按用户旅程计数而不是按测试函数编号；#7 仍在 backlog，因此新增旅程使用下一个稳定编号 #16。
+- Evidence:
+  - Tests: M1 相关 persistence/transcript/planner/audit/manual compact 37 passed；Ruff 和 `git diff --check` 通过。
+  - Entry: 新 compaction E2E `1 passed in 26.46s`；既有 fake-LLM #14/#15 `2 passed in 15.12s`。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression: 新旧三条均由真实 IM/Gateway 子进程执行；`pytest --collect-only` 收集 3 tests。fixture teardown 后 pytest runtime 内无 `.im.pid`、`.gateway.pid` 或 `.e2e-ports.env` 残留。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Docs: `PYTHON=/Users/czj/Repos/nano-multiagent/.venv/bin/python ./scripts/docs-check` → 220 maintained Markdown sources、67 required routes。
+- Rollback: 回退到 `be7f09779`。
+- Commits: 本 roadpoint commit。
+- Next: rebase 最新 unit 分支，重跑门禁后合入 `unit/bugfix-520`。
 
 ## Promotion Candidates
 

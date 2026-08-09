@@ -8,10 +8,10 @@
 
 ## 退出标准
 
-- [ ] `load()` 与 `list_event_entries()` 对 latest boundary、active branch 和 `tool_call_recovery` 的解释一致。
-- [ ] event adapter 对称保留 durable parent/tool/group/reasoning/parts 字段，正常与恢复 tool pair 均可进入 provider。
-- [ ] 新增且只新增一条 fake-LLM critical journey：真实工具执行后触发 threshold 压缩，当轮和 Gateway restart 后都回答原目标。
-- [ ] catalog 从 14 条变为 15 条，移除“上下文压缩恢复” backlog；既有 fake-LLM #14/#15 继续绿色。
+- [x] `load()` 与 `list_event_entries()` 对 latest boundary、active branch 和 `tool_call_recovery` 的解释一致。
+- [x] event adapter 对称保留 durable parent/tool/group/reasoning/parts 字段，正常与恢复 tool pair 均可进入 provider。
+- [x] 新增且只新增一条 fake-LLM critical journey：真实工具执行后触发 threshold 压缩，当轮和 Gateway restart 后都回答原目标。
+- [x] catalog 从 14 条变为 15 条，移除“上下文压缩恢复” backlog；既有 fake-LLM #14/#15 继续绿色。
 
 ## 测试策略
 
@@ -47,6 +47,6 @@
 
 ### R3 — catalog 与 milestone 全门禁
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: catalog 14→15 并移除 backlog；跑 M1 unit、新旧 fake-LLM journeys、docs-check、Ruff 与 diff check。
 - 验证: design Runbook 的 M1 相关命令和长期文档门禁全绿。
