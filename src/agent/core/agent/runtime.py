@@ -265,6 +265,9 @@ class AgentEngine:
             compaction_planner=self._compaction_planner,
             compaction_summarizer=self._compaction_summarizer,
             compaction_settings=self._compaction_settings,
+            automatic_compaction_failures=lambda: (
+                self._state().automatic_compaction_failures
+            ),
             on_compaction=self._invalidate_memory_snapshot,
             capture_compaction_epoch=lambda: self._state().transcript.external_epoch,
             commit_compaction=self._commit_threshold_compaction,

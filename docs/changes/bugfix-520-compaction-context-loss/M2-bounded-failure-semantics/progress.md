@@ -23,6 +23,23 @@
 - Commits: 本 roadpoint commit。
 - Next: R2 threshold bounded retry 与 commit 分流。
 
+## R2 — threshold bounded retry 与 commit 分流
+
+- Context: threshold summary failure 必须保留当轮原 prompt，并在同一会话上有限重试；stale 与 persistence 不能误算作 summary failure。
+- Decision: loop 通过当前 `ConversationState` 的窄 callback 取得 tracker；前两次 `None` 返回原流程，第三次及已熔断状态抛 typed error；commit success reset，stale 保持计数，persistence 立即 typed failure。
+- Rationale: loop 不持有跨 session map，且只有 durable commit 才能宣告压缩成功并清零。
+- Evidence:
+  - Tests: Red 为 `AgentLoop.__init__` 缺少 tracker callback；Green focused `3 passed`，扩展回归 `32 passed`。
+  - Entry: AgentLoop 的实际 `run()` async iterator 验证前两轮仍产出原上下文回复，第三轮在主模型调用前停止。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression: `tests/unit/test_loop_compact.py::{test_threshold_summary_failure_continues_twice_then_stops,test_threshold_success_resets_failures_but_stale_commit_does_not,test_threshold_persistence_failure_stops_without_incrementing_count}`。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退本 roadpoint commit 可移除 threshold policy callback，R1 domain 不受影响。
+- Commits: 本 roadpoint commit。
+- Next: R3 public Kernel manual/overflow failure 与 automatic 用户提示。
+
 ## Promotion Candidates
 
 None.

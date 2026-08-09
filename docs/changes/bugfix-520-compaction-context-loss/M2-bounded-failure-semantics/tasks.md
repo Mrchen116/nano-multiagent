@@ -45,13 +45,13 @@
 
 ### R2 — threshold bounded retry 与 commit 分流
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 用 loop 红测锁定前两次 no-commit/no-summary、第三次 typed failure、成功 reset、stale 不计数、persistence 立即失败。
 - 验证: `tests/unit/test_loop_compact.py`。
 
 ### R3 — manual/overflow 与 automatic 用户提示
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 用 public Kernel 红测覆盖 summary/persistence/overflow 原因、历史 atomicity、assistant-before-failed 与不写 transcript；实现 runtime 三入口收口。
 - 验证: `tests/unit/agent/test_kernel_manual_compact.py`、`tests/integration/test_conversation_compaction_integration.py`。
 

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Mapping, Protocol
 
 from agent.core.ids import make_message_id, make_tool_call_id
+from agent.core.errors import CompactionError
 from agent.core.types import (
     Message,
     TokenUsage,
@@ -38,7 +39,11 @@ from .liveness import _with_liveness_heartbeat, session_event_publisher
 from .compaction.planner import CompactionPlanner
 from .compaction.summarizer import CompactionSummarizer
 from .compaction.policy import should_compact
-from .compaction.types import CompactionReason, CompactionSettings
+from .compaction.types import (
+    AutomaticCompactionFailureTracker,
+    CompactionReason,
+    CompactionSettings,
+)
 from .policies import AgentPolicies
 from .prompting import (
     build_chat_messages,
@@ -87,6 +92,10 @@ class AgentLoop:
         compaction_planner: CompactionPlanner | None = None,
         compaction_summarizer: CompactionSummarizer | None = None,
         compaction_settings: CompactionSettings | None = None,
+        automatic_compaction_failures: Callable[
+            [], AutomaticCompactionFailureTracker
+        ]
+        | None = None,
         on_compaction: Callable[[str], None] | None = None,
         capture_compaction_epoch: Callable[[], int] | None = None,
         commit_compaction: Callable[
@@ -116,6 +125,7 @@ class AgentLoop:
         self._compaction_planner = compaction_planner
         self._compaction_summarizer = compaction_summarizer
         self._compaction_settings = compaction_settings
+        self._automatic_compaction_failures = automatic_compaction_failures
         self._on_compaction_callback = on_compaction
         self._capture_compaction_epoch = capture_compaction_epoch
         self._commit_compaction = commit_compaction
@@ -999,6 +1009,18 @@ class AgentLoop:
         if plan is None:
             return None
 
+        failure_tracker = (
+            self._automatic_compaction_failures()
+            if self._automatic_compaction_failures is not None
+            else None
+        )
+        if failure_tracker is not None and failure_tracker.exhausted:
+            raise CompactionError(
+                trigger=CompactionReason.THRESHOLD.value,
+                failure_kind="summary",
+                consecutive_failures=failure_tracker.consecutive_failures,
+            )
+
         from agent.core.session.entries import message_from_turn_entry
 
         dropped_messages = tuple(
@@ -1015,6 +1037,19 @@ class AgentLoop:
             model_override=active_model,
             hook_ctx=hook_ctx,
         )
+        if summary is None:
+            consecutive_failures = (
+                failure_tracker.record_summary_failure()
+                if failure_tracker is not None
+                else 1
+            )
+            if failure_tracker is not None and failure_tracker.exhausted:
+                raise CompactionError(
+                    trigger=CompactionReason.THRESHOLD.value,
+                    failure_kind="summary",
+                    consecutive_failures=consecutive_failures,
+                )
+            return None
 
         # Post-compact file restore: read up to 5 most recently accessed files.
         restored_files: list[str] = []
@@ -1060,17 +1095,33 @@ class AgentLoop:
             summary_msg.metadata["_post_compact_messages"] = (reinjection_msg,)
 
         reinjections = (reinjection_msg,) if reinjection_msg is not None else ()
-        if self._commit_compaction is not None and not self._commit_compaction(
-            summary_msg,
-            reinjections,
-            plan.reason.value,
-            tuple(restored_files),
-            captured_epoch,
-        ):
+        try:
+            committed = self._commit_compaction is None or self._commit_compaction(
+                summary_msg,
+                reinjections,
+                plan.reason.value,
+                tuple(restored_files),
+                captured_epoch,
+            )
+        except Exception as exc:
+            raise CompactionError(
+                trigger=CompactionReason.THRESHOLD.value,
+                failure_kind="persistence",
+                consecutive_failures=(
+                    failure_tracker.consecutive_failures
+                    if failure_tracker is not None
+                    else 0
+                ),
+                cause=exc,
+            ) from exc
+        if not committed:
             # An external append landed while the summary was being generated.
             # Keep the current prompt intact; the next transaction reloads the
             # durable append instead of hiding it behind a stale boundary.
             return None
+
+        if failure_tracker is not None:
+            failure_tracker.reset()
 
         # Build new llm_messages before the post-compact model retry/continuation.
         llm_messages[:] = [LLMMessage(role="user", content=summary)]

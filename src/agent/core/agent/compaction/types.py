@@ -6,6 +6,9 @@ from enum import StrEnum
 from agent.core.session.entries import SessionEntry
 
 
+AUTOMATIC_COMPACTION_FAILURE_LIMIT = 3
+
+
 class CompactionReason(StrEnum):
     """Enumerate reasons that can trigger context compaction."""
 
@@ -30,6 +33,12 @@ class AutomaticCompactionFailureTracker:
         """Clear failures after a successfully committed compaction."""
 
         self.consecutive_failures = 0
+
+    @property
+    def exhausted(self) -> bool:
+        """Return whether automatic summarization must remain open-circuited."""
+
+        return self.consecutive_failures >= AUTOMATIC_COMPACTION_FAILURE_LIMIT
 
 
 @dataclass(frozen=True, slots=True)
