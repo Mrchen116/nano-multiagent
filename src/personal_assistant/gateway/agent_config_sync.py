@@ -26,6 +26,12 @@ from personal_assistant.config.local_store import (
     save_sensitive_local_config,
 )
 from personal_assistant.config.model_reasoning import ModelReasoningCatalog
+from personal_assistant.config.skill_selection import (
+    DEFAULT_DISCOVERY,
+    EXPLICIT_ALLOWLIST,
+    VALID_SELECTION_MODES,
+    effective_skills_selection_mode,
+)
 from personal_assistant.builtin_skills.lark_bundle import lark_skill_names
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
 from personal_assistant.gateway.config_apply_receipts import (
@@ -51,6 +57,13 @@ BootstrapClientFactory = Callable[[str], httpx.Client]
 Monotonic = Callable[[], float]
 Sleep = Callable[[float], None]
 OperationPhaseHook = Callable[[str], None]
+
+
+def _selection_mode(value: object) -> str | None:
+    mode = value.strip() if isinstance(value, str) else None
+    if mode is not None and mode not in VALID_SELECTION_MODES:
+        raise ValueError("invalid skills_selection_mode")
+    return mode
 
 
 class _WorkspaceOperationRejected(ValueError):
@@ -365,6 +378,9 @@ class IMAgentConfigSync:
         )
         if "skills" not in agent_payload:
             skills = _default_pa_global_skill_names()
+        skills_selection_mode = _selection_mode(
+            agent_payload.get("skills_selection_mode")
+        )
         raw_tools = agent_payload.get("tool_allowlist")
         tool_allowlist = tuple(
             item.strip()
@@ -397,6 +413,7 @@ class IMAgentConfigSync:
             create_operation_id=create_operation_id,
             title=title,
             skills=skills,
+            skills_selection_mode=skills_selection_mode,
             tool_allowlist=tool_allowlist,
             group_reply_policy=group_reply_policy,
             default_model=default_model,
@@ -428,6 +445,9 @@ class IMAgentConfigSync:
             "display_name": agent.title or agent.agent_id,
             "description": description,
             "skills": list(agent.skills),
+            "skills_selection_mode": effective_skills_selection_mode(
+                agent.skills_selection_mode, agent.skills
+            ),
             "tool_allowlist": list(agent.tool_allowlist),
             "group_reply_policy": agent.group_reply_policy or "MENTION",
             "default_model": agent.default_model,
@@ -822,6 +842,7 @@ class IMAgentConfigSync:
             ),
             title=str(payload.get("display_name") or agent_id),
             skills=_operation_string_tuple(payload.get("skills")),
+            skills_selection_mode=_selection_mode(payload.get("skills_selection_mode")),
             tool_allowlist=_operation_string_tuple(payload.get("tool_allowlist")),
             group_reply_policy=_optional_operation_text(
                 payload.get("group_reply_policy")
@@ -1005,7 +1026,9 @@ class IMAgentConfigSync:
                     skill_root,
                 )
                 return
-            self._enable_skills_for_agent(agent, (skill_name,))
+            self._enable_skills_for_agent(
+                agent, (skill_name,), explicit_capability_change=True
+            )
             return
         if scope == "global":
             if self._global_skill_root is None or skill_root != self._global_skill_root:
@@ -1016,15 +1039,27 @@ class IMAgentConfigSync:
                 )
                 return
             for agent in tuple(self._config_snapshot().agents):
-                self._enable_skills_for_agent(agent, (skill_name,))
+                self._enable_skills_for_agent(
+                    agent, (skill_name,), explicit_capability_change=True
+                )
 
     def _enable_skills_for_agent(
-        self, agent: AgentWorkspaceConfig, skill_ids: tuple[str, ...]
+        self,
+        agent: AgentWorkspaceConfig,
+        skill_ids: tuple[str, ...],
+        *,
+        explicit_capability_change: bool = False,
     ) -> None:
         required_skills = tuple(dict.fromkeys(skill_ids))
         if not required_skills:
             return
-        if not agent.skills:
+        mode = effective_skills_selection_mode(
+            agent.skills_selection_mode, agent.skills
+        )
+        if mode == DEFAULT_DISCOVERY:
+            self._republish_agent(agent)
+            return
+        if not agent.skills and not explicit_capability_change:
             self._republish_agent(agent)
             return
         if all(skill_id in agent.skills for skill_id in required_skills):
@@ -1072,6 +1107,17 @@ class IMAgentConfigSync:
             "display_name": str(payload.get("display_name") or agent_id),
             "description": str(payload.get("description") or ""),
             "skills": skills,
+            "skills_selection_mode": str(
+                payload.get("skills_selection_mode")
+                or effective_skills_selection_mode(
+                    None,
+                    tuple(
+                        item.strip()
+                        for item in payload.get("skills", [])
+                        if isinstance(item, str) and item.strip()
+                    ),
+                )
+            ),
             "tool_allowlist": [
                 item.strip()
                 for item in (raw_tools if isinstance(raw_tools, list) else [])
@@ -1117,8 +1163,8 @@ class IMAgentConfigSync:
     ) -> dict[str, object]:
         """Patch static Feishu mirror profiles before they replace local runtime.
 
-        Empty allowlists deliberately keep global skill discovery and are therefore
-        not materialized into the packaged bundle.
+        Default discovery and explicit-empty allowlists are both left unchanged;
+        only non-empty explicit allowlists are reconciled with the packaged bundle.
         """
 
         if agent_id not in enabled_feishu_agent_ids(self._config_snapshot()):
@@ -1128,7 +1174,10 @@ class IMAgentConfigSync:
             for item in payload.get("skills", [])
             if isinstance(item, str) and item.strip()
         ]
-        if not skills:
+        mode = effective_skills_selection_mode(
+            _selection_mode(payload.get("skills_selection_mode")), tuple(skills)
+        )
+        if mode != EXPLICIT_ALLOWLIST or not skills:
             return payload
         missing_skills = [
             skill_id for skill_id in lark_skill_names() if skill_id not in skills
@@ -1284,6 +1333,7 @@ class IMAgentConfigSync:
                 for item in (raw_skills if isinstance(raw_skills, list) else [])
                 if isinstance(item, str) and item.strip()
             ),
+            skills_selection_mode=_selection_mode(payload.get("skills_selection_mode")),
             tool_allowlist=tuple(
                 item.strip()
                 for item in (raw_tools if isinstance(raw_tools, list) else [])
@@ -1351,6 +1401,9 @@ class IMAgentConfigSync:
             payload: dict[str, object] = {
                 "display_name": agent.title or agent.agent_id,
                 "skills": list(agent.skills),
+                "skills_selection_mode": effective_skills_selection_mode(
+                    agent.skills_selection_mode, agent.skills
+                ),
                 "tool_allowlist": list(agent.tool_allowlist),
                 "group_reply_policy": agent.group_reply_policy or "manual",
                 "default_model": agent.default_model,
@@ -1458,6 +1511,9 @@ def _agent_operation_payload(agent: AgentWorkspaceConfig) -> dict[str, object]:
         "agent_id": agent.agent_id,
         "display_name": agent.title or agent.agent_id,
         "skills": list(agent.skills),
+        "skills_selection_mode": effective_skills_selection_mode(
+            agent.skills_selection_mode, agent.skills
+        ),
         "tool_allowlist": list(agent.tool_allowlist),
         "group_reply_policy": agent.group_reply_policy or "manual",
         "default_model": agent.default_model,

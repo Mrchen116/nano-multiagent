@@ -132,15 +132,33 @@ def _is_pa_global_skill(location: str | None) -> bool:
     return True
 
 
+def _skill_source_group(location: str | None, workspace_root: str | None) -> str | None:
+    if not location:
+        return None
+    resolved = Path(location).expanduser().resolve()
+    if workspace_root:
+        workspace = Path(workspace_root).expanduser().resolve()
+        try:
+            resolved.relative_to(workspace)
+        except ValueError:
+            pass
+        else:
+            return "workspace"
+    if _is_pa_global_skill(location):
+        return "global"
+    return "compatibility"
+
+
 def _skills_from_kernel(
     kernel: "Kernel", workspace_root: str | None
 ) -> list[dict[str, object]]:
     """Project ``kernel.list_skills(workspace_root)`` into IM skill entries.
 
     Per-workspace skill discovery is the kernel's job (决策 4); the reporter no
-    longer rebuilds the on-disk layout. ``workspace_root=None`` resolves to the
-    kernel's repo_root (node level). ``location`` is forwarded so the IM slash
-    picker can distinguish same-named skills at different paths (feat-430).
+    longer rebuilds the on-disk layout. ``workspace_root=None`` requests only
+    deployment-level shared roots for the node create page. ``location`` is
+    forwarded so the IM slash picker can distinguish same-named skills at
+    different paths (feat-430).
     """
     ws = Path(workspace_root).expanduser().resolve() if workspace_root else None
     return [
@@ -148,9 +166,12 @@ def _skills_from_kernel(
             "name": skill.name,
             "description": skill.description or "",
             "location": skill.location,
+            "source_group": _skill_source_group(skill.location, workspace_root),
             "default_on": _is_pa_global_skill(skill.location),
         }
-        for skill in kernel.list_skills(ws)
+        for skill in (
+            kernel.list_skills(ws) if ws is not None else kernel.list_shared_skills()
+        )
     ]
 
 
@@ -288,6 +309,11 @@ class UpstreamReporter:
             # treating an empty v1 shell as authoritative and wiping the agent.
             "agent_skills": {
                 agent.agent_id: list(agent.skills) for agent in self._agents
+            },
+            "agent_skills_selection_modes": {
+                agent.agent_id: agent.skills_selection_mode
+                for agent in self._agents
+                if agent.skills_selection_mode is not None
             },
             "agent_tool_allowlist": {
                 agent.agent_id: list(agent.tool_allowlist) for agent in self._agents

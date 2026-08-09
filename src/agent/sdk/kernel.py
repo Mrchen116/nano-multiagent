@@ -235,6 +235,7 @@ def build_kernel(
     tools: Sequence[Any] | None = None,
     hooks: Sequence[Callable[[Any], None]] | None = None,
     workspace_config_dirname: str | None = None,
+    workspace_skill_dirnames: Sequence[str] | None = None,
     global_config_root: Path | None = None,
     can_use_tool: CanUseToolFn | None = None,
     repo_root: Path | None = None,
@@ -268,6 +269,8 @@ def build_kernel(
         hooks: ``setup(hooks)`` callables registered into the hook registry.
         workspace_config_dirname: Per-workspace config dir name (e.g. ``.nanocode``)
             governing session JSONL / memory / skill layout.
+        workspace_skill_dirnames: Ordered per-workspace directory names used only
+            for Skill discovery. Omitted uses ``workspace_config_dirname`` alone.
         global_config_root: Optional consumer-owned global auto-mode config root.
             Omitted means auto-mode reads no deployment-level global config.
         can_use_tool: Optional async permission callback; None → IM card flow.
@@ -310,6 +313,11 @@ def build_kernel(
         hooks=list(hooks or ()),
         workspace_config_dirname=(
             ".nano" if workspace_config_dirname is None else workspace_config_dirname
+        ),
+        workspace_skill_dirnames=(
+            tuple(workspace_skill_dirnames)
+            if workspace_skill_dirnames is not None
+            else None
         ),
         global_config_root=global_config_root,
         can_use_tool=can_use_tool,
@@ -603,6 +611,7 @@ def _build_kernel_base(
     tools: list[Any],
     hooks: list[Callable[[Any], None]],
     workspace_config_dirname: str,
+    workspace_skill_dirnames: tuple[str, ...] | None,
     global_config_root: Path | None,
     can_use_tool: CanUseToolFn | None,
     repo_root: Path | None,
@@ -647,6 +656,13 @@ def _build_kernel_base(
         workspace_root=resolved_repo_root,
         config_dirname=workspace_config_dirname,
     ).config_dirname
+    resolved_workspace_skill_dirnames = tuple(
+        WorkspaceLayout(
+            workspace_root=resolved_repo_root,
+            config_dirname=dirname,
+        ).config_dirname
+        for dirname in (workspace_skill_dirnames or (workspace_config_dirname,))
+    )
 
     _wire_console_tracer()
 
@@ -737,6 +753,7 @@ def _build_kernel_base(
             model=factory_config.model,
             prompt_sections=prompt_sections,
             workspace_config_dirname=workspace_config_dirname,
+            workspace_skill_dirnames=resolved_workspace_skill_dirnames,
             skill_search_roots=resolved_skill_roots,
         )
         engine._llm_config = factory_config  # type: ignore[attr-defined]
@@ -851,6 +868,7 @@ def _build_kernel_base(
         tool_registry,
         repo_root=resolved_repo_root,
         workspace_config_dirname=workspace_config_dirname,
+        workspace_skill_dirnames=resolved_workspace_skill_dirnames,
         skill_search_roots=tuple(
             Path(r).expanduser().resolve() for r in skill_search_roots
         ),
@@ -911,6 +929,7 @@ def _build_kernel_base(
         repo_root=resolved_repo_root,
         llm_catalog=llm,
         workspace_config_dirname=workspace_config_dirname,
+        workspace_skill_dirnames=resolved_workspace_skill_dirnames,
         capability_resolver=capability_resolver,
         skill_search_roots=tuple(
             Path(r).expanduser().resolve() for r in skill_search_roots
@@ -923,6 +942,7 @@ def _register_self_evolution_builtins(
     *,
     repo_root: Path,
     workspace_config_dirname: str,
+    workspace_skill_dirnames: tuple[str, ...],
     skill_search_roots: tuple[Path, ...] = (),
     global_skill_root: Path | None = None,
 ) -> None:
@@ -949,6 +969,7 @@ def _register_self_evolution_builtins(
     tool_registry.register(
         SkillManageTool(
             workspace_config_dirname=workspace_config_dirname,
+            workspace_skill_dirnames=workspace_skill_dirnames,
             extra_roots=skill_search_roots,
             global_skill_root=global_skill_root,
         ),
@@ -957,6 +978,7 @@ def _register_self_evolution_builtins(
     tool_registry.register(
         SkillViewTool(
             workspace_config_dirname=workspace_config_dirname,
+            workspace_skill_dirnames=workspace_skill_dirnames,
             extra_roots=skill_search_roots,
             global_skill_root=global_skill_root,
         ),
@@ -1040,6 +1062,7 @@ class Kernel:
         repo_root: Path,
         llm_catalog: LLMConfig | None = None,
         workspace_config_dirname: str | None = None,
+        workspace_skill_dirnames: tuple[str, ...] | None = None,
         skill_search_roots: tuple[Path, ...] = (),
         capability_resolver: _SessionCapabilityResolver | None = None,
     ) -> None:
@@ -1052,6 +1075,7 @@ class Kernel:
         # list_skills uses it to resolve <workspace>/<dirname>/skills without a
         # ProductProfile (the legacy path resolves via config_resolver instead).
         self._workspace_config_dirname = workspace_config_dirname
+        self._workspace_skill_dirnames = workspace_skill_dirnames
         # Deployment-level skill roots shared across workspaces (refactor-406-M2):
         # list_skills appends them after the per-workspace root, deduplicating. The
         # consumer factory owns these product paths; the kernel stays neutral.
@@ -1881,6 +1905,7 @@ class Kernel:
             effective_root,
             self._workspace_config_dirname,
             self._skill_search_roots,
+            self._workspace_skill_dirnames,
         )
 
         skills = resolve_available_skills(
@@ -1895,6 +1920,28 @@ class Kernel:
                 location=str(s.location),
             )
             for s in skills
+        ]
+
+    def list_shared_skills(self) -> list:
+        """Return skills discovered only from deployment-level shared roots.
+
+        Returns:
+            List of SkillInfo items without deriving a workspace root.
+        """
+        from agent.core.skills import resolve_available_skills  # noqa: PLC0415
+        from agent.core.skills.registry import SkillRegistry  # noqa: PLC0415
+
+        skills = resolve_available_skills(
+            workspace_root=self._repo_root,
+            registry=SkillRegistry(search_roots=self._skill_search_roots),
+        )
+        return [
+            SkillInfo(
+                name=skill.name,
+                description=skill.description or "",
+                location=str(skill.location),
+            )
+            for skill in skills
         ]
 
     def run_skill_maintenance(
@@ -2202,6 +2249,7 @@ class Kernel:
                     effective_root,
                     self._workspace_config_dirname,
                     self._skill_search_roots,
+                    self._workspace_skill_dirnames,
                 )
                 active_skills = tuple(
                     resolve_available_skills(

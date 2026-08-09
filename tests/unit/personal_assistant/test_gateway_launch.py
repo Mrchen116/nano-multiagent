@@ -234,10 +234,13 @@ def test_load_runtime_config_provisions_lark_bundle_before_composition(
     assert saved == [loaded]
 
 
-def test_load_runtime_config_keeps_empty_feishu_allowlist_unmaterialized(
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    "selection_mode", [None, "default_discovery", "explicit_allowlist"]
+)
+def test_load_runtime_config_keeps_empty_feishu_selection_unmaterialized(
+    tmp_path: Path, selection_mode: str | None
 ) -> None:
-    """An empty list continues to mean discovery of all global skills."""
+    """Feishu startup preserves both discovery and explicit-zero selections."""
     config = LocalConfig(
         node=NodeConfig(node_id="node-local"),
         agents=(
@@ -245,6 +248,7 @@ def test_load_runtime_config_keeps_empty_feishu_allowlist_unmaterialized(
                 agent_id="agent-open",
                 workspace_root=tmp_path / "agent-open",
                 skills=(),
+                skills_selection_mode=selection_mode,
             ),
         ),
         channels=(

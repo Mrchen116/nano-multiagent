@@ -20,6 +20,7 @@ _GATEWAY_CONFIG_KEYS = (
     "agent_id",
     "display_name",
     "skills",
+    "skills_selection_mode",
     "tool_allowlist",
     "group_reply_policy",
     "default_model",
@@ -311,6 +312,11 @@ class AgentConfigOperationCoordinator:
         skills = _string_list_from_result(
             result_agent, "skills", fallback=candidate.get("skills")
         )
+        skills_selection_mode = _optional_text_from_result(
+            result_agent,
+            "skills_selection_mode",
+            fallback=candidate.get("skills_selection_mode"),
+        )
         tool_allowlist = _string_list_from_result(
             result_agent, "tool_allowlist", fallback=candidate.get("tool_allowlist")
         )
@@ -377,6 +383,7 @@ class AgentConfigOperationCoordinator:
                     display_name=display_name,
                     description=description,
                     skills=skills,
+                    skills_selection_mode=skills_selection_mode,
                     tool_allowlist=tool_allowlist,
                     group_reply_policy=group_reply_policy,
                     default_model=default_model,
@@ -399,6 +406,7 @@ class AgentConfigOperationCoordinator:
             display_name=display_name,
             description=description,
             skills=skills,
+            skills_selection_mode=skills_selection_mode,
             tool_allowlist=tool_allowlist,
             group_reply_policy=group_reply_policy,
             default_model=default_model,
@@ -426,6 +434,11 @@ class AgentConfigOperationCoordinator:
             description=str(candidate.get("description") or ""),
             skills=_string_list_from_result(
                 result_agent, "skills", fallback=candidate.get("skills")
+            ),
+            skills_selection_mode=_optional_text_from_result(
+                result_agent,
+                "skills_selection_mode",
+                fallback=candidate.get("skills_selection_mode"),
             ),
             tool_allowlist=_string_list_from_result(
                 result_agent,
@@ -511,6 +524,7 @@ def candidate_from_profile(
         "display_name": profile.display_name,
         "description": profile.description,
         "skills": list(profile.skills),
+        "skills_selection_mode": profile.skills_selection_mode,
         "tool_allowlist": list(profile.tool_allowlist),
         "group_reply_policy": profile.group_reply_policy,
         "default_model": profile.default_model,
@@ -552,6 +566,10 @@ def gateway_candidate(candidate: dict[str, object]) -> dict[str, object]:
         raw_skills = candidate.get("skills")
         projected["skills"] = (
             _operation_string_list(raw_skills) if isinstance(raw_skills, list) else None
+        )
+    if "skills_selection_mode" in candidate:
+        projected["skills_selection_mode"] = _optional_operation_text(
+            candidate.get("skills_selection_mode")
         )
     if "confirm_existing_workspace" in candidate:
         projected["confirm_existing_workspace"] = (

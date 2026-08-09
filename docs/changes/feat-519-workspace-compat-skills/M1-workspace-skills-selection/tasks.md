@@ -12,14 +12,17 @@ Deliver workspace Claude/Codex Skill compatibility and truthful grouped Skill se
 
 ## Implementation checklist
 
-- [ ] Add an ordered workspace Skill layout to `agent.sdk` and share one root sequence across list, preview, runtime, `skill_view`, and `skill_manage` reads while retaining the native writer root.
-- [ ] Configure PA and Coding CLI with their required workspace/global root priority and add shared-only capability discovery.
-- [ ] Add PA capability `source_group` and preserve old capability payload fallback.
-- [ ] Persist `skills_selection_mode` across IM profiles, Gateway YAML/config operations/live snapshots, session projection, Feishu reconciliation, and `skill_created` mutations.
-- [ ] Make SlashPicker and runtime distinguish default discovery from explicit allowlists, including explicit empty.
-- [ ] Implement default-to-explicit grouped tri-state selection in create/detail pages with keyboard/focus/mobile behavior and invisible-name preservation.
-- [ ] Add focused Python, contract, repository/API, Gateway, and frontend tests.
+- [x] Add an ordered workspace Skill layout to `agent.sdk` and share one root sequence across list, preview, runtime, `skill_view`, and `skill_manage` reads while retaining the native writer root.
+- [x] Configure PA and Coding CLI with their required workspace/global root priority and add shared-only capability discovery.
+- [x] Add PA capability `source_group` and preserve old capability payload fallback.
+- [x] Persist `skills_selection_mode` across IM profiles, Gateway YAML/config operations/live snapshots, session projection, Feishu reconciliation, and `skill_created` mutations.
+- [x] Make SlashPicker and runtime distinguish default discovery from explicit allowlists, including explicit empty.
+- [x] Implement default-to-explicit grouped tri-state selection in create/detail pages with keyboard/focus/mobile behavior and invisible-name preservation.
+- [x] Add focused Python, contract, repository/API, Gateway, and frontend tests.
 - [ ] Run focused validation, real CLI/PA/browser journeys, full verifier/reviewer/code-review gates, CI-equivalent checks, canonical spec merge, and archive.
+
+Worker-side automated validation is complete; real product journeys, independent gates,
+canonical spec merge, and archive remain owned by the orchestrator.
 
 ## Test strategy
 

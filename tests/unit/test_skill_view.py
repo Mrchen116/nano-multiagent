@@ -99,6 +99,29 @@ def test_skill_view_records_usage_to_priority_hit_owning_root(tmp_path: Path) ->
     ]
 
 
+def test_skill_view_uses_ordered_compatible_workspace_roots(tmp_path: Path) -> None:
+    native = _write_skill(
+        tmp_path / ".nanoassistant" / "skills",
+        "shared-name",
+        _SKILL.format(name="shared-name") + "\n\nNative.",
+    )
+    _write_skill(
+        tmp_path / ".claude" / "skills",
+        "shared-name",
+        _SKILL.format(name="shared-name") + "\n\nClaude.",
+    )
+    tool = SkillViewTool(
+        workspace_config_dirname=".nanoassistant",
+        workspace_skill_dirnames=(".nanoassistant", ".claude", ".codex"),
+    )
+
+    result = tool.run({"name": "shared-name"}, _Ctx(workspace_root=tmp_path))  # type: ignore[arg-type]
+
+    assert result["success"] is True
+    assert result["location"] == str(native)
+    assert "Native." in result["content"]
+
+
 def test_skill_view_enqueues_f4_trigger_and_resets_counter(tmp_path: Path) -> None:
     skill_root = tmp_path / ".nanoassistant" / "skills"
     _write_skill(skill_root, "auto-skill")

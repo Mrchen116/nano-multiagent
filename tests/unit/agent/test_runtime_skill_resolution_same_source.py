@@ -38,6 +38,7 @@ def _kernel(
     tmp_path: Path,
     *,
     workspace_config_dirname: str = ".testconfig",
+    workspace_skill_dirnames: tuple[str, ...] | None = None,
     extra_roots: tuple[Path, ...] = (),
 ):
     return build_kernel(
@@ -48,6 +49,7 @@ def _kernel(
             default_model="codex_oauth:gpt-5.5",
         ),
         workspace_config_dirname=workspace_config_dirname,
+        workspace_skill_dirnames=workspace_skill_dirnames,
         repo_root=tmp_path,
         skill_search_roots=list(extra_roots),
         _llm_client_override=_fake_llm_client(),
@@ -146,6 +148,34 @@ def test_extra_deployment_root_visible_through_both_paths(tmp_path: Path) -> Non
         assert runtime_names == list_names, (
             f"runtime ({runtime_names}) != list_skills ({list_names}) for extra root"
         )
+    finally:
+        kernel.close()
+
+
+def test_compatible_workspace_layout_matches_list_runtime_and_preview(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "ws"
+    _write_skill(workspace / ".claude" / "skills", "compat-skill")
+    kernel = _kernel(
+        tmp_path,
+        workspace_config_dirname=".native",
+        workspace_skill_dirnames=(".native", ".claude", ".codex"),
+    )
+    try:
+        list_names = {skill.name for skill in kernel.list_skills(workspace)}
+        engine = kernel._c.engine_services  # type: ignore[attr-defined]
+        runtime_names = {
+            skill.name for skill in engine.resolve_available_skills(workspace)
+        }
+        preview = kernel.assemble_prompt_preview(
+            workspace_root=workspace,
+            skill_ids=["compat-skill"],
+        )
+
+        assert "compat-skill" in list_names
+        assert runtime_names == list_names
+        assert "<name>compat-skill</name>" in preview["prompt"]
     finally:
         kernel.close()
 

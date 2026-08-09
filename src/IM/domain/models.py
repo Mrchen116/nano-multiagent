@@ -111,6 +111,7 @@ class AgentProfile:
     display_name: str = ""
     description: str = ""
     skills: list[str] = field(default_factory=list)
+    skills_selection_mode: str | None = None
     tool_allowlist: list[str] = field(default_factory=list)
     group_reply_policy: str = "manual"
     default_model: str | None = None

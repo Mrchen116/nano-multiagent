@@ -404,7 +404,11 @@ export function ChatWorkspacePage() {
           const capSkills = normalizeAllowlistOptions(capabilities.skills);
           return {
             agentDisplayName: a.display_name,
-            skills: resolveEnabledSkills(config.skills ?? [], capSkills),
+            skills: resolveEnabledSkills(
+              config.skills ?? [],
+              capSkills,
+              config.skills_selection_mode,
+            ),
           };
         })
       );

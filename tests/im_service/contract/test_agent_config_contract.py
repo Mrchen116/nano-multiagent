@@ -45,6 +45,7 @@ def test_agent_config_contract_shape_and_conflict_status(tmp_path: Path) -> None
             "display_name",
             "description",
             "skills",
+            "skills_selection_mode",
             "tool_allowlist",
             "group_reply_policy",
             "default_model",

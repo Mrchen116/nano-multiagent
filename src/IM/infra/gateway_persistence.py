@@ -107,6 +107,7 @@ class GatewayNodePersistence:
         agent_workspace_is_default: dict[str, bool] | None = None,
         agent_create_operations: dict[str, str] | None = None,
         agent_skills: dict[str, list[str]] | None = None,
+        agent_skills_selection_modes: dict[str, str] | None = None,
         agent_tool_allowlist: dict[str, list[str]] | None = None,
     ) -> GatewayRegistrationResult:
         """Persist one node advertisement using the legacy durable write sequence.
@@ -123,6 +124,7 @@ class GatewayNodePersistence:
                 a lost ``agent.created`` response; ordinary registrations omit it.
             agent_skills: Optional per-agent skill seed keyed by agent id.
                 Used only when creating a new profile (bugfix-467).
+            agent_skills_selection_modes: Optional selection intent keyed by agent id.
             agent_tool_allowlist: Optional per-agent tool allowlist seed keyed by agent id.
                 Used only when creating a new profile (bugfix-467).
 
@@ -145,6 +147,7 @@ class GatewayNodePersistence:
             agent_count=len(agent_ids),
         )
         skills_seed = agent_skills or {}
+        skill_modes_seed = agent_skills_selection_modes or {}
         tools_seed = agent_tool_allowlist or {}
         provenance_seed = agent_workspace_is_default or {}
         create_operations = agent_create_operations or {}
@@ -159,6 +162,7 @@ class GatewayNodePersistence:
                 display_name = agent_id
                 description = f"Runtime agent advertised by {node_name}."
                 skills = list(skills_seed.get(agent_id, []))
+                skills_selection_mode = skill_modes_seed.get(agent_id)
                 tool_allowlist = list(tools_seed.get(agent_id, []))
                 group_reply_policy = "MENTION"
                 default_model: str | None = None
@@ -173,6 +177,7 @@ class GatewayNodePersistence:
                 display_name = existing.display_name
                 description = existing.description
                 skills = existing.skills
+                skills_selection_mode = existing.skills_selection_mode
                 tool_allowlist = existing.tool_allowlist
                 group_reply_policy = existing.group_reply_policy
                 default_model = existing.default_model
@@ -195,6 +200,7 @@ class GatewayNodePersistence:
                 display_name=display_name,
                 description=description,
                 skills=skills,
+                skills_selection_mode=skills_selection_mode,
                 tool_allowlist=tool_allowlist,
                 group_reply_policy=group_reply_policy,
                 default_model=default_model,

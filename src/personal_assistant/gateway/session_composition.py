@@ -10,6 +10,18 @@ from agent.sdk import PromptSlots, SessionRuntimeConfig
 from personal_assistant.config.model_reasoning import ModelReasoningCatalog
 from personal_assistant.gateway.agent_catalog import LiveAgentSnapshot
 from personal_assistant.product import prompt_for, resolve_enabled_tools
+from personal_assistant.config.skill_selection import (
+    EXPLICIT_ALLOWLIST,
+    effective_skills_selection_mode,
+)
+
+
+def _session_skills(config: object) -> list[str] | None:
+    skills = tuple(getattr(config, "skills", ()))
+    mode = effective_skills_selection_mode(
+        getattr(config, "skills_selection_mode", None), skills
+    )
+    return list(skills) if mode == EXPLICIT_ALLOWLIST else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,7 +78,7 @@ def project_agent_runtime(
         runtime=SessionRuntimeConfig(
             model=resolved_model,
             prompt=prompt_for(config, scenario=scenario),
-            skills=list(config.skills) if config.skills else None,
+            skills=_session_skills(config),
             enabled_tools=resolve_enabled_tools(config),
             features=dict(config.features),
             reasoning_effort=reasoning_effort,
@@ -85,7 +97,7 @@ def project_agent_session_capabilities(
     config = agent.config
     return AgentSessionCapabilities(
         prompt=prompt_for(config, scenario=scenario),
-        skills=list(config.skills) if config.skills else None,
+        skills=_session_skills(config),
         enabled_tools=resolve_enabled_tools(config),
         features=dict(config.features),
     )

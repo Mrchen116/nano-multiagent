@@ -44,6 +44,7 @@ export interface AgentConfig {
   heartbeat?: HeartbeatConfig;
   // feat-394 M9-E: cron field removed — no per-agent cron config; enable in features["cron_scheduling"].
   skills: string[];
+  skills_selection_mode?: "default_discovery" | "explicit_allowlist";
   tool_allowlist: string[];
   group_reply_policy: "ALWAYS" | "MENTION" | "NO_REPLY" | string;
   default_model: string | null;
@@ -65,6 +66,7 @@ export interface AgentAllowlistOption {
   // feat-430: SKILL.md path (skills only) so the slash picker distinguishes
   // same-named skills at different paths. Absent/null for tools and older Gateways.
   location?: string | null;
+  source_group?: "workspace" | "global" | "compatibility" | null;
 }
 
 // bugfix-429 R5: a selectable model with its registered provider/format, so the
@@ -147,6 +149,7 @@ export interface NodeAgentCreateRequest {
   features?: Record<string, boolean>;
   custom_prompt?: string | null;
   skills: string[];
+  skills_selection_mode?: "default_discovery" | "explicit_allowlist";
   tool_allowlist: string[];
   group_reply_policy: "ALWAYS" | "MENTION" | "NO_REPLY" | string;
   default_model: string | null;
@@ -170,6 +173,7 @@ export interface UpdateAgentConfigRequest {
   heartbeat?: HeartbeatConfig;
   // feat-394 M9-E: cron removed from update request; enable in features["cron_scheduling"].
   skills: string[];
+  skills_selection_mode?: "default_discovery" | "explicit_allowlist";
   tool_allowlist: string[];
   group_reply_policy: "ALWAYS" | "MENTION" | "NO_REPLY" | string;
   default_model: string | null;
@@ -307,6 +311,7 @@ export function normalizeAllowlistOptions(values: Array<string | AgentAllowlistO
         description: value.description ?? "",
         default_on: value.default_on,
         location: value.location ?? null,
+        source_group: value.source_group ?? null,
       }];
     }
     return [];
@@ -539,6 +544,14 @@ export function normalizeAgentConfigResponse(raw: Record<string, unknown>): Agen
 
   return {
     ...config,
+    skills_selection_mode:
+      config.skills_selection_mode === "explicit_allowlist"
+        ? "explicit_allowlist"
+        : config.skills_selection_mode === "default_discovery"
+          ? "default_discovery"
+          : (config.skills?.length ?? 0) > 0
+            ? "explicit_allowlist"
+            : "default_discovery",
     heartbeat,
     reasoning_effort:
       typeof config.reasoning_effort === "string" && config.reasoning_effort.trim()
@@ -636,6 +649,9 @@ export async function updateAgentConfig(agentId: string, next: UpdateAgentConfig
       ...(next.heartbeat !== undefined ? { heartbeat: next.heartbeat } : {}),
       // feat-394 M9-E: cron has no config object; enable is in features["cron_scheduling"].
       skills: next.skills,
+      skills_selection_mode:
+        next.skills_selection_mode ??
+        (next.skills.length > 0 ? "explicit_allowlist" : "default_discovery"),
       tool_allowlist: next.tool_allowlist,
       group_reply_policy: next.group_reply_policy,
       default_model: next.default_model,

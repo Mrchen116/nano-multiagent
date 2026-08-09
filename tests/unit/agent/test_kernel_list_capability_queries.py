@@ -148,3 +148,67 @@ def test_list_skills_carries_skill_md_location(tmp_path: Path) -> None:
         assert located.location.endswith("located_skill/SKILL.md")
     finally:
         kernel.close()
+
+
+def test_list_shared_skills_excludes_repo_workspace_layout(tmp_path: Path) -> None:
+    workspace_skill = tmp_path / ".nanocode" / "skills" / "workspace-only"
+    shared_root = tmp_path / "shared"
+    shared_skill = shared_root / "shared-only"
+    for directory, name in (
+        (workspace_skill, "workspace-only"),
+        (shared_skill, "shared-only"),
+    ):
+        directory.mkdir(parents=True)
+        (directory / "SKILL.md").write_text(
+            f"---\nname: {name}\ndescription: test\n---\nbody\n",
+            encoding="utf-8",
+        )
+    kernel = build_kernel(
+        llm=LLMConfig(
+            provider="openai_compat",
+            model="codex_oauth:gpt-5.5",
+            base_url="http://127.0.0.1:4000",
+            default_model="codex_oauth:gpt-5.5",
+        ),
+        workspace_config_dirname=".nanocode",
+        repo_root=tmp_path,
+        skill_search_roots=(shared_root,),
+        _llm_client_override=_fake_llm_client(),
+    )
+    try:
+        assert [skill.name for skill in kernel.list_shared_skills()] == ["shared-only"]
+    finally:
+        kernel.close()
+
+
+def test_ordered_workspace_layout_uses_first_same_named_skill(tmp_path: Path) -> None:
+    workspace = tmp_path / "ws"
+    for dirname, marker in ((".native", "native"), (".claude", "claude")):
+        skill_dir = workspace / dirname / "skills" / "shared-name"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            f"---\nname: shared-name\ndescription: {marker}\n---\nbody\n",
+            encoding="utf-8",
+        )
+    kernel = build_kernel(
+        llm=LLMConfig(
+            provider="openai_compat",
+            model="codex_oauth:gpt-5.5",
+            base_url="http://127.0.0.1:4000",
+            default_model="codex_oauth:gpt-5.5",
+        ),
+        workspace_config_dirname=".native",
+        workspace_skill_dirnames=(".native", ".claude", ".codex"),
+        repo_root=tmp_path,
+        _llm_client_override=_fake_llm_client(),
+    )
+    try:
+        selected = next(
+            skill
+            for skill in kernel.list_skills(workspace)
+            if skill.name == "shared-name"
+        )
+        assert selected.description == "native"
+        assert "/.native/skills/" in selected.location
+    finally:
+        kernel.close()

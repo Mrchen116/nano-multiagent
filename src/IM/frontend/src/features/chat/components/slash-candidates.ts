@@ -44,9 +44,11 @@ export interface AgentEnabledSkills {
  */
 export function resolveEnabledSkills(
   whitelist: string[],
-  capabilitySkills: AgentAllowlistOption[]
+  capabilitySkills: AgentAllowlistOption[],
+  selectionMode?: "default_discovery" | "explicit_allowlist",
 ): AgentAllowlistOption[] {
-  if (whitelist.length === 0) return capabilitySkills;
+  const effectiveMode = selectionMode ?? (whitelist.length > 0 ? "explicit_allowlist" : "default_discovery");
+  if (effectiveMode === "default_discovery") return capabilitySkills;
   const allow = new Set(whitelist);
   return capabilitySkills.filter((s) => allow.has(s.name));
 }

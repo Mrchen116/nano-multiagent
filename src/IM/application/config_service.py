@@ -89,6 +89,7 @@ class ConfigService:
         workspace_is_default: bool | None = None,
         features: dict[str, bool] | None = None,
         custom_prompt: str | None = None,
+        skills_selection_mode: str | None = None,
         notify_config_sync: bool = True,
     ) -> AgentProfile:
         """Create one agent profile under exactly one known node."""
@@ -126,6 +127,7 @@ class ConfigService:
             workspace_is_default=workspace_is_default,
             features=features,
             custom_prompt=custom_prompt,
+            skills_selection_mode=skills_selection_mode,
         )
         # feat-340-M18 R9-1: pair every newly-created agent with an IM users row so the
         # subsequent `POST /im/v1/conversations { participant_ids: [user_id] }` flow
@@ -156,6 +158,7 @@ class ConfigService:
         reasoning_effort: str | None,
         features: dict[str, bool],
         custom_prompt: str | None,
+        skills_selection_mode: str | None = None,
     ) -> AgentProfile:
         """Claim the exact Gateway registration seed for an active create operation."""
         if self._nodes is None:
@@ -182,6 +185,7 @@ class ConfigService:
             reasoning_effort=reasoning_effort,
             features=features,
             custom_prompt=custom_prompt,
+            skills_selection_mode=skills_selection_mode,
         )
         if claimed is None:
             raise ValueError("agent_id already exists")
@@ -220,6 +224,7 @@ class ConfigService:
         reasoning_effort: str | None,
         features: dict[str, bool],
         custom_prompt: str | None,
+        skills_selection_mode: str | None = None,
     ) -> AgentProfile:
         """Claim a matching Gateway create operation after a lost response.
 
@@ -256,6 +261,7 @@ class ConfigService:
             reasoning_effort=reasoning_effort,
             features=features,
             custom_prompt=custom_prompt,
+            skills_selection_mode=skills_selection_mode,
         )
         if claimed is None:
             raise ValueError("agent_id already exists")
@@ -384,6 +390,7 @@ class ConfigService:
         features: dict[str, bool] | None = None,
         custom_prompt: str | None = None,
         heartbeat_json: str | None = None,
+        skills_selection_mode: str | None = None,
         notify_config_sync: bool = True,
     ) -> AgentProfile:
         """Update one agent profile using profile_version optimistic locking.
@@ -418,6 +425,7 @@ class ConfigService:
             features=features,
             custom_prompt=custom_prompt,
             heartbeat_json=heartbeat_json,
+            skills_selection_mode=skills_selection_mode,
         )
         if notify_config_sync:
             self._notify_config_sync(

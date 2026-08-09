@@ -1829,15 +1829,23 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
               testId="pill-selector-skills"
               label={t("agents.form.access.skills")}
               selected={draft.skills}
+              selectionMode={
+                draft.skills_selection_mode ??
+                (draft.skills.length > 0 ? "explicit_allowlist" : "default_discovery")
+              }
               options={capabilities.skills}
               workspaceRoot={draft.workspace_root}
               isLoading={detailQuery.isLoading}
               errorMessage={detailQuery.isError ? queryErrorDetail : null}
               onRetry={() => void detailQuery.refetch()}
-              onChange={(skills) => {
+              onChange={(skills, skillsSelectionMode) => {
                 setSaved(false);
                 setErrorMessage(null);
-                setDraft({ ...draft, skills });
+                setDraft({
+                  ...draft,
+                  skills,
+                  skills_selection_mode: skillsSelectionMode,
+                });
               }}
             />
             <div className="h-px bg-[var(--im-border)]" aria-hidden="true" />

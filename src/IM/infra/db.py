@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS agent_profiles (
     display_name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
     skills_json TEXT NOT NULL DEFAULT '[]',
+    skills_selection_mode TEXT,
     tool_allowlist_json TEXT NOT NULL DEFAULT '[]',
     group_reply_policy TEXT NOT NULL DEFAULT 'manual',
     default_model TEXT,
@@ -755,6 +756,10 @@ def _migrate_agent_profile_tables(connection: sqlite3.Connection) -> None:
     if agent_column_names and "reasoning_effort" not in agent_column_names:
         connection.execute(
             "ALTER TABLE agent_profiles ADD COLUMN reasoning_effort TEXT"
+        )
+    if agent_column_names and "skills_selection_mode" not in agent_column_names:
+        connection.execute(
+            "ALTER TABLE agent_profiles ADD COLUMN skills_selection_mode TEXT"
         )
 
     node_rows = connection.execute("PRAGMA table_info(nodes)").fetchall()

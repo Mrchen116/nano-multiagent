@@ -39,7 +39,13 @@ WORKSPACE_CONFIG_DIRNAME = ".nanocode"
 # ~/.codex/skills compat skill 因此丢失发现。
 CLI_SKILL_SEARCH_ROOTS: tuple[Path, ...] = (
     Path("~/.nanocode/skills"),
+    Path("~/.claude/skills"),
     Path("~/.codex/skills"),
+)
+CLI_WORKSPACE_SKILL_DIRNAMES: tuple[str, ...] = (
+    WORKSPACE_CONFIG_DIRNAME,
+    ".claude",
+    ".codex",
 )
 
 # Deployment-level user tool / hook plugin dirs (refactor-406-M3fix #2). Ported from
@@ -147,6 +153,7 @@ def build_cli_kernel(
         hooks=[],
         can_use_tool=can_use_tool,
         workspace_config_dirname=WORKSPACE_CONFIG_DIRNAME,
+        workspace_skill_dirnames=CLI_WORKSPACE_SKILL_DIRNAMES,
         repo_root=resolved_root,
         skill_search_roots=CLI_SKILL_SEARCH_ROOTS,  # #6: ~/.nanocode + ~/.codex compat
         tool_search_roots=CLI_TOOL_SEARCH_ROOTS,  # #2: ~/.nanocode/tools

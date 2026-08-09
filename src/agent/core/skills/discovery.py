@@ -15,6 +15,39 @@ class SkillRootResolver(Protocol):
         """Return ordered skill search roots for the active product context."""
 
 
+def build_skill_search_roots(
+    *,
+    workspace_root: Path,
+    workspace_config_dirname: str | None,
+    workspace_skill_dirnames: tuple[str, ...] | None = None,
+    shared_skill_roots: tuple[Path, ...] = (),
+) -> tuple[Path, ...]:
+    """Build the canonical ordered, deduplicated Skill read roots.
+
+    Args:
+        workspace_root: Per-session workspace directory.
+        workspace_config_dirname: Native product config directory name.
+        workspace_skill_dirnames: Ordered workspace directories used for Skill reads.
+            Omitted preserves the native single-directory layout.
+        shared_skill_roots: Deployment-level roots appended after workspace roots.
+
+    Returns:
+        Resolved roots in first-match precedence order.
+    """
+    dirnames = workspace_skill_dirnames or (
+        (workspace_config_dirname,) if workspace_config_dirname else ()
+    )
+    ordered = [
+        (workspace_root / dirname / "skills").expanduser().resolve()
+        for dirname in dirnames
+    ]
+    for root in shared_skill_roots:
+        resolved = Path(root).expanduser().resolve()
+        if resolved not in ordered:
+            ordered.append(resolved)
+    return tuple(ordered)
+
+
 class _WorkspaceDirnameSkillResolver:
     """Minimal SkillRootResolver for the 2-layer path (no ProductProfile).
 
@@ -32,19 +65,15 @@ class _WorkspaceDirnameSkillResolver:
         self,
         *,
         workspace_root: Path,
-        workspace_config_dirname: str,
+        workspace_skill_dirnames: tuple[str, ...],
         extra_roots: tuple[Path, ...] = (),
     ) -> None:
-        ordered: list[Path] = [
-            (workspace_root / workspace_config_dirname / "skills")
-            .expanduser()
-            .resolve()
-        ]
-        for root in extra_roots:
-            resolved = Path(root).expanduser().resolve()
-            if resolved not in ordered:
-                ordered.append(resolved)
-        self._roots = tuple(ordered)
+        self._roots = build_skill_search_roots(
+            workspace_root=workspace_root,
+            workspace_config_dirname=None,
+            workspace_skill_dirnames=workspace_skill_dirnames,
+            shared_skill_roots=extra_roots,
+        )
 
     def user_skill_roots(self) -> tuple[Path, ...]:
         return self._roots
@@ -54,6 +83,7 @@ def make_skill_resolver(
     workspace_root: Path,
     workspace_config_dirname: str | None,
     skill_search_roots: tuple[Path, ...],
+    workspace_skill_dirnames: tuple[str, ...] | None = None,
 ) -> SkillRootResolver | None:
     """Build a per-workspace skill resolver from the same inputs used by preview/list_skills.
 
@@ -70,16 +100,22 @@ def make_skill_resolver(
         skill_search_roots: Deployment-level shared skill directories supplied by the
             consumer factory (e.g. PA_SKILL_SEARCH_ROOTS). Appended after the
             per-workspace root, deduplicating by directory.
+        workspace_skill_dirnames: Ordered config directory names whose ``skills``
+            children are searched. Omitted preserves the single
+            ``workspace_config_dirname`` layout.
 
     Returns:
         A SkillRootResolver whose user_skill_roots() yields workspace-first roots,
         or None when workspace_config_dirname is not supplied.
     """
-    if not workspace_config_dirname:
+    dirnames = workspace_skill_dirnames or (
+        (workspace_config_dirname,) if workspace_config_dirname else ()
+    )
+    if not dirnames:
         return None
     return _WorkspaceDirnameSkillResolver(
         workspace_root=workspace_root,
-        workspace_config_dirname=workspace_config_dirname,
+        workspace_skill_dirnames=dirnames,
         extra_roots=skill_search_roots,
     )
 

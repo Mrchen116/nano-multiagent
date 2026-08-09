@@ -311,6 +311,17 @@ class GatewaySessions:
             if isinstance(raw_skills, dict)
             else {}
         )
+        raw_skill_modes = payload.get("agent_skills_selection_modes")
+        agent_skills_selection_modes: dict[str, str] = (
+            {
+                key: value
+                for key, value in raw_skill_modes.items()
+                if isinstance(key, str)
+                and value in {"default_discovery", "explicit_allowlist"}
+            }
+            if isinstance(raw_skill_modes, dict)
+            else {}
+        )
         raw_tools = payload.get("agent_tool_allowlist")
         agent_tool_allowlist: dict[str, list[str]] = (
             _normalize_agent_string_list_seed(raw_tools)
@@ -348,6 +359,7 @@ class GatewaySessions:
                 agent_workspace_is_default=agent_workspace_is_default,
                 agent_create_operations=agent_create_operations,
                 agent_skills=agent_skills,
+                agent_skills_selection_modes=agent_skills_selection_modes,
                 agent_tool_allowlist=agent_tool_allowlist,
             )
             prior_status = (

@@ -78,6 +78,7 @@ def test_agent_create_contract_shape_and_validation(tmp_path: Path) -> None:
             "display_name",
             "description",
             "skills",
+            "skills_selection_mode",
             "tool_allowlist",
             "group_reply_policy",
             "default_model",
@@ -91,6 +92,7 @@ def test_agent_create_contract_shape_and_validation(tmp_path: Path) -> None:
             "heartbeat_json",
         }
         assert created.json()["node_id"] == "node-1"
+        assert created.json()["skills_selection_mode"] == "explicit_allowlist"
         assert created.json()["workspace_root"] == "/srv/agents/agent-1"
         assert created.json()["workspace_is_default"] is True
         assert isinstance(created.json()["updated_at"], str)

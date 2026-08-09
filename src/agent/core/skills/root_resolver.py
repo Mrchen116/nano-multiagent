@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .registry import SkillRegistry
+from .discovery import build_skill_search_roots
 from .writer import SkillWriter
 
 
@@ -56,6 +57,7 @@ def resolve_skill_roots(
     ctx: Any,
     *,
     workspace_config_dirname: str | None,
+    workspace_skill_dirnames: tuple[str, ...] | None = None,
     extra_roots: tuple[Path, ...] = (),
     global_skill_root: Path | None = None,
 ) -> ResolvedSkillRoots:
@@ -64,7 +66,9 @@ def resolve_skill_roots(
     Args:
         ctx: ToolContext-like object carrying ``session_metadata``.
         workspace_config_dirname: Product workspace config dir name.
-        extra_roots: Deployment-level read/search roots appended after agent root.
+        workspace_skill_dirnames: Ordered workspace directories used for reads.
+            The native ``workspace_config_dirname`` remains the writer root.
+        extra_roots: Deployment-level read/search roots appended after workspace roots.
         global_skill_root: Optional product-level root eligible for ``scope="global"`` writes.
 
     Returns:
@@ -89,15 +93,16 @@ def resolve_skill_roots(
         if global_skill_root is not None
         else None
     )
-    search_roots: list[Path] = [agent_root]
-    for root in extra_roots:
-        resolved = Path(root).expanduser().resolve()
-        if resolved not in search_roots:
-            search_roots.append(resolved)
-    registry = SkillRegistry(search_roots=tuple(search_roots))
+    search_roots = build_skill_search_roots(
+        workspace_root=ws,
+        workspace_config_dirname=str(dirname),
+        workspace_skill_dirnames=workspace_skill_dirnames,
+        shared_skill_roots=extra_roots,
+    )
+    registry = SkillRegistry(search_roots=search_roots)
     return ResolvedSkillRoots(
         agent_skill_root=agent_root,
-        search_roots=tuple(search_roots),
+        search_roots=search_roots,
         registry=registry,
         agent_writer=SkillWriter(skill_root=agent_root, registry=registry),
         global_skill_root=resolved_global,

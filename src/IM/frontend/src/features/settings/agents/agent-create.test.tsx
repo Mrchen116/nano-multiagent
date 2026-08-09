@@ -237,6 +237,7 @@ describe("agent create page", () => {
         custom_prompt: "You are Agent New.",
         features: {},
         skills: ["plan"],
+        skills_selection_mode: "explicit_allowlist",
         tool_allowlist: ["read"],
         group_reply_policy: "MENTION",
         default_model: null,

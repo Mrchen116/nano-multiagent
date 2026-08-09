@@ -36,3 +36,21 @@ def test_make_skill_resolver_is_disabled_without_config_dirname(
     )
 
     assert resolver is None
+
+
+def test_make_skill_resolver_uses_ordered_workspace_layout(tmp_path: Path) -> None:
+    shared = tmp_path / "shared"
+    resolver = make_skill_resolver(
+        workspace_root=tmp_path,
+        workspace_config_dirname=".native",
+        workspace_skill_dirnames=(".native", ".claude", ".codex"),
+        skill_search_roots=(shared,),
+    )
+
+    assert resolver is not None
+    assert resolver.user_skill_roots() == (
+        (tmp_path / ".native" / "skills").resolve(),
+        (tmp_path / ".claude" / "skills").resolve(),
+        (tmp_path / ".codex" / "skills").resolve(),
+        shared.resolve(),
+    )
