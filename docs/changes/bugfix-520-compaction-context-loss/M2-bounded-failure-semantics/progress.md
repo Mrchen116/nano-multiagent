@@ -40,6 +40,23 @@
 - Commits: 本 roadpoint commit。
 - Next: R3 public Kernel manual/overflow failure 与 automatic 用户提示。
 
+## R3 — manual/overflow 与 automatic 用户提示
+
+- Context: manual、overflow 与 threshold 的失败编排分散；automatic exception 原先直接进入 terminal，没有用户安全文本，fallback 又会错误提交 boundary。
+- Decision: `_compact_session` 对 summary/stale/persistence 分别产出 typed outcome；overflow 计入共享 tracker 并保留原 provider cause，成功 commit 才 reset；runtime 对 automatic typed error 只发布固定 message/turn events，不写 transcript。
+- Rationale: durable history 仍只有 `append_compaction` 一条 commit seam；提示和诊断分离，可复用现有 Web/CLI/Feishu assistant delivery，同时不会污染下一轮模型上下文。
+- Evidence:
+  - Tests: Red 覆盖旧 RuntimeError/strict、缺失 assistant event 与错误 SessionInfo ref；Green focused `6 passed`，R3 扩展回归 `33 passed`。
+  - Entry: public `agent.sdk` Kernel submit/stream 证明 threshold 第三次、overflow summary failure、threshold persistence failure 都先收到固定 assistant text 再收到 failed terminal；manual public compact failure 保持历史。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression: `tests/integration/test_conversation_compaction_integration.py` 新增三类真实 SDK 入口回归；`tests/unit/agent/test_kernel_manual_compact.py` 覆盖 manual summary/stale/persistence atomicity。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退本 roadpoint commit 可恢复旧 runtime 编排，R1/R2 domain 与 loop policy 保留。
+- Commits: 本 roadpoint commit。
+- Next: R4 RunsRegistry 结构化 terminal、成功 reset/重载持续性与完整门禁。
+
 ## Promotion Candidates
 
 None.

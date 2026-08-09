@@ -51,12 +51,12 @@
 
 ### R3 — manual/overflow 与 automatic 用户提示
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 用 public Kernel 红测覆盖 summary/persistence/overflow 原因、历史 atomicity、assistant-before-failed 与不写 transcript；实现 runtime 三入口收口。
 - 验证: `tests/unit/agent/test_kernel_manual_compact.py`、`tests/integration/test_conversation_compaction_integration.py`。
 
 ### R4 — terminal 诊断、会话重载持续性与最终门禁
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 扩展 RunsRegistry typed error/ordinary error tests，验证 external reload/LRU 持续计数、成功 reset、飞书通用投递 seam 与完整 M2 回归。
 - 验证: design runbook 的 M2 focused suite、Ruff、`git diff --check`。
