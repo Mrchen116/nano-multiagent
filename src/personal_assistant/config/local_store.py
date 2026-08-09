@@ -725,7 +725,11 @@ def ensure_lark_skill_bundle_for_feishu_agents(
             and missing_skills
         ):
             updated_agents.append(
-                replace(agent, skills=(*agent.skills, *missing_skills))
+                replace(
+                    agent,
+                    skills=(*agent.skills, *missing_skills),
+                    skills_selection_mode=EXPLICIT_ALLOWLIST,
+                )
             )
             changed = True
         else:

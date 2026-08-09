@@ -201,6 +201,7 @@ def test_load_runtime_config_provisions_lark_bundle_before_composition(
     tmp_path: Path,
 ) -> None:
     """Gateway startup persists the Lark bundle before runtime composition."""
+    (tmp_path / "agent-a").mkdir()
     config = LocalConfig(
         node=NodeConfig(node_id="node-local"),
         agents=(
@@ -224,14 +225,22 @@ def test_load_runtime_config_provisions_lark_bundle_before_composition(
     )
     saved: list[LocalConfig] = []
 
+    def save_updated(updated: LocalConfig, path: Path) -> None:
+        saved.append(updated)
+        local_store.save_local_config(updated, path)
+
     loaded = local_store.load_gateway_runtime_config(
         config.source_path,
         load_config=lambda _path: config,
-        save_config=lambda updated, _path: saved.append(updated),
+        save_config=save_updated,
     )
 
     assert loaded.agents[0].skills == ("memory", *lark_skill_names())
+    assert loaded.agents[0].skills_selection_mode == "explicit_allowlist"
     assert saved == [loaded]
+    persisted = local_store.load_local_config(config.source_path).agents[0]
+    assert persisted.skills == loaded.agents[0].skills
+    assert persisted.skills_selection_mode == "explicit_allowlist"
 
 
 @pytest.mark.parametrize(
@@ -272,6 +281,83 @@ def test_load_runtime_config_keeps_empty_feishu_selection_unmaterialized(
     )
 
     assert loaded.agents[0].skills == ()
+    assert loaded.agents[0].skills_selection_mode == selection_mode
+    assert saved == []
+
+
+def test_load_runtime_config_does_not_materialize_default_nonempty_selection(
+    tmp_path: Path,
+) -> None:
+    config = LocalConfig(
+        node=NodeConfig(node_id="node-default"),
+        agents=(
+            AgentWorkspaceConfig(
+                agent_id="agent-default",
+                workspace_root=tmp_path / "agent-default",
+                skills=("memory",),
+                skills_selection_mode="default_discovery",
+            ),
+        ),
+        channels=(
+            ChannelConfig(
+                name="feishu:agent-default",
+                settings={"appId": "cli_a", "appSecret": "s_a", "botOpenId": "ou_bot"},
+            ),
+        ),
+        gateway=GatewayLifecycleConfig(),
+        heartbeat=HeartbeatConfig(),
+        im_service=IMServiceConfig(url="http://im.local"),
+        llm=_DEFAULT_TEST_LLM,
+        source_path=tmp_path / "node-default.yaml",
+    )
+    saved: list[LocalConfig] = []
+
+    loaded = local_store.load_gateway_runtime_config(
+        config.source_path,
+        load_config=lambda _path: config,
+        save_config=lambda updated, _path: saved.append(updated),
+    )
+
+    assert loaded.agents[0].skills == ("memory",)
+    assert loaded.agents[0].skills_selection_mode == "default_discovery"
+    assert saved == []
+
+
+def test_load_runtime_config_does_not_migrate_unchanged_legacy_allowlist(
+    tmp_path: Path,
+) -> None:
+    complete_skills = ("memory", *lark_skill_names())
+    config = LocalConfig(
+        node=NodeConfig(node_id="node-complete"),
+        agents=(
+            AgentWorkspaceConfig(
+                agent_id="agent-complete",
+                workspace_root=tmp_path / "agent-complete",
+                skills=complete_skills,
+            ),
+        ),
+        channels=(
+            ChannelConfig(
+                name="feishu:agent-complete",
+                settings={"appId": "cli_a", "appSecret": "s_a", "botOpenId": "ou_bot"},
+            ),
+        ),
+        gateway=GatewayLifecycleConfig(),
+        heartbeat=HeartbeatConfig(),
+        im_service=IMServiceConfig(url="http://im.local"),
+        llm=_DEFAULT_TEST_LLM,
+        source_path=tmp_path / "node-complete.yaml",
+    )
+    saved: list[LocalConfig] = []
+
+    loaded = local_store.load_gateway_runtime_config(
+        config.source_path,
+        load_config=lambda _path: config,
+        save_config=lambda updated, _path: saved.append(updated),
+    )
+
+    assert loaded.agents[0].skills == complete_skills
+    assert loaded.agents[0].skills_selection_mode is None
     assert saved == []
 
 

@@ -27,6 +27,9 @@ runtime projection, and the Web IM create/detail/chat surfaces.
 - The shared selector renders default discovery as effectively selected, converts
   the first edit to explicit intent, exposes accessible grouped tri-state actions,
   and preserves selected names absent from the current capability payload.
+- Static Feishu bundle reconciliation now persists `explicit_allowlist` when it
+  actually appends names to a legacy non-empty allowlist. It leaves legacy/default
+  zero-Skill selections and already-complete legacy allowlists unmigrated.
 
 ## Evidence
 
@@ -41,6 +44,9 @@ runtime projection, and the Web IM create/detail/chat surfaces.
 - `npm run build` passed; Vite retained its existing large-chunk warning.
 - `ruff check src tests`, `ruff format --check src tests`, `git diff --check`, and
   `PYTHON=/Users/czj/miniforge3/bin/python ./scripts/docs-check` passed.
+- Gate follow-up: `pytest -q tests/unit/personal_assistant/test_gateway_launch.py`
+  → 10 passed, including the persisted YAML regression. The expanded Gateway
+  reconciliation suite → 47 passed.
 
 ## Remaining gates
 
