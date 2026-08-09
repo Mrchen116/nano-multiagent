@@ -339,3 +339,187 @@ None.
 ## Round 2 Cleanup Confirmation
 
 Playwright、Vite、IM 与 Gateway 均已关闭，`52853` 与 `52895` 已确认无监听；临时 `node_modules` symlink 已解除。截图和临时数据库/receipt 已移至 `/tmp/nano-feat519-r2-review-artifacts-20260810`，所有 runtime/config/secret/database/workspace artifacts 均未纳入提交。
+
+---
+
+# Round 3 — 2026-08-10
+
+## Verdict
+
+- **Verdict:** PASS
+- **Highest Required Action:** none
+- **Blocking issues:** 0
+- **Major issues:** 0
+- **Minor issues:** 0
+- **Validated at:** 2026-08-10T03:28:36+08:00
+- **Validated commit:** `7be956bc85bfb1f13ff1e02f11b2dd4e001ae0c0`
+- **Executed base:** `1d0c2cb45b887162912402b0fb489cdf3a1ad9c9`
+- **Fix delta observed:** `449960cfdabf4fc265a0f54a8013d11fa16185ad..7be956bc85bfb1f13ff1e02f11b2dd4e001ae0c0`
+- **Review round:** 3
+
+R1/R2 的 B1 已关闭。全新隔离 IM、Gateway、Vite、数据库、workspace 与 node identity 下，真实 Agent detail 首次从 `default_discovery` 改为 workspace `.claude` 单项后保存成功；显式清空后也保存成功。两次操作均同时满足浏览器 PATCH 200、IM operation `committed`、Gateway receipt `applied`、live API / IM raw profile / Gateway YAML 一致以及真刷新后状态保持。随后在同一既有 chat 中真实发起下一轮，SlashPicker 不再暴露 Skill，真实 `skill_view` 明确返回该 Skill 未为本 session 启用，历史仍完整保留。此前通过的发现、优先级、批量分组、mobile 和创建页行为均无回归。
+
+## R1/R2 Issue Revalidation
+
+### B1 — CLOSED: Agent detail 可以持久化显式单项与显式空
+
+- **Former severity:** blocking
+- **Regression relation:** direct fix verification
+- **Required action:** none
+
+#### default discovery → 单项 explicit allowlist
+
+1. 初始真实 Agent detail 为 profile v1、default discovery；Workspace `4/4`、Global `29/29`、Compatibility `13/13`。
+2. 清空三个分组，只选择 workspace `.claude/skills/r3-claude-one`；草稿显示 `1 selected`、Workspace `1/4 mixed`、其他两组 `0/n`。
+3. 点击 `Save Agent`，浏览器对 `/im/v1/agents/e2e/config` 的 PATCH 返回 200；页面进入 profile v2、无未保存变更。
+4. 使用 `page.goto` 真正重载同一详情页，仍是 `explicit_allowlist`、仅 `r3-claude-one` pressed、Workspace `1/4`，没有回退为默认全选。
+5. 三层持久化及 operation 证据一致：
+   - live GET：`skills=["r3-claude-one"]`、`skills_selection_mode=explicit_allowlist`、`profile_version=2`；
+   - IM `agent_profiles` raw row：相同 `skills_json` / mode / version；
+   - Gateway YAML：`skills: [r3-claude-one]`、`skills_selection_mode: explicit_allowlist`；
+   - operation `d6e5a8ec4644464a94f87337af7092d1`：IM `committed`，Gateway result 与 receipt 均为 `applied`，无 error。
+
+证据：
+
+- `/tmp/nano-feat519-r3-review-artifacts-20260810/output/playwright/feat-519-r3-explicit-one-draft.png`
+- `/tmp/nano-feat519-r3-review-artifacts-20260810/output/playwright/feat-519-r3-explicit-one-saved.png`
+- `/tmp/nano-feat519-r3-review-artifacts-20260810/output/playwright/feat-519-r3-explicit-one-reopened.png`
+
+#### 单项 explicit allowlist → 显式空
+
+1. 在已持久化的单项状态取消 `r3-claude-one`，形成三组均为 none、`0 selected` 的明确草稿。
+2. 保存 PATCH 返回 200；页面进入 profile v3。
+3. 真重载后仍是 Workspace `0/5`、Global `0/29`、Compatibility `0/13`，没有恢复 default discovery；新增的第 5 个 workspace 候选也保持未选。
+4. 三层持久化及 operation 证据一致：
+   - live GET：`skills=[]`、`skills_selection_mode=explicit_allowlist`、`profile_version=3`；
+   - IM raw row：`skills_json=[]`、explicit mode、v3；
+   - Gateway YAML：`skills: []`、explicit mode；
+   - operation `b91828446e0743c4bc3ad254037e0a91`：IM `committed`，Gateway result 与 receipt 均为 `applied`，无 error。
+
+证据：
+
+- `/tmp/nano-feat519-r3-review-artifacts-20260810/output/playwright/feat-519-r3-explicit-empty-draft.png`
+- `/tmp/nano-feat519-r3-review-artifacts-20260810/output/playwright/feat-519-r3-explicit-empty-saved.png`
+- `/tmp/nano-feat519-r3-review-artifacts-20260810/output/playwright/feat-519-r3-explicit-empty-reopened.png`
+
+## User Journeys Exercised
+
+### 1. 新增兼容 Skill 不扩张已保存 allowlist
+
+在单项 `r3-claude-one` 已保存并重开后，向同一真实 workspace 新增 `.claude/skills/r3-late-added`，再真正加载详情页。候选总数从 Workspace `1/4` 变成 `1/5`，新项可见但未 pressed；live config 仍只含 `r3-claude-one`。这证明发现候选会更新，但已有 explicit allowlist 不会静默扩张。
+
+证据：`/tmp/nano-feat519-r3-review-artifacts-20260810/output/playwright/feat-519-r3-late-skill-not-expanded.png`。
+
+### 2. 同一聊天历史、显式空 SlashPicker 与下一轮 session admission
+
+在任何配置变更前创建真实 direct chat `1e43396022a049c1859fda1ab9e01bf6`，发送 `R3-HISTORY-MARKER`，真实 Gateway/model 返回 `HISTORY_OK`。完成单项与显式空两次 applied 配置后重开同一 chat，marker 与回复均仍存在，并出现“Agent 配置已更新，后续请求不再命中此前上下文缓存”的产品分隔提示；聊天没有被重建或丢失。
+
+显式空后在该 chat 输入 `/`，SlashPicker 仅显示 `/stop`、`/new`、`/compact` 三个 Commands，不存在 Skills 分组，也不含任何 `r3-*` 候选。随后在同一 chat 发送下一轮真实请求，要求调用 `skill_view` 查看 `r3-claude-one`。真实模型实际发起 1 次 tool call，产品进程视图返回 `Skill 'r3-claude-one' is not enabled for this session`，模型最终回复 `SKILL_UNAVAILABLE`。这不是受控 LLM fixture；回复与 tool result 均来自隔离 Gateway 按 runbook 使用的真实配置。稳定系统提示 preview 也不含任何 `r3-*` Skill 清单。
+
+证据：
+
+- `/tmp/nano-feat519-r3-review-artifacts-20260810/output/playwright/feat-519-r3-explicit-empty-slashpicker.png`
+- `/tmp/nano-feat519-r3-review-artifacts-20260810/output/playwright/feat-519-r3-explicit-empty-runtime.png`
+
+### 3. PA / Coding CLI compatible roots 与优先级 smoke
+
+通过 validated worktree 的实际 `build_pa_kernel` / `build_cli_kernel` 产品 composition 读取公开候选并生成 prompt preview：
+
+- PA workspace 同时发现 `.nanoassistant`、`.claude`、`.codex` 的 `r3-*` fixtures；同名 `r3-priority` 只解析到 `.nanoassistant/skills`，preview 包含 native 胜出描述，不含较低优先级 Claude duplicate。
+- Coding CLI 临时 workspace 同时发现 `.nanocode`、`.claude`、`.codex` 的独有项；同名 `r3-cli-priority` 只解析到 `.nanocode/skills`，preview 包含 native 胜出正文，不含 Claude duplicate 正文。
+- 仅创建 `.claude/skills`、不创建 native 与 `.codex` roots 的另一个临时 workspace，在 PA 和 CLI 中都正常发现 `r3-only-claude`，没有报错或要求补目录。
+- live Agent detail 中 `r3-priority` 只出现一个且展示 PA native 描述，候选 projection 与 PA composition 一致。
+
+R1 已通过真实 `skill_view` 与原生 writer 路径；Round 3 fix delta只涉及配置 operation 指纹，本轮在当前 commit 重新执行候选与 prompt composition smoke，未观察到 writer 或 resolver 语义回归。
+
+### 4. Desktop/mobile 分组与创建页 smoke
+
+- desktop 默认态显示 Workspace `4/4`、Global `29/29`、Compatibility `13/13`；随后真实清组三组并选回单项，呈现 none / partial，保存后重开保持一致。
+- `375x812` 下 explicit empty 稳定显示三个来源分组；Workspace 组真实操作从 `0/5` 到 `5/5`，再取消单项变为 `4/5 mixed`。内容自然换行，底部保存区与 mobile navigation 无遮挡或横向溢出。
+- 新建 Agent 页面只显示 Global 与 Compatibility，共享 Global 默认 `29/29`；不存在 Workspace 分组，也不含 `r3-claude-one`、`r3-codex-one`、`r3-late-added` 等已有 repo workspace Skill。
+
+证据：
+
+- `/tmp/nano-feat519-r3-review-artifacts-20260810/output/playwright/feat-519-r3-default-desktop.png`
+- `/tmp/nano-feat519-r3-review-artifacts-20260810/output/playwright/feat-519-r3-mobile-explicit-empty.png`
+- `/tmp/nano-feat519-r3-review-artifacts-20260810/output/playwright/feat-519-r3-mobile-group-partial.png`
+- `/tmp/nano-feat519-r3-review-artifacts-20260810/output/playwright/feat-519-r3-mobile-create-shared-only.png`
+
+## Round 3 Scenario Coverage
+
+| Spec scenario | Result | Round 3 evidence |
+|---|---|---|
+| PA 配置页提供工作区与用户主目录的兼容 Skill | PASS | live Agent detail 候选 + 单项/空两次保存、重开与三层持久化 |
+| Coding CLI 在同一项目中提供兼容 Skill 候选 | PASS | 当前 commit 实际 CLI composition 同时发现 `.claude` / `.codex` |
+| 原生与既有兼容来源保持可用 | PASS | PA/CLI native、workspace compatibility、共享 Global/Compatibility 同时可见 |
+| PA 中同名 Skill 选择最优先来源 | PASS | live detail 与 PA list/preview 只采用 `.nanoassistant` winner |
+| Coding CLI 中同名 Skill 选择最优先来源 | PASS | CLI list/preview 只采用 `.nanocode` winner |
+| 新发现的兼容 Skill 不静默扩大已保存 Agent 的能力 | PASS | explicit `1/4` 后新增候选成为未选的 `1/5`，live config 未扩张 |
+| 开发者选择兼容 Skill 后继续既有聊天 | PASS | 同一 chat 保留 marker/真实回复；配置更新后新轮明确按 empty admission |
+| 开发者以一个分组为单位调整 Skill 选择 | PASS | desktop/mobile 均真实操作 group none/all 后仍可改单项 |
+| 分组状态如实反映单项选择 | PASS | `0/5` → `5/5` → `4/5 mixed` 与标题动作同步 |
+| 批量选择自然融入既有配置体验 | PASS | desktop 与 375px 均为组标题内紧凑三态控件，无独立笨重区 |
+| 工作区不含某个兼容目录 | PASS | 仅 `.claude` 的 PA/CLI workspace 正常完成 discovery |
+| 兼容目录没有有效 Skill | PASS | 缺失 roots 被跳过，其他有效来源继续可见；live 产品无错误 |
+
+## Browser, Console and Network Record
+
+- Viewports: desktop `1280x720`; mobile `375x812`.
+- 登录、Agent/config/capability/chat、真实模型消息和 tool process 均通过真实 UI 操作。
+- Playwright console 汇总：3 条普通消息，0 errors，0 warnings。
+- trace 中 HTTP response `>=400`：0。
+- Agent config：两次 PATCH `/im/v1/agents/e2e/config` 均为 200；后续两次 GET 均为 200。
+- 浏览器 trace/network log 可能包含登录 header，仅作为本机临时私有证据；报告只记录脱敏后的 method/path/status，未纳入提交。
+
+## Commands and Isolation
+
+主要命令（敏感值未写入报告）：
+
+```bash
+PATH="/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH" ./scripts/e2e-up.sh --wt "$PWD"
+source .e2e-ports.env
+VITE_IM_PROXY_TARGET="$IM_URL" npm run dev -- --host 127.0.0.1 --port 56991 --strictPort
+/Users/czj/.codex/skills/playwright/scripts/playwright_cli.sh open http://127.0.0.1:56991
+/Users/czj/.codex/skills/playwright/scripts/playwright_cli.sh tracing-start
+/Users/czj/.codex/skills/playwright/scripts/playwright_cli.sh resize 375 812
+/Users/czj/.codex/skills/playwright/scripts/playwright_cli.sh console error
+PYTHONPATH="$PWD/src" python <public build_cli_kernel/build_pa_kernel list + prompt probe>
+sqlite3 data/im_service.sqlite3 <sanitized profile/operation queries>
+jq <sanitized operation receipt/network projection>
+```
+
+隔离资源：
+
+- worktree / branch: `.worktrees/review-feat-519-r3` / `review/feat-519-acceptance-r3`
+- IM: `127.0.0.1:56947`
+- Vite: `127.0.0.1:56991`
+- Gateway node: `wt-review-feat-519-r3-70623`
+- Gateway PID file/runtime/config/DB: current review worktree-local isolated paths
+- Agent workspace: `.gateway-workspace/e2e`
+- CLI temp workspaces: `/tmp/nano-feat519-r3-cli-workspace`, `/tmp/nano-feat519-r3-missing-workspace`
+
+## Reference Artifacts Reviewed
+
+- `spec.md`, `design.md`, `prototype.html`
+- `M1-workspace-skills-selection/progress.md`, `verification-report.md`
+- R1/R2 sections of this acceptance report
+- unit delta specs and relevant current kernel Skills、SDK boundary、Gateway Agent capabilities、IM Agents/Nodes、Coding CLI product-integration specs
+- worktree runtime and testing runbooks
+
+Prototype must-match states were compared with the live product: source grouping, compact group-title checkbox, none/partial/all state, per-item adjustment, desktop hierarchy, `375x812` wrapping, and create-page workspace isolation all match the accepted product contract.
+
+## Risks and Side Findings
+
+None. The next-round real model response is inherently model-decided, but the expanded product process supplies deterministic runtime evidence from `skill_view`: the requested Skill was not enabled for that session. No controlled LLM fixture was used in Round 3.
+
+## Document Lifecycle Check
+
+- `SPEC.md`: no direct update required by this acceptance round.
+- `docs/specs/*`: implementation matches the active delta-spec target; lifecycle merge/archive remains the orchestrator's responsibility.
+- `AGENTS.md` / `CLAUDE.md`: no new development constraint surfaced.
+- `docs/specs/CONTRIBUTING.md`: no documentation-system change.
+- This acceptance round changes only this report.
+
+## Round 3 Cleanup Confirmation
+
+Playwright、Vite、IM 与 Gateway 均已关闭，`56947` 与 `56991` 已确认无监听；临时 `node_modules` symlink 已解除。截图、trace、日志、数据库、receipts 与 workspace fixtures 已移至 `/tmp/nano-feat519-r3-review-artifacts-20260810` 的本机私有证据目录；worktree runtime config 与 credential material 已由 runbook 清理，均未纳入提交。
