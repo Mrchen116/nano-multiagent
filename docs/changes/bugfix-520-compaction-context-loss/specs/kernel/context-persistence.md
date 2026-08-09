@@ -6,7 +6,7 @@
 
 ### Requirement: 上下文压缩在长会话中保持可恢复
 
-内核在 LLM 调用前后检查上下文是否接近/超出上限，必要时把旧轮次摘要化并落盘为压缩记录，保留首个保留事件 id 以保证可重建与可审计；overflow 后可恢复重试。包含 assistant tool call、匹配 tool result、并行分组或结构化内容的可恢复历史进入压缩时，这些关系在压缩结果与后续会话中保持有效。只有获得非空有效摘要且 compaction record 持久提交成功后，内核才以摘要替换活动上下文；摘要为空、生成错误或提交失败时，不追加 compaction record，也不以通用摘要替换原历史。
+内核在 LLM 调用前后检查上下文是否接近/超出上限，必要时把旧轮次摘要化并落盘为压缩记录，保留首个保留事件 id 以保证可重建与可审计；overflow 后可恢复重试。包含 assistant tool call、匹配 tool result、并行分组或结构化内容的可恢复历史进入压缩时，这些关系在压缩结果与后续会话中保持有效。只有摘要移除 provider reasoning 等非正文内容后仍为非空有效文本，且 compaction record 持久提交成功，内核才以摘要替换活动上下文；摘要为空、生成错误或提交失败时，不追加 compaction record，也不以通用摘要替换原历史。用于生成摘要的内部模型交互不投影为本轮的 assistant 消息或 turn 事件。
 
 消费者也可手动触发压缩，且可经 `await kernel.compact(session_id, workspace_root=..., focus=..., idempotency_key=...)` 为这一次手动压缩提供可选非空文本重点和可选 opaque operation identity。内核用 focus 指导被摘要的旧窗口应优先保留什么，但不把 focus 作为普通用户消息或独立会话事件写入；同一非空 idempotency key 重试复用已经提交的 manual compaction，不产生第二条压缩边界。自动阈值和 overflow 压缩不接收也不受这两个参数影响。
 
@@ -36,6 +36,16 @@
 - **THEN** 不追加 compaction record，不以通用摘要替换活动上下文
 - **AND** 在当前上下文仍可用时，后续模型调用继续看到压缩前的可恢复历史
 
+#### Scenario: 只有 reasoning 的摘要响应视为失败
+- **GIVEN** 摘要模型返回了 provider reasoning，但移除 reasoning 后没有摘要正文
+- **WHEN** 内核校验本次摘要结果
+- **THEN** 按空摘要失败处理，不追加 compaction record，也不以空文本替换活动上下文
+
+#### Scenario: 摘要生成的内部事件不泄露给消费者
+- **WHEN** 内核为 threshold、overflow 或 manual compaction 调用摘要模型
+- **THEN** 消费者不会收到该内部模型调用产生的 assistant 消息或 turn 事件
+- **AND** automatic compaction 只有在按本契约需要报告失败时才发送固定失败消息
+
 #### Scenario: 连续自动压缩失败有界并可诊断
 - **GIVEN** 同一 session 已连续两次自动摘要失败，期间没有成功压缩
 - **WHEN** 第三次自动摘要仍失败，或失败上限后再次需要自动压缩
@@ -58,6 +68,13 @@
 - **GIVEN** 一个会话的可压缩历史包含 assistant tool call、匹配 tool result 和尚未完成的用户目标
 - **WHEN** 自动阈值、overflow 或手动压缩成功，随后消费者继续运行该会话或在进程重启后恢复它
 - **THEN** 后续运行仍能延续压缩前的用户目标与未完成事项，且会话可从已提交的 compaction record 恢复
+- **AND** 压缩边界后的项目指令重新注入不截断该摘要的可恢复父链
+
+#### Scenario: 成功压缩后不沿用压缩前的 token 判定重复压缩
+- **GIVEN** manual 或 overflow compaction 已成功提交，活动上下文已替换为压缩后历史
+- **WHEN** 内核继续该会话但还没有新的模型 usage
+- **THEN** 不仅因压缩前一次模型调用的 token 数再次触发 threshold compaction
+- **AND** 下一次模型调用直接使用刚提交的压缩后历史
 
 #### Scenario: 自动压缩不继承手动关注点
 - **GIVEN** 一个 session 曾以 focus 完成手动压缩
