@@ -83,3 +83,53 @@ None.
 ### SUGGESTION（可以修）
 
 None.
+
+# Round 2
+
+> Validation snapshot: `1d0c2cb45b887162912402b0fb489cdf3a1ad9c9 → 2ff5ef8ffd135e7c1a89217b8669d6ec1ac22e62`
+
+## Summary
+
+Mode: targeted-closure
+
+Delta range: `0c46a03ea82fd37b16057c146e2cb5b0cf76c8c4..2ff5ef8ffd135e7c1a89217b8669d6ec1ac22e62`
+
+Focus issues: C1 长青 E2E fixture 无条件回传 sentinel 导致假绿
+
+requires_full_verification: false
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | C1 1/1 closed |
+| Correctness | Required compaction/restart E2E oracle is context-sensitive |
+| Coherence | Followed |
+
+All checks passed. Ready for PR.
+
+## Targeted Closure
+
+| Focus issue | Fix evidence | Verification | Status |
+|---|---|---|---|
+| C1: post-summary fake LLM 泄露 sentinel，上下文丢失仍可能绿 | `scripts/fixtures/anthropic_sse_compaction_recording.py:200-207` 现在从当前 request messages 查找 sentinel，缺失立即返回 422；`tests/e2e/critical_paths/test_context_compaction_continuity_critical_path.py:161-172` 在 Gateway restart 后重读 recording，断言压缩后与 restart 后恰有两个 post-summary request，且两者 messages 都包含 sentinel | 静态检查确认 response 只在 request 自身携带目标时才回传 sentinel；独立真 IM + 真 Gateway + recording LLM 旅程 `1 passed in 27.54s` | closed |
+
+fix delta 只修改上述 fixture 与 E2E 断言，未触及产品实现、架构边界或其他 requirement/scenario；Round 1 的其余结论不受影响，无需升级 full verification。
+
+## Validation Evidence
+
+- Target E2E: `1 passed in 27.54s`.
+- Ruff on both delta files: `All checks passed!`.
+- `git diff --check` for the fix delta: passed.
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+None.
+
+### WARNING（提 PR 前必须修）
+
+None.
+
+### SUGGESTION（可以修）
+
+None.
