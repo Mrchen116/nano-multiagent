@@ -25,6 +25,8 @@
 - 已确认：本 unit 新增一个上下文压缩长青 E2E 关键旅程；其他成功/失败组合由稳定的单元测试和集成测试覆盖。
 - 用户确认 fixture 约束：`一点不用考虑敏感，但是确实不用200K，可以短点，短而完整的`
 - 已确认：E2E fixture 可以从本次生产失败 JSONL 提炼，不要求制造 200K+ token；样本必须短而完整，保留 user、assistant tool call、匹配 tool result、压缩触发与后续继续任务所需的真实结构。
+- 用户追问飞书失败闭环：`按你这个设计，如果用户是在飞书上用的话，然后他触发了自动压缩，然后压缩又失败了，用户会收到什么提示消息吗？`
+- 已确认：前两次 threshold summary 失败仍可使用原上下文时不产生噪音提示；第三次连续失败或 overflow summary 失败导致本轮无法继续时，必须在 failed terminal 前向用户发送“上下文压缩失败，已停止本轮以避免丢失对话内容。原对话仍保留。请稍后重试，或发送 /compact <希望保留的重点> 后继续。”；飞书触发时同一文本回原 chat 并同步 IM shadow。该显式提示是本 unit 的 Nano 产品决策，不宣称 Claude Code 固定源码具有相同文案或投递行为。
 
 ## 现象与复现
 
@@ -66,12 +68,12 @@
 
 这一 fallback 源于历史 M16 “摘要模型失败时不中断主流程”的稳定性硬化。它优化了流程存活，却破坏了 compaction 更重要的业务不变量：只有能够继续原任务的摘要才有资格替代历史。失败因此从可观察错误变成不可逆的静默语义丢失。
 
-Claude Code 的公开业务契约是通过摘要释放上下文并保留请求和关键工作；连续自动压缩失败时停止继续尝试并显示错误，而不是写入虚假摘要继续运行：
+Claude Code 的公开业务契约是通过摘要释放上下文并保留请求和关键工作，而不是以无业务内容的占位摘要替换历史：
 
 - [How Claude Code works — When context fills up](https://code.claude.com/docs/en/how-claude-code-works#when-context-fills-up)
 - [Explore the context window — What survives compaction](https://code.claude.com/docs/en/context-window#what-survives-compaction)
 
-固定版本的参考源码观察也一致：压缩异常返回 `wasCompacted=false`，原消息不被替换，并通过连续失败计数触发熔断。nano 原始 compaction 确实参考了 CC 的结构化摘要 prompt，后续持久化也参考了 compact boundary，但“固定空摘要也算成功”是偏离 CC 业务语义的本地设计。
+固定版本的参考源码观察也一致：压缩异常返回 `wasCompacted=false`，原消息不被替换，并通过 query 内连续失败计数有界停止新的 auto-compact 尝试。该源码不会在第三次 summary exception 时主动发送用户消息；公开 troubleshooting 的可见错误描述的是“压缩成功后上下文立即再次填满”的 thrashing，是另一种故障。nano 原始 compaction 确实参考了 CC 的结构化摘要 prompt，后续持久化也参考了 compact boundary，但“固定空摘要也算成功”是偏离 CC no-replacement 原则的本地设计。本 unit 复用该原则和 bounded retry；跨 threshold/overflow 的 session 级计数与固定用户提示是经用户确认的 Nano 增量。
 
 ### C. 测试分层在关键接缝处断开
 
@@ -94,7 +96,7 @@ Claude Code 的公开业务契约是通过摘要释放上下文并保留请求�
 2. 只有成功生成可用于继续原任务的摘要，才能提交 compact boundary 并替换活动历史。
 3. 摘要失败时不得写入固定空摘要或其他虚假成功记录；原 transcript、活动历史和 compaction boundary 保持不变。
 4. 手动压缩、自动阈值压缩、overflow 恢复遵守同一套不丢上下文语义。
-5. 自动压缩失败按 CC 业务逻辑跟踪连续失败并熔断，避免每轮无限重试；到达无法继续的上下文边界时显式暴露可诊断错误。
+5. 自动压缩失败复用 CC 的 no-replacement 与 bounded retry 原则，避免每轮无限重试；按本 unit 确认的 Nano 语义跨 threshold/overflow 跟踪 session 级连续失败，并在到达无法继续的上下文边界时显式暴露可诊断错误和用户安全提示。
 6. 已成功提交的压缩在当前进程、restart 和 resume 后都必须保持任务连续性。
 
 ### 长青回归门禁
@@ -106,7 +108,7 @@ Claude Code 的公开业务契约是通过摘要释放上下文并保留请求�
 | 入口 | 摘要结果 | 必须验证 |
 |---|---|---|
 | 自动阈值 | 成功 | 含 tool call/result 的长任务完成压缩，下一轮仍能准确继续原请求 |
-| 自动阈值 | 失败 | 不提交 boundary、不替换历史；连续失败按 CC 语义熔断并显式可诊断 |
+| 自动阈值 | 失败 | 不提交 boundary、不替换历史；连续失败有界熔断，并按本 unit 的 Nano 语义显式可诊断 |
 | overflow 恢复 | 成功/失败 | 成功后只重试一次并保持任务；失败时原历史不变且不伪装成功 |
 | 手动 `/compact` | 成功/失败 | 成功后继续任务；失败返回可观察结果且 transcript 不变 |
 | restart / resume | 已成功压缩 | 从持久化 boundary 恢复后仍能继续压缩前的用户目标与待办 |
