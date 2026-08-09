@@ -22,6 +22,7 @@ from agent.core.agent.compaction.types import (
     CompactionSettings,
 )
 from agent.core.errors import CompactionError
+from agent.core.hooks.context import HookContext
 from agent.core.llm.interfaces import (
     LLMGenerateRequest,
     LLMGenerateResponse,
@@ -628,6 +629,76 @@ async def test_compaction_summarizer_returns_none_when_provider_fails() -> None:
         )
         is None
     )
+
+
+async def test_compaction_summarizer_rejects_analysis_only_response() -> None:
+    from agent.core.agent.compaction.summarizer import CompactionSummarizer
+
+    class _AnalysisOnlyFork:
+        async def execute(self, *, state, **_kwargs):  # noqa: ANN001, ANN003
+            return build_turn_result(
+                state.session_id,
+                state.turn_id,
+                [
+                    Message(
+                        message_id="analysis-only",
+                        role="assistant",
+                        content="<analysis>scratch</analysis>",
+                    )
+                ],
+            )
+
+    summarizer = CompactionSummarizer(fork=_AnalysisOnlyFork())
+
+    assert (
+        await summarizer.summarize(
+            session_id="sess_x",
+            system_prompt="sys",
+            dropped_messages=[Message(message_id="d", role="user", content="old")],
+        )
+        is None
+    )
+
+
+async def test_compaction_summarizer_does_not_publish_sidechain_events() -> None:
+    from agent.core.agent.compaction.summarizer import CompactionSummarizer
+
+    published: list[tuple[str, dict]] = []
+
+    class _PublishingFork:
+        async def execute(
+            self, *, state, hook_ctx=None, model_override=None, **_kwargs
+        ):  # noqa: ANN001, ANN003, ANN201
+            if hook_ctx is not None:
+                hook_ctx.publish_session_event(
+                    event="assistant_message", data={"content": "internal summary"}
+                )
+                hook_ctx.publish_session_event(event="turn_end", data={})
+            assert model_override == "run-model"
+            return build_turn_result(
+                state.session_id,
+                state.turn_id,
+                [Message(message_id="summary", role="assistant", content="summary")],
+            )
+
+    summarizer = CompactionSummarizer(fork=_PublishingFork())
+    parent_hook_ctx = HookContext(
+        session_id="sess_x",
+        session_event_publisher=lambda event, data: published.append(
+            (event, dict(data))
+        ),
+    )
+
+    result = await summarizer.summarize(
+        session_id="sess_x",
+        system_prompt="sys",
+        dropped_messages=[Message(message_id="d", role="user", content="old")],
+        model_override="run-model",
+        hook_ctx=parent_hook_ctx,
+    )
+
+    assert result == "summary"
+    assert published == []
 
 
 def _init_per_model_window_registry() -> None:

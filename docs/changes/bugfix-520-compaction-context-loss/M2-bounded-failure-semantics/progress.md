@@ -82,3 +82,12 @@ None.
 
 - Context: change-code-review 独立确认五项 substantive 缺口：analysis-only 假成功、summary side-chain 事件泄露、skill reinjection parent 缺失、overflow retry 的 typed failure 未提示，以及 manual/overflow 成功后旧 token usage 未清理。
 - Decision: 不改 design/spec，在 R5/R6 以可观察红测修复原架构 seam。
+
+### R5 — 摘要有效性与 side-chain 隔离
+
+- Context: provider 非空原文格式化后可能为空；父 HookContext 会让内部 summary side-chain 获得用户会话 publisher。
+- Decision: 以格式化后的非空文本作为唯一成功判据，并显式不给 summary fork 传父 HookContext；模型 override 与 trace ContextVar 保留。
+- Evidence: 两项红测分别观察到 `''` 假成功和内部 `assistant_message/turn_end` 泄露；Green 为 `tests/unit/test_loop_compact.py` → `22 passed`。
+- Rollback: 回退本 roadpoint commit。
+- Commits: 本 roadpoint commit。
+- Next: R6 runtime 恢复链、retry failure 与 token freshness。
