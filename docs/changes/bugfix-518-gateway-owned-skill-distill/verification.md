@@ -154,3 +154,48 @@ delta. Both warnings are closed, and the prior full-verification evidence remain
 applicable. No full re-verification is required.
 
 Verdict: **pass** — 0 critical issue(s), 0 warning(s), 0 suggestion(s).
+
+## Corrected Delta Reconciliation
+
+> Mode: `corrected-delta`  
+> Code snapshot: `ff27a30b4ab3759213ec148ae46f0a6a6d23a12a → dd51b57d1b5fadec3bc657faf0be05e8891cad45`  
+> Canonical-doc input: the uncommitted changes to `docs/specs/im/web-chat-ux.md`,
+> `docs/specs/gateway/relay-protocol.md`, and `docs/specs/gateway/spec.md` in the
+> unit worktree (patch SHA-256 `de4f826fa2569bae136669526584e46e8dbd7cb6a044d3905f6dbd468637300d`).
+
+The Gateway and Web IM delta requirement text is merged verbatim into the two
+canonical behavior specifications. `specs/im/gateway-relay.md` states that no
+new relay wire contract exists; its server-pin behavior is covered by the
+canonical Web Chat UX requirement rather than a duplicate Relay Protocol entry.
+
+| Delta item | Implementation evidence | Test evidence | Outcome |
+|---|---|---|---|
+| `specs/gateway/relay-protocol.md` — Gateway-owned local prompt requirement | `src/personal_assistant/gateway/distill_prompt.py:21-138` resolves durable local bindings and constructs the existing prompt; `src/personal_assistant/ws/im_connection.py:1140-1156` preserves request/node correlation. | `tests/unit/personal_assistant/test_gateway_distill_prompt_resolver.py:78-100`; `tests/unit/personal_assistant/test_gateway_im_connection_behavior.py:276-339` | aligned |
+| Gateway scenario — local binding yields slash command, all local paths, execution Agent and scope without model/session/skill work | `src/personal_assistant/gateway/distill_prompt.py:51-97,119-138` only collects local paths and returns a string prompt. | `tests/unit/personal_assistant/test_gateway_distill_prompt_resolver.py:78-100` | aligned |
+| Gateway scenario — any unresolvable source yields no partial prompt | `src/personal_assistant/gateway/distill_prompt.py:51-97` returns before `_build_prompt` when a binding or path is unavailable. | `tests/unit/personal_assistant/test_gateway_distill_prompt_resolver.py:103-152` | aligned |
+| Gateway scenario — missing distiller or `skill_view` yields an actionable error | `src/personal_assistant/gateway/distill_prompt.py:43-49,103-116` performs local readiness before source resolution. | `tests/unit/personal_assistant/test_gateway_distill_prompt_resolver.py:103-152`; `src/IM/frontend/src/features/chat/chat-workspace.integration.test.tsx:598-634` | aligned |
+| Gateway scenario — external shadow falls back only after normal `web_relay` binding is absent and never needs browser-supplied identity | `src/personal_assistant/gateway/distill_prompt.py:59-80` checks normal first; `src/IM/api/routes/web_im.py:252-294` derives external identity from the owner-scoped record; `src/IM/frontend/src/features/chat/chat-api.ts:102-131` sends identities only. | `tests/unit/personal_assistant/test_gateway_distill_prompt_resolver.py:156-214`; `src/IM/frontend/src/features/chat/chat-workspace.integration.test.tsx:547-555` | aligned |
+| `specs/im/gateway-relay.md` — no new ordinary-relay wire contract; successful distill chat uses a server pin | `src/IM/api/routes/messages.py:405-450` chooses stored `conversation.target_node_id` before any client hint; the unit diff adds no relay metadata or receipt channel. | `tests/im_service/integration/test_messages_api.py:54-97` | aligned |
+| `specs/im/web-chat-ux.md` — same-Gateway historical-selection requirement, identity-only IM request, prompt-first creation and fixed execution node | `src/IM/infra/repositories/conversations.py:616-698`; `src/IM/api/routes/web_im.py:237-341`; `src/IM/frontend/src/features/chat/chat-workspace-page.tsx:883-985` | `tests/im_service/integration/test_users_conversations_api.py:9-192`; `src/IM/frontend/src/features/chat/chat-api.test.ts:134-159` | aligned |
+| Web scenario — first eligible source locks one Gateway and disables running, source-less and other-node rows | `src/IM/frontend/src/features/chat/components/distill-selection.ts:3-18`; `src/IM/frontend/src/features/chat/components/conversation-sidebar.tsx:181-249` | `src/IM/frontend/src/features/chat/components/conversation-sidebar.test.tsx:114-213`; `src/IM/frontend/src/features/chat/chat-workspace.integration.test.tsx:575-596` | aligned |
+| Web scenario — returned current-format prompt pre-fills an ordinary, server-pinned direct chat | `src/IM/api/routes/web_im.py:310-341`; `src/IM/frontend/src/features/chat/chat-workspace-page.tsx:958-985`; `src/IM/api/routes/messages.py:415-451` | `src/IM/frontend/src/features/chat/chat-workspace.integration.test.tsx:530-555`; `tests/im_service/integration/test_messages_api.py:54-97` | aligned |
+| Web scenario — missing distiller or `skill_view` leaves dialog open and creates/navigates to no chat | `src/IM/frontend/src/features/chat/chat-workspace-page.tsx:917-956` completes preflight before `createDistillPrompt`. | `src/IM/frontend/src/features/chat/chat-workspace.integration.test.tsx:598-634` | aligned |
+| Web scenario — offline/unresolvable Gateway leaves no empty chat or ordinary relay | `src/IM/api/routes/web_im.py:316-338`; `src/IM/frontend/src/features/chat/chat-workspace-page.tsx:958-983` | `tests/im_service/integration/test_users_conversations_api.py:101-143`; `src/IM/frontend/src/features/chat/chat-workspace.integration.test.tsx:636-653` | aligned |
+| Web scenario — ordinary sidebar browsing hides distill-only state | `src/IM/frontend/src/features/chat/components/conversation-sidebar.tsx:181-249` renders state badges only in selection mode. | `src/IM/frontend/src/features/chat/components/conversation-sidebar.test.tsx:99-112` | aligned |
+| Canonical index — Gateway Relay Protocol advertises the new same-node distill-prompt contract | `docs/specs/gateway/spec.md:25`; concrete behavior is the canonical `docs/specs/gateway/relay-protocol.md:10-46`. | `scripts/docs-check` against the canonical-doc input — passed | aligned |
+
+### Uncovered Observable Behavior
+
+None. The final unit diff's public changes are all represented: path projection
+became `source_node_id`; the browser sends only conversation/Agent identities;
+Gateway resolves local JSONL paths and capability readiness; ordinary relay honors
+the server pin; and existing external-shadow compatibility remains private to the
+IM-to-Gateway control request.
+
+Targeted validation for this reconciliation:
+
+- `PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/pytest -q tests/unit/personal_assistant/test_gateway_distill_prompt_resolver.py tests/unit/personal_assistant/test_gateway_im_connection_behavior.py tests/im_service/unit/test_gateway_handler.py tests/im_service/integration/test_users_conversations_api.py tests/im_service/integration/test_messages_api.py tests/im_service/unit/test_repositories_user_conversation.py` — **92 passed**.
+- `PYTHON=/Users/czj/Repos/nano-multiagent/.venv/bin/python scripts/docs-check` in the unit worktree containing the canonical-doc input — **passed** (229 maintained Markdown sources, 67 required routes).
+- Both the canonical-doc patch and the implementation diff passed `git diff --check`.
+
+Outcome: **aligned**.
