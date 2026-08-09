@@ -78,3 +78,9 @@
 - 状态: DONE
 - 步骤: 复现 manual compaction summary 丢失 workspace hook scope，并增强 side-chain 测试同时锁定派生 context metadata 与父 session event 隔离；以仅替换 publisher 的派生 `HookContext` 修复。
 - 验证: 两条交叉回归、compaction/workspace hook focused suite、Ruff/docs/diff check。
+
+### R8 — Review fix：side-chain permission fail-closed
+
+- 状态: DONE
+- 步骤: 用 public Kernel manual compact + workspace hook 复现父 permission stream 泄露；派生 `HookContext` 同时移除父 `permission_requester`，沿用既有 fail-closed deny。
+- 验证: permission 泄露回归、R7 workspace scope 与 assistant/turn 隔离交叉回归、相关 focused suite、Ruff/docs/diff check。
