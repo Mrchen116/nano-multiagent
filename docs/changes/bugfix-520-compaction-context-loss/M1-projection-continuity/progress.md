@@ -24,6 +24,24 @@
 - Commits: 本 roadpoint commit。
 - Next: R2 recording fixture 与真进程 compaction/restart journey。
 
+## R2 — recording fixture 与真进程压缩/重启旅程
+
+- Context: 现有 fake-LLM stack 只支持固定 ACK script 和静态 usage，无法产生真实 tool use/result、只在指定响应抬高 usage、校验 summary wire shape 或控制 context window。
+- Decision: 保留 `stub_llm_stack` 为唯一 IM/Gateway 生命周期 owner，只增加 recording script 文件名、额外 env 和正整数 context window 三个测试参数；专用短状态机执行 `read -> high usage -> summary validation -> continued -> restarted`。
+- Rationale: E2E 仍走真 IM/Gateway、真内核事务和 Anthropic mapper，但无需真 proxy、生产 JSONL 或 200K 输入；fixture 只记录/返回当前旅程所需的最短完整结构。
+- Evidence:
+  - Tests: 初始红测使用旧 ACK fixture 时第一轮只返回 `ACK-1`；接线后新 E2E `1 passed in 26.46s`。
+  - Entry: IM HTTP/WS 首轮真执行 `read` 并收到目标 sentinel；第二轮 recording request 收到闭合 `compaction-read-1` tool pair，IM 收到压缩后 sentinel；同 node/workspace 重启 Gateway 后第三轮再次收到 sentinel。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A；该关键路径按 catalog 的产品 seam 使用 Web IM 客户端同源 HTTP/WebSocket 接口，不涉及前端渲染。
+  - E2E/Regression: `tests/e2e/critical_paths/test_context_compaction_continuity_critical_path.py::test_tool_history_compacts_and_survives_gateway_restart`；同时断言 recording summary request 与隔离 session JSONL 中唯一有效 boundary/summary。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Debugging: 首次接线后第二轮先观察到空 `message.completed`。边界取证显示 recording 已收到合法 summary + post-summary 请求，JSONL 已持久化 `CONTINUED ...`；根因是 compaction 期间存在一个中间 completed 帧，而测试 predicate 误把它当最终回复。最小修正为等待同 conversation 且含 sentinel 的用户可见完成帧，没有改产品逻辑或增加 sleep。
+- Rollback: 回退到 `191d34a6f`。
+- Commits: 本 roadpoint commit。
+- Next: R3 catalog 与 milestone 全门禁。
+
 ## Promotion Candidates
 
 None.

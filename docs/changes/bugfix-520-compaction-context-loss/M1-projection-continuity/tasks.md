@@ -41,12 +41,12 @@
 
 ### R2 — recording fixture 与真进程压缩/重启旅程
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 先落会在旧投影上失败的 E2E；新增短状态机 recording fixture，泛化既有 stack fixture 的 script/env/context window，跑通真实工具、threshold compact、继续、Gateway restart、继续。
 - 验证: 新 E2E 单独绿色，recording request 与 session JSONL 同时证明有效 summary/boundary。
 
 ### R3 — catalog 与 milestone 全门禁
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: catalog 14→15 并移除 backlog；跑 M1 unit、新旧 fake-LLM journeys、docs-check、Ruff 与 diff check。
 - 验证: design Runbook 的 M1 相关命令和长期文档门禁全绿。
