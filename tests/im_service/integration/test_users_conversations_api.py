@@ -1,22 +1,19 @@
 """Integration tests for conversation HTTP behaviors beyond the contract suite."""
 
-import json
-from pathlib import Path
-
 from fastapi.testclient import TestClient
+from pathlib import Path
 
 from .conftest import make_app_client, register_user, authorize
 
 
-def test_agent_conversation_response_includes_source_jsonl_path(
-    tmp_path: Path,
+def test_agent_conversation_projects_source_node_and_creates_gateway_prompt(
+    tmp_path,
 ) -> None:
-    """Conversation API exposes the resolved kernel session JSONL when it exists."""
+    """IM exposes no workspace path and only creates chat after Gateway prompt success."""
     with make_app_client(tmp_path) as client:
         alice = register_user(client, username="alice", display_name="Alice")
         authorize(client, alice)
         connection = client.app.state.connection
-        workspace_root = tmp_path / "agent-1-workspace"
         connection.execute(
             """
             INSERT INTO users(id, username, display_name, owner_id, created_at)
@@ -43,7 +40,7 @@ def test_agent_conversation_response_includes_source_jsonl_path(
                 "[]",
                 "manual",
                 None,
-                str(workspace_root),
+                "/not-accessed-by-im",
                 1,
             ),
         )
@@ -58,44 +55,159 @@ def test_agent_conversation_response_includes_source_jsonl_path(
         )
         assert conversation_resp.status_code == 201, conversation_resp.text
         conversation = conversation_resp.json()
-        session_path = workspace_root / ".nanoassistant" / "sessions" / "sess-1.jsonl"
-        session_path.parent.mkdir(parents=True)
-        session_path.write_text(
-            json.dumps(
-                {
-                    "type": "session_created",
-                    "session_id": "sess-1",
-                    "created_at": "2026-01-01T00:00:00Z",
-                    "workspace_root": str(workspace_root),
-                    "tool_allowlist": ["memory", "skill_view"],
-                    "metadata": {
-                        "workspace_config_dirname": ".nanoassistant",
-                        "agent_id": "agent-1",
-                        "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
-                        "conversation_id": conversation["id"],
-                        "config_profile_version": 1,
-                        "agent_custom_prompt": "You are Agent 1.",
-                        "agent_features": {},
-                        "conversation_type": "direct",
-                        "self_evolution": {
-                            "enabled": False,
-                            "mode": "observe",
-                        },
-                        "title": "Agent 1",
-                    },
-                }
-            )
-            + "\n",
-            encoding="utf-8",
-        )
-
         listed = client.get("/im/v1/conversations").json()["items"]
         synced = client.get("/im/v1/sync").json()["items"]
 
         assert listed[0]["source_agent_id"] == "agent-1"
-        assert listed[0]["source_jsonl_path"] == str(session_path)
+        assert listed[0]["source_node_id"] == "node-1"
+        assert "source_jsonl_path" not in listed[0]
         assert synced[0]["source_agent_id"] == "agent-1"
-        assert synced[0]["source_jsonl_path"] == str(session_path)
+        assert synced[0]["source_node_id"] == "node-1"
+
+        async def _gateway_prompt(**kwargs):
+            assert kwargs["target_node_id"] == "node-1"
+            assert kwargs["sources"] == [
+                {
+                    "conversation_id": conversation["id"],
+                    "source_agent_id": "agent-1",
+                }
+            ]
+            return {
+                "prompt": "/skill:conversation-skill-distiller\nsource_jsonl_paths:\n  /gateway/session.jsonl"
+            }
+
+        client.app.state.gateway_control.request_distill_prompt = _gateway_prompt
+        created = client.post(
+            "/im/v1/conversations/distill-prompt",
+            json={
+                "sources": [
+                    {
+                        "conversation_id": conversation["id"],
+                        "source_agent_id": "agent-1",
+                    }
+                ],
+                "execution_agent_id": "agent-1",
+                "target_scope": "agent",
+            },
+        )
+
+        assert created.status_code == 201, created.text
+        assert created.json()["prompt"].startswith(
+            "/skill:conversation-skill-distiller"
+        )
+        direct = created.json()["conversation"]
+        assert "target_node_id" not in direct
+        pinned = connection.execute(
+            "SELECT target_node_id FROM conversations WHERE id = ?", (direct["id"],)
+        ).fetchone()
+        assert pinned["target_node_id"] == "node-1"
+
+        async def _unavailable_gateway_prompt(**_kwargs):
+            return {
+                "error_code": "source_unavailable",
+                "message": "source session file is unavailable",
+            }
+
+        client.app.state.gateway_control.request_distill_prompt = (
+            _unavailable_gateway_prompt
+        )
+        before = connection.execute("SELECT COUNT(*) FROM conversations").fetchone()[0]
+        unavailable = client.post(
+            "/im/v1/conversations/distill-prompt",
+            json={
+                "sources": [
+                    {
+                        "conversation_id": conversation["id"],
+                        "source_agent_id": "agent-1",
+                    }
+                ],
+                "execution_agent_id": "agent-1",
+                "target_scope": "agent",
+            },
+        )
+
+        assert unavailable.status_code == 409
+        assert unavailable.json()["detail"] == "source session file is unavailable"
+        assert (
+            connection.execute("SELECT COUNT(*) FROM conversations").fetchone()[0]
+            == before
+        )
+
+        async def _blank_gateway_prompt(**_kwargs):
+            return {"prompt": ""}
+
+        client.app.state.gateway_control.request_distill_prompt = _blank_gateway_prompt
+        blank = client.post(
+            "/im/v1/conversations/distill-prompt",
+            json={
+                "sources": [
+                    {
+                        "conversation_id": conversation["id"],
+                        "source_agent_id": "agent-1",
+                    }
+                ],
+                "execution_agent_id": "agent-1",
+                "target_scope": "agent",
+            },
+        )
+
+        assert blank.status_code == 409
+        assert (
+            connection.execute("SELECT COUNT(*) FROM conversations").fetchone()[0]
+            == before
+        )
+
+        connection.execute(
+            """
+            INSERT INTO agent_profiles(
+                agent_id, owner_id, node_id, display_name, description, custom_prompt,
+                skills_json, tool_allowlist_json, group_reply_policy, default_model,
+                workspace_root, profile_version, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+            """,
+            (
+                "agent-2",
+                alice.owner_id,
+                "node-2",
+                "Agent 2",
+                "",
+                "You are Agent 2.",
+                "[]",
+                "[]",
+                "manual",
+                None,
+                "/not-accessed-by-im",
+                1,
+            ),
+        )
+        connection.commit()
+
+        async def _must_not_call_gateway(**_kwargs):
+            raise AssertionError("cross-Gateway request must fail before control RPC")
+
+        client.app.state.gateway_control.request_distill_prompt = _must_not_call_gateway
+        cross_gateway = client.post(
+            "/im/v1/conversations/distill-prompt",
+            json={
+                "sources": [
+                    {
+                        "conversation_id": conversation["id"],
+                        "source_agent_id": "agent-1",
+                    }
+                ],
+                "execution_agent_id": "agent-2",
+                "target_scope": "agent",
+            },
+        )
+
+        assert cross_gateway.status_code == 409
+        assert cross_gateway.json()["detail"] == (
+            "execution agent must belong to the selected Gateway"
+        )
+        assert (
+            connection.execute("SELECT COUNT(*) FROM conversations").fetchone()[0]
+            == before
+        )
 
 
 def test_patch_conversation_updates_title_pin_and_mute(tmp_path: Path) -> None:

@@ -76,12 +76,14 @@ class WebIMService:
         title: str,
         participant_ids: list[str],
         caller_owner_id: str | None = None,
+        target_node_id: str | None = None,
     ) -> Conversation:
         """Create one conversation with validated participants."""
         return self._conversations.create_conversation(
             title=title,
             participant_ids=participant_ids,
             caller_owner_id=caller_owner_id,
+            target_node_id=target_node_id,
         )
 
     def find_or_create_external_conversation(

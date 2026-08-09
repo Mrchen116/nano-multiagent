@@ -1,7 +1,6 @@
 """Unit tests for user, conversation, node, and bind repositories."""
 
 from pathlib import Path
-import json
 import sqlite3
 
 import pytest
@@ -174,14 +173,13 @@ def test_create_group_conversation_owner_id_uses_caller(tmp_path: Path) -> None:
     )
 
 
-def test_conversation_exposes_run_state_and_source_jsonl_path(
+def test_conversation_exposes_run_state_and_source_node(
     tmp_path: Path,
 ) -> None:
-    """Conversation rows expose distill-safe runtime metadata from existing sources."""
+    """Conversation rows project their source Gateway without opening a workspace."""
     users, conversations, _, profiles, _, _ = _build_repositories(tmp_path)
     owner = users.create_user(username="alice", display_name="Alice")
     agent_user = users.create_user(username="agent:agent-1", display_name="Agent 1")
-    workspace_root = tmp_path / "agent-1-workspace"
     profiles.upsert_profile(
         agent_id="agent-1",
         owner_id=owner.owner_id,
@@ -191,7 +189,8 @@ def test_conversation_exposes_run_state_and_source_jsonl_path(
         tool_allowlist=[],
         group_reply_policy="manual",
         default_model=None,
-        workspace_root=str(workspace_root),
+        workspace_root="/not-accessed-by-im",
+        node_id="node-1",
     )
 
     created = conversations.create_conversation(
@@ -199,91 +198,12 @@ def test_conversation_exposes_run_state_and_source_jsonl_path(
         participant_ids=[owner.id, agent_user.id],
         caller_owner_id=owner.owner_id,
     )
-    session_path = workspace_root / ".nanoassistant" / "sessions" / "sess-1.jsonl"
-    session_path.parent.mkdir(parents=True)
-    session_path.write_text(
-        json.dumps(
-            {
-                "type": "turn",
-                "uuid": "prelude",
-                "role": "user",
-                "content": "legacy prelude before session_created",
-            }
-        )
-        + "\n"
-        + json.dumps(
-            {
-                "type": "session_created",
-                "session_id": "sess-1",
-                "created_at": "2026-01-01T00:00:00Z",
-                "workspace_root": str(workspace_root),
-                "metadata": {
-                    "agent_id": "agent-1",
-                    "conversation_id": created.id,
-                },
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
     listed = conversations.list_conversations_for_owner(owner_id=owner.owner_id)
 
     assert listed[0].id == created.id
     assert listed[0].run_state == "idle"
     assert listed[0].source_agent_id == "agent-1"
-    assert listed[0].source_jsonl_path == str(session_path)
-
-
-def test_conversation_finds_nested_source_jsonl_path(tmp_path: Path) -> None:
-    """Subagent/nested runtime transcripts are eligible distill sources."""
-    users, conversations, _, profiles, _, _ = _build_repositories(tmp_path)
-    owner = users.create_user(username="alice", display_name="Alice")
-    agent_user = users.create_user(username="agent:agent-1", display_name="Agent 1")
-    workspace_root = tmp_path / "agent-1-workspace"
-    profiles.upsert_profile(
-        agent_id="agent-1",
-        owner_id=owner.owner_id,
-        display_name="Agent 1",
-        description="",
-        skills=[],
-        tool_allowlist=[],
-        group_reply_policy="manual",
-        default_model=None,
-        workspace_root=str(workspace_root),
-    )
-    created = conversations.create_conversation(
-        title="Alice & Agent",
-        participant_ids=[owner.id, agent_user.id],
-        caller_owner_id=owner.owner_id,
-    )
-    session_path = (
-        workspace_root
-        / ".nanoassistant"
-        / "sessions"
-        / "parent"
-        / "subagents"
-        / "sess-nested.jsonl"
-    )
-    session_path.parent.mkdir(parents=True)
-    session_path.write_text(
-        json.dumps(
-            {
-                "type": "session_created",
-                "session_id": "sess-nested",
-                "metadata": {
-                    "agent_id": "agent-1",
-                    "conversation_id": created.id,
-                },
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    listed = conversations.list_conversations_for_owner(owner_id=owner.owner_id)
-
-    assert listed[0].source_jsonl_path == str(session_path.resolve())
+    assert listed[0].source_node_id == "node-1"
 
 
 def test_conversation_run_state_is_running_for_active_agent_message(

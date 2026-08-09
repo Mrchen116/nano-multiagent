@@ -13,7 +13,10 @@
 - Q1: Agent 创建请求已发到 Gateway、但响应在返回 IM 前断线的恢复逻辑属于哪里？
   A: 这是 Workspace Root 创建流程的问题，保留在 `feat-515`；本 unit 不改变该 recovery。
 - Q2: 从会话生成 skill 时，谁拥有 transcript 的读取和蒸馏执行？
-  A: 拥有来源 Agent 的 Gateway 读取自己机器上的 JSONL 并完成蒸馏。IM 不读取、扫描或向浏览器/普通聊天消息暴露 Gateway 本机绝对路径。
+  A: 拥有来源 Agent 的 Gateway 读取自己机器上的 JSONL 并完成蒸馏。**v5 用户澄清**：为保持当前
+  prompt/skill 行为，产品允许 Gateway 生成的本机 absolute paths 出现在 IM、browser 和普通聊天消息中，
+  但只可用于由 IM 固定到同一 Gateway 的 execution conversation。IM 永远不读取、扫描、解析、生成路径，
+  也不以路径决定选择资格。
 - Q3: 当用户选中多个来源时如何跨节点？
   A: 一次蒸馏只使用同一个 Gateway 的来源和执行 Agent；跨 Gateway 的会话不得被拼成一次本机蒸馏。
 
@@ -30,7 +33,7 @@
 ## 影响范围
 
 - 使用独立 IM 与远端 Gateway 的用户不能从该 Gateway 的会话生成 skill，即使会话记录实际存在。
-- IM、浏览器和普通聊天消息不应承担 Gateway 本机文件地址；当前路径耦合既造成不可用，也把内部存储细节扩散到不拥有该文件系统的组件。
+- IM 不能拥有或访问 Gateway 本机文件地址；当前由 IM 扫描路径既造成不可用，也把文件系统 owner 放错了。
 - 普通聊天、中继消息、已有 workspace root，以及 `feat-515` 的 Agent 创建断线恢复不受本问题影响。
 
 ## 根因分析（RCA）
@@ -41,8 +44,8 @@
 
 ## 修复方向
 
-- IM 只负责让用户选择已结束会话、按 Agent owning Gateway 路由一次蒸馏请求和展示结果；它不读取 workspace、扫描 JSONL、返回 JSONL 路径，也不把路径写入预填聊天消息。
-- Gateway 以稳定的 conversation / Agent 身份解析自己的 durable session binding，在本机读取所需 JSONL，并以本机 execution Agent 执行 `conversation-skill-distiller`；技能写入沿用用户已选择的 agent 或 global scope。
+- IM 只负责让用户选择已结束会话、按 Agent owning Gateway 路由一次 prompt 请求和展示结果；它不读取 workspace、扫描 JSONL、解析或生成 JSONL 路径。
+- Gateway 以稳定的 conversation / Agent 身份解析自己的 durable session binding，在本机生成当前格式的 distill prompt；后续由该 Gateway 的 execution Agent 按普通聊天执行 `conversation-skill-distiller`，技能写入沿用用户已选择的 agent 或 global scope。
 - 一次操作限定在一个可路由 Gateway。来源会话和 execution Agent 不在同一 Gateway 时，Web IM 明确阻止该组合，而不是尝试跨机拼接文件。
-- Gateway 无法定位记录、来源正在运行、execution Agent 不具备所需 skill/tool，或 Gateway 离线时，用户得到可理解的失败或不可用反馈；不得把暂时的路由/连接问题误报为“无 transcript”。
-- 回归覆盖必须在 IM 与 Gateway 文件系统彼此不可见的拓扑下证明完整旅程，并证明 IM API、浏览器状态和 Agent prompt 均不包含 Gateway 本机 JSONL 路径。
+- Gateway 无法定位记录、来源正在运行、execution Agent 不具备所需 skill/tool，或 Gateway 离线时，用户在创建 execution conversation 前得到可理解的失败或不可用反馈；不得把暂时的路由/连接问题误报为“无 transcript”。
+- 回归覆盖必须在 IM 与 Gateway 文件系统彼此不可见的拓扑下证明完整旅程，并证明 JSONL path 只能由 Gateway 生成、且 prompt 随固定同节点 execution conversation 回到生成它的 Gateway；IM 不得扫描或读取该文件。

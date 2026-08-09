@@ -24,7 +24,7 @@ function conv(over: Partial<Conversation>): Conversation {
     created_at: "2026-01-01T00:00:00Z",
     run_state: "idle",
     source_agent_id: null,
-    source_jsonl_path: null,
+    source_node_id: null,
     ...over
   };
 }
@@ -122,14 +122,14 @@ describe("ConversationSidebar", () => {
             title: "Idle chat",
             run_state: "idle",
             source_agent_id: "a1",
-            source_jsonl_path: "/tmp/idle.jsonl"
+            source_node_id: "node-a"
           }),
           conv({
             id: "running",
             title: "Running chat",
             run_state: "running",
             source_agent_id: "a1",
-            source_jsonl_path: "/tmp/running.jsonl"
+            source_node_id: "node-a"
           })
         ]}
         activeConversationId={null}
@@ -155,6 +155,32 @@ describe("ConversationSidebar", () => {
     expect(onToggle).toHaveBeenCalledWith("idle");
   });
 
+  it("disables sources hosted by a different Gateway after the first selection", () => {
+    render(
+      <ConversationSidebar
+        conversations={[
+          conv({ id: "same", title: "Same Gateway", source_agent_id: "a1", source_node_id: "node-a" }),
+          conv({ id: "other", title: "Other Gateway", source_agent_id: "a2", source_node_id: "node-b" }),
+        ]}
+        activeConversationId={null}
+        onSelect={() => {}}
+        onNewGroup={() => {}}
+        distillMode
+        selectedDistillConversationIds={new Set(["same"])}
+        selectedDistillSourceNodeId="node-a"
+        selectedDistillEligibleCount={1}
+        onToggleDistillConversation={() => {}}
+        onEnterDistillMode={() => {}}
+        onCancelDistillMode={() => {}}
+        onStartDistill={() => {}}
+      />
+    );
+
+    expect(screen.getByRole("checkbox", { name: /Same Gateway/ })).toBeEnabled();
+    expect(screen.getByRole("checkbox", { name: /Other Gateway/ })).toBeDisabled();
+    expect(screen.getByText("Different Gateway")).toBeInTheDocument();
+  });
+
   it("does not render disabled rows as selected even if their ids are present in selection state", () => {
     render(
       <ConversationSidebar
@@ -164,7 +190,7 @@ describe("ConversationSidebar", () => {
             title: "Missing transcript",
             run_state: "idle",
             source_agent_id: null,
-            source_jsonl_path: null
+            source_node_id: null
           })
         ]}
         activeConversationId={null}
@@ -197,7 +223,7 @@ describe("ConversationSidebar", () => {
             title: "Idle chat",
             run_state: "idle",
             source_agent_id: "a1",
-            source_jsonl_path: "/tmp/idle.jsonl"
+            source_node_id: "node-a"
           })
         ]}
         activeConversationId={null}

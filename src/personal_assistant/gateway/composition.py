@@ -91,6 +91,7 @@ from personal_assistant.gateway.session_binder import (
     GatewaySessionBinder,
     build_session_fork_handler,
 )
+from personal_assistant.gateway.distill_prompt import build_distill_prompt_handler
 from personal_assistant.gateway.session_run_coordinator import SessionRunCoordinator
 from personal_assistant.gateway.shadow_sync import IMShadowConversationSync
 from personal_assistant.reporter.upstream_reporter import (
@@ -658,6 +659,11 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
                 else im_config_sync_client.handle_agent_config_operation(kind, payload)
             ),
             session_fork_handler=build_session_fork_handler(
+                kernel=kernel,
+                session_binder=session_binder,
+                channel_name=WebRelayAdapter.name,
+            ),
+            distill_prompt_handler=build_distill_prompt_handler(
                 kernel=kernel,
                 session_binder=session_binder,
                 channel_name=WebRelayAdapter.name,

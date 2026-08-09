@@ -60,6 +60,7 @@ class GatewayControl:
         self._cron_delete_waiters = {}
         self._skills_usage_waiters = {}
         self._session_fork_waiters = {}
+        self._distill_prompt_waiters = {}
         self._config_operation_locks: dict[str, asyncio.Lock] = {}
 
     async def config_operation_lock(self, *, agent_id: str) -> asyncio.Lock:
@@ -360,6 +361,41 @@ class GatewayControl:
             async with self._lock:
                 self._session_fork_waiters.pop(request_id, None)
 
+    async def request_distill_prompt(
+        self,
+        *,
+        target_node_id: str,
+        sources: list[dict[str, object]],
+        execution_agent_id: str,
+        target_scope: str,
+        timeout_seconds: float = 10.0,
+    ) -> dict[str, object] | None:
+        """Ask one Gateway to build the current-format local distill prompt."""
+        request_id = f"distill-prompt-{uuid4().hex}"
+        loop = asyncio.get_running_loop()
+        waiter: asyncio.Future[dict[str, object] | None] = loop.create_future()
+        async with self._lock:
+            self._distill_prompt_waiters[request_id] = (target_node_id, waiter)
+        try:
+            pushed = await self._sessions.send(
+                target_node_id=target_node_id,
+                message_type="node.distill.prompt.request",
+                payload={
+                    "request_id": request_id,
+                    "sources": sources,
+                    "execution_agent_id": execution_agent_id,
+                    "target_scope": target_scope,
+                },
+            )
+            if not pushed:
+                return None
+            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            return None
+        finally:
+            async with self._lock:
+                self._distill_prompt_waiters.pop(request_id, None)
+
     async def _handle_session_fork_result(
         self, *, payload: dict[str, object]
     ) -> dict[str, object]:
@@ -375,6 +411,36 @@ class GatewayControl:
             "type": "ack",
             "payload": {
                 "message_type": "session.fork.result",
+                "request_id": request_id,
+                "node_id": node_id,
+            },
+        }
+
+    async def _handle_distill_prompt(
+        self, *, payload: dict[str, object]
+    ) -> dict[str, object]:
+        """Resolve a correlated Gateway-local distill prompt result."""
+        request_id = _require_text(payload.get("request_id"), field_name="request_id")
+        node_id = _require_text(payload.get("node_id"), field_name="node_id")
+        prompt = payload.get("prompt")
+        error_code = payload.get("error_code")
+        message = payload.get("message")
+        if isinstance(prompt, str):
+            result: dict[str, object] = {"prompt": prompt}
+        elif isinstance(error_code, str) and isinstance(message, str):
+            result = {"error_code": error_code, "message": message}
+        else:
+            raise ValueError("distill prompt result requires prompt or error")
+        async with self._lock:
+            entry = self._distill_prompt_waiters.get(request_id)
+        if entry is not None:
+            expected_node_id, waiter = entry
+            if node_id == expected_node_id and not waiter.done():
+                waiter.set_result(result)
+        return {
+            "type": "ack",
+            "payload": {
+                "message_type": "node.distill.prompt",
                 "request_id": request_id,
                 "node_id": node_id,
             },

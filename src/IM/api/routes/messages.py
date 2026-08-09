@@ -19,6 +19,7 @@ from IM.ws.gateway.relay import GatewayRelay
 from IM.domain.models import (
     AgentConfigChangedBoundary,
     Attachment,
+    Conversation,
     Message,
     ThinkingSegment,
     TokenUsage,
@@ -336,8 +337,8 @@ def _resolve_upload_content_type(request: Request) -> str:
 
 def _assert_conversation_in_owner_scope(
     *, service: WebIMService, conversation_id: str, owner_id: str
-) -> None:
-    """Raise 404 when the conversation is missing or owned by a different tenant."""
+) -> Conversation:
+    """Return one owner-scoped conversation or raise 404."""
     conversation = service.get_conversation_for_owner(
         conversation_id=conversation_id, owner_id=owner_id
     )
@@ -345,6 +346,7 @@ def _assert_conversation_in_owner_scope(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="conversation_id not found"
         )
+    return conversation
 
 
 @router.post(
@@ -400,7 +402,7 @@ async def create_message(
 ) -> MessageResponse:
     """Create a message in a conversation and optionally relay it to one gateway."""
     del request
-    _assert_conversation_in_owner_scope(
+    conversation = _assert_conversation_in_owner_scope(
         service=service, conversation_id=conversation_id, owner_id=user.owner_id
     )
     if len(payload.attachments) > _MESSAGE_MAX_ATTACHMENTS:
@@ -412,7 +414,7 @@ async def create_message(
         sender_user_id, sender_type = _resolve_create_message_sender(payload)
         resolved_target_node_id = None
         if not payload.suppress_relay:
-            resolved_target_node_id = (
+            resolved_target_node_id = conversation.target_node_id or (
                 payload.target_node_id
                 or service.resolve_target_node_id(
                     conversation_id=conversation_id,

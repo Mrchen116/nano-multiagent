@@ -80,7 +80,7 @@ const FIXTURES = {
       created_at: "2026-05-01T00:00:00Z",
       run_state: "idle",
       source_agent_id: "a-planner",
-      source_jsonl_path: "/tmp/planner-session.jsonl"
+      source_node_id: "node-prod"
     },
     {
       id: "c2",
@@ -103,7 +103,7 @@ const FIXTURES = {
       created_at: "2026-05-01T00:00:00Z",
       run_state: "idle",
       source_agent_id: "a-writer",
-      source_jsonl_path: "/tmp/writer-session.jsonl"
+      source_node_id: "node-other"
     },
     {
       id: "c3",
@@ -124,7 +124,7 @@ const FIXTURES = {
       created_at: "2026-05-01T00:00:00Z",
       run_state: "idle",
       source_agent_id: null,
-      source_jsonl_path: null
+      source_node_id: null
     }
   ] satisfies Conversation[],
   messagesC1: [
@@ -170,12 +170,14 @@ function mockFetch(opts: {
   toolAllowlist?: string[];
   skillViewToolVisible?: boolean;
   skillViewDefaultOn?: boolean;
+  distillPromptError?: string;
   uploadOutcomes?: UploadOutcome[];
 } = {}): ReturnType<typeof vi.fn> {
   const distillerVisible = opts.distillerVisible ?? true;
-  const toolAllowlist = opts.toolAllowlist ?? [];
+  const toolAllowlist = opts.toolAllowlist ?? ["skill_view"];
   const skillViewToolVisible = opts.skillViewToolVisible ?? true;
   const skillViewDefaultOn = opts.skillViewDefaultOn ?? true;
+  const distillPromptError = opts.distillPromptError;
   const uploadOutcomes = [...(opts.uploadOutcomes ?? [])];
   const sent: { url: string; init?: RequestInit }[] = [];
   const conversations: Conversation[] = [...FIXTURES.conversations];
@@ -184,6 +186,40 @@ function mockFetch(opts: {
     sent.push({ url, init });
     if (url.endsWith("/im/v1/conversations") && (!init || init.method === undefined || init.method === "GET")) {
       return jsonResponse({ items: conversations });
+    }
+    if (url.endsWith("/im/v1/conversations/distill-prompt") && init?.method === "POST") {
+      if (distillPromptError) {
+        return jsonResponse({ detail: distillPromptError }, { status: 409 });
+      }
+      const body = JSON.parse(String(init.body));
+      const agentId = body.execution_agent_id;
+      const created: Conversation = {
+        id: `c-distill-${conversations.length}`,
+        title: "Generate skill",
+        participants: [
+          { type: "user", id: "u-self", display_name: "You", user_id: "u-self" },
+          { type: "agent", id: agentId, display_name: agentId === "a-writer" ? "Writer" : "Planner", user_id: `user-uuid-${agentId}` }
+        ],
+        participant_ids: ["u-self", agentId],
+        type: "direct",
+        direct_kind: "agent",
+        owner_id: "u-self",
+        creator_id: "u-self",
+        is_pinned: false,
+        is_muted: false,
+        unread_count: 0,
+        last_message_preview: null,
+        last_message_at: null,
+        created_at: "2026-05-01T00:02:00Z",
+        run_state: "idle",
+        source_agent_id: agentId,
+        source_node_id: "node-prod"
+      };
+      conversations.unshift(created);
+      return jsonResponse({
+        conversation: created,
+        prompt: "/skill:conversation-skill-distiller\\nsource_jsonl_paths:\\n  /gateway-owned/sessions/session.jsonl\\nexecution_agent_id: " + agentId + "\\ntarget_scope: " + body.target_scope,
+      }, { status: 201 });
     }
     if (url.endsWith("/im/v1/conversations") && init?.method === "POST") {
       const body = JSON.parse(String(init.body));
@@ -209,7 +245,7 @@ function mockFetch(opts: {
         created_at: "2026-05-01T00:02:00Z",
         run_state: "idle",
         source_agent_id: agentId,
-        source_jsonl_path: null
+        source_node_id: "node-prod"
       };
       conversations.unshift(created);
       return jsonResponse(created, { status: 201 });
@@ -223,7 +259,7 @@ function mockFetch(opts: {
     if (url.endsWith("/im/v1/agents")) {
       return jsonResponse([
         { agent_id: "a-planner", display_name: "Planner", node_id: "node-prod", user_id: "user-uuid-planner" },
-        { agent_id: "a-writer", display_name: "Writer", node_id: "node-prod", user_id: "user-uuid-writer" },
+        { agent_id: "a-writer", display_name: "Writer", node_id: "node-other", user_id: "user-uuid-writer" },
         { agent_id: "a-reviewer", display_name: "Reviewer", node_id: "node-prod", user_id: "user-uuid-reviewer" }
       ]);
     }
@@ -505,12 +541,21 @@ describe("ChatWorkspacePage — integration", () => {
     const composer = await screen.findByRole("textbox") as HTMLTextAreaElement;
     await waitFor(() => expect(composer.value).toContain("/skill:conversation-skill-distiller"));
     expect(composer.value).toContain("source_jsonl_paths:");
-    expect(composer.value).toContain("  /tmp/planner-session.jsonl");
+    expect(composer.value).toContain("  /gateway-owned/sessions/session.jsonl");
     expect(composer.value).toContain("execution_agent_id: a-planner");
     expect(composer.value).toContain("target_scope: agent");
+    const distillRequest = (fetchSpy as unknown as { sent: { url: string; init?: RequestInit }[] }).sent.find(
+      (request) => request.url.endsWith("/im/v1/conversations/distill-prompt")
+    );
+    expect(distillRequest).toBeDefined();
+    expect(JSON.parse(String(distillRequest!.init!.body))).toEqual({
+      sources: [{ conversation_id: "c1", source_agent_id: "a-planner" }],
+      execution_agent_id: "a-planner",
+      target_scope: "agent",
+    });
   });
 
-  it("does not preselect an ineligible no-transcript conversation from the right-click entry and shows a recoverable notice", async () => {
+  it("does not preselect an ineligible source conversation from the right-click entry and shows a recoverable notice", async () => {
     const user = userEvent.setup();
     renderAtRoute("/chat");
     const missingTranscriptRow = await screen.findByRole("button", { name: /Empty Group/ });
@@ -523,30 +568,31 @@ describe("ChatWorkspacePage — integration", () => {
     expect(checkbox.checked).toBe(false);
     expect(screen.getByRole("button", { name: "Distill to skill" })).toBeDisabled();
     expect(screen.getByRole("alert")).toHaveTextContent(
-      "Select at least one finished conversation with a transcript.",
+      "Select at least one finished conversation on one Gateway.",
     );
   });
 
-  it("requires an execution agent for cross-agent distillation sources", async () => {
+  it("keeps a second Gateway source unavailable while an execution agent can be chosen on the selected Gateway", async () => {
     const user = userEvent.setup();
     renderAtRoute("/chat");
     await screen.findByRole("button", { name: /Planner/ });
     await user.click(screen.getByRole("button", { name: "Generate skill" }));
 
     await user.click(screen.getByRole("checkbox", { name: /Planner/ }));
-    await user.click(screen.getByRole("checkbox", { name: /Research Squad/ }));
+    const crossGateway = screen.getByRole("checkbox", { name: /Research Squad/ }) as HTMLInputElement;
+    expect(crossGateway).toBeDisabled();
+    expect(screen.getByText("Different Gateway")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Distill to skill" }));
 
     expect(screen.getByText("Execution agent")).toBeInTheDocument();
-    await user.click(screen.getByRole("radio", { name: /Writer/ }));
+    await user.click(screen.getByRole("radio", { name: /Reviewer/ }));
     await user.click(screen.getByRole("radio", { name: "Global" }));
     await user.click(screen.getByRole("button", { name: "Start distillation" }));
 
     const composer = await screen.findByRole("textbox") as HTMLTextAreaElement;
-    await waitFor(() => expect(composer.value).toContain("execution_agent_id: a-writer"));
+    await waitFor(() => expect(composer.value).toContain("execution_agent_id: a-reviewer"));
     expect(composer.value).toContain("target_scope: global");
-    expect(composer.value).toContain("  /tmp/planner-session.jsonl");
-    expect(composer.value).toContain("  /tmp/writer-session.jsonl");
+    expect(composer.value).toContain("  /gateway-owned/sessions/session.jsonl");
   });
 
   it("does not prefill the distiller command when the execution agent cannot see the skill", async () => {
@@ -583,6 +629,45 @@ describe("ChatWorkspacePage — integration", () => {
     expect(await screen.findByText(/Enable skill_view/)).toBeInTheDocument();
     const postedConversation = (fetchSpy as unknown as { sent: { url: string; init?: RequestInit }[] }).sent.find(
       (r) => r.url.endsWith("/im/v1/conversations") && r.init?.method === "POST"
+    );
+    expect(postedConversation).toBeUndefined();
+  });
+
+  it("does not create the distill conversation when the execution agent has no tools", async () => {
+    const user = userEvent.setup();
+    fetchSpy = mockFetch({ toolAllowlist: [] });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    renderAtRoute("/chat");
+    await screen.findByRole("button", { name: /Planner/ });
+    await user.click(screen.getByRole("button", { name: "Generate skill" }));
+    await user.click(screen.getByRole("checkbox", { name: /Planner/ }));
+    await user.click(screen.getByRole("button", { name: "Distill to skill" }));
+    await user.click(screen.getByRole("button", { name: "Start distillation" }));
+
+    expect(await screen.findByText(/Enable skill_view/)).toBeInTheDocument();
+    const postedConversation = (fetchSpy as unknown as { sent: { url: string; init?: RequestInit }[] }).sent.find(
+      (r) => r.url.endsWith("/im/v1/conversations") && r.init?.method === "POST"
+    );
+    expect(postedConversation).toBeUndefined();
+  });
+
+  it("keeps the dialog open without creating a chat when Gateway prompt resolution fails", async () => {
+    const user = userEvent.setup();
+    fetchSpy = mockFetch({ distillPromptError: "source session file is unavailable" });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    renderAtRoute("/chat");
+    await screen.findByRole("button", { name: /Planner/ });
+    await user.click(screen.getByRole("button", { name: "Generate skill" }));
+    await user.click(screen.getByRole("checkbox", { name: /Planner/ }));
+    await user.click(screen.getByRole("button", { name: "Distill to skill" }));
+    await user.click(screen.getByRole("button", { name: "Start distillation" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("source session file is unavailable");
+    expect(screen.getByRole("heading", { name: "Distill conversations" })).toBeInTheDocument();
+    const postedConversation = (fetchSpy as unknown as { sent: { url: string; init?: RequestInit }[] }).sent.find(
+      (request) => request.url.endsWith("/im/v1/conversations") && request.init?.method === "POST"
     );
     expect(postedConversation).toBeUndefined();
   });

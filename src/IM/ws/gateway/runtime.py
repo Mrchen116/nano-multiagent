@@ -39,6 +39,7 @@ class GatewayRuntime:
             "node.cron.delete",
             "node.skills.usage",
             "session.fork.result",
+            "node.distill.prompt",
             "channel.reconcile.result",
             "channels.bootstrap",
             "channel.status",
@@ -159,6 +160,7 @@ class GatewayRuntime:
             "node.cron.delete": self._control._handle_cron_delete,
             "node.skills.usage": self._control._handle_skills_usage,
             "session.fork.result": self._control._handle_session_fork_result,
+            "node.distill.prompt": self._control._handle_distill_prompt,
             "channel.reconcile.result": lambda *, payload: (
                 self._channel_control._handle_channel_reconcile_result(
                     websocket=websocket, payload=payload

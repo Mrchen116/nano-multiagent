@@ -57,6 +57,21 @@ class CreateConversationRequest(BaseModel):
         return self
 
 
+class DistillSourceRequest(BaseModel):
+    """One browser-selected historical source identified without filesystem data."""
+
+    conversation_id: str = Field(min_length=1)
+    source_agent_id: str = Field(min_length=1)
+
+
+class CreateDistillPromptRequest(BaseModel):
+    """Request one Gateway-produced ordinary-chat distill prompt."""
+
+    sources: list[DistillSourceRequest] = Field(min_length=1)
+    execution_agent_id: str = Field(min_length=1)
+    target_scope: str = Field(pattern="^(agent|global)$")
+
+
 class ForkConversationRequest(BaseModel):
     """Request payload for forking a conversation at one agent reply (feat-445-M1)."""
 
@@ -104,7 +119,14 @@ class ConversationResponse(BaseModel):
     created_at: str
     run_state: str
     source_agent_id: str | None = None
-    source_jsonl_path: str | None = None
+    source_node_id: str | None = None
+
+
+class DistillPromptResponse(BaseModel):
+    """Return a server-pinned execution conversation and its editable prompt."""
+
+    conversation: ConversationResponse
+    prompt: str
 
 
 class ExternalFindOrCreateConversationRequest(BaseModel):
@@ -166,7 +188,7 @@ def to_conversation_response(conversation: Conversation) -> ConversationResponse
         created_at=conversation.created_at,
         run_state=conversation.run_state,
         source_agent_id=conversation.source_agent_id,
-        source_jsonl_path=conversation.source_jsonl_path,
+        source_node_id=conversation.source_node_id,
     )
 
 
@@ -210,6 +232,115 @@ def create_conversation(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
         ) from exc
     return to_conversation_response(created)
+
+
+@router.post(
+    "/im/v1/conversations/distill-prompt",
+    response_model=DistillPromptResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_distill_prompt(
+    payload: CreateDistillPromptRequest,
+    user: User = Depends(current_user),
+    service: WebIMService = Depends(get_web_im_service),
+    gateway_control: GatewayControl = Depends(get_gateway_control),
+    profiles: AgentProfileRepository = Depends(get_profile_repository),
+) -> DistillPromptResponse:
+    """Create one same-Gateway execution chat after its prompt is locally resolved."""
+    target_node_id: str | None = None
+    control_sources: list[dict[str, object]] = []
+    for source_request in payload.sources:
+        source = service.get_conversation_for_owner(
+            conversation_id=source_request.conversation_id,
+            owner_id=user.owner_id,
+        )
+        if (
+            source is None
+            or source.run_state != "idle"
+            or source.source_agent_id != source_request.source_agent_id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="selected source is unavailable",
+            )
+        source_profile = profiles.get_profile_for_owner(
+            agent_id=source.source_agent_id,
+            owner_id=user.owner_id,
+        )
+        source_node_id = source_profile.node_id if source_profile is not None else None
+        if not source_node_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="selected source is unavailable",
+            )
+        if target_node_id is None:
+            target_node_id = source_node_id
+        elif target_node_id != source_node_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="selected sources must belong to one Gateway",
+            )
+        control_source: dict[str, object] = {
+            "conversation_id": source.id,
+            "source_agent_id": source.source_agent_id,
+        }
+        if source.external_source and source.external_chat_id:
+            control_source.update(
+                {
+                    "external_source": source.external_source,
+                    "external_chat_id": source.external_chat_id,
+                }
+            )
+        control_sources.append(control_source)
+
+    execution = profiles.get_profile_for_owner(
+        agent_id=payload.execution_agent_id,
+        owner_id=user.owner_id,
+    )
+    if (
+        execution is None
+        or not execution.node_id
+        or execution.node_id != target_node_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="execution agent must belong to the selected Gateway",
+        )
+
+    result = await gateway_control.request_distill_prompt(
+        target_node_id=target_node_id,
+        sources=control_sources,
+        execution_agent_id=payload.execution_agent_id,
+        target_scope=payload.target_scope,
+    )
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="selected Gateway did not return a distill prompt",
+        )
+    prompt = result.get("prompt")
+    if not isinstance(prompt, str) or not prompt.strip():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(
+                result.get("message") or "selected Gateway cannot distill these sources"
+            ),
+        )
+
+    try:
+        conversation = service.create_conversation(
+            title=f"Skill distill · {execution.display_name}",
+            participant_ids=[f"user:{user.id}", f"agent:{execution.agent_id}"],
+            caller_owner_id=user.owner_id,
+            target_node_id=target_node_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    return DistillPromptResponse(
+        conversation=to_conversation_response(conversation), prompt=prompt
+    )
 
 
 @router.post(

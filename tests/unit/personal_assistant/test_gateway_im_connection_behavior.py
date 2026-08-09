@@ -273,6 +273,79 @@ def test_im_connection_dispatches_session_fork_request(tmp_path: Path) -> None:
     assert response_frame["payload"]["new_session_id"] == "ksess-new"
 
 
+def test_im_connection_dispatches_gateway_owned_distill_prompt_request(
+    tmp_path: Path,
+) -> None:
+    """Route the IM request to Gateway-local prompt construction and echo its result."""
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(lambda _message: None)
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "node.distill.prompt.request",
+                    "payload": {
+                        "request_id": "distill-req-1",
+                        "sources": [
+                            {
+                                "conversation_id": "conv-src",
+                                "source_agent_id": "agent-a",
+                            }
+                        ],
+                        "execution_agent_id": "agent-a",
+                        "target_scope": "agent",
+                    },
+                }
+            ),
+        ]
+    )
+    reporter = UpstreamReporter(
+        node=NodeConfig(node_id="node-1"),
+        agents=_agents(tmp_path),
+        send_frame=lambda _message_type, _payload: None,
+    )
+    seen: list[dict] = []
+
+    async def distill_prompt_handler(payload):
+        seen.append(dict(payload))
+        return {"prompt": "/skill:conversation-skill-distiller"}
+
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="http://im.local:9000"),
+        reporter=reporter,
+        relay_adapter=relay_adapter,
+        distill_prompt_handler=distill_prompt_handler,
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def _exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - ack node.register
+        await manager._listen_once()  # noqa: SLF001 - node.distill.prompt.request
+        await manager.close()
+
+    asyncio.run(_exercise())
+
+    assert seen == [
+        {
+            "request_id": "distill-req-1",
+            "sources": [{"conversation_id": "conv-src", "source_agent_id": "agent-a"}],
+            "execution_agent_id": "agent-a",
+            "target_scope": "agent",
+        }
+    ]
+    response_frame = json.loads(socket.sent[-1])
+    assert response_frame == {
+        "type": "node.distill.prompt",
+        "payload": {
+            "request_id": "distill-req-1",
+            "node_id": "node-1",
+            "prompt": "/skill:conversation-skill-distiller",
+        },
+    }
+
+
 def test_im_connection_dispatches_agent_config_operation(tmp_path: Path) -> None:
     relay_adapter = WebRelayAdapter()
     relay_adapter.start(lambda _message: None)
@@ -739,6 +812,7 @@ def test_every_guarded_upstream_frame_carries_registered_node_identity(
         "node.cron.delete",
         "node.skills.usage",
         "session.fork.result",
+        "node.distill.prompt",
         "channel.reconcile.result",
         "channels.bootstrap",
         "channel.status",
