@@ -176,3 +176,166 @@ python <public-product-factory probe>  # build_cli_kernel / build_pa_kernel list
 ## Cleanup confirmation
 
 Playwright、Vite、IM、Gateway、prototype server 与受控 SSE fixture 均已关闭；`64759`、`64833`、`49681`、`65259` 均已确认无监听。临时 `node_modules` symlink 已解除，运行时文件、截图、secret 和 fixture 数据未纳入提交。
+
+---
+
+# Round 2 — 2026-08-10
+
+## Verdict
+
+- **Verdict:** FAIL
+- **Highest Required Action:** `fix-implementation`
+- **Blocking issues:** 1
+- **Major issues:** 0
+- **Minor issues:** 0
+- **Validated at:** 2026-08-10T02:56:01+08:00
+- **Validated commit:** `449960cfdabf4fc265a0f54a8013d11fa16185ad`
+- **Executed base:** `1d0c2cb45b887162912402b0fb489cdf3a1ad9c9`
+- **Fix delta observed:** `57127841103db3c5510fa907e96a11bce76a42e5..449960cfdabf4fc265a0f54a8013d11fa16185ad`
+- **Review round:** 2
+
+R1 的 B1 未关闭。全新隔离 IM、Gateway、Vite、数据库、workspace 和 node identity 下，`default_discovery` 第一次编辑为单项 explicit allowlist 仍不能保存；真正导航刷新后重新操作仍稳定返回 409。显式空保存也失败。错误码从 R1 的 `invalid_agent_config` 变为 `operation_conflict`，但用户仍无法完成同一主路径，因此继续路由 `fix-implementation`。这是一次 fix round 后的复验，不满足 `revise-design` 的轮次闸。
+
+## Round 1 issue revalidation
+
+### B1 — OPEN: Agent detail 仍无法保存显式 Skill 选择
+
+- **Severity:** blocking
+- **Regression Relation:** direct
+- **Recommended Action:** `fix-implementation`
+- **Action Rationale:** 直接违反“候选可选择并成功保存”以及“显式选择后下一轮生效”验收标准；新提交尚未让用户走通保存主路径。
+
+独立复现：
+
+1. 通过 runbook 启动全新 E2E 栈，以 `nano` / `nano1234` 登录，打开真实 `e2e` Agent detail。
+2. 初始状态为 `Using all currently discoverable skills`，profile v1；Workspace `4/4`、Global `29/29`、Compatibility `13/13`。
+3. 清空三个分组，只选 workspace `.claude` 来源的 `r2-claude-only`；草稿如实显示 `1 selected`、Workspace `1/4 mixed`。
+4. 点击 `Save Agent`，收到 `409 operation_conflict` 和“refresh capabilities and choose again”提示。
+5. 使用浏览器 `page.goto` 真正重新加载详情页，页面重新成为 default discovery；重复步骤 3，保存仍为同一 409。
+6. 再次真正刷新，清空全部三个分组形成 `0 selected`，保存仍为同一 409。
+
+live 可观察状态证明操作没有 applied，也没有部分写入：
+
+- 登录态 GET `/im/v1/agents/e2e/config` 为 200，失败后仍是 `skills=[]`、`skills_selection_mode=default_discovery`、`profile_version=1`。
+- 隔离 Gateway 的实际 YAML 仍记录 `skills_selection_mode: default_discovery`，没有保存 `r2-claude-only` 或 explicit empty。
+- 页面刷新后也恢复 default discovery，而不是显示单项或显式空。
+- 三次保存的 network 结果均为 `/im/v1/agents/e2e/config` PATCH 409；保存页面的 console error 对应该失败资源。
+
+证据：
+
+- `/tmp/nano-feat519-r2-review-artifacts-20260810/output/playwright/feat-519-r2-explicit-one-draft.png`
+- `/tmp/nano-feat519-r2-review-artifacts-20260810/output/playwright/feat-519-r2-explicit-one-save-error.png`
+- `/tmp/nano-feat519-r2-review-artifacts-20260810/output/playwright/feat-519-r2-explicit-empty-draft.png`
+- `/tmp/nano-feat519-r2-review-artifacts-20260810/output/playwright/feat-519-r2-explicit-empty-save-error.png`
+
+## User Journeys Exercised
+
+### 1. B1 单项与显式空保存
+
+完整执行 default → 只选 `r2-claude-only` → 保存 → 真刷新 → 重做 → 保存，以及 default → 全部分组清空 → 保存。两条路径均在 config operation 处返回 409，未产生 applied 状态；详情页、live config 与 Gateway YAML 三个可观察面保持 default。
+
+### 2. 原聊天、下一轮 admission 与 SlashPicker
+
+保存前先在真实 Agent chat `08219e634dc7465fb39a02493e9c96f6` 发送 `R2-HISTORY-MARKER`，真实 Gateway/配置上游返回可见回复 `acknowledged`。经历两次单项保存失败和一次显式空保存失败后，重新打开同一 chat，用户消息和模型回复均仍在，证明失败操作没有破坏历史。
+
+但显式空从未成功保存，无法进入“下一轮新 session 不暴露 Skill”的目标状态。失败后输入 `/` 仍显示 `r2-claude-only`、`r2-codex-only`、`r2-native-only`、native 胜出的 `r2-priority`；这与仍为 default 的 live config 一致，只能证明失败操作没有部分应用，不能替代 explicit-empty SlashPicker / session admission 的验收。该主旅程继续 FAIL。
+
+证据：`/tmp/nano-feat519-r2-review-artifacts-20260810/output/playwright/feat-519-r2-after-failed-empty-default-slashpicker.png`。
+
+### 3. R1 已通过能力的回归 smoke
+
+- 候选与优先级：详情页同时出现 native、workspace `.claude`、workspace `.codex` 候选；同名 `r2-priority` 只显示 native 胜出项。
+- 分组：Workspace 批量清空后再选择单项，显示 `1/4 mixed`，组操作与单项操作仍可组合。
+- mobile：375x812 下三组、计数、三态控件和 Skill pills 正常换行，无横向溢出或遮挡。
+- 创建页：只呈现共享 Global/Compatibility Skill；没有出现 `r2-*` workspace fixtures，未泄漏现有 Agent workspace。
+
+证据：
+
+- `/tmp/nano-feat519-r2-review-artifacts-20260810/output/playwright/feat-519-r2-mobile-smoke.png`
+- `/tmp/nano-feat519-r2-review-artifacts-20260810/output/playwright/feat-519-r2-mobile-partial-smoke.png`
+- `/tmp/nano-feat519-r2-review-artifacts-20260810/output/playwright/feat-519-r2-create-smoke.png`
+
+## Round 2 Scenario Coverage
+
+### Requirement: PA 与 Coding CLI 一致发现指定的 Claude/Codex 兼容根目录
+
+| Scenario | Expected source | Verification | Result | Notes |
+|---|---|---|---|---|
+| PA 配置页提供工作区与用户主目录的兼容 Skill | `spec.md` | 新栈真实详情页候选 + 保存 | **fail** | 候选可见；单项与显式空均保存 409（B1） |
+| Coding CLI 在同一项目中提供兼容 Skill 候选 | `spec.md` | 继承 R1 真实 CLI 证据；R2 PA 候选 smoke | pass | 修复 delta 未触及候选发现，smoke 无回归 |
+| 原生与既有兼容来源保持可用 | `spec.md` | R2 live native/compatibility/global 候选 | pass | 三类来源仍同时可见 |
+
+### Requirement: 同名 Skill 按统一、可预测的来源优先级解析
+
+| Scenario | Expected source | Verification | Result | Notes |
+|---|---|---|---|---|
+| PA 中同名 Skill 选择最优先来源 | `spec.md` | R2 detail 与 default SlashPicker | pass | `r2-priority` 只显示 native 胜出正文/描述 |
+| Coding CLI 中同名 Skill 选择最优先来源 | `spec.md` | 继承 R1 真实 CLI `skill_view` | pass | R2 fix delta 未触及 CLI resolver |
+
+### Requirement: PA 配置显式选择兼容 Skill 后才在下一轮生效
+
+| Scenario | Expected source | Verification | Result | Notes |
+|---|---|---|---|---|
+| 新发现的兼容 Skill 不静默扩大已保存 Agent 的能力 | `spec.md` | 尝试建立 explicit allowlist | **fail** | 前置 explicit allowlist 无法保存，不能验证后续新增 Skill |
+| 开发者选择兼容 Skill 后继续既有聊天 | `spec.md` | 真实 history + 保存 + SlashPicker/session 路径 | **fail** | history 本身保留，但保存失败，下一轮 explicit admission 不可达 |
+
+### Requirement: PA 配置支持按已显示的 Skill 分组批量选择
+
+| Scenario | Expected source | Verification | Result | Notes |
+|---|---|---|---|---|
+| 开发者以一个分组为单位调整 Skill 选择 | `spec.md`; `prototype.html` | desktop/mobile group → item smoke | pass | 草稿更新正常，仍可改单项 |
+| 分组状态如实反映单项选择 | `spec.md`; `prototype.html` | all → none → partial | pass | `4/4`、`0/4`、`1/4 mixed` 如实呈现 |
+| 批量选择自然融入既有配置体验 | `spec.md`; `prototype.html` | 375x812 与 desktop 对照 R1 reference | pass | 无新独立批量区，布局无回归 |
+
+### Requirement: 可选兼容目录缺失时保持正常使用
+
+| Scenario | Expected source | Verification | Result | Notes |
+|---|---|---|---|---|
+| 工作区不含某个兼容目录 | `spec.md` | 继承 R1 缺失目录真实入口证据 | pass | fix delta 未触及 discovery；R2 候选 smoke 正常 |
+| 兼容目录没有有效 Skill | `spec.md` | 继承 R1 空/无效目录真实入口证据 | pass | fix delta 未触及 discovery；无回归迹象 |
+
+## Reference Artifacts Reviewed
+
+| Reference | Must-match contract | R2 actual evidence | Viewport/state | Conclusion |
+|---|---|---|---|---|
+| `prototype.html` | 分组标题内紧凑三态控制、无笨重独立区 | `feat-519-r2-mobile-smoke.png`, `feat-519-r2-mobile-partial-smoke.png` | 375x812 default/partial | pass, no regression from R1 comparison |
+| R1 accepted desktop/create behavior | 候选分组、native duplicate winner、新建页不泄漏 workspace | live R2 detail/create + `feat-519-r2-create-smoke.png` | 375x812 and desktop | pass smoke |
+
+## Browser and Network Record
+
+- Desktop viewport: 1280x720; mobile viewport: 375x812.
+- 正常登录、Agent/config/capability/chat 读取、真实消息与模型回复均成功；最终干净页面 console 为 0 errors / 0 warnings。
+- defect path 每次保存产生一个 `/im/v1/agents/e2e/config` PATCH 409；页面显示 `operation_conflict`，不存在伪成功。
+- 未使用 LLM fixture。`acknowledged` 是隔离 Gateway 按 runbook 默认配置产生的真实可见回复；没有声称它证明 explicit allowlist 生效。
+
+## Commands and Isolation
+
+```bash
+PATH="/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH" ./scripts/e2e-up.sh --wt "$PWD"
+source .e2e-ports.env
+VITE_IM_PROXY_TARGET="$IM_URL" npm run dev -- --host 127.0.0.1 --port 52895 --strictPort
+/Users/czj/.codex/skills/playwright/scripts/playwright_cli.sh open http://127.0.0.1:52895
+/Users/czj/.codex/skills/playwright/scripts/playwright_cli.sh resize 375 812
+/Users/czj/.codex/skills/playwright/scripts/playwright_cli.sh console error
+```
+
+- IM: `127.0.0.1:52853`
+- Vite: `127.0.0.1:52895`
+- Gateway node: `wt-review-feat-519-r2-59814`
+- Agent workspace: `.gateway-workspace/e2e`
+
+## Side Findings
+
+None.
+
+## Document Lifecycle Check
+
+- `SPEC.md`: no direct update required by this acceptance round.
+- `docs/specs/*`: delta specs remain the active target; do not merge into current behavior while B1 is open.
+- `AGENTS.md` / `CLAUDE.md`: no new development constraint surfaced.
+- `docs/specs/CONTRIBUTING.md`: no documentation-system change.
+- Unit remains active and must not be archived.
+
+## Round 2 Cleanup Confirmation
+
+Playwright、Vite、IM 与 Gateway 均已关闭，`52853` 与 `52895` 已确认无监听；临时 `node_modules` symlink 已解除。截图和临时数据库/receipt 已移至 `/tmp/nano-feat519-r2-review-artifacts-20260810`，所有 runtime/config/secret/database/workspace artifacts 均未纳入提交。
