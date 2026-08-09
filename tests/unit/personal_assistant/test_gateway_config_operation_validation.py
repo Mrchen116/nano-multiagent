@@ -6,6 +6,10 @@ from pathlib import Path
 
 import pytest
 
+from IM.application.agent_config_operations import (
+    candidate_fingerprint,
+    gateway_candidate,
+)
 from personal_assistant.config.local_store import (
     AgentWorkspaceConfig,
     GatewayLifecycleConfig,
@@ -26,6 +30,17 @@ from tests.unit.personal_assistant._config_operation_helpers import (
     _llm,
     _sync,
 )
+
+
+def test_canonical_operation_rejects_invalid_skills_selection_mode() -> None:
+    with pytest.raises(ValueError, match="invalid skills_selection_mode"):
+        canonical_agent_operation_payload(
+            {
+                "agent_id": "agent-1",
+                "skills": [],
+                "skills_selection_mode": "all_skills",
+            }
+        )
 
 
 def test_config_operation_rejects_invalid_effort_and_operation_id_reuse(
@@ -124,6 +139,67 @@ def test_config_operation_accepts_effort_for_inherited_default_model(
     restored = load_local_config(config.source_path)
     assert restored.agents[0].default_model is None
     assert restored.agents[0].reasoning_effort == "max"
+
+
+def test_config_operation_accepts_im_fingerprint_for_explicit_empty_skills(
+    tmp_path: Path,
+) -> None:
+    """Apply IM's canonical explicit-empty candidate through the real handler."""
+    workspace = tmp_path / "seed"
+    workspace.mkdir()
+    agent = AgentWorkspaceConfig(
+        agent_id="seed",
+        workspace_root=workspace,
+        title="Seed",
+        skills=("plan",),
+        skills_selection_mode="explicit_allowlist",
+        tool_allowlist=("read",),
+        group_reply_policy="manual",
+        default_model="test:model",
+        reasoning_effort="low",
+    )
+    config = LocalConfig(
+        node=NodeConfig(node_id="node-1"),
+        agents=(agent,),
+        channels=(),
+        gateway=GatewayLifecycleConfig(),
+        heartbeat=HeartbeatConfig(),
+        im_service=None,
+        llm=_llm(),
+        source_path=tmp_path / "config.yaml",
+    )
+    save_local_config(config, config.source_path)
+    gateway = _sync(
+        config,
+        receipts=ConfigApplyReceiptStore(tmp_path / "receipts.json"),
+    )
+    previous = {
+        **_agent_payload(agent),
+        "skills_selection_mode": "explicit_allowlist",
+    }
+    candidate = {
+        **previous,
+        "skills": [],
+        "skills_selection_mode": "explicit_allowlist",
+    }
+    candidate_payload = gateway_candidate(candidate)
+
+    result = gateway.handle_agent_config_operation(
+        "apply",
+        {
+            "operation_id": "op-im-explicit-empty",
+            "candidate_fingerprint": candidate_fingerprint(candidate),
+            "expected_previous_fingerprint": candidate_fingerprint(previous),
+            "agent": candidate_payload,
+        },
+    )
+
+    assert result["status"] == "applied"
+    assert result["agent"]["skills"] == []
+    assert result["agent"]["skills_selection_mode"] == "explicit_allowlist"
+    restored = load_local_config(config.source_path)
+    assert restored.agents[0].skills == ()
+    assert restored.agents[0].skills_selection_mode == "explicit_allowlist"
 
 
 def test_create_operation_rejects_invalid_model_before_custom_workspace_setup(

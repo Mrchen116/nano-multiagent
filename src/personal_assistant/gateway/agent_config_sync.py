@@ -105,6 +105,7 @@ def canonical_agent_operation_payload(
         "skills": list(_operation_string_tuple(raw_skills))
         if isinstance(raw_skills, list)
         else None,
+        "skills_selection_mode": _selection_mode(payload.get("skills_selection_mode")),
         "tool_allowlist": list(_operation_string_tuple(raw_tools)),
         "group_reply_policy": _optional_operation_text(
             payload.get("group_reply_policy")
@@ -1511,9 +1512,7 @@ def _agent_operation_payload(agent: AgentWorkspaceConfig) -> dict[str, object]:
         "agent_id": agent.agent_id,
         "display_name": agent.title or agent.agent_id,
         "skills": list(agent.skills),
-        "skills_selection_mode": effective_skills_selection_mode(
-            agent.skills_selection_mode, agent.skills
-        ),
+        "skills_selection_mode": agent.skills_selection_mode,
         "tool_allowlist": list(agent.tool_allowlist),
         "group_reply_policy": agent.group_reply_policy or "manual",
         "default_model": agent.default_model,

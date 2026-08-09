@@ -2,8 +2,8 @@
 
 ## Status
 
-- State: implementation complete; verifier round-one implementation fixes complete;
-  independent gates pending.
+- State: implementation complete; verifier round two passed; acceptance round-one
+  fingerprint fix complete; acceptance rerun and remaining independent gates pending.
 - Executed base: `1d0c2cb45`.
 - Baseline: 27 focused Python tests and 37 focused frontend tests passed.
 
@@ -41,6 +41,10 @@ runtime projection, and the Web IM create/detail/chat surfaces.
 - Lost-ACK recovery keeps explicit-empty Skill intent in the durable candidate,
   canonical fingerprint, Gateway apply payload, and committed IM profile. The
   existing CAS-loss compensation path now protects the same tri-state fields.
+- IM and Gateway now hash the same canonical `skills_selection_mode` field.
+  Gateway validates it through the existing selection-mode helper, while its
+  local previous-state projection retains the persisted raw mode so legacy
+  absence remains hashable without eager migration.
 
 ## Evidence
 
@@ -79,6 +83,23 @@ runtime projection, and the Web IM create/detail/chat surfaces.
   - `npm run build` passed; Vite retained its existing large-chunk warning.
   - `ruff check src tests`, `ruff format --check src tests`, `git diff --check`,
     and `PYTHON=/Users/czj/miniforge3/bin/python ./scripts/docs-check` passed.
+- Acceptance round-one fingerprint follow-up:
+  - TDD red: five IM/Gateway parity cases (`legacy absent`, `legacy null`,
+    `default_discovery`, explicit non-empty, explicit empty) all produced unequal
+    fingerprints, and a real explicit-empty `handle_agent_config_operation()`
+    apply returned `rejected`.
+  - Root cause: IM's canonical fingerprint schema included
+    `skills_selection_mode`, but Gateway omitted it; additionally, Gateway's
+    local previous-state projection converted persisted legacy absence to an
+    effective mode, which would conflict after adding the missing canonical key.
+  - `pytest -q tests/unit/personal_assistant/test_gateway_config_operation_validation.py
+    tests/unit/personal_assistant/test_gateway_config_operations.py
+    tests/unit/personal_assistant/test_gateway_im_config_sync.py` → 42 passed.
+  - `pytest -q tests/im_service/unit/test_agent_config_operations.py
+    tests/im_service/integration/test_agent_config_operation_flow.py` → 15 passed.
+  - The combined related suite passed 57 tests; `ruff check src tests`,
+    `ruff format --check src tests`, `git diff --check`, and
+    `PYTHON=/Users/czj/miniforge3/bin/python ./scripts/docs-check` also passed.
 
 ## Remaining gates
 
