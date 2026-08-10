@@ -122,7 +122,10 @@ def test_formal_arm_a_recipes_cover_the_registered_suite() -> None:
     registered = {entry["case_id"]: entry for entry in dataset["cases"]}
 
     assert set(registered) == set(EXPECTED_RECIPES)
-    assert registered["H02"]["case_ref"] == "cases/H02-feat-510-tool-approval-model/case.json"
+    assert (
+        registered["H02"]["case_ref"]
+        == "cases/H02-feat-510-tool-approval-model/case.json"
+    )
 
     for case_id, filename in EXPECTED_RECIPES.items():
         recipe = load_json(RECIPES_ROOT / filename)
@@ -132,13 +135,21 @@ def test_formal_arm_a_recipes_cover_the_registered_suite() -> None:
         assert recipe["case_id"] == case_id
         assert recipe["arm"]["id"] == "A"
         assert recipe["arm"]["ref"] == FRAMEWORK_COMMIT
-        assert recipe["scrub"]["change_unit_policy"] == "remove_active_and_retired_keep_completed_archive"
+        assert (
+            recipe["scrub"]["change_unit_policy"]
+            == "remove_active_and_retired_keep_completed_archive"
+        )
         assert recipe["assertions"]["change_units_absent"] is True
         assert recipe["git"] == CANONICAL_GIT
         assert FORBIDDEN_BENCHMARK_ATOMS <= set(recipe["assertions"]["forbidden_text"])
         assert contract["method_id"] == "counterfactual-latest-base-v1"
-        assert contract["truth_formula"] == "Code@B + ProductClaims@B + DocsFramework@F + Workflow@W"
-        assert contract["clocks"]["documentation_framework"]["commit"] == FRAMEWORK_COMMIT
+        assert (
+            contract["truth_formula"]
+            == "Code@B + ProductClaims@B + DocsFramework@F + Workflow@W"
+        )
+        assert (
+            contract["clocks"]["documentation_framework"]["commit"] == FRAMEWORK_COMMIT
+        )
         assert contract["clocks"]["documentation_framework"]["tree"] == FRAMEWORK_TREE
         assert contract["clocks"]["workflow"]["commit"] == FRAMEWORK_COMMIT
         assert contract["layers"] == [
@@ -164,9 +175,10 @@ def test_formal_arm_a_recipes_cover_the_registered_suite() -> None:
         "heading": "## Evidence 与本地产物",
         "expected_occurrences": 1,
     }
-    assert changes_index["output_sha256"] == h01["assertions"]["required_sha256"][
-        "docs/changes/README.md"
-    ]
+    assert (
+        changes_index["output_sha256"]
+        == h01["assertions"]["required_sha256"]["docs/changes/README.md"]
+    )
     assert set(H01_PROPOSED_CONTROL_PATHS) <= set(h01["assertions"]["forbidden_paths"])
     assert h01["assertions"]["required_resolved_links"]["docs/changes/README.md"] == [
         "../development/change-workflow.md",
@@ -183,7 +195,9 @@ def test_formal_arm_a_recipes_cover_the_registered_suite() -> None:
         *(item["content"] for item in h01["arm"]["generated_files"]),
     ]
     assert "## 架构红线\n" in generated[-1]
-    assert not any(atom in content for atom in FORBIDDEN_BENCHMARK_ATOMS for content in generated)
+    assert not any(
+        atom in content for atom in FORBIDDEN_BENCHMARK_ATOMS for content in generated
+    )
 
     for case_id in ("H02", "H03", "H04", "H05", "H07", "P01", "P02"):
         recipe = load_json(RECIPES_ROOT / EXPECTED_RECIPES[case_id])
@@ -223,7 +237,10 @@ def test_archive_lineage_scrub_is_suite_wide_and_task_blind() -> None:
         assert {item["path"] for item in policy["drop_units"]} <= set(
             recipe["assertions"]["forbidden_paths"]
         )
-        assert "docs/changes/feat-397-spec-design-agent-team" in recipe["assertions"]["forbidden_paths"]
+        assert (
+            "docs/changes/feat-397-spec-design-agent-team"
+            in recipe["assertions"]["forbidden_paths"]
+        )
         assert "feat-397" in recipe["assertions"]["forbidden_text"]
 
 

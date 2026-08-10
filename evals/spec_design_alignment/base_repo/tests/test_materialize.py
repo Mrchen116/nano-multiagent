@@ -14,8 +14,12 @@ BASE_REPO_DIR = Path(__file__).resolve().parents[1]
 SCRIPT = BASE_REPO_DIR / "materialize.py"
 
 
-def run(*args: str, cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
-    environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+def run(
+    *args: str, cwd: Path | None = None, check: bool = True
+) -> subprocess.CompletedProcess[str]:
+    environment = {
+        key: value for key, value in os.environ.items() if not key.startswith("GIT_")
+    }
     result = subprocess.run(
         [*args],
         cwd=cwd,
@@ -59,7 +63,10 @@ def build_source_repository(tmp_path: Path) -> tuple[Path, str, str, str]:
     write(repository / "docs" / "specs" / "README.md", "current specs\n")
     write(repository / "docs" / "changes" / "README.md", "change storage\n")
     write(repository / "docs" / "development" / "README.md", "development index\n")
-    write(repository / "docs" / "development" / "change-workflow.md", "current workflow route\n")
+    write(
+        repository / "docs" / "development" / "change-workflow.md",
+        "current workflow route\n",
+    )
     write(repository / "docs" / "order" / "actual" / "item.txt", "directory prefix\n")
     write(repository / "docs" / "order" / "actual-r10" / "item.txt", "hyphen suffix\n")
     write(
@@ -71,13 +78,24 @@ def build_source_repository(tmp_path: Path) -> tuple[Path, str, str, str]:
         "## Unrelated\ndrop this\n\n"
         "## 工作红线\nkeep work rules\n",
     )
-    write(repository / ".claude" / "skills" / "legacy" / "SKILL.md", "historical oracle\n")
     write(
-        repository / "src" / "personal_assistant" / "builtin_skills" / "product" / "SKILL.md",
+        repository / ".claude" / "skills" / "legacy" / "SKILL.md", "historical oracle\n"
+    )
+    write(
+        repository
+        / "src"
+        / "personal_assistant"
+        / "builtin_skills"
+        / "product"
+        / "SKILL.md",
         "product-owned skill\n",
     )
     write(
-        repository / "docs" / "changes" / "feat-510-unified-tool-approval-model" / "spec.md",
+        repository
+        / "docs"
+        / "changes"
+        / "feat-510-unified-tool-approval-model"
+        / "spec.md",
         "feat-510 tool_approval_model\n",
     )
     write(
@@ -94,8 +112,13 @@ def build_source_repository(tmp_path: Path) -> tuple[Path, str, str, str]:
     source_tree = git(repository, "rev-parse", "HEAD^{tree}")
 
     write(repository / "workflow" / "author" / "SKILL.md", "current author workflow\n")
-    write(repository / "workflow" / "reviewer" / "SKILL.md", "current reviewer workflow\n")
-    write(repository / "workflow" / "docs" / "AGENTS.md", "replacement root instructions\n")
+    write(
+        repository / "workflow" / "reviewer" / "SKILL.md", "current reviewer workflow\n"
+    )
+    write(
+        repository / "workflow" / "docs" / "AGENTS.md",
+        "replacement root instructions\n",
+    )
     git(repository, "add", "--all")
     git(repository, "commit", "-m", "fixture frozen arm")
     arm_commit = git(repository, "rev-parse", "HEAD")
@@ -224,13 +247,21 @@ def invoke(
 
 
 def prepare(tmp_path: Path) -> tuple[Path, Path, Path, Path, Path]:
-    repository, source_commit, source_tree, arm_commit = build_source_repository(tmp_path)
+    repository, source_commit, source_tree, arm_commit = build_source_repository(
+        tmp_path
+    )
     recipe_path = tmp_path / "recipe.json"
     recipe_path.write_text(
         json.dumps(recipe_for(repository, source_commit, source_tree, arm_commit)),
         encoding="utf-8",
     )
-    return repository, recipe_path, tmp_path / "output", tmp_path / "manifest.json", tmp_path / "receipt.json"
+    return (
+        repository,
+        recipe_path,
+        tmp_path / "output",
+        tmp_path / "manifest.json",
+        tmp_path / "receipt.json",
+    )
 
 
 def test_cli_materializes_complete_clean_parentless_repository(tmp_path: Path) -> None:
@@ -246,8 +277,12 @@ def test_cli_materializes_complete_clean_parentless_repository(tmp_path: Path) -
     assert not (output / ".claude/skills/legacy").exists()
     assert not (output / "docs/changes/feat-510-unified-tool-approval-model").exists()
     assert not (output / "docs/changes/refactor-pending").exists()
-    assert (output / ".claude/skills/current-author/SKILL.md").read_text() == "current author workflow\n"
-    assert (output / ".claude/skills/current-reviewer/SKILL.md").read_text() == "current reviewer workflow\n"
+    assert (
+        output / ".claude/skills/current-author/SKILL.md"
+    ).read_text() == "current author workflow\n"
+    assert (
+        output / ".claude/skills/current-reviewer/SKILL.md"
+    ).read_text() == "current reviewer workflow\n"
     assert (output / "AGENTS.md").read_text(encoding="utf-8") == (
         "nano fixture\n\n"
         "## Project overview\nprivate runner route\n\n"
@@ -267,7 +302,11 @@ def test_cli_materializes_complete_clean_parentless_repository(tmp_path: Path) -
     assert len(git(output, "rev-list", "--parents", "-n", "1", "HEAD").split()) == 1
     assert git(output, "status", "--porcelain=v1") == ""
     assert {path.name for path in (output / ".git").iterdir()} == {
-        "HEAD", "config", "index", "objects", "refs"
+        "HEAD",
+        "config",
+        "index",
+        "objects",
+        "refs",
     }
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -276,7 +315,9 @@ def test_cli_materializes_complete_clean_parentless_repository(tmp_path: Path) -
     assert "README.md" in manifest_paths
     assert ".claude/skills/current-author/SKILL.md" in manifest_paths
     assert not any(path.startswith(".git/") for path in manifest_paths)
-    assert receipt["source"]["commit"] == git(repository, "rev-parse", f"{receipt['source']['ref']}^{{commit}}")
+    assert receipt["source"]["commit"] == git(
+        repository, "rev-parse", f"{receipt['source']['ref']}^{{commit}}"
+    )
     assert receipt["arm"]["id"] == "A"
     assert receipt["docs_projection"] == {"mode": "preserve_exact"}
     assert receipt["scrub"]["archive_lineage"] == {
@@ -323,7 +364,9 @@ def test_git_index_is_zero_stat_canonical(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stderr
     canonical_index = tmp_path / "canonical-index"
-    environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    environment = {
+        key: value for key, value in os.environ.items() if not key.startswith("GIT_")
+    }
     environment["GIT_CONFIG_NOSYSTEM"] = "1"
     environment["GIT_CONFIG_GLOBAL"] = os.devnull
     environment["GIT_INDEX_FILE"] = str(canonical_index)
@@ -339,7 +382,9 @@ def test_git_index_is_zero_stat_canonical(tmp_path: Path) -> None:
     assert (output / ".git/index").read_bytes() == canonical_index.read_bytes()
 
 
-def test_cli_refuses_nonempty_and_symlink_outputs_without_touching_them(tmp_path: Path) -> None:
+def test_cli_refuses_nonempty_and_symlink_outputs_without_touching_them(
+    tmp_path: Path,
+) -> None:
     repository, recipe_path, output, manifest_path, receipt_path = prepare(tmp_path)
     output.mkdir()
     marker = output / "owned.txt"
@@ -370,12 +415,16 @@ def test_cli_refuses_nonempty_and_symlink_outputs_without_touching_them(tmp_path
     assert not receipt_path.exists()
 
 
-def test_cli_does_not_publish_repository_when_leak_assertion_fails(tmp_path: Path) -> None:
+def test_cli_does_not_publish_repository_when_leak_assertion_fails(
+    tmp_path: Path,
+) -> None:
     repository, recipe_path, output, manifest_path, receipt_path = prepare(tmp_path)
     recipe = json.loads(recipe_path.read_text(encoding="utf-8"))
     source_commit = recipe["source"]["expected_commit"]
     git(repository, "checkout", source_commit)
-    write(repository / "notes.md", "tool_approval_model leaked outside the target unit\n")
+    write(
+        repository / "notes.md", "tool_approval_model leaked outside the target unit\n"
+    )
     git(repository, "add", "notes.md")
     git(repository, "commit", "-m", "fixture leak")
     leaked_commit = git(repository, "rev-parse", "HEAD")
@@ -395,7 +444,9 @@ def test_cli_does_not_publish_repository_when_leak_assertion_fails(tmp_path: Pat
     assert not receipt_path.exists()
 
 
-def test_cli_allows_only_declared_workflow_owned_docs_replacement(tmp_path: Path) -> None:
+def test_cli_allows_only_declared_workflow_owned_docs_replacement(
+    tmp_path: Path,
+) -> None:
     repository, recipe_path, output, manifest_path, receipt_path = prepare(tmp_path)
     recipe = json.loads(recipe_path.read_text(encoding="utf-8"))
     replacement = (repository / "workflow/docs/AGENTS.md").read_bytes()
@@ -429,7 +480,9 @@ def test_cli_allows_only_declared_workflow_owned_docs_replacement(tmp_path: Path
     recipe["arm"]["files"][0]["destination"] = "AGENTS.md"
     recipe_path.write_text(json.dumps(recipe), encoding="utf-8")
 
-    undeclared = invoke(recipe_path, repository, second_output, second_manifest, second_receipt)
+    undeclared = invoke(
+        recipe_path, repository, second_output, second_manifest, second_receipt
+    )
 
     assert undeclared.returncode == 2
     assert "arm destination collides with product tree: AGENTS.md" in undeclared.stderr
