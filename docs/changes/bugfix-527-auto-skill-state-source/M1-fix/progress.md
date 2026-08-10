@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-- R1、R2、R3 已完成并合入 `unit/bugfix-527`。
+- R1、R2、R3 已完成并合入 `unit/bugfix-527`；Reviewer fix1 的 R4 与扩展门禁已完成，等待 rebase 与重新集成。
 - 基线: `73 passed`（self-improvement、background fork、skill_manage、usage、skill_view）。
 
 ## R1 — 建立来源链红测并最小贯通 F3
@@ -55,6 +55,23 @@
 - Rollback: revert `2b9a99d91` 恢复较低层回归；revert `674d571b9` 恢复修复前行为。
 - Commits: `2b9a99d91`、`e5f1c6724`；unit merge `7a47f80f0`。
 - Next: milestone 已完成，等待 unit reviewer / verifier。
+
+## R4 — Reviewer fix1：收窄 creation provenance 消费
+
+- Context: change-code-review 在冻结 HEAD `599d42d3c` 发现 fork-wide `skill_creation_source=F3` 同时进入 `skill_view`；若它首次查看无 usage 记录的手工/遗留 Skill，`bump_skill_usage` 会误建 F3 记录并使其进入自动生命周期。
+- Decision: `SkillViewTool` 首次建立 usage record 时固定使用既有默认 F1，不再从当前 session 的 creation provenance 推断被查看 Skill 的历史来源；`SkillManageTool._create` 仍是 `skill_creation_source` 的唯一消费方。已有 usage record 继续由 `setdefault` 保留其 F3/F4。
+- Rationale: creation provenance 描述“本次 create 动作”，不是整个 fork 内所有 Skill 的来源；在 read owner 收窄消费能保留 fork metadata 与 create 正向链，同时避免改动 usage 通用原语或 Allowlist。
+- Evidence:
+  - Tests: 红测 Skill-only / Combined 两例均显示无记录手工 Skill `F3 != F1`；修复后入口 + SkillView owner `14 passed`，聚焦保护矩阵 `82 passed`，changed-file Ruff 全绿；扩展 unit + integration `2638 passed, 2 warnings in 497.18s`。
+  - Entry: Kernel SDK `build_kernel → create_session → submit → agent_end Review` 同轮先 `skill_view(manual-skill)` 再 `skill_manage(create auto-review-skill)`；最终 sidecar 分别为 F1 / F3。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression: `tests/integration/test_self_improvement_skill_source.py` 覆盖 Skill-only / Combined；`tests/unit/test_skill_view.py` 覆盖无记录 Skill 与已有 F3/F4。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: revert `65d0cc0bc` 回到 reviewer finding 的冻结实现。
+- Commits: `65d0cc0bc`；docs 证据提交待完成。
+- Next: rebase `origin/unit/bugfix-527`，复验后获取 unit 锁并合入。
 
 ## Promotion Candidates
 

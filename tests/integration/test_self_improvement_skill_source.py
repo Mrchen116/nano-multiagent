@@ -57,6 +57,11 @@ class _KernelSkillReviewClient:
                     content="",
                     tool_calls=(
                         LLMToolCall(
+                            call_id="view-manual-skill",
+                            name="skill_view",
+                            arguments={"name": "manual-skill"},
+                        ),
+                        LLMToolCall(
                             call_id="create-auto-skill",
                             name="skill_manage",
                             arguments={
@@ -94,12 +99,18 @@ async def _wait_terminal(kernel: Any, run_id: str) -> None:
         await asyncio.sleep(0.01)
 
 
-async def _wait_for_path(path: Path) -> None:
+async def _wait_for_usage_records(
+    path: Path, expected_names: set[str]
+) -> dict[str, Any]:
     for _ in range(200):
         if path.is_file():
-            return
+            usage = json.loads(path.read_text(encoding="utf-8"))
+            if expected_names <= usage.keys():
+                return usage
         await asyncio.sleep(0.01)
-    raise AssertionError(f"timed out waiting for background Review output: {path}")
+    raise AssertionError(
+        f"timed out waiting for background Review records {expected_names}: {path}"
+    )
 
 
 @pytest.mark.asyncio
@@ -111,6 +122,13 @@ async def test_background_skill_review_create_records_f3_source(
 
     config_root = tmp_path / ".nanoassistant"
     config_root.mkdir()
+    manual_skill_file = config_root / "skills" / "manual-skill" / "SKILL.md"
+    manual_skill_file.parent.mkdir(parents=True)
+    manual_skill_file.write_text(
+        "---\nname: manual-skill\ndescription: Existing manual skill\n"
+        "---\n\n# Instructions\n\nKeep the existing behavior.\n",
+        encoding="utf-8",
+    )
     (config_root / "config.yaml").write_text(
         "auto_mode:\n"
         "  dangerously_skip_permissions: true\n"
@@ -149,9 +167,11 @@ async def test_background_skill_review_create_records_f3_source(
             parts=[{"type": "text", "text": "Inspect the available skills."}],
         )
         await _wait_terminal(kernel, run.run_id)
-        await _wait_for_path(usage_path)
+        usage = await _wait_for_usage_records(
+            usage_path, {"auto-review-skill", "manual-skill"}
+        )
 
-        usage = json.loads(usage_path.read_text(encoding="utf-8"))
         assert usage["auto-review-skill"]["source"] == "F3"
+        assert usage["manual-skill"]["source"] == "F1"
     finally:
         await kernel.aclose()

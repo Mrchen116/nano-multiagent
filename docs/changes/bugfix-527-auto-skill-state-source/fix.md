@@ -55,11 +55,14 @@
 
 memory-only Review 不提供该 override；普通 fork 不凭空产生 Skill 来源；普通用户 `skill_manage(create)` 仍由既有缺省语义记录为 F1。未修改 Skill Allowlist、历史蒸馏/F4 逻辑、生产配置或任何既有 `.usage.json`。
 
+Reviewer fix1 进一步收窄了消费边界：fork metadata 仍携带 F3，供本次 `skill_manage(create)` 建立自动 Skill 记录；`skill_view` 不再用当前 session 的 creation provenance 推断被查看 Skill 的历史来源。无 usage 记录的手工/遗留 Skill 首次查看时沿用 F1，已有自动 Skill 的 F3/F4 记录不会被覆盖。
+
 提交：
 
 - `674d571b9` — 贯通自动 Skill Review 的 F3 来源；
 - `38d114ece` — 锁定 memory-only、普通 fork、普通 create 的不污染边界；
 - `2b9a99d91` — 把回归提升为真实 Kernel SDK 入口。
+- `65d0cc0bc` — Reviewer fix1：仅 create 消费 creation provenance，view 保留既有来源语义。
 
 ## 验证
 
@@ -85,3 +88,5 @@ All checks passed!  # changed-file Ruff
 ```
 
 两条 warning 均来自既有 `lark_oapi` 依赖的 datetime / event-loop deprecation；没有测试失败。验证全程只使用 pytest 临时 Workspace，未读取或改写生产配置、远端 mini 或现有 `.usage.json`。
+
+Reviewer fix1 在同一真实 SDK Review 中增加“查看无记录手工 Skill + 创建新自动 Skill”：修复前 Skill-only / Combined 两例都把手工 Skill写成 F3，精确失败为 `F3 != F1`；修复后分别落为 `manual-skill=F1`、`auto-review-skill=F3`。最低层回归同时确认普通首次 view 为 F1，已有自动 Skill 的 F3/F4 记录继续保持。聚焦矩阵 `82 passed`，changed-file Ruff 全绿；扩展 unit + integration 为 `2638 passed, 2 warnings in 497.18s`，warning 仍仅来自既有 `lark_oapi` 弃用提示。未改 Allowlist、生产状态或既有 usage sidecar。
