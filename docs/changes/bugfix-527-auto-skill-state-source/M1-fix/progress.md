@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-- R1、R2 已完成；R3 正在回填 lite 文档并执行最终门禁/集成。
+- R1、R2、R3 已完成；等待 rebase unit 分支后的最终复验与集成。
 - 基线: `73 passed`（self-improvement、background fork、skill_manage、usage、skill_view）。
 
 ## R1 — 建立来源链红测并最小贯通 F3
@@ -12,7 +12,7 @@
 - Rationale: 来源意图由 self-improvement 生产者声明，通用 fork 只负责隔离地传递；不修改 `skill_manage` 的既有默认，也不触碰 Allowlist。
 - Evidence:
   - Tests: 红测 `2 failed`，两种 Review 均显示实际 `F1 != F3`；最小实现后同命令 `2 passed`。
-  - Entry: `tests/integration/test_self_improvement_skill_source.py` 从生产 `agent_end` hook handler 进入，执行实际 fork wrapper、真实 `skill_manage(create)` 与 usage sidecar 落盘，Skill-only / Combined 均读回 `source=F3`。
+  - Entry: `tests/integration/test_self_improvement_skill_source.py` 从 Kernel SDK 公共入口 `build_kernel/create_session/submit` 进入，经过生产 `agent_end` 后台 hook、fork wrapper、真实 `skill_manage(create)` 与 usage sidecar 落盘，Skill-only / Combined 均读回 `source=F3`。
   - Frontend State Matrix: N/A。
   - Browser QA: N/A。
   - E2E/Regression: `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q tests/integration/test_self_improvement_skill_source.py` → `2 passed`。
@@ -36,8 +36,25 @@
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: revert 本 roadpoint commit；R1 的正向 F3 修复仍可独立保留。
-- Commits: 本提交（R3 回填 hash）。
+- Commits: `38d114ece`。
 - Next: R3 回填 fix.md、跑扩展门禁、rebase 并合入 unit 分支。
+
+## R3 — 回填 lite 证据并完成集成
+
+- Context: lite 单必须用原始症状的真实入口闭环，并在合入 unit 前完成风险扩展门禁与可复查文档。
+- Decision: 把 R1 的内部 handler 回归提升为真实 Kernel SDK session；使用 pytest 临时 `.nanoassistant` 配置将阈值设为 1，主轮先执行只读 Skill list，再由后台 Review 创建 Skill并检查 sidecar。生产数据与 Allowlist 完全隔离。
+- Rationale: SDK session 是本缺陷可达的真实内核入口，能同时覆盖 builtin hook 加载、agent_end 后台 dispatch、fork metadata、工具执行与持久化接线；临时 Workspace 让验证可重复且不污染本机状态。
+- Evidence:
+  - Tests: 聚焦 `81 passed`；扩展 `tests/unit tests/integration` 为 `2637 passed, 2 warnings in 143.47s`。
+  - Entry: `tests/integration/test_self_improvement_skill_source.py` 的 Skill-only / Combined 两例均从 SDK submit 进入并在临时 `.usage.json` 读回 F3；修前同一断言为 `F1 != F3`。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression: `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q tests/integration/test_self_improvement_skill_source.py` → `2 passed`；全量 unit + integration → `2637 passed`。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: revert `2b9a99d91` 恢复较低层回归；revert `674d571b9` 恢复修复前行为。
+- Commits: `2b9a99d91`；lite 文档提交待本提交生成。
+- Next: rebase `origin/unit/bugfix-527`，最终复验后获取 unit 锁并合并。
 
 ## Promotion Candidates
 

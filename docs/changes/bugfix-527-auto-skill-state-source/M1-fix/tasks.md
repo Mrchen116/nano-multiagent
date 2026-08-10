@@ -8,10 +8,10 @@
 
 ## 退出标准
 
-- [ ] Skill-only 与 combined Review 的 fork metadata 带 `skill_creation_source=F3`，创建记录落盘为 `F3`。
-- [ ] memory-only Review 不虚构 Skill 来源；普通 fork 与普通用户创建继续走既有默认 `F1`。
-- [ ] 其他 fork/历史蒸馏语义不变，Allowlist 代码、生产配置和既有 `.usage.json` 不修改。
-- [ ] fix.md 的“修复 / 验证”完成回填，聚焦与扩展测试全绿。
+- [x] Skill-only 与 combined Review 的 fork metadata 带 `skill_creation_source=F3`，创建记录落盘为 `F3`。
+- [x] memory-only Review 不虚构 Skill 来源；普通 fork 与普通用户创建继续走既有默认 `F1`。
+- [x] 其他 fork/历史蒸馏语义不变，Allowlist 代码、生产配置和既有 `.usage.json` 不修改。
+- [x] fix.md 的“修复 / 验证”完成回填，聚焦与扩展测试全绿。
 
 ## 测试策略
 
@@ -48,6 +48,6 @@
 
 ### R3 — 回填 lite 证据并完成集成
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 更新 progress.md 与 fix.md 的修复/验证；rebase unit 分支后重跑门禁，提交并合入 unit worktree。
 - 验证: 聚焦测试、扩展 `tests/unit` / `tests/integration` 风险面、`git diff --check` 全绿。
