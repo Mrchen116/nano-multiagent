@@ -99,402 +99,6 @@ class PendingExternalControlDelivery:
     state: str
 
 
-class SessionBindingStore:
-    """Store gateway session bindings in local process memory for v1 pipeline flows."""
-
-    def __init__(self) -> None:
-        self._bindings: dict[str, SessionBinding] = {}
-        self._boundaries: dict[str, BoundaryIntent] = {}
-        self._quarantined_boundaries: dict[str, BoundaryIntent] = {}
-        self._boundary_retry_attempts: dict[str, int] = {}
-        self._boundary_retry_not_before: dict[str, float] = {}
-        self._control_operations: dict[tuple[str, str, str], ControlOperation] = {}
-        self._pending_external_controls: dict[
-            tuple[str, str, str], PendingExternalControlDelivery
-        ] = {}
-        self._superseded_runs: dict[str, str] = {}
-
-    def get(self, session_key: str) -> SessionBinding | None:
-        """Return one binding by session key."""
-
-        return self._bindings.get(session_key)
-
-    def bind(
-        self,
-        *,
-        session_key: str,
-        kernel_session_id: str,
-        reply_context: ReplyContext,
-        applied_runtime_fingerprint: str | None = None,
-        applied_fingerprint_schema: str | None = None,
-        applied_profile_version: int | None = None,
-    ) -> SessionBinding:
-        """Create or refresh one binding without losing known applied identity."""
-
-        previous = self._bindings.get(session_key)
-        binding = SessionBinding(
-            session_key=session_key,
-            kernel_session_id=kernel_session_id,
-            reply_context=reply_context,
-            applied_runtime_fingerprint=(
-                applied_runtime_fingerprint
-                if applied_runtime_fingerprint is not None
-                else previous.applied_runtime_fingerprint
-                if previous
-                else None
-            ),
-            applied_fingerprint_schema=(
-                applied_fingerprint_schema
-                if applied_fingerprint_schema is not None
-                else previous.applied_fingerprint_schema
-                if previous
-                else None
-            ),
-            applied_profile_version=(
-                applied_profile_version
-                if applied_profile_version is not None
-                else previous.applied_profile_version
-                if previous
-                else None
-            ),
-        )
-        self._bindings[session_key] = binding
-        return binding
-
-    def apply_runtime(
-        self,
-        binding: SessionBinding,
-        *,
-        runtime_fingerprint: str,
-        fingerprint_schema: str,
-        profile_version: int | None,
-    ) -> SessionBinding:
-        """Persist one Kernel-confirmed applied runtime for a stable binding."""
-
-        return self.bind(
-            session_key=binding.session_key,
-            kernel_session_id=binding.kernel_session_id,
-            reply_context=binding.reply_context,
-            applied_runtime_fingerprint=runtime_fingerprint,
-            applied_fingerprint_schema=fingerprint_schema,
-            applied_profile_version=profile_version,
-        )
-
-    def get_control_operation(
-        self, *, session_key: str, operation_id: str, kind: str
-    ) -> ControlOperation | None:
-        """Return an already completed replayable control outcome."""
-
-        return self._control_operations.get((session_key, operation_id, kind))
-
-    def publish_reset(
-        self,
-        *,
-        binding: SessionBinding,
-        operation_id: str | None,
-        superseded_run_id: str | None,
-        reply_text: str,
-        external_saga_id: str | None = None,
-    ) -> ControlOperation | None:
-        """Publish a replacement binding and its reset outcome as one store action."""
-
-        if operation_id is not None:
-            existing = self.get_control_operation(
-                session_key=binding.session_key, operation_id=operation_id, kind="new"
-            )
-            if existing is not None:
-                return existing
-        published = self.bind(
-            session_key=binding.session_key,
-            kernel_session_id=binding.kernel_session_id,
-            reply_context=binding.reply_context,
-            applied_runtime_fingerprint=binding.applied_runtime_fingerprint,
-            applied_fingerprint_schema=binding.applied_fingerprint_schema,
-            applied_profile_version=binding.applied_profile_version,
-        )
-        if superseded_run_id:
-            self._superseded_runs[superseded_run_id] = published.kernel_session_id
-        if operation_id is None:
-            return None
-        outcome = ControlOperation(
-            session_key=published.session_key,
-            operation_id=operation_id,
-            kind="new",
-            status="completed",
-            kernel_session_id=published.kernel_session_id,
-            reply_text=reply_text,
-        )
-        self._control_operations.setdefault(
-            (published.session_key, operation_id, "new"), outcome
-        )
-        committed = self._control_operations[
-            (published.session_key, operation_id, "new")
-        ]
-        self._record_external_control_delivery(
-            committed, shadow_saga_id=external_saga_id
-        )
-        return committed
-
-    def record_control_operation(
-        self,
-        outcome: ControlOperation,
-        *,
-        external_saga_id: str | None = None,
-    ) -> ControlOperation:
-        """Persist a non-reset control outcome for later replay."""
-
-        key = (outcome.session_key, outcome.operation_id, outcome.kind)
-        self._control_operations.setdefault(key, outcome)
-        committed = self._control_operations[key]
-        self._record_external_control_delivery(
-            committed, shadow_saga_id=external_saga_id
-        )
-        return committed
-
-    def pending_external_controls(self) -> tuple[PendingExternalControlDelivery, ...]:
-        """Return committed external controls not yet handed to the provider."""
-
-        return tuple(
-            delivery
-            for delivery in self._pending_external_controls.values()
-            if delivery.state != "outbound_handed_off"
-        )
-
-    def mark_external_control_handed_off(
-        self,
-        *,
-        session_key: str,
-        operation_id: str,
-        kind: str,
-    ) -> None:
-        """Mark an external confirmation handed to its original channel."""
-
-        key = (session_key, operation_id, kind)
-        delivery = self._pending_external_controls.get(key)
-        if delivery is not None:
-            self._pending_external_controls[key] = PendingExternalControlDelivery(
-                outcome=delivery.outcome,
-                shadow_saga_id=delivery.shadow_saga_id,
-                state="outbound_handed_off",
-            )
-
-    def mark_external_control_materialized(
-        self,
-        *,
-        session_key: str,
-        operation_id: str,
-        kind: str,
-    ) -> None:
-        """Record that the saga output exists before provider handoff."""
-
-        key = (session_key, operation_id, kind)
-        delivery = self._pending_external_controls.get(key)
-        if delivery is not None and delivery.state == "pending_materialization":
-            self._pending_external_controls[key] = PendingExternalControlDelivery(
-                outcome=delivery.outcome,
-                shadow_saga_id=delivery.shadow_saga_id,
-                state="materialized",
-            )
-
-    def _record_external_control_delivery(
-        self, outcome: ControlOperation, *, shadow_saga_id: str | None
-    ) -> None:
-        if not shadow_saga_id:
-            return
-        key = (outcome.session_key, outcome.operation_id, outcome.kind)
-        self._pending_external_controls.setdefault(
-            key,
-            PendingExternalControlDelivery(
-                outcome=outcome,
-                shadow_saga_id=shadow_saga_id,
-                state="pending_materialization",
-            ),
-        )
-
-    def is_run_superseded(self, run_id: str) -> bool:
-        """Return whether reset made a run permanently invisible."""
-
-        return run_id in self._superseded_runs
-
-    def apply_runtime_with_boundary(
-        self,
-        binding: SessionBinding,
-        *,
-        runtime_fingerprint: str,
-        fingerprint_schema: str,
-        profile_version: int | None,
-        boundary: BoundaryIntent,
-    ) -> SessionBinding:
-        """Persist the in-memory counterpart of one applied boundary fact."""
-
-        if (
-            boundary.runtime_fingerprint != runtime_fingerprint
-            or boundary.fingerprint_schema != fingerprint_schema
-            or boundary.profile_version != profile_version
-        ):
-            raise ValueError("boundary must describe the applied runtime")
-        updated = self.apply_runtime(
-            binding,
-            runtime_fingerprint=runtime_fingerprint,
-            fingerprint_schema=fingerprint_schema,
-            profile_version=profile_version,
-        )
-        self._boundaries.setdefault(boundary.boundary_id, boundary)
-        return updated
-
-    def apply_runtime_with_pending_boundary(
-        self,
-        binding: SessionBinding,
-        *,
-        runtime_fingerprint: str,
-        fingerprint_schema: str,
-        profile_version: int | None,
-        boundary: PendingBoundaryIntent,
-    ) -> SessionBinding:
-        """Persist an external runtime replacement before its IM anchor exists."""
-
-        if (
-            boundary.runtime_fingerprint != runtime_fingerprint
-            or boundary.fingerprint_schema != fingerprint_schema
-            or boundary.profile_version != profile_version
-        ):
-            raise ValueError("pending boundary must describe the applied runtime")
-        return self.apply_runtime(
-            binding,
-            runtime_fingerprint=runtime_fingerprint,
-            fingerprint_schema=fingerprint_schema,
-            profile_version=profile_version,
-        )
-
-    def promote_pending_boundary(
-        self, *, shadow_saga_id: str, shadow_ref: object
-    ) -> BoundaryIntent | None:
-        """Return None because the in-memory store has no cross-process recovery path."""
-
-        del shadow_saga_id, shadow_ref
-        return None
-
-    def pending_boundaries(self) -> tuple[BoundaryIntent, ...]:
-        """Return delivery-eligible in-memory boundary intents."""
-
-        return tuple(self._boundaries.values())
-
-    def quarantined_boundaries(self) -> tuple[BoundaryIntent, ...]:
-        """Return in-memory boundary intents rejected by IM."""
-
-        return tuple(self._quarantined_boundaries.values())
-
-    def acknowledge_boundary(self, boundary_id: str) -> None:
-        """Remove one acknowledged in-memory boundary intent."""
-
-        self._boundaries.pop(boundary_id, None)
-        self._boundary_retry_attempts.pop(boundary_id, None)
-        self._boundary_retry_not_before.pop(boundary_id, None)
-
-    def record_boundary_error(self, boundary_id: str, *, reason: str) -> None:
-        """Preserve one rejected in-memory intent for diagnosis."""
-
-        del reason
-        boundary = self._boundaries.pop(boundary_id, None)
-        self._boundary_retry_attempts.pop(boundary_id, None)
-        self._boundary_retry_not_before.pop(boundary_id, None)
-        if boundary is not None:
-            self._quarantined_boundaries[boundary_id] = boundary
-
-    def delivery_ready_boundaries(self) -> tuple[BoundaryIntent, ...]:
-        """Return in-memory intents whose retry deadline has elapsed."""
-
-        now = time.time()
-        return tuple(
-            intent
-            for boundary_id, intent in self._boundaries.items()
-            if self._boundary_retry_not_before.get(boundary_id, 0.0) <= now
-        )
-
-    def defer_boundary_retry(
-        self,
-        boundary_id: str,
-        *,
-        reason: str,
-        retry_initial_seconds: float,
-        retry_max_seconds: float,
-    ) -> None:
-        """Apply the same bounded retry semantics used by the durable store."""
-
-        del reason
-        if boundary_id not in self._boundaries:
-            return
-        attempts = self._boundary_retry_attempts.get(boundary_id, 0) + 1
-        delay = min(retry_initial_seconds * (2 ** (attempts - 1)), retry_max_seconds)
-        self._boundary_retry_attempts[boundary_id] = attempts
-        self._boundary_retry_not_before[boundary_id] = time.time() + delay
-
-    def next_boundary_retry_delay(self) -> float | None:
-        """Return seconds until the next delayed in-memory intent becomes ready."""
-
-        if not self._boundary_retry_not_before:
-            return None
-        return max(0.0, min(self._boundary_retry_not_before.values()) - time.time())
-
-    def find_by_kernel_session_id(
-        self, kernel_session_id: str
-    ) -> SessionBinding | None:
-        """Return the first binding whose kernel_session_id matches, or None.
-
-        Used by background event subscribers to reverse-resolve conversation routing
-        context (target_chat_id) from a kernel session without knowing the session key.
-
-        Args:
-            kernel_session_id: Kernel session identifier to search for.
-
-        Returns:
-            First matching binding, or ``None`` when no binding is found.
-        """
-        for binding in self._bindings.values():
-            if binding.kernel_session_id == kernel_session_id:
-                return binding
-        return None
-
-    def drop_agent(self, agent_id: str) -> None:
-        """Remove all session bindings that belong to one routed agent id."""
-
-        suffix = f":{agent_id}"
-        for session_key in tuple(self._bindings):
-            if session_key.endswith(suffix):
-                self._bindings.pop(session_key, None)
-
-    def drop(self, session_key: str) -> None:
-        """Remove one binding by its exact Gateway session key."""
-
-        self._bindings.pop(session_key, None)
-
-    def bindings_for_agent(self, agent_id: str) -> tuple[SessionBinding, ...]:
-        """Return a stable snapshot of all bindings routed to one Agent."""
-
-        suffix = f":{agent_id}"
-        return tuple(
-            binding for key, binding in self._bindings.items() if key.endswith(suffix)
-        )
-
-    def find_direct_by_agent(
-        self, *, channel_name: str, agent_id: str
-    ) -> SessionBinding | None:
-        """Return the oldest in-memory direct-chat binding for one Agent."""
-
-        prefix = f"{channel_name}:"
-        suffix = f":{agent_id}"
-        return next(
-            (
-                binding
-                for key, binding in self._bindings.items()
-                if key.startswith(prefix) and key.endswith(suffix)
-            ),
-            None,
-        )
-
-
-session_binding_store = SessionBindingStore()
-
 # ---------------------------------------------------------------------------
 # SQLite-backed persistent binding store (see docs/specs/gateway/spec.md)
 # ---------------------------------------------------------------------------
@@ -607,24 +211,16 @@ def _literal_like_pattern(value: str) -> str:
     )
 
 
-class PersistentSessionBindingStore:
-    """Persist gateway session bindings in SQLite for crash-safe recovery.
+class _SQLiteSessionBindingStore:
+    """Persist Gateway continuity state behind ``GatewaySessionBinder``.
 
     Stores one row per gateway session key so that after a gateway restart the
     original kernel session id can be looked up and the conversation context
-    continues without interruption.  Implements the same ``bind``/``get``/
-    ``drop_agent`` interface as :class:`SessionBindingStore`.
-
-    The optional ``kernel_client`` injected via :meth:`set_kernel_client`
-    enables live validation: when ``get`` finds a stored binding it calls
-    ``GET /v1/sessions/{id}`` to confirm the kernel session still exists.  If
-    the session has been evicted (404 / any RuntimeError) the stale record is
-    deleted and ``None`` is returned so the caller recreates a fresh session.
+    continues without interruption. This implementation is deliberately private:
+    callers express continuity intents through ``GatewaySessionBinder``.
 
     Args:
-        db_path: Absolute path for the SQLite database file.  Parent directories
-            are created automatically.  Defaults to
-            ``~/.nanoassistant/session_bindings.sqlite3`` when omitted.
+        db_path: Path for the SQLite database file, or ``":memory:"`` for tests.
 
     Notes:
         Thread safety: SQLite ``check_same_thread=False`` is used; the WAL
@@ -633,12 +229,11 @@ class PersistentSessionBindingStore:
         ``isolation_level=None`` (auto-commit) plus explicit transactions.
     """
 
-    def __init__(self, *, db_path: Path | None = None) -> None:
-        if db_path is None:
-            db_path = Path("~/.nanoassistant/session_bindings.sqlite3").expanduser()
+    def __init__(self, *, db_path: Path | str) -> None:
         self._db_path = db_path
-        self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
+        if db_path != ":memory:":
+            Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+        self._conn = sqlite3.connect(str(db_path), check_same_thread=False)
         # WAL mode reduces write contention; safe for single-process gateway.
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute(_CREATE_TABLE_SQL)
@@ -676,21 +271,6 @@ class PersistentSessionBindingStore:
         if "retry_not_before" not in boundary_cols:
             self._conn.execute(_MIGRATE_ADD_BOUNDARY_RETRY_NOT_BEFORE_SQL)
         self._conn.commit()
-        self._kernel_client: Any | None = None  # KernelApiClient removed in M3
-
-    def set_kernel_client(self, client: Any) -> None:
-        """Inject the kernel HTTP client used for live session validation.
-
-        Args:
-            client: Initialized kernel API client.  Pass ``None`` to disable
-                validation (useful in tests or when kernel has not started yet).
-
-        Side Effects:
-            Subsequent ``get`` calls will invoke ``GET /v1/sessions/{id}``
-            before returning the binding.
-        """
-
-        self._kernel_client = client
 
     def get(self, session_key: str) -> SessionBinding | None:
         """Return one binding by session key.
@@ -1408,7 +988,9 @@ class PersistentSessionBindingStore:
                    runtime_fingerprint, fingerprint_schema, profile_version, applied_at
             FROM agent_config_boundary_outbox
             WHERE {" AND ".join(clauses)}
-            ORDER BY rowid ASC
+            ORDER BY (retry_not_before IS NOT NULL) ASC,
+                     retry_not_before ASC,
+                     rowid ASC
             """,
             parameters,
         ).fetchall()
@@ -1470,11 +1052,6 @@ class PersistentSessionBindingStore:
         self, kernel_session_id: str
     ) -> SessionBinding | None:
         """Return the first binding whose kernel_session_id matches, or None.
-
-        feat-394-M4 R2-1 fix: mirrors the in-memory SessionBindingStore contract
-        so that callers (e.g. main.py:_callback for self_evolution_review events
-        and cron tool chain lookups) work correctly with the production SQLite
-        store used at runtime, not just the in-memory test double.
 
         Args:
             kernel_session_id: Kernel session identifier to search for.
@@ -1572,7 +1149,7 @@ class PersistentSessionBindingStore:
         ).fetchone()
         if row is None:
             return None
-        # Use positional indices: PersistentSessionBindingStore._conn has no row_factory.
+        # Use positional indices: the private connection has no row_factory.
         session_key_val: str = row[0]
         kernel_session_id_val: str = row[1]
         reply_context_json_val: str = row[2]
@@ -1679,28 +1256,4 @@ def build_conversation_reply_context(
         target_chat_id=conversation_id,
         thread_id=None,
         metadata={"conversation_id": conversation_id},
-    )
-
-
-def bind_conversation_session(
-    *,
-    store: SessionBindingStore,
-    channel_name: str,
-    conversation_id: str,
-    agent_id: str,
-    kernel_session_id: str,
-) -> SessionBinding:
-    """Bind one canonical conversation id to an existing kernel session."""
-
-    return store.bind(
-        session_key=build_conversation_session_key(
-            channel_name=channel_name,
-            conversation_id=conversation_id,
-            agent_id=agent_id,
-        ),
-        kernel_session_id=kernel_session_id,
-        reply_context=build_conversation_reply_context(
-            channel_name=channel_name,
-            conversation_id=conversation_id,
-        ),
     )

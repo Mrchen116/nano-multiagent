@@ -16,10 +16,6 @@ from personal_assistant.gateway.session_binder import (
     GatewaySessionBinder,
     SessionBindingRequest,
 )
-from personal_assistant.gateway.session_keys import (
-    PersistentSessionBindingStore,
-    SessionBindingStore,
-)
 
 
 class _Kernel:
@@ -44,35 +40,6 @@ class _Kernel:
         if actual != str(workspace_root):
             raise RuntimeError(f"missing session {session_id}")
         return {"session_id": session_id, "workspace_root": actual}
-
-
-class _BlockingReuseStore(SessionBindingStore):
-    """Pause one old-session refresh while config publication races it."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.block_session_id: str | None = None
-        self.bind_started = ThreadEvent()
-        self.release_bind = ThreadEvent()
-
-    def bind(
-        self,
-        *,
-        session_key: str,
-        kernel_session_id: str,
-        reply_context: ReplyContext,
-        **kwargs: Any,
-    ):
-        if kernel_session_id == self.block_session_id:
-            self.bind_started.set()
-            if not self.release_bind.wait(timeout=5):
-                raise TimeoutError("timed out waiting to release old binding reuse")
-        return super().bind(
-            session_key=session_key,
-            kernel_session_id=kernel_session_id,
-            reply_context=reply_context,
-            **kwargs,
-        )
 
 
 def _agent(
@@ -120,6 +87,28 @@ def _request(*, conversation_id: str) -> SessionBindingRequest:
     )
 
 
+def _bind_conversation(
+    binder: GatewaySessionBinder,
+    catalog: LiveAgentCatalog,
+    *,
+    conversation_id: str,
+    kernel_session_id: str,
+    channel_name: str = "web_relay",
+    agent_id: str = "agent-a",
+):
+    snapshot = catalog.require(agent_id)
+    return binder.bind_conversation(
+        ConversationBindingRequest(
+            channel_name=channel_name,
+            conversation_id=conversation_id,
+            agent_id=agent_id,
+            kernel_session_id=kernel_session_id,
+            guard=binder.capture_write_guard(snapshot),
+        ),
+        snapshot,
+    ).binding
+
+
 async def test_resolve_reuses_matching_binding_and_refreshes_reply_context(
     tmp_path: Path,
 ) -> None:
@@ -127,13 +116,13 @@ async def test_resolve_reuses_matching_binding_and_refreshes_reply_context(
     catalog = LiveAgentCatalog((agent,))
     kernel = _Kernel()
     kernel.sessions["persisted-session"] = str(agent.workspace_root)
-    store = SessionBindingStore()
-    store.bind(
-        session_key="web_relay:conv-1:agent-a",
+    binder = GatewaySessionBinder(catalog=catalog, kernel=kernel)
+    _bind_conversation(
+        binder,
+        catalog,
+        conversation_id="conv-1",
         kernel_session_id="persisted-session",
-        reply_context=ReplyContext(channel_name="web_relay", target_chat_id="old"),
     )
-    binder = GatewaySessionBinder(catalog=catalog, repository=store, kernel=kernel)
 
     binding = await binder.resolve(
         _request(conversation_id="conv-1"),
@@ -152,8 +141,7 @@ async def test_resolve_creates_session_from_one_snapshot_and_persists_binding(
     agent = _agent(tmp_path)
     catalog = LiveAgentCatalog((agent,))
     kernel = _Kernel()
-    store = SessionBindingStore()
-    binder = GatewaySessionBinder(catalog=catalog, repository=store, kernel=kernel)
+    binder = GatewaySessionBinder(catalog=catalog, kernel=kernel)
 
     binding = await binder.resolve(
         _request(conversation_id="conv-create"),
@@ -180,8 +168,7 @@ async def test_publish_during_create_returns_old_session_without_stale_writeback
     catalog = LiveAgentCatalog((old_agent,))
     kernel = _Kernel()
     kernel.block_create = True
-    store = SessionBindingStore()
-    binder = GatewaySessionBinder(catalog=catalog, repository=store, kernel=kernel)
+    binder = GatewaySessionBinder(catalog=catalog, kernel=kernel)
     old_snapshot = catalog.require("agent-a")
 
     resolving = asyncio.create_task(
@@ -205,15 +192,26 @@ async def test_publish_during_old_binding_reuse_retains_stable_row(
     catalog = LiveAgentCatalog((old_agent,))
     kernel = _Kernel()
     kernel.sessions["persisted-old-session"] = str(old_agent.workspace_root)
-    store = _BlockingReuseStore()
     request = _request(conversation_id="conv-reuse-race")
-    store.bind(
-        session_key=request.session_key,
+    binder = GatewaySessionBinder(catalog=catalog, kernel=kernel)
+    _bind_conversation(
+        binder,
+        catalog,
+        conversation_id="conv-reuse-race",
         kernel_session_id="persisted-old-session",
-        reply_context=ReplyContext(channel_name="web_relay", target_chat_id="old"),
     )
-    store.block_session_id = "persisted-old-session"
-    binder = GatewaySessionBinder(catalog=catalog, repository=store, kernel=kernel)
+    bind_started = ThreadEvent()
+    release_bind = ThreadEvent()
+    original_bind = binder._repository.bind  # noqa: SLF001
+
+    def _blocking_bind(**kwargs: Any):
+        if kwargs["kernel_session_id"] == "persisted-old-session":
+            bind_started.set()
+            if not release_bind.wait(timeout=5):
+                raise TimeoutError("timed out waiting to release old binding reuse")
+        return original_bind(**kwargs)
+
+    binder._repository.bind = _blocking_bind  # type: ignore[method-assign]  # noqa: SLF001
     old_snapshot = catalog.require("agent-a")
 
     resolving = asyncio.create_task(
@@ -221,7 +219,7 @@ async def test_publish_during_old_binding_reuse_retains_stable_row(
             lambda: asyncio.run(binder.resolve(request, old_snapshot)),
         )
     )
-    await asyncio.wait_for(asyncio.to_thread(store.bind_started.wait), timeout=2)
+    await asyncio.wait_for(asyncio.to_thread(bind_started.wait), timeout=2)
     current = catalog.publish(_agent(tmp_path, title="Agent A new"))
     invalidation_started = ThreadEvent()
 
@@ -231,7 +229,7 @@ async def test_publish_during_old_binding_reuse_retains_stable_row(
 
     invalidating = asyncio.create_task(asyncio.to_thread(_invalidate))
     await asyncio.wait_for(asyncio.to_thread(invalidation_started.wait), timeout=2)
-    store.release_bind.set()
+    release_bind.set()
 
     old_result = await resolving
     await invalidating
@@ -259,43 +257,51 @@ def test_persistent_invalidation_keeps_agent_bindings(
         _agent(tmp_path, title="Similar percent", agent_id="teamXXa"),
     )
     catalog = LiveAgentCatalog(agents)
-    store = PersistentSessionBindingStore(db_path=tmp_path / "bindings.sqlite3")
-    reply = ReplyContext(channel_name="web_relay", target_chat_id="conv")
+    binder = GatewaySessionBinder(
+        catalog=catalog, kernel=object(), db_path=tmp_path / "bindings.sqlite3"
+    )
     for index, agent in enumerate(agents):
-        store.bind(
-            session_key=f"web_relay:conv-{index}:{agent.agent_id}",
+        _bind_conversation(
+            binder,
+            catalog,
+            conversation_id=f"conv-{index}",
             kernel_session_id=f"session-{index}",
-            reply_context=reply,
+            agent_id=agent.agent_id,
         )
-    binder = GatewaySessionBinder(catalog=catalog, repository=store, kernel=object())
 
     binder.invalidate_stale("team_a", current_revision=999)
     binder.invalidate_stale("team%a", current_revision=999)
 
-    assert store.get("web_relay:conv-0:team_a") is not None
-    assert store.get("web_relay:conv-2:team%a") is not None
-    assert store.get("web_relay:conv-1:teamXa") is not None
-    assert store.get("web_relay:conv-3:teamXXa") is not None
+    assert binder.lookup("web_relay:conv-0:team_a") is not None
+    assert binder.lookup("web_relay:conv-2:team%a") is not None
+    assert binder.lookup("web_relay:conv-1:teamXa") is not None
+    assert binder.lookup("web_relay:conv-3:teamXXa") is not None
 
 
 def test_persistent_canonical_lookup_treats_channel_and_agent_as_literals(
     tmp_path: Path,
 ) -> None:
     target = _agent(tmp_path, title="Target", agent_id="team_a")
-    catalog = LiveAgentCatalog((target,))
-    store = PersistentSessionBindingStore(db_path=tmp_path / "bindings.sqlite3")
-    reply = ReplyContext(channel_name="web_relay", target_chat_id="target")
-    store.bind(
-        session_key="webXrelay:decoy:teamXa",
+    decoy = _agent(tmp_path, title="Decoy", agent_id="teamXa")
+    catalog = LiveAgentCatalog((target, decoy))
+    binder = GatewaySessionBinder(
+        catalog=catalog, kernel=object(), db_path=tmp_path / "bindings.sqlite3"
+    )
+    _bind_conversation(
+        binder,
+        catalog,
+        channel_name="webXrelay",
+        conversation_id="decoy",
+        agent_id="teamXa",
         kernel_session_id="session-decoy",
-        reply_context=reply,
     )
-    expected = store.bind(
-        session_key="web_relay:target:team_a",
+    expected = _bind_conversation(
+        binder,
+        catalog,
+        conversation_id="target",
+        agent_id="team_a",
         kernel_session_id="session-target",
-        reply_context=reply,
     )
-    binder = GatewaySessionBinder(catalog=catalog, repository=store, kernel=object())
 
     result = binder.find_canonical_direct(
         channel_name="web_relay",
@@ -312,7 +318,6 @@ def test_conversation_bind_rejects_guard_captured_before_publish(
     catalog = LiveAgentCatalog((old_agent,))
     binder = GatewaySessionBinder(
         catalog=catalog,
-        repository=SessionBindingStore(),
         kernel=_Kernel(),
     )
     old_snapshot = catalog.require("agent-a")
@@ -341,8 +346,7 @@ def test_reverse_and_canonical_lookups_only_expose_current_bindings(
 ) -> None:
     agent = _agent(tmp_path)
     catalog = LiveAgentCatalog((agent,))
-    store = SessionBindingStore()
-    binder = GatewaySessionBinder(catalog=catalog, repository=store, kernel=_Kernel())
+    binder = GatewaySessionBinder(catalog=catalog, kernel=_Kernel())
     snapshot = catalog.require("agent-a")
 
     first = binder.bind_conversation(
@@ -372,3 +376,39 @@ def test_reverse_and_canonical_lookups_only_expose_current_bindings(
         binder.find_canonical_direct(channel_name="web_relay", agent_id="agent-a")
         == first.binding
     )
+
+
+def test_binder_owns_sqlite_construction_and_restart_recovery(tmp_path: Path) -> None:
+    """Callers provide a DB path and recover continuity through the binder only."""
+
+    agent = _agent(tmp_path)
+    catalog = LiveAgentCatalog((agent,))
+    db_path = tmp_path / "bindings.sqlite3"
+    first = GatewaySessionBinder(catalog=catalog, kernel=_Kernel(), db_path=db_path)
+    snapshot = catalog.require("agent-a")
+    bound = first.bind_conversation(
+        ConversationBindingRequest(
+            channel_name="web_relay",
+            conversation_id="conv-restart",
+            agent_id="agent-a",
+            kernel_session_id="session-restart",
+            guard=first.capture_write_guard(snapshot),
+        ),
+        snapshot,
+    )
+
+    restarted = GatewaySessionBinder(catalog=catalog, kernel=_Kernel(), db_path=db_path)
+
+    assert bound.status == "bound"
+    assert restarted.lookup("web_relay:conv-restart:agent-a") == bound.binding
+
+
+def test_session_key_module_does_not_export_persistence_adapters() -> None:
+    """The binder is the only public continuity persistence seam."""
+
+    from personal_assistant.gateway import session_keys
+
+    assert not hasattr(session_keys, "SessionBindingStore")
+    assert not hasattr(session_keys, "PersistentSessionBindingStore")
+    assert not hasattr(session_keys, "session_binding_store")
+    assert not hasattr(session_keys, "bind_conversation_session")

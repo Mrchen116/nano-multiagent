@@ -10,7 +10,6 @@ from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
-from personal_assistant.gateway.session_keys import SessionBindingStore
 from tests.helpers.inbound_pipeline import build_inbound_pipeline
 
 from ._pipeline_helpers import _FakeKernel
@@ -47,7 +46,6 @@ def _pipeline(tmp_path: Path, channel: _FakeChannel, kernel: _FakeKernel):
         agents=_agents(tmp_path),
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
 

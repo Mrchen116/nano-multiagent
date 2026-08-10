@@ -17,7 +17,6 @@ from personal_assistant.gateway.channel_registry import ChannelRegistry
 from tests.helpers.inbound_pipeline import build_inbound_pipeline, inbound_graph
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
-from personal_assistant.gateway.session_keys import SessionBindingStore
 
 from ._gateway_helpers import (
     _FakeKernelClient,
@@ -38,13 +37,11 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
     relay_adapter = WebRelayAdapter()
     agents = make_agent_configs(tmp_path, "agent-a", "agent-b")
     registry = ChannelRegistry((relay_adapter,))
-    session_store = SessionBindingStore()
     pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=session_store,
         default_agent_id="agent-a",
     )
     relay_adapter.start(lambda inbound: asyncio.run(pipeline.handle_inbound(inbound)))

@@ -1,4 +1,4 @@
-"""Unit tests for compose_gateway: PersistentSessionBindingStore wiring and token getter."""
+"""Unit tests for compose_gateway continuity wiring and token getter."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from personal_assistant.config.local_store import (
     LLMModelPayload as PALLMModelPayload,
     LLMProviderPayload as PALLMProviderPayload,
 )
-from personal_assistant.gateway.session_keys import PersistentSessionBindingStore
+from personal_assistant.gateway.session_binder import GatewaySessionBinder
 from personal_assistant.gateway.im_bootstrap import GatewayStartupError
 from personal_assistant.gateway.composition import compose_gateway
 
@@ -76,28 +76,28 @@ def test_compose_gateway_propagates_tool_approval_model(
     assert captured == [model]
 
 
-def test_compose_gateway_uses_persistent_session_binding_store(
+def test_compose_gateway_constructs_one_session_continuity_binder(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """compose_gateway constructs the production persistent binding repository."""
+    """compose_gateway constructs the sole production continuity owner."""
     config = make_minimal_config(tmp_path)
-    created: list[PersistentSessionBindingStore] = []
+    created: list[GatewaySessionBinder] = []
 
-    class _TrackingStore(PersistentSessionBindingStore):
+    class _TrackingBinder(GatewaySessionBinder):
         def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
             super().__init__(*args, **kwargs)
             created.append(self)
 
     monkeypatch.setattr(
-        "personal_assistant.gateway.composition.PersistentSessionBindingStore",
-        _TrackingStore,
+        "personal_assistant.gateway.composition.GatewaySessionBinder",
+        _TrackingBinder,
     )
 
     compose_gateway(config)
 
     assert len(created) == 1
-    assert isinstance(created[0], PersistentSessionBindingStore)
+    assert isinstance(created[0], GatewaySessionBinder)
 
 
 def test_compose_gateway_session_store_db_path_is_under_config_dir(
@@ -108,14 +108,14 @@ def test_compose_gateway_session_store_db_path_is_under_config_dir(
     config = make_minimal_config(tmp_path)
     paths: list[Path] = []
 
-    class _TrackingStore(PersistentSessionBindingStore):
-        def __init__(self, *, db_path: Path) -> None:
-            paths.append(db_path)
-            super().__init__(db_path=db_path)
+    class _TrackingBinder(GatewaySessionBinder):
+        def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+            paths.append(kwargs["db_path"])
+            super().__init__(*args, **kwargs)
 
     monkeypatch.setattr(
-        "personal_assistant.gateway.composition.PersistentSessionBindingStore",
-        _TrackingStore,
+        "personal_assistant.gateway.composition.GatewaySessionBinder",
+        _TrackingBinder,
     )
 
     compose_gateway(config)

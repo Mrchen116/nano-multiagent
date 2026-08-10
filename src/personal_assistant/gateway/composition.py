@@ -86,7 +86,6 @@ from personal_assistant.gateway.external_control_delivery import (
 )
 from personal_assistant.gateway.boundary_outbox import BoundaryOutboxDispatcher
 from personal_assistant.gateway.shadow_saga import ExternalShadowSagaStore
-from personal_assistant.gateway.session_keys import PersistentSessionBindingStore
 from personal_assistant.gateway.session_binder import (
     GatewaySessionBinder,
     build_session_fork_handler,
@@ -241,21 +240,15 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         feishu_permission_decision_callback=permission_response_handler,
     )
     outbound_router = OutboundRouter(channel_registry)
-    # Use SQLite-backed store so kernel session mappings survive gateway restarts
-    # (docs/specs/gateway/routing-delivery.md). Live session validation is owned by
-    # GatewaySessionBinder via the in-process Kernel — no HTTP kernel client is needed.
-    # Must be created before HeartbeatScheduler so the store can be injected for
-    # tick-time canonical session lookup (feat-394 decision 3).
-    session_store = PersistentSessionBindingStore(
-        db_path=runtime_dir / "session_bindings.sqlite3"
-    )
+    # The binder owns the SQLite continuity state and validates retained Kernel
+    # sessions through the in-process SDK.
     session_binder = GatewaySessionBinder(
         catalog=agent_catalog,
-        repository=session_store,
         kernel=kernel,
+        db_path=runtime_dir / "session_bindings.sqlite3",
         reasoning_catalog=reasoning_catalog,
     )
-    boundary_outbox = BoundaryOutboxDispatcher(store=session_store)
+    boundary_outbox = BoundaryOutboxDispatcher(binder=session_binder)
     kernel_shim = kernel_client.InProcessKernelClient(
         kernel,
         agent_catalog=agent_catalog,
@@ -413,10 +406,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
                 db_path=runtime_dir / "external_shadow_sagas.sqlite3"
             ),
             promote_pending_boundary=lambda saga_id, shadow_ref: (
-                session_store.promote_pending_boundary(
-                    shadow_saga_id=saga_id,
-                    shadow_ref=shadow_ref,
-                ),
+                session_binder.promote_pending_shadow_boundary(saga_id, shadow_ref),
                 boundary_outbox.notify_pending(),
             )[0],
         )

@@ -17,7 +17,6 @@ from personal_assistant.gateway.session_binder import (
     GatewaySessionBinder,
     SessionBindingRequest,
 )
-from personal_assistant.gateway.session_keys import SessionBindingStore
 from personal_assistant.gateway import agent_config_sync as config_sync_module
 
 from ._gateway_runtime_test_utils import make_config
@@ -57,7 +56,6 @@ def test_v1_to_v2_publish_preserves_binding_for_next_admission(
     kernel = _Kernel()
     binder = GatewaySessionBinder(
         catalog=catalog,
-        repository=SessionBindingStore(),
         kernel=kernel,
     )
     version = 0
@@ -161,9 +159,7 @@ def test_unchanged_sync_and_reconcile_do_not_rewrite_or_republish(
         make_config(root), agents=(agent,), source_path=tmp_path / "config.yaml"
     )
     catalog = LiveAgentCatalog(config.agents)
-    binder = GatewaySessionBinder(
-        catalog=catalog, repository=SessionBindingStore(), kernel=object()
-    )
+    binder = GatewaySessionBinder(catalog=catalog, kernel=object())
     saves: list[object] = []
     monkeypatch.setattr(
         config_sync_module,
@@ -208,9 +204,7 @@ def test_local_and_live_differences_are_compared_independently(
     )
     catalog = LiveAgentCatalog(config.agents)
     live_drift = catalog.publish(replace(local, title="stale live"))
-    binder = GatewaySessionBinder(
-        catalog=catalog, repository=SessionBindingStore(), kernel=object()
-    )
+    binder = GatewaySessionBinder(catalog=catalog, kernel=object())
     saves: list[object] = []
     monkeypatch.setattr(
         config_sync_module,

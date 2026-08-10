@@ -15,7 +15,6 @@ from personal_assistant.gateway.runtime_delivery.background import (
     build_bg_reply_sender,
     build_session_event_callback,
 )
-from personal_assistant.gateway.session_keys import SessionBindingStore
 from personal_assistant.gateway.runtime_delivery.observer import (
     build_kernel_event_observer,
 )
@@ -289,20 +288,15 @@ def test_im_shadow_visible_text_does_not_go_back_to_feishu() -> None:
 
 def test_system_notification_for_feishu_binding_targets_shadow_im_only() -> None:
     manager = _FakeIMManager()
-    store = SessionBindingStore()
-    store.bind(
-        session_key="feishu:chat:agent-a",
-        kernel_session_id="sess-1",
-        reply_context=ReplyContext(
-            channel_name="feishu:agent-a",
-            target_chat_id="feishu:app:dm:ou_user",
-            metadata={
-                "external_source": "feishu",
-                "external_chat_id": "feishu:app:dm:ou_user",
-                "trigger_source": "feishu",
-                "shadow_conversation_id": "conv-shadow",
-            },
-        ),
+    reply_context = ReplyContext(
+        channel_name="feishu:agent-a",
+        target_chat_id="feishu:app:dm:ou_user",
+        metadata={
+            "external_source": "feishu",
+            "external_chat_id": "feishu:app:dm:ou_user",
+            "trigger_source": "feishu",
+            "shadow_conversation_id": "conv-shadow",
+        },
     )
     callback = build_session_event_callback(
         im_connection_manager_factory=lambda: manager,
@@ -311,7 +305,7 @@ def test_system_notification_for_feishu_binding_targets_shadow_im_only() -> None
 
     asyncio.run(
         callback(
-            store.find_by_kernel_session_id("sess-1").reply_context,
+            reply_context,
             "agent-a",
             "sess-1",
             {

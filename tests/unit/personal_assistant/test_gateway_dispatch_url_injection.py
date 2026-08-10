@@ -14,7 +14,6 @@ from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.internal_dispatch import InternalDispatchEndpoint
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
-from personal_assistant.gateway.session_keys import SessionBindingStore
 from tests.helpers.inbound_pipeline import build_inbound_pipeline
 
 from ._pipeline_helpers import _FakeChannel, _FakeKernel
@@ -50,7 +49,6 @@ def test_inbound_session_metadata_uses_configured_dispatch_port(
         ),
         outbound_router=OutboundRouter(ChannelRegistry((_FakeChannel("web_relay"),))),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         gateway_internal_port=port,
     )
     result = asyncio.run(pipeline.handle_inbound(_make_direct_message()))
@@ -75,7 +73,6 @@ def test_session_metadata_uses_published_listener_url_or_omits_it(
         agents=(AgentWorkspaceConfig(agent_id="agent_a", workspace_root=workspace),),
         outbound_router=OutboundRouter(ChannelRegistry((_FakeChannel("web_relay"),))),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         gateway_internal_port=0,
         gateway_dispatch_url_provider=endpoint.current_url,
     )

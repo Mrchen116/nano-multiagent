@@ -24,7 +24,6 @@ from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
-from personal_assistant.gateway.session_keys import SessionBindingStore
 
 from ._pipeline_helpers import _FakeChannel
 
@@ -297,7 +296,6 @@ def test_inbound_pipeline_accepts_kernel_sdk_and_routes_message(tmp_path: Path) 
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
     inbound = InboundMessage(
@@ -346,7 +344,6 @@ def test_inbound_pipeline_submits_agent_selected_model(tmp_path: Path) -> None:
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="gpt-agent",
         product_default_model="kimiCoding:K2.6",
     )
@@ -377,7 +374,6 @@ def test_inbound_pipeline_falls_back_to_product_default_model(tmp_path: Path) ->
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
         product_default_model="kimiCoding:K2.6",
     )
@@ -409,7 +405,6 @@ def test_inbound_pipeline_kernel_sdk_stream_delivers_events(tmp_path: Path) -> N
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
     inbound = InboundMessage(
@@ -445,7 +440,6 @@ def _make_pipeline(kernel, agents, tmp_path):  # noqa: ANN001, ANN201
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
         group_context_store=GroupContextStore(db_path=tmp_path / "group_ctx.sqlite3"),
     )

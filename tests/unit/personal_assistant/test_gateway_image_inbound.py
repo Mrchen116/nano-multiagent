@@ -14,7 +14,6 @@ from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.gateway.image_attachments import ImageAttachmentResolver
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
-from personal_assistant.gateway.session_keys import SessionBindingStore
 from tests.helpers.inbound_pipeline import build_inbound_pipeline
 
 from ._pipeline_helpers import _FakeChannel, _FakeKernel, _agents
@@ -39,7 +38,6 @@ def _make_pipeline(tmp_path: Path, *, fetcher=None, group_context_store=None):
         agents=_agents(tmp_path),
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
         image_resolver=ImageAttachmentResolver(fetcher=fetcher),
         group_context_store=group_context_store,

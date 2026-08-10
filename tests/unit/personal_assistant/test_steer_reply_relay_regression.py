@@ -32,7 +32,6 @@ from personal_assistant.gateway.channel_registry import ChannelRegistry
 from tests.helpers.inbound_pipeline import build_inbound_pipeline
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
-from personal_assistant.gateway.session_keys import SessionBindingStore
 from personal_assistant.gateway.runtime_delivery.observer import (
     build_kernel_event_observer,
 )
@@ -142,7 +141,6 @@ def test_collapse_window_steer_streams_reply_in_new_bubble_no_timeout(
         agents=_agents(tmp_path),
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
         kernel_event_observer=observer,
     )

@@ -16,7 +16,6 @@ from personal_assistant.gateway.session_binder import (
     GatewaySessionBinder,
     SessionBindingRequest,
 )
-from personal_assistant.gateway.session_keys import SessionBindingStore
 
 
 class _Kernel:
@@ -60,7 +59,6 @@ async def test_foreground_and_unattended_sessions_share_agent_capabilities(
     kernel = _Kernel()
     binder = GatewaySessionBinder(
         catalog=catalog,
-        repository=SessionBindingStore(),
         kernel=kernel,
     )
     message = InboundMessage(

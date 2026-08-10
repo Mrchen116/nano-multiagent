@@ -16,7 +16,6 @@ from personal_assistant.gateway.inbound_models import build_group_context_key
 from tests.helpers.inbound_pipeline import build_inbound_pipeline
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
-from personal_assistant.gateway.session_keys import SessionBindingStore
 from ._pipeline_helpers import _FakeKernel
 from ._session_run_coordinator_helpers import ControlledKernel
 
@@ -188,7 +187,6 @@ def test_stop_command_with_no_active_run_returns_friendly_message(
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
     inbound = InboundMessage(
@@ -236,7 +234,6 @@ def test_new_command_replaces_the_current_binding_without_erasing_the_chat(
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
     first = InboundMessage(
@@ -273,7 +270,6 @@ def test_bare_new_in_group_starts_a_fresh_session_for_every_agent(
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
     results = []
@@ -320,7 +316,6 @@ def test_reply_targeted_group_new_resets_only_the_replied_agent(
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((_FakeChannel("web_relay"),))),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
     results = [
@@ -357,7 +352,6 @@ def test_group_always_policy_does_not_authorize_bare_compact(tmp_path: Path) -> 
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((_FakeChannel("web_relay"),))),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
 
@@ -391,7 +385,6 @@ def test_external_group_bare_new_remains_mention_gated(tmp_path: Path) -> None:
             ChannelRegistry((_FakeChannel("feishu:agent-a"),))
         ),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
 
@@ -423,7 +416,6 @@ def test_structured_group_mention_targets_one_new_session(tmp_path: Path) -> Non
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((_FakeChannel("web_relay"),))),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
     results = [
@@ -463,7 +455,6 @@ def test_implicit_external_shadow_target_cannot_authorize_group_controls(
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
     synthetic = InboundMessage(
@@ -495,7 +486,6 @@ def test_new_replay_with_a_stable_ingress_id_does_not_create_another_session(
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
     inbound = InboundMessage(
@@ -531,7 +521,6 @@ def test_new_ack_uses_an_im_dispatch_identity_that_the_web_relay_accepts(
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
         bg_reply_sender=_fake_bg_sender,
     )
@@ -568,7 +557,6 @@ def test_compact_with_focus_uses_the_current_binding_without_creating_a_turn(
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
     first = InboundMessage(
@@ -624,7 +612,6 @@ def test_compact_without_a_current_binding_does_not_create_an_empty_session(
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
     result = asyncio.run(
@@ -664,7 +651,6 @@ def test_stop_ack_delivered_via_bg_reply_sender_when_wired(tmp_path: Path) -> No
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
         bg_reply_sender=_fake_bg_sender,
     )
@@ -713,7 +699,6 @@ def test_repeated_feishu_stop_noop_uses_per_message_im_dedupe_key(
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
         bg_reply_sender=_fake_bg_sender,
     )
@@ -760,7 +745,6 @@ async def test_stop_command_interrupts_active_run_and_appends_message(
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
     running = asyncio.create_task(
@@ -820,7 +804,6 @@ def test_stop_command_in_group_chat_with_mention_is_recognized(tmp_path: Path) -
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
     inbound = InboundMessage(
@@ -850,7 +833,6 @@ def test_stop_command_with_structured_feishu_display_mention_is_recognized(
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
     inbound = InboundMessage(
@@ -884,7 +866,6 @@ def test_stop_command_with_agent_after_slash_is_recognized(tmp_path: Path) -> No
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
     inbound = InboundMessage(
@@ -916,7 +897,6 @@ def test_stop_command_does_not_enter_group_context_buffer(tmp_path: Path) -> Non
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
         group_context_store=group_store,
     )
@@ -989,7 +969,6 @@ async def test_bare_stop_in_group_multi_agent_stops_only_running_no_noise(
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
         bg_reply_sender=_fake_bg_sender,
     )
@@ -1052,7 +1031,6 @@ def test_bare_stop_in_group_no_active_run_has_no_side_effect(tmp_path: Path) -> 
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
         group_context_store=group_store,
         bg_reply_sender=_fake_bg_sender,

@@ -18,7 +18,7 @@ from personal_assistant.config.local_store import (
     NodeConfig,
     load_local_config,
 )
-from personal_assistant.channels.base import ReplyContext
+from personal_assistant.gateway.session_binder import ConversationBindingRequest
 from personal_assistant.gateway.agent_config_sync import (
     IMAgentConfigSync as _IMConfigSyncClient,
     _read_skill_name,
@@ -179,8 +179,9 @@ def test_im_config_sync_client_retains_existing_agent_session_bindings_after_pro
     local_config = LocalConfig(
         node=NodeConfig(node_id="node-1"),
         agents=(
+            AgentWorkspaceConfig(agent_id="agent-live", workspace_root=workspace_root),
             AgentWorkspaceConfig(
-                agent_id="seed-agent", workspace_root=(tmp_path / "seed-workspace")
+                agent_id="agent-other", workspace_root=(tmp_path / "other-workspace")
             ),
         ),
         channels=(),
@@ -191,16 +192,21 @@ def test_im_config_sync_client_retains_existing_agent_session_bindings_after_pro
         source_path=config_path,
     )
     owners = build_config_sync_test_owners(local_config)
-    owners.store.bind(
-        session_key="web:conv-1:agent-live",
-        kernel_session_id="sess-old",
-        reply_context=ReplyContext(channel_name="web_relay", target_chat_id="conv-1"),
-    )
-    owners.store.bind(
-        session_key="web:conv-2:agent-other",
-        kernel_session_id="sess-other",
-        reply_context=ReplyContext(channel_name="web_relay", target_chat_id="conv-2"),
-    )
+    for agent_id, conversation_id, session_id in (
+        ("agent-live", "conv-1", "sess-old"),
+        ("agent-other", "conv-2", "sess-other"),
+    ):
+        snapshot = owners.catalog.require(agent_id)
+        owners.binder.bind_conversation(
+            ConversationBindingRequest(
+                channel_name="web",
+                conversation_id=conversation_id,
+                agent_id=agent_id,
+                kernel_session_id=session_id,
+                guard=owners.binder.capture_write_guard(snapshot),
+            ),
+            snapshot,
+        )
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,

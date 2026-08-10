@@ -8,29 +8,16 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import asdict
 from typing import Protocol
 
-from personal_assistant.gateway.session_keys import BoundaryIntent
+from personal_assistant.gateway.session_binder import (
+    BoundaryDispatchAcked,
+    BoundaryDispatchIdle,
+    BoundaryDispatchPermanentlyRejected,
+    BoundaryDispatchReady,
+    BoundaryDispatchRetryableFailure,
+    BoundaryDispatchWait,
+    GatewaySessionBinder,
+)
 from personal_assistant.ws.im_connection import IMFrameRejectedError
-
-
-class BoundaryOutboxStore(Protocol):
-    """Describe persistent boundary operations owned by the Gateway."""
-
-    def delivery_ready_boundaries(self) -> tuple[BoundaryIntent, ...]: ...
-
-    def acknowledge_boundary(self, boundary_id: str) -> None: ...
-
-    def record_boundary_error(self, boundary_id: str, *, reason: str) -> None: ...
-
-    def defer_boundary_retry(
-        self,
-        boundary_id: str,
-        *,
-        reason: str,
-        retry_initial_seconds: float,
-        retry_max_seconds: float,
-    ) -> None: ...
-
-    def next_boundary_retry_delay(self) -> float | None: ...
 
 
 class BoundaryConnection(Protocol):
@@ -57,7 +44,7 @@ class BoundaryOutboxDispatcher:
     """Drain durable boundary intents through the IM websocket ACK protocol.
 
     Args:
-        store: Gateway-local durable source of actual-applied boundary facts.
+        binder: Gateway continuity owner for durable boundary transitions.
 
     Notes:
         Delivery is deliberately sequential. The connection manager also serializes
@@ -68,18 +55,10 @@ class BoundaryOutboxDispatcher:
     def __init__(
         self,
         *,
-        store: BoundaryOutboxStore,
-        retry_initial_seconds: float = 1.0,
-        retry_max_seconds: float = 60.0,
+        binder: GatewaySessionBinder,
         sleep: Callable[[float], Awaitable[object]] = asyncio.sleep,
     ) -> None:
-        if retry_initial_seconds < 0:
-            raise ValueError("boundary retry initial delay must not be negative")
-        if retry_max_seconds < retry_initial_seconds:
-            raise ValueError("boundary retry maximum delay must cover initial delay")
-        self._store = store
-        self._retry_initial_seconds = retry_initial_seconds
-        self._retry_max_seconds = retry_max_seconds
+        self._binder = binder
         self._sleep = sleep
         self._drain_task: asyncio.Task[None] | None = None
         self._connection: BoundaryConnection | None = None
@@ -114,12 +93,7 @@ class BoundaryOutboxDispatcher:
     async def _drain_until_idle(self, connection: BoundaryConnection) -> None:
         """Drain ready work, then wait only for durable retry deadlines."""
 
-        while True:
-            await self.drain(connection)
-            retry_delay = self._store.next_boundary_retry_delay()
-            if retry_delay is None:
-                return
-            await self._sleep(retry_delay)
+        await self.drain(connection)
 
     @staticmethod
     def _report_drain_failure(task: asyncio.Task[None]) -> None:
@@ -133,38 +107,50 @@ class BoundaryOutboxDispatcher:
     async def drain(self, connection: BoundaryConnection) -> None:
         """Attempt every delivery-ready intent without erasing later facts."""
 
-        for intent in self._store.delivery_ready_boundaries():
+        while True:
+            plan = self._binder.next_boundary_dispatch()
+            if isinstance(plan, BoundaryDispatchIdle):
+                return
+            if isinstance(plan, BoundaryDispatchWait):
+                await self._sleep(plan.delay_seconds)
+                continue
+            if not isinstance(plan, BoundaryDispatchReady):  # pragma: no cover
+                raise TypeError(f"unsupported boundary dispatch plan: {plan!r}")
+            intent = plan.intent
             try:
                 ack = await connection.send_json_await_ack(
                     "agent.config.boundary", asdict(intent)
                 )
             except IMFrameRejectedError as exc:
                 if exc.code in _DETERMINISTIC_REJECTION_CODES:
-                    self._store.record_boundary_error(
+                    self._binder.complete_boundary_dispatch(
                         intent.boundary_id,
-                        reason=f"{exc.code}: {exc}",
+                        BoundaryDispatchPermanentlyRejected(
+                            reason=f"{exc.code}: {exc}"
+                        ),
                     )
                     continue
-                self._defer_retry(intent, exc)
+                self._binder.complete_boundary_dispatch(
+                    intent.boundary_id,
+                    BoundaryDispatchRetryableFailure(reason=str(exc)),
+                )
                 continue
             except Exception as exc:
-                self._defer_retry(intent, exc)
+                self._binder.complete_boundary_dispatch(
+                    intent.boundary_id,
+                    BoundaryDispatchRetryableFailure(reason=str(exc)),
+                )
                 continue
             acknowledged_id = ack.get("boundary_id")
             if acknowledged_id != intent.boundary_id:
-                self._defer_retry(
-                    intent,
-                    RuntimeError("IM boundary ACK did not match durable intent"),
+                self._binder.complete_boundary_dispatch(
+                    intent.boundary_id,
+                    BoundaryDispatchRetryableFailure(
+                        reason="IM boundary ACK did not match durable intent"
+                    ),
                 )
                 continue
-            self._store.acknowledge_boundary(intent.boundary_id)
-
-    def _defer_retry(self, intent: BoundaryIntent, error: Exception) -> None:
-        """Retain one retryable wire failure with bounded exponential backoff."""
-
-        self._store.defer_boundary_retry(
-            intent.boundary_id,
-            reason=str(error),
-            retry_initial_seconds=self._retry_initial_seconds,
-            retry_max_seconds=self._retry_max_seconds,
-        )
+            self._binder.complete_boundary_dispatch(
+                intent.boundary_id,
+                BoundaryDispatchAcked(),
+            )

@@ -9,14 +9,15 @@ import pytest
 
 from personal_assistant.channels.base import OutboundMessage, ReplyContext
 from personal_assistant.gateway.channel_registry import ChannelRegistry
+from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
 from personal_assistant.gateway.external_control_delivery import (
     ExternalControlDeliveryMaterializer,
 )
 from personal_assistant.gateway.outbound_router import OutboundRouter
+from personal_assistant.gateway.session_binder import GatewaySessionBinder
 from personal_assistant.gateway.session_keys import (
     ControlOperation,
     PendingExternalControlDelivery,
-    PersistentSessionBindingStore,
 )
 from personal_assistant.gateway.shadow_saga import ExternalShadowOutput
 
@@ -143,12 +144,16 @@ async def test_control_materializer_persists_saga_output_before_external_handoff
 def test_persistent_control_intent_survives_before_saga_materialization(
     tmp_path: Path,
 ) -> None:
-    store = PersistentSessionBindingStore(db_path=tmp_path / "bindings.sqlite3")
+    binder = GatewaySessionBinder(
+        catalog=LiveAgentCatalog(()),
+        kernel=object(),
+        db_path=tmp_path / "bindings.sqlite3",
+    )
     outcome = _delivery().outcome
 
-    store.record_control_operation(outcome, external_saga_id="saga-1")
+    binder.complete_control(outcome, external_saga_id="saga-1")
 
-    pending = store.pending_external_controls()
+    pending = binder.pending_external_controls()
     assert pending == (
         PendingExternalControlDelivery(
             outcome=outcome,
@@ -156,15 +161,15 @@ def test_persistent_control_intent_survives_before_saga_materialization(
             state="pending_materialization",
         ),
     )
-    store.mark_external_control_materialized(
+    binder.mark_external_control_materialized(
         session_key=outcome.session_key,
         operation_id=outcome.operation_id,
         kind=outcome.kind,
     )
-    assert store.pending_external_controls()[0].state == "materialized"
-    store.mark_external_control_handed_off(
+    assert binder.pending_external_controls()[0].state == "materialized"
+    binder.mark_external_control_handed_off(
         session_key=outcome.session_key,
         operation_id=outcome.operation_id,
         kind=outcome.kind,
     )
-    assert store.pending_external_controls() == ()
+    assert binder.pending_external_controls() == ()

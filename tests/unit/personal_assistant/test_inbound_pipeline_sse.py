@@ -12,7 +12,6 @@ from personal_assistant.gateway.channel_registry import ChannelRegistry
 from tests.helpers.inbound_pipeline import build_inbound_pipeline
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
-from personal_assistant.gateway.session_keys import SessionBindingStore
 
 from ._pipeline_helpers import _FakeChannel, _FakeSseKernel, _agents
 
@@ -36,7 +35,6 @@ def test_inbound_pipeline_uses_sse_path_when_submit_and_stream_available(
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
     inbound = InboundMessage(
@@ -87,7 +85,6 @@ def test_inbound_pipeline_sse_path_raises_on_failed_run(tmp_path: Path) -> None:
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
     inbound = InboundMessage(
@@ -130,7 +127,6 @@ def test_inbound_pipeline_sse_path_routes_non_user_origin_events(
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
     inbound = InboundMessage(
@@ -180,7 +176,6 @@ def test_inbound_pipeline_sse_path_relay_lifecycle_emits_completed_with_usage(
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
         relay_lifecycle_callback=_capture,
     )
@@ -252,7 +247,6 @@ def test_idle_run_is_cancelled_and_next_same_session_message_continues(
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
         run_idle_timeout_seconds=0.01,
     )
@@ -329,14 +323,12 @@ def test_inbound_pipeline_stream_called_with_session_id(tmp_path: Path) -> None:
     from personal_assistant.gateway.channel_registry import ChannelRegistry
     from personal_assistant.gateway.outbound_router import OutboundRouter
     from personal_assistant.gateway.run_queue import SessionRunQueue
-    from personal_assistant.gateway.session_keys import SessionBindingStore
 
     pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
     inbound = InboundMessage(
