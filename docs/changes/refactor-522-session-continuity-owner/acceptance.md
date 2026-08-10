@@ -52,8 +52,8 @@ N/A。`motivation.md`、`design.md` 与验收标准没有要求原型、设计�
 
 - **Severity:** major
 - **Regression Relation:** unclear
-- **Recommended Action:** revalidate-after-environment-fix
-- **Action Rationale:** design 明确要求 external 正常消息作为回归控制；当前只证明 partial recovery，不能证明专用 Bot 的正常用户消息与回复仍可用。
+- **Recommended Action:** fix-implementation
+- **Action Rationale:** design 明确要求 external 正常消息作为本 unit 回归控制；当前入口无法建立且影响可接受性，第一轮按 in-unit 默认路由修复并复验，不能用 partial recovery 代替。
 - **Observed runtime result:** `e2e-up.sh --feishu` 两次在 IM 冷启动窗口退出；手动接管已监听 IM 后 Gateway 报 `ERROR feishu worker did not initialize` 并终止；标准 probe 返回目标 worktree 无 active E2E stack。
 
 ## 验收标准覆盖
