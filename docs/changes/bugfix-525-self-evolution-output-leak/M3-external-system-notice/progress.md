@@ -98,6 +98,16 @@
 
 None.
 
+## Code review F1-F5 closure readback
+
+- Pre-fix head: `16397bbad69978198a89ad8bb3ea87e8d8b2ab59`；从 clean/synced `unit/bugfix-525` 创建独立 `milestone/bugfix-525-M3-fix-cr` worktree，未修改 root checkout。
+- Baseline: `PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -m 'not e2e' -n 4 --dist worksteal --durations=20 --durations-min=0.5` → `3235 passed, 28 warnings in 133.50s`。
+- F1 scope: source-marked self-evolution `skill_created` 继续只由 persistent manager 处理；owner-direct heartbeat/cron 在共用 stream 开始时按 run anchor admission subscriber，foreground 保留 terminal replay/dedupe，不恢复任何 raw side-chain event。
+- F2/F5 scope: external notice 的同步 sender 移出 Gateway event loop，同时兼容 awaitable；subscriber 三个既有分类只共享 callback shutdown envelope，不改变分类优先级、callback 或日志文字。
+- F3 scope: `ensure_agent_skills_enabled` 与 `handle_skill_created` 的共享 GET/merge/full PATCH seam 使用同一既有 `threading.RLock`，不改变错误语义或 selection mode。
+- F4 scope: Feishu worker startup 仍使用同一 30 秒 monotonic 总预算，只将单次 Event wait 改成短有界 slice 以观察 pre-ready child exit；不增加 retry/backoff，不改变 stop join timeout。
+- Process: 预计超过 3 个文件/100 行，按 `change-impl-worker` 从 reviewer fast-lane 升回 main process，新增 R9-R13 并逐项 TDD；core event policy 与 receipt action allowlist 两项已 refuted，不修改。
+
 ## Round 4 reviewer-fix readback
 
 - Pre-fix head: `a26fc6975853b5e7183f531df39bbc547a4ea4d7`（包含 reviewer 的 `Round 4 — FAIL` regression commit），从 clean/synced `unit/bugfix-525` 创建独立 `milestone/bugfix-525-M3-fix-r4` worktree；该回归提交保留在 fix 历史中。

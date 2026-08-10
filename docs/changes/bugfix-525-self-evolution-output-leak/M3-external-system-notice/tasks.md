@@ -90,3 +90,33 @@ Prototype / Reference Contract: N/A。
 - 状态: DONE
 - 步骤: 更新 acceptance runbook/evidence/progress；运行 focused、affected、full non-E2E、Ruff、docs-check、diff/shell gates；合并推送 unit 并清理 fix worktree/branch。
 - 验证: reviewer-fix commits 已进入 `unit/bugfix-525`，远端同步且运行资源、runtime artifacts、worktree/branch 全清理。
+
+### R9 — Code review：全 origin 的 Skill 唯一 owner
+
+- 状态: IN PROGRESS
+- 步骤: 先补 foreground、heartbeat、cron 在无现存 subscriber 时的红测；让 owner-direct 共用 stream 在 per-run observer 前按 run anchor admission persistent subscriber，保留 foreground terminal replay 与 observer 对 marked Skill 的隔离。
+- 验证: early/terminal-late Skill 均只由 persistent manager 调用一次 config-sync；已 active session 不创建第二 subscriber，普通 realtime/后台输出契约不变。
+
+### R10 — Code review：异步通知与 subscriber callback 生命周期
+
+- 状态: TODO
+- 步骤: 先补阻塞 external sender 的 event-loop 红测和三类 callback in-flight close 红测；最窄 offload 同步 sender，并抽取模块内 callback envelope。
+- 验证: sync sender 在线程执行、awaitable sender 仍可用；ordinary output、Skill、structured notice 的分类、日志、取消和 shutdown handoff 不变。
+
+### R11 — Code review：共享 Skill config mutation 串行化
+
+- 状态: TODO
+- 步骤: 先补 `ensure_agent_skills_enabled` 与 `handle_skill_created` 跨线程竞争红测；在共享 read/merge/PATCH seam 复用既有 `RLock`。
+- 验证: 最终 explicit allowlist 同时包含 activation bundle 与 self-evolution Skill，无 409 丢更新；default discovery/global scope 保持。
+
+### R12 — Code review：Feishu pre-ready child fail-fast
+
+- 状态: TODO
+- 步骤: 先用真实 spawn 补 child 在 ready 前退出却消耗完整 startup budget 的红测；在既有 monotonic deadline 内使用短有界 wait slice 并检查 child liveness。
+- 验证: pre-ready exit 快速失败；early-False/慢 ready 可继续使用完整 30 秒总预算，shutdown join timeout 不变。
+
+### R13 — Code review closure gates
+
+- 状态: TODO
+- 步骤: 汇总 finding closure 与证据；运行 focused、affected、full non-E2E、Ruff、docs-check、diff-check。
+- 验证: reviewer-fix commits 进入并推送 `unit/bugfix-525`，milestone worktree/branch 清理。
