@@ -57,3 +57,22 @@ UI：N/A。
 
 - 步骤：新增 test-only 双 subprocess launcher，覆盖 pending shadow boundary 与 pending external control 唯一恢复；运行全量门禁并记录 evidence。
 - 验证：critical-path E2E、非 E2E 全量、Ruff check/format-check、`git diff --check`。
+
+## Reviewer Feedback Fix 3
+
+反馈同时涉及 crash ordering、private surface deletion 与 outbox backlog complexity，超过 §FL 的单点/三文件轻量判据，因此在既有 milestone tasks 中追加三个 roadpoint；仍保持单个 feedback commit 可整体回退。
+
+### F3-R1 — Shadow anchor/promotion crash recovery — DONE
+
+- 先用 subprocess barrier 构造 promotion 已提交而 saga anchor 未提交的精确 crash state，并构造历史反向 state（saga anchor 已提交、pending promotion 尚在）。
+- 调整提交顺序并增加显式 legacy recovery seam；A/B 恢复后只保留一个 IM anchor、一个 eligible/applied boundary。
+
+### F3-R2 — Private store surface deletion — DONE
+
+- 删除无 production caller 的 `drop`、`drop_agent`、`pending_boundaries`；普通 bind/get/restart/reverse lookup 覆盖迁到 binder public/domain interface。
+- quarantine 行为只从 binder outcome、restart 与 Idle 可见；仅明确 race/schema/serialization/transaction tests 可触达 private repository。
+
+### F3-R3 — O(N) boundary drain — DONE
+
+- 保持 `Ready/Wait/Idle` 与 outcome 两步 public seam，private SQLite 每次只选择并反序列化下一条 eligible row。
+- 用确定性 constructor/deserialization count 保护 N 条 backlog 只做 N 次 row materialization，并保留未尝试优先、deadline/rowid/retry=0 公平性。

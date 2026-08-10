@@ -5,11 +5,15 @@ from __future__ import annotations
 import asyncio
 from dataclasses import asdict
 from pathlib import Path
+from typing import Any
+
+import personal_assistant.gateway.session_keys as session_keys
 
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
 from personal_assistant.gateway.boundary_outbox import BoundaryOutboxDispatcher
 from personal_assistant.gateway.session_binder import (
+    BoundaryDispatchAcked,
     BoundaryDispatchIdle,
     ConversationBindingRequest,
     GatewaySessionBinder,
@@ -100,9 +104,13 @@ def test_reconnect_drain_acknowledges_each_durable_boundary(tmp_path: Path) -> N
 
 
 class _RejectedConnection:
+    def __init__(self) -> None:
+        self.attempts = 0
+
     async def send_json_await_ack(
         self, message_type: str, payload: dict[str, object]
     ) -> dict[str, object]:
+        self.attempts += 1
         raise IMFrameRejectedError(
             "IM rejected agent.config.boundary frame (anchor_not_found): message missing",
             code="anchor_not_found",
@@ -125,10 +133,13 @@ def test_deterministic_ack_rejection_quarantines_without_deleting(
         agent=agent,
     )
 
-    asyncio.run(BoundaryOutboxDispatcher(binder=binder).drain(_RejectedConnection()))
+    connection = _RejectedConnection()
+    dispatcher = BoundaryOutboxDispatcher(binder=binder)
+    asyncio.run(dispatcher.drain(connection))
+    asyncio.run(dispatcher.drain(connection))
 
     assert isinstance(binder.next_boundary_dispatch(), BoundaryDispatchIdle)
-    assert binder._repository.quarantined_boundaries() == (intent,)  # noqa: SLF001
+    assert connection.attempts == 1
 
 
 class _RetryThenAcknowledgeConnection:
@@ -191,6 +202,41 @@ def test_retryable_delivery_failure_is_durably_deferred_and_retried(
         "boundary-1",
     ]
     assert isinstance(binder.next_boundary_dispatch(), BoundaryDispatchIdle)
+
+
+def test_backlog_drain_deserializes_each_boundary_once(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """N ACK transitions perform N single-row reads, not triangular rescans."""
+
+    binder, binding, agent = _binder(tmp_path)
+    intents = tuple(_intent(boundary_id=f"boundary-{index}") for index in range(32))
+    for intent in intents:
+        binder.persist_applied_runtime_with_boundary(
+            binding,
+            runtime_fingerprint=intent.runtime_fingerprint,
+            fingerprint_schema=intent.fingerprint_schema,
+            profile_version=intent.profile_version,
+            boundary=intent,
+            agent=agent,
+        )
+    original_boundary_intent = session_keys.BoundaryIntent
+    deserialize_count = 0
+
+    def counting_boundary_intent(*args: object, **kwargs: object) -> BoundaryIntent:
+        nonlocal deserialize_count
+        deserialize_count += 1
+        return original_boundary_intent(*args, **kwargs)
+
+    monkeypatch.setattr(session_keys, "BoundaryIntent", counting_boundary_intent)
+
+    for expected in intents:
+        plan = binder.next_boundary_dispatch()
+        assert plan.intent == expected
+        binder.complete_boundary_dispatch(expected.boundary_id, BoundaryDispatchAcked())
+
+    assert isinstance(binder.next_boundary_dispatch(), BoundaryDispatchIdle)
+    assert deserialize_count == len(intents)
 
 
 def test_new_boundary_is_delivered_on_the_current_registered_connection(

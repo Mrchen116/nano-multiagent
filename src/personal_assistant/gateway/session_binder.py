@@ -354,13 +354,19 @@ class GatewaySessionBinder:
                 shadow_ref=shadow_ref,
             )
 
+    def pending_shadow_boundary_saga_ids(self) -> tuple[str, ...]:
+        """Return saga identities whose anchored boundary still needs promotion."""
+
+        with self._lock:
+            return self._repository.pending_shadow_boundary_saga_ids()
+
     def next_boundary_dispatch(self) -> BoundaryDispatchPlan:
         """Return the next durable remote-delivery transition without leaking storage."""
 
         with self._lock:
-            ready = self._repository.delivery_ready_boundaries()
-            if ready:
-                return BoundaryDispatchReady(ready[0])
+            ready = self._repository.next_delivery_ready_boundary()
+            if ready is not None:
+                return BoundaryDispatchReady(ready)
             retry_delay = self._repository.next_boundary_retry_delay()
             if retry_delay is not None:
                 return BoundaryDispatchWait(retry_delay)

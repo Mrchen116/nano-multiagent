@@ -63,3 +63,46 @@ M1 已完成，集成到 `unit/refactor-522` 后交 independent reviewer。
 - Process: 按 §FL 省略 §3 tasks 模板，理由是反馈自包含、3 个文件内且单 commit 可回退；reviewer 仍独立复验。
 - Rollback: revert 本 fix commit；production 行为未改。
 - Commits: 本 fix commit。
+
+## Reviewer Feedback Fix 3 — Grounding 与 baseline
+
+- Context: change-code-review 确认 shadow anchor/promotion crash window、浅 private store surface 与 boundary backlog 累计反序列化三项问题；runtime probe 已确认根因，未调用 systematic-debugging。
+- Design check: 远端 IM anchor 返回后先幂等 promotion、再记录 saga anchor，符合 binder 独占 continuity persistence 与 test-only crash barrier 决策；旧反向磁盘态通过显式 recovery seam 收敛，不改 schema 或 production composition boundary。
+- Process: 反馈横跨 crash E2E、production owner 与测试 seam，超过 §FL 的单点/三文件判据，因此升级回既有 tasks roadpoints；仍保持单 feedback commit 可整体回退，不启动 worker 自验角色。
+- Baseline:
+  - 同 HEAD `ff2de7c8` 已有独立 non-E2E 全量证据 `3184 passed`。
+  - 本轮共享主机 full xdist baseline：`10 failed, 3174 passed`；失败仅为 40ms heartbeat watchdog 一项与 Feishu subprocess 5s readiness/crash cases，伴随两个 xdist worker 非正常退出。
+  - 同范围串行复跑：`2 failed, 14 passed`；仍仅为同一 40ms watchdog 与第二 listener 5s readiness。orchestrator 结合当时 host load >160、并行多套 pytest/真实服务，判为资源竞争并放行；不修改 production 或测试内部 timeout。
+  - C1/C2/C3 直接相关 focused baseline：binder/persistence/outbox/delivery/shadow/composition/admission `95 passed`。
+
+## Reviewer Feedback Fix 3 — Red → Green
+
+### F3-R1 — Shadow anchor/promotion crash recovery
+
+- Red: unit ordering regression observed `[False]` rather than `[True]`, proving the promotion callback ran only after saga anchor commit. The exact A/B subprocess journey independently reached the barrier with `promotion_committed=true` but `saga_anchor_absent=false` and failed before process termination.
+- Decision: after IM returns the remote anchor, promote the pending boundary transaction first and then commit the saga anchor. Recovery first asks binder for pending shadow saga identities and idempotently promotes any already-anchored legacy row before replaying missing anchors.
+- Compatibility: no DB path/schema/table/serialization change. The explicit recovery seam converges both durable split states: new `promotion committed / saga anchor absent`, and legacy `saga anchor committed / pending promotion present`.
+- Green: exact cross-process journey `1 passed in 52.28s`; A was terminated at the new promotion/anchor barrier, B reused the IM idempotency key and emitted exactly `boundary-1` and `boundary-legacy` once each, retained one user anchor per external chat, and left no pending shadow boundary saga.
+
+### F3-R2 — Private store surface deletion
+
+- Red: deletion contract found `drop`, `drop_agent`, and `pending_boundaries`; AST ownership contract found two ordinary quarantine tests in addition to the two accepted race fault-injection tests reaching `binder._repository`.
+- Decision: delete the three unused private methods; move bind/get/restart/reverse lookup assertions to `GatewaySessionBinder`; observe quarantine through the public terminal `Idle` outcome and non-redelivery, retaining one direct private compatibility test only for on-disk quarantine serialization/transaction semantics.
+- Green: focused deletion, ownership, public restart/reverse lookup and private compatibility set passed. Repository access in ordinary tests is absent; the two named race fault injections remain the only binder-private reaches.
+
+### F3-R3 — O(N) boundary drain
+
+- Red: draining 32 durable intents materialized 528 rows (`32 + ... + 1`) because every ACK selected/deserialized the entire remaining backlog.
+- Decision: retain the binder `Ready/Wait/Idle` + outcome seam while the private query uses the existing eligibility/order clauses with `LIMIT 1` and `fetchone()`.
+- Green: the same deterministic regression materialized exactly 32 rows. Existing retry-zero fairness and ACK/retry/quarantine regressions remained green.
+
+### Focused gates
+
+- Four exact red regressions: `4 failed` with the expected ordering, deletion, ownership and `528 != 32` assertions; no incidental failure.
+- Immediate green set: `14 passed`.
+- Expanded binder/persistence/concurrency/outbox/delivery/shadow/control/recovery/composition/admission/Gateway-control suite: `123 passed`.
+- Live-proxy restart test collected but skipped because `NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1` was not enabled; no unit timeout was relaxed.
+- Full-run execution caveat: after host load fell from >160 to about 11, the first unsharded serial run reached 74% with one failure and was externally terminated with exit 143 before pytest could summarize. No production/test timeout was changed. A bounded shard rerun identified the sole failure as the new subprocess helper exceeding the 400-line test-file contract (`439` lines), not a runtime failure.
+- Structure correction: extracted file-backed subprocess doubles to a 94-line test-only support module; the launcher became 360 lines. The exact size contract plus subprocess journey then passed together (`2 passed in 40.23s`).
+- Complete serial non-E2E collection was rerun without concurrency in five bounded shards to avoid the execution-session SIGTERM ceiling: `588 + 657 + 951 + 605 + 377 = 3178 passed`. The six-test reduction from the prior `3184 passed` HEAD is exactly the intended removal/merge of shallow private-store bind/get/drop/reverse-lookup duplicates; no test timeout was relaxed.
+- Final gates: full-repository Ruff check passed; Ruff format-check reported 879 files formatted; documentation integrity passed for 222 maintained Markdown sources / 67 required routes; `git diff --check` passed.

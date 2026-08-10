@@ -879,10 +879,17 @@ class _SQLiteSessionBindingStore:
             self._conn.rollback()
             raise
 
-    def pending_boundaries(self) -> tuple[BoundaryIntent, ...]:
-        """Return durable intents eligible for upstream delivery in insertion order."""
+    def pending_shadow_boundary_saga_ids(self) -> tuple[str, ...]:
+        """Return pending shadow saga identities for cross-store recovery."""
 
-        return self._list_boundaries(state="pending")
+        rows = self._conn.execute(
+            """
+            SELECT shadow_saga_id
+            FROM agent_config_pending_shadow_boundaries
+            ORDER BY rowid ASC
+            """
+        ).fetchall()
+        return tuple(str(row[0]) for row in rows)
 
     def quarantined_boundaries(self) -> tuple[BoundaryIntent, ...]:
         """Return terminally rejected intents for explicit operator diagnosis."""
@@ -911,10 +918,24 @@ class _SQLiteSessionBindingStore:
         )
         self._conn.commit()
 
-    def delivery_ready_boundaries(self) -> tuple[BoundaryIntent, ...]:
-        """Return pending intents whose durable retry deadline has elapsed."""
+    def next_delivery_ready_boundary(self) -> BoundaryIntent | None:
+        """Return only the next eligible intent in durable delivery order."""
 
-        return self._list_boundaries(state="pending", ready_at=time.time())
+        row = self._conn.execute(
+            """
+            SELECT boundary_id, node_id, conversation_id, agent_id, before_message_id,
+                   runtime_fingerprint, fingerprint_schema, profile_version, applied_at
+            FROM agent_config_boundary_outbox
+            WHERE state = 'pending'
+              AND (retry_not_before IS NULL OR retry_not_before <= ?)
+            ORDER BY (retry_not_before IS NOT NULL) ASC,
+                     retry_not_before ASC,
+                     rowid ASC
+            LIMIT 1
+            """,
+            (time.time(),),
+        ).fetchone()
+        return BoundaryIntent(*row) if row is not None else None
 
     def defer_boundary_retry(
         self,
@@ -974,53 +995,20 @@ class _SQLiteSessionBindingStore:
             return None
         return max(0.0, float(retry_not_before) - time.time())
 
-    def _list_boundaries(
-        self, *, state: str, ready_at: float | None = None
-    ) -> tuple[BoundaryIntent, ...]:
-        clauses = ["state = ?"]
-        parameters: list[object] = [state]
-        if ready_at is not None:
-            clauses.append("(retry_not_before IS NULL OR retry_not_before <= ?)")
-            parameters.append(ready_at)
+    def _list_boundaries(self, *, state: str) -> tuple[BoundaryIntent, ...]:
         rows = self._conn.execute(
-            f"""
+            """
             SELECT boundary_id, node_id, conversation_id, agent_id, before_message_id,
                    runtime_fingerprint, fingerprint_schema, profile_version, applied_at
             FROM agent_config_boundary_outbox
-            WHERE {" AND ".join(clauses)}
+            WHERE state = ?
             ORDER BY (retry_not_before IS NOT NULL) ASC,
                      retry_not_before ASC,
                      rowid ASC
             """,
-            parameters,
+            (state,),
         ).fetchall()
         return tuple(BoundaryIntent(*row) for row in rows)
-
-    def drop_agent(self, agent_id: str) -> None:
-        """Remove all bindings whose session_key ends with ``:{agent_id}``.
-
-        Args:
-            agent_id: Routed agent id whose bindings should be dropped.
-
-        Side Effects:
-            Deletes matching rows from the SQLite table.
-        """
-
-        suffix = f":{_literal_like_pattern(agent_id)}"
-        self._conn.execute(
-            "DELETE FROM session_bindings WHERE session_key LIKE ? ESCAPE '!'",
-            (f"%{suffix}",),
-        )
-        self._conn.commit()
-
-    def drop(self, session_key: str) -> None:
-        """Remove one persisted binding by its exact Gateway session key."""
-
-        self._conn.execute(
-            "DELETE FROM session_bindings WHERE session_key = ?",
-            (session_key,),
-        )
-        self._conn.commit()
 
     def bindings_for_agent(self, agent_id: str) -> tuple[SessionBinding, ...]:
         """Return all persisted bindings routed to one Agent."""

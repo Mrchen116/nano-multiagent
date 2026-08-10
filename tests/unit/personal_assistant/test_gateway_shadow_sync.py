@@ -7,7 +7,7 @@ import asyncio
 from dataclasses import replace
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 import pytest
@@ -47,6 +47,9 @@ def _build_sync(
     requests: list[dict[str, Any]],
     *,
     saga_store: ExternalShadowSagaStore | None = None,
+    promote_pending_boundary: (
+        Callable[[str, ShadowConversationRef], object] | None
+    ) = None,
 ) -> IMShadowConversationSync:
     def handler(request: httpx.Request) -> httpx.Response:
         payload = json.loads(request.content.decode("utf-8")) if request.content else {}
@@ -81,6 +84,7 @@ def _build_sync(
         node_id="node-a",
         transport=httpx.MockTransport(handler),
         saga_store=saga_store,
+        promote_pending_boundary=promote_pending_boundary,
     )
 
 
@@ -128,6 +132,43 @@ def test_typed_only_external_identity_creates_shadow_conversation() -> None:
     assert create_payload["title"] == "agent-a · Typed Team · feishu"
     assert "metadata" not in create_payload
     assert requests[2]["idempotency_key"] == "shadow-user:feishu:app-a:event-a"
+
+
+def test_pending_boundary_is_promoted_before_saga_anchor_commit(tmp_path: Path) -> None:
+    """A crash after promotion remains replayable as a missing-anchor saga."""
+
+    requests: list[dict[str, Any]] = []
+    saga_store = ExternalShadowSagaStore(db_path=tmp_path / "shadow-sagas.sqlite3")
+    observed_anchor_states: list[bool] = []
+
+    def promote(saga_id: str, _shadow_ref: ShadowConversationRef) -> None:
+        observed_anchor_states.append(saga_store.require(saga_id).shadow_ref is None)
+
+    sync = _build_sync(
+        requests,
+        saga_store=saga_store,
+        promote_pending_boundary=promote,
+    )
+    inbound = attach_runtime_protocol(
+        replace(
+            _message(),
+            external_event_identity=ExternalInboundEventIdentity(
+                connector_account_id="app-a", provider_event_id="event-order"
+            ),
+        ),
+        RuntimeProtocolFacts(
+            external_identity=ExternalConversationIdentity(
+                external_source="feishu",
+                external_chat_id="typed-chat-id",
+                agent_id="agent-a",
+                trigger_source="external",
+            )
+        ),
+    )
+
+    asyncio.run(sync.sync_user_message(inbound, agent_id="agent-a"))
+
+    assert observed_anchor_states == [True]
 
 
 def test_shadow_standalone_image_has_attachment_without_placeholder_text() -> None:

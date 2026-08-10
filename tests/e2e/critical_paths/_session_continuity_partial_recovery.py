@@ -7,14 +7,11 @@ import asyncio
 from dataclasses import dataclass
 import json
 from pathlib import Path
-from types import SimpleNamespace
 import time
-from typing import Any
 
 from personal_assistant.channels.base import (
     ExternalInboundEventIdentity,
     InboundMessage,
-    OutboundMessage,
 )
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
@@ -27,6 +24,7 @@ from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.runtime_protocol import (
     ExternalConversationIdentity,
     RuntimeProtocolFacts,
+    ShadowConversationRef,
     attach_runtime_protocol,
 )
 from personal_assistant.gateway.session_binder import (
@@ -45,22 +43,17 @@ from tests.e2e.critical_paths._session_continuity_im import (
     initialize as initialize_im,
     serve as serve_im,
 )
+from tests.e2e.critical_paths._session_continuity_recovery_support import (
+    FileBoundaryConnection,
+    FileChannel,
+    Kernel,
+    read_state,
+    write_state,
+)
 
 _AGENT_ID = "agent-a"
 _CHANNEL_NAME = "feishu:agent-a"
 _CONFIRMATION = "已开始新会话。"
-
-
-class _Kernel:
-    """Create deterministic process-local Kernel session identities."""
-
-    def __init__(self, *, prefix: str) -> None:
-        self._prefix = prefix
-        self._created = 0
-
-    async def create_session(self, **_kwargs: Any) -> SimpleNamespace:
-        self._created += 1
-        return SimpleNamespace(session_id=f"{self._prefix}-{self._created}")
 
 
 @dataclass(frozen=True)
@@ -69,53 +62,6 @@ class _Owners:
     binder: GatewaySessionBinder
     saga_store: ExternalShadowSagaStore
     shadow_sync: IMShadowConversationSync
-
-
-class _FileChannel:
-    name = _CHANNEL_NAME
-
-    def __init__(self, runtime: Path) -> None:
-        self._runtime = runtime
-
-    def start(self, _on_inbound) -> None:  # noqa: ANN001
-        return None
-
-    def send(self, outbound: OutboundMessage) -> None:
-        state = _read_state(self._runtime)
-        if not state.get("allow_remote_delivery"):
-            _write_state(self._runtime, {**state, "external_send_blocked": True})
-            while not _read_state(self._runtime).get("allow_remote_delivery"):
-                time.sleep(0.05)
-        _append_ledger(
-            self._runtime,
-            {
-                "type": "control_confirmation",
-                "target_chat_id": outbound.target_chat_id,
-                "text": outbound.text,
-            },
-        )
-
-    def stop(self) -> None:
-        return None
-
-
-class _FileBoundaryConnection:
-    def __init__(self, runtime: Path) -> None:
-        self._runtime = runtime
-
-    async def send_json_await_ack(
-        self, message_type: str, payload: dict[str, object]
-    ) -> dict[str, object]:
-        assert message_type == "agent.config.boundary"
-        _append_ledger(
-            self._runtime,
-            {
-                "type": "boundary_applied",
-                "boundary_id": payload["boundary_id"],
-                "conversation_id": payload["conversation_id"],
-            },
-        )
-        return {"boundary_id": payload["boundary_id"]}
 
 
 def _message(*, chat_id: str, event_id: str, text: str) -> InboundMessage:
@@ -143,7 +89,12 @@ def _message(*, chat_id: str, event_id: str, text: str) -> InboundMessage:
     )
 
 
-def _owners(args: argparse.Namespace, *, kernel_prefix: str) -> _Owners:
+def _owners(
+    args: argparse.Namespace,
+    *,
+    kernel_prefix: str,
+    block_after_boundary_promotion: bool = False,
+) -> _Owners:
     runtime = Path(args.runtime)
     workspace = runtime / "workspace"
     workspace.mkdir(exist_ok=True)
@@ -158,7 +109,7 @@ def _owners(args: argparse.Namespace, *, kernel_prefix: str) -> _Owners:
     )
     binder = GatewaySessionBinder(
         catalog=catalog,
-        kernel=_Kernel(prefix=kernel_prefix),
+        kernel=Kernel(prefix=kernel_prefix),
         db_path=runtime / "session_bindings.sqlite3",
         boundary_retry_initial_seconds=0,
     )
@@ -169,13 +120,34 @@ def _owners(args: argparse.Namespace, *, kernel_prefix: str) -> _Owners:
     async def token_getter() -> str:
         return str(args.token)
 
+    def promote_boundary(saga_id: str, shadow_ref: ShadowConversationRef) -> object:
+        promoted = binder.promote_pending_shadow_boundary(saga_id, shadow_ref)
+        if block_after_boundary_promotion and promoted is not None:
+            state = read_state(runtime)
+            write_state(
+                runtime,
+                {
+                    **state,
+                    "promotion_committed": True,
+                    "promoted_boundary_id": promoted.boundary_id,
+                    "promoted_saga_id": saga_id,
+                    "saga_anchor_absent": (
+                        saga_store.require(saga_id).shadow_ref is None
+                    ),
+                },
+            )
+            while not read_state(runtime).get("allow_remote_delivery"):
+                time.sleep(0.05)
+        return promoted
+
     shadow_sync = IMShadowConversationSync(
         base_url=str(args.im_url),
         token_getter=token_getter,
         owner_user_id=str(args.owner_id),
         node_id="node-1",
         saga_store=saga_store,
-        promote_pending_boundary=binder.promote_pending_shadow_boundary,
+        promote_pending_boundary=promote_boundary,
+        pending_shadow_boundary_saga_ids=binder.pending_shadow_boundary_saga_ids,
     )
     return _Owners(catalog, binder, saga_store, shadow_sync)
 
@@ -197,8 +169,59 @@ async def _resolve(
 
 async def _stage_a(args: argparse.Namespace) -> None:
     runtime = Path(args.runtime)
-    owners = _owners(args, kernel_prefix="gateway-a-session")
+    owners = _owners(
+        args,
+        kernel_prefix="gateway-a-session",
+        block_after_boundary_promotion=True,
+    )
     agent = owners.catalog.require(_AGENT_ID)
+
+    legacy_message = _message(
+        chat_id="legacy-anchored-boundary-chat",
+        event_id="legacy-boundary-event-1",
+        text="legacy anchored boundary user message",
+    )
+    legacy_saga = owners.saga_store.prepare(
+        message=legacy_message,
+        agent_id=_AGENT_ID,
+        owner_id=str(args.owner_id),
+    )
+    assert legacy_saga is not None
+    _legacy_request, legacy_binding = await _resolve(owners, legacy_message)
+    owners.binder.persist_applied_runtime_with_pending_boundary(
+        legacy_binding,
+        runtime_fingerprint="runtime-legacy",
+        fingerprint_schema="runtime-v1",
+        profile_version=2,
+        boundary=PendingBoundaryIntent(
+            boundary_id="boundary-legacy",
+            node_id="node-1",
+            agent_id=_AGENT_ID,
+            runtime_fingerprint="runtime-legacy",
+            fingerprint_schema="runtime-v1",
+            profile_version=2,
+            applied_at="2026-08-10T00:00:00+00:00",
+            shadow_saga_id=legacy_saga.saga_id,
+        ),
+        agent=agent,
+    )
+
+    async def token_getter() -> str:
+        return str(args.token)
+
+    legacy_sync = IMShadowConversationSync(
+        base_url=str(args.im_url),
+        token_getter=token_getter,
+        owner_user_id=str(args.owner_id),
+        node_id="node-1",
+        saga_store=owners.saga_store,
+    )
+    legacy_ref = await legacy_sync.sync_user_message(
+        legacy_message,
+        agent_id=_AGENT_ID,
+    )
+    assert legacy_ref is not None
+    assert owners.saga_store.require(legacy_saga.saga_id).shadow_ref == legacy_ref
 
     boundary_message = _message(
         chat_id="shadow-boundary-chat",
@@ -250,24 +273,22 @@ async def _stage_a(args: argparse.Namespace) -> None:
         reply_text=_CONFIRMATION,
         external_saga_id=control_saga.saga_id,
     )
-    _write_state(
+    write_state(
         runtime,
         {
             "durable_commit_reached": True,
-            "shadow_anchor_blocked": True,
+            "saga_anchor_blocked": True,
             "allow_remote_delivery": False,
             "old_control_session_id": old_binding.kernel_session_id,
             "new_control_session_id": published.kernel_session_id,
+            "legacy_saga_id": legacy_saga.saga_id,
+            "legacy_boundary_id": "boundary-legacy",
         },
     )
-
-    channel = _FileChannel(runtime)
-    materializer = ExternalControlDeliveryMaterializer(
-        session_binder=owners.binder,
-        outbound_router=OutboundRouter(ChannelRegistry((channel,))),
-        shadow_sync=owners.shadow_sync,
+    await owners.shadow_sync.sync_user_message(
+        boundary_message,
+        agent_id=_AGENT_ID,
     )
-    await materializer.drain()
 
 
 async def _recover_b(args: argparse.Namespace) -> None:
@@ -275,21 +296,21 @@ async def _recover_b(args: argparse.Namespace) -> None:
     owners = _owners(args, kernel_prefix="gateway-b-session")
     materializer = ExternalControlDeliveryMaterializer(
         session_binder=owners.binder,
-        outbound_router=OutboundRouter(ChannelRegistry((_FileChannel(runtime),))),
+        outbound_router=OutboundRouter(ChannelRegistry((FileChannel(runtime),))),
         shadow_sync=owners.shadow_sync,
     )
     await materializer.drain()
     await asyncio.sleep(0)
     await owners.shadow_sync.recover_pending()
     await BoundaryOutboxDispatcher(binder=owners.binder).drain(
-        _FileBoundaryConnection(runtime)
+        FileBoundaryConnection(runtime)
     )
 
     # Re-run every recovery owner to prove stable idempotency after success.
     await materializer.drain()
     await owners.shadow_sync.recover_pending()
     await BoundaryOutboxDispatcher(binder=owners.binder).drain(
-        _FileBoundaryConnection(runtime)
+        FileBoundaryConnection(runtime)
     )
     next_message = _message(
         chat_id="control-chat",
@@ -302,33 +323,12 @@ async def _recover_b(args: argparse.Namespace) -> None:
             {
                 "current_control_session_id": next_binding.kernel_session_id,
                 "next_message_session_id": next_binding.kernel_session_id,
+                "remaining_pending_shadow_sagas": (
+                    owners.binder.pending_shadow_boundary_saga_ids()
+                ),
             }
         )
     )
-
-
-def _state_path(runtime: Path) -> Path:
-    return runtime / "barrier-state.json"
-
-
-def _read_state(runtime: Path) -> dict[str, object]:
-    path = _state_path(runtime)
-    if not path.exists():
-        return {}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return {}
-    return payload if isinstance(payload, dict) else {}
-
-
-def _write_state(runtime: Path, state: dict[str, object]) -> None:
-    _state_path(runtime).write_text(json.dumps(state), encoding="utf-8")
-
-
-def _append_ledger(runtime: Path, event: dict[str, object]) -> None:
-    with (runtime / "fake-external-chat.jsonl").open("a", encoding="utf-8") as ledger:
-        ledger.write(json.dumps(event, ensure_ascii=False) + "\n")
 
 
 def _parse_args() -> argparse.Namespace:

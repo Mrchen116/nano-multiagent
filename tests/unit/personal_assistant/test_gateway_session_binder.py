@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import asyncio
 from pathlib import Path
 from threading import Event as ThreadEvent
@@ -401,6 +402,9 @@ def test_binder_owns_sqlite_construction_and_restart_recovery(tmp_path: Path) ->
 
     assert bound.status == "bound"
     assert restarted.lookup("web_relay:conv-restart:agent-a") == bound.binding
+    assert restarted.find_by_kernel_session_id("session-restart") == bound.binding
+    assert restarted.lookup("web_relay:missing:agent-a") is None
+    assert restarted.find_by_kernel_session_id("session-missing") is None
 
 
 def test_session_key_module_does_not_export_persistence_adapters() -> None:
@@ -408,7 +412,39 @@ def test_session_key_module_does_not_export_persistence_adapters() -> None:
 
     from personal_assistant.gateway import session_keys
 
+    store_type = session_keys._SQLiteSessionBindingStore
+
     assert not hasattr(session_keys, "SessionBindingStore")
     assert not hasattr(session_keys, "PersistentSessionBindingStore")
     assert not hasattr(session_keys, "session_binding_store")
     assert not hasattr(session_keys, "bind_conversation_session")
+    assert not hasattr(store_type, "drop")
+    assert not hasattr(store_type, "drop_agent")
+    assert not hasattr(store_type, "pending_boundaries")
+
+
+def test_only_explicit_race_tests_reach_binder_repository() -> None:
+    """Ordinary behavior tests use the binder's domain interface."""
+
+    allowed = {
+        "test_fork_captures_source_binding_and_revision_atomically",
+        "test_publish_during_old_binding_reuse_retains_stable_row",
+    }
+    found: set[str] = set()
+    for path in Path(__file__).parent.glob("test_*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for function in (
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        ):
+            if any(
+                isinstance(node, ast.Attribute)
+                and isinstance(node.value, ast.Name)
+                and node.value.id == "binder"
+                and node.attr == "_repository"
+                for node in ast.walk(function)
+            ):
+                found.add(function.name)
+
+    assert found == allowed

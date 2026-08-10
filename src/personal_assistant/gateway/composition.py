@@ -409,6 +409,9 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
                 session_binder.promote_pending_shadow_boundary(saga_id, shadow_ref),
                 boundary_outbox.notify_pending(),
             )[0],
+            pending_shadow_boundary_saga_ids=(
+                session_binder.pending_shadow_boundary_saga_ids
+            ),
         )
         image_resolver = ImageAttachmentResolver(
             fetcher=build_im_attachment_fetcher(token_getter=token_getter)

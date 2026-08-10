@@ -155,7 +155,6 @@ def test_error_ack_keeps_boundary_for_retry_or_diagnosis(tmp_path: Path) -> None
     )
 
     assert isinstance(binder.next_boundary_dispatch(), BoundaryDispatchIdle)
-    assert binder._repository.quarantined_boundaries() == (intent,)  # noqa: SLF001
 
 
 def test_retry_backoff_survives_gateway_restart(tmp_path: Path) -> None:
