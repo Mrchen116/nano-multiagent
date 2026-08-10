@@ -18,6 +18,19 @@ async def main():
     return "ok"
 """
 
+PHASED_SCRIPT = """
+meta = {
+    "name": "review",
+    "description": "Review changes",
+    "phases": [
+        {"title": "Review"},
+        {"title": "Verify"},
+    ],
+}
+async def main():
+    return "ok"
+"""
+
 
 class _Manager:
     def __init__(self) -> None:
@@ -68,6 +81,7 @@ def test_workflow_exact_schema_and_launch_correlation(tmp_path: Path) -> None:
     assert output["status"] == "async_launched"
     assert output["guideline"] == "medium"
     assert manager.calls[-1]["size_guideline"] == "medium"
+    assert manager.calls[-1]["size_guideline_explicit"] is False
     assert tool.result_event_metadata(output) == {
         "parent_session_id": "sess_parent",
         "parent_run_id": "run_parent",
@@ -136,6 +150,7 @@ def test_session_guideline_projects_description_and_launch_snapshot(
     assert "small — keep workflows under 5 agents" in spec.description
     assert spec.input_schema == tool.input_schema
     assert manager.calls[-1]["size_guideline"] == "small"
+    assert manager.calls[-1]["size_guideline_explicit"] is True
     assert output["guideline"] == "small"
 
 
@@ -149,6 +164,23 @@ def test_permission_check_validates_before_asking(tmp_path: Path) -> None:
     assert decision.decision_reason == {"type": "workflow_launch", "identity": "demo"}
     with pytest.raises(ToolError, match="async def main"):
         tool.check_permissions({"script": "meta = {}"}, _context(tmp_path))
+
+
+def test_permission_question_exposes_phases_scale_and_token_advisory(
+    tmp_path: Path,
+) -> None:
+    tool = WorkflowTool(manager=_Manager())
+    context = _context(tmp_path)
+    context.session_metadata = {
+        INTERNAL_RUNTIME_KEY: {"workflow_size_guideline": "small"}
+    }
+
+    decision = tool.check_permissions({"script": PHASED_SCRIPT}, context)
+
+    assert decision.reason is not None
+    assert "Phases: Review, Verify" in decision.reason
+    assert "small (<5 Agents)" in decision.reason
+    assert "estimated 1.5M tokens" in decision.reason
 
 
 def test_prompt_preserves_captured_clause_inventory_as_python() -> None:

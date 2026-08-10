@@ -56,6 +56,29 @@ class WorkflowRunStore:
             temp.write_text(encoded + "\n", encoding="utf-8")
             temp.replace(self.snapshot_path)
 
+    @staticmethod
+    def load_snapshot(run_dir: Path) -> dict[str, Any]:
+        """Load the atomic snapshot or recover its latest journal checkpoint."""
+
+        snapshot_path = run_dir / "run.json"
+        try:
+            value = json.loads(snapshot_path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError):
+            value = None
+        if isinstance(value, dict):
+            return value
+
+        journal_path = run_dir / "journal.jsonl"
+        checkpoint: dict[str, Any] | None = None
+        for line in journal_path.read_text(encoding="utf-8").splitlines():
+            event = json.loads(line)
+            candidate = event.get("snapshot") if isinstance(event, dict) else None
+            if isinstance(candidate, dict):
+                checkpoint = candidate
+        if checkpoint is None:
+            raise ValueError(f"Workflow journal has no snapshot checkpoint: {run_dir}")
+        return checkpoint
+
 
 def slugify_workflow_name(name: str) -> str:
     normalized = "".join(

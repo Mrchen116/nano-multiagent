@@ -92,7 +92,16 @@ def identify_runtime(runtime: SessionRuntimeConfig) -> SessionRuntimeIdentity:
         "features": runtime.features,
         "reasoning_effort": runtime.reasoning_effort,
         "workflow_ultracode": runtime.workflow_ultracode,
-        "workflow_size_guideline": _active_workflow_size_guideline(runtime),
+        "workflow_size_guideline": (
+            _active_workflow_size_guideline(runtime) or "medium"
+            if "Workflow" in runtime.enabled_tools
+            else None
+        ),
+        "workflow_size_guideline_explicit": (
+            runtime.workflow_size_guideline is not None
+            if "Workflow" in runtime.enabled_tools
+            else None
+        ),
     }
     encoded = json.dumps(
         payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
@@ -125,7 +134,7 @@ def runtime_metadata(
 def _active_workflow_size_guideline(runtime: SessionRuntimeConfig) -> str | None:
     if "Workflow" not in runtime.enabled_tools:
         return None
-    return runtime.workflow_size_guideline or "medium"
+    return runtime.workflow_size_guideline
 
 
 __all__ = [

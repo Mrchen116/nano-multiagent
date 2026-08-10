@@ -168,3 +168,24 @@ def test_inactive_workflow_guideline_does_not_change_runtime_identity() -> None:
         "workflow_size_guideline"
         not in runtime_metadata(small)["__nano_internal_runtime_v1__"]
     )
+
+
+def test_active_workflow_default_and_explicit_medium_have_distinct_identity() -> None:
+    from agent.sdk.runtime import identify_runtime, runtime_metadata
+
+    base = dict(
+        model="test-model",
+        prompt=PromptSlots(),
+        skills=None,
+        enabled_tools=["Workflow"],
+        features={},
+    )
+    default = SessionRuntimeConfig(**base)
+    explicit_medium = SessionRuntimeConfig(**base, workflow_size_guideline="medium")
+
+    default_payload = runtime_metadata(default)["__nano_internal_runtime_v1__"]
+    explicit_payload = runtime_metadata(explicit_medium)["__nano_internal_runtime_v1__"]
+
+    assert identify_runtime(default) != identify_runtime(explicit_medium)
+    assert "workflow_size_guideline" not in default_payload
+    assert explicit_payload["workflow_size_guideline"] == "medium"

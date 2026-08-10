@@ -18,6 +18,7 @@ from coding_cli.product import (
     DEFAULT_ENABLED_TOOLS,
     load_cli_workflow_config,
     open_cli_session,
+    save_cli_workflow_size_guideline,
 )
 
 
@@ -114,6 +115,52 @@ def test_cli_workflow_config_merges_global_workspace_and_env(
     assert load_cli_workflow_config(workspace).disabled is True
 
 
+def test_cli_workflow_config_uses_nearest_file_and_saves_back_to_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "home"
+    repo = tmp_path / "repo"
+    workspace = repo / "packages" / "api" / "src"
+    workspace.mkdir(parents=True)
+    (repo / ".git").mkdir()
+    (home / ".nanocode").mkdir(parents=True)
+    (home / ".nanocode" / "config.yaml").write_text(
+        "workflows:\n  size_guideline: small\n", encoding="utf-8"
+    )
+    repo_config = repo / ".nanocode" / "config.yaml"
+    repo_config.parent.mkdir()
+    repo_config.write_text(
+        "workflows:\n  disabled: true\n  size_guideline: large\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+
+    config = load_cli_workflow_config(workspace)
+    save_cli_workflow_size_guideline(workspace, "medium")
+
+    assert config.disabled is True
+    assert config.size_guideline == "large"
+    assert "size_guideline: medium" in repo_config.read_text(encoding="utf-8")
+    assert not (workspace / ".nanocode" / "config.yaml").exists()
+
+
+def test_cli_workflow_config_prefers_nearest_nested_file(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    workspace = repo / "packages" / "api"
+    workspace.mkdir(parents=True)
+    (repo / ".git").mkdir()
+    repo_config = repo / ".nanocode" / "config.yaml"
+    repo_config.parent.mkdir()
+    repo_config.write_text("workflows:\n  size_guideline: small\n", encoding="utf-8")
+    package_config = repo / "packages" / ".nanocode" / "config.yaml"
+    package_config.parent.mkdir()
+    package_config.write_text("workflows:\n  size_guideline: large\n", encoding="utf-8")
+
+    config = load_cli_workflow_config(workspace)
+
+    assert config.size_guideline == "large"
+
+
 @pytest.mark.asyncio
 async def test_open_cli_session_defaults_workflow_and_projects_guideline(
     tmp_path: Path,
@@ -130,6 +177,19 @@ async def test_open_cli_session_defaults_workflow_and_projects_guideline(
     assert isinstance(runtime, SessionRuntimeConfig)
     assert "Workflow" in runtime.enabled_tools
     assert runtime.workflow_size_guideline == "large"
+
+
+@pytest.mark.asyncio
+async def test_open_cli_session_preserves_default_guideline_as_implicit(
+    tmp_path: Path,
+) -> None:
+    kernel = _RuntimeKernel()
+
+    await open_cli_session(kernel, workspace_root=tmp_path)
+
+    runtime = kernel.created[-1]["runtime"]
+    assert isinstance(runtime, SessionRuntimeConfig)
+    assert runtime.workflow_size_guideline is None
 
 
 @pytest.mark.asyncio

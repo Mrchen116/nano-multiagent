@@ -54,7 +54,10 @@ def is_repl_command_candidate(line: str) -> bool:
     body = command[1:]
     if "/" in body:
         return False
-    return all(char.isalnum() or char in {"_", "-"} for char in body)
+    parts = body.split(":")
+    if len(parts) > 2 or any(not part for part in parts):
+        return False
+    return all(char.isalnum() or char in {"_", "-"} for part in parts for char in part)
 
 
 def handle_repl_command(

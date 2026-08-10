@@ -571,7 +571,11 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
             for index, existing in enumerate(agents):
                 if existing.agent_id != agent_id:
                     continue
-                updated_agent = replace(existing, workflow_size_guideline=guideline)
+                updated_agent = replace(
+                    existing,
+                    workflow_size_guideline=guideline,
+                    workflow_size_guideline_explicit=True,
+                )
                 agents[index] = updated_agent
                 return replace(current, agents=tuple(agents))
             raise ValueError(f"unknown Agent: {agent_id}")

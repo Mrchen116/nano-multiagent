@@ -25,6 +25,11 @@ from agent.core.workflows import (
 from .store import WorkflowRunStore, slugify_workflow_name
 
 
+_GUIDELINE_AGENT_BOUNDARIES = {"small": 5, "medium": 15, "large": 50}
+_DEFAULT_LARGE_AGENT_COUNT = 25
+_LARGE_TOKEN_ESTIMATE = 1_500_000
+
+
 @dataclass(frozen=True, slots=True)
 class WorkflowLaunchContext:
     parent_session_id: str
@@ -98,6 +103,7 @@ class WorkflowManager:
         context: WorkflowLaunchContext,
         resume_from_run_id: str | None = None,
         size_guideline: str = "medium",
+        size_guideline_explicit: bool = False,
         output_budget: OutputTokenBudget | None = None,
     ) -> WorkflowLaunch:
         """Persist and start one already-authorized Workflow without blocking."""
@@ -144,6 +150,7 @@ class WorkflowManager:
             "usage": None,
             "duration_ms": None,
             "size_guideline": size_guideline,
+            "size_guideline_explicit": size_guideline_explicit,
             "large_warning": None,
             "script_path": str(store.script_path),
             "journal_path": str(store.journal_path),
@@ -236,8 +243,15 @@ class WorkflowManager:
             / "runs"
         )
         loaded: dict[str, dict[str, Any]] = {}
-        for path in sorted(runs_root.glob("*/run.json")):
-            value = json.loads(path.read_text(encoding="utf-8"))
+        if not runs_root.is_dir():
+            return
+        for run_dir in sorted(path for path in runs_root.iterdir() if path.is_dir()):
+            if not (
+                (run_dir / "run.json").is_file()
+                or (run_dir / "journal.jsonl").is_file()
+            ):
+                continue
+            value = WorkflowRunStore.load_snapshot(run_dir)
             if (
                 isinstance(value, dict)
                 and value.get("parent_session_id") == session_id
@@ -339,14 +353,10 @@ class WorkflowManager:
                     "resume_key": call.resume_key,
                 }
                 with handle.lock:
-                    if (
-                        call.start_ordinal >= 25
-                        and not handle.context.workflow_ultracode
-                        and handle.snapshot["large_warning"] is None
-                    ):
-                        warning = "Large workflow: plan exceeds 25 Agent calls"
-                        handle.snapshot["large_warning"] = warning
-                        handle.snapshot["warnings"].append(warning)
+                    _maybe_add_large_warning(
+                        handle,
+                        agent_count=call.start_ordinal + 1,
+                    )
                     handle.snapshot["agents"].append(agent_info)
                     for phase_info in handle.snapshot["phases"]:
                         if phase_info["title"] == call.phase:
@@ -385,6 +395,7 @@ class WorkflowManager:
                     if usage:
                         agent_info["usage"] = usage
                         _merge_usage(handle.snapshot, usage)
+                        _maybe_add_large_warning(handle)
                         if handle.output_budget is not None:
                             handle.output_budget.add(
                                 int(usage.get("completion_tokens", 0))
@@ -463,7 +474,7 @@ class WorkflowManager:
             self._background_registry.mark_running(handle.launch.task_id)
             with handle.lock:
                 self._update(handle, status="running")
-                self._journal(handle, "run_started")
+                self._journal(handle, "run_started", snapshot=self._snapshot(handle))
             result = await execute_workflow(compiled, args=args, runtime=runtime)
             duration_ms = int((time.monotonic() - started) * 1000)
             with handle.lock:
@@ -487,7 +498,11 @@ class WorkflowManager:
                     current_phase=runtime.current_phase,
                 )
                 self._journal(
-                    handle, f"run_{terminal}", result=result.result, error=result.error
+                    handle,
+                    f"run_{terminal}",
+                    result=result.result,
+                    error=result.error,
+                    snapshot=self._snapshot(handle),
                 )
             result_text = (
                 json.dumps(result.result, ensure_ascii=False)
@@ -522,7 +537,12 @@ class WorkflowManager:
                     error=str(exc),
                     duration_ms=duration_ms,
                 )
-                self._journal(handle, "run_failed", error=str(exc))
+                self._journal(
+                    handle,
+                    "run_failed",
+                    error=str(exc),
+                    snapshot=self._snapshot(handle),
+                )
             self._background_registry.fail(handle.launch.task_id, error=str(exc))
         finally:
             handle.terminal.set()
@@ -660,6 +680,51 @@ def _merge_usage(snapshot: dict[str, Any], usage: Mapping[str, Any]) -> None:
         if isinstance(value, int) and not isinstance(value, bool):
             current[key] = int(current.get(key, 0)) + value
     snapshot["usage"] = current or None
+
+
+def _maybe_add_large_warning(
+    handle: _RunHandle, *, agent_count: int | None = None
+) -> None:
+    if (
+        handle.context.workflow_ultracode
+        or handle.snapshot["large_warning"] is not None
+    ):
+        return
+    guideline = str(handle.snapshot["size_guideline"])
+    explicit = bool(handle.snapshot.get("size_guideline_explicit"))
+    count_warning = False
+    if agent_count is not None:
+        if explicit:
+            boundary = _GUIDELINE_AGENT_BOUNDARIES.get(guideline)
+            count_warning = boundary is not None and agent_count >= boundary
+        else:
+            count_warning = agent_count > _DEFAULT_LARGE_AGENT_COUNT
+    usage = handle.snapshot.get("usage")
+    total_tokens = usage.get("total_tokens") if isinstance(usage, Mapping) else None
+    token_warning = (
+        isinstance(total_tokens, int)
+        and not isinstance(total_tokens, bool)
+        and total_tokens >= _LARGE_TOKEN_ESTIMATE
+    )
+    if not count_warning and not token_warning:
+        return
+    if token_warning:
+        warning = "Large workflow: estimated 1.5M tokens or more"
+    elif explicit:
+        warning = f"Large workflow: {guideline} guideline boundary reached"
+    else:
+        warning = "Large workflow: plan exceeds 25 Agent calls"
+    handle.snapshot["large_warning"] = warning
+    handle.snapshot["warnings"].append(warning)
+    handle.store.append(
+        {
+            "event": "large_workflow_warning",
+            "run_id": handle.launch.run_id,
+            "revision": handle.snapshot["revision"],
+            "created_at": utc_now_iso(),
+            "warning": warning,
+        }
+    )
 
 
 @dataclass(frozen=True, slots=True)

@@ -48,7 +48,9 @@ class SavedWorkflowRegistry:
                     )
             return None
         discovered = {
-            item.name: item for item in self.list(workspace_root=workspace_root)
+            item.name: item
+            for item in self.list(workspace_root=workspace_root)
+            if item.namespace is None
         }
         return discovered.get(name)
 

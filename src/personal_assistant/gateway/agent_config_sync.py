@@ -860,6 +860,11 @@ class IMAgentConfigSync:
                 if existing_agent is not None
                 else DEFAULT_WORKFLOW_SIZE_GUIDELINE
             ),
+            workflow_size_guideline_explicit=(
+                existing_agent.workflow_size_guideline_explicit
+                if existing_agent is not None
+                else False
+            ),
             features={
                 key: value
                 for key, value in raw_features.items()
@@ -1357,6 +1362,11 @@ class IMAgentConfigSync:
                 existing_agent.workflow_size_guideline
                 if existing_agent is not None
                 else DEFAULT_WORKFLOW_SIZE_GUIDELINE
+            ),
+            workflow_size_guideline_explicit=(
+                existing_agent.workflow_size_guideline_explicit
+                if existing_agent is not None
+                else False
             ),
             features=features,
             custom_prompt=_optional_text("custom_prompt"),

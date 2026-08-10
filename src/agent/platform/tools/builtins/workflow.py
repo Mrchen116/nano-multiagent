@@ -129,9 +129,18 @@ class WorkflowTool:
                     "identity": resolved_identity,
                 },
             )
+        size_guideline, size_guideline_explicit = _size_guideline_setting(
+            ctx.session_metadata
+        )
         return PermissionDecision(
             behavior="ask",
-            reason=f"Run Python Workflow '{compiled.meta.name}'?",
+            reason=_approval_question(
+                name=compiled.meta.name,
+                phases=tuple(phase.title for phase in compiled.meta.phases),
+                size_guideline=size_guideline,
+                size_guideline_explicit=size_guideline_explicit,
+                ultracode=_workflow_ultracode(ctx.session_metadata),
+            ),
             decision_reason={"type": "workflow_launch", "identity": resolved_identity},
         )
 
@@ -165,7 +174,9 @@ class WorkflowTool:
 
     def run(self, args: Mapping[str, Any], ctx: ToolContext) -> Mapping[str, Any]:
         source, _identity = self._resolve_source(args, ctx)
-        size_guideline = _size_guideline(ctx.session_metadata)
+        size_guideline, size_guideline_explicit = _size_guideline_setting(
+            ctx.session_metadata
+        )
         runtime_snapshot = _capture_parent_runtime(ctx)
         context = WorkflowLaunchContext(
             parent_session_id=ctx.session_id or "",
@@ -173,16 +184,7 @@ class WorkflowTool:
             parent_run_id=_optional_string(ctx.session_metadata.get("run_id")),
             parent_tool_call_id=ctx.tool_call_id,
             subagent_control=ctx.subagent_control,
-            workflow_ultracode=bool(
-                ctx.session_metadata.get("workflow_ultracode")
-                or (
-                    isinstance(ctx.session_metadata.get(INTERNAL_RUNTIME_KEY), Mapping)
-                    and ctx.session_metadata[INTERNAL_RUNTIME_KEY].get(
-                        "workflow_ultracode"
-                    )
-                    is True
-                )
-            ),
+            workflow_ultracode=_workflow_ultracode(ctx.session_metadata),
             parent_run_origin=str(ctx.session_metadata.get("run_origin") or "user"),
             **runtime_snapshot,
         )
@@ -193,6 +195,7 @@ class WorkflowTool:
                 context=context,
                 resume_from_run_id=_optional_string(args.get("resumeFromRunId")),
                 size_guideline=size_guideline,
+                size_guideline_explicit=size_guideline_explicit,
                 output_budget=_output_budget(ctx.session_metadata),
             )
         except (WorkflowCompileError, OSError, ValueError) as exc:
@@ -296,12 +299,53 @@ def _capture_parent_runtime(ctx: ToolContext) -> dict[str, Any]:
 
 
 def _size_guideline(session_metadata: Mapping[str, Any]) -> str:
+    return _size_guideline_setting(session_metadata)[0]
+
+
+def _size_guideline_setting(
+    session_metadata: Mapping[str, Any],
+) -> tuple[str, bool]:
     runtime = session_metadata.get(INTERNAL_RUNTIME_KEY)
     if isinstance(runtime, Mapping):
         value = runtime.get("workflow_size_guideline")
         if value in {"unrestricted", "small", "medium", "large"}:
-            return str(value)
-    return "medium"
+            return str(value), True
+    return "medium", False
+
+
+def _workflow_ultracode(session_metadata: Mapping[str, Any]) -> bool:
+    runtime = session_metadata.get(INTERNAL_RUNTIME_KEY)
+    return bool(
+        session_metadata.get("workflow_ultracode")
+        or (isinstance(runtime, Mapping) and runtime.get("workflow_ultracode") is True)
+    )
+
+
+def _approval_question(
+    *,
+    name: str,
+    phases: tuple[str, ...],
+    size_guideline: str,
+    size_guideline_explicit: bool,
+    ultracode: bool,
+) -> str:
+    phase_text = ", ".join(phases) if phases else "none declared"
+    boundaries = {"small": 5, "medium": 15, "large": 50}
+    if size_guideline_explicit and size_guideline in boundaries:
+        scale = f"{size_guideline} (<{boundaries[size_guideline]} Agents)"
+    elif size_guideline == "unrestricted":
+        scale = "unrestricted (no Agent-count advisory boundary)"
+    else:
+        scale = "medium (default; advisory above 25 Agents)"
+    advisory = (
+        "Large workflow advisory is suppressed by ultracode."
+        if ultracode
+        else "Large workflow advisory includes estimated 1.5M tokens."
+    )
+    return (
+        f"Run Python Workflow '{name}'? Phases: {phase_text}. "
+        f"Scale: {scale}. {advisory}"
+    )
 
 
 def _output_budget(

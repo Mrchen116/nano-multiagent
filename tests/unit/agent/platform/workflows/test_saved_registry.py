@@ -98,3 +98,32 @@ def test_bundled_workflow_is_discovered_below_personal_and_project(
         registry.resolve("deep-research", workspace_root=project)
         == discovered["deep-research"]
     )
+
+
+def test_plain_name_never_resolves_plugin_collision(tmp_path: Path) -> None:
+    project = tmp_path / "repo"
+    project.mkdir()
+    (project / ".git").mkdir()
+    personal = tmp_path / "personal"
+    personal.mkdir()
+    (personal / "review.py").write_text(SCRIPT, encoding="utf-8")
+    plugin = tmp_path / "plugin"
+    plugin.mkdir()
+    (plugin / "review.py").write_text(
+        SCRIPT.replace("Review changes", "Plugin review"), encoding="utf-8"
+    )
+    registry = SavedWorkflowRegistry(
+        config_dirname=".nanocode",
+        personal_root=personal,
+        plugin_roots=(("quality", plugin),),
+    )
+
+    plain = registry.resolve("review", workspace_root=project)
+    namespaced = registry.resolve("quality:review", workspace_root=project)
+
+    assert plain is not None
+    assert plain.scope == "personal"
+    assert plain.namespace is None
+    assert namespaced is not None
+    assert namespaced.scope == "plugin"
+    assert namespaced.namespace == "quality"

@@ -1380,7 +1380,7 @@ class Kernel:
                     runtime.workflow_ultracode if runtime is not None else False
                 ),
                 runtime_workflow_size_guideline=(
-                    runtime.workflow_size_guideline or "medium"
+                    runtime.workflow_size_guideline
                     if runtime is not None and "Workflow" in runtime.enabled_tools
                     else None
                 ),

@@ -90,17 +90,17 @@ class CliWorkflowConfig:
 
     disabled: bool = False
     size_guideline: str = "medium"
+    size_guideline_explicit: bool = False
 
 
 def load_cli_workflow_config(workspace_root: Path) -> CliWorkflowConfig:
     """Load global then workspace Workflow settings, with env disable last."""
 
     merged: dict[str, object] = {}
+    size_guideline_explicit = False
     for path in (
         Path.home() / WORKSPACE_CONFIG_DIRNAME / "config.yaml",
-        Path(workspace_root).expanduser().resolve()
-        / WORKSPACE_CONFIG_DIRNAME
-        / "config.yaml",
+        _resolve_workspace_config_path(workspace_root),
     ):
         if not path.is_file():
             continue
@@ -110,6 +110,8 @@ def load_cli_workflow_config(workspace_root: Path) -> CliWorkflowConfig:
         section = raw.get("workflows")
         if isinstance(section, dict):
             merged.update(section)
+            if "size_guideline" in section:
+                size_guideline_explicit = True
     guideline = merged.get("size_guideline", "medium")
     if guideline not in WORKFLOW_SIZE_GUIDELINES:
         allowed = ", ".join(sorted(WORKFLOW_SIZE_GUIDELINES))
@@ -122,6 +124,7 @@ def load_cli_workflow_config(workspace_root: Path) -> CliWorkflowConfig:
     return CliWorkflowConfig(
         disabled=disabled,
         size_guideline=str(guideline),
+        size_guideline_explicit=size_guideline_explicit,
     )
 
 
@@ -131,11 +134,7 @@ def save_cli_workflow_size_guideline(workspace_root: Path, guideline: str) -> No
     if guideline not in WORKFLOW_SIZE_GUIDELINES:
         allowed = ", ".join(sorted(WORKFLOW_SIZE_GUIDELINES))
         raise ValueError(f"workflowSizeGuideline must be one of: {allowed}")
-    config_path = (
-        Path(workspace_root).expanduser().resolve()
-        / WORKSPACE_CONFIG_DIRNAME
-        / "config.yaml"
-    )
+    config_path = _resolve_workspace_config_path(workspace_root)
     raw: dict[str, object] = {}
     if config_path.is_file():
         loaded = yaml.safe_load(config_path.read_text(encoding="utf-8"))
@@ -150,6 +149,26 @@ def save_cli_workflow_size_guideline(workspace_root: Path, guideline: str) -> No
     config_path.write_text(
         yaml.safe_dump(raw, allow_unicode=True, sort_keys=False), encoding="utf-8"
     )
+
+
+def _resolve_workspace_config_path(workspace_root: Path) -> Path:
+    current = Path(workspace_root).expanduser().resolve()
+    git_root = next(
+        (
+            candidate
+            for candidate in (current, *current.parents)
+            if (candidate / ".git").exists()
+        ),
+        current,
+    )
+    candidate = current
+    while True:
+        config_path = candidate / WORKSPACE_CONFIG_DIRNAME / "config.yaml"
+        if config_path.is_file():
+            return config_path
+        if candidate == git_root:
+            return config_path
+        candidate = candidate.parent
 
 
 # ---------------------------------------------------------------------------
@@ -274,7 +293,11 @@ async def open_cli_session(kernel: Any, *, workspace_root: Path) -> Any:
                     skills=None,
                     enabled_tools=enabled_tools,
                     features=dict(DEFAULT_FEATURES),
-                    workflow_size_guideline=workflow_config.size_guideline,
+                    workflow_size_guideline=(
+                        workflow_config.size_guideline
+                        if workflow_config.size_guideline_explicit
+                        else None
+                    ),
                 ),
             )
     return await kernel.create_session(

@@ -182,6 +182,7 @@ class AgentWorkspaceConfig:
         default_model: Default LLM model identifier for this agent.
         reasoning_effort: Optional selectable reasoning level for the effective model.
         workflow_size_guideline: Prompt guidance for the next active Workflow turn.
+        workflow_size_guideline_explicit: Whether the user selected the guideline.
         features: Per-agent feature-flag overrides keyed by FEATURE_REGISTRY key.
             Absent keys inherit the registry default_on value at session creation time.
             Heartbeat and cron enabling lives here: features["heartbeat"] and
@@ -220,6 +221,7 @@ class AgentWorkspaceConfig:
     default_model: str | None = None
     reasoning_effort: str | None = None
     workflow_size_guideline: str = DEFAULT_WORKFLOW_SIZE_GUIDELINE
+    workflow_size_guideline_explicit: bool = False
     # feat-379-M2: per-agent feature flags and custom prompt supplement.
     # feat-394-M9: heartbeat/cron enable state lives here (features["heartbeat"] /
     # features["cron_scheduling"]) — no separate heartbeat_enabled/cron_enabled fields.
@@ -846,7 +848,10 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
             agent_dict["default_model"] = agent.default_model
         if agent.reasoning_effort is not None:
             agent_dict["reasoning_effort"] = agent.reasoning_effort
-        if agent.workflow_size_guideline != DEFAULT_WORKFLOW_SIZE_GUIDELINE:
+        if (
+            agent.workflow_size_guideline_explicit
+            or agent.workflow_size_guideline != DEFAULT_WORKFLOW_SIZE_GUIDELINE
+        ):
             agent_dict["workflow_size_guideline"] = agent.workflow_size_guideline
         # feat-379-M2: only emit when non-empty to keep config.yaml readable.
         # feat-394-M9: features dict now carries heartbeat/cron_scheduling state;
@@ -1248,12 +1253,12 @@ def _parse_agents(
             item.get("reasoning_effort"),
             field_name=f"agents[{index}].reasoning_effort",
         )
+        configured_workflow_size_guideline = _optional_string(
+            item.get("workflow_size_guideline"),
+            field_name=f"agents[{index}].workflow_size_guideline",
+        )
         workflow_size_guideline = (
-            _optional_string(
-                item.get("workflow_size_guideline"),
-                field_name=f"agents[{index}].workflow_size_guideline",
-            )
-            or DEFAULT_WORKFLOW_SIZE_GUIDELINE
+            configured_workflow_size_guideline or DEFAULT_WORKFLOW_SIZE_GUIDELINE
         )
         if workflow_size_guideline not in WORKFLOW_SIZE_GUIDELINES:
             allowed = ", ".join(sorted(WORKFLOW_SIZE_GUIDELINES))
@@ -1319,6 +1324,9 @@ def _parse_agents(
                 default_model=default_model,
                 reasoning_effort=reasoning_effort,
                 workflow_size_guideline=workflow_size_guideline,
+                workflow_size_guideline_explicit=(
+                    configured_workflow_size_guideline is not None
+                ),
                 features=features,
                 custom_prompt=custom_prompt,
                 heartbeat_every=heartbeat_every,

@@ -207,7 +207,10 @@ def test_resume_preserves_observed_terminal_order_instead_of_start_order(
     manager.close()
 
 
-def test_terminal_snapshot_is_queryable_after_manager_restart(tmp_path: Path) -> None:
+@pytest.mark.parametrize("snapshot_state", ["missing", "corrupt"])
+def test_terminal_snapshot_is_queryable_after_manager_restart(
+    tmp_path: Path, snapshot_state: str
+) -> None:
     registry = BackgroundTaskRegistry()
 
     async def child(call):  # noqa: ANN001
@@ -224,6 +227,11 @@ def test_terminal_snapshot_is_queryable_after_manager_restart(tmp_path: Path) ->
     launch = first.launch(source=SCRIPT, args=None, context=context)
     expected = first.wait(launch.run_id, timeout=2)
     first.close()
+    snapshot_path = Path(expected["transcript_dir"]) / "run.json"
+    if snapshot_state == "missing":
+        snapshot_path.unlink()
+    else:
+        snapshot_path.write_text("{broken", encoding="utf-8")
 
     recovered = WorkflowManager(
         background_registry=BackgroundTaskRegistry(),
@@ -235,6 +243,100 @@ def test_terminal_snapshot_is_queryable_after_manager_restart(tmp_path: Path) ->
     assert recovered.get(launch.run_id) == expected
     assert recovered.list_runs(session_id="sess_parent") == (expected,)
     recovered.close()
+
+
+@pytest.mark.parametrize(
+    ("guideline", "explicit", "agent_count", "expects_warning"),
+    [
+        ("medium", False, 25, False),
+        ("medium", False, 26, True),
+        ("small", True, 5, True),
+        ("medium", True, 15, True),
+        ("large", True, 50, True),
+        ("unrestricted", True, 60, False),
+    ],
+)
+def test_large_workflow_agent_advisory_uses_default_or_explicit_boundary(
+    tmp_path: Path,
+    guideline: str,
+    explicit: bool,
+    agent_count: int,
+    expects_warning: bool,
+) -> None:
+    async def child(call):  # noqa: ANN001
+        return call.prompt
+
+    manager = WorkflowManager(
+        background_registry=BackgroundTaskRegistry(),
+        config_dirname=".nanocode",
+        child_runner_factory=lambda _context, _run_id: child,
+    )
+    source = """
+meta = {"name": "scale", "description": "Exercise advisory boundaries"}
+async def main():
+    return await parallel([
+        lambda index=index: agent(str(index))
+        for index in range(args["agent_count"])
+    ])
+"""
+
+    launch = manager.launch(
+        source=source,
+        args={"agent_count": agent_count},
+        context=WorkflowLaunchContext(
+            parent_session_id="sess_parent", workspace_root=tmp_path
+        ),
+        size_guideline=guideline,
+        size_guideline_explicit=explicit,
+    )
+    snapshot = manager.wait(launch.run_id, timeout=5)
+
+    assert (snapshot["large_warning"] is not None) is expects_warning
+    manager.close()
+
+
+def test_large_workflow_token_advisory_and_ultracode_suppression(
+    tmp_path: Path,
+) -> None:
+    class Child:
+        async def __call__(self, call):  # noqa: ANN001
+            return call.prompt
+
+        def usage_for(self, _agent_call_id):  # noqa: ANN001, ANN201
+            return {
+                "prompt_tokens": 1_499_999,
+                "completion_tokens": 1,
+                "total_tokens": 1_500_000,
+            }
+
+    def run(*, ultracode: bool, root: Path) -> dict:
+        manager = WorkflowManager(
+            background_registry=BackgroundTaskRegistry(),
+            config_dirname=".nanocode",
+            child_runner_factory=lambda _context, _run_id: Child(),
+        )
+        launch = manager.launch(
+            source="""
+meta = {"name": "tokens", "description": "Exercise token advisory"}
+async def main():
+    return await agent("one")
+""",
+            args=None,
+            context=WorkflowLaunchContext(
+                parent_session_id="sess_parent",
+                workspace_root=root,
+                workflow_ultracode=ultracode,
+            ),
+        )
+        snapshot = manager.wait(launch.run_id, timeout=2)
+        manager.close()
+        return snapshot
+
+    regular = run(ultracode=False, root=tmp_path / "regular")
+    ultracode = run(ultracode=True, root=tmp_path / "ultracode")
+
+    assert "estimated 1.5M tokens" in regular["large_warning"]
+    assert ultracode["large_warning"] is None
 
 
 def test_named_nested_workflow_uses_same_agent_admission_stream(tmp_path: Path) -> None:
