@@ -1,0 +1,352 @@
+{
+  "entries": [
+    {
+      "memory_id": "M01",
+      "refs": [
+        {
+          "opaque_ref": "source-0002:L30-L35",
+          "source_path": "docs/changes/archive/bugfix-431-runtime-skill-resolution/incident.md",
+          "source_sha256": "12a08413d8eabd5390afe5361264975c8a0a0d5d1d45eca5e4e032b86d0bd9ab"
+        },
+        {
+          "opaque_ref": "source-0008:L18-L19",
+          "source_path": "docs/changes/archive/feat-487-simplified-change-orchestrator/spec.md",
+          "source_sha256": "39ce4593b22e2ef94064d63da62275a40562e09ff7763efcbbbddbd1668119aa"
+        },
+        {
+          "opaque_ref": "source-0105:L16-L21",
+          "source_path": "docs/changes/archive/feat-501-cross-channel-session-controls/spec.md",
+          "source_sha256": "f02e9d067c158b694a69895dc731301c14632daac08698b231e0d1efdbab1764"
+        }
+      ]
+    },
+    {
+      "memory_id": "M02",
+      "refs": [
+        {
+          "opaque_ref": "source-0004:L32-L34",
+          "source_path": "docs/changes/archive/feat-455-change-skill-prototype-contract/spec.md",
+          "source_sha256": "243e84fad107fe8ade031aee93c49cc2205660f61ed4105a89c5e10d49722aee"
+        },
+        {
+          "opaque_ref": "source-0110:L39-L41",
+          "source_path": "docs/changes/archive/refactor-406-sdk-curated-surface/motivation.md",
+          "source_sha256": "338810fd39298e8acb307395fa814a06edcd1ba695075f9ef48aac87602968dd"
+        },
+        {
+          "opaque_ref": "source-0186:L25-L27",
+          "source_path": "docs/changes/feat-530-message-context-envelope/spec.md",
+          "source_sha256": "ffcf47be7169f60f545c304222efc6c01eb3e1af5a3e04aa040a40be74f81958"
+        }
+      ]
+    },
+    {
+      "memory_id": "M03",
+      "refs": [
+        {
+          "opaque_ref": "source-0089:L22-L28",
+          "source_path": "docs/changes/archive/feat-407-impl-view-leak-guard/spec.md",
+          "source_sha256": "34b1e87a5c8fb2c6d1e6df386ae0c56abc09cfed0302e2baef5aa9b9d86cb753"
+        },
+        {
+          "opaque_ref": "source-0112:L19-L21",
+          "source_path": "docs/changes/archive/refactor-454-gateway-runtime-protocol/motivation.md",
+          "source_sha256": "2243797d6d88c8b7f629b31f55d047b49543a8493619adb3921271f2fd40fda9"
+        }
+      ]
+    },
+    {
+      "memory_id": "M04",
+      "refs": [
+        {
+          "opaque_ref": "source-0096:L25-L38",
+          "source_path": "docs/changes/archive/feat-408-design-doc-dual-purpose/spec.md",
+          "source_sha256": "6c8e3e58c5557bc08105fe99c736816e14afd862ca10bc10d4e9397660c92e8f"
+        },
+        {
+          "opaque_ref": "source-0096:L45-L49",
+          "source_path": "docs/changes/archive/feat-408-design-doc-dual-purpose/spec.md",
+          "source_sha256": "6c8e3e58c5557bc08105fe99c736816e14afd862ca10bc10d4e9397660c92e8f"
+        }
+      ]
+    },
+    {
+      "memory_id": "M05",
+      "refs": [
+        {
+          "opaque_ref": "source-0004:L36-L42",
+          "source_path": "docs/changes/archive/feat-455-change-skill-prototype-contract/spec.md",
+          "source_sha256": "243e84fad107fe8ade031aee93c49cc2205660f61ed4105a89c5e10d49722aee"
+        }
+      ]
+    },
+    {
+      "memory_id": "M06",
+      "refs": [
+        {
+          "opaque_ref": "source-0002:L33-L35",
+          "source_path": "docs/changes/archive/bugfix-431-runtime-skill-resolution/incident.md",
+          "source_sha256": "12a08413d8eabd5390afe5361264975c8a0a0d5d1d45eca5e4e032b86d0bd9ab"
+        },
+        {
+          "opaque_ref": "source-0196:L20-L28",
+          "source_path": "docs/changes/archive/bugfix-426-midrun-message-steering/incident.md",
+          "source_sha256": "f220210935b60b84eb2bf54dfc06406f8517f42bac66b09fe43cae7b22f3d5f3"
+        }
+      ]
+    },
+    {
+      "memory_id": "M07",
+      "refs": [
+        {
+          "opaque_ref": "source-0110:L30-L35",
+          "source_path": "docs/changes/archive/refactor-406-sdk-curated-surface/motivation.md",
+          "source_sha256": "338810fd39298e8acb307395fa814a06edcd1ba695075f9ef48aac87602968dd"
+        },
+        {
+          "opaque_ref": "source-0110:L42-L44",
+          "source_path": "docs/changes/archive/refactor-406-sdk-curated-surface/motivation.md",
+          "source_sha256": "338810fd39298e8acb307395fa814a06edcd1ba695075f9ef48aac87602968dd"
+        }
+      ]
+    },
+    {
+      "memory_id": "M08",
+      "refs": [
+        {
+          "opaque_ref": "source-0112:L14-L21",
+          "source_path": "docs/changes/archive/refactor-454-gateway-runtime-protocol/motivation.md",
+          "source_sha256": "2243797d6d88c8b7f629b31f55d047b49543a8493619adb3921271f2fd40fda9"
+        },
+        {
+          "opaque_ref": "source-0112:L22-L27",
+          "source_path": "docs/changes/archive/refactor-454-gateway-runtime-protocol/motivation.md",
+          "source_sha256": "2243797d6d88c8b7f629b31f55d047b49543a8493619adb3921271f2fd40fda9"
+        },
+        {
+          "opaque_ref": "source-0195:L15-L20",
+          "source_path": "docs/changes/archive/refactor-382-llm-models-to-gateway-config/motivation.md",
+          "source_sha256": "237e7ce873ecf6c400f5adde59d8fe19644786533f6903ec1db60adf888b643e"
+        }
+      ]
+    },
+    {
+      "memory_id": "M09",
+      "refs": [
+        {
+          "opaque_ref": "source-0008:L14-L35",
+          "source_path": "docs/changes/archive/feat-487-simplified-change-orchestrator/spec.md",
+          "source_sha256": "39ce4593b22e2ef94064d63da62275a40562e09ff7763efcbbbddbd1668119aa"
+        },
+        {
+          "opaque_ref": "source-0012:L15-L17",
+          "source_path": "docs/changes/archive/feat-473-impl-worker-tdd-commit-simplify/spec.md",
+          "source_sha256": "a49d49366de0543caf35037978873ba26d5ac562a72089baac5a6b1c0813d13d"
+        }
+      ]
+    },
+    {
+      "memory_id": "M10",
+      "refs": [
+        {
+          "opaque_ref": "source-0009:L29-L35",
+          "source_path": "docs/changes/archive/feat-398-change-flow-quality-gates/spec.md",
+          "source_sha256": "e1df559358a64ca5870947d4bdbca2578a4f9a53cd6dfb489ea204c2de3024e6"
+        },
+        {
+          "opaque_ref": "source-0012:L23-L29",
+          "source_path": "docs/changes/archive/feat-473-impl-worker-tdd-commit-simplify/spec.md",
+          "source_sha256": "a49d49366de0543caf35037978873ba26d5ac562a72089baac5a6b1c0813d13d"
+        },
+        {
+          "opaque_ref": "source-0185:L26-L30",
+          "source_path": "docs/changes/archive/feat-401-change-skills-retro-improvements/spec.md",
+          "source_sha256": "85a807e9cb1dc12d4b922272fd3abc96cfdb53e36fe4a7c38453fa2a3d6fb63a"
+        }
+      ]
+    },
+    {
+      "memory_id": "M11",
+      "refs": [
+        {
+          "opaque_ref": "source-0010:L20-L34",
+          "source_path": "docs/changes/archive/feat-432-design-reviewer-architecture-attack/spec.md",
+          "source_sha256": "397b1409bda622058d861416ac50e693a61391d41c155a229f914bfb557de0d0"
+        }
+      ]
+    },
+    {
+      "memory_id": "M12",
+      "refs": [
+        {
+          "opaque_ref": "source-0181:L25-L41",
+          "source_path": "docs/changes/archive/bugfix-374-bugfix-verify-real-entry-repro/fix.md",
+          "source_sha256": "89556bc8c2f4c817dd842fa07225e8e408bc2695253863788cb26e4041baaac6"
+        },
+        {
+          "opaque_ref": "source-0181:L45-L49",
+          "source_path": "docs/changes/archive/bugfix-374-bugfix-verify-real-entry-repro/fix.md",
+          "source_sha256": "89556bc8c2f4c817dd842fa07225e8e408bc2695253863788cb26e4041baaac6"
+        }
+      ]
+    },
+    {
+      "memory_id": "M13",
+      "refs": [
+        {
+          "opaque_ref": "source-0121:L44-L45",
+          "source_path": "docs/changes/archive/bugfix-367-permission-history-list/fix.md",
+          "source_sha256": "ba52b8368e312358ff8b20763564dacce8531e56b9f24ab91822692aba5eb077"
+        },
+        {
+          "opaque_ref": "source-0184:L37-L39",
+          "source_path": "docs/changes/archive/feat-519-workspace-compat-skills/spec.md",
+          "source_sha256": "3c67389efa32da1bc7fdbf0e9b90745a4bb21af49c46853c10c05283b5ec2ee3"
+        },
+        {
+          "opaque_ref": "source-0195:L45-L50",
+          "source_path": "docs/changes/archive/refactor-382-llm-models-to-gateway-config/motivation.md",
+          "source_sha256": "237e7ce873ecf6c400f5adde59d8fe19644786533f6903ec1db60adf888b643e"
+        }
+      ]
+    },
+    {
+      "memory_id": "M14",
+      "refs": [
+        {
+          "opaque_ref": "source-0006:L18-L26",
+          "source_path": "docs/changes/archive/feat-502-pa-product-docs-skill/spec.md",
+          "source_sha256": "1b0ed748e723ff6a46240fc1514aafb347d214be40e97510cb54d583120eadb9"
+        },
+        {
+          "opaque_ref": "source-0184:L25-L27",
+          "source_path": "docs/changes/archive/feat-519-workspace-compat-skills/spec.md",
+          "source_sha256": "3c67389efa32da1bc7fdbf0e9b90745a4bb21af49c46853c10c05283b5ec2ee3"
+        }
+      ]
+    },
+    {
+      "memory_id": "M15",
+      "refs": [
+        {
+          "opaque_ref": "source-0178:L21-L30",
+          "source_path": "docs/changes/archive/bugfix-468-tool-chain-semantics-gaps/incident.md",
+          "source_sha256": "df5413c129babd6f54411f69047f3252362588b18a2fef56450243fd36682637"
+        },
+        {
+          "opaque_ref": "source-0189:L35-L41",
+          "source_path": "docs/changes/archive/feat-423-searxng-web-search/spec.md",
+          "source_sha256": "065f3e3782eee5e57e0a7eeda91e8a2b1cbc656fe216b818faae0d5fd687834b"
+        },
+        {
+          "opaque_ref": "source-0195:L41-L50",
+          "source_path": "docs/changes/archive/refactor-382-llm-models-to-gateway-config/motivation.md",
+          "source_sha256": "237e7ce873ecf6c400f5adde59d8fe19644786533f6903ec1db60adf888b643e"
+        }
+      ]
+    },
+    {
+      "memory_id": "M16",
+      "refs": [
+        {
+          "opaque_ref": "source-0001:L23-L37",
+          "source_path": "docs/changes/archive/feat-440-tool-rejection-feedback/spec.md",
+          "source_sha256": "900bdb74e1493f0c3cee30bba8d86213a30a3d524a1eb5ad5cb6625f063af379"
+        },
+        {
+          "opaque_ref": "source-0088:L26-L48",
+          "source_path": "docs/changes/archive/bugfix-380-llm-upstream-error-visible/incident.md",
+          "source_sha256": "93f7a41b5fe4d762142d56b72d4c0d22849781fa51baa39a2f9b8d11067cb814"
+        }
+      ]
+    },
+    {
+      "memory_id": "M17",
+      "refs": [
+        {
+          "opaque_ref": "source-0121:L31-L45",
+          "source_path": "docs/changes/archive/bugfix-367-permission-history-list/fix.md",
+          "source_sha256": "ba52b8368e312358ff8b20763564dacce8531e56b9f24ab91822692aba5eb077"
+        }
+      ]
+    },
+    {
+      "memory_id": "M18",
+      "refs": [
+        {
+          "opaque_ref": "source-0101:L18-L28",
+          "source_path": "docs/changes/archive/bugfix-496-feishu-orphan-listener/incident.md",
+          "source_sha256": "5d12cc84b7fdf5cb4cbbf751c01da07478278630231e07b07fc65d9372df9058"
+        }
+      ]
+    },
+    {
+      "memory_id": "M19",
+      "refs": [
+        {
+          "opaque_ref": "source-0124:L38-L56",
+          "source_path": "docs/changes/archive/feat-421-critical-path-e2e-suite/spec.md",
+          "source_sha256": "1c754b2cdb3c9868c5c1a030da954fefc46861447abde6e7f94d7cf7bdbe48d2"
+        }
+      ]
+    },
+    {
+      "memory_id": "M20",
+      "refs": [
+        {
+          "opaque_ref": "source-0182:L17-L21",
+          "source_path": "docs/changes/archive/feat-484-chat-message-interactions/spec.md",
+          "source_sha256": "faa07e8038ad49c16039df5bbb0f92e5d0403faedb1151945be2c49e5a62fedd"
+        },
+        {
+          "opaque_ref": "source-0190:L25-L29",
+          "source_path": "docs/changes/archive/feat-434-approval-ux-redesign/spec.md",
+          "source_sha256": "6de8ba5525f6541ae35f71e84e72e6aa8e8bb012c2531b6c63cbf9c2b1ac13f2"
+        }
+      ]
+    },
+    {
+      "memory_id": "M21",
+      "refs": [
+        {
+          "opaque_ref": "source-0196:L17-L28",
+          "source_path": "docs/changes/archive/bugfix-426-midrun-message-steering/incident.md",
+          "source_sha256": "f220210935b60b84eb2bf54dfc06406f8517f42bac66b09fe43cae7b22f3d5f3"
+        }
+      ]
+    },
+    {
+      "memory_id": "M22",
+      "refs": [
+        {
+          "opaque_ref": "source-0186:L28-L47",
+          "source_path": "docs/changes/feat-530-message-context-envelope/spec.md",
+          "source_sha256": "ffcf47be7169f60f545c304222efc6c01eb3e1af5a3e04aa040a40be74f81958"
+        }
+      ]
+    },
+    {
+      "memory_id": "M23",
+      "refs": [
+        {
+          "opaque_ref": "source-0006:L15-L17",
+          "source_path": "docs/changes/archive/feat-502-pa-product-docs-skill/spec.md",
+          "source_sha256": "1b0ed748e723ff6a46240fc1514aafb347d214be40e97510cb54d583120eadb9"
+        }
+      ]
+    },
+    {
+      "memory_id": "M24",
+      "refs": [
+        {
+          "opaque_ref": "source-0176:L25-L28",
+          "source_path": "docs/changes/archive/feat-516-prompt-cache-alert/spec.md",
+          "source_sha256": "fd8b46e2cc1bea650b5362d489fd4428cf574fcecb58a454901b711950ed8571"
+        }
+      ]
+    }
+  ],
+  "formal_eligible": false,
+  "memory_store_sha256": "3eabd6e8d94969445ba35e07693ed5a708911937d0e928663ed599853c251791",
+  "schema_version": "1.0"
+}

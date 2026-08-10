@@ -1,0 +1,47 @@
+{
+  "$schema": "../../schemas/judge-context.schema.json",
+  "schema_version": "1.0",
+  "context_id": "H02-judge-context-provisional-v1",
+  "case_id": "H02",
+  "formal_eligible": false,
+  "status": "provisional_unconfirmed",
+  "critical_error_policy": "A missing or contradicted critical requirement is a critical error. This pilot score tests the judge path only and cannot establish arm superiority.",
+  "criteria": [
+    {
+      "id": "J01",
+      "requirement": "The feature is PA-scoped and optional; shared kernel behavior remains product-neutral and Coding CLI is not changed by default.",
+      "materiality": "critical",
+      "source_refs": ["H02-draft-inventory:D01"]
+    },
+    {
+      "id": "J02",
+      "requirement": "Omission preserves per-run classifier model behavior; an explicit empty or unregistered value fails startup visibly.",
+      "materiality": "critical",
+      "source_refs": ["H02-draft-inventory:D02", "H02-draft-inventory:D03"]
+    },
+    {
+      "id": "J03",
+      "requirement": "Only both automatic permission-classification stages use the selected model; normal and post-tool turns retain their run model.",
+      "materiality": "critical",
+      "source_refs": ["H02-draft-inventory:D04"]
+    },
+    {
+      "id": "J04",
+      "requirement": "Classifier failure never changes model, while existing same-model retry and permission failure semantics remain.",
+      "materiality": "critical",
+      "source_refs": ["H02-draft-inventory:D05"]
+    },
+    {
+      "id": "J05",
+      "requirement": "The running Gateway keeps its bound choice until restart; no new hot-reload path is promised.",
+      "materiality": "high",
+      "source_refs": ["H02-draft-inventory:D06"]
+    },
+    {
+      "id": "J06",
+      "requirement": "The spec asks the Author to ground repo facts and preserves architecture boundaries without dictating design topology.",
+      "materiality": "high",
+      "source_refs": ["H02-draft-inventory:D07-D12"]
+    }
+  ]
+}

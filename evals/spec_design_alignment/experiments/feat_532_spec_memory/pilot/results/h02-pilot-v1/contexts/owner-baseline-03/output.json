@@ -1,0 +1,7 @@
+{
+  "reply": "接受。该配置在 Gateway 重启后生效，本需求不增加字段级热更新。",
+  "status": "answered",
+  "used_context_refs": [
+    "O06"
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "contribution_units": 7,
+  "formal_eligible": false,
+  "items": [
+    {
+      "normalized_contribution": "未配置统一审批模型时，保持现有行为：自动审批分类复用触发请求的 Agent／run 模型，不改用全局默认模型。",
+      "owner_atoms": [
+        "O02"
+      ],
+      "question_index": 1
+    },
+    {
+      "normalized_contribution": "显式指定的模型不在 PA 模型目录中时，应视为启动配置错误。",
+      "owner_atoms": [
+        "O03"
+      ],
+      "question_index": 1
+    },
+    {
+      "normalized_contribution": "指定模型在运行时不可用时，不得静默切换模型；应按现有机制重试同一模型，随后进入现有权限失败流程，不新增转人工审批规则。",
+      "owner_atoms": [
+        "O05"
+      ],
+      "question_index": 1
+    },
+    {
+      "normalized_contribution": "本期统一审批模型配置只覆盖 Personal Assistant，Coding CLI 保持不变。",
+      "owner_atoms": [
+        "O01"
+      ],
+      "question_index": 2
+    },
+    {
+      "normalized_contribution": "底层可采用产品中立的分类模型选择与省略能力，但不得借此扩大 Coding CLI 的产品范围。",
+      "owner_atoms": [
+        "O01"
+      ],
+      "question_index": 2
+    },
+    {
+      "normalized_contribution": "显式配置只改变自动工具权限分类所调用的模型，不改变各来源现有的权限策略、兜底或交互语义。",
+      "owner_atoms": [
+        "O04"
+      ],
+      "question_index": 3
+    },
+    {
+      "normalized_contribution": "普通 Agent 请求以及工具调用后的继续执行仍使用 run 模型。",
+      "owner_atoms": [
+        "O08"
+      ],
+      "question_index": 3
+    }
+  ],
+  "transcript_id": "T2"
+}

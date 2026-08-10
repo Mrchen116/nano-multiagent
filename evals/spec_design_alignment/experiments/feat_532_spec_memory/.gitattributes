@@ -1,0 +1,2 @@
+# Anonymous corpus evidence preserves source bytes for provenance.
+pilot/results/**/corpus/documents/*.txt -diff

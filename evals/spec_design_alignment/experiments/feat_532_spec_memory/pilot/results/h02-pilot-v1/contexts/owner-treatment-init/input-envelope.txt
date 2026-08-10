@@ -1,0 +1,1 @@
+<owner_session_initialization>Read the immutable role instructions, public brief, and provisional owner context. Return only the ready object; do not disclose any atom.</owner_session_initialization>

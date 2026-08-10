@@ -1,0 +1,18 @@
+{
+  "formal_eligible": false,
+  "input_envelope_sha256": "f55852160efcb42fc4d857f205364eea5e6afa36b3a38d4550e9fdbb31c22215",
+  "instructions_sha256": "17cb472f29a3a646b4ca13404ec32deab7d8c65a1a9ec3f1e2645a23489f963b",
+  "manifest_id": "burden-T2",
+  "output_schema_sha256": "e1e83a56c9a638687d008ca8f70bd905a448f842cef1e84c15b6a552a85c3ceb",
+  "role": "burden_scorer",
+  "visible_files": [
+    {
+      "path": "AGENTS.md",
+      "sha256": "17cb472f29a3a646b4ca13404ec32deab7d8c65a1a9ec3f1e2645a23489f963b"
+    },
+    {
+      "path": "transcript.json",
+      "sha256": "dd8a8ec3a8c3eac47d301f36c9de74e0be63e23f1a2e3a83afb5786f44ffd815"
+    }
+  ]
+}

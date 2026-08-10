@@ -1,0 +1,12 @@
+{
+  "event_count": 7,
+  "exit_code": 0,
+  "formal_eligible": false,
+  "manifest_id": "candidate-treatment-02",
+  "output_sha256": "ac143537ec2ae5cc1526d530dd8cc1286c285644ab2a8ee84b707c943903b02e",
+  "real_codex_cli": true,
+  "schema_version": "1.0",
+  "session_id": "019fed23-52e2-79e0-82f7-b0de82351b6d",
+  "temporary_auth_copy_retained": false,
+  "turn": 2
+}

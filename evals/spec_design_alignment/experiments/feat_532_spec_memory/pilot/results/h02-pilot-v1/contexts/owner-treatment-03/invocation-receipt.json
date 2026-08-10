@@ -1,0 +1,12 @@
+{
+  "event_count": 4,
+  "exit_code": 0,
+  "formal_eligible": false,
+  "manifest_id": "owner-treatment-03",
+  "output_sha256": "2d1b1a17393001a7994be7f4d23385b1fa3fe2f9b8a2772c0142443537d8b84e",
+  "real_codex_cli": true,
+  "schema_version": "1.0",
+  "session_id": "019fed23-023c-75a1-a0b3-bf6647a7ec94",
+  "temporary_auth_copy_retained": false,
+  "turn": 4
+}

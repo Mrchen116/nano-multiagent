@@ -1,0 +1,5 @@
+{
+  "first_doc_path": "",
+  "owner_message": "Q1：你说的“所有统一用一个模型”，是指 Coding CLI 和 Personal Assistant 各自按现有配置目录解析审批模型，还是两个产品必须共用同一份全局配置？\n我的推荐：保留两个产品现有的配置目录和 workspace 覆盖 global 规则；每个产品在当前配置作用域内解析出一个固定审批模型，该作用域下所有 agent 的工具调用审批都统一使用它。\n理由：这能实现审批模型与 agent 自用模型解耦，同时保持两个产品现有配置隔离与优先级不变。\n\n你怎么看？",
+  "status": "needs_owner"
+}

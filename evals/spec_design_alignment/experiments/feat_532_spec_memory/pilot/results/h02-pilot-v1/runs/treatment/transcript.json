@@ -1,0 +1,77 @@
+{
+  "formal_eligible": false,
+  "turns": [
+    {
+      "actor": "candidate",
+      "output": {
+        "first_doc_path": "",
+        "owner_message": "Q1: 未配置“统一审批模型”时，系统应该如何处理？\n我的推荐：回退到配置中已有的全局默认模型，并保证同一部署下所有 Agent 的工具审批都使用它；只有显式配置时才改用指定模型。\n理由：这样升级后无需立即补配置，同时不会继续复用各 Agent 自己的模型；若指定模型无效或不可用，则应明确报错并转人工审批，不静默换模型。\n\n你怎么看？",
+        "status": "needs_owner"
+      },
+      "turn": 1
+    },
+    {
+      "actor": "owner",
+      "output": {
+        "reply": "不建议这样处理。未配置时应保持现有行为：每次自动审批分类继续复用触发该请求的 Agent／run 模型，而不是改用全局默认模型。显式指定的模型若不在 PA 模型目录中，应作为启动配置错误；运行时不可用也不应静默切换模型，可按现有机制重试同一指定模型，之后进入现有的权限失败处理流程，而不是新增“转人工审批”规则。",
+        "status": "answered",
+        "used_context_refs": [
+          "O02",
+          "O03",
+          "O05"
+        ]
+      },
+      "turn": 1
+    },
+    {
+      "actor": "candidate",
+      "output": {
+        "first_doc_path": "",
+        "owner_message": "Q2: 这个统一审批模型的配置范围，是只覆盖 Personal Assistant / Gateway 管理的所有 Agent，还是 Coding CLI 也必须支持独立配置？\n我的推荐：本期只覆盖 Personal Assistant / Gateway；你提到的“所有 Agent”和“PA 模型目录”都对应 Gateway 的多 Agent 场景，而 Coding CLI 当前通常只有本次 run 的模型，纳入会扩大配置与验收范围。\n理由：先解决多 Agent 各自复用不同模型这一直接问题，并保持变更边界清晰。\n\n你怎么看？",
+        "status": "needs_owner"
+      },
+      "turn": 2
+    },
+    {
+      "actor": "owner",
+      "output": {
+        "reply": "同意。本期配置范围只覆盖 Personal Assistant；Coding CLI 保持不变。底层可以采用产品中立的分类模型选择与省略能力，但不应因此扩大 Coding CLI 的产品范围。",
+        "status": "answered",
+        "used_context_refs": [
+          "O01"
+        ]
+      },
+      "turn": 2
+    },
+    {
+      "actor": "candidate",
+      "output": {
+        "first_doc_path": "",
+        "owner_message": "Q3: 显式配置统一审批模型后，它是否应覆盖 PA 内所有会触发自动权限分类的运行来源，包括普通对话、子 Agent、heartbeat 和 cron？\n我的推荐：全部覆盖；只统一“自动权限分类所调用的模型”，不改变各来源现有的 allow / deny / ask、无人值守兜底或人工审批交互语义。\n理由：这样“所有统一用一个模型”没有来源例外，同时避免把模型路由变更扩大成权限策略变更。\n\n你怎么看？",
+        "status": "needs_owner"
+      },
+      "turn": 3
+    },
+    {
+      "actor": "owner",
+      "output": {
+        "reply": "原则上，显式配置只影响自动工具权限分类所调用的模型，不改变各来源现有的权限策略、兜底或交互语义；普通 Agent 请求及工具调用后的继续执行仍使用 run 模型。具体哪些来源（普通对话、子 Agent、heartbeat、cron）实际进入该分类链路，请基于仓库中的调用路径核实，并据此提出覆盖方案。",
+        "status": "ask_author_to_research",
+        "used_context_refs": [
+          "O04",
+          "O08"
+        ]
+      },
+      "turn": 3
+    },
+    {
+      "actor": "candidate",
+      "output": {
+        "first_doc_path": "docs/changes/feat-507-unified-approval-model/spec.md",
+        "owner_message": "",
+        "status": "gate1_complete"
+      },
+      "turn": 4
+    }
+  ]
+}

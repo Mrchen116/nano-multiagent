@@ -1,0 +1,12 @@
+{
+  "event_count": 4,
+  "exit_code": 0,
+  "formal_eligible": false,
+  "manifest_id": "memory-trace-treatment-01",
+  "output_sha256": "80a612338ba2d4104aa3f67166166a4e2c9570e8ab28ea3a37299c8260246c5c",
+  "real_codex_cli": true,
+  "schema_version": "1.0",
+  "session_id": "019fed23-52e2-79e0-82f7-b0de82351b6d",
+  "temporary_auth_copy_retained": false,
+  "turn": 5
+}

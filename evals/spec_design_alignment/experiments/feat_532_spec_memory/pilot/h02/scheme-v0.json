@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0",
+  "scheme_id": "direct-load-broad-first-docs-v0",
+  "formal_eligible": false,
+  "corpus_policy": "all versioned first documents after suite-owned whole-lineage exclusions",
+  "build_policy": "one task-blind Codex builder extracts reusable spec-alignment memory with source locators",
+  "consumption_policy": "direct_load",
+  "maximum_entries": 24,
+  "candidate_adapter": "The common task envelope tells both arms how to handle optional task memory; only Treatment receives the frozen task-memory file.",
+  "hypothesis": "A compact directly loaded set of cross-case preferences and correction patterns may reduce repeated owner judgments without changing the spec workflow backbone.",
+  "forbidden_case_specific_atoms": [
+    "H02",
+    "feat-510",
+    "tool_approval_model",
+    "unified tool approval model",
+    "统一工具审批模型"
+  ]
+}

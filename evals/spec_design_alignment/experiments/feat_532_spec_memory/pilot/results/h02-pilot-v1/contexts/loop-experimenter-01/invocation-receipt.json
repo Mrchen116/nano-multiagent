@@ -1,0 +1,12 @@
+{
+  "event_count": 12,
+  "exit_code": 0,
+  "formal_eligible": false,
+  "manifest_id": "loop-experimenter-01",
+  "output_sha256": "d82d2f7a1af0ff2634579704a9b16796b6f0bf524753a25b72ed41e22df91674",
+  "real_codex_cli": true,
+  "schema_version": "1.0",
+  "session_id": "019fed2c-12fa-7cf2-b15c-0f71d0a3b22f",
+  "temporary_auth_copy_retained": false,
+  "turn": 1
+}

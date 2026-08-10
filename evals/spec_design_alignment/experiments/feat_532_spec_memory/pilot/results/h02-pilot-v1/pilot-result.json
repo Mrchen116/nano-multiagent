@@ -1,0 +1,33 @@
+{
+  "case_id": "H02",
+  "conclusion": "infrastructure_pass",
+  "diagnostics": {
+    "judge_disagreement": true,
+    "judge_disagreement_policy": "pilot_inconclusive_no_third_call",
+    "leakage_passed": true,
+    "owner_simulator_critical_error": false
+  },
+  "effect_claim": null,
+  "evidence_manifest_sha256": "fac6adc449d20c234d2dae9a620a010c8a0f673db5f8740fb18da82b298b0ee1",
+  "formal_eligible": false,
+  "matrix": {
+    "agentic_consumer": 0,
+    "batch_audits": 1,
+    "blind_judges": 2,
+    "burden_scores": 2,
+    "candidate_sessions": 2,
+    "loop_experimenter": 1,
+    "memory_builder": 1,
+    "owner_sessions": 2,
+    "projection": 1,
+    "run_audits": 2
+  },
+  "pilot_id": "feat-532-h02-infrastructure-pilot-v1",
+  "pilot_seal_sha256": "1439a797cd1982e50037df786634e907629ece78cd8d01a0ed39f904b9ddd270",
+  "repetitions": 1,
+  "schema_version": "1.0",
+  "setup_burden": {
+    "note": "Provisional M0 fixtures only; formal owner setup is deferred to M1.",
+    "owner_confirmed_minutes": 0
+  }
+}

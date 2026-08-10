@@ -1,0 +1,5 @@
+{
+  "first_doc_path": "",
+  "owner_message": "Q3：修改 Personal Assistant 的专用审批模型配置后，是否接受重启 Gateway 才生效？\n我的推荐：接受重启后生效，不做热更新。\n理由：当前 Gateway 的 `llm` 模型目录和连接在启动时从单份本地配置加载；沿用这一生命周期改动最小，也能确保一次运行期间所有 Agent 始终使用同一审批模型快照。\n\n你怎么看？",
+  "status": "needs_owner"
+}

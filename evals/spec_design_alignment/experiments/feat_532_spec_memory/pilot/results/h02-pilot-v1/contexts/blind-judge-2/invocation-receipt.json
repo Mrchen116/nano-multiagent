@@ -1,0 +1,12 @@
+{
+  "event_count": 24,
+  "exit_code": 0,
+  "formal_eligible": false,
+  "manifest_id": "blind-judge-2",
+  "output_sha256": "dbc1365022239911298f85790bea3ddf325d3d2a814cdf4e18b332160d27d815",
+  "real_codex_cli": true,
+  "schema_version": "1.0",
+  "session_id": "019fed2a-e3b4-7411-a2d2-0c861a34b28d",
+  "temporary_auth_copy_retained": false,
+  "turn": 1
+}

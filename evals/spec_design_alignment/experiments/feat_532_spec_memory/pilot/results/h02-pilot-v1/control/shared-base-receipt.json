@@ -1,0 +1,1652 @@
+{
+  "arm": {
+    "commit": "adb93d33a2ec5443a647dd367eb67557ac72e199",
+    "entries": [
+      {
+        "install": "create",
+        "mode": "100644",
+        "path": ".claude/skills/change-design-author/SKILL.md",
+        "sha256": "03e7d877df1f8bc32444f9d08b87a7c22c9e4c2f77411b31c086c906f13a3899",
+        "source": ".claude/skills/change-design-author/SKILL.md"
+      },
+      {
+        "install": "create",
+        "mode": "100644",
+        "path": ".claude/skills/change-design-author/assets/design.md",
+        "sha256": "7b417ce3a36d41df5b7a2f30a404ab653534066a0201072ba21834c4e221cf00",
+        "source": ".claude/skills/change-design-author/assets/design.md"
+      },
+      {
+        "install": "create",
+        "mode": "100644",
+        "path": ".claude/skills/change-design-author/references/diagrams.md",
+        "sha256": "5ff0d1aa7950ac80e2a18e740cf5efe6575a5307e894280dce5bda40cd44f59a",
+        "source": ".claude/skills/change-design-author/references/diagrams.md"
+      },
+      {
+        "install": "create",
+        "mode": "100644",
+        "path": ".claude/skills/change-design-reviewer/SKILL.md",
+        "sha256": "9ed35b5e7fe42df2ede05d175a1f17493512eba93f4130947b784d838d7b2b90",
+        "source": ".claude/skills/change-design-reviewer/SKILL.md"
+      },
+      {
+        "install": "create",
+        "mode": "100644",
+        "path": ".claude/skills/change-spec-author/SKILL.md",
+        "sha256": "d2ef9890637a6ca9794e882ec564ee742d198cb748f8f5dac13405c019eca32b",
+        "source": ".claude/skills/change-spec-author/SKILL.md"
+      },
+      {
+        "install": "create",
+        "mode": "100644",
+        "path": ".claude/skills/change-spec-author/assets/TEMPLATES_README.md",
+        "sha256": "980dc95b9b698536216f6df96667f32acafa04521ddd1168777eae4eb0d9089a",
+        "source": ".claude/skills/change-spec-author/assets/TEMPLATES_README.md"
+      },
+      {
+        "install": "create",
+        "mode": "100644",
+        "path": ".claude/skills/change-spec-author/assets/fix.md",
+        "sha256": "751eaa76b6c7144aa4ca2b9247d8617356f15d0af5d473504f1a07e6aff1f0e1",
+        "source": ".claude/skills/change-spec-author/assets/fix.md"
+      },
+      {
+        "install": "create",
+        "mode": "100644",
+        "path": ".claude/skills/change-spec-author/assets/incident.md",
+        "sha256": "283e09c03cf6199611ec10e09191bc9534b944c0d46c45dcdf9b8bde8b3cae93",
+        "source": ".claude/skills/change-spec-author/assets/incident.md"
+      },
+      {
+        "install": "create",
+        "mode": "100644",
+        "path": ".claude/skills/change-spec-author/assets/motivation.md",
+        "sha256": "c60d760956770143d54e5347fe3767316ae741b89d9137c5c6bcaaa872f538f7",
+        "source": ".claude/skills/change-spec-author/assets/motivation.md"
+      },
+      {
+        "install": "create",
+        "mode": "100644",
+        "path": ".claude/skills/change-spec-author/assets/spec.md",
+        "sha256": "73f0330ae93dda02ae15ae5819955265a7753b25fdb0305cdb05f6e1ff44b67e",
+        "source": ".claude/skills/change-spec-author/assets/spec.md"
+      },
+      {
+        "install": "create",
+        "mode": "100755",
+        "path": ".claude/skills/change-spec-author/scripts/next_unit_id.py",
+        "sha256": "3556c260de6627222f5ef210f29013cb48510d6872bd114d9687e46a38bff349",
+        "source": ".claude/skills/change-spec-author/scripts/next_unit_id.py"
+      },
+      {
+        "install": "create",
+        "mode": "100644",
+        "path": ".claude/skills/change-spec-reviewer/SKILL.md",
+        "sha256": "40bbbd124eaa400c07db9448aea981706bfd6df86e60a9e92f4e116f6e4fcb93",
+        "source": ".claude/skills/change-spec-reviewer/SKILL.md"
+      },
+      {
+        "install": "preserve_exact",
+        "mode": "100644",
+        "path": "AGENTS.md",
+        "sha256": "c948b0beb8172d4e818349daaa9e11b6f28039e443c7764b97475817c9101420",
+        "source": "AGENTS.md"
+      },
+      {
+        "install": "preserve_exact",
+        "mode": "100644",
+        "path": "docs/changes/README.md",
+        "sha256": "33849541f32b721a1996d44c3081432ace70193406275834c917d7ec933daef0",
+        "source": "docs/changes/README.md"
+      },
+      {
+        "install": "preserve_exact",
+        "mode": "100644",
+        "path": "docs/development/change-workflow.md",
+        "sha256": "97c5fb2e68370af752756c7e1c37cf5e41fda92ed07d7f111ac77c230bb18520",
+        "source": "docs/development/change-workflow.md"
+      }
+    ],
+    "files_manifest_sha256": "593baefd2c54876163aa248fa7d8d00e72e6544d076c43a8811291981541b27d",
+    "id": "A",
+    "ref": "adb93d33a2ec5443a647dd367eb67557ac72e199",
+    "tree": "025b16b8c900c2b40ac23b126f99eda94e280633"
+  },
+  "case_id": "H02",
+  "checks": {
+    "assertions": "passed",
+    "clean_worktree": true,
+    "single_parentless_commit": true,
+    "tree_matches_manifest": true
+  },
+  "content_manifest_sha256": "f79a953b01b0ed16be1cecf4b5a6f5820d8a669eede5e501f922c79d51d23acc",
+  "contract": {
+    "clocks": {
+      "documentation_framework": {
+        "clock_id": "docs-framework-adb93d33a-v1",
+        "commit": "adb93d33a2ec5443a647dd367eb67557ac72e199",
+        "tree": "025b16b8c900c2b40ac23b126f99eda94e280633"
+      },
+      "knowledge": {
+        "commit": "e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6",
+        "tree": "64ee09dd5aae44f36fff9325835c7c45dc088b5c"
+      },
+      "model_tool": {
+        "mode": "suite_frozen_at_run"
+      },
+      "product": {
+        "commit": "e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6",
+        "tree": "64ee09dd5aae44f36fff9325835c7c45dc088b5c"
+      },
+      "user": {
+        "mode": "disabled_for_A"
+      },
+      "workflow": {
+        "clock_id": "workflow-A-adb93d33a-v1",
+        "commit": "adb93d33a2ec5443a647dd367eb67557ac72e199",
+        "tree": "025b16b8c900c2b40ac23b126f99eda94e280633"
+      }
+    },
+    "layers": [
+      "product_world",
+      "documentation_world",
+      "common_compatibility",
+      "arm_bundle",
+      "private_controls"
+    ],
+    "method_id": "counterfactual-latest-base-v1",
+    "projection_level": "DP1-counterfactual-latest-v1",
+    "truth_formula": "Code@B + ProductClaims@B + DocsFramework@F + Workflow@W"
+  },
+  "docs_projection": {
+    "mode": "preserve_exact"
+  },
+  "git": {
+    "branch": "main",
+    "head": "9fd64cf107a1ebb07f25c6f33dded6cc500444a9",
+    "tree": "27a34d883f24d31db04b8b800b4ef2e6c191d218"
+  },
+  "recipe_sha256": "f9cac53acbac43fb674a575ea11e40bf7bc922790716aadcb5c1e16000cf5d6a",
+  "schema_version": "1.0",
+  "scrub": {
+    "archive_lineage": {
+      "dropped_units": [
+        {
+          "path": "docs/changes/archive/bugfix-491-shadow-owner-recovery",
+          "present": true,
+          "referenced_noncompleted_unit_ids": [
+            "bugfix-497"
+          ]
+        },
+        {
+          "path": "docs/changes/archive/bugfix-493-frontend-npm-audit",
+          "present": true,
+          "referenced_noncompleted_unit_ids": [
+            "bugfix-495",
+            "bugfix-497"
+          ]
+        },
+        {
+          "path": "docs/changes/archive/bugfix-496-feishu-orphan-listener",
+          "present": true,
+          "referenced_noncompleted_unit_ids": [
+            "bugfix-497"
+          ]
+        },
+        {
+          "path": "docs/changes/archive/bugfix-499-lark-skill-bundle",
+          "present": true,
+          "referenced_noncompleted_unit_ids": [
+            "bugfix-497"
+          ]
+        },
+        {
+          "path": "docs/changes/archive/bugfix-508-im-command-picker",
+          "present": true,
+          "referenced_noncompleted_unit_ids": [
+            "feat-501"
+          ]
+        },
+        {
+          "path": "docs/changes/archive/feat-338-kernel-message-sse",
+          "present": true,
+          "referenced_noncompleted_unit_ids": [
+            "feat-336"
+          ]
+        },
+        {
+          "path": "docs/changes/archive/feat-421-critical-path-e2e-suite",
+          "present": true,
+          "referenced_noncompleted_unit_ids": [
+            "feat-397"
+          ]
+        },
+        {
+          "path": "docs/changes/archive/feat-446-skill-view-tool",
+          "present": true,
+          "referenced_noncompleted_unit_ids": [
+            "feat-444"
+          ]
+        },
+        {
+          "path": "docs/changes/archive/refactor-486-agent-native-repository-knowledge-system",
+          "present": true,
+          "referenced_noncompleted_unit_ids": [
+            "feat-444"
+          ]
+        }
+      ],
+      "policy": "drop_noncompleted_cross_references_v1",
+      "removed_roots": [
+        "docs/changes/archive/bugfix-491-shadow-owner-recovery",
+        "docs/changes/archive/bugfix-493-frontend-npm-audit",
+        "docs/changes/archive/bugfix-496-feishu-orphan-listener",
+        "docs/changes/archive/bugfix-499-lark-skill-bundle",
+        "docs/changes/archive/bugfix-508-im-command-picker",
+        "docs/changes/archive/feat-338-kernel-message-sse",
+        "docs/changes/archive/feat-421-critical-path-e2e-suite",
+        "docs/changes/archive/feat-446-skill-view-tool",
+        "docs/changes/archive/refactor-486-agent-native-repository-knowledge-system"
+      ],
+      "removed_roots_sha256": "e4e237a34a091085f508ed5e29301a8b50e0ed369ac2c906d83ab90d61344637"
+    },
+    "change_units": {
+      "completed_archive_preserved": true,
+      "policy": "remove_active_and_retired_keep_completed_archive",
+      "removed_roots": [
+        "docs/changes/bugfix-448-web-fetch-cancel",
+        "docs/changes/bugfix-492-heartbeat-at-expiry",
+        "docs/changes/bugfix-494-feishu-sdk-cache-warning",
+        "docs/changes/bugfix-495-frontend-test-console-gate",
+        "docs/changes/bugfix-497-shadow-mirror-duplicate-reply",
+        "docs/changes/bugfix-498-im-websocket-proxy-bypass",
+        "docs/changes/bugfix-507-agent-prompt-config",
+        "docs/changes/feat-397-spec-design-agent-team",
+        "docs/changes/feat-444-session-wakeup",
+        "docs/changes/feat-501-cross-channel-session-controls",
+        "docs/changes/feat-503-feishu-e2e-runtime",
+        "docs/changes/retired"
+      ],
+      "removed_roots_sha256": "f5144ee01fea75fc2b5a0ae9f0c0dc405438ed45e1720a642072d46593012913"
+    },
+    "drop_proposed_control": {
+      "paths": [],
+      "policy": "not_configured",
+      "removed_roots": [],
+      "removed_roots_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "explicit_paths": [
+      {
+        "path": ".claude",
+        "present": true
+      },
+      {
+        "path": ".agents",
+        "present": false
+      },
+      {
+        "path": ".codex",
+        "present": false
+      },
+      {
+        "path": "CLAUDE.md",
+        "present": true
+      },
+      {
+        "path": "CODEX.md",
+        "present": false
+      },
+      {
+        "path": "cc-hooks-on",
+        "present": true
+      },
+      {
+        "path": "cc-hooks-off",
+        "present": true
+      }
+    ],
+    "removed_entries": [
+      {
+        "mode": "100644",
+        "path": ".claude/hooks/ruff-guardrail.py",
+        "sha256": "38ae99ae1f5c105f76a4e3f6f3665f3388db5ab010a23947f85530a15c9fb022"
+      },
+      {
+        "mode": "100755",
+        "path": ".claude/hooks/stop-require-explicit-ok.py",
+        "sha256": "a9dae9640f9775cd6845ff1a43e7e1f19ee7c03d94667e538900c03433979d1b"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/hooks/strip-agent-worktree-isolation.py",
+        "sha256": "4059d7ec8ff444289908fd5bfc7d67ee77658bbcc1bb63e245cba33081530e42"
+      },
+      {
+        "mode": "100755",
+        "path": ".claude/hooks/subagent-start.py",
+        "sha256": "316fbc1ef6fc0225d7ddef0c4e7c05135978b2773b6bc7d784e7a5097e694abf"
+      },
+      {
+        "mode": "100755",
+        "path": ".claude/hooks/subagent-stop.py",
+        "sha256": "a7e89985a0a06675d73c49a23dae46a500416452029ed7e5bc01e68e731b0358"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/settings.json",
+        "sha256": "df2be1286312af9b4cc63bfe72f914cd6ea57c45ef42945d3d2f504982e52f16"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/change-code-review/SKILL.md",
+        "sha256": "bd85c7ee95fa98d47ab1eef8db5f1bd1d68fc6b6e503d23a01cc4c250e5e8848"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/change-design-author/SKILL.md",
+        "sha256": "03e7d877df1f8bc32444f9d08b87a7c22c9e4c2f77411b31c086c906f13a3899"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/change-design-author/assets/design.md",
+        "sha256": "7b417ce3a36d41df5b7a2f30a404ab653534066a0201072ba21834c4e221cf00"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/change-design-author/references/diagrams.md",
+        "sha256": "5ff0d1aa7950ac80e2a18e740cf5efe6575a5307e894280dce5bda40cd44f59a"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/change-design-reviewer/SKILL.md",
+        "sha256": "9ed35b5e7fe42df2ede05d175a1f17493512eba93f4130947b784d838d7b2b90"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/change-fast-close/SKILL.md",
+        "sha256": "d6a1061b5e6b90e2634cdb6d06ad7b9b3c5a578f9c6adc86cf0f3c7fb3a9cd95"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/change-fast-close/agents/openai.yaml",
+        "sha256": "3eabaf850d1dda88f6342dcb471c72c63794d1200cf8a499ba7444c905aa4b9b"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/change-fast-close/assets/code-review.md",
+        "sha256": "6a7beef252953968c8462c3d50b539be2431ce44204ff817fded3c17e3faf13b"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/change-fast-close/assets/design.md",
+        "sha256": "41fd5e59f324e2bc67ec7e67d7da8a73abb9ce45a07c2459afd10e6dbc70d3b5"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/change-impl-worker/SKILL.md",
+        "sha256": "20a82c7da59539d2e4a5990643d51439eade70ab932a9c9b9e42f988b3c79aa2"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/change-impl-worker/assets/progress.md",
+        "sha256": "a840d80d566d9b310fb644b2ba4d110891dae921cee74b017b1c4e8fcd4c127d"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/change-impl-worker/assets/tasks.md",
+        "sha256": "861f628a90449ad2d244a00673a11f1220b43b11410034071667284c6fe91c9c"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/change-orchestrator-simple/SKILL.md",
+        "sha256": "1c70a1f56baba7c980ff1411f8f1f65915c6f6081a9d55738be93478b26c582b"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/change-orchestrator-simple/agents/openai.yaml",
+        "sha256": "2b6e24bc050c06bf712bc658cbe9313929839fd2c6b9445a267d72f6dd381945"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/change-orchestrator/SKILL.md",
+        "sha256": "a327a35cd5a618786b5e12f8b916d21f72d3768dc1115d877bc0344fc8bbc66e"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/change-orchestrator/references/codex-execution-notes.md",
+        "sha256": "077ab13f9b193a422e8c323d6b7939ccd7421de6317f616b5278c69ff2640d8a"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/change-orchestrator/references/pr-body-templates.md",
+        "sha256": "cf4a0fc0b2590608fe2c3ab30a517b55259a21d27fce8ca88a0802a2483f90e2"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/change-retro/SKILL.md",
+        "sha256": "79222619f97d50c6211081d99a0fe54830f77f2a4da7045b7af8710216cc0bb7"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/change-retro/references/output-template.md",
+        "sha256": "7ba27f8f0adb5af437cd6308e7b235b455a432680648393a2f3f97d21a891802"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/change-retro/scripts/mine_jsonl.py",
+        "sha256": "666ffb1b986c9bd48daee2c1f340487135612711f1c35ac832d3c73d19704d08"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/change-reviewer/SKILL.md",
+        "sha256": "7890fe13913d4dce5a8d387f5562557d6833b1da14c7202119fc2e02169ad65e"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/change-reviewer/assets/acceptance.md",
+        "sha256": "db7dff02ae260700f37ab6b3800f71262ee99a19d57d0425742fc4ab2c868253"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/change-reviewer/assets/regression.md",
+        "sha256": "6699fb24796728b13335af9575d98849723500126223e15306951d0a7edc22bb"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/change-spec-author/SKILL.md",
+        "sha256": "d2ef9890637a6ca9794e882ec564ee742d198cb748f8f5dac13405c019eca32b"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/change-spec-author/assets/TEMPLATES_README.md",
+        "sha256": "980dc95b9b698536216f6df96667f32acafa04521ddd1168777eae4eb0d9089a"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/change-spec-author/assets/fix.md",
+        "sha256": "751eaa76b6c7144aa4ca2b9247d8617356f15d0af5d473504f1a07e6aff1f0e1"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/change-spec-author/assets/incident.md",
+        "sha256": "283e09c03cf6199611ec10e09191bc9534b944c0d46c45dcdf9b8bde8b3cae93"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/change-spec-author/assets/motivation.md",
+        "sha256": "c60d760956770143d54e5347fe3767316ae741b89d9137c5c6bcaaa872f538f7"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/change-spec-author/assets/spec.md",
+        "sha256": "73f0330ae93dda02ae15ae5819955265a7753b25fdb0305cdb05f6e1ff44b67e"
+      },
+      {
+        "mode": "100755",
+        "path": ".claude/skills/change-spec-author/scripts/next_unit_id.py",
+        "sha256": "3556c260de6627222f5ef210f29013cb48510d6872bd114d9687e46a38bff349"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/change-spec-reviewer/SKILL.md",
+        "sha256": "40bbbd124eaa400c07db9448aea981706bfd6df86e60a9e92f4e116f6e4fcb93"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/change-verifier/SKILL.md",
+        "sha256": "fa8af0d4ee6f6f7871038770355041916e0c691a6dc82b5c7f99f1a348eb5421"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/change-verifier/assets/verification.md",
+        "sha256": "3c87922e705a16dd962dd415bb95aa963097198ef719528deea63f2984934132"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/codebase-design/DEEPENING.md",
+        "sha256": "125e6b77413ad2bc7cf7a772bc74336d580a50f9e797db2178ed133d62333d06"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/codebase-design/DESIGN-IT-TWICE.md",
+        "sha256": "df910c262526b839f673698b13ef45332fc38cbd4a47289be3c9269fdd9de6f1"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/codebase-design/SKILL.md",
+        "sha256": "c2ee56e622c337d7f40979e3a395142676780e9cf7b1a8f3dc7c5c1048976f84"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/improve-codebase-architecture/HTML-REPORT.md",
+        "sha256": "66462e5a0c7cb7f9fbd87a4d88069a538d696084732ea7f203d95a4720d6036f"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/improve-codebase-architecture/SKILL.md",
+        "sha256": "c073bd527d3911859fa768262fa14b7c0080b991f3dd2d4a132e2f7f25f5094e"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/prod-fleet-deploy/SKILL.md",
+        "sha256": "e85b78d4b44605467513516b850116587b6c22b35893eb12d61f847df9481d9c"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/systematic-debugging/SKILL.md",
+        "sha256": "19c7264274f8423da4c134948784c02ec165be2a43522324b3d8d290977ca171"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/systematic-debugging/references/condition-based-waiting.md",
+        "sha256": "efbf220cd9c05e181832340de0987f38d274aadf55b288c715cf959fac1e7d3f"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/systematic-debugging/references/defense-in-depth.md",
+        "sha256": "ba8241cb69ad63d865549ff745b6ce5f37d8b0d2e9abfe277ed2dfd0a880c6c8"
+      },
+      {
+        "mode": "100644",
+        "path": ".claude/skills/systematic-debugging/references/root-cause-tracing.md",
+        "sha256": "c478d705ac5ba870a2d9302a9d93054316a1e468472ca3ec340c5136a0d72548"
+      },
+      {
+        "mode": "100644",
+        "path": "CLAUDE.md",
+        "sha256": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49"
+      },
+      {
+        "mode": "100755",
+        "path": "cc-hooks-off",
+        "sha256": "1da25426033068c4dd599286a0cbd4fc6ce63c2f9fe16d750c810ffe07465d64"
+      },
+      {
+        "mode": "100755",
+        "path": "cc-hooks-on",
+        "sha256": "66eeda3ea6c4bf40bb19f60e00528d27b004f24b6f60f13c997c2ba006535662"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/bugfix-491-shadow-owner-recovery/M1-fix/.gitkeep",
+        "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/bugfix-491-shadow-owner-recovery/fix.md",
+        "sha256": "b8e10ad923bb1339b2fda6636aeddeee5d1d2232d7dc827e50890aa48721f876"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/bugfix-493-frontend-npm-audit/M1-fix/.gitkeep",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/bugfix-493-frontend-npm-audit/fix.md",
+        "sha256": "df0b6c6e893eb5c94da2ef5006702aa8d3ad5ea60dd4f3c59a1957853ce6256b"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/bugfix-496-feishu-orphan-listener/M1-parent-liveness/progress.md",
+        "sha256": "412db6faf75172da2827cca5b477c0a5f256586984aad0e6f3cc1223b6766c96"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/bugfix-496-feishu-orphan-listener/design-review.md",
+        "sha256": "3cf60a1fddc8b846048d87c4c049c37256aab39261995776aed2c4514025dffd"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/bugfix-496-feishu-orphan-listener/design.md",
+        "sha256": "2f8493dd08520c25f97209dcca9d617dafbab12c708e941bf24feae9a96fe9f8"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/bugfix-496-feishu-orphan-listener/incident.md",
+        "sha256": "5d12cc84b7fdf5cb4cbbf751c01da07478278630231e07b07fc65d9372df9058"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/bugfix-496-feishu-orphan-listener/regression.md",
+        "sha256": "e8a0c16e9a17d38b30f92a9ce3c4ba2c9eff40a02994045f245449f8ec5d2bbf"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/bugfix-496-feishu-orphan-listener/specs/gateway/external-channels.md",
+        "sha256": "515cbb8af35f87151b9acb0fc36f342a6be9f3f07d578c08094a300cc40d4fbc"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/bugfix-496-feishu-orphan-listener/verification.md",
+        "sha256": "8033db83cf67b5f8433399e14289f890f360d765b2b4f3005a6c017abd83cbb7"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/bugfix-499-lark-skill-bundle/M1-lark-skill-bundle/progress.md",
+        "sha256": "6b2185ed0ea62d92a16f5ab05abceb7d438241d46f4a5bc48ec48740126f08af"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/bugfix-499-lark-skill-bundle/design-review.md",
+        "sha256": "00359b8d3fdc90dae0bea0f5f77414cbcdc23738f770a6b4ef60708be3bcdf06"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/bugfix-499-lark-skill-bundle/design.md",
+        "sha256": "dd31ad236b58bd74238cdf18d138816e9c5a65da4e94721c8c5e1e664416a6eb"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/bugfix-499-lark-skill-bundle/incident.md",
+        "sha256": "5de3f4e48474ce45e449411a621f19bb64f17a2169ac69798be49e5eefea4de8"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/bugfix-499-lark-skill-bundle/regression.md",
+        "sha256": "4e710b3eef96b4ffbdae30376f0bc8d7a152fc05ca1915b9ba222b61d0ba6fbc"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/bugfix-499-lark-skill-bundle/specs/gateway/agent-capabilities.md",
+        "sha256": "77647d8d1c1d3c8143f9244177f083aa061b0ba122014ce89aaf485bee691da9"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/bugfix-499-lark-skill-bundle/specs/gateway/external-channels.md",
+        "sha256": "5d59033e72aa8421315fe2c897b194e7946862fb45f04386f9c2f407204f9cde"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/bugfix-499-lark-skill-bundle/verification.md",
+        "sha256": "f337e4895fbd0bef47b663a3a591e3861c9e6f39d4e15000f6e78346f70243f3"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/bugfix-508-im-command-picker/code-review.md",
+        "sha256": "d8ed7451e2110ea7b75f7bcb49a1c51d1ae9f347470253e389808ec4cf39a957"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/bugfix-508-im-command-picker/design.md",
+        "sha256": "8e5854f3e4f4c5ec3e0ca4b0b78958c30d8650aa1850fd13abb8670c5ff38b02"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/bugfix-508-im-command-picker/spec.md",
+        "sha256": "dead1614ae901d5de06e672f53976d26b2287392678bc1560797fca837e1dec3"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/bugfix-508-im-command-picker/specs/IM/web-chat-ux.md",
+        "sha256": "38566b5c6fc70cc16423f659363fc5576665ae7b2f21338f4618216f88218ff0"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/bugfix-508-im-command-picker/specs/gateway/routing-delivery.md",
+        "sha256": "dc1bf4b1884a391168b3c24f5521f9182efde334f4149ec26ec1373762b470d3"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-338-kernel-message-sse/M1-hub-extensions/progress.md",
+        "sha256": "1ac99a466ec223abb649d49badff0bfd030ce1ffee82e4deaeffa8d5a8bd7eb6"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-338-kernel-message-sse/M1-hub-extensions/tasks.md",
+        "sha256": "8322a69566cd9c9cc847e09d3982f49bba1910b10f1388cc1c60dbdb40b3acae"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-338-kernel-message-sse/M2-run-origin-registry/progress.md",
+        "sha256": "ae2ea5de55b0a7c312475d64e2d1ef748727e15c6fe8ccc7be2cfb7d0f29f281"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-338-kernel-message-sse/M2-run-origin-registry/tasks.md",
+        "sha256": "03e8a20485f3533a1febc3933f936d6a0daf47f731a606e15711be0ac7f6aa00"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-338-kernel-message-sse/M3-presentation-layer/progress.md",
+        "sha256": "d16f468d4db14fad5d77eab96b9d8731ed397a8963b208c3169d0a12a967918f"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-338-kernel-message-sse/M3-presentation-layer/tasks.md",
+        "sha256": "04870580ff219094ba03be9ab20d99eaa5e9c380972f5ef6dd68e3a31e8470d5"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-338-kernel-message-sse/M4-realtime-hook-rewrite/progress.md",
+        "sha256": "23cc1c8b39641dc3a98de7ee23f0ba230c1b21d2382c240b5ab1799cc0b81b1b"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-338-kernel-message-sse/M4-realtime-hook-rewrite/tasks.md",
+        "sha256": "89db6d3305fb314a76a2dd5c6572231ef63a16f0f4b68e9a98fdfcfe52cbe857"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-338-kernel-message-sse/M5-endpoints/progress.md",
+        "sha256": "3390e66fac822c13f9ea93c497fb0b7baa663b7974db645cef8d91c465c43910"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-338-kernel-message-sse/M5-endpoints/tasks.md",
+        "sha256": "bdb75b27faef2232699ef8f603f495a05597e0ce219cd83aa3551d7e2da0edde"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-338-kernel-message-sse/M6-client-streaming/progress.md",
+        "sha256": "61794443e6bb8020b8238a564e191f7fddf52c2778ed143fd1b6a8db02c1adac"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-338-kernel-message-sse/M6-client-streaming/tasks.md",
+        "sha256": "36e39bf0681bebf3d3029b7cfd514f4192484e66a9bd91948cb86c807c228b31"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-338-kernel-message-sse/M7-cli-wiring/progress.md",
+        "sha256": "05ec2a9531d44c989e4890e4620d28bf0e74a4218027445d83d41a64e2ca24f0"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-338-kernel-message-sse/M7-cli-wiring/tasks.md",
+        "sha256": "dcc94dcd1542ab42f0b7319dff1407fd782f5473e98ae442ca0479a026c9e5e7"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-338-kernel-message-sse/M8-gateway-cutover/progress.md",
+        "sha256": "5879b099e3a2eb5a6c89327a30307ebd9e710c8816df222f56ebe736138ccba7"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-338-kernel-message-sse/M8-gateway-cutover/tasks.md",
+        "sha256": "6e25c5e8311eb4f1d0a4b2ce14c05eb6674bc2e1a1793a15b937d11ab038bd89"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-338-kernel-message-sse/M9-cleanup/progress.md",
+        "sha256": "6a3cba45f8a1fd5a0cb2b294507fda1297ba5d5580305767ca5e7e8238d20b33"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-338-kernel-message-sse/M9-cleanup/tasks.md",
+        "sha256": "a9690da2d9fc6c73e723da3521b7ba2e656dbdd73ee3dd8723d39b4fcc6829f9"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-338-kernel-message-sse/acceptance.md",
+        "sha256": "c8f534c9a2ec3829be260eed73e309de53496f3cc72f125b82ff42e23c9c78c9"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-338-kernel-message-sse/design.md",
+        "sha256": "660688838767f2e447a3886910b2ebb9e34898efe4c7a7f10d8dfd8e7b1fb80a"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-338-kernel-message-sse/spec.md",
+        "sha256": "9fefd623f6abf626af537a68f350ec022e79c102f0989b44197c67e14986a3bb"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-421-critical-path-e2e-suite/M1-harness-and-foundation/progress.md",
+        "sha256": "f45eb2e1fb4462f5c4ce361d240cface15de94459ac3a8d9e7cfe9f7b5ed6086"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-421-critical-path-e2e-suite/M1-harness-and-foundation/tasks.md",
+        "sha256": "0a1758653755330156440cc83e1810271b53b2966ac6cbf403cb2f7f32fb391b"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-421-critical-path-e2e-suite/M2-remaining-paths/progress.md",
+        "sha256": "5e03c41aed65c0f761fcfc994f80e711a5ac278df16a33f43d308b783b8440bb"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-421-critical-path-e2e-suite/M2-remaining-paths/tasks.md",
+        "sha256": "0d0dd11687c7fe45d3b50868e594438e06a1805f6a3ddfbcf71524ec0c88bbf5"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-421-critical-path-e2e-suite/M3-fix-round1/progress.md",
+        "sha256": "85632ef99688179308359ad0a1839c1649a53ce2c0b9fdcfa13a03760eaa6f13"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-421-critical-path-e2e-suite/M3-fix-round1/tasks.md",
+        "sha256": "01c9fca620aff35602a80380c9ea050cec679f35da94b2040e76097f8d5fdae6"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-421-critical-path-e2e-suite/acceptance.md",
+        "sha256": "f49942da097b28dc7cad64336bd4b1af5088ab426580e6c0c2a3617e5a8e97b2"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-421-critical-path-e2e-suite/design.md",
+        "sha256": "aaa12e5025ef362129ba041ec24af656b5c1fcf84a4fe23438e214c9da4a1e6e"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-421-critical-path-e2e-suite/spec.md",
+        "sha256": "1c754b2cdb3c9868c5c1a030da954fefc46861447abde6e7f94d7cf7bdbe48d2"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-421-critical-path-e2e-suite/verification.md",
+        "sha256": "35ba25509b21c6a6a13d7ecc08ad277684a1093adfe63f2764cc79e90d6722e0"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-446-skill-view-tool/FIX-round-1-product/progress.md",
+        "sha256": "d7b8e9dc15407d47bcfaac52fba9a426defb2bec3f59a76d70d7d701fdfaa7e9"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-446-skill-view-tool/FIX-round-1-product/tasks.md",
+        "sha256": "554d0f4df27346e6bc19eb20b9b9f9783639cabf766229642235d9b6793b3c26"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-446-skill-view-tool/FIX-round-1-runtime/progress.md",
+        "sha256": "c68c5f32e6bb76166862e4c3bccf1e10cbe2db03bb91779ba0cfbe3219956602"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-446-skill-view-tool/FIX-round-1-runtime/tasks.md",
+        "sha256": "cfc81b15a60442ec77f72dca45014d4468c382d5a7547d2d750d4546342fb911"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-446-skill-view-tool/FIX-round-1-script/progress.md",
+        "sha256": "4af37d858199ac07a5db36c0544bf05cf106df236f58a1081b6ac8fc24e74a1d"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-446-skill-view-tool/FIX-round-2-product/progress.md",
+        "sha256": "542ca7050467c9944398308615b9d6166f4a5b0af628f1ad70b7e296bbeddb26"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-446-skill-view-tool/FIX-round-2-product/tasks.md",
+        "sha256": "0424459af32bf5183de07212e9b5ab4bdfbfa0910a334736194d3e9e61af0136"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-446-skill-view-tool/FIX-round-2-runtime/progress.md",
+        "sha256": "6f36f596abcd190014658cd84b82d47a180bb81285adaabebd2a9096d9a8c5ab"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-446-skill-view-tool/FIX-round-2-runtime/tasks.md",
+        "sha256": "327745a79615c6b4ffc5339617b6c0afafc0ad5e6de8e156fe66b383b2b4109e"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-446-skill-view-tool/FIX-round-3-runtime/progress.md",
+        "sha256": "7bdc2da68fe2bc7aa60cef15c008bab63df0cae5ff1e0a133e7e37428d7f18ce"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-446-skill-view-tool/FIX-round-3-runtime/tasks.md",
+        "sha256": "106c00accdf3e198d48d9fc86a643838933be788eb3d76e372c55120cc290a90"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-446-skill-view-tool/FIX-round-4-global-skill-enable/progress.md",
+        "sha256": "2c222b10902c2e9eed640014ec272c71a09a4807e643e761200229e637ebebe8"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-446-skill-view-tool/FIX-round-4-global-skill-enable/tasks.md",
+        "sha256": "2b093ffa9285ceb42b434f439652184303f4c61dcaa27de643da7678fb7d2c8c"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-446-skill-view-tool/M1-skill-view-core/progress.md",
+        "sha256": "d1f57a6fa563f03f0813dfb66d54f571050f0a38de599d8ed6d5f2bf7c9b97f0"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-446-skill-view-tool/M1-skill-view-core/tasks.md",
+        "sha256": "559d518c7848ecfef6b11cca437ee16353424c6e5973b74b3fc5bccf8c513d37"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-446-skill-view-tool/M2-curator-f4/progress.md",
+        "sha256": "64d65079e7e81c8052d009d455135e1258bcf80860e190575e077764216b972d"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-446-skill-view-tool/M2-curator-f4/tasks.md",
+        "sha256": "0534c810960526c50058512292adee95aea7a450b342b6d0734285e8d6b26a67"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-446-skill-view-tool/M3-f2-distill/progress.md",
+        "sha256": "fc61c801f1791652a8968d46b388e2113c29bc8b791f513e2e938750e27ca0af"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-446-skill-view-tool/M3-f2-distill/tasks.md",
+        "sha256": "6afc74998bc6cab84d59c27423cec22ae4588b9e657f706f537582399942f4a0"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-446-skill-view-tool/M4-dashboard/evidence/prototype-comparison.md",
+        "sha256": "9f7a85a0e23f158c42fc4e98b56f8bfda35686d19315fd0eb5812c825fa90df1"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-446-skill-view-tool/M4-dashboard/progress.md",
+        "sha256": "5cc1ce3eab228348e588dcb30564298d735604304385622a06afb9ef4fb6cb96"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-446-skill-view-tool/M4-dashboard/tasks.md",
+        "sha256": "1061022efd3c9398ef6ff0ab3fb83aa54258e6c9adc8cf72cf9c427dfbbe4c43"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-446-skill-view-tool/acceptance.md",
+        "sha256": "39e71def965320af697fd60595bbd495a7693992bb2ec24efb4d48321dc66ee1"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-446-skill-view-tool/design-review.md",
+        "sha256": "b019ae8bbd0f5c201552698dec1ad409ad547030b35c21a274d15f6a92dc56a7"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-446-skill-view-tool/design.md",
+        "sha256": "e4ab2e2266bf906292693a140c3feb8e50b954e3f63533779fbbc22b9eb7a825"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-446-skill-view-tool/prototype-f2.html",
+        "sha256": "d9cd46c8cb24e7cbe7bd3ad73ca47a1316202c7d8a05cb3c20673d2694162b55"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-446-skill-view-tool/prototype.html",
+        "sha256": "68ab3f84b4a936442f0f32e530d26cc00546106a49fddbfac6e7652b9fdb6a9f"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-446-skill-view-tool/spec-review.md",
+        "sha256": "1f8f03fc63a75fb73d3a71da8921d0de2e5c71414eff7f111794c78d7ea5fdc0"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-446-skill-view-tool/spec.md",
+        "sha256": "e428454f8a69362663a988adbabaa96165561978e2601845579d8c9c42d90dc3"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-446-skill-view-tool/specs/gateway/spec.md",
+        "sha256": "fd04b80e0b1011914fd0791cf0ad312363316be03e25571c49243af493e276d5"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-446-skill-view-tool/specs/im/spec.md",
+        "sha256": "52e5b760a53149d78e31bf98d1eddba66a93508d9fcdf434d281a80cb41ae813"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-446-skill-view-tool/specs/kernel/spec.md",
+        "sha256": "6a8e45cc54fb541dbd686fb47c96b984ff1164d89f691bfee6a7266be403a385"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/feat-446-skill-view-tool/verification.md",
+        "sha256": "f26ba573d0a6892b3de284c7f27d86dbe610fbdf61251aa03ea4c6347f6fddab"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/refactor-486-agent-native-repository-knowledge-system/plan.md",
+        "sha256": "59ae2ec226e4422e87d4e210fb4f0330f05758e59c7dc4b106ae8f904f123c85"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/refactor-486-agent-native-repository-knowledge-system/research-writing-artifacts/analysis/Agent-Native 代码仓文档体系-真实迁移增补分析.md",
+        "sha256": "f55eaaa7c8390e93bd403fd6a18e3d4acfcc7add890c69dacdc562258f1e426d"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/refactor-486-agent-native-repository-knowledge-system/research-writing-artifacts/analysis/repository-refactor-evidence.md",
+        "sha256": "a1b1dca0628b4c115fb53dcc20a2f3d533c4e7b5cc0457ab0965305328068a4d"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/refactor-486-agent-native-repository-knowledge-system/research-writing-artifacts/analysis/research-writing-evidence.md",
+        "sha256": "2fc46bb9a9ea7672e263b0bf087a077f3fedd09f4b94fe826ba9b4e7855700f3"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/refactor-486-agent-native-repository-knowledge-system/research-writing-artifacts/analysis/session-inventory.md",
+        "sha256": "7a1d7e6ff1e1eaa35f4eab60fb687e3689f6404672a58b2796a2de9ffabebd36"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/refactor-486-agent-native-repository-knowledge-system/research-writing-artifacts/analysis/skill-forward-test.md",
+        "sha256": "42e7bb78abc752f364e642e8b213057974a59e25065298ec8bb9aa2a9c28fd5b"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/refactor-486-agent-native-repository-knowledge-system/research-writing-artifacts/skill/SKILL.md",
+        "sha256": "5391940c97a65243b09acf8d8c3c48ec111e41b6f8f7e8921344cbded04248d9"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/refactor-486-agent-native-repository-knowledge-system/research-writing-artifacts/skill/references/working-set-templates.md",
+        "sha256": "c8e5fab3d1c7030643e8f818bdf399d6371517a1ab3068c4a530ab7fa3668ccd"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/archive/refactor-486-agent-native-repository-knowledge-system/validation.md",
+        "sha256": "fccd21cfad2074f20efffb3d918c376cf13d4e14310f9afc809b74cd94c2dc34"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/bugfix-448-web-fetch-cancel/design.md",
+        "sha256": "e66ef8c4529d277b559f6367a612a67c9c5467e216fd07038da07e2b499299ff"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/bugfix-448-web-fetch-cancel/incident.md",
+        "sha256": "c06f0434ecaad3a0fdf0d1ba92c7f76a0def90cc09aeac2855ec332dca625b01"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/bugfix-448-web-fetch-cancel/specs/cli/spec.md",
+        "sha256": "ffcae1158b2fda4412b1a1c33c469d38f063faa59bc6f88ece8e1c0f8c975ed5"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/bugfix-448-web-fetch-cancel/specs/gateway/spec.md",
+        "sha256": "a9d5155b6f4f75f4c79eab16a79407e19be855113d91ef60c98245a6287c7034"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/bugfix-448-web-fetch-cancel/specs/kernel/spec.md",
+        "sha256": "9ea5947cd60571c29ef21a86a0e926759b06aa3a49f9d3b57f7483357f358d3f"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/bugfix-492-heartbeat-at-expiry/fix.md",
+        "sha256": "089d1e71354a10dc28133974d4919d87bfe5ff636e60ab01782ea0b001e952c8"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/bugfix-494-feishu-sdk-cache-warning/fix.md",
+        "sha256": "efcbda7706ea6b7a28b094bd3f7766f90fedfaaad7dbbde8b04d2b0fb529b7a4"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/bugfix-495-frontend-test-console-gate/incident.md",
+        "sha256": "3ed53f36a12e43a8d3880cfc61b049dd8634cae7fc4be0143e0b40fa8cacd261"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/bugfix-497-shadow-mirror-duplicate-reply/M1-live-mirror-identity/.gitkeep",
+        "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/bugfix-497-shadow-mirror-duplicate-reply/M1-live-mirror-identity/progress.md",
+        "sha256": "fb727f138d90127679bc88c579b355b7346d698bde7aa9fbaf3c05e5237dd248"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/bugfix-497-shadow-mirror-duplicate-reply/M2-rich-shadow-recovery/.gitkeep",
+        "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/bugfix-497-shadow-mirror-duplicate-reply/M2-rich-shadow-recovery/evidence/real-feishu-acceptance-20260804.md",
+        "sha256": "0acf37be9a595aae66d359dabac9fb4635091d9c204d4778243dd83530371ab9"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/bugfix-497-shadow-mirror-duplicate-reply/M2-rich-shadow-recovery/progress.md",
+        "sha256": "abf03175e9d2aefc1e2f539322d215f1dbecb0923c9375498ad866d46a378bfe"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/bugfix-497-shadow-mirror-duplicate-reply/design-review.md",
+        "sha256": "4b37cc40e0963d01cfd6da8aad1b02124511d45488490fdda89548eb956f5fc3"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/bugfix-497-shadow-mirror-duplicate-reply/design.md",
+        "sha256": "068d0d445a40130c1ce04e11d6ee6ddc797b76e6e660b4ad0ceec5b243e68cd9"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/bugfix-497-shadow-mirror-duplicate-reply/incident.md",
+        "sha256": "c188642fc6fabebdaaeeffba99b87b4e162d74bf82b8f33adf21e83084494b82"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/bugfix-497-shadow-mirror-duplicate-reply/specs/gateway/external-channels.md",
+        "sha256": "175c44d81387fb1f3507774fad8341000ece04bdbaadfc54ca084fe6c3a823fd"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/bugfix-497-shadow-mirror-duplicate-reply/specs/gateway/relay-protocol.md",
+        "sha256": "5ca4ea7742914c34375d01d9834c992e5ecc0c23530a2d23f7be654689794860"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/bugfix-497-shadow-mirror-duplicate-reply/specs/im/conversations-messages.md",
+        "sha256": "f7f1bf4110fa571223f32105ec011570b462072a91bd0554571cbdb763fb7d66"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/bugfix-497-shadow-mirror-duplicate-reply/specs/im/gateway-relay.md",
+        "sha256": "f2b2028d87ee4ffbaa58b0cb38ecd0c75fd840f0504797103f6ba91aa81bb3e0"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/bugfix-497-shadow-mirror-duplicate-reply/specs/im/response-metrics.md",
+        "sha256": "114901cbafeaae82132994af2858d1b94c7f429226830990d349cb95401ed81f"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/bugfix-497-shadow-mirror-duplicate-reply/verification.md",
+        "sha256": "61d4100959ba863ded7b9cf780d77aca06c8af4ce1c900f7c6aaa914d5746ed7"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/bugfix-498-im-websocket-proxy-bypass/fix.md",
+        "sha256": "b0a2435707a13bb73c952c09644fbd9afc1078d3165b6c6164ecb99db4ef8963"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/bugfix-507-agent-prompt-config/M1-visible-custom-cutover/.gitkeep",
+        "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/bugfix-507-agent-prompt-config/design-review.md",
+        "sha256": "35b9eaa3df9d8a2a829d37ddcccd9e71b2e1a37e8cc39d0885f0a1fc0317c8f9"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/bugfix-507-agent-prompt-config/design.md",
+        "sha256": "728a8819de93adb2a70c6490abb491aa5d82c04a60ddb1154961fd398cf824dc"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/bugfix-507-agent-prompt-config/incident.md",
+        "sha256": "ee0240a74fa23323759405740796d802146eefcc956d63adf62ee7165bed95a5"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/bugfix-507-agent-prompt-config/specs/gateway/agent-capabilities.md",
+        "sha256": "6ddb04a5dd2e050b72f5ec1f149b0c40fd44144c6a71ccbe4fe024ca7416a412"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/bugfix-507-agent-prompt-config/specs/im/agents-nodes.md",
+        "sha256": "1fe8bae2a9577c39d5d71e97f5d40a3f5ec80ba2ad33b3081e0e54fb891e66f1"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报.zip",
+        "sha256": "c359945cf4220189897e65aae9684ff9c8254ae35402b899761bf82d6f7bc817"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/ch3_multi_layer_defense.png",
+        "sha256": "ebfbc97c0723230cebe0e9965a0e4907b94a42672f303e7edc5c7dabb0a9240e"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/deep-research-round2-report.md",
+        "sha256": "e372007c15a78fa7ac75cb735edcba79fa7d9e23684ba321b5a8cbf9a4e0ae79"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/research/arxiv_clarification_qg.csv",
+        "sha256": "f933dc9d60e80b3558327f1826180727027b156e9a5b85b43d969be07e5ab2dd"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/research/spec_design_agent_cross_verification.md",
+        "sha256": "b866c9c6d6b8700ac28254ff2a19aa6a7e9953b853f6bb2416986fd2a7dfb47b"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/research/spec_design_agent_dim01_taste_compilation.md",
+        "sha256": "c4480e42ebb7c85a782c1c6051a5a1c688ea77af3d69ac5577925d78da7c9cec"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/research/spec_design_agent_dim02_escalation.md",
+        "sha256": "b0aa2c395c15407ae74cc8be90646f6328065dd8aef38ca3264b036492427ff7"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/research/spec_design_agent_dim03_drift_prevention.md",
+        "sha256": "6314ad6101fa664738bb366be439052f93329ad56283f2fa196c5c039388e469"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/research/spec_design_agent_dim04_collaboration_topology.md",
+        "sha256": "71f74fdea2d0cab9c70ee99d4c6699ee6b337d228e178cb1844e94869a1e2ce6"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/research/spec_design_agent_dim05_role_decomposition.md",
+        "sha256": "76d719e208db53eb688dd29bcfc0440e14e34c30b3d81a46c42bf29258e6c0e9"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/research/spec_design_agent_dim06_clarification.md",
+        "sha256": "43b97d44f5c6ce2c5944ce15fc6ed4e653aea362f13a3a804677285e0b5fdadf"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/research/spec_design_agent_dim07_frontier_products.md",
+        "sha256": "b07ca751df683bab38895ccb6894755ca10056f48d3c39088a3b49c552fa2043"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/research/spec_design_agent_dim08_evaluation.md",
+        "sha256": "6839f330fffdc01cdadcb252d946b56eed36656781bf8848aead14735468ef7a"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/research/spec_design_agent_dim09_ui_architecture.md",
+        "sha256": "b1d9787c9acc7c08c7ac841d933e3fb91cd2d66794a0a505c2ece6132eff5385"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/research/spec_design_agent_dim10_failure_cases.md",
+        "sha256": "9f5789273c0174d272d3d8c9567142ea1bf91e8198c994884ea5c2e670e08c56"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/research/spec_design_agent_dim11_verification_cost.md",
+        "sha256": "e8ad415924f32875049cba49de630239d2f20a55f34f12ef4134ba9199d20731"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/research/spec_design_agent_dim12_personalization.md",
+        "sha256": "1c6ef1bf1b082ce9bae258b64df248b58a8d230ec4ee5c41ba63d97bba3058f5"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/research/spec_design_agent_insight.md",
+        "sha256": "da7c270ba4bb04e718ea3f1b7682b9db1b15dc5a7fcf393e8e60c16688b16aea"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/round2/r2d1-planning-harness.md",
+        "sha256": "e2650e556b06e3bc5b40ef2026163e5a18cf54f84e6f5d5a3436683e7f6fbed4"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/round2/r2d2-multiagent-when.md",
+        "sha256": "359df59e99521a40b7823c027e9c44e6ba0155ce117cac90e1a1219002ddfffe"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/round2/r2d3-context-engineering.md",
+        "sha256": "cbadec3a8c5dd32b00c9b3b111d5efdd70a2d2a4de77d6ff49cfd5c115c8bdcd"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/round2/r2d4-taste-practical.md",
+        "sha256": "d1c22ea69c4782d904b2626c9309249c3b933d2408b04e287bec34226fbfc0de"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/round2/r2d5-escalation-practical.md",
+        "sha256": "eeaa444bd6582f083f1d8a5d2cfc51e019018a57b27dbaaabcea511da6431a82"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/round2/r2d6-eval-harness.md",
+        "sha256": "ad6479f865d3b3330c112821334d8334d45729279cf7b4636dc81996e1664a67"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/round2/r2d7-sdd-products.md",
+        "sha256": "c2d801b42760de5effc6d2dfd9efd57e46f5cb59fc776b648927a63794e9cd1a"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/round2/r2d8-failure-postmortems.md",
+        "sha256": "954783bb91a4c6bd023590b6e9c2b0c0966ee2b3c5a82872402f003db359db08"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/round2/r2d9-round1-blackbox-refilter.md",
+        "sha256": "18643e8a92bfa4d7e65c32acffad7c5f15a44dacfbce31140f9f5cee87f7b7a5"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/round3/01-pm-skills-product-on-purpose-pm-skills-.md",
+        "sha256": "91284c7fb3c3ce27da10e488e7d7d5c7bae15b1e615d0adb5ade7842f7fa4b15"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/round3/02-agent-review-panel-wan-huiyan-agent-revi.md",
+        "sha256": "d3c5b059ae3cf64f35414754fd629b07815a580a5c243ec3dd4a3dd3af8a6747"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/round3/03-agenticakm-sa4s-serc-agenticakm-.md",
+        "sha256": "2b1852454fe4df70c251b275a358863ed220ee52566568ac2ac82d146ea86ff4"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/round3/04-sample-claude-code-agent-team-aws-sample.md",
+        "sha256": "466df0767d24c5a903498823bc999112490c4e42ce5d5dde413816b4fc69fe55"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/round3/05-open-gsd-gsd-core.md",
+        "sha256": "2d13002f3f689b39886894d532cd2837bea5a31b7fe4a688da6bf5b482ea70fa"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/round3/06-multi-agent-debate-strategies-to-enhance.md",
+        "sha256": "ceeeff44f6b8aa1dc2c7d060de04739a2fd50b0bb1dc73e3877cc7ce8086f5a6"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/round3/07-agenticakm-enroute-to-agentic-architectu.md",
+        "sha256": "a120b694336c30baac30e183988a42e1cd9ad9c6e8dee17dc65c1fba13893ace"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/round3/08-iredev-a-knowledge-driven-multi-agent-fr.md",
+        "sha256": "55edaac579aa586b56c851c635f3cca980b57400068d4a9db04a7c4c3661fd42"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/round3/09-architecture-without-architects-how-ai-c.md",
+        "sha256": "3bf2ff150ff02204d02e2e0024dcd91e8186885e5a4fa6dbcf2fc5f428ca04d8"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/round3/10-traceability-and-accountability-in-role-.md",
+        "sha256": "d059fcaeffddecb46a928805fd74259a550d177d4361c3b6a21203c600abcd1d"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/round3/11-single-agent-or-multi-agent-systems-why-.md",
+        "sha256": "479658cecc268f59af36d25d274519c8ea04d54ce5b38096a3d3afc97e4a5a2e"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/round3/12-quare-multi-agent-negotiation-for-balanc.md",
+        "sha256": "f638d13ed571d95f202ba532ae4988a974a6042650ff318eb151cc5c30461fdb"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/round3/deep-research-round3-report.md",
+        "sha256": "8e23329e1049a55cf40ea4333c6400267eddde0febdba7943faaad00ef43c461"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/spec_design_research.agent.final.md",
+        "sha256": "291c1300ec14d3b7a19a75b05a4ef0a10186a5847fd7e53c1d0bfdf11b3e8d9f"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/spec_design_research.agent.outline.md",
+        "sha256": "aafe3cee2722eee94afd55af66b5f96578ca2814c02471d50cd37cff66bf3ed0"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/spec_design_research_sec00.md",
+        "sha256": "ee5fb8624b4482ae36519d9d33dfdd1d2cde57dedcac1b81aa42d65a6fab31a7"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/spec_design_research_sec01.md",
+        "sha256": "57aa65606b089a9da87df34e6c1b901909c2fae2d7eb616b62485d498e1cddc8"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/spec_design_research_sec02.md",
+        "sha256": "35f10ce1ecadd0262bd4893b7ce2ff41d0b0ca564cb4fba7ce14aa244ff9defa"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/spec_design_research_sec03.md",
+        "sha256": "51da863f111dafb2b4d98636e436568a2600ae5f11323679068d57c4923b8004"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/spec_design_research_sec04.md",
+        "sha256": "c3ff8381a1c06624e56f3c73a00c323e512e81598b1708dc7af7e38b4803dbdc"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/spec_design_research_sec05.md",
+        "sha256": "eeae22ece233c258d4bf8b542cc5ff1e7a55642f7c37f8ceceb7edbc729ded18"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/spec_design_research_sec06.md",
+        "sha256": "ae31b90863ee508a3e6bb4aa10755144dfe08b6525038a67a1b036418947e1bf"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/spec_design_research_sec07.md",
+        "sha256": "bc9b7a412c4f482a070d1acb728cd34d9d9ee3355ca8811bc0caff7924e53258"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Agent_深度研究简报/spec_design_research_sec08.md",
+        "sha256": "3513f35cd2719b321ef793ae49483a2e805c80b15cc396e193feb872191b7bca"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/Multi-Agent 系统设计复盘报告：从“拟人化争议”到 SDD Spec Design Agent Team 架构.md",
+        "sha256": "9945252dfd587de02ecc2dcbb9af88973d7a0cc1e47e904669deb4bc98be876a"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/README.md",
+        "sha256": "a0a70a77311ebd4a15aab3435a1f7ecabfb84a306111084e054d1f1eeded2ade"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/alignment-questions.md",
+        "sha256": "1965c7bbdcbc0cbaffde8097896dcd2425e92e22e2acf2bf251c376ec10ad210"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/clarification-removability-analysis.md",
+        "sha256": "e43b1eb3d3573e25bf87fb9bca4eafbdf3fa82f0db751362096b1d11b5be1063"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/clowder-ai-analysis.md",
+        "sha256": "57b17151ab9a8a36fcad9387493e65a69a9c79487e0a4766c323330ee208378a"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/deep-research-brief-round2.md",
+        "sha256": "8776861d9db1799efad9d53c4bb0c93a7d9892bef7e125deaf183dfab57b2f52"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/deep-research-brief.md",
+        "sha256": "8679c79303005d981c95332756f42e9bacde15e450f0169bf7e917e8df843b52"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/gpt-report-independent-review.md",
+        "sha256": "2779259f8422a584ef843d03d9a4c918473dbd364259253aa305bc20f17fa95e"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/research-notes.md",
+        "sha256": "32017f1eb2d24f1211685a83ecc8a8160d398dfb7967810ca76a3eed176c018f"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-397-spec-design-agent-team/spec.md",
+        "sha256": "ddf3d0b74bba8382a129a5b144e303afb4453cbd774622484abcc8aba81806bf"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-444-session-wakeup/design.md",
+        "sha256": "4402c3c0665e8c24c217c133310c6c9e0dae10cdfa6c61a2124d0859c368dd2b"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-444-session-wakeup/spec.md",
+        "sha256": "93c5c94f85b924a5f0d34e439485c10ff9e79d4d17dcef3a1d811ba590a7cf11"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-501-cross-channel-session-controls/M1-fresh-session/progress.md",
+        "sha256": "2baeab84358896feca80bd376412ecc44858baa08d388915f11f2f8a3f55f20f"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-501-cross-channel-session-controls/M1-fresh-session/tasks.md",
+        "sha256": "56a8eab473a8e8d4bba21fe710c9d4b3ef0ae7cee47a0eedaa58e9a9e91f40c1"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-501-cross-channel-session-controls/M2-guided-compaction/progress.md",
+        "sha256": "1db56b60108e96166a004f86a8b77ab17bb4be86b4cabf453dcca3f9fa7394fb"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-501-cross-channel-session-controls/M2-guided-compaction/tasks.md",
+        "sha256": "ec592f02c50782787854c41e3c54268a53e63af15b48e2f99232eb88bc876cd1"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-501-cross-channel-session-controls/acceptance.md",
+        "sha256": "3ce98231078f8a693ca46e7abadf0ec2f771a53ee2fe7438ab64e99bd02fb739"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-501-cross-channel-session-controls/design-review.md",
+        "sha256": "39c0a1f207c43a6793a2b2fed45f0f5db4790c15d49908e6c560280d1d26ae0b"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-501-cross-channel-session-controls/design.md",
+        "sha256": "05737a36a3ef5a9cbbf41767b1bbb0d3f3b586447eea89f97f208b38a79b5bba"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-501-cross-channel-session-controls/spec.md",
+        "sha256": "f02e9d067c158b694a69895dc731301c14632daac08698b231e0d1efdbab1764"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-501-cross-channel-session-controls/specs/gateway/external-channels.md",
+        "sha256": "11819025e40f9db60bdab2f172f1895cd891bb4a4db7ff39e6a93fc2b2a91688"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-501-cross-channel-session-controls/specs/gateway/routing-delivery.md",
+        "sha256": "6784bd92422fbe339ccfa61fd2f66efb5d1c182e7ae8c296e3efdbb1376a018f"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-501-cross-channel-session-controls/specs/kernel/context-persistence.md",
+        "sha256": "dec94d0143a38a4dd3e1aa378e7f482b69af1ac9f008cf1c0200f5bac294d845"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-501-cross-channel-session-controls/verification.md",
+        "sha256": "7253beb75323ca47d187897aa2654777d89942fe95df58e9be2d0287ded176ae"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-503-feishu-e2e-runtime/design.md",
+        "sha256": "15b1bc1b81c3cb2d1536ea4c338755870af928b565e0f1a4a9a6e75e343685f2"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/feat-503-feishu-e2e-runtime/spec.md",
+        "sha256": "2fb77e1f5d5f9c4ab33e6d3e269c1a09f05a909ae1cc9f08402d50283be4c9c3"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/retired/README.md",
+        "sha256": "eab2b916dd7cfddd0cc0b4d1262199d350b5a92966fb41ca9fbd0c7b5395b6ea"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/retired/feat-329-acp-interface-parity/design.md",
+        "sha256": "19e5d1bd9ef18fd564b11f6a2043702295cf74a9aeb535553ccc89ca6ecfa412"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/retired/feat-329-acp-interface-parity/spec.md",
+        "sha256": "ead151f389a22e3f2a2f24a3ad810904f7640b35fb45834206502b5ddbf7260f"
+      },
+      {
+        "mode": "100644",
+        "path": "docs/changes/retired/feat-336-generic-channel-architecture/spec.md",
+        "sha256": "8330fce71332568a7233da1976d1915f57f6af39ae6eaece2598da639891caa4"
+      }
+    ],
+    "removed_manifest_sha256": "2f09a13c9af1739d7ae065b0b31122fd4eb5a1e83495bc6f034caa165389e75d",
+    "removed_roots": [
+      ".claude",
+      "CLAUDE.md",
+      "cc-hooks-off",
+      "cc-hooks-on",
+      "docs/changes/archive/bugfix-491-shadow-owner-recovery",
+      "docs/changes/archive/bugfix-493-frontend-npm-audit",
+      "docs/changes/archive/bugfix-496-feishu-orphan-listener",
+      "docs/changes/archive/bugfix-499-lark-skill-bundle",
+      "docs/changes/archive/bugfix-508-im-command-picker",
+      "docs/changes/archive/feat-338-kernel-message-sse",
+      "docs/changes/archive/feat-421-critical-path-e2e-suite",
+      "docs/changes/archive/feat-446-skill-view-tool",
+      "docs/changes/archive/refactor-486-agent-native-repository-knowledge-system",
+      "docs/changes/bugfix-448-web-fetch-cancel",
+      "docs/changes/bugfix-492-heartbeat-at-expiry",
+      "docs/changes/bugfix-494-feishu-sdk-cache-warning",
+      "docs/changes/bugfix-495-frontend-test-console-gate",
+      "docs/changes/bugfix-497-shadow-mirror-duplicate-reply",
+      "docs/changes/bugfix-498-im-websocket-proxy-bypass",
+      "docs/changes/bugfix-507-agent-prompt-config",
+      "docs/changes/feat-397-spec-design-agent-team",
+      "docs/changes/feat-444-session-wakeup",
+      "docs/changes/feat-501-cross-channel-session-controls",
+      "docs/changes/feat-503-feishu-e2e-runtime",
+      "docs/changes/retired"
+    ]
+  },
+  "seal": {
+    "arm_readiness": "ready_materializable",
+    "blocked_arms": [
+      "A_USER",
+      "B"
+    ],
+    "suite_id": "feat397-spec-design-eval-v1",
+    "suite_seal_ref": "experiments/feat_397_agent_team/suite-seal.json",
+    "suite_status": "draft_unsealable",
+    "treatment_lock_ref": "experiments/feat_397_agent_team/suite-treatment-lock.json"
+  },
+  "source": {
+    "commit": "e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6",
+    "raw_archive_sha256": "2fd34f6d0cccd213b8d1963b0c6e102f54ef0696ca20cbdfe4b9f3cdbb280923",
+    "ref": "e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6",
+    "tree": "64ee09dd5aae44f36fff9325835c7c45dc088b5c"
+  }
+}

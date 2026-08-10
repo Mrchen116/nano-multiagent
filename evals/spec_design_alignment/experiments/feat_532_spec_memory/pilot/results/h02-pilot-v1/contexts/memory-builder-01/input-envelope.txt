@@ -1,0 +1,3 @@
+<builder_input>
+Read scheme.json, corpus-manifest.json, and every file in documents/. Build the single provisional Memory store.
+</builder_input>

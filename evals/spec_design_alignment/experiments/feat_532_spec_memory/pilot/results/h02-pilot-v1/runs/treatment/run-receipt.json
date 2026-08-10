@@ -1,0 +1,17 @@
+{
+  "arm": "treatment",
+  "candidate_session_id": "019fed23-52e2-79e0-82f7-b0de82351b6d",
+  "candidate_turns": 4,
+  "first_doc_path": "docs/changes/feat-507-unified-approval-model/spec.md",
+  "first_doc_sha256": "720be792c900739fbcb41501b39d281e3680378abe164db4c735bc3466cff91a",
+  "formal_eligible": false,
+  "frozen_head": "959c73c9cb5c7b85c15026074304c17e1ca52a5e",
+  "frozen_status": "",
+  "memory_trace_sha256": "80a612338ba2d4104aa3f67166166a4e2c9570e8ab28ea3a37299c8260246c5c",
+  "owner_session_id": "019fed23-023c-75a1-a0b3-bf6647a7ec94",
+  "owner_turns": 3,
+  "real_candidate_session": true,
+  "real_owner_session": true,
+  "run_id": "H02-treatment-r1",
+  "schema_version": "1.0"
+}

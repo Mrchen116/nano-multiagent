@@ -1,0 +1,149 @@
+{
+  "events": [
+    {
+      "affected_behavior": "Grounding and clarification strategy",
+      "memory_id": "M01",
+      "rationale": "Prompted repository/code analysis before clarification, especially tracing ordinary, sub-agent, heartbeat, cron, and background-fork permission paths instead of asking the Owner to resolve technically knowable facts.",
+      "state": "used"
+    },
+    {
+      "affected_behavior": "Scope and non-goals",
+      "memory_id": "M02",
+      "rationale": "Supported recommending and documenting a PA-only product scope, keeping Coding CLI unchanged and avoiding adjacent expansion.",
+      "state": "used"
+    },
+    {
+      "affected_behavior": "Acceptance-criteria wording",
+      "memory_id": "M03",
+      "rationale": "Helped keep scenarios focused on operator-observable model routing, startup failure, fallback behavior, and unchanged product behavior rather than internal functions or interfaces.",
+      "state": "used"
+    },
+    {
+      "affected_behavior": "None",
+      "memory_id": "M04",
+      "rationale": "This run produced a Gate 1 spec, not a design document or design-completeness review.",
+      "state": "rejected"
+    },
+    {
+      "affected_behavior": "None",
+      "memory_id": "M05",
+      "rationale": "The change had no UI prototype or interaction-design deliverable.",
+      "state": "rejected"
+    },
+    {
+      "affected_behavior": "No independent effect",
+      "memory_id": "M06",
+      "rationale": "A product-neutral lower-layer capability was mentioned only after the Owner explicitly requested it; the memory did not drive that decision.",
+      "state": "loaded"
+    },
+    {
+      "affected_behavior": "No independent effect",
+      "memory_id": "M07",
+      "rationale": "The repository architecture and Owner reply directly established the PA product boundary and possibility of a product-neutral lower layer.",
+      "state": "loaded"
+    },
+    {
+      "affected_behavior": "None",
+      "memory_id": "M08",
+      "rationale": "The change was classified as a feature, not a pure refactor or migration.",
+      "state": "rejected"
+    },
+    {
+      "affected_behavior": "None",
+      "memory_id": "M09",
+      "rationale": "The frozen task allowed only the spec phase, so implementation workflow and engineering safeguards were out of scope.",
+      "state": "rejected"
+    },
+    {
+      "affected_behavior": "None",
+      "memory_id": "M10",
+      "rationale": "No skill, agent instruction, runbook, or process document was authored.",
+      "state": "rejected"
+    },
+    {
+      "affected_behavior": "None",
+      "memory_id": "M11",
+      "rationale": "No architecture review or review checklist was performed.",
+      "state": "rejected"
+    },
+    {
+      "affected_behavior": "None",
+      "memory_id": "M12",
+      "rationale": "This was a feature request, not a regression diagnosis or bug-fix acceptance task.",
+      "state": "rejected"
+    },
+    {
+      "affected_behavior": "No independent effect",
+      "memory_id": "M13",
+      "rationale": "Compatibility behavior was decided explicitly by the Owner: omission must preserve per-run model reuse. No migration or protocol fallback judgment was made from memory.",
+      "state": "loaded"
+    },
+    {
+      "affected_behavior": "None",
+      "memory_id": "M14",
+      "rationale": "The task did not add discovered capabilities to an explicit saved selection or alter enable/disable sets.",
+      "state": "rejected"
+    },
+    {
+      "affected_behavior": "Invalid and unavailable configured-model behavior",
+      "memory_id": "M15",
+      "rationale": "It informed the initial fail-loud/no-silent-fallback framing, but the Owner supplied stronger, more specific behavior: invalid catalog entries fail startup; runtime failure retries the same model and then follows the existing permission-failure path, without a new manual-approval rule.",
+      "state": "overridden"
+    },
+    {
+      "affected_behavior": "No independent effect",
+      "memory_id": "M16",
+      "rationale": "Failure handling was relevant, but the spec deliberately preserved the existing permission-failure semantics per Owner instruction rather than defining new feedback or recovery behavior.",
+      "state": "loaded"
+    },
+    {
+      "affected_behavior": "None",
+      "memory_id": "M17",
+      "rationale": "The feature did not change approval cards, tool timelines, or execution-state presentation.",
+      "state": "rejected"
+    },
+    {
+      "affected_behavior": "None",
+      "memory_id": "M18",
+      "rationale": "No subprocess, listener, worker lifecycle, or shutdown ownership behavior was in scope.",
+      "state": "rejected"
+    },
+    {
+      "affected_behavior": "No independent effect",
+      "memory_id": "M19",
+      "rationale": "The document defined product scenarios, not an E2E test plan or critical-path catalog.",
+      "state": "loaded"
+    },
+    {
+      "affected_behavior": "None",
+      "memory_id": "M20",
+      "rationale": "No IM message or chat UX was designed or reviewed.",
+      "state": "rejected"
+    },
+    {
+      "affected_behavior": "None",
+      "memory_id": "M21",
+      "rationale": "Running-session steering and concurrent input behavior were unrelated to classifier-model selection.",
+      "state": "rejected"
+    },
+    {
+      "affected_behavior": "None",
+      "memory_id": "M22",
+      "rationale": "No timestamps, provenance, routing envelopes, or model-only message metadata were introduced.",
+      "state": "rejected"
+    },
+    {
+      "affected_behavior": "No independent effect",
+      "memory_id": "M23",
+      "rationale": "Local repository state was used as authority, but this was already mandated more strongly by the task envelope prohibiting network and outside-workspace access.",
+      "state": "loaded"
+    },
+    {
+      "affected_behavior": "No independent effect",
+      "memory_id": "M24",
+      "rationale": "The spec required that operators can observe which model handled classification, but it did not prescribe logging fields, telemetry, or prompt-content policy.",
+      "state": "loaded"
+    }
+  ],
+  "formal_eligible": false
+}

@@ -1,0 +1,1 @@
+<burden_input transcript_id="T2">Read transcript.json and count semantic Owner contributions.</burden_input>

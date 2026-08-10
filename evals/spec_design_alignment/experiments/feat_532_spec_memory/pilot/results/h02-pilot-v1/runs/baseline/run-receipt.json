@@ -1,0 +1,17 @@
+{
+  "arm": "baseline",
+  "candidate_session_id": "019fed1c-8303-7bc3-ae03-dcc1a59d0c91",
+  "candidate_turns": 5,
+  "first_doc_path": "docs/changes/feat-507-approval-model-config/spec.md",
+  "first_doc_sha256": "74cec90535607d6304a87145393b8bb25d1b7aaade81f5e700d7ac4411fd5e87",
+  "formal_eligible": false,
+  "frozen_head": "fc94e00d29d56756669c421198b2cfe5963a5f2f",
+  "frozen_status": "",
+  "memory_trace_sha256": "9a22631b7a85c9210e6a6b4d5e9a1535f84396d498ee9d12432c4b4fdbc02c2c",
+  "owner_session_id": "019fed1c-3530-7572-a474-efd020b1bc48",
+  "owner_turns": 4,
+  "real_candidate_session": true,
+  "real_owner_session": true,
+  "run_id": "H02-baseline-r1",
+  "schema_version": "1.0"
+}
