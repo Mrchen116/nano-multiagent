@@ -403,10 +403,6 @@ class FeishuAdapter:
             external_chat_id=f"feishu:{self._app_id}:dm:{event.sender_open_id}",
             is_group=False,
             agent_id=self._agent_id,
-            external_event_identity=ExternalInboundEventIdentity(
-                connector_account_id=self._app_id,
-                provider_event_id=event.message_id,
-            ),
             ingress=self._inbound_ingress(event, is_group=False),
             metadata=metadata,
         )
@@ -463,10 +459,6 @@ class FeishuAdapter:
             external_chat_id=external_chat_id,
             is_group=True,
             agent_id=self._agent_id,
-            external_event_identity=ExternalInboundEventIdentity(
-                connector_account_id=self._app_id,
-                provider_event_id=event.message_id,
-            ),
             ingress=self._inbound_ingress(event, is_group=True),
             metadata=metadata,
         )

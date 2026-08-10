@@ -8,13 +8,13 @@
 
 ## 退出标准
 
-- [ ] callback 只交付 `InboundMessage(ingress=InboundIngress(...))`；producer/absence matrix 与非法组合被长期测试保护。
-- [ ] Gateway 后续只传 `RoutedInbound(message, shadow)`；shadow empty/pending/anchored 三态与非法 ref-without-saga 被保护。
-- [ ] native relay 与 external shadow 分型投影到 run delivery target，且 typed facts/saga 各只有一个 authority。
-- [ ] 删除 `InboundEnvelope`、`RuntimeProtocolFacts`、top-level event identity、旧 shadow ref saga/relay 字段、私有 metadata key 与 fallback derive。
-- [ ] 四处 ingress `web_relay` 业务代理改读 typed facts；outbound/managed identity 残留逐项核为合法。
-- [ ] typed containers 不进入 reply/session/DB/public metadata。
-- [ ] 聚焦 Gateway/Feishu/shadow/delivery、contract、non-E2E、Ruff check/format-check 全绿；隔离真栈 Web IM 与专用 Feishu 入口验收完成。
+- [x] callback 只交付 `InboundMessage(ingress=InboundIngress(...))`；producer/absence matrix 与非法组合被长期测试保护。
+- [x] Gateway 后续只传 `RoutedInbound(message, shadow)`；shadow empty/pending/anchored 三态与非法 ref-without-saga 被保护。
+- [x] native relay 与 external shadow 分型投影到 run delivery target，且 typed facts/saga 各只有一个 authority。
+- [x] 删除 `InboundEnvelope`、`RuntimeProtocolFacts`、top-level event identity、旧 shadow ref saga/relay 字段、私有 metadata key 与 fallback derive。
+- [x] 四处 ingress `web_relay` 业务代理改读 typed facts；outbound/managed identity 残留逐项核为合法。
+- [x] typed containers 不进入 reply/session/DB/public metadata。
+- [x] 聚焦 Gateway/Feishu/shadow/delivery、contract、non-E2E、Ruff check/format-check 全绿；隔离真栈 Web IM 与专用 Feishu 入口验收完成。
 
 ## 测试策略
 
@@ -54,6 +54,6 @@
 
 ### R3 — 投影 runtime delivery 并删除 legacy authority
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 先写 IMRelayTarget/ExternalShadowTarget 与 visibility/empty terminal 红测；迁移 lifecycle/context/observer/background，删除 runtime protocol helpers和失效测试，完成 residual 分类。
 - 验证: delivery/contract/全量 non-E2E/Ruff 全绿；隔离 Web IM direct/group/replay 与专用 Feishu/shadow 真入口通过并清理资源。

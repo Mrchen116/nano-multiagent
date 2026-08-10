@@ -1617,9 +1617,9 @@ def build_session_key(message: InboundMessage, *, agent_id: str) -> str:
         agent_id: Routed agent id chosen in pipeline step 1.
 
     Returns:
-        External-channel messages use ``metadata.external_source`` and
-        ``metadata.external_chat_id`` so Feishu and IM shadow entries share the
-        same kernel session. Ordinary channels keep the legacy
+        External-channel messages use their typed conversation identity so
+        Feishu and IM shadow entries share the same kernel session. Ordinary
+        channels keep the legacy
         ``{channel}:{external_chat_id}:{agent_id}`` key.
     """
 

@@ -19,7 +19,10 @@ class ShadowConversationRef:
     im_message_id: str
 
     def __post_init__(self) -> None:
-        if not isinstance(self.conversation_id, str) or not self.conversation_id.strip():
+        if (
+            not isinstance(self.conversation_id, str)
+            or not self.conversation_id.strip()
+        ):
             raise ValueError("conversation_id must be a non-empty string")
         if not isinstance(self.im_message_id, str) or not self.im_message_id.strip():
             raise ValueError("im_message_id must be a non-empty string")

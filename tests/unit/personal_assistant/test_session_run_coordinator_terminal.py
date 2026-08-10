@@ -10,6 +10,10 @@ import pytest
 
 from agent.sdk import USER_INTERRUPT_RECOVERY_CONTENT
 
+from personal_assistant.channels.base import (
+    ExternalConversationIdentity,
+    InboundIngress,
+)
 from personal_assistant.gateway.inbound_models import (
     InboundRunRequest,
     RelayLifecycleUpdate,
@@ -305,7 +309,18 @@ async def test_no_reply_never_reaches_group_or_external_target(
     )
     message = inbound(chat_id=f"silent-{external}", text="work", is_group=not external)
     if external:
-        message = replace(message, metadata={"trigger_source": "feishu"})
+        message = replace(
+            message,
+            ingress=InboundIngress(
+                external_conversation=ExternalConversationIdentity(
+                    external_source="feishu",
+                    external_chat_id="feishu:app:dm:user-1",
+                    agent_id="agent-a",
+                    conversation_type="direct",
+                    trigger_source="feishu",
+                )
+            ),
+        )
     running = asyncio.create_task(coordinator.dispatch(_request(message, catalog)))
     await kernel.wait_stream("run-1")
     kernel.finish("run-1", text="NO_REPLY")

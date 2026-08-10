@@ -7,7 +7,10 @@ from typing import Any
 
 from personal_assistant.channels.base import InboundMessage
 from personal_assistant.gateway.channel_registry import ChannelRegistry
-from personal_assistant.gateway.inbound_models import RelayLifecycleUpdate, RoutedInbound
+from personal_assistant.gateway.inbound_models import (
+    RelayLifecycleUpdate,
+    RoutedInbound,
+)
 from personal_assistant.gateway.reply_visibility import is_protocol_silence_token
 from personal_assistant.reporter.upstream_reporter import UpstreamReporter
 from personal_assistant.ws.im_connection import IMConnectionManager

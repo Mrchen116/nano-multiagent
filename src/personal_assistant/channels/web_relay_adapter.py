@@ -19,11 +19,6 @@ from personal_assistant.channels.base import (
     InboundMessage,
     OutboundMessage,
 )
-from personal_assistant.gateway.runtime_protocol import (
-    RuntimeProtocolFacts,
-    ShadowConversationRef,
-    attach_runtime_protocol,
-)
 
 _SEEN_KEYS_MAX = 1000
 _DEDUP_TTL_SECONDS = 7 * 24 * 60 * 60
@@ -209,10 +204,6 @@ class WebRelayAdapter:
             raise RuntimeError("web relay adapter is not started")
         envelope = _parse_relay_payload(payload)
         message = _build_inbound(envelope, payload)
-        message = attach_runtime_protocol(
-            message,
-            _build_runtime_protocol(envelope, message),
-        )
         if self._contains_seen_key(envelope.idempotency_key):
             return message
         self._remember_seen_key(envelope.idempotency_key)
@@ -304,28 +295,6 @@ def _build_inbound(
                 im_message_id=message_id,
             ),
             external_conversation=external_conversation,
-        ),
-    )
-
-
-def _build_runtime_protocol(
-    envelope: RelayEnvelope, message: InboundMessage
-) -> RuntimeProtocolFacts:
-    external_identity = message.ingress.external_conversation
-    external_source = (
-        external_identity.external_source if external_identity is not None else None
-    )
-    im_message_id = _optional_text(message.metadata.get("message_id"))
-    return RuntimeProtocolFacts(
-        relay_task_id=envelope.relay_task_id,
-        idempotency_key=envelope.idempotency_key,
-        im_message_id=im_message_id,
-        external_source=external_source,
-        external_identity=external_identity,
-        shadow_ref=ShadowConversationRef(
-            conversation_id=envelope.conversation_id,
-            relay_task_id=envelope.relay_task_id,
-            im_message_id=im_message_id,
         ),
     )
 

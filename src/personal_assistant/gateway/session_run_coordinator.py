@@ -1780,10 +1780,13 @@ def _control_ack_from_session_id(
 
 
 def _control_ack_source_id(message: InboundMessage) -> str | None:
-    for key in ("feishu_message_id", "relay_task_id", "idempotency_key", "message_id"):
-        value = message.metadata.get(key)
-        if isinstance(value, str) and value.strip():
-            return _normalize_dispatch_id_part(value)
+    relay = message.ingress.im_relay
+    if relay is not None:
+        value = relay.im_message_id or relay.relay_task_id or relay.idempotency_key
+        return _normalize_dispatch_id_part(value)
+    external_event = message.ingress.external_event
+    if external_event is not None:
+        return _normalize_dispatch_id_part(external_event.provider_event_id)
     return None
 
 
@@ -1807,7 +1810,4 @@ def _is_external_channel_inbound(message: InboundMessage) -> bool:
     """Return whether normalized protocol facts identify an external ingress."""
 
     external_identity = message.ingress.external_conversation
-    if external_identity is not None:
-        return external_identity.trigger_source != "im"
-    trigger_source = message.metadata.get("trigger_source")
-    return isinstance(trigger_source, str) and trigger_source.strip() not in {"", "im"}
+    return external_identity is not None and external_identity.trigger_source != "im"

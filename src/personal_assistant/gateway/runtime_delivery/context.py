@@ -60,9 +60,7 @@ class RunDeliveryTarget:
         return cls(kind="im_relay", im_relay=target)
 
     @classmethod
-    def for_external_shadow(
-        cls, target: ExternalShadowTarget
-    ) -> RunDeliveryTarget:
+    def for_external_shadow(cls, target: ExternalShadowTarget) -> RunDeliveryTarget:
         """Build an external-channel shadow target."""
 
         return cls(kind="external_shadow", external_shadow=target)

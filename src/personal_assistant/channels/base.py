@@ -41,7 +41,10 @@ class IMRelayIngress:
     def __post_init__(self) -> None:
         if not isinstance(self.relay_task_id, str) or not self.relay_task_id.strip():
             raise ValueError("relay_task_id must be a non-empty string")
-        if not isinstance(self.idempotency_key, str) or not self.idempotency_key.strip():
+        if (
+            not isinstance(self.idempotency_key, str)
+            or not self.idempotency_key.strip()
+        ):
             raise ValueError("idempotency_key must be a non-empty string")
 
 
@@ -72,7 +75,6 @@ class InboundMessage:
         thread_id: Optional thread identifier required for threaded reply routing.
         metadata: Opaque adapter-provided metadata forwarded through the pipeline.
         ingress: Normalized transport and provider identities for Gateway routing.
-        external_event_identity: Stable provider identity used by durable shadow mirroring.
     """
 
     channel_name: str
@@ -84,7 +86,6 @@ class InboundMessage:
     thread_id: str | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
     ingress: InboundIngress = field(default_factory=InboundIngress)
-    external_event_identity: ExternalInboundEventIdentity | None = None
 
 
 @dataclass(frozen=True, slots=True)
