@@ -78,11 +78,11 @@ def _format_self_evolution_review(event: dict[str, object]) -> list[str]:
     Returns:
         Single-element list with the formatted notification string.
     """
-    # SSE events are flat dicts: reviewed_skills and reviewed_memory are top-level
-    # keys, not nested under "data".  The hub serialises the full payload as the
-    # SSE data field and the client merges it directly into the event dict.
-    reviewed_skills: bool = bool(event.get("reviewed_skills", False))
-    reviewed_memory: bool = bool(event.get("reviewed_memory", False))
+    raw_targets = event.get("updated_targets")
+    if not isinstance(raw_targets, (list, tuple)):
+        return []
+    reviewed_skills = "skills" in raw_targets
+    reviewed_memory = "memory" in raw_targets
 
     if reviewed_skills and reviewed_memory:
         subject = "skills + memory"
@@ -91,7 +91,7 @@ def _format_self_evolution_review(event: dict[str, object]) -> list[str]:
     elif reviewed_memory:
         subject = "memory"
     else:
-        subject = "self-evolution"
+        return []
 
     return [f"· background self-evolution review: {subject} updated"]
 

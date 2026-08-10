@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import time
 from typing import Any
 
 import httpx
@@ -173,13 +174,11 @@ def test_no_save_review_stays_private_after_foreground_completion(
         assert completed.data.get("delivery_status") == "completed"
 
         _wait_for_fixture_event(stub_llm_stack, "no_save_review_completed")
-        messages = poll_until(
-            lambda: client.list_messages(conversation_id),
-            lambda value: len(_system_notices(value, "memory")) == 1,
-            timeout=30.0,
-            interval=0.2,
-            desc="one structured memory review notice",
-        )
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            messages = client.list_messages(conversation_id)
+            assert _system_notices(messages, "memory") == []
+            time.sleep(0.2)
     finally:
         ws.close()
         client.close()
@@ -195,7 +194,7 @@ def test_no_save_review_stays_private_after_foreground_completion(
     visible_text = "\n".join(str(message.get("content") or "") for message in messages)
     assert _RAW_NO_SAVE not in visible_text
     assert "Traceback" not in visible_text
-    assert len(_system_notices(messages, "memory")) == 1
+    assert _system_notices(messages, "memory") == []
 
     state = _fixture_state(stub_llm_stack)
     requests = [item for item in state.get("requests", []) if isinstance(item, dict)]
