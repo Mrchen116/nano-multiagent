@@ -157,7 +157,9 @@ async def test_post_terminal_skill_create_reaches_gateway_config_sync(
             )
         )
         review_gate.set()
-        await asyncio.wait_for(skill_sync_completed.wait(), timeout=5)
+        # This crosses the Kernel worker, persistent stream, and config-sync
+        # thread. Keep a CI-sized scheduling budget while asserting completion.
+        await asyncio.wait_for(skill_sync_completed.wait(), timeout=15)
 
         assert outcome.value == "started"
         refreshed = catalog.require(agent_id)

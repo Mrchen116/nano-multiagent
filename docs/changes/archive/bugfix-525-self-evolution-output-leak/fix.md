@@ -52,3 +52,5 @@ Saved: user expects reference behavior to be verified before proposing or implem
 详见 [regression.md](regression.md)、[verification.md](verification.md) 与两个 milestone 的 `progress.md`。最终隔离真栈覆盖 no-save、真实 `skill_manage(create)`、explicit allowlist、新 session 使用、terminal 后断线重放不漏不重及清理；产品验收与实现核对均通过。
 
 收尾时已合入最新 `origin/main`，并在同一 fork seam 同时保留 bugfix-527 的 `skill_creation_source=F3` metadata 与本 unit 的 private event policy。冲突相关定向测试 75 条通过；最终 non-E2E 为 `3203 passed, 29 deselected`，架构契约 148 条通过，Ruff、docs-check（226 sources / 67 routes）与 diff-check 全绿。未使用真实 Feishu 凭据；隔离 Web IM 走与外部 channel 共用的 production Gateway/Kernel 事件路由。
+
+PR 首轮 Python CI 在全仓并发负载下仅有 post-terminal Skill 同步集成测试超时：真实完成耗时 `5.14s`，超过测试原有 `5s` 调度预算。回归仍等待真实 handler 完成并校验 catalog、selection mode 与 Skill 文件；只把跨 Kernel worker、persistent stream、config-sync thread 的等待预算调整为 `15s`，未修改生产逻辑或弱化结果断言。
