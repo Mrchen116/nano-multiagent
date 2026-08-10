@@ -727,8 +727,11 @@ async def test_fork_inherits_parent_execution_context():
         "anti-recursion: fork ctx must null fork_conversation"
     )
     fork_ctx.publish_session_event(event="assistant_message", data={"content": "raw"})
-    assert published_events == [], (
-        "fork raw events must not reuse the parent session delivery publisher"
+    fork_ctx.publish_session_event(event="tool_end", data={"name": "skill_manage"})
+    skill_created_data = {"name": "created-by-review", "scope": "agent"}
+    fork_ctx.publish_session_event(event="skill_created", data=skill_created_data)
+    assert published_events == [("skill_created", skill_created_data)], (
+        "fork must hide raw realtime events but preserve the skill activation event"
     )
     assert fork_ctx.metadata.get("run_origin") == RunOrigin.BACKGROUND_TASK.value, (
         "fork must run as unattended background task so gate ask uses fallback"
