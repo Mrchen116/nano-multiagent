@@ -124,3 +124,76 @@ requires_full_verification: `false`
 None.
 
 5 critical issue(s), 2 warning(s) found. Fix before PR.
+
+# Round 2
+
+> Validation snapshot: `3a73723f63c383114844cd8adef598f68125fe86 → 7339804c7256830a71172b1d27b0ce102a3e6291`
+
+## Verification Report: feat-517
+
+### Summary
+
+Mode: `targeted-closure`
+
+Delta range: `3a73723f63c383114844cd8adef598f68125fe86..7339804c7256830a71172b1d27b0ce102a3e6291`
+
+Focus issues: `C1, C2, C3, C4, C5, W1, W2`，以及 Round 1 acceptance 的 6 个 implementation findings
+
+requires_full_verification: `false`
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 7/7 focus issues 均有实现与永久回归测试 |
+| Correctness | 13/13 targeted checks 通过（7 个 verifier findings + 6 个 acceptance findings） |
+| Coherence | Followed；fix delta 没有引入新的跨包依赖、平行权限/投递链或 IM 运行投影 |
+
+本轮结论：**pass**。Round 1 的 5 个 CRITICAL 和 2 个 WARNING 均已关闭；acceptance Round 1 的 6 个 implementation findings 均已有代码与回归测试闭环。
+
+### Focus issue closure
+
+| Issue | 独立核对结果 | 实现与测试证据 | 状态 |
+|---|---|---|---|
+| C1 — canonical `pipeline()` 首 stage | 首 stage 现在获得 `(current=item, original=item, index)`，后续 stage 仍获得 `(previous, original, index)`；运行实现与 tool prompt 的 canonical lambda 形状一致。 | `src/agent/core/workflows/runtime.py:195-219`; `tests/unit/agent/core/workflows/test_primitives.py:58-83` | closed |
+| C2 — resume session scope / terminal order | launch 在启动新 thread 前加载同 session durable run，拒绝不同 parent session；terminal ordinal 改为显式 `is None` fallback，保留合法的 `0`。restart 后同 session 可 100% replay，跨 session 给出明确错误。 | `src/agent/platform/workflows/manager.py:116-136,603-650`; `tests/unit/agent/platform/workflows/test_manager_lifecycle.py:145-207`; `tests/unit/agent/platform/workflows/test_manager_resume_restart.py:25-84` | closed |
+| C3 — terminal notification payload | completed/failed/stopped 统一从 snapshot 写入 partial result、error、usage、duration 和 tool count；`BackgroundTaskRegistry.fail()` 可持久化相同字段。manager→registry→notification 的三终态测试断言原始返回与 snapshot 一致。 | `src/agent/platform/workflows/manager.py:517-601`; `src/agent/core/background_tasks/registry.py:181-207`; `tests/unit/agent/platform/workflows/test_manager_observability.py:149-236` | closed |
+| C4 — phase/Agent observability | manager 产生 phase 与 Agent usage/duration，child 保留 session/transcript/dirty-worktree locator；SDK snapshot、CLI 和 Gateway 详情都展示 task/result/error/usage/duration/artifact。worktree 测试覆盖 completed/failed/stopped 及 cleanup failure。 | `src/agent/platform/workflows/manager.py:363-436,807-891`; `src/agent/platform/workflows/child.py:110-190,259-284`; `src/coding_cli/commands.py:1835-1897`; `src/personal_assistant/gateway/workflow_commands.py:100-167`; `tests/integration/test_workflow_sdk_management.py:304-346`; `tests/unit/agent/platform/workflows/test_child_worktree_observability.py:114-224` | closed |
+| C5 — launch scale / Large workflow advisory | approval question 含 phases、resolved guideline 边界和 1.5M-token advisory；manager 对 default `>25`、显式 small/medium/large 边界、unrestricted 和 token threshold 产生 advisory，ultracode 抑制 warning，不暂停已授权 run。 | `src/agent/platform/tools/builtins/workflow.py:170-203,402-425`; `src/agent/platform/workflows/manager.py:762-804`; `tests/unit/agent/platform/tools/test_workflow_tool.py:226-240`; `tests/unit/agent/platform/workflows/test_manager_observability.py:23-91` | closed |
+| W1 — nearest CLI workspace config | CLI 从 cwd 向 git root 查找最近 `.nanocode/config.yaml`，workspace 覆盖 global，`/config` 写回同一 resolved file；回归测试覆盖 nested cwd 和就近优先级。 | `src/coding_cli/product.py:96-170`; `tests/unit/test_cli_workflows.py:89-159` | closed |
+| W2 — journal recovery | terminal journal 保存完整 snapshot checkpoint；启动加载在 `run.json` 缺失或损坏时选取 journal 最新 checkpoint。独立测试删除/损坏 snapshot 后，restart query 恢复与终态 snapshot 完全相同。 | `src/agent/platform/workflows/store.py:59-80`; `src/agent/platform/workflows/manager.py:255-282,515-516,538-544`; `tests/unit/agent/platform/workflows/test_manager_lifecycle.py:210-247` | closed |
+
+### Acceptance Round 1 implementation closure
+
+| Acceptance finding | 相关契约与闭环证据 | 状态 |
+|---|---|---|
+| A1 — CLI interactive launch 无批准界面 | REPL 现在以单一 input-owner coordinator 等待并显示 broker 的 Once/Always/Deny options，将精确 decision 返回 kernel；测试覆盖 `allow_always` 且无 `can_use_tool raised`。`src/coding_cli/commands.py:95-158,329-403,769-775`; `tests/unit/test_cli_async_repl_sdk.py:183-227` | closed |
+| A2 — Web completion 缺 background-return | 非用户 pending notification 的 `injection_consumed` 不再被 steer identity 过滤，background sidecar 进入既有 delivery observer，与主 Agent reply 落到同一 IM message；邻接测试同时覆盖 sidecar-only persistence/realtime/history。`src/personal_assistant/gateway/session_run_coordinator.py:1697-1710,1750-1764`; `tests/unit/personal_assistant/test_session_run_coordinator_admission.py:942-989`; `tests/im_service/unit/test_event_bridge.py:73-134` | closed |
+| A3 — Workflow tool detail 只有空标题 | tool-owned presenter 在 start/end 输出稳定的 input-first/result-second 字段，realtime hook 用 session guideline 调用 presenter；前端回归断言 script、status、name、run/task 与 artifacts 皆可读。`src/agent/platform/tools/builtins/workflow.py:49-127`; `src/agent/platform/hooks/builtins/realtime_stream.py:29-51,94-137`; `src/IM/frontend/src/features/chat/components/workflow-surfaces.test.tsx:26-153` | closed |
+| A4 — Web/飞书 child 未继承 Luna/effort | Workflow tool 在 parent turn 内捕获 resolved model/effort/tools/skills，child manager thread 使用该 snapshot；PA factory 透传 `NANO_MULTIAGENT_WORKFLOW_SUBAGENT_MODEL`。测试使 active ContextVar 不可用，仍断言 child 采用指定 Luna 和捕获的 effort。`src/agent/platform/tools/builtins/workflow.py:231-255,353-376`; `src/agent/platform/workflows/child.py:110-190`; `src/personal_assistant/product.py:424-438`; `tests/unit/agent/platform/workflows/test_child_control.py:167-205`; `tests/unit/personal_assistant/test_product_workspace_layout.py:46-66` | closed |
+| A5 — disabled CLI `/help` 仍暴露 Workflow commands | help 和 slash suggestions 均由 resolved Workflow capability 过滤；disabled 时 `/workflows`、`/config`、`/effort` 与 saved commands 不可发现。`src/coding_cli/commands.py:750-767,1294-1320`; `src/coding_cli/input/repl_commands.py:11-36`; `tests/unit/test_cli_repl_commands.py:81-94` | closed |
+| A6 — 另一 CLI 的 completed-run resume 笼统失败 | 新 manager 在 Workflow tool 带 `resumeFromRunId` 启动时先从同 session durable store 加载 run，相同脚本/参数创建新 run 并全量 replay cached child；跨 session 返回明确 owner 错误。`src/agent/platform/workflows/manager.py:116-136,255-282,603-650`; `src/agent/platform/tools/builtins/workflow.py:247-258`; `tests/unit/agent/platform/workflows/test_manager_resume_restart.py:25-84` | closed |
+
+### Verification execution evidence
+
+- Focused runtime / SDK / CLI / Gateway / IM Python suite: `173 passed`.
+- Background notification, run-carrier, delivery-observer and IM persistence adjacency suite: `221 passed`.
+- Frontend production Workflow/process surface: `workflow-surfaces.test.tsx` — `10 passed`.
+- Changed Python files: Ruff check passed; Ruff format check passed (`49 files already formatted`).
+- Documentation integrity: `225 maintained Markdown sources, 67 required routes` passed.
+- `git diff --check 3a73723f63c383114844cd8adef598f68125fe86..7339804c7256830a71172b1d27b0ce102a3e6291` passed.
+- 按 targeted-closure 约束未重跑真实 Chrome/飞书或 LLM；本轮不替代 product acceptance reviewer 的真实产品旅程复验。
+
+### Issues
+
+#### CRITICAL（提 PR 前必须修）
+
+None.
+
+#### WARNING（提 PR 前必须修）
+
+None.
+
+#### SUGGESTION（可以修）
+
+None.
+
+All checks passed. Ready for PR.
