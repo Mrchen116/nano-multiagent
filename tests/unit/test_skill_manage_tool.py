@@ -6,6 +6,7 @@ error serialization, and end-to-end create→list cycle.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Mapping
 from unittest.mock import MagicMock
@@ -158,6 +159,8 @@ def test_create_action_writes_file(tool: SkillManageTool, workspace: Path) -> No
     )
     assert result.get("success") is True
     assert (workspace / "my-skill" / "SKILL.md").exists()
+    usage = json.loads((workspace / ".usage.json").read_text(encoding="utf-8"))
+    assert usage["my-skill"]["source"] == "F1"
 
 
 def test_create_action_duplicate_returns_error(
