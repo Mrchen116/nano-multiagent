@@ -46,3 +46,7 @@
 | Candidate | Suggested owner | Scope | Evidence |
 |---|---|---|---|
 | Canonical `/compact` drift merge | unit orchestrator | 按 worker 派发不修改 canonical docs 或 delta specs；implementation 已由 FIFO admission tests 证明 | non-E2E full suite + unit design delta |
+
+## Next
+
+M1 已完成，集成到 `unit/refactor-522` 后交 independent reviewer。

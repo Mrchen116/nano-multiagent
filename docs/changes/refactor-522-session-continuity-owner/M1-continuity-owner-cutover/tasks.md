@@ -38,22 +38,22 @@ UI：N/A。
 
 ## Roadpoints
 
-### R1 — Binder 独占 SQLite persistence
+### R1 — Binder 独占 SQLite persistence — DONE
 
 - 步骤：先写 binder construction/restart/deletion-contract 红测；私有化 SQLite，删除内存 store/global/helper/HTTP seam；迁移 binder 与普通 fixture/test setup。
 - 验证：binder/session focused tests、repository symbol deletion search。
 
-### R2 — Boundary 两步 transition 与 composition cutover
+### R2 — Boundary 两步 transition 与 composition cutover — DONE
 
 - 步骤：先写 Ready/Wait/Idle 与三类 outcome 红测；实现 binder durable transition；dispatcher/composition/shadow promotion 改用同一 binder；清理 caller 文档。
 - 验证：outbox/delivery/composition/control focused tests。
 
-### R3 — Durable compatibility 与产品行为回归
+### R3 — Durable compatibility 与产品行为回归 — DONE
 
 - 步骤：迁移 SQLite/schema/control/coordinator/restart coverage 到 binder；保留六表与既有 transaction；覆盖重建 binder、FIFO compact、reset、supersession。
 - 验证：focused unit/integration、legacy schema compatibility、Gateway-only restart regression。
 
-### R4 — Cross-process partial recovery 与全量收口
+### R4 — Cross-process partial recovery 与全量收口 — DONE
 
 - 步骤：新增 test-only 双 subprocess launcher，覆盖 pending shadow boundary 与 pending external control 唯一恢复；运行全量门禁并记录 evidence。
 - 验证：critical-path E2E、非 E2E 全量、Ruff check/format-check、`git diff --check`。
