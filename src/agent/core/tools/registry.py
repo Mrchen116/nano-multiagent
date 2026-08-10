@@ -305,7 +305,9 @@ class ToolRegistry:
                 projected = project(active_hook_context.metadata)
                 if projected is not None:
                     schema = projected.input_schema
-            normalized_args = _validate_args(name=name, args=effective_args, schema=schema)
+            normalized_args = _validate_args(
+                name=name, args=effective_args, schema=schema
+            )
             event_base_payload = _build_tool_execution_base_payload(
                 name=name,
                 args=normalized_args,

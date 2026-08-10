@@ -45,7 +45,9 @@ def test_workflow_stop_is_distinct_from_existing_killed_status() -> None:
     assert late == stopped
 
 
-def test_notification_projection_renders_workflow_xml_and_sidecar_from_same_record() -> None:
+def test_notification_projection_renders_workflow_xml_and_sidecar_from_same_record() -> (
+    None
+):
     registry, task_id = _workflow_registry()
     terminal = registry.complete(
         task_id,

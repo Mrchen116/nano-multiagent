@@ -11,11 +11,11 @@ from agent.platform.permissions.broker import PermissionDecision
 from agent.platform.tools.builtins.workflow import WorkflowTool, workflow_description
 
 
-SCRIPT = '''
+SCRIPT = """
 meta = {"name": "demo", "description": "Run a demo"}
 async def main():
     return "ok"
-'''
+"""
 
 
 class _Manager:
@@ -136,7 +136,7 @@ def test_prompt_preserves_captured_clause_inventory_as_python() -> None:
         "Quality patterns",
         "The token target is a HARD ceiling",
         "longest unchanged chained-v2 prefix",
-        "Use `isolation=\"worktree\"` ONLY",
+        'Use `isolation="worktree"` ONLY',
         "validated structured value",
         "Agent model and reasoning effort inherit",
         "A plan above 25 Agents or an estimated 1.5 million tokens",

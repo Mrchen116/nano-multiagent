@@ -42,9 +42,7 @@ class _Registry:
 @pytest.mark.asyncio
 async def test_tool_result_keeps_event_metadata_out_of_model_output() -> None:
     executor = StreamingToolExecutor(_Registry())  # type: ignore[arg-type]
-    executor.add_tool(
-        ToolCall(call_id="call_workflow", name="Workflow", arguments={})
-    )
+    executor.add_tool(ToolCall(call_id="call_workflow", name="Workflow", arguments={}))
     await asyncio.sleep(0)
 
     result = [item async for item in executor.get_remaining_results()][0]

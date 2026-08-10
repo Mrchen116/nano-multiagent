@@ -38,12 +38,17 @@ def test_workflow_public_enums_and_dtos_are_available() -> None:
     assert WorkflowControlAction.RESTART_AGENT == "restart_agent"
     assert WorkflowSaveScope.PERSONAL == "personal"
     assert run.agents == (agent,)
-    assert SavedWorkflowInfo(name="review", scope="project", path="/x.py").name == "review"
-    assert BackgroundReturnInfo(
-        task_id="wt_123456",
-        task_type="workflow",
-        status="completed",
-        description="review",
-    ).task_id == "wt_123456"
+    assert (
+        SavedWorkflowInfo(name="review", scope="project", path="/x.py").name == "review"
+    )
+    assert (
+        BackgroundReturnInfo(
+            task_id="wt_123456",
+            task_type="workflow",
+            status="completed",
+            description="review",
+        ).task_id
+        == "wt_123456"
+    )
     with pytest.raises(FrozenInstanceError):
         run.status = "failed"  # type: ignore[misc]

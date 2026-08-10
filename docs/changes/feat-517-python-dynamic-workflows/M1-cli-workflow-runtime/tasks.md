@@ -8,12 +8,12 @@
 
 ## 退出标准
 
-- [ ] Python AST policy、primitives、并发顺序、状态机与 chained-v2 resume 在纯逻辑测试中固定。
-- [ ] `Workflow` prompt/schema、启动审批、后台 manager、child adapter、saved/worktree 与一次通知接线完成。
-- [ ] `RunOrigin.HUMAN/WORKFLOW`、`BackgroundReturnInfo`、`ToolResult.event_metadata` 和五个 Workflow SDK 方法为稳定公开契约。
-- [ ] active/idle/terminal-continuation/`/stop` held-flush 均让 XML 与 sidecar 同命运且 FIFO/exact-once。
-- [ ] CLI 默认启用（配置可禁用），支持 `/workflows`、`/effort ultracode`、named/save/control 与后台 child permission 长驻消费。
-- [ ] M1 pure/unit/contract/CLI integration、ruff/format/diff-check 通过；真实 Luna 一 Agent lifecycle 留给 reviewer。
+- [x] Python AST policy、primitives、并发顺序、状态机与 chained-v2 resume 在纯逻辑测试中固定。
+- [x] `Workflow` prompt/schema、启动审批、后台 manager、child adapter、saved/worktree 与一次通知接线完成。
+- [x] `RunOrigin.HUMAN/WORKFLOW`、`BackgroundReturnInfo`、`ToolResult.event_metadata` 和五个 Workflow SDK 方法为稳定公开契约。
+- [x] active/idle/terminal-continuation/`/stop` held-flush 均让 XML 与 sidecar 同命运且 FIFO/exact-once。
+- [x] CLI 默认启用（配置可禁用），支持 `/workflows`、`/effort ultracode`、named/save/control 与后台 child permission 长驻消费。
+- [x] M1 pure/unit/contract/CLI integration、ruff/format/diff-check 通过；真实 Luna 一 Agent lifecycle 留给 reviewer。
 
 ## 测试策略
 
@@ -56,24 +56,24 @@ Prototype / Reference Contract：`prototype.html` 的 must-match Web 状态归 M
 
 ### R3 — 接入 platform manager、Workflow 工具与持久化
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 为 tool schema/prompt、permission callback、store/journal/snapshot、child adapter/structured output、saved/worktree/background stop/notification 写红测并实现。
 - 验证: platform focused tests + `tests/integration/agent/workflows/`。
 
 ### R4 — 接入 turn activation、provider golden 与 SDK 管理方法
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 固定四态 request、HUMAN/WORKFLOW、共享预算、build args、五个 SDK query/control/save/list 方法及关闭生命周期。
 - 验证: provider/unit + SDK/contract + Kernel integration。
 
 ### R5 — 完成 coding_cli 产品旅程
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 默认工具/config disable、human typed origin、`/workflows`/control/save/named、`/effort ultracode` 与 parent stream 长驻 child permission consumer。
 - 验证: CLI unit/integration，TTY 控制由纯输入 seam，非 TTY 走真实命令入口。
 
 ### R6 — M1 回归、静态门禁与交付记录
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 跑 M1 regression、全量非 E2E（待并行 M2 collection 恢复）、ruff/format/docs/diff；更新 progress 并只提交 M1 paths。
 - 验证: design runbook 中 worker 门禁；Luna lifecycle 标记 reviewer pending。

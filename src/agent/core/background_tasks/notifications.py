@@ -84,7 +84,9 @@ class _NotificationProjection:
     resume_hint: str | None
 
 
-def build_background_notification(record: BackgroundTaskRecord) -> BackgroundNotification:
+def build_background_notification(
+    record: BackgroundTaskRecord,
+) -> BackgroundNotification:
     """Build model XML and optional UI sidecar from one immutable projection."""
 
     projection = _project(record)
@@ -141,8 +143,7 @@ def _render_xml(projection: _NotificationProjection) -> str:
             else ""
         )
         summary = (
-            f'Command "{_esc(projection.description)}" '
-            f"{projection.status}{exit_hint}"
+            f'Command "{_esc(projection.description)}" {projection.status}{exit_hint}'
         )
     lines.append(f"<summary>{summary}</summary>")
     if projection.result:
