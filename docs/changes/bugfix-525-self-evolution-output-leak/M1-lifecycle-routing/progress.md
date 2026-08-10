@@ -72,7 +72,7 @@
   - Limit: live journey used isolated internal Web IM and repository LLM proxy, not dedicated Feishu credentials. Feishu-shaped/external delivery remains covered by the same Gateway routing tests in the full suite; production symptom evidence remains the read-only locator in Baseline.
   - Frontend State Matrix / Browser QA / Visual / Prototype: N/A（后端投递语义；真实 REST/DB/进程入口已验证）。
 - Rollback: revert R4 test/evidence commit only removes harness split/evidence; product rollback is R1-R3 commits in reverse order.
-- Commits: pending R4 commit.
+- Commits: `a7f67ff66`.
 
 ## Promotion Candidates
 
