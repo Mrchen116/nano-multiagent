@@ -113,4 +113,4 @@
 - Root cause: the integration regression used a zero-delay hot poll to infer completion of a real worker-thread callback. Under whole-suite CPU contention that poll could consume the event-loop/GIL budget until its arbitrary five-second timeout, reporting a missing catalog update before the actual callback completion boundary was observed.
 - Fix: keep the real `BackgroundSubscriptionManager -> asyncio.to_thread -> IMAgentConfigSync.handle_skill_created` path, but wrap the real handler to signal an `asyncio.Event` via `loop.call_soon_threadsafe()` after it returns. The test waits on that completion boundary and then independently asserts catalog revision/mode/Skill file state; timeout stays five seconds.
 - Verification: stabilized exact test `5/5` (`1.52–1.87s`); final whole non-E2E on the exact tree `3197 passed, 29 deselected, 22 warnings in 391.28s`. The target passed at its former 18% failure position.
-- Commits: pending gate-stability commit.
+- Commits: `a59f488bc`.
