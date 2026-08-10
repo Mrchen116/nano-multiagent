@@ -35,4 +35,14 @@
 
 ## 修复
 
+- 将飞书审批卡的 input renderer 从“参数数量 + 参数名”改为通用字段区，pending card 与拒绝原因 card 共用同一展示逻辑。任意工具的 mapping input 都按原始参数顺序逐字段显示粗体 label 和代码样式 value；非 mapping input 统一落在 `value` 字段，不按 `tool_name` 硬编码卡片。
+- 字符串按原始行展示，嵌套对象格式化后按行展示；输入为空时继续显示 `no input`。1200 字符预算按字段均分并在字段内明确标记截断，避免超出平台展示预算，也不会退化为只剩字段名。
+- 保留既有 interactive card 按钮、owner 校验、拒绝原因、内部 IM / 飞书 first-wins 和 resolved card 更新路径，不修改权限请求协议或状态机。
+- 把原先强制隐藏 values 的单测改为验证任意工具的参数被渲染为原生 `div.fields`，路径、命令和哨兵值均出现在 pending / denied card 中，且不再出现整段 JSON 外壳。
+
 ## 验证
+
+- Red：在旧实现上运行 `test_permission_cards_show_tool_input_values`，断言 `cat ~/.ssh/id_rsa`、`.gitconfig` 和 `secret-token-value` 可见；测试按预期失败，实际卡片仅含 `3 parameters: command, path, token`。
+- Green：最终通用字段实现运行飞书审批 focused test 与权限 pipeline，共 `7 passed`；扩大到 `tests/unit/test_feishu_*.py` 和权限 pipeline，共 `78 passed`。
+- 静态检查：相关 Python 文件 `ruff check` 通过，`git diff --check` 通过。
+- 真实入口：通过 `scripts/e2e-up.sh --feishu` 启动隔离 IM + Gateway，并由专用测试用户向专用测试 Bot 发送 `edit` 请求。飞书实际返回 `interactive` 审批卡，Input 以 `path`、`oldText`、`newText` 三个独立字段展示，值分别为 `.gitconfig`、`value = before`、`value = BUGFIX526-E2E-FIELD-LAYOUT-4`，且三个审批按钮仍在；桌面端视觉检查确认短字段两列排布、长字段换行展示。未点击批准，隔离文件仍为 `value = before`。取证见 [`M1-fix/evidence/feishu-approval-input.md`](M1-fix/evidence/feishu-approval-input.md)。
