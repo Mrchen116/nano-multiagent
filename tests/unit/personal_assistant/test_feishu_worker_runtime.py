@@ -77,10 +77,10 @@ def _crash_worker(_context: FeishuWorkerProcessContext) -> None:
     os._exit(17)
 
 
-def _exit_before_worker_bootstrap() -> None:
-    """Exit a real spawned child without touching the runtime ready Event."""
+def _exit_before_worker_bootstrap(exit_time) -> None:
+    """Record child readiness, then exit without touching the runtime ready Event."""
 
-    return None
+    exit_time.value = time.monotonic()
 
 
 def _process_birth(pid: int) -> str | None:
@@ -280,9 +280,10 @@ def test_listener_startup_budget_is_independent_from_short_shutdown_join() -> No
 
 
 def test_pre_ready_spawn_exit_fails_before_full_startup_budget() -> None:
-    """A dead bootstrap child is observed without waiting the whole 5 seconds."""
+    """A dead bootstrap child is observed promptly after the child exits."""
 
     mp = multiprocessing.get_context("spawn")
+    child_exit_time = mp.Value("d", 0.0)
     runtime = FeishuWorkerRuntime(
         app_id="cli_pre_ready_exit",
         app_secret="secret",
@@ -291,18 +292,21 @@ def test_pre_ready_spawn_exit_fails_before_full_startup_budget() -> None:
         on_status=lambda _status: None,
         worker_target=_listener_worker,
         multiprocessing_context=mp,
-        startup_timeout=5,
+        startup_timeout=30,
         join_timeout=0.2,
     )
     # Keep the runtime's real spawn context and IPC resources, but make the
     # spawned process exit before _worker_bootstrap can set ready_event.
-    runtime._process = mp.Process(target=_exit_before_worker_bootstrap)  # noqa: SLF001
-    started = time.monotonic()
+    runtime._process = mp.Process(  # noqa: SLF001
+        target=_exit_before_worker_bootstrap,
+        args=(child_exit_time,),
+    )
 
     with pytest.raises(RuntimeError, match="did not initialize"):
         runtime.start()
 
-    assert time.monotonic() - started < 4
+    assert child_exit_time.value > 0
+    assert time.monotonic() - child_exit_time.value < 2
     assert runtime.is_alive is False
 
 
