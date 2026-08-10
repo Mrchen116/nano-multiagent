@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Agent Capabilities Specification
 
-> 对齐: feat-519
+> 对齐: feat-517
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -381,3 +381,21 @@ PA Agent 的 Skill 配置必须区分“按当前可发现集合默认使用”�
 - **GIVEN** config 某模型条目把 `context_window` 写成非正整数
 - **WHEN** 运维者用该模型经 Gateway 跑对话
 - **THEN** Gateway 不崩溃,按未声明处理回退内核默认上限
+
+### Requirement: Workflow 是 Agent 可选且默认关闭的完整能力
+
+#### Scenario: 能力列表提供 Workflow
+- **WHEN** IM 查询节点或 Agent 可选工具
+- **THEN** Gateway 报告 `Workflow` 为可选择、默认关闭的工具，并提供描述
+
+#### Scenario: 保存启用 Workflow
+- **WHEN** 用户把 `Workflow` 加入 Agent tool allowlist 并保存成功
+- **THEN** Agent 的下一轮完整采用 Workflow tool、prompt、commands 与 ultracode 入口
+
+#### Scenario: 保存禁用 Workflow
+- **WHEN** 用户从 Agent tool allowlist 移除 `Workflow` 并保存成功
+- **THEN** Agent 的下一轮完整移除相同能力，不保留 hidden Workflow prompt
+
+#### Scenario: 运行中配置更新
+- **WHEN** Agent 正在回复或已启动 Workflow 时保存新的 Workflow 工具选择
+- **THEN** 当前整轮及其 Workflow 保持启动时配置，下一轮整体采用新配置
