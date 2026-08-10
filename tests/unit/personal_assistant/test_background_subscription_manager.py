@@ -63,6 +63,101 @@ def _request(session_id: str = "sess-bg") -> BackgroundSubscriptionRequest:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("event_before_subscribe", [True, False])
+async def test_marked_skill_routes_by_subscription_agent_before_or_after_terminal(
+    event_before_subscribe: bool,
+) -> None:
+    """Fast replay and slow live review use the same persistent config-sync owner."""
+    kernel = _QueuedKernel()
+    received: list[tuple[str, str]] = []
+    delivered = asyncio.Event()
+    loop = asyncio.get_running_loop()
+
+    def _handle(agent_id: str, event: Mapping[str, object]) -> None:
+        received.append((agent_id, str(event["name"])))
+        loop.call_soon_threadsafe(delivered.set)
+
+    manager = BackgroundSubscriptionManager(
+        kernel=kernel,
+        skill_created_handler=_handle,
+    )
+    event = {
+        "event": "skill_created",
+        "name": "review-skill",
+        "source": "self_evolution",
+        "sequence_num": 8,
+    }
+    if event_before_subscribe:
+        await kernel.events.put(event)
+    outcome = await manager.ensure_after_foreground_terminal(
+        BackgroundSubscriptionRequest(
+            session_id="sess-bg",
+            after_sequence=7,
+            reply_context=None,
+            agent_id="agent-a",
+        )
+    )
+    if not event_before_subscribe:
+        await kernel.events.put(event)
+
+    await asyncio.wait_for(delivered.wait(), timeout=1)
+
+    assert outcome.value == "started"
+    assert received == [("agent-a", "review-skill")]
+    await kernel.events.put(None)
+    await manager.aclose(asyncio.get_running_loop().time() + 1)
+
+
+@pytest.mark.asyncio
+async def test_existing_subscriber_keeps_single_skill_owner_on_later_turn() -> None:
+    """A later foreground terminal reuses the live subscriber without a second owner."""
+    kernel = _QueuedKernel()
+    received: list[tuple[str, str]] = []
+    delivered = asyncio.Event()
+    loop = asyncio.get_running_loop()
+
+    def _handle(agent_id: str, event: Mapping[str, object]) -> None:
+        received.append((agent_id, str(event["name"])))
+        loop.call_soon_threadsafe(delivered.set)
+
+    manager = BackgroundSubscriptionManager(
+        kernel=kernel,
+        skill_created_handler=_handle,
+    )
+    request = BackgroundSubscriptionRequest(
+        session_id="sess-bg",
+        after_sequence=7,
+        reply_context=None,
+        agent_id="agent-a",
+    )
+    await manager.ensure(request)
+    outcome = await manager.ensure_after_foreground_terminal(
+        BackgroundSubscriptionRequest(
+            session_id="sess-bg",
+            after_sequence=30,
+            reply_context=None,
+            agent_id="agent-a",
+        )
+    )
+    await kernel.events.put(
+        {
+            "event": "skill_created",
+            "name": "later-review-skill",
+            "source": "self_evolution",
+            "sequence_num": 31,
+        }
+    )
+
+    await asyncio.wait_for(delivered.wait(), timeout=1)
+
+    assert outcome.value == "already_active"
+    assert kernel.calls == [("sess-bg", 7)]
+    assert received == [("agent-a", "later-review-skill")]
+    await kernel.events.put(None)
+    await manager.aclose(asyncio.get_running_loop().time() + 1)
+
+
+@pytest.mark.asyncio
 async def test_manager_ensures_once_replays_anchor_and_builds_stable_dedupe_key() -> (
     None
 ):
