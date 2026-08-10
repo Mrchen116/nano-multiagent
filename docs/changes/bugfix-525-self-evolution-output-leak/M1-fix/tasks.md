@@ -56,3 +56,18 @@ Prototype / Reference Contract：N/A。
 - 状态: DONE
 - 步骤: 运行 Ruff、diff/doc checks 与比例扩大测试；回填 `progress.md` 和 `fix.md` 修复/验证。
 - 验证: 所有计划门禁通过，文档含生产证据 locator、红绿测试与残余风险。
+
+## Reviewer fix fast-lane（2026-08-10）
+
+本轮复用 M1 的实现边界与记录，不新增设计 milestone；`change-impl-worker` §3 省略，
+因为 reviewer 已给出单点阻塞 finding，且本 worker 保有原 milestone 的完整上下文。
+
+- [x] 把 blanket no-op 修正为 self-evolution side-chain 业务事件白名单：仅
+  `skill_created` 转发给父 publisher，raw assistant/tool/turn 仍隔离。
+- [x] 新增真实 `skill_manage(create)` integration path，同时断言 skill 落盘、
+  `skill_created` 可见、raw side-chain 输出不可见。
+- [x] fake LLM 改为受控请求序号与结构化 role/tool-call 状态驱动，不依赖 review
+  prompt 或 tool-result 人类可读文案。
+- [x] 删除 integration collector 上的 tautological exact-one 断言；exact-once 继续由
+  跑完整 handler 的 `TestSessionEventPublish.test_event_published_after_fork` 所有。
+- [x] focused、完整非 E2E、Ruff、docs-check 与 diff check 通过。

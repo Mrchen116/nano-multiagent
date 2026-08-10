@@ -67,6 +67,40 @@
 - Commits: `de432ddd1`
 - Next: rebase 到最新 `origin/unit/bugfix-525`，复跑 focused gate，合并并推送 unit branch。
 
+## Reviewer fix fast-lane — 保留 skill activation 业务事件
+
+- Pre-fix head: `9b0d0d59ef02d9f8530f254fadc07ad2eb8e7360`。
+- Mode: reviewer 单点 fix，复用 M1 records；省略 `change-impl-worker` §3，不创建新设计 milestone。
+- Context: 原修复把 fork publisher 整体换成 no-op，因此 realtime hook 在成功
+  `skill_manage(create)` 后顺序产生的 `tool_end` 与 `skill_created` 都被丢弃。Gateway
+  observer 是调用 `AgentConfigSync.handle_skill_created()` 的唯一生产路径，丢失该业务
+  事件会使显式 allowlist 与 session refresh 不发生。
+- Decision: 在 `make_fork_conversation()` 派生边界安装显式 self-evolution 业务事件
+  allowlist，只转发 `skill_created`；assistant/tool/turn 等普通 realtime 事件不得加入该
+  allowlist。父 background hook 仍独立发布 `self_evolution_review`，普通
+  `RunOrigin.BACKGROUND_TASK` subscriber 路由不变。
+- Test hardening: `_SelfEvolutionLLM` 按受控 agent request 序号推进，并以
+  assistant tool call + tool role/call-id 验证 follow-up 结构；tool-less classifier request
+  也按结构识别，不再复制内部 prompt 或 tool-result 文案。integration collector 只证明
+  structured notice 到达；exact-once 继续由完成整个 `self_improvement` handler 后执行
+  `publisher.assert_called_once()` 的既有 unit test 所有。
+- Red evidence:
+  - `/Users/czj/Repos/nano-multiagent/.venv/bin/pytest -q tests/integration/test_self_evolution_output_visibility.py tests/unit/test_background_hook_fork.py::test_fork_inherits_parent_execution_context -vv`
+    → memory path passed；skill path 与 fork unit 均失败于 `skill_created` 数量为 0。
+- Green evidence:
+  - 同一最窄命令 → `3 passed in 2.32s`。
+  - affected self-evolution / realtime / Gateway observer + config-sync suites →
+    `90 passed, 2 warnings in 20.07s`。
+  - 完整非 E2E `pytest -q -m 'not e2e'` →
+    `3183 passed, 26 deselected, 22 warnings in 379.60s`。
+- Durable effects: memory `USER.md` 与新建 skill `SKILL.md` 都真实落盘；skill path 的父
+  stream 恰好收到一个含 parent run id 的 `skill_created`，不含 fork 的 raw
+  `skill_manage` tool events 或 `Saved: ...` assistant completion。
+- Commit: `2ecdd1cc4`。
+- Residual risk: 业务事件白名单是显式集合；未来若 self-evolution 新增另一种必须驱动
+  产品状态的业务事件，需要同时扩展 allowlist 与真实 side-chain regression，不能通过
+  放开普通 realtime 事件解决。
+
 ## Promotion Candidates
 
 None.

@@ -57,12 +57,14 @@ Saved: user expects reference behavior to be verified before proposing or implem
 
 ## 修复
 
-在 self-evolution fork 的既有 `make_fork_conversation()` HookContext 派生边界隔离
+在 self-evolution fork 的既有 `make_fork_conversation()` HookContext 派生边界过滤
 `session_event_publisher`：fork 仍保留父 run 的模型调用能力、workspace execution
-scope、tool registry、permission requester 与 `background_task` unattended 语义，但其
-内部 realtime assistant/tool/turn events 写入 no-op publisher，不再复用父 session 的
-Gateway delivery publisher。fork 返回后，`self_improvement` 仍使用父 background hook
-context 发布唯一一条结构化 `self_evolution_review`。
+scope、tool registry、permission requester 与 `background_task` unattended 语义；其
+内部 realtime assistant/tool/turn events 不再进入父 session，但成功
+`skill_manage(create)` 产生的 `skill_created` 作为显式业务事件白名单继续转发给父
+publisher，使 Gateway `AgentConfigSync.handle_skill_created()` 仍能启用显式 skill
+allowlist 并刷新相关 session。fork 返回后，`self_improvement` 仍使用父 background hook
+context 发布结构化 `self_evolution_review`。
 
 没有按 `RunOrigin.BACKGROUND_TASK` 做全局过滤；普通后台 Agent assistant result 的既有
 Gateway subscriber 路由保持不变。
@@ -70,6 +72,7 @@ Gateway subscriber 路由保持不变。
 修复提交：
 
 - `de432ddd1` — 隔离 self-evolution raw session events，并补真实 Kernel fork integration regression 与继承不变量断言。
+- `2ecdd1cc4` — reviewer fix：把 blanket no-op 收窄为仅转发 `skill_created` 的 side-chain 业务事件白名单；新增真实 skill-create 回归并加固受控 LLM driver。
 
 ## 验证
 
@@ -80,21 +83,22 @@ Gateway subscriber 路由保持不变。
 - `/var/folders/mf/fxm1x6xs7pbf34h6rnmvjz1c0000gn/T/codex-clipboard-ea146fbc-d9d7-41d9-aded-947376fc38e4.png` 显示该 raw completion 成为正常回答后的独立 Agent 气泡。
 
 永久 regression `tests/integration/test_self_evolution_output_visibility.py` 从 public Kernel
-SDK 入口创建真实 session、提交两个前台 turn 触发阈值，再让真实 self-improvement
-background hook 运行两轮 fork：第一轮真执行 `memory(add)`，第二轮生成生产同形态的
-`Saved: ...`。修前该测试稳定红在 session stream 同时出现 foreground answer 与 raw
-`Saved: ...`；修后同一路径通过，并同时证明：
+SDK 入口创建真实 session，并分别驱动 memory review 与 skill review。fake LLM 只按受控
+请求状态及 assistant tool-call / tool-result 结构推进，不匹配内部 prompt 或工具结果文案。
+memory 路径真执行 `memory(add)`；skill 路径真执行 `skill_manage(create)`；两条路径随后都
+生成生产同形态的 `Saved: ...`。修后同时证明：
 
 - workspace `USER.md` 确实写入 sentinel，memory side effect 未丢失；
 - 四次模型调用（两个前台、两轮 review）都使用父 session 的 `test-model`；
 - 父 session event stream 不含 review assistant、memory `tool_start/tool_end` 或额外 `turn_end`；
-- stream 仍有正常 foreground answer，且恰好一条 completed `self_evolution_review`；
+- skill 文件真实落盘，父 stream 收到一条 `skill_created`，且不含对应 raw `tool_start/tool_end` 或 assistant completion；
+- stream 仍有正常 foreground answer 与 completed `self_evolution_review`；结构化通知的 exact-once owner 由跑完整 handler 边界的 `TestSessionEventPublish.test_event_published_after_fork` 以 `assert_called_once()` 保护；
 - 既有 `test_bg_subscriber_routes_background_task_assistant_message_to_callback` 继续通过，普通 background Agent result 未被抑制。
 
 门禁结果：
 
-- focused self-evolution / fork / realtime / Gateway observer suites：`52 passed`；
-- 完整非 E2E：`3182 passed, 26 deselected`；
+- reviewer-fix focused self-evolution / fork / realtime / Gateway observer/config-sync suites：`90 passed`；
+- 完整非 E2E：`3183 passed, 26 deselected`；
 - Ruff：全仓 check 通过，`876 files already formatted`；
 - docs-check：`217 maintained Markdown sources, 67 required routes`；
 - `git diff --check`：通过。
