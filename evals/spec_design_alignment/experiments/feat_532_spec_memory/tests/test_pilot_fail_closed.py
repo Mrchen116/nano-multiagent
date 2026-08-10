@@ -89,6 +89,9 @@ def test_role_attestation_canonicalizes_nested_visible_file_order(
     (boundary / ".role-context-canary").write_text("blocked\n", encoding="utf-8")
     (workspace / "documents").mkdir()
     (workspace / "documents/doc-0001.txt").write_text("doc\n", encoding="utf-8")
+    (workspace / "PROGRESS").mkdir()
+    (workspace / "PROGRESS/M100.md").write_text("nested\n", encoding="utf-8")
+    (workspace / "PROGRESS.md").write_text("root\n", encoding="utf-8")
     (workspace / "scheme.json").write_text("{}\n", encoding="utf-8")
     environment = {
         "PATH": os.environ["PATH"],

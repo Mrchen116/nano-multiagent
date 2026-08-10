@@ -377,7 +377,9 @@ def ensure_distinct_roots(workspace: Path, artifacts: Path) -> None:
 def visible_file_manifest(root: Path) -> list[dict[str, str]]:
     """List ordinary role-visible files, excluding Git metadata."""
     entries: list[dict[str, str]] = []
-    for path in sorted(root.rglob("*")):
+    for path in sorted(
+        root.rglob("*"), key=lambda candidate: candidate.relative_to(root).as_posix()
+    ):
         relative = path.relative_to(root)
         if (
             not path.is_file()
