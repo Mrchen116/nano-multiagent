@@ -75,3 +75,92 @@ N/A.
 - None.
 
 All checks passed. Ready for PR.
+
+---
+
+# Round 2 — fix-delta verification
+
+> Validation snapshot: `30a701a522f52ef337141806c39fa3848b93358e → 874f0af6c70d721a39fc1e41d828ffba4ae8a42f`
+
+> Review mode: delta, with final-state mapping of the approved incident, design, M1/M2 exits, and three delta-specs.
+
+## Summary
+
+Mode: delta
+
+Delta range: `830c0aa67b60638df10630823bf7af12665b5556..874f0af6c70d721a39fc1e41d828ffba4ae8a42f`
+
+Focus issues: concurrent `skill_created` reconciliation, partial-start cleanup, replacement interpreter, and external-cwd runner invocation.
+
+requires_full_verification: false
+
+| Dimension | Result |
+|---|---|
+| Completeness | 5/5 M1 exits and 6/6 M2 exits remain implemented; all 3 incident Requirements and 5 incident Scenarios map to current code plus permanent evidence. |
+| Correctness | The RLock fixes the only identified lost-update window without changing source classification, default discovery, explicit-empty semantics, or global-scope selection. M2 remains a test/harness-only change. |
+| Coherence | Followed: D1--D5, the three delta-specs, current capability/routing contracts, test placement rules, worktree-runtime isolation, and package import boundaries. |
+
+## Final-state requirement and scenario mapping
+
+| Approved requirement / scenario | Current implementation | Permanent evidence | Status |
+|---|---|---|---|
+| Private self-evolution raw output; successful memory update still reaches only the structured result | `context_fork.py:18-36,200-290` makes raw fork assistant/tool/turn events private only under the explicit policy; `self_improvement.py:219-256` keeps the structured review result. | Kernel public-stream and real-memory coverage remains in `test_self_evolution_output_visibility.py`; the M2 real-stack runner includes the same private-delivery boundary. | covered |
+| No-save or failure does not produce a raw bubble or change foreground completion | The allowlist is event-kind based, never a `Saved:`/`Nothing to save.` content filter (`context_fork.py:18-36`); hook failures return after logging (`self_improvement.py:219-231`). | `test_no_save_review_stays_private_after_foreground_completion:130-207` observes `delivery_status=completed`, fixture-owned `no_save_review_completed`, exactly two foreground Agent messages, zero raw/error text, and one structured notice through IM's public relay. | covered |
+| New self-evolution Skill is private but becomes usable after foreground terminal | Marked `skill_created` is forwarded with source (`context_fork.py:29-35`), then handled by the persistent manager and existing config-sync owner (`background_subscriptions.py:215-231`, `agent_config_sync.py:1006-1106`). | `test_terminal_late_skill_create_replays_and_activates_in_a_new_session:65-215` proves the real create, IM explicit allowlist update, workspace Skill, one structured notice, no raw bubble, and real next-session `skill_view` persisted in the IM Agent message `tool_calls`. | covered |
+| Terminal/manager handoff, later turns, and reconnect/replay neither lose nor duplicate activation | Subscriber advances its cursor before dispatch and reconnects from it (`background_session_events.py:180-282`); manager admission is once per session (`background_subscriptions.py:92-122,233-253`); the per-run observer fail-closed skips the marked event (`runtime_delivery/observer.py:524-538`). | The real-stack journey forces one disconnect before marked-event yield and asserts one same-sequence replay and one notice (`test_self_evolution_skill_activation_critical_path.py:119-174`); focused subscriber/manager matrix passed. | covered |
+| Ordinary non-self-evolution `BACKGROUND_TASK` output stays user-visible | The `assistant_message`/`background_task` relay branch remains prior to special self-evolution routing (`background_session_events.py:197-239`), with its existing reply/dedupe path intact. | `test_background_session_events.py` and `test_background_subscription_manager.py` passed in the focused matrix; Round 1 product evidence remains applicable because this delta does not alter that branch. | covered |
+
+The three delta-specs are therefore met: Kernel exposes only source-marked business events and the structured review (`specs/kernel/runs.md:5-22`); Gateway keeps raw/no-save/failure private while preserving ordinary background delivery (`specs/gateway/routing-delivery.md:5-25`); and terminal/replay config reconciliation preserves default versus explicit mode (`specs/gateway/agent-capabilities.md:5-21`).
+
+## Design and milestone exit mapping
+
+| Decision / exit | Verification |
+|---|---|
+| D1 and M1 policy exit: generic forks default to `inherit`; only self-improvement opts in; unknown policy rejects | `fork_conversation(... event_policy="inherit")` and its validation are at `context_fork.py:200-227`; the only self-improvement invocation is explicit at `self_improvement.py:219-225`. The 76-test M1 matrix covers generic inherit, opt-in source filtering, and caller selection. |
+| D2 and M1 owner exit: a source-marked Skill has one session-lifetime owner | The observer skips only source-marked `skill_created` (`observer.py:524-531`); manager executes the injected handler on its persistent subscription (`background_subscriptions.py:215-231`). Existing foreground Skill ownership and ordinary background output remain separate. |
+| D3 and M1 reuse exit: no new config mutation path | Production composition obtains one existing bound `IMAgentConfigSync.handle_skill_created` and passes it to both owner sites (`composition.py:466-506`). The subscriber only calls it with `asyncio.to_thread`; it does not alter YAML/IM data itself. |
+| D4 and M1 replay exit: cursor + single owner + existing convergence | Cursor update precedes all callbacks (`background_session_events.py:192-195`), admission is ensure-once, and config-sync retains its existing mode-aware convergence. M2's forced same-sequence replay verifies the real transport seam rather than only an event list. |
+| D5 and M1 cross-boundary exit | `test_self_evolution_gateway_skill_sync.py:115-168` runs a real Kernel review through `BackgroundSubscriptionManager` into `IMAgentConfigSync`, waiting for completion of the actual worker-thread handler before asserting catalog revision and durable Skill state. M2 raises this to isolated IM + production Gateway + public relay. |
+| M2 no-save, Skill/replay, next-session, single-command, and cleanup exits | `scripts/e2e-self-evolution.sh:6-44` creates a worktree-local runtime, uses the current worktree, and removes only its guarded prefix. Independent external-cwd execution completed `2 passed in 86.05s` and printed its cleanup confirmation. |
+| M2 review-fix exits: partial start, interpreter, external cwd | `_cleanup_stub_stack()` always runs `e2e-down.sh` then terminates/reaps the stub (`test_agent_config_context_continuity_critical_path.py:205-225`); `restart_gateway()` uses `sys.executable` for both entrypoint shapes (`_im_gateway.py:100-108`); absolute common-dir resolution is at runner line 8. Their focused lifecycle, interpreter, and invocation tests passed. |
+
+### Concurrent skill reconciliation review
+
+`IMAgentConfigSync` already owns the shared reentrant `_operation_lock` (`agent_config_sync.py:242-246`). The delta holds that same `RLock` across validation, profile fetch, merge, optimistic PATCH, durable persistence, and catalog publication (`:1006-1106`, `:1384-1406`). Consequently a second `skill_created` observes the first committed profile rather than PATCHing the same old version. It does not add a caller-specific lock or a new queue.
+
+`test_concurrent_skill_created_events_merge_into_one_explicit_allowlist:708-808` deliberately holds the first GET at profile version 1 while another owner enters. The final persisted and live allowlist is exactly `old-skill, skill-a, skill-b`; that test passed as part of the 31-test config-sync group. Because the locked methods do not reacquire this lock, a plain lock would also suffice locally; retaining the pre-existing `RLock` preserves the class's established reentrant config-operation contract and introduces no lock-order inversion. The lock serializes its synchronous IM transaction by design, so it avoids the observed concurrent optimistic-write loss rather than silently retrying or dropping an activation.
+
+Mode and scope semantics remain unchanged inside the protected transaction: default discovery only republishes (`agent_config_sync.py:1067-1072`); explicit mode merges missing names and preserves `skills_selection_mode` in the PATCH (`:1079-1151`); agent roots/scope are validated (`:1026-1040`); global events traverse all configured Agents (`:1041-1055`). Existing tests passed for global scope/default/explicit-empty (`test_gateway_im_config_sync.py:467-604,895-934`) and agent scope isolation (`:606-705`). This conforms to `docs/specs/gateway/agent-capabilities.md:333-364`, including the explicit-empty no-fallback contract.
+
+## Quality, architecture, and isolation checks
+
+- Test layering is non-duplicative under `docs/development/testing.md`: config mutation race lives in its existing config-sync unit owner; the integration test covers the actual Kernel -> manager -> config-sync seam; the two E2E tests cover only isolated real-process/public-relay risks. Fixture and lifecycle helpers are reused from their existing critical-path owner rather than copied.
+- The only changed production file in this delta is `src/personal_assistant/gateway/agent_config_sync.py`; runner/fixture/lifecycle/interpreter/path changes reside in `scripts/` or `tests/`. Thus M2 does not change the user-facing Kernel/Gateway/IM product contract.
+- `tests/contract/test_cli_sdk_only_contract.py`, `test_core_no_platform_imports.py`, `test_platform_no_sdk_imports.py`, and `test_bg_origin_constant_contract.py`: **7 passed**. The delta adds no `IM -> agent`, product-to-product, or product-to-`agent.core`/`agent.platform` import.
+- `docs/development/worktree-runtime.md` isolation is honored: the runner passes its own guarded `--basetemp`, uses isolated IM/Gateway/fixture processes, and the independent run left no `.e2e-self-evolution.*` directory.
+- Coding guidance is met: the concurrency comment explains the optimistic-version invariant, and new/revised public helper docstrings state cleanup or interpreter behavior rather than restating syntax.
+
+## Verification evidence
+
+- Config-sync concurrency/default/scope + completion-boundary + runner/interpreter regressions: **31 passed in 4.63s**.
+- M1 fork/hook/subscriber/manager/observer/composition/Kernel integration matrix: **76 passed, 2 warnings in 15.25s**.
+- Independent M2 external-cwd real-stack command: `PYTHON=.../.venv/bin/python /absolute/path/scripts/e2e-self-evolution.sh` from a temporary external directory: **2 passed in 86.05s**; runtime cleanup confirmed.
+- Partial-start cleanup E2E: **1 passed in 5.27s**. Architecture contracts: **7 passed in 4.88s**.
+- `ruff check .`: passed. `scripts/docs-check`: passed (`228` maintained Markdown sources / `67` routes). `git diff --check 830c0aa67..874f0af6c`, full unit diff check, and `bash -n scripts/e2e-self-evolution.sh`: passed.
+- A final full non-E2E run on this exact head was already recorded by the implementation owner as **3197 passed, 29 deselected, 22 warnings in 391.28s**. This verifier did not repeat that 6.5-minute suite because the scoped independent matrix above exercised every changed runtime/test/harness seam.
+
+## Issues
+
+### CRITICAL
+
+- None.
+
+### WARNING
+
+- None.
+
+### SUGGESTION
+
+- None.
+
+Verdict: **pass**. No delta introduces a condition requiring full re-verification.
