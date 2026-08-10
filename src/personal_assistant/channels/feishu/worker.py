@@ -316,8 +316,15 @@ class FeishuWorkerRuntime:
             self._process.start()
             self._started = True
             try:
-                if not self._ready_event.wait(self._startup_timeout):
-                    raise RuntimeError("feishu worker did not initialize")
+                startup_deadline = time.monotonic() + self._startup_timeout
+                while True:
+                    remaining = startup_deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise RuntimeError("feishu worker did not initialize")
+                    if self._ready_event.wait(remaining):
+                        break
+                    if not self._process.is_alive():
+                        raise RuntimeError("feishu worker did not initialize")
                 threads = (
                     threading.Thread(target=self._event_loop, daemon=True),
                     threading.Thread(target=self._status_loop, daemon=True),

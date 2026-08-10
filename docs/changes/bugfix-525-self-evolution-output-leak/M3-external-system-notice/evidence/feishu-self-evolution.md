@@ -27,7 +27,7 @@ PATH="/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH" ./scripts/e2e-feishu-sel
 
 ## 启动 blocker 与清理
 
-- 首次真栈暴露稳定 baseline blocker：macOS spawn child 在 `_worker_bootstrap` 前导入 lark SDK，超过原先 `max(5, join_timeout)` 的初始化等待。红测观察 short shutdown join 只得到 5 秒 startup budget；修复后 startup 独立为 30 秒，退出 join timeout 不变，focused worker regression 通过。
+- 首次真栈暴露稳定 baseline blocker：macOS spawn child 在 `_worker_bootstrap` 前导入 lark SDK，超过原先 `max(5, join_timeout)` 的初始化等待。红测观察 short shutdown join 只得到 5 秒 startup budget；修复后 startup 独立为 30 秒，退出 join timeout 不变。后续 full 另证明 `multiprocessing.Event.wait(timeout)` 可在 deadline 前返回 `False`，因此同一 30 秒预算由 monotonic deadline loop 完整消费，child 已退出则提前失败；focused worker regression 与 final full 均通过。
 - 重复验收时发现固定 Skill 名已由上一轮真实创建，新的 `create` 因无实际写入而被 production true-receipt 门禁正确静默。fixture control 改为按本轮 nonce 提供唯一 Skill 名后，重新跑通同一真栈；这只修复 harness 的可重复性，不改变生产事件分类。no-save/失败的 shadow 负面断言也在本轮直接通过。
 - journey harness 只在 worktree 中改写生成的 Gateway config、重置其 session binding、启动受控 fixture；使用 production Gateway/Feishu adapter/IM relay/config-sync 和 external sender，不写用户配置。
 - `e2e-down.sh` 后观测：IM PID stopped、Gateway PID stopped、IM port closed、Feishu listener lock removed、controlled fixture stopped；运行期 PID/config/log/LLM record 未提交。

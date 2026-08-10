@@ -248,9 +248,14 @@ def test_listener_startup_budget_is_independent_from_short_shutdown_join() -> No
         join_timeout=0.2,
     )
     ready_event = runtime._ready_event
-    runtime._ready_event = SimpleNamespace(
-        wait=lambda timeout: observed_timeouts.append(timeout) or ready_event.wait(30)
-    )
+
+    def wait_with_early_false(timeout: float) -> bool:
+        observed_timeouts.append(timeout)
+        if len(observed_timeouts) == 1:
+            return False
+        return ready_event.wait(timeout)
+
+    runtime._ready_event = SimpleNamespace(wait=wait_with_early_false)
 
     runtime.start()
     try:
@@ -258,7 +263,9 @@ def test_listener_startup_budget_is_independent_from_short_shutdown_join() -> No
     finally:
         report = runtime.stop(drain=True)
 
-    assert observed_timeouts == [30.0]
+    assert 29.0 < observed_timeouts[0] <= 30.0
+    assert len(observed_timeouts) == 2
+    assert 0 < observed_timeouts[1] <= 30.0
     assert report.joined
 
 

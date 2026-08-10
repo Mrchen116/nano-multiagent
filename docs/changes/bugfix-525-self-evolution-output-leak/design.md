@@ -5,7 +5,7 @@
 
 ## Changelog
 
-- 2026-08-10: M3 implementation-enabling side finding: 专用真飞书 acceptance 在 macOS spawn 导入 lark SDK 时稳定超过原先与 shutdown `join_timeout` 耦合的 5 秒初始化等待。批准将 Feishu worker 的 startup wait 独立为 30 秒，退出 join timeout 与 M1/M3 事件/投递语义保持不变；同时新增 worktree-local 受控 LLM + production Gateway journey。
+- 2026-08-10: M3 implementation-enabling side finding: 专用真飞书 acceptance 在 macOS spawn 导入 lark SDK 时稳定超过原先与 shutdown `join_timeout` 耦合的 5 秒初始化等待。批准将 Feishu worker 的 startup wait 独立为 30 秒，并用 monotonic deadline loop 防止 `Event.wait` 提前 `False` 消耗不足；退出 join timeout 与 M1/M3 事件/投递语义保持不变，同时新增 worktree-local 受控 LLM + production Gateway journey。
 - 2026-08-10: Design Review Round 5 补齐 shared Kernel event 的 Coding CLI 消费者：新增最窄 CLI delta 与成功更新/无写入两条 terminal outcome regression；不改变 true-receipt 或 trace architecture。
 - 2026-08-10: Design Review Round 4 把 notice 语义收敛为真实 update receipt：只有返回结果中至少一条 mutating memory/skill tool call 成功时才发布 `self_evolution_review`；no-save、只有读取/列举、写入失败均静默，`completed=False` 只要已有成功写入仍按真实更新通知。补 Kernel MODIFIED delta，Gateway/IM 继续使用既有 `updated_targets` schema/UI。
 - 2026-08-10: Design Review Round 3 修正三处承重问题：notice 通过 originating trace 关联本轮 `ReplyContext`，不读持久 subscriber 的旧 binding；active delta 相对 current canonical 重建；no-save 与失败结果分开验收。
