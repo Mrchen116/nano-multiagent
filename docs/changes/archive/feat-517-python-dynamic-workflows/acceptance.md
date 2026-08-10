@@ -399,3 +399,68 @@ Round 2 已完成的 Workflow desktop/mobile must-match evidence 继续有效；
 ## Recommended Next Step
 
 `pass`。可以进入 unit 收尾、canonical spec 归并与 PR/CI；无需再做 LLM 规模验收。
+
+---
+
+# Round 4 — 2026-08-10
+
+> Targeted real multi-Agent semantic follow-up
+
+> Validated at: `ce95a7f23d85ae0c67882aa789622ee69dc9cf17`
+
+## Verdict
+
+**pass**
+
+**Highest Required Action：`pass`**
+
+Round 3 因成本口径没有真实运行 `parallel` / `pipeline`，本轮补齐两条最小真实 coding CLI + LLM Proxy 旅程。两个 Workflow 都只派发恰好两次 child `agent()`，全部实际 parent、child 与 terminal continuation request 都使用 `codexOAuth:gpt-5.6-luna`；没有打开 Chrome、没有触碰飞书或发送外部消息。
+
+本轮证明了此前缺失的两个用户价值：`parallel` 的两个真实 LLM child 确实同时在途，且完成顺序反转时 join 仍保持声明位置；`pipeline` 的第二阶段真实 LLM request 确实收到第一阶段的原始返回、原 item 与 index，最终结果由这些值派生。
+
+## Targeted User Journeys Exercised
+
+### 1. 两 Agent `parallel` 并发与位置保持
+
+- 产品入口：隔离 workspace 下的真实 `coding_cli`；session `sess_4cfbe076412c9477`；Workflow `wf_4c7922f1ca2d44ba`。
+- 脚本只含两个 parallel thunk：位置 0 要求返回 `R4_PARALLEL_LEFT`，位置 1 要求返回 `R4_PARALLEL_RIGHT`。
+- LLM Proxy locator：`/Users/czj/Repos/LLM_PROXY/logs/session/2026-08-10_18-22-56_489_sess_4cfbe076412c9477/`。
+- 左 child request 区间：`18:23:04.197 → 18:23:16.918`；右 child request 区间：`18:23:04.266 → 18:23:13.840`。两者相隔 69ms 启动，并有约 9.574s 同时在途；右 child 先完成，左 child 后完成。
+- 真实 `/workflows wf_4c7922f1ca2d44ba` 输出显示 `Agent: 2/2 completed`，最终结果仍为 `['R4_PARALLEL_LEFT', 'R4_PARALLEL_RIGHT']`；Workflow 12.914s，child usage 合计 5,388 tokens。
+
+### 2. 单 item、两阶段 `pipeline` 传值
+
+- 产品入口：隔离 workspace 下的真实交互式 `coding_cli`；session `sess_72ae6ebff3bb5ac2`；Workflow `wf_133ee6e415085a20`。
+- stage 1 的唯一 child 返回 `R4_STAGE1_PAYLOAD`。stage 2 必须使用 `(previous, original, index)` 生成自己的 prompt。
+- LLM Proxy locator：`/Users/czj/Repos/LLM_PROXY/logs/session/2026-08-10_18-25-57_845_sess_72ae6ebff3bb5ac2/`。
+- stage-1 child request：`18:27:22.095 → 18:27:29.051`；stage-2 child request 于 `18:27:29.122` 才启动，符合逐阶段依赖。
+- stage-2 的真实 provider request 包含：`Stage one value is <R4_STAGE1_PAYLOAD>; original item is <R4_ORIGINAL>; index is <0>`。它返回 `R4_PIPELINE_FINAL[stage1=R4_STAGE1_PAYLOAD;original=R4_ORIGINAL;index=0]`。
+- 真实 `/workflows wf_133ee6e415085a20` 输出与随后 background wake 均显示最终数组 `['R4_PIPELINE_FINAL[stage1=R4_STAGE1_PAYLOAD;original=R4_ORIGINAL;index=0]']`；Workflow 13.568s，child usage 合计 5,456 tokens。
+
+## Targeted Acceptance Criteria Coverage
+
+| Scenario | Round 4 evidence | Result | Note |
+|---|---|---|---|
+| 并行汇合 | 两个 child provider request 的在途区间重叠；完成顺序为位置 1 → 位置 0；最终 join 为位置 0 → 位置 1 | pass | 真实 Luna child，不是 fake runner 或集成 stub |
+| 按 item 流水执行 | stage 2 在 stage 1 完成后启动；其 provider prompt 含 stage-1 原值、original 与 index；终态由这些值派生 | pass | 单 item、两阶段的最低成本真实语义证明 |
+
+Round 3 其他 coverage 与 issue closure 继续有效；本轮没有把分支循环、规模阈值或大批量 item 冒充为已做真实 LLM 实验。
+
+## Issues
+
+本轮没有 blocking / major / minor in-unit issue。
+
+## Side Findings
+
+- 两个 CLI session 都设置了 `NANO_MULTIAGENT_REASONING_EFFORT=low`，但实际 Anthropic request 没有显式 `output_config.effort`；因此本报告只声称并逐 request 证明了 Luna-only，不声称 wire-level explicit low。该现象不改变本轮 parallel/pipeline 语义结论。
+
+## Upper-level Documentation Sync
+
+- [x] `SPEC.md`：**无需更新**，本轮仅补验既有契约。
+- [x] `docs/specs/<包>/`：**无需追加更新**，canonical Workflow 契约已经在 Round 3 后归并。
+- [x] `AGENTS.md` / `CLAUDE.md`：**无需更新**。
+- [x] `docs/specs/CONTRIBUTING.md`：**无需更新**。
+
+## Recommended Next Step
+
+`pass`。真实 LLM 的 `parallel` 并发汇合与 `pipeline` 阶段传值验收缺口已关闭；无需追加高成本规模实验。
