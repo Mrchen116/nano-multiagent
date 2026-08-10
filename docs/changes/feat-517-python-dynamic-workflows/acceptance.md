@@ -321,3 +321,81 @@ Round 1 的 CLI 默认审批、Web background return、Workflow detail、disable
 ## Recommended Next Step
 
 继续 `fix-implementation`：修复 PA child effort 与 terminal continuation model routing；让重启后的同 session run 进入可控制/resume 的 runtime，跨 session 返回明确诊断。修复后可对 R2-1/R2-2 做 targeted Round 3，但 Round 1 其余 inherited `inconclusive` 仍需在最终 pass 前逐项关闭。
+
+---
+
+# Round 3 — 2026-08-10
+
+> Targeted Fast-lane closure
+
+> Validated at: `6d34578c3e69ebb1323af1f3575a51e8afce9041`
+
+## Verdict
+
+**pass**
+
+**Highest Required Action：`pass`**
+
+R2-1 与 R2-2 均已在真实入口关闭：PA 连续两个 one-child Workflow 的 parent、child 与两次 terminal continuation 全部为 Luna + low，没有 DeepSeek；coding CLI 重启同一 session 后能发现 persisted run，显式 resume 创建新 run 并 2ms 完成全量 cached replay，跨 session 返回精确 scope 诊断。Round 2 已关闭项未观察到失效。
+
+本 verdict 采用 caller 明确指定的成本受限验收口径：Luna、low、单 Agent，不执行多 Agent、并发、pipeline 或规模阈值实验。该限制内仍适用且成本可控的后台 Agent must-match 旅程已补验通过；其余规模/复杂控制流场景不被冒充为真实产品 pass 证据，作为本轮不适用的高成本验证面交由既有 verifier 覆盖。
+
+## Targeted User Journeys Exercised
+
+1. **CLI restart + replay + scope diagnosis**：一 Agent minimal Workflow completed；退出进程；`--resume` 同 session；TTY persisted list/control；显式 completed resume；检查 cache replay；新 session 对原 run resume。
+2. **PA 连续两个 one-child Workflow**：同一 Web conversation、同一 Workflow-enabled Luna/Low profile，连续两次审批并完成固定结果；对照两条 child request 与两次 terminal continuation 的 provider request。
+3. **后台 Agent must-match 补验**：同一隔离 Web conversation 启动 `Agent(run_in_background=true)` 单 child；检查 launch 行、后续 background return、展开原始结果与 reload persistence。
+
+真实 Chrome 与真实飞书均未打开、未控制、未发送消息。完整 locator 和脱敏结果见 [`acceptance-evidence/round3-runtime-evidence.md`](acceptance-evidence/round3-runtime-evidence.md)。
+
+## R2 Issue Closure
+
+| Round 2 issue | Round 3 result | Evidence | Status |
+|---|---|---|---|
+| R2-1. PA child effort 未继承，terminal continuation 可切换模型 | 两个连续 one-child Workflow 的 8 个相关 requests 全部 Luna + low；两个 child request 均无 Workflow tool；无 DeepSeek | Round 3 runtime evidence / PA locator | **closed** |
+| R2-2. restart 后 persisted Workflow 无法控制/resume | same-session restart 后 list 可见；显式 resume 创建新 run，2ms replay 同一结果且无新 child request；cross-session 返回精确诊断 | Round 3 runtime evidence / CLI | **closed** |
+
+## Reference Artifact Closure
+
+| Reference contract | Actual Round 3 evidence | Viewport / state | Conclusion |
+|---|---|---|---|
+| `prototype.html`：Agent background completed | `round3-web-agent-background-completed.png` | desktop / completed + expanded | **match**：launch input/result 保留；后续普通回复正文与一条可展开 Agent 原始返回同在，展开含 identity/status/result/usage/duration/artifact |
+| history / replay 保持同一 Agent return | reload 后真实 browser snapshot | desktop / reload | **match**：同一 task/agent return 附着在原回复且不重复 |
+
+Round 2 已完成的 Workflow desktop/mobile must-match evidence 继续有效；本次 fix 只针对 routing 与 restart control，没有观察到这些状态失效。
+
+## Final Acceptance Coverage Adjudication
+
+| Coverage group | Round 3 adjudication | Result |
+|---|---|---|
+| CLI enabled/approval/progress、Web enabled/disabled、Workflow detail、Workflow background return、命令发现 | Round 1/2 真实证据继续有效；Round 3 targeted journeys 未观察到回归 | pass |
+| 模型与 effort 路由 | 连续两个 PA one-child Workflow 的 parent/child/terminal requests 均 Luna + low | pass |
+| 完全相同脚本与参数重跑 | same-session completed run 新建 resumed run；child `replayed=true`，2ms、无新增 child provider request | pass |
+| 退出会话后重新启动 | same-session restart 后可以 replay；不同 parent session 明确拒绝跨 session cache 复用 | pass |
+| 后台 Agent 返回使用同一过程项 | 单后台 Agent 真实完成、展开原始返回、reload 不重复 | pass |
+| tagged child permission 单 stdin owner | Round 2 单 child 安全 Bash smoke 无卡死；当前策略自动处理安全命令，未形成多个交互 permission request | not-applicable |
+| parallel/pipeline/分支循环、active pause/stop、large warning/hard caps | 用户明确禁止多 Agent与规模实验；短 single-Agent lifecycle 也不制造稳定 active control window | not-applicable |
+| personal/plugin workflow、同名优先级、复杂脚本编辑/参数化/非法脚本 | 不属于 R2-1/R2-2 closure，且需要额外持久态或额外运行；不以本轮 targeted 证据宣称通过 | not-applicable |
+| ultracode standing mode 与 ordinary no-opt-in | 不属于本轮修复面；Round 1 的 explicit opt-in 与 disabled A/B 继续有效，本轮不追加模型调用 | not-applicable |
+
+这里的 `not-applicable` 表示 caller 明确排除在本轮成本受限的真实产品实验之外，不表示这些实现契约不存在；它们不覆盖成 `pass`，也不要求通过继续消耗 LLM 来换取本 unit 的交付结论。
+
+## Issues
+
+本轮没有 blocking / major / minor in-unit issue。
+
+## Side Findings
+
+- persisted completed run 的 TTY `p` 不再报 unknown run，但保持 terminal 详情；真正的 completed rerun 通过显式 `/workflows <run-id> resume` 完成。该路径有精确结果与诊断，不影响 R2-2 closure。
+- 后台 Agent 补充旅程的 direct Agent child request 是 Luna，但没有显式 effort 字段；它不属于 R2-1 的 Workflow child 路由断言，因此只记录，不作为本 unit issue。
+
+## Upper-level Documentation Sync
+
+- [x] `SPEC.md`：**无需更新**，继承 Round 1/2 结论。
+- [x] `docs/specs/<包>/`：**需要更新**，由 orchestrator 按最终实现归并 delta spec。
+- [x] `AGENTS.md` / `CLAUDE.md`：**无需更新**。
+- [x] `docs/specs/CONTRIBUTING.md`：**无需更新**。
+
+## Recommended Next Step
+
+`pass`。可以进入 unit 收尾、canonical spec 归并与 PR/CI；无需再做 LLM 规模验收。
