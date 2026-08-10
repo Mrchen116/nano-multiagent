@@ -302,3 +302,68 @@ Outcome: **aligned**.
 - None.
 
 All checks passed. Ready for PR.
+
+---
+
+# Round 5 — code-review fix delta verification
+
+> Validation range: `16397bbad69978198a89ad8bb3ea87e8d8b2ab59..a2a180535271d9a27fca9f84360b8c7943849ad9`
+
+## Summary
+
+Mode: delta
+
+Focus issues: F1 cron/heartbeat persistent owner、F2 external sender offload、F3 shared config mutation lock、F4 Feishu startup fail-fast、F5 subscriber callback envelope。
+
+requires_full_verification: false
+
+| Dimension | Result |
+|---|---|
+| Completeness | F1–F5 均在原设计 seam 完成，新增测试覆盖真实 cron origin、heartbeat terminal-late、事件循环非阻塞、跨入口并发 PATCH、真实 spawn pre-ready exit 与三类 callback shutdown。 |
+| Correctness | 变更保留 single persistent owner、event/source allowlist、event-specific notice route、ordinary background route、external/shadow best-effort、selection mode、30 秒 monotonic startup 总预算与 callback 分类优先级。 |
+| Coherence | Followed；与 approved incident/design、已归并 canonical current specs 和 Round 4 corrected delta 一致，没有新增 schema、durability、retry 或 channel-specific sender。 |
+
+## F1–F5 mapping
+
+| Finding | Implementation and permanent evidence | Result |
+|---|---|---|
+| F1 — cron/heartbeat session 也必须有 persistent Skill owner | `runtime_delivery/stream.py:38-70` 在 owner-direct per-run stream 前以同一 run anchor admission production manager；cron provider、heartbeat runner 与 composition 共用同一 manager（`cron_gateway_runtime.py:45-106`、`heartbeat_runner.py:55-81,221-234`、`composition.py:502-507,603-613`）。`test_owner_direct_stream_admits_one_persistent_skill_owner` 分别覆盖 cron terminal 前和 heartbeat terminal 后事件；`test_owner_direct_cron_skill_create_reaches_gateway_config_sync` 以 public Kernel `RunOrigin.CRON` 穿过真实 Skill write、persistent subscriber/to-thread handler 与 catalog sync。后续 foreground ensure 返回 `already_active`，证明没有第二 owner。 | covered |
+| F1 — owner-direct 先 admission 不得吞普通后台结果 | manager 将 session 的第一个非空普通 background route 复制并冻结（`background_subscriptions.py:83-84,123-150,230-259,279-313`），notice 仍只按 originating trace 从独立 route 表 consume（`:88-111,214-228`）。新增 route-upgrade 测试断言 heartbeat-first 后普通 `BACKGROUND_TASK` assistant output 仍到原 conversation；既有 ensure-once 测试继续断言后续 ensure 不覆盖原 route。 | covered |
+| F2 — 同步 external sender 不阻塞 Gateway event loop | `background.py:95-115` 只把现有 external sender 调用移入 `asyncio.to_thread`，再以 `inspect.isawaitable` 保留 async sender；external failure 仍被局部捕获，shadow 分支继续执行。新增 timing regression 证明 10ms loop tick 先于 100ms 同步 sender 完成且 sender 不在 loop thread；async sender、external failure 和 shadow failure 用例均通过。 | covered |
+| F3 — Feishu activation 与 self-evolution 共享 mutation lock | `_enable_skills_for_agent()` 在既有 `threading.RLock` 内覆盖 selection gate、GET、merge、full PATCH 与 publish（`agent_config_sync.py:1057-1115`）；`handle_skill_created` 的 global multi-agent 外层锁仍可重入，未增加 retry。新增确定性 race 在首个 GET 阻塞期间并发 Feishu activation，最终 remote profile 与 live catalog 精确保留两项新 Skill；default discovery、explicit-empty、scope 既有测试同时通过。 | covered |
+| F4 — pre-ready child exit fail-fast | `worker.py:320-340` 保留一个 30 秒 monotonic deadline，只将每次 Event wait 限为 50ms 并检查 child liveness；stop 的 join/terminate/kill 路径不变。新增真实 spawn child pre-bootstrap exit 在 5 秒测试预算前失败并完成 reap；controlled early-False 测试证明短 slice 不消耗或重置总预算。 | covered |
+| F5 — callback helper 不改变分类与 shutdown | `_invoke_callback()` 仅集中 clear/await/warn/finally-set envelope（`background_session_events.py:39-60`）；原来的 ordinary background → marked Skill → structured notice `if/elif` 顺序、三个 callback、三条 warning 文案和外层 `CancelledError` 终止语义保持不变（`:204-268`）。参数化 regression 证明三类 accepted callback 都在 `aclose` 前完成。 | covered |
+
+## No-regression and corrected-delta reconciliation
+
+- Foreground exactly-once / route: coordinator 的 submit-before route registration、4096 oldest-first、missing-route fail-closed 和 submit rollback 没有在本 delta 修改；相关 route/coordinator tests 通过。
+- Raw privacy / telemetry: `context_fork.py`、`self_improvement.py` 和 observer event classification 没有在本 delta 修改；public Kernel raw-visibility、hook true-update/no-write 与 tool telemetry tests 通过。
+- Ordinary background / Feishu source routing: callback event allowlist、external metadata helper、notice text/schema 和 Feishu ordinary-message sender 均未改；ordinary background route-upgrade、source switching、IM-source no-Feishu、external/shadow independent failure tests 通过。
+- CLI: `src/coding_cli/` 未修改；true update/no-write formatter regressions 通过。
+
+Canonical current specs and the M3 corrected delta are unchanged by this range. F1 closes a missing production owner admission under the already approved D2 single-owner contract; F2–F5 are lifecycle/concurrency implementation closures that do not broaden an observable contract. Kernel true-update/raw-privacy, Gateway routing/external-channel, CLI Interactive REPL (Requirement count 8), and Gateway capability selection-mode claims remain aligned.
+
+Corrected delta status: **aligned**.
+
+## Verification evidence
+
+- Patch-focused and no-regression matrix: **151 passed, 8 warnings in 19.53s**. This includes all eight changed test owners plus Kernel privacy/hook, per-trace routing, ordinary background, telemetry and CLI seams.
+- Architecture contracts: **7 passed in 0.98s** (`cli_sdk_only`, `core_no_platform`, `platform_no_sdk`, `bg_origin_constant`).
+- Quality: targeted Ruff passed; docs-check passed (**245** maintained Markdown sources / **67** required routes); `git diff --check 16397bbad..a2a180535` passed.
+- The implementation owner recorded the final non-E2E suite on this patch head as **3245 passed, 28 warnings in 63.03s**. This delta verifier did not repeat full product Feishu/CLI journeys because the range does not change their product behavior and the task explicitly scoped verification to F1–F5.
+
+## Issues
+
+### CRITICAL
+
+- None.
+
+### WARNING
+
+- None.
+
+### SUGGESTION
+
+- None.
+
+Verdict: **pass**. The patch needs no implementation or corrected-delta change and does not require another full verification.
