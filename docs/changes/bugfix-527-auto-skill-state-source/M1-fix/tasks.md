@@ -42,12 +42,12 @@
 
 ### R2 — 锁定不污染边界并扩大回归
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 证明 memory-only Review 不传 Skill 来源，普通 fork 不新增该字段，普通用户 create 仍为 F1；检查其他 fork/蒸馏相关现有测试不变。
 - 验证: self-improvement、background fork、skill_manage、usage、skill_view 聚焦测试与 Ruff 全绿。
 
 ### R3 — 回填 lite 证据并完成集成
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 更新 progress.md 与 fix.md 的修复/验证；rebase unit 分支后重跑门禁，提交并合入 unit worktree。
 - 验证: 聚焦测试、扩展 `tests/unit` / `tests/integration` 风险面、`git diff --check` 全绿。

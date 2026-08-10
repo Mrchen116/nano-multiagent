@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-- R1 已完成；R2 正在锁定不污染边界并扩大回归。
+- R1、R2 已完成；R3 正在回填 lite 文档并执行最终门禁/集成。
 - 基线: `73 passed`（self-improvement、background fork、skill_manage、usage、skill_view）。
 
 ## R1 — 建立来源链红测并最小贯通 F3
@@ -19,8 +19,25 @@
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: revert 本 roadpoint commit，恢复 fork 不接受 metadata override 的旧行为。
-- Commits: 本提交（R3 回填 hash）。
+- Commits: `674d571b9`。
 - Next: R2 证明 memory-only、普通 fork、普通用户 create 均不被污染，并跑扩展回归。
+
+## R2 — 锁定不污染边界并扩大回归
+
+- Context: F3 只能属于自动 Skill Review 的创建行为，不能借通用 fork 扩散到 memory-only、普通 fork 或用户手工创建；F4 batch/蒸馏等已有来源语义也必须保持。
+- Decision: 在既有 owner 测试中补窄断言：Skill-only / Combined producer 显式传 F3，memory-only 传 `None`；普通 fork metadata 不凭空出现来源；真实普通 `skill_manage(create)` sidecar 仍为 F1。
+- Rationale: 跨边界 integration 测试保护正向链，既有最低层 owner 分别保护三个负向边界，避免再造重复的高层路径。
+- Evidence:
+  - Tests: `81 passed`，覆盖新增 integration、self-improvement、background fork、skill_manage、usage、skill_view 与 skill batch review。
+  - Entry: 普通 create 通过真实 `SkillManageTool.run` 写入临时 `.usage.json` 并读回 `F1`；自动 Review 的入口证据同 R1。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression: `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q tests/integration/test_self_improvement_skill_source.py tests/unit/test_self_improvement_hook.py tests/unit/test_background_hook_fork.py tests/unit/test_skill_manage_tool.py tests/unit/test_usage.py tests/unit/test_skill_view.py tests/unit/test_skill_batch_review.py` → `81 passed`。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: revert 本 roadpoint commit；R1 的正向 F3 修复仍可独立保留。
+- Commits: 本提交（R3 回填 hash）。
+- Next: R3 回填 fix.md、跑扩展门禁、rebase 并合入 unit 分支。
 
 ## Promotion Candidates
 
