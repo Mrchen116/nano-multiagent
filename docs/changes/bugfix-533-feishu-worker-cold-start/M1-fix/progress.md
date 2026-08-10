@@ -28,11 +28,26 @@
 
 ## R2 — 验证 Feishu lifecycle 与仓库门禁
 
-- 状态: DOING
+- Context: package import 收窄不能改变 bugfix-496 parent-sentinel、正常 stop/join、crash status、IPC 顺序、ChannelManager retry/reap 或 Gateway 两个 composition 入口；交付还需区分 milestone diff 与 dispatch base 已有门禁问题。
+- Decision: 扩大到全部 Feishu 命名 tests、worker/lifecycle/ChannelManager/Gateway composition tests，再跑 CI 等价完整 non-E2E。静态门禁全仓执行；全仓 formatter 唯一失败按 orchestrator 明确授权记录为 dispatch base caveat，保持 touched Python files 的 focused formatter 绿且不改 out-of-scope eval fixture。
+- Rationale: related suite 验证既有生命周期和消息路径没有因导入重定向退化；完整 non-E2E 证明 fresh-import seam 对全仓收集/运行兼容。base-owned formatter drift 必须可见，但不能越权吸收到本 milestone。
+- Evidence:
+  - Tests: 全部相关 Feishu/Gateway/lifecycle `170 passed in 18.15s`；CI 等价 `pytest -m "not e2e" -n 4 --dist worksteal --durations=20 --durations-min=0.5` 为 `3194 passed, 28 warnings in 152.03s`。
+  - Entry: R1 的真实 spawn 回归保持绿；R3 继续验证真 Gateway + 真飞书入口。
+  - Frontend State Matrix: N/A，非前端变更。
+  - Browser QA: N/A，非前端变更。
+  - E2E/Regression: `tests/unit/personal_assistant/test_feishu_worker_startup.py` 与现有 worker/lifecycle suites 均进入固定 non-E2E gate；外部平台旅程待 R3。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+  - Static: `ruff check .`、`git diff --check`、`./scripts/docs-check` 通过；本 milestone 4 个 touched Python files 的 `ruff format --check` 通过。
+  - Base caveat: 全仓 `ruff format --check .` 仅报告 `evals/spec_design_alignment/base_repo/materialize.py`、`evals/spec_design_alignment/base_repo/tests/test_materialize.py`、`evals/spec_design_alignment/base_repo/tests/test_suite_recipes.py`、`evals/spec_design_alignment/validate_dataset.py`；这些路径相对 `origin/unit/bugfix-533` 的 diff 为 0，未修改、未放宽或绕过 formatter，最终 main sync 前需重判。
+- Rollback: R2 无产品代码变更；R1 回滚仍为 revert `03319c87a789e7d8f93cb677f93540fbc9a9537d`。
+- Commits: 验证基线为 `03319c87a789e7d8f93cb677f93540fbc9a9537d`，本段记录见后续 docs commit。
+- Next: R3 使用专用非 default Feishu profile 完成两轮 clean start、真实消息与唯一 shadow 验收并清理。
 
 ## R3 — 两轮 clean start 与真实飞书旅程
 
-- 状态: TODO
+- 状态: DOING
 
 ## Promotion Candidates
 

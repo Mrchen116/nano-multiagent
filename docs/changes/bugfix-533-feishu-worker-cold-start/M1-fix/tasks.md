@@ -42,12 +42,12 @@
 
 ### R2 — 验证 Feishu lifecycle 与仓库门禁
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 跑新启动回归、现有 worker/lifecycle、相关 Feishu/Gateway tests、Ruff、format、diff、docs gates 与完整 non-E2E。
 - 验证: 所有相关门禁绿；记录初始 full-suite heartbeat shared-host timing flake、串行 exact 复证和最终 full-suite 结果，不修改 out-of-scope timeout。
 
 ### R3 — 两轮 clean start 与真实飞书旅程
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 按 worktree runtime 契约使用专用非 default Feishu E2E profile，连续两次无预热 clean start；最终从测试用户向 Bot 发消息，核对 Bot 回复、Gateway 接收与 IM 唯一 shadow；执行配对 down 和端口/进程/敏感产物清理。
 - 验证: 两轮启动均未出现 `feishu worker did not initialize`；最终 probe 与 shadow 唯一性成立；回填 `fix.md` 修复/验证和本 progress。
