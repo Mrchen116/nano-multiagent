@@ -21,22 +21,21 @@ def _startup_probe_worker(context: FeishuWorkerProcessContext) -> None:
     context.stop_event.wait(10)
 
 
-def test_importing_worker_does_not_load_feishu_sdk() -> None:
-    """Importing the spawn target stays independent of the heavy SDK package."""
+def _probe_import(module_name: str) -> subprocess.CompletedProcess[str]:
     repo_root = Path(__file__).resolve().parents[3]
     probe_env = os.environ.copy()
     existing_pythonpath = probe_env.get("PYTHONPATH")
     probe_env["PYTHONPATH"] = os.pathsep.join(
         path for path in (str(repo_root / "src"), existing_pythonpath) if path
     )
-    probe = subprocess.run(
+    return subprocess.run(
         [
             sys.executable,
             "-c",
             "\n".join(
                 (
                     "import sys",
-                    "import personal_assistant.channels.feishu.worker",
+                    f"import {module_name}",
                     "blocked = [name for name in "
                     "('personal_assistant.channels.feishu.client', 'lark_oapi') "
                     "if name in sys.modules]",
@@ -50,6 +49,18 @@ def test_importing_worker_does_not_load_feishu_sdk() -> None:
         text=True,
         check=False,
     )
+
+
+def test_importing_worker_does_not_load_feishu_sdk() -> None:
+    """Importing the spawn target stays independent of the heavy SDK package."""
+    probe = _probe_import("personal_assistant.channels.feishu.worker")
+
+    assert probe.returncode == 0, probe.stderr
+
+
+def test_importing_gateway_entry_does_not_load_feishu_sdk() -> None:
+    """Spawn re-execution of the Gateway entry stays outside provider imports."""
+    probe = _probe_import("personal_assistant.main")
 
     assert probe.returncode == 0, probe.stderr
 
