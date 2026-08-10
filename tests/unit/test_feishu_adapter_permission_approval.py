@@ -303,8 +303,64 @@ def test_permission_card_bounds_twelve_large_values_after_markdown_escaping(
     assert len(fields) == 12
     assert all(field["tag"] == "collapsible_panel" for field in fields)
     assert all(_field_body(field).endswith("... truncated") for field in fields)
-    serialized = json.dumps(card, ensure_ascii=False, separators=(",", ":")).encode()
+    serialized = json.dumps(card, ensure_ascii=False).encode()
     assert len(serialized) < 30_000
+
+
+@patch("personal_assistant.channels.feishu.adapter.FeishuClient")
+def test_permission_card_bounds_oversized_display_metadata_without_changing_ids(
+    client_class: MagicMock,
+) -> None:
+    client = client_class.return_value
+    client.send_interactive_message.return_value = "card-message-1"
+    adapter = _adapter(MagicMock(return_value=True))
+    oversized_label = "😀<>&_*" * 5_000
+    request = _request()
+    request["request_id"] = "request-oversized-metadata"
+    request["tool_name"] = "<unsafe&tool>" * 3_000
+    request["question"] = "<>&_*[]()@/" * 3_000
+    request["tool_input"] = {f"field_{index}": "😀" * 5_000 for index in range(12)}
+    request["options"] = [
+        {"id": "allow_once", "label": oversized_label},
+        {"id": "deny", "label": oversized_label},
+        {"id": "allow_session", "label": oversized_label},
+    ]
+
+    adapter.send_permission_request(
+        target_chat_id="feishu:cli_a:dm:ou_owner",
+        run_id="run-1",
+        request=request,
+    )
+
+    pending_card = client.send_interactive_message.call_args.kwargs["card"]
+    actions = pending_card["elements"][-1]["actions"]
+    assert len(json.dumps(pending_card, ensure_ascii=False).encode()) < 30_000
+    assert "... truncated" in pending_card["elements"][0]["content"]
+    assert all(
+        action["text"]["content"].endswith("... truncated") for action in actions
+    )
+    assert [action["value"]["decision"] for action in actions] == [
+        "allow_once",
+        "deny",
+        "allow_session",
+    ]
+    assert all(
+        action["value"]["request_id"] == "request-oversized-metadata"
+        for action in actions
+    )
+
+    reason_card = adapter._handle_card_action(_event(actions[1]["value"]))
+    assert reason_card is not None
+    assert len(json.dumps(reason_card, ensure_ascii=False).encode()) < 30_000
+    assert "... truncated" in reason_card["elements"][0]["content"]
+
+    assert adapter.mark_permission_resolved(
+        request_id="request-oversized-metadata",
+        decision="allow_once",
+    )
+    resolved_card = client.update_interactive_message.call_args.kwargs["card"]
+    assert len(json.dumps(resolved_card, ensure_ascii=False).encode()) < 30_000
+    assert "... truncated" in resolved_card["elements"][0]["content"]
 
 
 @pytest.mark.parametrize("tool_name", ["edit", "custom_transform"])
@@ -330,8 +386,14 @@ def test_permission_card_compacts_realistic_long_input_for_every_tool(
     input_fields = _input_fields(card)
     visible_text = _content_text(card)
     metadata = card["elements"][0]["content"]
-    assert f"<text_tag color='neutral'>{tool_name}</text_tag>" in metadata
+    assert metadata == (
+        f"**Tool:** <text_tag color='neutral'>{tool_name}</text_tag>\n"
+        "**Request:** Allow bash&#63;"
+    )
     assert "&#95;" not in metadata
+    assert [
+        action["text"]["content"] for action in card["elements"][-1]["actions"]
+    ] == ["Allow once", "Deny", "Allow for session"]
     assert len(input_fields) == 3
     assert all(field["tag"] == "collapsible_panel" for field in input_fields)
     assert all(field["expanded"] is False for field in input_fields)

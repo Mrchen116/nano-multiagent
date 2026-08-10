@@ -28,6 +28,9 @@ _PENDING_TTL_SECONDS = 60 * 60
 _MAX_INPUT_PREVIEW_CHARS = 1200
 _MAX_INPUT_FIELDS = 12
 _MAX_INPUT_LABEL_CHARS = 80
+_MAX_TOOL_DISPLAY_CHARS = 80
+_MAX_REQUEST_DISPLAY_CHARS = 512
+_MAX_OPTION_LABEL_CHARS = 80
 _MAX_NESTED_ITEMS = 8
 _MAX_NESTING_DEPTH = 3
 _MAX_REASON_CHARS = 1000
@@ -475,10 +478,17 @@ def _build_deny_reason_card(
 
 
 def _build_resolved_card(pending: _PendingApproval, decision: str) -> dict[str, Any]:
-    tool_name = str(pending.request.get("tool_name") or "tool")
+    tool_name = _truncate(
+        str(pending.request.get("tool_name") or "tool"),
+        _MAX_TOOL_DISPLAY_CHARS,
+    )
+    decision_display = _truncate(
+        _decision_display(decision),
+        _MAX_OPTION_LABEL_CHARS,
+    )
     lines = [
         f"**Tool:** {_escape_lark_markdown(tool_name)}",
-        f"**Decision:** {_decision_display(decision)}",
+        f"**Decision:** {_escape_lark_markdown(decision_display)}",
     ]
     if pending.reason:
         lines.append(f"**Reason:** {_truncate(pending.reason, _MAX_REASON_CHARS)}")
@@ -522,7 +532,10 @@ def _approval_button(
     button = {
         "tag": "button",
         "name": f"nano_permission_{decision}",
-        "text": {"tag": "plain_text", "content": label},
+        "text": {
+            "tag": "plain_text",
+            "content": _truncate(label, _MAX_OPTION_LABEL_CHARS),
+        },
         "type": _button_type(decision),
         "value": value,
     }
@@ -537,13 +550,14 @@ def _approval_metadata_elements(
     question: str,
     reveal_request_details: bool,
 ) -> list[dict[str, Any]]:
+    tool_name = _truncate(tool_name, _MAX_TOOL_DISPLAY_CHARS)
     tool_display = (
         f"<text_tag color='neutral'>{tool_name}</text_tag>"
         if _is_safe_text_tag_identifier(tool_name)
         else _escape_lark_markdown(tool_name)
     )
     request_display = (
-        _escape_lark_markdown(question)
+        _escape_lark_markdown(_truncate(question, _MAX_REQUEST_DISPLAY_CHARS))
         if reveal_request_details
         else "Review details in internal IM."
     )
