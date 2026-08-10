@@ -221,6 +221,9 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
                 review_prompt,
                 tool_allowlist=tool_allowlist,
                 max_turns=16,
+                metadata_overrides=(
+                    {"skill_creation_source": "F3"} if review_skills else None
+                ),
             )
         except Exception:
             logger.exception(

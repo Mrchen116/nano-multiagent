@@ -4,306 +4,510 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="icon" href="data:," />
-  <title>Python Dynamic Workflows — Interaction Prototype</title>
+  <title>Workflow 工具调用 — IM 呈现原型</title>
   <style>
     :root {
       color-scheme: light;
-      --bg: #f3f6f7;
-      --panel: rgba(255, 255, 255, 0.94);
-      --line: #dce4e7;
-      --ink: #132128;
-      --muted: #667982;
+      --page: #eef2f3;
+      --surface: #ffffff;
+      --surface-2: #f5f7f7;
+      --line: #dce3e5;
+      --text: #1c292e;
+      --muted: #687a81;
       --teal: #0f766e;
-      --teal-soft: #e8f7f4;
-      --amber: #a15c06;
-      --amber-soft: #fff7e7;
-      --rose: #b4233f;
-      --slate: #1e293b;
-      --shadow: 0 18px 50px rgba(31, 52, 60, 0.12);
-      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --teal-soft: #dff3ec;
+      --amber: #b86e0b;
+      --red: #b23b42;
+      --dark: #172126;
+      --dark-2: #10181c;
+      --dark-line: #344248;
+      --dark-text: #dce7e9;
+      --dark-muted: #8fa0a6;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      --sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
+
     * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100vh; background: radial-gradient(circle at 15% 0%, #e5f4f2 0, transparent 32%), var(--bg); color: var(--ink); }
-    button, select { font: inherit; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      background: var(--page);
+      font-family: var(--sans);
+    }
+    button, textarea { font: inherit; }
     button { cursor: pointer; }
-    .shell { min-height: 100vh; display: grid; grid-template-columns: 238px 1fr; }
-    .rail { background: #16252b; color: #dbe7e9; padding: 22px 18px; display: grid; align-content: start; gap: 24px; }
-    .brand { display: flex; align-items: center; gap: 10px; font-weight: 760; letter-spacing: -0.02em; }
-    .brand-mark { width: 30px; height: 30px; border-radius: 10px; background: linear-gradient(145deg, #56d3c5, #0f766e); display: grid; place-items: center; color: white; }
-    .nav { display: grid; gap: 8px; }
-    .nav button { border: 0; background: transparent; color: #9fb0b5; text-align: left; border-radius: 10px; padding: 10px 12px; }
-    .nav button.active { color: white; background: rgba(255,255,255,.1); }
-    main { min-width: 0; padding: 30px; }
-    .top { display: flex; align-items: end; justify-content: space-between; gap: 18px; margin-bottom: 22px; }
-    h1, h2, h3, p { margin-top: 0; }
-    h1 { font-size: 27px; letter-spacing: -0.035em; margin-bottom: 6px; }
-    .sub { color: var(--muted); margin: 0; font-size: 14px; }
-    .view { display: none; }
-    .view.active { display: block; }
-    .card { border: 1px solid var(--line); background: var(--panel); border-radius: 18px; box-shadow: 0 6px 24px rgba(31,52,60,.06); }
-    .settings-card { width: min(880px, 100%); padding: 14px 16px; display: grid; gap: 14px; border-radius: 12px; }
-    .section-head h2 { font-size: 15px; margin-bottom: 3px; }
-    .section-head .sub { font-size: 12.5px; }
-    .field { display: flex; flex-direction: column; gap: 4px; }
-    .field-label { font-size: 12.5px; font-weight: 600; display: block; }
-    .pill-row { display: flex; flex-wrap: wrap; gap: 6px; }
-    .pill { padding: 4px 11px; border-radius: 999px; border: 1px solid #e1e6e8; background: #f2f4f5; color: #718087; font: 600 12px ui-monospace, SFMono-Regular, Menlo, monospace; transition: background-color .16s, border-color .16s, color .16s; }
-    .pill:hover { background: #eceff0; }
-    .pill.selected { background: #dff3ec; color: #126b61; border-color: #8acfc0; }
-    .divider { height: 1px; background: var(--line); }
-    .access-link { margin-top: 7px; padding: 0; border: 0; background: transparent; color: var(--teal); font-size: 12.5px; font-weight: 600; }
-    .access-link:hover { text-decoration: underline; }
-    .model-fields { display: grid; gap: 14px; }
-    .tag { font-size: 12px; border-radius: 999px; padding: 5px 9px; background: #eef2f4; color: var(--muted); white-space: nowrap; }
-    select { width: 100%; max-width: 100%; padding: 9px 11px; border: 1px solid #b8c7cc; border-radius: 8px; background: white; color: var(--ink); }
-    .save-row { display: flex; justify-content: flex-end; gap: 9px; margin-top: 2px; }
-    .btn { border: 1px solid var(--line); border-radius: 10px; background: white; padding: 9px 14px; color: var(--ink); }
-    .btn.primary { background: var(--teal); color: white; border-color: var(--teal); }
-    .btn.danger { color: var(--rose); border-color: #efbdc7; }
 
-    .chat-stage { max-width: 980px; height: 740px; border: 1px solid var(--line); background: #fbfcfc; border-radius: 20px; overflow: hidden; box-shadow: var(--shadow); display: grid; grid-template-rows: auto 1fr auto; }
-    .chat-head { height: 68px; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); background: white; }
-    .agent-id { display: flex; gap: 11px; align-items: center; }
-    .avatar { width: 38px; height: 38px; border-radius: 12px; background: #dff3ef; display: grid; place-items: center; color: var(--teal); font-weight: 800; }
-    .agent-id strong { display: block; font-size: 14px; }
-    .agent-id span { font-size: 12px; color: var(--muted); }
-    .chat-body { padding: 24px; overflow: auto; display: grid; align-content: start; gap: 16px; }
-    .bubble { max-width: 78%; border-radius: 17px; padding: 13px 15px; font-size: 14px; line-height: 1.55; }
-    .bubble.user { justify-self: end; background: #dff3ef; }
-    .bubble.agent { background: white; border: 1px solid var(--line); }
-    .tool-row { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 9px; color: var(--muted); font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
-    .approval { width: min(630px, 100%); background: var(--slate); color: #e7eef1; border-radius: 16px; padding: 17px; box-shadow: 0 12px 28px rgba(15,23,42,.22); }
-    .approval-head { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
-    .approval-head strong { color: white; }
-    .pulse { width: 8px; height: 8px; border-radius: 99px; background: #fbbf24; display: inline-block; margin-right: 6px; box-shadow: 0 0 0 5px rgba(251,191,36,.12); }
-    .approval small { color: #aebbc2; }
-    .approval h3 { margin: 16px 0 5px; font-size: 15px; }
-    .phase-list { display: grid; gap: 7px; margin: 13px 0; }
-    .phase { padding: 9px 10px; border: 1px solid #425360; border-radius: 10px; display: flex; gap: 10px; font-size: 12px; }
-    .phase b { color: #7ee3d7; min-width: 57px; }
-    .caution { background: rgba(245,158,11,.12); color: #fbd38d; border: 1px solid rgba(245,158,11,.28); padding: 9px 10px; border-radius: 10px; font-size: 12px; }
-    .script-link { border: 0; background: transparent; color: #7ee3d7; padding: 0; margin-top: 10px; font-size: 12px; }
-    .approval-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 15px; }
-    .approval-actions .btn { background: #2e3d47; border-color: #465964; color: white; }
-    .approval-actions .btn.primary { background: #0d9488; border-color: #0d9488; }
-    .approval-actions .btn.danger { color: #fecdd3; }
-    .raw-script { display: none; margin-top: 12px; max-height: 170px; overflow: auto; white-space: pre-wrap; border: 1px solid #425360; background: #101b22; border-radius: 10px; padding: 11px; font: 11px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }
-    .raw-script.open { display: block; }
+    .review-bar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      min-height: 66px;
+      padding: 10px 18px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(12px);
+    }
+    .review-title strong { display: block; font-size: 14px; }
+    .review-title span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
+    .state-tabs { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+    .state-tab {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 6px 11px;
+      background: var(--surface-2);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+    }
+    .state-tab.active { border-color: #82c8bd; background: var(--teal-soft); color: var(--teal); }
 
-    .composer-wrap { padding: 0 18px 17px; background: white; }
-    .progress-strip { display: flex; align-items: center; gap: 10px; border: 1px solid #a9ded7; background: var(--teal-soft); padding: 10px 12px; border-radius: 12px 12px 5px 5px; margin-bottom: 7px; }
-    .progress-strip.paused { border-color: #efc887; background: var(--amber-soft); }
-    .progress-icon { width: 25px; height: 25px; border-radius: 9px; display: grid; place-items: center; background: white; color: var(--teal); }
-    .progress-copy { min-width: 0; flex: 1; }
-    .progress-copy strong { display: block; font-size: 12px; }
-    .progress-copy span { display: block; color: var(--muted); font-size: 11px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-    .progress-strip button { border: 0; background: transparent; color: var(--teal); font-size: 12px; font-weight: 700; }
-    .composer { border: 1px solid #bbc8cc; border-radius: 13px; min-height: 64px; padding: 12px; color: #819098; font-size: 13px; }
+    .review-note {
+      width: min(1100px, calc(100% - 32px));
+      margin: 18px auto 12px;
+      padding: 10px 13px;
+      border: 1px solid #cbd8db;
+      border-radius: 10px;
+      background: rgba(255,255,255,.78);
+      color: #52666e;
+      font-size: 12.5px;
+      line-height: 1.5;
+    }
+    .review-note strong { color: var(--text); }
 
-    .sheet-backdrop { position: fixed; inset: 0; background: rgba(15,23,42,.38); display: none; justify-content: flex-end; z-index: 10; }
-    .sheet-backdrop.open { display: flex; }
-    .sheet { width: min(610px, 100%); height: 100%; background: #f8fafb; box-shadow: -20px 0 50px rgba(15,23,42,.2); padding: 22px; overflow: auto; }
-    .sheet-head { display: flex; justify-content: space-between; gap: 10px; }
-    .sheet-head button { border: 0; background: #e8eef0; border-radius: 9px; width: 32px; height: 32px; }
-    .run-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; margin: 17px 0; }
-    .metric { background: white; border: 1px solid var(--line); border-radius: 13px; padding: 12px; }
-    .metric span { display: block; color: var(--muted); font-size: 11px; }
-    .metric strong { display: block; margin-top: 4px; font-size: 15px; }
-    .tree { display: grid; gap: 10px; }
-    .tree-group { background: white; border: 1px solid var(--line); border-radius: 15px; padding: 14px; }
-    .tree-group h3 { font-size: 13px; margin-bottom: 10px; }
-    .agent-row { display: grid; grid-template-columns: 10px 1fr auto; align-items: center; gap: 9px; padding: 9px 0; border-top: 1px solid #edf1f2; font-size: 12px; }
-    .dot { width: 8px; height: 8px; border-radius: 50%; background: #20a596; }
-    .dot.wait { background: #b6c1c5; }
-    .agent-row span { color: var(--muted); }
-    .controls { position: sticky; bottom: -22px; display: flex; flex-wrap: wrap; gap: 8px; background: rgba(248,250,251,.94); border-top: 1px solid var(--line); padding: 15px 0 22px; margin-top: 20px; backdrop-filter: blur(8px); }
-    .disabled-note { display: none; border: 1px dashed #bdc9cd; border-radius: 14px; padding: 14px; color: var(--muted); background: white; margin-top: 15px; font-size: 13px; }
-    body.workflow-off .progress-strip, body.workflow-off .approval { display: none; }
-    body.workflow-off .disabled-note { display: block; }
+    .app {
+      width: min(1100px, calc(100% - 32px));
+      height: min(760px, calc(100vh - 144px));
+      min-height: 590px;
+      margin: 0 auto 24px;
+      display: grid;
+      grid-template-columns: 238px minmax(0, 1fr);
+      overflow: hidden;
+      border: 1px solid #cfd9dc;
+      border-radius: 16px;
+      background: var(--surface);
+      box-shadow: 0 20px 55px rgba(34, 55, 63, .14);
+    }
+
+    .sidebar { padding: 17px 12px; border-right: 1px solid var(--line); background: #f7f9f9; }
+    .brand { display: flex; align-items: center; gap: 9px; padding: 0 7px 15px; font-size: 13px; font-weight: 760; }
+    .brand-mark, .avatar {
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      color: white;
+      font-weight: 760;
+    }
+    .brand-mark { width: 27px; height: 27px; border-radius: 8px; background: #17343a; }
+    .side-label { padding: 10px 8px 6px; color: #819097; font-size: 10px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+    .conversation {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      width: 100%;
+      padding: 9px;
+      border: 0;
+      border-radius: 9px;
+      background: transparent;
+      color: var(--text);
+      text-align: left;
+    }
+    .conversation.active { background: #e9eeee; }
+    .conversation .mini-avatar { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: #287c73; color: white; font-size: 10px; font-weight: 700; }
+    .conversation-copy { min-width: 0; }
+    .conversation-copy strong, .conversation-copy span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .conversation-copy strong { font-size: 12px; }
+    .conversation-copy span { margin-top: 2px; color: var(--muted); font-size: 10.5px; }
+
+    .chat { min-width: 0; display: grid; grid-template-rows: 60px minmax(0,1fr) auto; }
+    .chat-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 17px; border-bottom: 1px solid var(--line); }
+    .agent { display: flex; align-items: center; gap: 9px; }
+    .avatar { width: 34px; height: 34px; border-radius: 50%; background: #287c73; font-size: 11px; }
+    .agent-copy strong, .agent-copy span { display: block; }
+    .agent-copy strong { font-size: 13px; }
+    .agent-copy span { margin-top: 2px; color: var(--muted); font-size: 10.5px; }
+    .header-chip { padding: 4px 8px; border-radius: 999px; background: #edf1f2; color: var(--muted); font-size: 10px; }
+
+    .messages {
+      min-height: 0;
+      overflow: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 17px;
+      padding: 22px 24px 30px;
+      background: #fbfcfc;
+    }
+    .message { display: flex; align-items: flex-end; gap: 9px; max-width: 78%; }
+    .message.user { align-self: flex-end; flex-direction: row-reverse; }
+    .message.agent { align-self: flex-start; }
+    .message-avatar { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; flex: 0 0 auto; background: #287c73; color: white; font-size: 10px; font-weight: 700; }
+    .message-stack { min-width: 0; }
+    .sender { margin: 0 0 4px 3px; color: #287c73; font-size: 11px; font-weight: 650; }
+    .bubble {
+      position: relative;
+      padding: 9px 13px;
+      border-radius: 16px 16px 16px 4px;
+      background: #e8ecee;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+    .user .bubble { border-radius: 16px 16px 4px 16px; background: var(--teal); color: white; }
+    .message-time { display: flex; align-items: center; gap: 7px; margin-top: 3px; color: #849299; font-size: 10px; }
+    .status-running { display: inline-flex; align-items: center; gap: 4px; color: var(--amber); }
+    .pulse, .permission-pulse { width: 6px; height: 6px; border-radius: 50%; background: #d98b20; animation: pulse 1.25s infinite; }
+    @keyframes pulse { 50% { opacity: .35; } }
+
+    .process { margin-top: 8px; }
+    .process-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 9px;
+      border: 1px solid #d1dadc;
+      border-radius: 999px;
+      background: #edf0f1;
+      color: #596a71;
+      font-size: 11px;
+      font-weight: 650;
+    }
+    .process-toggle.open { border-color: #3d555c; background: var(--dark); color: #88cfc5; }
+    .process-toggle .running-copy { display: inline-flex; align-items: center; gap: 4px; color: #ca7e18; }
+    .process-panel { display: none; margin-top: 7px; overflow: hidden; border: 1px solid #2f3c42; border-radius: 9px; background: var(--dark); box-shadow: 0 5px 16px rgba(4, 12, 15, .25); }
+    .process-panel.open { display: block; }
+    .tool-row {
+      width: 100%;
+      display: grid;
+      grid-template-columns: auto auto auto minmax(80px,1fr) auto auto;
+      align-items: center;
+      gap: 7px;
+      padding: 8px 11px;
+      border: 0;
+      background: transparent;
+      color: var(--dark-text);
+      text-align: left;
+      font-size: 11px;
+    }
+    .tool-status.running { color: #dfa04a; }
+    .tool-status.completed { color: #57b69b; }
+    .tool-status.failed { color: #db7777; }
+    .tool-name { color: #a2ded5; font: 650 11px var(--mono); white-space: nowrap; }
+    .tool-gate { color: #76bc8f; font-size: 10px; white-space: nowrap; }
+    .tool-summary { min-width: 0; overflow: hidden; color: var(--dark-muted); text-overflow: ellipsis; white-space: nowrap; }
+    .tool-duration, .tool-arrow { color: #75868c; font: 10px var(--mono); white-space: nowrap; }
+    .tool-detail { display: none; padding: 1px 11px 10px 38px; }
+    .tool-detail.open { display: block; }
+    .workflow-card { display: flex; flex-direction: column; gap: 9px; }
+    .workflow-section { display: flex; flex-direction: column; gap: 5px; }
+    .workflow-label { color: #75878d; font-size: 9px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+    .workflow-input-meta { color: #82949a; font: 9.5px/1.45 var(--mono); }
+    .workflow-script { margin: 0; padding: 7px 9px; border-left: 2px solid #7869bd; color: #b8c8cc; font: 10px/1.5 var(--mono); overflow-wrap: anywhere; white-space: pre-wrap; }
+    .workflow-result { padding-top: 1px; }
+    .workflow-result-status { color: #75c39c; font-size: 10.5px; }
+    .workflow-result-meta { display: grid; gap: 3px; margin-top: 5px; color: #84969c; font: 9.5px/1.5 var(--mono); overflow-wrap: anywhere; }
+
+    .permission-card { margin-top: 8px; padding: 11px 13px; border: 1px solid #35454b; border-radius: 9px; background: #192328; color: var(--dark-text); box-shadow: 0 5px 16px rgba(4,12,15,.25); }
+    .permission-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .permission-tool { color: #a2ded5; font: 650 11px var(--mono); }
+    .permission-hint { display: inline-flex; align-items: center; gap: 5px; color: #e4ac56; font-size: 9px; font-weight: 750; letter-spacing: .06em; }
+    .permission-desc { margin: 9px 0 0; padding: 6px 8px; border-left: 2px solid #d5963d; border-radius: 4px; background: #222f34; font-size: 11px; }
+    .permission-input { max-height: 128px; overflow: auto; margin: 8px 0 0; padding: 7px 8px; border: 1px solid #2d3a3f; border-radius: 6px; background: var(--dark-2); color: #a7c8c3; font: 9.5px/1.5 var(--mono); white-space: pre-wrap; }
+    .permission-question { margin: 8px 0 0; font-size: 11px; }
+    .permission-reason { width: 100%; min-height: 42px; resize: vertical; margin-top: 8px; padding: 6px 8px; border: 1px solid #334349; border-radius: 6px; background: var(--dark-2); color: var(--dark-text); font-size: 10px; }
+    .permission-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+    .permission-btn { padding: 5px 9px; border: 1px solid #415158; border-radius: 6px; background: #27343a; color: #d2dcde; font-size: 10px; font-weight: 650; }
+    .permission-btn.primary { border-color: var(--teal); background: var(--teal); color: white; }
+    .permission-btn.danger { border-color: #673e42; background: #302326; color: #e18a8f; }
+
+    .terminal-message { display: none; }
+    .terminal-message.visible { display: flex; }
+    .result-title { margin-bottom: 7px; font-weight: 720; }
+    .result-status { display: inline-flex; align-items: center; gap: 5px; padding: 2px 7px; border-radius: 999px; background: #dcefe9; color: #19725e; font-size: 10px; font-weight: 700; }
+    .result-status.failed { background: #f4dfe1; color: var(--red); }
+    .result-status.stopped { background: #eee8df; color: #85633a; }
+    .result-copy { margin-top: 8px; }
+    .result-copy ul { margin: 5px 0 0; padding-left: 18px; }
+    .result-meta { margin-top: 9px; padding-top: 8px; border-top: 1px solid #d4dcde; color: #5c6d74; font-size: 10.5px; line-height: 1.6; }
+    code { font-family: var(--mono); font-size: .92em; }
+
+    .composer-wrap { padding: 11px 16px 14px; border-top: 1px solid var(--line); background: white; }
+    .composer { min-height: 52px; padding: 10px 12px; border: 1px solid #bdc8cb; border-radius: 11px; color: #87959a; font-size: 11px; }
+    .composer-foot { display: flex; justify-content: space-between; margin-top: 6px; color: #91a0a5; font-size: 9.5px; }
 
     @media (max-width: 760px) {
-      .shell { grid-template-columns: 1fr; }
-      .rail { display: none; }
-      main { padding: 14px; }
-      .top { align-items: start; flex-direction: column; }
-      .chat-stage { height: calc(100vh - 145px); border-radius: 15px; }
-      .chat-body { padding: 14px; }
-      .bubble { max-width: 92%; }
-      .composer-wrap { padding: 0 10px 10px; }
-      .approval { border-radius: 13px; }
-      .run-summary { grid-template-columns: 1fr; }
-      .sheet { padding: 17px; }
+      .review-bar { position: static; align-items: flex-start; flex-direction: column; }
+      .state-tabs { justify-content: flex-start; }
+      .review-note, .app { width: calc(100% - 20px); }
+      .app { height: 720px; grid-template-columns: 1fr; }
+      .sidebar { display: none; }
+      .messages { padding: 16px 12px 24px; }
+      .message { max-width: 94%; }
+      .tool-row { grid-template-columns: auto auto auto minmax(50px,1fr) auto; }
+      .tool-duration { display: none; }
+      .workflow-script { font-size: 9.5px; }
     }
   </style>
 </head>
 <body>
-  <div class="shell">
-    <aside class="rail">
-      <div class="brand"><span class="brand-mark">N</span><span>nano assistant</span></div>
-      <nav class="nav" aria-label="Prototype navigation">
-        <button id="nav-settings" class="active" onclick="showView('settings')">Agent 设置</button>
-        <button id="nav-chat" onclick="showView('chat')">聊天与运行</button>
-      </nav>
+  <header class="review-bar">
+    <div class="review-title">
+      <strong>Workflow 工具调用 · IM 呈现原型</strong>
+      <span>上方按钮仅用于切换评审状态，不属于产品界面。</span>
+    </div>
+    <nav class="state-tabs" aria-label="原型状态">
+      <button class="state-tab active" data-state="running">工具调用中</button>
+      <button class="state-tab" data-state="permission">等待确认</button>
+      <button class="state-tab" data-state="launched">后台已启动</button>
+      <button class="state-tab" data-state="completed">Workflow 完成</button>
+      <button class="state-tab" data-state="failed">Workflow 失败</button>
+      <button class="state-tab" data-state="stopped">Workflow 已停止</button>
+    </nav>
+  </header>
+
+  <div class="review-note" id="review-note">
+    <strong>当前状态：</strong>模型刚调用 <code>Workflow</code>。消息仍处于运行中；“过程”默认收起，点击后查看工具输入摘要。
+  </div>
+
+  <main class="app">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">N</span>nano assistant</div>
+      <div class="side-label">对话</div>
+      <button class="conversation active">
+        <span class="mini-avatar">代</span>
+        <span class="conversation-copy"><strong>代码审查助手</strong><span>Workflow 正在运行…</span></span>
+      </button>
+      <button class="conversation">
+        <span class="mini-avatar" style="background:#6f7f8a">研</span>
+        <span class="conversation-copy"><strong>研究助手</strong><span>昨天的调研结果</span></span>
+      </button>
     </aside>
-    <main>
-      <header class="top">
-        <div>
-          <h1>Python Dynamic Workflows</h1>
-          <p class="sub">设计原型：工具选择完整开关、启动批准、后台进度与控制</p>
+
+    <section class="chat">
+      <header class="chat-header">
+        <div class="agent">
+          <span class="avatar">代</span>
+          <span class="agent-copy"><strong>代码审查助手</strong><span>macbook-air · online</span></span>
         </div>
+        <span class="header-chip">Direct agent</span>
       </header>
 
-      <section id="view-settings" class="view active">
-        <div class="card settings-card">
-          <div class="section-head">
-            <h2>访问与模型</h2>
-            <p class="sub">允许列表保持最小。</p>
-            <button class="access-link" type="button">View skill statistics</button>
+      <div class="messages" id="messages">
+        <article class="message user">
+          <div class="message-stack">
+            <div class="bubble">用 Workflow 并行审查当前改动，并对每条发现做独立验证。</div>
+            <div class="message-time" style="justify-content:flex-end">14:32</div>
           </div>
-          <div class="field">
-            <span class="field-label">技能</span>
-            <div class="pill-row" role="group" aria-label="技能">
-              <button class="pill selected" type="button" aria-pressed="true">codebase-design</button>
-              <button class="pill selected" type="button" aria-pressed="true">systematic-debugging</button>
-            </div>
-          </div>
-          <div class="divider" aria-hidden="true"></div>
-          <div class="field">
-            <span class="field-label">工具允许列表</span>
-            <div class="pill-row" role="group" aria-label="工具允许列表">
-              <button class="pill selected" type="button" aria-pressed="true" title="read">read</button>
-              <button class="pill selected" type="button" aria-pressed="true" title="agent">agent</button>
-              <button id="workflow-tool" class="pill selected" type="button" aria-pressed="true" title="Workflow" onclick="setCapability(this.getAttribute('aria-pressed') !== 'true')">Workflow</button>
-            </div>
-          </div>
-          <div class="model-fields">
-            <div class="field">
-              <label class="field-label" for="default-model">默认模型</label>
-              <select id="default-model">
-                <option selected>平台默认 (codexOAuth:gpt-5.6-sol)</option>
-                <option>codexOAuth:gpt-5.6-terra</option>
-                <option>codexOAuth:gpt-5.6-luna</option>
-              </select>
-            </div>
-            <div class="field">
-              <label class="field-label" for="reasoning-effort">推理强度</label>
-              <select id="reasoning-effort"><option selected>high</option><option>xhigh</option><option>max</option></select>
-            </div>
-          </div>
-          <div class="save-row"><button class="btn">取消</button><button class="btn primary">保存 Agent</button></div>
-        </div>
-      </section>
+        </article>
 
-      <section id="view-chat" class="view">
-        <div class="chat-stage">
-          <div class="chat-head">
-            <div class="agent-id"><span class="avatar">A</span><span><strong>Architecture Agent</strong><span>codexOAuth:gpt-5.6-sol · high</span></span></div>
-            <span class="tag">direct chat</span>
-          </div>
-          <div class="chat-body">
-            <div class="bubble user">用 workflow 并行审查这个改动，并对每条发现做独立验证。</div>
-            <div class="bubble agent">我会先生成一个两阶段 Python Workflow：并行审查，然后逐条验证。
-              <div class="tool-row">◌ Workflow · launch review-changes · wf_c91f2a</div>
-            </div>
-            <div class="approval">
-              <div class="approval-head"><strong>Workflow</strong><small><span class="pulse"></span>需要确认</small></div>
-              <h3>review-changes</h3>
-              <small>Review changed files across dimensions and verify every finding.</small>
-              <div class="phase-list">
-                <div class="phase"><b>Review</b><span>4 independent review dimensions</span></div>
-                <div class="phase"><b>Verify</b><span>adversarial check for every finding</span></div>
+        <article class="message agent" id="launch-message">
+          <span class="message-avatar">代</span>
+          <div class="message-stack">
+            <div class="sender">代码审查助手</div>
+            <div class="bubble">
+              <div id="assistant-copy">我会把审查与验证组织成一个后台 Python Workflow。</div>
+
+              <div class="process" id="process">
+                <button class="process-toggle" id="process-toggle" aria-expanded="false">
+                  <span id="process-arrow">▸</span>
+                  <span>过程</span><span>·</span><span>1 个工具</span>
+                  <span id="process-running" class="running-copy"><span class="pulse"></span>运行中</span>
+                  <span id="process-approval-count" hidden>· 1 次授权 · 1 允许</span>
+                </button>
+
+                <div class="process-panel" id="process-panel">
+                  <button class="tool-row" id="tool-row" aria-expanded="false">
+                    <span class="tool-status running" id="tool-status">◌</span>
+                    <span aria-hidden="true">🔧</span>
+                    <span class="tool-name">Workflow</span>
+                    <span class="tool-gate" id="tool-gate"></span>
+                    <span class="tool-summary" id="tool-summary">并行审查当前改动并逐条验证发现</span>
+                    <span class="tool-duration" id="tool-duration"></span>
+                    <span class="tool-arrow" id="tool-arrow">▸</span>
+                  </button>
+                  <div class="tool-detail" id="tool-detail"></div>
+                </div>
               </div>
-              <div class="caution">Medium guideline · 预计 8–14 Agents。运行会消耗额外 token，可随时停止。</div>
-              <button class="script-link" onclick="document.getElementById('raw-script').classList.toggle('open')">查看原始 Python ▾</button>
-              <pre id="raw-script" class="raw-script">meta = {
+
+              <section class="permission-card" id="permission-card" hidden>
+                <div class="permission-head">
+                  <span class="permission-tool">Workflow</span>
+                  <span class="permission-hint"><span class="permission-pulse"></span>需要确认</span>
+                </div>
+                <p class="permission-desc">并行审查当前改动并逐条验证发现</p>
+                <pre class="permission-input">{
+  "script": "meta = {...}\\n\\nasync def main():\\n    reviews = await parallel([...])\\n    return await verify(reviews)",
+  "description": "并行审查当前改动并逐条验证发现"
+}</pre>
+                <p class="permission-question">允许启动 Python Workflow “review-changes” 吗？预计不超过 15 个 Agent（medium）。</p>
+                <textarea class="permission-reason" rows="2" placeholder="拒绝理由（可选）"></textarea>
+                <div class="permission-actions">
+                  <button class="permission-btn primary" data-decision="allow">允许</button>
+                  <button class="permission-btn" data-decision="always">总是允许</button>
+                  <button class="permission-btn danger" data-decision="deny">拒绝</button>
+                </div>
+              </section>
+            </div>
+            <div class="message-time">
+              <span>14:32</span>
+              <span class="status-running" id="message-running"><span class="pulse"></span>⏱ 2.1s</span>
+              <span id="message-elapsed" hidden>⏱ 2.4s</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="message agent terminal-message" id="terminal-message">
+          <span class="message-avatar">代</span>
+          <div class="message-stack">
+            <div class="sender">代码审查助手</div>
+            <div class="bubble">
+              <div class="result-title">Workflow <code>review-changes</code> <span class="result-status" id="result-status">已完成</span></div>
+              <div class="result-copy" id="result-copy"></div>
+              <div class="result-meta" id="result-meta"></div>
+            </div>
+            <div class="message-time"><span id="terminal-time">14:36</span><span id="terminal-elapsed">⏱ 3m 42s</span></div>
+          </div>
+        </article>
+      </div>
+
+      <footer class="composer-wrap">
+        <div class="composer">发消息给代码审查助手…</div>
+        <div class="composer-foot"><span>输入 / 查看可用命令</span><span>Enter 发送</span></div>
+      </footer>
+    </section>
+  </main>
+
+  <script>
+    const stateCopy = {
+      running: "模型刚调用 Workflow。消息仍处于运行中；“过程”默认收起，展开后先看到本次 Workflow 的输入脚本，此时还没有结果区。",
+      permission: "启动需要用户批准。按现有工具时序，此时只显示同一条 assistant 消息中的 PermissionCard；批准后才出现 Workflow 工具行。卡片显示说明、原始参数、问题、允许 / 总是允许 / 拒绝。",
+      denied: "用户拒绝后，批准卡消失，Workflow 不启动；它从未显示 running，但真实 tool result 会直接留下“已拒绝 / 未执行”的终态工具行，且不会出现后台终态消息。",
+      launched: "工具调用已经结束，但这里只表示后台 Workflow 启动成功。展开内容保持输入脚本在前，并在下方追加 async launch 结果；它不会持续冒充整个 Workflow 的进度条。",
+      completed: "后台 Workflow 真正完成后，原启动工具行保持“已启动”；系统另投递一条普通 assistant 消息，包含结果、用量、耗时、诊断位置和恢复提示。",
+      failed: "失败同样通过后续普通 assistant 消息到达，保留错误位置、已有部分结果、用量、诊断位置和恢复提示。原工具行仍只记录当时成功启动。",
+      stopped: "停止完成后通过后续普通 assistant 消息到达，说明已停止、保留的部分结果、用量与诊断位置；不会把已启动工具行改写成停止。"
+    };
+
+    const scriptPreview = `meta = {
     "name": "review-changes",
-    "description": "Review and verify changes",
-    "phases": [{"title": "Review"}, {"title": "Verify"}],
+    "description": "并行审查当前改动并逐条验证发现"
 }
 
 async def main():
-    reviews = await pipeline(args["dimensions"], ...)
-    return {"confirmed": reviews}</pre>
-              <div class="approval-actions">
-                <button class="btn primary" onclick="approveWorkflow()">本次允许</button>
-                <button class="btn">总是允许</button>
-                <button class="btn danger">拒绝</button>
-              </div>
-            </div>
-            <div id="chat-disabled" class="disabled-note">Workflow 未启用。Slash picker 不显示 `/workflows`、`/deep-research` 或保存的 Workflow；输入 `ultracode` 也只是普通文本。</div>
-          </div>
-          <div class="composer-wrap">
-            <div id="progress" class="progress-strip">
-              <span class="progress-icon">↻</span>
-              <div class="progress-copy"><strong>review-changes · Review</strong><span>3 running · 2 completed · 48.2k tokens · 01:18</span></div>
-              <button onclick="openSheet()">查看</button>
-            </div>
-            <div class="composer">继续发消息…　输入 / 查看命令</div>
-          </div>
-        </div>
-      </section>
-    </main>
-  </div>
+    reviews = await parallel([...])
+    return await verify(reviews)`;
 
-  <div id="sheet-backdrop" class="sheet-backdrop" onclick="closeSheet(event)">
-    <aside class="sheet" aria-label="Workflow detail">
-      <div class="sheet-head"><div><h2 style="margin-bottom:5px">review-changes</h2><p class="sub">wf_c91f2a · running · medium</p></div><button onclick="closeSheet()">×</button></div>
-      <div class="run-summary">
-        <div class="metric"><span>Agents</span><strong>5 / 11</strong></div>
-        <div class="metric"><span>Output tokens</span><strong>48.2k</strong></div>
-        <div class="metric"><span>Elapsed</span><strong>01:18</strong></div>
-      </div>
-      <div class="tree">
-        <section class="tree-group"><h3>✓ Review</h3>
-          <div class="agent-row"><i class="dot"></i><b>review:correctness</b><span>completed · 12.4k</span></div>
-          <div class="agent-row"><i class="dot"></i><b>review:security</b><span>completed · 9.8k</span></div>
-          <div class="agent-row"><i class="dot"></i><b>review:performance</b><span>completed · 8.1k</span></div>
-          <div class="agent-row"><i class="dot"></i><b>review:maintainability</b><span>completed · 10.7k</span></div>
-        </section>
-        <section class="tree-group"><h3>↻ Verify</h3>
-          <div class="agent-row"><i class="dot"></i><b>verify:race-condition</b><span>running · 7.2k</span></div>
-          <div class="agent-row"><i class="dot wait"></i><b>verify:error-path</b><span>queued</span></div>
-          <div class="agent-row"><i class="dot wait"></i><b>verify:permission</b><span>queued</span></div>
-        </section>
-      </div>
-      <div class="controls">
-        <button id="pause-button" class="btn" onclick="togglePause()">暂停</button>
-        <button class="btn">重启选中 Agent</button>
-        <button class="btn danger">停止运行</button>
-        <button class="btn">保存 Workflow</button>
-      </div>
-    </aside>
-  </div>
+    const $ = (id) => document.getElementById(id);
+    let currentState = "running";
+    let processOpen = false;
+    let toolOpen = false;
 
-  <script>
-    function showView(name) {
-      document.querySelectorAll('.view').forEach((el) => el.classList.remove('active'));
-      document.querySelectorAll('.nav button').forEach((el) => el.classList.remove('active'));
-      document.getElementById(`view-${name}`).classList.add('active');
-      document.getElementById(`nav-${name}`).classList.add('active');
+    function workflowDetail(showResult, denied = false) {
+      return `<div class="workflow-card">
+        <section class="workflow-section">
+          <span class="workflow-label">编排输入（script）</span>
+          <span class="workflow-input-meta">inline Python · guideline medium</span>
+          <pre class="workflow-script">${scriptPreview}</pre>
+        </section>
+        ${showResult ? `<section class="workflow-section workflow-result">
+          <span class="workflow-label">启动结果</span>
+          <div class="workflow-result-status"${denied ? ' style="color:#db7777"' : ""}>${denied ? "✕ 未执行 · launch denied" : "✓ Workflow async_launched · review-changes"}</div>
+          <div class="workflow-result-meta">
+            ${denied ? "<span>未创建 Workflow run 或后台 task</span>" : `<span>run wf_be7ccbcb-d39 · task wt_7f2a94</span>
+            <span>script …/workflows/scripts/review-changes-wf_be7ccbcb-d39.py</span>
+            <span>diagnostics …/workflows/runs/wf_be7ccbcb-d39</span>`}
+          </div>
+        </section>` : ""}
+      </div>`;
     }
-    function setCapability(enabled) {
-      document.body.classList.toggle('workflow-off', !enabled);
-      const workflowTool = document.getElementById('workflow-tool');
-      workflowTool.classList.toggle('selected', enabled);
-      workflowTool.setAttribute('aria-pressed', String(enabled));
+
+    function setProcessOpen(open) {
+      processOpen = open;
+      $("process-toggle").classList.toggle("open", open);
+      $("process-panel").classList.toggle("open", open);
+      $("process-toggle").setAttribute("aria-expanded", String(open));
+      $("process-arrow").textContent = open ? "▾" : "▸";
     }
-    function approveWorkflow() {
-      document.querySelector('.approval').style.display = 'none';
+
+    function setToolOpen(open) {
+      toolOpen = open;
+      $("tool-detail").classList.toggle("open", open);
+      $("tool-row").setAttribute("aria-expanded", String(open));
+      $("tool-arrow").textContent = open ? "▾" : "▸";
     }
-    function openSheet() { document.getElementById('sheet-backdrop').classList.add('open'); }
-    function closeSheet(event) {
-      if (event && event.target !== document.getElementById('sheet-backdrop')) return;
-      document.getElementById('sheet-backdrop').classList.remove('open');
+
+    function terminalContent(state) {
+      const status = $("result-status");
+      status.className = "result-status";
+      if (state === "completed") {
+        status.textContent = "已完成";
+        $("result-copy").innerHTML = "完成了 4 个并行审查维度和 6 条独立验证。<ul><li>确认 2 个需要修复的问题</li><li>排除 4 个误报</li><li>详细结论已汇总到最终结果</li></ul>";
+        $("result-meta").innerHTML = "run <code>wf_be7ccbcb-d39</code> · 12 Agents · 124,820 input / 9,420 output tokens<br>诊断：<code>…/workflows/runs/wf_be7ccbcb-d39</code><br>继续或恢复：<code>/workflows wf_be7ccbcb-d39 resume</code>";
+        $("terminal-elapsed").textContent = "⏱ 3m 42s";
+      } else if (state === "failed") {
+        status.textContent = "失败";
+        status.classList.add("failed");
+        $("result-copy").innerHTML = "验证阶段的第 3 个 Agent 调用失败；已完成的审查结果仍然保留。<ul><li>失败位置：Verify / verify-api-contract</li><li>错误：子 Agent 达到模型调用超时</li></ul>";
+        $("result-meta").innerHTML = "run <code>wf_be7ccbcb-d39</code> · 已完成 8/12 Agents · 91,306 input / 6,814 output tokens<br>诊断：<code>…/workflows/runs/wf_be7ccbcb-d39</code><br>从已完成前缀恢复：<code>/workflows wf_be7ccbcb-d39 resume</code>";
+        $("terminal-elapsed").textContent = "⏱ 2m 51s";
+      } else {
+        status.textContent = "已停止";
+        status.classList.add("stopped");
+        $("result-copy").innerHTML = "Workflow 已按请求停止；不再派发新的 Agent，已经完成的结果和诊断均已保留。<ul><li>已完成 5/12 Agents</li><li>当前没有仍在运行的子 Agent</li></ul>";
+        $("result-meta").innerHTML = "run <code>wf_be7ccbcb-d39</code> · 48,291 input / 3,772 output tokens<br>诊断：<code>…/workflows/runs/wf_be7ccbcb-d39</code><br>如需重启：<code>/workflows wf_be7ccbcb-d39 resume</code>";
+        $("terminal-elapsed").textContent = "⏱ 1m 29s";
+      }
     }
-    function togglePause() {
-      const button = document.getElementById('pause-button');
-      const strip = document.getElementById('progress');
-      const paused = button.textContent === '继续';
-      button.textContent = paused ? '暂停' : '继续';
-      strip.classList.toggle('paused', !paused);
-      strip.querySelector('strong').textContent = paused ? 'review-changes · Verify' : 'review-changes · 已暂停';
+
+    function renderState(state) {
+      currentState = state;
+      document.querySelectorAll(".state-tab").forEach((button) => button.classList.toggle("active", button.dataset.state === state));
+      $("review-note").innerHTML = `<strong>当前状态：</strong>${stateCopy[state]}`;
+
+      const launchSucceeded = ["launched", "completed", "failed", "stopped"].includes(state);
+      const launchDenied = state === "denied";
+      const launchTerminal = launchSucceeded || launchDenied;
+      const workflowTerminal = ["completed", "failed", "stopped"].includes(state);
+      const waiting = state === "permission";
+
+      $("assistant-copy").textContent = launchDenied
+        ? "Workflow 启动已取消。"
+        : launchTerminal
+        ? "Workflow 已在后台启动；你可以继续聊天。运行编号 wf_be7ccbcb-d39。"
+        : "我会把审查与验证组织成一个后台 Python Workflow。";
+      $("process-running").hidden = launchTerminal;
+      $("process").hidden = waiting;
+      $("permission-card").hidden = !waiting;
+      $("process-approval-count").hidden = !launchTerminal;
+      $("process-approval-count").textContent = launchDenied ? "· 1 次授权 · 1 拒绝" : "· 1 次授权 · 1 允许";
+      $("tool-gate").textContent = launchDenied ? "已拒绝" : launchTerminal ? "已授权" : "";
+      $("message-running").hidden = launchTerminal;
+      $("message-elapsed").hidden = !launchTerminal;
+
+      const status = $("tool-status");
+      status.className = `tool-status ${launchDenied ? "failed" : launchTerminal ? "completed" : "running"}`;
+      status.textContent = launchDenied ? "✕" : launchTerminal ? "●" : "◌";
+      $("tool-summary").textContent = "并行审查当前改动并逐条验证发现";
+      $("tool-duration").textContent = launchSucceeded ? "2.4s" : "";
+      $("tool-detail").innerHTML = workflowDetail(launchTerminal, launchDenied);
+
+      $("terminal-message").classList.toggle("visible", workflowTerminal);
+      if (workflowTerminal) terminalContent(state);
+      if (workflowTerminal) requestAnimationFrame(() => $("messages").scrollTo({ top: $("messages").scrollHeight, behavior: "smooth" }));
     }
+
+    document.querySelectorAll(".state-tab").forEach((button) => button.addEventListener("click", () => renderState(button.dataset.state)));
+    $("process-toggle").addEventListener("click", () => {
+      const opening = !processOpen;
+      setProcessOpen(opening);
+      setToolOpen(opening);
+    });
+    $("tool-row").addEventListener("click", () => setToolOpen(!toolOpen));
+    document.querySelectorAll("[data-decision]").forEach((button) => button.addEventListener("click", () => renderState(button.dataset.decision === "deny" ? "denied" : "launched")));
+
+    renderState("running");
   </script>
 </body>
 </html>
