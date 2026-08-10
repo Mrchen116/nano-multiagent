@@ -79,3 +79,12 @@
 | Candidate | Suggested owner | Scope | Evidence |
 |---|---|---|---|
 | None | — | — | — |
+
+## Code-review fix loop @ `830c0aa67`
+
+### Baseline
+
+- Clean/synced branch: `milestone/bugfix-525-review-fix1` from `origin/unit/bugfix-525` at `830c0aa67b60638df10630823bf7af12665b5556`.
+- Full non-E2E first run: `3192 passed, 1 failed, 28 deselected, 22 warnings in 1192.20s`; host load average exceeded `70`, and the only failure was `tests/integration/test_self_evolution_gateway_skill_sync.py::test_post_terminal_skill_create_reaches_gateway_config_sync` exceeding its 5-second catalog-revision wait.
+- Systematic-debugging recheck: the exact failed test passed once with `-vv`, then passed `5/5` additional sequential runs (`1.62–1.95s`). Combined with prior full-green evidence on the same code, orchestrator approved treating the first result as host-load timeout rather than a stable branch regression. If it recurs after the fix under reasonable load, investigation must resume rather than reusing this exception.
+- Plan: R5 adds one stable final-state concurrency regression in the existing config-sync test owner, then serializes the complete skill-created reconciliation boundary with the shared `RLock`; no caller-specific locks and no event-policy/schema changes.

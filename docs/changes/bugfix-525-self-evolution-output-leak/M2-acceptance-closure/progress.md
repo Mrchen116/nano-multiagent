@@ -77,3 +77,11 @@
 ## Promotion Candidates
 
 None.
+
+## Code-review fix loop @ `830c0aa67`
+
+### Baseline and plan
+
+- Reuse the M2 production journeys and approved routing semantics unchanged. Review fixes are limited to acceptance harness lifecycle and invocation portability.
+- R4 will preserve failure logs, run production `e2e-down.sh` before any runner runtime removal, reap the controlled LLM stub, and bind replacement Gateway launches to `sys.executable`.
+- R5 will resolve Git common-dir independently of caller cwd, add a lightweight main-checkout-shaped external-cwd regression, then run the two existing true-stack journeys from an external cwd and verify teardown.

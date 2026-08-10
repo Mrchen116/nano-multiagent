@@ -60,3 +60,17 @@ UI / Prototype / Reference Contract: N/A（后端 Kernel/Gateway 生命周期修
 
 - 步骤: 跑完整受影响矩阵、全量非 E2E、Ruff、docs-check、diff gate；按 worktree runtime 契约起隔离栈验证正常回答 + structured notice/无 raw bubble，随后 down 并确认进程/端口/secret 清理。
 - 验证: 命令、结果、runtime locator/限制写入 progress；更新 milestone 实施证据，不改 frozen delta-spec。
+
+## Code-review fix loop @ `830c0aa67`
+
+### R5 — 并发 Skill 配置调和
+
+- 状态: TODO
+- 步骤: 在现有 `IMAgentConfigSync` skill-created 测试 owner 中先构造两个不同来源并发创建、同时读取旧 profile version 的失败；再用共享 `_operation_lock` 串行化 `handle_skill_created` 的完整 read/merge/patch/publish 边界。
+- 验证: 最终 explicit allowlist 同时包含 Skill A/B，不改 default-discovery/global scope 和 foreground/persistent 两类调用方的事件分类。
+
+### Review-fix 受影响既有测试处置
+
+| 风险 / 行为 | 既有测试 | 处置 | 理由与验证 |
+|---|---|---|---|
+| explicit allowlist 对 skill-created 的 mode-aware 调和 | `tests/unit/personal_assistant/test_gateway_im_config_sync.py` | rewrite-merge | 保留 agent/global/default/explicit 断言，在同一 owner 增加并发最终状态回归，不在 manager/observer 复制配置算法测试。 |
