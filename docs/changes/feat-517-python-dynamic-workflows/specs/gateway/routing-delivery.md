@@ -24,6 +24,12 @@
 - **THEN** Gateway 用相同消息 sidecar 携带 Workflow task/run identity、terminal value、usage、diagnostics 与 resume hint
 - **AND** 不把 terminal 当作 launch ToolCall 的后续更新
 
+#### Scenario: 后台 Workflow 终态 continuation 使用原 parent session runtime
+- **GIVEN** Workflow 所属 parent session 的持久 runtime 选择了特定 model 与 effort，且该 session 在终态通知到达时没有 active run
+- **WHEN** Gateway 因该通知启动普通综合回复
+- **THEN** continuation 使用原 parent session 持久化的 model 与 effort
+- **AND** 不回落到进程默认模型，也不借用其他 session 的 runtime
+
 #### Scenario: 外部 IM 保持普通文本回复
 - **WHEN** 同一后台返回来自飞书等外部 channel
 - **THEN** Gateway 仍把主 Agent 的普通文本回复发回原聊天

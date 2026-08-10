@@ -79,3 +79,9 @@ REPL 暴露稳定的斜杠命令集合管理会话生命周期、查看工具、
 #### Scenario: 完成后收到一次结果
 - **WHEN** Workflow 进入终态
 - **THEN** REPL 在下一安全输出边界显示一次结果或错误、usage、诊断与 resume 提示
+
+#### Scenario: CLI 重启后显式恢复同会话终态运行
+- **GIVEN** 用户退出 CLI，随后重新选择 Workflow 所属的同一 session
+- **WHEN** 用户执行 `/workflows <run-id> resume`
+- **THEN** CLI 从持久化的原 script 和 args 启动带新 run id 的恢复运行；原 run 仍可查询，新 run 诊断记录 `resumed_from`
+- **AND** 若当前 session 不是原 parent session，CLI 显示可操作的归属诊断而不是笼统失败

@@ -86,6 +86,7 @@
 - **WHEN** Workflow 派发一个未显式覆盖模型或 effort 的子 Agent
 - **THEN** 子 Agent 继承父运行的模型、effort 与工具范围
 - **AND** 子 Agent 的可用工具不含 `Agent` 或 `Workflow`
+- **AND** Workflow 已转入后台且父前台轮结束后，子 Agent 仍使用该次派发时捕获的模型与 effort，不回落到进程默认值
 
 #### Scenario: 显式模型、effort、agent type 和 worktree
 - **WHEN** `agent()` 明确提供受支持的 model、effort、agent type 或 worktree isolation
@@ -119,6 +120,11 @@
 - **WHEN** 消费者经 SDK 查询它
 - **THEN** 返回带单调 revision 的完整快照，包含状态、metadata、阶段、Agent、日志、用量、耗时和诊断位置
 
+#### Scenario: 消费者进程重启后仍可查询终态运行
+- **GIVEN** Workflow 已进入终态并持久化，其消费者进程随后重启
+- **WHEN** 同一 parent session 重新列出、读取或对该 run 发起原有控制操作
+- **THEN** 持久化终态快照仍可见，不因缺少 live handle 返回 unknown run
+
 #### Scenario: 暂停和继续 live run
 - **WHEN** 消费者暂停一个运行中 Workflow
 - **THEN** 新 Agent 不再开始，已运行 Agent 可收口，快照显示 paused
@@ -147,6 +153,12 @@
 
 ### Requirement: Workflow resume 只复用同会话最长相同且已完成的 Agent 调用前缀
 
+#### Scenario: 同一 parent session 在消费者进程重启后恢复终态运行
+- **GIVEN** 原 Workflow 已终态持久化，消费者进程退出后重新打开同一 parent session
+- **WHEN** 消费者以原 run id 显式恢复
+- **THEN** runtime 从原运行的 script 和结构化 args 新建 run id，并记录 `resumed_from`
+- **AND** 仅复用该 parent session 内持久化的已完成 Agent 前缀，不依赖原进程的 live child
+
 #### Scenario: 相同 script 与 args 完全命中
 - **GIVEN** 同一 parent session 中一条 Workflow 已完成
 - **WHEN** 消费者以相同 script、args 和行为选项从其 run id 恢复
@@ -164,7 +176,11 @@
 
 #### Scenario: 跨会话不复用
 - **WHEN** 消费者在另一 parent session 以旧 run id 请求恢复
-- **THEN** 恢复被拒绝或从头运行，不把跨会话结果报告为 prefix cache hit
+- **THEN** 恢复以稳定的 parent-session 归属错误拒绝，不启动新 run 也不报告 prefix cache hit
+
+#### Scenario: 新会话不带旧 run id 重新运行
+- **WHEN** 消费者在新 parent session 不带旧 run id 启动同一 Workflow
+- **THEN** 它从头运行，不把跨会话结果报告为 prefix cache hit
 
 ### Requirement: 消费者可保存、发现并按名称运行 Python Workflow
 

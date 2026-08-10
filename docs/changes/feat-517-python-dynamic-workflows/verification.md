@@ -197,3 +197,84 @@ None.
 None.
 
 All checks passed. Ready for PR.
+
+# Corrected Delta Reconciliation
+
+> Final implementation snapshot: `1aacca10b5bfa674f598e73d33462f5ed54c5e40`
+>
+> Base: `ee32b85b51ec70009b47d2fd2b49700a53f07ab6` (`origin/main`)
+
+## Result
+
+- Mode: `corrected-delta`
+- Outcome: **delta-mismatch**
+- Implementation verdict after correction: **pass**
+- Product/canonical documentation changes: none
+
+最终实现与用户验收已经闭环，但实施后的四个对外行为没有完整投影到 unit delta-spec：CLI 进程重启后的持久 run 查询/恢复、新增 `Kernel.resume_workflow`、跨 parent session 显式恢复的稳定拒绝，以及 PA 后台 Workflow child / idle terminal continuation 的 parent model + effort 保持。本轮只校正四份 delta-spec；没有修改实现、原始 `spec.md` / `design.md` 或 canonical `docs/specs/**`。
+
+## Corrected delta
+
+| Delta | 原 drift | 校正后的最终契约 | 实现 / 验证证据 |
+|---|---|---|---|
+| `specs/kernel/sdk-boundary.md` | 稳定 SDK method set 仍只列旧的五个 Workflow methods，并把 live resume 与 terminal durable resume 合并为一种 control | 新增 `resume_workflow`；`control_workflow` 继续控制 live run，独立 resume 对 live paused run 原地继续、对持久化终态 run 新建 `resumed_from` run，并拒绝跨 parent session cache | `src/agent/sdk/kernel.py:1996-2121`; `tests/integration/test_workflow_cli_restart_resume.py:170-255` |
+| `specs/kernel/workflows.md` | 只写了进程内 live resume 与抽象的跨会话不复用，未覆盖消费者重启后的 durable query/control/resume；child 继承未说明后台线程不得回落进程默认值 | 同 parent session 重启后仍可查询终态 run；显式 resume 使用原 script + args 新建 run，仅复用持久化完成前缀；跨 session 带旧 run id 稳定拒绝，不带旧 id 则从头运行；后台 child 保持派发时 model/effort | `src/agent/platform/workflows/manager.py:229-287,292-386`; `src/agent/platform/workflows/child.py:154-194`; `tests/unit/agent/platform/workflows/test_manager_resume_restart.py`; `tests/unit/agent/test_kernel_create_subagent.py:151-170` |
+| `specs/cli/interactive-repl.md` | `/workflows` 只有泛化 query/control，未记录真实 CLI 退出并 `--resume` 同 session 后的 completed-run rerun 与 cross-session 诊断 | `/workflows <run-id> resume` 从原 script/args 启动新 run，保留原 run 可查询并在诊断记录 `resumed_from`；非 owner session 显示可操作的归属错误 | `src/coding_cli/commands.py:1620-1682`; `tests/integration/test_workflow_cli_restart_resume.py:170-255`; `acceptance-evidence/round3-runtime-evidence.md` |
+| `specs/gateway/routing-delivery.md` | 已覆盖 Workflow / Agent raw background return、sidecar 归因和 exact-once，但未记录 idle terminal continuation 应使用哪个 runtime | idle Workflow terminal notification 触发的综合回复使用原 parent session 持久化 model + effort，不回落进程默认模型或污染其他 session | `src/agent/platform/background_tasks/wiring.py:174-217`; `tests/integration/test_session_run_coordinator_real_kernel.py:161-254`; Round 3 两次 PA Workflow 的 parent/child/terminal requests 均 Luna + low |
+
+## Complete delta reconciliation
+
+| Delta-spec | 结果 | 核对结论 |
+|---|---|---|
+| `specs/cli/interactive-repl.md` | corrected | 增补 restart same-session durable resume 与 cross-session diagnostic；其余 enable/opt-in/TTY/non-TTY/terminal 契约与最终实现及 Round 1-3 acceptance 一致 |
+| `specs/cli/spec.md` | aligned | 索引与所属 requirement 边界无新 drift |
+| `specs/gateway/agent-capabilities.md` | aligned | Workflow active-tool snapshot、command discovery 与 disabled next-turn 契约一致 |
+| `specs/gateway/relay-protocol.md` | aligned | `text or background_returns`、typed sidecar 与空正文单消息契约一致 |
+| `specs/gateway/routing-delivery.md` | corrected | 原 Workflow / Agent 返回、外部 IM 与重放去重已准确；只增补 idle terminal continuation 的 parent runtime 归属 |
+| `specs/gateway/workflows.md` | aligned | Web/外部 IM opt-in、query/live control、permission routing、terminal cadence 与最终实现一致 |
+| `specs/gateway/spec.md` | aligned | 索引边界无新 drift |
+| `specs/im/agents-nodes.md` | aligned | Agent tool selection 及配置投影一致 |
+| `specs/im/gateway-relay.md` | aligned | Workflow / Agent background return 实时、空正文、历史与去重契约一致 |
+| `specs/im/tool-timeline.md` | aligned | background return 作为折叠“过程”项且不计入 tool/approval count，与最终 frontend 一致 |
+| `specs/im/workflows.md` | aligned | input-first/result-second、PermissionCard、Workflow terminal return 与 disabled state 均有最终实现和已提交原型/验收证据 |
+| `specs/im/spec.md` | aligned | 索引边界无新 drift |
+| `specs/kernel/background-tasks.md` | aligned | Agent / Workflow notification XML + structured sidecar 的 active、idle、continuation、held flush 和 exact-once 契约一致 |
+| `specs/kernel/runs.md` | aligned | background-return 与真正 consuming run/reply 绑定，无新 drift |
+| `specs/kernel/sdk-boundary.md` | corrected | 增补最终新增的 `resume_workflow` 和 live-control / durable-resume 边界 |
+| `specs/kernel/workflows.md` | corrected | 增补 restart persistence、精确 session scope 及 background child runtime inheritance；其余 compiler/primitives/permission/save/budget/observability 契约与 Round 2 closure 一致 |
+| `specs/kernel/spec.md` | aligned | 新增 scenario 未改变 requirement 索引边界 |
+
+## Special checks requested for the final tree
+
+| Check | Result |
+|---|---|
+| restart same-session query/control/resume | **pass** — restart 后 persisted terminal run 可列出/详情查询，TTY control 不再报 unknown；显式 resume 用原 script + args 新建 run，child cache replay |
+| cross-session diagnosis | **pass** — 带旧 run id 显式 resume 返回 `resume Workflow run belongs to a different parent session`，不创建 run、不发 child request |
+| PA Workflow child model + effort | **pass** — child session 持久化捕获的 runtime model/effort；两个连续 Workflow child 均 Luna + low |
+| PA Workflow idle terminal continuation model + effort | **pass** — notification submit 解析原 parent session model，effort 从该 session 持久 runtime 恢复；两次 continuation 均 Luna + low，无 DeepSeek 回落 |
+| background Agent return | **pass** — delta 已准确覆盖 ordinary reply + 同消息可展开 raw return + realtime/history/reload 去重；Round 3 真实产品验收通过 |
+
+## Verification evidence
+
+- Focused Python：`9 passed`（CLI restart resume、PA 连续 Workflow model/effort、child runtime persistence、sidecar-only delivery、Workflow notification 与 IM return persistence）。
+- Focused frontend：`2 files / 11 tests passed`（Workflow / Agent background-return 展示与 history merge）。
+- Documentation integrity：`241 maintained Markdown sources, 67 required routes` passed。
+- Acceptance Round 3：pass；真实产品证据包含 same-session restart replay、cross-session diagnosis、连续两次 PA Workflow Luna + low 路由和 background Agent return reload 去重。
+- Code review Round 4：pass，`0 open P1/P2 findings`。
+- 本轮未运行真实 Chrome / 飞书，未调用 LLM；仅复用已提交的 acceptance evidence 并运行本地永久测试。
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+None.
+
+### WARNING（提 PR 前必须修）
+
+None.
+
+### SUGGESTION（可以修）
+
+None.
+
+Corrected delta now matches the final implementation and accepted behavior. Ready for canonical-spec merge.

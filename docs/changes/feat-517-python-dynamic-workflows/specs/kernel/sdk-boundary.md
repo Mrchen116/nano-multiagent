@@ -42,7 +42,7 @@
 
 #### Scenario: Kernel 暴露稳定的对外方法集
 - **GIVEN** 一个已装配的 `Kernel`
-- **THEN** 它暴露异步会话生命周期方法 `create_session` / `fork_session` / `compact` / `discard_run_messages`,非阻塞方法 `submit` / `try_steer` / `stream` / `interrupt` / `cancel` / `get_run` / `list_session_tools` / `get_llm_config`,中立能力查询 `list_models` / `list_tools` / `list_features` / `list_skills`,Workflow 查询与控制 `list_workflow_runs` / `get_workflow_run` / `control_workflow` / `save_workflow` / `list_named_workflows`,以及 prompt 预览 `assemble_prompt_preview`;并同时暴露供异步消费者使用的 `aclose()`与同步兼容的 `close()`
+- **THEN** 它暴露异步会话生命周期方法 `create_session` / `fork_session` / `compact` / `discard_run_messages`,非阻塞方法 `submit` / `try_steer` / `stream` / `interrupt` / `cancel` / `get_run` / `list_session_tools` / `get_llm_config`,中立能力查询 `list_models` / `list_tools` / `list_features` / `list_skills`,Workflow 查询与控制 `list_workflow_runs` / `get_workflow_run` / `control_workflow` / `resume_workflow` / `save_workflow` / `list_named_workflows`,以及 prompt 预览 `assemble_prompt_preview`;并同时暴露供异步消费者使用的 `aclose()`与同步兼容的 `close()`
 
 #### Scenario: 消费者选择已注册的自动分类模型
 - **GIVEN** `LLMConfig` catalog 含模型 C
@@ -82,9 +82,14 @@
 - **THEN** 返回 SDK-owned immutable snapshots，不暴露 platform manager、store 或 child session 对象
 
 #### Scenario: 控制 Workflow 运行
-- **WHEN** 应用经 SDK 对 run 发起 pause、resume、stop 或 restart-agent
+- **WHEN** 应用经 `control_workflow` 对 live run 发起 pause、resume、stop 或 restart-agent
 - **THEN** 返回更新后的 SDK-owned snapshot 或稳定错误
 - **AND** 应用不需要 import `agent.core` 或 `agent.platform`
+
+#### Scenario: 恢复已持久化的 Workflow 运行
+- **WHEN** 应用经 `resume_workflow` 恢复同一 parent session 的 live paused run 或已持久化终态 run
+- **THEN** live paused run 在原 run 上继续；终态 run 从原 script 与 args 新建带 `resumed_from` 的 run
+- **AND** 跨 parent session 的 run id 返回稳定归属错误，不复用它的 Agent cache
 
 #### Scenario: 保存和发现命名 Workflow
 - **WHEN** 应用经 SDK 保存某 run script 或列出 workspace 适用的命名 Workflow
