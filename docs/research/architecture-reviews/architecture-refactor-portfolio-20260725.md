@@ -1,3 +1,11 @@
+---
+status: research-snapshot
+recorded-at: 2026-07-25
+nano-baseline: efe2ffd08034f611897b58b994547fcf71753f7e
+source-baseline: not-recorded
+current-owner: docs/research/architecture-reviews/README.md
+---
+
 # nano-multiagent 架构重构组合（2026-07-25）
 
 > 基线：`efe2ffd08034f611897b58b994547fcf71753f7e`（审计时 `origin/main`）
@@ -12,13 +20,13 @@
 
 | 优先级 | 问题 | 当前破裂点 | CC 对照结论 | 处置 |
 |---|---|---|---|---|
-| P0 | 权限请求事务所有权分裂 | engine 闭包与 broker 共同知道 pending、竞态、取消、liveness，且穿透私有状态 | `useCanUseTool` 是完整 transaction owner；借鉴单 owner，不复制 React | [refactor-476](../../changes/refactor-476-permission-transaction-owner/) |
+| P0 | 权限请求事务所有权分裂 | engine 闭包与 broker 共同知道 pending、竞态、取消、liveness，且穿透私有状态 | `useCanUseTool` 是完整 transaction owner；借鉴单 owner，不复制 React | `refactor-476` |
 | P0 | CLI 同一 session 双 stream subscriber | persistent drain 与每轮 sender 同时消费 replay/live，后台 processor 留 user-run buffer | CC conversation 只有一条主消费链；SDK side queue 不是第二订阅 | [refactor-477](../../changes/retired/refactor-477-cli-session-stream-owner/) |
-| P0 | IM↔Gateway control RPC 生命周期按 operation 复制，transport 混入领域分派 | IM 11 组 waiter；PA connection 同时管 wire 与 config/prompt/fork/heartbeat/cron/skill | CC bridge 分 transport 与 typed control handler；Nano 另保留远端 waiter owner | [refactor-478](../../changes/refactor-478-gateway-control-rpc-boundary/) |
+| P0 | IM↔Gateway control RPC 生命周期按 operation 复制，transport 混入领域分派 | IM 11 组 waiter；PA connection 同时管 wire 与 config/prompt/fork/heartbeat/cron/skill | CC bridge 分 transport 与 typed control handler；Nano 另保留远端 waiter owner | `refactor-478` |
 | P1 | Skill 批量复盘没有 queue-to-terminal owner | core queue、SDK drain、两产品 scheduler/polling、platform review 横跨 | CC 无完全等价功能；skill learning observer 展示一次安装、service 闭环 | [refactor-479](../../changes/retired/refactor-479-skill-review-lifecycle-owner/) |
 | P1 | Run delivery typed authority 未完成切换 | typed context、legacy mirror、mapping façade、terminal dict 同时存在 | CC 无相同 IM 领域；借鉴内部 typed union、边界一次投影 | [refactor-480](../../changes/archive/refactor-480-typed-run-delivery-context/) |
 | P1 | Gateway 本地配置混合六个变化轴 | schema/codec/write/snapshot/workspace/model/Feishu 同处 `local_store.py` | CC settings 也大，但 provider registry/auth 生命周期不在通用 codec | [refactor-481](../../changes/retired/refactor-481-gateway-config-ownership/) |
-| P1 | Web Chat 页面与 MessagePane 共享运行时所有权 | timeline/live、composer、group/fork/distill/scroll 经 page state 与 26 props 隐式连接 | CC REPL 也大；Messages/PromptInput 说明 view 可分，巨大 props 又证明只拆 JSX 不够 | [refactor-482](../../changes/refactor-482-web-chat-runtime-ownership/) |
+| P1 | Web Chat 页面与 MessagePane 共享运行时所有权 | timeline/live、composer、group/fork/distill/scroll 经 page state 与 26 props 隐式连接 | CC REPL 也大；Messages/PromptInput 说明 view 可分，巨大 props 又证明只拆 JSX 不够 | `refactor-482` |
 | P1 | Agent create/edit 重复配置领域规则 | normalization、validation、feature defaults、feature→tool、空 allowlist 两套实现 | CC 无直接 UI 等价；采用 settings model/registry 的单一规则投影原则 | [refactor-483](../../changes/retired/refactor-483-web-agent-config-form-model/) |
 | 已处理 | `agent.platform.tools.registry` 假 seam | 5 行纯 re-export，无生产调用，测试维护旧入口 | 无需寻找 CC 抽象；删除后复杂度不会转移 | Ready PR #212；Python/Frontend CI 通过 |
 
