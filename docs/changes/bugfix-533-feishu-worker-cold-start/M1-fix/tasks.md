@@ -36,13 +36,13 @@
 
 ### R1 — 固定轻量 import 与生产 spawn budget
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 先加入 fresh-interpreter import contract 与未包装的真实 spawn 回归并确认 deterministic red；再移除包级 eager re-export，让两个 Gateway 调用方直接从正式 adapter 模块导入。
 - 验证: 新测试先红后绿；确认 `worker.py`、`client.py` 的 bootstrap target、parent-sentinel、status/IPC 逻辑无修改。
 
 ### R2 — 验证 Feishu lifecycle 与仓库门禁
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 跑新启动回归、现有 worker/lifecycle、相关 Feishu/Gateway tests、Ruff、format、diff、docs gates 与完整 non-E2E。
 - 验证: 所有相关门禁绿；记录初始 full-suite heartbeat shared-host timing flake、串行 exact 复证和最终 full-suite 结果，不修改 out-of-scope timeout。
 
