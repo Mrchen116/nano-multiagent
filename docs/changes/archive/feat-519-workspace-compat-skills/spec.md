@@ -10,6 +10,8 @@
 >
 > 不存在，那当然是跳过呀。这都是跟之前一样的吧？之前不已经做了那个全局的兼容吗？
 
+> 傻逼，不做这种多余的后向兼容！！！！冗余设计
+
 ## 澄清记录
 
 - Q1: 这项兼容是否只适用于 PA / IM Agent 的 Workspace，还是也要求 Coding CLI 在项目 Workspace 中发现 `.claude/skills` 和 `.codex/skills`？
@@ -31,6 +33,10 @@
 - Q5: 批量选择是否按页面已有的全局、本地和兼容来源分组执行，并在分组标题旁提供紧凑的全选、部分选中和取消选择控制？
   A(原话): 这个设计阶段来定吧，我不做这么细的管控。最后你设计完之后给我review的时候，我直接看你的设计，再给点子。
   Agent 解读: 本 unit 必须让用户能按显示的 Skill 分组批量选择，同时保留单项选择；具体控件、状态反馈、文案和视觉处理由设计阶段提出。设计方案须融入既有 Agent 配置体验，不以突兀的大按钮破坏页面，并在 Gate 2 前交用户评审和反馈。
+
+- Q6: 本次为 Skill selection 增加字段后，是否需要支持新旧 IM/Gateway 混版本滚动升级、旧 protocol fallback 或 schema 协商？
+  A(原话): 傻逼，不做这种多余的后向兼容！！！！冗余设计
+  Agent 解读: 不支持混版本 IM/Gateway 运行；Agent config operation 使用唯一当前 canonical fingerprint，删除 v1/v2 schema 协商、fallback 和为其新增的持久化状态。历史 profile 缺席 `skills_selection_mode` 的读取语义保留，因其保护的是已存用户配置而非跨版本协议兼容。
 
 ## 用户场景
 

@@ -45,6 +45,7 @@ def test_agent_config_contract_shape_and_conflict_status(tmp_path: Path) -> None
             "display_name",
             "description",
             "skills",
+            "skills_selection_mode",
             "tool_allowlist",
             "group_reply_policy",
             "default_model",
@@ -62,6 +63,44 @@ def test_agent_config_contract_shape_and_conflict_status(tmp_path: Path) -> None
         )
         # Legacy rows without Gateway provenance are conservatively non-default.
         assert response.json()["workspace_is_default"] is False
+
+
+@pytest.mark.parametrize(
+    ("skills", "expected_effective_mode"),
+    [
+        pytest.param([], "default_discovery", id="legacy-empty"),
+        pytest.param(["plan"], "explicit_allowlist", id="legacy-nonempty"),
+    ],
+)
+def test_mirror_config_preserves_raw_legacy_selection_mode(
+    tmp_path: Path,
+    skills: list[str],
+    expected_effective_mode: str,
+) -> None:
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner = register_user(client, username="owner", display_name="Owner")
+        authorize(client, owner)
+        AgentProfileRepository(app.state.connection).upsert_profile(
+            agent_id="legacy-agent",
+            owner_id=owner.owner_id,
+            display_name="Legacy",
+            description="",
+            skills=skills,
+            skills_selection_mode=None,
+            tool_allowlist=[],
+            group_reply_policy="manual",
+            default_model=None,
+            workspace_root=None,
+        )
+
+        mirror = client.get("/im/v1/agents/legacy-agent/config?source=mirror")
+        live = client.get("/im/v1/agents/legacy-agent/config?source=live")
+
+        assert mirror.status_code == 200
+        assert mirror.json()["skills_selection_mode"] is None
+        assert live.status_code == 200
+        assert live.json()["skills_selection_mode"] == expected_effective_mode
 
 
 def test_patch_agent_config_persists_features_and_custom_prompt(tmp_path: Path) -> None:

@@ -67,6 +67,37 @@ describe("normalizeAgentConfigResponse heartbeat cadence", () => {
   });
 });
 
+describe("normalizeAgentConfigResponse legacy skill selection", () => {
+  it("maps absent mode with empty skills to default discovery", () => {
+    expect(normalizeAgentConfigResponse(BASE_RAW).skills_selection_mode).toBe(
+      "default_discovery",
+    );
+  });
+
+  it("maps absent mode with names to an explicit allowlist", () => {
+    expect(
+      normalizeAgentConfigResponse({ ...BASE_RAW, skills: ["plan"] })
+        .skills_selection_mode,
+    ).toBe("explicit_allowlist");
+  });
+
+  it("maps null mirror modes from the legacy skill list", () => {
+    expect(
+      normalizeAgentConfigResponse({
+        ...BASE_RAW,
+        skills_selection_mode: null,
+      }).skills_selection_mode,
+    ).toBe("default_discovery");
+    expect(
+      normalizeAgentConfigResponse({
+        ...BASE_RAW,
+        skills: ["plan"],
+        skills_selection_mode: null,
+      }).skills_selection_mode,
+    ).toBe("explicit_allowlist");
+  });
+});
+
 describe("normalizeModelOptions reasoning descriptors", () => {
   it("keeps valid public descriptors and drops malformed descriptors safely", () => {
     expect(normalizeModelOptions({

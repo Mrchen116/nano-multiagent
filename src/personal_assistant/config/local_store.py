@@ -211,6 +211,7 @@ class AgentWorkspaceConfig:
     create_operation_id: str | None = None
     title: str | None = None
     skills: tuple[str, ...] = ()
+    skills_selection_mode: str | None = None
     tool_allowlist: tuple[str, ...] = ()
     group_reply_policy: str | None = None
     default_model: str | None = None
@@ -705,13 +706,30 @@ def ensure_lark_skill_bundle_for_feishu_agents(
 
     changed = False
     updated_agents: list[AgentWorkspaceConfig] = []
+    from personal_assistant.config.skill_selection import (
+        EXPLICIT_ALLOWLIST,
+        effective_skills_selection_mode,
+    )
+
     for agent in config.agents:
         missing_skills = tuple(
             skill_id for skill_id in lark_skill_names() if skill_id not in agent.skills
         )
-        if agent.agent_id in feishu_agent_ids and agent.skills and missing_skills:
+        if (
+            agent.agent_id in feishu_agent_ids
+            and effective_skills_selection_mode(
+                agent.skills_selection_mode, agent.skills
+            )
+            == EXPLICIT_ALLOWLIST
+            and agent.skills
+            and missing_skills
+        ):
             updated_agents.append(
-                replace(agent, skills=(*agent.skills, *missing_skills))
+                replace(
+                    agent,
+                    skills=(*agent.skills, *missing_skills),
+                    skills_selection_mode=EXPLICIT_ALLOWLIST,
+                )
             )
             changed = True
         else:
@@ -811,8 +829,10 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
             agent_dict["create_operation_id"] = agent.create_operation_id
         if agent.title is not None:
             agent_dict["title"] = agent.title
-        if agent.skills:
+        if agent.skills or agent.skills_selection_mode == "explicit_allowlist":
             agent_dict["skills"] = list(agent.skills)
+        if agent.skills_selection_mode is not None:
+            agent_dict["skills_selection_mode"] = agent.skills_selection_mode
         # feat-394 fix: always serialize tool_allowlist so an explicit empty
         # whitelist round-trips as [] instead of being omitted and re-backfilled.
         agent_dict["tool_allowlist"] = list(agent.tool_allowlist)
@@ -1182,6 +1202,19 @@ def _parse_agents(
         skills = _parse_string_list(
             item.get("skills"), field_name=f"agents[{index}].skills"
         )
+        skills_selection_mode = _optional_string(
+            item.get("skills_selection_mode"),
+            field_name=f"agents[{index}].skills_selection_mode",
+        )
+        if skills_selection_mode not in {
+            None,
+            "default_discovery",
+            "explicit_allowlist",
+        }:
+            raise ValueError(
+                f"agents[{index}].skills_selection_mode must be "
+                "default_discovery or explicit_allowlist"
+            )
         tool_allowlist_raw = item.get("tool_allowlist")
         tool_allowlist = _parse_string_list(
             tool_allowlist_raw, field_name=f"agents[{index}].tool_allowlist"
@@ -1262,6 +1295,7 @@ def _parse_agents(
                 create_operation_id=create_operation_id,
                 title=title,
                 skills=skills,
+                skills_selection_mode=skills_selection_mode,
                 tool_allowlist=tool_allowlist,
                 group_reply_policy=group_reply_policy,
                 default_model=default_model,

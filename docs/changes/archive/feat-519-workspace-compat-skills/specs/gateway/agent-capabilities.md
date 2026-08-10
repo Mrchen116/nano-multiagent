@@ -72,6 +72,31 @@ Gateway 随包提供 PA 产品说明书与当前产品定义的完整 Lark skill
 - **THEN** Agent 可使用内置 Lark event skill 建立独立监听
 - **AND** 普通 Gateway Feishu 对话的入站与回复所有权不转交给该独立监听
 
+### Requirement: Gateway 配置 operation 可幂等恢复
+
+Gateway 对 `agent.create` 与 `agent.config.apply` 接收稳定 operation id 与唯一当前 canonical 候选 fingerprint；该 fingerprint 包含有效的 Skill selection mode。在任何 workspace、local config 或 live publication 变更前，Gateway 先持久化不含 secret 的 `prepared` intent；再以 expected-previous 保护 local config 写入，并将结果变为 terminal applied/rejected receipt。IM 可在 ACK 丢失或重连后查询 `agent.config.operation.status`。同一个 operation 与同一候选 fingerprint 可安全重试，operation id 不得重用到不同候选。IM 与 Gateway 随该变更一起更新，不协商 fingerprint schema，也不支持旧 protocol fallback 或旧 receipt 迁移。
+
+#### Scenario: applied operation 重试不重复写入或发布
+- **GIVEN** Gateway 已为某 operation id 持久化同一候选 fingerprint 的 applied receipt
+- **WHEN** IM 因超时再次发送相同 create 或 apply operation
+- **THEN** Gateway 返回同一 canonical applied result，不第二次创建 workspace 或重复发布该配置
+
+#### Scenario: operation status 使丢失 ACK 可恢复
+- **GIVEN** Gateway 已落盘某 operation 的 applied 或 rejected receipt，但结果 frame 未送达 IM
+- **WHEN** IM 查询该 operation id 的 status
+- **THEN** Gateway 返回已持久化的终态和 canonical payload 或 rejected reason
+
+#### Scenario: Gateway 在任意 config operation 持久边界崩溃后能恢复
+- **GIVEN** Gateway 已持久化一个 prepared intent
+- **WHEN** 它在 workspace 初始化前、workspace 初始化后、local config 写入后或 live publication 后但 terminal receipt 前崩溃
+- **THEN** 同一 operation 的 retry 或 status 以相同的 expected-previous/candidate fingerprint 重新协调该 intent
+- **AND** create 不创建第二个 workspace，apply 不第二次持久写入或发布
+
+#### Scenario: operation id 不得重用到不同候选
+- **GIVEN** Gateway 已见过某 operation id
+- **WHEN** 调用方以不同候选 fingerprint 重试该 operation id
+- **THEN** Gateway 稳定拒绝，不改变本地 Agent 配置或既有 receipt
+
 ## ADDED Requirements
 
 ### Requirement: PA Agent 从有序的工作区与全局 Claude/Codex 兼容根发现 Skill
@@ -127,3 +152,9 @@ PA Agent 的 Skill 配置必须区分“按当前可发现集合默认使用”�
 - **WHEN** Gateway 处理该 `skill_created` 事件
 - **THEN** default-discovery Agent 保持 default 且由 discovery 自然看到新 Skill
 - **AND** explicit-allowlist Agent 保持 explicit 并将新 name 加入 allowlist，包括原 allowlist 为空的情形
+
+#### Scenario: 显式空 allowlist 不提供 Skill 蒸馏
+- **GIVEN** Agent 的 mode 为 `explicit_allowlist` 且 names 为空，或其显式 names 不含会话蒸馏 Skill
+- **WHEN** 用户请求生成或蒸馏 Skill
+- **THEN** Gateway 在生成 prompt 前返回明确的 distiller unavailable 结果
+- **AND** 不因磁盘上可发现该 Skill 而按 default discovery 放行

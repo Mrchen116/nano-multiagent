@@ -295,6 +295,7 @@ def test_send_register_includes_agent_skills_and_tool_allowlist(
                 agent_id="Arch",
                 workspace_root=workspace,
                 skills=("plan", "playwright"),
+                skills_selection_mode="explicit_allowlist",
                 tool_allowlist=("read", "bash", "edit"),
             ),
         ),
@@ -310,6 +311,7 @@ def test_send_register_includes_agent_skills_and_tool_allowlist(
         "node.register 帧必须含 agent_tool_allowlist 字段 (bugfix-467)"
     )
     assert payload["agent_skills"] == {"Arch": ["plan", "playwright"]}
+    assert payload["agent_skills_selection_modes"] == {"Arch": "explicit_allowlist"}
     assert payload["agent_tool_allowlist"] == {"Arch": ["read", "bash", "edit"]}
 
 
@@ -415,3 +417,5 @@ def test_agent_capabilities_do_not_mark_workspace_skills_default_on(
 
     assert by_name["workspace-doc"]["default_on"] is False
     assert by_name["pa-global"]["default_on"] is True
+    assert by_name["workspace-doc"]["source_group"] == "workspace"
+    assert by_name["pa-global"]["source_group"] == "global"

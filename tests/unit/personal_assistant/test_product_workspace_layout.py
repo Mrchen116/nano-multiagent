@@ -30,4 +30,14 @@ def test_pa_kernel_passes_product_workspace_and_global_roots(
         is sentinel
     )
     assert captured["workspace_config_dirname"] == ".nanoassistant"
+    assert captured["workspace_skill_dirnames"] == (
+        ".nanoassistant",
+        ".claude",
+        ".codex",
+    )
+    assert captured["skill_search_roots"] == (
+        Path("~/.nanoassistant/skills"),
+        Path("~/.claude/skills"),
+        Path("~/.codex/skills"),
+    )
     assert captured["global_config_root"] == Path("~/.nanoassistant")

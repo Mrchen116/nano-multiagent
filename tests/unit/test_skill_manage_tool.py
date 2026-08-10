@@ -456,6 +456,31 @@ def test_create_global_scope_fails_without_global_root(tmp_path: Path) -> None:
     assert not (workspace / ".nanoassistant" / "skills" / "global-skill").exists()
 
 
+def test_compatible_read_roots_do_not_change_agent_writer_root(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    tool = SkillManageTool(
+        workspace_config_dirname=".nanoassistant",
+        workspace_skill_dirnames=(".nanoassistant", ".claude", ".codex"),
+    )
+
+    result = tool.run(
+        {
+            "action": "create",
+            "scope": "agent",
+            "name": "native-write",
+            "content": _VALID_FM.replace("my-skill", "native-write"),
+        },
+        _make_ctx(workspace),
+    )
+
+    assert result.get("success") is True
+    assert (
+        workspace / ".nanoassistant" / "skills" / "native-write" / "SKILL.md"
+    ).exists()
+    assert not (workspace / ".claude" / "skills" / "native-write").exists()
+
+
 # ---------------------------------------------------------------------------
 # R4.7  serialize_result produces str
 # ---------------------------------------------------------------------------

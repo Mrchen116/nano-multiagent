@@ -194,6 +194,7 @@ describe("agent edit page", () => {
             features: {},
             custom_prompt: "",
             skills: ["tdd-execution-worker", "plan"],
+            skills_selection_mode: "explicit_allowlist",
             tool_allowlist: ["read_file"],
             group_reply_policy: "MENTION",
             default_model: null,

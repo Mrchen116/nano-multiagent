@@ -404,7 +404,11 @@ export function ChatWorkspacePage() {
           const capSkills = normalizeAllowlistOptions(capabilities.skills);
           return {
             agentDisplayName: a.display_name,
-            skills: resolveEnabledSkills(config.skills ?? [], capSkills),
+            skills: resolveEnabledSkills(
+              config.skills ?? [],
+              capSkills,
+              config.skills_selection_mode,
+            ),
           };
         })
       );
@@ -922,7 +926,11 @@ export function ChatWorkspacePage() {
     const capSkills = normalizeAllowlistOptions(capabilities.skills);
     const capTools = normalizeAllowlistOptions(capabilities.tools);
     return {
-      distillerVisible: resolveEnabledSkills(config.skills ?? [], capSkills).some(
+      distillerVisible: resolveEnabledSkills(
+        config.skills ?? [],
+        capSkills,
+        config.skills_selection_mode,
+      ).some(
         (skill) => skill.name === DISTILL_SKILL_NAME
       ),
       skillViewEnabled: resolveEnabledTools(config.tool_allowlist ?? [], capTools).includes("skill_view"),

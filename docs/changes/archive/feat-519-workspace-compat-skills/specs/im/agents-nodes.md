@@ -77,3 +77,14 @@ Agent profile 的公开配置与保存结果表达 Skill selection mode：默认
 - **WHEN** 用户重新打开配置页或在既有聊天开始下一轮回复
 - **THEN** 配置页显示没有已选择的 Skill
 - **AND** 新回复不使用默认 discovery 来重新启用全部可发现 Skill
+
+#### Scenario: 保存后聊天候选立即采用新选择
+- **GIVEN** 用户已在既有聊天打开过 SlashPicker，浏览器仍缓存旧 Skill 候选
+- **WHEN** 用户在 Agent 配置页成功收窄或清空显式 allowlist 后立即回到该聊天
+- **THEN** SlashPicker 重新解析候选，不在缓存有效期内继续显示已禁用 Skill
+
+#### Scenario: 只读 mirror 不迁移历史缺席 mode
+- **GIVEN** 某历史 Agent 的 Gateway YAML 与 IM mirror profile 未携带 selection mode
+- **WHEN** IM 读取 mirror profile，或 Gateway 重连并以该 mirror 调和本地配置
+- **THEN** 只读响应保留历史缺席状态，前端仍按有效语义呈现
+- **AND** Gateway 不仅因这次读取或重连就在 YAML 中写入 mode

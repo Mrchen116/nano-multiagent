@@ -825,7 +825,15 @@ def _build_session_metadata(
     profile_version = metadata.get("config_profile_version")
     if isinstance(profile_version, int):
         result["config_profile_version"] = profile_version
-    if config.skills:
+    from personal_assistant.config.skill_selection import (
+        EXPLICIT_ALLOWLIST,
+        effective_skills_selection_mode,
+    )
+
+    if (
+        effective_skills_selection_mode(config.skills_selection_mode, config.skills)
+        == EXPLICIT_ALLOWLIST
+    ):
         result["skills"] = list(config.skills)
     if config.tool_allowlist:
         result["tool_allowlist"] = list(config.tool_allowlist)

@@ -50,6 +50,11 @@ PA_SKILL_SEARCH_ROOTS: tuple[Path, ...] = (
     Path("~/.claude/skills"),
     Path("~/.codex/skills"),
 )
+PA_WORKSPACE_SKILL_DIRNAMES: tuple[str, ...] = (
+    WORKSPACE_CONFIG_DIRNAME,
+    ".claude",
+    ".codex",
+)
 
 # Deployment-level user tool / hook plugin dirs (refactor-406-M3fix #2). Ported from
 # the dissolved ConfigResolver.user_tool_roots() / user_hook_roots() global layer
@@ -422,6 +427,7 @@ def build_pa_kernel(
         hooks=[chat_history.setup],
         can_use_tool=None,
         workspace_config_dirname=WORKSPACE_CONFIG_DIRNAME,
+        workspace_skill_dirnames=PA_WORKSPACE_SKILL_DIRNAMES,
         repo_root=resolved_root,
         skill_search_roots=PA_SKILL_SEARCH_ROOTS,
         global_skill_root=PA_SKILL_SEARCH_ROOTS[0],

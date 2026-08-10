@@ -8,6 +8,11 @@ from uuid import uuid4
 
 from IM.application.config_service import ConfigService
 from IM.domain.models import AgentProfile
+from IM.domain.skill_selection import (
+    DEFAULT_DISCOVERY,
+    EXPLICIT_ALLOWLIST,
+    effective_skills_selection_mode,
+)
 from IM.infra.repositories.agents import AgentProfileVersionConflictError
 from IM.infra.repositories.agent_config_operations import (
     AgentConfigOperation,
@@ -20,6 +25,7 @@ _GATEWAY_CONFIG_KEYS = (
     "agent_id",
     "display_name",
     "skills",
+    "skills_selection_mode",
     "tool_allowlist",
     "group_reply_policy",
     "default_model",
@@ -311,6 +317,11 @@ class AgentConfigOperationCoordinator:
         skills = _string_list_from_result(
             result_agent, "skills", fallback=candidate.get("skills")
         )
+        skills_selection_mode = _optional_text_from_result(
+            result_agent,
+            "skills_selection_mode",
+            fallback=candidate.get("skills_selection_mode"),
+        )
         tool_allowlist = _string_list_from_result(
             result_agent, "tool_allowlist", fallback=candidate.get("tool_allowlist")
         )
@@ -377,6 +388,7 @@ class AgentConfigOperationCoordinator:
                     display_name=display_name,
                     description=description,
                     skills=skills,
+                    skills_selection_mode=skills_selection_mode,
                     tool_allowlist=tool_allowlist,
                     group_reply_policy=group_reply_policy,
                     default_model=default_model,
@@ -399,6 +411,7 @@ class AgentConfigOperationCoordinator:
             display_name=display_name,
             description=description,
             skills=skills,
+            skills_selection_mode=skills_selection_mode,
             tool_allowlist=tool_allowlist,
             group_reply_policy=group_reply_policy,
             default_model=default_model,
@@ -426,6 +439,11 @@ class AgentConfigOperationCoordinator:
             description=str(candidate.get("description") or ""),
             skills=_string_list_from_result(
                 result_agent, "skills", fallback=candidate.get("skills")
+            ),
+            skills_selection_mode=_optional_text_from_result(
+                result_agent,
+                "skills_selection_mode",
+                fallback=candidate.get("skills_selection_mode"),
             ),
             tool_allowlist=_string_list_from_result(
                 result_agent,
@@ -511,6 +529,7 @@ def candidate_from_profile(
         "display_name": profile.display_name,
         "description": profile.description,
         "skills": list(profile.skills),
+        "skills_selection_mode": profile.skills_selection_mode,
         "tool_allowlist": list(profile.tool_allowlist),
         "group_reply_policy": profile.group_reply_policy,
         "default_model": profile.default_model,
@@ -553,6 +572,11 @@ def gateway_candidate(candidate: dict[str, object]) -> dict[str, object]:
         projected["skills"] = (
             _operation_string_list(raw_skills) if isinstance(raw_skills, list) else None
         )
+    if "skills" in candidate or "skills_selection_mode" in candidate:
+        projected["skills_selection_mode"] = _canonical_skills_selection_mode(
+            candidate.get("skills_selection_mode"),
+            projected.get("skills"),
+        )
     if "confirm_existing_workspace" in candidate:
         projected["confirm_existing_workspace"] = (
             candidate.get("confirm_existing_workspace") is True
@@ -586,6 +610,15 @@ def _operation_string_list(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
     return [item.strip() for item in value if isinstance(item, str) and item.strip()]
+
+
+def _canonical_skills_selection_mode(mode: object, skills: object) -> str | None:
+    normalized = _optional_operation_text(mode)
+    if normalized not in {None, DEFAULT_DISCOVERY, EXPLICIT_ALLOWLIST}:
+        raise ValueError("invalid skills_selection_mode")
+    if not isinstance(skills, list):
+        return normalized
+    return effective_skills_selection_mode(normalized, skills)
 
 
 def _optional_operation_text(value: object) -> str | None:

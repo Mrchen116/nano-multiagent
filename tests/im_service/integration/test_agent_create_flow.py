@@ -97,6 +97,7 @@ def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(
                 "features": {},
                 "custom_prompt": "You are Agent New.",
                 "skills": ["plan"],
+                "skills_selection_mode": "explicit_allowlist",
                 "tool_allowlist": ["read"],
                 "group_reply_policy": "MENTION",
                 "default_model": "claude-sonnet-4",

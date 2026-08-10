@@ -266,6 +266,7 @@ class SkillManageTool:
         skill_root: Path | None = None,
         registry: SkillRegistry | None = None,
         workspace_config_dirname: str | None = None,
+        workspace_skill_dirnames: tuple[str, ...] | None = None,
         extra_roots: tuple[Path, ...] = (),
         pa_skill_root: Path | None = None,
         global_skill_root: Path | None = None,
@@ -283,6 +284,7 @@ class SkillManageTool:
         product_profile path (bypasses per-session metadata lookup).
         """
         self._workspace_config_dirname = workspace_config_dirname
+        self._workspace_skill_dirnames = workspace_skill_dirnames
         self._extra_roots = tuple(extra_roots)
         self._global_skill_root = global_skill_root or pa_skill_root
         self._fixed_skill_root = (
@@ -380,6 +382,7 @@ class SkillManageTool:
         return resolve_skill_roots(
             ctx,
             workspace_config_dirname=self._workspace_config_dirname,
+            workspace_skill_dirnames=self._workspace_skill_dirnames,
             extra_roots=self._extra_roots,
             global_skill_root=self._global_skill_root,
         )

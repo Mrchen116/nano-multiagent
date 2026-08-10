@@ -31,6 +31,10 @@ describe("resolveEnabledSkills (config whitelist ∩ capabilities)", () => {
     const out = resolveEnabledSkills([], caps);
     expect(out.map((s) => s.name)).toEqual(["pr-review", "doc", "log"]);
   });
+
+  it("explicit empty whitelist exposes no skills", () => {
+    expect(resolveEnabledSkills([], caps, "explicit_allowlist")).toEqual([]);
+  });
 });
 
 describe("buildSlashSkills (group union + location dedup)", () => {

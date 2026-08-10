@@ -35,6 +35,8 @@ def _handler(
     tmp_path: Path,
     *,
     skills: tuple[str, ...] = ("conversation-skill-distiller",),
+    configured_skills: tuple[str, ...] = (),
+    skills_selection_mode: str | None = None,
     tool_allowlist: tuple[str, ...] = ("skill_view",),
     external_identity: tuple[str, str] | None = None,
 ):
@@ -44,6 +46,8 @@ def _handler(
     execution = AgentWorkspaceConfig(
         agent_id="execution",
         workspace_root=execution_root,
+        skills=configured_skills,
+        skills_selection_mode=skills_selection_mode,
         tool_allowlist=tool_allowlist,
     )
     catalog = LiveAgentCatalog((source, execution))
@@ -155,6 +159,40 @@ def test_gateway_returns_no_partial_prompt_when_any_source_or_capability_is_unav
         "error_code": "skill_view_unavailable",
         "message": "execution agent lacks skill_view",
     }
+
+
+def test_gateway_rejects_explicit_empty_distiller_selection_before_source_resolution(
+    tmp_path: Path,
+) -> None:
+    handler, source_root, _ = _handler(
+        tmp_path,
+        configured_skills=(),
+        skills_selection_mode="explicit_allowlist",
+    )
+    session_path = source_root / ".nanoassistant" / "sessions" / "session-1.jsonl"
+    session_path.parent.mkdir(parents=True)
+    session_path.write_text("{}\n", encoding="utf-8")
+
+    result = asyncio.run(
+        handler(
+            {
+                "sources": [
+                    {
+                        "conversation_id": "source-conversation",
+                        "source_agent_id": "source",
+                    }
+                ],
+                "execution_agent_id": "execution",
+                "target_scope": "agent",
+            }
+        )
+    )
+
+    assert result == {
+        "error_code": "distiller_unavailable",
+        "message": "execution agent lacks the distiller skill",
+    }
+    assert "prompt" not in result
 
 
 def test_gateway_preserves_external_shadow_binding_fallback(tmp_path: Path) -> None:

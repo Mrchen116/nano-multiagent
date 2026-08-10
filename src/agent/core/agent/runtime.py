@@ -32,6 +32,7 @@ from agent.core.session.conversation import ConversationState
 from agent.core.session.transcript import USER_INTERRUPT_RECOVERY_CONTENT
 from agent.core.session.types import INTERNAL_RUNTIME_KEY, SessionConfig, TurnRequest
 from agent.core.skills import (
+    build_skill_search_roots,
     SkillMetadata,
     make_skill_resolver,
     resolve_available_skills,
@@ -140,6 +141,7 @@ class AgentEngine:
         # skill_search_roots so runtime skill resolution uses the same make_skill_resolver
         # helper as Kernel.list_skills / assemble_prompt_preview.
         workspace_config_dirname: str | None = None,
+        workspace_skill_dirnames: tuple[str, ...] | None = None,
         skill_search_roots: tuple[Path, ...] = (),
         default_tool_ids: list[str] | None = None,
         permission_broker: Any | None = None,
@@ -179,6 +181,7 @@ class AgentEngine:
         # bugfix-431 决策 1: store resolver inputs so per-session resolver can be
         # constructed on demand via make_skill_resolver (same as Kernel.list_skills).
         self._workspace_config_dirname = workspace_config_dirname
+        self._workspace_skill_dirnames = workspace_skill_dirnames
         self._skill_search_roots = skill_search_roots
         self._compaction_settings = compaction_settings or CompactionSettings()
         resolved_skills = (
@@ -1042,6 +1045,7 @@ class AgentEngine:
             workspace_root,
             self._workspace_config_dirname,
             self._skill_search_roots,
+            self._workspace_skill_dirnames,
         )
         if resolver is None:
             return ()
@@ -2204,19 +2208,12 @@ class AgentEngine:
             if workspace_root is not None
             else self._repo_root
         )
-        roots: list[Path] = list(self._skill_search_roots)
-        if self._workspace_config_dirname:
-            roots.insert(0, effective_root / self._workspace_config_dirname / "skills")
-        deduped: list[Path] = []
-        seen: set[str] = set()
-        for root in roots:
-            resolved = root.expanduser().resolve()
-            key = str(resolved)
-            if key in seen:
-                continue
-            seen.add(key)
-            deduped.append(resolved)
-        return tuple(deduped)
+        return build_skill_search_roots(
+            workspace_root=effective_root,
+            workspace_config_dirname=self._workspace_config_dirname,
+            workspace_skill_dirnames=self._workspace_skill_dirnames,
+            shared_skill_roots=self._skill_search_roots,
+        )
 
     def _history_without_message(
         self,

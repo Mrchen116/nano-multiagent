@@ -119,11 +119,13 @@ class SkillViewTool:
         skill_root: Path | None = None,
         registry: SkillRegistry | None = None,
         workspace_config_dirname: str | None = None,
+        workspace_skill_dirnames: tuple[str, ...] | None = None,
         extra_roots: tuple[Path, ...] = (),
         pa_skill_root: Path | None = None,
         global_skill_root: Path | None = None,
     ) -> None:
         self._workspace_config_dirname = workspace_config_dirname
+        self._workspace_skill_dirnames = workspace_skill_dirnames
         self._extra_roots = tuple(extra_roots)
         self._global_skill_root = global_skill_root or pa_skill_root
         if skill_root is not None and registry is not None:
@@ -215,6 +217,7 @@ class SkillViewTool:
         return resolve_skill_roots(
             ctx,
             workspace_config_dirname=self._workspace_config_dirname,
+            workspace_skill_dirnames=self._workspace_skill_dirnames,
             extra_roots=self._extra_roots,
             global_skill_root=self._global_skill_root,
         )

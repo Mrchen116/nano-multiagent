@@ -102,6 +102,9 @@ class CreateNodeAgentRequest(BaseModel):
     features: dict[str, bool] = Field(default_factory=dict)
     custom_prompt: str | None = None
     skills: list[str] = Field(default_factory=list)
+    skills_selection_mode: Literal["default_discovery", "explicit_allowlist"] | None = (
+        None
+    )
     tool_allowlist: list[str] = Field(default_factory=list)
     group_reply_policy: str = Field(min_length=1)
     default_model: str | None = None
@@ -331,6 +334,8 @@ async def create_node_agent(
     }
     if requested_skills is not None:
         create_payload["skills"] = requested_skills
+        if payload.skills_selection_mode is not None:
+            create_payload["skills_selection_mode"] = payload.skills_selection_mode
     try:
         created = await coordinator.create_agent(
             owner_id=user.owner_id,

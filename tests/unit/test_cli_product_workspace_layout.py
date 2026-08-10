@@ -30,4 +30,14 @@ def test_cli_kernel_passes_product_workspace_and_global_roots(
         is sentinel
     )
     assert captured["workspace_config_dirname"] == ".nanocode"
+    assert captured["workspace_skill_dirnames"] == (
+        ".nanocode",
+        ".claude",
+        ".codex",
+    )
+    assert captured["skill_search_roots"] == (
+        Path("~/.nanocode/skills"),
+        Path("~/.claude/skills"),
+        Path("~/.codex/skills"),
+    )
     assert captured["global_config_root"] == Path("~/.nanocode")

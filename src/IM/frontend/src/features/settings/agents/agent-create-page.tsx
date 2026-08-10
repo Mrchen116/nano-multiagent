@@ -101,6 +101,7 @@ const EMPTY_DRAFT: CreateAgentFormState = {
   custom_prompt: "",
   features: {},
   skills: [],
+  skills_selection_mode: "explicit_allowlist",
   tool_allowlist: [],
   group_reply_policy: "MENTION",
   default_model: null,
@@ -933,16 +934,21 @@ export function AgentCreatePage() {
               testId="pill-selector-skills"
               label={t("agents.form.access.skills")}
               selected={draft.skills}
+              selectionMode={draft.skills_selection_mode ?? "explicit_allowlist"}
               options={capabilities.skills}
               isLoading={createStateQuery.isLoading}
               errorMessage={createStateQuery.isError ? queryErrorDetail : null}
               onRetry={() => void createStateQuery.refetch()}
-              onChange={(skills) => {
+              onChange={(skills, skillsSelectionMode) => {
                 skillsEditedRef.current = true;
                 autoDefaultSkillsRef.current = [];
                 setErrorMessage(null);
                 setIsDirty(true);
-                setDraft({ ...draft, skills });
+                setDraft({
+                  ...draft,
+                  skills,
+                  skills_selection_mode: skillsSelectionMode,
+                });
               }}
             />
             <PillSelector

@@ -469,6 +469,8 @@ def test_skill_created_global_enables_explicit_allowlists_and_drops_all_sessions
     ws_a = tmp_path / "agent-a"
     ws_b = tmp_path / "agent-b"
     ws_c = tmp_path / "agent-c"
+    ws_d = tmp_path / "agent-d"
+    ws_e = tmp_path / "agent-e"
     config_path = tmp_path / "config.yaml"
     requests: list[tuple[str, str, dict[str, object] | None]] = []
 
@@ -478,6 +480,7 @@ def test_skill_created_global_enables_explicit_allowlists_and_drops_all_sessions
             "display_name": agent_id,
             "description": "",
             "skills": skills,
+            "skills_selection_mode": "explicit_allowlist",
             "tool_allowlist": ["skill_manage"],
             "group_reply_policy": "manual",
             "default_model": None,
@@ -487,8 +490,12 @@ def test_skill_created_global_enables_explicit_allowlists_and_drops_all_sessions
             "custom_prompt": None,
         }
 
-    versions = {"agent-a": 1, "agent-c": 1}
-    skills_by_agent = {"agent-a": ["old-skill"], "agent-c": ["existing-skill"]}
+    versions = {"agent-a": 1, "agent-b": 1, "agent-c": 1}
+    skills_by_agent = {
+        "agent-a": ["old-skill"],
+        "agent-b": [],
+        "agent-c": ["existing-skill"],
+    }
 
     def _handler(request: httpx.Request) -> httpx.Response:
         body = (
@@ -521,11 +528,27 @@ def test_skill_created_global_enables_explicit_allowlists_and_drops_all_sessions
                 workspace_root=ws_a,
                 skills=("old-skill",),
             ),
-            AgentWorkspaceConfig(agent_id="agent-b", workspace_root=ws_b, skills=()),
+            AgentWorkspaceConfig(
+                agent_id="agent-b",
+                workspace_root=ws_b,
+                skills=(),
+                skills_selection_mode="explicit_allowlist",
+            ),
             AgentWorkspaceConfig(
                 agent_id="agent-c",
                 workspace_root=ws_c,
                 skills=("existing-skill",),
+            ),
+            AgentWorkspaceConfig(
+                agent_id="agent-d",
+                workspace_root=ws_d,
+                skills=(),
+                skills_selection_mode="default_discovery",
+            ),
+            AgentWorkspaceConfig(
+                agent_id="agent-e",
+                workspace_root=ws_e,
+                skills=(),
             ),
         ),
         channels=(),
@@ -538,7 +561,7 @@ def test_skill_created_global_enables_explicit_allowlists_and_drops_all_sessions
     owners = build_config_sync_test_owners(local_config)
     initial_revisions = {
         agent_id: owners.catalog.require(agent_id).revision
-        for agent_id in ("agent-a", "agent-b", "agent-c")
+        for agent_id in ("agent-a", "agent-b", "agent-c", "agent-d", "agent-e")
     }
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
@@ -569,6 +592,7 @@ def test_skill_created_global_enables_explicit_allowlists_and_drops_all_sessions
     ]
     assert [body["skills"] for body in patch_bodies] == [
         ["old-skill", "new-skill"],
+        ["new-skill"],
         ["existing-skill", "new-skill"],
     ]
     assert all(
@@ -766,7 +790,7 @@ def test_ensure_agent_skills_enabled_updates_explicit_local_allowlist_once(
 def test_ensure_agent_skills_enabled_keeps_empty_allowlist_unmaterialized(
     tmp_path: Path,
 ) -> None:
-    """Managed agents with an empty list retain global discovery semantics."""
+    """Managed Feishu activation preserves an explicit zero-Skill selection."""
     workspace_root = tmp_path / "agent-open"
     local_config = LocalConfig(
         node=NodeConfig(node_id="node-open"),
@@ -775,6 +799,7 @@ def test_ensure_agent_skills_enabled_keeps_empty_allowlist_unmaterialized(
                 agent_id="agent-open",
                 workspace_root=workspace_root,
                 skills=(),
+                skills_selection_mode="explicit_allowlist",
             ),
         ),
         channels=(),
@@ -884,6 +909,7 @@ def test_sync_agent_repairs_static_feishu_mirror_once_before_publish(
     assert sync.current_agent_payload(agent_id="agent-static") == {
         "display_name": "Static",
         "skills": [*expected],
+        "skills_selection_mode": "explicit_allowlist",
         "tool_allowlist": [],
         "group_reply_policy": "manual",
         "default_model": None,
@@ -1056,12 +1082,14 @@ def test_handle_agent_create_respects_explicit_empty_skills(
             "workspace_root": str(workspace_root),
             "confirm_existing_workspace": True,
             "skills": [],
+            "skills_selection_mode": "explicit_allowlist",
         }
     )
 
     assert result["skills"] == []
     registered = owners.catalog.require("beta").config
     assert registered.skills == ()
+    assert registered.skills_selection_mode == "explicit_allowlist"
 
 
 def test_handle_agent_create_persists_default_model_to_source_path(

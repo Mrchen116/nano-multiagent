@@ -164,13 +164,15 @@ Coding CLI
 
 迁移与保存规则：
 
-1. 公开字段名固定为 `skills_selection_mode`，枚举仅为 `default_discovery` / `explicit_allowlist`。IM `AgentProfile` 与 SQLite schema、Gateway `AgentWorkspaceConfig` 与 YAML、config operation candidate/fingerprint/receipt、Gateway live snapshot 和 API response 均传递它，不建第二套 Skill 配置通道。
+1. 公开字段名固定为 `skills_selection_mode`，枚举仅为 `default_discovery` / `explicit_allowlist`。IM `AgentProfile` 与 SQLite schema、Gateway `AgentWorkspaceConfig` 与 YAML、Gateway live snapshot 和新版 config operation candidate/fingerprint/receipt 均传递它，不建第二套 Skill 配置通道；只读 mirror 响应允许以 `null` 保留历史缺席状态，live 与写入响应返回有效 mode。
 2. 已有 profile 在没有配置写入时不做 eager migration：读取未携带 mode 的历史数据时，非空 names 的有效语义是 explicit，空 names 的有效语义是现有 default discovery；用户成功保存，或任一自动 writer 成功修改 names 时，均把当时的 effective mode 一并持久化。
 3. 新版页面在用户首次修改单项或分组时，把当时有效选择转换为 explicit allowlist 后再应用操作；不可见的历史 name 保留，避免批量操作意外抹掉暂时缺失的选择。
 4. 新建 Agent 保存页面当时选中的全局默认项为 explicit allowlist；创建后才能发现的 Workspace Skill 因而只是未选候选，不会因为后续出现而自动启用。
 5. 新建/编辑页在 default discovery 状态用紧凑状态文字解释“按当前可发现 Skill 使用”；一旦用户编辑，页面显示清楚的已选数量与分组状态。
 6. Gateway apply、IM optimistic-lock profile、Gateway local config 与 session projection 全链路携带该意图；IM 只在 Gateway canonical applied result 确认相同 mode 后持久化显式空选择。正在进行的回复不切换，下一轮才使用新状态。
-7. 配置页、prompt preview、真实 session 与聊天 SlashPicker 的有效候选都以 mode 为判据；不再各自用 `names.length === 0` 推断 default discovery。
+7. 配置页、prompt preview、真实 session、聊天 SlashPicker 与 Skill distillation readiness 的有效候选都以 mode 为判据；不再各自用 `names.length === 0` 推断 default discovery。保存成功后立即失效聊天候选缓存，使返回既有聊天时重新按新配置解析。
+
+Config operation 使用唯一的当前 canonical fingerprint，其中包含有效的 selection mode。operation、Gateway `prepared` receipt 与 status/retry 都复用这一 fingerprint，以支持同版本的 ACK 丢失和进程崩溃恢复；不协商 schema、不保留 names-only fallback，也不为混版本 IM/Gateway 或旧 protocol receipt 增加迁移路径。部署此变更时 IM 与 Gateway 作为同一版本一起更新。
 
 所有非页面写者按同一状态表处理，不再自行从 names 推断：
 

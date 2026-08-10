@@ -26,6 +26,7 @@ from IM.application.user_service import UserService
 from IM.api.deps import get_gateway_control
 from IM.ws.gateway.control import GatewayControl
 from IM.domain.models import AgentProfile, User
+from IM.domain.skill_selection import effective_skills_selection_mode
 from IM.infra.repositories.agent_config_operations import (
     AgentConfigOperationPendingError,
     AgentConfigOperationRepository,
@@ -43,6 +44,7 @@ class AgentConfigResponse(BaseModel):
     display_name: str
     description: str
     skills: list[str]
+    skills_selection_mode: Literal["default_discovery", "explicit_allowlist"] | None
     tool_allowlist: list[str]
     group_reply_policy: str
     default_model: str | None
@@ -69,6 +71,9 @@ class UpdateAgentConfigRequest(BaseModel):
     display_name: str = Field(min_length=1)
     description: str = ""
     skills: list[str] = Field(default_factory=list)
+    skills_selection_mode: Literal["default_discovery", "explicit_allowlist"] | None = (
+        None
+    )
     tool_allowlist: list[str] = Field(default_factory=list)
     group_reply_policy: str = Field(min_length=1)
     default_model: str | None = None
@@ -145,6 +150,14 @@ class AllowlistOptionResponse(BaseModel):
     # feat-430: SKILL.md path forwarded from the Gateway payload so the slash picker
     # distinguishes same-named skills at different paths. None when the payload omits it.
     location: str | None = None
+    source_group: Literal["workspace", "global", "compatibility"] | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_absent_source_group(self, serializer):
+        serialized = serializer(self)
+        if self.source_group is None:
+            serialized.pop("source_group", None)
+        return serialized
 
 
 class SelectableReasoningResponse(BaseModel):
@@ -211,9 +224,21 @@ class AgentCapabilitiesResponse(BaseModel):
 
 
 def to_agent_config_response(
-    profile: AgentProfile, *, service: ConfigService
+    profile: AgentProfile,
+    *,
+    service: ConfigService,
+    preserve_raw_selection_mode: bool = False,
 ) -> AgentConfigResponse:
-    """Convert a domain profile to the config response model."""
+    """Convert a domain profile to the config response model.
+
+    Args:
+        profile: Persisted or live-merged Agent profile.
+        service: Workspace and timestamp projection owner.
+        preserve_raw_selection_mode: Keep legacy ``None`` for mirror reads.
+
+    Returns:
+        API response with raw mirror or effective user-facing selection intent.
+    """
     # feat-379-M5 (ISSUE-2): features/custom_prompt must be round-tripped so the
     # frontend can restore toggle state and custom text on page load.
     return AgentConfigResponse(
@@ -223,6 +248,13 @@ def to_agent_config_response(
         display_name=profile.display_name,
         description=profile.description,
         skills=profile.skills,
+        skills_selection_mode=(
+            profile.skills_selection_mode
+            if preserve_raw_selection_mode
+            else effective_skills_selection_mode(
+                profile.skills_selection_mode, profile.skills
+            )
+        ),
         tool_allowlist=profile.tool_allowlist,
         group_reply_policy=profile.group_reply_policy,
         default_model=profile.default_model,
@@ -250,6 +282,7 @@ def _merge_live_agent_profile(
         return profile
     display_name = payload.get("display_name")
     skills = payload.get("skills")
+    skills_selection_mode = payload.get("skills_selection_mode")
     tool_allowlist = payload.get("tool_allowlist")
     group_reply_policy = payload.get("group_reply_policy")
     default_model = payload.get("default_model")
@@ -265,6 +298,11 @@ def _merge_live_agent_profile(
         skills=[item for item in skills if isinstance(item, str)]
         if isinstance(skills, list)
         else profile.skills,
+        skills_selection_mode=(
+            skills_selection_mode
+            if skills_selection_mode in {"default_discovery", "explicit_allowlist"}
+            else profile.skills_selection_mode
+        ),
         tool_allowlist=[item for item in tool_allowlist if isinstance(item, str)]
         if isinstance(tool_allowlist, list)
         else profile.tool_allowlist,
@@ -386,7 +424,9 @@ async def get_agent_config(
             status_code=status.HTTP_404_NOT_FOUND, detail="agent_id not found"
         )
     if source == "mirror":
-        return to_agent_config_response(profile, service=service)
+        return to_agent_config_response(
+            profile, service=service, preserve_raw_selection_mode=True
+        )
     if source != "live":
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -509,6 +549,8 @@ async def update_agent_config(
                 "features": dict(payload.features),
             }
         )
+        if payload.skills_selection_mode is not None:
+            candidate["skills_selection_mode"] = payload.skills_selection_mode
         if "reasoning_effort" in payload.model_fields_set:
             candidate["reasoning_effort"] = payload.reasoning_effort
         if payload.custom_prompt is not None:
@@ -667,12 +709,19 @@ def coerce_allowlist_options(value: object) -> list[AllowlistOptionResponse]:
             location = (
                 raw_location if isinstance(raw_location, str) and raw_location else None
             )
+            raw_source_group = item.get("source_group")
+            source_group = (
+                raw_source_group
+                if raw_source_group in {"workspace", "global", "compatibility"}
+                else None
+            )
             result.append(
                 AllowlistOptionResponse(
                     name=raw_name.strip(),
                     description=desc,
                     default_on=default_on,
                     location=location,
+                    source_group=source_group,
                 )
             )
     return result

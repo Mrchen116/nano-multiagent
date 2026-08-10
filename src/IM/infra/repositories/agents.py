@@ -30,7 +30,7 @@ class AgentProfileRepository:
         """List agent profiles in stable creation order."""
         rows = self._connection.execute(
             """
-            SELECT agent_id, owner_id, node_id, display_name, description, skills_json,
+            SELECT agent_id, owner_id, node_id, display_name, description, skills_json, skills_selection_mode,
                    tool_allowlist_json, group_reply_policy, default_model, reasoning_effort,
                    workspace_root, workspace_is_default, profile_version,
                    is_stale, features_json, custom_prompt, heartbeat_json
@@ -51,7 +51,7 @@ class AgentProfileRepository:
         """
         rows = self._connection.execute(
             """
-            SELECT ap.agent_id, ap.owner_id, ap.node_id, ap.display_name, ap.description, ap.skills_json,
+            SELECT ap.agent_id, ap.owner_id, ap.node_id, ap.display_name, ap.description, ap.skills_json, ap.skills_selection_mode,
                    ap.tool_allowlist_json, ap.group_reply_policy, ap.default_model, ap.reasoning_effort,
                    ap.workspace_root, ap.workspace_is_default, ap.profile_version,
                    ap.is_stale, ap.features_json, ap.custom_prompt, ap.heartbeat_json
@@ -83,7 +83,7 @@ class AgentProfileRepository:
         """
         rows = self._connection.execute(
             """
-            SELECT ap.agent_id, ap.owner_id, ap.node_id, ap.display_name, ap.description, ap.skills_json,
+            SELECT ap.agent_id, ap.owner_id, ap.node_id, ap.display_name, ap.description, ap.skills_json, ap.skills_selection_mode,
                    ap.tool_allowlist_json, ap.group_reply_policy, ap.default_model, ap.reasoning_effort,
                    ap.workspace_root, ap.workspace_is_default, ap.profile_version,
                    ap.is_stale, ap.features_json, ap.custom_prompt, ap.heartbeat_json
@@ -128,7 +128,7 @@ class AgentProfileRepository:
         """Return one agent profile, or None when it does not exist."""
         row = self._connection.execute(
             """
-            SELECT agent_id, owner_id, node_id, display_name, description, skills_json,
+            SELECT agent_id, owner_id, node_id, display_name, description, skills_json, skills_selection_mode,
                    tool_allowlist_json, group_reply_policy, default_model, reasoning_effort,
                    workspace_root, workspace_is_default, profile_version,
                    is_stale, features_json, custom_prompt, heartbeat_json
@@ -160,6 +160,7 @@ class AgentProfileRepository:
         node_id: str | None = None,
         features: dict[str, bool] | None = None,
         custom_prompt: str | None = None,
+        skills_selection_mode: str | None = None,
     ) -> "AgentProfile":
         """Create or replace one seed profile without optimistic locking."""
         created_at = utc_now()
@@ -178,17 +179,18 @@ class AgentProfileRepository:
                 """
                 INSERT INTO agent_profiles(
                     agent_id, owner_id, node_id, display_name, description,
-                    skills_json, tool_allowlist_json, group_reply_policy,
+                    skills_json, skills_selection_mode, tool_allowlist_json, group_reply_policy,
                     default_model, reasoning_effort, workspace_root, workspace_is_default,
                     registration_seed, pending_create_operation_id, profile_version,
                     created_at, updated_at, features_json, custom_prompt
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, '{}'), ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, '{}'), ?)
                 ON CONFLICT(agent_id) DO UPDATE SET
                     owner_id = excluded.owner_id,
                     node_id = excluded.node_id,
                     display_name = excluded.display_name,
                     description = excluded.description,
                     skills_json = excluded.skills_json,
+                    skills_selection_mode = COALESCE(excluded.skills_selection_mode, agent_profiles.skills_selection_mode),
                     tool_allowlist_json = excluded.tool_allowlist_json,
                     group_reply_policy = excluded.group_reply_policy,
                     default_model = excluded.default_model,
@@ -222,6 +224,7 @@ class AgentProfileRepository:
                     display_name,
                     description,
                     skills_json,
+                    skills_selection_mode,
                     tool_allowlist_json,
                     group_reply_policy,
                     default_model,
@@ -275,6 +278,7 @@ class AgentProfileRepository:
         reasoning_effort: str | None,
         features: dict[str, bool],
         custom_prompt: str | None,
+        skills_selection_mode: str | None = None,
     ) -> AgentProfile | None:
         """Atomically claim only the seed matching its Gateway-owned workspace."""
         with self._connection:
@@ -282,7 +286,7 @@ class AgentProfileRepository:
                 """
                 UPDATE agent_profiles
                 SET owner_id = ?, display_name = ?, description = ?,
-                    skills_json = ?, tool_allowlist_json = ?,
+                    skills_json = ?, skills_selection_mode = ?, tool_allowlist_json = ?,
                     group_reply_policy = ?, default_model = ?, reasoning_effort = ?,
                     features_json = ?, custom_prompt = ?, updated_at = ?,
                     is_stale = 0, staled_at = NULL, registration_seed = 0,
@@ -296,6 +300,7 @@ class AgentProfileRepository:
                     display_name,
                     description,
                     _encode_json_list(skills),
+                    skills_selection_mode,
                     _encode_json_list(tool_allowlist),
                     group_reply_policy,
                     default_model,
@@ -445,6 +450,7 @@ class AgentProfileRepository:
         reasoning_effort: str | None,
         features: dict[str, bool],
         custom_prompt: str | None,
+        skills_selection_mode: str | None = None,
     ) -> AgentProfile | None:
         """Finalize exactly one matching Gateway create operation.
 
@@ -457,7 +463,7 @@ class AgentProfileRepository:
                 """
                 UPDATE agent_profiles
                 SET owner_id = ?, display_name = ?, description = ?,
-                    skills_json = ?, tool_allowlist_json = ?,
+                    skills_json = ?, skills_selection_mode = ?, tool_allowlist_json = ?,
                     group_reply_policy = ?, default_model = ?, reasoning_effort = ?,
                     features_json = ?, custom_prompt = ?, updated_at = ?,
                     is_stale = 0, staled_at = NULL, registration_seed = 0,
@@ -482,6 +488,7 @@ class AgentProfileRepository:
                     display_name,
                     description,
                     _encode_json_list(skills),
+                    skills_selection_mode,
                     _encode_json_list(tool_allowlist),
                     group_reply_policy,
                     default_model,
@@ -541,6 +548,7 @@ class AgentProfileRepository:
         node_id: str | None = None,
         features: dict[str, bool] | None = None,
         custom_prompt: str | None = None,
+        skills_selection_mode: str | None = None,
     ) -> AgentProfile:
         """Insert one new profile without replacement semantics.
 
@@ -557,11 +565,11 @@ class AgentProfileRepository:
                     """
                     INSERT INTO agent_profiles(
                         agent_id, owner_id, node_id, display_name, description,
-                        skills_json, tool_allowlist_json, group_reply_policy,
+                        skills_json, skills_selection_mode, tool_allowlist_json, group_reply_policy,
                         default_model, reasoning_effort, workspace_root, workspace_is_default,
                         profile_version, created_at, updated_at, features_json,
                         custom_prompt
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, COALESCE(?, '{}'), ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, COALESCE(?, '{}'), ?)
                     """,
                     (
                         agent_id,
@@ -570,6 +578,7 @@ class AgentProfileRepository:
                         display_name,
                         description,
                         _encode_json_list(skills),
+                        skills_selection_mode,
                         _encode_json_list(tool_allowlist),
                         group_reply_policy,
                         default_model,
@@ -647,6 +656,7 @@ class AgentProfileRepository:
         features: dict[str, bool] | None = None,
         custom_prompt: str | None = None,
         heartbeat_json: str | None = None,
+        skills_selection_mode: str | None = None,
     ) -> "AgentProfile":
         """Update a profile with optimistic locking on profile_version.
 
@@ -676,6 +686,11 @@ class AgentProfileRepository:
         resolved_heartbeat_json = (
             heartbeat_json if heartbeat_json is not None else current.heartbeat_json
         )
+        resolved_skills_selection_mode = (
+            skills_selection_mode
+            if skills_selection_mode is not None
+            else current.skills_selection_mode
+        )
         with self._connection:
             cursor = self._connection.execute(
                 """
@@ -683,6 +698,7 @@ class AgentProfileRepository:
                 SET display_name = ?,
                     description = ?,
                     skills_json = ?,
+                    skills_selection_mode = ?,
                     tool_allowlist_json = ?,
                     group_reply_policy = ?,
                     default_model = ?,
@@ -700,6 +716,7 @@ class AgentProfileRepository:
                     display_name,
                     description,
                     _encode_json_list(skills),
+                    resolved_skills_selection_mode,
                     _encode_json_list(tool_allowlist),
                     group_reply_policy,
                     default_model,
@@ -770,6 +787,11 @@ class AgentProfileRepository:
             display_name=row["display_name"],
             description=row["description"],
             skills=_decode_string_list(row["skills_json"]),
+            skills_selection_mode=(
+                row["skills_selection_mode"]
+                if "skills_selection_mode" in keys
+                else None
+            ),
             tool_allowlist=_decode_string_list(row["tool_allowlist_json"]),
             group_reply_policy=row["group_reply_policy"],
             default_model=row["default_model"],
