@@ -1261,7 +1261,7 @@ async def _handle_repl_command_async(
                     suggestion="run /new before managing Workflows.",
                 )
                 return _ReplCommandResult(handled=True)
-            return _handle_workflows_command(
+            return await _handle_workflows_command(
                 out=out,
                 kernel=kernel,
                 session_id=active_session_id,
@@ -1534,7 +1534,7 @@ async def _cli_workflow_enabled(
     return not load_cli_workflow_config(workspace_root).disabled
 
 
-def _handle_workflows_command(
+async def _handle_workflows_command(
     *,
     out: TextIO,
     kernel: Any,
@@ -1542,6 +1542,19 @@ def _handle_workflows_command(
     argument_tokens: list[str],
 ) -> _ReplCommandResult:
     if not argument_tokens:
+        if _is_tty_output(out) and repl_input.supports_editable_terminal_input(
+            sys.stdin
+        ):
+            await asyncio.get_running_loop().run_in_executor(
+                None,
+                lambda: _run_workflow_tty_controls(
+                    out=out,
+                    kernel=kernel,
+                    session_id=session_id,
+                    key_reader=repl_input.read_workflow_control_key_from_terminal,
+                ),
+            )
+            return _ReplCommandResult(handled=True)
         _print_workflow_runs(out, kernel.list_workflow_runs(session_id=session_id))
         return _ReplCommandResult(handled=True)
     run_id = argument_tokens[0]
@@ -1599,6 +1612,129 @@ def _handle_workflows_command(
         ),
     )
     return _ReplCommandResult(handled=True)
+
+
+def _run_workflow_tty_controls(
+    *,
+    out: TextIO,
+    kernel: Any,
+    session_id: str,
+    key_reader: Callable[[], str | None],
+) -> None:
+    """Run the TTY Workflow selector and its upstream-compatible key controls."""
+
+    selected_index = 0
+    while True:
+        runs = tuple(kernel.list_workflow_runs(session_id=session_id))
+        items = [
+            (run, agent)
+            for run in runs
+            for agent in (None, *_workflow_agents_in_display_order(run))
+        ]
+        if not items:
+            print("暂无 Workflow 运行记录。", file=out)
+            return
+        selected_index %= len(items)
+        print(_format_workflow_control_view(runs, selected_index), file=out)
+
+        key = key_reader()
+        if key in {None, "q", "\x1b", "\n", "\r"}:
+            return
+        if key == "\x1b[A":
+            selected_index = (selected_index - 1) % len(items)
+            continue
+        if key == "\x1b[B":
+            selected_index = (selected_index + 1) % len(items)
+            continue
+
+        run, agent = items[selected_index]
+        try:
+            if key == "p":
+                action = (
+                    WorkflowControlAction.RESUME
+                    if run.status == "paused"
+                    else WorkflowControlAction.PAUSE
+                )
+                kernel.control_workflow(
+                    session_id=session_id,
+                    run_id=run.run_id,
+                    action=action,
+                )
+            elif key == "x":
+                kernel.control_workflow(
+                    session_id=session_id,
+                    run_id=run.run_id,
+                    action=WorkflowControlAction.STOP,
+                    agent_call_id=(agent.agent_call_id if agent is not None else None),
+                )
+            elif key == "r" and agent is not None:
+                kernel.control_workflow(
+                    session_id=session_id,
+                    run_id=run.run_id,
+                    action=WorkflowControlAction.RESTART_AGENT,
+                    agent_call_id=agent.agent_call_id,
+                )
+            elif key == "s":
+                saved = kernel.save_workflow(
+                    session_id=session_id,
+                    run_id=run.run_id,
+                    scope=WorkflowSaveScope.PROJECT,
+                    name=None,
+                )
+                print(f"已保存 Workflow /{saved.name}\n路径: {saved.path}", file=out)
+        except Exception as exc:  # noqa: BLE001 - keep the control view open
+            print(f"Workflow control failed: {exc}", file=out)
+
+
+def _format_workflow_control_view(runs: Sequence[Any], selected_index: int) -> str:
+    lines = [
+        "Workflow controls",
+        "↑/↓ select · p pause/resume · x stop · r restart agent · "
+        "s save project · q close",
+    ]
+    item_index = 0
+    for run in runs:
+        marker = "▶" if item_index == selected_index else " "
+        lines.append(f"{marker} {run.run_id} · {run.name} · {run.status}")
+        item_index += 1
+        agents = tuple(getattr(run, "agents", ()) or ())
+        phases = tuple(getattr(run, "phases", ()) or ())
+        phase_titles = [phase.title for phase in phases]
+        for phase in phases:
+            lines.append(f"    [{phase.status}] {phase.title}")
+            for agent in agents:
+                if agent.phase != phase.title:
+                    continue
+                marker = "▶" if item_index == selected_index else " "
+                label = agent.label or agent.agent_call_id
+                lines.append(
+                    f"  {marker} [{agent.status}] {label} ({agent.agent_call_id})"
+                )
+                item_index += 1
+        for agent in agents:
+            if agent.phase in phase_titles:
+                continue
+            marker = "▶" if item_index == selected_index else " "
+            label = agent.label or agent.agent_call_id
+            lines.append(f"  {marker} [{agent.status}] {label} ({agent.agent_call_id})")
+            item_index += 1
+        if getattr(run, "usage", None):
+            lines.append(
+                "    Usage: "
+                + ", ".join(f"{key}={value}" for key, value in run.usage.items())
+            )
+        if getattr(run, "duration_ms", None) is not None:
+            lines.append(f"    Duration: {run.duration_ms / 1000:g}s")
+    return "\n".join(lines)
+
+
+def _workflow_agents_in_display_order(run: Any) -> tuple[Any, ...]:
+    agents = tuple(getattr(run, "agents", ()) or ())
+    phases = tuple(getattr(run, "phases", ()) or ())
+    phase_titles = [phase.title for phase in phases]
+    return tuple(
+        agent for phase in phases for agent in agents if agent.phase == phase.title
+    ) + tuple(agent for agent in agents if agent.phase not in phase_titles)
 
 
 def _print_workflow_runs(out: TextIO, runs: Sequence[Any]) -> None:
