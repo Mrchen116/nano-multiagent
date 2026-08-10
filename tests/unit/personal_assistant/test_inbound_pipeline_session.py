@@ -24,6 +24,9 @@ from personal_assistant.gateway.inbound_models import (
     GatewayShadowState,
     ShadowConversationRef,
 )
+from personal_assistant.gateway.runtime_delivery.background import (
+    reply_context_im_conversation_id,
+)
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.shadow_saga import ExternalShadowSagaStore
 from personal_assistant.gateway.shadow_sync import IMShadowConversationSync
@@ -212,7 +215,7 @@ def test_inbound_pipeline_runs_four_steps_and_replies_via_origin_channel(
     ]
 
 
-def test_external_inbound_syncs_user_message_and_seeds_shadow_metadata(
+def test_anchored_external_inbound_persists_and_refreshes_shadow_reply_target(
     tmp_path: Path,
 ) -> None:
     agents = _agents(tmp_path)
@@ -220,6 +223,7 @@ def test_external_inbound_syncs_user_message_and_seeds_shadow_metadata(
     registry = ChannelRegistry((channel,))
     kernel_client = _FakeKernel()
     sync = _ShadowSync(conversation_id="shadow-conv-1")
+    session_store = SessionBindingStore()
     lifecycle: list[tuple[str, str | None, str | None]] = []
 
     async def _capture(routed, update) -> None:  # noqa: ANN001
@@ -240,7 +244,7 @@ def test_external_inbound_syncs_user_message_and_seeds_shadow_metadata(
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
+        session_store=session_store,
         default_agent_id="agent-a",
         relay_lifecycle_callback=_capture,
         shadow_sync=sync,
@@ -279,6 +283,30 @@ def test_external_inbound_syncs_user_message_and_seeds_shadow_metadata(
     assert sync.calls == [{"message": inbound, "agent_id": "agent-a"}]
     assert lifecycle[0] == ("accepted", "run-1", "shadow-conv-1")
     assert channel.sent[0].target_chat_id == "oc_feishu_chat"
+
+    session_key = build_session_key(inbound, agent_id="agent-a")
+    binding = session_store.get(session_key)
+    assert binding is not None
+    assert reply_context_im_conversation_id(binding.reply_context) == "shadow-conv-1"
+
+    sync.conversation_id = "shadow-conv-2"
+    refreshed = replace(
+        inbound,
+        text="second anchored message",
+        ingress=replace(
+            inbound.ingress,
+            external_event=ExternalInboundEventIdentity(
+                connector_account_id="app-a",
+                provider_event_id="event-second",
+            ),
+        ),
+    )
+    second_result = asyncio.run(pipeline.handle_inbound(refreshed))
+
+    assert second_result is not None
+    binding = session_store.get(session_key)
+    assert binding is not None
+    assert reply_context_im_conversation_id(binding.reply_context) == "shadow-conv-2"
 
 
 def test_external_shadow_sync_failure_does_not_block_or_seed_lazy_direct(
