@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
@@ -22,7 +23,7 @@ logger = logging.getLogger(__name__)
 _ACTION_PERMISSION_DECISION = "permission_decision"
 _REASON_FIELD_NAME = "nano_permission_reason"
 _PENDING_TTL_SECONDS = 60 * 60
-_MAX_INPUT_PARAM_KEYS = 12
+_MAX_INPUT_PREVIEW_CHARS = 1200
 _MAX_REASON_CHARS = 1000
 
 
@@ -377,7 +378,7 @@ def _build_pending_card(
     request_id = str(request.get("request_id") or "")
     tool_name = str(request.get("tool_name") or "tool")
     question = str(request.get("question") or "Approve this tool call?")
-    input_text = _tool_input_summary(request.get("tool_input"))
+    input_text = _tool_input_preview(request.get("tool_input"))
     actions = [
         _approval_button(
             approval_id=approval_id,
@@ -414,7 +415,7 @@ def _build_pending_card(
 def _build_deny_reason_card(pending: _PendingApproval, decision: str) -> dict[str, Any]:
     tool_name = str(pending.request.get("tool_name") or "tool")
     question = str(pending.request.get("question") or "Approve this tool call?")
-    input_text = _tool_input_summary(pending.request.get("tool_input"))
+    input_text = _tool_input_preview(pending.request.get("tool_input"))
     return {
         "config": {"wide_screen_mode": True},
         "header": {
@@ -516,24 +517,19 @@ def _approval_button(
     return button
 
 
-def _tool_input_summary(value: object) -> str:
+def _tool_input_preview(value: object) -> str:
     if not value:
         return "no input"
-    if isinstance(value, Mapping):
-        keys = sorted(str(key) for key in value if str(key).strip())
-        if not keys:
-            return "no input"
-        visible = keys[:_MAX_INPUT_PARAM_KEYS]
-        suffix = ""
-        hidden_count = len(keys) - len(visible)
-        if hidden_count > 0:
-            suffix = f", +{hidden_count} more"
-        label = "parameter" if len(keys) == 1 else "parameters"
-        return f"{len(keys)} {label}: {', '.join(visible)}{suffix}"
-    if isinstance(value, (list, tuple, set)):
-        label = "item" if len(value) == 1 else "items"
-        return f"{len(value)} {label} ({type(value).__name__})"
-    return f"{type(value).__name__} input"
+    try:
+        preview = json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    except TypeError:
+        preview = str(value)
+    return _truncate(preview, _MAX_INPUT_PREVIEW_CHARS)
 
 
 def _truncate(text: str, limit: int) -> str:

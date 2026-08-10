@@ -1,4 +1,4 @@
-"""Security and first-wins behavior for Feishu permission cards."""
+"""Rendering and first-wins behavior for Feishu permission cards."""
 
 from __future__ import annotations
 
@@ -119,7 +119,7 @@ def test_permission_card_is_idempotent_and_only_owner_can_decide(
 
 
 @patch("personal_assistant.channels.feishu.adapter.FeishuClient")
-def test_permission_card_summarizes_keys_without_sensitive_values(
+def test_permission_cards_show_tool_input_values(
     client_class: MagicMock,
 ) -> None:
     client = client_class.return_value
@@ -132,13 +132,20 @@ def test_permission_card_summarizes_keys_without_sensitive_values(
         request=_request(),
     )
 
-    rendered = str(client.send_interactive_message.call_args.kwargs["card"])
-    assert "command" in rendered
-    assert "path" in rendered
-    assert "token" in rendered
-    assert "cat ~/.ssh/id_rsa" not in rendered
-    assert ".gitconfig" not in rendered
-    assert "secret-token-value" not in rendered
+    pending_card = client.send_interactive_message.call_args.kwargs["card"]
+    pending_summary = pending_card["elements"][0]["content"]
+    assert "cat ~/.ssh/id_rsa" in pending_summary
+    assert ".gitconfig" in pending_summary
+    assert "secret-token-value" in pending_summary
+
+    reason_card = adapter._handle_card_action(
+        _event(_action_value(pending_card, "deny"))
+    )
+    assert reason_card is not None
+    reason_summary = reason_card["elements"][0]["content"]
+    assert "cat ~/.ssh/id_rsa" in reason_summary
+    assert ".gitconfig" in reason_summary
+    assert "secret-token-value" in reason_summary
 
 
 @patch("personal_assistant.channels.feishu.adapter.FeishuClient")
