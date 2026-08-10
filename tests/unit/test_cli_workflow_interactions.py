@@ -9,7 +9,6 @@ import pytest
 
 from agent.sdk import RunOrigin, WorkflowSaveScope
 from coding_cli.commands import (
-    _resolve_workflow_permission_event,
     _run_workflow_tty_controls,
     _send_message_async,
 )
@@ -46,40 +45,6 @@ async def test_interactive_message_uses_human_origin(tmp_path: Path) -> None:
     )
 
     assert kernel.origin is RunOrigin.HUMAN
-
-
-@pytest.mark.asyncio
-async def test_workflow_child_permission_resolves_from_parent_stream(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    decisions: list[dict[str, str]] = []
-    kernel = SimpleNamespace(
-        submit_permission_decision=lambda **kwargs: decisions.append(kwargs) or True
-    )
-    monkeypatch.setattr(
-        "coding_cli.commands.repl_input.read_permission_choice",
-        lambda **_kwargs: "allow_once",
-    )
-
-    resolved = await _resolve_workflow_permission_event(
-        kernel=kernel,
-        event={
-            "event": "permission_request",
-            "workflow_run_id": "wf_1",
-            "agent_call_id": "wa_1",
-            "request_id": "perm_1",
-            "tool_name": "bash",
-            "question": "Allow command?",
-            "options": [
-                {"id": "allow_once", "label": "Allow once"},
-                {"id": "deny", "label": "Deny"},
-            ],
-        },
-        out=io.StringIO(),
-    )
-
-    assert resolved is True
-    assert decisions == [{"request_id": "perm_1", "decision": "allow_once"}]
 
 
 class _TTYWorkflowKernel:

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 import json
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -180,6 +182,42 @@ class _WorkflowPermissionKernel(_BaseKernelStub):
         return _events()
 
 
+class _TaggedWorkflowChildPermissionKernel(_BaseKernelStub):
+    def __init__(self) -> None:
+        super().__init__()
+        self.input_active = threading.Event()
+        self.permission_resolved = threading.Event()
+        self.permission_decisions: list[dict[str, str]] = []
+
+    def stream(self, _session_id: str, *, after_sequence: int = 0):
+        async def _events():
+            while not self.input_active.is_set():
+                await asyncio.sleep(0)
+            yield {
+                "event": "permission_request",
+                "workflow_run_id": "wf_1",
+                "agent_call_id": "wa_1",
+                "request_id": "perm_child_1",
+                "tool_name": "bash",
+                "tool_input": {"command": "echo child"},
+                "question": "Allow Workflow child command?",
+                "options": [
+                    {"id": "allow_once", "label": "Allow once"},
+                    {"id": "allow_session", "label": "Allow session"},
+                    {"id": "deny", "label": "Deny"},
+                ],
+            }
+            while not self.permission_resolved.is_set():
+                await asyncio.sleep(0)
+
+        return _events()
+
+    def submit_permission_decision(self, **kwargs) -> bool:
+        self.permission_decisions.append(kwargs)
+        self.permission_resolved.set()
+        return True
+
+
 def test_interactive_repl_owns_workflow_permission_input_without_competing_reader(
     monkeypatch, tmp_path
 ) -> None:
@@ -225,3 +263,58 @@ def test_interactive_repl_owns_workflow_permission_input_without_competing_reade
         "deny",
     ]
     assert "can_use_tool raised" not in output.getvalue()
+
+
+def test_active_repl_reader_owns_tagged_workflow_child_permission_input(
+    monkeypatch, tmp_path
+) -> None:
+    stub = _TaggedWorkflowChildPermissionKernel()
+    output = io.StringIO()
+    read_threads: list[int] = []
+    picker_calls = []
+    read_count = 0
+
+    def _build_reader(**kwargs):
+        on_idle = kwargs["on_idle"]
+
+        def _read(_prompt, _history):
+            nonlocal read_count
+            read_count += 1
+            read_threads.append(threading.get_ident())
+            if read_count == 1:
+                return "/new"
+            stub.input_active.set()
+            while not stub.permission_resolved.is_set():
+                on_idle()
+                stub.permission_resolved.wait(0.01)
+            return "/exit"
+
+        return _read
+
+    def _pick(**kwargs):
+        picker_calls.append((threading.get_ident(), kwargs))
+        return "allow_session"
+
+    monkeypatch.setattr(commands.repl_input, "build_repl_input_reader", _build_reader)
+    monkeypatch.setattr(commands.repl_input, "read_permission_choice", _pick)
+
+    exit_code = run_cli(
+        [],
+        stdout=output,
+        kernel_factory=_make_kernel_factory(stub),
+        workspace_root=tmp_path,
+    )
+
+    assert exit_code == 0, output.getvalue()
+    assert read_count == 2
+    assert len(picker_calls) == 1
+    assert picker_calls[0][0] == read_threads[-1]
+    assert "Allow Workflow child command?" in picker_calls[0][1]["header"]
+    assert [option.id for option in picker_calls[0][1]["options"]] == [
+        "allow_once",
+        "allow_session",
+        "deny",
+    ]
+    assert stub.permission_decisions == [
+        {"request_id": "perm_child_1", "decision": "allow_session"}
+    ]

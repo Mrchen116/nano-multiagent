@@ -360,6 +360,7 @@ async def _async_main(
             return _run_llm_config_command(args=args, kernel=kernel, out=out)
 
         # Default path: interactive REPL.
+        assert permission_prompts is not None
         return await _run_repl(
             args=args,
             out=out,
@@ -475,12 +476,12 @@ def _read_permission_decision(
 ) -> _CliPermissionResponse:
     """Read one broker permission decision on the REPL input-owner thread."""
 
-    raw_options = getattr(context, "options", ())
+    raw_options = _permission_value(context, "options", ())
     options = [
         repl_input.PermissionOption(
-            id=str(getattr(option, "id", "deny")),
-            label=str(getattr(option, "label", "Deny")),
-            description=str(getattr(option, "description", "")),
+            id=str(_permission_value(option, "id", "deny")),
+            label=str(_permission_value(option, "label", "Deny")),
+            description=str(_permission_value(option, "description", "")),
         )
         for option in raw_options
     ]
@@ -496,7 +497,7 @@ def _read_permission_decision(
             ),
         ]
     header = f"Permission request: {tool_name}"
-    question = str(getattr(context, "question", "") or "").strip()
+    question = str(_permission_value(context, "question", "") or "").strip()
     if question:
         header += f"\n  {question}"
     if tool_input:
@@ -515,6 +516,12 @@ def _read_permission_decision(
     return _CliPermissionResponse(decision=chosen_id)
 
 
+def _permission_value(value: Any, key: str, default: Any) -> Any:
+    if isinstance(value, Mapping):
+        return value.get(key, default)
+    return getattr(value, key, default)
+
+
 def _is_workflow_permission_request(event: dict[str, Any]) -> bool:
     return (
         event.get("event") == "permission_request"
@@ -524,42 +531,25 @@ def _is_workflow_permission_request(event: dict[str, Any]) -> bool:
 
 
 async def _resolve_workflow_permission_event(
-    *, kernel: Any, event: dict[str, Any], out: TextIO
+    *,
+    kernel: Any,
+    event: dict[str, Any],
+    permission_prompts: _CliPermissionPromptCoordinator,
 ) -> bool:
-    """Prompt once for one child permission emitted on the parent session stream."""
+    """Resolve one child permission through the REPL's sole input owner."""
 
     request_id = str(event.get("request_id") or "")
     if not request_id:
         return False
-    raw_options = event.get("options")
-    options = [
-        repl_input.PermissionOption(
-            id=str(item.get("id") or "deny"),
-            label=str(item.get("label") or item.get("id") or "Deny"),
-            description=str(item.get("description") or ""),
-        )
-        for item in raw_options or ()
-        if isinstance(item, dict)
-    ]
-    if not options:
-        options = [
-            repl_input.PermissionOption("allow_once", "Allow once"),
-            repl_input.PermissionOption("deny", "Deny"),
-        ]
-    header = f"Workflow permission request: {event.get('tool_name') or '?'}"
-    question = str(event.get("question") or "").strip()
-    if question:
-        header += f"\n  {question}"
-    chosen = await asyncio.get_running_loop().run_in_executor(
-        None,
-        lambda: repl_input.read_permission_choice(
-            header=header, options=options, out=out
-        ),
+    response = await permission_prompts.request(
+        str(event.get("tool_name") or "?"),
+        event.get("tool_input") or {},
+        event,
     )
     return bool(
         kernel.submit_permission_decision(
             request_id=request_id,
-            decision=chosen,
+            decision=response.decision,
         )
     )
 
@@ -638,8 +628,8 @@ async def _run_repl(
     input_fn: Callable[[str], str] | None,
     repl_input_reader_factory: Callable[[], repl_input.ReplInputReader] | None,
     workspace_root: Path,
+    permission_prompts: _CliPermissionPromptCoordinator,
     model: str | None = None,
-    permission_prompts: _CliPermissionPromptCoordinator | None = None,
 ) -> int:
     """Async-native interactive REPL loop.
 
@@ -717,7 +707,9 @@ async def _run_repl(
                         ):
                             _workflow_permission_requests.add(request_id)
                             await _resolve_workflow_permission_event(
-                                kernel=kernel, event=ev, out=out
+                                kernel=kernel,
+                                event=ev,
+                                permission_prompts=permission_prompts,
                             )
                         continue
                     try:
@@ -771,7 +763,7 @@ async def _run_repl(
         input_fn=input_fn,
         repl_input_reader_factory=repl_input_reader_factory,
         command_suggestions=command_suggestions,
-        on_idle=(permission_prompts.process_pending if permission_prompts else None),
+        on_idle=permission_prompts.process_pending,
         idle_interval_seconds=0.5,
     )
 
