@@ -14,7 +14,7 @@ from personal_assistant.gateway.shadow_sync import IMShadowConversationSync
 class ExternalControlDeliveryMaterializer:
     """Move committed control outcomes into the existing external shadow saga.
 
-    The binding store commits an intent before this class is called.  A restart can
+    The session binder commits an intent before this class is called. A restart can
     therefore resume at the same operation and saga identity without relying on the
     provider to redeliver the command.
     """

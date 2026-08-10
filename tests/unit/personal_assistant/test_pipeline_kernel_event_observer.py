@@ -24,7 +24,6 @@ from personal_assistant.gateway.channel_registry import ChannelRegistry
 from tests.helpers.inbound_pipeline import build_inbound_pipeline
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
-from personal_assistant.gateway.session_keys import SessionBindingStore
 
 
 class _FakeChannel:
@@ -172,7 +171,6 @@ def test_kernel_event_observer_receives_each_run_event_in_order(tmp_path: Path) 
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         kernel_event_observer=lambda event: observed.append(dict(event)),
     )
 

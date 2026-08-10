@@ -6,7 +6,6 @@ from unittest.mock import MagicMock
 import httpx
 
 from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
-from personal_assistant.channels.base import ReplyContext
 from personal_assistant.config.local_store import (
     AgentWorkspaceConfig,
     GatewayLifecycleConfig,
@@ -16,8 +15,10 @@ from personal_assistant.config.local_store import (
 )
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
 from personal_assistant.gateway.agent_config_sync import IMAgentConfigSync
-from personal_assistant.gateway.session_binder import GatewaySessionBinder
-from personal_assistant.gateway.session_keys import SessionBindingStore
+from personal_assistant.gateway.session_binder import (
+    ConversationBindingRequest,
+    GatewaySessionBinder,
+)
 
 
 def test_identical_reconcile_preserves_restart_binding(tmp_path: Path) -> None:
@@ -33,19 +34,20 @@ def test_identical_reconcile_preserves_restart_binding(tmp_path: Path) -> None:
         group_reply_policy="MENTION",
     )
     catalog = LiveAgentCatalog((agent,))
-    store = SessionBindingStore()
-    store.bind(
-        session_key="web_relay:conv-1:agent-a",
-        kernel_session_id="session-before-restart",
-        reply_context=ReplyContext(
-            channel_name="web_relay",
-            target_chat_id="conv-1",
-        ),
-    )
     binder = GatewaySessionBinder(
         catalog=catalog,
-        repository=store,
         kernel=MagicMock(),
+    )
+    snapshot = catalog.require("agent-a")
+    binder.bind_conversation(
+        ConversationBindingRequest(
+            channel_name="web_relay",
+            conversation_id="conv-1",
+            agent_id="agent-a",
+            kernel_session_id="session-before-restart",
+            guard=binder.capture_write_guard(snapshot),
+        ),
+        snapshot,
     )
     llm = LLMConfigPayload(
         default_model="test-model",

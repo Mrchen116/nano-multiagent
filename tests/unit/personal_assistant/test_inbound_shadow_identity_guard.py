@@ -15,7 +15,6 @@ from personal_assistant.gateway.runtime_protocol import (
     ShadowConversationRef,
     attach_runtime_protocol,
 )
-from personal_assistant.gateway.session_keys import SessionBindingStore
 from tests.helpers.inbound_pipeline import build_inbound_pipeline
 
 from ._pipeline_helpers import _FakeChannel, _FakeKernel
@@ -47,7 +46,6 @@ def test_im_originated_typed_identity_skips_external_shadow_sync(tmp_path) -> No
         agents=(AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace),),
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         shadow_sync=sync,
     )
     message = attach_runtime_protocol(

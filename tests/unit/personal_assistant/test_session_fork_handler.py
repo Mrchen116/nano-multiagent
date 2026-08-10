@@ -6,16 +6,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from personal_assistant.channels.base import ReplyContext
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
-from personal_assistant.gateway.session_binder import GatewaySessionBinder
-from personal_assistant.gateway.session_keys import (
-    PersistentSessionBindingStore,
-    bind_conversation_session,
-    build_conversation_session_key,
-    build_external_session_key,
+from personal_assistant.gateway.session_binder import (
+    ConversationBindingRequest,
+    GatewaySessionBinder,
+    build_session_fork_handler,
 )
+from personal_assistant.gateway.session_keys import build_conversation_session_key
 
 
 class _FakeKernel:
@@ -32,37 +30,48 @@ class _FakeKernel:
         )
 
 
-def _store(tmp_path: Path) -> PersistentSessionBindingStore:
-    return PersistentSessionBindingStore(db_path=tmp_path / "bindings.sqlite3")
-
-
-def _handler(tmp_path: Path, kernel: _FakeKernel, store: PersistentSessionBindingStore):
-    from personal_assistant.gateway.session_binder import build_session_fork_handler
-
+def _owners(tmp_path: Path, kernel: object):
     catalog = LiveAgentCatalog(
         (AgentWorkspaceConfig(agent_id="alpha", workspace_root=tmp_path / "ws-alpha"),)
     )
-    binder = GatewaySessionBinder(catalog=catalog, repository=store, kernel=kernel)
-    return build_session_fork_handler(
+    binder = GatewaySessionBinder(
+        catalog=catalog,
         kernel=kernel,
-        session_binder=binder,
-        channel_name="web_relay",
+        db_path=tmp_path / "bindings.sqlite3",
     )
+    handler = build_session_fork_handler(
+        kernel=kernel, session_binder=binder, channel_name="web_relay"
+    )
+    return catalog, binder, handler
+
+
+def _bind(
+    binder: GatewaySessionBinder,
+    catalog: LiveAgentCatalog,
+    *,
+    conversation_id: str,
+    channel_name: str = "web_relay",
+    kernel_session_id: str = "ksess-src",
+) -> None:
+    agent = catalog.require("alpha")
+    result = binder.bind_conversation(
+        ConversationBindingRequest(
+            channel_name=channel_name,
+            conversation_id=conversation_id,
+            agent_id="alpha",
+            kernel_session_id=kernel_session_id,
+            guard=binder.capture_write_guard(agent),
+        ),
+        agent,
+    )
+    assert result.status == "bound"
 
 
 @pytest.mark.asyncio
 async def test_fork_handler_locates_source_forks_and_binds_new(tmp_path: Path) -> None:
     kernel = _FakeKernel(fork_id_map={"a3": "branch-a3"})
-    store = _store(tmp_path)
-    # Pre-bind the source conversation to a kernel session.
-    bind_conversation_session(
-        store=store,
-        channel_name="web_relay",
-        conversation_id="conv-src",
-        agent_id="alpha",
-        kernel_session_id="ksess-src",
-    )
-    handler = _handler(tmp_path, kernel, store)
+    catalog, binder, handler = _owners(tmp_path, kernel)
+    _bind(binder, catalog, conversation_id="conv-src")
 
     result = await handler(
         {
@@ -86,7 +95,7 @@ async def test_fork_handler_locates_source_forks_and_binds_new(tmp_path: Path) -
         }
     ]
     # new conversation now bound to the forked session
-    new_binding = store.get(
+    new_binding = binder.lookup(
         build_conversation_session_key(
             channel_name="web_relay", conversation_id="conv-new", agent_id="alpha"
         )
@@ -100,8 +109,7 @@ async def test_fork_handler_missing_source_binding_returns_not_ok(
     tmp_path: Path,
 ) -> None:
     kernel = _FakeKernel()
-    store = _store(tmp_path)
-    handler = _handler(tmp_path, kernel, store)
+    _catalog, _binder, handler = _owners(tmp_path, kernel)
 
     result = await handler(
         {
@@ -121,21 +129,8 @@ async def test_fork_handler_uses_external_source_binding_for_shadow_conversation
     tmp_path: Path,
 ) -> None:
     kernel = _FakeKernel()
-    store = _store(tmp_path)
-    store.bind(
-        session_key=build_external_session_key(
-            external_source="feishu",
-            external_chat_id="oc_group",
-            agent_id="alpha",
-        ),
-        kernel_session_id="ksess-src",
-        reply_context=ReplyContext(
-            channel_name="feishu:alpha",
-            target_chat_id="feishu:cli_a:group:oc_group",
-            metadata={"external_source": "feishu", "external_chat_id": "oc_group"},
-        ),
-    )
-    handler = _handler(tmp_path, kernel, store)
+    catalog, binder, handler = _owners(tmp_path, kernel)
+    _bind(binder, catalog, channel_name="feishu", conversation_id="oc_group")
 
     result = await handler(
         {
@@ -157,7 +152,7 @@ async def test_fork_handler_uses_external_source_binding_for_shadow_conversation
             "up_to": "a3",
         }
     ]
-    new_binding = store.get(
+    new_binding = binder.lookup(
         build_conversation_session_key(
             channel_name="web_relay", conversation_id="conv-new", agent_id="alpha"
         )
@@ -172,25 +167,16 @@ async def test_fork_handler_kernel_failure_returns_not_ok(tmp_path: Path) -> Non
         async def fork_session(self, *a, **k):
             raise RuntimeError("fork point message_id 'a3' not found")
 
-    store = _store(tmp_path)
-    bind_conversation_session(
-        store=store,
-        channel_name="web_relay",
-        conversation_id="conv-src",
-        agent_id="alpha",
-        kernel_session_id="ksess-src",
-    )
-    from personal_assistant.gateway.session_binder import build_session_fork_handler
-
     catalog = LiveAgentCatalog(
         (AgentWorkspaceConfig(agent_id="alpha", workspace_root=tmp_path / "ws"),)
     )
     boom_kernel = _BoomKernel()
     binder = GatewaySessionBinder(
         catalog=catalog,
-        repository=store,
         kernel=boom_kernel,
+        db_path=tmp_path / "bindings.sqlite3",
     )
+    _bind(binder, catalog, conversation_id="conv-src")
     handler = build_session_fork_handler(
         kernel=boom_kernel,
         session_binder=binder,
@@ -208,7 +194,7 @@ async def test_fork_handler_kernel_failure_returns_not_ok(tmp_path: Path) -> Non
     assert "not found" in result.get("error", "")
     # no binding created for the new conversation on failure
     assert (
-        store.get(
+        binder.lookup(
             build_conversation_session_key(
                 channel_name="web_relay",
                 conversation_id="conv-new",
@@ -259,16 +245,13 @@ async def test_fork_publish_race_returns_failure_without_stale_branch_binding(
             ),
         )
     )
-    store = _store(tmp_path)
-    bind_conversation_session(
-        store=store,
-        channel_name="web_relay",
-        conversation_id="conv-src",
-        agent_id="alpha",
-        kernel_session_id="ksess-src",
-    )
     kernel = _BlockingKernel()
-    binder = GatewaySessionBinder(catalog=catalog, repository=store, kernel=kernel)
+    binder = GatewaySessionBinder(
+        catalog=catalog,
+        kernel=kernel,
+        db_path=tmp_path / "bindings.sqlite3",
+    )
+    _bind(binder, catalog, conversation_id="conv-src")
     handler = build_session_fork_handler(
         kernel=kernel,
         session_binder=binder,
@@ -304,10 +287,6 @@ async def test_fork_captures_source_binding_and_revision_atomically(
 ) -> None:
     """A publish between source lookup and snapshot capture cannot relabel the fork."""
 
-    from personal_assistant.gateway.session_binder import ConversationBindingRequest
-    from personal_assistant.gateway.session_keys import SessionBindingStore
-    from personal_assistant.gateway.session_binder import build_session_fork_handler
-
     old_workspace = tmp_path / "old-atomic"
     new_workspace = tmp_path / "new-atomic"
     old_workspace.mkdir()
@@ -316,24 +295,8 @@ async def test_fork_captures_source_binding_and_revision_atomically(
         (AgentWorkspaceConfig(agent_id="alpha", workspace_root=old_workspace),)
     )
 
-    class _PublishingStore(SessionBindingStore):
-        publish_on_get = False
-
-        def get(self, session_key: str):
-            binding = super().get(session_key)
-            if self.publish_on_get:
-                self.publish_on_get = False
-                catalog.publish(
-                    AgentWorkspaceConfig(
-                        agent_id="alpha",
-                        workspace_root=new_workspace,
-                    )
-                )
-            return binding
-
-    store = _PublishingStore()
     kernel = _FakeKernel()
-    binder = GatewaySessionBinder(catalog=catalog, repository=store, kernel=kernel)
+    binder = GatewaySessionBinder(catalog=catalog, kernel=kernel)
     old_snapshot = catalog.require("alpha")
     bound = binder.bind_conversation(
         ConversationBindingRequest(
@@ -346,7 +309,23 @@ async def test_fork_captures_source_binding_and_revision_atomically(
         old_snapshot,
     )
     assert bound.status == "bound"
-    store.publish_on_get = True
+    original_get = binder._repository.get  # noqa: SLF001
+    publish_on_get = True
+
+    def _publishing_get(session_key: str):
+        nonlocal publish_on_get
+        binding = original_get(session_key)
+        if publish_on_get:
+            publish_on_get = False
+            catalog.publish(
+                AgentWorkspaceConfig(
+                    agent_id="alpha",
+                    workspace_root=new_workspace,
+                )
+            )
+        return binding
+
+    binder._repository.get = _publishing_get  # type: ignore[method-assign]  # noqa: SLF001
     handler = build_session_fork_handler(
         kernel=kernel,
         session_binder=binder,

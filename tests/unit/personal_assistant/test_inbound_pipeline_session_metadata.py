@@ -11,7 +11,6 @@ from personal_assistant.gateway.channel_registry import ChannelRegistry
 from tests.helpers.inbound_pipeline import build_inbound_pipeline
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
-from personal_assistant.gateway.session_keys import SessionBindingStore
 from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
 
 from ._pipeline_helpers import _FakeChannel, _FakeKernel, _agents
@@ -39,7 +38,6 @@ def test_build_session_metadata_reads_custom_prompt_from_local_agent_config(
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-x",
     )
     inbound = InboundMessage(
@@ -86,7 +84,6 @@ def test_build_session_metadata_reads_skills_and_tool_allowlist_from_local_agent
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-y",
     )
     inbound = InboundMessage(
@@ -129,7 +126,6 @@ def test_session_creation_uses_agent_features_and_custom_prompt_from_live_config
         ),
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-features",
     )
 
@@ -177,7 +173,6 @@ def test_build_session_metadata_ignores_message_metadata_for_prompt_fields(
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-z",
     )
     inbound = InboundMessage(
@@ -223,7 +218,6 @@ def test_build_session_metadata_still_reads_conversation_id_from_message_metadat
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-w",
     )
     inbound = InboundMessage(
@@ -270,7 +264,6 @@ def test_web_relay_conversation_id_reaches_session_metadata(
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-web",
     )
     seen: list[InboundMessage] = []
@@ -315,7 +308,6 @@ def test_session_metadata_group_fields(tmp_path: Path) -> None:
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
     inbound = InboundMessage(
@@ -350,7 +342,6 @@ def test_session_metadata_direct_fields(tmp_path: Path) -> None:
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
     inbound = InboundMessage(

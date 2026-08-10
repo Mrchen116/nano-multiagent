@@ -20,7 +20,6 @@ from personal_assistant.gateway.session_binder import (
     GatewaySessionBinder,
     SessionBindingRequest,
 )
-from personal_assistant.gateway.session_keys import PersistentSessionBindingStore
 from personal_assistant.tools.send_message import SendMessageTool
 
 
@@ -175,8 +174,8 @@ async def test_restart_reuses_session_history_but_dispatches_only_to_new_listene
         catalog_a = LiveAgentCatalog((agent,))
         binder_a = GatewaySessionBinder(
             catalog=catalog_a,
-            repository=PersistentSessionBindingStore(db_path=binding_db),
             kernel=kernel_a,
+            db_path=binding_db,
         )
         binding_a = await binder_a.resolve(
             _binding_request(dispatch_url=url_a), catalog_a.require("agent-a")
@@ -194,11 +193,10 @@ async def test_restart_reuses_session_history_but_dispatches_only_to_new_listene
     kernel_b = _build_kernel(repo_root=repo_root, endpoint=endpoint_b, llm_client=llm_b)
     try:
         catalog_b = LiveAgentCatalog((agent,))
-        store_b = PersistentSessionBindingStore(db_path=binding_db)
         binder_b = GatewaySessionBinder(
             catalog=catalog_b,
-            repository=store_b,
             kernel=kernel_b,
+            db_path=binding_db,
         )
         binding_b = await binder_b.resolve(
             _binding_request(dispatch_url=url_b), catalog_b.require("agent-a")
@@ -218,7 +216,7 @@ async def test_restart_reuses_session_history_but_dispatches_only_to_new_listene
         assert any(
             sentinel in str(message.content) for message in llm_b.requests[0].messages
         )
-        persisted = store_b.get(binding_b.session_key)
+        persisted = binder_b.lookup(binding_b.session_key)
         assert persisted is not None
         assert persisted.kernel_session_id == binding_a.kernel_session_id
     finally:

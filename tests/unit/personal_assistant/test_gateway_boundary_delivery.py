@@ -6,11 +6,16 @@ import asyncio
 from dataclasses import asdict
 from pathlib import Path
 
-from personal_assistant.channels.base import ReplyContext
+from personal_assistant.config.local_store import AgentWorkspaceConfig
+from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
 from personal_assistant.gateway.boundary_outbox import BoundaryOutboxDispatcher
+from personal_assistant.gateway.session_binder import (
+    BoundaryDispatchIdle,
+    ConversationBindingRequest,
+    GatewaySessionBinder,
+)
 from personal_assistant.gateway.session_keys import (
     BoundaryIntent,
-    PersistentSessionBindingStore,
 )
 from personal_assistant.ws.im_connection import IMFrameRejectedError
 
@@ -40,31 +45,58 @@ class _Connection:
         return {"message_type": message_type, "boundary_id": payload["boundary_id"]}
 
 
+def _binder(
+    tmp_path: Path,
+    *,
+    retry_initial_seconds: float = 1.0,
+    retry_max_seconds: float = 60.0,
+) -> tuple[GatewaySessionBinder, object, object]:
+    workspace = tmp_path / "agent-1"
+    workspace.mkdir(exist_ok=True)
+    catalog = LiveAgentCatalog(
+        (AgentWorkspaceConfig(agent_id="agent-1", workspace_root=workspace),)
+    )
+    binder = GatewaySessionBinder(
+        catalog=catalog,
+        kernel=object(),
+        db_path=tmp_path / "bindings.sqlite3",
+        boundary_retry_initial_seconds=retry_initial_seconds,
+        boundary_retry_max_seconds=retry_max_seconds,
+    )
+    agent = catalog.require("agent-1")
+    result = binder.bind_conversation(
+        ConversationBindingRequest(
+            channel_name="web_relay",
+            conversation_id="conversation-1",
+            agent_id="agent-1",
+            kernel_session_id="session-1",
+            guard=binder.capture_write_guard(agent),
+        ),
+        agent,
+    )
+    assert result.binding is not None
+    return binder, result.binding, agent
+
+
 def test_reconnect_drain_acknowledges_each_durable_boundary(tmp_path: Path) -> None:
     """A reconnect drains persisted items through the ACK-gated wire protocol."""
 
-    store = PersistentSessionBindingStore(db_path=tmp_path / "bindings.sqlite3")
-    binding = store.bind(
-        session_key="web_relay:conversation-1:agent-1",
-        kernel_session_id="session-1",
-        reply_context=ReplyContext(
-            channel_name="web_relay", target_chat_id="conversation-1"
-        ),
-    )
+    binder, binding, agent = _binder(tmp_path)
     intent = _intent()
-    store.apply_runtime_with_boundary(
+    binder.persist_applied_runtime_with_boundary(
         binding,
         runtime_fingerprint=intent.runtime_fingerprint,
         fingerprint_schema=intent.fingerprint_schema,
         profile_version=intent.profile_version,
         boundary=intent,
+        agent=agent,
     )
     connection = _Connection()
 
-    asyncio.run(BoundaryOutboxDispatcher(store=store).drain(connection))
+    asyncio.run(BoundaryOutboxDispatcher(binder=binder).drain(connection))
 
     assert connection.sent == [("agent.config.boundary", asdict(intent))]
-    assert store.pending_boundaries() == ()
+    assert isinstance(binder.next_boundary_dispatch(), BoundaryDispatchIdle)
 
 
 class _RejectedConnection:
@@ -82,27 +114,21 @@ def test_deterministic_ack_rejection_quarantines_without_deleting(
 ) -> None:
     """An anchor rejection remains inspectable rather than disappearing on retry."""
 
-    store = PersistentSessionBindingStore(db_path=tmp_path / "bindings.sqlite3")
-    binding = store.bind(
-        session_key="web_relay:conversation-1:agent-1",
-        kernel_session_id="session-1",
-        reply_context=ReplyContext(
-            channel_name="web_relay", target_chat_id="conversation-1"
-        ),
-    )
+    binder, binding, agent = _binder(tmp_path)
     intent = _intent()
-    store.apply_runtime_with_boundary(
+    binder.persist_applied_runtime_with_boundary(
         binding,
         runtime_fingerprint=intent.runtime_fingerprint,
         fingerprint_schema=intent.fingerprint_schema,
         profile_version=intent.profile_version,
         boundary=intent,
+        agent=agent,
     )
 
-    asyncio.run(BoundaryOutboxDispatcher(store=store).drain(_RejectedConnection()))
+    asyncio.run(BoundaryOutboxDispatcher(binder=binder).drain(_RejectedConnection()))
 
-    assert store.pending_boundaries() == ()
-    assert store.quarantined_boundaries() == (intent,)
+    assert isinstance(binder.next_boundary_dispatch(), BoundaryDispatchIdle)
+    assert binder._repository.quarantined_boundaries() == (intent,)  # noqa: SLF001
 
 
 class _RetryThenAcknowledgeConnection:
@@ -126,37 +152,34 @@ def test_retryable_delivery_failure_is_durably_deferred_and_retried(
 ) -> None:
     """A retryable failure waits by durable backoff without erasing later facts."""
 
-    store = PersistentSessionBindingStore(db_path=tmp_path / "bindings.sqlite3")
-    binding = store.bind(
-        session_key="web_relay:conversation-1:agent-1",
-        kernel_session_id="session-1",
-        reply_context=ReplyContext(
-            channel_name="web_relay", target_chat_id="conversation-1"
-        ),
+    binder, binding, agent = _binder(
+        tmp_path,
+        retry_initial_seconds=0,
+        retry_max_seconds=0,
     )
     first = _intent(boundary_id="boundary-1")
     second = _intent(boundary_id="boundary-2")
-    store.apply_runtime_with_boundary(
+    binder.persist_applied_runtime_with_boundary(
         binding,
         runtime_fingerprint=first.runtime_fingerprint,
         fingerprint_schema=first.fingerprint_schema,
         profile_version=first.profile_version,
         boundary=first,
+        agent=agent,
     )
-    store.apply_runtime_with_boundary(
+    binder.persist_applied_runtime_with_boundary(
         binding,
         runtime_fingerprint=second.runtime_fingerprint,
         fingerprint_schema=second.fingerprint_schema,
         profile_version=second.profile_version,
         boundary=second,
+        agent=agent,
     )
     connection = _RetryThenAcknowledgeConnection()
 
     async def deliver() -> None:
         task = BoundaryOutboxDispatcher(
-            store=store,
-            retry_initial_seconds=0,
-            retry_max_seconds=0,
+            binder=binder,
         ).schedule_drain(connection)
         await task
 
@@ -167,7 +190,7 @@ def test_retryable_delivery_failure_is_durably_deferred_and_retried(
         "boundary-2",
         "boundary-1",
     ]
-    assert store.pending_boundaries() == ()
+    assert isinstance(binder.next_boundary_dispatch(), BoundaryDispatchIdle)
 
 
 def test_new_boundary_is_delivered_on_the_current_registered_connection(
@@ -175,26 +198,20 @@ def test_new_boundary_is_delivered_on_the_current_registered_connection(
 ) -> None:
     """A runtime replacement drains immediately without requiring a reconnect."""
 
-    store = PersistentSessionBindingStore(db_path=tmp_path / "bindings.sqlite3")
-    binding = store.bind(
-        session_key="web_relay:conversation-1:agent-1",
-        kernel_session_id="session-1",
-        reply_context=ReplyContext(
-            channel_name="web_relay", target_chat_id="conversation-1"
-        ),
-    )
+    binder, binding, agent = _binder(tmp_path)
     intent = _intent()
     connection = _Connection()
 
     async def deliver() -> None:
-        dispatcher = BoundaryOutboxDispatcher(store=store)
+        dispatcher = BoundaryOutboxDispatcher(binder=binder)
         await dispatcher.schedule_drain(connection)
-        store.apply_runtime_with_boundary(
+        binder.persist_applied_runtime_with_boundary(
             binding,
             runtime_fingerprint=intent.runtime_fingerprint,
             fingerprint_schema=intent.fingerprint_schema,
             profile_version=intent.profile_version,
             boundary=intent,
+            agent=agent,
         )
         task = dispatcher.notify_pending()
         assert task is not None
@@ -203,4 +220,4 @@ def test_new_boundary_is_delivered_on_the_current_registered_connection(
     asyncio.run(deliver())
 
     assert connection.sent == [("agent.config.boundary", asdict(intent))]
-    assert store.pending_boundaries() == ()
+    assert isinstance(binder.next_boundary_dispatch(), BoundaryDispatchIdle)

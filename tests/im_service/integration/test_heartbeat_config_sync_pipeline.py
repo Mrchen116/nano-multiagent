@@ -17,7 +17,6 @@ from personal_assistant.config.local_store import AgentWorkspaceConfig
 from tests.helpers.inbound_pipeline import build_inbound_pipeline
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
-from personal_assistant.gateway.session_keys import SessionBindingStore
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
 from personal_assistant.gateway.agent_config_sync import IMAgentConfigSync
 from personal_assistant.gateway.session_binder import GatewaySessionBinder
@@ -98,17 +97,13 @@ def test_patch_heartbeat_disabled_reaches_scheduler(tmp_path: Path) -> None:
 
         relay_adapter = WebRelayAdapter()
         run_queue = SessionRunQueue()
-        session_store = SessionBindingStore()
         catalog = LiveAgentCatalog((agent_with_hb,))
-        binder = GatewaySessionBinder(
-            catalog=catalog, repository=session_store, kernel=kernel_client
-        )
+        binder = GatewaySessionBinder(catalog=catalog, kernel=kernel_client)
         pipeline = build_inbound_pipeline(
             kernel=kernel_client,
             agents=(agent_with_hb,),
             outbound_router=OutboundRouter(ChannelRegistry((relay_adapter,))),
             run_queue=run_queue,
-            session_store=session_store,
             agent_catalog=catalog,
             session_binder=binder,
             default_agent_id=agent_id,

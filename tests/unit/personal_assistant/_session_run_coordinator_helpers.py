@@ -21,7 +21,6 @@ from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.gateway.image_attachments import ImageResolution
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.session_binder import GatewaySessionBinder
-from personal_assistant.gateway.session_keys import SessionBindingStore
 
 from ._pipeline_helpers import _FakeChannel
 
@@ -307,7 +306,7 @@ class CountingImageResolver:
 def build_dependencies(
     tmp_path: Path,
     *,
-    session_store: SessionBindingStore | None = None,
+    session_db_path: Path | str = ":memory:",
 ) -> tuple[
     ControlledKernel,
     LiveAgentCatalog,
@@ -332,8 +331,8 @@ def build_dependencies(
     )
     binder = GatewaySessionBinder(
         catalog=catalog,
-        repository=session_store or SessionBindingStore(),
         kernel=kernel,
+        db_path=session_db_path,
     )
     router = OutboundRouter(ChannelRegistry((_FakeChannel("web_relay"),)))
     group_store = GroupContextStore(tmp_path / "group.sqlite3")

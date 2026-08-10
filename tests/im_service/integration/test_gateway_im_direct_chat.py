@@ -14,10 +14,10 @@ from IM.infra.repositories.users import UserRepository
 from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.channel_registry import ChannelRegistry
+from personal_assistant.gateway.session_binder import ConversationBindingRequest
 from tests.helpers.inbound_pipeline import build_inbound_pipeline, inbound_graph
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
-from personal_assistant.gateway.session_keys import SessionBindingStore
 
 from ._gateway_helpers import (
     _FakeKernelClient,
@@ -36,13 +36,11 @@ def test_direct_chat_recreates_legacy_kernel_session_without_workspace_metadata(
     relay_adapter = WebRelayAdapter()
     agents = make_agent_configs(tmp_path, "agent-a")
     registry = ChannelRegistry((relay_adapter,))
-    session_store = SessionBindingStore()
     pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=session_store,
         default_agent_id="agent-a",
     )
     relay_adapter.start(lambda inbound: asyncio.run(pipeline.handle_inbound(inbound)))
@@ -69,19 +67,17 @@ def test_direct_chat_recreates_legacy_kernel_session_without_workspace_metadata(
             session_id="sess-legacy",
             metadata={"agent_id": "agent-a", "config_profile_version": 1},
         )
-        session_store.bind(
-            session_key=session_key,
-            kernel_session_id="sess-legacy",
-            reply_context=type(
-                "_ReplyContext",
-                (),
-                {
-                    "channel_name": "web_relay",
-                    "target_chat_id": conversation_id,
-                    "thread_id": None,
-                    "metadata": {},
-                },
-            )(),
+        graph = inbound_graph(pipeline)
+        agent = graph.catalog.require("agent-a")
+        graph.binder.bind_conversation(
+            ConversationBindingRequest(
+                channel_name="web_relay",
+                conversation_id=conversation_id,
+                agent_id="agent-a",
+                kernel_session_id="sess-legacy",
+                guard=graph.binder.capture_write_guard(agent),
+            ),
+            agent,
         )
 
         with client.websocket_connect("/im/ws/gateway") as websocket:
@@ -137,7 +133,9 @@ def test_direct_chat_recreates_legacy_kernel_session_without_workspace_metadata(
         str(agents[0].workspace_root)
     ]
     assert [call["session_id"] for call in kernel_client.send_calls] == ["sess-1"]
-    assert session_store.get(session_key).kernel_session_id == "sess-1"
+    binding = inbound_graph(pipeline).binder.lookup(session_key)
+    assert binding is not None
+    assert binding.kernel_session_id == "sess-1"
 
 
 def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_gets_new_profile(
@@ -149,13 +147,11 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
     relay_adapter = WebRelayAdapter()
     agents = make_agent_configs(tmp_path, "agent-a")
     registry = ChannelRegistry((relay_adapter,))
-    session_store = SessionBindingStore()
     pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=session_store,
         default_agent_id="agent-a",
     )
     relay_adapter.start(lambda inbound: asyncio.run(pipeline.handle_inbound(inbound)))
@@ -403,11 +399,15 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
         "sess-3",
     ]
     assert (
-        session_store.get(f"web_relay:{old_conversation_id}:agent-a").kernel_session_id
+        inbound_graph(pipeline)
+        .binder.lookup(f"web_relay:{old_conversation_id}:agent-a")
+        .kernel_session_id
         == "sess-2"
     )
     assert (
-        session_store.get(f"web_relay:{new_conversation_id}:agent-a").kernel_session_id
+        inbound_graph(pipeline)
+        .binder.lookup(f"web_relay:{new_conversation_id}:agent-a")
+        .kernel_session_id
         == "sess-3"
     )
 

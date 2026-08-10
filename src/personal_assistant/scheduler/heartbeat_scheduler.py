@@ -200,7 +200,7 @@ class HeartbeatScheduler:
 
     Args:
         agents: Managed agent workspaces whose HEARTBEAT.md files should be evaluated.
-        kernel_client: HTTP boundary used to create independent heartbeat sessions.
+        kernel_client: In-process Kernel shim used to create heartbeat sessions.
         state_store: Persistence for last executed due timestamps so restart catch-up works.
         canonical_session_store: Optional shared mutable dict mapping agent_id to the
             kernel session_id of the (owner, agent) canonical direct chat.  When present
@@ -255,8 +255,7 @@ class HeartbeatScheduler:
             busy_sessions if busy_sessions is not None else set()
         )
         self._session_binder = session_binder
-        # Legacy fallback session store (for when no canonical session binding is found yet).
-        # In feat-394 mode, session_store lookup takes precedence.
+        # Fallback session ids used when no canonical direct binding exists yet.
         self._heartbeat_sessions: dict[str, str] = {}
         self._heartbeat_session_revisions: dict[str, int] = {}
 
@@ -311,11 +310,11 @@ class HeartbeatScheduler:
                 skipped_agents.append(agent.agent_id)
                 continue
             # feat-394 decision 3: tick-time canonical session refresh.
-            # Read the agent's oldest direct-chat binding from the gateway SQLite store
+            # Read the agent's oldest direct-chat binding through the Gateway binder
             # BEFORE checking busy-skip or submitting a run.  This replaces the prior
             # reactive approach (turn_start ack → fill) which failed for first-tick,
             # restart, and silent-polling scenarios (silent polls never ack → never fill).
-            # Pure gateway read — no IM HTTP call required.
+            # This is a local continuity lookup with no IM request.
             _canonical_session_key: str | None = None
             _binding = (
                 self._session_binder.find_canonical_direct(

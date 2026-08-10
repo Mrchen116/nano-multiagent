@@ -12,7 +12,7 @@ def _make_dispatch_handler(
     im_manager=None,
     *,
     kernel_client=None,
-    session_store=None,
+    session_db_path=None,
     agent_workspace_roots=None,
     origin_sessions=None,
 ):
@@ -26,7 +26,7 @@ def _make_dispatch_handler(
 
     catalog = None
     binder = None
-    if session_store is not None:
+    if session_db_path is not None:
         catalog = LiveAgentCatalog(
             tuple(
                 AgentWorkspaceConfig(agent_id=agent_id, workspace_root=Path(root))
@@ -35,8 +35,8 @@ def _make_dispatch_handler(
         )
         binder = GatewaySessionBinder(
             catalog=catalog,
-            repository=session_store,
             kernel=kernel_client,
+            db_path=session_db_path,
         )
         for agent_id, session_id in (origin_sessions or {}).items():
             binder.register_session_provenance(
@@ -143,7 +143,6 @@ def test_dispatch_handler_binds_direct_conversation_and_appends_history() -> Non
     import asyncio
     from pathlib import Path
 
-    from personal_assistant.gateway.session_keys import PersistentSessionBindingStore
     from personal_assistant.ws.im_connection import IMDispatchAck
 
     manager = MagicMock()
@@ -158,13 +157,10 @@ def test_dispatch_handler_binds_direct_conversation_and_appends_history() -> Non
         )
     )
     kernel_client = MagicMock()
-    session_store = PersistentSessionBindingStore(
-        db_path=Path("/tmp/test-dispatch-bindings.sqlite3")
-    )
     handler = _make_dispatch_handler(
         im_manager=manager,
         kernel_client=kernel_client,
-        session_store=session_store,
+        session_db_path=Path("/tmp/test-dispatch-bindings.sqlite3"),
         agent_workspace_roots={"agent_a": "/tmp/agent-a-workspace"},
         origin_sessions={"agent_a": "sess-origin-1"},
     )
@@ -183,7 +179,9 @@ def test_dispatch_handler_binds_direct_conversation_and_appends_history() -> Non
     )
 
     assert result["ok"] is True
-    binding = session_store.get("web_relay:conv-direct-1:agent_a")
+    binding = handler._session_binder.lookup(  # noqa: SLF001
+        "web_relay:conv-direct-1:agent_a"
+    )
     assert binding is not None
     assert binding.kernel_session_id == "sess-origin-1"
     # workspace_root is forwarded so the stateless kernel can locate the origin
@@ -226,7 +224,6 @@ async def test_dispatch_ack_after_config_publish_does_not_restore_stale_binding(
     from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
     from personal_assistant.gateway.internal_dispatch import InternalDispatchHandler
     from personal_assistant.gateway.session_binder import GatewaySessionBinder
-    from personal_assistant.gateway.session_keys import SessionBindingStore
     from personal_assistant.ws.im_connection import IMDispatchAck
 
     class _BlockingManager:
@@ -261,8 +258,7 @@ async def test_dispatch_ack_after_config_publish_does_not_restore_stale_binding(
             ),
         )
     )
-    store = SessionBindingStore()
-    binder = GatewaySessionBinder(catalog=catalog, repository=store, kernel=MagicMock())
+    binder = GatewaySessionBinder(catalog=catalog, kernel=MagicMock())
     binder.register_session_provenance(
         catalog.require("agent_a"), kernel_session_id="session-old"
     )
@@ -316,7 +312,6 @@ async def test_dispatch_from_old_session_keeps_captured_provenance_after_publish
         GatewaySessionBinder,
         SessionBindingRequest,
     )
-    from personal_assistant.gateway.session_keys import SessionBindingStore
     from personal_assistant.ws.im_connection import IMDispatchAck
 
     old_workspace = Path(tmp_path) / "old"
@@ -332,7 +327,6 @@ async def test_dispatch_from_old_session_keeps_captured_provenance_after_publish
     )
     binder = GatewaySessionBinder(
         catalog=catalog,
-        repository=SessionBindingStore(),
         kernel=kernel,
     )
     message = InboundMessage(

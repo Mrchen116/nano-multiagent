@@ -11,7 +11,6 @@ from personal_assistant.gateway.channel_registry import ChannelRegistry
 from tests.helpers.inbound_pipeline import build_inbound_pipeline, inbound_graph
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
-from personal_assistant.gateway.session_keys import SessionBindingStore
 
 from ._pipeline_helpers import _FakeChannel, _FakeKernel, _agents
 
@@ -30,13 +29,11 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
     channel = _FakeChannel("web")
     registry = ChannelRegistry((channel,))
     kernel_client = _FakeKernel()
-    store = SessionBindingStore()
     pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=(initial_agent,),
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=store,
         default_agent_id="agent-a",
     )
     old_conversation = InboundMessage(
@@ -178,13 +175,11 @@ def test_config_publish_reconfigures_group_session_without_changing_address(
     channel = _FakeChannel("web_relay")
     registry = ChannelRegistry((channel,))
     kernel_client = _FakeKernel()
-    store = SessionBindingStore()
     pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=(initial_agent,),
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=store,
         default_agent_id="agent-a",
     )
 

@@ -78,10 +78,10 @@ class CronRunner:
         agent_id: Agent whose jobs this runner executes.
         workspace_root: Agent workspace root (used for job store and session JSONL).
         kernel_client: Gateway kernel client shim.
-        session_binding_store: Optional gateway session binding store for looking up
-            the canonical direct-chat session.  When None, awareness injection is skipped.
+        session_binder: Optional Gateway continuity owner for looking up the canonical
+            direct-chat session. When None, awareness injection is skipped.
         canonical_session_id: Optional pre-resolved canonical session ID.  Takes priority
-            over session_binding_store lookup.
+            over binder lookup.
     """
 
     def __init__(
@@ -231,8 +231,8 @@ class CronRunner:
     def resolve_canonical_session_id(self) -> str | None:
         """Return the canonical direct-chat kernel session for this agent, or None.
 
-        Checks the injected canonical_session_id first; falls back to
-        session_binding_store.find_direct_by_agent when available.
+        Checks the injected canonical_session_id first; falls back to the binder's
+        canonical direct-chat lookup when available.
         """
         if self._canonical_session_id_provider is not None:
             provided = self._canonical_session_id_provider()

@@ -99,8 +99,6 @@ def test_session_reuse_across_consecutive_messages(tmp_path: Path) -> None:
     from tests.helpers.inbound_pipeline import build_inbound_pipeline
     from personal_assistant.gateway.outbound_router import OutboundRouter
     from personal_assistant.gateway.run_queue import SessionRunQueue
-    from personal_assistant.gateway.session_keys import SessionBindingStore
-
     from tests.unit.personal_assistant._pipeline_helpers import (
         _FakeChannel,
         _FakeKernel,
@@ -120,7 +118,6 @@ def test_session_reuse_across_consecutive_messages(tmp_path: Path) -> None:
         agents=(agent,),
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
 

@@ -26,10 +26,11 @@ from personal_assistant.gateway.runtime_protocol import (
 )
 from personal_assistant.gateway.shadow_saga import ExternalShadowSagaStore
 from personal_assistant.gateway.shadow_sync import IMShadowConversationSync
-from personal_assistant.gateway.session_keys import (
-    SessionBindingStore,
-    build_session_key,
+from personal_assistant.gateway.session_binder import (
+    BoundaryDispatchIdle,
+    ConversationBindingRequest,
 )
+from personal_assistant.gateway.session_keys import build_session_key
 
 from ._pipeline_helpers import _FakeChannel, _FakeKernel, _agents
 from ._session_run_coordinator_helpers import ControlledKernel
@@ -109,7 +110,6 @@ def test_external_compact_reserves_fifo_before_delayed_shadow_sync(
             agents=agents,
             outbound_router=OutboundRouter(ChannelRegistry((channel,))),
             run_queue=SessionRunQueue(),
-            session_store=SessionBindingStore(),
             default_agent_id="agent-a",
             shadow_sync=shadow_sync,
         )
@@ -152,7 +152,6 @@ def test_inbound_pipeline_runs_four_steps_and_replies_via_origin_channel(
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
     inbound = InboundMessage(
@@ -221,7 +220,6 @@ def test_external_inbound_syncs_user_message_and_seeds_shadow_metadata(
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
         relay_lifecycle_callback=_capture,
         shadow_sync=sync,
@@ -274,7 +272,6 @@ def test_external_shadow_sync_failure_does_not_block_or_seed_lazy_direct(
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
         relay_lifecycle_callback=_capture,
         shadow_sync=sync,
@@ -326,13 +323,11 @@ def test_external_without_provider_identity_replies_without_shadow_side_effects(
         transport=httpx.MockTransport(unexpected_request),
         saga_store=saga_store,
     )
-    session_store = SessionBindingStore()
     pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=session_store,
         default_agent_id="agent-a",
         shadow_sync=shadow_sync,
     )
@@ -364,7 +359,9 @@ def test_external_without_provider_identity_replies_without_shadow_side_effects(
     assert saga_store.pending_snapshots() == ()
     assert saga_store.pending_outputs() == ()
     assert saga_store.diagnostic_reasons() == ("shadow_identity_unavailable",)
-    assert session_store.pending_boundaries() == ()
+    assert isinstance(
+        inbound_graph(pipeline).binder.next_boundary_dispatch(), BoundaryDispatchIdle
+    )
 
 
 def test_im_outage_keeps_external_delivery_and_durably_records_final_shadow_output(
@@ -418,7 +415,6 @@ def test_im_outage_keeps_external_delivery_and_durably_records_final_shadow_outp
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
         shadow_sync=sync,
         shadow_output_prepare=prepare_output,
@@ -471,7 +467,6 @@ def test_online_shadow_anchor_does_not_prepare_duplicate_final_output(
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
         shadow_sync=sync,
         shadow_output_prepare=lambda saga_id, run_id, output_kind, kernel_message_id, content: (
@@ -527,7 +522,6 @@ def test_inbound_pipeline_passes_local_config_metadata_when_creating_new_kernel_
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
     inbound = InboundMessage(
@@ -571,13 +565,11 @@ def test_inbound_pipeline_recreates_bound_session_when_workspace_mismatches(
     channel = _FakeChannel("web")
     registry = ChannelRegistry((channel,))
     kernel_client = _FakeKernel()
-    session_store = SessionBindingStore()
     pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=session_store,
         default_agent_id="agent-a",
     )
     stale_session_id = "sess-stale"
@@ -585,10 +577,17 @@ def test_inbound_pipeline_recreates_bound_session_when_workspace_mismatches(
         session_id=stale_session_id,
         metadata={"workspace_root": str(agents[1].workspace_root)},
     )
-    session_store.bind(
-        session_key="web:chat-1:agent-a",
-        kernel_session_id=stale_session_id,
-        reply_context=None,
+    graph = inbound_graph(pipeline)
+    agent = graph.catalog.require("agent-a")
+    graph.binder.bind_conversation(
+        ConversationBindingRequest(
+            channel_name="web",
+            conversation_id="chat-1",
+            agent_id="agent-a",
+            kernel_session_id=stale_session_id,
+            guard=graph.binder.capture_write_guard(agent),
+        ),
+        agent,
     )
     inbound = InboundMessage(
         channel_name="web",
@@ -633,7 +632,6 @@ def test_inbound_pipeline_emits_running_and_completed_relay_lifecycle_reports_wh
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
         relay_lifecycle_callback=_capture,
     )
@@ -675,7 +673,6 @@ def test_inbound_pipeline_emits_real_usage_in_completed_relay_update(
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
         relay_lifecycle_callback=_capture,
     )
@@ -712,7 +709,6 @@ def test_inbound_pipeline_treats_statusless_run_snapshot_with_output_as_complete
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
     inbound = InboundMessage(
@@ -764,7 +760,6 @@ def test_inbound_pipeline_builds_reply_text_from_session_events_when_run_snapsho
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
         relay_lifecycle_callback=_capture,
     )
@@ -822,7 +817,6 @@ def test_inbound_pipeline_does_not_send_a_blank_completed_reply(
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
     kernel_client.session_events["sess-1"] = [
@@ -863,7 +857,6 @@ def test_inbound_pipeline_prefers_completed_run_output_text_over_streamed_text(
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
     inbound = InboundMessage(
@@ -917,7 +910,6 @@ def test_inbound_pipeline_prefers_completed_no_reply_token_even_when_streamed_te
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
     inbound = InboundMessage(
@@ -982,7 +974,6 @@ def _run_group_fanout(
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
     inbound = InboundMessage(
@@ -1061,7 +1052,6 @@ def test_inbound_pipeline_prefers_explicit_agent_then_channel_binding_then_defau
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
     asyncio.run(
@@ -1083,7 +1073,6 @@ def test_inbound_pipeline_prefers_explicit_agent_then_channel_binding_then_defau
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         channel_bindings={"web:chat-2": "agent-b"},
         default_agent_id="agent-a",
     )
@@ -1106,7 +1095,6 @@ def test_inbound_pipeline_prefers_explicit_agent_then_channel_binding_then_defau
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
     asyncio.run(
@@ -1144,7 +1132,6 @@ def test_inbound_pipeline_trusts_group_relay_target_agent_over_mentions(
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
 
@@ -1184,7 +1171,6 @@ def test_inbound_pipeline_freezes_group_agent_id_even_without_additional_snapsho
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
 
@@ -1232,13 +1218,11 @@ def test_inbound_pipeline_reuses_existing_session_binding_per_session_key(
     channel = _FakeChannel("web")
     registry = ChannelRegistry((channel,))
     kernel_client = _FakeKernel()
-    store = SessionBindingStore()
     pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=store,
         default_agent_id="agent-a",
     )
     inbound = InboundMessage(
@@ -1264,13 +1248,11 @@ def test_inbound_pipeline_refreshes_legacy_binding_without_workspace_root(
     channel = _FakeChannel("web")
     registry = ChannelRegistry((channel,))
     kernel_client = _FakeKernel()
-    store = SessionBindingStore()
     pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=store,
         default_agent_id="agent-a",
     )
     inbound = InboundMessage(
@@ -1285,26 +1267,26 @@ def test_inbound_pipeline_refreshes_legacy_binding_without_workspace_root(
     kernel_client.seed_session(
         session_id="sess-legacy", metadata={"agent_id": "agent-a"}
     )
-    store.bind(
-        session_key=session_key,
-        kernel_session_id="sess-legacy",
-        reply_context=type(
-            "_ReplyContext",
-            (),
-            {
-                "channel_name": "web",
-                "target_chat_id": "chat-1",
-                "thread_id": None,
-                "metadata": {},
-            },
-        )(),
+    graph = inbound_graph(pipeline)
+    agent = graph.catalog.require("agent-a")
+    graph.binder.bind_conversation(
+        ConversationBindingRequest(
+            channel_name="web",
+            conversation_id="chat-1",
+            agent_id="agent-a",
+            kernel_session_id="sess-legacy",
+            guard=graph.binder.capture_write_guard(agent),
+        ),
+        agent,
     )
 
     result = asyncio.run(pipeline.handle_inbound(inbound))
 
     assert result is not None
     assert result.kernel_session_id == "sess-1"
-    assert store.get(session_key).kernel_session_id == "sess-1"
+    refreshed = graph.binder.lookup(session_key)
+    assert refreshed is not None
+    assert refreshed.kernel_session_id == "sess-1"
     assert [call["workspace_root"] for call in kernel_client.create_session_calls] == [
         str(agents[0].workspace_root)
     ]

@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from threading import Lock
-from typing import Any, Literal, Protocol
+from typing import Any, Literal
 
 from personal_assistant.channels.base import InboundMessage, ReplyContext
 from personal_assistant.config.model_reasoning import ModelReasoningCatalog
@@ -20,106 +21,18 @@ from personal_assistant.gateway.session_keys import (
     PendingExternalControlDelivery,
     PendingBoundaryIntent,
     SessionBinding,
+    _SQLiteSessionBindingStore,
     build_conversation_reply_context,
     build_conversation_session_key,
     build_external_session_key,
 )
+from personal_assistant.gateway.runtime_protocol import ShadowConversationRef
 from agent.sdk import SessionRuntimeConfig
 from personal_assistant.gateway.session_composition import (
     ProjectedAgentRuntime,
     project_agent_runtime,
     project_agent_session_capabilities,
 )
-
-
-class _SessionBindingRepository(Protocol):
-    """Describe the private storage operations required by the binder."""
-
-    def get(self, session_key: str) -> SessionBinding | None: ...
-
-    def bind(
-        self,
-        *,
-        session_key: str,
-        kernel_session_id: str,
-        reply_context: ReplyContext,
-        applied_runtime_fingerprint: str | None = None,
-        applied_fingerprint_schema: str | None = None,
-        applied_profile_version: int | None = None,
-    ) -> SessionBinding: ...
-
-    def apply_runtime(
-        self,
-        binding: SessionBinding,
-        *,
-        runtime_fingerprint: str,
-        fingerprint_schema: str,
-        profile_version: int | None,
-    ) -> SessionBinding: ...
-
-    def apply_runtime_with_boundary(
-        self,
-        binding: SessionBinding,
-        *,
-        runtime_fingerprint: str,
-        fingerprint_schema: str,
-        profile_version: int | None,
-        boundary: BoundaryIntent,
-    ) -> SessionBinding: ...
-
-    def apply_runtime_with_pending_boundary(
-        self,
-        binding: SessionBinding,
-        *,
-        runtime_fingerprint: str,
-        fingerprint_schema: str,
-        profile_version: int | None,
-        boundary: PendingBoundaryIntent,
-    ) -> SessionBinding: ...
-
-    def get_control_operation(
-        self, *, session_key: str, operation_id: str, kind: str
-    ) -> ControlOperation | None: ...
-
-    def publish_reset(
-        self,
-        *,
-        binding: SessionBinding,
-        operation_id: str | None,
-        superseded_run_id: str | None,
-        reply_text: str,
-        external_saga_id: str | None = None,
-    ) -> ControlOperation | None: ...
-
-    def record_control_operation(
-        self, outcome: ControlOperation, *, external_saga_id: str | None = None
-    ) -> ControlOperation: ...
-
-    def pending_external_controls(
-        self,
-    ) -> tuple[PendingExternalControlDelivery, ...]: ...
-
-    def mark_external_control_handed_off(
-        self, *, session_key: str, operation_id: str, kind: str
-    ) -> None: ...
-
-    def mark_external_control_materialized(
-        self, *, session_key: str, operation_id: str, kind: str
-    ) -> None: ...
-
-    def is_run_superseded(self, run_id: str) -> bool: ...
-
-    def drop(self, session_key: str) -> None: ...
-
-    def bindings_for_agent(self, agent_id: str) -> tuple[SessionBinding, ...]: ...
-
-    def find_by_kernel_session_id(
-        self, kernel_session_id: str
-    ) -> SessionBinding | None: ...
-
-    def find_direct_by_agent(
-        self, *, channel_name: str, agent_id: str
-    ) -> SessionBinding | None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,6 +112,56 @@ class ResetCandidate:
 
 
 @dataclass(frozen=True, slots=True)
+class BoundaryDispatchReady:
+    """Provide the next durable boundary ready for remote delivery."""
+
+    intent: BoundaryIntent
+
+
+@dataclass(frozen=True, slots=True)
+class BoundaryDispatchWait:
+    """Tell the dispatcher when durable retry work next becomes eligible."""
+
+    delay_seconds: float
+
+
+@dataclass(frozen=True, slots=True)
+class BoundaryDispatchIdle:
+    """Report that no boundary delivery work remains."""
+
+
+BoundaryDispatchPlan = (
+    BoundaryDispatchReady | BoundaryDispatchWait | BoundaryDispatchIdle
+)
+
+
+@dataclass(frozen=True, slots=True)
+class BoundaryDispatchAcked:
+    """Classify one matching remote acknowledgment."""
+
+
+@dataclass(frozen=True, slots=True)
+class BoundaryDispatchPermanentlyRejected:
+    """Classify one deterministic rejection that should be quarantined."""
+
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class BoundaryDispatchRetryableFailure:
+    """Classify one transient failure that should enter durable backoff."""
+
+    reason: str
+
+
+BoundaryDispatchOutcome = (
+    BoundaryDispatchAcked
+    | BoundaryDispatchPermanentlyRejected
+    | BoundaryDispatchRetryableFailure
+)
+
+
+@dataclass(frozen=True, slots=True)
 class _VerifiedBindingOwnership:
     """Remember one process-local authoritative workspace ownership check."""
 
@@ -214,7 +177,7 @@ class GatewaySessionBinder:
 
     Args:
         catalog: Single live Agent snapshot owner.
-        repository: SQLite production or in-memory test storage adapter.
+        db_path: SQLite path, or ``":memory:"`` for process-local tests.
         kernel: In-process ``agent.sdk`` Kernel.
 
     Notes:
@@ -227,14 +190,22 @@ class GatewaySessionBinder:
         self,
         *,
         catalog: LiveAgentCatalog,
-        repository: _SessionBindingRepository,
         kernel: Any,
+        db_path: Path | str = ":memory:",
         reasoning_catalog: ModelReasoningCatalog | None = None,
+        boundary_retry_initial_seconds: float = 1.0,
+        boundary_retry_max_seconds: float = 60.0,
     ) -> None:
+        if boundary_retry_initial_seconds < 0:
+            raise ValueError("boundary retry initial delay must not be negative")
+        if boundary_retry_max_seconds < boundary_retry_initial_seconds:
+            raise ValueError("boundary retry maximum delay must cover initial delay")
         self._catalog = catalog
-        self._repository = repository
+        self._repository = _SQLiteSessionBindingStore(db_path=db_path)
         self._kernel = kernel
         self._reasoning_catalog = reasoning_catalog
+        self._boundary_retry_initial_seconds = boundary_retry_initial_seconds
+        self._boundary_retry_max_seconds = boundary_retry_max_seconds
         self._lock = Lock()
         self._binding_revisions: dict[str, int] = {}
         self._binding_agents: dict[str, LiveAgentSnapshot] = {}
@@ -371,6 +342,56 @@ class GatewaySessionBinder:
             self._repository.mark_external_control_materialized(
                 session_key=session_key, operation_id=operation_id, kind=kind
             )
+
+    def promote_pending_shadow_boundary(
+        self, saga_id: str, shadow_ref: ShadowConversationRef
+    ) -> BoundaryIntent | None:
+        """Atomically make a pending external boundary eligible after its anchor."""
+
+        with self._lock:
+            return self._repository.promote_pending_boundary(
+                shadow_saga_id=saga_id,
+                shadow_ref=shadow_ref,
+            )
+
+    def next_boundary_dispatch(self) -> BoundaryDispatchPlan:
+        """Return the next durable remote-delivery transition without leaking storage."""
+
+        with self._lock:
+            ready = self._repository.delivery_ready_boundaries()
+            if ready:
+                return BoundaryDispatchReady(ready[0])
+            retry_delay = self._repository.next_boundary_retry_delay()
+            if retry_delay is not None:
+                return BoundaryDispatchWait(retry_delay)
+            return BoundaryDispatchIdle()
+
+    def complete_boundary_dispatch(
+        self,
+        boundary_id: str,
+        outcome: BoundaryDispatchOutcome,
+    ) -> None:
+        """Commit one classified boundary delivery result as a durable transition."""
+
+        with self._lock:
+            if isinstance(outcome, BoundaryDispatchAcked):
+                self._repository.acknowledge_boundary(boundary_id)
+                return
+            if isinstance(outcome, BoundaryDispatchPermanentlyRejected):
+                self._repository.record_boundary_error(
+                    boundary_id,
+                    reason=outcome.reason,
+                )
+                return
+            if isinstance(outcome, BoundaryDispatchRetryableFailure):
+                self._repository.defer_boundary_retry(
+                    boundary_id,
+                    reason=outcome.reason,
+                    retry_initial_seconds=self._boundary_retry_initial_seconds,
+                    retry_max_seconds=self._boundary_retry_max_seconds,
+                )
+                return
+            raise TypeError(f"unsupported boundary dispatch outcome: {outcome!r}")
 
     def publish_reset(
         self,

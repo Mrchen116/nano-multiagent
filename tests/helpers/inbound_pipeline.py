@@ -24,10 +24,6 @@ from personal_assistant.gateway.inbound_pipeline import (
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_binder import GatewaySessionBinder
-from personal_assistant.gateway.session_keys import (
-    SessionBindingStore,
-    session_binding_store,
-)
 from personal_assistant.gateway.session_run_coordinator import SessionRunCoordinator
 from personal_assistant.gateway.shadow_saga import ExternalShadowOutput
 
@@ -41,7 +37,6 @@ class InboundTestGraph:
     binder: GatewaySessionBinder
     coordinator: SessionRunCoordinator
     run_queue: SessionRunQueue
-    session_store: SessionBindingStore
 
 
 _GRAPHS: WeakKeyDictionary[InboundPipeline, InboundTestGraph] = WeakKeyDictionary()
@@ -53,7 +48,6 @@ def build_inbound_pipeline(
     outbound_router: OutboundRouter,
     run_queue: SessionRunQueue,
     agents: tuple[AgentWorkspaceConfig, ...] = (),
-    session_store: SessionBindingStore = session_binding_store,
     agent_catalog: LiveAgentCatalog | None = None,
     session_binder: GatewaySessionBinder | None = None,
     channel_bindings: Mapping[str, str] | None = None,
@@ -79,7 +73,6 @@ def build_inbound_pipeline(
     catalog = agent_catalog or LiveAgentCatalog(agents)
     binder = session_binder or GatewaySessionBinder(
         catalog=catalog,
-        repository=session_store,
         kernel=kernel,
     )
     if product_default_model is None:
@@ -118,7 +111,6 @@ def build_inbound_pipeline(
         binder=binder,
         coordinator=coordinator,
         run_queue=run_queue,
-        session_store=session_store,
     )
     return pipeline
 

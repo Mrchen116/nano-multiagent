@@ -18,7 +18,6 @@ from tests.helpers.inbound_pipeline import build_inbound_pipeline
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.channel_registry import ChannelRegistry
-from personal_assistant.gateway.session_keys import SessionBindingStore
 from ._pipeline_helpers import _FakeKernel
 
 
@@ -114,7 +113,6 @@ def _build_pipeline(
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         group_context_store=store,
         default_agent_id=default_agent_id,
     )

@@ -15,7 +15,6 @@ from personal_assistant.gateway.inbound_models import RelayLifecycleUpdate
 from tests.helpers.inbound_pipeline import build_inbound_pipeline
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
-from personal_assistant.gateway.session_keys import SessionBindingStore
 
 from ._pipeline_helpers import _FakeChannel, _FakeKernel, _agents
 
@@ -62,7 +61,6 @@ def test_shutdown_cancellation_fails_submitted_relay_before_worker_exits(
             agents=_agents(tmp_path),
             outbound_router=OutboundRouter(ChannelRegistry((channel,))),
             run_queue=run_queue,
-            session_store=SessionBindingStore(),
             default_agent_id="agent-a",
             relay_lifecycle_callback=_capture,
         )

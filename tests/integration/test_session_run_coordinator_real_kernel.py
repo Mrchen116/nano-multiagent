@@ -17,10 +17,7 @@ from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.gateway.inbound_models import InboundRunRequest
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.session_binder import GatewaySessionBinder
-from personal_assistant.gateway.session_keys import (
-    SessionBindingStore,
-    build_session_key,
-)
+from personal_assistant.gateway.session_keys import build_session_key
 from personal_assistant.gateway.session_run_coordinator import SessionRunCoordinator
 
 from tests.unit.personal_assistant._pipeline_helpers import _FakeChannel
@@ -90,7 +87,6 @@ async def test_terminal_observer_window_creates_one_fallback_run(
     )
     binder = GatewaySessionBinder(
         catalog=catalog,
-        repository=SessionBindingStore(),
         kernel=kernel,
     )
     coordinator = SessionRunCoordinator(

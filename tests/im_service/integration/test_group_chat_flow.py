@@ -15,7 +15,6 @@ from personal_assistant.gateway.channel_registry import ChannelRegistry
 from tests.helpers.inbound_pipeline import build_inbound_pipeline
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
-from personal_assistant.gateway.session_keys import SessionBindingStore
 
 from ._gateway_helpers import (
     _FakeKernelClient,
@@ -41,7 +40,6 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((relay_adapter,))),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
     relay_adapter.start(lambda inbound: asyncio.run(pipeline.handle_inbound(inbound)))

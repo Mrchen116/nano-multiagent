@@ -23,11 +23,11 @@ from personal_assistant.gateway.inbound_models import (
     StopRunRequest,
 )
 from personal_assistant.gateway.image_attachments import ImageResolution
-from personal_assistant.gateway.session_keys import (
-    PersistentSessionBindingStore,
-    SessionBindingStore,
-    build_session_key,
+from personal_assistant.gateway.session_binder import (
+    BoundaryDispatchIdle,
+    BoundaryDispatchReady,
 )
+from personal_assistant.gateway.session_keys import build_session_key
 from personal_assistant.gateway.session_run_coordinator import SessionRunCoordinator
 
 from ._session_run_coordinator_helpers import (
@@ -75,10 +75,7 @@ def _compact_request(
 async def test_new_suppresses_a_running_old_final_before_confirming_fresh_session(
     tmp_path: Path,
 ) -> None:
-    store = SessionBindingStore()
-    kernel, catalog, binder, router, group_store = build_dependencies(
-        tmp_path, session_store=store
-    )
+    kernel, catalog, binder, router, group_store = build_dependencies(tmp_path)
     coordinator = SessionRunCoordinator(
         kernel=kernel,
         session_binder=binder,
@@ -104,7 +101,9 @@ async def test_new_suppresses_a_running_old_final_before_confirming_fresh_sessio
     assert kernel.interrupt_calls == ["sess-1"]
     assert old.outbound is None
     assert old.reply_text == "late old output"
-    assert store.get("web_relay:chat-a:agent-a").kernel_session_id == "sess-2"
+    binding = binder.lookup("web_relay:chat-a:agent-a")
+    assert binding is not None
+    assert binding.kernel_session_id == "sess-2"
 
 
 @pytest.mark.asyncio
@@ -302,9 +301,8 @@ async def test_failed_external_new_persists_recoverable_confirmation_intent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A failed Feishu reset is replay-safe even before it has an IM binding."""
-    store = PersistentSessionBindingStore(db_path=tmp_path / "bindings.sqlite3")
     kernel, catalog, binder, router, group_store = build_dependencies(
-        tmp_path, session_store=store
+        tmp_path, session_db_path=tmp_path / "bindings.sqlite3"
     )
     delivery_drains: list[str] = []
 
@@ -346,7 +344,7 @@ async def test_failed_external_new_persists_recoverable_confirmation_intent(
 
     assert result.reply_text == "未能开始新会话，当前会话保持不变。"
     assert delivery_drains == ["drain"]
-    pending = store.pending_external_controls()
+    pending = binder.pending_external_controls()
     assert len(pending) == 1
     assert pending[0].outcome.status == "failed"
     assert pending[0].shadow_saga_id == "saga-failed-new"
@@ -358,10 +356,7 @@ async def test_runtime_replacement_persists_web_anchor_before_submit(
 ) -> None:
     """A changed retained runtime records a durable divider anchored to this message."""
 
-    store = SessionBindingStore()
-    kernel, catalog, binder, router, group_store = build_dependencies(
-        tmp_path, session_store=store
-    )
+    kernel, catalog, binder, router, group_store = build_dependencies(tmp_path)
     coordinator = SessionRunCoordinator(
         kernel=kernel,
         session_binder=binder,
@@ -397,7 +392,9 @@ async def test_runtime_replacement_persists_web_anchor_before_submit(
     )
     await kernel.wait_stream("run-2")
 
-    assert store.pending_boundaries()[0].before_message_id == "message-after"
+    plan = binder.next_boundary_dispatch()
+    assert isinstance(plan, BoundaryDispatchReady)
+    assert plan.intent.before_message_id == "message-after"
     assert kernel.reconfigure_calls[-1][1].model == "updated-model"
 
     kernel.finish("run-2")
@@ -410,9 +407,8 @@ async def test_external_runtime_replacement_waits_for_saga_anchor_before_boundar
 ) -> None:
     """An offline shadow event promotes one divider only after its user anchor exists."""
 
-    store = PersistentSessionBindingStore(db_path=tmp_path / "session_bindings.sqlite3")
     kernel, catalog, binder, router, group_store = build_dependencies(
-        tmp_path, session_store=store
+        tmp_path, session_db_path=tmp_path / "session_bindings.sqlite3"
     )
     coordinator = SessionRunCoordinator(
         kernel=kernel,
@@ -441,11 +437,11 @@ async def test_external_runtime_replacement_waits_for_saga_anchor_before_boundar
     )
     await kernel.wait_stream("run-2")
 
-    assert store.pending_boundaries() == ()
+    assert isinstance(binder.next_boundary_dispatch(), BoundaryDispatchIdle)
 
-    promoted = store.promote_pending_boundary(
-        shadow_saga_id="saga-1",
-        shadow_ref=ShadowConversationRef(
+    promoted = binder.promote_pending_shadow_boundary(
+        "saga-1",
+        ShadowConversationRef(
             conversation_id="shadow-conversation", im_message_id="shadow-user-message"
         ),
     )
@@ -453,18 +449,18 @@ async def test_external_runtime_replacement_waits_for_saga_anchor_before_boundar
     assert promoted is not None
     assert promoted.conversation_id == "shadow-conversation"
     assert promoted.before_message_id == "shadow-user-message"
-    assert store.pending_boundaries() == (promoted,)
+    assert binder.next_boundary_dispatch() == BoundaryDispatchReady(promoted)
     assert (
-        store.promote_pending_boundary(
-            shadow_saga_id="saga-1",
-            shadow_ref=ShadowConversationRef(
+        binder.promote_pending_shadow_boundary(
+            "saga-1",
+            ShadowConversationRef(
                 conversation_id="shadow-conversation",
                 im_message_id="shadow-user-message",
             ),
         )
         is None
     )
-    assert store.pending_boundaries() == (promoted,)
+    assert binder.next_boundary_dispatch() == BoundaryDispatchReady(promoted)
 
     kernel.finish("run-2")
     await changed
@@ -476,10 +472,7 @@ async def test_unknown_legacy_runtime_establishes_baseline_without_boundary(
 ) -> None:
     """An unreadable legacy runtime adopts desired config without a false divider."""
 
-    store = SessionBindingStore()
-    kernel, catalog, binder, router, group_store = build_dependencies(
-        tmp_path, session_store=store
-    )
+    kernel, catalog, binder, router, group_store = build_dependencies(tmp_path)
     coordinator = SessionRunCoordinator(
         kernel=kernel,
         session_binder=binder,
@@ -501,11 +494,14 @@ async def test_unknown_legacy_runtime_establishes_baseline_without_boundary(
     await first
 
     kernel.return_no_runtime = True
-    store.apply_runtime(
-        store.get("web_relay:conversation-1:agent-a"),
+    binding = binder.lookup("web_relay:conversation-1:agent-a")
+    assert binding is not None
+    binder.persist_applied_runtime(
+        binding,
         runtime_fingerprint="legacy-runtime",
         fingerprint_schema="legacy-v0",
         profile_version=None,
+        agent=catalog.require("agent-a"),
     )
     changed_message = attach_runtime_protocol(
         inbound(chat_id="conversation-1", text="after"),
@@ -521,7 +517,7 @@ async def test_unknown_legacy_runtime_establishes_baseline_without_boundary(
     )
     await kernel.wait_stream("run-2")
 
-    assert store.pending_boundaries() == ()
+    assert isinstance(binder.next_boundary_dispatch(), BoundaryDispatchIdle)
 
     kernel.finish("run-2")
     await changed

@@ -10,9 +10,12 @@ from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
 from personal_assistant.gateway.distill_prompt import build_distill_prompt_handler
-from personal_assistant.gateway.session_binder import GatewaySessionBinder
+from personal_assistant.channels.base import InboundMessage, ReplyContext
+from personal_assistant.gateway.session_binder import (
+    GatewaySessionBinder,
+    SessionBindingRequest,
+)
 from personal_assistant.gateway.session_keys import (
-    SessionBindingStore,
     build_conversation_session_key,
     build_external_session_key,
 )
@@ -29,6 +32,44 @@ class _Kernel:
     def list_skills(self, workspace_root: Path) -> list[SimpleNamespace]:
         del workspace_root
         return [SimpleNamespace(name=name) for name in self._skills]
+
+
+class _BindingKernel:
+    def __init__(self) -> None:
+        self.next_session_id = "session-1"
+
+    async def create_session(self, **_kwargs: object) -> SimpleNamespace:
+        return SimpleNamespace(session_id=self.next_session_id)
+
+
+def _bind_key(
+    binder: GatewaySessionBinder,
+    catalog: LiveAgentCatalog,
+    *,
+    session_key: str,
+    conversation_id: str,
+) -> None:
+    message = InboundMessage(
+        channel_name=WebRelayAdapter.name,
+        text="source",
+        external_user_id="user",
+        external_chat_id=conversation_id,
+        is_group=False,
+        agent_id="source",
+    )
+    asyncio.run(
+        binder.resolve(
+            SessionBindingRequest(
+                session_key=session_key,
+                reply_context=ReplyContext(
+                    channel_name=WebRelayAdapter.name,
+                    target_chat_id=conversation_id,
+                ),
+                message=message,
+            ),
+            catalog.require("source"),
+        )
+    )
 
 
 def _handler(
@@ -51,8 +92,8 @@ def _handler(
         tool_allowlist=tool_allowlist,
     )
     catalog = LiveAgentCatalog((source, execution))
-    store = SessionBindingStore()
-    binder = GatewaySessionBinder(catalog=catalog, repository=store, kernel=object())
+    binding_kernel = _BindingKernel()
+    binder = GatewaySessionBinder(catalog=catalog, kernel=binding_kernel)
     session_key = (
         build_external_session_key(
             external_source=external_identity[0],
@@ -66,10 +107,11 @@ def _handler(
             agent_id="source",
         )
     )
-    store.bind(
+    _bind_key(
+        binder,
+        catalog,
         session_key=session_key,
-        kernel_session_id="session-1",
-        reply_context=SimpleNamespace(),
+        conversation_id="source-conversation",
     )
     return (
         build_distill_prompt_handler(
@@ -78,7 +120,7 @@ def _handler(
             channel_name=WebRelayAdapter.name,
         ),
         source_root,
-        store,
+        (binder, binding_kernel, catalog),
     )
 
 
@@ -197,7 +239,7 @@ def test_gateway_rejects_explicit_empty_distiller_selection_before_source_resolu
 
 def test_gateway_preserves_external_shadow_binding_fallback(tmp_path: Path) -> None:
     """Existing external shadows still resolve through their durable external key."""
-    handler, source_root, store = _handler(
+    handler, source_root, binding = _handler(
         tmp_path,
         external_identity=("feishu", "chat-1"),
     )
@@ -226,14 +268,17 @@ def test_gateway_preserves_external_shadow_binding_fallback(tmp_path: Path) -> N
 
     normal_path = source_root / ".nanoassistant" / "sessions" / "normal-session.jsonl"
     normal_path.write_text("{}\n", encoding="utf-8")
-    store.bind(
+    binder, binding_kernel, catalog = binding
+    binding_kernel.next_session_id = "normal-session"
+    _bind_key(
+        binder,
+        catalog,
         session_key=build_conversation_session_key(
             channel_name=WebRelayAdapter.name,
             conversation_id="shadow-conversation",
             agent_id="source",
         ),
-        kernel_session_id="normal-session",
-        reply_context=SimpleNamespace(),
+        conversation_id="shadow-conversation",
     )
 
     normal_result = asyncio.run(
