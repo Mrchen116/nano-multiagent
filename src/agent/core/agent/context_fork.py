@@ -2,17 +2,38 @@
 
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from agent.core.agent.loop import AgentLoop, ToolRegistryLike
 from agent.core.agent.policies import AgentPolicies
 from agent.core.agent.state import AgentState
-from agent.core.hooks.context import HookContext
+from agent.core.hooks.context import HookContext, HookSessionEventPublisher
 from agent.core.llm.interfaces import LLMClient
 from agent.core.runs.origin import RunOrigin
 from agent.core.skills.registry import SkillMetadata
 from agent.core.session.context_state import SessionFileState
 from agent.core.types import Message, ToolSpec, TurnResult
+
+
+# Self-evolution side-chains may publish only business events required to activate
+# their durable updates. Ordinary realtime assistant/tool/turn events are private to
+# the fork and must never be added to this allowlist.
+_SELF_EVOLUTION_BUSINESS_EVENT_ALLOWLIST = frozenset({"skill_created"})
+
+
+def _self_evolution_event_publisher(
+    parent_publisher: HookSessionEventPublisher | None,
+) -> HookSessionEventPublisher:
+    """Forward only self-evolution business events to the parent session."""
+
+    def _publish(event: str, data: Mapping[str, Any]) -> None:
+        if (
+            parent_publisher is not None
+            and event in _SELF_EVOLUTION_BUSINESS_EVENT_ALLOWLIST
+        ):
+            parent_publisher(event, data)
+
+    return _publish
 
 
 @dataclass(frozen=True)
@@ -216,8 +237,9 @@ def make_fork_conversation(
         # self-improvement agent can't use even its allowlisted tools). replace()
         # carries every parent capability; we only override:
         #  - fork_conversation=None: anti-recursion (a review fork can't spawn one)
-        #  - session_event_publisher=no-op: side-chain loop/tool events are internal;
-        #    the owning background hook publishes the structured review outcome
+        #  - session_event_publisher=business-event filter: side-chain realtime
+        #    loop/tool events are internal, while skill_created must reach Gateway
+        #    config sync; the owning background hook publishes the review outcome
         #  - run_origin=BACKGROUND_TASK: the fork is unattended, so a gate `ask`
         #    resolves via unattended_fallback instead of parking on a non-existent
         #    human. The tool_execution_allowlist remains the hard safety boundary.
@@ -231,7 +253,9 @@ def make_fork_conversation(
             fork_hook_ctx = replace(
                 parent_hook_ctx,
                 fork_conversation=None,
-                session_event_publisher=lambda _event, _data: None,
+                session_event_publisher=_self_evolution_event_publisher(
+                    parent_hook_ctx.session_event_publisher
+                ),
                 metadata=fork_metadata,
             )
 
