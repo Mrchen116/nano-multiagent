@@ -18,7 +18,7 @@
 
 | Area | Covers | Requirements |
 |---|---|---|
-| [Interactive REPL](interactive-repl.md) | 启动、会话、斜杠命令、流式呈现、运行中输入、错误和非 TTY | 7 |
+| [Interactive REPL](interactive-repl.md) | 启动、会话、斜杠命令、流式呈现、运行中输入、错误、非 TTY 与自进化更新提示 | 8 |
 | [Automation Interface](automation-interface.md) | `llm-config get` JSON 与 `--text` NDJSON | 2 |
 | [Product Integration](product-integration.md) | SDK 边界、CLI 自有装配和扩展目录 | 2 |
 

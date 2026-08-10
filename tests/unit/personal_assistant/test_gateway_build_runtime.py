@@ -235,7 +235,7 @@ def test_compose_gateway_wires_external_delivery_without_im_service(
     assert coordinator_kwargs[0]["bg_reply_sender"] is not None
 
 
-def test_compose_gateway_wires_skill_sync_into_persistent_subscriber(
+def test_compose_gateway_wires_skill_sync_and_external_notice_sender(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -247,6 +247,7 @@ def test_compose_gateway_wires_skill_sync_into_persistent_subscriber(
         im_service=IMServiceConfig(url="http://im.local:9000", token="tok"),
     )
     captured: dict[str, object] = {}
+    notice_callback_kwargs: dict[str, object] = {}
 
     def _capture_manager(**kwargs: object) -> BackgroundSubscriptionManager:
         captured.update(kwargs)
@@ -257,11 +258,25 @@ def test_compose_gateway_wires_skill_sync_into_persistent_subscriber(
         _capture_manager,
     )
 
+    def _capture_notice_callback(**kwargs: object):  # noqa: ANN202
+        notice_callback_kwargs.update(kwargs)
+
+        async def _callback(*_args: object) -> None:
+            return None
+
+        return _callback
+
+    monkeypatch.setattr(
+        "personal_assistant.gateway.composition.build_session_event_callback",
+        _capture_notice_callback,
+    )
+
     compose_gateway(config)
 
     handler = captured.get("skill_created_handler")
     assert callable(handler)
     assert handler.__self__.__class__.__name__ == "IMAgentConfigSync"  # type: ignore[attr-defined]
+    assert callable(notice_callback_kwargs.get("external_reply_sender"))
 
 
 @pytest.mark.asyncio

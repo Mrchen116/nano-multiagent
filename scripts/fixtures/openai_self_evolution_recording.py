@@ -20,16 +20,26 @@ from typing import Any
 _FOREGROUND_NO_SAVE = "FOREGROUND-NO-SAVE-COMPLETE"
 _FOREGROUND_NO_SAVE_SEED = "FOREGROUND-NO-SAVE-SEED"
 _RAW_NO_SAVE = "Nothing to save."
+_FOREGROUND_FAILURE_SEED = "FOREGROUND-FAILURE-SEED"
+_FOREGROUND_FAILURE = "FOREGROUND-FAILURE-COMPLETE"
+_RAW_FAILURE = "Save failed: controlled invalid memory target."
+_FOREGROUND_MEMORY_SEED = "FOREGROUND-MEMORY-SEED"
+_FOREGROUND_MEMORY = "FOREGROUND-MEMORY-COMPLETE"
+_RAW_MEMORY_REPLY = "Saved: controlled memory sentinel."
 _CLASSIFIER_ALLOW = "<block>no</block>"
 _FOREGROUND_SKILL = "FOREGROUND-SKILL-COMPLETE"
-_RAW_SKILL_REPLY = "Saved: deterministic-review-workflow."
 _SKILL_USED = "NEW-SESSION-SKILL-USED"
 _FOREGROUND_LIST_CALL = "foreground-list-call"
 _SKILL_CREATE_CALL = "review-skill-create-call"
+_MEMORY_FAILURE_CALL = "review-memory-failure-call"
+_MEMORY_ADD_CALL = "review-memory-add-call"
 _SKILL_VIEW_CALL = "new-session-skill-view-call"
 _SKILL_NAME = "deterministic-review-workflow"
-_SKILL_CONTENT = """---
-name: deterministic-review-workflow
+
+
+def _skill_content(name: str) -> str:
+    return f"""---
+name: {name}
 description: Apply the deterministic review workflow.
 ---
 
@@ -48,6 +58,8 @@ class _ScenarioState:
         self.requests: list[dict[str, Any]] = []
         self.events: list[dict[str, Any]] = []
         self.review_released = False
+        self.response_tag = ""
+        self.skill_name = _SKILL_NAME
 
     def control(self, payload: dict[str, Any]) -> dict[str, Any]:
         scenario = payload.get("scenario")
@@ -61,6 +73,16 @@ class _ScenarioState:
                 self.events = []
                 self.review_released = False
                 self._record_path.write_text("", encoding="utf-8")
+            if "response_tag" in payload:
+                response_tag = payload.get("response_tag")
+                self.response_tag = (
+                    response_tag if isinstance(response_tag, str) else ""
+                )
+            if "skill_name" in payload:
+                skill_name = payload.get("skill_name")
+                if not isinstance(skill_name, str) or not skill_name:
+                    raise ValueError("skill_name must be a non-empty string")
+                self.skill_name = skill_name
             if payload.get("release_review") is True:
                 self.review_released = True
                 self._lock.notify_all()
@@ -100,7 +122,10 @@ class _ScenarioState:
                 if latest_role == "tool":
                     kind = "continuation"
                     routing_basis = "structural_tool_result"
-                elif self.scenario == "no_save" and request_index <= 2:
+                elif (
+                    self.scenario in {"no_save", "memory_failure", "memory_add"}
+                    and request_index <= 2
+                ):
                     kind = "foreground"
                     routing_basis = "scenario_request_index"
                 elif (
@@ -127,6 +152,10 @@ class _ScenarioState:
                 stream.write(json.dumps(summary, ensure_ascii=False) + "\n")
             return dict(summary)
 
+    def render(self, text: str) -> str:
+        with self._lock:
+            return f"{text} [{self.response_tag}]" if self.response_tag else text
+
     def wait_for_review_release(self, *, timeout: float = 30.0) -> bool:
         with self._lock:
             self.events.append({"event": "skill_review_waiting"})
@@ -147,6 +176,7 @@ class _ScenarioState:
             "requests": [dict(item) for item in self.requests],
             "events": [dict(item) for item in self.events],
             "review_released": self.review_released,
+            "skill_name": self.skill_name,
         }
 
 
@@ -244,12 +274,54 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         if kind == "classifier":
             body = _sse_text(_CLASSIFIER_ALLOW)
         elif scenario == "no_save" and request["request_index"] == 1:
-            body = _sse_text(_FOREGROUND_NO_SAVE_SEED)
+            body = _sse_text(self.state.render(_FOREGROUND_NO_SAVE_SEED))
         elif scenario == "no_save" and request["request_index"] == 2:
-            body = _sse_text(_FOREGROUND_NO_SAVE)
+            body = _sse_text(self.state.render(_FOREGROUND_NO_SAVE))
         elif scenario == "no_save" and kind == "review":
             self.state.add_event("no_save_review_completed")
-            body = _sse_text(_RAW_NO_SAVE)
+            body = _sse_text(self.state.render(_RAW_NO_SAVE))
+        elif scenario == "memory_failure" and request["request_index"] == 1:
+            body = _sse_text(self.state.render(_FOREGROUND_FAILURE_SEED))
+        elif scenario == "memory_failure" and request["request_index"] == 2:
+            body = _sse_text(self.state.render(_FOREGROUND_FAILURE))
+        elif scenario == "memory_failure" and kind == "review":
+            body = _sse_tool_call(
+                _MEMORY_FAILURE_CALL,
+                "memory",
+                {
+                    "action": "add",
+                    "target": "invalid-target",
+                    "content": "This write must fail.",
+                },
+            )
+        elif (
+            scenario == "memory_failure"
+            and kind == "continuation"
+            and request["latest_tool_result_id"] == _MEMORY_FAILURE_CALL
+        ):
+            self.state.add_event("memory_failure_review_completed")
+            body = _sse_text(self.state.render(_RAW_FAILURE))
+        elif scenario == "memory_add" and request["request_index"] == 1:
+            body = _sse_text(self.state.render(_FOREGROUND_MEMORY_SEED))
+        elif scenario == "memory_add" and request["request_index"] == 2:
+            body = _sse_text(self.state.render(_FOREGROUND_MEMORY))
+        elif scenario == "memory_add" and kind == "review":
+            body = _sse_tool_call(
+                _MEMORY_ADD_CALL,
+                "memory",
+                {
+                    "action": "add",
+                    "target": "user",
+                    "content": "Controlled Feishu shadow memory sentinel.",
+                },
+            )
+        elif (
+            scenario == "memory_add"
+            and kind == "continuation"
+            and request["latest_tool_result_id"] == _MEMORY_ADD_CALL
+        ):
+            self.state.add_event("memory_add_review_completed")
+            body = _sse_text(self.state.render(_RAW_MEMORY_REPLY))
         elif scenario == "skill_create" and request["request_index"] == 1:
             body = _sse_tool_call(
                 _FOREGROUND_LIST_CALL,
@@ -261,7 +333,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             and kind == "continuation"
             and request["latest_tool_result_id"] == _FOREGROUND_LIST_CALL
         ):
-            body = _sse_text(_FOREGROUND_SKILL)
+            body = _sse_text(self.state.render(_FOREGROUND_SKILL))
         elif scenario == "skill_create" and kind == "review":
             if not self.state.wait_for_review_release():
                 self._send_json(408, {"error": "review release timed out"})
@@ -271,9 +343,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 "skill_manage",
                 {
                     "action": "create",
-                    "name": _SKILL_NAME,
+                    "name": self.state.skill_name,
                     "scope": "agent",
-                    "content": _SKILL_CONTENT,
+                    "content": _skill_content(self.state.skill_name),
                 },
             )
         elif (
@@ -282,12 +354,12 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             and request["latest_tool_result_id"] == _SKILL_CREATE_CALL
         ):
             self.state.add_event("skill_review_completed")
-            body = _sse_text(_RAW_SKILL_REPLY)
+            body = _sse_text(self.state.render(f"Saved: {self.state.skill_name}."))
         elif scenario == "verify_skill" and request["request_index"] == 1:
             body = _sse_tool_call(
                 _SKILL_VIEW_CALL,
                 "skill_view",
-                {"name": _SKILL_NAME},
+                {"name": self.state.skill_name},
             )
         elif (
             scenario == "verify_skill"
@@ -295,7 +367,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             and request["latest_tool_result_id"] == _SKILL_VIEW_CALL
         ):
             self.state.add_event("skill_use_completed")
-            body = _sse_text(_SKILL_USED)
+            body = _sse_text(self.state.render(_SKILL_USED))
         else:
             self._send_json(
                 409,

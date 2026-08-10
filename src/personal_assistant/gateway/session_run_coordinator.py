@@ -875,13 +875,27 @@ class SessionRunCoordinator:
                 else:
                     parts = prebuilt_parts
                 if failure_kind is None:
+                    trace_id = uuid4().hex
+                    if self._background_subscriptions is not None:
+                        self._background_subscriptions.register_session_event_route(
+                            trace_id,
+                            binding.reply_context,
+                        )
                     # submit() is synchronous. Marker publication is the very next
                     # statement under the same lock: stop/steer cannot see half admission.
-                    record = self._kernel.submit(
-                        session_id=binding.kernel_session_id,
-                        parts=parts,
-                        workspace_root=latest_agent.config.workspace_root,
-                    )
+                    try:
+                        record = self._kernel.submit(
+                            session_id=binding.kernel_session_id,
+                            parts=parts,
+                            workspace_root=latest_agent.config.workspace_root,
+                            trace_id=trace_id,
+                        )
+                    except BaseException:
+                        if self._background_subscriptions is not None:
+                            self._background_subscriptions.discard_session_event_route(
+                                trace_id
+                            )
+                        raise
                     run_id = record.run_id
                     anchor_sequence = record.start_sequence
                     if run_id:

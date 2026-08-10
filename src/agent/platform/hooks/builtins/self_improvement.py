@@ -20,9 +20,15 @@ from __future__ import annotations
 
 import logging
 from threading import Lock
+from collections.abc import Mapping
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+_MEMORY_MUTATING_ACTIONS = frozenset({"add", "replace", "remove"})
+_SKILL_MUTATING_ACTIONS = frozenset(
+    {"create", "edit", "patch", "write_file", "remove_file"}
+)
 
 # ---------------------------------------------------------------------------
 # Review prompt constants (from hermes-agent reference §3)
@@ -144,6 +150,50 @@ _COMBINED_REVIEW_PROMPT = (
 # ---------------------------------------------------------------------------
 
 
+def _updated_targets_from_fork_result(fork_result: Any) -> tuple[str, ...]:
+    """Return durable targets confirmed updated by one fork result."""
+
+    turn_result = getattr(fork_result, "turn_result", None)
+    tool_calls = getattr(turn_result, "tool_calls", ()) or ()
+    tool_results = getattr(turn_result, "tool_results", ()) or ()
+    results_by_call_id = {
+        result.call_id: result
+        for result in tool_results
+        if isinstance(getattr(result, "call_id", None), str)
+        and result.call_id
+    }
+    memory_updated = False
+    skills_updated = False
+    for tool_call in tool_calls:
+        arguments = getattr(tool_call, "arguments", {})
+        action = arguments.get("action") if isinstance(arguments, Mapping) else None
+        tool_name = getattr(tool_call, "name", "")
+        is_mutating = (
+            tool_name == "memory" and action in _MEMORY_MUTATING_ACTIONS
+        ) or (
+            tool_name == "skill_manage" and action in _SKILL_MUTATING_ACTIONS
+        )
+        if not is_mutating:
+            continue
+        result = results_by_call_id.get(getattr(tool_call, "call_id", ""))
+        if result is None or getattr(result, "error", None) is not None:
+            continue
+        output = getattr(result, "output", None)
+        if isinstance(output, Mapping) and output.get("success") is False:
+            continue
+        memory_updated = memory_updated or tool_name == "memory"
+        skills_updated = skills_updated or tool_name == "skill_manage"
+
+    return tuple(
+        target
+        for target, updated in (
+            ("skills", skills_updated),
+            ("memory", memory_updated),
+        )
+        if updated
+    )
+
+
 def setup(hooks: Any) -> None:  # noqa: ANN001
     """Register the background self-improvement hook on agent_end.
 
@@ -243,18 +293,22 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
             if review_memory:
                 state["last_memory_turn"] = current_turns
 
-        # Emit session event so CLI / IM can surface a notification.
+        # Emit only a truthful update receipt. The review category says what was
+        # inspected; paired call/result outcomes say what was durably changed.
+        updated_targets = _updated_targets_from_fork_result(fork_result)
         publish = getattr(ctx, "publish_session_event", None)
-        if callable(publish):
+        if callable(publish) and updated_targets:
             tool_names_called = getattr(fork_result, "tool_names_called", ()) or ()
             publish(
                 event="self_evolution_review",
                 data={
                     "session_id": session_id,
-                    "reviewed_skills": review_skills,
-                    "reviewed_memory": review_memory,
+                    "reviewed_skills": "skills" in updated_targets,
+                    "reviewed_memory": "memory" in updated_targets,
+                    "updated_targets": list(updated_targets),
                     "tool_names_called": list(tool_names_called),
                     "completed": getattr(fork_result, "completed", False),
+                    "originating_trace_id": meta.get("trace_id"),
                 },
             )
 

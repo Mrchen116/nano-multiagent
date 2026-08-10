@@ -89,6 +89,7 @@ async def test_self_evolution_raw_output_stays_out_of_parent_session_events(
             session_id=session.session_id,
             workspace_root=tmp_path,
             parts=[{"type": "text", "text": "Please remember my preference."}],
+            trace_id="trace-memory-review",
         )
 
         events = await asyncio.wait_for(
@@ -129,6 +130,8 @@ async def test_self_evolution_raw_output_stays_out_of_parent_session_events(
         assert review_event["event"] == "self_evolution_review"
         assert review_event["reviewed_memory"] is True
         assert review_event["reviewed_skills"] is False
+        assert review_event["updated_targets"] == ["memory"]
+        assert review_event["originating_trace_id"] == "trace-memory-review"
         assert review_event["tool_names_called"] == ["memory"]
         assert review_event["completed"] is True
 
@@ -191,6 +194,7 @@ async def test_self_evolution_skill_create_keeps_only_business_event_visible(
             session_id=session.session_id,
             workspace_root=tmp_path,
             parts=[{"type": "text", "text": "Solve one complex task."}],
+            trace_id="trace-skill-review",
         )
 
         events = await asyncio.wait_for(
@@ -236,6 +240,8 @@ async def test_self_evolution_skill_create_keeps_only_business_event_visible(
         assert review_event["event"] == "self_evolution_review"
         assert review_event["reviewed_memory"] is False
         assert review_event["reviewed_skills"] is True
+        assert review_event["updated_targets"] == ["skills"]
+        assert review_event["originating_trace_id"] == "trace-skill-review"
         assert review_event["tool_names_called"] == ["skill_manage"]
         assert review_event["completed"] is True
 
