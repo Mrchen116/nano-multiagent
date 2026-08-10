@@ -1,4 +1,4 @@
-{"type":"thread.started","thread_id":"019fed23-023c-75a1-a0b3-bf6647a7ec94"}
+{"type":"thread.started","thread_id":"019fed6f-16fc-7922-9da4-eabe33b3256a"}
 {"type":"turn.started"}
-{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"{\"reply\":\"不建议这样处理。未配置时应保持现有行为：每次自动审批分类继续复用触发该请求的 Agent／run 模型，而不是改用全局默认模型。显式指定的模型若不在 PA 模型目录中，应作为启动配置错误；运行时不可用也不应静默切换模型，可按现有机制重试同一指定模型，之后进入现有的权限失败处理流程，而不是新增“转人工审批”规则。\",\"used_context_refs\":[\"O02\",\"O03\",\"O05\"],\"status\":\"answered\"}"}}
-{"type":"turn.completed","usage":{"input_tokens":54815,"cached_input_tokens":24064,"cache_write_input_tokens":0,"output_tokens":531,"reasoning_output_tokens":176}}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"{\"reply\":\"不同时覆盖。此次产品范围是 Personal Assistant；Coding CLI 保持不变。内核可以保持产品中立，支持显式选择或省略审批分类模型，但不能据此扩大到 Coding CLI。\",\"used_context_refs\":[\"O01\"],\"status\":\"answered\"}"}}
+{"type":"turn.completed","usage":{"input_tokens":53620,"cached_input_tokens":24064,"cache_write_input_tokens":0,"output_tokens":399,"reasoning_output_tokens":107}}

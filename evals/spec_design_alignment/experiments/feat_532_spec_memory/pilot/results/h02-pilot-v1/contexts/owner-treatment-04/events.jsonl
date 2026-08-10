@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"019fed6f-16fc-7922-9da4-eabe33b3256a"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"{\"reply\":\"是，只改变自动工具审批分类器的模型选择。Agent 正常请求和工具调用后的续写仍使用当前 run 模型；确定性安全规则与人工审批流程不在此次变更范围内。\",\"used_context_refs\":[\"O04\"],\"status\":\"answered\"}"}}
+{"type":"turn.completed","usage":{"input_tokens":97951,"cached_input_tokens":66304,"cache_write_input_tokens":0,"output_tokens":683,"reasoning_output_tokens":191}}

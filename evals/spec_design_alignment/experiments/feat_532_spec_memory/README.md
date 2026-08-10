@@ -24,6 +24,14 @@ python evals/spec_design_alignment/experiments/feat_532_spec_memory/runner.py \
   --artifacts /tmp/feat532-artifacts
 ```
 
+Each invocation runs under one outer macOS Seatbelt profile. The profile gives
+only the Codex process model-network access while denying child-tool network,
+host-home reads, artifacts, sibling/control workspaces, and parent-workspace
+canaries; read-only roles also deny workspace writes. Codex's inner sandbox is
+disabled because macOS does not permit a nested `sandbox_apply`. The durable
+actual attestation records independent read and tool-network probes plus the
+post-call argv, cwd, environment policy, and file hashes.
+
 Replay the committed pilot without invoking a model:
 
 ```bash

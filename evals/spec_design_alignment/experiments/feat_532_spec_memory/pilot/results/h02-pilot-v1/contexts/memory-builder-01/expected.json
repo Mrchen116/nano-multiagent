@@ -1,5 +1,58 @@
 {
   "cwd": "workspace",
+  "execution": {
+    "cwd": "workspace",
+    "environment_policy": {
+      "codex_home": "role_runtime/codex-home",
+      "home": "role_runtime/home",
+      "keys": [
+        "ALL_PROXY",
+        "CODEX_CI",
+        "CODEX_HOME",
+        "HOME",
+        "HTTPS_PROXY",
+        "HTTP_PROXY",
+        "LANG",
+        "LC_ALL",
+        "NO_PROXY",
+        "PATH",
+        "TERM",
+        "TMPDIR"
+      ],
+      "tmpdir": "role_runtime/tmp"
+    },
+    "resolved_argv": [
+      "/opt/homebrew/bin/codex",
+      "exec",
+      "--ignore-user-config",
+      "--ignore-rules",
+      "--skip-git-repo-check",
+      "--disable",
+      "memories",
+      "--disable",
+      "plugins",
+      "--disable",
+      "apps",
+      "-m",
+      "gpt-5.6-sol",
+      "-c",
+      "model_reasoning_effort=\"medium\"",
+      "-c",
+      "approval_policy=\"never\"",
+      "-c",
+      "sandbox_mode=\"danger-full-access\"",
+      "--output-schema",
+      "$ROLE_RUNTIME/output-schema-01.json",
+      "--json",
+      "-o",
+      "$ROLE_RUNTIME/last-message-01.json",
+      "-s",
+      "danger-full-access",
+      "-C",
+      "$ROLE_WORKSPACE",
+      "-"
+    ]
+  },
   "forbidden_surfaces": [
     "held-out case identity",
     "lineage exclusions",
@@ -11,6 +64,7 @@
   "instructions_sha256": "d7bf9e5e01e0834f0d01e8591af94722305a0a0ad817ed086041a945b8ac2935",
   "isolation": {
     "codex_home": "temporary_isolated",
+    "filesystem_read": "macos_sandbox_exec_seatbelt",
     "home": "temporary_isolated",
     "ignore_user_config": true
   },
@@ -18,13 +72,19 @@
   "manifest_id": "memory-builder-01",
   "model": "gpt-5.6-sol",
   "output_schema_sha256": "259646341ce7e64ae3ef7af265b12fd3589b935aa3f4c8f95320c941bb937ab6",
+  "readable_roots": [
+    "role_runtime",
+    "system_runtime",
+    "workspace"
+  ],
   "reasoning_effort": "medium",
   "role": "memory_builder",
   "schema_version": "1.0",
   "skill_closure": [],
   "tools": {
     "network": false,
-    "shell": true
+    "shell": true,
+    "workspace_write": true
   },
   "visible_files": [
     {

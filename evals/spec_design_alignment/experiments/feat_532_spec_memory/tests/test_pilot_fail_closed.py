@@ -300,11 +300,7 @@ def test_replay_rejects_forged_actual_attestation(tmp_path: Path) -> None:
     shutil.copytree(source, artifacts)
     context = artifacts / "contexts/memory-builder-01"
     actual = load_json(context / "actual.json")
-    actual["os_sandbox"] = {
-        "mechanism": "macos_sandbox_exec_seatbelt",
-        "canary_read_blocked": False,
-        "profile_sha256": "0" * 64,
-    }
+    actual["resolved_argv"][0] = "/forged/codex"
     runner.write_json(context / "actual.json", actual)
     runner.write_json(
         artifacts / "evidence-manifest.json", runner.evidence_manifest(artifacts)

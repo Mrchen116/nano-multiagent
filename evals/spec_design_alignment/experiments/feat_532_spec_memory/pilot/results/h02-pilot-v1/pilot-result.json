@@ -8,7 +8,6 @@
     "owner_simulator_critical_error": false
   },
   "effect_claim": null,
-  "evidence_manifest_sha256": "fac6adc449d20c234d2dae9a620a010c8a0f673db5f8740fb18da82b298b0ee1",
   "formal_eligible": false,
   "matrix": {
     "agentic_consumer": 0,
@@ -23,7 +22,7 @@
     "run_audits": 2
   },
   "pilot_id": "feat-532-h02-infrastructure-pilot-v1",
-  "pilot_seal_sha256": "1439a797cd1982e50037df786634e907629ece78cd8d01a0ed39f904b9ddd270",
+  "pilot_seal_sha256": "ff49010e9066c5d20f29b82ebb62019e3eac839d6e63059c18b070ab672f3045",
   "repetitions": 1,
   "schema_version": "1.0",
   "setup_burden": {

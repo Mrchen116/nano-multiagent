@@ -24,6 +24,8 @@
   ],
   "formal_eligible": false,
   "schema_version": "1.0",
+  "source_cleanliness": "clean_tracked_only",
+  "source_commit": "96f17e3199a28b3aacfd096eb3d241d45938e7c7",
   "source_map": [
     {
       "document_id": "doc-0001",
@@ -1397,5 +1399,6 @@
       "source_path": "docs/changes/archive/bugfix-426-midrun-message-steering/incident.md",
       "source_sha256": "f220210935b60b84eb2bf54dfc06406f8517f42bac66b09fe43cae7b22f3d5f3"
     }
-  ]
+  ],
+  "source_tree": "db940222ae7225668c62a03cfa00c2d0fa835156"
 }

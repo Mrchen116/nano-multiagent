@@ -2,42 +2,56 @@
   "formal_eligible": false,
   "pairs": [
     {
-      "candidate_question": "Q1：你说的“所有统一用一个模型”，是指 Coding CLI 和 Personal Assistant 各自按现有配置目录解析审批模型，还是两个产品必须共用同一份全局配置？\n我的推荐：保留两个产品现有的配置目录和 workspace 覆盖 global 规则；每个产品在当前配置作用域内解析出一个固定审批模型，该作用域下所有 agent 的工具调用审批都统一使用它。\n理由：这能实现审批模型与 agent 自用模型解耦，同时保持两个产品现有配置隔离与优先级不变。\n\n你怎么看？",
-      "owner_reply": "本次需求范围是 Personal Assistant；Coding CLI 不因本需求改变，也不要求两个产品共用一份全局配置。具体配置目录、作用域及 workspace/global 覆盖规则请基于仓库现状研究，并提出最小改动方案。",
+      "candidate_question": "Q1：你说的“所有”是否包括 `coding_cli` 和 `personal_assistant` 中的主 agent、subagent、后台任务所触发的全部自动工具审批？\n我的推荐：全部包括，统一使用同一个全局配置模型，不允许各 agent 单独覆盖。\n理由：这样才能消除审批结果随 agent 模型变化的问题，并符合“所有统一”的目标。\n\n你怎么看？",
+      "owner_reply": "不同意把 `coding_cli` 也纳入：本次产品范围是 `personal_assistant`，`coding_cli` 保持不变。统一模型只用于 PA 中实际触发的自动工具权限分类；普通 Agent 请求和工具执行后的续跑仍使用当前 run 模型。主 agent、subagent、后台任务中哪些路径实际进入该分类器，请基于仓库确认。是否允许 per-Agent 覆盖属于实现设计，请给出最小、仓库有据的方案，不要为此新增配置入口。",
       "owner_status": "ask_author_to_research",
       "question_index": 1,
       "used_context_refs": [
         "O01",
+        "O04",
         "O07",
         "O08"
       ]
     },
     {
-      "candidate_question": "Q2：Personal Assistant 的 Gateway 配置没有显式指定专用审批模型时，应该回退到 `llm.default_model`，还是拒绝启动并要求补配置？\n我的推荐：回退到 `llm.default_model`；一旦显式指定专用审批模型，就始终使用该模型，不再回退到各 Agent 的模型。\n理由：仓库现状要求 `llm.default_model` 必填且由单份 Gateway 配置拥有，这样可兼容旧配置，同时已经满足同一 Gateway 下所有 Agent 统一使用一个审批模型。\n\n你怎么看？",
-      "owner_reply": "不应回退到 `llm.default_model`，也不应因缺省而拒绝启动。未显式配置时保持现有行为：每次自动审批分类复用触发它的 Agent 或 run 模型；显式配置后则使用专用模型，运行失败也不回退到 Agent、默认或其他模型。",
-      "owner_status": "answered",
+      "candidate_question": "Q2：PA 的统一审批模型是否必须能与 `llm.default_model` 分开配置？\n我的推荐：需要一个 PA 全局的审批模型配置，不提供 per-Agent 覆盖；普通 Agent 仍按当前 run 模型运行。\n理由：仓库中 `llm.default_model` 还负责未单独选模型的普通 Agent；若直接复用它，运维调整审批模型会同时改变普通 Agent 行为，超出本次范围。仓库确认会实际进入分类器的 PA 路径包括主 agent、Agent 工具派生的 subagent、heartbeat、cron，以及继承父运行权限上下文的后台自进化 fork；仅安全快速放行、工具直接 allow/deny/ask 等路径不会调用分类模型。\n\n你怎么看？",
+      "owner_reply": "语义上需要与 `llm.default_model` 解耦：显式选择的模型只用于自动工具权限分类，普通 Agent 与工具后的续跑继续使用当前 run 模型；未配置时则保留现状，复用触发该分类的 Agent/run 模型。至于是否新增独立字段、字段放置以及是否支持 per-Agent 覆盖，属于实现设计；请按你列出的仓库路径证据提出最小方案，不要新增非必要入口。",
+      "owner_status": "ask_author_to_research",
       "question_index": 2,
       "used_context_refs": [
         "O02",
-        "O05"
+        "O04",
+        "O07",
+        "O08"
       ]
     },
     {
-      "candidate_question": "Q3：修改 Personal Assistant 的专用审批模型配置后，是否接受重启 Gateway 才生效？\n我的推荐：接受重启后生效，不做热更新。\n理由：当前 Gateway 的 `llm` 模型目录和连接在启动时从单份本地配置加载；沿用这一生命周期改动最小，也能确保一次运行期间所有 Agent 始终使用同一审批模型快照。\n\n你怎么看？",
-      "owner_reply": "接受。该配置在 Gateway 重启后生效，本需求不增加字段级热更新。",
-      "owner_status": "answered",
+      "candidate_question": "Q3：显式配置的统一审批模型在运行时超时、不可达或返回不可解析结果时，是否沿用现有安全降级？\n我的推荐：沿用现状——有人值守的 PA 会话转为用户手动审批；heartbeat、cron、后台 fork 等无人值守路径按现有 `unattended_fallback` 处理，默认拒绝；不要静默回退到当前 Agent/run 模型。\n理由：静默回退会让“统一模型”在故障时失效且难以察觉，而现有分类器已经具备这套 fail-closed 行为。\n\n你怎么看？",
+      "owner_reply": "同意核心行为：不得静默回退到当前 Agent/run、默认或其他模型。现有重试可以继续使用同一个显式审批模型；重试仍失败后，进入既有权限失败处理。有人值守转手动审批、无人值守按 `unattended_fallback` 处理的具体路径，请以仓库实现和测试确认。",
+      "owner_status": "ask_author_to_research",
       "question_index": 3,
       "used_context_refs": [
-        "O06"
+        "O05",
+        "O08"
       ]
     },
     {
-      "candidate_question": "Q4：如果显式配置的专用审批模型没有登记在同一 Gateway 配置的 `llm.providers[].models[]` 中，Gateway 应该在启动时直接报配置错误，还是允许启动、等首次审批时再失败？\n我的推荐：启动时直接报清晰的配置错误。\n理由：当前 `llm.default_model` 和每个 Agent 的模型都必须来自已登记模型目录；对专用审批模型沿用同一校验，可在重启生效时立即暴露拼写或目录错误，避免聊天进行到高风险工具调用时才发现审批不可用。\n\n你怎么看？",
-      "owner_reply": "启动时直接报配置错误。显式选择的专用审批模型若不在 Personal Assistant 模型目录中，不允许静默回退或延迟到首次审批时才失败。",
+      "candidate_question": "Q4：若运维显式选择了一个不在 PA `llm.providers[].models` 目录中的审批模型，Gateway 应该怎样表现？\n我的推荐：启动或配置加载时明确报错并拒绝生效；只有“未配置审批模型”才按现状使用当前 Agent/run 模型。\n理由：仓库对 `llm.default_model` 和 `agents[].default_model` 已采用“必须存在于模型目录”的校验；对审批模型保持同样规则，可避免把静态错配拖到第一次工具审批时才暴露。\n\n你怎么看？",
+      "owner_reply": "同意。显式选择的审批模型若不在 PA 模型目录中，应作为 Gateway 启动配置错误，明确报错且不得生效，也不得静默回退。只有省略该配置时，才保留现有行为，复用触发自动分类的 Agent/run 模型。",
       "owner_status": "answered",
       "question_index": 4,
       "used_context_refs": [
+        "O02",
         "O03"
+      ]
+    },
+    {
+      "candidate_question": "Q5：修改统一审批模型配置后，本期是否要求 Gateway 无重启热生效？\n我的推荐：本期不做热加载，修改配置后通过重启 Gateway 生效。\n理由：仓库现有 `llm` 模型目录也是启动期加载与校验；沿用这一运维方式范围最小，并与刚确认的“启动配置错误”语义一致。\n\n你怎么看？",
+      "owner_reply": "同意。本期不增加该字段的热加载；配置修改在 Gateway 重启后生效。",
+      "owner_status": "answered",
+      "question_index": 5,
+      "used_context_refs": [
+        "O06"
       ]
     }
   ],

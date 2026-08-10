@@ -5,32 +5,32 @@
         {
           "criterion_id": "J01",
           "rating": "met",
-          "rationale": "明确限定为 Personal Assistant Gateway 的可选部署级配置，未配置时保持现状，并明确 Coding CLI 不读取该配置；同时允许底层仅提供产品中立能力。"
+          "rationale": "明确限定为可选的 Personal Assistant Gateway 配置；省略时保持原行为，并明确 Coding CLI 不受影响。"
         },
         {
           "criterion_id": "J02",
           "rating": "partial",
-          "rationale": "明确覆盖配置省略时继续复用 Agent/run 模型，以及未登记模型在 Gateway 启动时失败；但未单独规定显式空值必须可见地启动失败。"
+          "rationale": "覆盖了省略配置时沿用 Agent/run 模型，以及未登记模型启动失败；但没有明确规定显式空值也必须可见地启动失败。"
         },
         {
           "criterion_id": "J03",
-          "rating": "met",
-          "rationale": "规定所有实际进入自动分类链路的分类请求使用所选模型，语义覆盖两阶段分类；同时明确普通回复及工具获准后的继续执行仍使用各 run 模型。"
+          "rating": "partial",
+          "rationale": "将配置模型限定于自动审批分类，并明确普通回复和工具后续写继续使用 run 模型；但未明确锚定现有两阶段分类中的两个模型调用均使用该模型。"
         },
         {
           "criterion_id": "J04",
-          "rating": "met",
-          "rationale": "明确分类模型不可用时不切换模型，并在既有重试仍失败后沿用现有权限失败、有人值守和无人值守处理语义。"
+          "rating": "partial",
+          "rationale": "笼统保留 allow/deny/ask 和人工审批语义，但未明确分类器失败时不得切换模型，也未保留同模型重试及失败后的既有分流语义。"
         },
         {
           "criterion_id": "J05",
           "rating": "missed",
-          "rationale": "没有明确说明运行中的 Gateway 会固定启动时绑定的选择直到重启，也未明确排除热重载承诺。"
+          "rationale": "未规定运行中的 Gateway 保持启动时绑定的选择，也未说明配置修改需重启且不新增热加载。"
         },
         {
           "criterion_id": "J06",
-          "rating": "met",
-          "rationale": "内容与仓库中的 PA Gateway 配置、模型目录、auto-mode 分类链路和 Coding CLI 边界相符，并明确把底层能力的具体形态留给设计阶段。"
+          "rating": "partial",
+          "rationale": "PA、Gateway、模型目录和 feat-333 等事实与仓库边界基本一致，也避免规定接口或模块拓扑；但对两阶段分类、运行失败和配置生命周期等关键仓库事实的落地不足。"
         }
       ],
       "critical_error": true,
@@ -41,32 +41,32 @@
         {
           "criterion_id": "J01",
           "rating": "met",
-          "rationale": "能力限定在 Personal Assistant Gateway，配置可省略，且明确 Coding CLI 的审批模型与配置均不改变。"
+          "rationale": "功能明确限定于 PA 且为可选配置，默认不改变行为，并将 coding_cli 排除在变更范围外。"
         },
         {
           "criterion_id": "J02",
           "rating": "partial",
-          "rationale": "明确配置省略时保持 per-Agent/run 模型，并要求未登记模型在启动时失败；但没有明确处理显式空字符串或空值。"
+          "rationale": "明确省略配置时复用 Agent/run 模型，并让目录外模型启动失败；但没有明确覆盖显式空值必须启动失败。"
         },
         {
           "criterion_id": "J03",
           "rating": "partial",
-          "rationale": "明确自动审批分类统一使用专用模型且正常对话模型不变，但没有清楚点明两阶段分类请求都必须使用该模型，也未明确工具结果后的继续推理仍使用 run 模型。"
+          "rationale": "准确限制为实际进入自动分类器的调用，并保留普通回复和工具后续运行模型及非分类快速路径；但没有明确说明现有第一、第二阶段的两个模型调用都采用所选模型。"
         },
         {
           "criterion_id": "J04",
-          "rating": "partial",
-          "rationale": "明确失败时不切换到其他模型并保留有人值守和无人值守失败语义，但没有明确保留既有的同模型重试；部分措辞甚至可理解为单次请求失败即进入兜底。"
+          "rating": "met",
+          "rationale": "明确运行失败只对同一审批模型沿用既有重试，绝不切换模型，并分别保留有人值守的人工审批和无人值守的 unattended_fallback 语义。"
         },
         {
           "criterion_id": "J05",
           "rating": "met",
-          "rationale": "明确配置修改需重启 Gateway 后生效，并将字段级热更新列为非目标，符合进程绑定选择直到重启的要求。"
+          "rationale": "明确运行中的 Gateway 不热加载修改，只有重启并校验后新选择才生效。"
         },
         {
           "criterion_id": "J06",
-          "rating": "partial",
-          "rationale": "准确引用默认配置路径、--config、PA 模型目录和进程配置等仓库事实，但较强地预设了进程级配置及覆盖层拓扑，且未明确要求保持共享内核的产品中立边界。"
+          "rating": "met",
+          "rationale": "以现有 PA 运行来源、模型目录、unattended_fallback 及相关归档变更为依据，维护 PA/内核/CLI 边界，同时把字段名、放置位置和内部接口留给设计阶段。"
         }
       ],
       "critical_error": true,
@@ -76,5 +76,5 @@
   "critical_error": true,
   "formal_eligible": false,
   "judge_id": "J2",
-  "summary": "两份投影均覆盖了核心 PA 可选配置和不回退语义，但都遗漏了显式空值的启动失败要求，因此触发关键错误。P1 另缺少重启绑定语义；P2 对两阶段、post-tool run 模型及同模型重试的规定不够完整。"
+  "summary": "P1 和 P2 均遗漏显式空配置的启动失败语义，且都未明确覆盖两阶段分类器的两个模型调用，因此存在关键要求缺口。P1 还缺少运行失败与重启生效语义；P2 对这些边界覆盖完整。"
 }

@@ -1,5 +1,58 @@
 {
   "cwd": "workspace",
+  "execution": {
+    "cwd": "workspace",
+    "environment_policy": {
+      "codex_home": "role_runtime/codex-home",
+      "home": "role_runtime/home",
+      "keys": [
+        "ALL_PROXY",
+        "CODEX_CI",
+        "CODEX_HOME",
+        "HOME",
+        "HTTPS_PROXY",
+        "HTTP_PROXY",
+        "LANG",
+        "LC_ALL",
+        "NO_PROXY",
+        "PATH",
+        "TERM",
+        "TMPDIR"
+      ],
+      "tmpdir": "role_runtime/tmp"
+    },
+    "resolved_argv": [
+      "/opt/homebrew/bin/codex",
+      "exec",
+      "--ignore-user-config",
+      "--ignore-rules",
+      "--skip-git-repo-check",
+      "--disable",
+      "memories",
+      "--disable",
+      "plugins",
+      "--disable",
+      "apps",
+      "-m",
+      "gpt-5.6-sol",
+      "-c",
+      "model_reasoning_effort=\"medium\"",
+      "-c",
+      "approval_policy=\"never\"",
+      "-c",
+      "sandbox_mode=\"danger-full-access\"",
+      "--output-schema",
+      "$ROLE_RUNTIME/output-schema-01.json",
+      "--json",
+      "-o",
+      "$ROLE_RUNTIME/last-message-01.json",
+      "-s",
+      "danger-full-access",
+      "-C",
+      "$ROLE_WORKSPACE",
+      "-"
+    ]
+  },
   "forbidden_surfaces": [
     "arm identity or Memory",
     "Candidate specs",
@@ -10,6 +63,7 @@
   "instructions_sha256": "f03626ed238add2b4592081aa11cc8e4211971f230d6c71f83c8dbf156453a4d",
   "isolation": {
     "codex_home": "temporary_isolated",
+    "filesystem_read": "macos_sandbox_exec_seatbelt",
     "home": "temporary_isolated",
     "ignore_user_config": true
   },
@@ -17,13 +71,19 @@
   "manifest_id": "batch-auditor-01",
   "model": "gpt-5.6-sol",
   "output_schema_sha256": "5dd90c37d6be1f75791e78b3fcfbb6dd549ee98ea65bcbcf111871dad07b2c70",
+  "readable_roots": [
+    "role_runtime",
+    "system_runtime",
+    "workspace"
+  ],
   "reasoning_effort": "medium",
   "role": "owner_batch_auditor",
   "schema_version": "1.0",
   "skill_closure": [],
   "tools": {
     "network": false,
-    "shell": false
+    "shell": true,
+    "workspace_write": false
   },
   "visible_files": [
     {
@@ -36,11 +96,11 @@
     },
     {
       "path": "transcript-T1.json",
-      "sha256": "33dc32c6c6ab8910ba367be07cf54b5394612c06319801e35a3ae1d1b6452ded"
+      "sha256": "88d8d8c67217b3685c38588c33269c4f678a62d8efd97aca94858acaec87fb42"
     },
     {
       "path": "transcript-T2.json",
-      "sha256": "dd8a8ec3a8c3eac47d301f36c9de74e0be63e23f1a2e3a83afb5786f44ffd815"
+      "sha256": "4a1e008e0aab73abb56ce37b31e321275929cbe6402c3329137cc865f1645602"
     }
   ]
 }

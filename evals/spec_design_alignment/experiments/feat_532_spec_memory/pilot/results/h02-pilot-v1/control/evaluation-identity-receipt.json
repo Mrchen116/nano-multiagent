@@ -1,8 +1,8 @@
 {
   "formal_eligible": false,
   "projection_hashes": {
-    "P1": "b75bff331e6cb6b2b95015b46a545ebe032ad47a5cdd2362f06f5028bf035df8",
-    "P2": "73c68f8c84030434477d3b60f4f5a0f7ba20d9bafa0786d405de63c724292a49"
+    "P1": "d55346bd34e2dfd988584d241639c08f0577f42fd18f6eedbd6639dbda3d1aa3",
+    "P2": "509231eef61de7bd9f9e808dc1ce75bf1355292308032ff78b6690e5a95cc4b4"
   },
   "projection_mapping": {
     "P1": "treatment",
@@ -11,8 +11,8 @@
   "projection_rule": "remove_level2_raw_request_and_clarification_sections_v1",
   "schema_version": "1.0",
   "transcript_hashes": {
-    "T1": "1291077460a9892fb3cb5bfdda3c8e2c2a7a7a68bba9f40df8b3a073f980d8c1",
-    "T2": "6ff871f16a726e4a74810e80f3da051de25b14a8a088adceb41d17c955d570bf"
+    "T1": "183585c8cf9e1f76b31f4b0c2f3adc8c9480b11af5e8a0c92af402820280aea7",
+    "T2": "61009c04e335e723a964e8f87f009593fe19a85866c0313497a5d44f4b1a586b"
   },
   "transcript_mapping": {
     "T1": "baseline",

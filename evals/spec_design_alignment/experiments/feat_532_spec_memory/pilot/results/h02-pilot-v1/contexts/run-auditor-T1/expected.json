@@ -1,5 +1,58 @@
 {
   "cwd": "workspace",
+  "execution": {
+    "cwd": "workspace",
+    "environment_policy": {
+      "codex_home": "role_runtime/codex-home",
+      "home": "role_runtime/home",
+      "keys": [
+        "ALL_PROXY",
+        "CODEX_CI",
+        "CODEX_HOME",
+        "HOME",
+        "HTTPS_PROXY",
+        "HTTP_PROXY",
+        "LANG",
+        "LC_ALL",
+        "NO_PROXY",
+        "PATH",
+        "TERM",
+        "TMPDIR"
+      ],
+      "tmpdir": "role_runtime/tmp"
+    },
+    "resolved_argv": [
+      "/opt/homebrew/bin/codex",
+      "exec",
+      "--ignore-user-config",
+      "--ignore-rules",
+      "--skip-git-repo-check",
+      "--disable",
+      "memories",
+      "--disable",
+      "plugins",
+      "--disable",
+      "apps",
+      "-m",
+      "gpt-5.6-sol",
+      "-c",
+      "model_reasoning_effort=\"medium\"",
+      "-c",
+      "approval_policy=\"never\"",
+      "-c",
+      "sandbox_mode=\"danger-full-access\"",
+      "--output-schema",
+      "$ROLE_RUNTIME/output-schema-01.json",
+      "--json",
+      "-o",
+      "$ROLE_RUNTIME/last-message-01.json",
+      "-s",
+      "danger-full-access",
+      "-C",
+      "$ROLE_WORKSPACE",
+      "-"
+    ]
+  },
   "forbidden_surfaces": [
     "arm identity or Memory",
     "Candidate spec",
@@ -8,9 +61,10 @@
   ],
   "formal_eligible": false,
   "input_envelope_sha256": "cb8acbc897a4757e90d3dbff8b2a10d592b32b7d504b6250ccfc2982f3703207",
-  "instructions_sha256": "84af1ab550d80068aac07200914f622e9ff9ff82e7eeb2f497f717be9afc29c4",
+  "instructions_sha256": "5750fecd5cbac630b25f0c9f102d33a6a83683d0c62ada580503664df7cf20b7",
   "isolation": {
     "codex_home": "temporary_isolated",
+    "filesystem_read": "macos_sandbox_exec_seatbelt",
     "home": "temporary_isolated",
     "ignore_user_config": true
   },
@@ -18,18 +72,24 @@
   "manifest_id": "run-auditor-T1",
   "model": "gpt-5.6-sol",
   "output_schema_sha256": "e35ae94a1e9ca40448f6c9a016b143d6c770bd5dec50cbe3c98138f80a21c389",
+  "readable_roots": [
+    "role_runtime",
+    "system_runtime",
+    "workspace"
+  ],
   "reasoning_effort": "medium",
   "role": "owner_run_auditor",
   "schema_version": "1.0",
   "skill_closure": [],
   "tools": {
     "network": false,
-    "shell": false
+    "shell": true,
+    "workspace_write": false
   },
   "visible_files": [
     {
       "path": "AGENTS.md",
-      "sha256": "84af1ab550d80068aac07200914f622e9ff9ff82e7eeb2f497f717be9afc29c4"
+      "sha256": "5750fecd5cbac630b25f0c9f102d33a6a83683d0c62ada580503664df7cf20b7"
     },
     {
       "path": "owner-context.provisional.json",
@@ -37,7 +97,7 @@
     },
     {
       "path": "owner-instructions.md",
-      "sha256": "b479de7122f7bb3e2bd6f8c6b9674bd56339fa3ef704d2a5102d15910c33986f"
+      "sha256": "603c056088b400148b8aea53d53c037b2d0dcb6145ddd9c6595cc0e509a4f246"
     },
     {
       "path": "public-brief.md",
@@ -45,7 +105,7 @@
     },
     {
       "path": "transcript.json",
-      "sha256": "33dc32c6c6ab8910ba367be07cf54b5394612c06319801e35a3ae1d1b6452ded"
+      "sha256": "88d8d8c67217b3685c38588c33269c4f678a62d8efd97aca94858acaec87fb42"
     }
   ]
 }

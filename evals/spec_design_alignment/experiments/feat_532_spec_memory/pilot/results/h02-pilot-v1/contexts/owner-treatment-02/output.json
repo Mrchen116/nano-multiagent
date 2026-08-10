@@ -1,7 +1,7 @@
 {
-  "reply": "同意。本期配置范围只覆盖 Personal Assistant；Coding CLI 保持不变。底层可以采用产品中立的分类模型选择与省略能力，但不应因此扩大 Coding CLI 的产品范围。",
+  "reply": "不应回退到 PA 的产品级默认模型。未显式配置时保留现有行为：每次自动审批分类继续复用触发该分类的 Agent 或 run 模型。",
   "status": "answered",
   "used_context_refs": [
-    "O01"
+    "O02"
   ]
 }

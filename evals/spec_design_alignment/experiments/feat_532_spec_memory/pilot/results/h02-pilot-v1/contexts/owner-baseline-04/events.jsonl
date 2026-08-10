@@ -1,4 +1,4 @@
-{"type":"thread.started","thread_id":"019fed1c-3530-7572-a474-efd020b1bc48"}
+{"type":"thread.started","thread_id":"019fed69-2a27-7640-ae8e-4f5e8dea5909"}
 {"type":"turn.started"}
-{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"{\"reply\":\"启动时直接报配置错误。显式选择的专用审批模型若不在 Personal Assistant 模型目录中，不允许静默回退或延迟到首次审批时才失败。\",\"used_context_refs\":[\"O03\"],\"status\":\"answered\"}"}}
-{"type":"turn.completed","usage":{"input_tokens":102217,"cached_input_tokens":53248,"cache_write_input_tokens":0,"output_tokens":826,"reasoning_output_tokens":292}}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"{\"reply\":\"同意。显式选择的审批模型若不在 PA 模型目录中，应作为 Gateway 启动配置错误，明确报错且不得生效，也不得静默回退。只有省略该配置时，才保留现有行为，复用触发自动分类的 Agent/run 模型。\",\"used_context_refs\":[\"O02\",\"O03\"],\"status\":\"answered\"}"}}
+{"type":"turn.completed","usage":{"input_tokens":99985,"cached_input_tokens":67328,"cache_write_input_tokens":0,"output_tokens":1388,"reasoning_output_tokens":667}}

@@ -1,5 +1,58 @@
 {
   "cwd": "workspace",
+  "execution": {
+    "cwd": "workspace",
+    "environment_policy": {
+      "codex_home": "role_runtime/codex-home",
+      "home": "role_runtime/home",
+      "keys": [
+        "ALL_PROXY",
+        "CODEX_CI",
+        "CODEX_HOME",
+        "HOME",
+        "HTTPS_PROXY",
+        "HTTP_PROXY",
+        "LANG",
+        "LC_ALL",
+        "NO_PROXY",
+        "PATH",
+        "TERM",
+        "TMPDIR"
+      ],
+      "tmpdir": "role_runtime/tmp"
+    },
+    "resolved_argv": [
+      "/opt/homebrew/bin/codex",
+      "exec",
+      "--ignore-user-config",
+      "--ignore-rules",
+      "--skip-git-repo-check",
+      "--disable",
+      "memories",
+      "--disable",
+      "plugins",
+      "--disable",
+      "apps",
+      "-m",
+      "gpt-5.6-sol",
+      "-c",
+      "model_reasoning_effort=\"medium\"",
+      "-c",
+      "approval_policy=\"never\"",
+      "-c",
+      "sandbox_mode=\"danger-full-access\"",
+      "--output-schema",
+      "$ROLE_RUNTIME/output-schema-01.json",
+      "--json",
+      "-o",
+      "$ROLE_RUNTIME/last-message-01.json",
+      "-s",
+      "danger-full-access",
+      "-C",
+      "$ROLE_WORKSPACE",
+      "-"
+    ]
+  },
   "forbidden_surfaces": [
     "other arm",
     "private truth or rubric",
@@ -12,6 +65,7 @@
   "instructions_sha256": "94d5f8504b1f03e087e81627ab2f92555d21ba829271bf892bc731cf2e1307f3",
   "isolation": {
     "codex_home": "temporary_isolated",
+    "filesystem_read": "macos_sandbox_exec_seatbelt",
     "home": "temporary_isolated",
     "ignore_user_config": true
   },
@@ -19,6 +73,11 @@
   "manifest_id": "candidate-treatment-01",
   "model": "gpt-5.6-sol",
   "output_schema_sha256": "47843ed3e69bc0211b491550f688d9511f0a6562c8f697cb02e275165e1a0ff4",
+  "readable_roots": [
+    "role_runtime",
+    "system_runtime",
+    "workspace"
+  ],
   "reasoning_effort": "medium",
   "role": "candidate",
   "schema_version": "1.0",
@@ -27,7 +86,8 @@
   ],
   "tools": {
     "network": false,
-    "shell": true
+    "shell": true,
+    "workspace_write": true
   },
   "visible_files": [
     {
@@ -60,7 +120,7 @@
     },
     {
       "path": ".experiment/task-memory.md",
-      "sha256": "b4aa20e9dc4153035d866631c8045940ca4e266e655dd3e6c5a42a3325874e48"
+      "sha256": "787528882f940100fa167cb1f418aee8741cc2843eeb6d4f4a464559af8034aa"
     },
     {
       "path": ".gitattributes",
@@ -593,6 +653,10 @@
     {
       "path": "docs/archive/legacy-development-records/LOGBOOK.md",
       "sha256": "d22f99b3611ce67110ed88bb9a25c9a414e921c4560734a2d4094ec803b3d2b6"
+    },
+    {
+      "path": "docs/archive/legacy-development-records/PROGRESS.md",
+      "sha256": "be5813a8f8ffc2e03b55af813c770120fed019b6c2b4efd42de3907e4aff6d76"
     },
     {
       "path": "docs/archive/legacy-development-records/PROGRESS/M100-Gateway-Channel-系统-入站四步流水线.md",
@@ -1403,16 +1467,16 @@
       "sha256": "46167151b084bc33ea39cb13e69d8d63d2ad626d8e128860db3c3aeddeffe73f"
     },
     {
-      "path": "docs/archive/legacy-development-records/PROGRESS.md",
-      "sha256": "be5813a8f8ffc2e03b55af813c770120fed019b6c2b4efd42de3907e4aff6d76"
-    },
-    {
       "path": "docs/archive/legacy-development-records/README.md",
       "sha256": "c191d72fb9317c027ef0f6b633eb946ac4095445c804b67768a7c7f6167fff61"
     },
     {
       "path": "docs/archive/legacy-development-records/ROADMAP.md",
       "sha256": "f15fe928b5672b9dec7f3f0be059ed03f1bc8001fd0cd847413b2c6bd15f6319"
+    },
+    {
+      "path": "docs/archive/legacy-development-records/TASKS.md",
+      "sha256": "1d1f8b653cbf4666f754e4edf72905b017660c194c9759217f577e3cc59e8fea"
     },
     {
       "path": "docs/archive/legacy-development-records/TASKS/M100-Gateway-Channel-系统-入站四步流水线.md",
@@ -2197,10 +2261,6 @@
     {
       "path": "docs/archive/legacy-development-records/TASKS/m29_comment_contract_check.py",
       "sha256": "26f1ae78ba6cab4e033ca328c3f48343dbd16b52fc5951e07425ef235a457769"
-    },
-    {
-      "path": "docs/archive/legacy-development-records/TASKS.md",
-      "sha256": "1d1f8b653cbf4666f754e4edf72905b017660c194c9759217f577e3cc59e8fea"
     },
     {
       "path": "docs/archive/legacy-development-records/acceptance-scripts/run_m106_acceptance.py",
@@ -4295,42 +4355,6 @@
       "sha256": "46bc3ed3c15c9b75f66bd61eec21609865fb23826b293fafa8a958378453413e"
     },
     {
-      "path": "docs/changes/archive/feat-340-agent-native-im/M19-fix-visual-alignment/evidence/actual/account-1440.png",
-      "sha256": "41c2fa5a85000eef198a38e2513d8ae4b178b66a68bfd85a1df2faa06ee99560"
-    },
-    {
-      "path": "docs/changes/archive/feat-340-agent-native-im/M19-fix-visual-alignment/evidence/actual/account-375.png",
-      "sha256": "4f32ab5c5272602c12af5b035f584f83e426e1ee5fd07c68a586bcb62c52f99f"
-    },
-    {
-      "path": "docs/changes/archive/feat-340-agent-native-im/M19-fix-visual-alignment/evidence/actual/agents-375.png",
-      "sha256": "a77eeab32388babadf050748de8ac4314d572bb677701756d70503bde75c9b98"
-    },
-    {
-      "path": "docs/changes/archive/feat-340-agent-native-im/M19-fix-visual-alignment/evidence/actual/agents-detail-1440.png",
-      "sha256": "bd3e2ae5bad3f19678659a4d557953240b4381132526e9cc2f5f756f7a38f530"
-    },
-    {
-      "path": "docs/changes/archive/feat-340-agent-native-im/M19-fix-visual-alignment/evidence/actual/chat-1440.png",
-      "sha256": "8e1daabbccc64f5bb4db7709215d253ef0eb5330c80b9c0068d0cbb91df423c6"
-    },
-    {
-      "path": "docs/changes/archive/feat-340-agent-native-im/M19-fix-visual-alignment/evidence/actual/chat-375.png",
-      "sha256": "9f392dff5f8108fbab493c3f725ae99346677e010f40edc8e1101f5b827d8677"
-    },
-    {
-      "path": "docs/changes/archive/feat-340-agent-native-im/M19-fix-visual-alignment/evidence/actual/me-375.png",
-      "sha256": "63ef5464370765269c8e2ed6d6d0a7f2d18a2c5e5d40d5f4b28647e6380ef3bd"
-    },
-    {
-      "path": "docs/changes/archive/feat-340-agent-native-im/M19-fix-visual-alignment/evidence/actual/nodes-1440.png",
-      "sha256": "0b58f2f5c9e0e3b4e2780e2f395b718653027146374da9b3a32bca09a9ef55f9"
-    },
-    {
-      "path": "docs/changes/archive/feat-340-agent-native-im/M19-fix-visual-alignment/evidence/actual/nodes-375.png",
-      "sha256": "5df3b489f012c47a4e3bee7fa4019ed0858c77c95a3aafd41624f5f214045ac5"
-    },
-    {
       "path": "docs/changes/archive/feat-340-agent-native-im/M19-fix-visual-alignment/evidence/actual-r10/account-1440.png",
       "sha256": "ed104a877235ac175731ee29eb18ff2990f2e3d585aa9d257a122401ed6649ce"
     },
@@ -4365,6 +4389,42 @@
     {
       "path": "docs/changes/archive/feat-340-agent-native-im/M19-fix-visual-alignment/evidence/actual-r10/nodes-375.png",
       "sha256": "a4a9d7ca3dfd88d7aab94c817a423ce8f8b3a2afba873ad8cbe569d85d5dc003"
+    },
+    {
+      "path": "docs/changes/archive/feat-340-agent-native-im/M19-fix-visual-alignment/evidence/actual/account-1440.png",
+      "sha256": "41c2fa5a85000eef198a38e2513d8ae4b178b66a68bfd85a1df2faa06ee99560"
+    },
+    {
+      "path": "docs/changes/archive/feat-340-agent-native-im/M19-fix-visual-alignment/evidence/actual/account-375.png",
+      "sha256": "4f32ab5c5272602c12af5b035f584f83e426e1ee5fd07c68a586bcb62c52f99f"
+    },
+    {
+      "path": "docs/changes/archive/feat-340-agent-native-im/M19-fix-visual-alignment/evidence/actual/agents-375.png",
+      "sha256": "a77eeab32388babadf050748de8ac4314d572bb677701756d70503bde75c9b98"
+    },
+    {
+      "path": "docs/changes/archive/feat-340-agent-native-im/M19-fix-visual-alignment/evidence/actual/agents-detail-1440.png",
+      "sha256": "bd3e2ae5bad3f19678659a4d557953240b4381132526e9cc2f5f756f7a38f530"
+    },
+    {
+      "path": "docs/changes/archive/feat-340-agent-native-im/M19-fix-visual-alignment/evidence/actual/chat-1440.png",
+      "sha256": "8e1daabbccc64f5bb4db7709215d253ef0eb5330c80b9c0068d0cbb91df423c6"
+    },
+    {
+      "path": "docs/changes/archive/feat-340-agent-native-im/M19-fix-visual-alignment/evidence/actual/chat-375.png",
+      "sha256": "9f392dff5f8108fbab493c3f725ae99346677e010f40edc8e1101f5b827d8677"
+    },
+    {
+      "path": "docs/changes/archive/feat-340-agent-native-im/M19-fix-visual-alignment/evidence/actual/me-375.png",
+      "sha256": "63ef5464370765269c8e2ed6d6d0a7f2d18a2c5e5d40d5f4b28647e6380ef3bd"
+    },
+    {
+      "path": "docs/changes/archive/feat-340-agent-native-im/M19-fix-visual-alignment/evidence/actual/nodes-1440.png",
+      "sha256": "0b58f2f5c9e0e3b4e2780e2f395b718653027146374da9b3a32bca09a9ef55f9"
+    },
+    {
+      "path": "docs/changes/archive/feat-340-agent-native-im/M19-fix-visual-alignment/evidence/actual/nodes-375.png",
+      "sha256": "5df3b489f012c47a4e3bee7fa4019ed0858c77c95a3aafd41624f5f214045ac5"
     },
     {
       "path": "docs/changes/archive/feat-340-agent-native-im/M19-fix-visual-alignment/evidence/proto/account-1440.png",
@@ -4903,42 +4963,6 @@
       "sha256": "775faf56b7410535419fcd3f72883832318fe674233d06529c9f63fc59a20476"
     },
     {
-      "path": "docs/changes/archive/feat-340-agent-native-im/acceptance-r12-evidence/actual/account-1440.png",
-      "sha256": "bc175fe7295b7aabf55cf1e007db526efbd6e19c66f7e6c761c717a68de8b34b"
-    },
-    {
-      "path": "docs/changes/archive/feat-340-agent-native-im/acceptance-r12-evidence/actual/account-375.png",
-      "sha256": "a54b8541847bfb556b2ee52dee8c7292c489aad62597e7833f16b57f2855659b"
-    },
-    {
-      "path": "docs/changes/archive/feat-340-agent-native-im/acceptance-r12-evidence/actual/agents-375.png",
-      "sha256": "7059191cc6153607a5d5494b818bfbc4beed7ae60b7429975e57eb2d5fb7900b"
-    },
-    {
-      "path": "docs/changes/archive/feat-340-agent-native-im/acceptance-r12-evidence/actual/agents-detail-1440.png",
-      "sha256": "08e71f5d51eb886b0e1e0ba5b5360a62b59e45545676d11ec90a8ea725de66ef"
-    },
-    {
-      "path": "docs/changes/archive/feat-340-agent-native-im/acceptance-r12-evidence/actual/chat-1440.png",
-      "sha256": "9d0b24d273defafd36b01290396eceb367751ab4a23f1ff8dee9dc8c51b052d0"
-    },
-    {
-      "path": "docs/changes/archive/feat-340-agent-native-im/acceptance-r12-evidence/actual/chat-375.png",
-      "sha256": "d9a1ea8a516968e13f493c81d6813b19aa2b9bdf96f139615cab2d3df40f5e51"
-    },
-    {
-      "path": "docs/changes/archive/feat-340-agent-native-im/acceptance-r12-evidence/actual/me-375.png",
-      "sha256": "cfcc9fd9922d2f590a136a3268bd370124b381294b5bcc46a1f4c7658fc72b94"
-    },
-    {
-      "path": "docs/changes/archive/feat-340-agent-native-im/acceptance-r12-evidence/actual/nodes-1440.png",
-      "sha256": "c324042ea43d9e2cb018b26dd7dd5407bfe2da744cc3546593542e29c399fc8f"
-    },
-    {
-      "path": "docs/changes/archive/feat-340-agent-native-im/acceptance-r12-evidence/actual/nodes-375.png",
-      "sha256": "04b36461fce266dfcb6167890e50504694ae5e1c5307bd319c29f3f5f1a0ca37"
-    },
-    {
       "path": "docs/changes/archive/feat-340-agent-native-im/acceptance-r12-evidence/actual-redo/account-1440.png",
       "sha256": "e65d7691762965b5fb624f610befdb022e305e2d1cf889db928a1809ace96704"
     },
@@ -4973,6 +4997,42 @@
     {
       "path": "docs/changes/archive/feat-340-agent-native-im/acceptance-r12-evidence/actual-redo/nodes-375.png",
       "sha256": "8579a610d048945d20e909b121702beee2bd92c14e014615dd043fcf9626287e"
+    },
+    {
+      "path": "docs/changes/archive/feat-340-agent-native-im/acceptance-r12-evidence/actual/account-1440.png",
+      "sha256": "bc175fe7295b7aabf55cf1e007db526efbd6e19c66f7e6c761c717a68de8b34b"
+    },
+    {
+      "path": "docs/changes/archive/feat-340-agent-native-im/acceptance-r12-evidence/actual/account-375.png",
+      "sha256": "a54b8541847bfb556b2ee52dee8c7292c489aad62597e7833f16b57f2855659b"
+    },
+    {
+      "path": "docs/changes/archive/feat-340-agent-native-im/acceptance-r12-evidence/actual/agents-375.png",
+      "sha256": "7059191cc6153607a5d5494b818bfbc4beed7ae60b7429975e57eb2d5fb7900b"
+    },
+    {
+      "path": "docs/changes/archive/feat-340-agent-native-im/acceptance-r12-evidence/actual/agents-detail-1440.png",
+      "sha256": "08e71f5d51eb886b0e1e0ba5b5360a62b59e45545676d11ec90a8ea725de66ef"
+    },
+    {
+      "path": "docs/changes/archive/feat-340-agent-native-im/acceptance-r12-evidence/actual/chat-1440.png",
+      "sha256": "9d0b24d273defafd36b01290396eceb367751ab4a23f1ff8dee9dc8c51b052d0"
+    },
+    {
+      "path": "docs/changes/archive/feat-340-agent-native-im/acceptance-r12-evidence/actual/chat-375.png",
+      "sha256": "d9a1ea8a516968e13f493c81d6813b19aa2b9bdf96f139615cab2d3df40f5e51"
+    },
+    {
+      "path": "docs/changes/archive/feat-340-agent-native-im/acceptance-r12-evidence/actual/me-375.png",
+      "sha256": "cfcc9fd9922d2f590a136a3268bd370124b381294b5bcc46a1f4c7658fc72b94"
+    },
+    {
+      "path": "docs/changes/archive/feat-340-agent-native-im/acceptance-r12-evidence/actual/nodes-1440.png",
+      "sha256": "c324042ea43d9e2cb018b26dd7dd5407bfe2da744cc3546593542e29c399fc8f"
+    },
+    {
+      "path": "docs/changes/archive/feat-340-agent-native-im/acceptance-r12-evidence/actual/nodes-375.png",
+      "sha256": "04b36461fce266dfcb6167890e50504694ae5e1c5307bd319c29f3f5f1a0ca37"
     },
     {
       "path": "docs/changes/archive/feat-340-agent-native-im/acceptance-r13-evidence/actual/account-1440.png",
@@ -12511,26 +12571,6 @@
       "sha256": "6275490511a6e7cd13c617f3a9332011d309b63d4130342e66ca92ab8a826871"
     },
     {
-      "path": "src/personal_assistant/builtin_skills/lark-vc/SKILL.md",
-      "sha256": "07663b7ba87a5ab97e6b23f453ceb619b4de365720998d143fabe9b57c0ecb76"
-    },
-    {
-      "path": "src/personal_assistant/builtin_skills/lark-vc/references/lark-vc-detail.md",
-      "sha256": "d81cdc3c912ab3ac210400c24f89e7bbe3ce1dbc4959fecde1d41bb468804b61"
-    },
-    {
-      "path": "src/personal_assistant/builtin_skills/lark-vc/references/lark-vc-recording.md",
-      "sha256": "c50a44ee100e74d25ce0d905db905a18e270aa5515c08c852e24bb747fe0e027"
-    },
-    {
-      "path": "src/personal_assistant/builtin_skills/lark-vc/references/lark-vc-search.md",
-      "sha256": "8dc308892a51457a7e4fa2e1f1d2a22653beaa54de46d6d3a6da41f132fe517c"
-    },
-    {
-      "path": "src/personal_assistant/builtin_skills/lark-vc/references/vc-domain-boundaries.md",
-      "sha256": "a172286cc44dacbb1cb873b8447e03b7dcb58678300e316a2c009ad4041ccc04"
-    },
-    {
       "path": "src/personal_assistant/builtin_skills/lark-vc-agent/SKILL.md",
       "sha256": "1d6d57b68e23e965d7f7b6510414dce04d5dcaa6efcf51e9a80db3f6bf27f973"
     },
@@ -12553,6 +12593,26 @@
     {
       "path": "src/personal_assistant/builtin_skills/lark-vc-agent/references/lark-vc-agent-meeting-message-send.md",
       "sha256": "fb2b02f66a0d845fc2379a7a43db35790c8294df0ef5a3cc35161ff238e6511c"
+    },
+    {
+      "path": "src/personal_assistant/builtin_skills/lark-vc/SKILL.md",
+      "sha256": "07663b7ba87a5ab97e6b23f453ceb619b4de365720998d143fabe9b57c0ecb76"
+    },
+    {
+      "path": "src/personal_assistant/builtin_skills/lark-vc/references/lark-vc-detail.md",
+      "sha256": "d81cdc3c912ab3ac210400c24f89e7bbe3ce1dbc4959fecde1d41bb468804b61"
+    },
+    {
+      "path": "src/personal_assistant/builtin_skills/lark-vc/references/lark-vc-recording.md",
+      "sha256": "c50a44ee100e74d25ce0d905db905a18e270aa5515c08c852e24bb747fe0e027"
+    },
+    {
+      "path": "src/personal_assistant/builtin_skills/lark-vc/references/lark-vc-search.md",
+      "sha256": "8dc308892a51457a7e4fa2e1f1d2a22653beaa54de46d6d3a6da41f132fe517c"
+    },
+    {
+      "path": "src/personal_assistant/builtin_skills/lark-vc/references/vc-domain-boundaries.md",
+      "sha256": "a172286cc44dacbb1cb873b8447e03b7dcb58678300e316a2c009ad4041ccc04"
     },
     {
       "path": "src/personal_assistant/builtin_skills/lark-whiteboard/SKILL.md",

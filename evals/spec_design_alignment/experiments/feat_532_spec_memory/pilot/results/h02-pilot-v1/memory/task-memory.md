@@ -5,192 +5,192 @@ Use an entry only when it applies to the current repository evidence and task.
 
 ## M01 — user_preference
 
-Analyze the code, product surfaces, and real risks before asking clarification questions. Do not hand obvious or technically decidable analysis back to the user; present a reasoned recommendation and reserve questions for genuine product choices.
+Preserve the user's clarification answers verbatim. Put any paraphrase or interpretation in a separate `Agent 解读` field so implicit qualifications are not lost downstream.
 
-Applicability: When drafting clarifications, resolving scope, or choosing among technically constrained options.
+Applicability: When writing specs, fix documents, clarification logs, or retrospective records from a conversation.
 Confidence: high
-Source refs: source-0002:L30-L35, source-0008:L18-L19, source-0105:L16-L21
+Source refs: source-0068:L5-L11, source-0068:L27-L32
 
 ## M02 — user_preference
 
-Keep each change tightly scoped to the directly affected behavior and ownership boundary. Do not opportunistically refactor adjacent systems, especially when the requirement belongs to one product rather than the shared SDK.
+State small rules concisely and precisely; do not bury a simple requirement under repeated warnings, examples, or lengthy rationale.
 
-Applicability: When defining in-scope modules, consumers, and non-goals.
+Applicability: When authoring skills, specifications, acceptance rules, and corrective guidance.
 Confidence: high
-Source refs: source-0004:L32-L34, source-0110:L39-L41, source-0186:L25-L27
+Source refs: source-0068:L9-L15, source-0089:L41-L44, source-0096:L51-L53
 
-## M03 — design_principle
+## M03 — common_correction
 
-Specs and long-lived contracts should describe consumer-observable behavior, not internal function calls, log strings, or implementation structure. Tests that merely lock mock calls or no-op internals have weak long-term value.
+Investigate the actual product and code context before asking clarification questions. Bring the user an analyzed recommendation with real tradeoffs instead of transferring the analysis back to them.
 
-Applicability: When writing requirements, acceptance criteria, evergreen contracts, or selecting regression tests.
+Applicability: Before requirement clarification, especially when product scope or an existing behavior can be established from evidence.
 Confidence: high
-Source refs: source-0089:L22-L28, source-0112:L19-L21
+Source refs: source-0002:L29-L35, source-0008:L17-L19, source-0184:L33-L35
 
-## M04 — product_judgment
+## M04 — design_principle
 
-A design document must be a self-contained design for the requested behavior, readable enough for human review and unambiguous enough to guide implementation. Choose diagrams according to the requirement's actual difficulty without asking the user to select diagram types.
+Define each agent role by its outcome and responsibility first. Procedures and hard rules are supporting scaffolding; when the procedure is incomplete, the role should use its objective as the decision-making north star.
 
-Applicability: When defining design deliverables or reviewing design-document completeness.
+Applicability: When designing agent workflows, role prompts, or operating skills.
 Confidence: high
-Source refs: source-0096:L25-L38, source-0096:L45-L49
+Source refs: source-0047:L12-L18, source-0047:L24-L30, source-0047:L36-L42
 
-## M05 — product_judgment
+## M05 — user_preference
 
-A product prototype is an implementation contract, not a moodboard. Design should inspect the current UX, preserve the relevant entry points and inherited interaction traits, and record conclusions rather than an evidence-gathering transcript.
+Reduce process tax and let the responsible agent choose whether to work directly, decompose, or delegate. Preserve only risk-justified invariants such as isolated unit worktrees, engineering-quality obligations, and independent reviewer, verifier, and code-review gates.
 
-Applicability: When a UI change includes a prototype or must integrate with an existing experience.
+Applicability: When simplifying an implementation workflow or deciding which process constraints are essential.
 Confidence: high
-Source refs: source-0004:L36-L42
+Source refs: source-0008:L5-L18, source-0008:L20-L30, source-0008:L31-L32
 
 ## M06 — design_principle
 
-Equivalent preview, runtime, and multi-consumer behavior should come from one underlying resolver or capability rather than independent implementations. Shared mechanics belong at the reusable kernel/SDK boundary; product surfaces should be validating consumers.
+Run all independent quality gates for initial validation, then revalidate after fixes according to the actual delta. Retain unaffected conclusions only with an explicit invalidation analysis; use targeted checks for narrow changes and restore full validation for high-risk changes or uncertain impact.
 
-Applicability: When the same behavior appears in preview/runtime, IM/CLI, or future product integrations.
+Applicability: When specifying fix loops, validation ledgers, or PR evidence after review findings.
 Confidence: high
-Source refs: source-0002:L33-L35, source-0196:L20-L28
+Source refs: source-0013:L19-L27, source-0013:L41-L47
 
-## M07 — design_principle
+## M07 — product_judgment
 
-Keep the SDK product-neutral: expose stable capabilities and data contracts, while product-specific composition and presentation semantics stay in the owning product layer. New products should compose the kernel without adding product branches inside the SDK.
+A UI prototype is an implementation contract for the final user experience, not an inspiration board. It must first ground itself in the existing product's pages, components, hierarchy, and interaction patterns, then show how the increment fits them.
 
-Applicability: When deciding whether behavior belongs in core, SDK, Gateway, CLI, or another product adapter.
+Applicability: For frontend requirements, prototypes, visual references, and their implementation or review criteria.
 Confidence: high
-Source refs: source-0110:L30-L35, source-0110:L42-L44
+Source refs: source-0004:L18-L22, source-0004:L36-L48
 
-## M08 — common_correction
+## M08 — product_judgment
 
-For a pure refactor, preserve user and operator workflows, visible results, and failure/recovery behavior, while allowing internal fields, protocols, persistence shapes, and module boundaries to change. Do not smuggle unrelated new features into an invariance change.
+Aim for restrained, commercial-grade UI rather than demo-grade or overdesigned controls. Keep primary content readable and native interactions intact; expose secondary message actions only when needed and integrate new controls subtly into the existing surface.
 
-Applicability: When specifying or reviewing refactors and migrations.
+Applicability: When designing Web IM or similarly content-centric interaction surfaces.
 Confidence: high
-Source refs: source-0112:L14-L21, source-0112:L22-L27, source-0195:L15-L20
+Source refs: source-0182:L13-L21, source-0182:L23-L35, source-0184:L8-L13
 
-## M09 — user_preference
+## M09 — design_principle
 
-Reduce process tax and role ceremony without deleting engineering safeguards. Implementation organization may be autonomous, but isolation, architecture and coding quality, tests, real-entry verification, root-cause repair, independent review perspectives, and complete delivery remain required.
+Design documents serve two audiences: humans must be able to review the architecture quickly, while implementation agents need unambiguous interfaces, fields, flows, and exit conditions. Use layered detail and diagrams chosen for the requirement's actual structural, sequence, state, data, or branching difficulty.
 
-Applicability: When simplifying agent workflows or deciding which process constraints are essential.
+Applicability: When structuring design.md or deciding which visualizations belong in a technical design.
 Confidence: high
-Source refs: source-0008:L14-L35, source-0012:L15-L17
+Source refs: source-0096:L45-L49, source-0096:L65-L78
 
-## M10 — user_preference
+## M10 — design_principle
 
-Write workflow instructions compactly and positively: state the current rule directly, use imperative language, avoid explaining deleted historical rules, and do not repeat one constraint across multiple sections unless necessary.
+Design review must actively attack architectural choices for quality and optimality, not merely verify factual correctness, completeness, and checklist compliance. Examine ownership, dependency direction, module depth, unnecessary seams, duplicated mechanisms, and symptom-masking patches, and record the analysis even when approved.
 
-Applicability: When authoring skills, agent instructions, runbooks, or process documentation.
+Applicability: For architecture review, design review, and approval criteria.
 Confidence: high
-Source refs: source-0009:L29-L35, source-0012:L23-L29, source-0185:L26-L30
+Source refs: source-0010:L12-L22, source-0010:L28-L38
 
 ## M11 — design_principle
 
-Architecture review must actively judge whether a design is good and near-optimal, not merely factual and complete. Use multiple concrete attack angles and require a plausible failure scenario for each candidate issue; avoid unnecessary shadow-solution rituals.
+Surfaces that promise the same semantics should share one implementation owner or source of truth. Do not maintain parallel runtime, preview, or product-specific implementations that can drift; add a regression check comparing their observable outputs.
 
-Applicability: When reviewing architecture or designing review skills and checklists.
+Applicability: When the same configuration, resolution, rendering, or behavior appears in multiple product paths.
 Confidence: high
-Source refs: source-0010:L20-L34
+Source refs: source-0002:L33-L35, source-0002:L70-L85, source-0196:L20-L28
 
 ## M12 — common_correction
 
-Bug fixes must trace the original design intent and verify the user's original symptom through a real product entry. A red-to-green unit test supplements this evidence but cannot prove that a cross-layer runtime problem was fixed at the correct seam.
+For a bugfix, trace the feature's originating change and record its original intent and invariants before choosing a repair. Removing the failing path may erase the symptom while silently crippling the intended capability.
 
-Applicability: When diagnosing regressions, writing fix acceptance criteria, or validating backend/runtime repairs.
+Applicability: During bugfix RCA, fix-spec authoring, and design constraints for existing features.
 Confidence: high
-Source refs: source-0181:L25-L41, source-0181:L45-L49
+Source refs: source-0179:L9-L17, source-0179:L19-L35
 
-## M13 — user_preference
+## M13 — common_correction
 
-Avoid speculative backward-compatibility machinery in development-stage or coordinated upgrades. Distinguish redundant mixed-version protocol fallbacks from preservation of real stored user choices or state; the latter may still require an explicit migration/read semantic.
+Passing unit tests is not proof that the user's problem is solved. Reproduce the original symptom through the real browser, CLI, endpoint, or other product entry after the change; for visual work, compare the running product with the supplied reference.
 
-Applicability: When considering aliases, schema negotiation, legacy fallbacks, or migration behavior.
+Applicability: For runtime bugfix completion, frontend work, and live-critical acceptance.
 Confidence: high
-Source refs: source-0121:L44-L45, source-0184:L37-L39, source-0195:L45-L50
+Source refs: source-0181:L13-L23, source-0181:L27-L41, source-0099:L28-L41
 
-## M14 — product_judgment
+## M14 — design_principle
 
-Newly discovered or installed capabilities must not silently expand an existing user's explicit saved selection. Defaults may apply to new or still-default configurations, while explicit enable/disable choices remain authoritative across upgrades.
+Keep long-lived specifications at the consumer-observable contract level. Internal calls, logging strings, and implementation topology belong in design or code evidence, not in the durable behavioral contract or tests that merely lock an implementation.
 
-Applicability: When adding built-ins, skills, providers, tools, or other configurable capabilities.
+Applicability: When writing canonical specs, acceptance criteria, or long-lived regression tests.
 Confidence: high
-Source refs: source-0006:L18-L26, source-0184:L25-L27
+Source refs: source-0089:L22-L28, source-0089:L30-L44
 
 ## M15 — design_principle
 
-Fail loudly on invalid explicit configuration or provider failure instead of silently falling back to a different choice. Errors should name the missing configuration, unreachable provider, invalid model, or exact required fields so users or models can correct the problem.
+Close each completed change by updating the maintained, long-lived spec and architecture documents. Define what those documents contain before backfilling them; otherwise stale or poorly structured documents will continue to rot.
 
-Applicability: When specifying configuration validation, provider selection, tool schemas, and fallback behavior.
+Applicability: When designing SDD document lifecycle, archival, or unit completion requirements.
 Confidence: high
-Source refs: source-0178:L21-L30, source-0189:L35-L41, source-0195:L41-L50
+Source refs: source-0067:L14-L28, source-0067:L30-L40
 
-## M16 — product_judgment
+## M16 — common_correction
 
-User-facing failures should be semantic, actionable, and attributable. Preserve useful upstream details, clearly mark failure state and responsible agent, distinguish user denial from automatic policy denial, and retain the user's unfinished request for later recovery without injecting synthetic failure text into model history.
+Retrospectives should reconstruct evidence and timelines, then follow the actual clues to the current failure's root causes. Prior incidents are examples, not a fixed checklist that every future retrospective must mechanically apply.
 
-Applicability: When designing model/tool error handling, denial feedback, and recovery semantics.
+Applicability: For incident analysis, workflow retrospectives, and improvement proposals.
 Confidence: high
-Source refs: source-0001:L23-L37, source-0088:L26-L48
+Source refs: source-0042:L15-L20, source-0042:L32-L40
 
-## M17 — product_judgment
+## M17 — user_preference
 
-Permission UI must show the requested tool and complete input before the user decides. Pending approval is not execution: show running only after allow, show denied without pretending the tool ran, and preserve each decision rather than overwriting approval history.
+Prefer clear written norms that agents are guaranteed to read before adding mechanical enforcement. Add contract checks only for rules that remain repeatedly violated; first identify the concrete production defects the guidance must prevent.
 
-Applicability: When specifying approval cards, tool timelines, or execution-state presentation.
+Applicability: When introducing testing, coding, documentation, or workflow governance.
 Confidence: high
-Source refs: source-0121:L31-L45
+Source refs: source-0046:L13-L25, source-0046:L27-L29
 
-## M18 — design_principle
+## M18 — user_preference
 
-Lifecycle cleanup belongs at the ownership boundary: when a parent service exits, its owned listeners or workers should exit with it. Do not make next-start orphan scanning or inactivity heuristics the primary correctness mechanism.
+Do not add speculative legacy fallbacks, mixed-version protocol negotiation, or backward-compatibility state unless a real supported compatibility requirement exists. Prefer one current canonical contract and fail clearly when required current configuration is absent.
 
-Applicability: When defining subprocess, listener, channel, worker, or resource ownership and shutdown behavior.
+Applicability: When evolving schemas, configuration formats, internal protocols, or discovery behavior.
 Confidence: high
-Source refs: source-0101:L18-L28
+Source refs: source-0184:L37-L39, source-0195:L45-L50
 
-## M19 — design_principle
+## M19 — user_preference
 
-Critical end-to-end tests should exercise real user journeys through public product interfaces and the real process stack, with robust observable assertions. Prioritize the common agent path that includes a genuine tool call, plus cross-layer journeys such as approvals, restart continuity, and group-directed interaction.
+Keep changes tightly scoped to the diagnosed requirement. Avoid unrelated refactors, repository-specific overfitting of reusable skills, and extra tracking machinery whose complexity does not advance the requested outcome.
 
-Applicability: When defining commercial-grade smoke tests, critical-path catalogs, or e2e acceptance.
+Applicability: When defining unit boundaries, adapting reusable skills, or reviewing proposed implementation scope.
 Confidence: high
-Source refs: source-0124:L38-L56
+Source refs: source-0004:L18-L18, source-0004:L32-L34, source-0039:L31-L37
 
-## M20 — product_judgment
+## M20 — user_preference
 
-For IM interaction design, optimize from a commercial product baseline: content reading and native interaction come first, secondary actions appear on demand, and the solution should converge to a coherent final design without becoming a feature grab bag or an overdesigned visual treatment.
+Once requirements and design are clear, the implementation and validation loop should close autonomously without routine human intervention. Missing live evidence should cause environmental repair or a return to the worker, not a downgraded completion claim.
 
-Applicability: When specifying or reviewing message, chat, and general end-user interaction UX.
+Applicability: When specifying orchestrator behavior for implementation, environment failures, and live-critical work.
 Confidence: high
-Source refs: source-0182:L17-L21, source-0190:L25-L29
+Source refs: source-0185:L22-L34, source-0185:L40-L45
 
-## M21 — domain_knowledge
+## M21 — design_principle
 
-Running-session steering is a round-boundary operation, distinct from abort: finish the active tool batch, inject all newly received messages before the next model call, preserve FIFO order, and use the same reusable mechanism across consumers.
+When learning from a reference implementation, inspect the authoritative original rather than relying on a secondary summary. Any simplification of researched behavior is legitimate only when explicitly identified and justified in the design.
 
-Applicability: When specifying concurrent user input during an active agent run.
+Applicability: When adapting behavior from another product, repository, study, or reference implementation.
 Confidence: high
-Source refs: source-0196:L17-L28
+Source refs: source-0170:L414-L416
 
-## M22 — product_judgment
+## M22 — domain_knowledge
 
-Derived model context should not mutate user-authored message content or pollute display, copy, and search. Preserve per-message source facts, use reliable source timestamps with a documented receive-time fallback, and do not fabricate metadata for historical records lacking evidence.
+Long-running agent work should not be constrained by a short absolute wall-clock deadline. Detect a stuck run using inactivity—resetting the deadline whenever relevant events arrive—so productive tasks may continue for hours.
 
-Applicability: When adding timestamps, channel provenance, routing context, or other model-only envelopes.
+Applicability: When specifying streaming run lifecycle, CLI waiting behavior, or watchdog timeouts.
 Confidence: high
-Source refs: source-0186:L28-L47
+Source refs: source-0007:L16-L27
 
-## M23 — user_preference
+## M23 — domain_knowledge
 
-Prefer the installed product version and observable local state as the default documentation authority. Consult remote material only when the user explicitly asks about the latest version or changes, and clearly identify version differences.
+User steering during an active run should enter at the next model-round boundary without interrupting tools already executing. Multiple messages should be injected FIFO without loss, and the mechanism should be a shared core capability rather than separate product implementations.
 
-Applicability: When building product-manual or documentation-answering capabilities.
+Applicability: When specifying active-run steering for multiple clients or product entry points.
 Confidence: high
-Source refs: source-0006:L15-L17
+Source refs: source-0196:L15-L28
 
 ## M24 — design_principle
 
-Operational logs should contain the identifiers and measurements needed for diagnosis, such as model, agent, session, token counts, and rates, but not prompt bodies or user content.
+Maintain a small catalog of critical end-to-end user journeys and guard them through real product interfaces and process boundaries. Favor representative journeys that exercise the dominant seams, and keep expensive true-LLM suites explicitly runnable even when they are not part of every CI run.
 
-Applicability: When specifying diagnostics, alerts, telemetry, or cache/performance logging.
+Applicability: When defining end-to-end test strategy and deciding which product paths require black-box coverage.
 Confidence: high
-Source refs: source-0176:L25-L28
+Source refs: source-0124:L18-L34, source-0124:L38-L52

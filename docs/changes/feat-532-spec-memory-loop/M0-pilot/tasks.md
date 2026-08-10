@@ -77,6 +77,6 @@ Prototype / Reference Contract：N/A。
 
 ### R7 — Round 1 新 seal 实跑与证据替换
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 代码提交后从 clean tracked snapshot 运行全新 H02，旧 bundle 不复用；新 bundle replay/泄漏/schema/secret/diff 门禁通过后替换版本化结果并更新 progress。
 - 验证: 真实 Codex invocation receipt 数、新 seal/evidence hash、全量 focused/shared tests、docs/Ruff format/diff checks。

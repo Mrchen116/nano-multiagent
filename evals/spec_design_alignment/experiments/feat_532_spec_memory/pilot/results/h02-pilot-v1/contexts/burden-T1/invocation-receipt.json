@@ -1,12 +1,12 @@
 {
-  "event_count": 8,
+  "event_count": 6,
   "exit_code": 0,
   "formal_eligible": false,
   "manifest_id": "burden-T1",
-  "output_sha256": "0f51ba6cdbd88b3a3636fe578979010844fcc2a2378b447a79001b676a30f4bd",
+  "output_sha256": "c66f411c586c9735fa51bbb1d05b68f95d4aa4df21600e5eb9036e9ad4a9ad02",
   "real_codex_cli": true,
   "schema_version": "1.0",
-  "session_id": "019fed28-6a52-7bd0-aa83-b741b7ead1cd",
+  "session_id": "019fed78-1541-7213-b9c3-7a1b7717cfad",
   "temporary_auth_copy_retained": false,
   "turn": 1
 }
