@@ -10,10 +10,10 @@ run 的用户可见投递面；普通 `RunOrigin.BACKGROUND_TASK` run 的结果�
 
 ## 退出标准
 
-- [ ] 真实 self-evolution fork 的 raw assistant/tool/turn 输出不发布到父 session event stream。
-- [ ] memory/skill side effect、父模型、workspace-scoped hook/tool、unattended permission 语义保持不变。
-- [ ] review 完成后仍只发布一条结构化 `self_evolution_review`。
-- [ ] 普通 background Agent 的用户可见结果不被全局抑制。
+- [x] 真实 self-evolution fork 的 raw assistant/tool/turn 输出不发布到父 session event stream。
+- [x] memory/skill side effect、父模型、workspace-scoped hook/tool、unattended permission 语义保持不变。
+- [x] review 完成后仍只发布一条结构化 `self_evolution_review`。
+- [x] 普通 background Agent 的用户可见结果不被全局抑制。
 
 ## 测试策略
 
@@ -41,18 +41,18 @@ Prototype / Reference Contract：N/A。
 
 ### R1 — 真实 fork session-event 红测与隔离修复
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 用受控两阶段 LLM 让主 turn 正常回答、self-evolution fork 调用真实 memory 后生成 `Saved: ...`；确认当前实现把 raw assistant/tool/turn 发布到 session stream，再在 fork HookContext 最小隔离 session-event publisher。
 - 验证: 红测失败点必须是 raw side-chain event 可见；修复后同一测试证明 `USER.md` 已更新、事件流只有主回答和一条 structured notice。
 
 ### R2 — 继承不变量与既有测试维护
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 更新既有 fork context 断言，确认 model caller、permission requester、workspace scope、background origin 保留，普通 background/realtime 行为无全局过滤。
 - 验证: 相关 unit/integration suites 全绿。
 
 ### R3 — 比例门禁与 Bugfix lite 证据闭环
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 运行 Ruff、diff/doc checks 与比例扩大测试；回填 `progress.md` 和 `fix.md` 修复/验证。
 - 验证: 所有计划门禁通过，文档含生产证据 locator、红绿测试与残余风险。

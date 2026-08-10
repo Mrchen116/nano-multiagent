@@ -57,4 +57,44 @@ Saved: user expects reference behavior to be verified before proposing or implem
 
 ## 修复
 
+在 self-evolution fork 的既有 `make_fork_conversation()` HookContext 派生边界隔离
+`session_event_publisher`：fork 仍保留父 run 的模型调用能力、workspace execution
+scope、tool registry、permission requester 与 `background_task` unattended 语义，但其
+内部 realtime assistant/tool/turn events 写入 no-op publisher，不再复用父 session 的
+Gateway delivery publisher。fork 返回后，`self_improvement` 仍使用父 background hook
+context 发布唯一一条结构化 `self_evolution_review`。
+
+没有按 `RunOrigin.BACKGROUND_TASK` 做全局过滤；普通后台 Agent assistant result 的既有
+Gateway subscriber 路由保持不变。
+
+修复提交：
+
+- `de432ddd1` — 隔离 self-evolution raw session events，并补真实 Kernel fork integration regression 与继承不变量断言。
+
 ## 验证
+
+修前生产症状由以下只读证据交叉定位：
+
+- session `sess_5f9eeb9f7479dd13` 的 `2026-08-10_09-41-03_357-req-anthropic_messages.json` 含 memory review prompt，响应调用 `memory(action=add, target=user)`；
+- 同目录 `2026-08-10_09-41-09_400-non-stream-res-anthropic_messages.json` 的终态 assistant content 是 `Saved: user expects reference behavior ...`；
+- `/var/folders/mf/fxm1x6xs7pbf34h6rnmvjz1c0000gn/T/codex-clipboard-ea146fbc-d9d7-41d9-aded-947376fc38e4.png` 显示该 raw completion 成为正常回答后的独立 Agent 气泡。
+
+永久 regression `tests/integration/test_self_evolution_output_visibility.py` 从 public Kernel
+SDK 入口创建真实 session、提交两个前台 turn 触发阈值，再让真实 self-improvement
+background hook 运行两轮 fork：第一轮真执行 `memory(add)`，第二轮生成生产同形态的
+`Saved: ...`。修前该测试稳定红在 session stream 同时出现 foreground answer 与 raw
+`Saved: ...`；修后同一路径通过，并同时证明：
+
+- workspace `USER.md` 确实写入 sentinel，memory side effect 未丢失；
+- 四次模型调用（两个前台、两轮 review）都使用父 session 的 `test-model`；
+- 父 session event stream 不含 review assistant、memory `tool_start/tool_end` 或额外 `turn_end`；
+- stream 仍有正常 foreground answer，且恰好一条 completed `self_evolution_review`；
+- 既有 `test_bg_subscriber_routes_background_task_assistant_message_to_callback` 继续通过，普通 background Agent result 未被抑制。
+
+门禁结果：
+
+- focused self-evolution / fork / realtime / Gateway observer suites：`52 passed`；
+- 完整非 E2E：`3182 passed, 26 deselected`；
+- Ruff：全仓 check 通过，`876 files already formatted`；
+- docs-check：`217 maintained Markdown sources, 67 required routes`；
+- `git diff --check`：通过。
