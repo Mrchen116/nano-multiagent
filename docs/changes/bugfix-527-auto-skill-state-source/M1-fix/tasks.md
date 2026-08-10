@@ -36,13 +36,13 @@
 
 ### R1 — 建立来源链红测并最小贯通 F3
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 从后台 Skill Review hook 入口执行实际 fork wrapper 与 `skill_manage(create)`，先确认 `.usage.json` 错为 F1；再只增加本次 fork 的 metadata override 并让记录变为 F3。
 - 验证: 新增 integration regression 红转绿；skill-only 与 combined 两类 Review 均覆盖。
 
 ### R2 — 锁定不污染边界并扩大回归
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 证明 memory-only Review 不传 Skill 来源，普通 fork 不新增该字段，普通用户 create 仍为 F1；检查其他 fork/蒸馏相关现有测试不变。
 - 验证: self-improvement、background fork、skill_manage、usage、skill_view 聚焦测试与 Ruff 全绿。
 
