@@ -494,6 +494,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         # events published by background hooks reach IM as system/meta messages.
         session_event_callback = build_session_event_callback(
             im_connection_manager_factory=lambda: im_connection_manager,
+            external_reply_sender=_send_external_reply,
         )
 
     background_subscriptions = BackgroundSubscriptionManager(
