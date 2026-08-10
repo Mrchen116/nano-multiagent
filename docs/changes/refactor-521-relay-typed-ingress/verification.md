@@ -92,3 +92,73 @@ None.
 ### SUGGESTION（可以修）
 
 None.
+
+# Round 2
+
+> Validation snapshot: `b5eee0bbeb3269c53a50d223925a79bbadbc8471 → dda6e8aaff6280f59d7c64c347e3eb2392436dd7`
+
+## Verification Report: refactor-521
+
+### Summary
+
+Mode: targeted-closure
+
+Delta range: `b5eee0bbeb3269c53a50d223925a79bbadbc8471...dda6e8aaff6280f59d7c64c347e3eb2392436dd7`
+
+Focus issues: code-review VERIFIED P1 — anchored `RoutedInbound.shadow.ref.conversation_id` 未投影到 durable `ReplyContext`，使 background / preprocessing / system notification 丢失 IM shadow target，后续 inbound 还可能以旧 reply context 覆盖当前 anchor
+
+requires_full_verification: false
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 1/1 focus issue closed |
+| Correctness | 3/3 closure claims covered |
+| Coherence | Followed |
+
+All checks passed. Ready for PR.
+
+## Targeted Closure
+
+| 核对项 | 实现 / 测试证据 | 结论 |
+|---|---|---|
+| 第一次 anchored binding 显式持久化 IM shadow target | `_build_routed_reply_context()` 只从 `routed.shadow.ref` 投影 `shadow_conversation_id` scalar，并在普通 run 的 binding resolve 前使用：`src/personal_assistant/gateway/session_run_coordinator.py:112-125,1195-1207`。组合回归从真实 typed shadow sync 进入 pipeline，随后经 binding 的 public delivery resolver 得到 `shadow-conv-1`：`tests/unit/personal_assistant/test_inbound_pipeline_session.py:238-290`。 | closed |
+| 第二次 anchored inbound 刷新 authoritative target | 同一 session key 的第二条 external event 把 typed anchor 改为 `shadow-conv-2`，测试从刷新后的 binding 解析到新 target：`tests/unit/personal_assistant/test_inbound_pipeline_session.py:292-309`。`GatewaySessionBinder.resolve()` 对既有 binding 调 repository `bind(... reply_context=request.reply_context)`，SQLite 与内存 repository 都替换 reply context 而保留 session identity：`src/personal_assistant/gateway/session_binder.py:249-286`; `src/personal_assistant/gateway/session_keys.py:120-151,736-801`。 | closed |
+| background / preprocessing / system notification 可解析同一 IM target | background text 与 self-evolution system notification 都经 `reply_context_im_conversation_id()` 解析 `shadow_conversation_id`：`src/personal_assistant/gateway/runtime_delivery/background.py:45-56,199-214,226-235`。新增组合回归直接用该公共 delivery resolver 核首次写入与第二次刷新；既有 background/event、external-visible 与 control suites 继续覆盖实际 sender/callback。 | closed |
+| new / stop binding 路径不再遗漏同一投影 | `/new` 的 reset candidate 与 `/stop` 的 lazy binding 都改用同一 typed projection：`src/personal_assistant/gateway/session_run_coordinator.py:336-345,1377-1392`；未建立第二 helper、adapter 特判或 fallback。 | closed |
+| deletion contract 与 carrier 边界保持 | fix 只新增一个 scalar stage projection，没有把 `RoutedInbound`、`GatewayShadowState` 或 `InboundIngress` 整体写入 reply/session metadata，也没有恢复 `runtime_protocol.py`、`__runtime_protocol_facts__`、legacy wrapper 或 metadata-derived ingress fallback。既有 deletion/persistence contract 仍通过：`tests/contract/test_relay_typed_ingress_contract.py:20-76`。 | closed |
+
+## Red-regression Fidelity
+
+- 新断言落在现有 inbound → shadow sync → coordinator → binder → background resolver 的最低组合 seam，而不是测试私有 helper。
+- 在 fix 前，三个 binding request 都直接使用 `build_reply_context(request.message)`；该 message 不含 shadow scalar，因此首次断言得到 `None`。fix delta 的失败原因与 code-review P1 一致。
+- 第二条 event 保持相同 external session key、只改变 provider event identity 与 authoritative typed anchor；断言 `shadow-conv-2`，能同时捕获“不刷新”与“旧标量覆盖新 anchor”两类回归。
+
+## Coherence
+
+- fix delta 仅修改 coordinator、现有 inbound/session 测试与 milestone progress，共 3 个文件；没有触及 IM wire、provider contract、DB schema、canonical spec 或其他 package。
+- scalar 是 design 已允许的 existing public/durable reply projection；新投影的 authority 仍是 `RoutedInbound.shadow.ref`。fix 没有增加从 message metadata 推导 target 的分支，pending/empty state 继续沿用未改动的 `build_reply_context()` 行为。
+- `personal_assistant` 依赖方向未变化；没有新增跨进程直读、平行 carrier、compatibility facade 或 legacy metadata authority。因此无需升级 full verification。
+
+## Validation Evidence
+
+- Validated HEAD: `dda6e8aaff6280f59d7c64c347e3eb2392436dd7`；核对前与 `origin/unit/refactor-521` 一致，且包含 prior verification commit `2e7134497f4841c06cd66ce30388bd109ade3c98`。
+- Focused carrier/binder/background/control/deletion suite: `137 passed, 2 warnings in 8.91s`。warnings 为 `lark_oapi` dependency deprecation。
+- Preprocessing / coordinator admission suite: `26 passed, 2 warnings in 3.41s`。
+- Ruff check: `All checks passed!`。
+- Ruff format check: `2 files already formatted`。
+- `git diff --check b5eee0bbeb3269c53a50d223925a79bbadbc8471...dda6e8aaff6280f59d7c64c347e3eb2392436dd7`: passed。
+- Product acceptance: 未执行；本轮只做 verifier targeted closure，后续由独立 reviewer 走指定旅程。
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+None.
+
+### WARNING（提 PR 前必须修）
+
+None.
+
+### SUGGESTION（可以修）
+
+None.
