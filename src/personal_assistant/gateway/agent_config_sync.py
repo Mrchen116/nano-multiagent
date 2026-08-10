@@ -17,6 +17,7 @@ import httpx
 
 from personal_assistant.config.local_store import (
     AgentWorkspaceConfig,
+    DEFAULT_WORKFLOW_SIZE_GUIDELINE,
     LocalConfig,
     RuntimeConfigOwner,
     WORKSPACE_CONFIG_DIRNAME as _WCD,
@@ -833,6 +834,7 @@ class IMAgentConfigSync:
         default_model = _optional_operation_text(payload.get("default_model"))
         reasoning_effort = _optional_operation_text(payload.get("reasoning_effort"))
         self._reasoning_catalog.validate(default_model, reasoning_effort)
+        existing_agent = self._local_agent(agent_id)
         return AgentWorkspaceConfig(
             agent_id=agent_id,
             workspace_root=Path(workspace_text).expanduser().resolve(),
@@ -853,6 +855,11 @@ class IMAgentConfigSync:
             ),
             default_model=default_model,
             reasoning_effort=reasoning_effort,
+            workflow_size_guideline=(
+                existing_agent.workflow_size_guideline
+                if existing_agent is not None
+                else DEFAULT_WORKFLOW_SIZE_GUIDELINE
+            ),
             features={
                 key: value
                 for key, value in raw_features.items()
@@ -1346,6 +1353,11 @@ class IMAgentConfigSync:
             group_reply_policy=_optional_text("group_reply_policy"),
             default_model=default_model,
             reasoning_effort=reasoning_effort,
+            workflow_size_guideline=(
+                existing_agent.workflow_size_guideline
+                if existing_agent is not None
+                else DEFAULT_WORKFLOW_SIZE_GUIDELINE
+            ),
             features=features,
             custom_prompt=_optional_text("custom_prompt"),
             heartbeat_every=heartbeat_every,

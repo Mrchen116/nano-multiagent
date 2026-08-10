@@ -112,7 +112,11 @@ def test_im_config_sync_client_retries_until_live_agent_config_reaches_target_ve
             AgentWorkspaceConfig(
                 agent_id="seed-agent", workspace_root=(tmp_path / "seed-workspace")
             ),
-            AgentWorkspaceConfig(agent_id="agent-live", workspace_root=workspace_root),
+            AgentWorkspaceConfig(
+                agent_id="agent-live",
+                workspace_root=workspace_root,
+                workflow_size_guideline="large",
+            ),
         ),
         channels=(),
         gateway=GatewayLifecycleConfig(),
@@ -138,6 +142,7 @@ def test_im_config_sync_client_retries_until_live_agent_config_reaches_target_ve
     published = owners.catalog.require("agent-live")
     assert published.revision > initial_revision
     assert published.config.workspace_root == workspace_root
+    assert published.config.workflow_size_guideline == "large"
     assert sleeps == [0.1, 0.1]
     assert workspace_root.is_dir()
     # All PA-owned workspace state is seeded below .nanoassistant/.
