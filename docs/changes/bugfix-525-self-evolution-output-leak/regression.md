@@ -259,3 +259,95 @@ self-evolution E2E runtime cleaned: .../.e2e-self-evolution.829GqM
 ## Recommended Next Step
 
 Round 1 的两个 issue 和三个 `inconclusive` Scenario 已全部关闭。建议按 orchestrator 正常收尾流程完成 delta-spec 归并与最终门禁，然后进入 PR 交付；不需要继续 product re-review。
+
+---
+
+# Round 3 — 2026-08-10
+
+## Verdict
+
+- **Verdict: pass**
+- **Highest Required Action: pass**
+- 当前验收树：`874f0af6c70d721a39fc1e41d828ffba4ae8a42f`；开工时与 `origin/unit/bugfix-525` 一致且 worktree clean。
+- Round 2 的通过结论保持有效；本轮以 Fast-lane 只复验 `830c0aa67..874f0af6c` 触及的 config-sync 并发边界和 E2E harness 新鲜度，未观察到要求升级 full revalidation 的产品副作用。
+
+## Reference Artifacts Reviewed
+
+- 无原型、设计稿或视觉 must-match 契约。
+- 继续使用 Round 2 已批准的 `scripts/e2e-self-evolution.sh` 产品入口：隔离 IM、production Gateway、受控 OpenAI-compatible LLM，以及 Web IM 同一公开 HTTP/WebSocket relay；不连接生产飞书或用户 Gateway 配置。
+
+## Fast-lane Scope Check
+
+- fix delta：`830c0aa67..874f0af6c`。
+- 产品行为相关变化只收紧既有 Skill 配置调和的并发一致性；其余变化用于 reviewer runner 的外部 cwd、解释器与 partial-start/teardown 可靠性，不改变 Round 2 已验收的 notice、raw-output 隔离或 replay 产品语义。
+- code-review F1 的“并发双 Skill 不丢 explicit allowlist”由独立 closure 的确定性并发回归关闭；orchestrator 明确不要求扩展产品 harness。本轮仍在当前 head 上重新走完整两条既有真栈旅程，确认相邻产品结果未回归。
+
+## User Journeys Exercised
+
+从仓库外 cwd 直接执行绝对路径入口：
+
+```text
+cd /tmp
+/Users/czj/Repos/nano-multiagent/.worktrees/unit-bugfix-525/scripts/e2e-self-evolution.sh
+```
+
+结果：
+
+```text
+self-evolution E2E runtime: .../.e2e-self-evolution.m5NtkJ
+..                                                                       [100%]
+2 passed in 61.95s (0:01:01)
+self-evolution E2E runtime cleaned: .../.e2e-self-evolution.m5NtkJ
+```
+
+1. **J3-1 — no-save privacy freshness**：隔离 IM 中 seed turn 与前台正常回答完成后，受控 no-save review 确实执行；实际会话仍只有正常回答和既有 structured memory notice，raw `Nothing to save.`、review prompt 与错误栈没有成为 Agent 消息。
+2. **J3-2 — terminal-late Skill/replay freshness**：前台回答先完成，后台真实创建 Skill；持久订阅经历一次受控断线和同 sequence replay，最终 explicit allowlist、workspace artifact、唯一 structured skills notice 与新 conversation 的实际 `skill_view` 使用全部成立，raw review 完成确认未进入聊天。
+
+## 验收标准覆盖
+
+### Requirement: self-evolution 原始过程保持后台私有
+
+| Scenario | Round 3 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|
+| memory review 在正常回答后完成 | 继承 Round 1 J1 | 正常回答、memory 持久更新、唯一 structured memory notice、raw 0 | **pass（继承）** | 当前 delta 未改变该产品路径。 |
+| 后台 review 没有可保存内容或执行失败 | J3-1 当前-head 真栈 | no-save 正向执行；前台 completed；raw no-save/prompt/error 0；structured memory notice 保持 | **pass** | 从 `/tmp` 运行的一键入口重新验证。 |
+
+### Requirement: skill 更新在前台 terminal 之后仍可靠生效
+
+| Scenario | Round 3 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|
+| skill review 创建新 skill | J3-2 当前-head 真栈 | terminal 后真实 create；workspace Skill；explicit allowlist；新 conversation 实际 `skill_view`；raw 0 | **pass** | 当前 head 的配置调和与后续 session 使用未回归。 |
+| terminal 切换或可恢复重连覆盖事件边界 | J3-2 当前-head 真栈 | 同 sequence 断线/重放；激活不漏；structured notice 恰好一次；新 session 使用成功 | **pass** | replay 后没有重复或遗漏。 |
+
+### Requirement: 其他后台结果语义保持不变
+
+| Scenario | Round 3 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|
+| 普通后台 Agent 产生用户可见结果 | 继承 Round 1 J4 | 唯一后台完成气泡，重进后不重复 | **pass（继承）** | 当前 targeted delta 未触及普通后台结果投递。 |
+
+## Current-head Freshness and Cleanup
+
+- 真实入口在 `874f0af6c70d721a39fc1e41d828ffba4ae8a42f` 上执行，开工时本地 HEAD 与远端 unit HEAD 一致。
+- runner 明确报告 `.e2e-self-evolution.m5NtkJ` 已删除；reviewer 独立后验未发现 `.e2e-self-evolution.*` runtime。
+- 未发现本 worktree 的 recording LLM、replay-fault Gateway、production Gateway 或 IM 进程残留。
+- 未发现 `.gateway.pid`、`.im.pid`、`.e2e-ports.env`、`.e2e-jwt-secret`、`.gateway-config.yaml`、channel credential/manifest 等生成状态残留；两条 journey 的 teardown 端口关闭断言均通过。
+- 写报告前 worktree clean。
+
+## Issues
+
+None.
+
+## Side Findings
+
+None.
+
+## 上层文档同步
+
+- [x] `SPEC.md`（跨包顶点架构）：**无需更新**。
+- [x] `docs/specs/<包>/`（长青行为契约层）：**需要更新**；沿用前两轮结论，由 orchestrator 将本 unit delta-spec 归并到 canonical specs。
+- [x] `AGENTS.md` / `CLAUDE.md`：**无需更新**。
+- [x] `docs/specs/CONTRIBUTING.md`：**无需更新**。
+
+## Recommended Next Step
+
+Round 3 当前-head freshness review 通过，无新增 issue。建议按 orchestrator 正常收尾流程完成 delta-spec 归并、最终门禁与 PR 交付；不需要继续 product re-review。
