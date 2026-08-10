@@ -5,6 +5,8 @@
 
 ## Changelog
 
+- 2026-08-10: Round 1 产品验收确认 memory 成功路径与普通后台结果通过，但 no-save/failure 和 Skill 创建/激活/重连缺少可确定触发的真实产品旅程；追加 `bugfix-525-M2` 收口隔离真栈验收入口，不改变已批准的生产事件分类与唯一 owner 设计。
+
 ## 现状分析
 
 ### 涉及范围
@@ -241,3 +243,4 @@ flowchart TD
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
 | bugfix-525-M1 | lifecycle-routing | — | A | `src/agent/core/agent/context_fork.py`; `src/agent/platform/hooks/builtins/self_improvement.py`; `src/personal_assistant/gateway/{background_session_events.py,background_subscriptions.py,composition.py}`; `src/personal_assistant/gateway/runtime_delivery/observer.py`; self-evolution/Gateway ownership、composition、config-sync 相关 unit/integration tests；本 unit delta-spec 与实施证据 | [reviewer] memory review 成功、无内容或失败时，飞书同形态/内部 IM 旅程只见正常回答与既有 system notice，不见 raw prompt/tool/`Saved:`/`Nothing to save.`/错误文本；真实 memory side effect 保留。 [reviewer] self-evolution 在 terminal 前后创建 agent/global Skill 时，显式 allowlist/default Agent 的后续 session 均按现有 mode 生效，notice 不重复；普通后台 Agent 用户可见结果不变。 [worker] 通用 fork 默认 inherit 且非 self-evolution caller 的可见事件不回归；self-improvement 显式 policy、source marker + 单 owner契约覆盖首次 fast/slow review、subscriber 已存在的后续 turn、stream reconnect/replay、ordinary foreground `skill_created` 与 background Agent output；真实 public Kernel fork 执行 `memory(add)`、`skill_manage(create)` 并穿过 production Gateway manager/composition 到 config-sync 可观察结果，不能止于 Kernel stream。 [worker] 最窄相关测试、全量非 E2E、Ruff、docs-check、`git diff --check` 全绿；progress 留下生产症状只读 locator、修前红/修后绿和隔离真栈证据。 |
+| bugfix-525-M2 | acceptance-closure | bugfix-525-M1 | B | 隔离 IM + Gateway + 受控 OpenAI-compatible LLM 的确定性验收入口、启动/清理脚本、review runbook 与必要回归；不新增生产用户可见调试面，不改变 M1 路由语义 | [reviewer] 从 Web IM / actual relay 可确定触发 no-save 或受控 failure，前台回答完成且 raw reply/错误栈不可见。 [reviewer] 可确定触发真实 `skill_manage(create)`，页面只见一次 structured skills-updated notice，workspace 与显式 allowlist 更新，后续新 session 可实际使用；覆盖 terminal 后到达和 subscriber reconnect/replay 不漏不重。 [worker] fixture 按请求状态与消息/tool-call 结构驱动，不匹配内部 prompt 文案；全部状态、端口、workspace、配置和进程均 worktree-local，结束后可验证清理；相关测试、Ruff、docs-check、`git diff --check` 全绿。 |
