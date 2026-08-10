@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -9,23 +10,17 @@ from typing import Any
 
 import pytest
 
-from agent.core.agent.context_fork import AgentContextFork, make_fork_conversation
-from agent.core.hooks.context import HookContext
 from agent.core.llm.interfaces import LLMGenerateRequest, LLMMessage, LLMToolCall
-from agent.core.skills.registry import SkillRegistry
-from agent.core.tools.base import (
-    ToolContext,
-    set_tool_safety_config_factory,
-    set_tool_safety_factory,
+from agent.sdk import (
+    LLMConfig,
+    PromptSlots,
+    SessionRuntimeConfig,
+    build_kernel,
 )
-from agent.core.tools.registry import ToolRegistry
-from agent.platform.hooks.builtins import self_improvement
-from agent.platform.tools.builtins.skill_manage import SkillManageTool
-from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
 
 
-class _CreateSkillReviewClient:
-    """Create one Skill in the review fork, then finish."""
+class _KernelSkillReviewClient:
+    """Run one main-turn tool call, then create a Skill in the review fork."""
 
     def __init__(self) -> None:
         self._round = 0
@@ -41,6 +36,22 @@ class _CreateSkillReviewClient:
 
         async def _stream() -> AsyncIterator[LLMMessage]:
             if round_no == 1:
+                yield LLMMessage(
+                    role="assistant",
+                    content="",
+                    tool_calls=(
+                        LLMToolCall(
+                            call_id="list-skills",
+                            name="skill_manage",
+                            arguments={"action": "list"},
+                        ),
+                    ),
+                )
+                yield LLMMessage(
+                    role="assistant", content="", finish_reason="tool_calls"
+                )
+                return
+            if round_no == 3:
                 yield LLMMessage(
                     role="assistant",
                     content="",
@@ -71,24 +82,24 @@ class _CreateSkillReviewClient:
         return _stream()
 
 
-def _self_improvement_handler() -> Any:
-    registered: dict[str, Any] = {}
+async def _wait_terminal(kernel: Any, run_id: str) -> None:
+    while True:
+        record = kernel.get_run(run_id)
+        if record is not None and record.status in {
+            "completed",
+            "failed",
+            "cancelled",
+        }:
+            return
+        await asyncio.sleep(0.01)
 
-    class _HookAPI:
-        def on(
-            self,
-            event: str,
-            handler: Any,
-            *,
-            priority: int = 100,
-            timeout_ms: int = 1500,
-            mode: str = "observe",
-        ) -> None:
-            _ = priority, timeout_ms, mode
-            registered[event] = handler
 
-    self_improvement.setup(_HookAPI())
-    return registered["agent_end"]
+async def _wait_for_path(path: Path) -> None:
+    for _ in range(200):
+        if path.is_file():
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError(f"timed out waiting for background Review output: {path}")
 
 
 @pytest.mark.asyncio
@@ -98,54 +109,49 @@ async def test_background_skill_review_create_records_f3_source(
 ) -> None:
     """Persist F3 when a skill-only or combined background Review creates a Skill."""
 
-    set_tool_safety_factory(ToolSafety)
-    set_tool_safety_config_factory(ToolSafetyConfig)
-    skill_root = tmp_path / "skills"
-    skill_registry = SkillRegistry(search_roots=[skill_root])
-    skill_tool = SkillManageTool(skill_root=skill_root, registry=skill_registry)
-    tool_registry = ToolRegistry(context=ToolContext.create(repo_root=tmp_path))
-    tool_registry.register(skill_tool)
-    context_fork = AgentContextFork(
-        llm_client=_CreateSkillReviewClient(),
-        model="test-model",
-        tool_registry=tool_registry,
-        current_working_directory=tmp_path,
+    config_root = tmp_path / ".nanoassistant"
+    config_root.mkdir()
+    (config_root / "config.yaml").write_text(
+        "auto_mode:\n"
+        "  dangerously_skip_permissions: true\n"
+        "self_evolution:\n"
+        "  enabled: true\n"
+        "  skill_creation: true\n"
+        "  memory_curation: true\n"
+        "  skill_nudge_interval: 1\n"
+        f"  memory_nudge_interval: {memory_threshold}\n",
+        encoding="utf-8",
     )
-    parent_ctx = HookContext(
-        session_id=f"review-{memory_threshold}",
+    client = _KernelSkillReviewClient()
+    kernel = build_kernel(
+        llm=LLMConfig(
+            provider="openai_compat",
+            model="test-model",
+            base_url="http://127.0.0.1:1",
+        ),
+        workspace_config_dirname=".nanoassistant",
         repo_root=tmp_path,
-        metadata={
-            "self_evolution": {
-                "enabled": True,
-                "skill_creation": True,
-                "memory_curation": True,
-                "skill_nudge_interval": 1,
-                "memory_nudge_interval": memory_threshold,
-            }
-        },
-        session_event_publisher=lambda _event, _data: None,
+        _llm_client_override=client,
     )
-    fork_fn = make_fork_conversation(
-        context_fork=context_fork,
-        rendered_system_prompt="Review the completed conversation.",
-        active_tools=tool_registry.list_specs(),
-        messages_snapshot=[],
-        session_id=parent_ctx.session_id,
-        tool_allowlist=(),
-        parent_hook_ctx=parent_ctx,
+    runtime = SessionRuntimeConfig(
         model="test-model",
+        prompt=PromptSlots(),
+        skills=None,
+        enabled_tools=["skill_manage", "skill_view", "memory"],
+        features={"skill_creation": True, "memory_curation": True},
     )
-    review_ctx = HookContext(
-        session_id=parent_ctx.session_id,
-        repo_root=tmp_path,
-        metadata=parent_ctx.metadata,
-        fork_conversation=fork_fn,
-        session_event_publisher=lambda _event, _data: None,
-    )
+    usage_path = config_root / "skills" / ".usage.json"
+    try:
+        session = await kernel.create_session(workspace_root=tmp_path, runtime=runtime)
+        run = kernel.submit(
+            session_id=session.session_id,
+            workspace_root=tmp_path,
+            parts=[{"type": "text", "text": "Inspect the available skills."}],
+        )
+        await _wait_terminal(kernel, run.run_id)
+        await _wait_for_path(usage_path)
 
-    await _self_improvement_handler()(
-        {"tool_iterations": 1, "turn_count": 1}, review_ctx
-    )
-
-    usage = json.loads((skill_root / ".usage.json").read_text(encoding="utf-8"))
-    assert usage["auto-review-skill"]["source"] == "F3"
+        usage = json.loads(usage_path.read_text(encoding="utf-8"))
+        assert usage["auto-review-skill"]["source"] == "F3"
+    finally:
+        await kernel.aclose()
