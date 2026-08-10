@@ -1,6 +1,22 @@
 # M2 — Progress
 
-> 本页当前只记录前端切片；Gateway / IM backend / 飞书进展由同 milestone 的其他实施者补充。
+> 本页记录 Gateway、IM backend 与 Web frontend 的同一纵向切片。
+
+## Backend implementation
+
+- Context: IM 不拥有 Workflow run projection；SDK snapshot 是 query/control 真源，assistant message sidecar 只负责终态原始返回的展示、历史与重连。
+- Decision:
+  - IM `Message`、SQLite、REST、WS 和 reducer 使用 typed `background_returns`，按 task id 幂等；`agent.message` 接受 text-or-sidecar，两者均空才拒绝。
+  - Gateway 为 Workflow child permission 建立 process-wide exact binding registry；没有 first/latest fallback，任意 arrival order 通过 buffer/tombstone 收口。
+  - Agent capability 的 `commands` 由 active `Workflow` allowlist 与 `Kernel.list_named_workflows()` 共同生成；bundled、project/personal 和 namespaced plugin 命令均来自 SDK 真源。
+  - `/workflows` list/detail/pause/resume/stop/restart/save、`/config workflowSizeGuideline`、`/effort ultracode|high` 复用共享 inbound 与普通 control reply；named command 进入正常模型轮次并要求按 name 调 Workflow tool。
+  - PA guideline 保存于 Gateway Agent runtime config，IM mirror/config sync 不覆盖；active 时进入下一轮 runtime，inactive 时不改变 runtime identity 或 metadata。
+- Evidence:
+  - Backend focused regression: capability contract、IM agent config、local config/sync、runtime projection、Workflow parser、inbound routing/coordinator 共 `158 passed`。
+  - Permission/background focused regression: exact registry、subscriber、foreground event、lifecycle 与 IM sidecar owner tests 在各 scoped commit 前通过。
+  - Static: Ruff 与 `git diff --check` 通过。
+- Commits: `51482d679`, `35187c608`, `7b114bb3b`, `fab204e94`, `6aa59bd4a`, `68cbb423f`, `bbeeee066`, `a0a30afe5`, `58432e5be`, `a35e0f02a`, `b5df8fe02`, `1453453c4`。
+- Pending acceptance: M1 合入后运行整仓门禁与一次 Luna minimal lifecycle；Web/Feishu 最终 product journey 由 reviewer 独立执行。
 
 ## Frontend baseline
 

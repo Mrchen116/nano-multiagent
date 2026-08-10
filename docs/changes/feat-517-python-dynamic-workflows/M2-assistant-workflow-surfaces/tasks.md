@@ -1,6 +1,15 @@
 # M2: Assistant Workflow Surfaces — Tasks
 
-> 对齐: ../design.md（2026-08-10 approved）；本页当前只记录前端切片，Gateway / IM backend / 飞书由同 milestone 的其他实施者补充。
+> 对齐: ../design.md（2026-08-10 approved）；同一 milestone 同时覆盖 Gateway、IM backend 与 Web frontend。
+
+## Backend 退出标准
+
+- [x] Gateway/IM 以 message-owned `background_returns` sidecar 持久化、实时投递和重连恢复 Workflow/Agent 原始后台返回，按 `task_id` 幂等。
+- [x] Workflow child permission 以 run/call/request 精确 binding 回到原会话，覆盖 request/terminal 早于 anchor 与同 session 多 launch。
+- [x] Agent capability 的 `commands` 只从 active `Workflow` allowlist + SDK saved/bundled/plugin discovery 生成；IM 只校验转发。
+- [x] `/workflows` query/control/save、named invocation、`/config workflowSizeGuideline` 与 `/effort ultracode|high` 共用 Web/外部 IM inbound seam；disabled 时保留普通消息语义。
+- [x] PA 持久化 guideline，并在 IM config sync 后保留；只在 active Workflow runtime 中影响下一轮 tool description。
+- [x] Gateway/IM focused contract、routing、replay、permission 与 command tests 通过。
 
 ## 前端目标
 
@@ -80,3 +89,25 @@ Web IM 只在既有消息气泡、过程时间线、工具详情和 slash picker
 
 - 步骤：隔离真栈按 prototype desktop/mobile 状态核对，检查 console/network，保存 evidence。
 - 验证：focused/all relevant Vitest、`npm run build`、`git diff --check`。
+
+## Backend Roadpoints
+
+### B1 — message sidecar 与终态投递
+
+- 步骤：扩展 IM domain/DB/API/WS 和 Gateway active/idle/stranded notification carrier；保持外部 channel 不生成空文本。
+- 验证：IM persistence/realtime/history、Gateway active/idle/replay focused tests。
+
+### B2 — child permission 精确路由
+
+- 步骤：以 parent tool call、Workflow run、Agent call、request id 建立窄 binding，支持乱序 buffer/tombstone 与 terminal cleanup。
+- 验证：同会话双 launch、request-before-anchor、resolved/terminal-before-anchor、deny audit tests。
+
+### B3 — capability 与命令
+
+- 步骤：Gateway 从 active allowlist 和 SDK discovery 输出 `commands`；共享 inbound parser 执行 query/control/save/config/effort，named command 进入正常 Workflow tool 审批链。
+- 验证：enabled/disabled A/B、IM wire forwarding、SDK truth、config persistence/sync tests。
+
+### B4 — 集成门禁
+
+- 步骤：合并 frontend slice 后运行 Gateway/IM focused regression、真实 Luna minimal lifecycle 与 Web/Feishu product journey。
+- 验证：记录到 `progress.md`，最终由 verifier/reviewer 独立验收。
