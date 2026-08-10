@@ -97,3 +97,15 @@
 ## Promotion Candidates
 
 None.
+
+## Round 4 reviewer-fix readback
+
+- Pre-fix head: `a26fc6975853b5e7183f531df39bbc547a4ea4d7`（包含 reviewer 的 `Round 4 — FAIL` regression commit），从 clean/synced `unit/bugfix-525` 创建独立 `milestone/bugfix-525-M3-fix-r4` worktree；该回归提交保留在 fix 历史中。
+- Scope readback: R4-I1 只解决专用 Feishu acceptance 中 `probe` 通过后 route-anchor ingress 超时及成功/失败 runtime 清理；R4-I2 只增加受控 LLM + public Coding CLI/PTY 的真实产品验收入口。M3 已批准的 event classification、route owner、external schema 与用户可见文案不变。
+- Process: 该 reviewer fix 涉及两个产品入口、预计超过 3 个文件/100 行，依 `change-impl-worker` 从 fast-lane 升回 main process，新增 R6-R8 并执行完整 TDD/验收/门禁；R4-I1 必须先走 `systematic-debugging` 复现和边界定位。
+- Baseline: 最新 unit 相比上次 final-green 只新增 reviewer regression 文档；复用 M3 R5 的 `3225 passed, 28 warnings in 81.93s` 作为代码基线，并在 fix 后重新运行 full non-E2E。
+
+## R6 — Round 4 飞书 route-anchor 稳定性闭环
+
+- Context: reviewer 两个 fresh stack 均观察到 dedicated identity、`e2e-up --feishu`、ingress probe 成功，而紧接着的 journey route anchor 没有到达受控 LLM；另有失败后 `.feishu-self-evolution-llm.jsonl`、`config-apply-receipts-v1.json` 残留。
+- Status: IN PROGRESS。先收集 probe 与 route-anchor 的真实发送/接收和 listener/Gateway 生命周期证据，再决定最窄修复。
