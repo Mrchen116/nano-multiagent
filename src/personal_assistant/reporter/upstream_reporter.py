@@ -254,6 +254,7 @@ def _workflow_commands_from_kernel(
     commands = [
         {"name": "workflows", "description": "Inspect and control Workflow runs"},
         {"name": "config", "description": "Configure Workflow size guidance"},
+        {"name": "effort", "description": "Enable or disable Ultracode mode"},
     ]
     commands.extend(
         {

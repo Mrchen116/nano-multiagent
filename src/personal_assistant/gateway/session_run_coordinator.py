@@ -799,7 +799,7 @@ class SessionRunCoordinator:
             if completed is not None:
                 reply_text = completed.reply_text
             else:
-                reply_text = self._execute_workflow_command(
+                reply_text = await self._execute_workflow_command(
                     command,
                     session_id=binding.kernel_session_id,
                     agent=agent,
@@ -833,7 +833,7 @@ class SessionRunCoordinator:
             outbound=outbound,
         )
 
-    def _execute_workflow_command(
+    async def _execute_workflow_command(
         self,
         command: WorkflowCommand,
         *,
@@ -882,6 +882,32 @@ class SessionRunCoordinator:
                     "已将 workflowSizeGuideline 设为 "
                     f"{command.guideline}；从下一轮起生效。"
                 )
+            if command.kind == "effort":
+                state = await self._kernel.get_session_runtime(
+                    session_id=session_id,
+                    workspace_root=agent.config.workspace_root,
+                )
+                if state is None:
+                    raise RuntimeError("Workflow session runtime is unavailable")
+                ultracode = command.effort == "ultracode"
+                requested_effort = "xhigh" if ultracode else "high"
+                resolved_effort = (
+                    self._reasoning_catalog.resolve(
+                        state.runtime.model, requested_effort
+                    )
+                    if self._reasoning_catalog is not None
+                    else requested_effort
+                )
+                await self._kernel.reconfigure_session(
+                    session_id=session_id,
+                    workspace_root=agent.config.workspace_root,
+                    runtime=replace(
+                        state.runtime,
+                        reasoning_effort=resolved_effort,
+                        workflow_ultracode=ultracode,
+                    ),
+                )
+                return "Ultracode 已开启。" if ultracode else "Ultracode 已关闭。"
         except (RuntimeError, ValueError) as exc:
             return f"Workflow 命令未执行: {exc}"
         return "Workflow 命令无效。"

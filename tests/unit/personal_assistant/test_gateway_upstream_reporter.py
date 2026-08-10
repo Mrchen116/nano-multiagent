@@ -459,6 +459,7 @@ def test_agent_capabilities_commands_follow_active_workflow_snapshot(
     assert [item["name"] for item in active["commands"]] == [
         "workflows",
         "config",
+        "effort",
         "deep-research",
         "project-review",
     ]

@@ -294,6 +294,21 @@ def test_active_workflow_commands_query_config_and_invoke_named_definition(
         assert configured == [("agent-a", "large")]
         assert "下一轮起生效" in configured_result.reply_text
 
+        effort_result = await pipeline.handle_inbound(
+            InboundMessage(
+                channel_name="web_relay",
+                text="/effort ultracode",
+                external_user_id="user-1",
+                external_chat_id="chat-1",
+                is_group=False,
+                agent_id="agent-a",
+            )
+        )
+        assert effort_result is not None
+        assert effort_result.reply_text == "Ultracode 已开启。"
+        assert kernel.reconfigure_calls[-1][1].workflow_ultracode is True
+        assert kernel.reconfigure_calls[-1][1].reasoning_effort == "xhigh"
+
         invoking = asyncio.create_task(
             pipeline.handle_inbound(
                 InboundMessage(

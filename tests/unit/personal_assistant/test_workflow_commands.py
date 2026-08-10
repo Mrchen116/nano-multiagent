@@ -29,6 +29,8 @@ def test_parse_workflow_list_detail_controls_save_and_config() -> None:
         "/config workflowSizeGuideline large", named_workflows=()
     )
     assert (configured.kind, configured.guideline) == ("config", "large")
+    effort = parse_workflow_command("/effort ultracode", named_workflows=())
+    assert (effort.kind, effort.effort) == ("effort", "ultracode")
 
 
 def test_parse_named_workflow_keeps_user_arguments() -> None:
