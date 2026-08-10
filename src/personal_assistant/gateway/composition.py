@@ -463,9 +463,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         if connection_ready_coordinator is not None:
             connection_ready_coordinator.notify_external_shadows_pending()
 
-    skill_created_handler = getattr(
-        im_config_sync_client, "handle_skill_created", None
-    )
+    skill_created_handler = getattr(im_config_sync_client, "handle_skill_created", None)
     _kernel_event_observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: im_connection_manager,
         run_context_store=run_delivery_contexts,

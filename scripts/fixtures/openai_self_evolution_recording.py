@@ -163,9 +163,7 @@ def _sse_text(text: str) -> bytes:
                 ]
             },
             {
-                "choices": [
-                    {"index": 0, "delta": {}, "finish_reason": "stop"}
-                ],
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
                 "usage": {
                     "prompt_tokens": 1,
                     "completion_tokens": 1,
@@ -204,17 +202,15 @@ def _sse_tool_call(call_id: str, name: str, arguments: dict[str, Any]) -> bytes:
                     }
                 ]
             },
-            {
-                "choices": [
-                    {"index": 0, "delta": {}, "finish_reason": "tool_calls"}
-                ]
-            },
+            {"choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]},
         )
     )
 
 
 def _sse_frames(frames: tuple[dict[str, Any], ...]) -> bytes:
-    chunks = [f"data: {json.dumps(frame, separators=(',', ':'))}\n\n" for frame in frames]
+    chunks = [
+        f"data: {json.dumps(frame, separators=(',', ':'))}\n\n" for frame in frames
+    ]
     chunks.append("data: [DONE]\n\n")
     return "".join(chunks).encode("utf-8")
 

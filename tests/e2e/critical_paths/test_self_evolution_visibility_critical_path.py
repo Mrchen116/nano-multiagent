@@ -106,7 +106,9 @@ def _write_self_evolution_config(
     return config_path
 
 
-def _system_notices(messages: list[dict[str, Any]], target: str) -> list[dict[str, Any]]:
+def _system_notices(
+    messages: list[dict[str, Any]], target: str
+) -> list[dict[str, Any]]:
     return [
         message
         for message in messages
@@ -157,8 +159,7 @@ def test_no_save_review_stays_private_after_foreground_completion(
             "message.completed",
             lambda frame: (
                 frame.conversation_id == conversation_id
-                and _FOREGROUND_NO_SAVE_SEED
-                in str(frame.data.get("content") or "")
+                and _FOREGROUND_NO_SAVE_SEED in str(frame.data.get("content") or "")
             ),
         )
         client.send_message(conversation_id, "Run the controlled no-save journey.")
@@ -197,9 +198,7 @@ def test_no_save_review_stays_private_after_foreground_completion(
     assert len(_system_notices(messages, "memory")) == 1
 
     state = _fixture_state(stub_llm_stack)
-    requests = [
-        item for item in state.get("requests", []) if isinstance(item, dict)
-    ]
+    requests = [item for item in state.get("requests", []) if isinstance(item, dict)]
     assert any(item.get("kind") == "foreground" for item in requests)
     assert any(item.get("kind") == "review" for item in requests)
     assert {item.get("routing_basis") for item in requests} <= {

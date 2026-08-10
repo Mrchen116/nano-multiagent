@@ -140,6 +140,7 @@ async def test_self_evolution_raw_output_stays_out_of_parent_session_events(
     finally:
         await kernel.aclose()
 
+
 @pytest.mark.asyncio
 async def test_self_evolution_skill_create_keeps_only_business_event_visible(
     tmp_path: Path,

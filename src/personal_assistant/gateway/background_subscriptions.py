@@ -241,7 +241,11 @@ class BackgroundSubscriptionManager:
             request.reply_context is not None and self._bg_reply_sender is not None
         )
         has_skill_sync = self._skill_created_handler is not None
-        if not has_session_delivery and not has_background_delivery and not has_skill_sync:
+        if (
+            not has_session_delivery
+            and not has_background_delivery
+            and not has_skill_sync
+        ):
             return False
         subscriber = self._build_subscriber(request)
         self._subscribers[request.session_id] = subscriber
