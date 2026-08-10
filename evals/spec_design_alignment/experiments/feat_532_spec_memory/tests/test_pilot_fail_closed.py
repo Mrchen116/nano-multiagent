@@ -66,6 +66,7 @@ def test_role_filesystem_confinement_blocks_parent_canary(
     )
     assert attestation["os_sandbox"]["mechanism"] == "macos_sandbox_exec_seatbelt"
     assert attestation["os_sandbox"]["canary_read_blocked"] is True
+    assert attestation["os_sandbox"]["tool_network_blocked"] is True
     assert attestation["tools"]["shell"] is True
     assert attestation["tools"]["workspace_write"] is workspace_write
     assert attestation["readable_roots"] == [

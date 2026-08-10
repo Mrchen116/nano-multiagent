@@ -85,11 +85,17 @@
     "os_sandbox": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["mechanism", "profile_sha256", "canary_read_blocked"],
+      "required": [
+        "mechanism",
+        "profile_sha256",
+        "canary_read_blocked",
+        "tool_network_blocked"
+      ],
       "properties": {
         "mechanism": {"const": "macos_sandbox_exec_seatbelt"},
         "profile_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-        "canary_read_blocked": {"const": true}
+        "canary_read_blocked": {"const": true},
+        "tool_network_blocked": {"const": true}
       }
     },
     "exit_code": {"type": "integer"}

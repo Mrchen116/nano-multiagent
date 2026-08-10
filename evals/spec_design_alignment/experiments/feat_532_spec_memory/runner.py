@@ -173,9 +173,7 @@ class CodexSession:
             "-c",
             'approval_policy="never"',
             "-c",
-            f'sandbox_mode="{"workspace-write" if self.workspace_write else "read-only"}"',
-            "-c",
-            "sandbox_workspace_write.network_access=false",
+            'sandbox_mode="danger-full-access"',
             "--output-schema",
             str(runtime_schema),
             "--json",
@@ -188,7 +186,7 @@ class CodexSession:
                 "exec",
                 *common,
                 "-s",
-                "workspace-write" if self.workspace_write else "read-only",
+                "danger-full-access",
                 "-C",
                 str(self.workspace),
                 "-",
@@ -581,6 +579,7 @@ def verify_context_attestation(
     if (
         sandbox["mechanism"] != "macos_sandbox_exec_seatbelt"
         or sandbox["canary_read_blocked"] is not True
+        or sandbox["tool_network_blocked"] is not True
     ):
         raise PilotError(f"actual attestation confinement failed for {manifest_id}")
 

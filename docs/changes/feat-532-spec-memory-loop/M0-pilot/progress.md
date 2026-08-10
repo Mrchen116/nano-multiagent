@@ -56,6 +56,7 @@ None.
 - Red evidence: 新增对抗/语义测试在旧实现上为 12 failed（缺少 OS confinement、Gate1/corpus/audit/judge/Owner helper，result/actual/config replay 未拒绝）；旧实现的 Ruff format 仍为 2 files `Would reformat`。
 - Green evidence: 新 seal 前可独立完成的 focused/shared 门禁为 25 passed、4 replay cases deselected；canary 在 read-only 与 workspace-write 两种 profile 下均收到 OS `Operation not permitted`，Ruff check 与 diff-check 通过。4 个 replay cases 必须等新 durable bundle 生成后转绿，不能拿旧 bundle 验证新 runner。
 - First Round 1 development seal: clean commit `1f5f2533955cb184feb9e89589de971a276f6e79` 上的首个真实调用 `memory-builder-01` 已在 Seatbelt 下完成，但 expected/actual 对账因 `scheme.json` 与嵌套 `documents/` 的遍历顺序不同而 fail closed。字段级比较证明唯一差异是相同 path/hash 集合的顺序；新增对应目录形态的红测后，将独立 wrapper 输出统一按相对路径 canonical sort。失败 bundle 未继续运行、不得作为修后证据。
+- Second Round 1 development seal: clean commit `047bc327c27c78202ca57334bba724aa1b10c62c` 的 `memory-builder-01` 完成真实模型请求，但输出零条 Memory。stderr 证明 builder 曾尝试读取/编辑时，Codex 内层 `workspace-write` 在外层 Seatbelt 进程内再次 `sandbox_apply`，macOS 返回 `Operation not permitted`；不是认证、模型网络或 corpus 缺失。修复为 Codex 内层 `danger-full-access`、唯一 outer Seatbelt 承担工具边界：只允许 Codex 主进程访问模型网络，子工具网络由 profile 拒绝，并用独立 loopback bind probe 记录 `tool_network_blocked=true`。一次性真实 Codex 探针随后同时证明 command execution、workspace read、模型返回、parent canary 拒读和工具网络拒绝；失败 seal 未续跑。
 - Scope: 未修改 feat-397 protocol/dataset/shared H02 truth；原 baseline commit 与 4 条既有断链归因保持不变。
 - Next: 提交 runner/schema/prompt/tests，使 source worktree clean；向独立临时 artifacts 从零运行新 seal，替换旧结果并完成 R7。
 

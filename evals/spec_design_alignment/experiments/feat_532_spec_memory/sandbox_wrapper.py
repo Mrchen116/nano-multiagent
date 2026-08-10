@@ -76,6 +76,7 @@ def _sandbox_profile(
     artifacts: Path,
     runtime_root: Path,
     host_home: Path,
+    network_process: Path,
     workspace_write: bool,
 ) -> str:
     confinement_boundary = Path(
@@ -88,7 +89,14 @@ def _sandbox_profile(
     denied = [host_home.resolve(), artifacts.resolve()]
     denied.extend(_sibling_denials([workspace, runtime_root], confinement_boundary))
     unique = sorted({path.resolve(strict=False) for path in denied}, key=str)
-    rules = ["(version 1)", "(allow default)"]
+    network_process = network_process.resolve()
+    rules = [
+        "(version 1)",
+        "(allow default)",
+        "(deny network*)",
+        f"(with-filter (process-path {_scheme_string(network_process)})",
+        "  (allow network*))",
+    ]
     for path in unique:
         matcher = "subpath" if path.is_dir() else "literal"
         rules.append(
@@ -161,6 +169,7 @@ def execute_confined(
         artifacts=artifacts,
         runtime_root=runtime_root,
         host_home=host_home,
+        network_process=Path(command[0]),
         workspace_write=workspace_write,
     )
     profile_sha256 = _sha256_bytes(profile.encode("utf-8"))
@@ -175,6 +184,21 @@ def execute_confined(
     )
     if probe.returncode == 0:
         raise RuntimeError("role confinement canary was readable")
+    network_probe = subprocess.run(
+        [
+            *confined_prefix,
+            "/usr/bin/python3",
+            "-c",
+            'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0))',
+        ],
+        cwd=workspace,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if network_probe.returncode == 0:
+        raise RuntimeError("role tool network probe was permitted")
     initial_files = _visible_files(workspace)
     result = subprocess.run(
         [*confined_prefix, *command],
@@ -220,6 +244,7 @@ def execute_confined(
             "mechanism": "macos_sandbox_exec_seatbelt",
             "profile_sha256": profile_sha256,
             "canary_read_blocked": True,
+            "tool_network_blocked": True,
         },
         "exit_code": result.returncode,
     }
