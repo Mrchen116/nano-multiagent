@@ -735,9 +735,7 @@ async def test_stop_observes_marker_before_first_post_submit_await(
 
     stopped = await coordinator.stop(
         StopRunRequest(
-            routed=RoutedInbound(
-                message=inbound(chat_id="chat-a", text="/stop")
-            ),
+            routed=RoutedInbound(message=inbound(chat_id="chat-a", text="/stop")),
             agent=request.agent,
             session_key=request.session_key,
         )
@@ -781,9 +779,7 @@ async def test_bounded_lock_registry_cannot_evict_pre_submit_session_owner(
     stopping_b = asyncio.create_task(
         coordinator.stop(
             StopRunRequest(
-                routed=RoutedInbound(
-                    message=inbound(chat_id="chat-b", text="/stop")
-                ),
+                routed=RoutedInbound(message=inbound(chat_id="chat-b", text="/stop")),
                 agent=catalog.require("agent-a"),
                 session_key=build_session_key(message_b, agent_id="agent-a"),
             )

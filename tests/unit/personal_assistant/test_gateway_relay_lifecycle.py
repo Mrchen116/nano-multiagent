@@ -156,9 +156,7 @@ def test_run_delivery_target_distinguishes_shadow_owner_direct_and_none() -> Non
         im_message_id="shadow-message-1",
     )
 
-    shadow = RunDeliveryTarget.for_external_shadow(
-        ExternalShadowTarget(ref=shadow_ref)
-    )
+    shadow = RunDeliveryTarget.for_external_shadow(ExternalShadowTarget(ref=shadow_ref))
     owner_direct = RunDeliveryTarget.for_owner_direct(
         OwnerDirectTarget(to_user_id="owner-1", agent_id="agent-a")
     )
