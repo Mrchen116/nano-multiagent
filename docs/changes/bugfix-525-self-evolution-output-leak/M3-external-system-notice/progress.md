@@ -137,6 +137,15 @@ None.
 - TDD: 真实 spawn child 在 `_worker_bootstrap` 前退出，修前耗满 5.00 秒并失败 `<4s` 断言；修后快速失败且已 reap。完整 worker `10 passed, 2 warnings in 25.24s`；two-listener isolation 连续三次 + channel lifecycle affected `8 passed, 2 warnings in 13.49s`。
 - Status: DONE。Next: R13 cross-layer/full/quality gates 与归并清理。
 
+## R13 — Code review closure gates
+
+- Real integration: `tests/integration/test_self_evolution_gateway_skill_sync.py` 现在以真实 public Kernel `RunOrigin.CRON` 提交受控 Skill create，owner-direct shared stream 在 observer 前启动 production manager，foreground terminal 后才释放 review；真实 Skill 文件写入并经 persistent subscriber/to-thread config-sync 更新 catalog，随后 foreground terminal ensure 返回 `already_active`。Exact proof `1 passed in 10.24s`。
+- Focused: F1 manager/stream/composition/observer `19 passed`；F2/F5 notice/subscriber/manager/external `47 passed`；F3 config race/integration `6 passed`；F4 worker `10 passed`，listener isolation 三次 + lifecycle affected `8 passed`。
+- Full non-E2E: `PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -m 'not e2e' -n 4 --dist worksteal --durations=20 --durations-min=0.5` → 最终代码 `3245 passed, 28 warnings in 63.03s`。
+- Quality: repository `ruff check .`；18 个 changed Python files `ruff format --check`；`/Users/czj/Repos/nano-multiagent/.venv/bin/python scripts/docs_check.py` → 245 Markdown / 67 required routes；`git diff 16397bbad69978198a89ad8bb3ea87e8d8b2ab59 --check` 全绿。`./scripts/docs-check` 首次由系统 Python 启动且缺 PyYAML，改用仓库 `.venv` 执行同一 checker 后通过，不是 repository failure。
+- Product contract: 不改 approved event policy、用户可见 schema/文案、external route 或 receipt action allowlist；ordinary background Agent 输出由 heartbeat-first route-upgrade regression 明确保留。因不改变 Feishu/CLI 产品表现，未重复专用外部 journey；scheduler/heartbeat 生命周期变化由上述真实 Kernel cron integration 收口。
+- Status: DONE。Next: final full/quality snapshot 后提交、push、merge/push unit，并清理 milestone worktree/branch。
+
 ## Round 4 reviewer-fix readback
 
 - Pre-fix head: `a26fc6975853b5e7183f531df39bbc547a4ea4d7`（包含 reviewer 的 `Round 4 — FAIL` regression commit），从 clean/synced `unit/bugfix-525` 创建独立 `milestone/bugfix-525-M3-fix-r4` worktree；该回归提交保留在 fix 历史中。

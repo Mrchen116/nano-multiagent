@@ -14,7 +14,7 @@ from agent.core.llm.config import (
     LLMProviderPayload,
 )
 from agent.core.llm.interfaces import LLMToolCall
-from agent.sdk import LLMConfig, build_kernel
+from agent.sdk import LLMConfig, RunOrigin, build_kernel
 from personal_assistant.config.local_store import (
     AgentWorkspaceConfig,
     HeartbeatConfig,
@@ -28,6 +28,8 @@ from personal_assistant.gateway.background_subscriptions import (
     BackgroundSubscriptionManager,
     BackgroundSubscriptionRequest,
 )
+from personal_assistant.gateway.runtime_delivery.context import RunDeliveryContextStore
+from personal_assistant.gateway.runtime_delivery.stream import stream_run_to_completion
 from personal_assistant.gateway.session_binder import GatewaySessionBinder
 from personal_assistant.gateway.session_keys import SessionBindingStore
 from tests.helpers.self_evolution import (
@@ -36,15 +38,14 @@ from tests.helpers.self_evolution import (
     SKILL_NAME,
     SelfEvolutionLLM,
     allow_all,
-    wait_for_terminal,
 )
 
 
 @pytest.mark.asyncio
-async def test_post_terminal_skill_create_reaches_gateway_config_sync(
+async def test_owner_direct_cron_skill_create_reaches_gateway_config_sync(
     tmp_path: Path,
 ) -> None:
-    """A real late review refreshes Gateway config through its persistent owner."""
+    """A real post-terminal cron review uses the persistent config-sync owner."""
     review_gate = asyncio.Event()
     client = SelfEvolutionLLM(
         foreground_replies=(FOREGROUND_REPLY,),
@@ -145,10 +146,23 @@ async def test_post_terminal_skill_create_reaches_gateway_config_sync(
             session_id=session.session_id,
             workspace_root=tmp_path,
             parts=[{"type": "text", "text": "Solve one complex task."}],
+            origin=RunOrigin.CRON,
         )
-        await asyncio.wait_for(wait_for_terminal(kernel, run.run_id), timeout=2)
-
-        outcome = await manager.ensure_after_foreground_terminal(
+        stream_outcome = await asyncio.wait_for(
+            stream_run_to_completion(
+                run_id=run.run_id,
+                kernel_session_id=session.session_id,
+                agent_id=agent_id,
+                owner_user_id="owner-test",
+                kernel=kernel,
+                run_context_store=RunDeliveryContextStore(),
+                observer=lambda _event: None,
+                stream_anchor=run.start_sequence,
+                background_subscriptions=manager,
+            ),
+            timeout=2,
+        )
+        dedupe_outcome = await manager.ensure_after_foreground_terminal(
             BackgroundSubscriptionRequest(
                 session_id=session.session_id,
                 after_sequence=run.start_sequence,
@@ -161,7 +175,8 @@ async def test_post_terminal_skill_create_reaches_gateway_config_sync(
         # thread. Keep a CI-sized scheduling budget while asserting completion.
         await asyncio.wait_for(skill_sync_completed.wait(), timeout=15)
 
-        assert outcome.value == "started"
+        assert stream_outcome.status == "completed"
+        assert dedupe_outcome.value == "already_active"
         refreshed = catalog.require(agent_id)
         assert refreshed.revision > initial_revision
         assert refreshed.config.skills_selection_mode == "default_discovery"

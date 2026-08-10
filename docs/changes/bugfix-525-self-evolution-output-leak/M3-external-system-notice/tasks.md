@@ -117,6 +117,6 @@ Prototype / Reference Contract: N/A。
 
 ### R13 — Code review closure gates
 
-- 状态: IN PROGRESS
+- 状态: DONE
 - 步骤: 汇总 finding closure 与证据；运行 focused、affected、full non-E2E、Ruff、docs-check、diff-check。
 - 验证: reviewer-fix commits 进入并推送 `unit/bugfix-525`，milestone worktree/branch 清理。
