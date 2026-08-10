@@ -53,11 +53,26 @@
   - Quality: targeted Ruff passed；`git diff --check` passed。
   - Frontend / Browser / Visual / Prototype: N/A。
 - Rollback: revert R3 commit removes persistent production wiring and reopens post-terminal Skill activation loss while lower-level source routing remains dormant.
-- Commits: pending R3 commit.
+- Commits: `755a824c0`.
 
 ## R4 — 比例验证与真实入口
 
-- Status: pending.
+- Context: closure 需要证明完整仓门禁、测试资产不腐烂，以及真实 IM/Gateway 进程上的用户可见边界；runtime 必须隔离并清理。
+- Decision: Gateway lifecycle integration 从 501 行的 Kernel visibility 文件拆到独立 behavior owner，共享 controlled structural LLM driver；随后重跑完整门禁。在 persistent owned shell 中用 worktree-local config/ports 启动真 IM + Gateway，设 memory nudge=1，跑 self-evolution 与 ordinary background bash 两条黑盒旅程。
+- Rationale: 文件拆分遵守 400 行 contract 且对应两个不同 failure seam；真实栈只验证进程/IM/product delivery，模型分支确定性继续由永久 integration regression 承担。
+- Evidence:
+  - Full test first pass: `3192 passed, 26 deselected, 1 failed`；唯一失败为新 integration 文件 501 行超 soft cap，非产品失败。
+  - Split regression: `5 passed in 3.89s`（两个 integration owners + naming/size contract）；文件为 249 / 179 行，共享 helper 118 行。
+  - Full test final: `3193 passed, 26 deselected, 22 warnings in 271.95s` with `pytest -q -m "not e2e"`。
+  - Quality: repository `ruff check .` passed；project-venv `./scripts/docs-check` passed（224 Markdown / 67 routes）；`git diff --check` passed。
+  - Live self-evolution: isolated node `wt-bugfix-525-M1-46251`, IM `127.0.0.1:58387`, conversation `2fdc4f10df4e4ab997e1a94542501bab`, Kernel session `sess_09d6d00488c054a6`. REST history contained two normal Agent replies and exactly one system message `· background self-evolution review: memory updated` with `system_notice.kind=self_evolution_review`; no `Saved:`, `Nothing to save.`, review prompt, or side-chain tool/turn bubble. Workspace `USER.md` gained the reproducible-evidence preference.
+  - Live ordinary background: conversation `3085409f4ad447159d110c3095618b92`; background bash sentinel `BG525D0AD977D` arrived in a second Agent message (`agent_message_count=2`), proving ordinary background output remains visible.
+  - Runtime locators before cleanup: `.im.log`, `.gateway.log`, `data/im_service.sqlite3`, `.gateway-workspace/e2e/.nanoassistant/sessions/sess_09d6d00488c054a6.jsonl`. Raw runtime/log/config/secret files were not staged.
+  - Cleanup: `e2e-down.sh` succeeded; PID files, generated Gateway config/JWT/channel credentials removed; port `58387` had no listener; persistent owner shell exited. Task-created non-ignored receipt was deleted.
+  - Limit: live journey used isolated internal Web IM and repository LLM proxy, not dedicated Feishu credentials. Feishu-shaped/external delivery remains covered by the same Gateway routing tests in the full suite; production symptom evidence remains the read-only locator in Baseline.
+  - Frontend State Matrix / Browser QA / Visual / Prototype: N/A（后端投递语义；真实 REST/DB/进程入口已验证）。
+- Rollback: revert R4 test/evidence commit only removes harness split/evidence; product rollback is R1-R3 commits in reverse order.
+- Commits: pending R4 commit.
 
 ## Promotion Candidates
 
