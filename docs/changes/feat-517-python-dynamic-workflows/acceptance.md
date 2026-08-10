@@ -221,3 +221,103 @@ CLI 非交互与飞书可以完成最小 Workflow，但 coding CLI 默认交互�
 ## Recommended Next Step
 
 `fix-implementation`。优先恢复 CLI 默认交互审批与 Web 后台原始返回，再修正 Workflow detail 内容、child Luna/effort 路由和 disabled CLI command discovery；下一轮应按上一轮所有 `fail` / `inconclusive` 继续复验，并补齐真实 failed/stopped、Agent background、empty-text 与 active pause/resume 状态。
+
+---
+
+# Round 2 — 2026-08-10
+
+> Targeted Fast-lane re-review
+
+> Validation snapshot: `517b3bd585fb06fd5b319b12cdc69f77f8578dac → ce4f2aab1bc12df76c4aa5e4d18ad981cddc5e9d`
+
+## Verdict
+
+**fail**
+
+**Highest Required Action：`fix-implementation`**
+
+Round 1 的 CLI 默认审批、Web background return、Workflow detail、disabled CLI discovery 已关闭；PA child model 也已改为 Luna。但同 session 在进程重启后仍无法 resume，且 PA child request 没有继承 low effort，第二次 Workflow 的 terminal continuation 又回落到 DeepSeek。其余未列入本次 targeted 范围的 Round 1 `fail` / `inconclusive` 继续继承，因此本 unit 仍不能判 pass。
+
+## Targeted User Journeys Exercised
+
+1. **CLI default approval + disabled discovery + restart resume**：Luna/low、单无工具 Agent；真实 TTY Allow once、completed、退出后 `--resume`、TTY control、显式 resume、跨 session resume；disabled `/help` 与 `/workflows` 对照。
+2. **隔离 Web realtime/reload/mobile**：独立 IM/Gateway/Vite + Playwright Chromium；Workflow permission、launch detail、completed background return、展开 raw result、reload、390×844 mobile。
+3. **PA child routing + child tool smoke**：同一 Luna/Low profile 下，再运行一个只调用一次安全 Bash 的单 child Workflow；对照 child/continuation provider requests，并观察用户入口是否卡死。
+
+真实 Chrome 与真实飞书均未打开、未控制、未发送任何消息。完整 locator 与脱敏输出见 [`acceptance-evidence/round2-runtime-evidence.md`](acceptance-evidence/round2-runtime-evidence.md)。
+
+## Reference Artifacts Re-reviewed
+
+| Reference contract | Actual Round 2 evidence | Viewport / state | Conclusion |
+|---|---|---|---|
+| Workflow input-first / result-second | `round2-web-workflow-completed-expanded-desktop.png` | desktop / async launched | **match**：完整 inline Python 在前，`async_launched`、run/task 与 artifact locator 在后 |
+| Workflow completed background return | `round2-web-background-return-details-desktop.png` | desktop / realtime completed | **match**：正文与独立 background-return process item 同时存在；展开含 raw result、identity、usage、duration、diagnostics、resume hint |
+| history / replay / mobile same return | `round2-web-background-return-after-reload-desktop.png`、`round2-web-background-return-after-reload-mobile.png` | desktop + 390×844 / reload | **match**：同 task/run、同 raw result、同 usage/artifacts，未重复 |
+
+## Round 1 Issue Re-validation
+
+| Round 1 issue | Round 2 result | Evidence | Status |
+|---|---|---|---|
+| 1. CLI 默认交互审批不出现 | 真实 TTY 显示完整 Workflow permission request；Allow once 后 completed 1/1 | round2 runtime evidence / CLI | **closed** |
+| 2. Web 完成消息缺少后台原始返回 | realtime、reload、desktop/mobile 均显示同一 background return | Round 2 background-return screenshots | **closed** |
+| 3. Workflow detail 只有空标题 | input、script、launch result、run/task 与 artifact locator 均可读 | `round2-web-workflow-completed-expanded-desktop.png` | **closed** |
+| 4. PA child 未继承 Luna/effort | child model 已是 Luna；但 child provider request 没有 low effort，第二次 terminal continuation 回落 DeepSeek | round2 runtime evidence / provider locator | **still failing** |
+| 5. CLI disabled `/help` 仍列 Workflow | disabled `/help` 不再列 `/workflows`；直接输入时一致返回 unknown command | round2 runtime evidence / CLI | **closed** |
+| 6. restart resume 只有笼统失败 | `--resume` 后可见 persisted run，但 TTY control 报 unknown run；显式 resume 仍只有 input-layer 通用失败 | round2 runtime evidence / CLI | **still failing** |
+
+## Issues
+
+### R2-1. PA child effort 未继承，terminal continuation 仍可切换模型
+
+- **Severity:** major
+- **Regression Relation:** direct
+- **Expected:** Agent profile 为 Luna + Low，未在脚本覆盖时 child 与消费终态通知的 parent continuation 都使用相同 resolved model/effort；发生替换要向用户告警。
+- **Actual:** child model 已修为 Luna，但 child request 没有 `output_config.effort=low`；第二次完成通知的综合回复由 `deepseek:deepseek-v4-flash` 生成，界面没有模型替换告警。
+- **Reproduction:** Web Agent 选 Workflow、Luna、Low，连续运行两个单 child Workflow；第二个 child 只执行一次安全 Bash；查同一 LLM Proxy session locator。
+- **Recommended Action:** fix-implementation
+- **Action Rationale:** 仍直接违反“模型与 effort 路由”，且模型/成本选择对用户不可信；只经过一轮修复，未满足 revise-design 三道闸。
+
+### R2-2. 进程重启后同 session 的 persisted Workflow 无法控制或 resume
+
+- **Severity:** major
+- **Regression Relation:** direct
+- **Expected:** `--resume <same-session>` 后可以按 runId 恢复同 session 的 Workflow；若用户在不同 session resume，应得到明确的 session-scope 诊断。
+- **Actual:** 同 session `/workflows` 能看到 completed run，但 TTY `p` 报 `unknown Workflow run`；显式 resume 在同 session 与新 session 都只给 `failed to run /workflows`，没有 session-scope 或恢复诊断。
+- **Reproduction:** 完成 `wf_7f53bce070f65bb3`，退出 CLI，重新执行 `--resume sess_5e77831ef574f1fb`，再用 TTY `p` 与显式 resume；随后新 session 对同 runId resume。
+- **Recommended Action:** fix-implementation
+- **Action Rationale:** 直接违反 resume/restart 用户场景；历史展示与控制能力相互矛盾。
+
+## Targeted Acceptance Criteria Coverage
+
+未列出的 Round 1 `fail` / `inconclusive` 行按 Fast-lane 规则原样继承。
+
+| Scenario | Round 2 evidence | Result | Note |
+|---|---|---|---|
+| coding CLI 启用 Workflow | TTY approval → Allow once → running/completed | pass | Round 1 blocking closed |
+| Workflow 返回与主 Agent 综合回复同时可见 | realtime completed screenshots | pass | 正文与 background-return 同时可见 |
+| 原始返回与综合结论清楚分层 | expanded background-return detail | pass | raw result 与正文分层 |
+| 主 Agent 正文为空时不丢后台返回 | 第一条 terminal message 一度先出现 process-only，随后正文补齐 | pass | background return 从未因正文时序丢失 |
+| 实时、历史和重放保持同一条返回 | reload desktop/mobile | pass | 同 task/run，内容一致且不重复 |
+| 从自然语言生成 Python Workflow | launch detail 可读完整 Python | pass | Round 1 备注中的空 detail 已关闭 |
+| Workflow 工具关闭时命名入口消失 | disabled `/help` + direct command | pass | 发现与执行一致 |
+| 默认交互权限下审批计划 | CLI + Web 均有通用 Workflow approval | pass | Allow once 可完成 |
+| 子 Agent 使用未预先允许的能力 | one-child Bash smoke | inconclusive | 安全 `printf` 被当前权限策略自动处理，未形成独立 child permission card；但入口未卡死 |
+| 模型与 effort 路由 | PA config + provider requests | fail | child model=Luna；child effort missing；一次 terminal continuation=DeepSeek |
+| 完全相同的脚本与参数重跑 | restart same-session resume | fail | persisted run 可见但 unknown to control path |
+| 退出会话后重新启动 | new session 对旧 run resume | fail | 只给通用 input-layer 错误，没有明确 session-scope 诊断 |
+
+## Side Findings
+
+- Tagged child permission 的“单 stdin owner”在产品层只完成 smoke：CLI/Web 的 one-child Bash 都没有卡死并得到预期结果；当前安全命令被权限策略自动处理，无法证明多个 tagged permission 的精确交互归属。该项保留 `inconclusive`，不另立新 issue。
+- 本轮首次启动隔离 Web 服务时，后台进程随启动 shell 退出导致一次 Vite proxy `ECONNREFUSED`；改为保持隔离服务前台 owner 后真实旅程正常。此为验收 harness 启动方式，不计入产品 issue。
+
+## Upper-level Documentation Sync
+
+- [x] `SPEC.md`：**无需更新**，继承 Round 1 结论。
+- [x] `docs/specs/<包>/`：**需要更新**，但应等最终实现稳定后由 orchestrator 归并 delta spec。
+- [x] `AGENTS.md` / `CLAUDE.md`：**无需更新**。
+- [x] `docs/specs/CONTRIBUTING.md`：**无需更新**。
+
+## Recommended Next Step
+
+继续 `fix-implementation`：修复 PA child effort 与 terminal continuation model routing；让重启后的同 session run 进入可控制/resume 的 runtime，跨 session 返回明确诊断。修复后可对 R2-1/R2-2 做 targeted Round 3，但 Round 1 其余 inherited `inconclusive` 仍需在最终 pass 前逐项关闭。
