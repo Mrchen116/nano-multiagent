@@ -8,12 +8,12 @@ GatewaySessionBinder 成为 session continuity persistence 的唯一公开 owner
 
 ## 退出标准
 
-- [ ] binder 内建私有 SQLite implementation，公开 memory/persistent store、全局实例、HTTP client seam 与 bind helper 删除。
-- [ ] boundary dispatcher 只使用 `next_boundary_dispatch` / `complete_boundary_dispatch` 两步领域 transition。
-- [ ] composition 只创建并传递同一个 binder，pending shadow promotion 也经 binder。
-- [ ] 现有六类表、事务、序列化、legacy migration 与 restart continuity 保持兼容。
-- [ ] `/new`、FIFO `/compact`、pending external control、pending shadow boundary 与 superseded run 回归全绿。
-- [ ] focused、cross-process recovery、非 E2E 全量、Ruff check/format-check 全绿。
+- [x] binder 内建私有 SQLite implementation，公开 memory/persistent store、全局实例、HTTP client seam 与 bind helper 删除。
+- [x] boundary dispatcher 只使用 `next_boundary_dispatch` / `complete_boundary_dispatch` 两步领域 transition。
+- [x] composition 只创建并传递同一个 binder，pending shadow promotion 也经 binder。
+- [x] 现有六类表、事务、序列化、legacy migration 与 restart continuity 保持兼容。
+- [x] `/new`、FIFO `/compact`、pending external control、pending shadow boundary 与 superseded run 回归全绿。
+- [x] focused、cross-process recovery、非 E2E 全量、Ruff check/format-check 全绿。
 
 ## 测试策略
 
