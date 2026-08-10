@@ -8,12 +8,12 @@
 
 ## 退出标准
 
-- [ ] 受控 OpenAI-compatible fixture 只按显式 scenario state、请求序号、message role/tool-call 结构驱动，不匹配 self-evolution 私有 prompt 文案。
-- [ ] no-save 真栈旅程有 fixture-owned 正向执行事实，前台回答完成，IM 历史无 raw `Nothing to save.`、review prompt 或错误栈。
-- [ ] skill 真栈旅程在前台 terminal 后放行真实 `skill_manage(create)`，受控切断一次 persistent stream 并经 replay 恢复；IM 恰好一条 skills structured notice，workspace Skill 与 explicit allowlist 同步。
-- [ ] 后续全新 conversation/session 实际调用 `skill_view` 读取新 Skill 并完成可见回复。
-- [ ] reviewer 一条命令可运行两条旅程；IM/Gateway/LLM fixture 端口、配置、workspace、PID 与 fault state 都在 worktree-local runtime，teardown 后进程/监听端口/敏感生成文件已清理。
-- [ ] focused E2E、M1 routing cross-layer tests、全量非 E2E（按最终风险决定）、Ruff、docs-check 与 `git diff --check` 全绿。
+- [x] 受控 OpenAI-compatible fixture 只按显式 scenario state、请求序号、message role/tool-call 结构驱动，不匹配 self-evolution 私有 prompt 文案。
+- [x] no-save 真栈旅程有 fixture-owned 正向执行事实，前台回答完成，IM 历史无 raw `Nothing to save.`、review prompt 或错误栈。
+- [x] skill 真栈旅程在前台 terminal 后放行真实 `skill_manage(create)`，受控切断一次 persistent stream 并经 replay 恢复；IM 恰好一条 skills structured notice，workspace Skill 与 explicit allowlist 同步。
+- [x] 后续全新 conversation/session 实际调用 `skill_view` 读取新 Skill 并完成可见回复。
+- [x] reviewer 一条命令可运行两条旅程；IM/Gateway/LLM fixture 端口、配置、workspace、PID 与 fault state 都在 worktree-local runtime，teardown 后进程/监听端口/敏感生成文件已清理。
+- [x] focused E2E、M1 routing cross-layer tests、全量非 E2E（按最终风险决定）、Ruff、docs-check 与 `git diff --check` 全绿。
 
 ## 测试策略
 
@@ -53,6 +53,6 @@ Prototype / Reference Contract：N/A。
 
 ### R3 — reviewer 入口、清理与质量门禁
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 增加 worktree-local 一键 runner 与 fixture 文档/critical-path catalog；亲自运行两条旅程，核对进程/端口/生成文件清理并回填 durable evidence。
 - 验证: runner all 通过；Ruff、docs-check、diff-check、相关跨层测试及按风险选择的 non-E2E suite 全绿。

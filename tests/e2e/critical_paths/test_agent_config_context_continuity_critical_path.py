@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import socket
 import subprocess
 import sys
 import time
@@ -161,6 +162,41 @@ def _wait_gateway_custom_prompt(
     raise AssertionError(f"Gateway YAML did not receive custom prompt: {path}")
 
 
+def _read_pid(path: Path) -> int | None:
+    if not path.is_file():
+        return None
+    return int(path.read_text(encoding="utf-8").strip())
+
+
+def _wait_port_closed(port: int, *, timeout: float = 5.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+                pass
+        except OSError:
+            return
+        time.sleep(0.1)
+    raise AssertionError(f"fixture teardown left port {port} listening")
+
+
+def _wait_process_gone(pid: int, *, timeout: float = 5.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            waited_pid, _ = os.waitpid(pid, os.WNOHANG)
+            if waited_pid == pid:
+                return
+        except ChildProcessError:
+            pass
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return
+        time.sleep(0.1)
+    raise AssertionError(f"fixture teardown left process {pid} alive")
+
+
 @pytest.fixture
 def stub_llm_stack(
     tmp_path: Path, request: pytest.FixtureRequest
@@ -289,7 +325,9 @@ def stub_llm_stack(
     try:
         yield stack
     finally:
-        subprocess.run(
+        gateway_pid = _read_pid(wt_dir / ".gateway.pid")
+        im_pid = _read_pid(wt_dir / ".im.pid")
+        down = subprocess.run(
             ["bash", str(_E2E_DOWN), "--wt", str(wt_dir)],
             cwd=str(_REPO_ROOT),
             capture_output=True,
@@ -300,6 +338,26 @@ def stub_llm_stack(
             stub_proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             stub_proc.kill()
+            stub_proc.wait(timeout=5)
+        assert down.returncode == 0, down.stderr
+        for pid in (gateway_pid, im_pid):
+            if pid is None:
+                continue
+            _wait_process_gone(pid)
+        _wait_port_closed(int(stack.im_port))
+        _wait_port_closed(stack.stub_port)
+        for generated in (
+            ".gateway.pid",
+            ".im.pid",
+            ".e2e-ports.env",
+            ".e2e-jwt-secret",
+            ".gateway-config.yaml",
+            "channel-credentials-v1.pem",
+            "channel-manifest-v1.json",
+        ):
+            assert not (wt_dir / generated).exists(), (
+                f"fixture teardown left generated state: {generated}"
+            )
 
 
 @pytest.fixture

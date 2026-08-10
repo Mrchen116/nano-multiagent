@@ -52,7 +52,25 @@
 
 ## R3 — reviewer 入口、清理与质量门禁
 
-- Status: TODO
+- Context: 独立 reviewer 需要不读源码、不复用 integration test 的单命令入口；fixture 进程、端口、配置、workspace 与故障状态必须完全隔离且退出后可验证清理。
+- Decision: 新增 `scripts/e2e-self-evolution.sh`，在 milestone worktree 内 `mktemp` runtime 并用 `--basetemp` 运行两条 permanent critical-path E2E；EXIT trap 只接受 worktree 内固定前缀并删除整套 runtime。共享 fake-LLM stack teardown 增加 production Gateway/IM/LLM PID、监听端口，以及 PID/ports/config/JWT/channel 文件清理断言；workspace 和 fault records 随 runner runtime 一起删除。critical-path catalog 与 fixture owner 文档同步登记。
+- Rationale: reviewer 命令复用 production `e2e-up.sh` / `e2e-down.sh` 与既有 public IM client，不引入第二套产品入口；所有 fault/control 能力只存在于 fixture 进程。明确 teardown 断言可把“测试绿但留进程/端口/secret”变成测试失败。
+- TDD / debug:
+  - 首次 runner 中两条 journey 均通过，但 teardown 守卫报替换 Gateway PID 仍存在。进程随后消失且无监听残留；根因是该 Gateway 是 pytest 直接创建的 child，`e2e-down.sh` 已终止它但 shell 无法替 pytest 回收短暂 zombie。
+  - Root fix: teardown 在进程退出轮询中对自己的 child 使用 non-blocking `waitpid`，对非 child 保持 `kill(pid, 0)` 检查；未放宽存活/端口/文件断言。
+- Evidence:
+  - Reviewer command: `scripts/e2e-self-evolution.sh` → `2 passed in 28.25s`；输出确认 runtime `/Users/czj/Repos/nano-multiagent/.worktrees/bugfix-525-M2/.e2e-self-evolution.XiYSJ6` 已删除。
+  - Journey 1: fixture state 的 `no_save_review_completed` 是 branch-independent 正向事实；IM relay 前台回复完成，raw `Nothing to save.` / `Traceback` 为 0，只有 structured memory notice。
+  - Journey 2: fixture state 的 `skill_review_waiting` / `skill_review_completed` 与 fault record 的同 sequence `disconnected/replayed` 证明 terminal-late review 和 transport replay 真发生；IM/Gateway 产品状态为恰好一条 structured skills notice、workspace Skill 存在、explicit allowlist 自动加入、新 conversation 实际完成 `skill_view`；raw `Saved: ...` / `Traceback` 为 0。
+  - Cleanup: 每个 stack teardown 校验 Gateway/IM/LLM PID 已消失、IM/LLM ports 已关闭、`.gateway.pid` / `.im.pid` / `.e2e-ports.env` / `.e2e-jwt-secret` / `.gateway-config.yaml` / channel credentials/manifest 不存在；runner 再删除 worktree-local basetemp（含 workspace、DB、logs 与 fault state）并校验路径不存在。`pgrep` 后验无 fixture/Gateway 残留。
+  - Full non-E2E: `PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q -m 'not e2e'` → `3193 passed, 28 deselected, 22 warnings in 180.72s`。
+  - Cross-layer: M1 focused → `95 passed, 2 warnings in 8.36s`; existing fake-LLM E2E → `3 passed in 51.72s`。
+  - Quality: `/Users/czj/Repos/nano-multiagent/.venv/bin/ruff check .` → pass；`PYTHON=/Users/czj/Repos/nano-multiagent/.venv/bin/python scripts/docs-check` → `documentation integrity passed: 228 maintained Markdown sources, 67 required routes`；`git diff --check` → pass；`bash -n scripts/e2e-self-evolution.sh` → pass。
+  - Durable locators: `scripts/e2e-self-evolution.sh`、`tests/e2e/critical_paths/test_self_evolution_visibility_critical_path.py`、`tests/e2e/critical_paths/test_self_evolution_skill_activation_critical_path.py`、本文件。
+  - Frontend State Matrix / Browser QA / Visual / Prototype Comparison: N/A（无客户端变更；两条自动化走 Web IM 同一实际 relay）。
+- Rollback: 回退本 roadpoint commit 会移除 reviewer runner、catalog/fixture 文档和 teardown 守卫；R1/R2 单条 pytest 旅程仍保留。
+- Commits: `test(bugfix-525/M2/R3): 固化 self-evolution 真栈验收入口`。
+- Next: rebase 当前 `origin/unit/bugfix-525`，复验 runner/full non-E2E/质量门禁，合入并推送 unit branch。
 
 ## Promotion Candidates
 
