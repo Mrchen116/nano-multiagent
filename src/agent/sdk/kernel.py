@@ -68,6 +68,7 @@ from agent.platform.permissions.broker import (
 )
 from agent.platform.workflows import (
     SavedWorkflowRegistry,
+    WorkflowLaunchContext,
     WorkflowManager,
     WorkflowStructuredOutputTool,
 )
@@ -124,6 +125,7 @@ class _KernelComponents:
     finalize_resources: Callable[[], Awaitable[None]]
     workflow_manager: WorkflowManager
     saved_workflows: SavedWorkflowRegistry
+    session_files: JsonlSessionFiles
 
 
 @dataclass(frozen=True, slots=True)
@@ -1104,6 +1106,7 @@ def _build_kernel_base(
         finalize_resources=_finalize_resources,
         workflow_manager=workflow_manager,
         saved_workflows=saved_workflows,
+        session_files=files,
     )
 
     return Kernel(
@@ -2031,6 +2034,67 @@ class Kernel:
                 agent_call_id=agent_call_id,
             )
         )
+
+    def resume_workflow(self, *, session_id: str, run_id: str) -> WorkflowRunInfo:
+        """Resume one live paused Workflow or relaunch its durable script and cache."""
+
+        ref = self._c.directory.ref_for(session_id)
+        if ref is None:
+            raise ValueError(f"session does not exist: {session_id}")
+        conversation = self._c.directory.open(ref)
+        session_config, _prompt_seed = conversation.config_snapshot()
+        runtime = session_config.metadata.get(INTERNAL_RUNTIME_KEY)
+        runtime = runtime if isinstance(runtime, Mapping) else {}
+        guideline_value = runtime.get("workflow_size_guideline")
+        guideline_explicit = guideline_value in {
+            "unrestricted",
+            "small",
+            "medium",
+            "large",
+        }
+        guideline = str(guideline_value) if guideline_explicit else "medium"
+        enabled_tools = session_config.tool_allowlist
+        if enabled_tools is None:
+            tools_payload = self.list_session_tools(
+                session_id, workspace_root=ref.workspace_root
+            )
+            enabled_tools = tuple(
+                str(item["name"])
+                for item in tools_payload.get("tools", ())
+                if isinstance(item, Mapping) and isinstance(item.get("name"), str)
+            )
+        control = _SessionSubagentControl(
+            ref=ref,
+            directory=self._c.directory,
+            files=self._c.session_files,
+            engine=self._c.engine_services,
+        )
+        snapshot = self._c.workflow_manager.resume(
+            run_id,
+            context=WorkflowLaunchContext(
+                parent_session_id=session_id,
+                workspace_root=ref.workspace_root,
+                subagent_control=control,
+                workflow_ultracode=runtime.get("workflow_ultracode") is True,
+                parent_run_origin=RunOrigin.HUMAN.value,
+                parent_runtime_captured=True,
+                parent_model=session_config.runtime_model,
+                parent_effort=(
+                    str(runtime["reasoning_effort"])
+                    if isinstance(runtime.get("reasoning_effort"), str)
+                    else None
+                ),
+                parent_enabled_tools=tuple(enabled_tools),
+                parent_skills=(
+                    tuple(session_config.skills)
+                    if session_config.skills is not None
+                    else None
+                ),
+            ),
+            size_guideline=guideline,
+            size_guideline_explicit=guideline_explicit,
+        )
+        return _to_workflow_run_info(snapshot)
 
     def save_workflow(
         self,

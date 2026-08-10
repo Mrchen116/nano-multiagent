@@ -1645,12 +1645,26 @@ async def _handle_workflows_command(
             print(_format_workflow_run(run), file=out)
         return _ReplCommandResult(handled=True)
     action = argument_tokens[1]
-    if action in {"pause", "resume"} and len(argument_tokens) == 2:
+    if action == "pause" and len(argument_tokens) == 2:
         run = kernel.control_workflow(
             session_id=session_id,
             run_id=run_id,
-            action=WorkflowControlAction(action),
+            action=WorkflowControlAction.PAUSE,
         )
+        print(_format_workflow_run(run), file=out)
+        return _ReplCommandResult(handled=True)
+    if action == "resume" and len(argument_tokens) == 2:
+        try:
+            run = kernel.resume_workflow(session_id=session_id, run_id=run_id)
+        except (OSError, ValueError) as exc:
+            repl_commands.print_actionable_error(
+                out=out,
+                message=str(exc),
+                suggestion=(
+                    "run this command from the Workflow's parent session and retry."
+                ),
+            )
+            return _ReplCommandResult(handled=True)
         print(_format_workflow_run(run), file=out)
         return _ReplCommandResult(handled=True)
     if action == "stop" and len(argument_tokens) in {2, 3}:

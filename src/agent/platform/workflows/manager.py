@@ -172,6 +172,7 @@ class WorkflowManager:
             "duration_ms": None,
             "size_guideline": size_guideline,
             "size_guideline_explicit": size_guideline_explicit,
+            "args": args,
             "large_warning": None,
             "script_path": str(store.script_path),
             "journal_path": str(store.journal_path),
@@ -224,6 +225,71 @@ class WorkflowManager:
         handle.thread = thread
         thread.start()
         return launch
+
+    def resume(
+        self,
+        run_id: str,
+        *,
+        context: WorkflowLaunchContext,
+        size_guideline: str = "medium",
+        size_guideline_explicit: bool = False,
+        output_budget: OutputTokenBudget | None = None,
+    ) -> dict[str, Any]:
+        """Resume a live paused run or relaunch one durable run from its cache."""
+
+        self.load_session_runs(
+            session_id=context.parent_session_id,
+            workspace_root=context.workspace_root,
+        )
+        previous = self.get(run_id)
+        if previous is None:
+            owner_session_id = self._find_durable_run_owner(
+                run_id=run_id,
+                workspace_root=context.workspace_root,
+            )
+            if (
+                owner_session_id is not None
+                and owner_session_id != context.parent_session_id
+            ):
+                raise ValueError(
+                    "resume Workflow run belongs to a different parent session"
+                )
+            raise ValueError(f"unknown resume Workflow run: {run_id}")
+        if previous.get("parent_session_id") != context.parent_session_id:
+            raise ValueError(
+                "resume Workflow run belongs to a different parent session"
+            )
+
+        with self._lock:
+            live = self._runs.get(run_id)
+        status = str(previous.get("status") or "")
+        if live is not None and status == "paused":
+            return self.control(run_id, action="resume")
+        if live is not None and status not in {"completed", "failed", "stopped"}:
+            raise ValueError(f"Workflow run cannot be resumed while {status}")
+
+        script_path = Path(str(previous.get("script_path") or ""))
+        try:
+            source = script_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise ValueError(
+                f"unable to read resume Workflow script: {script_path}"
+            ) from exc
+        launch = self.launch(
+            source=source,
+            args=previous.get("args"),
+            context=context,
+            resume_from_run_id=run_id,
+            size_guideline=size_guideline,
+            size_guideline_explicit=size_guideline_explicit,
+            output_budget=output_budget,
+        )
+        snapshot = self.get(launch.run_id)
+        if snapshot is None:  # pragma: no cover - launch registers before returning.
+            raise RuntimeError(
+                f"Workflow run disappeared after launch: {launch.run_id}"
+            )
+        return snapshot
 
     def list_runs(self, *, session_id: str | None = None) -> tuple[dict[str, Any], ...]:
         with self._lock:
@@ -300,7 +366,20 @@ class WorkflowManager:
     ) -> dict[str, Any]:
         with self._lock:
             handle = self._runs.get(run_id)
+            persisted = self._persisted.get(run_id)
         if handle is None:
+            if persisted is not None:
+                status = str(persisted.get("status") or "")
+                if status in {"completed", "failed", "stopped"}:
+                    if action == "restart_agent":
+                        raise ValueError(
+                            f"Workflow Agent is not running: {agent_call_id or ''}"
+                        )
+                    return _clone_snapshot(persisted)
+                raise ValueError(
+                    "Workflow run is not live after restart; resume it from its "
+                    "parent session"
+                )
             raise ValueError(f"unknown Workflow run: {run_id}")
         with handle.lock:
             runtime = handle.runtime

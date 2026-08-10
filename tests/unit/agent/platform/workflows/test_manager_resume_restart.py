@@ -10,7 +10,7 @@ SCRIPT = """
 meta = {"name": "resume-restart", "description": "Resume one completed child"}
 
 async def main():
-    return await agent("return fixed result")
+    return await agent(args["prompt"])
 """
 
 
@@ -35,18 +35,24 @@ def test_completed_run_resumes_from_durable_cache_after_manager_restart(
         parent_session_id="session-a", workspace_root=tmp_path
     )
     original_manager = _manager(child=child)
-    original = original_manager.launch(source=SCRIPT, args=None, context=context)
+    original = original_manager.launch(
+        source=SCRIPT,
+        args={"prompt": "return fixed result"},
+        context=context,
+    )
     first = original_manager.wait(original.run_id, timeout=2)
     original_manager.close()
 
     restarted_manager = _manager(child=child)
-    resumed = restarted_manager.launch(
-        source=SCRIPT,
-        args=None,
-        context=context,
-        resume_from_run_id=original.run_id,
+    restarted_manager.load_session_runs(session_id="session-a", workspace_root=tmp_path)
+    assert restarted_manager.control(original.run_id, action="pause")["status"] == (
+        "completed"
     )
-    second = restarted_manager.wait(resumed.run_id, timeout=2)
+    resumed = restarted_manager.resume(
+        original.run_id,
+        context=context,
+    )
+    second = restarted_manager.wait(str(resumed["run_id"]), timeout=2)
 
     assert live == ["return fixed result"]
     assert second["result"] == first["result"]
@@ -63,7 +69,7 @@ def test_restart_resume_reports_cross_session_owner_instead_of_unknown_run(
     original_manager = _manager(child=child)
     original = original_manager.launch(
         source=SCRIPT,
-        args=None,
+        args={"prompt": "return fixed result"},
         context=WorkflowLaunchContext(
             parent_session_id="session-a", workspace_root=tmp_path
         ),
@@ -73,12 +79,10 @@ def test_restart_resume_reports_cross_session_owner_instead_of_unknown_run(
 
     restarted_manager = _manager(child=child)
     with pytest.raises(ValueError, match="different parent session"):
-        restarted_manager.launch(
-            source=SCRIPT,
-            args=None,
+        restarted_manager.resume(
+            original.run_id,
             context=WorkflowLaunchContext(
                 parent_session_id="session-b", workspace_root=tmp_path
             ),
-            resume_from_run_id=original.run_id,
         )
     restarted_manager.close()
