@@ -63,6 +63,25 @@
 - Commits: `03319c87a789e7d8f93cb677f93540fbc9a9537d`、`045373db0b07dcea18a0b44602965501822d1f89`；本段证据见后续 docs commit。
 - Next: milestone 完成，等待合入 `unit/bugfix-533`。
 
+## Code Review Fix 1 — 去除事件 consumer 的窄等待窗口
+
+- Context: startup 回归已用未包装的 `FeishuWorkerRuntime.start()` 固定生产 ready budget，但后续 `observed.wait(3)` 又把独立的 parent event consumer 调度/完成限定为无契约依据的三秒；高负载下 ready 已成功仍可能假红。
+- Decision: 用 consumer gate 明确分离 worker ready 与事件消费。`runtime.start()` 返回后只断言真实 spawn child 存活；随后释放 gate，并通过正式 `stop(drain=True)` 的队列/inflight 条件式收敛保证事件被消费，最后断言 event 与 process reap，不再增加独立秒数窗口。
+- Rationale: 保留 production ready budget 的真实覆盖，不引入 30 秒 ready wrapper，也不修改 production timeout、worker/lifecycle 或消息语义。`drain=True` 复用现有正常停止契约，避免用另一个任意 sleep/wait 替代三秒。
+- Evidence:
+  - Reviewer-feedback Red: consumer gate 保持关闭时，原 `observed.wait(3)` 在 worker 已 ready 的同一真实 spawn 路径稳定失败，`1 failed in 3.48s`，失败点正是 `assert observed.wait(3)`。
+  - Tests: exact Green `1 passed in 0.65s`；startup 文件 `3 passed in 1.46s`；startup + worker runtime + lifecycle focused `18 passed, 2 warnings in 15.56s`。
+  - Entry: pre-fix head 的两轮真实 cold start、Feishu user → Bot → Gateway → 唯一 IM shadow 与完整 non-E2E 证据 retained；本 fix 只有测试 delta，production/runtime 与 live 路径零 diff，故不重发外部消息或重跑全仓 non-E2E。
+  - Frontend State Matrix: N/A，非前端变更。
+  - Browser QA: N/A，非前端变更。
+  - E2E/Regression: 永久回归仍为 `tests/unit/personal_assistant/test_feishu_worker_startup.py`；本 fix 让它直接保护 ready 与 consumer 两个独立 seam。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: revert 本 fix commit 可恢复 reviewer finding 对应的三秒等待。
+- Commits: 本段与测试修复同一 commit。
+- Fast lane: 省略 §3 tasks 复制，理由是单文件测试修复加既有验证文档回填，自包含且无需拆 roadpoint；集成、独立 reviewer 与单 commit 可回退边界保留。
+- Next: 合入 `unit/bugfix-533`，等待 reviewer 复验。
+
 ## Promotion Candidates
 
 None.
