@@ -105,13 +105,13 @@ Prototype / Reference Contract: N/A。
 
 ### R11 — Code review：共享 Skill config mutation 串行化
 
-- 状态: IN PROGRESS
+- 状态: DONE
 - 步骤: 先补 `ensure_agent_skills_enabled` 与 `handle_skill_created` 跨线程竞争红测；在共享 read/merge/PATCH seam 复用既有 `RLock`。
 - 验证: 最终 explicit allowlist 同时包含 activation bundle 与 self-evolution Skill，无 409 丢更新；default discovery/global scope 保持。
 
 ### R12 — Code review：Feishu pre-ready child fail-fast
 
-- 状态: TODO
+- 状态: IN PROGRESS
 - 步骤: 先用真实 spawn 补 child 在 ready 前退出却消耗完整 startup budget 的红测；在既有 monotonic deadline 内使用短有界 wait slice 并检查 child liveness。
 - 验证: pre-ready exit 快速失败；early-False/慢 ready 可继续使用完整 30 秒总预算，shutdown join timeout 不变。
 

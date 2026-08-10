@@ -123,6 +123,13 @@ None.
 - TDD: event-loop 红测修前观察 sender 与 loop 同线程并失败；三类 callback in-flight close 先作绿 characterization。实现后 notice/subscriber/manager/external affected `47 passed, 2 warnings in 3.49s`，同步 sender 在线程运行且 10ms loop tick 先于 100ms sender 完成，async sender 与 shadow delivery 均保留。
 - Status: DONE。Next: R11 ensure-vs-handle 的共享 Skill config mutation 串行化。
 
+## R11 — Code review：共享 Skill config mutation 串行化
+
+- Context: `handle_skill_created` 已持有 `_operation_lock`，但 Feishu activation 的 `ensure_agent_skills_enabled` 经同一 GET/merge/full PATCH helper 时没有锁；两线程可同时读取 profile version V，后一方 409 被既有 best-effort 错误处理吞掉并丢失一个 Skill。
+- Decision: `_enable_skills_for_agent` 作为两条入口共享的 mutation seam 持有既有 `threading.RLock`，完整覆盖 selection gate、GET、merge、PATCH 与 publish；`handle_skill_created` 的 global multi-agent 外层锁保留并依赖 RLock 重入，不增加 retry 或改变异常语义。
+- TDD: 红测确定性暂停 self-evolution 的首个 GET，让 Feishu activation 抢先 PATCH，修前最终只保留 managed Skill 且旧版本 PATCH 409。修后 focused/config-sync integration `6 passed in 1.70s`，最终 explicit allowlist 按顺序同时包含 `self-evolved-skill` 与 `managed-feishu-skill`；既有两个 skill-created 并发、empty/default discovery 与 agent scope 均通过。
+- Status: DONE。Next: R12 Feishu pre-ready child liveness-aware deadline。
+
 ## Round 4 reviewer-fix readback
 
 - Pre-fix head: `a26fc6975853b5e7183f531df39bbc547a4ea4d7`（包含 reviewer 的 `Round 4 — FAIL` regression commit），从 clean/synced `unit/bugfix-525` 创建独立 `milestone/bugfix-525-M3-fix-r4` worktree；该回归提交保留在 fix 历史中。

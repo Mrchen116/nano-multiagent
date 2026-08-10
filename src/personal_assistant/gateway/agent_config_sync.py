@@ -1061,6 +1061,23 @@ class IMAgentConfigSync:
         *,
         explicit_capability_change: bool = False,
     ) -> None:
+        # Feishu activation and self-evolution both perform a full optimistic
+        # profile PATCH. This shared seam owns the complete read/merge/mutate
+        # transaction; handle_skill_created's wider lock remains safely reentrant.
+        with self._operation_lock:
+            self._enable_skills_for_agent_locked(
+                agent,
+                skill_ids,
+                explicit_capability_change=explicit_capability_change,
+            )
+
+    def _enable_skills_for_agent_locked(
+        self,
+        agent: AgentWorkspaceConfig,
+        skill_ids: tuple[str, ...],
+        *,
+        explicit_capability_change: bool = False,
+    ) -> None:
         required_skills = tuple(dict.fromkeys(skill_ids))
         if not required_skills:
             return
