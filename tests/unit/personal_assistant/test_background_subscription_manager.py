@@ -218,8 +218,17 @@ async def test_manager_seal_does_not_cancel_current_callback_before_close() -> N
         kernel=kernel,
         session_event_callback=_on_session_event,
     )
+    manager.register_session_event_route(
+        "trace-callback-close",
+        ReplyContext(channel_name="web_relay", target_chat_id="conv-original"),
+    )
     await manager.ensure(_request())
-    await kernel.events.put({"event": "self_evolution_review"})
+    await kernel.events.put(
+        {
+            "event": "self_evolution_review",
+            "originating_trace_id": "trace-callback-close",
+        }
+    )
     await asyncio.wait_for(callback_started.wait(), timeout=1)
 
     manager.seal()
@@ -237,48 +246,6 @@ async def test_manager_seal_does_not_cancel_current_callback_before_close() -> N
         for task in asyncio.all_tasks()
         if not task.done()
     )
-
-
-@pytest.mark.asyncio
-async def test_session_event_uses_subscription_reply_context_after_binding_invalidation() -> (
-    None
-):
-    """An old subscriber keeps its original delivery target after config publication."""
-
-    kernel = _QueuedKernel()
-    delivered: list[tuple[str, str, str, str]] = []
-    event_seen = asyncio.Event()
-
-    async def _on_session_event(
-        reply_context: ReplyContext,
-        agent_id: str,
-        kernel_session_id: str,
-        event: Mapping[str, Any],
-    ) -> None:
-        delivered.append(
-            (
-                reply_context.target_chat_id,
-                agent_id,
-                kernel_session_id,
-                str(event["event"]),
-            )
-        )
-        event_seen.set()
-
-    manager = BackgroundSubscriptionManager(
-        kernel=kernel,
-        session_event_callback=_on_session_event,
-    )
-    await manager.ensure(_request())
-    manager.seal()
-    await kernel.events.put({"event": "self_evolution_review"})
-    await asyncio.wait_for(event_seen.wait(), timeout=1)
-
-    assert delivered == [
-        ("conv-original", "agent-a", "sess-bg", "self_evolution_review")
-    ]
-    await kernel.events.put(None)
-    await manager.aclose(asyncio.get_running_loop().time() + 1)
 
 
 @pytest.mark.asyncio
@@ -345,8 +312,17 @@ async def test_close_consumes_event_dequeued_before_stop_request() -> None:
         kernel=kernel,
         session_event_callback=_on_event,
     )
+    manager.register_session_event_route(
+        "trace-buffered-close",
+        ReplyContext(channel_name="web_relay", target_chat_id="conv-original"),
+    )
     await manager.ensure(_request())
-    await kernel.events.put({"event": "self_evolution_review"})
+    await kernel.events.put(
+        {
+            "event": "self_evolution_review",
+            "originating_trace_id": "trace-buffered-close",
+        }
+    )
     await asyncio.wait_for(kernel.dequeued.wait(), timeout=1)
 
     close = asyncio.create_task(manager.aclose(asyncio.get_running_loop().time() + 1))
