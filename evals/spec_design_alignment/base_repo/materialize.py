@@ -42,7 +42,9 @@ class MaterializationError(RuntimeError):
 
 
 def canonical_json_bytes(value: Any) -> bytes:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    return json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode()
 
 
 def sha256_bytes(content: bytes) -> str:
@@ -54,7 +56,9 @@ def canonical_hash(value: Any) -> str:
 
 
 def isolated_git_environment() -> dict[str, str]:
-    environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    environment = {
+        key: value for key, value in os.environ.items() if not key.startswith("GIT_")
+    }
     environment["GIT_CONFIG_NOSYSTEM"] = "1"
     environment["GIT_CONFIG_GLOBAL"] = os.devnull
     environment["GIT_ATTR_NOSYSTEM"] = "1"
@@ -82,7 +86,10 @@ def run_git(
         stderr=subprocess.PIPE,
     )
     if result.returncode:
-        detail = result.stderr.decode(errors="replace").strip() or result.stdout.decode(errors="replace").strip()
+        detail = (
+            result.stderr.decode(errors="replace").strip()
+            or result.stdout.decode(errors="replace").strip()
+        )
         raise MaterializationError(f"git {' '.join(args)} failed: {detail}")
     return result.stdout
 
@@ -91,12 +98,16 @@ def canonical_relative_path(value: object, label: str) -> str:
     if not isinstance(value, str) or not value:
         raise MaterializationError(f"{label} must be a non-empty relative path")
     if value.startswith("/") or "\\" in value or "\x00" in value:
-        raise MaterializationError(f"{label} is not a canonical relative path: {value!r}")
+        raise MaterializationError(
+            f"{label} is not a canonical relative path: {value!r}"
+        )
     if unicodedata.normalize("NFC", value) != value:
         raise MaterializationError(f"{label} is not NFC-normalized: {value!r}")
     parts = value.split("/")
     if any(part in {"", ".", ".."} for part in parts):
-        raise MaterializationError(f"{label} is not a canonical relative path: {value!r}")
+        raise MaterializationError(
+            f"{label} is not a canonical relative path: {value!r}"
+        )
     if parts[0].casefold() == ".git":
         raise MaterializationError(f"{label} may not target Git metadata: {value!r}")
     return value
@@ -121,7 +132,9 @@ def require_string(value: object, label: str) -> str:
 
 
 def require_string_list(value: object, label: str) -> list[str]:
-    if not isinstance(value, list) or any(not isinstance(item, str) or not item for item in value):
+    if not isinstance(value, list) or any(
+        not isinstance(item, str) or not item for item in value
+    ):
         raise MaterializationError(f"{label} must be an array of non-empty strings")
     if len(value) != len(set(value)):
         raise MaterializationError(f"{label} contains duplicates")
@@ -130,7 +143,9 @@ def require_string_list(value: object, label: str) -> list[str]:
 
 def require_sha(value: object, label: str) -> str:
     text = require_string(value, label)
-    if len(text) != 64 or any(character not in "0123456789abcdef" for character in text):
+    if len(text) != 64 or any(
+        character not in "0123456789abcdef" for character in text
+    ):
         raise MaterializationError(f"{label} must be a lowercase SHA-256")
     return text
 
@@ -154,7 +169,10 @@ def load_recipe(path: Path) -> tuple[dict[str, Any], bytes]:
             raise MaterializationError("recipe.contract.method_id mismatch")
         if contract.get("projection_level") != "DP1-counterfactual-latest-v1":
             raise MaterializationError("recipe.contract.projection_level mismatch")
-        if contract.get("truth_formula") != "Code@B + ProductClaims@B + DocsFramework@F + Workflow@W":
+        if (
+            contract.get("truth_formula")
+            != "Code@B + ProductClaims@B + DocsFramework@F + Workflow@W"
+        ):
             raise MaterializationError("recipe.contract.truth_formula mismatch")
         clocks = require_mapping(contract.get("clocks"), "recipe.contract.clocks")
         if set(clocks) != {
@@ -165,7 +183,9 @@ def load_recipe(path: Path) -> tuple[dict[str, Any], bytes]:
             "user",
             "model_tool",
         }:
-            raise MaterializationError("recipe.contract.clocks must contain the six frozen clocks")
+            raise MaterializationError(
+                "recipe.contract.clocks must contain the six frozen clocks"
+            )
         if contract.get("layers") != [
             "product_world",
             "documentation_world",
@@ -173,16 +193,22 @@ def load_recipe(path: Path) -> tuple[dict[str, Any], bytes]:
             "arm_bundle",
             "private_controls",
         ]:
-            raise MaterializationError("recipe.contract.layers must contain the five ordered layers")
+            raise MaterializationError(
+                "recipe.contract.layers must contain the five ordered layers"
+            )
         seal = require_mapping(recipe.get("seal"), "recipe.seal")
         if seal.get("suite_status") != "draft_unsealable":
-            raise MaterializationError("recipe.seal.suite_status must remain draft_unsealable")
+            raise MaterializationError(
+                "recipe.seal.suite_status must remain draft_unsealable"
+            )
     source = require_mapping(recipe.get("source"), "recipe.source")
     require_string(source.get("ref"), "recipe.source.ref")
     require_string(source.get("expected_commit"), "recipe.source.expected_commit")
     require_string(source.get("expected_tree"), "recipe.source.expected_tree")
     scrub = require_mapping(recipe.get("scrub"), "recipe.scrub")
-    for index, item in enumerate(require_string_list(scrub.get("remove_paths"), "recipe.scrub.remove_paths")):
+    for index, item in enumerate(
+        require_string_list(scrub.get("remove_paths"), "recipe.scrub.remove_paths")
+    ):
         canonical_relative_path(item, f"recipe.scrub.remove_paths[{index}]")
     for index, item in enumerate(
         require_string_list(
@@ -193,12 +219,18 @@ def load_recipe(path: Path) -> tuple[dict[str, Any], bytes]:
         canonical_relative_path(item, f"recipe.scrub.drop_proposed_control[{index}]")
     require_string(scrub.get("instruction_marker"), "recipe.scrub.instruction_marker")
     for index, item in enumerate(
-        require_string_list(scrub.get("product_instruction_roots"), "recipe.scrub.product_instruction_roots")
+        require_string_list(
+            scrub.get("product_instruction_roots"),
+            "recipe.scrub.product_instruction_roots",
+        )
     ):
-        canonical_relative_path(item, f"recipe.scrub.product_instruction_roots[{index}]")
+        canonical_relative_path(
+            item, f"recipe.scrub.product_instruction_roots[{index}]"
+        )
     if (
         schema_version == "2.0"
-        and scrub.get("change_unit_policy") != "remove_active_and_retired_keep_completed_archive"
+        and scrub.get("change_unit_policy")
+        != "remove_active_and_retired_keep_completed_archive"
     ):
         raise MaterializationError(
             "recipe.scrub.change_unit_policy must be "
@@ -206,7 +238,9 @@ def load_recipe(path: Path) -> tuple[dict[str, Any], bytes]:
         )
     archive_lineage_raw = scrub.get("archive_lineage")
     if schema_version == "2.0" or archive_lineage_raw is not None:
-        archive_lineage = require_mapping(archive_lineage_raw, "recipe.scrub.archive_lineage")
+        archive_lineage = require_mapping(
+            archive_lineage_raw, "recipe.scrub.archive_lineage"
+        )
         unexpected = sorted(set(archive_lineage) - {"policy", "drop_units"})
         if unexpected:
             raise MaterializationError(
@@ -237,7 +271,10 @@ def load_recipe(path: Path) -> tuple[dict[str, Any], bytes]:
                 entry.get("path"),
                 f"recipe.scrub.archive_lineage.drop_units[{index}].path",
             )
-            if not relative.startswith("docs/changes/archive/") or relative.count("/") != 3:
+            if (
+                not relative.startswith("docs/changes/archive/")
+                or relative.count("/") != 3
+            ):
                 raise MaterializationError(
                     "recipe.scrub.archive_lineage drop path must be one whole archive unit root"
                 )
@@ -249,7 +286,9 @@ def load_recipe(path: Path) -> tuple[dict[str, Any], bytes]:
             if (
                 not referenced_ids
                 or referenced_ids != sorted(set(referenced_ids))
-                or any(UNIT_ID_RE.fullmatch(unit_id) is None for unit_id in referenced_ids)
+                or any(
+                    UNIT_ID_RE.fullmatch(unit_id) is None for unit_id in referenced_ids
+                )
             ):
                 raise MaterializationError(
                     "recipe.scrub.archive_lineage referenced unit ids must be non-empty, "
@@ -261,8 +300,12 @@ def load_recipe(path: Path) -> tuple[dict[str, Any], bytes]:
                 "recipe.scrub.archive_lineage drop paths must be unique and sorted"
             )
 
-    projection = require_mapping(recipe.get("docs_projection"), "recipe.docs_projection")
-    projection_mode = require_string(projection.get("mode"), "recipe.docs_projection.mode")
+    projection = require_mapping(
+        recipe.get("docs_projection"), "recipe.docs_projection"
+    )
+    projection_mode = require_string(
+        projection.get("mode"), "recipe.docs_projection.mode"
+    )
     if projection_mode == "preserve_exact":
         unexpected = sorted(set(projection) - {"mode"})
         if unexpected:
@@ -278,7 +321,9 @@ def load_recipe(path: Path) -> tuple[dict[str, Any], bytes]:
         require_string(projection.get("ref"), "recipe.docs_projection.ref")
         projection_files = projection.get("files")
         if not isinstance(projection_files, list) or not projection_files:
-            raise MaterializationError("recipe.docs_projection.files must be a non-empty array")
+            raise MaterializationError(
+                "recipe.docs_projection.files must be a non-empty array"
+            )
         projection_destinations: set[str] = set()
         for index, raw_entry in enumerate(projection_files):
             entry = require_mapping(raw_entry, f"recipe.docs_projection.files[{index}]")
@@ -287,14 +332,21 @@ def load_recipe(path: Path) -> tuple[dict[str, Any], bytes]:
                 raise MaterializationError(
                     f"recipe.docs_projection.files[{index}] has unsupported fields: {unexpected_entry}"
                 )
-            canonical_relative_path(entry.get("source"), f"recipe.docs_projection.files[{index}].source")
+            canonical_relative_path(
+                entry.get("source"), f"recipe.docs_projection.files[{index}].source"
+            )
             destination = canonical_relative_path(
-                entry.get("destination"), f"recipe.docs_projection.files[{index}].destination"
+                entry.get("destination"),
+                f"recipe.docs_projection.files[{index}].destination",
             )
             if destination in projection_destinations:
-                raise MaterializationError(f"duplicate docs projection destination: {destination}")
+                raise MaterializationError(
+                    f"duplicate docs projection destination: {destination}"
+                )
             projection_destinations.add(destination)
-            require_sha(entry.get("sha256"), f"recipe.docs_projection.files[{index}].sha256")
+            require_sha(
+                entry.get("sha256"), f"recipe.docs_projection.files[{index}].sha256"
+            )
     elif projection_mode == "dp1_counterfactual_latest":
         unexpected = sorted(
             set(projection)
@@ -313,16 +365,26 @@ def load_recipe(path: Path) -> tuple[dict[str, Any], bytes]:
                 f"recipe.docs_projection dp1_counterfactual_latest has unsupported fields: {unexpected}"
             )
         require_string(projection.get("ref"), "recipe.docs_projection.ref")
-        require_string(projection.get("expected_commit"), "recipe.docs_projection.expected_commit")
-        require_string(projection.get("expected_tree"), "recipe.docs_projection.expected_tree")
+        require_string(
+            projection.get("expected_commit"), "recipe.docs_projection.expected_commit"
+        )
+        require_string(
+            projection.get("expected_tree"), "recipe.docs_projection.expected_tree"
+        )
         if projection.get("product_claim_source") != "baseline_only":
-            raise MaterializationError("recipe.docs_projection.product_claim_source must be 'baseline_only'")
+            raise MaterializationError(
+                "recipe.docs_projection.product_claim_source must be 'baseline_only'"
+            )
         projection_files = projection.get("files")
         generated_files = projection.get("generated_files")
         if not isinstance(projection_files, list) or not projection_files:
-            raise MaterializationError("recipe.docs_projection.files must be a non-empty array")
+            raise MaterializationError(
+                "recipe.docs_projection.files must be a non-empty array"
+            )
         if not isinstance(generated_files, list) or not generated_files:
-            raise MaterializationError("recipe.docs_projection.generated_files must be a non-empty array")
+            raise MaterializationError(
+                "recipe.docs_projection.generated_files must be a non-empty array"
+            )
         projection_destinations: set[str] = set()
         for index, raw_entry in enumerate(projection_files):
             entry = require_mapping(raw_entry, f"recipe.docs_projection.files[{index}]")
@@ -341,19 +403,29 @@ def load_recipe(path: Path) -> tuple[dict[str, Any], bytes]:
                 raise MaterializationError(
                     f"recipe.docs_projection.files[{index}] has unsupported fields"
                 )
-            canonical_relative_path(entry.get("source"), f"recipe.docs_projection.files[{index}].source")
+            canonical_relative_path(
+                entry.get("source"), f"recipe.docs_projection.files[{index}].source"
+            )
             destination = canonical_relative_path(
-                entry.get("destination"), f"recipe.docs_projection.files[{index}].destination"
+                entry.get("destination"),
+                f"recipe.docs_projection.files[{index}].destination",
             )
             if destination in projection_destinations:
-                raise MaterializationError(f"duplicate docs projection destination: {destination}")
+                raise MaterializationError(
+                    f"duplicate docs projection destination: {destination}"
+                )
             projection_destinations.add(destination)
-            require_sha(entry.get("sha256"), f"recipe.docs_projection.files[{index}].sha256")
+            require_sha(
+                entry.get("sha256"), f"recipe.docs_projection.files[{index}].sha256"
+            )
             require_sha(
                 entry.get("output_sha256"),
                 f"recipe.docs_projection.files[{index}].output_sha256",
             )
-            if entry.get("source_clock") not in {"product_baseline", "documentation_framework"}:
+            if entry.get("source_clock") not in {
+                "product_baseline",
+                "documentation_framework",
+            }:
                 raise MaterializationError(
                     f"recipe.docs_projection.files[{index}].source_clock is invalid"
                 )
@@ -362,7 +434,8 @@ def load_recipe(path: Path) -> tuple[dict[str, Any], bytes]:
                     f"recipe.docs_projection.files[{index}].install must be create or replace"
                 )
             transform = require_mapping(
-                entry.get("transform"), f"recipe.docs_projection.files[{index}].transform"
+                entry.get("transform"),
+                f"recipe.docs_projection.files[{index}].transform",
             )
             transform_kind = transform.get("kind")
             if transform_kind == "move_exact":
@@ -375,9 +448,18 @@ def load_recipe(path: Path) -> tuple[dict[str, Any], bytes]:
                     raise MaterializationError(
                         f"recipe.docs_projection.files[{index}].transform replace_exact fields mismatch"
                     )
-                require_string(transform.get("old"), f"recipe.docs_projection.files[{index}].transform.old")
-                require_string(transform.get("new"), f"recipe.docs_projection.files[{index}].transform.new")
-                if not isinstance(transform.get("expected_replacements"), int) or transform["expected_replacements"] < 1:
+                require_string(
+                    transform.get("old"),
+                    f"recipe.docs_projection.files[{index}].transform.old",
+                )
+                require_string(
+                    transform.get("new"),
+                    f"recipe.docs_projection.files[{index}].transform.new",
+                )
+                if (
+                    not isinstance(transform.get("expected_replacements"), int)
+                    or transform["expected_replacements"] < 1
+                ):
                     raise MaterializationError(
                         f"recipe.docs_projection.files[{index}].transform.expected_replacements is invalid"
                     )
@@ -386,8 +468,12 @@ def load_recipe(path: Path) -> tuple[dict[str, Any], bytes]:
                     f"recipe.docs_projection.files[{index}].transform.kind is invalid"
                 )
         for index, raw_entry in enumerate(generated_files):
-            entry = require_mapping(raw_entry, f"recipe.docs_projection.generated_files[{index}]")
-            if sorted(set(entry) - {"destination", "mode", "content", "sha256", "install"}):
+            entry = require_mapping(
+                raw_entry, f"recipe.docs_projection.generated_files[{index}]"
+            )
+            if sorted(
+                set(entry) - {"destination", "mode", "content", "sha256", "install"}
+            ):
                 raise MaterializationError(
                     f"recipe.docs_projection.generated_files[{index}] has unsupported fields"
                 )
@@ -396,14 +482,22 @@ def load_recipe(path: Path) -> tuple[dict[str, Any], bytes]:
                 f"recipe.docs_projection.generated_files[{index}].destination",
             )
             if destination in projection_destinations:
-                raise MaterializationError(f"duplicate docs projection destination: {destination}")
+                raise MaterializationError(
+                    f"duplicate docs projection destination: {destination}"
+                )
             projection_destinations.add(destination)
             if entry.get("mode") != "100644":
                 raise MaterializationError(
                     f"recipe.docs_projection.generated_files[{index}].mode must be 100644"
                 )
-            require_string(entry.get("content"), f"recipe.docs_projection.generated_files[{index}].content")
-            require_sha(entry.get("sha256"), f"recipe.docs_projection.generated_files[{index}].sha256")
+            require_string(
+                entry.get("content"),
+                f"recipe.docs_projection.generated_files[{index}].content",
+            )
+            require_sha(
+                entry.get("sha256"),
+                f"recipe.docs_projection.generated_files[{index}].sha256",
+            )
             if entry.get("install") not in {"create", "replace"}:
                 raise MaterializationError(
                     f"recipe.docs_projection.generated_files[{index}].install must be create or replace"
@@ -431,7 +525,9 @@ def load_recipe(path: Path) -> tuple[dict[str, Any], bytes]:
             raise MaterializationError(
                 f"recipe.arm.files[{index}] has unsupported fields: {unexpected_entry}"
             )
-        canonical_relative_path(entry.get("source"), f"recipe.arm.files[{index}].source")
+        canonical_relative_path(
+            entry.get("source"), f"recipe.arm.files[{index}].source"
+        )
         destination = canonical_relative_path(
             entry.get("destination"), f"recipe.arm.files[{index}].destination"
         )
@@ -457,7 +553,9 @@ def load_recipe(path: Path) -> tuple[dict[str, Any], bytes]:
                 raise MaterializationError(
                     f"recipe.arm.files[{index}] cannot transform a preserve_exact entry"
                 )
-            require_sha(entry.get("output_sha256"), f"recipe.arm.files[{index}].output_sha256")
+            require_sha(
+                entry.get("output_sha256"), f"recipe.arm.files[{index}].output_sha256"
+            )
             transform = require_mapping(
                 entry.get("transform"), f"recipe.arm.files[{index}].transform"
             )
@@ -488,11 +586,15 @@ def load_recipe(path: Path) -> tuple[dict[str, Any], bytes]:
     if not isinstance(generated_arm_files, list):
         raise MaterializationError("recipe.arm.generated_files must be an array")
     if schema_version == "1.0" and generated_arm_files:
-        raise MaterializationError("recipe.arm.generated_files is only supported by schema_version 2.0")
+        raise MaterializationError(
+            "recipe.arm.generated_files is only supported by schema_version 2.0"
+        )
     for index, raw_entry in enumerate(generated_arm_files):
         entry = require_mapping(raw_entry, f"recipe.arm.generated_files[{index}]")
         if sorted(set(entry) - {"destination", "mode", "content", "sha256", "install"}):
-            raise MaterializationError(f"recipe.arm.generated_files[{index}] has unsupported fields")
+            raise MaterializationError(
+                f"recipe.arm.generated_files[{index}] has unsupported fields"
+            )
         destination = canonical_relative_path(
             entry.get("destination"), f"recipe.arm.generated_files[{index}].destination"
         )
@@ -500,8 +602,12 @@ def load_recipe(path: Path) -> tuple[dict[str, Any], bytes]:
             raise MaterializationError(f"duplicate arm destination: {destination}")
         destinations.add(destination)
         if entry.get("mode") != "100644":
-            raise MaterializationError(f"recipe.arm.generated_files[{index}].mode must be 100644")
-        require_string(entry.get("content"), f"recipe.arm.generated_files[{index}].content")
+            raise MaterializationError(
+                f"recipe.arm.generated_files[{index}].mode must be 100644"
+            )
+        require_string(
+            entry.get("content"), f"recipe.arm.generated_files[{index}].content"
+        )
         require_sha(entry.get("sha256"), f"recipe.arm.generated_files[{index}].sha256")
         if entry.get("install") not in {"create", "replace"}:
             raise MaterializationError(
@@ -510,12 +616,20 @@ def load_recipe(path: Path) -> tuple[dict[str, Any], bytes]:
 
     assertions = require_mapping(recipe.get("assertions"), "recipe.assertions")
     for field in ("required_paths", "forbidden_paths"):
-        for index, item in enumerate(require_string_list(assertions.get(field), f"recipe.assertions.{field}")):
+        for index, item in enumerate(
+            require_string_list(assertions.get(field), f"recipe.assertions.{field}")
+        ):
             canonical_relative_path(item, f"recipe.assertions.{field}[{index}]")
-    require_string_list(assertions.get("forbidden_text"), "recipe.assertions.forbidden_text")
-    required_hashes = require_mapping(assertions.get("required_sha256"), "recipe.assertions.required_sha256")
+    require_string_list(
+        assertions.get("forbidden_text"), "recipe.assertions.forbidden_text"
+    )
+    required_hashes = require_mapping(
+        assertions.get("required_sha256"), "recipe.assertions.required_sha256"
+    )
     for raw_path, digest in required_hashes.items():
-        canonical_relative_path(raw_path, f"recipe.assertions.required_sha256 key {raw_path!r}")
+        canonical_relative_path(
+            raw_path, f"recipe.assertions.required_sha256 key {raw_path!r}"
+        )
         require_sha(digest, f"recipe.assertions.required_sha256[{raw_path!r}]")
     for field in (
         "required_text_by_path",
@@ -526,7 +640,9 @@ def load_recipe(path: Path) -> tuple[dict[str, Any], bytes]:
             assertions.get(field, {}), f"recipe.assertions.{field}"
         )
         for raw_path, raw_values in values_by_path.items():
-            canonical_relative_path(raw_path, f"recipe.assertions.{field} key {raw_path!r}")
+            canonical_relative_path(
+                raw_path, f"recipe.assertions.{field} key {raw_path!r}"
+            )
             require_string_list(raw_values, f"recipe.assertions.{field}[{raw_path!r}]")
     if "expected_content_manifest_sha256" in assertions:
         require_sha(
@@ -553,7 +669,9 @@ def load_recipe(path: Path) -> tuple[dict[str, Any], bytes]:
             "message": f"{FRESH_ROOT_COMMIT_MESSAGE}\n",
         }
         if git != expected_git:
-            raise MaterializationError("recipe.git differs from the canonical fresh-root identity")
+            raise MaterializationError(
+                "recipe.git differs from the canonical fresh-root identity"
+            )
     return recipe, raw
 
 
@@ -571,16 +689,34 @@ def ensure_existing_path_has_no_symlink(path: Path, label: str) -> None:
 def validate_output_paths(output: Path, manifest: Path, receipt: Path) -> bool:
     absolute_paths = [path.absolute() for path in (output, manifest, receipt)]
     if len(set(absolute_paths)) != 3:
-        raise MaterializationError("output, manifest, and receipt paths must be distinct")
-    for path, label in ((output, "output"), (manifest, "manifest"), (receipt, "receipt")):
+        raise MaterializationError(
+            "output, manifest, and receipt paths must be distinct"
+        )
+    for path, label in (
+        (output, "output"),
+        (manifest, "manifest"),
+        (receipt, "receipt"),
+    ):
         ensure_existing_path_has_no_symlink(path, label)
         if not path.parent.is_dir():
-            raise MaterializationError(f"{label} parent must already exist: {path.parent}")
-    for control_path, label in ((manifest.absolute(), "manifest"), (receipt.absolute(), "receipt")):
-        if output.absolute() == control_path or output.absolute() in control_path.parents:
-            raise MaterializationError(f"{label} must stay outside the candidate output")
+            raise MaterializationError(
+                f"{label} parent must already exist: {path.parent}"
+            )
+    for control_path, label in (
+        (manifest.absolute(), "manifest"),
+        (receipt.absolute(), "receipt"),
+    ):
+        if (
+            output.absolute() == control_path
+            or output.absolute() in control_path.parents
+        ):
+            raise MaterializationError(
+                f"{label} must stay outside the candidate output"
+            )
         if control_path.exists() or control_path.is_symlink():
-            raise MaterializationError(f"refusing to overwrite existing {label}: {control_path}")
+            raise MaterializationError(
+                f"refusing to overwrite existing {label}: {control_path}"
+            )
     if output.is_symlink():
         raise MaterializationError(f"output may not be a symlink: {output}")
     if not output.exists():
@@ -593,8 +729,24 @@ def validate_output_paths(output: Path, manifest: Path, receipt: Path) -> bool:
 
 
 def resolve_commit(repository: Path, ref: str) -> tuple[str, str]:
-    commit = run_git(repository, "rev-parse", "--verify", "--end-of-options", f"{ref}^{{commit}}").decode().strip()
-    tree = run_git(repository, "rev-parse", "--verify", "--end-of-options", f"{commit}^{{tree}}").decode().strip()
+    commit = (
+        run_git(
+            repository, "rev-parse", "--verify", "--end-of-options", f"{ref}^{{commit}}"
+        )
+        .decode()
+        .strip()
+    )
+    tree = (
+        run_git(
+            repository,
+            "rev-parse",
+            "--verify",
+            "--end-of-options",
+            f"{commit}^{{tree}}",
+        )
+        .decode()
+        .strip()
+    )
     return commit, tree
 
 
@@ -610,7 +762,9 @@ def validate_source_tree(repository: Path, commit: str) -> None:
         path = raw_path.decode()
         canonical_relative_path(path, "source Git path")
         if object_type != "blob" or mode not in {"100644", "100755"}:
-            raise MaterializationError(f"source tree contains unsupported entry {mode} {object_type} {path}")
+            raise MaterializationError(
+                f"source tree contains unsupported entry {mode} {object_type} {path}"
+            )
 
 
 def extract_git_archive(raw_archive: bytes, destination: Path) -> None:
@@ -626,9 +780,13 @@ def extract_git_archive(raw_archive: bytes, destination: Path) -> None:
                 target.mkdir(parents=True, exist_ok=True)
                 continue
             if not member.isfile():
-                raise MaterializationError(f"archive contains a symlink or special entry: {name}")
+                raise MaterializationError(
+                    f"archive contains a symlink or special entry: {name}"
+                )
             if name in seen_files or target.exists():
-                raise MaterializationError(f"archive contains a duplicate entry: {name}")
+                raise MaterializationError(
+                    f"archive contains a duplicate entry: {name}"
+                )
             seen_files.add(name)
             target.parent.mkdir(parents=True, exist_ok=True)
             extracted = archive.extractfile(member)
@@ -644,12 +802,20 @@ def file_mode(path: Path) -> str:
 
 def content_manifest(root: Path) -> list[dict[str, str]]:
     entries: list[dict[str, str]] = []
-    for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()):
+    for path in sorted(
+        root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()
+    ):
         relative = path.relative_to(root).as_posix()
         if path.is_symlink():
             raise MaterializationError(f"candidate tree contains a symlink: {relative}")
         if path.is_file():
-            entries.append({"mode": file_mode(path), "path": relative, "sha256": sha256_bytes(path.read_bytes())})
+            entries.append(
+                {
+                    "mode": file_mode(path),
+                    "path": relative,
+                    "sha256": sha256_bytes(path.read_bytes()),
+                }
+            )
     return entries
 
 
@@ -664,7 +830,9 @@ def remove_path(root: Path, relative: str) -> bool:
     elif target.is_file():
         target.unlink()
     else:
-        raise MaterializationError(f"scrub target is not an ordinary file or directory: {relative}")
+        raise MaterializationError(
+            f"scrub target is not an ordinary file or directory: {relative}"
+        )
     return True
 
 
@@ -698,7 +866,9 @@ def scrub_tree(root: Path, scrub: dict[str, Any]) -> dict[str, Any]:
         archive_lineage_results.append(
             {
                 "path": relative,
-                "referenced_noncompleted_unit_ids": entry["referenced_noncompleted_unit_ids"],
+                "referenced_noncompleted_unit_ids": entry[
+                    "referenced_noncompleted_unit_ids"
+                ],
                 "present": present,
             }
         )
@@ -711,15 +881,23 @@ def scrub_tree(root: Path, scrub: dict[str, Any]) -> dict[str, Any]:
     instruction_roots: list[str] = []
     for marker_path in sorted(root.rglob(marker)):
         if marker_path.is_symlink() or not marker_path.is_file():
-            raise MaterializationError(f"instruction marker is not an ordinary file: {marker_path}")
+            raise MaterializationError(
+                f"instruction marker is not an ordinary file: {marker_path}"
+            )
         relative_marker = marker_path.relative_to(root).as_posix()
-        if any(path_is_within(relative_marker, preserve) for preserve in preserve_roots):
+        if any(
+            path_is_within(relative_marker, preserve) for preserve in preserve_roots
+        ):
             continue
         instruction_root = marker_path.parent.relative_to(root).as_posix()
         if instruction_root == ".":
-            raise MaterializationError("repository-root instruction marker needs an explicit scrub rule")
+            raise MaterializationError(
+                "repository-root instruction marker needs an explicit scrub rule"
+            )
         instruction_roots.append(instruction_root)
-    for instruction_root in sorted(set(instruction_roots), key=lambda value: (value.count("/"), value)):
+    for instruction_root in sorted(
+        set(instruction_roots), key=lambda value: (value.count("/"), value)
+    ):
         if any(path_is_within(instruction_root, parent) for parent in removed_roots):
             continue
         if remove_path(root, instruction_root):
@@ -735,9 +913,17 @@ def scrub_tree(root: Path, scrub: dict[str, Any]) -> dict[str, Any]:
                 raise MaterializationError("docs/changes must be an ordinary directory")
             for child in sorted(change_root.iterdir(), key=lambda path: path.name):
                 relative = child.relative_to(root).as_posix()
-                if child.name == "README.md" and child.is_file() and not child.is_symlink():
+                if (
+                    child.name == "README.md"
+                    and child.is_file()
+                    and not child.is_symlink()
+                ):
                     continue
-                if child.name == "archive" and child.is_dir() and not child.is_symlink():
+                if (
+                    child.name == "archive"
+                    and child.is_dir()
+                    and not child.is_symlink()
+                ):
                     preserved_completed_archive = True
                     continue
                 if remove_path(root, relative):
@@ -745,7 +931,9 @@ def scrub_tree(root: Path, scrub: dict[str, Any]) -> dict[str, Any]:
                     removed_change_unit_roots.append(relative)
 
     remaining_paths = {entry["path"] for entry in content_manifest(root)}
-    removed_entries = [removed_before[path] for path in sorted(set(removed_before) - remaining_paths)]
+    removed_entries = [
+        removed_before[path] for path in sorted(set(removed_before) - remaining_paths)
+    ]
     return {
         "explicit_paths": explicit_results,
         "removed_roots": sorted(removed_roots),
@@ -758,7 +946,9 @@ def scrub_tree(root: Path, scrub: dict[str, Any]) -> dict[str, Any]:
             "completed_archive_preserved": preserved_completed_archive,
         },
         "drop_proposed_control": {
-            "policy": "legacy_epoch_task_blind" if proposed_control_results else "not_configured",
+            "policy": "legacy_epoch_task_blind"
+            if proposed_control_results
+            else "not_configured",
             "paths": proposed_control_results,
             "removed_roots": removed_proposed_control_roots,
             "removed_roots_sha256": canonical_hash(removed_proposed_control_roots),
@@ -840,8 +1030,14 @@ def apply_docs_projection(
 
         entries: list[dict[str, str]] = []
         for entry in projection["files"]:
-            source_commit = baseline_commit if entry["source_clock"] == "product_baseline" else commit
-            source_mode, source_content = git_blob(repository, source_commit, entry["source"])
+            source_commit = (
+                baseline_commit
+                if entry["source_clock"] == "product_baseline"
+                else commit
+            )
+            source_mode, source_content = git_blob(
+                repository, source_commit, entry["source"]
+            )
             source_digest = sha256_bytes(source_content)
             if source_digest != entry["sha256"]:
                 raise MaterializationError(
@@ -875,7 +1071,9 @@ def apply_docs_projection(
                 "mode": source_mode,
                 "sha256": output_digest,
                 "transform": transform["kind"],
-                "truth_domain": "framework" if entry["source_clock"] == "documentation_framework" else "product_current",
+                "truth_domain": "framework"
+                if entry["source_clock"] == "documentation_framework"
+                else "product_current",
             }
             receipt_entry.update(
                 install_projection_file(
@@ -1000,20 +1198,28 @@ def overlay_arm(root: Path, repository: Path, arm: dict[str, Any]) -> dict[str, 
         install = entry.get("install", "create")
         if install == "create":
             if target.exists() or target.is_symlink():
-                raise MaterializationError(f"arm destination collides with product tree: {destination}")
+                raise MaterializationError(
+                    f"arm destination collides with product tree: {destination}"
+                )
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(content)
             target.chmod(0o755 if mode == "100755" else 0o644)
         elif install == "replace":
             if not target.is_file() or target.is_symlink():
-                raise MaterializationError(f"arm replacement target is not an ordinary file: {destination}")
+                raise MaterializationError(
+                    f"arm replacement target is not an ordinary file: {destination}"
+                )
             target.write_bytes(content)
             target.chmod(0o755 if mode == "100755" else 0o644)
         elif install == "preserve_exact":
             if not target.is_file() or target.is_symlink():
-                raise MaterializationError(f"arm preserved target is not an ordinary file: {destination}")
+                raise MaterializationError(
+                    f"arm preserved target is not an ordinary file: {destination}"
+                )
             if file_mode(target) != mode or target.read_bytes() != content:
-                raise MaterializationError(f"arm preserved target differs from Workflow@W: {destination}")
+                raise MaterializationError(
+                    f"arm preserved target differs from Workflow@W: {destination}"
+                )
         else:
             raise MaterializationError(f"unsupported arm install mode: {install}")
         receipt_entry: dict[str, Any] = {
@@ -1039,10 +1245,14 @@ def overlay_arm(root: Path, repository: Path, arm: dict[str, Any]) -> dict[str, 
         target = root / destination
         if entry["install"] == "create":
             if target.exists() or target.is_symlink():
-                raise MaterializationError(f"generated arm destination collides with product tree: {destination}")
+                raise MaterializationError(
+                    f"generated arm destination collides with product tree: {destination}"
+                )
             target.parent.mkdir(parents=True, exist_ok=True)
         elif not target.is_file() or target.is_symlink():
-            raise MaterializationError(f"generated arm replacement target is not an ordinary file: {destination}")
+            raise MaterializationError(
+                f"generated arm replacement target is not an ordinary file: {destination}"
+            )
         target.write_bytes(content)
         target.chmod(0o644)
         entries.append(
@@ -1060,11 +1270,15 @@ def overlay_arm(root: Path, repository: Path, arm: dict[str, Any]) -> dict[str, 
         "commit": commit,
         "tree": tree,
         "entries": sorted(entries, key=lambda item: item["path"]),
-        "files_manifest_sha256": canonical_hash(sorted(entries, key=lambda item: item["path"])),
+        "files_manifest_sha256": canonical_hash(
+            sorted(entries, key=lambda item: item["path"])
+        ),
     }
 
 
-def validate_assertions(root: Path, assertions: dict[str, Any], entries: list[dict[str, str]]) -> None:
+def validate_assertions(
+    root: Path, assertions: dict[str, Any], entries: list[dict[str, str]]
+) -> None:
     for relative in assertions["required_paths"]:
         target = root / relative
         if not target.exists() or target.is_symlink():
@@ -1076,10 +1290,14 @@ def validate_assertions(root: Path, assertions: dict[str, Any], entries: list[di
     for relative, expected in assertions["required_sha256"].items():
         target = root / relative
         if not target.is_file() or target.is_symlink():
-            raise MaterializationError(f"required hash path is not an ordinary file: {relative}")
+            raise MaterializationError(
+                f"required hash path is not an ordinary file: {relative}"
+            )
         actual = sha256_bytes(target.read_bytes())
         if actual != expected:
-            raise MaterializationError(f"required hash mismatch for {relative}: expected {expected}, got {actual}")
+            raise MaterializationError(
+                f"required hash mismatch for {relative}: expected {expected}, got {actual}"
+            )
     manifest_by_path = {entry["path"]: entry for entry in entries}
     for forbidden_text in assertions["forbidden_text"]:
         needle = forbidden_text.encode()
@@ -1089,21 +1307,29 @@ def validate_assertions(root: Path, assertions: dict[str, Any], entries: list[di
             if needle in (root / path).read_bytes()
         ]
         if matches:
-            raise MaterializationError(f"forbidden text {forbidden_text!r} remains in {matches[:5]}")
+            raise MaterializationError(
+                f"forbidden text {forbidden_text!r} remains in {matches[:5]}"
+            )
     for relative, required_texts in assertions.get("required_text_by_path", {}).items():
         target = root / relative
         if not target.is_file() or target.is_symlink():
-            raise MaterializationError(f"required-text path is not an ordinary file: {relative}")
+            raise MaterializationError(
+                f"required-text path is not an ordinary file: {relative}"
+            )
         content = target.read_bytes()
         for required_text in required_texts:
             if required_text.encode() not in content:
                 raise MaterializationError(
                     f"required text {required_text!r} is missing from {relative}"
                 )
-    for relative, forbidden_texts in assertions.get("forbidden_text_by_path", {}).items():
+    for relative, forbidden_texts in assertions.get(
+        "forbidden_text_by_path", {}
+    ).items():
         target = root / relative
         if not target.is_file() or target.is_symlink():
-            raise MaterializationError(f"forbidden-text path is not an ordinary file: {relative}")
+            raise MaterializationError(
+                f"forbidden-text path is not an ordinary file: {relative}"
+            )
         content = target.read_bytes()
         for forbidden_text in forbidden_texts:
             if forbidden_text.encode() in content:
@@ -1111,14 +1337,20 @@ def validate_assertions(root: Path, assertions: dict[str, Any], entries: list[di
                     f"forbidden text {forbidden_text!r} remains in {relative}"
                 )
     resolved_root = root.resolve()
-    for relative, required_links in assertions.get("required_resolved_links", {}).items():
+    for relative, required_links in assertions.get(
+        "required_resolved_links", {}
+    ).items():
         target = root / relative
         if not target.is_file() or target.is_symlink():
-            raise MaterializationError(f"link-check path is not an ordinary file: {relative}")
+            raise MaterializationError(
+                f"link-check path is not an ordinary file: {relative}"
+            )
         content = target.read_bytes()
         for link in required_links:
             if f"]({link})".encode() not in content:
-                raise MaterializationError(f"required link {link!r} is missing from {relative}")
+                raise MaterializationError(
+                    f"required link {link!r} is missing from {relative}"
+                )
             link_path = link.split("#", 1)[0].split("?", 1)[0]
             if (
                 not link_path
@@ -1127,7 +1359,9 @@ def validate_assertions(root: Path, assertions: dict[str, Any], entries: list[di
                 or "://" in link_path
                 or "\x00" in link_path
             ):
-                raise MaterializationError(f"required link is not repository-relative: {link!r}")
+                raise MaterializationError(
+                    f"required link is not repository-relative: {link!r}"
+                )
             resolved_target = (target.parent / link_path).resolve()
             if (
                 not resolved_target.is_relative_to(resolved_root)
@@ -1159,7 +1393,9 @@ def validate_assertions(root: Path, assertions: dict[str, Any], entries: list[di
             )
         index = change_root / "README.md"
         if not index.is_file() or index.is_symlink():
-            raise MaterializationError("clean-room lifecycle framework index is missing")
+            raise MaterializationError(
+                "clean-room lifecycle framework index is missing"
+            )
 
 
 def canonicalize_git_repository(root: Path, branch: str, head: str) -> None:
@@ -1172,7 +1408,12 @@ def canonicalize_git_repository(root: Path, branch: str, head: str) -> None:
         )
     )
     payloads: dict[str, tuple[str, bytes]] = {}
-    batch = run_git(root, "cat-file", "--batch", input_bytes=b"".join(f"{item}\n".encode() for item in reachable))
+    batch = run_git(
+        root,
+        "cat-file",
+        "--batch",
+        input_bytes=b"".join(f"{item}\n".encode() for item in reachable),
+    )
     cursor = 0
     for object_id in reachable:
         line_end = batch.find(b"\n", cursor)
@@ -1180,13 +1421,17 @@ def canonicalize_git_repository(root: Path, branch: str, head: str) -> None:
             raise MaterializationError("git cat-file batch header is truncated")
         header = batch[cursor:line_end].split()
         if len(header) != 3 or header[0].decode() != object_id:
-            raise MaterializationError(f"unexpected git cat-file batch header for {object_id}")
+            raise MaterializationError(
+                f"unexpected git cat-file batch header for {object_id}"
+            )
         object_type = header[1].decode()
         size = int(header[2])
         start = line_end + 1
         end = start + size
         if end >= len(batch) or batch[end : end + 1] != b"\n":
-            raise MaterializationError(f"git cat-file batch payload is truncated for {object_id}")
+            raise MaterializationError(
+                f"git cat-file batch payload is truncated for {object_id}"
+            )
         payloads[object_id] = (object_type, batch[start:end])
         cursor = end + 1
 
@@ -1227,7 +1472,9 @@ def canonicalize_git_repository(root: Path, branch: str, head: str) -> None:
         )
 
 
-def initialize_git_repository(root: Path, git_config: dict[str, Any], entries: list[dict[str, str]]) -> dict[str, str]:
+def initialize_git_repository(
+    root: Path, git_config: dict[str, Any], entries: list[dict[str, str]]
+) -> dict[str, str]:
     run_git(root, "init", f"--initial-branch={git_config['branch']}")
     run_git(root, "config", "core.filemode", "true")
     run_git(root, "add", "--all", "--force")
@@ -1251,10 +1498,19 @@ def initialize_git_repository(root: Path, git_config: dict[str, Any], entries: l
     head = run_git(root, "rev-parse", "HEAD").decode().strip()
     tree = run_git(root, "rev-parse", "HEAD^{tree}").decode().strip()
     if run_git(root, "rev-list", "--all", "--count").decode().strip() != "1":
-        raise MaterializationError("fresh repository does not contain exactly one commit")
-    if run_git(root, "rev-list", "--parents", "-n", "1", "HEAD").decode().split() != [head]:
-        raise MaterializationError("fresh repository root commit unexpectedly has a parent")
-    if run_git(root, "branch", "--show-current").decode().strip() != git_config["branch"]:
+        raise MaterializationError(
+            "fresh repository does not contain exactly one commit"
+        )
+    if run_git(root, "rev-list", "--parents", "-n", "1", "HEAD").decode().split() != [
+        head
+    ]:
+        raise MaterializationError(
+            "fresh repository root commit unexpectedly has a parent"
+        )
+    if (
+        run_git(root, "branch", "--show-current").decode().strip()
+        != git_config["branch"]
+    ):
         raise MaterializationError("fresh repository is on the wrong branch")
     if run_git(root, "status", "--porcelain=v1"):
         raise MaterializationError("fresh repository worktree is not clean")
@@ -1269,16 +1525,23 @@ def initialize_git_repository(root: Path, git_config: dict[str, Any], entries: l
             raise MaterializationError("fresh repository index is malformed")
         mode, object_id, stage = metadata.decode().split()
         if stage != "0":
-            raise MaterializationError("fresh repository index contains a non-zero stage")
+            raise MaterializationError(
+                "fresh repository index contains a non-zero stage"
+            )
         index_entries[raw_path.decode()] = (mode, object_id)
     expected_by_path = {entry["path"]: entry for entry in entries}
     if set(index_entries) != set(expected_by_path):
-        raise MaterializationError("fresh repository index paths differ from the content manifest")
+        raise MaterializationError(
+            "fresh repository index paths differ from the content manifest"
+        )
     for path, entry in expected_by_path.items():
         mode, object_id = index_entries[path]
         if mode != entry["mode"]:
             raise MaterializationError(f"fresh repository mode mismatch for {path}")
-        if sha256_bytes(run_git(root, "cat-file", "blob", object_id)) != entry["sha256"]:
+        if (
+            sha256_bytes(run_git(root, "cat-file", "blob", object_id))
+            != entry["sha256"]
+        ):
             raise MaterializationError(f"fresh repository content mismatch for {path}")
     canonicalize_git_repository(root, git_config["branch"], head)
     return {"branch": git_config["branch"], "head": head, "tree": tree}
@@ -1289,7 +1552,9 @@ def write_staged_json(parent: Path, value: dict[str, Any]) -> Path:
     path = Path(raw_path)
     try:
         with os.fdopen(descriptor, "wb") as stream:
-            stream.write(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True).encode())
+            stream.write(
+                json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True).encode()
+            )
             stream.write(b"\n")
             stream.flush()
             os.fsync(stream.fileno())
@@ -1304,7 +1569,9 @@ def publish_repository(stage: Path, output: Path, output_was_empty: bool) -> Non
         stage.rename(output)
         return
     if any(output.iterdir()):
-        raise MaterializationError(f"output became non-empty during materialization: {output}")
+        raise MaterializationError(
+            f"output became non-empty during materialization: {output}"
+        )
     moved: list[Path] = []
     try:
         for child in sorted(stage.iterdir(), key=lambda path: path.name):
@@ -1329,7 +1596,9 @@ def materialize(
 ) -> dict[str, Any]:
     recipe, raw_recipe = load_recipe(recipe_path)
     if not repository.is_dir() or repository.is_symlink():
-        raise MaterializationError(f"repository must be an ordinary directory: {repository}")
+        raise MaterializationError(
+            f"repository must be an ordinary directory: {repository}"
+        )
     ensure_existing_path_has_no_symlink(repository, "repository")
     run_git(repository, "rev-parse", "--git-dir")
     output_was_empty = validate_output_paths(output, manifest_path, receipt_path)
@@ -1341,7 +1610,9 @@ def materialize(
             f"source commit mismatch: expected {source['expected_commit']}, got {source_commit}"
         )
     if source_tree != source["expected_tree"]:
-        raise MaterializationError(f"source tree mismatch: expected {source['expected_tree']}, got {source_tree}")
+        raise MaterializationError(
+            f"source tree mismatch: expected {source['expected_tree']}, got {source_tree}"
+        )
     validate_source_tree(repository, source_commit)
     raw_archive = run_git(repository, "archive", "--format=tar", source_commit)
 
