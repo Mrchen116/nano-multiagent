@@ -12,6 +12,7 @@ from agent.core.session.types import INTERNAL_RUNTIME_KEY
 from .prompt import PromptSlots
 
 RUNTIME_FINGERPRINT_SCHEMA = "runtime-v1"
+WORKFLOW_SIZE_GUIDELINES = frozenset({"unrestricted", "small", "medium", "large"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +34,14 @@ class SessionRuntimeConfig:
     enabled_tools: list[str]
     features: dict[str, bool] | None
     reasoning_effort: str | None = None
+    workflow_ultracode: bool = False
+    workflow_size_guideline: str | None = None
+
+    def __post_init__(self) -> None:
+        guideline = self.workflow_size_guideline
+        if guideline is not None and guideline not in WORKFLOW_SIZE_GUIDELINES:
+            allowed = ", ".join(sorted(WORKFLOW_SIZE_GUIDELINES))
+            raise ValueError(f"workflow_size_guideline must be one of: {allowed}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +91,8 @@ def identify_runtime(runtime: SessionRuntimeConfig) -> SessionRuntimeIdentity:
         "enabled_tools": runtime.enabled_tools,
         "features": runtime.features,
         "reasoning_effort": runtime.reasoning_effort,
+        "workflow_ultracode": runtime.workflow_ultracode,
+        "workflow_size_guideline": _active_workflow_size_guideline(runtime),
     }
     encoded = json.dumps(
         payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
@@ -98,16 +109,28 @@ def runtime_metadata(
 
     metadata = dict(existing or {})
     metadata["agent_features"] = dict(runtime.features or {})
-    metadata[INTERNAL_RUNTIME_KEY] = {
+    runtime_payload: dict[str, object] = {
         "model": runtime.model,
         "features": dict(runtime.features) if runtime.features is not None else None,
         "reasoning_effort": runtime.reasoning_effort,
+        "workflow_ultracode": runtime.workflow_ultracode,
     }
+    guideline = _active_workflow_size_guideline(runtime)
+    if guideline is not None:
+        runtime_payload["workflow_size_guideline"] = guideline
+    metadata[INTERNAL_RUNTIME_KEY] = runtime_payload
     return metadata
+
+
+def _active_workflow_size_guideline(runtime: SessionRuntimeConfig) -> str | None:
+    if "Workflow" not in runtime.enabled_tools:
+        return None
+    return runtime.workflow_size_guideline or "medium"
 
 
 __all__ = [
     "RUNTIME_FINGERPRINT_SCHEMA",
+    "WORKFLOW_SIZE_GUIDELINES",
     "SessionRuntimeConfig",
     "SessionRuntimeIdentity",
     "SessionRuntimeState",

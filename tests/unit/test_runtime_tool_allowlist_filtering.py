@@ -38,6 +38,7 @@ def _make_runtime_with_specs(
     all_specs = tuple(_make_spec(n) for n in tool_names)
     tool_registry = MagicMock()
     tool_registry.list_specs.return_value = all_specs
+    tool_registry.list_specs_for_session.return_value = all_specs
     engine._tool_registry = tool_registry
     engine._default_tool_ids = default_tool_ids
     engine._active_execution_scope = ContextVar(

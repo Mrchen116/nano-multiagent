@@ -16,10 +16,14 @@ REPL_COMMANDS = (
     "/tools",
     "/compact",
     "/history",
+    "/workflows",
+    "/config",
+    "/effort",
     "/exit",
 )
 HELP_LINE = (
-    "Commands: /help /new /use <session_id> /session /tools /compact /history [n] /exit"
+    "Commands: /help /new /use <session_id> /session /tools /compact /history [n] "
+    "/workflows /config workflowSizeGuideline <value> /effort <ultracode|high> /exit"
 )
 
 

@@ -76,19 +76,31 @@ class WorkflowRuntime:
         nested_runner: NestedRunner | None = None,
         nesting_depth: int = 0,
         budget: OutputTokenBudget | None = None,
+        phase_callback: Callable[[str], None] | None = None,
+        log_callback: Callable[[str], None] | None = None,
     ) -> None:
         self._child_runner = child_runner
         self._known_phases = frozenset(phases)
         self._limits = limits or WorkflowLimits()
         self._resume_entries = tuple(resume_entries)
         self._resume_enabled = bool(resume_entries)
+        self._reserved_calls: list[AgentCallSpec] = []
+        self._resume_pending_terminals: set[int] = set()
+        self._resume_released_starts: set[int] = set()
+        self._resume_terminal_condition = asyncio.Condition()
         self._nested_runner = nested_runner
         self._nesting_depth = nesting_depth
         self._semaphore = asyncio.Semaphore(self._limits.max_concurrency)
         self._dispatch_condition = asyncio.Condition()
         self._next_dispatch_ordinal = 0
         self._next_start_ordinal = 0
-        self._next_terminal_ordinal = 0
+        self._next_terminal_ordinal = (
+            max(
+                (entry.terminal_ordinal for entry in self._resume_entries),
+                default=-1,
+            )
+            + 1
+        )
         self._resume_previous_key = "v2"
         self._paused = asyncio.Event()
         self._paused.set()
@@ -97,6 +109,8 @@ class WorkflowRuntime:
         self.logs: list[str] = []
         self.completions: list[AgentCompletion] = []
         self.budget = budget or OutputTokenBudget()
+        self._phase_callback = phase_callback
+        self._log_callback = log_callback
 
     def agent(
         self,
@@ -136,21 +150,20 @@ class WorkflowRuntime:
         self._resume_previous_key = resume_key
         ordinal = self._next_start_ordinal
         self._next_start_ordinal += 1
-        return AgentCall(
-            self,
-            AgentCallSpec(
-                prompt=prompt,
-                start_ordinal=ordinal,
-                resume_key=resume_key,
-                label=label,
-                phase=resolved_phase,
-                schema=schema,
-                model=model,
-                effort=effort,
-                isolation=isolation,
-                agent_type=agent_type,
-            ),
+        spec = AgentCallSpec(
+            prompt=prompt,
+            start_ordinal=ordinal,
+            resume_key=resume_key,
+            label=label,
+            phase=resolved_phase,
+            schema=schema,
+            model=model,
+            effort=effort,
+            isolation=isolation,
+            agent_type=agent_type,
         )
+        self._reserved_calls.append(spec)
+        return AgentCall(self, spec)
 
     async def parallel(self, thunks: Sequence[Callable[[], Any]]) -> list[Any]:
         if len(thunks) > self._limits.max_items:
@@ -220,15 +233,29 @@ class WorkflowRuntime:
             raise ValueError("Workflow nesting is limited to one level")
         if self._nested_runner is None:
             raise ValueError("nested Workflow runner is not configured")
-        return await self._nested_runner(name_or_ref, _json_clone(args), self)
+        self._nesting_depth += 1
+        try:
+            return await self._nested_runner(name_or_ref, _json_clone(args), self)
+        finally:
+            self._nesting_depth -= 1
 
     def phase(self, title: str) -> None:
         if self._known_phases and title not in self._known_phases:
             raise ValueError(f"unknown Workflow phase: {title}")
         self.current_phase = title
+        if self._phase_callback is not None:
+            self._phase_callback(title)
+
+    def include_phases(self, titles: Sequence[str]) -> None:
+        """Add declared phase names from a one-level nested Workflow."""
+
+        self._known_phases = self._known_phases.union(titles)
 
     def log(self, message: str) -> None:
-        self.logs.append(str(message))
+        rendered = str(message)
+        self.logs.append(rendered)
+        if self._log_callback is not None:
+            self._log_callback(rendered)
 
     def pause(self) -> None:
         self._paused.clear()
@@ -239,6 +266,10 @@ class WorkflowRuntime:
     def stop(self) -> None:
         self._stopped = True
         self._paused.set()
+
+    @property
+    def is_stopped(self) -> bool:
+        return self._stopped
 
     async def checkpoint(self) -> None:
         if self._stopped:
@@ -266,16 +297,37 @@ class WorkflowRuntime:
             self._next_dispatch_ordinal += 1
             self._dispatch_condition.notify_all()
 
-        replayed = cached is not None
         if cached is not None:
-            result = _json_clone(cached.result)
-        else:
-            async with self._semaphore:
-                await self.checkpoint()
-                try:
-                    result = await self._child_runner(spec)
-                except (Exception, asyncio.CancelledError):
-                    result = None
+            async with self._resume_terminal_condition:
+                self._refresh_resume_pending_terminals()
+                await self._resume_terminal_condition.wait_for(
+                    lambda: (
+                        cached.terminal_ordinal == min(self._resume_pending_terminals)
+                    )
+                )
+                result = _json_clone(cached.result)
+                self.completions.append(
+                    AgentCompletion(
+                        call=spec,
+                        result=result,
+                        terminal_ordinal=cached.terminal_ordinal,
+                        replayed=True,
+                    )
+                )
+                self._resume_pending_terminals.remove(cached.terminal_ordinal)
+                self._resume_released_starts.add(spec.start_ordinal)
+                self._resume_terminal_condition.notify_all()
+            return result
+        async with self._semaphore:
+            await self.checkpoint()
+            if self.budget.remaining() == 0:
+                raise RuntimeError(
+                    "Workflow output token budget exhausted before Agent dispatch"
+                )
+            try:
+                result = await self._child_runner(spec)
+            except (Exception, asyncio.CancelledError):
+                result = None
         result = _json_clone(result)
         terminal_ordinal = self._next_terminal_ordinal
         self._next_terminal_ordinal += 1
@@ -284,10 +336,21 @@ class WorkflowRuntime:
                 call=spec,
                 result=result,
                 terminal_ordinal=terminal_ordinal,
-                replayed=replayed,
+                replayed=False,
             )
         )
         return result
+
+    def _refresh_resume_pending_terminals(self) -> None:
+        for spec in self._reserved_calls:
+            if spec.start_ordinal in self._resume_released_starts:
+                continue
+            if spec.start_ordinal >= len(self._resume_entries):
+                break
+            entry = self._resume_entries[spec.start_ordinal]
+            if entry.key != spec.resume_key:
+                break
+            self._resume_pending_terminals.add(entry.terminal_ordinal)
 
 
 def stage_call(
@@ -385,6 +448,8 @@ async def execute_workflow(
     try:
         exec(compiled.code, namespace, namespace)
         result = await namespace["main"]()
+        if runtime.is_stopped:
+            return WorkflowExecutionResult(status=WorkflowStatus.STOPPED, result=result)
         return WorkflowExecutionResult(
             status=WorkflowStatus.COMPLETED,
             result=_json_clone(result),

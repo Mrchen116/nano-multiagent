@@ -19,6 +19,7 @@ from .skill_view import SkillViewTool
 from .task_stop import TaskStopTool
 from .web_fetch import WebFetchTool
 from .write import WriteTool
+from .workflow import WorkflowTool
 
 # MemoryTool and SkillManageTool are not in builtin_tools() (they need path-resolved args),
 # but they ARE exported here for product bootstrap to import without knowing the submodule.
@@ -33,6 +34,7 @@ __all__ = [
     "TaskStopTool",
     "WebFetchTool",
     "WriteTool",
+    "WorkflowTool",
     "builtin_tools",
     "register_builtin_tools",
 ]

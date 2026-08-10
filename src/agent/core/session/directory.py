@@ -79,6 +79,8 @@ class SessionDirectory:
             runtime_model=spec.runtime_model,
             runtime_features=spec.runtime_features,
             runtime_reasoning_effort=spec.runtime_reasoning_effort,
+            runtime_workflow_ultracode=spec.runtime_workflow_ultracode,
+            runtime_workflow_size_guideline=spec.runtime_workflow_size_guideline,
             title=spec.title,
             system_prompt=spec.system_prompt,
             skills=spec.skills,
@@ -226,6 +228,16 @@ class SessionDirectory:
             and isinstance(runtime_payload.get("reasoning_effort"), str)
             else None
         )
+        runtime_workflow_ultracode = bool(
+            isinstance(runtime_payload, dict)
+            and runtime_payload.get("workflow_ultracode") is True
+        )
+        runtime_workflow_size_guideline = (
+            runtime_payload.get("workflow_size_guideline")
+            if isinstance(runtime_payload, dict)
+            and isinstance(runtime_payload.get("workflow_size_guideline"), str)
+            else None
+        )
         metadata["forked_from"] = source.ref.session_id
         target = self.create(
             NewSession(
@@ -233,6 +245,8 @@ class SessionDirectory:
                 runtime_model=snapshot.config.runtime_model,
                 runtime_features=runtime_features,
                 runtime_reasoning_effort=runtime_reasoning_effort,
+                runtime_workflow_ultracode=runtime_workflow_ultracode,
+                runtime_workflow_size_guideline=runtime_workflow_size_guideline,
                 system_prompt=snapshot.config.system_prompt,
                 skills=snapshot.config.skills,
                 tool_allowlist=snapshot.config.tool_allowlist,

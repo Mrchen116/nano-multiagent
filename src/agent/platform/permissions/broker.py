@@ -96,6 +96,8 @@ def _default_options_for_tool(tool_name: str) -> tuple[PermissionOption, ...]:
 
     if tool_name in ("write", "edit"):
         return (allow_once, deny, allow_session)
+    if tool_name == "Workflow":
+        return (allow_once, allow_always, deny)
     return (allow_once, deny, allow_session, allow_always)
 
 

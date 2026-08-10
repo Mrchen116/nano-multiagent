@@ -51,3 +51,29 @@ def test_resume_reuses_only_longest_identical_completed_prefix() -> None:
         assert live == ["changed", "three"]
 
     asyncio.run(scenario())
+
+
+def test_concurrent_cached_results_replay_recorded_terminal_order() -> None:
+    async def child(_call):  # noqa: ANN001
+        raise AssertionError("a complete resume prefix must not dispatch live")
+
+    async def scenario() -> None:
+        first_key = chained_resume_key("v2", "one", {})
+        second_key = chained_resume_key(first_key, "two", {})
+        runtime = WorkflowRuntime(
+            child_runner=child,
+            resume_entries=(
+                ResumeEntry(key=first_key, result="cached:one", terminal_ordinal=1),
+                ResumeEntry(key=second_key, result="cached:two", terminal_ordinal=0),
+            ),
+        )
+
+        values = await runtime.parallel(
+            [lambda: runtime.agent("one"), lambda: runtime.agent("two")]
+        )
+
+        assert values == ["cached:one", "cached:two"]
+        assert [item.call.prompt for item in runtime.completions] == ["two", "one"]
+        assert [item.terminal_ordinal for item in runtime.completions] == [0, 1]
+
+    asyncio.run(scenario())

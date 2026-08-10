@@ -15,6 +15,12 @@ from .models import (
 )
 from .resume import canonical_options, chained_resume_key
 from .runtime import AgentCall, OutputTokenBudget, WorkflowRuntime, execute_workflow
+from .activation import (
+    WORKFLOW_KEYWORD_REMINDER,
+    WORKFLOW_STANDING_REMINDER,
+    append_workflow_turn_reminder,
+    output_token_budget_for_turn,
+)
 
 __all__ = [
     "AgentCall",
@@ -31,6 +37,10 @@ __all__ = [
     "WorkflowRuntime",
     "WorkflowStatus",
     "WorkflowStopped",
+    "WORKFLOW_KEYWORD_REMINDER",
+    "WORKFLOW_STANDING_REMINDER",
+    "append_workflow_turn_reminder",
+    "output_token_budget_for_turn",
     "canonical_options",
     "chained_resume_key",
     "compile_workflow",

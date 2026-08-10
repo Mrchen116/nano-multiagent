@@ -2,7 +2,12 @@ import asyncio
 
 import pytest
 
-from agent.core.workflows import WorkflowLimits, WorkflowRuntime, WorkflowStopped
+from agent.core.workflows import (
+    OutputTokenBudget,
+    WorkflowLimits,
+    WorkflowRuntime,
+    WorkflowStopped,
+)
 
 
 def test_agent_reserves_global_start_ordinal_before_await() -> None:
@@ -115,5 +120,40 @@ def test_pause_blocks_new_effect_and_stop_wins_top_level_status() -> None:
         runtime.stop()
         with pytest.raises(WorkflowStopped):
             await task
+
+    asyncio.run(scenario())
+
+
+def test_output_budget_blocks_only_the_next_agent_dispatch() -> None:
+    async def child(call):  # noqa: ANN001
+        return call.prompt
+
+    async def scenario() -> None:
+        budget = OutputTokenBudget(total=2)
+        runtime = WorkflowRuntime(child_runner=child, budget=budget)
+        first = runtime.agent("first")
+        assert await first == "first"
+        budget.add(2)
+        second = runtime.agent("second")
+        with pytest.raises(RuntimeError, match="budget exhausted"):
+            await second
+
+    asyncio.run(scenario())
+
+
+def test_nested_workflow_shares_runtime_and_is_limited_to_one_level() -> None:
+    async def child(call):  # noqa: ANN001
+        return call.prompt
+
+    async def nested(_name, _args, parent):  # noqa: ANN001
+        assert await parent.agent("nested") == "nested"
+        with pytest.raises(ValueError, match="one level"):
+            await parent.workflow("too-deep")
+        return "done"
+
+    async def scenario() -> None:
+        runtime = WorkflowRuntime(child_runner=child, nested_runner=nested)
+        assert await runtime.workflow("inner") == "done"
+        assert runtime.completions[0].call.start_ordinal == 0
 
     asyncio.run(scenario())

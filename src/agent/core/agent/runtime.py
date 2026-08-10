@@ -423,10 +423,26 @@ class AgentEngine:
         # RunOrigin in core hooks. Use .value (string) for decoupling.
         if origin is not None:
             hook_metadata["run_origin"] = getattr(origin, "value", str(origin))
+        from agent.core.workflows.activation import (  # noqa: PLC0415
+            output_token_budget_for_turn,
+        )
+
+        workflow_budget = output_token_budget_for_turn(
+            origin=str(hook_metadata.get("run_origin") or ""),
+            human_text=user_text,
+        )
+        if workflow_budget is not None:
+            hook_metadata["workflow_output_token_budget"] = workflow_budget
         if source_background_returns:
             hook_metadata["source_background_returns"] = [
                 dict(item) for item in source_background_returns
             ]
+        runtime_payload = config.metadata.get(INTERNAL_RUNTIME_KEY)
+        if (
+            isinstance(runtime_payload, Mapping)
+            and runtime_payload.get("workflow_ultracode") is True
+        ):
+            hook_metadata["workflow_ultracode"] = True
         hook_ctx = self._build_hook_context(
             session_id=session_id,
             turn_id=turn_id,
@@ -1237,7 +1253,15 @@ class AgentEngine:
         self, config: SessionConfig
     ) -> tuple[ToolSpec, ...]:
         registry = self._current_tool_registry()
-        all_specs = registry.list_specs() if registry is not None else ()
+        if registry is None:
+            all_specs = ()
+        else:
+            session_specs = getattr(registry, "list_specs_for_session", None)
+            all_specs = (
+                session_specs(config.metadata)
+                if callable(session_specs)
+                else registry.list_specs()
+            )
         if config.tool_allowlist is None:
             default_ids = self._default_tool_ids
             if default_ids is None:
@@ -1332,8 +1356,31 @@ class AgentEngine:
         broker = self._permission_broker
         resolved_metadata = dict(metadata or {})
         if broker is not None:
-            run_id_for_broker = resolved_metadata.get("run_id")
+            run_id_for_broker = resolved_metadata.get(
+                "workflow_run_id"
+            ) or resolved_metadata.get("run_id")
+            workflow_parent_session_id = resolved_metadata.get(
+                "workflow_parent_session_id"
+            )
             publisher_for_broker = session_event_publisher
+            if (
+                hook_runner is not None
+                and isinstance(workflow_parent_session_id, str)
+                and workflow_parent_session_id.strip()
+            ):
+                publisher_for_broker = _resolve_session_event_publisher(
+                    registry=hook_runner.registry,
+                    session_id=workflow_parent_session_id,
+                )
+            permission_correlation = {
+                key: resolved_metadata[key]
+                for key in (
+                    "workflow_parent_session_id",
+                    "workflow_run_id",
+                    "agent_call_id",
+                )
+                if resolved_metadata.get(key) is not None
+            }
 
             can_use_tool = self._can_use_tool
 
@@ -1366,6 +1413,7 @@ class AgentEngine:
                                     req.options if hasattr(req, "options") else ()
                                 )
                             ],
+                            **permission_correlation,
                         },
                     )
                 response: Any = None
@@ -1394,10 +1442,13 @@ class AgentEngine:
                     else None
                 )
                 try:
-                    if can_use_tool is not None:
+                    if can_use_tool is not None and not permission_correlation:
                         # Race can_use_tool callback against broker future.
                         # CLI products supply can_use_tool for interactive prompts;
                         # PA leaves it None and resolves via submit_permission_decision.
+                        # Workflow children publish tagged requests to the parent
+                        # session's long-lived consumer, which must be the sole prompt
+                        # owner so the process callback cannot display a duplicate.
                         can_use_task: asyncio.Task[Any] = asyncio.create_task(
                             can_use_tool(
                                 req.tool_name, getattr(req, "tool_input", {}), req
@@ -1513,6 +1564,7 @@ class AgentEngine:
                                     "run_id": run_id_for_broker,
                                     "request_id": req.id,
                                     "decision": getattr(response, "decision", "deny"),
+                                    **permission_correlation,
                                 },
                             )
                         except Exception as exc:

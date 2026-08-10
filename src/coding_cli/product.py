@@ -17,13 +17,18 @@ text (identity / tools footer / guidelines).
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
+import os
 from pathlib import Path
 from typing import Any
+
+import yaml
 
 from agent.sdk import (
     LLMConfig,
     PromptSlots,
     PromptText,
+    SessionRuntimeConfig,
     build_kernel,
 )
 
@@ -66,6 +71,7 @@ DEFAULT_ENABLED_TOOLS = [
     "edit",
     "bash",
     "agent",
+    "Workflow",
     "task_stop",
     "skill_manage",
     "skill_view",
@@ -75,6 +81,75 @@ DEFAULT_ENABLED_TOOLS = [
 # Self-evolution features always on for the CLI (parity with prior behaviour:
 # memory + skill tools present → guidance segments render).
 DEFAULT_FEATURES = {"memory_curation": True, "skill_creation": True}
+WORKFLOW_SIZE_GUIDELINES = frozenset({"unrestricted", "small", "medium", "large"})
+
+
+@dataclass(frozen=True, slots=True)
+class CliWorkflowConfig:
+    """Resolved Workflow settings for one CLI workspace."""
+
+    disabled: bool = False
+    size_guideline: str = "medium"
+
+
+def load_cli_workflow_config(workspace_root: Path) -> CliWorkflowConfig:
+    """Load global then workspace Workflow settings, with env disable last."""
+
+    merged: dict[str, object] = {}
+    for path in (
+        Path.home() / WORKSPACE_CONFIG_DIRNAME / "config.yaml",
+        Path(workspace_root).expanduser().resolve()
+        / WORKSPACE_CONFIG_DIRNAME
+        / "config.yaml",
+    ):
+        if not path.is_file():
+            continue
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            continue
+        section = raw.get("workflows")
+        if isinstance(section, dict):
+            merged.update(section)
+    guideline = merged.get("size_guideline", "medium")
+    if guideline not in WORKFLOW_SIZE_GUIDELINES:
+        allowed = ", ".join(sorted(WORKFLOW_SIZE_GUIDELINES))
+        raise ValueError(f"workflows.size_guideline must be one of: {allowed}")
+    disabled = merged.get("disabled", False)
+    if not isinstance(disabled, bool):
+        raise ValueError("workflows.disabled must be a boolean")
+    if os.getenv("NANOCODE_DISABLE_WORKFLOWS") == "1":
+        disabled = True
+    return CliWorkflowConfig(
+        disabled=disabled,
+        size_guideline=str(guideline),
+    )
+
+
+def save_cli_workflow_size_guideline(workspace_root: Path, guideline: str) -> None:
+    """Persist the CLI's narrow workspace Workflow size setting."""
+
+    if guideline not in WORKFLOW_SIZE_GUIDELINES:
+        allowed = ", ".join(sorted(WORKFLOW_SIZE_GUIDELINES))
+        raise ValueError(f"workflowSizeGuideline must be one of: {allowed}")
+    config_path = (
+        Path(workspace_root).expanduser().resolve()
+        / WORKSPACE_CONFIG_DIRNAME
+        / "config.yaml"
+    )
+    raw: dict[str, object] = {}
+    if config_path.is_file():
+        loaded = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        if loaded is not None and not isinstance(loaded, dict):
+            raise ValueError("workspace .nanocode/config.yaml must be a mapping")
+        raw = dict(loaded or {})
+    section = raw.get("workflows")
+    workflows = dict(section) if isinstance(section, dict) else {}
+    workflows["size_guideline"] = guideline
+    raw["workflows"] = workflows
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(
+        yaml.safe_dump(raw, allow_unicode=True, sort_keys=False), encoding="utf-8"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +234,7 @@ def build_cli_kernel(
         tool_search_roots=CLI_TOOL_SEARCH_ROOTS,  # #2: ~/.nanocode/tools
         hook_search_roots=CLI_HOOK_SEARCH_ROOTS,  # #2: ~/.nanocode/hooks
         global_config_root=Path("~/.nanocode"),
+        workflow_subagent_model=os.getenv("NANO_MULTIAGENT_WORKFLOW_SUBAGENT_MODEL"),
     )
 
 
@@ -180,9 +256,30 @@ async def open_cli_session(kernel: Any, *, workspace_root: Path) -> Any:
         kernel.run_skill_maintenance(workspace_root=workspace_root)
     await _drain_queued_skill_batch_reviews(kernel, workspace_root=workspace_root)
     _install_skill_batch_review_scheduler(kernel, workspace_root=workspace_root)
+    workflow_config = load_cli_workflow_config(workspace_root)
+    enabled_tools = [
+        name
+        for name in DEFAULT_ENABLED_TOOLS
+        if name != "Workflow" or not workflow_config.disabled
+    ]
+    get_llm_config = getattr(kernel, "get_llm_config", None)
+    if callable(get_llm_config):
+        model = getattr(get_llm_config(), "model", None)
+        if isinstance(model, str) and model:
+            return await kernel.create_session(
+                workspace_root=workspace_root,
+                runtime=SessionRuntimeConfig(
+                    model=model,
+                    prompt=cli_prompt_slots(),
+                    skills=None,
+                    enabled_tools=enabled_tools,
+                    features=dict(DEFAULT_FEATURES),
+                    workflow_size_guideline=workflow_config.size_guideline,
+                ),
+            )
     return await kernel.create_session(
         workspace_root=workspace_root,
-        enabled_tools=list(DEFAULT_ENABLED_TOOLS),
+        enabled_tools=enabled_tools,
         features=dict(DEFAULT_FEATURES),
         prompt=cli_prompt_slots(),
     )

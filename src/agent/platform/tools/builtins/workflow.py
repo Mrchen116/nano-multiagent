@@ -1,0 +1,285 @@
+"""Exact-name `Workflow` tool for launching restricted Python orchestration."""
+
+from __future__ import annotations
+
+import json
+from importlib.resources import files
+from pathlib import Path
+from typing import Any, Mapping
+
+from agent.core.errors import ToolError
+from agent.core.session.types import INTERNAL_RUNTIME_KEY
+from agent.core.tools.base import ToolContext
+from agent.core.types import ToolSpec
+from agent.core.workflows import (
+    OutputTokenBudget,
+    WorkflowCompileError,
+    compile_workflow,
+)
+from agent.platform.permissions.broker import PermissionDecision
+from agent.platform.tools.presentation import ToolPresentationEvent
+from agent.platform.workflows import WorkflowLaunchContext, WorkflowManager
+from agent.platform.workflows.consent import WorkflowConsentStore
+
+
+_BASE_DESCRIPTION = (
+    files("agent.platform.tools.builtins")
+    .joinpath("workflow_tool_prompt.md")
+    .read_text(encoding="utf-8")
+    .strip()
+)
+
+
+def workflow_description(size_guideline: str = "medium") -> str:
+    guidance = {
+        "small": "small — keep workflows under 5 agents",
+        "medium": "medium — keep workflows under 15 agents",
+        "large": "large — keep workflows under 50 agents",
+        "unrestricted": "unrestricted — no advisory agent-count limit",
+    }
+    resolved = guidance.get(size_guideline, guidance["medium"])
+    return (
+        _BASE_DESCRIPTION
+        + "\nA workflow size guideline is configured for this session: "
+        + resolved
+        + ". This is a guideline, not a hard limit — follow it unless the user's prompt calls for a different scale."
+    )
+
+
+class _WorkflowPresenter:
+    def format_start(self, args: Mapping[str, Any]) -> ToolPresentationEvent:
+        source = args.get("scriptPath") or args.get("name") or "inline Python"
+        return ToolPresentationEvent(
+            visible=True,
+            label="Workflow",
+            summary=str(args.get("name") or source),
+            detail={"input": dict(args)},
+        )
+
+    def format_end(
+        self, args: Mapping[str, Any], result: Any, duration_ms: int
+    ) -> ToolPresentationEvent:
+        output = getattr(result, "output", None)
+        error = getattr(result, "error", None)
+        detail: dict[str, Any] = {"input": dict(args)}
+        if error is not None:
+            detail["error"] = {"message": str(error)}
+        elif isinstance(output, Mapping):
+            detail["result"] = dict(output)
+        return ToolPresentationEvent(
+            visible=True,
+            label="Workflow",
+            summary=str(args.get("name") or args.get("scriptPath") or "inline Python"),
+            detail=detail,
+        )
+
+
+class WorkflowTool:
+    name = "Workflow"
+    is_concurrency_safe = False
+    max_result_size_chars = 20_000
+    presenter = _WorkflowPresenter()
+    description = workflow_description()
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "script": {"type": "string", "maxLength": 524288},
+            "scriptPath": {"type": "string"},
+            "name": {"type": "string"},
+            "args": {},
+            "resumeFromRunId": {
+                "type": "string",
+                "pattern": "^wf_[a-z0-9-]{6,}$",
+            },
+            "description": {"type": "string"},
+            "title": {"type": "string"},
+        },
+        "additionalProperties": False,
+    }
+
+    def __init__(
+        self,
+        *,
+        manager: WorkflowManager,
+        named_resolver: Any | None = None,
+        size_guideline: str = "medium",
+        consent_store: WorkflowConsentStore | None = None,
+    ) -> None:
+        self._manager = manager
+        self._named_resolver = named_resolver
+        self._consent_store = consent_store
+        self.description = workflow_description(size_guideline)
+
+    def check_permissions(
+        self, tool_input: Mapping[str, Any], ctx: ToolContext
+    ) -> PermissionDecision:
+        source, identity = self._resolve_source(tool_input, ctx)
+        try:
+            compiled = compile_workflow(source)
+        except WorkflowCompileError as exc:
+            raise ToolError(str(exc), tool_name=self.name) from exc
+        resolved_identity = identity or compiled.meta.name
+        if self._consent_store is not None and self._consent_store.contains(
+            resolved_identity
+        ):
+            return PermissionDecision(
+                behavior="allow",
+                decision_reason={
+                    "type": "workflow_consent",
+                    "identity": resolved_identity,
+                },
+            )
+        return PermissionDecision(
+            behavior="ask",
+            reason=f"Run Python Workflow '{compiled.meta.name}'?",
+            decision_reason={"type": "workflow_launch", "identity": resolved_identity},
+        )
+
+    def spec_for_session(self, session_metadata: Mapping[str, Any]) -> ToolSpec:
+        """Project the session's resolved size guideline into the tool prompt."""
+
+        return ToolSpec(
+            name=self.name,
+            description=workflow_description(_size_guideline(session_metadata)),
+            input_schema=dict(self.input_schema),
+            is_concurrency_safe=self.is_concurrency_safe,
+            max_result_size_chars=self.max_result_size_chars,
+        )
+
+    def permission_identity(
+        self, tool_input: Mapping[str, Any], ctx: ToolContext
+    ) -> str:
+        source, identity = self._resolve_source(tool_input, ctx)
+        return identity or compile_workflow(source).meta.name
+
+    def on_permission_decision(
+        self, identity: str, decision: str, *, auto_mode: bool
+    ) -> None:
+        store = self._consent_store
+        if store is None:
+            return
+        if decision == "allow_always" or (
+            auto_mode and decision in {"allow_once", "allow_session"}
+        ):
+            store.add(identity)
+
+    def run(self, args: Mapping[str, Any], ctx: ToolContext) -> Mapping[str, Any]:
+        source, _identity = self._resolve_source(args, ctx)
+        size_guideline = _size_guideline(ctx.session_metadata)
+        context = WorkflowLaunchContext(
+            parent_session_id=ctx.session_id or "",
+            workspace_root=ctx.cwd,
+            parent_run_id=_optional_string(ctx.session_metadata.get("run_id")),
+            parent_tool_call_id=ctx.tool_call_id,
+            subagent_control=ctx.subagent_control,
+            workflow_ultracode=bool(
+                ctx.session_metadata.get("workflow_ultracode")
+                or (
+                    isinstance(ctx.session_metadata.get(INTERNAL_RUNTIME_KEY), Mapping)
+                    and ctx.session_metadata[INTERNAL_RUNTIME_KEY].get(
+                        "workflow_ultracode"
+                    )
+                    is True
+                )
+            ),
+            parent_run_origin=str(ctx.session_metadata.get("run_origin") or "user"),
+        )
+        try:
+            launch = self._manager.launch(
+                source=source,
+                args=args.get("args"),
+                context=context,
+                resume_from_run_id=_optional_string(args.get("resumeFromRunId")),
+                size_guideline=size_guideline,
+                output_budget=_output_budget(ctx.session_metadata),
+            )
+        except (WorkflowCompileError, OSError, ValueError) as exc:
+            raise ToolError(str(exc), tool_name=self.name) from exc
+        return {
+            "status": launch.status,
+            "taskId": launch.task_id,
+            "runId": launch.run_id,
+            "name": launch.name,
+            "scriptPath": launch.script_path,
+            "diagnostics": launch.diagnostics,
+            "transcriptDir": launch.diagnostics,
+            "guideline": size_guideline,
+            "parentSessionId": context.parent_session_id,
+            "parentRunId": context.parent_run_id,
+            "parentToolCallId": context.parent_tool_call_id,
+        }
+
+    def result_event_metadata(self, result: Mapping[str, Any]) -> Mapping[str, Any]:
+        return {
+            "parent_session_id": result.get("parentSessionId"),
+            "parent_run_id": result.get("parentRunId"),
+            "parent_tool_call_id": result.get("parentToolCallId"),
+            "workflow_run_id": result.get("runId"),
+        }
+
+    def serialize_result(self, output: Any, error: str | None = None) -> str:
+        if error is not None:
+            return error
+        if not isinstance(output, Mapping):
+            return json.dumps(output, ensure_ascii=False)
+        return (
+            "Workflow launched in the background.\n\n"
+            f"task_id: {output.get('taskId')}\n"
+            f"run_id: {output.get('runId')}\n"
+            f"script_path: {output.get('scriptPath')}\n"
+            f"diagnostics: {output.get('diagnostics')}"
+        )
+
+    def _resolve_source(
+        self, args: Mapping[str, Any], ctx: ToolContext
+    ) -> tuple[str, str | None]:
+        script_path = _optional_string(args.get("scriptPath"))
+        inline = args.get("script")
+        name = _optional_string(args.get("name"))
+        if script_path is not None:
+            path = Path(script_path).expanduser()
+            if not path.is_absolute():
+                path = ctx.cwd / path
+            try:
+                return path.resolve().read_text(encoding="utf-8"), str(path.resolve())
+            except OSError as exc:
+                raise ToolError(
+                    f"Unable to read Workflow scriptPath: {path}", tool_name=self.name
+                ) from exc
+        if isinstance(inline, str) and inline:
+            if len(inline) > 524288:
+                raise ToolError(
+                    "Workflow script exceeds 524288 characters", tool_name=self.name
+                )
+            return inline, None
+        if name is not None and self._named_resolver is not None:
+            resolved = self._named_resolver.resolve(name, workspace_root=ctx.cwd)
+            if resolved is not None:
+                return Path(resolved.path).read_text(encoding="utf-8"), name
+        raise ToolError(
+            "Workflow requires scriptPath, script, or name",
+            tool_name=self.name,
+        )
+
+
+def _optional_string(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _size_guideline(session_metadata: Mapping[str, Any]) -> str:
+    runtime = session_metadata.get(INTERNAL_RUNTIME_KEY)
+    if isinstance(runtime, Mapping):
+        value = runtime.get("workflow_size_guideline")
+        if value in {"unrestricted", "small", "medium", "large"}:
+            return str(value)
+    return "medium"
+
+
+def _output_budget(
+    session_metadata: Mapping[str, Any],
+) -> OutputTokenBudget | None:
+    value = session_metadata.get("workflow_output_token_budget")
+    return value if isinstance(value, OutputTokenBudget) else None
