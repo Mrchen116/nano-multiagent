@@ -7,6 +7,7 @@
     "formal_eligible",
     "scheme_id",
     "parent_scheme_id",
+    "trace_summary",
     "build_policy",
     "consumption_policy",
     "delta",
@@ -18,6 +19,17 @@
     "formal_eligible": {"type": "boolean", "const": false},
     "scheme_id": {"type": "string"},
     "parent_scheme_id": {"type": "string", "const": "direct-load-broad-first-docs-v0"},
+    "trace_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["loaded", "used", "rejected", "overridden"],
+      "properties": {
+        "loaded": {"type": "integer", "minimum": 0},
+        "used": {"type": "integer", "minimum": 0},
+        "rejected": {"type": "integer", "minimum": 0},
+        "overridden": {"type": "integer", "minimum": 0}
+      }
+    },
     "build_policy": {"type": "string"},
     "consumption_policy": {"type": "string"},
     "delta": {

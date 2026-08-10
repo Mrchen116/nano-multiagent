@@ -277,6 +277,7 @@ def test_next_scheme_rejects_case_specific_atoms_outside_denylist() -> None:
         "formal_eligible": False,
         "scheme_id": "next-v1",
         "parent_scheme_id": "direct-load-broad-first-docs-v0",
+        "trace_summary": {"loaded": 0, "used": 0, "rejected": 0, "overridden": 0},
         "build_policy": "Prefer recurring omission principles.",
         "consumption_policy": "Direct-load applicable entries.",
         "delta": ["Rank by cross-document recurrence."],

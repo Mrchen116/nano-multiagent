@@ -6,12 +6,18 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
+import tempfile
 from typing import Any
 
 
 GIT_METADATA_NAMES = {".git", ".evaluation-git"}
-READABLE_ROOT_LABELS = ["role_runtime", "system_runtime", "workspace"]
+READABLE_ROOT_LABELS = [
+    "role_runtime_except_credentials",
+    "system_runtime",
+    "workspace",
+]
 
 
 def _sha256_bytes(value: bytes) -> str:
@@ -47,26 +53,34 @@ def _scheme_string(value: Path) -> str:
     return json.dumps(str(value.resolve(strict=False)))
 
 
-def _sibling_denials(allowed_roots: list[Path], boundary: Path) -> list[Path]:
-    allowed_roots = [path.resolve() for path in allowed_roots]
-    boundary = boundary.resolve()
-    if any(root != boundary and boundary not in root.parents for root in allowed_roots):
-        raise ValueError("readable root is outside its confinement boundary")
-    denied: list[Path] = []
-    directories = {boundary}
-    for root in allowed_roots:
-        directories.update(
-            parent for parent in root.parents if boundary in (parent, *parent.parents)
-        )
-    for directory in directories:
-        if boundary != directory and boundary not in directory.parents:
-            continue
-        for entry in directory.iterdir():
-            if not any(
-                entry == root or entry in root.parents for root in allowed_roots
-            ):
-                denied.append(entry)
-    return denied
+def _path_filters(paths: list[Path]) -> str:
+    return " ".join(f"(subpath {_scheme_string(path)})" for path in paths)
+
+
+def _system_runtime_roots() -> list[Path]:
+    roots = [
+        Path("/System"),
+        Path("/usr"),
+        Path("/bin"),
+        Path("/sbin"),
+        Path("/Library/Apple"),
+        Path("/Library/Developer/CommandLineTools"),
+        Path("/opt/homebrew"),
+        Path("/private/etc/hosts"),
+        Path("/private/etc/resolv.conf"),
+        Path("/private/etc/ssl"),
+    ]
+    return [path for path in roots if path.exists()]
+
+
+def _codex_paths(command: list[str], environment: dict[str, str]) -> list[Path]:
+    configured = shutil.which("codex", path=environment.get("PATH"))
+    values = [Path(configured)] if configured else []
+    if command and Path(command[0]).name == "codex":
+        values.append(Path(command[0]))
+    return sorted(
+        {value.resolve(strict=False) for value in values} | set(values), key=str
+    )
 
 
 def _sandbox_profile(
@@ -76,7 +90,8 @@ def _sandbox_profile(
     artifacts: Path,
     runtime_root: Path,
     host_home: Path,
-    network_process: Path,
+    command: list[str],
+    environment: dict[str, str],
     workspace_write: bool,
 ) -> str:
     confinement_boundary = Path(
@@ -86,25 +101,73 @@ def _sandbox_profile(
         raise ValueError(
             f"role roots do not share a safe temporary boundary: {confinement_boundary}"
         )
-    denied = [host_home.resolve(), artifacts.resolve()]
-    denied.extend(_sibling_denials([workspace, runtime_root], confinement_boundary))
-    unique = sorted({path.resolve(strict=False) for path in denied}, key=str)
-    network_process = network_process.resolve()
+    if workspace.resolve() == runtime_root.resolve():
+        raise ValueError("workspace and role runtime must be distinct")
+    auth = runtime_root / "codex-home/auth.json"
+    codex_paths = _codex_paths(command, environment)
+    primary_is_codex = bool(command and Path(command[0]).name == "codex")
+    system_roots = _system_runtime_roots()
+    readable = [workspace, runtime_root, *system_roots]
     rules = [
         "(version 1)",
-        "(allow default)",
-        "(deny network*)",
-        f"(with-filter (process-path {_scheme_string(network_process)})",
-        "  (allow network*))",
+        "(deny default)",
+        '(import "system.sb")',
+        "(allow process*)",
+        "(allow signal (target children))",
+        "(allow file-read-metadata file-test-existence)",
+        "(allow user-preference-read)",
+        f"(allow file-read* file-test-existence {_path_filters(readable)})",
+        f"(allow file-map-executable {_path_filters(system_roots)})",
+        f"(allow file-write* (subpath {_scheme_string(runtime_root)}))",
+        '(allow file-read* file-write-data (literal "/dev/tty"))',
+        '(allow mach-lookup (global-name "com.apple.SecurityServer") '
+        '(global-name "com.apple.SystemConfiguration.configd"))',
+        f"(deny file-read* file-write* (literal {_scheme_string(auth)}))",
     ]
-    for path in unique:
-        matcher = "subpath" if path.is_dir() else "literal"
-        rules.append(
-            f"(deny file-read* file-write* ({matcher} {_scheme_string(path)}))"
+    for path in codex_paths:
+        rules.append(f"(deny process-exec (literal {_scheme_string(path)}))")
+    if primary_is_codex:
+        primary = Path(command[0]).resolve(strict=False)
+        rules.extend(
+            [
+                f"(with-filter (process-path {_scheme_string(primary)})",
+                "  (allow network*)",
+                f"  (allow file-read* (literal {_scheme_string(auth)})))",
+            ]
         )
-    if not workspace_write:
-        rules.append(f"(deny file-write* (subpath {_scheme_string(workspace)}))")
+        for path in codex_paths:
+            rules.append(
+                '(with-filter (process-path "/usr/bin/sandbox-exec") '
+                f"(allow process-exec (literal {_scheme_string(path)})))"
+            )
+    if workspace_write:
+        rules.append(f"(allow file-write* (subpath {_scheme_string(workspace)}))")
     return "\n".join(rules) + "\n"
+
+
+def sandbox_profile_sha256(
+    *,
+    command: list[str],
+    workspace: Path,
+    workspace_boundary: Path,
+    artifacts: Path,
+    runtime_root: Path,
+    host_home: Path,
+    environment: dict[str, str],
+    workspace_write: bool,
+) -> str:
+    """Return the identity of the exact role Seatbelt policy."""
+    profile = _sandbox_profile(
+        workspace=workspace.resolve(),
+        workspace_boundary=workspace_boundary.resolve(),
+        artifacts=artifacts.resolve(),
+        runtime_root=runtime_root.resolve(),
+        host_home=host_home.resolve(),
+        command=command,
+        environment=environment,
+        workspace_write=workspace_write,
+    )
+    return _sha256_bytes(profile.encode("utf-8"))
 
 
 def _normalize_argument(
@@ -169,7 +232,8 @@ def execute_confined(
         artifacts=artifacts,
         runtime_root=runtime_root,
         host_home=host_home,
-        network_process=Path(command[0]),
+        command=command,
+        environment=environment,
         workspace_write=workspace_write,
     )
     profile_sha256 = _sha256_bytes(profile.encode("utf-8"))
@@ -184,6 +248,56 @@ def execute_confined(
     )
     if probe.returncode == 0:
         raise RuntimeError("role confinement canary was readable")
+    auth = runtime_root / "codex-home/auth.json"
+    credential_probe = subprocess.run(
+        [*confined_prefix, "/bin/cat", str(auth)],
+        cwd=workspace,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if credential_probe.returncode == 0:
+        raise RuntimeError("role tool credential probe was readable")
+    with tempfile.NamedTemporaryFile(
+        prefix="feat-532-unrelated-read-", dir="/private/tmp", delete=False
+    ) as handle:
+        handle.write(b"unrelated role-context canary\n")
+        unrelated = Path(handle.name)
+    try:
+        unrelated_probe = subprocess.run(
+            [*confined_prefix, "/bin/cat", str(unrelated)],
+            cwd=workspace,
+            env=environment,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    finally:
+        unrelated.unlink(missing_ok=True)
+    if unrelated_probe.returncode == 0:
+        raise RuntimeError("unrelated host canary was readable")
+    nested_codex_blocked = True
+    nested_codex = shutil.which("codex", path=environment.get("PATH"))
+    if nested_codex:
+        nested_probe = subprocess.run(
+            [
+                *confined_prefix,
+                "/bin/sh",
+                "-c",
+                '"$1" --version',
+                "nested-codex-probe",
+                nested_codex,
+            ],
+            cwd=workspace,
+            env=environment,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        nested_codex_blocked = nested_probe.returncode != 0
+        if not nested_codex_blocked:
+            raise RuntimeError("nested Codex execution probe was permitted")
     network_probe = subprocess.run(
         [
             *confined_prefix,
@@ -244,6 +358,9 @@ def execute_confined(
             "mechanism": "macos_sandbox_exec_seatbelt",
             "profile_sha256": profile_sha256,
             "canary_read_blocked": True,
+            "unrelated_read_blocked": True,
+            "credential_read_blocked": True,
+            "nested_codex_blocked": nested_codex_blocked,
             "tool_network_blocked": True,
         },
         "exit_code": result.returncode,

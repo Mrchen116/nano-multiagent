@@ -44,7 +44,7 @@
       }
     },
     "readable_roots": {
-      "const": ["role_runtime", "system_runtime", "workspace"]
+      "const": ["role_runtime_except_credentials", "system_runtime", "workspace"]
     },
     "initial_visible_files": {
       "type": "array",
@@ -89,12 +89,18 @@
         "mechanism",
         "profile_sha256",
         "canary_read_blocked",
+        "unrelated_read_blocked",
+        "credential_read_blocked",
+        "nested_codex_blocked",
         "tool_network_blocked"
       ],
       "properties": {
         "mechanism": {"const": "macos_sandbox_exec_seatbelt"},
         "profile_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
         "canary_read_blocked": {"const": true},
+        "unrelated_read_blocked": {"const": true},
+        "credential_read_blocked": {"const": true},
+        "nested_codex_blocked": {"const": true},
         "tool_network_blocked": {"const": true}
       }
     },

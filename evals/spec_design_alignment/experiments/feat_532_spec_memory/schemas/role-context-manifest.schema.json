@@ -59,12 +59,17 @@
       }
     },
     "readable_roots": {
-      "const": ["role_runtime", "system_runtime", "workspace"]
+      "const": ["role_runtime_except_credentials", "system_runtime", "workspace"]
     },
     "execution": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["cwd", "resolved_argv", "environment_policy"],
+      "required": [
+        "cwd",
+        "resolved_argv",
+        "environment_policy",
+        "sandbox_profile_sha256"
+      ],
       "properties": {
         "cwd": {"const": "workspace"},
         "resolved_argv": {
@@ -87,6 +92,10 @@
             "codex_home": {"const": "role_runtime/codex-home"},
             "tmpdir": {"const": "role_runtime/tmp"}
           }
+        },
+        "sandbox_profile_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
         }
       }
     },

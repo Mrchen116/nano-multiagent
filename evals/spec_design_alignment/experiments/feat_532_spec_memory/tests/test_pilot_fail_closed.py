@@ -70,7 +70,7 @@ def test_role_filesystem_confinement_blocks_parent_canary(
     assert attestation["tools"]["shell"] is True
     assert attestation["tools"]["workspace_write"] is workspace_write
     assert attestation["readable_roots"] == [
-        "role_runtime",
+        "role_runtime_except_credentials",
         "system_runtime",
         "workspace",
     ]
