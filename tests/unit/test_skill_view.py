@@ -71,6 +71,24 @@ def test_skill_view_returns_skill_content_and_records_usage(tmp_path: Path) -> N
     ]
 
 
+def test_skill_view_does_not_apply_creation_source_to_untracked_skill(
+    tmp_path: Path,
+) -> None:
+    skill_root = tmp_path / ".nanoassistant" / "skills"
+    _write_skill(skill_root, "manual-skill")
+    tool = SkillViewTool(workspace_config_dirname=".nanoassistant")
+    ctx = _Ctx(
+        workspace_root=tmp_path,
+        metadata={"skill_creation_source": "F3"},
+    )
+
+    result = tool.run({"name": "manual-skill"}, ctx)  # type: ignore[arg-type]
+
+    assert result["success"] is True
+    usage = json.loads((skill_root / ".usage.json").read_text(encoding="utf-8"))
+    assert usage["manual-skill"]["source"] == "F1"
+
+
 def test_skill_view_records_usage_to_priority_hit_owning_root(tmp_path: Path) -> None:
     agent_workspace = tmp_path / "agent"
     agent_skill_root = agent_workspace / ".nanoassistant" / "skills"
@@ -163,6 +181,7 @@ def test_skill_view_enqueues_f4_trigger_and_resets_counter(tmp_path: Path) -> No
     assert result["success"] is True
     assert enqueued == ["auto-skill"]
     updated = json.loads((skill_root / ".usage.json").read_text(encoding="utf-8"))
+    assert updated["auto-skill"]["source"] == "F3"
     assert updated["auto-skill"]["uses_since_last_B"] == 0
 
 
@@ -196,6 +215,7 @@ def test_skill_view_does_not_reset_f4_counter_when_enqueue_is_deduped(
 
     assert result["success"] is True
     updated = json.loads((skill_root / ".usage.json").read_text(encoding="utf-8"))
+    assert updated["auto-skill"]["source"] == "F4"
     assert updated["auto-skill"]["uses_since_last_B"] == 20
 
 
