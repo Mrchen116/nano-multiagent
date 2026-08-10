@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from agent.core.agent.loop import AgentLoop, ToolRegistryLike
 from agent.core.agent.policies import AgentPolicies
@@ -173,7 +173,9 @@ def make_fork_conversation(
     Returns:
         An async callable with signature:
             fork_conversation(review_prompt: str, *, tool_allowlist: tuple[str,...],
-                              max_turns: int) -> ForkResult
+                              max_turns: int,
+                              metadata_overrides: Mapping[str, Any] | None = None)
+                              -> ForkResult
     """
 
     async def fork_conversation(
@@ -181,6 +183,7 @@ def make_fork_conversation(
         *,
         tool_allowlist: tuple[str, ...] = (),
         max_turns: int = 16,
+        metadata_overrides: Mapping[str, Any] | None = None,
     ) -> ForkResult:
         """Execute a fork side-chain with the parent turn's context.
 
@@ -189,6 +192,7 @@ def make_fork_conversation(
             tool_allowlist: Tools allowed to actually execute. Enforced at the
                 execution layer — the LLM still sees the full inherited tool list.
             max_turns: Max LLM iterations.
+            metadata_overrides: Metadata applied only to this fork side-chain.
 
         Returns:
             ForkResult with turn_result and summary info.
@@ -223,6 +227,7 @@ def make_fork_conversation(
         if parent_hook_ctx is not None:
             fork_metadata = {
                 **dict(parent_hook_ctx.metadata),
+                **dict(metadata_overrides or {}),
                 "run_origin": RunOrigin.BACKGROUND_TASK.value,
             }
             fork_metadata.pop("tool_call_id", None)

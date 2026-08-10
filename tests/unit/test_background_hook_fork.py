@@ -718,3 +718,6 @@ async def test_fork_inherits_parent_execution_context():
     assert "tool_call_id" not in fork_ctx.metadata, (
         "stale parent tool_call_id must not leak into fork"
     )
+    assert "skill_creation_source" not in fork_ctx.metadata, (
+        "ordinary forks must not fabricate automatic Skill creation provenance"
+    )
