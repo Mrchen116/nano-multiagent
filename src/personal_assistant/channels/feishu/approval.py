@@ -378,7 +378,6 @@ def _build_pending_card(
     request_id = str(request.get("request_id") or "")
     tool_name = str(request.get("tool_name") or "tool")
     question = str(request.get("question") or "Approve this tool call?")
-    input_text = _tool_input_preview(request.get("tool_input"))
     actions = [
         _approval_button(
             approval_id=approval_id,
@@ -398,12 +397,9 @@ def _build_pending_card(
         "elements": [
             {
                 "tag": "markdown",
-                "content": (
-                    f"**Tool:** `{tool_name}`\n"
-                    f"**Request:** {question}\n"
-                    f"**Input:** {_inline_code(input_text)}"
-                ),
+                "content": (f"**Tool:** `{tool_name}`\n**Request:** {question}"),
             },
+            *_tool_input_elements(request.get("tool_input")),
             {
                 "tag": "action",
                 "actions": actions,
@@ -415,7 +411,6 @@ def _build_pending_card(
 def _build_deny_reason_card(pending: _PendingApproval, decision: str) -> dict[str, Any]:
     tool_name = str(pending.request.get("tool_name") or "tool")
     question = str(pending.request.get("question") or "Approve this tool call?")
-    input_text = _tool_input_preview(pending.request.get("tool_input"))
     return {
         "config": {"wide_screen_mode": True},
         "header": {
@@ -425,12 +420,9 @@ def _build_deny_reason_card(pending: _PendingApproval, decision: str) -> dict[st
         "elements": [
             {
                 "tag": "markdown",
-                "content": (
-                    f"**Tool:** `{tool_name}`\n"
-                    f"**Request:** {question}\n"
-                    f"**Input:** {_inline_code(input_text)}"
-                ),
+                "content": (f"**Tool:** `{tool_name}`\n**Request:** {question}"),
             },
+            *_tool_input_elements(pending.request.get("tool_input")),
             {
                 "tag": "form",
                 "name": "nano_permission_deny_form",
@@ -517,19 +509,47 @@ def _approval_button(
     return button
 
 
-def _tool_input_preview(value: object) -> str:
+def _tool_input_elements(value: object) -> list[dict[str, Any]]:
     if not value:
-        return "no input"
+        return [{"tag": "markdown", "content": "**Input:** `no input`"}]
+    items = list(value.items()) if isinstance(value, Mapping) else [("value", value)]
+    value_limit = max(1, _MAX_INPUT_PREVIEW_CHARS // len(items))
+    fields = []
+    for key, field_value in items:
+        display = _truncate(_tool_input_value(field_value), value_limit)
+        fields.append(
+            {
+                "is_short": "\n" not in display and len(display) <= 80,
+                "text": {
+                    "tag": "lark_md",
+                    "content": f"**{key}**\n{_code_lines(display)}",
+                },
+            }
+        )
+    return [
+        {"tag": "markdown", "content": "**Input**"},
+        {"tag": "div", "fields": fields},
+    ]
+
+
+def _tool_input_value(value: object) -> str:
+    if isinstance(value, str):
+        return value
     try:
-        preview = json.dumps(
+        return json.dumps(
             value,
             ensure_ascii=False,
             sort_keys=True,
-            separators=(",", ":"),
+            indent=2,
         )
     except TypeError:
-        preview = str(value)
-    return _truncate(preview, _MAX_INPUT_PREVIEW_CHARS)
+        return str(value)
+
+
+def _code_lines(text: str) -> str:
+    if not text:
+        return "`(empty)`"
+    return "\n".join(_inline_code(line or " ") for line in text.splitlines())
 
 
 def _truncate(text: str, limit: int) -> str:

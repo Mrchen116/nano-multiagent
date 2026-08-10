@@ -119,7 +119,7 @@ def test_permission_card_is_idempotent_and_only_owner_can_decide(
 
 
 @patch("personal_assistant.channels.feishu.adapter.FeishuClient")
-def test_permission_cards_show_tool_input_values(
+def test_permission_cards_render_any_tool_input_as_fields(
     client_class: MagicMock,
 ) -> None:
     client = client_class.return_value
@@ -133,19 +133,29 @@ def test_permission_cards_show_tool_input_values(
     )
 
     pending_card = client.send_interactive_message.call_args.kwargs["card"]
-    pending_summary = pending_card["elements"][0]["content"]
-    assert "cat ~/.ssh/id_rsa" in pending_summary
-    assert ".gitconfig" in pending_summary
-    assert "secret-token-value" in pending_summary
+    pending_elements = pending_card["elements"]
+    assert pending_elements[1]["content"] == "**Input**"
+    assert pending_elements[2]["tag"] == "div"
+    pending_fields = pending_elements[2]["fields"]
+    assert [field["text"]["content"] for field in pending_fields] == [
+        "**command**\n`cat ~/.ssh/id_rsa`",
+        "**path**\n`.gitconfig`",
+        "**token**\n`secret-token-value`",
+    ]
+    assert '{"command":' not in str(pending_card)
 
     reason_card = adapter._handle_card_action(
         _event(_action_value(pending_card, "deny"))
     )
     assert reason_card is not None
-    reason_summary = reason_card["elements"][0]["content"]
-    assert "cat ~/.ssh/id_rsa" in reason_summary
-    assert ".gitconfig" in reason_summary
-    assert "secret-token-value" in reason_summary
+    reason_elements = reason_card["elements"]
+    assert reason_elements[1]["content"] == "**Input**"
+    assert reason_elements[2]["tag"] == "div"
+    assert [field["text"]["content"] for field in reason_elements[2]["fields"]] == [
+        "**command**\n`cat ~/.ssh/id_rsa`",
+        "**path**\n`.gitconfig`",
+        "**token**\n`secret-token-value`",
+    ]
 
 
 @patch("personal_assistant.channels.feishu.adapter.FeishuClient")
