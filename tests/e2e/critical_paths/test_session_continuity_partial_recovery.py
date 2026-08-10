@@ -82,6 +82,7 @@ def test_pending_shadow_and_control_recover_once_after_gateway_process_loss(
         start_new_session=True,
     )
     headers = {"Authorization": f"Bearer {identity['token']}"}
+    gateway_a: subprocess.Popen[str] | None = None
     try:
         _wait_until(
             lambda: _im_ready(im_url, headers),
@@ -173,6 +174,13 @@ def test_pending_shadow_and_control_recover_once_after_gateway_process_loss(
         assert (runtime / "session_bindings.sqlite3").is_file()
         assert (runtime / "external_shadow_sagas.sqlite3").is_file()
     finally:
+        if gateway_a is not None and gateway_a.poll() is None:
+            gateway_a.terminate()
+            try:
+                gateway_a.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                gateway_a.kill()
+                gateway_a.wait(timeout=5)
         im_process.terminate()
         try:
             im_process.wait(timeout=10)

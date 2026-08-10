@@ -13,7 +13,7 @@ from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.bootstrap import start_channels, stop_channels
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.inbound_models import build_group_context_key
-from tests.helpers.inbound_pipeline import build_inbound_pipeline
+from tests.helpers.inbound_pipeline import build_inbound_pipeline, inbound_graph
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from ._pipeline_helpers import _FakeKernel
@@ -630,6 +630,76 @@ def test_compact_without_a_current_binding_does_not_create_an_empty_session(
     assert result.reply_text == "当前历史不足，无需压缩。"
     assert kernel.create_session_calls == []
     assert kernel.compact_calls == []
+
+
+def test_compact_with_insufficient_history_keeps_the_current_session(
+    tmp_path: Path,
+) -> None:
+    agents = _agents(tmp_path)
+    kernel = _FakeKernel()
+    pipeline = build_inbound_pipeline(
+        kernel=kernel,
+        agents=agents,
+        outbound_router=OutboundRouter(ChannelRegistry((_FakeChannel("web"),))),
+        run_queue=SessionRunQueue(),
+        default_agent_id="agent-a",
+    )
+    message = InboundMessage("web", "before", "user-1", "chat-1", False)
+    initial = asyncio.run(pipeline.handle_inbound(message))
+    assert initial is not None
+    binder = inbound_graph(pipeline).binder
+    binding_before = binder.lookup(initial.session_key)
+    assert binding_before is not None
+    kernel.compact_result = None
+
+    result = asyncio.run(pipeline.handle_inbound(replace(message, text="/compact")))
+
+    assert result is not None
+    assert result.reply_text == "当前历史不足，无需压缩。"
+    assert result.kernel_session_id == initial.kernel_session_id == "sess-1"
+    assert binder.lookup(initial.session_key) == binding_before
+
+
+def test_failed_compact_replay_and_followup_keep_the_current_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    agents = _agents(tmp_path)
+    kernel = _FakeKernel()
+    pipeline = build_inbound_pipeline(
+        kernel=kernel,
+        agents=agents,
+        outbound_router=OutboundRouter(ChannelRegistry((_FakeChannel("web"),))),
+        run_queue=SessionRunQueue(),
+        default_agent_id="agent-a",
+    )
+    message = InboundMessage("web", "before", "user-1", "chat-1", False)
+    initial = asyncio.run(pipeline.handle_inbound(message))
+    assert initial is not None
+    binder = inbound_graph(pipeline).binder
+    binding_before = binder.lookup(initial.session_key)
+    assert binding_before is not None
+    attempts = 0
+
+    async def _fail_compact(*_args: object, **_kwargs: object) -> None:
+        nonlocal attempts
+        attempts += 1
+        raise RuntimeError("compaction failed")
+
+    monkeypatch.setattr(kernel, "compact", _fail_compact)
+    compact = replace(
+        message, text="/compact", metadata={"relay_task_id": "compact-failure-1"}
+    )
+
+    first = asyncio.run(pipeline.handle_inbound(compact))
+    replay = asyncio.run(pipeline.handle_inbound(compact))
+    followup = asyncio.run(pipeline.handle_inbound(replace(message, text="after")))
+
+    assert first is not None and replay is not None and followup is not None
+    assert first.reply_text == replay.reply_text == "压缩未完成，当前会话保持不变。"
+    assert attempts == 1
+    assert binder.lookup(initial.session_key) == binding_before
+    assert followup.kernel_session_id == initial.kernel_session_id == "sess-1"
+    assert [call["session_id"] for call in kernel.send_calls] == ["sess-1", "sess-1"]
 
 
 def test_stop_ack_delivered_via_bg_reply_sender_when_wired(tmp_path: Path) -> None:
