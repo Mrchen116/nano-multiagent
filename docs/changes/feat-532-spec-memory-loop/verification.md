@@ -177,3 +177,96 @@ N/A.
 ### SUGGESTION（可以修）
 
 None.
+
+# Round 3
+
+## Verification Report: feat-532
+
+> Validation snapshot: `5e822e33a0a0c6d664333ebcb8490675cecb217a → d12b7585ed4cbcc0addf852c4e59614b052276bd`
+
+### Summary
+
+Mode: full
+Delta range: `c3c7639a267a221fd138357c06d34b4b02f1e9f6..d12b7585ed4cbcc0addf852c4e59614b052276bd`（派发包中的起点 SHA 多出字符且不可解析；本轮按 `validated_at` 的实际第一父提交解析）
+Focus issues: `Round 2 C1 role-context closure`; `W2 trace aggregate`; `durable replay evidence linkage`
+requires_full_verification: false
+
+本轮继续只验证 design 已实施的 `M0-pilot`。正式 owner freeze、八例 Baseline 和双门禁属于后续 M1/M2，不计为 M0 缺失。Round 2 的 C1 与 W2 均已关闭；31-call 新 seal 的执行边界、聚合与 durable evidence 链自洽。新发现一项公开 CLI 入口偏离：版本化 README 中三条直接脚本命令在标准 repo-root 环境无法导入 `evals`，且现有测试没有按 `tasks.md` 声称从真实 CLI 子进程覆盖该入口。
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 8/8 |
+| Correctness | 8/8 |
+| Coherence | 有偏离 |
+
+0 critical issue(s), 1 warning(s) found. Fix before PR.
+
+## Completeness
+
+- Tasks: M0 的 8 条退出标准均有实现与版本化 evidence。overlay 未改变 feat-397 protocol/dataset/shared H02 truth；所有 pilot result 与角色产物保持 `formal_eligible=false`。
+- Pilot scope: `pilot-result.json` 固定 H02、`1 case × 1 repeat`、`conclusion=infrastructure_pass`、`effect_claim=null`；judge 分歧只记录 `pilot_inconclusive_no_third_call`，没有第三次调用或效果主张。
+- Real execution: durable bundle 恰有 31 个 context：builder 1、Candidate 10（Baseline 6 / Treatment 4）、Native Owner 10（两次 init + Baseline 5 / Treatment 3）、Memory trace 2、run audit 2、batch audit 1、burden 2、blind judge 2、Loop experimenter 1。每份 invocation receipt 都记录真实 Codex、exit 0、session id、turn 与 output hash；Candidate/Owner 分别只有两条 arm 各自独立的持久 session。
+- Role context: `sandbox_wrapper.py:86-145` 使用 default-deny Seatbelt，只允许 workspace、非 credential role runtime 与必要 system runtime；认证文件只对主 Codex process path 可读，子工具网络关闭且 nested Codex 禁止执行。31/31 actual 均证明 parent、unrelated host path、credential、nested Codex 和 child network 五项 probe 被拒绝；18 次 actual 与 events 同时观察到 command execution。`runner.py:586-659` 对 expected/actual 的 argv、cwd、environment、readable roots、初末文件、envelope、profile、probe、exit 与 events 做 fail-closed 对账。
+- Clean corpus / Memory: source 固定到 clean tracked commit `dac593d0f0a2e88fe58ab00b0258de4c468c6d30` / tree `b9426e9e0254417610bac3699323bcfc22b1c35a`，196 份首文档从 Git bytes 匿名投影，并 whole-lineage 排除 H02 与 control units。一次真实 read-only builder 生成 24 条 Memory，store/provenance/build receipt 闭合；Treatment direct-load 24 条并封存 consumption receipt 与逐条 trace。
+- Arm equality / Gate 1: 两臂首次 Candidate manifest 有 3736 个共享 path/hash，差异为 0；Treatment 唯一多 `.experiment/task-memory.md`。两臂使用同一 base HEAD、brief、Skill closure、模型、reasoning、工具/网络与 Gate 1 契约；Baseline/Treatment 分别在 6/4 个 Candidate turns 后提交唯一首文档，run receipt 均为 clean frozen status。
+- Owner / audit / burden / judge / Loop: 两条 Native Owner transcript 都经独立 run audit，均 `critical_error=false` 且 findings 为空；batch audit 无 contradiction；burden ledger 为 6/5 contribution units。两个 judge workspace 只增加 public brief、provisional judge context 与 P1/P2 conclusion projection。Loop 从冻结 trace 机械得到 `loaded=1, used=5, rejected=17, overridden=1`，`next-scheme.json.trace_summary` 原样匹配。
+- Seal / replay: seal SHA-256 为 `7bddc315a7bc82565724b39fb16c19857152d17a98c36ff48ae9ed84e38a0824`，evidence manifest 封存 451 个文件且自身 SHA-256 为 `78915d9634c3cc70a803fe1313d6413a65dc377587076615b13ad611bb8ede9f`。模块入口离线 replay 确定性重建 invocation matrix、session/output/final-file chain、evaluation copies、anonymous aggregate、trace summary、leakage、result 与 evidence manifest，返回 `replay=verified`, `role_invocations=31`。
+- Prototype / Reference 覆盖: N/A，design 无前端原型或外部 must-match reference contract。
+
+## Correctness
+
+M0 是正式 M1/M2 前的非计分基础设施 pilot；下表核对 M0 应投影的 spec 场景，不把未实施的 formal owner freeze 与八例效果结论冒充为当前完成项。
+
+| Requirement / Scenario | 实现位置（file:line） | 测试 / evidence | 状态 |
+|---|---|---|---|
+| 从广义首文档语料构建 Memory | `runner.py:823-964`, `runner.py:1073-1148` | clean snapshot / whole-lineage tests；196-document corpus；24-entry provenance | covered（M0 provisional） |
+| Memory 进入当前 spec 流程 | `runner.py:937-998`, `runner.py:1266-1485` | direct-load receipt；Treatment Gate 1 first document；完整 trace | covered |
+| 单 case 在无自身答案的 whole-lineage corpus 上评测 | `runner.py:823-922`, `pilot/h02/config.json` | anonymous projection test；sealed corpus receipt | covered（H02） |
+| Memory 影响可区分 loaded / used / rejected / overridden | `runner.py:1435-1485`, `runner.py:1631-1685` | 24-entry trace；structured 1/5/17/1 aggregate；tamper rejection | covered；Round 2 W2 closed |
+| Memory 是两臂唯一工作流变量 | `runner.py:937-998`, `runner.py:2372-2390` | 3736 shared hashes 全等；唯一 extra 为 task-memory | covered |
+| 每 run 只评一次 author 的直接 Gate 1 产物 | `runner.py:1187-1263`, `runner.py:2671-2747` | transcript/receipt/session/final-file exact chain；无 reviewer | covered |
+| Owner 实际语义贡献、Native audit 与 batch consistency | `runner.py:1821-2047` | 两份 burden ledger；两次 run audit；一次 batch audit | covered（pilot diagnostics） |
+| Blind judge、Loop、seal/replay 保持非计分边界 | `runner.py:2049-2146`, `runner.py:2432-2517`, `runner.py:2798-3013` | neutral judge closure；451-file manifest；31-call replay；`effect_claim=null` | covered；公开入口见 `W3` |
+
+## Coherence
+
+| design 决策 | 遵守? | 实现证据（file:line） |
+|---|---|---|
+| M0 只做 H02 `1 × 1` 非计分全链 pilot | 是 | `design.md:105-109`; `runner.py:2450-2517` |
+| Role-context manifest 是真实、独立回收且 fail-closed 的边界 | 是 | `runner.py:468-659`; `sandbox_wrapper.py:86-145,204-373` |
+| 认证仅经受控主进程层，子工具不可读 | 是 | `sandbox_wrapper.py:106-142,251-300`; `test_pilot_execution_boundary.py:37-128`；Round 2 C1 closed |
+| Builder task-blind/read-only，Treatment direct-load 且两臂其他输入相同 | 是 | `runner.py:937-998,1073-1148`; committed receipts/manifests |
+| Native Owner 开放问答，auditor 不介入热路径 | 是 | `runner.py:1166-1184,1266-1433,1821-2047` |
+| Blind judge 只看 neutral repo + brief + conclusions + judge context | 是 | `runner.py:2049-2085,2417-2429` |
+| Loop 根据冻结 trace 形成下一版 suite-global scheme | 是 | `runner.py:1631-1685,2090-2138`; `next-scheme.json`；Round 2 W2 closed |
+| Pilot 可通过仓内公开命令离线重放 | 否 | `README.md:9-15,35-40`; `runner.py:19-21`；见 `W3` |
+
+架构自洽检查未发现跨包 import、部署边界或平行产品机制问题：本 unit 的实现只位于 feat-532 experiment overlay 与 unit/research文档，没有改动 `agent`、`coding_cli`、`personal_assistant`、`IM` 或 feat-397 共享协议/数据集。
+
+### Prototype / Reference Contract
+
+N/A.
+
+## Validation Evidence
+
+- `pytest -q evals/.../feat_532_spec_memory/tests evals/spec_design_alignment/base_repo/tests` → `44 passed in 15.20s`。覆盖 fake credential/unrelated path/nested Codex/network/Git execution canary、Gate 1/corpus、actual/context/evaluation/aggregate tamper 与共享 materializer/recipe。
+- `.venv/bin/python -m evals.spec_design_alignment.experiments.feat_532_spec_memory.runner replay --artifacts .../h02-pilot-v1` → `replay=verified`, `role_invocations=31`, `conclusion=infrastructure_pass`。
+- `.venv/bin/python evals/.../runner.py replay ...` → `ModuleNotFoundError: No module named 'evals'`，见 `W3`。
+- `ruff check` → pass；`ruff format --check` → `6 files already formatted`；六个新增/修改 Python 文件 `py_compile` 通过；`git diff --check executed_base..validated_at` 通过。
+- `scripts/docs_check.py` → `documentation integrity passed: 237 maintained Markdown sources, 67 required routes`。
+- `validate_dataset.py` 仍只有 4 条 feat-397 baseline broken link；Round 2 delta 与完整 unit implementation diff 均未改 feat-397 protocol、dataset 或 shared H02 truth，因此不归因于 M0。
+- Durable bundle 扫描未发现 `auth.json`、host config/history、session sqlite、临时 role home/runtime marker 或 formal/effect 越界产物；本轮未读取任何真实凭据内容，也未访问外部系统。
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+None.
+
+### WARNING（提 PR 前必须修）
+
+- **W3 — 文档承诺的 overlay 直接 CLI 入口不可运行，且“真实 CLI 子进程覆盖”没有落入测试。** `README.md:12-14,22-24,38-40` 指示从仓库根执行 `python evals/.../runner.py ...`，但 `runner.py:19-21` 在任何 repo-root bootstrap 前绝对导入 `evals...sandbox_wrapper`；在无额外 `PYTHONPATH` 的干净环境按文档执行 replay，立即得到 `ModuleNotFoundError: No module named 'evals'`。模块方式 `python -m evals.spec_design_alignment.experiments.feat_532_spec_memory.runner replay ...` 可以重放成功，所以 451-file durable bundle 本身有效，但用户无法按已发布命令复现；同时 `tasks.md:22-24` 声称现有测试以“真实 CLI 子进程覆盖 overlay 公开入口”，实际四个测试文件都直接 import/call `runner`，没有 subprocess entrypoint 测试。**修复：**统一 README 的 prepare/run/replay 为可工作的 `python -m evals.spec_design_alignment.experiments.feat_532_spec_memory.runner ...`（或让脚本入口自行可靠 bootstrap repo root），并在 `tests/test_pilot_control_plane.py` 增加一次以 `sys.executable -m ... replay` 调用版本化 bundle的 subprocess smoke test，断言 exit 0 与 `replay=verified`；随后重跑 44 项测试、该 CLI 命令、docs-check 与 Ruff。该修复不改变 runner/seal 输入语义，无需重跑真实 31-call 模型 bundle；若修改 `runner.py` bytes，则现有 seal 绑定会失效，必须按 seal 规则重新 reseal。
+
+### SUGGESTION（可以修）
+
+None.
