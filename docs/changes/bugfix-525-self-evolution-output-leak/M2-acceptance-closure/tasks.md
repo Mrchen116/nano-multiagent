@@ -47,12 +47,12 @@ Prototype / Reference Contract：N/A。
 
 ### R2 — terminal 后 Skill create + replay + 新 session 使用
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 先扩失败旅程；再加入只作用于 fixture Gateway 进程的一次 stream fault，真实 `skill_manage(create)`、explicit config sync 与新 session `skill_view` 闭环。
 - 验证: skill E2E 红→绿；M1 subscriber/manager/config-sync focused suites 通过。
 
 ### R3 — reviewer 入口、清理与质量门禁
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 增加 worktree-local 一键 runner 与 fixture 文档/critical-path catalog；亲自运行两条旅程，核对进程/端口/生成文件清理并回填 durable evidence。
 - 验证: runner all 通过；Ruff、docs-check、diff-check、相关跨层测试及按风险选择的 non-E2E suite 全绿。

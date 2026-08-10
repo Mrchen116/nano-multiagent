@@ -21,16 +21,33 @@ _FOREGROUND_NO_SAVE = "FOREGROUND-NO-SAVE-COMPLETE"
 _FOREGROUND_NO_SAVE_SEED = "FOREGROUND-NO-SAVE-SEED"
 _RAW_NO_SAVE = "Nothing to save."
 _CLASSIFIER_ALLOW = "<block>no</block>"
+_FOREGROUND_SKILL = "FOREGROUND-SKILL-COMPLETE"
+_RAW_SKILL_REPLY = "Saved: deterministic-review-workflow."
+_SKILL_USED = "NEW-SESSION-SKILL-USED"
+_FOREGROUND_LIST_CALL = "foreground-list-call"
+_SKILL_CREATE_CALL = "review-skill-create-call"
+_SKILL_VIEW_CALL = "new-session-skill-view-call"
+_SKILL_NAME = "deterministic-review-workflow"
+_SKILL_CONTENT = """---
+name: deterministic-review-workflow
+description: Apply the deterministic review workflow.
+---
+
+# Deterministic review workflow
+
+Use the validated deterministic review workflow and report its sentinel.
+"""
 
 
 class _ScenarioState:
     def __init__(self, record_path: Path) -> None:
         self._record_path = record_path
-        self._lock = threading.Lock()
+        self._lock = threading.Condition()
         self.scenario = "idle"
         self.agent_request_index = 0
         self.requests: list[dict[str, Any]] = []
         self.events: list[dict[str, Any]] = []
+        self.review_released = False
 
     def control(self, payload: dict[str, Any]) -> dict[str, Any]:
         scenario = payload.get("scenario")
@@ -42,7 +59,11 @@ class _ScenarioState:
                 self.agent_request_index = 0
                 self.requests = []
                 self.events = []
+                self.review_released = False
                 self._record_path.write_text("", encoding="utf-8")
+            if payload.get("release_review") is True:
+                self.review_released = True
+                self._lock.notify_all()
             return self.snapshot_unlocked()
 
     def classify(self, body: dict[str, Any]) -> dict[str, Any]:
@@ -59,6 +80,8 @@ class _ScenarioState:
             and message.get("role") == "tool"
             and message.get("tool_call_id")
         ]
+        latest_role = roles[-1] if roles else None
+        latest_tool_result_id = tool_result_ids[-1] if latest_role == "tool" else None
         tool_names = [
             str(item.get("function", {}).get("name"))
             for item in tools or []
@@ -74,11 +97,21 @@ class _ScenarioState:
             else:
                 self.agent_request_index += 1
                 request_index = self.agent_request_index
-                if self.scenario == "no_save" and request_index <= 2:
+                if latest_role == "tool":
+                    kind = "continuation"
+                    routing_basis = "structural_tool_result"
+                elif self.scenario == "no_save" and request_index <= 2:
                     kind = "foreground"
+                    routing_basis = "scenario_request_index"
+                elif (
+                    self.scenario in {"skill_create", "verify_skill"}
+                    and request_index == 1
+                ):
+                    kind = "foreground"
+                    routing_basis = "scenario_request_index"
                 else:
                     kind = "review"
-                routing_basis = "scenario_request_index"
+                    routing_basis = "scenario_request_index"
             summary = {
                 "scenario": self.scenario,
                 "kind": kind,
@@ -87,11 +120,17 @@ class _ScenarioState:
                 "roles": roles,
                 "tool_names": tool_names,
                 "tool_result_ids": tool_result_ids,
+                "latest_tool_result_id": latest_tool_result_id,
             }
             self.requests.append(summary)
             with self._record_path.open("a", encoding="utf-8") as stream:
                 stream.write(json.dumps(summary, ensure_ascii=False) + "\n")
             return dict(summary)
+
+    def wait_for_review_release(self, *, timeout: float = 30.0) -> bool:
+        with self._lock:
+            self.events.append({"event": "skill_review_waiting"})
+            return self._lock.wait_for(lambda: self.review_released, timeout=timeout)
 
     def add_event(self, event: str, **data: object) -> None:
         with self._lock:
@@ -107,6 +146,7 @@ class _ScenarioState:
             "agent_request_index": self.agent_request_index,
             "requests": [dict(item) for item in self.requests],
             "events": [dict(item) for item in self.events],
+            "review_released": self.review_released,
         }
 
 
@@ -131,6 +171,43 @@ def _sse_text(text: str) -> bytes:
                     "completion_tokens": 1,
                     "total_tokens": 2,
                 },
+            },
+        )
+    )
+
+
+def _sse_tool_call(call_id: str, name: str, arguments: dict[str, Any]) -> bytes:
+    return _sse_frames(
+        (
+            {
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {
+                            "role": "assistant",
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": call_id,
+                                    "type": "function",
+                                    "function": {
+                                        "name": name,
+                                        "arguments": json.dumps(
+                                            arguments,
+                                            separators=(",", ":"),
+                                        ),
+                                    },
+                                }
+                            ],
+                        },
+                        "finish_reason": None,
+                    }
+                ]
+            },
+            {
+                "choices": [
+                    {"index": 0, "delta": {}, "finish_reason": "tool_calls"}
+                ]
             },
         )
     )
@@ -177,6 +254,52 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         elif scenario == "no_save" and kind == "review":
             self.state.add_event("no_save_review_completed")
             body = _sse_text(_RAW_NO_SAVE)
+        elif scenario == "skill_create" and request["request_index"] == 1:
+            body = _sse_tool_call(
+                _FOREGROUND_LIST_CALL,
+                "skill_manage",
+                {"action": "list"},
+            )
+        elif (
+            scenario == "skill_create"
+            and kind == "continuation"
+            and request["latest_tool_result_id"] == _FOREGROUND_LIST_CALL
+        ):
+            body = _sse_text(_FOREGROUND_SKILL)
+        elif scenario == "skill_create" and kind == "review":
+            if not self.state.wait_for_review_release():
+                self._send_json(408, {"error": "review release timed out"})
+                return
+            body = _sse_tool_call(
+                _SKILL_CREATE_CALL,
+                "skill_manage",
+                {
+                    "action": "create",
+                    "name": _SKILL_NAME,
+                    "scope": "agent",
+                    "content": _SKILL_CONTENT,
+                },
+            )
+        elif (
+            scenario == "skill_create"
+            and kind == "continuation"
+            and request["latest_tool_result_id"] == _SKILL_CREATE_CALL
+        ):
+            self.state.add_event("skill_review_completed")
+            body = _sse_text(_RAW_SKILL_REPLY)
+        elif scenario == "verify_skill" and request["request_index"] == 1:
+            body = _sse_tool_call(
+                _SKILL_VIEW_CALL,
+                "skill_view",
+                {"name": _SKILL_NAME},
+            )
+        elif (
+            scenario == "verify_skill"
+            and kind == "continuation"
+            and request["latest_tool_result_id"] == _SKILL_VIEW_CALL
+        ):
+            self.state.add_event("skill_use_completed")
+            body = _sse_text(_SKILL_USED)
         else:
             self._send_json(
                 409,

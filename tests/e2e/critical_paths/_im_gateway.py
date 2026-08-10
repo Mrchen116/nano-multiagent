@@ -11,6 +11,7 @@ import os
 import signal
 import subprocess
 import time
+from collections.abc import Mapping
 from datetime import datetime, timezone
 
 
@@ -54,7 +55,13 @@ def _terminate_process_group(pid: int, *, grace: float = 10.0) -> None:
         pass
 
 
-def restart_gateway(wt_dir: str, im_port: str) -> str:
+def restart_gateway(
+    wt_dir: str,
+    im_port: str,
+    *,
+    gateway_entrypoint: str | None = None,
+    env_overrides: Mapping[str, str] | None = None,
+) -> str:
     """重启 worktree 内的 Gateway 进程,复用同 config(保 node_id / workspace → 验续接)。
 
     e2e-up.sh 用 ``--foreground`` 起 Gateway(范式 B),pid 落在 ``$wt_dir/.gateway.pid``。
@@ -62,6 +69,16 @@ def restart_gateway(wt_dir: str, im_port: str) -> str:
     ``.gateway-config.yaml`` 以 ``start_new_session`` 重起(让新 Gateway 成进程组长,
     便于本函数下次/teardown 整组清理)。调用 journey 通过 IM 公开
     node generation 判定就绪，本函数不重复解读私有日志 marker。
+
+    Args:
+        wt_dir: Isolated stack runtime directory.
+        im_port: Isolated IM listening port.
+        gateway_entrypoint: Optional Python fixture runner that delegates to the
+            production Gateway entry after installing a controlled process fault.
+        env_overrides: Environment passed only to the replacement Gateway process.
+
+    Returns:
+        UTC generation floor sampled after the old process terminated.
     """
     pid_file = os.path.join(wt_dir, ".gateway.pid")
     cfg = os.path.join(wt_dir, ".gateway-config.yaml")
@@ -87,13 +104,18 @@ def restart_gateway(wt_dir: str, im_port: str) -> str:
     )
     env = dict(os.environ)
     env["PYTHONPATH"] = os.path.join(repo_root, "src")
+    if env_overrides is not None:
+        env.update(env_overrides)
+    gateway_command = (
+        ["python", gateway_entrypoint]
+        if gateway_entrypoint is not None
+        else ["python", "-m", "personal_assistant.main"]
+    )
     log_handle = open(log, "a")
     try:
         proc = subprocess.Popen(
             [
-                "python",
-                "-m",
-                "personal_assistant.main",
+                *gateway_command,
                 "--config",
                 cfg,
                 "--im-service-url",
