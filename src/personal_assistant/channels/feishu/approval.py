@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+from itertools import islice
 import logging
+import reprlib
 import threading
 import time
 import uuid
@@ -16,6 +18,7 @@ from personal_assistant.channels.feishu.client import (
     FeishuAuthError,
     FeishuCardActionEvent,
     FeishuClient,
+    wrap_inline_code,
 )
 
 logger = logging.getLogger(__name__)
@@ -24,6 +27,10 @@ _ACTION_PERMISSION_DECISION = "permission_decision"
 _REASON_FIELD_NAME = "nano_permission_reason"
 _PENDING_TTL_SECONDS = 60 * 60
 _MAX_INPUT_PREVIEW_CHARS = 1200
+_MAX_INPUT_FIELDS = 12
+_MAX_INPUT_LABEL_CHARS = 80
+_MAX_NESTED_ITEMS = 8
+_MAX_NESTING_DEPTH = 3
 _MAX_REASON_CHARS = 1000
 
 
@@ -137,6 +144,7 @@ class FeishuPermissionApprovalSurface:
             request=request_payload,
             options=options,
             approval_id=approval_id,
+            reveal_input_values=receive_id_type == "open_id",
         )
         try:
             feishu_message_id = client.send_interactive_message(
@@ -374,6 +382,7 @@ def _build_pending_card(
     request: Mapping[str, Any],
     options: list[_ApprovalOption],
     approval_id: str,
+    reveal_input_values: bool,
 ) -> dict[str, Any]:
     request_id = str(request.get("request_id") or "")
     tool_name = str(request.get("tool_name") or "tool")
@@ -399,7 +408,10 @@ def _build_pending_card(
                 "tag": "markdown",
                 "content": (f"**Tool:** `{tool_name}`\n**Request:** {question}"),
             },
-            *_tool_input_elements(request.get("tool_input")),
+            *_tool_input_elements(
+                request.get("tool_input"),
+                reveal_values=reveal_input_values,
+            ),
             {
                 "tag": "action",
                 "actions": actions,
@@ -422,7 +434,10 @@ def _build_deny_reason_card(pending: _PendingApproval, decision: str) -> dict[st
                 "tag": "markdown",
                 "content": (f"**Tool:** `{tool_name}`\n**Request:** {question}"),
             },
-            *_tool_input_elements(pending.request.get("tool_input")),
+            *_tool_input_elements(
+                pending.request.get("tool_input"),
+                reveal_values=pending.receive_id_type == "open_id",
+            ),
             {
                 "tag": "form",
                 "name": "nano_permission_deny_form",
@@ -509,27 +524,60 @@ def _approval_button(
     return button
 
 
-def _tool_input_elements(value: object) -> list[dict[str, Any]]:
+def _tool_input_elements(
+    value: object,
+    *,
+    reveal_values: bool,
+) -> list[dict[str, Any]]:
     if not value:
         return [{"tag": "markdown", "content": "**Input:** `no input`"}]
-    items = list(value.items()) if isinstance(value, Mapping) else [("value", value)]
+    if isinstance(value, Mapping):
+        total_fields = len(value)
+        items = list(islice(value.items(), _MAX_INPUT_FIELDS))
+    else:
+        total_fields = 1
+        items = [("value", value)]
     value_limit = max(1, _MAX_INPUT_PREVIEW_CHARS // len(items))
     fields = []
     for key, field_value in items:
-        display = _truncate(_tool_input_value(field_value), value_limit)
+        display = (
+            _truncate(_tool_input_value(field_value), value_limit)
+            if reveal_values
+            else "hidden in group chat"
+        )
+        label = _escape_lark_markdown(_truncate(str(key), _MAX_INPUT_LABEL_CHARS))
         fields.append(
             {
                 "is_short": "\n" not in display and len(display) <= 80,
                 "text": {
                     "tag": "lark_md",
-                    "content": f"**{key}**\n{_code_lines(display)}",
+                    "content": f"**{label}**\n{_code_lines(display)}",
                 },
             }
         )
-    return [
+    elements = [
         {"tag": "markdown", "content": "**Input**"},
         {"tag": "div", "fields": fields},
     ]
+    omitted_fields = total_fields - len(items)
+    if omitted_fields:
+        elements.append(
+            {
+                "tag": "markdown",
+                "content": f"*{omitted_fields} additional fields truncated*",
+            }
+        )
+    if not reveal_values:
+        elements.append(
+            {
+                "tag": "markdown",
+                "content": (
+                    "*Input values are hidden in group chats. "
+                    "Review the internal IM approval for full details.*"
+                ),
+            }
+        )
+    return elements
 
 
 def _tool_input_value(value: object) -> str:
@@ -537,34 +585,72 @@ def _tool_input_value(value: object) -> str:
         return value
     try:
         return json.dumps(
-            value,
+            _bounded_input_value(value),
             ensure_ascii=False,
             sort_keys=True,
             indent=2,
         )
     except TypeError:
-        return str(value)
+        return reprlib.repr(value)
+
+
+def _bounded_input_value(value: object, *, depth: int = 0) -> object:
+    if isinstance(value, str):
+        return _truncate(value, _MAX_INPUT_PREVIEW_CHARS)
+    if depth >= _MAX_NESTING_DEPTH:
+        if isinstance(value, (Mapping, list, tuple)):
+            return "... nested value truncated"
+        return value
+    if isinstance(value, Mapping):
+        items = list(islice(value.items(), _MAX_NESTED_ITEMS))
+        bounded = {
+            _truncate(str(key), _MAX_INPUT_LABEL_CHARS): _bounded_input_value(
+                nested,
+                depth=depth + 1,
+            )
+            for key, nested in items
+        }
+        omitted = len(value) - len(items)
+        if omitted:
+            bounded["..."] = f"{omitted} additional items truncated"
+        return bounded
+    if isinstance(value, (list, tuple)):
+        items = list(islice(value, _MAX_NESTED_ITEMS))
+        bounded = [_bounded_input_value(item, depth=depth + 1) for item in items]
+        omitted = len(value) - len(items)
+        if omitted:
+            bounded.append(f"... {omitted} additional items truncated")
+        return bounded
+    return value
 
 
 def _code_lines(text: str) -> str:
     if not text:
         return "`(empty)`"
-    return "\n".join(_inline_code(line or " ") for line in text.splitlines())
+    lines = text.split("\n")
+    rendered = [wrap_inline_code(f"{line} ↵" if line else "↵") for line in lines[:-1]]
+    if lines[-1]:
+        rendered.append(wrap_inline_code(lines[-1]))
+    return "\n".join(rendered)
 
 
 def _truncate(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
-    return text[: limit - 15].rstrip() + "\n... truncated"
+    marker = "... truncated"
+    if limit <= len(marker):
+        return marker[:limit]
+    return text[: limit - len(marker) - 1].rstrip() + "\n" + marker
 
 
 def _button_type(decision: str) -> str:
     return "primary" if _decision_allows(decision) else "danger"
 
 
-def _inline_code(text: str) -> str:
-    escaped = text.replace("`", "\\`")
-    return "`" + escaped + "`"
+def _escape_lark_markdown(text: str) -> str:
+    return "".join(
+        char if char.isalnum() or char in " -." else f"&#{ord(char)};" for char in text
+    )
 
 
 def _decision_allows(decision: str) -> bool:

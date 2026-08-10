@@ -127,7 +127,7 @@ def test_permission_cards_render_any_tool_input_as_fields(
     adapter = _adapter(MagicMock(return_value=True))
 
     adapter.send_permission_request(
-        target_chat_id="feishu:cli_a:group:oc_group",
+        target_chat_id="feishu:cli_a:dm:ou_owner",
         run_id="run-1",
         request=_request(),
     )
@@ -156,6 +156,84 @@ def test_permission_cards_render_any_tool_input_as_fields(
         "**path**\n`.gitconfig`",
         "**token**\n`secret-token-value`",
     ]
+
+
+@patch("personal_assistant.channels.feishu.adapter.FeishuClient")
+def test_permission_card_bounds_large_generic_input(
+    client_class: MagicMock,
+) -> None:
+    client = client_class.return_value
+    client.send_interactive_message.return_value = "card-message-1"
+    adapter = _adapter(MagicMock(return_value=True))
+    request = _request()
+    request["tool_input"] = {
+        "payload": list(range(1000)),
+        **{f"field_{index}": "x" * 200 for index in range(20)},
+    }
+
+    adapter.send_permission_request(
+        target_chat_id="feishu:cli_a:dm:ou_owner",
+        run_id="run-1",
+        request=request,
+    )
+
+    card = client.send_interactive_message.call_args.kwargs["card"]
+    input_fields = card["elements"][2]["fields"]
+    assert len(input_fields) == 12
+    assert "9 additional fields truncated" in str(card)
+    assert "additional items truncated" in str(input_fields[0])
+    assert len(str(card)) < 10_000
+
+
+@patch("personal_assistant.channels.feishu.adapter.FeishuClient")
+def test_permission_card_preserves_newlines_and_markdown_literals(
+    client_class: MagicMock,
+) -> None:
+    client = client_class.return_value
+    client.send_interactive_message.return_value = "card-message-1"
+    adapter = _adapter(MagicMock(return_value=True))
+    request = _request()
+    request["tool_input"] = {
+        "before": "value",
+        "after": "value\n",
+        "command**\n**Decision:** approved": "echo `date`",
+    }
+
+    adapter.send_permission_request(
+        target_chat_id="feishu:cli_a:dm:ou_owner",
+        run_id="run-1",
+        request=request,
+    )
+
+    card = client.send_interactive_message.call_args.kwargs["card"]
+    contents = [field["text"]["content"] for field in card["elements"][2]["fields"]]
+    assert contents[0] == "**before**\n`value`"
+    assert contents[1] == "**after**\n`value ↵`"
+    assert "**Decision:** approved" not in contents[2]
+    assert "&#42;" in contents[2]
+    assert contents[2].endswith("\n`` echo `date` ``")
+
+
+@patch("personal_assistant.channels.feishu.adapter.FeishuClient")
+def test_group_permission_card_hides_input_values(
+    client_class: MagicMock,
+) -> None:
+    client = client_class.return_value
+    client.send_interactive_message.return_value = "card-message-1"
+    adapter = _adapter(MagicMock(return_value=True))
+
+    adapter.send_permission_request(
+        target_chat_id="feishu:cli_a:group:oc_group",
+        run_id="run-1",
+        request=_request(),
+    )
+
+    card = client.send_interactive_message.call_args.kwargs["card"]
+    assert "secret-token-value" not in str(card)
+    assert "cat ~/.ssh/id_rsa" not in str(card)
+    assert "**command**" in str(card)
+    assert "hidden in group chat" in str(card)
+    assert "internal IM approval" in str(card)
 
 
 @patch("personal_assistant.channels.feishu.adapter.FeishuClient")
