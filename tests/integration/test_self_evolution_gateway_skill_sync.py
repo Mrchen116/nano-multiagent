@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
@@ -37,16 +38,6 @@ from tests.helpers.self_evolution import (
     allow_all,
     wait_for_terminal,
 )
-
-
-async def _wait_for_catalog_revision(
-    catalog: LiveAgentCatalog,
-    agent_id: str,
-    *,
-    after_revision: int,
-) -> None:
-    while catalog.require(agent_id).revision <= after_revision:
-        await asyncio.sleep(0)
 
 
 @pytest.mark.asyncio
@@ -121,9 +112,18 @@ async def test_post_terminal_skill_create_reaches_gateway_config_sync(
         session_binder=binder,
         local_config=local_config,
     )
+    skill_sync_completed = asyncio.Event()
+    loop = asyncio.get_running_loop()
+
+    def _handle_skill_created(
+        callback_agent_id: str, event: Mapping[str, object]
+    ) -> None:
+        config_sync.handle_skill_created(callback_agent_id, event)
+        loop.call_soon_threadsafe(skill_sync_completed.set)
+
     manager = BackgroundSubscriptionManager(
         kernel=kernel,
-        skill_created_handler=config_sync.handle_skill_created,
+        skill_created_handler=_handle_skill_created,
     )
     try:
         session = await kernel.create_session(
@@ -157,17 +157,11 @@ async def test_post_terminal_skill_create_reaches_gateway_config_sync(
             )
         )
         review_gate.set()
-        await asyncio.wait_for(
-            _wait_for_catalog_revision(
-                catalog,
-                agent_id,
-                after_revision=initial_revision,
-            ),
-            timeout=5,
-        )
+        await asyncio.wait_for(skill_sync_completed.wait(), timeout=5)
 
         assert outcome.value == "started"
         refreshed = catalog.require(agent_id)
+        assert refreshed.revision > initial_revision
         assert refreshed.config.skills_selection_mode == "default_discovery"
         assert refreshed.config.skills == ()
         skill_path = tmp_path / ".nanoassistant" / "skills" / SKILL_NAME / "SKILL.md"

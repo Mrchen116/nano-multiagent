@@ -99,9 +99,18 @@
   - Green: 同一回归结束为 `['old-skill', 'skill-a', 'skill-b']`；新回归 + restart/path tests `4 passed in 2.56s`，最终调度收紧后单测 `1 passed in 1.57s`。
   - Affected: config-sync/manager/subscriber/composition/observer/Kernel integration + test contract `84 passed, 2 warnings in 13.71s`；共享 config-operation lock suites `16 passed in 1.65s`。
   - Entry: M2 外部 cwd 真栈 runner 继续经 production Gateway persistent owner 完成真 Skill create/config sync/new-session use，`2 passed in 63.70s`。
-  - Final full non-E2E on the exact implementation/test tree: `3197 passed, 29 deselected, 22 warnings in 324.74s`; the baseline catalog-revision timeout did not recur.
+  - Pre-rebase full non-E2E before the wait stabilizer: `3197 passed, 29 deselected, 22 warnings in 324.74s`; the baseline catalog-revision timeout did not recur in that run.
   - Quality: repository `ruff check .` passed; `scripts/docs-check` passed (`228` maintained Markdown / `67` routes); `git diff --check` and runner shell syntax passed.
   - Frontend State Matrix / Browser QA / Visual / Prototype: N/A（无展示面变更）。
 - Rollback: revert the code-review implementation commit to restore the pre-review concurrency behavior.
 - Commits: `b77497ae6`.
 - Next: M2 harness fixes and final gates.
+
+### Post-rebase gate debugging — config-sync completion wait
+
+- Trigger: the post-rebase full suite reproduced the same integration failure: `3196 passed, 1 failed, 29 deselected, 22 warnings in 379.64s`; failure remained the 5-second catalog-revision wait.
+- Boundary evidence: the exact test passed `6/6` during baseline diagnosis and `5/5` after the implementation; the whole `tests/integration` ordering passed `46/46`. The failure only appeared under the complete suite. Both traces stopped in `_wait_for_catalog_revision()` at `await asyncio.sleep(0)` while the production callback was dispatched with `asyncio.to_thread`.
+- Root cause: the integration regression used a zero-delay hot poll to infer completion of a real worker-thread callback. Under whole-suite CPU contention that poll could consume the event-loop/GIL budget until its arbitrary five-second timeout, reporting a missing catalog update before the actual callback completion boundary was observed.
+- Fix: keep the real `BackgroundSubscriptionManager -> asyncio.to_thread -> IMAgentConfigSync.handle_skill_created` path, but wrap the real handler to signal an `asyncio.Event` via `loop.call_soon_threadsafe()` after it returns. The test waits on that completion boundary and then independently asserts catalog revision/mode/Skill file state; timeout stays five seconds.
+- Verification: stabilized exact test `5/5` (`1.52–1.87s`); final whole non-E2E on the exact tree `3197 passed, 29 deselected, 22 warnings in 391.28s`. The target passed at its former 18% failure position.
+- Commits: pending gate-stability commit.

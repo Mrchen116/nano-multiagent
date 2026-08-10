@@ -109,7 +109,8 @@ None.
   - True-stack entry: from `/tmp`, `PYTHON=/Users/czj/Repos/nano-multiagent/.venv/bin/python /Users/czj/Repos/nano-multiagent/.worktrees/bugfix-525-review-fix1/scripts/e2e-self-evolution.sh` → `2 passed in 63.70s`; runtime `.e2e-self-evolution.9ntbQU` 已删除，后验无 fixture/replay-runner/Gateway 残留。
   - Product state: 两条既有 journey 继续证明 no-save raw output 私有，以及 terminal 后真 `skill_manage(create)` 经replay、config sync、structured exact-once notice 并在新 session 真调 `skill_view`。
   - Full non-E2E first post-fix run: `3197 passed, 29 deselected, 22 warnings in 427.08s`; baseline 的 catalog timeout 未再现。
-  - Final full non-E2E on exact tree: `3197 passed, 29 deselected, 22 warnings in 324.74s`; the same timeout again did not recur.
+  - Pre-rebase full non-E2E before the M1 wait stabilizer: `3197 passed, 29 deselected, 22 warnings in 324.74s`.
+  - Final full non-E2E after the post-rebase M1 wait-boundary fix: `3197 passed, 29 deselected, 22 warnings in 391.28s`.
   - Quality: `/Users/czj/Repos/nano-multiagent/.venv/bin/ruff check .` passed; `PYTHON=/Users/czj/Repos/nano-multiagent/.venv/bin/python scripts/docs-check` passed (`228` maintained Markdown / `67` routes); `git diff --check` and `bash -n scripts/e2e-self-evolution.sh` passed.
   - Frontend / Browser / Visual / Prototype: N/A（Web IM 同一 HTTP/WS relay 真栈，无客户端修改）。
 - Rollback: revert the code-review implementation commit.
