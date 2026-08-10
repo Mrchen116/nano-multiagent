@@ -1,0 +1,510 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nano-multiagent.local/evaluation/schema/doc-projection.schema.json",
+  "title": "Per-case DP1 counterfactual documentation projection and claim-evidence manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "method_id",
+    "projection_level",
+    "projection_id",
+    "case_id",
+    "status",
+    "mode",
+    "authoring",
+    "clocks",
+    "doc_system_profile",
+    "clean_room_policy_id",
+    "source_inputs",
+    "documentation_epoch",
+    "path_dispositions",
+    "files",
+    "claims",
+    "latest_claim_resolutions",
+    "workflow_overlay_slots",
+    "output",
+    "assertions"
+  ],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schema_version": {"const": "1.0"},
+    "method_id": {"const": "counterfactual-latest-base-v1"},
+    "projection_level": {"const": "DP1-counterfactual-latest-v1"},
+    "projection_id": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
+    "case_id": {"type": "string", "pattern": "^(?:H|P)[0-9]{2}$"},
+    "status": {"enum": ["draft", "frozen"]},
+    "mode": {"enum": ["counterfactual_latest", "identity_current"]},
+    "authoring": {"$ref": "#/$defs/authoring"},
+    "clocks": {"$ref": "#/$defs/clocks"},
+    "doc_system_profile": {"$ref": "#/$defs/assetRef"},
+    "clean_room_policy_id": {"const": "clean-room-change-units-v1"},
+    "source_inputs": {"$ref": "#/$defs/sourceInputs"},
+    "documentation_epoch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["epoch_id", "selection_evidence_ref", "recipe_ref", "recipe_sha256", "path_map_ref", "path_map_sha256"],
+      "properties": {
+        "epoch_id": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
+        "selection_evidence_ref": {"$ref": "#/$defs/relativePath"},
+        "recipe_ref": {"$ref": "#/$defs/relativePath"},
+        "recipe_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "path_map_ref": {"$ref": "#/$defs/relativePath"},
+        "path_map_sha256": {"$ref": "#/$defs/hashOrPending"}
+      }
+    },
+    "path_dispositions": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/pathDisposition"}
+    },
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/outputFile"}
+    },
+    "claims": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/claim"}
+    },
+    "latest_claim_resolutions": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/latestClaimResolution"}
+    },
+    "workflow_overlay_slots": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/workflowOverlaySlot"}
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "materialized_root",
+        "path_dispositions_manifest_sha256",
+        "files_manifest_sha256",
+        "claims_manifest_sha256",
+        "latest_claim_resolutions_manifest_sha256",
+        "documentation_tree_sha256"
+      ],
+      "properties": {
+        "materialized_root": {"$ref": "#/$defs/relativePath"},
+        "path_dispositions_manifest_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "files_manifest_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "claims_manifest_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "latest_claim_resolutions_manifest_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "documentation_tree_sha256": {"$ref": "#/$defs/hashOrPending"}
+      }
+    },
+    "assertions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "whole_primary_document_graph_classified",
+        "no_case_relevance_selection",
+        "no_post_cutoff_current_claims",
+        "no_target_shaped_tombstones",
+        "no_runtime_semantic_authoring",
+        "workflow_content_excluded_from_common_projection",
+        "reference_repositories_passthrough_only",
+        "all_output_slices_have_one_truth_domain",
+        "active_and_retired_change_units_excluded",
+        "completed_history_is_baseline_bound",
+        "source_clock_ownership_enforced"
+      ],
+      "properties": {
+        "whole_primary_document_graph_classified": {"const": true},
+        "no_case_relevance_selection": {"const": true},
+        "no_post_cutoff_current_claims": {"const": true},
+        "no_target_shaped_tombstones": {"const": true},
+        "no_runtime_semantic_authoring": {"const": true},
+        "workflow_content_excluded_from_common_projection": {"const": true},
+        "reference_repositories_passthrough_only": {"const": true},
+        "all_output_slices_have_one_truth_domain": {"const": true},
+        "active_and_retired_change_units_excluded": {"const": true},
+        "completed_history_is_baseline_bound": {"const": true},
+        "source_clock_ownership_enforced": {"const": true}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "frozen"}}, "required": ["status"]},
+      "then": {
+        "properties": {
+          "doc_system_profile": {"properties": {"sha256": {"$ref": "#/$defs/hash"}}},
+          "source_inputs": {
+            "properties": {
+              "product_files_manifest_sha256": {"$ref": "#/$defs/hash"},
+              "baseline_docs_staging_manifest_sha256": {"$ref": "#/$defs/hash"},
+              "source_root_manifest_sha256": {"$ref": "#/$defs/hash"},
+              "reference_sources_manifest_sha256": {"$ref": "#/$defs/hash"}
+            }
+          },
+          "documentation_epoch": {
+            "properties": {
+              "recipe_sha256": {"$ref": "#/$defs/hash"},
+              "path_map_sha256": {"$ref": "#/$defs/hash"}
+            }
+          },
+          "path_dispositions": {
+            "items": {"properties": {"source_sha256": {"$ref": "#/$defs/hash"}}}
+          },
+          "files": {
+            "items": {
+              "properties": {
+                "sha256": {"$ref": "#/$defs/hash"},
+                "fragments": {
+                  "items": {
+                    "properties": {
+                      "bytes_sha256": {"$ref": "#/$defs/hash"},
+                      "source_sha256": {"$ref": "#/$defs/hash"}
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "claims": {
+            "items": {
+              "properties": {
+                "statement_sha256": {"$ref": "#/$defs/hash"},
+                "evidence": {"items": {"properties": {"sha256": {"$ref": "#/$defs/hash"}}}}
+              }
+            }
+          },
+          "output": {
+            "properties": {
+              "path_dispositions_manifest_sha256": {"$ref": "#/$defs/hash"},
+              "files_manifest_sha256": {"$ref": "#/$defs/hash"},
+              "claims_manifest_sha256": {"$ref": "#/$defs/hash"},
+              "latest_claim_resolutions_manifest_sha256": {"$ref": "#/$defs/hash"},
+              "documentation_tree_sha256": {"$ref": "#/$defs/hash"}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"mode": {"const": "counterfactual_latest"}}, "required": ["mode"]},
+      "then": {
+        "properties": {
+          "clocks": {
+            "properties": {
+              "product": {"properties": {"mode": {"const": "historical_pre_target"}}},
+              "knowledge": {"properties": {"mode": {"const": "historical_cutoff"}}}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"mode": {"const": "identity_current"}}, "required": ["mode"]},
+      "then": {
+        "properties": {
+          "clocks": {
+            "properties": {
+              "product": {"properties": {"mode": {"const": "prospective_sealed"}}},
+              "knowledge": {"properties": {"mode": {"const": "prospective_sealed"}}}
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+"
+    },
+    "hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "hashOrPending": {"type": "string", "pattern": "^(?:pending|[a-f0-9]{64})$"},
+    "gitHashOrPending": {"type": "string", "pattern": "^(?:pending|[a-f0-9]{40})$"},
+    "assetRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "sha256"],
+      "properties": {
+        "ref": {"$ref": "#/$defs/relativePath"},
+        "sha256": {"$ref": "#/$defs/hashOrPending"}
+      }
+    },
+    "authoring": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blindness", "inputs_allowlist", "inputs_denylist", "author_id", "reviewer_id", "authored_at"],
+      "properties": {
+        "blindness": {"enum": ["prospective_pre_case", "post_case_task_blind_independent"]},
+        "inputs_allowlist": {
+          "type": "array",
+          "minItems": 3,
+          "uniqueItems": true,
+          "items": {"enum": ["product_tree", "baseline_docs_staging", "doc_system_profile", "epoch_recipe", "generic_validation_tools"]}
+        },
+        "inputs_denylist": {
+          "type": "array",
+          "minItems": 6,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "case_title",
+              "public_brief",
+              "authority_map",
+              "target_commit",
+              "heldout_target",
+              "decision_inventory",
+              "rubric",
+              "user_profile",
+              "arm_outputs"
+            ]
+          }
+        },
+        "author_id": {"type": "string", "minLength": 1},
+        "reviewer_id": {"type": "string", "minLength": 1},
+        "authored_at": {"type": "string", "minLength": 1}
+      }
+    },
+    "clocks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["product", "knowledge", "documentation_framework", "workflow"],
+      "properties": {
+        "product": {"$ref": "#/$defs/productGitClock"},
+        "knowledge": {"$ref": "#/$defs/knowledgeGitClock"},
+        "documentation_framework": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["clock_id", "commit", "tree"],
+          "properties": {
+            "clock_id": {"type": "string", "minLength": 1},
+            "commit": {"$ref": "#/$defs/gitHashOrPending"},
+            "tree": {"$ref": "#/$defs/gitHashOrPending"}
+          }
+        },
+        "workflow": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["clock_id", "ownership"],
+          "properties": {
+            "clock_id": {"type": "string", "minLength": 1},
+            "ownership": {"const": "arm_bundle"}
+          }
+        }
+      }
+    },
+    "productGitClock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "commit", "tree"],
+      "properties": {
+        "mode": {"enum": ["historical_pre_target", "prospective_sealed"]},
+        "commit": {"$ref": "#/$defs/gitHashOrPending"},
+        "tree": {"$ref": "#/$defs/gitHashOrPending"}
+      }
+    },
+    "knowledgeGitClock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "commit", "tree"],
+      "properties": {
+        "mode": {"enum": ["historical_cutoff", "prospective_sealed"]},
+        "commit": {"$ref": "#/$defs/gitHashOrPending"},
+        "tree": {"$ref": "#/$defs/gitHashOrPending"}
+      }
+    },
+    "sourceInputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "primary_source_root_id",
+        "source_root_manifest_ref",
+        "source_root_manifest_sha256",
+        "product_files_manifest_ref",
+        "product_files_manifest_sha256",
+        "baseline_docs_staging_manifest_ref",
+        "baseline_docs_staging_manifest_sha256",
+        "reference_sources_manifest_ref",
+        "reference_sources_manifest_sha256"
+      ],
+      "properties": {
+        "primary_source_root_id": {"type": "string", "pattern": "^[a-z][a-z0-9._-]+$"},
+        "source_root_manifest_ref": {"$ref": "#/$defs/relativePath"},
+        "source_root_manifest_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "product_files_manifest_ref": {"$ref": "#/$defs/relativePath"},
+        "product_files_manifest_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "baseline_docs_staging_manifest_ref": {"$ref": "#/$defs/relativePath"},
+        "baseline_docs_staging_manifest_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "reference_sources_manifest_ref": {"$ref": "#/$defs/relativePath"},
+        "reference_sources_manifest_sha256": {"$ref": "#/$defs/hashOrPending"}
+      }
+    },
+    "pathDisposition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_path", "source_sha256", "disposition", "output_path", "lifecycle_state", "reason"],
+      "properties": {
+        "source_path": {"$ref": "#/$defs/relativePath"},
+        "source_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "disposition": {
+          "enum": [
+            "copy_exact",
+            "move_exact",
+            "replace_by_projection",
+            "drop_control_owned",
+            "drop_superseded_route",
+            "drop_clean_room_change_unit"
+          ]
+        },
+        "output_path": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+"
+        },
+        "lifecycle_state": {"enum": ["current", "active_proposed", "completed_history", "research_snapshot", "retired", "not_applicable"]},
+        "reason": {"type": "string", "minLength": 1}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"disposition": {"const": "drop_clean_room_change_unit"}},
+            "required": ["disposition"]
+          },
+          "then": {
+            "properties": {
+              "output_path": {"const": null},
+              "lifecycle_state": {"enum": ["active_proposed", "retired"]}
+            }
+          }
+        }
+      ]
+    },
+    "outputFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "mode", "sha256", "authority_role", "lifecycle_state", "materializer", "fragments", "claim_ids"],
+      "properties": {
+        "path": {"$ref": "#/$defs/relativePath"},
+        "mode": {"enum": ["100644", "100755"]},
+        "sha256": {"$ref": "#/$defs/hashOrPending"},
+        "authority_role": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
+        "lifecycle_state": {"enum": ["current", "active_proposed", "completed_history", "research_snapshot", "retired"]},
+        "materializer": {"enum": ["copy_exact", "move_exact", "framework_slice", "generate_index", "frozen_claim_render"]},
+        "fragments": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/fragment"}
+        },
+        "claim_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._-]*$"}
+        }
+      }
+    },
+    "fragment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fragment_id",
+        "truth_domain",
+        "source_clock",
+        "output_selector",
+        "bytes_sha256",
+        "source_ref",
+        "source_path",
+        "source_selector",
+        "source_sha256"
+      ],
+      "properties": {
+        "fragment_id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._-]*$"},
+        "truth_domain": {"enum": ["framework", "navigation", "product_current", "history_or_proposed"]},
+        "source_clock": {
+          "enum": ["product_baseline", "documentation_framework", "generated_navigation"]
+        },
+        "output_selector": {"type": "string", "minLength": 1},
+        "bytes_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "source_ref": {"type": "string", "minLength": 1},
+        "source_path": {"type": ["string", "null"], "minLength": 1},
+        "source_selector": {"type": ["string", "null"], "minLength": 1},
+        "source_sha256": {"$ref": "#/$defs/hashOrPending"}
+      }
+    },
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claim_id", "output_path", "output_selector", "claim_class", "truth_clock", "statement_sha256", "evidence", "validation_check_ids"],
+      "properties": {
+        "claim_id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._-]*$"},
+        "output_path": {"$ref": "#/$defs/relativePath"},
+        "output_selector": {"type": "string", "minLength": 1},
+        "claim_class": {"enum": ["behavior", "architecture", "command", "current_product_statement"]},
+        "truth_clock": {"const": "product_baseline"},
+        "statement_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/evidence"}
+        },
+        "validation_check_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._-]*$"}
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_id", "kind", "support", "ref", "path", "selector", "sha256", "evidence_limit"],
+      "properties": {
+        "evidence_id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._-]*$"},
+        "kind": {"enum": ["baseline_doc", "code", "test", "runtime_probe", "architecture_contract", "command_smoke"]},
+        "support": {"enum": ["direct", "corroborating"]},
+        "ref": {"type": "string", "minLength": 1},
+        "path": {"$ref": "#/$defs/relativePath"},
+        "selector": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/hashOrPending"},
+        "evidence_limit": {"type": "string", "minLength": 1}
+      }
+    },
+    "latestClaimResolution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["latest_claim_id", "disposition", "output_claim_id", "reason", "evidence_ids"],
+      "properties": {
+        "latest_claim_id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._-]*$"},
+        "disposition": {"enum": ["supported_at_baseline", "rewritten_from_baseline", "omitted"]},
+        "output_claim_id": {"type": ["string", "null"], "pattern": "^[A-Za-z][A-Za-z0-9._-]*$"},
+        "reason": {"type": "string", "minLength": 1},
+        "evidence_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._-]*$"}
+        }
+      }
+    },
+    "workflowOverlaySlot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "slot_id", "ownership", "materialized_by", "common_bytes_sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/relativePath"},
+        "slot_id": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
+        "ownership": {"const": "arm_bundle"},
+        "materialized_by": {"const": "treatment_manifest"},
+        "common_bytes_sha256": {"$ref": "#/$defs/hashOrPending"}
+      }
+    }
+  }
+}

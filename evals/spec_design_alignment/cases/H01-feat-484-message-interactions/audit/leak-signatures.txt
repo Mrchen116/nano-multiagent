@@ -1,0 +1,28 @@
+# Private input for candidate-export scanning; never export this file.
+# Literal or regular-expression signatures below are absent from the cutoff world and public brief.
+feat-484-chat-message-interactions
+feat-484
+pull request #222
+25c00f7e
+2eb710391
+492e07ed
+aa6c8e828
+7593a8b41
+message-content-policy\.ts
+MessageContentPolicy
+classifyChatLink
+serializeMessageBody
+resolveContextMenuModality
+shouldKeepNativeContextMenu
+extractCodeText
+ChatMarkdownLink
+MarkdownCodeBlock
+chat-message-toolbar
+chat-message-more
+chat-copy-notice
+im-code-copy
+正文事件按本次输入方式与精确触发点判定所有权
+三种消息操作表面共享同一 action model
+外链新标签.*同源由浏览器当前标签导航
+复制整条消息
+从此处分支

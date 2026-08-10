@@ -1,0 +1,279 @@
+{
+  "$schema": "../../schema/doc-projection.schema.json",
+  "schema_version": "1.0",
+  "method_id": "counterfactual-latest-base-v1",
+  "projection_level": "DP1-counterfactual-latest-v1",
+  "projection_id": "p99-counterfactual-latest-v1",
+  "case_id": "P99",
+  "status": "draft",
+  "mode": "counterfactual_latest",
+  "authoring": {
+    "blindness": "post_case_task_blind_independent",
+    "inputs_allowlist": [
+      "product_tree",
+      "baseline_docs_staging",
+      "doc_system_profile",
+      "epoch_recipe",
+      "generic_validation_tools"
+    ],
+    "inputs_denylist": [
+      "case_title",
+      "public_brief",
+      "authority_map",
+      "target_commit",
+      "heldout_target",
+      "decision_inventory",
+      "rubric",
+      "user_profile",
+      "arm_outputs"
+    ],
+    "author_id": "pending",
+    "reviewer_id": "pending",
+    "authored_at": "pending"
+  },
+  "clocks": {
+    "product": {
+      "mode": "historical_pre_target",
+      "commit": "pending",
+      "tree": "pending"
+    },
+    "knowledge": {
+      "mode": "historical_cutoff",
+      "commit": "pending",
+      "tree": "pending"
+    },
+    "documentation_framework": {
+      "clock_id": "latest-doc-framework-v1",
+      "commit": "pending",
+      "tree": "pending"
+    },
+    "workflow": {
+      "clock_id": "feat397-current-vs-team-v1",
+      "ownership": "arm_bundle"
+    }
+  },
+  "doc_system_profile": {
+    "ref": "runtime/doc-system.json",
+    "sha256": "pending"
+  },
+  "clean_room_policy_id": "clean-room-change-units-v1",
+  "source_inputs": {
+    "primary_source_root_id": "nano-p99",
+    "source_root_manifest_ref": "source-roots.json",
+    "source_root_manifest_sha256": "pending",
+    "product_files_manifest_ref": "runtime/P99/manifests/product-files.json",
+    "product_files_manifest_sha256": "pending",
+    "baseline_docs_staging_manifest_ref": "runtime/P99/private/baseline-docs-staging.json",
+    "baseline_docs_staging_manifest_sha256": "pending",
+    "reference_sources_manifest_ref": "runtime/P99/manifests/reference-sources.json",
+    "reference_sources_manifest_sha256": "pending"
+  },
+  "documentation_epoch": {
+    "epoch_id": "legacy-pre-refactor-486",
+    "selection_evidence_ref": "runtime/P99/private/documentation-epoch-evidence.json",
+    "recipe_ref": "runtime/documentation-controls/epochs/legacy-pre-refactor-486.json",
+    "recipe_sha256": "pending",
+    "path_map_ref": "runtime/documentation-controls/epochs/legacy-pre-refactor-486-path-map.json",
+    "path_map_sha256": "pending"
+  },
+  "path_dispositions": [
+    {
+      "source_path": "docs/SPEC_GUIDE.md",
+      "source_sha256": "pending",
+      "disposition": "replace_by_projection",
+      "output_path": "docs/specs/CONTRIBUTING.md",
+      "lifecycle_state": "current",
+      "reason": "Install the latest framework grammar without importing later product claims."
+    },
+    {
+      "source_path": "docs/changes/feat-001-example/spec.md",
+      "source_sha256": "pending",
+      "disposition": "drop_clean_room_change_unit",
+      "output_path": null,
+      "lifecycle_state": "active_proposed",
+      "reason": "The suite-wide clean-room policy excludes every pre-existing direct active-unit root."
+    },
+    {
+      "source_path": "docs/changes/retired/refactor-002-example/motivation.md",
+      "source_sha256": "pending",
+      "disposition": "drop_clean_room_change_unit",
+      "output_path": null,
+      "lifecycle_state": "retired",
+      "reason": "The suite-wide clean-room policy excludes docs/changes/retired content."
+    },
+    {
+      "source_path": "docs/changes/archive/feat-000-example/spec.md",
+      "source_sha256": "pending",
+      "disposition": "copy_exact",
+      "output_path": "docs/changes/archive/feat-000-example/spec.md",
+      "lifecycle_state": "completed_history",
+      "reason": "Completed history is preserved because it existed at and is consistent with the product baseline."
+    }
+  ],
+  "files": [
+    {
+      "path": "docs/specs/CONTRIBUTING.md",
+      "mode": "100644",
+      "sha256": "pending",
+      "authority_role": "canonical-specs",
+      "lifecycle_state": "current",
+      "materializer": "framework_slice",
+      "fragments": [
+        {
+          "fragment_id": "framework.spec-grammar",
+          "truth_domain": "framework",
+          "source_clock": "documentation_framework",
+          "output_selector": "#whole-file",
+          "bytes_sha256": "pending",
+          "source_ref": "latest-doc-framework-v1",
+          "source_path": "docs/specs/CONTRIBUTING.md",
+          "source_selector": "#framework-only-slices-manifest",
+          "source_sha256": "pending"
+        }
+      ],
+      "claim_ids": []
+    },
+    {
+      "path": "docs/changes/README.md",
+      "mode": "100644",
+      "sha256": "pending",
+      "authority_role": "change-lifecycle-index",
+      "lifecycle_state": "current",
+      "materializer": "framework_slice",
+      "fragments": [
+        {
+          "fragment_id": "framework.change-lifecycle-index",
+          "truth_domain": "framework",
+          "source_clock": "documentation_framework",
+          "output_selector": "#common-lifecycle-slices",
+          "bytes_sha256": "pending",
+          "source_ref": "latest-doc-framework-v1",
+          "source_path": "docs/changes/README.md",
+          "source_selector": "#common-lifecycle-slices-manifest",
+          "source_sha256": "pending"
+        }
+      ],
+      "claim_ids": []
+    },
+    {
+      "path": "docs/specs/example/spec.md",
+      "mode": "100644",
+      "sha256": "pending",
+      "authority_role": "canonical-specs",
+      "lifecycle_state": "current",
+      "materializer": "frozen_claim_render",
+      "fragments": [
+        {
+          "fragment_id": "baseline.example-contract",
+          "truth_domain": "product_current",
+          "source_clock": "product_baseline",
+          "output_selector": "#Requirement-example",
+          "bytes_sha256": "pending",
+          "source_ref": "pending",
+          "source_path": "docs/specs/example/spec.md",
+          "source_selector": "#Requirement-example",
+          "source_sha256": "pending"
+        }
+      ],
+      "claim_ids": ["example.behavior"]
+    },
+    {
+      "path": "docs/changes/archive/feat-000-example/spec.md",
+      "mode": "100644",
+      "sha256": "pending",
+      "authority_role": "completed-history",
+      "lifecycle_state": "completed_history",
+      "materializer": "copy_exact",
+      "fragments": [
+        {
+          "fragment_id": "baseline.completed-history-example",
+          "truth_domain": "history_or_proposed",
+          "source_clock": "product_baseline",
+          "output_selector": "#whole-file",
+          "bytes_sha256": "pending",
+          "source_ref": "pending",
+          "source_path": "docs/changes/archive/feat-000-example/spec.md",
+          "source_selector": "#whole-file",
+          "source_sha256": "pending"
+        }
+      ],
+      "claim_ids": []
+    }
+  ],
+  "claims": [
+    {
+      "claim_id": "example.behavior",
+      "output_path": "docs/specs/example/spec.md",
+      "output_selector": "#Requirement-example",
+      "claim_class": "behavior",
+      "truth_clock": "product_baseline",
+      "statement_sha256": "pending",
+      "evidence": [
+        {
+          "evidence_id": "example.test",
+          "kind": "test",
+          "support": "direct",
+          "ref": "pending",
+          "path": "tests/example_test.py",
+          "selector": "test_example_behavior",
+          "sha256": "pending",
+          "evidence_limit": "Supports only the exercised example scenario."
+        }
+      ],
+      "validation_check_ids": ["contract-probes"]
+    }
+  ],
+  "latest_claim_resolutions": [
+    {
+      "latest_claim_id": "latest.example-behavior",
+      "disposition": "rewritten_from_baseline",
+      "output_claim_id": "example.behavior",
+      "reason": "The latest product wording is not copied; the emitted claim is grounded at the baseline.",
+      "evidence_ids": ["example.test"]
+    }
+  ],
+  "workflow_overlay_slots": [
+    {
+      "path": "AGENTS.md",
+      "slot_id": "workflow-routing",
+      "ownership": "arm_bundle",
+      "materialized_by": "treatment_manifest",
+      "common_bytes_sha256": "pending"
+    },
+    {
+      "path": "docs/development/change-workflow.md",
+      "slot_id": "whole-file",
+      "ownership": "arm_bundle",
+      "materialized_by": "treatment_manifest",
+      "common_bytes_sha256": "pending"
+    },
+    {
+      "path": "docs/changes/README.md",
+      "slot_id": "change-workflow-routing",
+      "ownership": "arm_bundle",
+      "materialized_by": "treatment_manifest",
+      "common_bytes_sha256": "pending"
+    }
+  ],
+  "output": {
+    "materialized_root": "runtime/P99/materialized/documentation-world",
+    "path_dispositions_manifest_sha256": "pending",
+    "files_manifest_sha256": "pending",
+    "claims_manifest_sha256": "pending",
+    "latest_claim_resolutions_manifest_sha256": "pending",
+    "documentation_tree_sha256": "pending"
+  },
+  "assertions": {
+    "whole_primary_document_graph_classified": true,
+    "no_case_relevance_selection": true,
+    "no_post_cutoff_current_claims": true,
+    "no_target_shaped_tombstones": true,
+    "no_runtime_semantic_authoring": true,
+    "workflow_content_excluded_from_common_projection": true,
+    "reference_repositories_passthrough_only": true,
+    "all_output_slices_have_one_truth_domain": true,
+    "active_and_retired_change_units_excluded": true,
+    "completed_history_is_baseline_bound": true,
+    "source_clock_ownership_enforced": true
+  }
+}

@@ -1,0 +1,29 @@
+# Private input for candidate-export scanning; never export this file.
+# Legitimate cutoff symbols such as SessionRunQueue are intentionally omitted.
+feat-501-cross-channel-session-controls
+feat-501
+pull request #242
+781f6595
+13ba17f4
+ddba0d20
+fa2019b8
+RunVisibilityLease
+DeferredRunDelivery
+PendingExternalControlDelivery
+ExternalControlDeliveryMaterializer
+ControlOperation
+superseded_run_id
+superseded_by_new_session
+pending_materialization
+prepare_reset
+publish_reset
+shared inbound seam.*三个精确命令
+所有旧 run 可见输出共用一次撤销 lease
+FIFO 控制 barrier
+binder-store.*pending intent
+focus 是 .* 手动压缩的可选提示
+test_run_visibility_lease\.py
+test_external_control_delivery\.py
+test_kernel_manual_compact\.py
+已开始新会话。
+当前历史不足，无需压缩。

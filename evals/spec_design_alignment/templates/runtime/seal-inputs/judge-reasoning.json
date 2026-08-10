@@ -1,0 +1,8 @@
+{
+  "$schema": "../../../schema/reasoning-settings.schema.json",
+  "schema_version": "1.0",
+  "reasoning_effort": "medium",
+  "temperature": null,
+  "top_p": null,
+  "seed": 0
+}

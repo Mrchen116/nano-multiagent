@@ -1,0 +1,22 @@
+# Private S0 signatures. Do not export this file.
+# The broad public request, generic architecture vocabulary and Claude Code reference
+# are legitimate candidate inputs and intentionally are not signatures.
+feat-397-spec-design-agent-team
+architecture-review-20260725-111111-efe2ffd0.html
+08729f0be9ba95401b9d57ea20911833618fe3e8
+refactor-476-permission-transaction-owner
+refactor-477-cli-session-stream-owner
+refactor-478-gateway-control-rpc-boundary
+refactor-479-skill-review-lifecycle-owner
+refactor-480-typed-run-delivery-context
+refactor-481-gateway-config-ownership
+refactor-482-web-chat-runtime-ownership
+refactor-483-web-agent-config-form-model
+让 permission request 拥有一个完整事务 owner
+给 CLI 一个 session stream owner
+深化 owned IM↔Gateway control-plane seam
+让 skill-batch review 生命周期只实现一次
+完成 RunDeliveryContext 的 typed cutover
+拆开 Gateway 本地配置的六个变化轴
+收拢 Web Chat runtime 与 DOM lifecycle
+让 Agent create/edit 共享一个配置规则模型

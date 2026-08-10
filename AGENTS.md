@@ -23,6 +23,7 @@ nano-multiagent 是一个同时支持终端 Coding Agent 和多渠道个人助�
 | 开发环境、测试、注释、worktree E2E 与 LLM 联调 | [docs/development/](docs/development/README.md) |
 | 启动、观察、排障和恢复 current 系统 | [docs/operations/](docs/operations/README.md) |
 | change unit 目录、文件归属和归档 | [docs/changes/README.md](docs/changes/README.md) |
+| Agent 评测集、物化方法和实验协议 | [evals/README.md](evals/README.md) |
 
 当前任务涉及用户可观察行为时，先读对应 `docs/specs/<package>/`；active change 描述目标状态，完成归并前不能覆盖 current spec。需要 change unit 的工作按 `change-workflow.md` 调用相应 `change-*` skills；符合“不建 unit”判据的小修可以直接实施。Full 完成设计或 Bugfix lite 完成实施前首文档后，默认使用 `change-orchestrator`；用户点名 `$change-orchestrator-simple` 时改用简化实施。用户明确选择快速开发模式时可以边对齐边实现，但交付前必须调用 `change-fast-close` 补齐 unit 并完成 code review。
 

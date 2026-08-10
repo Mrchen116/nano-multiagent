@@ -1,0 +1,16 @@
+{
+  "$schema": "../../schema/lineage-manifest.schema.json",
+  "schema_version": "1.0",
+  "manifest_id": "template-lineage-v1",
+  "status": "draft",
+  "kind": "workflow",
+  "subject_component_id": "pending-component-v1",
+  "subject_manifest_sha256": "pending",
+  "coverage_policy": "every_candidate_visible_rule_example_or_profile_statement",
+  "entries": [],
+  "review": {
+    "status": "draft",
+    "reviewer_ref": "pending",
+    "reviewed_at": "pending"
+  }
+}

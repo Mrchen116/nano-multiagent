@@ -1,0 +1,57 @@
+# Private signatures for scanning the candidate export; the audit-only knowledge map may be scanned separately.
+"decision_id"[ \t]*:[ \t]*"D(0[1-9]|1[0-9]|20)"
+P02-A(0[1-9]|1[0-8])
+owner_review_required
+activation_predicate
+inactive_safe_behavior
+sealed mutation pool
+combined SHA-256 in the run ledger
+blinded response bank
+same semantic response to every arm
+same-domain but non-overlapping activity-center micro-delta
+isolated P02 probe profile
+P-evidence rule: every `P` oracle
+decision-inventory.json
+judge-private/
+
+# Oracle-content coverage: one signature for each decision, including conditional safe baselines.
+# D01
+current placeholder, query, and detail-state seams accurately
+# D02
+documented product activity contract without pretending their states are identical
+# D03
+narrow projection, persistence, and delivery seams needed for cross-source activity
+# D04
+preserve liveness and explicit waiting semantics
+# D05
+safe default is read-only; any exposed action is routed to its source owner
+# D06
+retain source-context authorization for details
+# D07
+safe default is an allowlisted activity summary with deeper inspection routed back
+# D08
+readable activity purpose, status, outcome, and actionable failure explanation
+# D09
+current owners can carry the requirement, adds only evidenced missing seams
+# D10
+viable placements and default-landing consequences
+# D11
+flat chronological feed, grouped parent activities, and source-oriented sections
+# D12
+normalized state model, maps every current source state
+# D13
+hiding unavailable sources, showing timestamped partial state, and blocking the surface
+# D14
+compact scan-first rows, richer cards, and detail drill-down
+# D15
+recent bounded activity with durable searchable history
+# D16
+Ship a read-only runtime center, or expose only an existing source action
+# D17
+Restrict the runtime center to the authenticated Agent owner
+# D18
+Use an allowlisted human-readable summary that excludes raw payloads
+# D19
+preserve the current config landing and present alternative placements
+# D20
+real browser at representative desktop and mobile viewports

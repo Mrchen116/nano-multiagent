@@ -1,0 +1,42 @@
+{
+  "schema_version": "1.0",
+  "status": "diagnostic_only",
+  "formal_main": false,
+  "entries": [
+    {
+      "diagnostic_id": "H02-refactor-480-run-delivery-context",
+      "kind": "case",
+      "path": "cases/H02-refactor-480-run-delivery-context",
+      "formal_main": false,
+      "sealed": false,
+      "status": "unsealed_diagnostic",
+      "reason": "The formal H02 slot is now H02-feat-510-tool-approval-model; this historical case is retained only for diagnostic comparison."
+    },
+    {
+      "diagnostic_id": "claude-code-h02-0991eac5",
+      "kind": "source_root",
+      "source_id": "claude-code-h02-0991eac5",
+      "control_path": "/Users/czj/Repos/opensource-hub/claude-code",
+      "cutoff_ref": "0991eac5ccd518d6bd0486752f61a42f9ad68fa8",
+      "archive_prefix": "references/claude-code/",
+      "exposed_root": "references/claude-code",
+      "formal_main": false,
+      "sealed": false,
+      "status": "diagnostic_only",
+      "hashes": {
+        "raw_archive_sha256": "fa18e3f1265329b2c6c7b996b283b64e1ba0772c03045383f1f5201fe67b36ff",
+        "removed_files_manifest_sha256": "3e7a8b6435c3279d41a6aaaa565661fed4cd8f0f96ea84e9358f2ae3fe82f4ba",
+        "post_filter_files_manifest_sha256": "d41101e252e85cda8d69d97c43e030898c171981694ade5cb11994433c218321"
+      },
+      "reason": "This external repository source supported the retired H02 diagnostic and is excluded from the formal source-root registry."
+    },
+    {
+      "diagnostic_id": "H06-bugfix-520-compaction-context-loss",
+      "kind": "candidate_disposition",
+      "formal_main": false,
+      "sealed": false,
+      "status": "owner_rejected_for_formal_suite",
+      "reason": "The owner explicitly rejected bugfix-520 for inclusion. H06 remains intentionally unused so later extensions cannot mistake the rejected candidate for a missing formal asset."
+    }
+  ]
+}

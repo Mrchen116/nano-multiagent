@@ -1,0 +1,364 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nano-multiagent.local/evaluation/schema/doc-system.schema.json",
+  "title": "Suite-wide counterfactual-latest documentation system profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "profile_id",
+    "method_id",
+    "status",
+    "framework_clock",
+    "scope",
+    "authority_topology",
+    "lifecycle_states",
+    "canonical_contract",
+    "clean_room_policy",
+    "latest_current_claim_inventory",
+    "materialization",
+    "workflow_owned_paths",
+    "external_source_policy",
+    "builder",
+    "assertions"
+  ],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schema_version": {"const": "1.0"},
+    "profile_id": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
+    "method_id": {"const": "counterfactual-latest-base-v1"},
+    "status": {"enum": ["draft", "frozen"]},
+    "framework_clock": {"$ref": "#/$defs/frameworkClock"},
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["primary_repository", "candidate_document_roots", "control_only_roots"],
+      "properties": {
+        "primary_repository": {"type": "string", "minLength": 1},
+        "candidate_document_roots": {
+          "type": "array",
+          "minItems": 3,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/relativePath"}
+        },
+        "control_only_roots": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/relativePath"}
+        }
+      }
+    },
+    "authority_topology": {
+      "type": "array",
+      "minItems": 6,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/authorityRole"}
+    },
+    "lifecycle_states": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/lifecycleState"},
+      "allOf": [
+        {"contains": {"properties": {"state": {"const": "current"}}, "required": ["state"]}, "minContains": 1},
+        {"contains": {"properties": {"state": {"const": "active_proposed"}}, "required": ["state"]}, "minContains": 1},
+        {"contains": {"properties": {"state": {"const": "completed_history"}}, "required": ["state"]}, "minContains": 1},
+        {"contains": {"properties": {"state": {"const": "research_snapshot"}}, "required": ["state"]}, "minContains": 1},
+        {"contains": {"properties": {"state": {"const": "retired"}}, "required": ["state"]}, "minContains": 1}
+      ]
+    },
+    "canonical_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format_id",
+        "spec_root",
+        "package_entry_filename",
+        "requirement_heading_prefix",
+        "scenario_heading_prefix",
+        "docs_checker"
+      ],
+      "properties": {
+        "format_id": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
+        "spec_root": {"$ref": "#/$defs/relativePath"},
+        "package_entry_filename": {"const": "spec.md"},
+        "requirement_heading_prefix": {"const": "### Requirement:"},
+        "scenario_heading_prefix": {"const": "#### Scenario:"},
+        "docs_checker": {"$ref": "#/$defs/dependency"}
+      }
+    },
+    "clean_room_policy": {"$ref": "#/$defs/cleanRoomPolicy"},
+    "latest_current_claim_inventory": {"$ref": "#/$defs/assetRef"},
+    "materialization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projection_level", "allowed_materializers", "runtime_semantic_authoring"],
+      "properties": {
+        "projection_level": {"const": "DP1-counterfactual-latest-v1"},
+        "allowed_materializers": {
+          "const": [
+            "copy_exact",
+            "move_exact",
+            "framework_slice",
+            "generate_index",
+            "frozen_claim_render"
+          ]
+        },
+        "runtime_semantic_authoring": {"const": false}
+      }
+    },
+    "workflow_owned_paths": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/workflowOwnedPath"}
+    },
+    "external_source_policy": {"const": "reference_passthrough_scrubbed"},
+    "builder": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "component_id",
+        "source_files",
+        "dependency_manifest_sha256",
+        "implementation_sha256",
+        "epoch_recipes"
+      ],
+      "properties": {
+        "component_id": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
+        "source_files": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/dependency"}
+        },
+        "dependency_manifest_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "implementation_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "epoch_recipes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/epochRecipe"}
+        }
+      }
+    },
+    "assertions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "framework_contains_no_product_current_claims",
+        "profile_is_case_blind",
+        "full_primary_document_graph_is_projected",
+        "workflow_documents_are_arm_owned",
+        "reference_repositories_are_not_projected",
+        "unclassified_slices_are_rejected",
+        "active_and_retired_change_units_are_private_only",
+        "completed_history_is_product_baseline_bound"
+      ],
+      "properties": {
+        "framework_contains_no_product_current_claims": {"const": true},
+        "profile_is_case_blind": {"const": true},
+        "full_primary_document_graph_is_projected": {"const": true},
+        "workflow_documents_are_arm_owned": {"const": true},
+        "reference_repositories_are_not_projected": {"const": true},
+        "unclassified_slices_are_rejected": {"const": true},
+        "active_and_retired_change_units_are_private_only": {"const": true},
+        "completed_history_is_product_baseline_bound": {"const": true}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "frozen"}}, "required": ["status"]},
+      "then": {
+        "properties": {
+          "framework_clock": {
+            "properties": {
+              "commit": {"$ref": "#/$defs/gitHash"},
+              "tree": {"$ref": "#/$defs/gitHash"},
+              "source_manifest_sha256": {"$ref": "#/$defs/hash"}
+            }
+          },
+          "latest_current_claim_inventory": {
+            "properties": {"sha256": {"$ref": "#/$defs/hash"}}
+          },
+          "builder": {
+            "properties": {
+              "dependency_manifest_sha256": {"$ref": "#/$defs/hash"},
+              "implementation_sha256": {"$ref": "#/$defs/hash"},
+              "source_files": {
+                "items": {"properties": {"sha256": {"$ref": "#/$defs/hash"}}}
+              },
+              "epoch_recipes": {
+                "items": {
+                  "properties": {
+                    "recipe_sha256": {"$ref": "#/$defs/hash"},
+                    "path_map_sha256": {"$ref": "#/$defs/hash"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+"
+    },
+    "hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "hashOrPending": {"type": "string", "pattern": "^(?:pending|[a-f0-9]{64})$"},
+    "gitHash": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
+    "gitHashOrPending": {"type": "string", "pattern": "^(?:pending|[a-f0-9]{40})$"},
+    "assetRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "sha256"],
+      "properties": {
+        "ref": {"$ref": "#/$defs/relativePath"},
+        "sha256": {"$ref": "#/$defs/hashOrPending"}
+      }
+    },
+    "frameworkClock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clock_id",
+        "mode",
+        "source_repository",
+        "commit",
+        "tree",
+        "frozen_at",
+        "source_manifest_sha256"
+      ],
+      "properties": {
+        "clock_id": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
+        "mode": {"const": "latest_frozen"},
+        "source_repository": {"type": "string", "minLength": 1},
+        "commit": {"$ref": "#/$defs/gitHashOrPending"},
+        "tree": {"$ref": "#/$defs/gitHashOrPending"},
+        "frozen_at": {"type": "string", "minLength": 1},
+        "source_manifest_sha256": {"$ref": "#/$defs/hashOrPending"}
+      }
+    },
+    "authorityRole": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role_id",
+        "truth_domain",
+        "lifecycle_state",
+        "current_authority",
+        "candidate_visibility",
+        "path_patterns",
+        "description"
+      ],
+      "properties": {
+        "role_id": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
+        "truth_domain": {
+          "enum": ["framework", "navigation", "product_current", "history_or_proposed", "workflow"]
+        },
+        "lifecycle_state": {
+          "enum": ["current", "active_proposed", "completed_history", "research_snapshot", "retired", "not_applicable"]
+        },
+        "current_authority": {"type": "boolean"},
+        "candidate_visibility": {
+          "enum": ["candidate", "private_source_only", "candidate_if_baseline_consistent"]
+        },
+        "path_patterns": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "description": {"type": "string", "minLength": 1}
+      }
+    },
+    "lifecycleState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "truth_clock", "candidate_semantics"],
+      "properties": {
+        "state": {"enum": ["current", "active_proposed", "completed_history", "research_snapshot", "retired"]},
+        "truth_clock": {"enum": ["product_baseline", "no_later_than_product_baseline"]},
+        "candidate_semantics": {"type": "string", "minLength": 1}
+      }
+    },
+    "cleanRoomPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "policy_id",
+        "active_unit_path_regex",
+        "retired_unit_path_regex",
+        "completed_history_path_regex",
+        "excluded_unit_disposition",
+        "completed_history_policy",
+        "framework_index_paths"
+      ],
+      "properties": {
+        "policy_id": {"const": "clean-room-change-units-v1"},
+        "active_unit_path_regex": {
+          "const": "^docs/changes/(?!archive(?:/|$)|retired(?:/|$))[^/]+/.*$"
+        },
+        "retired_unit_path_regex": {"const": "^docs/changes/retired(?:/.*)?$"},
+        "completed_history_path_regex": {"const": "^docs/changes/archive(?:/.*)?$"},
+        "excluded_unit_disposition": {"const": "drop_clean_room_change_unit"},
+        "completed_history_policy": {
+          "const": "preserve_if_present_at_and_consistent_with_product_baseline"
+        },
+        "framework_index_paths": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/relativePath"},
+          "contains": {"const": "docs/changes/README.md"},
+          "minContains": 1
+        }
+      }
+    },
+    "dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "mode", "sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/relativePath"},
+        "mode": {"enum": ["100644", "100755"]},
+        "sha256": {"$ref": "#/$defs/hashOrPending"}
+      }
+    },
+    "workflowOwnedPath": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "ownership", "composition"],
+      "properties": {
+        "path": {"$ref": "#/$defs/relativePath"},
+        "ownership": {"const": "arm_bundle"},
+        "composition": {"enum": ["whole_file", "composed_slots"]},
+        "slot_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"}
+        }
+      }
+    },
+    "epochRecipe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["epoch_id", "selection_rule", "recipe_ref", "recipe_sha256", "path_map_ref", "path_map_sha256"],
+      "properties": {
+        "epoch_id": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
+        "selection_rule": {"type": "string", "minLength": 1},
+        "recipe_ref": {"$ref": "#/$defs/relativePath"},
+        "recipe_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "path_map_ref": {"$ref": "#/$defs/relativePath"},
+        "path_map_sha256": {"$ref": "#/$defs/hashOrPending"}
+      }
+    }
+  }
+}

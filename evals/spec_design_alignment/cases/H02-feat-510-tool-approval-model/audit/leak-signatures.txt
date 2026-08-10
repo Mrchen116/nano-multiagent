@@ -1,0 +1,30 @@
+# Private input for candidate-export scanning; never export this file.
+# Legitimate cutoff symbols such as HookModelCall and background_task are intentionally omitted.
+feat-510-unified-tool-approval-model
+feat-510
+pull request #248
+PR 248
+d7600ca9
+eaaed4c3
+89197f46
+7f0d4be1
+b17a2e09
+230cb8bc
+llm\.tool_approval_model
+tool_approval_model\.py
+kernel\.tool_approval_model
+get_tool_approval_model
+set_tool_approval_model
+test_tool_approval_model_critical_path\.py
+anthropic_sse_tool_approval_recording\.py
+A\s*(?:→|->)\s*C\s*(?:→|->)\s*A
+B\s*(?:→|->)\s*C\s*(?:→|->)\s*B
+A\s*(?:→|->)\s*A\s*(?:→|->)\s*A
+B\s*(?:→|->)\s*B\s*(?:→|->)\s*B
+不回退，选啥模型就是啥模型
+专用审批模型
+统一工具审批模型
+classifier model C
+provider-a/model-a.*provider-c/model-c
+registry-state bridge
+Kernel-scoped builtin dependency

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nano-multiagent.local/evaluation/schema/sandbox-policy.schema.json",
+  "title": "Fresh-root candidate sandbox policy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "filesystem_mode",
+    "network_namespace",
+    "host_mounts",
+    "secret_mounts",
+    "process_isolation",
+    "fresh_root_only"
+  ],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schema_version": {"const": "1.0"},
+    "filesystem_mode": {"const": "sealed_roots_only"},
+    "network_namespace": {"const": "disabled"},
+    "host_mounts": {"const": false},
+    "secret_mounts": {"const": false},
+    "process_isolation": {"const": "required"},
+    "fresh_root_only": {"const": true}
+  }
+}

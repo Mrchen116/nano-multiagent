@@ -1,0 +1,335 @@
+{
+  "$schema": "schema/suite-treatment-lock.schema.json",
+  "schema_version": "1.0",
+  "suite_id": "feat397-spec-design-eval-v1",
+  "status": "draft",
+  "workflow_clock_id": "feat397-current-vs-team-v1",
+  "authoring_freeze": {
+    "status": "draft",
+    "frozen_at": "pending",
+    "profile_builder": {
+      "component_id": "profile-builder-v1",
+      "dependencies": [],
+      "dependency_manifest_sha256": "pending",
+      "candidate_manifest_sha256": "pending",
+      "lineage_manifest_ref": "runtime/lineage/profile-builder-v1.json",
+      "lineage_manifest_sha256": "pending"
+    },
+    "receipt": {
+      "ref": "runtime/authoring-freeze-receipt.json",
+      "sha256": "pending",
+      "published_commit": "pending",
+      "published_at": "pending"
+    }
+  },
+  "components": {
+    "shared_helpers": {
+      "component_id": "shared-helpers-v1",
+      "dependencies": [],
+      "dependency_manifest_sha256": "pending",
+      "candidate_manifest_sha256": "pending",
+      "lineage_manifest_ref": "runtime/lineage/shared-helpers-v1.json",
+      "lineage_manifest_sha256": "pending"
+    },
+    "artifact_contracts": {
+      "single_unit": {
+        "component_id": "artifact-contract-single-unit-v1",
+        "dependencies": [],
+        "dependency_manifest_sha256": "pending",
+        "candidate_manifest_sha256": "pending",
+        "lineage_manifest_ref": "runtime/lineage/artifact-contract-single-unit-v1.json",
+        "lineage_manifest_sha256": "pending"
+      },
+      "portfolio": {
+        "component_id": "artifact-contract-portfolio-v1",
+        "dependencies": [],
+        "dependency_manifest_sha256": "pending",
+        "candidate_manifest_sha256": "pending",
+        "lineage_manifest_ref": "runtime/lineage/artifact-contract-portfolio-v1.json",
+        "lineage_manifest_sha256": "pending"
+      }
+    },
+    "workflows": {
+      "current_spec_design_skills": {
+        "component_id": "workflow-current-spec-design-v1",
+        "dependencies": [],
+        "dependency_manifest_sha256": "pending",
+        "candidate_manifest_sha256": "pending",
+        "lineage_manifest_ref": "runtime/lineage/workflow-current-spec-design-v1.json",
+        "lineage_manifest_sha256": "pending"
+      },
+      "spec_design_agent_team": {
+        "component_id": "workflow-feat397-team-v1",
+        "dependencies": [],
+        "dependency_manifest_sha256": "pending",
+        "candidate_manifest_sha256": "pending",
+        "lineage_manifest_ref": "runtime/lineage/workflow-feat397-team-v1.json",
+        "lineage_manifest_sha256": "pending"
+      }
+    }
+  },
+  "arms": {
+    "A": {
+      "treatment_id": "A-current-no-profile-v1",
+      "workflow_component_id": "workflow-current-spec-design-v1",
+      "profile_selector": "none",
+      "readiness": "ready_materializable",
+      "blockers": []
+    },
+    "A_USER": {
+      "treatment_id": "A-user-current-profile-v1",
+      "workflow_component_id": "workflow-current-spec-design-v1",
+      "profile_selector": "case_current_cross_fitted",
+      "readiness": "blocked",
+      "blockers": ["frozen_cross_fitted_profile"]
+    },
+    "B": {
+      "treatment_id": "B-feat397-team-v1",
+      "workflow_component_id": "workflow-feat397-team-v1",
+      "profile_selector": "case_current_cross_fitted",
+      "readiness": "blocked",
+      "blockers": ["executable_agent_team_bundle", "frozen_cross_fitted_profile"]
+    }
+  },
+  "normalizer": {
+    "normalizer_id": "n0-byte-copy-v1",
+    "level": "N0",
+    "allowed_transforms": [
+      "copy_bytes"
+    ]
+  },
+  "case_bindings": {
+    "H01": {
+      "normalization_level": "N0",
+      "normalization_epoch": "legacy_spec_guide",
+      "common_derivations": [],
+      "common_files_manifest_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "base_repository": {
+        "recipe_ref": "base_repo/recipes/H01-feat-484-A.json",
+        "recipe_sha256": "d697babd213dfd32cd5d77ed3c333c26b6b343aedbfcc7c3dd59b38bf2bf5cab",
+        "arm": "A",
+        "status": "ready_materializable",
+        "projection_mode": "dp1_counterfactual_latest"
+      },
+      "profile": {
+        "component_id": "profile-H01-current-loo-v1",
+        "source_path": "runtime/candidate-inputs/H01/USER.cross-fitted.md",
+        "installed_path": "USER.md",
+        "dependency_manifest_sha256": "pending",
+        "candidate_manifest_sha256": "pending",
+        "mode": "100644",
+        "sha256": "pending",
+        "excluded_lineages_sha256": "a0e5f6ac7b956aa8a05f8c856b6147fdbe1e70376ad4c66fe6dca4979ae9e573",
+        "evidence_anchors": [],
+        "review_status": "draft",
+        "lineage_manifest_ref": "runtime/lineage/profile-H01-current-loo-v1.json",
+        "lineage_manifest_sha256": "pending"
+      },
+      "leak_signatures_sha256": "cc972180c5d5b853d72e2c9b5d02d0001eddbe19a94fd517781fb769c0245f21"
+    },
+    "H02": {
+      "normalization_level": "N0",
+      "normalization_epoch": "native_specs_contributing",
+      "common_derivations": [],
+      "common_files_manifest_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "base_repository": {
+        "recipe_ref": "base_repo/recipes/H02-feat-510-A.json",
+        "recipe_sha256": "f9cac53acbac43fb674a575ea11e40bf7bc922790716aadcb5c1e16000cf5d6a",
+        "arm": "A",
+        "status": "ready_materializable",
+        "projection_mode": "preserve_exact"
+      },
+      "profile": {
+        "component_id": "profile-H02-current-loo-v1",
+        "source_path": "runtime/candidate-inputs/H02/USER.cross-fitted.md",
+        "installed_path": "USER.md",
+        "dependency_manifest_sha256": "pending",
+        "candidate_manifest_sha256": "pending",
+        "mode": "100644",
+        "sha256": "pending",
+        "excluded_lineages_sha256": "49de0b31faeefb8a42a4edb20110b68e73c513d038bb37618b564aa4ee685c7c",
+        "evidence_anchors": ["simple-design", "progressive-disclosure"],
+        "review_status": "draft",
+        "lineage_manifest_ref": "runtime/lineage/profile-H02-current-loo-v1.json",
+        "lineage_manifest_sha256": "pending"
+      },
+      "leak_signatures_sha256": "e56024e4fb5f9ad328c2c9ee16540f7a0345b15b6830d9af2c16b34cb9f2c03a"
+    },
+    "H03": {
+      "normalization_level": "N0",
+      "normalization_epoch": "native_specs_contributing",
+      "common_derivations": [],
+      "common_files_manifest_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "base_repository": {
+        "recipe_ref": "base_repo/recipes/H03-feat-501-A.json",
+        "recipe_sha256": "0546d75e34eefc7fe36e89bfb8d48472c3c16debc973f9b8e46f1dcb637e46a7",
+        "arm": "A",
+        "status": "ready_materializable",
+        "projection_mode": "preserve_exact"
+      },
+      "profile": {
+        "component_id": "profile-H03-current-loo-v1",
+        "source_path": "runtime/candidate-inputs/H03/USER.cross-fitted.md",
+        "installed_path": "USER.md",
+        "dependency_manifest_sha256": "pending",
+        "candidate_manifest_sha256": "pending",
+        "mode": "100644",
+        "sha256": "pending",
+        "excluded_lineages_sha256": "5c005aff858601eb0efd9ad95c7903965f2916b978d23fe3b24178bb56acc534",
+        "evidence_anchors": [],
+        "review_status": "draft",
+        "lineage_manifest_ref": "runtime/lineage/profile-H03-current-loo-v1.json",
+        "lineage_manifest_sha256": "pending"
+      },
+      "leak_signatures_sha256": "58c4c51e022b7c67558518146d96a30eed6f9d0ab41a1470c3311a25a3935557"
+    },
+    "H04": {
+      "normalization_level": "N0",
+      "normalization_epoch": "native_specs_contributing",
+      "common_derivations": [],
+      "common_files_manifest_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "base_repository": {
+        "recipe_ref": "base_repo/recipes/H04-feat-519-A.json",
+        "recipe_sha256": "3723e9c8809d520b93a51de68c7a2f798b90cb0e7bc6b05625d38adddab82681",
+        "arm": "A",
+        "status": "ready_materializable",
+        "projection_mode": "preserve_exact"
+      },
+      "profile": {
+        "component_id": "profile-H04-current-loo-v1",
+        "source_path": "runtime/candidate-inputs/H04/USER.cross-fitted.md",
+        "installed_path": "USER.md",
+        "dependency_manifest_sha256": "pending",
+        "candidate_manifest_sha256": "pending",
+        "mode": "100644",
+        "sha256": "pending",
+        "excluded_lineages_sha256": "89b20af634a165752cd738b749b6722d8dd34b0ecb4f2189e55f74977f7c1e59",
+        "evidence_anchors": ["simple-design", "progressive-disclosure"],
+        "review_status": "draft",
+        "lineage_manifest_ref": "runtime/lineage/profile-H04-current-loo-v1.json",
+        "lineage_manifest_sha256": "pending"
+      },
+      "leak_signatures_sha256": "4c8bcb4585281726f24fa38cc4ccbd4e92285fda87ee3ef13fe5ed069e6d2492"
+    },
+    "H05": {
+      "normalization_level": "N0",
+      "normalization_epoch": "native_specs_contributing",
+      "common_derivations": [],
+      "common_files_manifest_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "base_repository": {
+        "recipe_ref": "base_repo/recipes/H05-feat-515-A.json",
+        "recipe_sha256": "486c4ed20fec8f1e444072bb16b65ce1a2a9a6391e4b4d41d8927f2aaf7328d9",
+        "arm": "A",
+        "status": "ready_materializable",
+        "projection_mode": "preserve_exact"
+      },
+      "profile": {
+        "component_id": "profile-H05-current-loo-v1",
+        "source_path": "runtime/candidate-inputs/H05/USER.cross-fitted.md",
+        "installed_path": "USER.md",
+        "dependency_manifest_sha256": "pending",
+        "candidate_manifest_sha256": "pending",
+        "mode": "100644",
+        "sha256": "pending",
+        "excluded_lineages_sha256": "18d7168fbaa474e43776f9fe865474581dfaf6ea59de0c7718f039ebf6af6d89",
+        "evidence_anchors": ["simple-design", "real-product-acceptance"],
+        "review_status": "draft",
+        "lineage_manifest_ref": "runtime/lineage/profile-H05-current-loo-v1.json",
+        "lineage_manifest_sha256": "pending"
+      },
+      "leak_signatures_sha256": "0a054478de202fd5f966bdf38f8e6367f245bbd645c99a27cb2519d24d9a4ec2"
+    },
+    "H07": {
+      "normalization_level": "N0",
+      "normalization_epoch": "native_specs_contributing",
+      "common_derivations": [],
+      "common_files_manifest_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "base_repository": {
+        "recipe_ref": "base_repo/recipes/H07-refactor-513-A.json",
+        "recipe_sha256": "8f718353e11bf2f68d30c9ea8de32c12d124e55fa594745ed33b56c27e6c61e1",
+        "arm": "A",
+        "status": "ready_materializable",
+        "projection_mode": "preserve_exact"
+      },
+      "profile": {
+        "component_id": "profile-H07-current-loo-v1",
+        "source_path": "runtime/candidate-inputs/H07/USER.cross-fitted.md",
+        "installed_path": "USER.md",
+        "dependency_manifest_sha256": "pending",
+        "candidate_manifest_sha256": "pending",
+        "mode": "100644",
+        "sha256": "pending",
+        "excluded_lineages_sha256": "53a6edf86c3e2ad2cea274b7856118e9552bc167ef21689cc0985f96b67f1022",
+        "evidence_anchors": ["simple-design", "preserve-configured-default", "real-product-acceptance"],
+        "review_status": "draft",
+        "lineage_manifest_ref": "runtime/lineage/profile-H07-current-loo-v1.json",
+        "lineage_manifest_sha256": "pending"
+      },
+      "leak_signatures_sha256": "b6969d04aaa6a87f4fd1cf462047d8b9c80fee237520aad3e3519f619e660ba8"
+    },
+    "P01": {
+      "normalization_level": "N0",
+      "normalization_epoch": "native_specs_contributing",
+      "common_derivations": [],
+      "common_files_manifest_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "base_repository": {
+        "recipe_ref": "base_repo/recipes/P01-cross-node-agent-migration-A.json",
+        "recipe_sha256": "0b038d2f7f72988d702ffa6eb1728e9d0146de7a2fe10e6c76593ba6299be558",
+        "arm": "A",
+        "status": "ready_materializable",
+        "projection_mode": "preserve_exact"
+      },
+      "profile": {
+        "component_id": "profile-P01-current-loo-v1",
+        "source_path": "runtime/candidate-inputs/P01/USER.cross-fitted.md",
+        "installed_path": "USER.md",
+        "dependency_manifest_sha256": "pending",
+        "candidate_manifest_sha256": "pending",
+        "mode": "100644",
+        "sha256": "pending",
+        "excluded_lineages_sha256": "c816a38e0f607c927965b91cabb402e98c4c370541bf79eb889fd9824b9104d2",
+        "evidence_anchors": ["simple-design", "real-product-acceptance"],
+        "review_status": "draft",
+        "lineage_manifest_ref": "runtime/lineage/profile-P01-current-loo-v1.json",
+        "lineage_manifest_sha256": "pending"
+      },
+      "leak_signatures_sha256": "7041f8f4779e2b625155d80ce373af8035022909d9c06daccc2e4795fbf4644a"
+    },
+    "P02": {
+      "normalization_level": "N0",
+      "normalization_epoch": "native_specs_contributing",
+      "common_derivations": [],
+      "common_files_manifest_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "base_repository": {
+        "recipe_ref": "base_repo/recipes/P02-agent-runtime-center-A.json",
+        "recipe_sha256": "ab020418ba87bed0270e96f9ce9f689b5c6fe26456031e2ada30f5990db9f5b9",
+        "arm": "A",
+        "status": "ready_materializable",
+        "projection_mode": "preserve_exact"
+      },
+      "profile": {
+        "component_id": "profile-P02-current-loo-v1",
+        "source_path": "runtime/candidate-inputs/P02/USER.cross-fitted.md",
+        "installed_path": "USER.md",
+        "dependency_manifest_sha256": "pending",
+        "candidate_manifest_sha256": "pending",
+        "mode": "100644",
+        "sha256": "pending",
+        "excluded_lineages_sha256": "708638dfc5b6bd1352cd313a3df020665a28812c196271846640ddfac8406226",
+        "evidence_anchors": ["simple-design", "preserve-configured-default", "desktop-mobile-browser-acceptance"],
+        "review_status": "draft",
+        "lineage_manifest_ref": "runtime/lineage/profile-P02-current-loo-v1.json",
+        "lineage_manifest_sha256": "pending"
+      },
+      "leak_signatures_sha256": "849d6ebd87d46caf27d560b5360f81b3ea50813ec9565b8914cc1ce8f23ad6c3"
+    }
+  },
+  "guardrails": {
+    "all_candidate_atoms": [
+      "feat-397-spec-design-agent-team/evaluation",
+      "judge-private/",
+      "owner_review_required"
+    ],
+    "non_workflow_target_scan": true
+  }
+}

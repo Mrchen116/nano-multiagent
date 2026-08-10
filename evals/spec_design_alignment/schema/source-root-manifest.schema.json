@@ -1,0 +1,257 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nano-multiagent.local/evaluation/schema/source-root-manifest.schema.json",
+  "title": "Suite source-root ownership and treatment-scrub manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "status",
+    "rule_version",
+    "scrub_policy",
+    "agents_projection",
+    "base_repository_method",
+    "sources"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "1.0"
+    },
+    "status": {
+      "const": "frozen"
+    },
+    "rule_version": {
+      "const": "source-root-treatment-scrub-v1"
+    },
+    "scrub_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fixed_remove_roots",
+        "instruction_marker",
+        "non_product_instruction_action",
+        "product_owned_instruction_action"
+      ],
+      "properties": {
+        "fixed_remove_roots": {
+          "type": "array",
+          "minItems": 9,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/relativePath"
+          },
+          "allOf": [
+            {"contains": {"const": ".claude"}, "minContains": 1},
+            {"contains": {"const": ".agents"}, "minContains": 1},
+            {"contains": {"const": ".codex"}, "minContains": 1},
+            {"contains": {"const": "CLAUDE.md"}, "minContains": 1},
+            {"contains": {"const": "CODEX.md"}, "minContains": 1},
+            {"contains": {"const": "cc-hooks-on"}, "minContains": 1},
+            {"contains": {"const": "cc-hooks-off"}, "minContains": 1},
+            {
+              "contains": {"const": "docs/changes/feat-397-spec-design-agent-team"},
+              "minContains": 1
+            },
+            {
+              "contains": {"const": "docs/development/change-workflow.md"},
+              "minContains": 1
+            }
+          ]
+        },
+        "instruction_marker": {
+          "const": "SKILL.md"
+        },
+        "non_product_instruction_action": {
+          "const": "remove_containing_directory"
+        },
+        "product_owned_instruction_action": {
+          "const": "preserve_declared_root"
+        }
+      }
+    },
+    "agents_projection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "algorithm",
+        "preamble_boundary",
+        "included_level2_headings",
+        "forbidden_level2_headings",
+        "source_policy"
+      ],
+      "properties": {
+        "algorithm": {
+          "const": "preamble-before-first-level2-plus-exact-sections-v1"
+        },
+        "preamble_boundary": {
+          "const": "bytes_before_first_line_starting_with_##_space"
+        },
+        "included_level2_headings": {
+          "const": [
+            "架构总览",
+            "架构红线",
+            "工作红线"
+          ]
+        },
+        "forbidden_level2_headings": {
+          "const": [
+            "Project overview"
+          ]
+        },
+        "source_policy": {
+          "const": "project_main_projects_cutoff_bytes_external_removes_agents"
+        }
+      }
+    },
+    "base_repository_method": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "projection",
+        "framework_workflow_commit",
+        "framework_workflow_tree",
+        "clean_policy"
+      ],
+      "properties": {
+        "method": {
+          "const": "counterfactual-latest-base-v1"
+        },
+        "projection": {
+          "const": "DP1-counterfactual-latest-v1"
+        },
+        "framework_workflow_commit": {
+          "const": "adb93d33a2ec5443a647dd367eb67557ac72e199"
+        },
+        "framework_workflow_tree": {
+          "const": "025b16b8c900c2b40ac23b126f99eda94e280633"
+        },
+        "clean_policy": {
+          "const": "remove_active_and_retired_keep_completed_archive"
+        }
+      }
+    },
+    "sources": {
+      "type": "array",
+      "minItems": 4,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/source"
+      }
+    }
+  },
+  "$defs": {
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+"
+    },
+    "hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "hashOrNull": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_id",
+        "kind",
+        "control_path",
+        "cutoff_ref",
+        "cutoff_tree",
+        "archive_prefix",
+        "exposed_root",
+        "agents_policy",
+        "product_owned_instruction_roots",
+        "expected_instruction_roots",
+        "expected_removed_roots",
+        "hashes"
+      ],
+      "properties": {
+        "source_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9._-]+$"
+        },
+        "kind": {
+          "enum": [
+            "project_repository",
+            "external_repository"
+          ]
+        },
+        "control_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cutoff_ref": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "cutoff_tree": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "archive_prefix": {
+          "type": "string"
+        },
+        "exposed_root": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "agents_policy": {
+          "enum": [
+            "project_from_cutoff_projection",
+            "remove"
+          ]
+        },
+        "product_owned_instruction_roots": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/relativePath"
+          }
+        },
+        "expected_instruction_roots": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/relativePath"
+          }
+        },
+        "expected_removed_roots": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/relativePath"
+          }
+        },
+        "hashes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "raw_archive_sha256",
+            "source_agents_sha256",
+            "agents_projection_sha256",
+            "removed_files_manifest_sha256",
+            "post_filter_files_manifest_sha256"
+          ],
+          "properties": {
+            "raw_archive_sha256": {"$ref": "#/$defs/hash"},
+            "source_agents_sha256": {"$ref": "#/$defs/hashOrNull"},
+            "agents_projection_sha256": {"$ref": "#/$defs/hashOrNull"},
+            "removed_files_manifest_sha256": {"$ref": "#/$defs/hash"},
+            "post_filter_files_manifest_sha256": {"$ref": "#/$defs/hash"}
+          }
+        }
+      }
+    }
+  }
+}

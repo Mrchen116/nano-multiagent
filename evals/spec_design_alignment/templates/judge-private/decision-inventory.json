@@ -1,0 +1,32 @@
+{
+  "$schema": "../../../schema/decision-inventory.schema.json",
+  "schema_version": "1.0",
+  "case_id": "P99",
+  "status": "draft",
+  "user_policy": {
+    "mode": "current_cross_fitted",
+    "profile_ref": "runtime/candidate-inputs/P99/USER.cross-fitted.md",
+    "excluded_lineages": []
+  },
+  "provenance_ref": "audit/provenance.md",
+  "decisions": [
+    {
+      "decision_id": "D00",
+      "class": "V",
+      "resolution_status": "owner_review_required",
+      "summary": "TEMPLATE ONLY: replace with a case-specific unresolved value fork",
+      "materiality": "high",
+      "expected_handling": "structured_escalation",
+      "must_surface": true,
+      "guardrail": true,
+      "oracle": {
+        "accepted_outcomes": [
+          "Present an evidence-backed decision package without choosing for the owner"
+        ],
+        "evidence_refs": [
+          "TEMPLATE ONLY: replace with a private evidence reference"
+        ]
+      }
+    }
+  ]
+}

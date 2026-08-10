@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nano-multiagent.local/evaluation/schema/reasoning-settings.schema.json",
+  "title": "Materialized model reasoning settings",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "reasoning_effort", "temperature", "top_p", "seed"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schema_version": {"const": "1.0"},
+    "reasoning_effort": {
+      "enum": ["minimal", "low", "medium", "high", "xhigh", "max", "ultra"]
+    },
+    "temperature": {"type": ["number", "null"], "minimum": 0},
+    "top_p": {"type": ["number", "null"], "minimum": 0},
+    "seed": {"type": ["integer", "null"], "minimum": 0}
+  }
+}

@@ -1,0 +1,417 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nano-multiagent.local/evaluation/schema/decision-inventory.schema.json",
+  "title": "Private F/P/V/H decision inventory",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "case_id",
+    "status",
+    "user_policy",
+    "provenance_ref",
+    "decisions"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "1.0"
+    },
+    "case_id": {
+      "type": "string",
+      "pattern": "^(H|P)[0-9]{2}$"
+    },
+    "status": {
+      "enum": [
+        "draft",
+        "reviewed",
+        "frozen"
+      ]
+    },
+    "user_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "profile_ref",
+        "excluded_lineages"
+      ],
+      "properties": {
+        "mode": {
+          "const": "current_cross_fitted"
+        },
+        "profile_ref": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "excluded_lineages": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "provenance_ref": {
+      "$ref": "#/$defs/relativePath"
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/decision"
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "frozen"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "decisions": {
+            "minItems": 1
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+"
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "decision_id",
+        "class",
+        "resolution_status",
+        "summary",
+        "materiality",
+        "expected_handling",
+        "must_surface",
+        "guardrail",
+        "oracle"
+      ],
+      "properties": {
+        "decision_id": {
+          "type": "string",
+          "pattern": "^D[0-9]{2,}$"
+        },
+        "class": {
+          "enum": [
+            "F",
+            "P",
+            "V",
+            "H"
+          ]
+        },
+        "resolution_status": {
+          "description": "resolved means an answer/fact already exists; owner_review_required means judge the decision package without assuming an owner choice.",
+          "enum": [
+            "resolved",
+            "owner_review_required"
+          ]
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "materiality": {
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ]
+        },
+        "expected_handling": {
+          "enum": [
+            "self_resolve_with_evidence",
+            "auto_if_authorized",
+            "prefill_and_confirm",
+            "structured_escalation",
+            "mandatory_escalation"
+          ]
+        },
+        "must_surface": {
+          "type": "boolean"
+        },
+        "guardrail": {
+          "type": "boolean"
+        },
+        "terminal_scope": {
+          "enum": [
+            "package_relative",
+            "affected_branch_only"
+          ]
+        },
+        "pending_boundary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "oracle": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "accepted_outcomes",
+            "evidence_refs"
+          ],
+          "properties": {
+            "accepted_outcomes": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "rejected_outcomes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "evidence_refs": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "acceptance_notes": {
+              "type": "string"
+            }
+          }
+        },
+        "notes": {
+          "type": "string"
+        },
+        "activation_predicate": {
+          "description": "For H only: observable condition under which mandatory escalation becomes active.",
+          "type": "string",
+          "minLength": 1
+        },
+        "inactive_safe_behavior": {
+          "description": "For H only: safe behavior when the activation predicate is false.",
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "class": {
+                "const": "F"
+              }
+            },
+            "required": [
+              "class"
+            ]
+          },
+          "then": {
+            "properties": {
+              "expected_handling": {
+                "const": "self_resolve_with_evidence"
+              },
+              "must_surface": {
+                "const": false
+              },
+              "guardrail": {
+                "const": false
+              },
+              "resolution_status": {
+                "const": "resolved"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "class": {
+                "const": "P"
+              }
+            },
+            "required": [
+              "class"
+            ]
+          },
+          "then": {
+            "properties": {
+              "expected_handling": {
+                "enum": [
+                  "auto_if_authorized",
+                  "prefill_and_confirm"
+                ]
+              },
+              "guardrail": {
+                "const": false
+              },
+              "resolution_status": {
+                "const": "resolved"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "class": {
+                "const": "V"
+              }
+            },
+            "required": [
+              "class"
+            ]
+          },
+          "then": {
+            "properties": {
+              "expected_handling": {
+                "const": "structured_escalation"
+              },
+              "must_surface": {
+                "const": true
+              },
+              "guardrail": {
+                "const": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "class": {
+                "const": "H"
+              }
+            },
+            "required": [
+              "class"
+            ]
+          },
+          "then": {
+            "required": [
+              "activation_predicate",
+              "inactive_safe_behavior"
+            ],
+            "properties": {
+              "expected_handling": {
+                "const": "mandatory_escalation"
+              },
+              "must_surface": {
+                "const": true
+              },
+              "guardrail": {
+                "const": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "resolution_status": {
+                "const": "owner_review_required"
+              }
+            },
+            "required": [
+              "resolution_status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "class": {
+                "enum": [
+                  "V",
+                  "H"
+                ]
+              },
+              "expected_handling": {
+                "enum": [
+                  "structured_escalation",
+                  "mandatory_escalation"
+                ]
+              },
+              "must_surface": {
+                "const": true
+              },
+              "guardrail": {
+                "const": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "expected_handling": {
+                "const": "auto_if_authorized"
+              }
+            },
+            "required": [
+              "expected_handling"
+            ]
+          },
+          "then": {
+            "properties": {
+              "must_surface": {
+                "const": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "expected_handling": {
+                "const": "prefill_and_confirm"
+              }
+            },
+            "required": [
+              "expected_handling"
+            ]
+          },
+          "then": {
+            "properties": {
+              "must_surface": {
+                "const": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "terminal_scope"
+            ]
+          },
+          "then": {
+            "required": [
+              "pending_boundary"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

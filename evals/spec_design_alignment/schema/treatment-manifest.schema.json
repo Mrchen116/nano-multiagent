@@ -1,0 +1,312 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nano-multiagent.local/evaluation/schema/treatment-manifest.schema.json",
+  "title": "Shared-helper and three-arm treatment manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "case_id",
+    "status",
+    "suite_treatment_lock_ref",
+    "suite_treatment_lock_sha256",
+    "workflow_clock_id",
+    "artifact_contract",
+    "source_root_manifest_ref",
+    "source_root_manifest_sha256",
+    "public_brief_sha256",
+    "shared_helpers",
+    "forbidden_atoms",
+    "arms",
+    "assertions"
+  ],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schema_version": {"const": "1.0"},
+    "case_id": {"type": "string", "pattern": "^(H|P)[0-9]{2}$"},
+    "status": {"enum": ["draft", "frozen"]},
+    "suite_treatment_lock_ref": {"const": "experiments/feat_397_agent_team/suite-treatment-lock.json"},
+    "suite_treatment_lock_sha256": {"$ref": "#/$defs/hashOrPending"},
+    "workflow_clock_id": {"type": "string", "minLength": 1},
+    "artifact_contract": {"enum": ["single_unit", "portfolio"]},
+    "source_root_manifest_ref": {"const": "source-roots.json"},
+    "source_root_manifest_sha256": {"$ref": "#/$defs/hashOrPending"},
+    "public_brief_sha256": {"$ref": "#/$defs/hashOrPending"},
+    "shared_helpers": {"$ref": "#/$defs/component"},
+    "forbidden_atoms": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "arms": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["A", "A_USER", "B"],
+      "properties": {
+        "A": {"$ref": "#/$defs/arm"},
+        "A_USER": {"$ref": "#/$defs/arm"},
+        "B": {"$ref": "#/$defs/arm"}
+      }
+    },
+    "assertions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "a_a_user_workflow_byte_identical",
+        "a_has_no_profile",
+        "a_user_b_profile_byte_identical",
+        "shared_helpers_byte_identical",
+        "b_evaluation_atoms_absent",
+        "b_target_atoms_absent"
+      ],
+      "properties": {
+        "a_a_user_workflow_byte_identical": {"const": true},
+        "a_has_no_profile": {"const": true},
+        "a_user_b_profile_byte_identical": {"const": true},
+        "shared_helpers_byte_identical": {"const": true},
+        "b_evaluation_atoms_absent": {"const": true},
+        "b_target_atoms_absent": {"const": true}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"status": {"const": "frozen"}},
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "source_root_manifest_sha256": {"$ref": "#/$defs/hash"},
+          "suite_treatment_lock_sha256": {"$ref": "#/$defs/hash"},
+          "public_brief_sha256": {"$ref": "#/$defs/hash"},
+          "shared_helpers": {"$ref": "#/$defs/frozenComponent"},
+          "arms": {
+            "properties": {
+              "A": {"$ref": "#/$defs/frozenArm"},
+              "A_USER": {"$ref": "#/$defs/frozenArm"},
+              "B": {"$ref": "#/$defs/frozenArm"}
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+"
+    },
+    "hashOrPending": {
+      "type": "string",
+      "pattern": "^(?:pending|[a-f0-9]{64})$"
+    },
+    "hashOrPendingOrNull": {
+      "type": ["string", "null"],
+      "pattern": "^(?:pending|[a-f0-9]{64})$"
+    },
+    "hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_path", "installed_path", "role", "sha256"],
+      "properties": {
+        "source_path": {"$ref": "#/$defs/relativePath"},
+        "installed_path": {"$ref": "#/$defs/relativePath"},
+        "role": {
+          "enum": ["shared_helper", "workflow", "profile", "artifact_contract"]
+        },
+        "sha256": {"$ref": "#/$defs/hashOrPending"}
+      }
+    },
+    "sharedDependency": {
+      "allOf": [
+        {"$ref": "#/$defs/dependency"},
+        {
+          "properties": {
+            "role": {"enum": ["shared_helper", "artifact_contract"]}
+          }
+        }
+      ]
+    },
+    "armDependency": {
+      "allOf": [
+        {"$ref": "#/$defs/dependency"},
+        {
+          "properties": {
+            "role": {"enum": ["workflow", "profile"]}
+          }
+        }
+      ]
+    },
+    "component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "component_ids",
+        "source_allowlist",
+        "source_denylist",
+        "dependency_closure",
+        "files_sha256"
+      ],
+      "properties": {
+        "component_ids": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[a-z0-9._-]+$"}
+        },
+        "source_allowlist": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/relativePath"}
+        },
+        "source_denylist": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/relativePath"},
+          "contains": {"const": "evals/spec_design_alignment"},
+          "minContains": 1
+        },
+        "dependency_closure": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/sharedDependency"}
+        },
+        "files_sha256": {"$ref": "#/$defs/hashOrPending"}
+      }
+    },
+    "frozenComponent": {
+      "properties": {
+        "dependency_closure": {
+          "items": {
+            "properties": {
+              "sha256": {"$ref": "#/$defs/hash"}
+            }
+          }
+        },
+        "files_sha256": {"$ref": "#/$defs/hash"}
+      }
+    },
+    "export": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "materialized_root",
+        "files_manifest_sha256",
+        "source_scrub_manifest_sha256",
+        "installed_arm_ids",
+        "assertions"
+      ],
+      "properties": {
+        "materialized_root": {"$ref": "#/$defs/relativePath"},
+        "files_manifest_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "source_scrub_manifest_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "installed_arm_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"enum": ["A", "A_USER", "B"]}
+        },
+        "assertions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "selected_only_arm",
+            "source_scrubbed",
+            "control_assets_absent",
+            "leak_scan_passed"
+          ],
+          "properties": {
+            "selected_only_arm": {"const": true},
+            "source_scrubbed": {"const": true},
+            "control_assets_absent": {"const": true},
+            "leak_scan_passed": {"const": true}
+          }
+        }
+      }
+    },
+    "arm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "arm_id",
+        "treatment_id",
+        "workflow_component_id",
+        "profile_component_id",
+        "workflow",
+        "profile_mode",
+        "source_allowlist",
+        "source_denylist",
+        "dependency_closure",
+        "workflow_sha256",
+        "profile_sha256",
+        "bundle_sha256",
+        "export"
+      ],
+      "properties": {
+        "arm_id": {"enum": ["A", "A_USER", "B"]},
+        "treatment_id": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"},
+        "workflow_component_id": {"type": "string", "pattern": "^[a-z0-9._-]+$"},
+        "profile_component_id": {
+          "type": ["string", "null"],
+          "pattern": "^[A-Za-z0-9._-]+$"
+        },
+        "workflow": {
+          "enum": ["current_spec_design_skills", "spec_design_agent_team"]
+        },
+        "profile_mode": {"enum": ["none", "current_cross_fitted"]},
+        "source_allowlist": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/relativePath"}
+        },
+        "source_denylist": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/relativePath"},
+          "contains": {"const": "evals/spec_design_alignment"},
+          "minContains": 1
+        },
+        "dependency_closure": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/armDependency"}
+        },
+        "workflow_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "profile_sha256": {"$ref": "#/$defs/hashOrPendingOrNull"},
+        "bundle_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "export": {"$ref": "#/$defs/export"}
+      }
+    },
+    "frozenArm": {
+      "allOf": [
+        {"$ref": "#/$defs/frozenComponent"},
+        {
+          "properties": {
+            "dependency_closure": {"minItems": 1},
+            "workflow_sha256": {"$ref": "#/$defs/hash"},
+            "profile_sha256": {
+              "type": ["string", "null"],
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "bundle_sha256": {"$ref": "#/$defs/hash"},
+            "export": {
+              "properties": {
+                "files_manifest_sha256": {"$ref": "#/$defs/hash"},
+                "source_scrub_manifest_sha256": {"$ref": "#/$defs/hash"}
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

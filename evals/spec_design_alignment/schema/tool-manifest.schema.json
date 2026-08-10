@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nano-multiagent.local/evaluation/schema/tool-manifest.schema.json",
+  "title": "Offline candidate tool manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "runner_version", "remote_connectors_enabled", "tools"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schema_version": {"const": "1.0"},
+    "runner_version": {"type": "string", "minLength": 1},
+    "remote_connectors_enabled": {"const": false},
+    "tools": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "category", "network_access", "external_state_access"],
+        "properties": {
+          "name": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"},
+          "category": {
+            "enum": ["filesystem", "shell", "local_process", "structured_output"]
+          },
+          "network_access": {"const": false},
+          "external_state_access": {"const": false}
+        }
+      }
+    }
+  }
+}

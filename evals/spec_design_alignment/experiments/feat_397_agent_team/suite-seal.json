@@ -1,0 +1,140 @@
+{
+  "$schema": "schema/suite-seal.schema.json",
+  "schema_version": "1.0",
+  "suite_id": "feat397-spec-design-eval-v1",
+  "status": "draft",
+  "sealed_at": "pending",
+  "protocol": {
+    "ref": "experiments/feat_397_agent_team/protocol.md",
+    "sha256": "pending"
+  },
+  "validator": {
+    "ref": "validate_dataset.py",
+    "sha256": "pending"
+  },
+  "schemas_manifest_sha256": "pending",
+  "source_root_manifest": {
+    "ref": "source-roots.json",
+    "sha256": "pending"
+  },
+  "treatment_lock": {
+    "ref": "experiments/feat_397_agent_team/suite-treatment-lock.json",
+    "sha256": "pending"
+  },
+  "base_repository": {
+    "method": "counterfactual-latest-base-v1",
+    "projection": "DP1-counterfactual-latest-v1",
+    "clean_policy": "remove_active_and_retired_keep_completed_archive",
+    "recipe_registry_manifest_sha256": "f361a2ecac38a04a219be9074ced0c40432493bdb519eb4c60b8322ab702c6b4",
+    "materialized_arm": "A",
+    "arm_readiness": {
+      "A": "ready_materializable",
+      "A_USER": "blocked",
+      "B": "blocked"
+    }
+  },
+  "case_assets": {
+    "H01": {
+      "case_ref": "cases/H01-feat-484-message-interactions/case.json",
+      "fixed_assets_manifest_sha256": "pending",
+      "runtime_refs_manifest_sha256": "pending",
+      "result_class": "historical_regression"
+    },
+    "H02": {
+      "case_ref": "cases/H02-feat-510-tool-approval-model/case.json",
+      "fixed_assets_manifest_sha256": "pending",
+      "runtime_refs_manifest_sha256": "pending",
+      "result_class": "historical_regression"
+    },
+    "H03": {
+      "case_ref": "cases/H03-feat-501-session-controls/case.json",
+      "fixed_assets_manifest_sha256": "pending",
+      "runtime_refs_manifest_sha256": "pending",
+      "result_class": "historical_regression"
+    },
+    "H04": {
+      "case_ref": "cases/H04-feat-519-workspace-compat-skills/case.json",
+      "fixed_assets_manifest_sha256": "pending",
+      "runtime_refs_manifest_sha256": "pending",
+      "result_class": "historical_regression"
+    },
+    "H05": {
+      "case_ref": "cases/H05-feat-515-agent-workspace-root-selection/case.json",
+      "fixed_assets_manifest_sha256": "pending",
+      "runtime_refs_manifest_sha256": "pending",
+      "result_class": "historical_regression"
+    },
+    "H07": {
+      "case_ref": "cases/H07-refactor-513-pa-workspace-layout/case.json",
+      "fixed_assets_manifest_sha256": "pending",
+      "runtime_refs_manifest_sha256": "pending",
+      "result_class": "historical_regression"
+    },
+    "P01": {
+      "case_ref": "cases/P01-cross-node-agent-migration/case.json",
+      "fixed_assets_manifest_sha256": "pending",
+      "runtime_refs_manifest_sha256": "pending",
+      "result_class": "prospective_pilot"
+    },
+    "P02": {
+      "case_ref": "cases/P02-agent-runtime-center/case.json",
+      "fixed_assets_manifest_sha256": "pending",
+      "runtime_refs_manifest_sha256": "pending",
+      "result_class": "prospective_pilot"
+    }
+  },
+  "run_plan": {
+    "repetitions_per_case_arm": 3,
+    "ordering_seed": "pending",
+    "model": {
+      "model_id": "pending",
+      "build_id": "pending",
+      "reasoning_settings": {
+        "ref": "runtime/seal-inputs/model-reasoning.json",
+        "sha256": "pending"
+      }
+    },
+    "judge_model": {
+      "model_id": "pending",
+      "build_id": "pending",
+      "reasoning_settings": {
+        "ref": "runtime/seal-inputs/judge-reasoning.json",
+        "sha256": "pending"
+      }
+    },
+    "tooling": {
+      "runner_image_digest": "pending",
+      "tool_manifest": {
+        "ref": "runtime/seal-inputs/tool-manifest.json",
+        "sha256": "pending"
+      },
+      "permission_manifest": {
+        "ref": "runtime/seal-inputs/permission-manifest.json",
+        "sha256": "pending"
+      },
+      "sandbox_policy": {
+        "ref": "runtime/seal-inputs/sandbox-policy.json",
+        "sha256": "pending"
+      }
+    },
+    "refinement": {
+      "no_answer_max_model_calls": "pending",
+      "no_answer_max_tokens": "pending",
+      "no_answer_wall_seconds": "pending"
+    },
+    "budget_source": "sealed_case_json",
+    "fresh_root_policy": "single-contained-root-commit-v1",
+    "formal_run_policy": "all-eight-cases-one-seal-no-selective-reruns"
+  },
+  "control_components": {
+    "question_mapper": {"ref": "runtime/seal-inputs/question-mapper.md", "sha256": "pending"},
+    "judge_prompt": {"ref": "runtime/seal-inputs/judge-prompt.md", "sha256": "pending"},
+    "anonymization_protocol": {"ref": "runtime/seal-inputs/anonymization.md", "sha256": "pending"},
+    "mutation_plan": {"ref": "runtime/seal-inputs/mutation-plan.md", "sha256": "pending"},
+    "acceptance_plan": {"ref": "runtime/seal-inputs/acceptance-plan.md", "sha256": "pending"}
+  },
+  "run_ledger_schema": {
+    "ref": "schema/run-ledger.schema.json",
+    "sha256": "pending"
+  }
+}

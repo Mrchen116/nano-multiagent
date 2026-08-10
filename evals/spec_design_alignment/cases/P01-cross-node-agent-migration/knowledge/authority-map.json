@@ -1,0 +1,252 @@
+{
+  "$schema": "../../../schema/authority-map.schema.json",
+  "schema_version": "1.0",
+  "case_id": "P01",
+  "status": "draft",
+  "normalization": {
+    "level": "N0",
+    "task_blind": true,
+    "semantic_additions": false,
+    "normalizer_ref": "audit/provenance.md#normalizer"
+  },
+  "provenance_ref": "audit/provenance.md",
+  "authorities": [
+    {
+      "authority_id": "P01-A01",
+      "logical_role": "architecture",
+      "exposed_path": "SPEC.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "25dc9c818400ab66c99650316610b73ca5d2060f",
+        "path": "SPEC.md"
+      },
+      "transform": "route_only",
+      "semantic_delta": false,
+      "notes": "Lines 24-85 and 132-160 support the IM/per-machine Gateway/in-process Kernel boundary; they do not choose a migration protocol or UI."
+    },
+    {
+      "authority_id": "P01-A02",
+      "logical_role": "product_contract",
+      "exposed_path": "docs/specs/im/agents-nodes.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "25dc9c818400ab66c99650316610b73ca5d2060f",
+        "path": "docs/specs/im/agents-nodes.md"
+      },
+      "transform": "route_only",
+      "semantic_delta": false,
+      "notes": "Lines 146-159 say Agent creation lands on one bound online node and receives node_id plus a node-allocated workspace_root; they do not prove migration exists."
+    },
+    {
+      "authority_id": "P01-A03",
+      "logical_role": "product_contract",
+      "exposed_path": "docs/specs/im/agents-nodes.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "25dc9c818400ab66c99650316610b73ca5d2060f",
+        "path": "docs/specs/im/agents-nodes.md"
+      },
+      "transform": "route_only",
+      "semantic_delta": false,
+      "notes": "Lines 181-212 describe first-register seeding, preservation of existing profiles, and workspace_root immutability under ordinary config updates; they do not forbid an explicit future migration transaction."
+    },
+    {
+      "authority_id": "P01-A04",
+      "logical_role": "product_contract",
+      "exposed_path": "docs/specs/im/agents-nodes.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "25dc9c818400ab66c99650316610b73ca5d2060f",
+        "path": "docs/specs/im/agents-nodes.md"
+      },
+      "transform": "route_only",
+      "semantic_delta": false,
+      "notes": "Lines 253-274 make same-owner node binding idempotent and reject cross-owner takeover without moving Agent/channel data; same-owner Agent migration remains unspecified."
+    },
+    {
+      "authority_id": "P01-A05",
+      "logical_role": "product_contract",
+      "exposed_path": "docs/specs/gateway/service-lifecycle.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "25dc9c818400ab66c99650316610b73ca5d2060f",
+        "path": "docs/specs/gateway/service-lifecycle.md"
+      },
+      "transform": "route_only",
+      "semantic_delta": false,
+      "notes": "Lines 62-100 show local runtime roots and IM access to HEARTBEAT.md/cron through node RPC rather than direct filesystem access; they do not identify a sufficient copy set."
+    },
+    {
+      "authority_id": "P01-A06",
+      "logical_role": "product_contract",
+      "exposed_path": "docs/specs/kernel/context-persistence.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "25dc9c818400ab66c99650316610b73ca5d2060f",
+        "path": "docs/specs/kernel/context-persistence.md"
+      },
+      "transform": "route_only",
+      "semantic_delta": false,
+      "notes": "Lines 60-76 define per-workspace JSONL session persistence across restart; they do not promise live-run transfer."
+    },
+    {
+      "authority_id": "P01-A07",
+      "logical_role": "product_contract",
+      "exposed_path": "docs/specs/gateway/routing-delivery.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "25dc9c818400ab66c99650316610b73ca5d2060f",
+        "path": "docs/specs/gateway/routing-delivery.md"
+      },
+      "transform": "route_only",
+      "semantic_delta": false,
+      "notes": "Lines 249-275 define durable chat-to-session bindings and applied runtime identity; they do not choose copy versus reconstruction during migration."
+    },
+    {
+      "authority_id": "P01-A08",
+      "logical_role": "architecture",
+      "exposed_path": "src/agent/core/memory/path.py",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "25dc9c818400ab66c99650316610b73ca5d2060f",
+        "path": "src/agent/core/memory/path.py"
+      },
+      "transform": "route_only",
+      "semantic_delta": false,
+      "notes": "Lines 1-29 derive per-Agent memory below the session workspace and product config directory; they do not enumerate arbitrary user workspace files."
+    },
+    {
+      "authority_id": "P01-A09",
+      "logical_role": "product_contract",
+      "exposed_path": "docs/specs/kernel/skills.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "25dc9c818400ab66c99650316610b73ca5d2060f",
+        "path": "docs/specs/kernel/skills.md"
+      },
+      "transform": "route_only",
+      "semantic_delta": false,
+      "notes": "Lines 117-133 make workspace-local skills part of the shared preview/list/runtime resolver; they do not say global skills must move."
+    },
+    {
+      "authority_id": "P01-A10",
+      "logical_role": "product_contract",
+      "exposed_path": "docs/specs/gateway/heartbeat-cron.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "25dc9c818400ab66c99650316610b73ca5d2060f",
+        "path": "docs/specs/gateway/heartbeat-cron.md"
+      },
+      "transform": "route_only",
+      "semantic_delta": false,
+      "notes": "Lines 14-95 distinguish heartbeat and cron context/history and say missed periods are not backfilled; cutover cancellation policy is not specified."
+    },
+    {
+      "authority_id": "P01-A11",
+      "logical_role": "product_contract",
+      "exposed_path": "docs/specs/im/agents-nodes.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "25dc9c818400ab66c99650316610b73ca5d2060f",
+        "path": "docs/specs/im/agents-nodes.md"
+      },
+      "transform": "route_only",
+      "semantic_delta": false,
+      "notes": "Lines 317-399 separate channel desired/observed state, seal credentials for a target node, expose offline/last-known state, and reject stale reports; no cross-node credential protocol is defined."
+    },
+    {
+      "authority_id": "P01-A12",
+      "logical_role": "product_contract",
+      "exposed_path": "docs/specs/gateway/external-channels.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "25dc9c818400ab66c99650316610b73ca5d2060f",
+        "path": "docs/specs/gateway/external-channels.md"
+      },
+      "transform": "route_only",
+      "semantic_delta": false,
+      "notes": "Lines 274-337 assign encrypted cache reconciliation and listener lifetime to the local Gateway while preserving IM history on deletion; source ciphertext portability is not established."
+    },
+    {
+      "authority_id": "P01-A13",
+      "logical_role": "architecture",
+      "exposed_path": "src/IM/application/config_service.py",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "25dc9c818400ab66c99650316610b73ca5d2060f",
+        "path": "src/IM/application/config_service.py"
+      },
+      "transform": "route_only",
+      "semantic_delta": false,
+      "notes": "Lines 77-135 and 169-225 bind creation to one node and omit node_id/workspace_root from ordinary update; they do not prescribe a new API shape."
+    },
+    {
+      "authority_id": "P01-A14",
+      "logical_role": "development",
+      "exposed_path": "tests/im_service/integration/test_account_binding_api.py",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "25dc9c818400ab66c99650316610b73ca5d2060f",
+        "path": "tests/im_service/integration/test_account_binding_api.py"
+      },
+      "transform": "route_only",
+      "semantic_delta": false,
+      "notes": "Lines 89-145 execute same-owner binding idempotency and cross-owner isolation; they do not test Agent migration."
+    },
+    {
+      "authority_id": "P01-A15",
+      "logical_role": "development",
+      "exposed_path": "tests/unit/personal_assistant/test_persistent_session_binding_store.py",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "25dc9c818400ab66c99650316610b73ca5d2060f",
+        "path": "tests/unit/personal_assistant/test_persistent_session_binding_store.py"
+      },
+      "transform": "route_only",
+      "semantic_delta": false,
+      "notes": "Lines 253-269 prove a Gateway session binding survives store reconstruction; they do not prove its database can be copied across nodes."
+    },
+    {
+      "authority_id": "P01-A16",
+      "logical_role": "development",
+      "exposed_path": "tests/unit/personal_assistant/test_feishu_worker_runtime.py",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "25dc9c818400ab66c99650316610b73ca5d2060f",
+        "path": "tests/unit/personal_assistant/test_feishu_worker_runtime.py"
+      },
+      "transform": "route_only",
+      "semantic_delta": false,
+      "notes": "Lines 181-207 prove a managed channel listener cannot remain alive after its owning Gateway dies; they do not set acceptable handoff downtime."
+    },
+    {
+      "authority_id": "P01-A17",
+      "logical_role": "other",
+      "exposed_path": "__absent__/agent-cross-node-migration",
+      "availability": "absent_at_cutoff",
+      "source": {
+        "kind": "none",
+        "cutoff_ref": "25dc9c818400ab66c99650316610b73ca5d2060f"
+      },
+      "transform": "absent_marker",
+      "semantic_delta": false,
+      "notes": "Runner absence selector: search the exported candidate tree under src/IM, src/personal_assistant, docs/specs/im, docs/specs/gateway, and their tests for an Agent cross-node migration capability. The sentinel is control-plane metadata, not a candidate file or solution hint; no committed capability was found, and the absence does not privilege an API shape."
+    }
+  ]
+}

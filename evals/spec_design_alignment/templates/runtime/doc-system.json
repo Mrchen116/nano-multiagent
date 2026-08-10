@@ -1,0 +1,260 @@
+{
+  "$schema": "../../schema/doc-system.schema.json",
+  "schema_version": "1.0",
+  "profile_id": "counterfactual-latest-doc-system-v1",
+  "method_id": "counterfactual-latest-base-v1",
+  "status": "draft",
+  "framework_clock": {
+    "clock_id": "latest-doc-framework-v1",
+    "mode": "latest_frozen",
+    "source_repository": "nano-multiagent",
+    "commit": "pending",
+    "tree": "pending",
+    "frozen_at": "pending",
+    "source_manifest_sha256": "pending"
+  },
+  "scope": {
+    "primary_repository": "nano-multiagent",
+    "candidate_document_roots": [
+      "README.md",
+      "SPEC.md",
+      "docs"
+    ],
+    "control_only_roots": [
+      "runtime/documentation-controls"
+    ]
+  },
+  "authority_topology": [
+    {
+      "role_id": "product-entry",
+      "truth_domain": "product_current",
+      "lifecycle_state": "current",
+      "current_authority": true,
+      "candidate_visibility": "candidate",
+      "path_patterns": ["README.md"],
+      "description": "Product entry and shortest supported user journey."
+    },
+    {
+      "role_id": "architecture",
+      "truth_domain": "product_current",
+      "lifecycle_state": "current",
+      "current_authority": true,
+      "candidate_visibility": "candidate",
+      "path_patterns": ["SPEC.md"],
+      "description": "Cross-package responsibilities, dependencies and topology."
+    },
+    {
+      "role_id": "product-truth",
+      "truth_domain": "product_current",
+      "lifecycle_state": "current",
+      "current_authority": true,
+      "candidate_visibility": "candidate",
+      "path_patterns": ["docs/product/**"],
+      "description": "Baseline-supported product positioning and stable experience principles."
+    },
+    {
+      "role_id": "documentation-map",
+      "truth_domain": "navigation",
+      "lifecycle_state": "current",
+      "current_authority": true,
+      "candidate_visibility": "candidate",
+      "path_patterns": ["docs/README.md"],
+      "description": "Generated route to all documentation authority classes."
+    },
+    {
+      "role_id": "canonical-specs",
+      "truth_domain": "product_current",
+      "lifecycle_state": "current",
+      "current_authority": true,
+      "candidate_visibility": "candidate",
+      "path_patterns": ["docs/specs/**"],
+      "description": "Current package behavior contracts at the product baseline."
+    },
+    {
+      "role_id": "active-changes",
+      "truth_domain": "history_or_proposed",
+      "lifecycle_state": "active_proposed",
+      "current_authority": false,
+      "candidate_visibility": "private_source_only",
+      "path_patterns": ["docs/changes/<direct-unit>/**"],
+      "description": "Direct active-unit roots are classified at the product baseline and removed by the suite-wide clean-room policy."
+    },
+    {
+      "role_id": "completed-history",
+      "truth_domain": "history_or_proposed",
+      "lifecycle_state": "completed_history",
+      "current_authority": false,
+      "candidate_visibility": "candidate_if_baseline_consistent",
+      "path_patterns": ["docs/changes/archive/**"],
+      "description": "Completed history present at and consistent with the product baseline."
+    },
+    {
+      "role_id": "retired-change-units",
+      "truth_domain": "history_or_proposed",
+      "lifecycle_state": "retired",
+      "current_authority": false,
+      "candidate_visibility": "private_source_only",
+      "path_patterns": ["docs/changes/retired/**"],
+      "description": "Retired change-unit content is classified privately and removed by the suite-wide clean-room policy."
+    },
+    {
+      "role_id": "change-lifecycle-index",
+      "truth_domain": "framework",
+      "lifecycle_state": "current",
+      "current_authority": false,
+      "candidate_visibility": "candidate",
+      "path_patterns": ["docs/changes/README.md"],
+      "description": "Latest lifecycle vocabulary, storage grammar and output-derived navigation with workflow routing delegated to arm-owned slots."
+    },
+    {
+      "role_id": "development-and-operations",
+      "truth_domain": "product_current",
+      "lifecycle_state": "current",
+      "current_authority": true,
+      "candidate_visibility": "candidate",
+      "path_patterns": ["docs/development/**", "docs/operations/**"],
+      "description": "Current repository commands and operational contracts valid at the product baseline."
+    },
+    {
+      "role_id": "research",
+      "truth_domain": "history_or_proposed",
+      "lifecycle_state": "research_snapshot",
+      "current_authority": false,
+      "candidate_visibility": "candidate_if_baseline_consistent",
+      "path_patterns": ["docs/research/**"],
+      "description": "Dated evidence snapshots that do not override current authorities."
+    },
+    {
+      "role_id": "retired-documents",
+      "truth_domain": "history_or_proposed",
+      "lifecycle_state": "retired",
+      "current_authority": false,
+      "candidate_visibility": "candidate_if_baseline_consistent",
+      "path_patterns": ["docs/archive/**"],
+      "description": "Explicitly retired documentation preserved without current authority."
+    }
+  ],
+  "lifecycle_states": [
+    {
+      "state": "current",
+      "truth_clock": "product_baseline",
+      "candidate_semantics": "Describes behavior, architecture or commands that hold at the product baseline."
+    },
+    {
+      "state": "active_proposed",
+      "truth_clock": "no_later_than_product_baseline",
+      "candidate_semantics": "The latest framework recognizes active proposals, but pre-existing direct active-unit content is private-only and absent from the candidate tree."
+    },
+    {
+      "state": "completed_history",
+      "truth_clock": "no_later_than_product_baseline",
+      "candidate_semantics": "Explains completed work only when the archived unit already existed at and remains consistent with the product baseline."
+    },
+    {
+      "state": "research_snapshot",
+      "truth_clock": "no_later_than_product_baseline",
+      "candidate_semantics": "Provides dated evidence whose conclusions require rechecking against current baseline authorities."
+    },
+    {
+      "state": "retired",
+      "truth_clock": "no_later_than_product_baseline",
+      "candidate_semantics": "The framework recognizes retirement; pre-existing docs/changes/retired unit content is private-only and absent from the candidate tree."
+    }
+  ],
+  "canonical_contract": {
+    "format_id": "evergreen-requirement-scenario-v1",
+    "spec_root": "docs/specs",
+    "package_entry_filename": "spec.md",
+    "requirement_heading_prefix": "### Requirement:",
+    "scenario_heading_prefix": "#### Scenario:",
+    "docs_checker": {
+      "path": "scripts/docs-check",
+      "mode": "100755",
+      "sha256": "pending"
+    }
+  },
+  "clean_room_policy": {
+    "policy_id": "clean-room-change-units-v1",
+    "active_unit_path_regex": "^docs/changes/(?!archive(?:/|$)|retired(?:/|$))[^/]+/.*$",
+    "retired_unit_path_regex": "^docs/changes/retired(?:/.*)?$",
+    "completed_history_path_regex": "^docs/changes/archive(?:/.*)?$",
+    "excluded_unit_disposition": "drop_clean_room_change_unit",
+    "completed_history_policy": "preserve_if_present_at_and_consistent_with_product_baseline",
+    "framework_index_paths": ["docs/changes/README.md"]
+  },
+  "latest_current_claim_inventory": {
+    "ref": "runtime/documentation-controls/latest-current-claims.json",
+    "sha256": "pending"
+  },
+  "materialization": {
+    "projection_level": "DP1-counterfactual-latest-v1",
+    "allowed_materializers": [
+      "copy_exact",
+      "move_exact",
+      "framework_slice",
+      "generate_index",
+      "frozen_claim_render"
+    ],
+    "runtime_semantic_authoring": false
+  },
+  "workflow_owned_paths": [
+    {
+      "path": "docs/development/change-workflow.md",
+      "ownership": "arm_bundle",
+      "composition": "whole_file"
+    },
+    {
+      "path": "AGENTS.md",
+      "ownership": "arm_bundle",
+      "composition": "composed_slots",
+      "slot_ids": ["workflow-routing"]
+    },
+    {
+      "path": "docs/changes/README.md",
+      "ownership": "arm_bundle",
+      "composition": "composed_slots",
+      "slot_ids": ["change-workflow-routing"]
+    }
+  ],
+  "external_source_policy": "reference_passthrough_scrubbed",
+  "builder": {
+    "component_id": "dp1-builder-v1",
+    "source_files": [
+      {
+        "path": "runtime/documentation-controls/dp1-builder",
+        "mode": "100755",
+        "sha256": "pending"
+      }
+    ],
+    "dependency_manifest_sha256": "pending",
+    "implementation_sha256": "pending",
+    "epoch_recipes": [
+      {
+        "epoch_id": "legacy-pre-refactor-486",
+        "selection_rule": "Select from source-tree documentation topology without case inputs.",
+        "recipe_ref": "runtime/documentation-controls/epochs/legacy-pre-refactor-486.json",
+        "recipe_sha256": "pending",
+        "path_map_ref": "runtime/documentation-controls/epochs/legacy-pre-refactor-486-path-map.json",
+        "path_map_sha256": "pending"
+      },
+      {
+        "epoch_id": "native-agent-doc-system",
+        "selection_rule": "Select when the source tree already exposes the frozen authority topology.",
+        "recipe_ref": "runtime/documentation-controls/epochs/native-agent-doc-system.json",
+        "recipe_sha256": "pending",
+        "path_map_ref": "runtime/documentation-controls/epochs/native-agent-doc-system-path-map.json",
+        "path_map_sha256": "pending"
+      }
+    ]
+  },
+  "assertions": {
+    "framework_contains_no_product_current_claims": true,
+    "profile_is_case_blind": true,
+    "full_primary_document_graph_is_projected": true,
+    "workflow_documents_are_arm_owned": true,
+    "reference_repositories_are_not_projected": true,
+    "unclassified_slices_are_rejected": true,
+    "active_and_retired_change_units_are_private_only": true,
+    "completed_history_is_product_baseline_bound": true
+  }
+}

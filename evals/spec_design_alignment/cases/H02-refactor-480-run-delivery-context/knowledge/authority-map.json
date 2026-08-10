@@ -1,0 +1,187 @@
+{
+  "$schema": "../../../schema/authority-map.schema.json",
+  "schema_version": "1.0",
+  "case_id": "H02",
+  "status": "draft",
+  "normalization": {
+    "level": "N0",
+    "task_blind": true,
+    "semantic_additions": false,
+    "normalizer_ref": "audit/provenance.md#normalizer-and-treatment-scrub"
+  },
+  "provenance_ref": "audit/provenance.md",
+  "authorities": [
+    {
+      "authority_id": "repo.architecture",
+      "logical_role": "architecture",
+      "exposed_path": "SPEC.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "efe2ffd08034f611897b58b994547fcf71753f7e",
+        "path": "SPEC.md",
+        "sha256": "5e813bb2cb59cd5cc4e302220a9ed73e03a3f068bd0c8332b789c7da5e0fe139"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "repo.product-entry",
+      "logical_role": "product_contract",
+      "exposed_path": "README.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "efe2ffd08034f611897b58b994547fcf71753f7e",
+        "path": "README.md",
+        "sha256": "9e7b52a92ba97d13e53b7011632d272f1365e11989530777664d4d19cf6628f2"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "repo.spec-guide",
+      "logical_role": "development",
+      "exposed_path": "docs/SPEC_GUIDE.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "efe2ffd08034f611897b58b994547fcf71753f7e",
+        "path": "docs/SPEC_GUIDE.md",
+        "sha256": "b30734df904cf8e03132b5c4799fea6648d96a1bbca7781a716275b4bc41a94f"
+      },
+      "transform": "copy",
+      "semantic_delta": false,
+      "notes": "Historical product-world authoring guidance remains repository evidence, but its named loadable workflow implementations are removed by the suite-wide treatment scrub."
+    },
+    {
+      "authority_id": "repo.change-index",
+      "logical_role": "development",
+      "exposed_path": "docs/changes/readme.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "efe2ffd08034f611897b58b994547fcf71753f7e",
+        "path": "docs/changes/readme.md",
+        "sha256": "3a1b35351e52707abe2a8c433f8727e541a58132f14acd473f74e6e1d52eb2b1"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "repo.current-contracts",
+      "logical_role": "product_contract",
+      "exposed_path": "docs/specs",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_tree",
+        "cutoff_ref": "efe2ffd08034f611897b58b994547fcf71753f7e",
+        "path": "docs/specs",
+        "sha256": "37c63e5e6a0d980968fcb851310030638d8b9f3de87f6931b9474569af448a99"
+      },
+      "transform": "copy",
+      "semantic_delta": false,
+      "notes": "SHA-256 of `git archive --format=tar <cutoff> docs/specs`."
+    },
+    {
+      "authority_id": "repo.historical-decisions",
+      "logical_role": "historical_decision",
+      "exposed_path": "docs/changes/archive",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_tree",
+        "cutoff_ref": "efe2ffd08034f611897b58b994547fcf71753f7e",
+        "path": "docs/changes/archive",
+        "sha256": "4011790cd30cdeba5db9016e5d74e4032e676bb219a63f7d7f24d1943894c44b"
+      },
+      "transform": "copy",
+      "semantic_delta": false,
+      "notes": "SHA-256 of `git archive --format=tar <cutoff> docs/changes/archive`; historical mentions of workflow names are evidence, not executable arm assets."
+    },
+    {
+      "authority_id": "source.agent-kernel",
+      "logical_role": "architecture",
+      "exposed_path": "src/agent",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_tree",
+        "cutoff_ref": "efe2ffd08034f611897b58b994547fcf71753f7e",
+        "path": "src/agent",
+        "sha256": "a32aa18077704f34d57c995aaf8f21029c2b626513dc43c7b475312d58a89fdb"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "source.coding-cli",
+      "logical_role": "architecture",
+      "exposed_path": "src/coding_cli",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_tree",
+        "cutoff_ref": "efe2ffd08034f611897b58b994547fcf71753f7e",
+        "path": "src/coding_cli",
+        "sha256": "9013907f049d217947477743445c7a4793a52eb3ff1a56d2925f707129d8f0ef"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "source.personal-assistant",
+      "logical_role": "architecture",
+      "exposed_path": "src/personal_assistant",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_tree",
+        "cutoff_ref": "efe2ffd08034f611897b58b994547fcf71753f7e",
+        "path": "src/personal_assistant",
+        "sha256": "c5243168dc6a489401d2ccf946491de311a2825b0bd7b254f88571722376e52b"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "source.im",
+      "logical_role": "architecture",
+      "exposed_path": "src/IM",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_tree",
+        "cutoff_ref": "efe2ffd08034f611897b58b994547fcf71753f7e",
+        "path": "src/IM",
+        "sha256": "9c1515f60af7b73a2be1bca1072d96482ed1e607a57aec789ed42e515ae1b583"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "tests.architecture-contracts",
+      "logical_role": "development",
+      "exposed_path": "tests/contract",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_tree",
+        "cutoff_ref": "efe2ffd08034f611897b58b994547fcf71753f7e",
+        "path": "tests/contract",
+        "sha256": "705cd0f607f133db85b6eecae4b504e9ec67b65370ff98de32671978552aa2aa"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "reference.claude-code-source",
+      "logical_role": "reference_project",
+      "exposed_path": "references/claude-code",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "external_snapshot",
+        "cutoff_ref": "0991eac5ccd518d6bd0486752f61a42f9ad68fa8",
+        "path": ".",
+        "sha256": "fa18e3f1265329b2c6c7b996b283b64e1ba0772c03045383f1f5201fe67b36ff"
+      },
+      "transform": "route_only",
+      "semantic_delta": false,
+      "notes": "Mirror id `claude-code-local-mirror`; control-plane source `/Users/czj/Repos/opensource-hub/claude-code`; origin `git@github.com:Mrchen116/CC-baseline.git`; upstream `git@github.com:claude-code-best/claude-code.git`. SHA-256 is the raw tar emitted by `git archive --format=tar --prefix=references/claude-code/ 0991eac5ccd518d6bd0486752f61a42f9ad68fa8`. Before exposure, the fixed source-root scrub removes `.claude/`, `.agents/`, `.codex/`, `AGENTS.md`, `CLAUDE.md`, and `CODEX.md`; its post-filter manifest is frozen at S0. This is a pinned community/local source mirror, not an assertion of official Anthropic provenance."
+    }
+  ]
+}

@@ -1,0 +1,257 @@
+{
+  "schema_version": "1.0",
+  "suite_id": "feat397-spec-design-eval-v1",
+  "method": "counterfactual-latest-base-v1",
+  "projection": "DP1-counterfactual-latest-v1",
+  "truth_formula": "Code@B + ProductClaims@B + DocsFramework@F + Workflow@W",
+  "arm": "A",
+  "status": "materialized_verified",
+  "canonical_git": {
+    "branch": "main",
+    "author": "Repository Bootstrap <repository@invalid>",
+    "timestamp": "946684800 +0000",
+    "message": "initial repository",
+    "commit_count": 1,
+    "parent_count": 0
+  },
+  "verification": {
+    "command": ".venv/bin/python evals/spec_design_alignment/validate_dataset.py --verify-base-repositories",
+    "result": "passed",
+    "temporary_paths_recorded": false
+  },
+  "archive_lineage_policy": "drop_noncompleted_cross_references_v1",
+  "leak_assertions": {
+    "forbidden_paths": [
+      "docs/changes/feat-397-spec-design-agent-team"
+    ],
+    "forbidden_atoms": [
+      "feat-397"
+    ],
+    "scan_scope": "path_and_text_all_eight_roots"
+  },
+  "cases": [
+    {
+      "case_id": "H01",
+      "recipe_ref": "base_repo/recipes/H01-feat-484-A.json",
+      "recipe_sha256": "d697babd213dfd32cd5d77ed3c333c26b6b343aedbfcc7c3dd59b38bf2bf5cab",
+      "source": {
+        "commit": "088b2f8b1b5327745d2f489ad131015904d5ae0d",
+        "tree": "e80e045164ed91cc13197dfab5dc2a04e55569ad",
+        "raw_archive_sha256": "1369a2181f3d173fdb5e364d1d613f81e2d44c5ea2a06f48fd165b957dda980c"
+      },
+      "scrub": {
+        "removed_manifest_sha256": "4b4e02f7f009c31c9e72531bceb37fc38eadcb81a6e156426ee8c2d16c1f848d",
+        "removed_entry_count": 705,
+        "change_unit_roots_sha256": "35b533b85f2a158494b21b49fb1feea9d74849711c52c241203a737fe796c95d",
+        "change_unit_root_count": 9,
+        "completed_archive_preserved": true,
+        "proposed_control_roots_sha256": "0c07e37f81c02992772a0f849d34b9e33f5f04e5fb08115fc754356f1e7e0a5b",
+        "proposed_control_root_count": 10,
+        "archive_lineage_roots_sha256": "00c94d55d776b6ce92b1bba907860b50e734329bc471ed8e0226adc1a062f658",
+        "archive_lineage_root_count": 3
+      },
+      "documentation": {
+        "mode": "dp1_counterfactual_latest",
+        "files_manifest_sha256": "18b22e4f5d20596efbf75e4bd1087b70fae23a1952aff883493caf3fc7c0821e"
+      },
+      "arm_files_manifest_sha256": "33b3d6afe30b238ea3000ef318e1ed7c83ceafa7f5bf34154252efd0b2f1a117",
+      "content_manifest_sha256": "8cc1ef9389238aa5e607c2d77dd9aa29c0505bae7d53b9280872315d816274a0",
+      "root_commit": "8d22680d91c0d199e18c7e9f3453733617a22f67",
+      "root_tree": "340d117bcd86ac4ed7ea51b2728fe13eaba7c356"
+    },
+    {
+      "case_id": "H02",
+      "recipe_ref": "base_repo/recipes/H02-feat-510-A.json",
+      "recipe_sha256": "f9cac53acbac43fb674a575ea11e40bf7bc922790716aadcb5c1e16000cf5d6a",
+      "source": {
+        "commit": "e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6",
+        "tree": "64ee09dd5aae44f36fff9325835c7c45dc088b5c",
+        "raw_archive_sha256": "2fd34f6d0cccd213b8d1963b0c6e102f54ef0696ca20cbdfe4b9f3cdbb280923"
+      },
+      "scrub": {
+        "removed_manifest_sha256": "2f09a13c9af1739d7ae065b0b31122fd4eb5a1e83495bc6f034caa165389e75d",
+        "removed_entry_count": 259,
+        "change_unit_roots_sha256": "f5144ee01fea75fc2b5a0ae9f0c0dc405438ed45e1720a642072d46593012913",
+        "change_unit_root_count": 12,
+        "completed_archive_preserved": true,
+        "proposed_control_roots_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "proposed_control_root_count": 0,
+        "archive_lineage_roots_sha256": "e4e237a34a091085f508ed5e29301a8b50e0ed369ac2c906d83ab90d61344637",
+        "archive_lineage_root_count": 9
+      },
+      "documentation": {
+        "mode": "preserve_exact",
+        "files_manifest_sha256": null
+      },
+      "arm_files_manifest_sha256": "593baefd2c54876163aa248fa7d8d00e72e6544d076c43a8811291981541b27d",
+      "content_manifest_sha256": "f79a953b01b0ed16be1cecf4b5a6f5820d8a669eede5e501f922c79d51d23acc",
+      "root_commit": "9fd64cf107a1ebb07f25c6f33dded6cc500444a9",
+      "root_tree": "27a34d883f24d31db04b8b800b4ef2e6c191d218"
+    },
+    {
+      "case_id": "H03",
+      "recipe_ref": "base_repo/recipes/H03-feat-501-A.json",
+      "recipe_sha256": "0546d75e34eefc7fe36e89bfb8d48472c3c16debc973f9b8e46f1dcb637e46a7",
+      "source": {
+        "commit": "ef52bbb16592fcd98c785136084dd47d78552ff7",
+        "tree": "08c7429c55d9672d5a1d7d49bda85c53843e55e3",
+        "raw_archive_sha256": "b0c8672882a99b02caa0fe91d8233f6f76e08f120000e3e3f7a916156498046e"
+      },
+      "scrub": {
+        "removed_manifest_sha256": "d0c2f4c612019a0467b998eae4f03714b347fec4870b37e1892ce693847ea949",
+        "removed_entry_count": 235,
+        "change_unit_roots_sha256": "f34472a8fa0c82d698a14dac0f114ac9a25b84738a3263d7d4dca010abd7cc57",
+        "change_unit_root_count": 10,
+        "completed_archive_preserved": true,
+        "proposed_control_roots_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "proposed_control_root_count": 0,
+        "archive_lineage_roots_sha256": "5f0b7ae4c27caed35c5169ea574c800bbcb037b925bea62db469b99676d767fd",
+        "archive_lineage_root_count": 8
+      },
+      "documentation": {
+        "mode": "preserve_exact",
+        "files_manifest_sha256": null
+      },
+      "arm_files_manifest_sha256": "0d7ffc926149449140060d88f3020123ed9776aea39cc278936c7b9db1577dbe",
+      "content_manifest_sha256": "c322a409575773eaf59590ce746b475b723e05b8a27d2472a45d43e8920834b0",
+      "root_commit": "6fced581579c5c7521eb625d0596fbda73a626bc",
+      "root_tree": "48f7d7a9f0bd1062f017281f66575b930354be89"
+    },
+    {
+      "case_id": "H04",
+      "recipe_ref": "base_repo/recipes/H04-feat-519-A.json",
+      "recipe_sha256": "3723e9c8809d520b93a51de68c7a2f798b90cb0e7bc6b05625d38adddab82681",
+      "source": {
+        "commit": "a51d9915e2eee83e375f13936df976fb82ed4475",
+        "tree": "01aa4cf587fae97f1c66986b7c216794b2584d78",
+        "raw_archive_sha256": "87b70fc3b9f0ac66ac3767c9108d720f7eff276676ed997c7fa4324e8abd3d0f"
+      },
+      "scrub": {
+        "removed_manifest_sha256": "d56394bfaeafea0875c19eefa2d1be94b026e26a840c77cf2d86cf26e0705404",
+        "removed_entry_count": 339,
+        "change_unit_roots_sha256": "1e1efef70af3dec3504dd22b8c7bdc17adf65d8596f9737eb5dc0cb8a66a19c4",
+        "change_unit_root_count": 9,
+        "completed_archive_preserved": true,
+        "proposed_control_roots_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "proposed_control_root_count": 0,
+        "archive_lineage_roots_sha256": "91b10ec3bf19b5fa37695a7672434c66da36e00cdb90d4f157198d26daf55802",
+        "archive_lineage_root_count": 10
+      },
+      "documentation": {"mode": "preserve_exact", "files_manifest_sha256": null},
+      "arm_files_manifest_sha256": "593baefd2c54876163aa248fa7d8d00e72e6544d076c43a8811291981541b27d",
+      "content_manifest_sha256": "5197e701ce0bd3d1d59a7a10bc24b7ebbd427c25ec4db593df58c46ee26173d3",
+      "root_commit": "c3e539ab4b06137d1069a6ab37e0ecb9ea8ada03",
+      "root_tree": "18d71efb1b482cab38d7a068f718b30f697291e6"
+    },
+    {
+      "case_id": "H05",
+      "recipe_ref": "base_repo/recipes/H05-feat-515-A.json",
+      "recipe_sha256": "486c4ed20fec8f1e444072bb16b65ce1a2a9a6391e4b4d41d8927f2aaf7328d9",
+      "source": {
+        "commit": "f54e008b120d55bb5563cd127978dc336e2e0aac",
+        "tree": "033bc35e900e2a6a8d135f7660dee5fb64d23c19",
+        "raw_archive_sha256": "45f1642cc00b4105574dafea9f182e491b740fdaaea2a3dd3614ca41df4439aa"
+      },
+      "scrub": {
+        "removed_manifest_sha256": "7b8d5c70fe4d3dfde8b249ce0afd3e4c1eb1c216e0e138bf0e6656b915007963",
+        "removed_entry_count": 341,
+        "change_unit_roots_sha256": "4e7d4049a63af263c4bd5411cda7178cabcc2efa69ab6ed1bfb032f6737470e3",
+        "change_unit_root_count": 10,
+        "completed_archive_preserved": true,
+        "proposed_control_roots_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "proposed_control_root_count": 0,
+        "archive_lineage_roots_sha256": "91b10ec3bf19b5fa37695a7672434c66da36e00cdb90d4f157198d26daf55802",
+        "archive_lineage_root_count": 10
+      },
+      "documentation": {"mode": "preserve_exact", "files_manifest_sha256": null},
+      "arm_files_manifest_sha256": "593baefd2c54876163aa248fa7d8d00e72e6544d076c43a8811291981541b27d",
+      "content_manifest_sha256": "887e936332a705a6900b5e3947f17017398602a1eb0382c18fe0d4f42af59e9d",
+      "root_commit": "8068e9a7bf6d8b45fef7be1f1ae1b72611000d33",
+      "root_tree": "3ed2ff0ee1324f4324cb887a5958fe4c82c9c1d0"
+    },
+    {
+      "case_id": "H07",
+      "recipe_ref": "base_repo/recipes/H07-refactor-513-A.json",
+      "recipe_sha256": "8f718353e11bf2f68d30c9ea8de32c12d124e55fa594745ed33b56c27e6c61e1",
+      "source": {
+        "commit": "d96b7c4ea5196186588443b3ae88f61955bd41e5",
+        "tree": "4376bfb0e7dae418e70479dd458d204636547930",
+        "raw_archive_sha256": "00b6fb63eebd101629314342ba5ed7ccbc93ecf585d2b506ef31533d2356715e"
+      },
+      "scrub": {
+        "removed_manifest_sha256": "9ae73d1c691f1b8bde4536ab7517af6fff242d606c60656fa40ee4df82ef117e",
+        "removed_entry_count": 315,
+        "change_unit_roots_sha256": "6b0ea1e45304bab0763c1758e4e3570df199989caf9adf07566aaa3693015318",
+        "change_unit_root_count": 8,
+        "completed_archive_preserved": true,
+        "proposed_control_roots_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "proposed_control_root_count": 0,
+        "archive_lineage_roots_sha256": "91b10ec3bf19b5fa37695a7672434c66da36e00cdb90d4f157198d26daf55802",
+        "archive_lineage_root_count": 10
+      },
+      "documentation": {"mode": "preserve_exact", "files_manifest_sha256": null},
+      "arm_files_manifest_sha256": "593baefd2c54876163aa248fa7d8d00e72e6544d076c43a8811291981541b27d",
+      "content_manifest_sha256": "887e936332a705a6900b5e3947f17017398602a1eb0382c18fe0d4f42af59e9d",
+      "root_commit": "8068e9a7bf6d8b45fef7be1f1ae1b72611000d33",
+      "root_tree": "3ed2ff0ee1324f4324cb887a5958fe4c82c9c1d0"
+    },
+    {
+      "case_id": "P01",
+      "recipe_ref": "base_repo/recipes/P01-cross-node-agent-migration-A.json",
+      "recipe_sha256": "0b038d2f7f72988d702ffa6eb1728e9d0146de7a2fe10e6c76593ba6299be558",
+      "source": {
+        "commit": "25dc9c818400ab66c99650316610b73ca5d2060f",
+        "tree": "b833844aa3aabd912bcda70f811acc334b538778",
+        "raw_archive_sha256": "95c45d152868c0da460083f888123c4cf09fc9b7f47dd5d87c5ed253a999ba2a"
+      },
+      "scrub": {
+        "removed_manifest_sha256": "f69ab54a8af02f41c05c1595713459207c74821559aa0b47149ca2272c61a4a0",
+        "removed_entry_count": 259,
+        "change_unit_roots_sha256": "8045838b8ced9e5d2530d41737e8e6400fbcc5cf6dc5c92c385480a9f88d2594",
+        "change_unit_root_count": 9,
+        "completed_archive_preserved": true,
+        "proposed_control_roots_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "proposed_control_root_count": 0,
+        "archive_lineage_roots_sha256": "4ecf05d9f49c3ff998f610bcd331f48152b52338c77de627203f9ecffd4b696e",
+        "archive_lineage_root_count": 8
+      },
+      "documentation": {
+        "mode": "preserve_exact",
+        "files_manifest_sha256": null
+      },
+      "arm_files_manifest_sha256": "593baefd2c54876163aa248fa7d8d00e72e6544d076c43a8811291981541b27d",
+      "content_manifest_sha256": "afcb59074834f7da705de529028b1118fcd6280a8a49e6350307db3b3594c443",
+      "root_commit": "6241a68fccc8be326dd4472a4f73b021cc2fe11f",
+      "root_tree": "10c83e83214d6c3860ff1cdf347b85d43cb27e1c"
+    },
+    {
+      "case_id": "P02",
+      "recipe_ref": "base_repo/recipes/P02-agent-runtime-center-A.json",
+      "recipe_sha256": "ab020418ba87bed0270e96f9ce9f689b5c6fe26456031e2ada30f5990db9f5b9",
+      "source": {
+        "commit": "25dc9c818400ab66c99650316610b73ca5d2060f",
+        "tree": "b833844aa3aabd912bcda70f811acc334b538778",
+        "raw_archive_sha256": "95c45d152868c0da460083f888123c4cf09fc9b7f47dd5d87c5ed253a999ba2a"
+      },
+      "scrub": {
+        "removed_manifest_sha256": "f69ab54a8af02f41c05c1595713459207c74821559aa0b47149ca2272c61a4a0",
+        "removed_entry_count": 259,
+        "change_unit_roots_sha256": "8045838b8ced9e5d2530d41737e8e6400fbcc5cf6dc5c92c385480a9f88d2594",
+        "change_unit_root_count": 9,
+        "completed_archive_preserved": true,
+        "proposed_control_roots_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "proposed_control_root_count": 0,
+        "archive_lineage_roots_sha256": "4ecf05d9f49c3ff998f610bcd331f48152b52338c77de627203f9ecffd4b696e",
+        "archive_lineage_root_count": 8
+      },
+      "documentation": {
+        "mode": "preserve_exact",
+        "files_manifest_sha256": null
+      },
+      "arm_files_manifest_sha256": "593baefd2c54876163aa248fa7d8d00e72e6544d076c43a8811291981541b27d",
+      "content_manifest_sha256": "afcb59074834f7da705de529028b1118fcd6280a8a49e6350307db3b3594c443",
+      "root_commit": "6241a68fccc8be326dd4472a4f73b021cc2fe11f",
+      "root_tree": "10c83e83214d6c3860ff1cdf347b85d43cb27e1c"
+    }
+  ]
+}

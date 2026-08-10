@@ -1,0 +1,251 @@
+{
+  "$schema": "../../schema/doc-validation.schema.json",
+  "schema_version": "1.0",
+  "method_id": "counterfactual-latest-base-v1",
+  "projection_level": "DP1-counterfactual-latest-v1",
+  "receipt_id": "p99-doc-validation-v1",
+  "case_id": "P99",
+  "status": "draft",
+  "bindings": {
+    "product_commit": "pending",
+    "product_tree": "pending",
+    "clean_room_policy_id": "clean-room-change-units-v1",
+    "doc_system_profile_ref": "runtime/doc-system.json",
+    "doc_system_profile_sha256": "pending",
+    "doc_projection_ref": "runtime/P99/private/doc-projection.json",
+    "doc_projection_sha256": "pending",
+    "documentation_tree_sha256": "pending",
+    "claims_manifest_sha256": "pending"
+  },
+  "environment": {
+    "runner_image_digest": "pending",
+    "platform": "pending case-sensitive runner",
+    "case_sensitive_filesystem": true,
+    "validator_component": {
+      "ref": "runtime/documentation-controls/doc-validator",
+      "sha256": "pending"
+    },
+    "tool_manifest": {
+      "ref": "runtime/seal-inputs/tool-manifest.json",
+      "sha256": "pending"
+    }
+  },
+  "summary": {
+    "baseline_document_path_count": 4,
+    "classified_path_count": 4,
+    "output_file_count": 4,
+    "current_claim_count": 1,
+    "directly_exercised_claim_count": 1,
+    "code_or_review_only_claim_count": 0,
+    "unresolved_claim_count": 0,
+    "latest_claim_resolution_count": 1,
+    "dropped_clean_room_path_count": 2,
+    "preserved_completed_history_path_count": 1
+  },
+  "checks": [
+    {
+      "check_id": "reconstruction",
+      "check_class": "reconstruction",
+      "applicability": "required",
+      "status": "pending",
+      "subject": "Rebuild every projected byte from sealed inputs.",
+      "command_ref": "runtime/documentation-controls/checks/reconstruction.json",
+      "result_evidence_sha256": "pending",
+      "notes": ""
+    },
+    {
+      "check_id": "docs-structure",
+      "check_class": "docs_structure",
+      "applicability": "required",
+      "status": "pending",
+      "subject": "Validate routes, links, indexes and canonical spec grammar.",
+      "command_ref": "runtime/documentation-controls/checks/docs-structure.json",
+      "result_evidence_sha256": "pending",
+      "notes": ""
+    },
+    {
+      "check_id": "lifecycle-classification",
+      "check_class": "lifecycle_classification",
+      "applicability": "required",
+      "status": "pending",
+      "subject": "Classify every baseline documentation path at its baseline lifecycle state.",
+      "command_ref": "runtime/documentation-controls/checks/lifecycle-classification.json",
+      "result_evidence_sha256": "pending",
+      "notes": ""
+    },
+    {
+      "check_id": "claim-coverage",
+      "check_class": "claim_coverage",
+      "applicability": "required",
+      "status": "pending",
+      "subject": "Cover the complete current-authority closure with claim ids or non-product truth domains.",
+      "command_ref": "runtime/documentation-controls/checks/claim-coverage.json",
+      "result_evidence_sha256": "pending",
+      "notes": ""
+    },
+    {
+      "check_id": "evidence-resolution",
+      "check_class": "evidence_resolution",
+      "applicability": "required",
+      "status": "pending",
+      "subject": "Resolve every product claim evidence item at the product baseline or its ancestors.",
+      "command_ref": "runtime/documentation-controls/checks/evidence-resolution.json",
+      "result_evidence_sha256": "pending",
+      "notes": ""
+    },
+    {
+      "check_id": "baseline-tests",
+      "check_class": "baseline_tests",
+      "applicability": "required",
+      "status": "pending",
+      "subject": "Run the baseline-compatible test plan.",
+      "command_ref": "runtime/documentation-controls/checks/baseline-tests.json",
+      "result_evidence_sha256": "pending",
+      "notes": ""
+    },
+    {
+      "check_id": "contract-probes",
+      "check_class": "contract_probes",
+      "applicability": "required",
+      "status": "pending",
+      "subject": "Exercise canonical behavior claims with frozen focused probes where available.",
+      "command_ref": "runtime/documentation-controls/checks/contract-probes.json",
+      "result_evidence_sha256": "pending",
+      "notes": ""
+    },
+    {
+      "check_id": "architecture-contracts",
+      "check_class": "architecture_contracts",
+      "applicability": "required",
+      "status": "pending",
+      "subject": "Check projected architecture invariants against the baseline tree.",
+      "command_ref": "runtime/documentation-controls/checks/architecture-contracts.json",
+      "result_evidence_sha256": "pending",
+      "notes": ""
+    },
+    {
+      "check_id": "command-smoke",
+      "check_class": "command_smoke",
+      "applicability": "required",
+      "status": "pending",
+      "subject": "Smoke-test current user, development and operations commands represented in the projection.",
+      "command_ref": "runtime/documentation-controls/checks/command-smoke.json",
+      "result_evidence_sha256": "pending",
+      "notes": ""
+    },
+    {
+      "check_id": "latest-claim-closure",
+      "check_class": "latest_claim_closure",
+      "applicability": "required",
+      "status": "pending",
+      "subject": "Resolve every latest current product claim as supported, rewritten or omitted.",
+      "command_ref": "runtime/documentation-controls/checks/latest-claim-closure.json",
+      "result_evidence_sha256": "pending",
+      "notes": ""
+    },
+    {
+      "check_id": "post-cutoff-scan",
+      "check_class": "post_cutoff_scan",
+      "applicability": "required",
+      "status": "pending",
+      "subject": "Reject post-cutoff current claims and future product artifacts.",
+      "command_ref": "runtime/documentation-controls/checks/post-cutoff-scan.json",
+      "result_evidence_sha256": "pending",
+      "notes": ""
+    },
+    {
+      "check_id": "target-absence",
+      "check_class": "target_absence",
+      "applicability": "required",
+      "status": "pending",
+      "subject": "Run historical target-absence probes without exposing their map to the candidate.",
+      "command_ref": "runtime/documentation-controls/checks/target-absence.json",
+      "result_evidence_sha256": "pending",
+      "notes": "Prospective identity projections may mark this not_applicable with sealed rationale."
+    },
+    {
+      "check_id": "clean-room-change-unit-absence",
+      "check_class": "clean_room_change_unit_absence",
+      "applicability": "required",
+      "status": "pending",
+      "subject": "Verify that direct active-unit roots and docs/changes/retired content are absent, while preserved archive history is bound to the product baseline.",
+      "command_ref": "runtime/documentation-controls/checks/clean-room-change-unit-absence.json",
+      "result_evidence_sha256": "pending",
+      "notes": "The generated lifecycle index must not name or link an excluded unit."
+    },
+    {
+      "check_id": "arm-identity",
+      "check_class": "arm_identity",
+      "applicability": "required",
+      "status": "pending",
+      "subject": "Verify common product/docs identity and registered workflow-document differences across arms.",
+      "command_ref": "runtime/documentation-controls/checks/arm-identity.json",
+      "result_evidence_sha256": "pending",
+      "notes": ""
+    },
+    {
+      "check_id": "private-control-exclusion",
+      "check_class": "private_control_exclusion",
+      "applicability": "required",
+      "status": "pending",
+      "subject": "Verify claim maps, evidence, receipts and judge controls are absent from every candidate export.",
+      "command_ref": "runtime/documentation-controls/checks/private-control-exclusion.json",
+      "result_evidence_sha256": "pending",
+      "notes": ""
+    }
+  ],
+  "executable_evidence": [
+    {
+      "evidence_id": "baseline-tests.run-01",
+      "check_id": "baseline-tests",
+      "scope": "Baseline-compatible test plan",
+      "command": "pending",
+      "exit_code": "pending",
+      "status": "pending",
+      "stdout_sha256": "pending",
+      "stderr_sha256": "pending",
+      "environment_ref": "runtime/P99/private/doc-validation-environment.json",
+      "environment_sha256": "pending",
+      "evidence_limit": "Supports only the tests and environment recorded by this entry."
+    }
+  ],
+  "independent_review": {
+    "reviewer_id": "pending",
+    "inputs_allowlist": [
+      "product_tree",
+      "doc_system_profile",
+      "doc_projection",
+      "validation_evidence"
+    ],
+    "blinded_from": [
+      "case_title",
+      "public_brief",
+      "target_name",
+      "authority_map",
+      "heldout_target",
+      "decision_inventory",
+      "rubric",
+      "user_profile",
+      "arm_outputs"
+    ],
+    "verdict": "pending",
+    "review_evidence_ref": "runtime/P99/private/doc-validation-review.md",
+    "review_evidence_sha256": "pending",
+    "reviewed_at": "pending"
+  },
+  "unresolved_claim_ids": [],
+  "failed_check_ids": [],
+  "assertions": {
+    "projection_reproduces_exactly": true,
+    "current_claims_are_baseline_bound": true,
+    "post_cutoff_current_claims_are_absent": true,
+    "workflow_docs_are_arm_bound": true,
+    "common_docs_are_arm_identical": true,
+    "private_claim_maps_are_not_exported": true,
+    "evidence_limits_are_preserved": true,
+    "independent_review_is_target_blind": true,
+    "active_and_retired_change_units_are_absent": true,
+    "completed_history_is_product_baseline_bound": true,
+    "source_clock_ownership_is_enforced": true
+  }
+}

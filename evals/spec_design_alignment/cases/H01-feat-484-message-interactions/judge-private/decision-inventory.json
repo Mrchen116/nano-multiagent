@@ -1,0 +1,189 @@
+{
+  "$schema": "../../../schema/decision-inventory.schema.json",
+  "schema_version": "1.0",
+  "case_id": "H01",
+  "status": "draft",
+  "user_policy": {
+    "mode": "current_cross_fitted",
+    "profile_ref": "runtime/candidate-inputs/H01/USER.cross-fitted.md",
+    "excluded_lineages": [
+      "feat-484-chat-message-interactions",
+      "direct interaction fixes and the resulting canonical Web IM contract"
+    ]
+  },
+  "provenance_ref": "audit/provenance.md",
+  "decisions": [
+    {
+      "decision_id": "D01",
+      "class": "F",
+      "resolution_status": "resolved",
+      "summary": "The cutoff message bubble and coarse-input styles intercept browser selection/context behavior; the candidate must diagnose the actual ownership conflict from code.",
+      "materiality": "high",
+      "expected_handling": "self_resolve_with_evidence",
+      "must_surface": false,
+      "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": [
+          "The current-state analysis locates the relevant message-level event handlers and selection/callout styles without asking the user to explain the code.",
+          "The spec distinguishes native partial selection/copy from an explicit product action that copies more content."
+        ],
+        "rejected_outcomes": [
+          "Treating the reported result as an unexplained browser quirk.",
+          "Claiming partial copy is fixed while retaining unconditional event prevention or selection suppression."
+        ],
+        "evidence_refs": [
+          "cutoff:088b2f8b1b5327745d2f489ad131015904d5ae0d:src/IM/frontend/src/features/chat/components/message-pane.tsx",
+          "cutoff:088b2f8b1b5327745d2f489ad131015904d5ae0d:src/IM/frontend/src/styles/global.css"
+        ]
+      }
+    },
+    {
+      "decision_id": "D02",
+      "class": "F",
+      "resolution_status": "resolved",
+      "summary": "The cutoff already has message-level actions, including constrained fork eligibility; any retained or moved action must reuse existing product semantics.",
+      "materiality": "medium",
+      "expected_handling": "self_resolve_with_evidence",
+      "must_surface": false,
+      "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": [
+          "The candidate discovers the existing action and fork behavior and either leaves it untouched or reuses its eligibility/callback when proposing a new surface.",
+          "A design that does not move or expand fork is equally acceptable when it explains that boundary."
+        ],
+        "rejected_outcomes": [
+          "Inventing a new fork API or silently changing who may fork as part of this interaction cleanup."
+        ],
+        "evidence_refs": [
+          "cutoff:088b2f8b1b5327745d2f489ad131015904d5ae0d:src/IM/frontend/src/features/chat/components/message-pane-fork.test.tsx",
+          "cutoff:088b2f8b1b5327745d2f489ad131015904d5ae0d:src/IM/frontend/src/features/chat/components/message-pane.tsx"
+        ]
+      }
+    },
+    {
+      "decision_id": "D03",
+      "class": "F",
+      "resolution_status": "resolved",
+      "summary": "The reported behavior is implemented in the Web IM frontend message renderer and styles, within the repository's existing package boundaries.",
+      "materiality": "high",
+      "expected_handling": "self_resolve_with_evidence",
+      "must_surface": false,
+      "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": [
+          "The design traces the real render/event/style path and starts with the smallest frontend seam that can satisfy the behavior.",
+          "A broader service, wire, persistence or message-model change is accepted only when the candidate supplies concrete repository evidence that its chosen scope requires it."
+        ],
+        "rejected_outcomes": [
+          "Adding Gateway or agent coupling for a browser-only behavior without evidence.",
+          "Replacing the Markdown stack or widening raw-HTML trust as an incidental solution."
+        ],
+        "evidence_refs": [
+          "cutoff:088b2f8b1b5327745d2f489ad131015904d5ae0d:SPEC.md",
+          "cutoff:088b2f8b1b5327745d2f489ad131015904d5ae0d:src/IM/frontend/src/features/chat/components/message-pane.tsx"
+        ]
+      }
+    },
+    {
+      "decision_id": "D04",
+      "class": "F",
+      "resolution_status": "resolved",
+      "summary": "The brief explicitly asks for a bounded candidate list followed by one restrained, commercial-quality final design.",
+      "materiality": "high",
+      "expected_handling": "self_resolve_with_evidence",
+      "must_surface": false,
+      "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": [
+          "The artifact audits adjacent interaction problems, explains which candidates it keeps or rejects, and converges on one implementable design.",
+          "It preserves a quiet reading state and avoids turning the request into a general message-feature platform."
+        ],
+        "rejected_outcomes": [
+          "Serially asking the user to select every candidate despite the explicit request for a final recommendation.",
+          "Expanding into unrelated reactions, editing, deletion, forwarding or attachment workflows without a separately justified decision."
+        ],
+        "evidence_refs": [
+          "public:public/brief.md",
+          "heldout:25dc9c818400ab66c99650316610b73ca5d2060f:docs/changes/archive/feat-484-chat-message-interactions/spec.md#L7-L21"
+        ],
+        "acceptance_notes": "This is an explicit case instruction, not a profile preference. Do not count the same behavior again as P."
+      }
+    },
+    {
+      "decision_id": "D05",
+      "class": "F",
+      "resolution_status": "resolved",
+      "summary": "Partial selection must remain browser-owned and copy only the selection across the input modes the final scope claims to support.",
+      "materiality": "critical",
+      "expected_handling": "self_resolve_with_evidence",
+      "must_surface": false,
+      "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": [
+          "The spec makes selection, keyboard copy and native context behavior testable and does not replace them with a custom selector/menu.",
+          "The design defines a reliable ownership rule for selection and interactive descendants; it may use any browser-compatible mechanism supported by evidence."
+        ],
+        "rejected_outcomes": [
+          "Blanket context-menu prevention, disabled touch selection/callout, or a custom text-selection subsystem."
+        ],
+        "evidence_refs": [
+          "public:public/brief.md",
+          "cutoff:088b2f8b1b5327745d2f489ad131015904d5ae0d:src/IM/frontend/src/features/chat/components/message-pane.tsx",
+          "heldout:25dc9c818400ab66c99650316610b73ca5d2060f:docs/changes/archive/feat-484-chat-message-interactions/spec.md#L39-L57"
+        ],
+        "acceptance_notes": "Judge native ownership and observed behavior, not the historical event classifier, coordinate algorithm or symbol names."
+      }
+    },
+    {
+      "decision_id": "D06",
+      "class": "F",
+      "resolution_status": "resolved",
+      "summary": "Opening an external link must not replace the current chat, and link rendering must preserve ordinary browser safety and interaction.",
+      "materiality": "high",
+      "expected_handling": "self_resolve_with_evidence",
+      "must_surface": false,
+      "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": [
+          "External web links open without destroying the current chat state and use safe new-context attributes.",
+          "The candidate states a consistent rule for relative, same-origin, hash and unsupported targets; the historical origin classifier is one acceptable solution, not the only one."
+        ],
+        "rejected_outcomes": [
+          "Keeping external links in the current tab, unsafe target-blank behavior, arbitrary executable schemes, or suppressing the browser's link context actions."
+        ],
+        "evidence_refs": [
+          "public:public/brief.md",
+          "cutoff:088b2f8b1b5327745d2f489ad131015904d5ae0d:src/IM/frontend/src/features/chat/components/message-pane.tsx",
+          "heldout:25dc9c818400ab66c99650316610b73ca5d2060f:docs/changes/archive/feat-484-chat-message-interactions/spec.md#L113-L139"
+        ]
+      }
+    },
+    {
+      "decision_id": "D07",
+      "class": "V",
+      "resolution_status": "resolved",
+      "summary": "Select the bounded companion interactions and desktop/touch discovery model that make the two reported fixes coherent without overwhelming message reading.",
+      "materiality": "high",
+      "expected_handling": "structured_escalation",
+      "must_surface": true,
+      "guardrail": true,
+      "oracle": {
+        "accepted_outcomes": [
+          "The final review visibly compares a small number of coherent scope/surface options, recommends one, and explains trade-offs for pointer, keyboard and touch users.",
+          "The historical toolbar/context-menu/More combination may receive full credit, but so may a different restrained and accessible surface that leaves native selection/link behavior intact.",
+          "Companion features such as whole-message copy, code-block copy or shared feedback are scored only when selected and specified; omitting one is not automatically a defect."
+        ],
+        "rejected_outcomes": [
+          "Silently expanding scope with no candidate-list rationale.",
+          "Using custom long-press as the only touch action entry or an always-visible action wall as the unexplained default."
+        ],
+        "evidence_refs": [
+          "public:public/brief.md",
+          "heldout:25dc9c818400ab66c99650316610b73ca5d2060f:docs/changes/archive/feat-484-chat-message-interactions/spec.md#L17-L21",
+          "heldout:25dc9c818400ab66c99650316610b73ca5d2060f:docs/changes/archive/feat-484-chat-message-interactions/design.md#L79-L143"
+        ],
+        "acceptance_notes": "Because the brief asks for one final design, structured escalation means an explicit decision package in the unified review artifact, not mandatory serial interruption during authoring."
+      }
+    }
+  ]
+}

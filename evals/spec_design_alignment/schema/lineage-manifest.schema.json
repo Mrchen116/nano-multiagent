@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nano-multiagent.local/evaluation/schema/lineage-manifest.schema.json",
+  "title": "Workflow or profile lineage audit manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "manifest_id",
+    "status",
+    "kind",
+    "subject_component_id",
+    "subject_manifest_sha256",
+    "coverage_policy",
+    "entries",
+    "review"
+  ],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schema_version": {"const": "1.0"},
+    "manifest_id": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"},
+    "status": {"enum": ["draft", "frozen"]},
+    "kind": {
+      "enum": [
+        "shared_helper",
+        "artifact_contract",
+        "workflow",
+        "profile_builder",
+        "cross_fitted_profile"
+      ]
+    },
+    "subject_component_id": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"},
+    "subject_manifest_sha256": {"$ref": "#/$defs/hashOrPending"},
+    "coverage_policy": {
+      "const": "every_candidate_visible_rule_example_or_profile_statement"
+    },
+    "entries": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/entry"}
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reviewer_ref", "reviewed_at"],
+      "properties": {
+        "status": {"enum": ["draft", "task_blind_approved"]},
+        "reviewer_ref": {"type": "string", "minLength": 1},
+        "reviewed_at": {"type": "string", "minLength": 1}
+      }
+    }
+  },
+  "$defs": {
+    "hashOrPending": {
+      "type": "string",
+      "pattern": "^(?:pending|[a-f0-9]{64})$"
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+"
+    },
+    "sourceLineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ref", "evidence_sha256"],
+      "properties": {
+        "kind": {
+          "enum": [
+            "repository_fact",
+            "historical_change",
+            "independent_user_evidence",
+            "original_workflow_design",
+            "general_method"
+          ]
+        },
+        "ref": {
+          "type": "string",
+          "pattern": "^(?:repo:[^\\s]+|git:[a-f0-9]{40}:[^\\s]+|case:(?:H|P)[0-9]{2}:[^\\s]+)$"
+        },
+        "evidence_sha256": {"$ref": "#/$defs/hashOrPending"}
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entry_id",
+        "subject_path",
+        "start_line",
+        "end_line",
+        "subject_slice_sha256",
+        "semantic_summary",
+        "lineage_class",
+        "source_lineages",
+        "affected_case_ids",
+        "disposition",
+        "rationale"
+      ],
+      "properties": {
+        "entry_id": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"},
+        "subject_path": {"$ref": "#/$defs/relativePath"},
+        "start_line": {"type": "integer", "minimum": 1},
+        "end_line": {"type": "integer", "minimum": 1},
+        "subject_slice_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "semantic_summary": {"type": "string", "minLength": 1},
+        "lineage_class": {
+          "enum": ["independent", "generic_historical_learning", "target_derived"]
+        },
+        "source_lineages": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/sourceLineage"}
+        },
+        "affected_case_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^(H|P)[0-9]{2}$"}
+        },
+        "disposition": {"const": "retain"},
+        "rationale": {"type": "string", "minLength": 1}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"lineage_class": {"const": "independent"}}},
+          "then": {"properties": {"affected_case_ids": {"maxItems": 0}}}
+        },
+        {
+          "if": {
+            "properties": {
+              "lineage_class": {"enum": ["generic_historical_learning", "target_derived"]}
+            }
+          },
+          "then": {"properties": {"affected_case_ids": {"minItems": 1}}}
+        }
+      ]
+    }
+  }
+}

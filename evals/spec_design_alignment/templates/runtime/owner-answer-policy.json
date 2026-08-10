@@ -1,0 +1,13 @@
+{
+  "$schema": "../../schema/owner-answer-policy.schema.json",
+  "schema_version": "1.0",
+  "case_id": "P99",
+  "status": "draft",
+  "policy_version": "P99-owner-policy-v1",
+  "creation_mode": "blind_owner_preseal",
+  "decision_inventory_sha256": "pending",
+  "frozen_before_arm_output": true,
+  "owner_blind_to_arm_outputs": true,
+  "entries": [],
+  "response_bank_sha256": "pending"
+}
