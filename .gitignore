@@ -4,6 +4,9 @@ CLAUDE.local.md
 .codex/
 *.sqlite3
 
+.nanoassistant
+.nanocode
+
 .DS_Store
 **/.DS_Store
 

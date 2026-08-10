@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - External Channels Specification
 
-> 对齐: bugfix-512
+> 对齐: bugfix-526
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -228,15 +228,23 @@ Agent 回复是否回写外部 channel 取决于触发该 run 的用户消息来
 
 ### Requirement: 飞书原生工具权限审批
 
-飞书触发的 agent run 产生工具权限审批时，Gateway 在内部 IM 影子会话保留现有审批卡，同时在飞书原对话发送原生 interactive approval card。内部 IM 与飞书两端审批 first-wins：任一端先完成决策后，另一端后续重复点击不得再次改变该请求。飞书群聊中，非 owner 成员不能代表 owner 审批工具权限。
+飞书触发的 agent run 产生工具权限审批时，Gateway 在内部 IM 影子会话保留现有审批卡，同时在飞书原对话发送原生 interactive approval card。飞书卡片用同一套通用字段布局展示工具输入，不按具体工具硬编码卡片：1:1 对话逐字段展示足以判断实际操作的 input values；群聊保留字段名但统一隐藏 values，并提示到内部 IM 查看完整输入，避免全群读取 owner 的敏感工具参数。超出卡片文本预算时可以在字段内明确截断，但不得退化为只展示参数数量或整段难以扫描的 JSON。内部 IM 与飞书两端审批 first-wins：任一端先完成决策后，另一端后续重复点击不得再次改变该请求。飞书群聊中，非 owner 成员不能代表 owner 审批工具权限。
 
 #### Scenario: 飞书触发的工具审批可在飞书中完成
 - **GIVEN** 用户在飞书 1:1 对话中发送一条会触发受控工具的消息
 - **WHEN** agent 请求工具权限
 - **THEN** 飞书原对话出现 interactive approval card
+- **AND** 卡片逐字段显示本次工具调用的输入 label 与 value，用户无需切换到内部 IM 即可判断将执行的操作
 - **AND** 内部 IM 影子会话也出现同一审批请求
 - **WHEN** 用户在飞书 approval card 中点击允许
 - **THEN** agent run 继续执行并把后续回复发回飞书
+
+#### Scenario: 飞书群聊审批不向非 owner 暴露工具输入值
+- **GIVEN** 飞书群聊中 agent run 产生工具权限审批，且 input 可能包含敏感值
+- **WHEN** Gateway 在原群发送 approval card
+- **THEN** 卡片使用与 1:1 相同的字段布局显示 input labels，但 values 统一标记为群内隐藏
+- **AND** 卡片提示 owner 到内部 IM 审批查看完整输入
+- **AND** 非 owner 群成员不能从卡片读取工具输入值
 
 #### Scenario: 飞书中拒绝工具审批时可填写拒绝原因
 - **GIVEN** 用户在飞书 1:1 对话中触发了一个工具权限审批

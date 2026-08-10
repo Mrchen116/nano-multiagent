@@ -194,7 +194,10 @@ def make_fork_conversation(
     Returns:
         An async callable with signature:
             fork_conversation(review_prompt: str, *, tool_allowlist: tuple[str,...],
-                              max_turns: int) -> ForkResult
+                              max_turns: int,
+                              event_policy: Literal["inherit", "self_evolution"],
+                              metadata_overrides: Mapping[str, Any] | None = None)
+                              -> ForkResult
     """
 
     async def fork_conversation(
@@ -203,6 +206,7 @@ def make_fork_conversation(
         tool_allowlist: tuple[str, ...] = (),
         max_turns: int = 16,
         event_policy: Literal["inherit", "self_evolution"] = "inherit",
+        metadata_overrides: Mapping[str, Any] | None = None,
     ) -> ForkResult:
         """Execute a fork side-chain with the parent turn's context.
 
@@ -214,6 +218,7 @@ def make_fork_conversation(
             event_policy: Session-event visibility policy. ``inherit`` preserves
                 the parent publisher; ``self_evolution`` exposes only marked
                 business events.
+            metadata_overrides: Metadata applied only to this fork side-chain.
 
         Returns:
             ForkResult with turn_result and summary info.
@@ -257,6 +262,7 @@ def make_fork_conversation(
         if parent_hook_ctx is not None:
             fork_metadata = {
                 **dict(parent_hook_ctx.metadata),
+                **dict(metadata_overrides or {}),
                 "run_origin": RunOrigin.BACKGROUND_TASK.value,
             }
             fork_metadata.pop("tool_call_id", None)

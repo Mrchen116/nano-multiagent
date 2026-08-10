@@ -108,7 +108,8 @@
 
 #### Scenario: 子 Agent 请求额外权限
 - **WHEN** 子 Agent 使用父白名单内但当前权限模式仍需确认的能力
-- **THEN** 交互式消费者从父会话收到可响应的 permission request
+- **THEN** child adapter 使用同一 broker request id 向父会话发布既有通用 permission request/resolved 事件，并附 Workflow run/call 关联
+- **AND** 交互式消费者的长驻 parent session consumer 在前台父轮结束后仍可响应该 request
 - **AND** 无人值守消费者按既有 unattended 策略处理，不出现无人可答的挂起
 
 ### Requirement: 消费者可查询和控制持久化 Workflow 运行并只收到一次完成通知

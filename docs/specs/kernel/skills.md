@@ -1,6 +1,6 @@
 # kernel (agent) - Skills Specification
 
-> 对齐: feat-519
+> 对齐: bugfix-527
 > 上级: [kernel (agent) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)「给库/内核写契约的额外纪律」。本目录只收 **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 + 归档 design)。
@@ -92,7 +92,7 @@ Skill 发现、按名读取、管理、生命周期、使用统计与能力预�
 
 ### Requirement: Skill 生命周期状态影响可见集合与自动优化
 
-Skill 使用统计中的生命周期状态影响候选集合;自动创建的 skill 在使用越线后可触发 per-skill batch review。
+Skill 使用统计中的生命周期状态影响候选集合;创建动作确定 Skill 来源,读取动作不得把当前会话的创建来源误套到既有 Skill;自动创建的 Skill 在使用越线后可触发 per-skill batch review。
 
 #### Scenario: stale skill 仍可发现和读取
 - **GIVEN** skill A 的 usage state 为 stale
@@ -103,6 +103,22 @@ Skill 使用统计中的生命周期状态影响候选集合;自动创建的 ski
 - **GIVEN** skill A 的 usage state 为 archived,且目录已移动到 `.archive/`
 - **WHEN** 内核生成 `<available_skills>` 或处理 `/skill:` 候选
 - **THEN** skill A 默认不出现在候选中,`skill_view(name="A")` 按找不到处理
+
+#### Scenario: 自动 Skill Review 创建记录自动来源
+- **GIVEN** 消费者启用了 Skill 自动 Review
+- **WHEN** 后台 Review 通过 `skill_manage(create)` 成功创建 Skill
+- **THEN** 新 Skill 的使用记录来源为自动创建 `F3`
+- **AND** 仅 memory Review、普通 fork 或普通用户创建不虚构该自动来源
+
+#### Scenario: 查看无记录的既有 Skill 不推断为自动创建
+- **GIVEN** 一个既有手工或遗留 Skill 尚无使用记录
+- **WHEN** 自动 Skill Review 通过 `skill_view` 成功读取它
+- **THEN** 首次使用记录沿用非自动来源 `F1`,不因当前 Review 可创建自动 Skill 而记为 `F3`
+
+#### Scenario: 查看已有自动来源的 Skill 保留来源
+- **GIVEN** Skill A 的使用记录来源已经是 `F3` 或 `F4`
+- **WHEN** 任意会话通过 `skill_view` 成功读取 Skill A
+- **THEN** 读取只更新使用统计,不覆盖已有来源
 
 #### Scenario: 自动 skill 使用计数越线后触发 batch
 - **GIVEN** 自动创建的 skill A 在一次成功 `skill_view` 后达到自动优化阈值
