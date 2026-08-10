@@ -40,7 +40,7 @@ def _visible_files(root: Path) -> list[dict[str, str]]:
                     "sha256": _sha256_bytes(path.read_bytes()),
                 }
             )
-    return entries
+    return sorted(entries, key=lambda entry: entry["path"])
 
 
 def _scheme_string(value: Path) -> str:

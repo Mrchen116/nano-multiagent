@@ -75,6 +75,66 @@ def test_role_filesystem_confinement_blocks_parent_canary(
     ]
 
 
+def test_role_attestation_canonicalizes_nested_visible_file_order(
+    tmp_path: Path,
+) -> None:
+    boundary = tmp_path / "pilot-workspace"
+    workspace = boundary / "roles/role-01"
+    runtime = tmp_path / "runtime/role-01"
+    artifacts = tmp_path / "artifacts"
+    workspace.mkdir(parents=True)
+    runtime.mkdir(parents=True)
+    artifacts.mkdir()
+    (boundary / ".role-context-canary").write_text("blocked\n", encoding="utf-8")
+    (workspace / "documents").mkdir()
+    (workspace / "documents/doc-0001.txt").write_text("doc\n", encoding="utf-8")
+    (workspace / "scheme.json").write_text("{}\n", encoding="utf-8")
+    environment = {
+        "PATH": os.environ["PATH"],
+        "HOME": str(runtime / "home"),
+        "CODEX_HOME": str(runtime / "codex-home"),
+        "TMPDIR": str(runtime / "tmp"),
+    }
+    command = ["/usr/bin/true"]
+    manifest = runner.create_role_context_manifest(
+        manifest_id="role-01",
+        role="memory_builder",
+        lifecycle="ephemeral",
+        cwd=workspace,
+        instructions="",
+        envelope="",
+        output_schema=workspace / "scheme.json",
+        model="test",
+        reasoning_effort="medium",
+        skill_closure=[],
+        workspace_write=True,
+        forbidden_surfaces=[],
+        command=command,
+        environment=environment,
+        runtime_root=runtime,
+        artifacts=artifacts,
+        host_home=Path.home(),
+    )
+    actual_path = artifacts / "actual.json"
+
+    result = runner.run_confined_subprocess(
+        manifest_id="role-01",
+        command=command,
+        workspace=workspace,
+        workspace_boundary=boundary,
+        artifacts=artifacts,
+        runtime_root=runtime,
+        host_home=Path.home(),
+        environment=environment,
+        envelope="",
+        actual_path=actual_path,
+        workspace_write=True,
+    )
+
+    assert result.returncode == 0
+    runner.verify_context_attestation(manifest, load_json(actual_path), "")
+
+
 def test_gate1_rejects_ignored_scratch_and_symlinks(tmp_path: Path) -> None:
     repository = tmp_path / "candidate"
     initialize_repository(repository, {"README.md": "# Base\n"})
