@@ -50,3 +50,16 @@
 ## Next
 
 M1 已完成，集成到 `unit/refactor-522` 后交 independent reviewer。
+
+## Reviewer Feedback Fix 1 — `/compact` 回归与 subprocess 回收
+
+- Context: verifier R1 W1 缺已有 binding 的 no-op / failure Gateway 回归；S1 指出 stage-A 在 barrier 前失败会泄漏 subprocess。
+- Decision: 仅补两个 Gateway 行为测试，并让 stage-A 在 `finally` 中 terminate/wait、超时 kill/wait；现有 production 已满足目标行为，未修改 production。
+- Evidence:
+  - Mutation Red: 临时破坏 no-op 与异常分支后，新用例 `2 failed`，分别命中错误成功回复与异常外泄；恢复原实现后 `2 passed`。
+  - Regression: `test_gateway_stop_command.py` → 23 passed；覆盖 no-op binding 不变、失败友好回复、稳定 operation replay 只执行一次、后续普通消息继续原 session。
+  - E2E: 原 90s 门禁基线 1 passed in 28.52s；共享主机高负载下以 `--timeout=300` 完整重跑 1 passed in 63.05s；一次 barrier 超时还确认新增 `finally` 回收 stage-A，无残留进程。
+  - Gates: non-E2E 基线 3182 passed；避开同机并发门禁后的串行全量 3184 passed；Ruff check/format-check 与 `git diff --check` 全绿。
+- Process: 按 §FL 省略 §3 tasks 模板，理由是反馈自包含、3 个文件内且单 commit 可回退；reviewer 仍独立复验。
+- Rollback: revert 本 fix commit；production 行为未改。
+- Commits: 本 fix commit。
