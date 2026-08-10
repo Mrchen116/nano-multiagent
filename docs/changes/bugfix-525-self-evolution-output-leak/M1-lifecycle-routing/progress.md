@@ -37,11 +37,23 @@
   - Quality: targeted Ruff passed。
   - Entry / Frontend / Browser / Visual / Prototype: N/A（R3 负责 production composition 跨层入口）。
 - Rollback: revert R2 commit restores per-run-only skill ownership and reopens post-terminal activation loss；ordinary background route is otherwise unchanged.
-- Commits: pending R2 commit.
+- Commits: `0c11747e5`.
 
 ## R3 — Production composition 到 config-sync 的跨层闭环
 
-- Status: pending.
+- Context: 单有 Kernel source event 与 manager callback 仍不能证明 production composition 会把 `IMAgentConfigSync.handle_skill_created()` 注入 persistent owner；这正是 patch review 发现的生命周期断点。
+- Decision: composition 解析一次现有 handler，并同时注入按 source 分工的 per-run observer 与 persistent manager。integration 用 gate 把真实 Skill review 固定在 foreground terminal 后，再从 run start anchor 建立 manager subscription，观察真实 Agent catalog revision 和 Skill 文件。
+- Rationale: shared handler 避免第二套 config mutation；真实 Kernel fork + production manager + actual IMAgentConfigSync 结果穿透故障 seam，composition unit 单独守住接线。
+- Evidence:
+  - Tests (red): composition + integration pair `1 failed, 1 passed`；唯一失败为 manager 缺 `skill_created_handler` wiring。
+  - Tests (green): pair `2 passed in 4.24s`；完整受影响矩阵 `111 passed, 2 warnings in 9.73s`。
+  - Product seam: real `skill_manage(create)` 在 foreground terminal 后产生 marked event；manager 使用 request.agent_id 调真实 config sync，default-discovery mode 与空 names 保持不变，catalog revision 前进且新 Skill 文件内容精确落盘。
+  - Existing convergence: `test_gateway_im_config_sync.py` agent/global、default/explicit（含显式空）既有 handler tests 在完整矩阵保持绿；composition test 证明 production persistent owner 拿到同一 `IMAgentConfigSync` bound method。
+  - Lifecycle matrix: fast/slow、later-turn already-active、reconnect cursor/replay、ordinary background Agent output、ordinary foreground skill owner、real memory add、structured review owner 均由 R1-R3 focused matrix覆盖。
+  - Quality: targeted Ruff passed；`git diff --check` passed。
+  - Frontend / Browser / Visual / Prototype: N/A。
+- Rollback: revert R3 commit removes persistent production wiring and reopens post-terminal Skill activation loss while lower-level source routing remains dormant.
+- Commits: pending R3 commit.
 
 ## R4 — 比例验证与真实入口
 

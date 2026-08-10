@@ -10,7 +10,27 @@ from typing import Any
 import pytest
 
 from agent.core.llm.interfaces import LLMGenerateRequest, LLMMessage, LLMToolCall
+from agent.core.llm.config import (
+    LLMConfigPayload,
+    LLMModelPayload,
+    LLMProviderPayload,
+)
 from agent.sdk import LLMConfig, PermissionDecision, build_kernel
+from personal_assistant.config.local_store import (
+    AgentWorkspaceConfig,
+    HeartbeatConfig,
+    GatewayLifecycleConfig,
+    LocalConfig,
+    NodeConfig,
+)
+from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
+from personal_assistant.gateway.agent_config_sync import IMAgentConfigSync
+from personal_assistant.gateway.background_subscriptions import (
+    BackgroundSubscriptionManager,
+    BackgroundSubscriptionRequest,
+)
+from personal_assistant.gateway.session_binder import GatewaySessionBinder
+from personal_assistant.gateway.session_keys import SessionBindingStore
 
 _FOREGROUND_REPLY = "Foreground answer"
 _SEED_REPLY = "Seed answer"
@@ -42,11 +62,13 @@ class _SelfEvolutionLLM:
         *,
         foreground_replies: tuple[str, ...],
         review_tool_call: LLMToolCall,
+        review_gate: asyncio.Event | None = None,
     ) -> None:
         self.requests: list[LLMGenerateRequest] = []
         self.agent_requests: list[LLMGenerateRequest] = []
         self._foreground_replies = foreground_replies
         self._review_tool_call = review_tool_call
+        self._review_gate = review_gate
 
     def generate(self, request: LLMGenerateRequest) -> AsyncIterator[LLMMessage]:
         self.requests.append(request)
@@ -71,6 +93,8 @@ class _SelfEvolutionLLM:
                 return
 
             if request_index == len(self._foreground_replies):
+                if self._review_gate is not None:
+                    await self._review_gate.wait()
                 yield LLMMessage(
                     role="assistant",
                     content="",
@@ -119,6 +143,16 @@ async def _wait_for_terminal(kernel: Any, run_id: str) -> None:
         run = kernel.get_run(run_id)
         if run is not None and run.status in {"completed", "failed", "cancelled"}:
             return
+        await asyncio.sleep(0)
+
+
+async def _wait_for_catalog_revision(
+    catalog: LiveAgentCatalog,
+    agent_id: str,
+    *,
+    after_revision: int,
+) -> None:
+    while catalog.require(agent_id).revision <= after_revision:
         await asyncio.sleep(0)
 
 
@@ -334,4 +368,134 @@ async def test_self_evolution_skill_create_keeps_only_business_event_visible(
         assert len(client.requests) == 4
         assert {request.model for request in client.requests} == {"test-model"}
     finally:
+        await kernel.aclose()
+
+
+@pytest.mark.asyncio
+async def test_post_terminal_skill_create_reaches_gateway_config_sync(
+    tmp_path: Path,
+) -> None:
+    """A real late review refreshes Gateway config through its persistent owner."""
+    review_gate = asyncio.Event()
+    client = _SelfEvolutionLLM(
+        foreground_replies=(_FOREGROUND_REPLY,),
+        review_tool_call=LLMToolCall(
+            call_id="late-skill-create-call",
+            name="skill_manage",
+            arguments={
+                "action": "create",
+                "name": _SKILL_NAME,
+                "scope": "agent",
+                "content": _SKILL_CONTENT,
+            },
+        ),
+        review_gate=review_gate,
+    )
+    kernel = build_kernel(
+        llm=LLMConfig(
+            provider="openai_compat",
+            model="test-model",
+            base_url="http://127.0.0.1:1",
+        ),
+        can_use_tool=_allow_all,
+        workspace_config_dirname=".nanoassistant",
+        repo_root=tmp_path,
+        _llm_client_override=client,
+    )
+    agent_id = "agent-self-evolution"
+    local_config = LocalConfig(
+        node=NodeConfig(node_id="node-test"),
+        agents=(
+            AgentWorkspaceConfig(
+                agent_id=agent_id,
+                workspace_root=tmp_path,
+                skills=(),
+                skills_selection_mode="default_discovery",
+                tool_allowlist=("skill_manage",),
+            ),
+        ),
+        channels=(),
+        gateway=GatewayLifecycleConfig(),
+        heartbeat=HeartbeatConfig(),
+        im_service=None,
+        llm=LLMConfigPayload(
+            default_model="test-model",
+            providers=(
+                LLMProviderPayload(
+                    name="openai_compat",
+                    base_url="http://127.0.0.1:1",
+                    models=(LLMModelPayload(name="test-model"),),
+                ),
+            ),
+        ),
+        source_path=tmp_path / "gateway.yaml",
+    )
+    catalog = LiveAgentCatalog(local_config.agents)
+    binder = GatewaySessionBinder(
+        catalog=catalog,
+        repository=SessionBindingStore(),
+        kernel=kernel,
+    )
+    config_sync = IMAgentConfigSync(
+        base_url="http://im.invalid",
+        token=None,
+        agent_catalog=catalog,
+        session_binder=binder,
+        local_config=local_config,
+    )
+    manager = BackgroundSubscriptionManager(
+        kernel=kernel,
+        skill_created_handler=config_sync.handle_skill_created,
+    )
+    try:
+        session = await kernel.create_session(
+            workspace_root=tmp_path,
+            enabled_tools=["skill_manage"],
+            features={},
+            metadata={
+                "self_evolution": {
+                    "enabled": True,
+                    "skill_creation": True,
+                    "memory_curation": False,
+                    "skill_nudge_interval": 1,
+                    "memory_nudge_interval": 100,
+                }
+            },
+        )
+        initial_revision = catalog.require(agent_id).revision
+        run = kernel.submit(
+            session_id=session.session_id,
+            workspace_root=tmp_path,
+            parts=[{"type": "text", "text": "Solve one complex task."}],
+        )
+        await asyncio.wait_for(_wait_for_terminal(kernel, run.run_id), timeout=2)
+
+        outcome = await manager.ensure_after_foreground_terminal(
+            BackgroundSubscriptionRequest(
+                session_id=session.session_id,
+                after_sequence=run.start_sequence,
+                reply_context=None,
+                agent_id=agent_id,
+            )
+        )
+        review_gate.set()
+        await asyncio.wait_for(
+            _wait_for_catalog_revision(
+                catalog,
+                agent_id,
+                after_revision=initial_revision,
+            ),
+            timeout=5,
+        )
+
+        assert outcome.value == "started"
+        refreshed = catalog.require(agent_id)
+        assert refreshed.config.skills_selection_mode == "default_discovery"
+        assert refreshed.config.skills == ()
+        skill_path = tmp_path / ".nanoassistant" / "skills" / _SKILL_NAME / "SKILL.md"
+        assert skill_path.read_text(encoding="utf-8") == _SKILL_CONTENT
+    finally:
+        review_gate.set()
+        await manager.aclose(asyncio.get_running_loop().time() + 1)
+        config_sync.close()
         await kernel.aclose()
