@@ -12,15 +12,12 @@ from typing import Any, Mapping
 
 from personal_assistant._utils import _optional_text, _require_text
 from personal_assistant.channels.base import (
+    ExternalConversationIdentity,
+    IMRelayIngress,
     InboundHandler,
+    InboundIngress,
     InboundMessage,
     OutboundMessage,
-)
-from personal_assistant.gateway.runtime_protocol import (
-    ExternalConversationIdentity,
-    RuntimeProtocolFacts,
-    ShadowConversationRef,
-    attach_runtime_protocol,
 )
 
 _SEEN_KEYS_MAX = 1000
@@ -158,22 +155,6 @@ class RelayEnvelope:
             object.__setattr__(self, "participants", [])
 
 
-@dataclass(frozen=True, slots=True, eq=False)
-class InboundEnvelope:
-    """Handoff wrapper carrying the channel message plus typed protocol facts."""
-
-    message: InboundMessage
-    protocol: RuntimeProtocolFacts
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self.message, name)
-
-    def __eq__(self, other: object) -> bool:
-        if isinstance(other, InboundEnvelope):
-            return self.message == other.message and self.protocol == other.protocol
-        return self.message == other
-
-
 class WebRelayAdapter:
     """Adapt IM relay.message pushes into the gateway channel contract.
 
@@ -210,7 +191,7 @@ class WebRelayAdapter:
 
         self._on_inbound = None
 
-    def accept_relay(self, payload: Mapping[str, object]) -> InboundEnvelope:
+    def accept_relay(self, payload: Mapping[str, object]) -> InboundMessage:
         """Convert one ``relay.message`` payload into an inbound gateway message.
 
         Raises:
@@ -222,12 +203,12 @@ class WebRelayAdapter:
         if callback is None:
             raise RuntimeError("web relay adapter is not started")
         envelope = _parse_relay_payload(payload)
-        inbound_envelope = _build_inbound_envelope(envelope, payload)
+        message = _build_inbound(envelope, payload)
         if self._contains_seen_key(envelope.idempotency_key):
-            return inbound_envelope
+            return message
         self._remember_seen_key(envelope.idempotency_key)
-        callback(inbound_envelope.message)
-        return inbound_envelope
+        callback(message)
+        return message
 
     def _contains_seen_key(self, key: str) -> bool:
         if self._dedup_store is not None:
@@ -266,6 +247,19 @@ def _build_inbound(
         extra["participants"] = envelope.participants
     metadata = dict(envelope.metadata)
     external_agent_id = _optional_text(metadata.get("agent_id"))
+    external_source = _optional_text(metadata.get("external_source"))
+    external_chat_id = _optional_text(metadata.get("external_chat_id"))
+    external_conversation = (
+        ExternalConversationIdentity(
+            external_source=external_source,
+            external_chat_id=external_chat_id,
+            agent_id=external_agent_id,
+            conversation_type=_optional_text(metadata.get("conversation_type")),
+            trigger_source=_optional_text(metadata.get("trigger_source")),
+        )
+        if external_source is not None and external_chat_id is not None
+        else None
+    )
     if (
         conversation_type == "group"
         and external_agent_id is not None
@@ -294,47 +288,13 @@ def _build_inbound(
             "conversation_id": envelope.conversation_id,
             **extra,
         },
-    )
-
-
-def _build_inbound_envelope(
-    envelope: RelayEnvelope, payload: Mapping[str, object]
-) -> InboundEnvelope:
-    message = _build_inbound(envelope, payload)
-    protocol = _build_runtime_protocol(envelope, message)
-    return InboundEnvelope(
-        message=attach_runtime_protocol(message, protocol),
-        protocol=protocol,
-    )
-
-
-def _build_runtime_protocol(
-    envelope: RelayEnvelope, message: InboundMessage
-) -> RuntimeProtocolFacts:
-    external_identity: ExternalConversationIdentity | None = None
-    external_source = _optional_text(envelope.metadata.get("external_source"))
-    external_chat_id = _optional_text(envelope.metadata.get("external_chat_id"))
-    if external_source is not None and external_chat_id is not None:
-        external_identity = ExternalConversationIdentity(
-            external_source=external_source,
-            external_chat_id=external_chat_id,
-            agent_id=_optional_text(envelope.metadata.get("agent_id")),
-            conversation_type=_optional_text(
-                envelope.metadata.get("conversation_type")
+        ingress=InboundIngress(
+            im_relay=IMRelayIngress(
+                relay_task_id=envelope.relay_task_id,
+                idempotency_key=envelope.idempotency_key,
+                im_message_id=message_id,
             ),
-            trigger_source=_optional_text(envelope.metadata.get("trigger_source")),
-        )
-    im_message_id = _optional_text(message.metadata.get("message_id"))
-    return RuntimeProtocolFacts(
-        relay_task_id=envelope.relay_task_id,
-        idempotency_key=envelope.idempotency_key,
-        im_message_id=im_message_id,
-        external_source=external_source,
-        external_identity=external_identity,
-        shadow_ref=ShadowConversationRef(
-            conversation_id=envelope.conversation_id,
-            relay_task_id=envelope.relay_task_id,
-            im_message_id=im_message_id,
+            external_conversation=external_conversation,
         ),
     )
 

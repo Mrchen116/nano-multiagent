@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from personal_assistant.channels.base import InboundMessage, OutboundMessage
+from personal_assistant.channels.base import (
+    ExternalConversationIdentity,
+    InboundIngress,
+    InboundMessage,
+    OutboundMessage,
+)
 from personal_assistant.gateway.bootstrap import start_channels, stop_channels
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.session_keys import build_session_key
@@ -70,10 +75,15 @@ def test_build_session_key_uses_shared_external_conversation_identity() -> None:
         external_chat_id="im-conv-1",
         is_group=False,
         agent_id="agent-a",
-        metadata={
-            "external_source": "feishu",
-            "external_chat_id": "feishu:cli_a:dm:ou_user1",
-        },
+        ingress=InboundIngress(
+            external_conversation=ExternalConversationIdentity(
+                external_source="feishu",
+                external_chat_id="feishu:cli_a:dm:ou_user1",
+                agent_id="agent-a",
+                conversation_type="direct",
+                trigger_source="im",
+            )
+        ),
     )
     feishu_message = InboundMessage(
         channel_name="feishu:agent-a",
@@ -82,10 +92,15 @@ def test_build_session_key_uses_shared_external_conversation_identity() -> None:
         external_chat_id="feishu:cli_a:dm:ou_user1",
         is_group=False,
         agent_id="agent-a",
-        metadata={
-            "external_source": "feishu",
-            "external_chat_id": "feishu:cli_a:dm:ou_user1",
-        },
+        ingress=InboundIngress(
+            external_conversation=ExternalConversationIdentity(
+                external_source="feishu",
+                external_chat_id="feishu:cli_a:dm:ou_user1",
+                agent_id="agent-a",
+                conversation_type="direct",
+                trigger_source="feishu",
+            )
+        ),
     )
 
     expected = "feishu:feishu:cli_a:dm:ou_user1:agent-a"

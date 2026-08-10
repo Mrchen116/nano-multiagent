@@ -77,9 +77,19 @@ def test_direct_message_maps_stable_identity_and_acknowledges(
     assert message.external_user_id == "ou_user1"
     assert message.external_chat_id == "feishu:cli_a:dm:ou_user1"
     assert message.metadata["trigger_source"] == "feishu"
-    assert message.external_event_identity is not None
-    assert message.external_event_identity.connector_account_id == "cli_a"
-    assert message.external_event_identity.provider_event_id == "msg_001"
+    assert message.ingress.im_relay is None
+    assert message.ingress.external_conversation is not None
+    assert message.ingress.external_conversation.external_source == "feishu"
+    assert (
+        message.ingress.external_conversation.external_chat_id
+        == "feishu:cli_a:dm:ou_user1"
+    )
+    assert message.ingress.external_conversation.agent_id == "plato"
+    assert message.ingress.external_conversation.conversation_type == "direct"
+    assert message.ingress.external_conversation.trigger_source == "feishu"
+    assert message.ingress.external_event is not None
+    assert message.ingress.external_event.connector_account_id == "cli_a"
+    assert message.ingress.external_event.provider_event_id == "msg_001"
     client.add_reaction.assert_called_once_with(
         message_id="msg_001",
         emoji_type="THINKING",
@@ -241,6 +251,14 @@ def test_group_message_preserves_trigger_metadata(
     message: InboundMessage = on_inbound.call_args.args[0]
     assert message.agent_id == "plato"
     assert message.external_chat_id == "feishu:cli_a:group:oc_group"
+    assert message.ingress.im_relay is None
+    assert message.ingress.external_conversation is not None
+    assert message.ingress.external_conversation.external_chat_id == (
+        "feishu:cli_a:group:oc_group"
+    )
+    assert message.ingress.external_conversation.conversation_type == "group"
+    assert message.ingress.external_event is not None
+    assert message.ingress.external_event.provider_event_id == "msg_001"
     assert message.metadata["mentioned_agent_ids"] == expected_agent_mentions
     assert "sync_only" not in message.metadata
     if expected_ack:
