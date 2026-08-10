@@ -1,5 +1,5 @@
 {
   "first_doc_path": "",
-  "owner_message": "Q2：Personal Assistant 配置中没有显式指定统一审批模型时，应使用哪个模型？\n我的推荐：回退到 PA 的产品级 `llm.default_model`，而不是各 Agent 自己的模型。\n理由：这样旧配置无需立即迁移，也始终保持“所有 Agent 的审批统一用一个模型”；需要专用审批模型时再显式配置。\n\n你怎么看？",
+  "owner_message": "Q2：个人助手的统一审批模型，是否要作为独立于 `llm.default_model` 和各 Agent `default_model` 的全局配置来选择？我的推荐：是；运维者从 Gateway 配置中已登记的模型里单独指定一个审批模型，所有个人助手 Agent 的审批分类都使用它，普通对话模型不受影响。理由：复用 `llm.default_model` 会把“普通回复默认模型”和“审批模型”继续绑在一起，无法独立控制成本与稳定性。你怎么看？",
   "status": "needs_owner"
 }

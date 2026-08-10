@@ -80,3 +80,21 @@ Prototype / Reference Contract：N/A。
 - 状态: DONE
 - 步骤: 代码提交后从 clean tracked snapshot 运行全新 H02，旧 bundle 不复用；新 bundle replay/泄漏/schema/secret/diff 门禁通过后替换版本化结果并更新 progress。
 - 验证: 真实 Codex invocation receipt 数、新 seal/evidence hash、全量 focused/shared tests、docs/Ruff format/diff checks。
+
+### R8 — Round 2 default-deny、credential 与 Git 执行边界
+
+- 状态: DONE
+- 步骤: 用真实 OS canary 将 filesystem read 改为 default-deny allowlist；只给主 Codex process 提供 auth/network，拒绝子 shell credential 与 nested Codex；Memory builder 改为 read-only；Candidate Git metadata 在任何控制面读取前拒绝外部执行配置与 hooks。
+- 验证: read-only/workspace-write 的 `/private/tmp`、`/Volumes`、fake auth、PATH/绝对 nested Codex、fsmonitor/diff/filter/hook marker 红转绿；真实父 Codex 认证与模型调用成功。
+
+### R9 — Round 2 exact evidence chain 与 Loop semantics
+
+- 状态: DONE
+- 步骤: actual 绑定 final files/exit/profile/command events；replay 按 transcript/run receipt 精确推导 persistent invocation matrix 与 session chain；evaluation copies 一一绑定 context output/receipt；batch critical flag 和结构化 Memory trace aggregate fail closed。
+- 验证: actual、context 删除、evaluation copy、batch、trace 篡改即使重建 evidence manifest 仍使 replay 非零退出。
+
+### R10 — Round 2 clean reseal 与独立门禁交付
+
+- 状态: DONE
+- 步骤: 从 clean tracked commit 全量运行新 H02；不复用旧 role outputs；新 bundle 通过 live deterministic result、replay、leakage、schema、secret 和 diff 门禁后替换版本化 evidence。
+- 验证: 31 次真实 invocation、31/31 OS probes、新 seal/evidence hash、44 focused/shared tests，以及 docs/dataset/Ruff/format/compile/diff/feat-397 零改动检查。

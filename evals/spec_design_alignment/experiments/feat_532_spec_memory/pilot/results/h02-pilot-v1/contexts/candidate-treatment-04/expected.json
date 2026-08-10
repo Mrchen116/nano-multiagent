@@ -47,9 +47,10 @@
       "--json",
       "-o",
       "$ROLE_RUNTIME/last-message-04.json",
-      "019fed6f-500f-7cd0-bce6-468837d8714d",
+      "019fedbd-5686-7530-a7a4-7c6b4240cb12",
       "-"
-    ]
+    ],
+    "sandbox_profile_sha256": "f33a3680b9c0ff1f38dae22f0a4bb05030a95a3bc3351d152f6badb51e4c511c"
   },
   "forbidden_surfaces": [
     "other arm",
@@ -59,7 +60,7 @@
     "design or implementation phase"
   ],
   "formal_eligible": false,
-  "input_envelope_sha256": "762eb0cd6d6e6df503892526cf0796ca95fad11716f01e1bd89fd8bd5c08f7c6",
+  "input_envelope_sha256": "7ccdad53ef3d85ad6c534709b9b584e17bf67b12cd53ab60a30189947652671d",
   "instructions_sha256": "94d5f8504b1f03e087e81627ab2f92555d21ba829271bf892bc731cf2e1307f3",
   "isolation": {
     "codex_home": "temporary_isolated",
@@ -72,7 +73,7 @@
   "model": "gpt-5.6-sol",
   "output_schema_sha256": "47843ed3e69bc0211b491550f688d9511f0a6562c8f697cb02e275165e1a0ff4",
   "readable_roots": [
-    "role_runtime",
+    "role_runtime_except_credentials",
     "system_runtime",
     "workspace"
   ],
@@ -118,7 +119,7 @@
     },
     {
       "path": ".experiment/task-memory.md",
-      "sha256": "787528882f940100fa167cb1f418aee8741cc2843eeb6d4f4a464559af8034aa"
+      "sha256": "eb9ac2d6bd8b22a4ca0b7a39fd4d9da4e92388a32a8ca80898a49979890f19fd"
     },
     {
       "path": ".gitattributes",
@@ -8954,7 +8955,7 @@
     },
     {
       "path": "docs/changes/feat-507-unified-approval-model/spec.md",
-      "sha256": "f65228789906023d0f73901b606f395b5ab934a4645a13c39c541b487022bf4b"
+      "sha256": "c05d36afb2b254256ba253696b6fa86304d7d1a5a6bd755729dc0236d717dc81"
     },
     {
       "path": "docs/development/README.md",

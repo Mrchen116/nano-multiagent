@@ -27,7 +27,7 @@
     },
     {
       "path": "transcript.json",
-      "sha256": "88d8d8c67217b3685c38588c33269c4f678a62d8efd97aca94858acaec87fb42"
+      "sha256": "848e4e2bbdfc9e1bc6203bf3a487fcb6e0166e57b864c78c9e94dc3ceff8b627"
     }
   ],
   "formal_eligible": false,
@@ -38,19 +38,22 @@
     },
     {
       "path": "transcript.json",
-      "sha256": "88d8d8c67217b3685c38588c33269c4f678a62d8efd97aca94858acaec87fb42"
+      "sha256": "848e4e2bbdfc9e1bc6203bf3a487fcb6e0166e57b864c78c9e94dc3ceff8b627"
     }
   ],
   "input_envelope_sha256": "40ffbf5843cae6c35c4a407d65f1146b6e31a033e00db27b6cd30665de200253",
   "manifest_id": "burden-T1",
   "os_sandbox": {
     "canary_read_blocked": true,
+    "credential_read_blocked": true,
     "mechanism": "macos_sandbox_exec_seatbelt",
-    "profile_sha256": "9f25c671302b46ad2b03c25e5bf613fb32d2e6e365a7e259a8feadf5259c2af7",
-    "tool_network_blocked": true
+    "nested_codex_blocked": true,
+    "profile_sha256": "f07031f62b0422d4daf9b3729e81e815cb8f8e8773bcd81b8b66fee856b43427",
+    "tool_network_blocked": true,
+    "unrelated_read_blocked": true
   },
   "readable_roots": [
-    "role_runtime",
+    "role_runtime_except_credentials",
     "system_runtime",
     "workspace"
   ],

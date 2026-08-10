@@ -8883,7 +8883,7 @@
     },
     {
       "path": "docs/changes/feat-507-unified-approval-model/spec.md",
-      "sha256": "bcea4bf06565f902c1d47c1da00563954a40df33d5729a46402afc152ea6ad7e"
+      "sha256": "edf2b3fb18298abdf15ee8525e2249b8300ef872258e723dd854850aa1eeac6d"
     },
     {
       "path": "docs/development/README.md",
@@ -23834,7 +23834,7 @@
     },
     {
       "path": "docs/changes/feat-507-unified-approval-model/spec.md",
-      "sha256": "75989a134d6687a4a8987f3f16a74988eab306dfdd107c6c5ace542004bcd09d"
+      "sha256": "28bfe0d9641479e36defb19b32f629485a73d93d49e374e023e05fa144b7662c"
     },
     {
       "path": "docs/development/README.md",
@@ -29921,16 +29921,19 @@
       "sha256": "0a615438f91c54b71840fc5a4e5e6c6ba40c0810d67f0d80b3f65fa238bbf54c"
     }
   ],
-  "input_envelope_sha256": "be34a18ec817c82b1a37c1cc52b3ef593084c4eff11c28910d84916d37c31056",
+  "input_envelope_sha256": "0d9bd599360e4177d3a7d11b8b68ecf3464f5711967c3d73663d18908b7d6e9a",
   "manifest_id": "candidate-baseline-05",
   "os_sandbox": {
     "canary_read_blocked": true,
+    "credential_read_blocked": true,
     "mechanism": "macos_sandbox_exec_seatbelt",
-    "profile_sha256": "6894bdf46406864582a24934064038bedad1d00bbe118c793a98e29512318315",
-    "tool_network_blocked": true
+    "nested_codex_blocked": true,
+    "profile_sha256": "8c82f1f9232726cf4794dd823c4c2d75c62b950a7ba02abce6e0f456ed1a07e7",
+    "tool_network_blocked": true,
+    "unrelated_read_blocked": true
   },
   "readable_roots": [
-    "role_runtime",
+    "role_runtime_except_credentials",
     "system_runtime",
     "workspace"
   ],
@@ -29960,7 +29963,7 @@
     "--json",
     "-o",
     "$ROLE_RUNTIME/last-message-05.json",
-    "019fed69-62f4-7732-9e6a-674107d01e74",
+    "019fedb5-2a79-75a1-8abc-e18da1d10182",
     "-"
   ],
   "schema_version": "1.0",

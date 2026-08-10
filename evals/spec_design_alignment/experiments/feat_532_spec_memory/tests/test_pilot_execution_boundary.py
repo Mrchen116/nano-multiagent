@@ -39,12 +39,10 @@ def test_read_allowlist_blocks_unrelated_host_and_auth_canaries(
 ) -> None:
     boundary, workspace, runtime, artifacts, environment = confined_fixture(tmp_path)
     private_canary = Path("/private/tmp") / f"feat-532-{tmp_path.name}.txt"
-    volume_style_canary = (
-        Path("/private/tmp") / f"Volumes-{tmp_path.name}" / "canary.txt"
-    )
-    volume_style_canary.parent.mkdir()
+    volume_target = Path("/private/tmp") / f"feat-532-volume-{tmp_path.name}.txt"
+    volume_style_canary = Path("/Volumes/Macintosh HD/private/tmp") / volume_target.name
     private_canary.write_text("PRIVATE-TMP-SENTINEL\n", encoding="utf-8")
-    volume_style_canary.write_text("VOLUME-STYLE-SENTINEL\n", encoding="utf-8")
+    volume_target.write_text("VOLUME-STYLE-SENTINEL\n", encoding="utf-8")
     auth = runtime / "codex-home/auth.json"
     auth.write_text("AUTH-SENTINEL\n", encoding="utf-8")
     actual = artifacts / "actual.json"
@@ -72,8 +70,7 @@ def test_read_allowlist_blocks_unrelated_host_and_auth_canaries(
         )
     finally:
         private_canary.unlink(missing_ok=True)
-        volume_style_canary.unlink(missing_ok=True)
-        volume_style_canary.parent.rmdir()
+        volume_target.unlink(missing_ok=True)
 
     output = result.stdout + result.stderr
     assert result.returncode != 0

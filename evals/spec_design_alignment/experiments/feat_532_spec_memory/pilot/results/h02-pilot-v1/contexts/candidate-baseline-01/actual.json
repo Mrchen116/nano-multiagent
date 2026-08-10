@@ -8883,7 +8883,7 @@
     },
     {
       "path": "docs/changes/feat-507-unified-approval-model/spec.md",
-      "sha256": "a539be6bcbfce968fb44ae062bf547be3f5831983ad040bc96420a4b45155574"
+      "sha256": "47085054c521d021375e92b721032807d6f7952f9249dd3d0e3cd236642d3a61"
     },
     {
       "path": "docs/development/README.md",
@@ -29921,12 +29921,15 @@
   "manifest_id": "candidate-baseline-01",
   "os_sandbox": {
     "canary_read_blocked": true,
+    "credential_read_blocked": true,
     "mechanism": "macos_sandbox_exec_seatbelt",
-    "profile_sha256": "6894bdf46406864582a24934064038bedad1d00bbe118c793a98e29512318315",
-    "tool_network_blocked": true
+    "nested_codex_blocked": true,
+    "profile_sha256": "8c82f1f9232726cf4794dd823c4c2d75c62b950a7ba02abce6e0f456ed1a07e7",
+    "tool_network_blocked": true,
+    "unrelated_read_blocked": true
   },
   "readable_roots": [
-    "role_runtime",
+    "role_runtime_except_credentials",
     "system_runtime",
     "workspace"
   ],

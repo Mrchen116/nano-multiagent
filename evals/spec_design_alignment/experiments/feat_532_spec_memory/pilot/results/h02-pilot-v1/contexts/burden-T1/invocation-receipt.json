@@ -3,10 +3,10 @@
   "exit_code": 0,
   "formal_eligible": false,
   "manifest_id": "burden-T1",
-  "output_sha256": "c66f411c586c9735fa51bbb1d05b68f95d4aa4df21600e5eb9036e9ad4a9ad02",
+  "output_sha256": "93b3e82e959a4e93114791b7de5ba2759dd3bac1944d7eac2df9680d9449fdf1",
   "real_codex_cli": true,
   "schema_version": "1.0",
-  "session_id": "019fed78-1541-7213-b9c3-7a1b7717cfad",
+  "session_id": "019fedc3-a119-7670-af62-c268cc7beea8",
   "temporary_auth_copy_retained": false,
   "turn": 1
 }

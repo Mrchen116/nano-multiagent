@@ -47,9 +47,10 @@
       "--json",
       "-o",
       "$ROLE_RUNTIME/last-message-02.json",
-      "019fed6f-16fc-7922-9da4-eabe33b3256a",
+      "019fedbd-18b4-7f81-8c0a-74fec4b2324d",
       "-"
-    ]
+    ],
+    "sandbox_profile_sha256": "8fae5bf59091c7981c66aa47e4a3885cb2a76c77646da9636ca092596e36be2b"
   },
   "forbidden_surfaces": [
     "arm identity or Memory",
@@ -58,7 +59,7 @@
     "parent repository or host history"
   ],
   "formal_eligible": false,
-  "input_envelope_sha256": "260ef1d8eb468b3a65345d4e22c21e8c00d44c93274e2d1862f8f8c9f7e83917",
+  "input_envelope_sha256": "5fe281e29903bf062606649c735c64d2065c14cb8e15ea7ee97b178653d37b94",
   "instructions_sha256": "603c056088b400148b8aea53d53c037b2d0dcb6145ddd9c6595cc0e509a4f246",
   "isolation": {
     "codex_home": "temporary_isolated",
@@ -71,7 +72,7 @@
   "model": "gpt-5.6-sol",
   "output_schema_sha256": "3788dccb4c981cea85a5f5a3474ef96864ccff4c3fb39f861929211df9bcedf6",
   "readable_roots": [
-    "role_runtime",
+    "role_runtime_except_credentials",
     "system_runtime",
     "workspace"
   ],

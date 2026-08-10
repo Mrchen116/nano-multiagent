@@ -1,7 +1,8 @@
 {
-  "reply": "同意。若显式选择的模型不在 PA 模型目录中，应作为 Gateway 启动配置错误明确失败，不能静默回退。",
+  "reply": "未显式选择审批模型时，应保留现有行为：每次自动审批分类复用触发它的 Agent 或运行模型，不回退到 `llm.default_model`。若显式选择的模型不在个人助手模型目录中，则 Gateway 启动时报配置错误，不得静默回退。",
   "status": "answered",
   "used_context_refs": [
+    "O02",
     "O03"
   ]
 }

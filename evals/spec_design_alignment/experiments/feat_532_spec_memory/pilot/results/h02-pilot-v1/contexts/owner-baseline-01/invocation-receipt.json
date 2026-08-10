@@ -3,10 +3,10 @@
   "exit_code": 0,
   "formal_eligible": false,
   "manifest_id": "owner-baseline-01",
-  "output_sha256": "a29214095c06b0abb3b48d5d4639bfb7e61fa927688dd1460caa1b181ce55f01",
+  "output_sha256": "1442a1122c46263cd2979e4804519f00ed775bb090465e43919d076b1cfbeac3",
   "real_codex_cli": true,
   "schema_version": "1.0",
-  "session_id": "019fed69-2a27-7640-ae8e-4f5e8dea5909",
+  "session_id": "019fedb4-e713-7611-8b2e-fb97ffb82084",
   "temporary_auth_copy_retained": false,
   "turn": 2
 }

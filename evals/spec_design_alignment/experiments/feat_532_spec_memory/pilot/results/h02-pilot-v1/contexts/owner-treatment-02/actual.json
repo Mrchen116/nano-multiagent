@@ -49,16 +49,19 @@
       "sha256": "15126bbf78721517ccb39d4e77c263dfa6da50cb4adaa82a13a5d42c24903f68"
     }
   ],
-  "input_envelope_sha256": "b212164d0ab54e0372a256417270a3cbf0701546563b94f32362735a16ac2d9f",
+  "input_envelope_sha256": "552f2b5a0c7ebe515cfd99e0d7db7e2486539db36dd8cd9e7ec954c83c4ac62c",
   "manifest_id": "owner-treatment-02",
   "os_sandbox": {
     "canary_read_blocked": true,
+    "credential_read_blocked": true,
     "mechanism": "macos_sandbox_exec_seatbelt",
-    "profile_sha256": "ee9d48339a77ca178e73f85073278a7520b94d0cd354f18035e98e2bb65f74c1",
-    "tool_network_blocked": true
+    "nested_codex_blocked": true,
+    "profile_sha256": "8fae5bf59091c7981c66aa47e4a3885cb2a76c77646da9636ca092596e36be2b",
+    "tool_network_blocked": true,
+    "unrelated_read_blocked": true
   },
   "readable_roots": [
-    "role_runtime",
+    "role_runtime_except_credentials",
     "system_runtime",
     "workspace"
   ],
@@ -88,7 +91,7 @@
     "--json",
     "-o",
     "$ROLE_RUNTIME/last-message-03.json",
-    "019fed6f-16fc-7922-9da4-eabe33b3256a",
+    "019fedbd-18b4-7f81-8c0a-74fec4b2324d",
     "-"
   ],
   "schema_version": "1.0",

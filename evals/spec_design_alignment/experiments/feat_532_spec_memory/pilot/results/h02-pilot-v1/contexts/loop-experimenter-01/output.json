@@ -1,12 +1,12 @@
 {
-  "build_policy": "One task-blind Codex builder extracts reusable, source-located spec-alignment memories from the same suite-owned first-document corpus, assigns each entry a narrow applicability condition and an explicit override boundary, deduplicates overlapping guidance, and ranks entries by cross-case relevance.",
-  "consumption_policy": "applicability_gated_direct_load: before drafting, load only the highest-ranked entries whose applicability conditions match the task phase and evidence; treat repository and user evidence as authoritative over Memory, and require an evidence-grounded completeness pass independent of Memory.",
+  "build_policy": "A task-blind builder retains reusable memories with source locators, assigns each entry a task-type and decision-facet applicability tag, and distills anonymous judge failures only into cross-case completeness checks. Exclude case identifiers, product literals, and solution-specific decisions.",
+  "consumption_policy": "Retrieve only memories whose applicability tags match the current task and active decision facet. Present a compact ranked subset, require repository grounding, and treat task evidence and explicit owner decisions as authoritative when memory conflicts. For specifications, run a generic completeness pass covering omitted versus explicitly invalid configuration, full execution-path scope, runtime failure and retry behavior, lifecycle binding, and consumer-observable acceptance outcomes.",
   "delta": [
-    "Replace broad loading of the full Memory set with applicability-gated loading; the observed trace used 4 entries while rejecting 19 and overriding 1.",
-    "Add explicit override boundaries during Memory construction because one applicable-looking general rule conflicted with task evidence.",
-    "Deduplicate and rank loaded guidance to reduce attention burden while retaining source locators and the existing first-document corpus.",
-    "Add a Memory-independent completeness pass because both judged projections retained critical omissions despite relevant Memory use.",
-    "Do not encode the omitted case details; the adjustment remains suite-global and task-blind."
+    "Replace broad direct loading with applicability-routed retrieval to reduce irrelevant-memory burden.",
+    "Add task-type and decision-facet tags during memory construction.",
+    "Convert anonymous quality gaps into generic specification-completeness checks without preserving case-specific answers.",
+    "Rank tightly scoped, repository-grounded, consumer-observable guidance ahead of unrelated workflow or UI guidance.",
+    "Make conflict handling explicit: current task evidence and owner decisions override reusable memory."
   ],
   "forbidden_case_specific_atoms": [
     "H02",
@@ -16,8 +16,14 @@
     "统一工具审批模型"
   ],
   "formal_eligible": false,
-  "hypothesis": "Loading a smaller, applicability-ranked set of reusable memories, with explicit override boundaries and an independent evidence-based completeness pass, may preserve the observed burden reduction while reducing attention dilution and critical specification omissions.",
+  "hypothesis": "Applicability-routed memory plus a generic completeness pass will preserve the useful scope, grounding, and behavioral-spec guidance while reducing irrelevant loading and preventing recurring omissions at configuration, failure, retry, and lifecycle boundaries.",
   "parent_scheme_id": "direct-load-broad-first-docs-v0",
   "schema_version": "1.0",
-  "scheme_id": "direct-load-applicability-ranked-first-docs-v1"
+  "scheme_id": "applicability-routed-quality-gap-v1",
+  "trace_summary": {
+    "loaded": 1,
+    "overridden": 1,
+    "rejected": 17,
+    "used": 5
+  }
 }

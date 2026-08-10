@@ -5,7 +5,7 @@
       "actor": "candidate",
       "output": {
         "first_doc_path": "",
-        "owner_message": "Q1：这里的“所有”是否同时覆盖 Coding CLI 和 Personal Assistant / IM 中所有 Agent 的工具审批？\n我的推荐：两个产品都覆盖，凡进入自动审批分类器的工具调用都使用同一个配置模型。\n理由：当前复用本轮 Agent 模型的是内核共享机制；统一覆盖可避免不同入口继续出现审批模型漂移。\n\n你怎么看？",
+        "owner_message": "Q1：统一审批模型是否同时覆盖 Coding CLI 和个人助手 / IM 中所有 Agent 的工具调用审批？我的推荐：两端都覆盖，共用同一个配置值。理由：两端当前共用同一审批分类机制，“所有统一”应避免不同产品仍随各自 Agent 模型漂移。你怎么看？",
         "status": "needs_owner"
       },
       "turn": 1
@@ -13,10 +13,11 @@
     {
       "actor": "owner",
       "output": {
-        "reply": "不同时覆盖。此次产品范围是 Personal Assistant；Coding CLI 保持不变。内核可以保持产品中立，支持显式选择或省略审批分类模型，但不能据此扩大到 Coding CLI。",
-        "status": "answered",
+        "reply": "不覆盖两端。本次产品范围是个人助手；Coding CLI 保持不变。至于两端是否共用同一审批分类机制，请以仓库代码核实，不能据此扩大产品范围。",
+        "status": "ask_author_to_research",
         "used_context_refs": [
-          "O01"
+          "O01",
+          "O08"
         ]
       },
       "turn": 1
@@ -25,7 +26,7 @@
       "actor": "candidate",
       "output": {
         "first_doc_path": "",
-        "owner_message": "Q2：Personal Assistant 配置中没有显式指定统一审批模型时，应使用哪个模型？\n我的推荐：回退到 PA 的产品级 `llm.default_model`，而不是各 Agent 自己的模型。\n理由：这样旧配置无需立即迁移，也始终保持“所有 Agent 的审批统一用一个模型”；需要专用审批模型时再显式配置。\n\n你怎么看？",
+        "owner_message": "Q2：个人助手的统一审批模型，是否要作为独立于 `llm.default_model` 和各 Agent `default_model` 的全局配置来选择？我的推荐：是；运维者从 Gateway 配置中已登记的模型里单独指定一个审批模型，所有个人助手 Agent 的审批分类都使用它，普通对话模型不受影响。理由：复用 `llm.default_model` 会把“普通回复默认模型”和“审批模型”继续绑在一起，无法独立控制成本与稳定性。你怎么看？",
         "status": "needs_owner"
       },
       "turn": 2
@@ -33,10 +34,12 @@
     {
       "actor": "owner",
       "output": {
-        "reply": "不应回退到 PA 的产品级默认模型。未显式配置时保留现有行为：每次自动审批分类继续复用触发该分类的 Agent 或 run 模型。",
-        "status": "answered",
+        "reply": "产品行为上，应支持显式选择一个模型，并且该模型只用于个人助手的自动工具审批分类，普通对话及工具后的续接仍使用运行模型。至于它是否作为独立全局字段、具体放在 Gateway 配置何处，请结合现有配置拓扑提出最小改动方案；不要仅凭该目标新增配置入口。",
+        "status": "ask_author_to_research",
         "used_context_refs": [
-          "O02"
+          "O04",
+          "O07",
+          "O08"
         ]
       },
       "turn": 2
@@ -45,7 +48,7 @@
       "actor": "candidate",
       "output": {
         "first_doc_path": "",
-        "owner_message": "Q3：如果 PA 显式配置的统一审批模型不存在、未注册或配置不可用，Gateway 应如何表现？\n我的推荐：配置校验直接失败并明确指出审批模型无效，不静默回退到 Agent/run 模型。\n理由：静默回退会让运维者误以为审批已统一，实际却继续使用各 Agent 模型，既难发现也违背显式配置意图。\n\n你怎么看？",
+        "owner_message": "Q3：若个人助手配置中未显式选择审批模型，Gateway 应怎样表现？我的推荐：回退到现有 `llm.default_model`，从而仍保证所有 Agent 的审批统一使用一个模型；若显式填写了未登记的模型，则启动时报出明确配置错误。理由：现有 Gateway 配置已经要求 `llm.default_model` 有效，这样可复用当前配置拓扑、避免新增必填项，同时不再回退到各 Agent 的运行模型。你怎么看？",
         "status": "needs_owner"
       },
       "turn": 3
@@ -53,9 +56,10 @@
     {
       "actor": "owner",
       "output": {
-        "reply": "同意。若显式选择的模型不在 PA 模型目录中，应作为 Gateway 启动配置错误明确失败，不能静默回退。",
+        "reply": "未显式选择审批模型时，应保留现有行为：每次自动审批分类复用触发它的 Agent 或运行模型，不回退到 `llm.default_model`。若显式选择的模型不在个人助手模型目录中，则 Gateway 启动时报配置错误，不得静默回退。",
         "status": "answered",
         "used_context_refs": [
+          "O02",
           "O03"
         ]
       },
@@ -64,31 +68,11 @@
     {
       "actor": "candidate",
       "output": {
-        "first_doc_path": "",
-        "owner_message": "Q4：这次是否只统一“需要调用模型判断 allow / deny / ask 的自动审批分类”所用模型，而保持 Agent 正常回复模型、工具自身的确定性安全规则以及用户人工审批流程不变？\n我的推荐：是，只改自动审批分类器的模型选择。\n理由：这些是彼此独立的用户能力；扩大范围会改变 Agent 回复质量或既有安全与人工确认语义，并非本需求所需。\n\n你怎么看？",
-        "status": "needs_owner"
-      },
-      "turn": 4
-    },
-    {
-      "actor": "owner",
-      "output": {
-        "reply": "是，只改变自动工具审批分类器的模型选择。Agent 正常请求和工具调用后的续写仍使用当前 run 模型；确定性安全规则与人工审批流程不在此次变更范围内。",
-        "status": "answered",
-        "used_context_refs": [
-          "O04"
-        ]
-      },
-      "turn": 4
-    },
-    {
-      "actor": "candidate",
-      "output": {
         "first_doc_path": "docs/changes/feat-507-unified-approval-model/spec.md",
         "owner_message": "",
         "status": "gate1_complete"
       },
-      "turn": 5
+      "turn": 4
     }
   ]
 }

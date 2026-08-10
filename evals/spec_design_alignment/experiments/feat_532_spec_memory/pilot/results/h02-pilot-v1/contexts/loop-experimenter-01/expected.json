@@ -51,7 +51,8 @@
       "-C",
       "$ROLE_WORKSPACE",
       "-"
-    ]
+    ],
+    "sandbox_profile_sha256": "fed1476e9d9f8a273477915e6d2cd022eb1982e173b0eb8193b08f3c04e33463"
   },
   "forbidden_surfaces": [
     "raw private truth or Owner answer bank",
@@ -60,8 +61,8 @@
     "unfrozen scores"
   ],
   "formal_eligible": false,
-  "input_envelope_sha256": "32614222d75b6c6db9e55848c2497af2c6f59f3b42ea883a4bd691b84c5f5a10",
-  "instructions_sha256": "decf1695022e8cfa731e13bd6b697fb113b1a77d6885a83cf52174ab71c804fe",
+  "input_envelope_sha256": "6ce8011c2d58d24d84137a29ce88f088247096648cf7038116efe99000a74f63",
+  "instructions_sha256": "bde9f83d56cde387bd5e1e4fe6641b6fafd1d922e1347470f41526cbdc920025",
   "isolation": {
     "codex_home": "temporary_isolated",
     "filesystem_read": "macos_sandbox_exec_seatbelt",
@@ -71,9 +72,9 @@
   "lifecycle": "ephemeral",
   "manifest_id": "loop-experimenter-01",
   "model": "gpt-5.6-sol",
-  "output_schema_sha256": "f50a91b0de628a71a7e9a4b66e5142ba0def5b1fa07b33a57563cc55e72357a6",
+  "output_schema_sha256": "4e60a23514ef7a387f6e4301d1effffd87709f99aa2411b2ed1498390cc741a3",
   "readable_roots": [
-    "role_runtime",
+    "role_runtime_except_credentials",
     "system_runtime",
     "workspace"
   ],
@@ -89,15 +90,15 @@
   "visible_files": [
     {
       "path": "AGENTS.md",
-      "sha256": "decf1695022e8cfa731e13bd6b697fb113b1a77d6885a83cf52174ab71c804fe"
+      "sha256": "bde9f83d56cde387bd5e1e4fe6641b6fafd1d922e1347470f41526cbdc920025"
     },
     {
       "path": "anonymous-results.json",
-      "sha256": "bb0ba871b5edbe09581df5e1e419cb4b21861c73a6e3ea238262794872f42647"
+      "sha256": "4ae8c072c3c882951dc5b8b918e14ff754243edfe3817702ed35a79c9fabf0ff"
     },
     {
       "path": "memory-store.json",
-      "sha256": "157d3806e9c39731bb7bb11b0309be219ec0100b2ab725275bcfb05ec766b358"
+      "sha256": "8eeff7915629474ed54d1efae016e23b347fab82634fa87366aae37155f2e9ed"
     },
     {
       "path": "previous-scheme.json",

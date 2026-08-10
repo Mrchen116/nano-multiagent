@@ -1,5 +1,5 @@
 {
   "first_doc_path": "",
-  "owner_message": "Q4：若运维显式选择了一个不在 PA `llm.providers[].models` 目录中的审批模型，Gateway 应该怎样表现？\n我的推荐：启动或配置加载时明确报错并拒绝生效；只有“未配置审批模型”才按现状使用当前 Agent/run 模型。\n理由：仓库对 `llm.default_model` 和 `agents[].default_model` 已采用“必须存在于模型目录”的校验；对审批模型保持同样规则，可避免把静态错配拖到第一次工具审批时才暴露。\n\n你怎么看？",
+  "owner_message": "Q3（核实后确认）：代码显示用户聊天、heartbeat、cron 和 subagent 最终都通过同一 AgentEngine、内置 `auto_mode_gate` 与工具注册表执行；subagent 也继承这套 hook 上下文。因此我建议：PA 显式配置专用模型后，以上所有来源中凡进入自动工具权限分类的调用都统一使用该模型；普通 Agent 请求、工具执行后的续跑、无需分类即可放行或拒绝的路径均继续使用原有 run 模型或既有规则。是否按此覆盖？\n\n理由：这与现有真实调用拓扑一致，也把专用模型严格限制在自动权限分类边界内。",
   "status": "needs_owner"
 }

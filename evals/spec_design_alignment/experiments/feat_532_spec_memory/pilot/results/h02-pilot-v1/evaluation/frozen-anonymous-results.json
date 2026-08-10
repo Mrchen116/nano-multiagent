@@ -1,62 +1,50 @@
 {
   "burden": {
     "T1": {
-      "contribution_units": 8,
+      "contribution_units": 6,
       "formal_eligible": false,
       "items": [
         {
-          "normalized_contribution": "本次产品范围仅限 personal_assistant，coding_cli 保持不变。",
+          "normalized_contribution": "Limit the configured dedicated approval-model behavior to Personal Assistant / IM; keep Coding CLI behavior unchanged.",
           "owner_atoms": [
             "O01"
           ],
           "question_index": 1
         },
         {
-          "normalized_contribution": "统一选择的模型仅用于 PA 的自动工具权限分类；普通 Agent 请求及工具执行后的续跑仍使用当前 run 模型。",
+          "normalized_contribution": "The shared kernel should support either explicitly selecting an approval-classification model or leaving that model unconfigured.",
           "owner_atoms": [
-            "O04"
+            "O01"
           ],
           "question_index": 1
         },
         {
-          "normalized_contribution": "自动工具权限分类所显式选择的模型在语义上必须与 llm.default_model 解耦。",
+          "normalized_contribution": "When no dedicated approval model is configured, preserve the existing per-triggering-Agent or run-model classification behavior; only an explicit configuration makes classification use one specified model.",
           "owner_atoms": [
             "O02"
           ],
           "question_index": 2
         },
         {
-          "normalized_contribution": "未显式配置审批模型时保留现状，使用触发分类的 Agent/run 模型。",
+          "normalized_contribution": "Use the dedicated model only for automatic tool-permission classification; ordinary Agent requests and post-tool continuations must continue using the run model.",
           "owner_atoms": [
-            "O04"
-          ],
-          "question_index": 2
-        },
-        {
-          "normalized_contribution": "显式审批模型失败时不得静默回退到当前 Agent/run 模型、默认模型或其他模型。",
-          "owner_atoms": [
-            "O05"
-          ],
-          "question_index": 3
-        },
-        {
-          "normalized_contribution": "可以继续用同一个显式审批模型执行现有重试；重试仍失败后进入既有权限失败处理。",
-          "owner_atoms": [
+            "O04",
             "O08"
           ],
           "question_index": 3
         },
         {
-          "normalized_contribution": "显式审批模型不在 PA 模型目录中时，应视为 Gateway 启动配置错误，明确报错且配置不得生效。",
+          "normalized_contribution": "Once configured, the dedicated model must handle every automatic tool-permission classification across all PA runtime sources, including their subagents, while paths requiring no classification retain existing behavior.",
           "owner_atoms": [
-            "O03"
+            "O04"
           ],
           "question_index": 4
         },
         {
-          "normalized_contribution": "本期不支持该配置热加载；配置修改在 Gateway 重启后生效。",
+          "normalized_contribution": "An explicitly selected model absent from the PA model catalog is a Gateway startup configuration error and must never silently fall back.",
           "owner_atoms": [
-            "O06"
+            "O03",
+            "O07"
           ],
           "question_index": 5
         }
@@ -64,57 +52,44 @@
       "transcript_id": "T1"
     },
     "T2": {
-      "contribution_units": 7,
+      "contribution_units": 5,
       "formal_eligible": false,
       "items": [
         {
-          "normalized_contribution": "Limit this product change to Personal Assistant; leave Coding CLI unchanged.",
+          "normalized_contribution": "统一审批模型的产品范围仅覆盖个人助手，Coding CLI 保持不变。",
           "owner_atoms": [
-            "O01"
+            "O01",
+            "O08"
           ],
           "question_index": 1
         },
         {
-          "normalized_contribution": "Keep the shared kernel product-neutral and let the approval-classification model be explicitly selected or omitted.",
+          "normalized_contribution": "个人助手应支持显式选择一个用于自动工具审批分类的模型。",
           "owner_atoms": [
-            "O01"
-          ],
-          "question_index": 1
-        },
-        {
-          "normalized_contribution": "When no approval model is explicitly configured, preserve the existing behavior of using the Agent or run model that triggered classification, rather than PA's product default model.",
-          "owner_atoms": [
-            "O02"
+            "O04"
           ],
           "question_index": 2
         },
         {
-          "normalized_contribution": "If an explicitly selected approval model is absent from the PA model catalog, fail Gateway startup with a configuration error and do not silently fall back.",
+          "normalized_contribution": "所选审批模型仅用于自动工具审批分类；普通对话和工具调用后的续接仍使用运行模型。",
           "owner_atoms": [
-            "O03"
+            "O07"
+          ],
+          "question_index": 2
+        },
+        {
+          "normalized_contribution": "未显式选择审批模型时，保留由触发审批的 Agent 或运行模型执行分类的现有行为，不回退到 llm.default_model。",
+          "owner_atoms": [
+            "O02"
           ],
           "question_index": 3
         },
         {
-          "normalized_contribution": "Keep normal Agent requests and post-tool continuations on the current run model.",
+          "normalized_contribution": "显式选择的模型若不在个人助手模型目录中，Gateway 必须在启动时报配置错误且不得静默回退。",
           "owner_atoms": [
-            "O04"
+            "O03"
           ],
-          "question_index": 4
-        },
-        {
-          "normalized_contribution": "Leave deterministic tool-safety rules unchanged.",
-          "owner_atoms": [
-            "O04"
-          ],
-          "question_index": 4
-        },
-        {
-          "normalized_contribution": "Leave the human approval workflow unchanged.",
-          "owner_atoms": [
-            "O04"
-          ],
-          "question_index": 4
+          "question_index": 3
         }
       ],
       "transcript_id": "T2"
@@ -135,6 +110,12 @@
     "owner_run_critical": false
   },
   "formal_eligible": false,
+  "memory_trace_summary": {
+    "loaded": 1,
+    "overridden": 1,
+    "rejected": 17,
+    "used": 5
+  },
   "memory_traces": {
     "T1": {
       "events": [],
@@ -143,147 +124,147 @@
     "T2": {
       "events": [
         {
-          "affected_behavior": "Clarification answers were copied verbatim under `A(原话)`, with separate `Agent 解读` entries.",
+          "affected_behavior": "Kept the first document compact, with each behavioral rule stated mainly in one requirement and one scope entry.",
           "memory_id": "M01",
-          "rationale": "Directly applicable to the Gate 1 clarification log and visibly reflected in Q1–Q4.",
+          "rationale": "Directly applicable to spec and acceptance-criteria writing.",
           "state": "used"
         },
         {
-          "affected_behavior": "Clarification questions, requirements, and scope rules were kept focused and stated once.",
+          "affected_behavior": "Drove repository grounding before clarification and reasoned, one-at-a-time recommendations about product scope, configuration topology, and fallback behavior.",
           "memory_id": "M02",
-          "rationale": "Applied while authoring a relatively small configuration requirement without adding lengthy repeated guidance.",
+          "rationale": "The run inspected current specs, configuration parsing, PA composition, and classifier model routing before asking material product questions.",
           "state": "used"
         },
         {
-          "affected_behavior": "Repository specs, configuration code, classifier code, and the originating auto-mode change were investigated before Q1.",
+          "affected_behavior": "None.",
           "memory_id": "M03",
-          "rationale": "This grounding established that the classifier currently inherits the Agent/run model and that no dedicated approval-model setting exists.",
-          "state": "used"
+          "rationale": "The Gate 1 task did not simplify implementation workflows or define implementation autonomy.",
+          "state": "rejected"
         },
         {
-          "affected_behavior": "No agent-role or workflow design was added.",
+          "affected_behavior": "None.",
           "memory_id": "M04",
-          "rationale": "The run authored a product first document, not an agent workflow, role prompt, or operating skill.",
+          "rationale": "No implementation or testing workflow was specified.",
           "state": "rejected"
         },
         {
-          "affected_behavior": "No implementation-workflow simplification or delegation policy was specified.",
+          "affected_behavior": "None.",
           "memory_id": "M05",
-          "rationale": "Implementation and its workflow were outside the frozen spec phase.",
+          "rationale": "The change did not involve a prototype or UI/UX design.",
           "state": "rejected"
         },
         {
-          "affected_behavior": "No fix loop, validation ledger, or post-review revalidation policy was defined.",
+          "affected_behavior": "None.",
           "memory_id": "M06",
-          "rationale": "There was no implementation or review phase.",
+          "rationale": "No interaction model or visual hierarchy was selected.",
           "state": "rejected"
         },
         {
-          "affected_behavior": "No prototype or frontend interaction contract was created.",
+          "affected_behavior": "None.",
           "memory_id": "M07",
-          "rationale": "The change concerns Gateway configuration and model routing, not frontend work.",
+          "rationale": "No architecture or design review was performed under the task envelope.",
           "state": "rejected"
         },
         {
-          "affected_behavior": "No Web IM visual or interaction styling decisions were made.",
+          "affected_behavior": "None.",
           "memory_id": "M08",
-          "rationale": "The brief did not introduce or alter a content-centric UI surface.",
+          "rationale": "The spec introduced no preview, inspector, or UI summary.",
           "state": "rejected"
         },
         {
-          "affected_behavior": "No technical design structure or visualization was produced.",
+          "affected_behavior": "Acceptance criteria were expressed as operator- and product-observable model-selection, startup, and unchanged-behavior outcomes, without prescribing classes, APIs, or internal call paths.",
           "memory_id": "M09",
-          "rationale": "The envelope stopped at Gate 1 and prohibited design work.",
-          "state": "rejected"
-        },
-        {
-          "affected_behavior": "No architecture or design review was performed.",
-          "memory_id": "M10",
-          "rationale": "Reviewers and design review were expressly out of scope.",
-          "state": "rejected"
-        },
-        {
-          "affected_behavior": "The spec did not prescribe a shared implementation owner or cross-product regression mechanism.",
-          "memory_id": "M11",
-          "rationale": "Implementation ownership belongs to design, and Owner evidence established that Coding CLI must remain outside the product scope.",
-          "state": "rejected"
-        },
-        {
-          "affected_behavior": "No bugfix RCA or originating-feature repair analysis was undertaken.",
-          "memory_id": "M12",
-          "rationale": "The request was classified as a new feature, not a bugfix.",
-          "state": "rejected"
-        },
-        {
-          "affected_behavior": "No runtime reproduction or live acceptance was conducted.",
-          "memory_id": "M13",
-          "rationale": "The task ended at the specification gate before implementation or acceptance.",
-          "state": "rejected"
-        },
-        {
-          "affected_behavior": "Acceptance scenarios stayed at operator- or user-observable behavior and avoided field names, APIs, modules, and internal topology.",
-          "memory_id": "M14",
-          "rationale": "The spec describes configured model selection, startup failure, approval behavior, and observable model-service request records while deferring implementation details.",
+          "rationale": "This matched the long-lived behavioral-spec boundary and reinforced the selected Skill’s equivalent rule.",
           "state": "used"
         },
         {
-          "affected_behavior": "No canonical-spec merge, architecture update, or archival lifecycle was specified.",
+          "affected_behavior": "None.",
+          "memory_id": "M10",
+          "rationale": "This was a feature specification, not a runtime bug-fix verification task.",
+          "state": "rejected"
+        },
+        {
+          "affected_behavior": "None.",
+          "memory_id": "M11",
+          "rationale": "Implementation completion, PR readiness, and CI were outside Gate 1.",
+          "state": "rejected"
+        },
+        {
+          "affected_behavior": "None.",
+          "memory_id": "M12",
+          "rationale": "The run neither cleaned tests nor defined test-quality gates.",
+          "state": "rejected"
+        },
+        {
+          "affected_behavior": "None.",
+          "memory_id": "M13",
+          "rationale": "The required premise—confirmed development-stage status with backward compatibility explicitly declined—was not established.",
+          "state": "rejected"
+        },
+        {
+          "affected_behavior": "No independent behavioral decision was derived from it.",
+          "memory_id": "M14",
+          "rationale": "Although package boundaries were relevant background, repository redlines and Owner replies supplied stronger task-specific scope; exact responsibility and field placement were deferred to design.",
+          "state": "loaded"
+        },
+        {
+          "affected_behavior": "The completed spec says an explicitly selected approval model applies after Gateway restart, rather than defining next-run hot application in existing conversations.",
           "memory_id": "M15",
-          "rationale": "This was an active first document, not change completion.",
-          "state": "rejected"
-        },
-        {
-          "affected_behavior": "No retrospective timeline or incident analysis was produced.",
-          "memory_id": "M16",
-          "rationale": "The task was neither an incident nor a retrospective.",
-          "state": "rejected"
-        },
-        {
-          "affected_behavior": "No new repository governance rule or enforcement mechanism was introduced.",
-          "memory_id": "M17",
-          "rationale": "The structural self-check validated the document but did not add contract enforcement.",
-          "state": "rejected"
-        },
-        {
-          "affected_behavior": "Omitting the new PA setting preserves the existing Agent/run-model behavior instead of requiring one canonical configured model.",
-          "memory_id": "M18",
-          "rationale": "The Owner explicitly rejected fallback to the PA default and required backward-compatible omission semantics; that task-specific decision outweighed the general preference against compatibility fallbacks. Its clear-failure principle still aligned with the separate invalid-explicit-model decision, but that behavior was grounded by Owner answer O03.",
+          "rationale": "Repository evidence showed the PA LLM catalog is loaded through the Gateway’s local startup configuration, and the Owner asked to follow the existing configuration topology with minimal change.",
           "state": "overridden"
         },
         {
-          "affected_behavior": "Scope was restricted to Personal Assistant and only the automatic tool-approval classifier; Coding CLI, normal run generation, deterministic safety rules, and human approval were explicit non-goals.",
-          "memory_id": "M19",
-          "rationale": "This directly prevented unrelated cross-product and permission-system expansion.",
+          "affected_behavior": "The invalid-model scenario requires Gateway startup to fail with the specific cause that the approval model is unregistered, and forbids silent fallback.",
+          "memory_id": "M16",
+          "rationale": "This sharpened the Owner’s invalid-configuration decision into a semantically explicit, actionable failure outcome.",
           "state": "used"
         },
         {
-          "affected_behavior": "No autonomous implementation or validation loop was specified.",
+          "affected_behavior": "None.",
+          "memory_id": "M17",
+          "rationale": "Timeout, liveness, and watchdog semantics were explicitly outside the model-selection change.",
+          "state": "rejected"
+        },
+        {
+          "affected_behavior": "None.",
+          "memory_id": "M18",
+          "rationale": "No entity identity, routing identity, rename, avatar, mention, or picker behavior was involved.",
+          "state": "rejected"
+        },
+        {
+          "affected_behavior": "None.",
+          "memory_id": "M19",
+          "rationale": "The task did not change approval-card UI, tool-call timelines, or execution-state presentation.",
+          "state": "rejected"
+        },
+        {
+          "affected_behavior": "None.",
           "memory_id": "M20",
-          "rationale": "Implementation was prohibited by the task envelope.",
+          "rationale": "The change did not concern system-prompt feature composition or prompt preview.",
           "state": "rejected"
         },
         {
-          "affected_behavior": "No external reference implementation was consulted or adapted.",
+          "affected_behavior": "None.",
           "memory_id": "M21",
-          "rationale": "The brief named no reference, and network or outside-workspace access was prohibited.",
+          "rationale": "No optional discovery root or filesystem resource discovery behavior was specified.",
           "state": "rejected"
         },
         {
-          "affected_behavior": "No run timeout or watchdog behavior was changed.",
+          "affected_behavior": "Kept the unit limited to Personal Assistant automatic approval classification and explicitly excluded Coding CLI, ordinary conversation models, permission rules, approval UI, per-Agent selection, and a second config file.",
           "memory_id": "M22",
-          "rationale": "The feature concerns approval-classifier model selection only.",
-          "state": "rejected"
+          "rationale": "This directly supported the Owner-mandated product boundary and prevented unrelated expansion.",
+          "state": "used"
         },
         {
-          "affected_behavior": "No active-run steering semantics were specified.",
+          "affected_behavior": "None.",
           "memory_id": "M23",
-          "rationale": "Steering and multi-client message injection were unrelated to the brief.",
+          "rationale": "The deliverable was a single product change spec, not reusable workflow or cross-project guidance.",
           "state": "rejected"
         },
         {
-          "affected_behavior": "No end-to-end test catalog or test strategy was defined.",
+          "affected_behavior": "None.",
           "memory_id": "M24",
-          "rationale": "Test design belongs to later phases and was outside Gate 1.",
+          "rationale": "Gate 1 defined behavioral scenarios but did not select E2E coverage or an acceptance-test journey.",
           "state": "rejected"
         }
       ],
@@ -298,32 +279,32 @@
             {
               "criterion_id": "J01",
               "rating": "met",
-              "rationale": "明确限定为 Personal Assistant 的可选 Gateway 配置，并明确 Coding CLI 保持原有行为。"
+              "rationale": "The feature is explicitly limited to the Personal Assistant Gateway, remains optional, and includes an acceptance scenario preserving Coding CLI behavior."
             },
             {
               "criterion_id": "J02",
               "rating": "partial",
-              "rationale": "覆盖了省略配置时沿用 Agent/run 模型及目录外模型启动失败，但未明确区分“显式空值”与省略，未规定显式空值必须可见地启动失败。"
+              "rationale": "Omission preserves the current per-run model and an unregistered selection fails startup, but explicit empty or blank values are not specified to fail visibly."
             },
             {
               "criterion_id": "J03",
               "rating": "met",
-              "rationale": "统一模型仅用于自动审批分类器；普通回复和工具调用后的续写明确保留当前 run 模型，因此覆盖分类器的两阶段而不扩散到正常生成。"
+              "rationale": "All automatic approval classification is assigned to the selected model, while ordinary turns, post-tool continuation, and non-classifier permission paths retain existing behavior; this encompasses both classifier stages."
             },
             {
               "criterion_id": "J04",
               "rating": "partial",
-              "rationale": "保留了确定性规则和人工审批体验，但没有规定分类器运行失败时不得切换模型，也未保留同模型重试及有人值守/无人值守失败语义。"
+              "rationale": "The projection broadly preserves permission and unattended-fallback semantics, but it does not define runtime classifier-failure behavior, same-model retry, or explicitly prohibit switching to the run model after such failure."
             },
             {
               "criterion_id": "J05",
-              "rating": "missed",
-              "rationale": "未规定运行中 Gateway 绑定的选择保持到重启，也未排除配置热加载。"
+              "rating": "met",
+              "rationale": "Selection is framed as startup configuration taking effect after Gateway restart, with no hot-reload mechanism or promise introduced."
             },
             {
               "criterion_id": "J06",
-              "rating": "partial",
-              "rationale": "明确不规定字段名、内核接口或模块分工，保留设计自由，但对仓库中的派生运行、两阶段分类及 unattended_fallback 等事实缺少充分落地。"
+              "rating": "met",
+              "rationale": "The projection is consistent with the repository’s PA-owned Gateway configuration and model catalog, preserves the PA/Coding CLI boundary, and states behavioral requirements without prescribing kernel topology."
             }
           ],
           "critical_error": true,
@@ -334,32 +315,32 @@
             {
               "criterion_id": "J01",
               "rating": "met",
-              "rationale": "明确为 PA 范围内的可选能力，且将 coding_cli 行为列为非目标，保持共享内核产品中立。"
+              "rationale": "The setting is PA-scoped and optional, Coding CLI remains unchanged, and the shared-kernel statement describes a product-neutral opt-in capability."
             },
             {
               "criterion_id": "J02",
               "rating": "partial",
-              "rationale": "明确覆盖省略配置的兼容行为和未注册模型的启动失败，但仍未明确显式空值必须与省略区分并导致可见启动失败。"
+              "rationale": "Omission and unregistered-model handling are correct, but treating YAML null and blank strings as omission directly contradicts the requirement that explicit empty values fail startup visibly."
             },
             {
               "criterion_id": "J03",
               "rating": "met",
-              "rationale": "所有实际进入自动权限分类器的调用统一使用所选模型，同时普通回复和工具后续续跑保留 run 模型；安全快速路径和工具直接裁决不会调用分类模型。"
+              "rationale": "The dedicated model is limited to all automatic permission classification, encompassing both stages, while normal requests, post-tool continuation, and non-classifier paths retain the run model and existing behavior."
             },
             {
               "criterion_id": "J04",
               "rating": "met",
-              "rationale": "明确要求仅对同一审批模型沿用既有重试，最终失败不切换模型，并分别保留有人值守人工审批与无人值守 unattended_fallback 语义。"
+              "rationale": "Runtime timeout, invocation failure, and unparseable output retain existing safe permission-failure semantics and explicitly never retry classification with the Agent/run model, preserving the selected-model path."
             },
             {
               "criterion_id": "J05",
               "rating": "met",
-              "rationale": "明确运行中的 Gateway 不热加载修改，只有重启并通过校验后新选择才生效。"
+              "rationale": "The choice is validated and bound on startup or restart, and hot updating the Gateway’s local LLM configuration is expressly excluded."
             },
             {
               "criterion_id": "J06",
-              "rating": "met",
-              "rationale": "结合仓库事实覆盖主 agent、subagent、heartbeat、cron、后台 fork、快速路径和 unattended_fallback，同时明确不预设字段、接口或内部拓扑。"
+              "rating": "partial",
+              "rationale": "The projection is substantially grounded in repository behavior and preserves the PA/Coding CLI boundary, but placing a generic selection capability specifically in the shared kernel dictates implementation topology beyond the behavioral specification."
             }
           ],
           "critical_error": true,
@@ -369,7 +350,7 @@
       "critical_error": true,
       "formal_eligible": false,
       "judge_id": "J1",
-      "summary": "P1 对运行失败和重启绑定语义覆盖不足；P2 基本完整且更充分地依据仓库事实限定范围。两者都未明确处理“显式空值”与配置省略的差异，因此均存在关键要求的不完整覆盖。"
+      "summary": "Both projections cover PA scope, classifier-only model use, startup validation, and Coding CLI isolation. P1 omits required explicit-empty validation and underspecifies runtime failure behavior; P2 directly contradicts explicit-empty failure semantics by accepting null and blank values."
     },
     {
       "assessments": [
@@ -378,32 +359,32 @@
             {
               "criterion_id": "J01",
               "rating": "met",
-              "rationale": "明确限定为可选的 Personal Assistant Gateway 配置；省略时保持原行为，并明确 Coding CLI 不受影响。"
+              "rationale": "The feature is explicitly optional and scoped to the Personal Assistant Gateway, while Coding CLI behavior is expressly unchanged; no product-specific kernel default is introduced."
             },
             {
               "criterion_id": "J02",
               "rating": "partial",
-              "rationale": "覆盖了省略配置时沿用 Agent/run 模型，以及未登记模型启动失败；但没有明确规定显式空值也必须可见地启动失败。"
+              "rationale": "Omission preserves the triggering run model and an unregistered selection fails startup, but the required failure behavior for an explicitly empty value is unspecified."
             },
             {
               "criterion_id": "J03",
               "rating": "partial",
-              "rationale": "将配置模型限定于自动审批分类，并明确普通回复和工具后续写继续使用 run 模型；但未明确锚定现有两阶段分类中的两个模型调用均使用该模型。"
+              "rationale": "It limits the override to automatic permission classification and preserves normal and post-tool run models, but does not explicitly require the selected model for both classifier stages."
             },
             {
               "criterion_id": "J04",
               "rating": "partial",
-              "rationale": "笼统保留 allow/deny/ask 和人工审批语义，但未明确分类器失败时不得切换模型，也未保留同模型重试及失败后的既有分流语义。"
+              "rationale": "Existing permission results and unattended fallback semantics are declared unchanged, but classifier-call failure, prohibition of model switching, and preservation of same-model retries are not specified."
             },
             {
               "criterion_id": "J05",
-              "rating": "missed",
-              "rationale": "未规定运行中的 Gateway 保持启动时绑定的选择，也未说明配置修改需重启且不新增热加载。"
+              "rating": "partial",
+              "rationale": "Configuration is described as taking effect after Gateway restart, but the running Gateway retaining its bound choice until another restart and the absence of hot reload are not explicit."
             },
             {
               "criterion_id": "J06",
               "rating": "partial",
-              "rationale": "PA、Gateway、模型目录和 feat-333 等事实与仓库边界基本一致，也避免规定接口或模块拓扑；但对两阶段分类、运行失败和配置生命周期等关键仓库事实的落地不足。"
+              "rationale": "The PA/Gateway, model-catalog, and CLI boundaries are preserved without prescribing a kernel topology, but the Author is not explicitly required to verify repository facts."
             }
           ],
           "critical_error": true,
@@ -414,32 +395,32 @@
             {
               "criterion_id": "J01",
               "rating": "met",
-              "rationale": "功能明确限定于 PA 且为可选配置，默认不改变行为，并将 coding_cli 排除在变更范围外。"
+              "rationale": "The selection is optional and PA-scoped, Coding CLI remains unchanged, and any shared-kernel capability is framed as a product-neutral explicit override."
             },
             {
               "criterion_id": "J02",
               "rating": "partial",
-              "rationale": "明确省略配置时复用 Agent/run 模型，并让目录外模型启动失败；但没有明确覆盖显式空值必须启动失败。"
+              "rationale": "Omission and unregistered-model behavior are correct, but treating YAML null and blank strings as omission directly contradicts the requirement that an explicit empty value fail startup visibly."
             },
             {
               "criterion_id": "J03",
               "rating": "partial",
-              "rationale": "准确限制为实际进入自动分类器的调用，并保留普通回复和工具后续运行模型及非分类快速路径；但没有明确说明现有第一、第二阶段的两个模型调用都采用所选模型。"
+              "rationale": "Only automatic permission classification receives the selected model and normal or post-tool turns retain the run model, but the two classifier stages are not individually or explicitly covered."
             },
             {
               "criterion_id": "J04",
-              "rating": "met",
-              "rationale": "明确运行失败只对同一审批模型沿用既有重试，绝不切换模型，并分别保留有人值守的人工审批和无人值守的 unattended_fallback 语义。"
+              "rating": "partial",
+              "rationale": "Runtime failure preserves existing safe permission fallback and explicitly forbids switching to the run model, but preservation of existing same-model retry behavior is omitted."
             },
             {
               "criterion_id": "J05",
-              "rating": "met",
-              "rationale": "明确运行中的 Gateway 不热加载修改，只有重启并校验后新选择才生效。"
+              "rating": "partial",
+              "rationale": "The text centers validation and activation on startup or restart and rejects hot updating the local model directory, but it does not explicitly bind the selected choice for the Gateway process lifetime."
             },
             {
               "criterion_id": "J06",
-              "rating": "met",
-              "rationale": "以现有 PA 运行来源、模型目录、unattended_fallback 及相关归档变更为依据，维护 PA/内核/CLI 边界，同时把字段名、放置位置和内部接口留给设计阶段。"
+              "rating": "partial",
+              "rationale": "The projection uses recognizable repository boundaries and keeps the kernel capability generic, but it does not instruct the Author to ground facts, and its shared-kernel placement edges into design-topology prescription."
             }
           ],
           "critical_error": true,
@@ -449,7 +430,7 @@
       "critical_error": true,
       "formal_eligible": false,
       "judge_id": "J2",
-      "summary": "P1 和 P2 均遗漏显式空配置的启动失败语义，且都未明确覆盖两阶段分类器的两个模型调用，因此存在关键要求缺口。P1 还缺少运行失败与重启生效语义；P2 对这些边界覆盖完整。"
+      "summary": "Both projections cover the central optional PA-specific model override and protect normal run-model behavior, but each leaves critical details incomplete. P1 omits explicit-empty validation and classifier-failure model/retry semantics. P2 contradicts explicit-empty startup failure by accepting null or blank values and omits explicit same-model retry preservation."
     }
   ],
   "schema_version": "1.0"

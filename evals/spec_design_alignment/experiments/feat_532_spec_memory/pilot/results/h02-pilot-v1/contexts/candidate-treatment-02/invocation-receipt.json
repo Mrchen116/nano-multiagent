@@ -1,12 +1,12 @@
 {
-  "event_count": 7,
+  "event_count": 8,
   "exit_code": 0,
   "formal_eligible": false,
   "manifest_id": "candidate-treatment-02",
-  "output_sha256": "e94e58c68f45096a8267bed8f7ca125cfe435a91d7f030e87590c2c0e72b5e58",
+  "output_sha256": "14810b88b46090219b97477ad4fc0c40ac0404d50323b44f83c7617714915c38",
   "real_codex_cli": true,
   "schema_version": "1.0",
-  "session_id": "019fed6f-500f-7cd0-bce6-468837d8714d",
+  "session_id": "019fedbd-5686-7530-a7a4-7c6b4240cb12",
   "temporary_auth_copy_retained": false,
   "turn": 2
 }

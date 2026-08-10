@@ -1,4 +1,4 @@
 <owner_turn>
 Answer only this quoted Candidate message.
-<candidate_message>"Q3：如果 PA 显式配置的统一审批模型不存在、未注册或配置不可用，Gateway 应如何表现？\n我的推荐：配置校验直接失败并明确指出审批模型无效，不静默回退到 Agent/run 模型。\n理由：静默回退会让运维者误以为审批已统一，实际却继续使用各 Agent 模型，既难发现也违背显式配置意图。\n\n你怎么看？"</candidate_message>
+<candidate_message>"Q3：若个人助手配置中未显式选择审批模型，Gateway 应怎样表现？我的推荐：回退到现有 `llm.default_model`，从而仍保证所有 Agent 的审批统一使用一个模型；若显式填写了未登记的模型，则启动时报出明确配置错误。理由：现有 Gateway 配置已经要求 `llm.default_model` 有效，这样可复用当前配置拓扑、避免新增必填项，同时不再回退到各 Agent 的运行模型。你怎么看？"</candidate_message>
 </owner_turn>

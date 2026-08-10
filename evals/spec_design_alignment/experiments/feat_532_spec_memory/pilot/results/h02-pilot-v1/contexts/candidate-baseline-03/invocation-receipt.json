@@ -1,12 +1,12 @@
 {
-  "event_count": 9,
+  "event_count": 6,
   "exit_code": 0,
   "formal_eligible": false,
   "manifest_id": "candidate-baseline-03",
-  "output_sha256": "38995b8f4bf28a06f785b4f9c84b8137019b3ffbf901a83f44a094e86fe6f89f",
+  "output_sha256": "986f5d0daecdfbf6b9d01cab14ba2ddc4dfdfe2d7d2d391e9f3736b5f750bd66",
   "real_codex_cli": true,
   "schema_version": "1.0",
-  "session_id": "019fed69-62f4-7732-9e6a-674107d01e74",
+  "session_id": "019fedb5-2a79-75a1-8abc-e18da1d10182",
   "temporary_auth_copy_retained": false,
   "turn": 3
 }

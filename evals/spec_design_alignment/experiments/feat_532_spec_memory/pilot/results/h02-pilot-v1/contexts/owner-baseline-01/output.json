@@ -1,10 +1,7 @@
 {
-  "reply": "不同意把 `coding_cli` 也纳入：本次产品范围是 `personal_assistant`，`coding_cli` 保持不变。统一模型只用于 PA 中实际触发的自动工具权限分类；普通 Agent 请求和工具执行后的续跑仍使用当前 run 模型。主 agent、subagent、后台任务中哪些路径实际进入该分类器，请基于仓库确认。是否允许 per-Agent 覆盖属于实现设计，请给出最小、仓库有据的方案，不要为此新增配置入口。",
-  "status": "ask_author_to_research",
+  "reply": "不同意两个产品都纳入本次范围。本次配置的产品范围是 Personal Assistant / IM；Coding CLI 保持不变。共享内核可以提供显式选择或不配置审批分类模型的通用能力。",
+  "status": "answered",
   "used_context_refs": [
-    "O01",
-    "O04",
-    "O07",
-    "O08"
+    "O01"
   ]
 }

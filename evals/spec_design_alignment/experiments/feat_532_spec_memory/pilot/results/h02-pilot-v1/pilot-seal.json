@@ -9,7 +9,7 @@
   "inputs": {
     "base_recipe_sha256": "f9cac53acbac43fb674a575ea11e40bf7bc922790716aadcb5c1e16000cf5d6a",
     "config_sha256": "a3977336c971dba47da7324b9c145e6c7c734e4fb5e7c40eecfd988897ef8263",
-    "corpus_projection_receipt_sha256": "03a6fd3a74024e7cb2657caf40a67fe816c692d0632f11185af353c78fc48da9",
+    "corpus_projection_receipt_sha256": "a4bb8b313125b2b89e8cce01418b7042e5f2ce8ed2b49d26cfaeb0171b25ab47",
     "corpus_public_manifest_sha256": "f3803cc9a4c345381ec40f46a1a7ca1da7dcbafeeed2350b514c59d41754bf1a",
     "judge_context_sha256": "a18622efd6016ee61c6eae00e7b630d384eec4b299ff0e8e2aff82a2e334aaf0",
     "owner_context_sha256": "b763fb966598e977ed8a68b90cc5a4c48ec11e43a3e566b09e3046e5dd2e1649",
@@ -22,7 +22,7 @@
       "prompts/blind-judge.md": "ae5181817116b2b56ee2ead357df38cc8d79a062608f0955bc6cf527c51c8fa4",
       "prompts/burden-scorer.md": "812dc0ae5eb8f4b99e389b7aeaa690022d6930957e5d99bd732cf7912f2a1c01",
       "prompts/candidate-task.md": "94d5f8504b1f03e087e81627ab2f92555d21ba829271bf892bc731cf2e1307f3",
-      "prompts/loop-experimenter.md": "decf1695022e8cfa731e13bd6b697fb113b1a77d6885a83cf52174ab71c804fe",
+      "prompts/loop-experimenter.md": "bde9f83d56cde387bd5e1e4fe6641b6fafd1d922e1347470f41526cbdc920025",
       "prompts/memory-builder.md": "d7bf9e5e01e0834f0d01e8591af94722305a0a0ad817ed086041a945b8ac2935",
       "prompts/memory-trace.md": "4bed0ab396a6d001499cf6b265673c1a249a54e6729c53ed57ab3351b31e7e0e",
       "prompts/owner-simulator.md": "603c056088b400148b8aea53d53c037b2d0dcb6145ddd9c6595cc0e509a4f246",
@@ -34,27 +34,27 @@
       "schemas/judge-context.schema.json": "50dd312a434ef7d8c0eee72a70c140396963a810d8a76a49a13ea45e753a19ed",
       "schemas/memory-store.schema.json": "259646341ce7e64ae3ef7af265b12fd3589b935aa3f4c8f95320c941bb937ab6",
       "schemas/memory-trace.schema.json": "dd57df2d574f56de8dbf5d667d9b7231ec2d688e7270c9d14f09e1045b337a9e",
-      "schemas/next-scheme.schema.json": "f50a91b0de628a71a7e9a4b66e5142ba0def5b1fa07b33a57563cc55e72357a6",
+      "schemas/next-scheme.schema.json": "4e60a23514ef7a387f6e4301d1effffd87709f99aa2411b2ed1498390cc741a3",
       "schemas/owner-context.schema.json": "c5d7f46d78f10a6bfc712b358e8d6ead6e473d7aabf20bee82f59da543a329a7",
       "schemas/owner-ready.schema.json": "7a81b0de480bdced760aacf1e1d504fbd94319fb7561b98eea310864e65db91e",
       "schemas/owner-reply.schema.json": "3788dccb4c981cea85a5f5a3474ef96864ccff4c3fb39f861929211df9bcedf6",
       "schemas/pilot-config.schema.json": "596d599e614aadfd5d5f06e209da1a5c58673596f84a8c2b9f3689e4c75ddba1",
-      "schemas/role-context-attestation.schema.json": "23452bd1cf2680309894f508ecd2a9261760de5b158b095d2e372785996ffed7",
-      "schemas/role-context-manifest.schema.json": "9fb453cb0b9064f404b638785bbb1e1c1e16a5524719b18be636e97140bf7636",
+      "schemas/role-context-attestation.schema.json": "04c4e2a2aa6f91c482721ea5efb28529d271ea98b50c0dc9ceb2ef7c111f53e2",
+      "schemas/role-context-manifest.schema.json": "daf03f6b19a1b9c43dbd47bb901175cd6ccfe90c47969e53441aac52e4b8f506",
       "schemas/run-audit.schema.json": "e35ae94a1e9ca40448f6c9a016b143d6c770bd5dec50cbe3c98138f80a21c389"
     },
     "public_brief_sha256": "15126bbf78721517ccb39d4e77c263dfa6da50cb4adaa82a13a5d42c24903f68",
     "repository_projection_receipt_sha256": "fbe5ea642f5a619ce1092a060baa92f960f3f9f94123628184f72f9d4cd4522f",
-    "role_context_schema_sha256": "9fb453cb0b9064f404b638785bbb1e1c1e16a5524719b18be636e97140bf7636",
-    "runner_sha256": "ca96c1eba2f7bd8c4728898b475379731c400d8dab2edbdda74466731ee45252",
-    "sandbox_wrapper_sha256": "cb6e1ff9d6c85071a606c5050b2bd186df59704d88f11860918df826bfde4df6",
+    "role_context_schema_sha256": "daf03f6b19a1b9c43dbd47bb901175cd6ccfe90c47969e53441aac52e4b8f506",
+    "runner_sha256": "9cedc78c37d2c9d566820a7be3b139ee92d1bba0a9fd81c345b696277ae08b26",
+    "sandbox_wrapper_sha256": "2be8013230a8efb5897467f85f4f73a8f28425c77465760118b72339faaf1a4f",
     "scheme_sha256": "9479224834aa04596dd866ed781f858ef395c39a756431ec11f6a8a817cd5c88",
     "shared_base_manifest_sha256": "c64a2d5440b52f4c72b6b7e061dc3f8bc7db484e1ff83e48357405d48b336dea",
     "shared_base_receipt_sha256": "fa2d4c1b652a41e186e8a199733a5eadaf7aefd080cebd469ec06eb904217446",
     "source_snapshot": {
       "source_cleanliness": "clean_tracked_only",
-      "source_commit": "96f17e3199a28b3aacfd096eb3d241d45938e7c7",
-      "source_tree": "db940222ae7225668c62a03cfa00c2d0fa835156"
+      "source_commit": "dac593d0f0a2e88fe58ab00b0258de4c468c6d30",
+      "source_tree": "b9426e9e0254417610bac3699323bcfc22b1c35a"
     }
   },
   "model": "gpt-5.6-sol",
@@ -63,6 +63,6 @@
   "repetitions": 1,
   "retry_limit_after_model_start": 0,
   "schema_version": "1.0",
-  "sealed_inputs_sha256": "4a1527ca4c852823799c23ad7175dff646419b9c70ac5ef5422f0b1938583e8d",
+  "sealed_inputs_sha256": "427dfa99563a6724dfc582188df3e123702e352368dfb1bd6a8f7a7ae7b16b69",
   "shared_feat397_assets_unchanged": true
 }
