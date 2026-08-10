@@ -49,7 +49,7 @@ def _helper_command(mode: str, runtime: Path, *args: str) -> list[str]:
 def test_pending_shadow_and_control_recover_once_after_gateway_process_loss(
     tmp_path: Path,
 ) -> None:
-    """Kill A after durable commit; B resumes both visible journeys exactly once."""
+    """Kill A at promotion/anchor split; B converges new and legacy crash states."""
 
     runtime = tmp_path / "runtime"
     runtime.mkdir()
@@ -109,11 +109,12 @@ def test_pending_shadow_and_control_recover_once_after_gateway_process_loss(
             lambda: (
                 state
                 if (state := _read_json(barrier_path)).get("durable_commit_reached")
-                and state.get("external_send_blocked")
+                and state.get("promotion_committed")
                 else None
             ),
             timeout=15,
         )
+        assert committed["saga_anchor_absent"] is True
         gateway_a.terminate()
         gateway_a.wait(timeout=10)
         assert gateway_a.returncode is not None
@@ -140,7 +141,10 @@ def test_pending_shadow_and_control_recover_once_after_gateway_process_loss(
             if line.strip()
         ]
         assert [item["type"] for item in ledger].count("control_confirmation") == 1
-        assert [item["type"] for item in ledger].count("boundary_applied") == 1
+        assert [item["type"] for item in ledger].count("boundary_applied") == 2
+        assert {
+            item["boundary_id"] for item in ledger if item["type"] == "boundary_applied"
+        } == {"boundary-1", "boundary-legacy"}
         assert (
             recovery["current_control_session_id"]
             != committed["old_control_session_id"]
@@ -148,6 +152,7 @@ def test_pending_shadow_and_control_recover_once_after_gateway_process_loss(
         assert (
             recovery["next_message_session_id"] == committed["new_control_session_id"]
         )
+        assert recovery["remaining_pending_shadow_sagas"] == []
 
         conversations = (
             httpx.get(f"{im_url}/im/v1/conversations", headers=headers, timeout=5)
@@ -157,7 +162,11 @@ def test_pending_shadow_and_control_recover_once_after_gateway_process_loss(
         by_external_chat = {
             item.get("external_chat_id"): item for item in conversations
         }
-        assert {"shadow-boundary-chat", "control-chat"} <= set(by_external_chat)
+        assert {
+            "shadow-boundary-chat",
+            "legacy-anchored-boundary-chat",
+            "control-chat",
+        } <= set(by_external_chat)
         boundary_messages = _messages(
             im_url, headers, by_external_chat["shadow-boundary-chat"]["id"]
         )
@@ -166,6 +175,14 @@ def test_pending_shadow_and_control_recover_once_after_gateway_process_loss(
         )
         assert [item["content"] for item in boundary_messages].count(
             "boundary user message"
+        ) == 1
+        legacy_messages = _messages(
+            im_url,
+            headers,
+            by_external_chat["legacy-anchored-boundary-chat"]["id"],
+        )
+        assert [item["content"] for item in legacy_messages].count(
+            "legacy anchored boundary user message"
         ) == 1
         assert [item["content"] for item in control_messages].count("/new") == 1
         assert [item["content"] for item in control_messages].count(

@@ -67,6 +67,7 @@ class IMShadowConversationSync:
         promote_pending_boundary: (
             Callable[[str, ShadowConversationRef], object] | None
         ) = None,
+        pending_shadow_boundary_saga_ids: Callable[[], tuple[str, ...]] | None = None,
     ) -> None:
         self._base_url = normalize_im_http_base_url(base_url)
         self._token_getter = token_getter
@@ -76,6 +77,7 @@ class IMShadowConversationSync:
         self._transport = transport
         self._saga_store = saga_store
         self._promote_pending_boundary = promote_pending_boundary
+        self._pending_shadow_boundary_saga_ids = pending_shadow_boundary_saga_ids
         self._resolved_owner_user_id: str | None = None
         self._resolved_owner_scope_id: str | None = None
         self._resolved_owner_token: str | None = None
@@ -228,10 +230,10 @@ class IMShadowConversationSync:
                 if saga is not None:
                     saga_store = self._saga_store
                     assert saga_store is not None
+                    self._promote_boundary(saga_id=saga.saga_id, shadow_ref=shadow_ref)
                     saga_store.record_anchor(
                         saga_id=saga.saga_id, shadow_ref=shadow_ref
                     )
-                    self._promote_boundary(saga_id=saga.saga_id, shadow_ref=shadow_ref)
                 return shadow_ref
         except Exception as exc:
             if saga is None:
@@ -449,6 +451,15 @@ class IMShadowConversationSync:
         saga_store = self._saga_store
         if saga_store is None:
             return
+        pending_boundary_sagas = self._pending_shadow_boundary_saga_ids
+        if pending_boundary_sagas is not None:
+            for saga_id in pending_boundary_sagas():
+                saga = saga_store.require(saga_id)
+                if saga.shadow_ref is not None:
+                    self._promote_boundary(
+                        saga_id=saga.saga_id,
+                        shadow_ref=saga.shadow_ref,
+                    )
         pending_snapshots = saga_store.pending_snapshots()
         snapshots_by_saga: dict[str, list[ExternalShadowBubble]] = {}
         for snapshot in pending_snapshots:

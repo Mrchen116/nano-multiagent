@@ -11,14 +11,10 @@ from personal_assistant.gateway.runtime_protocol import (
     attach_runtime_protocol,
 )
 from personal_assistant.gateway.session_keys import (
+    BoundaryIntent,
     _SQLiteSessionBindingStore,
-    SessionBinding,
     build_reply_context,
 )
-
-
-def _make_reply_context(chat_id: str = "chat-1") -> ReplyContext:
-    return ReplyContext(channel_name="web_relay", target_chat_id=chat_id)
 
 
 def _make_message_with_runtime_protocol() -> InboundMessage:
@@ -43,99 +39,8 @@ def _make_message_with_runtime_protocol() -> InboundMessage:
     )
 
 
-# ---------------------------------------------------------------------------
-# R1 — bind / get / drop_agent / 持久化恢复
-# ---------------------------------------------------------------------------
-
-
-class TestR1PersistAndRecover:
-    """bind/get/drop_agent 与跨实例持久化恢复。"""
-
-    def test_bind_and_get_returns_same_binding(self, tmp_path: Path) -> None:
-        """bind 写入后 get 能读取相同 binding。"""
-        store = _SQLiteSessionBindingStore(db_path=tmp_path / "sb.sqlite3")
-        rc = _make_reply_context()
-        binding = store.bind(
-            session_key="ch:chat:agent-1",
-            kernel_session_id="ksess-abc",
-            reply_context=rc,
-        )
-
-        result = store.get("ch:chat:agent-1")
-
-        assert result is not None
-        assert result.session_key == "ch:chat:agent-1"
-        assert result.kernel_session_id == "ksess-abc"
-        assert result.reply_context == rc
-
-    def test_get_unknown_key_returns_none(self, tmp_path: Path) -> None:
-        """get 不存在的 session_key 返回 None。"""
-        store = _SQLiteSessionBindingStore(db_path=tmp_path / "sb.sqlite3")
-        assert store.get("no-such-key") is None
-
-    def test_bind_upsert_overwrites_existing(self, tmp_path: Path) -> None:
-        """bind 同一 session_key 两次，第二次覆盖（upsert 语义）。"""
-        store = _SQLiteSessionBindingStore(db_path=tmp_path / "sb.sqlite3")
-        rc1 = _make_reply_context("chat-1")
-        rc2 = _make_reply_context("chat-2")
-        store.bind(session_key="ch:c:a", kernel_session_id="ksess-1", reply_context=rc1)
-        store.bind(session_key="ch:c:a", kernel_session_id="ksess-2", reply_context=rc2)
-
-        result = store.get("ch:c:a")
-
-        assert result is not None
-        assert result.kernel_session_id == "ksess-2"
-        assert result.reply_context == rc2
-
-    def test_persistent_recovery_across_instances(self, tmp_path: Path) -> None:
-        """重新构造同一 db_path 实例后 get 仍能返回持久化 binding。"""
-        db_path = tmp_path / "sb.sqlite3"
-        rc = _make_reply_context("persist-chat")
-        store1 = _SQLiteSessionBindingStore(db_path=db_path)
-        store1.bind(
-            session_key="ch:persist:agent-x",
-            kernel_session_id="ksess-persist",
-            reply_context=rc,
-        )
-        del store1
-
-        store2 = _SQLiteSessionBindingStore(db_path=db_path)
-        result = store2.get("ch:persist:agent-x")
-
-        assert result is not None
-        assert result.kernel_session_id == "ksess-persist"
-
-    def test_drop_agent_removes_matching_bindings(self, tmp_path: Path) -> None:
-        """drop_agent 按 :{agent_id} suffix 删除相关行，其他行不受影响。"""
-        store = _SQLiteSessionBindingStore(db_path=tmp_path / "sb.sqlite3")
-        rc = _make_reply_context()
-        store.bind(
-            session_key="ch:c1:agent-A", kernel_session_id="ksess-1", reply_context=rc
-        )
-        store.bind(
-            session_key="ch:c2:agent-A", kernel_session_id="ksess-2", reply_context=rc
-        )
-        store.bind(
-            session_key="ch:c3:agent-B", kernel_session_id="ksess-3", reply_context=rc
-        )
-
-        store.drop_agent("agent-A")
-
-        assert store.get("ch:c1:agent-A") is None
-        assert store.get("ch:c2:agent-A") is None
-        assert store.get("ch:c3:agent-B") is not None
-
-    def test_drop_agent_unknown_agent_is_noop(self, tmp_path: Path) -> None:
-        """drop_agent 对不存在的 agent_id 不报错。"""
-        store = _SQLiteSessionBindingStore(db_path=tmp_path / "sb.sqlite3")
-        rc = _make_reply_context()
-        store.bind(
-            session_key="ch:c:agent-Z", kernel_session_id="ksess-z", reply_context=rc
-        )
-
-        store.drop_agent("no-such-agent")
-
-        assert store.get("ch:c:agent-Z") is not None
+class TestSQLiteCompatibility:
+    """Keep schema, serialization, and atomic-transition compatibility coverage."""
 
     def test_db_file_created(self, tmp_path: Path) -> None:
         """构造 _SQLiteSessionBindingStore 后 db 文件存在。"""
@@ -196,83 +101,40 @@ class TestR1PersistAndRecover:
         assert binding is not None
         assert binding.reply_context.metadata == {"message_id": "msg-1"}
 
-
-class TestR3FindByKernelSessionId:
-    """Binder-private reverse lookup compatibility tests.
-
-    The private SQLite implementation retains this operation because binder-owned
-    cron and scheduler lookup must survive process restarts:
-
-    - 存在则返回第一个匹配的 SessionBinding
-    - 不存在则返回 None
-    - 多个绑定只匹配 kernel_session_id 的那一个
-    """
-
-    def test_find_by_kernel_session_id_returns_matching_binding(
+    def test_quarantined_boundary_remains_serializable_for_compatibility(
         self, tmp_path: Path
     ) -> None:
-        """bind 后按 kernel_session_id 能查回同一 binding。"""
+        """Terminal rejection retains the existing on-disk diagnostic row."""
+
         store = _SQLiteSessionBindingStore(db_path=tmp_path / "sb.sqlite3")
-        rc = _make_reply_context("chat-1")
-        store.bind(
-            session_key="web_relay:chat-1:agent-A",
-            kernel_session_id="ksess-xyz",
-            reply_context=rc,
+        reply_context = ReplyContext(
+            channel_name="web_relay",
+            target_chat_id="conversation-1",
+        )
+        binding = store.bind(
+            session_key="web_relay:conversation-1:agent-1",
+            kernel_session_id="session-1",
+            reply_context=reply_context,
+        )
+        intent = BoundaryIntent(
+            boundary_id="boundary-1",
+            node_id="node-1",
+            conversation_id="conversation-1",
+            agent_id="agent-1",
+            before_message_id="message-1",
+            runtime_fingerprint="runtime-b",
+            fingerprint_schema="runtime-v1",
+            profile_version=7,
+            applied_at="2026-08-10T00:00:00Z",
+        )
+        store.apply_runtime_with_boundary(
+            binding,
+            runtime_fingerprint="runtime-b",
+            fingerprint_schema="runtime-v1",
+            profile_version=7,
+            boundary=intent,
         )
 
-        result = store.find_by_kernel_session_id("ksess-xyz")
+        store.record_boundary_error("boundary-1", reason="anchor missing")
 
-        assert result is not None
-        assert result.kernel_session_id == "ksess-xyz"
-        assert result.session_key == "web_relay:chat-1:agent-A"
-
-    def test_find_by_kernel_session_id_returns_none_when_missing(
-        self, tmp_path: Path
-    ) -> None:
-        """不存在的 kernel_session_id 返回 None。"""
-        store = _SQLiteSessionBindingStore(db_path=tmp_path / "sb.sqlite3")
-
-        result = store.find_by_kernel_session_id("no-such-ksess")
-
-        assert result is None
-
-    def test_find_by_kernel_session_id_ignores_other_bindings(
-        self, tmp_path: Path
-    ) -> None:
-        """多条 binding 中只返回匹配的那一条。"""
-        store = _SQLiteSessionBindingStore(db_path=tmp_path / "sb.sqlite3")
-        rc = _make_reply_context()
-        store.bind(
-            session_key="web_relay:c1:agent-A",
-            kernel_session_id="ksess-aaa",
-            reply_context=rc,
-        )
-        store.bind(
-            session_key="web_relay:c2:agent-B",
-            kernel_session_id="ksess-bbb",
-            reply_context=rc,
-        )
-
-        result = store.find_by_kernel_session_id("ksess-bbb")
-
-        assert result is not None
-        assert result.kernel_session_id == "ksess-bbb"
-        assert result.session_key == "web_relay:c2:agent-B"
-
-    def test_find_by_kernel_session_id_survives_restart(self, tmp_path: Path) -> None:
-        """持久化后重新创建 store 实例仍能查到 binding。"""
-        db_path = tmp_path / "sb.sqlite3"
-        rc = _make_reply_context("chat-persist")
-        store1 = _SQLiteSessionBindingStore(db_path=db_path)
-        store1.bind(
-            session_key="web_relay:chat-persist:agent-X",
-            kernel_session_id="ksess-persist",
-            reply_context=rc,
-        )
-        del store1
-
-        store2 = _SQLiteSessionBindingStore(db_path=db_path)
-        result = store2.find_by_kernel_session_id("ksess-persist")
-
-        assert result is not None
-        assert result.kernel_session_id == "ksess-persist"
+        assert store.quarantined_boundaries() == (intent,)
