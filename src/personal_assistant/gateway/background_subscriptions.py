@@ -80,6 +80,7 @@ class BackgroundSubscriptionManager:
         self._bg_reply_sender = bg_reply_sender
         self._skill_created_handler = skill_created_handler
         self._subscribers: dict[str, BackgroundSessionEventSubscriber] = {}
+        self._background_reply_contexts: dict[str, ReplyContext] = {}
         self._session_event_routes: OrderedDict[str, ReplyContext] = OrderedDict()
         self._lock = asyncio.Lock()
         self._sealed = False
@@ -121,6 +122,7 @@ class BackgroundSubscriptionManager:
 
         async with self._lock:
             if request.session_id in self._subscribers:
+                self._adopt_background_reply_route(request)
                 return
             if self._sealed:
                 raise RuntimeError("background subscription manager is sealed")
@@ -144,6 +146,7 @@ class BackgroundSubscriptionManager:
 
         async with self._lock:
             if request.session_id in self._subscribers:
+                self._adopt_background_reply_route(request)
                 return ForegroundTerminalSubscriptionOutcome.ALREADY_ACTIVE
             if self._sealed:
                 return ForegroundTerminalSubscriptionOutcome.SHUTDOWN_SKIPPED
@@ -178,10 +181,12 @@ class BackgroundSubscriptionManager:
             for session_id, subscriber in subscribers
         ]
         if not tasks:
+            self._background_reply_contexts.clear()
             self._session_event_routes.clear()
             return
         results = await asyncio.gather(*tasks, return_exceptions=True)
         self._subscribers.clear()
+        self._background_reply_contexts.clear()
         self._session_event_routes.clear()
         timed_out = [
             session_id
@@ -223,11 +228,13 @@ class BackgroundSubscriptionManager:
             )
 
         bg_run_output_callback = None
-        if request.reply_context is not None and self._bg_reply_sender is not None:
-            reply_context = request.reply_context
+        if self._bg_reply_sender is not None:
             sender = self._bg_reply_sender
 
             async def _relay_bg_run_output(event: Mapping[str, Any]) -> None:
+                reply_context = self._background_reply_contexts.get(request.session_id)
+                if reply_context is None:
+                    return
                 content = event.get("content")
                 if not isinstance(content, str) or not content.strip():
                     return
@@ -283,6 +290,7 @@ class BackgroundSubscriptionManager:
             and not has_skill_sync
         ):
             return False
+        self._adopt_background_reply_route(request)
         subscriber = self._build_subscriber(request)
         self._subscribers[request.session_id] = subscriber
         try:
@@ -291,6 +299,24 @@ class BackgroundSubscriptionManager:
             self._subscribers.pop(request.session_id, None)
             raise
         return True
+
+    def _adopt_background_reply_route(
+        self, request: BackgroundSubscriptionRequest
+    ) -> None:
+        """Freeze the first usable ordinary-background route for one session."""
+
+        if (
+            request.reply_context is None
+            or request.session_id in self._background_reply_contexts
+        ):
+            return
+        reply_context = request.reply_context
+        self._background_reply_contexts[request.session_id] = ReplyContext(
+            channel_name=reply_context.channel_name,
+            target_chat_id=reply_context.target_chat_id,
+            thread_id=reply_context.thread_id,
+            metadata=dict(reply_context.metadata),
+        )
 
 
 class _KernelStreamAdapter:

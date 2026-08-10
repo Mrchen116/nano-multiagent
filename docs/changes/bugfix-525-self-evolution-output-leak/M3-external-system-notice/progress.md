@@ -108,6 +108,14 @@ None.
 - F4 scope: Feishu worker startup 仍使用同一 30 秒 monotonic 总预算，只将单次 Event wait 改成短有界 slice 以观察 pre-ready child exit；不增加 retry/backoff，不改变 stop join timeout。
 - Process: 预计超过 3 个文件/100 行，按 `change-impl-worker` 从 reviewer fast-lane 升回 main process，新增 R9-R13 并逐项 TDD；core event policy 与 receipt action allowlist 两项已 refuted，不修改。
 
+## R9 — Code review：全 origin 的 Skill 唯一 owner
+
+- Context: foreground terminal 会启动 persistent subscriber，但 cron 独立 session、heartbeat fallback session 与 Gateway restart 后尚无 foreground terminal 的 session 没有该 owner；per-run observer 又按批准契约跳过 marked Skill，造成 early/late Skill 文件存在却未进入 explicit allowlist/catalog。
+- Decision: heartbeat/cron 共用 `stream_run_to_completion` 在 per-run observer 前按本 run anchor 调用 manager `ensure`；marked Skill 仍只由 persistent subscriber 处理，foreground terminal ensure 继续作为 replay/dedupe seam。若 owner-direct 先以无 route 建 subscriber，manager 只允许其后采用第一个非空 ordinary-background reply route，既不覆盖既有 route，也不影响 notice 的 per-trace route。
+- TDD: 红测 `3 failed`（共用 stream 无 manager admission 参数、composition 未接线）；补 ordinary background route 后红测稳定超时。Green focused `19 passed, 2 warnings in 2.80s`，覆盖 cron early、heartbeat terminal-late、active foreground dedupe、per-run observer skip 和 heartbeat-first 后 ordinary background Agent 结果仍可见。
+- Affected: heartbeat/cron/composition/manager/observer 矩阵 `43 passed, 2 warnings in 4.10s`（ordinary-route guard 后由 focused 复核）；未改变 raw assistant/tool/turn、structured notice、ordinary realtime Skill 或 background Agent event 分类。
+- Status: DONE。Next: R10 同步 external sender offload 与三类 callback shutdown envelope。
+
 ## Round 4 reviewer-fix readback
 
 - Pre-fix head: `a26fc6975853b5e7183f531df39bbc547a4ea4d7`（包含 reviewer 的 `Round 4 — FAIL` regression commit），从 clean/synced `unit/bugfix-525` 创建独立 `milestone/bugfix-525-M3-fix-r4` worktree；该回归提交保留在 fix 历史中。

@@ -93,13 +93,13 @@ Prototype / Reference Contract: N/A。
 
 ### R9 — Code review：全 origin 的 Skill 唯一 owner
 
-- 状态: IN PROGRESS
+- 状态: DONE
 - 步骤: 先补 foreground、heartbeat、cron 在无现存 subscriber 时的红测；让 owner-direct 共用 stream 在 per-run observer 前按 run anchor admission persistent subscriber，保留 foreground terminal replay 与 observer 对 marked Skill 的隔离。
 - 验证: early/terminal-late Skill 均只由 persistent manager 调用一次 config-sync；已 active session 不创建第二 subscriber，普通 realtime/后台输出契约不变。
 
 ### R10 — Code review：异步通知与 subscriber callback 生命周期
 
-- 状态: TODO
+- 状态: IN PROGRESS
 - 步骤: 先补阻塞 external sender 的 event-loop 红测和三类 callback in-flight close 红测；最窄 offload 同步 sender，并抽取模块内 callback envelope。
 - 验证: sync sender 在线程执行、awaitable sender 仍可用；ordinary output、Skill、structured notice 的分类、日志、取消和 shutdown handoff 不变。
 

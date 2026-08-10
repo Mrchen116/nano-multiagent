@@ -284,6 +284,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
     )
     image_resolver = ImageAttachmentResolver()
     _kernel_event_observer: Any | None = None
+    background_subscriptions: BackgroundSubscriptionManager | None = None
     cron_runtime = GatewayCronRuntime(
         registry=_cron_dispatcher,
         agent_catalog=agent_catalog,
@@ -294,6 +295,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         owner_user_id=_owner_user_id,
         run_context_store=run_delivery_contexts,
         kernel_event_observer_provider=lambda: _kernel_event_observer,
+        background_subscription_manager_provider=lambda: background_subscriptions,
     )
 
     def _send_external_reply(text: str, metadata: Mapping[str, str]) -> None:
@@ -607,6 +609,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         agent_catalog=agent_catalog,
         kernel_event_observer=(_kernel_event_observer if _owner_user_id else None),
         cron_tick_fn=cron_runtime.tick_agent,
+        background_subscriptions=background_subscriptions,
     )
 
     if config.im_service is not None:

@@ -54,6 +54,7 @@ class GatewayCronRuntime:
         owner_user_id: str,
         run_context_store: RunDeliveryContextStore,
         kernel_event_observer_provider: Callable[[], Any | None],
+        background_subscription_manager_provider: Callable[[], Any | None],
     ) -> None:
         self._registry = registry
         self._agent_catalog = agent_catalog
@@ -64,6 +65,9 @@ class GatewayCronRuntime:
         self._owner_user_id = owner_user_id
         self._run_context_store = run_context_store
         self._kernel_event_observer_provider = kernel_event_observer_provider
+        self._background_subscription_manager_provider = (
+            background_subscription_manager_provider
+        )
 
     def register_agent(
         self,
@@ -95,6 +99,9 @@ class GatewayCronRuntime:
                     self._kernel_event_observer_provider()
                     if self._owner_user_id
                     else None
+                ),
+                background_subscriptions=(
+                    self._background_subscription_manager_provider()
                 ),
             ),
             gateway_loop=gateway_loop,

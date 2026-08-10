@@ -13,6 +13,7 @@ from personal_assistant.channels.base import ReplyContext
 from personal_assistant.gateway.background_subscriptions import (
     BackgroundSubscriptionManager,
     BackgroundSubscriptionRequest,
+    ForegroundTerminalSubscriptionOutcome,
 )
 
 
@@ -153,6 +154,54 @@ async def test_existing_subscriber_keeps_single_skill_owner_on_later_turn() -> N
     assert outcome.value == "already_active"
     assert kernel.calls == [("sess-bg", 7)]
     assert received == [("agent-a", "later-review-skill")]
+    await kernel.events.put(None)
+    await manager.aclose(asyncio.get_running_loop().time() + 1)
+
+
+@pytest.mark.asyncio
+async def test_skill_only_subscription_accepts_first_later_background_reply_route() -> (
+    None
+):
+    """Heartbeat-first admission must not hide later ordinary Agent output."""
+
+    kernel = _QueuedKernel()
+    sent: list[tuple[str, str]] = []
+    delivered = asyncio.Event()
+
+    async def _send(
+        text: str, reply_context: ReplyContext, _from_session_id: str
+    ) -> None:
+        sent.append((text, reply_context.target_chat_id))
+        delivered.set()
+
+    manager = BackgroundSubscriptionManager(
+        kernel=kernel,
+        bg_reply_sender=_send,
+        skill_created_handler=lambda _agent_id, _event: None,
+    )
+    await manager.ensure(
+        BackgroundSubscriptionRequest(
+            session_id="sess-bg",
+            after_sequence=7,
+            reply_context=None,
+            agent_id="agent-a",
+        )
+    )
+    outcome = await manager.ensure_after_foreground_terminal(_request())
+    await kernel.events.put(
+        {
+            "event": "assistant_message",
+            "origin": "background_task",
+            "content": "ordinary background result",
+            "sequence_num": 9,
+        }
+    )
+
+    await asyncio.wait_for(delivered.wait(), timeout=1)
+
+    assert outcome is ForegroundTerminalSubscriptionOutcome.ALREADY_ACTIVE
+    assert kernel.calls == [("sess-bg", 7)]
+    assert sent == [("ordinary background result", "conv-original")]
     await kernel.events.put(None)
     await manager.aclose(asyncio.get_running_loop().time() + 1)
 

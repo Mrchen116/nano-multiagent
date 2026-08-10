@@ -248,14 +248,39 @@ def test_compose_gateway_wires_skill_sync_and_external_notice_sender(
     )
     captured: dict[str, object] = {}
     notice_callback_kwargs: dict[str, object] = {}
+    cron_runtime_kwargs: dict[str, object] = {}
+    heartbeat_runner_kwargs: dict[str, object] = {}
+    managers: list[BackgroundSubscriptionManager] = []
 
     def _capture_manager(**kwargs: object) -> BackgroundSubscriptionManager:
         captured.update(kwargs)
-        return BackgroundSubscriptionManager(**kwargs)  # type: ignore[arg-type]
+        manager = BackgroundSubscriptionManager(**kwargs)  # type: ignore[arg-type]
+        managers.append(manager)
+        return manager
 
     monkeypatch.setattr(
         "personal_assistant.gateway.composition.BackgroundSubscriptionManager",
         _capture_manager,
+    )
+
+    from personal_assistant.scheduler.cron_gateway_runtime import GatewayCronRuntime
+    from personal_assistant.scheduler.heartbeat_runner import PollingHeartbeatRunner
+
+    def _capture_cron_runtime(**kwargs: object) -> GatewayCronRuntime:
+        cron_runtime_kwargs.update(kwargs)
+        return GatewayCronRuntime(**kwargs)  # type: ignore[arg-type]
+
+    def _capture_heartbeat_runner(**kwargs: object) -> PollingHeartbeatRunner:
+        heartbeat_runner_kwargs.update(kwargs)
+        return PollingHeartbeatRunner(**kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        "personal_assistant.gateway.composition.GatewayCronRuntime",
+        _capture_cron_runtime,
+    )
+    monkeypatch.setattr(
+        "personal_assistant.gateway.composition.heartbeat_runner.PollingHeartbeatRunner",
+        _capture_heartbeat_runner,
     )
 
     def _capture_notice_callback(**kwargs: object):  # noqa: ANN202
@@ -277,6 +302,10 @@ def test_compose_gateway_wires_skill_sync_and_external_notice_sender(
     assert callable(handler)
     assert handler.__self__.__class__.__name__ == "IMAgentConfigSync"  # type: ignore[attr-defined]
     assert callable(notice_callback_kwargs.get("external_reply_sender"))
+    assert heartbeat_runner_kwargs["background_subscriptions"] is managers[0]
+    provider = cron_runtime_kwargs["background_subscription_manager_provider"]
+    assert callable(provider)
+    assert provider() is managers[0]  # type: ignore[operator]
 
 
 @pytest.mark.asyncio
