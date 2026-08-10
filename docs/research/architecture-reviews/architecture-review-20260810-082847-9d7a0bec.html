@@ -1,0 +1,533 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>nano-multiagent 架构深度审查 · 2026-08-10</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            ink: '#17211c',
+            paper: '#f4f1e8',
+            moss: '#315c47',
+            sage: '#dce8df',
+            rust: '#a24b35',
+            sand: '#e8dfce'
+          },
+          fontFamily: {
+            sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],
+            mono: ['SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace']
+          },
+          boxShadow: {
+            editorial: '0 18px 50px rgba(23, 33, 28, 0.10)'
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    html { scroll-behavior: smooth; }
+    body {
+      background:
+        radial-gradient(circle at 10% 0%, rgba(49,92,71,.10), transparent 28rem),
+        linear-gradient(180deg, #f8f6ef 0%, #f1ede4 100%);
+      color: #17211c;
+    }
+    .paper-grid {
+      background-image: linear-gradient(rgba(23,33,28,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(23,33,28,.035) 1px, transparent 1px);
+      background-size: 24px 24px;
+    }
+    .candidate { scroll-margin-top: 1.5rem; }
+    .mermaid svg { max-width: 100%; height: auto; }
+    .metric-label { letter-spacing: .12em; }
+    .file-chip { overflow-wrap: anywhere; }
+    @media print {
+      body { background: white; }
+      .candidate { break-inside: avoid; box-shadow: none; }
+      .no-print { display: none; }
+    }
+  </style>
+</head>
+<body class="min-h-screen font-sans antialiased">
+  <main class="mx-auto max-w-7xl px-5 py-8 md:px-10 md:py-12">
+    <header class="overflow-hidden rounded-[2rem] border border-ink/10 bg-ink text-white shadow-editorial">
+      <div class="grid gap-8 px-7 py-9 md:grid-cols-[1.25fr_.75fr] md:px-11 md:py-12">
+        <div>
+          <div class="mb-5 flex flex-wrap items-center gap-2 text-xs uppercase tracking-[.22em] text-sage/80">
+            <span>Architecture Review</span>
+            <span aria-hidden="true">/</span>
+            <span>Independent Snapshot</span>
+          </div>
+          <h1 class="max-w-3xl text-4xl font-semibold leading-[1.06] tracking-[-.035em] md:text-6xl">
+            让边界变薄，<br><span class="text-emerald-300">让 owner 变深</span>
+          </h1>
+          <p class="mt-5 max-w-2xl text-sm leading-6 text-white/65 md:text-base">
+            nano-multiagent · 架构深度候选审查
+          </p>
+        </div>
+        <dl class="grid content-end gap-4 text-sm">
+          <div class="border-t border-white/15 pt-3">
+            <dt class="text-xs uppercase tracking-[.18em] text-white/45">Generated</dt>
+            <dd class="mt-1 font-mono text-white/90">2026-08-10 08:28:47 CST</dd>
+          </div>
+          <div class="border-t border-white/15 pt-3">
+            <dt class="text-xs uppercase tracking-[.18em] text-white/45">Repository</dt>
+            <dd class="mt-1 font-mono text-white/90">nano-multiagent</dd>
+          </div>
+          <div class="border-t border-white/15 pt-3">
+            <dt class="text-xs uppercase tracking-[.18em] text-white/45">Revision</dt>
+            <dd class="mt-1 break-all font-mono text-xs text-white/90">9d7a0bec124dd6b7a2e7c13b96231e933e43dbcd</dd>
+          </div>
+          <div class="border-t border-white/15 pt-3">
+            <dt class="text-xs uppercase tracking-[.18em] text-white/45">Branch</dt>
+            <dd class="mt-1 font-mono text-white/90">main</dd>
+          </div>
+        </dl>
+      </div>
+      <div class="flex flex-col gap-3 border-t border-rust/50 bg-rust/25 px-7 py-5 md:flex-row md:items-center md:justify-between md:px-11">
+        <div class="flex items-center gap-3">
+          <span class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-300 font-bold text-ink">!</span>
+          <div>
+            <div class="font-semibold text-amber-100">工作树非干净快照</div>
+            <div class="text-sm text-white/70">9 个 tracked change、1 个 tracked deletion、27 个 untracked path；commit SHA 不能单独复现本页观察。</div>
+          </div>
+        </div>
+        <span class="rounded-full border border-amber-200/30 bg-black/10 px-3 py-1 font-mono text-xs text-amber-100">DIRTY · includes untracked</span>
+      </div>
+    </header>
+
+    <section aria-label="审查图例" class="mt-7 grid gap-4 lg:grid-cols-[1fr_1fr]">
+      <div class="rounded-2xl border border-ink/10 bg-white/75 p-5 shadow-sm backdrop-blur">
+        <div class="metric-label text-xs font-semibold uppercase text-ink/45">Strength legend</div>
+        <div class="mt-3 flex flex-wrap gap-2 text-sm">
+          <span class="rounded-full bg-moss px-3 py-1.5 font-medium text-white">Strong candidate</span>
+          <span class="rounded-full bg-amber-100 px-3 py-1.5 font-medium text-amber-900">Worth exploring</span>
+          <span class="rounded-full border border-ink/15 px-3 py-1.5 text-ink/70">Not a proposal</span>
+        </div>
+      </div>
+      <div class="rounded-2xl border border-ink/10 bg-white/75 p-5 shadow-sm backdrop-blur">
+        <div class="metric-label text-xs font-semibold uppercase text-ink/45">Decision-record filter</div>
+        <div class="mt-3 text-sm leading-6 text-ink/70">
+          非候选：active <span class="font-mono">476 / 478 / 482</span>；retired <span class="font-mono">477 / 479 / 481 / 483</span>；archived <span class="font-mono">480</span>。本页不重开这些决策。
+        </div>
+      </div>
+    </section>
+
+    <nav aria-label="候选目录" class="no-print mt-5 flex flex-wrap gap-2 text-sm">
+      <a href="#relay-ingress" class="rounded-full border border-ink/15 bg-white/70 px-3 py-1.5 hover:border-moss hover:text-moss">01 Relay ingress</a>
+      <a href="#session-continuity" class="rounded-full border border-ink/15 bg-white/70 px-3 py-1.5 hover:border-moss hover:text-moss">02 Session continuity</a>
+      <a href="#kernel-wiring" class="rounded-full border border-ink/15 bg-white/70 px-3 py-1.5 hover:border-moss hover:text-moss">03 Kernel wiring</a>
+      <a href="#timeline-writes" class="rounded-full border border-ink/15 bg-white/70 px-3 py-1.5 hover:border-moss hover:text-moss">04 Timeline writes</a>
+      <a href="#agent-config" class="rounded-full border border-ink/15 bg-white/70 px-3 py-1.5 hover:border-moss hover:text-moss">05 Agent config</a>
+    </nav>
+
+    <section class="mt-8 space-y-8">
+      <article id="relay-ingress" class="candidate overflow-hidden rounded-[1.75rem] border border-ink/10 bg-white shadow-editorial">
+        <div class="grid gap-6 border-b border-ink/10 bg-gradient-to-r from-sage/75 to-white px-6 py-7 md:grid-cols-[1fr_auto] md:px-8">
+          <div>
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="font-mono text-sm text-moss">01</span>
+              <span class="rounded-full bg-moss px-3 py-1 text-xs font-semibold uppercase tracking-wider text-white">Strong candidate</span>
+              <span class="rounded-full border border-moss/25 bg-white/70 px-3 py-1 text-xs font-medium text-moss">Ports &amp; adapters</span>
+            </div>
+            <h2 class="mt-4 text-2xl font-semibold tracking-[-.025em] md:text-3xl">完成 Web relay 的 typed ingress</h2>
+            <p class="mt-2 max-w-3xl text-sm leading-6 text-ink/65">在 adapter 边界一次性形成 channel-neutral runtime facts，移除下游对 provider 名称和隐藏 metadata key 的了解。</p>
+          </div>
+          <div class="self-end font-mono text-xs text-ink/40">PA / Gateway ingress</div>
+        </div>
+        <div class="grid gap-7 px-6 py-7 md:px-8 lg:grid-cols-[.82fr_1.18fr]">
+          <div class="space-y-6">
+            <section>
+              <h3 class="metric-label text-xs font-semibold uppercase text-ink/45">Files</h3>
+              <div class="mt-2 flex flex-wrap gap-2 text-xs">
+                <span class="file-chip rounded-lg bg-ink/5 px-2.5 py-1.5 font-mono">channels/web_relay_adapter.py:145–282</span>
+                <span class="file-chip rounded-lg bg-ink/5 px-2.5 py-1.5 font-mono">gateway/runtime_protocol.py:13+</span>
+                <span class="file-chip rounded-lg bg-ink/5 px-2.5 py-1.5 font-mono">gateway/inbound_pipeline.py:197,310</span>
+                <span class="file-chip rounded-lg bg-ink/5 px-2.5 py-1.5 font-mono">gateway/runtime_delivery/*</span>
+              </div>
+            </section>
+            <section class="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
+              <div>
+                <h3 class="metric-label text-xs font-semibold uppercase text-ink/45">Problem</h3>
+                <p class="mt-2 text-sm leading-6 text-ink/75"><code>InboundEnvelope</code> 通过 <code>__getattr__</code> 伪装成消息；callback 又只收到内层 message。runtime facts 被塞进 <code>__runtime_protocol_facts__</code>，至少 8 个下游分支直接判断 <code>web_relay</code>。</p>
+              </div>
+              <div>
+                <h3 class="metric-label text-xs font-semibold uppercase text-ink/45">Solution</h3>
+                <p class="mt-2 text-sm leading-6 text-ink/75">让 channel ingress 交付一个稳定、typed、与 provider 名称无关的输入事实；Gateway 后续 owner 只消费事实，不再反推来源。</p>
+              </div>
+            </section>
+            <div class="rounded-xl border border-moss/15 bg-sage/35 p-4">
+              <h3 class="metric-label text-xs font-semibold uppercase text-moss/70">Deletion test</h3>
+              <p class="mt-2 text-sm leading-6 text-ink/70">删掉 metadata helper 只会把推导逻辑复制到更多 consumer；把事实吸收入口 owner，才能让分支真正消失。</p>
+            </div>
+          </div>
+          <div class="paper-grid rounded-2xl border border-ink/10 bg-paper/75 p-4 md:p-6">
+            <div class="grid gap-5 xl:grid-cols-2">
+              <div>
+                <div class="mb-2 text-xs font-semibold uppercase tracking-[.16em] text-rust">Before · identity leaks</div>
+                <pre class="mermaid">
+flowchart TD
+  A["WebRelayAdapter"] --> B["InboundMessage + hidden metadata"]
+  B --> C["InboundPipeline"]
+  B --> D["Runtime context"]
+  B --> E["Background delivery"]
+  B --> F["Observer"]
+  C -. "web_relay?" .-> G["behavior"]
+  D -. "web_relay?" .-> G
+  E -. "web_relay?" .-> G
+  F -. "web_relay?" .-> G
+                </pre>
+              </div>
+              <div>
+                <div class="mb-2 text-xs font-semibold uppercase tracking-[.16em] text-moss">After · facts cross once</div>
+                <pre class="mermaid">
+flowchart TD
+  A["Channel adapter"] --> B["Typed ingress facts"]
+  B --> C["InboundPipeline"]
+  B --> D["Runtime context"]
+  B --> E["Delivery owner"]
+  C --> F["fact-driven behavior"]
+  D --> F
+  E --> F
+                </pre>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="grid gap-3 border-t border-ink/10 bg-ink/[.025] px-6 py-5 text-sm sm:grid-cols-2 lg:grid-cols-4 md:px-8">
+          <div><div class="metric-label text-[10px] uppercase text-ink/40">Locality</div><div class="mt-1 font-medium">入口一次归一</div></div>
+          <div><div class="metric-label text-[10px] uppercase text-ink/40">Leverage</div><div class="mt-1 font-medium">移除跨层字符串分支</div></div>
+          <div><div class="metric-label text-[10px] uppercase text-ink/40">Test gain</div><div class="mt-1 font-medium">端口契约替代私有 parse</div></div>
+          <div><div class="metric-label text-[10px] uppercase text-ink/40">Boundary guard</div><div class="mt-1 font-medium">不改变 480 delivery owner</div></div>
+        </div>
+      </article>
+
+      <article id="session-continuity" class="candidate overflow-hidden rounded-[1.75rem] border border-ink/10 bg-white shadow-editorial">
+        <div class="grid gap-6 border-b border-ink/10 bg-gradient-to-r from-sage/75 to-white px-6 py-7 md:grid-cols-[1fr_auto] md:px-8">
+          <div>
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="font-mono text-sm text-moss">02</span>
+              <span class="rounded-full bg-moss px-3 py-1 text-xs font-semibold uppercase tracking-wider text-white">Strong candidate</span>
+              <span class="rounded-full border border-moss/25 bg-white/70 px-3 py-1 text-xs font-medium text-moss">Local-substitutable</span>
+            </div>
+            <h2 class="mt-4 text-2xl font-semibold tracking-[-.025em] md:text-3xl">把 session continuity 收进 GatewaySessionBinder</h2>
+            <p class="mt-2 max-w-3xl text-sm leading-6 text-ink/65">让 binder 成为 continuity 的唯一行为面，把 crash-safe SQLite 细节和并行内存实现留在 owner 内部。</p>
+          </div>
+          <div class="self-end font-mono text-xs text-ink/40">PA / Gateway state</div>
+        </div>
+        <div class="grid gap-7 px-6 py-7 md:px-8 lg:grid-cols-[.82fr_1.18fr]">
+          <div class="space-y-6">
+            <section>
+              <h3 class="metric-label text-xs font-semibold uppercase text-ink/45">Files</h3>
+              <div class="mt-2 flex flex-wrap gap-2 text-xs">
+                <span class="file-chip rounded-lg bg-ink/5 px-2.5 py-1.5 font-mono">gateway/session_binder.py:35–122</span>
+                <span class="file-chip rounded-lg bg-ink/5 px-2.5 py-1.5 font-mono">gateway/session_keys.py:102–1706</span>
+              </div>
+            </section>
+            <section>
+              <h3 class="metric-label text-xs font-semibold uppercase text-ink/45">Problem</h3>
+              <p class="mt-2 text-sm leading-6 text-ink/75">binder 的私有 repository protocol 已扩展到 16 个操作族；内存与 SQLite 两套实现被测试广泛直接调用。内存版本无法覆盖跨进程恢复，SQLite docstring 仍描述已移除的 HTTP kernel client。</p>
+            </section>
+            <section>
+              <h3 class="metric-label text-xs font-semibold uppercase text-ink/45">Solution</h3>
+              <p class="mt-2 text-sm leading-6 text-ink/75">让 session continuity 的状态机、持久化和恢复由 binder 整体拥有；调用方与测试只观察 binder 行为，生产 SQLite 可在临时目录中本地替代。</p>
+            </section>
+            <div class="rounded-xl border border-amber-300/45 bg-amber-50 p-4">
+              <h3 class="metric-label text-xs font-semibold uppercase text-amber-800/70">Decision change</h3>
+              <p class="mt-2 text-sm leading-6 text-ink/70">2026-07-25 的审查仅将双实现记为观察项；当前私有 seam 已承载 boundary、control、outbox 与 supersession，证据强度已改变。</p>
+            </div>
+          </div>
+          <div class="paper-grid rounded-2xl border border-ink/10 bg-paper/75 p-5 md:p-7">
+            <div class="grid gap-5 md:grid-cols-[1fr_auto_1fr] md:items-stretch">
+              <div class="rounded-xl border border-rust/25 bg-white/80 p-4">
+                <div class="text-xs font-semibold uppercase tracking-[.16em] text-rust">Before</div>
+                <div class="mt-4 space-y-2 text-sm">
+                  <div class="rounded-lg bg-rust/10 px-3 py-2">143 个测试引用点</div>
+                  <div class="rounded-lg bg-rust/10 px-3 py-2">并行内存 store</div>
+                  <div class="rounded-lg bg-rust/10 px-3 py-2">生产 SQLite store</div>
+                  <div class="rounded-lg bg-rust/10 px-3 py-2">16 个操作族 seam</div>
+                </div>
+              </div>
+              <div class="hidden items-center text-2xl text-ink/25 md:flex">→</div>
+              <div class="rounded-xl border border-moss/25 bg-white/80 p-4">
+                <div class="text-xs font-semibold uppercase tracking-[.16em] text-moss">After</div>
+                <div class="mt-4 flex h-[calc(100%-2rem)] flex-col justify-center gap-3">
+                  <div class="rounded-xl bg-moss px-4 py-4 text-center font-semibold text-white">GatewaySessionBinder</div>
+                  <div class="mx-auto h-5 w-px bg-moss/35"></div>
+                  <div class="rounded-lg border border-moss/20 bg-sage/60 px-3 py-3 text-center text-sm">private crash-safe persistence</div>
+                </div>
+              </div>
+            </div>
+            <div class="mt-5 rounded-xl border border-moss/15 bg-sage/35 p-4 text-sm leading-6 text-ink/70">
+              <span class="font-semibold text-moss">Deletion test：</span>删掉 binder 会把 continuity 状态机扩散到 route、delivery 与 storage caller；删掉平行测试 adapter 后，行为仍可由本地 SQLite 端到端覆盖。
+            </div>
+          </div>
+        </div>
+        <div class="grid gap-3 border-t border-ink/10 bg-ink/[.025] px-6 py-5 text-sm sm:grid-cols-2 lg:grid-cols-4 md:px-8">
+          <div><div class="metric-label text-[10px] uppercase text-ink/40">Locality</div><div class="mt-1 font-medium">continuity 单一 owner</div></div>
+          <div><div class="metric-label text-[10px] uppercase text-ink/40">Leverage</div><div class="mt-1 font-medium">收窄 16 族 seam</div></div>
+          <div><div class="metric-label text-[10px] uppercase text-ink/40">Test gain</div><div class="mt-1 font-medium">覆盖真实恢复语义</div></div>
+          <div><div class="metric-label text-[10px] uppercase text-ink/40">Cost signal</div><div class="mt-1 font-medium">移除陈旧 HTTP 残影</div></div>
+        </div>
+      </article>
+
+      <article id="kernel-wiring" class="candidate overflow-hidden rounded-[1.75rem] border border-ink/10 bg-white shadow-editorial">
+        <div class="grid gap-6 border-b border-ink/10 bg-gradient-to-r from-sage/75 to-white px-6 py-7 md:grid-cols-[1fr_auto] md:px-8">
+          <div>
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="font-mono text-sm text-moss">03</span>
+              <span class="rounded-full bg-moss px-3 py-1 text-xs font-semibold uppercase tracking-wider text-white">Strong candidate</span>
+              <span class="rounded-full border border-moss/25 bg-white/70 px-3 py-1 text-xs font-medium text-moss">In-process</span>
+            </div>
+            <h2 class="mt-4 text-2xl font-semibold tracking-[-.025em] md:text-3xl">把 Kernel extension wiring 收回所属模块</h2>
+            <p class="mt-2 max-w-3xl text-sm leading-6 text-ink/65">保留 <code>build_kernel</code> 作为 composition root，但不让它通过私有字段安装 engine、hook、tool 与 background-task 能力。</p>
+          </div>
+          <div class="self-end font-mono text-xs text-ink/40">Agent / SDK assembly</div>
+        </div>
+        <div class="grid gap-7 px-6 py-7 md:px-8 lg:grid-cols-[.82fr_1.18fr]">
+          <div class="space-y-6">
+            <section>
+              <h3 class="metric-label text-xs font-semibold uppercase text-ink/45">Files</h3>
+              <div class="mt-2 flex flex-wrap gap-2 text-xs">
+                <span class="file-chip rounded-lg bg-ink/5 px-2.5 py-1.5 font-mono">agent/sdk/kernel.py:742–743,2253–2270</span>
+                <span class="file-chip rounded-lg bg-ink/5 px-2.5 py-1.5 font-mono">platform/hooks/loader.py:205–222</span>
+                <span class="file-chip rounded-lg bg-ink/5 px-2.5 py-1.5 font-mono">platform/background_tasks/wiring.py:106–141</span>
+                <span class="file-chip rounded-lg bg-ink/5 px-2.5 py-1.5 font-mono">core/tools/base.py:26–52</span>
+              </div>
+            </section>
+            <section>
+              <h3 class="metric-label text-xs font-semibold uppercase text-ink/45">Problem</h3>
+              <p class="mt-2 text-sm leading-6 text-ink/75">composition 通过 <code>_llm_config</code>、<code>_can_use_tool</code>、<code>_hook_runner</code>、<code>_registrations</code> 与 <code>_store</code> 完成后装配；owner 的可替换规则因此散在 SDK 和 platform helper。</p>
+            </section>
+            <section>
+              <h3 class="metric-label text-xs font-semibold uppercase text-ink/45">Solution</h3>
+              <p class="mt-2 text-sm leading-6 text-ink/75">让 engine、hook registry、tool registry 与 task registry 自己拥有扩展装配规则；composition 只声明连接关系，保持现有依赖方向。</p>
+            </section>
+            <div class="rounded-xl border border-moss/15 bg-sage/35 p-4">
+              <h3 class="metric-label text-xs font-semibold uppercase text-moss/70">Deletion test</h3>
+              <p class="mt-2 text-sm leading-6 text-ink/70">删掉 wiring helper 会把同样的私有 mutation 搬回 <code>build_kernel</code>；只有 owner 吸收规则后，私有耦合才会消失。</p>
+            </div>
+          </div>
+          <div class="paper-grid rounded-2xl border border-ink/10 bg-paper/75 p-4 md:p-6">
+            <div class="grid gap-5 xl:grid-cols-2">
+              <div>
+                <div class="mb-2 text-xs font-semibold uppercase tracking-[.16em] text-rust">Before · assembly knows internals</div>
+                <pre class="mermaid">
+flowchart TD
+  K["build_kernel"] -. "private attrs" .-> E["Engine"]
+  K -. "private attrs" .-> T["ToolRegistry"]
+  L["Hook loader"] -. "_registrations" .-> H["HookRegistry"]
+  W["Task wiring"] -. "_store" .-> B["TaskRegistry"]
+                </pre>
+              </div>
+              <div>
+                <div class="mb-2 text-xs font-semibold uppercase tracking-[.16em] text-moss">After · owners install capability</div>
+                <pre class="mermaid">
+flowchart TD
+  K["build_kernel\ncomposition root"] --> E["Engine owner"]
+  K --> T["Tool owner"]
+  K --> H["Hook owner"]
+  K --> B["Task owner"]
+  E --> X["internal invariants"]
+  T --> X
+  H --> X
+  B --> X
+                </pre>
+              </div>
+            </div>
+            <div class="mt-5 rounded-xl border border-amber-300/45 bg-amber-50 p-4 text-sm leading-6 text-ink/70">
+              <span class="font-semibold text-amber-900">边界说明：</span>这不是重开“拆分 <code>Kernel</code>/<code>build_kernel</code>”旧建议；composition root 继续存在，只减少它对被组装对象私有结构的知识。
+            </div>
+          </div>
+        </div>
+        <div class="grid gap-3 border-t border-ink/10 bg-ink/[.025] px-6 py-5 text-sm sm:grid-cols-2 lg:grid-cols-4 md:px-8">
+          <div><div class="metric-label text-[10px] uppercase text-ink/40">Locality</div><div class="mt-1 font-medium">不变量回到 owner</div></div>
+          <div><div class="metric-label text-[10px] uppercase text-ink/40">Leverage</div><div class="mt-1 font-medium">四类扩展统一受益</div></div>
+          <div><div class="metric-label text-[10px] uppercase text-ink/40">Test gain</div><div class="mt-1 font-medium">行为测试替代私有 patch</div></div>
+          <div><div class="metric-label text-[10px] uppercase text-ink/40">Architecture</div><div class="mt-1 font-medium">保持 platform → core</div></div>
+        </div>
+      </article>
+
+      <article id="timeline-writes" class="candidate overflow-hidden rounded-[1.75rem] border border-ink/10 bg-white shadow-editorial">
+        <div class="grid gap-6 border-b border-ink/10 bg-gradient-to-r from-amber-50 to-white px-6 py-7 md:grid-cols-[1fr_auto] md:px-8">
+          <div>
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="font-mono text-sm text-amber-800">04</span>
+              <span class="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-amber-900">Worth exploring</span>
+              <span class="rounded-full border border-amber-700/20 bg-white/70 px-3 py-1 text-xs font-medium text-amber-900">Local-substitutable</span>
+            </div>
+            <h2 class="mt-4 text-2xl font-semibold tracking-[-.025em] md:text-3xl">深化 IM timeline write owner</h2>
+            <p class="mt-2 max-w-3xl text-sm leading-6 text-ink/65">把 relay/report 的 event sequence 与 message status 变更收进已有 timeline application owner，避免 transport 同时协调两个 repository。</p>
+          </div>
+          <div class="self-end font-mono text-xs text-ink/40">IM / Application timeline</div>
+        </div>
+        <div class="grid gap-7 px-6 py-7 md:px-8 lg:grid-cols-[.82fr_1.18fr]">
+          <div class="space-y-6">
+            <section>
+              <h3 class="metric-label text-xs font-semibold uppercase text-ink/45">Files</h3>
+              <div class="mt-2 flex flex-wrap gap-2 text-xs">
+                <span class="file-chip rounded-lg bg-ink/5 px-2.5 py-1.5 font-mono">IM/application/event_bridge.py:57–481</span>
+                <span class="file-chip rounded-lg bg-ink/5 px-2.5 py-1.5 font-mono">IM/ws/gateway/relay.py:494–602</span>
+                <span class="file-chip rounded-lg bg-ink/5 px-2.5 py-1.5 font-mono">IM/ws/gateway/execution.py:414–489</span>
+              </div>
+            </section>
+            <section>
+              <h3 class="metric-label text-xs font-semibold uppercase text-ink/45">Problem</h3>
+              <p class="mt-2 text-sm leading-6 text-ink/75"><code>EventBridge</code> 已声明 repository-owned publishing，但 relay 与 execution 仍直接拼装 <code>relay.failed</code>、<code>conversation.notice</code>、<code>message.delivered</code> 并更新 message status；同一顺序规则存在三处。</p>
+            </section>
+            <section>
+              <h3 class="metric-label text-xs font-semibold uppercase text-ink/45">Solution</h3>
+              <p class="mt-2 text-sm leading-6 text-ink/75">让现有 timeline application owner 吸收 relay/report 的持久化语义；WebSocket transport 只翻译协议事实，不管理事件序列和跨 repository 一致性。</p>
+            </section>
+            <div class="rounded-xl border border-moss/15 bg-sage/35 p-4">
+              <h3 class="metric-label text-xs font-semibold uppercase text-moss/70">Deletion test</h3>
+              <p class="mt-2 text-sm leading-6 text-ink/70">删掉 EventBridge 会扩散 timeline 翻译；相反，吸收剩余写路径后可以删除 transport 内的重复序列。</p>
+            </div>
+          </div>
+          <div class="paper-grid rounded-2xl border border-ink/10 bg-paper/75 p-4 md:p-6">
+            <div class="grid gap-5 xl:grid-cols-2">
+              <div>
+                <div class="mb-2 text-xs font-semibold uppercase tracking-[.16em] text-rust">Before · three coordinators</div>
+                <pre class="mermaid">
+flowchart LR
+  B["EventBridge"] --> ER["EventRepo"]
+  B --> MR["MessageRepo"]
+  R["GatewayRelay"] --> ER
+  R --> MR
+  X["GatewayExecution"] --> ER
+  X --> MR
+                </pre>
+              </div>
+              <div>
+                <div class="mb-2 text-xs font-semibold uppercase tracking-[.16em] text-moss">After · one timeline owner</div>
+                <pre class="mermaid">
+flowchart LR
+  R["GatewayRelay"] --> T["Timeline owner"]
+  X["GatewayExecution"] --> T
+  T --> ER["EventRepo"]
+  T --> MR["MessageRepo"]
+                </pre>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="grid gap-3 border-t border-ink/10 bg-ink/[.025] px-6 py-5 text-sm sm:grid-cols-2 lg:grid-cols-4 md:px-8">
+          <div><div class="metric-label text-[10px] uppercase text-ink/40">Locality</div><div class="mt-1 font-medium">timeline 规则单点</div></div>
+          <div><div class="metric-label text-[10px] uppercase text-ink/40">Leverage</div><div class="mt-1 font-medium">缩薄两个 transport</div></div>
+          <div><div class="metric-label text-[10px] uppercase text-ink/40">Test gain</div><div class="mt-1 font-medium">验证完整 event sequence</div></div>
+          <div><div class="metric-label text-[10px] uppercase text-ink/40">Risk</div><div class="mt-1 font-medium">需防止 owner 膨胀</div></div>
+        </div>
+      </article>
+
+      <article id="agent-config" class="candidate overflow-hidden rounded-[1.75rem] border border-ink/10 bg-white shadow-editorial">
+        <div class="grid gap-6 border-b border-ink/10 bg-gradient-to-r from-amber-50 to-white px-6 py-7 md:grid-cols-[1fr_auto] md:px-8">
+          <div>
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="font-mono text-sm text-amber-800">05</span>
+              <span class="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-amber-900">Worth exploring</span>
+              <span class="rounded-full border border-amber-700/20 bg-white/70 px-3 py-1 text-xs font-medium text-amber-900">Ports &amp; adapters</span>
+            </div>
+            <h2 class="mt-4 text-2xl font-semibold tracking-[-.025em] md:text-3xl">深化 Agent config operation owner</h2>
+            <p class="mt-2 max-w-3xl text-sm leading-6 text-ink/65">让已存在的 coordinator 拥有 recovery、optimistic lock、patch omission 与 candidate 形成，HTTP route 只做协议映射。</p>
+          </div>
+          <div class="self-end font-mono text-xs text-ink/40">IM / Agent configuration</div>
+        </div>
+        <div class="grid gap-7 px-6 py-7 md:px-8 lg:grid-cols-[.82fr_1.18fr]">
+          <div class="space-y-6">
+            <section>
+              <h3 class="metric-label text-xs font-semibold uppercase text-ink/45">Files</h3>
+              <div class="mt-2 flex flex-wrap gap-2 text-xs">
+                <span class="file-chip rounded-lg bg-ink/5 px-2.5 py-1.5 font-mono">IM/application/agent_config_operations.py:72–490</span>
+                <span class="file-chip rounded-lg bg-ink/5 px-2.5 py-1.5 font-mono">IM/application/config_service.py:29+</span>
+                <span class="file-chip rounded-lg bg-ink/5 px-2.5 py-1.5 font-mono">IM/api/routes/agents.py:455–528</span>
+                <span class="file-chip rounded-lg bg-ink/5 px-2.5 py-1.5 font-mono">IM/api/routes/nodes.py</span>
+              </div>
+            </section>
+            <section>
+              <h3 class="metric-label text-xs font-semibold uppercase text-ink/45">Problem</h3>
+              <p class="mt-2 text-sm leading-6 text-ink/75">coordinator 已拥有 saga，但 route 仍负责先 recovery、再 owner/profile/version 检查、构造 raw candidate dict，并精确实现 omitted 与 explicit-null 语义。事务 owner 的调用协议仍泄漏到 HTTP 层。</p>
+            </section>
+            <section>
+              <h3 class="metric-label text-xs font-semibold uppercase text-ink/45">Solution</h3>
+              <p class="mt-2 text-sm leading-6 text-ink/75">让 config operation owner 接收 transport-neutral intent 并完整编排恢复、校验与提交；route 保留认证、HTTP status 和 DTO 转换。</p>
+            </section>
+            <div class="rounded-xl border border-amber-300/45 bg-amber-50 p-4">
+              <h3 class="metric-label text-xs font-semibold uppercase text-amber-800/70">Sequencing</h3>
+              <p class="mt-2 text-sm leading-6 text-ink/70">与 active refactor-478 共享 GatewayControl 边界；应在 478 落定后重新确认 seam，避免并行改变 transport ownership。</p>
+            </div>
+          </div>
+          <div class="paper-grid rounded-2xl border border-ink/10 bg-paper/75 p-4 md:p-6">
+            <div class="grid gap-5 xl:grid-cols-2">
+              <div>
+                <div class="mb-2 text-xs font-semibold uppercase tracking-[.16em] text-rust">Before · route owns workflow</div>
+                <pre class="mermaid">
+flowchart TD
+  R["HTTP route"] --> A["recover active"]
+  R --> B["owner/version checks"]
+  R --> C["patch omission"]
+  R --> D["candidate dict"]
+  D --> O["Operation coordinator"]
+                </pre>
+              </div>
+              <div>
+                <div class="mb-2 text-xs font-semibold uppercase tracking-[.16em] text-moss">After · route translates</div>
+                <pre class="mermaid">
+flowchart TD
+  R["HTTP route"] --> I["Config intent"]
+  I --> O["Operation owner"]
+  O --> A["recovery + validation"]
+  O --> B["commit + boundary"]
+  O --> C["domain outcome"]
+                </pre>
+              </div>
+            </div>
+            <div class="mt-5 rounded-xl border border-moss/15 bg-sage/35 p-4 text-sm leading-6 text-ink/70">
+              <span class="font-semibold text-moss">Deletion test：</span>删掉 coordinator 会把 saga 扩散到 route；深化它则能删除 route 中重复的领域顺序，而无需再加一层 service。
+            </div>
+          </div>
+        </div>
+        <div class="grid gap-3 border-t border-ink/10 bg-ink/[.025] px-6 py-5 text-sm sm:grid-cols-2 lg:grid-cols-4 md:px-8">
+          <div><div class="metric-label text-[10px] uppercase text-ink/40">Locality</div><div class="mt-1 font-medium">配置事务单一 owner</div></div>
+          <div><div class="metric-label text-[10px] uppercase text-ink/40">Leverage</div><div class="mt-1 font-medium">create/update/recovery 共用</div></div>
+          <div><div class="metric-label text-[10px] uppercase text-ink/40">Test gain</div><div class="mt-1 font-medium">覆盖 omission 到 commit</div></div>
+          <div><div class="metric-label text-[10px] uppercase text-ink/40">Boundary guard</div><div class="mt-1 font-medium">等待 478 落定</div></div>
+        </div>
+      </article>
+    </section>
+
+    <section class="mt-9 rounded-[1.75rem] border border-moss/20 bg-moss px-7 py-8 text-white shadow-editorial md:px-10">
+      <div class="metric-label text-xs font-semibold uppercase text-emerald-200">Top recommendation</div>
+      <p class="mt-3 text-xl font-medium leading-8 tracking-[-.015em] md:text-2xl">
+        优先探索 <a href="#relay-ingress" class="underline decoration-emerald-300/60 underline-offset-4">01 · Web relay typed ingress</a>：它以最小边界改动消除最多跨层身份泄漏，同时不碰 active change 或已归档的 runtime-delivery ownership。
+      </p>
+    </section>
+
+    <footer class="mt-7 flex flex-col gap-2 border-t border-ink/10 py-6 text-xs text-ink/45 md:flex-row md:items-center md:justify-between">
+      <span>Static snapshot · current code + specs + change decision records</span>
+      <span class="font-mono">9d7a0bec · dirty</span>
+    </footer>
+  </main>
+
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'base',
+      securityLevel: 'loose',
+      flowchart: { curve: 'basis', htmlLabels: true },
+      themeVariables: {
+        fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif',
+        primaryColor: '#dce8df',
+        primaryTextColor: '#17211c',
+        primaryBorderColor: '#315c47',
+        lineColor: '#557060',
+        secondaryColor: '#f4f1e8',
+        tertiaryColor: '#ffffff'
+      }
+    });
+  </script>
+</body>
+</html>
