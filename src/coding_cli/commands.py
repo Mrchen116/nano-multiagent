@@ -13,10 +13,13 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from concurrent.futures import Future
+from dataclasses import dataclass
 import io
 import json
 import logging
 import os
+from queue import Empty, Queue
 import sys
 from pathlib import Path
 
@@ -88,6 +91,71 @@ KernelFactory = Callable[..., Any]
 # branch can distinguish end-of-input from an empty line without raising across
 # the executor boundary (bugfix-426-M2 非阻塞输入循环).
 _EOF_SENTINEL = "\x00__EOF__"
+
+
+@dataclass(frozen=True, slots=True)
+class _CliPermissionResponse:
+    decision: str
+    reason: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class _CliPermissionPrompt:
+    tool_name: str
+    tool_input: Any
+    context: Any
+    response: Future[_CliPermissionResponse]
+
+
+class _CliPermissionPromptCoordinator:
+    """Keep the REPL line editor as the sole owner of terminal input."""
+
+    def __init__(self, *, out: TextIO) -> None:
+        self._out = out
+        self._pending: Queue[_CliPermissionPrompt] = Queue()
+
+    async def request(
+        self, tool_name: str, tool_input: Any, context: Any
+    ) -> _CliPermissionResponse:
+        """Queue one permission prompt and await its exact broker decision."""
+
+        response: Future[_CliPermissionResponse] = Future()
+        self._pending.put(
+            _CliPermissionPrompt(
+                tool_name=tool_name,
+                tool_input=tool_input,
+                context=context,
+                response=response,
+            )
+        )
+        try:
+            return await asyncio.wrap_future(response)
+        except asyncio.CancelledError:
+            response.cancel()
+            raise
+
+    def process_pending(self) -> None:
+        """Present at most one queued prompt from the active input-reader thread."""
+
+        try:
+            prompt = self._pending.get_nowait()
+        except Empty:
+            return
+        if prompt.response.cancelled():
+            return
+        try:
+            decision = _read_permission_decision(
+                tool_name=prompt.tool_name,
+                tool_input=prompt.tool_input,
+                context=prompt.context,
+                out=self._out,
+            )
+        except BaseException as exc:
+            if not prompt.response.done():
+                prompt.response.set_exception(exc)
+        else:
+            if not prompt.response.done():
+                prompt.response.set_result(decision)
 
 
 def _is_tty_output(out: TextIO) -> bool:
@@ -258,7 +326,17 @@ async def _async_main(
     workspace_root: Path,
 ) -> int:
     """Async entry: build Kernel, dispatch to REPL or --text mode."""
-    kernel = _build_kernel(args=args, kernel_factory=kernel_factory, out=out)
+    permission_prompts = (
+        _CliPermissionPromptCoordinator(out=out)
+        if args.text is None and args.command is None
+        else None
+    )
+    kernel = _build_kernel(
+        args=args,
+        kernel_factory=kernel_factory,
+        out=out,
+        permission_prompts=permission_prompts,
+    )
     # bugfix-429 R6: the CLI owns its current model (kernel holds no conversational
     # default after this unit). Resolve it once from the kernel's LLM config — which
     # was built from --model/env — and pass it on every submit.
@@ -290,6 +368,7 @@ async def _async_main(
             repl_input_reader_factory=repl_input_reader_factory,
             workspace_root=workspace_root,
             model=current_model,
+            permission_prompts=permission_prompts,
         )
     finally:
         # bugfix-402-M3: use aclose() so the Registry drain runs inside the
@@ -302,6 +381,7 @@ def _build_kernel(
     args: argparse.Namespace,
     kernel_factory: KernelFactory | None,
     out: TextIO,
+    permission_prompts: _CliPermissionPromptCoordinator | None = None,
 ) -> Any:
     """Assemble Kernel from agent.sdk or test-injected factory."""
     if kernel_factory is not None:
@@ -317,13 +397,10 @@ def _build_kernel(
     # The catalog carries the provider/model list so /model + list_models work.
     llm = _build_cli_llm_config(args)
 
-    # can_use_tool callback: runs in executor so it doesn't block the async loop.
-    async def can_use_tool(tool_name: str, tool_input: Any, ctx: Any) -> Any:
-        return await _ask_permission_async(
-            tool_name=tool_name, tool_input=tool_input, out=out
-        )
-
-    return build_cli_kernel(llm=llm, can_use_tool=can_use_tool)
+    return build_cli_kernel(
+        llm=llm,
+        can_use_tool=(permission_prompts.request if permission_prompts else None),
+    )
 
 
 def _resolve_cli_current_model(kernel: Any) -> str | None:
@@ -389,28 +466,39 @@ def _build_cli_llm_config(args: argparse.Namespace) -> Any:
     )
 
 
-async def _ask_permission_async(
+def _read_permission_decision(
     *,
     tool_name: str,
     tool_input: Any,
+    context: Any,
     out: TextIO,
-) -> Any:
-    """Async permission callback: present picker and await user decision.
+) -> _CliPermissionResponse:
+    """Read one broker permission decision on the REPL input-owner thread."""
 
-    Runs read_permission_choice in a thread executor so the event loop is
-    not blocked while waiting for terminal input.
-    """
-    from agent.sdk import PermissionDecision
-
+    raw_options = getattr(context, "options", ())
     options = [
         repl_input.PermissionOption(
-            id="allow", label="Allow once", description="Allow this single action"
-        ),
-        repl_input.PermissionOption(
-            id="deny", label="Deny", description="Block this action"
-        ),
+            id=str(getattr(option, "id", "deny")),
+            label=str(getattr(option, "label", "Deny")),
+            description=str(getattr(option, "description", "")),
+        )
+        for option in raw_options
     ]
+    if not options:
+        options = [
+            repl_input.PermissionOption(
+                id="allow_once",
+                label="Allow once",
+                description="Allow this single action",
+            ),
+            repl_input.PermissionOption(
+                id="deny", label="Deny", description="Block this action"
+            ),
+        ]
     header = f"Permission request: {tool_name}"
+    question = str(getattr(context, "question", "") or "").strip()
+    if question:
+        header += f"\n  {question}"
     if tool_input:
         try:
             header += f"\n  {json.dumps(tool_input, ensure_ascii=False)[:120]}"
@@ -419,14 +507,12 @@ async def _ask_permission_async(
             # always sees the tool input rather than a blank permission request.
             header += f"\n  {repr(tool_input)[:120]}"
 
-    loop = asyncio.get_event_loop()
-    chosen_id = await loop.run_in_executor(
-        None,
-        lambda: repl_input.read_permission_choice(
-            header=header, options=options, out=out
-        ),
+    chosen_id = repl_input.read_permission_choice(
+        header=header,
+        options=options,
+        out=out,
     )
-    return PermissionDecision(behavior=chosen_id)
+    return _CliPermissionResponse(decision=chosen_id)
 
 
 def _is_workflow_permission_request(event: dict[str, Any]) -> bool:
@@ -553,6 +639,7 @@ async def _run_repl(
     repl_input_reader_factory: Callable[[], repl_input.ReplInputReader] | None,
     workspace_root: Path,
     model: str | None = None,
+    permission_prompts: _CliPermissionPromptCoordinator | None = None,
 ) -> int:
     """Async-native interactive REPL loop.
 
@@ -684,7 +771,7 @@ async def _run_repl(
         input_fn=input_fn,
         repl_input_reader_factory=repl_input_reader_factory,
         command_suggestions=command_suggestions,
-        on_idle=None,
+        on_idle=(permission_prompts.process_pending if permission_prompts else None),
         idle_interval_seconds=0.5,
     )
 
@@ -1229,7 +1316,7 @@ async def _handle_repl_command_async(
                 usage="/help",
             )
             return _ReplCommandResult(handled=True)
-        print(repl_commands.HELP_LINE, file=out)
+        print(repl_commands.help_line(workflow_enabled=workflow_enabled), file=out)
         return _ReplCommandResult(handled=True)
 
     if command == "/exit":

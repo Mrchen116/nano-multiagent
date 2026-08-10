@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from agent.core.llm.interfaces import LLMMessage, LLMToolCall
@@ -9,6 +10,7 @@ from agent.core.types import TokenUsage
 from agent.sdk import (
     LLMConfig,
     PromptSlots,
+    RunOrigin,
     SessionRuntimeConfig,
     WorkflowControlAction,
     WorkflowRunInfo,
@@ -106,6 +108,46 @@ async def main():
         )
 
 
+class _RepeatedWorkflowClient:
+    def __init__(self) -> None:
+        self.launched_human_turns = 0
+
+    def generate(self, request: Any):  # noqa: ANN201
+        human_turns = sum(
+            1
+            for message in request.messages
+            if message.role == "user"
+            and isinstance(message.content, str)
+            and message.content == "run remembered Workflow"
+        )
+        if human_turns > self.launched_human_turns:
+            self.launched_human_turns = human_turns
+            return self._launch()
+        return self._finish()
+
+    async def _launch(self):  # noqa: ANN202
+        yield LLMMessage(
+            role="assistant",
+            content="launching",
+            tool_calls=(
+                LLMToolCall(
+                    call_id=f"call-workflow-{self.launched_human_turns}",
+                    name="Workflow",
+                    arguments={
+                        "script": """
+meta = {"name": "remembered", "description": "Return immediately"}
+async def main():
+    return "done"
+"""
+                    },
+                ),
+            ),
+        )
+
+    async def _finish(self):  # noqa: ANN202
+        yield LLMMessage(role="assistant", content="launched", finish_reason="stop")
+
+
 async def _allow_all(_tool: str, _input: Any, _context: Any) -> Any:
     from agent.sdk import PermissionDecision
 
@@ -130,6 +172,16 @@ async def _wait_workflow(kernel: Any, session_id: str, status: str) -> WorkflowR
             return runs[0]
         await asyncio.sleep(0.01)
     raise AssertionError(f"Workflow did not reach {status}")
+
+
+async def _wait_workflow_count(kernel: Any, session_id: str, count: int) -> None:
+    deadline = asyncio.get_running_loop().time() + 3
+    while asyncio.get_running_loop().time() < deadline:
+        runs = kernel.list_workflow_runs(session_id=session_id)
+        if len(runs) == count and all(run.status == "completed" for run in runs):
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError(f"Workflow count did not reach {count}")
 
 
 async def test_kernel_workflow_management_surface_owns_query_control_and_save(
@@ -200,6 +252,53 @@ async def test_kernel_workflow_management_surface_owns_query_control_and_save(
 
         assert saved.name == "saved-sdk-demo"
         assert saved in kernel.list_named_workflows(workspace_root=tmp_path)
+    finally:
+        await kernel.aclose()
+
+
+async def test_can_use_tool_preserves_always_decision_for_workflow_consent(
+    tmp_path: Path,
+) -> None:
+    client = _RepeatedWorkflowClient()
+    permission_calls = 0
+
+    async def _always(_tool: str, _input: Any, _context: Any) -> Any:
+        nonlocal permission_calls
+        permission_calls += 1
+        return SimpleNamespace(decision="allow_always", reason="")
+
+    kernel = build_kernel(
+        llm=LLMConfig(
+            provider="openai_compat",
+            model="test-model",
+            base_url="http://127.0.0.1:1",
+        ),
+        workspace_config_dirname=".nanocode",
+        global_config_root=tmp_path / "global",
+        can_use_tool=_always,
+        repo_root=tmp_path,
+        _llm_client_override=client,
+    )
+    runtime = SessionRuntimeConfig(
+        model="test-model",
+        prompt=PromptSlots(),
+        skills=None,
+        enabled_tools=["Workflow"],
+        features={},
+    )
+    try:
+        session = await kernel.create_session(workspace_root=tmp_path, runtime=runtime)
+        for expected_count in (1, 2):
+            parent = kernel.submit(
+                session_id=session.session_id,
+                workspace_root=tmp_path,
+                parts=[{"type": "text", "text": "run remembered Workflow"}],
+                origin=RunOrigin.HUMAN,
+            )
+            await _wait_parent(kernel, parent.run_id)
+            await _wait_workflow_count(kernel, session.session_id, expected_count)
+
+        assert permission_calls == 1
     finally:
         await kernel.aclose()
 

@@ -25,6 +25,15 @@ HELP_LINE = (
     "Commands: /help /new /use <session_id> /session /tools /compact /history [n] "
     "/workflows /config workflowSizeGuideline <value> /effort <ultracode|high> /exit"
 )
+_HELP_LINE_WITHOUT_WORKFLOW = (
+    "Commands: /help /new /use <session_id> /session /tools /compact /history [n] /exit"
+)
+
+
+def help_line(*, workflow_enabled: bool) -> str:
+    """Return help text for the active session capability snapshot."""
+
+    return HELP_LINE if workflow_enabled else _HELP_LINE_WITHOUT_WORKFLOW
 
 
 @dataclass(frozen=True, slots=True)

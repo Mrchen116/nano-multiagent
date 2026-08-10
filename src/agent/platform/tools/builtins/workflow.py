@@ -168,7 +168,7 @@ class WorkflowTool:
         self.description = workflow_description(size_guideline)
 
     def check_permissions(
-        self, tool_input: Mapping[str, Any], ctx: ToolContext
+        self, tool_input: Mapping[str, Any], ctx: Any
     ) -> PermissionDecision:
         source, identity = self._resolve_source(tool_input, ctx)
         try:
@@ -186,8 +186,9 @@ class WorkflowTool:
                     "identity": resolved_identity,
                 },
             )
+        session_metadata = _context_session_metadata(ctx)
         size_guideline, size_guideline_explicit = _size_guideline_setting(
-            ctx.session_metadata
+            session_metadata
         )
         return PermissionDecision(
             behavior="ask",
@@ -196,7 +197,7 @@ class WorkflowTool:
                 phases=tuple(phase.title for phase in compiled.meta.phases),
                 size_guideline=size_guideline,
                 size_guideline_explicit=size_guideline_explicit,
-                ultracode=_workflow_ultracode(ctx.session_metadata),
+                ultracode=_workflow_ultracode(session_metadata),
             ),
             decision_reason={"type": "workflow_launch", "identity": resolved_identity},
         )
@@ -212,9 +213,7 @@ class WorkflowTool:
             max_result_size_chars=self.max_result_size_chars,
         )
 
-    def permission_identity(
-        self, tool_input: Mapping[str, Any], ctx: ToolContext
-    ) -> str:
+    def permission_identity(self, tool_input: Mapping[str, Any], ctx: Any) -> str:
         source, identity = self._resolve_source(tool_input, ctx)
         return identity or compile_workflow(source).meta.name
 
@@ -293,7 +292,7 @@ class WorkflowTool:
         )
 
     def _resolve_source(
-        self, args: Mapping[str, Any], ctx: ToolContext
+        self, args: Mapping[str, Any], ctx: Any
     ) -> tuple[str, str | None]:
         script_path = _optional_string(args.get("scriptPath"))
         inline = args.get("script")
@@ -301,7 +300,7 @@ class WorkflowTool:
         if script_path is not None:
             path = Path(script_path).expanduser()
             if not path.is_absolute():
-                path = ctx.cwd / path
+                path = _context_cwd(ctx) / path
             try:
                 return path.resolve().read_text(encoding="utf-8"), str(path.resolve())
             except OSError as exc:
@@ -315,7 +314,9 @@ class WorkflowTool:
                 )
             return inline, None
         if name is not None and self._named_resolver is not None:
-            resolved = self._named_resolver.resolve(name, workspace_root=ctx.cwd)
+            resolved = self._named_resolver.resolve(
+                name, workspace_root=_context_cwd(ctx)
+            )
             if resolved is not None:
                 return Path(resolved.path).read_text(encoding="utf-8"), name
         raise ToolError(
@@ -329,6 +330,26 @@ def _optional_string(value: Any) -> str | None:
         return None
     normalized = value.strip()
     return normalized or None
+
+
+def _context_cwd(ctx: Any) -> Path:
+    """Resolve the workspace for both gate HookContext and execution ToolContext."""
+
+    cwd = getattr(ctx, "cwd", None) or getattr(ctx, "repo_root", None)
+    if not isinstance(cwd, Path):
+        raise ToolError(
+            "Workflow workspace is unavailable", tool_name=WorkflowTool.name
+        )
+    return cwd
+
+
+def _context_session_metadata(ctx: Any) -> Mapping[str, Any]:
+    """Read session metadata from either supported permission context shape."""
+
+    metadata = getattr(ctx, "session_metadata", None)
+    if metadata is None:
+        metadata = getattr(ctx, "metadata", None)
+    return metadata if isinstance(metadata, Mapping) else {}
 
 
 def _capture_parent_runtime(ctx: ToolContext) -> dict[str, Any]:

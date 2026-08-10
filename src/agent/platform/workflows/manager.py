@@ -113,6 +113,23 @@ class WorkflowManager:
         if self._closed:
             raise RuntimeError("Workflow manager is closed")
         compiled = compile_workflow(source)
+        if resume_from_run_id is not None:
+            self.load_session_runs(
+                session_id=context.parent_session_id,
+                workspace_root=context.workspace_root,
+            )
+            if self.get(resume_from_run_id) is None:
+                owner_session_id = self._find_durable_run_owner(
+                    run_id=resume_from_run_id,
+                    workspace_root=context.workspace_root,
+                )
+                if (
+                    owner_session_id is not None
+                    and owner_session_id != context.parent_session_id
+                ):
+                    raise ValueError(
+                        "resume Workflow run belongs to a different parent session"
+                    )
         resume_entries = self._resume_entries(
             resume_from_run_id,
             parent_session_id=context.parent_session_id,
@@ -614,6 +631,25 @@ class WorkflowManager:
             for index, item in enumerate(completed_agents)
             if item.get("status") == "completed" and item.get("resume_key")
         )
+
+    def _find_durable_run_owner(
+        self, *, run_id: str, workspace_root: Path
+    ) -> str | None:
+        sessions_root = (
+            workspace_root.expanduser().resolve() / self._config_dirname / "sessions"
+        )
+        if not sessions_root.is_dir():
+            return None
+        for session_root in sessions_root.iterdir():
+            run_dir = session_root / "workflows" / "runs" / run_id
+            if not run_dir.is_dir():
+                continue
+            snapshot = WorkflowRunStore.load_snapshot(run_dir)
+            if snapshot.get("run_id") == run_id and isinstance(
+                snapshot.get("parent_session_id"), str
+            ):
+                return str(snapshot["parent_session_id"])
+        return None
 
     def _resolve_nested_source(
         self,

@@ -3,6 +3,7 @@
 import io
 from types import SimpleNamespace
 
+from coding_cli import commands
 from coding_cli.main import run_cli
 from coding_cli.input.repl_commands import is_repl_command_candidate
 
@@ -49,6 +50,47 @@ def test_run_cli_repl_supports_required_commands(tmp_path) -> None:
     assert "submit" in call_names
     assert "list_session_tools" in call_names
     assert "compact" in call_names
+
+
+def test_run_cli_help_hides_workflow_only_commands_when_session_disables_tool(
+    tmp_path, monkeypatch
+) -> None:
+    stub = _BaseKernelStub()
+    output = io.StringIO()
+    inputs = iter(["/new", "/help", "/exit"])
+    discovered_commands = ()
+
+    def _build_reader(**kwargs):
+        nonlocal discovered_commands
+        discovered_commands = kwargs["command_suggestions"]
+        return lambda _prompt, _history: next(inputs)
+
+    monkeypatch.setenv("NANOCODE_DISABLE_WORKFLOWS", "1")
+    monkeypatch.setattr(commands.repl_input, "build_repl_input_reader", _build_reader)
+
+    exit_code = run_cli(
+        [],
+        stdout=output,
+        kernel_factory=_make_kernel_factory(stub),
+        workspace_root=tmp_path,
+    )
+
+    assert exit_code == 0
+    help_line = next(
+        line for line in output.getvalue().splitlines() if line.startswith("Commands:")
+    )
+    assert "/tools" in help_line
+    assert "/compact" in help_line
+    assert "/history [n]" in help_line
+    assert "/workflows" not in help_line
+    assert "/config workflowSizeGuideline" not in help_line
+    assert "/effort <ultracode|high>" not in help_line
+    assert "/tools" in discovered_commands
+    assert "/compact" in discovered_commands
+    assert "/history" in discovered_commands
+    assert "/workflows" not in discovered_commands
+    assert "/config" not in discovered_commands
+    assert "/effort" not in discovered_commands
 
 
 def test_run_cli_repl_use_switches_active_session(tmp_path) -> None:

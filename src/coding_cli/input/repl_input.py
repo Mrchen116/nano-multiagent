@@ -874,7 +874,11 @@ def read_permission_choice(
 
     with _RENDER_LOCK:
         with _stdin_raw_mode(sys.stdin):
-            key_reader = _build_key_reader(sys.stdin)
+            key_reader = _build_key_reader(
+                sys.stdin,
+                on_idle=None,
+                idle_interval_seconds=0.5,
+            )
             _render()
 
             while True:

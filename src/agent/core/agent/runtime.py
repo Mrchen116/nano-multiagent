@@ -1515,15 +1515,28 @@ class AgentEngine:
                                         "reason": "can_use_tool raised",
                                     },
                                 )()
+                            explicit_decision = getattr(raw_decision, "decision", None)
                             behavior = getattr(raw_decision, "behavior", "deny")
                             reason = getattr(raw_decision, "reason", "")
+                            allowed_decisions = {
+                                "allow_once",
+                                "allow_session",
+                                "allow_always",
+                                "deny",
+                            }
+                            if explicit_decision in allowed_decisions:
+                                broker_decision = explicit_decision
+                            elif behavior in allowed_decisions:
+                                broker_decision = behavior
+                            else:
+                                broker_decision = (
+                                    "deny" if behavior == "deny" else "allow_once"
+                                )
                             response = type(
                                 "_R",
                                 (),
                                 {
-                                    "decision": "deny"
-                                    if behavior == "deny"
-                                    else "allow_once",
+                                    "decision": broker_decision,
                                     "reason": reason,
                                     "request_id": req.id,
                                     "rule_update": None,
