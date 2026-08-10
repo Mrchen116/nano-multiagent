@@ -109,8 +109,8 @@ def test_accept_relay_puts_attachments_in_inbound_metadata() -> None:
     inbound = adapter.accept_relay(payload)
 
     assert len(received) == 1
-    assert inbound.message is received[0]
-    attachments = inbound.message.metadata.get("attachments")
+    assert inbound is received[0]
+    attachments = inbound.metadata.get("attachments")
     assert isinstance(attachments, list)
     assert len(attachments) == 1
     assert attachments[0]["url"] == "http://im.local/im/uploads/photo.png"

@@ -6,22 +6,12 @@ from dataclasses import dataclass, field, replace
 from typing import Any, Mapping
 
 from personal_assistant.channels.base import (
+    ExternalConversationIdentity,
     ExternalInboundEventIdentity,
     InboundMessage,
 )
 
 _RUNTIME_PROTOCOL_KEY = "__runtime_protocol_facts__"
-
-
-@dataclass(frozen=True, slots=True)
-class ExternalConversationIdentity:
-    """Typed identity for an external-channel conversation mirrored through IM."""
-
-    external_source: str
-    external_chat_id: str
-    agent_id: str | None = None
-    conversation_type: str | None = None
-    trigger_source: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

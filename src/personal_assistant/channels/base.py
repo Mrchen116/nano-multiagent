@@ -20,6 +20,45 @@ class ExternalInboundEventIdentity:
 
 
 @dataclass(frozen=True, slots=True)
+class ExternalConversationIdentity:
+    """Identify an external-channel conversation represented by an inbound."""
+
+    external_source: str
+    external_chat_id: str
+    agent_id: str | None = None
+    conversation_type: str | None = None
+    trigger_source: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class IMRelayIngress:
+    """Carry transport facts normalized from one IM relay payload."""
+
+    relay_task_id: str
+    idempotency_key: str
+    im_message_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.relay_task_id, str) or not self.relay_task_id.strip():
+            raise ValueError("relay_task_id must be a non-empty string")
+        if not isinstance(self.idempotency_key, str) or not self.idempotency_key.strip():
+            raise ValueError("idempotency_key must be a non-empty string")
+
+
+@dataclass(frozen=True, slots=True)
+class InboundIngress:
+    """Carry normalized transport and provider identities into the Gateway."""
+
+    im_relay: IMRelayIngress | None = None
+    external_conversation: ExternalConversationIdentity | None = None
+    external_event: ExternalInboundEventIdentity | None = None
+
+    def __post_init__(self) -> None:
+        if self.external_event is not None and self.external_conversation is None:
+            raise ValueError("external_event requires external_conversation")
+
+
+@dataclass(frozen=True, slots=True)
 class InboundMessage:
     """Represent one normalized inbound message delivered by a channel adapter.
 
@@ -32,6 +71,7 @@ class InboundMessage:
         agent_id: Optional explicit target agent supplied by the channel payload.
         thread_id: Optional thread identifier required for threaded reply routing.
         metadata: Opaque adapter-provided metadata forwarded through the pipeline.
+        ingress: Normalized transport and provider identities for Gateway routing.
         external_event_identity: Stable provider identity used by durable shadow mirroring.
     """
 
@@ -43,6 +83,7 @@ class InboundMessage:
     agent_id: str | None = None
     thread_id: str | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    ingress: InboundIngress = field(default_factory=InboundIngress)
     external_event_identity: ExternalInboundEventIdentity | None = None
 
 

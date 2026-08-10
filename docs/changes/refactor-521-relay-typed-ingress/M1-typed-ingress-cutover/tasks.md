@@ -42,7 +42,7 @@
 
 ### R1 — 建立 typed carrier 与 producer matrix
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 先写 carrier validation/WebRelay/Feishu producer 红测；在 channels 层新增不可变 carrier，迁移 adapter callback，删除 return-only envelope。
 - 验证: producer/absence/invalid-combination 聚焦 tests 红转绿，adapter dedup/attachment suites 通过。
 
