@@ -513,3 +513,149 @@ self-evolution E2E runtime cleaned: .../.e2e-self-evolution.Bsrjfp
 ## Recommended Next Step
 
 先按 `fix-implementation` 收口 R4-I1：在同一专用 non-production profile 下让 probe 后的正常 route-anchor 稳定进入当前隔离 Gateway，并保留失败路径的完整 cleanup。另为 R4-I2 提供不依赖 unit-test 推断的受控 CLI 产品入口。修复后 Round 5 targeted re-review 必须重走完整 Feishu/shadow M3 journey 与 CLI success/no-write journey；M1/M2 只需复跑受影响的相邻路径。
+
+---
+
+# Round 5 — 2026-08-11（targeted R4-I1 / R4-I2）
+
+> Targeted validation snapshot: `a26fc6975853b5e7183f531df39bbc547a4ea4d7 → 39e280b03eebfbb0aa41bf13bd9fa7aa588e106b`
+
+> Revalidation mode: targeted；仅复验 Round 4 的 R4-I1、R4-I2 与它们直接拥有的 cleanup，不重复 M1/M2 或普通后台 Agent 等已通过范围。
+
+## Verdict
+
+- **Verdict: pass**
+- **Highest Required Action: pass**
+- **Issues: 0 blocking, 0 major, 0 minor**
+- R4-I1、R4-I2 均已由 reviewer 亲自走真实产品入口关闭；Round 4 被前置故障阻断的 M3 Feishu/shadow rows 和两条 CLI `inconclusive` rows 更新为 `pass`。
+- 未观察到需要从 Fast-lane 升级为完整复验的新副作用。
+
+## Reference Artifacts Reviewed
+
+- 无原型、设计稿或视觉 must-match 契约。
+- 期望来源继续使用 `incident.md` 的 M3 Scenario、`design.md` Reviewer Runbook，以及 current Gateway / CLI contracts。
+- 本轮只使用 Runbook 批准的真实入口：专用 Feishu Bot + 隔离 IM/Gateway journey，以及真实 `coding_cli.main` PTY runner；未以 pytest、worker 报告或源码推断替代产品结果。
+
+## Targeted Scope Check
+
+- fix delta：`a26fc6975..39e280b03`。
+- caller 指定的变更只影响 R4-I1 的 probe→replacement-worker 切换/失败清理，以及 R4-I2 的 reviewer-owned Coding CLI/PTY 入口；M1/M2 production route、普通后台 Agent output 与既有 Skill config-sync 不在本轮重跑范围。
+- 开工时本地 HEAD 与 `origin/unit/bugfix-525` 同为 `39e280b03eebfbb0aa41bf13bd9fa7aa588e106b`，worktree clean。
+
+## User Journeys Exercised
+
+### J5-1 — 专用 Feishu exact up → probe → journey → down
+
+专用 env mode `0600`、非 `default` profile、`auth status --verify` 通过后，在同一个带 teardown trap 的 shell 中执行：
+
+```text
+PATH="/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH" ./scripts/e2e-up.sh --wt "$PWD" --feishu
+./scripts/e2e-feishu-probe.py --wt "$PWD"
+./scripts/e2e-feishu-self-evolution.py --wt "$PWD"
+./scripts/e2e-down.sh --wt "$PWD"
+```
+
+关键输出：
+
+```text
+e2e stack ready ...
+IM 56079
+profile feishu
+Feishu E2E ingress probe passed (profile=<dedicated non-default profile>)
+nonce=bugfix525-m3-9be7f4c9d2e6
+anchor_message_id=om_x100b68944ee7f8a0c16db5207d7a5a7
+no_save_message_id=om_x100b68944e0e088cdef86adc3fa3d16
+failure_message_id=om_x100b68944fb1c0a0c323b599f32ca20
+skill_message_id=om_x100b68944f24a4a0c1f291a355fd3a9
+shadow_conversation_id=a309358a4e704fe4ab64e543622e7a4e
+skill_name=deterministic-review-9be7f4c9d2e6
+e2e stack stopped (.../unit-bugfix-525)
+```
+
+产品结果：
+
+- Round 4 的 route-anchor ingress 超时未复现；probe 后 replacement worker ready，完整 journey status 0。
+- Feishu 成功 Skill update 显示正常前台回复和唯一一条普通 Bot 单行 skills notice；对应 shadow IM 保持唯一 structured skills notice，真实 Skill artifact 与 explicit allowlist 同步成立。
+- no-save 与 mutating failure 的前台回复完成，Feishu/shadow 均无 update notice；raw `Saved:`、`Nothing to save.`、review/tool/error/traceback 不可见。
+- shadow IM 触发真实 memory update 时只在 shadow 显示 structured memory notice，未回写 Feishu；同一真实外部/内部会话切换没有串到错误目标。
+- journey 用本轮 nonce 和 message-id window 核对唯一通知，没有把历史消息当作当前结果。
+
+### J5-2 — 真实 Coding CLI / PTY 六场景
+
+为遵守 reviewer 零写入约束，runner 的 transcript 写入独立 `/tmp` 目录；读取后连同目录删除，没有覆盖仓内 worker evidence：
+
+```text
+PATH="/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH" \
+  ./scripts/e2e-cli-self-evolution.py --wt "$PWD" --transcript <temporary-path>
+```
+
+nonce：`3f2218dc41`。真实 PTY 输出逐项为：
+
+| Case | 前台终态 | 用户可见 update line | 持久结果 | raw private output |
+|---|---|---|---|---|
+| memory | `completed` | `· background self-evolution review: memory updated`，恰好 1 条 | memory persisted | 不可见 |
+| skills | `completed` | `· background self-evolution review: skills updated`，恰好 1 条 | `cli-review-skills-3f2218dc41` persisted | 不可见 |
+| both | `completed` | `· background self-evolution review: skills + memory updated`，恰好 1 条 | memory + `cli-review-both-3f2218dc41` persisted | 不可见 |
+| no-save | `completed` | 0 条 | 无写入 | 不可见 |
+| read-only | `completed` | 0 条 | 无写入 | 不可见 |
+| failure | `completed` | 0 条 | 无写入 | 不可见 |
+
+runner 汇总：`runtime_cleaned=true`；六场景 `foreground_visible=true`，所有 `raw_private_output_visible=false`。
+
+## Focused Coverage Update
+
+### Round 4 failed / inconclusive rows
+
+| Round 4 row | Round 5 证据 | 结果 | 备注 |
+|---|---|---|---|
+| memory review 在正常回答后完成 | J5-1 shadow memory update；J5-2 memory/both PTY | **pass** | 真写入、exact updated notice 与 raw 隔离同时可见。 |
+| 后台 review 没有可保存内容或执行失败 | J5-1 Feishu no-save/failure；J5-2 no-save/read-only/failure | **pass** | 两类产品入口前台均完成，零 update、零 raw/error；补齐 Round 4 未到达矩阵。 |
+| skill review 创建新 skill | J5-1 Feishu Skill + shadow structured notice；既有 M2 后续 session coverage 继承 | **pass** | 外部单行通知、shadow system notice、artifact 与 explicit allowlist 同时成立。 |
+| 飞书消息触发成功的 self-evolution review | J5-1 `skill_message_id` 与本轮 nonce window | **pass** | 原 chat 与 shadow 都只出现各自正确形态的一条 notice，无 card、第一人称或沉淀细节。 |
+| 内部 IM 消息触发成功的 self-evolution review | J5-1 shadow memory turn | **pass** | 只在当前 shadow 显示，不回写 Feishu。 |
+| 其他内部运行态事件保持不外发 | J5-1 完整 Feishu window | **pass** | thinking/tool/token/debug、raw review 与错误栈均未作为飞书普通消息出现。 |
+| Feishu/shadow 来源切换归因 | J5-1 同一真实会话先外部 Skill、后内部 memory | **pass** | 两轮通知按各自触发源到达，没有使用首次/最新 binding 串路由。并发 overlap 属内部时序边界，继续由既有 verifier/code-review regression 保护，不冒充 reviewer 产品证据。 |
+| replay 后 external/structured notice 不重复 | J5-1 nonce/message window | **pass** | 当前 journey 的 Feishu 与 shadow notice 均恰好一次；M2 transport replay 的既有通过结论不重复执行。 |
+| Coding CLI memory/skills/both updated line | J5-2 real PTY | **pass** | 三种 exact line 各 1 条，真实副作用对应。 |
+| Coding CLI no-save/read/failure 静默 | J5-2 real PTY | **pass** | 三种 case `update_count=0`，raw 私有输出不可见。 |
+
+Round 4 标为 `not-applicable` 的“缺 originating route 时 fail-closed”仍是内部协议/实现层 Scenario，不纳入 reviewer 产品 verdict。
+
+## Issue Closure
+
+### R4-I1 — closed
+
+- Round 4：`blocking / direct / fix-implementation`。
+- Round 5：fresh exact up→probe→journey→down status 0；route anchor `om_x100b68944ee7f8a0c16db5207d7a5a7` 成功进入，完整 Feishu/shadow 用户旅程走完，成功与静默分支均得到真实产品结果。
+
+### R4-I2 — closed
+
+- Round 4：`major / direct / fix-implementation`。
+- Round 5：真实 `coding_cli.main` PTY 六场景全部通过；三类成功更新 exact line 与持久副作用一致，三类 no-write 零 update，前台和 raw 隐私均成立。
+
+## Cleanup Verification
+
+- Feishu journey 后 `e2e-down` 已运行；IM port `56079` closed。
+- worktree 无 `.im.pid`、`.gateway.pid`、`.e2e-ports.env`、`.e2e-jwt-secret`、`.gateway-config.yaml`、channel credential/manifest、fixture JSONL 或 config receipts。
+- 无 cwd 指向本 unit 的 IM、Gateway、Feishu/self-evolution fixture 或 Coding CLI 进程；无本 unit Feishu listener lock。
+- CLI runner stdout 为 `runtime_cleaned=true`；无 `.e2e-cli-self-evolution.*`，临时 `/tmp` transcript/目录已删除。
+- 写报告前 `git status` clean。
+
+## Issues
+
+None.
+
+## Side Findings
+
+None.
+
+## 上层文档同步
+
+- [x] `SPEC.md`（跨包顶点架构）：**无需更新**。
+- [x] `docs/specs/<包>/`（长青行为契约层）：current Gateway / CLI contracts 已包含本轮目标行为，无新增同步项。
+- [x] `AGENTS.md` / `CLAUDE.md`：**无需更新**。
+- [x] `docs/specs/CONTRIBUTING.md`：**无需更新**。
+
+## Recommended Next Step
+
+R4-I1、R4-I2 均已关闭，Round 5 targeted 产品验收通过。可继续 PR #264 的剩余收尾门禁，不需要再次 product re-review。
