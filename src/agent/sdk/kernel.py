@@ -147,10 +147,10 @@ class _SessionSubagentControl:
     def resolve_reasoning_effort(self) -> str | None:
         """Return the parent session's persisted reasoning effort."""
 
-        session = self.directory.get(self.ref)
-        if session is None:
+        if self.directory.get(self.ref) is None:
             return None
-        runtime = session.metadata.get(INTERNAL_RUNTIME_KEY)
+        config, _prompt_seed = self.directory.open(self.ref).config_snapshot()
+        runtime = config.metadata.get(INTERNAL_RUNTIME_KEY)
         if not isinstance(runtime, Mapping):
             return None
         effort = runtime.get("reasoning_effort")
@@ -175,6 +175,8 @@ class _SessionSubagentControl:
         parent_session_id: str | None,
         tool_allowlist: Sequence[str] | None = None,
         prompt_seed: PromptSlotSeed | None = None,
+        runtime_model: str | None = None,
+        runtime_reasoning_effort: str | None = None,
     ) -> SessionRef:
         """Create one child session for the ``agent`` tool's new-agent path.
 
@@ -200,6 +202,9 @@ class _SessionSubagentControl:
                 for callers that intentionally want the registry default.
             prompt_seed: Core ``PromptSlotSeed`` for the child's dedicated
                 system-prompt slots; ``None`` falls back to an empty seed.
+            runtime_model: Persisted model for the child session.
+            runtime_reasoning_effort: Persisted provider-neutral effort for the
+                child session.
         """
 
         if parent_session_id != self.ref.session_id:
@@ -213,6 +218,8 @@ class _SessionSubagentControl:
                 else None,
                 metadata=metadata,
                 parent_session_id=self.ref.session_id,
+                runtime_model=runtime_model,
+                runtime_reasoning_effort=runtime_reasoning_effort,
                 prompt_seed=prompt_seed
                 if prompt_seed is not None
                 else PromptSlotSeed(),

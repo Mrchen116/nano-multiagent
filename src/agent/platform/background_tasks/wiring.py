@@ -179,10 +179,10 @@ def _deliver_notification(
     workspace_root = (
         Path(record.workspace_root) if record.workspace_root is not None else None
     )
+    runtime_model: str | None = None
     if directory is not None and workspace_root is not None:
-        parent_session = directory.get(
-            SessionRef(session_id=parent, workspace_root=workspace_root)
-        )
+        parent_ref = SessionRef(session_id=parent, workspace_root=workspace_root)
+        parent_session = directory.get(parent_ref)
         if (
             parent_session is not None
             and parent_session.metadata.get("kind") == "subagent"
@@ -193,6 +193,10 @@ def _deliver_notification(
                 parent_session_id=parent,
             )
             return
+        if parent_session is not None:
+            runtime_model = (
+                directory.open(parent_ref).config_snapshot()[0].runtime_model
+            )
 
     try:
         runs_registry.submit(
@@ -204,6 +208,7 @@ def _deliver_notification(
             if notification.background_return is not None
             else (),
             workspace_root=workspace_root,
+            model=runtime_model,
         )
     except Exception as exc:  # noqa: BLE001
         log_error(

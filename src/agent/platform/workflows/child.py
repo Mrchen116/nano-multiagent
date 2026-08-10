@@ -13,11 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from agent.core.llm.model_registry import provider_of
-from agent.core.session.types import (
-    INTERNAL_RUNTIME_KEY,
-    PromptSlotSeed,
-    PromptSlotText,
-)
+from agent.core.session.types import PromptSlotSeed, PromptSlotText
 from agent.core.types import TurnResult
 from agent.core.workflows import AgentCallSpec
 from agent.platform.tools.subagent_types import apply_tool_deny, resolve_agent_type
@@ -187,12 +183,10 @@ class WorkflowChildRunner:
                         "workflow_output_schema": call.schema,
                         "workflow_unattended": self._context.parent_run_origin
                         != "human",
-                        INTERNAL_RUNTIME_KEY: {
-                            "model": model,
-                            "reasoning_effort": effort,
-                        },
                     },
                     parent_session_id=self._context.parent_session_id,
+                    runtime_model=model,
+                    runtime_reasoning_effort=effort,
                 )
                 attempt_refs.append(ref)
                 starter = getattr(self._runner, "start_workflow_agent", None)

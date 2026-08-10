@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from agent.core.session.jsonl_files import JsonlSessionFiles
-from agent.core.session.types import INTERNAL_RUNTIME_KEY, SessionRef
+from agent.core.session.types import SessionRef
 from agent.core.types import Message, TurnResult
 from agent.core.workflows import AgentCallSpec
 from agent.platform.workflows import WorkflowChildRunner, WorkflowLaunchContext
@@ -196,11 +196,8 @@ async def test_child_uses_parent_runtime_snapshot_outside_the_active_turn_contex
     runner.handles[0].released.set()
 
     assert await task == "attempt-1"
-    runtime = control.created_kwargs[0]["metadata"][INTERNAL_RUNTIME_KEY]
-    assert runtime == {
-        "model": "codexOAuth:gpt-5.6-luna",
-        "reasoning_effort": "high",
-    }
+    assert control.created_kwargs[0]["runtime_model"] == ("codexOAuth:gpt-5.6-luna")
+    assert control.created_kwargs[0]["runtime_reasoning_effort"] == "high"
     assert runner.started_kwargs[0]["model"] == "codexOAuth:gpt-5.6-luna"
 
 
