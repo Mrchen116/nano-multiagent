@@ -51,8 +51,37 @@
 
 ## 修复
 
-实施阶段回填。
+后台 self-improvement 在 Skill-only 与 Skill + Memory Combined Review 启动 fork 时，显式提供仅作用于该 side-chain 的 `skill_creation_source=F3`。通用 `fork_conversation` 增加可选 `metadata_overrides`，先继承父会话 metadata、再应用本次 override，并继续强制 `run_origin=background_task`、移除陈旧 `tool_call_id`；因此真实 `skill_manage(create)` 继续从既有 `session_metadata` 消费来源并把记录写成 F3。
+
+memory-only Review 不提供该 override；普通 fork 不凭空产生 Skill 来源；普通用户 `skill_manage(create)` 仍由既有缺省语义记录为 F1。未修改 Skill Allowlist、历史蒸馏/F4 逻辑、生产配置或任何既有 `.usage.json`。
+
+提交：
+
+- `674d571b9` — 贯通自动 Skill Review 的 F3 来源；
+- `38d114ece` — 锁定 memory-only、普通 fork、普通 create 的不污染边界；
+- `2b9a99d91` — 把回归提升为真实 Kernel SDK 入口。
 
 ## 验证
 
-实施阶段回填。
+按“后台自动 Review 创建 Skill 后，usage 来源被错误记为 F1”的原始症状验证：回归先从当前生产链复现，Skill-only 与 Combined 两例均真实落盘为 `F1`，断言报错 `F1 != F3`；修复后同一条链改为从 SDK 公共入口执行 `build_kernel → create_session → submit → agent_end 后台 Review → fork → skill_manage(create) → .usage.json`，两个临时 Workspace 的记录均读回 `source=F3`：
+
+```text
+/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q \
+  tests/integration/test_self_improvement_skill_source.py
+2 passed
+```
+
+边界回归覆盖 memory-only Review 不注入来源、普通 fork 不虚构来源、普通用户 create 仍写 F1，并保留 usage / skill_view / F4 batch 既有语义：
+
+```text
+81 passed
+All checks passed!  # changed-file Ruff
+```
+
+扩展门禁覆盖全部 unit + integration：
+
+```text
+2637 passed, 2 warnings in 143.47s
+```
+
+两条 warning 均来自既有 `lark_oapi` 依赖的 datetime / event-loop deprecation；没有测试失败。验证全程只使用 pytest 临时 Workspace，未读取或改写生产配置、远端 mini 或现有 `.usage.json`。
