@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-- R1、R2、R3 已完成；等待 rebase unit 分支后的最终复验与集成。
+- R1、R2、R3 已完成并合入 `unit/bugfix-527`。
 - 基线: `73 passed`（self-improvement、background fork、skill_manage、usage、skill_view）。
 
 ## R1 — 建立来源链红测并最小贯通 F3
@@ -53,8 +53,8 @@
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: revert `2b9a99d91` 恢复较低层回归；revert `674d571b9` 恢复修复前行为。
-- Commits: `2b9a99d91`；lite 文档提交待本提交生成。
-- Next: rebase `origin/unit/bugfix-527`，最终复验后获取 unit 锁并合并。
+- Commits: `2b9a99d91`、`e5f1c6724`；unit merge `7a47f80f0`。
+- Next: milestone 已完成，等待 unit reviewer / verifier。
 
 ## Promotion Candidates
 
