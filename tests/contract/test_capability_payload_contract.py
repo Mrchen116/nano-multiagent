@@ -124,6 +124,7 @@ GOLDEN_TOOLS: list[dict[str, object]] = [
     {"name": "memory", "description": "", "default_on": True},
     {"name": "send_message", "description": "", "default_on": False},
     {"name": "cron", "description": "", "default_on": False},
+    {"name": "Workflow", "description": "", "default_on": False},
 ]
 
 # node-level features: every entry available=True (no per-agent allowlist), in

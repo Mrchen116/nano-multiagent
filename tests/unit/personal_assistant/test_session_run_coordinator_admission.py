@@ -15,6 +15,8 @@ from personal_assistant.gateway.runtime_protocol import (
 
 import pytest
 
+from agent.sdk import RunOrigin
+
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.inbound_models import (
     CompactSessionRequest,
@@ -69,6 +71,27 @@ def _compact_request(
         session_key=build_session_key(message, agent_id=agent.agent_id),
         operation_id=operation_id,
     )
+
+
+@pytest.mark.asyncio
+async def test_human_channel_message_submits_with_human_origin(tmp_path: Path) -> None:
+    kernel, catalog, binder, router, group_store = build_dependencies(tmp_path)
+    coordinator = SessionRunCoordinator(
+        kernel=kernel,
+        session_binder=binder,
+        outbound_router=router,
+        group_context_store=group_store,
+    )
+
+    running = asyncio.create_task(
+        coordinator.dispatch(
+            _request(inbound(chat_id="chat-a", text="review this"), catalog)
+        )
+    )
+    await kernel.wait_stream("run-1")
+    assert kernel.submit_calls[0]["origin"] is RunOrigin.HUMAN
+    kernel.finish("run-1", text="done")
+    await running
 
 
 @pytest.mark.asyncio

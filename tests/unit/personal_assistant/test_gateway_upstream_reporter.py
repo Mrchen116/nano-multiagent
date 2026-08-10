@@ -239,6 +239,14 @@ def test_node_capabilities_tools_include_memory_skill_manage_and_skill_view(
     )
 
 
+def test_workflow_is_an_explicit_optional_tool(tmp_path: Path) -> None:
+    kernel = _build_test_kernel(tmp_path / "kernel-root")
+    payload = build_node_capabilities_payload(kernel)
+
+    workflow = next(item for item in payload["tools"] if item["name"] == "Workflow")
+    assert workflow == {"name": "Workflow", "description": "", "default_on": False}
+
+
 # ---------------------------------------------------------------------------
 # bugfix-404-M2 R1: send_register 帧必须携带 agent_workspaces 字段
 # ---------------------------------------------------------------------------

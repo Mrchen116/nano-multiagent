@@ -105,6 +105,47 @@ def test_injection_consumed_closes_bubble_a_completed_then_opens_b() -> None:
     assert context.kernel_message_id == ""
 
 
+def test_injection_consumed_attaches_background_returns_to_new_bubble() -> None:
+    manager = _FakeManager(new_message_id="msg-B")
+    run_ctx = delivery_context_store(
+        {
+            "run-1": {
+                "conversation_id": "conv-1",
+                "message_id": "msg-A",
+                "agent_id": "agent-1",
+            }
+        }
+    )
+    observer = build_kernel_event_observer(
+        im_connection_manager_factory=lambda: manager,
+        run_context_store=run_ctx,
+    )
+    background_returns = [
+        {
+            "task_id": "agent-task-1",
+            "task_type": "subagent",
+            "status": "failed",
+            "description": "verify api",
+            "error": "mismatch",
+        }
+    ]
+
+    _drive(
+        observer,
+        {
+            "event": "injection_consumed",
+            "run_id": "run-1",
+            "background_returns": background_returns,
+        },
+    )
+
+    turn_start = next(p for _mt, p in manager.sent if p.get("kind") == "turn_start")
+    assert turn_start["background_returns"] == background_returns
+    context = run_ctx.get("run-1")
+    assert context is not None
+    assert context.visible_reply_committed is True
+
+
 def test_injection_consumed_opens_b_even_when_message_id_empty() -> None:
     """bugfix-426-M4 V3: in the narrow window where message_id is transiently empty
     (turn_start ack not yet returned), the steer must still get a bubble — open B so

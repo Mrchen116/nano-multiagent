@@ -53,6 +53,7 @@ PA_DEFAULT_TOOL_IDS: tuple[str, ...] = (
 PA_OPTIONAL_TOOL_IDS: tuple[str, ...] = (
     "send_message",
     "cron",
+    "Workflow",
 )
 
 

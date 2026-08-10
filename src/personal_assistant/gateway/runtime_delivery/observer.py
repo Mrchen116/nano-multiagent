@@ -61,6 +61,7 @@ async def roll_bubble(
     new_kernel_message_id: str | None = None,
     new_shadow_message_id: str | None = None,
     old_elapsed_ms: int | None = None,
+    background_returns: list[dict[str, Any]] | None = None,
 ) -> str | None:
     """Finalize the current IM bubble and open a fresh one for the same run.
 
@@ -102,15 +103,18 @@ async def roll_bubble(
                     "elapsed_ms": old_elapsed_ms,
                 },
             )
+        turn_start_payload: dict[str, Any] = {
+            "kind": "turn_start",
+            "conversation_id": conversation_id,
+            "agent_id": agent_id,
+            "run_id": run_id,
+            "shadow_message_id": new_shadow_message_id,
+        }
+        if background_returns:
+            turn_start_payload["background_returns"] = background_returns
         ack = await manager.send_json_await_ack(
             "node.streaming_delta",
-            {
-                "kind": "turn_start",
-                "conversation_id": conversation_id,
-                "agent_id": agent_id,
-                "run_id": run_id,
-                "shadow_message_id": new_shadow_message_id,
-            },
+            turn_start_payload,
         )
         new_message_id = extract_ack_message_id(ack)
         live_ctx = _live_context(run_context_store, run_id)
@@ -122,6 +126,8 @@ async def roll_bubble(
                 message_id=new_message_id,
                 kernel_message_id=new_kernel_message_id,
             )
+            if background_returns:
+                live_ctx.mark_visible_reply()
             return new_message_id
         if live_ctx is not None:
             live_ctx.clear_message_id()
@@ -866,6 +872,16 @@ def build_kernel_event_observer(
         shadow_process_seq = scope.shadow_process_seq
 
         if event_name == "run_status" and event.get("status") == "running":
+            raw_background_returns = event.get("background_returns")
+            background_returns = (
+                [
+                    dict(item)
+                    for item in raw_background_returns
+                    if isinstance(item, Mapping)
+                ]
+                if isinstance(raw_background_returns, list)
+                else []
+            )
             if to_user_id:
                 # Heartbeat: skip eager turn_start; bubble is created lazily on first
                 # real content (see assistant_message branch below).
@@ -881,15 +897,20 @@ def build_kernel_event_observer(
                     aid: str = agent_id,
                 ) -> None:
                     try:
+                        turn_start_payload: dict[str, Any] = {
+                            "kind": "turn_start",
+                            "conversation_id": cid,
+                            "agent_id": aid,
+                            "run_id": rid,
+                            "shadow_message_id": ctx.shadow_message_id,
+                        }
+                        if background_returns:
+                            turn_start_payload["background_returns"] = (
+                                background_returns
+                            )
                         ack = await mgr.send_json_await_ack(
                             "node.streaming_delta",
-                            {
-                                "kind": "turn_start",
-                                "conversation_id": cid,
-                                "agent_id": aid,
-                                "run_id": rid,
-                                "shadow_message_id": ctx.shadow_message_id,
-                            },
+                            turn_start_payload,
                         )
                         ack_payload = (
                             ack.get("payload")
@@ -906,6 +927,8 @@ def build_kernel_event_observer(
                             live_ctx.backfill_turn_start_ack(
                                 message_id=str(returned_msg_id)
                             )
+                            if background_returns:
+                                live_ctx.mark_visible_reply()
                     except Exception as exc:  # noqa: BLE001
                         _log.warning("IM observer turn_start send/ack failed: %s", exc)
 
@@ -1743,6 +1766,13 @@ def build_kernel_event_observer(
                     cid: str = conversation_id,
                     aid: str = agent_id,
                     old_msg_id: str = message_id,
+                    consumed_returns: list[dict[str, Any]] = [
+                        dict(item)
+                        for item in event.get("background_returns", [])
+                        if isinstance(item, Mapping)
+                    ]
+                    if isinstance(event.get("background_returns"), list)
+                    else [],
                 ) -> None:
                     reconcile_started = False
                     new_message_id: str | None = None
@@ -1764,6 +1794,7 @@ def build_kernel_event_observer(
                                 if rolled_shadow_snapshot is not None
                                 else None
                             ),
+                            background_returns=consumed_returns,
                         )
                         if new_message_id is None:
                             _clear_live_bubble_context(

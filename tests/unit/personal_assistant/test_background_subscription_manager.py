@@ -69,11 +69,18 @@ async def test_manager_ensures_once_replays_anchor_and_builds_stable_dedupe_key(
     """Repeated ensure keeps one stream and replayed output carries one stable IM key."""
 
     kernel = _QueuedKernel()
-    sent: list[tuple[str, str, str]] = []
+    sent: list[tuple[str, str, str, tuple[Mapping[str, Any], ...]]] = []
     two_sent = asyncio.Event()
 
-    async def _send(text: str, reply_context: ReplyContext, from_session_id: str):
-        sent.append((text, reply_context.target_chat_id, from_session_id))
+    async def _send(
+        text: str,
+        reply_context: ReplyContext,
+        from_session_id: str,
+        background_returns: tuple[Mapping[str, Any], ...],
+    ):
+        sent.append(
+            (text, reply_context.target_chat_id, from_session_id, background_returns)
+        )
         if len(sent) == 2:
             two_sent.set()
 
@@ -92,12 +99,57 @@ async def test_manager_ensures_once_replays_anchor_and_builds_stable_dedupe_key(
     await asyncio.wait_for(two_sent.wait(), timeout=1)
 
     assert kernel.calls == [("sess-bg", 7)]
-    assert [target for _, target, _ in sent] == ["conv-original", "conv-original"]
+    assert [target for _, target, _, _ in sent] == [
+        "conv-original",
+        "conv-original",
+    ]
     assert sent[0][2] == sent[1][2] == "agent-a|tool_call:sess-bg:42"
 
     manager.seal()
     with pytest.raises(RuntimeError, match="sealed"):
         await manager.ensure(_request("sess-late"))
+    await kernel.events.put(None)
+    await manager.aclose(asyncio.get_running_loop().time() + 1)
+
+
+@pytest.mark.asyncio
+async def test_sidecar_only_background_output_is_delivered() -> None:
+    kernel = _QueuedKernel()
+    delivered: list[tuple[str, tuple[Mapping[str, Any], ...]]] = []
+    seen = asyncio.Event()
+
+    async def _send(
+        text: str,
+        _reply_context: ReplyContext,
+        _from_session_id: str,
+        background_returns: tuple[Mapping[str, Any], ...],
+    ) -> None:
+        delivered.append((text, background_returns))
+        seen.set()
+
+    manager = BackgroundSubscriptionManager(kernel=kernel, bg_reply_sender=_send)
+    await manager.ensure(_request())
+    await kernel.events.put(
+        {
+            "event": "assistant_message",
+            "origin": "background_task",
+            "content": "",
+            "_id": 51,
+            "background_returns": [
+                {
+                    "task_id": "wt-1",
+                    "task_type": "workflow",
+                    "status": "completed",
+                    "description": "review",
+                    "result": "raw",
+                }
+            ],
+        }
+    )
+    await asyncio.wait_for(seen.wait(), timeout=1)
+
+    assert delivered[0][0] == ""
+    assert delivered[0][1][0]["task_id"] == "wt-1"
     await kernel.events.put(None)
     await manager.aclose(asyncio.get_running_loop().time() + 1)
 

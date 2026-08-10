@@ -134,6 +134,53 @@ def test_feishu_visible_control_text_goes_to_external_without_im_manager() -> No
     ]
 
 
+def test_sidecar_only_reply_skips_external_but_reaches_shadow_im() -> None:
+    manager = _FakeIMManager()
+    external: list[tuple[str, dict[str, str]]] = []
+    sender = build_bg_reply_sender(
+        im_connection_manager_factory=lambda: manager,
+        external_reply_sender=lambda text, metadata: external.append(
+            (text, dict(metadata))
+        ),
+    )
+    reply_context = ReplyContext(
+        channel_name="feishu:agent-a",
+        target_chat_id="feishu:app:dm:ou_user",
+        metadata={
+            "trigger_source": "feishu",
+            "shadow_conversation_id": "conv-shadow",
+        },
+    )
+    background_returns = (
+        {
+            "task_id": "wt-1",
+            "task_type": "workflow",
+            "status": "completed",
+            "description": "review",
+            "result": "raw",
+        },
+    )
+
+    asyncio.run(
+        sender(
+            "",
+            reply_context,
+            "agent-a|tool_call:sess-1:51",
+            background_returns,
+        )
+    )
+
+    assert external == []
+    assert manager.agent_messages == [
+        {
+            "text": "",
+            "to": "conv-shadow",
+            "from_session_id": "agent-a|tool_call:sess-1:51",
+            "background_returns": list(background_returns),
+        }
+    ]
+
+
 def test_feishu_intermediate_reply_goes_to_external_without_im_manager() -> None:
     external: list[tuple[str, dict[str, str]]] = []
     run_context_store = delivery_context_store(

@@ -15,6 +15,7 @@ from uuid import uuid4
 from agent.sdk import (
     TERMINAL_RUN_STATUSES,
     USER_INTERRUPT_RECOVERY_CONTENT,
+    RunOrigin,
     SessionRuntimeConfig,
 )
 
@@ -881,6 +882,7 @@ class SessionRunCoordinator:
                         session_id=binding.kernel_session_id,
                         parts=parts,
                         workspace_root=latest_agent.config.workspace_root,
+                        origin=RunOrigin.HUMAN,
                     )
                     run_id = record.run_id
                     anchor_sequence = record.start_sequence

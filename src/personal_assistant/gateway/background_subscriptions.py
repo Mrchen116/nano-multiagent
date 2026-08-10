@@ -64,7 +64,10 @@ class BackgroundSubscriptionManager:
             [ReplyContext, str, str, Mapping[str, Any]], Awaitable[None]
         ]
         | None = None,
-        bg_reply_sender: Callable[[str, ReplyContext, str], Awaitable[None]]
+        bg_reply_sender: Callable[
+            [str, ReplyContext, str, tuple[Mapping[str, Any], ...]],
+            Awaitable[None],
+        ]
         | None = None,
     ) -> None:
         self._kernel = kernel
@@ -185,10 +188,18 @@ class BackgroundSubscriptionManager:
 
             async def _relay_bg_run_output(event: Mapping[str, Any]) -> None:
                 content = event.get("content")
-                if not isinstance(content, str) or not content.strip():
+                text = content.strip() if isinstance(content, str) else ""
+                raw_returns = event.get("background_returns")
+                background_returns = (
+                    tuple(
+                        dict(item) for item in raw_returns if isinstance(item, Mapping)
+                    )
+                    if isinstance(raw_returns, list)
+                    else ()
+                )
+                if not text and not background_returns:
                     return
-                text = content.strip()
-                if should_suppress_reply(
+                if text and should_suppress_reply(
                     text,
                     policy=ReplyVisibilityPolicy.SUPPRESS_PROTOCOL_TOKENS,
                 ):
@@ -203,6 +214,7 @@ class BackgroundSubscriptionManager:
                     text,
                     reply_context,
                     f"{request.agent_id}|tool_call:{dedupe}",
+                    background_returns,
                 )
 
             bg_run_output_callback = _relay_bg_run_output

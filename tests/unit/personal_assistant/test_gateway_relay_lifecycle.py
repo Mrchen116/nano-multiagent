@@ -1183,6 +1183,75 @@ def test_direct_web_empty_completion_after_process_discards_provisional_message(
     assert manager.sent_frames[-1][1]["reason"] == "empty_visible_reply"
 
 
+def test_direct_web_opening_background_return_keeps_completed_message() -> None:
+    """An opening background return is visible content even without reply text."""
+    store = RunDeliveryContextStore()
+    context = store.seed_from_lifecycle(
+        message=InboundMessage(
+            channel_name="web_relay",
+            text="continue after background work",
+            external_user_id="user-1",
+            external_chat_id="direct-conv",
+            is_group=False,
+            agent_id="agent-a",
+            metadata={"relay_task_id": "relay-1", "message_id": "user-msg-1"},
+        ),
+        update=RelayLifecycleUpdate(
+            phase="accepted",
+            agent_id="agent-a",
+            session_key="web:user-1:direct-conv:agent-a",
+            run_id="run-with-background-return",
+            kernel_session_id="sess-1",
+        ),
+        owner_user_id="owner-1",
+    )
+    assert context is not None
+
+    background_return = {
+        "task_id": "wt_123",
+        "task_type": "workflow",
+        "status": "completed",
+        "description": "review changes",
+        "workflow_run_id": "wf_123",
+        "result": {"summary": "2 findings"},
+    }
+    manager = _AckingIMManager(message_id="im-msg-with-background-return")
+    observer = _build_kernel_event_observer(
+        im_connection_manager_factory=lambda: manager,
+        run_context_store=store,
+    )
+
+    async def _exercise() -> None:
+        started = observer(
+            {
+                "event": "run_status",
+                "run_id": "run-with-background-return",
+                "status": "running",
+                "background_returns": [background_return],
+            }
+        )
+        assert asyncio.iscoroutine(started)
+        await started
+        ended = observer(
+            {
+                "event": "turn_end",
+                "run_id": "run-with-background-return",
+                "completed": True,
+            }
+        )
+        if asyncio.iscoroutine(ended):
+            await ended
+
+    asyncio.run(_exercise())
+
+    payloads = [payload for _, payload in manager.sent_frames]
+    assert payloads[0]["kind"] == "turn_start"
+    assert payloads[0]["background_returns"] == [background_return]
+    assert payloads[-1]["kind"] == "message_completed"
+    assert "message_discarded" not in {payload["kind"] for payload in payloads}
+    assert context.visible_reply_committed is True
+
+
 def test_non_web_shadow_context_keeps_literal_reply_visibility() -> None:
     """The direct Web fix must not broaden to arbitrary shadow transports."""
     store = RunDeliveryContextStore()

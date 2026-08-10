@@ -181,6 +181,7 @@ class ControlledKernel:
                 "parts": parts,
                 "steer": False,
                 "run_id": run_id,
+                "origin": _kwargs.get("origin"),
             }
         )
         self._latest_run_by_session[session_id] = run_id

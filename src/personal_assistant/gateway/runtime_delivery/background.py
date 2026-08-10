@@ -154,7 +154,7 @@ def build_bg_reply_sender(
     *,
     im_connection_manager_factory: "Callable[[], IMConnectionManager | None]",
     external_reply_sender: Callable[[str, Mapping[str, str]], Any] | None = None,
-) -> "Callable[[str, Any, str], Awaitable[None]]":
+) -> "Callable[..., Awaitable[None]]":
     """Build an async callable that relays user-visible agent/control text.
 
     Called by InboundPipeline's bg_run_output_callback when a BACKGROUND_TASK-origin
@@ -174,16 +174,25 @@ def build_bg_reply_sender(
     """
     from personal_assistant.channels.base import ReplyContext as _RC  # noqa: PLC0415
 
-    async def _sender(text: str, reply_context: _RC, from_session_id: str) -> None:
+    async def _sender(
+        text: str,
+        reply_context: _RC,
+        from_session_id: str,
+        background_returns: tuple[Mapping[str, Any], ...] = (),
+    ) -> None:
         cleaned_text = text.strip()
-        if not from_session_id or not cleaned_text:
+        if not from_session_id or (not cleaned_text and not background_returns):
             return
 
         external_metadata = reply_context_external_delivery_metadata(
             reply_context,
             from_session_id=from_session_id,
         )
-        if external_metadata is not None and external_reply_sender is not None:
+        if (
+            cleaned_text
+            and external_metadata is not None
+            and external_reply_sender is not None
+        ):
             try:
                 result = external_reply_sender(cleaned_text, external_metadata)
                 if asyncio.iscoroutine(result):
@@ -203,15 +212,18 @@ def build_bg_reply_sender(
         if not conversation_id:
             return
         try:
-            await manager.send_agent_message(
-                {
-                    "text": cleaned_text,
-                    "to": conversation_id,
-                    # from_session_id carries optional "|tool_call:<key>" suffix so
-                    # IM deduplicates replayed bg replies (bugfix-404 F1).
-                    "from_session_id": from_session_id,
-                }
-            )
+            payload: dict[str, Any] = {
+                "text": cleaned_text,
+                "to": conversation_id,
+                # from_session_id carries optional "|tool_call:<key>" suffix so
+                # IM deduplicates replayed bg replies (bugfix-404 F1).
+                "from_session_id": from_session_id,
+            }
+            if background_returns:
+                payload["background_returns"] = [
+                    dict(item) for item in background_returns
+                ]
+            await manager.send_agent_message(payload)
         except Exception as exc:  # noqa: BLE001
             _log.warning(
                 "bg_reply_sender send_agent_message failed (conv=%s from=%s): %s",
