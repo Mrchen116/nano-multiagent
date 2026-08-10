@@ -379,3 +379,22 @@ Web IM 在消息流中直接预览收到的图片 attachment，保持图片原�
 - **WHEN** 消息同时携带展示正文与图片 attachment
 - **THEN** 用户在同一消息中看到正文和可辨认的图片预览
 - **AND** 图片不会被固定裁剪成无法审阅内容的小方块
+
+### Requirement: Web IM 移动端底部导航使用统一产品图标
+
+Web IM 在移动端以同一套克制、清晰的产品图标表达 Chat、Agents 与 Me；图标随当前路由继承 active / inactive 产品色，不依赖操作系统 emoji 字形，同时保留既有标签、未读反馈和导航目的地。
+
+#### Scenario: inactive 图标保持统一且可辨认
+- **WHEN** 用户在移动端查看底部导航中的非当前 Chat、Agents 或 Me 入口
+- **THEN** 三枚图标使用一致的圆角几何语言和 muted 产品色
+- **AND** Conversation、智能体与个人账户的语义在 20–24px 视觉尺寸下仍可区分
+
+#### Scenario: 当前路由只高亮对应入口
+- **WHEN** 用户依次进入 Chat、Agents 与 Me
+- **THEN** 只有当前入口的图标、标签和既有顶部指示条使用 accent 色
+- **AND** 另外两个入口保持 inactive 状态
+
+#### Scenario: 图标升级不改变导航反馈
+- **WHEN** 用户通过移动底栏切换入口，且存在未读会话
+- **THEN** Chat、Agents 与 Me 仍导航到既有目的地并显示原有标签
+- **AND** 既有未读 badge 继续显示在对应入口，不被图标遮挡
