@@ -221,6 +221,7 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
                 review_prompt,
                 tool_allowlist=tool_allowlist,
                 max_turns=16,
+                event_policy="self_evolution",
             )
         except Exception:
             logger.exception(

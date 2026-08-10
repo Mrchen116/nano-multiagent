@@ -319,6 +319,7 @@ async def test_self_evolution_skill_create_keeps_only_business_event_visible(
         assert skill_created_events[0]["name"] == _SKILL_NAME
         assert skill_created_events[0]["scope"] == "agent"
         assert skill_created_events[0]["run_id"] == run.run_id
+        assert skill_created_events[0]["source"] == "self_evolution"
 
         review_event = events[-1]
         assert review_event["event"] == "self_evolution_review"

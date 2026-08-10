@@ -195,6 +195,7 @@ class TestNudgeCounter:
         fork_fn.assert_called_once()
         call_kwargs = fork_fn.call_args[1]
         assert "memory" in call_kwargs.get("tool_allowlist", ())
+        assert call_kwargs.get("event_policy") == "self_evolution"
 
     @pytest.mark.asyncio
     async def test_combined_threshold_triggers_both(self):
