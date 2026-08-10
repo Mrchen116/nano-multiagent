@@ -1,0 +1,12 @@
+{
+  "event_count": 7,
+  "exit_code": 0,
+  "formal_eligible": false,
+  "manifest_id": "run-auditor-T2",
+  "output_sha256": "0b8955c0197d0fef7317391a88f94770111eadb3da5b5bbba54a377a20c3ed06",
+  "real_codex_cli": true,
+  "schema_version": "1.0",
+  "session_id": "019fed28-e970-7792-bfb2-88aade41980c",
+  "temporary_auth_copy_retained": false,
+  "turn": 1
+}

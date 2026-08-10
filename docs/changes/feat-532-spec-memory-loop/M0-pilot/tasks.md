@@ -8,14 +8,14 @@
 
 ## 退出标准
 
-- [ ] overlay 不修改 feat-397 protocol、dataset 或共享 H02 private truth；全部 pilot 资产标记 `formal_eligible=false`。
-- [ ] 每个 LLM 角色由 schema-validated role-context manifest 驱动，并保存 expected/actual visible files 与输入 envelope hashes。
-- [ ] H02 allowed corpus 被匿名机械投影；Memory builder 只运行一次且看不到 case/brief/truth；Treatment 以 direct-load 方式消费冻结 store，并保存 provenance/consumption trace。
-- [ ] Candidate 仓只暴露 spec-only envelope 与唯一 `.agents/skills/change-spec-author` closure；两条 arm 除 Memory task context 外一致。
-- [ ] 真实 Codex Baseline/Treatment Candidate 与独立 Native Owner sessions 各运行一次；Owner 使用 Simulator-safe provisional context 开放回答，不经过 decision router。
-- [ ] 两次 run audit、一次 batch audit、两次 burden scoring、neutral judge repo + deterministic conclusion projection、两个 blind judge 和一次 Loop experimenter 全部真实运行并封存。
-- [ ] schema、seal、receipt、泄漏检查、自动测试、重放验证全绿，pilot 结论仅为 `infrastructure_pass/fail`。
-- [ ] 不提交 auth、secret、主机完整 Codex history、临时 session home 或未脱敏运行数据。
+- [x] overlay 不修改 feat-397 protocol、dataset 或共享 H02 private truth；全部 pilot 资产标记 `formal_eligible=false`。
+- [x] 每个 LLM 角色由 schema-validated role-context manifest 驱动，并保存 expected/actual visible files 与输入 envelope hashes。
+- [x] H02 allowed corpus 被匿名机械投影；Memory builder 只运行一次且看不到 case/brief/truth；Treatment 以 direct-load 方式消费冻结 store，并保存 provenance/consumption trace。
+- [x] Candidate 仓只暴露 spec-only envelope 与唯一 `.agents/skills/change-spec-author` closure；两条 arm 除 Memory task context 外一致。
+- [x] 真实 Codex Baseline/Treatment Candidate 与独立 Native Owner sessions 各运行一次；Owner 使用 Simulator-safe provisional context 开放回答，不经过 decision router。
+- [x] 两次 run audit、一次 batch audit、两次 burden scoring、neutral judge repo + deterministic conclusion projection、两个 blind judge 和一次 Loop experimenter 全部真实运行并封存。
+- [x] schema、seal、receipt、泄漏检查、自动测试、重放验证全绿，pilot 结论仅为 `infrastructure_pass/fail`。
+- [x] 不提交 auth、secret、主机完整 Codex history、临时 session home 或未脱敏运行数据。
 
 ## 测试策略
 
@@ -47,18 +47,18 @@ Prototype / Reference Contract：N/A。
 
 ### R2 — 真实 Candidate/Owner 与 Memory 链路
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 实现 manifest-driven Codex adapter、Memory builder 一次、Treatment direct-load、两条 arm 的持久 Candidate/Owner 对话与实际 context 记录。
 - 验证: isolated dry invocation、真实 Baseline/Treatment 各一 run、两 arm 固定输入差异审计。
 
 ### R3 — 独立评价与下一版 scheme
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 真实运行 run/batch auditor、burden scorer、neutral-repo conclusion judges 与 Loop experimenter；冻结匿名评价后才解盲与归因。
 - 验证: 全角色 receipt/schema、judge blindness、experimenter 输出 schema 和禁用 case-specific atom scan。
 
 ### R4 — Pilot 封存、重放与交付证据
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 生成 `infrastructure_pass/fail` report、seal 和脱敏 evidence，重放全部确定性检查，补齐 progress。
 - 验证: replay CLI、overlay/shared tests、dataset validator、docs-check、Ruff、compile、`git diff --check`。

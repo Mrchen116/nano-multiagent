@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "formal_eligible",
+    "scheme_id",
+    "parent_scheme_id",
+    "build_policy",
+    "consumption_policy",
+    "delta",
+    "hypothesis",
+    "forbidden_case_specific_atoms"
+  ],
+  "properties": {
+    "schema_version": {"type": "string", "const": "1.0"},
+    "formal_eligible": {"type": "boolean", "const": false},
+    "scheme_id": {"type": "string"},
+    "parent_scheme_id": {"type": "string", "const": "direct-load-broad-first-docs-v0"},
+    "build_policy": {"type": "string"},
+    "consumption_policy": {"type": "string"},
+    "delta": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "hypothesis": {"type": "string"},
+    "forbidden_case_specific_atoms": {
+      "type": "array",
+      "items": {"type": "string"}
+    }
+  }
+}

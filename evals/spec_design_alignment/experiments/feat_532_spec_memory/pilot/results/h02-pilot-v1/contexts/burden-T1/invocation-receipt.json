@@ -1,0 +1,12 @@
+{
+  "event_count": 8,
+  "exit_code": 0,
+  "formal_eligible": false,
+  "manifest_id": "burden-T1",
+  "output_sha256": "0f51ba6cdbd88b3a3636fe578979010844fcc2a2378b447a79001b676a30f4bd",
+  "real_codex_cli": true,
+  "schema_version": "1.0",
+  "session_id": "019fed28-6a52-7bd0-aa83-b741b7ead1cd",
+  "temporary_auth_copy_retained": false,
+  "turn": 1
+}

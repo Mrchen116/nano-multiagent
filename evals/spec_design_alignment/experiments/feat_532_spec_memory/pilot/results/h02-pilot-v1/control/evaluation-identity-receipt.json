@@ -1,0 +1,21 @@
+{
+  "formal_eligible": false,
+  "projection_hashes": {
+    "P1": "b75bff331e6cb6b2b95015b46a545ebe032ad47a5cdd2362f06f5028bf035df8",
+    "P2": "73c68f8c84030434477d3b60f4f5a0f7ba20d9bafa0786d405de63c724292a49"
+  },
+  "projection_mapping": {
+    "P1": "treatment",
+    "P2": "baseline"
+  },
+  "projection_rule": "remove_level2_raw_request_and_clarification_sections_v1",
+  "schema_version": "1.0",
+  "transcript_hashes": {
+    "T1": "1291077460a9892fb3cb5bfdda3c8e2c2a7a7a68bba9f40df8b3a073f980d8c1",
+    "T2": "6ff871f16a726e4a74810e80f3da051de25b14a8a088adceb41d17c955d570bf"
+  },
+  "transcript_mapping": {
+    "T1": "baseline",
+    "T2": "treatment"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "event_count": 6,
+  "exit_code": 0,
+  "formal_eligible": false,
+  "manifest_id": "candidate-baseline-03",
+  "output_sha256": "4d40563b18bdbd99ea25d4ea9592fd175386fdcbe949fb4ecaac8e91ba5e42dc",
+  "real_codex_cli": true,
+  "schema_version": "1.0",
+  "session_id": "019fed1c-8303-7bc3-ae03-dcc1a59d0c91",
+  "temporary_auth_copy_retained": false,
+  "turn": 3
+}

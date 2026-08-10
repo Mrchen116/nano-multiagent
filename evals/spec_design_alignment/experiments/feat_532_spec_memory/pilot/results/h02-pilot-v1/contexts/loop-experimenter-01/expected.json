@@ -1,0 +1,47 @@
+{
+  "cwd": "workspace",
+  "forbidden_surfaces": [
+    "raw private truth or Owner answer bank",
+    "case or arm identity",
+    "raw Candidate-Owner transcripts",
+    "unfrozen scores"
+  ],
+  "formal_eligible": false,
+  "input_envelope_sha256": "32614222d75b6c6db9e55848c2497af2c6f59f3b42ea883a4bd691b84c5f5a10",
+  "instructions_sha256": "decf1695022e8cfa731e13bd6b697fb113b1a77d6885a83cf52174ab71c804fe",
+  "isolation": {
+    "codex_home": "temporary_isolated",
+    "home": "temporary_isolated",
+    "ignore_user_config": true
+  },
+  "lifecycle": "ephemeral",
+  "manifest_id": "loop-experimenter-01",
+  "model": "gpt-5.6-sol",
+  "output_schema_sha256": "f50a91b0de628a71a7e9a4b66e5142ba0def5b1fa07b33a57563cc55e72357a6",
+  "reasoning_effort": "medium",
+  "role": "loop_experimenter",
+  "schema_version": "1.0",
+  "skill_closure": [],
+  "tools": {
+    "network": false,
+    "shell": false
+  },
+  "visible_files": [
+    {
+      "path": "AGENTS.md",
+      "sha256": "decf1695022e8cfa731e13bd6b697fb113b1a77d6885a83cf52174ab71c804fe"
+    },
+    {
+      "path": "anonymous-results.json",
+      "sha256": "518f6296d18d2a6fe87a17af07f71cddbfa60415eb597d001182b80c3a39ed29"
+    },
+    {
+      "path": "memory-store.json",
+      "sha256": "434c507ed14e8115e86c495546739583f320342ca48941f0ef04ca827293773c"
+    },
+    {
+      "path": "previous-scheme.json",
+      "sha256": "99522e6a3fc8ddae14100414aa67ea65e6631a78be496ab000e65a2d19d5df53"
+    }
+  ]
+}

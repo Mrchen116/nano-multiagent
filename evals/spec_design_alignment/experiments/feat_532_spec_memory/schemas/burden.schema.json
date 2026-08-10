@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["formal_eligible", "transcript_id", "contribution_units", "items"],
+  "properties": {
+    "formal_eligible": {"type": "boolean", "const": false},
+    "transcript_id": {"type": "string"},
+    "contribution_units": {"type": "integer"},
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["question_index", "normalized_contribution", "owner_atoms"],
+        "properties": {
+          "question_index": {"type": "integer"},
+          "normalized_contribution": {"type": "string"},
+          "owner_atoms": {
+            "type": "array",
+            "items": {"type": "string"}
+          }
+        }
+      }
+    }
+  }
+}

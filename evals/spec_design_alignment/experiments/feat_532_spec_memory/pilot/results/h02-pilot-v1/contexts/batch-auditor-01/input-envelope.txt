@@ -1,0 +1,1 @@
+<batch_audit_input>Read the provisional context and both anonymous transcripts; assess only substantive consistency.</batch_audit_input>

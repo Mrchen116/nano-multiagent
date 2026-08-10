@@ -1,0 +1,80 @@
+{
+  "assessments": [
+    {
+      "criteria": [
+        {
+          "criterion_id": "J01",
+          "rating": "met",
+          "rationale": "明确将能力限定为 Personal Assistant 的部署级可选配置；省略配置保持现状，Coding CLI 默认行为不变，并只允许底层提供产品中立的选择能力。"
+        },
+        {
+          "criterion_id": "J02",
+          "rating": "partial",
+          "rationale": "明确规定省略配置时继续按 Agent/run 模型分类，也规定未登记模型导致 Gateway 启动失败；但未覆盖显式空值必须可见地启动失败。"
+        },
+        {
+          "criterion_id": "J03",
+          "rating": "met",
+          "rationale": "统一模型只用于实际进入自动权限分类链路的分类请求；普通回复、获准工具后的继续执行及其他业务推理仍使用各自 run 模型，涵盖两阶段分类链路而不外溢。"
+        },
+        {
+          "criterion_id": "J04",
+          "rating": "met",
+          "rationale": "明确禁止分类失败后切换至 run、默认或其他模型，并保留既有重试、allow/deny/ask、无人值守兜底和权限失败语义。"
+        },
+        {
+          "criterion_id": "J05",
+          "rating": "missed",
+          "rationale": "未规定运行中的 Gateway 将启动时绑定的模型保持到重启，也未明确排除热重载承诺。"
+        },
+        {
+          "criterion_id": "J06",
+          "rating": "partial",
+          "rationale": "保持 PA、共享底层能力与 Coding CLI 的产品边界，并把具体实现形态留给设计阶段；但没有明确要求后续 Author 以仓库事实核实配置接缝、模型目录和运行时调用边界。"
+        }
+      ],
+      "critical_error": true,
+      "projection_id": "P1"
+    },
+    {
+      "criteria": [
+        {
+          "criterion_id": "J01",
+          "rating": "partial",
+          "rationale": "明确限定为 PA Gateway 的可选进程级配置，并将 Coding CLI 排除在变更范围外；但没有明确约束共享 kernel 继续保持产品中立。"
+        },
+        {
+          "criterion_id": "J02",
+          "rating": "partial",
+          "rationale": "明确规定省略时保留每个 Agent/run 的模型行为，未登记模型则启动失败；但没有规定显式空值同样必须可见地失败。"
+        },
+        {
+          "criterion_id": "J03",
+          "rating": "partial",
+          "rationale": "说明所有自动审批分类使用专用模型且正常对话模型不变，但未明确点出两阶段分类调用都受控，也未直接保证工具执行后的后续 turn 继续使用 run 模型。"
+        },
+        {
+          "criterion_id": "J04",
+          "rating": "partial",
+          "rationale": "明确分类失败不切换至 Agent、默认或其他模型，并保留有人值守与无人值守失败语义；但没有明确保留既有的同一模型重试流程。"
+        },
+        {
+          "criterion_id": "J05",
+          "rating": "met",
+          "rationale": "将选择绑定到实际启动 Gateway 所用的配置文件，规定修改后通过重启生效，并明确不增加字段级热更新。"
+        },
+        {
+          "criterion_id": "J06",
+          "rating": "partial",
+          "rationale": "使用了与仓库一致的默认配置路径和 --config 接缝，并避免规定 kernel 内部实现拓扑；但未明确要求 Author 继续核实仓库事实，且共享 kernel 的产品中立边界未被陈述。"
+        }
+      ],
+      "critical_error": true,
+      "projection_id": "P2"
+    }
+  ],
+  "critical_error": true,
+  "formal_eligible": false,
+  "judge_id": "J1",
+  "summary": "两份投影都遗漏了显式空值的启动失败要求，因此均触发关键错误。P1还遗漏重启绑定语义；P2覆盖重启与无热更新，但对共享 kernel 边界、两阶段/后工具模型隔离及同模型重试的表述不完整。"
+}

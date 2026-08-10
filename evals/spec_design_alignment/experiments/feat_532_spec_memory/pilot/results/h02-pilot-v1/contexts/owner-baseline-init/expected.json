@@ -1,0 +1,43 @@
+{
+  "cwd": "workspace",
+  "forbidden_surfaces": [
+    "arm identity or Memory",
+    "other run",
+    "judge truth or rubric",
+    "parent repository or host history"
+  ],
+  "formal_eligible": false,
+  "input_envelope_sha256": "e1c09ae79e4109b2cb431a57e9605ddc39666ec44da78e41c62a4121211629cf",
+  "instructions_sha256": "b479de7122f7bb3e2bd6f8c6b9674bd56339fa3ef704d2a5102d15910c33986f",
+  "isolation": {
+    "codex_home": "temporary_isolated",
+    "home": "temporary_isolated",
+    "ignore_user_config": true
+  },
+  "lifecycle": "persistent",
+  "manifest_id": "owner-baseline-init",
+  "model": "gpt-5.6-sol",
+  "output_schema_sha256": "7a81b0de480bdced760aacf1e1d504fbd94319fb7561b98eea310864e65db91e",
+  "reasoning_effort": "medium",
+  "role": "owner_simulator",
+  "schema_version": "1.0",
+  "skill_closure": [],
+  "tools": {
+    "network": false,
+    "shell": false
+  },
+  "visible_files": [
+    {
+      "path": "AGENTS.md",
+      "sha256": "b479de7122f7bb3e2bd6f8c6b9674bd56339fa3ef704d2a5102d15910c33986f"
+    },
+    {
+      "path": "owner-context.provisional.json",
+      "sha256": "b763fb966598e977ed8a68b90cc5a4c48ec11e43a3e566b09e3046e5dd2e1649"
+    },
+    {
+      "path": "public-brief.md",
+      "sha256": "15126bbf78721517ccb39d4e77c263dfa6da50cb4adaa82a13a5d42c24903f68"
+    }
+  ]
+}

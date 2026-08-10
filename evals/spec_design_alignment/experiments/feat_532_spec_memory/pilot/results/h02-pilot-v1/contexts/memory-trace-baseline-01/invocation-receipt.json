@@ -1,0 +1,12 @@
+{
+  "event_count": 4,
+  "exit_code": 0,
+  "formal_eligible": false,
+  "manifest_id": "memory-trace-baseline-01",
+  "output_sha256": "9a22631b7a85c9210e6a6b4d5e9a1535f84396d498ee9d12432c4b4fdbc02c2c",
+  "real_codex_cli": true,
+  "schema_version": "1.0",
+  "session_id": "019fed1c-8303-7bc3-ae03-dcc1a59d0c91",
+  "temporary_auth_copy_retained": false,
+  "turn": 6
+}

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "formal_eligible", "scheme_id", "entries"],
+  "properties": {
+    "schema_version": {"type": "string", "const": "1.0"},
+    "formal_eligible": {"type": "boolean", "const": false},
+    "scheme_id": {"type": "string", "const": "direct-load-broad-first-docs-v0"},
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "category",
+          "content",
+          "applicability",
+          "confidence",
+          "source_refs"
+        ],
+        "properties": {
+          "id": {"type": "string"},
+          "category": {
+            "type": "string",
+            "enum": [
+              "user_preference",
+              "product_judgment",
+              "design_principle",
+              "common_correction",
+              "domain_knowledge"
+            ]
+          },
+          "content": {"type": "string"},
+          "applicability": {"type": "string"},
+          "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+          "source_refs": {
+            "type": "array",
+            "items": {"type": "string"}
+          }
+        }
+      }
+    }
+  }
+}

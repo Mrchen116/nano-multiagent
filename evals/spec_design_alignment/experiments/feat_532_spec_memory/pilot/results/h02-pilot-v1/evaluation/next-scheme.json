@@ -1,0 +1,23 @@
+{
+  "build_policy": "one task-blind Codex builder extracts reusable spec-alignment memory with source locators and explicit applicability boundaries",
+  "consumption_policy": "load only entries whose applicability matches the task phase and change type; exclude merely adjacent entries and cap the selected set to the smallest sufficient subset",
+  "delta": [
+    "Replace broad direct loading with applicability-gated selection.",
+    "Require each built entry to state a positive applicability condition that can be matched without case identity.",
+    "Prefer the smallest sufficient memory subset because only a few loaded entries affected behavior while many were rejected or had no independent effect.",
+    "Retain the existing corpus policy and task-blind, source-located extraction because the pilot does not isolate a build-quality failure.",
+    "Do not add task-specific correction atoms from the failed projections; the anonymous evidence does not justify suite-global hard-coding."
+  ],
+  "forbidden_case_specific_atoms": [
+    "H02",
+    "feat-510",
+    "tool_approval_model",
+    "unified tool approval model",
+    "统一工具审批模型"
+  ],
+  "formal_eligible": false,
+  "hypothesis": "Applicability-gated loading will preserve the observed benefits from relevant grounding, scope, and observable-contract memories while reducing irrelevant memory exposure and owner burden, without encoding pilot-specific answers.",
+  "parent_scheme_id": "direct-load-broad-first-docs-v0",
+  "schema_version": "1.0",
+  "scheme_id": "relevance-gated-first-docs-v1"
+}

@@ -1,0 +1,4 @@
+<owner_turn>
+Answer only this quoted Candidate message.
+<candidate_message>"Q4：如果显式配置的专用审批模型没有登记在同一 Gateway 配置的 `llm.providers[].models[]` 中，Gateway 应该在启动时直接报配置错误，还是允许启动、等首次审批时再失败？\n我的推荐：启动时直接报清晰的配置错误。\n理由：当前 `llm.default_model` 和每个 Agent 的模型都必须来自已登记模型目录；对专用审批模型沿用同一校验，可在重启生效时立即暴露拼写或目录错误，避免聊天进行到高风险工具调用时才发现审批不可用。\n\n你怎么看？"</candidate_message>
+</owner_turn>

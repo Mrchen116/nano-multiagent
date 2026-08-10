@@ -1,0 +1,12 @@
+{
+  "event_count": 4,
+  "exit_code": 0,
+  "formal_eligible": false,
+  "manifest_id": "owner-baseline-01",
+  "output_sha256": "99784f4afd2fb0fce80b0689124add582dab36bff754f2997662896add117a20",
+  "real_codex_cli": true,
+  "schema_version": "1.0",
+  "session_id": "019fed1c-3530-7572-a474-efd020b1bc48",
+  "temporary_auth_copy_retained": false,
+  "turn": 2
+}

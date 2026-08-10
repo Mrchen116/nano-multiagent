@@ -1,0 +1,8 @@
+{
+  "reply": "不应回退到 `llm.default_model`，也不应因缺省而拒绝启动。未显式配置时保持现有行为：每次自动审批分类复用触发它的 Agent 或 run 模型；显式配置后则使用专用模型，运行失败也不回退到 Agent、默认或其他模型。",
+  "status": "answered",
+  "used_context_refs": [
+    "O02",
+    "O05"
+  ]
+}

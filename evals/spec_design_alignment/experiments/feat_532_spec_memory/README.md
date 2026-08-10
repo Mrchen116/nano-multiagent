@@ -14,7 +14,20 @@ python evals/spec_design_alignment/experiments/feat_532_spec_memory/runner.py \
   --artifacts /tmp/feat532-artifacts
 ```
 
-The live command additionally requires an explicit authentication file and
-creates isolated temporary homes. Authentication and session homes are never
-copied into the result bundle. See `runner.py --help` for the live and replay
-entry points.
+The live command requires an authenticated host Codex CLI. The runner copies
+only `auth.json` into each disposable role home, ignores host config/rules, and
+never copies authentication or session homes into the result bundle:
+
+```bash
+python evals/spec_design_alignment/experiments/feat_532_spec_memory/runner.py \
+  run-pilot --repository . --workspace /tmp/feat532-work \
+  --artifacts /tmp/feat532-artifacts
+```
+
+Replay the committed pilot without invoking a model:
+
+```bash
+python evals/spec_design_alignment/experiments/feat_532_spec_memory/runner.py \
+  replay \
+  --artifacts evals/spec_design_alignment/experiments/feat_532_spec_memory/pilot/results/h02-pilot-v1
+```

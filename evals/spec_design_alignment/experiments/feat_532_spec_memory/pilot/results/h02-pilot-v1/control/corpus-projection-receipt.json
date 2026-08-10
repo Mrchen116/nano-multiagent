@@ -1,0 +1,1401 @@
+{
+  "case_id": "H02",
+  "excluded_sources": [
+    {
+      "lifecycle": "archive",
+      "path": "docs/changes/archive/feat-510-unified-tool-approval-model/spec.md",
+      "sha256": "24e706c0b90d18b26bb044c910d58d5449fb37280330713d77774a4927ad32d4"
+    },
+    {
+      "lifecycle": "active",
+      "path": "docs/changes/feat-397-spec-design-agent-team/spec.md",
+      "sha256": "ddf3d0b74bba8382a129a5b144e303afb4453cbd774622484abcc8aba81806bf"
+    },
+    {
+      "lifecycle": "active",
+      "path": "docs/changes/feat-532-spec-memory-loop/spec.md",
+      "sha256": "d394fe4a6496da23c91f25e826ab6b906a62e328d5838884183532bb2d1204af"
+    }
+  ],
+  "excluded_units": [
+    "feat-397-spec-design-agent-team",
+    "feat-510-unified-tool-approval-model",
+    "feat-532-spec-memory-loop"
+  ],
+  "formal_eligible": false,
+  "schema_version": "1.0",
+  "source_map": [
+    {
+      "document_id": "doc-0001",
+      "lifecycle": "archive",
+      "source_locator": "source-0001",
+      "source_path": "docs/changes/archive/feat-440-tool-rejection-feedback/spec.md",
+      "source_sha256": "900bdb74e1493f0c3cee30bba8d86213a30a3d524a1eb5ad5cb6625f063af379"
+    },
+    {
+      "document_id": "doc-0002",
+      "lifecycle": "archive",
+      "source_locator": "source-0002",
+      "source_path": "docs/changes/archive/bugfix-431-runtime-skill-resolution/incident.md",
+      "source_sha256": "12a08413d8eabd5390afe5361264975c8a0a0d5d1d45eca5e4e032b86d0bd9ab"
+    },
+    {
+      "document_id": "doc-0003",
+      "lifecycle": "archive",
+      "source_locator": "source-0003",
+      "source_path": "docs/changes/archive/feat-333-auto-mode-classifier/spec.md",
+      "source_sha256": "38f528bac57a7d9ecc1d816793b51f208dd77128f381c703adfd1e40923cecad"
+    },
+    {
+      "document_id": "doc-0004",
+      "lifecycle": "archive",
+      "source_locator": "source-0004",
+      "source_path": "docs/changes/archive/feat-455-change-skill-prototype-contract/spec.md",
+      "source_sha256": "243e84fad107fe8ade031aee93c49cc2205660f61ed4105a89c5e10d49722aee"
+    },
+    {
+      "document_id": "doc-0005",
+      "lifecycle": "archive",
+      "source_locator": "source-0005",
+      "source_path": "docs/changes/archive/feat-340-agent-native-im/spec.md",
+      "source_sha256": "9cde8d20a5885e89a8e0977dfad81d0ae8be6379bd9d1e4d8598a77f24909851"
+    },
+    {
+      "document_id": "doc-0006",
+      "lifecycle": "archive",
+      "source_locator": "source-0006",
+      "source_path": "docs/changes/archive/feat-502-pa-product-docs-skill/spec.md",
+      "source_sha256": "1b0ed748e723ff6a46240fc1514aafb347d214be40e97510cb54d583120eadb9"
+    },
+    {
+      "document_id": "doc-0007",
+      "lifecycle": "archive",
+      "source_locator": "source-0007",
+      "source_path": "docs/changes/archive/bugfix-351-cli-drain-run-timeout/fix.md",
+      "source_sha256": "a4129e81b2798c0df399cf15846f2a039e0da6bbd2a7ac4e47e27af75f0640cf"
+    },
+    {
+      "document_id": "doc-0008",
+      "lifecycle": "archive",
+      "source_locator": "source-0008",
+      "source_path": "docs/changes/archive/feat-487-simplified-change-orchestrator/spec.md",
+      "source_sha256": "39ce4593b22e2ef94064d63da62275a40562e09ff7763efcbbbddbd1668119aa"
+    },
+    {
+      "document_id": "doc-0009",
+      "lifecycle": "archive",
+      "source_locator": "source-0009",
+      "source_path": "docs/changes/archive/feat-398-change-flow-quality-gates/spec.md",
+      "source_sha256": "e1df559358a64ca5870947d4bdbca2578a4f9a53cd6dfb489ea204c2de3024e6"
+    },
+    {
+      "document_id": "doc-0010",
+      "lifecycle": "archive",
+      "source_locator": "source-0010",
+      "source_path": "docs/changes/archive/feat-432-design-reviewer-architecture-attack/spec.md",
+      "source_sha256": "397b1409bda622058d861416ac50e693a61391d41c155a229f914bfb557de0d0"
+    },
+    {
+      "document_id": "doc-0011",
+      "lifecycle": "archive",
+      "source_locator": "source-0011",
+      "source_path": "docs/changes/archive/feat-334-tool-result-budget/spec.md",
+      "source_sha256": "d4f49106e17416cf2972a3107dd5fa0cc595bc90c0e7e25438e75ea7a69a522c"
+    },
+    {
+      "document_id": "doc-0012",
+      "lifecycle": "archive",
+      "source_locator": "source-0012",
+      "source_path": "docs/changes/archive/feat-473-impl-worker-tdd-commit-simplify/spec.md",
+      "source_sha256": "a49d49366de0543caf35037978873ba26d5ac562a72089baac5a6b1c0813d13d"
+    },
+    {
+      "document_id": "doc-0013",
+      "lifecycle": "archive",
+      "source_locator": "source-0013",
+      "source_path": "docs/changes/archive/feat-452-orchestrator-selective-revalidation/spec.md",
+      "source_sha256": "b127393951763e164b3fd852c809913f227c0576faa6bef6db34192a515d5184"
+    },
+    {
+      "document_id": "doc-0014",
+      "lifecycle": "archive",
+      "source_locator": "source-0014",
+      "source_path": "docs/changes/archive/refactor-387-kernel-sdk-no-http-api/motivation.md",
+      "source_sha256": "94c031568f6244d30036f1a7be61b874d94901287fe60b50adb3a968d4c5ca64"
+    },
+    {
+      "document_id": "doc-0015",
+      "lifecycle": "archive",
+      "source_locator": "source-0015",
+      "source_path": "docs/changes/archive/bugfix-390-im-token-policies-agent-edit/incident.md",
+      "source_sha256": "0ebc126fe7247b03e7bc7ba0efd631e982a8fc88d9f81f4ffae46271383122dd"
+    },
+    {
+      "document_id": "doc-0016",
+      "lifecycle": "archive",
+      "source_locator": "source-0016",
+      "source_path": "docs/changes/archive/bugfix-371-test-suite-runnability/incident.md",
+      "source_sha256": "ac4ef723181b224902490124e3b4f994842d61383f50fa30077fa72860982aa4"
+    },
+    {
+      "document_id": "doc-0017",
+      "lifecycle": "archive",
+      "source_locator": "source-0017",
+      "source_path": "docs/changes/archive/bugfix-357-context-used-sum-across-rounds/fix.md",
+      "source_sha256": "d6daf0ec12167b2b19c074d5649ed373feef215cf5582424d656b1160f6376e0"
+    },
+    {
+      "document_id": "doc-0018",
+      "lifecycle": "active",
+      "source_locator": "source-0018",
+      "source_path": "docs/changes/feat-517-python-dynamic-workflows/spec.md",
+      "source_sha256": "45ab7c8aeefb3ba1f77e44d9604d3a2ed2411d0196bf9cfd789c614ac077b374"
+    },
+    {
+      "document_id": "doc-0019",
+      "lifecycle": "archive",
+      "source_locator": "source-0019",
+      "source_path": "docs/changes/archive/bugfix-422-subagent-llm-session-grouping/fix.md",
+      "source_sha256": "d8e5d8289b3dc7645bb8531ddc4be522f92c32fa6d8c2b0ed3d13abe36da7d77"
+    },
+    {
+      "document_id": "doc-0020",
+      "lifecycle": "archive",
+      "source_locator": "source-0020",
+      "source_path": "docs/changes/archive/bugfix-348-session-data-dir/fix.md",
+      "source_sha256": "59e53b7fa516a5bd1c03dc62537caf54ea6cfe497be684f85f4186c02e1a61c9"
+    },
+    {
+      "document_id": "doc-0021",
+      "lifecycle": "archive",
+      "source_locator": "source-0021",
+      "source_path": "docs/changes/archive/bugfix-429-per-agent-model-selection/incident.md",
+      "source_sha256": "b541a7fe9089f9d07cebba110afc4b9603817155a0b414ee38b246e8af306bb7"
+    },
+    {
+      "document_id": "doc-0022",
+      "lifecycle": "archive",
+      "source_locator": "source-0022",
+      "source_path": "docs/changes/archive/refactor-480-typed-run-delivery-context/motivation.md",
+      "source_sha256": "da37703b2a0e3350cad655306e07586cf5d949dbc8111dce3d35369864b1fe21"
+    },
+    {
+      "document_id": "doc-0023",
+      "lifecycle": "archive",
+      "source_locator": "source-0023",
+      "source_path": "docs/changes/archive/bugfix-509-group-self-evolution-agent-attribution/incident.md",
+      "source_sha256": "5f49a6d9089dbde011c46125564adce4ebc89fb9aec2fd4e702419e57f65fe0f"
+    },
+    {
+      "document_id": "doc-0024",
+      "lifecycle": "archive",
+      "source_locator": "source-0024",
+      "source_path": "docs/changes/archive/refactor-353-unify-path-sandbox/spec.md",
+      "source_sha256": "2e0ab0c843ab4f866a7948a0517a509f1bea78241900f37f8145c433fc2919f7"
+    },
+    {
+      "document_id": "doc-0025",
+      "lifecycle": "archive",
+      "source_locator": "source-0025",
+      "source_path": "docs/changes/archive/refactor-513-pa-workspace-layout/motivation.md",
+      "source_sha256": "d9b9ec47cbccb5aee643e9c481e0b7ffe76efada48b2141200b21c10dfb58320"
+    },
+    {
+      "document_id": "doc-0026",
+      "lifecycle": "archive",
+      "source_locator": "source-0026",
+      "source_path": "docs/changes/archive/bugfix-346-gateway-token-auto-refresh/fix.md",
+      "source_sha256": "5fb4ca3b6089439a19ccdfbcfb057891340e3609b5b2ee5da00f13d39b01121e"
+    },
+    {
+      "document_id": "doc-0027",
+      "lifecycle": "archive",
+      "source_locator": "source-0027",
+      "source_path": "docs/changes/archive/feat-385-system-prompt-runtime-and-memory/spec.md",
+      "source_sha256": "6444c0de79d8c067c71997be1b0d12d390171eacd3542aff66712b05d298df7b"
+    },
+    {
+      "document_id": "doc-0028",
+      "lifecycle": "archive",
+      "source_locator": "source-0028",
+      "source_path": "docs/changes/archive/feat-386-gateway-config-backup-on-write/spec.md",
+      "source_sha256": "131d342d23ee72d4b58075dc618b637fc7d1ad929beed9ae582f6dc7fb1f8b1f"
+    },
+    {
+      "document_id": "doc-0029",
+      "lifecycle": "archive",
+      "source_locator": "source-0029",
+      "source_path": "docs/changes/archive/bugfix-419-im-ws-message-order/fix.md",
+      "source_sha256": "2bbba90d85b4d6773757160230b4ccb7d16db3791f73342f19d17e6c59a1ea35"
+    },
+    {
+      "document_id": "doc-0030",
+      "lifecycle": "retired",
+      "source_locator": "source-0030",
+      "source_path": "docs/changes/retired/refactor-477-cli-session-stream-owner/motivation.md",
+      "source_sha256": "b4bec4cec74c19518a6436ecf21c8c1879e42dbad37cd5e4c814a176630265a4"
+    },
+    {
+      "document_id": "doc-0031",
+      "lifecycle": "archive",
+      "source_locator": "source-0031",
+      "source_path": "docs/changes/archive/feat-393-heartbeat-cron-im-delivery/spec.md",
+      "source_sha256": "7e7767e25f9280a356d0d4c0e9514ddad15b7358342d667bb28ab7453d263363"
+    },
+    {
+      "document_id": "doc-0032",
+      "lifecycle": "archive",
+      "source_locator": "source-0032",
+      "source_path": "docs/changes/archive/feat-445-message-fork-branch/spec.md",
+      "source_sha256": "785fe95aafdb2f88fc64e868b824fbfb076a891c1f05554243265ec6a38bfd78"
+    },
+    {
+      "document_id": "doc-0033",
+      "lifecycle": "archive",
+      "source_locator": "source-0033",
+      "source_path": "docs/changes/archive/bugfix-491-shadow-owner-recovery/fix.md",
+      "source_sha256": "b8e10ad923bb1339b2fda6636aeddeee5d1d2232d7dc827e50890aa48721f876"
+    },
+    {
+      "document_id": "doc-0034",
+      "lifecycle": "active",
+      "source_locator": "source-0034",
+      "source_path": "docs/changes/refactor-521-relay-typed-ingress/motivation.md",
+      "source_sha256": "3db488dc4039ddaa536242fe344ae616681f62ca1bcbae10e14854778edbaa06"
+    },
+    {
+      "document_id": "doc-0035",
+      "lifecycle": "archive",
+      "source_locator": "source-0035",
+      "source_path": "docs/changes/archive/bugfix-499-lark-skill-bundle/incident.md",
+      "source_sha256": "5de3f4e48474ce45e449411a621f19bb64f17a2169ac69798be49e5eefea4de8"
+    },
+    {
+      "document_id": "doc-0036",
+      "lifecycle": "archive",
+      "source_locator": "source-0036",
+      "source_path": "docs/changes/archive/feat-514-model-reasoning-effort/spec.md",
+      "source_sha256": "55a990a0a41332cecdbaff111014d961f319420e170101859c3e4b1a858484fa"
+    },
+    {
+      "document_id": "doc-0037",
+      "lifecycle": "archive",
+      "source_locator": "source-0037",
+      "source_path": "docs/changes/archive/feat-485-design-review-round-lifecycle/spec.md",
+      "source_sha256": "80e64a3216459a9f7d3d651eeccb636296690c1ee2214cf6ac05fe7bae6c0b4c"
+    },
+    {
+      "document_id": "doc-0038",
+      "lifecycle": "archive",
+      "source_locator": "source-0038",
+      "source_path": "docs/changes/archive/feat-349-self-evolving-skills-memory/spec.md",
+      "source_sha256": "bdbd3feaf3d2e00697cf7377c30491f626e1c7dc224451971f2ace9a6a0b1837"
+    },
+    {
+      "document_id": "doc-0039",
+      "lifecycle": "archive",
+      "source_locator": "source-0039",
+      "source_path": "docs/changes/archive/feat-457-architecture-review-skill-suite/spec.md",
+      "source_sha256": "fa70cbbbc5f4e88811d2636c05ccc955082047d711bc4bb2352028e485eed78d"
+    },
+    {
+      "document_id": "doc-0040",
+      "lifecycle": "archive",
+      "source_locator": "source-0040",
+      "source_path": "docs/changes/archive/feat-352-trivial-fix-fast-lane/spec.md",
+      "source_sha256": "db7c7a52bec68b9eff1752b894fa39c7372cd803a23d43d4455e44b9b0a1a856"
+    },
+    {
+      "document_id": "doc-0041",
+      "lifecycle": "archive",
+      "source_locator": "source-0041",
+      "source_path": "docs/changes/archive/feat-469-paste-image-attachments/spec.md",
+      "source_sha256": "6b95ad8fcb61ae24bcff0a016909187237280d76a64f8e6d93fc7f445cd59edd"
+    },
+    {
+      "document_id": "doc-0042",
+      "lifecycle": "archive",
+      "source_locator": "source-0042",
+      "source_path": "docs/changes/archive/feat-400-change-retro-skill/spec.md",
+      "source_sha256": "4caa37a31b92dc4218307fcdbd6f8128a29f4be23df9e7dfc02487e6c11f4c3c"
+    },
+    {
+      "document_id": "doc-0043",
+      "lifecycle": "archive",
+      "source_locator": "source-0043",
+      "source_path": "docs/changes/archive/bugfix-453-duplicate-thinking/fix.md",
+      "source_sha256": "2079ed563e967bd6c45ee37620da555db7fac35cc14539005ff7dda100009b96"
+    },
+    {
+      "document_id": "doc-0044",
+      "lifecycle": "archive",
+      "source_locator": "source-0044",
+      "source_path": "docs/changes/archive/feat-475-design-review-loop/spec.md",
+      "source_sha256": "197f0d99b9c6a8aac9831e6c143d6d15ec73b1304f18cf0f6396d2a96b46e285"
+    },
+    {
+      "document_id": "doc-0045",
+      "lifecycle": "archive",
+      "source_locator": "source-0045",
+      "source_path": "docs/changes/archive/refactor-461-dead-kernel-subprocess-seam/motivation.md",
+      "source_sha256": "ffd003c8ed888c8fb4f45c2d53afb680802febd7057cb87e943352d35b9f8d0b"
+    },
+    {
+      "document_id": "doc-0046",
+      "lifecycle": "archive",
+      "source_locator": "source-0046",
+      "source_path": "docs/changes/archive/feat-370-testing-guide/spec.md",
+      "source_sha256": "1814e30e90726d82d6e7f0a81b5428754ed7c14117d427e119d5f7a84c47f528"
+    },
+    {
+      "document_id": "doc-0047",
+      "lifecycle": "archive",
+      "source_locator": "source-0047",
+      "source_path": "docs/changes/archive/feat-391-skill-role-goal-open-comms/spec.md",
+      "source_sha256": "8c65c55739f6180d9afe72bbd1165f2aa67789841f4d11c5e0ffeea1fa4b10f9"
+    },
+    {
+      "document_id": "doc-0048",
+      "lifecycle": "archive",
+      "source_locator": "source-0048",
+      "source_path": "docs/changes/archive/bugfix-505-agent-switch-loading-rail/fix.md",
+      "source_sha256": "0bc0c93a407acb83bbe22bef3ed60b9149520f9796f21f67a470055332769eda"
+    },
+    {
+      "document_id": "doc-0049",
+      "lifecycle": "archive",
+      "source_locator": "source-0049",
+      "source_path": "docs/changes/archive/bugfix-465-permission-watchdog-exemption/fix.md",
+      "source_sha256": "95979f2e8869ee7f5763ee7bdfac48381a79b0686454cdc6188505e9e716c2ba"
+    },
+    {
+      "document_id": "doc-0050",
+      "lifecycle": "archive",
+      "source_locator": "source-0050",
+      "source_path": "docs/changes/archive/bugfix-384-worktree-e2e-port-hardcode/fix.md",
+      "source_sha256": "b40db0cbea8c9e4762052da85e304ebb77c530cb9a1211252a44c2efc4c03d28"
+    },
+    {
+      "document_id": "doc-0051",
+      "lifecycle": "archive",
+      "source_locator": "source-0051",
+      "source_path": "docs/changes/archive/feat-379-system-prompt-sections/spec.md",
+      "source_sha256": "fe70a5b8fc62df0644f4da62f5625296ee9b2d9258c3dbc68c9790aaba3b6f43"
+    },
+    {
+      "document_id": "doc-0052",
+      "lifecycle": "archive",
+      "source_locator": "source-0052",
+      "source_path": "docs/changes/archive/refactor-459-im-persistence-depth/motivation.md",
+      "source_sha256": "d48076fc398d820d28829be6d59e3d20535ebd32faa22150795a956204be7da1"
+    },
+    {
+      "document_id": "doc-0053",
+      "lifecycle": "archive",
+      "source_locator": "source-0053",
+      "source_path": "docs/changes/archive/feat-451-chat-history-pagination/spec.md",
+      "source_sha256": "36e85e7f22248421fe98758afb1ab6f65f6291a1ff5f1f67b7346ddf5d60788a"
+    },
+    {
+      "document_id": "doc-0054",
+      "lifecycle": "archive",
+      "source_locator": "source-0054",
+      "source_path": "docs/changes/archive/feat-394-heartbeat-cron-redesign/spec.md",
+      "source_sha256": "24a6e53c8401d546f4ef75ec6ab3af24597d0afb64c42397b1ca5e29821f984f"
+    },
+    {
+      "document_id": "doc-0055",
+      "lifecycle": "archive",
+      "source_locator": "source-0055",
+      "source_path": "docs/changes/archive/bugfix-354-bash-foreground-output-lost/fix.md",
+      "source_sha256": "54e2bb8450edd14afa3dcce886ca097d47a0704638dc769d44bd8a33dbae1de8"
+    },
+    {
+      "document_id": "doc-0056",
+      "lifecycle": "archive",
+      "source_locator": "source-0056",
+      "source_path": "docs/changes/archive/bugfix-365-im-failed-bubble-merge-timeout/fix.md",
+      "source_sha256": "6e19b05894644ffcdf3aee2ec3c07a975ab7040aebfdf2c542d641ecbe9bf835"
+    },
+    {
+      "document_id": "doc-0057",
+      "lifecycle": "archive",
+      "source_locator": "source-0057",
+      "source_path": "docs/changes/archive/refactor-364-change-concurrent-isolation/motivation.md",
+      "source_sha256": "12428622f86fb6668cc0235d12ee442eb98b7611b2554eb10c247f398d76e1d5"
+    },
+    {
+      "document_id": "doc-0058",
+      "lifecycle": "archive",
+      "source_locator": "source-0058",
+      "source_path": "docs/changes/archive/bugfix-402-runtime-integrity-followups/incident.md",
+      "source_sha256": "9597fb25d58e1e324bb89c19272ed29ed470ed8ae48c83edcc7731eccf3af110"
+    },
+    {
+      "document_id": "doc-0059",
+      "lifecycle": "archive",
+      "source_locator": "source-0059",
+      "source_path": "docs/changes/archive/bugfix-490-parallel-tool-result-wire/fix.md",
+      "source_sha256": "cda0f6848ad1ce3d699d6e6347fc81eb7c97afe8a4f1aa5ffe301db856e35bd5"
+    },
+    {
+      "document_id": "doc-0060",
+      "lifecycle": "archive",
+      "source_locator": "source-0060",
+      "source_path": "docs/changes/archive/bugfix-508-im-command-picker/spec.md",
+      "source_sha256": "dead1614ae901d5de06e672f53976d26b2287392678bc1560797fca837e1dec3"
+    },
+    {
+      "document_id": "doc-0061",
+      "lifecycle": "archive",
+      "source_locator": "source-0061",
+      "source_path": "docs/changes/archive/refactor-488-change-orchestrator-skill/spec.md",
+      "source_sha256": "dede5f140edf352116b4359c10196ab2641fe003f5d9551c00efcef863d50881"
+    },
+    {
+      "document_id": "doc-0062",
+      "lifecycle": "archive",
+      "source_locator": "source-0062",
+      "source_path": "docs/changes/archive/bugfix-376-deep-task-toolcall-id-upstream-reject/fix.md",
+      "source_sha256": "222c0430758e967a496cb2e685d44885ac0a3aedb82dfefd14181593aa1744ea"
+    },
+    {
+      "document_id": "doc-0063",
+      "lifecycle": "archive",
+      "source_locator": "source-0063",
+      "source_path": "docs/changes/archive/refactor-460-web-im-client-runtime/motivation.md",
+      "source_sha256": "ad0a3e8b69affdd2fb1a23832b50212d54af72818438a9a05292ac7971cc3b32"
+    },
+    {
+      "document_id": "doc-0064",
+      "lifecycle": "archive",
+      "source_locator": "source-0064",
+      "source_path": "docs/changes/archive/feat-396-systematic-debugging-skill/spec.md",
+      "source_sha256": "58dba8ab3ca5892b71b7fc886253cd6ec37b66c1f35b4f2b36bded6cef935193"
+    },
+    {
+      "document_id": "doc-0065",
+      "lifecycle": "retired",
+      "source_locator": "source-0065",
+      "source_path": "docs/changes/retired/refactor-479-skill-review-lifecycle-owner/motivation.md",
+      "source_sha256": "9d0da91fca27ba9893040820d972e02e255cb079e45a651000cc91198d4063f1"
+    },
+    {
+      "document_id": "doc-0066",
+      "lifecycle": "archive",
+      "source_locator": "source-0066",
+      "source_path": "docs/changes/archive/feat-347-acceptance-criteria-tracks/spec.md",
+      "source_sha256": "4a4ebcf55d40b7e0233e2dfdd14e2448f00c734adc75f2447edd836493f30c28"
+    },
+    {
+      "document_id": "doc-0067",
+      "lifecycle": "archive",
+      "source_locator": "source-0067",
+      "source_path": "docs/changes/archive/feat-392-sdd-spec-doc-architecture/spec.md",
+      "source_sha256": "68cb5e3c31417abafc28c7a89bf465ecfc8781b8014247fbf1e5e23aab8d83fc"
+    },
+    {
+      "document_id": "doc-0068",
+      "lifecycle": "archive",
+      "source_locator": "source-0068",
+      "source_path": "docs/changes/archive/bugfix-356-spec-author-qa-verbatim/fix.md",
+      "source_sha256": "2ff0459b8d07dff50b761612b2799b5d953753e13a7e9529f3f86941be06dc4b"
+    },
+    {
+      "document_id": "doc-0069",
+      "lifecycle": "archive",
+      "source_locator": "source-0069",
+      "source_path": "docs/changes/archive/refactor-360-jsonl-session-store-consolidation/motivation.md",
+      "source_sha256": "93a7e0ba59107b02f7ed95dca7fa43127515e4acaf360474fb44ab694555232d"
+    },
+    {
+      "document_id": "doc-0070",
+      "lifecycle": "archive",
+      "source_locator": "source-0070",
+      "source_path": "docs/changes/archive/bugfix-441-running-tool-row-summary-input/incident.md",
+      "source_sha256": "95f9a9ba18ad269795c8cd41ded4e9da4a2a2fd82f18f505fc761ceb51adfb46"
+    },
+    {
+      "document_id": "doc-0071",
+      "lifecycle": "archive",
+      "source_locator": "source-0071",
+      "source_path": "docs/changes/archive/bugfix-507-agent-prompt-config/incident.md",
+      "source_sha256": "bb4529066ddd8ba8323a9836d738f2e8962419ec7aaaeb9f75b1e3cf88f8de38"
+    },
+    {
+      "document_id": "doc-0072",
+      "lifecycle": "archive",
+      "source_locator": "source-0072",
+      "source_path": "docs/changes/archive/bugfix-512-feishu-rich-multimodal-messages/incident.md",
+      "source_sha256": "c8e96b0801a03207d234f177c05458a822e2b91b3bfc92552edd32127019179b"
+    },
+    {
+      "document_id": "doc-0073",
+      "lifecycle": "archive",
+      "source_locator": "source-0073",
+      "source_path": "docs/changes/archive/bugfix-443-subagent-sidechain-model/incident.md",
+      "source_sha256": "197e334e2c2df7c9749a71b9e914e5c5ea5de544bb09a7a113ac652996ec15e9"
+    },
+    {
+      "document_id": "doc-0074",
+      "lifecycle": "archive",
+      "source_locator": "source-0074",
+      "source_path": "docs/changes/archive/refactor-435-harden-change-skills/motivation.md",
+      "source_sha256": "c555ad930b948f3d97afac3620dd80e1aedae24f977eddf9ba2a1fc7bac4e0b9"
+    },
+    {
+      "document_id": "doc-0075",
+      "lifecycle": "archive",
+      "source_locator": "source-0075",
+      "source_path": "docs/changes/archive/bugfix-413-im-markdown-block-render/incident.md",
+      "source_sha256": "6065498431e1258d20a131c7703ad2d0c8a6aa8861308f0dc07407818531e1b2"
+    },
+    {
+      "document_id": "doc-0076",
+      "lifecycle": "archive",
+      "source_locator": "source-0076",
+      "source_path": "docs/changes/archive/bugfix-366-llm-output-limits-and-gateway-config/fix.md",
+      "source_sha256": "c4bd9836a9d2b0b85aa8ad6e0d0edaa6a0ac03c83832c8c2fc3c833a1b7ba7fd"
+    },
+    {
+      "document_id": "doc-0077",
+      "lifecycle": "archive",
+      "source_locator": "source-0077",
+      "source_path": "docs/changes/archive/bugfix-437-compaction-workspace-root-crash/incident.md",
+      "source_sha256": "ac25160ab2f96b908b24f390fd5d004bd6b6f3247da7bd54f7ab438f9bf615e3"
+    },
+    {
+      "document_id": "doc-0078",
+      "lifecycle": "archive",
+      "source_locator": "source-0078",
+      "source_path": "docs/changes/archive/bugfix-500-agent-create-rail/fix.md",
+      "source_sha256": "5762cf9bef3edfef21d5ccbb161c277d840b4f7b795a4bb41d6d35be12dd3b66"
+    },
+    {
+      "document_id": "doc-0079",
+      "lifecycle": "retired",
+      "source_locator": "source-0079",
+      "source_path": "docs/changes/retired/feat-329-acp-interface-parity/spec.md",
+      "source_sha256": "ead151f389a22e3f2a2f24a3ad810904f7640b35fb45834206502b5ddbf7260f"
+    },
+    {
+      "document_id": "doc-0080",
+      "lifecycle": "archive",
+      "source_locator": "source-0080",
+      "source_path": "docs/changes/archive/bugfix-418-subagent-event-loop/incident.md",
+      "source_sha256": "9d82caf5f01b9e05b64fdbbb959e6947b91ba698324d00b9f5ed71469cd0bdb2"
+    },
+    {
+      "document_id": "doc-0081",
+      "lifecycle": "archive",
+      "source_locator": "source-0081",
+      "source_path": "docs/changes/archive/refactor-372-test-suite-health/motivation.md",
+      "source_sha256": "282c31770b9f7fb46618990616bb3aa1296c6aa8a7f7365a85b36aedd9336c31"
+    },
+    {
+      "document_id": "doc-0082",
+      "lifecycle": "archive",
+      "source_locator": "source-0082",
+      "source_path": "docs/changes/archive/bugfix-450-running-subagent-resume/incident.md",
+      "source_sha256": "c81f059a26c1c21086722498d8421e8072ca0c8c885b7fb6edc85ad317675790"
+    },
+    {
+      "document_id": "doc-0083",
+      "lifecycle": "archive",
+      "source_locator": "source-0083",
+      "source_path": "docs/changes/archive/refactor-345-compact-in-agent-loop/motivation.md",
+      "source_sha256": "d8e3da5d419f4c40c266d540f86f42e2f7df53788e3a16add65a4fa3f1d166c7"
+    },
+    {
+      "document_id": "doc-0084",
+      "lifecycle": "archive",
+      "source_locator": "source-0084",
+      "source_path": "docs/changes/archive/feat-414-message-turn-elapsed/spec.md",
+      "source_sha256": "2997992e9f3dde6154769529121fa41c9a0e686272eb16fa37f4049933258027"
+    },
+    {
+      "document_id": "doc-0085",
+      "lifecycle": "archive",
+      "source_locator": "source-0085",
+      "source_path": "docs/changes/archive/bugfix-369-gate-classifier-thinking-leak/fix.md",
+      "source_sha256": "9f72b76a4896bb640498c2397000ffd1e6d38068c793641e240184edd8f2afb8"
+    },
+    {
+      "document_id": "doc-0086",
+      "lifecycle": "archive",
+      "source_locator": "source-0086",
+      "source_path": "docs/changes/archive/feat-388-convention-guardrails/spec.md",
+      "source_sha256": "7e126415ddbc03ce7ee1469fdef943f88bf57a8f2f2488f25d375fdd26d5685a"
+    },
+    {
+      "document_id": "doc-0087",
+      "lifecycle": "active",
+      "source_locator": "source-0087",
+      "source_path": "docs/changes/bugfix-494-feishu-sdk-cache-warning/fix.md",
+      "source_sha256": "efcbda7706ea6b7a28b094bd3f7766f90fedfaaad7dbbde8b04d2b0fb529b7a4"
+    },
+    {
+      "document_id": "doc-0088",
+      "lifecycle": "archive",
+      "source_locator": "source-0088",
+      "source_path": "docs/changes/archive/bugfix-380-llm-upstream-error-visible/incident.md",
+      "source_sha256": "93f7a41b5fe4d762142d56b72d4c0d22849781fa51baa39a2f9b8d11067cb814"
+    },
+    {
+      "document_id": "doc-0089",
+      "lifecycle": "archive",
+      "source_locator": "source-0089",
+      "source_path": "docs/changes/archive/feat-407-impl-view-leak-guard/spec.md",
+      "source_sha256": "34b1e87a5c8fb2c6d1e6df386ae0c56abc09cfed0302e2baef5aa9b9d86cb753"
+    },
+    {
+      "document_id": "doc-0090",
+      "lifecycle": "archive",
+      "source_locator": "source-0090",
+      "source_path": "docs/changes/archive/feat-344-change-impl-worker-frontend-verification/spec.md",
+      "source_sha256": "68e4ab3bbad4e3e28a174eb64c88647e7a10eefdb8bf241b5ef384254b5042f5"
+    },
+    {
+      "document_id": "doc-0091",
+      "lifecycle": "archive",
+      "source_locator": "source-0091",
+      "source_path": "docs/changes/archive/feat-428-nested-project-instructions/spec.md",
+      "source_sha256": "aafb97cae39f203091ce7234e3c258c1fd5576f2c7182bde39458c0ad8011f2a"
+    },
+    {
+      "document_id": "doc-0092",
+      "lifecycle": "archive",
+      "source_locator": "source-0092",
+      "source_path": "docs/changes/archive/bugfix-424-dynamic-agent-workspace-isolation/fix.md",
+      "source_sha256": "10bf9e00de2b0481404d9b6ea6a036ce2d40681bb5b83575e87c897438aa5f66"
+    },
+    {
+      "document_id": "doc-0093",
+      "lifecycle": "archive",
+      "source_locator": "source-0093",
+      "source_path": "docs/changes/archive/bugfix-467-register-seed-agent-config/fix.md",
+      "source_sha256": "519a5bf4430df3564ee5f46a6b55d9a44b1839d2f8ef3dd2ee29c70d836587d2"
+    },
+    {
+      "document_id": "doc-0094",
+      "lifecycle": "archive",
+      "source_locator": "source-0094",
+      "source_path": "docs/changes/archive/feat-449-subagent-observability/spec.md",
+      "source_sha256": "6901527baf12fa83f2540ec3f5bca0f686e175bdf847263914e1e7c9ec093ad7"
+    },
+    {
+      "document_id": "doc-0095",
+      "lifecycle": "archive",
+      "source_locator": "source-0095",
+      "source_path": "docs/changes/archive/feat-411-spec-design-reviewers/spec.md",
+      "source_sha256": "f6b97a1037d03e0ef31180d1a341e9b894b0a775b3cd5cb7f8be52a041fccf66"
+    },
+    {
+      "document_id": "doc-0096",
+      "lifecycle": "archive",
+      "source_locator": "source-0096",
+      "source_path": "docs/changes/archive/feat-408-design-doc-dual-purpose/spec.md",
+      "source_sha256": "6c8e3e58c5557bc08105fe99c736816e14afd862ca10bc10d4e9397660c92e8f"
+    },
+    {
+      "document_id": "doc-0097",
+      "lifecycle": "archive",
+      "source_locator": "source-0097",
+      "source_path": "docs/changes/archive/feat-436-per-model-context-window/spec.md",
+      "source_sha256": "d6eaa248eec8434ddd3931c28284e53e0a79d0a28ac1f075631517b5547dca10"
+    },
+    {
+      "document_id": "doc-0098",
+      "lifecycle": "archive",
+      "source_locator": "source-0098",
+      "source_path": "docs/changes/archive/refactor-458-change-unit-archival/motivation.md",
+      "source_sha256": "46bdc0f77dfa340e390ab9de4c5749801a5e4567e6ab42402d7a1c360d143929"
+    },
+    {
+      "document_id": "doc-0099",
+      "lifecycle": "archive",
+      "source_locator": "source-0099",
+      "source_path": "docs/changes/archive/feat-343-visual-reference-gates/spec.md",
+      "source_sha256": "2b883f584b2c027be91f50fec60f9066d31501c8a0616a124ea317db0fec7a90"
+    },
+    {
+      "document_id": "doc-0100",
+      "lifecycle": "archive",
+      "source_locator": "source-0100",
+      "source_path": "docs/changes/archive/feat-425-tool-presenter-emoji/spec.md",
+      "source_sha256": "17bf68201c7245d7518a51ccbbb0250b43d5d91f757e6e69639b05f808e2969c"
+    },
+    {
+      "document_id": "doc-0101",
+      "lifecycle": "archive",
+      "source_locator": "source-0101",
+      "source_path": "docs/changes/archive/bugfix-496-feishu-orphan-listener/incident.md",
+      "source_sha256": "5d12cc84b7fdf5cb4cbbf751c01da07478278630231e07b07fc65d9372df9058"
+    },
+    {
+      "document_id": "doc-0102",
+      "lifecycle": "archive",
+      "source_locator": "source-0102",
+      "source_path": "docs/changes/archive/feat-338-kernel-message-sse/spec.md",
+      "source_sha256": "9fefd623f6abf626af537a68f350ec022e79c102f0989b44197c67e14986a3bb"
+    },
+    {
+      "document_id": "doc-0103",
+      "lifecycle": "active",
+      "source_locator": "source-0103",
+      "source_path": "docs/changes/bugfix-492-heartbeat-at-expiry/fix.md",
+      "source_sha256": "089d1e71354a10dc28133974d4919d87bfe5ff636e60ab01782ea0b001e952c8"
+    },
+    {
+      "document_id": "doc-0104",
+      "lifecycle": "archive",
+      "source_locator": "source-0104",
+      "source_path": "docs/changes/archive/refactor-462-kernel-session-aggregate/motivation.md",
+      "source_sha256": "ab4ab4a6f39b0f082b0b6dd68f8bc3cb74c9cd2e74932484a2abdc3da7caac6f"
+    },
+    {
+      "document_id": "doc-0105",
+      "lifecycle": "archive",
+      "source_locator": "source-0105",
+      "source_path": "docs/changes/archive/feat-501-cross-channel-session-controls/spec.md",
+      "source_sha256": "f02e9d067c158b694a69895dc731301c14632daac08698b231e0d1efdbab1764"
+    },
+    {
+      "document_id": "doc-0106",
+      "lifecycle": "retired",
+      "source_locator": "source-0106",
+      "source_path": "docs/changes/retired/feat-336-generic-channel-architecture/spec.md",
+      "source_sha256": "8330fce71332568a7233da1976d1915f57f6af39ae6eaece2598da639891caa4"
+    },
+    {
+      "document_id": "doc-0107",
+      "lifecycle": "archive",
+      "source_locator": "source-0107",
+      "source_path": "docs/changes/archive/feat-330-session-context-storage/spec.md",
+      "source_sha256": "1e908da7e94e0d176bdd9c698f3203dd18a7bcf267cb06665079ea16c8bb21aa"
+    },
+    {
+      "document_id": "doc-0108",
+      "lifecycle": "archive",
+      "source_locator": "source-0108",
+      "source_path": "docs/changes/archive/feat-350-dispatch-checkin-clarify/spec.md",
+      "source_sha256": "626c9a40e27434b703d6b1c48cfb78edd66ca04e3455acfc71e599b2eba8cba0"
+    },
+    {
+      "document_id": "doc-0109",
+      "lifecycle": "archive",
+      "source_locator": "source-0109",
+      "source_path": "docs/changes/archive/bugfix-331-repl-resume-dup-render/incident.md",
+      "source_sha256": "c01c9c0c6b4b8e0cad26180dd23d9b46c64b7a988bcccfd1f57d24359fe96a71"
+    },
+    {
+      "document_id": "doc-0110",
+      "lifecycle": "archive",
+      "source_locator": "source-0110",
+      "source_path": "docs/changes/archive/refactor-406-sdk-curated-surface/motivation.md",
+      "source_sha256": "338810fd39298e8acb307395fa814a06edcd1ba695075f9ef48aac87602968dd"
+    },
+    {
+      "document_id": "doc-0111",
+      "lifecycle": "archive",
+      "source_locator": "source-0111",
+      "source_path": "docs/changes/archive/bugfix-405-chat-status-realtime/fix.md",
+      "source_sha256": "95c8039cb4a0c71013ca027d81dbe458c825eadb0dbdfc268c9459761f1432cf"
+    },
+    {
+      "document_id": "doc-0112",
+      "lifecycle": "archive",
+      "source_locator": "source-0112",
+      "source_path": "docs/changes/archive/refactor-454-gateway-runtime-protocol/motivation.md",
+      "source_sha256": "2243797d6d88c8b7f629b31f55d047b49543a8493619adb3921271f2fd40fda9"
+    },
+    {
+      "document_id": "doc-0113",
+      "lifecycle": "archive",
+      "source_locator": "source-0113",
+      "source_path": "docs/changes/archive/feat-466-design-review-prerequisites/spec.md",
+      "source_sha256": "4062937cd1b7d9ecfccc52c26c4b9a25931ee3b85946f1c050d6b886c2303422"
+    },
+    {
+      "document_id": "doc-0114",
+      "lifecycle": "archive",
+      "source_locator": "source-0114",
+      "source_path": "docs/changes/archive/bugfix-420-task-stop-notification-dedup/incident.md",
+      "source_sha256": "73693123fd42e2f8d67841dbcbaa37f34b82ec838341515946afe27e03c94acb"
+    },
+    {
+      "document_id": "doc-0115",
+      "lifecycle": "archive",
+      "source_locator": "source-0115",
+      "source_path": "docs/changes/archive/refactor-381-e2e-workflow/motivation.md",
+      "source_sha256": "2c54c7a092b65ac072f29277f685ae0f412d194ec50228a6f7f099bfc9276fe4"
+    },
+    {
+      "document_id": "doc-0116",
+      "lifecycle": "active",
+      "source_locator": "source-0116",
+      "source_path": "docs/changes/bugfix-498-im-websocket-proxy-bypass/fix.md",
+      "source_sha256": "b0a2435707a13bb73c952c09644fbd9afc1078d3165b6c6164ecb99db4ef8963"
+    },
+    {
+      "document_id": "doc-0117",
+      "lifecycle": "archive",
+      "source_locator": "source-0117",
+      "source_path": "docs/changes/archive/bugfix-377-classifier-empty-transcript/fix.md",
+      "source_sha256": "53101c183d498126ce7562d22db00135c9bd8b113480ff38fef818c630c4942c"
+    },
+    {
+      "document_id": "doc-0118",
+      "lifecycle": "archive",
+      "source_locator": "source-0118",
+      "source_path": "docs/changes/archive/bugfix-433-image-multi-turn-persistence/incident.md",
+      "source_sha256": "378d8ed7d18fb842db4f3424f64842267f5bcc5a7c77fb7ec375296cf8077d36"
+    },
+    {
+      "document_id": "doc-0119",
+      "lifecycle": "archive",
+      "source_locator": "source-0119",
+      "source_path": "docs/changes/archive/bugfix-355-read-workspace-outside-rejected/incident.md",
+      "source_sha256": "eeb01387a3928da4e8759334aa073db0de86ef062121088dc60c52bb14cc8b11"
+    },
+    {
+      "document_id": "doc-0120",
+      "lifecycle": "archive",
+      "source_locator": "source-0120",
+      "source_path": "docs/changes/archive/bugfix-520-compaction-context-loss/incident.md",
+      "source_sha256": "4a6b92f5457730d0063dd2a1cb0818d146a225c798dcfa080cc8b156b7359758"
+    },
+    {
+      "document_id": "doc-0121",
+      "lifecycle": "archive",
+      "source_locator": "source-0121",
+      "source_path": "docs/changes/archive/bugfix-367-permission-history-list/fix.md",
+      "source_sha256": "ba52b8368e312358ff8b20763564dacce8531e56b9f24ab91822692aba5eb077"
+    },
+    {
+      "document_id": "doc-0122",
+      "lifecycle": "archive",
+      "source_locator": "source-0122",
+      "source_path": "docs/changes/archive/bugfix-404-bg-notify-workspace-isolation/incident.md",
+      "source_sha256": "5d5f9de140c4f0e612555811f88ebb391cd72e7ddaf5069d5e8b4b6b684b3353"
+    },
+    {
+      "document_id": "doc-0123",
+      "lifecycle": "archive",
+      "source_locator": "source-0123",
+      "source_path": "docs/changes/archive/bugfix-427-bash-start-description/fix.md",
+      "source_sha256": "cbfe4026351487fc8616e93593fffec376abc5ed387226db1fdcac6d194f26cc"
+    },
+    {
+      "document_id": "doc-0124",
+      "lifecycle": "archive",
+      "source_locator": "source-0124",
+      "source_path": "docs/changes/archive/feat-421-critical-path-e2e-suite/spec.md",
+      "source_sha256": "1c754b2cdb3c9868c5c1a030da954fefc46861447abde6e7f94d7cf7bdbe48d2"
+    },
+    {
+      "document_id": "doc-0125",
+      "lifecycle": "archive",
+      "source_locator": "source-0125",
+      "source_path": "docs/changes/archive/feat-430-im-slash-skill-picker/spec.md",
+      "source_sha256": "4bb04b6e38d252fd67a1d17c4fbd30ef9788a5010c4bed000fa0e8ed2816040e"
+    },
+    {
+      "document_id": "doc-0126",
+      "lifecycle": "archive",
+      "source_locator": "source-0126",
+      "source_path": "docs/changes/archive/bugfix-359-e2e-gateway-process-leak/fix.md",
+      "source_sha256": "9fd65dd538b16dfc52fa811182cf205a397000305f263d22b4f92bd3216f2673"
+    },
+    {
+      "document_id": "doc-0127",
+      "lifecycle": "archive",
+      "source_locator": "source-0127",
+      "source_path": "docs/changes/archive/feat-447-feishu-channel/spec.md",
+      "source_sha256": "eeb8003ac3f193f76b9b3cc8c7bfb1b1a5ff3bbe9bd187194437865712b11fdf"
+    },
+    {
+      "document_id": "doc-0128",
+      "lifecycle": "archive",
+      "source_locator": "source-0128",
+      "source_path": "docs/changes/archive/bugfix-526-feishu-approval-input/fix.md",
+      "source_sha256": "9f4dbe0e047a27e30b81ff5d05da5c7d98f535bdb3f57205dc42086529831c09"
+    },
+    {
+      "document_id": "doc-0129",
+      "lifecycle": "archive",
+      "source_locator": "source-0129",
+      "source_path": "docs/changes/archive/bugfix-493-frontend-npm-audit/fix.md",
+      "source_sha256": "df0b6c6e893eb5c94da2ef5006702aa8d3ad5ea60dd4f3c59a1957853ce6256b"
+    },
+    {
+      "document_id": "doc-0130",
+      "lifecycle": "archive",
+      "source_locator": "source-0130",
+      "source_path": "docs/changes/archive/bugfix-363-worker-checkin-premature/fix.md",
+      "source_sha256": "90325ecf9608897ec70d80b39db86ba43cfdada4cf6e12d04af1c4dc2e351319"
+    },
+    {
+      "document_id": "doc-0131",
+      "lifecycle": "archive",
+      "source_locator": "source-0131",
+      "source_path": "docs/changes/archive/bugfix-471-agent-config-context-continuity/incident.md",
+      "source_sha256": "2811bfffe2aba452008d0e0870fd29ab4013443729a0bd5fb39df0ef84151c7f"
+    },
+    {
+      "document_id": "doc-0132",
+      "lifecycle": "archive",
+      "source_locator": "source-0132",
+      "source_path": "docs/changes/archive/feat-383-prompt-preview-fidelity/spec.md",
+      "source_sha256": "09bd39edd4825193a0b8e3d01096359068fcbbd8962888dc5047e3832a1fc37c"
+    },
+    {
+      "document_id": "doc-0133",
+      "lifecycle": "archive",
+      "source_locator": "source-0133",
+      "source_path": "docs/changes/archive/refactor-472-split-im-monoliths/motivation.md",
+      "source_sha256": "93a821bc6d50cd85c238ccb5b889f560b0c2cd9987f67a68eca45f3bee35f66a"
+    },
+    {
+      "document_id": "doc-0134",
+      "lifecycle": "active",
+      "source_locator": "source-0134",
+      "source_path": "docs/changes/refactor-522-session-continuity-owner/motivation.md",
+      "source_sha256": "224a414f30ec53a068c5dc109553ab01013d5dd0539daf10838d57a6852045e1"
+    },
+    {
+      "document_id": "doc-0135",
+      "lifecycle": "archive",
+      "source_locator": "source-0135",
+      "source_path": "docs/changes/archive/feat-389-fix-loop-three-dimensions/spec.md",
+      "source_sha256": "0b4925fc7e6e93d3f8e80f9d8d7a5ee9486026c5ab1bc00a1f7050a7f19ac7cf"
+    },
+    {
+      "document_id": "doc-0136",
+      "lifecycle": "archive",
+      "source_locator": "source-0136",
+      "source_path": "docs/changes/archive/feat-335-streaming-tool-executor/spec.md",
+      "source_sha256": "0b8f9657cba763b4f0b54892ddc9170a6261b8230abca67bcdc4f888818cb6d4"
+    },
+    {
+      "document_id": "doc-0137",
+      "lifecycle": "archive",
+      "source_locator": "source-0137",
+      "source_path": "docs/changes/archive/bugfix-518-gateway-owned-skill-distill/incident.md",
+      "source_sha256": "b57fb6b704bad024fce508bc23940739e34698a65aac1731b802e3b6ee4d3159"
+    },
+    {
+      "document_id": "doc-0138",
+      "lifecycle": "archive",
+      "source_locator": "source-0138",
+      "source_path": "docs/changes/archive/bugfix-399-self-evolution-review-replay/fix.md",
+      "source_sha256": "bcd1d25ba8f94b93fe58f6d983c4db18b6c5e84ec2758ab7419b7f68de9efe4c"
+    },
+    {
+      "document_id": "doc-0139",
+      "lifecycle": "archive",
+      "source_locator": "source-0139",
+      "source_path": "docs/changes/archive/feat-438-im-group-settings/spec.md",
+      "source_sha256": "a858f3085cf2538941dd136ba6ca034f0cbdaadb6e7cca24e2c9e0937a02fdf5"
+    },
+    {
+      "document_id": "doc-0140",
+      "lifecycle": "archive",
+      "source_locator": "source-0140",
+      "source_path": "docs/changes/archive/feat-446-skill-view-tool/spec.md",
+      "source_sha256": "e428454f8a69362663a988adbabaa96165561978e2601845579d8c9c42d90dc3"
+    },
+    {
+      "document_id": "doc-0141",
+      "lifecycle": "archive",
+      "source_locator": "source-0141",
+      "source_path": "docs/changes/archive/bugfix-506-gateway-relay-resilience/incident.md",
+      "source_sha256": "3638855e8feb65a6555eb46c6721f604fefe7f11845ed304b64cdc8fafc9d5ac"
+    },
+    {
+      "document_id": "doc-0142",
+      "lifecycle": "archive",
+      "source_locator": "source-0142",
+      "source_path": "docs/changes/archive/feat-342-reviewer-boundary-and-runbook/spec.md",
+      "source_sha256": "7479e7945b2c3db006c2879b6857be23e5c0d660a92757451bc99346fca8f3c0"
+    },
+    {
+      "document_id": "doc-0143",
+      "lifecycle": "archive",
+      "source_locator": "source-0143",
+      "source_path": "docs/changes/archive/bugfix-412-max-tool-calls-compaction/fix.md",
+      "source_sha256": "844b7befa9da9ec620e0cf8466946bd258031e644f1f285031bf722a8481491c"
+    },
+    {
+      "document_id": "doc-0144",
+      "lifecycle": "archive",
+      "source_locator": "source-0144",
+      "source_path": "docs/changes/archive/bugfix-358-group-mention-broken/incident.md",
+      "source_sha256": "e3904a29f6591502e3f50ff594a73cb589aebb25a8011b914c6893eddefb868e"
+    },
+    {
+      "document_id": "doc-0145",
+      "lifecycle": "archive",
+      "source_locator": "source-0145",
+      "source_path": "docs/changes/archive/bugfix-527-auto-skill-state-source/fix.md",
+      "source_sha256": "3c2585433306bdc89c30dff46a0ba7470607d60a00e1690fcb1dc5624529aab3"
+    },
+    {
+      "document_id": "doc-0146",
+      "lifecycle": "archive",
+      "source_locator": "source-0146",
+      "source_path": "docs/changes/archive/refactor-463-inbound-pipeline-ownership/motivation.md",
+      "source_sha256": "d87a026664a4f7bece43ea440185baf7f4d6b57da300a7231d8a24f8a446e68e"
+    },
+    {
+      "document_id": "doc-0147",
+      "lifecycle": "archive",
+      "source_locator": "source-0147",
+      "source_path": "docs/changes/archive/bugfix-511-unit-archive-ci-guard/incident.md",
+      "source_sha256": "6771d12ae8857f183b76174a66f97f12f32d4dd448d01b8ef2ca7e8449a92343"
+    },
+    {
+      "document_id": "doc-0148",
+      "lifecycle": "archive",
+      "source_locator": "source-0148",
+      "source_path": "docs/changes/archive/refactor-395-code-smell-copy-paste-swallowed-exception/motivation.md",
+      "source_sha256": "bf766bb75ea5de6c6bc4b1cb26fac1acad1b3cf02a223d6648a5bb0f20aecce3"
+    },
+    {
+      "document_id": "doc-0149",
+      "lifecycle": "archive",
+      "source_locator": "source-0149",
+      "source_path": "docs/changes/archive/bugfix-446-gateway-im-resilience/incident.md",
+      "source_sha256": "55f0242776dc8189d0432f5d0363330d52a0a0e9335de4f722c55077723b0053"
+    },
+    {
+      "document_id": "doc-0150",
+      "lifecycle": "archive",
+      "source_locator": "source-0150",
+      "source_path": "docs/changes/archive/perf-458-ci-speed/motivation.md",
+      "source_sha256": "75a09cd0b0d7a6bd037cc486742093be0c7d6b9f3dcbb67147246bcf86b133a4"
+    },
+    {
+      "document_id": "doc-0151",
+      "lifecycle": "active",
+      "source_locator": "source-0151",
+      "source_path": "docs/changes/bugfix-448-web-fetch-cancel/incident.md",
+      "source_sha256": "c06f0434ecaad3a0fdf0d1ba92c7f76a0def90cc09aeac2855ec332dca625b01"
+    },
+    {
+      "document_id": "doc-0152",
+      "lifecycle": "archive",
+      "source_locator": "source-0152",
+      "source_path": "docs/changes/archive/bugfix-361-im-running-watchdog/fix.md",
+      "source_sha256": "3e48a638b6f90d3f8b6a99a1e1d8dddb32ad3e1098fdc042db65903a31f9be0e"
+    },
+    {
+      "document_id": "doc-0153",
+      "lifecycle": "archive",
+      "source_locator": "source-0153",
+      "source_path": "docs/changes/archive/bugfix-529-feishu-approval-compact-input/fix.md",
+      "source_sha256": "b3d686e5832172fd28c0a74414282218bb9228c418cee61fed6d73f1e4509765"
+    },
+    {
+      "document_id": "doc-0154",
+      "lifecycle": "archive",
+      "source_locator": "source-0154",
+      "source_path": "docs/changes/archive/feat-337-cc-background-subagents/spec.md",
+      "source_sha256": "65ea3bc2551ee53e9251bbc34303c57d5a1bdfc27f489a69788f458c277e4ef5"
+    },
+    {
+      "document_id": "doc-0155",
+      "lifecycle": "archive",
+      "source_locator": "source-0155",
+      "source_path": "docs/changes/archive/bugfix-417-timeout-tool-wedges-session/incident.md",
+      "source_sha256": "523178930c183a7359875ef838d2f5d1fbfd8025100e762c64b95db34999177e"
+    },
+    {
+      "document_id": "doc-0156",
+      "lifecycle": "archive",
+      "source_locator": "source-0156",
+      "source_path": "docs/changes/archive/feat-409-im-tool-call-display/spec.md",
+      "source_sha256": "60cf28e2114428717251d60693fad251fc742c826312b8816480a5d1a8cbe23b"
+    },
+    {
+      "document_id": "doc-0157",
+      "lifecycle": "archive",
+      "source_locator": "source-0157",
+      "source_path": "docs/changes/archive/bugfix-410-unattended-toolcall-robustness/incident.md",
+      "source_sha256": "a7011f650c026cef7198794c84a86f77fc382fad762c5cf2dbdd2c03b3706e8c"
+    },
+    {
+      "document_id": "doc-0158",
+      "lifecycle": "retired",
+      "source_locator": "source-0158",
+      "source_path": "docs/changes/retired/refactor-483-web-agent-config-form-model/motivation.md",
+      "source_sha256": "a79e5b74b57c5d235520412c812252790d698746418a600238914824cdcedcd9"
+    },
+    {
+      "document_id": "doc-0159",
+      "lifecycle": "archive",
+      "source_locator": "source-0159",
+      "source_path": "docs/changes/archive/bugfix-373-thinking-reasoning-content-roundtrip/fix.md",
+      "source_sha256": "8a90c9779b6b54cfe36917eed28a43710c772256abca69f843b2fa569971425e"
+    },
+    {
+      "document_id": "doc-0160",
+      "lifecycle": "archive",
+      "source_locator": "source-0160",
+      "source_path": "docs/changes/archive/bugfix-416-group-noreply-and-bash-timeout/fix.md",
+      "source_sha256": "5bc565c6c49a5771c96a378cc0a8d6e07bc612d99654f1a8ef9b23f752d5337b"
+    },
+    {
+      "document_id": "doc-0161",
+      "lifecycle": "archive",
+      "source_locator": "source-0161",
+      "source_path": "docs/changes/archive/feat-341-change-workflow-skills/spec.md",
+      "source_sha256": "a062929f385cd1a3be8b0900a469172bbb053319bfabcbbd80c9f98f91972d36"
+    },
+    {
+      "document_id": "doc-0162",
+      "lifecycle": "archive",
+      "source_locator": "source-0162",
+      "source_path": "docs/changes/archive/bugfix-456-auto-mode-tool-projection/fix.md",
+      "source_sha256": "a6c5c4795f1dbd4d03af03807a77eed1be1f853c377fc949ec4df96a799dad77"
+    },
+    {
+      "document_id": "doc-0163",
+      "lifecycle": "archive",
+      "source_locator": "source-0163",
+      "source_path": "docs/changes/archive/bugfix-339-repl-streaming-render/incident.md",
+      "source_sha256": "0981e226221e856ab407ef79792aa8da576a846698d1c81275300b6537c886ec"
+    },
+    {
+      "document_id": "doc-0164",
+      "lifecycle": "archive",
+      "source_locator": "source-0164",
+      "source_path": "docs/changes/archive/bugfix-497-shadow-mirror-duplicate-reply/incident.md",
+      "source_sha256": "c188642fc6fabebdaaeeffba99b87b4e162d74bf82b8f33adf21e83084494b82"
+    },
+    {
+      "document_id": "doc-0165",
+      "lifecycle": "archive",
+      "source_locator": "source-0165",
+      "source_path": "docs/changes/archive/feat-439-im-cache-hit-and-thinking/spec.md",
+      "source_sha256": "687d703b157470e4b6751246e09cb4d6b2cc0a16c3060ec74029eefe1f0ac017"
+    },
+    {
+      "document_id": "doc-0166",
+      "lifecycle": "active",
+      "source_locator": "source-0166",
+      "source_path": "docs/changes/bugfix-525-self-evolution-output-leak/fix.md",
+      "source_sha256": "26abd517a09c076857f33d45e70cb5dbc7bc7e23cb441a308764edfa60da02aa"
+    },
+    {
+      "document_id": "doc-0167",
+      "lifecycle": "archive",
+      "source_locator": "source-0167",
+      "source_path": "docs/changes/archive/feat-503-feishu-e2e-runtime/spec.md",
+      "source_sha256": "2fb77e1f5d5f9c4ab33e6d3e269c1a09f05a909ae1cc9f08402d50283be4c9c3"
+    },
+    {
+      "document_id": "doc-0168",
+      "lifecycle": "active",
+      "source_locator": "source-0168",
+      "source_path": "docs/changes/bugfix-533-feishu-worker-cold-start/fix.md",
+      "source_sha256": "9ccbe127d055d72e471d0211c083a4be00cfa568023a9b10247bb9c4fa58a26a"
+    },
+    {
+      "document_id": "doc-0169",
+      "lifecycle": "archive",
+      "source_locator": "source-0169",
+      "source_path": "docs/changes/archive/feat-464-im-channel-settings/spec.md",
+      "source_sha256": "15d08d3df1298cbc44e9daf58149b8ba5fad993c96dd695d156c0ec8ab7ca190"
+    },
+    {
+      "document_id": "doc-0170",
+      "lifecycle": "archive",
+      "source_locator": "source-0170",
+      "source_path": "docs/changes/archive/bugfix-375-thinking-signature-roundtrip/fix.md",
+      "source_sha256": "a891230a9d715ac7014c19c480bfedcf088106707609de403e446b5b2448ef0f"
+    },
+    {
+      "document_id": "doc-0171",
+      "lifecycle": "archive",
+      "source_locator": "source-0171",
+      "source_path": "docs/changes/archive/bugfix-383-im-watchdog-kills-active-relays/incident.md",
+      "source_sha256": "3e5f699872bf29a8ed924db9f6d6f7b1869aa18711b61630be7c2750bc716134"
+    },
+    {
+      "document_id": "doc-0172",
+      "lifecycle": "archive",
+      "source_locator": "source-0172",
+      "source_path": "docs/changes/archive/feat-474-agent-tool-ergonomics/spec.md",
+      "source_sha256": "617c449e933183b1efc7f5e7037e633cd06051c5b2b14033ba200e9b4a0899d1"
+    },
+    {
+      "document_id": "doc-0173",
+      "lifecycle": "archive",
+      "source_locator": "source-0173",
+      "source_path": "docs/changes/archive/refactor-489-test-signal-discipline/motivation.md",
+      "source_sha256": "e6246c9db2a1c3f91e3b708134fd282beeb7baf2874de150b902c80898c883d6"
+    },
+    {
+      "document_id": "doc-0174",
+      "lifecycle": "archive",
+      "source_locator": "source-0174",
+      "source_path": "docs/changes/archive/feat-332-stop-command/spec.md",
+      "source_sha256": "6db791819c5705110947f80a3b7849000cf84e73dde2fa2b9328a10c67567937"
+    },
+    {
+      "document_id": "doc-0175",
+      "lifecycle": "archive",
+      "source_locator": "source-0175",
+      "source_path": "docs/changes/archive/feat-515-agent-workspace-root-selection/spec.md",
+      "source_sha256": "3153a0b97a6e25f5ef8a7dc215086b8af0fe3b33e645430115b6d0cbfd91074c"
+    },
+    {
+      "document_id": "doc-0176",
+      "lifecycle": "archive",
+      "source_locator": "source-0176",
+      "source_path": "docs/changes/archive/feat-516-prompt-cache-alert/spec.md",
+      "source_sha256": "fd8b46e2cc1bea650b5362d489fd4428cf574fcecb58a454901b711950ed8571"
+    },
+    {
+      "document_id": "doc-0177",
+      "lifecycle": "archive",
+      "source_locator": "source-0177",
+      "source_path": "docs/changes/archive/refactor-403-orchestrator-token-optimization/motivation.md",
+      "source_sha256": "3fb5a6abc5089bec0f75b3116bc81958b1e214bf2ff4fe5daf3de82df0b30d68"
+    },
+    {
+      "document_id": "doc-0178",
+      "lifecycle": "archive",
+      "source_locator": "source-0178",
+      "source_path": "docs/changes/archive/bugfix-468-tool-chain-semantics-gaps/incident.md",
+      "source_sha256": "df5413c129babd6f54411f69047f3252362588b18a2fef56450243fd36682637"
+    },
+    {
+      "document_id": "doc-0179",
+      "lifecycle": "archive",
+      "source_locator": "source-0179",
+      "source_path": "docs/changes/archive/bugfix-378-change-skills-trace-original-intent/fix.md",
+      "source_sha256": "9f4781a33d8caeffab2d431607631493cc020e7dcebe52471b9315540a19af65"
+    },
+    {
+      "document_id": "doc-0180",
+      "lifecycle": "archive",
+      "source_locator": "source-0180",
+      "source_path": "docs/changes/archive/refactor-457-evergreen-spec-area-split/motivation.md",
+      "source_sha256": "9afd21276e81e6423a11d15ffe04822d2ec3fb69c90f6982da1304b1bb3f1b76"
+    },
+    {
+      "document_id": "doc-0181",
+      "lifecycle": "archive",
+      "source_locator": "source-0181",
+      "source_path": "docs/changes/archive/bugfix-374-bugfix-verify-real-entry-repro/fix.md",
+      "source_sha256": "89556bc8c2f4c817dd842fa07225e8e408bc2695253863788cb26e4041baaac6"
+    },
+    {
+      "document_id": "doc-0182",
+      "lifecycle": "archive",
+      "source_locator": "source-0182",
+      "source_path": "docs/changes/archive/feat-484-chat-message-interactions/spec.md",
+      "source_sha256": "faa07e8038ad49c16039df5bbb0f92e5d0403faedb1151945be2c49e5a62fedd"
+    },
+    {
+      "document_id": "doc-0183",
+      "lifecycle": "archive",
+      "source_locator": "source-0183",
+      "source_path": "docs/changes/archive/bugfix-368-memory-tool-auto-mode-allowlist/fix.md",
+      "source_sha256": "cb86afdbf05ace424ed7475f831b8712c57fc129e3872d73c8c478a761bbac07"
+    },
+    {
+      "document_id": "doc-0184",
+      "lifecycle": "archive",
+      "source_locator": "source-0184",
+      "source_path": "docs/changes/archive/feat-519-workspace-compat-skills/spec.md",
+      "source_sha256": "3c67389efa32da1bc7fdbf0e9b90745a4bb21af49c46853c10c05283b5ec2ee3"
+    },
+    {
+      "document_id": "doc-0185",
+      "lifecycle": "archive",
+      "source_locator": "source-0185",
+      "source_path": "docs/changes/archive/feat-401-change-skills-retro-improvements/spec.md",
+      "source_sha256": "85a807e9cb1dc12d4b922272fd3abc96cfdb53e36fe4a7c38453fa2a3d6fb63a"
+    },
+    {
+      "document_id": "doc-0186",
+      "lifecycle": "active",
+      "source_locator": "source-0186",
+      "source_path": "docs/changes/feat-530-message-context-envelope/spec.md",
+      "source_sha256": "ffcf47be7169f60f545c304222efc6c01eb3e1af5a3e04aa040a40be74f81958"
+    },
+    {
+      "document_id": "doc-0187",
+      "lifecycle": "retired",
+      "source_locator": "source-0187",
+      "source_path": "docs/changes/retired/refactor-481-gateway-config-ownership/motivation.md",
+      "source_sha256": "4428b6132a05998c8e1a48f15e678da18b14db5cddf4e68fd795a0018dbbf0f9"
+    },
+    {
+      "document_id": "doc-0188",
+      "lifecycle": "active",
+      "source_locator": "source-0188",
+      "source_path": "docs/changes/bugfix-495-frontend-test-console-gate/incident.md",
+      "source_sha256": "3ed53f36a12e43a8d3880cfc61b049dd8634cae7fc4be0143e0b40fa8cacd261"
+    },
+    {
+      "document_id": "doc-0189",
+      "lifecycle": "archive",
+      "source_locator": "source-0189",
+      "source_path": "docs/changes/archive/feat-423-searxng-web-search/spec.md",
+      "source_sha256": "065f3e3782eee5e57e0a7eeda91e8a2b1cbc656fe216b818faae0d5fd687834b"
+    },
+    {
+      "document_id": "doc-0190",
+      "lifecycle": "archive",
+      "source_locator": "source-0190",
+      "source_path": "docs/changes/archive/feat-434-approval-ux-redesign/spec.md",
+      "source_sha256": "6de8ba5525f6541ae35f71e84e72e6aa8e8bb012c2531b6c63cbf9c2b1ac13f2"
+    },
+    {
+      "document_id": "doc-0191",
+      "lifecycle": "archive",
+      "source_locator": "source-0191",
+      "source_path": "docs/changes/archive/refactor-470-managed-channel-composition/motivation.md",
+      "source_sha256": "d82e08d3f9756d1121913247e910424d8cd71781964bd4d8e3de19957f26cb73"
+    },
+    {
+      "document_id": "doc-0192",
+      "lifecycle": "archive",
+      "source_locator": "source-0192",
+      "source_path": "docs/changes/archive/bugfix-415-im-mention-avatar-color/fix.md",
+      "source_sha256": "da7434e181401f64547edd2edecc2f6668a92bf0ad7c677cb3b9f1205fca0f57"
+    },
+    {
+      "document_id": "doc-0193",
+      "lifecycle": "archive",
+      "source_locator": "source-0193",
+      "source_path": "docs/changes/archive/bugfix-442-sidebar-realtime-sync/fix.md",
+      "source_sha256": "b6f99f302e08a01581489f0a396cc70d6d7c83f3feb454139a3313f02ae2d2bf"
+    },
+    {
+      "document_id": "doc-0194",
+      "lifecycle": "active",
+      "source_locator": "source-0194",
+      "source_path": "docs/changes/feat-444-session-wakeup/spec.md",
+      "source_sha256": "93c5c94f85b924a5f0d34e439485c10ff9e79d4d17dcef3a1d811ba590a7cf11"
+    },
+    {
+      "document_id": "doc-0195",
+      "lifecycle": "archive",
+      "source_locator": "source-0195",
+      "source_path": "docs/changes/archive/refactor-382-llm-models-to-gateway-config/motivation.md",
+      "source_sha256": "237e7ce873ecf6c400f5adde59d8fe19644786533f6903ec1db60adf888b643e"
+    },
+    {
+      "document_id": "doc-0196",
+      "lifecycle": "archive",
+      "source_locator": "source-0196",
+      "source_path": "docs/changes/archive/bugfix-426-midrun-message-steering/incident.md",
+      "source_sha256": "f220210935b60b84eb2bf54dfc06406f8517f42bac66b09fe43cae7b22f3d5f3"
+    }
+  ]
+}

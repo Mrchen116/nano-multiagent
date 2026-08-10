@@ -1,0 +1,5 @@
+{
+  "first_doc_path": "",
+  "owner_message": "Q2：Personal Assistant 的 Gateway 配置没有显式指定专用审批模型时，应该回退到 `llm.default_model`，还是拒绝启动并要求补配置？\n我的推荐：回退到 `llm.default_model`；一旦显式指定专用审批模型，就始终使用该模型，不再回退到各 Agent 的模型。\n理由：仓库现状要求 `llm.default_model` 必填且由单份 Gateway 配置拥有，这样可兼容旧配置，同时已经满足同一 Gateway 下所有 Agent 统一使用一个审批模型。\n\n你怎么看？",
+  "status": "needs_owner"
+}

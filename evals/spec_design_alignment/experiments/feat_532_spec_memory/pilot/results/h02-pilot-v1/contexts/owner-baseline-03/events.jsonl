@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"019fed1c-3530-7572-a474-efd020b1bc48"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"{\"reply\":\"接受。该配置在 Gateway 重启后生效，本需求不增加字段级热更新。\",\"used_context_refs\":[\"O06\"],\"status\":\"answered\"}"}}
+{"type":"turn.completed","usage":{"input_tokens":86190,"cached_input_tokens":38144,"cache_write_input_tokens":0,"output_tokens":722,"reasoning_output_tokens":256}}

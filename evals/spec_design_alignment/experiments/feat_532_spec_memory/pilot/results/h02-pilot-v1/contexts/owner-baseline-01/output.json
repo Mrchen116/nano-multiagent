@@ -1,0 +1,9 @@
+{
+  "reply": "本次需求范围是 Personal Assistant；Coding CLI 不因本需求改变，也不要求两个产品共用一份全局配置。具体配置目录、作用域及 workspace/global 覆盖规则请基于仓库现状研究，并提出最小改动方案。",
+  "status": "ask_author_to_research",
+  "used_context_refs": [
+    "O01",
+    "O07",
+    "O08"
+  ]
+}

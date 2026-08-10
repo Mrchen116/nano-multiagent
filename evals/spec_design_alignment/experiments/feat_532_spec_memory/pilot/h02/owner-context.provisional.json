@@ -64,7 +64,7 @@
     },
     {
       "id": "O07",
-      "content": "The exact configuration field name and implementation shape are delegated to the Author and later design work; propose the smallest repository-grounded option.",
+      "content": "The exact configuration field name, implementation shape, per-Agent override choice, and any new UI or configuration entrypoint are delegated to the Author and later design work; propose the smallest repository-grounded option and do not add a new surface unless the public request requires it.",
       "authority": "pilot_interaction_rule_not_owner_truth",
       "source_refs": ["feat-532-pilot:delegation"],
       "evidence_clock": "pilot_v1",

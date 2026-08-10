@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["reply", "used_context_refs", "status"],
+  "properties": {
+    "reply": {"type": "string"},
+    "used_context_refs": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "answered",
+        "ask_author_to_research",
+        "no_preference",
+        "needs_real_owner"
+      ]
+    }
+  }
+}

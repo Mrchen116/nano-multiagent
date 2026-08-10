@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["formal_eligible", "critical_error", "contradictions"],
+  "properties": {
+    "formal_eligible": {"type": "boolean", "const": false},
+    "critical_error": {"type": "boolean"},
+    "contradictions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["first_transcript", "second_transcript", "evidence"],
+        "properties": {
+          "first_transcript": {"type": "string", "enum": ["T1", "T2"]},
+          "second_transcript": {"type": "string", "enum": ["T1", "T2"]},
+          "evidence": {"type": "string"}
+        }
+      }
+    }
+  }
+}

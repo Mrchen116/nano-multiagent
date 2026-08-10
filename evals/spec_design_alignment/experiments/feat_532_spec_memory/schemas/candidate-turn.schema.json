@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "owner_message", "first_doc_path"],
+  "properties": {
+    "status": {"type": "string", "enum": ["needs_owner", "gate1_complete", "blocked"]},
+    "owner_message": {"type": "string"},
+    "first_doc_path": {"type": "string"}
+  }
+}

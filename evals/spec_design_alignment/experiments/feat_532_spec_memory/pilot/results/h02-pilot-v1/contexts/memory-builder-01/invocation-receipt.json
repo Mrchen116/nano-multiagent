@@ -1,0 +1,12 @@
+{
+  "event_count": 22,
+  "exit_code": 0,
+  "formal_eligible": false,
+  "manifest_id": "memory-builder-01",
+  "output_sha256": "3eabd6e8d94969445ba35e07693ed5a708911937d0e928663ed599853c251791",
+  "real_codex_cli": true,
+  "schema_version": "1.0",
+  "session_id": "019fed19-f590-7761-a66d-54e51b3a4e0b",
+  "temporary_auth_copy_retained": false,
+  "turn": 1
+}

@@ -1,0 +1,4 @@
+<owner_reply>
+{"reply": "不建议这样处理。未配置时应保持现有行为：每次自动审批分类继续复用触发该请求的 Agent／run 模型，而不是改用全局默认模型。显式指定的模型若不在 PA 模型目录中，应作为启动配置错误；运行时不可用也不应静默切换模型，可按现有机制重试同一指定模型，之后进入现有的权限失败处理流程，而不是新增“转人工审批”规则。", "status": "answered", "used_context_refs": ["O02", "O03", "O05"]}
+</owner_reply>
+Continue the same Gate 1 workflow and return only the structured turn status.
