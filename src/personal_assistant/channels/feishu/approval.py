@@ -18,7 +18,6 @@ from personal_assistant.channels.feishu.client import (
     FeishuAuthError,
     FeishuCardActionEvent,
     FeishuClient,
-    wrap_inline_code,
 )
 
 logger = logging.getLogger(__name__)
@@ -32,6 +31,8 @@ _MAX_INPUT_LABEL_CHARS = 80
 _MAX_NESTED_ITEMS = 8
 _MAX_NESTING_DEPTH = 3
 _MAX_REASON_CHARS = 1000
+_MAX_COMPACT_LINES = 2
+_MAX_COMPACT_LINE_CHARS = 44
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,7 +185,8 @@ class FeishuPermissionApprovalSurface:
     ) -> Mapping[str, Any] | None:
         """Validate one Feishu card click and submit the decision to the kernel."""
         value = event.action_value
-        if value.get("nano_action") != _ACTION_PERMISSION_DECISION:
+        action = value.get("nano_action")
+        if action != _ACTION_PERMISSION_DECISION:
             return None
         approval_id = str(value.get("approval_id") or "").strip()
         decision = str(value.get("decision") or "").strip()
@@ -404,10 +406,11 @@ def _build_pending_card(
             "title": {"tag": "plain_text", "content": "Tool approval required"},
         },
         "elements": [
-            {
-                "tag": "markdown",
-                "content": (f"**Tool:** `{tool_name}`\n**Request:** {question}"),
-            },
+            *_approval_metadata_elements(
+                tool_name=tool_name,
+                question=question,
+                reveal_request_details=reveal_input_values,
+            ),
             *_tool_input_elements(
                 request.get("tool_input"),
                 reveal_values=reveal_input_values,
@@ -420,7 +423,10 @@ def _build_pending_card(
     }
 
 
-def _build_deny_reason_card(pending: _PendingApproval, decision: str) -> dict[str, Any]:
+def _build_deny_reason_card(
+    pending: _PendingApproval,
+    decision: str,
+) -> dict[str, Any]:
     tool_name = str(pending.request.get("tool_name") or "tool")
     question = str(pending.request.get("question") or "Approve this tool call?")
     return {
@@ -430,10 +436,11 @@ def _build_deny_reason_card(pending: _PendingApproval, decision: str) -> dict[st
             "title": {"tag": "plain_text", "content": "Deny tool approval"},
         },
         "elements": [
-            {
-                "tag": "markdown",
-                "content": (f"**Tool:** `{tool_name}`\n**Request:** {question}"),
-            },
+            *_approval_metadata_elements(
+                tool_name=tool_name,
+                question=question,
+                reveal_request_details=pending.receive_id_type == "open_id",
+            ),
             *_tool_input_elements(
                 pending.request.get("tool_input"),
                 reveal_values=pending.receive_id_type == "open_id",
@@ -470,7 +477,7 @@ def _build_deny_reason_card(pending: _PendingApproval, decision: str) -> dict[st
 def _build_resolved_card(pending: _PendingApproval, decision: str) -> dict[str, Any]:
     tool_name = str(pending.request.get("tool_name") or "tool")
     lines = [
-        f"**Tool:** `{tool_name}`",
+        f"**Tool:** {_escape_lark_markdown(tool_name)}",
         f"**Decision:** {_decision_display(decision)}",
     ]
     if pending.reason:
@@ -524,13 +531,42 @@ def _approval_button(
     return button
 
 
+def _approval_metadata_elements(
+    *,
+    tool_name: str,
+    question: str,
+    reveal_request_details: bool,
+) -> list[dict[str, Any]]:
+    tool_display = (
+        f"<text_tag color='neutral'>{tool_name}</text_tag>"
+        if _is_safe_text_tag_identifier(tool_name)
+        else _escape_lark_markdown(tool_name)
+    )
+    request_display = (
+        _escape_lark_markdown(question)
+        if reveal_request_details
+        else "Review details in internal IM."
+    )
+    return [
+        {
+            "tag": "markdown",
+            "content": (f"**Tool:** {tool_display}\n**Request:** {request_display}"),
+        },
+        {"tag": "hr"},
+    ]
+
+
+def _is_safe_text_tag_identifier(text: str) -> bool:
+    return bool(text) and all(char.isalnum() or char in "_.-" for char in text)
+
+
 def _tool_input_elements(
     value: object,
     *,
     reveal_values: bool,
 ) -> list[dict[str, Any]]:
     if not value:
-        return [{"tag": "markdown", "content": "**Input:** `no input`"}]
+        return [{"tag": "markdown", "content": "**Input:** no input"}]
     if isinstance(value, Mapping):
         total_fields = len(value)
         items = list(islice(value.items(), _MAX_INPUT_FIELDS))
@@ -538,27 +574,33 @@ def _tool_input_elements(
         total_fields = 1
         items = [("value", value)]
     value_limit = max(1, _MAX_INPUT_PREVIEW_CHARS // len(items))
-    fields = []
-    for key, field_value in items:
-        display = (
-            _truncate(_tool_input_value(field_value), value_limit)
-            if reveal_values
-            else "hidden in group chat"
-        )
-        label = _escape_lark_markdown(_truncate(str(key), _MAX_INPUT_LABEL_CHARS))
+    fields: list[dict[str, Any]] = []
+    for field_index, (key, field_value) in enumerate(items):
+        raw_label = _truncate(str(key), _MAX_INPUT_LABEL_CHARS)
+        label = _escape_lark_markdown(raw_label)
+        if not reveal_values:
+            fields.append(
+                _short_input_container(
+                    label,
+                    "hidden in group chat",
+                    field_index=field_index,
+                )
+            )
+            continue
+        display = _truncate(_tool_input_value(field_value), value_limit)
+        if not _needs_input_detail(display):
+            fields.append(
+                _short_input_container(label, display, field_index=field_index)
+            )
+            continue
         fields.append(
-            {
-                "is_short": "\n" not in display and len(display) <= 80,
-                "text": {
-                    "tag": "lark_md",
-                    "content": f"**{label}**\n{_code_lines(display)}",
-                },
-            }
+            _long_input_panel(
+                _plain_input_label(raw_label),
+                display,
+                field_index=field_index,
+            )
         )
-    elements = [
-        {"tag": "markdown", "content": "**Input**"},
-        {"tag": "div", "fields": fields},
-    ]
+    elements = [{"tag": "markdown", "content": "**Input**"}, *fields]
     omitted_fields = total_fields - len(items)
     if omitted_fields:
         elements.append(
@@ -578,6 +620,125 @@ def _tool_input_elements(
             }
         )
     return elements
+
+
+def _short_input_container(
+    label: str,
+    display: str,
+    *,
+    field_index: int,
+) -> dict[str, Any]:
+    lines = _physical_lines(display)
+    unit = "line" if len(lines) == 1 else "lines"
+    return {
+        "tag": "column_set",
+        "element_id": f"inputField{field_index}",
+        "flex_mode": "none",
+        "background_style": "grey-50",
+        "margin": "0px 0px 4px 0px",
+        "columns": [
+            {
+                "tag": "column",
+                "width": "weighted",
+                "weight": 1,
+                "background_style": "grey-50",
+                "padding": "8px 12px",
+                "vertical_spacing": "2px",
+                "elements": [
+                    {
+                        "tag": "markdown",
+                        "content": f"**{label} · {len(lines)} {unit}**",
+                        "margin": "0px",
+                    },
+                    {
+                        "tag": "markdown",
+                        "content": _escape_input_value(display),
+                        "margin": "0px",
+                    },
+                ],
+            }
+        ],
+    }
+
+
+def _long_input_panel(
+    label: str,
+    display: str,
+    *,
+    field_index: int,
+) -> dict[str, Any]:
+    lines = _physical_lines(display)
+    unit = "line" if len(lines) == 1 else "lines"
+    summary = _compact_input_value(display)
+    return {
+        "tag": "collapsible_panel",
+        "element_id": f"inputField{field_index}",
+        "expanded": False,
+        "background_color": "grey",
+        "border": {"color": "grey", "corner_radius": "5px"},
+        "direction": "vertical",
+        "vertical_spacing": "4px",
+        "padding": "0px 12px 10px 12px",
+        "margin": "0px 0px 4px 0px",
+        "header": {
+            "title": {
+                "tag": "plain_text",
+                "content": f"{_plain_input_label(label)} · {len(lines)} {unit}\n{summary}",
+            },
+            "icon": {
+                "tag": "standard_icon",
+                "token": "down-small-ccm_outlined",
+                "size": "16px 16px",
+            },
+            "icon_position": "right",
+            "icon_expanded_angle": 180,
+            "background_color": "grey",
+            "width": "fill",
+            "vertical_align": "top",
+        },
+        "elements": [
+            {
+                "tag": "markdown",
+                "content": _escape_input_value(display),
+                "margin": "0px",
+            }
+        ],
+    }
+
+
+def _plain_input_label(label: str) -> str:
+    return label.replace("\n", " ").replace("\r", " ").replace("\t", " ")
+
+
+def _needs_input_detail(text: str) -> bool:
+    lines = _physical_lines(text)
+    return len(lines) > _MAX_COMPACT_LINES or any(
+        len(line) > _MAX_COMPACT_LINE_CHARS for line in lines
+    )
+
+
+def _compact_input_value(text: str) -> str:
+    lines = _physical_lines(text)
+    return "\n".join(
+        _compact_line(line, _MAX_COMPACT_LINE_CHARS)
+        for line in lines[:_MAX_COMPACT_LINES]
+    )
+
+
+def _compact_line(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    tail_chars = min(28, limit // 3)
+    head_chars = limit - tail_chars - 3
+    return f"{text[:head_chars].rstrip()}...{text[-tail_chars:].lstrip()}"
+
+
+def _physical_lines(text: str) -> list[str]:
+    return text.split("\n")
+
+
+def _escape_input_value(text: str) -> str:
+    return "\n".join(_escape_lark_markdown(line) for line in text.split("\n"))
 
 
 def _tool_input_value(value: object) -> str:
@@ -622,16 +783,6 @@ def _bounded_input_value(value: object, *, depth: int = 0) -> object:
             bounded.append(f"... {omitted} additional items truncated")
         return bounded
     return value
-
-
-def _code_lines(text: str) -> str:
-    if not text:
-        return "`(empty)`"
-    lines = text.split("\n")
-    rendered = [wrap_inline_code(f"{line} ↵" if line else "↵") for line in lines[:-1]]
-    if lines[-1]:
-        rendered.append(wrap_inline_code(lines[-1]))
-    return "\n".join(rendered)
 
 
 def _truncate(text: str, limit: int) -> str:

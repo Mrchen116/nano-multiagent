@@ -37,4 +37,22 @@ bugfix-526 合入后，飞书 1:1 审批卡已经能看到任意工具的 input 
 
 ## 修复
 
+- 将 1:1 approval card 的 input renderer 改为只依赖 value 形态的通用投影，不读取 `tool_name` 做分支。短值用灰底 `column_set` 分组，label/物理行数和 value 使用两个独立 element，避免客户端吞掉软换行层级。
+- 长单行或多行值用默认收起的原生 `collapsible_panel`。灰底、灰色 5px 圆角边框、稳定 padding/spacing 与右侧原生旋转箭头由飞书原生卡片 payload 承载；header 显示 label、总行数和最多两行、每行最多 44 字符的摘要，长 path 中间省略；展开 body 显示平台预算内的完整值，收起恢复紧凑态。
+- 删除初版自造的 `permission_input_detail` action、`Show full value` / `Show less` buttons、pending detail state 与对应复杂测试。原生 panel 展开/收起不回传审批 decision，不进入 owner/request/pending decision state machine。
+- Tool metadata 对安全内部 identifier 使用 neutral `text_tag` 胶囊，含 `&<>` 或可闭合标签的名称回退为普通 literal-safe Markdown；Tool/Request 后用原生 divider 分层。DM Request 按 literal Markdown 转义，群聊 pending/deny 使用不含 question path/reason/@ 的固定安全提示。Tool/Request 和 values 不再产生可见 backtick、`↵` 或 raw JSON 墙。
+- Values 恢复 card-wide 1200 字符预算，按最多 12 个展示字段均分；每个 value 在 Markdown 转义和 short/panel 选择前明确截断，避免转义膨胀后超过飞书 30KB。正常三字段样本仍在预算内，展开 body 保持完整。
+- 保留既有 input 字段/嵌套预算、群聊 values 隐藏、owner 校验、Allow/Deny/Allow for session、拒绝原因、first-wins/resolved 行为；pending 与 deny-reason 卡共用同一 renderer。
+- 同步 current external-channel spec，明确短值灰底直显、长值原生折叠和“展开/收起不等于审批 decision”的 current behavior。
+
 ## 验证
+
+- Executed base: `7182db3b65b5d45b40b98520589e765d5c445835`（`origin/unit/bugfix-529`）。最终真实视觉执行 head: `492f283f8`；最终文档/证据 head 以 milestone branch handoff commit 为准。
+- TDD：native container/panel 第一轮目标 `5 failed` 后转绿；视觉 delta 目标 `4 failed` 后 `4 passed`；真实 identifier seam 的 `custom_transform` case `1 failed` 后 target `2 passed, 7 deselected`；code-review budget/metadata/tag targets 红后 `4 passed, 7 deselected`。
+- Regression：`pytest -q tests/unit/test_feishu_adapter_permission_approval.py tests/unit/test_feishu_client_interactive.py` → `14 passed in 24.70s`；覆盖 synthetic 长 path + 三行 oldText + 八行 newText、`edit` 与 `custom_transform`、原生 panel 样式/摘要/完整 body、card-wide budget、无 custom detail action/button、短值双 element、neutral Tool tag/divider、group metadata/input privacy 与既有审批状态机。
+- Expanded regression：19 个 Feishu / permission / managed-channel 相关 test modules → `151 passed, 2 warnings in 115.04s`；两条 warning 均来自第三方 `lark_oapi` deprecation。
+- 真实飞书：最终 message `om_x100b68ad457214acc2563d6eea4f6df`，approval `01bd5b5f1f2f438fab47197d7feca834`，request `bugfix529-native-panel-final-request`。orchestrator 独立确认 default、展开 oldText、收起三态与 mockup 契约一致；root textual verdict 见 `M1-fix/evidence/native-panel-fast-lane.md`。三态截图因包含个人 chat 列表只做本地瞬时检查，不提交原件。
+- Code-review regression：12 个 5k ASCII/Markdown/emoji values 经转义与 UTF-8 序列化后 `<30_000` bytes 且每个 body 明确 truncated；正常三字段 body 逐一等于完整转义值；DM/group pending + deny 的 question privacy 与 unsafe tag injection 均有回归保护。
+- 审批安全：验收全程未点 Allow/Deny/Allow for session；final product surface request 保持 pending，harness 停止时 decision count `0`，证明原生展开/收起没有提交 decision。
+- 平台契约：真实 API 曾明确拒绝无效的 `header.padding`（`code=230099` / `ErrCode: 10002` / `invalid panel header padding`）；最终 payload 只保留平台接受的 panel body padding，并成功渲染。
+- 质量门禁：focused tests、Ruff check/format、`scripts/docs-check` 与 `git diff --check` 均通过；最终扩大验证结果见 `M1-fix/progress.md`。
