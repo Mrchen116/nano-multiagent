@@ -85,8 +85,7 @@ class WorkflowPermissionDeliveryBindingRegistry:
         """Accept one tagged session event and return newly routable deliveries."""
 
         declared_session = _text(
-            event.get("parent_session_id")
-            or event.get("workflow_parent_session_id")
+            event.get("parent_session_id") or event.get("workflow_parent_session_id")
         )
         if declared_session and declared_session != parent_session_id:
             return ()
