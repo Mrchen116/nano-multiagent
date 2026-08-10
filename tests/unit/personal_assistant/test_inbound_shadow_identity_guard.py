@@ -4,16 +4,19 @@ from __future__ import annotations
 
 import asyncio
 
-from personal_assistant.channels.base import InboundMessage
+from personal_assistant.channels.base import (
+    ExternalConversationIdentity,
+    IMRelayIngress,
+    InboundIngress,
+    InboundMessage,
+)
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
-from personal_assistant.gateway.runtime_protocol import (
-    ExternalConversationIdentity,
-    RuntimeProtocolFacts,
+from personal_assistant.gateway.inbound_models import (
+    GatewayShadowState,
     ShadowConversationRef,
-    attach_runtime_protocol,
 )
 from personal_assistant.gateway.session_keys import SessionBindingStore
 from tests.helpers.inbound_pipeline import build_inbound_pipeline
@@ -27,11 +30,14 @@ class _ShadowSync:
 
     async def sync_user_message(
         self, message: InboundMessage, *, agent_id: str
-    ) -> ShadowConversationRef:
+    ) -> GatewayShadowState:
         self.calls.append(message)
-        return ShadowConversationRef(
-            conversation_id=f"shadow-{agent_id}",
-            im_message_id="message-1",
+        return GatewayShadowState(
+            saga_id="saga-1",
+            ref=ShadowConversationRef(
+                conversation_id=f"shadow-{agent_id}",
+                im_message_id="message-1",
+            ),
         )
 
 
@@ -50,22 +56,25 @@ def test_im_originated_typed_identity_skips_external_shadow_sync(tmp_path) -> No
         session_store=SessionBindingStore(),
         shadow_sync=sync,
     )
-    message = attach_runtime_protocol(
-        InboundMessage(
-            channel_name="web_relay",
-            external_user_id="user-1",
-            external_chat_id="conversation-1",
-            text="hello",
-            is_group=False,
-            agent_id="agent-a",
-        ),
-        RuntimeProtocolFacts(
-            external_identity=ExternalConversationIdentity(
+    message = InboundMessage(
+        channel_name="web_relay",
+        external_user_id="user-1",
+        external_chat_id="conversation-1",
+        text="hello",
+        is_group=False,
+        agent_id="agent-a",
+        ingress=InboundIngress(
+            im_relay=IMRelayIngress(
+                relay_task_id="relay-1",
+                idempotency_key="idem-1",
+                im_message_id="message-1",
+            ),
+            external_conversation=ExternalConversationIdentity(
                 external_source="im",
                 external_chat_id="conversation-1",
                 agent_id="agent-a",
                 trigger_source="im",
-            )
+            ),
         ),
     )
 

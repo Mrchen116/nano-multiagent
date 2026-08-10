@@ -48,7 +48,7 @@
 
 ### R2 — 切换 RoutedInbound 与 shadow/session owners
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 先写 shadow 三态、pipeline native/external 分型与 recovery 红测；迁移 pipeline、request/lifecycle carrier、session/coordinator/shadow persistence consumers。
 - 验证: pipeline/shadow/control/coordinator/persistence 聚焦 suites 红转绿；typed facts/saga 不回写 metadata。
 

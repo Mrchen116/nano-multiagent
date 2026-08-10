@@ -21,7 +21,12 @@
 
 ## R2 — 切换 RoutedInbound 与 shadow/session owners
 
-- Status: TODO
+- Status: DONE
+- Claim: Gateway pipeline 进入 post-ingress 后只携带 `RoutedInbound`；shadow 状态以 empty/pending/anchored 三态表达，ref-without-saga 被拒绝；session、control、coordinator 与 lifecycle 读取同一 typed authority，typed facts 与 saga 均不写回 message metadata。
+- Red: 新状态 contract 首次 collection 因 `GatewayShadowState` 不存在失败；迁移 lifecycle 后旧测试因继续传裸 `InboundMessage`/metadata-derived relay facts 失败，证明 request/lifecycle seam 尚未切换。
+- Green: `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest tests/unit/personal_assistant/test_routed_inbound.py tests/unit/personal_assistant/test_gateway_shadow_sync.py tests/unit/personal_assistant/test_gateway_im_relay.py tests/unit/personal_assistant/test_inbound_pipeline_session.py tests/unit/personal_assistant/test_inbound_shadow_identity_guard.py tests/unit/personal_assistant/test_session_run_coordinator_admission.py tests/unit/personal_assistant/test_session_run_coordinator_terminal.py tests/unit/personal_assistant/test_session_run_coordinator_steer_identity.py tests/unit/personal_assistant/test_gateway_relay_lifecycle.py tests/unit/personal_assistant/test_runtime_delivery_stream.py -q` → `132 passed in 5.48s`。
+- Method: 在 pipeline、shadow sync、coordinator admission/terminal、lifecycle callback 与 delivery context 最低公开 seam 上验证三态和分型投影；删除 custom metadata-derived shadow 测试，避免把退役 fallback 固化为 contract。
+- Limit: WebRelay producer 的旧 runtime-protocol attachment 与 legacy module 尚保留到 R3 原子删除；全量 persistence/contract/e2e 尚未运行。
 
 ## R3 — 投影 runtime delivery 并删除 legacy authority
 

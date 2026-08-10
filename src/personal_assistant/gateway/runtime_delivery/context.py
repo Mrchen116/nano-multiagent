@@ -6,13 +6,12 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Literal
 
-from personal_assistant.channels.base import InboundMessage
-from personal_assistant.gateway.inbound_models import RelayLifecycleUpdate
-from personal_assistant.gateway.reply_visibility import ReplyVisibilityPolicy
-from personal_assistant.gateway.runtime_protocol import (
+from personal_assistant.gateway.inbound_models import (
+    RelayLifecycleUpdate,
+    RoutedInbound,
     ShadowConversationRef,
-    runtime_protocol_or_derive,
 )
+from personal_assistant.gateway.reply_visibility import ReplyVisibilityPolicy
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,6 +23,22 @@ class OwnerDirectTarget:
 
 
 @dataclass(frozen=True, slots=True)
+class IMRelayTarget:
+    """Identify the native Web IM relay target for one run."""
+
+    conversation_id: str
+    relay_task_id: str
+    im_message_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ExternalShadowTarget:
+    """Identify one confirmed external-channel shadow target."""
+
+    ref: ShadowConversationRef
+
+
+@dataclass(frozen=True, slots=True)
 class RunDeliveryTarget:
     """Describe the IM-visible target for one kernel run.
 
@@ -32,16 +47,25 @@ class RunDeliveryTarget:
     they must never masquerade as an external-channel shadow conversation.
     """
 
-    kind: Literal["shadow", "owner_direct", "none"]
-    shadow_ref: ShadowConversationRef | None = None
+    kind: Literal["im_relay", "external_shadow", "owner_direct", "none"]
+    im_relay: IMRelayTarget | None = None
+    external_shadow: ExternalShadowTarget | None = None
     owner_direct: OwnerDirectTarget | None = None
     reason: str | None = None
 
     @classmethod
-    def shadow(cls, shadow_ref: ShadowConversationRef) -> RunDeliveryTarget:
-        """Build a shadow conversation delivery target."""
+    def for_im_relay(cls, target: IMRelayTarget) -> RunDeliveryTarget:
+        """Build a native Web IM relay target."""
 
-        return cls(kind="shadow", shadow_ref=shadow_ref)
+        return cls(kind="im_relay", im_relay=target)
+
+    @classmethod
+    def for_external_shadow(
+        cls, target: ExternalShadowTarget
+    ) -> RunDeliveryTarget:
+        """Build an external-channel shadow target."""
+
+        return cls(kind="external_shadow", external_shadow=target)
 
     @classmethod
     def for_owner_direct(cls, owner_direct: OwnerDirectTarget) -> RunDeliveryTarget:
@@ -101,11 +125,12 @@ class RunDeliveryContext:
 
         if self.conversation_id:
             return
-        if self.delivery_target.kind != "shadow":
-            return
-        shadow_ref = self.delivery_target.shadow_ref
-        if shadow_ref is not None:
-            self.conversation_id = shadow_ref.conversation_id
+        if self.delivery_target.im_relay is not None:
+            self.conversation_id = self.delivery_target.im_relay.conversation_id
+        elif self.delivery_target.external_shadow is not None:
+            self.conversation_id = (
+                self.delivery_target.external_shadow.ref.conversation_id
+            )
 
     @property
     def owner_user_id(self) -> str:
@@ -336,7 +361,7 @@ class RunDeliveryContextStore:
     def seed_from_lifecycle(
         self,
         *,
-        message: InboundMessage,
+        routed: RoutedInbound,
         update: RelayLifecycleUpdate,
         owner_user_id: str,
     ) -> RunDeliveryContext | None:
@@ -348,24 +373,29 @@ class RunDeliveryContextStore:
         if existing is not None:
             return existing
 
-        protocol = runtime_protocol_or_derive(message)
-        external_identity = protocol.external_identity
-        trigger_source = protocol.trigger_source or ""
+        message = routed.message
+        external_identity = message.ingress.external_conversation
+        trigger_source = (
+            external_identity.trigger_source if external_identity is not None else ""
+        ) or ""
         agent_id = (external_identity.agent_id if external_identity else None) or (
             update.agent_id or ""
         )
 
-        if protocol.shadow_ref is not None:
-            delivery_target = RunDeliveryTarget.shadow(protocol.shadow_ref)
-        elif protocol.relay_task_id is not None:
-            delivery_target = RunDeliveryTarget.shadow(
-                ShadowConversationRef(
+        if routed.shadow.ref is not None:
+            delivery_target = RunDeliveryTarget.for_external_shadow(
+                ExternalShadowTarget(ref=routed.shadow.ref)
+            )
+        elif message.ingress.im_relay is not None:
+            relay = message.ingress.im_relay
+            delivery_target = RunDeliveryTarget.for_im_relay(
+                IMRelayTarget(
                     conversation_id=message.external_chat_id,
-                    relay_task_id=protocol.relay_task_id,
-                    im_message_id=protocol.im_message_id,
+                    relay_task_id=relay.relay_task_id,
+                    im_message_id=relay.im_message_id,
                 )
             )
-        elif protocol.external_source is not None:
+        elif external_identity is not None:
             delivery_target = RunDeliveryTarget.none(reason="external_without_shadow")
         elif owner_user_id:
             delivery_target = RunDeliveryTarget.for_owner_direct(
@@ -402,21 +432,21 @@ class RunDeliveryContextStore:
                 reply_target_chat_id=reply_target_chat_id,
                 reply_thread_id=reply_thread_id,
                 feishu_message_id=feishu_message_id,
-                shadow_saga_id=protocol.shadow_saga_id or "",
+                shadow_saga_id=routed.shadow.saga_id or "",
                 # Web relay owns the provisional Web IM bubble, so a protocol
                 # silence token must tombstone it instead of surviving history.
                 # Other shadow transports retain their pre-existing literal policy.
                 visibility_policy=(
                     ReplyVisibilityPolicy.SUPPRESS_PROTOCOL_TOKENS
                     if message.is_group
-                    or message.channel_name == "web_relay"
+                    or message.ingress.im_relay is not None
                     or delivery_target.kind == "owner_direct"
-                    or protocol.external_source is not None
+                    or external_identity is not None
                     else ReplyVisibilityPolicy.LITERAL_TEXT
                 ),
                 # Only the canonical Web relay owns a provisional browser bubble whose
                 # successful process-only terminal state means protocol silence. Other
                 # transports keep their existing completion semantics.
-                discard_empty_completion=message.channel_name == "web_relay",
+                discard_empty_completion=message.ingress.im_relay is not None,
             )
         )

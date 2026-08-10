@@ -16,7 +16,7 @@ _RUNTIME_PROTOCOL_KEY = "__runtime_protocol_facts__"
 
 @dataclass(frozen=True, slots=True)
 class ShadowConversationRef:
-    """IM-visible conversation/message target for relay or shadow delivery."""
+    """Legacy IM-visible conversation/message target during typed cutover."""
 
     conversation_id: str
     relay_task_id: str | None = None

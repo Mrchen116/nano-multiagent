@@ -13,6 +13,7 @@ from agent.sdk import USER_INTERRUPT_RECOVERY_CONTENT
 from personal_assistant.gateway.inbound_models import (
     InboundRunRequest,
     RelayLifecycleUpdate,
+    RoutedInbound,
     StopRunRequest,
 )
 from personal_assistant.gateway.background_subscriptions import (
@@ -27,7 +28,7 @@ from ._session_run_coordinator_helpers import build_dependencies, inbound
 def _request(message, catalog) -> InboundRunRequest:
     agent = catalog.require("agent-a")
     return InboundRunRequest(
-        message=message,
+        routed=RoutedInbound(message=message),
         agent=agent,
         session_key=build_session_key(message, agent_id=agent.agent_id),
         sender_label="Alice",
@@ -177,7 +178,7 @@ async def test_user_stop_reconciles_on_original_consumer_and_cleans_marker(
 
     stopped = await coordinator.stop(
         StopRunRequest(
-            message=replace(message, text="/stop"),
+            routed=RoutedInbound(message=replace(message, text="/stop")),
             agent=request.agent,
             session_key=request.session_key,
         )
@@ -198,7 +199,7 @@ async def test_user_stop_reconciles_on_original_consumer_and_cleans_marker(
     assert not coordinator.is_session_busy(request.session_key)
     idle = await coordinator.stop(
         StopRunRequest(
-            message=replace(message, text="/stop"),
+            routed=RoutedInbound(message=replace(message, text="/stop")),
             agent=request.agent,
             session_key=request.session_key,
         )
@@ -325,7 +326,7 @@ async def test_shutdown_fails_primary_and_steered_accepted_messages(
     lifecycle: list[tuple[str, str]] = []
 
     async def _capture(message, update) -> None:
-        lifecycle.append((message.text, update.phase))
+        lifecycle.append((message.message.text, update.phase))
 
     coordinator = SessionRunCoordinator(
         kernel=kernel,
