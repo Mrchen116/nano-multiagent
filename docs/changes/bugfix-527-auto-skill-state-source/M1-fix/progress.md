@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-- R1、R2、R3 已完成并合入 `unit/bugfix-527`；Reviewer fix1 的 R4 与扩展门禁已完成，等待 rebase 与重新集成。
+- R1、R2、R3 已完成并合入 `unit/bugfix-527`；Reviewer fix1 的 R4 已完成并重新集成。
 - 基线: `73 passed`（self-improvement、background fork、skill_manage、usage、skill_view）。
 
 ## R1 — 建立来源链红测并最小贯通 F3
@@ -70,8 +70,8 @@
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: revert `65d0cc0bc` 回到 reviewer finding 的冻结实现。
-- Commits: `65d0cc0bc`；docs 证据提交待完成。
-- Next: rebase `origin/unit/bugfix-527`，复验后获取 unit 锁并合入。
+- Commits: `65d0cc0bc`、`a68dd6826`；unit merge `01a61f0d2`。
+- Next: 等待 reviewer 在新 unit HEAD 复验。
 
 ## Promotion Candidates
 
