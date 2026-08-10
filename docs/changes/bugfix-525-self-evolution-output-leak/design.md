@@ -5,6 +5,7 @@
 
 ## Changelog
 
+- 2026-08-10: M3 implementation-enabling side finding: 专用真飞书 acceptance 在 macOS spawn 导入 lark SDK 时稳定超过原先与 shutdown `join_timeout` 耦合的 5 秒初始化等待。批准将 Feishu worker 的 startup wait 独立为 30 秒，退出 join timeout 与 M1/M3 事件/投递语义保持不变；同时新增 worktree-local 受控 LLM + production Gateway journey。
 - 2026-08-10: Design Review Round 5 补齐 shared Kernel event 的 Coding CLI 消费者：新增最窄 CLI delta 与成功更新/无写入两条 terminal outcome regression；不改变 true-receipt 或 trace architecture。
 - 2026-08-10: Design Review Round 4 把 notice 语义收敛为真实 update receipt：只有返回结果中至少一条 mutating memory/skill tool call 成功时才发布 `self_evolution_review`；no-save、只有读取/列举、写入失败均静默，`completed=False` 只要已有成功写入仍按真实更新通知。补 Kernel MODIFIED delta，Gateway/IM 继续使用既有 `updated_targets` schema/UI。
 - 2026-08-10: Design Review Round 3 修正三处承重问题：notice 通过 originating trace 关联本轮 `ReplyContext`，不读持久 subscriber 的旧 binding；active delta 相对 current canonical 重建；no-save 与失败结果分开验收。
@@ -27,6 +28,7 @@
 | `src/personal_assistant/gateway/session_run_coordinator.py` | 在提交 foreground run 前已持有本轮不可变 `ReplyContext`，并可通过 public Kernel `trace_id` 传递 run correlation | 在 submit 前向 manager 注册 `trace_id -> ReplyContext`，再把同一 trace 传给 Kernel；submit 失败立即撤销，正常路径由 review event 消费，未触发 review 的旧项按固定容量淘汰 |
 | `src/personal_assistant/gateway/runtime_delivery/background.py` | 把 `self_evolution_review` 写成 shadow IM system message；同文件已有普通后台/控制文本的触发源路由与外部发送 metadata | 保持 shadow IM 结构化投递，并只为该产品化 notice 复用普通消息的外部出口与去重 identity；不把 shadow notice 降级成 Agent 气泡 |
 | `src/personal_assistant/gateway/composition.py` | 装配 realtime observer、persistent manager、外部普通消息 sender 与 `AgentConfigSync` | 把同一个现有 config-sync handler提供给两种互斥 owner，并把既有外部 sender 注入 notice callback；不新增 channel adapter 或第二套发送器 |
+| `src/personal_assistant/channels/feishu/worker.py` | macOS spawn 子进程初始化与有界停止 | 将 worker initialization wait 从 shutdown join timeout 解耦为 30 秒 startup timeout；停止/回收边界不变，仅解除专用真栈 acceptance 的稳定 baseline blocker |
 | self-evolution/Gateway/CLI integration 与 E2E tests | M1/M2 已证明真实 Kernel fork 隔离 raw output、保留 memory/skill 写入，并穿过 persistent route/config-sync | M3 增加同一 Kernel session 的飞书/影子 IM 双向交替、overlap、no-save、真实专用 Feishu Bot 出口，以及 CLI 成功更新/无写入 terminal outcome 证据 |
 
 ### 既有约束

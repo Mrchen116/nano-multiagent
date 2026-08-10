@@ -8,13 +8,13 @@
 
 ## 退出标准
 
-- [ ] hook 以 call id 关联 tool call/result，仅认可批准的 mutating action、`error is None` 且 structured `success` 不为 `false`；真实目标非空才发布，incomplete 已写入仍发布。
-- [ ] public Kernel 的既有 trace 从 `RunRecord` 贯通 `TurnRequest` 到本轮 HookContext，并进入 review event。
-- [ ] coordinator 在 submit 前注册 immutable trace route、submit 失败撤销；manager 精确消费，缺失 fail-closed，最多保留 4096 项且 oldest-first 淘汰。
-- [ ] shadow IM 与 external sender 独立 best-effort；仅飞书来源外发当前 notice，稳定 identity 支持 replay 去重，其他 system/runtime event 不外发。
-- [ ] CLI 对 memory/skills/both 显示既有 updated line，无写入时无误导行；ordinary background output、Skill config-sync 与 raw privacy 不回归。
-- [ ] 专用非生产 Feishu profile 真栈验收覆盖成功通知、no-save/失败静默、原 chat/shadow 路由、raw 不泄漏与 cleanup。
-- [ ] focused、affected、full non-E2E、Ruff、docs-check、diff-check 全绿。
+- [x] hook 以 call id 关联 tool call/result，仅认可批准的 mutating action、`error is None` 且 structured `success` 不为 `false`；真实目标非空才发布，incomplete 已写入仍发布。
+- [x] public Kernel 的既有 trace 从 `RunRecord` 贯通 `TurnRequest` 到本轮 HookContext，并进入 review event。
+- [x] coordinator 在 submit 前注册 immutable trace route、submit 失败撤销；manager 精确消费，缺失 fail-closed，最多保留 4096 项且 oldest-first 淘汰。
+- [x] shadow IM 与 external sender 独立 best-effort；仅飞书来源外发当前 notice，稳定 identity 支持 replay 去重，其他 system/runtime event 不外发。
+- [x] CLI 对 memory/skills/both 显示既有 updated line，无写入时无误导行；ordinary background output、Skill config-sync 与 raw privacy 不回归。
+- [x] 专用非生产 Feishu profile 真栈验收覆盖成功通知、no-save/失败静默、原 chat/shadow 路由、raw 不泄漏与 cleanup。
+- [x] focused、affected、full non-E2E、Ruff、docs-check、diff-check 全绿。
 
 ## 测试策略
 
@@ -35,6 +35,7 @@
 | production composition wiring | `tests/unit/personal_assistant/test_gateway_build_runtime.py` | keep/extend | 证明复用现有 sender/config-sync，无新 adapter | composition suite |
 | CLI subject renderer | `tests/unit/test_cli_background_runs.py::test_processor_renders_flat_self_evolution_review_subject` | keep/extend | success memory/skills/both 继续由同一 consumer 显示；no-write 由 upstream event absence 保证 | CLI + hook tests |
 | M2 真栈 raw privacy/skill activation | `tests/e2e/critical_paths/test_self_evolution_*` | keep/extend | 保留不同失败原因；扩 controlled fixture 支持 M3 外部 journey，不复制 Kernel 单测 | critical-path + Feishu run |
+| macOS spawn 导入超过 shutdown join budget | `tests/unit/personal_assistant/test_feishu_worker_runtime.py` | extend | startup 与 stop 是不同生命周期边界；固定独立 30 秒 startup budget，保留原 join timeout | worker focused suite + 真飞书启动 |
 
 Frontend UI: N/A。M3 不改前端或视觉；shadow IM 沿既有 system notice schema/UI，验收观察产品状态但不新增 UI 状态矩阵。
 
@@ -56,18 +57,18 @@ Prototype / Reference Contract: N/A。
 
 ### R3 — structured notice 双出口与 composition
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 先补飞书/IM origin switching、overlap、stable dedupe、external/shadow independent best-effort 红测；扩既有 callback 并接入 existing external sender。
 - 验证: delivery/composition/observer/background affected suites。
 
 ### R4 — CLI、跨层与真栈 fixture
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 更新 CLI contract coverage；扩受控 LLM/critical-path journey，证明真实 Kernel/Gateway 交错并发、no-write 静默与 raw 隔离。
 - 验证: CLI、Kernel/Gateway integration、M2 critical-path journeys。
 
 ### R5 — 专用 Feishu 验收与收尾门禁
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: identity guard 后启动隔离 `--feishu` 栈，执行 probe 和成功/no-save/failure/source-switch journey，保存脱敏证据并清理；归并 delta 到 canonical docs。
 - 验证: 真飞书 message ids/nonce + shadow IM state；full non-E2E、Ruff、docs-check、diff/shell checks。
