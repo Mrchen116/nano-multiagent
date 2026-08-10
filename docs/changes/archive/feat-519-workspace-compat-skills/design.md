@@ -172,7 +172,7 @@ Coding CLI
 6. Gateway apply、IM optimistic-lock profile、Gateway local config 与 session projection 全链路携带该意图；IM 只在 Gateway canonical applied result 确认相同 mode 后持久化显式空选择。正在进行的回复不切换，下一轮才使用新状态。
 7. 配置页、prompt preview、真实 session、聊天 SlashPicker 与 Skill distillation readiness 的有效候选都以 mode 为判据；不再各自用 `names.length === 0` 推断 default discovery。保存成功后立即失效聊天候选缓存，使返回既有聊天时重新按新配置解析。
 
-Config operation 的 fingerprint 采用协商后的版本化 schema。旧协议 `agent-config-v1` 保持升级前的 names-only canonical payload；新版 `agent-config-v2` 加入有效 selection mode。IM 根据目标 Gateway 注册能力选择 schema，并把它随 operation 与恢复状态持久化；缺少能力或 schema 的旧端按 v1 处理。v1 能无损表达的配置可跨新旧 IM/Gateway 滚动应用；显式空和 default-with-names 等无法由 v1 表达的状态在写入前返回 `gateway_upgrade_required`，不静默降级。新版 Gateway 继续恢复旧 v1 prepared receipt，避免升级把在途 operation 变成冲突。
+Config operation 使用唯一的当前 canonical fingerprint，其中包含有效的 selection mode。operation、Gateway `prepared` receipt 与 status/retry 都复用这一 fingerprint，以支持同版本的 ACK 丢失和进程崩溃恢复；不协商 schema、不保留 names-only fallback，也不为混版本 IM/Gateway 或旧 protocol receipt 增加迁移路径。部署此变更时 IM 与 Gateway 作为同一版本一起更新。
 
 所有非页面写者按同一状态表处理，不再自行从 names 推断：
 

@@ -703,3 +703,10 @@ None.
 ## Round 4 Cleanup Confirmation
 
 Playwright、Vite、IM 与 Gateway 均已关闭，`63436` 与 `63654` 已确认无监听；临时 frontend `node_modules` symlink 已解除。截图、trace、日志、数据库、Gateway receipts 与 workspace fixtures 已移至 `/tmp/nano-feat519-r4-review-artifacts-20260810`，worktree runtime config、PID 与 credential material 已由 runbook 清理，均未纳入提交。
+
+## Round 5 — user-directed protocol scope correction
+
+用户随后明确拒绝 v1/v2 fingerprint schema 协商、混版本滚动部署和旧
+operation/receipt 恢复这类后向兼容设计。该部分从实现与验收目标中移除；Round
+4 对该协议的证据仅保留为历史记录，不再是当前需求。Skill 发现、显式选择、保存后
+下一轮生效、显式空、SlashPicker、distill 与移动端等用户可见验收结论不因此改变。

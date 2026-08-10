@@ -966,3 +966,27 @@ No delta-mismatch, implementation-mismatch or non-blocking suggestion.
 Outcome: **aligned**. The corrected design and Gateway/IM delta-specs match the
 final implementation, original acceptance criteria and canonical current
 requirements, and are suitable for canonical merge.
+
+## Round 5 — user-directed protocol scope correction
+
+The user rejected the following addition as redundant backward compatibility:
+
+> 傻逼，不做这种多余的后向兼容！！！！冗余设计
+
+This supersedes Round 4's mixed-version protocol conclusion. The delivered
+operation contract has one current canonical fingerprint that includes effective
+`skills_selection_mode`; it retains same-version idempotency, lost-ACK status
+recovery, compensation and crash recovery. It deliberately removes
+`agent-config-v1`/`agent-config-v2` negotiation, capability advertisement,
+schema persistence, representability rejection, old operation/receipt recovery
+and their migrations. Existing persisted profiles whose selection mode is absent
+remain readable without eager migration; that is preservation of user data, not
+mixed-version protocol support.
+
+Local scope verification is recorded in the M1 progress log. The archived Round
+4 browser evidence remains a record of the then-tested implementation; it must
+not be read as acceptance of the removed rolling-compatibility behavior.
+
+The user-directed patch passed 54 focused protocol tests, 115 expanded
+IM/Gateway/contract tests and 86 frontend Agent-config/chat tests. Patch-mode
+code review and its independent verifier found no actionable issue.

@@ -29,7 +29,6 @@ class ReporterCapabilities:
         relay: Whether the node accepts Web IM relay traffic.
         send_message: Whether the node supports agent-to-agent send_message delivery.
         config_sync: Whether the node can react to config.sync notifications.
-        agent_config_fingerprint_schema: Strongest durable config-operation schema.
         models: Runtime model ids currently selectable on this node.
         skills: 可选技能列表，每项为 ``{"name", "description"}``（description 来自 SKILL.md 元数据）。
         tools: Runtime tool ids currently selectable on this node.
@@ -39,7 +38,6 @@ class ReporterCapabilities:
     send_message: bool = True
     config_sync: bool = True
     channel_bootstrap: bool = True
-    agent_config_fingerprint_schema: str = "agent-config-v2"
     # bugfix-429 R5: each entry is ``{"name", "provider"}`` so the IM dropdown can
     # label a model's registered format (was a bare model-id tuple).
     models: tuple[dict[str, object], ...] = ()
@@ -71,7 +69,6 @@ class ReporterCapabilities:
             "send_message": self.send_message,
             "config_sync": self.config_sync,
             "channel_bootstrap": self.channel_bootstrap,
-            "agent_config_fingerprint_schema": self.agent_config_fingerprint_schema,
         }
 
 

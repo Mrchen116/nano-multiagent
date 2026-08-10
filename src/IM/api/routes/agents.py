@@ -633,14 +633,6 @@ def _raise_operation_http_error(exc: Exception) -> None:
             },
         ) from exc
     if isinstance(exc, ConfigApplyRejectedError):
-        if exc.code == "gateway_upgrade_required":
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail={
-                    "code": exc.code,
-                    "message": "Update this Agent's Gateway before saving this skill selection.",
-                },
-            ) from exc
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={

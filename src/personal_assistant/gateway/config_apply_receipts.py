@@ -22,7 +22,6 @@ class ConfigOperationReceipt:
         expected_previous_fingerprint: Expected current Gateway Agent state.
         candidate: Canonical non-secret Gateway Agent candidate.
         desired_state_fingerprint: Fingerprint of the resolved durable candidate.
-        fingerprint_schema: Canonical fingerprint protocol used for this operation.
         status: ``prepared``, ``applied`` or ``rejected``.
         error_code: Stable rejection code when rejected.
         message: Human-readable rejection detail when rejected.
@@ -34,7 +33,6 @@ class ConfigOperationReceipt:
     expected_previous_fingerprint: str | None
     candidate: dict[str, object]
     desired_state_fingerprint: str
-    fingerprint_schema: str = "agent-config-v1"
     status: str = "prepared"
     error_code: str | None = None
     message: str | None = None
@@ -70,7 +68,6 @@ class ConfigApplyReceiptStore:
         expected_previous_fingerprint: str | None,
         candidate: Mapping[str, object],
         desired_state_fingerprint: str,
-        fingerprint_schema: str = "agent-config-v1",
     ) -> ConfigOperationReceipt:
         """Durably establish an operation before any mutable side effect.
 
@@ -87,23 +84,18 @@ class ConfigApplyReceiptStore:
                     or existing.candidate_fingerprint != candidate_fingerprint
                     or existing.expected_previous_fingerprint
                     != expected_previous_fingerprint
-                    or existing.fingerprint_schema != fingerprint_schema
                 ):
                     raise OperationIdReusedError(
                         "operation_id is already bound to a different operation intent"
                     )
                 return existing
-            stored_candidate = dict(candidate)
-            if fingerprint_schema == "agent-config-v1":
-                stored_candidate.pop("skills_selection_mode", None)
             receipt = ConfigOperationReceipt(
                 operation_id=operation_id,
                 kind=kind,
                 candidate_fingerprint=candidate_fingerprint,
                 expected_previous_fingerprint=expected_previous_fingerprint,
-                candidate=stored_candidate,
+                candidate=dict(candidate),
                 desired_state_fingerprint=desired_state_fingerprint,
-                fingerprint_schema=fingerprint_schema,
             )
             receipts[operation_id] = receipt
             self._write_all(receipts)
@@ -147,21 +139,11 @@ class ConfigApplyReceiptStore:
         records = raw.get("operations")
         if not isinstance(records, dict):
             raise ValueError("config operation receipt store is malformed")
-        receipts: dict[str, ConfigOperationReceipt] = {}
-        for operation_id, payload in records.items():
-            if not isinstance(operation_id, str) or not isinstance(payload, dict):
-                continue
-            migrated = dict(payload)
-            migrated.setdefault("fingerprint_schema", "agent-config-v1")
-            candidate = migrated.get("candidate")
-            if migrated["fingerprint_schema"] == "agent-config-v1" and isinstance(
-                candidate, dict
-            ):
-                candidate = dict(candidate)
-                candidate.pop("skills_selection_mode", None)
-                migrated["candidate"] = candidate
-            receipts[operation_id] = ConfigOperationReceipt(**migrated)
-        return receipts
+        return {
+            operation_id: ConfigOperationReceipt(**payload)
+            for operation_id, payload in records.items()
+            if isinstance(operation_id, str) and isinstance(payload, dict)
+        }
 
     def _write_all(self, receipts: Mapping[str, ConfigOperationReceipt]) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)

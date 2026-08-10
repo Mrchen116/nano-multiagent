@@ -95,10 +95,10 @@ Gateway 对 model、PromptSlots、skills、tools 与内核 features 使用同一
 
 ### Requirement: Gateway 配置 operation 可幂等恢复
 
-Gateway 对 `agent.create` 与 `agent.config.apply` 接收稳定 operation id、候选 fingerprint 与协商后的 fingerprint schema。在任何 workspace、local config 或 live publication 变更前，Gateway 先持久化不含 secret 的 `prepared` intent；再以 expected-previous 保护 local config 写入，并将结果变为 terminal applied/rejected receipt。IM 可在 ACK 丢失或重连后查询 `agent.config.operation.status`。同一个 operation 与同一 schema/fingerprint 可安全重试，operation id 不得重用到不同候选。旧端未声明 schema 时按升级前的 v1 canonical payload 处理；新版 schema 可表达 Skill selection mode，且不得把 v1 无法表达的意图静默降级。
+Gateway 对 `agent.create` 与 `agent.config.apply` 接收稳定 operation id 与唯一当前 canonical 候选 fingerprint；该 fingerprint 包含有效的 Skill selection mode。在任何 workspace、local config 或 live publication 变更前，Gateway 先持久化不含 secret 的 `prepared` intent；再以 expected-previous 保护 local config 写入，并将结果变为 terminal applied/rejected receipt。IM 可在 ACK 丢失或重连后查询 `agent.config.operation.status`。同一个 operation 与同一候选 fingerprint 可安全重试，operation id 不得重用到不同候选。IM 与 Gateway 随该变更一起更新，不协商 fingerprint schema，也不支持旧 protocol fallback 或旧 receipt 迁移。
 
 #### Scenario: applied operation 重试不重复写入或发布
-- **GIVEN** Gateway 已为某 operation id 持久化同一 schema 与候选 fingerprint 的 applied receipt
+- **GIVEN** Gateway 已为某 operation id 持久化同一候选 fingerprint 的 applied receipt
 - **WHEN** IM 因超时再次发送相同 create 或 apply operation
 - **THEN** Gateway 返回同一 canonical applied result，不第二次创建 workspace 或重复发布该配置
 
@@ -110,20 +110,13 @@ Gateway 对 `agent.create` 与 `agent.config.apply` 接收稳定 operation id、
 #### Scenario: Gateway 在任意 config operation 持久边界崩溃后能恢复
 - **GIVEN** Gateway 已持久化一个 prepared intent
 - **WHEN** 它在 workspace 初始化前、workspace 初始化后、local config 写入后或 live publication 后但 terminal receipt 前崩溃
-- **THEN** 同一 operation 的 retry 或 status 以同一 schema 下的 expected-previous/candidate fingerprint 重新协调该 intent
+- **THEN** 同一 operation 的 retry 或 status 以相同的 expected-previous/candidate fingerprint 重新协调该 intent
 - **AND** create 不创建第二个 workspace，apply 不第二次持久写入或发布
 
 #### Scenario: operation id 不得重用到不同候选
 - **GIVEN** Gateway 已见过某 operation id
-- **WHEN** 调用方以不同 schema 或候选 fingerprint 重试该 operation id
+- **WHEN** 调用方以不同候选 fingerprint 重试该 operation id
 - **THEN** Gateway 稳定拒绝，不改变本地 Agent 配置或既有 receipt
-
-#### Scenario: 新旧 IM 与 Gateway 滚动升级不误解释 Skill 选择
-- **GIVEN** IM 与 Gateway 正在滚动升级，任一端仍只支持升级前的 config fingerprint
-- **WHEN** IM create/apply 一个旧协议可无损表达的 Agent 配置，或新版 Gateway 恢复旧版 prepared receipt
-- **THEN** operation 按旧 schema 幂等完成，不因新增字段产生 fingerprint 冲突
-- **WHEN** 新 IM 要向旧 Gateway 写入旧 schema 无法表达的 Skill selection 意图
-- **THEN** IM 在写入前返回明确的 `gateway_upgrade_required`，不把选择静默改成另一种语义
 
 ### Requirement: 动态新建 agent 的模型选择持久化
 

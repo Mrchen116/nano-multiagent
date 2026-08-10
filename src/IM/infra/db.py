@@ -193,7 +193,6 @@ CREATE TABLE IF NOT EXISTS agent_config_operations (
     owner_id TEXT NOT NULL,
     node_id TEXT NOT NULL,
     operation_kind TEXT NOT NULL,
-    fingerprint_schema TEXT NOT NULL DEFAULT 'agent-config-v1',
     status TEXT NOT NULL,
     candidate_json TEXT NOT NULL,
     previous_candidate_json TEXT,
@@ -360,7 +359,6 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
     _migrate_conversations_metadata(connection)
     _migrate_messages_metadata(connection)
     _migrate_agent_profile_tables(connection)
-    _migrate_agent_config_operations(connection)
     _migrate_nodes_metadata(connection)
     _migrate_drop_nodes_capabilities_column(connection)
     _migrate_relay_tasks(connection)
@@ -381,22 +379,6 @@ def _table_exists(connection: sqlite3.Connection, table_name: str) -> bool:
         ).fetchone()
         is not None
     )
-
-
-def _migrate_agent_config_operations(connection: sqlite3.Connection) -> None:
-    """Default pre-versioned durable operations to the original v1 protocol."""
-
-    columns = {
-        row["name"]
-        for row in connection.execute(
-            "PRAGMA table_info(agent_config_operations)"
-        ).fetchall()
-    }
-    if "fingerprint_schema" not in columns:
-        connection.execute(
-            "ALTER TABLE agent_config_operations "
-            "ADD COLUMN fingerprint_schema TEXT NOT NULL DEFAULT 'agent-config-v1'"
-        )
 
 
 def _backfill_message_delta_idempotency(connection: sqlite3.Connection) -> None:

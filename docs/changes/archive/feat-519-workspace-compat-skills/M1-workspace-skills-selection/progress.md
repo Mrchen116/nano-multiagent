@@ -45,16 +45,10 @@ runtime projection, and the Web IM create/detail/chat surfaces.
   Gateway validates it through the existing selection-mode helper, while its
   local previous-state projection retains the persisted raw mode so legacy
   absence remains hashable without eager migration.
-- Config operations now negotiate an explicit `agent-config-v1`/`agent-config-v2`
-  fingerprint schema from the target Gateway registration. v1 exactly preserves
-  the pre-feat-519 names-only canonical payload; v2 includes effective selection
-  intent. IM operations and Gateway receipts persist the chosen schema through
-  initial submit, resubmit, status recovery, compensation, replay, and terminal
-  idempotency. Legacy SQLite rows and JSON receipts migrate to v1.
-- During an IM-first rolling deploy, old Gateways accept representable v1 create
-  and apply intents, while explicit-empty and default-with-names fail before RPC
-  with `gateway_upgrade_required`. New Gateways accept old IM requests that omit
-  the schema and replay prepared v1 receipts under v1 after upgrade.
+- Config operations use one current canonical fingerprint, including the effective
+  selection intent, through initial submit, resubmit, status recovery,
+  compensation, and terminal idempotency. They do not negotiate a schema or retain
+  mixed-version fallback, receipt replay, or operation migration paths.
 - Distillation readiness now honors the effective selection mode on both Gateway
   and Web IM: explicit mode must actually include `conversation-skill-distiller`,
   including rejecting explicit empty before any prompt is generated.
@@ -151,9 +145,22 @@ The implementation and local delivery gates are complete. The orchestrator archi
 this unit before opening the Ready PR; branch and remote CI status remain live GitHub
 state and are intentionally not copied into this progress snapshot.
 
+### User-directed R5 scope correction
+
+The user explicitly rejected v1/v2 fingerprint-schema negotiation as redundant
+backward compatibility. The follow-up removes the mixed-version protocol, old
+operation/receipt recovery and schema persistence while retaining current-version
+operation retry, lost-ACK recovery, compensation, and legacy profile-mode reads.
+
+- Focused protocol suite: 54 passed.
+- Expanded IM/Gateway/contract suite: 115 passed.
+- Frontend Agent-config/chat suite: 86 passed across 3 files.
+- Ruff, Python compile, `git diff --check`, and docs-check passed.
+- Patch-mode change-code-review found no actionable issue; an independent verifier
+  rechecked the deleted protocol surface and same-version recovery coverage.
+
 ## Rollback
 
 Revert the M1 implementation commits. The Skill-selection SQLite addition is
-nullable, the operation-schema column defaults to the old v1 protocol, and
-Gateway YAML omission remains readable, so rollback requires no destructive data
-migration.
+nullable and Gateway YAML omission remains readable, so rollback requires no
+destructive data migration.

@@ -7,10 +7,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from IM.app import create_app
-from IM.application.agent_config_operations import (
-    AGENT_CONFIG_FINGERPRINT_V2,
-    candidate_fingerprint,
-)
+from IM.application.agent_config_operations import candidate_fingerprint
 from IM.infra.repositories.agent_config_operations import (
     AgentConfigOperationRepository,
 )
@@ -125,9 +122,6 @@ def test_pending_explicit_empty_skills_recovery_preserves_canonical_candidate(
             skills_selection_mode="explicit_allowlist",
         )
 
-        async def v2_schema(**_kwargs):
-            return AGENT_CONFIG_FINGERPRINT_V2
-
         async def lost_apply(**kwargs):
             captured.update(kwargs)
             return None
@@ -137,7 +131,6 @@ def test_pending_explicit_empty_skills_recovery_preserves_canonical_candidate(
 
         app.state.gateway_control.request_agent_config_apply = lost_apply
         app.state.gateway_control.request_agent_config_operation_status = pending_status
-        app.state.gateway_control.config_operation_fingerprint_schema = v2_schema
         pending = client.patch("/im/v1/agents/agent-1/config", json=payload)
 
         assert pending.status_code == 503
@@ -147,7 +140,6 @@ def test_pending_explicit_empty_skills_recovery_preserves_canonical_candidate(
             operation_id=str(captured["operation_id"])
         )
         assert operation is not None
-        assert operation.fingerprint_schema == AGENT_CONFIG_FINGERPRINT_V2
         assert operation.candidate["skills"] == []
         assert operation.candidate["skills_selection_mode"] == "explicit_allowlist"
         assert operation.candidate_fingerprint == candidate_fingerprint(
@@ -226,20 +218,7 @@ def test_pending_apply_surfaces_recovered_rejection(tmp_path: Path) -> None:
         assert stored.profile_version == 1
 
 
-@pytest.mark.parametrize(
-    ("capabilities", "expected_schema"),
-    [
-        pytest.param({}, "agent-config-v1", id="old-gateway-v1"),
-        pytest.param(
-            {"agent_config_fingerprint_schema": "agent-config-v2"},
-            "agent-config-v2",
-            id="new-gateway-v2",
-        ),
-    ],
-)
-def test_apply_websocket_frame_correlates_terminal_result(
-    tmp_path: Path, capabilities: dict[str, object], expected_schema: str
-) -> None:
+def test_apply_websocket_frame_correlates_terminal_result(tmp_path: Path) -> None:
     """Route apply result frames by request and operation id before HTTP success."""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
@@ -256,7 +235,7 @@ def test_apply_websocket_frame_correlates_terminal_result(
                         "node_name": "MacBook",
                         "version": "1.0.0",
                         "agents": ["agent-1"],
-                        "capabilities": capabilities,
+                        "capabilities": {},
                     },
                 }
             )
@@ -277,7 +256,7 @@ def test_apply_websocket_frame_correlates_terminal_result(
             assert body["operation_id"]
             assert body["candidate_fingerprint"]
             assert body["expected_previous_fingerprint"]
-            assert body["fingerprint_schema"] == expected_schema
+            assert "fingerprint_schema" not in body
             assert body["agent"]["reasoning_effort"] == "high"
             assert body["agent"]["heartbeat_json"] == (
                 '{"active_hours":null,"every":"30m"}'
@@ -289,8 +268,6 @@ def test_apply_websocket_frame_correlates_terminal_result(
                 "status": "pending",
                 "candidate_fingerprint": body["candidate_fingerprint"],
             }
-            if expected_schema == AGENT_CONFIG_FINGERPRINT_V2:
-                pending_result["fingerprint_schema"] = expected_schema
             websocket.send_json(
                 {
                     "type": "agent.config.apply.result",
@@ -311,7 +288,6 @@ def test_apply_websocket_frame_correlates_terminal_result(
                 "payload": {
                     "request_id": status_request["payload"]["request_id"],
                     "operation_id": body["operation_id"],
-                    "fingerprint_schema": expected_schema,
                 },
             }
             applied_result = {
@@ -322,8 +298,6 @@ def test_apply_websocket_frame_correlates_terminal_result(
                 "candidate_fingerprint": body["candidate_fingerprint"],
                 "agent": body["agent"],
             }
-            if expected_schema == AGENT_CONFIG_FINGERPRINT_V2:
-                applied_result["fingerprint_schema"] = expected_schema
             websocket.send_json(
                 {
                     "type": "agent.config.operation.status.result",
@@ -343,56 +317,6 @@ def test_apply_websocket_frame_correlates_terminal_result(
             response = result["response"]
             assert response.status_code == 200
             assert response.json()["reasoning_effort"] == "high"
-
-
-@pytest.mark.parametrize(
-    ("skills", "selection_mode"),
-    [
-        pytest.param([], "explicit_allowlist", id="explicit-empty"),
-        pytest.param(["plan"], "default_discovery", id="default-nonempty"),
-    ],
-)
-def test_old_gateway_rejects_unrepresentable_skill_selection_before_rpc(
-    tmp_path: Path, skills: list[str], selection_mode: str
-) -> None:
-    app = create_app(db_path=tmp_path / "im.db")
-    with TestClient(app) as client:
-        owner = register_user(client, username="owner", display_name="Owner")
-        authorize(client, owner)
-        _seed_agent(app, owner_id=owner.owner_id)
-        with client.websocket_connect("/im/ws/gateway") as websocket:
-            websocket.send_json(
-                {
-                    "type": "node.register",
-                    "payload": {
-                        "node_id": "node-1",
-                        "node_name": "Old Gateway",
-                        "version": "1.0.0",
-                        "agents": ["agent-1"],
-                        "capabilities": {},
-                    },
-                }
-            )
-            assert websocket.receive_json()["type"] == "ack"
-
-            response = client.patch(
-                "/im/v1/agents/agent-1/config",
-                json={
-                    **_update_payload(),
-                    "skills": skills,
-                    "skills_selection_mode": selection_mode,
-                },
-            )
-
-        assert response.status_code == 409
-        assert response.json()["detail"] == {
-            "code": "gateway_upgrade_required",
-            "message": "Update this Agent's Gateway before saving this skill selection.",
-        }
-        count = app.state.connection.execute(
-            "SELECT COUNT(*) AS count FROM agent_config_operations"
-        ).fetchone()
-        assert count["count"] == 0
 
 
 def test_rejected_apply_returns_safe_conflict_and_keeps_profile(tmp_path: Path) -> None:
@@ -442,9 +366,6 @@ def test_im_cas_loss_recovers_compensation_before_conflict(tmp_path: Path) -> No
             skills_selection_mode="explicit_allowlist",
         )
 
-        async def v2_schema(**_kwargs):
-            return AGENT_CONFIG_FINGERPRINT_V2
-
         async def applied_with_concurrent_im_write(**kwargs):
             calls.append(kwargs)
             if len(calls) == 1:
@@ -472,7 +393,6 @@ def test_im_cas_loss_recovers_compensation_before_conflict(tmp_path: Path) -> No
         app.state.gateway_control.request_agent_config_apply = (
             applied_with_concurrent_im_write
         )
-        app.state.gateway_control.config_operation_fingerprint_schema = v2_schema
         response = client.patch("/im/v1/agents/agent-1/config", json=payload)
 
         assert response.status_code == 503
@@ -480,11 +400,9 @@ def test_im_cas_loss_recovers_compensation_before_conflict(tmp_path: Path) -> No
         assert len(calls) == 2
         assert calls[0]["payload"]["skills"] == []
         assert calls[0]["payload"]["skills_selection_mode"] == "explicit_allowlist"
-        assert calls[0]["fingerprint_schema"] == AGENT_CONFIG_FINGERPRINT_V2
         assert calls[1]["payload"]["display_name"] == "Concurrent winner"
         assert calls[1]["payload"]["skills"] == []
         assert calls[1]["payload"]["skills_selection_mode"] == "explicit_allowlist"
-        assert calls[1]["fingerprint_schema"] == AGENT_CONFIG_FINGERPRINT_V2
         assert (
             calls[1]["expected_previous_fingerprint"]
             == calls[0]["candidate_fingerprint"]
