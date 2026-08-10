@@ -3,7 +3,7 @@
 ## Review scope
 
 - Base: `cd071e649d3fe4fe7a2f392643a49c8f87825898`
-- Reviewed implementation head: `35ca1becc`
+- Reviewed implementation head: `6d34578c3`
 - Mode: `full`
 - Phase 1: 独立 finder 检查完整 unit diff、运行时线程边界、权限生命周期、持久化与产品命令入口。
 - Phase 2: 独立 code verifier 逐条复核 7 项候选；resume 项由独立 change-verifier 复现。下列 8 项均为 `CONFIRMED`。
@@ -57,3 +57,20 @@
   found.
 
 Final verdict: **PASS — 0 open P1/P2 findings.**
+
+### Round 4
+
+- Result: Pass
+- The Round 2 acceptance fixes were reviewed as delta `4dcf1f64a..6d34578c3`.
+- Restart recovery reloads runs by workspace and parent session, validates the
+  owner again, creates a new run from the original script and args, and reuses
+  only the durable completed-Agent cache. Cross-session resume remains denied
+  with a precise diagnostic.
+- Workflow child runtime model and effort are persisted only for Workflow
+  child sessions. Idle terminal continuation resolves the exact parent
+  session runtime; ordinary Agent launches and unrelated sessions keep their
+  existing behavior.
+- Incremental verification: 104 tests passed; Ruff and diff checks passed; no
+  new P1/P2 was found.
+
+Final post-acceptance verdict: **PASS — 0 open P1/P2 findings.**
