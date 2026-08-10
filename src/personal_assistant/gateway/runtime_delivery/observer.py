@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from collections.abc import Callable, Coroutine, Mapping
+from collections.abc import Awaitable, Callable, Coroutine, Mapping
 import logging
 from typing import Any
 
@@ -16,6 +16,11 @@ from personal_assistant.gateway.shadow_saga import (
     ExternalShadowBubble,
     ExternalShadowBubbleEvent,
     ExternalShadowOutput,
+)
+from personal_assistant.gateway.workflow_permission_bindings import (
+    WorkflowPermissionDelivery,
+    WorkflowPermissionDeliveryAnchor,
+    WorkflowPermissionDeliveryBindingRegistry,
 )
 from personal_assistant.ws.im_connection import IMConnectionManager
 
@@ -165,6 +170,12 @@ def build_kernel_event_observer(
     ) = None,
     skill_created_handler: Callable[[str, Mapping[str, object]], Any] | None = None,
     task_tracker: RuntimeDeliveryTaskTracker | None = None,
+    workflow_permission_bindings: WorkflowPermissionDeliveryBindingRegistry
+    | None = None,
+    workflow_permission_delivery: Callable[
+        [WorkflowPermissionDelivery], Awaitable[None]
+    ]
+    | None = None,
 ) -> Callable[[Mapping[str, Any]], "Coroutine[Any, Any, None] | None"]:
     """Build a kernel SSE event observer that forwards streaming events to IM via node.streaming_delta.
 
@@ -212,6 +223,22 @@ def build_kernel_event_observer(
         task_tracker = RuntimeDeliveryTaskTracker()
     visible_reasoning_by_group: dict[str, dict[str, str]] = {}
     durable_reasoning_by_group: dict[str, dict[str, str]] = {}
+
+    def _dispatch_workflow_permission_deliveries(
+        deliveries: tuple[WorkflowPermissionDelivery, ...],
+    ) -> None:
+        if workflow_permission_delivery is None:
+            return
+        for delivery in deliveries:
+            task_tracker.start(
+                workflow_permission_delivery(delivery),
+                name=(
+                    "workflow-permission:"
+                    f"{delivery.event.get('workflow_run_id')}:"
+                    f"{delivery.event.get('request_id')}"
+                ),
+                run_id=delivery.anchor.parent_run_id,
+            )
 
     async def _send(
         manager: IMConnectionManager, message_type: str, payload: Mapping[str, Any]
@@ -1503,6 +1530,19 @@ def build_kernel_event_observer(
             call_id = str(event.get("call_id") or "").strip() or run_id
             tool_name = str(event.get("name") or "")
             arguments = event.get("arguments") or {}
+            if tool_name == "Workflow":
+                ctx.mark_visible_reply()
+                if workflow_permission_bindings is not None and ctx.kernel_session_id:
+                    workflow_permission_bindings.register_pre_anchor(
+                        WorkflowPermissionDeliveryAnchor(
+                            parent_session_id=ctx.kernel_session_id,
+                            parent_run_id=run_id,
+                            parent_tool_call_id=call_id,
+                            conversation_id=ctx.conversation_id,
+                            message_id=ctx.message_id,
+                            external_metadata=_external_context_metadata(ctx) or {},
+                        )
+                    )
             # feat-425 C1: tool_start SSE 已带 presentation.emoji(realtime_stream
             # on_tool_call)。透传到 running 行,自定义工具在执行阶段折叠行就显自带 emoji,
             # 不再回退 🔧、等完成才跳变。空串则省略(沿用 detail 的省略未设约定)。
@@ -1567,6 +1607,25 @@ def build_kernel_event_observer(
             call_id = str(event.get("call_id") or "").strip() or run_id
             tool_name = str(event.get("name") or "")
             arguments = event.get("arguments") or {}
+            if tool_name == "Workflow":
+                ctx.mark_visible_reply()
+                event_metadata = event.get("event_metadata")
+                if (
+                    workflow_permission_bindings is not None
+                    and isinstance(event_metadata, Mapping)
+                    and event_metadata.get("parent_session_id") == ctx.kernel_session_id
+                    and event_metadata.get("parent_run_id") == run_id
+                    and event_metadata.get("parent_tool_call_id") == call_id
+                ):
+                    workflow_run_id = str(
+                        event_metadata.get("workflow_run_id") or ""
+                    ).strip()
+                    deliveries = workflow_permission_bindings.bind_run(
+                        parent_session_id=ctx.kernel_session_id,
+                        parent_tool_call_id=call_id,
+                        workflow_run_id=workflow_run_id,
+                    )
+                    _dispatch_workflow_permission_deliveries(deliveries)
             # bugfix-410-M2 R3: this call closed normally — drop it from in-flight.
             # bugfix-410-fix-r1: also drop the run_id entry once its last in-flight call
             # closes, so the per-run dict can't accumulate empty leftovers on a long-lived
@@ -1654,6 +1713,8 @@ def build_kernel_event_observer(
                 )
 
         elif event_name == "permission_request":
+            if event.get("workflow_run_id") and event.get("agent_call_id"):
+                return None
             # Agent auto_mode_gate is awaiting a user decision; forward to IM so the
             # permission card can be rendered in the chat. External channels receive
             # the same request payload as a native surface (e.g. Feishu interactive
@@ -1696,6 +1757,8 @@ def build_kernel_event_observer(
             )
 
         elif event_name == "permission_resolved":
+            if event.get("workflow_run_id") and event.get("agent_call_id"):
+                return None
             # Agent resolved a permission request (hook resumed); update the IM card
             # so the user sees the final decision.
             request_id = str(event.get("request_id") or "").strip()

@@ -9,6 +9,9 @@ from typing import Any
 from uuid import uuid4
 
 from personal_assistant.channels.base import ReplyContext
+from personal_assistant.gateway.workflow_permission_bindings import (
+    WorkflowPermissionDelivery,
+)
 from personal_assistant.ws.im_connection import IMConnectionManager
 
 _log = logging.getLogger("personal_assistant.gateway.runtime_delivery.background")
@@ -233,6 +236,87 @@ def build_bg_reply_sender(
             )
 
     return _sender
+
+
+def build_workflow_permission_delivery(
+    *,
+    im_connection_manager_factory: Callable[[], IMConnectionManager | None],
+    external_permission_request_sender: (
+        Callable[[Mapping[str, Any], Mapping[str, str]], Any] | None
+    ) = None,
+    external_permission_resolved_sender: (
+        Callable[[str, str, Mapping[str, str]], Any] | None
+    ) = None,
+) -> Callable[[WorkflowPermissionDelivery], Awaitable[None]]:
+    """Deliver a tagged child permission to its immutable Workflow launch anchor."""
+
+    async def _deliver(delivery: WorkflowPermissionDelivery) -> None:
+        event = delivery.event
+        anchor = delivery.anchor
+        event_name = event.get("event")
+        request_id = str(event.get("request_id") or "").strip()
+        if not request_id:
+            return
+        manager = im_connection_manager_factory()
+        if event_name == "permission_request":
+            tool_input = event.get("tool_input")
+            options_raw = event.get("options")
+            request = {
+                "request_id": request_id,
+                "tool_name": str(event.get("tool_name") or "").strip(),
+                "tool_input": (
+                    dict(tool_input)
+                    if isinstance(tool_input, Mapping)
+                    else tool_input or {}
+                ),
+                "question": str(event.get("question") or "").strip(),
+                "options": list(options_raw) if isinstance(options_raw, list) else [],
+                "status": "pending",
+            }
+            if manager is not None and manager.connected and anchor.message_id:
+                await manager.send_json(
+                    "node.streaming_delta",
+                    {
+                        "kind": "permission_request",
+                        "message_id": anchor.message_id,
+                        "permission_request": request,
+                        "run_id": anchor.parent_run_id,
+                    },
+                )
+            if (
+                external_permission_request_sender is not None
+                and anchor.external_metadata
+            ):
+                metadata = dict(anchor.external_metadata)
+                metadata["run_id"] = anchor.parent_run_id
+                result = external_permission_request_sender(request, metadata)
+                if asyncio.iscoroutine(result):
+                    await result
+            return
+        if event_name != "permission_resolved":
+            return
+        decision = str(event.get("decision") or "").strip()
+        if manager is not None and manager.connected and anchor.message_id:
+            await manager.send_json(
+                "node.streaming_delta",
+                {
+                    "kind": "permission_resolved",
+                    "message_id": anchor.message_id,
+                    "request_id": request_id,
+                    "decision": decision,
+                    "run_id": anchor.parent_run_id,
+                },
+            )
+        if external_permission_resolved_sender is not None and anchor.external_metadata:
+            result = external_permission_resolved_sender(
+                request_id,
+                decision,
+                dict(anchor.external_metadata),
+            )
+            if asyncio.iscoroutine(result):
+                await result
+
+    return _deliver
 
 
 def reply_context_im_conversation_id(reply_context: ReplyContext) -> str | None:

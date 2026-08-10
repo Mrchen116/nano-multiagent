@@ -26,7 +26,14 @@ _log = logging.getLogger(__name__)
 # All other events (run_status, assistant_message, etc.) are ignored by on_event.
 # BACKGROUND_TASK run output (assistant_message with origin=BACKGROUND_TASK) is handled
 # separately via bg_run_output_callback — see bugfix-404-M3.
-_SESSION_EVENT_NAMES = frozenset({"self_evolution_review"})
+_SESSION_EVENT_NAMES = frozenset(
+    {
+        "self_evolution_review",
+        "permission_request",
+        "permission_resolved",
+        "workflow_run_updated",
+    }
+)
 
 # Origin value produced by BACKGROUND_TASK-origin runs.
 # Must match RunOrigin.BACKGROUND_TASK.value = "background_task" (StrEnum, lowercase).

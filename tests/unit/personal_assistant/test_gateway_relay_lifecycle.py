@@ -1252,6 +1252,79 @@ def test_direct_web_opening_background_return_keeps_completed_message() -> None:
     assert context.visible_reply_committed is True
 
 
+def test_direct_web_denied_workflow_keeps_terminal_tool_row() -> None:
+    """A denied Workflow has no running phase but remains visible as tool audit."""
+    store = RunDeliveryContextStore()
+    context = store.seed_from_lifecycle(
+        message=InboundMessage(
+            channel_name="web_relay",
+            text="run this workflow",
+            external_user_id="user-1",
+            external_chat_id="direct-conv",
+            is_group=False,
+            agent_id="agent-a",
+            metadata={"relay_task_id": "relay-1", "message_id": "user-msg-1"},
+        ),
+        update=RelayLifecycleUpdate(
+            phase="accepted",
+            agent_id="agent-a",
+            session_key="web:user-1:direct-conv:agent-a",
+            run_id="run-workflow-denied",
+            kernel_session_id="sess-1",
+        ),
+        owner_user_id="owner-1",
+    )
+    assert context is not None
+    manager = _AckingIMManager(message_id="im-msg-workflow-denied")
+    observer = _build_kernel_event_observer(
+        im_connection_manager_factory=lambda: manager,
+        run_context_store=store,
+    )
+
+    async def _exercise() -> None:
+        started = observer(
+            {
+                "event": "run_status",
+                "run_id": "run-workflow-denied",
+                "status": "running",
+            }
+        )
+        assert asyncio.iscoroutine(started)
+        await started
+        observer(
+            {
+                "event": "tool_end",
+                "run_id": "run-workflow-denied",
+                "call_id": "workflow-call",
+                "name": "Workflow",
+                "arguments": {"script": "async def main(): pass"},
+                "reason_code": "denied",
+                "approval": "user_deny",
+                "error": "Permission denied by user",
+            }
+        )
+        await asyncio.sleep(0)
+        ended = observer(
+            {"event": "turn_end", "run_id": "run-workflow-denied", "completed": True}
+        )
+        if asyncio.iscoroutine(ended):
+            await ended
+        await asyncio.sleep(0)
+
+    asyncio.run(_exercise())
+
+    payloads = [payload for _, payload in manager.sent_frames]
+    kinds = [payload["kind"] for payload in payloads]
+    assert "tool_call_upserted" not in kinds
+    denied = next(
+        payload for payload in payloads if payload["kind"] == "tool_call_completed"
+    )
+    assert denied["tool_call"]["reason"] == "denied"
+    assert denied["tool_call"]["approval"] == "user_deny"
+    assert kinds[-1] == "message_completed"
+    assert "message_discarded" not in kinds
+
+
 def test_non_web_shadow_context_keeps_literal_reply_visibility() -> None:
     """The direct Web fix must not broaden to arbitrary shadow transports."""
     store = RunDeliveryContextStore()

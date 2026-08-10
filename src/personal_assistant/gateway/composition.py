@@ -66,6 +66,7 @@ from personal_assistant.gateway.runtime_delivery.context import (
 from personal_assistant.gateway.runtime_delivery.background import (
     build_bg_reply_sender,
     build_session_event_callback,
+    build_workflow_permission_delivery,
 )
 from personal_assistant.gateway.runtime_delivery.lifecycle import (
     build_relay_lifecycle_callback,
@@ -94,6 +95,9 @@ from personal_assistant.gateway.session_binder import (
 from personal_assistant.gateway.distill_prompt import build_distill_prompt_handler
 from personal_assistant.gateway.session_run_coordinator import SessionRunCoordinator
 from personal_assistant.gateway.shadow_sync import IMShadowConversationSync
+from personal_assistant.gateway.workflow_permission_bindings import (
+    WorkflowPermissionDeliveryBindingRegistry,
+)
 from personal_assistant.reporter.upstream_reporter import (
     UpstreamReporter,
     build_agent_capabilities_payload,
@@ -463,6 +467,12 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         if connection_ready_coordinator is not None:
             connection_ready_coordinator.notify_external_shadows_pending()
 
+    workflow_permission_bindings = WorkflowPermissionDeliveryBindingRegistry()
+    workflow_permission_delivery = build_workflow_permission_delivery(
+        im_connection_manager_factory=lambda: im_connection_manager,
+        external_permission_request_sender=_send_external_permission_request,
+        external_permission_resolved_sender=_mark_external_permission_resolved,
+    )
     _kernel_event_observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: im_connection_manager,
         run_context_store=run_delivery_contexts,
@@ -484,18 +494,40 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
             im_config_sync_client, "handle_skill_created", None
         ),
         task_tracker=runtime_delivery_tasks,
+        workflow_permission_bindings=workflow_permission_bindings,
+        workflow_permission_delivery=workflow_permission_delivery,
     )
     bg_reply_sender = build_bg_reply_sender(
         im_connection_manager_factory=lambda: im_connection_manager,
         external_reply_sender=_send_external_reply,
     )
-    session_event_callback = None
+    base_session_event_callback = None
     if config.im_service is not None:
         # feat-349-M3: wire background session event callback so self_evolution_review
         # events published by background hooks reach IM as system/meta messages.
-        session_event_callback = build_session_event_callback(
+        base_session_event_callback = build_session_event_callback(
             im_connection_manager_factory=lambda: im_connection_manager,
         )
+
+    async def session_event_callback(
+        reply_context: ReplyContext,
+        agent_id: str,
+        kernel_session_id: str,
+        event: Mapping[str, Any],
+    ) -> None:
+        deliveries = workflow_permission_bindings.accept_event(
+            parent_session_id=kernel_session_id,
+            event=event,
+        )
+        for delivery in deliveries:
+            await workflow_permission_delivery(delivery)
+        if base_session_event_callback is not None:
+            await base_session_event_callback(
+                reply_context,
+                agent_id,
+                kernel_session_id,
+                event,
+            )
 
     background_subscriptions = BackgroundSubscriptionManager(
         kernel=kernel,
