@@ -939,6 +939,54 @@ async def test_consumed_steer_marks_a_pending_follower_shadow_anchor(
 
 
 @pytest.mark.asyncio
+async def test_consumed_background_return_reaches_delivery_observer(
+    tmp_path: Path,
+) -> None:
+    """A non-user pending notification is delivery data, not a steer to discard."""
+
+    kernel, catalog, binder, router, group_store = build_dependencies(tmp_path)
+    observed: list[dict[str, object]] = []
+    coordinator = SessionRunCoordinator(
+        kernel=kernel,
+        session_binder=binder,
+        outbound_router=router,
+        group_context_store=group_store,
+        kernel_event_observer=lambda event: observed.append(dict(event)),
+    )
+    running = asyncio.create_task(
+        coordinator.dispatch(
+            _request(inbound(chat_id="chat-a", text="review this"), catalog)
+        )
+    )
+    await kernel.wait_stream("run-1")
+    background_return = {
+        "task_id": "wt-workflow-1",
+        "task_type": "workflow",
+        "status": "completed",
+        "description": "review changes",
+        "workflow_run_id": "wf-1",
+        "result": "raw workflow result",
+    }
+
+    kernel.push(
+        "run-1",
+        {
+            "event": "injection_consumed",
+            "message_count": 1,
+            "user_message_count": 0,
+            "background_returns": [background_return],
+        },
+    )
+    kernel.finish("run-1", text="Main Agent synthesis")
+    await running
+
+    consumed = next(
+        event for event in observed if event["event"] == "injection_consumed"
+    )
+    assert consumed["background_returns"] == [background_return]
+
+
+@pytest.mark.asyncio
 async def test_config_publish_reconfigures_same_session_only_for_next_run(
     tmp_path: Path,
 ) -> None:

@@ -7,6 +7,7 @@ import pytest
 
 from agent.core.errors import ToolError
 from agent.core.session.types import INTERNAL_RUNTIME_KEY
+from agent.core.types import ToolResult
 from agent.core.workflows import WorkflowRuntime, compile_workflow, execute_workflow
 from agent.platform.permissions.broker import PermissionDecision
 from agent.platform.tools.builtins.workflow import WorkflowTool, workflow_description
@@ -88,6 +89,62 @@ def test_workflow_exact_schema_and_launch_correlation(tmp_path: Path) -> None:
         "parent_tool_call_id": "call_parent",
         "workflow_run_id": "wf_123456",
     }
+
+
+def test_presenter_emits_flat_input_first_result_second_detail() -> None:
+    tool = WorkflowTool(manager=_Manager())
+    args = {
+        "script": SCRIPT,
+        "description": "review changes",
+    }
+
+    started = tool.presenter.format_start_for_session(
+        args,
+        {INTERNAL_RUNTIME_KEY: {"workflow_size_guideline": "small"}},
+    )
+    ended = tool.presenter.format_end_for_session(
+        args,
+        ToolResult(
+            call_id="call-1",
+            name="Workflow",
+            output={
+                "status": "async_launched",
+                "name": "review-changes",
+                "runId": "wf-1",
+                "taskId": "wt-1",
+                "scriptPath": "/workspace/workflows/scripts/review.py",
+                "transcriptDir": "/workspace/workflows/runs/wf-1",
+                "guideline": "small",
+            },
+        ),
+        12,
+        {INTERNAL_RUNTIME_KEY: {"workflow_size_guideline": "small"}},
+    )
+
+    assert started.summary == ended.summary == "review changes"
+    assert started.detail == {
+        "description": "review changes",
+        "source": "inline Python",
+        "guideline": "small",
+        "script_preview": SCRIPT,
+    }
+    assert ended.detail is not None
+    assert list(ended.detail) == [
+        "description",
+        "source",
+        "guideline",
+        "script_preview",
+        "status",
+        "name",
+        "runId",
+        "taskId",
+        "scriptPath",
+        "transcriptDir",
+        "error",
+    ]
+    assert ended.detail["status"] == "async_launched"
+    assert ended.detail["runId"] == "wf-1"
+    assert ended.detail["taskId"] == "wt-1"
 
 
 def test_launch_captures_parent_runtime_before_background_thread(

@@ -145,6 +145,19 @@ def test_injection_consumed_attaches_background_returns_to_new_bubble() -> None:
     assert context is not None
     assert context.visible_reply_committed is True
 
+    _drive(
+        observer,
+        {
+            "event": "assistant_message",
+            "run_id": "run-1",
+            "message_id": "kernel-B",
+            "content": "Main Agent synthesis",
+        },
+    )
+    delta = next(p for _mt, p in manager.sent if p.get("kind") == "message_delta")
+    assert delta["message_id"] == "msg-B"
+    assert delta["delta_text"] == "Main Agent synthesis"
+
 
 def test_injection_consumed_opens_b_even_when_message_id_empty() -> None:
     """bugfix-426-M4 V3: in the narrow window where message_id is transiently empty

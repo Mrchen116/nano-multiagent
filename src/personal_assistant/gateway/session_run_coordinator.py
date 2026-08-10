@@ -1751,6 +1751,17 @@ class SessionRunCoordinator:
         self, run_id: str, event: Mapping[str, object]
     ) -> Mapping[str, object] | None:
         raw_user_count = event.get("user_message_count")
+        raw_background_returns = event.get("background_returns")
+        if (
+            raw_user_count == 0
+            and isinstance(raw_background_returns, list)
+            and raw_background_returns
+        ):
+            # Background task notifications share the pending-message queue, but
+            # they are not user steers and have no follower identity to attach.
+            # Their sidecars still have to cross the delivery observer so the
+            # model's reply and raw task return land on the same IM message.
+            return event
         raw_count = (
             raw_user_count
             if isinstance(raw_user_count, int)

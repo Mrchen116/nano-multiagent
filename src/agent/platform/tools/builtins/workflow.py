@@ -17,7 +17,7 @@ from agent.core.workflows import (
     compile_workflow,
 )
 from agent.platform.permissions.broker import PermissionDecision
-from agent.platform.tools.presentation import ToolPresentationEvent
+from agent.platform.tools.presentation import ToolPresentationEvent, _truncate
 from agent.platform.workflows import WorkflowLaunchContext, WorkflowManager
 from agent.platform.workflows.consent import WorkflowConsentStore
 
@@ -48,30 +48,87 @@ def workflow_description(size_guideline: str = "medium") -> str:
 
 class _WorkflowPresenter:
     def format_start(self, args: Mapping[str, Any]) -> ToolPresentationEvent:
-        source = args.get("scriptPath") or args.get("name") or "inline Python"
+        return self.format_start_for_session(args, {})
+
+    def format_start_for_session(
+        self,
+        args: Mapping[str, Any],
+        session_metadata: Mapping[str, Any],
+    ) -> ToolPresentationEvent:
+        detail = _workflow_input_detail(args, session_metadata=session_metadata)
         return ToolPresentationEvent(
             visible=True,
             label="Workflow",
-            summary=str(args.get("name") or source),
-            detail={"input": dict(args)},
+            summary=_truncate(str(detail["description"]), 80),
+            detail=detail,
         )
 
     def format_end(
         self, args: Mapping[str, Any], result: Any, duration_ms: int
     ) -> ToolPresentationEvent:
+        return self.format_end_for_session(args, result, duration_ms, {})
+
+    def format_end_for_session(
+        self,
+        args: Mapping[str, Any],
+        result: Any,
+        duration_ms: int,
+        session_metadata: Mapping[str, Any],
+    ) -> ToolPresentationEvent:
         output = getattr(result, "output", None)
         error = getattr(result, "error", None)
-        detail: dict[str, Any] = {"input": dict(args)}
+        detail = _workflow_input_detail(args, session_metadata=session_metadata)
+        result_fields: Mapping[str, Any] = output if isinstance(output, Mapping) else {}
+        guideline = result_fields.get("guideline")
+        if isinstance(guideline, str) and guideline:
+            detail["guideline"] = guideline
         if error is not None:
-            detail["error"] = {"message": str(error)}
-        elif isinstance(output, Mapping):
-            detail["result"] = dict(output)
+            status = "failed"
+            error_text = str(error)
+        else:
+            status = str(result_fields.get("status") or "")
+            error_text = str(result_fields.get("error") or "")
+        detail.update(
+            {
+                "status": status,
+                "name": str(result_fields.get("name") or ""),
+                "runId": str(result_fields.get("runId") or ""),
+                "taskId": str(result_fields.get("taskId") or ""),
+                "scriptPath": str(result_fields.get("scriptPath") or ""),
+                "transcriptDir": str(result_fields.get("transcriptDir") or ""),
+                "error": error_text,
+            }
+        )
         return ToolPresentationEvent(
             visible=True,
             label="Workflow",
-            summary=str(args.get("name") or args.get("scriptPath") or "inline Python"),
+            summary=_truncate(str(detail["description"]), 80),
             detail=detail,
         )
+
+
+def _workflow_input_detail(
+    args: Mapping[str, Any], *, session_metadata: Mapping[str, Any]
+) -> dict[str, Any]:
+    script_path = _optional_string(args.get("scriptPath"))
+    inline = args.get("script")
+    name = _optional_string(args.get("name"))
+    if script_path is not None:
+        source = script_path
+        script_preview = ""
+    elif isinstance(inline, str) and inline:
+        source = "inline Python"
+        script_preview = inline
+    else:
+        source = name or ""
+        script_preview = ""
+    description = str(args.get("description") or args.get("title") or name or source)
+    return {
+        "description": description,
+        "source": source,
+        "guideline": _size_guideline(session_metadata),
+        "script_preview": script_preview,
+    }
 
 
 class WorkflowTool:

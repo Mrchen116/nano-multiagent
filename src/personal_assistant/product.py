@@ -17,6 +17,7 @@ the four slots once at session-open from the agent config + conversation scenari
 
 from __future__ import annotations
 
+import os
 import platform
 from pathlib import Path
 from collections.abc import Callable
@@ -434,4 +435,5 @@ def build_pa_kernel(
         tool_search_roots=PA_TOOL_SEARCH_ROOTS,  # #2: ~/.nanoassistant/tools
         hook_search_roots=PA_HOOK_SEARCH_ROOTS,  # #2: ~/.nanoassistant/hooks
         global_config_root=Path("~/.nanoassistant"),
+        workflow_subagent_model=os.getenv("NANO_MULTIAGENT_WORKFLOW_SUBAGENT_MODEL"),
     )

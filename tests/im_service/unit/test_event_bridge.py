@@ -117,13 +117,14 @@ def test_sidecar_only_instant_message_is_visible_and_roundtrips(tmp_path: Path) 
 
 def test_turn_start_carries_consumed_background_returns(tmp_path: Path) -> None:
     """Active-run sidecars attach atomically to the next assistant bubble."""
-    bridge, conv_id, agent_uid, _, captured = _make_bridge(tmp_path)
+    bridge, conv_id, agent_uid, messages, captured = _make_bridge(tmp_path)
     background_return = BackgroundReturn(
-        task_id="agent-1",
-        task_type="subagent",
-        status="failed",
-        description="verify api",
-        error="contract mismatch",
+        task_id="wt-1",
+        task_type="workflow",
+        status="completed",
+        description="review changes",
+        workflow_run_id="wf-1",
+        result="raw workflow result",
     )
 
     message = bridge.on_turn_start(
@@ -134,12 +135,14 @@ def test_turn_start_carries_consumed_background_returns(tmp_path: Path) -> None:
     )
 
     assert message.background_returns is not None
-    assert message.background_returns[0].task_id == "agent-1"
+    assert message.background_returns[0].task_id == "wt-1"
     created = next(event for event in captured if event.event_type == "message.created")
     assert (
-        json.loads(created.payload_json)["background_returns"][0]["task_id"]
-        == "agent-1"
+        json.loads(created.payload_json)["background_returns"][0]["task_id"] == "wt-1"
     )
+    restored = messages.list_messages(conversation_id=conv_id)
+    assert restored[0].background_returns == message.background_returns
+    assert restored[0].content == ""
 
 
 def test_shadow_turn_start_retry_reuses_terminal_message_without_resetting_it(

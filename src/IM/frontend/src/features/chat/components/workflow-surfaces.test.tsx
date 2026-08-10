@@ -26,7 +26,7 @@ describe("Workflow tool detail", () => {
             output: "review changes",
             detail: {
               description: "review changes",
-              source: "inline",
+              source: "inline Python",
               guideline: "medium",
               script_preview: "async def main():\n    return await parallel([...])",
             },
@@ -54,7 +54,7 @@ describe("Workflow tool detail", () => {
             output: "review changes",
             detail: {
               description: "review changes",
-              source: "inline",
+              source: "inline Python",
               guideline: "medium",
               script_preview: "async def main():\n    return await parallel([...])",
               status: "async_launched",
@@ -74,8 +74,11 @@ describe("Workflow tool detail", () => {
     const result = container.querySelector(".chat-tool-detail-workflow-result")!;
     expect(input.compareDocumentPosition(result) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
     expect(result).toHaveTextContent("async_launched");
+    expect(result).toHaveTextContent("review-changes");
     expect(result).toHaveTextContent("wf-1");
     expect(result).toHaveTextContent("task-1");
+    expect(result).toHaveTextContent("/workspace/workflows/review.py");
+    expect(result).toHaveTextContent("/workspace/workflows/runs/wf-1");
   });
 
   it("shows denied as not executed without inventing run/task/duration", async () => {
@@ -92,7 +95,7 @@ describe("Workflow tool detail", () => {
             approval: "user_deny",
             detail: {
               description: "review changes",
-              source: "inline",
+              source: "inline Python",
               guideline: "medium",
               script_preview: "async def main(): pass",
             },
@@ -108,6 +111,45 @@ describe("Workflow tool detail", () => {
     expect(container.textContent).not.toContain("runId");
     expect(container.textContent).not.toContain("taskId");
     expect(container.querySelector(".chat-tool-call-duration")).toBeNull();
+  });
+
+  it("shows a launch error after the unchanged input without inventing ids", async () => {
+    const { container } = render(
+      <ToolCallsPanel
+        toolCalls={[
+          {
+            id: "workflow-failed",
+            name: "Workflow",
+            status: "failed",
+            input: {},
+            output: "review changes",
+            detail: {
+              description: "review changes",
+              source: "/workspace/workflows/review.py",
+              guideline: "small",
+              script_preview: "",
+              status: "failed",
+              name: "",
+              runId: "",
+              taskId: "",
+              scriptPath: "",
+              transcriptDir: "",
+              error: "Workflow metadata is invalid",
+            },
+          },
+        ]}
+      />
+    );
+
+    await openProcess();
+    const input = container.querySelector(".chat-tool-detail-workflow-input")!;
+    const result = container.querySelector(".chat-tool-detail-workflow-result")!;
+    expect(input).toHaveTextContent("/workspace/workflows/review.py");
+    expect(input).toHaveTextContent("small");
+    expect(result).toHaveTextContent("failed");
+    expect(result).toHaveTextContent("Workflow metadata is invalid");
+    expect(result).not.toHaveTextContent("runId");
+    expect(result).not.toHaveTextContent("taskId");
   });
 });
 

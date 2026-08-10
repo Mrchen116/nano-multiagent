@@ -29,6 +29,28 @@ def _resolve_presenter(ctx, name: str):  # noqa: ANN001
     return resolve_presenter_for_tool(tool)
 
 
+def _format_start(presenter, args: Mapping[str, Any], ctx):  # noqa: ANN001, ANN202
+    formatter = getattr(presenter, "format_start_for_session", None)
+    metadata = getattr(ctx, "metadata", None)
+    if callable(formatter) and isinstance(metadata, Mapping):
+        return formatter(args, metadata)
+    return presenter.format_start(args)
+
+
+def _format_end(  # noqa: ANN001, ANN202
+    presenter,
+    args: Mapping[str, Any],
+    result: Any,
+    duration_ms: int,
+    ctx,
+):
+    formatter = getattr(presenter, "format_end_for_session", None)
+    metadata = getattr(ctx, "metadata", None)
+    if callable(formatter) and isinstance(metadata, Mapping):
+        return formatter(args, result, duration_ms, metadata)
+    return presenter.format_end(args, result, duration_ms)
+
+
 def setup(hooks):  # noqa: ANN001, ANN201
     """Register hook handlers that forward run-scoped realtime events."""
 
@@ -75,7 +97,7 @@ def setup(hooks):  # noqa: ANN001, ANN201
         if run_id is None:
             return
         presenter = _resolve_presenter(ctx, event.get("name", ""))
-        presentation = presenter.format_start(event.get("arguments") or {})
+        presentation = _format_start(presenter, event.get("arguments") or {}, ctx)
         payload = {
             "event": "tool_start",
             "run_id": run_id,
@@ -95,10 +117,12 @@ def setup(hooks):  # noqa: ANN001, ANN201
             return
         presenter = _resolve_presenter(ctx, event.get("name", ""))
         duration_ms = event.get("duration_ms") or 0
-        presentation = presenter.format_end(
+        presentation = _format_end(
+            presenter,
             event.get("arguments") or {},
             _FakeResult(output=event.get("output"), error=event.get("error")),
-            duration_ms=duration_ms,
+            duration_ms,
+            ctx,
         )
         payload = {
             "event": "tool_end",
