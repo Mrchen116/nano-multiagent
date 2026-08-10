@@ -164,3 +164,50 @@ Mode and scope semantics remain unchanged inside the protected transaction: defa
 - None.
 
 Verdict: **pass**. No delta introduces a condition requiring full re-verification.
+
+---
+
+# Round 3 — corrected-delta verification
+
+> Validation snapshot: `18774792e5ceadeb279f3f33c289d9345a0a2e62` (unit branch after merge of `origin/main` `ee32b85b51ec70009b47d2b49700a53f07ab6`)
+
+> Review mode: corrected-delta. Scope is the three unmerged bugfix-525 delta-specs against final code and latest canonical specifications; no production implementation was changed in this round.
+
+## Verdict
+
+**pass** — the three delta-specs are accurate, have no conflict with current canonical contracts, make no inappropriate durability or locking promise, and can be safely folded into their named canonical files. No delta/canonical change is required before that fold.
+
+## Canonical and implementation mapping
+
+| Delta | Current code and canonical contract | Correctness / merge decision |
+|---|---|---|
+| `specs/kernel/runs.md` | `context_fork.py:18-36` forwards only source-marked `skill_created`; `:203-280` defaults generic forks to `inherit` and isolates only explicit `self_evolution`. `self_improvement.py:219-259` explicitly selects that policy and separately publishes the structured review. | Accurately adds a session-stream visibility contract: raw side-chain assistant/tool/turn data is private, while durable memory/Skill effects plus necessary business/structured events remain observable. It belongs in `docs/specs/kernel/runs.md`, whose purpose is consumer-visible Kernel session/run behavior. |
+| `specs/gateway/routing-delivery.md` | The special source-marked event is not a per-run reply (`runtime_delivery/observer.py:524-538`); persistent delivery keeps normal `BACKGROUND_TASK` assistant output on its existing relay branch (`background_session_events.py:197-239`). | Accurately constrains only self-evolution maintenance output to system notification delivery and explicitly preserves the pre-existing ordinary background-task result contract. It neither invents a text filter nor changes external-channel behavior beyond suppressing raw maintenance content. |
+| `specs/gateway/agent-capabilities.md` | `BackgroundSubscriptionManager` owns session-level marked-Skill delivery (`background_subscriptions.py:92-122,215-253`); composition injects the existing config-sync handler (`composition.py:466-506`); `IMAgentConfigSync` retains default discovery and explicit allowlist semantics (`agent_config_sync.py:1006-1151`). | Accurately states the observable result for terminal timing and replay: the created Skill is converged using the existing mode-aware rule, with no duplicate owner outcome. This directly extends canonical `agent-capabilities.md:333-364` without restating its entire selection-mode state machine. |
+
+The delta docs contain no changes relative to the already verified pre-main-sync report parent (`66a5ed4a5`), so the main merge did not silently alter their intended claims. `git diff --check origin/main...HEAD` and the documentation integrity gate both pass.
+
+## bugfix-527 F3 provenance compatibility
+
+The main merge adds `metadata_overrides` to the fork callable and makes self-improvement pass `{"skill_creation_source": "F3"}` only when `review_skills` is true (`self_improvement.py:219-228`). This is independent from the simultaneous `event_policy="self_evolution"`:
+
+- metadata is copied only into the fork HookContext (`context_fork.py:262-280`) and is consumed by Skill usage provenance (`agent/core/skills/usage.py:166-169`);
+- event policy only selects the parent-session publisher (`context_fork.py:272-278`), whose allowlist emits a source-marked `skill_created` and no raw realtime events (`:18-36`);
+- the new canonical source rule is already complete in `docs/specs/kernel/skills.md:104-121`: automatic Skill Review create is `F3`; memory-only review, ordinary fork/user create, and `skill_view` do not fabricate or overwrite it.
+
+Therefore bugfix-525's Kernel-runs delta must not claim `F3`: that would incorrectly make a Skill usage-record provenance detail part of the public session-stream contract and duplicate bugfix-527's authority. The two capabilities coexist without a metadata/event-source collision, as confirmed by the focused suite: **26 passed in 4.18s** across F3 integration, generic fork inheritance/private-policy, and self-improvement caller tests. The unit's reported broader merge-conflict seam (`75 passed`) remains consistent with this independent subset.
+
+## Concurrency wording decision
+
+Do **not** add the RLock to the delta. The shared `IMAgentConfigSync._operation_lock` is an implementation mechanism that serializes its read/merge/optimistic-PATCH/publish transaction (`agent_config_sync.py:242-246,1006-1106`); it is not a new Gateway public contract. The capabilities delta already states the correct durable behavior — existing mode-aware config sync converges and the same creation result is not handled twice. Naming a lock would over-constrain a later equivalent implementation and would not improve a consumer's observable guarantee.
+
+## Evidence
+
+- Independent F3/policy source suite: **26 passed in 4.18s**.
+- Reported unit merge-conflict focused seam: **75 passed**.
+- `PYTHON=.../.venv/bin/python scripts/docs-check`: passed (`241` maintained Markdown sources / `67` routes).
+- `git diff --check origin/main...HEAD`: passed.
+
+## Required changes
+
+- None.
