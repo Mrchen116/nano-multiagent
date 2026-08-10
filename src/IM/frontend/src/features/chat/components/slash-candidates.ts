@@ -1,4 +1,7 @@
-import type { AgentAllowlistOption } from "../../settings/agents/im-agent-config-api";
+import type {
+  AgentAllowlistOption,
+  AgentCommandOption,
+} from "../../settings/agents/im-agent-config-api";
 
 /**
  * feat-430: slash picker candidate model + pure assembly helpers.
@@ -25,6 +28,21 @@ export interface SlashSkillCandidate {
 }
 
 export type SlashCandidate = SlashCommandCandidate | SlashSkillCandidate;
+
+/** Union already-authorized runtime commands across a conversation's agents. */
+export function buildSlashCommands(
+  perAgent: ReadonlyArray<ReadonlyArray<AgentCommandOption>>,
+): SlashCommandCandidate[] {
+  const byName = new Map<string, SlashCommandCandidate>();
+  for (const commands of perAgent) {
+    for (const command of commands) {
+      if (!byName.has(command.name)) {
+        byName.set(command.name, { kind: "command", ...command });
+      }
+    }
+  }
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
 
 /**
  * One conversation agent's enabled skills, ready for union/dedup.

@@ -2,10 +2,36 @@ import { describe, expect, it } from "vitest";
 
 import type { AgentAllowlistOption } from "../../settings/agents/im-agent-config-api";
 import {
+  buildSlashCommands,
   buildSlashSkills,
   matchSlashTrigger,
   resolveEnabledSkills,
 } from "./slash-candidates";
+
+describe("buildSlashCommands (authoritative capability union)", () => {
+  it("dedupes commands reported by multiple conversation agents without inventing candidates", () => {
+    const out = buildSlashCommands([
+      [
+        { name: "workflows", description: "Inspect Workflow runs" },
+        { name: "deep-research", description: "Run bundled research" },
+      ],
+      [
+        { name: "workflows", description: "Inspect Workflow runs" },
+        { name: "project-review", description: "Run saved review" },
+      ],
+    ]);
+
+    expect(out).toEqual([
+      { kind: "command", name: "deep-research", description: "Run bundled research" },
+      { kind: "command", name: "project-review", description: "Run saved review" },
+      { kind: "command", name: "workflows", description: "Inspect Workflow runs" },
+    ]);
+  });
+
+  it("returns no Workflow commands when capabilities report none", () => {
+    expect(buildSlashCommands([[], []])).toEqual([]);
+  });
+});
 
 const skill = (name: string, location: string | null, description = ""): AgentAllowlistOption => ({
   name,

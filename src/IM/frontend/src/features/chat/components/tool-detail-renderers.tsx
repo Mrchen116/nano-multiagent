@@ -258,6 +258,7 @@ interface SearchResult {
 type ToolDetailCardProps = {
   detail: ToolDetail;
   isResultPending?: boolean;
+  isDenied?: boolean;
 };
 
 function WebSearchCard({ detail, isResultPending = false }: ToolDetailCardProps) {
@@ -331,6 +332,88 @@ function AgentCard({ detail, isResultPending = false }: ToolDetailCardProps) {
             </div>
           )}
           {error && <pre className="chat-tool-call-pre">{error}</pre>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Workflow → input script BEFORE async launch result (feat-517) ──────────
+
+function WorkflowField({ label, value }: { label: string; value: string }) {
+  if (!value) return null;
+  return (
+    <div className="chat-tool-detail-workflow-field">
+      <span className="chat-tool-detail-workflow-key">{label}</span>
+      <span className="chat-tool-detail-workflow-value">{value}</span>
+    </div>
+  );
+}
+
+function WorkflowCard({
+  detail,
+  isResultPending = false,
+  isDenied = false,
+}: ToolDetailCardProps) {
+  const { t } = useTranslation();
+  const description = str(detail.description);
+  const source = str(detail.source);
+  const guideline = str(detail.guideline);
+  const scriptPreview = str(detail.script_preview);
+  const status = str(detail.status);
+  const name = str(detail.name);
+  const runId = str(detail.runId);
+  const taskId = str(detail.taskId);
+  const scriptPath = str(detail.scriptPath);
+  const transcriptDir = str(detail.transcriptDir);
+  const error = errorText(detail.error);
+  const failed = status === "failed" || Boolean(error);
+
+  return (
+    <div className="chat-tool-detail-workflow">
+      <div className="chat-tool-detail-workflow-input">
+        <Section label={t("chat.messagePane.toolDetail.workflowInputLabel")}>
+          {description && (
+            <div className="chat-tool-detail-workflow-description">{description}</div>
+          )}
+          <div className="chat-tool-detail-workflow-fields">
+            <WorkflowField label="source" value={source} />
+            <WorkflowField label="guideline" value={guideline} />
+          </div>
+          {scriptPreview && (
+            <LongOutput
+              text={scriptPreview}
+              truncatedAtSource={detail.truncated === true}
+              render={(shown) => <pre className="chat-tool-call-pre">{shown}</pre>}
+            />
+          )}
+        </Section>
+      </div>
+      {(!isResultPending || isDenied) && (
+        <div className="chat-tool-detail-workflow-result">
+          <Section label={t("chat.messagePane.toolDetail.workflowResultLabel")}>
+            {isDenied ? (
+              <div className="chat-tool-detail-workflow-status chat-tool-detail-workflow-status--failed">
+                ✕ {t("chat.messagePane.toolDetail.workflowDenied")}
+              </div>
+            ) : (
+              <>
+                {status && (
+                  <div className={`chat-tool-detail-workflow-status${failed ? " chat-tool-detail-workflow-status--failed" : ""}`}>
+                    {failed ? "✕" : "✓"} {status}
+                  </div>
+                )}
+                <div className="chat-tool-detail-workflow-fields">
+                  <WorkflowField label="name" value={name} />
+                  <WorkflowField label="runId" value={runId} />
+                  <WorkflowField label="taskId" value={taskId} />
+                  <WorkflowField label="scriptPath" value={scriptPath} />
+                  <WorkflowField label="transcriptDir" value={transcriptDir} />
+                </div>
+                {error && <pre className="chat-tool-call-pre">{error}</pre>}
+              </>
+            )}
+          </Section>
         </div>
       )}
     </div>
@@ -547,6 +630,7 @@ const BESPOKE: Record<string, (p: ToolDetailCardProps) => ReactNode> = {
   web_fetch: WebCard,
   web_search: WebSearchCard,
   agent: AgentCard,
+  Workflow: WorkflowCard,
   memory: MemoryCard,
   skill_manage: SkillCard,
   skill_view: SkillViewCard,
@@ -582,6 +666,8 @@ function hasTerminalDetail(name: string, detail: ToolDetail): boolean {
       return Object.prototype.hasOwnProperty.call(detail, "results") || hasAnyValue(detail, ["error", "message"]);
     case "agent":
       return hasAnyValue(detail, ["status", "content", "output_file", "error", "agent_id"]);
+    case "Workflow":
+      return hasAnyValue(detail, ["status", "name", "runId", "taskId", "scriptPath", "transcriptDir", "error"]);
     case "memory":
       return detail.success != null || hasAnyValue(detail, ["message", "error"]);
     case "skill_manage":
@@ -614,7 +700,15 @@ export function ToolDetailBody({ call }: { call: ToolCall }) {
   }
   if (detail) {
     const Bespoke = BESPOKE[call.name];
-    if (Bespoke) return <Bespoke detail={detail} isResultPending={isResultPending(call, detail)} />;
+    if (Bespoke) {
+      return (
+        <Bespoke
+          detail={detail}
+          isResultPending={isResultPending(call, detail)}
+          isDenied={call.reason === "denied" || call.approval === "user_deny"}
+        />
+      );
+    }
     return <GenericCard detail={detail} />;
   }
   // No detail (historical message / presenter-less tool with empty result):

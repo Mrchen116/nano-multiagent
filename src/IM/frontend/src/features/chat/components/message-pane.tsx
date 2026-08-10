@@ -47,6 +47,7 @@ import { SlashPicker } from "./slash-picker";
 import {
   matchSlashTrigger,
   type SlashCandidate,
+  type SlashCommandCandidate,
   type SlashSkillCandidate,
 } from "./slash-candidates";
 import { TokenChip } from "./token-chip";
@@ -64,6 +65,8 @@ export interface MessagePaneProps {
   draftSeed?: { id: string; text: string } | null;
   /** feat-430: enabled skills for this conversation's agent(s), for the slash picker. */
   slashSkills?: SlashSkillCandidate[];
+  /** feat-517: authoritative dynamic commands supplied by the active Agent runtime. */
+  slashCommands?: SlashCommandCandidate[];
   nodeName?: string | null;
   nodeStatus?: "online" | "offline";
   /** Agent color for header avatar (direct-agent conversations). */
@@ -178,6 +181,7 @@ export function MessagePane({
   mentionCandidates,
   draftSeed = null,
   slashSkills = [],
+  slashCommands = [],
   nodeName,
   nodeStatus = "offline",
   agentColor,
@@ -858,6 +862,7 @@ export function MessagePane({
               <div ref={slashWrapRef}>
                 <SlashPicker
                   skills={slashSkills}
+                  commands={slashCommands}
                   query={slashMatch.prefix}
                   skillMode={slashMatch.skillMode}
                   isGroup={isGroup}
@@ -1454,10 +1459,12 @@ function MessageBubble({
           )}
           {isAgent &&
             ((message.tool_calls && message.tool_calls.length > 0) ||
-              (message.thinking && message.thinking.length > 0)) && (
+              (message.thinking && message.thinking.length > 0) ||
+              (message.background_returns && message.background_returns.length > 0)) && (
               <ToolCallsPanel
                 toolCalls={message.tool_calls ?? []}
                 thinking={message.thinking}
+                backgroundReturns={message.background_returns}
               />
             )}
           {isAgent && deliveryStatus === "completed" && message.token_usage && (

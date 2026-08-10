@@ -2631,5 +2631,25 @@ describe("MessagePane", () => {
       expect(box.value).toBe("/skill:pr-review ");
     });
 
+    it("shows and inserts authoritative dynamic commands supplied by the active runtime", async () => {
+      const user = userEvent.setup();
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[]}
+          mentionCandidates={[]}
+          slashSkills={[]}
+          slashCommands={[
+            { kind: "command", name: "workflows", description: "Inspect Workflow runs" },
+          ]}
+          onSend={() => {}}
+        />
+      );
+      const box = screen.getByRole("textbox") as HTMLTextAreaElement;
+      await user.type(box, "/work");
+      await user.click(await screen.findByText("/workflows"));
+      expect(box.value).toBe("/workflows ");
+    });
+
   });
 });

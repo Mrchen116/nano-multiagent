@@ -38,6 +38,7 @@ import {
 import {
   classifyConversationKind,
   type Attachment,
+  type BackgroundReturn,
   type Conversation,
   type Message,
   type PermissionRequest,
@@ -48,8 +49,10 @@ import {
   getAgentCapabilities,
   getAgentConfig,
   normalizeAllowlistOptions,
+  type AgentCommandOption,
 } from "../settings/agents/im-agent-config-api";
 import {
+  buildSlashCommands,
   buildSlashSkills,
   resolveEnabledSkills,
   type AgentEnabledSkills,
@@ -89,7 +92,24 @@ function attachmentErrorKey(error: unknown) {
     : "chat.messagePane.attachmentUnknown";
 }
 
-function mergeMessageWithExisting(message: Message, existing?: Message): Message {
+function mergeBackgroundReturns(
+  fromServer: BackgroundReturn[] | undefined,
+  fromStream: BackgroundReturn[] | undefined,
+): BackgroundReturn[] {
+  const byTaskId = new Map<string, BackgroundReturn>();
+  for (const item of fromServer ?? []) byTaskId.set(item.task_id, item);
+  // A history response can lag the already-received live event. Preserve the
+  // live terminal projection for duplicate task ids while retaining any other
+  // durable history entries.
+  for (const item of fromStream ?? []) byTaskId.set(item.task_id, item);
+  return [...byTaskId.values()].sort((a, b) => {
+    const aSeq = typeof a.seq === "number" ? a.seq : Number.MAX_SAFE_INTEGER;
+    const bSeq = typeof b.seq === "number" ? b.seq : Number.MAX_SAFE_INTEGER;
+    return aSeq - bSeq;
+  });
+}
+
+export function mergeMessageWithExisting(message: Message, existing?: Message): Message {
   let out = message;
   if (!message.token_usage && existing?.token_usage) {
     out = {
@@ -108,6 +128,17 @@ function mergeMessageWithExisting(message: Message, existing?: Message): Message
     || (existing?.permission_requests?.length ?? 0) > 0
   ) {
     out = { ...out, permission_requests };
+  }
+  const background_returns = mergeBackgroundReturns(
+    message.background_returns,
+    existing?.background_returns,
+  );
+  if (
+    background_returns.length > 0
+    || (message.background_returns?.length ?? 0) > 0
+    || (existing?.background_returns?.length ?? 0) > 0
+  ) {
+    out = { ...out, background_returns };
   }
   return out;
 }
@@ -378,14 +409,14 @@ export function ChatWorkspacePage() {
       .map((a) => ({ agent_id: a.agent_id, display_name: a.display_name }));
   }, [activeConversation, agentsQuery.data]);
 
-  // feat-430: enabled skills for the slash picker = each agent's config whitelist ∩
-  // capabilities (决策 2), then group-union deduped by SKILL.md location (决策 3 / Q7).
-  // Fetched per conversation (not per `/` keystroke) and cached by react-query.
-  const slashSkillsQuery = useQuery({
+  // Slash candidates come from each Agent's live capability snapshot. Skills still
+  // apply config ∩ capability semantics; runtime commands are already authorized by
+  // the Gateway and are only unioned here. Fetch per conversation, not per keystroke.
+  const slashCandidatesQuery = useQuery({
     enabled: conversationAgents.length > 0,
     queryKey: [
       "chat",
-      "slash-skills",
+      "slash-candidates",
       conversationAgents.map((a) => a.agent_id).sort(),
     ],
     staleTime: 60_000,
@@ -396,7 +427,9 @@ export function ChatWorkspacePage() {
       // owning Gateway (the IM mirror is empty for Gateway-seeded agents), so the
       // config ∩ capabilities intersection reflects真实 enablement instead of全量.
       const results = await Promise.allSettled(
-        conversationAgents.map(async (a): Promise<AgentEnabledSkills> => {
+        conversationAgents.map(async (a): Promise<AgentEnabledSkills & {
+          commands: AgentCommandOption[];
+        }> => {
           const [config, capabilities] = await Promise.all([
             getAgentConfig(a.agent_id, "live"),
             getAgentCapabilities(a.agent_id),
@@ -409,19 +442,21 @@ export function ChatWorkspacePage() {
               capSkills,
               config.skills_selection_mode,
             ),
+            commands: capabilities.commands ?? [],
           };
         })
       );
-      const perAgent = results
-        .filter(
-          (r): r is PromiseFulfilledResult<AgentEnabledSkills> =>
-            r.status === "fulfilled",
-        )
-        .map((r) => r.value);
-      return buildSlashSkills(perAgent);
+      const perAgent = results.flatMap((result) =>
+        result.status === "fulfilled" ? [result.value] : []
+      );
+      return {
+        skills: buildSlashSkills(perAgent),
+        commands: buildSlashCommands(perAgent.map((agent) => agent.commands)),
+      };
     },
   });
-  const slashSkills = slashSkillsQuery.data ?? [];
+  const slashSkills = slashCandidatesQuery.data?.skills ?? [];
+  const slashCommands = slashCandidatesQuery.data?.commands ?? [];
 
   const selectedDistillConversations = useMemo(() => {
     const byId = new Set(selectedDistillConversationIds);
@@ -1076,6 +1111,7 @@ export function ChatWorkspacePage() {
             mentionCandidates={mentionCandidates}
             draftSeed={draftSeed}
             slashSkills={slashSkills}
+            slashCommands={slashCommands}
             nodeName={headerAgentContext.nodeName}
             nodeStatus={headerAgentContext.nodeStatus}
             agentColor={headerAgentContext.agentColor}

@@ -10,6 +10,8 @@ import type {
 export interface SlashPickerProps {
   /** Enabled skills for this conversation (single agent, or group union). */
   skills: SlashSkillCandidate[];
+  /** Dynamic commands already filtered by the active Agent runtime snapshot. */
+  commands?: SlashCommandCandidate[];
   /** Prefix after `/` or `/skill:`. */
   query: string;
   /** True when already in the `/skill:` namespace → only skills are shown. */
@@ -36,6 +38,7 @@ export interface SlashPickerProps {
  */
 export function SlashPicker({
   skills,
+  commands: dynamicCommands = [],
   query,
   skillMode,
   isGroup,
@@ -56,10 +59,11 @@ export function SlashPicker({
         description: t(isGroup ? "chat.slash.newGroupDesc" : "chat.slash.newDesc"),
       },
       { kind: "command", name: "compact", description: t("chat.slash.compactDesc") },
+      ...dynamicCommands,
     ];
     const commands = allCommands.filter((c) => c.name.toLowerCase().startsWith(q));
     return [...commands, ...matchedSkills];
-  }, [skills, query, skillMode, isGroup, t]);
+  }, [skills, dynamicCommands, query, skillMode, isGroup, t]);
 
   const [highlighted, setHighlighted] = useState(0);
   const baseId = useId();
