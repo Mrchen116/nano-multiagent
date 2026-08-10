@@ -50,13 +50,13 @@ Prototype / Reference Contract: N/A。
 
 ### R2 — 精确 per-run route 生命周期
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 先补 manager route、4096 oldest-first、missing fail-closed、coordinator pre-submit/submit-failure 红测；实现 route registry 与 trace admission。
 - 验证: manager/coordinator unit + Kernel/Gateway overlap integration。
 
 ### R3 — structured notice 双出口与 composition
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 先补飞书/IM origin switching、overlap、stable dedupe、external/shadow independent best-effort 红测；扩既有 callback 并接入 existing external sender。
 - 验证: delivery/composition/observer/background affected suites。
 

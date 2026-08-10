@@ -26,11 +26,24 @@
 
 ## R2 — 精确 per-run route 生命周期
 
-- Status: DOING
+- Context: persistent subscriber 跨多轮长驻，原实现捕获首次 `request.reply_context`；共享 Kernel session 在飞书/shadow 交替与 review overlap 时会串到旧目标。
+- Decision: manager 维护最多 4096 项 `trace_id -> ReplyContext` oldest-first 表，notice 只按 `originating_trace_id` 原子消费一次；缺失/重放 fail-closed。coordinator 在同步 submit 前注册并传同一随机 trace，submit 抛错立即撤销。
+- Rationale: 本轮 admission 是路由事实 owner；注册先于 submit 覆盖 fast review，消费后删除同时避免 replay 重复。未触发 review 的 route 只由固定容量淘汰，不读取首次或 latest binding 猜测。
+- Evidence:
+  - Tests: 红测 `5 failed`（manager 无 route API、submit 未传 trace/未撤销）；Green manager/coordinator/SDK affected `28 passed in 6.91s`。
+  - Entry: coordinator public dispatch 测试从真实 binding 构造 ReplyContext，观察 register 在 Kernel submit 前、trace 完全相同，失败路径 route 为空。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression: 新建语义 owner `test_background_subscription_routes.py` 与 `test_session_run_coordinator_notice_routes.py`；真实 Kernel/Gateway overlap 在 R4。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: revert `66d791976`。
+- Commits: `66d791976`。
+- Next: R3 复用现有 external sender，实现 structured notice 双出口和独立 best-effort。
 
 ## R3 — structured notice 双出口与 composition
 
-- Status: TODO
+- Status: DOING
 
 ## R4 — CLI、跨层与真栈 fixture
 
