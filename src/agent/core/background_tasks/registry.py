@@ -178,7 +178,17 @@ class BackgroundTaskRegistry:
         self._persist(new)
         return new
 
-    def fail(self, task_id: str, *, error: str) -> BackgroundTaskRecord:
+    def fail(
+        self,
+        task_id: str,
+        *,
+        error: str,
+        result_text: str | None = None,
+        usage: Mapping[str, Any] | None = None,
+        duration_ms: int | None = None,
+        tool_use_count: int | None = None,
+        notified: bool = False,
+    ) -> BackgroundTaskRecord:
         with self._lock:
             old = self._records[task_id]
             if self._guard_terminal(old):
@@ -188,6 +198,11 @@ class BackgroundTaskRegistry:
                 status=BackgroundTaskStatus.FAILED,
                 ended_at=self._now_iso(),
                 error=error,
+                result_text=result_text,
+                usage=usage,
+                duration_ms=duration_ms,
+                tool_use_count=tool_use_count,
+                notified=notified,
             )
             self._records[task_id] = new
             self._clear_live_handles_locked(task_id)

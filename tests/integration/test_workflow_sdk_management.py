@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from agent.core.llm.interfaces import LLMMessage, LLMToolCall
+from agent.core.types import TokenUsage
 from agent.sdk import (
     LLMConfig,
     PromptSlots,
@@ -50,6 +51,59 @@ class _WorkflowCallingClient:
 
     async def _finish(self):  # noqa: ANN202
         yield LLMMessage(role="assistant", content="launched", finish_reason="stop")
+
+
+class _ObservableWorkflowClient:
+    def __init__(self) -> None:
+        self.launched = False
+
+    def generate(self, request: Any):  # noqa: ANN201
+        tool_names = {tool.name for tool in request.tools}
+        if "Workflow" not in tool_names:
+            return self._child_result()
+        if not self.launched:
+            self.launched = True
+            return self._launch()
+        return self._parent_result()
+
+    async def _launch(self):  # noqa: ANN202
+        yield LLMMessage(
+            role="assistant",
+            content="launching",
+            tool_calls=(
+                LLMToolCall(
+                    call_id="call-observable-workflow",
+                    name="Workflow",
+                    arguments={
+                        "script": """
+meta = {"name": "observable", "description": "Run one child", "phases": [{"title": "Work"}]}
+async def main():
+    phase("Work")
+    return await agent("return child result", phase="Work")
+"""
+                    },
+                ),
+            ),
+        )
+
+    async def _parent_result(self):  # noqa: ANN202
+        yield LLMMessage(role="assistant", content="launched", finish_reason="stop")
+
+    async def _child_result(self):  # noqa: ANN202
+        yield LLMMessage(
+            role="assistant",
+            content="child result",
+        )
+        yield LLMMessage(
+            role="assistant",
+            content="",
+            finish_reason="stop",
+            usage=TokenUsage(
+                prompt_tokens=7,
+                completion_tokens=4,
+                total_tokens=11,
+            ),
+        )
 
 
 async def _allow_all(_tool: str, _input: Any, _context: Any) -> Any:
@@ -146,6 +200,57 @@ async def test_kernel_workflow_management_surface_owns_query_control_and_save(
 
         assert saved.name == "saved-sdk-demo"
         assert saved in kernel.list_named_workflows(workspace_root=tmp_path)
+    finally:
+        await kernel.aclose()
+
+
+async def test_sdk_snapshot_exposes_child_telemetry_and_transcript_locator(
+    tmp_path: Path,
+) -> None:
+    kernel = build_kernel(
+        llm=LLMConfig(
+            provider="openai_compat",
+            model="test-model",
+            base_url="http://127.0.0.1:1",
+        ),
+        workspace_config_dirname=".nanocode",
+        global_config_root=tmp_path / "global",
+        can_use_tool=_allow_all,
+        repo_root=tmp_path,
+        _llm_client_override=_ObservableWorkflowClient(),
+    )
+    runtime = SessionRuntimeConfig(
+        model="test-model",
+        prompt=PromptSlots(),
+        skills=None,
+        enabled_tools=["Workflow"],
+        features={},
+    )
+    try:
+        session = await kernel.create_session(workspace_root=tmp_path, runtime=runtime)
+        parent = kernel.submit(
+            session_id=session.session_id,
+            workspace_root=tmp_path,
+            parts=[{"type": "text", "text": "run one observable workflow"}],
+        )
+        await _wait_parent(kernel, parent.run_id)
+        completed = await _wait_workflow(kernel, session.session_id, "completed")
+
+        assert completed.usage == {
+            "prompt_tokens": 7,
+            "completion_tokens": 4,
+            "total_tokens": 11,
+        }
+        assert completed.phases[0].usage == completed.usage
+        assert completed.phases[0].duration_ms is not None
+        agent = completed.agents[0]
+        assert agent.result == "child result"
+        assert agent.usage == completed.usage
+        assert agent.duration_ms is not None
+        assert agent.session_id is not None
+        assert agent.transcript_path is not None
+        assert Path(agent.transcript_path).is_file()
+        assert agent.worktree_path is None
     finally:
         await kernel.aclose()
 

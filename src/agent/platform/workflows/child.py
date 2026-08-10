@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 import subprocess
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -54,6 +56,7 @@ class WorkflowChildRunner:
         self._active: dict[str, _ActiveAttempt] = {}
         self._usage: dict[str, dict[str, int]] = {}
         self._status: dict[str, str] = {}
+        self._details: dict[str, dict[str, Any]] = {}
         self._warnings: list[str] = []
         self._lock = threading.Lock()
 
@@ -70,6 +73,13 @@ class WorkflowChildRunner:
     def status_for(self, agent_call_id: str) -> str | None:
         with self._lock:
             return self._status.get(agent_call_id)
+
+    def details_for(self, agent_call_id: str) -> dict[str, Any] | None:
+        """Return the terminal observability fields for one logical child call."""
+
+        with self._lock:
+            details = self._details.get(agent_call_id)
+            return dict(details) if details is not None else None
 
     def stop_agent(self, agent_call_id: str) -> bool:
         with self._lock:
@@ -98,6 +108,8 @@ class WorkflowChildRunner:
             attempt.handle.stop()
 
     async def __call__(self, call: AgentCallSpec) -> Any:
+        started_at = time.monotonic()
+        agent_call_id = f"wa_{call.start_ordinal:06d}"
         control = self._context.subagent_control
         if control is None:
             raise RuntimeError("Workflow child control is not configured")
@@ -126,6 +138,7 @@ class WorkflowChildRunner:
         if call.isolation == "worktree":
             child_workspace = self._create_worktree(call)
             cleanup_worktree = True
+        attempt_refs: list[Any] = []
         prompt_tail = type_definition.role_prompt_seed.tail + (
             PromptSlotText(name="workflow.return-value", text=_RETURN_VALUE_ADDENDUM),
         )
@@ -148,7 +161,6 @@ class WorkflowChildRunner:
             custom=type_definition.role_prompt_seed.custom,
             tail=prompt_tail,
         )
-        agent_call_id = f"wa_{call.start_ordinal:06d}"
         try:
             while True:
                 model = self._resolve_model(call, control)
@@ -182,6 +194,7 @@ class WorkflowChildRunner:
                     },
                     parent_session_id=self._context.parent_session_id,
                 )
+                attempt_refs.append(ref)
                 starter = getattr(self._runner, "start_workflow_agent", None)
                 if callable(starter):
                     handle = starter(
@@ -218,6 +231,8 @@ class WorkflowChildRunner:
                         with self._lock:
                             self._status[agent_call_id] = "stopped"
                         return None
+                    with self._lock:
+                        self._status[agent_call_id] = "failed"
                     raise
                 finally:
                     with self._lock:
@@ -235,10 +250,36 @@ class WorkflowChildRunner:
                 else:
                     with self._lock:
                         self._status[agent_call_id] = "completed"
-                return _extract_value(turn, call.schema)
+                try:
+                    return _extract_value(turn, call.schema)
+                except Exception:
+                    with self._lock:
+                        self._status[agent_call_id] = "failed"
+                    raise
         finally:
+            transcript_path = self._transcript_path(control, attempt_refs)
+            retained_worktree: str | None = None
             if cleanup_worktree:
-                self._cleanup_worktree(child_workspace)
+                transcript_path = self._archive_worktree_transcripts(
+                    control=control,
+                    refs=attempt_refs,
+                    agent_call_id=agent_call_id,
+                    worktree=child_workspace,
+                )
+                retained_worktree = self._cleanup_worktree(child_workspace)
+            with self._lock:
+                status = self._status.get(agent_call_id, "failed")
+                self._status[agent_call_id] = status
+                self._details[agent_call_id] = {
+                    "status": status,
+                    "usage": self._usage.get(agent_call_id),
+                    "duration_ms": int((time.monotonic() - started_at) * 1000),
+                    "session_id": (
+                        attempt_refs[-1].session_id if attempt_refs else None
+                    ),
+                    "transcript_path": transcript_path,
+                    "worktree_path": retained_worktree,
+                }
 
     def _resolve_model(self, call: AgentCallSpec, control: Any) -> str | None:
         parent_model = (
@@ -291,7 +332,44 @@ class WorkflowChildRunner:
             )
         return target
 
-    def _cleanup_worktree(self, target: Path) -> None:
+    def _transcript_path(self, control: Any, refs: list[Any]) -> str | None:
+        if not refs:
+            return None
+        return str(control.files.resolve_path(refs[-1]))
+
+    def _archive_worktree_transcripts(
+        self,
+        *,
+        control: Any,
+        refs: list[Any],
+        agent_call_id: str,
+        worktree: Path,
+    ) -> str | None:
+        archive_dir = (
+            self._context.workspace_root
+            / self._config_dirname
+            / "sessions"
+            / self._context.parent_session_id
+            / "workflows"
+            / "runs"
+            / self._workflow_run_id
+            / "transcripts"
+            / agent_call_id
+        )
+        archived: Path | None = None
+        for ref in refs:
+            source = control.files.resolve_path(ref)
+            if not source.exists():
+                continue
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            destination = archive_dir / source.name
+            shutil.copy2(source, destination)
+            source.unlink()
+            _remove_empty_parents(source.parent, stop=worktree)
+            archived = destination
+        return str(archived) if archived is not None else None
+
+    def _cleanup_worktree(self, target: Path) -> str | None:
         status = subprocess.run(
             ["git", "status", "--porcelain"],
             cwd=target,
@@ -300,14 +378,25 @@ class WorkflowChildRunner:
             check=False,
         )
         if status.returncode != 0 or status.stdout.strip():
-            return
-        subprocess.run(
+            return str(target)
+        removed = subprocess.run(
             ["git", "worktree", "remove", str(target)],
             cwd=self._context.workspace_root,
             text=True,
             capture_output=True,
             check=False,
         )
+        return str(target) if removed.returncode != 0 else None
+
+
+def _remove_empty_parents(path: Path, *, stop: Path) -> None:
+    current = path
+    while current != stop and current.is_relative_to(stop):
+        try:
+            current.rmdir()
+        except OSError:
+            return
+        current = current.parent
 
 
 def _extract_value(turn: TurnResult, schema: Any) -> Any:

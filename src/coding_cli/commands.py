@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 _log = logging.getLogger("coding_cli.commands")
-from typing import Any, Callable, Sequence, TextIO
+from typing import Any, Callable, Mapping, Sequence, TextIO
 
 from coding_cli.events.background_runs import BackgroundRunEventProcessor
 from coding_cli.events.event_pipeline import (
@@ -1751,12 +1751,22 @@ def _format_workflow_run(run: Any) -> str:
         lines.append(f"阶段: {run.current_phase}")
     agents = tuple(getattr(run, "agents", ()) or ())
     phases = tuple(getattr(run, "phases", ()) or ())
+    rendered_agent_ids: set[str] = set()
     for phase in phases:
         lines.append(f"[{phase.status}] {phase.title}")
+        if getattr(phase, "detail", None):
+            lines.append(f"  说明: {phase.detail}")
+        if getattr(phase, "usage", None):
+            lines.append(f"  Usage: {_format_workflow_usage(phase.usage)}")
+        if getattr(phase, "duration_ms", None) is not None:
+            lines.append(f"  耗时: {phase.duration_ms / 1000:g}s")
         for agent in agents:
             if agent.phase == phase.title:
-                label = agent.label or agent.agent_call_id
-                lines.append(f"  - [{agent.status}] {label} ({agent.agent_call_id})")
+                _append_workflow_agent(lines, agent)
+                rendered_agent_ids.add(agent.agent_call_id)
+    for agent in agents:
+        if agent.agent_call_id not in rendered_agent_ids:
+            _append_workflow_agent(lines, agent)
     if agents:
         completed = sum(agent.status == "completed" for agent in agents)
         lines.append(f"Agent: {completed}/{len(agents)} completed")
@@ -1777,6 +1787,30 @@ def _format_workflow_run(run: Any) -> str:
     for warning in getattr(run, "warnings", ()):
         lines.append(f"警告: {warning}")
     return "\n".join(lines)
+
+
+def _append_workflow_agent(lines: list[str], agent: Any) -> None:
+    label = agent.label or agent.agent_call_id
+    lines.append(f"  - [{agent.status}] {label} ({agent.agent_call_id})")
+    lines.append(f"    任务: {agent.prompt}")
+    if getattr(agent, "result", None) is not None:
+        lines.append(f"    结果: {agent.result}")
+    if getattr(agent, "error", None):
+        lines.append(f"    错误: {agent.error}")
+    if getattr(agent, "usage", None):
+        lines.append(f"    Usage: {_format_workflow_usage(agent.usage)}")
+    if getattr(agent, "duration_ms", None) is not None:
+        lines.append(f"    耗时: {agent.duration_ms / 1000:g}s")
+    if getattr(agent, "session_id", None):
+        lines.append(f"    Session: {agent.session_id}")
+    if getattr(agent, "transcript_path", None):
+        lines.append(f"    Transcript: {agent.transcript_path}")
+    if getattr(agent, "worktree_path", None):
+        lines.append(f"    保留 worktree: {agent.worktree_path}")
+
+
+def _format_workflow_usage(usage: Mapping[str, int]) -> str:
+    return ", ".join(f"{key}={value}" for key, value in usage.items())
 
 
 # ---------------------------------------------------------------------------

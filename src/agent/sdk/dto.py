@@ -447,6 +447,7 @@ class WorkflowAgentInfo:
     usage: Mapping[str, int] | None = None
     duration_ms: int | None = None
     session_id: str | None = None
+    transcript_path: str | None = None
     worktree_path: str | None = None
 
 

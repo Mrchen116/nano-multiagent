@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
 
-from agent.sdk import WorkflowRunInfo
+from agent.sdk import WorkflowAgentInfo, WorkflowRunInfo
 
 from personal_assistant.config.local_store import WORKFLOW_SIZE_GUIDELINES
 
@@ -106,6 +107,22 @@ def format_workflow_run(run: WorkflowRunInfo) -> str:
     lines = [f"Workflow {run.run_id} · {run.name} · {run.status}"]
     if run.current_phase:
         lines.append(f"阶段: {run.current_phase}")
+    rendered_agent_ids: set[str] = set()
+    for phase in run.phases:
+        lines.append(f"[{phase.status}] {phase.title}")
+        if phase.detail:
+            lines.append(f"  说明: {phase.detail}")
+        if phase.usage:
+            lines.append(f"  Usage: {_format_usage(phase.usage)}")
+        if phase.duration_ms is not None:
+            lines.append(f"  耗时: {phase.duration_ms / 1000:g}s")
+        for agent in run.agents:
+            if agent.phase == phase.title:
+                _append_agent(lines, agent)
+                rendered_agent_ids.add(agent.agent_call_id)
+    for agent in run.agents:
+        if agent.agent_call_id not in rendered_agent_ids:
+            _append_agent(lines, agent)
     if run.agents:
         completed = sum(agent.status == "completed" for agent in run.agents)
         lines.append(f"Agent: {completed}/{len(run.agents)} completed")
@@ -125,6 +142,30 @@ def format_workflow_run(run: WorkflowRunInfo) -> str:
     for warning in run.warnings:
         lines.append(f"警告: {warning}")
     return "\n".join(lines)
+
+
+def _append_agent(lines: list[str], agent: WorkflowAgentInfo) -> None:
+    label = agent.label or agent.agent_call_id
+    lines.append(f"  - [{agent.status}] {label} ({agent.agent_call_id})")
+    lines.append(f"    任务: {agent.prompt}")
+    if agent.result is not None:
+        lines.append(f"    结果: {agent.result}")
+    if agent.error:
+        lines.append(f"    错误: {agent.error}")
+    if agent.usage:
+        lines.append(f"    Usage: {_format_usage(agent.usage)}")
+    if agent.duration_ms is not None:
+        lines.append(f"    耗时: {agent.duration_ms / 1000:g}s")
+    if agent.session_id:
+        lines.append(f"    Session: {agent.session_id}")
+    if agent.transcript_path:
+        lines.append(f"    Transcript: {agent.transcript_path}")
+    if agent.worktree_path:
+        lines.append(f"    保留 worktree: {agent.worktree_path}")
+
+
+def _format_usage(usage: Mapping[str, int]) -> str:
+    return ", ".join(f"{key}={value}" for key, value in usage.items())
 
 
 def format_workflow_runs(runs: tuple[WorkflowRunInfo, ...]) -> str:

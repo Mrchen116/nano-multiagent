@@ -22,6 +22,7 @@ def test_workflow_public_enums_and_dtos_are_available() -> None:
         status="completed",
         prompt="review",
         result="done",
+        transcript_path="/artifacts/call_1.jsonl",
     )
     run = WorkflowRunInfo(
         run_id="wf_123456",
@@ -38,6 +39,7 @@ def test_workflow_public_enums_and_dtos_are_available() -> None:
     assert WorkflowControlAction.RESTART_AGENT == "restart_agent"
     assert WorkflowSaveScope.PERSONAL == "personal"
     assert run.agents == (agent,)
+    assert run.agents[0].transcript_path == "/artifacts/call_1.jsonl"
     assert (
         SavedWorkflowInfo(name="review", scope="project", path="/x.py").name == "review"
     )

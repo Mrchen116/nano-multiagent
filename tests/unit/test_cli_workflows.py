@@ -8,6 +8,7 @@ import pytest
 
 from agent.sdk import PromptSlots, SessionRuntimeConfig, WorkflowSaveScope
 from coding_cli.commands import (
+    _format_workflow_run,
     _handle_repl_command_async,
     _resolve_workflow_permission_event,
     _run_workflow_tty_controls,
@@ -222,6 +223,58 @@ async def test_cli_workflow_commands_use_sdk_and_reconfigure_runtime(
     assert kernel.reconfigured[-1].reasoning_effort == "xhigh"
     assert "wf_1 · review · running" in output.getvalue()
     assert "已保存 Workflow /saved-review" in output.getvalue()
+
+
+def test_cli_workflow_detail_renders_phase_and_agent_observability() -> None:
+    run = SimpleNamespace(
+        run_id="wf_1",
+        name="review",
+        status="completed",
+        current_phase="Verify",
+        phases=(
+            SimpleNamespace(
+                title="Verify",
+                detail="Verify findings",
+                status="completed",
+                usage={"total_tokens": 21},
+                duration_ms=1500,
+            ),
+        ),
+        agents=(
+            SimpleNamespace(
+                agent_call_id="wa_1",
+                label="verify-api",
+                phase="Verify",
+                status="completed",
+                prompt="Verify the API contract",
+                result="contract is valid",
+                error=None,
+                usage={"total_tokens": 21},
+                duration_ms=1200,
+                session_id="child-1",
+                transcript_path="/artifacts/child-1.jsonl",
+                worktree_path="/retained/wa_1",
+            ),
+        ),
+        result="done",
+        error=None,
+        usage={"total_tokens": 21},
+        duration_ms=1600,
+        transcript_dir="/diagnostics/wf_1",
+        script_path="/diagnostics/wf_1.py",
+        warnings=(),
+    )
+
+    rendered = _format_workflow_run(run)
+
+    assert "[completed] Verify" in rendered
+    assert "Verify findings" in rendered
+    assert "任务: Verify the API contract" in rendered
+    assert "结果: contract is valid" in rendered
+    assert "total_tokens=21" in rendered
+    assert "Session: child-1" in rendered
+    assert "Transcript: /artifacts/child-1.jsonl" in rendered
+    assert "保留 worktree: /retained/wa_1" in rendered
 
 
 class _MessageKernel:

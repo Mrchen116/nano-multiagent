@@ -544,6 +544,7 @@ def _to_workflow_run_info(snapshot: Mapping[str, Any]) -> WorkflowRunInfo:
             usage=item.get("usage"),
             duration_ms=item.get("duration_ms"),
             session_id=item.get("session_id"),
+            transcript_path=item.get("transcript_path"),
             worktree_path=item.get("worktree_path"),
         )
         for item in snapshot.get("agents", ())

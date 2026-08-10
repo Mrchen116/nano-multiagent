@@ -1,4 +1,4 @@
-from agent.sdk import WorkflowRunInfo
+from agent.sdk import WorkflowAgentInfo, WorkflowPhaseInfo, WorkflowRunInfo
 
 from personal_assistant.gateway.workflow_commands import (
     format_workflow_run,
@@ -70,6 +70,31 @@ def test_format_workflow_run_exposes_raw_result_and_diagnostics() -> None:
             name="review",
             description="Review changes",
             current_phase="verify",
+            phases=(
+                WorkflowPhaseInfo(
+                    title="verify",
+                    detail="Verify findings",
+                    status="completed",
+                    usage={"total_tokens": 21},
+                    duration_ms=1500,
+                ),
+            ),
+            agents=(
+                WorkflowAgentInfo(
+                    agent_call_id="wa_1",
+                    start_ordinal=0,
+                    status="completed",
+                    prompt="Verify the API contract",
+                    label="verify-api",
+                    phase="verify",
+                    result="contract is valid",
+                    usage={"total_tokens": 21},
+                    duration_ms=1200,
+                    session_id="child-1",
+                    transcript_path="/artifacts/child-1.jsonl",
+                    worktree_path="/retained/wa_1",
+                ),
+            ),
             result="2 findings",
             usage={"input_tokens": 120, "output_tokens": 30},
             duration_ms=2400,
@@ -83,3 +108,10 @@ def test_format_workflow_run_exposes_raw_result_and_diagnostics() -> None:
     assert "结果: 2 findings" in rendered
     assert "诊断: /tmp/wf_123" in rendered
     assert "input_tokens=120" in rendered
+    assert "[completed] verify" in rendered
+    assert "Verify findings" in rendered
+    assert "任务: Verify the API contract" in rendered
+    assert "结果: contract is valid" in rendered
+    assert "Session: child-1" in rendered
+    assert "Transcript: /artifacts/child-1.jsonl" in rendered
+    assert "保留 worktree: /retained/wa_1" in rendered

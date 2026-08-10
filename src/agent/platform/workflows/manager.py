@@ -68,6 +68,8 @@ class _RunHandle:
     terminal: threading.Event = field(default_factory=threading.Event)
     stop_requested: bool = False
     output_budget: OutputTokenBudget | None = None
+    phase_started_at: dict[str, float] = field(default_factory=dict)
+    phase_ended_at: dict[str, float] = field(default_factory=dict)
     lock: threading.RLock = field(default_factory=threading.RLock)
 
 
@@ -142,6 +144,8 @@ class WorkflowManager:
                     "detail": phase.detail,
                     "status": "pending",
                     "agent_call_ids": [],
+                    "usage": None,
+                    "duration_ms": None,
                 }
                 for phase in compiled.meta.phases
             ],
@@ -340,6 +344,7 @@ class WorkflowManager:
         try:
 
             async def observed_child(call: AgentCallSpec) -> Any:
+                child_started = time.monotonic()
                 agent_info = {
                     "agent_call_id": f"wa_{call.start_ordinal:06d}",
                     "start_ordinal": call.start_ordinal,
@@ -351,6 +356,11 @@ class WorkflowManager:
                     "result": None,
                     "error": None,
                     "resume_key": call.resume_key,
+                    "usage": None,
+                    "duration_ms": None,
+                    "session_id": None,
+                    "transcript_path": None,
+                    "worktree_path": None,
                 }
                 with handle.lock:
                     _maybe_add_large_warning(
@@ -358,8 +368,10 @@ class WorkflowManager:
                         agent_count=call.start_ordinal + 1,
                     )
                     handle.snapshot["agents"].append(agent_info)
+                    _mark_phase_started(handle, call.phase, child_started)
                     for phase_info in handle.snapshot["phases"]:
                         if phase_info["title"] == call.phase:
+                            phase_info["status"] = "running"
                             phase_info["agent_call_ids"].append(
                                 agent_info["agent_call_id"]
                             )
@@ -372,6 +384,14 @@ class WorkflowManager:
                     with handle.lock:
                         agent_info["status"] = "failed"
                         agent_info["error"] = str(exc)
+                        _apply_child_details(
+                            handle,
+                            agent_info,
+                            handle.child_runner,
+                            fallback_duration_ms=int(
+                                (time.monotonic() - child_started) * 1000
+                            ),
+                        )
                         for warning in getattr(handle.child_runner, "warnings", ()):
                             if warning not in handle.snapshot["warnings"]:
                                 handle.snapshot["warnings"].append(warning)
@@ -386,20 +406,15 @@ class WorkflowManager:
                         else None
                     ) or "completed"
                     agent_info["result"] = result
-                    usage_for = getattr(handle.child_runner, "usage_for", None)
-                    usage = (
-                        usage_for(agent_info["agent_call_id"])
-                        if callable(usage_for)
-                        else None
+                    _apply_child_details(
+                        handle,
+                        agent_info,
+                        handle.child_runner,
+                        fallback_duration_ms=int(
+                            (time.monotonic() - child_started) * 1000
+                        ),
                     )
-                    if usage:
-                        agent_info["usage"] = usage
-                        _merge_usage(handle.snapshot, usage)
-                        _maybe_add_large_warning(handle)
-                        if handle.output_budget is not None:
-                            handle.output_budget.add(
-                                int(usage.get("completion_tokens", 0))
-                            )
+                    _maybe_add_large_warning(handle)
                     child_warnings = getattr(handle.child_runner, "warnings", ())
                     for warning in child_warnings:
                         if warning not in handle.snapshot["warnings"]:
@@ -432,6 +447,8 @@ class WorkflowManager:
                                     "detail": phase_info.detail,
                                     "status": "pending",
                                     "agent_call_ids": [],
+                                    "usage": None,
+                                    "duration_ms": None,
                                 }
                             )
                 nested_result = await execute_workflow(
@@ -444,12 +461,17 @@ class WorkflowManager:
                 return nested_result.result
 
             def phase_changed(title: str) -> None:
+                changed_at = time.monotonic()
                 with handle.lock:
                     for phase_info in handle.snapshot["phases"]:
                         if phase_info["status"] == "running":
                             phase_info["status"] = "completed"
+                            _mark_phase_ended(
+                                handle, str(phase_info["title"]), changed_at
+                            )
                         if phase_info["title"] == title:
                             phase_info["status"] = "running"
+                    _mark_phase_started(handle, title, changed_at)
                     self._update(handle, current_phase=title)
                     self._journal(handle, "phase_changed", title=title)
 
@@ -476,22 +498,21 @@ class WorkflowManager:
                 self._update(handle, status="running")
                 self._journal(handle, "run_started", snapshot=self._snapshot(handle))
             result = await execute_workflow(compiled, args=args, runtime=runtime)
-            duration_ms = int((time.monotonic() - started) * 1000)
+            ended_at = time.monotonic()
+            duration_ms = int((ended_at - started) * 1000)
             with handle.lock:
                 self._reconcile_completions(handle, runtime)
                 terminal = str(result.status)
-                if terminal == "completed":
-                    for phase_info in handle.snapshot["phases"]:
-                        if phase_info["status"] == "running":
-                            phase_info["status"] = "completed"
-                else:
-                    for phase_info in handle.snapshot["phases"]:
-                        if phase_info["status"] == "running":
-                            phase_info["status"] = terminal
+                _finalize_phases(handle, terminal=terminal, ended_at=ended_at)
+                terminal_result = _terminal_result(
+                    result=result.result,
+                    terminal=terminal,
+                    agents=handle.snapshot["agents"],
+                )
                 self._update(
                     handle,
                     status=terminal,
-                    result=result.result,
+                    result=terminal_result,
                     error=result.error,
                     duration_ms=duration_ms,
                     logs=list(runtime.logs),
@@ -500,52 +521,67 @@ class WorkflowManager:
                 self._journal(
                     handle,
                     f"run_{terminal}",
-                    result=result.result,
+                    result=terminal_result,
                     error=result.error,
                     snapshot=self._snapshot(handle),
                 )
-            result_text = (
-                json.dumps(result.result, ensure_ascii=False)
-                if not isinstance(result.result, str)
-                else result.result
-            )
-            if terminal == "completed":
-                self._background_registry.complete(
-                    handle.launch.task_id,
-                    result_text=result_text,
-                    duration_ms=duration_ms,
-                    tool_use_count=len(runtime.completions),
-                )
-            elif terminal == "stopped":
-                self._background_registry.stop(
-                    handle.launch.task_id,
-                    result_text=result_text,
-                    error=result.error,
-                    duration_ms=duration_ms,
-                    tool_use_count=len(runtime.completions),
-                )
-            else:
-                self._background_registry.fail(
-                    handle.launch.task_id, error=result.error or "Workflow failed"
-                )
+            self._commit_background_terminal(handle)
         except Exception as exc:
-            duration_ms = int((time.monotonic() - started) * 1000)
+            ended_at = time.monotonic()
+            duration_ms = int((ended_at - started) * 1000)
             with handle.lock:
+                _finalize_phases(handle, terminal="failed", ended_at=ended_at)
+                partial_result = _terminal_result(
+                    result=None,
+                    terminal="failed",
+                    agents=handle.snapshot["agents"],
+                )
                 self._update(
                     handle,
                     status="failed",
+                    result=partial_result,
                     error=str(exc),
                     duration_ms=duration_ms,
                 )
                 self._journal(
                     handle,
                     "run_failed",
+                    result=partial_result,
                     error=str(exc),
                     snapshot=self._snapshot(handle),
                 )
-            self._background_registry.fail(handle.launch.task_id, error=str(exc))
+            self._commit_background_terminal(handle)
         finally:
             handle.terminal.set()
+
+    def _commit_background_terminal(self, handle: _RunHandle) -> None:
+        with handle.lock:
+            status = str(handle.snapshot["status"])
+            result_text = _result_text(handle.snapshot.get("result"))
+            usage = handle.snapshot.get("usage")
+            duration_ms = handle.snapshot.get("duration_ms")
+            tool_use_count = len(handle.snapshot["agents"])
+            error = handle.snapshot.get("error")
+        common = {
+            "result_text": result_text,
+            "usage": usage,
+            "duration_ms": duration_ms,
+            "tool_use_count": tool_use_count,
+        }
+        if status == "completed":
+            self._background_registry.complete(handle.launch.task_id, **common)
+        elif status == "stopped":
+            self._background_registry.stop(
+                handle.launch.task_id,
+                error=error,
+                **common,
+            )
+        else:
+            self._background_registry.fail(
+                handle.launch.task_id,
+                error=error or "Workflow failed",
+                **common,
+            )
 
     def _resume_entries(
         self,
@@ -628,6 +664,11 @@ class WorkflowManager:
                     "error": None,
                     "resume_key": completion.call.resume_key,
                     "replayed": True,
+                    "usage": None,
+                    "duration_ms": None,
+                    "session_id": None,
+                    "transcript_path": None,
+                    "worktree_path": None,
                 }
                 handle.snapshot["agents"].append(item)
                 by_start[start] = item
@@ -725,6 +766,123 @@ def _maybe_add_large_warning(
             "warning": warning,
         }
     )
+
+
+def _apply_child_details(
+    handle: _RunHandle,
+    agent_info: dict[str, Any],
+    child_runner: Any,
+    *,
+    fallback_duration_ms: int,
+) -> None:
+    details_for = getattr(child_runner, "details_for", None)
+    details = (
+        details_for(agent_info["agent_call_id"]) if callable(details_for) else None
+    ) or {}
+    usage = details.get("usage")
+    if usage is None:
+        usage_for = getattr(child_runner, "usage_for", None)
+        usage = usage_for(agent_info["agent_call_id"]) if callable(usage_for) else None
+    if isinstance(usage, Mapping) and usage:
+        normalized_usage = {
+            str(key): value
+            for key, value in usage.items()
+            if isinstance(value, int) and not isinstance(value, bool)
+        }
+        agent_info["usage"] = normalized_usage or None
+        if normalized_usage:
+            _merge_usage(handle.snapshot, normalized_usage)
+            _merge_phase_usage(handle, agent_info.get("phase"), normalized_usage)
+            if handle.output_budget is not None:
+                handle.output_budget.add(
+                    int(normalized_usage.get("completion_tokens", 0))
+                )
+    agent_info["duration_ms"] = int(
+        details.get("duration_ms")
+        if isinstance(details.get("duration_ms"), int)
+        else fallback_duration_ms
+    )
+    for key in ("session_id", "transcript_path", "worktree_path"):
+        value = details.get(key)
+        agent_info[key] = value if isinstance(value, str) else None
+    _mark_phase_ended(handle, agent_info.get("phase"), time.monotonic())
+
+
+def _phase_info(handle: _RunHandle, title: str | None) -> dict[str, Any] | None:
+    if title is None:
+        return None
+    return next(
+        (item for item in handle.snapshot["phases"] if str(item["title"]) == title),
+        None,
+    )
+
+
+def _mark_phase_started(
+    handle: _RunHandle, title: str | None, started_at: float
+) -> None:
+    phase = _phase_info(handle, title)
+    if phase is None or title is None:
+        return
+    handle.phase_started_at.setdefault(title, started_at)
+
+
+def _mark_phase_ended(handle: _RunHandle, title: str | None, ended_at: float) -> None:
+    phase = _phase_info(handle, title)
+    if phase is None or title is None:
+        return
+    handle.phase_ended_at[title] = ended_at
+    started_at = handle.phase_started_at.get(title)
+    if started_at is not None:
+        phase["duration_ms"] = int((ended_at - started_at) * 1000)
+
+
+def _merge_phase_usage(
+    handle: _RunHandle, title: str | None, usage: Mapping[str, Any]
+) -> None:
+    phase = _phase_info(handle, title)
+    if phase is None:
+        return
+    current = dict(phase.get("usage") or {})
+    for key, value in usage.items():
+        if isinstance(value, int) and not isinstance(value, bool):
+            current[key] = int(current.get(key, 0)) + value
+    phase["usage"] = current or None
+
+
+def _finalize_phases(handle: _RunHandle, *, terminal: str, ended_at: float) -> None:
+    for phase in handle.snapshot["phases"]:
+        title = str(phase["title"])
+        was_running = phase["status"] == "running"
+        if was_running:
+            phase["status"] = "completed" if terminal == "completed" else terminal
+        if title in handle.phase_started_at:
+            phase_end = ended_at if was_running else handle.phase_ended_at.get(title)
+            if phase_end is None:
+                phase_end = ended_at
+            phase["duration_ms"] = int(
+                (phase_end - handle.phase_started_at[title]) * 1000
+            )
+
+
+def _terminal_result(
+    *, result: Any, terminal: str, agents: list[dict[str, Any]]
+) -> Any:
+    if terminal == "completed" or result is not None:
+        return result
+    partial = [
+        item.get("result")
+        for item in sorted(agents, key=lambda item: int(item["start_ordinal"]))
+        if item.get("result") is not None
+    ]
+    return partial or None
+
+
+def _result_text(result: Any) -> str | None:
+    if result is None:
+        return None
+    if isinstance(result, str):
+        return result
+    return json.dumps(result, ensure_ascii=False)
 
 
 @dataclass(frozen=True, slots=True)
