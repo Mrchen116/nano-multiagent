@@ -78,6 +78,8 @@ _DEFAULT_STARTUP_TIMEOUT_SECONDS = 15.0
 _DEFAULT_SHUTDOWN_GRACE_SECONDS = 5.0
 _DEFAULT_POLL_INTERVAL_SECONDS = 0.25
 _DEFAULT_HEARTBEAT_TICK_INTERVAL_SECONDS = 30.0
+WORKFLOW_SIZE_GUIDELINES = frozenset({"unrestricted", "small", "medium", "large"})
+DEFAULT_WORKFLOW_SIZE_GUIDELINE = "medium"
 _DEFAULT_WORKSPACE_MEMORY_CONTENT = "# MEMORY\n\nUse this file for stable long-term notes shared across the agent workspace.\n"
 _DEFAULT_WORKSPACE_USER_CONTENT = "# USER PROFILE\n\nUse this file for stable notes about the user (preferences, context).\n"
 _DEFAULT_WORKSPACE_HEARTBEAT_CONTENT = (
@@ -179,6 +181,7 @@ class AgentWorkspaceConfig:
         group_reply_policy: Reply policy in group conversations (e.g. "always", "mention_only").
         default_model: Default LLM model identifier for this agent.
         reasoning_effort: Optional selectable reasoning level for the effective model.
+        workflow_size_guideline: Prompt guidance for the next active Workflow turn.
         features: Per-agent feature-flag overrides keyed by FEATURE_REGISTRY key.
             Absent keys inherit the registry default_on value at session creation time.
             Heartbeat and cron enabling lives here: features["heartbeat"] and
@@ -216,6 +219,7 @@ class AgentWorkspaceConfig:
     group_reply_policy: str | None = None
     default_model: str | None = None
     reasoning_effort: str | None = None
+    workflow_size_guideline: str = DEFAULT_WORKFLOW_SIZE_GUIDELINE
     # feat-379-M2: per-agent feature flags and custom prompt supplement.
     # feat-394-M9: heartbeat/cron enable state lives here (features["heartbeat"] /
     # features["cron_scheduling"]) — no separate heartbeat_enabled/cron_enabled fields.
@@ -842,6 +846,8 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
             agent_dict["default_model"] = agent.default_model
         if agent.reasoning_effort is not None:
             agent_dict["reasoning_effort"] = agent.reasoning_effort
+        if agent.workflow_size_guideline != DEFAULT_WORKFLOW_SIZE_GUIDELINE:
+            agent_dict["workflow_size_guideline"] = agent.workflow_size_guideline
         # feat-379-M2: only emit when non-empty to keep config.yaml readable.
         # feat-394-M9: features dict now carries heartbeat/cron_scheduling state;
         # heartbeat_enabled/cron_enabled are @property derived from features — no
@@ -1242,6 +1248,18 @@ def _parse_agents(
             item.get("reasoning_effort"),
             field_name=f"agents[{index}].reasoning_effort",
         )
+        workflow_size_guideline = (
+            _optional_string(
+                item.get("workflow_size_guideline"),
+                field_name=f"agents[{index}].workflow_size_guideline",
+            )
+            or DEFAULT_WORKFLOW_SIZE_GUIDELINE
+        )
+        if workflow_size_guideline not in WORKFLOW_SIZE_GUIDELINES:
+            allowed = ", ".join(sorted(WORKFLOW_SIZE_GUIDELINES))
+            raise ValueError(
+                f"agents[{index}].workflow_size_guideline must be one of: {allowed}"
+            )
         features = _parse_features(
             item.get("features"), field_name=f"agents[{index}].features"
         )
@@ -1300,6 +1318,7 @@ def _parse_agents(
                 group_reply_policy=group_reply_policy,
                 default_model=default_model,
                 reasoning_effort=reasoning_effort,
+                workflow_size_guideline=workflow_size_guideline,
                 features=features,
                 custom_prompt=custom_prompt,
                 heartbeat_every=heartbeat_every,
