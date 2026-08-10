@@ -25,6 +25,9 @@ def test_projection_is_anonymous_whole_lineage_and_replayable(tmp_path: Path) ->
     write_first_doc(repository, "archive", "bugfix-101-allowed", "# Archive\n")
     write_first_doc(repository, "archive", "feat-510-target", "# Secret target\n")
     write_first_doc(repository, "active", "feat-532-control", "# Control\n")
+    legacy = repository / "docs/changes/archive/bugfix-102-legacy"
+    legacy.mkdir(parents=True)
+    (legacy / "README.md").write_text("# Legacy without a first document\n", encoding="utf-8")
     config = {
         "case_id": "H02",
         "formal_eligible": False,

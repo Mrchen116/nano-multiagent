@@ -194,9 +194,11 @@ def first_document_sources(repository: Path) -> list[tuple[str, Path]]:
             if UNIT_DIR_RE.match(unit.name) is None:
                 continue
             documents = [unit / name for name in FIRST_DOCUMENT_NAMES if (unit / name).is_file()]
-            if len(documents) != 1:
+            if not documents:
+                continue
+            if len(documents) > 1:
                 raise PilotError(
-                    f"change unit must have exactly one first document: {unit} -> {documents}"
+                    f"change unit has ambiguous first documents: {unit} -> {documents}"
                 )
             sources.append((lifecycle, documents[0]))
     return sources
