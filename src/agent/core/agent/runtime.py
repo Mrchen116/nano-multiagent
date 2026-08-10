@@ -292,6 +292,7 @@ class AgentEngine:
                 parts=request.parts,
                 llm_session_id=request.llm_session_id,
                 run_id=request.run_id,
+                trace_id=request.trace_id,
                 controller=request.controller,
                 parent_session_id=state.ref.parent_session_id,
                 workspace_root=state.ref.workspace_root,
@@ -365,6 +366,7 @@ class AgentEngine:
         *,
         llm_session_id: str | None = None,
         run_id: str | None = None,
+        trace_id: str | None = None,
         controller: RunController | None = None,
         parent_session_id: str | None = None,
         workspace_root: Path | None = None,
@@ -416,6 +418,8 @@ class AgentEngine:
             hook_metadata["workspace_root"] = str(session_workspace_root)
         if isinstance(run_id, str) and run_id.strip():
             hook_metadata["run_id"] = run_id.strip()
+        if isinstance(trace_id, str) and trace_id.strip():
+            hook_metadata["trace_id"] = trace_id.strip()
         # Thread RunRecord.origin through to hook_metadata so auto_mode_gate can
         # detect unattended contexts (RunOrigin.HEARTBEAT etc.) without importing
         # RunOrigin in core hooks. Use .value (string) for decoupling.
