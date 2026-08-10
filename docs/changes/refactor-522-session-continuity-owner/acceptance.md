@@ -81,3 +81,100 @@ N/A。`motivation.md`、`design.md` 与验收标准没有要求原型、设计�
 - [x] `docs/specs/<包>/`（长青行为契约层，本 unit 触及的 area）：无需更新；`docs/specs/gateway/routing-delivery.md` 已明确写出不同聊天隔离、重启恢复、`/new` 新上下文和 `/compact` FIFO/current semantics。当前是实现偏离，不应把失败结果写回契约。
 - [x] `AGENTS.md` / `CLAUDE.md`：无需更新；架构红线与开工路由未变化。
 - [x] `docs/specs/CONTRIBUTING.md`（文档规范，仅当本 unit 改了文档体系本身时）：无需更新；本 unit 未改变文档体系。
+
+---
+
+# Round 2 — 2026-08-10
+
+> Revalidation mode: targeted Fast-lane
+>
+> Validated at: `b59d6152ca2ed664251ae42ebf8772be05f1460c`
+>
+> Implementation fix delta: none；本轮只纠正 Round 1 probe 的证据解释，并用不触发持久记忆的新事实重跑两个失败场景。
+
+## Verdict
+
+**pass**
+
+Highest Required Action: **pass**
+
+Round 1 的两个 blocking issue 均为同一 probe 污染造成的 false positive：A 首轮按“请记住”指令主动调用 `memory add`，把暗号写进跨 session 注入的 shared MEMORY；B 与 `/new` 后的新 Kernel session 都没有收到 A transcript，只是从 shared MEMORY 读到了暗号。Round 2 使用明确禁止 memory/tool/file persistence 的随机临时标签后，B 独立聊天和 A 的 `/new` 后新 session 都回答“不知道”，且原始 request/session 证据确认没有隐藏的 transcript 或 memory 污染。
+
+## Fast-lane 范围
+
+- 只复验 Round 1 两个 blocking：跨聊天上下文隔离、`/new` 后新 Kernel session 不携带旧 transcript。
+- 其余 Round 1 已通过的同聊连续性、Gateway-only restart、partial recovery、`/compact` FIFO/superseded 与专用 Feishu 正常入站结果全部继承；没有 implementation delta，也没有发现要求升级为 full revalidation 的影响扩散。
+- 使用 worktree 隔离栈：IM `http://127.0.0.1:58407`、node `wt-unit-refactor-522-6520`、专用测试用户 `nano`。运行结束后已执行 `e2e-down.sh`，未触碰生产 IM/Gateway。
+
+## Round 1 原始证据复核
+
+| Round 1 观察 | 原始持久证据 | 重新判定 |
+|---|---|---|
+| A 保存暗号后 B 回答同一暗号 | A session `sess_dcae0a620472f291` 的首响应明确调用 `memory(action=add, target=memory)` 写入 `聊天唯一暗号: R522-A-7KQ9-M2`。 | Probe 主动把聊天事实升级成跨 session MEMORY，不能用来判断 chat transcript 隔离。 |
+| B 回答 A 暗号 | B session `sess_1023b334ba129561` 的 request 只有一条 B user message；暗号不在 messages，而在 system 的 shared MEMORY，source 指向 A session。 | **INVALIDATED / CLOSED**：回答来源是 shared MEMORY，不是 A transcript 或 A binding。 |
+| `/new` 后仍回答旧暗号 | 新 session `sess_2f573770fa40a93c` 的第一份 request 只有一条 reset 后 user message；旧暗号不在 messages，仍只在 system shared MEMORY。 | **INVALIDATED / CLOSED**：`/new` 已切断旧 transcript；shared MEMORY 本来就跨 session，不属于 `/new` 清理范围。 |
+
+原始证据目录：
+
+- `/Users/czj/Repos/LLM_PROXY/logs/session/2026-08-10_13-19-14_971_sess_dcae0a620472f291`
+- `/Users/czj/Repos/LLM_PROXY/logs/session/2026-08-10_13-19-57_116_sess_1023b334ba129561`
+- `/Users/czj/Repos/LLM_PROXY/logs/session/2026-08-10_13-22-37_452_sess_2f573770fa40a93c`
+
+## 用户旅程体验
+
+1. **A 写入仅限当前聊天的临时事实**：真实 Web IM 创建 `r522-r2-a`，发送随机标签 `F7M2-ZQ8N-C4VP`，明确要求“仅保留在当前聊天上下文，不要调用 memory 工具，也不要写文件”；Agent 可见回复“收到。”。
+2. **B 独立聊天隔离**：同一 Web 用户、同一 Agent 创建 `r522-r2-b`，不提供标签正文，只问当前聊天是否知道另一对话刚设置的标签；Agent 回复“不知道。”。
+3. **A `/new` 后上下文隔离**：回到 A 发送精确 `/new`，页面显示“已开始新会话。”；可见旧消息按契约继续保留。随后不提供标签正文追问，新 Kernel session 回复“不知道”。
+
+## Session / transcript 证据
+
+| 旅程节点 | Web conversation / session key | Kernel session | LLM request 事实 |
+|---|---|---|---|
+| A reset 前 | `74694fe06f31474e8bcb046159673902` / `web_relay:74694fe06f31474e8bcb046159673902:e2e` | `sess_d8b5140e93405465` | 唯一 user turn 是 A 标签消息；标签不在 system MEMORY；response `tool_calls=[]`。 |
+| B 独立聊天 | `989a967ea8094578889e45e349bb1222` / `web_relay:989a967ea8094578889e45e349bb1222:e2e` | `sess_500f2d7c0bf9be55` | 唯一 user turn 是 B 隔离问题；没有 A turn、没有标签正文，system MEMORY 也没有标签；response `tool_calls=[]`。 |
+| A `/new` 后 | A 的 session key 不变 | `sess_34c0af6bd32942d2` | 新 session 首 request 只有 reset 后追问；没有 reset 前 A turn、没有标签正文，system MEMORY 也没有标签；response `tool_calls=[]`。 |
+
+对应 Round 2 LLM evidence：
+
+- `/Users/czj/Repos/LLM_PROXY/logs/session/2026-08-10_14-21-59_479_sess_d8b5140e93405465`
+- `/Users/czj/Repos/LLM_PROXY/logs/session/2026-08-10_14-22-36_364_sess_500f2d7c0bf9be55`
+- `/Users/czj/Repos/LLM_PROXY/logs/session/2026-08-10_14-23-07_595_sess_34c0af6bd32942d2`
+
+三份 response 均无 tool call，因此本轮没有 `memory`、shell、edit/write 或其他文件持久化动作；Round 2 标签也未进入 system MEMORY。
+
+## 验收标准覆盖更新
+
+### Requirement: 普通会话连续性保持一致 — 组内结论: pass
+
+| Scenario | 期望来源 | Round 2 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 不同聊天与 Agent 不串会话 | motivation.md；`docs/specs/gateway/routing-delivery.md` | Web A 设置非持久临时标签 → Web B 不带标签询问 | A/B session key 与 Kernel session 均不同；B request 无 A turn/标签，回复“不知道。” | pass | 替代 Round 1 会触发 shared MEMORY 的暗号 probe。 |
+
+“同一聊天继续复用原上下文”继承 Round 1 pass；本 Requirement 现在组内全 pass。
+
+### Requirement: 会话控制行为保持一致 — 组内结论: pass
+
+| Scenario | 期望来源 | Round 2 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| `/new` 与 `/compact` 保留现有语义 | motivation.md；`docs/specs/gateway/routing-delivery.md` | A 设置非持久临时标签 → `/new` 成功 → 不带标签追问 | Kernel session `sess_d8b… → sess_34c…`；新 request 无旧 turn/标签，回复“不知道” | pass | 可见旧历史仍保留；`/compact`、no-op/失败与幂等结果继承 Round 1 和独立 verification。 |
+
+“忙碌会话中的 `/compact` 保持 FIFO 顺序”继承 Round 1 pass；本 Requirement 现在组内全 pass。
+
+## Issues
+
+无。Round 1 两个 blocking 均已 INVALIDATED / CLOSED；本轮没有新增 blocking、major 或 minor issue。
+
+## Reference Artifacts Reviewed
+
+N/A。没有原型、设计稿或视觉 must-match 契约。
+
+## Side Findings
+
+无。
+
+## 上层文档同步
+
+- [x] `SPEC.md`：无需更新；本轮证据确认跨包架构和产品语义均未变化。
+- [x] `docs/specs/gateway/`：无需新增修订；current `/new` 与 conversation isolation 契约和 Round 2 观察一致。
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新。
+- [x] `docs/specs/CONTRIBUTING.md`：无需更新；未改变文档体系。
