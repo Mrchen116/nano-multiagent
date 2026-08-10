@@ -12,6 +12,8 @@ import threading
 import time
 from types import SimpleNamespace
 
+import pytest
+
 from personal_assistant.channels.feishu.worker import (
     FeishuWorkerProcessContext,
     FeishuWorkerRuntime,
@@ -73,6 +75,12 @@ def _card_worker(context: FeishuWorkerProcessContext) -> None:
 
 def _crash_worker(_context: FeishuWorkerProcessContext) -> None:
     os._exit(17)
+
+
+def _exit_before_worker_bootstrap() -> None:
+    """Exit a real spawned child without touching the runtime ready Event."""
+
+    return None
 
 
 def _process_birth(pid: int) -> str | None:
@@ -248,10 +256,12 @@ def test_listener_startup_budget_is_independent_from_short_shutdown_join() -> No
         join_timeout=0.2,
     )
     ready_event = runtime._ready_event
+    started = time.monotonic()
 
     def wait_with_early_false(timeout: float) -> bool:
         observed_timeouts.append(timeout)
-        if len(observed_timeouts) == 1:
+        if len(observed_timeouts) <= 5:
+            time.sleep(timeout)
             return False
         return ready_event.wait(timeout)
 
@@ -263,10 +273,37 @@ def test_listener_startup_budget_is_independent_from_short_shutdown_join() -> No
     finally:
         report = runtime.stop(drain=True)
 
-    assert 29.0 < observed_timeouts[0] <= 30.0
-    assert len(observed_timeouts) == 2
-    assert 0 < observed_timeouts[1] <= 30.0
+    assert len(observed_timeouts) >= 6
+    assert all(0 < timeout <= 0.05 for timeout in observed_timeouts)
+    assert time.monotonic() - started >= 0.2
     assert report.joined
+
+
+def test_pre_ready_spawn_exit_fails_before_full_startup_budget() -> None:
+    """A dead bootstrap child is observed without waiting the whole 5 seconds."""
+
+    mp = multiprocessing.get_context("spawn")
+    runtime = FeishuWorkerRuntime(
+        app_id="cli_pre_ready_exit",
+        app_secret="secret",
+        incarnation="inc-pre-ready-exit",
+        on_event=lambda _event: None,
+        on_status=lambda _status: None,
+        worker_target=_listener_worker,
+        multiprocessing_context=mp,
+        startup_timeout=5,
+        join_timeout=0.2,
+    )
+    # Keep the runtime's real spawn context and IPC resources, but make the
+    # spawned process exit before _worker_bootstrap can set ready_event.
+    runtime._process = mp.Process(target=_exit_before_worker_bootstrap)  # noqa: SLF001
+    started = time.monotonic()
+
+    with pytest.raises(RuntimeError, match="did not initialize"):
+        runtime.start()
+
+    assert time.monotonic() - started < 4
+    assert runtime.is_alive is False
 
 
 def test_two_listener_processes_are_isolated_and_true_stop_join() -> None:

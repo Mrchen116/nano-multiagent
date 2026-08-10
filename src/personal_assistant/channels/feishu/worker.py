@@ -19,6 +19,7 @@ _CARD_ACTION_FALLBACK = {
     "error": "temporarily_unavailable",
     "message": "Card action could not be processed; please retry.",
 }
+_STARTUP_LIVENESS_POLL_SECONDS = 0.05
 
 
 @dataclass(slots=True)
@@ -321,7 +322,9 @@ class FeishuWorkerRuntime:
                     remaining = startup_deadline - time.monotonic()
                     if remaining <= 0:
                         raise RuntimeError("feishu worker did not initialize")
-                    if self._ready_event.wait(remaining):
+                    if self._ready_event.wait(
+                        min(remaining, _STARTUP_LIVENESS_POLL_SECONDS)
+                    ):
                         break
                     if not self._process.is_alive():
                         raise RuntimeError("feishu worker did not initialize")

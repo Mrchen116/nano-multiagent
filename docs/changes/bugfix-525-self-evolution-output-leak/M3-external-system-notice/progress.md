@@ -130,6 +130,13 @@ None.
 - TDD: 红测确定性暂停 self-evolution 的首个 GET，让 Feishu activation 抢先 PATCH，修前最终只保留 managed Skill 且旧版本 PATCH 409。修后 focused/config-sync integration `6 passed in 1.70s`，最终 explicit allowlist 按顺序同时包含 `self-evolved-skill` 与 `managed-feishu-skill`；既有两个 skill-created 并发、empty/default discovery 与 agent scope 均通过。
 - Status: DONE。Next: R12 Feishu pre-ready child liveness-aware deadline。
 
+## R12 — Code review：Feishu pre-ready child fail-fast
+
+- Systematic debugging: current `start()` 在每轮把完整 remaining（默认近 30 秒）交给 `multiprocessing.Event.wait`；pre-ready spawn/bootstrap/import-main child 退出不会 set Event，monitor threads 又只在 ready 后启动，因此 `is_alive()` 到总预算结束才有机会运行。根因是 wait 粒度遮蔽 child liveness，不是 timeout 太短或 transport retry。
+- Decision: 保留同一 monotonic startup deadline 与 30 秒默认预算，仅把单次 wait 限为 50ms，False 后立即检查 child；不增加 retry/backoff，不改变 stop 的 join/terminate/kill timeout。controlled delayed-ready test 前五个 slice 各真实等待后返回 early False，随后仍可观察原 Event ready 并成功。
+- TDD: 真实 spawn child 在 `_worker_bootstrap` 前退出，修前耗满 5.00 秒并失败 `<4s` 断言；修后快速失败且已 reap。完整 worker `10 passed, 2 warnings in 25.24s`；two-listener isolation 连续三次 + channel lifecycle affected `8 passed, 2 warnings in 13.49s`。
+- Status: DONE。Next: R13 cross-layer/full/quality gates 与归并清理。
+
 ## Round 4 reviewer-fix readback
 
 - Pre-fix head: `a26fc6975853b5e7183f531df39bbc547a4ea4d7`（包含 reviewer 的 `Round 4 — FAIL` regression commit），从 clean/synced `unit/bugfix-525` 创建独立 `milestone/bugfix-525-M3-fix-r4` worktree；该回归提交保留在 fix 历史中。

@@ -111,12 +111,12 @@ Prototype / Reference Contract: N/A。
 
 ### R12 — Code review：Feishu pre-ready child fail-fast
 
-- 状态: IN PROGRESS
+- 状态: DONE
 - 步骤: 先用真实 spawn 补 child 在 ready 前退出却消耗完整 startup budget 的红测；在既有 monotonic deadline 内使用短有界 wait slice 并检查 child liveness。
 - 验证: pre-ready exit 快速失败；early-False/慢 ready 可继续使用完整 30 秒总预算，shutdown join timeout 不变。
 
 ### R13 — Code review closure gates
 
-- 状态: TODO
+- 状态: IN PROGRESS
 - 步骤: 汇总 finding closure 与证据；运行 focused、affected、full non-E2E、Ruff、docs-check、diff-check。
 - 验证: reviewer-fix commits 进入并推送 `unit/bugfix-525`，milestone worktree/branch 清理。
