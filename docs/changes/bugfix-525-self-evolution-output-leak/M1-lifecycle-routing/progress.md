@@ -88,3 +88,20 @@
 - Full non-E2E first run: `3192 passed, 1 failed, 28 deselected, 22 warnings in 1192.20s`; host load average exceeded `70`, and the only failure was `tests/integration/test_self_evolution_gateway_skill_sync.py::test_post_terminal_skill_create_reaches_gateway_config_sync` exceeding its 5-second catalog-revision wait.
 - Systematic-debugging recheck: the exact failed test passed once with `-vv`, then passed `5/5` additional sequential runs (`1.62–1.95s`). Combined with prior full-green evidence on the same code, orchestrator approved treating the first result as host-load timeout rather than a stable branch regression. If it recurs after the fix under reasonable load, investigation must resume rather than reusing this exception.
 - Plan: R5 adds one stable final-state concurrency regression in the existing config-sync test owner, then serializes the complete skill-created reconciliation boundary with the shared `RLock`; no caller-specific locks and no event-policy/schema changes.
+
+### R5 — 并发 Skill 配置调和
+
+- Context: foreground observer 与每 session persistent subscriber 会在不同 worker thread 调用同一 `IMAgentConfigSync.handle_skill_created()`；旧实现没有共享锁，两次整表 PATCH 可读到同一 optimistic profile version。
+- Decision: 复用 `IMAgentConfigSync._operation_lock` 串行化一次 skill-created 的完整验证、read/merge/patch/publish 边界。锁位于共享调和 owner，不在 foreground/persistent 调用方各自建锁；既有 `RLock` 保持同线程可重入，并与 config operation 的配置发布互斥。
+- Rationale: 第二个事件在第一个发布后重新读取 profile，所以 merge 基于新 version/list；不改网络错误重试、event source 或 selection-mode 规则。
+- Evidence:
+  - Red: 两个 thread 先后创建 `skill-a` / `skill-b` 并发读 version 1；旧实现只剩 `['old-skill', 'skill-b']`，另一 PATCH 409 后被既有 handler 记录，focused 结果 `1 failed` 。
+  - Green: 同一回归结束为 `['old-skill', 'skill-a', 'skill-b']`；新回归 + restart/path tests `4 passed in 2.56s`，最终调度收紧后单测 `1 passed in 1.57s`。
+  - Affected: config-sync/manager/subscriber/composition/observer/Kernel integration + test contract `84 passed, 2 warnings in 13.71s`；共享 config-operation lock suites `16 passed in 1.65s`。
+  - Entry: M2 外部 cwd 真栈 runner 继续经 production Gateway persistent owner 完成真 Skill create/config sync/new-session use，`2 passed in 63.70s`。
+  - Final full non-E2E on the exact implementation/test tree: `3197 passed, 29 deselected, 22 warnings in 324.74s`; the baseline catalog-revision timeout did not recur.
+  - Quality: repository `ruff check .` passed; `scripts/docs-check` passed (`228` maintained Markdown / `67` routes); `git diff --check` and runner shell syntax passed.
+  - Frontend State Matrix / Browser QA / Visual / Prototype: N/A（无展示面变更）。
+- Rollback: revert the code-review implementation commit to restore the pre-review concurrency behavior.
+- Commits: pending implementation commit.
+- Next: M2 harness fixes and final gates.

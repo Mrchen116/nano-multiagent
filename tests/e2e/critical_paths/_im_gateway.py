@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
+import sys
 import time
 from collections.abc import Mapping
 from datetime import datetime, timezone
@@ -107,9 +108,9 @@ def restart_gateway(
     if env_overrides is not None:
         env.update(env_overrides)
     gateway_command = (
-        ["python", gateway_entrypoint]
+        [sys.executable, gateway_entrypoint]
         if gateway_entrypoint is not None
-        else ["python", "-m", "personal_assistant.main"]
+        else [sys.executable, "-m", "personal_assistant.main"]
     )
     log_handle = open(log, "a")
     try:

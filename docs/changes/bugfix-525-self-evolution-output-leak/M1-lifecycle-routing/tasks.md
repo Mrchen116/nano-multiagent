@@ -65,7 +65,7 @@ UI / Prototype / Reference Contract: N/A（后端 Kernel/Gateway 生命周期修
 
 ### R5 — 并发 Skill 配置调和
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 在现有 `IMAgentConfigSync` skill-created 测试 owner 中先构造两个不同来源并发创建、同时读取旧 profile version 的失败；再用共享 `_operation_lock` 串行化 `handle_skill_created` 的完整 read/merge/patch/publish 边界。
 - 验证: 最终 explicit allowlist 同时包含 Skill A/B，不改 default-discovery/global scope 和 foreground/persistent 两类调用方的事件分类。
 

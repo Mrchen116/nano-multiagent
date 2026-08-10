@@ -61,13 +61,13 @@ Prototype / Reference Contract：N/A。
 
 ### R4 — partial-start 清理与 replacement Gateway 解释器
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 先用回归证明 `e2e-up.sh` 已起 IM 后失败会留下进程，以及 `restart_gateway()` 命令未绑定 pytest 解释器；再让失败分支先输出日志、可靠调 `e2e-down.sh`、wait/reap stub，并用 `sys.executable` 启动 replacement Gateway/自定义 entrypoint。
 - 验证: 真 partial-start 失败后 IM/Gateway/stub 均消失且 PID state 清理；helper 命令对默认与自定义 entrypoint 都使用当前 pytest 解释器。
 
 ### R5 — runner 外部 cwd 路径契约与门禁
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 先在临时 main-checkout 形态中从 repo 外 cwd 调用绝对 runner 路径复现相对 `.git` 解析失败；再把 git common dir 解析为绝对路径。随后重跑两条真栈 journey 与完整门禁。
 - 验证: 外部 cwd 的 path-selection 回归通过且 runtime 清理；`scripts/e2e-self-evolution.sh` 从外部 cwd 真跑两条 journey；affected/full non-E2E、Ruff、docs-check、diff-check、shell syntax 全绿。
 

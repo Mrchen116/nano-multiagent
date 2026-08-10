@@ -85,3 +85,33 @@ None.
 - Reuse the M2 production journeys and approved routing semantics unchanged. Review fixes are limited to acceptance harness lifecycle and invocation portability.
 - R4 will preserve failure logs, run production `e2e-down.sh` before any runner runtime removal, reap the controlled LLM stub, and bind replacement Gateway launches to `sys.executable`.
 - R5 will resolve Git common-dir independently of caller cwd, add a lightweight main-checkout-shaped external-cwd regression, then run the two existing true-stack journeys from an external cwd and verify teardown.
+
+### R4 — partial-start 清理与 replacement Gateway 解释器
+
+- Context: fixture 在 `e2e-up.sh` 部分起栈后返回非零时尚未进入 `yield/finally`；旧失败分支只 kill 不 wait stub，且不调 `e2e-down.sh`，会让已启动 IM/Gateway 成为孤儿。replacement Gateway 又用 PATH 裸 `python`，可脱离 pytest 所在 venv。
+- Decision: 抽取 fixture-local `_cleanup_stub_stack()`；setup 失败先 dump IM/Gateway logs，再调既有 `e2e-down.sh`，并在 `finally` terminate/kill + wait stub。正常 teardown 复用同一 seam。`restart_gateway()` 的默认和自定义 entrypoint 都以 `sys.executable` 启动。
+- Evidence:
+  - Red: lifecycle test 因缺少 partial/full 共享 cleanup seam 在 collection 失败；restart 两个参数分支均显示 command 首项是裸 `python`。
+  - Green: 丢弃 `llm` 配置使真 `e2e-up.sh` 在 IM 已启动后失败，新 helper 清理 IM PID 并 reap stub；`1 passed in 8.24s`。解释器与其他新回归合计 `4 passed in 2.56s`。
+  - Cleanup: test 后 `.im.pid` 不存在，IM pid 已消失，stub `poll()` 为 terminal。
+  - Frontend / Browser / Visual / Prototype: N/A（acceptance harness lifecycle）。
+- Rollback: revert the code-review implementation commit.
+- Commits: pending implementation commit.
+- Next: R5 external-cwd runner and final gates.
+
+### R5 — runner 外部 cwd 路径契约与门禁
+
+- Context: main checkout 上 `git rev-parse --git-common-dir` 返回相对 `.git`，旧 runner 在 command substitution 中按 caller cwd 解析，用绝对脚本路径从 repo 外执行时在起栈前即失败。
+- Decision: 使用 `git rev-parse --path-format=absolute --git-common-dir` 得到与 caller cwd 无关的 common dir，保留原 Python 选择与 runtime trap。
+- Evidence:
+  - Red: 临时 main-checkout 形态 + 外部 cwd 回归在 line 8 报 `cd: .git/..: No such file or directory`。
+  - Green: 同一路径回归与 F1/F3 合计 `4 passed in 2.56s`，且 worktree-local runtime 已删除。
+  - True-stack entry: from `/tmp`, `PYTHON=/Users/czj/Repos/nano-multiagent/.venv/bin/python /Users/czj/Repos/nano-multiagent/.worktrees/bugfix-525-review-fix1/scripts/e2e-self-evolution.sh` → `2 passed in 63.70s`; runtime `.e2e-self-evolution.9ntbQU` 已删除，后验无 fixture/replay-runner/Gateway 残留。
+  - Product state: 两条既有 journey 继续证明 no-save raw output 私有，以及 terminal 后真 `skill_manage(create)` 经replay、config sync、structured exact-once notice 并在新 session 真调 `skill_view`。
+  - Full non-E2E first post-fix run: `3197 passed, 29 deselected, 22 warnings in 427.08s`; baseline 的 catalog timeout 未再现。
+  - Final full non-E2E on exact tree: `3197 passed, 29 deselected, 22 warnings in 324.74s`; the same timeout again did not recur.
+  - Quality: `/Users/czj/Repos/nano-multiagent/.venv/bin/ruff check .` passed; `PYTHON=/Users/czj/Repos/nano-multiagent/.venv/bin/python scripts/docs-check` passed (`228` maintained Markdown / `67` routes); `git diff --check` and `bash -n scripts/e2e-self-evolution.sh` passed.
+  - Frontend / Browser / Visual / Prototype: N/A（Web IM 同一 HTTP/WS relay 真栈，无客户端修改）。
+- Rollback: revert the code-review implementation commit.
+- Commits: pending implementation commit.
+- Next: final full non-E2E on the exact tree, repository Ruff/docs/diff/shell gates, commit and integration.
