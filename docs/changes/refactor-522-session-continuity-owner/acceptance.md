@@ -281,3 +281,84 @@ N/A。没有原型、设计稿或视觉 must-match 契约。
 - [x] `docs/specs/gateway/`：无需更新；current continuity、recovery、`/new`、`/compact` 与 external shadow 契约未变化。Feishu 失败是实现/运行偏离，不应写回长期契约。
 - [x] `AGENTS.md` / `CLAUDE.md`：无需更新。
 - [x] `docs/specs/CONTRIBUTING.md`：无需更新；未改变文档体系。
+
+---
+
+# Round 4 — 2026-08-10
+
+> Revalidation mode: targeted Fast-lane
+>
+> Focus issue: Round 3 blocking — 专用 Feishu 正常入站栈 `feishu worker did not initialize`
+>
+> Validated production tree: `933aefa0de7962f596014af7f549ef1c071be686`；report base: `1dc9999b6b71c71cd192577f9939bff4f3b74468`
+>
+> Implementation fix delta: none；validated production 之后只有 verifier / acceptance 报告提交。
+
+## Verdict
+
+**fail**
+
+Highest Required Action: **out-of-unit**
+
+Round 3 的 Feishu blocking 已由独立诊断重新归类为 **OUT-OF-UNIT / ENVIRONMENT**，但本轮真实产品旅程仍未通过，因此不能 CLOSED。共享负载下降且没有其他 pytest 竞争后，使用同一专用 profile、未预热、未修改 `5s/30s` 门限执行一次干净启动；首次 cold-start 失败后按普通用户可执行方式完整清理并正常重启一次，第二次仍得到 `ERROR feishu worker did not initialize`。Gateway 没有进入可发送正常用户消息的状态，无法产生 Bot 回复或唯一 IM shadow。
+
+## Fast-lane 范围与前置
+
+- 只复验 Round 3 唯一 blocking：Feishu 正常 user → Bot → Gateway → IM shadow；其他 Round 3 Scenario 全部 retained。
+- 开始等待时系统 1 分钟 load 为 `10.82` 且有其他 pytest；未抢跑。pytest 结束后 load 降至 `7.03`，第一次尝试开始；清理后再次等到无 pytest、load `7.16` 再执行唯一一次允许的普通重启。
+- 使用 `0600` 专用配置文件和同一 dedicated test profile；未执行 Python/lark SDK 预热，未修改 production/test/script/config，也未放宽 worker `5s` 或 launcher `30s` 门限。
+- 两次失败后均由 `e2e-down.sh` 清理；最终没有遗留本 worktree 的 IM、Gateway 或 tmux 进程。
+
+## Targeted 用户旅程
+
+1. **首次干净启动（失败）**：清理隔离 runtime，在无其他 pytest 竞争、load 已明显回落后执行真实 `e2e-up.sh --feishu`。脚本使用随机 IM `57594` 并同步专用测试用户，但固定 30 秒后返回 `Gateway did not signal readiness within 30s`；Gateway 用户可见运行结果为 `ERROR feishu worker did not initialize`。
+2. **普通干净重启（失败）**：保存首次日志，执行完整 `e2e-down.sh`，再次确认无 pytest 并等待 load 回落；不做 import 预热，原命令、profile 和门限不变地重新启动。第二次仍在固定窗口返回同一 readiness failure。
+3. **正常消息与 shadow（未能开始）**：两次 Gateway 都未进入 ready 状态，故不能安全伪造 `e2e-feishu-probe.py` 成功，也没有专用用户消息、Bot 回复或 IM shadow 可供验收。按“看不到就是 fail”保留 blocking。
+
+本轮日志证据：
+
+- `/tmp/refactor-522-r4-feishu-attempt1.gateway.log` — `ERROR feishu worker did not initialize`
+- `/tmp/refactor-522-r4-feishu-attempt2.gateway.log` — `ERROR feishu worker did not initialize`
+
+## Round 3 issue 更新
+
+### 专用 Feishu 正常入站栈无法初始化 worker — OUT-OF-UNIT / ENV，仍 blocking
+
+- **Status:** RECLASSIFIED / NOT CLOSED
+- **Severity:** blocking
+- **Regression Relation:** unrelated-existing
+- **Recommended Action:** out-of-unit
+- **Action Rationale:** 独立环境诊断已在 validated production `933aefa0d`、pre-fix `ff2de7c8d` 与 clean main `ee32b85b` 上用同一 profile 复现相同 fixed-window failure；cold import 均约 `16.8–17.8s`，child 尚未进入 bootstrap。credential、provider network、SDK crash、signal loss 与本 unit 的 continuity fix 均已排除；Feishu worker/launcher 也不在 refactor-522 Milestone 改动面。症状不再归因于本 unit，但仍阻断其真实 external acceptance。
+- **Current user result:** 两次未改门限的低竞争真实启动均失败，正常 user → Bot → Gateway → IM shadow 旅程没有成功证据。
+- **Out-of-unit issue:** [#267 — Feishu E2E Gateway readiness times out during worker cold start](https://github.com/Mrchen116/nano-multiagent/issues/267)
+
+## 验收标准覆盖更新
+
+### Requirement: 外部渠道 shadow 回归面保持一致 — 组内结论: fail
+
+| Scenario | 期望来源 | Round 4 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| Feishu 正常用户消息仍能进入 Gateway 并写入 IM shadow | motivation.md 产品回归面；design.md Reviewer Runbook | 低竞争、原 profile、原门限的 clean start；失败后唯一一次 normal clean restart | 两次均 `Gateway did not signal readiness within 30s` / `ERROR feishu worker did not initialize`，无 Bot 回复或 IM shadow | fail | R3 issue 已证明为 out-of-unit/environment，但 live journey 未通过，不能 CLOSED。 |
+
+Round 3 的普通会话连续性、重启恢复、partial recovery、`/new`、`/compact` no-op/成功/FIFO/supersede 与 failure/replay 补充证据全部 retained pass；本轮没有 implementation delta 或影响扩散，不升级 full revalidation。
+
+## Issues
+
+- Blocking: 1（out-of-unit/environment，#267）
+- Major: 0
+- Minor: 0
+
+## Reference Artifacts Reviewed
+
+N/A。没有原型、设计稿或视觉 must-match 契约。
+
+## Side Findings
+
+无。
+
+## 上层文档同步
+
+- [x] `SPEC.md`：无需更新；本轮没有产品契约或跨包架构变化。
+- [x] `docs/specs/gateway/`：无需更新；真实 Feishu 旅程尚未通过，不能把环境 failure 写成长青行为。
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新。
+- [x] `docs/specs/CONTRIBUTING.md`：无需更新；未改变文档体系。
