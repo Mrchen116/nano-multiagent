@@ -216,6 +216,8 @@ def make_fork_conversation(
         # self-improvement agent can't use even its allowlisted tools). replace()
         # carries every parent capability; we only override:
         #  - fork_conversation=None: anti-recursion (a review fork can't spawn one)
+        #  - session_event_publisher=no-op: side-chain loop/tool events are internal;
+        #    the owning background hook publishes the structured review outcome
         #  - run_origin=BACKGROUND_TASK: the fork is unattended, so a gate `ask`
         #    resolves via unattended_fallback instead of parking on a non-existent
         #    human. The tool_execution_allowlist remains the hard safety boundary.
@@ -229,6 +231,7 @@ def make_fork_conversation(
             fork_hook_ctx = replace(
                 parent_hook_ctx,
                 fork_conversation=None,
+                session_event_publisher=lambda _event, _data: None,
                 metadata=fork_metadata,
             )
 

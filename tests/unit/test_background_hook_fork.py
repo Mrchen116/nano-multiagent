@@ -680,11 +680,22 @@ async def test_fork_inherits_parent_execution_context():
     async def parent_fork(*a, **k):
         return None
 
+    published_events = []
+    workspace_scope = object()
+
+    def parent_publisher(event, data):
+        published_events.append((event, data))
+
     parent_ctx = HookContext(
         session_id="sess-parent",
         turn_id="turn-parent",
-        metadata={"run_origin": "user", "tool_call_id": "stale-tc"},
+        metadata={
+            "run_origin": "user",
+            "tool_call_id": "stale-tc",
+            "_workspace_execution_scope": workspace_scope,
+        },
         model_caller=parent_model_caller,
+        session_event_publisher=parent_publisher,
         permission_requester=parent_requester,
         fork_conversation=parent_fork,
     )
@@ -709,8 +720,15 @@ async def test_fork_inherits_parent_execution_context():
     assert fork_ctx.permission_requester is parent_requester, (
         "fork must inherit parent permission_requester"
     )
+    assert fork_ctx.metadata["_workspace_execution_scope"] is workspace_scope, (
+        "fork must retain workspace-scoped hooks and tools"
+    )
     assert fork_ctx.fork_conversation is None, (
         "anti-recursion: fork ctx must null fork_conversation"
+    )
+    fork_ctx.publish_session_event(event="assistant_message", data={"content": "raw"})
+    assert published_events == [], (
+        "fork raw events must not reuse the parent session delivery publisher"
     )
     assert fork_ctx.metadata.get("run_origin") == RunOrigin.BACKGROUND_TASK.value, (
         "fork must run as unattended background task so gate ask uses fallback"
