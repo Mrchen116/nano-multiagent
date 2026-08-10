@@ -8,10 +8,10 @@
 
 ## 退出标准
 
-- [ ] 隔离导入 `personal_assistant.channels.feishu.worker` 不加载 `feishu.client` 或 `lark_oapi`。
-- [ ] 真实 `spawn` worker 使用生产默认 ready budget 初始化成功，不复用测试专用 30 秒 wrapper。
-- [ ] 现有 Feishu worker lifecycle、消息与 Gateway composition 覆盖通过，完整 non-E2E 门禁通过。
-- [ ] 专用非 default Feishu E2E profile 连续两次无预热 clean start 成功，并完成真实 user → Bot → Gateway → 唯一 IM shadow 旅程；本次进程和敏感 runtime 产物均已清理。
+- [x] 隔离导入 `personal_assistant.channels.feishu.worker` 与 spawn 重执行入口 `personal_assistant.main` 不加载 `feishu.client` 或 `lark_oapi`。
+- [x] 真实 `spawn` worker 使用生产默认 ready budget 初始化成功，不复用测试专用 30 秒 wrapper。
+- [x] 现有 Feishu worker lifecycle、消息与 Gateway composition 覆盖通过，完整 non-E2E 门禁通过。
+- [x] 专用非 default Feishu E2E profile 连续两次无预热 clean start 成功，并完成真实 user → Bot → Gateway → 唯一 IM shadow 旅程；本次进程和敏感 runtime 产物均已清理。
 
 ## 测试策略
 
@@ -48,6 +48,6 @@
 
 ### R3 — 两轮 clean start 与真实飞书旅程
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 按 worktree runtime 契约使用专用非 default Feishu E2E profile，连续两次无预热 clean start；最终从测试用户向 Bot 发消息，核对 Bot 回复、Gateway 接收与 IM 唯一 shadow；执行配对 down 和端口/进程/敏感产物清理。
 - 验证: 两轮启动均未出现 `feishu worker did not initialize`；最终 probe 与 shadow 唯一性成立；回填 `fix.md` 修复/验证和本 progress。

@@ -15,15 +15,15 @@
 - Decision: 将 `feishu/__init__.py` 收窄为轻量 package marker；仅有的两个正式 package-level `FeishuAdapter` 调用方改为直接从 `feishu.adapter` 导入。新建语义独立的 startup 测试文件，用 fresh interpreter 固定 import boundary，并用未替换 `_ready_event`、未传 `join_timeout` 的真实 spawn runtime 固定生产默认 ready budget。
 - Rationale: 直接导入现有正式子模块即可恢复 feat-464 seam；不添加 lazy `__getattr__`、兼容 shim、新抽象或放宽 5 秒 budget。现有 worker/client、parent watcher、正常 stop/join、crash/status 与 IPC 代码零修改。
 - Evidence:
-  - Tests: Red 为 `pytest -xvs tests/unit/personal_assistant/test_feishu_worker_startup.py`，fresh interpreter 报出 `personal_assistant.channels.feishu.client, lark_oapi`（`1 failed in 45.35s`）；Green 为同文件 `2 passed in 0.42s`。随后 `test_feishu_worker_startup.py + test_gateway_build_runtime.py + test_managed_channel_control.py` 为 `16 passed in 5.29s`。
+  - Tests: 第一条 Red 为 `pytest -xvs tests/unit/personal_assistant/test_feishu_worker_startup.py`，fresh worker import 报出 `personal_assistant.channels.feishu.client, lark_oapi`（`1 failed in 45.35s`）；移除 package re-export 后先得到 `2 passed in 0.42s`。首次真实 live start 又证明 spawn 会重执行 `personal_assistant.main`，新增的 entry import contract 稳定报出相同两个重依赖（`1 failed in 15.65s`）；把 Gateway 两个 adapter import 移到实际构造点后，startup 文件最终 `3 passed in 1.91s`。
   - Entry: `test_spawn_worker_initializes_with_production_ready_budget` 真正使用 macOS `multiprocessing` spawn 启动、进入 child target、向 parent 投递事件并 stop/reap；没有测试专用 30 秒 wrapper。
   - Frontend State Matrix: N/A，非前端变更。
   - Browser QA: N/A，非前端变更。
-  - E2E/Regression: 永久回归位于 `tests/unit/personal_assistant/test_feishu_worker_startup.py`；真实 Feishu 用户旅程留待 R3。
+  - E2E/Regression: 永久回归位于 `tests/unit/personal_assistant/test_feishu_worker_startup.py`，同时固定 worker 模块与 Gateway spawn 入口两个 import boundary；真实 Feishu 用户旅程留待 R3。
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: revert `03319c87a789e7d8f93cb677f93540fbc9a9537d` 可恢复修复前 package import 行为与测试状态。
-- Commits: `03319c87a789e7d8f93cb677f93540fbc9a9537d`
+- Commits: `03319c87a789e7d8f93cb677f93540fbc9a9537d`、`045373db0b07dcea18a0b44602965501822d1f89`
 - Next: R2 扩大到 Feishu lifecycle、相关 Gateway、静态/docs 与完整 non-E2E 门禁。
 
 ## R2 — 验证 Feishu lifecycle 与仓库门禁
@@ -32,7 +32,7 @@
 - Decision: 扩大到全部 Feishu 命名 tests、worker/lifecycle/ChannelManager/Gateway composition tests，再跑 CI 等价完整 non-E2E。静态门禁全仓执行；全仓 formatter 唯一失败按 orchestrator 明确授权记录为 dispatch base caveat，保持 touched Python files 的 focused formatter 绿且不改 out-of-scope eval fixture。
 - Rationale: related suite 验证既有生命周期和消息路径没有因导入重定向退化；完整 non-E2E 证明 fresh-import seam 对全仓收集/运行兼容。base-owned formatter drift 必须可见，但不能越权吸收到本 milestone。
 - Evidence:
-  - Tests: 全部相关 Feishu/Gateway/lifecycle `170 passed in 18.15s`；CI 等价 `pytest -m "not e2e" -n 4 --dist worksteal --durations=20 --durations-min=0.5` 为 `3194 passed, 28 warnings in 152.03s`。
+  - Tests: follow-up 后最终 Feishu/Gateway/lifecycle focused suite `167 passed in 15.19s`；CI 等价 `pytest -m "not e2e" -n 4 --dist worksteal --durations=20 --durations-min=0.5` 为 `3195 passed, 20 warnings in 51.67s`。
   - Entry: R1 的真实 spawn 回归保持绿；R3 继续验证真 Gateway + 真飞书入口。
   - Frontend State Matrix: N/A，非前端变更。
   - Browser QA: N/A，非前端变更。
@@ -47,7 +47,21 @@
 
 ## R3 — 两轮 clean start 与真实飞书旅程
 
-- 状态: DOING
+- Context: 第一轮真实启动仍复现 `feishu worker did not initialize`，证明只移除 package re-export 不足：macOS spawn 重执行 `personal_assistant.main` 时，`composition.py` 与 `managed_channel_control.py` 的顶层 adapter import 仍会在 child bootstrap 前加载 provider。该失败作为有效 live evidence 保留；不改 5 秒 worker-ready budget。
+- Decision: 将两个 `FeishuAdapter` import 分别下沉到静态 channel 与托管 channel 的实际构造点，并用 fresh `personal_assistant.main` import contract 防回归。随后所有产品 cold start 均进入 ready；以同一受控 shell 完成两轮完整观察，避免测试宿主在 launcher 返回后回收子进程。
+- Rationale: 这恢复 feat-464 的轻量 spawn seam，而不改变 worker target、bugfix-496 parent watcher、stop/join、crash/status、IPC 或消息气泡语义。真实旅程按 current spec 允许一个 run 产生多个可见 assistant 气泡，唯一性固定在 external conversation、user shadow 与 saga。
+- Evidence:
+  - Tests: 专用、已验证且非 default 的 Feishu E2E profile 与测试 App/Bot identity 一致；LLM proxy 健康。两轮无预热 clean start 均由生产 `e2e-up.sh --feishu` 进入 ready，Gateway 与直属 `multiprocessing.spawn` listener 同时存活，日志均无 `feishu worker did not initialize` 或 `worker_crashed`。
+  - Entry: 最终轮由测试 user 向专用 Bot 发出一条 nonce；Lark 历史新增 `user=1, app=2`，两个 app 气泡对应本轮允许的两个完整 assistant 气泡。
+  - Frontend State Matrix: N/A，非前端变更。
+  - Browser QA: N/A，外部平台与 IM durable state 直接取证。
+  - E2E/Regression: IM durable state 为 `external_source=feishu`、`config_agent_id=e2e` 的 conversation `1`、user shadow `1`、completed agent bubbles `2`、failed agent bubbles `0`；external shadow saga `1`。证据摘要见 `evidence/cold-start-live-validation.md`。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+  - Cleanup: 两轮均配对执行 `e2e-down.sh`；最终确认 Gateway/IM PID、listener 子进程、IM 端口、listener lock、临时 JWT/config/channel credential/manifest 文件均已清理。
+- Rollback: revert `045373db0b07dcea18a0b44602965501822d1f89` 与 `03319c87a789e7d8f93cb677f93540fbc9a9537d` 可恢复修复前 import 行为。
+- Commits: `03319c87a789e7d8f93cb677f93540fbc9a9537d`、`045373db0b07dcea18a0b44602965501822d1f89`；本段证据见后续 docs commit。
+- Next: milestone 完成，等待合入 `unit/bugfix-533`。
 
 ## Promotion Candidates
 
