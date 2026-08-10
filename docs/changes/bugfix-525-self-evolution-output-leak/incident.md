@@ -13,11 +13,21 @@
 
 > 直接开unit修
 
+> system_notice我觉得应该发
+
 ## 澄清记录
 
 - Q1: 这条后台 self-evolution 完成确认是否应作为普通 Agent 消息显示，还是只保留既有的结构化更新通知？
   A(原话): 直接开unit修
   Agent 解读: 修复截图中的异常可见消息，不新增另一种后台结果展示；self-evolution 继续静默完成持久更新，只沿既有 system notification 回显。
+- Q2: 外部 system notice 是否继续遵守普通消息的触发源路由：飞书触发时发往飞书与 shadow IM，内部 IM 触发时只留内部 IM？
+  A(原话): 这个问题，和普通消息一个逻辑
+  Agent 解读: system notice 使用普通消息现有的来源路由，不因为会话绑定了飞书就把内部 IM 触发的通知回写飞书。
+- Q3: 飞书没有内部 IM 的 system sender 样式，是否接受用一条简短普通 Bot 文本表达更新，不用卡片、不带第一人称、不披露具体沉淀内容？
+  A(原话): 号
+  Agent 解读: 结合上下文按“好”理解；飞书使用简短 Bot 文本承载通知。
+- Q4: 是否只外发当前已产品化的 `self_evolution_review`，thinking、工具过程、token/debug 状态仍不发，未来其他 system notice 再单独决定？
+  A(原话): 对
 
 ## 现象与复现
 
@@ -49,6 +59,8 @@ Saved: user expects reference behavior to be verified before proposing or implem
 
 用户在飞书或内部 IM 与 Agent 正常对话。达到 self-evolution 阈值后，后台 review 可以继续读取对话并更新 memory/skills，但用户不应看到 review Agent 的 prompt、工具进度或 `Saved: ...` 完成确认。用户只通过既有、可本地化且可归因的 system notification 知道 memory/skills 已更新。
 
+这条产品通知与普通消息使用同一触发源路由：飞书消息触发的 review 成功后，原飞书 chat 与内部 shadow IM 都收到通知；内部 IM 消息触发的 review 只在内部 IM 显示，不回写飞书。内部 IM 保持轻量 system notice 样式；飞书用一行简短、非第一人称的 Bot 文本表达 memory、skills 或两者已更新，不披露沉淀的具体内容。
+
 如果 review 创建了新 skill，后台维护结束后该 skill 仍应按现有配置同步规则对 Agent 生效。无论 review 相对前台 terminal 是快是慢、Gateway 是否恰好切换到持久订阅或发生可恢复重连，用户都不应遇到“skill 文件已创建但 Agent 不会用”、重复激活、重复通知或 raw side-chain 消息回流。
 
 普通后台 Agent 的用户可见结果继续按原有方式返回；本单只隔离 self-evolution 维护 side-chain。
@@ -63,13 +75,14 @@ Saved: user expects reference behavior to be verified before proposing or implem
 - **WHEN** 用户在飞书或内部 IM 收到本轮正常回答，随后后台 review 完成 memory 更新
 - **THEN** 用户不会收到 review prompt、memory 工具进度或 `Saved: ...` 等原始 side-chain 消息
 - **AND** memory 更新仍真实保存
-- **AND** 用户只看到既有的 memory-updated system notification
+- **AND** 用户只看到既有的 memory-updated system notification，通知按普通消息的触发源路由送达
 
 #### Scenario: 后台 review 没有可保存内容或执行失败
 
 - **WHEN** self-evolution review 得出无需更新，或 review 本身失败
 - **THEN** 用户不会收到 `Nothing to save.`、错误堆栈或其他 review Agent 原始回复
 - **AND** 失败不改变本轮正常回答的完成状态
+- **AND** 若没有任何成功的 memory/skills 写操作，则不产生 `self_evolution_review` 更新通知
 
 ### Requirement: skill 更新在前台 terminal 之后仍可靠生效
 
@@ -79,7 +92,7 @@ Saved: user expects reference behavior to be verified before proposing or implem
 - **WHEN** review 在前台回答完成前或完成后结束
 - **THEN** 用户不会收到 review 的工具过程或完成确认
 - **AND** 新 skill 按现有配置同步规则对相关 Agent 和后续 session 生效
-- **AND** 用户只看到既有的 skills-updated system notification
+- **AND** 用户只看到既有的 skills-updated system notification，通知按普通消息的触发源路由送达
 
 #### Scenario: terminal 切换或可恢复重连覆盖事件边界
 
@@ -96,11 +109,36 @@ Saved: user expects reference behavior to be verified before proposing or implem
 - **THEN** 该结果继续投递给用户
 - **AND** 不因本单对 self-evolution side-chain 的隔离而被屏蔽
 
+### Requirement: self-evolution system notice 与普通消息同源路由
+
+#### Scenario: 飞书消息触发成功的 self-evolution review
+
+- **GIVEN** 用户从飞书向 Agent 发送消息，随后后台 review 确实成功写入 memory、skills 或两者
+- **WHEN** 更新通知产生
+- **THEN** 原飞书 chat 收到一条简短 Bot 通知，说明更新了 memory、skills 或两者
+- **AND** 对应内部 shadow IM 收到同一结果的轻量 system notice
+- **AND** 通知不使用第一人称，也不披露具体沉淀内容
+
+#### Scenario: 内部 IM 消息触发成功的 self-evolution review
+
+- **GIVEN** 用户从内部 IM 或飞书 shadow IM 向 Agent 发送消息，随后后台 review 确实成功写入 memory、skills 或两者
+- **WHEN** 更新通知产生
+- **THEN** 通知只显示在当前内部 IM 对话
+- **AND** 即使该会话绑定飞书，也不回写飞书原 chat
+
+#### Scenario: 其他内部运行态事件保持不外发
+
+- **WHEN** Agent 产生 thinking、工具过程、token 使用量或 debug/status 等运行态事件
+- **THEN** 这些事件不作为普通消息发送到飞书
+- **AND** 本单不会把未来新增的其他 system notice 默认开放到外部 channel
+
 ## 根因分析（RCA）
 
 ### 原始设计意图与必须保住的不变量
 
 `feat-349` 把 self-evolution 定义为不打断当前对话的后台 fork：review 继承主会话上下文、实际模型、工具和 unattended 权限语义，memory/skill 写入真实持久化；用户只通过轻量 system/meta notification 得知更新结果。普通后台 Agent 的用户可见输出不是该维护 fork 的回显机制。
+
+后续 `feat-447` 把 self-evolution review 与 thinking、工具遥测等一起归为“内部运行态事件”，明确只写 shadow IM、不外发飞书。这一规则避免了过程噪音，却也把 `feat-349` 已产品化、面向用户的事后通知误归为 telemetry。当前实现按该规则只构造 `node.system_message`，没有进入外部普通消息发送路径，因此飞书用户看不到正式 system notice。用户现已明确修正产品边界：`self_evolution_review` 应按普通消息的触发源路由外发，其他 telemetry 仍保持内部。
 
 修复必须保住：
 
@@ -109,6 +147,7 @@ Saved: user expects reference behavior to be verified before proposing or implem
 - memory/skill 写入结果不回滚、不丢失；
 - `skill_created` 继续驱动显式 allowlist 更新和相关 session 刷新；
 - 用户仍收到既有结构化 `self_evolution_review` system notification；
+- 飞书触发的成功 review 在原飞书 chat 收到同结果的一行 Bot 通知，内部触发不回写飞书；
 - 普通后台 Agent 的用户可见结果不被全局抑制。
 
 ### 原始泄漏链路
@@ -143,7 +182,7 @@ Saved: user expects reference behavior to be verified before proposing or implem
 - 在 self-evolution fork 的 publisher 边界显式区分私有 realtime 事件和需要驱动产品状态的业务事件；raw assistant/tool/turn 不进入父 session delivery。
 - 由 Gateway 的持久后台 session 订阅承担前台 terminal 之后的 self-evolution 业务事件，使用 session binding 中的 Agent identity 调用既有 config-sync 能力，不依赖已回收的 per-run context。
 - 为 terminal 前后的事件划分稳定 owner，并使用 Kernel sequence 边界和既有幂等能力避免 per-run consumer 与 persistent subscriber 双重处理。
-- `self_evolution_review` 继续由父 background hook 发布并沿既有结构化 system notification 路径展示；不把 raw 文本或任意 background event 加入持久订阅。
+- `self_evolution_review` 继续由父 background hook 发布；内部 IM 沿既有结构化 system notification 路径展示，飞书触发时按普通消息出口发送一行等价 Bot 通知；不把 raw 文本或任意 background event 加入持久订阅。
 - 用独立回归矩阵覆盖 memory/skill、terminal 前后、重复/重放、普通后台 Agent 不回归，再进入实现。
 
 ## 已完成的调查性实现与验证
@@ -166,5 +205,5 @@ Saved: user expects reference behavior to be verified before proposing or implem
 - 本单覆盖 self-evolution memory/skill review 的 raw 输出隔离及其业务事件在 Gateway 生命周期中的可靠消费。
 - 不设计 `feat-524` 的普通后台 Agent 折叠展示或结果归因 UI。
 - 不改变 self-evolution 默认开关、nudge 阈值、review prompt、memory/skill 文件格式或权限策略。
-- 不改变 runtime footer、飞书消息格式或所有 `RunOrigin.BACKGROUND_TASK` 的通用投递语义。
-- 不把任意内部 session event 暴露给外部 channel；只保留明确有产品 owner 的 structured notification 和业务同步事件。
+- 不改变 runtime footer 或所有 `RunOrigin.BACKGROUND_TASK` 的通用投递语义。
+- 不把任意内部 session event 暴露给外部 channel；只把当前已产品化的 `self_evolution_review` 按普通消息触发源路由外发，未来其他 system notice 仍需单独决策。
