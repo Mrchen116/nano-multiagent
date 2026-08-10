@@ -109,6 +109,22 @@ class _CompactReservation:
     released: bool = False
 
 
+def _build_routed_reply_context(routed: RoutedInbound) -> ReplyContext:
+    """Project an anchored IM shadow target into the durable reply context."""
+
+    reply_context = build_reply_context(routed.message)
+    shadow_ref = routed.shadow.ref
+    if shadow_ref is None:
+        return reply_context
+    return replace(
+        reply_context,
+        metadata={
+            **reply_context.metadata,
+            "shadow_conversation_id": shadow_ref.conversation_id,
+        },
+    )
+
+
 class SessionRunCoordinator:
     """Coordinate one Gateway session from admission through terminal cleanup.
 
@@ -320,7 +336,7 @@ class SessionRunCoordinator:
                 candidate = await self._session_binder.prepare_reset(
                     SessionBindingRequest(
                         session_key=request.session_key,
-                        reply_context=build_reply_context(request.message),
+                        reply_context=_build_routed_reply_context(request.routed),
                         message=request.message,
                         gateway_internal_port=fallback_port,
                         gateway_dispatch_url=dispatch_url,
@@ -1180,7 +1196,7 @@ class SessionRunCoordinator:
         return await self._session_binder.resolve(
             SessionBindingRequest(
                 session_key=request.session_key,
-                reply_context=build_reply_context(request.message),
+                reply_context=_build_routed_reply_context(request.routed),
                 message=request.message,
                 gateway_internal_port=fallback_port,
                 gateway_dispatch_url=dispatch_url,
@@ -1365,7 +1381,7 @@ class SessionRunCoordinator:
         return await self._session_binder.resolve(
             SessionBindingRequest(
                 session_key=request.session_key,
-                reply_context=build_reply_context(request.message),
+                reply_context=_build_routed_reply_context(request.routed),
                 message=request.message,
                 gateway_internal_port=fallback_port,
                 gateway_dispatch_url=dispatch_url,

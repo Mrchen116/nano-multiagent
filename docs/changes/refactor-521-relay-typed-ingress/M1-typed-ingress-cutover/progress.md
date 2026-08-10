@@ -45,3 +45,16 @@
 ## Promotion Candidates
 
 None.
+
+## Reviewer Feedback Fix 1 — 持久化 anchored shadow 回复目标
+
+- Status: DONE
+- Scope: 按 `change-impl-worker` reviewer-feedback loop 处理单点 P1；沿用原 M1 文档与原 worker 上下文，不新增 `tasks.md`、不改 design/delta，也不扩展到 carrier、fallback 或完整 shadow state 持久化。unit 与 `origin/unit/refactor-521` 开工时同为 `b5eee0bbeb3269c53a50d223925a79bbadbc8471`，因此省略重复六读与全量 baseline。
+- Claim: coordinator 现在以 anchored `RoutedInbound.shadow.ref.conversation_id` 为唯一 authority，在 new/normal/stop 三个 binding 创建或刷新入口显式投影 `shadow_conversation_id` scalar 到 durable `ReplyContext`；background text、图片预处理失败与自进化通知继续复用既有 resolver，typed shadow carrier 本身仍不进入 session persistence。
+- Red: 新组合回归 `test_anchored_external_inbound_persists_and_refreshes_shadow_reply_target` 首次失败为 `reply_context_im_conversation_id(binding.reply_context) == None`，证明真实 typed ingress 已拿到 `shadow-conv-1` anchor，但 binding 丢失了 background/preprocessing 需要的 IM target。
+- Green: 同一测试在修复后首次通过；它先验证 anchored external inbound 写入可被公共 delivery resolver 解析的 `shadow-conv-1`，再用同一 session 的第二条 anchored inbound 把 authoritative target 刷新为 `shadow-conv-2`，防止 binder refresh 抹掉或保留陈旧 target。
+- Focused: carrier/deletion、inbound/session、binder persistence、external-visible、background subscription、relay lifecycle 共 `146 passed, 2 warnings in 4.27s`；变更文件 Ruff check 与 format-check 全绿。
+- Full non-E2E: 首轮 `3189 passed, 1 failed`，唯一失败是未改动的 ticker 计时测试在并行压力下只触发一次；该测试立即单独复跑 `1 passed in 0.15s`，随后相同完整命令复跑 `3190 passed, 28 warnings in 61.73s`。
+- Product acceptance: reviewer-feedback loop 不自行重跑产品验收；本 fix 不改变入口或 wire behavior，待独立 verifier/reviewer 定向复核。此前 unit verification 与 acceptance 保留在同目录报告中。
+- Commit: 本 reviewer fix 单提交；精确 hash 由合并回 unit branch 后的 git history 记录。
+- Limit: 未加入 metadata fallback、legacy envelope、compatibility facade 或 whole-shadow recovery；pending/empty shadow 仍只生成原始 `ReplyContext`。
