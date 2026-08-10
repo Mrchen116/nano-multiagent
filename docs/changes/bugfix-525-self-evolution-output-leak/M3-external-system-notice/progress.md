@@ -97,3 +97,43 @@
 ## Promotion Candidates
 
 None.
+
+## Round 4 reviewer-fix readback
+
+- Pre-fix head: `a26fc6975853b5e7183f531df39bbc547a4ea4d7`（包含 reviewer 的 `Round 4 — FAIL` regression commit），从 clean/synced `unit/bugfix-525` 创建独立 `milestone/bugfix-525-M3-fix-r4` worktree；该回归提交保留在 fix 历史中。
+- Scope readback: R4-I1 只解决专用 Feishu acceptance 中 `probe` 通过后 route-anchor ingress 超时及成功/失败 runtime 清理；R4-I2 只增加受控 LLM + public Coding CLI/PTY 的真实产品验收入口。M3 已批准的 event classification、route owner、external schema 与用户可见文案不变。
+- Process: 该 reviewer fix 涉及两个产品入口、预计超过 3 个文件/100 行，依 `change-impl-worker` 从 fast-lane 升回 main process，新增 R6-R8 并执行完整 TDD/验收/门禁；R4-I1 必须先走 `systematic-debugging` 复现和边界定位。
+- Baseline: 最新 unit 相比上次 final-green 只新增 reviewer regression 文档；复用 M3 R5 的 `3225 passed, 28 warnings in 81.93s` 作为代码基线，并在 fix 后重新运行 full non-E2E。
+
+## R6 — Round 4 飞书 route-anchor 稳定性闭环
+
+- Context: reviewer 两个 fresh stack 均观察到 dedicated identity、`e2e-up --feishu`、ingress probe 成功，而紧接着的 journey route anchor 没有到达受控 LLM；另有失败后 `.feishu-self-evolution-llm.jsonl`、`config-apply-receipts-v1.json` 残留。
+- Diagnosis: fresh stack 的无间隔 `up -> probe -> journey` 稳定复现 `timed out waiting for route anchor ingress`。probe 与 route anchor 均由同一 verified profile 以 user 身份发送到同一 P2P chat/connector，provider message id 分别唯一；production `external_shadow_sagas` 同时存在两条 canonical inbound，replacement worker 日志也已 `connected`，因此 identity、chat form、dedupe window 与 listener transport 均未丢消息。失败边界中 route anchor 已创建真实 Kernel run，但 LLM HTTP 指向 `http://127.0.0.1:4000`，controlled fixture JSONL 为 0；worktree config 同时被恢复为 production provider。
+- Root cause: probe 只等 saga mirror，不等真实 foreground terminal。journey 在旧 Gateway drain probe run 前改写 config；旧进程仍持有 production-valued immutable config snapshot，可在退出期间持久化 Agent config 并覆盖该外部 rewrite，replacement 因而读到 production LLM。较慢的人工首轮偶然让 probe run 先结束，所以曾通过。
+- Decision: 不改变 timeout/retry/production routing；`_restart_gateway` 先等旧 Gateway 完全退出，再在同一 startup 边界内把生成 config 指向 fixture，然后启动 replacement。journey `finally` 删除自身 JSONL，public `e2e-down` 删除 config operation receipts 与同名 JSONL；两者均为 worktree runtime。补确定性回归模拟旧 Gateway 在 SIGTERM drain 时恢复 production provider，证明 replacement spawn 前最终 provider 必为 fixture，并覆盖 success/failure cleanup。
+- Evidence:
+  - TDD: focused red `4 failed`（restart API/ordering、journey success/failure JSONL、down receipts），green `7 passed in 0.53s`（含 probe guards）。
+  - True stack repeat 1: nonce `bugfix525-m3-17e2b4813bd6`，route anchor `om_x100b68ab538f9ca8c4c88343f1a372f`，status 0；journey 后 record absent、down 后 receipts absent。
+  - True stack repeat 2: fresh IM/Gateway，nonce `bugfix525-m3-5c484c3fdc68`，route anchor `om_x100b68ab6bdc88a8de7ee3b1b0d4da4`，status 0；相同 cleanup 断言通过。
+- Status: DONE。Next: R7 真实 Coding CLI/PTY 验收入口。
+
+## R7 — 真实 Coding CLI / PTY 产品验收入口
+
+- Context: reviewer 需要无需读取源码或把 integration test 当产品证据的真实终端入口。既有 CLI consumer contract test 只能证明 formatter，不能证明 public CLI、真实 background hook、写入工具与 REPL idle consumer 连成一条路径。
+- Decision: 新增 worktree-local runner，以 `sys.executable -m coding_cli.main` 启动真实 PTY，复用现有 OpenAI-compatible fixture；每个 case 使用隔离 HOME/workspace/config。fixture 仅按 scenario request state、message roles 与 tool-call/result id 路由，不匹配 self-improvement 私有 prompt。memory/no-save/failure 用一个受控前台 seed 建立 turn counter；both 的 seed skill-only no-save review 完成后再发目标轮，消除 background/foreground overlap，不靠 sleep 或增加 timeout。
+- Evidence:
+  - TDD: seed/target structural routing 红测 `4 failed, 2 passed`，实现后 `6 passed`；targeted real PTY memory 与 both 均通过。
+  - Product command: `PATH="/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH" ./scripts/e2e-cli-self-evolution.py --wt "$PWD" --transcript docs/changes/bugfix-525-self-evolution-output-leak/M3-external-system-notice/evidence/coding-cli-self-evolution.txt`。
+  - Product result: nonce `4e566550ff`；memory、skills、both 各显示 exact-one `... updated` line并真实生成对应 memory/Skill 文件；no-save、read-only、failure 均为 `update_count=0`。六场景前台完成，raw `Saved:`/`Nothing to save.`/failure/traceback 均不可见。
+  - Evidence locator: `evidence/coding-cli-self-evolution.txt` 保存精简真实终端输出与逐 case 断言；stdout 报告 `runtime_cleaned=true`，运行后不存在 `.e2e-cli-self-evolution.*`。
+  - Affected regression: hook/CLI/Gateway/Feishu harness 矩阵 `119 passed, 2 warnings in 22.54s`；共享 fixture 的 M2 critical path `2 passed in 44.91s` 且 runtime trap 清理。
+- Status: DONE。Next: R8 最终 Feishu 复核与质量门禁。
+
+## R8 — Round 4 收尾门禁
+
+- Product acceptance: 最终代码上只执行一轮专用 Feishu exact `e2e-up --feishu -> probe -> journey -> down`，probe 通过，journey nonce `bugfix525-m3-e9c4121c554c` status 0；同一轮后的 PID、listener lock、fixture JSONL、config receipts 与临时 runtime 均不存在。真实 Coding CLI 六场景最终 journey nonce `4e566550ff`，stdout `runtime_cleaned=true`，证据见本 milestone 两个 evidence 文件。
+- Focused/affected: structural fixture tests `6 passed`；hook/CLI/Gateway/Feishu harness 矩阵 `119 passed, 2 warnings in 22.54s`；共享 M2 critical paths `2 passed in 44.91s` 并清理 runtime。
+- Full: `PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -m 'not e2e' -n 4 --dist worksteal --durations=20 --durations-min=0.5` → `3235 passed, 28 warnings in 79.64s`。
+- Quality: repository `ruff check .`、3 个 Round 4 Python 文件 `ruff format --check`、docs-check（245 Markdown / 67 routes）、`git diff --check`、acceptance Python compile 与相关 shell syntax 均通过。
+- Commits: `abc4f2d0d`（R4-I1 route-anchor restart ordering/cleanup）、`cc939a7c7`（R4-I2 deterministic Coding CLI/PTY acceptance + evidence）；本 gate 记录由后续 documentation commit 收口。
+- Status: DONE。milestone commit/push 后按 worker protocol merge/push `unit/bugfix-525`，随后移除 fix worktree/branch；不改变 M3 production event classification、route owner 或用户可见 schema。

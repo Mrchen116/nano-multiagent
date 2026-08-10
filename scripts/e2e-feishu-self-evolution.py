@@ -148,7 +148,7 @@ def _drop_session_bindings(worktree: Path) -> None:
         connection.execute("DELETE FROM session_bindings")
 
 
-def _restart_gateway(worktree: Path) -> None:
+def _restart_gateway(worktree: Path, fixture_url: str) -> None:
     pid_path = worktree / ".gateway.pid"
     old_pid = int(pid_path.read_text(encoding="utf-8").strip())
     os.kill(old_pid, signal.SIGTERM)
@@ -162,6 +162,10 @@ def _restart_gateway(worktree: Path) -> None:
     else:
         raise RuntimeError("original Gateway did not stop")
 
+    # The old Gateway owns an immutable production-valued config snapshot and may
+    # persist it while draining the probe run. Rewrite only after that writer exits,
+    # so the replacement Kernel necessarily loads the controlled fixture route.
+    _rewrite_llm_to_fixture(worktree / ".gateway-config.yaml", fixture_url)
     _reset_session_bindings(worktree)
     config = yaml.safe_load(
         (worktree / ".gateway-config.yaml").read_text(encoding="utf-8")
@@ -442,8 +446,7 @@ def _run_journey(
     try:
         _write_evolution(worktree, skills=100, memory=1)
         im.bump_agent(f"{nonce}-no-save", config_path)
-        _rewrite_llm_to_fixture(config_path, fixture_url)
-        _restart_gateway(worktree)
+        _restart_gateway(worktree, fixture_url)
         anchor_tag = f"{nonce}-route-anchor"
         _fixture_control(fixture_url, "no_save", reset=True, response_tag=anchor_tag)
         chat_id, anchor_id = _send_lark(profile, bot, f"{nonce} route anchor")
@@ -669,8 +672,9 @@ def main() -> int:
     )
     status = json.loads(status_result.stdout) if status_result.returncode == 0 else {}
     _require_test_profile(status, values, profile)
-    fixture, fixture_url = _start_fixture(worktree)
+    fixture: subprocess.Popen[str] | None = None
     try:
+        fixture, fixture_url = _start_fixture(worktree)
         evidence = _run_journey(
             worktree,
             fixture_url,
@@ -679,7 +683,9 @@ def main() -> int:
         )
         print(json.dumps(evidence, sort_keys=True))
     finally:
-        _stop_process(fixture)
+        if fixture is not None:
+            _stop_process(fixture)
+        (worktree / ".feishu-self-evolution-llm.jsonl").unlink(missing_ok=True)
     return 0
 
 

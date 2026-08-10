@@ -93,5 +93,7 @@ rm -f "$WT_ROOT/.e2e-jwt-secret"
 rm -f "$WT_ROOT/.gateway-config.yaml"
 rm -f "$WT_ROOT/channel-credentials-v1.pem"
 rm -f "$WT_ROOT/channel-manifest-v1.json"
+rm -f "$WT_ROOT/config-apply-receipts-v1.json"
+rm -f "$WT_ROOT/.feishu-self-evolution-llm.jsonl"
 
 echo "e2e stack stopped (wt=$WT_ROOT)"

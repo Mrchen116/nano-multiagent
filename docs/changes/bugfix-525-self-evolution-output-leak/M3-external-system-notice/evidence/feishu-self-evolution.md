@@ -31,3 +31,18 @@ PATH="/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH" ./scripts/e2e-feishu-sel
 - 重复验收时发现固定 Skill 名已由上一轮真实创建，新的 `create` 因无实际写入而被 production true-receipt 门禁正确静默。fixture control 改为按本轮 nonce 提供唯一 Skill 名后，重新跑通同一真栈；这只修复 harness 的可重复性，不改变生产事件分类。no-save/失败的 shadow 负面断言也在本轮直接通过。
 - journey harness 只在 worktree 中改写生成的 Gateway config、重置其 session binding、启动受控 fixture；使用 production Gateway/Feishu adapter/IM relay/config-sync 和 external sender，不写用户配置。
 - `e2e-down.sh` 后观测：IM PID stopped、Gateway PID stopped、IM port closed、Feishu listener lock removed、controlled fixture stopped；运行期 PID/config/log/LLM record 未提交。
+
+## Round 4 route-anchor 稳定性复核
+
+- fresh stack 无间隔复现时，probe 和 route anchor 的真实 provider event 都进入 production saga，使用同一 verified user、P2P chat、connector 且 message id 各自唯一；replacement Feishu worker 已 connected。route anchor 的 Kernel run 却请求 `http://127.0.0.1:4000`，controlled fixture 为 0 request，证明超时不在 listener/dedupe，而在 harness 的 LLM config startup 时序。
+- probe 只等 inbound saga，不等 foreground terminal；旧 Gateway drain probe run 时可能用其 production-valued immutable snapshot 覆盖过早的 fixture rewrite。修复将 rewrite 移到旧进程完全退出之后、replacement spawn 之前，没有延长 timeout 或增加 retry。
+- 同一持久 shell 连续两个 fresh stack 的 exact `e2e-up --feishu -> probe -> journey -> down` 均通过：
+  - `bugfix525-m3-17e2b4813bd6`，route anchor `om_x100b68ab538f9ca8c4c88343f1a372f`；
+  - `bugfix525-m3-5c484c3fdc68`，route anchor `om_x100b68ab6bdc88a8de7ee3b1b0d4da4`。
+- 两轮均观察 journey 返回前 `.feishu-self-evolution-llm.jsonl` 已删除，`e2e-down` 后 `config-apply-receipts-v1.json`、PID、listener lock 与 fixture record 全部不存在。
+
+## Round 4 最终产品复核
+
+- 在最终 fixture/CLI harness 代码完成后，同一持久 shell 再执行一次 exact `e2e-up --feishu -> probe -> journey -> down`；probe 输出 `Feishu E2E ingress probe passed (profile=e2e-feishu-testagent)`。
+- journey nonce `bugfix525-m3-e9c4121c554c`，route anchor `om_x100b68ab9b9210a4c32a68d195add10`，no-save `om_x100b68ab9b35b0a0c1627a06f4de2c3`，failure `om_x100b68ab9874fca0de7a1bf30d0f674`，Skill `om_x100b68ab99e038a0dedcd203b05b4d5`，unique Skill `deterministic-review-e9c4121c554c`；journey status 0。
+- `e2e-down` 后 PID、listener lock、fixture JSONL、config apply receipts、CLI/M2 runtime 目录均不存在；专用 persistent shell 已退出。
