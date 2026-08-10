@@ -1,68 +1,83 @@
-# feat-507: 统一工具调用审批模型配置
+# feat-507: 统一工具审批模型
+
+## Relations
+
+- Related: feat-333
+- Related: refactor-382
+- Related: bugfix-443
 
 ## 用户场景
 
-Personal Assistant 的运维者在一个 Gateway 下运行多个 Agent，这些 Agent 可以各自选择不同的对话模型。当工具调用需要 auto mode 分类器做自动审批时，运维者希望通过 Gateway 已有的本地配置文件为整个 Personal Assistant 进程选定一个专用模型。Gateway 重启后，无论工具调用来自哪个 Agent、直接聊天还是该 Agent 的其他 run，自动审批分类都使用这个专用模型；Agent 自身的对话模型选择不受影响。
+PA 运维者管理着多个使用不同模型的 Agent。当前，只要主 agent、Agent 工具派生的 subagent、heartbeat、cron 或后台自进化 fork 实际走到自动工具权限分类器，分类请求就复用触发它的 Agent/run 模型。这使安全分类的行为、成本和可用性随各 Agent 模型变化。
 
-这份配置的作用域是当前 Gateway 进程。它跟随实际启动 Gateway 时使用的配置文件：默认是 `~/.nano-assistant/config.yaml`，运维者显式传入 `--config` 时则以该文件为准。不再为这个选择叠加 per-agent、workspace 或 global/workspace 覆盖层。
+变更后，运维者可以为 PA 显式选择一个与普通 Agent 模型解耦的统一审批模型。Gateway 重启后，PA 中所有实际进入自动工具权限分类器的调用都使用这个模型；Agent 的普通回复、工具执行以及工具执行后的续跑仍使用各自当前 run 模型。安全快速放行、工具自身直接给出 allow / deny / ask 等没有进入自动分类器的路径不额外调用审批模型。
 
-未配置专用审批模型的现有部署无需迁移：自动审批分类继续复用当前 Agent 或 run 的模型。显式配置专用模型后，如果该模型的某次分类请求运行失败，系统保持现有的安全失败语义：有人值守的 run 转为询问用户，无人值守的 run 按现有 unattended fallback 处理；整个过程不改用 Agent 模型、产品默认模型或其他模型重试分类。若运维者在配置中选了未登记的模型，Gateway 在启动时就给出明确的配置错误，不把问题留到首次工具审批时才暴露。
+运维者不做这项配置时，系统保持现状，分类器继续复用触发分类的 Agent/run 模型。这样升级不会改变既有部署的模型行为。
+
+如果显式选择的审批模型无效，Gateway 在启动时直接指出配置错误，而不是带着错误配置运行。如果模型在运行时暂时不可用，系统可以继续对同一个审批模型执行既有重试；仍失败时，有人值守会看到手动审批请求，无人值守任务按既有 `unattended_fallback` 处理。整个过程不会暗中切换到 Agent/run 模型、默认模型或其他模型。
 
 ## 验收标准
 
-### Requirement: Gateway 可为全部 Agent 统一选定专用审批模型
+### Requirement: PA 自动工具权限分类可统一使用显式选择的模型
 
-#### Scenario: 不同 Agent 的自动审批使用同一专用模型
-- **GIVEN** 同一 Personal Assistant Gateway 下有使用对话模型 A 和 B 的两个 Agent，且 Gateway 配置选定专用审批模型 C
-- **WHEN** 两个 Agent 的工具调用分别触发自动审批分类
-- **THEN** 运维者可观察到两次分类都使用模型 C
-- **AND** 两个 Agent 的正常对话仍分别使用模型 A 和 B
+#### Scenario: 不同模型的主 Agent 进入自动权限分类
+- **GIVEN** PA 中多个主 Agent 的当前 run 使用不同模型，且运维者已显式选择统一审批模型并重启 Gateway
+- **WHEN** 这些主 Agent 的非安全工具调用实际进入自动工具权限分类器
+- **THEN** 运维者观察到这些自动权限分类均使用显式选择的审批模型
+- **AND** 各 Agent 的普通回复与工具执行后的续跑仍使用各自当前 run 模型
 
-#### Scenario: 同一 run 内的所有自动审批分类都使用专用模型
-- **GIVEN** Gateway 配置选定专用审批模型 C
-- **WHEN** 任一 Agent 的一个 run 中多次触发自动审批分类
-- **THEN** 运维者可观察到每次分类都使用模型 C，不随 Agent 或 run 模型变化
+#### Scenario: PA 派生与无人值守运行进入自动权限分类
+- **GIVEN** 运维者已显式选择统一审批模型并重启 Gateway
+- **WHEN** PA 的 subagent、heartbeat、cron 或后台自进化 fork 中有工具调用实际进入自动工具权限分类器
+- **THEN** 运维者观察到分类使用同一个显式审批模型，不随派生来源或所属 Agent 的 run 模型变化
+- **AND** 没有进入自动分类器的安全快速路径或工具直接裁决路径不产生审批模型调用
 
-### Requirement: 专用审批模型配置兼容现有部署并在重启后生效
+### Requirement: 省略统一审批模型配置时保持现有行为
 
-#### Scenario: 未配置专用审批模型
-- **GIVEN** Gateway 配置没有选定专用审批模型
-- **WHEN** 任一 Agent 的工具调用触发自动审批分类
-- **THEN** 分类继续使用触发它的 Agent 或 run 模型，Gateway 不因缺少专用配置而拒绝启动
+#### Scenario: 升级后不配置统一审批模型
+- **GIVEN** PA 配置中没有显式选择统一审批模型
+- **WHEN** 主 agent、subagent、heartbeat、cron 或后台自进化 fork 的工具调用进入自动权限分类器
+- **THEN** 分类继续使用触发该分类的 Agent/run 模型，与变更前一致
 
-#### Scenario: 修改配置并重启 Gateway
-- **GIVEN** Gateway 当前使用审批模型 C
-- **WHEN** 运维者在启动 Gateway 所用的配置文件中改选审批模型 D，并重启 Gateway
-- **THEN** 重启后新触发的自动审批分类统一使用模型 D
+### Requirement: 显式审批模型配置在 Gateway 启动时受校验
 
-#### Scenario: 配置未登记的专用审批模型
-- **GIVEN** Gateway 配置选定的专用审批模型不在 Personal Assistant 模型目录中
+#### Scenario: 显式选择模型目录中的审批模型
+- **GIVEN** 运维者显式选择的审批模型存在于 PA 模型目录中
+- **WHEN** 运维者重启 Gateway
+- **THEN** Gateway 正常启动，后续自动权限分类采用该模型
+
+#### Scenario: 显式选择模型目录外的审批模型
+- **GIVEN** 运维者显式选择的审批模型不在 PA 模型目录中
 - **WHEN** 运维者启动 Gateway
-- **THEN** Gateway 拒绝启动并给出可理解的模型配置错误
-- **AND** Gateway 不静默改用 Agent 模型、产品默认模型或其他模型
+- **THEN** Gateway 明确报告审批模型配置错误并拒绝启动
+- **AND** 系统不让该配置生效，也不回退到 Agent/run 模型、默认模型或其他模型
 
-### Requirement: 专用审批模型失败时不切换到其他模型
+#### Scenario: 修改配置但尚未重启 Gateway
+- **GIVEN** Gateway 正在运行，运维者修改了统一审批模型配置
+- **WHEN** Gateway 尚未重启
+- **THEN** 正在运行的 Gateway 不热加载该修改
+- **AND** 重启并通过配置校验后，新选择才生效
 
-#### Scenario: 有人值守的分类请求失败
-- **GIVEN** Gateway 已选定专用审批模型，且当前 run 可以询问用户
-- **WHEN** 专用模型的自动审批分类请求运行失败
-- **THEN** 用户收到现有的权限询问，可以人工允许或拒绝工具调用
-- **AND** 系统不改用 Agent 模型、产品默认模型或其他模型重试分类
+### Requirement: 审批模型运行失败时安全降级且不切换模型
 
-#### Scenario: 无人值守的分类请求失败
-- **GIVEN** Gateway 已选定专用审批模型，且当前 run 无人值守
-- **WHEN** 专用模型的自动审批分类请求运行失败
-- **THEN** 工具调用按现有的无人值守权限兜底规则处理
-- **AND** 系统不改用 Agent 模型、产品默认模型或其他模型重试分类
+#### Scenario: 有人值守会话的审批模型最终失败
+- **GIVEN** 有人值守的 PA 会话已显式选择统一审批模型
+- **WHEN** 一次自动权限分类对同一审批模型的既有重试仍因超时、不可达或结果不可解析而失败
+- **THEN** 用户收到既有的手动工具权限审批请求
+- **AND** 系统没有改用当前 Agent/run 模型、默认模型或其他模型重新分类
+
+#### Scenario: 无人值守运行的审批模型最终失败
+- **GIVEN** heartbeat、cron 或后台 fork 等无人值守运行已显式选择统一审批模型
+- **WHEN** 一次自动权限分类对同一审批模型的既有重试仍失败
+- **THEN** 该工具调用按既有 `unattended_fallback` 处理，默认拒绝且不会等待人工审批
+- **AND** 系统没有改用当前 Agent/run 模型、默认模型或其他模型重新分类
 
 ## 范围与非目标
 
-- 在范围：Personal Assistant Gateway 通过其已有本地配置文件选定一个进程级专用审批模型。
-- 在范围：显式配置后，同一 Gateway 下所有 Agent 和 run 的自动审批分类统一使用该模型。
-- 在范围：未配置时保持复用 Agent 或 run 模型的现有行为。
-- 在范围：专用模型的目录校验、重启生效与失败不回退语义。
-- 非目标：改变 Coding CLI 的审批模型或配置。
-- 非目标：让 Coding CLI 与 Personal Assistant 共用一份审批模型配置。
-- 非目标：提供 per-agent、per-run 或 workspace 级的专用审批模型覆盖。
-- 非目标：增加字段级热更新或 Web IM 配置界面。
-- 非目标：改变 Agent 正常对话的模型选择，或改变 auto mode 现有的 allow / deny / ask、有人值守 / 无人值守裁决语义。
+- 在范围：PA 中主 agent、subagent、heartbeat、cron 与后台自进化 fork 实际进入自动工具权限分类器时的模型选择。
+- 在范围：显式选择与缺省兼容语义、启动期目录校验、运行失败后的既有安全降级，以及重启后生效。
+- 非目标：改变 `coding_cli` 的自动工具权限分类行为。
+- 非目标：改变普通 Agent 请求、工具执行或工具执行后续跑所使用的当前 run 模型。
+- 非目标：让安全快速放行或工具直接 allow / deny / ask 的路径额外调用分类模型。
+- 非目标：新增统一审批模型配置的热加载。
+- 非目标：在本阶段确定配置字段名称、放置位置、内部接口或其他实现结构；设计阶段应采用满足上述语义的最小入口，不新增非必要的 per-Agent 配置能力。

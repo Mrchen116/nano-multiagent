@@ -1,12 +1,12 @@
 {
-  "event_count": 12,
+  "event_count": 10,
   "exit_code": 0,
   "formal_eligible": false,
   "manifest_id": "loop-experimenter-01",
-  "output_sha256": "d82d2f7a1af0ff2634579704a9b16796b6f0bf524753a25b72ed41e22df91674",
+  "output_sha256": "b61ce070d76d7cf7e4ddabee4ce399478ff3797ab25f46055c942af0d3828ddf",
   "real_codex_cli": true,
   "schema_version": "1.0",
-  "session_id": "019fed2c-12fa-7cf2-b15c-0f71d0a3b22f",
+  "session_id": "019fed7c-0b27-74f2-a6e5-6424b232dd80",
   "temporary_auth_copy_retained": false,
   "turn": 1
 }

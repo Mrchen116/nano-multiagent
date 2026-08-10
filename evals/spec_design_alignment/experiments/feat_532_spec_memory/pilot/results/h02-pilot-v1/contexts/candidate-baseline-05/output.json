@@ -1,5 +1,5 @@
 {
-  "first_doc_path": "docs/changes/feat-507-approval-model-config/spec.md",
-  "owner_message": "",
-  "status": "gate1_complete"
+  "first_doc_path": "",
+  "owner_message": "Q5：修改统一审批模型配置后，本期是否要求 Gateway 无重启热生效？\n我的推荐：本期不做热加载，修改配置后通过重启 Gateway 生效。\n理由：仓库现有 `llm` 模型目录也是启动期加载与校验；沿用这一运维方式范围最小，并与刚确认的“启动配置错误”语义一致。\n\n你怎么看？",
+  "status": "needs_owner"
 }

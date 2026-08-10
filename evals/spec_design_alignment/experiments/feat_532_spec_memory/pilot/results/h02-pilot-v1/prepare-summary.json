@@ -1,10 +1,10 @@
 {
-  "artifacts": "/Users/czj/Repos/nano-multiagent/.worktrees/feat-532-M0/evals/spec_design_alignment/experiments/feat_532_spec_memory/pilot/results/h02-pilot-v1",
-  "candidate_template": "/private/tmp/feat532-m0-workspace.ZeiDSS/candidate-template",
+  "artifacts": "/private/tmp/feat532-M0-fix1-artifacts.D5vhXk",
+  "candidate_template": "/private/tmp/feat532-M0-fix1-work.ZejOV2/candidate-template",
   "case_id": "H02",
   "formal_eligible": false,
-  "neutral_repository": "/private/tmp/feat532-m0-workspace.ZeiDSS/neutral-repo",
+  "neutral_repository": "/private/tmp/feat532-M0-fix1-work.ZejOV2/neutral-repo",
   "pilot_id": "feat-532-h02-infrastructure-pilot-v1",
-  "sealed_inputs_sha256": "47330ab11878e5c39ee1fa0bb4f5529e953cbf514fc5a2f4a9ea94db32b8b9bc",
-  "workspace": "/private/tmp/feat532-m0-workspace.ZeiDSS"
+  "sealed_inputs_sha256": "4a1527ca4c852823799c23ad7175dff646419b9c70ac5ef5422f0b1938583e8d",
+  "workspace": "/private/tmp/feat532-M0-fix1-work.ZejOV2"
 }

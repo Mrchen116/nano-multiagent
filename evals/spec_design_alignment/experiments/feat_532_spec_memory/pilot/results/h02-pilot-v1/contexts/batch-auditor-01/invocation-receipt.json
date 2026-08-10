@@ -1,12 +1,12 @@
 {
-  "event_count": 9,
+  "event_count": 8,
   "exit_code": 0,
   "formal_eligible": false,
   "manifest_id": "batch-auditor-01",
   "output_sha256": "606117d25c24236ba535c38fb6d9c499703ef1a156c3b54c9b108848d9d20dd7",
   "real_codex_cli": true,
   "schema_version": "1.0",
-  "session_id": "019fed29-7ce0-7ef1-9ccc-c08017a6b5e6",
+  "session_id": "019fed79-8847-7232-bfc2-9787d9edbf10",
   "temporary_auth_copy_retained": false,
   "turn": 1
 }

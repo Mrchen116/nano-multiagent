@@ -1,5 +1,5 @@
 {
   "first_doc_path": "",
-  "owner_message": "Q3：修改 Personal Assistant 的专用审批模型配置后，是否接受重启 Gateway 才生效？\n我的推荐：接受重启后生效，不做热更新。\n理由：当前 Gateway 的 `llm` 模型目录和连接在启动时从单份本地配置加载；沿用这一生命周期改动最小，也能确保一次运行期间所有 Agent 始终使用同一审批模型快照。\n\n你怎么看？",
+  "owner_message": "Q3：显式配置的统一审批模型在运行时超时、不可达或返回不可解析结果时，是否沿用现有安全降级？\n我的推荐：沿用现状——有人值守的 PA 会话转为用户手动审批；heartbeat、cron、后台 fork 等无人值守路径按现有 `unattended_fallback` 处理，默认拒绝；不要静默回退到当前 Agent/run 模型。\n理由：静默回退会让“统一模型”在故障时失效且难以察觉，而现有分类器已经具备这套 fail-closed 行为。\n\n你怎么看？",
   "status": "needs_owner"
 }

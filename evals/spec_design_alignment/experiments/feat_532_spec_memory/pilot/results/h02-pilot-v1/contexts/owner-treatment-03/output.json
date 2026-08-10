@@ -1,8 +1,7 @@
 {
-  "reply": "原则上，显式配置只影响自动工具权限分类所调用的模型，不改变各来源现有的权限策略、兜底或交互语义；普通 Agent 请求及工具调用后的继续执行仍使用 run 模型。具体哪些来源（普通对话、子 Agent、heartbeat、cron）实际进入该分类链路，请基于仓库中的调用路径核实，并据此提出覆盖方案。",
-  "status": "ask_author_to_research",
+  "reply": "同意。若显式选择的模型不在 PA 模型目录中，应作为 Gateway 启动配置错误明确失败，不能静默回退。",
+  "status": "answered",
   "used_context_refs": [
-    "O04",
-    "O08"
+    "O03"
   ]
 }

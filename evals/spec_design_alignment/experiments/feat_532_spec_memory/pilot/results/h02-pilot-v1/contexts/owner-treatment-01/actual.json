@@ -1,14 +1,29 @@
 {
-  "formal_eligible": false,
-  "input_envelope_sha256": "1baabbd1365cfe574d833c48724b209610ffb323cb773e8803dc271c6f700d6b",
-  "instructions_sha256": "b479de7122f7bb3e2bd6f8c6b9674bd56339fa3ef704d2a5102d15910c33986f",
-  "manifest_id": "owner-treatment-01",
-  "output_schema_sha256": "3788dccb4c981cea85a5f5a3474ef96864ccff4c3fb39f861929211df9bcedf6",
-  "role": "owner_simulator",
-  "visible_files": [
+  "cwd": "workspace",
+  "environment_policy": {
+    "codex_home": "role_runtime/codex-home",
+    "home": "role_runtime/home",
+    "keys": [
+      "ALL_PROXY",
+      "CODEX_CI",
+      "CODEX_HOME",
+      "HOME",
+      "HTTPS_PROXY",
+      "HTTP_PROXY",
+      "LANG",
+      "LC_ALL",
+      "NO_PROXY",
+      "PATH",
+      "TERM",
+      "TMPDIR"
+    ],
+    "tmpdir": "role_runtime/tmp"
+  },
+  "exit_code": 0,
+  "final_visible_files": [
     {
       "path": "AGENTS.md",
-      "sha256": "b479de7122f7bb3e2bd6f8c6b9674bd56339fa3ef704d2a5102d15910c33986f"
+      "sha256": "603c056088b400148b8aea53d53c037b2d0dcb6145ddd9c6595cc0e509a4f246"
     },
     {
       "path": "owner-context.provisional.json",
@@ -18,5 +33,69 @@
       "path": "public-brief.md",
       "sha256": "15126bbf78721517ccb39d4e77c263dfa6da50cb4adaa82a13a5d42c24903f68"
     }
-  ]
+  ],
+  "formal_eligible": false,
+  "initial_visible_files": [
+    {
+      "path": "AGENTS.md",
+      "sha256": "603c056088b400148b8aea53d53c037b2d0dcb6145ddd9c6595cc0e509a4f246"
+    },
+    {
+      "path": "owner-context.provisional.json",
+      "sha256": "b763fb966598e977ed8a68b90cc5a4c48ec11e43a3e566b09e3046e5dd2e1649"
+    },
+    {
+      "path": "public-brief.md",
+      "sha256": "15126bbf78721517ccb39d4e77c263dfa6da50cb4adaa82a13a5d42c24903f68"
+    }
+  ],
+  "input_envelope_sha256": "260ef1d8eb468b3a65345d4e22c21e8c00d44c93274e2d1862f8f8c9f7e83917",
+  "manifest_id": "owner-treatment-01",
+  "os_sandbox": {
+    "canary_read_blocked": true,
+    "mechanism": "macos_sandbox_exec_seatbelt",
+    "profile_sha256": "ee9d48339a77ca178e73f85073278a7520b94d0cd354f18035e98e2bb65f74c1",
+    "tool_network_blocked": true
+  },
+  "readable_roots": [
+    "role_runtime",
+    "system_runtime",
+    "workspace"
+  ],
+  "resolved_argv": [
+    "/opt/homebrew/bin/codex",
+    "exec",
+    "resume",
+    "--ignore-user-config",
+    "--ignore-rules",
+    "--skip-git-repo-check",
+    "--disable",
+    "memories",
+    "--disable",
+    "plugins",
+    "--disable",
+    "apps",
+    "-m",
+    "gpt-5.6-sol",
+    "-c",
+    "model_reasoning_effort=\"medium\"",
+    "-c",
+    "approval_policy=\"never\"",
+    "-c",
+    "sandbox_mode=\"danger-full-access\"",
+    "--output-schema",
+    "$ROLE_RUNTIME/output-schema-02.json",
+    "--json",
+    "-o",
+    "$ROLE_RUNTIME/last-message-02.json",
+    "019fed6f-16fc-7922-9da4-eabe33b3256a",
+    "-"
+  ],
+  "schema_version": "1.0",
+  "tools": {
+    "command_execution_observed": false,
+    "network": false,
+    "shell": true,
+    "workspace_write": false
+  }
 }

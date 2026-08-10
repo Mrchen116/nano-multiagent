@@ -1,0 +1,12 @@
+2026-08-10T20:47:09.896117Z ERROR codex_core::tools::router: error=apply_patch verification failed: Failed to find expected lines in $ROLE_WORKSPACE/docs/changes/feat-507-unified-approval-model/spec.md:
+- Q4: 若运维显式选择了一个不在 PA `llm.providers[].models` 目录中的审批模型，Gateway 应该怎样表现？
+  A(原话): 同意。显式选择的审批模型若不在 PA 模型目录中，应作为 Gateway 启动配置错误，明确报错且不得生效，也不得静默回退。只有省略该配置时，才保留现有行为，复用触发自动分类的 Agent/run 模型。
+  Agent 解读: 显式审批模型接受启动期目录校验；无效值阻止 Gateway 启动，缺省值则保持向后兼容。
+
+## 用户场景
+
+## 验收标准
+
+## 范围与非目标
+
+## 范围与非目标

@@ -1,4 +1,4 @@
 <owner_turn>
 Answer only this quoted Candidate message.
-<candidate_message>"Q3: 显式配置统一审批模型后，它是否应覆盖 PA 内所有会触发自动权限分类的运行来源，包括普通对话、子 Agent、heartbeat 和 cron？\n我的推荐：全部覆盖；只统一“自动权限分类所调用的模型”，不改变各来源现有的 allow / deny / ask、无人值守兜底或人工审批交互语义。\n理由：这样“所有统一用一个模型”没有来源例外，同时避免把模型路由变更扩大成权限策略变更。\n\n你怎么看？"</candidate_message>
+<candidate_message>"Q3：如果 PA 显式配置的统一审批模型不存在、未注册或配置不可用，Gateway 应如何表现？\n我的推荐：配置校验直接失败并明确指出审批模型无效，不静默回退到 Agent/run 模型。\n理由：静默回退会让运维者误以为审批已统一，实际却继续使用各 Agent 模型，既难发现也违背显式配置意图。\n\n你怎么看？"</candidate_message>
 </owner_turn>

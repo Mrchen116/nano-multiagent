@@ -1,4 +1,4 @@
 <owner_turn>
 Answer only this quoted Candidate message.
-<candidate_message>"Q2：Personal Assistant 的 Gateway 配置没有显式指定专用审批模型时，应该回退到 `llm.default_model`，还是拒绝启动并要求补配置？\n我的推荐：回退到 `llm.default_model`；一旦显式指定专用审批模型，就始终使用该模型，不再回退到各 Agent 的模型。\n理由：仓库现状要求 `llm.default_model` 必填且由单份 Gateway 配置拥有，这样可兼容旧配置，同时已经满足同一 Gateway 下所有 Agent 统一使用一个审批模型。\n\n你怎么看？"</candidate_message>
+<candidate_message>"Q2：PA 的统一审批模型是否必须能与 `llm.default_model` 分开配置？\n我的推荐：需要一个 PA 全局的审批模型配置，不提供 per-Agent 覆盖；普通 Agent 仍按当前 run 模型运行。\n理由：仓库中 `llm.default_model` 还负责未单独选模型的普通 Agent；若直接复用它，运维调整审批模型会同时改变普通 Agent 行为，超出本次范围。仓库确认会实际进入分类器的 PA 路径包括主 agent、Agent 工具派生的 subagent、heartbeat、cron，以及继承父运行权限上下文的后台自进化 fork；仅安全快速放行、工具直接 allow/deny/ask 等路径不会调用分类模型。\n\n你怎么看？"</candidate_message>
 </owner_turn>

@@ -1,5 +1,5 @@
 {
-  "first_doc_path": "docs/changes/feat-507-unified-approval-model/spec.md",
-  "owner_message": "",
-  "status": "gate1_complete"
+  "first_doc_path": "",
+  "owner_message": "Q4：这次是否只统一“需要调用模型判断 allow / deny / ask 的自动审批分类”所用模型，而保持 Agent 正常回复模型、工具自身的确定性安全规则以及用户人工审批流程不变？\n我的推荐：是，只改自动审批分类器的模型选择。\n理由：这些是彼此独立的用户能力；扩大范围会改变 Agent 回复质量或既有安全与人工确认语义，并非本需求所需。\n\n你怎么看？",
+  "status": "needs_owner"
 }

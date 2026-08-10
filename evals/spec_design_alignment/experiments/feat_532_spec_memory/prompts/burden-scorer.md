@@ -8,5 +8,5 @@ as supplied product decisions. Do not judge spec quality or infer arm/Memory.
 Emit exactly one `items` record per independent contribution, so
 `contribution_units` equals the number of records.
 Copy the transcript's `T1` or `T2` identifier exactly into `transcript_id` and
-cite only valid `O01`–`O08` atom IDs already present in the transcript.
+cite only Owner atom IDs already present in the transcript.
 Return only the output-schema object.

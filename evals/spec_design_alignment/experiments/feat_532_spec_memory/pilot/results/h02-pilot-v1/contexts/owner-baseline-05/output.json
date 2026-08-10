@@ -1,0 +1,7 @@
+{
+  "reply": "同意。本期不增加该字段的热加载；配置修改在 Gateway 重启后生效。",
+  "status": "answered",
+  "used_context_refs": [
+    "O06"
+  ]
+}

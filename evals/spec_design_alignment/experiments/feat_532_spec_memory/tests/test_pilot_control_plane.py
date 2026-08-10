@@ -29,7 +29,10 @@ def test_projection_is_anonymous_whole_lineage_and_replayable(tmp_path: Path) ->
     write_first_doc(repository, "active", "feat-532-control", "# Control\n")
     legacy = repository / "docs/changes/archive/bugfix-102-legacy"
     legacy.mkdir(parents=True)
-    (legacy / "README.md").write_text("# Legacy without a first document\n", encoding="utf-8")
+    (legacy / "README.md").write_text(
+        "# Legacy without a first document\n", encoding="utf-8"
+    )
+    runner.rewrite_as_parentless_repository(repository)
     config = {
         "case_id": "H02",
         "formal_eligible": False,
@@ -60,6 +63,13 @@ def test_projection_is_anonymous_whole_lineage_and_replayable(tmp_path: Path) ->
         "docs/changes/feat-100-allowed/spec.md",
         "docs/changes/archive/bugfix-101-allowed/spec.md",
     }
+    assert first_private["source_commit"] == runner.run_git(
+        repository, "rev-parse", "HEAD"
+    )
+    assert first_private["source_tree"] == runner.run_git(
+        repository, "rev-parse", "HEAD^{tree}"
+    )
+    assert first_private["source_cleanliness"] == "clean_tracked_only"
     projected = "\n".join(
         path.read_text(encoding="utf-8")
         for path in sorted((first_artifacts / "corpus/documents").glob("*.txt"))
@@ -98,13 +108,17 @@ def test_candidate_projection_has_one_skill_and_no_control_history(
     assert (candidate / ".agents/skills/change-spec-author/SKILL.md").is_file()
     assert not (candidate / ".claude").exists()
     assert not (candidate / "evals").exists()
-    assert not (candidate / "docs/changes/feat-510-unified-tool-approval-model").exists()
+    assert not (
+        candidate / "docs/changes/feat-510-unified-tool-approval-model"
+    ).exists()
     assert receipt["formal_eligible"] is False
     assert receipt["candidate"]["skill_closure"] == [
         ".agents/skills/change-spec-author/SKILL.md"
     ]
     assert len(runner.run_git(candidate, "rev-list", "--parents", "HEAD").split()) == 1
-    assert load_json(artifacts / "control/repository-projection-receipt.json") == receipt
+    assert (
+        load_json(artifacts / "control/repository-projection-receipt.json") == receipt
+    )
 
 
 def test_provisional_contexts_validate_and_cannot_be_formal() -> None:
@@ -126,7 +140,9 @@ def test_provisional_contexts_validate_and_cannot_be_formal() -> None:
     ]
 
 
-def test_direct_load_memory_is_the_only_candidate_arm_difference(tmp_path: Path) -> None:
+def test_direct_load_memory_is_the_only_candidate_arm_difference(
+    tmp_path: Path,
+) -> None:
     template = tmp_path / "template"
     (template / ".agents/skills/change-spec-author").mkdir(parents=True)
     (template / ".agents/skills/change-spec-author/SKILL.md").write_text(
@@ -154,9 +170,13 @@ def test_direct_load_memory_is_the_only_candidate_arm_difference(tmp_path: Path)
         template, tmp_path / "arms", tmp_path / "artifacts", memory_store
     )
 
-    baseline_files = {entry["path"]: entry["sha256"] for entry in runner.visible_file_manifest(baseline)}
+    baseline_files = {
+        entry["path"]: entry["sha256"]
+        for entry in runner.visible_file_manifest(baseline)
+    }
     treatment_files = {
-        entry["path"]: entry["sha256"] for entry in runner.visible_file_manifest(treatment)
+        entry["path"]: entry["sha256"]
+        for entry in runner.visible_file_manifest(treatment)
     }
     assert set(treatment_files) - set(baseline_files) == {".experiment/task-memory.md"}
     assert all(
@@ -198,7 +218,7 @@ def test_role_manifest_binds_visible_files_and_input_envelope(tmp_path: Path) ->
         model="gpt-test",
         reasoning_effort="medium",
         skill_closure=[],
-        shell=True,
+        workspace_write=True,
         forbidden_surfaces=["case identity", "private truth"],
     )
 
@@ -209,6 +229,12 @@ def test_role_manifest_binds_visible_files_and_input_envelope(tmp_path: Path) ->
         runner.EXPERIMENT_ROOT / "schemas/role-context-manifest.schema.json",
     )
     runner.verify_role_context(manifest, workspace, envelope)
+
+    assert manifest["tools"] == {
+        "network": False,
+        "shell": True,
+        "workspace_write": True,
+    }
 
     instructions.write_text("# Drifted role\n", encoding="utf-8")
     with pytest.raises(runner.PilotError, match="visible-file manifest drift"):

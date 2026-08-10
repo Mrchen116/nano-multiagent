@@ -62,3 +62,21 @@ Prototype / Reference Contract：N/A。
 - 状态: DONE
 - 步骤: 生成 `infrastructure_pass/fail` report、seal 和脱敏 evidence，重放全部确定性检查，补齐 progress。
 - 验证: replay CLI、overlay/shared tests、dataset validator、docs-check、Ruff、compile、`git diff --check`。
+
+### R5 — Round 1 执行隔离与独立 attestation
+
+- 状态: DONE
+- 步骤: 用 macOS Seatbelt profile 把每次 role invocation 限制到本角色 workspace、runtime 与系统运行面，拒读 parent/sibling/control/host home；expected 在执行前封存，独立 wrapper 在调用后回收 argv、cwd、environment policy、readable roots、初末文件 hash 与真实工具观察。
+- 验证: read-only/workspace-write 两种角色的 workspace 外 canary 对抗测试；actual schema、expected/actual 对账及 replay 篡改测试。
+
+### R6 — Round 1 确定性 fail-closed 契约
+
+- 状态: DONE
+- 步骤: Gate 1 拒绝 untracked/ignored scratch 与 symlink；corpus 只读 clean tracked commit/tree；result 从 sealed evidence 重建并纳入 evidence manifest；补齐 run audit、blind judge、动态 Owner atom 与默认 config 校验。
+- 验证: `test_pilot_fail_closed.py` 红转绿；25 项非 replay focused/shared tests 通过。
+
+### R7 — Round 1 新 seal 实跑与证据替换
+
+- 状态: DONE
+- 步骤: 代码提交后从 clean tracked snapshot 运行全新 H02，旧 bundle 不复用；新 bundle replay/泄漏/schema/secret/diff 门禁通过后替换版本化结果并更新 progress。
+- 验证: 真实 Codex invocation receipt 数、新 seal/evidence hash、全量 focused/shared tests、docs/Ruff format/diff checks。
