@@ -127,3 +127,135 @@ User prefers that every recommendation begin with a short reproducible-evidence 
 ## Recommended Next Step
 
 建议 fix worker 只收口两项验收缺口：为 reviewer 提供不读取源码、能经 isolated Web IM / actual relay 确定触发 no-save/failure 的步骤；提供能确定让 self-evolution 创建 Skill、跨 terminal/reconnect 后在 explicit allowlist 与新 session 中可见且只通知一次的步骤或产品能力。修复后 Round 2 应至少 targeted 复验本轮 3 个 `inconclusive` Scenario；若变更触及事件分类、Gateway lifecycle 或 Runbook 基建，则升级为 full revalidation。
+
+---
+
+# Round 2 — 2026-08-10
+
+> Targeted validation snapshot: `639a5813cb9d17d7cd43c60c51864ca11e76aa84 → 0121940ef6e4d0f2aead9c20b8c364ac179f3876`
+
+> Revalidation mode: targeted（R1-I1、R1-I2 与 Round 1 三个 `inconclusive` Scenario）
+
+## Verdict
+
+- **Verdict: pass**
+- **Highest Required Action: pass**
+- Round 1 的两个 major issue 均已关闭；三个 `inconclusive` Scenario 均由 reviewer-owned 确定性真栈旅程更新为 `pass`。
+- Round 1 已通过的 memory 成功路径与普通后台 Agent 结果按 Fast-lane 继承。fix delta 只增加 acceptance harness、fixture、E2E 和 runbook/catalog，没有改 M1 production routing；本轮未观察到要求升级 full revalidation 的新副作用。
+
+## Reference Artifacts Reviewed
+
+- 无原型、设计稿或视觉 must-match 契约。
+- 本轮真实入口契约来自 `scripts/e2e-self-evolution.sh`、`docs/development/e2e-critical-paths.md` 的 #17 catalog、`scripts/fixtures/README.md` 与 M2 reviewer runbook。该入口使用隔离 IM、production Gateway、受控 OpenAI-compatible LLM 和 Web IM 相同的公开 HTTP/WebSocket relay；不是 unit/integration test 或源码推断。
+
+## Fast-lane Scope Check
+
+- fix delta: `639a5813c..0121940ef`
+- delta paths 只涉及 M2 文档、reviewer runner、fixture、critical-path E2E 与共享 E2E helper。
+- M2 progress 明确记录“只建立 acceptance harness / runbook / E2E；M1 production classification、source marker、persistent unique owner 与 structured notice schema 均不修改”。
+- reviewer 未读取实现源码；以上只用于确认 Fast-lane 范围，最终结论来自下述一键真栈执行结果。
+
+## User Journeys Exercised
+
+执行命令：
+
+```text
+PATH="/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH" ./scripts/e2e-self-evolution.sh
+```
+
+结果：
+
+```text
+self-evolution E2E runtime: .../.e2e-self-evolution.829GqM
+..                                                                       [100%]
+2 passed in 46.98s
+self-evolution E2E runtime cleaned: .../.e2e-self-evolution.829GqM
+```
+
+该单命令串起两条真实产品旅程：
+
+1. **J2-1 — controlled no-save**：从隔离 IM 公开 relay 完成 seed turn 与第二个前台 turn；前台正常回答完成后，受控 LLM 给出独立的 `no_save_review_completed` 正向执行事实；IM 持久历史核对 raw no-save 文本、review prompt 与错误栈均未成为 Agent 消息。
+2. **J2-2 — terminal-late Skill create + replay + new conversation**：显式 allowlist Agent 的前台回答先完成，随后放行真实 `skill_manage(create)`；持久订阅在 marked 业务事件前受控断线并以同 sequence 重放；最终从 IM Agent config、workspace、新 conversation 的真实 `skill_view` tool timeline 与可见回复核对激活结果。
+
+## Targeted Product Evidence
+
+### No-save privacy
+
+- 前台可见回复：`FOREGROUND-NO-SAVE-COMPLETE`，`delivery_status=completed`。
+- review 正向执行事实：fixture state `no_save_review_completed`。
+- IM 历史：`Nothing to save.`、review prompt、`Traceback` 和其他 raw side-chain Agent 回复均为 0。
+- structured notification：仅既有 memory system notice；no-save raw 文本未伪装成普通 Agent 气泡。
+- 结论：Round 1 无法区分“没执行”与“执行但私有”的证据缺口已关闭。
+
+### Skill activation and reconnect/replay
+
+- 前台可见回复：`FOREGROUND-SKILL-COMPLETE` 先完成，review 在 foreground terminal 与 persistent subscriber 建立后才继续。
+- workspace artifact：真实创建 `deterministic-review-workflow` Skill。
+- explicit allowlist：同一 Agent 配置自动加入新 Skill，selection mode 保持 explicit。
+- structured notification：IM 历史恰好 1 条 skills-updated system notice；`Saved: ...`、review tool 过程与 `Traceback` 普通消息均为 0。
+- transport recovery：受控 fault record 对同一 sequence 记录一对 `disconnected/replayed`；恢复后 artifact、allowlist 与 system notice 均未重复。
+- 后续使用：关闭 self-evolution 后创建全新 conversation/session，实际执行 `skill_view` 读取新 Skill，并产生用户可见回复 `NEW-SESSION-SKILL-USED`。
+- 结论：Round 1 的 Skill 创建、配置同步、后续 session 使用及 terminal/reconnect 边界证据缺口全部关闭。
+
+## 验收标准覆盖
+
+### Requirement: self-evolution 原始过程保持后台私有
+
+| Scenario | Round 2 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|
+| memory review 在正常回答后完成 | 继承 Round 1 J1 | 正常回答、memory 持久更新、唯一 structured memory notice、raw 0 | **pass（继承）** | fix delta 未改 M1 production routing。 |
+| 后台 review 没有可保存内容或执行失败 | J2-1 reviewer-owned 真栈 | `FOREGROUND-NO-SAVE-COMPLETE` completed；`no_save_review_completed`；raw `Nothing to save.` / prompt / error 0 | **pass** | no-save 分支有独立正向执行事实，不再以“页面没内容”反推。Scenario 的 no-save / failure 为 OR，本轮确定性覆盖 no-save。 |
+
+### Requirement: skill 更新在前台 terminal 之后仍可靠生效
+
+| Scenario | Round 2 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|
+| skill review 创建新 skill | J2-2 reviewer-owned 真栈 | terminal 后真实 create；workspace `deterministic-review-workflow`；explicit allowlist 自动加入；新 conversation 实际 `skill_view`；1 条 skills notice；raw 0 | **pass** | 同时证明相关 Agent 与后续 session 的用户可观察效果。 |
+| terminal 切换或可恢复重连覆盖事件边界 | J2-2 受控 transport fault/replay | foreground 先 completed；同 sequence `disconnected/replayed`；恢复后 Skill、allowlist、notice 均恰好一次；新 session 使用成功 | **pass** | 真实 persistent route 经过一次断线重放，没有漏激活或重复通知。 |
+
+### Requirement: 其他后台结果语义保持不变
+
+| Scenario | Round 2 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|
+| 普通后台 Agent 产生用户可见结果 | 继承 Round 1 J4 | `ORDINARY-STARTED-R1-525` + 唯一后台完成气泡，重进后不重复 | **pass（继承）** | fix delta 未改 M1 production routing。 |
+
+## Issue Closure
+
+### R1-I1 — closed
+
+- Round 1: `major / direct / fix-implementation`。
+- Round 2 closure: no-save review 有独立正向执行事实，且 actual IM relay 中前台回答 completed、raw/no-save/error 普通消息为 0；不再是 `inconclusive`。
+
+### R1-I2 — closed
+
+- Round 1: `major / direct / fix-implementation`。
+- Round 2 closure: terminal 后真实 Skill create、同 sequence reconnect/replay、workspace artifact、explicit allowlist、唯一 structured notice 与新 session `skill_view` 全部在同一真栈旅程成立；不再是 `inconclusive`。
+
+## Cleanup Verification
+
+- runner 报告 runtime `.e2e-self-evolution.829GqM` 已删除。
+- reviewer 独立后验：worktree 下无 `.e2e-self-evolution.*` 目录。
+- 无指向本 unit worktree 的 recording LLM / replay-fault Gateway / runner 进程残留。
+- worktree 根无 `.gateway.pid`、`.im.pid`、`.e2e-ports.env`、`.e2e-jwt-secret`、`.gateway-config.yaml` 或 channel credential/manifest 残留。
+- `git status` 在写本报告前为 clean。
+
+## Side Findings
+
+- Round 1 的 `e2e-up.sh` readiness false-negative 在新的 reviewer-owned runner 中未复现：命令退出 0，且 teardown/runner 双层清理通过，视为已关闭的验收基础设施缺口。
+- Round 1 记录的单次空正文属于 unrelated-existing minor，targeted fix 未触及该能力域，本轮未复验；不阻塞 bugfix-525。
+
+## 自动化测试增量
+
+- 本轮执行的是 M2 明确交给 reviewer 的产品级 critical-path 入口，不是用低层单测替代验收。它把 reviewer 当作真实 IM 用户，只走公开 HTTP/WebSocket relay，并由 production Gateway 处理真实 tool/config/session 生命周期。
+- reviewer 未读取 test、fixture 或 production 实现源码；只读取 catalog/runbook，亲自运行入口并核对退出结果及外部清理状态。
+
+## 上层文档同步
+
+- [x] `SPEC.md`（跨包顶点架构）：**无需更新**。
+- [x] `docs/specs/<包>/`（长青行为契约层）：**需要更新**；沿用 Round 1 结论，由 orchestrator 将本 unit 三份 delta-spec 归并到 canonical specs。
+- [x] `AGENTS.md` / `CLAUDE.md`：**无需更新**。
+- [x] `docs/specs/CONTRIBUTING.md`：**无需更新**。
+
+## Recommended Next Step
+
+Round 1 的两个 issue 和三个 `inconclusive` Scenario 已全部关闭。建议按 orchestrator 正常收尾流程完成 delta-spec 归并与最终门禁，然后进入 PR 交付；不需要继续 product re-review。
