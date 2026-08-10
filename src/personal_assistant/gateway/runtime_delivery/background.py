@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable, Mapping
+import inspect
 import logging
 from typing import Any
 from uuid import uuid4
@@ -97,8 +98,10 @@ def build_session_event_callback(
         )
         if external_metadata is not None and external_reply_sender is not None:
             try:
-                result = external_reply_sender(text, external_metadata)
-                if asyncio.iscoroutine(result):
+                result = await asyncio.to_thread(
+                    external_reply_sender, text, external_metadata
+                )
+                if inspect.isawaitable(result):
                     await result
             except Exception as exc:  # noqa: BLE001
                 _log.warning(

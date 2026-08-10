@@ -116,6 +116,13 @@ None.
 - Affected: heartbeat/cron/composition/manager/observer 矩阵 `43 passed, 2 warnings in 4.10s`（ordinary-route guard 后由 focused 复核）；未改变 raw assistant/tool/turn、structured notice、ordinary realtime Skill 或 background Agent event 分类。
 - Status: DONE。Next: R10 同步 external sender offload 与三类 callback shutdown envelope。
 
+## R10 — Code review：异步通知与 subscriber callback 生命周期
+
+- Context: persistent subscriber callback 在 Gateway event loop 中直接调用 production external sender；OutboundRouter/Feishu REST 与同步 retry sleep 会阻塞整个 loop。另三类 subscriber callback 复制同一 shutdown idle envelope，后续修改容易破坏某一分类的 drain 语义。
+- Decision: 只把 external sender 的同步调用交给 `asyncio.to_thread`，返回值若为任意 awaitable 仍回到 loop await；external/shadow 继续各自 best-effort。subscriber 抽模块内 `_invoke_callback`，三个 if/elif 分类优先级、callback、三条 warning 文案和 `CancelledError` 传播保持不变。
+- TDD: event-loop 红测修前观察 sender 与 loop 同线程并失败；三类 callback in-flight close 先作绿 characterization。实现后 notice/subscriber/manager/external affected `47 passed, 2 warnings in 3.49s`，同步 sender 在线程运行且 10ms loop tick 先于 100ms sender 完成，async sender 与 shadow delivery 均保留。
+- Status: DONE。Next: R11 ensure-vs-handle 的共享 Skill config mutation 串行化。
+
 ## Round 4 reviewer-fix readback
 
 - Pre-fix head: `a26fc6975853b5e7183f531df39bbc547a4ea4d7`（包含 reviewer 的 `Round 4 — FAIL` regression commit），从 clean/synced `unit/bugfix-525` 创建独立 `milestone/bugfix-525-M3-fix-r4` worktree；该回归提交保留在 fix 历史中。

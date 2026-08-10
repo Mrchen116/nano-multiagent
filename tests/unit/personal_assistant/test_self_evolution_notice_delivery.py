@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
+import time
 from typing import Any
 
 import pytest
@@ -113,6 +115,69 @@ def test_feishu_review_sends_one_receipt_to_original_chat_and_shadow() -> None:
             },
         )
     ]
+
+
+@pytest.mark.asyncio
+async def test_sync_external_sender_does_not_block_gateway_event_loop() -> None:
+    """Production REST/retry work runs off-loop before shadow delivery resumes."""
+
+    manager = _FakeIMManager()
+    loop_thread = threading.get_ident()
+    sender_threads: list[int] = []
+    sender_finished_at = 0.0
+    loop_tick_at = 0.0
+
+    def _blocking_sender(_text: str, _metadata: dict[str, str]) -> None:
+        nonlocal sender_finished_at
+        sender_threads.append(threading.get_ident())
+        time.sleep(0.1)
+        sender_finished_at = time.monotonic()
+
+    async def _observe_loop_tick() -> None:
+        nonlocal loop_tick_at
+        await asyncio.sleep(0.01)
+        loop_tick_at = time.monotonic()
+
+    callback = build_session_event_callback(
+        im_connection_manager_factory=lambda: manager,
+        external_reply_sender=_blocking_sender,
+    )
+
+    await asyncio.gather(
+        callback(
+            _context(trigger_source="feishu"),
+            "agent-a",
+            "sess-1",
+            _event(88, "memory"),
+        ),
+        _observe_loop_tick(),
+    )
+
+    assert sender_threads and sender_threads[0] != loop_thread
+    assert loop_tick_at < sender_finished_at
+    assert len(manager.json_messages) == 1
+
+
+@pytest.mark.asyncio
+async def test_awaitable_external_sender_remains_supported() -> None:
+    external: list[str] = []
+
+    async def _sender(text: str, _metadata: dict[str, str]) -> None:
+        external.append(text)
+
+    callback = build_session_event_callback(
+        im_connection_manager_factory=lambda: None,
+        external_reply_sender=_sender,
+    )
+
+    await callback(
+        _context(trigger_source="feishu"),
+        "agent-a",
+        "sess-1",
+        _event(89, "skills"),
+    )
+
+    assert external == ["· background self-evolution review: skills updated"]
 
 
 def test_origin_switching_uses_each_event_route_without_latest_binding_fallback() -> (

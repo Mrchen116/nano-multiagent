@@ -219,6 +219,71 @@ async def test_background_subscriber_reconnects_after_marked_skill_cursor() -> N
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("callback_kind", "event"),
+    [
+        (
+            "background",
+            {
+                "event": "assistant_message",
+                "origin": "background_task",
+                "content": "ordinary result",
+            },
+        ),
+        (
+            "skill",
+            {
+                "event": "skill_created",
+                "source": "self_evolution",
+                "name": "created-skill",
+            },
+        ),
+        ("notice", {"event": "self_evolution_review"}),
+    ],
+)
+async def test_close_waits_for_each_accepted_callback(
+    callback_kind: str,
+    event: dict[str, Any],
+) -> None:
+    """All three routed callback classes share the same shutdown handoff."""
+
+    from personal_assistant.gateway.background_session_events import (
+        BackgroundSessionEventSubscriber,
+    )
+
+    callback_started = asyncio.Event()
+    release_callback = asyncio.Event()
+
+    async def _callback(_event: Mapping[str, Any]) -> None:
+        callback_started.set()
+        await release_callback.wait()
+
+    async def _noop(_event: Mapping[str, Any]) -> None:
+        return None
+
+    kernel_client = MagicMock()
+    kernel_client.stream_session = MagicMock(return_value=_event_stream(event))
+    subscriber = BackgroundSessionEventSubscriber(
+        kernel_client=kernel_client,
+        session_id=f"sess-{callback_kind}",
+        on_event=_callback if callback_kind == "notice" else _noop,
+        bg_run_output_callback=(_callback if callback_kind == "background" else None),
+        skill_created_callback=_callback if callback_kind == "skill" else None,
+    )
+
+    await subscriber.start()
+    await asyncio.wait_for(callback_started.wait(), timeout=1)
+    close_task = asyncio.create_task(
+        subscriber.aclose(asyncio.get_running_loop().time() + 1)
+    )
+    await asyncio.sleep(0)
+
+    assert not close_task.done()
+    release_callback.set()
+    await close_task
+
+
+@pytest.mark.asyncio
 async def test_background_subscriber_reconnects_on_stream_error() -> None:
     """Subscriber must reconnect when the SSE stream raises an exception."""
     from personal_assistant.gateway.background_session_events import (

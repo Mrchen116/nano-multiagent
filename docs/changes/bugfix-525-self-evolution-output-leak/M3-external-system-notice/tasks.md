@@ -99,13 +99,13 @@ Prototype / Reference Contract: N/A。
 
 ### R10 — Code review：异步通知与 subscriber callback 生命周期
 
-- 状态: IN PROGRESS
+- 状态: DONE
 - 步骤: 先补阻塞 external sender 的 event-loop 红测和三类 callback in-flight close 红测；最窄 offload 同步 sender，并抽取模块内 callback envelope。
 - 验证: sync sender 在线程执行、awaitable sender 仍可用；ordinary output、Skill、structured notice 的分类、日志、取消和 shutdown handoff 不变。
 
 ### R11 — Code review：共享 Skill config mutation 串行化
 
-- 状态: TODO
+- 状态: IN PROGRESS
 - 步骤: 先补 `ensure_agent_skills_enabled` 与 `handle_skill_created` 跨线程竞争红测；在共享 read/merge/PATCH seam 复用既有 `RLock`。
 - 验证: 最终 explicit allowlist 同时包含 activation bundle 与 self-evolution Skill，无 409 丢更新；default discovery/global scope 保持。
 
