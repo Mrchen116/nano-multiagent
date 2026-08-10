@@ -128,3 +128,12 @@ None.
   - Evidence locator: `evidence/coding-cli-self-evolution.txt` 保存精简真实终端输出与逐 case 断言；stdout 报告 `runtime_cleaned=true`，运行后不存在 `.e2e-cli-self-evolution.*`。
   - Affected regression: hook/CLI/Gateway/Feishu harness 矩阵 `119 passed, 2 warnings in 22.54s`；共享 fixture 的 M2 critical path `2 passed in 44.91s` 且 runtime trap 清理。
 - Status: DONE。Next: R8 最终 Feishu 复核与质量门禁。
+
+## R8 — Round 4 收尾门禁
+
+- Product acceptance: 最终代码上只执行一轮专用 Feishu exact `e2e-up --feishu -> probe -> journey -> down`，probe 通过，journey nonce `bugfix525-m3-e9c4121c554c` status 0；同一轮后的 PID、listener lock、fixture JSONL、config receipts 与临时 runtime 均不存在。真实 Coding CLI 六场景最终 journey nonce `4e566550ff`，stdout `runtime_cleaned=true`，证据见本 milestone 两个 evidence 文件。
+- Focused/affected: structural fixture tests `6 passed`；hook/CLI/Gateway/Feishu harness 矩阵 `119 passed, 2 warnings in 22.54s`；共享 M2 critical paths `2 passed in 44.91s` 并清理 runtime。
+- Full: `PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -m 'not e2e' -n 4 --dist worksteal --durations=20 --durations-min=0.5` → `3235 passed, 28 warnings in 79.64s`。
+- Quality: repository `ruff check .`、3 个 Round 4 Python 文件 `ruff format --check`、docs-check（245 Markdown / 67 routes）、`git diff --check`、acceptance Python compile 与相关 shell syntax 均通过。
+- Commits: `abc4f2d0d`（R4-I1 route-anchor restart ordering/cleanup）、`cc939a7c7`（R4-I2 deterministic Coding CLI/PTY acceptance + evidence）；本 gate 记录由后续 documentation commit 收口。
+- Status: DONE。milestone commit/push 后按 worker protocol merge/push `unit/bugfix-525`，随后移除 fix worktree/branch；不改变 M3 production event classification、route owner 或用户可见 schema。

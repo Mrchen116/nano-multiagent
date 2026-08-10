@@ -87,6 +87,6 @@ Prototype / Reference Contract: N/A。
 
 ### R8 — Round 4 收尾门禁
 
-- 状态: IN PROGRESS
+- 状态: DONE
 - 步骤: 更新 acceptance runbook/evidence/progress；运行 focused、affected、full non-E2E、Ruff、docs-check、diff/shell gates；合并推送 unit 并清理 fix worktree/branch。
 - 验证: reviewer-fix commits 已进入 `unit/bugfix-525`，远端同步且运行资源、runtime artifacts、worktree/branch 全清理。
