@@ -351,3 +351,165 @@ None.
 ## Recommended Next Step
 
 Round 3 当前-head freshness review 通过，无新增 issue。建议按 orchestrator 正常收尾流程完成 delta-spec 归并、最终门禁与 PR 交付；不需要继续 product re-review。
+
+---
+
+# Round 4 — 2026-08-10（M3 external-system-notice）
+
+> Validation snapshot: `1f70876171dee77ee27a7b1d5ffcbdff52df9ca6`
+
+> Review scope: M3 新用户行为为主范围；Round 1–3 已通过的 M1/M2 coverage 仅在当前 HEAD 的隔离真栈通过或本轮明确继承时保留。
+
+## Verdict
+
+- **Verdict: fail**
+- **Highest Required Action: fix-implementation**
+- **Issues: 1 blocking, 1 major, 0 minor**
+- 专用 Feishu identity guard、隔离 IM/Gateway 启动和 ingress probe 均通过，但完整 M3 journey 连续两次在等待 route-anchor ingress 时超时。真实外部入口无法进入第一轮正常对话，因而 Feishu/shadow 双出口、来源切换、overlap 精确归因、no-write 静默与 replay 去重均不能用用户可观察结果验明。
+- 当前 HEAD 的 M1/M2 Web IM 真栈仍通过，但它不能替代缺失的 M3 Feishu 产品结果；Coding CLI 的真实更新/no-write 行也没有 reviewer Runbook 中可执行的受控产品入口，不能以 worker 测试代替。
+
+## Reference Artifacts Reviewed
+
+- 无原型、设计稿或视觉 must-match 契约。
+- 期望来源：`incident.md` 的 8 个 Scenario、`design.md` 的 M3 决策 6/7 与 Reviewer Runbook、M3 delta-spec/canonical Kernel、Gateway、CLI specs。
+- 真实入口：专用 non-production Feishu profile + `e2e-up.sh --feishu` + `e2e-feishu-probe.py` + `e2e-feishu-self-evolution.py`；相邻回归入口为 `e2e-self-evolution.sh`。
+
+## 验收环境与身份门禁
+
+- worktree / branch / validated head：`/Users/czj/Repos/nano-multiagent/.worktrees/unit-bugfix-525` / `unit/bugfix-525` / `1f70876171dee77ee27a7b1d5ffcbdff52df9ca6`。
+- 私有 env：仅使用 `${XDG_CONFIG_HOME:-~/.config}/nano-multiagent/feishu-e2e.env`；文件存在且 mode 为 `0600`。
+- `lark-cli` profile：非 `default`，`auth status --verify` 通过；未打印或复制 App secret/profile identity，未读取生产 Gateway config。
+- 两次运行都由当前 worktree 启动全新隔离 IM/Gateway、随机高位 IM 端口、worktree-local config/workspace/state；启动输出明确为 `profile feishu`，并提示不使用 `~/.nanoassistant`。
+- 本轮未遇到 listener lock 占用，没有停止或争抢其他 worktree/生产 listener。
+
+## User Journeys Exercised
+
+### J4-1 — 专用 Feishu M3 完整旅程（两次独立尝试）
+
+每次均在同一个带 trap 的受控 shell 中执行：
+
+```text
+PATH="/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH" ./scripts/e2e-up.sh --wt "$PWD" --feishu
+./scripts/e2e-feishu-probe.py --wt "$PWD"
+./scripts/e2e-feishu-self-evolution.py --wt "$PWD"
+./scripts/e2e-down.sh --wt "$PWD"
+```
+
+两次共同观察：
+
+```text
+e2e stack ready ...
+profile feishu
+Feishu E2E ingress probe passed (profile=<dedicated non-default profile>)
+RuntimeError: timed out waiting for route anchor ingress
+e2e stack stopped (wt=.../unit-bugfix-525)
+```
+
+- 期望：route-anchor 普通测试消息进入当前隔离 Gateway/shadow，随后继续 no-save、失败、Skill、shadow memory 与来源交错旅程。
+- 实际：probe 通过后的 route-anchor 测试消息在两次全新隔离运行中都未进入产品入口；旅程在第一项业务断言前终止。
+- 结论：这是用户主路径不可达，不可用 worker 的历史 message ids、测试或实现推断代替；本轮 M3 主范围为 `fail`。
+
+### J4-2 — 当前 HEAD 的 M1/M2 真栈相邻回归
+
+从仓库外 cwd 执行：
+
+```text
+cd /tmp
+/Users/czj/Repos/nano-multiagent/.worktrees/unit-bugfix-525/scripts/e2e-self-evolution.sh
+```
+
+结果：
+
+```text
+..                                                                       [100%]
+2 passed in 40.97s
+self-evolution E2E runtime cleaned: .../.e2e-self-evolution.Bsrjfp
+```
+
+- controlled no-save：前台完成、review 确实执行，raw `Nothing to save.`/review/error 未进入聊天，且无误导 update notice。
+- terminal-late Skill：真实 create、workspace artifact、explicit allowlist、新 session 实际 `skill_view`、structured notice exactly-once 与断线重放均继续通过。
+- 该结果证明 M1/M2 的私有性、Skill config sync 与 replay 相邻能力在当前 HEAD 未回归；不证明 M3 Feishu external notice、Feishu shadow 来源切换或 CLI 输出。
+
+## 验收标准覆盖
+
+### Requirement: self-evolution 原始过程保持后台私有
+
+| Scenario | Round 4 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|
+| memory review 在正常回答后完成 | J4-1 专用 Feishu 真旅程 | probe 通过，但 route-anchor ingress 连续两次超时，未能产生正常回答或真实 memory receipt | **fail** | M3 改变了成功 receipt 与触发源路由，不能只继承 Round 1 的旧 Web IM 观察。 |
+| 后台 review 没有可保存内容或执行失败 | J4-2 no-save + J4-1 外部矩阵 | 当前 HEAD 的内部 IM no-save 正向执行且私有；专用 Feishu no-save/read/failure 均因入口超时未到达 | **fail** | 内部 no-save 子路径通过，但 caller 明确要求的 Feishu/shadow no-save、只读、失败和 `completed=False` 已写入回执没有产品证据。 |
+
+### Requirement: skill 更新在前台 terminal 之后仍可靠生效
+
+| Scenario | Round 4 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|
+| skill review 创建新 skill | J4-2 current-head 真栈 + J4-1 | 内部 IM terminal-late Skill、explicit allowlist、新 session 使用通过；Feishu normal reply + 单行 Bot receipt + shadow structured receipt 未到达 | **fail** | Skill 配置同步未回归，但 M3 新双出口行为仍不可验。 |
+| terminal 切换或可恢复重连覆盖事件边界 | J4-2 current-head 真栈 | 同 sequence replay 后 Skill、allowlist、notice 和新 session 使用不漏不重 | **pass** | M2 产品路径当前 HEAD 新鲜通过。 |
+
+### Requirement: 其他后台结果语义保持不变
+
+| Scenario | Round 4 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|
+| 普通后台 Agent 产生用户可见结果 | 继承 Round 1 J4 | 即时 started 回复 + 唯一后台完成气泡，重进不重复 | **pass（继承）** | 本轮 caller 允许沿用此前 regression coverage；M3 主失败未产生可用于推翻该既有用户观察的新结果。 |
+
+### Requirement: self-evolution system notice 与普通消息同源路由
+
+| Scenario | Round 4 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|
+| 飞书消息触发成功的 self-evolution review | J4-1 专用 Feishu 真旅程 | 两次都停在 route-anchor ingress；未看到正常 Bot 回复、单行 update receipt 或 shadow structured notice | **fail** | 必验主路径不可达。 |
+| 内部 IM 消息触发成功的 self-evolution review | J4-1 计划中的 shadow memory source switch | route-anchor 未进入，无法建立同一 Feishu shadow route 并观察“shadow-only、不回写飞书” | **fail** | 普通内部 IM Skill notice 不能替代“绑定 Feishu 的 shadow 仍不回写”这一新语义。 |
+| 其他内部运行态事件保持不外发 | J4-1 专用 Feishu message window | 入口未进入业务 run，无法观察 thinking/tool/token/debug 与 raw review 在真实 Feishu chat 中的缺席 | **fail** | 没有产生目标 run 时，不能用“没有消息”反推隔离成立。 |
+
+### M3 补充产品矩阵
+
+| 用户可观察行为 | 结果 | 证据/限制 |
+|---|---|---|
+| Feishu/shadow 交错与 overlap 精确归因 | **fail** | J4-1 未越过 route-anchor，不能观察每轮回执是否回到自身触发源。 |
+| 缺 originating route 时 fail-closed | **not-applicable** | 该项描述内部 route 缺失处理，没有独立用户触发方式；应由 verifier/code review 保护，不能作为 reviewer 的产品 `pass` 证据。 |
+| replay 后外部/structured notice 不重复 | **fail** | 内部 M2 replay 通过；M3 Feishu notice 未产生。 |
+| Coding CLI memory/skills/both updated line | **inconclusive** | Reviewer Runbook 未提供受控 CLI 产品旅程；未用 `test_cli_background_runs.py` 代替终端观察。 |
+| Coding CLI no-save/read/failure 不显示 updated line | **inconclusive** | 同上；没有真实 CLI no-write journey，不能放行。 |
+| Feishu worker startup 与 shutdown | **pass** | 两次 `e2e-up --feishu` 均在预算内 ready、probe 通过；两次失败后 `e2e-down` 都停止 IM/Gateway 并释放 listener。 |
+
+## Issues
+
+### R4-I1 — 专用 Feishu probe 通过后，下一条正常测试消息无法进入隔离 Gateway
+
+- **Severity**: blocking
+- **Regression Relation**: direct
+- **Recommended Action**: fix-implementation
+- **Action Rationale**: M3 的主路径要求用户从专用 Feishu chat 触发真实更新并观察 Feishu/shadow 双出口；当前在两次全新隔离运行中都停在第一条 route-anchor ingress，无法判断这版对真实用户是否可用。症状直接阻塞本 unit 验收，按 in-unit 处理，不推测内部根因。
+- **Expected**: probe 通过后，journey 的 route-anchor 消息进入当前隔离 Gateway/shadow，并继续完成正常回复与 self-evolution 场景。
+- **Actual**: 两次均在 `timed out waiting for route anchor ingress` 终止；自动 teardown 成功。
+- **Reproduction**: 按 J4-1 从 clean worktree 启动 `--feishu` 隔离栈，probe 通过后运行完整 journey。
+
+### R4-I2 — Coding CLI 的 M3 更新回执没有 reviewer 可执行的真实产品旅程
+
+- **Severity**: major
+- **Regression Relation**: direct
+- **Recommended Action**: fix-implementation
+- **Action Rationale**: caller 要求核对 memory/skills/both 的真实 updated line 与 no-write 静默；Runbook 只提供 IM/Gateway/Feishu 入口，现有材料只指向测试。没有受控 CLI 产品入口时 reviewer 无法从终端观察这些必验结果。
+- **Expected**: 一条 worktree-local、受控 LLM 的 CLI 旅程，分别触发 memory/skills/both 成功写入和 no-save/read/failure，并保留真实终端输出供核对。
+- **Actual**: 本轮没有可执行步骤；按 skill 规则未用 unit test 或 worker 报告替代。
+
+## Side Findings
+
+- 专用 journey 失败时会在 worktree 根留下 `.feishu-self-evolution-llm.jsonl` 与 `config-apply-receipts-v1.json`。两次均确认是本轮新建后精确删除；服务、端口和 listener lock 已由 `e2e-down` 回收。该清理摩擦未单独提高 issue 数，但建议修复 R4-I1 时一并让失败路径保持 worktree clean。
+
+## Cleanup Verification
+
+- 两次 Feishu 尝试都输出 `e2e stack stopped`；最终 worktree 无 `.im.pid`、`.gateway.pid`、`.e2e-ports.env`、`.e2e-jwt-secret`、`.gateway-config.yaml`、channel credential/manifest 或 `.e2e-self-evolution.*`。
+- 无 cwd 指向本 unit worktree 的 IM、Gateway、recording/self-evolution fixture 进程。
+- 无指向本 unit worktree 的 Feishu listener lock。
+- 本轮生成的两份未跟踪 runtime record 已精确删除；写报告前 `git status` clean。
+
+## 上层文档同步
+
+- [x] `SPEC.md`（跨包顶点架构）：**无需更新**。
+- [x] `docs/specs/<包>/`（长青行为契约层）：M3 canonical Kernel/Gateway/CLI 行为已反映当前目标；产品验收失败不改文档真值。
+- [x] `AGENTS.md` / `CLAUDE.md`：**无需更新**。
+- [x] `docs/specs/CONTRIBUTING.md`：**无需更新**。
+
+## Recommended Next Step
+
+先按 `fix-implementation` 收口 R4-I1：在同一专用 non-production profile 下让 probe 后的正常 route-anchor 稳定进入当前隔离 Gateway，并保留失败路径的完整 cleanup。另为 R4-I2 提供不依赖 unit-test 推断的受控 CLI 产品入口。修复后 Round 5 targeted re-review 必须重走完整 Feishu/shadow M3 journey 与 CLI success/no-write journey；M1/M2 只需复跑受影响的相邻路径。
