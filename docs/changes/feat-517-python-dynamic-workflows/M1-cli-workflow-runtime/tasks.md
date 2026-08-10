@@ -50,13 +50,13 @@ Prototype / Reference Contract：`prototype.html` 的 must-match Web 状态归 M
 
 ### R2 — 实现受限 Python compiler、primitives 与 resume 状态
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 以纯 fake child 写 AST/meta/policy、checkpoint、parallel/pipeline/limits、ordinal、whole-run 终态与 chained-v2 prefix 红测，再实现 `agent.core.workflows`。
 - 验证: `tests/unit/agent/core/workflows/`。
 
 ### R3 — 接入 platform manager、Workflow 工具与持久化
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 为 tool schema/prompt、permission callback、store/journal/snapshot、child adapter/structured output、saved/worktree/background stop/notification 写红测并实现。
 - 验证: platform focused tests + `tests/integration/agent/workflows/`。
 

@@ -26,11 +26,11 @@
 
 ## R2 — 实现受限 Python compiler、primitives 与 resume 状态
 
-- Context: pending
-- Decision: pending
-- Rationale: pending
-- Evidence: pending
-- Rollback: pending
+- Context: Python 版必须保留上游的“AST 限制与插桩后真实执行”语义，并把确定性 admission、组合原语和最长相同前缀复用固定为 core 纯逻辑。
+- Decision: 新增 `agent.core.workflows` 深模块：literal meta/top-level policy、私有/动态/OS authority 禁止、async checkpoint 插桩、restricted globals、run-global ordinal、FIFO dispatch、parallel barrier、per-item pipeline、硬上限、状态机和 chained-v2 signature。child effect 只通过注入的 async runner port 发生。
+- Rationale: core 不依赖线程、文件系统或 platform child runner；同一套纯 runtime 可被 platform manager 放入私有 loop，并可用 fake child 永久验证调度与恢复。
+- Evidence: `17 passed`（compiler policy/real execution、primitives、state machine、resume prefix；最终数字在 roadpoint commit 前复跑）。Red 证据为三文件 collection 均 `ModuleNotFoundError: agent.core.workflows`。
+- Rollback: scoped R2 commit 只新增 core 模块与纯 unit tests。
 - Commits: pending
 
 ## R3 — 接入 platform manager、Workflow 工具与持久化
