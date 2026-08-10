@@ -113,7 +113,7 @@
 ## Final verification
 
 - Expanded regression: code-review fix 后 19 个 Feishu / permission / managed-channel 相关 test modules → `151 passed, 2 warnings in 115.04s`；warnings 均来自第三方 `lark_oapi` 的 datetime/event-loop deprecation。
-- Focused regression: approval + interactive client → `14 passed in 24.70s`。
+- Focused regression: approval + interactive client → `15 passed in 9.28s`。
 - Static/docs: Ruff check/format passed；documentation integrity passed（228 maintained Markdown sources, 67 required routes）；`git diff --check` / staged diff-check passed。
 - Real product: final message `om_x100b68ad457214acc2563d6eea4f6df` default/expanded/collapsed PASS；停止时 decision count `0`；runtime cleanup complete。
 - Current spec: `docs/specs/gateway/external-channels.md` 已同步最终原生折叠与零 decision-submit 行为。
@@ -130,11 +130,17 @@
   - 不改正常三字段 DM 的 container/panel/header/icon/action 结构；用户已接受的 native 展开/折叠视觉无需重复 live 发卡。
 - Evidence:
   - Red: 12×5k values 未明确截断且超预算；DM question 原样 Markdown；group pending 泄漏 question；unsafe tool 名仍嵌入 text_tag。
-  - Green: 定向 budget/metadata/generic targets `4 passed, 7 deselected`；focused approval + interactive client `14 passed`。
+  - Green: 定向 budget/metadata/generic targets `4 passed, 7 deselected`；focused approval + interactive client 第一轮 `14 passed`。
   - Exactness: 正常 path/old/new 三个 panel body 逐一等于对应完整转义值；budget case 每个 panel body 以 `... truncated` 结尾，整卡 UTF-8 `<30_000` bytes。
   - Privacy: DM/group pending + deny 均覆盖；safe `custom_transform` 保留 neutral chip，unsafe identifier 无 text_tag 注入。
 - Rollback: 回退 `378ce9a68`；不得恢复已删除的个人数据截图。
 - Commits: `378ce9a68`。
+- Verifier closure:
+  - Residual finding: 单独 30k-char question 即可让实际 client payload 达到 `31,268` bytes；组合 30k question、oversized unsafe tool、oversized option labels 与 12×5k emoji values 的红测复现为 `395,465` bytes。
+  - Decision: Request question、Tool display、button/decision display 分别在渲染前限制为 512/80/80 字符；pending、deny、resolved 一致应用。仅约束显示文本，action decision identifier、request id 与内部 resolved decision 保持原值。
+  - Evidence: 使用与 `FeishuClient.send_interactive_message()` 相同的 `json.dumps(card, ensure_ascii=False).encode()` seam；修复后 pending/deny/resolved 均 `<30_000` bytes 且显示 `... truncated`。正常 `custom_transform`、Request、三个按钮 label 与三字段 panel body 逐项精确不变。
+  - Tests: verifier target `1 passed, 11 deselected`；focused approval + interactive client `15 passed in 9.28s`。
+- Commits: `378ce9a68`、`6c9753091`。
 - Next: focused/expanded regression、Ruff/docs/diff 与 evidence cleanup 均完成；提交、推送并向 orchestrator DONE handoff。
 
 ## Promotion Candidates

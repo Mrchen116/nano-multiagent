@@ -118,9 +118,18 @@ Orchestrator 确认 R4 卡的 neutral Tool tag、divider、path label + line cou
 - Red → Green: budget、metadata privacy/tag injection targets 先失败后 `4 passed, 7 deselected`；focused approval + interactive client `14 passed in 24.70s`；expanded related regression `151 passed, 2 third-party warnings in 115.04s`。
 - Commit: `378ce9a68`。
 
+## Verifier metadata-budget closure
+
+- Residual finding: 30k-char question alone produced an actual client payload of `31,268` bytes. The combined regression with an oversized question, unsafe tool name, oversized option labels, and 12×5k emoji values reproduced `395,465` bytes before the fix.
+- Display-only budgets: Request question `512`, Tool display `80`, and button/resolved decision display `80` characters. Pending, deny, and resolved cards share these bounds; action decision identifiers, request id, and internal resolved state are not truncated.
+- Serializer evidence: the regression uses the same `json.dumps(card, ensure_ascii=False).encode()` seam as `FeishuClient.send_interactive_message()`; all three states serialize below `30_000` bytes and visibly include `... truncated`.
+- Visual non-regression: the normal accepted fixture still has exact `custom_transform`, Request, three option labels, and per-panel bodies. No live card was resent because this closure does not change that accepted payload.
+- Red → Green: oversized metadata target failed at `395,465` bytes, then passed (`1 passed, 11 deselected`); focused approval + interactive client suite `15 passed in 9.28s`.
+- Commit: `6c9753091`。
+
 ## Final gates
 
-- Focused approval + interactive client: `14 passed in 24.70s`
+- Focused approval + interactive client: `15 passed in 9.28s`
 - Expanded Feishu / permission / managed-channel regression: `151 passed, 2 warnings in 115.04s`
 - Ruff check/format: passed
 - Documentation integrity: passed（228 maintained Markdown sources, 67 required routes）

@@ -98,6 +98,6 @@
 ### R5 — Code-review payload/privacy fix
 
 - 状态: DONE
-- 步骤: 恢复 card-wide values 预算；保护 DM/group Request metadata 和 unsafe Tool tag fallback；删除含个人数据的截图证据与测试 fixture；保持正常 DM native panel 视觉 payload 不变。
-- 验证: 12×5k 混合 values 序列化 `<30KB` 且截断明确；正常三字段 panel body 逐字段完整；pending + deny 的 DM literal/group privacy/unsafe tag 回归；focused `14 passed`、expanded `151 passed, 2 third-party warnings`，Ruff/docs/diff 全绿。
-- 提交: `378ce9a68`（实现、测试与截图删除）。
+- 步骤: 恢复 card-wide values 预算；保护 DM/group Request metadata 和 unsafe Tool tag fallback；为 Request question、Tool display、button label 增加 512/80/80 的显示预算且不截断 action identifier/request id；删除含个人数据的截图证据与测试 fixture；保持正常 DM native panel 视觉 payload 不变。
+- 验证: 12×5k 混合 values 与 oversized question/tool/option labels 的 pending/deny/resolved 卡按实际 client serializer seam 均 `<30KB` 且截断明确；正常三字段 panel body 和 `custom_transform` metadata/buttons 逐项精确不变；DM literal/group privacy/unsafe tag 回归；focused `15 passed in 9.28s`、expanded `151 passed, 2 third-party warnings`，Ruff/docs/diff 全绿。
+- 提交: `378ce9a68`（第一轮实现、测试与截图删除）、`6c9753091`（display metadata budget closure）。
