@@ -12,6 +12,8 @@
 - 2026-08-10：按用户 review 确认本功能不引入新的前端设计；删除原型及 IM Workflow 专属进度、详情和批准 UI，统一复用现有 tool pill、slash picker、`PermissionCard`、`ToolCallsPanel` 与普通消息。
 - 2026-08-10：按用户最后 review 补回 IM 工具调用原型；原型只钉住既有 `ToolCallsPanel` / `PermissionCard` / 普通消息承载的 running、async-launched 与后台终态信息，不新增 Workflow 独立 surface。
 - 2026-08-10：按用户确认把 Workflow 展开详情收敛为与 `AgentCard` 同构的“输入在前、结果在后”；仅在现有工具详情内增加 renderer，不增加进度面板、详情页或消息类型。
+- 2026-08-10：按用户最终范围把 `<task-notification>` 的可归因原始返回展示并入本 unit，同时覆盖后台 Workflow 与 `Agent(run_in_background=true)`；终态仍是普通回复，原始返回作为现有“过程”折叠中的第三类结构化项。
+- 2026-08-10：按独立设计审查 R13 收口 canonical MODIFIED 保留、active terminal-stranded / `/stop` held sidecar 搬运，以及 idle `text-or-background_returns` 空正文 wire 契约。
 
 ## 现状分析
 
@@ -54,13 +56,17 @@ The user included the keyword "ultracode", opting this turn into multi-agent orc
 | 已有 permission broker 与 Web/飞书批准面 | `auto_mode_gate`、`PermissionBroker`、`PermissionCard`、`FeishuPermissionApprovalSurface` | `Workflow` 继续走现有 `tool_input + question + options` request，只增加 tool-owned decision callback 记录 Always consent；继续使用同一 broker/request id，不建第二条审批链 |
 | PA 工具为显式真白名单，配置下一轮整体生效 | `resolve_enabled_tools()`、`SessionComposition`、`PA_OPTIONAL_TOOL_IDS` | `Workflow` 是 optional、默认关闭；勾选后下一轮完整出现，取消后下一轮完整消失，进行中的旧轮次保持启动快照 |
 | Web IM 已有 slash picker、工具时间线、通用批准卡、按工具类型分派的详情 renderer 和 Agent tool pills | `slash-candidates.ts`、`tool-calls-panel.tsx`、`tool-detail-renderers.tsx`、`permission-card.tsx`、`agents/pill-selector.tsx`、`agents/agent-detail-page.tsx` | Workflow 只作为这些现有界面的新数据出现；仿照 `AgentCard` 在既有工具详情内增加一个窄 renderer，钉住“输入在前、结果在后”，但不新增独立卡片 surface、进度层、详情页或配置表单，也不复活旧 checkbox/card allowlist |
+| 后台 task record 已生成完整 model-facing notification，但投递只保留 XML 文本 | `agent.core.background_tasks.notifications`、`agent.platform.background_tasks.wiring._deliver_notification()` | 从同一 record 同时派生 XML 与结构化 `BackgroundReturnInfo`；产品层不得重新解析 XML 或从主 Agent 文案反推来源 |
+| 活跃 run 注入与空闲 run 新建走两条路径 | `PendingMessage` / `pending_injection_consumed`、`RunRecord.source_task_id` | 两条路径都必须把同一后台返回 sidecar 绑定到“消费该通知后产生的下一条 assistant reply”；active 路径不能只保留 count，idle 路径不能只保留 task id |
+| Gateway 当前把后台 assistant event 压成纯文本 `agent.message` | `BackgroundSessionEventSubscriber`、`background_subscriptions._relay_bg_run_output()`、`runtime_delivery.background.build_bg_reply_sender()` | 在既有 event/message 类型上透传结构化后台返回；外部 channel 仍取纯文本，Web IM 同时持久化 sidecar，实时与历史共用同一消息投影 |
+| Web “过程”当前只合并 thinking 与 tool | `tool-calls-panel.tsx` 的 `ProcessItem` union、IM `Message` JSON fields | 增加通用 `background-return` 过程项及独立 durable JSON 字段；共享同一 per-message `seq`，但不伪造成 `ToolCall`、不计入工具或授权数量 |
 | Session JSONL 根由 product config dirname 派生 | `JsonlSessionFiles` | Workflow artifact 与 session 同根，不硬编码 `.nanocode`/`.nanoassistant` |
 
 ### 既有约束
 
 - `coding_cli`、`personal_assistant` 只能 import `agent.sdk`；`IM` 不调用 `agent`；`core` 不依赖 `platform`。
 - Tool protocol 的执行入口是同步 `run()`，registry 通过 worker thread 执行；Workflow tool 必须在返回前只做有界启动工作，后台 runtime 自己拥有 async loop。
-- 主会话历史只保留 launch result 与完成 notification；大量 child transcript、阶段日志和返回值留在 Workflow artifact 中。
+- 主会话历史只保留 launch result、主 Agent 的终态回复及其有界后台返回 sidecar；大量 child transcript、阶段日志和完整运行档案仍留在 Workflow artifact 中。
 - 真实文件、shell、网络和 MCP 权限只属于子 Agent 的既有 tool layer。Workflow Python 代码只获得编排 primitives，不能成为权限旁路。
 - 本 unit 不把开发用 `agent.platform.worktree_runtime` 当产品 worktree API；它只服务 milestone 隔离栈，生命周期与 Workflow agent isolation 不同。
 
@@ -83,9 +89,11 @@ flowchart LR
     E --> S["agent.sdk 管理接口"]
     S --> CLI["coding_cli /workflows + key controls"]
     S --> GW["personal_assistant Gateway\nquery/control command"]
-    GW --> WEB["Web IM existing surfaces\nslash / tool / permission / message"]
+    GW --> WEB["Web IM existing surfaces\nslash / tool / permission / message process"]
     GW --> FEI["Feishu existing approval + message"]
-    M --> N["一次 task-notification\nresult + usage + diagnostics + resume"]
+    M --> N["Background notification projection\nmodel XML + structured return"]
+    N --> L
+    N --> GW
 ```
 
 ### 模块归属
@@ -97,8 +105,8 @@ flowchart LR
 | `agent.platform.tools.builtins.workflow` | model-facing `Workflow` schema/description、通用 launch permission request、调用 manager 后立即返回 | 长期运行状态机和 UI |
 | `agent.sdk` | SDK-owned snapshots/requests 与 Kernel 查询/控制/保存方法 | platform 实现类型 |
 | `coding_cli` | 默认启用、slash commands、terminal progress/detail/controls | 运行状态真源 |
-| `personal_assistant` | optional capability projection、human-origin 标注、SDK query/control command、完成投递与飞书适配 | Workflow 调度与 journal |
-| `IM` | Agent 工具选择，以及既有 slash/tool/permission/message surface 对 Workflow 数据的通用呈现 | Workflow run 状态真源、专属投影、专属 UI、import `agent` 或解释 Python workflow |
+| `personal_assistant` | optional capability projection、human-origin 标注、SDK query/control command、完成投递、后台返回 sidecar 透传与飞书适配 | Workflow 调度与 journal、解析 notification XML、长期保存后台运行状态 |
+| `IM` | Agent 工具选择，以及既有 slash/tool/permission/message surface 对 Workflow 数据的通用呈现；消息内持久化通用 background-return 过程项 | Workflow run 状态真源、Workflow 专属 projection/UI、import `agent`、解释 Python workflow 或把后台返回伪造成 ToolCall |
 
 ## 关键决策
 
@@ -292,6 +300,8 @@ stateDiagram-v2
 
 暂停只阻止新 effect 获得 dispatch slot；已在跑的 child 可自然完成并写 journal。停止 selected Agent 取消其当前 attempt，script await 得到 `None`，其他分支继续。停止整 run 取消所有 attempts 并进入 `stopped`。restart selected Agent 取消/替换同一个 logical call，原 script await 最终收到 replacement result，不新建第二个逻辑 ordinal。
 
+整次 Workflow 的终态判定只看顶层执行控制流，优先级固定为：已接受 whole-run stop / executor 抛出 `WorkflowStopped` → `stopped`；否则 `await main()` 有未捕获异常 → `failed`；否则 `main()` 正常返回 → `completed`。返回 `None`、空字符串、低质量文本或组合结果中含 child `None` 都不会被运行时猜成失败；child 的 terminal API error / stop 只按决策 5 变成本次调用值 `None`，只要脚本处理后正常返回，整次运行仍是 `completed`。语法、meta、权限拒绝或持久化失败发生在 async launch 前时属于 Workflow 工具 launch failure/denial，不创建后台 run，也不产生后台终态通知。
+
 通用后台任务同步增加终态 `BackgroundTaskStatus.STOPPED`；它只由 cooperative Workflow stop 使用，既有 bash/subagent 的 `killed` 语义不变。Workflow 的 `task_stop` 对 queued/running task 只调用 stop handle 请求收口并返回非终态 `stopping`，不调 `kill()`、不改 `notified`。manager 是唯一终态 writer：等 child 取消与 partial result/diagnostics 收集完成后，按 `run_stopped journal -> run.json stopped -> generic record stopped(notified=False)` 落盘。notifier 再以 registry 原子 `claim_notification(task_id)` 把 `notified=False` 改为 `True`，只有 claim 成功者注入一条 `<status>stopped</status>` 通知。收口中重复 stop 继续返回 `stopping`，终态后重复 stop 返回 `stopped` 且不重发通知；迟到 complete/fail 不得覆盖已落的 `stopped`。status DTO/store serialization、terminal predicates、notification formatter 和 exhaustive tests 都必须纳入 `stopped`。
 
 ### 决策 7：resume 严格复刻 chained v2 最长相同调用前缀
@@ -346,7 +356,7 @@ M2 的 foreground observer 在 Workflow `tool_start` 时先用 `(parent_session_
 
    registry 对三类输入实行明确的乱序契约：anchor、request/resolved、terminal 可以任意先到。request/resolved 在 run anchor 前到达时按 machine correlation 暂存，anchor 绑定后按 parent session event sequence 原序 flush；terminal 先到时记 closing tombstone，不删尚未绑定的 pre-anchor/buffer。Workflow manager 是 terminal 的唯一生产者：它先 resolve/cancel 该 run 所有 pending broker request，再按决策 6 落 journal/snapshot/generic record，最后向 parent session 发布带完整 correlation 的 terminal `workflow_run_updated`。Gateway 的同一 per-session subscriber 是 binding cleanup 的唯一 consumer：它只把该内部事件送进 registry，不 relay 到 IM。当 anchor 与 closing tombstone 都已存在且无 pending/buffered request 时立即清理；否则等最后 resolved flush 后清理。这同时覆盖 request-before-anchor 与 terminal-before-anchor，不会丢卡或泄漏最新 anchor。
 
-   Web tagged request/resolved 仍发当前 `node.streaming_delta` 并复用原 launch message 中的 `PermissionCard`；IM 已持久的 message permission state 保证浏览器重连后回到同一卡。飞书的 run-level anchor 仍持有同次 launch 的 `ReplyContext`，每个 request 走通用原生批准卡，不需 Web message id。该 registry、长驻 consumer 和窄 anchor 归 M2，不新增 IM repository、relay event、projection、消息类型、独立 Workflow surface 或专属 permission 组件；现有工具详情分派内的 `WorkflowCard` 仍按下文实现。
+   Web tagged request/resolved 仍发当前 `node.streaming_delta` 并复用原 launch message 中的 `PermissionCard`；IM 已持久的 message permission state 保证浏览器重连后回到同一卡。飞书的 run-level anchor 仍持有同次 launch 的 `ReplyContext`，每个 request 走通用原生批准卡，不需 Web message id。该 permission registry、长驻 consumer 和窄 anchor 归 M2；权限路由本身不新增 IM repository、relay event、projection、消息类型、独立 Workflow surface 或专属 permission 组件。决策 13 的通用 background-return message sidecar 是另一条完成归因接缝，不参与 permission binding；现有工具详情分派内的 `WorkflowCard` 仍按下文实现。
 
 无人值守 child 在发布任何可交互 request 前继续走既有 unattended fallback，不能制造无人可答的挂起卡。永久集成测试必须先让 subscriber 已因其他后台功能存在，再在同一 parent session 启动两个 Workflow 并记住两个 launch assistant message id，然后让 foreground context 全部释放。两个 run 各触发 child request/resolved：CLI 各只呈现一次，Web 必须各自命中原 launch message 且重连可见，飞书各只出一张卡，不得串到最新 anchor；三者 decision 均恢复对应 broker future，终态后 binding 按 pending 状态清理。同一测试再用可控 barrier 分别强制 request-before-anchor 与 terminal-before-anchor，断言前者在绑定后只 flush 一次，后者在无 pending 后清理 tombstone/anchor，两者都不丢 broker future。
 
@@ -404,6 +414,36 @@ kernel.list_named_workflows(workspace_root=...)
 
 `build_kernel` 的公共装配增量只有 `workflow_search_roots=()` 与 `workflow_subagent_model=None`；前者接收消费者拥有的 named/plugin roots，后者承载决策 5 的进程级 child override。CLI/PA 仍只从 `agent.sdk` 导入这两个 seam，不取得 platform registry。
 
+### 决策 13：后台返回是 task notification 的结构化 sidecar，不是 ToolCall
+
+`agent.core.background_tasks.notifications` 是后台通知语义的唯一 owner。它先从 terminal `BackgroundTaskRecord` 构造一份 frozen notification projection，再由同一 projection 分别渲染 model-facing XML 与 SDK stream 可序列化的 `BackgroundReturnInfo`。因此 result/error、status、task identity 和 usage 不会在 XML、Gateway 与 Web 三处各写一套解释器。
+
+```text
+BackgroundReturnInfo = {
+  task_id,
+  task_type: subagent | workflow,
+  status: completed | failed | stopped | killed,
+  description,
+  agent_id?, workflow_run_id?,
+  result?, error?, usage?, tool_use_count?, duration_ms?,
+  output_file?, diagnostics?, resume_hint?
+}
+```
+
+本 unit 只为 `SUBAGENT` 与 `WORKFLOW` 生成 UI sidecar；既有 Bash `<task-notification>` 与文本投递行为不变。`result` / `error` 是 record 中未经主 Agent 摘要改写的 terminal value；大型 transcript 不内联，仍只给 `output_file` / diagnostics locator。Workflow 注册 generic task 时把 `workflow_run_id`、diagnostics 和 resume hint 写进 record 的通知字段，notifier 不反查 Workflow store。
+
+sidecar 跟随“哪一轮消费了这条 notification”流动，而不是跟随某个最新会话或最新气泡：
+
+1. parent 已有 active run 且正常到达 round boundary：`PendingMessage` 在 message/origin 之外携带可选 `background_return`。loop drain 时把本批被消费的 sidecar 按 FIFO 放入既有 `pending_injection_consumed`；`realtime_stream` 原样放入既有 `injection_consumed` session event。Gateway 关闭旧气泡并打开新气泡时，把这批 sidecar 放入新气泡的既有 `turn_start` payload，后续正文正是消费这些 notification 后的主 Agent 回复。
+2. active run 在 round boundary 前终止：sidecar 必须与 `PendingMessage.message` 同命运穿过现有 stranded-message chokepoint。非用户终态时，`_settle_terminal_pending()` 在按 origin 做 contiguous FIFO batch 的同时收集每个 batch 的非空 `background_return`，调用 continuation `submit(source_background_returns=...)`；用户 `/stop` 时，完整 `PendingMessage`（不是只剩 XML parts）进入 `_held_pending`，下一次 `submit()` flush held 时先按 FIFO 合并其 sidecar，再与该次 submit 自带的 source returns 一起写入新 `RunRecord`。正常 drain、non-user continuation、`/stop` held-flush 三条路径都只在实际消费 notification 的 reply 带出同一 task id；不得因 XML 存活就丢 sidecar，也不得挂到“最新回复”。
+3. parent idle：`RunsRegistry.submit()` 在既有 `source_task_id` 之外携带同一 `source_background_returns`，写入 `RunRecord` / hook context；该 BACKGROUND_TASK-origin run 的 user-visible `assistant_message` 带出 sidecar。`BackgroundSessionEventSubscriber` 与 `build_bg_reply_sender()` 的 visibility gate 都改为 `content.strip() or background_returns`，并在既有 `agent.message` payload 中原样透传；不能用零宽字符或占位文案伪造正文。
+4. `agent.message` 的共享 wire validation 改为“非空 `text` 或非空、typed `background_returns` 至少有一项”；两者都空才拒绝。IM relay、`EventBridge.emit_instant_message()` 与 `MessageRepository.create_message()` 只在 sidecar 非空时走既有 `allow_empty` seam，并在同一 `message.created` 中一次性发布空 content + 完整 sidecar，不绕过 `agent.message` 另写数据库。
+5. IM 在创建消息时把 `background_returns` 作为强从属该 message 的 nullable JSON 列持久化，并为每项分配与 thinking/tool 共用的 per-message `seq`。同一个 payload 同时进入 realtime `message.created` 和 history projection；按 `task_id` merge 幂等，reconnect、Gateway replay 或 active batch 重放都不增加重复项。
+
+Web 前端只把 `ProcessItem` union 扩成 `thinking | tool | background-return`。`BackgroundReturnRow` 复用现有深色过程行、状态 icon、摘要与展开交互，但使用独立 typed model：折叠时显示 `后台返回 · Agent <name>` 或 `后台返回 · Workflow <name>`、终态和 duration；展开时显示来源身份、原始 result/error、usage 和 artifact locator。它不进入 tool count、running tool 判定、approval count、`ToolDetailBody` 或 ToolCall API。主 Agent 正文仍在折叠块之前；非空 `background_returns` 本身算可见内容，不能被 empty-completion discard 删掉，即使本次正文为空也保留过程项。
+
+外部 IM 没有内部过程时间线，因此继续收到现有普通文本回复，不新增飞书卡片或 raw XML；当 Web 专用 sidecar 非空而正文为空时，外部 adapter 不发送空消息，也不伪造卡片/占位文本。coding_cli 继续按现有 task notification / Workflow terminal 输出展示；结构化 sidecar 是 SDK 事件的附加字段，不改变 model context，也不引入另一个 background-task repository、Workflow WebSocket event type 或终态真源。
+
 ## 接口与数据流
 
 ### Tool result、snapshot 与完成通知
@@ -434,7 +474,7 @@ kernel.list_named_workflows(workspace_root=...)
 
 presenter 的 `summary` 在 start/end 都只取有界 `description`，不因 launch 成功改成 run id 或状态句。`detail` 的稳定字段顺序为输入字段 `description, source, guideline, script_preview` 在前，结果字段 `status, name, runId, taskId, scriptPath, transcriptDir, error` 在后；前端不能依赖对象枚举顺序，而由 `WorkflowCard` 显式实现 input-first/result-second，并在 tool result pending 时隐藏结果区。
 
-这里的 tool `completed` 只表示 `Workflow.run()` 已返回 `async_launched`。manager 后续完成、失败或停止时不改写这条历史工具行，而是按下述 background notification 投递另一条普通 assistant 消息。因此 IM 不会把一个数分钟运行伪装成数分钟未结束的前台 tool call。
+这里的 tool `completed` 只表示 `Workflow.run()` 已返回 `async_launched`。manager 后续完成、失败或停止时不改写这条历史工具行，而是按下述 background notification 驱动另一条普通 assistant 消息；原始 Workflow 返回附着为该消息“过程”中的 background-return 项。因此 IM 不会把一个数分钟运行伪装成数分钟未结束的前台 tool call，用户也能把 launch 结果、后台原始返回与主 Agent 综合结论区分开。
 
 `WorkflowRunInfo` 是 revisioned complete snapshot，而非 patch：
 
@@ -445,7 +485,7 @@ size_guideline, large_warning, script_path, transcript_dir,
 resumed_from, result, error
 ```
 
-每次 transition 发布带 machine correlation 的 session event `workflow_run_updated`，供 coding_cli 的终端进度视图消费；terminal transition 还供 Gateway 内 `WorkflowPermissionDeliveryBindingRegistry` 做唯一 cleanup signal。Gateway 不把该内部 event relay 给 IM，IM 也不复制该状态、不新增 relay event 或 durable projection；Web IM、飞书等产品入口执行 `/workflows` 时，由 Gateway 通过 `agent.sdk` 查询当前 complete snapshot，并把结果作为既有普通回复返回。这样状态复杂度留在 Workflow 深模块之后，断线或刷新后再次查询仍读取同一真源。
+每次 transition 发布带 machine correlation 的 session event `workflow_run_updated`，供 coding_cli 的终端进度视图消费；terminal transition 还供 Gateway 内 `WorkflowPermissionDeliveryBindingRegistry` 做唯一 cleanup signal。Gateway 不把该内部 run event relay 给 IM，IM 也不复制 `WorkflowRunInfo` 或保存可查询的 run projection；Web IM、飞书等产品入口执行 `/workflows` 时，由 Gateway 通过 `agent.sdk` 查询当前 complete snapshot，并把结果作为既有普通回复返回。IM 唯一新增持久数据是某条 assistant message 强从属的、已经终态化的 `background_returns` 展示 sidecar，不是第二份运行状态真源。
 
 终态由 background notifier 只注入一次：
 
@@ -461,6 +501,26 @@ resumed_from, result, error
 ```
 
 `BackgroundTaskType.WORKFLOW` 的 stop handle 与 `BackgroundTaskStatus.STOPPED` 走决策 6 的 cooperative 单 writer 路径；`task_stop` 的 `stopping` 回复只是接受回执，不是终态完成通知。manager 收口后产生的 generic record、Workflow snapshot 与唯一 task notification 均为 `stopped`，并携带同一 partial result/diagnostics。
+
+同一 notification projection 还产生以下等价 sidecar；字段省略而不是填空字符串：
+
+```json
+{
+  "task_id": "wt_...",
+  "task_type": "workflow",
+  "workflow_run_id": "wf_...",
+  "description": "并行审查当前改动并逐条验证发现",
+  "status": "completed",
+  "result": "...未经主 Agent 改写的 Workflow 返回...",
+  "usage": {"total_tokens": 42180},
+  "tool_use_count": 6,
+  "duration_ms": 184000,
+  "diagnostics": "/.../runs/wf_...",
+  "resume_hint": "/workflows wf_... resume"
+}
+```
+
+若一次 round boundary 同时消费多条后台 notification，下一条 assistant message 按 FIFO 带多条 background-return 过程项；每条仍按自己的 `task_id` 幂等。主 Agent 可以只综合其中一部分，但 sidecar 不随其文案删改；即使正文为空，sidecar 仍使该消息可见。
 
 ### 规模 guideline 与模型路由
 
@@ -487,8 +547,9 @@ Agent model/effort 默认继承 parent resolved runtime；`agent(model=..., effo
 - Agent 设置沿用当前 `PillSelector`；`Workflow` 只是工具允许列表中的一个 optional pill、默认未选中，不增加可见说明、独立 feature toggle 或嵌套配置。
 - slash picker 沿用现有 command candidate 行，active 时增加 `/workflows`、`/deep-research`、saved/plugin workflows 与 `/config`；不新增 picker 形态。
 - `Workflow` launch/result 沿用 `ToolCallsPanel` 的普通工具行；现有 `ToolDetailBody` 增加一个与 `AgentCard` 同构的 `WorkflowCard`，只负责输入脚本在前、launch 结果在后，tool result pending 时隐藏结果区。需要确认时仍沿用 `PermissionCard` 展示 tool name、description、raw input、question 与 Once/Always/Deny；按 production gate 时序，批准待决期间没有工具行，allow 后的真实 `tool_start` 才创建 running 行；deny 不经历 running，但真实 denied `tool_end` 仍直接创建“已拒绝 / 未执行”的终态审计行。
+- 后台 Workflow 与 `Agent(run_in_background=true)` 结束后，主 Agent 的综合正文仍是后续普通消息；同一消息的既有“过程”折叠块增加 `background-return` 行。默认折叠只显示来源、终态和耗时，展开显示未经主 Agent 改写的 result/error、task/agent/run 身份、usage 与 artifact；它不算工具调用或批准次数。
 - `/workflows` 的列表、详情、pause/resume/stop/restart/save 结果作为普通聊天回复展示；不新增常驻 progress strip、detail sheet、run projection 或 Workflow WebSocket event。
-- tool disabled 后，新一轮不再发现 saved commands、`/workflows`、ultracode 或新 launch 入口；旧 tool row 留在历史中，已启动 run 的终态仍按既有后台消息投递，用户也可通过现有 `task_stop` 能力停止已知 task，而不保留新的 Workflow 专属管理 UI。
+- tool disabled 后，新一轮不再发现 saved commands、`/workflows`、ultracode 或新 launch 入口；旧 tool row 留在历史中，已启动 run 的终态仍按既有后台消息投递并保留 background-return 归因，用户也可通过现有 `task_stop` 能力停止已知 task，而不保留新的 Workflow 专属管理 UI。
 
 #### 外部 IM / 飞书
 
@@ -504,10 +565,10 @@ Agent model/effort 默认继承 parent resolved runtime；`agent(model=..., effo
 ### 现有 UX grounding
 
 - production `MessageBubble` 仍按正文、`ToolCallsPanel`、token、pending `PermissionCard` 的顺序渲染；原型不改变消息气泡、头像、时间与 composer 的信息层级。
-- `ToolCallsPanel` 初始收起；running 时折叠 pill 显示工具数、脉冲点和“运行中”。用户展开过程后，第一条工具行默认展开；终态工具行保留摘要、耗时与人工批准的 gate 标记。
+- `ToolCallsPanel` 当前实际承担消息内“过程”时间线：初始收起；running 时折叠 pill 显示工具数、脉冲点和“运行中”。用户展开过程后，thinking、tool 与新增 background-return 按共享 `seq` 排序；工具数、运行中和批准统计只计算真实 tool，后台返回单独显示“1 条后台返回”。
 - `AgentCard` 的当前承重语义是展开后先显示完整派发输入，工具尚未返回时不显示结果区，返回后再把状态与输出附在输入下方；Workflow 展开详情逐项复用这套顺序和 pending 行为，摘要则在 start/end 保持同一条人类说明。
 - `PermissionCard` 只在 permission pending 时显示在同一 assistant 气泡内；production gate 在获准前不发 `tool_start`，因此这时没有“过程”工具行。resolved 后卡片消失；allow 后真实工具行出现并承载“已授权”审计；deny 不曾显示 running，但通用 `tool_end` 会直接留下“已拒绝 / 未执行”的终态工具行。
-- Workflow tool 的 completed 是 async launch 完成；真正的 run completed/failed/stopped 继续作为一条普通 assistant 消息出现，不增加常驻进度条、详情抽屉或 Workflow 专属消息类型。
+- Workflow tool 的 completed 是 async launch 完成；真正的 run completed/failed/stopped 继续作为一条普通 assistant 消息出现，其原始 task notification 是“过程”中的 background-return，不增加常驻进度条、详情抽屉或 Workflow 专属消息类型。后台 Agent 使用同一终态呈现，launch 则继续使用 production `AgentCard`。
 - 桌面气泡最大宽度、移动端近全宽、深色工具详情与批准卡的视觉基调均沿用当前 production CSS；评审状态切换按钮在产品 frame 外，只服务原型查看。
 
 ### 原型对齐契约
@@ -516,18 +577,19 @@ Agent model/effort 默认继承 parent resolved runtime；`agent(model=..., effo
 |---|---|---|---|---|
 | `等待确认` + 卡片内 deny interaction | `must-match` | Web IM direct-agent message bubble | desktop + mobile；待决时只显示现有 `PermissionCard` 和 raw input，不提前合成“过程”或 Workflow 工具行；deny 后直接出现无 running 历史、无 duration 的“已拒绝 / 未执行”终态行，且无后台消息 | `M2-assistant-workflow-surfaces` reviewer + worker |
 | `工具调用中` / `后台已启动` | `must-match` | Web IM direct-agent message bubble | desktop + mobile；免确认或 allow 后才出现“过程”；展开后输入脚本始终在前，tool result pending 时无结果区，launch 返回后结果追加在下方；折叠摘要不变；人工 allow 后保留 gate 审计 | `M2-assistant-workflow-surfaces` reviewer + worker |
-| `Workflow 完成` / `失败` / `已停止` | `must-match` | 同一 Web IM 会话的后续普通 assistant message | desktop + mobile；原 launch row 不被改写，终态消息含 result/error、usage、duration、diagnostics、resume hint | `M2-assistant-workflow-surfaces` reviewer + worker |
+| `Workflow 完成` / `失败` / `已停止` | `must-match` | 同一 Web IM 会话的后续普通 assistant message | desktop + mobile；原 launch row 不被改写；正文是主 Agent 综合结论，“过程”含一条可展开 Workflow 后台返回，展开可核对原始 result/error、task/run、usage、duration、diagnostics、resume hint | `M2-assistant-workflow-surfaces` reviewer + worker |
+| `Agent 后台完成` | `must-match` | 现有 `AgentCard` launch message + 后续普通 assistant message | desktop + mobile；launch 展开仍是 prompt 在前、async result 在后；后续正文是主 Agent 综合结论，“过程”含一条可展开 Agent 后台返回，显示 task/agent、原始 result、usage、duration、output artifact | `M2-assistant-workflow-surfaces` reviewer + worker |
 | presenter 文案、run/task id、workspace 路径与样例结果 | `may-adapt` | 同上 | 由真实 meta、runtime result、locale 与 workspace 决定；字段集合和层级不得删 | `M1-cli-workflow-runtime` worker + `M2-assistant-workflow-surfaces` reviewer |
 | 原型顶部状态按钮、左侧样例会话和固定样例数据 | `out-of-scope` | 无；仅原型评审 chrome | N/A；真实产品继续使用现有 sidebar/header/data | N/A |
 
-原型没有 Agent 设置页；该处继续只复用 production `PillSelector`。也没有 Workflow size guideline 表单、进度 strip、详情 sheet 或专属批准卡。
+原型没有 Agent 设置页；该处继续只复用 production `PillSelector`。也没有 Workflow size guideline 表单、进度 strip、详情 sheet、独立终态卡或专属批准卡。`Agent 后台完成` 只是为了钉住两种后台来源共享同一过程项，不改变前台 Agent tool 的既有呈现。
 
 ## 契约层增量（delta-spec）
 
 - kernel：[`specs/kernel/workflows.md`](specs/kernel/workflows.md)、[`specs/kernel/spec.md`](specs/kernel/spec.md)、[`specs/kernel/runs.md`](specs/kernel/runs.md)、[`specs/kernel/background-tasks.md`](specs/kernel/background-tasks.md)、[`specs/kernel/sdk-boundary.md`](specs/kernel/sdk-boundary.md)
 - cli：[`specs/cli/interactive-repl.md`](specs/cli/interactive-repl.md)、[`specs/cli/spec.md`](specs/cli/spec.md)
-- gateway：[`specs/gateway/workflows.md`](specs/gateway/workflows.md)、[`specs/gateway/spec.md`](specs/gateway/spec.md)、[`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md)
-- im：[`specs/im/workflows.md`](specs/im/workflows.md)、[`specs/im/spec.md`](specs/im/spec.md)、[`specs/im/agents-nodes.md`](specs/im/agents-nodes.md)
+- gateway：[`specs/gateway/workflows.md`](specs/gateway/workflows.md)、[`specs/gateway/spec.md`](specs/gateway/spec.md)、[`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md)、[`specs/gateway/routing-delivery.md`](specs/gateway/routing-delivery.md)、[`specs/gateway/relay-protocol.md`](specs/gateway/relay-protocol.md)
+- im：[`specs/im/workflows.md`](specs/im/workflows.md)、[`specs/im/spec.md`](specs/im/spec.md)、[`specs/im/agents-nodes.md`](specs/im/agents-nodes.md)、[`specs/im/gateway-relay.md`](specs/im/gateway-relay.md)、[`specs/im/tool-timeline.md`](specs/im/tool-timeline.md)
 
 `kernel/workflows.md`、`gateway/workflows.md`、`im/workflows.md` 是新增 canonical areas；各包 `spec.md` 同时列出新 area 和本 unit 导致计数变化的既有 area，数字按当前 canonical 与 delta 合并后的 future state 维护。其他 delta 只写对应消费者可观察增量，不记录模块/类名。
 
@@ -537,11 +599,11 @@ Agent model/effort 默认继承 parent resolved runtime；`agent(model=..., effo
 |---|---|---|
 | Python policy、meta、插桩、primitives、limits、resume key/state machine | pure core interfaces | `tests/unit/agent/core/workflows/`，fake child adapter，不起 LLM |
 | tool prompt/schema 与 active/inactive payload | tool registry + provider mapper request | 扩展 tool/prompt golden contract；clause inventory、schema snapshot、inactive absence |
-| child return、structured output、permission route、background notification | Kernel + real in-process session/runtime | `tests/integration/agent/workflows/`，stub LLM/provider；parent foreground 结束后触发 child ask，验证长驻 parent route 和一次通知 |
+| child return、structured output、permission route、background notification | pure notification projection + Kernel real in-process session/runtime | builder 单测断言同一 record 的 XML 与 sidecar 字段一致；`tests/integration/agent/workflows/` 用 stub LLM/provider 覆盖 completed/failed/stopped 优先级、child `None` 不误判 whole-run failed、parent normal-active/idle、terminal-before-boundary non-user continuation、`/stop` held flush、多条 FIFO 与一次通知 |
 | SDK/import boundaries、event/snapshot schema | public SDK + contract tests | 扩展 `tests/contract/` 既有边界与 event schema，不重复内部状态测试 |
 | CLI command/progress/control | CLI subprocess/async REPL | `tests/integration/coding_cli/`；TTY key handling 单测 + 非 TTY command journey |
-| PA selection next-turn boundary、Gateway query/control | Gateway command + SDK seam | 扩展 agent config operation、command parser/query/control、按 run/call/request 的多 launch permission binding、`BackgroundSessionEventSubscriber` tagged generic permission delivery 与完成投递 tests；不新增 IM run repository/event bridge |
-| Web 既有 surface 复用 | current components + isolated full stack | 扩展 `PillSelector`/slash candidate/通用 permission/tool row/`ToolDetailBody` 集成断言；验证 permission pending 只有现有卡片，allow 后才经历 running，deny 则不经历 running 而由 denied tool result 直接产生“已拒绝 / 未执行”终态行；同时验证 Workflow 与 `AgentCard` 同构的 input-first/result-second、tool result pending 无结果和 summary 稳定，并在真实浏览器按 `prototype.html` 的 must-match 状态对照 |
+| PA selection next-turn boundary、Gateway query/control、后台返回绑定 | Gateway command + SDK stream seam | 扩展 agent config operation、command parser/query/control、按 run/call/request 的多 launch permission binding；分别强制 normal active、terminal-before-boundary continuation、`/stop` held flush 与 idle new run，断言 subscriber/observer 把 Workflow 与 Agent sidecar 绑定到实际消费 reply，多条 FIFO、同 task replay 幂等；idle empty content 仍发 `agent.message`，外部 IM 无文本时不发占位 |
+| Web 既有 surface 复用 | message persistence + current components + isolated full stack | 扩展 `agent.message` protocol、EventBridge、IM repository/API/realtime/history 对 `background_returns` 的 round-trip 与 task-id merge；固定 text-or-sidecar validation、两者皆空拒绝、empty text + sidecar 的单次 `message.created` / replay；扩展 `PillSelector`/slash/tool/permission/过程组件断言，background-return 不进入 tool/approval count、Agent 与 Workflow 原始返回可展开；真实浏览器按 `prototype.html` 对照 |
 | 飞书既有 approval/message 复用 | dedicated Feishu E2E profile | 通用 permission adapter + 普通命令/完成投递测试及隔离真实 `--feishu` probe |
 | 真 model 生成合法 Python/执行一 Agent | LLM Proxy Luna | 一条 `@pytest.mark.e2e` 最小 lifecycle；主/child 都固定 Luna、low，严禁规模实验 |
 
@@ -557,6 +619,9 @@ Agent model/effort 默认继承 parent resolved runtime；`agent(model=..., effo
 | pause/stop/notification race | journal revision、manager 单一 `stopped` writer、generic record cooperative stop、原子 notification claim | 停止新 dispatch，保留 journal/partial result；不删除诊断 artifact |
 | 并发 resume ordinal 不稳定 | 单一 admission coordinator；parallel 输入、pipeline completion/item tie-break、nested global ordinal 与 cached terminal replay 均有测试 oracle | resume 失败时明确从头新 run，不冒充 cache hit |
 | child permission 卡发到不可见 session | child 发布 parent generic event + CLI/PA 长驻独占 consumer + 同一 broker request id；三入口在 parent turn 结束后测试 | 无可交互 surface 时走既有 unattended fallback，不无限 parked |
+| 后台返回丢失、串到错误回复或重放重复 | notification projection 单 owner；normal drain、terminal continuation、`/stop` held flush、idle source run 四条 carrier 同命运；IM 按 task id 持久化幂等，realtime/history 对账 | sidecar 失败不篡改 model XML 或 run 真源；有正文时可退回普通文本回复，不能用 placeholder 掩盖空正文 sidecar 丢失 |
+| idle 空正文被各层 validation 丢弃 | subscriber/sender 统一 `text or sidecar` gate；`agent.message`、EventBridge、repository 共享同一 allow-empty-only-with-sidecar 契约 | 两者皆空仍 fail closed；不绕过协议直写库，不给外部 IM 伪造文案 |
+| 主 Agent 综合文案掩盖后台真实输出 | 正文与 background-return 分层；原始 result/error 不经 LLM 改写，来源身份与状态可展开 | 不把 raw return 拼进正文，也不另造独立终态卡或全局任务页 |
 | worktree 有改动被误删 | 只 auto-remove clean worktree；dirty path 展示并保留 | disable isolation；不退回共享 cwd 自动运行 |
 | Web/外部 IM 查询到过期或错误 run | `/workflows` 每次按 session/run id 直接查询 SDK 真源，控制与查询走同一 Gateway command owner | 禁用新 launch；保留完成消息和 artifact，不在 IM 建第二份状态库 |
 | 成本失控 | guideline/advisory、hard caps、共享 turn budget、可见 usage/stop；E2E 固定 Luna minimal | disable launch，新 run 不接收；在跑 run 可 stop 并保留 artifact |
@@ -610,7 +675,7 @@ source "$WT_ROOT/.e2e-ports.env"
 curl -fsS "$IM_URL/openapi.json" >/dev/null
 ```
 
-另起受控前台 Vite，使用 `.e2e-ports.env` 的 `VITE_IM_PROXY_TARGET` 和空闲端口。以 E2E config 的固定用户登录；验证 Workflow tool pill 的 next-turn A/B、现有 slash picker 候选，并按 [`prototype.html`](prototype.html) 对照通用 `PermissionCard`/`ToolCallsPanel` 的 permission pending、allow、deny、running、async-launched 与后续 completed/failed/stopped 普通消息；permission pending 只有卡片，allow 后才经历 running，deny 后直接出现“已拒绝 / 未执行”终态行，展开详情必须输入脚本在前、tool result pending 无结果、launch 返回后结果在下且折叠摘要不变。不得出现新的 progress strip、detail sheet 或专属审批卡。真实浏览器截图/录屏与原型对照结论落入 M2 `progress.md`，完成后停 Vite，并由 trap/down 清理 IM/Gateway。
+另起受控前台 Vite，使用 `.e2e-ports.env` 的 `VITE_IM_PROXY_TARGET` 和空闲端口。以 E2E config 的固定用户登录；验证 Workflow tool pill 的 next-turn A/B、现有 slash picker 候选，并按 [`prototype.html`](prototype.html) 对照通用 `PermissionCard`/`ToolCallsPanel` 的 permission pending、allow、deny、running、async-launched 与后续 completed/failed/stopped 普通消息；permission pending 只有卡片，allow 后才经历 running，deny 后直接出现“已拒绝 / 未执行”终态行，展开详情必须输入脚本在前、tool result pending 无结果、launch 返回后结果在下且折叠摘要不变。再分别完成一次后台 Workflow 和 `Agent(run_in_background=true)`：刷新前后都应在后续普通回复的“过程”中看到同一条后台返回，展开能核对原始 result、来源、usage 与 artifact，且不计入工具/授权数；Workflow failed/stopped 时仍保留对应原始 error/partial result。不得出现新的 progress strip、detail sheet、独立终态卡或专属审批卡。真实浏览器截图/录屏与原型对照结论落入 M2 `progress.md`，完成后停 Vite，并由 trap/down 清理 IM/Gateway。
 
 ### 飞书真实入口
 
@@ -629,7 +694,7 @@ curl -fsS "$IM_URL/openapi.json" >/dev/null
 
 | Milestone | 纵向目标 | 主要范围 | 依赖 | 退出标准 |
 |---|---|---|---|---|
-| `M1-cli-workflow-runtime` | 用户在 coding_cli 从明确 opt-in 生成/批准/后台运行 Python Workflow，查看、控制、恢复、保存并收到完成结果 | core/platform runtime、tool prompt/schema、SDK、background status/notification、child→parent permission event、saved registry、CLI 长驻 permission consumer 与 commands/progress、Python bundled deep-research | 无 | `[worker]` pure/unit/contract + CLI integration 全绿，provider 四态 request golden、并发 ordinal/resume、`stopping→stopped`/一次 notification，以及 parent turn 结束后 CLI child permission 恢复均有确定断言；`[reviewer]` Luna 1-agent lifecycle 及 CLI approve/progress/pause/stop/resume/save 旅程通过，artifact 可复查，CLI 可独立交付 |
-| `M2-assistant-workflow-surfaces` | 同一 runtime 经 Agent tool selection 到 Web IM 与飞书，并通过现有聊天/权限/命令 surface 提供批准、查询、控制、保存命令与 ultracode/disabled A/B | PA capability/origin/query-control/completion、`WorkflowPermissionDeliveryBindingRegistry`、run-level `BackgroundPermissionDeliveryAnchor`、`BackgroundSessionEventSubscriber` tagged generic permission consumer、IM Agent config 与 slash candidate、现有 Web/Feishu permission/tool/message adapter、`tool-detail-renderers.tsx` 及其既有组件测试 | M1 的稳定 SDK/snapshot 与 parent generic permission event | `[worker]` Gateway/IM/frontend/protocol tests 全绿，origin、command/tool next-turn A/B、SDK query/control；launch permission pending 只有现有卡片，allow 后真实 `tool_start` 才创建 running 行，deny 不经历 running、由 denied `tool_end` 直接产生带 `reason=denied`、`approval=user_deny` 的“已拒绝 / 未执行”终态行且无后台 run；permission 回归测试先让 subscriber 已存在，再在同 session 启动两个 Workflow，parent context 释放后两者 Web request/resolved 仍按 run/call/request 幂等命中各自 launch message、重连可见且终态清理，飞书各自命中对应卡；一次完成投递有确定断言，且不存在新增 IM run repository/event、进度面板、详情页或专属审批卡；`[worker]` `WorkflowCard` 组件测试固定输入先于结果、tool result pending 无结果、成功/失败/拒绝结果位于输入后及 start/end summary 稳定；`[worker]` `progress.md` 留下真实浏览器 desktop/mobile 截图或录屏及 `prototype.html` must-match 对照结论；`[reviewer]` 隔离真栈 Web 与专用 Feishu profile 旅程通过，permission pending 只有卡片，allow 后工具行 running→async-launched，deny 直接出现终态审计行，同气泡后续 child 权限卡和 completed/failed/stopped 普通消息与原型同等，取消工具后下一轮 provider/command 全部无 Workflow，所有服务清理 |
+| `M1-cli-workflow-runtime` | 用户在 coding_cli 从明确 opt-in 生成/批准/后台运行 Python Workflow，查看、控制、恢复、保存并收到完成结果 | core/platform runtime、tool prompt/schema、SDK、background status/notification projection、active/idle/stranded notification carrier、child→parent permission event、saved registry、CLI 长驻 permission consumer 与 commands/progress、Python bundled deep-research | 无 | `[worker]` pure/unit/contract + CLI integration 全绿，provider 四态 request golden、并发 ordinal/resume、whole-run completed/failed/stopped、child `None`、`stopping→stopped`/一次 notification、XML/sidecar 同源；normal active、idle、terminal-before-boundary non-user continuation 与 `/stop` held flush 都断言 XML+sidecar 同命运、多条 FIFO/同 task 一次；parent turn 结束后 CLI child permission 恢复；`[reviewer]` Luna 1-agent lifecycle 及 CLI approve/progress/pause/stop/resume/save 旅程通过，artifact 可复查，CLI 可独立交付 |
+| `M2-assistant-workflow-surfaces` | 同一 runtime 经 Agent tool selection 到 Web IM 与飞书，并通过现有聊天/权限/命令 surface 提供批准、查询、控制、保存命令、ultracode/disabled A/B，以及 Workflow/后台 Agent 原始返回归因 | PA capability/origin/query-control/completion、`WorkflowPermissionDeliveryBindingRegistry`、run-level `BackgroundPermissionDeliveryAnchor`、`BackgroundSessionEventSubscriber`、active/idle background-return relay、IM message sidecar persistence/realtime/history、Agent config/slash、现有 Web/Feishu permission/tool/message adapter、`tool-detail-renderers.tsx` 与过程时间线组件 | M1 的稳定 SDK/snapshot、parent generic permission event 与 notification sidecar | `[worker]` Gateway/IM/frontend/protocol tests 全绿，origin、command/tool next-turn A/B、SDK query/control；launch permission pending 只有现有卡片，allow 后真实 `tool_start` 才创建 running 行，deny 不经历 running、由 denied `tool_end` 直接产生带 `reason=denied`、`approval=user_deny` 的“已拒绝 / 未执行”终态行且无后台 run；permission 回归覆盖 subscriber 已存在、同 session 两个 Workflow、request-before-anchor、terminal-before-anchor、重连与精确 cleanup；Workflow 与后台 Agent sidecar 覆盖 normal active、terminal continuation、`/stop` held flush、idle，均绑定实际消费 reply、多条 FIFO、同 task replay 幂等、realtime/history 一致；`agent.message` 以 text-or-sidecar 为可见性，idle empty text 仍单次创建并恢复过程项，两者都空才拒绝，外部 IM 无文本不伪造卡片；不存在新增 IM run repository、Workflow event type、进度面板、详情页、独立终态卡或专属审批卡；`[worker]` `WorkflowCard` 固定 input-first/result-second，过程组件固定 background-return 不进入 tool/approval count且可展开原始 result/error/来源/usage/artifact；`[worker]` `progress.md` 留下 desktop/mobile 对照 `prototype.html` 全部 must-match 状态的真实截图或录屏；`[reviewer]` 隔离真栈 Web 与专用 Feishu profile 旅程通过，包含 Workflow completed/failed/stopped、`Agent 后台完成`、empty-text sidecar 刷新恢复与 disabled next-turn，所有服务清理 |
 
 Milestone 目录只存实现期 `tasks.md`/`progress.md`；当前先建立空目录骨架。M2 不复制调度逻辑，发现 SDK 不足时回到 M1 seam 补齐后再继续。

@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="icon" href="data:," />
-  <title>Workflow 工具调用 — IM 呈现原型</title>
+  <title>Workflow 与后台 Agent — IM 呈现原型</title>
   <style>
     :root {
       color-scheme: light;
@@ -123,7 +123,7 @@
     .conversation-copy strong { font-size: 12px; }
     .conversation-copy span { margin-top: 2px; color: var(--muted); font-size: 10.5px; }
 
-    .chat { min-width: 0; display: grid; grid-template-rows: 60px minmax(0,1fr) auto; }
+    .chat { min-width: 0; min-height: 0; display: grid; grid-template-rows: 60px minmax(0,1fr) auto; }
     .chat-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 17px; border-bottom: 1px solid var(--line); }
     .agent { display: flex; align-items: center; gap: 9px; }
     .avatar { width: 34px; height: 34px; border-radius: 50%; background: #287c73; font-size: 11px; }
@@ -181,7 +181,7 @@
     .tool-row {
       width: 100%;
       display: grid;
-      grid-template-columns: auto auto auto minmax(80px,1fr) auto auto;
+      grid-template-columns: auto auto auto auto minmax(80px,1fr) auto auto;
       align-items: center;
       gap: 7px;
       padding: 8px 11px;
@@ -194,6 +194,7 @@
     .tool-status.running { color: #dfa04a; }
     .tool-status.completed { color: #57b69b; }
     .tool-status.failed { color: #db7777; }
+    .tool-status.stopped { color: #c49a62; }
     .tool-name { color: #a2ded5; font: 650 11px var(--mono); white-space: nowrap; }
     .tool-gate { color: #76bc8f; font-size: 10px; white-space: nowrap; }
     .tool-summary { min-width: 0; overflow: hidden; color: var(--dark-muted); text-overflow: ellipsis; white-space: nowrap; }
@@ -224,13 +225,13 @@
 
     .terminal-message { display: none; }
     .terminal-message.visible { display: flex; }
-    .result-title { margin-bottom: 7px; font-weight: 720; }
-    .result-status { display: inline-flex; align-items: center; gap: 5px; padding: 2px 7px; border-radius: 999px; background: #dcefe9; color: #19725e; font-size: 10px; font-weight: 700; }
-    .result-status.failed { background: #f4dfe1; color: var(--red); }
-    .result-status.stopped { background: #eee8df; color: #85633a; }
-    .result-copy { margin-top: 8px; }
-    .result-copy ul { margin: 5px 0 0; padding-left: 18px; }
-    .result-meta { margin-top: 9px; padding-top: 8px; border-top: 1px solid #d4dcde; color: #5c6d74; font-size: 10.5px; line-height: 1.6; }
+    .terminal-copy { line-height: 1.65; }
+    .notification-detail-card { display: flex; flex-direction: column; gap: 9px; }
+    .notification-source { color: #94a8ad; font: 9.5px/1.5 var(--mono); }
+    .notification-return { margin: 0; padding: 7px 9px; border-left: 2px solid #4b9c90; color: #b8c8cc; font: 10px/1.55 var(--mono); overflow-wrap: anywhere; white-space: pre-wrap; }
+    .notification-return.failed { border-left-color: #b75f65; }
+    .notification-return.stopped { border-left-color: #9d7d54; }
+    .notification-meta { display: grid; gap: 3px; color: #84969c; font: 9.5px/1.5 var(--mono); overflow-wrap: anywhere; }
     code { font-family: var(--mono); font-size: .92em; }
 
     .composer-wrap { padding: 11px 16px 14px; border-top: 1px solid var(--line); background: white; }
@@ -245,7 +246,7 @@
       .sidebar { display: none; }
       .messages { padding: 16px 12px 24px; }
       .message { max-width: 94%; }
-      .tool-row { grid-template-columns: auto auto auto minmax(50px,1fr) auto; }
+      .tool-row { grid-template-columns: auto auto auto auto minmax(50px,1fr) auto; }
       .tool-duration { display: none; }
       .workflow-script { font-size: 9.5px; }
     }
@@ -254,7 +255,7 @@
 <body>
   <header class="review-bar">
     <div class="review-title">
-      <strong>Workflow 工具调用 · IM 呈现原型</strong>
+      <strong>Workflow 与后台 Agent · IM 呈现原型</strong>
       <span>上方按钮仅用于切换评审状态，不属于产品界面。</span>
     </div>
     <nav class="state-tabs" aria-label="原型状态">
@@ -264,6 +265,7 @@
       <button class="state-tab" data-state="completed">Workflow 完成</button>
       <button class="state-tab" data-state="failed">Workflow 失败</button>
       <button class="state-tab" data-state="stopped">Workflow 已停止</button>
+      <button class="state-tab" data-state="agent-completed">Agent 后台完成</button>
     </nav>
   </header>
 
@@ -277,7 +279,7 @@
       <div class="side-label">对话</div>
       <button class="conversation active">
         <span class="mini-avatar">代</span>
-        <span class="conversation-copy"><strong>代码审查助手</strong><span>Workflow 正在运行…</span></span>
+        <span class="conversation-copy"><strong>代码审查助手</strong><span id="conversation-preview">Workflow 正在运行…</span></span>
       </button>
       <button class="conversation">
         <span class="mini-avatar" style="background:#6f7f8a">研</span>
@@ -297,7 +299,7 @@
       <div class="messages" id="messages">
         <article class="message user">
           <div class="message-stack">
-            <div class="bubble">用 Workflow 并行审查当前改动，并对每条发现做独立验证。</div>
+            <div class="bubble" id="user-copy">用 Workflow 并行审查当前改动，并对每条发现做独立验证。</div>
             <div class="message-time" style="justify-content:flex-end">14:32</div>
           </div>
         </article>
@@ -320,8 +322,8 @@
                 <div class="process-panel" id="process-panel">
                   <button class="tool-row" id="tool-row" aria-expanded="false">
                     <span class="tool-status running" id="tool-status">◌</span>
-                    <span aria-hidden="true">🔧</span>
-                    <span class="tool-name">Workflow</span>
+                    <span aria-hidden="true" id="tool-icon">🔧</span>
+                    <span class="tool-name" id="tool-name">Workflow</span>
                     <span class="tool-gate" id="tool-gate"></span>
                     <span class="tool-summary" id="tool-summary">并行审查当前改动并逐条验证发现</span>
                     <span class="tool-duration" id="tool-duration"></span>
@@ -363,11 +365,29 @@
           <div class="message-stack">
             <div class="sender">代码审查助手</div>
             <div class="bubble">
-              <div class="result-title">Workflow <code>review-changes</code> <span class="result-status" id="result-status">已完成</span></div>
-              <div class="result-copy" id="result-copy"></div>
-              <div class="result-meta" id="result-meta"></div>
+              <div class="terminal-copy" id="terminal-copy"></div>
+
+              <div class="process" id="notification-process">
+                <button class="process-toggle" id="notification-toggle" aria-expanded="false">
+                  <span id="notification-process-arrow">▸</span>
+                  <span>过程</span><span>·</span><span>1 条后台返回</span>
+                </button>
+
+                <div class="process-panel" id="notification-panel">
+                  <button class="tool-row" id="notification-row" aria-expanded="false">
+                    <span class="tool-status completed" id="notification-status">●</span>
+                    <span aria-hidden="true">↳</span>
+                    <span class="tool-name">后台返回</span>
+                    <span class="tool-gate"></span>
+                    <span class="tool-summary" id="notification-summary">Workflow review-changes · 已完成</span>
+                    <span class="tool-duration" id="notification-duration">3m 42s</span>
+                    <span class="tool-arrow" id="notification-arrow">▸</span>
+                  </button>
+                  <div class="tool-detail" id="notification-detail"></div>
+                </div>
+              </div>
             </div>
-            <div class="message-time"><span id="terminal-time">14:36</span><span id="terminal-elapsed">⏱ 3m 42s</span></div>
+            <div class="message-time"><span id="terminal-time">14:36</span><span id="terminal-elapsed">⏱ 4.8s</span></div>
           </div>
         </article>
       </div>
@@ -385,9 +405,10 @@
       permission: "启动需要用户批准。按现有工具时序，此时只显示同一条 assistant 消息中的 PermissionCard；批准后才出现 Workflow 工具行。卡片显示说明、原始参数、问题、允许 / 总是允许 / 拒绝。",
       denied: "用户拒绝后，批准卡消失，Workflow 不启动；它从未显示 running，但真实 tool result 会直接留下“已拒绝 / 未执行”的终态工具行，且不会出现后台终态消息。",
       launched: "工具调用已经结束，但这里只表示后台 Workflow 启动成功。展开内容保持输入脚本在前，并在下方追加 async launch 结果；它不会持续冒充整个 Workflow 的进度条。",
-      completed: "后台 Workflow 真正完成后，原启动工具行保持“已启动”；系统另投递一条普通 assistant 消息，包含结果、用量、耗时、诊断位置和恢复提示。",
-      failed: "失败同样通过后续普通 assistant 消息到达，保留错误位置、已有部分结果、用量、诊断位置和恢复提示。原工具行仍只记录当时成功启动。",
-      stopped: "停止完成后通过后续普通 assistant 消息到达，说明已停止、保留的部分结果、用量与诊断位置；不会把已启动工具行改写成停止。"
+      completed: "后台 Workflow 真正完成后，主 Agent 发一条普通回复；触发这一轮的 task notification 作为“过程”里的后台返回，展开可核对原始结果、来源、用量和诊断。",
+      failed: "后台失败仍由主 Agent 正常说明；失败的 task notification 作为“过程”里的后台返回，展开可区分后台原始失败与主 Agent 的综合表达。",
+      stopped: "停止完成后，主 Agent 正常说明已保留的结果；stopped task notification 留在“过程”折叠块里，不改写原启动工具行。",
+      "agent-completed": "同一呈现也覆盖 run_in_background 的 Agent 工具：启动消息仍用现有 Agent 工具行展示派发 prompt 和 async launch 结果；完成后的 task notification 作为下一条普通回复“过程”中的后台返回。"
     };
 
     const scriptPreview = `meta = {
@@ -403,6 +424,7 @@ async def main():
     let currentState = "running";
     let processOpen = false;
     let toolOpen = false;
+    let notificationOpen = false;
 
     function workflowDetail(showResult, denied = false) {
       return `<div class="workflow-card">
@@ -423,6 +445,25 @@ async def main():
       </div>`;
     }
 
+    function agentDetail() {
+      return `<div class="workflow-card">
+        <section class="workflow-section">
+          <span class="workflow-label">派发任务（prompt）</span>
+          <span class="workflow-input-meta">code-reviewer · run_in_background true</span>
+          <pre class="workflow-script">Review the current API contract changes independently.
+Compare implementation and tests, identify concrete regressions, and return evidence with file locations.</pre>
+        </section>
+        <section class="workflow-section workflow-result">
+          <span class="workflow-label">启动结果</span>
+          <div class="workflow-result-status">✓ Agent async_launched · code-reviewer</div>
+          <div class="workflow-result-meta">
+            <span>agent agt_2ca710 · task agt_2ca710</span>
+            <span>output …/background-tasks/agt_2ca710.output</span>
+          </div>
+        </section>
+      </div>`;
+    }
+
     function setProcessOpen(open) {
       processOpen = open;
       $("process-toggle").classList.toggle("open", open);
@@ -438,27 +479,124 @@ async def main():
       $("tool-arrow").textContent = open ? "▾" : "▸";
     }
 
-    function terminalContent(state) {
-      const status = $("result-status");
-      status.className = "result-status";
-      if (state === "completed") {
-        status.textContent = "已完成";
-        $("result-copy").innerHTML = "完成了 4 个并行审查维度和 6 条独立验证。<ul><li>确认 2 个需要修复的问题</li><li>排除 4 个误报</li><li>详细结论已汇总到最终结果</li></ul>";
-        $("result-meta").innerHTML = "run <code>wf_be7ccbcb-d39</code> · 12 Agents · 124,820 input / 9,420 output tokens<br>诊断：<code>…/workflows/runs/wf_be7ccbcb-d39</code><br>继续或恢复：<code>/workflows wf_be7ccbcb-d39 resume</code>";
-        $("terminal-elapsed").textContent = "⏱ 3m 42s";
-      } else if (state === "failed") {
-        status.textContent = "失败";
-        status.classList.add("failed");
-        $("result-copy").innerHTML = "验证阶段的第 3 个 Agent 调用失败；已完成的审查结果仍然保留。<ul><li>失败位置：Verify / verify-api-contract</li><li>错误：子 Agent 达到模型调用超时</li></ul>";
-        $("result-meta").innerHTML = "run <code>wf_be7ccbcb-d39</code> · 已完成 8/12 Agents · 91,306 input / 6,814 output tokens<br>诊断：<code>…/workflows/runs/wf_be7ccbcb-d39</code><br>从已完成前缀恢复：<code>/workflows wf_be7ccbcb-d39 resume</code>";
-        $("terminal-elapsed").textContent = "⏱ 2m 51s";
-      } else {
-        status.textContent = "已停止";
-        status.classList.add("stopped");
-        $("result-copy").innerHTML = "Workflow 已按请求停止；不再派发新的 Agent，已经完成的结果和诊断均已保留。<ul><li>已完成 5/12 Agents</li><li>当前没有仍在运行的子 Agent</li></ul>";
-        $("result-meta").innerHTML = "run <code>wf_be7ccbcb-d39</code> · 48,291 input / 3,772 output tokens<br>诊断：<code>…/workflows/runs/wf_be7ccbcb-d39</code><br>如需重启：<code>/workflows wf_be7ccbcb-d39 resume</code>";
-        $("terminal-elapsed").textContent = "⏱ 1m 29s";
+    function setNotificationOpen(open) {
+      notificationOpen = open;
+      $("notification-toggle").classList.toggle("open", open);
+      $("notification-panel").classList.toggle("open", open);
+      $("notification-detail").classList.toggle("open", open);
+      $("notification-toggle").setAttribute("aria-expanded", String(open));
+      $("notification-row").setAttribute("aria-expanded", String(open));
+      $("notification-process-arrow").textContent = open ? "▾" : "▸";
+      $("notification-arrow").textContent = open ? "▾" : "▸";
+    }
+
+    function notificationDetail(state) {
+      if (state === "agent-completed") {
+        return `<div class="notification-detail-card">
+          <section class="workflow-section">
+            <span class="workflow-label">后台任务</span>
+            <div class="notification-source">Agent · code-reviewer · agent agt_2ca710</div>
+          </section>
+          <section class="workflow-section">
+            <span class="workflow-label">原始返回</span>
+            <pre class="notification-return">检查完成。发现 1 个确定的 API 契约回归：
+src/api/response.py 在空结果时省略 status 字段，
+但 tests/contract/test_response_schema.py 要求该字段始终存在。
+
+其余 3 个候选没有足够证据，未列为问题。</pre>
+          </section>
+          <div class="notification-meta">
+            <span>28,416 tokens · 7 次工具调用 · 1m 48s</span>
+            <span>output …/background-tasks/agt_2ca710.output</span>
+            <span>可用 agent_id 继续追问或恢复该 Agent</span>
+          </div>
+        </div>`;
       }
+      if (state === "completed") {
+        return `<div class="notification-detail-card">
+          <section class="workflow-section">
+            <span class="workflow-label">后台任务</span>
+            <div class="notification-source">Workflow · review-changes · task wt_7f2a94</div>
+          </section>
+          <section class="workflow-section">
+            <span class="workflow-label">原始返回</span>
+            <pre class="notification-return">完成 4 个并行审查维度和 6 条独立验证。
+确认 2 个需要修复的问题；排除 4 个误报。</pre>
+          </section>
+          <div class="notification-meta">
+            <span>run wf_be7ccbcb-d39 · 12 Agents · 124,820 input / 9,420 output tokens</span>
+            <span>diagnostics …/workflows/runs/wf_be7ccbcb-d39</span>
+            <span>resume /workflows wf_be7ccbcb-d39 resume</span>
+          </div>
+        </div>`;
+      }
+      if (state === "failed") {
+        return `<div class="notification-detail-card">
+          <section class="workflow-section">
+            <span class="workflow-label">后台任务</span>
+            <div class="notification-source">Workflow · review-changes · task wt_7f2a94</div>
+          </section>
+          <section class="workflow-section">
+            <span class="workflow-label">原始返回</span>
+            <pre class="notification-return failed">验证阶段的第 3 个 Agent 调用失败。
+失败位置：Verify / verify-api-contract
+错误：子 Agent 达到模型调用超时
+已完成的审查结果仍然保留。</pre>
+          </section>
+          <div class="notification-meta">
+            <span>run wf_be7ccbcb-d39 · 已完成 8/12 Agents · 91,306 input / 6,814 output tokens</span>
+            <span>diagnostics …/workflows/runs/wf_be7ccbcb-d39</span>
+            <span>resume /workflows wf_be7ccbcb-d39 resume</span>
+          </div>
+        </div>`;
+      }
+      return `<div class="notification-detail-card">
+        <section class="workflow-section">
+          <span class="workflow-label">后台任务</span>
+          <div class="notification-source">Workflow · review-changes · task wt_7f2a94</div>
+        </section>
+        <section class="workflow-section">
+          <span class="workflow-label">原始返回</span>
+          <pre class="notification-return stopped">Workflow 已按请求停止；不再派发新的 Agent。
+已完成 5/12 Agents，部分结果和诊断均已保留。</pre>
+        </section>
+        <div class="notification-meta">
+          <span>run wf_be7ccbcb-d39 · 48,291 input / 3,772 output tokens</span>
+          <span>diagnostics …/workflows/runs/wf_be7ccbcb-d39</span>
+          <span>resume /workflows wf_be7ccbcb-d39 resume</span>
+        </div>
+      </div>`;
+    }
+
+    function terminalContent(state) {
+      const status = $("notification-status");
+      if (state === "agent-completed") {
+        status.className = "tool-status completed";
+        status.textContent = "●";
+        $("notification-summary").textContent = "Agent code-reviewer · 已完成";
+        $("notification-duration").textContent = "1m 48s";
+        $("terminal-copy").textContent = "后台 Agent 已经检查完成。我复核后确认其中 1 个 API 契约回归需要修复，其余 3 个候选证据不足。";
+      } else if (state === "completed") {
+        status.className = "tool-status completed";
+        status.textContent = "●";
+        $("notification-summary").textContent = "Workflow review-changes · 已完成";
+        $("notification-duration").textContent = "3m 42s";
+        $("terminal-copy").textContent = "后台审查已经完成。我根据返回结果确认了 2 个需要修复的问题，另外 4 个候选是误报。";
+      } else if (state === "failed") {
+        status.className = "tool-status failed";
+        status.textContent = "✕";
+        $("notification-summary").textContent = "Workflow review-changes · 失败";
+        $("notification-duration").textContent = "2m 51s";
+        $("terminal-copy").textContent = "后台审查没有完整跑完。我保留了已完成的结论；失败发生在 Verify / verify-api-contract。";
+      } else {
+        status.className = "tool-status stopped";
+        status.textContent = "■";
+        $("notification-summary").textContent = "Workflow review-changes · 已停止";
+        $("notification-duration").textContent = "1m 29s";
+        $("terminal-copy").textContent = "后台审查已经停止。我保留了停止前完成的 5 项结果，后续不再派发新的 Agent。";
+      }
+      $("notification-detail").innerHTML = notificationDetail(state);
+      $("terminal-elapsed").textContent = "⏱ 4.8s";
     }
 
     function renderState(state) {
@@ -466,13 +604,20 @@ async def main():
       document.querySelectorAll(".state-tab").forEach((button) => button.classList.toggle("active", button.dataset.state === state));
       $("review-note").innerHTML = `<strong>当前状态：</strong>${stateCopy[state]}`;
 
-      const launchSucceeded = ["launched", "completed", "failed", "stopped"].includes(state);
+      const isAgent = state === "agent-completed";
+      const launchSucceeded = ["launched", "completed", "failed", "stopped", "agent-completed"].includes(state);
       const launchDenied = state === "denied";
       const launchTerminal = launchSucceeded || launchDenied;
-      const workflowTerminal = ["completed", "failed", "stopped"].includes(state);
+      const backgroundTerminal = ["completed", "failed", "stopped", "agent-completed"].includes(state);
       const waiting = state === "permission";
 
-      $("assistant-copy").textContent = launchDenied
+      $("user-copy").textContent = isAgent
+        ? "让一个后台 Agent 独立检查这次 API 契约改动，完成后告诉我结论。"
+        : "用 Workflow 并行审查当前改动，并对每条发现做独立验证。";
+      $("conversation-preview").textContent = isAgent ? "后台 Agent 已完成" : backgroundTerminal ? "Workflow 已结束" : "Workflow 正在运行…";
+      $("assistant-copy").textContent = isAgent
+        ? "我已经让 code-reviewer 在后台独立检查 API 契约；你可以继续聊天。Agent 编号 agt_2ca710。"
+        : launchDenied
         ? "Workflow 启动已取消。"
         : launchTerminal
         ? "Workflow 已在后台启动；你可以继续聊天。运行编号 wf_be7ccbcb-d39。"
@@ -480,22 +625,24 @@ async def main():
       $("process-running").hidden = launchTerminal;
       $("process").hidden = waiting;
       $("permission-card").hidden = !waiting;
-      $("process-approval-count").hidden = !launchTerminal;
+      $("process-approval-count").hidden = !launchTerminal || isAgent;
       $("process-approval-count").textContent = launchDenied ? "· 1 次授权 · 1 拒绝" : "· 1 次授权 · 1 允许";
-      $("tool-gate").textContent = launchDenied ? "已拒绝" : launchTerminal ? "已授权" : "";
+      $("tool-gate").textContent = isAgent ? "" : launchDenied ? "已拒绝" : launchTerminal ? "已授权" : "";
       $("message-running").hidden = launchTerminal;
       $("message-elapsed").hidden = !launchTerminal;
 
       const status = $("tool-status");
       status.className = `tool-status ${launchDenied ? "failed" : launchTerminal ? "completed" : "running"}`;
       status.textContent = launchDenied ? "✕" : launchTerminal ? "●" : "◌";
-      $("tool-summary").textContent = "并行审查当前改动并逐条验证发现";
-      $("tool-duration").textContent = launchSucceeded ? "2.4s" : "";
-      $("tool-detail").innerHTML = workflowDetail(launchTerminal, launchDenied);
+      $("tool-icon").textContent = isAgent ? "🔀" : "🔧";
+      $("tool-name").textContent = isAgent ? "agent" : "Workflow";
+      $("tool-summary").textContent = isAgent ? "独立检查 API 契约改动" : "并行审查当前改动并逐条验证发现";
+      $("tool-duration").textContent = launchSucceeded ? isAgent ? "580ms" : "2.4s" : "";
+      $("tool-detail").innerHTML = isAgent ? agentDetail() : workflowDetail(launchTerminal, launchDenied);
 
-      $("terminal-message").classList.toggle("visible", workflowTerminal);
-      if (workflowTerminal) terminalContent(state);
-      if (workflowTerminal) requestAnimationFrame(() => $("messages").scrollTo({ top: $("messages").scrollHeight, behavior: "smooth" }));
+      $("terminal-message").classList.toggle("visible", backgroundTerminal);
+      if (backgroundTerminal) terminalContent(state);
+      if (backgroundTerminal) requestAnimationFrame(() => $("messages").scrollTo({ top: $("messages").scrollHeight, behavior: "smooth" }));
     }
 
     document.querySelectorAll(".state-tab").forEach((button) => button.addEventListener("click", () => renderState(button.dataset.state)));
@@ -505,6 +652,8 @@ async def main():
       setToolOpen(opening);
     });
     $("tool-row").addEventListener("click", () => setToolOpen(!toolOpen));
+    $("notification-toggle").addEventListener("click", () => setNotificationOpen(!notificationOpen));
+    $("notification-row").addEventListener("click", () => setNotificationOpen(!notificationOpen));
     document.querySelectorAll("[data-decision]").forEach((button) => button.addEventListener("click", () => renderState(button.dataset.decision === "deny" ? "denied" : "launched")));
 
     renderState("running");

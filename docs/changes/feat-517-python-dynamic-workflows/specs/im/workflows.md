@@ -31,9 +31,11 @@
 - **THEN** run 列表、详情、usage、诊断和控制结果以现有普通消息形态显示
 - **AND** 页面不增加独立的常驻 Workflow 状态面板
 
-#### Scenario: 终态使用既有后台消息
+#### Scenario: 终态使用既有普通消息与过程折叠
 - **WHEN** Workflow 完成、失败或停止
-- **THEN** 最终结果或错误、usage、诊断和 resume 提示通过既有后台 assistant 消息显示，launch tool row 继续留在历史中
+- **THEN** 主 Agent 的综合结论通过既有普通 assistant 消息显示，launch tool row 继续留在历史中
+- **AND** 同一消息的“过程”折叠块含一条可展开 Workflow 后台返回，展示与 task notification 同源的原始 result/error、task/run、usage、duration、diagnostics 与 resume 提示
+- **AND** 后台返回是独立 process item，不计入工具调用、运行中工具或批准统计
 - **AND** 终态消息与 launch tool row 清楚分开，不把数分钟后台运行显示成未结束的前台 tool call
 
 ### Requirement: Workflow 命令和 ultracode 入口随 Agent tool 选择完整出现或消失

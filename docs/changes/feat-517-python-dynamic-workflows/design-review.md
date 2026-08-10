@@ -941,3 +941,258 @@ None.
 ### Recommendations
 
 - [R12-R1] Gate 2 设计审查已闭环；可进入 `change-orchestrator` 实施，并按 M2 已写明的组件/真浏览器 oracle 保留 deny terminal audit row。
+
+## Round 13
+
+### Metadata
+
+- reviewer: `/root/feat_517_design_reviewer_failover`
+- review_mode: `full`
+- mode_reason: Round 12 后用户把“可归因后台原始返回”明确并入本 unit，同时覆盖 Workflow 和 `Agent(run_in_background=true)`；首文档需求/非目标、核心通知数据流、Gateway→IM 共享协议、IM 消息持久化、前端 `ProcessItem` 和两个 milestone 都发生高风险语义变化，上一轮 closure inventory 不再足以继承，因此强制 full review。
+- started_at: `2026-08-10T11:17:46+08:00`
+- completed_at: `2026-08-10T11:32:45+08:00`
+- duration: `14m59s`
+
+### Verdict
+
+Issues Found — 3 CRITICAL / 0 WARNING
+
+### Coverage
+
+- 完整重读 `spec.md` 11 Requirements / 52 Scenarios、`design.md` 13 个决策、17 份 delta-spec、M1/M2 骨架、`prototype.html` 与 `design-review.md` 全部历史；对新增 Q5、whole-run terminal 判定、Decision 13、4 份新 delta 和 M1/M2 增量不做抽查。
+- 重新追了生产真路径：`agent.core.background_tasks.notifications` → `platform.background_tasks.wiring._deliver_notification()` → `RunsRegistry` active/idle carrier → `pending_injection_consumed` / `assistant_message` → PA `BackgroundSessionEventSubscriber` / `build_bg_reply_sender()` → IM `agent.message` / `EventBridge` / `MessageRepository` → frontend `ToolCallsPanel` / `ToolDetailBody`。
+- 重新核对 current canonical 中所有被 `MODIFIED` 的 Requirement 与 Scenario，并按 current heading 实数验算 future package counts。
+- 原型独立静态核对：inline JavaScript 可编译，7 个可见 tabs / 8 个内部 states 齐全；desktop tool row 为 7 个可见子项列，mobile 隐藏 duration 后为 6 个可见列；Agent launch 保留 input-first/result-second，后台终态在后续普通消息的“过程”内展示，未新建 progress/detail surface。
+- 用包含 4 份新 delta 的临时 index 运行 `PYTHON=.venv/bin/python ./scripts/docs-check`，通过（228 maintained Markdown / 67 routes）；unit 范围 `git diff --check` 通过。普通 working-index docs-check 只因这 4 份文件尚未 tracked 而报 8 个 broken link，属当前 staging 状态，不是文档内容结论。
+
+### 历史问题闭环
+
+| 历史项 | 本轮核实 | 状态 |
+|---|---|---|
+| R1-C1…C6 / R1-W1…W2 | 并发 ordinal/resume、canonical anchors、symlink、child model、turn-system role/order 和 milestone 两轨仍在 `design.md:131-159,214-320,362-415,687-696` 与现有 deltas 中保持闭合；新 sidecar 不改写它们 | retained closed |
+| R2-C1 / R2-W1，R4-W1 | CLI/kernel/Gateway/IM index rows 已补齐，runbook 仍用 shell wrapper，production locator 仍指向 `PillSelector` / `agent-detail-page.tsx`；新 area counts 本轮重算见 delta 台账 | retained closed |
+| R6-C1…C4 / R6-W1 | SDK current canonical、cooperative `stopping→stopped`、manager single terminal writer / atomic notification claim、parent generic permission consumer 和 disabled 语义仍闭合；`design.md:302-304,320-360,432,500` 还明确 Bash 现有行为不变 | retained closed |
+| R7-C1 / R8-C1 / R9-C1 | launch message anchor、run/call/request 精确 binding、pre-anchor buffer / closing tombstone、`event_metadata` machine correlation 和唯一 cleanup consumer 仍在 `design.md:320-360`；新 background-return 不重开 permission registry | retained closed |
+| R10-C1…C2 / R10-W1，R11-C1，Round 12 | current counts 再次以 heading 实数核对；permission pending / allow / deny 三态仍与生产 gate→tool_end 一致；原型只因新需求增加 `Agent 后台完成` tab，没有改回 pre-gate row 或新 permission surface | retained closed; Round 12 approval is superseded only by the new scope |
+
+### 核实台账·现状断言
+
+| 原子 | 独立核实证据 | 结论 |
+|---|---|---|
+| active tool 快照同时控制 schema/prompt | `src/agent/core/agent/prompt_sections/base.py:44-114` 的 immutable `PromptContext.available_tools/has_tool()`，与 `design.md:112-130` 的唯一开关一致 | 成立 |
+| 产品只经 SDK 使用内核 | `src/agent/sdk/kernel.py:230-250` 是唯一 composition root；`tests/contract/test_agent_sdk_boundary_contract.py:19-57` 和 `test_core_no_platform_imports.py:13-20` 守边界 | 成立 |
+| child Agent 与现有 loop 可复用 | `src/agent/sdk/kernel.py:106-227`、`src/agent/platform/background_tasks/runtime_runner.py:28+`、`src/agent/platform/tools/builtins/agent.py:210+` 是 production wiring，无平行 Agent loop | 成立 |
+| generic background registry 可作顶层 handle | `src/agent/core/background_tasks/models.py:10-59` 和 `platform/background_tasks/wiring.py:50-103` 表明它仅持有 task record/stop/notification，适合增 `WORKFLOW` 而不承担 journal | 成立 |
+| 批准链已有唯一 broker 与通用 UI | `src/agent/platform/permissions/broker.py:102+`、`runtime_delivery/observer.py:1543+`、`frontend/.../permission-card.tsx:75+` 是实际路径 | 成立 |
+| PA tool allowlist 是真白名单/optional 投影 | `src/personal_assistant/product.py:359-378`、`gateway/session_composition.py:47-101`、`reporter/capability_projection.py:34-53` | 成立 |
+| Web 现有表面可复用 | `tool-calls-panel.tsx:33-75,88-175` 已有 per-message process union/seq/summary；`tool-detail-renderers.tsx:303-337,542-617` 已有 input-first `AgentCard` 与 typed dispatch；`message-pane.tsx:1458-1477` 装配 panel/card | 成立，原型与此 grounding 一致 |
+| notification 当前只有 XML 投影 | `src/agent/core/background_tasks/notifications.py:18-51` 从 record 渲染 XML，`platform/background_tasks/wiring.py:155-200` 只传 `LLMMessage`/`source_task_id` | 成立，Decision 13 的同源 projection 有真 seam |
+| active/idle 通知有两条 carrier | `wiring.py:162-170` 注入 active run，`:193-200` 为 idle run submit；`loop.py:617-623,764-792` 只在真正 drain 后发 consumed event | 基本成立，但 terminal-stranded 分支未被设计收口，见 R13-C2 |
+| PA idle background reply 当前是纯文本 | `background_subscriptions.py:181-206` 只提取非空 `content`，`runtime_delivery/background.py:177-213` 只传 `{text,to,from_session_id}` | 成立，扩展点真实；空正文协议未闭合，见 R13-C3 |
+| IM 消息可持久新 sidecar 并共享 seq | `domain/models.py:204-325`、`repositories/messages.py:627-710,777-807` 已有 message-owned thinking/tool JSON 和唯一 seq 分配模式 | 成立，增 nullable JSON 比新 repository 更自然 |
+| workspace-aware session root | `src/agent/core/session/jsonl_files.py:12-42,90-93` 从 `workspace_root/workspace_config_dirname` 派生，`build_kernel:674-680` 真实装配 | 成立，不需要 `workflow_data_root` |
+
+### 核实台账·决策
+
+| 决策 | 核实动作 / 证据 | 结论 |
+|---|---|---|
+| D1 active tool 唯一开关 | 对照 Q3/Q4 (`spec.md:27-34`)、`PromptContext.has_tool()` 与 PA allowlist 真路径 | 拍死、不与 disabled 语义冲突 |
+| D2 逐字 capture 只做 Python 机械变换 | 对照 Q2 与 `design.md:131-157` 的 capture/provenance/clause inventory | 拍死，无 surrogate prompt |
+| D3 AST 辅助 + 真编译执行 | 对照生成/编辑/权限非目标和 `design.md:159-212` 的 capability globals | 闭合，未把 AST 当安全容器 |
+| D4 primitives 全进同一 manager | 逐项对照 parallel/pipeline/runtime branch/limits 与 run-global ordinal (`spec.md:124-149`) | 闭合 |
+| D5 复用 child loop + return-value contract | 对照 child `None`、structured output、model/effort 与当前 AgentTool/RuntimeRunner | 闭合；whole-run 不按 child `None` 误判 |
+| D6 journal + atomic snapshot / single terminal writer | 对照 `spec.md:142-145,151-174,303-311`；`design.md:265-304` 明确 stop 优先、顶层 exception failed、normal return completed | 闭合，whole-run 三态无文本质量猜测 |
+| D7 chained-v2 最长相同前缀 | 对照 resume 4 Scenarios 和 ordinal/journal 契约 (`design.md:306-318`) | 闭合 |
+| D8 通用 launch/child permission 回父交互面 | 重查 broker、parent event、message anchor、registry ordering/cleanup (`design.md:320-360`) | 历史 R6-R9 闭环仍有效 |
+| D9 仅信任人工入口生成 reminder | 对照 opt-in 5 Scenarios、turn-system role/order 与 Runs origin delta | 闭合 |
+| D10 product roots 发现/saved command | 对照 save/discovery 5 Scenarios、disabled next-turn 和 symlink 不对称规则 | 闭合 |
+| D11 Workflow 自有短生命 git adapter | 对照 isolation 只属 child tool layer、不复用开发 E2E worktree (`design.md:390-398`) | 属性正确，无多余产品 API |
+| D12 SDK 只暴露 query/control/save | 对照 current SDK boundary canonical 和 `specs/kernel/sdk-boundary.md` 完整 MODIFIED | 闭合，manager 未泄漏 |
+| D13 task notification structured sidecar | 正向追 projection→active/idle→Gateway→IM→frontend，并反向强制 terminal race / empty-body 两条路径 | 归属和主路径合理，但 terminal-stranded 与 idle empty-body 边界未拍死，见 R13-C2/C3 |
+
+### 核实台账·spec 约束
+
+| 原子 | design 投影 | 结论 |
+|---|---|---|
+| Q1 三个产品入口 | SDK runtime + CLI M1 + PA/Web/飞书 M2 (`design.md:98-108,687-696`) | 覆盖 |
+| Q2 只抄 Claude Code，仅 JS→Python | D2-D7/D9-D11 与 non-goal 逐项限制 | 不越界 |
+| Q3 完整能力 + tool 控制提示 | D1-D12 与 CLI/Gateway/IM deltas | 覆盖 |
+| Q4 disabled 后全部专属入口消失 | D1/D9/D10、Web surface 和 Gateway/IM disabled Scenarios | 覆盖，仅 generic terminal + 已知 task stop |
+| Q5 本 unit 同时展示 Workflow/Agent 后台原始返回 | D13、Web/prototype、M1/M2、kernel/Gateway/IM deltas | 主路径覆盖，但受 R13-C2/C3 阻断 |
+| 用户场景 1：明确 opt-in 才大规模编排 | D1/D9 + CLI/Gateway origin | 覆盖 |
+| 用户场景 2：Python script/child effects/背景运行/终态返回 | D3-D6 + D13 | 覆盖，carrier 终态竞态见 C2 |
+| 用户场景 3：background Agent 保留 launch row，后续普通回复显原始返回 | D13 presenter/Web/prototype | 覆盖，idle 空正文见 C3 |
+| 用户场景 4：control/resume/save/各入口 | D6-D8/D10-D12 | 覆盖 |
+| 用户场景 5：下一轮 tool selection A/B | D1/D9/D10 + M2 | 覆盖 |
+| R1 入口/能力开关（4 Scenarios） | D1，CLI/Gateway/IM capability deltas | 覆盖 |
+| R2 opt-in/ultracode（5） | D2/D9，Runs origin + CLI/Gateway deltas | 覆盖 |
+| R3 Python script（5） | D2-D4，kernel workflows delta | 覆盖 |
+| R4 确定性编排（6） | D4-D6，含 whole-run terminal | 覆盖，top-level normal/exception/stop 已拍死 |
+| R5 后台进度/控制（5） | D6/D8/D12，CLI/Gateway command surface | 覆盖 |
+| R6 Web 后台返回（5） | D13 + 4 条 carrier/persistence/frontend dataflow | 不完全；C2/C3 |
+| R7 resume（4） | D6/D7 | 覆盖 |
+| R8 save/discovery（5） | D10/D12 | 覆盖 |
+| R9 permission（5） | D8 + R6-R11 历史闭环 | 覆盖 |
+| R10 scale/cost/model（5） | D4-D6 + runtime/snapshot | 覆盖 |
+| R11 errors/diagnostics（3） | D3/D6/D7 | 覆盖，child `None` 不误判 whole-run failed |
+| 非目标 | JS/TS、额外激活/权限、cloud routines/hooks/teams、Bash 新可视化、AgentCard 改版、外部 IM 新卡、独立 progress/detail page | design 均显式排除；原型只复用现有 process/tool visual grammar | 不越界；但 delta 必须同时保留 Bash 现有文本行为，见 C1 |
+
+### 核实台账·delta-spec
+
+| delta | 类型 / 数量 | canonical 锚定与可观察性 | 结论 |
+|---|---:|---|---|
+| `cli/interactive-repl.md` | MODIFIED 1 + ADDED 2 / 15 Scenarios | 精确命中 current slash title，保留 4 旧 Scenarios 后增 Workflow | 通过 |
+| `cli/spec.md` | index | current 7 + 2 ADDED = future 9 | 通过 |
+| `kernel/workflows.md` | ADDED 8 / 39 | 新 canonical area；consumer-visible SDK/runtime/control/save/budget 结果 | 通过 |
+| `kernel/runs.md` | MODIFIED 1 + ADDED 1 / 9 | current steer 6 Scenarios 全保留，新 origin 独立 | 通过 |
+| `kernel/sdk-boundary.md` | MODIFIED 1 + ADDED 1 / 13 | 从 current 9 Scenarios 重建，保留 global/config-dir 语义 | 通过 |
+| `kernel/background-tasks.md` | MODIFIED 1 + ADDED 1 / 10 | title 命中，但 MODIFIED 静默删除 current auto-background subagent Scenario | 失败；R13-C1 |
+| `kernel/spec.md` | index | SDK 5+1=6，Runs 12+1=13，Background 5+1=6，Workflows 8 | 数字通过；受 C1 merge body 阻断 |
+| `gateway/agent-capabilities.md` | ADDED 1 / 4 | optional Workflow 开关为平行新 Requirement | 通过 |
+| `gateway/workflows.md` | ADDED 5 / 17 | human origin/capability/query/control/permission/terminal 均对用户可观察 | 通过 |
+| `gateway/routing-delivery.md` | MODIFIED 1 / 4 | 命中 current title，但把 current background Bash 文本回复场景缩为 subagent/Workflow | 失败；R13-C1 |
+| `gateway/relay-protocol.md` | ADDED 1 / 3 | active/idle 使用现有 event/message type，THEN 是协议消费者可观察 | 主体通过；empty text 语义见 C3 |
+| `gateway/spec.md` | index | Routing 14、Capabilities 12+1=13、Relay 13+1=14、Workflows 5 | 通过 |
+| `im/agents-nodes.md` | ADDED 1 / 3 | Workflow optional pill 是平行能力 | 通过 |
+| `im/workflows.md` | ADDED 2 / 8 | 现有 permission/tool/message/slash surfaces，无专属 run projection | 通过 |
+| `im/gateway-relay.md` | MODIFIED 1 / 4 | 命中 current title，但同样丢掉既有 background Bash 实时文本气泡保证 | 失败；R13-C1 |
+| `im/tool-timeline.md` | MODIFIED 1 / 5 | Requirement title 与 current 不同，且没有忠实保留“无思考但有 tool 时不出思考空壳” Scenario | 失败；R13-C1 |
+| `im/spec.md` | index | Agents 23+1=24，Gateway Relay 11，Tool Timeline 8，Workflows 2 | 数字本身通过；Tool Timeline title 未命中时实际 future 会变 9，见 C1 |
+
+### 核实台账·Milestones
+
+| Milestone | 核实 | 结论 |
+|---|---|---|
+| `M1-cli-workflow-runtime` | 核心 runtime→SDK→CLI 是可独立使用的纵向切片，超单 worker 窗口的拆分举证明确；worker/reviewer 两轨、whole-run、single notification 和 active/idle 都有 oracle | 切片成立；但 active 通知跨 terminal 的搬运分支/test 缺失，R13-C2 必须回到 M1 |
+| `M2-assistant-workflow-surfaces` | 依赖 M1 稳定 SDK/sidecar 后接 PA/IM/Web/飞书，为第二个产品纵向切片；已含 permission ordering、reconnect/dedupe、empty body、prototype browser 两轨 | 切片成立；但 idle empty-body 线协议与 sender 缺决策，R13-C3 会让 M2 worker 猜接口 |
+
+### 整体判断
+
+- 上层方向清晰：只有一份 terminal record projection，XML 给 model、structured sidecar 跟实际消费轮次到产品，IM 只存消息从属数据，不存 Workflow run 第二真源。
+- whole-run 终态已完整拍死：whole stop 优先 `stopped`，顶层未捕获异常才 `failed`，`main()` 任何正常返回都 `completed`；child `None`/空值/低质量不是失败判据。
+- UX 选择合理：Workflow launch 在现有 `ToolCallsPanel/ToolDetailBody`、Agent launch 保持 production `AgentCard`，终态 raw return 为 process union 第三类；无专属面板、详情页、event 或卡片。
+- 不过，delta 并入会回归 current 行为，两个高风险 carrier 分支又没有形成可兼容的跨包接口；当前不能交给 orchestrator。
+
+### 架构进攻
+
+| 角度 | 主动攻击 | 发现 |
+|---|---|---|
+| 归属 | 问“raw return 应由 Workflow manager、Gateway 还是 generic notifier 解释”，并叠加 `core←platform←sdk/product` 依赖约束 | generic notification projection 作 semantic owner 最自然；Gateway 只搬运、IM 只持久/呈现。但 stranded carrier 与 idle wire validation 正处于责任交界，不拍死会丢数据，见 C2/C3 |
+| 该不该存在 | 删除测试：尝试去掉 `BackgroundReturnInfo`、IM JSON sidecar、Workflow permission registry、WorkflowCard | projection/sidecar 分别避免 XML/prose 反解析和第二 run 真源，registry 解决已取证多 launch 乱序，WorkflowCard 仅是现有 detail dispatch renderer；都有实际简化，不是 YAGNI |
+| 深还是浅 | 对比“一份 projection + 现有 carrier”与“Gateway 重解 XML / IM 建 run repo / 前端伪 ToolCall” | 当前设计集中隐藏 terminal record 细节，并复用 existing event/message/process seam，比替代方案更深；没有浅 wrapper 新问题 |
+| 治本还是补丁 | 攻击是否仅把 parsed XML 塞进 UI，以及是否为 Workflow 新造专属 relay | 从 terminal record 同源投影治的是“原始返回不可归因”根因；禁止 IM run projection/event 也避免了补丁化。剩余 C2/C3 是必须正面完成的共享 carrier 契约，不能用 placeholder text/“最新气泡”猜测绕过 |
+
+### Issues
+
+- [R13-C1][CRITICAL] [delta-spec canonical merge：`specs/kernel/background-tasks.md:5-41`、`specs/gateway/routing-delivery.md:5-29`、`specs/im/gateway-relay.md:5-27`、`specs/im/tool-timeline.md:5-28`]：4 份 `MODIFIED` 没有忠实保留 current canonical。具体是：① kernel Background Tasks 删掉了 current “前台 subagent 超预算转后台后仍发一次完成通知”（`docs/specs/kernel/background-tasks.md:40-44`），尽管新 Scenario 自己还声称覆盖 auto-background；② Gateway Routing 把 current background Bash 例子 `run_in_background: sleep ...` 的第二条文本回复保证（`docs/specs/gateway/routing-delivery.md:294-306`）缩为 subagent/Workflow；③ IM Gateway Relay 也把 current 任意 background task 的实时终态文本气泡（`docs/specs/im/gateway-relay.md:116-128`）缩为 subagent/Workflow，与 `design.md:432` “Bash 文本投递不变”直接失配；④ IM Tool Timeline 把 canonical 精确标题“内部 IM 把思考与工具调用展示为过程时间线、外部不展示”改了标题，导致 MODIFIED 无法命中，同时还删掉 current “无思考时不出思考空壳” Scenario（`docs/specs/im/tool-timeline.md:187-199`）。不修时 archive merge 会静默回归 auto-background subagent/Bash 现有用户契约，Tool Timeline 则会新旧两条并存、future count 从写下的 8 变成 9；worker 也可能误把“Bash 无新 sidecar”实施成“Bash 无原有文本通知”。必须从每份 current canonical 完整重建 MODIFIED：标题精确不变，原 Scenario 全保留，再叠加 subagent/Workflow sidecar；Bash 仍只是无 UI sidecar，不是无文本完成回复。
+- [R13-C2][CRITICAL] [Decision 13 active carrier / M1：`design.md:434-438,599,693`]：设计只覆盖 `PendingMessage` 被正常 loop drain 时的 `pending_injection_consumed` 路径，没有规定“active 注入已接受，但 run 在下一 round boundary 前异常终止/被 `/stop`”时 sidecar 如何继续跟随真正消费它的 reply。当前内核对文本已有两条不丢分支：非用户终止在 `_settle_terminal_pending()` 把 stranded `PendingMessage.message` 转成 continuation `submit()`（`src/agent/core/runs/registry.py:550-609`）；用户 `/stop` 把整个 PendingMessage 暂存 `_held_pending`，下次 submit 又只把 `pending.message` 转 parts（`:196-201,302-313`）。Decision 13 新加的 `background_return` 若不显式进入 continuation/held flush 的 `source_background_returns`，XML 会存活，结构化 sidecar 却会丢失或被挂到更晚的无关回复，直接违反 `spec.md:194-200` 的同消息归因/exact-once。设计必须拍死：PendingMessage sidecar 与 message 同命运穿过 `_settle_terminal_pending` 与 `_held_pending`；非用户 continuation 按 FIFO batch 传入 `source_background_returns`；`/stop` held sidecar 在下一次真正消费它的 submit/reply 中携带。M1/M2 永久 oracle 必须强制 terminal-before-boundary 和 `/stop` held flush，包含多条 FIFO，不能只测平稳 active/idle。
+- [R13-C3][CRITICAL] [Decision 13 idle relay / Gateway relay delta / M2：`design.md:437-440,602-603,694`]：文档在前端端已拍死“非空 `background_returns` 本身算可见，正文为空也保留”，但 idle `assistant_message → agent.message → IM` 的发送/协议端仍被描述为“既有文本 payload 外加 sidecar”，没有明确 `text` 在 sidecar 非空时可为空。现行生产链会在三处拦掉它：`BackgroundSessionEventSubscriber` 对空 `content` 直接 return（`src/personal_assistant/gateway/background_subscriptions.py:186-190`），`build_bg_reply_sender` 再对空 text return（`runtime_delivery/background.py:177-180`），IM relay `_require_text` 和 `EventBridge.emit_instant_message` 又要求非空（`src/IM/ws/gateway/relay.py:194-196`、`ws/gateway/protocol.py:223-226`、`application/event_bridge.py:73-105`）。不修时 worker 会在“继续丢消息”、“伪造占位文本”、“绕过 agent.message 直写 IM”之间猜测，第一种直接违反验收，后两种会建出不同协议/幂等路径。必须在 Decision 13 与 `specs/gateway/relay-protocol.md` 拍死唯一共享契约：`agent.message` 在 `background_returns` 非空时允许 empty `text`；subscriber/sender 的 visibility gate 为 `text.strip() or background_returns`；IM relay/EventBridge/MessageRepository 只在 sidecar 非空时使用既有 `allow_empty` 能力，同一 `message.created` 完整携带 sidecar。再增 idle + empty text + realtime/history/replay 的 protocol/integration oracle；外部 IM 仍按非目标不收 sidecar，无文本时也不伪造卡片。
+
+### Recommendations
+
+- [R13-R1] 回 `change-design-author` 先收 R13-C1：四份 MODIFIED 都以 current canonical 标题/全 Scenario 为底稿重建，然后只叠加 Workflow/subagent structured-return 增量；重跑 heading/future-count assertion 和临时-index docs-check。
+- [R13-R2] 在 Decision 13 的 active/idle 列表中增第 3 条 terminal-stranded carrier，明确 normal drain、non-user continuation、`/stop` held 三条都使用同一 sidecar 并归因到实际消费 reply；同步 M1/M2 tests。
+- [R13-R3] 把 idle wire contract 补成 `text-or-background_returns` 可见性契约，点名 subscriber、sender、`agent.message`、EventBridge/repository 四层，不使用 zero-width/placeholder 文本，不新建 wire event。
+- [R13-R4] 保留现有原型语义：7 个 tabs/8 states、desktop/mobile grid、AgentCard-like input-first/result-second、普通消息 + background-return 过程项；这些已通过本轮复核，不需为修 C1-C3 新造 UI。
+
+### Author Resolutions
+
+- [R13-C1] Accepted：4 份 MODIFIED 已从 current canonical 完整重建。kernel 恢复“前台 subagent 超预算转后台”场景；Gateway Routing 与 IM Gateway Relay 明确保留 background Bash 的第二条实时文本回复；IM Tool Timeline 恢复 canonical 精确标题、原多思考/工具、无思考空壳和外部 channel 场景，再叠加 background-return。future counts 不变。
+- [R13-C2] Accepted：Decision 13 已明确 `PendingMessage.background_return` 与 XML 同命运穿过三条 active 路径：正常 drain、非用户 terminal 的 contiguous-origin continuation `source_background_returns`、用户 `/stop` 的完整 `_held_pending` 与下一次 submit flush；kernel delta、测试策略及 M1/M2 均增加 terminal-before-boundary、held flush、多条 FIFO 和 task-id exact-once oracle。
+- [R13-C3] Accepted：idle 共享协议已固定为 `text.strip() or background_returns`。subscriber、reply sender 不再先丢空正文；`agent.message` 只要求非空 text 或非空 typed sidecar，IM relay/EventBridge/repository 仅在 sidecar 非空时复用 allow-empty seam，并由同一 `message.created` 完整发布；两者皆空仍拒绝，外部 IM 无文本时不伪造占位或卡片。Gateway/IM delta、测试策略、风险和 M2 已同步。
+
+## Round 14
+
+### Metadata
+
+- reviewer: `/root/feat_517_design_reviewer_failover`
+- review_mode: `delta`
+- mode_reason: Round 13 已有可信 full inventory；本轮 Author Resolutions 只修 4 份 MODIFIED canonical merge、Decision 13 的 terminal-stranded carrier，以及 idle `text-or-background_returns` 共享 wire 契约，影响可枚举在对应 delta、测试策略和 M1/M2。重查没有发现这些原子使其余 Workflow runtime、permission registry、Web presenter 或 prototype inventory 失效，因此用 delta；但 Gateway relay delta 新写入实现走查，按 delta-spec 红线独立报阻塞项。
+- started_at: `2026-08-10T11:38:35+08:00`
+- completed_at: `2026-08-10T11:42:11+08:00`
+- duration: `3m36s`
+
+### Verdict
+
+Issues Found — 1 CRITICAL / 0 WARNING
+
+### Coverage
+
+- changed_atoms: R13-C1 的 4 份 MODIFIED canonical merge；R13-C2 的 normal drain / non-user continuation / `/stop` held-flush 三条 active carrier；R13-C3 的 subscriber→sender→`agent.message`→IM repository/EventBridge empty-text sidecar 通路；对应 kernel/Gateway/IM delta、测试策略、风险与 M1/M2。
+- affected_trace: `terminal record → notification XML + sidecar → PendingMessage → normal boundary | terminal continuation | /stop held flush → consuming reply`；以及 `idle assistant_message → Gateway agent.message(text-or-sidecar) → IM message persistence → single message.created → history/reconnect`。
+- retained_from: Round 13 full — 11 Requirements / 52 Scenarios、其余 13 份 delta、现状源码 grounding、whole-run terminal 判定、permission correlation/cleanup、Web `ProcessItem`/prototype 和两个纵向 milestone 的其余范围，均未被本轮有界修订失效。
+- static_checks: 以包含新 delta 的临时 index 运行 docs-check 通过（228 maintained Markdown / 67 routes）；prototype inline JavaScript syntax 通过；unit `git diff --check` 通过。本轮不重开已通过的 prototype/UI 语义。
+
+### 历史问题闭环
+
+| 历史项 | Author Resolution | 本轮核实 | 状态 |
+|---|---|---|---|
+| R13-C1 | 4 份 MODIFIED 从 current canonical 重建，恢复 auto-background subagent、Bash 文本回复与 Tool Timeline 原标题/三场景 | `kernel/background-tasks.md:5-53` 保留 current 5 个场景后叠加 3 个 sidecar 场景；`gateway/routing-delivery.md:5-35`、`im/gateway-relay.md:5-37` 均显式保留 Bash 与原重启/重发语义；`im/tool-timeline.md:5-40` 精确命中标题并保留原三场景 | closed |
+| R13-C2 | sidecar 与 XML 同命运穿过 normal drain、non-user terminal continuation 和 `/stop` held flush；补 FIFO/exact-once oracle | `design.md:435-441` 已指定三条 carrier 及实际 consuming reply；kernel delta `:49-53`、测试策略 `design.md:602,605-606`、M1/M2 `:697-698` 均覆盖 terminal-before-boundary、held multi-FIFO 与 task-id exact-once | closed |
+| R13-C3 | idle 链统一 text-or-sidecar，both empty 拒绝，sidecar-only 走同一 message.created，外部不伪造空消息 | runtime/interface 决策在 `design.md:439-445`、测试与 M2 已闭合；IM consumer delta `specs/im/gateway-relay.md:34-37` 也正确。但 Gateway delta 把内部类、visibility gate 与 repository 路径写进 Scenario，见 R14-C1 | runtime/interface closed; delta-spec superseded by R14-C1 |
+
+### 本轮重查证据
+
+| Changed atom / 波及链 | 独立核实 | 结果 |
+|---|---|---|
+| R13-C1 canonical merge | 四个 Requirement 标题均精确命中 current。kernel 恢复前台 subagent 超预算转后台；Gateway/IM relay 恢复 background Bash 第二条实时文本回复；Tool Timeline 恢复多思考/工具、无思考空壳、外部 channel 三个原场景，再追加 background-return | pass |
+| future package counts | current heading + delta ADDED 重算：kernel Background Tasks `5+1=6`；Gateway Routing `14`、Relay `13+1=14`；IM Gateway Relay `11`、Tool Timeline `8`；各 package index 行与此一致 | pass |
+| terminal-before-boundary | `design.md:438` 明确 `_settle_terminal_pending()` 按 contiguous-origin/FIFO 搬 `source_background_returns`，`/stop` 暂存完整 PendingMessage 并在下次 submit 合并；`specs/kernel/background-tasks.md:49-53` 把 XML+sidecar 同命运、FIFO 和 task-id once-only 写成消费者可观察结果 | pass；R13-C2 根因闭合 |
+| idle empty-text runtime contract | `design.md:439-441` 给 sender/wire/storage 唯一契约：非空 text 或 typed sidecar、both empty 拒绝、sidecar-only 复用 allow-empty seam、单次 `message.created`、task-id merge；`design.md:605-606,622-623,698` 有 protocol/integration/replay oracle | pass；worker 无需在丢消息、占位文案和旁路写库之间猜 |
+| idle empty-text delta | IM delta从用户视角写“接受并持久化、同一 message.created、刷新恢复、无占位”；Gateway delta却在 WHEN/THEN 逐层点名 `BackgroundSessionEventSubscriber`、reply sender、visibility gate 和 EventBridge/repository | fail；R14-C1 |
+
+### 受影响的架构进攻
+
+| 角度 | 重查结果 |
+|---|---|
+| 归属 | terminal projection 的 semantic owner 仍是 generic notifier，Gateway 只搬运、IM 只持久/呈现；Decision 13 把 terminal race 与 empty-text boundary 放在正确 owner。内部 subscriber/repository 的实现归属应留在 design/test，不能变成 Gateway canonical 消费者契约。 |
+| 该不该存在 | `source_background_returns` 和 typed wire sidecar 分别解决 terminal-stranded 丢归因与 XML/prose 反解析，删除都会破坏 exact-once/可归因需求；没有新增 Workflow event、IM run repository 或占位消息。 |
+| 深还是浅 | text-or-sidecar 是一个共享、单一的消息可见性接口，隐藏了各层旧的 text-only validation，方向足够深；若 canonical Scenario 把每层 class/helper 固化，反而会把深接口重新摊平成实现清单，使将来等价重构也被误判为契约回归。 |
+| 治本还是补丁 | R13-C2/C3 已从 carrier/validation 根部消除 sidecar 丢失，没有靠“最新气泡”、placeholder 或直写数据库补洞。剩余问题只需把 delta 改回可观察 wire/postcondition，不能为了修文档撤回已经正确的 runtime 决策。 |
+
+### Issues
+
+- [R14-C1][CRITICAL] [Gateway relay delta 的 Scenario 实现层越界：`specs/gateway/relay-protocol.md:13-18`]：R13-C3 已在 design 中拍死正确的共享接口，但 delta 的“idle parent 正文为空时按 sidecar 可见”把实现走查写进 canonical：WHEN 点名 `BackgroundSessionEventSubscriber` 与后台 reply sender，THEN 又要求“两层按 `content.strip() or background_returns` 判定”并点名 EventBridge/message repository。`docs/specs/CONTRIBUTING.md:24,35-40,87-91` 明确 HOW、函数/类名和内部结构留在 design/code，Scenario 的 WHEN 是消费者动作、THEN 是消费者可观察结果；`change-design-reviewer` 也将 THEN 内部函数/类/调用断言定为 CRITICAL。该写法会把可替换的 PA/IM 内部组成误升级为长青 Gateway 契约，未来即使 wire 行为完全不变，重构 subscriber 或 repository 仍会虚假违反 canonical；同时真正的消费者——IM service——要观察的 frame/postcondition反而被实现清单遮蔽。最小修复不是改 Decision 13，而是把场景改为纯 wire 行为：Gateway 有一条 empty text + non-empty typed `background_returns` 的 idle 后台回复时，经既有 `agent.message` 发送；接收方得到一次 `text:""` + 完整 sidecar，IM 产生一次可持久/可重连的 `message.created`；both empty 拒绝，且不新增占位文本或 wire event。具体 subscriber/sender/EventBridge/repository 与 allow-empty seam 继续只留在 design 和测试。
+
+### Recommendations
+
+- [R14-R1] 仅回 `change-design-author` 改写 `specs/gateway/relay-protocol.md:13-18`：GIVEN/WHEN/THEN 使用 Gateway wire consumer 可观察的输入、单次投递/重连结果与拒绝条件，删除内部类名、逐层 gate 和 repository 路径。
+- [R14-R2] 不修改 R13-C2/C3 的 runtime/interface 决策、IM delta、M1/M2 或 prototype；这些已经闭合。修订若只触及这一场景，下一轮可用 `closure`。
+
+### Author Resolutions
+
+- [R14-C1] Accepted：仅将 Gateway relay delta 的 empty-text Scenario 改写为消费者可观察的 wire 输入与结果：既有 `agent.message` 发送 `text:""` 和完整 sidecar，IM 在原会话单次创建并持久化终态消息，在线实时收到且刷新/重连可恢复；both-empty 明确拒绝，不出现占位文本或新增 wire event。内部 subscriber、sender、EventBridge、repository 与 visibility gate 仍只保留在 design/test，未改 runtime/interface 决策、IM delta、M1/M2 或 prototype。
+
+## Round 15
+
+### Metadata
+
+- reviewer: `/root/feat_517_design_reviewer_failover`
+- review_mode: `closure`
+- mode_reason: Round 14 的唯一未闭合项 R14-C1 只要求把一个 Gateway delta Scenario 从内部实现走查改回消费者可观察的 wire 契约；本轮实际修订局限于该场景和 Author Resolution，没有改变 runtime/interface、IM delta、M1/M2 或 prototype，影响可完全封闭，因此用 closure。
+- started_at: `2026-08-10T11:45:47+08:00`
+- completed_at: `2026-08-10T11:46:49+08:00`
+- duration: `1m02s`
+
+### Verdict
+
+Approved — 0 CRITICAL / 0 WARNING
+
+### 历史问题闭环
+
+| 历史项 | Author Resolution | 本轮核实 | 状态 |
+|---|---|---|---|
+| R14-C1 | 仅把 Gateway relay 的 empty-text Scenario 改为 `agent.message` wire 输入与 IM 可观察结果，移除内部类、逐层 gate 和 repository 走查 | `specs/gateway/relay-protocol.md:13-18` 现在以 Gateway/IM 协议消费者为主语：输入是 `text:""` + 完整 sidecar，结果是原会话单次终态消息、同一 `message.created` 实时送达、历史刷新/重连恢复、both-empty frame 拒绝且无占位/新 event；全文不再出现 `BackgroundSessionEventSubscriber`、reply sender、`content.strip()`、EventBridge、MessageRepository/repository 或 `allow_empty`。这符合 `docs/specs/gateway/spec.md:5` 的消费者边界及 `docs/specs/CONTRIBUTING.md:24,35-40,87-91` 的 Scenario 可观察性纪律 | closed |
+
+### 直接证据
+
+- 修订没有撤回 R13-C3 已闭合的唯一共享契约：wire 仍是 text-or-sidecar、both empty 拒绝、sidecar-only 只产生一次可持久/可重连的既有消息；没有新增 wire event、占位文本或内部实现约束。
+- 临时 index 下 docs-check 通过（228 maintained Markdown / 67 routes），unit cached diff-check 通过；prototype inline JavaScript syntax 通过。closure 范围内没有发现新的波及项。
+
+### Issues
+
+None.
+
+### Recommendations
+
+- [R15-R1] Gate 2 设计审查已闭环；可进入 `change-orchestrator` 实施，并保留 M1/M2 已冻结的 terminal-stranded、empty-text sidecar、replay/exact-once 与真实产品旅程 oracle。

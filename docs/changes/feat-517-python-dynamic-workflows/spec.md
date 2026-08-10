@@ -10,6 +10,12 @@
 
 > 好，现在我们落地这个工具到我们的系统中吧，Python版本
 
+> 其实我觉得这是一个设计缺陷，当前background agent也是这样，我觉得可以考虑怎么设计展示下返回的内容给用户，否则如果效果不好，用户压根不知道是后台agent的原因还是啥原因
+
+> 我觉得<task-notification>是应该类似工具调用一样，在折叠块中是其中一条。你在prototype中画一下，我看看
+
+> ok，本unit加这个后台返回的显示，包括agent工具的，所以你原型要把agent工具的也展示下
+
 ## 澄清记录
 
 - Q1: Python Workflow v1 只在 `nanocode/coding_cli` 开放，还是同时开放到个人助手的 Web IM、飞书等入口？
@@ -23,12 +29,17 @@
   Agent 解读: 完整能力都在范围内；Workflow 工具是否启用必须同时控制工具定义、Workflow 专属提示与相关入口，使 IM 中选择或取消该工具形成干净的有/无能力对照。
 - Q4: IM 中取消 `Workflow` 工具时，是否将 Workflow tool schema/description、opt-in/ultracode reminder、专属运行指导、保存的 Workflow 命令和管理入口全部移除，并在重新勾选后的下一轮全部恢复？
   A(原话): 对
+- Q5: 后台完成后的原始返回是否另开 unit，只覆盖 Workflow？
+  A(原话): ok，本unit加这个后台返回的显示，包括agent工具的，所以你原型要把agent工具的也展示下
+  Agent 解读: 可归因后台返回直接纳入 feat-517；Web IM 对后台 Workflow 和既有 `Agent(run_in_background=true)` 使用同一种“过程”折叠项，保留主 Agent 的普通回复，并可展开核对后台任务原始返回与来源。
 
 ## 用户场景
 
 一名开发者在 `coding_cli`，或在 Web IM / 飞书中使用自己的个人助手 Agent。对于普通任务，Agent 仍按原有单会话和 `agent` 工具能力工作；用户明确说“用 workflow”、输入 `ultracode`，或为当前会话开启 ultracode 模式后，Agent 才把大规模、多阶段工作组织成一个 Python Workflow。
 
-Agent 先生成可检查的 Python 编排脚本。脚本负责循环、分支、并行、流水线、阶段和结果组合，实际读写文件、执行命令或访问外部工具仍由 Workflow 派生的子 Agent 完成。用户批准后，Workflow 在后台运行，当前会话保持可交互；中间结果留在 Workflow 内，用户通过进度视图看到阶段、Agent、用量和耗时，完成后只收到最终结果与诊断。
+Agent 先生成可检查的 Python 编排脚本。脚本负责循环、分支、并行、流水线、阶段和结果组合，实际读写文件、执行命令或访问外部工具仍由 Workflow 派生的子 Agent 完成。用户批准后，Workflow 在后台运行，当前会话保持可交互；中间结果留在 Workflow 内，用户通过进度视图看到阶段、Agent、用量和耗时。完成后主 Agent 仍以普通消息综合说明结论；在 Web IM 中，触发这次回复的 Workflow 原始返回作为同一消息“过程”折叠块的一条可展开后台返回显示。
+
+既有 `Agent(run_in_background=true)` 采用相同呈现：启动时仍是现有 Agent 工具行，任务结束后不伪装成另一笔工具调用，也不另造终态卡；它的 `<task-notification>` 作为后续普通回复中的后台返回过程项，展示任务类型、状态、task/agent/run 身份、原始 result 或 error、用量和产物位置。用户因此能区分“后台 Agent/Workflow 实际返回了什么”和“主 Agent 如何综合这份返回”，效果不好时也能定位责任来源。
 
 用户可以暂停、停止、恢复或重新运行 Workflow；已经完成且仍位于相同调用前缀中的 Agent 结果会被复用。一次满意的运行可以保存为项目或个人 Workflow，之后通过名称和参数再次运行。相同能力在 `coding_cli`、Web IM 和外部 IM 中都可到达，呈现形式可以适配各入口，但运行语义一致。
 
@@ -128,6 +139,11 @@ Agent 先生成可检查的 Python 编排脚本。脚本负责循环、分支、
 - **WHEN** Workflow 中一个 Agent 被用户停止或遇到重试后仍不可恢复的 API 错误
 - **THEN** 该 Agent 产生与 Claude Code 一致的空结果语义，parallel/pipeline 的其他 item 可以继续完成
 
+#### Scenario: 整个 Workflow 的终态只由顶层执行结果决定
+- **WHEN** Python `main()` 正常返回，包括返回空值、低质量内容或包含某个子 Agent 的空结果
+- **THEN** Workflow 进入 `completed`；系统不按文本质量猜测成功或失败
+- **AND** 未捕获的顶层异常使运行进入 `failed`，用户对整次运行发起的 cooperative stop 使其进入 `stopped`
+
 #### Scenario: 中间结果不淹没主会话
 - **WHEN** Workflow 运行大量子 Agent 并产生中间结果
 - **THEN** 主会话不逐条接收全部中间 transcript，只接收启动反馈、可按需查看的进度和最终结果通知
@@ -156,6 +172,32 @@ Agent 先生成可检查的 Python 编排脚本。脚本负责循环、分支、
 #### Scenario: Workflow 完成
 - **WHEN** 后台 Workflow 成功、失败或被停止
 - **THEN** 发起会话收到一次包含最终结果或错误、诊断、用量和恢复提示的完成通知
+
+### Requirement: Web IM 对后台 Workflow 和后台 Agent 显示可归因的原始返回
+
+#### Scenario: Workflow 返回与主 Agent 综合回复同时可见
+- **GIVEN** 后台 Workflow 已进入 `completed`、`failed` 或 `stopped`
+- **WHEN** 主 Agent 消费对应 `<task-notification>` 并产生普通回复
+- **THEN** 回复正文显示主 Agent 的综合说明，同一消息的“过程”折叠块包含一条 Workflow 后台返回
+- **AND** 展开后可看到 Workflow 状态、task/run 身份、未经主 Agent 改写的 result 或 error、usage、duration、diagnostics 与 resume 提示
+
+#### Scenario: 后台 Agent 返回使用同一过程项
+- **GIVEN** `Agent(run_in_background=true)` 已异步启动
+- **WHEN** 子 Agent 结束且主 Agent 消费对应 `<task-notification>`
+- **THEN** 原 Agent launch 工具行保持 async launch 结果，后续普通回复的“过程”折叠块包含一条 Agent 后台返回
+- **AND** 展开后可看到 task/agent 身份、状态、原始 result 或 error、usage、duration 与 output artifact
+
+#### Scenario: 原始返回与综合结论清楚分层
+- **WHEN** 主 Agent 对后台返回进行筛选、质疑、摘要或给出不同结论
+- **THEN** 用户能分别阅读普通回复正文和可展开的原始后台返回，不会把主 Agent 文案误认为后台任务的逐字输出
+
+#### Scenario: 主 Agent 正文为空时不丢后台返回
+- **WHEN** 对应回复没有正文，但已经消费一条后台 Workflow 或 Agent notification
+- **THEN** 消息仍显示“过程”折叠及后台返回，不按空回复删除
+
+#### Scenario: 实时、历史和重放保持同一条返回
+- **WHEN** 后台通知实时送达、浏览器重连或用户重新打开历史消息
+- **THEN** 同一 task id 的后台返回仍附着在同一条普通回复中，内容和来源一致且不重复出现
 
 ### Requirement: 暂停或修改后的 Workflow 按最长相同 Agent 调用前缀恢复
 
@@ -259,8 +301,9 @@ Agent 先生成可检查的 Python 编排脚本。脚本负责循环、分支、
 - **THEN** 用户在后台运行启动前收到可定位的错误，主会话继续可用
 
 #### Scenario: 后台运行失败
-- **WHEN** Workflow runtime 或其子 Agent 出现不可恢复失败
+- **WHEN** Workflow executor 或 `main()` 产生未被脚本处理的顶层异常
 - **THEN** 运行进入明确失败状态，完成通知和进度详情保留错误位置、已有结果与诊断入口
+- **AND** 单个子 Agent 返回 `None` 本身不自动把 whole run 判为失败
 
 #### Scenario: 用户查看历史运行诊断
 - **GIVEN** 一个 Workflow 返回空结果、意外结果或曾被停止
@@ -269,5 +312,5 @@ Agent 先生成可检查的 Python 编排脚本。脚本负责循环、分支、
 
 ## 范围与非目标
 
-- 在范围：`coding_cli`、Web IM 与外部 IM 的 Python Dynamic Workflows；与 Claude Code 2.1.226/当前官方契约一致的激活、生成、运行、编排、后台状态、通知、权限、保存、命名调用、暂停/停止/恢复、诊断、规模、成本与模型路由行为；IM 工具选择对全部 Workflow model-facing 内容和入口的完整开关。
-- 非目标：兼容或执行 JavaScript/TypeScript Workflow；把 Workflow 扩展成 Claude Code 没有的自动激活、额外资格校验或权限体系；复刻未被公开或取证、且不影响上述用户行为的 vendor 内部实现细节；把 Claude Code cloud routines、通用 hooks 或 agent teams 当作 Dynamic Workflows 一并实现。
+- 在范围：`coding_cli`、Web IM 与外部 IM 的 Python Dynamic Workflows；与 Claude Code 2.1.226/当前官方契约一致的激活、生成、运行、编排、后台状态、通知、权限、保存、命名调用、暂停/停止/恢复、诊断、规模、成本与模型路由行为；IM 工具选择对全部 Workflow model-facing 内容和入口的完整开关；Web IM 对后台 Workflow 与既有后台 Agent 的原始返回做同构、可归因、可展开且可恢复的过程展示。
+- 非目标：兼容或执行 JavaScript/TypeScript Workflow；把 Workflow 扩展成 Claude Code 没有的自动激活、额外资格校验或权限体系；复刻未被公开或取证、且不影响上述用户行为的 vendor 内部实现细节；把 Claude Code cloud routines、通用 hooks 或 agent teams 当作 Dynamic Workflows 一并实现；为后台 Bash 增加同一可视化、改变前台 Agent 的既有 `AgentCard`、为外部 IM 新建卡片、增加独立 Workflow/后台任务进度面板或详情页。

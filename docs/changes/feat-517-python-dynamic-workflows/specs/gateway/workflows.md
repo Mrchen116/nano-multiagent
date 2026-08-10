@@ -91,7 +91,8 @@
 
 #### Scenario: 终态只投递一次
 - **WHEN** Workflow 完成、失败或停止
-- **THEN** Gateway 向原会话投递一次最终结果或错误、usage、diagnostics 与 resume 提示
+- **THEN** Gateway 向原会话投递一次主 Agent 的普通综合回复，并为 Web IM 同消息携带一条与 task notification 同源的 Workflow 后台返回
+- **AND** 后台返回保留最终 result 或 error、task/run identity、usage、duration、diagnostics 与 resume 提示，不改写原 launch tool row
 - **AND** 重连或 shadow replay 不重复发送同一终态
 
 #### Scenario: 显式 /workflows 查询与控制

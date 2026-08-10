@@ -134,6 +134,12 @@
 - **THEN** 原 attempt 被替换，脚本等待最终取得 replacement result
 - **AND** 运行详情仍把它显示为同一个 logical call
 
+#### Scenario: 顶层执行控制流决定 whole-run 终态
+- **WHEN** `main()` 正常返回，即使值为空、质量不佳或含 child `None`
+- **THEN** Workflow 状态为 `completed`
+- **AND** 只有未捕获的顶层异常使其为 `failed`，已接受的 whole-run cooperative stop 使其为 `stopped`
+- **AND** runtime 不按 result 文本内容猜测成功或失败
+
 #### Scenario: 终态通知只出现一次
 - **WHEN** Workflow 完成、失败或被停止
 - **THEN** parent session 收到一条含结果或错误、usage、diagnostics 与 resume 提示的 task notification
