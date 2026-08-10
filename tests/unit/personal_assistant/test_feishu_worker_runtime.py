@@ -232,6 +232,36 @@ def test_listener_stays_alive_while_owner_is_idle() -> None:
     assert report.joined
 
 
+def test_listener_startup_budget_is_independent_from_short_shutdown_join() -> None:
+    """Slow spawn imports get a startup budget without weakening stop bounds."""
+
+    observed_timeouts: list[float] = []
+    events: list[dict[str, object]] = []
+    runtime = FeishuWorkerRuntime(
+        app_id="cli_startup",
+        app_secret="secret",
+        incarnation="inc-startup",
+        on_event=events.append,
+        on_status=lambda _status: None,
+        worker_target=_listener_worker,
+        multiprocessing_context=multiprocessing.get_context("spawn"),
+        join_timeout=0.2,
+    )
+    ready_event = runtime._ready_event
+    runtime._ready_event = SimpleNamespace(
+        wait=lambda timeout: observed_timeouts.append(timeout) or ready_event.wait(30)
+    )
+
+    runtime.start()
+    try:
+        _wait_until(lambda: bool(events))
+    finally:
+        report = runtime.stop(drain=True)
+
+    assert observed_timeouts == [30.0]
+    assert report.joined
+
+
 def test_two_listener_processes_are_isolated_and_true_stop_join() -> None:
     """Each app owns one live process and both are fully reaped on stop."""
     events_a, events_b, statuses = [], [], []

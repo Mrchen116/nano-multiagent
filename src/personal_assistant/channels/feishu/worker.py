@@ -246,6 +246,7 @@ class FeishuWorkerRuntime:
         domain: str = "https://open.feishu.cn",
         event_queue_capacity: int = 128,
         join_timeout: float = 2.0,
+        startup_timeout: float = 30.0,
         drain_timeout: float = 5.0,
         worker_target: Callable[[FeishuWorkerProcessContext], None] | None = None,
         multiprocessing_context: Any | None = None,
@@ -284,6 +285,7 @@ class FeishuWorkerRuntime:
         self._on_status = on_status
         self._on_card_action = on_card_action
         self._join_timeout = join_timeout
+        self._startup_timeout = startup_timeout
         self._drain_timeout = drain_timeout
         self._monitor_stop = threading.Event()
         self._accept_events = True
@@ -314,7 +316,7 @@ class FeishuWorkerRuntime:
             self._process.start()
             self._started = True
             try:
-                if not self._ready_event.wait(max(5.0, self._join_timeout)):
+                if not self._ready_event.wait(self._startup_timeout):
                     raise RuntimeError("feishu worker did not initialize")
                 threads = (
                     threading.Thread(target=self._event_loop, daemon=True),
