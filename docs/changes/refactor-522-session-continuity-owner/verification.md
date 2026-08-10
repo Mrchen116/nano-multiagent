@@ -139,3 +139,90 @@ None.
 ### SUGGESTION（可以修）
 
 None.
+
+# Round 3
+
+> Validation snapshot: `ee32b85b51ec70009b47d2fd2b49700a53f07ab6 → 933aefa0de7962f596014af7f549ef1c071be686`
+
+## Summary
+
+Mode: full
+
+Delta range: `ff2de7c8d0877f13d137afe5168675be290f7f78..5c011b4d3233f500a0d1ee3bdab39d94d4afb50b`; final main sync `5c011b4d3233f500a0d1ee3bdab39d94d4afb50b..933aefa0de7962f596014af7f549ef1c071be686`
+
+Focus issues: C1 cross-DB promotion/anchor crash recovery; C2 shallow private store/test-surface deletion; C3 single-row boundary drain; final `origin/main` sync
+
+requires_full_verification: false
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 6/6 milestone exit criteria; 3/3 requirements; 3/3 Round 3 focus findings closed |
+| Correctness | 12/12 motivation + delta scenarios have direct regression evidence |
+| Coherence | Followed |
+
+0 critical issue(s), 0 warning(s), 1 suggestion(s) found. Ready for PR.
+
+## Completeness
+
+- M1 的 6/6 退出标准均有最终代码和测试证据；motivation 的普通 continuity、restart/partial recovery、control behavior 三条 requirement 均在最终同步后的 HEAD 上保持成立。
+- **C1 closed:** `shadow_sync.py` 在 IM 返回 anchor 后先经 binder 原子 promote、再提交 saga anchor；restart recovery 同时处理“promotion 已提交 / saga anchor 缺失”的新顺序 crash state，以及“saga anchor 已提交 / pending promotion 仍在”的 legacy reverse state。现有 A/B subprocess journey 对两个状态各投递一个 boundary，并重复执行全部 recovery owner 验证幂等。
+- **C2 closed:** `drop`、`drop_agent`、`pending_boundaries` 以及公开 memory/persistent store、global/helper/outbox protocol 已删除；ordinary bind/get/restart/reverse lookup 和 quarantine outcome 均从 binder public/domain seam 观察。AST deletion contract 只允许两个具名 race fault-injection test 访问 `binder._repository`；私有 SQLite compatibility test 只保留 schema、serialization 与 transaction 兼容证据。
+- **C3 closed for the reviewed failure mechanism:** private SQLite query 使用原 eligibility/order clauses 加 `LIMIT 1`/`fetchone()`；32 条 backlog 从 528 次 `BoundaryIntent` materialization 降为 32 次。ACK、retry、quarantine、未尝试优先、deadline/rowid 与 retry-zero fairness regression 均通过。关于任务标题中更强的渐进复杂度表述，见 S1。
+- `/compact` delta 与最终 implementation 仍匹配：reservation 在 external shadow preparation 前占据 per-session FIFO slot，`/new` generation 可 supersede queued compact；success、no-op、failure 和 stable replay 均经 control ledger 收敛。current spec 尚未吸收 active unit delta 是正常 change lifecycle 状态；本轮不执行最终 corrected-delta 专项。
+- 最终 merge commit 的 effective base/merge-base 均为当前 `origin/main` `ee32b85b51ec70009b47d2fd2b49700a53f07ab6`；relevant continuity files 没有 combined-diff conflict resolution hunk。最终 HEAD 独立 focused + contract + static gates 均通过。
+- 独立执行证据：
+  - C1/C2/C3、compact/reset/restart focused unit/integration：`118 passed`。
+  - architecture/deletion contracts：`148 passed`。
+  - exact cross-process test 在当前高负载主机上两次命中自身 15 秒 barrier watchdog，均发生在 recovery assertions 前；同一 production journey 仅在运行时把 wait helper 延长到 90 秒后完整通过，且未改 production/test 文件。worker 已记录未放宽 watchdog 的 exact journey `1 passed in 52.28s`，因此该现象判为执行环境时延，不是 C1 correctness failure。
+  - worker 的五个串行 non-E2E shards：`588 + 657 + 951 + 605 + 377 = 3178 passed`。本轮因同机仍有 reviewer live/process pytest，按任务要求没有重复启动另一套 full non-E2E；final-main-sync 后的 118 focused、148 contracts 和全仓静态门禁提供增量有效性证据。
+  - Ruff check passed；Ruff format-check `880 files already formatted`；docs-check `231 maintained Markdown sources / 67 required routes`；`git diff --check origin/main...HEAD` passed。
+
+## Correctness
+
+| Requirement / Scenario | 实现位置（file:line） | 测试覆盖 | 状态 |
+|---|---|---|---|
+| 普通会话：同一聊天复用原上下文 | `src/personal_assistant/gateway/session_binder.py:220`; `src/personal_assistant/gateway/session_keys.py:1183` | `tests/unit/personal_assistant/test_session_reuse_regression.py`; `tests/unit/personal_assistant/test_inbound_pipeline_session.py` | covered |
+| 普通会话：不同聊天与 Agent 不串会话 | `src/personal_assistant/gateway/session_keys.py:1183`; `src/personal_assistant/gateway/session_binder.py:231` | `tests/unit/personal_assistant/test_inbound_pipeline_agent_sessions.py` | covered |
+| 重启：Gateway 重启后继续原会话 | `src/personal_assistant/gateway/session_binder.py:204`; `:231` | `tests/integration/test_send_message_restart_routing.py`; `tests/unit/personal_assistant/test_gateway_session_binder.py:384` | covered |
+| 重启：不完整状态不产生虚假成功且已提交结果唯一补齐 | `src/personal_assistant/gateway/shadow_sync.py:230`; `:448`; `src/personal_assistant/gateway/session_keys.py:816` | `tests/e2e/critical_paths/test_session_continuity_partial_recovery.py:49`; `tests/unit/personal_assistant/test_gateway_shadow_sync.py:105`; `tests/unit/personal_assistant/test_external_control_delivery.py` | covered |
+| 控制：`/new`、`/compact` 的确认、history、no-op/failure/replay 保持 | `src/personal_assistant/gateway/session_run_coordinator.py:300`; `:548` | `tests/unit/personal_assistant/test_gateway_stop_command.py:549`; `:604`; `:635`; `:663` | covered |
+| 控制：busy `/compact` 保持 FIFO，`/new` 可 supersede | `src/personal_assistant/gateway/session_run_coordinator.py:454`; `:548` | `tests/unit/personal_assistant/test_session_run_coordinator_admission.py:146`; `:198` | covered |
+| Delta：空闲会话按关注点压缩且关注点不成为 turn | `src/personal_assistant/gateway/session_run_coordinator.py:589` | `tests/unit/personal_assistant/test_gateway_stop_command.py:549`; Kernel compact tests | covered |
+| Delta：无 binding 或历史不足时 no-op 且上下文不变 | `src/personal_assistant/gateway/session_run_coordinator.py:584`; `:599` | `tests/unit/personal_assistant/test_gateway_stop_command.py:604`; `:635` | covered |
+| Delta：busy session 的 compact 是 FIFO barrier | `src/personal_assistant/gateway/session_run_coordinator.py:454`; `:516` | `tests/unit/personal_assistant/test_session_run_coordinator_admission.py:146` | covered |
+| Delta：`/new` 取代尚未执行的 compact | `src/personal_assistant/gateway/session_run_coordinator.py:568` | `tests/unit/personal_assistant/test_session_run_coordinator_admission.py:198` | covered |
+| Delta：compact 失败不改变原上下文 | `src/personal_assistant/gateway/session_run_coordinator.py:595` | `tests/unit/personal_assistant/test_gateway_stop_command.py:663`; Kernel failure atomicity tests | covered |
+| Delta：同一 stable inbound replay 不产生第二个 compaction boundary | `src/personal_assistant/gateway/session_run_coordinator.py:557`; `:613` | `tests/unit/personal_assistant/test_gateway_stop_command.py:549`; `:663` | covered |
+
+## Coherence
+
+| design 决策 | 遵守? | 代码证据（file:line） |
+|---|---|---|
+| D1: binder 是唯一 continuity persistence owner，outbox 只见两步 transition | 是 | `src/personal_assistant/gateway/session_binder.py:204`; `:363`; `:375`; `src/personal_assistant/gateway/boundary_outbox.py:107` |
+| D2: SQLite 是 binder 内部 local-substitutable implementation | 是 | `src/personal_assistant/gateway/session_binder.py:204`; `src/personal_assistant/gateway/session_keys.py:214` |
+| D3: DB path、六表、transaction、serialization 与 legacy migration 兼容 | 是 | `src/personal_assistant/gateway/session_keys.py:232`; `:816`; persistence/restart/concurrency tests |
+| D4: 删除公开 store/global/helper/dead HTTP seam 与浅测试 surface | 是 | `tests/unit/personal_assistant/test_gateway_session_binder.py:411`; `:426`; production symbol search |
+| D5: coordinator 保留 FIFO/visibility，dispatcher 保留 remote ACK 分类，binder 保留 durable transition | 是 | `src/personal_assistant/gateway/session_run_coordinator.py:454`; `src/personal_assistant/gateway/boundary_outbox.py:107`; `src/personal_assistant/gateway/session_binder.py:363` |
+| D6: `/compact` target delta 与 FIFO implementation 一致 | 是 | unit delta `specs/gateway/routing-delivery.md:5`; coordinator `:454`; admission tests `:146`/`:198` |
+
+- C1 没有引入跨 DB transaction 或第二套 recovery owner：IM idempotency anchor、binder SQLite promotion 和 saga SQLite anchor 仍各自由既有 owner 提交，两个可达 split state 都通过同一 recovery path 收敛。
+- Composition 仍只构造和传播同一个 binder；outbox、shadow recovery、external control、scheduler、fork/distill 与 ordinary inbound 无 raw SQLite seam。
+- 最终 main sync 未改变架构依赖方向；`personal_assistant` 仍不 import `agent.core`/`agent.platform`，全量 contract suite 通过。与 feat-501、refactor-463、retired refactor-481 和 active refactor-478 的既有 ownership 决策无冲突。
+
+### Prototype / Reference Contract
+
+N/A.
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+None.
+
+### WARNING（提 PR 前必须修）
+
+None.
+
+### SUGGESTION（可以修）
+
+- **S1 — `O(N)` 标题和 test docstring 比实际保护更强。** `src/personal_assistant/gateway/session_keys.py:924-937` 的 `LIMIT 1` 确实令每轮只返回、反序列化一个 row，关闭了本轮 finder 的 528 次 Python materialization；但当前 schema 没有支持该 eligibility/order 的 index，`EXPLAIN QUERY PLAN` 仍显示 `SCAN agent_config_boundary_outbox` 与 `USE TEMP B-TREE FOR ORDER BY`，每次 ACK 后重跑会继续扫描/排序剩余 backlog。`tests/unit/personal_assistant/test_gateway_boundary_delivery.py:207-239` 只计数 `BoundaryIntent` constructor，却把 docstring 写成没有 triangular rescans。若 exit criterion 真正要求 end-to-end O(N)，应以 query-plan/row-visit 或 scaling contract 保护；否则把 roadpoint 与 test 文字收窄为“每条 boundary 只 materialize 一次”，避免把已经关闭的 materialization 缺陷误写成完整数据库复杂度保证。
