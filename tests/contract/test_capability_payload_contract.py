@@ -291,6 +291,7 @@ def test_agent_capabilities_payload_matches_contract(controlled_caps) -> None:
     assert payload["platform_default_model"] == GOLDEN_PLATFORM_DEFAULT_MODEL
     assert list(payload["tools"]) == GOLDEN_TOOLS
     assert list(payload["features"]) == GOLDEN_AGENT_FEATURES
+    assert list(payload["commands"]) == []
     assert _sorted_skills(list(payload["skills"])) == GOLDEN_AGENT_SKILLS
     _assert_skills_carry_location(list(payload["skills"]))
 
