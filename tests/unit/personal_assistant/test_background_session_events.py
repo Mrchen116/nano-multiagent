@@ -115,6 +115,110 @@ async def test_background_subscriber_ignores_non_session_events() -> None:
 
 
 @pytest.mark.asyncio
+async def test_background_subscriber_routes_only_marked_self_evolution_skill() -> None:
+    """Only source-marked skill creation is a persistent business event."""
+    from personal_assistant.gateway.background_session_events import (
+        BackgroundSessionEventSubscriber,
+    )
+
+    skill_events: list[dict[str, Any]] = []
+
+    async def _on_skill_created(event: Mapping[str, Any]) -> None:
+        skill_events.append(dict(event))
+
+    kernel_client = MagicMock()
+    kernel_client.stream_session = MagicMock(
+        return_value=_finite_event_stream(
+            {
+                "event": "skill_created",
+                "name": "ordinary-skill",
+                "scope": "agent",
+                "sequence_num": 8,
+            },
+            {
+                "event": "skill_created",
+                "name": "review-skill",
+                "scope": "agent",
+                "source": "self_evolution",
+                "sequence_num": 9,
+            },
+        )
+    )
+    subscriber = BackgroundSessionEventSubscriber(
+        kernel_client=kernel_client,
+        session_id="sess1",
+        on_event=AsyncMock(),
+        skill_created_callback=_on_skill_created,
+        reconnect_delay=10,
+    )
+
+    await subscriber.start()
+    await asyncio.sleep(0.05)
+    await subscriber.stop()
+
+    assert [event["name"] for event in skill_events] == ["review-skill"]
+
+
+@pytest.mark.asyncio
+async def test_background_subscriber_reconnects_after_marked_skill_cursor() -> None:
+    """Reconnect resumes after the handled skill sequence instead of replaying it."""
+    from personal_assistant.gateway.background_session_events import (
+        BackgroundSessionEventSubscriber,
+    )
+
+    stream_anchors: list[int | None] = []
+    received: list[str] = []
+    complete = asyncio.Event()
+
+    async def _stream(
+        *,
+        session_id: str,
+        last_event_id: int | None = None,
+        **_kwargs: object,
+    ) -> AsyncIterator[dict[str, Any]]:
+        del session_id
+        stream_anchors.append(last_event_id)
+        if last_event_id is None:
+            yield {
+                "event": "skill_created",
+                "name": "first",
+                "source": "self_evolution",
+                "sequence_num": 8,
+            }
+            raise RuntimeError("disconnect after first event")
+        assert last_event_id == 8
+        yield {
+            "event": "skill_created",
+            "name": "second",
+            "source": "self_evolution",
+            "sequence_num": 9,
+        }
+        await complete.wait()
+
+    async def _on_skill_created(event: Mapping[str, Any]) -> None:
+        received.append(str(event["name"]))
+        if len(received) == 2:
+            complete.set()
+
+    kernel_client = MagicMock()
+    kernel_client.stream_session = _stream
+    subscriber = BackgroundSessionEventSubscriber(
+        kernel_client=kernel_client,
+        session_id="sess1",
+        on_event=AsyncMock(),
+        skill_created_callback=_on_skill_created,
+        reconnect_delay=0.01,
+    )
+
+    await subscriber.start()
+    await asyncio.wait_for(complete.wait(), timeout=1)
+    await subscriber.stop()
+
+    assert received == ["first", "second"]
+    assert stream_anchors[:2] == [None, 8]
+
+
+@pytest.mark.asyncio
 async def test_background_subscriber_reconnects_on_stream_error() -> None:
     """Subscriber must reconnect when the SSE stream raises an exception."""
     from personal_assistant.gateway.background_session_events import (

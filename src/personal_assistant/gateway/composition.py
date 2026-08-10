@@ -463,6 +463,9 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         if connection_ready_coordinator is not None:
             connection_ready_coordinator.notify_external_shadows_pending()
 
+    skill_created_handler = getattr(
+        im_config_sync_client, "handle_skill_created", None
+    )
     _kernel_event_observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: im_connection_manager,
         run_context_store=run_delivery_contexts,
@@ -480,9 +483,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         ),
         external_permission_request_sender=_send_external_permission_request,
         external_permission_resolved_sender=_mark_external_permission_resolved,
-        skill_created_handler=getattr(
-            im_config_sync_client, "handle_skill_created", None
-        ),
+        skill_created_handler=skill_created_handler,
         task_tracker=runtime_delivery_tasks,
     )
     bg_reply_sender = build_bg_reply_sender(
@@ -501,6 +502,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         kernel=kernel,
         session_event_callback=session_event_callback,
         bg_reply_sender=bg_reply_sender,
+        skill_created_handler=skill_created_handler,
     )
 
     async def _quiesce_run_delivery(run_id: str) -> None:

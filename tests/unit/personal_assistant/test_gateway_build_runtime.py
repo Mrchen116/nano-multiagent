@@ -22,6 +22,9 @@ from personal_assistant.config.local_store import (
 from personal_assistant.gateway.session_keys import PersistentSessionBindingStore
 from personal_assistant.gateway.im_bootstrap import GatewayStartupError
 from personal_assistant.gateway.composition import compose_gateway
+from personal_assistant.gateway.background_subscriptions import (
+    BackgroundSubscriptionManager,
+)
 
 from ._main_helpers import make_minimal_config
 
@@ -230,6 +233,35 @@ def test_compose_gateway_wires_external_delivery_without_im_service(
 
     assert coordinator_kwargs[0]["kernel_event_observer"] is not None
     assert coordinator_kwargs[0]["bg_reply_sender"] is not None
+
+
+def test_compose_gateway_wires_skill_sync_into_persistent_subscriber(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Production composition gives marked skill events a post-terminal owner."""
+    base = make_minimal_config(tmp_path)
+    config = replace(
+        base,
+        channels=(ChannelConfig(name="web_relay", enabled=True),),
+        im_service=IMServiceConfig(url="http://im.local:9000", token="tok"),
+    )
+    captured: dict[str, object] = {}
+
+    def _capture_manager(**kwargs: object) -> BackgroundSubscriptionManager:
+        captured.update(kwargs)
+        return BackgroundSubscriptionManager(**kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        "personal_assistant.gateway.composition.BackgroundSubscriptionManager",
+        _capture_manager,
+    )
+
+    compose_gateway(config)
+
+    handler = captured.get("skill_created_handler")
+    assert callable(handler)
+    assert handler.__self__.__class__.__name__ == "IMAgentConfigSync"  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio

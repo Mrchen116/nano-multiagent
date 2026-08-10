@@ -3,104 +3,23 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from agent.core.llm.interfaces import LLMGenerateRequest, LLMMessage, LLMToolCall
-from agent.sdk import LLMConfig, PermissionDecision, build_kernel
-
-_FOREGROUND_REPLY = "Foreground answer"
-_SEED_REPLY = "Seed answer"
-_MEMORY_SENTINEL = "User prefers verified reference behavior. [Source: test turn]"
-_RAW_REVIEW_REPLY = "Saved: user prefers verified reference behavior."
-_SKILL_NAME = "reference-verification"
-_SKILL_CONTENT = """---
-name: reference-verification
-description: Verify reference behavior before implementing an imitation.
----
-
-# Reference verification
-
-Inspect the reference behavior before implementation.
-"""
-
-
-async def _allow_all(
-    _tool_name: str, _tool_input: dict[str, Any], _context: Any
-) -> PermissionDecision:
-    return PermissionDecision(behavior="allow")
-
-
-class _SelfEvolutionLLM:
-    """Drive foreground turns followed by one two-round self-evolution fork."""
-
-    def __init__(
-        self,
-        *,
-        foreground_replies: tuple[str, ...],
-        review_tool_call: LLMToolCall,
-    ) -> None:
-        self.requests: list[LLMGenerateRequest] = []
-        self.agent_requests: list[LLMGenerateRequest] = []
-        self._foreground_replies = foreground_replies
-        self._review_tool_call = review_tool_call
-
-    def generate(self, request: LLMGenerateRequest) -> AsyncIterator[LLMMessage]:
-        self.requests.append(request)
-        if request.tools == ():
-
-            async def _classify() -> AsyncIterator[LLMMessage]:
-                yield LLMMessage(role="assistant", content="<block>no</block>")
-                yield LLMMessage(role="assistant", content="", finish_reason="stop")
-
-            return _classify()
-
-        request_index = len(self.agent_requests)
-        self.agent_requests.append(request)
-
-        async def _stream() -> AsyncIterator[LLMMessage]:
-            if request_index < len(self._foreground_replies):
-                yield LLMMessage(
-                    role="assistant",
-                    content=self._foreground_replies[request_index],
-                )
-                yield LLMMessage(role="assistant", content="", finish_reason="stop")
-                return
-
-            if request_index == len(self._foreground_replies):
-                yield LLMMessage(
-                    role="assistant",
-                    content="",
-                    tool_calls=(self._review_tool_call,),
-                )
-                yield LLMMessage(
-                    role="assistant", content="", finish_reason="tool_calls"
-                )
-                return
-
-            if request_index != len(self._foreground_replies) + 1:
-                raise AssertionError(f"unexpected LLM request index {request_index}")
-            assert any(
-                message.role == "assistant"
-                and any(
-                    tool_call.call_id == self._review_tool_call.call_id
-                    and tool_call.name == self._review_tool_call.name
-                    for tool_call in message.tool_calls
-                )
-                for message in request.messages
-            )
-            assert any(
-                message.role == "tool"
-                and message.tool_call_id == self._review_tool_call.call_id
-                for message in request.messages
-            )
-            yield LLMMessage(role="assistant", content=_RAW_REVIEW_REPLY)
-            yield LLMMessage(role="assistant", content="", finish_reason="stop")
-
-        return _stream()
+from agent.core.llm.interfaces import LLMToolCall
+from agent.sdk import LLMConfig, build_kernel
+from tests.helpers.self_evolution import (
+    FOREGROUND_REPLY as _FOREGROUND_REPLY,
+    MEMORY_SENTINEL as _MEMORY_SENTINEL,
+    SEED_REPLY as _SEED_REPLY,
+    SKILL_CONTENT as _SKILL_CONTENT,
+    SKILL_NAME as _SKILL_NAME,
+    SelfEvolutionLLM as _SelfEvolutionLLM,
+    allow_all as _allow_all,
+    wait_for_terminal as _wait_for_terminal,
+)
 
 
 async def _collect_through_review(
@@ -112,14 +31,6 @@ async def _collect_through_review(
         if event.get("event") == "self_evolution_review":
             return events
     raise AssertionError("session stream closed before self_evolution_review")
-
-
-async def _wait_for_terminal(kernel: Any, run_id: str) -> None:
-    while True:
-        run = kernel.get_run(run_id)
-        if run is not None and run.status in {"completed", "failed", "cancelled"}:
-            return
-        await asyncio.sleep(0)
 
 
 @pytest.mark.asyncio
@@ -229,7 +140,6 @@ async def test_self_evolution_raw_output_stays_out_of_parent_session_events(
     finally:
         await kernel.aclose()
 
-
 @pytest.mark.asyncio
 async def test_self_evolution_skill_create_keeps_only_business_event_visible(
     tmp_path: Path,
@@ -319,6 +229,7 @@ async def test_self_evolution_skill_create_keeps_only_business_event_visible(
         assert skill_created_events[0]["name"] == _SKILL_NAME
         assert skill_created_events[0]["scope"] == "agent"
         assert skill_created_events[0]["run_id"] == run.run_id
+        assert skill_created_events[0]["source"] == "self_evolution"
 
         review_event = events[-1]
         assert review_event["event"] == "self_evolution_review"

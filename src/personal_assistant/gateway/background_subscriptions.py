@@ -54,6 +54,8 @@ class BackgroundSubscriptionManager:
         kernel: In-process Kernel whose session event stream is subscribed.
         session_event_callback: Optional receiver for session-level events.
         bg_reply_sender: Optional visible text sender for BACKGROUND_TASK output.
+        skill_created_handler: Optional synchronous config-sync handler for
+            source-marked self-evolution skill creation.
     """
 
     def __init__(
@@ -66,10 +68,13 @@ class BackgroundSubscriptionManager:
         | None = None,
         bg_reply_sender: Callable[[str, ReplyContext, str], Awaitable[None]]
         | None = None,
+        skill_created_handler: Callable[[str, Mapping[str, object]], object]
+        | None = None,
     ) -> None:
         self._kernel = kernel
         self._session_event_callback = session_event_callback
         self._bg_reply_sender = bg_reply_sender
+        self._skill_created_handler = skill_created_handler
         self._subscribers: dict[str, BackgroundSessionEventSubscriber] = {}
         self._lock = asyncio.Lock()
         self._sealed = False
@@ -207,12 +212,22 @@ class BackgroundSubscriptionManager:
 
             bg_run_output_callback = _relay_bg_run_output
 
+        skill_created_callback = None
+        if self._skill_created_handler is not None:
+            handler = self._skill_created_handler
+
+            async def _sync_self_evolution_skill(event: Mapping[str, Any]) -> None:
+                await asyncio.to_thread(handler, request.agent_id, event)
+
+            skill_created_callback = _sync_self_evolution_skill
+
         return BackgroundSessionEventSubscriber(
             kernel_client=_KernelStreamAdapter(self._kernel, request.session_id),
             session_id=request.session_id,
             on_event=_on_session_event,
             after_sequence=request.after_sequence,
             bg_run_output_callback=bg_run_output_callback,
+            skill_created_callback=skill_created_callback,
         )
 
     async def _start_locked(self, request: BackgroundSubscriptionRequest) -> bool:
@@ -225,7 +240,8 @@ class BackgroundSubscriptionManager:
         has_background_delivery = (
             request.reply_context is not None and self._bg_reply_sender is not None
         )
-        if not has_session_delivery and not has_background_delivery:
+        has_skill_sync = self._skill_created_handler is not None
+        if not has_session_delivery and not has_background_delivery and not has_skill_sync:
             return False
         subscriber = self._build_subscriber(request)
         self._subscribers[request.session_id] = subscriber

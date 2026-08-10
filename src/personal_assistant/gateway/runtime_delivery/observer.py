@@ -23,6 +23,7 @@ from .context import RunDeliveryContext, RunDeliveryContextStore
 from .task_tracker import RuntimeDeliveryTaskTracker
 
 _log = logging.getLogger("personal_assistant.gateway.runtime_delivery.observer")
+_SELF_EVOLUTION_SOURCE = "self_evolution"
 
 
 def _live_context(
@@ -520,6 +521,14 @@ def build_kernel_event_observer(
         conversation_id = ctx.conversation_id
         message_id = ctx.message_id
         agent_id = ctx.agent_id
+        # Source-marked self-evolution skill events belong exclusively to the
+        # persistent session subscriber. Never add ordinary realtime events to
+        # this business-event ownership exception.
+        if (
+            event_name == "skill_created"
+            and event.get("source") == _SELF_EVOLUTION_SOURCE
+        ):
+            return _PreparedEvent(handled=True, result=None)
         if event_name == "skill_created" and agent_id and skill_created_handler:
             task_tracker.start(
                 asyncio.to_thread(skill_created_handler, agent_id, event),

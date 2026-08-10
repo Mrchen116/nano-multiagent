@@ -9,8 +9,9 @@ Architecture:
 - One ``BackgroundSessionEventSubscriber`` per kernel session.
 - Runs as an asyncio background task; never blocks the inbound pipeline.
 - Reconnects on stream errors with configurable backoff.
-- Only the caller-supplied ``on_event`` callback decides what to do with each event;
-  this module applies no business logic.
+- Raw assistant/tool/turn events remain filtered; only structured session notices,
+  ordinary background Agent output, and source-marked self-evolution business events
+  reach their dedicated callbacks.
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ _SESSION_EVENT_NAMES = frozenset({"self_evolution_review"})
 # Origin value produced by BACKGROUND_TASK-origin runs.
 # Must match RunOrigin.BACKGROUND_TASK.value = "background_task" (StrEnum, lowercase).
 _BACKGROUND_TASK_ORIGIN = "background_task"
+_SELF_EVOLUTION_SOURCE = "self_evolution"
 _STOP_HANDOFF_GRACE_SECONDS = 0.1
 
 
@@ -60,6 +62,8 @@ class BackgroundSessionEventSubscriber:
         bg_run_output_callback: Optional async callback invoked when a BACKGROUND_TASK-origin
             ``assistant_message`` event arrives. Called instead of on_event for those events.
             If None, BACKGROUND_TASK assistant_message events are silently dropped (pre-M3 behavior).
+        skill_created_callback: Optional async callback for source-marked
+            self-evolution ``skill_created`` business events.
     """
 
     def __init__(
@@ -75,6 +79,8 @@ class BackgroundSessionEventSubscriber:
         workspace_root: str | None = None,
         bg_run_output_callback: Callable[[Mapping[str, Any]], Awaitable[None]]
         | None = None,
+        skill_created_callback: Callable[[Mapping[str, Any]], Awaitable[None]]
+        | None = None,
     ) -> None:
         self._kernel_client = kernel_client
         self._session_id = session_id
@@ -88,6 +94,7 @@ class BackgroundSessionEventSubscriber:
         self._workspace_root = workspace_root
         # bugfix-404-M3: relay BACKGROUND_TASK run output back to IM conversation.
         self._bg_run_output_callback = bg_run_output_callback
+        self._skill_created_callback = skill_created_callback
         self._task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
         self._callback_idle = asyncio.Event()
@@ -202,6 +209,25 @@ class BackgroundSessionEventSubscriber:
                         except Exception:
                             _log.warning(
                                 "background run output relay callback error",
+                                exc_info=True,
+                                extra={
+                                    "session_id": self._session_id,
+                                    "event": event_name,
+                                },
+                            )
+                        finally:
+                            self._callback_idle.set()
+                    elif (
+                        event_name == "skill_created"
+                        and event.get("source") == _SELF_EVOLUTION_SOURCE
+                        and self._skill_created_callback is not None
+                    ):
+                        self._callback_idle.clear()
+                        try:
+                            await self._skill_created_callback(event)
+                        except Exception:
+                            _log.warning(
+                                "self-evolution skill-created callback error",
                                 exc_info=True,
                                 extra={
                                     "session_id": self._session_id,
