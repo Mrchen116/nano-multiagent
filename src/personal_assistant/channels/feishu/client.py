@@ -18,6 +18,7 @@ import socket
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
+from datetime import datetime, timezone
 from typing import Any, Callable, Literal
 from urllib.parse import SplitResult, urlsplit
 
@@ -150,6 +151,7 @@ class FeishuMessageEvent:
         mention_only: Whether the message contains mentions but no non-mention text.
         image_keys: Feishu image resources carried by the message in display order.
         content_parts: Ordered provider content used to build the model's multimodal input.
+        source_timestamp: Provider occurrence time normalized to aware UTC.
     """
 
     text: str
@@ -164,6 +166,7 @@ class FeishuMessageEvent:
     mention_only: bool = False
     image_keys: tuple[str, ...] = ()
     content_parts: tuple[FeishuContentPart, ...] = ()
+    source_timestamp: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1135,6 +1138,9 @@ def _parse_feishu_event(event: Any) -> FeishuMessageEvent:
         mention_only=mention_only,
         image_keys=_content_image_keys(content_parts),
         content_parts=content_parts,
+        source_timestamp=_parse_feishu_create_time(
+            getattr(message, "create_time", None)
+        ),
     )
 
 
@@ -1173,7 +1179,20 @@ def _parse_feishu_history_message(message: Any, *, chat_id: str) -> FeishuMessag
         mention_only=mention_only,
         image_keys=_content_image_keys(content_parts),
         content_parts=content_parts,
+        source_timestamp=_parse_feishu_create_time(
+            getattr(message, "create_time", None)
+        ),
     )
+
+
+def _parse_feishu_create_time(value: object) -> datetime | None:
+    if isinstance(value, bool) or not isinstance(value, (str, int)):
+        return None
+    try:
+        milliseconds = int(value)
+        return datetime.fromtimestamp(milliseconds / 1000, tz=timezone.utc)
+    except (OverflowError, ValueError):
+        return None
 
 
 def _message_type(message: Any) -> str:

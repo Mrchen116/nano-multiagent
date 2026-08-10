@@ -31,6 +31,10 @@ from agent.sdk import (
 
 from personal_assistant.scheduler.cron_execution_service import CronExecutionService
 from personal_assistant.defaults import WORKSPACE_CONFIG_DIRNAME
+from personal_assistant.gateway.human_message_context import PaTimeContext
+from personal_assistant.gateway.readable_input_projection import (
+    ReadableInputProjectionStore,
+)
 from personal_assistant.tools import (
     SendMessageTool,
     WebSearchTool,
@@ -292,6 +296,7 @@ def prompt_for(
     agent: Any,
     *,
     scenario: Mapping[str, Any] | None = None,
+    time_context: PaTimeContext | None = None,
 ) -> PromptSlots:
     """Build PA's per-session PromptSlots from agent config + conversation scenario (决策 8).
 
@@ -309,6 +314,7 @@ def prompt_for(
         scenario: Conversation routing scenario (``conversation_type`` /
             ``participants`` / ``agent_id`` / ``participant_agent_ids``) for the
             group communication-context tail.
+        time_context: Gateway-startup timezone snapshot for the stable prompt prefix.
 
     Returns:
         PromptSlots with PA head/body/custom/tail text.
@@ -321,6 +327,16 @@ def prompt_for(
     head = (
         PromptText(name="pa.identity", text=_PA_IDENTITY_TEXT),
         PromptText(name="pa.runtime", text=_PA_RUNTIME_TEXT),
+        *(
+            (
+                PromptText(
+                    name="pa.timezone",
+                    text=f"Time zone: {time_context.prompt_label}",
+                ),
+            )
+            if time_context is not None
+            else ()
+        ),
     )
 
     body_pieces: list[PromptText] = []
@@ -382,6 +398,7 @@ def build_pa_kernel(
     cron_services: Mapping[str, CronExecutionService],
     repo_root: Path | None = None,
     gateway_dispatch_url_provider: Callable[[], str | None] | None = None,
+    readable_input_projection_store: ReadableInputProjectionStore | None = None,
 ) -> Any:
     """Assemble PA's Kernel via the 2-layer SDK surface (决策 1/2/5/9).
 
@@ -403,6 +420,7 @@ def build_pa_kernel(
         gateway_dispatch_url_provider: Process-scoped listener URL provider resolved
             by ``send_message`` on every call. ``None`` keeps standalone metadata
             compatibility.
+        readable_input_projection_store: Exact PA model/readable input handoff.
 
     Returns:
         A ready-to-use Kernel (can_use_tool=None: IM permission-card flow).
@@ -424,7 +442,12 @@ def build_pa_kernel(
         llm=llm,
         tool_approval_model=tool_approval_model,
         tools=tools,
-        hooks=[chat_history.setup],
+        hooks=[
+            lambda hooks: chat_history.setup(
+                hooks,
+                readable_input_projection_store=readable_input_projection_store,
+            )
+        ],
         can_use_tool=None,
         workspace_config_dirname=WORKSPACE_CONFIG_DIRNAME,
         workspace_skill_dirnames=PA_WORKSPACE_SKILL_DIRNAMES,

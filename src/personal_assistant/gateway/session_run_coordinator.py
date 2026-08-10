@@ -33,6 +33,11 @@ from personal_assistant.gateway.background_subscriptions import (
 )
 from personal_assistant.gateway.agent_catalog import LiveAgentSnapshot
 from personal_assistant.gateway.group_context_store import GroupContextStore
+from personal_assistant.gateway.human_message_context import (
+    FrozenHumanMessageContext,
+    PaTimeContext,
+    apply_frozen_header,
+)
 from personal_assistant.gateway.image_attachments import ImageAttachmentResolver
 from personal_assistant.gateway.inbound_models import (
     CompactSessionRequest,
@@ -55,6 +60,9 @@ from personal_assistant.gateway.run_queue import (
     GatewayShutdownBeforeSubmit,
     SessionRunQueue,
     SessionRunQueueSealed,
+)
+from personal_assistant.gateway.readable_input_projection import (
+    ReadableInputProjectionStore,
 )
 from personal_assistant.gateway.session_binder import (
     GatewaySessionBinder,
@@ -95,6 +103,15 @@ class _ActiveRunHandle:
     run_id: str
     binding: SessionBinding
     agent: LiveAgentSnapshot
+
+
+@dataclass(frozen=True, slots=True)
+class _MessagePartsProjection:
+    """Carry model parts and both exact text fallbacks for one admission."""
+
+    model_parts: list[dict[str, Any]]
+    model_fallback: str
+    readable_fallback: str
 
 
 @dataclass(slots=True)
@@ -182,6 +199,8 @@ class SessionRunCoordinator:
         drain_external_control_deliveries: Callable[[], Awaitable[None]] | None = None,
         run_idle_timeout_seconds: float = _DEFAULT_RUN_IDLE_TIMEOUT_SECONDS,
         max_transition_locks: int = _MAX_SESSION_TRANSITION_LOCKS,
+        readable_input_projection_store: ReadableInputProjectionStore | None = None,
+        time_context: PaTimeContext | None = None,
     ) -> None:
         if run_idle_timeout_seconds <= 0:
             raise ValueError("run_idle_timeout_seconds must be > 0")
@@ -218,6 +237,8 @@ class SessionRunCoordinator:
         self._transition_locks: OrderedDict[str, asyncio.Lock] = OrderedDict()
         self._transition_lock_users: dict[str, int] = {}
         self._max_transition_locks = max(1, max_transition_locks)
+        self._readable_input_projection_store = readable_input_projection_store
+        self._time_context = time_context
 
     async def dispatch(self, request: InboundRunRequest) -> PipelineResult:
         """Admit one normal message through steer or per-session FIFO.
@@ -232,7 +253,7 @@ class SessionRunCoordinator:
             SessionRunQueueSealed: When Gateway shutdown has closed admission.
         """
 
-        fallback_parts: list[dict[str, Any]] | None = None
+        fallback_projection: _MessagePartsProjection | None = None
         injected_result: PipelineResult | None = None
         image_failure: tuple[str, SessionBinding] | None = None
         async with self._transition(request.session_key):
@@ -245,13 +266,13 @@ class SessionRunCoordinator:
                 request.session_key, 0
             ):
                 binding = active.binding
-                parts, failure_kind = await self._build_message_parts(request)
+                projection, failure_kind = await self._build_message_parts(request)
                 if failure_kind is not None:
                     image_failure = (failure_kind, binding)
                 else:
                     record = self._kernel.try_steer(
                         session_id=binding.kernel_session_id,
-                        parts=parts,
+                        parts=projection.model_parts,
                         expected_run_id=active.run_id,
                     )
                     if record is not None:
@@ -272,7 +293,7 @@ class SessionRunCoordinator:
                             outbound=None,
                         )
                     else:
-                        fallback_parts = parts
+                        fallback_projection = projection
         if image_failure is not None:
             failure_kind, binding = image_failure
             return await self._reply_image_failure(
@@ -290,7 +311,9 @@ class SessionRunCoordinator:
                 ),
             )
             return injected_result
-        return await self._submit_queued(request, prebuilt_parts=fallback_parts)
+        return await self._submit_queued(
+            request, prebuilt_projection=fallback_projection
+        )
 
     async def new_session(self, request: NewSessionRequest) -> PipelineResult:
         """Replace one chat binding with a fresh session under its transition lock."""
@@ -795,7 +818,7 @@ class SessionRunCoordinator:
         self,
         request: InboundRunRequest,
         *,
-        prebuilt_parts: list[dict[str, Any]] | None,
+        prebuilt_projection: _MessagePartsProjection | None,
     ) -> PipelineResult:
         admission_event = asyncio.Event()
 
@@ -815,7 +838,7 @@ class SessionRunCoordinator:
                 request.session_key,
                 lambda: self._run_turn(
                     request,
-                    prebuilt_parts=prebuilt_parts,
+                    prebuilt_projection=prebuilt_projection,
                     admission_event=admission_event,
                 ),
                 on_cancel=_on_cancel,
@@ -837,7 +860,7 @@ class SessionRunCoordinator:
         self,
         request: InboundRunRequest,
         *,
-        prebuilt_parts: list[dict[str, Any]] | None,
+        prebuilt_projection: _MessagePartsProjection | None,
         admission_event: asyncio.Event,
     ) -> PipelineResult:
         run_id: str | None = None
@@ -886,10 +909,10 @@ class SessionRunCoordinator:
                     runtime=runtime_projection.runtime,
                     profile_version=runtime_projection.profile_version,
                 )
-                if prebuilt_parts is None:
-                    parts, failure_kind = await self._build_message_parts(request)
+                if prebuilt_projection is None:
+                    projection, failure_kind = await self._build_message_parts(request)
                 else:
-                    parts = prebuilt_parts
+                    projection = prebuilt_projection
                 if failure_kind is None:
                     trace_id = uuid4().hex
                     if self._background_subscriptions is not None:
@@ -899,14 +922,26 @@ class SessionRunCoordinator:
                         )
                     # submit() is synchronous. Marker publication is the very next
                     # statement under the same lock: stop/steer cannot see half admission.
+                    readable_store = self._readable_input_projection_store
+                    if readable_store is not None:
+                        readable_store.stage_or_replace(
+                            binding.kernel_session_id,
+                            projection.model_fallback,
+                            projection.readable_fallback,
+                        )
                     try:
                         record = self._kernel.submit(
                             session_id=binding.kernel_session_id,
-                            parts=parts,
+                            parts=projection.model_parts,
                             workspace_root=latest_agent.config.workspace_root,
                             trace_id=trace_id,
                         )
                     except BaseException:
+                        if readable_store is not None:
+                            readable_store.rollback(
+                                binding.kernel_session_id,
+                                projection.model_fallback,
+                            )
                         if self._background_subscriptions is not None:
                             self._background_subscriptions.discard_session_event_route(
                                 trace_id
@@ -1154,7 +1189,7 @@ class SessionRunCoordinator:
 
     async def _build_message_parts(
         self, request: InboundRunRequest
-    ) -> tuple[list[dict[str, Any]], str | None]:
+    ) -> tuple[_MessagePartsProjection, str | None]:
         message = request.message
         buffered = (
             self._group_context_store.drain_with_metadata(
@@ -1163,7 +1198,8 @@ class SessionRunCoordinator:
             if message.is_group and self._group_context_store is not None
             else []
         )
-        parts: list[dict[str, Any]] = []
+        model_parts: list[dict[str, Any]] = []
+        readable_parts: list[dict[str, Any]] = []
         projected_messages = [
             *buffered,
             (request.sender_label, message.text, message.metadata),
@@ -1171,7 +1207,7 @@ class SessionRunCoordinator:
         for index, (sender, text, metadata) in enumerate(projected_messages):
             failure = _metadata_image_failure(metadata)
             if failure is not None:
-                return [], failure
+                return _empty_message_parts_projection(), failure
             raw_attachments = metadata.get("attachments")
             image_parts: tuple[dict[str, Any], ...] = ()
             is_current_message = index == len(projected_messages) - 1
@@ -1180,7 +1216,7 @@ class SessionRunCoordinator:
             ):
                 resolution = await self._image_resolver.resolve(raw_attachments)
                 if resolution.failure is not None:
-                    return [], resolution.failure
+                    return _empty_message_parts_projection(), resolution.failure
                 image_parts = resolution.parts
             message_parts = _ordered_kernel_input_parts(
                 metadata,
@@ -1193,8 +1229,14 @@ class SessionRunCoordinator:
                 message_parts.extend(image_parts)
             if message.is_group:
                 message_parts = _prefix_sender_parts(message_parts, sender=sender)
-            parts.extend(message_parts)
-        return parts, None
+            readable_parts.extend(dict(part) for part in message_parts)
+            frozen = FrozenHumanMessageContext.from_metadata(metadata)
+            model_parts.extend(apply_frozen_header(message_parts, frozen))
+        return _MessagePartsProjection(
+            model_parts=model_parts,
+            model_fallback=_render_parts_fallback(model_parts),
+            readable_fallback=_render_parts_fallback(readable_parts),
+        ), None
 
     async def _ensure_binding(
         self,
@@ -1241,6 +1283,7 @@ class SessionRunCoordinator:
             scenario=dict(message.metadata),
             resolved_model=model,
             reasoning_catalog=self._reasoning_catalog,
+            time_context=self._time_context,
         )
 
     async def _admit_runtime(
@@ -1737,6 +1780,22 @@ class SessionRunCoordinator:
 def _metadata_image_failure(metadata: Mapping[str, Any]) -> str | None:
     failure = metadata.get("image_resolution_failure")
     return failure if failure in _IMAGE_FAILURE_MESSAGES else None
+
+
+def _empty_message_parts_projection() -> _MessagePartsProjection:
+    return _MessagePartsProjection(
+        model_parts=[], model_fallback="", readable_fallback=""
+    )
+
+
+def _render_parts_fallback(parts: list[dict[str, Any]]) -> str:
+    lines: list[str] = []
+    for part in parts:
+        if part.get("type") == "text" and isinstance(part.get("text"), str):
+            lines.append(part["text"])
+        elif part.get("type") == "image":
+            lines.append("[image:placeholder]")
+    return "\n".join(lines)
 
 
 def _ordered_kernel_input_parts(

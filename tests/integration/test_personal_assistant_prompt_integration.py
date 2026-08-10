@@ -81,3 +81,46 @@ def test_legacy_system_input_is_ignored_and_custom_is_injected_once(
 
     assert legacy not in prompt
     assert prompt.count(custom) == 1
+
+
+def test_footer_policy_false_omits_datetime_but_keeps_cwd_for_arbitrary_prompt_name(
+    tmp_path: Path,
+) -> None:
+    from agent.sdk import PromptSlots, PromptText
+
+    prompt = assemble_system_prompt(
+        build_kernel_prompt_skeleton(),
+        PromptContext(
+            current_datetime="2026-08-10T09:17:00+08:00",
+            cwd=str(tmp_path),
+            flags={"include_session_created_datetime": False},
+            prompt_slots=PromptSlots(
+                head=(
+                    PromptText(name="not.pa.anything", text="Time zone: Asia/Shanghai"),
+                )
+            ),
+        ),
+    )
+
+    assert "Time zone: Asia/Shanghai" in prompt
+    assert "Current date and time:" not in prompt
+    assert f"Current working directory: {tmp_path}" in prompt
+
+
+def test_omitted_footer_policy_is_byte_identical_to_explicit_true(
+    tmp_path: Path,
+) -> None:
+    omitted = assemble_system_prompt(
+        build_kernel_prompt_skeleton(),
+        PromptContext(current_datetime="created", cwd=str(tmp_path)),
+    )
+    explicit = assemble_system_prompt(
+        build_kernel_prompt_skeleton(),
+        PromptContext(
+            current_datetime="created",
+            cwd=str(tmp_path),
+            flags={"include_session_created_datetime": True},
+        ),
+    )
+
+    assert omitted == explicit

@@ -2,7 +2,7 @@
 
 list_models / list_tools / list_features / list_skills are kernel-side neutral
 fact producers returning SDK-owned DTOs. These tests pin: the DTO shape, that
-list_features reports only the two kernel-general features (not product toggles),
+list_features reports the kernel-general features and runtime policies (not product toggles),
 and that list_skills resolves per-workspace without cross-workspace mixing.
 
 Built through the (current, expansion-era) build_kernel with a fake LLM client.
@@ -62,8 +62,10 @@ def test_list_tools_returns_toolinfo_dtos(tmp_path: Path) -> None:
         kernel.close()
 
 
-def test_list_features_reports_only_kernel_general_features(tmp_path: Path) -> None:
-    """list_features must report exactly the two kernel-general features.
+def test_list_features_reports_kernel_general_features_and_runtime_policy(
+    tmp_path: Path,
+) -> None:
+    """list_features reports general guidance plus the no-tool footer policy.
 
     Product toggles (heartbeat / cron_scheduling) are an application-layer
     projection, not kernel features (决策 3) — they must NOT appear here.
@@ -73,13 +75,17 @@ def test_list_features_reports_only_kernel_general_features(tmp_path: Path) -> N
         features = kernel.list_features()
         assert all(isinstance(f, FeatureInfo) for f in features)
         keys = {f.key for f in features}
-        assert keys == {"memory_curation", "skill_creation"}, (
-            f"kernel features must be exactly the two general ones; got {keys}"
-        )
+        assert keys == {
+            "memory_curation",
+            "skill_creation",
+            "include_session_created_datetime",
+        }, f"unexpected kernel feature projection: {keys}"
         by_key = {f.key: f for f in features}
         assert by_key["memory_curation"].requires_tool == "memory"
         assert by_key["skill_creation"].requires_tool == "skill_manage"
         assert by_key["memory_curation"].default_on is True
+        assert by_key["include_session_created_datetime"].default_on is True
+        assert by_key["include_session_created_datetime"].requires_tool is None
     finally:
         kernel.close()
 

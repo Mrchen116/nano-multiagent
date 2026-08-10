@@ -5,7 +5,9 @@ from __future__ import annotations
 from tests.helpers.inbound_pipeline import build_inbound_pipeline
 
 import asyncio
+from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from personal_assistant.channels.base import (
     ExternalConversationIdentity,
@@ -17,6 +19,10 @@ from personal_assistant.channels.base import (
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.gateway.inbound_pipeline import InboundPipeline
+from personal_assistant.gateway.human_message_context import (
+    PaHumanMessageContext,
+    PaTimeContext,
+)
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.channel_registry import ChannelRegistry
@@ -124,6 +130,7 @@ def _build_pipeline(
     *,
     with_store: bool = True,
     group_reply_policy: str | None = None,
+    with_message_context: bool = False,
 ) -> tuple[InboundPipeline, GroupContextStore | None, _FakeKernelClient]:
     dir_a = tmp_path / "agent-a"
     dir_a.mkdir()
@@ -147,8 +154,21 @@ def _build_pipeline(
         session_store=SessionBindingStore(),
         group_context_store=store,
         default_agent_id="agent-a",
+        human_message_context=(
+            PaHumanMessageContext(
+                PaTimeContext(
+                    zone=ZoneInfo("Asia/Shanghai"), prompt_label="Asia/Shanghai"
+                )
+            )
+            if with_message_context
+            else None
+        ),
     )
     return pipeline, store, kernel
+
+
+def _source_time(hour: int, minute: int) -> datetime:
+    return datetime(2026, 8, 10, hour, minute, tzinfo=timezone.utc)
 
 
 # ── Pipeline integration tests ────────────────────────────────────────────────
@@ -219,6 +239,78 @@ def test_buffer_drain_formats_sender_prefix_on_each_item(tmp_path: Path) -> None
     assert kernel.send_calls[0]["texts"] == [
         "[alice] first message",
         "[bob] @agent-a respond",
+    ]
+
+
+def test_new_group_rows_keep_frozen_source_and_actual_ingress_headers(
+    tmp_path: Path,
+) -> None:
+    pipeline, store, kernel = _build_pipeline(tmp_path, with_message_context=True)
+    background = InboundMessage(
+        channel_name="feishu:agent-a",
+        text="first",
+        external_user_id="alice",
+        external_chat_id="conv-1",
+        is_group=True,
+        agent_id="agent-a",
+        source_timestamp=_source_time(1, 17),
+        received_timestamp=_source_time(2, 0),
+        metadata={
+            "mentioned_agent_ids": [],
+            "external_source": "feishu",
+            "external_chat_id": "conv-1",
+        },
+    )
+    trigger = InboundMessage(
+        channel_name="web_relay",
+        text="@agent-a respond",
+        external_user_id="bob",
+        external_chat_id="conv-1",
+        is_group=True,
+        agent_id="agent-a",
+        source_timestamp=_source_time(1, 18),
+        received_timestamp=_source_time(2, 1),
+        metadata={
+            "mentioned_agent_ids": ["agent-a"],
+            "external_source": "feishu",
+            "external_chat_id": "conv-1",
+            "trigger_source": "im",
+        },
+    )
+
+    asyncio.run(pipeline.handle_inbound(background))
+    asyncio.run(pipeline.handle_inbound(trigger))
+
+    assert store is not None
+    assert kernel.send_calls[0]["texts"] == [
+        "[Feishu Mon 2026-08-10 09:17 CST] [alice] first",
+        "[Web IM Mon 2026-08-10 09:18 CST] [bob] @agent-a respond",
+    ]
+
+
+def test_legacy_group_row_is_not_backfilled_when_new_trigger_has_header(
+    tmp_path: Path,
+) -> None:
+    pipeline, store, kernel = _build_pipeline(tmp_path, with_message_context=True)
+    assert store is not None
+    store.append("agent-a:web_relay:conv-1", "legacy", sender="alice")
+    trigger = InboundMessage(
+        channel_name="web_relay",
+        text="@agent-a respond",
+        external_user_id="bob",
+        external_chat_id="conv-1",
+        is_group=True,
+        agent_id="agent-a",
+        source_timestamp=_source_time(1, 18),
+        received_timestamp=_source_time(2, 1),
+        metadata={"mentioned_agent_ids": ["agent-a"]},
+    )
+
+    asyncio.run(pipeline.handle_inbound(trigger))
+
+    assert kernel.send_calls[0]["texts"] == [
+        "[alice] legacy",
+        "[Web IM Mon 2026-08-10 09:18 CST] [bob] @agent-a respond",
     ]
 
 

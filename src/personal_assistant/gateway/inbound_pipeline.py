@@ -12,6 +12,10 @@ from personal_assistant.channels.base import InboundMessage
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
 from personal_assistant.gateway.group_context_store import GroupContextStore
+from personal_assistant.gateway.human_message_context import (
+    PaHumanMessageContext,
+    attach_frozen_context,
+)
 from personal_assistant.gateway.inbound_models import (
     CompactSessionRequest,
     GatewayShadowState,
@@ -80,12 +84,14 @@ class InboundPipeline:
         group_context_store: GroupContextStore | None = None,
         route_config: InboundRouteConfig | None = None,
         shadow_sync: ShadowConversationSync | None = None,
+        human_message_context: PaHumanMessageContext | None = None,
     ) -> None:
         self._agent_catalog = agent_catalog
         self._run_coordinator = run_coordinator
         self._group_context_store = group_context_store
         self._route_config = route_config or InboundRouteConfig()
         self._shadow_sync = shadow_sync
+        self._human_message_context = human_message_context
 
     def seal(self) -> None:
         """Synchronously close coordinator admission."""
@@ -135,6 +141,12 @@ class InboundPipeline:
             if compact_reservation is not None:
                 self._run_coordinator.abandon_compact(compact_reservation)
             raise
+
+        if self._human_message_context is not None:
+            message = attach_frozen_context(
+                message,
+                self._human_message_context.freeze(message),
+            )
 
         if message.is_group and self._group_context_store is not None:
             if sync_only or not should_process:
@@ -386,6 +398,7 @@ def _buffered_input_metadata(metadata: Mapping[str, object]) -> dict[str, object
             "attachments",
             "kernel_input_parts",
             "image_resolution_failure",
+            "_pa_human_message_context",
         )
         if key in metadata
     }

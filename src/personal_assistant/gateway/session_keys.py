@@ -1649,6 +1649,7 @@ def build_reply_context(message: InboundMessage) -> ReplyContext:
         "attachments",
         "kernel_input_parts",
         "image_resolution_failure",
+        "_pa_human_message_context",
     ):
         metadata.pop(input_only_key, None)
     return ReplyContext(

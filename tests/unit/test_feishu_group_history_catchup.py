@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import logging
 from unittest.mock import MagicMock, patch
 
@@ -24,6 +25,7 @@ def _group_event(
     message_id: str,
     sender_open_id: str = "ou_user",
     mentions: list[FeishuMention] | None = None,
+    source_timestamp: datetime | None = None,
 ) -> FeishuMessageEvent:
     return FeishuMessageEvent(
         text=text,
@@ -36,6 +38,7 @@ def _group_event(
         mentions=mentions or [],
         raw_text=text,
         mention_only=bool(mentions),
+        source_timestamp=source_timestamp,
     )
 
 
@@ -59,7 +62,12 @@ def test_trigger_catches_up_visible_background_before_current_message(
 ) -> None:
     adapter, client, on_inbound = _adapter(client_class)
     mention = FeishuMention("ou_bot", "plato", "@_user_1")
-    background = _group_event(text="你会数学吗", message_id="background")
+    background_time = datetime(2026, 8, 10, 1, 17, tzinfo=timezone.utc)
+    background = _group_event(
+        text="你会数学吗",
+        message_id="background",
+        source_timestamp=background_time,
+    )
     trigger = _group_event(text="@plato", message_id="trigger", mentions=[mention])
     client.fetch_group_messages.return_value = [background, trigger]
 
@@ -70,6 +78,7 @@ def test_trigger_catches_up_visible_background_before_current_message(
     assert history_message.text == "你会数学吗"
     assert history_message.metadata["sync_only"] is True
     assert history_message.metadata["feishu_delivery_source"] == "history_catchup"
+    assert history_message.source_timestamp == background_time
     assert trigger_message.text == "@plato"
     assert trigger_message.metadata["mentioned_agent_ids"] == ["plato"]
 

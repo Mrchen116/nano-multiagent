@@ -30,6 +30,9 @@ from personal_assistant.gateway.session_keys import (
     build_session_key,
 )
 from personal_assistant.gateway.session_run_coordinator import SessionRunCoordinator
+from personal_assistant.gateway.readable_input_projection import (
+    ReadableInputProjectionStore,
+)
 
 from ._session_run_coordinator_helpers import (
     CountingImageResolver,
@@ -707,6 +710,47 @@ async def test_steer_race_reuses_group_and_image_parts_exactly_once(
 
 
 @pytest.mark.asyncio
+async def test_active_steer_reuses_decorated_parts_without_staging_readable_history(
+    tmp_path: Path,
+) -> None:
+    kernel, catalog, binder, router, group_store = build_dependencies(tmp_path)
+    readable_store = ReadableInputProjectionStore()
+    coordinator = SessionRunCoordinator(
+        kernel=kernel,
+        session_binder=binder,
+        outbound_router=router,
+        group_context_store=group_store,
+        readable_input_projection_store=readable_store,
+    )
+    first = asyncio.create_task(
+        coordinator.dispatch(_request(inbound(chat_id="chat-a", text="one"), catalog))
+    )
+    await kernel.wait_stream("run-1")
+    kernel.inject_steer = True
+    header = "[Web IM Mon 2026-08-10 09:17 CST]"
+    second_message = replace(
+        inbound(chat_id="chat-a", text="two"),
+        metadata={
+            "_pa_human_message_context": {
+                "version": 1,
+                "header": header,
+                "time_zone": "Asia/Shanghai",
+            }
+        },
+    )
+
+    injected = await coordinator.dispatch(_request(second_message, catalog))
+
+    assert injected.run_id == "run-1"
+    assert kernel.try_steer_calls[-1]["parts"] == [
+        {"type": "text", "text": f"{header} two"}
+    ]
+    assert readable_store.resolve_exact("sess-1", f"{header} two") is None
+    kernel.finish("run-1")
+    await first
+
+
+@pytest.mark.asyncio
 async def test_stop_observes_marker_before_first_post_submit_await(
     tmp_path: Path,
 ) -> None:
@@ -984,7 +1028,9 @@ async def test_config_publish_reconfigures_same_session_only_for_next_run(
     kernel.finish("run-1", text="old done")
     assert (await first).kernel_session_id == "sess-1"
     assert kernel.create_runtimes[0] is not None
-    assert kernel.create_runtimes[0].features == {}
+    assert kernel.create_runtimes[0].features == {
+        "include_session_created_datetime": False
+    }
 
     current = catalog.publish(
         AgentWorkspaceConfig(
@@ -1009,7 +1055,10 @@ async def test_config_publish_reconfigures_same_session_only_for_next_run(
     assert replacement.model == "model-v2"
     assert replacement.skills == ["research"]
     assert replacement.enabled_tools == ["read"]
-    assert replacement.features == {"memory_curation": False}
+    assert replacement.features == {
+        "memory_curation": False,
+        "include_session_created_datetime": False,
+    }
 
     kernel.finish("run-2", text="v2 done")
     assert (await next_run).kernel_session_id == "sess-1"

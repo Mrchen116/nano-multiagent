@@ -369,9 +369,8 @@ class ToolInfo:
 class FeatureInfo:
     """One kernel feature in ``list_features`` output (决策 3/4).
 
-    Only the kernel's two general features (memory_curation / skill_creation) are
-    reported; product-specific toggles (heartbeat/cron) are an application-layer
-    projection, not kernel features.
+    Kernel-owned general features and runtime policies are reported;
+    product-specific toggles (heartbeat/cron) are an application-layer projection.
 
     Args:
         key: Feature key (e.g. ``"memory_curation"``).

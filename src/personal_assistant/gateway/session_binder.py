@@ -30,6 +30,7 @@ from personal_assistant.gateway.session_composition import (
     project_agent_runtime,
     project_agent_session_capabilities,
 )
+from personal_assistant.gateway.human_message_context import PaTimeContext
 
 
 class _SessionBindingRepository(Protocol):
@@ -230,11 +231,13 @@ class GatewaySessionBinder:
         repository: _SessionBindingRepository,
         kernel: Any,
         reasoning_catalog: ModelReasoningCatalog | None = None,
+        time_context: PaTimeContext | None = None,
     ) -> None:
         self._catalog = catalog
         self._repository = repository
         self._kernel = kernel
         self._reasoning_catalog = reasoning_catalog
+        self._time_context = time_context
         self._lock = Lock()
         self._binding_revisions: dict[str, int] = {}
         self._binding_agents: dict[str, LiveAgentSnapshot] = {}
@@ -426,7 +429,11 @@ class GatewaySessionBinder:
         )
         runtime = request.runtime
         if runtime is None:
-            capabilities = project_agent_session_capabilities(agent, scenario=metadata)
+            capabilities = project_agent_session_capabilities(
+                agent,
+                scenario=metadata,
+                time_context=self._time_context,
+            )
             session = await self._kernel.create_session(
                 title=agent.config.title,
                 workspace_root=agent.config.workspace_root,
@@ -481,6 +488,7 @@ class GatewaySessionBinder:
             scenario=metadata,
             resolved_model=resolved_model,
             reasoning_catalog=self._reasoning_catalog,
+            time_context=self._time_context,
         )
 
     def persist_applied_runtime(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
 from unittest.mock import MagicMock
 
@@ -35,6 +36,7 @@ def test_history_parser_reads_rest_sender_body_and_mentions() -> None:
     message.body = body
     message.sender = sender
     message.mentions = [mention]
+    message.create_time = "1786324620000"
 
     event = _parse_feishu_history_message(message, chat_id="oc_group")
 
@@ -44,6 +46,7 @@ def test_history_parser_reads_rest_sender_body_and_mentions() -> None:
     assert [(item.open_id, item.name) for item in event.mentions] == [
         ("ou_bot", "nano")
     ]
+    assert event.source_timestamp == datetime(2026, 8, 10, 1, 17, tzinfo=timezone.utc)
 
 
 def test_fetch_group_messages_filters_empty_history_text() -> None:

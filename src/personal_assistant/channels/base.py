@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Callable, Mapping, Protocol
 
 
@@ -75,6 +76,8 @@ class InboundMessage:
         thread_id: Optional thread identifier required for threaded reply routing.
         metadata: Opaque adapter-provided metadata forwarded through the pipeline.
         ingress: Normalized transport and provider identities for Gateway routing.
+        source_timestamp: Provider occurrence time normalized to aware UTC.
+        received_timestamp: Gateway acceptance time normalized to aware UTC.
     """
 
     channel_name: str
@@ -86,6 +89,8 @@ class InboundMessage:
     thread_id: str | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
     ingress: InboundIngress = field(default_factory=InboundIngress)
+    source_timestamp: datetime | None = None
+    received_timestamp: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)

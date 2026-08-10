@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 from concurrent.futures import Future as ConcurrentFuture
+from dataclasses import replace
+from datetime import datetime, timezone
 import logging
 import threading
 from typing import Any
@@ -54,6 +56,8 @@ class InboundDispatcher:
         with self._lock:
             if self._sealed:
                 return
+            if isinstance(message, InboundMessage):
+                message = replace(message, received_timestamp=_utc_now())
             self._root_sequence += 1
             root_name = f"inbound-root:{self._root_sequence}"
             if running_loop is loop:
@@ -179,3 +183,7 @@ class InboundDispatcher:
             if self._thread_loop_roots.get(root_name) is task:
                 self._thread_loop_roots.pop(root_name, None)
             self._thread_root_registrations.pop(root_name, None)
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)

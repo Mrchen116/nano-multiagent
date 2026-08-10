@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 import threading
 from typing import Any
 
 import pytest
 
 from personal_assistant.gateway.inbound_dispatcher import InboundDispatcher
+from personal_assistant.channels.base import InboundMessage
 
 
 class _BlockingPipeline:
@@ -82,6 +84,31 @@ async def test_dispatcher_tracks_threadsafe_roots_until_drain() -> None:
     pipeline.release.set()
     await drain_task
     assert pipeline.calls == ["thread-root"]
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_fixes_receipt_before_loop_scheduling(monkeypatch) -> None:
+    fixed = datetime(2026, 8, 10, 1, 17, tzinfo=timezone.utc)
+    monkeypatch.setattr(
+        "personal_assistant.gateway.inbound_dispatcher._utc_now", lambda: fixed
+    )
+    pipeline = _BlockingPipeline()
+    dispatcher = InboundDispatcher(pipeline)
+    dispatcher.bind_loop(asyncio.get_running_loop())
+    message = InboundMessage(
+        channel_name="web_relay",
+        text="hello",
+        external_user_id="u",
+        external_chat_id="c",
+        is_group=False,
+    )
+
+    await asyncio.to_thread(dispatcher, message)
+    await asyncio.wait_for(pipeline.started.wait(), timeout=1)
+
+    assert pipeline.calls[0].received_timestamp == fixed
+    pipeline.release.set()
+    await dispatcher.drain(asyncio.get_running_loop().time() + 1)
 
 
 @pytest.mark.asyncio

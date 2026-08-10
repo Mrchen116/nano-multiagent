@@ -31,6 +31,9 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from personal_assistant.defaults import WORKSPACE_CONFIG_DIRNAME
+from personal_assistant.gateway.readable_input_projection import (
+    ReadableInputProjectionStore,
+)
 
 # Module-level state: keyed by session_id, holds captured turn data.
 # Dict access is GIL-protected for simple get/set; no explicit lock needed.
@@ -56,7 +59,11 @@ def _append_line(path: Path, record: dict[str, str]) -> None:
         fh.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
-def setup(hooks: Any) -> None:  # noqa: ANN401
+def setup(
+    hooks: Any,  # noqa: ANN401
+    *,
+    readable_input_projection_store: ReadableInputProjectionStore | None = None,
+) -> None:
     """Register input/message_end/agent_end handlers that together persist chat history.
 
     Args:
@@ -72,6 +79,12 @@ def setup(hooks: Any) -> None:  # noqa: ANN401
         text = payload.get("text")
         if not isinstance(text, str):
             return None
+        if readable_input_projection_store is not None:
+            readable = readable_input_projection_store.resolve_exact(
+                ctx.session_id, text
+            )
+            if readable is not None:
+                text = readable
         _pending[ctx.session_id] = {"user_text": text}
         # Return None: no transform/interception; let input pass through unchanged.
         return None

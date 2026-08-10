@@ -9,6 +9,7 @@ from agent.sdk import PromptSlots, SessionRuntimeConfig
 
 from personal_assistant.config.model_reasoning import ModelReasoningCatalog
 from personal_assistant.gateway.agent_catalog import LiveAgentSnapshot
+from personal_assistant.gateway.human_message_context import PaTimeContext
 from personal_assistant.product import prompt_for, resolve_enabled_tools
 from personal_assistant.config.skill_selection import (
     EXPLICIT_ALLOWLIST,
@@ -54,6 +55,7 @@ def project_agent_runtime(
     scenario: Mapping[str, object],
     resolved_model: str,
     reasoning_catalog: ModelReasoningCatalog | None = None,
+    time_context: PaTimeContext | None = None,
 ) -> ProjectedAgentRuntime:
     """Project one captured Agent snapshot into all future-turn settings.
 
@@ -62,6 +64,7 @@ def project_agent_runtime(
         scenario: Routing facts used only while rendering product prompt slots.
         resolved_model: Product-resolved model for this exact admission.
         reasoning_catalog: Gateway model capability catalog used to resolve effort.
+        time_context: Gateway-startup timezone snapshot for the stable PA prompt.
 
     Returns:
         The raw SDK runtime and optional IM profile provenance.
@@ -74,13 +77,15 @@ def project_agent_runtime(
         else None
     )
     profile_version = scenario.get("config_profile_version")
+    features = dict(config.features)
+    features["include_session_created_datetime"] = False
     return ProjectedAgentRuntime(
         runtime=SessionRuntimeConfig(
             model=resolved_model,
-            prompt=prompt_for(config, scenario=scenario),
+            prompt=prompt_for(config, scenario=scenario, time_context=time_context),
             skills=_session_skills(config),
             enabled_tools=resolve_enabled_tools(config),
-            features=dict(config.features),
+            features=features,
             reasoning_effort=reasoning_effort,
         ),
         profile_version=profile_version if isinstance(profile_version, int) else None,
@@ -91,15 +96,27 @@ def project_agent_session_capabilities(
     agent: LiveAgentSnapshot,
     *,
     scenario: Mapping[str, object],
+    time_context: PaTimeContext | None = None,
 ) -> AgentSessionCapabilities:
-    """Project the non-model subset for legacy callers during migration."""
+    """Project the non-model subset for legacy callers during migration.
+
+    Args:
+        agent: Immutable Agent snapshot selected at admission.
+        scenario: Routing facts used while rendering product prompt slots.
+        time_context: Gateway-startup timezone snapshot for the stable PA prompt.
+
+    Returns:
+        Legacy capability projection with PA's internal runtime policy applied.
+    """
 
     config = agent.config
+    features = dict(config.features)
+    features["include_session_created_datetime"] = False
     return AgentSessionCapabilities(
-        prompt=prompt_for(config, scenario=scenario),
+        prompt=prompt_for(config, scenario=scenario, time_context=time_context),
         skills=_session_skills(config),
         enabled_tools=resolve_enabled_tools(config),
-        features=dict(config.features),
+        features=features,
     )
 
 
