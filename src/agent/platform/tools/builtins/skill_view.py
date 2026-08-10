@@ -11,7 +11,6 @@ from agent.core.skills.root_resolver import resolve_skill_roots
 from agent.core.skills.usage import (
     bump_skill_usage,
     reset_uses_since_last_batch,
-    source_from_metadata,
 )
 from agent.platform.tools.presentation import ToolPresentationEvent, _enforce_cap
 
@@ -171,7 +170,10 @@ class SkillViewTool:
                 skill_name=name,
                 session_id=getattr(ctx, "session_id", None),
                 tool_call_id=getattr(ctx, "tool_call_id", None),
-                source=source_from_metadata(metadata),
+                # Creation provenance describes only a create action in this
+                # session. A first view cannot infer how an untracked Skill was
+                # created; existing records retain their stored F3/F4 source.
+                source="F1",
                 location=skill.location,
                 transcript_path=metadata.get("transcript_path"),
             )
