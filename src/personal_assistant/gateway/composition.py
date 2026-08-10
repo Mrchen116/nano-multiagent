@@ -17,8 +17,8 @@ from personal_assistant.channels.web_relay_adapter import (
     RelayDeduplicationStore,
     WebRelayAdapter,
 )
-from personal_assistant.channels.feishu import FeishuAdapter
 from personal_assistant.channels.channel_credentials import GatewayChannelKeyStore
+from personal_assistant.channels.feishu.adapter import FeishuAdapter
 
 from personal_assistant.config.local_store import (
     ChannelConfig,
