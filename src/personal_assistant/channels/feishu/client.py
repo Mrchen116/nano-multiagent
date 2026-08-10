@@ -1453,7 +1453,7 @@ def _render_post_element(
     if tag in {"hr", "divider"}:
         return "\n\n---\n\n"
     if tag == "code":
-        return _wrap_inline_code(
+        return wrap_inline_code(
             str(element.get("text", "") or element.get("content", "") or "")
         )
     if tag in {"code_block", "pre"}:
@@ -1467,7 +1467,7 @@ def _render_styled_post_text(element: dict[str, Any]) -> str:
     text = str(element.get("text", "") or "")
     style = element.get("style")
     if _post_style_enabled(style, "code"):
-        return _wrap_inline_code(text)
+        return wrap_inline_code(text)
     if _post_style_enabled(style, "bold"):
         text = f"**{text}**"
     if _post_style_enabled(style, "italic"):
@@ -1490,7 +1490,8 @@ def _post_style_enabled(style: Any, name: str) -> bool:
     return False
 
 
-def _wrap_inline_code(text: str) -> str:
+def wrap_inline_code(text: str) -> str:
+    """Wrap arbitrary text in a collision-free Markdown inline-code fence."""
     longest_run = 0
     current_run = 0
     for char in text:
