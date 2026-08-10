@@ -48,8 +48,9 @@ Gateway 配置有效飞书 channel 后，干净启动有时能正常进入飞书
 
 ## 验证
 
-- 新增 fresh interpreter contracts：隔离导入 `personal_assistant.channels.feishu.worker` 与 spawn 重执行入口 `personal_assistant.main` 均不得加载 `feishu.client` / `lark_oapi`。两层 deterministic red 分别暴露 package re-export 与 Gateway 顶层 adapter import；最终 startup 文件 `3 passed in 1.91s`。
+- 新增 fresh interpreter contracts：隔离导入 `personal_assistant.channels.feishu.worker` 与 spawn 重执行入口 `personal_assistant.main` 均不得加载 `feishu.client` / `lark_oapi`。两层 deterministic red 分别暴露 package re-export 与 Gateway 顶层 adapter import；code-review fix 后 startup 文件 `3 passed in 1.46s`。
 - 新增真实 `multiprocessing.get_context("spawn")` 回归，使用未包装的 `FeishuWorkerRuntime.start()` 生产默认 ready budget，验证事件发布、worker 存活与 stop/reap；不复用现有 30 秒测试 wrapper。
-- 最终 Feishu/Gateway/lifecycle focused suite `167 passed in 15.19s`；完整 non-E2E `3195 passed, 20 warnings in 51.67s`。`ruff check .`、touched Python focused format、`git diff --check` 与 `docs-check` 通过。
+- code-review fix 以 consumer gate 稳定复现原三秒等待假红（`1 failed in 3.48s`），改为正式 drain 条件收敛后 exact `1 passed in 0.65s`，startup + worker runtime + lifecycle focused `18 passed, 2 warnings in 15.56s`。该 fix 只有测试与验证文档 delta，production/runtime 零 diff，因此 pre-fix head 的完整 non-E2E `3195 passed, 20 warnings in 51.67s` 与 live evidence retained。
+- 最终 `ruff check .`、touched Python focused format、`git diff --check` 与 `docs-check` 通过。
 - 专用非 default Feishu E2E profile 完成两轮无预热 clean start。最终真实 user → Bot → Gateway 旅程新增一条 user 入站、两个正常完成的可见 assistant 气泡；Lark 为 `user=1, app=2`，内部 IM 为唯一 external conversation、唯一 user shadow、两个 completed agent bubbles、零 failed bubble 与唯一 saga。两轮均无初始化/crash 标记，且配对下线后进程、端口、listener lock 和敏感 runtime 文件均已清理。
 - 全仓 `ruff format --check .` 仍只报告 dispatch base 已有的四个 eval 路径；本 milestone 未修改这些文件，相对 `origin/unit/bugfix-533` diff 为 0，最终 main sync 前需重判。具体路径与 live 取证见 `M1-fix/progress.md` 和 `M1-fix/evidence/cold-start-live-validation.md`。

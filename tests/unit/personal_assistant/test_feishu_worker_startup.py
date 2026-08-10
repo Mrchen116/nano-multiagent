@@ -68,11 +68,17 @@ def test_importing_gateway_entry_does_not_load_feishu_sdk() -> None:
 def test_spawn_worker_initializes_with_production_ready_budget() -> None:
     """A real spawn worker becomes usable with the unwrapped runtime budget."""
     observed = threading.Event()
+    consumer_release = threading.Event()
+
+    def observe_event(_event: object) -> None:
+        consumer_release.wait()
+        observed.set()
+
     runtime = FeishuWorkerRuntime(
         app_id="cli_startup",
         app_secret="secret",
         incarnation="inc-startup",
-        on_event=lambda _event: observed.set(),
+        on_event=observe_event,
         on_status=lambda _status: None,
         worker_target=_startup_probe_worker,
         multiprocessing_context=multiprocessing.get_context("spawn"),
@@ -80,9 +86,10 @@ def test_spawn_worker_initializes_with_production_ready_budget() -> None:
 
     runtime.start()
     try:
-        assert observed.wait(3)
         assert runtime.is_alive
     finally:
-        report = runtime.stop(drain=False)
+        consumer_release.set()
+        report = runtime.stop(drain=True)
 
+    assert observed.is_set()
     assert report.joined
