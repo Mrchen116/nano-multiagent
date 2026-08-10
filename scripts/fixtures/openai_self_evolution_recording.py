@@ -35,6 +35,19 @@ _MEMORY_FAILURE_CALL = "review-memory-failure-call"
 _MEMORY_ADD_CALL = "review-memory-add-call"
 _SKILL_VIEW_CALL = "new-session-skill-view-call"
 _SKILL_NAME = "deterministic-review-workflow"
+_CLI_FOREGROUND_MEMORY = "CLI-FOREGROUND-MEMORY"
+_CLI_FOREGROUND_SKILL = "CLI-FOREGROUND-SKILL"
+_CLI_FOREGROUND_BOTH = "CLI-FOREGROUND-BOTH"
+_CLI_FOREGROUND_NO_SAVE = "CLI-FOREGROUND-NO-SAVE"
+_CLI_FOREGROUND_READ = "CLI-FOREGROUND-READ"
+_CLI_FOREGROUND_FAILURE = "CLI-FOREGROUND-FAILURE"
+_CLI_FOREGROUND_SEED = "CLI-FOREGROUND-SEED"
+_CLI_MEMORY_CALL = "cli-review-memory-call"
+_CLI_SKILL_CALL = "cli-review-skill-call"
+_CLI_READ_CALL = "cli-review-read-call"
+_CLI_FAILURE_CALL = "cli-review-failure-call"
+_CLI_BOTH_MEMORY_CALL = "cli-review-both-memory-call"
+_CLI_BOTH_SKILL_CALL = "cli-review-both-skill-call"
 
 
 def _skill_content(name: str) -> str:
@@ -132,6 +145,18 @@ class _ScenarioState:
                     self.scenario in {"skill_create", "verify_skill"}
                     and request_index == 1
                 ):
+                    kind = "foreground"
+                    routing_basis = "scenario_request_index"
+                elif self.scenario == "cli_both" and request_index in {1, 3}:
+                    kind = "foreground"
+                    routing_basis = "scenario_request_index"
+                elif (
+                    self.scenario in {"cli_memory", "cli_no_save", "cli_failure"}
+                    and request_index <= 2
+                ):
+                    kind = "foreground"
+                    routing_basis = "scenario_request_index"
+                elif self.scenario.startswith("cli_") and request_index == 1:
                     kind = "foreground"
                     routing_basis = "scenario_request_index"
                 else:
@@ -273,6 +298,145 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         kind = request["kind"]
         if kind == "classifier":
             body = _sse_text(_CLASSIFIER_ALLOW)
+        elif (
+            scenario
+            in {
+                "cli_memory",
+                "cli_no_save",
+                "cli_failure",
+                "cli_both",
+            }
+            and request["request_index"] == 1
+        ):
+            body = _sse_text(self.state.render(_CLI_FOREGROUND_SEED))
+        elif scenario == "cli_both" and request["request_index"] == 2:
+            self.state.add_event("cli_seed_review_completed")
+            body = _sse_text(_RAW_NO_SAVE)
+        elif scenario == "cli_memory" and request["request_index"] == 2:
+            body = _sse_text(self.state.render(_CLI_FOREGROUND_MEMORY))
+        elif scenario == "cli_memory" and kind == "review":
+            body = _sse_tool_call(
+                _CLI_MEMORY_CALL,
+                "memory",
+                {
+                    "action": "add",
+                    "target": "user",
+                    "content": "Controlled Coding CLI memory sentinel.",
+                },
+            )
+        elif (
+            scenario == "cli_memory"
+            and kind == "continuation"
+            and request["latest_tool_result_id"] == _CLI_MEMORY_CALL
+        ):
+            self.state.add_event("cli_memory_review_completed")
+            body = _sse_text("Saved: controlled Coding CLI memory sentinel.")
+        elif scenario == "cli_no_save" and request["request_index"] == 2:
+            body = _sse_text(self.state.render(_CLI_FOREGROUND_NO_SAVE))
+        elif scenario == "cli_no_save" and kind == "review":
+            self.state.add_event("cli_no_save_review_completed")
+            body = _sse_text(_RAW_NO_SAVE)
+        elif scenario == "cli_failure" and request["request_index"] == 2:
+            body = _sse_text(self.state.render(_CLI_FOREGROUND_FAILURE))
+        elif scenario == "cli_failure" and kind == "review":
+            body = _sse_tool_call(
+                _CLI_FAILURE_CALL,
+                "memory",
+                {
+                    "action": "add",
+                    "target": "invalid-target",
+                    "content": "This controlled Coding CLI write must fail.",
+                },
+            )
+        elif (
+            scenario == "cli_failure"
+            and kind == "continuation"
+            and request["latest_tool_result_id"] == _CLI_FAILURE_CALL
+        ):
+            self.state.add_event("cli_failure_review_completed")
+            body = _sse_text("Save failed: controlled Coding CLI invalid target.")
+        elif (
+            scenario in {"cli_skill", "cli_read"} and request["request_index"] == 1
+        ) or (scenario == "cli_both" and request["request_index"] == 3):
+            body = _sse_tool_call(
+                _FOREGROUND_LIST_CALL,
+                "skill_manage",
+                {"action": "list"},
+            )
+        elif (
+            scenario in {"cli_skill", "cli_read", "cli_both"}
+            and kind == "continuation"
+            and request["latest_tool_result_id"] == _FOREGROUND_LIST_CALL
+        ):
+            marker = {
+                "cli_skill": _CLI_FOREGROUND_SKILL,
+                "cli_read": _CLI_FOREGROUND_READ,
+                "cli_both": _CLI_FOREGROUND_BOTH,
+            }[scenario]
+            body = _sse_text(self.state.render(marker))
+        elif scenario == "cli_skill" and kind == "review":
+            body = _sse_tool_call(
+                _CLI_SKILL_CALL,
+                "skill_manage",
+                {
+                    "action": "create",
+                    "name": self.state.skill_name,
+                    "scope": "agent",
+                    "content": _skill_content(self.state.skill_name),
+                },
+            )
+        elif (
+            scenario == "cli_skill"
+            and kind == "continuation"
+            and request["latest_tool_result_id"] == _CLI_SKILL_CALL
+        ):
+            self.state.add_event("cli_skill_review_completed")
+            body = _sse_text(f"Saved: {self.state.skill_name}.")
+        elif scenario == "cli_read" and kind == "review":
+            body = _sse_tool_call(
+                _CLI_READ_CALL,
+                "skill_manage",
+                {"action": "list"},
+            )
+        elif (
+            scenario == "cli_read"
+            and kind == "continuation"
+            and request["latest_tool_result_id"] == _CLI_READ_CALL
+        ):
+            self.state.add_event("cli_read_review_completed")
+            body = _sse_text("Reviewed available skills without writing.")
+        elif scenario == "cli_both" and kind == "review":
+            body = _sse_tool_call(
+                _CLI_BOTH_MEMORY_CALL,
+                "memory",
+                {
+                    "action": "add",
+                    "target": "user",
+                    "content": "Controlled Coding CLI combined memory sentinel.",
+                },
+            )
+        elif (
+            scenario == "cli_both"
+            and kind == "continuation"
+            and request["latest_tool_result_id"] == _CLI_BOTH_MEMORY_CALL
+        ):
+            body = _sse_tool_call(
+                _CLI_BOTH_SKILL_CALL,
+                "skill_manage",
+                {
+                    "action": "create",
+                    "name": self.state.skill_name,
+                    "scope": "agent",
+                    "content": _skill_content(self.state.skill_name),
+                },
+            )
+        elif (
+            scenario == "cli_both"
+            and kind == "continuation"
+            and request["latest_tool_result_id"] == _CLI_BOTH_SKILL_CALL
+        ):
+            self.state.add_event("cli_both_review_completed")
+            body = _sse_text(f"Saved: memory and {self.state.skill_name}.")
         elif scenario == "no_save" and request["request_index"] == 1:
             body = _sse_text(self.state.render(_FOREGROUND_NO_SAVE_SEED))
         elif scenario == "no_save" and request["request_index"] == 2:

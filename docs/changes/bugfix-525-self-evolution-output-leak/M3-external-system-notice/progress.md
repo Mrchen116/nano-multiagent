@@ -116,3 +116,15 @@ None.
   - True stack repeat 1: nonce `bugfix525-m3-17e2b4813bd6`，route anchor `om_x100b68ab538f9ca8c4c88343f1a372f`，status 0；journey 后 record absent、down 后 receipts absent。
   - True stack repeat 2: fresh IM/Gateway，nonce `bugfix525-m3-5c484c3fdc68`，route anchor `om_x100b68ab6bdc88a8de7ee3b1b0d4da4`，status 0；相同 cleanup 断言通过。
 - Status: DONE。Next: R7 真实 Coding CLI/PTY 验收入口。
+
+## R7 — 真实 Coding CLI / PTY 产品验收入口
+
+- Context: reviewer 需要无需读取源码或把 integration test 当产品证据的真实终端入口。既有 CLI consumer contract test 只能证明 formatter，不能证明 public CLI、真实 background hook、写入工具与 REPL idle consumer 连成一条路径。
+- Decision: 新增 worktree-local runner，以 `sys.executable -m coding_cli.main` 启动真实 PTY，复用现有 OpenAI-compatible fixture；每个 case 使用隔离 HOME/workspace/config。fixture 仅按 scenario request state、message roles 与 tool-call/result id 路由，不匹配 self-improvement 私有 prompt。memory/no-save/failure 用一个受控前台 seed 建立 turn counter；both 的 seed skill-only no-save review 完成后再发目标轮，消除 background/foreground overlap，不靠 sleep 或增加 timeout。
+- Evidence:
+  - TDD: seed/target structural routing 红测 `4 failed, 2 passed`，实现后 `6 passed`；targeted real PTY memory 与 both 均通过。
+  - Product command: `PATH="/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH" ./scripts/e2e-cli-self-evolution.py --wt "$PWD" --transcript docs/changes/bugfix-525-self-evolution-output-leak/M3-external-system-notice/evidence/coding-cli-self-evolution.txt`。
+  - Product result: nonce `4e566550ff`；memory、skills、both 各显示 exact-one `... updated` line并真实生成对应 memory/Skill 文件；no-save、read-only、failure 均为 `update_count=0`。六场景前台完成，raw `Saved:`/`Nothing to save.`/failure/traceback 均不可见。
+  - Evidence locator: `evidence/coding-cli-self-evolution.txt` 保存精简真实终端输出与逐 case 断言；stdout 报告 `runtime_cleaned=true`，运行后不存在 `.e2e-cli-self-evolution.*`。
+  - Affected regression: hook/CLI/Gateway/Feishu harness 矩阵 `119 passed, 2 warnings in 22.54s`；共享 fixture 的 M2 critical path `2 passed in 44.91s` 且 runtime trap 清理。
+- Status: DONE。Next: R8 最终 Feishu 复核与质量门禁。

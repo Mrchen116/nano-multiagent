@@ -81,12 +81,12 @@ Prototype / Reference Contract: N/A。
 
 ### R7 — 真实 Coding CLI / PTY 产品验收入口
 
-- 状态: IN PROGRESS
+- 状态: DONE
 - 步骤: 复用现有 OpenAI-compatible 受控 fixture 与 Coding CLI public entry，提供 worktree-local PTY journey；覆盖 memory/skills/both 与 no-save/read/failure，并保存脱敏 transcript/断言和 cleanup 证据。
 - 验证: reviewer 不读取源码或单测即可从真实终端观察三类既有 `... updated` system line，负面场景无误导 update line。
 
 ### R8 — Round 4 收尾门禁
 
-- 状态: TODO
+- 状态: IN PROGRESS
 - 步骤: 更新 acceptance runbook/evidence/progress；运行 focused、affected、full non-E2E、Ruff、docs-check、diff/shell gates；合并推送 unit 并清理 fix worktree/branch。
 - 验证: reviewer-fix commits 已进入 `unit/bugfix-525`，远端同步且运行资源、runtime artifacts、worktree/branch 全清理。

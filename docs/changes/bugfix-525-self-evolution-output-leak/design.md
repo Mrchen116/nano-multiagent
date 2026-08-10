@@ -298,8 +298,9 @@ flowchart TD
 | 服务 | 停止命令 | 启动命令 | 健康检查 |
 |---|---|---|---|
 | 隔离 IM + Gateway + 专用 Feishu Bot | `./scripts/e2e-down.sh --wt "$PWD"` | `PATH="/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH" ./scripts/e2e-up.sh --wt "$PWD" --feishu` | `source .e2e-ports.env && curl -fsS "$IM_URL/openapi.json" >/dev/null && kill -0 "$(cat .gateway.pid)" && ./scripts/e2e-feishu-probe.py --wt "$PWD"` |
+| 隔离 Coding CLI + 受控 LLM | 无；runner 自清理 | `PATH="/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH" ./scripts/e2e-cli-self-evolution.py --wt "$PWD" --transcript docs/changes/bugfix-525-self-evolution-output-leak/M3-external-system-notice/evidence/coding-cli-self-evolution.txt` | stdout 六个 case 均通过且 `runtime_cleaned=true`；transcript 含三类 exact updated line、三类静默断言与真实持久化结果 |
 
-**Review 驱动方式**：端到端真栈。M1/M2 的 side-chain 隔离与 Skill 激活继续由 public Kernel + production Gateway composition seam 和隔离 Web IM 验证；M3 必须用专用 Feishu E2E profile 从真实测试用户向测试 Bot 发消息，观察原飞书 chat 的正常回复 + 唯一一条自进化 Bot 通知，并在 shadow IM 核对同一结果仍是 structured system notice。再从 shadow IM 触发一轮，确认通知不回写飞书。每次验收后执行 `./scripts/e2e-down.sh --wt "$PWD"` 并确认 PID、端口与 Feishu listener lock 释放。
+**Review 驱动方式**：端到端真栈。M1/M2 的 side-chain 隔离与 Skill 激活继续由 public Kernel + production Gateway composition seam 和隔离 Web IM 验证；M3 必须用专用 Feishu E2E profile 从真实测试用户向测试 Bot 发消息，观察原飞书 chat 的正常回复 + 唯一一条自进化 Bot 通知，并在 shadow IM 核对同一结果仍是 structured system notice。再从 shadow IM 触发一轮，确认通知不回写飞书。Coding CLI 用上表 public PTY runner 直接观察 memory/skills/both 的既有 updated line，以及 no-save/read/failure 的静默结果；它不是 pytest wrapper。每次验收后执行 `./scripts/e2e-down.sh --wt "$PWD"` 并确认 PID、端口与 Feishu listener lock 释放。
 
 **验收前置**：使用 `${XDG_CONFIG_HOME:-~/.config}/nano-multiagent/feishu-e2e.env` 与其中指定的 verified、non-default `lark-cli` profile；`e2e-up.sh --feishu` 和 `e2e-feishu-probe.py` 必须先通过 App/Bot identity guard。使用隔离 IM 用户 `nano / nano1234`、worktree-local workspace/config 与受控 self-evolution LLM fixture；不得读取或修改用户生产 Gateway config、memory、skills、生产 Bot 或真实聊天。
 

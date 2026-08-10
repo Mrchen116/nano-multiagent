@@ -40,3 +40,9 @@ PATH="/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH" ./scripts/e2e-feishu-sel
   - `bugfix525-m3-17e2b4813bd6`，route anchor `om_x100b68ab538f9ca8c4c88343f1a372f`；
   - `bugfix525-m3-5c484c3fdc68`，route anchor `om_x100b68ab6bdc88a8de7ee3b1b0d4da4`。
 - 两轮均观察 journey 返回前 `.feishu-self-evolution-llm.jsonl` 已删除，`e2e-down` 后 `config-apply-receipts-v1.json`、PID、listener lock 与 fixture record 全部不存在。
+
+## Round 4 最终产品复核
+
+- 在最终 fixture/CLI harness 代码完成后，同一持久 shell 再执行一次 exact `e2e-up --feishu -> probe -> journey -> down`；probe 输出 `Feishu E2E ingress probe passed (profile=e2e-feishu-testagent)`。
+- journey nonce `bugfix525-m3-e9c4121c554c`，route anchor `om_x100b68ab9b9210a4c32a68d195add10`，no-save `om_x100b68ab9b35b0a0c1627a06f4de2c3`，failure `om_x100b68ab9874fca0de7a1bf30d0f674`，Skill `om_x100b68ab99e038a0dedcd203b05b4d5`，unique Skill `deterministic-review-e9c4121c554c`；journey status 0。
+- `e2e-down` 后 PID、listener lock、fixture JSONL、config apply receipts、CLI/M2 runtime 目录均不存在；专用 persistent shell 已退出。
