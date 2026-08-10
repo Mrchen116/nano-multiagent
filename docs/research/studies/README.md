@@ -8,5 +8,6 @@
 
 | 主题 | 状态与用途 |
 |---|---|
+| [`openclaw-message-context-envelopes-2026-08-10/`](openclaw-message-context-envelopes-2026-08-10/README.md) | 还原 OpenClaw 的消息时间、按需上下文前缀与 prompt cache 稳定机制，并记录 nano 的候选学习契约 |
 | [`claude-code-dynamic-workflows-2026-08-08/`](claude-code-dynamic-workflows-2026-08-08/README.md) | 从官方文档、本地固定源码和 Luna runtime trace 还原 Claude Code Dynamic Workflows 的运行契约与复刻架构 |
 | [`agent-native-repository-knowledge-system-2026-07-30/`](agent-native-repository-knowledge-system-2026-07-30/README.md) | Agent-Native 仓库知识体系的方法论研究与本仓采用来源 |
