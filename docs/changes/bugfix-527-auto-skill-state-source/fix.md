@@ -90,3 +90,17 @@ All checks passed!  # changed-file Ruff
 两条 warning 均来自既有 `lark_oapi` 依赖的 datetime / event-loop deprecation；没有测试失败。验证全程只使用 pytest 临时 Workspace，未读取或改写生产配置、远端 mini 或现有 `.usage.json`。
 
 Reviewer fix1 在同一真实 SDK Review 中增加“查看无记录手工 Skill + 创建新自动 Skill”：修复前 Skill-only / Combined 两例都把手工 Skill写成 F3，精确失败为 `F3 != F1`；修复后分别落为 `manual-skill=F1`、`auto-review-skill=F3`。最低层回归同时确认普通首次 view 为 F1，已有自动 Skill 的 F3/F4 记录继续保持。聚焦矩阵 `82 passed`，changed-file Ruff 全绿；扩展 unit + integration 为 `2638 passed, 2 warnings in 497.18s`，warning 仍仅来自既有 `lark_oapi` 弃用提示。未改 Allowlist、生产状态或既有 usage sidecar。
+
+代码审查在 `599d42d3c` 的 full diff 上确认了上述 `skill_view` 来源污染问题；定向修复后，closure 在 `37d28437b` 返回 `[]`。其后的源码增量只有两份测试文件的 Ruff 机械格式化，未改变断言或运行逻辑，因此审查结论保留到最终实现树。
+
+最终本地 CI 以 `origin/main@48d19d8a` 为 base 执行：documentation integrity、`ruff check .`、`ruff format --check .`、`pytest -m "not e2e" -n 4 --dist worksteal` 全绿，其中 Python 为 `3184 passed`；前端 `npm audit --audit-level=critical` 通过，独占资源重跑 `npm run test` 为 `66 files / 640 tests passed`。并行重跑时曾出现与本单无前端改动无关的 5 秒超时，独占资源后同一原命令全绿，未改前端代码。
+
+## 生产历史数据修复
+
+在 Mac mini 上先对 IM SQLite、Gateway 配置和 `forall` usage sidecar 建立权限受限备份，并通过 SQLite `PRAGMA integrity_check`。随后短暂停止 Gateway，按已确认范围完成三项定向修改：
+
+- `forall` 的 `explicit_allowlist` 在 Gateway 配置与 IM profile 中都从 28 项变为 30 项，只加入 `remote-host-health-check` 与 `forall-prod-machine-status`，每项恰好一次；
+- 两个目标 Skill 的既有 usage 来源从 `F1` 回填为 `F3`，未扫描或改写其他 Skill；
+- 重启 Gateway 后再次确认配置与 IM profile 完全一致、SQLite integrity 为 `ok`、IM HTTP 返回 200，`mac-mini` 与 `macbook-air` 两个节点均为 online。
+
+该生产修复没有修改 Allowlist 代码；未来创建后的可用性继续由现有 `default_discovery` / `explicit_allowlist` 逻辑负责。
