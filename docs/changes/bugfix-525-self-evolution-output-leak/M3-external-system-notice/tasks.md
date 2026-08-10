@@ -75,13 +75,13 @@ Prototype / Reference Contract: N/A。
 
 ### R6 — Round 4 飞书 route-anchor 稳定性闭环
 
-- 状态: IN PROGRESS
+- 状态: DONE
 - 步骤: 按 systematic-debugging 先复现并比较 probe/route-anchor 的发送身份、chat/message form、dedupe/window、listener 生命周期和 Gateway 边界日志；只修已证明根因，不延长 timeout 或加盲重试；成功/失败都清理 fixture/config receipts。
 - 验证: 同一持久 shell 的 exact `up -> probe -> journey -> down` 连续可重复，route anchor 经真实 Feishu ingress 到达受控 LLM，runtime 无残留。
 
 ### R7 — 真实 Coding CLI / PTY 产品验收入口
 
-- 状态: TODO
+- 状态: IN PROGRESS
 - 步骤: 复用现有 OpenAI-compatible 受控 fixture 与 Coding CLI public entry，提供 worktree-local PTY journey；覆盖 memory/skills/both 与 no-save/read/failure，并保存脱敏 transcript/断言和 cleanup 证据。
 - 验证: reviewer 不读取源码或单测即可从真实终端观察三类既有 `... updated` system line，负面场景无误导 update line。
 

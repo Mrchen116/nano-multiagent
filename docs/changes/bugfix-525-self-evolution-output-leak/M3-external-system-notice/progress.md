@@ -108,4 +108,11 @@ None.
 ## R6 — Round 4 飞书 route-anchor 稳定性闭环
 
 - Context: reviewer 两个 fresh stack 均观察到 dedicated identity、`e2e-up --feishu`、ingress probe 成功，而紧接着的 journey route anchor 没有到达受控 LLM；另有失败后 `.feishu-self-evolution-llm.jsonl`、`config-apply-receipts-v1.json` 残留。
-- Status: IN PROGRESS。先收集 probe 与 route-anchor 的真实发送/接收和 listener/Gateway 生命周期证据，再决定最窄修复。
+- Diagnosis: fresh stack 的无间隔 `up -> probe -> journey` 稳定复现 `timed out waiting for route anchor ingress`。probe 与 route anchor 均由同一 verified profile 以 user 身份发送到同一 P2P chat/connector，provider message id 分别唯一；production `external_shadow_sagas` 同时存在两条 canonical inbound，replacement worker 日志也已 `connected`，因此 identity、chat form、dedupe window 与 listener transport 均未丢消息。失败边界中 route anchor 已创建真实 Kernel run，但 LLM HTTP 指向 `http://127.0.0.1:4000`，controlled fixture JSONL 为 0；worktree config 同时被恢复为 production provider。
+- Root cause: probe 只等 saga mirror，不等真实 foreground terminal。journey 在旧 Gateway drain probe run 前改写 config；旧进程仍持有 production-valued immutable config snapshot，可在退出期间持久化 Agent config 并覆盖该外部 rewrite，replacement 因而读到 production LLM。较慢的人工首轮偶然让 probe run 先结束，所以曾通过。
+- Decision: 不改变 timeout/retry/production routing；`_restart_gateway` 先等旧 Gateway 完全退出，再在同一 startup 边界内把生成 config 指向 fixture，然后启动 replacement。journey `finally` 删除自身 JSONL，public `e2e-down` 删除 config operation receipts 与同名 JSONL；两者均为 worktree runtime。补确定性回归模拟旧 Gateway 在 SIGTERM drain 时恢复 production provider，证明 replacement spawn 前最终 provider 必为 fixture，并覆盖 success/failure cleanup。
+- Evidence:
+  - TDD: focused red `4 failed`（restart API/ordering、journey success/failure JSONL、down receipts），green `7 passed in 0.53s`（含 probe guards）。
+  - True stack repeat 1: nonce `bugfix525-m3-17e2b4813bd6`，route anchor `om_x100b68ab538f9ca8c4c88343f1a372f`，status 0；journey 后 record absent、down 后 receipts absent。
+  - True stack repeat 2: fresh IM/Gateway，nonce `bugfix525-m3-5c484c3fdc68`，route anchor `om_x100b68ab6bdc88a8de7ee3b1b0d4da4`，status 0；相同 cleanup 断言通过。
+- Status: DONE。Next: R7 真实 Coding CLI/PTY 验收入口。
