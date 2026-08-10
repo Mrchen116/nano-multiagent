@@ -25,9 +25,7 @@ class _KernelSkillReviewClient:
     def __init__(self) -> None:
         self._round = 0
 
-    def generate(
-        self, request: LLMGenerateRequest
-    ) -> AsyncIterator[LLMMessage]:
+    def generate(self, request: LLMGenerateRequest) -> AsyncIterator[LLMMessage]:
         """Return the scripted two-round Skill Review response."""
 
         _ = request
