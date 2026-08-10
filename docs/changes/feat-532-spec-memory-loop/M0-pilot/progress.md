@@ -48,6 +48,16 @@
 
 None.
 
+## Round 1 independent-gate fixes — pre-seal implementation
+
+- Context: unit head `30a2be4fb953f6a552c06ddc1883f4fb341ea925` 的 verifier/code-review 指出 role manifest 自证、Gate 1/corpus/result replay 与若干 semantic validation 缺口；任何 runner/seal/input 变化都必须废弃旧 bundle 并从零实跑。
+- Decision: 执行层新增独立 macOS Seatbelt wrapper。每次调用前封存 expected；wrapper 对 host home、artifacts、parent/sibling/control workspace 和同一临时根的其他 entry 施加 `file-read*`/`file-write*` deny，在实际 subprocess 后独立写 actual attestation。Codex 的只读角色仍真实拥有 shell，因此 manifest 统一声明 `shell=true`，另以 `workspace_write` 区分写权限并记录实际 `command_execution_observed`。
+- Decision: corpus 固定到 clean tracked `HEAD/tree` 并用 `git show` 读取 bytes；Gate 1 同时检查 clean status、base diff、初末 manifest 和 symlink；Owner refs 由加载的 atoms 推导；audit/judge/result/config 均 fail closed。
+- Red evidence: 新增对抗/语义测试在旧实现上为 12 failed（缺少 OS confinement、Gate1/corpus/audit/judge/Owner helper，result/actual/config replay 未拒绝）；旧实现的 Ruff format 仍为 2 files `Would reformat`。
+- Green evidence: 新 seal 前可独立完成的 focused/shared 门禁为 25 passed、4 replay cases deselected；canary 在 read-only 与 workspace-write 两种 profile 下均收到 OS `Operation not permitted`，Ruff check 与 diff-check 通过。4 个 replay cases 必须等新 durable bundle 生成后转绿，不能拿旧 bundle 验证新 runner。
+- Scope: 未修改 feat-397 protocol/dataset/shared H02 truth；原 baseline commit 与 4 条既有断链归因保持不变。
+- Next: 提交 runner/schema/prompt/tests，使 source worktree clean；向独立临时 artifacts 从零运行新 seal，替换旧结果并完成 R7。
+
 ## R2-R4 — 最终真实 Pilot、独立评价与重放
 
 - Final seal: `feat-532-h02-infrastructure-pilot-v1`；H02，`1 case × 1 repeat`，`formal_eligible=false`，`effect_claim=null`，结论 `infrastructure_pass`。seal SHA-256 为 `1439a797cd1982e50037df786634e907629ece78cd8d01a0ed39f904b9ddd270`，evidence manifest SHA-256 为 `fac6adc449d20c234d2dae9a620a010c8a0f673db5f8740fb18da82b298b0ee1`。

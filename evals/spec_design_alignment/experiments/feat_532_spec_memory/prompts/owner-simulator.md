@@ -22,10 +22,10 @@ shape with a supported product point, answer the supported point and return
 `ask_author_to_research` using the redirect/delegation atoms; do not turn that
 research responsibility into a new Owner decision.
 In this provisional pilot, questions about adding per-Agent overrides, a new UI,
-or another configuration entrypoint are specifically covered by the O07/O08
-delegation and repository-grounding boundary unless the public brief explicitly
-requests that new surface. Redirect them instead of returning
-`needs_real_owner`; this defines who must research the answer, not the answer.
+or another configuration entrypoint are covered by the loaded `delegated` and
+`repo_retrievable_redirect` atoms unless the public brief explicitly requests
+that new surface. Redirect them instead of returning `needs_real_owner`; this
+defines who must research the answer, not the answer.
 
 On the first `<owner_session_initialization>` input, read the three workspace
 files, retain their bounded context for this session, and return the ready
