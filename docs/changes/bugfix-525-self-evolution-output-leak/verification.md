@@ -211,3 +211,94 @@ Do **not** add the RLock to the delta. The shared `IMAgentConfigSync._operation_
 ## Required changes
 
 - None.
+
+---
+
+# Round 4 — M3 final-state full verification
+
+> Validation snapshot: `ee32b85b51ec70009b47d2fd2b49700a53f07ab6 → 02d9b7740da4dd476d5524f8bc33b4e3d52ab8d0`
+
+## Summary
+
+Mode: full
+
+Delta range: N/A
+
+Focus issues: M3 true update receipt、originating trace、per-run route、Feishu / shadow IM 双出口、CLI outcome、Feishu worker startup deadline，以及 Round 4 route-anchor / CLI 验收修复。
+
+requires_full_verification: false
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 18/18 M1–M3 退出标准完成；incident 4/4 Requirements、8/8 Scenarios 均有实现与证据 |
+| Correctness | 4/4 active delta Requirements、22/22 delta Scenarios 与最终实现、测试和 canonical current specs 一致 |
+| Coherence | Followed；D1–D7、启动 side finding 与包依赖边界均被遵守 |
+
+## Completeness
+
+- Tasks: M1 `5/5`、M2 `6/6`、M3 `7/7`，合计 `18/18`。M3 的实施记录和专用验收 locator 位于 `M3-external-system-notice/progress.md:10-139` 与 `evidence/`；本轮不把这些一次性产品观察代替永久回归。
+- Prototype / Reference: N/A。该 unit 不改变前端结构或视觉，shadow IM 继续使用既有 `node.system_message` schema，飞书继续使用普通 Bot 文本出口。
+- M3 true-receipt、trace、route、delivery、CLI、startup 与 Round 4 harness 退出标准均可从当前代码和长期测试直接复查；专用 Feishu 与真实 PTY 结果另有 nonce/message-id/transcript 证据。
+
+## Correctness
+
+| Requirement / Scenario | 实现位置 | 永久测试 / 证据 | 状态 |
+|---|---|---|---|
+| self-evolution raw prompt/tool/turn/完成确认保持私有；memory/Skill 持久副作用保留 | `src/agent/core/agent/context_fork.py:18-36,203-304` 仅在显式 policy 下转发 source-marked `skill_created`；`src/agent/platform/hooks/builtins/self_improvement.py:269-313` 单独发布 truthful receipt | `tests/integration/test_self_evolution_output_visibility.py:37-249` 通过 public Kernel 真实执行 memory add / Skill create，断言 raw event 不进入父 stream、文件落盘且业务事件保留 | covered |
+| no-save、list/read、失败均静默；`completed=False` 但已有成功写入仍报告真实 target | `self_improvement.py:153-194` 按 call id 关联结果，只认可 memory `add/replace/remove` 与 Skill `create/edit/patch/write_file/remove_file`，拒绝 error 与 structured `success=false`；`:296-313` 只在非空 target 时发布 | `tests/unit/test_self_improvement_hook.py:326-543` 覆盖 read-only、全部失败、call-id 不匹配、八类 action、legacy flags 与 incomplete partial success | covered |
+| RunRecord trace 贯通 TurnRequest 与当前 HookContext，review event 携带 originating trace | `src/agent/core/session/types.py:141-150`；`src/agent/core/runs/registry.py:212-246`；`src/agent/core/agent/runtime.py:280-301,403-433`；`self_improvement.py:311` | `tests/unit/agent/runs/test_runs_registry_executor.py` 守住 request trace；`test_self_improvement_hook.py:300-324,486-543` 与 `test_self_evolution_output_visibility.py:130-134,240-244` 断言 exact trace | covered |
+| coordinator submit 前冻结 route，submit 失败撤销；manager 精确消费、missing/replay fail-closed、4096 oldest-first | `src/personal_assistant/gateway/session_run_coordinator.py:878-899`；`background_subscriptions.py:83-110,209-223` | `tests/unit/personal_assistant/test_session_run_coordinator_notice_routes.py:54-114`；`test_background_subscription_routes.py:49-180` | covered |
+| 飞书来源：原 chat 一行 Bot 文本 + shadow structured notice；IM 来源只留 IM；两路独立 best-effort、稳定 identity 去重 | `src/personal_assistant/gateway/runtime_delivery/background.py:24-165,241-283`；`composition.py:466-505` 复用现有 sender/OutboundRouter | `tests/unit/personal_assistant/test_self_evolution_notice_delivery.py:71-304` 覆盖 source switching、identity、缺 IM、external/shadow 各自失败与未来 notice 关闭；`tests/integration/test_self_evolution_gateway_notice_routing.py:143-266` 覆盖真实 fork/tool/trace overlap | covered |
+| internal telemetry 不外发；普通 background Agent 输出、ordinary Skill owner 与 post-terminal Skill 激活不回归 | `src/personal_assistant/gateway/background_session_events.py:197-253`；`runtime_delivery/observer.py:524-538`；`background_subscriptions.py:254-269` | `test_background_session_events.py:590-654`、`test_tool_end_detail_passthrough.py:171-257`、`tests/integration/test_self_evolution_gateway_skill_sync.py` | covered |
+| CLI 只显示 memory / skills / both 的真实 updated line，无写入无提示，raw review 不进入终端 | `src/coding_cli/events/background_runs.py:15-23,70-96` | `tests/unit/test_cli_background_runs.py:98-146`；真实 PTY 六场景 transcript 为 `M3-external-system-notice/evidence/coding-cli-self-evolution.txt` | covered |
+| Feishu worker 启动预算与短 shutdown join 解耦，并完整消费 monotonic deadline；Round 4 route-anchor 先停旧 Gateway 再写 fixture，CLI 走 public PTY | `src/personal_assistant/channels/feishu/worker.py:237-250,311-338`；`scripts/e2e-feishu-self-evolution.py:151-180,653-689`；`scripts/e2e-cli-self-evolution.py:220-256,349-475` | `tests/unit/personal_assistant/test_feishu_worker_runtime.py:235-269` 覆盖 early-False deadline；`tests/unit/test_e2e_feishu_self_evolution.py:55-177` 覆盖 restart ordering/cleanup；最终专用 Feishu 与 PTY 证据见 M3 `evidence/` | covered |
+
+### Corrected Delta Reconciliation
+
+| Delta item | Implementation / test evidence | Canonical merge status | Outcome |
+|---|---|---|---|
+| `specs/kernel/runs.md`：真实更新 gate、raw privacy、source-marked Skill、incomplete partial success 与 originating trace | `self_improvement.py:153-194,296-313`、`context_fork.py:18-36`、trace chain 与 hook/integration tests | 语义逐行归并到 `docs/specs/kernel/runs.md:261-293` | aligned |
+| `specs/gateway/routing-delivery.md`：structured-only、无更新静默、普通后台结果不变 | `background.py:24-165`、`background_session_events.py:197-253` 及 delivery/background tests | 逐行归并到 `docs/specs/gateway/routing-delivery.md:308-329` | aligned |
+| `specs/gateway/external-channels.md`：同源路由、no-write 静默、telemetry 默认不外发 | trace route + delivery callback + external metadata helper；notice delivery unit/integration 与专用 Feishu evidence | 与 current requirement 语义一致地归并到 `docs/specs/gateway/external-channels.md:146-232`；原有控制/background scenarios 保持不变 | aligned |
+| `specs/cli/interactive-repl.md`：只显示真实更新对象 | `background_runs.py:70-96` 与 CLI unit/PTY evidence | 逐行归并到 `docs/specs/cli/interactive-repl.md:110-126`；`docs/specs/cli/spec.md:21` 的 Interactive REPL Requirement count 已由 7 更新为 8 | aligned |
+
+Uncovered Observable Behavior: None。Feishu worker 的 30 秒 startup deadline 是 design Changelog 明确批准的同一启动生命周期修复，不是新的 channel 用户协议；Skill config-sync 并发收敛已由 canonical `gateway/agent-capabilities.md` 承载，active M3 delta 无需复制实现锁。
+
+Outcome: **aligned**.
+
+## Coherence
+
+| Design 决策 | 遵守? | 代码证据 |
+|---|---|---|
+| D1：generic fork 默认 inherit，self-improvement 显式选择 private policy | 是 | `context_fork.py:203-232,249-304`；`self_improvement.py:269-278` |
+| D2：source-marked `skill_created` 只归 persistent manager | 是 | `observer.py:524-538`；`background_session_events.py:220-238` |
+| D3：复用既有 config-sync，不建第二套 mutation/queue | 是 | `background_subscriptions.py:254-269`；`composition.py:466-505` |
+| D4：cursor + 单 owner + 既有幂等承担重放 | 是 | `background_session_events.py:180-282`；manager ensure-once 与 route consume-once tests |
+| D5：永久回归跨 public Kernel / production Gateway failure seam | 是 | 两份 self-evolution integration 分别观察真实持久副作用、config-sync 和 external/shadow routing，不止断言 event 存在 |
+| D6：只有真实 update receipt 外发，telemetry 继续内部化 | 是 | `self_improvement.py:153-194,296-313`；`background.py:54-65` |
+| D7：originating trace 关联本轮 immutable ReplyContext，并复用既有 sender | 是 | `session_run_coordinator.py:878-899`；`background_subscriptions.py:87-110,209-223`；`background.py:94-113` |
+
+实现没有引入 `personal_assistant → agent.core/platform`、`coding_cli → agent.core/platform`、`IM → agent` 或 `core → platform` 依赖；route 表是 Gateway 内进程短期状态，未伪造 durable/exactly-once 保证。新增测试文件均低于 400 行，并按 unit / integration / e2e failure seam 分层。
+
+## Verification evidence
+
+- Focused final-state matrix: **128 passed, 8 warnings in 33.84s**。覆盖 fork/hook、trace、manager/coordinator route、delivery、CLI、Feishu worker、raw privacy、Skill sync 与 overlap integration。
+- Architecture contracts: **7 passed in 1.67s**。
+- Quality: targeted changed-production `ruff check` passed；docs-check passed（**245** maintained Markdown sources / **67** required routes）；`git diff --check ee32b85b..02d9b774` passed。
+- Worker 在同一 report head 记录的 full non-E2E：**3235 passed, 28 warnings in 79.64s**；本轮没有重复执行该已覆盖且代码未变化的整套门禁。
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+- None.
+
+### WARNING（提 PR 前必须修）
+
+- None.
+
+### SUGGESTION（可以修）
+
+- None.
+
+All checks passed. Ready for PR.
