@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
+import threading
 
 import httpx
 import yaml
@@ -701,6 +703,109 @@ def test_skill_created_agent_scope_only_enables_executing_agent(
         "agent-skill",
     )
     assert owners.catalog.require("agent-b").revision == agent_b_revision
+
+
+def test_concurrent_skill_created_events_merge_into_one_explicit_allowlist(
+    tmp_path: Path,
+) -> None:
+    """Concurrent owners preserve every created Skill in the Agent profile."""
+    workspace = tmp_path / "agent-a"
+    agent_root = (workspace / ".nanoassistant" / "skills").resolve()
+    state_lock = threading.Lock()
+    first_get_started = threading.Event()
+    release_first_get = threading.Event()
+    get_count = 0
+    profile_version = 1
+    skills = ["old-skill"]
+
+    def _profile() -> dict[str, object]:
+        return {
+            "agent_id": "agent-a",
+            "display_name": "agent-a",
+            "description": "",
+            "skills": list(skills),
+            "skills_selection_mode": "explicit_allowlist",
+            "tool_allowlist": ["skill_manage"],
+            "group_reply_policy": "manual",
+            "default_model": None,
+            "workspace_root": str(workspace),
+            "profile_version": profile_version,
+            "features": {},
+            "custom_prompt": None,
+        }
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        nonlocal get_count, profile_version, skills
+        if request.method == "GET":
+            with state_lock:
+                get_count += 1
+                request_index = get_count
+                snapshot = _profile()
+            if request_index == 1:
+                first_get_started.set()
+                assert release_first_get.wait(timeout=5)
+            return httpx.Response(200, json=snapshot)
+
+        assert request.method == "PATCH"
+        body = dict(json.loads(request.content.decode("utf-8")))
+        with state_lock:
+            if body["profile_version"] != profile_version:
+                return httpx.Response(409, json={"detail": "profile conflict"})
+            skills = list(body["skills"])
+            profile_version += 1
+            return httpx.Response(200, json=_profile())
+
+    local_config = LocalConfig(
+        node=NodeConfig(node_id="node-1"),
+        agents=(
+            AgentWorkspaceConfig(
+                agent_id="agent-a",
+                workspace_root=workspace,
+                skills=("old-skill",),
+                skills_selection_mode="explicit_allowlist",
+            ),
+        ),
+        channels=(),
+        gateway=GatewayLifecycleConfig(),
+        heartbeat=HeartbeatConfig(),
+        im_service=None,
+        llm=_DEFAULT_TEST_LLM,
+        source_path=tmp_path / "config.yaml",
+    )
+    owners = build_config_sync_test_owners(local_config)
+    sync = _IMConfigSyncClient(
+        base_url="http://im.local",
+        token=None,
+        **owners.kwargs(),
+        local_config=local_config,
+        client=httpx.Client(
+            transport=httpx.MockTransport(_handler),
+            base_url="http://im.local",
+            trust_env=False,
+        ),
+        max_attempts=1,
+    )
+
+    events = (
+        {"name": "skill-a", "scope": "agent", "skill_root": str(agent_root)},
+        {"name": "skill-b", "scope": "agent", "skill_root": str(agent_root)},
+    )
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        first = executor.submit(sync.handle_skill_created, "agent-a", events[0])
+        assert first_get_started.wait(timeout=2)
+        release_timer = threading.Timer(0.2, release_first_get.set)
+        release_timer.start()
+        try:
+            # Before reconciliation is serialized, the second owner can read the
+            # same profile version while the first owner is still in flight.
+            sync.handle_skill_created("agent-a", events[1])
+        finally:
+            release_timer.cancel()
+            release_first_get.set()
+        first.result(timeout=5)
+
+    assert skills == ["old-skill", "skill-a", "skill-b"]
+    assert owners.catalog.require("agent-a").config.skills == tuple(skills)
 
 
 def test_ensure_agent_skills_enabled_updates_explicit_local_allowlist_once(

@@ -197,6 +197,32 @@ def _wait_process_gone(pid: int, *, timeout: float = 5.0) -> None:
     raise AssertionError(f"fixture teardown left process {pid} alive")
 
 
+def _cleanup_stub_stack(
+    wt_dir: Path,
+    stub_proc: subprocess.Popen[str],
+    *,
+    preserve_logs: bool,
+) -> subprocess.CompletedProcess[str]:
+    """Stop a partially or fully started stack and reap its LLM stub."""
+    if preserve_logs:
+        _dump_logs(wt_dir)
+    try:
+        return subprocess.run(
+            ["bash", str(_E2E_DOWN), "--wt", str(wt_dir)],
+            cwd=str(_REPO_ROOT),
+            capture_output=True,
+            text=True,
+        )
+    finally:
+        if stub_proc.poll() is None:
+            stub_proc.terminate()
+        try:
+            stub_proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            stub_proc.kill()
+            stub_proc.wait(timeout=5)
+
+
 @pytest.fixture
 def stub_llm_stack(
     tmp_path: Path, request: pytest.FixtureRequest
@@ -305,11 +331,11 @@ def stub_llm_stack(
         },
     )
     if up.returncode != 0:
-        stub_proc.kill()
-        _dump_logs(wt_dir)
+        down = _cleanup_stub_stack(wt_dir, stub_proc, preserve_logs=True)
         pytest.fail(
             f"e2e-up.sh failed (rc={up.returncode}):\n"
-            f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
+            f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}\n"
+            f"--- teardown stderr ---\n{down.stderr}"
         )
 
     values = _parse_ports_env(wt_dir / ".e2e-ports.env")
@@ -327,18 +353,7 @@ def stub_llm_stack(
     finally:
         gateway_pid = _read_pid(wt_dir / ".gateway.pid")
         im_pid = _read_pid(wt_dir / ".im.pid")
-        down = subprocess.run(
-            ["bash", str(_E2E_DOWN), "--wt", str(wt_dir)],
-            cwd=str(_REPO_ROOT),
-            capture_output=True,
-            text=True,
-        )
-        stub_proc.terminate()
-        try:
-            stub_proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            stub_proc.kill()
-            stub_proc.wait(timeout=5)
+        down = _cleanup_stub_stack(wt_dir, stub_proc, preserve_logs=False)
         assert down.returncode == 0, down.stderr
         for pid in (gateway_pid, im_pid):
             if pid is None:

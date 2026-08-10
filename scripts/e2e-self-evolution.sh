@@ -5,7 +5,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-COMMON_ROOT="$(cd "$(git -C "$REPO_ROOT" rev-parse --git-common-dir)/.." && pwd)"
+GIT_COMMON_DIR="$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-common-dir)"
+COMMON_ROOT="$(cd "$GIT_COMMON_DIR/.." && pwd)"
 RUNTIME_ROOT="$(mktemp -d "$REPO_ROOT/.e2e-self-evolution.XXXXXX")"
 
 cleanup() {

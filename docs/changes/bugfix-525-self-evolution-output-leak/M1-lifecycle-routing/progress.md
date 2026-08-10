@@ -79,3 +79,38 @@
 | Candidate | Suggested owner | Scope | Evidence |
 |---|---|---|---|
 | None | — | — | — |
+
+## Code-review fix loop @ `830c0aa67`
+
+### Baseline
+
+- Clean/synced branch: `milestone/bugfix-525-review-fix1` from `origin/unit/bugfix-525` at `830c0aa67b60638df10630823bf7af12665b5556`.
+- Full non-E2E first run: `3192 passed, 1 failed, 28 deselected, 22 warnings in 1192.20s`; host load average exceeded `70`, and the only failure was `tests/integration/test_self_evolution_gateway_skill_sync.py::test_post_terminal_skill_create_reaches_gateway_config_sync` exceeding its 5-second catalog-revision wait.
+- Systematic-debugging recheck: the exact failed test passed once with `-vv`, then passed `5/5` additional sequential runs (`1.62–1.95s`). Combined with prior full-green evidence on the same code, orchestrator approved treating the first result as host-load timeout rather than a stable branch regression. If it recurs after the fix under reasonable load, investigation must resume rather than reusing this exception.
+- Plan: R5 adds one stable final-state concurrency regression in the existing config-sync test owner, then serializes the complete skill-created reconciliation boundary with the shared `RLock`; no caller-specific locks and no event-policy/schema changes.
+
+### R5 — 并发 Skill 配置调和
+
+- Context: foreground observer 与每 session persistent subscriber 会在不同 worker thread 调用同一 `IMAgentConfigSync.handle_skill_created()`；旧实现没有共享锁，两次整表 PATCH 可读到同一 optimistic profile version。
+- Decision: 复用 `IMAgentConfigSync._operation_lock` 串行化一次 skill-created 的完整验证、read/merge/patch/publish 边界。锁位于共享调和 owner，不在 foreground/persistent 调用方各自建锁；既有 `RLock` 保持同线程可重入，并与 config operation 的配置发布互斥。
+- Rationale: 第二个事件在第一个发布后重新读取 profile，所以 merge 基于新 version/list；不改网络错误重试、event source 或 selection-mode 规则。
+- Evidence:
+  - Red: 两个 thread 先后创建 `skill-a` / `skill-b` 并发读 version 1；旧实现只剩 `['old-skill', 'skill-b']`，另一 PATCH 409 后被既有 handler 记录，focused 结果 `1 failed` 。
+  - Green: 同一回归结束为 `['old-skill', 'skill-a', 'skill-b']`；新回归 + restart/path tests `4 passed in 2.56s`，最终调度收紧后单测 `1 passed in 1.57s`。
+  - Affected: config-sync/manager/subscriber/composition/observer/Kernel integration + test contract `84 passed, 2 warnings in 13.71s`；共享 config-operation lock suites `16 passed in 1.65s`。
+  - Entry: M2 外部 cwd 真栈 runner 继续经 production Gateway persistent owner 完成真 Skill create/config sync/new-session use，`2 passed in 63.70s`。
+  - Pre-rebase full non-E2E before the wait stabilizer: `3197 passed, 29 deselected, 22 warnings in 324.74s`; the baseline catalog-revision timeout did not recur in that run.
+  - Quality: repository `ruff check .` passed; `scripts/docs-check` passed (`228` maintained Markdown / `67` routes); `git diff --check` and runner shell syntax passed.
+  - Frontend State Matrix / Browser QA / Visual / Prototype: N/A（无展示面变更）。
+- Rollback: revert the code-review implementation commit to restore the pre-review concurrency behavior.
+- Commits: `b77497ae6`.
+- Next: M2 harness fixes and final gates.
+
+### Post-rebase gate debugging — config-sync completion wait
+
+- Trigger: the post-rebase full suite reproduced the same integration failure: `3196 passed, 1 failed, 29 deselected, 22 warnings in 379.64s`; failure remained the 5-second catalog-revision wait.
+- Boundary evidence: the exact test passed `6/6` during baseline diagnosis and `5/5` after the implementation; the whole `tests/integration` ordering passed `46/46`. The failure only appeared under the complete suite. Both traces stopped in `_wait_for_catalog_revision()` at `await asyncio.sleep(0)` while the production callback was dispatched with `asyncio.to_thread`.
+- Root cause: the integration regression used a zero-delay hot poll to infer completion of a real worker-thread callback. Under whole-suite CPU contention that poll could consume the event-loop/GIL budget until its arbitrary five-second timeout, reporting a missing catalog update before the actual callback completion boundary was observed.
+- Fix: keep the real `BackgroundSubscriptionManager -> asyncio.to_thread -> IMAgentConfigSync.handle_skill_created` path, but wrap the real handler to signal an `asyncio.Event` via `loop.call_soon_threadsafe()` after it returns. The test waits on that completion boundary and then independently asserts catalog revision/mode/Skill file state; timeout stays five seconds.
+- Verification: stabilized exact test `5/5` (`1.52–1.87s`); final whole non-E2E on the exact tree `3197 passed, 29 deselected, 22 warnings in 391.28s`. The target passed at its former 18% failure position.
+- Commits: `a59f488bc`.
