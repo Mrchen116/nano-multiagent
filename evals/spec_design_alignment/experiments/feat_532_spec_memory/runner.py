@@ -659,16 +659,23 @@ def verify_context_attestation(
         )
 
 
-def run_git(repository: Path, *args: str) -> str:
+def run_git(repository: Path, *args: str, trusted_linked_worktree: bool = False) -> str:
     """Run Git without host configuration or repository redirection."""
     metadata = repository / ".git"
     if metadata.is_symlink():
         raise PilotError(f"unsafe Git metadata link in {repository}")
     if metadata.is_file():
         declaration = metadata.read_text(encoding="utf-8").strip()
-        if declaration != f"gitdir: {CANDIDATE_GIT_METADATA}":
+        if declaration == f"gitdir: {CANDIDATE_GIT_METADATA}":
+            metadata = repository / CANDIDATE_GIT_METADATA
+        elif trusted_linked_worktree and declaration.startswith("gitdir: "):
+            metadata = Path(declaration.removeprefix("gitdir: ")).resolve()
+            if not metadata.is_dir():
+                raise PilotError(
+                    f"missing trusted Git worktree metadata in {repository}"
+                )
+        else:
             raise PilotError(f"unsafe Git metadata redirection in {repository}")
-        metadata = repository / CANDIDATE_GIT_METADATA
     if metadata.is_dir():
         config = metadata / "config"
         if config.is_file() and UNSAFE_GIT_CONFIG.search(
@@ -786,12 +793,22 @@ def materialize_h02_base(
 
 def require_clean_repository_snapshot(repository: Path) -> dict[str, Any]:
     """Bind corpus inputs to one clean tracked Git commit and tree."""
-    status = run_git(repository, "status", "--porcelain=v1", "--untracked-files=all")
+    status = run_git(
+        repository,
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+        trusted_linked_worktree=True,
+    )
     if status:
         raise PilotError("source repository must be clean before corpus projection")
     return {
-        "source_commit": run_git(repository, "rev-parse", "HEAD"),
-        "source_tree": run_git(repository, "rev-parse", "HEAD^{tree}"),
+        "source_commit": run_git(
+            repository, "rev-parse", "HEAD", trusted_linked_worktree=True
+        ),
+        "source_tree": run_git(
+            repository, "rev-parse", "HEAD^{tree}", trusted_linked_worktree=True
+        ),
         "source_cleanliness": "clean_tracked_only",
     }
 
@@ -808,6 +825,7 @@ def first_document_sources(
         source_commit,
         "--",
         "docs/changes",
+        trusted_linked_worktree=True,
     ).splitlines()
     grouped: dict[tuple[str, str], list[str]] = {}
     for relative in tracked:
