@@ -783,8 +783,15 @@ class AgentLoop:
                     "turn_id": hook_ctx.turn_id,
                     "message_count": len(consumed),
                     "user_message_count": sum(
-                        1 for item in consumed if item.origin == RunOrigin.USER
+                        1
+                        for item in consumed
+                        if item.origin in {RunOrigin.USER, RunOrigin.HUMAN}
                     ),
+                    "background_returns": [
+                        item.background_return.to_dict()
+                        for item in consumed
+                        if item.background_return is not None
+                    ],
                 },
                 run_id=run_id,
             ),
@@ -821,6 +828,9 @@ class AgentLoop:
                     # feat-434-M1: forward the user-decision verdict the same way, so
                     # realtime_stream carries approval onto tool_end.
                     "approval": result.approval,
+                    "event_metadata": dict(result.event_metadata)
+                    if result.event_metadata is not None
+                    else None,
                 },
                 run_id=run_id,
             ),

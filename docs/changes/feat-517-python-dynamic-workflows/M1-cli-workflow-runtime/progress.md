@@ -17,11 +17,11 @@
 
 ## R1 — 稳定共享公开契约与后台 carrier
 
-- Context: pending
-- Decision: pending
-- Rationale: pending
-- Evidence: pending
-- Rollback: pending
+- Context: M2 需要在不解析 XML 的前提下，把后台 Agent/Workflow 原始返回绑定到消费通知后产生的同一条 assistant message；tool 的异步 launch metadata 也必须独立于 model-facing output。
+- Decision: `BackgroundReturnInfo` 由 core notification projection 与 model XML 同源生成；active injection、held flush、terminal continuation 和 idle submit 搬运同一 typed carrier。新 continuation 的 opening `run_status=running` 在 turn events 前携带 `background_returns`，active path 则由 `injection_consumed.background_returns` 给出 consume boundary。`ToolResult.event_metadata` 由 tool registry 的可选 extractor 进入 realtime `tool_end`，不混入输出。
+- Rationale: 单一 record projection 保证 XML/sidecar 字段与 terminal 状态一致；registry 原子 claim 保证多 writer 只通知一次；opening run event 让产品在创建 message bubble 时即可获得 sidecar。
+- Evidence: `106 passed`（background tasks、runs、tool executor/metadata、realtime hook、SDK/core contracts focused；修正一个 fixture 后复跑见下一 commit）。
+- Rollback: scoped R1 commit 可独立 revert；新增字段均有默认值，既有 bash/subagent 与普通 tool 行为保持兼容。
 - Commits: pending
 
 ## R2 — 实现受限 Python compiler、primitives 与 resume 状态

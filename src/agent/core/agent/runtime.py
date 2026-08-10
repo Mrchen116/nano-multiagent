@@ -297,6 +297,7 @@ class AgentEngine:
                 workspace_root=state.ref.workspace_root,
                 origin=request.origin,
                 model=request.model,
+                source_background_returns=request.source_background_returns,
             )
         finally:
             self._active_execution_scope.reset(scope_token)
@@ -370,6 +371,7 @@ class AgentEngine:
         workspace_root: Path | None = None,
         origin: Any = None,
         model: str | None = None,
+        source_background_returns: tuple[Mapping[str, Any], ...] = (),
     ) -> TurnResult:
         """Internal run implementation (assumes session lock is held)."""
 
@@ -421,6 +423,10 @@ class AgentEngine:
         # RunOrigin in core hooks. Use .value (string) for decoupling.
         if origin is not None:
             hook_metadata["run_origin"] = getattr(origin, "value", str(origin))
+        if source_background_returns:
+            hook_metadata["source_background_returns"] = [
+                dict(item) for item in source_background_returns
+            ]
         hook_ctx = self._build_hook_context(
             session_id=session_id,
             turn_id=turn_id,

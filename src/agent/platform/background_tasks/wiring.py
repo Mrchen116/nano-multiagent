@@ -127,10 +127,12 @@ def _wire_notification_callbacks(
         def update(self, record: BackgroundTaskRecord) -> None:
             self._delegate.update(record)
             if (
-                record.status in {"completed", "failed", "killed"}
+                record.status in {"completed", "failed", "killed", "stopped"}
                 and not record.notified
             ):
-                _deliver_notification(record, runs_registry, directory)
+                claimed = registry.claim_notification(record.task_id)
+                if claimed is not None:
+                    _deliver_notification(claimed, runs_registry, directory)
 
         def get(self, task_id: str) -> BackgroundTaskRecord | None:
             return self._delegate.get(task_id)
@@ -152,12 +154,13 @@ def _deliver_notification(
     because those sessions are not managed by the top-level RunsRegistry.
     Any other submit failure is logged rather than swallowed.
     """
-    from agent.core.background_tasks.notifications import build_task_notification_xml
+    from agent.core.background_tasks.notifications import build_background_notification
     from agent.core.llm.interfaces import LLMMessage
     from agent.core.observability.logger import log_debug, log_error
 
     parent = record.parent_session_id
-    notification_xml = build_task_notification_xml(record)
+    notification = build_background_notification(record)
+    notification_xml = notification.xml
 
     active_run_id = runs_registry.get_active_run_id(parent)
     if active_run_id is not None:
@@ -165,6 +168,7 @@ def _deliver_notification(
             parent,
             LLMMessage(role="user", content=notification_xml),
             origin=RunOrigin.BACKGROUND_TASK,
+            background_return=notification.background_return,
         )
         if injected:
             return
@@ -196,6 +200,9 @@ def _deliver_notification(
             parts=[{"type": "text", "text": notification_xml}],
             origin=RunOrigin.BACKGROUND_TASK,
             source_task_id=record.task_id,
+            source_background_returns=(notification.background_return,)
+            if notification.background_return is not None
+            else (),
             workspace_root=workspace_root,
         )
     except Exception as exc:  # noqa: BLE001

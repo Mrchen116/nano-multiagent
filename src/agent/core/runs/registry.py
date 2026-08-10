@@ -12,6 +12,7 @@ from agent.core.ids import make_run_id
 from agent.core.errors import CompactionError
 from agent.core.utils.time import utc_now_iso as _utc_now_iso
 from agent.core.llm.interfaces import LLMMessage
+from agent.core.background_tasks.notifications import BackgroundReturnInfo
 from agent.core.runs.origin import RunOrigin
 from agent.core.types import TokenUsage, TurnResult
 from agent.core.hooks.context import HookContext
@@ -69,6 +70,7 @@ class RunRecord:
     last_error: Mapping[str, Any] | None = None
     origin: RunOrigin = RunOrigin.USER
     source_task_id: str | None = None
+    source_background_returns: tuple[BackgroundReturnInfo, ...] = ()
     # bugfix-429: the model this run executes with, supplied by the product layer
     # per submit (agent.default_model). submit is async-queued (background worker)
     # and the kernel self-continues stranded runs, so the model must live on the
@@ -177,6 +179,7 @@ class RunsRegistry:
         parts: Sequence[Mapping[str, Any]],
         origin: RunOrigin = RunOrigin.USER,
         source_task_id: str | None = None,
+        source_background_returns: Sequence[BackgroundReturnInfo] = (),
         trace_id: str | None = None,
         workspace_root: Path | None = None,
         flush_held: bool = True,
@@ -195,10 +198,14 @@ class RunsRegistry:
                 )
             held = self._held_pending.pop(session_id, None) if flush_held else None
         normalized_parts: list[Mapping[str, Any]] = []
+        normalized_background_returns: list[BackgroundReturnInfo] = []
         if held:
             for pending in held:
                 normalized_parts.extend(_input_parts_from_message(pending.message))
+                if pending.background_return is not None:
+                    normalized_background_returns.append(pending.background_return)
         normalized_parts.extend(dict(part) for part in parts)
+        normalized_background_returns.extend(source_background_returns)
 
         ref = SessionRef(session_id=session_id, workspace_root=workspace_root)
         if self._directory.get(ref) is None:
@@ -222,6 +229,7 @@ class RunsRegistry:
             trace_id=resolved_trace_id,
             origin=origin,
             source_task_id=source_task_id,
+            source_background_returns=tuple(normalized_background_returns),
             workspace_root=ref.workspace_root,
             start_sequence=start_sequence,
             model=model,
@@ -242,6 +250,9 @@ class RunsRegistry:
                     controller=controller,
                     origin=origin,
                     model=model,
+                    source_background_returns=tuple(
+                        item.to_dict() for item in normalized_background_returns
+                    ),
                 ),
                 sink,
             )
@@ -341,6 +352,7 @@ class RunsRegistry:
         origin: RunOrigin = RunOrigin.USER,
         *,
         expected_run_id: str | None = None,
+        background_return: BackgroundReturnInfo | None = None,
     ) -> bool:
         """Enqueue a message for round-boundary injection into the active run.
 
@@ -366,6 +378,7 @@ class RunsRegistry:
                 message,
                 origin,
                 expected_run_id=expected_run_id,
+                background_return=background_return,
             )
             is not None
         )
@@ -377,6 +390,7 @@ class RunsRegistry:
         origin: RunOrigin = RunOrigin.USER,
         *,
         expected_run_id: str | None = None,
+        background_return: BackgroundReturnInfo | None = None,
     ) -> str | None:
         """Atomically compare, inject, and return the accepted active run identity.
 
@@ -407,7 +421,7 @@ class RunsRegistry:
             # Controller admission shares its terminal lock with the loop's terminal
             # commit. Keeping both locks through enqueue makes active identity and
             # terminal acceptance one linearizable decision.
-            if not controller.enqueue_message(message, origin):
+            if not controller.enqueue_message(message, origin, background_return):
                 return None
             return run_id
 
@@ -604,6 +618,11 @@ class RunsRegistry:
                     for part in _input_parts_from_message(pending.message)
                 ],
                 origin=origin_batch,
+                source_background_returns=tuple(
+                    pending.background_return
+                    for pending in pending_batch
+                    if pending.background_return is not None
+                ),
                 workspace_root=workspace_root,
                 model=model,
             )
@@ -846,6 +865,10 @@ class RunsRegistry:
             "source_task_id": record.source_task_id,
             "created_at": record.updated_at,
         }
+        if record.source_background_returns:
+            payload["background_returns"] = [
+                item.to_dict() for item in record.source_background_returns
+            ]
         if record.turn_id is not None:
             payload["turn_id"] = record.turn_id
         if record.stop_reason is not None:

@@ -59,6 +59,11 @@ def setup(hooks):  # noqa: ANN001, ANN201
             "reasoning_content": event.get("reasoning_content") or "",
             "metadata": {},
         }
+        source_returns = ctx.metadata.get("source_background_returns")
+        if isinstance(source_returns, list) and source_returns:
+            payload["background_returns"] = [
+                dict(item) for item in source_returns if isinstance(item, Mapping)
+            ]
         if run_origin is not None:
             payload["origin"] = run_origin
         ctx.publish_session_event(event="assistant_message", data=payload)
@@ -110,6 +115,7 @@ def setup(hooks):  # noqa: ANN001, ANN201
             # feat-434-M1: carry the user-decision verdict (user_allow/user_deny)
             # onto the SSE event so the front-end gate region can render 已授权/已拒绝.
             "approval": event.get("approval"),
+            "event_metadata": _as_mapping_or_none(event.get("event_metadata")),
             "presentation": _presentation_dict(presentation),
         }
         ctx.publish_session_event(event="tool_end", data=payload)
@@ -162,6 +168,7 @@ def setup(hooks):  # noqa: ANN001, ANN201
                 "turn_id": event.get("turn_id"),
                 "message_count": event.get("message_count"),
                 "user_message_count": event.get("user_message_count"),
+                "background_returns": event.get("background_returns") or [],
             },
         )
 

@@ -198,6 +198,10 @@ class StreamingToolExecutor:
             )
             approval = exec_meta.get("approval")
             approval = approval if isinstance(approval, str) and approval else None
+            event_metadata = exec_meta.get("event_metadata")
+            event_metadata = (
+                dict(event_metadata) if isinstance(event_metadata, Mapping) else None
+            )
             if self._should_cancel(item):
                 item.result = self._synthetic_error(
                     item, "cancelled by sibling bash error", approval=approval
@@ -210,6 +214,7 @@ class StreamingToolExecutor:
                     duration_ms=item.duration_ms,
                     arguments=dict(item.tool_call.arguments),
                     approval=approval,
+                    event_metadata=event_metadata,
                 )
             item.status = "completed"
         except asyncio.CancelledError:
@@ -296,6 +301,7 @@ class StreamingToolExecutor:
                     arguments=item.result.arguments,
                     reason_code=item.result.reason_code,
                     approval=item.result.approval,
+                    event_metadata=item.result.event_metadata,
                 )
         item._event.set()
         await self._process_queue()

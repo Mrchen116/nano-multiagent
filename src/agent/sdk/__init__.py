@@ -28,8 +28,14 @@ from .dto import (
     ModelInfo,
     RunInfo,
     SessionInfo,
+    SavedWorkflowInfo,
     SkillInfo,
     ToolInfo,
+    WorkflowAgentInfo,
+    WorkflowControlAction,
+    WorkflowPhaseInfo,
+    WorkflowRunInfo,
+    WorkflowSaveScope,
 )
 from .prompt import PromptSlots, PromptText
 from .runtime import (
@@ -42,6 +48,7 @@ from agent.core.tools.presentation import ToolPresentationEvent, ToolPresenter
 from agent.core.runs.origin import RunOrigin
 from agent.core.runs.registry import TERMINAL_RUN_STATUSES
 from agent.core.session.transcript import USER_INTERRUPT_RECOVERY_CONTENT
+from agent.core.background_tasks.notifications import BackgroundReturnInfo
 from agent.platform.permissions.broker import PermissionDecision
 
 __all__ = [
@@ -68,6 +75,13 @@ __all__ = [
     "ToolInfo",
     "FeatureInfo",
     "SkillInfo",
+    "WorkflowControlAction",
+    "WorkflowSaveScope",
+    "WorkflowPhaseInfo",
+    "WorkflowAgentInfo",
+    "WorkflowRunInfo",
+    "SavedWorkflowInfo",
+    "BackgroundReturnInfo",
     # Tool presentation (决策 12: core-owned pure-function types, sdk re-export, 闸2 豁免)
     "ToolPresenter",
     "ToolPresentationEvent",

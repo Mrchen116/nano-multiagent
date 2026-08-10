@@ -44,13 +44,13 @@ Prototype / Reference Contract：`prototype.html` 的 must-match Web 状态归 M
 
 ### R1 — 稳定共享公开契约与后台 carrier
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 先为 RunOrigin、Background STOPPED/WORKFLOW、notification projection/claim、PendingMessage/RunRecord sidecar、ToolResult event metadata 与 SDK DTO 表面写红测，再实现最小字段和搬运链。
 - 验证: core/platform/SDK focused tests + contract tests。
 
 ### R2 — 实现受限 Python compiler、primitives 与 resume 状态
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 以纯 fake child 写 AST/meta/policy、checkpoint、parallel/pipeline/limits、ordinal、whole-run 终态与 chained-v2 prefix 红测，再实现 `agent.core.workflows`。
 - 验证: `tests/unit/agent/core/workflows/`。
 

@@ -10,6 +10,7 @@ the pending queue must carry the origin alongside each message.
 from __future__ import annotations
 
 from agent.core.agent.run_control import RunController
+from agent.core.background_tasks.notifications import BackgroundReturnInfo
 from agent.core.llm.interfaces import LLMMessage
 from agent.core.runs.origin import RunOrigin
 
@@ -40,3 +41,23 @@ def test_drain_empties_queue() -> None:
     )
     assert len(controller.drain_pending()) == 1
     assert controller.drain_pending() == []
+
+
+def test_enqueue_drain_carries_background_return_with_its_message() -> None:
+    controller = RunController()
+    sidecar = BackgroundReturnInfo(
+        task_id="wt_123456",
+        task_type="workflow",
+        status="completed",
+        description="review",
+        workflow_run_id="wf_123456",
+        result="done",
+    )
+
+    controller.enqueue_message(
+        LLMMessage(role="user", content="<task-notification />"),
+        origin=RunOrigin.BACKGROUND_TASK,
+        background_return=sidecar,
+    )
+
+    assert controller.drain_pending()[0].background_return is sidecar

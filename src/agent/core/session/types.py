@@ -148,6 +148,7 @@ class TurnRequest:
     controller: "RunController | None" = None
     origin: Any = None
     model: str | None = None
+    source_background_returns: tuple[Mapping[str, Any], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

@@ -375,6 +375,12 @@ class ToolRegistry:
             # _emit_execution_update (no buffer to flush here). The final output update
             # below remains the authoritative tool_execution_update carrying the result.
             if execution_error is None:
+                if out_meta is not None:
+                    metadata_builder = getattr(tool, "result_event_metadata", None)
+                    if callable(metadata_builder):
+                        event_metadata = metadata_builder(raw_result)
+                        if isinstance(event_metadata, Mapping):
+                            out_meta["event_metadata"] = dict(event_metadata)
                 await self._dispatch_observe(
                     "tool_execution_update",
                     {

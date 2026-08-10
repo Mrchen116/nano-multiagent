@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from enum import StrEnum
+from typing import Any, Mapping
 
 
 @dataclass(frozen=True)
@@ -401,6 +403,91 @@ class SkillInfo:
     location: str | None = None
 
 
+class WorkflowControlAction(StrEnum):
+    """Supported Workflow control operations."""
+
+    PAUSE = "pause"
+    RESUME = "resume"
+    STOP = "stop"
+    RESTART_AGENT = "restart_agent"
+
+
+class WorkflowSaveScope(StrEnum):
+    """Supported saved Workflow destination scopes."""
+
+    PROJECT = "project"
+    PERSONAL = "personal"
+
+
+@dataclass(frozen=True)
+class WorkflowPhaseInfo:
+    """Describe one phase in a Workflow snapshot."""
+
+    title: str
+    detail: str = ""
+    status: str = "pending"
+    agent_call_ids: tuple[str, ...] = ()
+    usage: Mapping[str, int] | None = None
+    duration_ms: int | None = None
+
+
+@dataclass(frozen=True)
+class WorkflowAgentInfo:
+    """Describe one logical child Agent call in a Workflow snapshot."""
+
+    agent_call_id: str
+    start_ordinal: int
+    status: str
+    prompt: str
+    label: str | None = None
+    phase: str | None = None
+    terminal_ordinal: int | None = None
+    result: Any = None
+    error: str | None = None
+    usage: Mapping[str, int] | None = None
+    duration_ms: int | None = None
+    session_id: str | None = None
+    worktree_path: str | None = None
+
+
+@dataclass(frozen=True)
+class WorkflowRunInfo:
+    """Expose one complete, revisioned Workflow run snapshot."""
+
+    run_id: str
+    task_id: str
+    parent_session_id: str
+    revision: int
+    status: str
+    name: str
+    description: str
+    current_phase: str | None = None
+    phases: tuple[WorkflowPhaseInfo, ...] = ()
+    agents: tuple[WorkflowAgentInfo, ...] = ()
+    logs: tuple[str, ...] = ()
+    usage: Mapping[str, int] | None = None
+    duration_ms: int | None = None
+    size_guideline: str = "medium"
+    large_warning: str | None = None
+    script_path: str = ""
+    transcript_dir: str = ""
+    resumed_from: str | None = None
+    result: Any = None
+    error: str | None = None
+    warnings: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class SavedWorkflowInfo:
+    """Describe one discovered or newly saved named Workflow."""
+
+    name: str
+    scope: str
+    path: str
+    description: str = ""
+    namespace: str | None = None
+
+
 __all__ = [
     "SessionInfo",
     "RunInfo",
@@ -411,4 +498,10 @@ __all__ = [
     "ToolInfo",
     "FeatureInfo",
     "SkillInfo",
+    "WorkflowControlAction",
+    "WorkflowSaveScope",
+    "WorkflowPhaseInfo",
+    "WorkflowAgentInfo",
+    "WorkflowRunInfo",
+    "SavedWorkflowInfo",
 ]
