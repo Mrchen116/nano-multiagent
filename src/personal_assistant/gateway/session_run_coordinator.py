@@ -760,7 +760,10 @@ class SessionRunCoordinator:
         )
         command = parse_workflow_command(
             request.command_text,
-            named_workflows=tuple(item.name for item in named),
+            named_workflows=tuple(
+                f"{item.namespace}:{item.name}" if item.namespace else item.name
+                for item in named
+            ),
         )
         if command is None:
             return None

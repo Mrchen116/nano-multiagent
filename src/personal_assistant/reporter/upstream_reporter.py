@@ -256,7 +256,14 @@ def _workflow_commands_from_kernel(
         {"name": "config", "description": "Configure Workflow size guidance"},
     ]
     commands.extend(
-        {"name": workflow.name, "description": workflow.description}
+        {
+            "name": (
+                f"{workflow.namespace}:{workflow.name}"
+                if workflow.namespace
+                else workflow.name
+            ),
+            "description": workflow.description,
+        }
         for workflow in kernel.list_named_workflows(workspace_root=workspace_root)
     )
     return commands

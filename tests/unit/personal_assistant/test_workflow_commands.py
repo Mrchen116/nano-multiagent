@@ -41,6 +41,12 @@ def test_parse_named_workflow_keeps_user_arguments() -> None:
     assert parsed.name == "review-changes"
     assert parsed.arguments == "focus on API compatibility"
 
+    namespaced = parse_workflow_command(
+        "/quality:review focus on tests",
+        named_workflows=("quality:review",),
+    )
+    assert namespaced.name == "quality:review"
+
 
 def test_parse_unknown_or_invalid_command() -> None:
     assert parse_workflow_command("/unknown", named_workflows=("known",)) is None
