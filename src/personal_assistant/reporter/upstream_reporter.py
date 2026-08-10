@@ -236,7 +236,30 @@ def build_agent_capabilities_payload(
     ).as_payload()
     base["skills"] = _skills_from_kernel(kernel, workspace_root=workspace_root)
     base["features"] = project_features(tool_allowlist=tool_allowlist)
+    base["commands"] = _workflow_commands_from_kernel(
+        kernel,
+        workspace_root=Path(workspace_root),
+        tool_allowlist=tool_allowlist,
+    )
     return base
+
+
+def _workflow_commands_from_kernel(
+    kernel: "Kernel", *, workspace_root: Path, tool_allowlist: tuple[str, ...]
+) -> list[dict[str, str]]:
+    """Project commands from the same active Workflow capability snapshot."""
+
+    if "Workflow" not in tool_allowlist:
+        return []
+    commands = [
+        {"name": "workflows", "description": "Inspect and control Workflow runs"},
+        {"name": "config", "description": "Configure Workflow size guidance"},
+    ]
+    commands.extend(
+        {"name": workflow.name, "description": workflow.description}
+        for workflow in kernel.list_named_workflows(workspace_root=workspace_root)
+    )
+    return commands
 
 
 class UpstreamReporter:

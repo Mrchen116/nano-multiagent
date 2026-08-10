@@ -427,3 +427,39 @@ def test_agent_capabilities_do_not_mark_workspace_skills_default_on(
     assert by_name["pa-global"]["default_on"] is True
     assert by_name["workspace-doc"]["source_group"] == "workspace"
     assert by_name["pa-global"]["source_group"] == "global"
+
+
+def test_agent_capabilities_commands_follow_active_workflow_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "home" / ".codex"))
+    workspace = tmp_path / "agent-ws"
+    workflow_dir = workspace / ".nanoassistant" / "workflows"
+    workflow_dir.mkdir(parents=True)
+    (workflow_dir / "project-review.py").write_text(
+        'meta = {"name": "project-review", "description": "Review this project"}\n'
+        "\nasync def main():\n    return 'done'\n",
+        encoding="utf-8",
+    )
+    kernel = _build_test_kernel(tmp_path / "kernel-root")
+
+    inactive = build_agent_capabilities_payload(
+        kernel,
+        workspace_root=str(workspace),
+        tool_allowlist=("read",),
+    )
+    active = build_agent_capabilities_payload(
+        kernel,
+        workspace_root=str(workspace),
+        tool_allowlist=("read", "Workflow"),
+    )
+
+    assert inactive["commands"] == []
+    assert [item["name"] for item in active["commands"]] == [
+        "workflows",
+        "config",
+        "deep-research",
+        "project-review",
+    ]
+    assert active["commands"][-1]["description"] == "Review this project"
