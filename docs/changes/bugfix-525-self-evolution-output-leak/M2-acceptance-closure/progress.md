@@ -96,7 +96,7 @@ None.
   - Cleanup: test 后 `.im.pid` 不存在，IM pid 已消失，stub `poll()` 为 terminal。
   - Frontend / Browser / Visual / Prototype: N/A（acceptance harness lifecycle）。
 - Rollback: revert the code-review implementation commit.
-- Commits: pending implementation commit.
+- Commits: `b77497ae6`.
 - Next: R5 external-cwd runner and final gates.
 
 ### R5 — runner 外部 cwd 路径契约与门禁
@@ -113,5 +113,5 @@ None.
   - Quality: `/Users/czj/Repos/nano-multiagent/.venv/bin/ruff check .` passed; `PYTHON=/Users/czj/Repos/nano-multiagent/.venv/bin/python scripts/docs-check` passed (`228` maintained Markdown / `67` routes); `git diff --check` and `bash -n scripts/e2e-self-evolution.sh` passed.
   - Frontend / Browser / Visual / Prototype: N/A（Web IM 同一 HTTP/WS relay 真栈，无客户端修改）。
 - Rollback: revert the code-review implementation commit.
-- Commits: pending implementation commit.
+- Commits: `b77497ae6`.
 - Next: final full non-E2E on the exact tree, repository Ruff/docs/diff/shell gates, commit and integration.

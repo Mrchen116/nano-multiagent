@@ -103,5 +103,5 @@
   - Quality: repository `ruff check .` passed; `scripts/docs-check` passed (`228` maintained Markdown / `67` routes); `git diff --check` and runner shell syntax passed.
   - Frontend State Matrix / Browser QA / Visual / Prototype: N/A（无展示面变更）。
 - Rollback: revert the code-review implementation commit to restore the pre-review concurrency behavior.
-- Commits: pending implementation commit.
+- Commits: `b77497ae6`.
 - Next: M2 harness fixes and final gates.
