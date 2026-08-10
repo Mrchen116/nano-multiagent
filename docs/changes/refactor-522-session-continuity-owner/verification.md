@@ -82,3 +82,60 @@ None.
 ### SUGGESTION（可以修）
 
 - **S1 — partial-recovery 用例的 A 进程应在 `finally` 中兜底回收。** `tests/e2e/critical_paths/test_session_continuity_partial_recovery.py:98-118` 只在成功越过 barrier 后 terminate A；如 barrier 等待或断言提前失败，当前 `finally` 只停 IM，会遗留 stage-A subprocess。本轮首次受同机并发 pytest 默认 temp retention 干扰时已实际观察到该泄漏。将 `gateway_a` 初始化为 `None`，并在 `finally` 中对存活进程执行 terminate/wait，超时再 kill/wait。
+
+# Round 2
+
+> Validation snapshot: `48d19d8a7809805efcb7631e75079cc09daf2eab → dea7291106e7283e3e09c90c18abcc161de9cf8e`
+
+## Summary
+
+Mode: targeted-closure
+
+Delta range: `e7fca350c9285d353be322b464402e6a5ecf23eb..dea7291106e7283e3e09c90c18abcc161de9cf8e`
+
+Focus issues: R1-W1 compact no-op/failure/replay/session regression coverage; R1-S1 stage-A subprocess finally cleanup
+
+requires_full_verification: false
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 2/2 focus issues closed |
+| Correctness | 2/2 missing `/compact` branches now directly covered |
+| Coherence | Followed |
+
+All checks passed. Ready for PR.
+
+## Completeness
+
+- R1-W1: closed. 新增的两个 Gateway pipeline 测试分别覆盖“已有 binding 但 `compact()` 返回 `None`”和“`compact()` 抛错”，并从回复、replay、binding 与后续消息观察产品语义。
+- R1-S1: closed. stage-A handle 在进入 `try` 前初始化，`finally` 对仍存活的子进程执行 terminate/wait，超时再 kill/wait。
+- Fix delta 只修改两个已有测试文件和 M1 progress，未修改 production code、design 或 delta-spec，因此不需要 full verification 升级。
+
+## Correctness
+
+| Focus issue / contract | Fix evidence | Independent verification | Status |
+|---|---|---|---|
+| W1: 已有 session 但无新的可压缩历史 | `tests/unit/personal_assistant/test_gateway_stop_command.py:635-660` 先建立 binding，再令 fake Kernel 返回 `None`，断言 no-op 回复、原 session id 和 binding 均不变 | whole owner file: 23 passed | closed |
+| W1: 压缩失败的友好回复、幂等重放和后续上下文 | `tests/unit/personal_assistant/test_gateway_stop_command.py:663-702` 令 Kernel 抛错，用稳定 relay identity 重放，断言失败回复一致、compact 仅执行一次、binding 不变且 follow-up 仍走 `sess-1` | whole owner file: 23 passed | closed |
+| S1: barrier/断言提前失败不遗留 stage-A | `tests/e2e/critical_paths/test_session_continuity_partial_recovery.py:85`; `:176-183` 把 cleanup 放入无条件 `finally` 并实现 terminate→wait→kill/wait 升级 | partial-recovery: 1 passed; 运行后无匹配 stage-A 进程 | closed |
+
+## Coherence
+
+- 两个 W1 测试扩展既有 Gateway text-control owner file，从 `InboundPipeline` 公开入站 seam 驱动真实 binder/coordinator，没有新建平行 fixture 或直接测私有函数。
+- 测试断言的 no-op、失败回复、稳定重放、session continuity 和子进程回收都是稳定产品/运行边界，符合 `docs/development/testing.md` 的永久测试准入与最低合适落层。
+- Fix delta 没有触及 dependency direction、跨机/进程产品边界、continuity owner 或其他架构决策；R1 full verdict 的架构结论仍有效。
+- 独立门禁：Gateway control owner file 23 passed；partial-recovery 1 passed；Ruff check/format-check、docs-check 和 fix-delta `git diff --check` 均通过。
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+None.
+
+### WARNING（提 PR 前必须修）
+
+None.
+
+### SUGGESTION（可以修）
+
+None.
