@@ -41,13 +41,13 @@ Prototype / Reference Contract：N/A。
 
 ### R1 — controlled no-save 真栈
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 先写失败的 critical-path E2E；再实现 OpenAI-compatible fixture、隔离配置与 no-save scenario state/正向事实。
 - 验证: 单条 E2E 红（fixture/能力缺失）→ 绿；既有 controlled-LLM E2E 继续通过。
 
 ### R2 — terminal 后 Skill create + replay + 新 session 使用
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 先扩失败旅程；再加入只作用于 fixture Gateway 进程的一次 stream fault，真实 `skill_manage(create)`、explicit config sync 与新 session `skill_view` 闭环。
 - 验证: skill E2E 红→绿；M1 subscriber/manager/config-sync focused suites 通过。
 

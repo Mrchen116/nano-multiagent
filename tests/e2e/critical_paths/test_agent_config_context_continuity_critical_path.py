@@ -124,6 +124,7 @@ def _rewrite_llm_to_stub(
     dst: Path,
     stub_url: str,
     *,
+    provider_name: str | None = None,
     context_window: int | None = None,
 ) -> None:
     cfg = yaml.safe_load(src.read_text(encoding="utf-8"))
@@ -133,6 +134,8 @@ def _rewrite_llm_to_stub(
         raise AssertionError(f"{src} has no llm.providers")
     for provider in providers:
         provider["base_url"] = stub_url
+        if provider_name is not None:
+            provider["name"] = provider_name
     # 去掉 thinking 附加体:stub 不需要,且部分模型附加项会改变请求形状。
     for provider in providers:
         for model in provider.get("models") or []:
@@ -186,6 +189,12 @@ def stub_llm_stack(
         not isinstance(context_window, int) or context_window <= 0
     ):
         raise ValueError("context_window must be a positive integer")
+    provider_name = options.get("provider")
+    if provider_name is not None and provider_name not in {
+        "anthropic",
+        "openai_compat",
+    }:
+        raise ValueError("provider must be anthropic or openai_compat")
     start_usage = options.get("message_start_usage")
     delta_usage = options.get("message_delta_usage")
     if start_usage is not None and not isinstance(start_usage, dict):
@@ -235,6 +244,7 @@ def stub_llm_stack(
         _E2E_CONFIG,
         main_for_up,
         f"http://127.0.0.1:{stub_port}",
+        provider_name=provider_name,
         context_window=context_window,
     )
 
