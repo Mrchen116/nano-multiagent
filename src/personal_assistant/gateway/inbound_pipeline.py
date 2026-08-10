@@ -18,8 +18,10 @@ from personal_assistant.gateway.inbound_models import (
     NewSessionRequest,
     PipelineResult,
     StopRunRequest,
+    WorkflowCommandRequest,
     build_group_context_key,
 )
+from personal_assistant.product import resolve_enabled_tools
 from personal_assistant.gateway.runtime_protocol import (
     ShadowConversationRef,
     attach_runtime_protocol,
@@ -113,7 +115,8 @@ class InboundPipeline:
 
         agent_id = self._resolve_agent(message)
         agent = self._agent_catalog.require(agent_id)
-        command, focus = self._parse_control_command(message, agent_id=agent_id)
+        normalized_command = self._normalize_command_text(message, agent_id=agent_id)
+        command, focus = self._parse_control_command(normalized_command)
         should_process = self._should_process(
             message,
             agent_id=agent_id,
@@ -180,6 +183,21 @@ class InboundPipeline:
                     operation_id=self._control_operation_id(message),
                 ),
             )
+        if normalized_command.startswith("/") and "Workflow" in resolve_enabled_tools(
+            agent.config
+        ):
+            workflow_result = await self._run_coordinator.workflow_command(
+                WorkflowCommandRequest(
+                    message=message,
+                    agent=agent,
+                    session_key=session_key,
+                    command_text=normalized_command,
+                    sender_label=sender_label,
+                    operation_id=self._control_operation_id(message),
+                )
+            )
+            if workflow_result is not None:
+                return workflow_result
         return await self._run_coordinator.dispatch(
             InboundRunRequest(
                 message=message,
@@ -330,10 +348,8 @@ class InboundPipeline:
         return f"@{agent_id}" in message.text
 
     @staticmethod
-    def _parse_control_command(
-        message: InboundMessage, *, agent_id: str
-    ) -> tuple[str | None, str | None]:
-        """Return one exact control command and optional compact focus.
+    def _normalize_command_text(message: InboundMessage, *, agent_id: str) -> str:
+        """Strip structural mentions once for every shared slash-command parser.
 
         Mention stripping deliberately remains here at the shared inbound seam so
         Web IM and Feishu cannot acquire subtly different command grammars.
@@ -364,6 +380,12 @@ class InboundPipeline:
         for mention in sorted(candidates, key=len, reverse=True):
             normalized = normalized.replace(mention, " ")
         normalized = " ".join(normalized.split())
+        return normalized
+
+    @staticmethod
+    def _parse_control_command(normalized: str) -> tuple[str | None, str | None]:
+        """Return one exact built-in control command and optional compact focus."""
+
         if normalized == "/stop":
             return "stop", None
         if normalized == "/new":

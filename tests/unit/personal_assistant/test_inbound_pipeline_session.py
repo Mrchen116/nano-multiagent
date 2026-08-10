@@ -7,6 +7,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import httpx
+from agent.sdk import WorkflowRunInfo
 
 from personal_assistant.channels.base import (
     ExternalInboundEventIdentity,
@@ -195,6 +196,158 @@ def test_inbound_pipeline_runs_four_steps_and_replies_via_origin_channel(
     assert kernel_client.send_calls == [
         {"session_id": "sess-1", "texts": ["ping"], "run_id": "run-1"}
     ]
+
+
+def test_active_workflow_commands_query_config_and_invoke_named_definition(
+    tmp_path: Path,
+) -> None:
+    async def _run() -> None:
+        workspace = tmp_path / "workflow-agent"
+        workspace.mkdir()
+        agents = (
+            AgentWorkspaceConfig(
+                agent_id="agent-a",
+                workspace_root=workspace,
+                title="Agent A",
+                default_model="test-model",
+                tool_allowlist=("read", "Workflow"),
+            ),
+        )
+        channel = _FakeChannel("web_relay")
+        kernel = ControlledKernel()
+        configured: list[tuple[str, str]] = []
+        pipeline = build_inbound_pipeline(
+            kernel=kernel,
+            agents=agents,
+            outbound_router=OutboundRouter(ChannelRegistry((channel,))),
+            run_queue=SessionRunQueue(),
+            session_store=SessionBindingStore(),
+            default_agent_id="agent-a",
+            update_workflow_size_guideline=lambda agent_id, value: configured.append(
+                (agent_id, value)
+            ),
+        )
+
+        listed = await pipeline.handle_inbound(
+            InboundMessage(
+                channel_name="web_relay",
+                text="/workflows",
+                external_user_id="user-1",
+                external_chat_id="chat-1",
+                is_group=False,
+                agent_id="agent-a",
+            )
+        )
+        assert listed is not None
+        assert listed.reply_text == "暂无 Workflow 运行记录。"
+        assert kernel.submit_calls == []
+
+        kernel.workflow_runs["wf_123"] = WorkflowRunInfo(
+            run_id="wf_123",
+            task_id="wt_123",
+            parent_session_id=listed.kernel_session_id,
+            revision=1,
+            status="running",
+            name="review",
+            description="Review changes",
+            transcript_dir="/tmp/wf_123",
+        )
+        paused = await pipeline.handle_inbound(
+            InboundMessage(
+                channel_name="web_relay",
+                text="/workflows wf_123 pause",
+                external_user_id="user-1",
+                external_chat_id="chat-1",
+                is_group=False,
+                agent_id="agent-a",
+            )
+        )
+        assert paused is not None
+        assert "wf_123 · review · pause" in paused.reply_text
+
+        saved = await pipeline.handle_inbound(
+            InboundMessage(
+                channel_name="web_relay",
+                text="/workflows wf_123 save project saved-review",
+                external_user_id="user-1",
+                external_chat_id="chat-1",
+                is_group=False,
+                agent_id="agent-a",
+            )
+        )
+        assert saved is not None
+        assert saved.reply_text == (
+            "已保存 Workflow /saved-review\n路径: /saved/saved-review.py"
+        )
+
+        configured_result = await pipeline.handle_inbound(
+            InboundMessage(
+                channel_name="web_relay",
+                text="/config workflowSizeGuideline large",
+                external_user_id="user-1",
+                external_chat_id="chat-1",
+                is_group=False,
+                agent_id="agent-a",
+            )
+        )
+        assert configured_result is not None
+        assert configured == [("agent-a", "large")]
+        assert "下一轮起生效" in configured_result.reply_text
+
+        invoking = asyncio.create_task(
+            pipeline.handle_inbound(
+                InboundMessage(
+                    channel_name="web_relay",
+                    text="/deep-research compare providers",
+                    external_user_id="user-1",
+                    external_chat_id="chat-1",
+                    is_group=False,
+                    agent_id="agent-a",
+                )
+            )
+        )
+        await kernel.wait_stream("run-1")
+        submitted_text = kernel.submit_calls[0]["parts"][0]["text"]
+        assert 'saved Workflow named "deep-research"' in submitted_text
+        assert "compare providers" in submitted_text
+        kernel.finish("run-1", text="launched")
+        invoked = await invoking
+        assert invoked is not None
+        assert invoked.reply_text == "launched"
+
+    asyncio.run(_run())
+
+
+def test_disabled_workflow_slash_command_remains_normal_user_text(
+    tmp_path: Path,
+) -> None:
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web")
+    kernel = _FakeKernel()
+    pipeline = build_inbound_pipeline(
+        kernel=kernel,
+        agents=agents,
+        outbound_router=OutboundRouter(ChannelRegistry((channel,))),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+
+    result = asyncio.run(
+        pipeline.handle_inbound(
+            InboundMessage(
+                channel_name="web",
+                text="/workflows",
+                external_user_id="user-1",
+                external_chat_id="chat-1",
+                is_group=False,
+            )
+        )
+    )
+
+    assert result is not None
+    assert result.reply_text == "reply:/workflows"
+    assert kernel.send_calls[0]["texts"] == ["/workflows"]
 
 
 def test_external_inbound_syncs_user_message_and_seeds_shadow_metadata(

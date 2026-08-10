@@ -17,6 +17,8 @@ from agent.sdk import (
     USER_INTERRUPT_RECOVERY_CONTENT,
     RunOrigin,
     SessionRuntimeConfig,
+    WorkflowControlAction,
+    WorkflowSaveScope,
 )
 
 from personal_assistant.config.local_store import resolve_run_model
@@ -43,7 +45,14 @@ from personal_assistant.gateway.inbound_models import (
     RelayLifecycleCallback,
     RelayLifecycleUpdate,
     StopRunRequest,
+    WorkflowCommandRequest,
     build_group_context_key,
+)
+from personal_assistant.gateway.workflow_commands import (
+    WorkflowCommand,
+    format_workflow_run,
+    format_workflow_runs,
+    parse_workflow_command,
 )
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.reply_visibility import (
@@ -165,6 +174,7 @@ class SessionRunCoordinator:
         restore_run_delivery: Callable[[str], None] | None = None,
         commit_run_delivery: Callable[[str], Awaitable[None]] | None = None,
         drain_external_control_deliveries: Callable[[], Awaitable[None]] | None = None,
+        update_workflow_size_guideline: Callable[[str, str], None] | None = None,
         run_idle_timeout_seconds: float = _DEFAULT_RUN_IDLE_TIMEOUT_SECONDS,
         max_transition_locks: int = _MAX_SESSION_TRANSITION_LOCKS,
     ) -> None:
@@ -192,6 +202,7 @@ class SessionRunCoordinator:
         self._restore_run_delivery = restore_run_delivery
         self._commit_run_delivery = commit_run_delivery
         self._drain_external_control_deliveries = drain_external_control_deliveries
+        self._update_workflow_size_guideline = update_workflow_size_guideline
         self._run_idle_timeout_seconds = run_idle_timeout_seconds
         self._active_runs: dict[str, _ActiveRunHandle] = {}
         self._steered_requests: dict[str, list[InboundRunRequest]] = {}
@@ -734,6 +745,160 @@ class SessionRunCoordinator:
             run_id=active_run_id or "",
             reply_text=reply_text,
             outbound=outbound,
+        )
+
+    async def workflow_command(
+        self, request: WorkflowCommandRequest
+    ) -> PipelineResult | None:
+        """Execute one active-Workflow slash command or leave unknown text alone."""
+
+        agent = self._latest_agent(request.agent)
+        if "Workflow" not in agent.config.tool_allowlist:
+            return None
+        named = self._kernel.list_named_workflows(
+            workspace_root=agent.config.workspace_root
+        )
+        command = parse_workflow_command(
+            request.command_text,
+            named_workflows=tuple(item.name for item in named),
+        )
+        if command is None:
+            return None
+        if command.kind == "invoke":
+            return await self.dispatch(
+                InboundRunRequest(
+                    message=replace(
+                        request.message,
+                        text=_named_workflow_instruction(command),
+                    ),
+                    agent=agent,
+                    session_key=request.session_key,
+                    sender_label=request.sender_label,
+                )
+            )
+
+        async with self._transition(request.session_key):
+            binding = self._session_binder.lookup(request.session_key)
+            if binding is None:
+                binding = await self._ensure_binding_for_workflow_command(
+                    request, agent=agent
+                )
+            control_kind = f"workflow:{command.kind}"
+            completed = (
+                self._session_binder.completed_control(
+                    session_key=request.session_key,
+                    operation_id=request.operation_id,
+                    kind=control_kind,
+                )
+                if request.operation_id is not None
+                else None
+            )
+            if completed is not None:
+                reply_text = completed.reply_text
+            else:
+                reply_text = self._execute_workflow_command(
+                    command,
+                    session_id=binding.kernel_session_id,
+                    agent=agent,
+                )
+                if request.operation_id is not None:
+                    reply_text = self._session_binder.complete_control(
+                        ControlOperation(
+                            session_key=request.session_key,
+                            operation_id=request.operation_id,
+                            kind=control_kind,
+                            status="completed",
+                            kernel_session_id=binding.kernel_session_id,
+                            reply_text=reply_text,
+                        ),
+                        external_saga_id=_external_shadow_saga_id(request.message),
+                    ).reply_text
+        outbound = await self._deliver_control_reply(
+            text=reply_text,
+            binding=binding,
+            agent_id=agent.agent_id,
+            ack_tag="workflow-ack",
+            source_message=request.message,
+            operation_id=request.operation_id,
+        )
+        return PipelineResult(
+            agent_id=agent.agent_id,
+            session_key=request.session_key,
+            kernel_session_id=binding.kernel_session_id,
+            run_id="",
+            reply_text=reply_text,
+            outbound=outbound,
+        )
+
+    def _execute_workflow_command(
+        self,
+        command: WorkflowCommand,
+        *,
+        session_id: str,
+        agent: LiveAgentSnapshot,
+    ) -> str:
+        if command.kind == "error":
+            return command.error or "Workflow 命令无效。"
+        try:
+            if command.kind == "list":
+                return format_workflow_runs(
+                    self._kernel.list_workflow_runs(session_id=session_id)
+                )
+            if command.kind == "detail":
+                run = self._kernel.get_workflow_run(
+                    session_id=session_id, run_id=command.run_id or ""
+                )
+                return (
+                    format_workflow_run(run)
+                    if run is not None
+                    else f"未找到 Workflow 运行: {command.run_id}"
+                )
+            if command.kind == "control":
+                run = self._kernel.control_workflow(
+                    session_id=session_id,
+                    run_id=command.run_id or "",
+                    action=WorkflowControlAction(command.action or ""),
+                    agent_call_id=command.agent_call_id,
+                )
+                return format_workflow_run(run)
+            if command.kind == "save":
+                saved = self._kernel.save_workflow(
+                    session_id=session_id,
+                    run_id=command.run_id or "",
+                    scope=WorkflowSaveScope(command.scope or ""),
+                    name=command.name,
+                )
+                return f"已保存 Workflow /{saved.name}\n路径: {saved.path}"
+            if command.kind == "config":
+                if self._update_workflow_size_guideline is None:
+                    raise RuntimeError("Workflow config owner is unavailable")
+                self._update_workflow_size_guideline(
+                    agent.agent_id, command.guideline or "medium"
+                )
+                return (
+                    "已将 workflowSizeGuideline 设为 "
+                    f"{command.guideline}；从下一轮起生效。"
+                )
+        except (RuntimeError, ValueError) as exc:
+            return f"Workflow 命令未执行: {exc}"
+        return "Workflow 命令无效。"
+
+    async def _ensure_binding_for_workflow_command(
+        self, request: WorkflowCommandRequest, *, agent: LiveAgentSnapshot
+    ) -> SessionBinding:
+        runtime_projection = self._project_runtime(agent=agent, message=request.message)
+        dispatch_url, fallback_port = self._dispatch_endpoint_metadata()
+        return await self._session_binder.resolve(
+            SessionBindingRequest(
+                session_key=request.session_key,
+                reply_context=build_reply_context(request.message),
+                message=request.message,
+                gateway_internal_port=fallback_port,
+                gateway_dispatch_url=dispatch_url,
+                runtime=runtime_projection.runtime,
+                profile_version=runtime_projection.profile_version,
+            ),
+            agent,
         )
 
     def is_session_busy(self, session_key: str) -> bool:
@@ -1800,6 +1965,18 @@ def _external_shadow_saga_id(message: InboundMessage) -> str | None:
     if protocol.external_identity.trigger_source == "im":
         return None
     return protocol.shadow_saga_id
+
+
+def _named_workflow_instruction(command: WorkflowCommand) -> str:
+    """Expand a discovered named command into an explicit normal model turn."""
+
+    instruction = (
+        f'Run the saved Workflow named "{command.name}" using the Workflow tool '
+        "name input. Do not replace it with an inline script."
+    )
+    if command.arguments:
+        instruction += f" User arguments: {command.arguments}"
+    return instruction
 
 
 def _normalize_dispatch_id_part(value: str) -> str:

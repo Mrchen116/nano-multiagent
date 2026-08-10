@@ -72,6 +72,7 @@ def build_inbound_pipeline(
         Callable[[str, str, str, str | None, str], ExternalShadowOutput] | None
     ) = None,
     bg_reply_sender: Callable[[str, ReplyContext, str], Awaitable[None]] | None = None,
+    update_workflow_size_guideline: Callable[[str, str], None] | None = None,
     max_session_drain_locks: int = 4096,
 ) -> InboundPipeline:
     """Build production owners explicitly while preserving concise test setup."""
@@ -99,6 +100,7 @@ def build_inbound_pipeline(
         kernel_event_observer=kernel_event_observer,
         shadow_output_prepare=shadow_output_prepare,
         bg_reply_sender=bg_reply_sender,
+        update_workflow_size_guideline=update_workflow_size_guideline,
         run_idle_timeout_seconds=run_idle_timeout_seconds,
         max_transition_locks=max_session_drain_locks,
     )

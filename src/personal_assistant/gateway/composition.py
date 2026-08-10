@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Mapping
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +25,9 @@ from personal_assistant.config.local_store import (
     ChannelConfig,
     LocalConfig,
     RuntimeConfigOwner,
+    WORKFLOW_SIZE_GUIDELINES,
     build_feishu_owner_open_id_binder,
+    save_sensitive_local_config,
 )
 from personal_assistant.config.model_reasoning import ModelReasoningCatalog
 from personal_assistant.config.sync_client import ConfigSyncClient
@@ -557,6 +560,31 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
             await result
         runtime_delivery_tasks.cancel_run(run_id)
 
+    def _update_workflow_size_guideline(agent_id: str, guideline: str) -> None:
+        if guideline not in WORKFLOW_SIZE_GUIDELINES:
+            raise ValueError(f"invalid workflow size guideline: {guideline}")
+        updated_agent = None
+
+        def update(current: LocalConfig) -> LocalConfig:
+            nonlocal updated_agent
+            agents = list(current.agents)
+            for index, existing in enumerate(agents):
+                if existing.agent_id != agent_id:
+                    continue
+                updated_agent = replace(existing, workflow_size_guideline=guideline)
+                agents[index] = updated_agent
+                return replace(current, agents=tuple(agents))
+            raise ValueError(f"unknown Agent: {agent_id}")
+
+        updated = config_owner.persist(
+            update,
+            save_config=save_sensitive_local_config,
+        )
+        if updated_agent is not None:
+            agent_catalog.publish(updated_agent)
+        if reporter is not None:
+            reporter.replace_agents(updated.agents)
+
     run_coordinator = SessionRunCoordinator(
         kernel=kernel,
         session_binder=session_binder,
@@ -580,6 +608,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
             if external_control_delivery is not None
             else None
         ),
+        update_workflow_size_guideline=_update_workflow_size_guideline,
         background_subscriptions=background_subscriptions,
         image_resolver=image_resolver,
     )

@@ -78,6 +78,18 @@ class CompactSessionRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class WorkflowCommandRequest:
+    """Capture one active-Workflow slash command from a human conversation."""
+
+    message: InboundMessage
+    agent: LiveAgentSnapshot
+    session_key: str
+    command_text: str
+    sender_label: str
+    operation_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class PipelineResult:
     """Expose observable outputs from one inbound pipeline execution.
 
