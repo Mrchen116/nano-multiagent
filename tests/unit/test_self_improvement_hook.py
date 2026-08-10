@@ -36,9 +36,7 @@ def _make_mock_fork_result(
         call_id = f"call-{index}"
         action = "add" if name == "memory" else "create"
         calls.append(ToolCall(call_id=call_id, name=name, arguments={"action": action}))
-        results.append(
-            ToolResult(call_id=call_id, name=name, output={"success": True})
-        )
+        results.append(ToolResult(call_id=call_id, name=name, output={"success": True}))
     turn_result = TurnResult(
         session_id="sess-1",
         turn_id="turn-review",
@@ -87,7 +85,7 @@ def _self_evolution_meta(
             "memory_curation": memory_curation,
             "skill_nudge_interval": skill_nudge_interval,
             "memory_nudge_interval": memory_nudge_interval,
-        }
+        },
     }
 
 
@@ -416,9 +414,7 @@ class TestSessionEventPublish:
             publisher=publisher,
         )
 
-        await _await_if_coro(
-            handler({"tool_iterations": 1, "turn_count": 1}, ctx)
-        )
+        await _await_if_coro(handler({"tool_iterations": 1, "turn_count": 1}, ctx))
 
         publisher.assert_not_called()
 
@@ -474,16 +470,16 @@ class TestSessionEventPublish:
             publisher=publisher,
         )
 
-        await _await_if_coro(
-            handler({"tool_iterations": 1, "turn_count": 1}, ctx)
-        )
+        await _await_if_coro(handler({"tool_iterations": 1, "turn_count": 1}, ctx))
 
         assert publisher.call_args.kwargs["data"]["updated_targets"] == [
             expected_target
         ]
 
     @pytest.mark.asyncio
-    async def test_incomplete_fork_reports_only_confirmed_successful_targets(self) -> None:
+    async def test_incomplete_fork_reports_only_confirmed_successful_targets(
+        self,
+    ) -> None:
         handler = self._build_handler()
         publisher = MagicMock()
         turn_result = TurnResult(
@@ -528,9 +524,7 @@ class TestSessionEventPublish:
             publisher=publisher,
         )
 
-        await _await_if_coro(
-            handler({"tool_iterations": 1, "turn_count": 1}, ctx)
-        )
+        await _await_if_coro(handler({"tool_iterations": 1, "turn_count": 1}, ctx))
 
         assert publisher.call_args.kwargs["data"] == {
             "session_id": "sess-1",

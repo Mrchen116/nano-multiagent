@@ -159,8 +159,7 @@ def _updated_targets_from_fork_result(fork_result: Any) -> tuple[str, ...]:
     results_by_call_id = {
         result.call_id: result
         for result in tool_results
-        if isinstance(getattr(result, "call_id", None), str)
-        and result.call_id
+        if isinstance(getattr(result, "call_id", None), str) and result.call_id
     }
     memory_updated = False
     skills_updated = False
@@ -170,9 +169,7 @@ def _updated_targets_from_fork_result(fork_result: Any) -> tuple[str, ...]:
         tool_name = getattr(tool_call, "name", "")
         is_mutating = (
             tool_name == "memory" and action in _MEMORY_MUTATING_ACTIONS
-        ) or (
-            tool_name == "skill_manage" and action in _SKILL_MUTATING_ACTIONS
-        )
+        ) or (tool_name == "skill_manage" and action in _SKILL_MUTATING_ACTIONS)
         if not is_mutating:
             continue
         result = results_by_call_id.get(getattr(tool_call, "call_id", ""))

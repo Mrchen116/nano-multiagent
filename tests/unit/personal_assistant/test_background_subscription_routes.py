@@ -162,9 +162,7 @@ async def test_session_event_routes_evict_oldest_after_capacity() -> None:
     for index in range(4097):
         manager.register_session_event_route(
             f"trace-{index}",
-            ReplyContext(
-                channel_name="web_relay", target_chat_id=f"conv-{index}"
-            ),
+            ReplyContext(channel_name="web_relay", target_chat_id=f"conv-{index}"),
         )
     await manager.ensure(_request())
     await kernel.events.put(
