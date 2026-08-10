@@ -9,12 +9,24 @@
 
 ## R1 — 真实更新回执与 Kernel trace
 
-- Status: TODO
-- Next: 写 outcome + trace propagation 红测。
+- Context: 旧 hook 用“本轮 review 了什么”代替“什么真实写成功”，因此 no-save/read/failure 也发布 updated notice；`RunRecord.trace_id` 未进入 `TurnRequest`/HookContext。
+- Decision: 按 call id 关联 `TurnResult.tool_calls/tool_results`，只认可批准的八类 mutating action、无 `error` 且 structured `success` 不为 false；仅非空真实目标发布兼容投影和 `originating_trace_id`。同一 trace 由 registry 经 `TurnRequest` 进入当前 turn HookContext。
+- Rationale: 写入事实由工具结果拥有，review 范围不能证明 side effect；opaque run trace 是既有跨层 correlation seam，不引入 channel 数据。
+- Evidence:
+  - Tests: 红测 `7 failed, 1 passed`，分别缺 updated targets/trace、no-write gate 与 TurnRequest trace；Green focused/affected `39 passed in 5.87s`。
+  - Entry: public Kernel integration 真实执行 `memory(add)`、`skill_manage(create)`，持久文件存在、raw assistant/tool/turn 私有，review event 携带 submit 的 exact trace 与真实 target。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression: `tests/integration/test_self_evolution_output_visibility.py`；更高真栈在 R4/R5。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: revert `b577820a7`。
+- Commits: `b577820a7`。
+- Next: R2 manager/coordinator per-run route 生命周期。
 
 ## R2 — 精确 per-run route 生命周期
 
-- Status: TODO
+- Status: DOING
 
 ## R3 — structured notice 双出口与 composition
 
