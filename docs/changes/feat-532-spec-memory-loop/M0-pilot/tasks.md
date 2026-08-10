@@ -41,13 +41,13 @@ Prototype / Reference Contract：N/A。
 
 ### R1 — Overlay 契约与确定性控制面
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 先写失败入口测试，再实现 schema/fixture/manifests、匿名 corpus projection、candidate/neutral repo projection、hash/seal/receipt、泄漏与 replay 校验。
 - 验证: overlay tests、共享 base tests、dataset validator、Ruff、`git diff --check`。
 
 ### R2 — 真实 Candidate/Owner 与 Memory 链路
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 实现 manifest-driven Codex adapter、Memory builder 一次、Treatment direct-load、两条 arm 的持久 Candidate/Owner 对话与实际 context 记录。
 - 验证: isolated dry invocation、真实 Baseline/Treatment 各一 run、两 arm 固定输入差异审计。
 

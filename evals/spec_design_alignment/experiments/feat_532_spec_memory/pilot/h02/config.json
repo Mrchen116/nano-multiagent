@@ -1,0 +1,25 @@
+{
+  "$schema": "../../schemas/pilot-config.schema.json",
+  "schema_version": "1.0",
+  "pilot_id": "feat-532-h02-infrastructure-pilot-v1",
+  "case_id": "H02",
+  "formal_eligible": false,
+  "repetitions": 1,
+  "base_recipe": "base_repo/recipes/H02-feat-510-A.json",
+  "public_brief": "cases/H02-feat-510-tool-approval-model/public/brief.md",
+  "case_lineage_exclusions": [
+    "feat-510-unified-tool-approval-model"
+  ],
+  "global_exclusions": [
+    "feat-397-spec-design-agent-team",
+    "feat-532-spec-memory-loop"
+  ],
+  "projection_seed": "feat-532-h02-pilot-v1-corpus-order",
+  "model": "gpt-5.6-sol",
+  "reasoning_effort": "medium",
+  "max_candidate_turns": 10,
+  "allowed_conclusions": [
+    "infrastructure_pass",
+    "infrastructure_fail"
+  ]
+}
