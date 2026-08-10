@@ -34,7 +34,16 @@ FRESH_GIT_ENVIRONMENT = {
 }
 UNIT_DIR_RE = re.compile(r"^(?:feat|bugfix|refactor|perf)-[0-9]+(?:-|$)")
 CANDIDATE_GIT_METADATA = ".evaluation-git"
-ROLE_READABLE_ROOTS = ["role_runtime", "system_runtime", "workspace"]
+ROLE_READABLE_ROOTS = [
+    "role_runtime_except_credentials",
+    "system_runtime",
+    "workspace",
+]
+UNSAFE_GIT_CONFIG = re.compile(
+    r"(?im)^\s*\[\s*(?:alias|diff|filter|include|includeif|pager)(?:\s|\])"
+    r"|^\s*(?:editor|fsmonitor|hookspath|sshcommand)\s*="
+    r"|^\s*(?:askpass|helper|program)\s*="
+)
 
 
 class PilotError(RuntimeError):
@@ -218,6 +227,7 @@ class CodexSession:
             runtime_root=self.runtime_root,
             artifacts=self.artifacts,
             host_home=self.host_home,
+            workspace_boundary=self.workspace_boundary,
         )
         invocation_dir = self.artifacts / "contexts" / manifest_id
         expected = invocation_dir / "expected.json"
@@ -245,7 +255,6 @@ class CodexSession:
             invocation_dir / "actual.json",
             EXPERIMENT_ROOT / "schemas/role-context-attestation.schema.json",
         )
-        verify_context_attestation(manifest, actual, envelope)
         sanitized_stdout = self._sanitize(result.stdout)
         sanitized_stderr = self._sanitize(result.stderr)
         (invocation_dir / "events.jsonl").write_text(sanitized_stdout, encoding="utf-8")
@@ -281,20 +290,26 @@ class CodexSession:
         durable_output = invocation_dir / "output.json"
         write_json(durable_output, output)
         validate_schema(durable_output, output_schema)
-        write_json(
-            invocation_dir / "invocation-receipt.json",
-            {
-                "schema_version": "1.0",
-                "manifest_id": manifest_id,
-                "formal_eligible": False,
-                "real_codex_cli": True,
-                "session_id": self.session_id,
-                "turn": self.turn,
-                "exit_code": result.returncode,
-                "event_count": len(events),
-                "output_sha256": sha256_bytes(canonical_json_bytes(output)),
-                "temporary_auth_copy_retained": False,
-            },
+        invocation_receipt = {
+            "schema_version": "1.0",
+            "manifest_id": manifest_id,
+            "formal_eligible": False,
+            "real_codex_cli": True,
+            "session_id": self.session_id,
+            "turn": self.turn,
+            "exit_code": result.returncode,
+            "event_count": len(events),
+            "output_sha256": sha256_bytes(canonical_json_bytes(output)),
+            "temporary_auth_copy_retained": False,
+        }
+        write_json(invocation_dir / "invocation-receipt.json", invocation_receipt)
+        verify_context_attestation(
+            manifest,
+            actual,
+            envelope,
+            final_visible_files=visible_file_manifest(self.workspace),
+            events_text=result.stdout,
+            invocation=invocation_receipt,
         )
         return output
 
@@ -469,11 +484,13 @@ def create_role_context_manifest(
     runtime_root: Path | None = None,
     artifacts: Path | None = None,
     host_home: Path | None = None,
+    workspace_boundary: Path | None = None,
 ) -> dict[str, Any]:
     """Bind one real Codex invocation to its complete visible context."""
     runtime_root = runtime_root or cwd / ".runtime"
     artifacts = artifacts or cwd / ".artifacts"
     host_home = host_home or Path.home()
+    workspace_boundary = workspace_boundary or cwd.parent
     command = command or ["codex", "exec"]
     environment = environment or {
         "HOME": str(runtime_root / "home"),
@@ -510,6 +527,16 @@ def create_role_context_manifest(
                 "codex_home": "role_runtime/codex-home",
                 "tmpdir": "role_runtime/tmp",
             },
+            "sandbox_profile_sha256": sandbox_wrapper.sandbox_profile_sha256(
+                command=command,
+                workspace=cwd,
+                workspace_boundary=workspace_boundary,
+                artifacts=artifacts,
+                runtime_root=runtime_root,
+                host_home=host_home,
+                environment=environment,
+                workspace_write=workspace_write,
+            ),
         },
         "tools": {
             "shell": True,
@@ -543,8 +570,27 @@ def verify_role_context(
     }
 
 
+def command_execution_observed(events_text: str) -> bool:
+    """Derive whether Codex reported a shell command from durable JSONL events."""
+    for line in events_text.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        item = event.get("item") if isinstance(event, dict) else None
+        if isinstance(item, dict) and item.get("type") == "command_execution":
+            return True
+    return False
+
+
 def verify_context_attestation(
-    manifest: dict[str, Any], actual: dict[str, Any], envelope: str
+    manifest: dict[str, Any],
+    actual: dict[str, Any],
+    envelope: str,
+    *,
+    final_visible_files: list[dict[str, str]] | None = None,
+    events_text: str | None = None,
+    invocation: dict[str, Any] | None = None,
 ) -> None:
     """Compare independently observed execution facts with the sealed expectation."""
     manifest_id = manifest["manifest_id"]
@@ -580,20 +626,88 @@ def verify_context_attestation(
     sandbox = actual["os_sandbox"]
     if (
         sandbox["mechanism"] != "macos_sandbox_exec_seatbelt"
+        or sandbox["profile_sha256"] != manifest["execution"]["sandbox_profile_sha256"]
         or sandbox["canary_read_blocked"] is not True
+        or sandbox["unrelated_read_blocked"] is not True
+        or sandbox["credential_read_blocked"] is not True
+        or sandbox["nested_codex_blocked"] is not True
         or sandbox["tool_network_blocked"] is not True
     ):
         raise PilotError(f"actual attestation confinement failed for {manifest_id}")
+    if (
+        final_visible_files is not None
+        and actual["final_visible_files"] != final_visible_files
+    ):
+        raise PilotError(
+            f"actual attestation final visible files drift for {manifest_id}"
+        )
+    if not manifest["tools"]["workspace_write"] and (
+        actual["final_visible_files"] != actual["initial_visible_files"]
+    ):
+        raise PilotError(
+            f"actual attestation read-only workspace drift for {manifest_id}"
+        )
+    if invocation is not None and actual["exit_code"] != invocation["exit_code"]:
+        raise PilotError(f"actual attestation exit code drift for {manifest_id}")
+    if actual["exit_code"] != 0:
+        raise PilotError(f"actual attestation recorded failed role for {manifest_id}")
+    if events_text is not None and actual["tools"][
+        "command_execution_observed"
+    ] is not command_execution_observed(events_text):
+        raise PilotError(
+            f"actual attestation command observation drift for {manifest_id}"
+        )
 
 
-def run_git(repository: Path, *args: str) -> str:
+def run_git(repository: Path, *args: str, trusted_linked_worktree: bool = False) -> str:
     """Run Git without host configuration or repository redirection."""
+    metadata = repository / ".git"
+    if metadata.is_symlink():
+        raise PilotError(f"unsafe Git metadata link in {repository}")
+    if metadata.is_file():
+        declaration = metadata.read_text(encoding="utf-8").strip()
+        if declaration == f"gitdir: {CANDIDATE_GIT_METADATA}":
+            metadata = repository / CANDIDATE_GIT_METADATA
+        elif trusted_linked_worktree and declaration.startswith("gitdir: "):
+            metadata = Path(declaration.removeprefix("gitdir: ")).resolve()
+            if not metadata.is_dir():
+                raise PilotError(
+                    f"missing trusted Git worktree metadata in {repository}"
+                )
+        else:
+            raise PilotError(f"unsafe Git metadata redirection in {repository}")
+    if metadata.is_dir():
+        config = metadata / "config"
+        if config.is_file() and UNSAFE_GIT_CONFIG.search(
+            config.read_text(encoding="utf-8")
+        ):
+            raise PilotError(f"unsafe executable Git configuration in {repository}")
+        hooks = metadata / "hooks"
+        if hooks.is_dir() and any(
+            path.is_file()
+            and not path.name.endswith(".sample")
+            and os.access(path, os.X_OK)
+            for path in hooks.iterdir()
+        ):
+            raise PilotError(f"unsafe executable Git hook in {repository}")
     environment = {
         key: value for key, value in os.environ.items() if not key.startswith("GIT_")
     }
     environment.update(FRESH_GIT_ENVIRONMENT)
+    command = [
+        "git",
+        "-c",
+        "core.fsmonitor=false",
+        "-c",
+        f"core.hooksPath={os.devnull}",
+        "-c",
+        "diff.external=",
+        *args,
+    ]
+    if args and args[0] == "diff":
+        command.insert(command.index("diff") + 1, "--no-ext-diff")
     result = subprocess.run(
-        ["git", *args],
+        command,
         cwd=repository,
         env=environment,
         check=False,
@@ -679,12 +793,22 @@ def materialize_h02_base(
 
 def require_clean_repository_snapshot(repository: Path) -> dict[str, Any]:
     """Bind corpus inputs to one clean tracked Git commit and tree."""
-    status = run_git(repository, "status", "--porcelain=v1", "--untracked-files=all")
+    status = run_git(
+        repository,
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+        trusted_linked_worktree=True,
+    )
     if status:
         raise PilotError("source repository must be clean before corpus projection")
     return {
-        "source_commit": run_git(repository, "rev-parse", "HEAD"),
-        "source_tree": run_git(repository, "rev-parse", "HEAD^{tree}"),
+        "source_commit": run_git(
+            repository, "rev-parse", "HEAD", trusted_linked_worktree=True
+        ),
+        "source_tree": run_git(
+            repository, "rev-parse", "HEAD^{tree}", trusted_linked_worktree=True
+        ),
         "source_cleanliness": "clean_tracked_only",
     }
 
@@ -701,6 +825,7 @@ def first_document_sources(
         source_commit,
         "--",
         "docs/changes",
+        trusted_linked_worktree=True,
     ).splitlines()
     grouped: dict[tuple[str, str], list[str]] = {}
     for relative in tracked:
@@ -1106,7 +1231,7 @@ def build_memory(
         model=config["model"],
         reasoning_effort=config["reasoning_effort"],
         lifecycle="ephemeral",
-        workspace_write=True,
+        workspace_write=False,
         skill_closure=[],
         forbidden_surfaces=[
             "held-out case identity",
@@ -1503,10 +1628,28 @@ def project_conclusions(first_document: str) -> str:
     return "\n".join(output).strip() + "\n"
 
 
-def verify_next_scheme(proposal: dict[str, Any], forbidden_atoms: list[str]) -> None:
+def summarize_memory_traces(traces: dict[str, Any]) -> dict[str, int]:
+    """Aggregate the frozen trace states without model interpretation."""
+    summary = {state: 0 for state in ("loaded", "used", "rejected", "overridden")}
+    for trace in traces.values():
+        for event in trace["events"]:
+            summary[event["state"]] += 1
+    return summary
+
+
+def verify_next_scheme(
+    proposal: dict[str, Any],
+    forbidden_atoms: list[str],
+    expected_trace_summary: dict[str, int] | None = None,
+) -> None:
     """Reject a generated scheme that embeds a held-out case-specific atom."""
     if proposal["forbidden_case_specific_atoms"] != forbidden_atoms:
         raise PilotError("next scheme changed the frozen forbidden-atom list")
+    if (
+        expected_trace_summary is not None
+        and proposal["trace_summary"] != expected_trace_summary
+    ):
+        raise PilotError("next scheme trace summary drifted from Memory traces")
     if (
         not proposal["scheme_id"].strip()
         or not proposal["build_policy"].strip()
@@ -1530,6 +1673,16 @@ def verify_next_scheme(proposal: dict[str, Any], forbidden_atoms: list[str]) -> 
     for atom in forbidden_atoms:
         if atom.lower() in searchable:
             raise PilotError(f"next scheme contains case-specific atom: {atom}")
+    free_text = " ".join(
+        [
+            proposal["build_policy"],
+            proposal["consumption_policy"],
+            proposal["hypothesis"],
+            *proposal["delta"],
+        ]
+    )
+    if re.search(r"\b[0-9]+\b", free_text):
+        raise PilotError("next scheme must keep exact counts in trace_summary only")
 
 
 def transcript_pairs(transcript: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1687,6 +1840,19 @@ def validate_run_audit(
         raise PilotError(f"run auditor critical flag is inconsistent: {run_id}")
 
 
+def validate_batch_audit(batch: dict[str, Any]) -> None:
+    """Require the batch critical flag to exactly follow contradictions."""
+    contradictions = batch["contradictions"]
+    if any(
+        not item["evidence"].strip()
+        or item["first_transcript"] == item["second_transcript"]
+        for item in contradictions
+    ):
+        raise PilotError("batch auditor returned a malformed contradiction")
+    if batch["critical_error"] is not bool(contradictions):
+        raise PilotError("batch auditor critical flag is inconsistent")
+
+
 def validate_blind_judgment(judgment: dict[str, Any], judge_id: str) -> None:
     """Validate exact projection and criterion identities without dict deduplication."""
     if judgment["judge_id"] != judge_id:
@@ -1723,6 +1889,42 @@ def judgment_signature(judgment: dict[str, Any]) -> dict[str, Any]:
             },
         }
         for item in judgment["assessments"]
+    }
+
+
+def build_frozen_anonymous_results(
+    *,
+    judge_outputs: list[dict[str, Any]],
+    burden_outputs: dict[str, Any],
+    memory_traces: dict[str, Any],
+    audit_outputs: dict[str, Any],
+    batch: dict[str, Any],
+) -> dict[str, Any]:
+    """Build the deterministic, anonymous input consumed by the Loop role."""
+    return {
+        "schema_version": "1.0",
+        "formal_eligible": False,
+        "quality_judgments": judge_outputs,
+        "burden": burden_outputs,
+        "memory_traces": memory_traces,
+        "memory_trace_summary": summarize_memory_traces(memory_traces),
+        "cost": {
+            "builder_calls": 1,
+            "candidate_sessions": 2,
+            "owner_sessions": 2,
+            "run_audits": 2,
+            "batch_audits": 1,
+            "burden_scores": 2,
+            "blind_judges": 2,
+        },
+        "failure_classification": {
+            "owner_run_critical": any(
+                output["critical_error"] for output in audit_outputs.values()
+            ),
+            "owner_batch_critical": batch["critical_error"],
+            "judge_disagreement": judgment_signature(judge_outputs[0])
+            != judgment_signature(judge_outputs[1]),
+        },
     }
 
 
@@ -1841,6 +2043,7 @@ def run_audits_and_scoring(
             "quality scores",
         ],
     )
+    validate_batch_audit(batch)
     write_json(artifacts / "evaluation/batch-audit.json", batch)
 
     judge_context = load_json(
@@ -1884,32 +2087,18 @@ def run_audits_and_scoring(
     judge_disagreement = judgment_signature(judge_outputs[0]) != judgment_signature(
         judge_outputs[1]
     )
-    frozen_anonymous_results = {
-        "schema_version": "1.0",
-        "formal_eligible": False,
-        "quality_judgments": judge_outputs,
-        "burden": burden_outputs,
-        "memory_traces": {
-            transcript_id: load_json(artifacts / f"runs/{arm}/memory-trace.json")
-            for transcript_id, arm in mapping.items()
-        },
-        "cost": {
-            "builder_calls": 1,
-            "candidate_sessions": 2,
-            "owner_sessions": 2,
-            "run_audits": 2,
-            "batch_audits": 1,
-            "burden_scores": 2,
-            "blind_judges": 2,
-        },
-        "failure_classification": {
-            "owner_run_critical": any(
-                output["critical_error"] for output in audit_outputs.values()
-            ),
-            "owner_batch_critical": batch["critical_error"],
-            "judge_disagreement": judge_disagreement,
-        },
+    memory_traces = {
+        transcript_id: load_json(artifacts / f"runs/{arm}/memory-trace.json")
+        for transcript_id, arm in mapping.items()
     }
+    trace_summary = summarize_memory_traces(memory_traces)
+    frozen_anonymous_results = build_frozen_anonymous_results(
+        judge_outputs=judge_outputs,
+        burden_outputs=burden_outputs,
+        memory_traces=memory_traces,
+        audit_outputs=audit_outputs,
+        batch=batch,
+    )
     write_json(
         artifacts / "evaluation/frozen-anonymous-results.json",
         frozen_anonymous_results,
@@ -1928,7 +2117,9 @@ def run_audits_and_scoring(
         },
         envelope=(
             "<loop_input>Read the three frozen inputs and propose the next "
-            "suite-global scheme. Preserve the forbidden atom list verbatim.</loop_input>"
+            "suite-global scheme. Echo memory_trace_summary exactly in trace_summary; "
+            "do not repeat exact counts in free text. Preserve the forbidden atom list "
+            "verbatim.</loop_input>"
         ),
         workspace=loop_workspace,
         artifacts=artifacts,
@@ -1941,7 +2132,9 @@ def run_audits_and_scoring(
             "unfrozen scores",
         ],
     )
-    verify_next_scheme(next_scheme, scheme["forbidden_case_specific_atoms"])
+    verify_next_scheme(
+        next_scheme, scheme["forbidden_case_specific_atoms"], trace_summary
+    )
     write_json(artifacts / "evaluation/next-scheme.json", next_scheme)
     return {
         "run_audits": audit_outputs,
@@ -2116,6 +2309,8 @@ def check_pilot_leakage(
     for manifest_id, manifest in manifests.items():
         context_root = artifacts / "contexts" / manifest_id
         actual = load_json(context_root / "actual.json")
+        invocation = load_json(context_root / "invocation-receipt.json")
+        events_text = (context_root / "events.jsonl").read_text(encoding="utf-8")
         validate_schema(
             context_root / "actual.json",
             EXPERIMENT_ROOT / "schemas/role-context-attestation.schema.json",
@@ -2124,17 +2319,22 @@ def check_pilot_leakage(
             manifest,
             actual,
             (context_root / "input-envelope.txt").read_text(encoding="utf-8"),
+            events_text=events_text,
+            invocation=invocation,
         )
         paths = {entry["path"] for entry in manifest["visible_files"]}
         if manifest["tools"]["network"] is not False:
             findings.append(f"network enabled: {manifest_id}")
         role = manifest["role"]
-        if role == "memory_builder" and any(
-            path not in {"AGENTS.md", "scheme.json", "corpus-manifest.json"}
-            and not path.startswith("documents/")
-            for path in paths
-        ):
-            findings.append(f"builder visible-file closure widened: {manifest_id}")
+        if role == "memory_builder":
+            if manifest["tools"]["workspace_write"] is not False:
+                findings.append(f"builder workspace was writable: {manifest_id}")
+            if any(
+                path not in {"AGENTS.md", "scheme.json", "corpus-manifest.json"}
+                and not path.startswith("documents/")
+                for path in paths
+            ):
+                findings.append(f"builder visible-file closure widened: {manifest_id}")
         if role in {"candidate", "memory_trace"}:
             forbidden = (
                 ".claude/",
@@ -2261,6 +2461,7 @@ def semantic_pilot_result(artifacts: Path, config: dict[str, Any]) -> dict[str, 
     for transcript_id, audit in run_audits.items():
         validate_run_audit(audit, allowed_refs, transcript_id)
     batch_audit = load_json(artifacts / "evaluation/batch-audit.json")
+    validate_batch_audit(batch_audit)
     judges = [
         load_json(artifacts / f"evaluation/blind-judge-{judge_number}.json")
         for judge_number in (1, 2)
@@ -2407,6 +2608,193 @@ def output_schema_for_manifest(manifest: dict[str, Any]) -> Path:
     return EXPERIMENT_ROOT / "schemas" / name
 
 
+def expected_context_roles(artifacts: Path) -> dict[str, str]:
+    """Derive the exact semantic invocation matrix from frozen run transcripts."""
+    expected = {
+        "memory-builder-01": "memory_builder",
+        "run-auditor-T1": "owner_run_auditor",
+        "run-auditor-T2": "owner_run_auditor",
+        "batch-auditor-01": "owner_batch_auditor",
+        "burden-T1": "burden_scorer",
+        "burden-T2": "burden_scorer",
+        "blind-judge-1": "blind_quality_judge",
+        "blind-judge-2": "blind_quality_judge",
+        "loop-experimenter-01": "loop_experimenter",
+    }
+    for arm in ("baseline", "treatment"):
+        transcript = load_json(artifacts / f"runs/{arm}/transcript.json")
+        candidate_turns = [
+            entry for entry in transcript["turns"] if entry["actor"] == "candidate"
+        ]
+        owner_turns = [
+            entry for entry in transcript["turns"] if entry["actor"] == "owner"
+        ]
+        if (
+            not candidate_turns
+            or candidate_turns[-1]["output"]["status"] != "gate1_complete"
+            or any(
+                entry["output"]["status"] != "needs_owner"
+                for entry in candidate_turns[:-1]
+            )
+            or len(owner_turns) != len(candidate_turns) - 1
+            or [entry["turn"] for entry in owner_turns]
+            != [entry["turn"] for entry in candidate_turns[:-1]]
+        ):
+            raise PilotError(f"persistent transcript closure drift: {arm}")
+        if [entry["turn"] for entry in candidate_turns] != list(
+            range(1, len(candidate_turns) + 1)
+        ) or [entry["turn"] for entry in owner_turns] != list(
+            range(1, len(owner_turns) + 1)
+        ):
+            raise PilotError(f"persistent transcript turn sequence drift: {arm}")
+        expected[f"owner-{arm}-init"] = "owner_simulator"
+        expected[f"memory-trace-{arm}-01"] = "memory_trace"
+        expected.update(
+            {
+                f"candidate-{arm}-{entry['turn']:02d}": "candidate"
+                for entry in candidate_turns
+            }
+        )
+        expected.update(
+            {
+                f"owner-{arm}-{entry['turn']:02d}": "owner_simulator"
+                for entry in owner_turns
+            }
+        )
+    return expected
+
+
+def _context_output(artifacts: Path, manifest_id: str) -> dict[str, Any]:
+    return load_json(artifacts / f"contexts/{manifest_id}/output.json")
+
+
+def validate_persistent_invocation_chain(
+    artifacts: Path, contexts: dict[str, dict[str, Any]]
+) -> None:
+    """Cross-link transcripts, receipts, sessions, turns, and visible-file states."""
+    for arm in ("baseline", "treatment"):
+        run_root = artifacts / "runs" / arm
+        run_receipt = load_json(run_root / "run-receipt.json")
+        transcript = load_json(run_root / "transcript.json")
+        candidate_entries = [
+            entry for entry in transcript["turns"] if entry["actor"] == "candidate"
+        ]
+        owner_entries = [
+            entry for entry in transcript["turns"] if entry["actor"] == "owner"
+        ]
+        if run_receipt["candidate_turns"] != len(candidate_entries) or run_receipt[
+            "owner_turns"
+        ] != len(owner_entries):
+            raise PilotError(f"persistent invocation receipt count drift: {arm}")
+        if (
+            candidate_entries[-1]["output"]["first_doc_path"]
+            != run_receipt["first_doc_path"]
+        ):
+            raise PilotError(f"persistent first document path drift: {arm}")
+        candidate_ids = [
+            f"candidate-{arm}-{entry['turn']:02d}" for entry in candidate_entries
+        ]
+        owner_ids = [f"owner-{arm}-init"] + [
+            f"owner-{arm}-{entry['turn']:02d}" for entry in owner_entries
+        ]
+        candidate_ids.append(f"memory-trace-{arm}-01")
+        for entry, manifest_id in zip(
+            candidate_entries, candidate_ids[:-1], strict=True
+        ):
+            if entry["output"] != _context_output(artifacts, manifest_id):
+                raise PilotError(f"persistent transcript output drift: {manifest_id}")
+        for entry, manifest_id in zip(owner_entries, owner_ids[1:], strict=True):
+            if entry["output"] != _context_output(artifacts, manifest_id):
+                raise PilotError(f"persistent transcript output drift: {manifest_id}")
+        for turn, manifest_id in enumerate(candidate_ids, start=1):
+            invocation = contexts[manifest_id]["invocation"]
+            if (
+                invocation["session_id"] != run_receipt["candidate_session_id"]
+                or invocation["turn"] != turn
+            ):
+                raise PilotError(f"Candidate session chain drift: {manifest_id}")
+        for turn, manifest_id in enumerate(owner_ids, start=1):
+            invocation = contexts[manifest_id]["invocation"]
+            if (
+                invocation["session_id"] != run_receipt["owner_session_id"]
+                or invocation["turn"] != turn
+            ):
+                raise PilotError(f"Owner session chain drift: {manifest_id}")
+        for sequence in (candidate_ids, owner_ids):
+            for current_id, next_id in zip(sequence, sequence[1:]):
+                if (
+                    contexts[current_id]["actual"]["final_visible_files"]
+                    != contexts[next_id]["manifest"]["visible_files"]
+                ):
+                    raise PilotError(
+                        f"actual attestation final visible files drift: {current_id}"
+                    )
+        trace = load_json(run_root / "memory-trace.json")
+        if trace != _context_output(artifacts, f"memory-trace-{arm}-01") or run_receipt[
+            "memory_trace_sha256"
+        ] != sha256_bytes(canonical_json_bytes(trace)):
+            raise PilotError(f"Memory trace output drift: {arm}")
+        final_files = {
+            entry["path"]: entry["sha256"]
+            for entry in contexts[f"memory-trace-{arm}-01"]["actual"][
+                "final_visible_files"
+            ]
+        }
+        if (
+            final_files.get(run_receipt["first_doc_path"])
+            != run_receipt["first_doc_sha256"]
+        ):
+            raise PilotError(f"frozen first document receipt drift: {arm}")
+
+
+def validate_evaluation_output_links(artifacts: Path) -> None:
+    """Bind every copied model output and deterministic evaluation projection."""
+    links = {
+        "memory-builder-01": "memory/store.json",
+        "memory-trace-baseline-01": "runs/baseline/memory-trace.json",
+        "memory-trace-treatment-01": "runs/treatment/memory-trace.json",
+        "run-auditor-T1": "evaluation/run-audit-T1.json",
+        "run-auditor-T2": "evaluation/run-audit-T2.json",
+        "burden-T1": "evaluation/burden-T1.json",
+        "burden-T2": "evaluation/burden-T2.json",
+        "batch-auditor-01": "evaluation/batch-audit.json",
+        "blind-judge-1": "evaluation/blind-judge-1.json",
+        "blind-judge-2": "evaluation/blind-judge-2.json",
+        "loop-experimenter-01": "evaluation/next-scheme.json",
+    }
+    for manifest_id, relative in links.items():
+        if (artifacts / f"contexts/{manifest_id}/output.json").read_bytes() != (
+            artifacts / relative
+        ).read_bytes():
+            raise PilotError(f"evaluation output drift: {relative}")
+    identity = load_json(artifacts / "control/evaluation-identity-receipt.json")
+    for transcript_id, arm in identity["transcript_mapping"].items():
+        transcript = {
+            "formal_eligible": False,
+            "transcript_id": transcript_id,
+            "pairs": transcript_pairs(
+                load_json(artifacts / f"runs/{arm}/transcript.json")
+            ),
+        }
+        path = artifacts / f"evaluation/anonymous-transcript-{transcript_id}.json"
+        if transcript != load_json(path) or identity["transcript_hashes"][
+            transcript_id
+        ] != sha256_bytes(canonical_json_bytes(transcript)):
+            raise PilotError(f"anonymous transcript projection drift: {transcript_id}")
+
+
+def _jsonl_event_count(events_text: str, manifest_id: str) -> int:
+    count = 0
+    for line in events_text.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError as error:
+            raise PilotError(f"invalid durable role event: {manifest_id}") from error
+        if isinstance(event, dict):
+            count += 1
+    return count
+
+
 def replay_pilot(artifacts: Path) -> dict[str, Any]:
     """Replay all deterministic seals, schemas, identities, and leakage checks."""
     artifacts = artifacts.resolve()
@@ -2455,12 +2843,27 @@ def replay_pilot(artifacts: Path) -> dict[str, Any]:
     if observed_snapshot != inputs["source_snapshot"]:
         raise PilotError("corpus source snapshot drift")
 
-    context_roots = sorted((artifacts / "contexts").iterdir())
+    context_roots = sorted(
+        path for path in (artifacts / "contexts").iterdir() if path.is_dir()
+    )
+    expected_roles = expected_context_roles(artifacts)
+    if {path.name for path in context_roots} != set(expected_roles):
+        raise PilotError("role invocation matrix drift")
     role_counts: dict[str, int] = {}
     session_ids: dict[str, set[str]] = {}
+    contexts: dict[str, dict[str, Any]] = {}
     for context_root in context_roots:
         manifest = load_json(context_root / "expected.json")
         actual = load_json(context_root / "actual.json")
+        invocation = load_json(context_root / "invocation-receipt.json")
+        events_text = (context_root / "events.jsonl").read_text(encoding="utf-8")
+        if (
+            manifest["manifest_id"] != context_root.name
+            or actual["manifest_id"] != context_root.name
+            or invocation["manifest_id"] != context_root.name
+            or manifest["role"] != expected_roles[context_root.name]
+        ):
+            raise PilotError(f"role invocation identity drift: {context_root.name}")
         validate_schema(
             context_root / "expected.json",
             EXPERIMENT_ROOT / "schemas/role-context-manifest.schema.json",
@@ -2470,7 +2873,13 @@ def replay_pilot(artifacts: Path) -> dict[str, Any]:
             EXPERIMENT_ROOT / "schemas/role-context-attestation.schema.json",
         )
         envelope = (context_root / "input-envelope.txt").read_text(encoding="utf-8")
-        verify_context_attestation(manifest, actual, envelope)
+        verify_context_attestation(
+            manifest,
+            actual,
+            envelope,
+            events_text=events_text,
+            invocation=invocation,
+        )
         schema = output_schema_for_manifest(manifest)
         if manifest["output_schema_sha256"] != sha256_file(schema):
             raise PilotError(f"output schema drift: {context_root.name}")
@@ -2484,13 +2893,24 @@ def replay_pilot(artifacts: Path) -> dict[str, Any]:
                 load_json(EXPERIMENT_ROOT / "pilot/h02/owner-context.provisional.json"),
                 manifest["manifest_id"],
             )
-        invocation = load_json(context_root / "invocation-receipt.json")
         if not invocation["real_codex_cli"] or invocation["exit_code"] != 0:
             raise PilotError(f"non-real or failed role receipt: {context_root.name}")
+        if invocation["event_count"] != _jsonl_event_count(
+            events_text, context_root.name
+        ):
+            raise PilotError(f"role event receipt drift: {context_root.name}")
         if invocation["output_sha256"] != sha256_bytes(canonical_json_bytes(output)):
             raise PilotError(f"role output hash drift: {context_root.name}")
         role_counts[manifest["role"]] = role_counts.get(manifest["role"], 0) + 1
         session_ids.setdefault(manifest["role"], set()).add(invocation["session_id"])
+        contexts[context_root.name] = {
+            "manifest": manifest,
+            "actual": actual,
+            "invocation": invocation,
+        }
+
+    validate_persistent_invocation_chain(artifacts, contexts)
+    validate_evaluation_output_links(artifacts)
 
     exact_counts = {
         "memory_builder": 1,
@@ -2536,11 +2956,41 @@ def replay_pilot(artifacts: Path) -> dict[str, Any]:
         EXPERIMENT_ROOT / "schemas/next-scheme.schema.json",
         "evaluation/next-scheme.json",
     )
+    identity_mapping = identity["transcript_mapping"]
+    traces = {
+        transcript_id: load_json(artifacts / f"runs/{arm}/memory-trace.json")
+        for transcript_id, arm in identity_mapping.items()
+    }
+    trace_summary = summarize_memory_traces(traces)
+    frozen_results = load_json(artifacts / "evaluation/frozen-anonymous-results.json")
+    expected_frozen_results = build_frozen_anonymous_results(
+        judge_outputs=[
+            load_json(artifacts / f"evaluation/blind-judge-{number}.json")
+            for number in (1, 2)
+        ],
+        burden_outputs={
+            transcript_id: load_json(
+                artifacts / f"evaluation/burden-{transcript_id}.json"
+            )
+            for transcript_id in ("T1", "T2")
+        },
+        memory_traces=traces,
+        audit_outputs={
+            transcript_id: load_json(
+                artifacts / f"evaluation/run-audit-{transcript_id}.json"
+            )
+            for transcript_id in ("T1", "T2")
+        },
+        batch=load_json(artifacts / "evaluation/batch-audit.json"),
+    )
+    if frozen_results != expected_frozen_results:
+        raise PilotError("frozen anonymous evaluation aggregate drift")
     verify_next_scheme(
         next_scheme,
         load_json(EXPERIMENT_ROOT / "pilot/h02/scheme-v0.json")[
             "forbidden_case_specific_atoms"
         ],
+        trace_summary,
     )
     config = load_json(DEFAULT_CONFIG)
     stored_leakage = load_json(artifacts / "leakage-check.json")

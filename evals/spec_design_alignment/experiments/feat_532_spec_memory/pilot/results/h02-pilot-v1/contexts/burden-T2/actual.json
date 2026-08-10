@@ -27,7 +27,7 @@
     },
     {
       "path": "transcript.json",
-      "sha256": "4a1e008e0aab73abb56ce37b31e321275929cbe6402c3329137cc865f1645602"
+      "sha256": "5c34541a7194ba2b858686bafb5a6aa26621371a145e0fb54be51e9ce57804ee"
     }
   ],
   "formal_eligible": false,
@@ -38,19 +38,22 @@
     },
     {
       "path": "transcript.json",
-      "sha256": "4a1e008e0aab73abb56ce37b31e321275929cbe6402c3329137cc865f1645602"
+      "sha256": "5c34541a7194ba2b858686bafb5a6aa26621371a145e0fb54be51e9ce57804ee"
     }
   ],
   "input_envelope_sha256": "f55852160efcb42fc4d857f205364eea5e6afa36b3a38d4550e9fdbb31c22215",
   "manifest_id": "burden-T2",
   "os_sandbox": {
     "canary_read_blocked": true,
+    "credential_read_blocked": true,
     "mechanism": "macos_sandbox_exec_seatbelt",
-    "profile_sha256": "d8b37f6bb9af34dcf8439e956c1bbb78f9147203309f3b75ec4cc4b8d698addb",
-    "tool_network_blocked": true
+    "nested_codex_blocked": true,
+    "profile_sha256": "4a01a711ae9ab48c06dafd4993bf9df2dc086465bd4b1b45982ac3e874f4574b",
+    "tool_network_blocked": true,
+    "unrelated_read_blocked": true
   },
   "readable_roots": [
-    "role_runtime",
+    "role_runtime_except_credentials",
     "system_runtime",
     "workspace"
   ],

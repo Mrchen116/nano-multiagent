@@ -31,11 +31,11 @@
     },
     {
       "path": "transcript-T1.json",
-      "sha256": "88d8d8c67217b3685c38588c33269c4f678a62d8efd97aca94858acaec87fb42"
+      "sha256": "848e4e2bbdfc9e1bc6203bf3a487fcb6e0166e57b864c78c9e94dc3ceff8b627"
     },
     {
       "path": "transcript-T2.json",
-      "sha256": "4a1e008e0aab73abb56ce37b31e321275929cbe6402c3329137cc865f1645602"
+      "sha256": "5c34541a7194ba2b858686bafb5a6aa26621371a145e0fb54be51e9ce57804ee"
     }
   ],
   "formal_eligible": false,
@@ -50,23 +50,26 @@
     },
     {
       "path": "transcript-T1.json",
-      "sha256": "88d8d8c67217b3685c38588c33269c4f678a62d8efd97aca94858acaec87fb42"
+      "sha256": "848e4e2bbdfc9e1bc6203bf3a487fcb6e0166e57b864c78c9e94dc3ceff8b627"
     },
     {
       "path": "transcript-T2.json",
-      "sha256": "4a1e008e0aab73abb56ce37b31e321275929cbe6402c3329137cc865f1645602"
+      "sha256": "5c34541a7194ba2b858686bafb5a6aa26621371a145e0fb54be51e9ce57804ee"
     }
   ],
   "input_envelope_sha256": "5cb1f5740fa3390d0f2586087791961e2967be7388a34a4829ba69ea710ea62d",
   "manifest_id": "batch-auditor-01",
   "os_sandbox": {
     "canary_read_blocked": true,
+    "credential_read_blocked": true,
     "mechanism": "macos_sandbox_exec_seatbelt",
-    "profile_sha256": "95acb1c9bdb0715389399ff4851091f0ef18427ccceac635027acabf84046ba2",
-    "tool_network_blocked": true
+    "nested_codex_blocked": true,
+    "profile_sha256": "ce5748fc4a08c1c4c233d8f39fdd0043b94c652d39ebfb9c42866e24dd27162e",
+    "tool_network_blocked": true,
+    "unrelated_read_blocked": true
   },
   "readable_roots": [
-    "role_runtime",
+    "role_runtime_except_credentials",
     "system_runtime",
     "workspace"
   ],

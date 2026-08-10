@@ -51,7 +51,8 @@
       "-C",
       "$ROLE_WORKSPACE",
       "-"
-    ]
+    ],
+    "sandbox_profile_sha256": "4a01a711ae9ab48c06dafd4993bf9df2dc086465bd4b1b45982ac3e874f4574b"
   },
   "forbidden_surfaces": [
     "arm identity or Memory",
@@ -72,7 +73,7 @@
   "model": "gpt-5.6-sol",
   "output_schema_sha256": "e1e83a56c9a638687d008ca8f70bd905a448f842cef1e84c15b6a552a85c3ceb",
   "readable_roots": [
-    "role_runtime",
+    "role_runtime_except_credentials",
     "system_runtime",
     "workspace"
   ],
@@ -92,7 +93,7 @@
     },
     {
       "path": "transcript.json",
-      "sha256": "4a1e008e0aab73abb56ce37b31e321275929cbe6402c3329137cc865f1645602"
+      "sha256": "5c34541a7194ba2b858686bafb5a6aa26621371a145e0fb54be51e9ce57804ee"
     }
   ]
 }

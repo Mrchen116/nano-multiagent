@@ -5,7 +5,7 @@
       "actor": "candidate",
       "output": {
         "first_doc_path": "",
-        "owner_message": "Q1：你说的“所有”是否包括 `coding_cli` 和 `personal_assistant` 中的主 agent、subagent、后台任务所触发的全部自动工具审批？\n我的推荐：全部包括，统一使用同一个全局配置模型，不允许各 agent 单独覆盖。\n理由：这样才能消除审批结果随 agent 模型变化的问题，并符合“所有统一”的目标。\n\n你怎么看？",
+        "owner_message": "Q1：这个统一审批模型是否要同时覆盖 Coding CLI 和 Personal Assistant / IM 中所有 agent 的工具调用审批？\n我的推荐：两个产品都覆盖；各 agent 无论自身选了什么模型，审批分类都使用配置指定的同一个模型。\n理由：审批分类器属于共享内核能力，这样才能真正消除不同 agent 之间审批判断随模型漂移的问题。\n\n你怎么看？",
         "status": "needs_owner"
       },
       "turn": 1
@@ -13,78 +13,71 @@
     {
       "actor": "owner",
       "output": {
-        "reply": "不同意把 `coding_cli` 也纳入：本次产品范围是 `personal_assistant`，`coding_cli` 保持不变。统一模型只用于 PA 中实际触发的自动工具权限分类；普通 Agent 请求和工具执行后的续跑仍使用当前 run 模型。主 agent、subagent、后台任务中哪些路径实际进入该分类器，请基于仓库确认。是否允许 per-Agent 覆盖属于实现设计，请给出最小、仓库有据的方案，不要为此新增配置入口。",
-        "status": "ask_author_to_research",
-        "used_context_refs": [
-          "O01",
-          "O04",
-          "O07",
-          "O08"
-        ]
-      },
-      "turn": 1
-    },
-    {
-      "actor": "candidate",
-      "output": {
-        "first_doc_path": "",
-        "owner_message": "Q2：PA 的统一审批模型是否必须能与 `llm.default_model` 分开配置？\n我的推荐：需要一个 PA 全局的审批模型配置，不提供 per-Agent 覆盖；普通 Agent 仍按当前 run 模型运行。\n理由：仓库中 `llm.default_model` 还负责未单独选模型的普通 Agent；若直接复用它，运维调整审批模型会同时改变普通 Agent 行为，超出本次范围。仓库确认会实际进入分类器的 PA 路径包括主 agent、Agent 工具派生的 subagent、heartbeat、cron，以及继承父运行权限上下文的后台自进化 fork；仅安全快速放行、工具直接 allow/deny/ask 等路径不会调用分类模型。\n\n你怎么看？",
-        "status": "needs_owner"
-      },
-      "turn": 2
-    },
-    {
-      "actor": "owner",
-      "output": {
-        "reply": "语义上需要与 `llm.default_model` 解耦：显式选择的模型只用于自动工具权限分类，普通 Agent 与工具后的续跑继续使用当前 run 模型；未配置时则保留现状，复用触发该分类的 Agent/run 模型。至于是否新增独立字段、字段放置以及是否支持 per-Agent 覆盖，属于实现设计；请按你列出的仓库路径证据提出最小方案，不要新增非必要入口。",
-        "status": "ask_author_to_research",
-        "used_context_refs": [
-          "O02",
-          "O04",
-          "O07",
-          "O08"
-        ]
-      },
-      "turn": 2
-    },
-    {
-      "actor": "candidate",
-      "output": {
-        "first_doc_path": "",
-        "owner_message": "Q3：显式配置的统一审批模型在运行时超时、不可达或返回不可解析结果时，是否沿用现有安全降级？\n我的推荐：沿用现状——有人值守的 PA 会话转为用户手动审批；heartbeat、cron、后台 fork 等无人值守路径按现有 `unattended_fallback` 处理，默认拒绝；不要静默回退到当前 Agent/run 模型。\n理由：静默回退会让“统一模型”在故障时失效且难以察觉，而现有分类器已经具备这套 fail-closed 行为。\n\n你怎么看？",
-        "status": "needs_owner"
-      },
-      "turn": 3
-    },
-    {
-      "actor": "owner",
-      "output": {
-        "reply": "同意核心行为：不得静默回退到当前 Agent/run、默认或其他模型。现有重试可以继续使用同一个显式审批模型；重试仍失败后，进入既有权限失败处理。有人值守转手动审批、无人值守按 `unattended_fallback` 处理的具体路径，请以仓库实现和测试确认。",
-        "status": "ask_author_to_research",
-        "used_context_refs": [
-          "O05",
-          "O08"
-        ]
-      },
-      "turn": 3
-    },
-    {
-      "actor": "candidate",
-      "output": {
-        "first_doc_path": "",
-        "owner_message": "Q4：若运维显式选择了一个不在 PA `llm.providers[].models` 目录中的审批模型，Gateway 应该怎样表现？\n我的推荐：启动或配置加载时明确报错并拒绝生效；只有“未配置审批模型”才按现状使用当前 Agent/run 模型。\n理由：仓库对 `llm.default_model` 和 `agents[].default_model` 已采用“必须存在于模型目录”的校验；对审批模型保持同样规则，可避免把静态错配拖到第一次工具审批时才暴露。\n\n你怎么看？",
-        "status": "needs_owner"
-      },
-      "turn": 4
-    },
-    {
-      "actor": "owner",
-      "output": {
-        "reply": "同意。显式选择的审批模型若不在 PA 模型目录中，应作为 Gateway 启动配置错误，明确报错且不得生效，也不得静默回退。只有省略该配置时，才保留现有行为，复用触发自动分类的 Agent/run 模型。",
+        "reply": "不同意两个产品都纳入本次范围。本次配置的产品范围是 Personal Assistant / IM；Coding CLI 保持不变。共享内核可以提供显式选择或不配置审批分类模型的通用能力。",
         "status": "answered",
         "used_context_refs": [
-          "O02",
-          "O03"
+          "O01"
+        ]
+      },
+      "turn": 1
+    },
+    {
+      "actor": "candidate",
+      "output": {
+        "first_doc_path": "",
+        "owner_message": "Q2：Personal Assistant / IM 的配置文件未填写专用审批模型时，审批分类应使用哪个模型？\n我的推荐：回退到产品级 `llm.default_model`，而不是继续复用各 Agent 的模型；显式配置审批模型时则覆盖这个默认值。\n理由：这样旧配置无需立刻修改也能实现“所有 PA Agent 统一审批模型”，同时保留单独指定低成本或更稳定审批模型的能力。\n\n你怎么看？",
+        "status": "needs_owner"
+      },
+      "turn": 2
+    },
+    {
+      "actor": "owner",
+      "output": {
+        "reply": "不采用该回退。未填写专用审批模型时应保持现有行为：每次自动审批分类继续复用触发它的 Agent 或 run 模型；只有显式配置后才统一使用指定模型。",
+        "status": "answered",
+        "used_context_refs": [
+          "O02"
+        ]
+      },
+      "turn": 2
+    },
+    {
+      "actor": "candidate",
+      "output": {
+        "first_doc_path": "",
+        "owner_message": "Q3：显式配置专用审批模型后，它是否应覆盖 Personal Assistant / IM 的全部运行来源，包括用户聊天、heartbeat、cron，以及这些运行派生的 subagent？\n我的推荐：全部覆盖；只要运行属于该 Gateway，自动审批分类都使用同一个已配置模型。\n理由：这些入口共用审批机制，若只覆盖交互聊天，后台任务或 subagent 仍会随自身模型产生不同审批结果，不符合“显式配置后统一”的预期。\n\n你怎么看？",
+        "status": "needs_owner"
+      },
+      "turn": 3
+    },
+    {
+      "actor": "owner",
+      "output": {
+        "reply": "产品约束是：专用模型只用于自动工具权限分类，普通 Agent 请求和工具调用后的续跑仍使用 run 模型。用户聊天、heartbeat、cron 及其 subagent 是否都经过同一分类路径，属于仓库拓扑与调用链事实，请在代码中核实后提出覆盖方案。",
+        "status": "ask_author_to_research",
+        "used_context_refs": [
+          "O04",
+          "O08"
+        ]
+      },
+      "turn": 3
+    },
+    {
+      "actor": "candidate",
+      "output": {
+        "first_doc_path": "",
+        "owner_message": "Q3（核实后确认）：代码显示用户聊天、heartbeat、cron 和 subagent 最终都通过同一 AgentEngine、内置 `auto_mode_gate` 与工具注册表执行；subagent 也继承这套 hook 上下文。因此我建议：PA 显式配置专用模型后，以上所有来源中凡进入自动工具权限分类的调用都统一使用该模型；普通 Agent 请求、工具执行后的续跑、无需分类即可放行或拒绝的路径均继续使用原有 run 模型或既有规则。是否按此覆盖？\n\n理由：这与现有真实调用拓扑一致，也把专用模型严格限制在自动权限分类边界内。",
+        "status": "needs_owner"
+      },
+      "turn": 4
+    },
+    {
+      "actor": "owner",
+      "output": {
+        "reply": "可以，按此覆盖：PA 显式配置专用模型后，所有运行来源中凡进入自动工具权限分类的调用都使用该模型；普通 Agent 请求、工具执行后的续跑，以及无需分类的既有放行或拒绝路径保持不变。",
+        "status": "answered",
+        "used_context_refs": [
+          "O04"
         ]
       },
       "turn": 4
@@ -93,7 +86,7 @@
       "actor": "candidate",
       "output": {
         "first_doc_path": "",
-        "owner_message": "Q5：修改统一审批模型配置后，本期是否要求 Gateway 无重启热生效？\n我的推荐：本期不做热加载，修改配置后通过重启 Gateway 生效。\n理由：仓库现有 `llm` 模型目录也是启动期加载与校验；沿用这一运维方式范围最小，并与刚确认的“启动配置错误”语义一致。\n\n你怎么看？",
+        "owner_message": "Q4：如果 PA 配置了一个未登记在 `llm.providers[].models[]` 中、为空或不可解析的专用审批模型，Gateway 应如何表现？\n我的推荐：配置校验失败并给出明确错误，不启动或不接受该配置；不要静默回退到 Agent/run 模型。\n理由：静默回退会让运维者误以为审批已统一，实际仍由不同模型裁决；明确失败更符合安全配置的可预期性。\n\n你怎么看？",
         "status": "needs_owner"
       },
       "turn": 5
@@ -101,10 +94,12 @@
     {
       "actor": "owner",
       "output": {
-        "reply": "同意。本期不增加该字段的热加载；配置修改在 Gateway 重启后生效。",
-        "status": "answered",
+        "reply": "已明确选择但不在 PA 模型目录中的模型应视为 Gateway 启动配置错误，且绝不能静默回退。完全省略该设置则保留现有行为。空值或不可解析值如何区分“省略”与“无效配置”，请依据现有配置解析和校验惯例提出最小方案。",
+        "status": "ask_author_to_research",
         "used_context_refs": [
-          "O06"
+          "O02",
+          "O03",
+          "O07"
         ]
       },
       "turn": 5

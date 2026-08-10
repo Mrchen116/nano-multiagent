@@ -23,11 +23,11 @@
   "final_visible_files": [
     {
       "path": ".experiment/conclusion-P1.md",
-      "sha256": "d55346bd34e2dfd988584d241639c08f0577f42fd18f6eedbd6639dbda3d1aa3"
+      "sha256": "7e23348395e92182f4a8c90b6851d212fa07d7243e238448b52a3843bb2c318c"
     },
     {
       "path": ".experiment/conclusion-P2.md",
-      "sha256": "509231eef61de7bd9f9e808dc1ce75bf1355292308032ff78b6690e5a95cc4b4"
+      "sha256": "8fbeb563b1bfecf504c4c1bf11bdfc0ca93e7e6453df74b004803ca0739de906"
     },
     {
       "path": ".experiment/judge-context.provisional.json",
@@ -14958,11 +14958,11 @@
   "initial_visible_files": [
     {
       "path": ".experiment/conclusion-P1.md",
-      "sha256": "d55346bd34e2dfd988584d241639c08f0577f42fd18f6eedbd6639dbda3d1aa3"
+      "sha256": "7e23348395e92182f4a8c90b6851d212fa07d7243e238448b52a3843bb2c318c"
     },
     {
       "path": ".experiment/conclusion-P2.md",
-      "sha256": "509231eef61de7bd9f9e808dc1ce75bf1355292308032ff78b6690e5a95cc4b4"
+      "sha256": "8fbeb563b1bfecf504c4c1bf11bdfc0ca93e7e6453df74b004803ca0739de906"
     },
     {
       "path": ".experiment/judge-context.provisional.json",
@@ -29893,12 +29893,15 @@
   "manifest_id": "blind-judge-1",
   "os_sandbox": {
     "canary_read_blocked": true,
+    "credential_read_blocked": true,
     "mechanism": "macos_sandbox_exec_seatbelt",
-    "profile_sha256": "938e8a520581ace8a3347ebd56a6cde34b54e0d4c00ce3d6a6ae2d9edd73a4d4",
-    "tool_network_blocked": true
+    "nested_codex_blocked": true,
+    "profile_sha256": "70d12a77dd830ef5a40894ad388192ff903f21bb9d8e9ef347f16921ebe268e3",
+    "tool_network_blocked": true,
+    "unrelated_read_blocked": true
   },
   "readable_roots": [
-    "role_runtime",
+    "role_runtime_except_credentials",
     "system_runtime",
     "workspace"
   ],

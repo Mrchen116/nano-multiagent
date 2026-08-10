@@ -51,7 +51,8 @@
       "-C",
       "$ROLE_WORKSPACE",
       "-"
-    ]
+    ],
+    "sandbox_profile_sha256": "80db1db490ca7aff428b388ece6ad337ae8b3bc7c7ccb404ab317b7de5d41538"
   },
   "forbidden_surfaces": [
     "held-out case identity",
@@ -73,7 +74,7 @@
   "model": "gpt-5.6-sol",
   "output_schema_sha256": "259646341ce7e64ae3ef7af265b12fd3589b935aa3f4c8f95320c941bb937ab6",
   "readable_roots": [
-    "role_runtime",
+    "role_runtime_except_credentials",
     "system_runtime",
     "workspace"
   ],
@@ -84,7 +85,7 @@
   "tools": {
     "network": false,
     "shell": true,
-    "workspace_write": true
+    "workspace_write": false
   },
   "visible_files": [
     {

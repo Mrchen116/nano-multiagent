@@ -1621,12 +1621,15 @@
   "manifest_id": "memory-builder-01",
   "os_sandbox": {
     "canary_read_blocked": true,
+    "credential_read_blocked": true,
     "mechanism": "macos_sandbox_exec_seatbelt",
-    "profile_sha256": "bf748421071182125c0d0684675f0429d88a0a122b70663b9f2db04de4eeac4f",
-    "tool_network_blocked": true
+    "nested_codex_blocked": true,
+    "profile_sha256": "80db1db490ca7aff428b388ece6ad337ae8b3bc7c7ccb404ab317b7de5d41538",
+    "tool_network_blocked": true,
+    "unrelated_read_blocked": true
   },
   "readable_roots": [
-    "role_runtime",
+    "role_runtime_except_credentials",
     "system_runtime",
     "workspace"
   ],
@@ -1666,6 +1669,6 @@
     "command_execution_observed": true,
     "network": false,
     "shell": true,
-    "workspace_write": true
+    "workspace_write": false
   }
 }

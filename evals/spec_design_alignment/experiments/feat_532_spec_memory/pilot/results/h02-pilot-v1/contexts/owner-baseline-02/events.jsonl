@@ -1,4 +1,4 @@
-{"type":"thread.started","thread_id":"019fed69-2a27-7640-ae8e-4f5e8dea5909"}
+{"type":"thread.started","thread_id":"019fedb4-e713-7611-8b2e-fb97ffb82084"}
 {"type":"turn.started"}
-{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"{\"reply\":\"语义上需要与 `llm.default_model` 解耦：显式选择的模型只用于自动工具权限分类，普通 Agent 与工具后的续跑继续使用当前 run 模型；未配置时则保留现状，复用触发该分类的 Agent/run 模型。至于是否新增独立字段、字段放置以及是否支持 per-Agent 覆盖，属于实现设计；请按你列出的仓库路径证据提出最小方案，不要新增非必要入口。\",\"used_context_refs\":[\"O02\",\"O04\",\"O07\",\"O08\"],\"status\":\"ask_author_to_research\"}"}}
-{"type":"turn.completed","usage":{"input_tokens":68564,"cached_input_tokens":38144,"cache_write_input_tokens":0,"output_tokens":1054,"reasoning_output_tokens":545}}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"{\"reply\":\"不采用该回退。未填写专用审批模型时应保持现有行为：每次自动审批分类继续复用触发它的 Agent 或 run 模型；只有显式配置后才统一使用指定模型。\",\"used_context_refs\":[\"O02\"],\"status\":\"answered\"}"}}
+{"type":"turn.completed","usage":{"input_tokens":68569,"cached_input_tokens":48128,"cache_write_input_tokens":0,"output_tokens":454,"reasoning_output_tokens":74}}

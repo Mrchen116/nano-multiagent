@@ -47,9 +47,10 @@
       "--json",
       "-o",
       "$ROLE_RUNTIME/last-message-07.json",
-      "019fed69-62f4-7732-9e6a-674107d01e74",
+      "019fedb5-2a79-75a1-8abc-e18da1d10182",
       "-"
-    ]
+    ],
+    "sandbox_profile_sha256": "8c82f1f9232726cf4794dd823c4c2d75c62b950a7ba02abce6e0f456ed1a07e7"
   },
   "forbidden_surfaces": [
     "other arm",
@@ -72,7 +73,7 @@
   "model": "gpt-5.6-sol",
   "output_schema_sha256": "dd57df2d574f56de8dbf5d667d9b7231ec2d688e7270c9d14f09e1045b337a9e",
   "readable_roots": [
-    "role_runtime",
+    "role_runtime_except_credentials",
     "system_runtime",
     "workspace"
   ],
@@ -8950,7 +8951,7 @@
     },
     {
       "path": "docs/changes/feat-507-unified-approval-model/spec.md",
-      "sha256": "beab95aa505082e960565889f73e948489c4327c0ef5c1f0269fac578af70798"
+      "sha256": "2bbd9d0c4446da9a6cdc36eddeead8b4689311f12c82c9b4d9c7cc9f22618439"
     },
     {
       "path": "docs/development/README.md",

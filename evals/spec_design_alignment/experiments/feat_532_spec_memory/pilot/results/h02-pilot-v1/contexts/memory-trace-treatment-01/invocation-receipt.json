@@ -3,10 +3,10 @@
   "exit_code": 0,
   "formal_eligible": false,
   "manifest_id": "memory-trace-treatment-01",
-  "output_sha256": "983549e240d84e63394b91252be425e002149fb5ee3b2be3f44c2f82d76bf750",
+  "output_sha256": "571a38aa40f8e3532a778685c11bb7ef7d0c06ed3f6c42eb9d273d4f3f537f86",
   "real_codex_cli": true,
   "schema_version": "1.0",
-  "session_id": "019fed6f-500f-7cd0-bce6-468837d8714d",
+  "session_id": "019fedbd-5686-7530-a7a4-7c6b4240cb12",
   "temporary_auth_copy_retained": false,
-  "turn": 6
+  "turn": 5
 }

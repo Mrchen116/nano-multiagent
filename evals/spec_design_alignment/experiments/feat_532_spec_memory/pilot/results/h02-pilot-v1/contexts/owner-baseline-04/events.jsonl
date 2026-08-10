@@ -1,4 +1,4 @@
-{"type":"thread.started","thread_id":"019fed69-2a27-7640-ae8e-4f5e8dea5909"}
+{"type":"thread.started","thread_id":"019fedb4-e713-7611-8b2e-fb97ffb82084"}
 {"type":"turn.started"}
-{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"{\"reply\":\"同意。显式选择的审批模型若不在 PA 模型目录中，应作为 Gateway 启动配置错误，明确报错且不得生效，也不得静默回退。只有省略该配置时，才保留现有行为，复用触发自动分类的 Agent/run 模型。\",\"used_context_refs\":[\"O02\",\"O03\"],\"status\":\"answered\"}"}}
-{"type":"turn.completed","usage":{"input_tokens":99985,"cached_input_tokens":67328,"cache_write_input_tokens":0,"output_tokens":1388,"reasoning_output_tokens":667}}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"{\"reply\":\"可以，按此覆盖：PA 显式配置专用模型后，所有运行来源中凡进入自动工具权限分类的调用都使用该模型；普通 Agent 请求、工具执行后的续跑，以及无需分类的既有放行或拒绝路径保持不变。\",\"used_context_refs\":[\"O04\"],\"status\":\"answered\"}"}}
+{"type":"turn.completed","usage":{"input_tokens":98706,"cached_input_tokens":76288,"cache_write_input_tokens":0,"output_tokens":751,"reasoning_output_tokens":181}}

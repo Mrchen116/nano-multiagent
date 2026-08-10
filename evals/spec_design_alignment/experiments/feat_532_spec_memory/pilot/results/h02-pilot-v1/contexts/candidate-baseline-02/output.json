@@ -1,5 +1,5 @@
 {
   "first_doc_path": "",
-  "owner_message": "Q2：PA 的统一审批模型是否必须能与 `llm.default_model` 分开配置？\n我的推荐：需要一个 PA 全局的审批模型配置，不提供 per-Agent 覆盖；普通 Agent 仍按当前 run 模型运行。\n理由：仓库中 `llm.default_model` 还负责未单独选模型的普通 Agent；若直接复用它，运维调整审批模型会同时改变普通 Agent 行为，超出本次范围。仓库确认会实际进入分类器的 PA 路径包括主 agent、Agent 工具派生的 subagent、heartbeat、cron，以及继承父运行权限上下文的后台自进化 fork；仅安全快速放行、工具直接 allow/deny/ask 等路径不会调用分类模型。\n\n你怎么看？",
+  "owner_message": "Q2：Personal Assistant / IM 的配置文件未填写专用审批模型时，审批分类应使用哪个模型？\n我的推荐：回退到产品级 `llm.default_model`，而不是继续复用各 Agent 的模型；显式配置审批模型时则覆盖这个默认值。\n理由：这样旧配置无需立刻修改也能实现“所有 PA Agent 统一审批模型”，同时保留单独指定低成本或更稳定审批模型的能力。\n\n你怎么看？",
   "status": "needs_owner"
 }

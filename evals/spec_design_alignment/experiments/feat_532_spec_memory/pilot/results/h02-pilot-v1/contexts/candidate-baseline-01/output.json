@@ -1,5 +1,5 @@
 {
   "first_doc_path": "",
-  "owner_message": "Q1：你说的“所有”是否包括 `coding_cli` 和 `personal_assistant` 中的主 agent、subagent、后台任务所触发的全部自动工具审批？\n我的推荐：全部包括，统一使用同一个全局配置模型，不允许各 agent 单独覆盖。\n理由：这样才能消除审批结果随 agent 模型变化的问题，并符合“所有统一”的目标。\n\n你怎么看？",
+  "owner_message": "Q1：这个统一审批模型是否要同时覆盖 Coding CLI 和 Personal Assistant / IM 中所有 agent 的工具调用审批？\n我的推荐：两个产品都覆盖；各 agent 无论自身选了什么模型，审批分类都使用配置指定的同一个模型。\n理由：审批分类器属于共享内核能力，这样才能真正消除不同 agent 之间审批判断随模型漂移的问题。\n\n你怎么看？",
   "status": "needs_owner"
 }

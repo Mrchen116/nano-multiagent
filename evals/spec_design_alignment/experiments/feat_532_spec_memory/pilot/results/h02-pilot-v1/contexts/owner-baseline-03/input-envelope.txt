@@ -1,4 +1,4 @@
 <owner_turn>
 Answer only this quoted Candidate message.
-<candidate_message>"Q3：显式配置的统一审批模型在运行时超时、不可达或返回不可解析结果时，是否沿用现有安全降级？\n我的推荐：沿用现状——有人值守的 PA 会话转为用户手动审批；heartbeat、cron、后台 fork 等无人值守路径按现有 `unattended_fallback` 处理，默认拒绝；不要静默回退到当前 Agent/run 模型。\n理由：静默回退会让“统一模型”在故障时失效且难以察觉，而现有分类器已经具备这套 fail-closed 行为。\n\n你怎么看？"</candidate_message>
+<candidate_message>"Q3：显式配置专用审批模型后，它是否应覆盖 Personal Assistant / IM 的全部运行来源，包括用户聊天、heartbeat、cron，以及这些运行派生的 subagent？\n我的推荐：全部覆盖；只要运行属于该 Gateway，自动审批分类都使用同一个已配置模型。\n理由：这些入口共用审批机制，若只覆盖交互聊天，后台任务或 subagent 仍会随自身模型产生不同审批结果，不符合“显式配置后统一”的预期。\n\n你怎么看？"</candidate_message>
 </owner_turn>

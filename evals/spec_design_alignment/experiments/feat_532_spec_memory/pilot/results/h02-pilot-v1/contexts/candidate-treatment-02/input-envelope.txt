@@ -1,4 +1,4 @@
 <owner_reply>
-{"reply": "不同时覆盖。此次产品范围是 Personal Assistant；Coding CLI 保持不变。内核可以保持产品中立，支持显式选择或省略审批分类模型，但不能据此扩大到 Coding CLI。", "status": "answered", "used_context_refs": ["O01"]}
+{"reply": "不覆盖两端。本次产品范围是个人助手；Coding CLI 保持不变。至于两端是否共用同一审批分类机制，请以仓库代码核实，不能据此扩大产品范围。", "status": "ask_author_to_research", "used_context_refs": ["O01", "O08"]}
 </owner_reply>
 Continue the same Gate 1 workflow and return only the structured turn status.

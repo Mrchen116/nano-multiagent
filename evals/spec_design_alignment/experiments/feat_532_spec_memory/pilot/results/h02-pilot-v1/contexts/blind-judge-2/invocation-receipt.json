@@ -1,12 +1,12 @@
 {
-  "event_count": 20,
+  "event_count": 15,
   "exit_code": 0,
   "formal_eligible": false,
   "manifest_id": "blind-judge-2",
-  "output_sha256": "3e32b9719f46d2c5cd03ad49f35e13bfcf3439c8f049b56454abf34ccbb38487",
+  "output_sha256": "9d18d7176115189c86ed0ce5ab3adf8d8c2a0223b9f25541100fcd32b7c851f5",
   "real_codex_cli": true,
   "schema_version": "1.0",
-  "session_id": "019fed7a-c56b-7343-9d6c-73938729dd6c",
+  "session_id": "019fedc6-79f9-7113-aa59-de4acf60a580",
   "temporary_auth_copy_retained": false,
   "turn": 1
 }

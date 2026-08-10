@@ -51,7 +51,7 @@
     },
     {
       "path": ".experiment/task-memory.md",
-      "sha256": "787528882f940100fa167cb1f418aee8741cc2843eeb6d4f4a464559af8034aa"
+      "sha256": "eb9ac2d6bd8b22a4ca0b7a39fd4d9da4e92388a32a8ca80898a49979890f19fd"
     },
     {
       "path": ".gitattributes",
@@ -8887,7 +8887,7 @@
     },
     {
       "path": "docs/changes/feat-507-unified-approval-model/spec.md",
-      "sha256": "26b1827c2bda23669a3001ca105ef790f6571113d7f15646f363cd3b22dbca54"
+      "sha256": "17923ffec4d83975eea83a04ac4ff7e6531763078814ef7bb0fc672085f21968"
     },
     {
       "path": "docs/development/README.md",
@@ -15006,7 +15006,7 @@
     },
     {
       "path": ".experiment/task-memory.md",
-      "sha256": "787528882f940100fa167cb1f418aee8741cc2843eeb6d4f4a464559af8034aa"
+      "sha256": "eb9ac2d6bd8b22a4ca0b7a39fd4d9da4e92388a32a8ca80898a49979890f19fd"
     },
     {
       "path": ".gitattributes",
@@ -23842,7 +23842,7 @@
     },
     {
       "path": "docs/changes/feat-507-unified-approval-model/spec.md",
-      "sha256": "26b1827c2bda23669a3001ca105ef790f6571113d7f15646f363cd3b22dbca54"
+      "sha256": "17923ffec4d83975eea83a04ac4ff7e6531763078814ef7bb0fc672085f21968"
     },
     {
       "path": "docs/development/README.md",
@@ -29929,16 +29929,19 @@
       "sha256": "0a615438f91c54b71840fc5a4e5e6c6ba40c0810d67f0d80b3f65fa238bbf54c"
     }
   ],
-  "input_envelope_sha256": "e1302e376746878a9901b41fe75398ddad2fcaf1777a9d51dd401a11b1b58931",
+  "input_envelope_sha256": "7abcac9c2a6cfb72aa52c34327426e957f9a0c379d496c88ed2bb92ef532bdf7",
   "manifest_id": "memory-trace-treatment-01",
   "os_sandbox": {
     "canary_read_blocked": true,
+    "credential_read_blocked": true,
     "mechanism": "macos_sandbox_exec_seatbelt",
-    "profile_sha256": "1dd92a140928276868bc9390a050260a42b7def2d27e456a3f2f069efcad0314",
-    "tool_network_blocked": true
+    "nested_codex_blocked": true,
+    "profile_sha256": "f33a3680b9c0ff1f38dae22f0a4bb05030a95a3bc3351d152f6badb51e4c511c",
+    "tool_network_blocked": true,
+    "unrelated_read_blocked": true
   },
   "readable_roots": [
-    "role_runtime",
+    "role_runtime_except_credentials",
     "system_runtime",
     "workspace"
   ],
@@ -29964,11 +29967,11 @@
     "-c",
     "sandbox_mode=\"danger-full-access\"",
     "--output-schema",
-    "$ROLE_RUNTIME/output-schema-06.json",
+    "$ROLE_RUNTIME/output-schema-05.json",
     "--json",
     "-o",
-    "$ROLE_RUNTIME/last-message-06.json",
-    "019fed6f-500f-7cd0-bce6-468837d8714d",
+    "$ROLE_RUNTIME/last-message-05.json",
+    "019fedbd-5686-7530-a7a4-7c6b4240cb12",
     "-"
   ],
   "schema_version": "1.0",

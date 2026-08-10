@@ -1,5 +1,5 @@
 {
   "first_doc_path": "",
-  "owner_message": "Q1：这里的“所有”是否同时覆盖 Coding CLI 和 Personal Assistant / IM 中所有 Agent 的工具审批？\n我的推荐：两个产品都覆盖，凡进入自动审批分类器的工具调用都使用同一个配置模型。\n理由：当前复用本轮 Agent 模型的是内核共享机制；统一覆盖可避免不同入口继续出现审批模型漂移。\n\n你怎么看？",
+  "owner_message": "Q1：统一审批模型是否同时覆盖 Coding CLI 和个人助手 / IM 中所有 Agent 的工具调用审批？我的推荐：两端都覆盖，共用同一个配置值。理由：两端当前共用同一审批分类机制，“所有统一”应避免不同产品仍随各自 Agent 模型漂移。你怎么看？",
   "status": "needs_owner"
 }

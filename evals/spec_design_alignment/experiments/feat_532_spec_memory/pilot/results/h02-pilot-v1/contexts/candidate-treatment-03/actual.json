@@ -51,7 +51,7 @@
     },
     {
       "path": ".experiment/task-memory.md",
-      "sha256": "787528882f940100fa167cb1f418aee8741cc2843eeb6d4f4a464559af8034aa"
+      "sha256": "eb9ac2d6bd8b22a4ca0b7a39fd4d9da4e92388a32a8ca80898a49979890f19fd"
     },
     {
       "path": ".gitattributes",
@@ -8887,7 +8887,7 @@
     },
     {
       "path": "docs/changes/feat-507-unified-approval-model/spec.md",
-      "sha256": "f65228789906023d0f73901b606f395b5ab934a4645a13c39c541b487022bf4b"
+      "sha256": "c05d36afb2b254256ba253696b6fa86304d7d1a5a6bd755729dc0236d717dc81"
     },
     {
       "path": "docs/development/README.md",
@@ -15006,7 +15006,7 @@
     },
     {
       "path": ".experiment/task-memory.md",
-      "sha256": "787528882f940100fa167cb1f418aee8741cc2843eeb6d4f4a464559af8034aa"
+      "sha256": "eb9ac2d6bd8b22a4ca0b7a39fd4d9da4e92388a32a8ca80898a49979890f19fd"
     },
     {
       "path": ".gitattributes",
@@ -23842,7 +23842,7 @@
     },
     {
       "path": "docs/changes/feat-507-unified-approval-model/spec.md",
-      "sha256": "2eaa9de9176d96d795c560d44da9f7f221182583f11efd8a9385c6f7fd5d6ed1"
+      "sha256": "9acc1438f5420e5bca5a2aec7b3de045144a003b49faa056eadcd1e678df2836"
     },
     {
       "path": "docs/development/README.md",
@@ -29929,16 +29929,19 @@
       "sha256": "0a615438f91c54b71840fc5a4e5e6c6ba40c0810d67f0d80b3f65fa238bbf54c"
     }
   ],
-  "input_envelope_sha256": "26293f3a9e6692cc5919973283abd29503d0171c2cb67d87dcafaa8f937e5429",
+  "input_envelope_sha256": "37d7fbdc2e457172dc602f72affbbf23fffb331ca3129ff0f2aa691cb8ec87e0",
   "manifest_id": "candidate-treatment-03",
   "os_sandbox": {
     "canary_read_blocked": true,
+    "credential_read_blocked": true,
     "mechanism": "macos_sandbox_exec_seatbelt",
-    "profile_sha256": "1dd92a140928276868bc9390a050260a42b7def2d27e456a3f2f069efcad0314",
-    "tool_network_blocked": true
+    "nested_codex_blocked": true,
+    "profile_sha256": "f33a3680b9c0ff1f38dae22f0a4bb05030a95a3bc3351d152f6badb51e4c511c",
+    "tool_network_blocked": true,
+    "unrelated_read_blocked": true
   },
   "readable_roots": [
-    "role_runtime",
+    "role_runtime_except_credentials",
     "system_runtime",
     "workspace"
   ],
@@ -29968,7 +29971,7 @@
     "--json",
     "-o",
     "$ROLE_RUNTIME/last-message-03.json",
-    "019fed6f-500f-7cd0-bce6-468837d8714d",
+    "019fedbd-5686-7530-a7a4-7c6b4240cb12",
     "-"
   ],
   "schema_version": "1.0",

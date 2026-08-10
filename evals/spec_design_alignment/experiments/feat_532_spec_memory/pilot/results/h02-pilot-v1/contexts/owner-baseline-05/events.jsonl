@@ -1,4 +1,4 @@
-{"type":"thread.started","thread_id":"019fed69-2a27-7640-ae8e-4f5e8dea5909"}
+{"type":"thread.started","thread_id":"019fedb4-e713-7611-8b2e-fb97ffb82084"}
 {"type":"turn.started"}
-{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"{\"reply\":\"同意。本期不增加该字段的热加载；配置修改在 Gateway 重启后生效。\",\"used_context_refs\":[\"O06\"],\"status\":\"answered\"}"}}
-{"type":"turn.completed","usage":{"input_tokens":116113,"cached_input_tokens":82432,"cache_write_input_tokens":0,"output_tokens":1447,"reasoning_output_tokens":676}}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"{\"reply\":\"已明确选择但不在 PA 模型目录中的模型应视为 Gateway 启动配置错误，且绝不能静默回退。完全省略该设置则保留现有行为。空值或不可解析值如何区分“省略”与“无效配置”，请依据现有配置解析和校验惯例提出最小方案。\",\"used_context_refs\":[\"O02\",\"O03\",\"O07\"],\"status\":\"ask_author_to_research\"}"}}
+{"type":"turn.completed","usage":{"input_tokens":114210,"cached_input_tokens":76288,"cache_write_input_tokens":0,"output_tokens":1048,"reasoning_output_tokens":363}}

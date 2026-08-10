@@ -22,7 +22,7 @@
     "run_audits": 2
   },
   "pilot_id": "feat-532-h02-infrastructure-pilot-v1",
-  "pilot_seal_sha256": "ff49010e9066c5d20f29b82ebb62019e3eac839d6e63059c18b070ab672f3045",
+  "pilot_seal_sha256": "7bddc315a7bc82565724b39fb16c19857152d17a98c36ff48ae9ed84e38a0824",
   "repetitions": 1,
   "schema_version": "1.0",
   "setup_burden": {

@@ -51,7 +51,7 @@
     },
     {
       "path": ".experiment/task-memory.md",
-      "sha256": "787528882f940100fa167cb1f418aee8741cc2843eeb6d4f4a464559af8034aa"
+      "sha256": "eb9ac2d6bd8b22a4ca0b7a39fd4d9da4e92388a32a8ca80898a49979890f19fd"
     },
     {
       "path": ".gitattributes",
@@ -8887,7 +8887,7 @@
     },
     {
       "path": "docs/changes/feat-507-unified-approval-model/spec.md",
-      "sha256": "5432158173ee4e721559f5f41a6e7cd96a0380722df67fec2c3896f52b49b001"
+      "sha256": "c685998dff71947390f475eaee8aef3faae7f3ed2490c089721431a1f0976f16"
     },
     {
       "path": "docs/development/README.md",
@@ -15006,7 +15006,7 @@
     },
     {
       "path": ".experiment/task-memory.md",
-      "sha256": "787528882f940100fa167cb1f418aee8741cc2843eeb6d4f4a464559af8034aa"
+      "sha256": "eb9ac2d6bd8b22a4ca0b7a39fd4d9da4e92388a32a8ca80898a49979890f19fd"
     },
     {
       "path": ".gitattributes",
@@ -29929,12 +29929,15 @@
   "manifest_id": "candidate-treatment-01",
   "os_sandbox": {
     "canary_read_blocked": true,
+    "credential_read_blocked": true,
     "mechanism": "macos_sandbox_exec_seatbelt",
-    "profile_sha256": "1dd92a140928276868bc9390a050260a42b7def2d27e456a3f2f069efcad0314",
-    "tool_network_blocked": true
+    "nested_codex_blocked": true,
+    "profile_sha256": "f33a3680b9c0ff1f38dae22f0a4bb05030a95a3bc3351d152f6badb51e4c511c",
+    "tool_network_blocked": true,
+    "unrelated_read_blocked": true
   },
   "readable_roots": [
-    "role_runtime",
+    "role_runtime_except_credentials",
     "system_runtime",
     "workspace"
   ],

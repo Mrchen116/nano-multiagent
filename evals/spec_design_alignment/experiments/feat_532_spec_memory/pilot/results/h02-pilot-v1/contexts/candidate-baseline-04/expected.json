@@ -47,9 +47,10 @@
       "--json",
       "-o",
       "$ROLE_RUNTIME/last-message-04.json",
-      "019fed69-62f4-7732-9e6a-674107d01e74",
+      "019fedb5-2a79-75a1-8abc-e18da1d10182",
       "-"
-    ]
+    ],
+    "sandbox_profile_sha256": "8c82f1f9232726cf4794dd823c4c2d75c62b950a7ba02abce6e0f456ed1a07e7"
   },
   "forbidden_surfaces": [
     "other arm",
@@ -59,7 +60,7 @@
     "design or implementation phase"
   ],
   "formal_eligible": false,
-  "input_envelope_sha256": "332105a577e8569a32820cc1afb5eb60c9db61e211d610f6f73d932eff77848b",
+  "input_envelope_sha256": "50bd9a60ffb3c9f33be661b0d0872a7e7bc1476489d0446c5ccbc14c4f9f7041",
   "instructions_sha256": "94d5f8504b1f03e087e81627ab2f92555d21ba829271bf892bc731cf2e1307f3",
   "isolation": {
     "codex_home": "temporary_isolated",
@@ -72,7 +73,7 @@
   "model": "gpt-5.6-sol",
   "output_schema_sha256": "47843ed3e69bc0211b491550f688d9511f0a6562c8f697cb02e275165e1a0ff4",
   "readable_roots": [
-    "role_runtime",
+    "role_runtime_except_credentials",
     "system_runtime",
     "workspace"
   ],
@@ -8950,7 +8951,7 @@
     },
     {
       "path": "docs/changes/feat-507-unified-approval-model/spec.md",
-      "sha256": "73e4e5c2657760e7e7b9f2fd1edfcdb0082ab7b8a74b0358f941fece6054c240"
+      "sha256": "03dcae00e089b6e84718f3365d4c496a122c70502c5d86d096f39539e31798bb"
     },
     {
       "path": "docs/development/README.md",

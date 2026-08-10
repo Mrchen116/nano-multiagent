@@ -1,10 +1,10 @@
 {
-  "artifacts": "/private/tmp/feat532-M0-fix1-artifacts.D5vhXk",
-  "candidate_template": "/private/tmp/feat532-M0-fix1-work.ZejOV2/candidate-template",
+  "artifacts": "/private/tmp/feat-532-fix2-live.K8jL80/artifacts",
+  "candidate_template": "/private/tmp/feat-532-fix2-live.K8jL80/workspace/candidate-template",
   "case_id": "H02",
   "formal_eligible": false,
-  "neutral_repository": "/private/tmp/feat532-M0-fix1-work.ZejOV2/neutral-repo",
+  "neutral_repository": "/private/tmp/feat-532-fix2-live.K8jL80/workspace/neutral-repo",
   "pilot_id": "feat-532-h02-infrastructure-pilot-v1",
-  "sealed_inputs_sha256": "4a1527ca4c852823799c23ad7175dff646419b9c70ac5ef5422f0b1938583e8d",
-  "workspace": "/private/tmp/feat532-M0-fix1-work.ZejOV2"
+  "sealed_inputs_sha256": "427dfa99563a6724dfc582188df3e123702e352368dfb1bd6a8f7a7ae7b16b69",
+  "workspace": "/private/tmp/feat-532-fix2-live.K8jL80/workspace"
 }
