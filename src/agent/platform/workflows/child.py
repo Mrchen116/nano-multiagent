@@ -105,11 +105,16 @@ class WorkflowChildRunner:
         if parent is None:
             raise RuntimeError("Workflow parent session is not available")
         type_definition = resolve_agent_type(call.agent_type)
-        parent_tools = (
-            parent.tool_allowlist
-            if parent.tool_allowlist is not None
-            else tuple(control.list_parent_enabled_tool_names())
-        )
+        if self._context.parent_runtime_captured:
+            parent_tools = self._context.parent_enabled_tools or ()
+            parent_skills = self._context.parent_skills
+        else:
+            parent_tools = (
+                parent.tool_allowlist
+                if parent.tool_allowlist is not None
+                else tuple(control.list_parent_enabled_tool_names())
+            )
+            parent_skills = parent.skills
         effective_tools = apply_tool_deny(
             parent_tools,
             (*type_definition.disallowed_tools, "agent", "Agent", "Workflow"),
@@ -147,13 +152,16 @@ class WorkflowChildRunner:
         try:
             while True:
                 model = self._resolve_model(call, control)
-                effort_resolver = getattr(control, "resolve_reasoning_effort", None)
-                effort = call.effort or (
-                    effort_resolver() if callable(effort_resolver) else None
-                )
+                if self._context.parent_runtime_captured:
+                    effort = call.effort or self._context.parent_effort
+                else:
+                    effort_resolver = getattr(control, "resolve_reasoning_effort", None)
+                    effort = call.effort or (
+                        effort_resolver() if callable(effort_resolver) else None
+                    )
                 ref = control.create_subagent(
                     workspace_root=child_workspace,
-                    skills=parent.skills,
+                    skills=parent_skills,
                     tool_allowlist=effective_tools,
                     prompt_seed=prompt_seed,
                     metadata={
@@ -233,7 +241,11 @@ class WorkflowChildRunner:
                 self._cleanup_worktree(child_workspace)
 
     def _resolve_model(self, call: AgentCallSpec, control: Any) -> str | None:
-        parent_model = control.resolve_run_model()
+        parent_model = (
+            self._context.parent_model
+            if self._context.parent_runtime_captured
+            else control.resolve_run_model()
+        )
         requested = self._model_override or call.model or parent_model
         if requested is None:
             return None

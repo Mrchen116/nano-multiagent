@@ -23,7 +23,9 @@ from .resume import chained_resume_key
 
 
 ChildRunner = Callable[[AgentCallSpec], Awaitable[Any]]
-NestedRunner = Callable[[str, Any, "WorkflowRuntime"], Awaitable[Any]]
+NestedRunner = Callable[
+    [str | Mapping[str, Any], Any, "WorkflowRuntime"], Awaitable[Any]
+]
 
 
 class OutputTokenBudget:
@@ -201,7 +203,7 @@ class WorkflowRuntime:
         first_values: list[Any] = []
         for index, item in enumerate(items):
             try:
-                first_values.append(stage_call(stages[0], None, item, index))
+                first_values.append(stage_call(stages[0], item, item, index))
             except Exception:
                 first_values.append(None)
 
@@ -228,7 +230,9 @@ class WorkflowRuntime:
             )
         )
 
-    async def workflow(self, name_or_ref: str, args: Any = None) -> Any:
+    async def workflow(
+        self, name_or_ref: str | Mapping[str, Any], args: Any = None
+    ) -> Any:
         if self._nesting_depth >= 1:
             raise ValueError("Workflow nesting is limited to one level")
         if self._nested_runner is None:

@@ -34,6 +34,11 @@ class WorkflowLaunchContext:
     subagent_control: Any = None
     workflow_ultracode: bool = False
     parent_run_origin: str = "user"
+    parent_runtime_captured: bool = False
+    parent_model: str | None = None
+    parent_effort: str | None = None
+    parent_enabled_tools: tuple[str, ...] | None = None
+    parent_skills: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +105,10 @@ class WorkflowManager:
         if self._closed:
             raise RuntimeError("Workflow manager is closed")
         compiled = compile_workflow(source)
+        resume_entries = self._resume_entries(
+            resume_from_run_id,
+            parent_session_id=context.parent_session_id,
+        )
         run_id = _make_id("wf")
         task_id = _make_id("wt")
         store = WorkflowRunStore(
@@ -180,7 +189,7 @@ class WorkflowManager:
             self._runs[run_id] = handle
         thread = threading.Thread(
             target=self._thread_main,
-            args=(handle, compiled, args, resume_from_run_id),
+            args=(handle, compiled, args, resume_entries),
             name=f"workflow-{run_id}",
             daemon=True,
         )
@@ -309,13 +318,12 @@ class WorkflowManager:
             if thread is not None:
                 thread.join(timeout=2)
 
-    def _thread_main(self, handle, compiled, args, resume_from_run_id) -> None:  # noqa: ANN001
-        asyncio.run(self._run(handle, compiled, args, resume_from_run_id))
+    def _thread_main(self, handle, compiled, args, resume_entries) -> None:  # noqa: ANN001
+        asyncio.run(self._run(handle, compiled, args, resume_entries))
 
-    async def _run(self, handle, compiled, args, resume_from_run_id) -> None:  # noqa: ANN001
+    async def _run(self, handle, compiled, args, resume_entries) -> None:  # noqa: ANN001
         started = time.monotonic()
         try:
-            resume_entries = self._resume_entries(resume_from_run_id)
 
             async def observed_child(call: AgentCallSpec) -> Any:
                 agent_info = {
@@ -390,14 +398,11 @@ class WorkflowManager:
                 return result
 
             async def nested_runner(
-                name_or_ref: str, nested_args: Any, parent_runtime: WorkflowRuntime
+                name_or_ref: str | Mapping[str, Any],
+                nested_args: Any,
+                parent_runtime: WorkflowRuntime,
             ) -> Any:
-                resolver = self._named_source_resolver
-                source = (
-                    resolver(name_or_ref, handle.context.workspace_root)
-                    if resolver
-                    else None
-                )
+                source = self._resolve_nested_source(name_or_ref, handle.context)
                 if source is None:
                     raise ValueError(f"unknown nested Workflow: {name_or_ref}")
                 nested = compile_workflow(source)
@@ -522,12 +527,21 @@ class WorkflowManager:
         finally:
             handle.terminal.set()
 
-    def _resume_entries(self, run_id: str | None) -> tuple[ResumeEntry, ...]:
+    def _resume_entries(
+        self,
+        run_id: str | None,
+        *,
+        parent_session_id: str,
+    ) -> tuple[ResumeEntry, ...]:
         if run_id is None:
             return ()
         previous = self.get(run_id)
         if previous is None:
             raise ValueError(f"unknown resume Workflow run: {run_id}")
+        if previous.get("parent_session_id") != parent_session_id:
+            raise ValueError(
+                "resume Workflow run belongs to a different parent session"
+            )
         completed_agents = sorted(
             previous.get("agents", ()), key=lambda item: int(item["start_ordinal"])
         )
@@ -535,10 +549,41 @@ class WorkflowManager:
             ResumeEntry(
                 key=item["resume_key"],
                 result=item.get("result"),
-                terminal_ordinal=int(item.get("terminal_ordinal") or index),
+                terminal_ordinal=int(
+                    index
+                    if item.get("terminal_ordinal") is None
+                    else item["terminal_ordinal"]
+                ),
             )
             for index, item in enumerate(completed_agents)
             if item.get("status") == "completed" and item.get("resume_key")
+        )
+
+    def _resolve_nested_source(
+        self,
+        name_or_ref: str | Mapping[str, Any],
+        context: WorkflowLaunchContext,
+    ) -> str | None:
+        if isinstance(name_or_ref, Mapping):
+            raw_path = name_or_ref.get("scriptPath")
+            if not isinstance(raw_path, str) or not raw_path.strip():
+                raise ValueError("nested Workflow artifact requires scriptPath")
+            path = Path(raw_path).expanduser()
+            if not path.is_absolute():
+                path = context.workspace_root / path
+            try:
+                return path.resolve().read_text(encoding="utf-8")
+            except OSError as exc:
+                raise ValueError(
+                    f"unable to read nested Workflow scriptPath: {path}"
+                ) from exc
+        if not isinstance(name_or_ref, str):
+            raise ValueError("nested Workflow requires a saved name or scriptPath")
+        resolver = self._named_source_resolver
+        return (
+            resolver(name_or_ref, context.workspace_root)
+            if resolver is not None
+            else None
         )
 
     def _reconcile_completions(
@@ -570,6 +615,7 @@ class WorkflowManager:
                 continue
             item["terminal_ordinal"] = completion.terminal_ordinal
             item["replayed"] = completion.replayed
+        handle.snapshot["agents"].sort(key=lambda item: int(item["start_ordinal"]))
 
     def _journal(self, handle: _RunHandle, event: str, **payload: Any) -> None:
         handle.store.append(

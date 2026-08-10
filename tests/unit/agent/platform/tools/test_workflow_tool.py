@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 import re
 from types import SimpleNamespace
@@ -6,7 +7,7 @@ import pytest
 
 from agent.core.errors import ToolError
 from agent.core.session.types import INTERNAL_RUNTIME_KEY
-from agent.core.workflows import compile_workflow
+from agent.core.workflows import WorkflowRuntime, compile_workflow, execute_workflow
 from agent.platform.permissions.broker import PermissionDecision
 from agent.platform.tools.builtins.workflow import WorkflowTool, workflow_description
 
@@ -73,6 +74,32 @@ def test_workflow_exact_schema_and_launch_correlation(tmp_path: Path) -> None:
         "parent_tool_call_id": "call_parent",
         "workflow_run_id": "wf_123456",
     }
+
+
+def test_launch_captures_parent_runtime_before_background_thread(
+    tmp_path: Path,
+) -> None:
+    manager = _Manager()
+    tool = WorkflowTool(manager=manager)
+    parent = SimpleNamespace(tool_allowlist=None, skills=("review",))
+    control = SimpleNamespace(
+        directory=SimpleNamespace(get=lambda _ref: parent),
+        ref=object(),
+        resolve_run_model=lambda: "parent-model",
+        resolve_reasoning_effort=lambda: "high",
+        list_parent_enabled_tool_names=lambda: ("read", "bash"),
+    )
+    context = _context(tmp_path)
+    context.subagent_control = control
+
+    tool.run({"script": SCRIPT}, context)
+
+    launch_context = manager.calls[-1]["context"]
+    assert launch_context.parent_runtime_captured is True
+    assert launch_context.parent_model == "parent-model"
+    assert launch_context.parent_effort == "high"
+    assert launch_context.parent_enabled_tools == ("read", "bash")
+    assert launch_context.parent_skills == ("review",)
 
 
 def test_source_precedence_and_launch_validation(tmp_path: Path) -> None:
@@ -152,4 +179,22 @@ def test_prompt_preserves_captured_clause_inventory_as_python() -> None:
     example = description.split("<!-- executable-example:start -->", 1)[1]
     example = example.split("<!-- executable-example:end -->", 1)[0]
     source = example.split("```python", 1)[1].split("```", 1)[0].strip()
-    assert compile_workflow(source).meta.name == "review-changes"
+    compiled = compile_workflow(source)
+    calls = []
+
+    async def child(call):  # noqa: ANN001
+        calls.append(call)
+        if "findings" in (call.schema or {}).get("required", ()):
+            return {"findings": [{"title": "real", "file": "app.py"}]}
+        return {"isReal": True}
+
+    runtime = WorkflowRuntime(
+        child_runner=child,
+        phases=[phase.title for phase in compiled.meta.phases],
+    )
+    result = asyncio.run(execute_workflow(compiled, args=None, runtime=runtime))
+
+    assert compiled.meta.name == "review-changes"
+    assert result.status == "completed"
+    assert result.result == [[{"isReal": True}], [{"isReal": True}]]
+    assert len(calls) == 4

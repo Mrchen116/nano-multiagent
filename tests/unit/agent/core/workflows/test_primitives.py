@@ -66,7 +66,7 @@ def test_pipeline_flows_each_item_without_cross_stage_barrier() -> None:
         runtime = WorkflowRuntime(child_runner=child)
         results = await runtime.pipeline(
             ["slow", "fast", "bad"],
-            lambda _previous, original, _index: runtime.agent(f"s1:{original}"),
+            lambda current, _original, _index: runtime.agent(f"s1:{current}"),
             lambda previous, _original, _index: runtime.agent(f"s2:{previous}"),
         )
         assert results == ["s2:s1:slow", "s2:s1:fast", None]

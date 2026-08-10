@@ -97,13 +97,13 @@ class _CheckpointTransformer(ast.NodeTransformer):
     def visit_For(self, node: ast.For) -> ast.AST:  # noqa: N802
         self.generic_visit(node)
         if self._async_depth:
-            node.body.append(_await_checkpoint())
+            node.body.insert(0, _await_checkpoint())
         return node
 
     def visit_While(self, node: ast.While) -> ast.AST:  # noqa: N802
         self.generic_visit(node)
         if self._async_depth:
-            node.body.append(_await_checkpoint())
+            node.body.insert(0, _await_checkpoint())
         return node
 
     def visit_Await(self, node: ast.Await) -> ast.AST:  # noqa: N802

@@ -166,6 +166,7 @@ class WorkflowTool:
     def run(self, args: Mapping[str, Any], ctx: ToolContext) -> Mapping[str, Any]:
         source, _identity = self._resolve_source(args, ctx)
         size_guideline = _size_guideline(ctx.session_metadata)
+        runtime_snapshot = _capture_parent_runtime(ctx)
         context = WorkflowLaunchContext(
             parent_session_id=ctx.session_id or "",
             workspace_root=ctx.cwd,
@@ -183,6 +184,7 @@ class WorkflowTool:
                 )
             ),
             parent_run_origin=str(ctx.session_metadata.get("run_origin") or "user"),
+            **runtime_snapshot,
         )
         try:
             launch = self._manager.launch(
@@ -267,6 +269,30 @@ def _optional_string(value: Any) -> str | None:
         return None
     normalized = value.strip()
     return normalized or None
+
+
+def _capture_parent_runtime(ctx: ToolContext) -> dict[str, Any]:
+    control = ctx.subagent_control
+    if control is None:
+        return {}
+    parent = control.directory.get(control.ref)
+    if parent is None:
+        raise ToolError(
+            "Workflow parent session is not available", tool_name=WorkflowTool.name
+        )
+    tools = (
+        tuple(control.list_parent_enabled_tool_names())
+        if parent.tool_allowlist is None
+        else tuple(parent.tool_allowlist)
+    )
+    skills = tuple(parent.skills) if parent.skills is not None else None
+    return {
+        "parent_runtime_captured": True,
+        "parent_model": control.resolve_run_model(),
+        "parent_effort": control.resolve_reasoning_effort(),
+        "parent_enabled_tools": tools,
+        "parent_skills": skills,
+    }
 
 
 def _size_guideline(session_metadata: Mapping[str, Any]) -> str:

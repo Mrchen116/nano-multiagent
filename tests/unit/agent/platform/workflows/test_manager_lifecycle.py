@@ -3,6 +3,8 @@ import asyncio
 from pathlib import Path
 import threading
 
+import pytest
+
 from agent.core.background_tasks.registry import BackgroundTaskRegistry
 from agent.platform.workflows import WorkflowLaunchContext, WorkflowManager
 
@@ -141,6 +143,70 @@ def test_resume_rehydrates_complete_agent_prefix_without_live_dispatch(
     manager.close()
 
 
+def test_resume_rejects_a_run_owned_by_another_parent_session(
+    tmp_path: Path,
+) -> None:
+    async def child(call):  # noqa: ANN001
+        return call.prompt
+
+    manager = WorkflowManager(
+        background_registry=BackgroundTaskRegistry(),
+        config_dirname=".nanocode",
+        child_runner_factory=lambda _context, _run_id: child,
+    )
+    original = manager.launch(
+        source=SCRIPT,
+        args=None,
+        context=WorkflowLaunchContext(
+            parent_session_id="session-a", workspace_root=tmp_path
+        ),
+    )
+    manager.wait(original.run_id, timeout=2)
+
+    with pytest.raises(ValueError, match="parent session"):
+        manager.launch(
+            source=SCRIPT,
+            args=None,
+            context=WorkflowLaunchContext(
+                parent_session_id="session-b", workspace_root=tmp_path
+            ),
+            resume_from_run_id=original.run_id,
+        )
+
+    manager.close()
+
+
+def test_resume_preserves_observed_terminal_order_instead_of_start_order(
+    tmp_path: Path,
+) -> None:
+    async def child(call):  # noqa: ANN001
+        if call.prompt == "one":
+            await asyncio.sleep(0.02)
+        return call.prompt
+
+    manager = WorkflowManager(
+        background_registry=BackgroundTaskRegistry(),
+        config_dirname=".nanocode",
+        child_runner_factory=lambda _context, _run_id: child,
+    )
+    context = WorkflowLaunchContext(
+        parent_session_id="sess_parent", workspace_root=tmp_path
+    )
+    original = manager.launch(source=SCRIPT, args=None, context=context)
+    first = manager.wait(original.run_id, timeout=2)
+    resumed = manager.launch(
+        source=SCRIPT,
+        args=None,
+        context=context,
+        resume_from_run_id=original.run_id,
+    )
+    second = manager.wait(resumed.run_id, timeout=2)
+
+    assert [item["terminal_ordinal"] for item in first["agents"]] == [1, 0]
+    assert [item["terminal_ordinal"] for item in second["agents"]] == [1, 0]
+    manager.close()
+
+
 def test_terminal_snapshot_is_queryable_after_manager_restart(tmp_path: Path) -> None:
     registry = BackgroundTaskRegistry()
 
@@ -207,6 +273,46 @@ async def main():
 
     assert snapshot["result"] == ["done:first", "done:nested"]
     assert [item["start_ordinal"] for item in snapshot["agents"]] == [0, 1]
+    manager.close()
+
+
+def test_nested_script_artifact_uses_the_parent_workspace(
+    tmp_path: Path,
+) -> None:
+    inner_path = tmp_path / "inner.py"
+    inner_path.write_text(
+        """
+meta = {"name": "inner", "description": "Nested artifact"}
+async def main():
+    return await agent("artifact child")
+""",
+        encoding="utf-8",
+    )
+
+    async def child(call):  # noqa: ANN001
+        return f"done:{call.prompt}"
+
+    manager = WorkflowManager(
+        background_registry=BackgroundTaskRegistry(),
+        config_dirname=".nanocode",
+        child_runner_factory=lambda _context, _run_id: child,
+    )
+    launch = manager.launch(
+        source="""
+meta = {"name": "outer", "description": "Nested artifact caller"}
+async def main():
+    return await workflow({"scriptPath": "inner.py"})
+""",
+        args=None,
+        context=WorkflowLaunchContext(
+            parent_session_id="sess_parent", workspace_root=tmp_path
+        ),
+    )
+
+    snapshot = manager.wait(launch.run_id, timeout=2)
+
+    assert snapshot["status"] == "completed"
+    assert snapshot["result"] == "done:artifact child"
     manager.close()
 
 

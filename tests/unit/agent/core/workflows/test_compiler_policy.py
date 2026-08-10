@@ -4,6 +4,7 @@ import pytest
 
 from agent.core.workflows import (
     WorkflowCompileError,
+    WorkflowRuntime,
     compile_workflow,
     execute_workflow,
 )
@@ -100,3 +101,36 @@ def test_sync_helpers_with_control_flow_remain_real_python() -> None:
     )
 
     assert result.result == [3]
+
+
+@pytest.mark.asyncio
+async def test_continue_cannot_skip_the_cooperative_loop_checkpoint() -> None:
+    compiled = compile_workflow(
+        """
+meta = {"name": "loop", "description": "Checkpoint a continuing loop"}
+
+async def main():
+    count = 0
+    while count < 3:
+        count += 1
+        continue
+    return count
+"""
+    )
+
+    async def child(_call):  # noqa: ANN001
+        raise AssertionError("loop Workflow must not dispatch a child")
+
+    checkpoints = 0
+
+    class CountingRuntime(WorkflowRuntime):
+        async def checkpoint(self) -> None:
+            nonlocal checkpoints
+            checkpoints += 1
+            await super().checkpoint()
+
+    runtime = CountingRuntime(child_runner=child)
+    result = await execute_workflow(compiled, args=None, runtime=runtime)
+
+    assert result.result == 3
+    assert checkpoints == 4  # async function entry plus each loop iteration

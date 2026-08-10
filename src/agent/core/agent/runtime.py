@@ -1543,6 +1543,24 @@ class AgentEngine:
                                 )
                     else:
                         response = await future
+                except asyncio.CancelledError:
+                    response = type(
+                        "_R",
+                        (),
+                        {
+                            "decision": "deny",
+                            "reason": "cancelled: run interrupted or timed out",
+                            "request_id": req.id,
+                            "rule_update": None,
+                        },
+                    )()
+                    with broker._lock:  # noqa: SLF001
+                        owned = broker._pending.pop(req.id, None)  # noqa: SLF001
+                    if owned is not None and not future.done():
+                        future.get_loop().call_soon_threadsafe(
+                            future.set_result, response
+                        )
+                    raise
                 finally:
                     # bugfix-417-M3 R3: stop the liveness ticker the instant the wait
                     # ends (resolve / deny / cancel), so the heartbeat proves only the

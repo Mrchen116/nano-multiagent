@@ -34,6 +34,17 @@ class _Control:
         return SimpleNamespace(session_id=f"child-{self.created}")
 
 
+class _NoActiveRunControl(_Control):
+    def list_parent_enabled_tool_names(self):
+        raise RuntimeError("active ContextVar is unavailable in manager thread")
+
+    def resolve_run_model(self):
+        raise RuntimeError("active ContextVar is unavailable in manager thread")
+
+    def resolve_reasoning_effort(self):
+        raise RuntimeError("active ContextVar is unavailable in manager thread")
+
+
 class _AttemptHandle:
     def __init__(self, result_text: str) -> None:
         self.result_text = result_text
@@ -139,3 +150,35 @@ async def test_stop_selected_agent_returns_none_without_stopping_workflow(
 
     assert await task is None
     assert child.status_for("wa_000000") == "stopped"
+
+
+@pytest.mark.asyncio
+async def test_child_uses_parent_runtime_snapshot_outside_the_active_turn_context(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "agent.platform.workflows.child.provider_of", lambda _model: "p"
+    )
+    control = _NoActiveRunControl()
+    runner = _Runner()
+    child = WorkflowChildRunner(
+        context=WorkflowLaunchContext(
+            parent_session_id="parent",
+            workspace_root=tmp_path,
+            subagent_control=control,
+            parent_runtime_captured=True,
+            parent_model="captured-model",
+            parent_effort="high",
+            parent_enabled_tools=("read",),
+            parent_skills=("review",),
+        ),
+        workflow_run_id="wf_1",
+        subagent_runner=runner,
+        config_dirname=".nanocode",
+    )
+
+    task = asyncio.create_task(child(_call()))
+    await _wait_for_attempts(runner, 1)
+    runner.handles[0].released.set()
+
+    assert await task == "attempt-1"
