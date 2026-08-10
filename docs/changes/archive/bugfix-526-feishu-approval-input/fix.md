@@ -45,6 +45,7 @@
 
 - Red：在旧实现上运行 `test_permission_cards_show_tool_input_values`，断言 `cat ~/.ssh/id_rsa`、`.gitconfig` 和 `secret-token-value` 可见；测试按预期失败，实际卡片仅含 `3 parameters: command, path, token`。
 - Green：最终通用字段实现运行 approval + client + 权限 pipeline，共 `21 passed`；扩大到 `tests/unit/test_feishu_*.py` 和权限 pipeline，共 `81 passed`。
-- 静态检查：相关 Python 文件 `ruff check` 通过，`git diff --check` 通过。
+- 静态检查：全仓 `ruff check`、`ruff format --check`、docs-check 和 `git diff --check` 均通过。
+- 全量本地回归：Python 非 E2E 套件 `3183 passed, 1 failed`，唯一失败为同机多份全量测试争抢 CPU 时触发的 Feishu worker 进程终止时序用例，隔离单跑 `1 passed`。前端没有本 unit 的代码改动；全量 Vitest `601 passed, 39 failed`，失败均位于既有前端测试且主要为共享高负载下的 5 秒 timeout，`npm audit --audit-level=critical` 通过（仅 2 个 low）。远端干净 runner 作为最终全量 CI 门禁。
 - 真实入口：在 `39084f01f` 上通过隔离 IM + Gateway 完整跑通“飞书消息 → kernel 权限请求 → native card”，并完成飞书桌面端视觉检查；最终 head `4cb7980d2` 的同一 product card builder 再直接发送真实飞书卡片，平台返回 `interactive`，仍按 `path` / `oldText` / `newText` 展示并保留三个按钮。最终 head 的完整 Gateway 启动受同机其他 worktree 高负载影响，Feishu worker 连续超过既有 5 秒初始化门槛；未把该独立启动预算问题混入本 unit。取证见 [`M1-fix/evidence/feishu-approval-input.md`](M1-fix/evidence/feishu-approval-input.md)。
 - Code review：full 模式 finder 产生的 6 个候选全部经 verifier 确认并修复；closure 模式逐项返回 `closed`，最终 finding 数组为 `[]`。
