@@ -142,3 +142,25 @@ Prototype / Reference Contract: N/A。
 - 状态: DONE
 - 步骤: 确认 R14/R15 已合入 unit、运行资源已清理后，将唯一 change unit 整体移回 archive，使 PR CI 进入实际 Python/Frontend gates。
 - 验证: archive checker、docs-check、diff-check 通过；active/archive 仅保留一份 unit。
+
+## Second reopened PR #264 closure（2026-08-11，user-authorized）
+
+本轮只处理 code review 已确认的 ordinary observer reply 事件循环阻塞，以及默认 IM readiness budget 的回归覆盖缺口；不改变 self-evolution notice、trace/route owner、config-sync 契约，也不扩展到“sync factory 返回 loop-bound Task”的未证实假设或 `bugfix-533` / PR #271。
+
+### R17 — normal observer 外发非阻塞
+
+- 状态: DONE
+- 步骤: 以 normal observer 的 intermediate/final 路径补 blocking sync sender 红测、awaitable sender 兼容和 external failure/IM final 独立性；复用 background/self-evolution 已有的 shared await seam，并以 observer-local 顺序 gate 保留 provider-facing reply order。
+- 验证: 两个 phase 的 sync sender 均在 worker thread 阻塞时让 loop tick 和 final IM completion 继续；awaitable sender 仍在 Gateway loop await；failure 不阻断 final IM frame，metadata/dedupe 不变。
+
+### R18 — default readiness budget 回归覆盖
+
+- 状态: DONE
+- 步骤: slow-alive black-box harness 支持不注入 readiness env 并清除父环境同名值；slow child 延迟 7 秒，明确跨过旧 6 秒而处于默认 30 秒内。child-exit/deadline cases 继续使用显式 override。
+- 验证: 不设 `NANO_MULTIAGENT_E2E_IM_READINESS_TIMEOUT_SECONDS` 的 slow-alive public `e2e-up -> /openapi.json -> e2e-down` 通过；若 default 回退为旧 6 秒，该 case 会在启动前失败。
+
+### R19 — rearchive second reopened PR closure
+
+- 状态: IN PROGRESS
+- 步骤: R17/R18 gates 和 unit merge 完成后，将唯一 change unit 整体移回 archive，保持 #264 CI archive admission。
+- 验证: archive checker、docs-check、diff-check 通过；active/archive 仅保留一份 unit。

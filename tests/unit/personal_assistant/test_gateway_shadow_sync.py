@@ -833,53 +833,59 @@ def test_offline_observer_persists_complete_rich_terminal_snapshot(
             }
         }
     )
+    tracker = RuntimeDeliveryTaskTracker()
     observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: None,
         run_context_store=context,
         external_reply_sender=lambda _text, _metadata: None,
         shadow_bubble_record=saga_store.record,
+        task_tracker=tracker,
     )
 
-    observer({"event": "run_status", "run_id": "run-1", "status": "running"})
-    observer(
-        {
-            "event": "assistant_message",
-            "run_id": "run-1",
-            "message_id": "kernel-1",
-            "content": "done",
-            "reasoning_content": "inspect",
-            "group_id": "round-1",
-        }
-    )
-    observer(
-        {
-            "event": "tool_start",
-            "run_id": "run-1",
-            "call_id": "call-1",
-            "name": "read",
-            "arguments": {"path": "a.py"},
-        }
-    )
-    observer(
-        {
-            "event": "tool_end",
-            "run_id": "run-1",
-            "call_id": "call-1",
-            "name": "read",
-            "arguments": {"path": "a.py"},
-            "duration_ms": 20,
-            "presentation": {"summary": "ok"},
-        }
-    )
-    observer(
-        {
-            "event": "turn_end",
-            "run_id": "run-1",
-            "completed": True,
-            "usage": {"prompt_tokens": 10, "completion_tokens": 2},
-            "context_window": 100,
-        }
-    )
+    async def emit() -> None:
+        observer({"event": "run_status", "run_id": "run-1", "status": "running"})
+        observer(
+            {
+                "event": "assistant_message",
+                "run_id": "run-1",
+                "message_id": "kernel-1",
+                "content": "done",
+                "reasoning_content": "inspect",
+                "group_id": "round-1",
+            }
+        )
+        observer(
+            {
+                "event": "tool_start",
+                "run_id": "run-1",
+                "call_id": "call-1",
+                "name": "read",
+                "arguments": {"path": "a.py"},
+            }
+        )
+        observer(
+            {
+                "event": "tool_end",
+                "run_id": "run-1",
+                "call_id": "call-1",
+                "name": "read",
+                "arguments": {"path": "a.py"},
+                "duration_ms": 20,
+                "presentation": {"summary": "ok"},
+            }
+        )
+        observer(
+            {
+                "event": "turn_end",
+                "run_id": "run-1",
+                "completed": True,
+                "usage": {"prompt_tokens": 10, "completion_tokens": 2},
+                "context_window": 100,
+            }
+        )
+        await tracker.drain_run("run-1")
+
+    asyncio.run(emit())
 
     snapshot = saga_store.pending_snapshots()[0]
     assert snapshot.content == "done"
