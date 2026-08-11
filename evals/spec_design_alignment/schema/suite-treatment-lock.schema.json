@@ -1,0 +1,274 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nano-multiagent.local/evaluation/schema/suite-treatment-lock.schema.json",
+  "title": "Suite-level treatment and N0 normalization lock",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "suite_id",
+    "status",
+    "workflow_clock_id",
+    "authoring_freeze",
+    "components",
+    "arms",
+    "normalizer",
+    "case_bindings",
+    "guardrails"
+  ],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schema_version": {"const": "1.0"},
+    "suite_id": {"const": "feat397-spec-design-eval-v1"},
+    "status": {"enum": ["draft", "frozen"]},
+    "workflow_clock_id": {"const": "feat397-current-vs-team-v1"},
+    "authoring_freeze": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "frozen_at", "profile_builder", "receipt"],
+      "properties": {
+        "status": {"enum": ["draft", "frozen"]},
+        "frozen_at": {"type": "string", "minLength": 1},
+        "profile_builder": {"$ref": "#/$defs/componentLock"},
+        "receipt": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["ref", "sha256", "published_commit", "published_at"],
+          "properties": {
+            "ref": {"const": "runtime/authoring-freeze-receipt.json"},
+            "sha256": {"$ref": "#/$defs/hashOrPending"},
+            "published_commit": {
+              "type": "string",
+              "pattern": "^(?:pending|[a-f0-9]{40})$"
+            },
+            "published_at": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    },
+    "components": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["shared_helpers", "artifact_contracts", "workflows"],
+      "properties": {
+        "shared_helpers": {"$ref": "#/$defs/componentLock"},
+        "artifact_contracts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["single_unit", "portfolio"],
+          "properties": {
+            "single_unit": {"$ref": "#/$defs/componentLock"},
+            "portfolio": {"$ref": "#/$defs/componentLock"}
+          }
+        },
+        "workflows": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["current_spec_design_skills", "spec_design_agent_team"],
+          "properties": {
+            "current_spec_design_skills": {"$ref": "#/$defs/componentLock"},
+            "spec_design_agent_team": {"$ref": "#/$defs/componentLock"}
+          }
+        }
+      }
+    },
+    "arms": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["A", "A_USER", "B"],
+      "properties": {
+        "A": {"$ref": "#/$defs/armLock"},
+        "A_USER": {"$ref": "#/$defs/armLock"},
+        "B": {"$ref": "#/$defs/armLock"}
+      }
+    },
+    "normalizer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["normalizer_id", "level", "allowed_transforms"],
+      "properties": {
+        "normalizer_id": {"const": "n0-byte-copy-v1"},
+        "level": {"const": "N0"},
+        "allowed_transforms": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"const": "copy_bytes"}
+        }
+      }
+    },
+    "case_bindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["H01", "H02", "H03", "H04", "H05", "H07", "P01", "P02"],
+      "properties": {
+        "H01": {"$ref": "#/$defs/caseBinding"},
+        "H02": {"$ref": "#/$defs/caseBinding"},
+        "H03": {"$ref": "#/$defs/caseBinding"},
+        "H04": {"$ref": "#/$defs/caseBinding"},
+        "H05": {"$ref": "#/$defs/caseBinding"},
+        "H07": {"$ref": "#/$defs/caseBinding"},
+        "P01": {"$ref": "#/$defs/caseBinding"},
+        "P02": {"$ref": "#/$defs/caseBinding"}
+      }
+    },
+    "guardrails": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["all_candidate_atoms", "non_workflow_target_scan"],
+      "properties": {
+        "all_candidate_atoms": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "non_workflow_target_scan": {"const": true}
+      }
+    }
+  },
+  "$defs": {
+    "hashOrPending": {
+      "type": "string",
+      "pattern": "^(?:pending|[a-f0-9]{64})$"
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+"
+    },
+    "componentLock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "component_id",
+        "dependencies",
+        "dependency_manifest_sha256",
+        "candidate_manifest_sha256"
+      ],
+      "properties": {
+        "component_id": {"type": "string", "pattern": "^[a-z0-9._-]+$"},
+        "dependencies": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/lockedDependency"}
+        },
+        "dependency_manifest_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "candidate_manifest_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "lineage_manifest_ref": {"$ref": "#/$defs/relativePath"},
+        "lineage_manifest_sha256": {"$ref": "#/$defs/hashOrPending"}
+      }
+    },
+    "lockedDependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_path", "installed_path", "role", "mode", "sha256"],
+      "properties": {
+        "source_path": {"$ref": "#/$defs/relativePath"},
+        "installed_path": {"$ref": "#/$defs/relativePath"},
+        "role": {"enum": ["shared_helper", "artifact_contract", "workflow", "profile_builder"]},
+        "mode": {"enum": ["100644", "100755"]},
+        "sha256": {"$ref": "#/$defs/hashOrPending"}
+      }
+    },
+    "armLock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["treatment_id", "workflow_component_id", "profile_selector", "readiness", "blockers"],
+      "properties": {
+        "treatment_id": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"},
+        "workflow_component_id": {"type": "string", "pattern": "^[a-z0-9._-]+$"},
+        "profile_selector": {"enum": ["none", "case_current_cross_fitted"]},
+        "readiness": {"enum": ["ready_materializable", "blocked"]},
+        "blockers": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"enum": ["frozen_cross_fitted_profile", "executable_agent_team_bundle"]}
+        }
+      }
+    },
+    "derivation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_path", "installed_path", "transform"],
+      "properties": {
+        "source_path": {"$ref": "#/$defs/relativePath"},
+        "installed_path": {"$ref": "#/$defs/relativePath"},
+        "transform": {"const": "copy_bytes"}
+      }
+    },
+    "profileLock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "component_id",
+        "source_path",
+        "installed_path",
+        "dependency_manifest_sha256",
+        "candidate_manifest_sha256",
+        "mode",
+        "sha256",
+        "excluded_lineages_sha256",
+        "evidence_anchors",
+        "review_status",
+        "lineage_manifest_ref",
+        "lineage_manifest_sha256"
+      ],
+      "properties": {
+        "component_id": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"},
+        "source_path": {"$ref": "#/$defs/relativePath"},
+        "installed_path": {"$ref": "#/$defs/relativePath"},
+        "dependency_manifest_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "candidate_manifest_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "mode": {"enum": ["100644", "100755"]},
+        "sha256": {"$ref": "#/$defs/hashOrPending"},
+        "excluded_lineages_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "evidence_anchors": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"}
+        },
+        "review_status": {"enum": ["draft", "task_blind_approved"]},
+        "lineage_manifest_ref": {"$ref": "#/$defs/relativePath"},
+        "lineage_manifest_sha256": {"$ref": "#/$defs/hashOrPending"}
+      }
+    },
+    "caseBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "normalization_level",
+        "normalization_epoch",
+        "common_derivations",
+        "common_files_manifest_sha256",
+        "base_repository",
+        "profile",
+        "leak_signatures_sha256"
+      ],
+      "properties": {
+        "normalization_level": {"const": "N0"},
+        "normalization_epoch": {"enum": ["legacy_spec_guide", "native_specs_contributing"]},
+        "common_derivations": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/derivation"}
+        },
+        "common_files_manifest_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "base_repository": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["recipe_ref", "recipe_sha256", "arm", "status", "projection_mode"],
+          "properties": {
+            "recipe_ref": {"$ref": "#/$defs/relativePath"},
+            "recipe_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+            "arm": {"const": "A"},
+            "status": {"const": "ready_materializable"},
+            "projection_mode": {"enum": ["preserve_exact", "dp1_counterfactual_latest"]}
+          }
+        },
+        "profile": {"$ref": "#/$defs/profileLock"},
+        "leak_signatures_sha256": {"$ref": "#/$defs/hashOrPending"}
+      }
+    }
+  }
+}

@@ -1,6 +1,6 @@
 # gateway (personal_assistant) Specification
 
-> 对齐: feat-517
+> 对齐: feat-517, bugfix-525
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
 
@@ -18,9 +18,9 @@
 
 | Area | Covers | Requirements |
 |---|---|---|
-| [Routing and Delivery](routing-delivery.md) | 后台 Agent / Workflow 回复回原通道、Web 原始返回归因与重放去重 | 14 |
+| [Routing and Delivery](routing-delivery.md) | 入站路由、会话控制与投递、后台 Agent / Workflow 原始返回、self-evolution 维护隔离与重放去重 | 15 |
 | [Service Lifecycle](service-lifecycle.md) | 启停、IM WS、reconnect/ack、auto-bind、默认本机 home/workspace、cache warning | 7 |
-| [Agent Capabilities](agent-capabilities.md) | 完整运行配置、模型配置、推理能力、tool allowlist 与可选 Workflow | 13 |
+| [Agent Capabilities](agent-capabilities.md) | 完整运行配置、模型配置、推理能力、可恢复配置 operation、Skill 选择、self-evolution 调和、tool allowlist 与可选 Workflow | 14 |
 | [Heartbeat and Cron](heartbeat-cron.md) | per-agent heartbeat / cron 开关、调度、错过周期语义 | 1 |
 | [Relay Protocol](relay-protocol.md) | active/idle 后台返回经既有消息协议精确绑定与透传 | 14 |
 | [Workflows](workflows.md) | Web/外部 IM 的 Workflow 来源、能力开关、SDK 查询控制、权限路由与投递 | 5 |

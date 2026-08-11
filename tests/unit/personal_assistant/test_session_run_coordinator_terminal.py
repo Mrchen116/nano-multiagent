@@ -10,9 +10,14 @@ import pytest
 
 from agent.sdk import USER_INTERRUPT_RECOVERY_CONTENT
 
+from personal_assistant.channels.base import (
+    ExternalConversationIdentity,
+    InboundIngress,
+)
 from personal_assistant.gateway.inbound_models import (
     InboundRunRequest,
     RelayLifecycleUpdate,
+    RoutedInbound,
     StopRunRequest,
 )
 from personal_assistant.gateway.background_subscriptions import (
@@ -27,7 +32,7 @@ from ._session_run_coordinator_helpers import build_dependencies, inbound
 def _request(message, catalog) -> InboundRunRequest:
     agent = catalog.require("agent-a")
     return InboundRunRequest(
-        message=message,
+        routed=RoutedInbound(message=message),
         agent=agent,
         session_key=build_session_key(message, agent_id=agent.agent_id),
         sender_label="Alice",
@@ -177,7 +182,7 @@ async def test_user_stop_reconciles_on_original_consumer_and_cleans_marker(
 
     stopped = await coordinator.stop(
         StopRunRequest(
-            message=replace(message, text="/stop"),
+            routed=RoutedInbound(message=replace(message, text="/stop")),
             agent=request.agent,
             session_key=request.session_key,
         )
@@ -198,7 +203,7 @@ async def test_user_stop_reconciles_on_original_consumer_and_cleans_marker(
     assert not coordinator.is_session_busy(request.session_key)
     idle = await coordinator.stop(
         StopRunRequest(
-            message=replace(message, text="/stop"),
+            routed=RoutedInbound(message=replace(message, text="/stop")),
             agent=request.agent,
             session_key=request.session_key,
         )
@@ -304,7 +309,18 @@ async def test_no_reply_never_reaches_group_or_external_target(
     )
     message = inbound(chat_id=f"silent-{external}", text="work", is_group=not external)
     if external:
-        message = replace(message, metadata={"trigger_source": "feishu"})
+        message = replace(
+            message,
+            ingress=InboundIngress(
+                external_conversation=ExternalConversationIdentity(
+                    external_source="feishu",
+                    external_chat_id="feishu:app:dm:user-1",
+                    agent_id="agent-a",
+                    conversation_type="direct",
+                    trigger_source="feishu",
+                )
+            ),
+        )
     running = asyncio.create_task(coordinator.dispatch(_request(message, catalog)))
     await kernel.wait_stream("run-1")
     kernel.finish("run-1", text="NO_REPLY")
@@ -325,7 +341,7 @@ async def test_shutdown_fails_primary_and_steered_accepted_messages(
     lifecycle: list[tuple[str, str]] = []
 
     async def _capture(message, update) -> None:
-        lifecycle.append((message.text, update.phase))
+        lifecycle.append((message.message.text, update.phase))
 
     coordinator = SessionRunCoordinator(
         kernel=kernel,

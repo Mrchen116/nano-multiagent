@@ -147,6 +147,7 @@ class TurnRequest:
     parts: Sequence[Mapping[str, Any]]
     llm_session_id: str | None = None
     run_id: str | None = None
+    trace_id: str | None = None
     controller: "RunController | None" = None
     origin: Any = None
     model: str | None = None

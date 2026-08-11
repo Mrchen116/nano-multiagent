@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../schema/tool-manifest.schema.json",
+  "schema_version": "1.0",
+  "runner_version": "template-runner-v1",
+  "remote_connectors_enabled": false,
+  "tools": [
+    {
+      "name": "filesystem",
+      "category": "filesystem",
+      "network_access": false,
+      "external_state_access": false
+    },
+    {
+      "name": "shell",
+      "category": "shell",
+      "network_access": false,
+      "external_state_access": false
+    },
+    {
+      "name": "structured-output",
+      "category": "structured_output",
+      "network_access": false,
+      "external_state_access": false
+    }
+  ]
+}

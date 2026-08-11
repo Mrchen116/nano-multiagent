@@ -18,18 +18,25 @@ from personal_assistant.config.local_store import (
     NodeConfig,
 )
 from personal_assistant.gateway.channel_registry import ChannelRegistry
-from personal_assistant.gateway.inbound_models import RelayLifecycleUpdate
+from personal_assistant.gateway.inbound_models import (
+    GatewayShadowState,
+    RelayLifecycleUpdate,
+    RoutedInbound,
+    ShadowConversationRef,
+)
 from personal_assistant.gateway.im_bootstrap import (
     GatewayStartupError,
     IMBootstrapClient,
 )
-from personal_assistant.channels.base import InboundMessage
-from personal_assistant.gateway.runtime_protocol import (
-    RuntimeProtocolFacts,
-    ShadowConversationRef,
-    attach_runtime_protocol,
+from personal_assistant.channels.base import (
+    ExternalConversationIdentity,
+    IMRelayIngress,
+    InboundIngress,
+    InboundMessage,
 )
 from personal_assistant.gateway.runtime_delivery.context import (
+    ExternalShadowTarget,
+    IMRelayTarget,
     OwnerDirectTarget,
     RunDeliveryContext,
     RunDeliveryContextStore,
@@ -41,6 +48,9 @@ from personal_assistant.gateway.runtime_delivery.lifecycle import (
 from personal_assistant.gateway.runtime_delivery.observer import (
     build_kernel_event_observer as _build_kernel_event_observer,
     roll_bubble,
+)
+from personal_assistant.gateway.runtime_delivery.task_tracker import (
+    RuntimeDeliveryTaskTracker,
 )
 from personal_assistant.gateway.reply_visibility import ReplyVisibilityPolicy
 from personal_assistant.gateway.runtime import GatewayRuntime
@@ -118,25 +128,53 @@ class _AckingIMManager:
         self.sent_frames.append((message_type, payload))
 
 
-def test_run_delivery_target_distinguishes_shadow_owner_direct_and_none() -> None:
-    shadow_ref = ShadowConversationRef(conversation_id="shadow-conv-1")
+def _relay_routed(
+    *,
+    conversation_id: str,
+    is_group: bool = False,
+    message_id: str = "user-msg-1",
+) -> RoutedInbound:
+    return RoutedInbound(
+        message=InboundMessage(
+            channel_name="web_relay",
+            text="hello",
+            external_user_id="user-1",
+            external_chat_id=conversation_id,
+            is_group=is_group,
+            agent_id="agent-a",
+            ingress=InboundIngress(
+                im_relay=IMRelayIngress(
+                    relay_task_id="relay-1",
+                    idempotency_key="idem-1",
+                    im_message_id=message_id,
+                )
+            ),
+        )
+    )
 
-    shadow = RunDeliveryTarget.shadow(shadow_ref)
+
+def test_run_delivery_target_distinguishes_shadow_owner_direct_and_none() -> None:
+    shadow_ref = ShadowConversationRef(
+        conversation_id="shadow-conv-1",
+        im_message_id="shadow-message-1",
+    )
+
+    shadow = RunDeliveryTarget.for_external_shadow(ExternalShadowTarget(ref=shadow_ref))
     owner_direct = RunDeliveryTarget.for_owner_direct(
         OwnerDirectTarget(to_user_id="owner-1", agent_id="agent-a")
     )
     none = RunDeliveryTarget.none(reason="external_without_shadow")
 
-    assert shadow.kind == "shadow"
-    assert shadow.shadow_ref is shadow_ref
+    assert shadow.kind == "external_shadow"
+    assert shadow.external_shadow == ExternalShadowTarget(ref=shadow_ref)
     assert shadow.owner_direct is None
     assert owner_direct.kind == "owner_direct"
-    assert owner_direct.shadow_ref is None
+    assert owner_direct.external_shadow is None
     assert owner_direct.owner_direct == OwnerDirectTarget(
         to_user_id="owner-1", agent_id="agent-a"
     )
     assert none.kind == "none"
-    assert none.shadow_ref is None
+    assert none.external_shadow is None
     assert none.owner_direct is None
 
 
@@ -148,13 +186,15 @@ def test_relay_lifecycle_seeds_typed_owner_direct_context() -> None:
         run_context_store=context_store,
         owner_user_id="owner-1",
     )
-    message = InboundMessage(
-        channel_name="heartbeat",
-        text="tick",
-        external_user_id="owner-1",
-        external_chat_id="",
-        is_group=False,
-        metadata={},
+    message = RoutedInbound(
+        message=InboundMessage(
+            channel_name="heartbeat",
+            text="tick",
+            external_user_id="owner-1",
+            external_chat_id="",
+            is_group=False,
+            metadata={},
+        )
     )
 
     asyncio.run(
@@ -179,7 +219,7 @@ def test_relay_lifecycle_seeds_typed_owner_direct_context() -> None:
     )
 
 
-def test_relay_lifecycle_partial_external_metadata_never_targets_owner_direct() -> None:
+def test_relay_lifecycle_external_ingress_never_targets_owner_direct() -> None:
     context_store = RunDeliveryContextStore()
     callback = _build_relay_lifecycle_callback(
         reporter=None,
@@ -187,13 +227,21 @@ def test_relay_lifecycle_partial_external_metadata_never_targets_owner_direct() 
         run_context_store=context_store,
         owner_user_id="owner-1",
     )
-    message = InboundMessage(
-        channel_name="feishu",
-        text="hello",
-        external_user_id="ou-user",
-        external_chat_id="",
-        is_group=False,
-        metadata={"external_source": "feishu", "agent_id": "agent-a"},
+    message = RoutedInbound(
+        message=InboundMessage(
+            channel_name="feishu",
+            text="hello",
+            external_user_id="ou-user",
+            external_chat_id="external-chat",
+            is_group=False,
+            ingress=InboundIngress(
+                external_conversation=ExternalConversationIdentity(
+                    external_source="feishu",
+                    external_chat_id="external-chat",
+                    agent_id="agent-a",
+                )
+            ),
+        )
     )
 
     asyncio.run(
@@ -223,13 +271,22 @@ def test_relay_lifecycle_cleanup_removes_typed_context() -> None:
         run_context_store=context_store,
         owner_user_id="owner-1",
     )
-    message = InboundMessage(
-        channel_name="web_relay",
-        text="hello",
-        external_user_id="user-1",
-        external_chat_id="conv-1",
-        is_group=False,
-        metadata={"relay_task_id": "relay-1", "message_id": "msg-1"},
+    message = RoutedInbound(
+        message=InboundMessage(
+            channel_name="web_relay",
+            text="hello",
+            external_user_id="user-1",
+            external_chat_id="conv-1",
+            is_group=False,
+            ingress=InboundIngress(
+                im_relay=IMRelayIngress(
+                    relay_task_id="relay-1",
+                    idempotency_key="idem-1",
+                    im_message_id="msg-1",
+                )
+            ),
+            metadata={"relay_task_id": "relay-1", "message_id": "msg-1"},
+        )
     )
 
     async def _exercise() -> None:
@@ -271,13 +328,22 @@ def test_typed_store_fresh_relay_accepted_still_sends_sent_receipt() -> None:
         im_connection_manager_factory=lambda: manager,
         run_context_store=context_store,
     )
-    message = InboundMessage(
-        channel_name="web_relay",
-        text="hello",
-        external_user_id="user-1",
-        external_chat_id="conv-1",
-        is_group=False,
-        metadata={"relay_task_id": "relay-1", "message_id": "msg-1"},
+    message = RoutedInbound(
+        message=InboundMessage(
+            channel_name="web_relay",
+            text="hello",
+            external_user_id="user-1",
+            external_chat_id="conv-1",
+            is_group=False,
+            ingress=InboundIngress(
+                im_relay=IMRelayIngress(
+                    relay_task_id="relay-1",
+                    idempotency_key="idem-1",
+                    im_message_id="msg-1",
+                )
+            ),
+            metadata={"relay_task_id": "relay-1", "message_id": "msg-1"},
+        )
     )
 
     asyncio.run(
@@ -314,8 +380,11 @@ def test_typed_context_store_holds_turn_start_ack_message_id() -> None:
             run_id="run-shadow-ack",
             agent_id="agent-a",
             kernel_session_id="sess-shadow",
-            delivery_target=RunDeliveryTarget.shadow(
-                ShadowConversationRef(conversation_id="conv-shadow")
+            delivery_target=RunDeliveryTarget.for_im_relay(
+                IMRelayTarget(
+                    conversation_id="conv-shadow",
+                    relay_task_id="relay-shadow",
+                )
             ),
         )
     )
@@ -396,8 +465,11 @@ def test_roll_bubble_updates_typed_context_runtime_state() -> None:
             run_id="run-roll",
             agent_id="agent-a",
             kernel_session_id="sess-roll",
-            delivery_target=RunDeliveryTarget.shadow(
-                ShadowConversationRef(conversation_id="conv-roll")
+            delivery_target=RunDeliveryTarget.for_im_relay(
+                IMRelayTarget(
+                    conversation_id="conv-roll",
+                    relay_task_id="relay-roll",
+                )
             ),
         )
     )
@@ -440,9 +512,22 @@ def test_relay_lifecycle_callback_sends_receipts_and_reports_with_real_usage_to_
         reporter=reporter,
         im_connection_manager_factory=lambda: manager,
     )
-    message = type("_Message", (), {})()
-    message.external_chat_id = "conv-1"
-    message.metadata = {"relay_task_id": "relay-1", "message_id": "msg-1"}
+    message = RoutedInbound(
+        message=InboundMessage(
+            channel_name="web_relay",
+            text="hello",
+            external_user_id="user-1",
+            external_chat_id="conv-1",
+            is_group=False,
+            ingress=InboundIngress(
+                im_relay=IMRelayIngress(
+                    relay_task_id="relay-1",
+                    idempotency_key="idem-1",
+                    im_message_id="msg-1",
+                )
+            ),
+        )
+    )
 
     async def _exercise() -> None:
         await callback(
@@ -496,8 +581,8 @@ def test_relay_lifecycle_callback_sends_receipts_and_reports_with_real_usage_to_
     assert manager.sent_frames[3][1]["detail"] == "hello from agent"
 
 
-def test_relay_lifecycle_reads_delivery_facts_from_runtime_protocol() -> None:
-    """Typed protocol facts override stale raw relay metadata for receipts and reports."""
+def test_relay_lifecycle_reads_delivery_facts_from_typed_ingress() -> None:
+    """Typed ingress overrides stale raw relay metadata for receipts and reports."""
     reporter = UpstreamReporter(
         node=NodeConfig(node_id="node-local"), agents=(), send_frame=lambda _t, _p: None
     )
@@ -506,22 +591,22 @@ def test_relay_lifecycle_reads_delivery_facts_from_runtime_protocol() -> None:
         reporter=reporter,
         im_connection_manager_factory=lambda: manager,
     )
-    message = InboundMessage(
-        channel_name="web_relay",
-        text="hello",
-        external_user_id="user-1",
-        external_chat_id="raw-conv",
-        is_group=False,
-        metadata={"relay_task_id": "raw-relay", "message_id": "raw-msg"},
-    )
-    message = attach_runtime_protocol(
-        message,
-        RuntimeProtocolFacts(
-            relay_task_id="typed-relay",
-            idempotency_key="typed-idem",
-            im_message_id="typed-msg",
-            shadow_ref=ShadowConversationRef(conversation_id="typed-conv"),
-        ),
+    message = RoutedInbound(
+        message=InboundMessage(
+            channel_name="web_relay",
+            text="hello",
+            external_user_id="user-1",
+            external_chat_id="raw-conv",
+            is_group=False,
+            metadata={"relay_task_id": "raw-relay", "message_id": "raw-msg"},
+            ingress=InboundIngress(
+                im_relay=IMRelayIngress(
+                    relay_task_id="typed-relay",
+                    idempotency_key="typed-idem",
+                    im_message_id="typed-msg",
+                )
+            ),
+        )
     )
 
     async def _exercise() -> None:
@@ -548,7 +633,7 @@ def test_relay_lifecycle_reads_delivery_facts_from_runtime_protocol() -> None:
     asyncio.run(_exercise())
 
     assert manager.sent_frames[0][1]["relay_task_id"] == "typed-relay"
-    assert manager.sent_frames[1][1]["conversation_id"] == "typed-conv"
+    assert manager.sent_frames[1][1]["conversation_id"] == "raw-conv"
     assert manager.sent_frames[1][1]["message_id"] == "typed-msg"
 
 
@@ -560,10 +645,16 @@ def test_relay_lifecycle_accepted_acks_feishu_message_processing_started() -> No
         im_connection_manager_factory=lambda: None,
         channel_registry=registry,
     )
-    message = type("_Message", (), {})()
-    message.channel_name = "feishu:agent-a"
-    message.external_chat_id = "feishu:cli_a:group:oc_1"
-    message.metadata = {"feishu_message_id": "om_msg_1"}
+    message = RoutedInbound(
+        message=InboundMessage(
+            channel_name="feishu:agent-a",
+            text="hello",
+            external_user_id="ou-user",
+            external_chat_id="feishu:cli_a:group:oc_1",
+            is_group=True,
+            metadata={"feishu_message_id": "om_msg_1"},
+        )
+    )
 
     asyncio.run(
         callback(
@@ -588,18 +679,31 @@ def test_relay_lifecycle_callback_seeds_external_shadow_run_context() -> None:
         run_context_store=run_context_store,
         owner_user_id="owner-1",
     )
-    message = type("_Message", (), {})()
-    message.channel_name = "feishu:agent-a"
-    message.external_chat_id = "oc_feishu_chat"
-    message.is_group = False
-    message.metadata = {
-        "external_source": "feishu",
-        "external_chat_id": "oc_feishu_chat",
-        "shadow_conversation_id": "shadow-conv-1",
-        "trigger_source": "feishu",
-        "agent_id": "agent-a",
-        "feishu_message_id": "om_msg_1",
-    }
+    message = RoutedInbound(
+        message=InboundMessage(
+            channel_name="feishu:agent-a",
+            text="hello",
+            external_user_id="ou-user",
+            external_chat_id="oc_feishu_chat",
+            is_group=False,
+            ingress=InboundIngress(
+                external_conversation=ExternalConversationIdentity(
+                    external_source="feishu",
+                    external_chat_id="oc_feishu_chat",
+                    agent_id="agent-a",
+                    trigger_source="feishu",
+                )
+            ),
+            metadata={"feishu_message_id": "om_msg_1"},
+        ),
+        shadow=GatewayShadowState(
+            saga_id="saga-1",
+            ref=ShadowConversationRef(
+                conversation_id="shadow-conv-1",
+                im_message_id="shadow-message-1",
+            ),
+        ),
+    )
 
     async def _exercise() -> None:
         await callback(
@@ -638,16 +742,24 @@ def test_relay_lifecycle_callback_skips_lazy_direct_when_external_shadow_missing
         run_context_store=run_context_store,
         owner_user_id="owner-1",
     )
-    message = type("_Message", (), {})()
-    message.channel_name = "feishu:agent-a"
-    message.external_chat_id = "oc_feishu_chat"
-    message.is_group = False
-    message.metadata = {
-        "external_source": "feishu",
-        "external_chat_id": "oc_feishu_chat",
-        "trigger_source": "feishu",
-        "agent_id": "agent-a",
-    }
+    message = RoutedInbound(
+        message=InboundMessage(
+            channel_name="feishu:agent-a",
+            text="hello",
+            external_user_id="ou-user",
+            external_chat_id="oc_feishu_chat",
+            is_group=False,
+            ingress=InboundIngress(
+                external_conversation=ExternalConversationIdentity(
+                    external_source="feishu",
+                    external_chat_id="oc_feishu_chat",
+                    agent_id="agent-a",
+                    trigger_source="feishu",
+                )
+            ),
+        ),
+        shadow=GatewayShadowState(saga_id="saga-pending"),
+    )
 
     async def _exercise() -> None:
         await callback(
@@ -677,19 +789,28 @@ def test_relay_lifecycle_callback_routes_im_shadow_run_to_shadow_conversation() 
         im_connection_manager_factory=lambda: None,
         run_context_store=run_context_store,
     )
-    message = type("_Message", (), {})()
-    message.channel_name = "web_relay"
-    message.external_chat_id = "shadow-conv-1"
-    message.is_group = False
-    message.metadata = {
-        "relay_task_id": "relay-1",
-        "message_id": "msg-1",
-        "trigger_source": "im",
-        "external_source": "feishu",
-        "external_chat_id": "oc_feishu_chat",
-        "shadow_conversation_id": "shadow-conv-1",
-        "agent_id": "agent-a",
-    }
+    message = RoutedInbound(
+        message=InboundMessage(
+            channel_name="web_relay",
+            text="hello",
+            external_user_id="user-1",
+            external_chat_id="shadow-conv-1",
+            is_group=False,
+            ingress=InboundIngress(
+                im_relay=IMRelayIngress(
+                    relay_task_id="relay-1",
+                    idempotency_key="idem-1",
+                    im_message_id="msg-1",
+                ),
+                external_conversation=ExternalConversationIdentity(
+                    external_source="feishu",
+                    external_chat_id="oc_feishu_chat",
+                    agent_id="agent-a",
+                    trigger_source="im",
+                ),
+            ),
+        )
+    )
 
     async def _exercise() -> None:
         await callback(
@@ -754,12 +875,14 @@ def test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion() 
             }
         }
     )
+    tracker = RuntimeDeliveryTaskTracker()
     observer = _build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
         run_context_store=run_context_store,
         external_reply_sender=lambda text, metadata: mirrored.append(
             (text, dict(metadata))
         ),
+        task_tracker=tracker,
     )
 
     async def _exercise() -> None:
@@ -790,7 +913,7 @@ def test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion() 
         assert asyncio.iscoroutine(roll)
         await roll
         observer({"event": "turn_end", "run_id": "run-1", "completed": True})
-        await asyncio.sleep(0)
+        await tracker.close_and_drain(asyncio.get_running_loop().time() + 1)
 
     asyncio.run(_exercise())
 
@@ -964,7 +1087,7 @@ def test_group_relay_context_enables_protocol_token_suppression() -> None:
     )
 
     context = store.seed_from_lifecycle(
-        message=message,
+        routed=_relay_routed(conversation_id="group-conv", is_group=True),
         update=RelayLifecycleUpdate(
             phase="accepted",
             agent_id="agent-a",
@@ -1001,15 +1124,7 @@ def test_direct_web_relay_no_reply_discards_provisional_im_message() -> None:
 
     store = RunDeliveryContextStore()
     context = store.seed_from_lifecycle(
-        message=InboundMessage(
-            channel_name="web_relay",
-            text="stay quiet",
-            external_user_id="user-1",
-            external_chat_id="direct-conv",
-            is_group=False,
-            agent_id="agent-a",
-            metadata={"relay_task_id": "relay-1", "message_id": "user-msg-1"},
-        ),
+        routed=_relay_routed(conversation_id="direct-conv"),
         update=RelayLifecycleUpdate(
             phase="accepted",
             agent_id="agent-a",
@@ -1105,15 +1220,7 @@ def test_direct_web_empty_completion_after_process_discards_provisional_message(
     """A successful Web run with process-only output must remove its whole bubble."""
     store = RunDeliveryContextStore()
     context = store.seed_from_lifecycle(
-        message=InboundMessage(
-            channel_name="web_relay",
-            text="run a tool, then stay silent",
-            external_user_id="user-1",
-            external_chat_id="direct-conv",
-            is_group=False,
-            agent_id="agent-a",
-            metadata={"relay_task_id": "relay-1", "message_id": "user-msg-1"},
-        ),
+        routed=_relay_routed(conversation_id="direct-conv"),
         update=RelayLifecycleUpdate(
             phase="accepted",
             agent_id="agent-a",
@@ -1187,15 +1294,7 @@ def test_direct_web_opening_background_return_keeps_completed_message() -> None:
     """An opening background return is visible content even without reply text."""
     store = RunDeliveryContextStore()
     context = store.seed_from_lifecycle(
-        message=InboundMessage(
-            channel_name="web_relay",
-            text="continue after background work",
-            external_user_id="user-1",
-            external_chat_id="direct-conv",
-            is_group=False,
-            agent_id="agent-a",
-            metadata={"relay_task_id": "relay-1", "message_id": "user-msg-1"},
-        ),
+        routed=_relay_routed(conversation_id="direct-conv"),
         update=RelayLifecycleUpdate(
             phase="accepted",
             agent_id="agent-a",
@@ -1256,15 +1355,7 @@ def test_direct_web_denied_workflow_keeps_terminal_tool_row() -> None:
     """A denied Workflow has no running phase but remains visible as tool audit."""
     store = RunDeliveryContextStore()
     context = store.seed_from_lifecycle(
-        message=InboundMessage(
-            channel_name="web_relay",
-            text="run this workflow",
-            external_user_id="user-1",
-            external_chat_id="direct-conv",
-            is_group=False,
-            agent_id="agent-a",
-            metadata={"relay_task_id": "relay-1", "message_id": "user-msg-1"},
-        ),
+        routed=_relay_routed(conversation_id="direct-conv"),
         update=RelayLifecycleUpdate(
             phase="accepted",
             agent_id="agent-a",
@@ -1329,14 +1420,22 @@ def test_non_web_shadow_context_keeps_literal_reply_visibility() -> None:
     """The direct Web fix must not broaden to arbitrary shadow transports."""
     store = RunDeliveryContextStore()
     context = store.seed_from_lifecycle(
-        message=InboundMessage(
-            channel_name="custom_relay",
-            text="literal protocol text",
-            external_user_id="user-1",
-            external_chat_id="custom-conv",
-            is_group=False,
-            agent_id="agent-a",
-            metadata={"relay_task_id": "relay-1", "message_id": "msg-1"},
+        routed=RoutedInbound(
+            message=InboundMessage(
+                channel_name="custom_relay",
+                text="literal protocol text",
+                external_user_id="user-1",
+                external_chat_id="custom-conv",
+                is_group=False,
+                agent_id="agent-a",
+            ),
+            shadow=GatewayShadowState(
+                saga_id="saga-1",
+                ref=ShadowConversationRef(
+                    conversation_id="shadow-conv-1",
+                    im_message_id="shadow-message-1",
+                ),
+            ),
         ),
         update=RelayLifecycleUpdate(
             phase="accepted",
@@ -1345,7 +1444,7 @@ def test_non_web_shadow_context_keeps_literal_reply_visibility() -> None:
             run_id="run-custom",
             kernel_session_id="sess-1",
         ),
-        owner_user_id="owner-1",
+        owner_user_id="",
     )
 
     assert context is not None
@@ -1357,14 +1456,22 @@ def test_non_web_empty_completion_keeps_existing_completed_message_semantics() -
     """An empty external completion is not reclassified as direct-Web silence."""
     store = RunDeliveryContextStore()
     context = store.seed_from_lifecycle(
-        message=InboundMessage(
-            channel_name="custom_relay",
-            text="external request",
-            external_user_id="user-1",
-            external_chat_id="custom-conv",
-            is_group=False,
-            agent_id="agent-a",
-            metadata={"relay_task_id": "relay-1", "message_id": "msg-1"},
+        routed=RoutedInbound(
+            message=InboundMessage(
+                channel_name="custom_relay",
+                text="external request",
+                external_user_id="user-1",
+                external_chat_id="custom-conv",
+                is_group=False,
+                agent_id="agent-a",
+            ),
+            shadow=GatewayShadowState(
+                saga_id="saga-1",
+                ref=ShadowConversationRef(
+                    conversation_id="shadow-conv-1",
+                    im_message_id="shadow-message-1",
+                ),
+            ),
         ),
         update=RelayLifecycleUpdate(
             phase="accepted",
@@ -1373,7 +1480,7 @@ def test_non_web_empty_completion_keeps_existing_completed_message_semantics() -
             run_id="run-custom-empty",
             kernel_session_id="sess-1",
         ),
-        owner_user_id="owner-1",
+        owner_user_id="",
     )
     assert context is not None
 
@@ -1500,9 +1607,7 @@ def test_relay_lifecycle_callback_failed_sends_message_level_report_with_real_ca
         reporter=reporter,
         im_connection_manager_factory=lambda: manager,
     )
-    message = type("_Message", (), {})()
-    message.external_chat_id = "conv-1"
-    message.metadata = {"relay_task_id": "relay-1", "message_id": "msg-1"}
+    message = _relay_routed(conversation_id="conv-1", message_id="msg-1")
 
     async def _exercise() -> None:
         await callback(
@@ -1560,9 +1665,7 @@ def test_build_relay_lifecycle_callback_marks_no_reply_suppression_in_completed_
         reporter=_Reporter(),
         im_connection_manager_factory=lambda: _Manager(),
     )
-    message = type("_Message", (), {})()
-    message.external_chat_id = "conv-1"
-    message.metadata = {"relay_task_id": "relay-1", "message_id": "msg-1"}
+    message = _relay_routed(conversation_id="conv-1", message_id="msg-1")
 
     async def _exercise() -> None:
         await callback(
@@ -1646,9 +1749,7 @@ def test_build_relay_lifecycle_callback_keeps_completed_updates_when_im_is_recon
         reporter=_Reporter(),
         im_connection_manager_factory=lambda: _Manager(),
     )
-    message = type("_Message", (), {})()
-    message.external_chat_id = "conv-1"
-    message.metadata = {"relay_task_id": "relay-1", "message_id": "msg-1"}
+    message = _relay_routed(conversation_id="conv-1", message_id="msg-1")
 
     async def _exercise() -> None:
         await callback(

@@ -1,0 +1,409 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nano-multiagent.local/evaluation/base-repo-recipe.schema.json",
+  "title": "Evaluation base repository materialization recipe",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "case_id",
+    "source",
+    "scrub",
+    "docs_projection",
+    "arm",
+    "assertions",
+    "git"
+  ],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schema_version": {"enum": ["1.0", "2.0"]},
+    "case_id": {"type": "string", "minLength": 1},
+    "contract": {"$ref": "#/$defs/contract"},
+    "source": {"$ref": "#/$defs/source"},
+    "scrub": {"$ref": "#/$defs/scrub"},
+    "docs_projection": {"$ref": "#/$defs/docsProjection"},
+    "arm": {"$ref": "#/$defs/arm"},
+    "assertions": {"$ref": "#/$defs/assertions"},
+    "git": {"$ref": "#/$defs/git"},
+    "seal": {"$ref": "#/$defs/seal"}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"schema_version": {"const": "2.0"}},
+        "required": ["schema_version"]
+      },
+      "then": {
+        "required": ["contract", "seal"],
+        "properties": {
+          "scrub": {
+            "required": ["archive_lineage"]
+          },
+          "git": {
+            "const": {
+              "branch": "main",
+              "author_name": "Repository Bootstrap",
+              "author_email": "repository@invalid",
+              "timestamp": "946684800 +0000",
+              "message": "initial repository\n"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!\\.git(?:/|$)).+$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "gitObject": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40,64}$"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "expected_commit", "expected_tree"],
+      "properties": {
+        "ref": {"type": "string", "minLength": 1},
+        "expected_commit": {"$ref": "#/$defs/gitObject"},
+        "expected_tree": {"$ref": "#/$defs/gitObject"}
+      }
+    },
+    "scrub": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["remove_paths", "instruction_marker", "product_instruction_roots"],
+      "properties": {
+        "remove_paths": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/path"},
+          "uniqueItems": true
+        },
+        "drop_proposed_control": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/path"},
+          "uniqueItems": true
+        },
+        "archive_lineage": {"$ref": "#/$defs/archiveLineage"},
+        "instruction_marker": {"type": "string", "minLength": 1},
+        "product_instruction_roots": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/path"},
+          "uniqueItems": true
+        },
+        "change_unit_policy": {
+          "const": "remove_active_and_retired_keep_completed_archive"
+        }
+      }
+    },
+    "archiveLineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy", "drop_units"],
+      "properties": {
+        "policy": {"const": "drop_noncompleted_cross_references_v1"},
+        "drop_units": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "referenced_noncompleted_unit_ids"],
+            "properties": {
+              "path": {
+                "type": "string",
+                "pattern": "^docs/changes/archive/(?:feat|bugfix|refactor|perf)-[0-9]+(?:-[^/]+)?$"
+              },
+              "referenced_noncompleted_unit_ids": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "pattern": "^(?:feat|bugfix|refactor|perf)-[0-9]+$"
+                },
+                "uniqueItems": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "docsProjection": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": {
+            "mode": {"const": "preserve_exact"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "ref", "files"],
+          "properties": {
+            "mode": {"const": "workflow_owned_replace"},
+            "ref": {"type": "string", "minLength": 1},
+            "files": {
+              "type": "array",
+              "minItems": 1,
+              "items": {"$ref": "#/$defs/overlayFile"}
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "ref",
+            "expected_commit",
+            "expected_tree",
+            "product_claim_source",
+            "files",
+            "generated_files"
+          ],
+          "properties": {
+            "mode": {"const": "dp1_counterfactual_latest"},
+            "ref": {"type": "string", "minLength": 1},
+            "expected_commit": {"$ref": "#/$defs/gitObject"},
+            "expected_tree": {"$ref": "#/$defs/gitObject"},
+            "product_claim_source": {"const": "baseline_only"},
+            "files": {
+              "type": "array",
+              "minItems": 1,
+              "items": {"$ref": "#/$defs/dp1File"}
+            },
+            "generated_files": {
+              "type": "array",
+              "minItems": 1,
+              "items": {"$ref": "#/$defs/generatedFile"}
+            }
+          }
+        }
+      ]
+    },
+    "overlayFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "destination", "sha256"],
+      "properties": {
+        "source": {"$ref": "#/$defs/path"},
+        "destination": {"$ref": "#/$defs/path"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "output_sha256": {"$ref": "#/$defs/sha256"},
+        "install": {"enum": ["create", "replace", "preserve_exact"]},
+        "transform": {"$ref": "#/$defs/overlayTransform"}
+      }
+    },
+    "overlayTransform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "heading", "expected_occurrences"],
+      "properties": {
+        "kind": {"const": "keep_before_heading"},
+        "heading": {"type": "string", "pattern": "^## [^\\r\\n]+$"},
+        "expected_occurrences": {"type": "integer", "minimum": 1}
+      }
+    },
+    "dp1File": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "source_clock",
+        "destination",
+        "sha256",
+        "output_sha256",
+        "install",
+        "transform"
+      ],
+      "properties": {
+        "source": {"$ref": "#/$defs/path"},
+        "source_clock": {"enum": ["product_baseline", "documentation_framework"]},
+        "destination": {"$ref": "#/$defs/path"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "output_sha256": {"$ref": "#/$defs/sha256"},
+        "install": {"enum": ["create", "replace"]},
+        "transform": {"$ref": "#/$defs/dp1Transform"}
+      }
+    },
+    "dp1Transform": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {"kind": {"const": "move_exact"}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "old", "new", "expected_replacements"],
+          "properties": {
+            "kind": {"const": "replace_exact"},
+            "old": {"type": "string", "minLength": 1},
+            "new": {"type": "string", "minLength": 1},
+            "expected_replacements": {"type": "integer", "minimum": 1}
+          }
+        }
+      ]
+    },
+    "generatedFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["destination", "mode", "content", "sha256", "install"],
+      "properties": {
+        "destination": {"$ref": "#/$defs/path"},
+        "mode": {"const": "100644"},
+        "content": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "install": {"enum": ["create", "replace"]}
+      }
+    },
+    "arm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "ref", "files"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "ref": {"type": "string", "minLength": 1},
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/overlayFile"}
+        },
+        "generated_files": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/generatedFile"}
+        }
+      }
+    },
+    "assertions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required_paths", "required_sha256", "forbidden_paths", "forbidden_text"],
+      "properties": {
+        "required_paths": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/path"},
+          "uniqueItems": true
+        },
+        "required_sha256": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/path"},
+          "additionalProperties": {"$ref": "#/$defs/sha256"}
+        },
+        "forbidden_paths": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/path"},
+          "uniqueItems": true
+        },
+        "forbidden_text": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "required_text_by_path": {"$ref": "#/$defs/textByPath"},
+        "forbidden_text_by_path": {"$ref": "#/$defs/textByPath"},
+        "required_resolved_links": {"$ref": "#/$defs/textByPath"},
+        "expected_content_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "change_units_absent": {"type": "boolean"}
+      }
+    },
+    "textByPath": {
+      "type": "object",
+      "propertyNames": {"$ref": "#/$defs/path"},
+      "additionalProperties": {
+        "type": "array",
+        "minItems": 1,
+        "items": {"type": "string", "minLength": 1},
+        "uniqueItems": true
+      }
+    },
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method_id", "projection_level", "truth_formula", "clocks", "layers"],
+      "properties": {
+        "method_id": {"const": "counterfactual-latest-base-v1"},
+        "projection_level": {"const": "DP1-counterfactual-latest-v1"},
+        "truth_formula": {"const": "Code@B + ProductClaims@B + DocsFramework@F + Workflow@W"},
+        "clocks": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["product", "knowledge", "documentation_framework", "workflow", "user", "model_tool"],
+          "properties": {
+            "product": {"$ref": "#/$defs/commitClock"},
+            "knowledge": {"$ref": "#/$defs/commitClock"},
+            "documentation_framework": {"$ref": "#/$defs/namedCommitClock"},
+            "workflow": {"$ref": "#/$defs/namedCommitClock"},
+            "user": {"$ref": "#/$defs/modeClock"},
+            "model_tool": {"$ref": "#/$defs/modeClock"}
+          }
+        },
+        "layers": {
+          "const": ["product_world", "documentation_world", "common_compatibility", "arm_bundle", "private_controls"]
+        }
+      }
+    },
+    "commitClock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit", "tree"],
+      "properties": {
+        "commit": {"$ref": "#/$defs/gitObject"},
+        "tree": {"$ref": "#/$defs/gitObject"}
+      }
+    },
+    "namedCommitClock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["clock_id", "commit", "tree"],
+      "properties": {
+        "clock_id": {"type": "string", "minLength": 1},
+        "commit": {"$ref": "#/$defs/gitObject"},
+        "tree": {"$ref": "#/$defs/gitObject"}
+      }
+    },
+    "modeClock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "properties": {"mode": {"type": "string", "minLength": 1}}
+    },
+    "seal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["suite_id", "suite_status", "arm_readiness", "blocked_arms", "treatment_lock_ref", "suite_seal_ref"],
+      "properties": {
+        "suite_id": {"const": "feat397-spec-design-eval-v1"},
+        "suite_status": {"const": "draft_unsealable"},
+        "arm_readiness": {"const": "ready_materializable"},
+        "blocked_arms": {"const": ["A_USER", "B"]},
+        "treatment_lock_ref": {"const": "experiments/feat_397_agent_team/suite-treatment-lock.json"},
+        "suite_seal_ref": {"const": "experiments/feat_397_agent_team/suite-seal.json"}
+      }
+    },
+    "git": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["branch", "author_name", "author_email", "timestamp", "message"],
+      "properties": {
+        "branch": {"type": "string", "minLength": 1},
+        "author_name": {"type": "string", "minLength": 1},
+        "author_email": {"type": "string", "minLength": 1},
+        "timestamp": {"type": "string", "pattern": "^[0-9]+ [+-][0-9]{4}$"},
+        "message": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

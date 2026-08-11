@@ -10,13 +10,11 @@ from personal_assistant.channels.base import (
     ReplyContext,
 )
 from personal_assistant.channels.web_relay_adapter import (
-    InboundEnvelope,
     RelayDeduplicationStore,
     WebRelayAdapter,
 )
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.outbound_router import OutboundRouter
-from personal_assistant.gateway.runtime_protocol import runtime_protocol_from_message
 
 
 def test_web_relay_adapter_converts_relay_payload_to_inbound_message() -> None:
@@ -46,6 +44,12 @@ def test_web_relay_adapter_converts_relay_payload_to_inbound_message() -> None:
     assert inbound.metadata["relay_task_id"] == "relay-1"
     assert inbound.metadata["message_id"] == "msg-1"
     assert inbound.metadata["conversation_id"] == "conv-1"
+    assert inbound.ingress.im_relay is not None
+    assert inbound.ingress.im_relay.relay_task_id == "relay-1"
+    assert inbound.ingress.im_relay.idempotency_key == "idem-1"
+    assert inbound.ingress.im_relay.im_message_id == "msg-1"
+    assert inbound.ingress.external_conversation is None
+    assert inbound.ingress.external_event is None
 
     adapter.send(
         OutboundMessage(
@@ -79,8 +83,8 @@ def test_web_relay_adapter_accepts_top_level_conversation_id() -> None:
 
     assert inbound == seen[0]
     assert inbound.external_chat_id == "conv-top-level"
-    assert inbound.protocol.shadow_ref is not None
-    assert inbound.protocol.shadow_ref.conversation_id == "conv-top-level"
+    assert inbound.ingress.im_relay is not None
+    assert inbound.ingress.im_relay.relay_task_id == "relay-top-level-conv"
 
 
 def test_web_relay_adapter_preserves_shadow_identity_and_group_target_agent() -> None:
@@ -123,13 +127,13 @@ def test_web_relay_adapter_preserves_shadow_identity_and_group_target_agent() ->
     assert inbound.metadata["implicit_external_agent_target"] is True
 
 
-def test_web_relay_adapter_returns_inbound_envelope_with_runtime_protocol() -> None:
-    """Runtime delivery facts come from the protocol wrapper, not downstream metadata parsing."""
+def test_web_relay_adapter_returns_callback_message_with_typed_ingress() -> None:
+    """The adapter callback value is the complete normalized ingress value."""
     adapter = WebRelayAdapter()
     seen: list[InboundMessage] = []
     adapter.start(seen.append)
 
-    envelope = adapter.accept_relay(
+    inbound = adapter.accept_relay(
         {
             "relay_task_id": "relay-shadow",
             "idempotency_key": "idem-shadow",
@@ -150,18 +154,16 @@ def test_web_relay_adapter_returns_inbound_envelope_with_runtime_protocol() -> N
         }
     )
 
-    assert isinstance(envelope, InboundEnvelope)
-    assert seen == [envelope.message]
-    assert envelope.protocol.relay_task_id == "relay-shadow"
-    assert envelope.protocol.idempotency_key == "idem-shadow"
-    assert envelope.protocol.im_message_id == "msg-shadow"
-    assert envelope.protocol.shadow_ref is not None
-    assert envelope.protocol.shadow_ref.conversation_id == "im-conv-shadow"
-    assert envelope.protocol.external_identity is not None
-    assert envelope.protocol.external_identity.external_source == "feishu"
-    assert envelope.protocol.external_identity.external_chat_id == "oc_product"
-    assert envelope.protocol.external_identity.trigger_source == "im"
-    assert runtime_protocol_from_message(envelope.message) == envelope.protocol
+    assert seen == [inbound]
+    assert inbound.ingress.im_relay is not None
+    assert inbound.ingress.im_relay.relay_task_id == "relay-shadow"
+    assert inbound.ingress.im_relay.idempotency_key == "idem-shadow"
+    assert inbound.ingress.im_relay.im_message_id == "msg-shadow"
+    assert inbound.ingress.external_conversation is not None
+    assert inbound.ingress.external_conversation.external_source == "feishu"
+    assert inbound.ingress.external_conversation.external_chat_id == "oc_product"
+    assert inbound.ingress.external_conversation.trigger_source == "im"
+    assert inbound.ingress.external_event is None
 
 
 def test_outbound_router_dedupes_by_reply_dedupe_key() -> None:

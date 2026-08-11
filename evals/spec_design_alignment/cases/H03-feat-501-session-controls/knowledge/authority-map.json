@@ -1,0 +1,238 @@
+{
+  "$schema": "../../../schema/authority-map.schema.json",
+  "schema_version": "1.0",
+  "case_id": "H03",
+  "status": "draft",
+  "normalization": {
+    "level": "N0",
+    "task_blind": true,
+    "semantic_additions": false,
+    "normalizer_ref": "audit/provenance.md#normalizer"
+  },
+  "provenance_ref": "audit/provenance.md",
+  "authorities": [
+    {
+      "authority_id": "repo.architecture",
+      "logical_role": "architecture",
+      "exposed_path": "SPEC.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "ef52bbb16592fcd98c785136084dd47d78552ff7",
+        "path": "SPEC.md",
+        "sha256": "80b3e30e8fde08ce2b8a80becf70a791c15cd90fe3402a2f795d557adeb6caa3"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "docs.knowledge-router",
+      "logical_role": "development",
+      "exposed_path": "docs/README.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "ef52bbb16592fcd98c785136084dd47d78552ff7",
+        "path": "docs/README.md",
+        "sha256": "14c40009bd598287831b845160de60781ec743dcef8ced2ad3185b968c32b881"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "gateway.routing-contract",
+      "logical_role": "product_contract",
+      "exposed_path": "docs/specs/gateway/routing-delivery.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "ef52bbb16592fcd98c785136084dd47d78552ff7",
+        "path": "docs/specs/gateway/routing-delivery.md",
+        "sha256": "50cf846de9b4369e15dd5550b6722520daf12346831a3020e3431c20a4c11aad"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "gateway.external-contract",
+      "logical_role": "product_contract",
+      "exposed_path": "docs/specs/gateway/external-channels.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "ef52bbb16592fcd98c785136084dd47d78552ff7",
+        "path": "docs/specs/gateway/external-channels.md",
+        "sha256": "1dff49a1e371ecc8a4cbdd167417522016cc42d7f5e9346e1cb0de3d6b11512d"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "kernel.context-contract",
+      "logical_role": "product_contract",
+      "exposed_path": "docs/specs/kernel/context-persistence.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "ef52bbb16592fcd98c785136084dd47d78552ff7",
+        "path": "docs/specs/kernel/context-persistence.md",
+        "sha256": "ade5974fd5bdf146384d9b5adaab12ad8a280958be0a00e9df050b8c96b2225f"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "gateway.inbound-code",
+      "logical_role": "architecture",
+      "exposed_path": "src/personal_assistant/gateway/inbound_pipeline.py",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "ef52bbb16592fcd98c785136084dd47d78552ff7",
+        "path": "src/personal_assistant/gateway/inbound_pipeline.py",
+        "sha256": "ff76aaec8a4b9e533191eb64cf4524f894be7b800f5e23761959fd7f1e153d1e"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "gateway.coordinator-code",
+      "logical_role": "architecture",
+      "exposed_path": "src/personal_assistant/gateway/session_run_coordinator.py",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "ef52bbb16592fcd98c785136084dd47d78552ff7",
+        "path": "src/personal_assistant/gateway/session_run_coordinator.py",
+        "sha256": "e89c3a532c4353c7d897d5e26a9beddcd1d9efee63f6ded55b4dd27d82a786c8"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "gateway.binding-code",
+      "logical_role": "architecture",
+      "exposed_path": "src/personal_assistant/gateway/session_binder.py",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "ef52bbb16592fcd98c785136084dd47d78552ff7",
+        "path": "src/personal_assistant/gateway/session_binder.py",
+        "sha256": "f0fa3dfa7130d94b7b7bfbcb302f278513cee0cfa0a28d0118732f5f4cced20a"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "gateway.queue-code",
+      "logical_role": "architecture",
+      "exposed_path": "src/personal_assistant/gateway/run_queue.py",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "ef52bbb16592fcd98c785136084dd47d78552ff7",
+        "path": "src/personal_assistant/gateway/run_queue.py",
+        "sha256": "9178c9440fb50ca5120eebf18724c39336a5864ee7cd642ee3b13ba05d93a7d8"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "gateway.shadow-code",
+      "logical_role": "architecture",
+      "exposed_path": "src/personal_assistant/gateway/shadow_saga.py",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "ef52bbb16592fcd98c785136084dd47d78552ff7",
+        "path": "src/personal_assistant/gateway/shadow_saga.py",
+        "sha256": "9e51ec82b12904648430e916dafd7922be317a94cd4e672c05eec49b64906907"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "kernel.public-api",
+      "logical_role": "architecture",
+      "exposed_path": "src/agent/sdk/kernel.py",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "ef52bbb16592fcd98c785136084dd47d78552ff7",
+        "path": "src/agent/sdk/kernel.py",
+        "sha256": "894db98cd3819d076709329a6fd1e4318f8025245e8f2a90bea8e0c4f65758e9"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "kernel.compaction-code",
+      "logical_role": "architecture",
+      "exposed_path": "src/agent/core/agent/compaction",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_tree",
+        "cutoff_ref": "ef52bbb16592fcd98c785136084dd47d78552ff7",
+        "path": "src/agent/core/agent/compaction",
+        "sha256": "2499aa69f0c41fe3c65d50790a11c35264762edd55861616e223a9759c036c88"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "history.stop-command",
+      "logical_role": "historical_decision",
+      "exposed_path": "docs/changes/archive/feat-332-stop-command/design.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "ef52bbb16592fcd98c785136084dd47d78552ff7",
+        "path": "docs/changes/archive/feat-332-stop-command/design.md",
+        "sha256": "5c11788ae62757527989c1600b09da9f906e83feae58473e45b1b379e45f6686"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "history.compaction",
+      "logical_role": "historical_decision",
+      "exposed_path": "docs/changes/archive/feat-436-per-model-context-window/design.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "ef52bbb16592fcd98c785136084dd47d78552ff7",
+        "path": "docs/changes/archive/feat-436-per-model-context-window/design.md",
+        "sha256": "22fe760d55b5abbea2cf680f891d7d303e16d46a89bf02d84136244dd4d78c1a"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "history.external-shadow",
+      "logical_role": "historical_decision",
+      "exposed_path": "docs/changes/archive/bugfix-471-agent-config-context-continuity/design.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "ef52bbb16592fcd98c785136084dd47d78552ff7",
+        "path": "docs/changes/archive/bugfix-471-agent-config-context-continuity/design.md",
+        "sha256": "8ff7a69b4bae86f67170bf7ff61686b1bec468312e6cff8e9aca33853ca61271"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "reference.competitor-source",
+      "logical_role": "reference_project",
+      "exposed_path": "__absent__/competitor-source-snapshot",
+      "availability": "absent_at_cutoff",
+      "source": {
+        "kind": "none",
+        "cutoff_ref": "ef52bbb16592fcd98c785136084dd47d78552ff7"
+      },
+      "transform": "absent_marker",
+      "semantic_delta": false,
+      "notes": "The historical repo names host-local references but this case has no sealed source snapshot. Candidate isolation takes precedence over the brief's research request."
+    }
+  ]
+}

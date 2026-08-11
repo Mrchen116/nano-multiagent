@@ -43,6 +43,15 @@ FEISHU_ENV="$DEFAULT_FEISHU_ENV"
 MAIN_CONFIG_EXPLICIT=0
 FEISHU_LOCK_DIR=""
 FEISHU_LOCK_HELD=0
+# One script-owned, condition-polled cold-start budget. Tests may lower it to
+# exercise the deadline without changing production-facing Gateway timeouts.
+IM_READINESS_TIMEOUT_SECONDS="${NANO_MULTIAGENT_E2E_IM_READINESS_TIMEOUT_SECONDS:-30}"
+IM_READINESS_POLL_SECONDS=0.2
+
+if ! [[ "$IM_READINESS_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
+  echo "NANO_MULTIAGENT_E2E_IM_READINESS_TIMEOUT_SECONDS must be a positive integer" >&2
+  exit 2
+fi
 
 release_feishu_listener_lock() {
   [[ $FEISHU_LOCK_HELD -eq 1 ]] || return 0
@@ -244,15 +253,27 @@ IM_JWT_SECRET="$JWT_SECRET" PYTHONPATH="$SRC_DIR" \
 echo $! > "$WT_ROOT/.im.pid"
 
 # Wait for IM ready. IM has no dedicated /health endpoint, so we probe
-# /openapi.json — present on every FastAPI app once startup completes.
-for _ in $(seq 1 30); do
-  if curl -sf "http://127.0.0.1:$IM_PORT/openapi.json" >/dev/null 2>&1; then break; fi
-  sleep 0.2
+# /openapi.json — present on every FastAPI app once startup completes. A child
+# exit, an alive-but-not-ready deadline, and the pre-IM Feishu lock are distinct
+# failures and must not be collapsed into one generic startup error.
+IM_READINESS_STARTED_SECONDS=$SECONDS
+while true; do
+  if curl -sf "http://127.0.0.1:$IM_PORT/openapi.json" >/dev/null 2>&1; then
+    break
+  fi
+  IM_PID="$(cat "$WT_ROOT/.im.pid")"
+  if ! kill -0 "$IM_PID" 2>/dev/null; then
+    echo "IM process exited during startup; see $WT_ROOT/.im.log" >&2
+    tail -30 "$WT_ROOT/.im.log" >&2 || true
+    exit 1
+  fi
+  if (( SECONDS - IM_READINESS_STARTED_SECONDS >= IM_READINESS_TIMEOUT_SECONDS )); then
+    echo "IM readiness timed out after ${IM_READINESS_TIMEOUT_SECONDS}s; see $WT_ROOT/.im.log" >&2
+    tail -30 "$WT_ROOT/.im.log" >&2 || true
+    exit 1
+  fi
+  sleep "$IM_READINESS_POLL_SECONDS"
 done
-if ! curl -sf "http://127.0.0.1:$IM_PORT/openapi.json" >/dev/null 2>&1; then
-  echo "IM failed to start; see $WT_ROOT/.im.log" >&2
-  exit 1
-fi
 
 # Register nano user in the ephemeral IM (fresh DB, no users yet).
 curl -sf -X POST "http://127.0.0.1:$IM_PORT/im/v1/auth/register" \

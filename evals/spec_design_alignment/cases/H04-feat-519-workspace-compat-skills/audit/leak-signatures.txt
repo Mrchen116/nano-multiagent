@@ -1,0 +1,13 @@
+# Private scanner input; never export.
+feat-519-workspace-compat-skills
+feat-519
+pull request #258
+PR 258
+a903f132
+48d19d8a
+skills_selection_mode
+selection-mode persistence
+workspace_compatibility_roots
+同名 Skill.*来源优先级
+分组.*全选
+canonical fingerprint

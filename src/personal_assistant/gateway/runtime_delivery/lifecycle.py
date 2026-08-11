@@ -7,9 +7,11 @@ from typing import Any
 
 from personal_assistant.channels.base import InboundMessage
 from personal_assistant.gateway.channel_registry import ChannelRegistry
-from personal_assistant.gateway.inbound_models import RelayLifecycleUpdate
+from personal_assistant.gateway.inbound_models import (
+    RelayLifecycleUpdate,
+    RoutedInbound,
+)
 from personal_assistant.gateway.reply_visibility import is_protocol_silence_token
-from personal_assistant.gateway.runtime_protocol import runtime_protocol_or_derive
 from personal_assistant.reporter.upstream_reporter import UpstreamReporter
 from personal_assistant.ws.im_connection import IMConnectionManager
 
@@ -26,14 +28,15 @@ def build_relay_lifecycle_callback(
 ):
     """Build the relay lifecycle callback used by the inbound pipeline."""
 
-    async def _callback(message: InboundMessage, update: RelayLifecycleUpdate) -> None:
+    async def _callback(routed: RoutedInbound, update: RelayLifecycleUpdate) -> None:
+        message = routed.message
         if update.phase == "accepted":
             _ack_external_message_processing_started(
                 message,
                 channel_registry=channel_registry,
             )
             _seed_run_context(
-                message=message,
+                routed=routed,
                 update=update,
                 run_context_store=run_context_store,
                 owner_user_id=owner_user_id,
@@ -46,26 +49,25 @@ def build_relay_lifecycle_callback(
 
         if reporter is None:
             return
-        protocol = runtime_protocol_or_derive(message)
-        relay_task_id = protocol.relay_task_id
-        if relay_task_id is None:
+        relay = message.ingress.im_relay
+        if relay is None:
             return
         manager = im_connection_manager_factory()
         if manager is None:
             return
         if update.phase == "accepted":
             payload = reporter.send_delivery_receipt(
-                relay_task_id=relay_task_id,
+                relay_task_id=relay.relay_task_id,
                 delivery_status="sent",
                 detail=f"run_id={update.run_id}" if update.run_id is not None else None,
             )
             await manager.send_json("node.delivery_receipt", payload)
             return
         if update.phase == "running":
-            message_id = protocol.im_message_id
+            message_id = relay.im_message_id
             if message_id is None or update.run_id is None:
                 return
-            conversation_id = _protocol_conversation_id(message)
+            conversation_id = _protocol_conversation_id(routed)
             payload = reporter.send_report(
                 run_id=update.run_id,
                 status="running",
@@ -78,14 +80,14 @@ def build_relay_lifecycle_callback(
             await manager.send_json("node.report", payload)
             return
         if update.phase == "completed":
-            message_id = protocol.im_message_id
+            message_id = relay.im_message_id
             send_report = getattr(reporter, "send_report", None)
             if (
                 callable(send_report)
                 and message_id is not None
                 and update.run_id is not None
             ):
-                conversation_id = _protocol_conversation_id(message)
+                conversation_id = _protocol_conversation_id(routed)
                 payload = send_report(
                     run_id=update.run_id,
                     status="completed",
@@ -103,21 +105,21 @@ def build_relay_lifecycle_callback(
                 detail=update.detail,
             )
             payload = reporter.send_delivery_receipt(
-                relay_task_id=relay_task_id,
+                relay_task_id=relay.relay_task_id,
                 delivery_status="completed",
                 detail=receipt_detail,
             )
             await manager.send_json("node.delivery_receipt", payload)
             return
         if update.phase == "failed":
-            message_id = protocol.im_message_id
+            message_id = relay.im_message_id
             send_report = getattr(reporter, "send_report", None)
             if (
                 callable(send_report)
                 and message_id is not None
                 and update.run_id is not None
             ):
-                conversation_id = _protocol_conversation_id(message)
+                conversation_id = _protocol_conversation_id(routed)
                 payload = send_report(
                     run_id=update.run_id,
                     status="failed",
@@ -129,7 +131,7 @@ def build_relay_lifecycle_callback(
                 )
                 await manager.send_json("node.report", payload)
             payload = reporter.send_delivery_receipt(
-                relay_task_id=relay_task_id,
+                relay_task_id=relay.relay_task_id,
                 delivery_status="failed",
                 detail=update.error,
             )
@@ -140,7 +142,7 @@ def build_relay_lifecycle_callback(
 
 def _seed_run_context(
     *,
-    message: InboundMessage,
+    routed: RoutedInbound,
     update: RelayLifecycleUpdate,
     run_context_store: RunDeliveryContextStore | None,
     owner_user_id: str,
@@ -148,7 +150,7 @@ def _seed_run_context(
     if run_context_store is None or not update.run_id:
         return
     run_context_store.seed_from_lifecycle(
-        message=message,
+        routed=routed,
         update=update,
         owner_user_id=owner_user_id,
     )
@@ -164,11 +166,10 @@ def _discard_run_context(
     run_context_store.discard(run_id)
 
 
-def _protocol_conversation_id(message: InboundMessage) -> str:
-    protocol = runtime_protocol_or_derive(message)
-    if protocol.shadow_ref is not None:
-        return protocol.shadow_ref.conversation_id
-    return message.external_chat_id
+def _protocol_conversation_id(routed: RoutedInbound) -> str:
+    if routed.shadow.ref is not None:
+        return routed.shadow.ref.conversation_id
+    return routed.message.external_chat_id
 
 
 def _ack_external_message_processing_started(

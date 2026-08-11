@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import socket
 import subprocess
 import sys
 import time
@@ -124,6 +125,7 @@ def _rewrite_llm_to_stub(
     dst: Path,
     stub_url: str,
     *,
+    provider_name: str | None = None,
     context_window: int | None = None,
 ) -> None:
     cfg = yaml.safe_load(src.read_text(encoding="utf-8"))
@@ -133,6 +135,8 @@ def _rewrite_llm_to_stub(
         raise AssertionError(f"{src} has no llm.providers")
     for provider in providers:
         provider["base_url"] = stub_url
+        if provider_name is not None:
+            provider["name"] = provider_name
     # 去掉 thinking 附加体:stub 不需要,且部分模型附加项会改变请求形状。
     for provider in providers:
         for model in provider.get("models") or []:
@@ -156,6 +160,67 @@ def _wait_gateway_custom_prompt(
             return first_agent
         time.sleep(0.2)
     raise AssertionError(f"Gateway YAML did not receive custom prompt: {path}")
+
+
+def _read_pid(path: Path) -> int | None:
+    if not path.is_file():
+        return None
+    return int(path.read_text(encoding="utf-8").strip())
+
+
+def _wait_port_closed(port: int, *, timeout: float = 5.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+                pass
+        except OSError:
+            return
+        time.sleep(0.1)
+    raise AssertionError(f"fixture teardown left port {port} listening")
+
+
+def _wait_process_gone(pid: int, *, timeout: float = 5.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            waited_pid, _ = os.waitpid(pid, os.WNOHANG)
+            if waited_pid == pid:
+                return
+        except ChildProcessError:
+            pass
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return
+        time.sleep(0.1)
+    raise AssertionError(f"fixture teardown left process {pid} alive")
+
+
+def _cleanup_stub_stack(
+    wt_dir: Path,
+    stub_proc: subprocess.Popen[str],
+    *,
+    preserve_logs: bool,
+) -> subprocess.CompletedProcess[str]:
+    """Stop a partially or fully started stack and reap its LLM stub."""
+    if preserve_logs:
+        _dump_logs(wt_dir)
+    try:
+        return subprocess.run(
+            ["bash", str(_E2E_DOWN), "--wt", str(wt_dir)],
+            cwd=str(_REPO_ROOT),
+            capture_output=True,
+            text=True,
+        )
+    finally:
+        if stub_proc.poll() is None:
+            stub_proc.terminate()
+        try:
+            stub_proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            stub_proc.kill()
+            stub_proc.wait(timeout=5)
 
 
 @pytest.fixture
@@ -186,6 +251,12 @@ def stub_llm_stack(
         not isinstance(context_window, int) or context_window <= 0
     ):
         raise ValueError("context_window must be a positive integer")
+    provider_name = options.get("provider")
+    if provider_name is not None and provider_name not in {
+        "anthropic",
+        "openai_compat",
+    }:
+        raise ValueError("provider must be anthropic or openai_compat")
     start_usage = options.get("message_start_usage")
     delta_usage = options.get("message_delta_usage")
     if start_usage is not None and not isinstance(start_usage, dict):
@@ -235,6 +306,7 @@ def stub_llm_stack(
         _E2E_CONFIG,
         main_for_up,
         f"http://127.0.0.1:{stub_port}",
+        provider_name=provider_name,
         context_window=context_window,
     )
 
@@ -259,11 +331,11 @@ def stub_llm_stack(
         },
     )
     if up.returncode != 0:
-        stub_proc.kill()
-        _dump_logs(wt_dir)
+        down = _cleanup_stub_stack(wt_dir, stub_proc, preserve_logs=True)
         pytest.fail(
             f"e2e-up.sh failed (rc={up.returncode}):\n"
-            f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
+            f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}\n"
+            f"--- teardown stderr ---\n{down.stderr}"
         )
 
     values = _parse_ports_env(wt_dir / ".e2e-ports.env")
@@ -279,17 +351,28 @@ def stub_llm_stack(
     try:
         yield stack
     finally:
-        subprocess.run(
-            ["bash", str(_E2E_DOWN), "--wt", str(wt_dir)],
-            cwd=str(_REPO_ROOT),
-            capture_output=True,
-            text=True,
-        )
-        stub_proc.terminate()
-        try:
-            stub_proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            stub_proc.kill()
+        gateway_pid = _read_pid(wt_dir / ".gateway.pid")
+        im_pid = _read_pid(wt_dir / ".im.pid")
+        down = _cleanup_stub_stack(wt_dir, stub_proc, preserve_logs=False)
+        assert down.returncode == 0, down.stderr
+        for pid in (gateway_pid, im_pid):
+            if pid is None:
+                continue
+            _wait_process_gone(pid)
+        _wait_port_closed(int(stack.im_port))
+        _wait_port_closed(stack.stub_port)
+        for generated in (
+            ".gateway.pid",
+            ".im.pid",
+            ".e2e-ports.env",
+            ".e2e-jwt-secret",
+            ".gateway-config.yaml",
+            "channel-credentials-v1.pem",
+            "channel-manifest-v1.json",
+        ):
+            assert not (wt_dir / generated).exists(), (
+                f"fixture teardown left generated state: {generated}"
+            )
 
 
 @pytest.fixture

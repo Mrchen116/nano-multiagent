@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nano-multiagent.local/evaluation/schema/permission-manifest.schema.json",
+  "title": "Candidate runner permission manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "network",
+    "external_api",
+    "real_push",
+    "parent_repo_access",
+    "other_worktree_access",
+    "host_memory",
+    "host_home_access",
+    "host_process_access",
+    "secret_access",
+    "allowed_read_roots",
+    "allowed_write_roots",
+    "environment_policy",
+    "inherit_host_environment",
+    "environment"
+  ],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schema_version": {"const": "1.0"},
+    "network": {"const": false},
+    "external_api": {"const": false},
+    "real_push": {"const": false},
+    "parent_repo_access": {"const": false},
+    "other_worktree_access": {"const": false},
+    "host_memory": {"const": false},
+    "host_home_access": {"const": false},
+    "host_process_access": {"const": false},
+    "secret_access": {"const": false},
+    "allowed_read_roots": {"const": ["candidate_workspace"]},
+    "allowed_write_roots": {"const": ["candidate_workspace", "run_output"]},
+    "environment_policy": {"const": "sealed_allowlist"},
+    "inherit_host_environment": {"const": false},
+    "environment": {
+      "const": {
+        "HOME": "${candidate_workspace}/.home",
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "TERM": "dumb",
+        "TMPDIR": "${candidate_workspace}/.tmp"
+      }
+    }
+  }
+}

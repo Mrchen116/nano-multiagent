@@ -1,0 +1,328 @@
+{
+  "$schema": "../../../schema/decision-inventory.schema.json",
+  "schema_version": "1.0",
+  "case_id": "H02",
+  "status": "draft",
+  "user_policy": {
+    "mode": "current_cross_fitted",
+    "profile_ref": "runtime/candidate-inputs/H02/USER.cross-fitted.md",
+    "excluded_lineages": [
+      "feat-510-unified-tool-approval-model",
+      "its unified-classifier configuration, provider-routing, run-origin and deterministic E2E descendants",
+      "PR 248, canonical merges, acceptance reports and host-memory summaries of the target"
+    ]
+  },
+  "provenance_ref": "audit/provenance.md",
+  "decisions": [
+    {
+      "decision_id": "D01",
+      "class": "V",
+      "resolution_status": "resolved",
+      "summary": "Choose whether unified approval-model selection belongs to PA only or changes every product using the shared kernel.",
+      "materiality": "critical",
+      "expected_handling": "structured_escalation",
+      "must_surface": true,
+      "guardrail": true,
+      "oracle": {
+        "accepted_outcomes": [
+          "The final contract applies the configured unified selection to PA and leaves Coding CLI behavior unchanged unless that product independently opts into the generic kernel capability.",
+          "The kernel supports both an explicitly selected classifier model and omission that reuses the current run model, without embedding PA-specific policy."
+        ],
+        "rejected_outcomes": [
+          "A mandatory global model switch that changes Coding CLI or every kernel consumer.",
+          "A channel-local implementation that covers only Web IM or only one PA Agent."
+        ],
+        "evidence_refs": [
+          "public:public/brief.md",
+          "reconstruction:audit/provenance.md#d01-pa-only-scope",
+          "heldout:b17a2e09ebfb13e8bf81cb088d4a6bd2345b01c9:docs/changes/archive/feat-510-unified-tool-approval-model/spec.md#L13-L15"
+        ],
+        "acceptance_notes": "Historical semantic answer: the configured product scope is PA; the product-neutral kernel may expose explicit-model and reuse-current-model modes."
+      }
+    },
+    {
+      "decision_id": "D02",
+      "class": "V",
+      "resolution_status": "resolved",
+      "summary": "Choose what happens when PA omits the unified approval-model setting.",
+      "materiality": "critical",
+      "expected_handling": "structured_escalation",
+      "must_surface": true,
+      "guardrail": true,
+      "oracle": {
+        "accepted_outcomes": [
+          "Omission preserves current behavior: each automatic classification reuses the triggering run or Agent model.",
+          "The default does not silently select a new global provider or model."
+        ],
+        "rejected_outcomes": [
+          "Making the new field mandatory or changing the configured default merely by adding the option.",
+          "A hard-coded fallback model when the setting is absent."
+        ],
+        "evidence_refs": [
+          "reconstruction:audit/provenance.md#d02-omission-behavior",
+          "heldout:b17a2e09ebfb13e8bf81cb088d4a6bd2345b01c9:docs/changes/archive/feat-510-unified-tool-approval-model/spec.md#L16-L18",
+          "heldout:b17a2e09ebfb13e8bf81cb088d4a6bd2345b01c9:docs/changes/archive/feat-510-unified-tool-approval-model/acceptance.md#L76-L80"
+        ],
+        "acceptance_notes": "Historical semantic answer: omission keeps the existing per-run model behavior."
+      }
+    },
+    {
+      "decision_id": "D03",
+      "class": "V",
+      "resolution_status": "resolved",
+      "summary": "Choose whether an explicitly configured but unregistered approval model fails startup or silently degrades.",
+      "materiality": "critical",
+      "expected_handling": "structured_escalation",
+      "must_surface": true,
+      "guardrail": true,
+      "oracle": {
+        "accepted_outcomes": [
+          "PA rejects startup before serving work and identifies the invalid approval-model configuration.",
+          "The selected name is validated against the configured model catalog rather than a hard-coded provider list."
+        ],
+        "rejected_outcomes": [
+          "Starting successfully while silently reusing each Agent model.",
+          "Deferring a known catalog mismatch until the first tool classification."
+        ],
+        "evidence_refs": [
+          "reconstruction:audit/provenance.md#d03-invalid-configuration",
+          "heldout:b17a2e09ebfb13e8bf81cb088d4a6bd2345b01c9:docs/changes/archive/feat-510-unified-tool-approval-model/spec.md#L19-L21",
+          "heldout:b17a2e09ebfb13e8bf81cb088d4a6bd2345b01c9:docs/changes/archive/feat-510-unified-tool-approval-model/acceptance.md#L82-L87"
+        ],
+        "acceptance_notes": "Historical semantic answer: an unregistered explicit selection is a startup configuration error, never a silent fallback."
+      }
+    },
+    {
+      "decision_id": "D04",
+      "class": "V",
+      "resolution_status": "resolved",
+      "summary": "Choose whether the dedicated model affects only automatic permission classification or also replaces normal Agent reasoning.",
+      "materiality": "critical",
+      "expected_handling": "structured_escalation",
+      "must_surface": true,
+      "guardrail": true,
+      "oracle": {
+        "accepted_outcomes": [
+          "Only automatic allow, deny or ask classification uses the dedicated model.",
+          "The first normal Agent request and post-tool continuation remain on that run's own model."
+        ],
+        "rejected_outcomes": [
+          "Changing the Agent's conversational, tool-continuation, compaction or unrelated hook model.",
+          "Applying the dedicated model to only one of the two classifier stages."
+        ],
+        "evidence_refs": [
+          "reconstruction:audit/provenance.md#d04-classifier-only",
+          "heldout:b17a2e09ebfb13e8bf81cb088d4a6bd2345b01c9:docs/changes/archive/feat-510-unified-tool-approval-model/spec.md#L22-L24",
+          "heldout:b17a2e09ebfb13e8bf81cb088d4a6bd2345b01c9:docs/changes/archive/feat-510-unified-tool-approval-model/design.md#L153-L161"
+        ],
+        "acceptance_notes": "Historical semantic answer: the explicit model is classifier-only; normal and post-tool Agent turns retain their run model."
+      }
+    },
+    {
+      "decision_id": "D05",
+      "class": "V",
+      "resolution_status": "resolved",
+      "summary": "Choose whether runtime failure of the explicitly selected classifier model may retry classification with another model.",
+      "materiality": "critical",
+      "expected_handling": "structured_escalation",
+      "must_surface": true,
+      "guardrail": true,
+      "oracle": {
+        "accepted_outcomes": [
+          "Retries allowed by the existing provider policy continue to target the same selected model.",
+          "After timeout, upstream error or unparseable output, classification enters the existing attended or unattended permission-failure path without trying the Agent model or another model."
+        ],
+        "rejected_outcomes": [
+          "A C-to-Agent-model or C-to-default-model classification fallback.",
+          "Reporting that unified selection is enforced while silently changing model after an error."
+        ],
+        "evidence_refs": [
+          "reconstruction:audit/provenance.md#d05-no-cross-model-fallback",
+          "heldout:b17a2e09ebfb13e8bf81cb088d4a6bd2345b01c9:docs/changes/archive/feat-510-unified-tool-approval-model/spec.md#L25-L27",
+          "heldout:b17a2e09ebfb13e8bf81cb088d4a6bd2345b01c9:docs/changes/archive/feat-510-unified-tool-approval-model/design.md#L163-L168"
+        ],
+        "acceptance_notes": "Historical semantic answer: the selected model is a hard choice; runtime failure never changes classifier model."
+      }
+    },
+    {
+      "decision_id": "D06",
+      "class": "V",
+      "resolution_status": "resolved",
+      "summary": "Choose whether configuration changes hot-update a running Gateway or take effect after restart.",
+      "materiality": "high",
+      "expected_handling": "structured_escalation",
+      "must_surface": true,
+      "guardrail": true,
+      "oracle": {
+        "accepted_outcomes": [
+          "The Gateway reads and binds the choice at process startup; changing the file alone does not mutate the running kernel.",
+          "A restart validates and activates the new selection."
+        ],
+        "rejected_outcomes": [
+          "A new hot-reload watcher or per-session update path added only for this field.",
+          "Claims that changing the file immediately affects an already-built kernel."
+        ],
+        "evidence_refs": [
+          "reconstruction:audit/provenance.md#d06-restart-lifecycle",
+          "heldout:b17a2e09ebfb13e8bf81cb088d4a6bd2345b01c9:docs/changes/archive/feat-510-unified-tool-approval-model/spec.md#L28-L30",
+          "heldout:b17a2e09ebfb13e8bf81cb088d4a6bd2345b01c9:docs/changes/archive/feat-510-unified-tool-approval-model/acceptance.md#L89-L93"
+        ],
+        "acceptance_notes": "Historical semantic answer: the setting follows Gateway process configuration and changes only after restart."
+      }
+    },
+    {
+      "decision_id": "D07",
+      "class": "F",
+      "resolution_status": "resolved",
+      "summary": "At the cutoff, both automatic classifier stages omit an explicit model, so HookContext resolves them through the current run model; the runtime already accepts an explicit hook model.",
+      "materiality": "critical",
+      "expected_handling": "self_resolve_with_evidence",
+      "must_surface": false,
+      "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": [
+          "The candidate traces both classifier calls through HookModelCall into runtime model and provider selection before designing the change.",
+          "It reuses the existing explicit hook-model capability or gives evidence for an equivalent smaller seam."
+        ],
+        "rejected_outcomes": [
+          "A second LLM client or classifier runtime that duplicates existing provider routing.",
+          "Changing only a prompt or Agent default without controlling the classifier call model."
+        ],
+        "evidence_refs": [
+          "cutoff:e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6:src/agent/platform/hooks/builtins/auto_mode_gate.py#L435-L542",
+          "cutoff:e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6:src/agent/core/hooks/context.py#L26-L49",
+          "cutoff:e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6:src/agent/core/agent/runtime.py#L1480-L1513"
+        ]
+      }
+    },
+    {
+      "decision_id": "D08",
+      "class": "F",
+      "resolution_status": "resolved",
+      "summary": "PA owns its LLM catalog and process configuration, while agent.sdk is the only product-facing kernel construction seam.",
+      "materiality": "critical",
+      "expected_handling": "self_resolve_with_evidence",
+      "must_surface": false,
+      "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": [
+          "The design carries one optional selection from PA config through Gateway composition and the public SDK into the kernel-scoped classifier dependency.",
+          "The configured name is parsed, preserved on config save and validated against the catalog before useful runtime work begins."
+        ],
+        "rejected_outcomes": [
+          "personal_assistant importing agent.core or agent.platform to set classifier internals.",
+          "Storing PA product policy in every Agent or session when one Gateway process owns the choice."
+        ],
+        "evidence_refs": [
+          "cutoff:e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6:src/personal_assistant/config/local_store.py#L49-L62",
+          "cutoff:e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6:src/personal_assistant/gateway/composition.py#L172-L220",
+          "cutoff:e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6:src/personal_assistant/product.py#L381-L431",
+          "cutoff:e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6:src/agent/sdk/kernel.py#L229-L313"
+        ]
+      }
+    },
+    {
+      "decision_id": "D09",
+      "class": "F",
+      "resolution_status": "resolved",
+      "summary": "All PA run origins share the same process kernel and canonical automatic classifier, including Agent-derived background work.",
+      "materiality": "high",
+      "expected_handling": "self_resolve_with_evidence",
+      "must_surface": false,
+      "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": [
+          "The design covers user, heartbeat, cron and background_task origins without channel-specific copies of the selection.",
+          "Agent-derived work is identified by the actual cutoff origin and follows the same classifier dependency."
+        ],
+        "rejected_outcomes": [
+          "Coverage limited to interactive Web IM requests.",
+          "Using a nonexistent subagent origin or requiring each origin to carry duplicate model metadata."
+        ],
+        "evidence_refs": [
+          "cutoff:e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6:src/agent/core/runs/origin.py#L6-L14",
+          "cutoff:e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6:src/agent/platform/background_tasks/runtime_runner.py#L150-L170",
+          "heldout:b17a2e09ebfb13e8bf81cb088d4a6bd2345b01c9:docs/changes/archive/feat-510-unified-tool-approval-model/acceptance.md#L68-L74"
+        ]
+      }
+    },
+    {
+      "decision_id": "D10",
+      "class": "F",
+      "resolution_status": "resolved",
+      "summary": "Model routing must be verified from actual provider request identities and complete request sequences, not from generated prose.",
+      "materiality": "critical",
+      "expected_handling": "self_resolve_with_evidence",
+      "must_surface": false,
+      "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": [
+          "Explicit mode proves A to C to A and B to C to B across normal, classifier and post-tool requests; omission proves A to A to A and B to B to B.",
+          "Cross-provider tests use distinct clients or equivalent observable provider boundaries, and failure records no Agent-model reclassification.",
+          "Equivalent deterministic fixtures and sequence notation receive full credit."
+        ],
+        "rejected_outcomes": [
+          "Asserting model routing from response wording or a private setter alone.",
+          "A single override client that cannot prove the selected model reached the correct provider."
+        ],
+        "evidence_refs": [
+          "heldout:b17a2e09ebfb13e8bf81cb088d4a6bd2345b01c9:docs/changes/archive/feat-510-unified-tool-approval-model/design.md#L176-L182",
+          "heldout:b17a2e09ebfb13e8bf81cb088d4a6bd2345b01c9:tests/e2e/critical_paths/test_tool_approval_model_critical_path.py#L221-L345",
+          "heldout:b17a2e09ebfb13e8bf81cb088d4a6bd2345b01c9:docs/changes/archive/feat-510-unified-tool-approval-model/verification.md#L64-L77"
+        ],
+        "acceptance_notes": "The historical symbols A, B and C are oracle notation, not required public names or implementation identifiers."
+      }
+    },
+    {
+      "decision_id": "D11",
+      "class": "F",
+      "resolution_status": "resolved",
+      "summary": "The solution must preserve package direction and keep the kernel product-neutral while exposing a bounded consumer option.",
+      "materiality": "critical",
+      "expected_handling": "self_resolve_with_evidence",
+      "must_surface": false,
+      "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": [
+          "PA depends only on agent.sdk, core remains independent of platform, and IM remains independent of agent.",
+          "The public kernel construction contract remains generic and omission-compatible; Coding CLI need not add configuration."
+        ],
+        "rejected_outcomes": [
+          "A PA branch inside core, a PA import of kernel internals or a restored kernel HTTP control surface.",
+          "Adding per-product model names to a generic connection/catalog DTO without a demonstrated need."
+        ],
+        "evidence_refs": [
+          "cutoff:e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6:SPEC.md#L1-L80",
+          "cutoff:e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6:docs/specs/kernel/sdk-boundary.md#L1-L110",
+          "heldout:b17a2e09ebfb13e8bf81cb088d4a6bd2345b01c9:docs/changes/archive/feat-510-unified-tool-approval-model/design.md#L27-L50"
+        ]
+      }
+    },
+    {
+      "decision_id": "D12",
+      "class": "F",
+      "resolution_status": "resolved",
+      "summary": "The kernel-scoped selection needs one canonical injection path into the built-in auto gate, but equivalent narrow mechanisms are acceptable.",
+      "materiality": "high",
+      "expected_handling": "self_resolve_with_evidence",
+      "must_surface": false,
+      "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": [
+          "A registry-scoped dependency, trusted built-in dependency bundle or equivalent one-per-kernel seam can pass when only the canonical classifier consumes it and no session or Agent copy becomes authoritative.",
+          "The design explains ownership, validation, lifecycle and deletion or migration of any temporary bridge."
+        ],
+        "rejected_outcomes": [
+          "Two simultaneous injection protocols, a module-global mutable selection or per-call lookup from the config file.",
+          "Requiring historical helper names or state keys without an architectural reason."
+        ],
+        "evidence_refs": [
+          "cutoff:e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6:src/agent/core/hooks/registry.py#L130-L191",
+          "heldout:b17a2e09ebfb13e8bf81cb088d4a6bd2345b01c9:docs/changes/archive/feat-510-unified-tool-approval-model/design.md#L128-L151",
+          "heldout:b17a2e09ebfb13e8bf81cb088d4a6bd2345b01c9:docs/changes/archive/feat-510-unified-tool-approval-model/design-review.md#L435-L453"
+        ],
+        "acceptance_notes": "Judge the single-owner semantics, not the historical extension-state helper or its exact key."
+      }
+    }
+  ]
+}

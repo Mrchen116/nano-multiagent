@@ -24,10 +24,12 @@ from personal_assistant.gateway.workflow_permission_bindings import (
 )
 from personal_assistant.ws.im_connection import IMConnectionManager
 
+from .background import _invoke_external_reply_sender
 from .context import RunDeliveryContext, RunDeliveryContextStore
 from .task_tracker import RuntimeDeliveryTaskTracker
 
 _log = logging.getLogger("personal_assistant.gateway.runtime_delivery.observer")
+_SELF_EVOLUTION_SOURCE = "self_evolution"
 
 
 def _live_context(
@@ -223,6 +225,7 @@ def build_kernel_event_observer(
         task_tracker = RuntimeDeliveryTaskTracker()
     visible_reasoning_by_group: dict[str, dict[str, str]] = {}
     durable_reasoning_by_group: dict[str, dict[str, str]] = {}
+    external_reply_lock = asyncio.Lock()
 
     def _dispatch_workflow_permission_deliveries(
         deliveries: tuple[WorkflowPermissionDelivery, ...],
@@ -276,10 +279,43 @@ def build_kernel_event_observer(
             metadata["feishu_message_id"] = ctx.feishu_message_id
         return metadata
 
+    async def _deliver_external_reply(
+        *,
+        sender: Callable[[str, Mapping[str, str]], Any],
+        rid: str,
+        phase: str,
+        text: str,
+        metadata: Mapping[str, str],
+    ) -> None:
+        """Deliver one normal external reply without holding the Gateway loop."""
+
+        try:
+            # Normal observer events were previously serialized by their synchronous
+            # sender on this loop. Keep that provider-facing order while moving the
+            # REST/retry work itself to the shared non-blocking delivery seam.
+            async with external_reply_lock:
+                await _invoke_external_reply_sender(
+                    sender,
+                    text,
+                    metadata,
+                )
+        except Exception as exc:  # noqa: BLE001
+            _log.warning(
+                "external reply delivery failed (run=%s phase=%s channel=%s target=%s): %s",
+                rid,
+                phase,
+                metadata.get("channel_name", ""),
+                metadata.get("target_chat_id", ""),
+                exc,
+            )
+
     def _mirror_external_reply(
         *, rid: str, ctx: RunDeliveryContext, phase: str, text: str
     ) -> None:
         if not _is_external_reply_context(ctx):
+            return
+        sender = external_reply_sender
+        if sender is None:
             return
         cleaned_text = text.strip()
         if not cleaned_text:
@@ -315,9 +351,17 @@ def build_kernel_event_observer(
             "reply_dedupe_key": f"{rid}:bubble:{bubble_key}",
             **external_metadata,
         }
-        result = external_reply_sender(cleaned_text, metadata)
-        if asyncio.iscoroutine(result):
-            task_tracker.start(result, name=f"external-reply:{rid}:{phase}", run_id=rid)
+        task_tracker.start(
+            _deliver_external_reply(
+                sender=sender,
+                rid=rid,
+                phase=phase,
+                text=cleaned_text,
+                metadata=metadata,
+            ),
+            name=f"external-reply:{rid}:{phase}",
+            run_id=rid,
+        )
 
     def _mirror_external_permission_request(
         *, rid: str, ctx: RunDeliveryContext, request: Mapping[str, Any]
@@ -553,6 +597,14 @@ def build_kernel_event_observer(
         conversation_id = ctx.conversation_id
         message_id = ctx.message_id
         agent_id = ctx.agent_id
+        # Source-marked self-evolution skill events belong exclusively to the
+        # persistent session subscriber. Never add ordinary realtime events to
+        # this business-event ownership exception.
+        if (
+            event_name == "skill_created"
+            and event.get("source") == _SELF_EVOLUTION_SOURCE
+        ):
+            return _PreparedEvent(handled=True, result=None)
         if event_name == "skill_created" and agent_id and skill_created_handler:
             task_tracker.start(
                 asyncio.to_thread(skill_created_handler, agent_id, event),

@@ -12,6 +12,8 @@ import threading
 import time
 from types import SimpleNamespace
 
+import pytest
+
 from personal_assistant.channels.feishu.worker import (
     FeishuWorkerProcessContext,
     FeishuWorkerRuntime,
@@ -73,6 +75,18 @@ def _card_worker(context: FeishuWorkerProcessContext) -> None:
 
 def _crash_worker(_context: FeishuWorkerProcessContext) -> None:
     os._exit(17)
+
+
+def _exit_before_worker_bootstrap(exit_time) -> None:
+    """Record child readiness, then exit without touching the runtime ready Event."""
+
+    exit_time.value = time.monotonic()
+
+
+def _stay_alive_before_worker_bootstrap() -> None:
+    """Keep a replacement child alive without producing the bootstrap ready signal."""
+
+    time.sleep(30)
 
 
 def _process_birth(pid: int) -> str | None:
@@ -230,6 +244,99 @@ def test_listener_stays_alive_while_owner_is_idle() -> None:
     finally:
         report = runtime.stop(drain=True)
     assert report.joined
+
+
+def test_listener_startup_budget_is_independent_from_short_shutdown_join() -> None:
+    """Slow spawn imports get a startup budget without weakening stop bounds."""
+
+    observed_timeouts: list[float] = []
+    events: list[dict[str, object]] = []
+    runtime = FeishuWorkerRuntime(
+        app_id="cli_startup",
+        app_secret="secret",
+        incarnation="inc-startup",
+        on_event=events.append,
+        on_status=lambda _status: None,
+        worker_target=_listener_worker,
+        multiprocessing_context=multiprocessing.get_context("spawn"),
+        join_timeout=0.2,
+    )
+    ready_event = runtime._ready_event
+    started = time.monotonic()
+
+    def wait_with_early_false(timeout: float) -> bool:
+        observed_timeouts.append(timeout)
+        if len(observed_timeouts) <= 5:
+            time.sleep(timeout)
+            return False
+        return ready_event.wait(timeout)
+
+    runtime._ready_event = SimpleNamespace(wait=wait_with_early_false)
+
+    runtime.start()
+    try:
+        _wait_until(lambda: bool(events))
+    finally:
+        report = runtime.stop(drain=True)
+
+    assert len(observed_timeouts) >= 6
+    assert all(0 < timeout <= 0.05 for timeout in observed_timeouts)
+    assert time.monotonic() - started >= 0.2
+    assert report.joined
+
+
+def test_pre_ready_spawn_exit_fails_before_full_startup_budget() -> None:
+    """A dead bootstrap child is observed promptly after the child exits."""
+
+    mp = multiprocessing.get_context("spawn")
+    child_exit_time = mp.Value("d", 0.0)
+    runtime = FeishuWorkerRuntime(
+        app_id="cli_pre_ready_exit",
+        app_secret="secret",
+        incarnation="inc-pre-ready-exit",
+        on_event=lambda _event: None,
+        on_status=lambda _status: None,
+        worker_target=_listener_worker,
+        multiprocessing_context=mp,
+        startup_timeout=30,
+        join_timeout=0.2,
+    )
+    # Keep the runtime's real spawn context and IPC resources, but make the
+    # spawned process exit before _worker_bootstrap can set ready_event.
+    runtime._process = mp.Process(  # noqa: SLF001
+        target=_exit_before_worker_bootstrap,
+        args=(child_exit_time,),
+    )
+
+    with pytest.raises(RuntimeError, match="exited before bootstrap readiness"):
+        runtime.start()
+
+    assert child_exit_time.value > 0
+    assert time.monotonic() - child_exit_time.value < 2
+    assert runtime.is_alive is False
+
+
+def test_pre_ready_spawn_timeout_names_bootstrap_readiness() -> None:
+    """A live child without its bootstrap signal reaches the distinct deadline error."""
+
+    mp = multiprocessing.get_context("spawn")
+    runtime = FeishuWorkerRuntime(
+        app_id="cli_pre_ready_timeout",
+        app_secret="secret",
+        incarnation="inc-pre-ready-timeout",
+        on_event=lambda _event: None,
+        on_status=lambda _status: None,
+        worker_target=_listener_worker,
+        multiprocessing_context=mp,
+        startup_timeout=0.2,
+        join_timeout=0.2,
+    )
+    runtime._process = mp.Process(target=_stay_alive_before_worker_bootstrap)  # noqa: SLF001
+
+    with pytest.raises(RuntimeError, match="bootstrap readiness timed out"):
+        runtime.start()
+
+    assert runtime.is_alive is False
 
 
 def test_two_listener_processes_are_isolated_and_true_stop_join() -> None:

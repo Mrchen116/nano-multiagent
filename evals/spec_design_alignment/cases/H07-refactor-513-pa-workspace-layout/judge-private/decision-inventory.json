@@ -1,0 +1,138 @@
+{
+  "$schema": "../../../schema/decision-inventory.schema.json",
+  "schema_version": "1.0",
+  "case_id": "H07",
+  "status": "draft",
+  "user_policy": {
+    "mode": "current_cross_fitted",
+    "profile_ref": "runtime/candidate-inputs/H07/USER.cross-fitted.md",
+    "excluded_lineages": [
+      "refactor-513-pa-workspace-layout",
+      "its product namespace, per-turn execution scope and one-time migration decisions",
+      "PR 253, fleet migration, secret handling, target review and acceptance descendants"
+    ]
+  },
+  "provenance_ref": "audit/provenance.md",
+  "decisions": [
+    {
+      "decision_id": "D01", "class": "V", "resolution_status": "resolved",
+      "summary": "Choose the terminal workspace configuration directory for generic kernel, PA and Coding CLI.",
+      "materiality": "critical", "expected_handling": "structured_escalation", "must_surface": true, "guardrail": true,
+      "oracle": {
+        "accepted_outcomes": ["The generic SDK default remains .nano; PA explicitly selects .nanoassistant; Coding CLI explicitly selects .nanocode."],
+        "rejected_outcomes": ["Rename the generic kernel default to a product namespace.", "Make PA and CLI share one hidden directory."],
+        "evidence_refs": ["public:public/brief.md", "heldout:ff27a30b4ab3759213ec148ae46f0a6a6d23a12a:docs/changes/archive/refactor-513-pa-workspace-layout/motivation.md"]
+      }
+    },
+    {
+      "decision_id": "D02", "class": "V", "resolution_status": "resolved",
+      "summary": "Choose which PA workspace state moves under .nanoassistant and preserve readable chat history separately from transcript.",
+      "materiality": "critical", "expected_handling": "structured_escalation", "must_surface": true, "guardrail": true,
+      "oracle": {
+        "accepted_outcomes": ["PA sessions, memory, skills, cron, heartbeat, background outputs, policy and readable chat_history live under workspace/.nanoassistant; readable chat history remains a separate copy and does not replace session transcript."],
+        "rejected_outcomes": ["Leave PA chat_history at workspace root.", "Conflate the readable copy with the authoritative transcript."],
+        "evidence_refs": ["public:public/brief.md", "heldout:ff27a30b4ab3759213ec148ae46f0a6a6d23a12a:docs/changes/archive/refactor-513-pa-workspace-layout/motivation.md"]
+      }
+    },
+    {
+      "decision_id": "D03", "class": "V", "resolution_status": "resolved",
+      "summary": "Choose the global PA home and default Agent workspace layout while preserving external workspace roots.",
+      "materiality": "critical", "expected_handling": "structured_escalation", "must_surface": true, "guardrail": true,
+      "oracle": {
+        "accepted_outcomes": ["Global PA state lives at ~/.nanoassistant; managed default workspaces live at ~/.nanoassistant/workspaces/<agent-id>; explicitly external workspace roots stay where they are."],
+        "rejected_outcomes": ["Move every external workspace into the managed home.", "Keep creating new defaults under the legacy directory."],
+        "evidence_refs": ["heldout:ff27a30b4ab3759213ec148ae46f0a6a6d23a12a:docs/changes/archive/refactor-513-pa-workspace-layout/motivation.md"]
+      }
+    },
+    {
+      "decision_id": "D04", "class": "V", "resolution_status": "resolved",
+      "summary": "Choose whether migration is runtime compatibility or a one-time deployment operation.",
+      "materiality": "critical", "expected_handling": "structured_escalation", "must_surface": true, "guardrail": true,
+      "oracle": {
+        "accepted_outcomes": ["Migration is a documented, one-time, fail-closed deployment procedure; terminal runtime has no legacy fallback, automatic migration or ongoing sync."],
+        "rejected_outcomes": ["Dual-read old and new roots indefinitely.", "Auto-migrate user files during normal startup."],
+        "evidence_refs": ["heldout:ff27a30b4ab3759213ec148ae46f0a6a6d23a12a:docs/changes/archive/refactor-513-pa-workspace-layout/motivation.md"]
+      }
+    },
+    {
+      "decision_id": "D05", "class": "V", "resolution_status": "resolved",
+      "summary": "Choose how existing managed and external workspaces are treated during migration.",
+      "materiality": "critical", "expected_handling": "structured_escalation", "must_surface": true, "guardrail": true,
+      "oracle": {
+        "accepted_outcomes": ["Move old managed defaults and rewrite their stored roots; keep external workspace roots fixed and move only their workspace-relative PA runtime files into .nanoassistant."],
+        "rejected_outcomes": ["Classify every matching path string globally without node ownership.", "Move the external repository itself."],
+        "evidence_refs": ["heldout:ff27a30b4ab3759213ec148ae46f0a6a6d23a12a:docs/changes/archive/refactor-513-pa-workspace-layout/motivation.md"]
+      }
+    },
+    {
+      "decision_id": "D06", "class": "V", "resolution_status": "resolved",
+      "summary": "Choose how legacy .nano extensions and policy are seeded into each product directory.",
+      "materiality": "high", "expected_handling": "structured_escalation", "must_surface": true, "guardrail": true,
+      "oracle": {
+        "accepted_outcomes": ["During the one-time migration, copy missing tools, hooks, skills and policy into the product directory without overwriting existing destinations; retain the source and do not resync."],
+        "rejected_outcomes": ["Delete the legacy source after copying.", "Overwrite product-specific files or keep a permanent mirror."],
+        "evidence_refs": ["heldout:ff27a30b4ab3759213ec148ae46f0a6a6d23a12a:docs/changes/archive/refactor-513-pa-workspace-layout/motivation.md"]
+      }
+    },
+    {
+      "decision_id": "D07", "class": "V", "resolution_status": "resolved",
+      "summary": "Choose production JWT secret migration semantics.",
+      "materiality": "critical", "expected_handling": "structured_escalation", "must_surface": true, "guardrail": true,
+      "oracle": {
+        "accepted_outcomes": ["Validate the existing non-empty secret before shutdown, copy the same bytes to the new path with 0600, verify equality and fleet health, then remove the old source; never rotate or generate during migration."],
+        "rejected_outcomes": ["Stop IM before reading the old secret.", "Overwrite a conflicting target.", "Generate a replacement key."],
+        "evidence_refs": ["heldout:ff27a30b4ab3759213ec148ae46f0a6a6d23a12a:docs/changes/archive/refactor-513-pa-workspace-layout/design-review.md"]
+      }
+    },
+    {
+      "decision_id": "D08", "class": "F", "resolution_status": "resolved",
+      "summary": "Avoid mutating repository .gitignore files while changing hidden product directories.",
+      "materiality": "medium", "expected_handling": "self_resolve_with_evidence", "must_surface": false, "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": ["Do not auto-edit .gitignore; document the new runtime directories and let repository owners choose ignore policy."],
+        "rejected_outcomes": ["Rewrite every workspace .gitignore during startup or migration."],
+        "evidence_refs": ["heldout:ff27a30b4ab3759213ec148ae46f0a6a6d23a12a:docs/changes/archive/refactor-513-pa-workspace-layout/motivation.md"]
+      }
+    },
+    {
+      "decision_id": "D09", "class": "F", "resolution_status": "resolved",
+      "summary": "Create a product-neutral workspace layout abstraction and pass product-specific roots through the public SDK.",
+      "materiality": "critical", "expected_handling": "self_resolve_with_evidence", "must_surface": false, "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": ["Core owns pure layout vocabulary; platform loads product-root extensions; SDK exposes the necessary product inputs; PA and CLI remain SDK-only consumers."],
+        "rejected_outcomes": ["Hard-code .nanoassistant in core.", "Let PA import agent.core or agent.platform."],
+        "evidence_refs": ["cutoff:d96b7c4ea5196186588443b3ae88f61955bd41e5:SPEC.md", "cutoff:d96b7c4ea5196186588443b3ae88f61955bd41e5:docs/specs/kernel/sdk-boundary.md", "cutoff:d96b7c4ea5196186588443b3ae88f61955bd41e5:src/agent/sdk/kernel.py"]
+      }
+    },
+    {
+      "decision_id": "D10", "class": "F", "resolution_status": "resolved",
+      "summary": "Make tools, hooks, auto-mode and policy use one immutable per-turn workspace execution scope.",
+      "materiality": "critical", "expected_handling": "self_resolve_with_evidence", "must_surface": false, "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": ["Each turn carries one scope containing repo root, extension registries, auto-mode config and policy overrides through HookContext and permission checks; concurrent workspaces remain isolated."],
+        "rejected_outcomes": ["Keep build-time shared extension state that can evaluate one Agent with another workspace's policy.", "Fix ordinary tool lookup but leave auto-mode or bash policy global."],
+        "evidence_refs": ["heldout:ff27a30b4ab3759213ec148ae46f0a6a6d23a12a:docs/changes/archive/refactor-513-pa-workspace-layout/design-review.md"]
+      }
+    },
+    {
+      "decision_id": "D11", "class": "F", "resolution_status": "resolved",
+      "summary": "Update IM's independently owned managed-default resolver and provenance without adding forbidden imports.",
+      "materiality": "critical", "expected_handling": "self_resolve_with_evidence", "must_surface": false, "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": ["IM independently recognizes the new managed-default layout and persists workspace_is_default while remaining separately deployed and independent of PA/agent imports."],
+        "rejected_outcomes": ["Change only Gateway and leave IM classifying the old default.", "Import PA path helpers into IM."],
+        "evidence_refs": ["cutoff:d96b7c4ea5196186588443b3ae88f61955bd41e5:src/IM/domain/models.py", "heldout:ff27a30b4ab3759213ec148ae46f0a6a6d23a12a:docs/changes/archive/refactor-513-pa-workspace-layout/design-review.md"]
+      }
+    },
+    {
+      "decision_id": "D12", "class": "F", "resolution_status": "resolved",
+      "summary": "Produce complete canonical delta specs and a migration runbook with real cross-product verification.",
+      "materiality": "critical", "expected_handling": "self_resolve_with_evidence", "must_surface": false, "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": ["Deltas cover SDK, tools/hooks, PA routing/history, Gateway lifecycle/cron, IM Agents and CLI assembly without dropping canonical scenarios; the runbook verifies online nodes, heartbeat/cron RPC and real PA/CLI paths."],
+        "rejected_outcomes": ["Modify only code paths with no durable current-spec carriers.", "Use PID existence as the only migration acceptance evidence."],
+        "evidence_refs": ["heldout:ff27a30b4ab3759213ec148ae46f0a6a6d23a12a:docs/changes/archive/refactor-513-pa-workspace-layout/design-review.md"]
+      }
+    }
+  ]
+}

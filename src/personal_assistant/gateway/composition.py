@@ -291,6 +291,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
     )
     image_resolver = ImageAttachmentResolver()
     _kernel_event_observer: Any | None = None
+    background_subscriptions: BackgroundSubscriptionManager | None = None
     cron_runtime = GatewayCronRuntime(
         registry=_cron_dispatcher,
         agent_catalog=agent_catalog,
@@ -301,6 +302,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         owner_user_id=_owner_user_id,
         run_context_store=run_delivery_contexts,
         kernel_event_observer_provider=lambda: _kernel_event_observer,
+        background_subscription_manager_provider=lambda: background_subscriptions,
     )
 
     def _send_external_reply(text: str, metadata: Mapping[str, str]) -> None:
@@ -476,6 +478,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         external_permission_request_sender=_send_external_permission_request,
         external_permission_resolved_sender=_mark_external_permission_resolved,
     )
+    skill_created_handler = getattr(im_config_sync_client, "handle_skill_created", None)
     _kernel_event_observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: im_connection_manager,
         run_context_store=run_delivery_contexts,
@@ -493,9 +496,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         ),
         external_permission_request_sender=_send_external_permission_request,
         external_permission_resolved_sender=_mark_external_permission_resolved,
-        skill_created_handler=getattr(
-            im_config_sync_client, "handle_skill_created", None
-        ),
+        skill_created_handler=skill_created_handler,
         task_tracker=runtime_delivery_tasks,
         workflow_permission_bindings=workflow_permission_bindings,
         workflow_permission_delivery=workflow_permission_delivery,
@@ -510,6 +511,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         # events published by background hooks reach IM as system/meta messages.
         base_session_event_callback = build_session_event_callback(
             im_connection_manager_factory=lambda: im_connection_manager,
+            external_reply_sender=_send_external_reply,
         )
 
     async def session_event_callback(
@@ -536,6 +538,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         kernel=kernel,
         session_event_callback=session_event_callback,
         bg_reply_sender=bg_reply_sender,
+        skill_created_handler=skill_created_handler,
     )
 
     async def _quiesce_run_delivery(run_id: str) -> None:
@@ -671,6 +674,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         agent_catalog=agent_catalog,
         kernel_event_observer=(_kernel_event_observer if _owner_user_id else None),
         cron_tick_fn=cron_runtime.tick_agent,
+        background_subscriptions=background_subscriptions,
     )
 
     if config.im_service is not None:

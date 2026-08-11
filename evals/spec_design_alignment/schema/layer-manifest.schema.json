@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nano-multiagent.local/evaluation/schema/layer-manifest.schema.json",
+  "title": "Materialized product/documentation/common layer manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "case_id",
+    "status",
+    "kind",
+    "materialized_root",
+    "source_root_ids",
+    "source_root_manifest_sha256",
+    "files",
+    "files_manifest_sha256",
+    "assertions"
+  ],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schema_version": {"const": "1.0"},
+    "case_id": {"type": "string", "pattern": "^(H|P)[0-9]{2}$"},
+    "status": {"enum": ["draft", "frozen"]},
+    "kind": {"enum": ["product_world", "documentation_world", "common_compatibility"]},
+    "materialized_root": {"$ref": "#/$defs/relativePath"},
+    "source_root_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "source_root_manifest_sha256": {"$ref": "#/$defs/hashOrPending"},
+    "files": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/file"}
+    },
+    "files_manifest_sha256": {"$ref": "#/$defs/hashOrPending"},
+    "assertions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_scrubbed",
+        "agents_projection_verified",
+        "control_assets_absent",
+        "leak_scan_passed"
+      ],
+      "properties": {
+        "source_scrubbed": {"const": true},
+        "agents_projection_verified": {"const": true},
+        "control_assets_absent": {"const": true},
+        "leak_scan_passed": {"const": true}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"status": {"const": "frozen"}},
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "source_root_manifest_sha256": {"$ref": "#/$defs/hash"},
+          "files": {
+            "items": {
+              "properties": {
+                "sha256": {"$ref": "#/$defs/hash"}
+              }
+            }
+          },
+          "files_manifest_sha256": {"$ref": "#/$defs/hash"}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+"
+    },
+    "hashOrPending": {
+      "type": "string",
+      "pattern": "^(?:pending|[a-f0-9]{64})$"
+    },
+    "hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "mode", "sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/relativePath"},
+        "mode": {"type": "string", "pattern": "^(?:100644|100755|120000)$"},
+        "sha256": {"$ref": "#/$defs/hashOrPending"}
+      }
+    }
+  }
+}

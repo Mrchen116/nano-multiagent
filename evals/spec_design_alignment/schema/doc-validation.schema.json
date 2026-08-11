@@ -1,0 +1,337 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nano-multiagent.local/evaluation/schema/doc-validation.schema.json",
+  "title": "Counterfactual documentation projection validation receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "method_id",
+    "projection_level",
+    "receipt_id",
+    "case_id",
+    "status",
+    "bindings",
+    "environment",
+    "summary",
+    "checks",
+    "executable_evidence",
+    "independent_review",
+    "unresolved_claim_ids",
+    "failed_check_ids",
+    "assertions"
+  ],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schema_version": {"const": "1.0"},
+    "method_id": {"const": "counterfactual-latest-base-v1"},
+    "projection_level": {"const": "DP1-counterfactual-latest-v1"},
+    "receipt_id": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
+    "case_id": {"type": "string", "pattern": "^(?:H|P)[0-9]{2}$"},
+    "status": {"enum": ["draft", "frozen"]},
+    "bindings": {"$ref": "#/$defs/bindings"},
+    "environment": {"$ref": "#/$defs/environment"},
+    "summary": {"$ref": "#/$defs/summary"},
+    "checks": {
+      "type": "array",
+      "minItems": 15,
+      "maxItems": 15,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/check"},
+      "allOf": [
+        {"contains": {"properties": {"check_class": {"const": "reconstruction"}}, "required": ["check_class"]}, "minContains": 1},
+        {"contains": {"properties": {"check_class": {"const": "docs_structure"}}, "required": ["check_class"]}, "minContains": 1},
+        {"contains": {"properties": {"check_class": {"const": "lifecycle_classification"}}, "required": ["check_class"]}, "minContains": 1},
+        {"contains": {"properties": {"check_class": {"const": "claim_coverage"}}, "required": ["check_class"]}, "minContains": 1},
+        {"contains": {"properties": {"check_class": {"const": "evidence_resolution"}}, "required": ["check_class"]}, "minContains": 1},
+        {"contains": {"properties": {"check_class": {"const": "baseline_tests"}}, "required": ["check_class"]}, "minContains": 1},
+        {"contains": {"properties": {"check_class": {"const": "contract_probes"}}, "required": ["check_class"]}, "minContains": 1},
+        {"contains": {"properties": {"check_class": {"const": "architecture_contracts"}}, "required": ["check_class"]}, "minContains": 1},
+        {"contains": {"properties": {"check_class": {"const": "command_smoke"}}, "required": ["check_class"]}, "minContains": 1},
+        {"contains": {"properties": {"check_class": {"const": "latest_claim_closure"}}, "required": ["check_class"]}, "minContains": 1},
+        {"contains": {"properties": {"check_class": {"const": "post_cutoff_scan"}}, "required": ["check_class"]}, "minContains": 1},
+        {"contains": {"properties": {"check_class": {"const": "target_absence"}}, "required": ["check_class"]}, "minContains": 1},
+        {"contains": {"properties": {"check_class": {"const": "clean_room_change_unit_absence"}}, "required": ["check_class"]}, "minContains": 1},
+        {"contains": {"properties": {"check_class": {"const": "arm_identity"}}, "required": ["check_class"]}, "minContains": 1},
+        {"contains": {"properties": {"check_class": {"const": "private_control_exclusion"}}, "required": ["check_class"]}, "minContains": 1}
+      ]
+    },
+    "executable_evidence": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/executableEvidence"}
+    },
+    "independent_review": {"$ref": "#/$defs/independentReview"},
+    "unresolved_claim_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._-]*$"}
+    },
+    "failed_check_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._-]*$"}
+    },
+    "assertions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "projection_reproduces_exactly",
+        "current_claims_are_baseline_bound",
+        "post_cutoff_current_claims_are_absent",
+        "workflow_docs_are_arm_bound",
+        "common_docs_are_arm_identical",
+        "private_claim_maps_are_not_exported",
+        "evidence_limits_are_preserved",
+        "independent_review_is_target_blind",
+        "active_and_retired_change_units_are_absent",
+        "completed_history_is_product_baseline_bound",
+        "source_clock_ownership_is_enforced"
+      ],
+      "properties": {
+        "projection_reproduces_exactly": {"const": true},
+        "current_claims_are_baseline_bound": {"const": true},
+        "post_cutoff_current_claims_are_absent": {"const": true},
+        "workflow_docs_are_arm_bound": {"const": true},
+        "common_docs_are_arm_identical": {"const": true},
+        "private_claim_maps_are_not_exported": {"const": true},
+        "evidence_limits_are_preserved": {"const": true},
+        "independent_review_is_target_blind": {"const": true},
+        "active_and_retired_change_units_are_absent": {"const": true},
+        "completed_history_is_product_baseline_bound": {"const": true},
+        "source_clock_ownership_is_enforced": {"const": true}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "frozen"}}, "required": ["status"]},
+      "then": {
+        "properties": {
+          "bindings": {
+            "properties": {
+              "doc_system_profile_sha256": {"$ref": "#/$defs/hash"},
+              "doc_projection_sha256": {"$ref": "#/$defs/hash"},
+              "documentation_tree_sha256": {"$ref": "#/$defs/hash"},
+              "claims_manifest_sha256": {"$ref": "#/$defs/hash"}
+            }
+          },
+          "checks": {
+            "items": {
+              "properties": {
+                "status": {"enum": ["passed", "not_applicable"]},
+                "result_evidence_sha256": {"$ref": "#/$defs/hash"}
+              }
+            }
+          },
+          "executable_evidence": {
+            "items": {
+              "properties": {
+                "status": {"const": "passed"},
+                "stdout_sha256": {"$ref": "#/$defs/hash"},
+                "stderr_sha256": {"$ref": "#/$defs/hash"},
+                "environment_sha256": {"$ref": "#/$defs/hash"}
+              }
+            }
+          },
+          "independent_review": {
+            "properties": {
+              "verdict": {"const": "approved"},
+              "review_evidence_sha256": {"$ref": "#/$defs/hash"}
+            }
+          },
+          "summary": {
+            "properties": {
+              "unresolved_claim_count": {"const": 0}
+            }
+          },
+          "unresolved_claim_ids": {"maxItems": 0},
+          "failed_check_ids": {"maxItems": 0}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+"
+    },
+    "hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "hashOrPending": {"type": "string", "pattern": "^(?:pending|[a-f0-9]{64})$"},
+    "gitHashOrPending": {"type": "string", "pattern": "^(?:pending|[a-f0-9]{40})$"},
+    "assetRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "sha256"],
+      "properties": {
+        "ref": {"$ref": "#/$defs/relativePath"},
+        "sha256": {"$ref": "#/$defs/hashOrPending"}
+      }
+    },
+    "bindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "product_commit",
+        "product_tree",
+        "clean_room_policy_id",
+        "doc_system_profile_ref",
+        "doc_system_profile_sha256",
+        "doc_projection_ref",
+        "doc_projection_sha256",
+        "documentation_tree_sha256",
+        "claims_manifest_sha256"
+      ],
+      "properties": {
+        "product_commit": {"$ref": "#/$defs/gitHashOrPending"},
+        "product_tree": {"$ref": "#/$defs/gitHashOrPending"},
+        "clean_room_policy_id": {"const": "clean-room-change-units-v1"},
+        "doc_system_profile_ref": {"$ref": "#/$defs/relativePath"},
+        "doc_system_profile_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "doc_projection_ref": {"$ref": "#/$defs/relativePath"},
+        "doc_projection_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "documentation_tree_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "claims_manifest_sha256": {"$ref": "#/$defs/hashOrPending"}
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runner_image_digest", "platform", "case_sensitive_filesystem", "validator_component", "tool_manifest"],
+      "properties": {
+        "runner_image_digest": {"type": "string", "pattern": "^(?:pending|sha256:[a-f0-9]{64})$"},
+        "platform": {"type": "string", "minLength": 1},
+        "case_sensitive_filesystem": {"const": true},
+        "validator_component": {"$ref": "#/$defs/assetRef"},
+        "tool_manifest": {"$ref": "#/$defs/assetRef"}
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "baseline_document_path_count",
+        "classified_path_count",
+        "output_file_count",
+        "current_claim_count",
+        "directly_exercised_claim_count",
+        "code_or_review_only_claim_count",
+        "unresolved_claim_count",
+        "latest_claim_resolution_count",
+        "dropped_clean_room_path_count",
+        "preserved_completed_history_path_count"
+      ],
+      "properties": {
+        "baseline_document_path_count": {"type": "integer", "minimum": 0},
+        "classified_path_count": {"type": "integer", "minimum": 0},
+        "output_file_count": {"type": "integer", "minimum": 0},
+        "current_claim_count": {"type": "integer", "minimum": 0},
+        "directly_exercised_claim_count": {"type": "integer", "minimum": 0},
+        "code_or_review_only_claim_count": {"type": "integer", "minimum": 0},
+        "unresolved_claim_count": {"type": "integer", "minimum": 0},
+        "latest_claim_resolution_count": {"type": "integer", "minimum": 0},
+        "dropped_clean_room_path_count": {"type": "integer", "minimum": 0},
+        "preserved_completed_history_path_count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["check_id", "check_class", "applicability", "status", "subject", "command_ref", "result_evidence_sha256", "notes"],
+      "properties": {
+        "check_id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._-]*$"},
+        "check_class": {
+          "enum": [
+            "reconstruction",
+            "docs_structure",
+            "lifecycle_classification",
+            "claim_coverage",
+            "evidence_resolution",
+            "baseline_tests",
+            "contract_probes",
+            "architecture_contracts",
+            "command_smoke",
+            "latest_claim_closure",
+            "post_cutoff_scan",
+            "target_absence",
+            "clean_room_change_unit_absence",
+            "arm_identity",
+            "private_control_exclusion"
+          ]
+        },
+        "applicability": {"enum": ["required", "not_applicable"]},
+        "status": {"enum": ["pending", "passed", "failed", "not_applicable"]},
+        "subject": {"type": "string", "minLength": 1},
+        "command_ref": {"type": ["string", "null"], "minLength": 1},
+        "result_evidence_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "notes": {"type": "string"}
+      }
+    },
+    "executableEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_id",
+        "check_id",
+        "scope",
+        "command",
+        "exit_code",
+        "status",
+        "stdout_sha256",
+        "stderr_sha256",
+        "environment_ref",
+        "environment_sha256",
+        "evidence_limit"
+      ],
+      "properties": {
+        "evidence_id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._-]*$"},
+        "check_id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._-]*$"},
+        "scope": {"type": "string", "minLength": 1},
+        "command": {"type": "string", "minLength": 1},
+        "exit_code": {"type": ["integer", "string"], "pattern": "^pending$"},
+        "status": {"enum": ["pending", "passed", "failed"]},
+        "stdout_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "stderr_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "environment_ref": {"$ref": "#/$defs/relativePath"},
+        "environment_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "evidence_limit": {"type": "string", "minLength": 1}
+      }
+    },
+    "independentReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reviewer_id",
+        "inputs_allowlist",
+        "blinded_from",
+        "verdict",
+        "review_evidence_ref",
+        "review_evidence_sha256",
+        "reviewed_at"
+      ],
+      "properties": {
+        "reviewer_id": {"type": "string", "minLength": 1},
+        "inputs_allowlist": {
+          "type": "array",
+          "minItems": 3,
+          "uniqueItems": true,
+          "items": {"enum": ["product_tree", "doc_system_profile", "doc_projection", "validation_evidence"]}
+        },
+        "blinded_from": {
+          "type": "array",
+          "minItems": 6,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["case_title", "public_brief", "target_name", "authority_map", "heldout_target", "decision_inventory", "rubric", "user_profile", "arm_outputs"]
+          }
+        },
+        "verdict": {"enum": ["pending", "approved", "changes_required", "insufficient_evidence"]},
+        "review_evidence_ref": {"$ref": "#/$defs/relativePath"},
+        "review_evidence_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "reviewed_at": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

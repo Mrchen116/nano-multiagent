@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable, Mapping
+import inspect
 import logging
 from typing import Any
 from uuid import uuid4
@@ -24,20 +25,40 @@ def _metadata_text(metadata: Mapping[str, Any], *, key: str) -> str | None:
     return None
 
 
+async def _invoke_external_reply_sender(
+    sender: Callable[[str, Mapping[str, str]], Any],
+    text: str,
+    metadata: Mapping[str, str],
+) -> None:
+    """Call a channel sender without blocking the Gateway event loop.
+
+    Composition supplies a synchronous OutboundRouter sender, while tests and
+    alternate channel integrations may return an awaitable. Calling the sender in a
+    worker thread preserves the synchronous path's retry behavior; awaiting a returned
+    awaitable on this loop preserves the asynchronous contract.
+    """
+    result = await asyncio.to_thread(sender, text, metadata)
+    if inspect.isawaitable(result):
+        await result
+
+
 def build_session_event_callback(
     *,
     im_connection_manager_factory: Callable[[], "IMConnectionManager | None"],
+    external_reply_sender: Callable[[str, Mapping[str, str]], Any] | None = None,
     delivery_incarnation: str | None = None,
 ) -> Callable[[ReplyContext, str, str, Mapping[str, Any]], Awaitable[None]]:
-    """Build a session event callback that sends self_evolution_review as IM system messages.
+    """Build delivery for truthful self-evolution update receipts.
 
     When the background hook publishes ``self_evolution_review`` after a turn, this
     callback is invoked with the kernel_session_id and the raw event payload.  It
-    resolves the conversation_id via the session binding store and sends a
-    ``node.system_message`` frame to IM so users see a non-first-person notification.
+    sends a ``node.system_message`` frame to shadow IM and, for an external trigger,
+    a plain-text receipt through the existing outbound router.
 
     Args:
         im_connection_manager_factory: Returns the live IM connection manager (may be None).
+        external_reply_sender: Existing ordinary-message sender used only when the
+            event-specific reply context originated from an external channel.
         delivery_incarnation: Optional process-local identity used by deterministic tests.
     Returns:
         Async callable ``(reply_context, agent_id, kernel_session_id, event) -> None``.
@@ -55,27 +76,15 @@ def build_session_event_callback(
         if event_name != "self_evolution_review":
             return
 
-        conversation_id = reply_context_im_conversation_id(reply_context)
-        if not conversation_id:
+        raw_targets = event.get("updated_targets")
+        if not isinstance(raw_targets, (list, tuple)):
             return
-
-        # Format a human-readable system notification matching the CLI style.
-        # The SSE event dict is flat: the hook's payload fields (reviewed_skills,
-        # reviewed_memory) are merged to the top level by the kernel stream, not
-        # nested under "data".  Reading event["data"] here always missed them and
-        # degraded every notification to the generic "self-evolution" subject.
-        reviewed_skills: bool = bool(event.get("reviewed_skills", False))
-        reviewed_memory: bool = bool(event.get("reviewed_memory", False))
         updated_targets = [
-            target
-            for target, reviewed in (
-                ("skills", reviewed_skills),
-                ("memory", reviewed_memory),
-            )
-            if reviewed
+            target for target in ("skills", "memory") if target in raw_targets
         ]
         if not updated_targets:
             return
+        conversation_id = reply_context_im_conversation_id(reply_context)
         raw_sequence = event.get("_id") or event.get("sequence_num")
         if (
             not isinstance(raw_sequence, int)
@@ -90,6 +99,11 @@ def build_session_event_callback(
                 kernel_session_id,
             )
             return
+        identity = (
+            f"self-evolution-review:{incarnation}:{kernel_session_id}:{raw_sequence}"
+        )
+        reviewed_skills = "skills" in updated_targets
+        reviewed_memory = "memory" in updated_targets
         if reviewed_skills and reviewed_memory:
             subject = "skills + memory"
         elif reviewed_skills:
@@ -98,6 +112,30 @@ def build_session_event_callback(
             subject = "memory"
         text = f"· background self-evolution review: {subject} updated"
 
+        external_metadata = reply_context_external_delivery_metadata(
+            reply_context,
+            from_session_id=identity,
+        )
+        if external_metadata is not None and external_reply_sender is not None:
+            try:
+                await _invoke_external_reply_sender(
+                    external_reply_sender,
+                    text,
+                    external_metadata,
+                )
+            except Exception as exc:  # noqa: BLE001
+                _log.warning(
+                    "self-evolution notice external delivery failed "
+                    "(channel=%s target=%s kernel_session_id=%s sequence=%s): %s",
+                    external_metadata.get("channel_name", ""),
+                    external_metadata.get("target_chat_id", ""),
+                    kernel_session_id,
+                    raw_sequence,
+                    exc,
+                )
+
+        if not conversation_id:
+            return
         manager = im_connection_manager_factory()
         if manager is None:
             _log.warning(
@@ -123,10 +161,7 @@ def build_session_event_callback(
                 "node.system_message",
                 {
                     "conversation_id": conversation_id,
-                    "idempotency_key": (
-                        "self-evolution-review:"
-                        f"{incarnation}:{kernel_session_id}:{raw_sequence}"
-                    ),
+                    "idempotency_key": identity,
                     "text": text,
                     "system_notice": {
                         "kind": "self_evolution_review",
@@ -197,9 +232,11 @@ def build_bg_reply_sender(
             and external_reply_sender is not None
         ):
             try:
-                result = external_reply_sender(cleaned_text, external_metadata)
-                if asyncio.iscoroutine(result):
-                    await result
+                await _invoke_external_reply_sender(
+                    external_reply_sender,
+                    cleaned_text,
+                    external_metadata,
+                )
             except Exception as exc:  # noqa: BLE001
                 _log.warning(
                     "visible text external delivery failed (channel=%s target=%s): %s",

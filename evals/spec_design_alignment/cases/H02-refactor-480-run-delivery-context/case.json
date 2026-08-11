@@ -1,0 +1,119 @@
+{
+  "$schema": "../../schema/case.schema.json",
+  "schema_version": "1.0",
+  "case_id": "H02",
+  "title": "Repository-wide architecture portfolio",
+  "stratum": "historical_regression",
+  "status": "draft",
+  "origin": {
+    "kind": "historical_unit",
+    "reference": "architecture-review-20260725-portfolio",
+    "cutoff_policy": "before_first_target_trace"
+  },
+  "brief_ref": "public/brief.md",
+  "artifact_contract": "portfolio",
+  "terminal_mode": "owner_review_ready_package",
+  "source_root_ids": [
+    "nano-h02-efe2ffd0",
+    "claude-code-h02-0991eac5"
+  ],
+  "clocks": {
+    "product": {
+      "mode": "historical_pre_target",
+      "ref": "audit/provenance.md#product-clock"
+    },
+    "knowledge": {
+      "mode": "historical_cutoff",
+      "ref": "audit/provenance.md#knowledge-clock"
+    },
+    "workflow": {
+      "mode": "current_frozen",
+      "ref": "audit/provenance.md#workflow-clock"
+    },
+    "user": {
+      "mode": "current_cross_fitted",
+      "ref": "audit/provenance.md#user-clock"
+    },
+    "model_tool": {
+      "mode": "current_frozen",
+      "ref": "audit/provenance.md#modeltool-clock"
+    }
+  },
+  "layers": {
+    "historical_world": {
+      "manifest_ref": "runtime/H02/manifests/historical-world.json",
+      "sha256": "pending"
+    },
+    "common_compatibility": {
+      "manifest_ref": "runtime/H02/manifests/common-compatibility.json",
+      "sha256": "pending"
+    },
+    "arm_bundle": {
+      "manifest_ref": "runtime/H02/manifests/treatment.json",
+      "sha256": "pending"
+    },
+    "private_judge": "judge-private"
+  },
+  "owner_answer_policy": {
+    "manifest_ref": "runtime/H02/private/owner-answer-policy.json",
+    "sha256": "pending"
+  },
+  "arms": {
+    "A": {
+      "workflow": "current_spec_design_skills",
+      "user_profile": "none",
+      "bundle_ref": "runtime/H02/manifests/treatment.json#/arms/A"
+    },
+    "A_USER": {
+      "workflow": "current_spec_design_skills",
+      "user_profile": "current_cross_fitted",
+      "bundle_ref": "runtime/H02/manifests/treatment.json#/arms/A_USER"
+    },
+    "B": {
+      "workflow": "spec_design_agent_team",
+      "user_profile": "current_cross_fitted",
+      "bundle_ref": "runtime/H02/manifests/treatment.json#/arms/B"
+    }
+  },
+  "normalization": {
+    "level": "N0",
+    "task_blind": true,
+    "authority_map_ref": "knowledge/authority-map.json"
+  },
+  "contamination": {
+    "level": "C1",
+    "lineage_ref": "audit/provenance.md#lineage-audit",
+    "oracle_lineage": "historical_target_derived_private",
+    "notes": "The original repository-wide architecture request is intentionally candidate-visible input, not a leak. The clean product tree predates the historical portfolio output. The runner removes the entire feat-397 unit and every loadable spec/design author/reviewer skill path before injecting exactly one frozen arm bundle; historical portfolio artifacts remain private."
+  },
+  "treatment_authoring": {
+    "status": "historical_posthoc",
+    "clean_holdout_eligible": false,
+    "evidence_ref": "audit/provenance.md#lineage-audit"
+  },
+  "sensitivity": {
+    "raw_vs_normalized": false
+  },
+  "contract_assets": {
+    "case": "case.json",
+    "brief": "public/brief.md",
+    "authority_map": "knowledge/authority-map.json",
+    "decision_inventory": "judge-private/decision-inventory.json",
+    "rubric": "judge-private/rubric.md",
+    "provenance": "audit/provenance.md",
+    "leak_signatures": "audit/leak-signatures.txt"
+  },
+  "restrictions": {
+    "network": false,
+    "real_push": false,
+    "host_memory": false,
+    "parent_repo_access": false,
+    "candidate_export_excludes": [
+      "case.json",
+      "knowledge",
+      "judge-private",
+      "audit"
+    ]
+  },
+  "notes": "Each arm terminates by freezing its own complete, answerable owner-review-ready portfolio package, not by claiming Gate 2 or owner approval. D06 may remain unanswered at that terminal state; every selection-dependent implementation or final commitment stays pending, and an activated D11 leaves only its affected branch conditional or pending. The historical eight-unit portfolio is private calibration evidence, never a required hit list: a differently sized, evidence-grounded set of equally important and independently actionable architecture units can receive full credit."
+}

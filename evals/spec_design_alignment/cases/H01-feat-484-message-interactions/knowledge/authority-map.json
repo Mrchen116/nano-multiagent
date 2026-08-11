@@ -1,0 +1,155 @@
+{
+  "$schema": "../../../schema/authority-map.schema.json",
+  "schema_version": "1.0",
+  "case_id": "H01",
+  "status": "draft",
+  "normalization": {
+    "level": "N0",
+    "task_blind": true,
+    "semantic_additions": false,
+    "normalizer_ref": "audit/provenance.md#normalizer"
+  },
+  "provenance_ref": "audit/provenance.md",
+  "authorities": [
+    {
+      "authority_id": "repo.architecture",
+      "logical_role": "architecture",
+      "exposed_path": "SPEC.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "088b2f8b1b5327745d2f489ad131015904d5ae0d",
+        "path": "SPEC.md",
+        "sha256": "5e813bb2cb59cd5cc4e302220a9ed73e03a3f068bd0c8332b789c7da5e0fe139"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "im.product-contract",
+      "logical_role": "product_contract",
+      "exposed_path": "docs/specs/im/spec.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "088b2f8b1b5327745d2f489ad131015904d5ae0d",
+        "path": "docs/specs/im/spec.md",
+        "sha256": "38b140dfa1aa361a0951d35a992c3dd8f923ee4610c7e53d8e0a7267177fde10"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "im.web-chat-contract",
+      "logical_role": "product_contract",
+      "exposed_path": "docs/specs/im/web-chat-ux.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "088b2f8b1b5327745d2f489ad131015904d5ae0d",
+        "path": "docs/specs/im/web-chat-ux.md",
+        "sha256": "e19f3368f13cb82621ecc67c0917f80fdd5698bc7250a90e03f267b8b335ff89"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "docs.spec-writing-alias",
+      "logical_role": "development",
+      "exposed_path": "docs/specs/CONTRIBUTING.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "088b2f8b1b5327745d2f489ad131015904d5ae0d",
+        "path": "docs/SPEC_GUIDE.md",
+        "sha256": "b30734df904cf8e03132b5c4799fea6648d96a1bbca7781a716275b4bc41a94f"
+      },
+      "transform": "route_only",
+      "semantic_delta": false,
+      "notes": "The task-blind epoch normalizer generates this alias to the unchanged cutoff document."
+    },
+    {
+      "authority_id": "docs.change-index-alias",
+      "logical_role": "development",
+      "exposed_path": "docs/changes/readme.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "088b2f8b1b5327745d2f489ad131015904d5ae0d",
+        "path": "docs/changes/readme.md",
+        "sha256": "3a1b35351e52707abe2a8c433f8727e541a58132f14acd473f74e6e1d52eb2b1"
+      },
+      "transform": "copy",
+      "semantic_delta": false,
+      "notes": "The cutoff file remains at its original lowercase path; no case-fold-colliding alias is materialized."
+    },
+    {
+      "authority_id": "im.message-pane",
+      "logical_role": "architecture",
+      "exposed_path": "src/IM/frontend/src/features/chat/components/message-pane.tsx",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "088b2f8b1b5327745d2f489ad131015904d5ae0d",
+        "path": "src/IM/frontend/src/features/chat/components/message-pane.tsx",
+        "sha256": "59c5751ff49589dce7a328ac31f8fe8710d03c309260514c9c08ad15ce8130a1"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "im.chat-styles",
+      "logical_role": "architecture",
+      "exposed_path": "src/IM/frontend/src/styles/global.css",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "088b2f8b1b5327745d2f489ad131015904d5ae0d",
+        "path": "src/IM/frontend/src/styles/global.css",
+        "sha256": "e42db6eceb284dc645e06a021f8e27a50da34791fb5e62c85cfdd5fa53ee3221"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "im.message-pane-tests",
+      "logical_role": "development",
+      "exposed_path": "src/IM/frontend/src/features/chat/components/message-pane.test.tsx",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "088b2f8b1b5327745d2f489ad131015904d5ae0d",
+        "path": "src/IM/frontend/src/features/chat/components/message-pane.test.tsx",
+        "sha256": "be493261a122fd498870ad03241d1b126229850bf2a8ff876a0433f8011cf38a"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "im.product-principles",
+      "logical_role": "product_contract",
+      "exposed_path": "__absent__/web-im-product-principles",
+      "availability": "absent_at_cutoff",
+      "source": {
+        "kind": "none",
+        "cutoff_ref": "088b2f8b1b5327745d2f489ad131015904d5ae0d"
+      },
+      "transform": "absent_marker",
+      "semantic_delta": false,
+      "notes": "The later product-principles document must not be backfilled."
+    },
+    {
+      "authority_id": "brief.original-screenshot",
+      "logical_role": "other",
+      "exposed_path": "__absent__/original-screenshot",
+      "availability": "absent_at_cutoff",
+      "source": {
+        "kind": "none",
+        "cutoff_ref": "088b2f8b1b5327745d2f489ad131015904d5ae0d"
+      },
+      "transform": "absent_marker",
+      "semantic_delta": false,
+      "notes": "The temporary screenshot path recorded with the request no longer resolves; no substitute image is synthesized."
+    }
+  ]
+}

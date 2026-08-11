@@ -370,11 +370,13 @@ class CronRunTerminalConsumer:
         owner_user_id: str,
         run_context_store: RunDeliveryContextStore,
         observer: Callable[..., Any] | None = None,
+        background_subscriptions: Any | None = None,
     ) -> None:
         self._kernel = kernel
         self._owner_user_id = owner_user_id
         self._run_context_store = run_context_store
         self._observer = observer
+        self._background_subscriptions = background_subscriptions
 
     async def consume(
         self, *, run_id: str, kernel_session_id: str, agent_id: str
@@ -389,6 +391,7 @@ class CronRunTerminalConsumer:
             kernel=self._kernel,
             run_context_store=self._run_context_store,
             observer=self._observer,
+            background_subscriptions=self._background_subscriptions,
         )
 
 

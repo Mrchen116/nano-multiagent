@@ -1,0 +1,266 @@
+{
+  "$schema": "../../../schema/authority-map.schema.json",
+  "schema_version": "1.0",
+  "case_id": "P02",
+  "status": "draft",
+  "normalization": {
+    "level": "N0",
+    "task_blind": true,
+    "semantic_additions": false,
+    "normalizer_ref": "audit/provenance.md#normalizer"
+  },
+  "provenance_ref": "audit/provenance.md",
+  "authorities": [
+    {
+      "authority_id": "P02-A01",
+      "logical_role": "product_contract",
+      "exposed_path": "src/IM/frontend/src/features/settings/agents/agent-detail-page.tsx",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "25dc9c818400ab66c99650316610b73ca5d2060f",
+        "path": "src/IM/frontend/src/features/settings/agents/agent-detail-page.tsx"
+      },
+      "transform": "route_only",
+      "semantic_delta": false,
+      "notes": "Lines 1244-1273 and 1390-1607 show config as the default section, a 30-second detail query, explicit loading/error shells, five tabs, and placeholder overview/sessions content. They do not choose a runtime-center IA."
+    },
+    {
+      "authority_id": "P02-A02",
+      "logical_role": "development",
+      "exposed_path": "src/IM/frontend/src/features/settings/agents/agent-detail-page.test.tsx",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "25dc9c818400ab66c99650316610b73ca5d2060f",
+        "path": "src/IM/frontend/src/features/settings/agents/agent-detail-page.test.tsx"
+      },
+      "transform": "route_only",
+      "semantic_delta": false,
+      "notes": "Lines 184-206 execute the current overview placeholder and the existing sessions tab; they do not cover any activity view."
+    },
+    {
+      "authority_id": "P02-A03",
+      "logical_role": "architecture",
+      "exposed_path": "src/IM/frontend/src/features/settings/agents/im-agent-config-api.ts",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "25dc9c818400ab66c99650316610b73ca5d2060f",
+        "path": "src/IM/frontend/src/features/settings/agents/im-agent-config-api.ts"
+      },
+      "transform": "route_only",
+      "semantic_delta": false,
+      "notes": "Lines 163-167 define AgentDetailState as config, capabilities, and owningNode only; this is not an activity or execution projection."
+    },
+    {
+      "authority_id": "P02-A04",
+      "logical_role": "architecture",
+      "exposed_path": "src/IM/frontend/src/features/settings/agents/agent-status-ws-consumer.ts",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "25dc9c818400ab66c99650316610b73ca5d2060f",
+        "path": "src/IM/frontend/src/features/settings/agents/agent-status-ws-consumer.ts"
+      },
+      "transform": "route_only",
+      "semantic_delta": false,
+      "notes": "Lines 16-82 patch Agent online/offline status, invalidate channel queries, and recover Agent-list queries; they do not consume run or background-task lifecycle events."
+    },
+    {
+      "authority_id": "P02-A05",
+      "logical_role": "architecture",
+      "exposed_path": "src/agent/core/runs/origin.py",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "25dc9c818400ab66c99650316610b73ca5d2060f",
+        "path": "src/agent/core/runs/origin.py"
+      },
+      "transform": "route_only",
+      "semantic_delta": false,
+      "notes": "Lines 6-14 define user, background_task, heartbeat, and cron as current RunOrigin values; this is a useful normalization seed, not a UI contract."
+    },
+    {
+      "authority_id": "P02-A06",
+      "logical_role": "architecture",
+      "exposed_path": "src/agent/core/runs/registry.py",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "25dc9c818400ab66c99650316610b73ca5d2060f",
+        "path": "src/agent/core/runs/registry.py"
+      },
+      "transform": "route_only",
+      "semantic_delta": false,
+      "notes": "Lines 43-85 define queued/running/completed/failed/cancelled RunStatus and RunRecord identity, time, output/error, origin, source task, workspace, and stream sequence fields; they do not make records centrally queryable by IM."
+    },
+    {
+      "authority_id": "P02-A07",
+      "logical_role": "architecture",
+      "exposed_path": "src/agent/core/background_tasks/models.py",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "25dc9c818400ab66c99650316610b73ca5d2060f",
+        "path": "src/agent/core/background_tasks/models.py"
+      },
+      "transform": "route_only",
+      "semantic_delta": false,
+      "notes": "Lines 10-59 define a separate queued/running/completed/failed/killed lifecycle plus parent session, Agent, result/error, timing, and workspace fields; they do not establish a common activity model."
+    },
+    {
+      "authority_id": "P02-A08",
+      "logical_role": "product_contract",
+      "exposed_path": "docs/specs/gateway/heartbeat-cron.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "25dc9c818400ab66c99650316610b73ca5d2060f",
+        "path": "docs/specs/gateway/heartbeat-cron.md"
+      },
+      "transform": "route_only",
+      "semantic_delta": false,
+      "notes": "Lines 14-41 distinguish heartbeat and cron, require cron trigger/status/time/result-or-error history, and define missed-run behavior; they do not prescribe a unified Agent-detail feed."
+    },
+    {
+      "authority_id": "P02-A09",
+      "logical_role": "product_contract",
+      "exposed_path": "docs/specs/kernel/runs.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "25dc9c818400ab66c99650316610b73ca5d2060f",
+        "path": "docs/specs/kernel/runs.md"
+      },
+      "transform": "route_only",
+      "semantic_delta": false,
+      "notes": "Lines 191-240 define interrupt/cancel behavior, idempotency, permission-wait cancellation, liveness during quiet/LLM/tool/permission windows, and close semantics; they do not authorize a Web IM action matrix or a stuck timeout."
+    },
+    {
+      "authority_id": "P02-A10",
+      "logical_role": "architecture",
+      "exposed_path": "src/IM/domain/models.py",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "25dc9c818400ab66c99650316610b73ca5d2060f",
+        "path": "src/IM/domain/models.py"
+      },
+      "transform": "route_only",
+      "semantic_delta": false,
+      "notes": "Lines 206-228 show ToolCall persists raw input, output, reason, and detail under a message; those fields may contain more data than a safe activity summary should expose."
+    },
+    {
+      "authority_id": "P02-A11",
+      "logical_role": "architecture",
+      "exposed_path": "src/IM/api/routes/messages.py",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "25dc9c818400ab66c99650316610b73ca5d2060f",
+        "path": "src/IM/api/routes/messages.py"
+      },
+      "transform": "route_only",
+      "semantic_delta": false,
+      "notes": "Lines 89-108 expose ToolCall input/output/reason/detail in message history payloads; this proves available raw fields, not permission to reuse them in a broader activity surface."
+    },
+    {
+      "authority_id": "P02-A12",
+      "logical_role": "product_contract",
+      "exposed_path": "docs/specs/im/tool-timeline.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "25dc9c818400ab66c99650316610b73ca5d2060f",
+        "path": "docs/specs/im/tool-timeline.md"
+      },
+      "transform": "route_only",
+      "semantic_delta": false,
+      "notes": "Lines 43-75 require informative human summaries, real tool names, failure visibility, and separation of parameter versus result timing in chat; they do not define cross-context activity redaction."
+    },
+    {
+      "authority_id": "P02-A13",
+      "logical_role": "product_contract",
+      "exposed_path": "docs/specs/im/agents-nodes.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "25dc9c818400ab66c99650316610b73ca5d2060f",
+        "path": "docs/specs/im/agents-nodes.md"
+      },
+      "transform": "route_only",
+      "semantic_delta": false,
+      "notes": "Lines 161-179 require persistent desktop Agent navigation, local loading/error/retry, and a mobile single-column flow; they do not choose activity density or drill-down."
+    },
+    {
+      "authority_id": "P02-A14",
+      "logical_role": "product_contract",
+      "exposed_path": "docs/specs/im/agents-nodes.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "25dc9c818400ab66c99650316610b73ca5d2060f",
+        "path": "docs/specs/im/agents-nodes.md"
+      },
+      "transform": "route_only",
+      "semantic_delta": false,
+      "notes": "Lines 222-240 make browser event streaming JWT-authenticated, owner-scoped, replayable, and recoverable after resync; they do not specify which activity events should exist."
+    },
+    {
+      "authority_id": "P02-A15",
+      "logical_role": "development",
+      "exposed_path": "tests/contract/test_kernel_sdk_behavior_contract.py",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "25dc9c818400ab66c99650316610b73ca5d2060f",
+        "path": "tests/contract/test_kernel_sdk_behavior_contract.py"
+      },
+      "transform": "route_only",
+      "semantic_delta": false,
+      "notes": "Lines 144-179 execute idempotent cancellation of a running Kernel run; they do not prove every proposed activity type can be stopped."
+    },
+    {
+      "authority_id": "P02-A16",
+      "logical_role": "development",
+      "exposed_path": "tests/unit/agent/background_tasks/test_background_tasks.py",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "25dc9c818400ab66c99650316610b73ca5d2060f",
+        "path": "tests/unit/agent/background_tasks/test_background_tasks.py"
+      },
+      "transform": "route_only",
+      "semantic_delta": false,
+      "notes": "Lines 75-154 and 215-255 execute background-task transition, partial-result, kill, and terminal-idempotency behavior; they do not imply UI retry/resume semantics."
+    },
+    {
+      "authority_id": "P02-A17",
+      "logical_role": "development",
+      "exposed_path": "tests/im_service/integration/test_status_broadcast_e2e.py",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "25dc9c818400ab66c99650316610b73ca5d2060f",
+        "path": "tests/im_service/integration/test_status_broadcast_e2e.py"
+      },
+      "transform": "route_only",
+      "semantic_delta": false,
+      "notes": "Lines 115-155 execute cross-owner isolation for user-stream events; activity delivery must preserve the same tenancy boundary."
+    },
+    {
+      "authority_id": "P02-A18",
+      "logical_role": "other",
+      "exposed_path": "__absent__/agent-runtime-center",
+      "availability": "absent_at_cutoff",
+      "source": {
+        "kind": "none",
+        "cutoff_ref": "25dc9c818400ab66c99650316610b73ca5d2060f"
+      },
+      "transform": "absent_marker",
+      "semantic_delta": false,
+      "notes": "Runner absence selector: search the exported candidate tree under the Agent-detail frontend, IM API/application, current IM/Gateway specs, and their tests for a unified runtime-center capability. The sentinel is control-plane metadata, not a candidate file or solution hint; no committed capability was found, and the absence does not select an architecture."
+    }
+  ]
+}

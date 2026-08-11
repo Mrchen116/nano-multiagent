@@ -1,0 +1,128 @@
+{
+  "$schema": "../../schema/case.schema.json",
+  "schema_version": "1.0",
+  "case_id": "P99",
+  "title": "Answer-free template case",
+  "stratum": "prospective_holdout",
+  "status": "draft",
+  "origin": {
+    "kind": "prospective_brief",
+    "reference": "public/brief.md",
+    "cutoff_policy": "sealed_at_brief_freeze"
+  },
+  "brief_ref": "public/brief.md",
+  "artifact_contract": "single_unit",
+  "terminal_mode": "gate2_complete",
+  "source_root_ids": [
+    "nano-p99"
+  ],
+  "clocks": {
+    "product": {
+      "mode": "prospective_sealed",
+      "ref": "audit/provenance.md#product-clock"
+    },
+    "knowledge": {
+      "mode": "prospective_sealed",
+      "ref": "audit/provenance.md#knowledge-clock"
+    },
+    "documentation": {
+      "mode": "suite_frozen_latest",
+      "ref": "audit/provenance.md#documentation-clock"
+    },
+    "workflow": {
+      "mode": "current_frozen",
+      "ref": "audit/provenance.md#workflow-clock"
+    },
+    "user": {
+      "mode": "current_cross_fitted",
+      "ref": "audit/provenance.md#user-clock"
+    },
+    "model_tool": {
+      "mode": "current_frozen",
+      "ref": "audit/provenance.md#modeltool-clock"
+    }
+  },
+  "layers": {
+    "product_world": {
+      "manifest_ref": "runtime/P99/manifests/product-world.json",
+      "sha256": "pending"
+    },
+    "documentation_world": {
+      "manifest_ref": "runtime/P99/manifests/documentation-world.json",
+      "sha256": "pending"
+    },
+    "common_compatibility": {
+      "manifest_ref": "runtime/P99/manifests/common-compatibility.json",
+      "sha256": "pending"
+    },
+    "arm_bundle": {
+      "manifest_ref": "runtime/P99/manifests/treatment.json",
+      "sha256": "pending"
+    },
+    "private_controls": "judge-private"
+  },
+  "owner_answer_policy": {
+    "manifest_ref": "runtime/P99/private/owner-answer-policy.json",
+    "sha256": "pending"
+  },
+  "arms": {
+    "A": {
+      "workflow": "current_spec_design_skills",
+      "user_profile": "none",
+      "bundle_ref": "runtime/P99/manifests/treatment.json#/arms/A"
+    },
+    "A_USER": {
+      "workflow": "current_spec_design_skills",
+      "user_profile": "current_cross_fitted",
+      "bundle_ref": "runtime/P99/manifests/treatment.json#/arms/A_USER"
+    },
+    "B": {
+      "workflow": "spec_design_agent_team",
+      "user_profile": "current_cross_fitted",
+      "bundle_ref": "runtime/P99/manifests/treatment.json#/arms/B"
+    }
+  },
+  "normalization": {
+    "level": "N0",
+    "task_blind": true,
+    "authority_map_ref": "knowledge/authority-map.json"
+  },
+  "contamination": {
+    "level": "C0",
+    "lineage_ref": "audit/provenance.md#lineage-audit",
+    "oracle_lineage": "prospective_pre_output"
+  },
+  "treatment_authoring": {
+    "status": "post_treatment_freeze_blind",
+    "clean_holdout_eligible": true,
+    "evidence_ref": "audit/provenance.md#lineage-audit",
+    "authoring_freeze_sha256": "pending",
+    "case_authored_at": "pending",
+    "case_authored_commit": "pending",
+    "authored_assets_manifest_sha256": "pending"
+  },
+  "sensitivity": {
+    "raw_vs_dp1": false
+  },
+  "contract_assets": {
+    "case": "case.json",
+    "brief": "public/brief.md",
+    "authority_map": "knowledge/authority-map.json",
+    "decision_inventory": "judge-private/decision-inventory.json",
+    "rubric": "judge-private/rubric.md",
+    "provenance": "audit/provenance.md",
+    "leak_signatures": "audit/leak-signatures.txt"
+  },
+  "restrictions": {
+    "network": false,
+    "real_push": false,
+    "host_memory": false,
+    "parent_repo_access": false,
+    "candidate_export_excludes": [
+      "case.json",
+      "knowledge",
+      "judge-private",
+      "audit"
+    ]
+  }
+}

@@ -169,6 +169,7 @@ class ControlledKernel:
         session_id: str,
         parts: list[dict[str, Any]],
         steer: bool = False,
+        trace_id: str | None = None,
         **_kwargs: Any,
     ) -> SimpleNamespace:
         if steer:
@@ -194,6 +195,7 @@ class ControlledKernel:
                 "steer": False,
                 "run_id": run_id,
                 "origin": _kwargs.get("origin"),
+                "trace_id": trace_id,
             }
         )
         self._latest_run_by_session[session_id] = run_id

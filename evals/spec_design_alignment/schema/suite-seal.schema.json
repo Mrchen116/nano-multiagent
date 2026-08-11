@@ -1,0 +1,212 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nano-multiagent.local/evaluation/schema/suite-seal.schema.json",
+  "title": "Immutable evaluation suite and run-plan seal",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "suite_id",
+    "status",
+    "sealed_at",
+    "protocol",
+    "validator",
+    "schemas_manifest_sha256",
+    "source_root_manifest",
+    "treatment_lock",
+    "base_repository",
+    "case_assets",
+    "run_plan",
+    "control_components",
+    "run_ledger_schema"
+  ],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schema_version": {"const": "1.0"},
+    "suite_id": {"const": "feat397-spec-design-eval-v1"},
+    "status": {"enum": ["draft", "frozen"]},
+    "sealed_at": {"type": "string", "minLength": 1},
+    "protocol": {"$ref": "#/$defs/assetRef"},
+    "validator": {"$ref": "#/$defs/assetRef"},
+    "schemas_manifest_sha256": {"$ref": "#/$defs/hashOrPending"},
+    "source_root_manifest": {"$ref": "#/$defs/assetRef"},
+    "treatment_lock": {"$ref": "#/$defs/assetRef"},
+    "base_repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "projection",
+        "clean_policy",
+        "recipe_registry_manifest_sha256",
+        "materialized_arm",
+        "arm_readiness"
+      ],
+      "properties": {
+        "method": {"const": "counterfactual-latest-base-v1"},
+        "projection": {"const": "DP1-counterfactual-latest-v1"},
+        "clean_policy": {"const": "remove_active_and_retired_keep_completed_archive"},
+        "recipe_registry_manifest_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "materialized_arm": {"const": "A"},
+        "arm_readiness": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["A", "A_USER", "B"],
+          "properties": {
+            "A": {"const": "ready_materializable"},
+            "A_USER": {"const": "blocked"},
+            "B": {"const": "blocked"}
+          }
+        }
+      }
+    },
+    "case_assets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["H01", "H02", "H03", "H04", "H05", "H07", "P01", "P02"],
+      "properties": {
+        "H01": {"$ref": "#/$defs/caseSeal"},
+        "H02": {"$ref": "#/$defs/caseSeal"},
+        "H03": {"$ref": "#/$defs/caseSeal"},
+        "H04": {"$ref": "#/$defs/caseSeal"},
+        "H05": {"$ref": "#/$defs/caseSeal"},
+        "H07": {"$ref": "#/$defs/caseSeal"},
+        "P01": {"$ref": "#/$defs/caseSeal"},
+        "P02": {"$ref": "#/$defs/caseSeal"}
+      }
+    },
+    "run_plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repetitions_per_case_arm",
+        "ordering_seed",
+        "model",
+        "judge_model",
+        "tooling",
+        "refinement",
+        "budget_source",
+        "fresh_root_policy",
+        "formal_run_policy"
+      ],
+      "properties": {
+        "repetitions_per_case_arm": {"type": "integer", "minimum": 3},
+        "ordering_seed": {"type": "string", "minLength": 1},
+        "model": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["model_id", "build_id", "reasoning_settings"],
+          "properties": {
+            "model_id": {"type": "string", "minLength": 1},
+            "build_id": {"type": "string", "minLength": 1},
+            "reasoning_settings": {"$ref": "#/$defs/assetRef"}
+          }
+        },
+        "judge_model": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["model_id", "build_id", "reasoning_settings"],
+          "properties": {
+            "model_id": {"type": "string", "minLength": 1},
+            "build_id": {"type": "string", "minLength": 1},
+            "reasoning_settings": {"$ref": "#/$defs/assetRef"}
+          }
+        },
+        "tooling": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "runner_image_digest",
+            "tool_manifest",
+            "permission_manifest",
+            "sandbox_policy"
+          ],
+          "properties": {
+            "runner_image_digest": {
+              "type": "string",
+              "pattern": "^(?:pending|sha256:[a-f0-9]{64})$"
+            },
+            "tool_manifest": {"$ref": "#/$defs/assetRef"},
+            "permission_manifest": {"$ref": "#/$defs/assetRef"},
+            "sandbox_policy": {"$ref": "#/$defs/assetRef"}
+          }
+        },
+        "refinement": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["no_answer_max_model_calls", "no_answer_max_tokens", "no_answer_wall_seconds"],
+          "properties": {
+            "no_answer_max_model_calls": {"$ref": "#/$defs/positiveIntOrPending"},
+            "no_answer_max_tokens": {"$ref": "#/$defs/positiveIntOrPending"},
+            "no_answer_wall_seconds": {"$ref": "#/$defs/positiveIntOrPending"}
+          }
+        },
+        "budget_source": {"const": "sealed_case_json"},
+        "fresh_root_policy": {"const": "single-contained-root-commit-v1"},
+        "formal_run_policy": {"const": "all-eight-cases-one-seal-no-selective-reruns"}
+      }
+    },
+    "control_components": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "question_mapper",
+        "judge_prompt",
+        "anonymization_protocol",
+        "mutation_plan",
+        "acceptance_plan"
+      ],
+      "properties": {
+        "question_mapper": {"$ref": "#/$defs/assetRef"},
+        "judge_prompt": {"$ref": "#/$defs/assetRef"},
+        "anonymization_protocol": {"$ref": "#/$defs/assetRef"},
+        "mutation_plan": {"$ref": "#/$defs/assetRef"},
+        "acceptance_plan": {"$ref": "#/$defs/assetRef"}
+      }
+    },
+    "run_ledger_schema": {"$ref": "#/$defs/assetRef"}
+  },
+  "$defs": {
+    "hashOrPending": {
+      "type": "string",
+      "pattern": "^(?:pending|[a-f0-9]{64})$"
+    },
+    "positiveIntOrPending": {
+      "type": ["integer", "string"],
+      "minimum": 1,
+      "pattern": "^pending$"
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+"
+    },
+    "assetRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "sha256"],
+      "properties": {
+        "ref": {"$ref": "#/$defs/relativePath"},
+        "sha256": {"$ref": "#/$defs/hashOrPending"}
+      }
+    },
+    "caseSeal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "case_ref",
+        "fixed_assets_manifest_sha256",
+        "runtime_refs_manifest_sha256",
+        "result_class"
+      ],
+      "properties": {
+        "case_ref": {"$ref": "#/$defs/relativePath"},
+        "fixed_assets_manifest_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "runtime_refs_manifest_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "result_class": {
+          "enum": ["historical_regression", "prospective_pilot", "clean_prospective_holdout"]
+        }
+      }
+    }
+  }
+}

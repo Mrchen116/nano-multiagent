@@ -1,0 +1,266 @@
+{
+  "$schema": "../../../schema/authority-map.schema.json",
+  "schema_version": "1.0",
+  "case_id": "H02",
+  "status": "draft",
+  "normalization": {
+    "level": "N0",
+    "task_blind": true,
+    "semantic_additions": false,
+    "normalizer_ref": "audit/provenance.md#normalizer"
+  },
+  "provenance_ref": "audit/provenance.md",
+  "authorities": [
+    {
+      "authority_id": "repo.architecture",
+      "logical_role": "architecture",
+      "exposed_path": "SPEC.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6",
+        "path": "SPEC.md",
+        "sha256": "80b3e30e8fde08ce2b8a80becf70a791c15cd90fe3402a2f795d557adeb6caa3"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "docs.knowledge-router",
+      "logical_role": "development",
+      "exposed_path": "docs/README.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6",
+        "path": "docs/README.md",
+        "sha256": "14c40009bd598287831b845160de60781ec743dcef8ced2ad3185b968c32b881"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "gateway.agent-capabilities-contract",
+      "logical_role": "product_contract",
+      "exposed_path": "docs/specs/gateway/agent-capabilities.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6",
+        "path": "docs/specs/gateway/agent-capabilities.md",
+        "sha256": "5e5b82801c0e8dbf0fa6fda8335bec2163da183898f8a6993b45096163d42994"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "kernel.runs-contract",
+      "logical_role": "product_contract",
+      "exposed_path": "docs/specs/kernel/runs.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6",
+        "path": "docs/specs/kernel/runs.md",
+        "sha256": "2fdb902be15f4a99145f988cf6e8885f8e27352f4d8336eadc978cdadec602f4"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "kernel.sdk-contract",
+      "logical_role": "product_contract",
+      "exposed_path": "docs/specs/kernel/sdk-boundary.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6",
+        "path": "docs/specs/kernel/sdk-boundary.md",
+        "sha256": "19f7f536154eb5a7c81ee6738bd581e1f585cf67231b1871896f9f583a13a0e2"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "kernel.model-runtime-contract",
+      "logical_role": "product_contract",
+      "exposed_path": "docs/specs/kernel/model-runtime.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6",
+        "path": "docs/specs/kernel/model-runtime.md",
+        "sha256": "58bf4fefb9255a6b28fc1b9117a0de3b9dfcf0126e68b84c33f3e7d713ca25d8"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "gateway.operations",
+      "logical_role": "operations",
+      "exposed_path": "docs/operations/gateway.md",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6",
+        "path": "docs/operations/gateway.md",
+        "sha256": "77d119c7fcae4c581d8dd04e0b474e08fa29ac14e469cc572953340505a69b1f"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "pa.config-code",
+      "logical_role": "architecture",
+      "exposed_path": "src/personal_assistant/config/local_store.py",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6",
+        "path": "src/personal_assistant/config/local_store.py",
+        "sha256": "25a939638cd6e72906663af19e1fa0df41059f5c421754c8e690117cc695c430"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "pa.composition-code",
+      "logical_role": "architecture",
+      "exposed_path": "src/personal_assistant/gateway/composition.py",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6",
+        "path": "src/personal_assistant/gateway/composition.py",
+        "sha256": "4e2130880cf3c884f100ac82bc83e9c8b87c15f681c2470d3ea4a75b0046ebfd"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "pa.product-code",
+      "logical_role": "architecture",
+      "exposed_path": "src/personal_assistant/product.py",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6",
+        "path": "src/personal_assistant/product.py",
+        "sha256": "9944efdfc7e6a22275978a50c7bff640d87421a538841c420f5fadd6a3b9652e"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "kernel.public-api",
+      "logical_role": "architecture",
+      "exposed_path": "src/agent/sdk/kernel.py",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6",
+        "path": "src/agent/sdk/kernel.py",
+        "sha256": "bc622247c536d51ddd98cb87c448856d6ef9797c1edfbafc6ee5f63af711d1e7"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "kernel.auto-gate-code",
+      "logical_role": "architecture",
+      "exposed_path": "src/agent/platform/hooks/builtins/auto_mode_gate.py",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6",
+        "path": "src/agent/platform/hooks/builtins/auto_mode_gate.py",
+        "sha256": "977c8a3e23b2d0a68759fbf1dcc55f5eb9d316b6c4f02792e53077df88bb5d47"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "kernel.hook-model-code",
+      "logical_role": "architecture",
+      "exposed_path": "src/agent/core/hooks/context.py",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6",
+        "path": "src/agent/core/hooks/context.py",
+        "sha256": "90af674ad6312cb59cfdb73ea03f96804480d6b2106d3d3139c0a6dae2e859b9"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "kernel.hook-registry-code",
+      "logical_role": "architecture",
+      "exposed_path": "src/agent/core/hooks/registry.py",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6",
+        "path": "src/agent/core/hooks/registry.py",
+        "sha256": "c0bd949ed24dbd9b744fd641ed8d54ec843763470617b0c6b3380f4f26175f17"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "kernel.runtime-routing-code",
+      "logical_role": "architecture",
+      "exposed_path": "src/agent/core/agent/runtime.py",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6",
+        "path": "src/agent/core/agent/runtime.py",
+        "sha256": "185f60e986d4121c2b787c33f0612c92b81d777cc054b4a514bd74b4e6dd779a"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "kernel.run-origin-code",
+      "logical_role": "architecture",
+      "exposed_path": "src/agent/core/runs/origin.py",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6",
+        "path": "src/agent/core/runs/origin.py",
+        "sha256": "8000405342a3dd71d60b66018452257dd004a38779345226c6ff66d3adbc9d06"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "kernel.background-origin-code",
+      "logical_role": "architecture",
+      "exposed_path": "src/agent/platform/background_tasks/runtime_runner.py",
+      "availability": "present_at_cutoff",
+      "source": {
+        "kind": "repo_file",
+        "cutoff_ref": "e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6",
+        "path": "src/agent/platform/background_tasks/runtime_runner.py",
+        "sha256": "814d5f7cb3fb28d8c2f67f20c542a57d5e88a3272ea55ddc51cf1c3c950c0c8b"
+      },
+      "transform": "copy",
+      "semantic_delta": false
+    },
+    {
+      "authority_id": "history.target-unit",
+      "logical_role": "historical_decision",
+      "exposed_path": "__absent__/feat-510-unified-tool-approval-model",
+      "availability": "absent_at_cutoff",
+      "source": {
+        "kind": "none",
+        "cutoff_ref": "e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6"
+      },
+      "transform": "absent_marker",
+      "semantic_delta": false,
+      "notes": "The target unit, its field name, implementation and canonical deltas do not exist in the candidate product snapshot."
+    }
+  ]
+}

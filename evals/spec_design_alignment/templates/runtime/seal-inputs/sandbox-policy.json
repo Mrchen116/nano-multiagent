@@ -1,0 +1,10 @@
+{
+  "$schema": "../../../schema/sandbox-policy.schema.json",
+  "schema_version": "1.0",
+  "filesystem_mode": "sealed_roots_only",
+  "network_namespace": "disabled",
+  "host_mounts": false,
+  "secret_mounts": false,
+  "process_isolation": "required",
+  "fresh_root_only": true
+}

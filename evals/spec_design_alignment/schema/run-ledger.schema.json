@@ -1,0 +1,203 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nano-multiagent.local/evaluation/schema/run-ledger.schema.json",
+  "title": "One immutable case-arm-repetition run ledger",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "status",
+    "case_id",
+    "arm_id",
+    "repetition",
+    "suite_seal",
+    "observed_run_plan_sha256",
+    "observed_environment",
+    "observed_refinement_sha256",
+    "control_component_hashes",
+    "case_runtime_refs_manifest_sha256",
+    "treatment_manifest_sha256",
+    "owner_policy_sha256",
+    "s0_export_manifest_sha256",
+    "fresh_root_commit",
+    "initial_package_sha256",
+    "refined_package_sha256",
+    "owner_replay_sha256",
+    "final_artifacts_manifest_sha256",
+    "counters"
+  ],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schema_version": {"const": "1.0"},
+    "run_id": {"type": "string", "minLength": 1},
+    "status": {"enum": ["planned", "running", "complete", "infrastructure_failed", "invalidated"]},
+    "case_id": {"type": "string", "pattern": "^(H|P)[0-9]{2}$"},
+    "arm_id": {"enum": ["A", "A_USER", "B"]},
+    "repetition": {"type": "integer", "minimum": 1},
+    "suite_seal": {"$ref": "#/$defs/assetRef"},
+    "observed_run_plan_sha256": {"$ref": "#/$defs/hashOrPending"},
+    "observed_environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model", "judge_model", "tooling"],
+      "properties": {
+        "model": {"$ref": "#/$defs/observedModel"},
+        "judge_model": {"$ref": "#/$defs/observedModel"},
+        "tooling": {"$ref": "#/$defs/observedTooling"}
+      }
+    },
+    "observed_refinement_sha256": {"$ref": "#/$defs/hashOrPending"},
+    "control_component_hashes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "question_mapper",
+        "judge_prompt",
+        "anonymization_protocol",
+        "mutation_plan",
+        "acceptance_plan"
+      ],
+      "properties": {
+        "question_mapper": {"$ref": "#/$defs/hashOrPending"},
+        "judge_prompt": {"$ref": "#/$defs/hashOrPending"},
+        "anonymization_protocol": {"$ref": "#/$defs/hashOrPending"},
+        "mutation_plan": {"$ref": "#/$defs/hashOrPending"},
+        "acceptance_plan": {"$ref": "#/$defs/hashOrPending"}
+      }
+    },
+    "case_runtime_refs_manifest_sha256": {"$ref": "#/$defs/hashOrPending"},
+    "treatment_manifest_sha256": {"$ref": "#/$defs/hashOrPending"},
+    "owner_policy_sha256": {"$ref": "#/$defs/hashOrPending"},
+    "s0_export_manifest_sha256": {"$ref": "#/$defs/hashOrPending"},
+    "fresh_root_commit": {"type": "string", "pattern": "^(?:pending|[a-f0-9]{40})$"},
+    "initial_package_sha256": {"$ref": "#/$defs/hashOrPending"},
+    "refined_package_sha256": {"$ref": "#/$defs/hashOrPending"},
+    "owner_replay_sha256": {"$ref": "#/$defs/hashOrPending"},
+    "final_artifacts_manifest_sha256": {"$ref": "#/$defs/hashOrPending"},
+    "counters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model_calls", "input_tokens", "output_tokens", "wall_seconds", "user_active_seconds"],
+      "properties": {
+        "model_calls": {"type": "integer", "minimum": 0},
+        "input_tokens": {"type": "integer", "minimum": 0},
+        "output_tokens": {"type": "integer", "minimum": 0},
+        "wall_seconds": {"type": "integer", "minimum": 0},
+        "user_active_seconds": {"type": "integer", "minimum": 0}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "complete"}}},
+      "then": {
+        "properties": {
+          "suite_seal": {
+            "type": "object",
+            "properties": {
+              "ref": {"const": "experiments/feat_397_agent_team/suite-seal.json"},
+              "sha256": {"$ref": "#/$defs/hash"}
+            }
+          },
+          "observed_run_plan_sha256": {"$ref": "#/$defs/hash"},
+          "observed_environment": {
+            "type": "object",
+            "properties": {
+              "model": {"$ref": "#/$defs/observedModelComplete"},
+              "judge_model": {"$ref": "#/$defs/observedModelComplete"},
+              "tooling": {"$ref": "#/$defs/observedToolingComplete"}
+            }
+          },
+          "observed_refinement_sha256": {"$ref": "#/$defs/hash"},
+          "control_component_hashes": {
+            "type": "object",
+            "additionalProperties": {"$ref": "#/$defs/hash"}
+          },
+          "case_runtime_refs_manifest_sha256": {"$ref": "#/$defs/hash"},
+          "treatment_manifest_sha256": {"$ref": "#/$defs/hash"},
+          "owner_policy_sha256": {"$ref": "#/$defs/hash"},
+          "s0_export_manifest_sha256": {"$ref": "#/$defs/hash"},
+          "fresh_root_commit": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
+          "initial_package_sha256": {"$ref": "#/$defs/hash"},
+          "refined_package_sha256": {"$ref": "#/$defs/hash"},
+          "owner_replay_sha256": {"$ref": "#/$defs/hash"},
+          "final_artifacts_manifest_sha256": {"$ref": "#/$defs/hash"}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "hashOrPending": {
+      "type": "string",
+      "pattern": "^(?:pending|[a-f0-9]{64})$"
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+"
+    },
+    "assetRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "sha256"],
+      "properties": {
+        "ref": {"$ref": "#/$defs/relativePath"},
+        "sha256": {"$ref": "#/$defs/hashOrPending"}
+      }
+    },
+    "observedModel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model_id", "build_id", "reasoning_settings_sha256"],
+      "properties": {
+        "model_id": {"type": "string", "minLength": 1},
+        "build_id": {"type": "string", "minLength": 1},
+        "reasoning_settings_sha256": {"$ref": "#/$defs/hashOrPending"}
+      }
+    },
+    "observedTooling": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runner_image_digest",
+        "tool_manifest_sha256",
+        "permission_manifest_sha256",
+        "sandbox_policy_sha256"
+      ],
+      "properties": {
+        "runner_image_digest": {
+          "type": "string",
+          "pattern": "^(?:pending|sha256:[a-f0-9]{64})$"
+        },
+        "tool_manifest_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "permission_manifest_sha256": {"$ref": "#/$defs/hashOrPending"},
+        "sandbox_policy_sha256": {"$ref": "#/$defs/hashOrPending"}
+      }
+    },
+    "observedModelComplete": {
+      "type": "object",
+      "properties": {
+        "model_id": {"type": "string", "pattern": "^(?!pending$).+"},
+        "build_id": {"type": "string", "pattern": "^(?!pending$).+"},
+        "reasoning_settings_sha256": {"$ref": "#/$defs/hash"}
+      }
+    },
+    "observedToolingComplete": {
+      "type": "object",
+      "properties": {
+        "runner_image_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "tool_manifest_sha256": {"$ref": "#/$defs/hash"},
+        "permission_manifest_sha256": {"$ref": "#/$defs/hash"},
+        "sandbox_policy_sha256": {"$ref": "#/$defs/hash"}
+      }
+    }
+  }
+}

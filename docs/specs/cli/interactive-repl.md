@@ -166,3 +166,21 @@ CLI 在非 TTY 环境中把输入退化为基础行读取，输出不发送终�
 - **WHEN** 用户执行 `/workflows <run-id> resume`
 - **THEN** CLI 从持久化的原 script 和 args 启动带新 run id 的恢复运行；原 run 仍可查询，新 run 诊断记录 `resumed_from`
 - **AND** 若当前 session 不是原 parent session，CLI 显示可操作的归属诊断而不是笼统失败
+
+### Requirement: REPL 只为真实自进化更新显示后台提示
+
+CLI 收到包含非空真实更新对象的 `self_evolution_review` session event 时，以既有轻量 system line 显示 memory、skills 或两者已更新；没有成功写入时 Kernel 不产生该更新事件，CLI 不显示会误导用户的 updated 提示。review side-chain 的 prompt、工具过程与完成文本继续不进入终端输出。
+
+#### Scenario: 成功更新显示真实对象
+
+- **GIVEN** self-evolution review 确认成功写入 memory、skills 或两者
+- **WHEN** CLI 消费对应 `self_evolution_review` event
+- **THEN** 终端显示一条非第一人称后台更新提示
+- **AND** 提示只包含真实成功的更新对象
+
+#### Scenario: 无成功写入不显示更新提示
+
+- **GIVEN** self-evolution review 无需写入、只执行读取/列举，或所有写操作失败
+- **WHEN** 该后台 review 结束
+- **THEN** CLI 不显示 self-evolution updated 提示
+- **AND** 终端也不显示 raw `Nothing to save.`、错误文本或 review 工具过程

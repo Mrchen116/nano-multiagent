@@ -1,0 +1,294 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nano-multiagent.local/evaluation/schema/authority-map.schema.json",
+  "title": "Private authority audit map",
+  "description": "Runner/control audit asset. Never export this map to a candidate workspace or use it to select sources; in v1 only suite-locked N0 byte-copy aliases may be visible.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "case_id",
+    "status",
+    "normalization",
+    "provenance_ref",
+    "authorities"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "1.0"
+    },
+    "case_id": {
+      "type": "string",
+      "pattern": "^(H|P)[0-9]{2}$"
+    },
+    "status": {
+      "enum": [
+        "draft",
+        "frozen"
+      ]
+    },
+    "normalization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "level",
+        "task_blind",
+        "semantic_additions"
+      ],
+      "properties": {
+        "level": {
+          "enum": [
+            "N0",
+            "N1"
+          ]
+        },
+        "task_blind": {
+          "const": true
+        },
+        "semantic_additions": {
+          "const": false
+        },
+        "normalizer_ref": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "provenance_ref": {
+      "$ref": "#/$defs/relativePath"
+    },
+    "authorities": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/authority"
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "frozen"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "authorities": {
+            "minItems": 1,
+            "items": {
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "availability": {
+                        "const": "present_at_cutoff"
+                      }
+                    },
+                    "required": [
+                      "availability"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "source": {
+                        "required": [
+                          "sha256"
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+"
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authority_id",
+        "logical_role",
+        "exposed_path",
+        "availability",
+        "source",
+        "transform",
+        "semantic_delta"
+      ],
+      "properties": {
+        "authority_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._-]*$"
+        },
+        "logical_role": {
+          "enum": [
+            "product_contract",
+            "architecture",
+            "development",
+            "operations",
+            "historical_decision",
+            "reference_project",
+            "other"
+          ]
+        },
+        "exposed_path": {
+          "$ref": "#/$defs/relativePath",
+          "description": "For present sources, the path that must exist in the exported product/common world. For absent sources, a control-only __absent__/ sentinel that is never exported.",
+          "not": {
+            "pattern": "^(?:case\\.json$|knowledge(?:/|$)|judge-private(?:/|$)|audit(?:/|$))"
+          }
+        },
+        "availability": {
+          "enum": [
+            "present_at_cutoff",
+            "absent_at_cutoff"
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "transform": {
+          "enum": [
+            "copy",
+            "route_only",
+            "format_only",
+            "absent_marker"
+          ]
+        },
+        "semantic_delta": {
+          "const": false
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "availability": {
+                "const": "absent_at_cutoff"
+              }
+            },
+            "required": [
+              "availability"
+            ]
+          },
+          "then": {
+            "properties": {
+              "exposed_path": {
+                "pattern": "^__absent__/.+"
+              },
+              "source": {
+                "properties": {
+                  "kind": {
+                    "const": "none"
+                  }
+                }
+              },
+              "transform": {
+                "const": "absent_marker"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "exposed_path": {
+                "not": {
+                  "pattern": "^__absent__(?:/|$)"
+                }
+              },
+              "source": {
+                "properties": {
+                  "kind": {
+                    "not": {
+                      "const": "none"
+                    }
+                  }
+                }
+              },
+              "transform": {
+                "not": {
+                  "const": "absent_marker"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "cutoff_ref"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "repo_file",
+            "repo_tree",
+            "external_snapshot",
+            "none"
+          ]
+        },
+        "cutoff_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "repo_file",
+                  "repo_tree"
+                ]
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "path"
+            ],
+            "properties": {
+              "cutoff_ref": {
+                "pattern": "^[a-f0-9]{40}$"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

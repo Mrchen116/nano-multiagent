@@ -24,7 +24,7 @@ from personal_assistant.config.model_reasoning import (
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.group_context_store import GroupContextStore
-from personal_assistant.gateway.inbound_models import InboundRunRequest
+from personal_assistant.gateway.inbound_models import InboundRunRequest, RoutedInbound
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.session_binder import GatewaySessionBinder
 from personal_assistant.gateway.session_keys import (
@@ -122,7 +122,7 @@ def _latest_user_text(request: Any) -> str:
 def _request(message, catalog: LiveAgentCatalog) -> InboundRunRequest:
     agent = catalog.require("agent-a")
     return InboundRunRequest(
-        message=message,
+        routed=RoutedInbound(message=message),
         agent=agent,
         session_key=build_session_key(message, agent_id=agent.agent_id),
         sender_label="Alice",

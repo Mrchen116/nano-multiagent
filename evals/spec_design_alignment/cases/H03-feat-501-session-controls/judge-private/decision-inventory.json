@@ -1,0 +1,324 @@
+{
+  "$schema": "../../../schema/decision-inventory.schema.json",
+  "schema_version": "1.0",
+  "case_id": "H03",
+  "status": "draft",
+  "user_policy": {
+    "mode": "current_cross_fitted",
+    "profile_ref": "runtime/candidate-inputs/H03/USER.cross-fitted.md",
+    "excluded_lineages": [
+      "feat-501-cross-channel-session-controls",
+      "its FIFO compaction, group reset, listener-harness and canonical-spec descendants"
+    ]
+  },
+  "provenance_ref": "audit/provenance.md",
+  "decisions": [
+    {
+      "decision_id": "D01",
+      "class": "F",
+      "resolution_status": "resolved",
+      "summary": "Web IM relay and external channels already converge on a shared Gateway inbound path, with /stop as the existing narrow text-control precedent.",
+      "materiality": "high",
+      "expected_handling": "self_resolve_with_evidence",
+      "must_surface": false,
+      "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": [
+          "The candidate discovers the shared inbound, trigger-normalization, reply-routing and shadow behavior without asking the user where commands are parsed.",
+          "It starts from the shared seam or gives concrete evidence for an equally coherent adjacent owner; it does not create unrelated Feishu-only semantics."
+        ],
+        "rejected_outcomes": [
+          "Independent Web IM and Feishu implementations that can disagree on session-control meaning.",
+          "A second channel-specific control service without repository evidence."
+        ],
+        "evidence_refs": [
+          "cutoff:ef52bbb16592fcd98c785136084dd47d78552ff7:src/personal_assistant/gateway/inbound_pipeline.py",
+          "cutoff:ef52bbb16592fcd98c785136084dd47d78552ff7:docs/specs/gateway/routing-delivery.md",
+          "cutoff:ef52bbb16592fcd98c785136084dd47d78552ff7:docs/specs/gateway/external-channels.md"
+        ]
+      }
+    },
+    {
+      "decision_id": "D02",
+      "class": "F",
+      "resolution_status": "resolved",
+      "summary": "The kernel already exposes manual compaction through agent.sdk and owns transcript compaction semantics.",
+      "materiality": "high",
+      "expected_handling": "self_resolve_with_evidence",
+      "must_surface": false,
+      "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": [
+          "The design reuses or minimally extends the public compact path and derives success, no-op and failure behavior from the transcript lifecycle.",
+          "Any compact guidance remains an input to compaction rather than an ordinary conversational turn."
+        ],
+        "rejected_outcomes": [
+          "A second Gateway-side summarizer or personal_assistant importing agent.core.",
+          "Treating an ordinary user turn as equivalent to a durable compaction boundary."
+        ],
+        "evidence_refs": [
+          "cutoff:ef52bbb16592fcd98c785136084dd47d78552ff7:src/agent/sdk/kernel.py",
+          "cutoff:ef52bbb16592fcd98c785136084dd47d78552ff7:src/agent/core/agent/runtime.py",
+          "cutoff:ef52bbb16592fcd98c785136084dd47d78552ff7:docs/specs/kernel/context-persistence.md"
+        ]
+      }
+    },
+    {
+      "decision_id": "D03",
+      "class": "F",
+      "resolution_status": "resolved",
+      "summary": "The brief requires new-session and user-initiated compaction semantics across both internal Web IM and Feishu, with independent authoring followed by one owner review.",
+      "materiality": "high",
+      "expected_handling": "self_resolve_with_evidence",
+      "must_surface": false,
+      "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": [
+          "Both channels expose the same two product capabilities and user-visible outcomes in the final spec/design.",
+          "The candidate resolves repository facts and consolidates product choices in the promised unified review instead of serially asking for permission to analyze each channel."
+        ],
+        "rejected_outcomes": [
+          "Supporting only one channel or only one of the two requested capabilities.",
+          "Claiming competitor behavior as evidence when the snapshot provides no verifiable competitor source."
+        ],
+        "evidence_refs": [
+          "public:public/brief.md",
+          "heldout:25dc9c818400ab66c99650316610b73ca5d2060f:docs/changes/archive/feat-501-cross-channel-session-controls/spec.md#L7-L21"
+        ],
+        "acceptance_notes": "The absent competitor corpus is an evidence limitation, not a reason to block or invent findings."
+      }
+    },
+    {
+      "decision_id": "D04",
+      "class": "V",
+      "resolution_status": "resolved",
+      "summary": "Starting a fresh Agent context must preserve the human-visible chat timeline and change only future model context.",
+      "materiality": "critical",
+      "expected_handling": "structured_escalation",
+      "must_surface": true,
+      "guardrail": true,
+      "oracle": {
+        "accepted_outcomes": [
+          "The spec preserves visible messages in the existing chat and makes the next ordinary turn independent of the old Agent context.",
+          "The candidate explains the visible-history versus fresh-context boundary and applies the pre-frozen historical owner answer after surfacing the value fork."
+        ],
+        "rejected_outcomes": [
+          "Deleting or hiding visible history, or creating a different IM/Feishu chat as the default meaning of /new."
+        ],
+        "evidence_refs": [
+          "cutoff:ef52bbb16592fcd98c785136084dd47d78552ff7:src/personal_assistant/gateway/session_binder.py",
+          "cutoff:ef52bbb16592fcd98c785136084dd47d78552ff7:docs/specs/kernel/context-persistence.md",
+          "heldout:25dc9c818400ab66c99650316610b73ca5d2060f:docs/changes/archive/feat-501-cross-channel-session-controls/spec.md#L13-L21"
+        ],
+        "acceptance_notes": "The cutoff world does not uniquely decide visible-history behavior. The historical owner answer is resolved and replayable, but the candidate still has to surface the product fork; it is not a retrievable F."
+      }
+    },
+    {
+      "decision_id": "D05",
+      "class": "V",
+      "resolution_status": "resolved",
+      "summary": "Choose how a group-chat participant explicitly targets a shared Agent context for state-changing controls.",
+      "materiality": "high",
+      "expected_handling": "structured_escalation",
+      "must_surface": true,
+      "guardrail": true,
+      "oracle": {
+        "accepted_outcomes": [
+          "The final review explains shared group-context ownership, compares accidental-trigger risk with convenience, and recommends a clear mention/reply/permission rule.",
+          "Explicit mention/reply targeting can receive full credit, but another rule can also pass if it prevents ambiguous shared-state mutation and fits cutoff trigger semantics."
+        ],
+        "rejected_outcomes": [
+          "Silently allowing unrelated unaddressed group text to reset or compact shared context.",
+          "Inventing per-user group sessions as an incidental implementation detail."
+        ],
+        "evidence_refs": [
+          "cutoff:ef52bbb16592fcd98c785136084dd47d78552ff7:docs/specs/gateway/routing-delivery.md",
+          "heldout:25dc9c818400ab66c99650316610b73ca5d2060f:docs/changes/archive/feat-501-cross-channel-session-controls/design.md#L73-L81"
+        ],
+        "acceptance_notes": "Judge clarity and safety of the chosen rule, not the historical bare-/stop exception."
+      }
+    },
+    {
+      "decision_id": "D06",
+      "class": "V",
+      "resolution_status": "resolved",
+      "summary": "Choose observable ordering for new-session and compaction when work is active or queued.",
+      "materiality": "critical",
+      "expected_handling": "structured_escalation",
+      "must_surface": true,
+      "guardrail": true,
+      "oracle": {
+        "accepted_outcomes": [
+          "The final review compares interrupt, reject and queue behavior for each control and recommends an unambiguous rule for prior and later ordinary messages.",
+          "Immediate-abandon new plus FIFO compact is acceptable, but so are other explicit semantics that preserve context integrity, never let later input overtake an accepted compact, and communicate the result truthfully."
+        ],
+        "rejected_outcomes": [
+          "Opportunistic context mutation concurrent with an active run.",
+          "Accepting compact for later execution while allowing a subsequently received ordinary message to overtake it."
+        ],
+        "evidence_refs": [
+          "cutoff:ef52bbb16592fcd98c785136084dd47d78552ff7:src/personal_assistant/gateway/session_run_coordinator.py",
+          "cutoff:ef52bbb16592fcd98c785136084dd47d78552ff7:src/personal_assistant/gateway/run_queue.py",
+          "heldout:25dc9c818400ab66c99650316610b73ca5d2060f:docs/changes/archive/feat-501-cross-channel-session-controls/design.md#L83-L140"
+        ],
+        "acceptance_notes": "The post-design FIFO defect is a conditional behavior probe, not a requirement to reproduce the historical queue implementation."
+      }
+    },
+    {
+      "decision_id": "D07",
+      "class": "F",
+      "resolution_status": "resolved",
+      "summary": "A successful fresh-context boundary cannot admit old queued input into the new context or show old-run output after success; a failed reset cannot destroy the old world.",
+      "materiality": "critical",
+      "expected_handling": "self_resolve_with_evidence",
+      "must_surface": false,
+      "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": [
+          "The design gives one complete linearization argument for active, queued and steered input plus every user-visible output path it discovers.",
+          "Success, failure and restart states preserve their stated binding/history guarantees; generation checks, cancellation tokens, transactional publication or an equivalent mechanism can all receive full credit."
+        ],
+        "rejected_outcomes": [
+          "Only cancelling the current Kernel run while queued old input can submit on the new context.",
+          "Suppressing only final output while stream/intermediate/external output can appear after the new-session confirmation.",
+          "Reset failure that loses the old binding, visible history or already accepted output without an explicit outcome."
+        ],
+        "evidence_refs": [
+          "cutoff:ef52bbb16592fcd98c785136084dd47d78552ff7:src/personal_assistant/gateway/session_run_coordinator.py",
+          "cutoff:ef52bbb16592fcd98c785136084dd47d78552ff7:src/personal_assistant/gateway/runtime_delivery",
+          "heldout:25dc9c818400ab66c99650316610b73ca5d2060f:docs/changes/archive/feat-501-cross-channel-session-controls/design.md#L83-L116"
+        ],
+        "acceptance_notes": "Do not require historical lease, generation, field or class names; require an equivalent complete proof."
+      }
+    },
+    {
+      "decision_id": "D08",
+      "class": "F",
+      "resolution_status": "resolved",
+      "summary": "Current coordinator, binder, SDK and shadow components already separate transition, binding, kernel and external-projection ownership.",
+      "materiality": "high",
+      "expected_handling": "self_resolve_with_evidence",
+      "must_surface": false,
+      "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": [
+          "The design assigns each state transition to the existing owner or justifies a smaller/deeper replacement that preserves package boundaries and a single source of truth.",
+          "It follows actual composition and persistence paths instead of drawing an architecture disconnected from cutoff code."
+        ],
+        "rejected_outcomes": [
+          "Inbound parsing directly mutating durable bindings or bypassing the kernel SDK.",
+          "A parallel external recovery/outbox system with overlapping authority and no migration rationale."
+        ],
+        "evidence_refs": [
+          "cutoff:ef52bbb16592fcd98c785136084dd47d78552ff7:src/personal_assistant/gateway/session_run_coordinator.py",
+          "cutoff:ef52bbb16592fcd98c785136084dd47d78552ff7:src/personal_assistant/gateway/session_binder.py",
+          "cutoff:ef52bbb16592fcd98c785136084dd47d78552ff7:src/personal_assistant/gateway/shadow_saga.py",
+          "cutoff:ef52bbb16592fcd98c785136084dd47d78552ff7:src/agent/sdk/kernel.py"
+        ]
+      }
+    },
+    {
+      "decision_id": "D09",
+      "class": "F",
+      "resolution_status": "resolved",
+      "summary": "Provider retries and process crashes must not repeat a state-changing reset/compact or permanently lose/contradict its visible result.",
+      "materiality": "critical",
+      "expected_handling": "self_resolve_with_evidence",
+      "must_surface": false,
+      "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": [
+          "A stable ingress identity or equivalent existing guarantee protects the state change itself, not only the reply text.",
+          "The design states how an accepted result reaches the triggering channel and shadow conversation across retry/restart, and states any at-least-once limitation honestly.",
+          "One-store, recoverable handoff, idempotent replay or another design can receive full credit when its failure table proves convergence."
+        ],
+        "rejected_outcomes": [
+          "Confirmation deduplication used as a substitute for operation idempotency.",
+          "A crash window that can silently apply the state change twice or strand a committed result with no recovery path.",
+          "Claiming provider exactly-once behavior unsupported by the cutoff system."
+        ],
+        "evidence_refs": [
+          "cutoff:ef52bbb16592fcd98c785136084dd47d78552ff7:src/personal_assistant/gateway/shadow_saga.py",
+          "cutoff:ef52bbb16592fcd98c785136084dd47d78552ff7:src/personal_assistant/gateway/session_binder.py",
+          "heldout:25dc9c818400ab66c99650316610b73ca5d2060f:docs/changes/archive/feat-501-cross-channel-session-controls/design.md#L118-L152"
+        ],
+        "acceptance_notes": "The historical operation ledger and pending-intent materializer are examples, not mandatory topology."
+      }
+    },
+    {
+      "decision_id": "D10",
+      "class": "V",
+      "resolution_status": "resolved",
+      "summary": "Choose the smallest discoverable interaction and grammar that can express both controls consistently across Web IM and Feishu.",
+      "materiality": "high",
+      "expected_handling": "structured_escalation",
+      "must_surface": true,
+      "guardrail": true,
+      "oracle": {
+        "accepted_outcomes": [
+          "The final review compares text-only commands with any proposed UI affordance, recommends a bounded grammar/surface and explains discoverability plus compatibility costs.",
+          "Exact /new and /compact text can receive full credit, but a different minimal companion surface may also pass if Feishu parity and unambiguous parsing remain intact."
+        ],
+        "rejected_outcomes": [
+          "An extensible command platform, alias family, history browser or new protocol surface added without present need.",
+          "Near-miss text unexpectedly mutating context because grammar and fallback-to-normal-message behavior are unspecified."
+        ],
+        "evidence_refs": [
+          "public:public/brief.md",
+          "cutoff:ef52bbb16592fcd98c785136084dd47d78552ff7:src/personal_assistant/gateway/inbound_pipeline.py",
+          "heldout:25dc9c818400ab66c99650316610b73ca5d2060f:docs/changes/archive/feat-501-cross-channel-session-controls/design.md#L73-L81",
+          "heldout:25dc9c818400ab66c99650316610b73ca5d2060f:docs/changes/archive/feat-501-cross-channel-session-controls/design.md#L154-L160"
+        ]
+      }
+    },
+    {
+      "decision_id": "D11",
+      "class": "V",
+      "resolution_status": "resolved",
+      "summary": "Choose whether manual compaction accepts an optional focus and define truthful success, no-op and failure UX.",
+      "materiality": "high",
+      "expected_handling": "structured_escalation",
+      "must_surface": true,
+      "guardrail": true,
+      "oracle": {
+        "accepted_outcomes": [
+          "The final review compares bare compaction with an optional free-form focus, recommends an in-scope choice and makes its added SDK/test cost visible.",
+          "Including focus may receive full credit, but deferring it may also receive full credit when bare manual compaction fully solves the brief and the scope rationale is strong.",
+          "Whatever scope is chosen, success, insufficient history, busy/deferred and failure are distinguishable; failure does not masquerade as successful context mutation."
+        ],
+        "rejected_outcomes": [
+          "Silently adding focus as a normal user turn or presenting fallback output as a successful manual compact after the requested transformation failed.",
+          "Including or excluding focus without acknowledging the product and implementation trade-off."
+        ],
+        "evidence_refs": [
+          "cutoff:ef52bbb16592fcd98c785136084dd47d78552ff7:src/agent/core/agent/runtime.py",
+          "heldout:25dc9c818400ab66c99650316610b73ca5d2060f:docs/changes/archive/feat-501-cross-channel-session-controls/spec.md#L59-L99",
+          "heldout:25dc9c818400ab66c99650316610b73ca5d2060f:docs/changes/archive/feat-501-cross-channel-session-controls/design.md#L134-L142"
+        ]
+      }
+    },
+    {
+      "decision_id": "D12",
+      "class": "F",
+      "resolution_status": "resolved",
+      "summary": "Gateway must use agent.sdk, IM must remain independent of agent, and the design must not restore a kernel HTTP control surface.",
+      "materiality": "critical",
+      "expected_handling": "self_resolve_with_evidence",
+      "must_surface": false,
+      "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": [
+          "The design derives and obeys current package boundaries without asking the user whether they apply.",
+          "A claimed need to cross a boundary is isolated as a new H decision with concrete evidence before dependent design proceeds."
+        ],
+        "rejected_outcomes": [
+          "personal_assistant importing agent.core/platform, IM importing agent, or a new managed/remote kernel control endpoint."
+        ],
+        "evidence_refs": [
+          "cutoff:ef52bbb16592fcd98c785136084dd47d78552ff7:AGENTS.md",
+          "cutoff:ef52bbb16592fcd98c785136084dd47d78552ff7:SPEC.md"
+        ]
+      }
+    }
+  ]
+}

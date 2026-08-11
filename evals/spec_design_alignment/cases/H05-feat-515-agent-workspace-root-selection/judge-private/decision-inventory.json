@@ -1,0 +1,118 @@
+{
+  "$schema": "../../../schema/decision-inventory.schema.json",
+  "schema_version": "1.0",
+  "case_id": "H05",
+  "status": "draft",
+  "user_policy": {
+    "mode": "current_cross_fitted",
+    "profile_ref": "runtime/candidate-inputs/H05/USER.cross-fitted.md",
+    "excluded_lineages": [
+      "feat-515-agent-workspace-root-selection",
+      "its default/custom provenance, validation and create-only UI decisions",
+      "PR 255, production migration, target review and acceptance descendants"
+    ]
+  },
+  "provenance_ref": "audit/provenance.md",
+  "decisions": [
+    {
+      "decision_id": "D01", "class": "V", "resolution_status": "resolved",
+      "summary": "Choose default versus custom workspace creation semantics.",
+      "materiality": "critical", "expected_handling": "structured_escalation", "must_surface": true, "guardrail": true,
+      "oracle": {
+        "accepted_outcomes": ["New Agent creation offers the Gateway-provided managed default and an explicit custom path; omission selects the managed default."],
+        "rejected_outcomes": ["Make custom path mandatory.", "Let IM invent the owning node's default path."],
+        "evidence_refs": ["public:public/brief.md", "heldout:1389c9fe5c2dc4f3ba643086caf84091e137dfe1:docs/changes/archive/feat-515-agent-workspace-root-selection/spec.md"]
+      }
+    },
+    {
+      "decision_id": "D02", "class": "V", "resolution_status": "resolved",
+      "summary": "Choose whether workspace root can be edited after creation.",
+      "materiality": "critical", "expected_handling": "structured_escalation", "must_surface": true, "guardrail": true,
+      "oracle": {
+        "accepted_outcomes": ["Workspace root is immutable after Agent creation in both API and UI; later migration is a separate operation."],
+        "rejected_outcomes": ["Add an edit field on Agent detail.", "Allow a PATCH to relocate a live Agent implicitly."],
+        "evidence_refs": ["heldout:1389c9fe5c2dc4f3ba643086caf84091e137dfe1:docs/changes/archive/feat-515-agent-workspace-root-selection/spec.md"]
+      }
+    },
+    {
+      "decision_id": "D03", "class": "V", "resolution_status": "resolved",
+      "summary": "Choose filesystem validation and creation rules for a custom target.",
+      "materiality": "critical", "expected_handling": "structured_escalation", "must_surface": true, "guardrail": true,
+      "oracle": {
+        "accepted_outcomes": ["The parent directory must already exist; the target may be absent and then be created, or may already be an ordinary directory and be accepted with a warning."],
+        "rejected_outcomes": ["Recursively create an arbitrary missing parent chain.", "Reject every existing directory.", "Accept a file as the workspace root."],
+        "evidence_refs": ["heldout:1389c9fe5c2dc4f3ba643086caf84091e137dfe1:docs/changes/archive/feat-515-agent-workspace-root-selection/spec.md"]
+      }
+    },
+    {
+      "decision_id": "D04", "class": "V", "resolution_status": "resolved",
+      "summary": "Choose workspace uniqueness scope across nodes.",
+      "materiality": "critical", "expected_handling": "structured_escalation", "must_surface": true, "guardrail": true,
+      "oracle": {
+        "accepted_outcomes": ["On one Gateway node a normalized workspace path belongs to at most one Agent; the same path string on different nodes is allowed because filesystems are independent."],
+        "rejected_outcomes": ["Global string uniqueness across the fleet.", "Allow two Agents on one node to share the same root."],
+        "evidence_refs": ["heldout:1389c9fe5c2dc4f3ba643086caf84091e137dfe1:docs/changes/archive/feat-515-agent-workspace-root-selection/spec.md"]
+      }
+    },
+    {
+      "decision_id": "D05", "class": "P", "resolution_status": "resolved",
+      "summary": "Present the default/custom choice as a restrained commercial form interaction.",
+      "materiality": "high", "expected_handling": "prefill_and_confirm", "must_surface": true, "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": ["Show the effective default path inline; clicking or editing the row reveals a prefilled custom path field with clear validation and warning feedback."],
+        "rejected_outcomes": ["Large mode cards or a demo-like default/custom chooser.", "Hide the actual default path until after creation."],
+        "evidence_refs": ["profile:runtime/candidate-inputs/H05/USER.cross-fitted.md#simple-design", "heldout:1389c9fe5c2dc4f3ba643086caf84091e137dfe1:docs/changes/archive/feat-515-agent-workspace-root-selection/design.md", "heldout:1389c9fe5c2dc4f3ba643086caf84091e137dfe1:docs/changes/archive/feat-515-agent-workspace-root-selection/prototype.html"]
+      }
+    },
+    {
+      "decision_id": "D06", "class": "F", "resolution_status": "resolved",
+      "summary": "Keep filesystem authority on the owning Gateway and treat its returned path as opaque in IM.",
+      "materiality": "critical", "expected_handling": "self_resolve_with_evidence", "must_surface": false, "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": ["IM forwards the requested path; the selected Gateway expands, normalizes, validates, creates and reserves it against its own filesystem."],
+        "rejected_outcomes": ["Resolve ~ or inspect parent existence on the IM host.", "Import PA internals into IM."],
+        "evidence_refs": ["cutoff:f54e008b120d55bb5563cd127978dc336e2e0aac:SPEC.md", "cutoff:f54e008b120d55bb5563cd127978dc336e2e0aac:docs/specs/im/agents-nodes.md", "heldout:1389c9fe5c2dc4f3ba643086caf84091e137dfe1:docs/changes/archive/feat-515-agent-workspace-root-selection/design-review.md"]
+      }
+    },
+    {
+      "decision_id": "D07", "class": "F", "resolution_status": "resolved",
+      "summary": "Round-trip whether the selected path is the managed default instead of re-inferring provenance on IM.",
+      "materiality": "critical", "expected_handling": "self_resolve_with_evidence", "must_surface": false, "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": ["Gateway returns a canonical workspace path plus workspace_is_default; IM persists and exposes both."],
+        "rejected_outcomes": ["Compare the returned path against an IM-host default.", "Discard provenance and later guess it from spelling."],
+        "evidence_refs": ["heldout:1389c9fe5c2dc4f3ba643086caf84091e137dfe1:docs/changes/archive/feat-515-agent-workspace-root-selection/design-review.md"]
+      }
+    },
+    {
+      "decision_id": "D08", "class": "F", "resolution_status": "resolved",
+      "summary": "Make reservation and profile persistence atomic enough to avoid orphaned ownership.",
+      "materiality": "high", "expected_handling": "self_resolve_with_evidence", "must_surface": false, "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": ["The design names the Gateway operation, conflict result, compensation behavior and IM profile write so failures cannot silently allocate one path to multiple Agents."],
+        "rejected_outcomes": ["Frontend-only validation.", "A check-then-write race with no owner or recovery."],
+        "evidence_refs": ["cutoff:f54e008b120d55bb5563cd127978dc336e2e0aac:src/personal_assistant/config/local_store.py", "cutoff:f54e008b120d55bb5563cd127978dc336e2e0aac:src/IM/application/config_service.py"]
+      }
+    },
+    {
+      "decision_id": "D09", "class": "F", "resolution_status": "resolved",
+      "summary": "Update the complete create journey and canonical contracts without adding an edit journey.",
+      "materiality": "high", "expected_handling": "self_resolve_with_evidence", "must_surface": false, "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": ["Deltas cover Gateway capability/default data, create operation, IM create/profile projection and desktop/mobile UI, with tests at each owner boundary."],
+        "rejected_outcomes": ["Only change the frontend form.", "Modify the detail page into a relocation feature."],
+        "evidence_refs": ["cutoff:f54e008b120d55bb5563cd127978dc336e2e0aac:docs/specs/gateway/agent-capabilities.md", "cutoff:f54e008b120d55bb5563cd127978dc336e2e0aac:docs/specs/im/agents-nodes.md"]
+      }
+    },
+    {
+      "decision_id": "D10", "class": "F", "resolution_status": "resolved",
+      "summary": "Avoid speculative legacy fallback or migration scope in this creation-only feature.",
+      "materiality": "medium", "expected_handling": "self_resolve_with_evidence", "must_surface": false, "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": ["Existing Agents retain their current roots unchanged; the unit changes new creation only."],
+        "rejected_outcomes": ["Automatically move existing Agent directories.", "Introduce a legacy-path fallback unrelated to creation."],
+        "evidence_refs": ["heldout:1389c9fe5c2dc4f3ba643086caf84091e137dfe1:docs/changes/archive/feat-515-agent-workspace-root-selection/spec.md"]
+      }
+    }
+  ]
+}

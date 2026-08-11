@@ -8,7 +8,14 @@ from pathlib import Path
 
 import pytest
 
-from personal_assistant.channels.base import InboundMessage, OutboundMessage
+from personal_assistant.channels.base import (
+    ExternalConversationIdentity,
+    ExternalInboundEventIdentity,
+    IMRelayIngress,
+    InboundIngress,
+    InboundMessage,
+    OutboundMessage,
+)
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.bootstrap import start_channels, stop_channels
 from personal_assistant.gateway.channel_registry import ChannelRegistry
@@ -36,6 +43,45 @@ class _FakeChannel:
 
     def stop(self) -> None:
         self.stopped += 1
+
+
+def _relay_ingress(identity: str) -> InboundIngress:
+    return InboundIngress(
+        im_relay=IMRelayIngress(
+            relay_task_id=f"relay-{identity}",
+            idempotency_key=f"idem-{identity}",
+            im_message_id=f"msg-{identity}",
+        )
+    )
+
+
+def _feishu_ingress(*, chat_id: str, event_id: str, is_group: bool) -> InboundIngress:
+    return InboundIngress(
+        external_conversation=ExternalConversationIdentity(
+            external_source="feishu",
+            external_chat_id=chat_id,
+            agent_id="agent-a",
+            conversation_type="group" if is_group else "direct",
+            trigger_source="feishu",
+        ),
+        external_event=ExternalInboundEventIdentity(
+            connector_account_id="app",
+            provider_event_id=event_id,
+        ),
+    )
+
+
+def _external_shadow_ingress(identity: str) -> InboundIngress:
+    return InboundIngress(
+        im_relay=_relay_ingress(identity).im_relay,
+        external_conversation=ExternalConversationIdentity(
+            external_source="feishu",
+            external_chat_id="feishu:app:group:group-1",
+            agent_id="agent-a",
+            conversation_type="group",
+            trigger_source="im",
+        ),
+    )
 
 
 class _FakeKernelClient:
@@ -288,6 +334,7 @@ def test_bare_new_in_group_starts_a_fresh_session_for_every_agent(
                         external_chat_id="group-1",
                         is_group=True,
                         agent_id=agent_id,
+                        ingress=_relay_ingress(f"bare-new-{agent_id}"),
                         metadata={"mentioned_agent_ids": []},
                     )
                 )
@@ -333,6 +380,7 @@ def test_reply_targeted_group_new_resets_only_the_replied_agent(
                     external_chat_id="group-1",
                     is_group=True,
                     agent_id=agent_id,
+                    ingress=_relay_ingress(f"reply-new-{agent_id}"),
                     metadata={"reply_to_agent_id": "agent-a"},
                 )
             )
@@ -370,6 +418,7 @@ def test_group_always_policy_does_not_authorize_bare_compact(tmp_path: Path) -> 
                 external_chat_id="group-1",
                 is_group=True,
                 agent_id="agent-a",
+                ingress=_relay_ingress("bare-compact"),
                 metadata={"mentioned_agent_ids": []},
             )
         )
@@ -404,7 +453,12 @@ def test_external_group_bare_new_remains_mention_gated(tmp_path: Path) -> None:
                 external_chat_id="group-1",
                 is_group=True,
                 agent_id="agent-a",
-                metadata={"mentioned_agent_ids": [], "external_source": "feishu"},
+                ingress=_feishu_ingress(
+                    chat_id="feishu:app:group:group-1",
+                    event_id="event-external-new",
+                    is_group=True,
+                ),
+                metadata={"mentioned_agent_ids": []},
             )
         )
     )
@@ -436,6 +490,7 @@ def test_structured_group_mention_targets_one_new_session(tmp_path: Path) -> Non
                     external_chat_id="group-1",
                     is_group=True,
                     agent_id=agent_id,
+                    ingress=_relay_ingress(f"mention-new-{agent_id}"),
                     metadata={"mentioned_agent_ids": ["agent-a"]},
                 )
             )
@@ -473,6 +528,7 @@ def test_implicit_external_shadow_target_cannot_authorize_group_controls(
         external_chat_id="group-1",
         is_group=True,
         agent_id="agent-a",
+        ingress=_external_shadow_ingress("implicit-shadow"),
         metadata={
             "mentioned_agent_ids": ["agent-a"],
             "implicit_external_agent_target": True,
@@ -504,7 +560,13 @@ def test_new_replay_with_a_stable_ingress_id_does_not_create_another_session(
         external_user_id="user-1",
         external_chat_id="chat-1",
         is_group=False,
-        metadata={"relay_task_id": "relay-new-1"},
+        ingress=InboundIngress(
+            im_relay=IMRelayIngress(
+                relay_task_id="relay-new-1",
+                idempotency_key="idem-new-1",
+                im_message_id="msg-new-1",
+            )
+        ),
     )
 
     first = asyncio.run(pipeline.handle_inbound(inbound))
@@ -543,7 +605,13 @@ def test_new_ack_uses_an_im_dispatch_identity_that_the_web_relay_accepts(
                 external_user_id="user-1",
                 external_chat_id="chat-1",
                 is_group=False,
-                metadata={"relay_task_id": "relay-new-1"},
+                ingress=InboundIngress(
+                    im_relay=IMRelayIngress(
+                        relay_task_id="relay-new-1",
+                        idempotency_key="idem-new-1",
+                        im_message_id="msg-new-1",
+                    )
+                ),
             )
         )
     )
@@ -585,7 +653,13 @@ def test_compact_with_focus_uses_the_current_binding_without_creating_a_turn(
             replace(
                 first,
                 text="/compact 保留认证方案与未完成项",
-                metadata={"relay_task_id": "relay-compact-1"},
+                ingress=InboundIngress(
+                    im_relay=IMRelayIngress(
+                        relay_task_id="relay-compact-1",
+                        idempotency_key="idem-compact-1",
+                        im_message_id="msg-compact-1",
+                    )
+                ),
             )
         )
     )
@@ -594,7 +668,13 @@ def test_compact_with_focus_uses_the_current_binding_without_creating_a_turn(
             replace(
                 first,
                 text="/compact 保留认证方案与未完成项",
-                metadata={"relay_task_id": "relay-compact-1"},
+                ingress=InboundIngress(
+                    im_relay=IMRelayIngress(
+                        relay_task_id="relay-compact-1",
+                        idempotency_key="idem-compact-1",
+                        im_message_id="msg-compact-1",
+                    )
+                ),
             )
         )
     )
@@ -726,10 +806,12 @@ def test_repeated_feishu_stop_noop_uses_per_message_im_dedupe_key(
             external_chat_id="feishu:app:dm:ou-user",
             is_group=False,
             agent_id="agent-a",
+            ingress=_feishu_ingress(
+                chat_id="feishu:app:dm:ou-user",
+                event_id=message_id,
+                is_group=False,
+            ),
             metadata={
-                "external_source": "feishu",
-                "external_chat_id": "feishu:app:dm:ou-user",
-                "trigger_source": "feishu",
                 "shadow_conversation_id": "conv-shadow",
                 "feishu_message_id": message_id,
             },
@@ -859,6 +941,11 @@ def test_stop_command_with_structured_feishu_display_mention_is_recognized(
         external_user_id="user-1",
         external_chat_id="grp-1",
         is_group=True,
+        ingress=_feishu_ingress(
+            chat_id="feishu:app:group:grp-1",
+            event_id="event-structured-stop",
+            is_group=True,
+        ),
         metadata={
             "mentioned_agent_ids": ["agent-a"],
             "feishu_mentions": [
@@ -893,6 +980,7 @@ def test_stop_command_with_agent_after_slash_is_recognized(tmp_path: Path) -> No
         external_user_id="user-1",
         external_chat_id="grp-1",
         is_group=True,
+        ingress=_relay_ingress("agent-after-slash"),
         metadata={"mentioned_agent_ids": ["agent-a"]},
     )
 
@@ -926,6 +1014,7 @@ def test_stop_command_does_not_enter_group_context_buffer(tmp_path: Path) -> Non
         external_user_id="user-1",
         external_chat_id="grp-1",
         is_group=True,
+        ingress=_relay_ingress("buffer-stop"),
         metadata={"mentioned_agent_ids": ["agent-a"]},
     )
 
@@ -1002,6 +1091,7 @@ async def test_bare_stop_in_group_multi_agent_stops_only_running_no_noise(
                 external_chat_id="grp-1",
                 is_group=True,
                 agent_id="agent-a",
+                ingress=_relay_ingress("active-group-work"),
                 metadata={"mentioned_agent_ids": ["agent-a"]},
             )
         )
@@ -1017,6 +1107,7 @@ async def test_bare_stop_in_group_multi_agent_stops_only_running_no_noise(
             external_chat_id="grp-1",
             is_group=True,
             agent_id=agent_id,
+            ingress=_relay_ingress(f"bare-stop-{agent_id}"),
             metadata={"mentioned_agent_ids": []},
         )
         await pipeline.handle_inbound(msg)
@@ -1065,6 +1156,7 @@ def test_bare_stop_in_group_no_active_run_has_no_side_effect(tmp_path: Path) -> 
         external_user_id="user-1",
         external_chat_id="grp-1",
         is_group=True,
+        ingress=_relay_ingress("bare-stop-noop"),
         metadata={"mentioned_agent_ids": []},
     )
 

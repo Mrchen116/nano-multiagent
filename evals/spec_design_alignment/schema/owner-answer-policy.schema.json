@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nano-multiagent.local/evaluation/schema/owner-answer-policy.schema.json",
+  "title": "Private pre-run owner answer and replay policy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "case_id",
+    "status",
+    "policy_version",
+    "creation_mode",
+    "decision_inventory_sha256",
+    "frozen_before_arm_output",
+    "owner_blind_to_arm_outputs",
+    "entries",
+    "response_bank_sha256"
+  ],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schema_version": {"const": "1.0"},
+    "case_id": {"type": "string", "pattern": "^(H|P)[0-9]{2}$"},
+    "status": {"enum": ["draft", "frozen"]},
+    "policy_version": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"},
+    "creation_mode": {"enum": ["historical_owner_record", "blind_owner_preseal"]},
+    "decision_inventory_sha256": {"$ref": "#/$defs/hashOrPending"},
+    "frozen_before_arm_output": {"const": true},
+    "owner_blind_to_arm_outputs": {"const": true},
+    "entries": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/entry"}
+    },
+    "response_bank_sha256": {"$ref": "#/$defs/hashOrPending"}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"status": {"const": "frozen"}},
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "decision_inventory_sha256": {"$ref": "#/$defs/hash"},
+          "response_bank_sha256": {"$ref": "#/$defs/hash"}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "hashOrPending": {
+      "type": "string",
+      "pattern": "^(?:pending|[a-f0-9]{64})$"
+    },
+    "hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "decision_id",
+        "semantic_answer",
+        "source_refs",
+        "replay_mode"
+      ],
+      "properties": {
+        "decision_id": {"type": "string", "pattern": "^D[0-9]{2,}$"},
+        "semantic_answer": {"type": "string", "minLength": 1, "pattern": "\\S"},
+        "source_refs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "replay_mode": {"const": "only_if_run_raises_equivalent_decision"}
+      }
+    }
+  }
+}

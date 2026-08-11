@@ -10,7 +10,10 @@ import httpx
 from agent.sdk import WorkflowRunInfo
 
 from personal_assistant.channels.base import (
+    ExternalConversationIdentity,
     ExternalInboundEventIdentity,
+    IMRelayIngress,
+    InboundIngress,
     InboundMessage,
     OutboundMessage,
 )
@@ -18,13 +21,14 @@ from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from tests.helpers.inbound_pipeline import build_inbound_pipeline, inbound_graph
 from personal_assistant.gateway.outbound_router import OutboundRouter
-from personal_assistant.gateway.run_queue import SessionRunQueue
-from personal_assistant.gateway.runtime_protocol import (
-    ExternalConversationIdentity,
-    RuntimeProtocolFacts,
+from personal_assistant.gateway.inbound_models import (
+    GatewayShadowState,
     ShadowConversationRef,
-    attach_runtime_protocol,
 )
+from personal_assistant.gateway.runtime_delivery.background import (
+    reply_context_im_conversation_id,
+)
+from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.shadow_saga import ExternalShadowSagaStore
 from personal_assistant.gateway.shadow_sync import IMShadowConversationSync
 from personal_assistant.gateway.session_keys import (
@@ -41,7 +45,7 @@ class _ShadowSync:
         self,
         *,
         conversation_id: str | None = "shadow-conv-1",
-        shadow_saga_id: str | None = None,
+        shadow_saga_id: str = "shadow-saga-1",
     ) -> None:
         self.conversation_id = conversation_id
         self.shadow_saga_id = shadow_saga_id
@@ -49,14 +53,16 @@ class _ShadowSync:
 
     async def sync_user_message(
         self, message: InboundMessage, *, agent_id: str
-    ) -> ShadowConversationRef | None:
+    ) -> GatewayShadowState:
         self.calls.append({"message": message, "agent_id": agent_id})
         if self.conversation_id is None:
-            return None
-        return ShadowConversationRef(
-            conversation_id=self.conversation_id,
-            im_message_id="shadow-message-1",
-            shadow_saga_id=self.shadow_saga_id,
+            return GatewayShadowState()
+        return GatewayShadowState(
+            saga_id=self.shadow_saga_id,
+            ref=ShadowConversationRef(
+                conversation_id=self.conversation_id,
+                im_message_id="shadow-message-1",
+            ),
         )
 
 
@@ -70,7 +76,7 @@ class _BlockingCompactShadowSync(_ShadowSync):
 
     async def sync_user_message(
         self, message: InboundMessage, *, agent_id: str
-    ) -> ShadowConversationRef | None:
+    ) -> GatewayShadowState:
         if message.text == "/compact":
             self.compact_started.set()
             await self.release_compact.wait()
@@ -87,6 +93,18 @@ def _external_message(text: str) -> InboundMessage:
         external_chat_id="oc_feishu_chat",
         is_group=False,
         agent_id="agent-a",
+        ingress=InboundIngress(
+            external_conversation=ExternalConversationIdentity(
+                external_source="feishu",
+                external_chat_id="oc_feishu_chat",
+                agent_id="agent-a",
+                trigger_source="feishu",
+            ),
+            external_event=ExternalInboundEventIdentity(
+                connector_account_id="app-a",
+                provider_event_id=f"event-{text}",
+            ),
+        ),
         metadata={
             "external_source": "feishu",
             "external_chat_id": "oc_feishu_chat",
@@ -365,7 +383,7 @@ def test_disabled_workflow_slash_command_remains_normal_user_text(
     assert kernel.send_calls[0]["texts"] == ["/workflows"]
 
 
-def test_external_inbound_syncs_user_message_and_seeds_shadow_metadata(
+def test_anchored_external_inbound_persists_and_refreshes_shadow_reply_target(
     tmp_path: Path,
 ) -> None:
     agents = _agents(tmp_path)
@@ -373,14 +391,19 @@ def test_external_inbound_syncs_user_message_and_seeds_shadow_metadata(
     registry = ChannelRegistry((channel,))
     kernel_client = _FakeKernel()
     sync = _ShadowSync(conversation_id="shadow-conv-1")
+    session_store = SessionBindingStore()
     lifecycle: list[tuple[str, str | None, str | None]] = []
 
-    async def _capture(message: InboundMessage, update) -> None:  # noqa: ANN001
+    async def _capture(routed, update) -> None:  # noqa: ANN001
         lifecycle.append(
             (
                 update.phase,
                 update.run_id,
-                message.metadata.get("shadow_conversation_id"),
+                (
+                    routed.shadow.ref.conversation_id
+                    if routed.shadow.ref is not None
+                    else None
+                ),
             )
         )
 
@@ -389,7 +412,7 @@ def test_external_inbound_syncs_user_message_and_seeds_shadow_metadata(
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
+        session_store=session_store,
         default_agent_id="agent-a",
         relay_lifecycle_callback=_capture,
         shadow_sync=sync,
@@ -401,6 +424,18 @@ def test_external_inbound_syncs_user_message_and_seeds_shadow_metadata(
         external_chat_id="oc_feishu_chat",
         is_group=False,
         agent_id="agent-a",
+        ingress=InboundIngress(
+            external_conversation=ExternalConversationIdentity(
+                external_source="feishu",
+                external_chat_id="oc_feishu_chat",
+                agent_id="agent-a",
+                trigger_source="feishu",
+            ),
+            external_event=ExternalInboundEventIdentity(
+                connector_account_id="app-a",
+                provider_event_id="event-ping",
+            ),
+        ),
         metadata={
             "external_source": "feishu",
             "external_chat_id": "oc_feishu_chat",
@@ -417,6 +452,30 @@ def test_external_inbound_syncs_user_message_and_seeds_shadow_metadata(
     assert lifecycle[0] == ("accepted", "run-1", "shadow-conv-1")
     assert channel.sent[0].target_chat_id == "oc_feishu_chat"
 
+    session_key = build_session_key(inbound, agent_id="agent-a")
+    binding = session_store.get(session_key)
+    assert binding is not None
+    assert reply_context_im_conversation_id(binding.reply_context) == "shadow-conv-1"
+
+    sync.conversation_id = "shadow-conv-2"
+    refreshed = replace(
+        inbound,
+        text="second anchored message",
+        ingress=replace(
+            inbound.ingress,
+            external_event=ExternalInboundEventIdentity(
+                connector_account_id="app-a",
+                provider_event_id="event-second",
+            ),
+        ),
+    )
+    second_result = asyncio.run(pipeline.handle_inbound(refreshed))
+
+    assert second_result is not None
+    binding = session_store.get(session_key)
+    assert binding is not None
+    assert reply_context_im_conversation_id(binding.reply_context) == "shadow-conv-2"
+
 
 def test_external_shadow_sync_failure_does_not_block_or_seed_lazy_direct(
     tmp_path: Path,
@@ -428,12 +487,16 @@ def test_external_shadow_sync_failure_does_not_block_or_seed_lazy_direct(
     sync = _ShadowSync(conversation_id=None)
     lifecycle: list[tuple[str, str | None, str | None]] = []
 
-    async def _capture(message: InboundMessage, update) -> None:  # noqa: ANN001
+    async def _capture(routed, update) -> None:  # noqa: ANN001
         lifecycle.append(
             (
                 update.phase,
                 update.run_id,
-                message.metadata.get("shadow_conversation_id"),
+                (
+                    routed.shadow.ref.conversation_id
+                    if routed.shadow.ref is not None
+                    else None
+                ),
             )
         )
 
@@ -454,6 +517,18 @@ def test_external_shadow_sync_failure_does_not_block_or_seed_lazy_direct(
         external_chat_id="oc_feishu_chat",
         is_group=False,
         agent_id="agent-a",
+        ingress=InboundIngress(
+            external_conversation=ExternalConversationIdentity(
+                external_source="feishu",
+                external_chat_id="oc_feishu_chat",
+                agent_id="agent-a",
+                trigger_source="feishu",
+            ),
+            external_event=ExternalInboundEventIdentity(
+                connector_account_id="app-a",
+                provider_event_id="event-outage",
+            ),
+        ),
         metadata={
             "external_source": "feishu",
             "external_chat_id": "oc_feishu_chat",
@@ -504,22 +579,20 @@ def test_external_without_provider_identity_replies_without_shadow_side_effects(
         default_agent_id="agent-a",
         shadow_sync=shadow_sync,
     )
-    inbound = attach_runtime_protocol(
-        InboundMessage(
-            channel_name="slack:agent-a",
-            text="still answer",
-            external_user_id="slack-user",
-            external_chat_id="slack-chat",
-            is_group=False,
-            agent_id="agent-a",
-        ),
-        RuntimeProtocolFacts(
-            external_identity=ExternalConversationIdentity(
+    inbound = InboundMessage(
+        channel_name="slack:agent-a",
+        text="still answer",
+        external_user_id="slack-user",
+        external_chat_id="slack-chat",
+        is_group=False,
+        agent_id="agent-a",
+        ingress=InboundIngress(
+            external_conversation=ExternalConversationIdentity(
                 external_source="slack",
                 external_chat_id="slack-chat",
                 agent_id="agent-a",
                 trigger_source="external",
-            )
+            ),
         ),
     )
 
@@ -591,27 +664,23 @@ def test_im_outage_keeps_external_delivery_and_durably_records_final_shadow_outp
         shadow_sync=sync,
         shadow_output_prepare=prepare_output,
     )
-    inbound = attach_runtime_protocol(
-        replace(
-            InboundMessage(
-                channel_name="feishu:agent-a",
-                text="reply despite IM outage",
-                external_user_id="ou_user",
-                external_chat_id="oc_feishu_chat",
-                is_group=False,
-                agent_id="agent-a",
-            ),
-            external_event_identity=ExternalInboundEventIdentity(
-                connector_account_id="app-a", provider_event_id="event-a"
-            ),
-        ),
-        RuntimeProtocolFacts(
-            external_identity=ExternalConversationIdentity(
+    inbound = InboundMessage(
+        channel_name="feishu:agent-a",
+        text="reply despite IM outage",
+        external_user_id="ou_user",
+        external_chat_id="oc_feishu_chat",
+        is_group=False,
+        agent_id="agent-a",
+        ingress=InboundIngress(
+            external_conversation=ExternalConversationIdentity(
                 external_source="feishu",
                 external_chat_id="oc_feishu_chat",
                 agent_id="agent-a",
                 trigger_source="external",
-            )
+            ),
+            external_event=ExternalInboundEventIdentity(
+                connector_account_id="app-a", provider_event_id="event-a"
+            ),
         ),
     )
 
@@ -653,6 +722,18 @@ def test_online_shadow_anchor_does_not_prepare_duplicate_final_output(
         external_chat_id="oc_feishu_chat",
         is_group=False,
         agent_id="agent-a",
+        ingress=InboundIngress(
+            external_conversation=ExternalConversationIdentity(
+                external_source="feishu",
+                external_chat_id="oc_feishu_chat",
+                agent_id="agent-a",
+                trigger_source="feishu",
+            ),
+            external_event=ExternalInboundEventIdentity(
+                connector_account_id="app-a",
+                provider_event_id="event-online",
+            ),
+        ),
         metadata={
             "external_source": "feishu",
             "external_chat_id": "oc_feishu_chat",
@@ -793,8 +874,10 @@ def test_inbound_pipeline_emits_running_and_completed_relay_lifecycle_reports_wh
     kernel_client = _FakeKernel()
     seen: list[tuple[str, str | None, str | None]] = []
 
-    async def _capture(message: InboundMessage, update) -> None:  # noqa: ANN001
-        seen.append((update.phase, update.run_id, message.metadata.get("message_id")))
+    async def _capture(routed, update) -> None:  # noqa: ANN001
+        seen.append(
+            (update.phase, update.run_id, routed.message.metadata.get("message_id"))
+        )
 
     pipeline = build_inbound_pipeline(
         kernel=kernel_client,
@@ -811,6 +894,13 @@ def test_inbound_pipeline_emits_running_and_completed_relay_lifecycle_reports_wh
         external_user_id="user-1",
         external_chat_id="conv-1",
         is_group=False,
+        ingress=InboundIngress(
+            im_relay=IMRelayIngress(
+                relay_task_id="relay-1",
+                idempotency_key="idem-1",
+                im_message_id="msg-1",
+            )
+        ),
         metadata={"relay_task_id": "relay-1", "message_id": "msg-1"},
     )
 
@@ -917,12 +1007,12 @@ def test_inbound_pipeline_builds_reply_text_from_session_events_when_run_snapsho
     kernel_client = _FakeKernel()
     seen: list[tuple[str, str | None, str | None, str | None]] = []
 
-    async def _capture(message: InboundMessage, update) -> None:  # noqa: ANN001
+    async def _capture(routed, update) -> None:  # noqa: ANN001
         seen.append(
             (
                 update.phase,
                 update.run_id,
-                message.metadata.get("message_id"),
+                routed.message.metadata.get("message_id"),
                 update.reply_text,
             )
         )
@@ -942,6 +1032,13 @@ def test_inbound_pipeline_builds_reply_text_from_session_events_when_run_snapsho
         external_user_id="user-1",
         external_chat_id="conv-1",
         is_group=False,
+        ingress=InboundIngress(
+            im_relay=IMRelayIngress(
+                relay_task_id="relay-1",
+                idempotency_key="idem-1",
+                im_message_id="msg-1",
+            )
+        ),
         metadata={"relay_task_id": "relay-1", "message_id": "msg-1"},
     )
     kernel_client.session_events["sess-1"] = [

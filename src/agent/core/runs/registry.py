@@ -247,6 +247,7 @@ class RunsRegistry:
                 TurnRequest(
                     parts=tuple(normalized_parts),
                     run_id=run_id,
+                    trace_id=resolved_trace_id,
                     controller=controller,
                     origin=origin,
                     model=model,

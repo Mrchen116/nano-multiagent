@@ -1,0 +1,3 @@
+# Private input for candidate-export scanning; do not export this file.
+# One literal or regular-expression signature per non-comment line.
+# Add target unit names, unique phrases, symbols, commit fragments, and private artifact names before sealing.

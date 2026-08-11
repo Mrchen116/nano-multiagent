@@ -1,0 +1,56 @@
+{
+  "$schema": "../../schema/run-ledger.schema.json",
+  "schema_version": "1.0",
+  "run_id": "pending",
+  "status": "planned",
+  "case_id": "P99",
+  "arm_id": "A",
+  "repetition": 1,
+  "suite_seal": {
+    "ref": "experiments/feat_397_agent_team/suite-seal.json",
+    "sha256": "pending"
+  },
+  "observed_run_plan_sha256": "pending",
+  "observed_environment": {
+    "model": {
+      "model_id": "pending",
+      "build_id": "pending",
+      "reasoning_settings_sha256": "pending"
+    },
+    "judge_model": {
+      "model_id": "pending",
+      "build_id": "pending",
+      "reasoning_settings_sha256": "pending"
+    },
+    "tooling": {
+      "runner_image_digest": "pending",
+      "tool_manifest_sha256": "pending",
+      "permission_manifest_sha256": "pending",
+      "sandbox_policy_sha256": "pending"
+    }
+  },
+  "observed_refinement_sha256": "pending",
+  "control_component_hashes": {
+    "question_mapper": "pending",
+    "judge_prompt": "pending",
+    "anonymization_protocol": "pending",
+    "mutation_plan": "pending",
+    "acceptance_plan": "pending"
+  },
+  "case_runtime_refs_manifest_sha256": "pending",
+  "treatment_manifest_sha256": "pending",
+  "owner_policy_sha256": "pending",
+  "s0_export_manifest_sha256": "pending",
+  "fresh_root_commit": "pending",
+  "initial_package_sha256": "pending",
+  "refined_package_sha256": "pending",
+  "owner_replay_sha256": "pending",
+  "final_artifacts_manifest_sha256": "pending",
+  "counters": {
+    "model_calls": 0,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "wall_seconds": 0,
+    "user_active_seconds": 0
+  }
+}

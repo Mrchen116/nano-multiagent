@@ -1,0 +1,130 @@
+{
+  "$schema": "../../schema/treatment-manifest.schema.json",
+  "schema_version": "1.0",
+  "case_id": "P99",
+  "status": "draft",
+  "suite_treatment_lock_ref": "experiments/feat_397_agent_team/suite-treatment-lock.json",
+  "suite_treatment_lock_sha256": "pending",
+  "workflow_clock_id": "feat397-current-vs-team-v1",
+  "artifact_contract": "single_unit",
+  "source_root_manifest_ref": "source-roots.json",
+  "source_root_manifest_sha256": "pending",
+  "public_brief_sha256": "pending",
+  "shared_helpers": {
+    "component_ids": [
+      "shared-helpers-v1",
+      "artifact-contract-single-unit-v1"
+    ],
+    "source_allowlist": [],
+    "source_denylist": [
+      "evals/spec_design_alignment"
+    ],
+    "dependency_closure": [],
+    "files_sha256": "pending"
+  },
+  "forbidden_atoms": [
+    "feat-397-spec-design-agent-team/evaluation",
+    "judge-private/",
+    "owner_review_required"
+  ],
+  "arms": {
+    "A": {
+      "arm_id": "A",
+      "treatment_id": "A-current-no-profile-v1",
+      "workflow_component_id": "workflow-current-spec-design-v1",
+      "profile_component_id": null,
+      "workflow": "current_spec_design_skills",
+      "profile_mode": "none",
+      "source_allowlist": [],
+      "source_denylist": [
+        "evals/spec_design_alignment"
+      ],
+      "dependency_closure": [],
+      "workflow_sha256": "pending",
+      "profile_sha256": null,
+      "bundle_sha256": "pending",
+      "export": {
+        "materialized_root": "runtime/P99/exports/A",
+        "files_manifest_sha256": "pending",
+        "source_scrub_manifest_sha256": "pending",
+        "installed_arm_ids": [
+          "A"
+        ],
+        "assertions": {
+          "selected_only_arm": true,
+          "source_scrubbed": true,
+          "control_assets_absent": true,
+          "leak_scan_passed": true
+        }
+      }
+    },
+    "A_USER": {
+      "arm_id": "A_USER",
+      "treatment_id": "A-user-current-profile-v1",
+      "workflow_component_id": "workflow-current-spec-design-v1",
+      "profile_component_id": "profile-P99-current-loo-v1",
+      "workflow": "current_spec_design_skills",
+      "profile_mode": "current_cross_fitted",
+      "source_allowlist": [],
+      "source_denylist": [
+        "evals/spec_design_alignment"
+      ],
+      "dependency_closure": [],
+      "workflow_sha256": "pending",
+      "profile_sha256": "pending",
+      "bundle_sha256": "pending",
+      "export": {
+        "materialized_root": "runtime/P99/exports/A_USER",
+        "files_manifest_sha256": "pending",
+        "source_scrub_manifest_sha256": "pending",
+        "installed_arm_ids": [
+          "A_USER"
+        ],
+        "assertions": {
+          "selected_only_arm": true,
+          "source_scrubbed": true,
+          "control_assets_absent": true,
+          "leak_scan_passed": true
+        }
+      }
+    },
+    "B": {
+      "arm_id": "B",
+      "treatment_id": "B-feat397-team-v1",
+      "workflow_component_id": "workflow-feat397-team-v1",
+      "profile_component_id": "profile-P99-current-loo-v1",
+      "workflow": "spec_design_agent_team",
+      "profile_mode": "current_cross_fitted",
+      "source_allowlist": [],
+      "source_denylist": [
+        "evals/spec_design_alignment"
+      ],
+      "dependency_closure": [],
+      "workflow_sha256": "pending",
+      "profile_sha256": "pending",
+      "bundle_sha256": "pending",
+      "export": {
+        "materialized_root": "runtime/P99/exports/B",
+        "files_manifest_sha256": "pending",
+        "source_scrub_manifest_sha256": "pending",
+        "installed_arm_ids": [
+          "B"
+        ],
+        "assertions": {
+          "selected_only_arm": true,
+          "source_scrubbed": true,
+          "control_assets_absent": true,
+          "leak_scan_passed": true
+        }
+      }
+    }
+  },
+  "assertions": {
+    "a_a_user_workflow_byte_identical": true,
+    "a_has_no_profile": true,
+    "a_user_b_profile_byte_identical": true,
+    "shared_helpers_byte_identical": true,
+    "b_evaluation_atoms_absent": true,
+    "b_target_atoms_absent": true
+  }
+}

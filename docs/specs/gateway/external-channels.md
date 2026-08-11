@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - External Channels Specification
 
-> 对齐: bugfix-526
+> 对齐: bugfix-529
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -145,7 +145,7 @@ Agent 回复是否回写外部 channel 取决于触发该 run 的用户消息来
 
 ### Requirement: 外部 channel 用户可见控制与后台文本投递
 
-飞书触发或绑定的用户可见事件必须回到原飞书 chat，并同步到内部 IM 影子会话；内部 IM 影子会话触发的同类事件只留在内部 IM。用户可见事件包括 assistant 文本、`/stop`、`/new`、`/compact` 及 `/compact <关注点>` 的控制确认、预处理失败、后台 agent 文本、权限审批卡片和审批完成状态。外部控制确认的 session/context outcome 与可恢复 delivery intent 必须先同次持久化；该 intent 幂等物化为 shadow output 后才向飞书发送，重放同一 provider message 复用首次控制结果，不重复改变会话或上下文。Gateway 启动和 IM reconnect 必须扫描未物化或未 hand-off 的 intent。若进程恰在 provider 已接受发送、但 hand-off 状态尚未来得及持久化时退出，飞书沿既有 at-least-once outbound 语义可能收到一次重复确认；本系统不伪造跨 provider exactly-once 保证，IM shadow 仍以同一 durable output 收敛。系统通知、thinking、工具遥测和调试状态不作为飞书普通聊天消息外发。
+飞书触发或绑定的用户可见事件必须回到原飞书 chat，并同步到内部 IM 影子会话；内部 IM 影子会话触发的同类事件只留在内部 IM。用户可见事件包括 assistant 文本、`/stop`、`/new`、`/compact` 及 `/compact <关注点>` 的控制确认、预处理失败、后台 agent 文本、权限审批卡片和审批完成状态。含非空真实更新对象的 `self_evolution_review` system notice 遵守同一触发源规则：飞书触发时在原 chat 显示简短 Bot 更新通知并在 shadow IM 保留结构化 system notice，内部 IM 触发时不回写飞书。外部控制确认的 session/context outcome 与可恢复 delivery intent 必须先同次持久化；该 intent 幂等物化为 shadow output 后才向飞书发送，重放同一 provider message 复用首次控制结果，不重复改变会话或上下文。Gateway 启动和 IM reconnect 必须扫描未物化或未 hand-off 的 intent。若进程恰在 provider 已接受发送、但 hand-off 状态尚未来得及持久化时退出，飞书沿既有 at-least-once outbound 语义可能收到一次重复确认；本系统不伪造跨 provider exactly-once 保证，IM shadow 仍以同一 durable output 收敛。其他系统通知、thinking、工具遥测和调试状态不作为飞书普通聊天消息外发。
 
 #### Scenario: 飞书 /stop 成功后用户在飞书看到确认
 - **GIVEN** 用户在飞书 1:1 对话中触发了一个正在运行的 agent run
@@ -204,6 +204,33 @@ Agent 回复是否回写外部 channel 取决于触发该 run 的用户消息来
 - **THEN** 该文本发送到原飞书 chat
 - **AND** 该文本同步到内部 IM 影子会话
 
+#### Scenario: 飞书触发的 self-evolution review 通知回到原 chat
+
+- **GIVEN** 用户从飞书发送消息，随后后台 review 确实成功写入 memory、skills 或两者
+- **WHEN** `self_evolution_review` 通知产生
+- **THEN** 原飞书 chat 收到一条简短、非第一人称的 Bot 通知，说明更新对象
+- **AND** 内部 IM 影子会话保留同一结果的结构化 system notice
+- **AND** 两端都不显示具体沉淀内容、review prompt 或工具过程
+
+#### Scenario: 内部 IM 触发的 review 不回写飞书
+
+- **GIVEN** 用户从内部 IM 或飞书影子会话发送消息，随后后台 review 确实成功写入 memory、skills 或两者
+- **WHEN** `self_evolution_review` 通知产生
+- **THEN** 通知只显示在当前内部 IM 对话
+- **AND** 飞书原 chat 不收到对应消息
+
+#### Scenario: 无成功写入的 review 不发送更新通知
+
+- **GIVEN** self-evolution review 无需写入、只执行 list/read，或 mutating tool 执行失败
+- **WHEN** 本轮后台 review 结束
+- **THEN** 用户不收到 raw `Nothing to save.` 或工具过程
+- **AND** 飞书与 shadow IM 均不产生 self-evolution update notice
+
+#### Scenario: 其他内部运行态事件仍不外发
+
+- **WHEN** Agent 产生 thinking、工具过程、token 使用量、debug/status 或其他未单独产品化的 system notice
+- **THEN** 这些事件不作为普通消息发送到飞书
+
 ### Requirement: 飞书群聊背景上下文等价内部 IM 群聊
 
 飞书群聊复用内部 IM 群聊的 group-context 语义：未触发回复的普通群消息也进入对应 agent 的群背景上下文；后续 @Bot、纯 @Bot 或 ALWAYS 策略触发时，这些背景消息进入本轮模型上下文。`@Bot` 既是用户可见消息内容，也是触发信号；Gateway 不得为了 mention gate 从 IM 展示或模型输入中删除 @ 内容。
@@ -228,13 +255,15 @@ Agent 回复是否回写外部 channel 取决于触发该 run 的用户消息来
 
 ### Requirement: 飞书原生工具权限审批
 
-飞书触发的 agent run 产生工具权限审批时，Gateway 在内部 IM 影子会话保留现有审批卡，同时在飞书原对话发送原生 interactive approval card。飞书卡片用同一套通用字段布局展示工具输入，不按具体工具硬编码卡片：1:1 对话逐字段展示足以判断实际操作的 input values；群聊保留字段名但统一隐藏 values，并提示到内部 IM 查看完整输入，避免全群读取 owner 的敏感工具参数。超出卡片文本预算时可以在字段内明确截断，但不得退化为只展示参数数量或整段难以扫描的 JSON。内部 IM 与飞书两端审批 first-wins：任一端先完成决策后，另一端后续重复点击不得再次改变该请求。飞书群聊中，非 owner 成员不能代表 owner 审批工具权限。
+飞书触发的 agent run 产生工具权限审批时，Gateway 在内部 IM 影子会话保留现有审批卡，同时在飞书原对话发送原生 interactive approval card。飞书卡片用同一套通用字段布局展示工具输入，不按具体工具硬编码卡片：1:1 对话的短值在灰底分组中直接显示 label、物理行数与 value；长单行或多行值使用默认收起的飞书原生折叠面板，header 显示 label、总行数和最多两行紧凑摘要，原生展开后在同一面板显示完整值。默认卡片不得把 Markdown fence、`↵`、raw JSON 或整墙正文作为 values 的主要呈现。群聊保留字段名但统一隐藏 values，并提示到内部 IM 查看完整输入，避免全群读取 owner 的敏感工具参数。超出平台完整值预算时可以明确截断，但不得退化为只展示参数数量或整段难以扫描的 JSON。原生折叠交互不提交审批决策；内部 IM 与飞书两端审批 first-wins：任一端先完成决策后，另一端后续重复点击不得再次改变该请求。飞书群聊中，非 owner 成员不能代表 owner 审批工具权限。
 
 #### Scenario: 飞书触发的工具审批可在飞书中完成
 - **GIVEN** 用户在飞书 1:1 对话中发送一条会触发受控工具的消息
 - **WHEN** agent 请求工具权限
 - **THEN** 飞书原对话出现 interactive approval card
 - **AND** 卡片逐字段显示本次工具调用的输入 label 与 value，用户无需切换到内部 IM 即可判断将执行的操作
+- **AND** 短值直接显示在灰底分组中；长值默认只显示 label、总行数与有界摘要，用户可用原生折叠面板展开完整值并再次收起
+- **AND** 展开或收起输入值不等于 Allow、Deny 或 Allow for session，也不改变待审批状态
 - **AND** 内部 IM 影子会话也出现同一审批请求
 - **WHEN** 用户在飞书 approval card 中点击允许
 - **THEN** agent run 继续执行并把后续回复发回飞书
@@ -243,6 +272,7 @@ Agent 回复是否回写外部 channel 取决于触发该 run 的用户消息来
 - **GIVEN** 飞书群聊中 agent run 产生工具权限审批，且 input 可能包含敏感值
 - **WHEN** Gateway 在原群发送 approval card
 - **THEN** 卡片使用与 1:1 相同的字段布局显示 input labels，但 values 统一标记为群内隐藏
+- **AND** Request metadata 使用固定安全提示，不携带原 question 中的 path、reason 或 @ 等操作细节
 - **AND** 卡片提示 owner 到内部 IM 审批查看完整输入
 - **AND** 非 owner 群成员不能从卡片读取工具输入值
 

@@ -1,0 +1,20 @@
+{
+  "$schema": "../../schema/layer-manifest.schema.json",
+  "schema_version": "1.0",
+  "case_id": "P99",
+  "status": "draft",
+  "kind": "product_world",
+  "materialized_root": "runtime/P99/layers/product-world",
+  "source_root_ids": [
+    "replace-with-source-root-id"
+  ],
+  "source_root_manifest_sha256": "pending",
+  "files": [],
+  "files_manifest_sha256": "pending",
+  "assertions": {
+    "source_scrubbed": true,
+    "agents_projection_verified": true,
+    "control_assets_absent": true,
+    "leak_scan_passed": true
+  }
+}

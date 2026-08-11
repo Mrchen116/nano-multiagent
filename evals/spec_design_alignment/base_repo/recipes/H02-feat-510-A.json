@@ -1,0 +1,302 @@
+{
+  "$schema": "../recipe.schema.json",
+  "schema_version": "2.0",
+  "case_id": "H02",
+  "contract": {
+    "method_id": "counterfactual-latest-base-v1",
+    "projection_level": "DP1-counterfactual-latest-v1",
+    "truth_formula": "Code@B + ProductClaims@B + DocsFramework@F + Workflow@W",
+    "clocks": {
+      "product": {
+        "commit": "e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6",
+        "tree": "64ee09dd5aae44f36fff9325835c7c45dc088b5c"
+      },
+      "knowledge": {
+        "commit": "e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6",
+        "tree": "64ee09dd5aae44f36fff9325835c7c45dc088b5c"
+      },
+      "documentation_framework": {
+        "clock_id": "docs-framework-adb93d33a-v1",
+        "commit": "adb93d33a2ec5443a647dd367eb67557ac72e199",
+        "tree": "025b16b8c900c2b40ac23b126f99eda94e280633"
+      },
+      "workflow": {
+        "clock_id": "workflow-A-adb93d33a-v1",
+        "commit": "adb93d33a2ec5443a647dd367eb67557ac72e199",
+        "tree": "025b16b8c900c2b40ac23b126f99eda94e280633"
+      },
+      "user": {
+        "mode": "disabled_for_A"
+      },
+      "model_tool": {
+        "mode": "suite_frozen_at_run"
+      }
+    },
+    "layers": [
+      "product_world",
+      "documentation_world",
+      "common_compatibility",
+      "arm_bundle",
+      "private_controls"
+    ]
+  },
+  "source": {
+    "ref": "e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6",
+    "expected_commit": "e9a2a02b48a651bdd1cb871c7a1a27c0f0c1c0d6",
+    "expected_tree": "64ee09dd5aae44f36fff9325835c7c45dc088b5c"
+  },
+  "scrub": {
+    "remove_paths": [
+      ".claude",
+      ".agents",
+      ".codex",
+      "CLAUDE.md",
+      "CODEX.md",
+      "cc-hooks-on",
+      "cc-hooks-off"
+    ],
+    "archive_lineage": {
+      "policy": "drop_noncompleted_cross_references_v1",
+      "drop_units": [
+        {
+          "path": "docs/changes/archive/bugfix-491-shadow-owner-recovery",
+          "referenced_noncompleted_unit_ids": [
+            "bugfix-497"
+          ]
+        },
+        {
+          "path": "docs/changes/archive/bugfix-493-frontend-npm-audit",
+          "referenced_noncompleted_unit_ids": [
+            "bugfix-495",
+            "bugfix-497"
+          ]
+        },
+        {
+          "path": "docs/changes/archive/bugfix-496-feishu-orphan-listener",
+          "referenced_noncompleted_unit_ids": [
+            "bugfix-497"
+          ]
+        },
+        {
+          "path": "docs/changes/archive/bugfix-499-lark-skill-bundle",
+          "referenced_noncompleted_unit_ids": [
+            "bugfix-497"
+          ]
+        },
+        {
+          "path": "docs/changes/archive/bugfix-508-im-command-picker",
+          "referenced_noncompleted_unit_ids": [
+            "feat-501"
+          ]
+        },
+        {
+          "path": "docs/changes/archive/feat-338-kernel-message-sse",
+          "referenced_noncompleted_unit_ids": [
+            "feat-336"
+          ]
+        },
+        {
+          "path": "docs/changes/archive/feat-421-critical-path-e2e-suite",
+          "referenced_noncompleted_unit_ids": [
+            "feat-397"
+          ]
+        },
+        {
+          "path": "docs/changes/archive/feat-446-skill-view-tool",
+          "referenced_noncompleted_unit_ids": [
+            "feat-444"
+          ]
+        },
+        {
+          "path": "docs/changes/archive/refactor-486-agent-native-repository-knowledge-system",
+          "referenced_noncompleted_unit_ids": [
+            "feat-444"
+          ]
+        }
+      ]
+    },
+    "instruction_marker": "SKILL.md",
+    "product_instruction_roots": [
+      "src/personal_assistant/builtin_skills"
+    ],
+    "change_unit_policy": "remove_active_and_retired_keep_completed_archive"
+  },
+  "docs_projection": {
+    "mode": "preserve_exact"
+  },
+  "arm": {
+    "id": "A",
+    "ref": "adb93d33a2ec5443a647dd367eb67557ac72e199",
+    "files": [
+      {
+        "source": ".claude/skills/change-spec-author/SKILL.md",
+        "destination": ".claude/skills/change-spec-author/SKILL.md",
+        "sha256": "d2ef9890637a6ca9794e882ec564ee742d198cb748f8f5dac13405c019eca32b",
+        "install": "create"
+      },
+      {
+        "source": ".claude/skills/change-spec-author/assets/TEMPLATES_README.md",
+        "destination": ".claude/skills/change-spec-author/assets/TEMPLATES_README.md",
+        "sha256": "980dc95b9b698536216f6df96667f32acafa04521ddd1168777eae4eb0d9089a",
+        "install": "create"
+      },
+      {
+        "source": ".claude/skills/change-spec-author/assets/fix.md",
+        "destination": ".claude/skills/change-spec-author/assets/fix.md",
+        "sha256": "751eaa76b6c7144aa4ca2b9247d8617356f15d0af5d473504f1a07e6aff1f0e1",
+        "install": "create"
+      },
+      {
+        "source": ".claude/skills/change-spec-author/assets/incident.md",
+        "destination": ".claude/skills/change-spec-author/assets/incident.md",
+        "sha256": "283e09c03cf6199611ec10e09191bc9534b944c0d46c45dcdf9b8bde8b3cae93",
+        "install": "create"
+      },
+      {
+        "source": ".claude/skills/change-spec-author/assets/motivation.md",
+        "destination": ".claude/skills/change-spec-author/assets/motivation.md",
+        "sha256": "c60d760956770143d54e5347fe3767316ae741b89d9137c5c6bcaaa872f538f7",
+        "install": "create"
+      },
+      {
+        "source": ".claude/skills/change-spec-author/assets/spec.md",
+        "destination": ".claude/skills/change-spec-author/assets/spec.md",
+        "sha256": "73f0330ae93dda02ae15ae5819955265a7753b25fdb0305cdb05f6e1ff44b67e",
+        "install": "create"
+      },
+      {
+        "source": ".claude/skills/change-spec-author/scripts/next_unit_id.py",
+        "destination": ".claude/skills/change-spec-author/scripts/next_unit_id.py",
+        "sha256": "3556c260de6627222f5ef210f29013cb48510d6872bd114d9687e46a38bff349",
+        "install": "create"
+      },
+      {
+        "source": ".claude/skills/change-spec-reviewer/SKILL.md",
+        "destination": ".claude/skills/change-spec-reviewer/SKILL.md",
+        "sha256": "40bbbd124eaa400c07db9448aea981706bfd6df86e60a9e92f4e116f6e4fcb93",
+        "install": "create"
+      },
+      {
+        "source": ".claude/skills/change-design-author/SKILL.md",
+        "destination": ".claude/skills/change-design-author/SKILL.md",
+        "sha256": "03e7d877df1f8bc32444f9d08b87a7c22c9e4c2f77411b31c086c906f13a3899",
+        "install": "create"
+      },
+      {
+        "source": ".claude/skills/change-design-author/assets/design.md",
+        "destination": ".claude/skills/change-design-author/assets/design.md",
+        "sha256": "7b417ce3a36d41df5b7a2f30a404ab653534066a0201072ba21834c4e221cf00",
+        "install": "create"
+      },
+      {
+        "source": ".claude/skills/change-design-author/references/diagrams.md",
+        "destination": ".claude/skills/change-design-author/references/diagrams.md",
+        "sha256": "5ff0d1aa7950ac80e2a18e740cf5efe6575a5307e894280dce5bda40cd44f59a",
+        "install": "create"
+      },
+      {
+        "source": ".claude/skills/change-design-reviewer/SKILL.md",
+        "destination": ".claude/skills/change-design-reviewer/SKILL.md",
+        "sha256": "9ed35b5e7fe42df2ede05d175a1f17493512eba93f4130947b784d838d7b2b90",
+        "install": "create"
+      },
+      {
+        "source": "AGENTS.md",
+        "destination": "AGENTS.md",
+        "sha256": "c948b0beb8172d4e818349daaa9e11b6f28039e443c7764b97475817c9101420",
+        "install": "preserve_exact"
+      },
+      {
+        "source": "docs/changes/README.md",
+        "destination": "docs/changes/README.md",
+        "sha256": "33849541f32b721a1996d44c3081432ace70193406275834c917d7ec933daef0",
+        "install": "preserve_exact"
+      },
+      {
+        "source": "docs/development/change-workflow.md",
+        "destination": "docs/development/change-workflow.md",
+        "sha256": "97c5fb2e68370af752756c7e1c37cf5e41fda92ed07d7f111ac77c230bb18520",
+        "install": "preserve_exact"
+      }
+    ]
+  },
+  "assertions": {
+    "required_paths": [
+      "README.md",
+      "SPEC.md",
+      "AGENTS.md",
+      "docs/README.md",
+      "docs/changes/README.md",
+      "docs/development/README.md",
+      "docs/development/change-workflow.md",
+      "docs/specs/README.md",
+      "src/personal_assistant/builtin_skills",
+      ".claude/skills/change-spec-author/SKILL.md",
+      ".claude/skills/change-spec-reviewer/SKILL.md",
+      ".claude/skills/change-design-author/SKILL.md",
+      ".claude/skills/change-design-reviewer/SKILL.md"
+    ],
+    "required_sha256": {
+      "README.md": "a80fb4f6f180c596af47703c20dca033cf0fdd5deed87ee76e01c2541497da5d",
+      "SPEC.md": "80b3e30e8fde08ce2b8a80becf70a791c15cd90fe3402a2f795d557adeb6caa3",
+      "AGENTS.md": "c948b0beb8172d4e818349daaa9e11b6f28039e443c7764b97475817c9101420",
+      "docs/README.md": "14c40009bd598287831b845160de60781ec743dcef8ced2ad3185b968c32b881",
+      "docs/changes/README.md": "33849541f32b721a1996d44c3081432ace70193406275834c917d7ec933daef0",
+      "docs/development/README.md": "d1b319fb4f146fd7c0fcedc510c9b714a6c5b0ef3bfcc0dc31f2d014eb40e449",
+      "docs/development/change-workflow.md": "97c5fb2e68370af752756c7e1c37cf5e41fda92ed07d7f111ac77c230bb18520",
+      "docs/specs/README.md": "2ac45002021ad79112e3d5e95de6beeb2fbbb73a59bfe1fbb1aa4d50d8bbc590"
+    },
+    "forbidden_paths": [
+      "docs/changes/retired",
+      "docs/changes/feat-510-unified-tool-approval-model",
+      "docs/changes/feat-397-spec-design-agent-team",
+      "docs/changes/archive/bugfix-491-shadow-owner-recovery",
+      "docs/changes/archive/bugfix-493-frontend-npm-audit",
+      "docs/changes/archive/bugfix-496-feishu-orphan-listener",
+      "docs/changes/archive/bugfix-499-lark-skill-bundle",
+      "docs/changes/archive/bugfix-508-im-command-picker",
+      "docs/changes/archive/feat-338-kernel-message-sse",
+      "docs/changes/archive/feat-421-critical-path-e2e-suite",
+      "docs/changes/archive/feat-446-skill-view-tool",
+      "docs/changes/archive/refactor-486-agent-native-repository-knowledge-system"
+    ],
+    "forbidden_text": [
+      "feat-510-unified-tool-approval-model",
+      "feat-397",
+      "llm.tool_approval_model",
+      "tool_approval_model.py",
+      "kernel.tool_approval_model",
+      "get_tool_approval_model",
+      "set_tool_approval_model",
+      "统一工具审批模型",
+      "Product@B",
+      "baseline cutoff",
+      "baseline product world",
+      "A_USER",
+      "A+USER",
+      "arm A",
+      "arm B",
+      "当前 A 工作流"
+    ],
+    "change_units_absent": true,
+    "expected_content_manifest_sha256": "f79a953b01b0ed16be1cecf4b5a6f5820d8a669eede5e501f922c79d51d23acc"
+  },
+  "git": {
+    "branch": "main",
+    "author_name": "Repository Bootstrap",
+    "author_email": "repository@invalid",
+    "timestamp": "946684800 +0000",
+    "message": "initial repository\n"
+  },
+  "seal": {
+    "suite_id": "feat397-spec-design-eval-v1",
+    "suite_status": "draft_unsealable",
+    "arm_readiness": "ready_materializable",
+    "blocked_arms": [
+      "A_USER",
+      "B"
+    ],
+    "treatment_lock_ref": "experiments/feat_397_agent_team/suite-treatment-lock.json",
+    "suite_seal_ref": "experiments/feat_397_agent_team/suite-seal.json"
+  }
+}

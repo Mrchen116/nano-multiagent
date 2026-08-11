@@ -1,0 +1,12 @@
+# Private scanner input; never export.
+feat-515-agent-workspace-root-selection
+feat-515
+pull request #255
+PR 255
+7a9c496e
+1389c9fe
+default_workspace_template
+workspace reservation
+same.node.*workspace
+mode cards
+点击.*默认路径.*编辑

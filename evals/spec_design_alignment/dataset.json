@@ -1,0 +1,75 @@
+{
+  "schema_version": "1.0",
+  "protocol_ref": "experiments/feat_397_agent_team/protocol.md",
+  "case_schema_ref": "schema/case.schema.json",
+  "suite_treatment_lock_ref": "experiments/feat_397_agent_team/suite-treatment-lock.json",
+  "suite_treatment_lock_sha256": "pending",
+  "suite_seal_ref": "experiments/feat_397_agent_team/suite-seal.json",
+  "suite_seal_sha256": "pending",
+  "cases": [
+    {
+      "case_id": "H01",
+      "slug": "feat-484",
+      "title": "Web IM message content interactions",
+      "stratum": "historical_regression",
+      "case_ref": "cases/H01-feat-484-message-interactions/case.json",
+      "status": "draft"
+    },
+    {
+      "case_id": "H02",
+      "slug": "feat-510-tool-approval-model",
+      "title": "PA unified tool approval model",
+      "stratum": "historical_regression",
+      "case_ref": "cases/H02-feat-510-tool-approval-model/case.json",
+      "status": "draft"
+    },
+    {
+      "case_id": "H03",
+      "slug": "feat-501",
+      "title": "Cross-channel session controls",
+      "stratum": "historical_regression",
+      "case_ref": "cases/H03-feat-501-session-controls/case.json",
+      "status": "draft"
+    },
+    {
+      "case_id": "H04",
+      "slug": "feat-519-workspace-compat-skills",
+      "title": "Workspace Claude/Codex Skill compatibility and grouped selection",
+      "stratum": "historical_regression",
+      "case_ref": "cases/H04-feat-519-workspace-compat-skills/case.json",
+      "status": "draft"
+    },
+    {
+      "case_id": "H05",
+      "slug": "feat-515-agent-workspace-root-selection",
+      "title": "Agent workspace root selection",
+      "stratum": "historical_regression",
+      "case_ref": "cases/H05-feat-515-agent-workspace-root-selection/case.json",
+      "status": "draft"
+    },
+    {
+      "case_id": "H07",
+      "slug": "refactor-513-pa-workspace-layout",
+      "title": "Product workspace layout",
+      "stratum": "historical_regression",
+      "case_ref": "cases/H07-refactor-513-pa-workspace-layout/case.json",
+      "status": "draft"
+    },
+    {
+      "case_id": "P01",
+      "slug": "cross-node-agent-migration",
+      "title": "跨节点迁移一个长期 Agent",
+      "stratum": "prospective_pilot",
+      "case_ref": "cases/P01-cross-node-agent-migration/case.json",
+      "status": "draft"
+    },
+    {
+      "case_id": "P02",
+      "slug": "agent-runtime-center",
+      "title": "Agent 详情里的运行中心",
+      "stratum": "prospective_pilot",
+      "case_ref": "cases/P02-agent-runtime-center/case.json",
+      "status": "draft"
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "$schema": "../../../schema/permission-manifest.schema.json",
+  "schema_version": "1.0",
+  "network": false,
+  "external_api": false,
+  "real_push": false,
+  "parent_repo_access": false,
+  "other_worktree_access": false,
+  "host_memory": false,
+  "host_home_access": false,
+  "host_process_access": false,
+  "secret_access": false,
+  "allowed_read_roots": ["candidate_workspace"],
+  "allowed_write_roots": ["candidate_workspace", "run_output"],
+  "environment_policy": "sealed_allowlist",
+  "inherit_host_environment": false,
+  "environment": {
+    "HOME": "${candidate_workspace}/.home",
+    "LANG": "C.UTF-8",
+    "LC_ALL": "C.UTF-8",
+    "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+    "TERM": "dumb",
+    "TMPDIR": "${candidate_workspace}/.tmp"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "$schema": "../../../schema/authority-map.schema.json",
+  "schema_version": "1.0",
+  "case_id": "P99",
+  "status": "draft",
+  "normalization": {
+    "level": "N0",
+    "task_blind": true,
+    "semantic_additions": false,
+    "normalizer_ref": "audit/provenance.md#normalizer"
+  },
+  "provenance_ref": "audit/provenance.md",
+  "authorities": []
+}

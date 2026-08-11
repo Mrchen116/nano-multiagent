@@ -1,0 +1,10 @@
+# Private scanner input; never export.
+refactor-513-pa-workspace-layout
+refactor-513
+pull request #253
+PR 253
+adb93d33
+ff27a30b
+WorkspaceExecutionScope
+\.nanoassistant/workspaces
+chat_history.*\.nanoassistant

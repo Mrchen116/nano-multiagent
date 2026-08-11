@@ -1,0 +1,49 @@
+# Private signatures for scanning the candidate export; the audit-only knowledge map may be scanned separately.
+"decision_id"[ \t]*:[ \t]*"D(0[1-9]|1[0-6])"
+P01-A(0[1-9]|1[0-7])
+owner_review_required
+activation_predicate
+inactive_safe_behavior
+sealed mutation pool
+combined SHA-256 in the run ledger
+blinded response bank
+same semantic response to every arm
+same-domain but non-overlapping migration micro-delta
+isolated P01 probe profile
+P-evidence rule: every `P` oracle
+decision-inventory.json
+judge-private/
+
+# Oracle-content coverage: one signature for each decision, including conditional safe baselines.
+# D01
+preserve agent_id and owner isolation through cutover and rollback
+# D02
+endpoint, command, transaction, and orchestration shapes open to evidence-led design
+# D03
+session JSONL, memory, workspace skills/files, HEARTBEAT.md, cron jobs/history, session bindings
+# D04
+stale source cannot regain listeners, bindings, or execution ownership
+# D05
+defaults cutover to wait-or-block, and activates D11 only if
+# D06
+target channel stays inactive; source ciphertext is not treated as portable
+# D07
+current owners can carry the requirement, adds only evidenced missing seams
+# D08
+execution fencing remains distinct from retained source data needed for rollback
+# D09
+Agent-centered, node-centered, and operator-only entry points
+# D10
+product-owned state, arbitrary user files, destination selection, collision handling
+# D11
+Pause new admission, wait for every relevant work class to reach an evidenced safe boundary
+# D12
+keep the target channel inactive until credentials are re-entered or re-authorized
+# D13
+desired-state save, target reconciliation, runtime authority, success, and rollback eligibility
+# D14
+Abort or block cutover, preserve the last verified authoritative state
+# D15
+Fence the source from execution but retain recoverable source state
+# D16
+isolated end-to-end rehearsal that observes actual source/target authority

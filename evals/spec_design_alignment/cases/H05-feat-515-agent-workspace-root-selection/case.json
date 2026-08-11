@@ -1,0 +1,57 @@
+{
+  "$schema": "../../schema/case.schema.json",
+  "schema_version": "1.0",
+  "case_id": "H05",
+  "title": "Agent workspace root selection",
+  "stratum": "historical_regression",
+  "status": "draft",
+  "origin": {
+    "kind": "historical_unit",
+    "reference": "feat-515-agent-workspace-root-selection",
+    "cutoff_policy": "before_first_target_trace"
+  },
+  "brief_ref": "public/brief.md",
+  "artifact_contract": "single_unit",
+  "terminal_mode": "gate2_complete",
+  "source_root_ids": ["nano-h05-f54e008b"],
+  "clocks": {
+    "product": {"mode": "historical_pre_target", "ref": "audit/provenance.md#product-clock"},
+    "knowledge": {"mode": "historical_cutoff", "ref": "audit/provenance.md#knowledge-clock"},
+    "documentation": {"mode": "suite_frozen_latest", "ref": "audit/provenance.md#documentation-clock"},
+    "workflow": {"mode": "current_frozen", "ref": "audit/provenance.md#workflow-clock"},
+    "user": {"mode": "current_cross_fitted", "ref": "audit/provenance.md#user-clock"},
+    "model_tool": {"mode": "current_frozen", "ref": "audit/provenance.md#modeltool-clock"}
+  },
+  "layers": {
+    "product_world": {"manifest_ref": "runtime/H05/manifests/product-world.json", "sha256": "pending"},
+    "documentation_world": {"manifest_ref": "runtime/H05/manifests/documentation-world.json", "sha256": "pending"},
+    "common_compatibility": {"manifest_ref": "runtime/H05/manifests/common-compatibility.json", "sha256": "pending"},
+    "arm_bundle": {"manifest_ref": "runtime/H05/manifests/treatment.json", "sha256": "pending"},
+    "private_controls": "judge-private"
+  },
+  "owner_answer_policy": {"manifest_ref": "runtime/H05/private/owner-answer-policy.json", "sha256": "pending"},
+  "arms": {
+    "A": {"workflow": "current_spec_design_skills", "user_profile": "none", "bundle_ref": "runtime/H05/manifests/treatment.json#/arms/A"},
+    "A_USER": {"workflow": "current_spec_design_skills", "user_profile": "current_cross_fitted", "bundle_ref": "runtime/H05/manifests/treatment.json#/arms/A_USER"},
+    "B": {"workflow": "spec_design_agent_team", "user_profile": "current_cross_fitted", "bundle_ref": "runtime/H05/manifests/treatment.json#/arms/B"}
+  },
+  "normalization": {"level": "N0", "task_blind": true, "authority_map_ref": "knowledge/authority-map.json"},
+  "contamination": {
+    "level": "C1",
+    "lineage_ref": "audit/provenance.md#lineage-audit",
+    "oracle_lineage": "historical_target_derived_private",
+    "notes": "Historical regression only. The public input is the original request; ten later owner decisions, target documents, implementation, reviews and descendants remain private or excluded."
+  },
+  "treatment_authoring": {"status": "historical_posthoc", "clean_holdout_eligible": false, "evidence_ref": "audit/provenance.md#lineage-audit"},
+  "sensitivity": {"raw_vs_dp1": false},
+  "contract_assets": {
+    "case": "case.json", "brief": "public/brief.md", "authority_map": "knowledge/authority-map.json",
+    "decision_inventory": "judge-private/decision-inventory.json", "rubric": "judge-private/rubric.md",
+    "provenance": "audit/provenance.md", "leak_signatures": "audit/leak-signatures.txt"
+  },
+  "restrictions": {
+    "network": false, "real_push": false, "host_memory": false, "parent_repo_access": false,
+    "candidate_export_excludes": ["case.json", "knowledge", "judge-private", "audit"]
+  },
+  "notes": "Native-documentation historical case with distributed filesystem authority, persistence provenance and commercial UI constraints."
+}

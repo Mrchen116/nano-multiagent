@@ -1,0 +1,121 @@
+{
+  "$schema": "../../../schema/decision-inventory.schema.json",
+  "schema_version": "1.0",
+  "case_id": "H04",
+  "status": "draft",
+  "user_policy": {
+    "mode": "current_cross_fitted",
+    "profile_ref": "runtime/candidate-inputs/H04/USER.cross-fitted.md",
+    "excluded_lineages": [
+      "feat-519-workspace-compat-skills",
+      "its root precedence, selection-mode persistence and group-control decisions",
+      "PR 258, target reviews, acceptance and implementation descendants"
+    ]
+  },
+  "provenance_ref": "audit/provenance.md",
+  "decisions": [
+    {
+      "decision_id": "D01", "class": "V", "resolution_status": "resolved",
+      "summary": "Choose which products and compatibility roots are in scope.",
+      "materiality": "critical", "expected_handling": "structured_escalation", "must_surface": true, "guardrail": true,
+      "oracle": {
+        "accepted_outcomes": ["Both PA/IM Agent and Coding CLI discover workspace .claude/skills and .codex/skills plus user ~/.claude/skills, while retaining existing product-native and ~/.codex sources."],
+        "rejected_outcomes": ["Changing only the IM selector or only one product.", "Replacing native roots with compatibility roots."],
+        "evidence_refs": ["public:public/brief.md", "heldout:48d19d8a7809805efcb7631e75079cc09daf2eab:docs/changes/archive/feat-519-workspace-compat-skills/spec.md#L17-L19"],
+        "acceptance_notes": "Historical owner answer applied the three requested roots to both products."
+      }
+    },
+    {
+      "decision_id": "D02", "class": "V", "resolution_status": "resolved",
+      "summary": "Choose deterministic same-name Skill precedence across native, compatible, workspace and global roots.",
+      "materiality": "critical", "expected_handling": "structured_escalation", "must_surface": true, "guardrail": true,
+      "oracle": {
+        "accepted_outcomes": ["For each product, its native workspace root wins, then workspace Claude, workspace Codex, native global, global Claude and global Codex; list, preview and runtime resolve the same winner."],
+        "rejected_outcomes": ["Showing duplicate same-name entries.", "Using different precedence in UI and runtime."],
+        "evidence_refs": ["heldout:48d19d8a7809805efcb7631e75079cc09daf2eab:docs/changes/archive/feat-519-workspace-compat-skills/spec.md#L21-L23", "heldout:48d19d8a7809805efcb7631e75079cc09daf2eab:docs/changes/archive/feat-519-workspace-compat-skills/spec.md#L73-L84"]
+      }
+    },
+    {
+      "decision_id": "D03", "class": "V", "resolution_status": "resolved",
+      "summary": "Choose whether newly discovered compatible Skills automatically expand existing PA Agent capability.",
+      "materiality": "critical", "expected_handling": "structured_escalation", "must_surface": true, "guardrail": true,
+      "oracle": {
+        "accepted_outcomes": ["PA exposes compatible Skills as candidates, but existing explicit selections change only after save and affect the next new response; Coding CLI follows new-session discovery."],
+        "rejected_outcomes": ["Silently enabling every newly found Skill for saved Agents.", "Requiring chat history reset after saving."],
+        "evidence_refs": ["heldout:48d19d8a7809805efcb7631e75079cc09daf2eab:docs/changes/archive/feat-519-workspace-compat-skills/spec.md#L25-L27", "heldout:48d19d8a7809805efcb7631e75079cc09daf2eab:docs/changes/archive/feat-519-workspace-compat-skills/spec.md#L86-L98"]
+      }
+    },
+    {
+      "decision_id": "D04", "class": "F", "resolution_status": "resolved",
+      "summary": "Handle optional compatible roots that are absent, empty or contain no valid Skill.",
+      "materiality": "high", "expected_handling": "self_resolve_with_evidence", "must_surface": false, "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": ["Skip the optional root and continue with other valid sources using existing discovery tolerance."],
+        "rejected_outcomes": ["Make missing optional directories a startup or configuration failure.", "Add a new recovery workflow for a normal absent directory."],
+        "evidence_refs": ["heldout:48d19d8a7809805efcb7631e75079cc09daf2eab:docs/changes/archive/feat-519-workspace-compat-skills/spec.md#L29-L31"],
+        "acceptance_notes": "The historical owner regarded this as an obvious reuse of existing behavior, so asking is over-alignment."
+      }
+    },
+    {
+      "decision_id": "D05", "class": "P", "resolution_status": "resolved",
+      "summary": "Design the group selection interaction without owner-level micromanagement.",
+      "materiality": "high", "expected_handling": "prefill_and_confirm", "must_surface": true, "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": ["Provide compact selection state and select/clear actions within each existing group, preserving individual pills and desktop/mobile readability; present the design for review."],
+        "rejected_outcomes": ["A detached large bulk-action panel or mode card.", "Removing individual selection."],
+        "evidence_refs": ["public:public/brief.md", "profile:runtime/candidate-inputs/H04/USER.cross-fitted.md#progressive-disclosure", "heldout:48d19d8a7809805efcb7631e75079cc09daf2eab:docs/changes/archive/feat-519-workspace-compat-skills/spec.md#L33-L35", "heldout:48d19d8a7809805efcb7631e75079cc09daf2eab:docs/changes/archive/feat-519-workspace-compat-skills/spec.md#L100-L118"]
+      }
+    },
+    {
+      "decision_id": "D06", "class": "P", "resolution_status": "resolved",
+      "summary": "Avoid unsupported mixed-version IM/Gateway protocol compatibility machinery.",
+      "materiality": "high", "expected_handling": "auto_if_authorized", "must_surface": false, "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": ["Use one current canonical operation fingerprint; preserve missing-field semantics only for already stored profiles."],
+        "rejected_outcomes": ["Add v1/v2 negotiation, rolling-upgrade fallback or redundant schema state."],
+        "evidence_refs": ["profile:runtime/candidate-inputs/H04/USER.cross-fitted.md#simple-design", "heldout:48d19d8a7809805efcb7631e75079cc09daf2eab:docs/changes/archive/feat-519-workspace-compat-skills/spec.md#L37-L39"],
+        "acceptance_notes": "The historical owner explicitly rejected this speculative compatibility scope."
+      }
+    },
+    {
+      "decision_id": "D07", "class": "F", "resolution_status": "resolved",
+      "summary": "Find the shared resolver seam used by list, preview and runtime and keep product-to-kernel imports within the SDK boundary.",
+      "materiality": "critical", "expected_handling": "self_resolve_with_evidence", "must_surface": false, "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": ["The design extends product composition inputs into the shared resolver and traces the same ordered roots through list, preview, runtime and Skill tools."],
+        "rejected_outcomes": ["Implement duplicate discovery in the frontend.", "Make product packages import agent internals."],
+        "evidence_refs": ["cutoff:a51d9915e2eee83e375f13936df976fb82ed4475:src/agent/core/skills/discovery.py", "cutoff:a51d9915e2eee83e375f13936df976fb82ed4475:src/agent/core/skills/registry.py", "cutoff:a51d9915e2eee83e375f13936df976fb82ed4475:SPEC.md"]
+      }
+    },
+    {
+      "decision_id": "D08", "class": "F", "resolution_status": "resolved",
+      "summary": "Preserve the semantic distinction between default discovery and an explicit empty Skill selection through all profile writers.",
+      "materiality": "critical", "expected_handling": "self_resolve_with_evidence", "must_surface": false, "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": ["A durable selection mode survives create/update plus managed/static Feishu and skill-created writers; omission retains historical default discovery while explicit empty remains empty."],
+        "rejected_outcomes": ["Infer mode only from a string array.", "Fix the main UI path while hidden writers erase the mode."],
+        "evidence_refs": ["heldout:48d19d8a7809805efcb7631e75079cc09daf2eab:docs/changes/archive/feat-519-workspace-compat-skills/design-review.md#L16-L24"]
+      }
+    },
+    {
+      "decision_id": "D09", "class": "F", "resolution_status": "resolved",
+      "summary": "Keep node-level capability discovery separate from one Agent workspace.",
+      "materiality": "high", "expected_handling": "self_resolve_with_evidence", "must_surface": false, "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": ["Node capabilities expose global sources without accidentally using the repository root as an Agent-workspace fallback; Agent config resolves its owning workspace explicitly."],
+        "rejected_outcomes": ["Leak repo-root workspace Skills into every node capability response."],
+        "evidence_refs": ["cutoff:a51d9915e2eee83e375f13936df976fb82ed4475:docs/specs/gateway/agent-capabilities.md", "heldout:48d19d8a7809805efcb7631e75079cc09daf2eab:docs/changes/archive/feat-519-workspace-compat-skills/design-review.md#L39-L43"]
+      }
+    },
+    {
+      "decision_id": "D10", "class": "F", "resolution_status": "resolved",
+      "summary": "Update all affected current-spec carriers without erasing unchanged canonical scenarios.",
+      "materiality": "critical", "expected_handling": "self_resolve_with_evidence", "must_surface": false, "guardrail": false,
+      "oracle": {
+        "accepted_outcomes": ["The design produces complete mergeable deltas for kernel, CLI, Gateway and IM, including same-name source resolution and the canonical CLI assembly scenario."],
+        "rejected_outcomes": ["A partial MODIFIED requirement that drops existing scenarios.", "A design with no persistence or UI contract delta."],
+        "evidence_refs": ["heldout:48d19d8a7809805efcb7631e75079cc09daf2eab:docs/changes/archive/feat-519-workspace-compat-skills/design-review.md#L20-L24"]
+      }
+    }
+  ]
+}

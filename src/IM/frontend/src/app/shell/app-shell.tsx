@@ -7,12 +7,13 @@ import { useTranslation } from "../../i18n";
 import { listConversations } from "../../features/chat/chat-api";
 import { useAuthStore } from "../../features/auth/auth-store";
 import { useLocalUnreadFeedback } from "../../features/notifications/local-unread-feedback";
+import { AgentsNavIcon, ChatNavIcon, MeNavIcon } from "./mobile-nav-icons";
 import { UserMenu } from "./user-menu";
 
 /**
  * Top-level app chrome: 48px dark top banner with brand + internal badge +
  * Chat/Agents tabs + UserMenu on desktop; collapses to a status spacer with
- * a bottom 3-tab nav (💬🤖👤 + unread badge on Chat) on mobile.
+ * a bottom 3-tab nav with product icons and unread feedback on mobile.
  *
  * Children are rendered inside the content area; routing is the caller's concern.
  */
@@ -60,7 +61,9 @@ export function AppShell({ children }: PropsWithChildren) {
       {isMobile && (
         <nav aria-label="mobile" className="im-shell-bottombar">
           <NavLink to="/chat" className="im-shell-bottomtab">
-            <span aria-hidden className="im-shell-bottomtab-icon">💬</span>
+            <span aria-hidden className="im-shell-bottomtab-icon">
+              <ChatNavIcon />
+            </span>
             <span>{t("shell.tabs.chat")}</span>
             {totalUnread > 0 && (
               <span data-testid="shell-chat-unread" className="im-shell-unread-badge">
@@ -69,11 +72,15 @@ export function AppShell({ children }: PropsWithChildren) {
             )}
           </NavLink>
           <NavLink to="/settings/agents" className="im-shell-bottomtab">
-            <span aria-hidden className="im-shell-bottomtab-icon">🤖</span>
+            <span aria-hidden className="im-shell-bottomtab-icon">
+              <AgentsNavIcon />
+            </span>
             <span>{t("shell.tabs.agents")}</span>
           </NavLink>
           <NavLink to="/me" className="im-shell-bottomtab">
-            <span aria-hidden className="im-shell-bottomtab-icon">👤</span>
+            <span aria-hidden className="im-shell-bottomtab-icon">
+              <MeNavIcon />
+            </span>
             <span>{t("shell.tabs.me")}</span>
             {totalUnread > 0 && (
               <span data-testid="shell-me-unread" className="im-shell-unread-badge">
