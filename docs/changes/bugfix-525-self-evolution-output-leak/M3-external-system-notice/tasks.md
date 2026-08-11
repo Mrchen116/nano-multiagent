@@ -120,3 +120,19 @@ Prototype / Reference Contract: N/A。
 - 状态: DONE
 - 步骤: 汇总 finding closure 与证据；运行 focused、affected、full non-E2E、Ruff、docs-check、diff-check。
 - 验证: reviewer-fix commits 进入并推送 `unit/bugfix-525`，milestone worktree/branch 清理。
+
+## Reopened PR #264 closure（2026-08-11，user-authorized）
+
+本轮不改变 self-evolution notice、trace route 或 config-sync owner 契约。仅收口两项在真飞书验收和 code review 中已定位的运行边界：普通 background 外发不得阻塞 Gateway event loop；E2E IM readiness 必须如实区分 child exit、deadline timeout 与 dedicated Bot lock contention。`bugfix-533` / PR #271 的 package lazy-import cold-start 修复不在本轮范围。
+
+### R14 — ordinary background 外发非阻塞
+
+- 状态: DONE
+- 步骤: 先补 blocking sync sender、awaitable sender 与 external failure/shadow IM 独立性的红测；让 ordinary background 与 self-evolution notice 复用同一 external sender await helper。
+- 验证: sync sender 在 worker thread 执行且 event loop 可继续调度；async/awaitable sender 回到原 event loop await；external failure 后 shadow IM 仍按原顺序投递。
+
+### R15 — E2E IM readiness 与 Feishu bootstrap 诊断
+
+- 状态: DOING
+- 步骤: 先以 fake `python -m uvicorn` child 复现 slow-alive、early exit、deadline 三种 `e2e-up.sh` 状态；把固定 6 秒等待替换为带 liveness 的可配置条件轮询，并将 Feishu worker 的错误收紧为 bootstrap readiness。
+- 验证: slow-alive 在预算内起栈；dead child 明确报告 exited；deadline 明确报告 `IM readiness timed out`；每种失败可保留 `.im.log` 并经 `e2e-down.sh` 无残留清理；existing Bot lock contention 文案保持其独立语义。

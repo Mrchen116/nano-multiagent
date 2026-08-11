@@ -22,6 +22,23 @@ def _metadata_text(metadata: Mapping[str, Any], *, key: str) -> str | None:
     return None
 
 
+async def _invoke_external_reply_sender(
+    sender: Callable[[str, Mapping[str, str]], Any],
+    text: str,
+    metadata: Mapping[str, str],
+) -> None:
+    """Call a channel sender without blocking the Gateway event loop.
+
+    Composition supplies a synchronous OutboundRouter sender, while tests and
+    alternate channel integrations may return an awaitable. Calling the sender in a
+    worker thread preserves the synchronous path's retry behavior; awaiting a returned
+    awaitable on this loop preserves the asynchronous contract.
+    """
+    result = await asyncio.to_thread(sender, text, metadata)
+    if inspect.isawaitable(result):
+        await result
+
+
 def build_session_event_callback(
     *,
     im_connection_manager_factory: Callable[[], "IMConnectionManager | None"],
@@ -98,11 +115,11 @@ def build_session_event_callback(
         )
         if external_metadata is not None and external_reply_sender is not None:
             try:
-                result = await asyncio.to_thread(
-                    external_reply_sender, text, external_metadata
+                await _invoke_external_reply_sender(
+                    external_reply_sender,
+                    text,
+                    external_metadata,
                 )
-                if inspect.isawaitable(result):
-                    await result
             except Exception as exc:  # noqa: BLE001
                 _log.warning(
                     "self-evolution notice external delivery failed "
@@ -203,9 +220,11 @@ def build_bg_reply_sender(
         )
         if external_metadata is not None and external_reply_sender is not None:
             try:
-                result = external_reply_sender(cleaned_text, external_metadata)
-                if asyncio.iscoroutine(result):
-                    await result
+                await _invoke_external_reply_sender(
+                    external_reply_sender,
+                    cleaned_text,
+                    external_metadata,
+                )
             except Exception as exc:  # noqa: BLE001
                 _log.warning(
                     "visible text external delivery failed (channel=%s target=%s): %s",

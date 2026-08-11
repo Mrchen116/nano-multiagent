@@ -185,3 +185,24 @@ None.
 - Quality: repository `ruff check .`、3 个 Round 4 Python 文件 `ruff format --check`、docs-check（245 Markdown / 67 routes）、`git diff --check`、acceptance Python compile 与相关 shell syntax 均通过。
 - Commits: `abc4f2d0d`（R4-I1 route-anchor restart ordering/cleanup）、`cc939a7c7`（R4-I2 deterministic Coding CLI/PTY acceptance + evidence）；本 gate 记录由后续 documentation commit 收口。
 - Status: DONE。milestone commit/push 后按 worker protocol merge/push `unit/bugfix-525`，随后移除 fix worktree/branch；不改变 M3 production event classification、route owner 或用户可见 schema。
+
+## Reopened PR #264 closure（2026-08-11）
+
+- Context: 用户授权把真飞书验收暴露的 ordinary background sender event-loop 阻塞，以及 `e2e-up.sh` 把 IM readiness timeout 误称为 startup failure 的问题直接纳入同一 PR。另一个 worktree 曾使用同一专用 Bot，但 lock owner/time-line 已排除其与本次 no-lock timeout 重叠；不能把 timeout 归因为 Bot contention。
+- Scope: 只改 shared external-delivery await boundary、E2E IM readiness diagnostics、Feishu worker bootstrap message 与对应 existing-test owners；不重复 `bugfix-533` / PR #271 的 lazy-import 修复，也不改变 self-evolution 用户通知、trace/route owner 或 config-sync 契约。
+- Root-cause evidence before code:
+  - `build_bg_reply_sender()` 在 async subscriber callback 内直接调用 composition 的同步 `_send_external_reply()`；该路径进入 `OutboundRouter` 和 Feishu REST retry/backoff，因此会占住 Gateway event loop。self-evolution notice 已以 `asyncio.to_thread` 规避相同风险，形成可运行对照。
+  - `scripts/e2e-up.sh` 固定 `30 × sleep 0.2` 后仅再次 probe `/openapi.json`，没有检查 `.im.pid` liveness，随后报 `IM failed to start`。已观察到两次 child 在脚本退出后成功 ready，故该文案是 timeout 假阴性而非进程启动事实。
+  - dedicated Feishu lock 的 active-owner 分支在 IM 启动前明确报 `dedicated Feishu E2E listener is already owned by ...`；此次无该输出，且实际 Bot 使用时间与失败窗口不重叠，不能归因为 lock contention。
+  - Feishu worker ready Event 在 `_worker_bootstrap` 进入 SDK/WebSocket 前设置；原 `did not initialize` 表述不应暗示 Bot 冲突或 WebSocket 连接完成。
+- Next: R14 写红测并以单一 shared helper 收口 sender threading；R15 再做 script black-box red/green 与 dedicated no-message `up -> probe -> down` evidence。
+
+### R14 — ordinary background 外发非阻塞
+
+- Context: ordinary background sender 是 persistent Gateway subscriber 的 async callback，却直接同步调用 composition `_send_external_reply()`；Feishu REST 的 retry/backoff 会阻塞 event loop。self-evolution notice 已有相同的 `to_thread` 语义，两个路径若各自维护易再漂移。
+- Decision: 在 `runtime_delivery.background` 建立一个模块内 shared helper，统一以 `asyncio.to_thread` 调用 external sender；若调用结果是任意 awaitable，则回到原 Gateway loop await。两个调用方保留原来的顺序、metadata/dedupe 与各自 external failure logging；IM delivery 仍在 external best-effort 失败后继续。
+- TDD: 新增 blocking sync sender 红测，修前 task 在 loop 中等待 sender 超时后已结束；另加入 async sender loop affinity 与 external failure→shadow IM regression。修后 delivery/subscriber affected suite `50 passed, 2 warnings in 2.32s`，sync sender thread id 与 loop 不同且 task 仍 pending 时 loop 可继续执行。
+- Entry: production ordinary background 仍从 `build_bg_reply_sender()` 经 composition `_send_external_reply()` 到 `OutboundRouter`；本修只改变该 synchronous call 的 execution context，不改变 Feishu 文案、顺序或 dedupe key。
+- Frontend State Matrix / Browser QA / Visual / Prototype Comparison: N/A。
+- Rollback: revert this roadpoint commit.
+- Next: R15 script black-box readiness red/green and Feishu bootstrap diagnostic wording.

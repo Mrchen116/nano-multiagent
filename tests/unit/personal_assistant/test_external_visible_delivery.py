@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from types import SimpleNamespace
 from typing import Any
 
@@ -84,6 +85,120 @@ def test_feishu_visible_control_text_goes_to_external_and_shadow_im() -> None:
             "text": "已停止当前操作。",
             "to": "conv-shadow",
             "from_session_id": "agent-a|tool_call:sess-1:stop-ack",
+        }
+    ]
+
+
+def test_background_external_sync_sender_does_not_block_gateway_event_loop() -> None:
+    """A synchronous channel retry cannot hold the subscriber's asyncio loop."""
+
+    manager = _FakeIMManager()
+    sender_started = threading.Event()
+    release_sender = threading.Event()
+    sender_thread_ids: list[int] = []
+    loop_thread_id: list[int] = []
+
+    def blocking_external_sender(_text: str, _metadata: dict[str, str]) -> None:
+        sender_thread_ids.append(threading.get_ident())
+        sender_started.set()
+        assert release_sender.wait(1)
+
+    sender = build_bg_reply_sender(
+        im_connection_manager_factory=lambda: manager,
+        external_reply_sender=blocking_external_sender,
+    )
+    reply_context = ReplyContext(
+        channel_name="feishu:agent-a",
+        target_chat_id="feishu:app:dm:ou_user",
+        metadata={
+            "external_source": "feishu",
+            "external_chat_id": "feishu:app:dm:ou_user",
+            "trigger_source": "feishu",
+            "shadow_conversation_id": "conv-shadow",
+        },
+    )
+
+    async def exercise() -> None:
+        loop_thread_id.append(threading.get_ident())
+        task = asyncio.create_task(sender("后台结果", reply_context, "background:1"))
+        assert await asyncio.to_thread(sender_started.wait, 1)
+        await asyncio.sleep(0)
+        assert not task.done()
+        release_sender.set()
+        await task
+
+    asyncio.run(exercise())
+
+    assert sender_thread_ids and sender_thread_ids[0] != loop_thread_id[0]
+    assert manager.agent_messages == [
+        {
+            "text": "后台结果",
+            "to": "conv-shadow",
+            "from_session_id": "background:1",
+        }
+    ]
+
+
+def test_background_external_awaitable_sender_returns_to_gateway_event_loop() -> None:
+    """Awaitable channel senders retain their original async execution model."""
+
+    manager = _FakeIMManager()
+    loop_thread_id: list[int] = []
+    sender_loop_thread_id: list[int] = []
+
+    async def async_external_sender(_text: str, _metadata: dict[str, str]) -> None:
+        sender_loop_thread_id.append(threading.get_ident())
+        await asyncio.sleep(0)
+
+    sender = build_bg_reply_sender(
+        im_connection_manager_factory=lambda: manager,
+        external_reply_sender=async_external_sender,
+    )
+    reply_context = ReplyContext(
+        channel_name="feishu:agent-a",
+        target_chat_id="feishu:app:dm:ou_user",
+        metadata={"external_source": "feishu", "trigger_source": "feishu"},
+    )
+
+    async def exercise() -> None:
+        loop_thread_id.append(threading.get_ident())
+        await sender("后台结果", reply_context, "background:2")
+
+    asyncio.run(exercise())
+
+    assert sender_loop_thread_id == loop_thread_id
+    assert manager.agent_messages == []
+
+
+def test_background_external_failure_does_not_prevent_shadow_delivery() -> None:
+    """An external channel failure remains best-effort for the IM mirror."""
+
+    manager = _FakeIMManager()
+
+    def failing_external_sender(_text: str, _metadata: dict[str, str]) -> None:
+        raise RuntimeError("simulated provider failure")
+
+    sender = build_bg_reply_sender(
+        im_connection_manager_factory=lambda: manager,
+        external_reply_sender=failing_external_sender,
+    )
+    reply_context = ReplyContext(
+        channel_name="feishu:agent-a",
+        target_chat_id="feishu:app:dm:ou_user",
+        metadata={
+            "external_source": "feishu",
+            "trigger_source": "feishu",
+            "shadow_conversation_id": "conv-shadow",
+        },
+    )
+
+    asyncio.run(sender("后台结果", reply_context, "background:3"))
+
+    assert manager.agent_messages == [
+        {
+            "text": "后台结果",
+            "to": "conv-shadow",
+            "from_session_id": "background:3",
         }
     ]
 
