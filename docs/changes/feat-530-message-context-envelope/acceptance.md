@@ -154,3 +154,106 @@ N/A。spec/design 没有引用需要 must-match 的前端原型、设计稿或 r
 - [x] `docs/specs/CONTRIBUTING.md`：无需更新；没有改变文档体系。
 
 需要更新项将在本 unit 最终实现和复验收敛后，由 orchestrator 收尾归并；本轮 reviewer 不修改长青 spec。
+
+---
+
+# Round 2 — 2026-08-11
+
+> Validation snapshot: `c40a9aa80f3f9107327217b868f11ec664d34bf9 → 255b41d0499336bd27136a0c523a3c45bef2bede`
+
+> Revalidation mode: targeted Fast-lane；继承 Round 1 覆盖表，仅复验 `R1-I1` 真实飞书群聊 `/skill:*` 及同一入口的可见相邻副作用。
+
+## Verdict
+
+`pass`
+
+- Highest Required Action: `pass`
+- Review round: `2`
+- `R1-I1` 已关闭。真实飞书群聊的实时单条 `/skill:doc`，以及“普通背景消息 + 当前 `/skill:doc` 触发 group buffer”两种形态，provider user content 都进入既有显式 skill 改写路径；session transcript 进一步出现真实 `skill_view(name="doc")` 调用。
+- Round 1 其他 Scenario 结论全部继承；targeted 旅程没有观察到新的需修 issue。
+
+## Targeted 用户旅程
+
+### 1. 实时单条群聊 `/skill:doc`
+
+在隔离的本 unit Gateway + IM + 真实飞书测试 App 中，以真实用户身份向专用群发送并 @Bot：
+
+```text
+/skill:doc feat-530-r2-single-skill-1786438436。请只回答 r2_single_skill_received=yes。 @测试agent
+```
+
+飞书用户侧保留原始 slash 正文，并收到一条 `r2_single_skill_received=yes`。provider 请求：
+
+```text
+/Users/czj/Repos/LLM_PROXY/logs/session/2026-08-11_16-53-26_227_sess_441cd5caa06c4bca/2026-08-11_16-53-59_952-req-anthropic_messages.json
+```
+
+中的实际 user content 已变为：
+
+```text
+[Feishu Tue 2026-08-11 16:53 CST] [你] Use the "doc" skill for this request.
+User input:
+feat-530-r2-single-skill-1786438436。请只回答 r2_single_skill_received=yes。 @测试agent
+```
+
+`.gateway-workspace/e2e/.nanoassistant/sessions/sess_441cd5caa06c4bca.jsonl` 紧接该 user turn 记录 `skill_view`、参数 `{"name":"doc"}`。测试 workspace 本身没有名为 `doc` 的 skill，因此工具诚实返回 `Skill 'doc' not found`；这不影响本轮判定，因为被复验的契约是 slash 已确定性进入显式 skill 改写/预执行路径，而不是测试环境必须安装示例 skill。
+
+### 2. Round 1 关键形态：普通背景消息后由 `/skill:doc` 触发 group buffer
+
+先向同一飞书群发送一条不 @Bot 的普通背景消息：
+
+```text
+feat-530-r2-background-1786438474。这是普通群背景消息，不触发 Agent。
+```
+
+随后发送并 @Bot：
+
+```text
+/skill:doc feat-530-r2-buffer-skill-1786438488。请只回答 r2_buffer_skill_received=yes。 @测试agent
+```
+
+provider 请求：
+
+```text
+/Users/czj/Repos/LLM_PROXY/logs/session/2026-08-11_16-53-26_227_sess_441cd5caa06c4bca/2026-08-11_16-54-52_277-req-anthropic_messages.json
+```
+
+保留第一条普通背景消息，同时把后段唯一的 slash 命令改写为：
+
+```text
+[Feishu Tue 2026-08-11 16:54 CST] [你] feat-530-r2-background-1786438474。这是普通群背景消息，不触发 Agent。
+[Feishu Tue 2026-08-11 16:54 CST] [你] Use the "doc" skill for this request.
+User input:
+feat-530-r2-buffer-skill-1786438488。请只回答 r2_buffer_skill_received=yes。 @测试agent
+```
+
+同一 session transcript 再次记录 `skill_view(name="doc")`，飞书只收到一条 `r2_buffer_skill_received=yes`。这直接复现并关闭 Round 1 的“已有群背景 + 当前 slash 触发”失败形态，而不只是验证一个无 backlog 的理想入口。
+
+## Reference Artifacts Reviewed
+
+N/A，继承 Round 1。
+
+## 问题关闭
+
+| Issue | Round 1 | Round 2 evidence | 结论 |
+|---|---|---|---|
+| R1-I1 — 飞书群聊显式 skill 命令静默失效 | provider 收到 `[Feishu ...] [你] /skill:doc ...`，无改写 | 实时单条和普通背景后的 group buffer 均收到 `[Feishu ...] [你] Use the "doc" skill...`，且 transcript 有真实 `skill_view(name="doc")` | closed |
+
+Round 2 无新增 blocking / major / minor issue。
+
+## 验收标准覆盖更新
+
+| Scenario / Issue | 继承或复验方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|
+| R1-I1 真实飞书群聊 `/skill:*` 未改写 | targeted 真实飞书实时单条 + 普通背景后的 group buffer | 16:53、16:54 两份 provider request；`sess_441cd5caa06c4bca.jsonl` 的 `skill_view` turns | pass | 原始 slash 不再进入 provider；显式预执行可审计。 |
+| 群聊继续保留既有参与者语义 | 在两条 targeted 请求中同时检查 envelope/sender 与正文 | provider content 保留 `[Feishu ...] [你]`，Feishu history 保留原始用户正文 | pass | 修复没有移除时间、channel 或 sender，也没有污染用户可见正文。 |
+| Round 1 其余 11 个 Scenario | Fast-lane 继承 Round 1 覆盖表 | Round 1 acceptance evidence | inherited | 这些路径不在本轮 focus 中，不重复复验。 |
+
+## Side Findings
+
+- 第一次启动测试 Gateway 前已向群发送一条 slash，随后又发送第二条 slash 触发 catch-up；两条 slash 被合并到一个 turn 时只第一条改写。current contract 未定义一个组合 turn 中同时执行两个显式 skill 命令，本轮不把该 setup artifact 计为 R1-I1；R1-I1 的实际形态（普通背景 + 唯一 slash）已单独复现并通过。若未来产品要支持一个 group buffer 内多个显式 skill 命令，应另行明确语义。
+- Round 2 两条有效 targeted 旅程各只收到一条 Bot 回复；没有再次观察到 Round 1 Side Finding 中的重复出站。该窄观察不替代 #272 的独立关闭流程。
+
+## 上层文档同步
+
+继承 Round 1：`SPEC.md`、`AGENTS.md` / `CLAUDE.md`、`docs/specs/CONTRIBUTING.md` 无需更新；`docs/specs/gateway/` 与 `docs/specs/kernel/` 的最终 canonical 归并仍由 orchestrator 收尾完成。
