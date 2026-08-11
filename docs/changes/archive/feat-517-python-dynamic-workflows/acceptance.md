@@ -18,21 +18,21 @@ CLI 非交互与飞书可以完成最小 Workflow，但 coding CLI 默认交互�
 
 1. **CLI Luna 最小生命周期与 provider A/B**：在 enabled 的默认交互终端明确要求一 Agent Workflow，观察审批、async launch 与 `/workflows`；再用非交互模式完成相同固定结果，查看 list/detail、保存 project、跨 CLI 尝试 resume；最后 disabled 后比较命令发现与 LLM Proxy request。
 2. **隔离 Web IM enabled/disabled**：重建并启动 unit worktree 的 IM/Gateway/Vite，配置 Agent 为 Luna + Low；对照 desktop/mobile 原型走 permission pending、Allow once、async launch、completed、刷新、Deny；取消 Workflow 后验证 next-turn slash picker 与 provider request。
-3. **原型全状态对照**：分别打开 `prototype.html` 的 waiting/running/launched/completed/failed/stopped/Agent background completed；waiting/running/launched/completed/failed 保存 desktop/mobile reference，stopped 与 Agent background completed 只保留有效 mobile reference，再与真实产品证据逐项比较。
+3. **原型全状态对照**：分别打开 `prototype.html` 的 waiting/running/launched/completed/failed/stopped/Agent background completed，与真实产品逐项比较；原型截图不入仓。
 4. **飞书专用测试 Bot**：验证私密 env、非 default profile 与 ingress probe；从真实飞书私聊发明确 opt-in，点击通用 Allow once 卡，查看一次完成投递与 `/workflows`；取消 Workflow 后验证下一轮不产生 Workflow 调用。
 
 完整脱敏运行摘要与 provider request locators 见 [`acceptance-evidence/runtime-evidence.md`](acceptance-evidence/runtime-evidence.md)。本轮遵守成本限制，只运行一 Agent 固定字符串的最小 Workflow，没有做规模实验。
 
-## Reference Artifacts Reviewed
+## Prototype Contract and Product Evidence
 
 | Reference | Required contract | Actual product evidence | Viewport / state | Comparison conclusion |
 |---|---|---|---|---|
-| `prototype.html`：等待确认 | 待决只显示既有 PermissionCard 与 raw input；deny 不经历 running，且无 duration | `reference-permission-pending-*`；`web-workflow-permission-pending-*`；`web-workflow-denied-*` | desktop + mobile / pending + deny | **match**：pending、Allow once 与 deny 交互均符合；无专属 Workflow 审批卡 |
-| `prototype.html`：工具调用中 / 后台已启动 | allow 后才出现过程；input-first/result-second；pending 无结果，launch 后追加结果 | `reference-tool-running-*`、`reference-async-launched-*`；`web-workflow-async-launched-desktop.png`、`web-workflow-denied-expanded-desktop.png` | desktop + mobile reference；desktop actual | **deviation**：阶段顺序正确，但真实展开详情只有标题，脚本与 launch result 内容不可见；actual mobile launched 未取得完整对照 |
-| `prototype.html`：Workflow completed / failed / stopped | 后续普通消息正文与一条可展开后台原始返回同在，刷新后保持 | completed/failed 的 `reference-*-desktop/mobile.png`、`reference-workflow-stopped-mobile.png`；`web-workflow-completed-missing-background-return-*`、`web-workflow-completed-after-reload-missing-background-return-desktop.png` | desktop + mobile / completed；reference-only failed；mobile reference-only stopped | **deviation**：completed 的后台返回在实时、刷新与移动端均缺失；真实 failed/stopped 未完成，stopped desktop reference 也未取得，`inconclusive` |
-| `prototype.html`：Agent background completed | launch message 保留 async result；后续普通回复过程内含 Agent 原始返回 | `reference-agent-background-completed-mobile.png` | mobile / reference | **inconclusive**：真实 Agent background journey与 desktop reference 均未形成可对照证据 |
+| `prototype.html`：等待确认 | 待决只显示既有 PermissionCard 与 raw input；deny 不经历 running，且无 duration | `web-workflow-permission-pending-*`；`web-workflow-denied-*` | desktop + mobile / pending + deny | **match**：pending、Allow once 与 deny 交互均符合；无专属 Workflow 审批卡 |
+| `prototype.html`：工具调用中 / 后台已启动 | allow 后才出现过程；input-first/result-second；pending 无结果，launch 后追加结果 | `web-workflow-async-launched-desktop.png`、`web-workflow-denied-expanded-desktop.png` | desktop actual | **deviation**：阶段顺序正确，但真实展开详情只有标题，脚本与 launch result 内容不可见；actual mobile launched 未取得完整对照 |
+| `prototype.html`：Workflow completed / failed / stopped | 后续普通消息正文与一条可展开后台原始返回同在，刷新后保持 | `web-workflow-completed-missing-background-return-*`、`web-workflow-completed-after-reload-missing-background-return-desktop.png` | desktop + mobile / completed | **deviation**：completed 的后台返回在实时、刷新与移动端均缺失；真实 failed/stopped 未完成，`inconclusive` |
+| `prototype.html`：Agent background completed | launch message 保留 async result；后续普通回复过程内含 Agent 原始返回 | — | — | **inconclusive**：真实 Agent background journey 未形成可对照证据 |
 
-证据目录：[`acceptance-evidence/`](acceptance-evidence/)。
+证据目录：[`acceptance-evidence/`](acceptance-evidence/) 只保留真实产品运行证据；`prototype.html` 是可运行的状态参考，不提交其截图。
 
 ## Issues
 
