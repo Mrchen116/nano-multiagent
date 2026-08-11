@@ -5,14 +5,16 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from personal_assistant.gateway.inbound_models import ShadowConversationRef
 from personal_assistant.gateway.reply_visibility import ReplyVisibilityPolicy
 from personal_assistant.gateway.runtime_delivery.context import (
+    ExternalShadowTarget,
+    IMRelayTarget,
     OwnerDirectTarget,
     RunDeliveryContext,
     RunDeliveryContextStore,
     RunDeliveryTarget,
 )
-from personal_assistant.gateway.runtime_protocol import ShadowConversationRef
 
 
 def delivery_context_store(
@@ -30,9 +32,26 @@ def delivery_context_store(
                 OwnerDirectTarget(to_user_id=owner_user_id, agent_id=agent_id)
             )
         elif conversation_id:
-            target = RunDeliveryTarget.shadow(
-                ShadowConversationRef(conversation_id=conversation_id)
-            )
+            shadow_saga_id = str(values.get("shadow_saga_id", ""))
+            if shadow_saga_id:
+                target = RunDeliveryTarget.for_external_shadow(
+                    ExternalShadowTarget(
+                        ref=ShadowConversationRef(
+                            conversation_id=conversation_id,
+                            im_message_id=str(
+                                values.get("shadow_user_message_id", "test-user-anchor")
+                            ),
+                        )
+                    )
+                )
+            else:
+                target = RunDeliveryTarget.for_im_relay(
+                    IMRelayTarget(
+                        conversation_id=conversation_id,
+                        relay_task_id=str(values.get("relay_task_id", "test-relay")),
+                        im_message_id=str(values.get("im_message_id", "")) or None,
+                    )
+                )
         else:
             target = RunDeliveryTarget.none(reason="test_no_delivery_target")
 

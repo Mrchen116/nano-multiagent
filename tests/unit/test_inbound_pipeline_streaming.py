@@ -17,6 +17,66 @@ import asyncio
 
 import pytest
 
+from personal_assistant.channels.base import (
+    ExternalConversationIdentity,
+    ExternalInboundEventIdentity,
+    IMRelayIngress,
+    InboundIngress,
+    InboundMessage,
+)
+from personal_assistant.gateway.inbound_models import (
+    GatewayShadowState,
+    RelayLifecycleUpdate,
+    RoutedInbound,
+)
+
+
+def _relay_routed(*, relay_task_id: str, im_message_id: str | None) -> RoutedInbound:
+    return RoutedInbound(
+        message=InboundMessage(
+            channel_name="web_relay",
+            text="hello",
+            external_user_id="user-1",
+            external_chat_id="conv-abc",
+            is_group=False,
+            agent_id="Alpha",
+            ingress=InboundIngress(
+                im_relay=IMRelayIngress(
+                    relay_task_id=relay_task_id,
+                    idempotency_key=f"idem-{relay_task_id}",
+                    im_message_id=im_message_id,
+                )
+            ),
+        ),
+    )
+
+
+def _external_routed() -> RoutedInbound:
+    return RoutedInbound(
+        message=InboundMessage(
+            channel_name="feishu:default-agent",
+            text="hello",
+            external_user_id="ou_user1",
+            external_chat_id="feishu:cli_a:dm:ou_user1",
+            is_group=False,
+            agent_id="default-agent",
+            ingress=InboundIngress(
+                external_conversation=ExternalConversationIdentity(
+                    external_source="feishu",
+                    external_chat_id="feishu:cli_a:dm:ou_user1",
+                    agent_id="default-agent",
+                    conversation_type="direct",
+                    trigger_source="feishu",
+                ),
+                external_event=ExternalInboundEventIdentity(
+                    connector_account_id="cli_a",
+                    provider_event_id="event-1",
+                ),
+            ),
+        ),
+        shadow=GatewayShadowState(saga_id="saga-event-1"),
+    )
+
 
 # ─── R1 tests: accepted phase seeds run_context_store ────────────────────────
 
@@ -30,8 +90,6 @@ class TestAcceptedPhaseSeedsRunContext:
         from personal_assistant.gateway.runtime_delivery.lifecycle import (
             build_relay_lifecycle_callback,
         )
-        from personal_assistant.gateway.inbound_models import RelayLifecycleUpdate
-        from personal_assistant.channels.base import InboundMessage
 
         run_context_store = delivery_context_store({})
 
@@ -48,18 +106,13 @@ class TestAcceptedPhaseSeedsRunContext:
             run_context_store=run_context_store,
         )
 
-        message = MagicMock(spec=InboundMessage)
-        message.external_chat_id = "conv-abc"
-        message.metadata = {
-            "relay_task_id": "task-1",
-            "message_id": "user-msg-001",
-            "agent_id": "Alpha",
-        }
-
-        update = MagicMock(spec=RelayLifecycleUpdate)
-        update.phase = "accepted"
-        update.run_id = "run-001"
-        update.agent_id = "Alpha"
+        message = _relay_routed(relay_task_id="task-1", im_message_id="user-msg-001")
+        update = RelayLifecycleUpdate(
+            phase="accepted",
+            agent_id="Alpha",
+            session_key="web_relay:conv-abc:Alpha",
+            run_id="run-001",
+        )
 
         await callback(message, update)
 
@@ -79,8 +132,6 @@ class TestAcceptedPhaseSeedsRunContext:
         from personal_assistant.gateway.runtime_delivery.lifecycle import (
             build_relay_lifecycle_callback,
         )
-        from personal_assistant.gateway.inbound_models import RelayLifecycleUpdate
-        from personal_assistant.channels.base import InboundMessage
 
         run_context_store = delivery_context_store({})
 
@@ -97,18 +148,13 @@ class TestAcceptedPhaseSeedsRunContext:
             run_context_store=run_context_store,
         )
 
-        message = MagicMock(spec=InboundMessage)
-        message.external_chat_id = "conv-abc"
-        message.metadata = {
-            "relay_task_id": "task-1",
-            "message_id": "user-msg-001",  # user message id must NOT end up in store
-            "agent_id": "Alpha",
-        }
-
-        update = MagicMock(spec=RelayLifecycleUpdate)
-        update.phase = "accepted"
-        update.run_id = "run-001"
-        update.agent_id = "Alpha"
+        message = _relay_routed(relay_task_id="task-1", im_message_id="user-msg-001")
+        update = RelayLifecycleUpdate(
+            phase="accepted",
+            agent_id="Alpha",
+            session_key="web_relay:conv-abc:Alpha",
+            run_id="run-001",
+        )
 
         await callback(message, update)
 
@@ -131,8 +177,6 @@ class TestAcceptedPhaseSeedsRunContext:
         from personal_assistant.gateway.runtime_delivery.lifecycle import (
             build_relay_lifecycle_callback,
         )
-        from personal_assistant.gateway.inbound_models import RelayLifecycleUpdate
-        from personal_assistant.channels.base import InboundMessage
 
         # The run already has a live bubble (A) streaming when the steer is accepted.
         run_context_store = delivery_context_store(
@@ -158,14 +202,13 @@ class TestAcceptedPhaseSeedsRunContext:
             run_context_store=run_context_store,
         )
 
-        message = MagicMock(spec=InboundMessage)
-        message.external_chat_id = "conv-abc"
-        message.metadata = {"relay_task_id": "task-steer", "agent_id": "Alpha"}
-
-        update = MagicMock(spec=RelayLifecycleUpdate)
-        update.phase = "accepted"
-        update.run_id = "run-active"  # SAME run_id — the steer reuses the active run
-        update.agent_id = "Alpha"
+        message = _relay_routed(relay_task_id="task-steer", im_message_id=None)
+        update = RelayLifecycleUpdate(
+            phase="accepted",
+            agent_id="Alpha",
+            session_key="web_relay:conv-abc:Alpha",
+            run_id="run-active",
+        )
 
         await callback(message, update)
 
@@ -192,8 +235,6 @@ class TestAcceptedPhaseSeedsRunContextForNonRelay:
         from personal_assistant.gateway.runtime_delivery.lifecycle import (
             build_relay_lifecycle_callback,
         )
-        from personal_assistant.gateway.inbound_models import RelayLifecycleUpdate
-        from personal_assistant.channels.base import InboundMessage
 
         run_context_store = delivery_context_store({})
 
@@ -211,15 +252,14 @@ class TestAcceptedPhaseSeedsRunContextForNonRelay:
             owner_user_id="im-owner-123",
         )
 
-        message = MagicMock(spec=InboundMessage)
-        message.external_chat_id = "feishu:cli_a:dm:ou_user1"
-        message.metadata = {}  # no relay_task_id
-
-        update = MagicMock(spec=RelayLifecycleUpdate)
-        update.phase = "accepted"
-        update.run_id = "run-feishu-001"
-        update.agent_id = "default-agent"
-        update.kernel_session_id = "ksession-1"
+        message = _external_routed()
+        update = RelayLifecycleUpdate(
+            phase="accepted",
+            agent_id="default-agent",
+            session_key="feishu:feishu:cli_a:dm:ou_user1:default-agent",
+            run_id="run-feishu-001",
+            kernel_session_id="ksession-1",
+        )
 
         await callback(message, update)
 
@@ -231,8 +271,9 @@ class TestAcceptedPhaseSeedsRunContextForNonRelay:
         assert ctx.agent_id == "default-agent"
         assert ctx.kernel_session_id == "ksession-1"
         assert ctx.message_id == ""
-        # Lazy direct-chat creation needs the owning IM user.
-        assert ctx.owner_user_id == "im-owner-123"
+        assert ctx.delivery_target.kind == "none"
+        assert ctx.delivery_target.reason == "external_without_shadow"
+        assert ctx.shadow_saga_id == "saga-event-1"
         reporter.send_delivery_receipt.assert_not_called()
         manager.send_json.assert_not_called()
 
@@ -242,8 +283,6 @@ class TestAcceptedPhaseSeedsRunContextForNonRelay:
         from personal_assistant.gateway.runtime_delivery.lifecycle import (
             build_relay_lifecycle_callback,
         )
-        from personal_assistant.gateway.inbound_models import RelayLifecycleUpdate
-        from personal_assistant.channels.base import InboundMessage
 
         run_context_store = delivery_context_store(
             {
@@ -264,14 +303,13 @@ class TestAcceptedPhaseSeedsRunContextForNonRelay:
             run_context_store=run_context_store,
         )
 
-        message = MagicMock(spec=InboundMessage)
-        message.external_chat_id = "feishu:cli_a:dm:ou_user1"
-        message.metadata = {}
-
-        update = MagicMock(spec=RelayLifecycleUpdate)
-        update.phase = "completed"
-        update.run_id = "run-feishu-001"
-        update.agent_id = "default-agent"
+        message = _external_routed()
+        update = RelayLifecycleUpdate(
+            phase="completed",
+            agent_id="default-agent",
+            session_key="feishu:feishu:cli_a:dm:ou_user1:default-agent",
+            run_id="run-feishu-001",
+        )
 
         await callback(message, update)
 

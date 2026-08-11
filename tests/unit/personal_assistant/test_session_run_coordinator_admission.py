@@ -6,11 +6,9 @@ import asyncio
 from dataclasses import replace
 from pathlib import Path
 
-from personal_assistant.gateway.runtime_protocol import (
+from personal_assistant.channels.base import (
     ExternalConversationIdentity,
-    RuntimeProtocolFacts,
-    ShadowConversationRef,
-    attach_runtime_protocol,
+    InboundIngress,
 )
 
 import pytest
@@ -18,8 +16,11 @@ import pytest
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.inbound_models import (
     CompactSessionRequest,
+    GatewayShadowState,
     InboundRunRequest,
     NewSessionRequest,
+    RoutedInbound,
+    ShadowConversationRef,
     StopRunRequest,
 )
 from personal_assistant.gateway.image_attachments import ImageResolution
@@ -37,10 +38,15 @@ from ._session_run_coordinator_helpers import (
 )
 
 
-def _request(message, catalog) -> InboundRunRequest:
+def _request(
+    message,
+    catalog,
+    *,
+    shadow: GatewayShadowState = GatewayShadowState(),
+) -> InboundRunRequest:
     agent = catalog.require("agent-a")
     return InboundRunRequest(
-        message=message,
+        routed=RoutedInbound(message=message, shadow=shadow),
         agent=agent,
         session_key=build_session_key(message, agent_id=agent.agent_id),
         sender_label="Alice",
@@ -48,11 +54,15 @@ def _request(message, catalog) -> InboundRunRequest:
 
 
 def _new_request(
-    message, catalog, *, operation_id: str | None = None
+    message,
+    catalog,
+    *,
+    operation_id: str | None = None,
+    shadow: GatewayShadowState = GatewayShadowState(),
 ) -> NewSessionRequest:
     agent = catalog.require("agent-a")
     return NewSessionRequest(
-        message=message,
+        routed=RoutedInbound(message=message, shadow=shadow),
         agent=agent,
         session_key=build_session_key(message, agent_id=agent.agent_id),
         operation_id=operation_id,
@@ -60,11 +70,15 @@ def _new_request(
 
 
 def _compact_request(
-    message, catalog, *, operation_id: str | None = None
+    message,
+    catalog,
+    *,
+    operation_id: str | None = None,
+    shadow: GatewayShadowState = GatewayShadowState(),
 ) -> CompactSessionRequest:
     agent = catalog.require("agent-a")
     return CompactSessionRequest(
-        message=message,
+        routed=RoutedInbound(message=message, shadow=shadow),
         agent=agent,
         session_key=build_session_key(message, agent_id=agent.agent_id),
         operation_id=operation_id,
@@ -323,16 +337,15 @@ async def test_failed_external_new_persists_recoverable_confirmation_intent(
         raise RuntimeError("fresh session unavailable")
 
     monkeypatch.setattr(binder, "prepare_reset", fail_prepare)
-    external_message = attach_runtime_protocol(
+    external_message = replace(
         inbound(chat_id="oc-external", text="/new"),
-        RuntimeProtocolFacts(
-            external_identity=ExternalConversationIdentity(
+        ingress=InboundIngress(
+            external_conversation=ExternalConversationIdentity(
                 external_source="feishu",
                 external_chat_id="oc-external",
                 agent_id="agent-a",
                 trigger_source="feishu",
             ),
-            shadow_saga_id="saga-failed-new",
         ),
     )
 
@@ -341,6 +354,7 @@ async def test_failed_external_new_persists_recoverable_confirmation_intent(
             external_message,
             catalog,
             operation_id="feishu:new-failure",
+            shadow=GatewayShadowState(saga_id="saga-failed-new"),
         )
     )
 
@@ -369,31 +383,43 @@ async def test_runtime_replacement_persists_web_anchor_before_submit(
         group_context_store=group_store,
         node_id="node-1",
     )
-    first_message = attach_runtime_protocol(
-        inbound(chat_id="conversation-1", text="before"),
-        RuntimeProtocolFacts(
-            shadow_ref=ShadowConversationRef(
-                conversation_id="conversation-1", im_message_id="message-before"
+    first_message = inbound(chat_id="conversation-1", text="before")
+    first = asyncio.create_task(
+        coordinator.dispatch(
+            _request(
+                first_message,
+                catalog,
+                shadow=GatewayShadowState(
+                    saga_id="saga-before",
+                    ref=ShadowConversationRef(
+                        conversation_id="conversation-1",
+                        im_message_id="message-before",
+                    ),
+                ),
             )
-        ),
+        )
     )
-    first = asyncio.create_task(coordinator.dispatch(_request(first_message, catalog)))
     await kernel.wait_stream("run-1")
     kernel.finish("run-1")
     await first
 
     current = catalog.require("agent-a").config
     catalog.publish(replace(current, default_model="updated-model"))
-    changed_message = attach_runtime_protocol(
-        inbound(chat_id="conversation-1", text="after"),
-        RuntimeProtocolFacts(
-            shadow_ref=ShadowConversationRef(
-                conversation_id="conversation-1", im_message_id="message-after"
-            )
-        ),
-    )
+    changed_message = inbound(chat_id="conversation-1", text="after")
     changed = asyncio.create_task(
-        coordinator.dispatch(_request(changed_message, catalog))
+        coordinator.dispatch(
+            _request(
+                changed_message,
+                catalog,
+                shadow=GatewayShadowState(
+                    saga_id="saga-after",
+                    ref=ShadowConversationRef(
+                        conversation_id="conversation-1",
+                        im_message_id="message-after",
+                    ),
+                ),
+            )
+        )
     )
     await kernel.wait_stream("run-2")
 
@@ -432,12 +458,15 @@ async def test_external_runtime_replacement_waits_for_saga_anchor_before_boundar
 
     current = catalog.require("agent-a").config
     catalog.publish(replace(current, default_model="updated-model"))
-    pending_message = attach_runtime_protocol(
-        inbound(chat_id="external-chat", text="after"),
-        RuntimeProtocolFacts(shadow_saga_id="saga-1"),
-    )
+    pending_message = inbound(chat_id="external-chat", text="after")
     changed = asyncio.create_task(
-        coordinator.dispatch(_request(pending_message, catalog))
+        coordinator.dispatch(
+            _request(
+                pending_message,
+                catalog,
+                shadow=GatewayShadowState(saga_id="saga-1"),
+            )
+        )
     )
     await kernel.wait_stream("run-2")
 
@@ -487,15 +516,22 @@ async def test_unknown_legacy_runtime_establishes_baseline_without_boundary(
         group_context_store=group_store,
         node_id="node-1",
     )
-    first_message = attach_runtime_protocol(
-        inbound(chat_id="conversation-1", text="before"),
-        RuntimeProtocolFacts(
-            shadow_ref=ShadowConversationRef(
-                conversation_id="conversation-1", im_message_id="message-before"
+    first_message = inbound(chat_id="conversation-1", text="before")
+    first = asyncio.create_task(
+        coordinator.dispatch(
+            _request(
+                first_message,
+                catalog,
+                shadow=GatewayShadowState(
+                    saga_id="saga-before",
+                    ref=ShadowConversationRef(
+                        conversation_id="conversation-1",
+                        im_message_id="message-before",
+                    ),
+                ),
             )
-        ),
+        )
     )
-    first = asyncio.create_task(coordinator.dispatch(_request(first_message, catalog)))
     await kernel.wait_stream("run-1")
     kernel.finish("run-1")
     await first
@@ -507,17 +543,22 @@ async def test_unknown_legacy_runtime_establishes_baseline_without_boundary(
         fingerprint_schema="legacy-v0",
         profile_version=None,
     )
-    changed_message = attach_runtime_protocol(
-        inbound(chat_id="conversation-1", text="after"),
-        RuntimeProtocolFacts(
-            shadow_ref=ShadowConversationRef(
-                conversation_id="conversation-1", im_message_id="message-after"
-            )
-        ),
-    )
+    changed_message = inbound(chat_id="conversation-1", text="after")
 
     changed = asyncio.create_task(
-        coordinator.dispatch(_request(changed_message, catalog))
+        coordinator.dispatch(
+            _request(
+                changed_message,
+                catalog,
+                shadow=GatewayShadowState(
+                    saga_id="saga-after",
+                    ref=ShadowConversationRef(
+                        conversation_id="conversation-1",
+                        im_message_id="message-after",
+                    ),
+                ),
+            )
+        )
     )
     await kernel.wait_stream("run-2")
 
@@ -694,7 +735,7 @@ async def test_stop_observes_marker_before_first_post_submit_await(
 
     stopped = await coordinator.stop(
         StopRunRequest(
-            message=inbound(chat_id="chat-a", text="/stop"),
+            routed=RoutedInbound(message=inbound(chat_id="chat-a", text="/stop")),
             agent=request.agent,
             session_key=request.session_key,
         )
@@ -738,7 +779,7 @@ async def test_bounded_lock_registry_cannot_evict_pre_submit_session_owner(
     stopping_b = asyncio.create_task(
         coordinator.stop(
             StopRunRequest(
-                message=inbound(chat_id="chat-b", text="/stop"),
+                routed=RoutedInbound(message=inbound(chat_id="chat-b", text="/stop")),
                 agent=catalog.require("agent-a"),
                 session_key=build_session_key(message_b, agent_id="agent-a"),
             )
@@ -806,30 +847,42 @@ async def test_batched_consumed_steer_uses_the_last_follower_shadow_anchor(
         group_context_store=group_store,
         kernel_event_observer=lambda event: observed.append(dict(event)),
     )
-    primary_message = attach_runtime_protocol(
-        inbound(chat_id="chat-a", text="one"),
-        RuntimeProtocolFacts(shadow_saga_id="saga-1"),
-    )
+    primary_message = inbound(chat_id="chat-a", text="one")
     running = asyncio.create_task(
-        coordinator.dispatch(_request(primary_message, catalog))
+        coordinator.dispatch(
+            _request(
+                primary_message,
+                catalog,
+                shadow=GatewayShadowState(saga_id="saga-1"),
+            )
+        )
     )
     await kernel.wait_stream("run-1")
     kernel.inject_steer = True
-    follower_message = attach_runtime_protocol(
-        inbound(chat_id="chat-a", text="two"),
-        RuntimeProtocolFacts(shadow_saga_id="saga-2"),
-    )
-    last_follower_message = attach_runtime_protocol(
-        inbound(chat_id="chat-a", text="three"),
-        RuntimeProtocolFacts(
-            shadow_saga_id="saga-3",
-            shadow_ref=ShadowConversationRef(conversation_id="shadow-3"),
-        ),
-    )
+    follower_message = inbound(chat_id="chat-a", text="two")
+    last_follower_message = inbound(chat_id="chat-a", text="three")
 
-    steered = await coordinator.dispatch(_request(follower_message, catalog))
+    steered = await coordinator.dispatch(
+        _request(
+            follower_message,
+            catalog,
+            shadow=GatewayShadowState(saga_id="saga-2"),
+        )
+    )
     assert steered.run_id == "run-1"
-    last_steered = await coordinator.dispatch(_request(last_follower_message, catalog))
+    last_steered = await coordinator.dispatch(
+        _request(
+            last_follower_message,
+            catalog,
+            shadow=GatewayShadowState(
+                saga_id="saga-3",
+                ref=ShadowConversationRef(
+                    conversation_id="shadow-3",
+                    im_message_id="message-3",
+                ),
+            ),
+        )
+    )
     assert last_steered.run_id == "run-1"
     kernel.push(
         "run-1",
@@ -866,11 +919,9 @@ async def test_consumed_steer_marks_a_pending_follower_shadow_anchor(
     running = asyncio.create_task(
         coordinator.dispatch(
             _request(
-                attach_runtime_protocol(
-                    inbound(chat_id="chat-a", text="one"),
-                    RuntimeProtocolFacts(shadow_saga_id="saga-1"),
-                ),
+                inbound(chat_id="chat-a", text="one"),
                 catalog,
+                shadow=GatewayShadowState(saga_id="saga-1"),
             )
         )
     )
@@ -878,11 +929,9 @@ async def test_consumed_steer_marks_a_pending_follower_shadow_anchor(
     kernel.inject_steer = True
     steered = await coordinator.dispatch(
         _request(
-            attach_runtime_protocol(
-                inbound(chat_id="chat-a", text="two"),
-                RuntimeProtocolFacts(shadow_saga_id="saga-2"),
-            ),
+            inbound(chat_id="chat-a", text="two"),
             catalog,
+            shadow=GatewayShadowState(saga_id="saga-2"),
         )
     )
     assert steered.run_id == "run-1"

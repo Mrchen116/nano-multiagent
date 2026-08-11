@@ -11,13 +11,10 @@ import httpx
 import pytest
 
 from personal_assistant.channels.base import (
-    ExternalInboundEventIdentity,
-    InboundMessage,
-)
-from personal_assistant.gateway.runtime_protocol import (
     ExternalConversationIdentity,
-    RuntimeProtocolFacts,
-    attach_runtime_protocol,
+    ExternalInboundEventIdentity,
+    InboundIngress,
+    InboundMessage,
 )
 from personal_assistant.gateway.shadow_saga import ExternalShadowSagaStore
 from personal_assistant.gateway.shadow_sync import (
@@ -86,10 +83,11 @@ def test_external_shadow_sync_uses_authenticated_im_user_not_stale_config_user(
 
     assert shadow_ref is not None
     assert replay_ref == shadow_ref
-    assert shadow_ref.conversation_id == "conv-shadow"
-    assert shadow_ref.im_message_id == "msg-shadow"
-    assert shadow_ref.shadow_saga_id is not None
-    assert saga_store.require(shadow_ref.shadow_saga_id).owner_id == "actual-user"
+    assert shadow_ref.ref is not None
+    assert shadow_ref.ref.conversation_id == "conv-shadow"
+    assert shadow_ref.ref.im_message_id == "msg-shadow"
+    assert shadow_ref.saga_id is not None
+    assert saga_store.require(shadow_ref.saga_id).owner_id == "actual-user"
     assert saga_store.diagnostic_reasons() == (
         "shadow_owner_recovered:stale-config-user->actual-user",
     )
@@ -241,28 +239,26 @@ def test_cross_owner_token_cannot_reassign_pending_shadow_saga(tmp_path: Path) -
 
 
 def _external_inbound() -> InboundMessage:
-    return attach_runtime_protocol(
-        InboundMessage(
-            channel_name="feishu:agent-a",
-            text="hello from lark",
-            external_user_id="ou_user",
-            external_chat_id="feishu:app:dm:ou_user",
-            is_group=False,
-            agent_id="agent-a",
-            metadata={"sender_display_name": "你"},
-            external_event_identity=ExternalInboundEventIdentity(
-                connector_account_id="app-a",
-                provider_event_id="event-a",
-            ),
-        ),
-        RuntimeProtocolFacts(
-            external_identity=ExternalConversationIdentity(
+    return InboundMessage(
+        channel_name="feishu:agent-a",
+        text="hello from lark",
+        external_user_id="ou_user",
+        external_chat_id="feishu:app:dm:ou_user",
+        is_group=False,
+        agent_id="agent-a",
+        metadata={"sender_display_name": "你"},
+        ingress=InboundIngress(
+            external_conversation=ExternalConversationIdentity(
                 external_source="feishu",
                 external_chat_id="feishu:app:dm:ou_user",
                 agent_id="agent-a",
                 conversation_type="direct",
                 trigger_source="external",
-            )
+            ),
+            external_event=ExternalInboundEventIdentity(
+                connector_account_id="app-a",
+                provider_event_id="event-a",
+            ),
         ),
     )
 

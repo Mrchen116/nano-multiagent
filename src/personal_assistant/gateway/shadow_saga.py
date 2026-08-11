@@ -10,10 +10,8 @@ import sqlite3
 import time
 from typing import Any, Literal, Mapping
 from personal_assistant.channels.base import InboundMessage
-from personal_assistant.gateway.runtime_protocol import (
+from personal_assistant.gateway.inbound_models import (
     ShadowConversationRef,
-    external_identity_from_message,
-    strip_runtime_protocol_metadata,
 )
 from personal_assistant.gateway.session_keys import (
     build_reply_context,
@@ -70,7 +68,6 @@ class ExternalShadowSaga:
         return ShadowConversationRef(
             conversation_id=self.conversation_id,
             im_message_id=self.im_message_id,
-            shadow_saga_id=self.saga_id,
         )
 
 
@@ -226,8 +223,8 @@ class ExternalShadowSagaStore:
     ) -> ExternalShadowSaga | None:
         """Persist or return the saga for one normalized external inbound event."""
 
-        external_identity = external_identity_from_message(message)
-        event_identity = message.external_event_identity
+        external_identity = message.ingress.external_conversation
+        event_identity = message.ingress.external_event
         if external_identity is None or event_identity is None:
             self._record_identity_unavailable(message=message, agent_id=agent_id)
             return None
@@ -273,7 +270,7 @@ class ExternalShadowSagaStore:
                     "external_chat_id": message.external_chat_id,
                     "is_group": message.is_group,
                     "thread_id": message.thread_id,
-                    "metadata": strip_runtime_protocol_metadata(message.metadata),
+                    "metadata": dict(message.metadata),
                     "external_identity": {
                         "external_source": external_identity.external_source,
                         "external_chat_id": external_identity.external_chat_id,
@@ -360,8 +357,6 @@ class ExternalShadowSagaStore:
     ) -> ExternalShadowSaga:
         """Persist the IM response before allowing the associated run to proceed."""
 
-        if shadow_ref.im_message_id is None:
-            raise ValueError("shadow saga anchor requires an IM message id")
         with self._conn:
             updated = self._conn.execute(
                 """

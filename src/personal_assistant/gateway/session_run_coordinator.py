@@ -41,6 +41,7 @@ from personal_assistant.gateway.inbound_models import (
     PipelineResult,
     RelayLifecycleCallback,
     RelayLifecycleUpdate,
+    RoutedInbound,
     StopRunRequest,
     build_group_context_key,
 )
@@ -67,7 +68,6 @@ from personal_assistant.gateway.session_keys import (
     build_reply_context,
 )
 from personal_assistant.gateway.boundary_outbox import BoundaryOutboxDispatcher
-from personal_assistant.gateway.runtime_protocol import runtime_protocol_or_derive
 from personal_assistant.gateway.shadow_saga import ExternalShadowOutput
 
 if TYPE_CHECKING:
@@ -107,6 +107,22 @@ class _CompactReservation:
     request: asyncio.Future[CompactSessionRequest | None]
     result: asyncio.Future[PipelineResult] | None = None
     released: bool = False
+
+
+def _build_routed_reply_context(routed: RoutedInbound) -> ReplyContext:
+    """Project an anchored IM shadow target into the durable reply context."""
+
+    reply_context = build_reply_context(routed.message)
+    shadow_ref = routed.shadow.ref
+    if shadow_ref is None:
+        return reply_context
+    return replace(
+        reply_context,
+        metadata={
+            **reply_context.metadata,
+            "shadow_conversation_id": shadow_ref.conversation_id,
+        },
+    )
 
 
 class SessionRunCoordinator:
@@ -264,7 +280,7 @@ class SessionRunCoordinator:
             )
         if injected_result is not None:
             await self._emit_lifecycle(
-                request.message,
+                request.routed,
                 RelayLifecycleUpdate(
                     phase="accepted",
                     agent_id=request.agent.agent_id,
@@ -302,7 +318,7 @@ class SessionRunCoordinator:
                         binding=binding,
                         agent_id=request.agent.agent_id,
                         ack_tag="new-ack",
-                        source_message=request.message,
+                        source_routed=request.routed,
                         operation_id=request.operation_id,
                     )
                     return PipelineResult(
@@ -320,7 +336,7 @@ class SessionRunCoordinator:
                 candidate = await self._session_binder.prepare_reset(
                     SessionBindingRequest(
                         session_key=request.session_key,
-                        reply_context=build_reply_context(request.message),
+                        reply_context=_build_routed_reply_context(request.routed),
                         message=request.message,
                         gateway_internal_port=fallback_port,
                         gateway_dispatch_url=dispatch_url,
@@ -347,7 +363,7 @@ class SessionRunCoordinator:
                     operation_id=request.operation_id,
                     superseded_run_id=active_run_id,
                     reply_text=reply_text,
-                    external_saga_id=_external_shadow_saga_id(request.message),
+                    external_saga_id=_external_shadow_saga_id(request.routed),
                 )
             except Exception:
                 if (
@@ -375,7 +391,7 @@ class SessionRunCoordinator:
             binding=binding,
             agent_id=request.agent.agent_id,
             ack_tag="new-ack",
-            source_message=request.message,
+            source_routed=request.routed,
             operation_id=request.operation_id,
         )
         return PipelineResult(
@@ -406,13 +422,13 @@ class SessionRunCoordinator:
                     kernel_session_id="",
                     reply_text=reply_text,
                 ),
-                external_saga_id=_external_shadow_saga_id(request.message),
+                external_saga_id=_external_shadow_saga_id(request.routed),
             ).reply_text
         binding = self._session_binder.lookup(request.session_key)
         if binding is None:
             if (
                 request.operation_id is not None
-                and _external_shadow_saga_id(request.message) is not None
+                and _external_shadow_saga_id(request.routed) is not None
                 and self._drain_external_control_deliveries is not None
             ):
                 try:
@@ -439,7 +455,7 @@ class SessionRunCoordinator:
             binding=binding,
             agent_id=request.agent.agent_id,
             ack_tag="new-failed",
-            source_message=request.message,
+            source_routed=request.routed,
             operation_id=request.operation_id,
         )
         return PipelineResult(
@@ -579,7 +595,7 @@ class SessionRunCoordinator:
                             kernel_session_id="",
                             reply_text=reply_text,
                         ),
-                        external_saga_id=_external_shadow_saga_id(request.message),
+                        external_saga_id=_external_shadow_saga_id(request.routed),
                     ).reply_text
             elif binding is None:
                 reply_text = "当前历史不足，无需压缩。"
@@ -621,7 +637,7 @@ class SessionRunCoordinator:
                         ),
                         reply_text=reply_text,
                     ),
-                    external_saga_id=_external_shadow_saga_id(request.message),
+                    external_saga_id=_external_shadow_saga_id(request.routed),
                 ).reply_text
         return await self._compact_result_reply(
             request=request, binding=binding, reply_text=reply_text
@@ -639,7 +655,7 @@ class SessionRunCoordinator:
         if binding is None:
             if (
                 request.operation_id is not None
-                and _external_shadow_saga_id(request.message) is not None
+                and _external_shadow_saga_id(request.routed) is not None
                 and self._drain_external_control_deliveries is not None
             ):
                 try:
@@ -666,7 +682,7 @@ class SessionRunCoordinator:
             binding=binding,
             agent_id=request.agent.agent_id,
             ack_tag="compact-ack",
-            source_message=request.message,
+            source_routed=request.routed,
             operation_id=request.operation_id,
         )
         return PipelineResult(
@@ -723,7 +739,7 @@ class SessionRunCoordinator:
             binding=binding,
             agent_id=request.agent.agent_id,
             ack_tag=ack_tag,
-            source_message=request.message,
+            source_routed=request.routed,
             operation_id=None,
         )
         return PipelineResult(
@@ -785,7 +801,7 @@ class SessionRunCoordinator:
 
         async def _on_cancel(error: GatewayShutdownBeforeSubmit) -> None:
             await self._emit_lifecycle(
-                request.message,
+                request.routed,
                 RelayLifecycleUpdate(
                     phase="failed",
                     agent_id=request.agent.agent_id,
@@ -807,7 +823,7 @@ class SessionRunCoordinator:
             )
         except SessionRunQueueSealed:
             await self._emit_lifecycle(
-                request.message,
+                request.routed,
                 RelayLifecycleUpdate(
                     phase="failed",
                     agent_id=request.agent.agent_id,
@@ -836,7 +852,7 @@ class SessionRunCoordinator:
                 ):
                     admission_event.set()
                     await self._emit_lifecycle(
-                        request.message,
+                        request.routed,
                         RelayLifecycleUpdate(
                             phase="failed",
                             agent_id=request.agent.agent_id,
@@ -866,7 +882,7 @@ class SessionRunCoordinator:
                 binding = await self._admit_runtime(
                     binding=binding,
                     agent=latest_agent,
-                    message=request.message,
+                    routed=request.routed,
                     runtime=runtime_projection.runtime,
                     profile_version=runtime_projection.profile_version,
                 )
@@ -913,7 +929,7 @@ class SessionRunCoordinator:
                 return result
             assert binding is not None
             await self._emit_lifecycle(
-                request.message,
+                request.routed,
                 RelayLifecycleUpdate(
                     phase="accepted",
                     agent_id=request.agent.agent_id,
@@ -943,7 +959,7 @@ class SessionRunCoordinator:
                     )
                 )
             await self._emit_lifecycle(
-                request.message,
+                request.routed,
                 RelayLifecycleUpdate(
                     phase="running",
                     agent_id=request.agent.agent_id,
@@ -976,7 +992,7 @@ class SessionRunCoordinator:
                 detail=detail,
                 usage=self._extract_usage(run_state),
             )
-            await self._emit_lifecycle(request.message, completed)
+            await self._emit_lifecycle(request.routed, completed)
             await self._emit_follower_lifecycle(terminal_followers, completed)
             return result
         except asyncio.CancelledError:
@@ -994,7 +1010,7 @@ class SessionRunCoordinator:
                     run_id=run_id,
                     error=_SHUTDOWN_ACTIVE_RUN_CANCELLED,
                 )
-                await self._emit_lifecycle(request.message, failed)
+                await self._emit_lifecycle(request.routed, failed)
                 await self._emit_follower_lifecycle(terminal_followers, failed)
             finally:
                 admission_event.set()
@@ -1014,7 +1030,7 @@ class SessionRunCoordinator:
                     run_id=run_id,
                     error=str(exc),
                 )
-                await self._emit_lifecycle(request.message, failed)
+                await self._emit_lifecycle(request.routed, failed)
                 await self._emit_follower_lifecycle(terminal_followers, failed)
             finally:
                 admission_event.set()
@@ -1047,7 +1063,7 @@ class SessionRunCoordinator:
     ) -> None:
         for follower in followers:
             await self._emit_lifecycle(
-                follower.message,
+                follower.routed,
                 replace(
                     update,
                     agent_id=follower.agent.agent_id,
@@ -1105,14 +1121,14 @@ class SessionRunCoordinator:
             return None, {"suppressed_by": "no_reply_token"}
         reply_context = binding.reply_context
         if _is_external_channel_inbound(request.message):
-            protocol = runtime_protocol_or_derive(request.message)
+            shadow = request.routed.shadow
             if (
-                protocol.shadow_saga_id is not None
-                and protocol.shadow_ref is None
+                shadow.saga_id is not None
+                and shadow.ref is None
                 and self._shadow_output_prepare is not None
             ):
                 self._shadow_output_prepare(
-                    saga_id=protocol.shadow_saga_id,
+                    saga_id=shadow.saga_id,
                     run_id=run_id,
                     output_kind="final",
                     kernel_message_id=None,
@@ -1194,7 +1210,7 @@ class SessionRunCoordinator:
         return await self._session_binder.resolve(
             SessionBindingRequest(
                 session_key=request.session_key,
-                reply_context=build_reply_context(request.message),
+                reply_context=_build_routed_reply_context(request.routed),
                 message=request.message,
                 gateway_internal_port=fallback_port,
                 gateway_dispatch_url=dispatch_url,
@@ -1232,7 +1248,7 @@ class SessionRunCoordinator:
         *,
         binding: SessionBinding,
         agent: LiveAgentSnapshot,
-        message: InboundMessage,
+        routed: RoutedInbound,
         runtime: SessionRuntimeConfig,
         profile_version: int | None,
     ) -> SessionBinding:
@@ -1270,7 +1286,7 @@ class SessionRunCoordinator:
         )
         boundary = (
             self._boundary_for_runtime_replacement(
-                message=message,
+                routed=routed,
                 agent_id=agent.agent_id,
                 runtime_fingerprint=result.state.identity.runtime_fingerprint,
                 fingerprint_schema=result.state.identity.fingerprint_schema,
@@ -1293,7 +1309,7 @@ class SessionRunCoordinator:
             return updated
         pending_boundary = (
             self._pending_boundary_for_shadow_replacement(
-                message=message,
+                routed=routed,
                 agent_id=agent.agent_id,
                 runtime_fingerprint=result.state.identity.runtime_fingerprint,
                 fingerprint_schema=result.state.identity.fingerprint_schema,
@@ -1322,7 +1338,7 @@ class SessionRunCoordinator:
     def _boundary_for_runtime_replacement(
         self,
         *,
-        message: InboundMessage,
+        routed: RoutedInbound,
         agent_id: str,
         runtime_fingerprint: str,
         fingerprint_schema: str,
@@ -1331,9 +1347,8 @@ class SessionRunCoordinator:
         """Build an outbox intent only when this user message has a durable IM anchor."""
 
         node_id = self._node_id
-        protocol = runtime_protocol_or_derive(message)
-        shadow_ref = protocol.shadow_ref
-        if node_id is None or shadow_ref is None or shadow_ref.im_message_id is None:
+        shadow_ref = routed.shadow.ref
+        if node_id is None or shadow_ref is None:
             return None
         return BoundaryIntent(
             boundary_id=str(uuid4()),
@@ -1350,7 +1365,7 @@ class SessionRunCoordinator:
     def _pending_boundary_for_shadow_replacement(
         self,
         *,
-        message: InboundMessage,
+        routed: RoutedInbound,
         agent_id: str,
         runtime_fingerprint: str,
         fingerprint_schema: str,
@@ -1359,8 +1374,7 @@ class SessionRunCoordinator:
         """Retain an external replacement until its durable saga obtains an IM anchor."""
 
         node_id = self._node_id
-        protocol = runtime_protocol_or_derive(message)
-        saga_id = protocol.shadow_saga_id
+        saga_id = routed.shadow.saga_id
         if node_id is None or saga_id is None:
             return None
         return PendingBoundaryIntent(
@@ -1381,7 +1395,7 @@ class SessionRunCoordinator:
         return await self._session_binder.resolve(
             SessionBindingRequest(
                 session_key=request.session_key,
-                reply_context=build_reply_context(request.message),
+                reply_context=_build_routed_reply_context(request.routed),
                 message=request.message,
                 gateway_internal_port=fallback_port,
                 gateway_dispatch_url=dispatch_url,
@@ -1410,11 +1424,11 @@ class SessionRunCoordinator:
             binding=binding,
             agent_id=request.agent.agent_id,
             ack_tag=f"image-error-{failure_kind}",
-            source_message=request.message,
+            source_routed=request.routed,
             operation_id=None,
         )
         await self._emit_lifecycle(
-            request.message,
+            request.routed,
             RelayLifecycleUpdate(
                 phase="completed",
                 agent_id=request.agent.agent_id,
@@ -1439,12 +1453,12 @@ class SessionRunCoordinator:
         binding: SessionBinding,
         agent_id: str,
         ack_tag: str,
-        source_message: InboundMessage,
+        source_routed: RoutedInbound,
         operation_id: str | None,
     ) -> OutboundMessage | None:
         if (
             operation_id is not None
-            and _external_shadow_saga_id(source_message) is not None
+            and _external_shadow_saga_id(source_routed) is not None
             and self._drain_external_control_deliveries is not None
         ):
             try:
@@ -1458,7 +1472,7 @@ class SessionRunCoordinator:
             agent_id=agent_id,
             kernel_session_id=binding.kernel_session_id,
             ack_tag=ack_tag,
-            source_message=source_message,
+            source_message=source_routed.message,
             operation_id=operation_id,
         )
         if self._bg_reply_sender is not None:
@@ -1478,10 +1492,10 @@ class SessionRunCoordinator:
         )
 
     async def _emit_lifecycle(
-        self, message: InboundMessage, update: RelayLifecycleUpdate
+        self, routed: RoutedInbound, update: RelayLifecycleUpdate
     ) -> None:
         if self._relay_lifecycle_callback is not None:
-            await self._relay_lifecycle_callback(message, update)
+            await self._relay_lifecycle_callback(routed, update)
 
     async def _await_terminal_run(
         self,
@@ -1589,13 +1603,13 @@ class SessionRunCoordinator:
             return event
         end = min(index + message_count, len(followers))
         self._consumed_steer_counts[run_id] = end
-        protocol = runtime_protocol_or_derive(followers[end - 1].message)
+        shadow = followers[end - 1].routed.shadow
         enriched = dict(event)
-        if protocol.shadow_saga_id is not None:
-            enriched["shadow_saga_id"] = protocol.shadow_saga_id
-            enriched["shadow_anchor_pending"] = protocol.shadow_ref is None
-        if protocol.shadow_ref is not None:
-            enriched["shadow_conversation_id"] = protocol.shadow_ref.conversation_id
+        if shadow.saga_id is not None:
+            enriched["shadow_saga_id"] = shadow.saga_id
+            enriched["shadow_anchor_pending"] = shadow.ref is None
+        if shadow.ref is not None:
+            enriched["shadow_conversation_id"] = shadow.ref.conversation_id
         return enriched
 
     async def _emit_terminal_reconcile(self, run_id: str, *, reason: str) -> None:
@@ -1796,22 +1810,25 @@ def _control_ack_from_session_id(
 
 
 def _control_ack_source_id(message: InboundMessage) -> str | None:
-    for key in ("feishu_message_id", "relay_task_id", "idempotency_key", "message_id"):
-        value = message.metadata.get(key)
-        if isinstance(value, str) and value.strip():
-            return _normalize_dispatch_id_part(value)
+    relay = message.ingress.im_relay
+    if relay is not None:
+        value = relay.im_message_id or relay.relay_task_id or relay.idempotency_key
+        return _normalize_dispatch_id_part(value)
+    external_event = message.ingress.external_event
+    if external_event is not None:
+        return _normalize_dispatch_id_part(external_event.provider_event_id)
     return None
 
 
-def _external_shadow_saga_id(message: InboundMessage) -> str | None:
+def _external_shadow_saga_id(routed: RoutedInbound) -> str | None:
     """Return the durable external saga identity when this command owns one."""
 
-    protocol = runtime_protocol_or_derive(message)
-    if protocol.external_identity is None:
+    external_identity = routed.message.ingress.external_conversation
+    if external_identity is None:
         return None
-    if protocol.external_identity.trigger_source == "im":
+    if external_identity.trigger_source == "im":
         return None
-    return protocol.shadow_saga_id
+    return routed.shadow.saga_id
 
 
 def _normalize_dispatch_id_part(value: str) -> str:
@@ -1822,8 +1839,5 @@ def _normalize_dispatch_id_part(value: str) -> str:
 def _is_external_channel_inbound(message: InboundMessage) -> bool:
     """Return whether normalized protocol facts identify an external ingress."""
 
-    external_identity = runtime_protocol_or_derive(message).external_identity
-    if external_identity is not None:
-        return external_identity.trigger_source != "im"
-    trigger_source = message.metadata.get("trigger_source")
-    return isinstance(trigger_source, str) and trigger_source.strip() not in {"", "im"}
+    external_identity = message.ingress.external_conversation
+    return external_identity is not None and external_identity.trigger_source != "im"

@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+from personal_assistant.gateway.inbound_models import ShadowConversationRef
 from personal_assistant.gateway.runtime_delivery.stream import (
     StreamRunOutcome,
     stream_run_to_completion,
@@ -18,12 +19,12 @@ from personal_assistant.gateway.background_subscriptions import (
     ForegroundTerminalSubscriptionOutcome,
 )
 from personal_assistant.gateway.runtime_delivery.context import (
+    ExternalShadowTarget,
     RunDeliveryContext,
     RunDeliveryContextStore,
     RunDeliveryTerminalProjection,
     RunDeliveryTarget,
 )
-from personal_assistant.gateway.runtime_protocol import ShadowConversationRef
 
 
 class _StreamingKernel:
@@ -181,8 +182,13 @@ async def test_stream_terminal_projection_preserves_resolved_shadow_conversation
             run_id="run-shadow",
             agent_id="agent-a",
             kernel_session_id="session-1",
-            delivery_target=RunDeliveryTarget.shadow(
-                ShadowConversationRef(conversation_id="conversation-1")
+            delivery_target=RunDeliveryTarget.for_external_shadow(
+                ExternalShadowTarget(
+                    ref=ShadowConversationRef(
+                        conversation_id="conversation-1",
+                        im_message_id="message-1",
+                    )
+                )
             ),
         )
     )

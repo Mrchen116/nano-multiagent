@@ -7,7 +7,13 @@ from tests.helpers.inbound_pipeline import build_inbound_pipeline
 import asyncio
 from pathlib import Path
 
-from personal_assistant.channels.base import InboundMessage
+from personal_assistant.channels.base import (
+    ExternalConversationIdentity,
+    ExternalInboundEventIdentity,
+    IMRelayIngress,
+    InboundIngress,
+    InboundMessage,
+)
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.gateway.inbound_pipeline import InboundPipeline
@@ -31,6 +37,39 @@ class _FakeChannel:
 
     def stop(self) -> None:
         pass
+
+
+def _feishu_group_ingress(event_id: str) -> InboundIngress:
+    return InboundIngress(
+        external_conversation=ExternalConversationIdentity(
+            external_source="feishu",
+            external_chat_id="feishu:cli_a:group:oc_grp1",
+            agent_id="agent-a",
+            conversation_type="group",
+            trigger_source="feishu",
+        ),
+        external_event=ExternalInboundEventIdentity(
+            connector_account_id="cli_a",
+            provider_event_id=event_id,
+        ),
+    )
+
+
+def _shadow_group_ingress() -> InboundIngress:
+    return InboundIngress(
+        im_relay=IMRelayIngress(
+            relay_task_id="relay-shadow-1",
+            idempotency_key="idem-shadow-1",
+            im_message_id="msg-shadow-1",
+        ),
+        external_conversation=ExternalConversationIdentity(
+            external_source="feishu",
+            external_chat_id="feishu:cli_a:group:oc_grp1",
+            agent_id="agent-a",
+            conversation_type="group",
+            trigger_source="im",
+        ),
+    )
 
 
 class _FakeKernelClient:
@@ -326,12 +365,10 @@ def test_sync_only_group_message_buffers_without_creating_run(tmp_path: Path) ->
         external_chat_id="feishu:cli_a:group:oc_grp1",
         is_group=True,
         agent_id="agent-a",
+        ingress=_feishu_group_ingress("event-background-1"),
         metadata={
             "sync_only": True,
             "sender_display_name": "Alice",
-            "external_source": "feishu",
-            "external_chat_id": "feishu:cli_a:group:oc_grp1",
-            "trigger_source": "feishu",
         },
     )
 
@@ -359,12 +396,10 @@ def test_feishu_no_mention_group_message_honors_always_policy(
         external_chat_id="feishu:cli_a:group:oc_grp1",
         is_group=True,
         agent_id="agent-a",
+        ingress=_feishu_group_ingress("event-always-1"),
         metadata={
             "mentioned_agent_ids": [],
             "sender_display_name": "Alice",
-            "external_source": "feishu",
-            "external_chat_id": "feishu:cli_a:group:oc_grp1",
-            "trigger_source": "feishu",
         },
     )
 
@@ -390,11 +425,10 @@ def test_external_group_buffer_key_is_shared_across_feishu_and_shadow_im(
         external_chat_id="feishu:cli_a:group:oc_grp1",
         is_group=True,
         agent_id="agent-a",
+        ingress=_feishu_group_ingress("event-background-2"),
         metadata={
             "sync_only": True,
             "sender_display_name": "Alice",
-            "external_source": "feishu",
-            "external_chat_id": "feishu:cli_a:group:oc_grp1",
         },
     )
     shadow_question = InboundMessage(
@@ -404,12 +438,10 @@ def test_external_group_buffer_key_is_shared_across_feishu_and_shadow_im(
         external_chat_id="im-shadow-conv-1",
         is_group=True,
         agent_id="agent-a",
+        ingress=_shadow_group_ingress(),
         metadata={
             "mentioned_agent_ids": ["agent-a"],
             "sender_display_name": "你",
-            "external_source": "feishu",
-            "external_chat_id": "feishu:cli_a:group:oc_grp1",
-            "trigger_source": "im",
         },
     )
 
@@ -437,12 +469,10 @@ def test_feishu_background_is_drained_by_pure_bot_mention(
         external_chat_id="feishu:cli_a:group:oc_grp1",
         is_group=True,
         agent_id="agent-a",
+        ingress=_feishu_group_ingress("event-background-3"),
         metadata={
             "sync_only": True,
             "sender_display_name": "Alice",
-            "external_source": "feishu",
-            "external_chat_id": "feishu:cli_a:group:oc_grp1",
-            "trigger_source": "feishu",
         },
     )
     pure_mention = InboundMessage(
@@ -452,13 +482,11 @@ def test_feishu_background_is_drained_by_pure_bot_mention(
         external_chat_id="feishu:cli_a:group:oc_grp1",
         is_group=True,
         agent_id="agent-a",
+        ingress=_feishu_group_ingress("event-mention-1"),
         metadata={
             "mentioned_agent_ids": ["agent-a"],
             "mention_only": True,
             "sender_display_name": "你",
-            "external_source": "feishu",
-            "external_chat_id": "feishu:cli_a:group:oc_grp1",
-            "trigger_source": "feishu",
         },
     )
 
@@ -488,12 +516,10 @@ def test_feishu_at_all_message_is_buffered_without_triggering_bot(
         external_chat_id="feishu:cli_a:group:oc_grp1",
         is_group=True,
         agent_id="agent-a",
+        ingress=_feishu_group_ingress("event-at-all-1"),
         metadata={
             "sync_only": True,
             "sender_display_name": "Alice",
-            "external_source": "feishu",
-            "external_chat_id": "feishu:cli_a:group:oc_grp1",
-            "trigger_source": "feishu",
             "feishu_mentions": [
                 {"open_id": "all", "name": "所有人", "key": "@_user_1"}
             ],
