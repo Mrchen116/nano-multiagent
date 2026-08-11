@@ -1191,7 +1191,7 @@ def _parse_feishu_create_time(value: object) -> datetime | None:
     try:
         milliseconds = int(value)
         return datetime.fromtimestamp(milliseconds / 1000, tz=timezone.utc)
-    except (OverflowError, ValueError):
+    except (OSError, OverflowError, ValueError):
         return None
 
 

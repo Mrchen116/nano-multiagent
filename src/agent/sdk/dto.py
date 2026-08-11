@@ -374,9 +374,9 @@ class FeatureInfo:
 
     Args:
         key: Feature key (e.g. ``"memory_curation"``).
-        default_on: Product-level default for the toggle.
-        requires_tool: Tool that must be in the session toolset for the feature's
-            guidance to render, or None.
+        default_on: Kernel default when a complete runtime omits this feature key.
+        requires_tool: Tool required for tool-gated guidance, or ``None`` for a
+            tool-independent runtime policy.
     """
 
     key: str

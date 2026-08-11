@@ -14,11 +14,12 @@ dissolved. They are ported verbatim from the pre-refactor data:
 - ``PA_DEFAULT_TOOL_IDS`` / ``PA_OPTIONAL_TOOL_IDS`` ← ``PERSONAL_ASSISTANT_PROFILE``
   ``default_tool_ids`` / ``optional_tool_ids`` (the default_on split the IM frontend
   uses to pre-select tool pills).
-- ``FEATURE_PROJECTIONS`` ← the four FEATURE_REGISTRY entries (memory_curation,
+- ``FEATURE_PROJECTIONS`` ← the four user-facing FEATURE_REGISTRY entries (memory_curation,
   skill_creation, cron_scheduling, heartbeat) with their i18n keys, default_on,
-  requires_tool, in declaration order. The kernel reports only the first two as
-  neutral facts (key/default_on/requires_tool via ``list_features``); the i18n text
-  for all four AND the two product toggles (cron/heartbeat) are projected here.
+  requires_tool, in declaration order. The kernel reports the first two and its
+  internal runtime policies as neutral facts via ``list_features``; this layer
+  projects i18n text for the first two plus the PA toggles (cron/heartbeat), while
+  intentionally omitting internal runtime policies from the user-facing payload.
 
 The capability payload (node.register flags + node.capabilities +
 agent.capabilities.resolve) must stay byte-for-byte identical to the pre-refactor
@@ -73,9 +74,9 @@ class FeatureProjection(TypedDict):
 
 
 # Ported verbatim from FEATURE_REGISTRY (declaration order preserved). The kernel's
-# list_features() reports the neutral facts (key/default_on/requires_tool) for the
-# two kernel-general features (memory_curation/skill_creation); this table supplies
-# the i18n text for all four AND the two PA product toggles (cron/heartbeat) in full.
+# list_features() reports neutral kernel guidance and runtime policies. This table
+# supplies i18n text for the two user-facing kernel guidance features and the two PA
+# product toggles (cron/heartbeat); internal runtime policies stay out of the UI.
 FEATURE_PROJECTIONS: tuple[FeatureProjection, ...] = (
     FeatureProjection(
         key="memory_curation",

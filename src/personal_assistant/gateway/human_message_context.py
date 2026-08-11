@@ -186,12 +186,15 @@ def resolve_pa_time_context(
         An IANA-backed context when possible, otherwise a fixed UTC offset.
     """
 
-    for candidate in (tz_env, _iana_name_from_localtime(localtime_path)):
+    for candidate in (
+        _iana_name_from_tz_env(tz_env),
+        _iana_name_from_localtime(localtime_path),
+    ):
         if not candidate:
             continue
         try:
             return PaTimeContext(zone=ZoneInfo(candidate), prompt_label=candidate)
-        except ZoneInfoNotFoundError:
+        except (ValueError, ZoneInfoNotFoundError):
             continue
     current = local_now or datetime.now().astimezone()
     offset = current.utcoffset() or timedelta(0)
@@ -211,6 +214,16 @@ def _aware_timestamp(value: datetime | None) -> datetime | None:
     if value is None or value.tzinfo is None or value.utcoffset() is None:
         return None
     return value
+
+
+def _iana_name_from_tz_env(value: str | None) -> str | None:
+    if not value:
+        return None
+    candidate = value.removeprefix(":")
+    marker = "/zoneinfo/"
+    if marker in candidate:
+        candidate = candidate.split(marker, 1)[1]
+    return candidate or None
 
 
 def _iana_name_from_localtime(path: Path) -> str | None:

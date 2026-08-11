@@ -68,6 +68,7 @@ def setup(
 
     Args:
         hooks: Hook registration API provided by the loader (HookAPI or HookRegistry).
+        readable_input_projection_store: Optional exact model-to-readable input handoff.
 
     Side Effects:
         Registers three event handlers that write JSONL to the agent workspace.

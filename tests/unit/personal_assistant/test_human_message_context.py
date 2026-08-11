@@ -152,3 +152,12 @@ def test_resolve_timezone_uses_iana_then_fixed_offset(tmp_path: Path) -> None:
 
     assert iana.prompt_label == "Asia/Shanghai"
     assert fixed.prompt_label == "UTC+05:30"
+
+
+def test_resolve_timezone_accepts_zoneinfo_path_form(tmp_path: Path) -> None:
+    resolved = resolve_pa_time_context(
+        tz_env="/usr/share/zoneinfo/Asia/Shanghai",
+        localtime_path=tmp_path / "missing",
+    )
+
+    assert resolved.prompt_label == "Asia/Shanghai"
