@@ -85,6 +85,12 @@ Prototype Comparison:
 | Agent background completed | must-match | [`desktop-workflow-and-agent-background-returns.png`](evidence/desktop-workflow-and-agent-background-returns.png)、[`mobile-workflow-background-return.png`](evidence/mobile-workflow-background-return.png) | desktop/mobile；completed | pass | 与 Workflow 同属第三类 process item，但各自显示 agent/run identity |
 | permission pending/denied | must-match | [`desktop-collapsed.png`](evidence/desktop-collapsed.png)、[`desktop-workflow-denied.png`](evidence/desktop-workflow-denied.png)、[`mobile-workflow-permission.png`](evidence/mobile-workflow-permission.png) | desktop/mobile；pending/deny | pass | pending 只有既有 PermissionCard；deny 直接为 Not run，无 run/task/duration |
 
+## PA product manual — model-aware effort
+
+- Context: `/effort` 是 PA 用户在聊天中改变当前会话推理强度的入口；只更新 spec 或 IM picker 会使默认配置、会话覆盖和群聊目标语义不可发现。
+- Decision: 在内置且默认启用的 `nanoassistant-docs` 的 `web-im-and-agents.md` 中说明 Agent 默认值与会话 override 的区别、模型动态档位、`/new` 与模型切换的结果、群聊的精确 @Agent 路由，以及 `ultracode` 仅在 Workflow+xhigh 条件满足时出现。
+- Evidence: `test_builtin_skill_bootstrap.py` 验证随包 skill 仍可安装和默认启用；文档完整性检查验证归档/当前产品说明链接。
+
 ## Promotion Candidates
 
 None.

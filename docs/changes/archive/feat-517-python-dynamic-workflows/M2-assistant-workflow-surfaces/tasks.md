@@ -22,6 +22,7 @@ Web IM 只在既有消息气泡、过程时间线、工具详情和 slash picker
 - [x] `BackgroundReturnRow` 可展开显示既定来源、result/error、usage、duration、identity 与 artifact 字段；空正文消息仍可见。
 - [x] `WorkflowCard` 仅使用 presenter 公开字段，固定 input-first/result-second；pending 无空结果区；deny 显示未执行且不伪造 run/task/duration。
 - [x] slash picker 接受上游动态 command candidates，复用现有候选形态、过滤与插入语义；不同 Agent 的 `/effort` 保留各自 levels/source，群聊选择复用已有 mention 精确路由，前端不推导 Workflow enablement。
+- [x] PA 随包 `nanoassistant-docs` 将 Agent 默认推理强度、会话 `/effort`、模型切换、群聊精确目标和 `ultracode` 的条件写成用户可操作说明。
 - [x] 相关 Vitest、TypeScript/Vite build、diff-check 与真实浏览器 desktop/mobile 对照通过。
 
 ## 测试策略
