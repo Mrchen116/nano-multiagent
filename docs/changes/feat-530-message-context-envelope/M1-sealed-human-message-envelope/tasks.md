@@ -27,5 +27,5 @@
 - [x] C1: Add failing tests for exact readable history projection and rollback.
 - [x] C1: Add failing tests for `include_session_created_datetime`, PA runtime/preview policy, and SDK discovery.
 - [x] C2: Implement the smallest adapter, Gateway, hook, and Kernel changes that make the tests pass.
-- [ ] C3: Run focused and risk-expanded validation; record real Web IM/Feishu evidence.
+- [x] C3: Run focused and risk-expanded validation; record real Web IM/Feishu evidence.
 - [ ] C4: Complete verifier, product reviewer, and code-review gates; correct delta specs and archive the unit.
