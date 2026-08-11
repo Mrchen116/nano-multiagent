@@ -217,3 +217,11 @@ None.
 - Frontend State Matrix / Browser QA / Visual / Prototype Comparison: N/A。
 - Rollback: revert this roadpoint commit.
 - Next: run affected and full non-E2E quality gates, then merge this branch into `unit/bugfix-525`.
+
+### R16 — rearchive reopened PR closure
+
+- Context: GitHub CI requires a `unit/*` PR's one change directory be archived before it runs Python checks. The reopened PR correctly moved the unit active for its implementation window, but this closure is now complete and the active location caused CI to stop at that guard.
+- Decision: after the R14/R15 merge at `0fefe9415`, use one whole-directory `git mv` back to `docs/changes/archive/`; do not duplicate, delete, or rewrite the historical incident/design/evidence.
+- Evidence: `scripts/check_change_unit_archived.py --head-ref unit/bugfix-525`, docs-check and diff-check run after the move. The dedicated Feishu runtime, lock, milestone worktree and temporary branch were already cleaned before rearchive.
+- Rollback: revert the archive commit to resume a further open-PR closure deliberately.
+- Next: CI should now execute actual Python/Frontend checks instead of failing at archive admission.

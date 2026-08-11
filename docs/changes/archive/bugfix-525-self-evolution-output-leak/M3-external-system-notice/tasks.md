@@ -136,3 +136,9 @@ Prototype / Reference Contract: N/A。
 - 状态: DONE
 - 步骤: 先以 fake `python -m uvicorn` child 复现 slow-alive、early exit、deadline 三种 `e2e-up.sh` 状态；把固定 6 秒等待替换为带 liveness 的可配置条件轮询，并将 Feishu worker 的错误收紧为 bootstrap readiness。
 - 验证: slow-alive 在预算内起栈；dead child 明确报告 exited；deadline 明确报告 `IM readiness timed out`；每种失败可保留 `.im.log` 并经 `e2e-down.sh` 无残留清理；existing Bot lock contention 文案保持其独立语义。
+
+### R16 — rearchive reopened PR closure
+
+- 状态: DONE
+- 步骤: 确认 R14/R15 已合入 unit、运行资源已清理后，将唯一 change unit 整体移回 archive，使 PR CI 进入实际 Python/Frontend gates。
+- 验证: archive checker、docs-check、diff-check 通过；active/archive 仅保留一份 unit。
