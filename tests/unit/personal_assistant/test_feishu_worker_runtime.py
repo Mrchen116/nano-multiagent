@@ -83,6 +83,12 @@ def _exit_before_worker_bootstrap(exit_time) -> None:
     exit_time.value = time.monotonic()
 
 
+def _stay_alive_before_worker_bootstrap() -> None:
+    """Keep a replacement child alive without producing the bootstrap ready signal."""
+
+    time.sleep(30)
+
+
 def _process_birth(pid: int) -> str | None:
     result = subprocess.run(
         ["ps", "-p", str(pid), "-o", "lstart="],
@@ -302,11 +308,34 @@ def test_pre_ready_spawn_exit_fails_before_full_startup_budget() -> None:
         args=(child_exit_time,),
     )
 
-    with pytest.raises(RuntimeError, match="did not initialize"):
+    with pytest.raises(RuntimeError, match="exited before bootstrap readiness"):
         runtime.start()
 
     assert child_exit_time.value > 0
     assert time.monotonic() - child_exit_time.value < 2
+    assert runtime.is_alive is False
+
+
+def test_pre_ready_spawn_timeout_names_bootstrap_readiness() -> None:
+    """A live child without its bootstrap signal reaches the distinct deadline error."""
+
+    mp = multiprocessing.get_context("spawn")
+    runtime = FeishuWorkerRuntime(
+        app_id="cli_pre_ready_timeout",
+        app_secret="secret",
+        incarnation="inc-pre-ready-timeout",
+        on_event=lambda _event: None,
+        on_status=lambda _status: None,
+        worker_target=_listener_worker,
+        multiprocessing_context=mp,
+        startup_timeout=0.2,
+        join_timeout=0.2,
+    )
+    runtime._process = mp.Process(target=_stay_alive_before_worker_bootstrap)  # noqa: SLF001
+
+    with pytest.raises(RuntimeError, match="bootstrap readiness timed out"):
+        runtime.start()
+
     assert runtime.is_alive is False
 
 

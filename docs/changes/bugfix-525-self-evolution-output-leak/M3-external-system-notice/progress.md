@@ -206,3 +206,14 @@ None.
 - Frontend State Matrix / Browser QA / Visual / Prototype Comparison: N/A。
 - Rollback: revert this roadpoint commit.
 - Next: R15 script black-box readiness red/green and Feishu bootstrap diagnostic wording.
+
+### R15 — E2E IM readiness 与 Feishu bootstrap 诊断
+
+- Context: `e2e-up.sh` 先前以固定 `30 × 0.2s` probe 等待 IM，之后只按 HTTP 未就绪写 `IM failed to start`；slow-but-alive child 与已退出 child 都被压成同一假阴性。Feishu worker ready Event 是 bootstrap handoff，不表示 SDK WebSocket 或 Bot 已连接。
+- Diagnosis: black-box wrapper 分别控制真实 `python -m uvicorn` child 的 delayed/alive 与 immediate-exit 行为。修前 early-exit 输出 generic `IM failed to start`；1 秒 deadline override 被完全忽略、延迟 child 最终仍成功，直接证明固定 6 秒脚本预算和诊断分类是根因。专用 Bot lock 已在 IM 启动前的独立 branch 报 owner，且本次无 lock/时间重叠，故未归因给 listener contention。
+- Decision: `NANO_MULTIAGENT_E2E_IM_READINESS_TIMEOUT_SECONDS` 是 E2E launcher 唯一、默认 30 秒的正整数预算；loop 持续 probe `/openapi.json`，每次失败后先检查 IM PID，再判 deadline。child exit 报 `IM process exited during startup`；alive deadline 报 `IM readiness timed out after <n>s`；两者均保留 `.im.log`，由原 `e2e-down.sh` 回收。Feishu worker 保留现有 30 秒 monotonic deadline、50ms liveness slices 与 stop/join 语义，只把 two error strings 收紧为 `bootstrap readiness timed out` / `exited before bootstrap readiness`。
+- TDD: script black-box 红测为 `1 passed, 2 failed in 23.43s`：exit 仍被称 generic failure，1 秒 override 不生效。Green: slow-alive / child-exit / alive-deadline 三条 `3 passed in 7.74s`；worker runtime `11 passed, 2 warnings in 23.56s`。每个 failing branch 保留 `.im.log`，test finally 走 public `e2e-down.sh` 并确认 PID file/child 无残留。
+- Entry: 使用非 default 专用 profile 做一次真实、无消息的 `e2e-up.sh --wt "$PWD" --feishu -> GET /openapi.json -> e2e-down.sh`；profile `feishu`、stack ready，之后 IM/Gateway PID、ports env、isolated config、credentials/manifest 与 listener lock 均不存在。未运行 `e2e-feishu-probe.py`，因为 probe 本身会向 Feishu 发送文本；本轮只验启动/清理，不增加测试聊天消息。
+- Frontend State Matrix / Browser QA / Visual / Prototype Comparison: N/A。
+- Rollback: revert this roadpoint commit.
+- Next: run affected and full non-E2E quality gates, then merge this branch into `unit/bugfix-525`.
