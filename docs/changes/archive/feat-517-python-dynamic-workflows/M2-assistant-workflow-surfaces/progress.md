@@ -88,7 +88,7 @@ Prototype Comparison:
 ## PA product manual — model-aware effort
 
 - Context: `/effort` 是 PA 用户在聊天中改变当前会话推理强度的入口；只更新 spec 或 IM picker 会使默认配置、会话覆盖和群聊目标语义不可发现。
-- Decision: 在内置且默认启用的 `nanoassistant-docs` 的 `web-im-and-agents.md` 中说明 Agent 默认值与会话 override 的区别、模型动态档位、`/new` 与模型切换的结果、群聊的精确 @Agent 路由，以及 `ultracode` 仅在 Workflow+xhigh 条件满足时出现。
+- Decision: 在内置且默认启用的 `nanoassistant-docs` 的 `web-im-and-agents.md` 中说明 Agent 默认值与会话 override 的区别、模型动态档位、`/new` 与模型切换的结果和群聊的精确 @Agent 路由；独立 `workflows.md` 说明 Workflow 显式 opt-in、启动/批准、后台查询控制、终态、保存复用，以及 `ultracode` 的成本和退出方式。
 - Evidence: `test_builtin_skill_bootstrap.py` 验证随包 skill 仍可安装和默认启用；文档完整性检查验证归档/当前产品说明链接。
 
 ## Promotion Candidates
