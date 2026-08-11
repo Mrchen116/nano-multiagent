@@ -18,7 +18,7 @@
 
 | Area | Covers | Requirements |
 |---|---|---|
-| [Routing and Delivery](routing-delivery.md) | 入站路由、群聊触发、/stop、/new、/compact、运行中插话、配置边界、回复线程、会话映射、产品投递、self-evolution 维护隔离、失败反馈、PA 可读聊天副本 | 15 |
+| [Routing and Delivery](routing-delivery.md) | 入站路由、逐消息时间与实际入口、群聊触发、/stop、/new、/compact、运行中插话、配置边界、回复线程、会话映射、产品投递、self-evolution 维护隔离、失败反馈、PA 可读聊天副本 | 16 |
 | [Service Lifecycle](service-lifecycle.md) | 启停、IM WS、reconnect/ack、auto-bind、默认本机 home/workspace、cache warning | 7 |
 | [Agent Capabilities](agent-capabilities.md) | 完整运行配置、模型配置、推理能力、可恢复配置 operation、Skill 选择与兼容根、self-evolution Skill 调和、tool_allowlist、context window、PA 产品手册与内置 skill bundle | 13 |
 | [Heartbeat and Cron](heartbeat-cron.md) | per-agent heartbeat / cron 开关、调度、错过周期语义 | 1 |

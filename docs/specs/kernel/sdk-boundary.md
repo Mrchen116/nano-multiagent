@@ -1,6 +1,6 @@
 # kernel (agent) - SDK Boundary Specification
 
-> 对齐: feat-519
+> 对齐: feat-530
 > 上级: [kernel (agent) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)「给库/内核写契约的额外纪律」。本目录只收 **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 + 归档 design)。
@@ -119,12 +119,17 @@
 
 ### Requirement: Kernel 提供单项中立能力查询
 
-`kernel.list_models()` / `list_tools()` / `list_features()` / `list_skills(workspace_root)` 返回 SDK-owned 不可变数据，与已装配 Kernel 实际能力一致；内核不做产品语义聚合（payload 拼装 / available 计算归应用）。消费者可在 `build_kernel(workspace_skill_dirnames=…)` 声明有序 workspace Skill 目录名；`list_skills(workspace_root)` 先按该布局从真实 Workspace 派生 roots，再叠加 `build_kernel(skill_search_roots=…)` 传入的部署级共享 roots，按“workspace 布局顺序 → 共享根传入顺序”去重保序。未传入 `workspace_skill_dirnames` 时保持既有单一 `workspace_config_dirname/skills` 行为。`list_shared_skills()` 只查询已声明的共享 roots，用于尚无真实 Workspace 的候选场景，不借用 build-time repo root。
+`kernel.list_models()` / `list_tools()` / `list_features()` / `list_skills(workspace_root)` 返回 SDK-owned 不可变数据，与已装配 Kernel 实际能力一致；内核不做产品语义聚合（payload 拼装 / available 计算归应用）。`list_features()` 同时投影需要 built-in tool 的通用 guidance feature 与 `requires_tool=None` 的通用 runtime policy；消费者仍经现有 complete-runtime `features` map 选择它们，不增加单独方法或 DTO。消费者可在 `build_kernel(workspace_skill_dirnames=…)` 声明有序 workspace Skill 目录名；`list_skills(workspace_root)` 先按该布局从真实 Workspace 派生 roots，再叠加 `build_kernel(skill_search_roots=…)` 传入的部署级共享 roots，按“workspace 布局顺序 → 共享根传入顺序”去重保序。未传入 `workspace_skill_dirnames` 时保持既有单一 `workspace_config_dirname/skills` 行为。`list_shared_skills()` 只查询已声明的共享 roots，用于尚无真实 Workspace 的候选场景，不借用 build-time repo root。
 
 #### Scenario: 能力查询与运行时事实一致
 - **GIVEN** 已装配的 Kernel
 - **WHEN** 调四个 `list_*` 查询
-- **THEN** models 含目录模型 + 默认、tools 含工具目录事实、features 为内核通用项投影、skills 为指定 workspace 的完整有序布局解析结果
+- **THEN** models 含目录模型 + 默认、tools 含工具目录事实、features 含内核通用 guidance 与 runtime policy、skills 为指定 workspace 的完整有序布局解析结果
+
+#### Scenario: session 创建时间 policy 可发现且默认开启
+- **WHEN** 消费者调用 `Kernel.list_features()`
+- **THEN** 返回 `include_session_created_datetime`，其 `default_on=True` 且 `requires_tool=None`
+- **AND** 消费者省略该 key 时 session 保持默认 runtime footer，显式设为 `False` 时省略 session 创建时间；两种情况都不改变消息生命周期语义
 
 #### Scenario: 消费者可在工具目录中启用 skill_view
 - **WHEN** 消费者通过 `Kernel.list_tools()` 或 `Kernel.list_session_tools(...)` 查看包含默认自进化工具的工具目录
