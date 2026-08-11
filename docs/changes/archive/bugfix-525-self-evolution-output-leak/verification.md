@@ -367,3 +367,34 @@ Corrected delta status: **aligned**.
 - None.
 
 Verdict: **pass**. The patch needs no implementation or corrected-delta change and does not require another full verification.
+
+---
+
+# Round 6 — corrected-delta reconciliation（F6/F7 + F8/F9）
+
+> Validation snapshot: `f517d8554c729c93e413937dd33e3b300f6b3fda → a65dab64b6daca1c66f9bcc7dd4111d9f6656ec9`
+
+## Corrected Delta Reconciliation
+
+| Delta item | Final implementation evidence | Regression evidence | Outcome |
+|---|---|---|---|
+| `specs/kernel/runs.md` — raw side-chain 私有、真实 receipt、originating trace、no-write/incomplete 语义 | F6–F9 未触及 `context_fork.py`、`self_improvement.py` 或 trace chain；现行 Kernel hook 仍只以非空 `updated_targets` 发布 receipt | `test_self_improvement_hook.py`、`test_self_evolution_output_visibility.py` 通过 | aligned |
+| `specs/gateway/routing-delivery.md` — structured-only notice、无更新静默、ordinary background 文本继续投递 | `runtime_delivery/background.py:25-39` 将同步 channel 调用统一移出 loop；`:212-258` 保留原 metadata、dedupe、external-first best-effort 和随后 IM mirror | `test_external_visible_delivery.py:97-208` 证明 ordinary background 的同步 sender 不阻塞、async sender 仍回到 loop、external failure 不阻断 shadow IM | aligned |
+| `specs/gateway/external-channels.md` — 同源外发、shadow-only、telemetry 不外发 | `runtime_delivery/observer.py:249-331` 复用同一 offload seam，但保留原 phase、`reply_dedupe_key`、silence gate、external-context 条件；observer-local lock 保持 provider-facing normal reply 顺序 | `test_external_visible_delivery.py:318-484` 覆盖 intermediate/final 非阻塞、async sender、external failure 后 final IM；self-evolution notice/source-route suites 通过 | aligned |
+| `specs/cli/interactive-repl.md` — 真实 target 才显示 CLI line | F6–F9 未修改 `src/coding_cli/` 或 CLI formatter | `test_cli_background_runs.py` 通过 | aligned |
+
+本轮新增的普通外发 offload、IM readiness 诊断和 worker bootstrap 文案没有改变 self-evolution 的 true-receipt gate、触发源 route owner、raw privacy、CLI 文案或 canonical specs。`scripts/e2e-up.sh:171-176` 的 dedicated Bot lock 在启动 IM 前仍保持独立 owner 错误；`:255-275` 仅将 child exit 与 alive-but-not-ready deadline 区分为准确诊断。`worker.py:320-344` 的 "bootstrap readiness" 只描述 `_worker_bootstrap` handoff，不宣称 SDK/WebSocket 已连接。
+
+E2E 默认冷启动预算由 `test_worktree_stack_lifecycle_e2e.py:219-252` 黑盒锁定：移除继承环境值后，真实 IM child 延迟 7 秒仍能经默认 budget 启动；`:256-321` 分别锁住 child exit 与 readiness timeout 的不同报错和 cleanup。
+
+Uncovered Observable Behavior: None. 普通 external delivery 的内容、phase、dedupe、source routing 与 IM completion 都保持原有契约；新增线程切换和 E2E 报错分类是已批准的运行/验收边界收敛，不需要扩大本 unit 的 Kernel/Gateway/CLI delta-spec。
+
+Outcome: **aligned**.
+
+## Verification evidence
+
+- `test_external_visible_delivery.py` — **12 passed**；`test_feishu_worker_runtime.py` — **11 passed**；`test_worktree_stack_lifecycle_e2e.py` — **4 passed**；observer/shadow lifecycle — **67 passed**。
+- true-receipt/raw privacy/source routing/CLI focused matrix — **50 passed**。
+- `bash -n scripts/e2e-up.sh scripts/e2e-down.sh`、targeted Ruff、docs-check（226 maintained Markdown sources / 67 required routes）与 `git diff --check f517d855..a65dab64` 均通过。
+
+All checks passed. Ready for PR.
