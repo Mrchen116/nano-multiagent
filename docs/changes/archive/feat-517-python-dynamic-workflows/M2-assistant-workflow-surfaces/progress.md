@@ -9,7 +9,7 @@
   - IM `Message`、SQLite、REST、WS 和 reducer 使用 typed `background_returns`，按 task id 幂等；`agent.message` 接受 text-or-sidecar，两者均空才拒绝。
   - Gateway 为 Workflow child permission 建立 process-wide exact binding registry；没有 first/latest fallback，任意 arrival order 通过 buffer/tombstone 收口。
   - Agent capability 的 `commands` 由 active `Workflow` allowlist 与 `Kernel.list_named_workflows()` 共同生成；bundled、project/personal 和 namespaced plugin 命令均来自 SDK 真源。
-  - `/workflows` list/detail/pause/resume/stop/restart/save、`/config workflowSizeGuideline`、`/effort ultracode|high` 复用共享 inbound 与普通 control reply；named command 进入正常模型轮次并要求按 name 调 Workflow tool。
+  - `/workflows` list/detail/pause/resume/stop/restart/save、`/config workflowSizeGuideline`、按当前有效模型 capability 派生的完整 `/effort <level>` 复用共享 inbound 与普通 control reply；普通 level 不依赖 Workflow，`ultracode` 仍要求 Workflow+xhigh；named command 进入正常模型轮次并要求按 name 调 Workflow tool。
   - PA guideline 保存于 Gateway Agent runtime config，IM mirror/config sync 不覆盖；active 时进入下一轮 runtime，inactive 时不改变 runtime identity 或 metadata。
 - Evidence:
   - Backend focused regression: capability contract、IM agent config、local config/sync、runtime projection、Workflow parser、inbound routing/coordinator 共 `158 passed`。
@@ -28,8 +28,8 @@
   - Frontend State Matrix: 见 `tasks.md`。
   - Browser QA: 隔离 IM/Gateway/Vite 真栈，真实登录后由 production REST history 加载验收消息；desktop `1440x1000` 与 mobile `390x844` 均完成展开交互和刷新恢复，browser console 0 error / 0 warning。
   - E2E/Regression: `e2e-up.sh` 使用 worktree 私有 DB/config/node/ports；验收结束已执行 `e2e-down.sh`，无 PID/state/config/ports 残留。
-  - Visual/Interaction: [`evidence/`](evidence/) 保存 permission、running、launched、denied、Workflow/Agent completed、failed、stopped/empty-text 的 desktop/mobile 截图。
-  - Prototype Comparison: must-match 项全部通过，详见下表。
+  - Visual/Interaction: 历史 evidence 保留为此前已交付的真栈记录；本 delta 不新增或提交 `prototype.html`/slash picker 截图，相关可观察行为改由永久 component/Gateway tests 覆盖。
+  - Prototype Comparison: must-match 行为由永久测试核对；不以新截图作为本 delta 的验收资产。
 - Rollback: revert 本前端 scoped commit；无需数据迁移。
 - Commits: 本前端 scoped commit。
 
@@ -54,9 +54,9 @@
 ## Frontend F3 — dynamic slash candidate UI seam
 
 - Context: `/workflows`、`/deep-research`、saved/plugin workflows 与 `/config` 必须随同一个 active Workflow snapshot 出现或消失。
-- Decision: frontend 只消费 Agent capability 的可选 `commands: [{name, description}]`；conversation agents 做 name union/dedupe 后传给既有 `SlashPicker`，不本地检查 tool allowlist，也不硬编码 Workflow 命令。
-- Rationale: Gateway 是 active snapshot 与 saved discovery 的 owner；前端仅复用 command candidate 的过滤和插入行为，避免第二能力开关。
-- Evidence: `slash-candidates.test.ts` 覆盖多 Agent union/dedupe 与空列表；`slash-picker.test.tsx`、`message-pane.test.tsx` 覆盖动态候选过滤、选择和 `/name ` 插入；TypeScript build 验证从 capability wire 到 `ChatWorkspacePage -> MessagePane` 的完整接线。
+- Decision: frontend 只消费 Agent capability 的可选 `commands: [{name, description}]`；普通 commands 保留 name union/dedupe，模型专属 `/effort` 为每个 Agent 保留 source/完整 levels。群聊选择该候选时复用既有 mention wire 填入 `@Agent /effort `；Gateway 在所有 fan-out relay 上将 effort 作为 target-required control，因此 `ALWAYS` peer 也不会执行它。
+- Rationale: Gateway 是 active snapshot 与 saved discovery 的 owner；前端仅复用 command candidate、mention 与插入行为，避免在不同模型间发明一个不可执行的公共档位集合，也不把一个 session override 扩大为群组设置。
+- Evidence: `slash-candidates.test.ts` 覆盖多 Agent union/dedupe、空列表和不同 effort capability 的保留；`slash-picker.test.tsx`、`message-pane.test.tsx` 覆盖动态候选过滤、source 显示、选择和群聊精确 `@Agent /effort ` 插入；TypeScript build 验证从 capability wire 到 `ChatWorkspacePage -> MessagePane` 的完整接线。
 - Rollback: 回退 capability command 类型、assembly helper 与 props 接线。
 - Commits: 本前端 scoped commit。
 

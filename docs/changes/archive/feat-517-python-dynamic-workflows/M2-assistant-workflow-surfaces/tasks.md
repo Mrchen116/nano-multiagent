@@ -7,7 +7,7 @@
 - [x] Gateway/IM 以 message-owned `background_returns` sidecar 持久化、实时投递和重连恢复 Workflow/Agent 原始后台返回，按 `task_id` 幂等。
 - [x] Workflow child permission 以 run/call/request 精确 binding 回到原会话，覆盖 request/terminal 早于 anchor 与同 session 多 launch。
 - [x] Agent capability 的 `commands` 只从 active `Workflow` allowlist + SDK saved/bundled/plugin discovery 生成；IM 只校验转发。
-- [x] `/workflows` query/control/save、named invocation、`/config workflowSizeGuideline` 与 `/effort ultracode|high` 共用 Web/外部 IM inbound seam；disabled 时保留普通消息语义。
+- [x] `/workflows` query/control/save、named invocation、`/config workflowSizeGuideline` 与按当前有效模型 capability 派生的完整 `/effort <level>` 共用 Web/外部 IM inbound seam；普通 level 在 Workflow disabled 时仍可用，`ultracode` 只在 Workflow+xhigh 时可用；群聊 `/effort` 始终要求精确 mention/reply target，不受 `ALWAYS` peer 影响。
 - [x] PA 持久化 guideline，并在 IM config sync 后保留；只在 active Workflow runtime 中影响下一轮 tool description。
 - [x] Gateway/IM focused contract、routing、replay、permission 与 command tests 通过。
 
@@ -21,7 +21,7 @@ Web IM 只在既有消息气泡、过程时间线、工具详情和 slash picker
 - [x] `ToolCallsPanel` 按共享 `seq` 混排 thinking、tool 与 background-return；后台返回单独计数且不进入 tool/running/approval 统计。
 - [x] `BackgroundReturnRow` 可展开显示既定来源、result/error、usage、duration、identity 与 artifact 字段；空正文消息仍可见。
 - [x] `WorkflowCard` 仅使用 presenter 公开字段，固定 input-first/result-second；pending 无空结果区；deny 显示未执行且不伪造 run/task/duration。
-- [x] slash picker 接受上游动态 command candidates，复用现有候选形态、过滤与插入语义；前端不推导 Workflow enablement。
+- [x] slash picker 接受上游动态 command candidates，复用现有候选形态、过滤与插入语义；不同 Agent 的 `/effort` 保留各自 levels/source，群聊选择复用已有 mention 精确路由，前端不推导 Workflow enablement。
 - [x] 相关 Vitest、TypeScript/Vite build、diff-check 与真实浏览器 desktop/mobile 对照通过。
 
 ## 测试策略
@@ -30,7 +30,7 @@ Web IM 只在既有消息气泡、过程时间线、工具详情和 slash picker
 - 已有测试在：`src/IM/frontend/src/features/chat/chat-stream-reducer.test.ts`、`components/tool-calls-panel.test.tsx`、`components/message-pane.test.tsx`、`components/slash-picker.test.tsx`（扩展同一 owner）。
 - 落层/目录/marker：frontend Vitest unit/component，无 marker。
 - 可选依赖 importorskip：无。
-- 一次性验收证据：`evidence/` 下 desktop/mobile 截图与 prototype 对照；不进入自动化套件。
+- 一次性验收证据：不为 `prototype.html` 或 slash picker 新增、提交截图资产；交互契约由永久 frontend/Gateway tests 覆盖。
 
 ### 受影响的既有测试处置
 
@@ -62,10 +62,10 @@ Web IM 只在既有消息气泡、过程时间线、工具详情和 slash picker
 
 | Reference | Required contract | Evidence plan | Owner |
 |---|---|---|---|
-| `prototype.html` 等待确认 / denied | must-match | 真浏览器核对没有预造 tool row；denied 无 running/duration/run | worker |
-| 工具调用中 / 后台已启动 | must-match | desktop/mobile 截图，输入先于结果且 pending 隐藏结果 | worker |
-| Workflow completed/failed/stopped | must-match | 后续普通消息内 background-return 展开截图 | worker |
-| Agent 后台完成 | must-match | 同一 BackgroundReturnRow 展开截图 | worker |
+| `prototype.html` 等待确认 / denied | must-match | 永久 component test 核对没有预造 tool row；denied 无 running/duration/run | worker |
+| 工具调用中 / 后台已启动 | must-match | 永久 component test 核对输入先于结果且 pending 隐藏结果 | worker |
+| Workflow completed/failed/stopped | must-match | 永久 component test 核对后续普通消息中的 background-return 展开 | worker |
+| Agent 后台完成 | must-match | 永久 component test 核对同一 BackgroundReturnRow | worker |
 | presenter 文案与真实 id/path | may-adapt | 仅核字段集合和层级 | worker |
 
 ## 前端 Roadpoints
@@ -87,7 +87,7 @@ Web IM 只在既有消息气泡、过程时间线、工具详情和 slash picker
 
 ### F4 — 浏览器对照与交付门禁
 
-- 步骤：隔离真栈按 prototype desktop/mobile 状态核对，检查 console/network，保存 evidence。
+- 步骤：以永久 frontend/Gateway tests 核对 prototype 的行为契约；不保存或提交 prototype 截图。
 - 验证：focused/all relevant Vitest、`npm run build`、`git diff --check`。
 
 ## Backend Roadpoints

@@ -202,7 +202,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
     # K2.6 thinking config) flow into build_kernel and the model registry.  decision 5:
     # build_kernel owns registry init internally from this LLMConfig.
     llm = LLMConfig.from_payload(config.llm)
-    reasoning_catalog = ModelReasoningCatalog(config.llm)
+    reasoning_catalog = ModelReasoningCatalog(llm)
 
     config_owner = RuntimeConfigOwner(config)
 
@@ -701,6 +701,9 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
                         im_config_sync_client, agent_id
                     ),
                     reasoning_catalog=reasoning_catalog,
+                    effective_model=_resolve_agent_effective_model(
+                        im_config_sync_client, agent_id, fallback=llm.default_model
+                    ),
                 )
             ),
             node_capabilities_provider=lambda: {
@@ -879,6 +882,16 @@ def _resolve_agent_tool_allowlist(
     if not isinstance(raw, list):
         return ()
     return tuple(item for item in raw if isinstance(item, str))
+
+
+def _resolve_agent_effective_model(
+    sync_client: "IMAgentConfigSync", agent_id: str, *, fallback: str | None
+) -> str | None:
+    """Resolve one Agent's selected model for capability-derived commands."""
+
+    payload = sync_client.current_agent_payload(agent_id=agent_id)
+    selected = payload.get("default_model") if payload is not None else None
+    return selected.strip() if isinstance(selected, str) and selected.strip() else fallback
 
 
 async def _connect_websocket(url: str, headers: Mapping[str, str]) -> ClientConnection:

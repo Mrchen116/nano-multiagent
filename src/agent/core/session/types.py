@@ -129,6 +129,7 @@ class NewSession:
     runtime_model: str | None = None
     runtime_features: dict[str, bool] | None = None
     runtime_reasoning_effort: str | None = None
+    runtime_reasoning_effort_override: str | None = None
     runtime_workflow_ultracode: bool = False
     runtime_workflow_size_guideline: str | None = None
     title: str | None = None

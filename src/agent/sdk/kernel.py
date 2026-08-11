@@ -1387,6 +1387,9 @@ class Kernel:
                 runtime_reasoning_effort=(
                     runtime.reasoning_effort if runtime is not None else None
                 ),
+                runtime_reasoning_effort_override=(
+                    runtime.reasoning_effort_override if runtime is not None else None
+                ),
                 runtime_workflow_ultracode=(
                     runtime.workflow_ultracode if runtime is not None else False
                 ),
@@ -1472,6 +1475,12 @@ class Kernel:
             and isinstance(runtime_payload.get("reasoning_effort"), str)
             else None
         )
+        runtime_reasoning_effort_override = (
+            runtime_payload.get("reasoning_effort_override")
+            if isinstance(runtime_payload, dict)
+            and isinstance(runtime_payload.get("reasoning_effort_override"), str)
+            else None
+        )
         runtime_workflow_ultracode = bool(
             isinstance(runtime_payload, dict)
             and runtime_payload.get("workflow_ultracode") is True
@@ -1494,6 +1503,7 @@ class Kernel:
             enabled_tools=list(config.tool_allowlist or ()),
             features=dict(runtime_features) if runtime_features is not None else None,
             reasoning_effort=runtime_reasoning_effort,
+            reasoning_effort_override=runtime_reasoning_effort_override,
             workflow_ultracode=runtime_workflow_ultracode,
             workflow_size_guideline=runtime_workflow_size_guideline,
         )

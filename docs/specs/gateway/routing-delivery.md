@@ -52,7 +52,7 @@
 
 ### Requirement: 群聊只在被 @提及 / 回复 Agent / 明确的全群控制命令时触发 Agent
 
-群聊流量在分配任何内核会话或队列槽**之前**先过 @提及门控。未被点名的群聊消息不触发 Agent 执行;Agent 判断无需回复时输出约定 token(`NO_REPLY`)则不向用户发言。门控策略由各 Agent 的 `group_reply_policy`决定(默认 `MENTION`;`ALWAYS` 则有消息即回)。裸 `/stop` 与内置 Web IM 群聊中的精确裸 `/new` 不受 MENTION 门控：前者只中断正在运行的 Agent，后者为群内每个 Agent 重开各自的共同会话。`/compact` 和 `/compact <关注点>` 仍必须以 mention 或 reply 明确指向 Agent。
+群聊流量在分配任何内核会话或队列槽**之前**先过 @提及门控。未被点名的群聊消息不触发 Agent 执行;Agent 判断无需回复时输出约定 token(`NO_REPLY`)则不向用户发言。门控策略由各 Agent 的 `group_reply_policy`决定(默认 `MENTION`;`ALWAYS` 则有消息即回)。裸 `/stop` 与内置 Web IM 群聊中的精确裸 `/new` 不受 MENTION 门控：前者只中断正在运行的 Agent，后者为群内每个 Agent 重开各自的共同会话。`/compact`、`/compact <关注点>` 和 `/effort <level>` 仍必须以 mention 或 reply 明确指向 Agent，且不因该 Agent 或其他 Agent 的 `ALWAYS` 策略扩大成群组控制。
 
 #### Scenario: 群聊未被 @提及的消息不触发 Agent
 - **GIVEN** 一个 `group_reply_policy=MENTION` 的 Agent 在某群聊中
@@ -86,6 +86,11 @@
 - **THEN** Gateway 不压缩该 Agent 的群会话，也不发送控制确认
 - **WHEN** 用户通过结构化 mention、文本 `@Agent` 或回复该 Agent 发送 `/new`、`/compact` 或 `/compact <关注点>`
 - **THEN** Gateway 只在被指向 Agent 的群会话上执行命令，并在同一群返回控制确认
+
+#### Scenario: 群聊推理档位始终需要明确目标
+- **GIVEN** 群内一个或多个 Agent 的 `group_reply_policy=ALWAYS`
+- **WHEN** 用户发送指向 Agent A 的 `/effort <level>`，Gateway 向参与者 fan-out relay
+- **THEN** 只有 Agent A 处理该命令；其他 Agent 不创建会话、不改写 session effort，也不把命令交给模型
 
 ### Requirement: 用户可用文本命令切换当前 Agent 会话
 

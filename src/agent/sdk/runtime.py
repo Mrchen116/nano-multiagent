@@ -26,6 +26,8 @@ class SessionRuntimeConfig:
         enabled_tools: Explicit future tool allowlist; empty disables all tools.
         features: Explicit feature overrides, or ``None`` for defaults.
         reasoning_effort: Provider-neutral effort for future normal model requests.
+        reasoning_effort_override: User-selected session value behind the effective
+            effort, or ``None`` when the product baseline owns the selection.
     """
 
     model: str
@@ -34,6 +36,7 @@ class SessionRuntimeConfig:
     enabled_tools: list[str]
     features: dict[str, bool] | None
     reasoning_effort: str | None = None
+    reasoning_effort_override: str | None = None
     workflow_ultracode: bool = False
     workflow_size_guideline: str | None = None
 
@@ -91,6 +94,7 @@ def identify_runtime(runtime: SessionRuntimeConfig) -> SessionRuntimeIdentity:
         "enabled_tools": runtime.enabled_tools,
         "features": runtime.features,
         "reasoning_effort": runtime.reasoning_effort,
+        "reasoning_effort_override": runtime.reasoning_effort_override,
         "workflow_ultracode": runtime.workflow_ultracode,
         "workflow_size_guideline": (
             _active_workflow_size_guideline(runtime) or "medium"
@@ -122,6 +126,7 @@ def runtime_metadata(
         "model": runtime.model,
         "features": dict(runtime.features) if runtime.features is not None else None,
         "reasoning_effort": runtime.reasoning_effort,
+        "reasoning_effort_override": runtime.reasoning_effort_override,
         "workflow_ultracode": runtime.workflow_ultracode,
     }
     guideline = _active_workflow_size_guideline(runtime)

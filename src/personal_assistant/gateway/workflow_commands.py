@@ -12,7 +12,7 @@ from personal_assistant.config.local_store import WORKFLOW_SIZE_GUIDELINES
 
 
 WorkflowCommandKind = Literal[
-    "list", "detail", "control", "save", "config", "effort", "invoke", "error"
+    "list", "detail", "control", "save", "config", "invoke", "error"
 ]
 
 
@@ -27,7 +27,6 @@ class WorkflowCommand:
     scope: str | None = None
     name: str | None = None
     guideline: str | None = None
-    effort: str | None = None
     arguments: str = ""
     error: str | None = None
 
@@ -45,10 +44,6 @@ def parse_workflow_command(
         return _parse_workflows(parts)
     if head == "/config":
         return _parse_workflow_config(parts)
-    if head == "/effort":
-        if len(parts) == 2 and parts[1] in {"ultracode", "high"}:
-            return WorkflowCommand(kind="effort", effort=parts[1])
-        return WorkflowCommand(kind="error", error="用法: /effort <ultracode|high>")
     name = head.removeprefix("/")
     if head.startswith("/") and name in named_workflows:
         arguments = text.strip()[len(head) :].strip()

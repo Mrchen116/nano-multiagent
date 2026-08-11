@@ -16,6 +16,7 @@ from agent.sdk import (
     SessionRuntimeState,
     WorkflowRunInfo,
 )
+from agent.sdk.runtime import identify_runtime
 from personal_assistant.channels.base import InboundMessage
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
@@ -115,7 +116,7 @@ class ControlledKernel:
     def identify_runtime(
         self, *, runtime: SessionRuntimeConfig
     ) -> SessionRuntimeIdentity:
-        return SessionRuntimeIdentity(runtime_fingerprint=runtime.model)
+        return identify_runtime(runtime)
 
     async def get_session_runtime(
         self, *, session_id: str, workspace_root: Path

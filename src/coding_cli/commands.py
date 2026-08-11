@@ -67,6 +67,7 @@ from coding_cli.render.repl_render import (
 from coding_cli.render.terminal_output import emit_lines as _emit_terminal_lines
 from coding_cli.render.terminal_output import write_tty_line as _write_tty_line
 from agent.sdk import (
+    ModelReasoningCatalog,
     RunOrigin,
     TERMINAL_RUN_STATUSES as _TERMINAL_STATUSES,
     WorkflowControlAction,
@@ -742,12 +743,24 @@ async def _run_repl(
     from coding_cli.product import load_cli_workflow_config
 
     workflow_config = load_cli_workflow_config(workspace_root)
-    workflow_commands = {"/workflows", "/config", "/effort"}
+    workflow_commands = {"/workflows", "/config"}
     command_suggestions = tuple(
         command
         for command in repl_commands.REPL_COMMANDS
         if not workflow_config.disabled or command not in workflow_commands
     )
+    initial_model = _resolve_cli_current_model(kernel)
+    if (
+        initial_model is None
+        or not _cli_effort_values_for_runtime(
+            kernel=kernel,
+            model=initial_model,
+            workflow_enabled=not workflow_config.disabled,
+        )
+    ):
+        command_suggestions = tuple(
+            command for command in command_suggestions if command != "/effort"
+        )
     if not workflow_config.disabled:
         list_named = getattr(kernel, "list_named_workflows", None)
         named_workflows = (
@@ -1308,7 +1321,18 @@ async def _handle_repl_command_async(
                 usage="/help",
             )
             return _ReplCommandResult(handled=True)
-        print(repl_commands.help_line(workflow_enabled=workflow_enabled), file=out)
+        effort_values = await _cli_effort_values(
+            kernel=kernel,
+            session_id=active_session_id,
+            workspace_root=workspace_root,
+            workflow_enabled=workflow_enabled,
+        )
+        print(
+            repl_commands.help_line(
+                workflow_enabled=workflow_enabled, effort_values=effort_values
+            ),
+            file=out,
+        )
         return _ReplCommandResult(handled=True)
 
     if command == "/exit":
@@ -1395,17 +1419,7 @@ async def _handle_repl_command_async(
             )
             return _ReplCommandResult(handled=True)
 
-        if workflow_enabled and command == "/effort":
-            if len(argument_tokens) != 1 or argument_tokens[0] not in {
-                "ultracode",
-                "high",
-            }:
-                repl_commands.print_actionable_error(
-                    out=out,
-                    message="invalid Workflow effort command.",
-                    suggestion="try /effort <ultracode|high>.",
-                )
-                return _ReplCommandResult(handled=True)
+        if command == "/effort":
             if not active_session_id:
                 repl_commands.print_actionable_error(
                     out=out,
@@ -1417,20 +1431,47 @@ async def _handle_repl_command_async(
                 session_id=active_session_id, workspace_root=workspace_root
             )
             if state is None:
-                raise RuntimeError("Workflow session runtime is unavailable")
+                raise RuntimeError("session runtime is unavailable")
+            effort_values = _cli_effort_values_for_runtime(
+                kernel=kernel,
+                model=state.runtime.model,
+                workflow_enabled="Workflow" in state.runtime.enabled_tools,
+            )
+            if len(argument_tokens) != 1 or argument_tokens[0] not in effort_values:
+                if effort_values:
+                    suggestion = f"try /effort <{'|'.join(effort_values)}>"
+                else:
+                    suggestion = "the current model has no selectable reasoning effort."
+                repl_commands.print_actionable_error(
+                    out=out,
+                    message=(
+                        "invalid effort command."
+                        if effort_values
+                        else f"model {state.runtime.model} has no selectable reasoning effort."
+                    ),
+                    suggestion=suggestion,
+                )
+                return _ReplCommandResult(handled=True)
             from dataclasses import replace
 
             ultracode = argument_tokens[0] == "ultracode"
+            requested = "xhigh" if ultracode else argument_tokens[0]
             await kernel.reconfigure_session(
                 session_id=active_session_id,
                 workspace_root=workspace_root,
                 runtime=replace(
                     state.runtime,
-                    reasoning_effort="xhigh" if ultracode else "high",
+                    reasoning_effort=requested,
+                    reasoning_effort_override=requested,
                     workflow_ultracode=ultracode,
                 ),
             )
-            print("Ultracode 已开启。" if ultracode else "Ultracode 已关闭。", file=out)
+            print(
+                "Ultracode 已开启。"
+                if ultracode
+                else f"已将当前会话的推理档位设为 {requested}。",
+                file=out,
+            )
             return _ReplCommandResult(handled=True)
 
         named_name = command.removeprefix("/")
@@ -1592,6 +1633,60 @@ async def _handle_repl_command_async(
         suggestion="run /help to see available commands.",
     )
     return _ReplCommandResult(handled=True)
+
+
+async def _cli_effort_values(
+    *,
+    kernel: Any,
+    session_id: str | None,
+    workspace_root: Path,
+    workflow_enabled: bool,
+) -> tuple[str, ...]:
+    """Return the active session model's complete effort command values."""
+
+    model: str | None = None
+    get_session_runtime = getattr(kernel, "get_session_runtime", None)
+    if session_id is not None and callable(get_session_runtime):
+        try:
+            state = await get_session_runtime(
+                session_id=session_id, workspace_root=workspace_root
+            )
+        except Exception:  # noqa: BLE001 - help remains available for stale sessions
+            state = None
+        if state is not None:
+            model = state.runtime.model
+            workflow_enabled = "Workflow" in state.runtime.enabled_tools
+    if model is None:
+        config = getattr(kernel, "get_llm_config", lambda: None)()
+        candidate = getattr(config, "default_model", None) or getattr(
+            config, "model", None
+        )
+        model = candidate if isinstance(candidate, str) and candidate else None
+    if model is None:
+        return ()
+    return _cli_effort_values_for_runtime(
+        kernel=kernel, model=model, workflow_enabled=workflow_enabled
+    )
+
+
+def _cli_effort_values_for_runtime(
+    *, kernel: Any, model: str, workflow_enabled: bool
+) -> tuple[str, ...]:
+    """Resolve command values from the SDK catalog without hardcoded levels."""
+
+    get_llm_config = getattr(kernel, "get_llm_config", None)
+    if not callable(get_llm_config):
+        return ()
+    try:
+        capability = ModelReasoningCatalog(get_llm_config()).capability_for(model)
+    except (AttributeError, TypeError, ValueError):
+        return ()
+    if capability is None or capability.kind != "selectable":
+        return ()
+    values = list(capability.levels)
+    if workflow_enabled and "xhigh" in capability.levels:
+        values.append("ultracode")
+    return tuple(values)
 
 
 async def _cli_workflow_enabled(

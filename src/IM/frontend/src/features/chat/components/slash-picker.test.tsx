@@ -133,6 +133,31 @@ describe("SlashPicker", () => {
     expect(screen.getByText(/test-writer/)).toBeInTheDocument();
   });
 
+  it("shows the source Agent for a group-scoped effort command", () => {
+    render(
+      <SlashPicker
+        skills={[]}
+        commands={[
+          {
+            kind: "command",
+            name: "effort",
+            description: "Set session reasoning effort: medium, max",
+            fromAgents: ["Coder"],
+            targetAgentId: "a-coder",
+          },
+        ]}
+        query="eff"
+        skillMode={false}
+        isGroup
+        onSelect={noop}
+        onClose={noop}
+      />,
+    );
+
+    expect(screen.getByText("/effort")).toBeInTheDocument();
+    expect(screen.getByText(/Coder/)).toBeInTheDocument();
+  });
+
   // fix-r2 (verifier S2): Tab confirms the highlighted candidate like Enter.
   it("selects the highlighted candidate on Tab", async () => {
     const user = userEvent.setup();

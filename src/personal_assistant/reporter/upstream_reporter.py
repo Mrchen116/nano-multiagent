@@ -221,6 +221,7 @@ def build_agent_capabilities_payload(
     workspace_root: str,
     tool_allowlist: tuple[str, ...] = (),
     reasoning_catalog: ModelReasoningCatalog | None = None,
+    effective_model: str | None = None,
 ) -> dict[str, object]:
     """按 Agent 工作区根路径解析可选技能（含描述），供 agent.capabilities.resolve 响应。
 
@@ -230,32 +231,60 @@ def build_agent_capabilities_payload(
         workspace_root: Agent workspace root path for per-workspace skill discovery.
         tool_allowlist: Tool names enabled for this agent.  Used to determine
             whether feature-gated tools are available (feat-379 decision 7).
+        effective_model: Agent model used to derive its session command values.
     """
     base = build_runtime_capabilities(
         kernel, reasoning_catalog=reasoning_catalog
     ).as_payload()
     base["skills"] = _skills_from_kernel(kernel, workspace_root=workspace_root)
     base["features"] = project_features(tool_allowlist=tool_allowlist)
-    base["commands"] = _workflow_commands_from_kernel(
+    base["commands"] = _session_commands_from_kernel(
         kernel,
         workspace_root=Path(workspace_root),
         tool_allowlist=tool_allowlist,
+        reasoning_catalog=reasoning_catalog,
+        effective_model=effective_model or _platform_default_model_from_kernel(kernel),
     )
     return base
 
 
-def _workflow_commands_from_kernel(
-    kernel: "Kernel", *, workspace_root: Path, tool_allowlist: tuple[str, ...]
+def _session_commands_from_kernel(
+    kernel: "Kernel",
+    *,
+    workspace_root: Path,
+    tool_allowlist: tuple[str, ...],
+    reasoning_catalog: ModelReasoningCatalog | None,
+    effective_model: str | None,
 ) -> list[dict[str, str]]:
-    """Project commands from the same active Workflow capability snapshot."""
+    """Project generic effort and active Workflow commands for one Agent."""
 
+    commands: list[dict[str, str]] = []
+    capability = (
+        reasoning_catalog.capability_for(effective_model)
+        if reasoning_catalog is not None and effective_model is not None
+        else None
+    )
+    if capability is not None and capability.kind == "selectable":
+        values = list(capability.levels)
+        if "Workflow" in tool_allowlist and "xhigh" in capability.levels:
+            values.append("ultracode")
+        commands.append(
+            {
+                "name": "effort",
+                "description": "Set session reasoning effort: " + ", ".join(values),
+            }
+        )
     if "Workflow" not in tool_allowlist:
-        return []
-    commands = [
-        {"name": "workflows", "description": "Inspect and control Workflow runs"},
-        {"name": "config", "description": "Configure Workflow size guidance"},
-        {"name": "effort", "description": "Enable or disable Ultracode mode"},
-    ]
+        return commands
+    commands.extend(
+        (
+            {
+                "name": "workflows",
+                "description": "Inspect and control Workflow runs",
+            },
+            {"name": "config", "description": "Configure Workflow size guidance"},
+        )
+    )
     commands.extend(
         {
             "name": (

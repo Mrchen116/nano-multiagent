@@ -2,6 +2,15 @@
 
 ## MODIFIED Requirements
 
+### Requirement: 群聊控制在 fan-out 中保持明确 target
+
+群聊中的 `/effort <level>` 与既有 `/compact` 一样是单 Agent session 控制，不是 group-wide command。Gateway 在每一个 fan-out relay 分配 session 或队列槽之前识别其结构化 mention/reply target；即使某个未被指向 Agent 的 `group_reply_policy=ALWAYS`，它也不得执行、改写或把该命令交给模型。
+
+#### Scenario: 针对一个 Agent 的 effort 不影响 ALWAYS peer
+- **GIVEN** Web IM 群聊为 Agent A 与 Agent B 各送一条 relay，Agent B 的 reply policy 为 `ALWAYS`
+- **WHEN** 原消息以结构化 mention 指向 Agent A 并输入 `/effort <level>`
+- **THEN** 只有 Agent A 处理它；Agent B 不创建会话、不改写 runtime effort，且不产生普通模型回复
+
 ### Requirement: 后台任务完成后 Gateway 把 Agent 回复中继回原 IM 对话
 
 用户让 Agent 后台执行长任务后，主轮先回复已启动；任务结束时，Gateway 把消费该 `<task-notification>` 后产生的普通 Agent 回复投递回原 IM 对话。既有 background Bash 继续以第二条文本回复送达。对内置 Web IM 的后台 subagent / Workflow，回复还携带与 notification 同源的结构化后台返回，让用户核对原始 result 或 error 与来源；对不提供内部过程时间线的外部 IM，继续只投递普通文本。重复投递经稳定 identity 去重，不产生重复消息或重复后台返回。

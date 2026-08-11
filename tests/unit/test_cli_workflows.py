@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import io
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from agent.sdk import PromptSlots, SessionRuntimeConfig
+from agent.sdk import (
+    LLMConfig,
+    LLMModel,
+    LLMProvider,
+    ModelReasoningCapability,
+    PromptSlots,
+    SessionRuntimeConfig,
+)
 from coding_cli.commands import (
     _format_workflow_run,
     _handle_repl_command_async,
@@ -35,7 +43,25 @@ class _RuntimeKernel:
         self.controls: list[dict[str, object]] = []
 
     def get_llm_config(self):
-        return SimpleNamespace(model="test:model")
+        return LLMConfig.from_catalog(
+            default_model="test:model",
+            providers=(
+                LLMProvider(
+                    name="test",
+                    base_url="http://test.invalid",
+                    models=(
+                        LLMModel(
+                            name="test:model",
+                            reasoning=ModelReasoningCapability(
+                                kind="selectable",
+                                default="high",
+                                levels=("low", "high", "xhigh"),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
 
     async def create_session(self, **kwargs):
         self.created.append(dict(kwargs))
@@ -217,8 +243,70 @@ async def test_cli_workflow_commands_use_sdk_and_reconfigure_runtime(
     assert kernel.reconfigured[-2].workflow_size_guideline == "small"
     assert kernel.reconfigured[-1].workflow_ultracode is True
     assert kernel.reconfigured[-1].reasoning_effort == "xhigh"
+    assert kernel.reconfigured[-1].reasoning_effort_override == "xhigh"
     assert "wf_1 · review · running" in output.getvalue()
     assert "已保存 Workflow /saved-review" in output.getvalue()
+
+
+@pytest.mark.asyncio
+async def test_cli_effort_uses_model_levels_when_workflow_is_disabled(
+    tmp_path: Path,
+) -> None:
+    kernel = _RuntimeKernel()
+    kernel.runtime = replace(
+        kernel.runtime, enabled_tools=["read"], workflow_ultracode=False
+    )
+    output = io.StringIO()
+
+    selected = await _handle_repl_command_async(
+        line="/effort low",
+        out=output,
+        kernel=kernel,
+        active_session_id="sess-1",
+        history_by_session={},
+        workspace_root=tmp_path,
+    )
+    rejected = await _handle_repl_command_async(
+        line="/effort ultracode",
+        out=output,
+        kernel=kernel,
+        active_session_id="sess-1",
+        history_by_session={},
+        workspace_root=tmp_path,
+    )
+
+    assert selected.handled is True
+    assert rejected.handled is True
+    assert kernel.runtime.reasoning_effort == "low"
+    assert kernel.runtime.reasoning_effort_override == "low"
+    assert kernel.runtime.workflow_ultracode is False
+    assert "已将当前会话的推理档位设为 low。" in output.getvalue()
+    assert "invalid effort command." in output.getvalue()
+
+
+@pytest.mark.asyncio
+async def test_cli_help_falls_back_to_catalog_when_session_runtime_is_unreadable(
+    tmp_path: Path,
+) -> None:
+    kernel = _RuntimeKernel()
+
+    async def _unreadable_runtime(**_kwargs):
+        raise ValueError("session does not exist")
+
+    kernel.get_session_runtime = _unreadable_runtime  # type: ignore[method-assign]
+    output = io.StringIO()
+
+    result = await _handle_repl_command_async(
+        line="/help",
+        out=output,
+        kernel=kernel,
+        active_session_id="stale-session",
+        history_by_session={},
+        workspace_root=tmp_path,
+    )
+
+    assert result.handled is True
+    assert "/effort <low|high|xhigh|ultracode>" in output.getvalue()
 
 
 def test_cli_workflow_detail_renders_phase_and_agent_observability() -> None:

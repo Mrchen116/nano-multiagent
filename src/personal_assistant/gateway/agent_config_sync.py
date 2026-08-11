@@ -15,6 +15,8 @@ from pathlib import Path
 
 import httpx
 
+from agent.sdk import LLMConfig
+
 from personal_assistant.config.local_store import (
     AgentWorkspaceConfig,
     DEFAULT_WORKFLOW_SIZE_GUIDELINE,
@@ -238,7 +240,7 @@ class IMAgentConfigSync:
         # used by _IMBootstrapClient (main.py:599-613).
         self._token_getter = token_getter
         self._reasoning_catalog = reasoning_catalog or ModelReasoningCatalog(
-            local_config.llm
+            LLMConfig.from_payload(local_config.llm)
         )
         self._operation_receipts = operation_receipts or ConfigApplyReceiptStore(
             local_config.source_path.parent / "config-apply-receipts-v1.json"

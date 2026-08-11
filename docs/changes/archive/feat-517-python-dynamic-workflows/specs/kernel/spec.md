@@ -4,6 +4,7 @@
 
 | Area | Covers | Requirements |
 |---|---|---|
+| [Model Runtime](model-runtime.md) | LLM catalog、per-run model routing、推理强度与 session override、模型错误恢复 | 3 |
 | [SDK Boundary](sdk-boundary.md) | SDK 表面、产品中立装配、扩展协议、能力查询、公开类型与 Workflow 管理 | 6 |
 | [Runs](runs.md) | create_session、submit/stream、steer、运行来源、权限、中断、liveness、关闭 | 13 |
 | [Background Tasks](background-tasks.md) | 后台完成通知、subagent follow-up、Workflow、task_stop、派生子 agent 隔离 | 6 |

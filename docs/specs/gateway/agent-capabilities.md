@@ -13,7 +13,7 @@ agent 模型选择、工具白名单、Skill 选择与发现、上下文窗口�
 
 ### Requirement: Agent 选定的模型在每次新回复开始时生效
 
-Gateway 在每次新回复开始时按 Agent 当前 `default_model` 选择模型；未选模型时回退产品层全局默认。这个结果是 Agent 的有效模型。有效模型声明可调推理能力时，Gateway 为该轮使用 Agent 已保存的 `reasoning_effort`；未保存时使用该模型配置的推荐 default。`default_model` 为空时也可以保存属于平台默认模型的 `reasoning_effort`，且不因此把 Agent 固定到该模型。既有聊天改模型或推理强度不创建空会话，模型与同代 prompt、skills、tools、features 一起生效并保留历史。已经开始的整轮及其采纳的插话继续使用启动时的完整配置。
+Gateway 在每次新回复开始时按 Agent 当前 `default_model` 选择模型；未选模型时回退产品层全局默认。这个结果是 Agent 的有效模型。有效模型声明可调推理能力时，Gateway 先使用 Agent 已保存的 `reasoning_effort` 或该模型推荐 default；若会话已有仍为该模型合法的 `/effort` override，则后者覆盖 baseline，不回写 Agent 配置。模型切换后不合法的 override 被清除而不近似替换；取消 Workflow 只关闭 ultracode mode，仍保留合法普通 override。`default_model` 为空时也可以保存属于平台默认模型的 `reasoning_effort`，且不因此把 Agent 固定到该模型。既有聊天改模型或推理强度不创建空会话，模型与同代 prompt、skills、tools、features 一起生效并保留历史。已经开始的整轮及其采纳的插话继续使用启动时的完整配置。
 
 #### Scenario: Agent 选定模型和推理强度后对话使用这一组配置
 - **GIVEN** 某 Agent 配置模型 B 和 B 支持的推理强度 H

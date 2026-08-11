@@ -32,6 +32,8 @@
 - Q5: 后台完成后的原始返回是否另开 unit，只覆盖 Workflow？
   A(原话): ok，本unit加这个后台返回的显示，包括agent工具的，所以你原型要把agent工具的也展示下
   Agent 解读: 可归因后台返回直接纳入 feat-517；Web IM 对后台 Workflow 和既有 `Agent(run_in_background=true)` 使用同一种“过程”折叠项，保留主 Agent 的普通回复，并可展开核对后台任务原始返回与来源。
+- Q6: `/effort` 只有 `ultracode|high` 很诡异，补成真正的、基于模型能力的完整档位命令。
+  Agent 解读: `/effort` 是当前会话的通用推理档位控制，普通可选值严格来自有效模型的 capability；`ultracode` 仅是支持 `xhigh` 的 Workflow 会话额外提供的特殊 opt-in，不用 `high` 充当唯一关闭值。
 
 ## 用户场景
 
@@ -96,6 +98,36 @@ Agent 先生成可检查的 Python 编排脚本。脚本负责循环、分支、
 #### Scenario: 非人工来源不因关键词自动激活
 - **WHEN** `ultracode` 来自 heartbeat、cron、后台任务通知、webhook、非人工 SDK 输入或其他无人值守来源
 - **THEN** 该关键词本身不构成 Workflow opt-in，也不会仅凭该文本自动启动 Workflow
+
+### Requirement: `/effort` 按有效模型能力控制当前会话推理档位
+
+#### Scenario: 用户选择当前模型声明的普通档位
+- **GIVEN** 当前会话有效模型声明了一组 selectable reasoning levels
+- **WHEN** 用户在 coding CLI、Web IM 或外部 IM 输入 `/effort <level>`，且 `<level>` 位于该组 levels 中
+- **THEN** 后续同一会话请求使用该档位，直到用户开始新会话
+- **AND** Agent 的保存模型/推理配置不被这条会话命令改写
+- **AND** 若该会话此前处于 ultracode mode，普通档位选择关闭该 mode
+
+#### Scenario: 档位候选随有效模型完整变化
+- **GIVEN** 当前有效模型的 reasoning levels 与另一模型不同，或该模型不支持 selectable reasoning
+- **WHEN** 用户打开 Web slash picker、查看 CLI 帮助，或输入 `/effort` 的无效值
+- **THEN** 系统只展示或返回当前有效模型可用的完整档位集合，不使用产品硬编码档位
+- **AND** fixed 或未声明 reasoning 的模型不展示普通 `/effort` 候选，并对直接输入给出不改变会话的可理解反馈
+
+#### Scenario: ultracode 是受限的额外会话档位
+- **GIVEN** 当前 Agent 启用了 `Workflow` 且有效模型支持 `xhigh`
+- **WHEN** 用户输入 `/effort ultracode`
+- **THEN** 当前会话使用 `xhigh` 并进入 standing Workflow opt-in mode
+- **AND** `/new` 清除这项会话覆盖和 mode
+- **WHEN** Workflow 未启用或有效模型不支持 `xhigh`
+- **THEN** `ultracode` 不可发现且命令不改变已有会话档位或 mode
+
+#### Scenario: 模型更新不把旧会话档位错误套用到新模型
+- **GIVEN** 当前会话已有 `/effort` override，Agent 的有效模型在下一轮切换为另一模型
+- **WHEN** 旧档位仍在新模型的 levels 中
+- **THEN** 会话继续使用该档位
+- **WHEN** 旧档位不在新模型的 levels 中
+- **THEN** 系统清除会话 override，采用新模型的 Agent 保存档位或推荐 default，不静默替换为另一个档位
 
 ### Requirement: Agent 生成和运行可检查、可编辑、可复用的 Python 编排脚本
 

@@ -169,7 +169,10 @@ async def test_skill_only_subscription_accepts_first_later_background_reply_rout
     delivered = asyncio.Event()
 
     async def _send(
-        text: str, reply_context: ReplyContext, _from_session_id: str
+        text: str,
+        reply_context: ReplyContext,
+        _from_session_id: str,
+        _background_returns: tuple[dict[str, object], ...],
     ) -> None:
         sent.append((text, reply_context.target_chat_id))
         delivered.set()

@@ -2651,5 +2651,40 @@ describe("MessagePane", () => {
       expect(box.value).toBe("/workflows ");
     });
 
+    it("addresses a group Agent when selecting its model-derived effort command", async () => {
+      const user = userEvent.setup();
+      const onSend = vi.fn();
+      render(
+        <MessagePane
+          conversation={GROUP_CONV}
+          messages={[]}
+          mentionCandidates={MENTION_CANDIDATES}
+          slashSkills={[]}
+          slashCommands={[
+            {
+              kind: "command",
+              name: "effort",
+              description: "Set session reasoning effort: medium, max",
+              fromAgents: ["Coder"],
+              targetAgentId: "a-coder",
+            },
+          ]}
+          onSend={onSend}
+        />
+      );
+      const box = screen.getByRole("textbox") as HTMLTextAreaElement;
+      await user.type(box, "/eff");
+      await user.click(await screen.findByText("/effort"));
+
+      expect(box.value).toBe("@Coder /effort ");
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      await user.type(box, "max");
+      await user.keyboard("{Enter}");
+      expect(onSend).toHaveBeenCalledWith(
+        '<mention type="agent" target_id="a-coder"/> /effort max',
+        [],
+      );
+    });
+
   });
 });

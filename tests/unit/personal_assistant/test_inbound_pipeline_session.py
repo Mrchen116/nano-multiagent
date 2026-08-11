@@ -7,7 +7,14 @@ from dataclasses import replace
 from pathlib import Path
 
 import httpx
-from agent.sdk import WorkflowRunInfo
+from agent.sdk import (
+    LLMConfig,
+    LLMModel,
+    LLMProvider,
+    ModelReasoningCapability,
+    ModelReasoningCatalog,
+    WorkflowRunInfo,
+)
 
 from personal_assistant.channels.base import (
     ExternalConversationIdentity,
@@ -18,6 +25,7 @@ from personal_assistant.channels.base import (
     OutboundMessage,
 )
 from personal_assistant.config.local_store import AgentWorkspaceConfig
+from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from tests.helpers.inbound_pipeline import build_inbound_pipeline, inbound_graph
 from personal_assistant.gateway.outbound_router import OutboundRouter
@@ -234,6 +242,27 @@ def test_active_workflow_commands_query_config_and_invoke_named_definition(
         channel = _FakeChannel("web_relay")
         kernel = ControlledKernel()
         configured: list[tuple[str, str]] = []
+        reasoning_catalog = ModelReasoningCatalog(
+            LLMConfig.from_catalog(
+                default_model="test-model",
+                providers=(
+                    LLMProvider(
+                        name="test",
+                        base_url="http://test.invalid",
+                        models=(
+                            LLMModel(
+                                name="test-model",
+                                reasoning=ModelReasoningCapability(
+                                    kind="selectable",
+                                    default="high",
+                                    levels=("low", "high", "xhigh"),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        )
         pipeline = build_inbound_pipeline(
             kernel=kernel,
             agents=agents,
@@ -244,6 +273,7 @@ def test_active_workflow_commands_query_config_and_invoke_named_definition(
             update_workflow_size_guideline=lambda agent_id, value: configured.append(
                 (agent_id, value)
             ),
+            reasoning_catalog=reasoning_catalog,
         )
 
         listed = await pipeline.handle_inbound(
@@ -326,6 +356,7 @@ def test_active_workflow_commands_query_config_and_invoke_named_definition(
         assert effort_result.reply_text == "Ultracode 已开启。"
         assert kernel.reconfigure_calls[-1][1].workflow_ultracode is True
         assert kernel.reconfigure_calls[-1][1].reasoning_effort == "xhigh"
+        assert kernel.reconfigure_calls[-1][1].reasoning_effort_override == "xhigh"
 
         invoking = asyncio.create_task(
             pipeline.handle_inbound(
@@ -347,6 +378,208 @@ def test_active_workflow_commands_query_config_and_invoke_named_definition(
         invoked = await invoking
         assert invoked is not None
         assert invoked.reply_text == "launched"
+
+    asyncio.run(_run())
+
+
+def test_effort_override_survives_legal_model_change_and_clears_when_illegal(
+    tmp_path: Path,
+) -> None:
+    """Gateway reconciles a session override against every new effective model."""
+
+    async def _run() -> None:
+        workspace = tmp_path / "effort-agent"
+        workspace.mkdir()
+        initial = AgentWorkspaceConfig(
+            agent_id="agent-a",
+            workspace_root=workspace,
+            default_model="model-a",
+            reasoning_effort="high",
+            tool_allowlist=("read",),
+        )
+        catalog = LiveAgentCatalog((initial,))
+        reasoning_catalog = ModelReasoningCatalog(
+            LLMConfig.from_catalog(
+                default_model="model-a",
+                providers=(
+                    LLMProvider(
+                        name="test",
+                        base_url="http://test.invalid",
+                        models=(
+                            LLMModel(
+                                name="model-a",
+                                reasoning=ModelReasoningCapability(
+                                    kind="selectable",
+                                    default="high",
+                                    levels=("low", "high", "xhigh"),
+                                ),
+                            ),
+                            LLMModel(
+                                name="model-b",
+                                reasoning=ModelReasoningCapability(
+                                    kind="selectable",
+                                    default="medium",
+                                    levels=("low", "medium"),
+                                ),
+                            ),
+                            LLMModel(
+                                name="model-c",
+                                reasoning=ModelReasoningCapability(
+                                    kind="selectable",
+                                    default="medium",
+                                    levels=("medium", "high"),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        )
+        kernel = ControlledKernel()
+        pipeline = build_inbound_pipeline(
+            kernel=kernel,
+            agent_catalog=catalog,
+            outbound_router=OutboundRouter(ChannelRegistry((_FakeChannel("web"),))),
+            run_queue=SessionRunQueue(),
+            session_store=SessionBindingStore(),
+            default_agent_id="agent-a",
+            reasoning_catalog=reasoning_catalog,
+        )
+
+        async def _message(text: str):
+            return await pipeline.handle_inbound(
+                InboundMessage(
+                    channel_name="web",
+                    text=text,
+                    external_user_id="user-1",
+                    external_chat_id="chat-1",
+                    is_group=False,
+                    agent_id="agent-a",
+                )
+            )
+
+        selected = await _message("/effort low")
+        assert selected is not None
+        assert selected.reply_text == "已将当前会话的推理档位设为 low。"
+
+        async def _run_turn(run_id: str) -> None:
+            pending = asyncio.create_task(_message(f"message for {run_id}"))
+            await kernel.wait_stream(run_id)
+            kernel.finish(run_id, text="ok")
+            await pending
+
+        await _run_turn("run-1")
+        graph = inbound_graph(pipeline)
+        binding = graph.binder.lookup("web:chat-1:agent-a")
+        assert binding is not None
+        state = await kernel.get_session_runtime(
+            session_id=binding.kernel_session_id, workspace_root=workspace
+        )
+        assert state is not None
+        assert state.runtime.model == "model-a"
+        assert state.runtime.reasoning_effort_override == "low"
+
+        catalog.publish(
+            replace(initial, default_model="model-b", reasoning_effort="medium")
+        )
+        await _run_turn("run-2")
+        state = await kernel.get_session_runtime(
+            session_id=binding.kernel_session_id, workspace_root=workspace
+        )
+        assert state is not None
+        assert (state.runtime.model, state.runtime.reasoning_effort) == ("model-b", "low")
+        assert state.runtime.reasoning_effort_override == "low"
+
+        catalog.publish(
+            replace(initial, default_model="model-c", reasoning_effort="medium")
+        )
+        await _run_turn("run-3")
+        state = await kernel.get_session_runtime(
+            session_id=binding.kernel_session_id, workspace_root=workspace
+        )
+        assert state is not None
+        assert (state.runtime.model, state.runtime.reasoning_effort) == (
+            "model-c",
+            "medium",
+        )
+        assert state.runtime.reasoning_effort_override is None
+
+    asyncio.run(_run())
+
+
+def test_workflow_disable_clears_ultracode_but_keeps_a_legal_override(
+    tmp_path: Path,
+) -> None:
+    """Removing Workflow only clears its special standing mode."""
+
+    async def _run() -> None:
+        workspace = tmp_path / "workflow-effort-agent"
+        workspace.mkdir()
+        initial = AgentWorkspaceConfig(
+            agent_id="agent-a",
+            workspace_root=workspace,
+            default_model="model-a",
+            tool_allowlist=("read", "Workflow"),
+        )
+        catalog = LiveAgentCatalog((initial,))
+        reasoning_catalog = ModelReasoningCatalog(
+            LLMConfig.from_catalog(
+                default_model="model-a",
+                providers=(
+                    LLMProvider(
+                        name="test",
+                        base_url="http://test.invalid",
+                        models=(
+                            LLMModel(
+                                name="model-a",
+                                reasoning=ModelReasoningCapability(
+                                    kind="selectable",
+                                    default="high",
+                                    levels=("low", "high", "xhigh"),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        )
+        kernel = ControlledKernel()
+        pipeline = build_inbound_pipeline(
+            kernel=kernel,
+            agent_catalog=catalog,
+            outbound_router=OutboundRouter(ChannelRegistry((_FakeChannel("web"),))),
+            run_queue=SessionRunQueue(),
+            session_store=SessionBindingStore(),
+            default_agent_id="agent-a",
+            reasoning_catalog=reasoning_catalog,
+        )
+        message = lambda text: pipeline.handle_inbound(
+            InboundMessage(
+                channel_name="web",
+                text=text,
+                external_user_id="user-1",
+                external_chat_id="chat-1",
+                is_group=False,
+                agent_id="agent-a",
+            )
+        )
+        selected = await message("/effort ultracode")
+        assert selected is not None
+        assert selected.reply_text == "Ultracode 已开启。"
+        catalog.publish(replace(initial, tool_allowlist=("read",)))
+        pending = asyncio.create_task(message("ordinary task"))
+        await kernel.wait_stream("run-1")
+        kernel.finish("run-1", text="ok")
+        await pending
+
+        binding = inbound_graph(pipeline).binder.lookup("web:chat-1:agent-a")
+        assert binding is not None
+        state = await kernel.get_session_runtime(
+            session_id=binding.kernel_session_id, workspace_root=workspace
+        )
+        assert state is not None
+        assert state.runtime.reasoning_effort_override == "xhigh"
+        assert state.runtime.workflow_ultracode is False
 
     asyncio.run(_run())
 

@@ -36,7 +36,15 @@ Web 与外部 IM 的 Workflow 来源、能力开关、SDK 查询控制、权限�
 - **GIVEN** Agent 配置已成功移除 `Workflow`
 - **WHEN** 该 Agent 的既有聊天开始下一轮新回复
 - **THEN** Gateway 不再提供 Workflow tool、reminder、ultracode mode/command、命名 Workflow 或新运行管理入口
+- **AND** 当前有效模型声明 selectable reasoning 时，普通 `/effort <level>` 继续作为 session 命令处理，不启动 Workflow
 - **AND** 旧 run 只保留通用终态消息，用户仅可对已知 task id 使用既有 `task_stop`；Workflow 专属 query/control/saved discovery 一并消失
+
+#### Scenario: session effort 从有效模型能力解析
+- **GIVEN** 人工用户当前会话的有效模型声明 selectable reasoning levels
+- **WHEN** 用户输入 `/effort <level>`
+- **THEN** Gateway 只接受该模型声明的 level，并把它作为不回写 Agent 配置的 session override 用于后续请求
+- **AND** 无效值或不支持 selectable reasoning 的模型得到可理解回复，不改变既有 session runtime
+- **AND** 只有 Workflow 已启用且模型支持 `xhigh` 时，Gateway 才额外接受 `ultracode` 并开启 standing Workflow mode
 
 #### Scenario: 通过 Workflow config 命令调整规模 guideline
 - **GIVEN** Agent 已启用 `Workflow`

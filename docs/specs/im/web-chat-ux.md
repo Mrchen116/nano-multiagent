@@ -134,7 +134,7 @@ Web IM 的当前会话、会话列表、消息、配置边界、提醒与状态�
 
 ### Requirement: Web IM slash 面板发现并填写会话控制命令
 
-用户在聊天输入框开头输入 `/` 时，slash 面板将 `/stop`、`/new`、`/compact` 与可用 skill 一起显示并按前缀过滤；用户可通过键盘或指针选择命令，输入框收到可直接发送的文本命令。在群聊中，`/new` 明确说明它会为群内所有 Agent 开始新会话。
+用户在聊天输入框开头输入 `/` 时，slash 面板将 `/stop`、`/new`、`/compact`、Gateway 报告的当前 Agent 动态命令与可用 skill 一起显示并按前缀过滤；用户可通过键盘或指针选择命令，输入框收到可直接发送的文本命令。在群聊中，`/new` 明确说明它会为群内所有 Agent 开始新会话。有效模型声明 selectable reasoning 时，Gateway 报告 `/effort` 与完整 levels；前端不硬编码或在 Workflow 关闭时过滤普通档位。只有 Workflow 已启用且模型支持 `xhigh` 时，同一命令说明额外列出 `ultracode`。
 
 #### Scenario: 单聊中从 slash 面板选择新会话
 - **WHEN** 用户在单聊 composer 开头输入 `/` 或 `/new` 的未完成前缀
@@ -146,6 +146,12 @@ Web IM 的当前会话、会话列表、消息、配置边界、提醒与状态�
 - **WHEN** 用户在 composer 开头输入 `/`
 - **THEN** 面板显示 `/new` 并说明它会为群内所有 Agent 开始新会话
 - **AND** 用户选择后，composer 填入可发送的 `/new`
+
+#### Scenario: 群聊中选择模型专属的推理档位
+- **GIVEN** 群聊中的多个 Agent 报告不同有效模型或不同 `/effort` levels
+- **WHEN** 用户在 composer 打开 `/effort` 候选
+- **THEN** 每个候选显示其来源 Agent 和该 Agent 的完整 levels，不合并成公共集合
+- **AND** 用户选择其中一项后，composer 填入指向该 Agent 的 `@Agent /effort `，使任意 group reply policy 下也只更新该 Agent 的 session
 
 ### Requirement: Web IM 消息气泡支持复制与长按/右键菜单
 

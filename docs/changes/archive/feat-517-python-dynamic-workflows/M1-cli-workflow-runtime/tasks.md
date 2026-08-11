@@ -12,7 +12,7 @@
 - [x] `Workflow` prompt/schema、启动审批、后台 manager、child adapter、saved/worktree 与一次通知接线完成。
 - [x] `RunOrigin.HUMAN/WORKFLOW`、`BackgroundReturnInfo`、`ToolResult.event_metadata` 和五个 Workflow SDK 方法为稳定公开契约。
 - [x] active/idle/terminal-continuation/`/stop` held-flush 均让 XML 与 sidecar 同命运且 FIFO/exact-once。
-- [x] CLI 默认启用（配置可禁用），支持 `/workflows`、`/effort ultracode`、named/save/control 与后台 child permission 长驻消费。
+- [x] CLI 默认启用（配置可禁用），支持 `/workflows`、由当前有效模型 capability 派生的完整 `/effort <level>`（Workflow+xhigh 时额外支持 `ultracode`）、named/save/control 与后台 child permission 长驻消费。
 - [x] M1 pure/unit/contract/CLI integration、ruff/format/diff-check 通过；真实 Luna 一 Agent lifecycle 留给 reviewer。
 
 ## 测试策略
@@ -69,7 +69,7 @@ Prototype / Reference Contract：`prototype.html` 的 must-match Web 状态归 M
 ### R5 — 完成 coding_cli 产品旅程
 
 - 状态: DONE
-- 步骤: 默认工具/config disable、human typed origin、`/workflows`/control/save/named、`/effort ultracode` 与 parent stream 长驻 child permission consumer。
+- 步骤: 默认工具/config disable、human typed origin、`/workflows`/control/save/named、完整动态 `/effort <level>`（仅 Workflow+xhigh 时提供 `ultracode`）与 parent stream 长驻 child permission consumer。
 - 验证: CLI unit/integration，TTY 控制由纯输入 seam，非 TTY 走真实命令入口。
 
 ### R6 — M1 回归、静态门禁与交付记录

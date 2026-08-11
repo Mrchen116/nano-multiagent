@@ -428,6 +428,7 @@ export function ChatWorkspacePage() {
       // config ∩ capabilities intersection reflects真实 enablement instead of全量.
       const results = await Promise.allSettled(
         conversationAgents.map(async (a): Promise<AgentEnabledSkills & {
+          agentId: string;
           commands: AgentCommandOption[];
         }> => {
           const [config, capabilities] = await Promise.all([
@@ -436,6 +437,7 @@ export function ChatWorkspacePage() {
           ]);
           const capSkills = normalizeAllowlistOptions(capabilities.skills);
           return {
+            agentId: a.agent_id,
             agentDisplayName: a.display_name,
             skills: resolveEnabledSkills(
               config.skills ?? [],
@@ -451,7 +453,11 @@ export function ChatWorkspacePage() {
       );
       return {
         skills: buildSlashSkills(perAgent),
-        commands: buildSlashCommands(perAgent.map((agent) => agent.commands)),
+        commands: buildSlashCommands(perAgent.map((agent) => ({
+          agentId: agent.agentId,
+          agentDisplayName: agent.agentDisplayName,
+          commands: agent.commands,
+        }))),
       };
     },
   });

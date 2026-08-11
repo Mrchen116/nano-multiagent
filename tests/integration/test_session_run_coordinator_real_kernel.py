@@ -364,6 +364,7 @@ async def test_kernel_reconfigures_one_session_without_losing_transcript(
         enabled_tools=[],
         features={},
         reasoning_effort="low",
+        reasoning_effort_override="low",
     )
     replacement = SessionRuntimeConfig(
         model="model-b",
@@ -372,6 +373,7 @@ async def test_kernel_reconfigures_one_session_without_losing_transcript(
         enabled_tools=["read"],
         features={"memory_curation": False},
         reasoning_effort="high",
+        reasoning_effort_override="high",
     )
     try:
         session = await kernel.create_session(
@@ -445,6 +447,7 @@ async def test_kernel_recovery_preserves_empty_feature_runtime_identity(
         enabled_tools=[],
         features={},
         reasoning_effort="high",
+        reasoning_effort_override="high",
     )
     config = LLMConfig(
         provider="openai_compat",
@@ -494,6 +497,7 @@ async def test_kernel_fork_preserves_complete_runtime(tmp_path: Path) -> None:
         enabled_tools=["read"],
         features={"memory_curation": False},
         reasoning_effort="max",
+        reasoning_effort_override="max",
     )
     kernel = build_kernel(
         llm=LLMConfig(

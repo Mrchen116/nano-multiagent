@@ -143,9 +143,13 @@ export function SlashPicker({
             </div>
           ) : null;
         lastKind = c.kind;
+        const sourceAgents =
+          c.kind === "skill"
+            ? (c as SlashSkillCandidate).fromAgents
+            : (c as SlashCommandCandidate).fromAgents ?? [];
         const fromLabel =
-          isGroup && c.kind === "skill" && (c as SlashSkillCandidate).fromAgents.length > 0
-            ? t("chat.slash.from", { agents: (c as SlashSkillCandidate).fromAgents.join(", ") })
+          isGroup && sourceAgents.length > 0
+            ? t("chat.slash.from", { agents: sourceAgents.join(", ") })
             : null;
         return (
           <div key={`row-${c.kind}-${idx}`}>

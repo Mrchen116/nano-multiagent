@@ -11,9 +11,11 @@ from typing import Protocol
 from personal_assistant.channels.base import InboundMessage
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
+from personal_assistant.gateway.effort_commands import parse_effort_command
 from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.gateway.inbound_models import (
     CompactSessionRequest,
+    EffortCommandRequest,
     GatewayShadowState,
     InboundRunRequest,
     NewSessionRequest,
@@ -112,12 +114,20 @@ class InboundPipeline:
         agent_id = self._resolve_agent(message)
         agent = self._agent_catalog.require(agent_id)
         normalized_command = self._normalize_command_text(message, agent_id=agent_id)
-        command, focus = self._parse_control_command(normalized_command)
+        group_control_text = (
+            self._normalize_command_text(
+                message, agent_id=agent_id, strip_all_mentions=True
+            )
+            if message.is_group
+            else normalized_command
+        )
+        command, focus = self._parse_control_command(group_control_text)
+        effort_command = parse_effort_command(group_control_text)
         should_process = self._should_process(
             message,
             agent_id=agent_id,
             agent_config=agent.config,
-            control_command=command,
+            control_command=command or ("effort" if effort_command is not None else None),
         )
         sender_label = _resolve_sender_label(message)
         sync_only = message.metadata.get("sync_only") is True
@@ -180,6 +190,18 @@ class InboundPipeline:
                     operation_id=self._control_operation_id(routed),
                 ),
             )
+        if normalized_command.startswith("/"):
+            effort_result = await self._run_coordinator.effort_command(
+                EffortCommandRequest(
+                    routed=routed,
+                    agent=agent,
+                    session_key=session_key,
+                    command_text=normalized_command,
+                    operation_id=self._control_operation_id(routed),
+                )
+            )
+            if effort_result is not None:
+                return effort_result
         if normalized_command.startswith("/") and "Workflow" in resolve_enabled_tools(
             agent.config
         ):
@@ -306,7 +328,7 @@ class InboundPipeline:
             return True
         # Controls other than the explicit group-wide `/new` require a concrete
         # target regardless of the Agent's normal group reply policy.
-        if control_command in {"new", "compact"}:
+        if control_command in {"new", "compact", "effort"}:
             if isinstance(mentioned, list) and agent_id in mentioned:
                 return True
             if has_reply_target and reply_to.strip() == agent_id:
@@ -321,7 +343,9 @@ class InboundPipeline:
         return f"@{agent_id}" in message.text
 
     @staticmethod
-    def _normalize_command_text(message: InboundMessage, *, agent_id: str) -> str:
+    def _normalize_command_text(
+        message: InboundMessage, *, agent_id: str, strip_all_mentions: bool = False
+    ) -> str:
         """Strip structural mentions once for every shared slash-command parser.
 
         Mention stripping deliberately remains here at the shared inbound seam so
@@ -336,10 +360,24 @@ class InboundPipeline:
             isinstance(reply_to, str) and reply_to.strip() == agent_id
         )
         candidates = {f"@{agent_id}"}
-        if structurally_mentioned:
-            candidates.add(f'<mention type="agent" target_id="{agent_id}"/>')
+        target_ids = (
+            {
+                candidate
+                for candidate in mentioned
+                if isinstance(candidate, str) and candidate.strip()
+            }
+            if strip_all_mentions and isinstance(mentioned, list)
+            else {agent_id}
+        )
+        if structurally_mentioned or strip_all_mentions:
+            candidates.update(
+                f'<mention type="agent" target_id="{target_id}"/>'
+                for target_id in target_ids
+            )
         feishu_mentions = message.metadata.get("feishu_mentions")
-        if structurally_mentioned and isinstance(feishu_mentions, list):
+        if (structurally_mentioned or strip_all_mentions) and isinstance(
+            feishu_mentions, list
+        ):
             for mention in feishu_mentions:
                 if not isinstance(mention, Mapping):
                     continue

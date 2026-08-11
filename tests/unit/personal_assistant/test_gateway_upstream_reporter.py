@@ -443,24 +443,53 @@ def test_agent_capabilities_commands_follow_active_workflow_snapshot(
         encoding="utf-8",
     )
     kernel = _build_test_kernel(tmp_path / "kernel-root")
+    reasoning_catalog = ModelReasoningCatalog(
+        LLMConfigPayload(
+            default_model="kimiCoding:K2.6",
+            providers=(
+                LLMProviderPayload(
+                    name="anthropic",
+                    base_url="http://127.0.0.1:1",
+                    models=(
+                        LLMModelPayload(
+                            name="kimiCoding:K2.6",
+                            reasoning=ModelReasoningCapability(
+                                kind="selectable",
+                                default="high",
+                                levels=("low", "high", "xhigh"),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+    )
 
     inactive = build_agent_capabilities_payload(
         kernel,
         workspace_root=str(workspace),
         tool_allowlist=("read",),
+        reasoning_catalog=reasoning_catalog,
     )
     active = build_agent_capabilities_payload(
         kernel,
         workspace_root=str(workspace),
         tool_allowlist=("read", "Workflow"),
+        reasoning_catalog=reasoning_catalog,
     )
 
-    assert inactive["commands"] == []
+    assert [item["name"] for item in inactive["commands"]] == ["effort"]
     assert [item["name"] for item in active["commands"]] == [
+        "effort",
         "workflows",
         "config",
-        "effort",
         "deep-research",
         "project-review",
     ]
+    assert inactive["commands"][0]["description"] == (
+        "Set session reasoning effort: low, high, xhigh"
+    )
+    assert active["commands"][0]["description"] == (
+        "Set session reasoning effort: low, high, xhigh, ultracode"
+    )
     assert active["commands"][-1]["description"] == "Review this project"

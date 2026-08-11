@@ -1196,3 +1196,107 @@ None.
 ### Recommendations
 
 - [R15-R1] Gate 2 设计审查已闭环；可进入 `change-orchestrator` 实施，并保留 M1/M2 已冻结的 terminal-stranded、empty-text sidecar、replay/exact-once 与真实产品旅程 oracle。
+
+## Round 16
+
+### Metadata
+
+- reviewer: `/root/feat_517_design_reviewer_r16`
+- review_mode: `full`
+- mode_reason: 历史 reviewer target 不可恢复而触发 failover；本轮 `/effort` 修订同时改变 shared session runtime、模型能力、CLI、Gateway、Web IM 与外部 IM 契约，必须重新做 full review。
+- started_at: `2026-08-11T18:39:10+08:00`
+- completed_at: `2026-08-11T18:44:42+08:00`
+- duration: `5m32s`
+
+### Verdict
+
+Issues Found — 3 CRITICAL / 0 WARNING
+
+### Coverage
+
+- 完整复核 `spec.md` 的 12 Requirements / 56 Scenarios、`design.md` 的现状/14 个决策、17 份 delta-spec、M1/M2 与对应 current specs。
+- 从实际入口核到 CLI command handler、Gateway inbound pipeline / Workflow command parser / session coordinator、PA `ModelReasoningCatalog` / runtime projection、SDK runtime persistence 和 LLM DTO。
+- `git diff --check` 通过；主 checkout `.venv` 的 docs-check 通过（212 maintained Markdown / 70 routes）。
+
+### Issues
+
+- [R16-C1][CRITICAL] [delta-spec / 决策 14]：新 `/effort` 契约没有可归并的完整 delta，既有 CLI/Gateway/IM delta 仍把 `/effort` 或其 discovery 绑在 Workflow；design 列出的 `specs/im/web-chat-ux.md` 不存在，且漏掉 `kernel/model-runtime.md`。否则归并后会同时留下 “Workflow disabled 后无 command” 和 “普通 effort 仍可用” 的冲突。
+- [R16-C2][CRITICAL] [现状分析 / 决策 14]：设计要求 CLI、Gateway parser 与 Web slash description 共用 capability catalog，但真实 `ModelReasoningCatalog` 仅在 `personal_assistant`，SDK `LLMModel` 没有 reasoning descriptor，`LLMConfig.from_payload()` 也不保留该字段。CLI 不能 import PA；否则只能跨包依赖或复制 levels 解析。
+- [R16-C3][CRITICAL] [决策 14 / 接口与数据流]：`SessionRuntimeConfig` 只有 effective `reasoning_effort`，而 PA `project_agent_runtime()` 每轮以 Agent 保存值重新投影并 durable reconfigure retained session；设计没有表达 override provenance 或 reconciliation owner。因此普通 `/effort low` 会被下一轮覆盖，A→B 时也不能区分合法 session override 与旧 baseline。
+
+### Recommendations
+
+- [R16-R1] 为 CLI、Gateway、IM Web Chat UX、IM Workflows 与 kernel Model Runtime 补齐 delta，并以当前 canonical 完整 Requirement 作为 MODIFIED 基线。
+- [R16-R2] 将安全 reasoning descriptor/lookup 下沉至 SDK LLM catalog；PA 仅解析/投影本地配置，CLI 与 PA 只读 SDK surface。
+- [R16-R3] 写清 Agent baseline、nullable session override、effective request effort 的三态和 Gateway reconciliation 顺序，并以命令后下一轮、A→B 合法/非法、Workflow disable 保留普通 override 为共同 oracle。
+
+### Author Resolutions
+
+- [R16-C1] Accepted：补齐 kernel `model-runtime.md` 与 IM `web-chat-ux.md` delta，并更新 kernel/IM package-index delta；CLI、Gateway、IM Workflows 与 Agent Capabilities 的现有 delta 改为普通 `/effort` 不依赖 Workflow、`ultracode` 才受 Workflow+xhigh 限制。所有条目都保持消费者可观察语义。
+- [R16-C2] Accepted：决策 14 改为 SDK-owned `LLMModel.reasoning` 与 `ModelReasoningCatalog`；`LLMConfig` 的 payload/json/catalog 三个装配路径无损保留 descriptor。PA YAML parser 仅产生 SDK descriptor 并验证保存配置；CLI/PA 都不跨产品 import、不复制 enum。修改位置：`design.md` 现状分析与决策 14、kernel Model Runtime delta、M1。
+- [R16-C3] Accepted：决策 14 明确 `reasoning_effort`（effective）、`reasoning_effort_override`（nullable session value）与 Agent baseline 三态；Kernel 持久化前两者，Gateway `SessionRunCoordinator` 每轮按 baseline → persisted override validity → model/Workflow mode cleanup 顺序 reconciliation，CLI 直接使用自身 session runtime。修改位置：`design.md` 决策 14、kernel Model Runtime delta、M1/M2。
+
+## Round 17
+
+### Metadata
+
+- reviewer: `/root/feat_517_design_reviewer_r16`
+- review_mode: `delta`
+- mode_reason: Round 16 已对整个 unit 做过 full inventory；本次只修复 R16-C1/C2/C3，并集中在 Decision 14、`/effort` requirements、两份补齐的 canonical delta 与 M1/M2 exit oracle。复核显示没有扩展到新的用户旅程或架构层，故以 delta 重查这些变更及其 SDK → runtime → product consumers 链路。
+- started_at: `2026-08-11T18:53:08+08:00`
+- completed_at: `2026-08-11T18:56:57+08:00`
+- duration: `3m49s`
+
+### Verdict
+
+Approved — 0 CRITICAL / 0 WARNING
+
+### Coverage
+
+- 重读 R16 的三项 finding、author resolutions、更新后的 `spec.md`、Decision 14、产品 surface、delta-spec inventory 和 M1/M2。
+- 逐项核对 change-unit 中实际修改的 CLI、Gateway、IM 与 kernel delta，而非将仓库 current spec 当作 delta；并检查新增 `kernel/model-runtime.md`、`im/web-chat-ux.md` 及两个 package index。
+- 复查真实 implementation seam：`agent.sdk.dto.LLMModel`/`LLMConfig` 的 payload/JSON/catalog 三条装配路径、`SessionRuntimeConfig` metadata/identity、PA runtime projection 与 `SessionRunCoordinator` admission、CLI `/effort` handler、Gateway inbound command gate。它们正是 R16 指出的现状缺口，修订后的 target design 为每处给出唯一归属和验证 oracle。
+- `git diff --check` 通过；`./scripts/docs-check` 通过（212 maintained Markdown sources / 70 required routes）。
+
+### Historical Finding Closure
+
+- [R16-C1][CLOSED] delta-spec 已闭环。`kernel/model-runtime.md` 明确 runtime 的 effective effort + nullable override、capability query 及装配保真；`im/web-chat-ux.md` 规定 Gateway 动态发现的 slash picker；kernel/IM package index 都列入新 canonical area。CLI、Gateway、IM Workflows 与 Agent Capabilities 均将普通 `/effort` 从 Workflow 解耦，而只把 `ultracode` 限制为 Workflow + `xhigh`。证据：`specs/kernel/model-runtime.md:5-38`、`specs/im/web-chat-ux.md:20-25`、`specs/cli/interactive-repl.md:9-18,56-67`、`specs/gateway/workflows.md:28-40`、`specs/im/workflows.md:41-52`、`specs/kernel/spec.md:5-11`、`specs/im/spec.md:5-11`。
+- [R16-C2][CLOSED] reasoning descriptor/catalog 的 ownership 已从 PA 收回 SDK：Decision 14 指定 `LLMModel.reasoning` 和 SDK `ModelReasoningCatalog`，并要求 `LLMConfig.from_payload()`、`from_json()`、`from_catalog()` 无损透传；PA 仅负责 YAML parsing/保存配置校验，CLI 与 Gateway 各自读取 SDK catalog。该方案满足产品不得互相 import 的架构边界，也覆盖 current DTO 三条现有 construction seam。证据：`design.md:452-462`、`specs/kernel/model-runtime.md:27-38`、`design.md:725`。
+- [R16-C3][CLOSED] runtime provenance 已可区分。Decision 14 明确 Agent baseline、nullable session override 和 provider-facing effective effort，要求 Kernel 在 create/read/fork/identity/durable reconfigure 中保留前两项；PA retained session 由 Coordinator 按 baseline → persisted override validity → model/Workflow cleanup 的顺序 reconciliation。合法 A→B override 保留，非法值清除而非近似替换，Workflow disable 只清 mode。证据：`design.md:464-470`、`spec.md:102-130`、`specs/kernel/model-runtime.md:5-25`、`design.md:725-726`。
+
+### Architecture Attack
+
+- SDK boundary: catalog 被定义为 `agent.sdk` DTO，而非 PA helper；CLI/PA 不互 import，满足既有 package direction。
+- Persistence and lifecycle: override 是 durable runtime 的独立 nullable field，避免当前每轮 baseline projection 覆写用户选择；fork、identity 和 reconfigure 也在 kernel delta 中受约束。
+- State transitions: A→B、普通 level → ultracode、ultracode → 普通 level、`/new`、`/use`、Workflow disable 的结果都有明确归属；没有把 `ultracode` 误当作普通模型能力。
+- Consumer discovery: CLI help/error 与 Web picker 都只消费当前有效模型的完整 SDK levels；fixed/absent 和 invalid input 都不改变 runtime，前端也不硬编码或二次过滤。
+
+### Issues
+
+None.
+
+### Recommendations
+
+- 可以进入实施。M1/M2 已把 payload/JSON/catalog 保真、runtime persistence、A→B validity、disabled A/B、CLI 与 Web discovery 作为退出 oracle；实现和后续 verifier 应按这些 oracle 取证。
+
+## Round 18
+
+### Metadata
+
+- reviewer: `/root/feat_517_design_reviewer_r16`
+- review_mode: `targeted-delta`
+- mode_reason: 实施中的 code review 发现 group chat 对模型相关 `/effort` 的 source selection 与 `ALWAYS` peer fan-out 是先前 Decision 14 未拍死的交叉 surface，须在交付前重审该收敛契约。
+
+### Verdict
+
+Approved — 0 CRITICAL / 0 WARNING
+
+### Coverage
+
+- 复查 Decision 14、M2、IM Web Chat UX 和 Gateway Routing & Delivery 的 current/delta specs。
+- 核对一条 picker selection 只指向其来源 Agent、该 Agent 收到普通 `/effort`，以及不同 `ALWAYS` peer 不会启动 session、改变 runtime 或 dispatch 的完整数据流。
+
+### Historical Finding Closure
+
+- [R18-C1][CLOSED] group chat 不合并不同 Agent 的 `/effort` candidate；选择某条时 Web IM 生成带该 Agent structural mention 的 `@Agent /effort <level>`。这使每个 Agent 仅展示自己当前有效模型可选的档位。
+- [R18-C2][CLOSED] Gateway 对 group `/effort` 先用所有 structural mentions 分类，再将其与 `/new`、`/compact` 一样作为 target-required command；因此即使其他 peer 为 `ALWAYS`，也只会走原有 non-trigger path，不能执行或改写其 session。

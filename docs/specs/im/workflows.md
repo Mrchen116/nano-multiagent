@@ -45,17 +45,19 @@ Workflow 在 Web IM 既有 tool、permission、slash 与普通消息 surface 中
 - **AND** 后台返回是独立 process item，不计入工具调用、运行中工具或批准统计
 - **AND** 终态消息与 launch tool row 清楚分开，不把数分钟后台运行显示成未结束的前台 tool call
 
-### Requirement: Workflow 命令和 ultracode 入口随 Agent tool 选择完整出现或消失
+### Requirement: Workflow 专属命令和 ultracode 随 Agent tool 选择出现或消失，普通 effort 随有效模型能力出现
 
 #### Scenario: Workflow 启用时的 slash discovery
 - **GIVEN** 当前 Agent 已启用 `Workflow`
 - **WHEN** 用户在 composer 输入 `/`
-- **THEN** slash picker 可发现 `/workflows`、`/deep-research`、适用的 saved 与 namespaced Workflow，以及 ultracode/config 入口
+- **THEN** slash picker 可发现 `/workflows`、`/deep-research`、适用的 saved 与 namespaced Workflow，以及 config 入口
+- **AND** 有效模型支持 `xhigh` 时，同一 `/effort` 命令额外列出 `ultracode`
 
 #### Scenario: Workflow 禁用时的 slash discovery
 - **GIVEN** 当前 Agent 未启用 `Workflow`
 - **WHEN** 用户打开 slash picker 或输入相关命令/关键词
 - **THEN** Workflow 专属候选不出现，命令不能启动新 run，`ultracode` 不触发 Workflow
+- **AND** 当前有效模型支持 selectable reasoning 时，普通 `/effort` 仍出现并说明完整可选 levels
 
 #### Scenario: 禁用前已经启动的 run
 - **GIVEN** 旧轮已经启动 Workflow，用户随后禁用该工具

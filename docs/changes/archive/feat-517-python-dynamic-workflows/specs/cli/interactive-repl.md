@@ -4,17 +4,18 @@
 
 ### Requirement: REPL 提供固定一组斜杠命令管理会话与上下文
 
-REPL 暴露稳定的斜杠命令集合管理会话生命周期、查看工具、压缩上下文、回看历史、管理 Workflow 与退出；斜杠命令不计入对话消息历史。
+REPL 暴露稳定的斜杠命令集合管理会话生命周期、查看工具、压缩上下文、回看历史、控制当前会话推理档位、管理 Workflow 与退出；斜杠命令不计入对话消息历史。
 
 #### Scenario: 斜杠命令集合稳定
 - **WHEN** 用户在 REPL 中查看可用命令
 - **THEN** 至少包含 `/help`、`/new`、`/use <id>`、`/session`、`/tools`、`/compact`、`/history [n]`、`/exit`
-- **AND** Workflow 启用时还包含 `/workflows`、`/effort`、适用的命名 Workflow 命令与 `/config workflowSizeGuideline`
+- **AND** 当前有效模型声明 selectable reasoning 时包含 `/effort <level>`，帮助和错误提示只列该模型完整声明的 levels
+- **AND** Workflow 启用时还包含 `/workflows`、适用的命名 Workflow 命令与 `/config workflowSizeGuideline`；只有该模型也支持 `xhigh` 时，`/effort` 才额外接受 `ultracode`
 
 #### Scenario: /new 与 /use 切换活跃会话
 - **WHEN** 用户执行 `/new`
 - **THEN** 创建并切到新会话；执行 `/use <session_id>` 则切到指定既有会话，后续消息发往切换后的会话
-- **AND** `/new` 不继承上一会话的 ultracode 模式
+- **AND** `/new` 不继承上一会话的 reasoning effort override 或 ultracode mode；`/use` 保留目标既有会话自己的合法 override
 
 #### Scenario: /tools 与 /compact 作用于当前会话
 - **WHEN** 用户执行 `/tools`
@@ -52,14 +53,18 @@ REPL 暴露稳定的斜杠命令集合管理会话生命周期、查看工具、
 - **THEN** 该关键词本身不获得可信人工 reminder
 - **AND** 明确的“run workflow”指令仍可作为普通显式请求由模型理解
 
-#### Scenario: session ultracode 模式
-- **WHEN** 用户输入 `/effort ultracode`
+#### Scenario: session effort 与 ultracode 模式
+- **GIVEN** 当前模型声明 selectable reasoning levels
+- **WHEN** 用户输入 `/effort <level>`，且 `<level>` 属于该模型 levels
+- **THEN** 当前 session 为后续请求使用该档位，直到 `/new`，且不进入 standing Workflow mode
+- **WHEN** Workflow 启用且模型支持 `xhigh` 时用户输入 `/effort ultracode`
 - **THEN** 当前 session 使用 xhigh effort，并在每个实质任务向模型提供 standing Workflow reminder
-- **AND** `/effort high` 或新建 session 后恢复逐次 opt-in
+- **AND** 任意普通 `/effort <level>` 或新建 session 后恢复逐次 opt-in
 
 #### Scenario: 配置关闭 Workflow
 - **WHEN** global/workspace config 或 disable 环境变量关闭 Workflow
 - **THEN** 新会话不含 Workflow tool、reminder、ultracode effort option、命名命令或 `/workflows`
+- **AND** 有 selectable reasoning 的模型仍提供普通 `/effort <level>`
 
 ### Requirement: CLI 在主会话可继续使用时呈现并控制后台 Workflow
 

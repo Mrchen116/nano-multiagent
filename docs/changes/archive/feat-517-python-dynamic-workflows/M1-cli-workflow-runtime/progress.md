@@ -6,7 +6,7 @@
 - Decision: 仅修改并按路径提交 agent core/platform/sdk、coding_cli、M1 tests/docs；不暂存任何 M2 dirty 文件。
 - Evidence:
   - Tests: 实施前 M1 targeted baseline `276 passed`；实现后扩大 M1 regression `598 passed`，最终新增 TTY seam focused `108 passed`，全量非 E2E `3277 passed, 26 deselected`。
-  - Entry: `coding_cli` 默认启用精确名 `Workflow`，global/workspace/env 可禁用；交互输入标记 `RunOrigin.HUMAN`，支持 named/bundled command、`/workflows` 显式命令与 TTY `p/x/r/s` 控制、`/config workflowSizeGuideline`、`/effort ultracode|high` 及长驻 child permission 消费。
+  - Entry: `coding_cli` 默认启用精确名 `Workflow`，global/workspace/env 可禁用；交互输入标记 `RunOrigin.HUMAN`，支持 named/bundled command、`/workflows` 显式命令与 TTY `p/x/r/s` 控制、`/config workflowSizeGuideline`、按当前有效模型 capability 派生的完整 `/effort <level>`，以及长驻 child permission 消费。仅 Workflow active 且模型支持 `xhigh` 时，`ultracode` 是额外 opt-in；普通 level 也可在 Workflow disabled 时使用。
   - Frontend State Matrix: N/A（M1 无前端）。
   - Browser QA: N/A（M1 无前端）。
   - E2E/Regression: Luna 一 Agent lifecycle 归 reviewer；worker 不做规模实验。

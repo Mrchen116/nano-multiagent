@@ -4,6 +4,7 @@ from personal_assistant.gateway.workflow_commands import (
     format_workflow_run,
     parse_workflow_command,
 )
+from personal_assistant.gateway.effort_commands import parse_effort_command
 
 
 def test_parse_workflow_list_detail_controls_save_and_config() -> None:
@@ -29,8 +30,14 @@ def test_parse_workflow_list_detail_controls_save_and_config() -> None:
         "/config workflowSizeGuideline large", named_workflows=()
     )
     assert (configured.kind, configured.guideline) == ("config", "large")
-    effort = parse_workflow_command("/effort ultracode", named_workflows=())
-    assert (effort.kind, effort.effort) == ("effort", "ultracode")
+    assert parse_workflow_command("/effort ultracode", named_workflows=()) is None
+
+
+def test_parse_effort_command_keeps_level_validation_model_derived() -> None:
+    assert parse_effort_command("/effort custom-level").value == "custom-level"
+    assert parse_effort_command("/effort").value is None
+    assert parse_effort_command("/effort low extra").value is None
+    assert parse_effort_command("/workflows") is None
 
 
 def test_parse_named_workflow_keeps_user_arguments() -> None:

@@ -39,6 +39,7 @@ from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.gateway.image_attachments import ImageAttachmentResolver
 from personal_assistant.gateway.inbound_models import (
     CompactSessionRequest,
+    EffortCommandRequest,
     InboundRunRequest,
     NewSessionRequest,
     PipelineResult,
@@ -54,6 +55,10 @@ from personal_assistant.gateway.workflow_commands import (
     format_workflow_run,
     format_workflow_runs,
     parse_workflow_command,
+)
+from personal_assistant.gateway.effort_commands import (
+    EffortCommand,
+    parse_effort_command,
 )
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.reply_visibility import (
@@ -802,9 +807,7 @@ class SessionRunCoordinator:
         async with self._transition(request.session_key):
             binding = self._session_binder.lookup(request.session_key)
             if binding is None:
-                binding = await self._ensure_binding_for_workflow_command(
-                    request, agent=agent
-                )
+                binding = await self._ensure_binding_for_command(request, agent=agent)
             control_kind = f"workflow:{command.kind}"
             completed = (
                 self._session_binder.completed_control(
@@ -851,6 +854,121 @@ class SessionRunCoordinator:
             reply_text=reply_text,
             outbound=outbound,
         )
+
+    async def effort_command(
+        self, request: EffortCommandRequest
+    ) -> PipelineResult | None:
+        """Apply one model-capability-derived session effort command."""
+
+        command = parse_effort_command(request.command_text)
+        if command is None:
+            return None
+        agent = self._latest_agent(request.agent)
+        async with self._transition(request.session_key):
+            binding = self._session_binder.lookup(request.session_key)
+            if binding is None:
+                binding = await self._ensure_binding_for_command(request, agent=agent)
+            completed = (
+                self._session_binder.completed_control(
+                    session_key=request.session_key,
+                    operation_id=request.operation_id,
+                    kind="effort",
+                )
+                if request.operation_id is not None
+                else None
+            )
+            if completed is not None:
+                reply_text = completed.reply_text
+            else:
+                state = await self._kernel.get_session_runtime(
+                    session_id=binding.kernel_session_id,
+                    workspace_root=agent.config.workspace_root,
+                )
+                if state is None:
+                    reply_text = "推理档位命令未执行: 当前会话没有完整 runtime。"
+                else:
+                    baseline = self._project_runtime(
+                        agent=agent, message=request.message
+                    ).runtime
+                    reply_text = await self._execute_effort_command(
+                        command,
+                        session_id=binding.kernel_session_id,
+                        agent=agent,
+                        runtime=self._reconcile_runtime(
+                            baseline=baseline, persisted=state.runtime
+                        ),
+                    )
+                if request.operation_id is not None:
+                    reply_text = self._session_binder.complete_control(
+                        ControlOperation(
+                            session_key=request.session_key,
+                            operation_id=request.operation_id,
+                            kind="effort",
+                            status="completed",
+                            kernel_session_id=binding.kernel_session_id,
+                            reply_text=reply_text,
+                        ),
+                        external_saga_id=_external_shadow_saga_id(request.routed),
+                    ).reply_text
+        outbound = await self._deliver_control_reply(
+            text=reply_text,
+            binding=binding,
+            agent_id=agent.agent_id,
+            ack_tag="effort-ack",
+            source_routed=request.routed,
+            operation_id=request.operation_id,
+        )
+        return PipelineResult(
+            agent_id=agent.agent_id,
+            session_key=request.session_key,
+            kernel_session_id=binding.kernel_session_id,
+            run_id="",
+            reply_text=reply_text,
+            outbound=outbound,
+        )
+
+    async def _execute_effort_command(
+        self,
+        command: EffortCommand,
+        *,
+        session_id: str,
+        agent: LiveAgentSnapshot,
+        runtime: SessionRuntimeConfig,
+    ) -> str:
+        """Validate and durably apply an effort selection to one session."""
+
+        catalog = self._reasoning_catalog
+        capability = (
+            catalog.capability_for(runtime.model) if catalog is not None else None
+        )
+        if capability is None or capability.kind != "selectable":
+            return f"当前模型 {runtime.model} 不支持可选推理档位。"
+        supports_ultracode = (
+            "Workflow" in runtime.enabled_tools and "xhigh" in capability.levels
+        )
+        allowed = list(capability.levels)
+        if supports_ultracode:
+            allowed.append("ultracode")
+        if command.value not in allowed:
+            return (
+                f"当前模型 {runtime.model} 可用的推理档位: {'、'.join(allowed)}。"
+            )
+        ultracode = command.value == "ultracode"
+        requested = "xhigh" if ultracode else command.value
+        assert requested is not None
+        await self._kernel.reconfigure_session(
+            session_id=session_id,
+            workspace_root=agent.config.workspace_root,
+            runtime=replace(
+                runtime,
+                reasoning_effort=catalog.resolve(runtime.model, requested),
+                reasoning_effort_override=requested,
+                workflow_ultracode=ultracode,
+            ),
+        )
+        if ultracode:
+            return "Ultracode 已开启。"
+        return f"已将当前会话的推理档位设为 {requested}。"
 
     async def _execute_workflow_command(
         self,
@@ -901,38 +1019,15 @@ class SessionRunCoordinator:
                     "已将 workflowSizeGuideline 设为 "
                     f"{command.guideline}；从下一轮起生效。"
                 )
-            if command.kind == "effort":
-                state = await self._kernel.get_session_runtime(
-                    session_id=session_id,
-                    workspace_root=agent.config.workspace_root,
-                )
-                if state is None:
-                    raise RuntimeError("Workflow session runtime is unavailable")
-                ultracode = command.effort == "ultracode"
-                requested_effort = "xhigh" if ultracode else "high"
-                resolved_effort = (
-                    self._reasoning_catalog.resolve(
-                        state.runtime.model, requested_effort
-                    )
-                    if self._reasoning_catalog is not None
-                    else requested_effort
-                )
-                await self._kernel.reconfigure_session(
-                    session_id=session_id,
-                    workspace_root=agent.config.workspace_root,
-                    runtime=replace(
-                        state.runtime,
-                        reasoning_effort=resolved_effort,
-                        workflow_ultracode=ultracode,
-                    ),
-                )
-                return "Ultracode 已开启。" if ultracode else "Ultracode 已关闭。"
         except (RuntimeError, ValueError) as exc:
             return f"Workflow 命令未执行: {exc}"
         return "Workflow 命令无效。"
 
-    async def _ensure_binding_for_workflow_command(
-        self, request: WorkflowCommandRequest, *, agent: LiveAgentSnapshot
+    async def _ensure_binding_for_command(
+        self,
+        request: WorkflowCommandRequest | EffortCommandRequest,
+        *,
+        agent: LiveAgentSnapshot,
     ) -> SessionBinding:
         runtime_projection = self._project_runtime(agent=agent, message=request.message)
         dispatch_url, fallback_port = self._dispatch_endpoint_metadata()
@@ -1453,6 +1548,14 @@ class SessionRunCoordinator:
     ) -> SessionBinding:
         """Durably align a retained session before the following synchronous submit."""
 
+        current = await self._kernel.get_session_runtime(
+            session_id=binding.kernel_session_id,
+            workspace_root=agent.config.workspace_root,
+        )
+        runtime = self._reconcile_runtime(
+            baseline=runtime,
+            persisted=current.runtime if current is not None else None,
+        )
         desired = self._kernel.identify_runtime(runtime=runtime)
         applied_matches = (
             binding.applied_fingerprint_schema == desired.fingerprint_schema
@@ -1460,10 +1563,6 @@ class SessionRunCoordinator:
         )
         if applied_matches:
             return binding
-        current = await self._kernel.get_session_runtime(
-            session_id=binding.kernel_session_id,
-            workspace_root=agent.config.workspace_root,
-        )
         replacement_has_known_baseline = current is not None
         if current is not None:
             binding = self._session_binder.persist_applied_runtime(
@@ -1532,6 +1631,43 @@ class SessionRunCoordinator:
             fingerprint_schema=result.state.identity.fingerprint_schema,
             profile_version=profile_version,
             agent=agent,
+        )
+
+    def _reconcile_runtime(
+        self,
+        *,
+        baseline: SessionRuntimeConfig,
+        persisted: SessionRuntimeConfig | None,
+    ) -> SessionRuntimeConfig:
+        """Apply a legal persisted session effort override to a fresh baseline.
+
+        A retained Gateway session must pick up Agent configuration changes each
+        admission without losing an override that remains legal for the new model.
+        """
+
+        if persisted is None:
+            return baseline
+        catalog = self._reasoning_catalog
+        override = persisted.reasoning_effort_override
+        effective_effort = baseline.reasoning_effort
+        if override is not None and catalog is not None:
+            try:
+                effective_effort = catalog.resolve(baseline.model, override)
+            except ValueError:
+                override = None
+        else:
+            override = None
+        workflow_ultracode = (
+            persisted.workflow_ultracode
+            and persisted.model == baseline.model
+            and override == "xhigh"
+            and "Workflow" in baseline.enabled_tools
+        )
+        return replace(
+            baseline,
+            reasoning_effort=effective_effort,
+            reasoning_effort_override=override,
+            workflow_ultracode=workflow_ultracode,
         )
 
     def _boundary_for_runtime_replacement(

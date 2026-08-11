@@ -74,3 +74,12 @@ Final verdict: **PASS — 0 open P1/P2 findings.**
   new P1/P2 was found.
 
 Final post-acceptance verdict: **PASS — 0 open P1/P2 findings.**
+
+### Round 5 — model-aware `/effort` delta
+
+- Result: Pass
+- Scope: SDK capability catalog and durable effort override; CLI help/handler; Gateway admission/reconciliation/reporting; Web IM slash candidate/selection; group delivery.
+- The finder/code-verifier loop closed three confirmed issues: stale-session `/help` falls back to the current model catalog instead of raising; group candidates retain their source Agent and selection serializes its structural mention; an `ALWAYS` peer cannot execute another Agent's targeted `/effort`.
+- Focused evidence: backend regression suites cover catalog fallback, retained-session reconciliation and the `ALWAYS` no-fan-out guard; frontend unit tests cover per-Agent candidates and structural-mention serialization. `git diff --check` passed.
+
+Final delta verdict: **PASS — 0 open P1/P2 findings.**

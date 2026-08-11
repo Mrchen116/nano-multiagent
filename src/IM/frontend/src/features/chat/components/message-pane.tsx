@@ -544,7 +544,18 @@ export function MessagePane({
 
   function handleSlashSelect(c: SlashCandidate) {
     // 命令补 `/name `、skill 补 `/skill:name `（尾随空格），光标置末尾、保持焦点（决策 6）。
-    const insert = c.kind === "command" ? `/${c.name} ` : `/skill:${c.name} `;
+    let insert = c.kind === "command" ? `/${c.name} ` : `/skill:${c.name} `;
+    const target =
+      isGroup && c.kind === "command" && c.targetAgentId
+        ? mentionCandidates.find((candidate) => candidate.agent_id === c.targetAgentId)
+        : undefined;
+    if (target) {
+      const label = `@${target.display_name}`;
+      insert = `${label} ${insert}`;
+      setDraftMentions([{ label, type: "agent", target_id: target.agent_id }]);
+    } else {
+      setDraftMentions([]);
+    }
     changeDraft(insert);
     const el = composerRef.current;
     if (el) {
