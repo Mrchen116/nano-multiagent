@@ -250,16 +250,13 @@ def test_new_group_rows_keep_frozen_source_and_actual_ingress_headers(
         channel_name="feishu:agent-a",
         text="first",
         external_user_id="alice",
-        external_chat_id="conv-1",
+        external_chat_id="feishu:cli_a:group:oc_grp1",
         is_group=True,
         agent_id="agent-a",
+        ingress=_feishu_group_ingress("event-context-1"),
         source_timestamp=_source_time(1, 17),
         received_timestamp=_source_time(2, 0),
-        metadata={
-            "mentioned_agent_ids": [],
-            "external_source": "feishu",
-            "external_chat_id": "conv-1",
-        },
+        metadata={"mentioned_agent_ids": []},
     )
     trigger = InboundMessage(
         channel_name="web_relay",
@@ -268,14 +265,10 @@ def test_new_group_rows_keep_frozen_source_and_actual_ingress_headers(
         external_chat_id="conv-1",
         is_group=True,
         agent_id="agent-a",
+        ingress=_shadow_group_ingress(),
         source_timestamp=_source_time(1, 18),
         received_timestamp=_source_time(2, 1),
-        metadata={
-            "mentioned_agent_ids": ["agent-a"],
-            "external_source": "feishu",
-            "external_chat_id": "conv-1",
-            "trigger_source": "im",
-        },
+        metadata={"mentioned_agent_ids": ["agent-a"]},
     )
 
     asyncio.run(pipeline.handle_inbound(background))

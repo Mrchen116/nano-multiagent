@@ -12,7 +12,7 @@ from personal_assistant.gateway.background_subscriptions import (
     BackgroundSubscriptionRequest,
     ForegroundTerminalSubscriptionOutcome,
 )
-from personal_assistant.gateway.inbound_models import InboundRunRequest
+from personal_assistant.gateway.inbound_models import InboundRunRequest, RoutedInbound
 from personal_assistant.gateway.session_keys import build_session_key
 from personal_assistant.gateway.session_run_coordinator import SessionRunCoordinator
 
@@ -22,7 +22,7 @@ from ._session_run_coordinator_helpers import build_dependencies, inbound
 def _request(message, catalog) -> InboundRunRequest:  # noqa: ANN001
     agent = catalog.require("agent-a")
     return InboundRunRequest(
-        message=message,
+        routed=RoutedInbound(message=message),
         agent=agent,
         session_key=build_session_key(message, agent_id=agent.agent_id),
         sender_label="Alice",
