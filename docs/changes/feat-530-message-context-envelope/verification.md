@@ -81,3 +81,78 @@ None.
 ### SUGGESTION（可以修）
 
 - `src/personal_assistant/hooks/chat_history.py:62`: the public `setup()` function gained `readable_input_projection_store`, but its Google-style `Args` section still documents only `hooks`. Add one concise argument entry describing the exact-provenance handoff to keep the new public signature aligned with `docs/development/coding-guidelines.md`; this does not affect the verified behavior.
+
+# Round 2
+
+## Verification Report: feat-530
+
+> Validation snapshot: `c40a9aa80f3f9107327217b868f11ec664d34bf9 → 255b41d0499336bd27136a0c523a3c45bef2bede`
+
+### Summary
+
+Mode: delta
+Delta range: `c40675fee132cf50dda0c85d06b772566521fa4e..255b41d0499336bd27136a0c523a3c45bef2bede`
+Focus issues: Round 1 verification suggestion; acceptance R1-I1; pathname `TZ`, Feishu platform timestamp range, and capability documentation findings
+requires_full_verification: false
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 5/5 focused fixes covered |
+| Correctness | 5/5 focused behaviors covered |
+| Coherence | Followed |
+
+All checks passed. Ready for PR.
+
+## Completeness
+
+- Round 1 verification suggestion is closed: public `chat_history.setup()` now documents `readable_input_projection_store` in its Google-style `Args` section (`src/personal_assistant/hooks/chat_history.py:62`).
+- Acceptance R1-I1 is closed at implementation/test level: the Kernel preserves and rewrites `/skill:*` after the composed time/channel and sender annotations (`src/agent/core/agent/skill_commands.py:15`; `tests/contract/test_skill_commands_contract.py:33`). A new real Feishu product journey remains the reviewer’s independent acceptance responsibility, not missing verifier coverage.
+- The three code-review findings are all represented in the delta and permanent tests: pathname-form `TZ`, Feishu `OSError` timestamp fallback, and corrected SDK/PA capability documentation.
+- The delta is localized to one product-neutral command parser, two existing PA normalization helpers, documentation/docstrings, and their focused tests. It does not modify message lifecycle, storage schema, SDK surface, IM schema, or product import direction, so a new full verification is not required after Round 1’s passing full suite.
+- Prototype / Reference coverage: N/A.
+
+## Correctness
+
+| Requirement / focused behavior | 实现位置（file:line） | 测试覆盖 | 状态 |
+|---|---|---|---|
+| Existing `/skill:*` rewrite survives `[time/channel] [sender]` composition | `src/agent/core/agent/skill_commands.py:6-18` preserves zero or more opaque bracket annotations before parsing the command | Existing zero/single-prefix contracts plus the new two-prefix assertion at `tests/contract/test_skill_commands_contract.py:4-44` | covered |
+| Gateway startup accepts pathname-form `TZ` while retaining IANA/localtime/fixed-offset fallback | `src/personal_assistant/gateway/human_message_context.py:172-202`; pathname normalization at `src/personal_assistant/gateway/human_message_context.py:219-226` | Existing fallback table plus pathname case at `tests/unit/personal_assistant/test_human_message_context.py:137-163` | covered |
+| Invalid/platform-out-of-range Feishu create time becomes missing source time, enabling the designed receipt fallback | `src/personal_assistant/channels/feishu/client.py:1188-1195` catches `OSError` together with parse/range errors; frozen selection remains source-first/receipt-second at `src/personal_assistant/gateway/human_message_context.py:90-107` | Platform `OSError` regression at `tests/unit/test_feishu_client.py:80-86`; existing receipt fallback at `tests/unit/personal_assistant/test_human_message_context.py:61-73` | covered |
+| Kernel capability metadata accurately describes default-on tool-independent runtime policies without changing DTO/API shape | `src/agent/sdk/dto.py:368-384`; PA UI projection ownership clarified at `src/personal_assistant/reporter/capability_projection.py:17-26,76-80` | Existing list-feature and Gateway payload tests in `tests/unit/agent/test_kernel_list_capability_queries.py` and `tests/unit/personal_assistant/test_gateway_upstream_reporter.py` remain green | covered |
+| New public `setup()` parameter follows repository docstring rules | `src/personal_assistant/hooks/chat_history.py:62-76` | Ruff plus focused hook tests; direct signature/docstring inspection | covered |
+
+Independent delta validation:
+
+- Focused behavior/regression set: 76 passed.
+- SDK/product import and architecture contracts: 18 passed.
+- Ruff check and Ruff format check on all changed Python files: passed.
+- `scripts/docs_check.py`: passed (238 maintained Markdown sources, 67 required routes).
+- `git diff --check c40675fee..255b41d04`: passed.
+
+## Coherence
+
+| design / architecture decision | 遵守? | 代码证据（file:line） |
+|---|---|---|
+| Header precedes the existing group sender and adjacent behavior remains usable | 是 | The generalized parser treats every leading annotation as opaque and preserves it verbatim (`src/agent/core/agent/skill_commands.py:6-18`), matching the designed `[header] [sender] body` composition (`design.md:123-130,265`). The canonical single-annotation scenario in `docs/specs/kernel/skills.md:22-24` remains satisfied; accepting the composed sequence is a backward-compatible generalization, not a conflicting contract. |
+| Timezone is resolved once at Gateway startup with IANA semantics and fixed-offset fallback | 是 | Path-form `TZ` is reduced to its IANA suffix before the existing one-time resolution/fallback path (`src/personal_assistant/gateway/human_message_context.py:172-202,219-226`), consistent with design decision 4 (`design.md:137-144`). |
+| Missing, malformed, or out-of-range provider time delegates to frozen receipt time | 是 | Feishu parser maps the platform-specific `OSError` to `None` (`src/personal_assistant/channels/feishu/client.py:1188-1195`), exactly matching design decision 2 (`design.md:116-121`). |
+| Extend existing feature/catalog and UI projection boundaries; do not add a parallel API or leak internal policy into PA toggles | 是 | The delta changes only `FeatureInfo` and projection documentation (`src/agent/sdk/dto.py:368-384`; `src/personal_assistant/reporter/capability_projection.py:17-26,76-80`); data structures and runtime projection are unchanged. |
+| Preserve dependency direction and product neutrality | 是 | The only Core behavior change parses generic opaque annotations and contains no PA/channel identifiers; SDK/import boundary contracts pass. |
+
+### Prototype / Reference Contract
+
+N/A.
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+None.
+
+### WARNING（提 PR 前必须修）
+
+None.
+
+### SUGGESTION（可以修）
+
+None.
