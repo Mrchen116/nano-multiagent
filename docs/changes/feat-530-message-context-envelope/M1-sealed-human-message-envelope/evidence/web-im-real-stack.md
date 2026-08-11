@@ -27,11 +27,11 @@
 - Locator: Same transcript/chat-history directory; provider request `2026-08-10_19-31-23_673-req-anthropic_messages.json`.
 - Limit: This validates current active-steer delivery only; feat-530 intentionally does not change steer persistence/recovery lifecycle.
 
-## Real Feishu prerequisite
+## Real Feishu direct ingress and model-input boundary
 
-- Claim: The required dedicated Feishu direct/group/catch-up journey can be started from the exact feat-530 branch.
-- Baseline: Same commit; private dedicated fixture present; repository `--feishu` profile; no production Bot or default `lark-cli` profile used.
-- Method: Run `PATH=/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH ./scripts/e2e-up.sh --feishu` in an isolated tmux-owned worktree runtime, with cleanup after every attempt.
-- Result: INCONCLUSIVE / BLOCKED. Two initial attempts reached Gateway composition but failed the existing `FeishuWorkerRuntime.start()` five-second bootstrap gate with `ERROR feishu worker did not initialize`. A later warm attempt hit the launcher's six-second IM readiness budget (`IM failed to start`), while the IM process reported normal startup immediately afterward. On 2026-08-11, two user-requested clean retries reproduced that same launcher timeout: the dedicated Feishu config completed, the launcher exited before Gateway start, and each IM process became healthy only after the fixed readiness window. A focused existing worker-process test still passed, and the full non-E2E suite passed.
-- Locator: `src/personal_assistant/channels/feishu/worker.py` startup wait; local gitignored `.gateway.log` / `.im.log`; automated Feishu parser, adapter, catch-up, and worker tests recorded in `progress.md`.
-- Limit: No real Feishu user message was sent, so real direct/group/catch-up behavior is not claimed as passed. The startup/readiness timeout issue is outside feat-530 and must be resolved before this mandatory reviewer journey can close.
+- Claim: The dedicated Feishu profile starts from the exact feat-530 branch, receives a real test-user direct message, and gives Kernel the frozen Feishu source/time envelope.
+- Baseline: `unit/feat-530@658fc9cac`, rebased onto `origin/main@c40a9aa80`; private dedicated fixture; repository `--feishu` profile; no production Bot or default `lark-cli` profile used.
+- Method: Start the isolated tmux-owned stack with `e2e-up.sh --feishu`; run `e2e-feishu-probe.py`; then send `feat-530-direct-1786424131` from the verified test user to the verified test Bot and compare Feishu readback, Gateway result, and Kernel transcript.
+- Result: PARTIAL PASS. The repository ingress probe passed. Feishu accepted direct message `om_x100b689efa83c8a4de05ecdf85c65ff`, and Kernel transcript persisted `[Feishu Tue 2026-08-11 12:55 CST] feat-530-direct-1786424131 ...`, proving the source/time envelope crossed the real Feishu ingress boundary. The Bot's user-visible response was instead `模型调用失败: anthropic transport error: All connection attempts failed` because the configured local LLM proxy was not listening.
+- Locator: `.gateway-workspace/e2e/.nanoassistant/sessions/sess_fe7889e78e099195.jsonl`; local gitignored `.gateway.log` / `.im.log`; `/Users/czj/Repos/LLM_PROXY/logs/proxy-console.log` for the independent OAuth startup failure.
+- Limit: The LLM proxy's idempotent launcher exhausted its own authentication window with `refresh_token_reused`; no account or credential was changed. A successful real-model answer and the remaining group/catch-up journey are therefore not claimed as passed. All feat-530 runtime resources and the dedicated listener lock were released.
