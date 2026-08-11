@@ -255,6 +255,7 @@ flowchart TD
 - gateway: `specs/gateway/routing-delivery.md` — 新增真人消息 model envelope、raw/readable copy 分离和 restart-visible continuity。
 - kernel prompts: `specs/kernel/prompts.md` — 新增`include_session_created_datetime`对runtime footer的product-neutral语义，并钉死省略override继承`True`、PA显式`False`、默认consumer/CLI不变。
 - kernel SDK: `specs/kernel/sdk-boundary.md` — `list_features()` 如实暴露新增通用 policy；SDK方法/DTO/参数不变。
+- kernel skills: `specs/kernel/skills.md` — 保持 `/skill:*` 在时间/Channel与既有sender组成多个连续标注段时仍按既有显式调用语义执行。
 - im / cli: no spec delta。IM body/relay contract与 CLI behavior不变。
 
 ## 风险与回退
