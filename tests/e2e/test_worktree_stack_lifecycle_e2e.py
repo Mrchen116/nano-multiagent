@@ -40,7 +40,7 @@ def _port_is_open(port: int) -> bool:
 
 
 def _e2e_python_wrapper(
-    tmp_path: Path, *, im_launch_mode: str, readiness_timeout_seconds: int
+    tmp_path: Path, *, im_launch_mode: str, readiness_timeout_seconds: int | None
 ) -> dict[str, str]:
     """Delay or stop only the IM uvicorn child while preserving Gateway startup."""
 
@@ -61,15 +61,19 @@ exec \"$NANO_MULTIAGENT_E2E_REAL_PYTHON\" \"$@\"
         encoding="utf-8",
     )
     wrapper.chmod(0o755)
-    return {
+    env = {
         **os.environ,
         "PATH": f"{bin_dir}:{Path(sys.executable).parent}:{os.environ.get('PATH', '')}",
         "NANO_MULTIAGENT_E2E_REAL_PYTHON": sys.executable,
         "NANO_MULTIAGENT_E2E_TEST_IM_LAUNCH_MODE": im_launch_mode,
-        "NANO_MULTIAGENT_E2E_IM_READINESS_TIMEOUT_SECONDS": str(
-            readiness_timeout_seconds
-        ),
     }
+    if readiness_timeout_seconds is None:
+        env.pop("NANO_MULTIAGENT_E2E_IM_READINESS_TIMEOUT_SECONDS", None)
+    else:
+        env["NANO_MULTIAGENT_E2E_IM_READINESS_TIMEOUT_SECONDS"] = str(
+            readiness_timeout_seconds
+        )
+    return env
 
 
 def _run_e2e_down(stack_dir: Path, env: dict[str, str]) -> None:
@@ -222,9 +226,9 @@ def test_e2e_up_accepts_slow_but_alive_im_within_readiness_budget(
     env = _e2e_python_wrapper(
         tmp_path,
         im_launch_mode="delayed",
-        readiness_timeout_seconds=5,
+        readiness_timeout_seconds=None,
     )
-    env["NANO_MULTIAGENT_E2E_TEST_IM_DELAY_SECONDS"] = "1"
+    env["NANO_MULTIAGENT_E2E_TEST_IM_DELAY_SECONDS"] = "7"
     im_pid: int | None = None
     try:
         up = subprocess.run(
