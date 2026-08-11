@@ -169,4 +169,4 @@ Prototype / Reference Contract: N/A。
 
 - 状态: DONE
 - 步骤: 删除通过 `importlib` 执行 E2E journey/fixture 脚本、或 mock `tests/e2e` 私有 process helper 的白盒测试；它们不是产品 seam。保留 public E2E journey、真实栈清理、worker lifecycle 与外部 cwd runner 的各自边界保护。
-- 验证: 关联 E2E/integration 4 passed、Skill restart 关键路径 2 passed、docs-check 与 diff-check 通过；不再从 `tests/` 加载 `scripts/e2e-feishu-self-evolution.py`、`scripts/fixtures/openai_self_evolution_recording.py` 或断言 `_im_gateway.restart_gateway()` 的私有实现。此前同一 production head 的 full non-E2E 结果保留为历史门禁，不因纯删测试重复运行。
+- 验证: 关联 E2E/integration 4 passed、Skill restart 关键路径通过、docs-check 与 diff-check 通过；不再从 `tests/` 加载 `scripts/e2e-feishu-self-evolution.py`、`scripts/fixtures/openai_self_evolution_recording.py` 或断言 `_im_gateway.restart_gateway()` 的私有实现。此前同一 production head 的 full non-E2E 结果保留为历史门禁，不因纯删测试重复运行。
