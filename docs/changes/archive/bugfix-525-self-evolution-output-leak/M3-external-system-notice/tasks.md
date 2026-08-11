@@ -161,6 +161,6 @@ Prototype / Reference Contract: N/A。
 
 ### R19 — rearchive second reopened PR closure
 
-- 状态: IN PROGRESS
+- 状态: DONE
 - 步骤: R17/R18 gates 和 unit merge 完成后，将唯一 change unit 整体移回 archive，保持 #264 CI archive admission。
 - 验证: archive checker、docs-check、diff-check 通过；active/archive 仅保留一份 unit。
