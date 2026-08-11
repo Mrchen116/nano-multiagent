@@ -55,10 +55,11 @@ HookSessionEventPublisher = Callable[[str, Mapping[str, Any]], None]
 # review_prompt: the prompt string sent as first user message to the fork agent.
 # tool_allowlist: execution-layer whitelist — only these tool names are allowed to run.
 # max_turns: max LLM iterations in the fork side-chain.
+# event_policy: parent-session event visibility for the fork side-chain.
 # metadata_overrides: optional metadata applied only to the fork side-chain.
 # Returns a ForkResult (opaque to core; platform/hooks/builtins interpret it).
 ForkConversation = Callable[
-    ...,  # (review_prompt: str, *, tool_allowlist, max_turns, metadata_overrides) -> Awaitable
+    ...,  # (review_prompt: str, *, tool_allowlist, max_turns, event_policy, metadata_overrides) -> Awaitable
     Awaitable[Any],
 ]
 

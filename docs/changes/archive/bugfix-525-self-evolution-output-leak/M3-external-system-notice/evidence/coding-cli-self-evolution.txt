@@ -1,0 +1,83 @@
+=== memory ===
+⚠ WARNING: dangerously_skip_permissions is enabled — all permission checks are bypassed.
+Started new session sess_82a7dcea682e95bf.
+Active session: sess_82a7dcea682e95bf.
+> CLI-FOREGROUND-SEED [cli-memory]
+State: completed | stop=stop
+Usage: prompt=1, completion=1, total=2
+> CLI-FOREGROUND-MEMORY [cli-memory]
+State: completed | stop=stop
+Usage: prompt=1, completion=1, total=2
+· background self-evolution review: memory updated
+Active session: sess_82a7dcea682e95bf.
+assertions: {"case": "memory", "expected_update": "· background self-evolution review: memory updated", "foreground_visible": true, "memory_persisted": true, "raw_private_output_visible": false, "skill_name": null, "skill_persisted": false, "update_count": 1}
+
+=== skills ===
+⚠ WARNING: dangerously_skip_permissions is enabled — all permission checks are bypassed.
+Started new session sess_c6e1964c45b4299a.
+Active session: sess_c6e1964c45b4299a.
+▸ Tool: skill_manage
+✓ Tool: skill_manage (elapsed=3ms)
+> CLI-FOREGROUND-SKILL [cli-skills]
+State: completed | stop=stop
+Tool: skill_manage output=null [call_id=foreground-list-call]
+Usage: prompt=1, completion=1, total=2
+· background self-evolution review: skills updated
+Active session: sess_c6e1964c45b4299a.
+assertions: {"case": "skills", "expected_update": "· background self-evolution review: skills updated", "foreground_visible": true, "memory_persisted": false, "raw_private_output_visible": false, "skill_name": "cli-review-skills-4e566550ff", "skill_persisted": true, "update_count": 1}
+
+=== both ===
+⚠ WARNING: dangerously_skip_permissions is enabled — all permission checks are bypassed.
+Started new session sess_4d8992f3ee013be9.
+Active session: sess_4d8992f3ee013be9.
+> CLI-FOREGROUND-SEED [cli-both]
+State: completed | stop=stop
+Usage: prompt=1, completion=1, total=2
+▸ Tool: skill_manage
+✓ Tool: skill_manage (elapsed=3ms)
+> CLI-FOREGROUND-BOTH [cli-both]
+State: completed | stop=stop
+Tool: skill_manage output=null [call_id=foreground-list-call]
+Usage: prompt=1, completion=1, total=2
+· background self-evolution review: skills + memory updated
+Active session: sess_4d8992f3ee013be9.
+assertions: {"case": "both", "expected_update": "· background self-evolution review: skills + memory updated", "foreground_visible": true, "memory_persisted": true, "raw_private_output_visible": false, "skill_name": "cli-review-both-4e566550ff", "skill_persisted": true, "update_count": 1}
+
+=== no-save ===
+⚠ WARNING: dangerously_skip_permissions is enabled — all permission checks are bypassed.
+Started new session sess_c4c7c765a338817a.
+Active session: sess_c4c7c765a338817a.
+> CLI-FOREGROUND-SEED [cli-no-save]
+State: completed | stop=stop
+Usage: prompt=1, completion=1, total=2
+> CLI-FOREGROUND-NO-SAVE [cli-no-save]
+State: completed | stop=stop
+Usage: prompt=1, completion=1, total=2
+Active session: sess_c4c7c765a338817a.
+assertions: {"case": "no-save", "expected_update": null, "foreground_visible": true, "memory_persisted": false, "raw_private_output_visible": false, "skill_name": null, "skill_persisted": false, "update_count": 0}
+
+=== read-only ===
+⚠ WARNING: dangerously_skip_permissions is enabled — all permission checks are bypassed.
+Started new session sess_ba9059742c2542a7.
+Active session: sess_ba9059742c2542a7.
+▸ Tool: skill_manage
+✓ Tool: skill_manage (elapsed=4ms)
+> CLI-FOREGROUND-READ [cli-read-only]
+State: completed | stop=stop
+Tool: skill_manage output=null [call_id=foreground-list-call]
+Usage: prompt=1, completion=1, total=2
+Active session: sess_ba9059742c2542a7.
+assertions: {"case": "read-only", "expected_update": null, "foreground_visible": true, "memory_persisted": false, "raw_private_output_visible": false, "skill_name": null, "skill_persisted": false, "update_count": 0}
+
+=== failure ===
+⚠ WARNING: dangerously_skip_permissions is enabled — all permission checks are bypassed.
+Started new session sess_389bd3efea8fb29d.
+Active session: sess_389bd3efea8fb29d.
+> CLI-FOREGROUND-SEED [cli-failure]
+State: completed | stop=stop
+Usage: prompt=1, completion=1, total=2
+> CLI-FOREGROUND-FAILURE [cli-failure]
+State: completed | stop=stop
+Usage: prompt=1, completion=1, total=2
+Active session: sess_389bd3efea8fb29d.
+assertions: {"case": "failure", "expected_update": null, "foreground_visible": true, "memory_persisted": false, "raw_private_output_visible": false, "skill_name": null, "skill_persisted": false, "update_count": 0}

@@ -59,6 +59,7 @@ class PollingHeartbeatRunner:
         cron_tick_fn: Callable[[str], Awaitable[None]] | None = None,
         agent_catalog: LiveAgentCatalog | None = None,
         session_binder: GatewaySessionBinder | None = None,
+        background_subscriptions: Any | None = None,
     ) -> None:
         self._scheduler = scheduler
         self._config = config
@@ -77,6 +78,7 @@ class PollingHeartbeatRunner:
         self._cron_tick_fn = cron_tick_fn
         self._agent_catalog = agent_catalog
         self._session_binder = session_binder
+        self._background_subscriptions = background_subscriptions
 
     async def start(self) -> None:
         """Start background scheduler ticking exactly once."""
@@ -228,6 +230,7 @@ class PollingHeartbeatRunner:
                 run_context_store=self._run_context_store,
                 observer=self._kernel_event_observer,
                 stream_anchor=record.stream_anchor,
+                background_subscriptions=self._background_subscriptions,
             )
             delivery = outcome.delivery
         except Exception:  # noqa: BLE001  — delivery failure does not disrupt gateway loop

@@ -13,6 +13,7 @@ from personal_assistant.channels.base import ReplyContext
 from personal_assistant.gateway.background_subscriptions import (
     BackgroundSubscriptionManager,
     BackgroundSubscriptionRequest,
+    ForegroundTerminalSubscriptionOutcome,
 )
 
 
@@ -60,6 +61,149 @@ def _request(session_id: str = "sess-bg") -> BackgroundSubscriptionRequest:
         ),
         agent_id="agent-a",
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("event_before_subscribe", [True, False])
+async def test_marked_skill_routes_by_subscription_agent_before_or_after_terminal(
+    event_before_subscribe: bool,
+) -> None:
+    """Fast replay and slow live review use the same persistent config-sync owner."""
+    kernel = _QueuedKernel()
+    received: list[tuple[str, str]] = []
+    delivered = asyncio.Event()
+    loop = asyncio.get_running_loop()
+
+    def _handle(agent_id: str, event: Mapping[str, object]) -> None:
+        received.append((agent_id, str(event["name"])))
+        loop.call_soon_threadsafe(delivered.set)
+
+    manager = BackgroundSubscriptionManager(
+        kernel=kernel,
+        skill_created_handler=_handle,
+    )
+    event = {
+        "event": "skill_created",
+        "name": "review-skill",
+        "source": "self_evolution",
+        "sequence_num": 8,
+    }
+    if event_before_subscribe:
+        await kernel.events.put(event)
+    outcome = await manager.ensure_after_foreground_terminal(
+        BackgroundSubscriptionRequest(
+            session_id="sess-bg",
+            after_sequence=7,
+            reply_context=None,
+            agent_id="agent-a",
+        )
+    )
+    if not event_before_subscribe:
+        await kernel.events.put(event)
+
+    await asyncio.wait_for(delivered.wait(), timeout=1)
+
+    assert outcome.value == "started"
+    assert received == [("agent-a", "review-skill")]
+    await kernel.events.put(None)
+    await manager.aclose(asyncio.get_running_loop().time() + 1)
+
+
+@pytest.mark.asyncio
+async def test_existing_subscriber_keeps_single_skill_owner_on_later_turn() -> None:
+    """A later foreground terminal reuses the live subscriber without a second owner."""
+    kernel = _QueuedKernel()
+    received: list[tuple[str, str]] = []
+    delivered = asyncio.Event()
+    loop = asyncio.get_running_loop()
+
+    def _handle(agent_id: str, event: Mapping[str, object]) -> None:
+        received.append((agent_id, str(event["name"])))
+        loop.call_soon_threadsafe(delivered.set)
+
+    manager = BackgroundSubscriptionManager(
+        kernel=kernel,
+        skill_created_handler=_handle,
+    )
+    request = BackgroundSubscriptionRequest(
+        session_id="sess-bg",
+        after_sequence=7,
+        reply_context=None,
+        agent_id="agent-a",
+    )
+    await manager.ensure(request)
+    outcome = await manager.ensure_after_foreground_terminal(
+        BackgroundSubscriptionRequest(
+            session_id="sess-bg",
+            after_sequence=30,
+            reply_context=None,
+            agent_id="agent-a",
+        )
+    )
+    await kernel.events.put(
+        {
+            "event": "skill_created",
+            "name": "later-review-skill",
+            "source": "self_evolution",
+            "sequence_num": 31,
+        }
+    )
+
+    await asyncio.wait_for(delivered.wait(), timeout=1)
+
+    assert outcome.value == "already_active"
+    assert kernel.calls == [("sess-bg", 7)]
+    assert received == [("agent-a", "later-review-skill")]
+    await kernel.events.put(None)
+    await manager.aclose(asyncio.get_running_loop().time() + 1)
+
+
+@pytest.mark.asyncio
+async def test_skill_only_subscription_accepts_first_later_background_reply_route() -> (
+    None
+):
+    """Heartbeat-first admission must not hide later ordinary Agent output."""
+
+    kernel = _QueuedKernel()
+    sent: list[tuple[str, str]] = []
+    delivered = asyncio.Event()
+
+    async def _send(
+        text: str, reply_context: ReplyContext, _from_session_id: str
+    ) -> None:
+        sent.append((text, reply_context.target_chat_id))
+        delivered.set()
+
+    manager = BackgroundSubscriptionManager(
+        kernel=kernel,
+        bg_reply_sender=_send,
+        skill_created_handler=lambda _agent_id, _event: None,
+    )
+    await manager.ensure(
+        BackgroundSubscriptionRequest(
+            session_id="sess-bg",
+            after_sequence=7,
+            reply_context=None,
+            agent_id="agent-a",
+        )
+    )
+    outcome = await manager.ensure_after_foreground_terminal(_request())
+    await kernel.events.put(
+        {
+            "event": "assistant_message",
+            "origin": "background_task",
+            "content": "ordinary background result",
+            "sequence_num": 9,
+        }
+    )
+
+    await asyncio.wait_for(delivered.wait(), timeout=1)
+
+    assert outcome is ForegroundTerminalSubscriptionOutcome.ALREADY_ACTIVE
+    assert kernel.calls == [("sess-bg", 7)]
+    assert sent == [("ordinary background result", "conv-original")]
+    await kernel.events.put(None)
+    await manager.aclose(asyncio.get_running_loop().time() + 1)
 
 
 @pytest.mark.asyncio
@@ -123,8 +267,17 @@ async def test_manager_seal_does_not_cancel_current_callback_before_close() -> N
         kernel=kernel,
         session_event_callback=_on_session_event,
     )
+    manager.register_session_event_route(
+        "trace-callback-close",
+        ReplyContext(channel_name="web_relay", target_chat_id="conv-original"),
+    )
     await manager.ensure(_request())
-    await kernel.events.put({"event": "self_evolution_review"})
+    await kernel.events.put(
+        {
+            "event": "self_evolution_review",
+            "originating_trace_id": "trace-callback-close",
+        }
+    )
     await asyncio.wait_for(callback_started.wait(), timeout=1)
 
     manager.seal()
@@ -142,48 +295,6 @@ async def test_manager_seal_does_not_cancel_current_callback_before_close() -> N
         for task in asyncio.all_tasks()
         if not task.done()
     )
-
-
-@pytest.mark.asyncio
-async def test_session_event_uses_subscription_reply_context_after_binding_invalidation() -> (
-    None
-):
-    """An old subscriber keeps its original delivery target after config publication."""
-
-    kernel = _QueuedKernel()
-    delivered: list[tuple[str, str, str, str]] = []
-    event_seen = asyncio.Event()
-
-    async def _on_session_event(
-        reply_context: ReplyContext,
-        agent_id: str,
-        kernel_session_id: str,
-        event: Mapping[str, Any],
-    ) -> None:
-        delivered.append(
-            (
-                reply_context.target_chat_id,
-                agent_id,
-                kernel_session_id,
-                str(event["event"]),
-            )
-        )
-        event_seen.set()
-
-    manager = BackgroundSubscriptionManager(
-        kernel=kernel,
-        session_event_callback=_on_session_event,
-    )
-    await manager.ensure(_request())
-    manager.seal()
-    await kernel.events.put({"event": "self_evolution_review"})
-    await asyncio.wait_for(event_seen.wait(), timeout=1)
-
-    assert delivered == [
-        ("conv-original", "agent-a", "sess-bg", "self_evolution_review")
-    ]
-    await kernel.events.put(None)
-    await manager.aclose(asyncio.get_running_loop().time() + 1)
 
 
 @pytest.mark.asyncio
@@ -250,8 +361,17 @@ async def test_close_consumes_event_dequeued_before_stop_request() -> None:
         kernel=kernel,
         session_event_callback=_on_event,
     )
+    manager.register_session_event_route(
+        "trace-buffered-close",
+        ReplyContext(channel_name="web_relay", target_chat_id="conv-original"),
+    )
     await manager.ensure(_request())
-    await kernel.events.put({"event": "self_evolution_review"})
+    await kernel.events.put(
+        {
+            "event": "self_evolution_review",
+            "originating_trace_id": "trace-buffered-close",
+        }
+    )
     await asyncio.wait_for(kernel.dequeued.wait(), timeout=1)
 
     close = asyncio.create_task(manager.aclose(asyncio.get_running_loop().time() + 1))

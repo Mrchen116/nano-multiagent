@@ -1006,48 +1006,72 @@ class IMAgentConfigSync:
     def handle_skill_created(self, agent_id: str, event: Mapping[str, object]) -> None:
         """Enable a successfully created skill for the affected live agents."""
 
-        skill_name = event.get("name")
-        scope = event.get("scope")
-        raw_skill_root = event.get("skill_root")
-        if not (
-            isinstance(skill_name, str)
-            and skill_name.strip()
-            and isinstance(scope, str)
-            and isinstance(raw_skill_root, str)
-            and raw_skill_root.strip()
-        ):
-            return
-        skill_name = skill_name.strip()
-        skill_root = Path(raw_skill_root).expanduser().resolve()
-        if scope == "agent":
-            agent = self._local_agent(agent_id)
-            if agent is None:
+        # Foreground and persistent session owners may report different Skills for
+        # one Agent concurrently. Serialize the whole read/merge/patch/publish
+        # transaction so optimistic profile versions cannot discard either update.
+        with self._operation_lock:
+            skill_name = event.get("name")
+            scope = event.get("scope")
+            raw_skill_root = event.get("skill_root")
+            if not (
+                isinstance(skill_name, str)
+                and skill_name.strip()
+                and isinstance(scope, str)
+                and isinstance(raw_skill_root, str)
+                and raw_skill_root.strip()
+            ):
                 return
-            if skill_root != self._agent_skill_root(agent):
-                _log.warning(
-                    "ignoring agent-scoped skill_created for %s: root %s is not the agent skill root",
-                    agent_id,
-                    skill_root,
-                )
-                return
-            self._enable_skills_for_agent(
-                agent, (skill_name,), explicit_capability_change=True
-            )
-            return
-        if scope == "global":
-            if self._global_skill_root is None or skill_root != self._global_skill_root:
-                _log.warning(
-                    "ignoring global skill_created for %s: root %s is not configured global root",
-                    agent_id,
-                    skill_root,
-                )
-                return
-            for agent in tuple(self._config_snapshot().agents):
+            skill_name = skill_name.strip()
+            skill_root = Path(raw_skill_root).expanduser().resolve()
+            if scope == "agent":
+                agent = self._local_agent(agent_id)
+                if agent is None:
+                    return
+                if skill_root != self._agent_skill_root(agent):
+                    _log.warning(
+                        "ignoring agent-scoped skill_created for %s: root %s is not the agent skill root",
+                        agent_id,
+                        skill_root,
+                    )
+                    return
                 self._enable_skills_for_agent(
                     agent, (skill_name,), explicit_capability_change=True
                 )
+                return
+            if scope == "global":
+                if (
+                    self._global_skill_root is None
+                    or skill_root != self._global_skill_root
+                ):
+                    _log.warning(
+                        "ignoring global skill_created for %s: root %s is not configured global root",
+                        agent_id,
+                        skill_root,
+                    )
+                    return
+                for agent in tuple(self._config_snapshot().agents):
+                    self._enable_skills_for_agent(
+                        agent, (skill_name,), explicit_capability_change=True
+                    )
 
     def _enable_skills_for_agent(
+        self,
+        agent: AgentWorkspaceConfig,
+        skill_ids: tuple[str, ...],
+        *,
+        explicit_capability_change: bool = False,
+    ) -> None:
+        # Feishu activation and self-evolution both perform a full optimistic
+        # profile PATCH. This shared seam owns the complete read/merge/mutate
+        # transaction; handle_skill_created's wider lock remains safely reentrant.
+        with self._operation_lock:
+            self._enable_skills_for_agent_locked(
+                agent,
+                skill_ids,
+                explicit_capability_change=explicit_capability_change,
+            )
+
+    def _enable_skills_for_agent_locked(
         self,
         agent: AgentWorkspaceConfig,
         skill_ids: tuple[str, ...],

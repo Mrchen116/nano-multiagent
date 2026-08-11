@@ -680,11 +680,22 @@ async def test_fork_inherits_parent_execution_context():
     async def parent_fork(*a, **k):
         return None
 
+    published_events = []
+    workspace_scope = object()
+
+    def parent_publisher(event, data):
+        published_events.append((event, data))
+
     parent_ctx = HookContext(
         session_id="sess-parent",
         turn_id="turn-parent",
-        metadata={"run_origin": "user", "tool_call_id": "stale-tc"},
+        metadata={
+            "run_origin": "user",
+            "tool_call_id": "stale-tc",
+            "_workspace_execution_scope": workspace_scope,
+        },
         model_caller=parent_model_caller,
+        session_event_publisher=parent_publisher,
         permission_requester=parent_requester,
         fork_conversation=parent_fork,
     )
@@ -709,9 +720,21 @@ async def test_fork_inherits_parent_execution_context():
     assert fork_ctx.permission_requester is parent_requester, (
         "fork must inherit parent permission_requester"
     )
+    assert fork_ctx.metadata["_workspace_execution_scope"] is workspace_scope, (
+        "fork must retain workspace-scoped hooks and tools"
+    )
     assert fork_ctx.fork_conversation is None, (
         "anti-recursion: fork ctx must null fork_conversation"
     )
+    fork_ctx.publish_session_event(event="assistant_message", data={"content": "raw"})
+    fork_ctx.publish_session_event(event="tool_end", data={"name": "skill_manage"})
+    skill_created_data = {"name": "created-by-review", "scope": "agent"}
+    fork_ctx.publish_session_event(event="skill_created", data=skill_created_data)
+    assert published_events == [
+        ("assistant_message", {"content": "raw"}),
+        ("tool_end", {"name": "skill_manage"}),
+        ("skill_created", skill_created_data),
+    ], "generic fork must inherit the parent publisher by default"
     assert fork_ctx.metadata.get("run_origin") == RunOrigin.BACKGROUND_TASK.value, (
         "fork must run as unattended background task so gate ask uses fallback"
     )
@@ -721,3 +744,72 @@ async def test_fork_inherits_parent_execution_context():
     assert "skill_creation_source" not in fork_ctx.metadata, (
         "ordinary forks must not fabricate automatic Skill creation provenance"
     )
+
+
+@pytest.mark.asyncio
+async def test_self_evolution_fork_filters_raw_events_and_marks_skill_created():
+    """The explicit self-evolution policy exposes only its marked business event."""
+    from agent.core.agent.context_fork import make_fork_conversation
+    from agent.core.hooks.context import HookContext
+
+    published_events = []
+    parent_ctx = HookContext(
+        session_id="sess-parent",
+        turn_id="turn-parent",
+        session_event_publisher=lambda event, data: published_events.append(
+            (event, data)
+        ),
+    )
+    fake_fork = _CapturingContextFork()
+    fork_fn = make_fork_conversation(
+        context_fork=fake_fork,
+        rendered_system_prompt="SYS",
+        active_tools=(),
+        messages_snapshot=[],
+        session_id="sess-parent",
+        tool_allowlist=("skill_manage",),
+        parent_hook_ctx=parent_ctx,
+    )
+
+    await fork_fn(
+        "review prompt",
+        tool_allowlist=("skill_manage",),
+        max_turns=4,
+        event_policy="self_evolution",
+    )
+
+    fork_ctx = fake_fork.captured["hook_ctx"]
+    fork_ctx.publish_session_event(event="assistant_message", data={"content": "raw"})
+    fork_ctx.publish_session_event(event="tool_end", data={"name": "skill_manage"})
+    fork_ctx.publish_session_event(
+        event="skill_created",
+        data={"name": "created-by-review", "scope": "agent"},
+    )
+    assert published_events == [
+        (
+            "skill_created",
+            {
+                "name": "created-by-review",
+                "scope": "agent",
+                "source": "self_evolution",
+            },
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_fork_rejects_unknown_event_policy():
+    """An unknown event policy must not silently inherit or hide events."""
+    from agent.core.agent.context_fork import make_fork_conversation
+
+    fork_fn = make_fork_conversation(
+        context_fork=_CapturingContextFork(),
+        rendered_system_prompt="SYS",
+        active_tools=(),
+        messages_snapshot=[],
+        session_id="sess-parent",
+        tool_allowlist=(),
+    )
+
+    with pytest.raises(ValueError, match="event_policy"):
+        await fork_fn("review prompt", event_policy="unknown")

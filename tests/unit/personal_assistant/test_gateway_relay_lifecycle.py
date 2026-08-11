@@ -42,6 +42,9 @@ from personal_assistant.gateway.runtime_delivery.observer import (
     build_kernel_event_observer as _build_kernel_event_observer,
     roll_bubble,
 )
+from personal_assistant.gateway.runtime_delivery.task_tracker import (
+    RuntimeDeliveryTaskTracker,
+)
 from personal_assistant.gateway.reply_visibility import ReplyVisibilityPolicy
 from personal_assistant.gateway.runtime import GatewayRuntime
 from personal_assistant.gateway.process_lifecycle import RuntimeFactories, run_gateway
@@ -754,12 +757,14 @@ def test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion() 
             }
         }
     )
+    tracker = RuntimeDeliveryTaskTracker()
     observer = _build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
         run_context_store=run_context_store,
         external_reply_sender=lambda text, metadata: mirrored.append(
             (text, dict(metadata))
         ),
+        task_tracker=tracker,
     )
 
     async def _exercise() -> None:
@@ -790,7 +795,7 @@ def test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion() 
         assert asyncio.iscoroutine(roll)
         await roll
         observer({"event": "turn_end", "run_id": "run-1", "completed": True})
-        await asyncio.sleep(0)
+        await tracker.close_and_drain(asyncio.get_running_loop().time() + 1)
 
     asyncio.run(_exercise())
 

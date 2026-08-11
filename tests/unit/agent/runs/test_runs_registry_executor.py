@@ -95,13 +95,16 @@ def test_registry_is_semantic_writer_while_executor_owns_cleanup(
         workspace_root=tmp_path,
         parts=[{"type": "text", "text": "hello"}],
         model="test:model",
+        trace_id="trace-turn-request",
     )
 
     _wait_for(lambda: registry.get(submitted.run_id).status is RunStatus.COMPLETED)
     completed = registry.get(submitted.run_id)
     assert completed is not None
     assert completed.output_text == "hello"
+    assert completed.trace_id == "trace-turn-request"
     assert conversations[0].requests[0].model == "test:model"
+    assert conversations[0].requests[0].trace_id == "trace-turn-request"
     _wait_for(lambda: executor.active_target_count == 0)
     registry.shutdown()
 
