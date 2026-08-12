@@ -54,12 +54,21 @@ EXPECTED_SURFACE: frozenset[str] = frozenset(
         "LLMConfig",
         "LLMProvider",
         "LLMModel",
+        "ModelReasoningCapability",
+        "ModelReasoningCatalog",
         "SessionInfo",
         "RunInfo",
         "ModelInfo",
         "ToolInfo",
         "FeatureInfo",
         "SkillInfo",
+        "WorkflowControlAction",
+        "WorkflowSaveScope",
+        "WorkflowPhaseInfo",
+        "WorkflowAgentInfo",
+        "WorkflowRunInfo",
+        "SavedWorkflowInfo",
+        "BackgroundReturnInfo",
         # Tool presentation (决策 12)
         "ToolPresenter",
         "ToolPresentationEvent",
@@ -95,7 +104,12 @@ def test_sdk_all_equals_expected_surface() -> None:
 
 # C1 boundary types — core/platform-owned, re-exported, never relocated (permanent).
 _C1_REEXPORTS: frozenset[str] = frozenset(
-    {"RunOrigin", "PermissionDecision", "TERMINAL_RUN_STATUSES"}
+    {
+        "RunOrigin",
+        "PermissionDecision",
+        "TERMINAL_RUN_STATUSES",
+        "BackgroundReturnInfo",
+    }
 )
 
 # 决策 12: tool-presentation pure-function types, core-owned, sdk re-export (permanent).

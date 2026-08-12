@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Mapping
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +25,9 @@ from personal_assistant.config.local_store import (
     ChannelConfig,
     LocalConfig,
     RuntimeConfigOwner,
+    WORKFLOW_SIZE_GUIDELINES,
     build_feishu_owner_open_id_binder,
+    save_sensitive_local_config,
 )
 from personal_assistant.config.model_reasoning import ModelReasoningCatalog
 from personal_assistant.config.sync_client import ConfigSyncClient
@@ -66,6 +69,7 @@ from personal_assistant.gateway.runtime_delivery.context import (
 from personal_assistant.gateway.runtime_delivery.background import (
     build_bg_reply_sender,
     build_session_event_callback,
+    build_workflow_permission_delivery,
 )
 from personal_assistant.gateway.runtime_delivery.lifecycle import (
     build_relay_lifecycle_callback,
@@ -94,6 +98,9 @@ from personal_assistant.gateway.session_binder import (
 from personal_assistant.gateway.distill_prompt import build_distill_prompt_handler
 from personal_assistant.gateway.session_run_coordinator import SessionRunCoordinator
 from personal_assistant.gateway.shadow_sync import IMShadowConversationSync
+from personal_assistant.gateway.workflow_permission_bindings import (
+    WorkflowPermissionDeliveryBindingRegistry,
+)
 from personal_assistant.reporter.upstream_reporter import (
     UpstreamReporter,
     build_agent_capabilities_payload,
@@ -195,7 +202,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
     # K2.6 thinking config) flow into build_kernel and the model registry.  decision 5:
     # build_kernel owns registry init internally from this LLMConfig.
     llm = LLMConfig.from_payload(config.llm)
-    reasoning_catalog = ModelReasoningCatalog(config.llm)
+    reasoning_catalog = ModelReasoningCatalog(llm)
 
     config_owner = RuntimeConfigOwner(config)
 
@@ -465,6 +472,12 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         if connection_ready_coordinator is not None:
             connection_ready_coordinator.notify_external_shadows_pending()
 
+    workflow_permission_bindings = WorkflowPermissionDeliveryBindingRegistry()
+    workflow_permission_delivery = build_workflow_permission_delivery(
+        im_connection_manager_factory=lambda: im_connection_manager,
+        external_permission_request_sender=_send_external_permission_request,
+        external_permission_resolved_sender=_mark_external_permission_resolved,
+    )
     skill_created_handler = getattr(im_config_sync_client, "handle_skill_created", None)
     _kernel_event_observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: im_connection_manager,
@@ -485,19 +498,41 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         external_permission_resolved_sender=_mark_external_permission_resolved,
         skill_created_handler=skill_created_handler,
         task_tracker=runtime_delivery_tasks,
+        workflow_permission_bindings=workflow_permission_bindings,
+        workflow_permission_delivery=workflow_permission_delivery,
     )
     bg_reply_sender = build_bg_reply_sender(
         im_connection_manager_factory=lambda: im_connection_manager,
         external_reply_sender=_send_external_reply,
     )
-    session_event_callback = None
+    base_session_event_callback = None
     if config.im_service is not None:
         # feat-349-M3: wire background session event callback so self_evolution_review
         # events published by background hooks reach IM as system/meta messages.
-        session_event_callback = build_session_event_callback(
+        base_session_event_callback = build_session_event_callback(
             im_connection_manager_factory=lambda: im_connection_manager,
             external_reply_sender=_send_external_reply,
         )
+
+    async def session_event_callback(
+        reply_context: ReplyContext,
+        agent_id: str,
+        kernel_session_id: str,
+        event: Mapping[str, Any],
+    ) -> None:
+        deliveries = workflow_permission_bindings.accept_event(
+            parent_session_id=kernel_session_id,
+            event=event,
+        )
+        for delivery in deliveries:
+            await workflow_permission_delivery(delivery)
+        if base_session_event_callback is not None:
+            await base_session_event_callback(
+                reply_context,
+                agent_id,
+                kernel_session_id,
+                event,
+            )
 
     background_subscriptions = BackgroundSubscriptionManager(
         kernel=kernel,
@@ -528,6 +563,35 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
             await result
         runtime_delivery_tasks.cancel_run(run_id)
 
+    def _update_workflow_size_guideline(agent_id: str, guideline: str) -> None:
+        if guideline not in WORKFLOW_SIZE_GUIDELINES:
+            raise ValueError(f"invalid workflow size guideline: {guideline}")
+        updated_agent = None
+
+        def update(current: LocalConfig) -> LocalConfig:
+            nonlocal updated_agent
+            agents = list(current.agents)
+            for index, existing in enumerate(agents):
+                if existing.agent_id != agent_id:
+                    continue
+                updated_agent = replace(
+                    existing,
+                    workflow_size_guideline=guideline,
+                    workflow_size_guideline_explicit=True,
+                )
+                agents[index] = updated_agent
+                return replace(current, agents=tuple(agents))
+            raise ValueError(f"unknown Agent: {agent_id}")
+
+        updated = config_owner.persist(
+            update,
+            save_config=save_sensitive_local_config,
+        )
+        if updated_agent is not None:
+            agent_catalog.publish(updated_agent)
+        if reporter is not None:
+            reporter.replace_agents(updated.agents)
+
     run_coordinator = SessionRunCoordinator(
         kernel=kernel,
         session_binder=session_binder,
@@ -551,6 +615,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
             if external_control_delivery is not None
             else None
         ),
+        update_workflow_size_guideline=_update_workflow_size_guideline,
         background_subscriptions=background_subscriptions,
         image_resolver=image_resolver,
     )
@@ -636,6 +701,9 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
                         im_config_sync_client, agent_id
                     ),
                     reasoning_catalog=reasoning_catalog,
+                    effective_model=_resolve_agent_effective_model(
+                        im_config_sync_client, agent_id, fallback=llm.default_model
+                    ),
                 )
             ),
             node_capabilities_provider=lambda: {
@@ -814,6 +882,18 @@ def _resolve_agent_tool_allowlist(
     if not isinstance(raw, list):
         return ()
     return tuple(item for item in raw if isinstance(item, str))
+
+
+def _resolve_agent_effective_model(
+    sync_client: "IMAgentConfigSync", agent_id: str, *, fallback: str | None
+) -> str | None:
+    """Resolve one Agent's selected model for capability-derived commands."""
+
+    payload = sync_client.current_agent_payload(agent_id=agent_id)
+    selected = payload.get("default_model") if payload is not None else None
+    return (
+        selected.strip() if isinstance(selected, str) and selected.strip() else fallback
+    )
 
 
 async def _connect_websocket(url: str, headers: Mapping[str, str]) -> ClientConnection:

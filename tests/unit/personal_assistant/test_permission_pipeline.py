@@ -13,6 +13,14 @@ import pytest
 from personal_assistant.gateway.runtime_delivery.observer import (
     build_kernel_event_observer,
 )
+from personal_assistant.gateway.runtime_delivery.background import (
+    build_workflow_permission_delivery,
+)
+from personal_assistant.gateway.workflow_permission_bindings import (
+    WorkflowPermissionDelivery,
+    WorkflowPermissionDeliveryAnchor,
+    WorkflowPermissionDeliveryBindingRegistry,
+)
 
 
 class _Manager:
@@ -94,6 +102,190 @@ async def test_permission_request_and_resolution_are_forwarded_to_im() -> None:
     assert resolved["run_id"] == "run-1"
     assert resolved["request_id"] == "request-1"
     assert resolved["decision"] == "allow_once"
+
+
+@pytest.mark.asyncio
+async def test_workflow_child_permission_waits_for_exact_launch_binding() -> None:
+    manager = _Manager()
+    registry = WorkflowPermissionDeliveryBindingRegistry()
+    delivered: list[WorkflowPermissionDelivery] = []
+
+    async def _deliver(item: WorkflowPermissionDelivery) -> None:
+        delivered.append(item)
+
+    context_store = delivery_context_store(
+        {
+            "parent-run": {
+                "conversation_id": "conversation-1",
+                "message_id": "workflow-launch-message",
+                "agent_id": "agent-a",
+                "kernel_session_id": "parent-session",
+                "discard_empty_completion": True,
+            }
+        }
+    )
+    observer = build_kernel_event_observer(
+        im_connection_manager_factory=lambda: manager,
+        run_context_store=context_store,
+        workflow_permission_bindings=registry,
+        workflow_permission_delivery=_deliver,
+    )
+    await _observe(
+        observer,
+        {
+            "run_id": "parent-run",
+            "event": "tool_start",
+            "call_id": "workflow-call",
+            "name": "Workflow",
+            "arguments": {"script": "async def main(): pass"},
+        },
+    )
+    buffered = registry.accept_event(
+        parent_session_id="parent-session",
+        event={
+            "event": "permission_request",
+            "workflow_run_id": "wf_123",
+            "agent_call_id": "agent-call-1",
+            "request_id": "request-child",
+            "tool_name": "bash",
+            "tool_input": {"command": "pwd"},
+            "question": "Allow bash?",
+            "options": [{"id": "allow_once", "label": "Allow once"}],
+            "_id": 8,
+        },
+    )
+    assert buffered == ()
+
+    await _observe(
+        observer,
+        {
+            "run_id": "parent-run",
+            "event": "tool_end",
+            "call_id": "workflow-call",
+            "name": "Workflow",
+            "event_metadata": {
+                "parent_session_id": "parent-session",
+                "parent_run_id": "parent-run",
+                "parent_tool_call_id": "workflow-call",
+                "workflow_run_id": "wf_123",
+            },
+        },
+    )
+
+    assert len(delivered) == 1
+    assert delivered[0].event["request_id"] == "request-child"
+    assert delivered[0].anchor.message_id == "workflow-launch-message"
+    context = context_store.get("parent-run")
+    assert context is not None
+    assert context.visible_reply_committed is True
+
+
+@pytest.mark.asyncio
+async def test_foreground_observer_skips_tagged_workflow_child_permission() -> None:
+    manager = _Manager()
+    observer = build_kernel_event_observer(
+        im_connection_manager_factory=lambda: manager,
+        run_context_store=delivery_context_store(
+            {
+                "parent-run": {
+                    "conversation_id": "conversation-1",
+                    "message_id": "workflow-launch-message",
+                    "agent_id": "agent-a",
+                    "kernel_session_id": "parent-session",
+                }
+            }
+        ),
+    )
+
+    await _observe(
+        observer,
+        {
+            "run_id": "parent-run",
+            "event": "permission_request",
+            "workflow_run_id": "wf_123",
+            "agent_call_id": "agent-call-1",
+            "request_id": "request-child",
+            "tool_name": "bash",
+        },
+    )
+
+    assert all(
+        payload.get("kind") != "permission_request" for _, payload in manager.sent
+    )
+
+
+@pytest.mark.asyncio
+async def test_bound_workflow_child_permission_reuses_web_and_external_surfaces() -> (
+    None
+):
+    manager = _Manager()
+    external_request = MagicMock()
+    external_resolved = MagicMock()
+    deliver = build_workflow_permission_delivery(
+        im_connection_manager_factory=lambda: manager,
+        external_permission_request_sender=external_request,
+        external_permission_resolved_sender=external_resolved,
+    )
+    anchor = WorkflowPermissionDeliveryAnchor(
+        parent_session_id="parent-session",
+        parent_run_id="parent-run",
+        parent_tool_call_id="workflow-call",
+        conversation_id="conversation-1",
+        message_id="workflow-launch-message",
+        external_metadata={
+            "channel_name": "feishu:agent-a",
+            "target_chat_id": "feishu:group-1",
+        },
+    )
+    request_event = {
+        "event": "permission_request",
+        "workflow_run_id": "wf_123",
+        "agent_call_id": "agent-call-1",
+        "request_id": "request-child",
+        "tool_name": "bash",
+        "tool_input": {"command": "pwd"},
+        "question": "Allow bash?",
+        "options": [{"id": "allow_once", "label": "Allow once"}],
+    }
+    resolved_event = {
+        "event": "permission_resolved",
+        "workflow_run_id": "wf_123",
+        "agent_call_id": "agent-call-1",
+        "request_id": "request-child",
+        "decision": "allow_once",
+    }
+
+    await deliver(WorkflowPermissionDelivery(anchor=anchor, event=request_event))
+    await deliver(WorkflowPermissionDelivery(anchor=anchor, event=resolved_event))
+
+    request_frame = next(
+        payload
+        for _, payload in manager.sent
+        if payload["kind"] == "permission_request"
+    )
+    resolved_frame = next(
+        payload
+        for _, payload in manager.sent
+        if payload["kind"] == "permission_resolved"
+    )
+    assert request_frame["message_id"] == "workflow-launch-message"
+    assert request_frame["permission_request"]["request_id"] == "request-child"
+    assert resolved_frame == {
+        "kind": "permission_resolved",
+        "message_id": "workflow-launch-message",
+        "request_id": "request-child",
+        "decision": "allow_once",
+        "run_id": "parent-run",
+    }
+    external_request.assert_called_once()
+    external_resolved.assert_called_once_with(
+        "request-child",
+        "allow_once",
+        {
+            "channel_name": "feishu:agent-a",
+            "target_chat_id": "feishu:group-1",
+        },
+    )
 
 
 @pytest.mark.asyncio

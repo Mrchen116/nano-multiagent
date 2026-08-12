@@ -93,6 +93,9 @@ class ToolResult:
     # success path (no reason_code), "user_deny" coexists with reason_code="denied".
     # None for auto-allowed / auto-blocked / no-permission tools (gate not shown).
     approval: str | None = None
+    # Machine-only correlation for product event routing. It is never serialized
+    # into the model-facing tool result content.
+    event_metadata: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)

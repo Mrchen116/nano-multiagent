@@ -239,6 +239,14 @@ def test_node_capabilities_tools_include_memory_skill_manage_and_skill_view(
     )
 
 
+def test_workflow_is_an_explicit_optional_tool(tmp_path: Path) -> None:
+    kernel = _build_test_kernel(tmp_path / "kernel-root")
+    payload = build_node_capabilities_payload(kernel)
+
+    workflow = next(item for item in payload["tools"] if item["name"] == "Workflow")
+    assert workflow == {"name": "Workflow", "description": "", "default_on": False}
+
+
 # ---------------------------------------------------------------------------
 # bugfix-404-M2 R1: send_register 帧必须携带 agent_workspaces 字段
 # ---------------------------------------------------------------------------
@@ -419,3 +427,69 @@ def test_agent_capabilities_do_not_mark_workspace_skills_default_on(
     assert by_name["pa-global"]["default_on"] is True
     assert by_name["workspace-doc"]["source_group"] == "workspace"
     assert by_name["pa-global"]["source_group"] == "global"
+
+
+def test_agent_capabilities_commands_follow_active_workflow_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "home" / ".codex"))
+    workspace = tmp_path / "agent-ws"
+    workflow_dir = workspace / ".nanoassistant" / "workflows"
+    workflow_dir.mkdir(parents=True)
+    (workflow_dir / "project-review.py").write_text(
+        'meta = {"name": "project-review", "description": "Review this project"}\n'
+        "\nasync def main():\n    return 'done'\n",
+        encoding="utf-8",
+    )
+    kernel = _build_test_kernel(tmp_path / "kernel-root")
+    reasoning_catalog = ModelReasoningCatalog(
+        LLMConfigPayload(
+            default_model="kimiCoding:K2.6",
+            providers=(
+                LLMProviderPayload(
+                    name="anthropic",
+                    base_url="http://127.0.0.1:1",
+                    models=(
+                        LLMModelPayload(
+                            name="kimiCoding:K2.6",
+                            reasoning=ModelReasoningCapability(
+                                kind="selectable",
+                                default="high",
+                                levels=("low", "high", "xhigh"),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+    )
+
+    inactive = build_agent_capabilities_payload(
+        kernel,
+        workspace_root=str(workspace),
+        tool_allowlist=("read",),
+        reasoning_catalog=reasoning_catalog,
+    )
+    active = build_agent_capabilities_payload(
+        kernel,
+        workspace_root=str(workspace),
+        tool_allowlist=("read", "Workflow"),
+        reasoning_catalog=reasoning_catalog,
+    )
+
+    assert [item["name"] for item in inactive["commands"]] == ["effort"]
+    assert [item["name"] for item in active["commands"]] == [
+        "effort",
+        "workflows",
+        "config",
+        "deep-research",
+        "project-review",
+    ]
+    assert inactive["commands"][0]["description"] == (
+        "Set session reasoning effort: low, high, xhigh"
+    )
+    assert active["commands"][0]["description"] == (
+        "Set session reasoning effort: low, high, xhigh, ultracode"
+    )
+    assert active["commands"][-1]["description"] == "Review this project"

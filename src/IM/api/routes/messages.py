@@ -19,6 +19,7 @@ from IM.ws.gateway.relay import GatewayRelay
 from IM.domain.models import (
     AgentConfigChangedBoundary,
     Attachment,
+    BackgroundReturn,
     Conversation,
     Message,
     ThinkingSegment,
@@ -119,6 +120,30 @@ class ThinkingSegmentPayload(BaseModel):
     text: str
 
 
+class BackgroundReturnPayload(BaseModel):
+    """Terminal subagent/workflow result attached to one assistant message."""
+
+    task_id: str
+    task_type: str
+    status: str
+    description: str
+    agent_id: str | None = None
+    workflow_run_id: str | None = None
+    result: str | None = None
+    error: str | None = None
+    usage: dict | None = None
+    tool_use_count: int | None = None
+    duration_ms: int | None = None
+    output_file: str | None = None
+    diagnostics: str | None = None
+    resume_hint: str | None = None
+    seq: int | None = None
+
+    @classmethod
+    def from_domain(cls, item: BackgroundReturn) -> "BackgroundReturnPayload":
+        return cls(**{name: getattr(item, name) for name in cls.model_fields})
+
+
 class TokenUsagePayload(BaseModel):
     output: int
     context_used: int
@@ -172,6 +197,7 @@ class MessageResponse(BaseModel):
     tool_calls: list[ToolCallPayload] = []
     # feat-439-M2: 整轮多段思考（过程时间线），历史回放还原过程盘。空列表 = 无思考。
     thinking: list[ThinkingSegmentPayload] = []
+    background_returns: list[BackgroundReturnPayload] = []
     token_usage: TokenUsagePayload | None = None
     # feat-414: 本轮 agent 处理墙钟（毫秒）。用户消息及旧行均为 None。
     elapsed_ms: int | None = None
@@ -278,6 +304,10 @@ def to_message_response(message: Message) -> MessageResponse:
         thinking=[
             ThinkingSegmentPayload(seq=s.seq, text=s.text)
             for s in (message.thinking or [])
+        ],
+        background_returns=[
+            BackgroundReturnPayload.from_domain(item)
+            for item in (message.background_returns or [])
         ],
         token_usage=TokenUsagePayload(
             output=message.token_usage.output,

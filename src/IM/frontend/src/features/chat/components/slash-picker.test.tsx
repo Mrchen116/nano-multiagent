@@ -15,6 +15,31 @@ const SKILLS: SlashSkillCandidate[] = [
 function noop() {}
 
 describe("SlashPicker", () => {
+  it("renders, filters and selects upstream dynamic Workflow commands in the existing command list", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    const commands = [
+      { kind: "command" as const, name: "workflows", description: "Inspect Workflow runs" },
+      { kind: "command" as const, name: "deep-research", description: "Run a saved Workflow" },
+    ];
+    render(
+      <SlashPicker
+        skills={SKILLS}
+        commands={commands}
+        query="work"
+        skillMode={false}
+        isGroup={false}
+        onSelect={onSelect}
+        onClose={noop}
+      />
+    );
+
+    expect(screen.getByText("/workflows")).toBeInTheDocument();
+    expect(screen.queryByText("/deep-research")).not.toBeInTheDocument();
+    await user.click(screen.getByText("/workflows"));
+    expect(onSelect).toHaveBeenCalledWith(commands[0]);
+  });
+
   it("shows every built-in control command and all skills when query is empty", () => {
     render(<SlashPicker skills={SKILLS} query="" skillMode={false} isGroup={false} onSelect={noop} onClose={noop} />);
     expect(screen.getByText("/stop")).toBeInTheDocument();
@@ -106,6 +131,31 @@ describe("SlashPicker", () => {
     expect(screen.getAllByText("doc")).toHaveLength(2);
     expect(screen.getByText(/code-reviewer/)).toBeInTheDocument();
     expect(screen.getByText(/test-writer/)).toBeInTheDocument();
+  });
+
+  it("shows the source Agent for a group-scoped effort command", () => {
+    render(
+      <SlashPicker
+        skills={[]}
+        commands={[
+          {
+            kind: "command",
+            name: "effort",
+            description: "Set session reasoning effort: medium, max",
+            fromAgents: ["Coder"],
+            targetAgentId: "a-coder",
+          },
+        ]}
+        query="eff"
+        skillMode={false}
+        isGroup
+        onSelect={noop}
+        onClose={noop}
+      />,
+    );
+
+    expect(screen.getByText("/effort")).toBeInTheDocument();
+    expect(screen.getByText(/Coder/)).toBeInTheDocument();
   });
 
   // fix-r2 (verifier S2): Tab confirms the highlighted candidate like Enter.

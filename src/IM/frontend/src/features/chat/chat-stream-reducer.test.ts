@@ -25,6 +25,89 @@ function userMessage(id: string, content: string): Message {
 }
 
 describe("chat-stream-reducer", () => {
+  it("validates and restores typed background returns on message.created", () => {
+    const payload = {
+      conversation_id: "c1",
+      message_id: "m-background",
+      sender_user_id: "agent:agent-a",
+      sender_type: "agent",
+      content: "",
+      tool_calls: [],
+      background_returns: [
+        {
+          seq: 4,
+          task_id: "task-1",
+          task_type: "workflow",
+          status: "completed",
+          description: "review changes",
+          workflow_run_id: "wf-1",
+          result: "raw workflow result",
+          usage: { total_tokens: 42 },
+          duration_ms: 1200,
+          diagnostics: "/runs/wf-1",
+        },
+      ],
+      token_usage: null,
+      delivery_status: "completed",
+      created_at: "2026-08-10T00:00:00Z",
+    };
+
+    const event = toChatWsEvent("message.created", payload);
+    expect(event).not.toBeNull();
+    const next = applyWsEvent(
+      { ...emptyConversationState, conversation_id: "c1" },
+      event!,
+    );
+    expect(next.messages[0]!.background_returns).toEqual(payload.background_returns);
+
+    expect(() =>
+      toChatWsEvent("message.created", {
+        ...payload,
+        background_returns: [{ ...payload.background_returns[0], task_type: "bash" }],
+      })
+    ).toThrow(UserStreamRecoveryError);
+  });
+
+  it("restores background returns from a complete reconciled snapshot", () => {
+    const event = toChatWsEvent("message.reconciled", {
+      conversation_id: "c1",
+      message_id: "m-background",
+      sender_user_id: "agent:agent-a",
+      sender_type: "agent",
+      content: "summary",
+      attachments: [],
+      tool_calls: [],
+      thinking: [],
+      background_returns: [
+        {
+          seq: 2,
+          task_id: "agent-task-1",
+          task_type: "subagent",
+          status: "failed",
+          description: "inspect tests",
+          agent_id: "agent-reviewer",
+          error: "raw subagent failure",
+        },
+      ],
+      token_usage: null,
+      delivery_status: "failed",
+      created_at: "2026-08-10T00:00:00Z",
+      elapsed_ms: 100,
+      kernel_message_id: null,
+    });
+
+    const next = applyWsEvent(
+      { ...emptyConversationState, conversation_id: "c1" },
+      event!,
+    );
+    expect(next.messages[0]!.background_returns).toHaveLength(1);
+    expect(next.messages[0]!.background_returns?.[0]).toMatchObject({
+      task_id: "agent-task-1",
+      agent_id: "agent-reviewer",
+      error: "raw subagent failure",
+    });
+  });
+
   it("rejects malformed known canonical payloads but keeps unknown event types open", () => {
     expect(() =>
       toChatWsEvent("message.created", {

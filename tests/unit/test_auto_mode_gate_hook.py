@@ -518,6 +518,37 @@ class TestGateHookLogic:
         ctx.request_permission.assert_not_called()
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("run_origin", "ultracode"),
+        [("user", False), ("human", True)],
+    )
+    async def test_workflow_noninteractive_or_ultracode_skips_launch_card(
+        self, run_origin: str, ultracode: bool
+    ) -> None:
+        workflow = MagicMock()
+        workflow.check_permissions.return_value = PermissionDecision(
+            behavior="ask",
+            reason="Run Python Workflow?",
+            decision_reason={"type": "workflow_launch"},
+        )
+
+        class Registry:
+            def get(self, name: str):
+                return workflow if name == "Workflow" else None
+
+        handler, config = self._get_handler()
+        ctx = self._make_ctx_with_config(config, run_origin=run_origin)
+        ctx.metadata = dict(ctx.metadata)
+        ctx.metadata["tool_registry"] = Registry()
+        ctx.metadata["workflow_ultracode"] = ultracode
+        ctx.request_permission = AsyncMock()
+
+        result = await handler({"name": "Workflow", "args": {"name": "demo"}}, ctx)
+
+        assert result is None
+        ctx.request_permission.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_deny_limit_escalates_to_ask(self):
         """Exceeding deny_limit for same tool → escalate to ask."""
         from agent.platform.config.auto_mode import AutoModeConfig

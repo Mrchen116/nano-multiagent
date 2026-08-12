@@ -41,3 +41,26 @@ def test_pa_kernel_passes_product_workspace_and_global_roots(
         Path("~/.codex/skills"),
     )
     assert captured["global_config_root"] == Path("~/.nanoassistant")
+
+
+def test_pa_kernel_passes_workflow_subagent_model_override(
+    tmp_path: Path, monkeypatch
+) -> None:
+    captured: dict[str, Any] = {}
+
+    monkeypatch.setenv(
+        "NANO_MULTIAGENT_WORKFLOW_SUBAGENT_MODEL", "codexOAuth:gpt-5.6-luna"
+    )
+    monkeypatch.setattr(
+        product,
+        "build_kernel",
+        lambda **kwargs: captured.update(kwargs) or object(),
+    )
+
+    product.build_pa_kernel(
+        llm=object(),  # type: ignore[arg-type]
+        cron_services={},
+        repo_root=tmp_path,
+    )
+
+    assert captured["workflow_subagent_model"] == "codexOAuth:gpt-5.6-luna"

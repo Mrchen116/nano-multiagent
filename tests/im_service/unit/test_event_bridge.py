@@ -7,7 +7,13 @@ import pytest
 
 from IM.application.event_bridge import EventBridge
 from IM.infra.repositories import events as event_repository_module
-from IM.domain.models import Actor, ConversationEvent, TokenUsage, ToolCall
+from IM.domain.models import (
+    Actor,
+    BackgroundReturn,
+    ConversationEvent,
+    TokenUsage,
+    ToolCall,
+)
 from IM.infra.db import connect, initialize_schema
 from IM.infra.repositories.conversations import ConversationRepository
 from IM.infra.repositories.events import EventRepository
@@ -75,6 +81,68 @@ def test_on_turn_start_creates_empty_agent_message_and_emits_event(
     payload = json.loads(created_event.payload_json)
     assert payload["message_id"] == msg.id
     assert payload["conversation_id"] == conv_id
+
+
+def test_sidecar_only_instant_message_is_visible_and_roundtrips(tmp_path: Path) -> None:
+    """An idle background return needs no placeholder body to be a visible message."""
+    bridge, conv_id, agent_uid, messages, captured = _make_bridge(tmp_path)
+    background_return = BackgroundReturn(
+        task_id="wt-1",
+        task_type="workflow",
+        status="completed",
+        description="review changes",
+        workflow_run_id="wf-1",
+        result="raw result",
+    )
+
+    message = bridge.emit_instant_message(
+        conversation_id=conv_id,
+        agent_user_id=agent_uid,
+        agent_id="planner",
+        content="",
+        background_returns=[background_return],
+    )
+
+    assert message.content == ""
+    assert message.background_returns is not None
+    assert message.background_returns[0].task_id == "wt-1"
+    assert message.background_returns[0].seq == 0
+    created = next(event for event in captured if event.event_type == "message.created")
+    assert (
+        json.loads(created.payload_json)["background_returns"][0]["task_id"] == "wt-1"
+    )
+    restored = messages.list_messages(conversation_id=conv_id)[0].background_returns
+    assert restored is not None and restored[0] == message.background_returns[0]
+
+
+def test_turn_start_carries_consumed_background_returns(tmp_path: Path) -> None:
+    """Active-run sidecars attach atomically to the next assistant bubble."""
+    bridge, conv_id, agent_uid, messages, captured = _make_bridge(tmp_path)
+    background_return = BackgroundReturn(
+        task_id="wt-1",
+        task_type="workflow",
+        status="completed",
+        description="review changes",
+        workflow_run_id="wf-1",
+        result="raw workflow result",
+    )
+
+    message = bridge.on_turn_start(
+        conversation_id=conv_id,
+        agent_user_id=agent_uid,
+        agent_id="planner",
+        background_returns=[background_return],
+    )
+
+    assert message.background_returns is not None
+    assert message.background_returns[0].task_id == "wt-1"
+    created = next(event for event in captured if event.event_type == "message.created")
+    assert (
+        json.loads(created.payload_json)["background_returns"][0]["task_id"] == "wt-1"
+    )
+    restored = messages.list_messages(conversation_id=conv_id)
+    assert restored[0].background_returns == message.background_returns
+    assert restored[0].content == ""
 
 
 def test_shadow_turn_start_retry_reuses_terminal_message_without_resetting_it(

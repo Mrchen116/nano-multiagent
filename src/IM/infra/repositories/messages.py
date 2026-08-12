@@ -10,6 +10,7 @@ from uuid import uuid4
 from IM.domain.models import (
     Actor,
     Attachment,
+    BackgroundReturn,
     ConversationEvent,
     Message,
     SystemNotice,
@@ -28,11 +29,13 @@ from IM.infra.repositories._event_rows import insert_event_row
 from IM.infra.repositories._message_projection import (
     _attachment_to_dict,
     _decode_attachments,
+    _decode_background_returns,
     _decode_system_notice,
     _decode_thinking,
     _decode_token_usage,
     _decode_tool_calls,
     _encode_attachments,
+    _encode_background_returns,
     _encode_system_notice,
     _encode_thinking,
     _encode_token_usage,
@@ -83,6 +86,7 @@ class MessageRepository:
         emit_created_event: bool = False,
         caller_idempotency_key: str | None = None,
         system_notice: SystemNotice | None = None,
+        background_returns: list[BackgroundReturn] | None = None,
         created_at: str | None = None,
     ) -> Message:
         """Create a message in a conversation.
@@ -106,9 +110,19 @@ class MessageRepository:
                 or sender is not a participant for user-originated messages.
         """
         normalized_attachments = _normalize_attachments(attachments)
+        normalized_tool_calls = _normalize_tool_calls(tool_calls)
+        normalized_background_returns = _normalize_background_returns(
+            background_returns,
+            tool_calls=normalized_tool_calls or [],
+        )
         # feat-340-M2: agent-runtime messages start empty and stream content via update_runtime_state;
         # callers opt in with allow_empty so we don't break the user-message invariant.
-        if not allow_empty and not content.strip() and not normalized_attachments:
+        if (
+            not allow_empty
+            and not content.strip()
+            and not normalized_attachments
+            and not normalized_background_returns
+        ):
             raise ValueError("message must include content or attachments")
         if sender_type not in {"user", "agent", "system"}:
             raise ValueError("sender_type must be one of: user, agent, system")
@@ -123,6 +137,25 @@ class MessageRepository:
         ).fetchone()
         if conversation_exists is None:
             raise ValueError("conversation_id not found")
+        if normalized_background_returns:
+            incoming_task_ids = {item.task_id for item in normalized_background_returns}
+            rows = self._connection.execute(
+                """
+                SELECT id, background_returns_json
+                FROM messages
+                WHERE conversation_id = ? AND background_returns_json IS NOT NULL
+                ORDER BY rowid
+                """,
+                (conversation_id,),
+            ).fetchall()
+            for row in rows:
+                stored = (
+                    _decode_background_returns(row["background_returns_json"]) or []
+                )
+                if incoming_task_ids.issubset({item.task_id for item in stored}):
+                    existing_message = self._message_row(str(row["id"]))
+                    assert existing_message is not None
+                    return self._message_from_row(existing_message)
         stored_idempotency_key = (
             _scoped_caller_idempotency_key(conversation_id, normalized_idempotency_key)
             if normalized_idempotency_key is not None
@@ -147,6 +180,7 @@ class MessageRepository:
                     messages.permission_request_json,
                     messages.kernel_message_id,
                     messages.system_notice_json,
+                    messages.background_returns_json,
                     users.username AS sender_username,
                     COALESCE(messages.sender_display_name, users.display_name)
                         AS sender_display_name
@@ -231,7 +265,6 @@ class MessageRepository:
             "semantic": "persisted_to_im",
         }
         pending_live_events: list[ConversationEvent] = []
-        normalized_tool_calls = _normalize_tool_calls(tool_calls)
         tool_calls_json = (
             _encode_tool_calls(normalized_tool_calls)
             if normalized_tool_calls is not None
@@ -239,6 +272,11 @@ class MessageRepository:
         )
         token_usage_json = _encode_token_usage(token_usage)
         system_notice_json = _encode_system_notice(system_notice)
+        background_returns_json = (
+            _encode_background_returns(normalized_background_returns)
+            if normalized_background_returns
+            else None
+        )
         created_message = Message(
             id=message_id,
             conversation_id=conversation_id,
@@ -255,6 +293,7 @@ class MessageRepository:
             elapsed_ms=None,
             kernel_message_id=kernel_message_id,
             system_notice=system_notice,
+            background_returns=normalized_background_returns or None,
         )
         with self._connection:
             self._connection.execute(
@@ -273,8 +312,9 @@ class MessageRepository:
                     kernel_message_id,
                     sender_display_name,
                     caller_idempotency_key,
-                    system_notice_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    system_notice_json,
+                    background_returns_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     message_id,
@@ -291,6 +331,7 @@ class MessageRepository:
                     display_name_override,
                     stored_idempotency_key,
                     system_notice_json,
+                    background_returns_json,
                 ),
             )
             pending_live_events.append(
@@ -660,7 +701,7 @@ class MessageRepository:
                 "content_append and content_replace are mutually exclusive"
             )
         row = self._connection.execute(
-            "SELECT content, tool_calls_json, thinking_json, token_usage_json, conversation_id FROM messages WHERE id = ?",
+            "SELECT content, tool_calls_json, thinking_json, background_returns_json, token_usage_json, conversation_id FROM messages WHERE id = ?",
             (message_id,),
         ).fetchone()
         if row is None:
@@ -682,6 +723,9 @@ class MessageRepository:
                 if "thinking_json" in row.keys()
                 else None
             ) or []
+            existing_background_returns = (
+                _decode_background_returns(row["background_returns_json"]) or []
+            )
             existing_by_id = {tc.id: tc for tc in existing}
             order: list[str] = [tc.id for tc in existing]
             for upsert in _normalize_tool_calls(tool_calls_upsert) or []:
@@ -694,7 +738,9 @@ class MessageRepository:
                         upsert.seq
                         if upsert.seq is not None
                         else _next_process_seq(
-                            existing_thinking, list(existing_by_id.values())
+                            existing_thinking,
+                            list(existing_by_id.values()),
+                            existing_background_returns,
                         )
                     )
                     existing_by_id[upsert.id] = replace(upsert, seq=seq)
@@ -759,6 +805,7 @@ class MessageRepository:
                 messages.created_at,
                 messages.tool_calls_json,
                 messages.thinking_json,
+                messages.background_returns_json,
                 messages.token_usage_json,
                 messages.elapsed_ms,
                 messages.permission_request_json,
@@ -788,17 +835,22 @@ class MessageRepository:
         # update_runtime_state 写法），避免并发/崩溃下读到旧 seq 后半写导致序号错乱。
         with self._connection:
             row = self._connection.execute(
-                "SELECT tool_calls_json, thinking_json FROM messages WHERE id = ?",
+                "SELECT tool_calls_json, thinking_json, background_returns_json FROM messages WHERE id = ?",
                 (message_id,),
             ).fetchone()
             if row is None:
                 raise ValueError(f"message_id not found: {message_id}")
             existing_tools = _decode_tool_calls(row["tool_calls_json"]) or []
             existing = _decode_thinking(row["thinking_json"]) or []
+            existing_background_returns = (
+                _decode_background_returns(row["background_returns_json"]) or []
+            )
             seq = (
                 process_seq
                 if process_seq is not None
-                else _next_process_seq(existing, existing_tools)
+                else _next_process_seq(
+                    existing, existing_tools, existing_background_returns
+                )
             )
             if not any(segment.seq == seq for segment in existing):
                 existing.append(ThinkingSegment(seq=seq, text=text))
@@ -819,6 +871,7 @@ class MessageRepository:
                 messages.created_at,
                 messages.tool_calls_json,
                 messages.thinking_json,
+                messages.background_returns_json,
                 messages.token_usage_json,
                 messages.elapsed_ms,
                 messages.permission_request_json,
@@ -917,6 +970,7 @@ class MessageRepository:
                 messages.created_at,
                 messages.tool_calls_json,
                 messages.thinking_json,
+                messages.background_returns_json,
                 messages.token_usage_json,
                 messages.elapsed_ms,
                 messages.permission_request_json,
@@ -1121,6 +1175,11 @@ class MessageRepository:
             row["tool_calls_json"] if "tool_calls_json" in row.keys() else None
         )
         thinking_value = row["thinking_json"] if "thinking_json" in row.keys() else None
+        background_returns_value = (
+            row["background_returns_json"]
+            if "background_returns_json" in row.keys()
+            else None
+        )
         token_usage_value = (
             row["token_usage_json"] if "token_usage_json" in row.keys() else None
         )
@@ -1164,6 +1223,7 @@ class MessageRepository:
             created_at=row["created_at"],
             tool_calls=_decode_tool_calls(tool_calls_value),
             thinking=_decode_thinking(thinking_value),
+            background_returns=_decode_background_returns(background_returns_value),
             token_usage=_decode_token_usage(token_usage_value),
             elapsed_ms=elapsed_ms_value,
             permission_requests=permission_requests,
@@ -1185,6 +1245,7 @@ class MessageRepository:
                 messages.created_at,
                 messages.tool_calls_json,
                 messages.thinking_json,
+                messages.background_returns_json,
                 messages.token_usage_json,
                 messages.elapsed_ms,
                 messages.permission_request_json,
@@ -1399,6 +1460,25 @@ def _normalize_tool_calls(tool_calls: list[ToolCall] | None) -> list[ToolCall] |
     if tool_calls is None:
         return None
     return list(tool_calls)
+
+
+def _normalize_background_returns(
+    items: list[BackgroundReturn] | None,
+    *,
+    tool_calls: list[ToolCall],
+) -> list[BackgroundReturn]:
+    """Deduplicate task returns in arrival order and assign shared process seqs."""
+    result: list[BackgroundReturn] = []
+    seen: set[str] = set()
+    for item in items or []:
+        if item.task_id in seen:
+            continue
+        seen.add(item.task_id)
+        seq = item.seq
+        if seq is None:
+            seq = _next_process_seq([], tool_calls, result)
+        result.append(replace(item, seq=seq))
+    return result
 
 
 def _scoped_caller_idempotency_key(

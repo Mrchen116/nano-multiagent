@@ -205,6 +205,7 @@ export function applyWsEvent(
         created_at: ev.created_at,
         tool_calls: ev.tool_calls,
         thinking: ev.thinking,
+        background_returns: ev.background_returns,
         token_usage: ev.token_usage,
         elapsed_ms: ev.elapsed_ms,
         kernel_message_id: ev.kernel_message_id,
@@ -253,6 +254,7 @@ export function applyWsEvent(
         tool_calls: ev.tool_calls,
         // feat-439-M2: 历史回放 / 建泡时还原已持久化的思考过程项。
         thinking: ev.thinking,
+        background_returns: ev.background_returns,
         token_usage: ev.token_usage,
         permission_requests: [],
         system_notice: ev.system_notice,

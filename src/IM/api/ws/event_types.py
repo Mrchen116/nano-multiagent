@@ -18,7 +18,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from IM.domain.models import Message, ThinkingSegment, TokenUsage, ToolCall
+from IM.domain.models import (
+    BackgroundReturn,
+    Message,
+    ThinkingSegment,
+    TokenUsage,
+    ToolCall,
+)
 
 
 # Event type identifiers — keep as module-level constants; the EVENT_* names are stable
@@ -87,6 +93,33 @@ def thinking_segment_to_dict(segment: ThinkingSegment) -> dict[str, Any]:
     return {"seq": int(segment.seq), "text": segment.text}
 
 
+def background_return_to_dict(item: BackgroundReturn) -> dict[str, Any]:
+    """Serialize one terminal background return for live and replay payloads."""
+    payload: dict[str, Any] = {
+        "task_id": item.task_id,
+        "task_type": item.task_type,
+        "status": item.status,
+        "description": item.description,
+    }
+    for name in (
+        "agent_id",
+        "workflow_run_id",
+        "result",
+        "error",
+        "usage",
+        "tool_use_count",
+        "duration_ms",
+        "output_file",
+        "diagnostics",
+        "resume_hint",
+        "seq",
+    ):
+        value = getattr(item, name)
+        if value is not None:
+            payload[name] = value
+    return payload
+
+
 def token_usage_to_dict(usage: TokenUsage | None) -> dict[str, int] | None:
     if usage is None:
         return None
@@ -143,6 +176,10 @@ def build_message_created_payload(*, message: Message) -> dict[str, Any]:
         "tool_calls": [tool_call_to_dict(tc) for tc in (message.tool_calls or [])],
         # feat-439-M2: 整轮多段思考随气泡创建一并下发，历史回放还原过程盘。
         "thinking": [thinking_segment_to_dict(s) for s in (message.thinking or [])],
+        "background_returns": [
+            background_return_to_dict(item)
+            for item in (message.background_returns or [])
+        ],
         "token_usage": token_usage_to_dict(message.token_usage),
         "delivery_status": message.delivery_status,
         "created_at": message.created_at,

@@ -7,6 +7,7 @@ import json
 from IM.domain.models import (
     Actor,
     Attachment,
+    BackgroundReturn,
     Message,
     SystemNotice,
     ThinkingSegment,
@@ -73,6 +74,10 @@ def _message_created_payload(message: Message) -> dict[str, object]:
         "thinking": [
             {"seq": int(segment.seq), "text": segment.text}
             for segment in (message.thinking or [])
+        ],
+        "background_returns": [
+            _background_return_to_dict(item)
+            for item in (message.background_returns or [])
         ],
         "token_usage": _token_usage_to_event_dict(message.token_usage),
         "delivery_status": message.delivery_status,
@@ -179,6 +184,113 @@ def _tool_call_to_dict(tool_call: ToolCall) -> dict[str, object]:
     return payload
 
 
+def _background_return_to_dict(item: BackgroundReturn) -> dict[str, object]:
+    """Serialize one message-owned background return, omitting absent fields."""
+    payload: dict[str, object] = {
+        "task_id": item.task_id,
+        "task_type": item.task_type,
+        "status": item.status,
+        "description": item.description,
+    }
+    for name in (
+        "agent_id",
+        "workflow_run_id",
+        "result",
+        "error",
+        "usage",
+        "tool_use_count",
+        "duration_ms",
+        "output_file",
+        "diagnostics",
+        "resume_hint",
+        "seq",
+    ):
+        value = getattr(item, name)
+        if value is not None:
+            payload[name] = value
+    return payload
+
+
+def _encode_background_returns(items: list[BackgroundReturn]) -> str:
+    return json.dumps(
+        [_background_return_to_dict(item) for item in items],
+        ensure_ascii=True,
+        separators=(",", ":"),
+    )
+
+
+def _decode_background_returns(value: object) -> list[BackgroundReturn] | None:
+    if value is None or not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, list):
+        return None
+    items: list[BackgroundReturn] = []
+    seen: set[str] = set()
+    for raw in parsed:
+        if not isinstance(raw, dict):
+            continue
+        task_id = raw.get("task_id")
+        if not isinstance(task_id, str) or task_id in seen:
+            continue
+        try:
+            item = BackgroundReturn(
+                task_id=task_id,
+                task_type=str(raw.get("task_type", "")),
+                status=str(raw.get("status", "")),
+                description=str(raw.get("description", "")),
+                agent_id=raw.get("agent_id")
+                if isinstance(raw.get("agent_id"), str)
+                else None,
+                workflow_run_id=(
+                    raw.get("workflow_run_id")
+                    if isinstance(raw.get("workflow_run_id"), str)
+                    else None
+                ),
+                result=raw.get("result")
+                if isinstance(raw.get("result"), str)
+                else None,
+                error=raw.get("error") if isinstance(raw.get("error"), str) else None,
+                usage=dict(raw["usage"])
+                if isinstance(raw.get("usage"), dict)
+                else None,
+                tool_use_count=(
+                    raw.get("tool_use_count")
+                    if isinstance(raw.get("tool_use_count"), int)
+                    else None
+                ),
+                duration_ms=(
+                    raw.get("duration_ms")
+                    if isinstance(raw.get("duration_ms"), int)
+                    else None
+                ),
+                output_file=(
+                    raw.get("output_file")
+                    if isinstance(raw.get("output_file"), str)
+                    else None
+                ),
+                diagnostics=(
+                    raw.get("diagnostics")
+                    if isinstance(raw.get("diagnostics"), str)
+                    else None
+                ),
+                resume_hint=(
+                    raw.get("resume_hint")
+                    if isinstance(raw.get("resume_hint"), str)
+                    else None
+                ),
+                seq=raw.get("seq") if isinstance(raw.get("seq"), int) else None,
+            )
+        except ValueError:
+            continue
+        seen.add(task_id)
+        items.append(item)
+    return items or None
+
+
 def _encode_tool_calls(tool_calls: list[ToolCall]) -> str:
     return json.dumps(
         [_tool_call_to_dict(tc) for tc in tool_calls],
@@ -260,7 +372,11 @@ def _decode_tool_calls(value: object) -> list[ToolCall] | None:
     return out
 
 
-def _next_process_seq(thinking: list[ThinkingSegment], tools: list[ToolCall]) -> int:
+def _next_process_seq(
+    thinking: list[ThinkingSegment],
+    tools: list[ToolCall],
+    background_returns: list[BackgroundReturn] | None = None,
+) -> int:
     """feat-439-M2: 下一个「过程项」seq = 思考与工具现有 seq 的 max + 1（从 0 起）。
 
     思考与工具共享这一个 per-message 计数器，按真实到达序单调递增、全局唯一 —— 渲染端
@@ -268,6 +384,7 @@ def _next_process_seq(thinking: list[ThinkingSegment], tools: list[ToolCall]) ->
     """
     seqs = [s.seq for s in thinking]
     seqs += [t.seq for t in tools if t.seq is not None]
+    seqs += [item.seq for item in (background_returns or []) if item.seq is not None]
     return (max(seqs) + 1) if seqs else 0
 
 
@@ -405,6 +522,11 @@ def _upsert_message(messages: list[Message], candidate: Message) -> list[Message
         delivery_status=candidate.delivery_status,
         created_at=candidate.created_at,
         system_notice=candidate.system_notice or existing.system_notice,
+        background_returns=(
+            candidate.background_returns
+            if candidate.background_returns
+            else existing.background_returns
+        ),
     )
     return _sort_messages(next_messages)
 

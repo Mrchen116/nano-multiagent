@@ -138,6 +138,41 @@ class CompactSessionRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class WorkflowCommandRequest:
+    """Capture one active-Workflow slash command from a human conversation."""
+
+    routed: RoutedInbound
+    agent: LiveAgentSnapshot
+    session_key: str
+    command_text: str
+    sender_label: str
+    operation_id: str | None = None
+
+    @property
+    def message(self) -> InboundMessage:
+        """Return the normalized message carried by this routed inbound."""
+
+        return self.routed.message
+
+
+@dataclass(frozen=True, slots=True)
+class EffortCommandRequest:
+    """Capture one model-capability-derived session effort command."""
+
+    routed: RoutedInbound
+    agent: LiveAgentSnapshot
+    session_key: str
+    command_text: str
+    operation_id: str | None = None
+
+    @property
+    def message(self) -> InboundMessage:
+        """Return the normalized message carried by this routed inbound."""
+
+        return self.routed.message
+
+
+@dataclass(frozen=True, slots=True)
 class PipelineResult:
     """Expose observable outputs from one inbound pipeline execution.
 

@@ -1,0 +1,662 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="data:," />
+  <title>Workflow 与后台 Agent — IM 呈现原型</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --page: #eef2f3;
+      --surface: #ffffff;
+      --surface-2: #f5f7f7;
+      --line: #dce3e5;
+      --text: #1c292e;
+      --muted: #687a81;
+      --teal: #0f766e;
+      --teal-soft: #dff3ec;
+      --amber: #b86e0b;
+      --red: #b23b42;
+      --dark: #172126;
+      --dark-2: #10181c;
+      --dark-line: #344248;
+      --dark-text: #dce7e9;
+      --dark-muted: #8fa0a6;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      --sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      background: var(--page);
+      font-family: var(--sans);
+    }
+    button, textarea { font: inherit; }
+    button { cursor: pointer; }
+
+    .review-bar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      min-height: 66px;
+      padding: 10px 18px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(12px);
+    }
+    .review-title strong { display: block; font-size: 14px; }
+    .review-title span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
+    .state-tabs { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+    .state-tab {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 6px 11px;
+      background: var(--surface-2);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+    }
+    .state-tab.active { border-color: #82c8bd; background: var(--teal-soft); color: var(--teal); }
+
+    .review-note {
+      width: min(1100px, calc(100% - 32px));
+      margin: 18px auto 12px;
+      padding: 10px 13px;
+      border: 1px solid #cbd8db;
+      border-radius: 10px;
+      background: rgba(255,255,255,.78);
+      color: #52666e;
+      font-size: 12.5px;
+      line-height: 1.5;
+    }
+    .review-note strong { color: var(--text); }
+
+    .app {
+      width: min(1100px, calc(100% - 32px));
+      height: min(760px, calc(100vh - 144px));
+      min-height: 590px;
+      margin: 0 auto 24px;
+      display: grid;
+      grid-template-columns: 238px minmax(0, 1fr);
+      overflow: hidden;
+      border: 1px solid #cfd9dc;
+      border-radius: 16px;
+      background: var(--surface);
+      box-shadow: 0 20px 55px rgba(34, 55, 63, .14);
+    }
+
+    .sidebar { padding: 17px 12px; border-right: 1px solid var(--line); background: #f7f9f9; }
+    .brand { display: flex; align-items: center; gap: 9px; padding: 0 7px 15px; font-size: 13px; font-weight: 760; }
+    .brand-mark, .avatar {
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      color: white;
+      font-weight: 760;
+    }
+    .brand-mark { width: 27px; height: 27px; border-radius: 8px; background: #17343a; }
+    .side-label { padding: 10px 8px 6px; color: #819097; font-size: 10px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+    .conversation {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      width: 100%;
+      padding: 9px;
+      border: 0;
+      border-radius: 9px;
+      background: transparent;
+      color: var(--text);
+      text-align: left;
+    }
+    .conversation.active { background: #e9eeee; }
+    .conversation .mini-avatar { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: #287c73; color: white; font-size: 10px; font-weight: 700; }
+    .conversation-copy { min-width: 0; }
+    .conversation-copy strong, .conversation-copy span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .conversation-copy strong { font-size: 12px; }
+    .conversation-copy span { margin-top: 2px; color: var(--muted); font-size: 10.5px; }
+
+    .chat { min-width: 0; min-height: 0; display: grid; grid-template-rows: 60px minmax(0,1fr) auto; }
+    .chat-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 17px; border-bottom: 1px solid var(--line); }
+    .agent { display: flex; align-items: center; gap: 9px; }
+    .avatar { width: 34px; height: 34px; border-radius: 50%; background: #287c73; font-size: 11px; }
+    .agent-copy strong, .agent-copy span { display: block; }
+    .agent-copy strong { font-size: 13px; }
+    .agent-copy span { margin-top: 2px; color: var(--muted); font-size: 10.5px; }
+    .header-chip { padding: 4px 8px; border-radius: 999px; background: #edf1f2; color: var(--muted); font-size: 10px; }
+
+    .messages {
+      min-height: 0;
+      overflow: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 17px;
+      padding: 22px 24px 30px;
+      background: #fbfcfc;
+    }
+    .message { display: flex; align-items: flex-end; gap: 9px; max-width: 78%; }
+    .message.user { align-self: flex-end; flex-direction: row-reverse; }
+    .message.agent { align-self: flex-start; }
+    .message-avatar { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; flex: 0 0 auto; background: #287c73; color: white; font-size: 10px; font-weight: 700; }
+    .message-stack { min-width: 0; }
+    .sender { margin: 0 0 4px 3px; color: #287c73; font-size: 11px; font-weight: 650; }
+    .bubble {
+      position: relative;
+      padding: 9px 13px;
+      border-radius: 16px 16px 16px 4px;
+      background: #e8ecee;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+    .user .bubble { border-radius: 16px 16px 4px 16px; background: var(--teal); color: white; }
+    .message-time { display: flex; align-items: center; gap: 7px; margin-top: 3px; color: #849299; font-size: 10px; }
+    .status-running { display: inline-flex; align-items: center; gap: 4px; color: var(--amber); }
+    .pulse, .permission-pulse { width: 6px; height: 6px; border-radius: 50%; background: #d98b20; animation: pulse 1.25s infinite; }
+    @keyframes pulse { 50% { opacity: .35; } }
+
+    .process { margin-top: 8px; }
+    .process-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 9px;
+      border: 1px solid #d1dadc;
+      border-radius: 999px;
+      background: #edf0f1;
+      color: #596a71;
+      font-size: 11px;
+      font-weight: 650;
+    }
+    .process-toggle.open { border-color: #3d555c; background: var(--dark); color: #88cfc5; }
+    .process-toggle .running-copy { display: inline-flex; align-items: center; gap: 4px; color: #ca7e18; }
+    .process-panel { display: none; margin-top: 7px; overflow: hidden; border: 1px solid #2f3c42; border-radius: 9px; background: var(--dark); box-shadow: 0 5px 16px rgba(4, 12, 15, .25); }
+    .process-panel.open { display: block; }
+    .tool-row {
+      width: 100%;
+      display: grid;
+      grid-template-columns: auto auto auto auto minmax(80px,1fr) auto auto;
+      align-items: center;
+      gap: 7px;
+      padding: 8px 11px;
+      border: 0;
+      background: transparent;
+      color: var(--dark-text);
+      text-align: left;
+      font-size: 11px;
+    }
+    .tool-status.running { color: #dfa04a; }
+    .tool-status.completed { color: #57b69b; }
+    .tool-status.failed { color: #db7777; }
+    .tool-status.stopped { color: #c49a62; }
+    .tool-name { color: #a2ded5; font: 650 11px var(--mono); white-space: nowrap; }
+    .tool-gate { color: #76bc8f; font-size: 10px; white-space: nowrap; }
+    .tool-summary { min-width: 0; overflow: hidden; color: var(--dark-muted); text-overflow: ellipsis; white-space: nowrap; }
+    .tool-duration, .tool-arrow { color: #75868c; font: 10px var(--mono); white-space: nowrap; }
+    .tool-detail { display: none; padding: 1px 11px 10px 38px; }
+    .tool-detail.open { display: block; }
+    .workflow-card { display: flex; flex-direction: column; gap: 9px; }
+    .workflow-section { display: flex; flex-direction: column; gap: 5px; }
+    .workflow-label { color: #75878d; font-size: 9px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+    .workflow-input-meta { color: #82949a; font: 9.5px/1.45 var(--mono); }
+    .workflow-script { margin: 0; padding: 7px 9px; border-left: 2px solid #7869bd; color: #b8c8cc; font: 10px/1.5 var(--mono); overflow-wrap: anywhere; white-space: pre-wrap; }
+    .workflow-result { padding-top: 1px; }
+    .workflow-result-status { color: #75c39c; font-size: 10.5px; }
+    .workflow-result-meta { display: grid; gap: 3px; margin-top: 5px; color: #84969c; font: 9.5px/1.5 var(--mono); overflow-wrap: anywhere; }
+
+    .permission-card { margin-top: 8px; padding: 11px 13px; border: 1px solid #35454b; border-radius: 9px; background: #192328; color: var(--dark-text); box-shadow: 0 5px 16px rgba(4,12,15,.25); }
+    .permission-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .permission-tool { color: #a2ded5; font: 650 11px var(--mono); }
+    .permission-hint { display: inline-flex; align-items: center; gap: 5px; color: #e4ac56; font-size: 9px; font-weight: 750; letter-spacing: .06em; }
+    .permission-desc { margin: 9px 0 0; padding: 6px 8px; border-left: 2px solid #d5963d; border-radius: 4px; background: #222f34; font-size: 11px; }
+    .permission-input { max-height: 128px; overflow: auto; margin: 8px 0 0; padding: 7px 8px; border: 1px solid #2d3a3f; border-radius: 6px; background: var(--dark-2); color: #a7c8c3; font: 9.5px/1.5 var(--mono); white-space: pre-wrap; }
+    .permission-question { margin: 8px 0 0; font-size: 11px; }
+    .permission-reason { width: 100%; min-height: 42px; resize: vertical; margin-top: 8px; padding: 6px 8px; border: 1px solid #334349; border-radius: 6px; background: var(--dark-2); color: var(--dark-text); font-size: 10px; }
+    .permission-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+    .permission-btn { padding: 5px 9px; border: 1px solid #415158; border-radius: 6px; background: #27343a; color: #d2dcde; font-size: 10px; font-weight: 650; }
+    .permission-btn.primary { border-color: var(--teal); background: var(--teal); color: white; }
+    .permission-btn.danger { border-color: #673e42; background: #302326; color: #e18a8f; }
+
+    .terminal-message { display: none; }
+    .terminal-message.visible { display: flex; }
+    .terminal-copy { line-height: 1.65; }
+    .notification-detail-card { display: flex; flex-direction: column; gap: 9px; }
+    .notification-source { color: #94a8ad; font: 9.5px/1.5 var(--mono); }
+    .notification-return { margin: 0; padding: 7px 9px; border-left: 2px solid #4b9c90; color: #b8c8cc; font: 10px/1.55 var(--mono); overflow-wrap: anywhere; white-space: pre-wrap; }
+    .notification-return.failed { border-left-color: #b75f65; }
+    .notification-return.stopped { border-left-color: #9d7d54; }
+    .notification-meta { display: grid; gap: 3px; color: #84969c; font: 9.5px/1.5 var(--mono); overflow-wrap: anywhere; }
+    code { font-family: var(--mono); font-size: .92em; }
+
+    .composer-wrap { padding: 11px 16px 14px; border-top: 1px solid var(--line); background: white; }
+    .composer { min-height: 52px; padding: 10px 12px; border: 1px solid #bdc8cb; border-radius: 11px; color: #87959a; font-size: 11px; }
+    .composer-foot { display: flex; justify-content: space-between; margin-top: 6px; color: #91a0a5; font-size: 9.5px; }
+
+    @media (max-width: 760px) {
+      .review-bar { position: static; align-items: flex-start; flex-direction: column; }
+      .state-tabs { justify-content: flex-start; }
+      .review-note, .app { width: calc(100% - 20px); }
+      .app { height: 720px; grid-template-columns: 1fr; }
+      .sidebar { display: none; }
+      .messages { padding: 16px 12px 24px; }
+      .message { max-width: 94%; }
+      .tool-row { grid-template-columns: auto auto auto auto minmax(50px,1fr) auto; }
+      .tool-duration { display: none; }
+      .workflow-script { font-size: 9.5px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="review-bar">
+    <div class="review-title">
+      <strong>Workflow 与后台 Agent · IM 呈现原型</strong>
+      <span>上方按钮仅用于切换评审状态，不属于产品界面。</span>
+    </div>
+    <nav class="state-tabs" aria-label="原型状态">
+      <button class="state-tab active" data-state="running">工具调用中</button>
+      <button class="state-tab" data-state="permission">等待确认</button>
+      <button class="state-tab" data-state="launched">后台已启动</button>
+      <button class="state-tab" data-state="completed">Workflow 完成</button>
+      <button class="state-tab" data-state="failed">Workflow 失败</button>
+      <button class="state-tab" data-state="stopped">Workflow 已停止</button>
+      <button class="state-tab" data-state="agent-completed">Agent 后台完成</button>
+    </nav>
+  </header>
+
+  <div class="review-note" id="review-note">
+    <strong>当前状态：</strong>模型刚调用 <code>Workflow</code>。消息仍处于运行中；“过程”默认收起，点击后查看工具输入摘要。
+  </div>
+
+  <main class="app">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">N</span>nano assistant</div>
+      <div class="side-label">对话</div>
+      <button class="conversation active">
+        <span class="mini-avatar">代</span>
+        <span class="conversation-copy"><strong>代码审查助手</strong><span id="conversation-preview">Workflow 正在运行…</span></span>
+      </button>
+      <button class="conversation">
+        <span class="mini-avatar" style="background:#6f7f8a">研</span>
+        <span class="conversation-copy"><strong>研究助手</strong><span>昨天的调研结果</span></span>
+      </button>
+    </aside>
+
+    <section class="chat">
+      <header class="chat-header">
+        <div class="agent">
+          <span class="avatar">代</span>
+          <span class="agent-copy"><strong>代码审查助手</strong><span>macbook-air · online</span></span>
+        </div>
+        <span class="header-chip">Direct agent</span>
+      </header>
+
+      <div class="messages" id="messages">
+        <article class="message user">
+          <div class="message-stack">
+            <div class="bubble" id="user-copy">用 Workflow 并行审查当前改动，并对每条发现做独立验证。</div>
+            <div class="message-time" style="justify-content:flex-end">14:32</div>
+          </div>
+        </article>
+
+        <article class="message agent" id="launch-message">
+          <span class="message-avatar">代</span>
+          <div class="message-stack">
+            <div class="sender">代码审查助手</div>
+            <div class="bubble">
+              <div id="assistant-copy">我会把审查与验证组织成一个后台 Python Workflow。</div>
+
+              <div class="process" id="process">
+                <button class="process-toggle" id="process-toggle" aria-expanded="false">
+                  <span id="process-arrow">▸</span>
+                  <span>过程</span><span>·</span><span>1 个工具</span>
+                  <span id="process-running" class="running-copy"><span class="pulse"></span>运行中</span>
+                  <span id="process-approval-count" hidden>· 1 次授权 · 1 允许</span>
+                </button>
+
+                <div class="process-panel" id="process-panel">
+                  <button class="tool-row" id="tool-row" aria-expanded="false">
+                    <span class="tool-status running" id="tool-status">◌</span>
+                    <span aria-hidden="true" id="tool-icon">🔧</span>
+                    <span class="tool-name" id="tool-name">Workflow</span>
+                    <span class="tool-gate" id="tool-gate"></span>
+                    <span class="tool-summary" id="tool-summary">并行审查当前改动并逐条验证发现</span>
+                    <span class="tool-duration" id="tool-duration"></span>
+                    <span class="tool-arrow" id="tool-arrow">▸</span>
+                  </button>
+                  <div class="tool-detail" id="tool-detail"></div>
+                </div>
+              </div>
+
+              <section class="permission-card" id="permission-card" hidden>
+                <div class="permission-head">
+                  <span class="permission-tool">Workflow</span>
+                  <span class="permission-hint"><span class="permission-pulse"></span>需要确认</span>
+                </div>
+                <p class="permission-desc">并行审查当前改动并逐条验证发现</p>
+                <pre class="permission-input">{
+  "script": "meta = {...}\\n\\nasync def main():\\n    reviews = await parallel([...])\\n    return await verify(reviews)",
+  "description": "并行审查当前改动并逐条验证发现"
+}</pre>
+                <p class="permission-question">允许启动 Python Workflow “review-changes” 吗？预计不超过 15 个 Agent（medium）。</p>
+                <textarea class="permission-reason" rows="2" placeholder="拒绝理由（可选）"></textarea>
+                <div class="permission-actions">
+                  <button class="permission-btn primary" data-decision="allow">允许</button>
+                  <button class="permission-btn" data-decision="always">总是允许</button>
+                  <button class="permission-btn danger" data-decision="deny">拒绝</button>
+                </div>
+              </section>
+            </div>
+            <div class="message-time">
+              <span>14:32</span>
+              <span class="status-running" id="message-running"><span class="pulse"></span>⏱ 2.1s</span>
+              <span id="message-elapsed" hidden>⏱ 2.4s</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="message agent terminal-message" id="terminal-message">
+          <span class="message-avatar">代</span>
+          <div class="message-stack">
+            <div class="sender">代码审查助手</div>
+            <div class="bubble">
+              <div class="terminal-copy" id="terminal-copy"></div>
+
+              <div class="process" id="notification-process">
+                <button class="process-toggle" id="notification-toggle" aria-expanded="false">
+                  <span id="notification-process-arrow">▸</span>
+                  <span>过程</span><span>·</span><span>1 条后台返回</span>
+                </button>
+
+                <div class="process-panel" id="notification-panel">
+                  <button class="tool-row" id="notification-row" aria-expanded="false">
+                    <span class="tool-status completed" id="notification-status">●</span>
+                    <span aria-hidden="true">↳</span>
+                    <span class="tool-name">后台返回</span>
+                    <span class="tool-gate"></span>
+                    <span class="tool-summary" id="notification-summary">Workflow review-changes · 已完成</span>
+                    <span class="tool-duration" id="notification-duration">3m 42s</span>
+                    <span class="tool-arrow" id="notification-arrow">▸</span>
+                  </button>
+                  <div class="tool-detail" id="notification-detail"></div>
+                </div>
+              </div>
+            </div>
+            <div class="message-time"><span id="terminal-time">14:36</span><span id="terminal-elapsed">⏱ 4.8s</span></div>
+          </div>
+        </article>
+      </div>
+
+      <footer class="composer-wrap">
+        <div class="composer">发消息给代码审查助手…</div>
+        <div class="composer-foot"><span>输入 / 查看可用命令</span><span>Enter 发送</span></div>
+      </footer>
+    </section>
+  </main>
+
+  <script>
+    const stateCopy = {
+      running: "模型刚调用 Workflow。消息仍处于运行中；“过程”默认收起，展开后先看到本次 Workflow 的输入脚本，此时还没有结果区。",
+      permission: "启动需要用户批准。按现有工具时序，此时只显示同一条 assistant 消息中的 PermissionCard；批准后才出现 Workflow 工具行。卡片显示说明、原始参数、问题、允许 / 总是允许 / 拒绝。",
+      denied: "用户拒绝后，批准卡消失，Workflow 不启动；它从未显示 running，但真实 tool result 会直接留下“已拒绝 / 未执行”的终态工具行，且不会出现后台终态消息。",
+      launched: "工具调用已经结束，但这里只表示后台 Workflow 启动成功。展开内容保持输入脚本在前，并在下方追加 async launch 结果；它不会持续冒充整个 Workflow 的进度条。",
+      completed: "后台 Workflow 真正完成后，主 Agent 发一条普通回复；触发这一轮的 task notification 作为“过程”里的后台返回，展开可核对原始结果、来源、用量和诊断。",
+      failed: "后台失败仍由主 Agent 正常说明；失败的 task notification 作为“过程”里的后台返回，展开可区分后台原始失败与主 Agent 的综合表达。",
+      stopped: "停止完成后，主 Agent 正常说明已保留的结果；stopped task notification 留在“过程”折叠块里，不改写原启动工具行。",
+      "agent-completed": "同一呈现也覆盖 run_in_background 的 Agent 工具：启动消息仍用现有 Agent 工具行展示派发 prompt 和 async launch 结果；完成后的 task notification 作为下一条普通回复“过程”中的后台返回。"
+    };
+
+    const scriptPreview = `meta = {
+    "name": "review-changes",
+    "description": "并行审查当前改动并逐条验证发现"
+}
+
+async def main():
+    reviews = await parallel([...])
+    return await verify(reviews)`;
+
+    const $ = (id) => document.getElementById(id);
+    let currentState = "running";
+    let processOpen = false;
+    let toolOpen = false;
+    let notificationOpen = false;
+
+    function workflowDetail(showResult, denied = false) {
+      return `<div class="workflow-card">
+        <section class="workflow-section">
+          <span class="workflow-label">编排输入（script）</span>
+          <span class="workflow-input-meta">inline Python · guideline medium</span>
+          <pre class="workflow-script">${scriptPreview}</pre>
+        </section>
+        ${showResult ? `<section class="workflow-section workflow-result">
+          <span class="workflow-label">启动结果</span>
+          <div class="workflow-result-status"${denied ? ' style="color:#db7777"' : ""}>${denied ? "✕ 未执行 · launch denied" : "✓ Workflow async_launched · review-changes"}</div>
+          <div class="workflow-result-meta">
+            ${denied ? "<span>未创建 Workflow run 或后台 task</span>" : `<span>run wf_be7ccbcb-d39 · task wt_7f2a94</span>
+            <span>script …/workflows/scripts/review-changes-wf_be7ccbcb-d39.py</span>
+            <span>diagnostics …/workflows/runs/wf_be7ccbcb-d39</span>`}
+          </div>
+        </section>` : ""}
+      </div>`;
+    }
+
+    function agentDetail() {
+      return `<div class="workflow-card">
+        <section class="workflow-section">
+          <span class="workflow-label">派发任务（prompt）</span>
+          <span class="workflow-input-meta">code-reviewer · run_in_background true</span>
+          <pre class="workflow-script">Review the current API contract changes independently.
+Compare implementation and tests, identify concrete regressions, and return evidence with file locations.</pre>
+        </section>
+        <section class="workflow-section workflow-result">
+          <span class="workflow-label">启动结果</span>
+          <div class="workflow-result-status">✓ Agent async_launched · code-reviewer</div>
+          <div class="workflow-result-meta">
+            <span>agent agt_2ca710 · task agt_2ca710</span>
+            <span>output …/background-tasks/agt_2ca710.output</span>
+          </div>
+        </section>
+      </div>`;
+    }
+
+    function setProcessOpen(open) {
+      processOpen = open;
+      $("process-toggle").classList.toggle("open", open);
+      $("process-panel").classList.toggle("open", open);
+      $("process-toggle").setAttribute("aria-expanded", String(open));
+      $("process-arrow").textContent = open ? "▾" : "▸";
+    }
+
+    function setToolOpen(open) {
+      toolOpen = open;
+      $("tool-detail").classList.toggle("open", open);
+      $("tool-row").setAttribute("aria-expanded", String(open));
+      $("tool-arrow").textContent = open ? "▾" : "▸";
+    }
+
+    function setNotificationOpen(open) {
+      notificationOpen = open;
+      $("notification-toggle").classList.toggle("open", open);
+      $("notification-panel").classList.toggle("open", open);
+      $("notification-detail").classList.toggle("open", open);
+      $("notification-toggle").setAttribute("aria-expanded", String(open));
+      $("notification-row").setAttribute("aria-expanded", String(open));
+      $("notification-process-arrow").textContent = open ? "▾" : "▸";
+      $("notification-arrow").textContent = open ? "▾" : "▸";
+    }
+
+    function notificationDetail(state) {
+      if (state === "agent-completed") {
+        return `<div class="notification-detail-card">
+          <section class="workflow-section">
+            <span class="workflow-label">后台任务</span>
+            <div class="notification-source">Agent · code-reviewer · agent agt_2ca710</div>
+          </section>
+          <section class="workflow-section">
+            <span class="workflow-label">原始返回</span>
+            <pre class="notification-return">检查完成。发现 1 个确定的 API 契约回归：
+src/api/response.py 在空结果时省略 status 字段，
+但 tests/contract/test_response_schema.py 要求该字段始终存在。
+
+其余 3 个候选没有足够证据，未列为问题。</pre>
+          </section>
+          <div class="notification-meta">
+            <span>28,416 tokens · 7 次工具调用 · 1m 48s</span>
+            <span>output …/background-tasks/agt_2ca710.output</span>
+            <span>可用 agent_id 继续追问或恢复该 Agent</span>
+          </div>
+        </div>`;
+      }
+      if (state === "completed") {
+        return `<div class="notification-detail-card">
+          <section class="workflow-section">
+            <span class="workflow-label">后台任务</span>
+            <div class="notification-source">Workflow · review-changes · task wt_7f2a94</div>
+          </section>
+          <section class="workflow-section">
+            <span class="workflow-label">原始返回</span>
+            <pre class="notification-return">完成 4 个并行审查维度和 6 条独立验证。
+确认 2 个需要修复的问题；排除 4 个误报。</pre>
+          </section>
+          <div class="notification-meta">
+            <span>run wf_be7ccbcb-d39 · 12 Agents · 124,820 input / 9,420 output tokens</span>
+            <span>diagnostics …/workflows/runs/wf_be7ccbcb-d39</span>
+            <span>resume /workflows wf_be7ccbcb-d39 resume</span>
+          </div>
+        </div>`;
+      }
+      if (state === "failed") {
+        return `<div class="notification-detail-card">
+          <section class="workflow-section">
+            <span class="workflow-label">后台任务</span>
+            <div class="notification-source">Workflow · review-changes · task wt_7f2a94</div>
+          </section>
+          <section class="workflow-section">
+            <span class="workflow-label">原始返回</span>
+            <pre class="notification-return failed">验证阶段的第 3 个 Agent 调用失败。
+失败位置：Verify / verify-api-contract
+错误：子 Agent 达到模型调用超时
+已完成的审查结果仍然保留。</pre>
+          </section>
+          <div class="notification-meta">
+            <span>run wf_be7ccbcb-d39 · 已完成 8/12 Agents · 91,306 input / 6,814 output tokens</span>
+            <span>diagnostics …/workflows/runs/wf_be7ccbcb-d39</span>
+            <span>resume /workflows wf_be7ccbcb-d39 resume</span>
+          </div>
+        </div>`;
+      }
+      return `<div class="notification-detail-card">
+        <section class="workflow-section">
+          <span class="workflow-label">后台任务</span>
+          <div class="notification-source">Workflow · review-changes · task wt_7f2a94</div>
+        </section>
+        <section class="workflow-section">
+          <span class="workflow-label">原始返回</span>
+          <pre class="notification-return stopped">Workflow 已按请求停止；不再派发新的 Agent。
+已完成 5/12 Agents，部分结果和诊断均已保留。</pre>
+        </section>
+        <div class="notification-meta">
+          <span>run wf_be7ccbcb-d39 · 48,291 input / 3,772 output tokens</span>
+          <span>diagnostics …/workflows/runs/wf_be7ccbcb-d39</span>
+          <span>resume /workflows wf_be7ccbcb-d39 resume</span>
+        </div>
+      </div>`;
+    }
+
+    function terminalContent(state) {
+      const status = $("notification-status");
+      if (state === "agent-completed") {
+        status.className = "tool-status completed";
+        status.textContent = "●";
+        $("notification-summary").textContent = "Agent code-reviewer · 已完成";
+        $("notification-duration").textContent = "1m 48s";
+        $("terminal-copy").textContent = "后台 Agent 已经检查完成。我复核后确认其中 1 个 API 契约回归需要修复，其余 3 个候选证据不足。";
+      } else if (state === "completed") {
+        status.className = "tool-status completed";
+        status.textContent = "●";
+        $("notification-summary").textContent = "Workflow review-changes · 已完成";
+        $("notification-duration").textContent = "3m 42s";
+        $("terminal-copy").textContent = "后台审查已经完成。我根据返回结果确认了 2 个需要修复的问题，另外 4 个候选是误报。";
+      } else if (state === "failed") {
+        status.className = "tool-status failed";
+        status.textContent = "✕";
+        $("notification-summary").textContent = "Workflow review-changes · 失败";
+        $("notification-duration").textContent = "2m 51s";
+        $("terminal-copy").textContent = "后台审查没有完整跑完。我保留了已完成的结论；失败发生在 Verify / verify-api-contract。";
+      } else {
+        status.className = "tool-status stopped";
+        status.textContent = "■";
+        $("notification-summary").textContent = "Workflow review-changes · 已停止";
+        $("notification-duration").textContent = "1m 29s";
+        $("terminal-copy").textContent = "后台审查已经停止。我保留了停止前完成的 5 项结果，后续不再派发新的 Agent。";
+      }
+      $("notification-detail").innerHTML = notificationDetail(state);
+      $("terminal-elapsed").textContent = "⏱ 4.8s";
+    }
+
+    function renderState(state) {
+      currentState = state;
+      document.querySelectorAll(".state-tab").forEach((button) => button.classList.toggle("active", button.dataset.state === state));
+      $("review-note").innerHTML = `<strong>当前状态：</strong>${stateCopy[state]}`;
+
+      const isAgent = state === "agent-completed";
+      const launchSucceeded = ["launched", "completed", "failed", "stopped", "agent-completed"].includes(state);
+      const launchDenied = state === "denied";
+      const launchTerminal = launchSucceeded || launchDenied;
+      const backgroundTerminal = ["completed", "failed", "stopped", "agent-completed"].includes(state);
+      const waiting = state === "permission";
+
+      $("user-copy").textContent = isAgent
+        ? "让一个后台 Agent 独立检查这次 API 契约改动，完成后告诉我结论。"
+        : "用 Workflow 并行审查当前改动，并对每条发现做独立验证。";
+      $("conversation-preview").textContent = isAgent ? "后台 Agent 已完成" : backgroundTerminal ? "Workflow 已结束" : "Workflow 正在运行…";
+      $("assistant-copy").textContent = isAgent
+        ? "我已经让 code-reviewer 在后台独立检查 API 契约；你可以继续聊天。Agent 编号 agt_2ca710。"
+        : launchDenied
+        ? "Workflow 启动已取消。"
+        : launchTerminal
+        ? "Workflow 已在后台启动；你可以继续聊天。运行编号 wf_be7ccbcb-d39。"
+        : "我会把审查与验证组织成一个后台 Python Workflow。";
+      $("process-running").hidden = launchTerminal;
+      $("process").hidden = waiting;
+      $("permission-card").hidden = !waiting;
+      $("process-approval-count").hidden = !launchTerminal || isAgent;
+      $("process-approval-count").textContent = launchDenied ? "· 1 次授权 · 1 拒绝" : "· 1 次授权 · 1 允许";
+      $("tool-gate").textContent = isAgent ? "" : launchDenied ? "已拒绝" : launchTerminal ? "已授权" : "";
+      $("message-running").hidden = launchTerminal;
+      $("message-elapsed").hidden = !launchTerminal;
+
+      const status = $("tool-status");
+      status.className = `tool-status ${launchDenied ? "failed" : launchTerminal ? "completed" : "running"}`;
+      status.textContent = launchDenied ? "✕" : launchTerminal ? "●" : "◌";
+      $("tool-icon").textContent = isAgent ? "🔀" : "🔧";
+      $("tool-name").textContent = isAgent ? "agent" : "Workflow";
+      $("tool-summary").textContent = isAgent ? "独立检查 API 契约改动" : "并行审查当前改动并逐条验证发现";
+      $("tool-duration").textContent = launchSucceeded ? isAgent ? "580ms" : "2.4s" : "";
+      $("tool-detail").innerHTML = isAgent ? agentDetail() : workflowDetail(launchTerminal, launchDenied);
+
+      $("terminal-message").classList.toggle("visible", backgroundTerminal);
+      if (backgroundTerminal) terminalContent(state);
+      if (backgroundTerminal) requestAnimationFrame(() => $("messages").scrollTo({ top: $("messages").scrollHeight, behavior: "smooth" }));
+    }
+
+    document.querySelectorAll(".state-tab").forEach((button) => button.addEventListener("click", () => renderState(button.dataset.state)));
+    $("process-toggle").addEventListener("click", () => {
+      const opening = !processOpen;
+      setProcessOpen(opening);
+      setToolOpen(opening);
+    });
+    $("tool-row").addEventListener("click", () => setToolOpen(!toolOpen));
+    $("notification-toggle").addEventListener("click", () => setNotificationOpen(!notificationOpen));
+    $("notification-row").addEventListener("click", () => setNotificationOpen(!notificationOpen));
+    document.querySelectorAll("[data-decision]").forEach((button) => button.addEventListener("click", () => renderState(button.dataset.decision === "deny" ? "denied" : "launched")));
+
+    renderState("running");
+  </script>
+</body>
+</html>

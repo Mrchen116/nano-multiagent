@@ -51,6 +51,40 @@ function isThinkingSegment(value: unknown): boolean {
     && typeof value.text === "string";
 }
 
+const BACKGROUND_RETURN_TYPES = new Set(["subagent", "workflow"]);
+const BACKGROUND_RETURN_STATUSES = new Set(["completed", "failed", "stopped", "killed"]);
+
+function isOptionalText(value: unknown): boolean {
+  return value === undefined || value === null || typeof value === "string";
+}
+
+function isOptionalNonNegativeNumber(value: unknown): boolean {
+  return value === undefined
+    || value === null
+    || (typeof value === "number" && Number.isInteger(value) && value >= 0);
+}
+
+function isBackgroundReturn(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  return isText(value.task_id)
+    && typeof value.task_type === "string"
+    && BACKGROUND_RETURN_TYPES.has(value.task_type)
+    && typeof value.status === "string"
+    && BACKGROUND_RETURN_STATUSES.has(value.status)
+    && isText(value.description)
+    && isOptionalText(value.agent_id)
+    && isOptionalText(value.workflow_run_id)
+    && isOptionalText(value.result)
+    && isOptionalText(value.error)
+    && (value.usage === undefined || value.usage === null || isRecord(value.usage))
+    && isOptionalNonNegativeNumber(value.tool_use_count)
+    && isOptionalNonNegativeNumber(value.duration_ms)
+    && isOptionalText(value.output_file)
+    && isOptionalText(value.diagnostics)
+    && isOptionalText(value.resume_hint)
+    && isOptionalNonNegativeNumber(value.seq);
+}
+
 function malformed(eventType: string): never {
   throw new UserStreamRecoveryError(`invalid ${eventType} payload`);
 }
@@ -87,6 +121,9 @@ export function validateCanonicalUserStreamEvent(
         || (payload.attachments !== undefined && !Array.isArray(payload.attachments))
         || (payload.thinking !== undefined
           && (!Array.isArray(payload.thinking) || !payload.thinking.every(isThinkingSegment)))
+        || (payload.background_returns !== undefined
+          && (!Array.isArray(payload.background_returns)
+            || !payload.background_returns.every(isBackgroundReturn)))
         || (payload.elapsed_ms !== undefined
           && payload.elapsed_ms !== null
           && (typeof payload.elapsed_ms !== "number" || !Number.isFinite(payload.elapsed_ms)))

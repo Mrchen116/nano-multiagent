@@ -46,6 +46,8 @@ def test_tool_contract_fields_are_stable() -> None:
         # feat-434-M1: user-decision verdict (user_allow/user_deny), orthogonal to
         # reason_code; front-end gate region reads it for 已授权/已拒绝.
         "approval",
+        # feat-517: machine-only tool result correlation, never model-facing output.
+        "event_metadata",
     ]
 
 

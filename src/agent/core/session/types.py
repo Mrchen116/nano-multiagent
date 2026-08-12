@@ -129,6 +129,9 @@ class NewSession:
     runtime_model: str | None = None
     runtime_features: dict[str, bool] | None = None
     runtime_reasoning_effort: str | None = None
+    runtime_reasoning_effort_override: str | None = None
+    runtime_workflow_ultracode: bool = False
+    runtime_workflow_size_guideline: str | None = None
     title: str | None = None
     system_prompt: str | None = None
     skills: tuple[str, ...] | None = None
@@ -149,6 +152,7 @@ class TurnRequest:
     controller: "RunController | None" = None
     origin: Any = None
     model: str | None = None
+    source_background_returns: tuple[Mapping[str, Any], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

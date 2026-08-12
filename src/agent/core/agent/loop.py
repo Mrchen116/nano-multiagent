@@ -297,6 +297,17 @@ class AgentLoop:
                 user_parts=render_user_content_parts(state.input_parts),
             )
         )
+        from agent.core.workflows.activation import (  # noqa: PLC0415
+            append_workflow_turn_reminder,
+        )
+
+        append_workflow_turn_reminder(
+            llm_messages,
+            active_tools=active_tools,
+            origin=str(active_hook_ctx.metadata.get("run_origin") or ""),
+            human_text=state.user_text,
+            standing=bool(active_hook_ctx.metadata.get("workflow_ultracode")),
+        )
 
         all_tool_calls: list[ToolCall] = []
         all_tool_results: list[ToolResult] = []
@@ -551,6 +562,12 @@ class AgentLoop:
                     _warn_low_prompt_cache_hit(
                         active_hook_ctx, model=active_model, usage=latest_usage
                     )
+                    output_budget = active_hook_ctx.metadata.get(
+                        "workflow_output_token_budget"
+                    )
+                    add_output_tokens = getattr(output_budget, "add", None)
+                    if callable(add_output_tokens) and latest_usage is not None:
+                        add_output_tokens(latest_usage.completion_tokens)
 
                     # After stream ends, flush early results into LLM history in
                     # order, then wait for any remaining tools.
@@ -783,8 +800,15 @@ class AgentLoop:
                     "turn_id": hook_ctx.turn_id,
                     "message_count": len(consumed),
                     "user_message_count": sum(
-                        1 for item in consumed if item.origin == RunOrigin.USER
+                        1
+                        for item in consumed
+                        if item.origin in {RunOrigin.USER, RunOrigin.HUMAN}
                     ),
+                    "background_returns": [
+                        item.background_return.to_dict()
+                        for item in consumed
+                        if item.background_return is not None
+                    ],
                 },
                 run_id=run_id,
             ),
@@ -821,6 +845,9 @@ class AgentLoop:
                     # feat-434-M1: forward the user-decision verdict the same way, so
                     # realtime_stream carries approval onto tool_end.
                     "approval": result.approval,
+                    "event_metadata": dict(result.event_metadata)
+                    if result.event_metadata is not None
+                    else None,
                 },
                 run_id=run_id,
             ),

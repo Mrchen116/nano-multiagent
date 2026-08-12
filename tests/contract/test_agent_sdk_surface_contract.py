@@ -286,6 +286,90 @@ async def test_interrupt_while_waiting_for_permission_cancels_turn(
         kernel.close()
 
 
+async def test_cancelled_workflow_permission_clears_broker_and_resolves_parent_card(
+    tmp_path: Path,
+) -> None:
+    """A stopped Workflow child must not leave a parked permission card."""
+
+    kernel = build_kernel(
+        llm=_lc_llm(),
+        workspace_config_dirname=".nanocode",
+        repo_root=tmp_path,
+        _llm_client_override=_fake_llm_client(),
+    )
+    events: list[tuple[str, str, dict[str, Any]]] = []
+    try:
+        from types import SimpleNamespace
+
+        from agent.core.hooks.registry import HookRegistry
+        from agent.platform.hooks.session_events import (
+            set_session_event_publisher_factory,
+        )
+        from agent.platform.permissions.broker import PermissionRequest
+
+        session = await kernel.create_session(workspace_root=tmp_path)
+        conversation = kernel._c.directory.open(  # noqa: SLF001
+            SessionRef(session_id=session.session_id, workspace_root=tmp_path)
+        )
+        state = await conversation._ensure_loaded()  # noqa: SLF001
+        engine = conversation._engine  # noqa: SLF001
+        registry = HookRegistry()
+        set_session_event_publisher_factory(
+            registry=registry,
+            factory=lambda session_id: (
+                lambda event, data: events.append((session_id, event, dict(data)))
+            ),
+        )
+        original_resolver = engine._current_hook_runner  # noqa: SLF001
+        engine._current_hook_runner = lambda: SimpleNamespace(  # noqa: SLF001
+            registry=registry
+        )
+        state_token = engine._active_state.set(state)  # noqa: SLF001
+        try:
+            hook_ctx = engine._build_hook_context(  # noqa: SLF001
+                session_id="child-session",
+                metadata={
+                    "workflow_parent_session_id": session.session_id,
+                    "workflow_run_id": "wf_cancel",
+                    "agent_call_id": "wa_000000",
+                },
+            )
+        finally:
+            engine._active_state.reset(state_token)  # noqa: SLF001
+            engine._current_hook_runner = original_resolver  # noqa: SLF001
+
+        request = PermissionRequest(
+            id="workflow-permission-cancel",
+            tool_name="bash",
+            tool_input={"command": "git status"},
+            question="Allow bash?",
+            options=(),
+        )
+        task = asyncio.create_task(hook_ctx.request_permission(request))
+        for _ in range(20):
+            if kernel._c.permission_broker.is_pending(request.id):  # noqa: SLF001
+                break
+            await asyncio.sleep(0)
+        assert kernel._c.permission_broker.is_pending(request.id)  # noqa: SLF001
+
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        else:
+            raise AssertionError("cancelled permission requester must stay cancelled")
+
+        assert not kernel._c.permission_broker.is_pending(request.id)  # noqa: SLF001
+        assert [(session_id, event) for session_id, event, _ in events] == [
+            (session.session_id, "permission_request"),
+            (session.session_id, "permission_resolved"),
+        ]
+        assert events[-1][2]["decision"] == "deny"
+    finally:
+        kernel.close()
+
+
 # ---------------------------------------------------------------------------
 # Prompt preview (C1 fix: refactor-387 regression)
 # ---------------------------------------------------------------------------

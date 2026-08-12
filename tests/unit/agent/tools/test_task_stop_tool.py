@@ -103,6 +103,30 @@ def test_stop_running_subagent_defers_terminal_to_worker_unwind() -> None:
     assert record.status == BackgroundTaskStatus.RUNNING
 
 
+def test_stop_running_workflow_returns_stopping_and_manager_owns_terminal() -> None:
+    tool = _make_tool()
+    registry = tool._wiring.registry
+    registry.register_workflow(
+        task_id="wt_1",
+        parent_session_id="parent_1",
+        workflow_run_id="wf_1",
+        description="review",
+        output_file="/tmp/run.json",
+        diagnostics="/tmp/wf_1",
+        resume_hint="/workflows wf_1 resume",
+    )
+    registry.mark_running("wt_1")
+    stop_handle = MagicMock()
+    registry.set_stop_handle("wt_1", stop_handle)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = tool.run({"task_id": "wt_1"}, _make_ctx(tmpdir))
+
+    assert result["status"] == "stopping"
+    stop_handle.stop.assert_called_once()
+    assert registry.get("wt_1").status == BackgroundTaskStatus.RUNNING
+
+
 def test_stop_not_found_raises_tool_error() -> None:
     tool = _make_tool()
 

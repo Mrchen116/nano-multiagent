@@ -29,6 +29,28 @@ def _resolve_presenter(ctx, name: str):  # noqa: ANN001
     return resolve_presenter_for_tool(tool)
 
 
+def _format_start(presenter, args: Mapping[str, Any], ctx):  # noqa: ANN001, ANN202
+    formatter = getattr(presenter, "format_start_for_session", None)
+    metadata = getattr(ctx, "metadata", None)
+    if callable(formatter) and isinstance(metadata, Mapping):
+        return formatter(args, metadata)
+    return presenter.format_start(args)
+
+
+def _format_end(  # noqa: ANN001, ANN202
+    presenter,
+    args: Mapping[str, Any],
+    result: Any,
+    duration_ms: int,
+    ctx,
+):
+    formatter = getattr(presenter, "format_end_for_session", None)
+    metadata = getattr(ctx, "metadata", None)
+    if callable(formatter) and isinstance(metadata, Mapping):
+        return formatter(args, result, duration_ms, metadata)
+    return presenter.format_end(args, result, duration_ms)
+
+
 def setup(hooks):  # noqa: ANN001, ANN201
     """Register hook handlers that forward run-scoped realtime events."""
 
@@ -59,6 +81,11 @@ def setup(hooks):  # noqa: ANN001, ANN201
             "reasoning_content": event.get("reasoning_content") or "",
             "metadata": {},
         }
+        source_returns = ctx.metadata.get("source_background_returns")
+        if isinstance(source_returns, list) and source_returns:
+            payload["background_returns"] = [
+                dict(item) for item in source_returns if isinstance(item, Mapping)
+            ]
         if run_origin is not None:
             payload["origin"] = run_origin
         ctx.publish_session_event(event="assistant_message", data=payload)
@@ -70,7 +97,7 @@ def setup(hooks):  # noqa: ANN001, ANN201
         if run_id is None:
             return
         presenter = _resolve_presenter(ctx, event.get("name", ""))
-        presentation = presenter.format_start(event.get("arguments") or {})
+        presentation = _format_start(presenter, event.get("arguments") or {}, ctx)
         payload = {
             "event": "tool_start",
             "run_id": run_id,
@@ -90,10 +117,12 @@ def setup(hooks):  # noqa: ANN001, ANN201
             return
         presenter = _resolve_presenter(ctx, event.get("name", ""))
         duration_ms = event.get("duration_ms") or 0
-        presentation = presenter.format_end(
+        presentation = _format_end(
+            presenter,
             event.get("arguments") or {},
             _FakeResult(output=event.get("output"), error=event.get("error")),
-            duration_ms=duration_ms,
+            duration_ms,
+            ctx,
         )
         payload = {
             "event": "tool_end",
@@ -110,6 +139,7 @@ def setup(hooks):  # noqa: ANN001, ANN201
             # feat-434-M1: carry the user-decision verdict (user_allow/user_deny)
             # onto the SSE event so the front-end gate region can render 已授权/已拒绝.
             "approval": event.get("approval"),
+            "event_metadata": _as_mapping_or_none(event.get("event_metadata")),
             "presentation": _presentation_dict(presentation),
         }
         ctx.publish_session_event(event="tool_end", data=payload)
@@ -162,6 +192,7 @@ def setup(hooks):  # noqa: ANN001, ANN201
                 "turn_id": event.get("turn_id"),
                 "message_count": event.get("message_count"),
                 "user_message_count": event.get("user_message_count"),
+                "background_returns": event.get("background_returns") or [],
             },
         )
 

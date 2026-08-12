@@ -49,6 +49,7 @@ def _make_config(tmp_path: Path, extra_yaml: str = "") -> Path:
 
 
 def test_load_local_config_parses_llm_payload(tmp_path: Path) -> None:
+    from agent.sdk import LLMConfig, ModelReasoningCatalog
     from personal_assistant.config.local_store import load_local_config
 
     cfg = _make_config(tmp_path, _LLM_YAML)
@@ -71,6 +72,32 @@ def test_load_local_config_parses_llm_payload(tmp_path: Path) -> None:
     assert fixed.reasoning is not None
     assert fixed.reasoning.kind == "fixed"
     assert config.llm.tool_approval_model is None
+    sdk_config = LLMConfig.from_payload(config.llm)
+    capability = ModelReasoningCatalog(sdk_config).capability_for("kimiCoding:K2.6")
+    assert capability == k26.reasoning
+
+
+def test_sdk_llm_catalog_json_preserves_reasoning_capabilities() -> None:
+    from agent.sdk import LLMConfig, ModelReasoningCatalog
+
+    config = LLMConfig.from_json(
+        """{
+          "default_model": "model-a",
+          "providers": [{
+            "name": "openai_compat",
+            "base_url": "http://test.invalid",
+            "models": [{
+              "name": "model-a",
+              "reasoning": {"default": "medium", "levels": ["low", "medium", "max"]}
+            }]
+          }]
+        }"""
+    )
+
+    capability = ModelReasoningCatalog(config).capability_for("model-a")
+    assert capability is not None
+    assert capability.default == "medium"
+    assert capability.levels == ("low", "medium", "max")
 
 
 def test_load_local_config_parses_tool_approval_model(tmp_path: Path) -> None:

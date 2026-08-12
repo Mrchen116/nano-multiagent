@@ -1,6 +1,6 @@
 # IM - Tool Timeline Specification
 
-> 对齐: feat-446
+> 对齐: feat-517
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -188,7 +188,7 @@ run 异常终止、工具自身超时或工具被拒绝时,IM 工具徽标必须
 
 #### Scenario: 内部 Web IM 一轮含多段思考与工具调用
 - **WHEN** 一轮带多段思考、多次工具调用的助手回复在内部 Web IM 展示
-- **THEN** 气泡内有一个可折叠「过程」区域，把多段思考与工具调用按真实先后次序混排；每段思考可展开读完整内容、可收起；历史回看仍可展开
+- **THEN** 气泡内有一个可折叠“过程”区域，把多段思考与工具调用按真实先后次序混排；每段思考可展开读完整内容、可收起；历史回看仍可展开
 
 #### Scenario: 内部 Web IM 无思考
 - **WHEN** 助手回复本轮无任何思考
@@ -198,6 +198,28 @@ run 异常终止、工具自身超时或工具被拒绝时,IM 工具徽标必须
 - **WHEN** 同一条回复送达外部接入的 IM
 - **THEN** 只显示正文、不含任何思考
 
+#### Scenario: 内部 Web IM 的过程时间线增加后台返回
+- **WHEN** 一轮除思考/工具外还带一条或多条后台返回
+- **THEN** 同一“过程”区域把 background-return 与已有 thinking/tool 按共享 `seq` 混排，历史回看仍可展开
+- **AND** 工具数量、运行中工具与批准统计只计算真实工具；后台返回单独计数，不伪装成 ToolCall
+
+#### Scenario: 后台返回可展开核对原始内容
+- **GIVEN** 普通回复消费了 `Agent(run_in_background=true)` 或 Workflow 的 task notification
+- **WHEN** 用户展开对应后台返回行
+- **THEN** 可看到后台来源、terminal status、未经主 Agent 改写的 result/error、task/agent/run identity、usage、duration 与存在的 artifact locator
+- **AND** 普通正文仍单独显示主 Agent 的综合结论
+
+#### Scenario: 正文为空但后台返回存在
+- **WHEN** 一条 assistant message 没有正文但含后台返回
+- **THEN** 气泡仍保留并显示可展开过程项，不作为 empty completion 丢弃
+
+#### Scenario: 内部 Web IM 无过程项
+- **WHEN** 助手回复本轮无思考、工具调用或后台返回
+- **THEN** 不显示空的过程区域
+
+#### Scenario: 外部 channel 不增加后台返回过程项
+- **WHEN** 同一条含结构化后台来源的回复送达外部接入的 IM
+- **THEN** 仍只显示正文，不增加 thinking、tool timeline 或后台返回卡片
 ### Requirement: 待决权限卡提供常驻选填的拒绝理由输入框
 
 IM 的待决工具授权卡在决策按钮区上方常驻一个选填的拒绝理由输入框。用户拒绝时填写的理由随拒绝决定一并提交、最终透传给处理该运行的节点；选择允许类决策时该输入框内容不产生任何效果。
