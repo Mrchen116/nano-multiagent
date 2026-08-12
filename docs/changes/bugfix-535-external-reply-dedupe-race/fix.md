@@ -37,7 +37,7 @@
 
 在 `OutboundRouter.send_text()` 中为每次带去重 key 的出站投递增加进程内原子多 key reservation：在调用 provider 前，于同一锁内检查并占用物理 key 与 final semantic key；任一 key 已完成或正在发送时，该调用不再投递。provider 成功后 reservation 进入既有有界 `OrderedDict` 完成缓存；provider 抛异常则释放所有 reservation 并重新抛出，使后续投递可以重试。未携带 dedupe key 的普通发送不进入 reservation/cache。
 
-回归测试保留在既有语义 owner `tests/unit/personal_assistant/test_gateway_web_relay_adapter.py`：阻塞 observer-like provider send 后并发发起 terminal-like final fallback，断言只发生一次物理发送；另保护 provider failure 后的 retry。提交：待创建（真实 Feishu entry validation 受环境权限阻塞）。
+回归测试保留在既有语义 owner `tests/unit/personal_assistant/test_gateway_web_relay_adapter.py`：阻塞 observer-like provider send 后并发发起 terminal-like final fallback，断言只发生一次物理发送；另保护 provider failure 后的 retry。提交：`40ed2199c`（真实 Feishu entry validation 受环境权限阻塞）。
 
 ## 验证
 

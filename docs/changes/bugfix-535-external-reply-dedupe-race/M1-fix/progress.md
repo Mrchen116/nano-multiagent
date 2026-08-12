@@ -32,4 +32,4 @@
 - Attempted: verified the documented private profile before any live action with `lark-cli --profile <dedicated non-default profile> auth status --json --verify`; output verified the dedicated test App, Bot, and user identities. Read and prepared the documented `./scripts/e2e-up.sh --wt /Users/czj/Repos/nano-multiagent/.worktrees/unit-bugfix-535 --feishu` followed by `./scripts/e2e-feishu-probe.py --wt ...` flow.
 - Outcome: BLOCKED. The execution environment denied permission to launch the isolated Feishu E2E environment because it launches network-facing services. No E2E services were started, no Feishu probe was sent, and therefore no actual final reply could be verified.
 - Required follow-up: grant permission to run the documented isolated `e2e-up.sh --feishu` / probe flow; then exercise the actual final-reply chain and always run `e2e-down.sh --wt /Users/czj/Repos/nano-multiagent/.worktrees/unit-bugfix-535` to clean up.
-- Commit: pending.
+- Commit: `40ed2199c`.
