@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from collections.abc import Mapping
+from threading import Lock
 
 from personal_assistant.channels.base import OutboundMessage, ReplyContext
 from personal_assistant.gateway.channel_registry import ChannelRegistry
@@ -19,6 +20,8 @@ class OutboundRouter:
     ) -> None:
         self._registry = registry
         self._sent_dedupe_keys: OrderedDict[str, None] = OrderedDict()
+        self._reserved_dedupe_keys: set[str] = set()
+        self._dedupe_lock = Lock()
         self._max_dedupe_keys = max(1, max_dedupe_keys)
 
     def send_text(
@@ -32,17 +35,22 @@ class OutboundRouter:
 
         Returns:
             The normalized outbound payload sent to the adapter, or ``None`` when
-            ``reply_dedupe_key`` identifies a reply already delivered by this router.
+            ``reply_dedupe_key`` identifies a reply already delivered or in flight
+            through this router.
 
         Raises:
             LookupError: When the target channel adapter is not registered.
+
+        Notes:
+            Dedupe keys are reserved atomically before provider I/O. A failed send
+            releases its reservation so a later delivery attempt can retry.
         """
 
         channel = self._registry.get(reply_context.channel_name)
         if channel is None:
             raise LookupError(f"unknown channel adapter: {reply_context.channel_name}")
         dedupe_keys = self._dedupe_keys_for(text=text, metadata=reply_context.metadata)
-        if any(key in self._sent_dedupe_keys for key in dedupe_keys):
+        if not self._reserve_dedupe_keys(dedupe_keys):
             return None
         outbound = OutboundMessage(
             channel_name=reply_context.channel_name,
@@ -51,16 +59,45 @@ class OutboundRouter:
             thread_id=reply_context.thread_id,
             metadata=dict(reply_context.metadata),
         )
-        channel.send(outbound)
+        try:
+            channel.send(outbound)
+        except Exception:
+            self._release_dedupe_keys(dedupe_keys)
+            raise
         self._remember_dedupe_keys(dedupe_keys)
         return outbound
 
+    def _reserve_dedupe_keys(self, dedupe_keys: set[str]) -> bool:
+        """Atomically reserve every key for a pending provider send."""
+
+        if not dedupe_keys:
+            return True
+        with self._dedupe_lock:
+            if any(
+                key in self._sent_dedupe_keys or key in self._reserved_dedupe_keys
+                for key in dedupe_keys
+            ):
+                return False
+            self._reserved_dedupe_keys.update(dedupe_keys)
+            return True
+
+    def _release_dedupe_keys(self, dedupe_keys: set[str]) -> None:
+        """Release keys whose provider send did not complete."""
+
+        if dedupe_keys:
+            with self._dedupe_lock:
+                self._reserved_dedupe_keys.difference_update(dedupe_keys)
+
     def _remember_dedupe_keys(self, dedupe_keys: set[str]) -> None:
-        for key in dedupe_keys:
-            self._sent_dedupe_keys[key] = None
-            self._sent_dedupe_keys.move_to_end(key)
-        while len(self._sent_dedupe_keys) > self._max_dedupe_keys:
-            self._sent_dedupe_keys.popitem(last=False)
+        if not dedupe_keys:
+            return
+        with self._dedupe_lock:
+            self._reserved_dedupe_keys.difference_update(dedupe_keys)
+            for key in dedupe_keys:
+                self._sent_dedupe_keys[key] = None
+                self._sent_dedupe_keys.move_to_end(key)
+            while len(self._sent_dedupe_keys) > self._max_dedupe_keys:
+                self._sent_dedupe_keys.popitem(last=False)
 
     @staticmethod
     def _dedupe_keys_for(*, text: str, metadata: object) -> set[str]:

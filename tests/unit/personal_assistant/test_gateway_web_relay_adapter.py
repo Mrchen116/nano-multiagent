@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from threading import Event, Thread
 
 from personal_assistant.channels.base import (
     InboundMessage,
@@ -244,6 +245,121 @@ def test_outbound_router_bounds_dedupe_key_memory() -> None:
 
     assert replay_after_eviction is not None
     assert [item.text for item in adapter.sent] == ["first", "second", "first"]
+
+
+def test_outbound_router_dedupes_concurrent_external_final_reply_paths() -> None:
+    class _BlockingAdapter:
+        name = "feishu:agent-a"
+
+        def __init__(self) -> None:
+            self.sent: list[OutboundMessage] = []
+            self.send_started = Event()
+            self.allow_send_to_return = Event()
+
+        def start(self, _on_inbound) -> None:  # noqa: ANN001
+            return None
+
+        def send(self, outbound: OutboundMessage) -> None:
+            self.sent.append(outbound)
+            self.send_started.set()
+            assert self.allow_send_to_return.wait(timeout=1)
+
+        def stop(self) -> None:
+            return None
+
+    adapter = _BlockingAdapter()
+    router = OutboundRouter(ChannelRegistry([adapter]))
+    mirrored_context = ReplyContext(
+        channel_name="feishu:agent-a",
+        target_chat_id="feishu:cli_a:dm:ou_user",
+        metadata={
+            "reply_phase": "final",
+            "reply_dedupe_key": "run-1:bubble:kmsg-1",
+        },
+    )
+    terminal_context = ReplyContext(
+        channel_name="feishu:agent-a",
+        target_chat_id="feishu:cli_a:dm:ou_user",
+        metadata={
+            "reply_phase": "final",
+            "reply_dedupe_key": "run-1:text:Final answer.",
+        },
+    )
+    results: list[OutboundMessage | None] = []
+
+    mirror_thread = Thread(
+        target=lambda: results.append(
+            router.send_text(text="Final answer.", reply_context=mirrored_context)
+        )
+    )
+    mirror_thread.start()
+    assert adapter.send_started.wait(timeout=1)
+
+    terminal_finished = Event()
+
+    def _send_terminal() -> None:
+        try:
+            results.append(
+                router.send_text(text="Final answer.", reply_context=terminal_context)
+            )
+        finally:
+            terminal_finished.set()
+
+    terminal_thread = Thread(target=_send_terminal)
+    terminal_thread.start()
+    try:
+        # A reserved semantic key lets the fallback return while the mirror send
+        # remains held; the baseline blocks here until both sends complete.
+        assert terminal_finished.wait(timeout=0.2)
+    finally:
+        adapter.allow_send_to_return.set()
+        mirror_thread.join(timeout=1)
+        terminal_thread.join(timeout=1)
+
+    assert not mirror_thread.is_alive()
+    assert not terminal_thread.is_alive()
+    assert len([result for result in results if result is not None]) == 1
+    assert [item.text for item in adapter.sent] == ["Final answer."]
+
+
+def test_outbound_router_releases_dedupe_reservation_after_send_failure() -> None:
+    class _FailOnceAdapter:
+        name = "feishu:agent-a"
+
+        def __init__(self) -> None:
+            self.attempts = 0
+            self.sent: list[OutboundMessage] = []
+
+        def start(self, _on_inbound) -> None:  # noqa: ANN001
+            return None
+
+        def send(self, outbound: OutboundMessage) -> None:
+            self.attempts += 1
+            if self.attempts == 1:
+                raise RuntimeError("provider unavailable")
+            self.sent.append(outbound)
+
+        def stop(self) -> None:
+            return None
+
+    adapter = _FailOnceAdapter()
+    router = OutboundRouter(ChannelRegistry([adapter]))
+    context = ReplyContext(
+        channel_name="feishu:agent-a",
+        target_chat_id="feishu:cli_a:dm:ou_user",
+        metadata={"reply_dedupe_key": "run-1:text:retryable"},
+    )
+
+    try:
+        router.send_text(text="retryable", reply_context=context)
+    except RuntimeError as error:
+        assert str(error) == "provider unavailable"
+    else:
+        raise AssertionError("provider failure must propagate")
+    retried = router.send_text(text="retryable", reply_context=context)
+
+    assert retried is not None
+    assert [item.text for item in adapter.sent] == ["retryable"]
 
 
 def test_outbound_router_dedupes_external_final_reply_across_paths() -> None:

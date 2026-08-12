@@ -35,8 +35,17 @@
 
 ## 修复
 
-待实施。
+在 `OutboundRouter.send_text()` 中为每次带去重 key 的出站投递增加进程内原子多 key reservation：在调用 provider 前，于同一锁内检查并占用物理 key 与 final semantic key；任一 key 已完成或正在发送时，该调用不再投递。provider 成功后 reservation 进入既有有界 `OrderedDict` 完成缓存；provider 抛异常则释放所有 reservation 并重新抛出，使后续投递可以重试。未携带 dedupe key 的普通发送不进入 reservation/cache。
+
+回归测试保留在既有语义 owner `tests/unit/personal_assistant/test_gateway_web_relay_adapter.py`：阻塞 observer-like provider send 后并发发起 terminal-like final fallback，断言只发生一次物理发送；另保护 provider failure 后的 retry。提交：待创建（真实 Feishu entry validation 受环境权限阻塞）。
 
 ## 验证
 
-待实施。
+自动化验证已通过：
+
+- `pytest -q tests/unit/personal_assistant/test_gateway_web_relay_adapter.py`：12 passed。
+- `pytest -q tests/unit/personal_assistant/test_external_visible_delivery.py tests/unit/personal_assistant/test_gateway_relay_lifecycle.py`：49 passed。
+- `ruff check src/personal_assistant/gateway/outbound_router.py tests/unit/personal_assistant/test_gateway_web_relay_adapter.py`：通过。
+- `ruff format --check src/personal_assistant/gateway/outbound_router.py tests/unit/personal_assistant/test_gateway_web_relay_adapter.py`：通过。
+
+真实入口验证尚未完成，不能标记 DONE。已按 `docs/development/worktree-runtime.md` 验证专用、非 default Feishu E2E profile 的测试 App、Bot 与用户身份；随后尝试启动隔离的 `scripts/e2e-up.sh --feishu` 时，执行环境拒绝了启动 network-facing services 的权限。未启动服务、未发送探针，故尚不能证明真实 Feishu 链路只收到一条最终回复。详细尝试、证据与后续清理要求见 `M1-fix/progress.md`。
