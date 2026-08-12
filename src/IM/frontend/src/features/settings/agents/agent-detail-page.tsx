@@ -1369,7 +1369,7 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
         });
       }
       void queryClient.invalidateQueries({ queryKey: ["settings", "agents"], exact: true });
-      void queryClient.invalidateQueries({ queryKey: ["chat", "slash-skills"] });
+      void queryClient.invalidateQueries({ queryKey: ["chat", "slash-candidates"] });
       if (savedResetTimer.current) clearTimeout(savedResetTimer.current);
       savedResetTimer.current = setTimeout(() => {
         setSaved(false);

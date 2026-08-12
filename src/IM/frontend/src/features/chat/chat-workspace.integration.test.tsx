@@ -169,6 +169,11 @@ function mockFetch(opts: {
   distillerVisible?: boolean;
   skillsSelectionMode?: "default_discovery" | "explicit_allowlist";
   toolAllowlist?: string[];
+  dynamicAgentState?: () => {
+    profileVersion: number;
+    toolAllowlist: string[];
+    commands: Array<{ name: string; description: string }>;
+  };
   skillViewToolVisible?: boolean;
   skillViewDefaultOn?: boolean;
   distillPromptError?: string;
@@ -284,6 +289,7 @@ function mockFetch(opts: {
     }
     if (/\/im\/v1\/agents\/[^/]+\/config\?source=live$/.test(url)) {
       const agentId = decodeURIComponent(url.match(/\/im\/v1\/agents\/([^/]+)\//)![1]!);
+      const dynamicAgentState = opts.dynamicAgentState?.();
       return jsonResponse({
         agent_id: agentId,
         owner_id: "u-self",
@@ -291,16 +297,17 @@ function mockFetch(opts: {
         description: "",
         skills: [],
         ...(skillsSelectionMode ? { skills_selection_mode: skillsSelectionMode } : {}),
-        tool_allowlist: toolAllowlist,
+        tool_allowlist: dynamicAgentState?.toolAllowlist ?? toolAllowlist,
         group_reply_policy: "manual",
         default_model: null,
         workspace_root: `/tmp/${agentId}`,
         workspace_is_default: false,
-        profile_version: 1,
+        profile_version: dynamicAgentState?.profileVersion ?? 1,
         node_id: "node-prod"
       });
     }
     if (/\/im\/v1\/agents\/[^/]+\/capabilities$/.test(url)) {
+      const dynamicAgentState = opts.dynamicAgentState?.();
       return jsonResponse({
         node_id: "node-prod",
         node_name: "laptop-prod",
@@ -312,6 +319,7 @@ function mockFetch(opts: {
           ? [{ name: "skill_view", description: "View skills", default_on: skillViewDefaultOn }]
           : [],
         model_options: [],
+        commands: dynamicAgentState?.commands ?? [],
         platform_default_model: null,
       });
     }
@@ -428,6 +436,58 @@ describe("ChatWorkspacePage — integration", () => {
     expect(await screen.findByText("Hi Planner")).toBeInTheDocument();
     // Header title rendered too:
     expect(screen.getByRole("heading", { name: "Planner" })).toBeInTheDocument();
+  });
+
+  it("refreshes slash candidates after a saved Workflow and selectable-model profile change", async () => {
+    const user = userEvent.setup();
+    let workflowEnabled = false;
+    fetchSpy = mockFetch({
+      dynamicAgentState: () => ({
+        profileVersion: workflowEnabled ? 2 : 1,
+        toolAllowlist: workflowEnabled ? ["skill_view", "Workflow"] : ["skill_view"],
+        commands: workflowEnabled
+          ? [
+              {
+                name: "effort",
+                description: "Set session reasoning effort: low, medium, high, max",
+              },
+              { name: "workflows", description: "Inspect and control Workflow runs" },
+            ]
+          : [],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    renderAtRoute("/chat/c1", queryClient);
+    await screen.findByRole("heading", { name: "Planner" });
+    await waitFor(() => {
+      expect(
+        queryClient.getQueryData(["chat", "slash-candidates", ["a-planner"]]),
+      ).toMatchObject({ commands: [] });
+    });
+
+    const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
+    await user.type(composer, "/");
+    expect(screen.queryByText("/workflows")).not.toBeInTheDocument();
+    expect(screen.queryByText("/effort")).not.toBeInTheDocument();
+
+    workflowEnabled = true;
+    await act(async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["chat", "slash-candidates"],
+      });
+    });
+
+    expect(await screen.findByText("/workflows")).toBeInTheDocument();
+    expect(screen.getByText("/effort")).toBeInTheDocument();
+    expect(
+      screen.getByText("Set session reasoning effort: low, medium, high, max"),
+    ).toBeInTheDocument();
+    await user.click(screen.getByText("/workflows"));
+    expect(composer.value).toBe("/workflows ");
   });
 
   it("renders cached route history after client-side navigation without requiring refresh", async () => {
