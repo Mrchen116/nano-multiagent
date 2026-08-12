@@ -157,6 +157,74 @@ None.
 
 None.
 
+# Round 4
+
+## Verification Report: feat-530
+
+> Validation snapshot: `5dd22bb4fa2fbcbd10d247ff3f3c77f71f598535 → ddd0ead71dc5113d94ef73c79f376eeed0b1c579`
+
+### Summary
+
+Mode: delta
+Delta range: `6426d722ef5328114775dc29706e1c94d05462e6..ddd0ead71dc5113d94ef73c79f376eeed0b1c579`
+Focus issues: R3-I1 dynamic slash candidate cache invalidation after saved Workflow config
+requires_full_verification: false
+
+| Dimension | Result |
+|---|---|
+| Completeness | 1/1 focused fix covered |
+| Correctness | 5/5 affected seams covered |
+| Coherence | Followed |
+
+All checks passed. R3-I1 is closed. Ready for PR.
+
+## Completeness
+
+- The delta is intentionally narrow: the saved Agent configuration mutation now invalidates the real active query prefix, `['chat', 'slash-candidates']`, rather than the obsolete and unconsumed `['chat', 'slash-skills']` (`src/IM/frontend/src/features/settings/agents/agent-detail-page.tsx:1352-1373`). No Gateway, ingress, workspace, model catalog, or command composition code changed.
+- The affected query is scoped by the sorted conversation Agent ids and reads both `getAgentConfig(agentId, 'live')` and `getAgentCapabilities(agentId)` before rebuilding skills and authorized dynamic commands (`src/IM/frontend/src/features/chat/chat-workspace-page.tsx:412-465`). Prefix invalidation therefore refreshes every currently observed conversation containing the saved Agent and marks inactive variants stale; it neither introduces a second candidate source nor leaves the 60-second cache authoritative after a save.
+- The new integration regression begins with a cached no-Workflow profile, invalidates the exact production prefix after the simulated saved profile changes, then observes `/workflows` and model-specific `/effort` without navigation or expiry (`src/IM/frontend/src/features/chat/chat-workspace.integration.test.tsx:443-490`). The companion mutation test asserts the config-save hook emits that same prefix (`src/IM/frontend/src/features/settings/agents/agent-detail-page.test.tsx`). Together they cover the connection that R3-I1 lacked, rather than merely asserting a cache helper call.
+
+## Correctness
+
+| Affected behavior | Implementation evidence | Regression evidence | Status |
+|---|---|---|---|
+| Saved Workflow/config state refreshes dynamic candidates | The only runtime invalidation changed is the actual `slash-candidates` prefix; active candidates fetch live Gateway config and capabilities. | New cached-profile integration path shows absent candidates, invalidates the production prefix, then finds `/workflows` and `/effort`. | covered |
+| Selected dynamic command retains the established composer form | The picker selects the returned command and `MessagePane` inserts `/<name> ` without a new conversion path (`src/IM/frontend/src/features/chat/components/message-pane.tsx:545-567`). | New integration test selects `/workflows` and asserts `/workflows `; existing picker/MessagePane tests pass. | covered |
+| Per-Agent group `/effort` remains targeted, not unioned | `buildSlashCommands()` emits each effort candidate with its source Agent and `targetAgentId`; group selection records an Agent mention before command text (`src/IM/frontend/src/features/chat/components/slash-candidates.ts:43-68`; `message-pane.tsx:548-559`). | Existing MessagePane regression asserts visible `@Coder /effort ` becomes `<mention type="agent" target_id="a-coder"/> /effort max`; Gateway no-fanout regression passes. | covered |
+| Static slash commands retain their behavior | `SlashPicker` still prepends static `/stop`, `/new`, and `/compact` and appends dynamic commands; the delta does not alter this assembly (`src/IM/frontend/src/features/chat/components/slash-picker.tsx:50-66`). | Static and dynamic picker tests pass in the focused frontend run. | covered |
+| Provider/model-specific reasoning levels remain Gateway-authoritative | Candidate descriptions remain verbatim `capabilities.commands` payloads; the UI does not compute or merge effort levels (`chat-workspace-page.tsx:434-460`). | The new profile refresh asserts the exact `low, medium, high, max` description; existing per-Agent distinct-level unit coverage passes. | covered |
+
+Independent validation at `ddd0ead`:
+
+- Frontend focused behavior suite: 196 passed (`agent-detail-page`, chat-workspace integration, slash-candidates, slash-picker, and MessagePane). It ran in the dependency-provisioned unit worktree at the identical `ddd0ead` snapshot; the dedicated verifier worktree contains no frontend dependency directory.
+- Gateway control-routing, Workflow command, ingress/session, and Gateway-owned workspace-root contract set: 58 passed.
+- Frontend production build (`tsc -b && vite build`): passed. Vite reported only its pre-existing-size advisory.
+- `git diff --check 6426d722ef5328114775dc29706e1c94d05462e6..ddd0ead71dc5113d94ef73c79f376eeed0b1c579`: passed.
+
+## Coherence
+
+- The repair preserves one cache owner and one Gateway-authoritative candidate source. It corrects a cache key rather than adding frontend Workflow policy, an IM shadow of capability state, or an alternate command wire path.
+- Query-key prefix invalidation is intentionally Agent-agnostic because a saved Agent can appear in more than one direct or group conversation. The existing per-conversation sorted Agent-id key continues to separate the fetched result and preserves group-specific rendering.
+- The delta leaves the current-main Gateway boundary intact: workspace-root ownership remains in Gateway composition, and IM still only asks typed Gateway config/capability APIs. The passing `test_workspace_root_mirror_contract.py` covers this unchanged boundary.
+
+### Prototype / Reference Contract
+
+N/A.
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+None.
+
+### WARNING（提 PR 前必须修）
+
+None.
+
+### SUGGESTION（可以修）
+
+None.
+
 ## Corrected Delta Reconciliation
 
 | Delta item | Implementation evidence | Test evidence | Outcome |
