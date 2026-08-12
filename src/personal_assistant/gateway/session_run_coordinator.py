@@ -950,9 +950,7 @@ class SessionRunCoordinator:
         if supports_ultracode:
             allowed.append("ultracode")
         if command.value not in allowed:
-            return (
-                f"当前模型 {runtime.model} 可用的推理档位: {'、'.join(allowed)}。"
-            )
+            return f"当前模型 {runtime.model} 可用的推理档位: {'、'.join(allowed)}。"
         ultracode = command.value == "ultracode"
         requested = "xhigh" if ultracode else command.value
         assert requested is not None

@@ -750,13 +750,10 @@ async def _run_repl(
         if not workflow_config.disabled or command not in workflow_commands
     )
     initial_model = _resolve_cli_current_model(kernel)
-    if (
-        initial_model is None
-        or not _cli_effort_values_for_runtime(
-            kernel=kernel,
-            model=initial_model,
-            workflow_enabled=not workflow_config.disabled,
-        )
+    if initial_model is None or not _cli_effort_values_for_runtime(
+        kernel=kernel,
+        model=initial_model,
+        workflow_enabled=not workflow_config.disabled,
     ):
         command_suggestions = tuple(
             command for command in command_suggestions if command != "/effort"

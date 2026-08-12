@@ -143,9 +143,7 @@ class ModelReasoningCapability:
         normalized_default = default.strip()
         if normalized_default not in levels:
             raise ValueError(f"{field_name}.default must be one of {field_name}.levels")
-        return cls(
-            kind="selectable", default=normalized_default, levels=tuple(levels)
-        )
+        return cls(kind="selectable", default=normalized_default, levels=tuple(levels))
 
 
 @dataclass(frozen=True)

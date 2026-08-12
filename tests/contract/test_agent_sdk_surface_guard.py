@@ -54,6 +54,8 @@ EXPECTED_SURFACE: frozenset[str] = frozenset(
         "LLMConfig",
         "LLMProvider",
         "LLMModel",
+        "ModelReasoningCapability",
+        "ModelReasoningCatalog",
         "SessionInfo",
         "RunInfo",
         "ModelInfo",

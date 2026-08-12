@@ -35,7 +35,9 @@ def help_line(*, workflow_enabled: bool, effort_values: Sequence[str] = ()) -> s
 
     line = HELP_LINE if workflow_enabled else _HELP_LINE_WITHOUT_WORKFLOW
     if effort_values:
-        return f"{line.removesuffix(' /exit')} /effort <{'|'.join(effort_values)}> /exit"
+        return (
+            f"{line.removesuffix(' /exit')} /effort <{'|'.join(effort_values)}> /exit"
+        )
     return line
 
 

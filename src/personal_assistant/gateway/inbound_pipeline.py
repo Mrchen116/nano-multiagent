@@ -127,7 +127,8 @@ class InboundPipeline:
             message,
             agent_id=agent_id,
             agent_config=agent.config,
-            control_command=command or ("effort" if effort_command is not None else None),
+            control_command=command
+            or ("effort" if effort_command is not None else None),
         )
         sender_label = _resolve_sender_label(message)
         sync_only = message.metadata.get("sync_only") is True

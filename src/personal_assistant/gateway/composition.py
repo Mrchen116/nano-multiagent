@@ -891,7 +891,9 @@ def _resolve_agent_effective_model(
 
     payload = sync_client.current_agent_payload(agent_id=agent_id)
     selected = payload.get("default_model") if payload is not None else None
-    return selected.strip() if isinstance(selected, str) and selected.strip() else fallback
+    return (
+        selected.strip() if isinstance(selected, str) and selected.strip() else fallback
+    )
 
 
 async def _connect_websocket(url: str, headers: Mapping[str, str]) -> ClientConnection:

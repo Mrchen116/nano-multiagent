@@ -487,7 +487,10 @@ def test_effort_override_survives_legal_model_change_and_clears_when_illegal(
             session_id=binding.kernel_session_id, workspace_root=workspace
         )
         assert state is not None
-        assert (state.runtime.model, state.runtime.reasoning_effort) == ("model-b", "low")
+        assert (state.runtime.model, state.runtime.reasoning_effort) == (
+            "model-b",
+            "low",
+        )
         assert state.runtime.reasoning_effort_override == "low"
 
         catalog.publish(

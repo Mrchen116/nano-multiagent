@@ -9,7 +9,8 @@ Public API:
     CanUseToolFn          — permission callback type alias
     Tool / ToolContext / HookAPI — SDK-owned extension-author Protocols (决策 2)
     PromptSlots / PromptText — per-session prompt slots (决策 8)
-    LLMConfig / LLMProvider / LLMModel — SDK-owned LLM config (决策 5)
+    LLMConfig / LLMProvider / LLMModel / ModelReasoningCapability /
+    ModelReasoningCatalog — SDK-owned LLM config and model reasoning catalog (决策 5)
     SessionInfo / RunInfo — SDK-owned boundary DTOs (决策 6)
     ModelInfo / ToolInfo / FeatureInfo / SkillInfo — capability-query DTOs (决策 4)
     ToolPresenter / ToolPresentationEvent — tool presentation (决策 12)
