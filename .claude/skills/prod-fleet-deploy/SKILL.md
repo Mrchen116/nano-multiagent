@@ -34,10 +34,14 @@ description: 个人生产双节点舰队部署/更新：Mac mini 常驻唯一 IM
 ssh mini                  # Host mini -> 100.88.34.122, user czj, id_rsa 免密
 ```
 
-| 机器 | 角色 | 代码目录 | LLM 代理 |
+| 机器 | 角色 | 生产运行代码 | LLM 代理 |
 |---|---|---|---|
-| Mac mini | IM + Gateway `mac-mini` + SearXNG | `~/Repos/nano-multiagent` | `~/Repos/LLM_Bridge`（:4000） |
-| 本机 | Gateway `macbook-air` only | `~/Repos/nano-multiagent` | `~/Repos/LLM_PROXY`（:4000） |
+| Mac mini | IM + Gateway `mac-mini` + SearXNG | 主仓 `~/Repos/nano-multiagent` 的 `main` | `~/Repos/LLM_Bridge`（:4000） |
+| 本机 | Gateway `macbook-air` only | `~/Repos/nano-multiagent/.worktrees/prod-main-<short-sha>`，detached 于最新 `origin/main` | `~/Repos/LLM_PROXY`（:4000） |
+
+- **mini 是生产主仓**：在 `~/Repos/nano-multiagent` 的 `main` 上 `git pull --ff-only`，IM 和 mini Gateway 都从该主仓启动。根目录可保留运行时未跟踪目录（如 `data/`、`.worktrees/`），但不得有会阻塞快进的已跟踪改动。
+- **macbook-air 不从主仓运行生产 Gateway**：本机主仓可能有用户脏改动，部署只在主仓执行 `git fetch origin`；再创建或复用一个 `prod-main-<short-sha>` worktree，令其 detached 于 `origin/main` 的精确 SHA，并从那个 worktree 重启 Gateway。不要在本机主仓运行 `git pull` 或 Gateway。
+- production worktree 共用主仓的 `.venv`；从 worktree 启动时显式使用 `~/Repos/nano-multiagent/.venv/bin/python`，不要在 worktree 创建或提交虚拟环境。
 
 两个 ssh 坑：
 
@@ -82,8 +86,8 @@ ssh mini                  # Host mini -> 100.88.34.122, user czj, id_rsa 免密
 
 ```bash
 # ——— Mac mini ———
-# 1. 拉代码
-ssh mini 'cd ~/Repos/nano-multiagent && git status -sb && git pull'
+# 1. mini 主仓拉取最新 main（保留 data/、.worktrees/ 等未跟踪运行目录）
+ssh mini 'cd ~/Repos/nano-multiagent && git status -sb && git pull --ff-only && git rev-parse HEAD'
 
 # 2. 前端有改动则重建
 ssh mini 'zsh -lc "cd ~/Repos/nano-multiagent/src/IM/frontend && npm ci && npm run build"'
@@ -111,8 +115,20 @@ ssh mini 'cd ~/Repos/nano-multiagent && \
   .venv/bin/python -m personal_assistant.main restart'
 
 # ——— 本机 ———
-# 6. 拉代码（先确认无会挡 pull 的本地改动；保留用户 dirty）
-cd ~/Repos/nano-multiagent && git status -sb && git pull
+# 6. 只 fetch 本机主仓；不要在这里 pull 或启动生产 Gateway
+cd ~/Repos/nano-multiagent && git status -sb && git fetch origin
+target=$(git rev-parse origin/main)
+short=$(git rev-parse --short "$target")
+prod_worktree="$PWD/.worktrees/prod-main-$short"
+if [[ -e "$prod_worktree" ]]; then
+  [[ $(git -C "$prod_worktree" rev-parse HEAD) == "$target" ]] || {
+    print -u2 -r -- "existing production worktree is not $target: $prod_worktree"
+    exit 1
+  }
+else
+  git worktree add --detach "$prod_worktree" "$target"
+fi
+git -C "$prod_worktree" status --short
 
 # 7. 确认本机没有占用 8011 的 IM；有则停掉并告知用户
 lsof -ti:8011 && echo "ABORT: 本机 :8011 被占用，生产模式禁止本地 IM"
@@ -122,10 +138,10 @@ kill $(lsof -ti:4000) 2>/dev/null; sleep 1
 cd ~/Repos/LLM_PROXY && nohup .venv/bin/python start_proxy.py --ui >> nohup.out 2>&1 &
 
 # 9. 确认 config：node_id=macbook-air，im_service.url=http://100.88.34.122:8011
-#    然后重启本机 Gateway
-cd ~/Repos/nano-multiagent && \
+#    从刚刚对齐 latest main 的 prod-main-* worktree 重启本机 Gateway
+cd "$prod_worktree" && \
   SEARXNG_URL=http://100.88.34.122:8888 PYTHONPATH=src \
-  .venv/bin/python -m personal_assistant.main restart
+  ~/Repos/nano-multiagent/.venv/bin/python -m personal_assistant.main restart
 ```
 
 ## 局部动作（用户指定时只做这些）
@@ -136,8 +152,8 @@ cd ~/Repos/nano-multiagent && \
 | 只重建前端 | 步骤 2；IM 静态资源一般即时生效，缓存异常再重启 IM |
 | 只重启 mini Gateway | 步骤 5 |
 | 只重启本机 Gateway | 步骤 9（先做步骤 7） |
-| 只更新 mini 代码+服务 | 步骤 1–5 + 验证 |
-| 只更新本机 Gateway | 步骤 6–9 + 验证本机 node |
+| 只更新 mini 代码+服务 | 在 mini 主仓执行步骤 1–5 + 验证 |
+| 只更新本机 Gateway | 本机主仓 `fetch origin`、将 `prod-main-*` 对齐 `origin/main`、再按步骤 7–9 从该 worktree 重启 + 验证本机 node |
 | 只重启 LLM 代理 | mini→步骤 4；本机→步骤 8；改模型目录见下 |
 | 改 Gateway config | 目标机：`stop` → 编辑 `~/.nanoassistant/config.yaml` → 裸跑或 `restart` |
 
