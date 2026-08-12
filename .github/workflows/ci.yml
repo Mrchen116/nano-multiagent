@@ -1,5 +1,6 @@
 # feat-388 触点 (c) — 远端兜底 CI：push/PR 时前后端双门任一红阻止合并
-# 两个并行 job：python（ruff + pytest）+ frontend（dependency audit + vitest）互不依赖，失败各自独立。
+# Python 质量门禁、两个互斥的 pytest 分片和 frontend（dependency audit + vitest）并行执行。
+# 分片让全量 Python 检查适配 hosted runner 的短生命周期，且不减少覆盖范围。
 name: CI
 
 on:
@@ -42,8 +43,41 @@ jobs:
       - name: ruff format check
         run: ruff format --check .
 
-      - name: pytest (not e2e)
-        run: pytest -m "not e2e" -n 4 --dist worksteal --durations=20 --durations-min=0.5
+  python_tests_agent_pa:
+    name: Python tests (agent and PA)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: pytest (agent and PA, not e2e)
+        run: pytest -m "not e2e" -n 4 --dist worksteal --durations=20 --durations-min=0.5 tests/unit/agent tests/unit/personal_assistant
+
+  python_tests_remaining:
+    name: Python tests (remaining)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: pytest (remaining, not e2e)
+        run: pytest -m "not e2e" -n 4 --dist worksteal --durations=20 --durations-min=0.5 --ignore=tests/unit/agent --ignore=tests/unit/personal_assistant
 
   frontend:
     name: Frontend checks
