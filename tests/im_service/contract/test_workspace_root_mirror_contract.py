@@ -88,3 +88,40 @@ def test_remote_workspace_root_is_never_resolved_or_overwritten_by_live_data(
         assert client.get("/im/v1/agents/agent-1/heartbeat-md").status_code == 200
 
     assert seen_roots == [remote_root] * 6
+
+
+def test_unknown_workspace_is_visible_as_unknown_and_blocks_path_actions(
+    tmp_path: Path,
+) -> None:
+    """An old profile cannot turn IM's local home into a remote workspace fact."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner = register_user(client, username="owner", display_name="Owner")
+        authorize(client, owner)
+        NodeRepository(app.state.connection).upsert_node(
+            node_id="node-1", node_name="Remote", owner_id=owner.owner_id
+        )
+        AgentProfileRepository(app.state.connection).upsert_profile(
+            agent_id="legacy-agent",
+            owner_id=owner.owner_id,
+            node_id="node-1",
+            display_name="Legacy",
+            description="",
+            skills=[],
+            tool_allowlist=[],
+            group_reply_policy="MENTION",
+            default_model=None,
+            workspace_root=None,
+            workspace_is_default=None,
+        )
+
+        config = client.get("/im/v1/agents/legacy-agent/config?source=mirror")
+        capabilities = client.get("/im/v1/agents/legacy-agent/capabilities")
+
+    assert config.status_code == 200
+    assert config.json()["workspace_root"] is None
+    assert config.json()["workspace_is_default"] is None
+    assert capabilities.status_code == 409
+    assert capabilities.json() == {
+        "detail": "workspace_root is pending gateway registration"
+    }

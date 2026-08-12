@@ -243,9 +243,9 @@ def test_update_profile_preserves_non_default_workspace_root(tmp_path: Path) -> 
 
     bugfix-404-M2 决策 5：ConfigService.update_profile 删 workspace_root 参数；
     repo 层 update SQL 不写该列，确保任何一次 UI 配置编辑（system prompt/skills 等）
-    都不会把 workspace_root 重置回 managed default。
+    都不会改写 workspace_root。
 
-    这是修前缺陷的直接复现：update 前存 /custom/workspace，update 后变成 managed default。
+    这是修前缺陷的直接复现：更新配置不应改变 Gateway 已声明的路径。
     """
     from IM.infra.db import connect, initialize_schema
     from IM.infra.repositories.agents import AgentProfileRepository
@@ -271,7 +271,7 @@ def test_update_profile_preserves_non_default_workspace_root(tmp_path: Path) -> 
     profile_before = repo.get_profile(agent_id="Arch")
     assert profile_before is not None
     # bugfix-404-M2: workspace_root 参数已从 update_profile 移除
-    # 修前：传 None 会重置为 managed default；修后：列不写入，存量值保持
+    # 修后：列不写入，Gateway 已声明的存量值保持。
     repo.update_profile(
         agent_id="Arch",
         profile_version=profile_before.profile_version,
@@ -287,5 +287,5 @@ def test_update_profile_preserves_non_default_workspace_root(tmp_path: Path) -> 
     assert profile_after is not None
     assert profile_after.workspace_root == custom_ws, (
         f"update_profile 后 workspace_root 应保持 {custom_ws!r}，"
-        f"实际变为 {profile_after.workspace_root!r}（被重置为 managed default）"
+        f"实际变为 {profile_after.workspace_root!r}（被错误改写）"
     )

@@ -127,6 +127,7 @@ def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(
                             "default_model": "claude-sonnet-4",
                             "reasoning_effort": None,
                             "workspace_root": _WORKSPACE_PATH_SETTING,
+                            "workspace_is_default": False,
                             "heartbeat_json": None,
                         },
                     },

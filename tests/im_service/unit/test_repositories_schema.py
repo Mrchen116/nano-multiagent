@@ -51,10 +51,10 @@ def test_initialize_schema_adds_nullable_reasoning_effort_to_legacy_profiles(
     assert row["reasoning_effort"] is None
 
 
-def test_initialize_schema_backfills_missing_agent_workspace_roots(
+def test_initialize_schema_preserves_missing_agent_workspace_roots(
     tmp_path: Path,
 ) -> None:
-    """Backfill legacy profiles that still have a NULL managed workspace root."""
+    """Legacy NULL roots remain unknown until their Gateway declares one."""
     db_path = tmp_path / "im.db"
     connection = connect(db_path)
     initialize_schema(connection)
@@ -103,7 +103,7 @@ def test_initialize_schema_backfills_missing_agent_workspace_roots(
         ("agent-legacy",),
     ).fetchone()
     assert row is not None
-    assert row["workspace_root"].endswith("/.nanoassistant/workspaces/agent-legacy")
+    assert row["workspace_root"] is None
     assert row["workspace_is_default"] is None
 
 

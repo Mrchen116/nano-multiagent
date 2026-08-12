@@ -271,8 +271,9 @@ class GatewaySessions:
             if durable_owner and durable_owner != authenticated_owner_id:
                 raise GatewayAuthorizationError("node is bound to another owner")
         agents = _require_string_list(payload.get("agents", []), field_name="agents")
-        # bugfix-404-M2 decision 3: optional field carrying per-agent workspace seeds.
-        # Old gateway frames omit this field; IM falls back to managed_workspace_root.
+        # Workspace roots are optional Gateway-owned declarations. Old frames omit
+        # them; IM must keep the resulting profile unknown rather than synthesize a
+        # path from its own host.
         raw_workspaces = payload.get("agent_workspaces")
         agent_workspaces: dict[str, str] = (
             {
