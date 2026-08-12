@@ -47,8 +47,8 @@ class FeatureEntry(TypedDict):
 #   - capabilities API response
 #   - IM frontend toggle rendering
 #
-# Extending: add a new entry here; the IM frontend picks it up automatically
-# once capabilities API is updated (no frontend hardcoding needed).
+# Extending: add a new entry here, then explicitly decide whether the product
+# capability projection should expose a user-facing toggle for it.
 # ---------------------------------------------------------------------------
 
 FEATURE_REGISTRY: dict[str, FeatureEntry] = {
@@ -73,6 +73,18 @@ FEATURE_REGISTRY: dict[str, FeatureEntry] = {
         layer="core",
         label_i18n="feature.skill_creation.label",
         help_i18n="feature.skill_creation.help",
+    ),
+    # Provenance: feat-530 decision 6 — discoverable kernel runtime policy.
+    # PA fixes this False internally; it is intentionally absent from PA's
+    # FEATURE_PROJECTIONS so no user-facing toggle is added.
+    "include_session_created_datetime": FeatureEntry(
+        sections=("core.runtime_footer",),
+        default_on=True,
+        requires_tool=None,
+        requires_any_tool=None,
+        layer="core",
+        label_i18n="feature.include_session_created_datetime.label",
+        help_i18n="feature.include_session_created_datetime.help",
     ),
     # Provenance: feat-428 decision 5 — read-triggered nested AGENTS.md loading
     #   (机制 B). Core feature, default_on=True, but deliberately NOT projected to

@@ -7,6 +7,7 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -134,6 +135,7 @@ class RelayEnvelope:
         agent_id: Optional explicit target agent.
         metadata: Opaque remaining relay metadata.
         attachments: Optional list of attachment dicts forwarded from the IM message.
+        source_timestamp: Provider occurrence time normalized to aware UTC.
     """
 
     relay_task_id: str
@@ -144,6 +146,7 @@ class RelayEnvelope:
     agent_id: str | None
     metadata: Mapping[str, Any]
     attachments: list[dict[str, Any]]
+    source_timestamp: datetime | None = None
     # M247: resolved display name and participant roster from relay_service.
     # None / empty for pre-M247 payloads; gateway must handle absence gracefully.
     sender_display_name: str | None = None
@@ -280,6 +283,7 @@ def _build_inbound(
         is_group=conversation_type == "group",
         agent_id=envelope.agent_id,
         thread_id=_optional_text(envelope.metadata.get("thread_id")),
+        source_timestamp=envelope.source_timestamp,
         metadata={
             "relay_task_id": envelope.relay_task_id,
             "idempotency_key": envelope.idempotency_key,
@@ -359,6 +363,22 @@ def _parse_relay_payload(payload: Mapping[str, object]) -> RelayEnvelope:
         agent_id=_optional_text(payload.get("agent_id")),
         metadata=dict(metadata),
         attachments=attachments,
+        source_timestamp=_parse_rfc3339_timestamp(message.get("created_at")),
         sender_display_name=sender_display_name,
         participants=participants,
     )
+
+
+def _parse_rfc3339_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    normalized = value.strip()
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return parsed.astimezone(timezone.utc)

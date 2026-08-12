@@ -16,6 +16,9 @@ import pytest
 
 from agent.core.hooks.context import HookContext
 from agent.core.hooks.registry import HookAPI, HookRegistry
+from personal_assistant.gateway.readable_input_projection import (
+    ReadableInputProjectionStore,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -38,7 +41,9 @@ def _make_ctx(
     return HookContext(session_id=session_id, metadata=metadata)
 
 
-def _setup_registry() -> tuple[HookRegistry, Any]:
+def _setup_registry(
+    readable_store: ReadableInputProjectionStore | None = None,
+) -> tuple[HookRegistry, Any]:
     """Load the chat_history hook into a fresh registry; return registry + module."""
     # refactor-406-M2: chat_history hook migrated to src/personal_assistant/hooks/.
     from personal_assistant.hooks import chat_history
@@ -47,7 +52,7 @@ def _setup_registry() -> tuple[HookRegistry, Any]:
     api = HookAPI(
         registry, source="product", module_name="chat_history", file_path=None
     )
-    chat_history.setup(api)
+    chat_history.setup(api, readable_input_projection_store=readable_store)
     return registry, chat_history
 
 
@@ -126,6 +131,51 @@ def test_writes_user_and_assistant_lines_after_agent_end(tmp_path: Path) -> None
     assert lines[0]["content"] == "hello"
     assert lines[1]["role"] == "assistant"
     assert lines[1]["content"] == "hi there"
+
+
+def test_writes_exact_readable_projection_without_stripping_user_shaped_header(
+    tmp_path: Path,
+) -> None:
+    store = ReadableInputProjectionStore()
+    model = (
+        "[Web IM Mon 2026-08-10 09:17 CST] [Feishu Mon 2026-08-10 09:16 CST] user text"
+    )
+    readable = "[Feishu Mon 2026-08-10 09:16 CST] user text"
+    store.stage_or_replace("sess-readable", model, readable)
+    registry, mod = _setup_registry(store)
+    mod._pending.clear()
+
+    _simulate_turn(
+        registry,
+        session_id="sess-readable",
+        cwd=str(tmp_path),
+        user_text=model,
+        assistant_text="ok",
+    )
+
+    path = tmp_path / ".nanoassistant" / "chat_history" / "sess-readable.jsonl"
+    records = [json.loads(line) for line in path.read_text().splitlines()]
+    assert records[0]["content"] == readable
+
+
+def test_no_exact_projection_keeps_input_payload_unchanged(tmp_path: Path) -> None:
+    store = ReadableInputProjectionStore()
+    store.stage_or_replace("sess-no-match", "different model", "different raw")
+    registry, mod = _setup_registry(store)
+    mod._pending.clear()
+    raw = "[Feishu Mon 2026-08-10 09:16 CST] user-authored"
+
+    _simulate_turn(
+        registry,
+        session_id="sess-no-match",
+        cwd=str(tmp_path),
+        user_text=raw,
+        assistant_text="ok",
+    )
+
+    path = tmp_path / ".nanoassistant" / "chat_history" / "sess-no-match.jsonl"
+    records = [json.loads(line) for line in path.read_text().splitlines()]
+    assert records[0]["content"] == raw
 
 
 def test_creates_directory_if_missing(tmp_path: Path) -> None:

@@ -544,11 +544,15 @@ def test_list_models_includes_default(tmp_path: Path) -> None:
     assert any(m.is_default for m in models)
 
 
-def test_list_features_only_kernel_general(tmp_path: Path) -> None:
+def test_list_features_includes_general_runtime_policy(tmp_path: Path) -> None:
     kernel = _build(tmp_path)
     feats = kernel.list_features()
     keys = {f.key for f in feats}
-    assert keys == {"memory_curation", "skill_creation"}
+    assert keys == {
+        "memory_curation",
+        "skill_creation",
+        "include_session_created_datetime",
+    }
     assert all(isinstance(f, FeatureInfo) for f in feats)
 
 

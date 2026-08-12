@@ -30,6 +30,15 @@ def test_skill_command_rewrite_preserves_bracket_prefix_without_args() -> None:
     )
 
 
+def test_skill_command_rewrite_preserves_multiple_bracket_prefixes() -> None:
+    assert rewrite_skill_command(
+        "[Feishu Tue 2026-08-11 15:53 CST] [Alice] /skill:doc fix spacing"
+    ) == (
+        '[Feishu Tue 2026-08-11 15:53 CST] [Alice] Use the "doc" skill for this request.\n'
+        "User input:\nfix spacing"
+    )
+
+
 def test_skill_command_rewrite_ignores_bracket_when_no_skill_command() -> None:
     # A plain bracketed message that is not a /skill command stays untouched.
     assert rewrite_skill_command("[Alice] hello there") == "[Alice] hello there"

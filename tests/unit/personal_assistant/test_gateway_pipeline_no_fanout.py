@@ -8,11 +8,16 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
+from datetime import datetime, timezone
 from pathlib import Path
 
 from personal_assistant.channels.base import InboundMessage, OutboundMessage
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.group_context_store import GroupContextStore
+from personal_assistant.gateway.human_message_context import (
+    PaHumanMessageContext,
+    PaTimeContext,
+)
 from personal_assistant.gateway.inbound_models import build_group_context_key
 from personal_assistant.gateway.inbound_pipeline import InboundPipeline
 from tests.helpers.inbound_pipeline import build_inbound_pipeline
@@ -105,6 +110,7 @@ def _build_pipeline(
     *,
     agents: tuple[AgentWorkspaceConfig, ...] | None = None,
     default_agent_id: str = "agent-a",
+    human_message_context: PaHumanMessageContext | None = None,
 ) -> tuple[InboundPipeline, GroupContextStore, _FakeKernelClient]:
     agents = agents or _two_agents(tmp_path)
     store = GroupContextStore(db_path=tmp_path / "group_ctx.sqlite3")
@@ -118,6 +124,7 @@ def _build_pipeline(
         session_store=SessionBindingStore(),
         group_context_store=store,
         default_agent_id=default_agent_id,
+        human_message_context=human_message_context,
     )
     return pipeline, store, kernel
 
@@ -205,8 +212,13 @@ def test_group_effort_requires_its_explicit_target_even_for_always_agents(
 
     agent_a, agent_b = _two_agents(tmp_path)
     agents = (agent_a, replace(agent_b, group_reply_policy="ALWAYS"))
-    pipeline, _, kernel = _build_pipeline(
-        tmp_path, agents=agents, default_agent_id="agent-a"
+    pipeline, store, kernel = _build_pipeline(
+        tmp_path,
+        agents=agents,
+        default_agent_id="agent-a",
+        human_message_context=PaHumanMessageContext(
+            PaTimeContext(zone=timezone.utc, prompt_label="UTC")
+        ),
     )
     relay_for_always_peer = InboundMessage(
         channel_name="web_relay",
@@ -216,12 +228,28 @@ def test_group_effort_requires_its_explicit_target_even_for_always_agents(
         is_group=True,
         agent_id="agent-b",
         metadata={"mentioned_agent_ids": ["agent-a"]},
+        source_timestamp=datetime(2026, 8, 12, 1, 2, tzinfo=timezone.utc),
     )
 
     result = asyncio.run(pipeline.handle_inbound(relay_for_always_peer))
 
     assert result is None
     assert kernel.send_calls == []
+    assert store.drain_with_metadata(
+        build_group_context_key(relay_for_always_peer, "agent-b")
+    ) == [
+        (
+            "user-1",
+            '<mention type="agent" target_id="agent-a"/> /effort high',
+            {
+                "_pa_human_message_context": {
+                    "version": 1,
+                    "header": "[Web IM Wed 2026-08-12 01:02 UTC]",
+                    "time_zone": "UTC",
+                }
+            },
+        )
+    ]
 
 
 def test_peer_agent_reply_relay_buffers_when_self_not_mentioned(tmp_path: Path) -> None:

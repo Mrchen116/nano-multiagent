@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
@@ -61,6 +62,14 @@ from personal_assistant.gateway.inbound_dispatcher import InboundDispatcher
 from personal_assistant.gateway.inbound_pipeline import (
     InboundPipeline,
     InboundRouteConfig,
+)
+from personal_assistant.gateway.human_message_context import (
+    PaHumanMessageContext,
+    PaTimeContext,
+    resolve_pa_time_context,
+)
+from personal_assistant.gateway.readable_input_projection import (
+    ReadableInputProjectionStore,
 )
 from personal_assistant.gateway.runtime_delivery.context import (
     RunDeliveryContextStore,
@@ -121,7 +130,11 @@ from personal_assistant.ws.im_connection import (
 )
 
 
-def _make_prompt_preview_provider(kernel: Any) -> "PromptPreviewProvider":
+def _make_prompt_preview_provider(
+    kernel: Any,
+    *,
+    time_context: PaTimeContext | None = None,
+) -> "PromptPreviewProvider":
     """Build a PromptPreviewProvider backed by Kernel.assemble_prompt_preview.
 
     sdk-fix-prompt-preview: in-process replacement for the removed kernel HTTP
@@ -131,6 +144,7 @@ def _make_prompt_preview_provider(kernel: Any) -> "PromptPreviewProvider":
 
     Args:
         kernel: Assembled Kernel instance (agent.sdk.Kernel).
+        time_context: Gateway-startup timezone snapshot shared with runtime projection.
 
     Returns:
         Sync callable matching PromptPreviewProvider: (agent_id, workspace_root,
@@ -155,6 +169,7 @@ def _make_prompt_preview_provider(kernel: Any) -> "PromptPreviewProvider":
         from personal_assistant.product import prompt_for  # noqa: PLC0415
 
         feat = dict(features or {})
+        feat["include_session_created_datetime"] = False
         scen_type = scenario or "direct"
 
         class _PreviewAgent:
@@ -163,7 +178,11 @@ def _make_prompt_preview_provider(kernel: Any) -> "PromptPreviewProvider":
 
         _PreviewAgent.custom_prompt = custom_prompt  # type: ignore[attr-defined]
         prompt_scenario: dict = {"conversation_type": scen_type}
-        prompt = prompt_for(_PreviewAgent(), scenario=prompt_scenario)
+        prompt = prompt_for(
+            _PreviewAgent(),
+            scenario=prompt_scenario,
+            time_context=time_context,
+        )
 
         return kernel.assemble_prompt_preview(
             workspace_root=_Path(workspace_root) if workspace_root else None,
@@ -202,6 +221,8 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
     # build_kernel owns registry init internally from this LLMConfig.
     llm = LLMConfig.from_payload(config.llm)
     reasoning_catalog = ModelReasoningCatalog(llm)
+    time_context = resolve_pa_time_context(tz_env=os.environ.get("TZ"))
+    readable_input_projection_store = ReadableInputProjectionStore()
 
     config_owner = RuntimeConfigOwner(config)
 
@@ -222,6 +243,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         tool_approval_model=getattr(config.llm, "tool_approval_model", None),
         cron_services=_cron_dispatcher.services,  # shared mutable map (决策 9)
         gateway_dispatch_url_provider=_internal_dispatch_endpoint.current_url,
+        readable_input_projection_store=readable_input_projection_store,
         # can_use_tool=None: IM card flow; see submit_permission_decision.
     )
 
@@ -260,6 +282,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         repository=session_store,
         kernel=kernel,
         reasoning_catalog=reasoning_catalog,
+        time_context=time_context,
     )
     boundary_outbox = BoundaryOutboxDispatcher(store=session_store)
     kernel_shim = kernel_client.InProcessKernelClient(
@@ -268,6 +291,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         session_binder=session_binder,
         product_default_model=config.llm.default_model,
         reasoning_catalog=reasoning_catalog,
+        time_context=time_context,
     )
     # feat-394 decision 3: canonical direct-chat kernel session store.
     # Updated by HeartbeatScheduler.tick() via session_store.find_direct_by_agent()
@@ -617,6 +641,8 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         update_workflow_size_guideline=_update_workflow_size_guideline,
         background_subscriptions=background_subscriptions,
         image_resolver=image_resolver,
+        readable_input_projection_store=readable_input_projection_store,
+        time_context=time_context,
     )
     pipeline = InboundPipeline(
         agent_catalog=agent_catalog,
@@ -624,6 +650,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         group_context_store=group_context_store,
         route_config=InboundRouteConfig(),
         shadow_sync=shadow_sync,
+        human_message_context=PaHumanMessageContext(time_context),
     )
     inbound_dispatcher = InboundDispatcher(pipeline)
     if config.im_service is not None:
@@ -715,7 +742,9 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
                     workspace_root=None,
                 ),
             },
-            prompt_preview_provider=_make_prompt_preview_provider(kernel),
+            prompt_preview_provider=_make_prompt_preview_provider(
+                kernel, time_context=time_context
+            ),
             node_prompt_workspace_resolver=lambda mode, agent_id_hint, workspace_root: (
                 im_config_sync_client.resolve_preview_workspace(
                     workspace_mode=mode,

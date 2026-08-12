@@ -13,6 +13,7 @@ from personal_assistant.gateway.session_composition import (
     project_agent_runtime,
     project_agent_session_capabilities,
 )
+from personal_assistant.gateway.human_message_context import PaTimeContext
 
 if TYPE_CHECKING:
     from agent.sdk import Kernel
@@ -38,6 +39,7 @@ class InProcessKernelClient:
         session_binder: GatewaySessionBinder | None = None,
         product_default_model: str | None = None,
         reasoning_catalog: ModelReasoningCatalog | None = None,
+        time_context: PaTimeContext | None = None,
     ) -> None:
         self._kernel = kernel
         # refactor-406-M1 R6: per-agent config for building PromptSlots at
@@ -50,6 +52,7 @@ class InProcessKernelClient:
         # back to this so unattended runs use the same default as user turns.
         self._product_default_model = product_default_model
         self._reasoning_catalog = reasoning_catalog
+        self._time_context = time_context
 
     async def create_session(
         self,
@@ -84,11 +87,13 @@ class InProcessKernelClient:
                     scenario=metadata or {},
                     resolved_model=model,
                     reasoning_catalog=self._reasoning_catalog,
+                    time_context=self._time_context,
                 ).runtime
             else:
                 capabilities = project_agent_session_capabilities(
                     snapshot,
                     scenario=metadata or {},
+                    time_context=self._time_context,
                 )
                 prompt = capabilities.prompt
                 enabled_tools = capabilities.enabled_tools
@@ -151,6 +156,7 @@ class InProcessKernelClient:
             scenario=metadata or {"agent_id": agent_snapshot.agent_id},
             resolved_model=model,
             reasoning_catalog=self._reasoning_catalog,
+            time_context=self._time_context,
         ).runtime
         desired = self._kernel.identify_runtime(runtime=runtime)
         current = await self._kernel.get_session_runtime(

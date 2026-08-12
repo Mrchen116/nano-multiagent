@@ -404,6 +404,7 @@ class FeishuAdapter:
             is_group=False,
             agent_id=self._agent_id,
             ingress=self._inbound_ingress(event, is_group=False),
+            source_timestamp=event.source_timestamp,
             metadata=metadata,
         )
         assert self._on_inbound is not None
@@ -460,6 +461,7 @@ class FeishuAdapter:
             is_group=True,
             agent_id=self._agent_id,
             ingress=self._inbound_ingress(event, is_group=True),
+            source_timestamp=event.source_timestamp,
             metadata=metadata,
         )
         assert self._on_inbound is not None

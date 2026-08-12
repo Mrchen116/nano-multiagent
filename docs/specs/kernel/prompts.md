@@ -1,6 +1,6 @@
 # kernel (agent) - Prompts Specification
 
-> 对齐: feat-474
+> 对齐: feat-530
 > 上级: [kernel (agent) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)「给库/内核写契约的额外纪律」。本目录只收 **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 + 归档 design)。
@@ -13,17 +13,42 @@
 
 ### Requirement: feature 内核只留通用项，产品专属条件 prompt 经 PromptSlots 持久归属会话配置
 
-内核 feature 目录只含配内核内置工具的通用项；产品专属条件 prompt 全由消费者经 `PromptSlots` 提供。消费者在创建会话时提供初始值，也可经明确的完整运行配置替换更新既有会话；产品不通过普通 per-turn 参数或 hook 临时注入系统提示。
+内核 feature 目录只含产品无关的通用 guidance 或 runtime policy；其中需要内核工具的 guidance 同时受 feature 开关与 required tool 在场门控，不需要工具的通用 policy 可声明 `requires_tool=None`。产品专属条件 prompt 全文由消费者经 `PromptSlots` 提供。消费者在创建会话时提供初始值，也可经明确的完整运行配置替换更新既有会话；产品不通过普通 per-turn 参数或 hook 临时注入系统提示。
 
-#### Scenario: 通用 feature 由会话开关与工具在场门控
-- **GIVEN** 会话运行配置启用某通用 feature 且其所需工具在 enabled tools 中
-- **WHEN** 装配该会话 system prompt
+#### Scenario: 工具相关通用 feature 由会话开关与工具在场门控
+- **GIVEN** 会话运行配置启用某个声明 required tool 的通用 feature
+- **WHEN** required tool 在 enabled tools 中
 - **THEN** 对应 guidance 出现；feature 未开或工具不在场时不渲染
+
+#### Scenario: 无工具通用 policy 继承默认值并接受显式布尔覆盖
+- **GIVEN** 一个声明 `default_on` 且 `requires_tool=None` 的通用 runtime policy
+- **WHEN** 会话完整运行配置省略该 key，或显式提供 `True`/`False` override
+- **THEN** 省略时 Kernel 继承 registry default，显式提供时按该布尔值应用或省略对应 runtime 行为
+- **AND** Kernel 不从产品 PromptText 或 routing metadata 猜测 override
 
 #### Scenario: 产品 prompt 只经会话配置改变
 - **GIVEN** 一个已创建会话
 - **WHEN** 消费者没有显式替换其运行配置而连续提交多轮
 - **THEN** PromptSlots 产品内容保持稳定，普通 per-turn 参数和 hook 不能改写系统提示
+
+### Requirement: session 创建时间由完整运行配置显式控制
+
+Kernel 通过 product-neutral feature `include_session_created_datetime` 控制 runtime footer 是否包含 session 创建时间。该 feature 默认 `True`，保持既有 `Current date and time` 与 current working directory；消费者显式设为 `False` 时只保留 current working directory。稳定 timezone 等产品文案仍由消费者经普通 PromptSlots 提供，Kernel 不根据 PromptText name、workspace 或 routing metadata 猜测产品。该 policy 不改变消息的提交、消费、持久化或恢复生命周期。
+
+#### Scenario: 显式关闭 session 创建时间
+- **GIVEN** 一个 session 的完整运行配置将 `include_session_created_datetime` 设为 `False`，且 PromptSlots 提供稳定 timezone
+- **WHEN** Kernel 为该 session 装配 system prompt
+- **THEN** prompt 包含消费者提供的稳定 timezone 与 current working directory
+- **AND** 不把 session 创建时刻渲染为 `Current date and time`
+
+#### Scenario: 默认或显式开启时保持 runtime footer bytes
+- **GIVEN** 一个 session 省略 `include_session_created_datetime` override 或显式设为 `True`
+- **WHEN** Kernel 为该 session 装配 system prompt
+- **THEN** runtime footer 继续按既有顺序渲染 session-created current datetime 与 current working directory
+
+#### Scenario: PromptText name 不改变 Kernel policy
+- **WHEN** 消费者增加、删除或重命名一个 PromptText，但没有改变完整运行配置中的 `include_session_created_datetime`
+- **THEN** Kernel runtime footer policy 不因 PromptText name 变化
 
 ### Requirement: 系统提示由内核模板与 PromptSlots 四槽组装，并在显式配置替换边界更新
 

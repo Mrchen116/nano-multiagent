@@ -9,6 +9,8 @@ Covers the bug where image messages sent from the Web IM frontend resulted in a
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from personal_assistant.channels.web_relay_adapter import (
     WebRelayAdapter,
     _parse_relay_payload,
@@ -126,6 +128,27 @@ def test_accept_relay_without_attachments_does_not_set_metadata_key() -> None:
     inbound = adapter.accept_relay(payload)
 
     assert "attachments" not in inbound.metadata
+
+
+def test_accept_relay_normalizes_message_created_at_to_utc() -> None:
+    received = []
+    adapter = WebRelayAdapter()
+    adapter.start(received.append)
+
+    inbound = adapter.accept_relay(_minimal_payload())
+
+    assert inbound.source_timestamp == datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+
+def test_accept_relay_treats_invalid_created_at_as_missing() -> None:
+    payload = _minimal_payload()
+    payload["message"]["created_at"] = "now"
+    adapter = WebRelayAdapter()
+    adapter.start(lambda _message: None)
+
+    inbound = adapter.accept_relay(payload)
+
+    assert inbound.source_timestamp is None
 
 
 def test_accept_relay_multiple_attachments_all_forwarded() -> None:

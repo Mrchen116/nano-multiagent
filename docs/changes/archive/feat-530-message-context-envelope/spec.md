@@ -49,6 +49,10 @@
   A(原话): 对
   Agent 解读: 本期不增加精确当前时间查询工具，只解决 PA 真人消息的自然时间感与实际入口感知。
 
+## 设计阶段边界裁决
+
+current Kernel拥有system runtime footer；PA现有边界无法在不让Core猜测产品的前提下，独立关闭session-created datetime。为忠实实现已确认的用户行为，本unit采用一个最小、产品无关的Kernel feature `include_session_created_datetime`：复用现有`SessionRuntimeConfig.features`，由`Kernel.list_features()`公开发现，默认`True`保持current行为；PA顶层session固定设为`False`，Coding CLI与subagent沿用默认值。该裁决不新增SDK方法、DTO、参数或PA-specific API，但会在`agent.sdk`的feature目录中增加一个可选择语义，并同步Kernel SDK canonical。用户在最终design review时对这一必要边界例外做最终拍板。
+
 ## 用户场景
 
 用户与 PA 保持一个从早上延续到晚上的长会话。当前产品只在 system prompt 中保留会话创建时刻，并把它持续称为 `Current date and time`；每条历史消息进入模型时又没有自己的时间。改进后，Agent 能从每条新消息附带的发生时间理解“早上那条”“刚才”“今天晚上”等自然时间关系，不再把会话创建时刻误认为此刻。时间以 channel 提供的消息发生时间为先，缺失时采用 Gateway 接收时间，并按 PA 用户所在时区理解。
@@ -57,7 +61,7 @@
 
 群聊保留现有体验：Agent 继续从 `[display_name]` 与 communication context 理解谁在说话、有哪些参与者以及如何 mention，不再重复增加 `Group`；私聊也不增加没有价值的 `Direct`。时间与 channel envelope 只存在于模型上下文，用户在 Web IM、飞书和影子会话中看到、复制和搜索的消息仍是自己输入的原文。
 
-功能启用后形成的新消息在 Gateway 重启或历史重放后仍保留原来的发生时间与实际入口。启用前的旧消息缺少可靠 channel 或时间时保持原样，不用当前时间或当前入口补造历史。Coding CLI、heartbeat、cron、subagent 与内部通知继续使用既有行为；本期也不增加 `session_status` 一类精确时间查询工具。
+功能启用后、按既有路径进入 transcript或group buffer的新消息，在 Gateway重启或历史重放后仍保留原来的发生时间与实际入口。启用前的旧消息缺少可靠 channel或时间时保持原样，不用当前时间或当前入口补造历史。Coding CLI、heartbeat、cron、subagent与内部通知继续使用既有行为；本期也不增加 `session_status`一类精确时间查询工具。active steer只复用相同的模型侧envelope，不改变其现有接受、消费、持久化或恢复语义。
 
 ## 验收标准
 
@@ -112,7 +116,7 @@
 ### Requirement: 新消息的时间与入口可稳定延续
 
 #### Scenario: Gateway 重启后继续既有会话
-- **GIVEN** 功能启用后，PA 会话已经收到带可靠时间和实际入口的新消息
+- **GIVEN** 功能启用后，PA 会话已有按既有 normal submit或group buffer路径进入可恢复历史、且带可靠时间和实际入口的新消息
 - **WHEN** Gateway 重启，用户继续该会话并追问先前消息的时间或来源
 - **THEN** Agent 看到的先前消息仍保持原来的发生时间与实际入口
 
@@ -140,12 +144,13 @@
   - 每条新消息的实际入口平台；同一共享会话中的不同入口逐消息区分。
   - PA system prompt 不再把会话创建时刻表达为当前时间，只保留稳定时区。
   - 模型侧 envelope 与用户可见消息正文分离。
-  - 功能启用后的新消息在重启和历史重放中保持一致；旧消息不猜测回填。
+  - 功能启用后、按既有路径进入 transcript或group buffer的新消息在重启和历史重放中保持一致；旧消息不猜测回填。
 - 非目标：
   - 不改变 Coding CLI、heartbeat、cron、subagent 或内部通知的消息行为。
   - 不新增 `session_status` 或其他精确当前时间查询工具。
-  - 不新增或改变 `agent.sdk` 公共能力与消费者契约。
+  - 不新增 `agent.sdk` 方法、DTO、参数或 PA-specific API；除复用既有 complete-runtime `features` 增加 product-neutral `include_session_created_datetime` 能力外，不扩张 SDK consumer surface。
   - 不重复增加 `Direct` / `Group`，不向模型加入 Bot ID、chat ID、host 或 IP。
   - 不在本期引入 OpenClaw 的 reply、forward、location、queued message、inter-session 等其他动态 prefix。
   - 不改变 Web IM、飞书、影子会话的消息展示、复制与搜索正文。
   - 不为功能启用前缺少可靠元数据的旧消息补造时间或 channel。
+  - 不改变 active steer 的接受、消费、持久化、失败处理或恢复语义；该通用生命周期问题不属于本需求。

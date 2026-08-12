@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
@@ -27,6 +28,10 @@ from personal_assistant.channels.base import (
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
 from personal_assistant.gateway.channel_registry import ChannelRegistry
+from personal_assistant.gateway.human_message_context import (
+    PaHumanMessageContext,
+    PaTimeContext,
+)
 from tests.helpers.inbound_pipeline import build_inbound_pipeline, inbound_graph
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.inbound_models import (
@@ -274,6 +279,9 @@ def test_active_workflow_commands_query_config_and_invoke_named_definition(
                 (agent_id, value)
             ),
             reasoning_catalog=reasoning_catalog,
+            human_message_context=PaHumanMessageContext(
+                PaTimeContext(zone=timezone.utc, prompt_label="UTC")
+            ),
         )
 
         listed = await pipeline.handle_inbound(
@@ -284,6 +292,7 @@ def test_active_workflow_commands_query_config_and_invoke_named_definition(
                 external_chat_id="chat-1",
                 is_group=False,
                 agent_id="agent-a",
+                source_timestamp=datetime(2026, 8, 12, 1, 2, tzinfo=timezone.utc),
             )
         )
         assert listed is not None
@@ -308,6 +317,7 @@ def test_active_workflow_commands_query_config_and_invoke_named_definition(
                 external_chat_id="chat-1",
                 is_group=False,
                 agent_id="agent-a",
+                source_timestamp=datetime(2026, 8, 12, 1, 2, tzinfo=timezone.utc),
             )
         )
         assert paused is not None
@@ -321,6 +331,7 @@ def test_active_workflow_commands_query_config_and_invoke_named_definition(
                 external_chat_id="chat-1",
                 is_group=False,
                 agent_id="agent-a",
+                source_timestamp=datetime(2026, 8, 12, 1, 2, tzinfo=timezone.utc),
             )
         )
         assert saved is not None
@@ -336,6 +347,7 @@ def test_active_workflow_commands_query_config_and_invoke_named_definition(
                 external_chat_id="chat-1",
                 is_group=False,
                 agent_id="agent-a",
+                source_timestamp=datetime(2026, 8, 12, 1, 2, tzinfo=timezone.utc),
             )
         )
         assert configured_result is not None
@@ -350,6 +362,7 @@ def test_active_workflow_commands_query_config_and_invoke_named_definition(
                 external_chat_id="chat-1",
                 is_group=False,
                 agent_id="agent-a",
+                source_timestamp=datetime(2026, 8, 12, 1, 2, tzinfo=timezone.utc),
             )
         )
         assert effort_result is not None
@@ -357,6 +370,7 @@ def test_active_workflow_commands_query_config_and_invoke_named_definition(
         assert kernel.reconfigure_calls[-1][1].workflow_ultracode is True
         assert kernel.reconfigure_calls[-1][1].reasoning_effort == "xhigh"
         assert kernel.reconfigure_calls[-1][1].reasoning_effort_override == "xhigh"
+        assert kernel.submit_calls == []
 
         invoking = asyncio.create_task(
             pipeline.handle_inbound(
@@ -367,11 +381,13 @@ def test_active_workflow_commands_query_config_and_invoke_named_definition(
                     external_chat_id="chat-1",
                     is_group=False,
                     agent_id="agent-a",
+                    source_timestamp=datetime(2026, 8, 12, 1, 2, tzinfo=timezone.utc),
                 )
             )
         )
         await kernel.wait_stream("run-1")
         submitted_text = kernel.submit_calls[0]["parts"][0]["text"]
+        assert submitted_text.startswith("[Web IM Wed 2026-08-12 01:02 UTC] ")
         assert 'saved Workflow named "deep-research"' in submitted_text
         assert "compare providers" in submitted_text
         kernel.finish("run-1", text="launched")

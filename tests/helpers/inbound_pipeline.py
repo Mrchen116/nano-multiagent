@@ -16,6 +16,7 @@ from personal_assistant.gateway.background_subscriptions import (
 )
 from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.gateway.image_attachments import ImageAttachmentResolver
+from personal_assistant.gateway.human_message_context import PaHumanMessageContext
 from personal_assistant.gateway.inbound_models import RelayLifecycleCallback
 from personal_assistant.gateway.inbound_pipeline import (
     InboundPipeline,
@@ -24,6 +25,9 @@ from personal_assistant.gateway.inbound_pipeline import (
 )
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
+from personal_assistant.gateway.readable_input_projection import (
+    ReadableInputProjectionStore,
+)
 from personal_assistant.gateway.session_binder import GatewaySessionBinder
 from personal_assistant.gateway.session_keys import (
     SessionBindingStore,
@@ -75,6 +79,8 @@ def build_inbound_pipeline(
     bg_reply_sender: Callable[[str, ReplyContext, str], Awaitable[None]] | None = None,
     update_workflow_size_guideline: Callable[[str, str], None] | None = None,
     max_session_drain_locks: int = 4096,
+    human_message_context: PaHumanMessageContext | None = None,
+    readable_input_projection_store: ReadableInputProjectionStore | None = None,
     reasoning_catalog: ModelReasoningCatalog | None = None,
 ) -> InboundPipeline:
     """Build production owners explicitly while preserving concise test setup."""
@@ -107,6 +113,7 @@ def build_inbound_pipeline(
         update_workflow_size_guideline=update_workflow_size_guideline,
         run_idle_timeout_seconds=run_idle_timeout_seconds,
         max_transition_locks=max_session_drain_locks,
+        readable_input_projection_store=readable_input_projection_store,
     )
     pipeline = InboundPipeline(
         agent_catalog=catalog,
@@ -117,6 +124,7 @@ def build_inbound_pipeline(
             default_agent_id=default_agent_id,
         ),
         shadow_sync=shadow_sync,
+        human_message_context=human_message_context,
     )
     _GRAPHS[pipeline] = InboundTestGraph(
         pipeline=pipeline,

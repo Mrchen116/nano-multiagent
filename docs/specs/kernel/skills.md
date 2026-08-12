@@ -1,6 +1,6 @@
 # kernel (agent) - Skills Specification
 
-> 对齐: bugfix-527
+> 对齐: feat-530
 > 上级: [kernel (agent) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)「给库/内核写契约的额外纪律」。本目录只收 **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 + 归档 design)。
@@ -13,15 +13,15 @@ Skill 发现、按名读取、管理、生命周期、使用统计与能力预�
 
 ### Requirement: Skill 自动发现走 prompt 列表,显式调用改写为自然语言
 
-存在可见 skill 时,内核在 system prompt 注入 `<available_skills>` 列表(名称 + 描述 + 路径),模型按需用 `skill_view(name=...)` 加载 SKILL.md 全文;消费者输入的 `/skill:<name>` 被改写为自然语言指令;命令前可选的 `[..]` 标注段被原样保留(内核不解析其内容),多 part 输入中改写作用于命令所在的那个 part。
+存在可见 skill 时,内核在 system prompt 注入 `<available_skills>` 列表(名称 + 描述 + 路径),模型按需用 `skill_view(name=...)` 加载 SKILL.md 全文;消费者输入的 `/skill:<name>` 被改写为自然语言指令;命令前可选的一个或多个 `[..]` 标注段被原样保留(内核不解析其内容),多 part 输入中改写作用于命令所在的那个 part。
 
 #### Scenario: 显式 skill 命令被改写
 - **WHEN** 消费者输入 `/skill:doc`(或带参数 `/skill:doc fix heading spacing`)
 - **THEN** 内核将其改写为 `Use the "doc" skill for this request.`(带参数时追加 `User input:` 段), 然后走常规推理,不在改写阶段直接展开 SKILL.md 原文
 
-#### Scenario: 命令前带标注段时改写保留该标注
-- **WHEN** 消费者提交 `[Alice] /skill:doc fix spacing`(命令前有一个 `[..]` 标注段,如 IM 群聊的发送者标注)
-- **THEN** 内核改写为 `[Alice] Use the "doc" skill for this request.`(带参数追加 `User input:` 段),原标注段原样保留、内核不解析其内容
+#### Scenario: 命令前带一个或多个标注段时改写保留全部标注
+- **WHEN** 消费者提交 `[Alice] /skill:doc fix spacing`,或提交 `[Feishu Tue 2026-08-11 15:53 CST] [Alice] /skill:doc fix spacing`
+- **THEN** 内核改写命令并原样保留前面的全部标注段,带参数时追加 `User input:` 段;内核不解析标注内容
 
 #### Scenario: 多 part 输入中命令所在 part 被改写
 - **WHEN** 消费者提交多 part 输入(如群聊缓冲上下文,或文本命令 + 末尾图片),其中一个 text part 是 `/skill:doc`

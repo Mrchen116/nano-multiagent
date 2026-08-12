@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
 from unittest.mock import MagicMock, patch
 
@@ -13,6 +14,7 @@ from personal_assistant.channels.feishu.client import (
     FeishuAPIError,
     FeishuAuthError,
     FeishuClient,
+    _parse_feishu_create_time,
     _parse_feishu_event,
 )
 
@@ -46,6 +48,7 @@ def _sdk_event(
     event.event.message.content = content
     event.event.message.message_type = message_type
     event.event.message.message_id = "message-1"
+    event.event.message.create_time = "1786324620000"
     event.event.message.mentions = mentions or []
     return event
 
@@ -71,6 +74,16 @@ def test_event_parsing_preserves_visible_message_identity(
     assert parsed.chat_id == "oc_chat"
     assert parsed.message_id == "message-1"
     assert parsed.is_group is is_group
+    assert parsed.source_timestamp == datetime(2026, 8, 10, 1, 17, tzinfo=timezone.utc)
+
+
+@patch("personal_assistant.channels.feishu.client.datetime")
+def test_create_time_parse_treats_platform_range_error_as_missing(
+    datetime_class: MagicMock,
+) -> None:
+    datetime_class.fromtimestamp.side_effect = OSError("timestamp out of range")
+
+    assert _parse_feishu_create_time("1786324620000") is None
 
 
 def test_event_parsing_normalizes_mentions() -> None:

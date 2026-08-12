@@ -333,9 +333,10 @@ def _render_runtime_footer(ctx: PromptContext) -> str:
         datetime_str = ctx.current_datetime or ""
         cwd_str = ctx.cwd or ""
 
-    return (
-        f"Current date and time: {datetime_str}\nCurrent working directory: {cwd_str}"
-    )
+    cwd_line = f"Current working directory: {cwd_str}"
+    if not ctx.flags.get("include_session_created_datetime", True):
+        return cwd_line
+    return f"Current date and time: {datetime_str}\n{cwd_line}"
 
 
 # Provenance: new — migrated from RUNTIME_FILL:CURRENT_DATETIME/CURRENT_WORKING_DIRECTORY

@@ -2248,10 +2248,9 @@ class Kernel:
     def list_features(self) -> list:
         """Return the kernel's general features as ``FeatureInfo`` DTOs (决策 3/4).
 
-        Only kernel-owned general features (those whose guidance is a core
-        segment) are reported: ``memory_curation`` / ``skill_creation``.
-        Product-specific toggles (heartbeat / cron) are an application-layer
-        projection, not kernel features.
+        Kernel-owned general features and runtime policies are reported.
+        Product-specific toggles (heartbeat / cron) remain an application-layer
+        projection.
 
         Returns:
             List of FeatureInfo(key, default_on, requires_tool).
@@ -2262,10 +2261,13 @@ class Kernel:
 
         out: list = []
         for key, entry in FEATURE_REGISTRY.items():
-            # Kernel-general features are those gated on a kernel built-in tool
-            # (memory / skill_manage). Product toggles (heartbeat/cron) are
-            # projected by the application, not reported here.
-            if key not in ("memory_curation", "skill_creation"):
+            # This explicit projection includes kernel guidance and runtime
+            # policies. Product toggles (heartbeat/cron) stay application-owned.
+            if key not in (
+                "memory_curation",
+                "skill_creation",
+                "include_session_created_datetime",
+            ):
                 continue
             out.append(
                 FeatureInfo(
