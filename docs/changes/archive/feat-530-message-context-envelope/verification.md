@@ -198,3 +198,104 @@ None.
 None. `git diff origin/main...a26e5ca4fee9033bd9c701bd9213320b0c83f2da` uses merge-base `c40a9aa80f3f9107327217b868f11ec664d34bf9`; every changed consumer-visible behavior maps to one of the four reconciled deltas above. Optional PA-internal dataclass fields, process-local provenance plumbing, capability docstrings/comments, tests, and evidence do not create additional consumer contracts. Focused reconciliation validation: 195 passed.
 
 Outcome: aligned
+
+# Round 3
+
+## Verification Report: feat-530
+
+> Validation snapshot: `5dd22bb4fa2fbcbd10d247ff3f3c77f71f598535 → d2e7032ea7b963bdf8089c93d00e12bfab6b9c95`
+
+### Summary
+
+Mode: full
+Delta range: N/A
+Focus issues: current-main Gateway re-integration: Workflow, model-aware effort, typed ingress and time/channel envelope coexistence
+requires_full_verification: false
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 5/5 requirements covered; 1/1 implementation milestone evidenced |
+| Correctness | 12/12 scenarios covered; current-main integration seams covered |
+| Coherence | Followed |
+
+All checks passed. Ready for PR.
+
+## Completeness
+
+- Tasks: 8/8 complete (`M1-sealed-human-message-envelope/tasks.md:24-31`). The archived milestone records the implementation, independent gates, corrected deltas, and current-main integration evidence.
+- Milestone: feat-530-M1 still satisfies every worker exit criterion after merging current main. Adapter normalization, Dispatcher receipt capture, one-time Pipeline freeze, durable group metadata, normal/steer projection, readable-history handoff, PA timezone policy, and Kernel capability discovery remain present.
+- Spec coverage: all five top-level requirements and twelve scenarios retain implementation and permanent regression coverage. The historical real Web IM/Feishu direct/group/catch-up evidence remains correctly scoped to the earlier implementation snapshot; Round 3 does not claim a new real-channel journey at `d2e7032` (`M1-sealed-human-message-envelope/progress.md:31-39`).
+- Current-main integration: Workflow runtime/commands/delivery, model-aware `/effort`, typed ingress, reasoning catalog composition, and Gateway-owned workspace roots are all present in the merged tree and covered at their stable seams.
+- Prototype / Reference coverage: N/A. `design.md` has no frontend prototype or must-match reference contract.
+
+## Correctness
+
+| Requirement / Scenario | 实现位置（file:line） | 测试覆盖 | 状态 |
+|---|---|---|---|
+| 每条真人消息时间 / 长会话跨时段 | `src/personal_assistant/gateway/human_message_context.py:90-116`; `src/personal_assistant/gateway/session_run_coordinator.py:1482-1531`; `src/agent/core/agent/prompt_sections/core_sections.py:320-339` | `tests/unit/personal_assistant/test_human_message_context.py`; `tests/integration/test_personal_assistant_prompt_integration.py` | covered |
+| 每条真人消息时间 / Channel 来源时间优先 | `src/personal_assistant/channels/web_relay_adapter.py:346-424`; `src/personal_assistant/channels/feishu/client.py:1161-1195`; `src/personal_assistant/gateway/human_message_context.py:100-108` | Web ISO, Feishu live, REST history, and freezer table tests in the 196-test focused run | covered |
+| 每条真人消息时间 / 缺来源时固定 Gateway receipt | `src/personal_assistant/gateway/inbound_dispatcher.py:39-79`; `src/personal_assistant/gateway/human_message_context.py:103-107` | `tests/unit/personal_assistant/test_inbound_dispatcher.py`; receipt fallback tables | covered |
+| 逐消息实际入口 / 同一 shadow 中 Feishu 后 Web IM | Channel label derives from each message at `src/personal_assistant/gateway/human_message_context.py:100-115,205-210`; typed shadow identity remains separate at `src/personal_assistant/channels/base.py:23-62` | Cross-ingress durable group assertion at `tests/unit/personal_assistant/test_gateway_pipeline_sender_prefix.py:245-281` | covered |
+| 逐消息实际入口 / 群聊保留 sender 且不输出 chat type/路由身份 | Sender is projected before the frozen header at `src/personal_assistant/gateway/session_run_coordinator.py:1513-1526`; header labels are restricted at `src/personal_assistant/gateway/human_message_context.py:205-210` | Sender/image/mixed-buffer coverage in `test_gateway_pipeline_sender_prefix.py` | covered |
+| 逐消息实际入口 / 私聊只输出平台 | `src/personal_assistant/gateway/human_message_context.py:100-116,205-210` | Direct Web/Feishu mapping cases in `test_human_message_context.py` | covered |
+| envelope 不改原文 / 原入口查看与复制 | Pipeline completes raw shadow sync before metadata attachment at `src/personal_assistant/gateway/inbound_pipeline.py:150-176`; `attach_frozen_context()` copies metadata without changing text at `src/personal_assistant/gateway/human_message_context.py:119-141` | Raw/model split and header-shaped raw-body tests in `test_gateway_readable_projection.py` and `test_chat_history_hook.py` | covered |
+| envelope 不改原文 / Feishu shadow 正文不带 prefix | Typed external identity controls shadow routing at `src/personal_assistant/gateway/inbound_pipeline.py:242-261`; model decoration happens later | External shadow + exact readable-projection coverage in the focused run | covered |
+| 新消息稳定延续 / Gateway 重启后沿用原时间与入口 | Buffer stores the frozen metadata allowlist at `src/personal_assistant/gateway/inbound_pipeline.py:453-465`; Coordinator drains metadata unchanged at `src/personal_assistant/gateway/session_run_coordinator.py:1486-1526` | SQLite reopen, mixed buffer, active-steer identical-parts, and historical real restart evidence | covered |
+| 新消息稳定延续 / 旧历史不补造 | Only valid v1 provenance is accepted at `src/personal_assistant/gateway/human_message_context.py:53-76`; absent metadata produces an undecorated copy at `src/personal_assistant/gateway/human_message_context.py:144-169` | Legacy/new mixed-row test at `tests/unit/personal_assistant/test_gateway_pipeline_sender_prefix.py:284-307` | covered |
+| 非 PA 保持现状 / Coding CLI | Kernel registry default remains on at `src/agent/core/agent/prompt_sections/feature_registry.py:77-88`; footer defaults to old bytes at `src/agent/core/agent/prompt_sections/core_sections.py:320-339` | Default/explicit-true byte identity in `test_personal_assistant_prompt_integration.py`; SDK capability contracts | covered |
+| 非 PA 保持现状 / heartbeat、cron、subagent、内部通知 | PA top-level runtime fixes only footer policy at `src/personal_assistant/gateway/session_composition.py:52-97`; freezer accepts only Web relay/Feishu at `src/personal_assistant/gateway/human_message_context.py:205-210` | Human/heartbeat/cron runtime equality and unknown-channel cases | covered |
+
+Current-main coexistence checks:
+
+- Workflow and model-aware effort: Pipeline parses `/effort` before Workflow dispatch and preserves explicit group targeting (`src/personal_assistant/gateway/inbound_pipeline.py:120-139,206-240,302-356`). The combined regression proves `/effort ultracode` stays control-only while a named Workflow ordinary turn receives the frozen header (`tests/unit/personal_assistant/test_inbound_pipeline_session.py:232-398`).
+- Group targeting: an `/effort` addressed to another Agent cannot fall through to an `ALWAYS` peer; the peer buffer retains the exact raw command and frozen provenance (`tests/unit/personal_assistant/test_gateway_pipeline_no_fanout.py:208-252`).
+- Typed ingress: `InboundIngress` remains the routing identity owner (`src/personal_assistant/channels/base.py:53-62`); `RoutedInbound` carries typed message + Gateway shadow state (`src/personal_assistant/gateway/inbound_models.py:43-48`). Envelope metadata is orthogonal and does not recreate legacy routing dictionaries.
+- Workflow delivery and composition: current-main permission bindings, event observer, background reply sender, and Workflow config owner remain wired at `src/personal_assistant/gateway/composition.py:498-646`; feat-530 adds only the shared time/readable owners alongside them.
+- Reasoning catalog: one `ModelReasoningCatalog` is constructed from the active LLM config and passed to binder, Kernel shim, config sync, coordinator, and capability reporters (`src/personal_assistant/gateway/composition.py:222-225,280-295,393-425,618-646,722-737`).
+- Gateway-owned workspace roots: dynamic creation still uses `_make_workspace_root_factory(config.node.workspace_base)` at `src/personal_assistant/gateway/composition.py:402-425`; session/runtime SDK calls use the captured local Agent workspace (`src/personal_assistant/gateway/session_run_coordinator.py:1223-1230,1592-1625`). The opaque IM mirror boundary and import boundaries pass independently.
+
+Independent validation at `d2e7032`:
+
+- Focused feat-530 + current-main integration set: 196 passed.
+- Import / SDK / Gateway-owned workspace boundary set: 23 passed, 48 deselected.
+- Complete non-E2E collection: 3444 selected tests; `pytest -m 'not e2e' -n 4` exited successfully.
+- Ruff over `src/personal_assistant`, `src/agent`, and affected unit/contract/integration tests: passed.
+- `scripts/docs_check.py`: passed (210 maintained Markdown sources, 70 required routes).
+- `git diff --check 5dd22bb4f..d2e7032ea`: passed.
+
+The added integration tests protect distinct stable seams: one checks Workflow/effort command dispatch composed with envelope projection, and one checks group control targeting composed with raw durable buffering. They do not duplicate the lower-level formatter/parser tests and do not turn historical real-stack evidence into permanent E2E tests.
+
+## Coherence
+
+| design / architecture decision | 遵守? | 代码证据（file:line） |
+|---|---|---|
+| 1. Dispatcher 固定 receipt，Pipeline 只 freeze 一次 | 是 | `src/personal_assistant/gateway/inbound_dispatcher.py:39-79`; `src/personal_assistant/gateway/inbound_pipeline.py:150-163` |
+| 2. Adapter 只归一化 provider time，Feishu live/history 共用 parser | 是 | `src/personal_assistant/channels/web_relay_adapter.py:346-424`; `src/personal_assistant/channels/feishu/client.py:1161-1195`; `src/personal_assistant/channels/feishu/adapter.py:383-468` |
+| 3. v1 稀疏 header，sender/附件顺序保持 | 是 | `src/personal_assistant/gateway/human_message_context.py:90-169`; `src/personal_assistant/gateway/session_run_coordinator.py:1482-1531` |
+| 4. Gateway 启动时共享一份 timezone snapshot | 是 | `src/personal_assistant/gateway/composition.py:222-225,280-295,618-653,745-747` |
+| 5. raw/model/readable 分层，readable 只 exact provenance 消费 | 是 | `src/personal_assistant/gateway/session_run_coordinator.py:1214-1236,1482-1531`; `src/personal_assistant/gateway/readable_input_projection.py:8-59`; `src/personal_assistant/hooks/chat_history.py:62-90` |
+| 6. complete-runtime feature 控制 session-created datetime | 是 | `src/agent/core/agent/prompt_sections/feature_registry.py:77-88`; `src/agent/core/agent/prompt_sections/core_sections.py:320-339`; `src/personal_assistant/gateway/session_composition.py:52-97`; `src/agent/sdk/kernel.py:2269` |
+| 7. cache/历史只追加，旧 bytes 不重写 | 是 | Decoration occurs only during new admission at `src/personal_assistant/gateway/session_run_coordinator.py:1482-1531`; missing provenance remains plain |
+| 8. 不新增 PA-specific SDK/IM schema/DB table/时间工具 | 是 | Existing SDK feature catalog and existing group metadata JSON are extended; SDK/import contracts pass |
+| Current-main Workflow / effort / typed ingress 与 envelope 正交组合 | 是 | `src/personal_assistant/gateway/inbound_pipeline.py:120-240`; `src/personal_assistant/gateway/session_run_coordinator.py:794-951`; combined tests cited above |
+| #274 Gateway-owned workspace root 边界不倒退 | 是 | `src/personal_assistant/gateway/composition.py:402-425`; `tests/im_service/contract/test_workspace_root_mirror_contract.py:13-126`; workspace/import focused set passes |
+
+Architecture remains coherent with `SPEC.md`: PA imports the Kernel only through `agent.sdk`; Core stays product-neutral; IM does not import or directly access Agent/Gateway workspaces; feat-530 extends existing ingress, runtime feature, group metadata, and hook mechanisms instead of creating parallel routing, timing, or workspace authorities.
+
+### Prototype / Reference Contract
+
+N/A.
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+None.
+
+### WARNING（提 PR 前必须修）
+
+None.
+
+### SUGGESTION（可以修）
+
+None.
