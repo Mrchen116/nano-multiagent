@@ -179,7 +179,7 @@ Gateway 在已路由的 direct chat，或明确指向 Agent 的 group chat 中�
 
 ### Requirement: 用户可安全地手动压缩当前 Agent 会话
 
-Gateway 在已路由的聊天中把精确的 `/compact` 和 `/compact <关注点>` 作为当前 Kernel session 的手动压缩命令。非空关注点仅指导这次摘要保留重点；它不作为普通用户 turn 写入会话。Gateway 只在当前 session 无 active 或 queued work 时执行压缩，并在同一聊天明确区分成功、无需压缩、忙碌和失败；失败不得改变调用前上下文。其他 slash 文本按普通用户消息处理。
+Gateway 在已路由的聊天中把精确的 `/compact` 和 `/compact <关注点>` 作为当前 Kernel session 的手动压缩命令。非空关注点仅指导这次摘要保留重点；它不作为普通用户 turn 写入会话。无论当前 session 是否有 active 或 queued work，Gateway 都接受该命令并立即预留其 FIFO 位置：在此前工作完成后执行压缩，且后续普通消息不得越过该压缩边界。若 `/new` 在已排队的压缩执行前切换会话，Gateway 不在新会话上执行该旧压缩，并在同一聊天说明其未执行。Gateway 在同一聊天明确区分成功、无需压缩、未执行和失败；失败不得改变调用前上下文。其他 slash 文本按普通用户消息处理。
 
 #### Scenario: 空闲会话按关注点压缩
 - **GIVEN** 当前聊天已有可压缩的历史，其中含认证方案和未完成事项
@@ -193,13 +193,20 @@ Gateway 在已路由的聊天中把精确的 `/compact` 和 `/compact <关注点
 - **THEN** Gateway 在原聊天说明无需压缩
 - **AND** 不为该 no-op 创建空 Kernel session，也不改变已有会话上下文
 
-#### Scenario: 忙碌或失败时上下文不变
+#### Scenario: 忙碌时压缩排队并成为后续消息的 FIFO 屏障
 - **GIVEN** 当前 session 有 active 或 queued run
 - **WHEN** 用户发送 `/compact`
-- **THEN** Gateway 提示等待当前操作完成或先使用 `/stop`，且不调用压缩
+- **THEN** Gateway 接受该命令并预留 FIFO 位置，待此前工作完成后在该 session 上执行压缩
+- **AND** 该命令之后到达的普通消息在压缩完成后才执行，不得越过压缩边界
 - **GIVEN** 当前 session 空闲但手动压缩无法生成或持久提交摘要
 - **WHEN** 用户发送 `/compact`
 - **THEN** Gateway 报告压缩未完成，后续运行仍使用压缩前上下文
+
+#### Scenario: `/new` 不执行先前排队的压缩
+- **GIVEN** 当前 session 有尚未执行的 `/compact`
+- **WHEN** 用户在该压缩执行前发送 `/new`
+- **THEN** Gateway 切换到新 Kernel session，且不在新会话或旧会话执行该先前排队的压缩
+- **AND** Gateway 在原聊天说明该压缩请求未执行
 
 #### Scenario: 重放同一入站压缩不产生第二个压缩边界
 - **GIVEN** Gateway 已成功处理一个带稳定入站 identity 的 `/compact <关注点>`
