@@ -59,6 +59,38 @@ def test_register_creates_node_profiles_and_agent_users(tmp_path: Path) -> None:
     assert users.get_user_by_username(username="agent:plain").display_name == "plain"
 
 
+def test_register_later_fills_an_unknown_workspace_from_gateway(tmp_path: Path) -> None:
+    """A new Gateway declaration may complete, but never replace, unknown facts."""
+    connection, persistence = _build(tmp_path)
+
+    persistence.register(
+        node_id="node-1",
+        node_name="Node 1",
+        version="old",
+        agent_ids=["agent-a"],
+        agent_workspaces={},
+    )
+    profiles = AgentProfileRepository(connection)
+    unknown = profiles.get_profile(agent_id="agent-a")
+    assert unknown is not None
+    assert unknown.workspace_root is None
+    assert unknown.workspace_is_default is None
+
+    persistence.register(
+        node_id="node-1",
+        node_name="Node 1",
+        version="current",
+        agent_ids=["agent-a"],
+        agent_workspaces={"agent-a": "/gateway/workspaces/agent-a"},
+        agent_workspace_is_default={"agent-a": True},
+    )
+
+    confirmed = profiles.get_profile(agent_id="agent-a")
+    assert confirmed is not None
+    assert confirmed.workspace_root == "/gateway/workspaces/agent-a"
+    assert confirmed.workspace_is_default is True
+
+
 def test_register_seeds_skills_and_tool_allowlist_on_create(tmp_path: Path) -> None:
     """bugfix-467: first registration seeds skills/tool_allowlist from node.register."""
     connection, persistence = _build(tmp_path)

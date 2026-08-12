@@ -452,6 +452,7 @@
         "title": "工作区与运行时",
         "sub": "只读。由所属节点托管。",
         "workspaceRoot": "工作区路径",
+        "pending": "等待 Gateway 确认",
         "profileVersion": "Profile 版本",
         "owningNode": "所属节点",
         "lastUpdated": "最后更新"

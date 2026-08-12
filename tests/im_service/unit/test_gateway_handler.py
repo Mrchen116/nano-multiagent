@@ -1428,9 +1428,9 @@ def test_heartbeat_json_persisted_and_readable(tmp_path) -> None:
 def test_handle_register_with_agent_workspaces_seeds_first_seen_profile(
     tmp_path: Path,
 ) -> None:
-    """首次注册时，若帧携带 agent_workspaces，则用上报值落库（而非凭空填 managed default）。
+    """首次注册时，若帧携带 agent_workspaces，则用上报值落库。
 
-    bugfix-404-M2 决策 3：种子链路修复——IM 首次见到 agent 时用上报值，不再凭空填默认路径。
+    Gateway 的声明是唯一的路径来源。
     """
     handler, connection = _build_handler_with_node_persistence(tmp_path)
     ws_path = "/worktrees/bugfix-404-M2/.gateway-workspace/Arch"
@@ -1524,13 +1524,10 @@ def test_handle_register_preserves_existing_workspace_on_reregister(
     )
 
 
-def test_handle_register_without_agent_workspaces_falls_back_to_managed_default(
+def test_handle_register_without_agent_workspaces_keeps_workspace_unknown(
     tmp_path: Path,
 ) -> None:
-    """帧不含 agent_workspaces 字段时，退回旧行为：用 managed_workspace_root 填充。
-
-    向后兼容性：老版本 gateway 发的帧无 agent_workspaces，IM 应走原路逻辑不报错。
-    """
+    """旧 node.register 未声明 workspace 时不伪造 IM 主机路径。"""
     handler, connection = _build_handler_with_node_persistence(tmp_path)
     asyncio.run(
         handler.runtime.handle_message(
@@ -1545,13 +1542,12 @@ def test_handle_register_without_agent_workspaces_falls_back_to_managed_default(
         )
     )
     row = connection.execute(
-        "SELECT workspace_root FROM agent_profiles WHERE agent_id = ?",
+        "SELECT workspace_root, workspace_is_default FROM agent_profiles WHERE agent_id = ?",
         ("LegacyAgent",),
     ).fetchone()
     assert row is not None
-    assert (
-        row["workspace_root"] is not None and "LegacyAgent" in row["workspace_root"]
-    ), "无 agent_workspaces 时应退回 managed default 路径，路径须含 agent_id"
+    assert row["workspace_root"] is None
+    assert row["workspace_is_default"] is None
 
 
 # ---------------------------------------------------------------------------

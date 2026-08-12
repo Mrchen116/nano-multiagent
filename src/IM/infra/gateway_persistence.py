@@ -5,11 +5,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 import sqlite3
 
-from IM.domain.models import NodeStatus, managed_workspace_root
+from IM.domain.models import NodeStatus
 from IM.infra.repositories.agents import AgentProfileRepository
 from IM.infra.repositories.conversations import ConversationRepository
 from IM.infra.repositories.nodes import NodeRepository
 from IM.infra.repositories.users import UserRepository
+
+
+def _workspace_seed(value: object) -> str | None:
+    """Return one non-blank workspace declaration from a Gateway frame."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,9 +174,7 @@ class GatewayNodePersistence:
                 group_reply_policy = "MENTION"
                 default_model: str | None = None
                 reasoning_effort: str | None = None
-                workspace_root = agent_workspaces.get(
-                    agent_id
-                ) or managed_workspace_root(agent_id)
+                workspace_root = _workspace_seed(agent_workspaces.get(agent_id))
                 workspace_is_default = provenance_seed.get(agent_id)
                 features: dict[str, bool] | None = None
                 custom_prompt = None
@@ -182,8 +187,8 @@ class GatewayNodePersistence:
                 group_reply_policy = existing.group_reply_policy
                 default_model = existing.default_model
                 reasoning_effort = existing.reasoning_effort
-                workspace_root = existing.workspace_root or managed_workspace_root(
-                    agent_id
+                workspace_root = existing.workspace_root or _workspace_seed(
+                    agent_workspaces.get(agent_id)
                 )
                 workspace_is_default = existing.workspace_is_default
                 if workspace_is_default is None:

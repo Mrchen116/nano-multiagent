@@ -53,9 +53,9 @@ class NodePromptPreviewRequest(BaseModel):
         tool_ids: Tool names to treat as active for the preview turn.
         scenario: Conversation type hint; defaults to ``direct``.
         skill_ids: Skill names to resolve from workspace.  Forwarded to kernel.
-        agent_id_hint: Optional agent ID whose managed workspace_root will be
-            derived and forwarded to kernel.  When absent, workspace_root is
-            empty and the kernel uses its cwd placeholder.
+        agent_id_hint: Optional agent ID forwarded to the Gateway so it can
+            resolve its own default workspace. When absent, workspace_root is
+            empty and the Gateway/kernel uses its cwd placeholder.
     """
 
     features: dict[str, bool] = Field(default_factory=dict)

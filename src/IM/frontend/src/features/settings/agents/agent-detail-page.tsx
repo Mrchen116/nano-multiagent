@@ -1845,7 +1845,7 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
                 (draft.skills.length > 0 ? "explicit_allowlist" : "default_discovery")
               }
               options={capabilities.skills}
-              workspaceRoot={draft.workspace_root}
+              workspaceRoot={draft.workspace_root ?? ""}
               isLoading={detailQuery.isLoading}
               errorMessage={detailQuery.isError ? queryErrorDetail : null}
               onRetry={() => void detailQuery.refetch()}
@@ -1951,7 +1951,8 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
               <input
                 id="workspace-root"
                 className="im-input im-agent-input-mono"
-                value={draft.workspace_root}
+                value={draft.workspace_root ?? ""}
+                placeholder={t("agents.form.workspace.pending")}
                 disabled
               />
             </div>

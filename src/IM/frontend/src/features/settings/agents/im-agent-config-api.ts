@@ -11,8 +11,8 @@ export interface AgentSummary {
   description: string;
   profile_version: number;
   default_model: string | null;
-  workspace_root: string;
-  workspace_is_default: boolean;
+  workspace_root: string | null;
+  workspace_is_default: boolean | null;
   node_id?: string | null;
   node_name?: string | null;
   node_status?: string | null;
@@ -49,8 +49,8 @@ export interface AgentConfig {
   group_reply_policy: "ALWAYS" | "MENTION" | "NO_REPLY" | string;
   default_model: string | null;
   reasoning_effort: string | null;
-  workspace_root: string;
-  workspace_is_default: boolean;
+  workspace_root: string | null;
+  workspace_is_default: boolean | null;
   profile_version: number;
   node_id?: string | null;
   node_name?: string | null;

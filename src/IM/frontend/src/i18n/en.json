@@ -455,6 +455,7 @@
         "title": "Workspace & Runtime",
         "sub": "Read-only. Managed by the owning node.",
         "workspaceRoot": "Workspace Root",
+        "pending": "Waiting for Gateway confirmation",
         "profileVersion": "Profile Version",
         "owningNode": "Owning Node",
         "lastUpdated": "Last Updated"

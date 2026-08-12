@@ -6,7 +6,6 @@ from collections.abc import Callable
 from IM.domain.models import (
     AgentProfile,
     User,
-    managed_workspace_root,
 )
 from IM.infra.repositories.agents import AgentProfileRepository
 from IM.infra.repositories.nodes import NodeRepository
@@ -84,7 +83,7 @@ class ConfigService:
         tool_allowlist: list[str],
         group_reply_policy: str,
         default_model: str | None,
-        workspace_root: str,
+        workspace_root: str | None,
         reasoning_effort: str | None = None,
         workspace_is_default: bool | None = None,
         features: dict[str, bool] | None = None,
@@ -399,8 +398,8 @@ class ConfigService:
         immutable thereafter (bugfix-404-M2 decision 5).  The HTTP layer already
         excludes it via UpdateAgentConfigRequest (extra="ignore"), so removing
         the parameter here closes the service-level gap that previously caused
-        normalize_workspace_root(None) to silently reset a custom path to the
-        managed default on every UI config edit.
+        normalize_workspace_root(None) to silently replace a custom path during
+        every UI config edit.
 
         feat-379-M5 (ISSUE-2): features + custom_prompt are now accepted so
         the IM mirror stores them and subsequent GET /config calls return the
@@ -433,29 +432,29 @@ class ConfigService:
             )
         return updated
 
-    def workspace_root_for_profile(self, profile: AgentProfile) -> str:
-        """Return the opaque node-owned workspace root used by runtime sync and UI."""
-        if profile.workspace_root:
+    def workspace_root_for_profile(self, profile: AgentProfile) -> str | None:
+        """Return the node-reported workspace root, or ``None`` while unknown."""
+        if profile.workspace_root and profile.workspace_root.strip():
             return profile.workspace_root
-        return managed_workspace_root(profile.agent_id)
+        return None
 
-    def workspace_is_default_for_profile(self, profile: AgentProfile) -> bool:
-        """Return stored Gateway provenance; legacy rows remain conservatively false."""
-        return bool(profile.workspace_is_default)
+    def workspace_is_default_for_profile(self, profile: AgentProfile) -> bool | None:
+        """Return Gateway-reported workspace provenance, or ``None`` while unknown."""
+        return profile.workspace_is_default
 
     @staticmethod
-    def normalize_workspace_root(*, agent_id: str, workspace_root: str | None) -> str:
-        """Normalize one workspace value for storage.
+    def normalize_workspace_root(
+        *, agent_id: str, workspace_root: str | None
+    ) -> str | None:
+        """Keep a node-reported root opaque and preserve a missing declaration.
 
-        Blank values mean "use managed default" and are persisted as the canonical
-        managed workspace path so later runtime/session refreshes can trust storage.
-        Non-blank values remain opaque to IM.  The owning Gateway validates and
-        interprets its node-local syntax, which can differ from the IM host.
+        IM cannot expand a target Gateway's home directory or verify its filesystem.
+        ``agent_id`` remains part of this method's stable call shape, but never
+        determines a path here.
         """
-        if workspace_root is None:
-            return managed_workspace_root(agent_id)
-        if not workspace_root.strip():
-            return managed_workspace_root(agent_id)
+        del agent_id
+        if workspace_root is None or not workspace_root.strip():
+            return None
         return workspace_root
 
     def _notify_config_sync(self, *, agent_id: str, profile_version: int) -> None:

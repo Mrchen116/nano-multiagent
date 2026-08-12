@@ -4,7 +4,6 @@ from pathlib import Path
 import json
 import sqlite3
 
-from IM.domain.models import managed_workspace_root
 from IM.infra._helpers import (
     _optional_text,
     _preview_from_event,
@@ -712,19 +711,6 @@ def _migrate_agent_profile_tables(connection: sqlite3.Connection) -> None:
         connection.execute(
             "ALTER TABLE agent_profiles ADD COLUMN pending_create_operation_id TEXT"
         )
-    if agent_rows and "workspace_root" in {
-        row["name"]
-        for row in connection.execute("PRAGMA table_info(agent_profiles)").fetchall()
-    }:
-        rows = connection.execute(
-            "SELECT agent_id FROM agent_profiles WHERE workspace_root IS NULL OR TRIM(workspace_root) = ''"
-        ).fetchall()
-        for row in rows:
-            connection.execute(
-                "UPDATE agent_profiles SET workspace_root = ? WHERE agent_id = ?",
-                (managed_workspace_root(str(row["agent_id"])), str(row["agent_id"])),
-            )
-
     # bugfix-362: soft-stale columns for ghost-agent reconcile
     agent_column_names = {
         row["name"]
