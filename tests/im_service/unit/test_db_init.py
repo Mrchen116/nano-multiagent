@@ -139,6 +139,44 @@ def test_initialize_schema_migrates_old_profile_without_granting_recovery_marker
     }
 
 
+def test_initialize_schema_preserves_an_unknown_workspace_root(tmp_path: Path) -> None:
+    """Restarting IM must not derive a remote Gateway path from its own home."""
+    connection = connect(tmp_path / "unknown-workspace.db")
+    initialize_schema(connection)
+    connection.execute(
+        """
+        INSERT INTO agent_profiles(
+            agent_id, owner_id, display_name, description, skills_json,
+            tool_allowlist_json, group_reply_policy, workspace_root,
+            workspace_is_default, profile_version, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "legacy-agent",
+            "owner-a",
+            "Legacy",
+            "",
+            "[]",
+            "[]",
+            "MENTION",
+            None,
+            None,
+            1,
+            "2026-08-12T00:00:00Z",
+            "2026-08-12T00:00:00Z",
+        ),
+    )
+    connection.commit()
+
+    initialize_schema(connection)
+
+    row = connection.execute(
+        "SELECT workspace_root, workspace_is_default FROM agent_profiles "
+        "WHERE agent_id = 'legacy-agent'"
+    ).fetchone()
+    assert dict(row) == {"workspace_root": None, "workspace_is_default": None}
+
+
 def test_initialize_schema_replaces_global_caller_idempotency_index(
     tmp_path: Path,
 ) -> None:

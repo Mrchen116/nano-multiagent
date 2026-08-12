@@ -1,8 +1,11 @@
 """User-visible REPL command and error behavior."""
 
 import io
+from types import SimpleNamespace
 
+from coding_cli import commands
 from coding_cli.main import run_cli
+from coding_cli.input.repl_commands import is_repl_command_candidate
 
 from tests.unit._cli_kernel_stubs import (
     _BaseKernelStub,
@@ -47,6 +50,47 @@ def test_run_cli_repl_supports_required_commands(tmp_path) -> None:
     assert "submit" in call_names
     assert "list_session_tools" in call_names
     assert "compact" in call_names
+
+
+def test_run_cli_help_hides_workflow_only_commands_when_session_disables_tool(
+    tmp_path, monkeypatch
+) -> None:
+    stub = _BaseKernelStub()
+    output = io.StringIO()
+    inputs = iter(["/new", "/help", "/exit"])
+    discovered_commands = ()
+
+    def _build_reader(**kwargs):
+        nonlocal discovered_commands
+        discovered_commands = kwargs["command_suggestions"]
+        return lambda _prompt, _history: next(inputs)
+
+    monkeypatch.setenv("NANOCODE_DISABLE_WORKFLOWS", "1")
+    monkeypatch.setattr(commands.repl_input, "build_repl_input_reader", _build_reader)
+
+    exit_code = run_cli(
+        [],
+        stdout=output,
+        kernel_factory=_make_kernel_factory(stub),
+        workspace_root=tmp_path,
+    )
+
+    assert exit_code == 0
+    help_line = next(
+        line for line in output.getvalue().splitlines() if line.startswith("Commands:")
+    )
+    assert "/tools" in help_line
+    assert "/compact" in help_line
+    assert "/history [n]" in help_line
+    assert "/workflows" not in help_line
+    assert "/config workflowSizeGuideline" not in help_line
+    assert "/effort <ultracode|high>" not in help_line
+    assert "/tools" in discovered_commands
+    assert "/compact" in discovered_commands
+    assert "/history" in discovered_commands
+    assert "/workflows" not in discovered_commands
+    assert "/config" not in discovered_commands
+    assert "/effort" not in discovered_commands
 
 
 def test_run_cli_repl_use_switches_active_session(tmp_path) -> None:
@@ -137,6 +181,40 @@ def test_run_cli_repl_absolute_path_input_is_not_treated_as_command(tmp_path) ->
         "submit",
         {"session_id": "sess_cli", "text": path_line, "model": "kimiCoding:K2.6"},
     ) in stub.calls
+
+
+def test_namespaced_workflow_is_a_command_candidate_but_paths_are_not() -> None:
+    assert is_repl_command_candidate("/quality:review target=api") is True
+    assert is_repl_command_candidate("/quality::review") is False
+    assert is_repl_command_candidate("/tmp/project:file") is False
+
+
+def test_run_cli_expands_namespaced_workflow_command(tmp_path) -> None:
+    stub = _BaseKernelStub()
+    stub._tools_result = {
+        "session_id": "sess_cli",
+        "tools": [{"name": "Workflow", "description": "Workflow"}],
+    }
+    stub.list_named_workflows = lambda **_kwargs: (
+        SimpleNamespace(namespace="quality", name="review"),
+    )
+    output = io.StringIO()
+    inputs = iter(["/new", "/quality:review target=api", "/exit"])
+
+    exit_code = run_cli(
+        [],
+        stdout=output,
+        kernel_factory=_make_kernel_factory(stub),
+        input_fn=lambda _: next(inputs),
+        workspace_root=tmp_path,
+    )
+
+    assert exit_code == 0
+    submitted = [payload for name, payload in stub.calls if name == "submit"]
+    assert submitted[-1]["text"].startswith(
+        'Run the saved Workflow named "quality:review"'
+    )
+    assert "User arguments: target=api" in submitted[-1]["text"]
 
 
 def test_run_cli_repl_ignores_blank_input_and_exits_on_eof(tmp_path) -> None:

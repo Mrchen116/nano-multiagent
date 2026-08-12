@@ -13,19 +13,19 @@ LLM 配置查询、每轮模型路由和模型错误恢复语义的对外契约�
 
 ### Requirement: 完整 session runtime 可携带未来模型请求的 provider-neutral 推理强度
 
-消费者可在 `SessionRuntimeConfig` 为一个 session 的未来正常模型请求提供可选的 `reasoning_effort`。该值与 model、prompt、skills、tools、features 同属 complete runtime：创建、读取、fork、runtime identity 和 durable reconfigure 保持其语义。Kernel 不把它解释为某个产品的配置；它只在随后开始的普通模型请求中传给已选 provider adapter，由 adapter 使用其协议字段。
+消费者可在 `SessionRuntimeConfig` 为一个 session 的未来正常模型请求提供 provider-neutral 的 effective `reasoning_effort`，并可同时保存 nullable `reasoning_effort_override` 作为产品选择的 session 值。两者与 model、prompt、skills、tools、features 同属 complete runtime：创建、读取、fork、runtime identity 和 durable reconfigure 保持其语义。Kernel 不解释 override 的产品规则；它只在随后开始的普通模型请求中把 effective effort 交给已选 provider adapter。
 
 #### Scenario: 消费者创建 session 后读取完整 runtime
-- **WHEN** 消费者以带 `reasoning_effort` 的 `SessionRuntimeConfig` 创建 session，随后读取 runtime
-- **THEN** 读取结果保留等价的推理强度和 runtime identity
+- **WHEN** 消费者以同时带 effective `reasoning_effort` 与 `reasoning_effort_override` 的 `SessionRuntimeConfig` 创建 session，随后读取 runtime
+- **THEN** 读取结果保留两者和对应 runtime identity
 
 #### Scenario: consumer reconfigure 仅影响之后开始的模型请求
 - **GIVEN** 一个 session 已有开始执行的 run
-- **WHEN** 消费者 durable reconfigure 该 session 的 `reasoning_effort`
-- **THEN** 已开始的 run 使用开始时的完整 runtime，后续开始的正常模型请求使用新的推理强度
+- **WHEN** 消费者 durable reconfigure 该 session 的 effort 或 override
+- **THEN** 已开始的 run 使用开始时的完整 runtime，后续开始的正常模型请求使用新的 effective 推理强度
 
 #### Scenario: fork 保留 future runtime 语义
-- **WHEN** 消费者 fork 一个带 `reasoning_effort` 的 session
+- **WHEN** 消费者 fork 一个带 effective effort 与 session override 的 session
 - **THEN** fork 得到的 session 在未被再次 reconfigure 前保留等价的 future runtime
 
 #### Scenario: 传入 provider 的正常模型请求携带 runtime 推理强度
@@ -35,11 +35,16 @@ LLM 配置查询、每轮模型路由和模型错误恢复语义的对外契约�
 
 ### Requirement: LLM 配置可查询,每轮对话的模型由消费者随 run 提供
 
-消费者可读当前 LLM 配置(provider/base_url/默认目录,供选择器/能力上报用);模型不再是 kernel 级固化的全局属性,改为消费者在发起每个 run 时随 `submit` 提供,内核不持有对话默认 model。`get_llm_config()` 返回 SDK-owned `LLMConfig` DTO(内核内部 `LLMFactoryConfig` 不出边界),仍报告 build-time 的 active 连接供选择器使用;`create_session` 不收 model。`reconfigure_llm`/`bind_llm_client` 失去调用方而退役,内核不再有"当前全局 active model"的概念。一个 run 内部派生的子运行(内核为该 run 派发的子 agent、该 run 的自动上下文压缩摘要)同样复用该 run 的 model,不回退到内核构造期的全局默认。
+消费者可读当前 LLM 配置(provider/base_url/默认目录,供选择器/能力上报用);模型不再是 kernel 级固化的全局属性,改为消费者在发起每个 run 时随 `submit` 提供,内核不持有对话默认 model。`get_llm_config()` 返回 SDK-owned `LLMConfig` DTO(内核内部 `LLMFactoryConfig` 不出边界),仍报告 build-time 的 active 连接和每个 `LLMModel` 的 safe reasoning descriptor；`ModelReasoningCatalog` 从同一 DTO 查询 fixed、selectable 或未声明能力。payload、JSON 与 SDK catalog 三种 LLMConfig 装配路径都保留该 descriptor；未声明时消费者不得猜测档位。`create_session` 不收 model。`reconfigure_llm`/`bind_llm_client` 失去调用方而退役,内核不再有"当前全局 active model"的概念。一个 run 内部派生的子运行(内核为该 run 派发的子 agent、该 run 的自动上下文压缩摘要)同样复用该 run 的 model,不回退到内核构造期的全局默认。
 
 #### Scenario: 读取当前 LLM 配置
 - **WHEN** 消费者 `kernel.get_llm_config()`
 - **THEN** 返回 SDK-owned `LLMConfig`,含 `provider` / `model` / `base_url` 等字段
+
+#### Scenario: 消费者从 SDK catalog 查询模型 reasoning capability
+- **GIVEN** 模型在 LLM catalog 声明 fixed 或 selectable reasoning descriptor
+- **WHEN** 消费者从 `get_llm_config()` 构造 `ModelReasoningCatalog` 并查询该模型
+- **THEN** 得到相同的 safe descriptor；未声明的模型没有 selectable levels
 
 #### Scenario: submit 携带 model 并在该 run 生效
 - **WHEN** 消费者 `kernel.submit(session_id=..., parts=..., model=M)`

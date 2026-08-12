@@ -15,7 +15,10 @@ from uuid import uuid4
 from agent.sdk import (
     TERMINAL_RUN_STATUSES,
     USER_INTERRUPT_RECOVERY_CONTENT,
+    RunOrigin,
     SessionRuntimeConfig,
+    WorkflowControlAction,
+    WorkflowSaveScope,
 )
 
 from personal_assistant.config.local_store import resolve_run_model
@@ -41,6 +44,7 @@ from personal_assistant.gateway.human_message_context import (
 from personal_assistant.gateway.image_attachments import ImageAttachmentResolver
 from personal_assistant.gateway.inbound_models import (
     CompactSessionRequest,
+    EffortCommandRequest,
     InboundRunRequest,
     NewSessionRequest,
     PipelineResult,
@@ -48,7 +52,18 @@ from personal_assistant.gateway.inbound_models import (
     RelayLifecycleUpdate,
     RoutedInbound,
     StopRunRequest,
+    WorkflowCommandRequest,
     build_group_context_key,
+)
+from personal_assistant.gateway.workflow_commands import (
+    WorkflowCommand,
+    format_workflow_run,
+    format_workflow_runs,
+    parse_workflow_command,
+)
+from personal_assistant.gateway.effort_commands import (
+    EffortCommand,
+    parse_effort_command,
 )
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.reply_visibility import (
@@ -197,6 +212,7 @@ class SessionRunCoordinator:
         restore_run_delivery: Callable[[str], None] | None = None,
         commit_run_delivery: Callable[[str], Awaitable[None]] | None = None,
         drain_external_control_deliveries: Callable[[], Awaitable[None]] | None = None,
+        update_workflow_size_guideline: Callable[[str, str], None] | None = None,
         run_idle_timeout_seconds: float = _DEFAULT_RUN_IDLE_TIMEOUT_SECONDS,
         max_transition_locks: int = _MAX_SESSION_TRANSITION_LOCKS,
         readable_input_projection_store: ReadableInputProjectionStore | None = None,
@@ -226,6 +242,7 @@ class SessionRunCoordinator:
         self._restore_run_delivery = restore_run_delivery
         self._commit_run_delivery = commit_run_delivery
         self._drain_external_control_deliveries = drain_external_control_deliveries
+        self._update_workflow_size_guideline = update_workflow_size_guideline
         self._run_idle_timeout_seconds = run_idle_timeout_seconds
         self._active_runs: dict[str, _ActiveRunHandle] = {}
         self._steered_requests: dict[str, list[InboundRunRequest]] = {}
@@ -774,6 +791,280 @@ class SessionRunCoordinator:
             outbound=outbound,
         )
 
+    async def workflow_command(
+        self, request: WorkflowCommandRequest
+    ) -> PipelineResult | None:
+        """Execute one active-Workflow slash command or leave unknown text alone."""
+
+        agent = self._latest_agent(request.agent)
+        if "Workflow" not in agent.config.tool_allowlist:
+            return None
+        named = self._kernel.list_named_workflows(
+            workspace_root=agent.config.workspace_root
+        )
+        command = parse_workflow_command(
+            request.command_text,
+            named_workflows=tuple(
+                f"{item.namespace}:{item.name}" if item.namespace else item.name
+                for item in named
+            ),
+        )
+        if command is None:
+            return None
+        if command.kind == "invoke":
+            return await self.dispatch(
+                InboundRunRequest(
+                    routed=replace(
+                        request.routed,
+                        message=replace(
+                            request.message,
+                            text=_named_workflow_instruction(command),
+                        ),
+                    ),
+                    agent=agent,
+                    session_key=request.session_key,
+                    sender_label=request.sender_label,
+                )
+            )
+
+        async with self._transition(request.session_key):
+            binding = self._session_binder.lookup(request.session_key)
+            if binding is None:
+                binding = await self._ensure_binding_for_command(request, agent=agent)
+            control_kind = f"workflow:{command.kind}"
+            completed = (
+                self._session_binder.completed_control(
+                    session_key=request.session_key,
+                    operation_id=request.operation_id,
+                    kind=control_kind,
+                )
+                if request.operation_id is not None
+                else None
+            )
+            if completed is not None:
+                reply_text = completed.reply_text
+            else:
+                reply_text = await self._execute_workflow_command(
+                    command,
+                    session_id=binding.kernel_session_id,
+                    agent=agent,
+                )
+                if request.operation_id is not None:
+                    reply_text = self._session_binder.complete_control(
+                        ControlOperation(
+                            session_key=request.session_key,
+                            operation_id=request.operation_id,
+                            kind=control_kind,
+                            status="completed",
+                            kernel_session_id=binding.kernel_session_id,
+                            reply_text=reply_text,
+                        ),
+                        external_saga_id=_external_shadow_saga_id(request.routed),
+                    ).reply_text
+        outbound = await self._deliver_control_reply(
+            text=reply_text,
+            binding=binding,
+            agent_id=agent.agent_id,
+            ack_tag="workflow-ack",
+            source_routed=request.routed,
+            operation_id=request.operation_id,
+        )
+        return PipelineResult(
+            agent_id=agent.agent_id,
+            session_key=request.session_key,
+            kernel_session_id=binding.kernel_session_id,
+            run_id="",
+            reply_text=reply_text,
+            outbound=outbound,
+        )
+
+    async def effort_command(
+        self, request: EffortCommandRequest
+    ) -> PipelineResult | None:
+        """Apply one model-capability-derived session effort command."""
+
+        command = parse_effort_command(request.command_text)
+        if command is None:
+            return None
+        agent = self._latest_agent(request.agent)
+        async with self._transition(request.session_key):
+            binding = self._session_binder.lookup(request.session_key)
+            if binding is None:
+                binding = await self._ensure_binding_for_command(request, agent=agent)
+            completed = (
+                self._session_binder.completed_control(
+                    session_key=request.session_key,
+                    operation_id=request.operation_id,
+                    kind="effort",
+                )
+                if request.operation_id is not None
+                else None
+            )
+            if completed is not None:
+                reply_text = completed.reply_text
+            else:
+                state = await self._kernel.get_session_runtime(
+                    session_id=binding.kernel_session_id,
+                    workspace_root=agent.config.workspace_root,
+                )
+                if state is None:
+                    reply_text = "推理档位命令未执行: 当前会话没有完整 runtime。"
+                else:
+                    baseline = self._project_runtime(
+                        agent=agent, message=request.message
+                    ).runtime
+                    reply_text = await self._execute_effort_command(
+                        command,
+                        session_id=binding.kernel_session_id,
+                        agent=agent,
+                        runtime=self._reconcile_runtime(
+                            baseline=baseline, persisted=state.runtime
+                        ),
+                    )
+                if request.operation_id is not None:
+                    reply_text = self._session_binder.complete_control(
+                        ControlOperation(
+                            session_key=request.session_key,
+                            operation_id=request.operation_id,
+                            kind="effort",
+                            status="completed",
+                            kernel_session_id=binding.kernel_session_id,
+                            reply_text=reply_text,
+                        ),
+                        external_saga_id=_external_shadow_saga_id(request.routed),
+                    ).reply_text
+        outbound = await self._deliver_control_reply(
+            text=reply_text,
+            binding=binding,
+            agent_id=agent.agent_id,
+            ack_tag="effort-ack",
+            source_routed=request.routed,
+            operation_id=request.operation_id,
+        )
+        return PipelineResult(
+            agent_id=agent.agent_id,
+            session_key=request.session_key,
+            kernel_session_id=binding.kernel_session_id,
+            run_id="",
+            reply_text=reply_text,
+            outbound=outbound,
+        )
+
+    async def _execute_effort_command(
+        self,
+        command: EffortCommand,
+        *,
+        session_id: str,
+        agent: LiveAgentSnapshot,
+        runtime: SessionRuntimeConfig,
+    ) -> str:
+        """Validate and durably apply an effort selection to one session."""
+
+        catalog = self._reasoning_catalog
+        capability = (
+            catalog.capability_for(runtime.model) if catalog is not None else None
+        )
+        if capability is None or capability.kind != "selectable":
+            return f"当前模型 {runtime.model} 不支持可选推理档位。"
+        supports_ultracode = (
+            "Workflow" in runtime.enabled_tools and "xhigh" in capability.levels
+        )
+        allowed = list(capability.levels)
+        if supports_ultracode:
+            allowed.append("ultracode")
+        if command.value not in allowed:
+            return f"当前模型 {runtime.model} 可用的推理档位: {'、'.join(allowed)}。"
+        ultracode = command.value == "ultracode"
+        requested = "xhigh" if ultracode else command.value
+        assert requested is not None
+        await self._kernel.reconfigure_session(
+            session_id=session_id,
+            workspace_root=agent.config.workspace_root,
+            runtime=replace(
+                runtime,
+                reasoning_effort=catalog.resolve(runtime.model, requested),
+                reasoning_effort_override=requested,
+                workflow_ultracode=ultracode,
+            ),
+        )
+        if ultracode:
+            return "Ultracode 已开启。"
+        return f"已将当前会话的推理档位设为 {requested}。"
+
+    async def _execute_workflow_command(
+        self,
+        command: WorkflowCommand,
+        *,
+        session_id: str,
+        agent: LiveAgentSnapshot,
+    ) -> str:
+        if command.kind == "error":
+            return command.error or "Workflow 命令无效。"
+        try:
+            if command.kind == "list":
+                return format_workflow_runs(
+                    self._kernel.list_workflow_runs(session_id=session_id)
+                )
+            if command.kind == "detail":
+                run = self._kernel.get_workflow_run(
+                    session_id=session_id, run_id=command.run_id or ""
+                )
+                return (
+                    format_workflow_run(run)
+                    if run is not None
+                    else f"未找到 Workflow 运行: {command.run_id}"
+                )
+            if command.kind == "control":
+                run = self._kernel.control_workflow(
+                    session_id=session_id,
+                    run_id=command.run_id or "",
+                    action=WorkflowControlAction(command.action or ""),
+                    agent_call_id=command.agent_call_id,
+                )
+                return format_workflow_run(run)
+            if command.kind == "save":
+                saved = self._kernel.save_workflow(
+                    session_id=session_id,
+                    run_id=command.run_id or "",
+                    scope=WorkflowSaveScope(command.scope or ""),
+                    name=command.name,
+                )
+                return f"已保存 Workflow /{saved.name}\n路径: {saved.path}"
+            if command.kind == "config":
+                if self._update_workflow_size_guideline is None:
+                    raise RuntimeError("Workflow config owner is unavailable")
+                self._update_workflow_size_guideline(
+                    agent.agent_id, command.guideline or "medium"
+                )
+                return (
+                    "已将 workflowSizeGuideline 设为 "
+                    f"{command.guideline}；从下一轮起生效。"
+                )
+        except (RuntimeError, ValueError) as exc:
+            return f"Workflow 命令未执行: {exc}"
+        return "Workflow 命令无效。"
+
+    async def _ensure_binding_for_command(
+        self,
+        request: WorkflowCommandRequest | EffortCommandRequest,
+        *,
+        agent: LiveAgentSnapshot,
+    ) -> SessionBinding:
+        runtime_projection = self._project_runtime(agent=agent, message=request.message)
+        dispatch_url, fallback_port = self._dispatch_endpoint_metadata()
+        return await self._session_binder.resolve(
+            SessionBindingRequest(
+                session_key=request.session_key,
+                reply_context=build_reply_context(request.message),
+                message=request.message,
+                gateway_internal_port=fallback_port,
+                gateway_dispatch_url=dispatch_url,
+                runtime=runtime_projection.runtime,
+                profile_version=runtime_projection.profile_version,
+            ),
+            agent,
+        )
+
     def is_session_busy(self, session_key: str) -> bool:
         """Return whether a session owns queued/admitting work or an active run."""
 
@@ -934,6 +1225,7 @@ class SessionRunCoordinator:
                             session_id=binding.kernel_session_id,
                             parts=projection.model_parts,
                             workspace_root=latest_agent.config.workspace_root,
+                            origin=RunOrigin.HUMAN,
                             trace_id=trace_id,
                         )
                     except BaseException:
@@ -1297,6 +1589,14 @@ class SessionRunCoordinator:
     ) -> SessionBinding:
         """Durably align a retained session before the following synchronous submit."""
 
+        current = await self._kernel.get_session_runtime(
+            session_id=binding.kernel_session_id,
+            workspace_root=agent.config.workspace_root,
+        )
+        runtime = self._reconcile_runtime(
+            baseline=runtime,
+            persisted=current.runtime if current is not None else None,
+        )
         desired = self._kernel.identify_runtime(runtime=runtime)
         applied_matches = (
             binding.applied_fingerprint_schema == desired.fingerprint_schema
@@ -1304,10 +1604,6 @@ class SessionRunCoordinator:
         )
         if applied_matches:
             return binding
-        current = await self._kernel.get_session_runtime(
-            session_id=binding.kernel_session_id,
-            workspace_root=agent.config.workspace_root,
-        )
         replacement_has_known_baseline = current is not None
         if current is not None:
             binding = self._session_binder.persist_applied_runtime(
@@ -1376,6 +1672,43 @@ class SessionRunCoordinator:
             fingerprint_schema=result.state.identity.fingerprint_schema,
             profile_version=profile_version,
             agent=agent,
+        )
+
+    def _reconcile_runtime(
+        self,
+        *,
+        baseline: SessionRuntimeConfig,
+        persisted: SessionRuntimeConfig | None,
+    ) -> SessionRuntimeConfig:
+        """Apply a legal persisted session effort override to a fresh baseline.
+
+        A retained Gateway session must pick up Agent configuration changes each
+        admission without losing an override that remains legal for the new model.
+        """
+
+        if persisted is None:
+            return baseline
+        catalog = self._reasoning_catalog
+        override = persisted.reasoning_effort_override
+        effective_effort = baseline.reasoning_effort
+        if override is not None and catalog is not None:
+            try:
+                effective_effort = catalog.resolve(baseline.model, override)
+            except ValueError:
+                override = None
+        else:
+            override = None
+        workflow_ultracode = (
+            persisted.workflow_ultracode
+            and persisted.model == baseline.model
+            and override == "xhigh"
+            and "Workflow" in baseline.enabled_tools
+        )
+        return replace(
+            baseline,
+            reasoning_effort=effective_effort,
+            reasoning_effort_override=override,
+            workflow_ultracode=workflow_ultracode,
         )
 
     def _boundary_for_runtime_replacement(
@@ -1626,6 +1959,17 @@ class SessionRunCoordinator:
         self, run_id: str, event: Mapping[str, object]
     ) -> Mapping[str, object] | None:
         raw_user_count = event.get("user_message_count")
+        raw_background_returns = event.get("background_returns")
+        if (
+            raw_user_count == 0
+            and isinstance(raw_background_returns, list)
+            and raw_background_returns
+        ):
+            # Background task notifications share the pending-message queue, but
+            # they are not user steers and have no follower identity to attach.
+            # Their sidecars still have to cross the delivery observer so the
+            # model's reply and raw task return land on the same IM message.
+            return event
         raw_count = (
             raw_user_count
             if isinstance(raw_user_count, int)
@@ -1888,6 +2232,18 @@ def _external_shadow_saga_id(routed: RoutedInbound) -> str | None:
     if external_identity.trigger_source == "im":
         return None
     return routed.shadow.saga_id
+
+
+def _named_workflow_instruction(command: WorkflowCommand) -> str:
+    """Expand a discovered named command into an explicit normal model turn."""
+
+    instruction = (
+        f'Run the saved Workflow named "{command.name}" using the Workflow tool '
+        "name input. Do not replace it with an inline script."
+    )
+    if command.arguments:
+        instruction += f" User arguments: {command.arguments}"
+    return instruction
 
 
 def _normalize_dispatch_id_part(value: str) -> str:

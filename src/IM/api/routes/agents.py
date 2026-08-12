@@ -49,8 +49,8 @@ class AgentConfigResponse(BaseModel):
     group_reply_policy: str
     default_model: str | None
     reasoning_effort: str | None = None
-    workspace_root: str
-    workspace_is_default: bool
+    workspace_root: str | None
+    workspace_is_default: bool | None
     profile_version: int
     updated_at: str | None = None
     # feat-379-M5 (ISSUE-2): per-agent feature flags and custom prompt supplement
@@ -124,8 +124,8 @@ class AgentSummaryResponse(BaseModel):
     description: str
     profile_version: int
     default_model: str | None
-    workspace_root: str
-    workspace_is_default: bool
+    workspace_root: str | None
+    workspace_is_default: bool | None
     updated_at: str | None = None
     # M17/R8-2: surface the IM user UUID that the WS event sender_user_id field
     # carries, so the chat workspace can map runtime sender → display_name on
@@ -209,6 +209,13 @@ class FeatureCapabilityResponse(BaseModel):
     requires_tool: str | None = None
 
 
+class AgentCommandResponse(BaseModel):
+    """One slash command exposed by the Agent's active runtime capabilities."""
+
+    name: str
+    description: str = ""
+
+
 class AgentCapabilitiesResponse(BaseModel):
     """Node-backed runtime capability data for one agent workspace."""
 
@@ -218,6 +225,7 @@ class AgentCapabilitiesResponse(BaseModel):
     models: list[ModelOptionResponse] = Field(default_factory=list)
     skills: list[AllowlistOptionResponse] = Field(default_factory=list)
     tools: list[AllowlistOptionResponse] = Field(default_factory=list)
+    commands: list[AgentCommandResponse] = Field(default_factory=list)
     platform_default_model: str | None = None
     # feat-379-M2: feature toggle projection from FEATURE_REGISTRY (decision 7)
     features: list[FeatureCapabilityResponse] = Field(default_factory=list)
@@ -366,6 +374,17 @@ def to_agent_summary_response(
     )
 
 
+def require_workspace_root(profile: AgentProfile, *, service: ConfigService) -> str:
+    """Return a Gateway-confirmed workspace root for a path-dependent action."""
+    workspace_root = service.workspace_root_for_profile(profile)
+    if workspace_root is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="workspace_root is pending gateway registration",
+        )
+    return workspace_root
+
+
 @router.get("/im/v1/agents", response_model=list[AgentSummaryResponse])
 def list_agents(
     user: User = Depends(current_user),
@@ -461,7 +480,7 @@ async def get_agent_capabilities(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="agent_id is not bound to a node",
         )
-    workspace_root = service.workspace_root_for_profile(profile)
+    workspace_root = require_workspace_root(profile, service=service)
     payload = await gateway_handler.request_agent_capabilities(
         target_node_id=profile.node_id,
         agent_id=agent_id,
@@ -487,6 +506,7 @@ async def get_agent_capabilities(
         models=coerce_model_options(payload.get("models")),
         skills=coerce_allowlist_options(payload.get("skills")),
         tools=coerce_allowlist_options(payload.get("tools")),
+        commands=_coerce_command_list(payload.get("commands")),
         platform_default_model=platform_default,
         features=features,
     )
@@ -685,6 +705,30 @@ def _coerce_feature_list(value: object) -> list[FeatureCapabilityResponse]:
     return result
 
 
+def _coerce_command_list(value: object) -> list[AgentCommandResponse]:
+    """Validate commands discovered by the owning Gateway for this Agent."""
+
+    if not isinstance(value, list):
+        return []
+    result: list[AgentCommandResponse] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        raw_name = item.get("name")
+        if not isinstance(raw_name, str) or not raw_name.strip():
+            continue
+        raw_description = item.get("description")
+        result.append(
+            AgentCommandResponse(
+                name=raw_name.strip(),
+                description=(
+                    raw_description.strip() if isinstance(raw_description, str) else ""
+                ),
+            )
+        )
+    return result
+
+
 def coerce_allowlist_options(value: object) -> list[AllowlistOptionResponse]:
     """兼容历史心跳里 skills/tools 只为 string 列表；新节点上报 ``{name, description}`` 对象。"""
     if not isinstance(value, list):
@@ -792,7 +836,7 @@ async def agent_prompt_preview(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="agent_id is not bound to a node",
         )
-    workspace_root = service.workspace_root_for_profile(profile)
+    workspace_root = require_workspace_root(profile, service=service)
     # feat-394-M5 R3-2 fix: when the request body provides explicit heartbeat_enabled /
     # cron_enabled, those values override the stored profile values.  This lets the
     # frontend (and callers like the reviewer) preview "what would the prompt look like
@@ -932,7 +976,7 @@ async def list_agent_cron_jobs(
         )
     if not profile.node_id:
         return []
-    workspace_root = service.workspace_root_for_profile(profile)
+    workspace_root = require_workspace_root(profile, service=service)
     raw = await gateway_handler.request_node_cron_jobs(
         target_node_id=profile.node_id,
         agent_id=agent_id,
@@ -988,7 +1032,7 @@ async def get_agent_skills_usage(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="target_node_id is not connected",
         )
-    workspace_root = service.workspace_root_for_profile(profile)
+    workspace_root = require_workspace_root(profile, service=service)
     raw = await gateway_handler.request_node_skills_usage(
         target_node_id=profile.node_id,
         agent_id=agent_id,
@@ -1033,7 +1077,7 @@ async def delete_agent_cron_job(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="job_id not found"
         )
-    workspace_root = service.workspace_root_for_profile(profile)
+    workspace_root = require_workspace_root(profile, service=service)
     deleted = await gateway_handler.request_node_cron_delete(
         target_node_id=profile.node_id,
         agent_id=agent_id,
@@ -1073,7 +1117,7 @@ async def get_agent_heartbeat_md(
         )
     if not profile.node_id:
         return HeartbeatMdResponse(content="", node_online=False)
-    workspace_root = service.workspace_root_for_profile(profile)
+    workspace_root = require_workspace_root(profile, service=service)
     content = await gateway_handler.request_node_heartbeat_md(
         target_node_id=profile.node_id,
         agent_id=agent_id,

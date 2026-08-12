@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:
+    from agent.core.background_tasks.notifications import BackgroundReturnInfo
     from agent.core.llm.interfaces import LLMMessage
     from agent.core.runs.origin import RunOrigin
 
@@ -23,6 +24,7 @@ class PendingMessage:
 
     message: "LLMMessage"
     origin: "RunOrigin"
+    background_return: "BackgroundReturnInfo | None" = None
 
 
 @dataclass
@@ -93,7 +95,12 @@ class RunController:
             publish()
             return True
 
-    def enqueue_message(self, message: "LLMMessage", origin: "RunOrigin") -> bool:
+    def enqueue_message(
+        self,
+        message: "LLMMessage",
+        origin: "RunOrigin",
+        background_return: "BackgroundReturnInfo | None" = None,
+    ) -> bool:
         """Enqueue a message for round-boundary injection. Thread-safe.
 
         Args:
@@ -114,7 +121,13 @@ class RunController:
                 or self.cancel_event.is_set()
             ):
                 return False
-            self._pending.put_nowait(PendingMessage(message=message, origin=origin))
+            self._pending.put_nowait(
+                PendingMessage(
+                    message=message,
+                    origin=origin,
+                    background_return=background_return,
+                )
+            )
             return True
 
     def try_commit_terminal(self) -> list[PendingMessage]:

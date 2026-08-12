@@ -102,6 +102,38 @@ class BackgroundTaskRegistry:
         self._persist(record)
         return record
 
+    def register_workflow(
+        self,
+        *,
+        task_id: str,
+        parent_session_id: str,
+        workflow_run_id: str,
+        description: str,
+        output_file: str,
+        diagnostics: str,
+        resume_hint: str,
+        workspace_root: str | None = None,
+    ) -> BackgroundTaskRecord:
+        """Register one Workflow as a generic background-task handle."""
+
+        record = BackgroundTaskRecord(
+            task_id=task_id,
+            task_type=BackgroundTaskType.WORKFLOW,
+            parent_session_id=parent_session_id,
+            workflow_run_id=workflow_run_id,
+            description=description,
+            output_file=output_file,
+            diagnostics=diagnostics,
+            resume_hint=resume_hint,
+            status=BackgroundTaskStatus.QUEUED,
+            created_at=self._now_iso(),
+            workspace_root=workspace_root,
+        )
+        with self._lock:
+            self._records[task_id] = record
+        self._persist(record)
+        return record
+
     # ------------------------------------------------------------------
     # State transitions
     # ------------------------------------------------------------------
@@ -146,7 +178,17 @@ class BackgroundTaskRegistry:
         self._persist(new)
         return new
 
-    def fail(self, task_id: str, *, error: str) -> BackgroundTaskRecord:
+    def fail(
+        self,
+        task_id: str,
+        *,
+        error: str,
+        result_text: str | None = None,
+        usage: Mapping[str, Any] | None = None,
+        duration_ms: int | None = None,
+        tool_use_count: int | None = None,
+        notified: bool = False,
+    ) -> BackgroundTaskRecord:
         with self._lock:
             old = self._records[task_id]
             if self._guard_terminal(old):
@@ -156,6 +198,11 @@ class BackgroundTaskRegistry:
                 status=BackgroundTaskStatus.FAILED,
                 ended_at=self._now_iso(),
                 error=error,
+                result_text=result_text,
+                usage=usage,
+                duration_ms=duration_ms,
+                tool_use_count=tool_use_count,
+                notified=notified,
             )
             self._records[task_id] = new
             self._clear_live_handles_locked(task_id)
@@ -192,9 +239,55 @@ class BackgroundTaskRegistry:
         self._persist(new)
         return new
 
+    def stop(
+        self,
+        task_id: str,
+        *,
+        result_text: str | None = None,
+        error: str | None = None,
+        usage: Mapping[str, Any] | None = None,
+        duration_ms: int | None = None,
+        tool_use_count: int | None = None,
+    ) -> BackgroundTaskRecord:
+        """Commit the cooperative Workflow-only stopped terminal state."""
+
+        with self._lock:
+            old = self._records[task_id]
+            if self._guard_terminal(old):
+                return old
+            if old.task_type is not BackgroundTaskType.WORKFLOW:
+                raise ValueError("stopped is reserved for Workflow tasks")
+            new = replace(
+                old,
+                status=BackgroundTaskStatus.STOPPED,
+                ended_at=self._now_iso(),
+                result_text=result_text,
+                error=error,
+                usage=usage,
+                duration_ms=duration_ms,
+                tool_use_count=tool_use_count,
+                notified=False,
+            )
+            self._records[task_id] = new
+            self._clear_live_handles_locked(task_id)
+        self._persist(new)
+        return new
+
     def mark_notified(self, task_id: str) -> BackgroundTaskRecord:
         with self._lock:
             old = self._records[task_id]
+            new = replace(old, notified=True)
+            self._records[task_id] = new
+        self._persist(new)
+        return new
+
+    def claim_notification(self, task_id: str) -> BackgroundTaskRecord | None:
+        """Atomically claim a terminal task's single notification delivery."""
+
+        with self._lock:
+            old = self._records[task_id]
+            if old.status not in _TERMINAL_STATUSES or old.notified:
+                return None
             new = replace(old, notified=True)
             self._records[task_id] = new
         self._persist(new)
@@ -315,6 +408,7 @@ _TERMINAL_STATUSES = {
     BackgroundTaskStatus.COMPLETED,
     BackgroundTaskStatus.FAILED,
     BackgroundTaskStatus.KILLED,
+    BackgroundTaskStatus.STOPPED,
 }
 
 

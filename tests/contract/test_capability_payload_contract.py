@@ -124,6 +124,7 @@ GOLDEN_TOOLS: list[dict[str, object]] = [
     {"name": "memory", "description": "", "default_on": True},
     {"name": "send_message", "description": "", "default_on": False},
     {"name": "cron", "description": "", "default_on": False},
+    {"name": "Workflow", "description": "", "default_on": False},
 ]
 
 # node-level features: every entry available=True (no per-agent allowlist), in
@@ -290,6 +291,7 @@ def test_agent_capabilities_payload_matches_contract(controlled_caps) -> None:
     assert payload["platform_default_model"] == GOLDEN_PLATFORM_DEFAULT_MODEL
     assert list(payload["tools"]) == GOLDEN_TOOLS
     assert list(payload["features"]) == GOLDEN_AGENT_FEATURES
+    assert list(payload["commands"]) == []
     assert _sorted_skills(list(payload["skills"])) == GOLDEN_AGENT_SKILLS
     _assert_skills_carry_location(list(payload["skills"]))
 

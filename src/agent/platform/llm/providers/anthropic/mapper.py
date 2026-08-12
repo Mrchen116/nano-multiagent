@@ -38,6 +38,14 @@ class AnthropicMapper:
                 if message.content:
                     system_parts.append(message.content)
                 continue
+            if message.role == "turn_system":
+                messages.append(
+                    {
+                        "role": "system",
+                        "content": [{"type": "text", "text": message.content}],
+                    }
+                )
+                continue
             mapped = dict(self._map_message(message))
             # Anthropic Messages 要求：并行 tool_use 之后的全部 tool_result 必须落在
             # 紧随其后的同一条 user 里。内部 transcript 仍可按条存 role=tool；上线时

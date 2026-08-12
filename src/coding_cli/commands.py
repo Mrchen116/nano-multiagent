@@ -13,15 +13,18 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from concurrent.futures import Future
+from dataclasses import dataclass
 import io
 import json
 import logging
 import os
+from queue import Empty, Queue
 import sys
 from pathlib import Path
 
 _log = logging.getLogger("coding_cli.commands")
-from typing import Any, Callable, Sequence, TextIO
+from typing import Any, Callable, Mapping, Sequence, TextIO
 
 from coding_cli.events.background_runs import BackgroundRunEventProcessor
 from coding_cli.events.event_pipeline import (
@@ -63,7 +66,13 @@ from coding_cli.render.repl_render import (
 )
 from coding_cli.render.terminal_output import emit_lines as _emit_terminal_lines
 from coding_cli.render.terminal_output import write_tty_line as _write_tty_line
-from agent.sdk import TERMINAL_RUN_STATUSES as _TERMINAL_STATUSES
+from agent.sdk import (
+    ModelReasoningCatalog,
+    RunOrigin,
+    TERMINAL_RUN_STATUSES as _TERMINAL_STATUSES,
+    WorkflowControlAction,
+    WorkflowSaveScope,
+)
 
 _CLI_HELP_EPILOG = (
     "REPL quick commands: /help /new /use <session_id> /session /tools /compact /history [n] /exit\n"
@@ -83,6 +92,71 @@ KernelFactory = Callable[..., Any]
 # branch can distinguish end-of-input from an empty line without raising across
 # the executor boundary (bugfix-426-M2 非阻塞输入循环).
 _EOF_SENTINEL = "\x00__EOF__"
+
+
+@dataclass(frozen=True, slots=True)
+class _CliPermissionResponse:
+    decision: str
+    reason: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class _CliPermissionPrompt:
+    tool_name: str
+    tool_input: Any
+    context: Any
+    response: Future[_CliPermissionResponse]
+
+
+class _CliPermissionPromptCoordinator:
+    """Keep the REPL line editor as the sole owner of terminal input."""
+
+    def __init__(self, *, out: TextIO) -> None:
+        self._out = out
+        self._pending: Queue[_CliPermissionPrompt] = Queue()
+
+    async def request(
+        self, tool_name: str, tool_input: Any, context: Any
+    ) -> _CliPermissionResponse:
+        """Queue one permission prompt and await its exact broker decision."""
+
+        response: Future[_CliPermissionResponse] = Future()
+        self._pending.put(
+            _CliPermissionPrompt(
+                tool_name=tool_name,
+                tool_input=tool_input,
+                context=context,
+                response=response,
+            )
+        )
+        try:
+            return await asyncio.wrap_future(response)
+        except asyncio.CancelledError:
+            response.cancel()
+            raise
+
+    def process_pending(self) -> None:
+        """Present at most one queued prompt from the active input-reader thread."""
+
+        try:
+            prompt = self._pending.get_nowait()
+        except Empty:
+            return
+        if prompt.response.cancelled():
+            return
+        try:
+            decision = _read_permission_decision(
+                tool_name=prompt.tool_name,
+                tool_input=prompt.tool_input,
+                context=prompt.context,
+                out=self._out,
+            )
+        except BaseException as exc:
+            if not prompt.response.done():
+                prompt.response.set_exception(exc)
+        else:
+            if not prompt.response.done():
+                prompt.response.set_result(decision)
 
 
 def _is_tty_output(out: TextIO) -> bool:
@@ -253,7 +327,17 @@ async def _async_main(
     workspace_root: Path,
 ) -> int:
     """Async entry: build Kernel, dispatch to REPL or --text mode."""
-    kernel = _build_kernel(args=args, kernel_factory=kernel_factory, out=out)
+    permission_prompts = (
+        _CliPermissionPromptCoordinator(out=out)
+        if args.text is None and args.command is None
+        else None
+    )
+    kernel = _build_kernel(
+        args=args,
+        kernel_factory=kernel_factory,
+        out=out,
+        permission_prompts=permission_prompts,
+    )
     # bugfix-429 R6: the CLI owns its current model (kernel holds no conversational
     # default after this unit). Resolve it once from the kernel's LLM config — which
     # was built from --model/env — and pass it on every submit.
@@ -277,6 +361,7 @@ async def _async_main(
             return _run_llm_config_command(args=args, kernel=kernel, out=out)
 
         # Default path: interactive REPL.
+        assert permission_prompts is not None
         return await _run_repl(
             args=args,
             out=out,
@@ -285,6 +370,7 @@ async def _async_main(
             repl_input_reader_factory=repl_input_reader_factory,
             workspace_root=workspace_root,
             model=current_model,
+            permission_prompts=permission_prompts,
         )
     finally:
         # bugfix-402-M3: use aclose() so the Registry drain runs inside the
@@ -297,6 +383,7 @@ def _build_kernel(
     args: argparse.Namespace,
     kernel_factory: KernelFactory | None,
     out: TextIO,
+    permission_prompts: _CliPermissionPromptCoordinator | None = None,
 ) -> Any:
     """Assemble Kernel from agent.sdk or test-injected factory."""
     if kernel_factory is not None:
@@ -312,13 +399,10 @@ def _build_kernel(
     # The catalog carries the provider/model list so /model + list_models work.
     llm = _build_cli_llm_config(args)
 
-    # can_use_tool callback: runs in executor so it doesn't block the async loop.
-    async def can_use_tool(tool_name: str, tool_input: Any, ctx: Any) -> Any:
-        return await _ask_permission_async(
-            tool_name=tool_name, tool_input=tool_input, out=out
-        )
-
-    return build_cli_kernel(llm=llm, can_use_tool=can_use_tool)
+    return build_cli_kernel(
+        llm=llm,
+        can_use_tool=(permission_prompts.request if permission_prompts else None),
+    )
 
 
 def _resolve_cli_current_model(kernel: Any) -> str | None:
@@ -384,28 +468,39 @@ def _build_cli_llm_config(args: argparse.Namespace) -> Any:
     )
 
 
-async def _ask_permission_async(
+def _read_permission_decision(
     *,
     tool_name: str,
     tool_input: Any,
+    context: Any,
     out: TextIO,
-) -> Any:
-    """Async permission callback: present picker and await user decision.
+) -> _CliPermissionResponse:
+    """Read one broker permission decision on the REPL input-owner thread."""
 
-    Runs read_permission_choice in a thread executor so the event loop is
-    not blocked while waiting for terminal input.
-    """
-    from agent.sdk import PermissionDecision
-
+    raw_options = _permission_value(context, "options", ())
     options = [
         repl_input.PermissionOption(
-            id="allow", label="Allow once", description="Allow this single action"
-        ),
-        repl_input.PermissionOption(
-            id="deny", label="Deny", description="Block this action"
-        ),
+            id=str(_permission_value(option, "id", "deny")),
+            label=str(_permission_value(option, "label", "Deny")),
+            description=str(_permission_value(option, "description", "")),
+        )
+        for option in raw_options
     ]
+    if not options:
+        options = [
+            repl_input.PermissionOption(
+                id="allow_once",
+                label="Allow once",
+                description="Allow this single action",
+            ),
+            repl_input.PermissionOption(
+                id="deny", label="Deny", description="Block this action"
+            ),
+        ]
     header = f"Permission request: {tool_name}"
+    question = str(_permission_value(context, "question", "") or "").strip()
+    if question:
+        header += f"\n  {question}"
     if tool_input:
         try:
             header += f"\n  {json.dumps(tool_input, ensure_ascii=False)[:120]}"
@@ -414,14 +509,50 @@ async def _ask_permission_async(
             # always sees the tool input rather than a blank permission request.
             header += f"\n  {repr(tool_input)[:120]}"
 
-    loop = asyncio.get_event_loop()
-    chosen_id = await loop.run_in_executor(
-        None,
-        lambda: repl_input.read_permission_choice(
-            header=header, options=options, out=out
-        ),
+    chosen_id = repl_input.read_permission_choice(
+        header=header,
+        options=options,
+        out=out,
     )
-    return PermissionDecision(behavior=chosen_id)
+    return _CliPermissionResponse(decision=chosen_id)
+
+
+def _permission_value(value: Any, key: str, default: Any) -> Any:
+    if isinstance(value, Mapping):
+        return value.get(key, default)
+    return getattr(value, key, default)
+
+
+def _is_workflow_permission_request(event: dict[str, Any]) -> bool:
+    return (
+        event.get("event") == "permission_request"
+        and isinstance(event.get("workflow_run_id"), str)
+        and isinstance(event.get("agent_call_id"), str)
+    )
+
+
+async def _resolve_workflow_permission_event(
+    *,
+    kernel: Any,
+    event: dict[str, Any],
+    permission_prompts: _CliPermissionPromptCoordinator,
+) -> bool:
+    """Resolve one child permission through the REPL's sole input owner."""
+
+    request_id = str(event.get("request_id") or "")
+    if not request_id:
+        return False
+    response = await permission_prompts.request(
+        str(event.get("tool_name") or "?"),
+        event.get("tool_input") or {},
+        event,
+    )
+    return bool(
+        kernel.submit_permission_decision(
+            request_id=request_id,
+            decision=response.decision,
+        )
+    )
 
 
 async def _run_text_mode(
@@ -498,6 +629,7 @@ async def _run_repl(
     input_fn: Callable[[str], str] | None,
     repl_input_reader_factory: Callable[[], repl_input.ReplInputReader] | None,
     workspace_root: Path,
+    permission_prompts: _CliPermissionPromptCoordinator,
     model: str | None = None,
 ) -> int:
     """Async-native interactive REPL loop.
@@ -541,6 +673,7 @@ async def _run_repl(
     # Background event queue: receives events from kernel stream for non-current
     # runs (e.g. background tasks completing after a user turn finishes).
     _bg_event_queue: asyncio.Queue = asyncio.Queue(maxsize=4096)
+    _workflow_permission_requests: set[str] = set()
 
     # Background stream task: started when we have an active session.
     _stream_task: asyncio.Task | None = None
@@ -567,6 +700,19 @@ async def _run_repl(
             # caught here, so process-exit semantics are preserved.
             try:
                 async for ev in kernel.stream(sid):
+                    if _is_workflow_permission_request(ev):
+                        request_id = str(ev.get("request_id") or "")
+                        if (
+                            request_id
+                            and request_id not in _workflow_permission_requests
+                        ):
+                            _workflow_permission_requests.add(request_id)
+                            await _resolve_workflow_permission_event(
+                                kernel=kernel,
+                                event=ev,
+                                permission_prompts=permission_prompts,
+                            )
+                        continue
                     try:
                         _bg_event_queue.put_nowait(ev)
                     except asyncio.QueueFull:
@@ -594,12 +740,40 @@ async def _run_repl(
             lines.extend(background_processor.process(ev))
         return lines
 
+    from coding_cli.product import load_cli_workflow_config
+
+    workflow_config = load_cli_workflow_config(workspace_root)
+    workflow_commands = {"/workflows", "/config"}
+    command_suggestions = tuple(
+        command
+        for command in repl_commands.REPL_COMMANDS
+        if not workflow_config.disabled or command not in workflow_commands
+    )
+    initial_model = _resolve_cli_current_model(kernel)
+    if initial_model is None or not _cli_effort_values_for_runtime(
+        kernel=kernel,
+        model=initial_model,
+        workflow_enabled=not workflow_config.disabled,
+    ):
+        command_suggestions = tuple(
+            command for command in command_suggestions if command != "/effort"
+        )
+    if not workflow_config.disabled:
+        list_named = getattr(kernel, "list_named_workflows", None)
+        named_workflows = (
+            list_named(workspace_root=workspace_root) if callable(list_named) else ()
+        )
+        command_suggestions += tuple(
+            "/" + (f"{item.namespace}:{item.name}" if item.namespace else item.name)
+            for item in named_workflows
+        )
+
     read_line = repl_input.build_repl_input_reader(
         out=out,
         input_fn=input_fn,
         repl_input_reader_factory=repl_input_reader_factory,
-        command_suggestions=repl_commands.REPL_COMMANDS,
-        on_idle=None,
+        command_suggestions=command_suggestions,
+        on_idle=permission_prompts.process_pending,
         idle_interval_seconds=0.5,
     )
 
@@ -776,6 +950,8 @@ async def _run_repl(
                     return 0
                 if cmd_result.handled:
                     continue
+                if cmd_result.expanded_text is not None:
+                    line = cmd_result.expanded_text
 
             try:
                 if not active_session_id:
@@ -812,6 +988,7 @@ async def _run_repl(
                     run_record = kernel.submit(
                         session_id=active_session_id,
                         parts=[{"type": "text", "text": line}],
+                        origin=RunOrigin.HUMAN,
                         workspace_root=workspace_root,
                         steer=True,
                         model=model,
@@ -918,6 +1095,7 @@ async def _send_message_async(
         run_record = kernel.submit(
             session_id=session_id,
             parts=[{"type": "text", "text": text}],
+            origin=RunOrigin.HUMAN,
             workspace_root=workspace_root,
             model=model,
         )
@@ -1099,6 +1277,7 @@ class _ReplCommandResult:
     # None means no session change; non-None replaces active_session_id.
     new_session_id: str | None = None
     should_exit: bool = False
+    expanded_text: str | None = None
 
 
 async def _handle_repl_command_async(
@@ -1114,6 +1293,22 @@ async def _handle_repl_command_async(
     command, argument = _parse_command(line)
     argument_tokens = _split_argument_tokens(argument)
 
+    workflow_enabled = await _cli_workflow_enabled(
+        kernel=kernel,
+        session_id=active_session_id,
+        workspace_root=workspace_root,
+    )
+    list_named = getattr(kernel, "list_named_workflows", None)
+    named_workflows = (
+        list_named(workspace_root=workspace_root)
+        if workflow_enabled and callable(list_named)
+        else ()
+    )
+    named_commands = {
+        f"{item.namespace}:{item.name}" if item.namespace else item.name
+        for item in named_workflows
+    }
+
     if command == "/help":
         if argument_tokens:
             repl_commands.print_actionable_error(
@@ -1123,7 +1318,18 @@ async def _handle_repl_command_async(
                 usage="/help",
             )
             return _ReplCommandResult(handled=True)
-        print(repl_commands.HELP_LINE, file=out)
+        effort_values = await _cli_effort_values(
+            kernel=kernel,
+            session_id=active_session_id,
+            workspace_root=workspace_root,
+            workflow_enabled=workflow_enabled,
+        )
+        print(
+            repl_commands.help_line(
+                workflow_enabled=workflow_enabled, effort_values=effort_values
+            ),
+            file=out,
+        )
         return _ReplCommandResult(handled=True)
 
     if command == "/exit":
@@ -1146,6 +1352,139 @@ async def _handle_repl_command_async(
             repl_commands.print_session_created(out=out, session_id=next_id)
             repl_commands.print_active_session(out=out, session_id=next_id)
             return _ReplCommandResult(handled=True, new_session_id=next_id)
+
+        if workflow_enabled and command == "/workflows":
+            if not active_session_id:
+                repl_commands.print_actionable_error(
+                    out=out,
+                    message="no active session.",
+                    suggestion="run /new before managing Workflows.",
+                )
+                return _ReplCommandResult(handled=True)
+            return await _handle_workflows_command(
+                out=out,
+                kernel=kernel,
+                session_id=active_session_id,
+                argument_tokens=argument_tokens,
+            )
+
+        if workflow_enabled and command == "/config":
+            if (
+                len(argument_tokens) != 2
+                or argument_tokens[0] != "workflowSizeGuideline"
+            ):
+                repl_commands.print_actionable_error(
+                    out=out,
+                    message="invalid Workflow config command.",
+                    suggestion=(
+                        "try /config workflowSizeGuideline "
+                        "<unrestricted|small|medium|large>."
+                    ),
+                )
+                return _ReplCommandResult(handled=True)
+            guideline = argument_tokens[1]
+            from coding_cli.product import (
+                WORKFLOW_SIZE_GUIDELINES,
+                save_cli_workflow_size_guideline,
+            )
+
+            if guideline not in WORKFLOW_SIZE_GUIDELINES:
+                repl_commands.print_actionable_error(
+                    out=out,
+                    message=f"invalid workflowSizeGuideline: {guideline}.",
+                    suggestion=("choose unrestricted, small, medium, or large."),
+                )
+                return _ReplCommandResult(handled=True)
+            save_cli_workflow_size_guideline(workspace_root, guideline)
+            if active_session_id:
+                state = await kernel.get_session_runtime(
+                    session_id=active_session_id, workspace_root=workspace_root
+                )
+                if state is not None:
+                    from dataclasses import replace
+
+                    await kernel.reconfigure_session(
+                        session_id=active_session_id,
+                        workspace_root=workspace_root,
+                        runtime=replace(
+                            state.runtime, workflow_size_guideline=guideline
+                        ),
+                    )
+            print(
+                f"已将 workflowSizeGuideline 设为 {guideline}；从下一轮起生效。",
+                file=out,
+            )
+            return _ReplCommandResult(handled=True)
+
+        if command == "/effort":
+            if not active_session_id:
+                repl_commands.print_actionable_error(
+                    out=out,
+                    message="no active session.",
+                    suggestion="run /new before changing effort.",
+                )
+                return _ReplCommandResult(handled=True)
+            state = await kernel.get_session_runtime(
+                session_id=active_session_id, workspace_root=workspace_root
+            )
+            if state is None:
+                raise RuntimeError("session runtime is unavailable")
+            effort_values = _cli_effort_values_for_runtime(
+                kernel=kernel,
+                model=state.runtime.model,
+                workflow_enabled="Workflow" in state.runtime.enabled_tools,
+            )
+            if len(argument_tokens) != 1 or argument_tokens[0] not in effort_values:
+                if effort_values:
+                    suggestion = f"try /effort <{'|'.join(effort_values)}>"
+                else:
+                    suggestion = "the current model has no selectable reasoning effort."
+                repl_commands.print_actionable_error(
+                    out=out,
+                    message=(
+                        "invalid effort command."
+                        if effort_values
+                        else f"model {state.runtime.model} has no selectable reasoning effort."
+                    ),
+                    suggestion=suggestion,
+                )
+                return _ReplCommandResult(handled=True)
+            from dataclasses import replace
+
+            ultracode = argument_tokens[0] == "ultracode"
+            requested = "xhigh" if ultracode else argument_tokens[0]
+            await kernel.reconfigure_session(
+                session_id=active_session_id,
+                workspace_root=workspace_root,
+                runtime=replace(
+                    state.runtime,
+                    reasoning_effort=requested,
+                    reasoning_effort_override=requested,
+                    workflow_ultracode=ultracode,
+                ),
+            )
+            print(
+                "Ultracode 已开启。"
+                if ultracode
+                else f"已将当前会话的推理档位设为 {requested}。",
+                file=out,
+            )
+            return _ReplCommandResult(handled=True)
+
+        named_name = command.removeprefix("/")
+        if (
+            workflow_enabled
+            and command.startswith("/")
+            and named_name in named_commands
+        ):
+            arguments = argument or ""
+            expanded = (
+                f'Run the saved Workflow named "{named_name}" using the Workflow '
+                "tool name input. Do not replace it with an inline script."
+            )
+            if arguments:
+                expanded += f" User arguments: {arguments}"
+            return _ReplCommandResult(handled=False, expanded_text=expanded)
 
         if command == "/use":
             if not argument_tokens:
@@ -1291,6 +1630,372 @@ async def _handle_repl_command_async(
         suggestion="run /help to see available commands.",
     )
     return _ReplCommandResult(handled=True)
+
+
+async def _cli_effort_values(
+    *,
+    kernel: Any,
+    session_id: str | None,
+    workspace_root: Path,
+    workflow_enabled: bool,
+) -> tuple[str, ...]:
+    """Return the active session model's complete effort command values."""
+
+    model: str | None = None
+    get_session_runtime = getattr(kernel, "get_session_runtime", None)
+    if session_id is not None and callable(get_session_runtime):
+        try:
+            state = await get_session_runtime(
+                session_id=session_id, workspace_root=workspace_root
+            )
+        except Exception:  # noqa: BLE001 - help remains available for stale sessions
+            state = None
+        if state is not None:
+            model = state.runtime.model
+            workflow_enabled = "Workflow" in state.runtime.enabled_tools
+    if model is None:
+        config = getattr(kernel, "get_llm_config", lambda: None)()
+        candidate = getattr(config, "default_model", None) or getattr(
+            config, "model", None
+        )
+        model = candidate if isinstance(candidate, str) and candidate else None
+    if model is None:
+        return ()
+    return _cli_effort_values_for_runtime(
+        kernel=kernel, model=model, workflow_enabled=workflow_enabled
+    )
+
+
+def _cli_effort_values_for_runtime(
+    *, kernel: Any, model: str, workflow_enabled: bool
+) -> tuple[str, ...]:
+    """Resolve command values from the SDK catalog without hardcoded levels."""
+
+    get_llm_config = getattr(kernel, "get_llm_config", None)
+    if not callable(get_llm_config):
+        return ()
+    try:
+        capability = ModelReasoningCatalog(get_llm_config()).capability_for(model)
+    except (AttributeError, TypeError, ValueError):
+        return ()
+    if capability is None or capability.kind != "selectable":
+        return ()
+    values = list(capability.levels)
+    if workflow_enabled and "xhigh" in capability.levels:
+        values.append("ultracode")
+    return tuple(values)
+
+
+async def _cli_workflow_enabled(
+    *, kernel: Any, session_id: str | None, workspace_root: Path
+) -> bool:
+    if session_id:
+        try:
+            payload = kernel.list_session_tools(
+                session_id, workspace_root=workspace_root
+            )
+        except Exception:  # noqa: BLE001 - command-specific path reports SDK failures
+            return False
+        tools = payload.get("tools", ()) if isinstance(payload, dict) else ()
+        return any(
+            isinstance(tool, dict) and tool.get("name") == "Workflow" for tool in tools
+        )
+    from coding_cli.product import load_cli_workflow_config
+
+    return not load_cli_workflow_config(workspace_root).disabled
+
+
+async def _handle_workflows_command(
+    *,
+    out: TextIO,
+    kernel: Any,
+    session_id: str,
+    argument_tokens: list[str],
+) -> _ReplCommandResult:
+    if not argument_tokens:
+        if _is_tty_output(out) and repl_input.supports_editable_terminal_input(
+            sys.stdin
+        ):
+            await asyncio.get_running_loop().run_in_executor(
+                None,
+                lambda: _run_workflow_tty_controls(
+                    out=out,
+                    kernel=kernel,
+                    session_id=session_id,
+                    key_reader=repl_input.read_workflow_control_key_from_terminal,
+                ),
+            )
+            return _ReplCommandResult(handled=True)
+        _print_workflow_runs(out, kernel.list_workflow_runs(session_id=session_id))
+        return _ReplCommandResult(handled=True)
+    run_id = argument_tokens[0]
+    if len(argument_tokens) == 1:
+        run = kernel.get_workflow_run(session_id=session_id, run_id=run_id)
+        if run is None:
+            print(f"未找到 Workflow 运行: {run_id}", file=out)
+        else:
+            print(_format_workflow_run(run), file=out)
+        return _ReplCommandResult(handled=True)
+    action = argument_tokens[1]
+    if action == "pause" and len(argument_tokens) == 2:
+        run = kernel.control_workflow(
+            session_id=session_id,
+            run_id=run_id,
+            action=WorkflowControlAction.PAUSE,
+        )
+        print(_format_workflow_run(run), file=out)
+        return _ReplCommandResult(handled=True)
+    if action == "resume" and len(argument_tokens) == 2:
+        try:
+            run = kernel.resume_workflow(session_id=session_id, run_id=run_id)
+        except (OSError, ValueError) as exc:
+            repl_commands.print_actionable_error(
+                out=out,
+                message=str(exc),
+                suggestion=(
+                    "run this command from the Workflow's parent session and retry."
+                ),
+            )
+            return _ReplCommandResult(handled=True)
+        print(_format_workflow_run(run), file=out)
+        return _ReplCommandResult(handled=True)
+    if action == "stop" and len(argument_tokens) in {2, 3}:
+        run = kernel.control_workflow(
+            session_id=session_id,
+            run_id=run_id,
+            action=WorkflowControlAction.STOP,
+            agent_call_id=argument_tokens[2] if len(argument_tokens) == 3 else None,
+        )
+        print(_format_workflow_run(run), file=out)
+        return _ReplCommandResult(handled=True)
+    if action in {"restart", "restart_agent"} and len(argument_tokens) == 3:
+        run = kernel.control_workflow(
+            session_id=session_id,
+            run_id=run_id,
+            action=WorkflowControlAction.RESTART_AGENT,
+            agent_call_id=argument_tokens[2],
+        )
+        print(_format_workflow_run(run), file=out)
+        return _ReplCommandResult(handled=True)
+    if action == "save" and len(argument_tokens) in {3, 4}:
+        scope = argument_tokens[2]
+        if scope in {"project", "personal"}:
+            saved = kernel.save_workflow(
+                session_id=session_id,
+                run_id=run_id,
+                scope=WorkflowSaveScope(scope),
+                name=argument_tokens[3] if len(argument_tokens) == 4 else None,
+            )
+            print(f"已保存 Workflow /{saved.name}\n路径: {saved.path}", file=out)
+            return _ReplCommandResult(handled=True)
+    repl_commands.print_actionable_error(
+        out=out,
+        message="invalid /workflows command.",
+        suggestion=(
+            "try /workflows [run-id [pause|resume|stop [agent-call-id]|"
+            "restart <agent-call-id>|save <project|personal> [name]]]."
+        ),
+    )
+    return _ReplCommandResult(handled=True)
+
+
+def _run_workflow_tty_controls(
+    *,
+    out: TextIO,
+    kernel: Any,
+    session_id: str,
+    key_reader: Callable[[], str | None],
+) -> None:
+    """Run the TTY Workflow selector and its upstream-compatible key controls."""
+
+    selected_index = 0
+    while True:
+        runs = tuple(kernel.list_workflow_runs(session_id=session_id))
+        items = [
+            (run, agent)
+            for run in runs
+            for agent in (None, *_workflow_agents_in_display_order(run))
+        ]
+        if not items:
+            print("暂无 Workflow 运行记录。", file=out)
+            return
+        selected_index %= len(items)
+        print(_format_workflow_control_view(runs, selected_index), file=out)
+
+        key = key_reader()
+        if key in {None, "q", "\x1b", "\n", "\r"}:
+            return
+        if key == "\x1b[A":
+            selected_index = (selected_index - 1) % len(items)
+            continue
+        if key == "\x1b[B":
+            selected_index = (selected_index + 1) % len(items)
+            continue
+
+        run, agent = items[selected_index]
+        try:
+            if key == "p":
+                action = (
+                    WorkflowControlAction.RESUME
+                    if run.status == "paused"
+                    else WorkflowControlAction.PAUSE
+                )
+                kernel.control_workflow(
+                    session_id=session_id,
+                    run_id=run.run_id,
+                    action=action,
+                )
+            elif key == "x":
+                kernel.control_workflow(
+                    session_id=session_id,
+                    run_id=run.run_id,
+                    action=WorkflowControlAction.STOP,
+                    agent_call_id=(agent.agent_call_id if agent is not None else None),
+                )
+            elif key == "r" and agent is not None:
+                kernel.control_workflow(
+                    session_id=session_id,
+                    run_id=run.run_id,
+                    action=WorkflowControlAction.RESTART_AGENT,
+                    agent_call_id=agent.agent_call_id,
+                )
+            elif key == "s":
+                saved = kernel.save_workflow(
+                    session_id=session_id,
+                    run_id=run.run_id,
+                    scope=WorkflowSaveScope.PROJECT,
+                    name=None,
+                )
+                print(f"已保存 Workflow /{saved.name}\n路径: {saved.path}", file=out)
+        except Exception as exc:  # noqa: BLE001 - keep the control view open
+            print(f"Workflow control failed: {exc}", file=out)
+
+
+def _format_workflow_control_view(runs: Sequence[Any], selected_index: int) -> str:
+    lines = [
+        "Workflow controls",
+        "↑/↓ select · p pause/resume · x stop · r restart agent · "
+        "s save project · q close",
+    ]
+    item_index = 0
+    for run in runs:
+        marker = "▶" if item_index == selected_index else " "
+        lines.append(f"{marker} {run.run_id} · {run.name} · {run.status}")
+        item_index += 1
+        agents = tuple(getattr(run, "agents", ()) or ())
+        phases = tuple(getattr(run, "phases", ()) or ())
+        phase_titles = [phase.title for phase in phases]
+        for phase in phases:
+            lines.append(f"    [{phase.status}] {phase.title}")
+            for agent in agents:
+                if agent.phase != phase.title:
+                    continue
+                marker = "▶" if item_index == selected_index else " "
+                label = agent.label or agent.agent_call_id
+                lines.append(
+                    f"  {marker} [{agent.status}] {label} ({agent.agent_call_id})"
+                )
+                item_index += 1
+        for agent in agents:
+            if agent.phase in phase_titles:
+                continue
+            marker = "▶" if item_index == selected_index else " "
+            label = agent.label or agent.agent_call_id
+            lines.append(f"  {marker} [{agent.status}] {label} ({agent.agent_call_id})")
+            item_index += 1
+        if getattr(run, "usage", None):
+            lines.append(
+                "    Usage: "
+                + ", ".join(f"{key}={value}" for key, value in run.usage.items())
+            )
+        if getattr(run, "duration_ms", None) is not None:
+            lines.append(f"    Duration: {run.duration_ms / 1000:g}s")
+    return "\n".join(lines)
+
+
+def _workflow_agents_in_display_order(run: Any) -> tuple[Any, ...]:
+    agents = tuple(getattr(run, "agents", ()) or ())
+    phases = tuple(getattr(run, "phases", ()) or ())
+    phase_titles = [phase.title for phase in phases]
+    return tuple(
+        agent for phase in phases for agent in agents if agent.phase == phase.title
+    ) + tuple(agent for agent in agents if agent.phase not in phase_titles)
+
+
+def _print_workflow_runs(out: TextIO, runs: Sequence[Any]) -> None:
+    if not runs:
+        print("暂无 Workflow 运行记录。", file=out)
+        return
+    for run in runs:
+        print(f"{run.run_id} · {run.name} · {run.status}", file=out)
+
+
+def _format_workflow_run(run: Any) -> str:
+    lines = [f"Workflow {run.run_id} · {run.name} · {run.status}"]
+    if getattr(run, "current_phase", None):
+        lines.append(f"阶段: {run.current_phase}")
+    agents = tuple(getattr(run, "agents", ()) or ())
+    phases = tuple(getattr(run, "phases", ()) or ())
+    rendered_agent_ids: set[str] = set()
+    for phase in phases:
+        lines.append(f"[{phase.status}] {phase.title}")
+        if getattr(phase, "detail", None):
+            lines.append(f"  说明: {phase.detail}")
+        if getattr(phase, "usage", None):
+            lines.append(f"  Usage: {_format_workflow_usage(phase.usage)}")
+        if getattr(phase, "duration_ms", None) is not None:
+            lines.append(f"  耗时: {phase.duration_ms / 1000:g}s")
+        for agent in agents:
+            if agent.phase == phase.title:
+                _append_workflow_agent(lines, agent)
+                rendered_agent_ids.add(agent.agent_call_id)
+    for agent in agents:
+        if agent.agent_call_id not in rendered_agent_ids:
+            _append_workflow_agent(lines, agent)
+    if agents:
+        completed = sum(agent.status == "completed" for agent in agents)
+        lines.append(f"Agent: {completed}/{len(agents)} completed")
+    if getattr(run, "result", None) is not None:
+        lines.append(f"结果: {run.result}")
+    if getattr(run, "error", None):
+        lines.append(f"错误: {run.error}")
+    if getattr(run, "usage", None):
+        lines.append(
+            "Usage: " + ", ".join(f"{key}={value}" for key, value in run.usage.items())
+        )
+    if getattr(run, "duration_ms", None) is not None:
+        lines.append(f"耗时: {run.duration_ms / 1000:g}s")
+    if getattr(run, "transcript_dir", None):
+        lines.append(f"诊断: {run.transcript_dir}")
+    if getattr(run, "script_path", None):
+        lines.append(f"脚本: {run.script_path}")
+    for warning in getattr(run, "warnings", ()):
+        lines.append(f"警告: {warning}")
+    return "\n".join(lines)
+
+
+def _append_workflow_agent(lines: list[str], agent: Any) -> None:
+    label = agent.label or agent.agent_call_id
+    lines.append(f"  - [{agent.status}] {label} ({agent.agent_call_id})")
+    lines.append(f"    任务: {agent.prompt}")
+    if getattr(agent, "result", None) is not None:
+        lines.append(f"    结果: {agent.result}")
+    if getattr(agent, "error", None):
+        lines.append(f"    错误: {agent.error}")
+    if getattr(agent, "usage", None):
+        lines.append(f"    Usage: {_format_workflow_usage(agent.usage)}")
+    if getattr(agent, "duration_ms", None) is not None:
+        lines.append(f"    耗时: {agent.duration_ms / 1000:g}s")
+    if getattr(agent, "session_id", None):
+        lines.append(f"    Session: {agent.session_id}")
+    if getattr(agent, "transcript_path", None):
+        lines.append(f"    Transcript: {agent.transcript_path}")
+    if getattr(agent, "worktree_path", None):
+        lines.append(f"    保留 worktree: {agent.worktree_path}")
+
+
+def _format_workflow_usage(usage: Mapping[str, int]) -> str:
+    return ", ".join(f"{key}={value}" for key, value in usage.items())
 
 
 # ---------------------------------------------------------------------------

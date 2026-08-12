@@ -4,9 +4,18 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
+from agent.sdk import (
+    LLMConfig,
+    LLMModel,
+    LLMProvider,
+    ModelReasoningCapability,
+    ModelReasoningCatalog,
+    WorkflowRunInfo,
+)
 
 from personal_assistant.channels.base import (
     ExternalConversationIdentity,
@@ -17,7 +26,12 @@ from personal_assistant.channels.base import (
     OutboundMessage,
 )
 from personal_assistant.config.local_store import AgentWorkspaceConfig
+from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
 from personal_assistant.gateway.channel_registry import ChannelRegistry
+from personal_assistant.gateway.human_message_context import (
+    PaHumanMessageContext,
+    PaTimeContext,
+)
 from tests.helpers.inbound_pipeline import build_inbound_pipeline, inbound_graph
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.inbound_models import (
@@ -213,6 +227,412 @@ def test_inbound_pipeline_runs_four_steps_and_replies_via_origin_channel(
     assert kernel_client.send_calls == [
         {"session_id": "sess-1", "texts": ["ping"], "run_id": "run-1"}
     ]
+
+
+def test_active_workflow_commands_query_config_and_invoke_named_definition(
+    tmp_path: Path,
+) -> None:
+    async def _run() -> None:
+        workspace = tmp_path / "workflow-agent"
+        workspace.mkdir()
+        agents = (
+            AgentWorkspaceConfig(
+                agent_id="agent-a",
+                workspace_root=workspace,
+                title="Agent A",
+                default_model="test-model",
+                tool_allowlist=("read", "Workflow"),
+            ),
+        )
+        channel = _FakeChannel("web_relay")
+        kernel = ControlledKernel()
+        configured: list[tuple[str, str]] = []
+        reasoning_catalog = ModelReasoningCatalog(
+            LLMConfig.from_catalog(
+                default_model="test-model",
+                providers=(
+                    LLMProvider(
+                        name="test",
+                        base_url="http://test.invalid",
+                        models=(
+                            LLMModel(
+                                name="test-model",
+                                reasoning=ModelReasoningCapability(
+                                    kind="selectable",
+                                    default="high",
+                                    levels=("low", "high", "xhigh"),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        )
+        pipeline = build_inbound_pipeline(
+            kernel=kernel,
+            agents=agents,
+            outbound_router=OutboundRouter(ChannelRegistry((channel,))),
+            run_queue=SessionRunQueue(),
+            session_store=SessionBindingStore(),
+            default_agent_id="agent-a",
+            update_workflow_size_guideline=lambda agent_id, value: configured.append(
+                (agent_id, value)
+            ),
+            reasoning_catalog=reasoning_catalog,
+            human_message_context=PaHumanMessageContext(
+                PaTimeContext(zone=timezone.utc, prompt_label="UTC")
+            ),
+        )
+
+        listed = await pipeline.handle_inbound(
+            InboundMessage(
+                channel_name="web_relay",
+                text="/workflows",
+                external_user_id="user-1",
+                external_chat_id="chat-1",
+                is_group=False,
+                agent_id="agent-a",
+                source_timestamp=datetime(2026, 8, 12, 1, 2, tzinfo=timezone.utc),
+            )
+        )
+        assert listed is not None
+        assert listed.reply_text == "暂无 Workflow 运行记录。"
+        assert kernel.submit_calls == []
+
+        kernel.workflow_runs["wf_123"] = WorkflowRunInfo(
+            run_id="wf_123",
+            task_id="wt_123",
+            parent_session_id=listed.kernel_session_id,
+            revision=1,
+            status="running",
+            name="review",
+            description="Review changes",
+            transcript_dir="/tmp/wf_123",
+        )
+        paused = await pipeline.handle_inbound(
+            InboundMessage(
+                channel_name="web_relay",
+                text="/workflows wf_123 pause",
+                external_user_id="user-1",
+                external_chat_id="chat-1",
+                is_group=False,
+                agent_id="agent-a",
+                source_timestamp=datetime(2026, 8, 12, 1, 2, tzinfo=timezone.utc),
+            )
+        )
+        assert paused is not None
+        assert "wf_123 · review · pause" in paused.reply_text
+
+        saved = await pipeline.handle_inbound(
+            InboundMessage(
+                channel_name="web_relay",
+                text="/workflows wf_123 save project saved-review",
+                external_user_id="user-1",
+                external_chat_id="chat-1",
+                is_group=False,
+                agent_id="agent-a",
+                source_timestamp=datetime(2026, 8, 12, 1, 2, tzinfo=timezone.utc),
+            )
+        )
+        assert saved is not None
+        assert saved.reply_text == (
+            "已保存 Workflow /saved-review\n路径: /saved/saved-review.py"
+        )
+
+        configured_result = await pipeline.handle_inbound(
+            InboundMessage(
+                channel_name="web_relay",
+                text="/config workflowSizeGuideline large",
+                external_user_id="user-1",
+                external_chat_id="chat-1",
+                is_group=False,
+                agent_id="agent-a",
+                source_timestamp=datetime(2026, 8, 12, 1, 2, tzinfo=timezone.utc),
+            )
+        )
+        assert configured_result is not None
+        assert configured == [("agent-a", "large")]
+        assert "下一轮起生效" in configured_result.reply_text
+
+        effort_result = await pipeline.handle_inbound(
+            InboundMessage(
+                channel_name="web_relay",
+                text="/effort ultracode",
+                external_user_id="user-1",
+                external_chat_id="chat-1",
+                is_group=False,
+                agent_id="agent-a",
+                source_timestamp=datetime(2026, 8, 12, 1, 2, tzinfo=timezone.utc),
+            )
+        )
+        assert effort_result is not None
+        assert effort_result.reply_text == "Ultracode 已开启。"
+        assert kernel.reconfigure_calls[-1][1].workflow_ultracode is True
+        assert kernel.reconfigure_calls[-1][1].reasoning_effort == "xhigh"
+        assert kernel.reconfigure_calls[-1][1].reasoning_effort_override == "xhigh"
+        assert kernel.submit_calls == []
+
+        invoking = asyncio.create_task(
+            pipeline.handle_inbound(
+                InboundMessage(
+                    channel_name="web_relay",
+                    text="/deep-research compare providers",
+                    external_user_id="user-1",
+                    external_chat_id="chat-1",
+                    is_group=False,
+                    agent_id="agent-a",
+                    source_timestamp=datetime(2026, 8, 12, 1, 2, tzinfo=timezone.utc),
+                )
+            )
+        )
+        await kernel.wait_stream("run-1")
+        submitted_text = kernel.submit_calls[0]["parts"][0]["text"]
+        assert submitted_text.startswith("[Web IM Wed 2026-08-12 01:02 UTC] ")
+        assert 'saved Workflow named "deep-research"' in submitted_text
+        assert "compare providers" in submitted_text
+        kernel.finish("run-1", text="launched")
+        invoked = await invoking
+        assert invoked is not None
+        assert invoked.reply_text == "launched"
+
+    asyncio.run(_run())
+
+
+def test_effort_override_survives_legal_model_change_and_clears_when_illegal(
+    tmp_path: Path,
+) -> None:
+    """Gateway reconciles a session override against every new effective model."""
+
+    async def _run() -> None:
+        workspace = tmp_path / "effort-agent"
+        workspace.mkdir()
+        initial = AgentWorkspaceConfig(
+            agent_id="agent-a",
+            workspace_root=workspace,
+            default_model="model-a",
+            reasoning_effort="high",
+            tool_allowlist=("read",),
+        )
+        catalog = LiveAgentCatalog((initial,))
+        reasoning_catalog = ModelReasoningCatalog(
+            LLMConfig.from_catalog(
+                default_model="model-a",
+                providers=(
+                    LLMProvider(
+                        name="test",
+                        base_url="http://test.invalid",
+                        models=(
+                            LLMModel(
+                                name="model-a",
+                                reasoning=ModelReasoningCapability(
+                                    kind="selectable",
+                                    default="high",
+                                    levels=("low", "high", "xhigh"),
+                                ),
+                            ),
+                            LLMModel(
+                                name="model-b",
+                                reasoning=ModelReasoningCapability(
+                                    kind="selectable",
+                                    default="medium",
+                                    levels=("low", "medium"),
+                                ),
+                            ),
+                            LLMModel(
+                                name="model-c",
+                                reasoning=ModelReasoningCapability(
+                                    kind="selectable",
+                                    default="medium",
+                                    levels=("medium", "high"),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        )
+        kernel = ControlledKernel()
+        pipeline = build_inbound_pipeline(
+            kernel=kernel,
+            agent_catalog=catalog,
+            outbound_router=OutboundRouter(ChannelRegistry((_FakeChannel("web"),))),
+            run_queue=SessionRunQueue(),
+            session_store=SessionBindingStore(),
+            default_agent_id="agent-a",
+            reasoning_catalog=reasoning_catalog,
+        )
+
+        async def _message(text: str):
+            return await pipeline.handle_inbound(
+                InboundMessage(
+                    channel_name="web",
+                    text=text,
+                    external_user_id="user-1",
+                    external_chat_id="chat-1",
+                    is_group=False,
+                    agent_id="agent-a",
+                )
+            )
+
+        selected = await _message("/effort low")
+        assert selected is not None
+        assert selected.reply_text == "已将当前会话的推理档位设为 low。"
+
+        async def _run_turn(run_id: str) -> None:
+            pending = asyncio.create_task(_message(f"message for {run_id}"))
+            await kernel.wait_stream(run_id)
+            kernel.finish(run_id, text="ok")
+            await pending
+
+        await _run_turn("run-1")
+        graph = inbound_graph(pipeline)
+        binding = graph.binder.lookup("web:chat-1:agent-a")
+        assert binding is not None
+        state = await kernel.get_session_runtime(
+            session_id=binding.kernel_session_id, workspace_root=workspace
+        )
+        assert state is not None
+        assert state.runtime.model == "model-a"
+        assert state.runtime.reasoning_effort_override == "low"
+
+        catalog.publish(
+            replace(initial, default_model="model-b", reasoning_effort="medium")
+        )
+        await _run_turn("run-2")
+        state = await kernel.get_session_runtime(
+            session_id=binding.kernel_session_id, workspace_root=workspace
+        )
+        assert state is not None
+        assert (state.runtime.model, state.runtime.reasoning_effort) == (
+            "model-b",
+            "low",
+        )
+        assert state.runtime.reasoning_effort_override == "low"
+
+        catalog.publish(
+            replace(initial, default_model="model-c", reasoning_effort="medium")
+        )
+        await _run_turn("run-3")
+        state = await kernel.get_session_runtime(
+            session_id=binding.kernel_session_id, workspace_root=workspace
+        )
+        assert state is not None
+        assert (state.runtime.model, state.runtime.reasoning_effort) == (
+            "model-c",
+            "medium",
+        )
+        assert state.runtime.reasoning_effort_override is None
+
+    asyncio.run(_run())
+
+
+def test_workflow_disable_clears_ultracode_but_keeps_a_legal_override(
+    tmp_path: Path,
+) -> None:
+    """Removing Workflow only clears its special standing mode."""
+
+    async def _run() -> None:
+        workspace = tmp_path / "workflow-effort-agent"
+        workspace.mkdir()
+        initial = AgentWorkspaceConfig(
+            agent_id="agent-a",
+            workspace_root=workspace,
+            default_model="model-a",
+            tool_allowlist=("read", "Workflow"),
+        )
+        catalog = LiveAgentCatalog((initial,))
+        reasoning_catalog = ModelReasoningCatalog(
+            LLMConfig.from_catalog(
+                default_model="model-a",
+                providers=(
+                    LLMProvider(
+                        name="test",
+                        base_url="http://test.invalid",
+                        models=(
+                            LLMModel(
+                                name="model-a",
+                                reasoning=ModelReasoningCapability(
+                                    kind="selectable",
+                                    default="high",
+                                    levels=("low", "high", "xhigh"),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        )
+        kernel = ControlledKernel()
+        pipeline = build_inbound_pipeline(
+            kernel=kernel,
+            agent_catalog=catalog,
+            outbound_router=OutboundRouter(ChannelRegistry((_FakeChannel("web"),))),
+            run_queue=SessionRunQueue(),
+            session_store=SessionBindingStore(),
+            default_agent_id="agent-a",
+            reasoning_catalog=reasoning_catalog,
+        )
+        message = lambda text: pipeline.handle_inbound(
+            InboundMessage(
+                channel_name="web",
+                text=text,
+                external_user_id="user-1",
+                external_chat_id="chat-1",
+                is_group=False,
+                agent_id="agent-a",
+            )
+        )
+        selected = await message("/effort ultracode")
+        assert selected is not None
+        assert selected.reply_text == "Ultracode 已开启。"
+        catalog.publish(replace(initial, tool_allowlist=("read",)))
+        pending = asyncio.create_task(message("ordinary task"))
+        await kernel.wait_stream("run-1")
+        kernel.finish("run-1", text="ok")
+        await pending
+
+        binding = inbound_graph(pipeline).binder.lookup("web:chat-1:agent-a")
+        assert binding is not None
+        state = await kernel.get_session_runtime(
+            session_id=binding.kernel_session_id, workspace_root=workspace
+        )
+        assert state is not None
+        assert state.runtime.reasoning_effort_override == "xhigh"
+        assert state.runtime.workflow_ultracode is False
+
+    asyncio.run(_run())
+
+
+def test_disabled_workflow_slash_command_remains_normal_user_text(
+    tmp_path: Path,
+) -> None:
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web")
+    kernel = _FakeKernel()
+    pipeline = build_inbound_pipeline(
+        kernel=kernel,
+        agents=agents,
+        outbound_router=OutboundRouter(ChannelRegistry((channel,))),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+
+    result = asyncio.run(
+        pipeline.handle_inbound(
+            InboundMessage(
+                channel_name="web",
+                text="/workflows",
+                external_user_id="user-1",
+                external_chat_id="chat-1",
+                is_group=False,
+            )
+        )
+    )
+
+    assert result is not None
+    assert result.reply_text == "reply:/workflows"
+    assert kernel.send_calls[0]["texts"] == ["/workflows"]
 
 
 def test_anchored_external_inbound_persists_and_refreshes_shadow_reply_target(

@@ -1,44 +1,7 @@
 """Domain models for the independent IM service."""
 
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
-
-
-_MANAGED_WORKSPACE_ROOT = Path("~/.nanoassistant/workspaces").expanduser()
-
-
-def managed_workspace_root(agent_id: str) -> str:
-    """Return the canonical managed workspace path for one agent.
-
-    Args:
-        agent_id: Stable agent identifier used to derive the managed workspace directory.
-
-    Returns:
-        Absolute workspace path under the shared managed workspace root.
-    """
-    return str((_MANAGED_WORKSPACE_ROOT / agent_id).resolve())
-
-
-def is_managed_workspace_root(*, agent_id: str, workspace_root: str | None) -> bool:
-    """Return whether one stored workspace path matches the managed default.
-
-    Args:
-        agent_id: Stable agent identifier whose managed default should be checked.
-        workspace_root: Stored workspace path from persistence.
-
-    Returns:
-        ``True`` when the stored path is empty or resolves to the managed default path.
-    """
-    if workspace_root is None:
-        return True
-    normalized = workspace_root.strip()
-    if not normalized:
-        return True
-    candidate = Path(normalized).expanduser()
-    if not candidate.is_absolute():
-        return False
-    return str(candidate.resolve()) == managed_workspace_root(agent_id)
 
 
 @dataclass(frozen=True, slots=True)
@@ -191,6 +154,8 @@ class Conversation:
 
 
 _TOOL_CALL_STATUSES = frozenset({"running", "completed", "failed"})
+_BACKGROUND_RETURN_TYPES = frozenset({"subagent", "workflow"})
+_BACKGROUND_RETURN_STATUSES = frozenset({"completed", "failed", "stopped", "killed"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,6 +172,45 @@ class ThinkingSegment:
 
     seq: int
     text: str
+
+
+@dataclass(frozen=True, slots=True)
+class BackgroundReturn:
+    """One terminal background-task result attached to an assistant message."""
+
+    task_id: str
+    task_type: str
+    status: str
+    description: str
+    agent_id: str | None = None
+    workflow_run_id: str | None = None
+    result: str | None = None
+    error: str | None = None
+    usage: dict[str, Any] | None = None
+    tool_use_count: int | None = None
+    duration_ms: int | None = None
+    output_file: str | None = None
+    diagnostics: str | None = None
+    resume_hint: str | None = None
+    seq: int | None = None
+
+    def __post_init__(self) -> None:
+        if not self.task_id.strip():
+            raise ValueError("background_return.task_id must be non-empty")
+        if self.task_type not in _BACKGROUND_RETURN_TYPES:
+            raise ValueError("background_return.task_type must be subagent or workflow")
+        if self.status not in _BACKGROUND_RETURN_STATUSES:
+            raise ValueError(
+                "background_return.status must be completed, failed, stopped, or killed"
+            )
+        if not self.description.strip():
+            raise ValueError("background_return.description must be non-empty")
+        if self.tool_use_count is not None and self.tool_use_count < 0:
+            raise ValueError("background_return.tool_use_count must be non-negative")
+        if self.duration_ms is not None and self.duration_ms < 0:
+            raise ValueError("background_return.duration_ms must be non-negative")
+        if self.seq is not None and self.seq < 0:
+            raise ValueError("background_return.seq must be non-negative")
 
 
 @dataclass(frozen=True, slots=True)
@@ -323,6 +327,7 @@ class Message:
     # 空壳）。每段带 seq（与 tool_calls 共享的 per-message 单调递增唯一序号）+ text，
     # 与 tool_calls 并存、由渲染端按 seq 升序 merge 成时间线。
     thinking: list[ThinkingSegment] | None = None
+    background_returns: list[BackgroundReturn] | None = None
     token_usage: TokenUsage | None = None
     # feat-414: 本轮 agent 处理墙钟耗时（毫秒）。turn_start 建行时为 None，
     # on_message_completed 写入（见 event_bridge.py）。用户消息始终为 None。

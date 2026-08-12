@@ -117,6 +117,13 @@ def supports_editable_terminal_input(stdin: TextIO) -> bool:
         return False
 
 
+def read_workflow_control_key_from_terminal() -> str | None:
+    """Read one key for the interactive Workflow control view."""
+
+    with _stdin_raw_mode(sys.stdin):
+        return _read_terminal_key(sys.stdin)
+
+
 @contextmanager
 def _stdin_raw_mode(stdin: TextIO):
     if termios is None or tty is None:
@@ -867,7 +874,11 @@ def read_permission_choice(
 
     with _RENDER_LOCK:
         with _stdin_raw_mode(sys.stdin):
-            key_reader = _build_key_reader(sys.stdin)
+            key_reader = _build_key_reader(
+                sys.stdin,
+                on_idle=None,
+                idle_interval_seconds=0.5,
+            )
             _render()
 
             while True:

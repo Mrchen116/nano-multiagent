@@ -58,11 +58,8 @@ def test_agent_config_contract_shape_and_conflict_status(tmp_path: Path) -> None
             "custom_prompt",
             "heartbeat_json",
         }
-        assert response.json()["workspace_root"].endswith(
-            "/.nanoassistant/workspaces/agent-1"
-        )
-        # Legacy rows without Gateway provenance are conservatively non-default.
-        assert response.json()["workspace_is_default"] is False
+        assert response.json()["workspace_root"] is None
+        assert response.json()["workspace_is_default"] is None
 
 
 @pytest.mark.parametrize(
@@ -126,7 +123,7 @@ def test_patch_agent_config_persists_features_and_custom_prompt(tmp_path: Path) 
             tool_allowlist=["memory"],
             group_reply_policy="manual",
             default_model=None,
-            workspace_root=None,
+            workspace_root="/gateway/agent-prev",
             node_id="node-1",
         )
 
@@ -435,7 +432,7 @@ def test_agent_prompt_preview_proxy_contract(
             tool_allowlist=[],
             group_reply_policy="always",
             default_model=None,
-            workspace_root=None,
+            workspace_root="/gateway/agent-cap",
             node_id="node-1",
         )
         response = client.post(
@@ -495,6 +492,10 @@ def test_agent_capabilities_features_contract(
             "models": ["model-x"],
             "skills": [],
             "tools": [],
+            "commands": [
+                {"name": "workflows", "description": "Inspect Workflow runs"},
+                {"name": "deep-research", "description": "Run deep research"},
+            ],
             "platform_default_model": None,
             # feat-379-M2: features projection from FEATURE_REGISTRY
             "features": _GATEWAY_FEATURES,
@@ -520,13 +521,17 @@ def test_agent_capabilities_features_contract(
             tool_allowlist=[],
             group_reply_policy="always",
             default_model=None,
-            workspace_root=None,
+            workspace_root="/gateway/agent-cap",
             node_id="node-1",
         )
         response = client.get("/im/v1/agents/agent-cap/capabilities")
 
     assert response.status_code == 200
     body = response.json()
+    assert body["commands"] == [
+        {"name": "workflows", "description": "Inspect Workflow runs"},
+        {"name": "deep-research", "description": "Run deep research"},
+    ]
     # capabilities response must include features key
     assert "features" in body
     features = body["features"]
@@ -602,7 +607,7 @@ def test_agent_prompt_preview_forwards_skill_ids_to_gateway(
             tool_allowlist=["read"],
             group_reply_policy="always",
             default_model=None,
-            workspace_root=None,
+            workspace_root="/gateway/agent-skill",
             node_id="node-skill",
         )
         response = client.post(

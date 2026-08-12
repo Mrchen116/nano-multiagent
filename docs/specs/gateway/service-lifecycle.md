@@ -89,7 +89,7 @@ Gateway 始终**主动**向 IM 服务发起 WebSocket 持久连接(因其在 NAT
 #### Scenario: 连接后注册节点并周期心跳
 - **GIVEN** 配置了 IM 服务地址
 - **WHEN** Gateway 启动并连上 IM 服务 WebSocket
-- **THEN** 首帧发 `node.register`(携带 node_id、agent 列表与三组 per-agent 种子映射——`agent_workspaces` / `agent_skills` / `agent_tool_allowlist`；均为 agent_id → 本地 config 解析值的映射，供 IM 在首次落库时建立 profile；对由 IM `agent.create` 创建且仍持久化 create operation 的 Agent，另带 `agent_create_operations` 映射；重连重发同帧内容一致), 随后在线期间周期发 `node.heartbeat`(含 `node_id` / `status=online` / `agent_count`), IM 服务据此刷新节点状态
+- **THEN** 首帧发 `node.register`(携带 node_id、agent 列表与四组 per-agent 种子映射——`agent_workspaces` / `agent_workspace_is_default` / `agent_skills` / `agent_tool_allowlist`；均为 agent_id → 本地 config 解析值的映射，供 IM 在首次落库时建立 profile；其中 workspace root/provenance 是 Gateway 对本机状态的声明，IM 不自行推导；对由 IM `agent.create` 创建且仍持久化 create operation 的 Agent，另带 `agent_create_operations` 映射；重连重发同帧内容一致), 随后在线期间周期发 `node.heartbeat`(含 `node_id` / `status=online` / `agent_count`), IM 服务据此刷新节点状态
 
 #### Scenario: register ACK 是业务发送门禁且握手有界
 - **GIVEN** Gateway transport 已连上 IM，但 `node.register` 尚未被确认

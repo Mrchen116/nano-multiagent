@@ -138,7 +138,36 @@ class ToolRegistry:
                 ),
             )
             for tool in self._tools.values()
+            if not bool(getattr(tool, "is_internal", False))
         )
+
+    def list_specs_for_session(
+        self, session_metadata: Mapping[str, Any]
+    ) -> tuple[ToolSpec, ...]:
+        """Return specs after optional tool-owned per-session projection."""
+
+        specs: list[ToolSpec] = []
+        for tool in self._tools.values():
+            project = getattr(tool, "spec_for_session", None)
+            if callable(project):
+                projected = project(session_metadata)
+                if projected is not None:
+                    specs.append(projected)
+                continue
+            if bool(getattr(tool, "is_internal", False)):
+                continue
+            specs.append(
+                ToolSpec(
+                    name=tool.name,
+                    description=tool.description,
+                    input_schema=dict(tool.input_schema),
+                    is_concurrency_safe=getattr(tool, "is_concurrency_safe", False),
+                    max_result_size_chars=getattr(
+                        tool, "max_result_size_chars", DEFAULT_MAX_RESULT_SIZE_CHARS
+                    ),
+                )
+            )
+        return tuple(specs)
 
     def get(self, name: str) -> Tool | None:
         """Return one registered tool by name.
@@ -270,8 +299,14 @@ class ToolRegistry:
             safety_overrides: dict[str, Any] = {}
             if bool(tool_call_payload.get("allow_unlisted")):
                 safety_overrides["bash_allow_unlisted"] = True
+            schema = tool.input_schema
+            project = getattr(tool, "spec_for_session", None)
+            if callable(project):
+                projected = project(active_hook_context.metadata)
+                if projected is not None:
+                    schema = projected.input_schema
             normalized_args = _validate_args(
-                name=name, args=effective_args, schema=tool.input_schema
+                name=name, args=effective_args, schema=schema
             )
             event_base_payload = _build_tool_execution_base_payload(
                 name=name,
@@ -375,6 +410,12 @@ class ToolRegistry:
             # _emit_execution_update (no buffer to flush here). The final output update
             # below remains the authoritative tool_execution_update carrying the result.
             if execution_error is None:
+                if out_meta is not None:
+                    metadata_builder = getattr(tool, "result_event_metadata", None)
+                    if callable(metadata_builder):
+                        event_metadata = metadata_builder(raw_result)
+                        if isinstance(event_metadata, Mapping):
+                            out_meta["event_metadata"] = dict(event_metadata)
                 await self._dispatch_observe(
                     "tool_execution_update",
                     {

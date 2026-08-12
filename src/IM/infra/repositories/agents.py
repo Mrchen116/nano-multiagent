@@ -663,8 +663,8 @@ class AgentProfileRepository:
         workspace_root is intentionally excluded from this method — it is set
         once at agent creation and is immutable afterwards (bugfix-404-M2
         decision 5).  Any call-site passing workspace_root via the service
-        layer would silently reset it to the managed default; removing the
-        parameter makes that a compile-time error instead.
+        layer would silently replace it; removing the parameter makes that a
+        compile-time error instead.
         """
         current = self.get_profile(agent_id=agent_id)
         if current is None:

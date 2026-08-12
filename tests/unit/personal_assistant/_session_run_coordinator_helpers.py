@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, AsyncIterator
 
 from agent.sdk import (
+    SavedWorkflowInfo,
     SessionReconfigureResult,
     SessionRuntimeConfig,
     SessionRuntimeIdentity,
     SessionRuntimeState,
+    WorkflowRunInfo,
 )
+from agent.sdk.runtime import identify_runtime
 from personal_assistant.channels.base import InboundMessage
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
@@ -43,6 +47,15 @@ class ControlledKernel:
         self.inject_steer = False
         self.forced_active_run_id: str | None = None
         self.return_no_runtime = False
+        self.named_workflows: tuple[SavedWorkflowInfo, ...] = (
+            SavedWorkflowInfo(
+                name="deep-research",
+                scope="bundled",
+                path="/bundled/deep-research.py",
+                description="Run deep research",
+            ),
+        )
+        self.workflow_runs: dict[str, WorkflowRunInfo] = {}
         self._session_index = 0
         self._run_index = 0
         self._sessions: dict[str, str] = {}
@@ -103,7 +116,7 @@ class ControlledKernel:
     def identify_runtime(
         self, *, runtime: SessionRuntimeConfig
     ) -> SessionRuntimeIdentity:
-        return SessionRuntimeIdentity(runtime_fingerprint=runtime.model)
+        return identify_runtime(runtime)
 
     async def get_session_runtime(
         self, *, session_id: str, workspace_root: Path
@@ -182,6 +195,7 @@ class ControlledKernel:
                 "parts": parts,
                 "steer": False,
                 "run_id": run_id,
+                "origin": _kwargs.get("origin"),
                 "trace_id": trace_id,
             }
         )
@@ -292,6 +306,59 @@ class ControlledKernel:
 
     def cancel(self, run_id: str) -> None:
         self.cancel_calls.append(run_id)
+
+    def list_named_workflows(
+        self, *, workspace_root: Path
+    ) -> tuple[SavedWorkflowInfo, ...]:
+        del workspace_root
+        return self.named_workflows
+
+    def list_workflow_runs(self, *, session_id: str) -> tuple[WorkflowRunInfo, ...]:
+        return tuple(
+            run
+            for run in self.workflow_runs.values()
+            if run.parent_session_id == session_id
+        )
+
+    def get_workflow_run(
+        self, *, session_id: str, run_id: str
+    ) -> WorkflowRunInfo | None:
+        run = self.workflow_runs.get(run_id)
+        return run if run is not None and run.parent_session_id == session_id else None
+
+    def control_workflow(
+        self,
+        *,
+        session_id: str,
+        run_id: str,
+        action: object,
+        agent_call_id: str | None = None,
+    ) -> WorkflowRunInfo:
+        del agent_call_id
+        run = self.get_workflow_run(session_id=session_id, run_id=run_id)
+        if run is None:
+            raise ValueError(f"unknown Workflow run: {run_id}")
+        updated = replace(run, status=str(action))
+        self.workflow_runs[run_id] = updated
+        return updated
+
+    def save_workflow(
+        self,
+        *,
+        session_id: str,
+        run_id: str,
+        scope: object,
+        name: str | None = None,
+    ) -> SavedWorkflowInfo:
+        run = self.get_workflow_run(session_id=session_id, run_id=run_id)
+        if run is None:
+            raise ValueError(f"unknown Workflow run: {run_id}")
+        return SavedWorkflowInfo(
+            name=name or run.name,
+            scope=str(scope),
+            path=f"/saved/{name or run.name}.py",
+            description=run.description,
+        )
 
 
 class CountingImageResolver:

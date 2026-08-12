@@ -11,8 +11,8 @@ export interface AgentSummary {
   description: string;
   profile_version: number;
   default_model: string | null;
-  workspace_root: string;
-  workspace_is_default: boolean;
+  workspace_root: string | null;
+  workspace_is_default: boolean | null;
   node_id?: string | null;
   node_name?: string | null;
   node_status?: string | null;
@@ -49,8 +49,8 @@ export interface AgentConfig {
   group_reply_policy: "ALWAYS" | "MENTION" | "NO_REPLY" | string;
   default_model: string | null;
   reasoning_effort: string | null;
-  workspace_root: string;
-  workspace_is_default: boolean;
+  workspace_root: string | null;
+  workspace_is_default: boolean | null;
   profile_version: number;
   node_id?: string | null;
   node_name?: string | null;
@@ -67,6 +67,11 @@ export interface AgentAllowlistOption {
   // same-named skills at different paths. Absent/null for tools and older Gateways.
   location?: string | null;
   source_group?: "workspace" | "global" | "compatibility" | null;
+}
+
+export interface AgentCommandOption {
+  name: string;
+  description: string;
 }
 
 // bugfix-429 R5: a selectable model with its registered provider/format, so the
@@ -276,6 +281,7 @@ interface AgentCapabilitiesWire {
   model_options?: Array<string | ModelOptionWire>;
   skills: Array<string | AgentAllowlistOption>;
   tools: Array<string | AgentAllowlistOption>;
+  commands?: AgentCommandOption[];
   platform_default_model?: string | null;
   // feat-379-M3: feature toggle projection from FEATURE_REGISTRY
   features?: AgentFeature[];

@@ -4,7 +4,6 @@ from pathlib import Path
 import json
 import sqlite3
 
-from IM.domain.models import managed_workspace_root
 from IM.infra._helpers import (
     _optional_text,
     _preview_from_event,
@@ -140,6 +139,8 @@ CREATE TABLE IF NOT EXISTS messages (
     token_usage_json TEXT,
     -- feat-439-M2: 整轮多段思考（过程时间线），nullable JSON。无思考的轮 / 旧行为 NULL。
     thinking_json TEXT,
+    -- feat-517: terminal subagent/workflow results shown as process items.
+    background_returns_json TEXT,
     -- feat-414: 本轮 agent 处理墙钟耗时（毫秒）。turn_start 建行时为 NULL，
     -- on_message_completed 写入 elapsed_ms = round((T1 − T0) * 1000)。
     elapsed_ms INTEGER,
@@ -643,6 +644,10 @@ def _migrate_messages_metadata(connection: sqlite3.Connection) -> None:
     # feat-439-M2: 整轮多段思考（过程时间线）。Nullable JSON：旧行 / 无思考的轮为 NULL。
     if "thinking_json" not in column_names:
         connection.execute("ALTER TABLE messages ADD COLUMN thinking_json TEXT")
+    if "background_returns_json" not in column_names:
+        connection.execute(
+            "ALTER TABLE messages ADD COLUMN background_returns_json TEXT"
+        )
     if "elapsed_ms" not in column_names:
         connection.execute("ALTER TABLE messages ADD COLUMN elapsed_ms INTEGER")
     # feat-333-M2: embeds permission_request payload (pending/resolved) alongside tool_calls.
@@ -706,19 +711,6 @@ def _migrate_agent_profile_tables(connection: sqlite3.Connection) -> None:
         connection.execute(
             "ALTER TABLE agent_profiles ADD COLUMN pending_create_operation_id TEXT"
         )
-    if agent_rows and "workspace_root" in {
-        row["name"]
-        for row in connection.execute("PRAGMA table_info(agent_profiles)").fetchall()
-    }:
-        rows = connection.execute(
-            "SELECT agent_id FROM agent_profiles WHERE workspace_root IS NULL OR TRIM(workspace_root) = ''"
-        ).fetchall()
-        for row in rows:
-            connection.execute(
-                "UPDATE agent_profiles SET workspace_root = ? WHERE agent_id = ?",
-                (managed_workspace_root(str(row["agent_id"])), str(row["agent_id"])),
-            )
-
     # bugfix-362: soft-stale columns for ghost-agent reconcile
     agent_column_names = {
         row["name"]

@@ -17,10 +17,19 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+from importlib.resources import files as package_files
 import os
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable, Sequence
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Mapping,
+    Sequence,
+)
 
 from agent.core.agent.runtime import AgentEngine
 from agent.core.events.hub import EventStreamHub
@@ -57,6 +66,14 @@ from agent.platform.permissions.broker import (
     PermissionBroker,
     PermissionDecision,
 )
+from agent.platform.workflows import (
+    SavedWorkflowRegistry,
+    WorkflowLaunchContext,
+    WorkflowManager,
+    WorkflowStructuredOutputTool,
+)
+from agent.platform.workflows.child import WorkflowChildRunner
+from agent.platform.workflows.consent import WorkflowConsentStore
 
 from agent.sdk.dto import (
     FeatureInfo,
@@ -66,6 +83,12 @@ from agent.sdk.dto import (
     SessionInfo,
     SkillInfo,
     ToolInfo,
+    SavedWorkflowInfo,
+    WorkflowAgentInfo,
+    WorkflowControlAction,
+    WorkflowPhaseInfo,
+    WorkflowRunInfo,
+    WorkflowSaveScope,
 )
 from agent.sdk.prompt import PromptSlots
 from agent.sdk.runtime import (
@@ -100,6 +123,9 @@ class _KernelComponents:
     hook_runner: HookRunner
     stop_all_foreground: Callable[[], None]
     finalize_resources: Callable[[], Awaitable[None]]
+    workflow_manager: WorkflowManager
+    saved_workflows: SavedWorkflowRegistry
+    session_files: JsonlSessionFiles
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +143,18 @@ class _SessionSubagentControl:
 
     def resolve_run_model(self) -> str | None:
         return self.engine.resolve_run_model(self.ref.session_id)
+
+    def resolve_reasoning_effort(self) -> str | None:
+        """Return the parent session's persisted reasoning effort."""
+
+        if self.directory.get(self.ref) is None:
+            return None
+        config, _prompt_seed = self.directory.open(self.ref).config_snapshot()
+        runtime = config.metadata.get(INTERNAL_RUNTIME_KEY)
+        if not isinstance(runtime, Mapping):
+            return None
+        effort = runtime.get("reasoning_effort")
+        return effort if isinstance(effort, str) else None
 
     def resolve_available_skills(
         self,
@@ -137,6 +175,8 @@ class _SessionSubagentControl:
         parent_session_id: str | None,
         tool_allowlist: Sequence[str] | None = None,
         prompt_seed: PromptSlotSeed | None = None,
+        runtime_model: str | None = None,
+        runtime_reasoning_effort: str | None = None,
     ) -> SessionRef:
         """Create one child session for the ``agent`` tool's new-agent path.
 
@@ -162,6 +202,9 @@ class _SessionSubagentControl:
                 for callers that intentionally want the registry default.
             prompt_seed: Core ``PromptSlotSeed`` for the child's dedicated
                 system-prompt slots; ``None`` falls back to an empty seed.
+            runtime_model: Persisted model for the child session.
+            runtime_reasoning_effort: Persisted provider-neutral effort for the
+                child session.
         """
 
         if parent_session_id != self.ref.session_id:
@@ -175,6 +218,8 @@ class _SessionSubagentControl:
                 else None,
                 metadata=metadata,
                 parent_session_id=self.ref.session_id,
+                runtime_model=runtime_model,
+                runtime_reasoning_effort=runtime_reasoning_effort,
                 prompt_seed=prompt_seed
                 if prompt_seed is not None
                 else PromptSlotSeed(),
@@ -244,6 +289,8 @@ def build_kernel(
     pa_skill_root: Path | None = None,
     tool_search_roots: Sequence[Path] = (),
     hook_search_roots: Sequence[Path] = (),
+    workflow_subagent_model: str | None = None,
+    workflow_search_roots: Sequence[tuple[str, Path]] = (),
     # Internal escape hatch for tests: skip LLM client construction and use
     # this fake instead.  Not part of the public API.
     _llm_client_override: LLMClient | None = None,
@@ -326,6 +373,8 @@ def build_kernel(
         global_skill_root=global_skill_root or pa_skill_root,
         tool_search_roots=tuple(tool_search_roots),
         hook_search_roots=tuple(hook_search_roots),
+        workflow_subagent_model=workflow_subagent_model,
+        workflow_search_roots=tuple(workflow_search_roots),
         _llm_client_override=_llm_client_override,
     )
 
@@ -471,6 +520,78 @@ def _to_run_info(record: Any, *, injected: bool = False) -> RunInfo:
         status=getattr(status, "value", status) if status is not None else "",
         start_sequence=int(getattr(record, "start_sequence", 0) or 0),
         injected=injected,
+    )
+
+
+def _to_workflow_run_info(snapshot: Mapping[str, Any]) -> WorkflowRunInfo:
+    """Copy a platform Workflow snapshot into SDK-owned immutable DTOs."""
+
+    phases = tuple(
+        WorkflowPhaseInfo(
+            title=str(item["title"]),
+            detail=str(item.get("detail") or ""),
+            status=str(item.get("status") or "pending"),
+            agent_call_ids=tuple(
+                str(value) for value in item.get("agent_call_ids", ())
+            ),
+            usage=item.get("usage"),
+            duration_ms=item.get("duration_ms"),
+        )
+        for item in snapshot.get("phases", ())
+    )
+    agents = tuple(
+        WorkflowAgentInfo(
+            agent_call_id=str(item["agent_call_id"]),
+            start_ordinal=int(item["start_ordinal"]),
+            status=str(item["status"]),
+            prompt=str(item["prompt"]),
+            label=item.get("label"),
+            phase=item.get("phase"),
+            terminal_ordinal=item.get("terminal_ordinal"),
+            result=item.get("result"),
+            error=item.get("error"),
+            usage=item.get("usage"),
+            duration_ms=item.get("duration_ms"),
+            session_id=item.get("session_id"),
+            transcript_path=item.get("transcript_path"),
+            worktree_path=item.get("worktree_path"),
+        )
+        for item in snapshot.get("agents", ())
+    )
+    return WorkflowRunInfo(
+        run_id=str(snapshot["run_id"]),
+        task_id=str(snapshot["task_id"]),
+        parent_session_id=str(snapshot["parent_session_id"]),
+        revision=int(snapshot["revision"]),
+        status=str(snapshot["status"]),
+        name=str(snapshot["name"]),
+        description=str(snapshot.get("description") or ""),
+        current_phase=snapshot.get("current_phase"),
+        phases=phases,
+        agents=agents,
+        logs=tuple(str(item) for item in snapshot.get("logs", ())),
+        usage=snapshot.get("usage"),
+        duration_ms=snapshot.get("duration_ms"),
+        size_guideline=str(snapshot.get("size_guideline") or "medium"),
+        large_warning=snapshot.get("large_warning"),
+        script_path=str(snapshot.get("script_path") or ""),
+        transcript_dir=str(snapshot.get("transcript_dir") or ""),
+        resumed_from=snapshot.get("resumed_from"),
+        result=snapshot.get("result"),
+        error=snapshot.get("error"),
+        warnings=tuple(str(item) for item in snapshot.get("warnings", ())),
+    )
+
+
+def _to_saved_workflow_info(saved: Any) -> SavedWorkflowInfo:
+    """Copy a platform saved Workflow descriptor into its SDK DTO."""
+
+    return SavedWorkflowInfo(
+        name=saved.name,
+        scope=saved.scope,
+        path=saved.path,
+        description=saved.description,
+        namespace=saved.namespace,
     )
 
 
@@ -620,6 +741,8 @@ def _build_kernel_base(
     pa_skill_root: Path | None = None,
     tool_search_roots: tuple[Path, ...] = (),
     hook_search_roots: tuple[Path, ...] = (),
+    workflow_subagent_model: str | None = None,
+    workflow_search_roots: tuple[tuple[str, Path], ...] = (),
     _llm_client_override: LLMClient | None,
 ) -> "Kernel":
     """Assemble the product-neutral shared base (new 2-layer path, 决策 1/2/5/8).
@@ -787,8 +910,15 @@ def _build_kernel_base(
         default_metadata={"workspace_config_dirname": workspace_config_dirname},
     )
 
+    workflow_manager: WorkflowManager | None = None
+
     async def _finalize_resources() -> None:
         errors: list[BaseException] = []
+        if workflow_manager is not None:
+            try:
+                await asyncio.to_thread(workflow_manager.close)
+            except BaseException as exc:
+                errors.append(exc)
         try:
             await directory.close_all()
         except BaseException as exc:  # cleanup must continue after flush failure
@@ -828,6 +958,56 @@ def _build_kernel_base(
         executor=executor,
         runs_registry=runs_registry,
     )
+    saved_workflows = SavedWorkflowRegistry(
+        config_dirname=workspace_config_dirname,
+        personal_root=(
+            global_config_root.expanduser().resolve() / "workflows"
+            if global_config_root is not None
+            else Path.home() / workspace_config_dirname / "workflows"
+        ),
+        bundled_root=Path(
+            str(package_files("agent.platform.workflows").joinpath("bundled"))
+        ),
+        plugin_roots=workflow_search_roots,
+    )
+    workflow_config_root = (
+        global_config_root.expanduser().resolve()
+        if global_config_root is not None
+        else Path.home() / workspace_config_dirname
+    )
+    workflow_consent_store = WorkflowConsentStore(
+        workflow_config_root / "workflow-consent.json"
+    )
+
+    def _publish_workflow_update(session_id: str, snapshot: Mapping[str, Any]) -> None:
+        event_hub.publish(
+            event="workflow_run_updated",
+            session_id=session_id,
+            data={
+                "event": "workflow_run_updated",
+                **dict(snapshot),
+                "workflow_run_id": snapshot.get("run_id"),
+            },
+        )
+
+    workflow_manager = WorkflowManager(
+        background_registry=background_task_wiring.registry,
+        config_dirname=workspace_config_dirname,
+        child_runner_factory=lambda context, run_id: WorkflowChildRunner(
+            context=context,
+            workflow_run_id=run_id,
+            subagent_runner=background_task_wiring.subagent_runner,
+            config_dirname=workspace_config_dirname,
+            model_override=workflow_subagent_model,
+        ),
+        event_publisher=_publish_workflow_update,
+        named_source_resolver=lambda name, workspace_root: (
+            Path(saved.path).read_text(encoding="utf-8")
+            if (saved := saved_workflows.resolve(name, workspace_root=workspace_root))
+            is not None
+            else None
+        ),
+    )
 
     # bugfix-417-M5 (#114): wire the foreground-tool subprocess reaper so
     # kernel.interrupt / kernel.cancel kill an in-flight foreground bash subprocess
@@ -856,6 +1036,16 @@ def _build_kernel_base(
     )
     tool_registry = ToolRegistry(context=base_context, hook_runner=hook_runner)
     register_builtin_tools(tool_registry, wiring=background_task_wiring)
+    from agent.platform.tools.builtins.workflow import WorkflowTool  # noqa: PLC0415
+
+    tool_registry.register(
+        WorkflowTool(
+            manager=workflow_manager,
+            named_resolver=saved_workflows,
+            consent_store=workflow_consent_store,
+        )
+    )
+    tool_registry.register(WorkflowStructuredOutputTool())
     # Self-evolution built-ins (决策 3): memory / skill_manage are kernel built-ins
     # ("any app has them → stays in kernel"), not consumer tools. They need
     # constructor-time path args so register_builtin_tools() omits them; the kernel
@@ -921,6 +1111,9 @@ def _build_kernel_base(
         hook_runner=hook_runner,
         stop_all_foreground=background_task_wiring.foreground_registry.stop_all,
         finalize_resources=_finalize_resources,
+        workflow_manager=workflow_manager,
+        saved_workflows=saved_workflows,
+        session_files=files,
     )
 
     return Kernel(
@@ -1194,6 +1387,17 @@ class Kernel:
                 runtime_reasoning_effort=(
                     runtime.reasoning_effort if runtime is not None else None
                 ),
+                runtime_reasoning_effort_override=(
+                    runtime.reasoning_effort_override if runtime is not None else None
+                ),
+                runtime_workflow_ultracode=(
+                    runtime.workflow_ultracode if runtime is not None else False
+                ),
+                runtime_workflow_size_guideline=(
+                    runtime.workflow_size_guideline
+                    if runtime is not None and "Workflow" in runtime.enabled_tools
+                    else None
+                ),
                 title=title,
                 skills=tuple(skills) if skills is not None else None,
                 tool_allowlist=(
@@ -1271,6 +1475,22 @@ class Kernel:
             and isinstance(runtime_payload.get("reasoning_effort"), str)
             else None
         )
+        runtime_reasoning_effort_override = (
+            runtime_payload.get("reasoning_effort_override")
+            if isinstance(runtime_payload, dict)
+            and isinstance(runtime_payload.get("reasoning_effort_override"), str)
+            else None
+        )
+        runtime_workflow_ultracode = bool(
+            isinstance(runtime_payload, dict)
+            and runtime_payload.get("workflow_ultracode") is True
+        )
+        runtime_workflow_size_guideline = (
+            runtime_payload.get("workflow_size_guideline")
+            if isinstance(runtime_payload, dict)
+            and isinstance(runtime_payload.get("workflow_size_guideline"), str)
+            else None
+        )
         runtime = SessionRuntimeConfig(
             model=config.runtime_model,
             prompt=PromptSlots(
@@ -1283,6 +1503,9 @@ class Kernel:
             enabled_tools=list(config.tool_allowlist or ()),
             features=dict(runtime_features) if runtime_features is not None else None,
             reasoning_effort=runtime_reasoning_effort,
+            reasoning_effort_override=runtime_reasoning_effort_override,
+            workflow_ultracode=runtime_workflow_ultracode,
+            workflow_size_guideline=runtime_workflow_size_guideline,
         )
         return SessionRuntimeState(runtime=runtime, identity=identify_runtime(runtime))
 
@@ -1754,8 +1977,17 @@ class Kernel:
         )
         if tool_registry is None:
             return {"session_id": session_id, "tools": []}
-        specs = tool_registry.list_specs()
-        session = self._c.directory.get(SessionRef(session_id, effective_root))
+        ref = SessionRef(session_id, effective_root)
+        session = self._c.directory.get(ref)
+        session_metadata: Mapping[str, Any] = {}
+        if session is not None:
+            session_config, _prompt_seed = self._c.directory.open(ref).config_snapshot()
+            session_metadata = session_config.metadata
+        specs = (
+            tool_registry.list_specs_for_session(session_metadata)
+            if session is not None
+            else tool_registry.list_specs()
+        )
         if session is not None and session.tool_allowlist is not None:
             allowed = set(session.tool_allowlist)
             specs = tuple(spec for spec in specs if spec.name in allowed)
@@ -1770,6 +2002,167 @@ class Kernel:
                 for spec in specs
             ],
         }
+
+    def list_workflow_runs(self, *, session_id: str) -> tuple[WorkflowRunInfo, ...]:
+        """Return complete Workflow snapshots owned by one parent session."""
+
+        self._load_workflow_runs(session_id)
+        return tuple(
+            _to_workflow_run_info(snapshot)
+            for snapshot in self._c.workflow_manager.list_runs(session_id=session_id)
+        )
+
+    def get_workflow_run(
+        self, *, session_id: str, run_id: str
+    ) -> WorkflowRunInfo | None:
+        """Return one Workflow snapshot when it belongs to ``session_id``."""
+
+        self._load_workflow_runs(session_id)
+        snapshot = self._c.workflow_manager.get(run_id)
+        if snapshot is None or snapshot.get("parent_session_id") != session_id:
+            return None
+        return _to_workflow_run_info(snapshot)
+
+    def control_workflow(
+        self,
+        *,
+        session_id: str,
+        run_id: str,
+        action: WorkflowControlAction | str,
+        agent_call_id: str | None = None,
+    ) -> WorkflowRunInfo:
+        """Apply one validated control action to a session-owned Workflow."""
+
+        resolved_action = WorkflowControlAction(action)
+        if resolved_action is WorkflowControlAction.RESTART_AGENT:
+            if not agent_call_id:
+                raise ValueError("restart_agent requires agent_call_id")
+        elif (
+            resolved_action is not WorkflowControlAction.STOP
+            and agent_call_id is not None
+        ):
+            raise ValueError("agent_call_id is only valid for stop or restart_agent")
+        snapshot = self._require_workflow_run(session_id=session_id, run_id=run_id)
+        del snapshot
+        return _to_workflow_run_info(
+            self._c.workflow_manager.control(
+                run_id,
+                action=resolved_action.value,
+                agent_call_id=agent_call_id,
+            )
+        )
+
+    def resume_workflow(self, *, session_id: str, run_id: str) -> WorkflowRunInfo:
+        """Resume one live paused Workflow or relaunch its durable script and cache."""
+
+        ref = self._c.directory.ref_for(session_id)
+        if ref is None:
+            raise ValueError(f"session does not exist: {session_id}")
+        conversation = self._c.directory.open(ref)
+        session_config, _prompt_seed = conversation.config_snapshot()
+        runtime = session_config.metadata.get(INTERNAL_RUNTIME_KEY)
+        runtime = runtime if isinstance(runtime, Mapping) else {}
+        guideline_value = runtime.get("workflow_size_guideline")
+        guideline_explicit = guideline_value in {
+            "unrestricted",
+            "small",
+            "medium",
+            "large",
+        }
+        guideline = str(guideline_value) if guideline_explicit else "medium"
+        enabled_tools = session_config.tool_allowlist
+        if enabled_tools is None:
+            tools_payload = self.list_session_tools(
+                session_id, workspace_root=ref.workspace_root
+            )
+            enabled_tools = tuple(
+                str(item["name"])
+                for item in tools_payload.get("tools", ())
+                if isinstance(item, Mapping) and isinstance(item.get("name"), str)
+            )
+        control = _SessionSubagentControl(
+            ref=ref,
+            directory=self._c.directory,
+            files=self._c.session_files,
+            engine=self._c.engine_services,
+        )
+        snapshot = self._c.workflow_manager.resume(
+            run_id,
+            context=WorkflowLaunchContext(
+                parent_session_id=session_id,
+                workspace_root=ref.workspace_root,
+                subagent_control=control,
+                workflow_ultracode=runtime.get("workflow_ultracode") is True,
+                parent_run_origin=RunOrigin.HUMAN.value,
+                parent_runtime_captured=True,
+                parent_model=session_config.runtime_model,
+                parent_effort=(
+                    str(runtime["reasoning_effort"])
+                    if isinstance(runtime.get("reasoning_effort"), str)
+                    else None
+                ),
+                parent_enabled_tools=tuple(enabled_tools),
+                parent_skills=(
+                    tuple(session_config.skills)
+                    if session_config.skills is not None
+                    else None
+                ),
+            ),
+            size_guideline=guideline,
+            size_guideline_explicit=guideline_explicit,
+        )
+        return _to_workflow_run_info(snapshot)
+
+    def save_workflow(
+        self,
+        *,
+        session_id: str,
+        run_id: str,
+        scope: WorkflowSaveScope | str,
+        name: str | None = None,
+    ) -> SavedWorkflowInfo:
+        """Save a session-owned Workflow script to a named product root."""
+
+        snapshot = self._require_workflow_run(session_id=session_id, run_id=run_id)
+        ref = self._c.directory.ref_for(session_id)
+        if ref is None:
+            raise ValueError(f"session does not exist: {session_id}")
+        source = Path(str(snapshot["script_path"])).read_text(encoding="utf-8")
+        saved = self._c.saved_workflows.save(
+            source=source,
+            name=name or str(snapshot["name"]),
+            scope=WorkflowSaveScope(scope).value,
+            workspace_root=ref.workspace_root,
+        )
+        return _to_saved_workflow_info(saved)
+
+    def list_named_workflows(
+        self, *, workspace_root: Path | str
+    ) -> tuple[SavedWorkflowInfo, ...]:
+        """Discover project, personal and consumer-registered named Workflows."""
+
+        return tuple(
+            _to_saved_workflow_info(item)
+            for item in self._c.saved_workflows.list(
+                workspace_root=Path(workspace_root).expanduser().resolve()
+            )
+        )
+
+    def _require_workflow_run(
+        self, *, session_id: str, run_id: str
+    ) -> Mapping[str, Any]:
+        self._load_workflow_runs(session_id)
+        snapshot = self._c.workflow_manager.get(run_id)
+        if snapshot is None or snapshot.get("parent_session_id") != session_id:
+            raise ValueError(f"Workflow run does not exist for session: {run_id}")
+        return snapshot
+
+    def _load_workflow_runs(self, session_id: str) -> None:
+        ref = self._c.directory.ref_for(session_id)
+        if ref is not None:
+            self._c.workflow_manager.load_session_runs(
+                session_id=session_id, workspace_root=ref.workspace_root
+            )
 
     # ------------------------------------------------------------------
     # Capability queries (决策 4) — single-item neutral facts, SDK-owned DTOs.

@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from enum import StrEnum
+from typing import Any, Mapping
 
 
 @dataclass(frozen=True)
@@ -73,6 +75,77 @@ class RunInfo:
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True, slots=True)
+class ModelReasoningCapability:
+    """Describe one model's safe public reasoning capability.
+
+    Args:
+        kind: Either ``"fixed"`` or ``"selectable"``.
+        default: Recommended value for a selectable capability.
+        levels: Ordered selectable values exposed to users.
+    """
+
+    kind: str
+    default: str | None = None
+    levels: tuple[str, ...] = ()
+
+    def as_payload(self) -> dict[str, object]:
+        """Return the JSON-safe public descriptor."""
+
+        if self.kind == "fixed":
+            return {"kind": "fixed"}
+        return {
+            "kind": "selectable",
+            "default": self.default or "",
+            "levels": list(self.levels),
+        }
+
+    @classmethod
+    def from_payload(
+        cls, value: object, *, field_name: str
+    ) -> "ModelReasoningCapability | None":
+        """Parse one safe reasoning descriptor from a decoded payload.
+
+        Args:
+            value: ``None``, ``"fixed"``, or a mapping with ``default`` and
+                ordered ``levels``.
+            field_name: Input path used in a validation error.
+
+        Returns:
+            Parsed descriptor, or ``None`` when no descriptor was declared.
+
+        Raises:
+            ValueError: When the descriptor is malformed.
+        """
+
+        if value is None:
+            return None
+        if value == "fixed":
+            return cls(kind="fixed")
+        if not isinstance(value, Mapping):
+            raise ValueError(f"{field_name} must be 'fixed' or a mapping")
+        default = value.get("default")
+        if not isinstance(default, str) or not default.strip():
+            raise ValueError(f"{field_name}.default must be a non-empty string")
+        raw_levels = value.get("levels")
+        if not isinstance(raw_levels, list) or not raw_levels:
+            raise ValueError(f"{field_name}.levels must be a non-empty list")
+        levels: list[str] = []
+        for index, raw_level in enumerate(raw_levels):
+            if not isinstance(raw_level, str) or not raw_level.strip():
+                raise ValueError(
+                    f"{field_name}.levels[{index}] must be a non-empty string"
+                )
+            level = raw_level.strip()
+            if level in levels:
+                raise ValueError(f"{field_name}.levels must not contain duplicates")
+            levels.append(level)
+        normalized_default = default.strip()
+        if normalized_default not in levels:
+            raise ValueError(f"{field_name}.default must be one of {field_name}.levels")
+        return cls(kind="selectable", default=normalized_default, levels=tuple(levels))
+
+
 @dataclass(frozen=True)
 class LLMModel:
     """One model entry in an LLMConfig provider.
@@ -82,11 +155,14 @@ class LLMModel:
         extra_request_body: Provider-specific extra request fields (e.g. thinking).
         context_window: Per-model context window driving compaction边界 (feat-436);
             None → 内核默认上限.
+        reasoning: Safe fixed/selectable reasoning capability exposed to product
+            controls. ``None`` means no selectable reasoning is declared.
     """
 
     name: str
     extra_request_body: dict = field(default_factory=dict)
     context_window: int | None = None
+    reasoning: ModelReasoningCapability | None = None
 
 
 @dataclass(frozen=True)
@@ -209,6 +285,7 @@ class LLMConfig:
                         extra_request_body=dict(m.extra_request_body or {}),
                         # feat-436: 鸭子类型读 PA payload 的 context_window（旧 payload 无此属性→None）。
                         context_window=getattr(m, "context_window", None),
+                        reasoning=getattr(m, "reasoning", None),
                     )
                     for m in (p.models or ())
                 ),
@@ -318,11 +395,18 @@ class LLMConfig:
                         name=m["name"],
                         extra_request_body=dict(m.get("extra_request_body") or {}),
                         context_window=m.get("context_window"),
+                        reasoning=ModelReasoningCapability.from_payload(
+                            m.get("reasoning"),
+                            field_name=(
+                                f"providers[{provider_index}].models["
+                                f"{model_index}].reasoning"
+                            ),
+                        ),
                     )
-                    for m in p.get("models", [])
+                    for model_index, m in enumerate(p.get("models", []))
                 ),
             )
-            for p in data.get("providers", [])
+            for provider_index, p in enumerate(data.get("providers", []))
         )
         return cls.from_catalog(
             default_model=data["default_model"],
@@ -330,6 +414,58 @@ class LLMConfig:
             api_key=api_key,
             timeout_seconds=timeout_seconds,
         )
+
+
+class ModelReasoningCatalog:
+    """Resolve safe per-model reasoning capabilities from an SDK LLM catalog.
+
+    Args:
+        llm_config: SDK-owned catalog carrying model reasoning descriptors.
+    """
+
+    def __init__(self, llm_config: LLMConfig) -> None:
+        self._default_model = llm_config.default_model or llm_config.model
+        self._capabilities: dict[str, ModelReasoningCapability | None] = {}
+        for provider in llm_config.providers:
+            for model in provider.models:
+                self._capabilities[model.name] = model.reasoning
+
+    def capability_for(self, model: str) -> ModelReasoningCapability | None:
+        """Return one model's descriptor, or ``None`` when it has none."""
+
+        return self._capabilities.get(model)
+
+    def validate(self, model: str | None, selected_effort: str | None) -> None:
+        """Validate one model and selected effort pairing.
+
+        Raises:
+            ValueError: When the model is unknown or the effort is unsupported.
+        """
+
+        resolved_model = model or self._default_model
+        if resolved_model not in self._capabilities:
+            raise ValueError(f"unknown model: {resolved_model}")
+        capability = self._capabilities[resolved_model]
+        if capability is None or capability.kind == "fixed":
+            if selected_effort is not None:
+                raise ValueError(
+                    f"model {resolved_model!r} does not accept reasoning_effort"
+                )
+            return
+        if selected_effort is not None and selected_effort not in capability.levels:
+            raise ValueError(
+                "reasoning_effort "
+                f"{selected_effort!r} is not supported by model {resolved_model!r}"
+            )
+
+    def resolve(self, model: str, selected_effort: str | None) -> str | None:
+        """Resolve a valid selected effort to its effective provider value."""
+
+        self.validate(model, selected_effort)
+        capability = self._capabilities[model]
+        if capability is None or capability.kind == "fixed":
+            return None
+        return selected_effort or capability.default
 
 
 # ---------------------------------------------------------------------------
@@ -400,6 +536,92 @@ class SkillInfo:
     location: str | None = None
 
 
+class WorkflowControlAction(StrEnum):
+    """Supported Workflow control operations."""
+
+    PAUSE = "pause"
+    RESUME = "resume"
+    STOP = "stop"
+    RESTART_AGENT = "restart_agent"
+
+
+class WorkflowSaveScope(StrEnum):
+    """Supported saved Workflow destination scopes."""
+
+    PROJECT = "project"
+    PERSONAL = "personal"
+
+
+@dataclass(frozen=True)
+class WorkflowPhaseInfo:
+    """Describe one phase in a Workflow snapshot."""
+
+    title: str
+    detail: str = ""
+    status: str = "pending"
+    agent_call_ids: tuple[str, ...] = ()
+    usage: Mapping[str, int] | None = None
+    duration_ms: int | None = None
+
+
+@dataclass(frozen=True)
+class WorkflowAgentInfo:
+    """Describe one logical child Agent call in a Workflow snapshot."""
+
+    agent_call_id: str
+    start_ordinal: int
+    status: str
+    prompt: str
+    label: str | None = None
+    phase: str | None = None
+    terminal_ordinal: int | None = None
+    result: Any = None
+    error: str | None = None
+    usage: Mapping[str, int] | None = None
+    duration_ms: int | None = None
+    session_id: str | None = None
+    transcript_path: str | None = None
+    worktree_path: str | None = None
+
+
+@dataclass(frozen=True)
+class WorkflowRunInfo:
+    """Expose one complete, revisioned Workflow run snapshot."""
+
+    run_id: str
+    task_id: str
+    parent_session_id: str
+    revision: int
+    status: str
+    name: str
+    description: str
+    current_phase: str | None = None
+    phases: tuple[WorkflowPhaseInfo, ...] = ()
+    agents: tuple[WorkflowAgentInfo, ...] = ()
+    logs: tuple[str, ...] = ()
+    usage: Mapping[str, int] | None = None
+    duration_ms: int | None = None
+    size_guideline: str = "medium"
+    large_warning: str | None = None
+    script_path: str = ""
+    transcript_dir: str = ""
+    resumed_from: str | None = None
+    result: Any = None
+    error: str | None = None
+    warnings: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class SavedWorkflowInfo:
+    """Describe one discovered or newly saved named Workflow."""
+
+    name: str
+    scope: str
+    path: str
+    description: str = ""
+    namespace: str | None = None
+
+
 __all__ = [
     "SessionInfo",
     "RunInfo",
@@ -410,4 +632,10 @@ __all__ = [
     "ToolInfo",
     "FeatureInfo",
     "SkillInfo",
+    "WorkflowControlAction",
+    "WorkflowSaveScope",
+    "WorkflowPhaseInfo",
+    "WorkflowAgentInfo",
+    "WorkflowRunInfo",
+    "SavedWorkflowInfo",
 ]

@@ -87,6 +87,12 @@ def project_agent_runtime(
             enabled_tools=resolve_enabled_tools(config),
             features=features,
             reasoning_effort=reasoning_effort,
+            workflow_size_guideline=(
+                config.workflow_size_guideline
+                if config.workflow_size_guideline_explicit
+                or config.workflow_size_guideline != "medium"
+                else None
+            ),
         ),
         profile_version=profile_version if isinstance(profile_version, int) else None,
     )

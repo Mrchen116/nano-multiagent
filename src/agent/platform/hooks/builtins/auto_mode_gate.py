@@ -707,6 +707,20 @@ async def _handle_ask(
         return {"block": True, "reason": f"permission request failed: {exc}"}
 
     decision = response.decision
+    tool_instance = _tool_instance_from_registry(ctx, tool_name)
+    identity_fn = getattr(tool_instance, "permission_identity", None)
+    decision_fn = getattr(tool_instance, "on_permission_decision", None)
+    if callable(identity_fn) and callable(decision_fn):
+        try:
+            identity = identity_fn(tool_input, ctx)
+            decision_fn(identity, decision, auto_mode=config.enabled)
+        except (
+            Exception
+        ) as exc:  # tool-owned persistence must not break broker resolution
+            _log.error(
+                "tool permission decision callback failed",
+                extra={"tool_name": tool_name, "error": str(exc)},
+            )
 
     # feat-434-M1: a USER decision (allow_*/deny) carries an ``approval`` signal so
     # downstream can render the gate verdict 已授权 / 已拒绝. This ONLY fires on the
@@ -768,6 +782,10 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
         metadata: Mapping = getattr(ctx, "metadata", {}) or {}
         run_id: str | None = metadata.get("run_id")
         run_origin: str = str(metadata.get("run_origin", "user"))
+        is_unattended_context = (
+            run_origin in _UNATTENDED_ORIGINS
+            or metadata.get("workflow_unattended") is True
+        )
 
         # Broker from metadata (injected by platform layer)
         broker: PermissionBroker | None = metadata.get("permission_broker")
@@ -868,8 +886,13 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
                     "reason": getattr(tool_result, "reason", "denied by tool"),
                 }
             if tool_behavior == "ask":
+                if tool_name == "Workflow" and (
+                    metadata.get("workflow_ultracode") is True
+                    or run_origin != RunOrigin.HUMAN.value
+                ):
+                    return None
                 # Non-safety-check ask (safety_check was handled at step 2)
-                is_unattended = run_origin in _UNATTENDED_ORIGINS
+                is_unattended = is_unattended_context
                 if is_unattended:
                     if config.unattended_fallback == "allow":
                         return None
@@ -900,7 +923,7 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
             )
         ):
             # Already exceeded limit → ask directly, skip classifier
-            is_unattended = run_origin in _UNATTENDED_ORIGINS
+            is_unattended = is_unattended_context
             if is_unattended:
                 if config.unattended_fallback == "allow":
                     return None
@@ -973,7 +996,7 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
                 if broker.is_deny_limit_exceeded(
                     run_id, tool_name, deny_limit=config.deny_limit
                 ):
-                    is_unattended = run_origin in _UNATTENDED_ORIGINS
+                    is_unattended = is_unattended_context
                     if not is_unattended:
                         return await _handle_ask(
                             ctx,
@@ -995,7 +1018,7 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
             return {"block": True, "reason": decision.reason}
 
         # decision.behavior == "ask" (fail-closed: timeout/parse-failure)
-        is_unattended = run_origin in _UNATTENDED_ORIGINS
+        is_unattended = is_unattended_context
         if is_unattended:
             if config.unattended_fallback == "allow":
                 return None

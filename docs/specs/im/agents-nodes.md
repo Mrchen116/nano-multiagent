@@ -1,6 +1,6 @@
 # IM - Agents and Nodes Specification
 
-> 对齐: feat-519
+> 对齐: feat-517
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -250,22 +250,22 @@ operation-id 广告都不是可认领证据；任意一次正常 profile 更新�
 
 ### Requirement: node.register 首见 agent 时以上报种子值落库，且不伪造创建恢复凭据（bugfix-404-M2 / bugfix-467）
 
-IM 处理 `node.register` 时,对帧中**首次出现**(无既有 profile)的 agent,以帧内种子值落库: workspace_root 取 `agent_workspaces` 上报值(缺失时回落 managed default),skills / tool_allowlist 取 `agent_skills` / `agent_tool_allowlist` 上报值(帧未携带或单 agent 值非法时按空落库,兼容旧帧; 单 agent 值内混入非法项时仅丢弃非法项)。已存在 profile 的 agent,其各字段保持既有值不被注册改写(重连重发幂等),以保护用户经配置更新(含特意清空)后的收敛。帧可选的 `agent_create_operations` 仅在该 agent 首见、值对应 IM 已保留的同一 node/agent 创建 operation 时写入待认领标记；它不改变普通注册的语义，也不凭自身创建或重开恢复资格。
+IM 处理 `node.register` 时,对帧中**首次出现**(无既有 profile)的 agent,以帧内种子值落库: `workspace_root` 与 `workspace_is_default` 分别只取 `agent_workspaces` 与 `agent_workspace_is_default` 的 Gateway 声明；旧帧缺失任一值时保存为未知(`null`)，绝不从 IM 的 home 或 Agent ID 推导路径。skills / tool_allowlist 取 `agent_skills` / `agent_tool_allowlist` 上报值(帧未携带或单 agent 值非法时按空落库,兼容旧帧; 单 agent 值内混入非法项时仅丢弃非法项)。已存在 profile 的用户配置保持不被注册改写；仅尚未知的 workspace root/provenance 可由后续 Gateway 声明补全。帧可选的 `agent_create_operations` 仅在该 agent 首见、值对应 IM 已保留的同一 node/agent 创建 operation 时写入待认领标记；它不改变普通注册的语义，也不凭自身创建或重开恢复资格。
 
 #### Scenario: 首见 agent 用上报值落库
 - **GIVEN** IM 中无 agent X 的 profile
 - **WHEN** 收到 `node.register`,`agent_workspaces["X"]` 为非默认绝对路径 P, `agent_skills["X"]` 为技能列表 S,`agent_tool_allowlist["X"]` 为工具列表 T
 - **THEN** agent X 的 profile 落库 workspace_root=P、skills=S、tool_allowlist=T, `GET /im/v1/agents` 广播 P 且 `workspace_is_default=false`
 
-#### Scenario: 已存在 profile 不被重注册改写
-- **GIVEN** agent X 的 profile 已存在(含用户特意清空的 skills / tool_allowlist)
+#### Scenario: 已确认的 profile 不被重注册改写
+- **GIVEN** agent X 的 profile 已存在、其 workspace root/provenance 已由 Gateway 确认(含用户特意清空的 skills / tool_allowlist)
 - **WHEN** 再次收到 `node.register`(无论帧内上报何值)
 - **THEN** profile 的 workspace_root / skills / tool_allowlist 均保持既有值
 
-#### Scenario: 帧未带种子字段退回默认与空(旧帧兼容)
+#### Scenario: 旧帧未声明 workspace 时保持未知
 - **GIVEN** IM 中无 agent Y 的 profile
 - **WHEN** 收到不含 `agent_workspaces` / `agent_skills` / `agent_tool_allowlist` 字段的 `node.register`
-- **THEN** agent Y 的 workspace_root 按 managed default 落库,skills / tool_allowlist 落库为空
+- **THEN** agent Y 的 `workspace_root` 与 `workspace_is_default` 均为 `null`,skills / tool_allowlist 落库为空
 
 ### Requirement: agent workspace_root 创建后不可经配置更新修改（bugfix-404-M2）
 
@@ -541,15 +541,34 @@ agent 设置 detail 页的工具面板按存储的 `tool_allowlist` 渲染勾选
 - **WHEN** 用户取消全部勾选、保存、刷新页面
 - **THEN** 工具面板保持全部不亮
 
-### Requirement: IM 独立判定 PA 托管默认 workspace
+### Requirement: Gateway 声明 Agent workspace 的路径与 provenance
 
-IM 自己维护 PA 托管默认 workspace 的路径规则，不 import `personal_assistant` 或 `agent`：未显式 workspace 的 Agent 为 `~/.nanoassistant/workspaces/<agent-id>/`，并以该路径判定 `workspace_is_default`。IM 只保存和转发这一路径；实际 workspace 文件仍由 Gateway 读写。显式外部 workspace 保持非默认。
+`workspace_root` 与 `workspace_is_default` 都是 owning Gateway 对其本机配置和文件系统的声明。IM 只展示、持久化和转发已声明的值，既不展开自己的 `~`，也不以固定目录规则判定默认 workspace。创建时 Gateway 返回 canonical root 与 provenance；普通 `node.register` 首见时 Gateway 种子同样可建立该镜像。旧 profile 或旧帧尚未声明时，读 API 返回 `null` 表示待节点确认；任何必须把路径作为 Gateway RPC 输入的操作返回 `409 workspace_root is pending gateway registration`，不以 IM 主机路径代替。
 
-#### Scenario: 新建未指定 workspace 的 Agent 使用新托管默认路径
-- **WHEN** IM 为在线节点创建一个未显式 workspace_root 的 Agent
-- **THEN** 下发、保存并在响应中标记 `~/.nanoassistant/workspaces/<agent-id>/` 为该 Agent 的默认 workspace
+#### Scenario: 未知 workspace 以等待节点确认展示
+- **GIVEN** 一个旧 profile 或旧 Gateway register 未提供 workspace root/provenance
+- **WHEN** 前端读取 Agent 配置或列表
+- **THEN** `workspace_root` 与 `workspace_is_default` 均为 `null`
+- **WHEN** 前端请求该 Agent 的 capabilities、prompt preview、heartbeat、cron 或 skill usage
+- **THEN** IM 返回 `409 workspace_root is pending gateway registration` 且不派发带猜测路径的 RPC
 
-#### Scenario: 外部 workspace 不被判为默认
-- **GIVEN** Agent profile 保存的是任意显式外部代码仓路径
+#### Scenario: 显式外部 workspace 保持 Gateway 声明
+- **GIVEN** Gateway 上报任意显式外部代码仓路径 P 且 `workspace_is_default=false`
 - **WHEN** IM 返回该 Agent 的配置
-- **THEN** `workspace_is_default` 为 false，且原路径不被改写
+- **THEN** `workspace_root` 为 P、`workspace_is_default` 为 false，且 IM 不改写 P
+
+### Requirement: Agent 配置页以单一 Workflow 工具选择管理完整能力
+
+#### Scenario: Workflow 默认未选择
+- **WHEN** 用户新建 Agent 或查看没有显式启用 Workflow 的 Agent
+- **THEN** 工具选择器显示 `Workflow` 可选项但不默认选中
+
+#### Scenario: 选择 Workflow
+- **WHEN** 用户勾选 `Workflow` 并成功保存 Agent
+- **THEN** 页面只以现有工具 pill 的选中态显示已选择真值，不增加工具说明、独立开关或嵌套设置
+- **AND** 该 Agent 下一轮在 Web/外部 IM 完整获得 Workflow 能力
+
+#### Scenario: 取消 Workflow
+- **WHEN** 用户取消 `Workflow` 并成功保存 Agent
+- **THEN** 页面显示未选择真值
+- **AND** 该 Agent 下一轮完整失去 Workflow tool、prompt、commands 与 ultracode 入口

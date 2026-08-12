@@ -16,7 +16,13 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 import pytest
 
 from IM.application.event_bridge import EventBridge
-from IM.domain.models import ConversationEvent, Message, TokenUsage, ToolCall
+from IM.domain.models import (
+    BackgroundReturn,
+    ConversationEvent,
+    Message,
+    TokenUsage,
+    ToolCall,
+)
 from IM.ws.gateway.execution import GatewayExecution
 from IM.ws.gateway.sessions import GatewaySessions
 from IM.ws.user_stream import UserStreamRegistry
@@ -110,6 +116,55 @@ class TestNodeStreamingDeltaHandling:
         )
         assert result is not None
         assert result.get("type") == "ack"
+
+    @pytest.mark.asyncio
+    async def test_turn_start_forwards_typed_background_returns(self):
+        """Consumed task notifications attach to the bubble created at turn_start."""
+        bridge = MagicMock(spec=EventBridge)
+        bridge.on_turn_start.return_value = Message(
+            id="msg-new",
+            conversation_id="conv-1",
+            sender_user_id="agent-user-1",
+            sender_type="agent",
+            content="",
+            delivery_status="running",
+        )
+        handler = _make_minimal_execution(event_bridge=bridge)
+
+        await handler.handle_streaming_delta(
+            payload={
+                "kind": "turn_start",
+                "conversation_id": "conv-1",
+                "agent_user_id": "agent-user-1",
+                "agent_id": "alpha",
+                "background_returns": [
+                    {
+                        "task_id": "wt-1",
+                        "task_type": "workflow",
+                        "status": "completed",
+                        "description": "review",
+                        "workflow_run_id": "wf-1",
+                        "result": "raw",
+                    }
+                ],
+            }
+        )
+
+        bridge.on_turn_start.assert_called_once_with(
+            conversation_id="conv-1",
+            agent_user_id="agent-user-1",
+            agent_id="alpha",
+            background_returns=[
+                BackgroundReturn(
+                    task_id="wt-1",
+                    task_type="workflow",
+                    status="completed",
+                    description="review",
+                    workflow_run_id="wf-1",
+                    result="raw",
+                )
+            ],
+        )
 
     @pytest.mark.asyncio
     async def test_streaming_delta_tool_call_upserted(self):

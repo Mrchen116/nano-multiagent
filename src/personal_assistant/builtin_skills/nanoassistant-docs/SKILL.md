@@ -23,6 +23,7 @@ description: Nano Personal Assistant（PA）产品说明书。用户询问 PA/Na
 | PA 是什么、核心组件和概念 | [`references/overview.md`](references/overview.md) |
 | 安装配置、启动 IM/Gateway、绑定并开始聊天 | [`references/getting-started.md`](references/getting-started.md) |
 | Web IM、会话、消息、权限、Agent 创建与修改、模型 | [`references/web-im-and-agents.md`](references/web-im-and-agents.md) |
+| Workflow、多 Agent 协作、ultracode、运行状态、暂停/恢复/保存 | [`references/workflows.md`](references/workflows.md) |
 | Skills、tools、执行权限、Web 搜索、memory、会话连续性 | [`references/skills-tools-memory.md`](references/skills-tools-memory.md) |
 | Gateway/节点状态、飞书和外部渠道 | [`references/gateway-and-channels.md`](references/gateway-and-channels.md) |
 | Heartbeat、Cron、主动任务选择 | [`references/automation.md`](references/automation.md) |
