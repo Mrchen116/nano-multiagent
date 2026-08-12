@@ -257,3 +257,166 @@ Round 2 无新增 blocking / major / minor issue。
 ## 上层文档同步
 
 继承 Round 1：`SPEC.md`、`AGENTS.md` / `CLAUDE.md`、`docs/specs/CONTRIBUTING.md` 无需更新；`docs/specs/gateway/` 与 `docs/specs/kernel/` 的最终 canonical 归并仍由 orchestrator 收尾完成。
+
+---
+
+# Round 3 — 2026-08-12
+
+> Validation snapshot: `5dd22bb4fa2fbcbd10d247ff3f3c77f71f598535 → d2e7032ea7b963bdf8089c93d00e12bfab6b9c95`
+
+> Revalidation mode: full。Round 1/2 的 live evidence 只作为历史背景；以下结论全部来自本轮在 exact head `d2e7032` 上重新执行的隔离 Web IM、真实飞书和 Coding CLI 用户旅程。
+
+## Verdict
+
+`fail`
+
+- Highest Required Action: `fix-implementation`
+- Review round: `3`
+- feat-530 的 10 个可由真实用户入口执行的 Scenario 全部通过；两个仅能靠内部故障注入/非真人入口构造的 Scenario 标为 `not-applicable`，没有用单测或源码推断代替。
+- current-main 相邻控制的直接处理均通过：真实飞书群 `/skill:lark-im` 被确定性改写并调用 `skill_view`；群聊裸 `/effort max` 不触发，明确 @Bot 后只更新目标 Agent；Workflow 启用后的 `/workflows` 和 Web IM `/effort max` 均返回正确控制结果。
+- 但 fresh Web IM 在 Workflow 已启用、有效模型支持 effort 时，slash 面板仍不显示 `/workflows` 或 `/effort`。命令能手工输入并执行，不等于用户可发现能力成立；这是本轮唯一 major suspected regression，默认严格验收不能通过。
+
+## User Journeys Exercised
+
+### 1. Web IM 与真实飞书同一影子会话
+
+先用专用测试 App 的真实 Feishu ingress probe 产生 `nano-e2e-feishu-probe-bdf369d40577e6a0`，再在隔离 Web IM 的同一 `e2e · feishu` 影子会话发送 `feat-530-r3-web-1153`。Agent 回答：
+
+```text
+probe_source=Feishu; current_source=Web IM;
+current_local_time=Wed 2026-08-12 11:52 CST;
+direct_or_group_word_seen=no
+```
+
+同一 Kernel session `sess_92a8a13d460d7693` 的 transcript 依次保存 `[Feishu ... 11:51 CST]` 与 `[Web IM ... 11:52 CST]`。三次 Web IM provider 请求的 system prompt SHA-256 均为 `dd9ecf82410f163fac43b9a11d269f38ab588f496a9e1c1cb9dab061c67b0931`，只含 `Time zone: Asia/Shanghai`，没有 PA session-created current datetime。
+
+另发送正文自身以 `[Feishu Mon 2026-08-10 09:17 CST]` 开头的 `feat-530-r3-header-exact-1156`。发送前 textbox value、页面气泡和点击 `Copy message` 后的剪贴板三者逐字一致；模型侧只在其外层增加 `[Web IM Wed 2026-08-12 11:53 CST]`。`.nanoassistant/chat_history/` 保持原始正文，不泄露派生 envelope。
+
+### 2. 真实飞书 direct、group sender 与显式 skill
+
+专用用户 `J` 向测试 Bot 私聊发送 `feat-530-r3-dm-1159`，Agent 回答 `source=Feishu; local_time=Wed 2026-08-12 11:54 CST; direct_word_seen=no`；飞书历史中的用户正文没有 header。
+
+在专用群 `nano feat-530 e2e` 真实 @Bot 发送 `feat-530-r3-group-shape-1158`，Agent 逐字报告：
+
+```text
+annotations=[Feishu Wed 2026-08-12 11:55 CST] [你]
+```
+
+只出现平台/时间与既有 sender，没有 `Group` 或内部路由 ID。随后发送 `/skill:lark-im feat-530-r3-skill-valid-1201 ... @测试agent`；provider user content 被改写为：
+
+```text
+[Feishu Wed 2026-08-12 11:57 CST] [你] Use the "lark-im" skill for this request.
+User input:
+feat-530-r3-skill-valid-1201。请只回答 r3_skill_valid=yes。 @测试agent
+```
+
+同一 transcript 记录真实 `skill_view(name="lark-im")` 工具结果，飞书收到 `r3_skill_valid=yes`。
+
+### 3. 群聊 `/effort` 目标门控
+
+在同一专用群发送未 @任何 Agent 的裸 `/effort max`，等待五秒没有 Bot 回复。随后发送 `/effort max @测试agent`，只有测试 Bot 返回 `已将当前会话的推理档位设为 max。`。这证明新 envelope 没有让未明确目标的群命令变成全群控制，也没有阻止明确目标命令。
+
+### 4. Gateway 重启、离线 group catch-up 与旧会话升级
+
+只停止本 worktree Gateway、保留隔离 IM；在 Gateway 离线时于 `11:58:31` 向专用群发送未 @Bot 的 `feat-530-r3-offline-background-1158`。切回 exact-head Gateway 后，于 `11:59:12` 发送 @Bot 触发消息。Agent 回答背景消息为 `Feishu 11:58 CST`、当前消息为 `Feishu 11:59 CST`，而不是把背景消息标成恢复/触发时刻；同一 group session 的组合 turn 保留两条各自的 envelope 与 `[你]`。
+
+为验证升级前旧消息，短暂以 detached `executed_base@5dd22bb4f`、同一隔离 config/data 启动旧 Gateway，在既有 direct session 写入 raw `feat-530-r3-oldraw-1201`；再切回 `d2e7032` 继续同一 session。`sess_92a8a13d460d7693` 中旧 turn 保持无 prefix，新 turn 为 `[Feishu Wed 2026-08-12 12:01 CST] feat-530-r3-after-upgrade-1202...`。Agent 回答：
+
+```text
+old_source=unknown; old_time=unknown;
+current_source=Feishu; current_time=Wed 2026-08-12 12:01 CST
+```
+
+### 5. Workflow、active steer 与 Coding CLI
+
+在 fresh 隔离 Web IM 的 Agent Config 中真实选择 `Workflow` 并保存，profile 从 v1 更新到 v2。手工发送 `/workflows` 返回 `暂无 Workflow 运行记录。`；手工发送 `/effort max` 返回 `已将当前会话的推理档位设为 max。`，说明 header 没有破坏命令处理。
+
+同一 Web IM 会话启动 `bash sleep 12` 的长轮次，运行中追加 `feat-530-r3-active-steer-1206`。最终回复为 `long_done=yes; steer_source=Web IM; steer_time=Wed 2026-08-12 12:06 CST`；provider 请求 `2026-08-12_12-06-18_782-req-anthropic_messages.json` 中追加内容确实是 `[Web IM Wed 2026-08-12 12:06 CST] ...`。本轮只验证既有 try-steer 收到同格式 model parts，不扩张其持久化/恢复语义。
+
+最后从临时 cwd 运行真实 `coding_cli.main --text`，session `sess_36559fd27730d5af` 返回 `cli_context_received=yes`。provider user content 为逐字原文，无 PA envelope；system prompt 仍有 `Current date and time: 2026-08-12T04:02:16.188747+00:00`。
+
+## Reference Artifacts Reviewed
+
+N/A。spec/design 没有引用 must-match 原型、设计稿或 reference screenshot。
+
+## Issues
+
+| # | 严重度 | 现象 | 处置 |
+|---|---|---|---|
+| R3-I1 | major | Web IM 中 Agent 已保存启用 Workflow，`/workflows` 与 `/effort max` 也可手工执行，但 slash 面板没有这两个动态命令候选 | `fix-implementation`；修复后从 fresh Agent profile 重验启用 Workflow → 新聊天输入 `/` 的完整候选，并确认选择后可发送 |
+
+### R3-I1 — 已启用 Workflow 的动态 slash 命令不可发现
+
+- Severity: `major`
+- Regression Relation: `suspected-regression`
+- Recommended Action: `fix-implementation`
+- Action Rationale: 本轮 current-main integration 明确要求确认相邻 `/effort` 与已启用 Workflow 的用户命令没有退化；fresh exact-head 用户旅程中，Config 已显示 `Workflow` pressed、profile v2，命令也能直接执行，但同屏 slash picker 违反 current `docs/specs/im/web-chat-ux.md` / `workflows.md` 的动态发现承诺。该异常影响本 unit 的 current-main 可接受性，默认交实现修复，不做源码归因。
+- User impact: 用户启用 Workflow 后仍无法从产品内发现 `/workflows`，也看不到当前模型支持的 `/effort` levels；只有已经记住隐藏命令的用户才能手工操作。
+- Reproduction:
+  1. 在 fresh 隔离 Web IM 打开 `e2e` Agent Config，选择 `Workflow` 并保存；确认 profile v2 与 `Workflow` pressed。
+  2. 打开该 Agent 的全新 direct chat，在 composer 输入 `/`，等待两秒。
+  3. 实际候选只有 `/stop`、`/new`、`/compact` 与 skills；`/workflows`、`/effort` option count 均为 0。
+  4. 直接输入并点击 Send 后，`/workflows` 与 `/effort max` 都返回正确控制结果，证明问题是用户发现面缺失，而不是命令处理失败。
+- Expected: Workflow 启用时 slash picker 可发现 `/workflows`；有效模型支持 selectable reasoning 时可发现 `/effort` 与 levels。
+
+## Side Findings
+
+- 真实 Feishu direct/group 的普通模型回复仍会为单个 Kernel run 产生两条相同 Bot 出站；控制确认 `/effort max` 只出现一次。本轮不重复建 issue，沿用既有 #272。
+- Runbook 的完整 `e2e-up.sh` 初次连接可用，但脚本退出后手工重启 Gateway 会让隔离 IM 的 channel-control SQLite reopen 报 `unable to open database file`，导致 node offline；飞书本地自治仍继续工作。为避免把 harness 生命周期问题混进 Workflow 判断，本轮另起 fresh full stack完成 Workflow UI/命令旅程。该限制没有替代或取消任何 feat-530 Scenario 的用户面实证。
+
+## 验收标准覆盖
+
+### Requirement: PA Agent 能理解每条真人消息发生的时间 — 组内结论:pass
+
+| Scenario | 期望来源 | 验证方式（覆盖它的旅程） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 长会话跨越一天中的多个时段 | `spec.md` | 同一 direct session 从 Feishu 11:51、Web IM 11:52 延续到 Feishu 12:01；另在 Web IM 12:06 active steer；追问先后并核对 stable system prompt | `sess_92a8a13d460d7693.jsonl`；`sess_c4bc8914aeb58d69` provider request；stable system SHA | pass | 验收窗口压缩到跨小时边界；逐消息先后、时间推进和不再固定 session-created current datetime 均直接可见。 |
+| channel 提供消息发生时间 | `spec.md` | Gateway 离线 11:58 发送群背景，11:59 恢复后触发 catch-up | `sess_69baf6f9aa5720ed.jsonl`；飞书 message `om_x100b688ab8b540a0b4c374dd349fffd` | pass | 采用 provider create time 11:58，不是 catch-up/触发时刻 11:59。 |
+| channel 没有提供消息发生时间 | `spec.md` | N/A | N/A | not-applicable | 缺失 provider timestamp 只能由内部 fault injection 构造；真实 Web IM 与 Feishu 用户入口都会给出 occurrence time。reviewer 不用 mock/API 伪造真人旅程。 |
+
+### Requirement: PA Agent 能识别每条真人消息的实际入口 — 组内结论:pass
+
+| Scenario | 期望来源 | 验证方式（覆盖它的旅程） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 同一影子会话从飞书继续到 Web IM | `spec.md` | 真实 Feishu probe 后在 Web IM 同一 shadow 继续并询问两条入口 | `sess_92a8a13d460d7693.jsonl`；浏览器回复 `Feishu → Web IM` | pass | 同一 Kernel session 逐消息区分实际入口。 |
+| 群聊继续保留既有参与者语义 | `spec.md` | 真实飞书群 @Bot、显式 skill、离线 group buffer | `sess_69baf6f9aa5720ed.jsonl`；Agent 报告 `annotations=[Feishu ...] [你]` | pass | 没有新增 Group 或内部路由 ID。 |
+| 私聊只表达有价值的来源平台 | `spec.md` | 真实飞书 direct 与 Web IM direct 分别询问来源 | 飞书 `om_x100b688aa65210b0b3e434bef1c9bf5`；Web session `sess_92a8a13d460d7693` | pass | 两端有平台名，均无 Direct。 |
+
+### Requirement: 上下文 envelope 不改变用户消息原文 — 组内结论:pass
+
+| Scenario | 期望来源 | 验证方式（覆盖它的旅程） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 用户在原入口查看和复制消息 | `spec.md` | Web IM 查看并点击 Copy；飞书 history 读取 direct/group 用户消息 | clipboard 逐字等于 `feat-530-r3-header-exact-1156` 原始 body；本轮飞书 message IDs | pass | 派生 header 不进入气泡/复制；用户自带合法 header 不被误删。 |
+| 外部消息同步到影子会话 | `spec.md` | Feishu probe 后在 Web IM 打开 `e2e · feishu` shadow；比较两端正文与 readable history | Web IM shadow；`.nanoassistant/chat_history/sess_92a8a13d460d7693.jsonl` | pass | 两端显示 raw body；当前产品仍没有 message-body search UI，未用会话筛选冒充正文搜索。 |
+
+### Requirement: 新消息的时间与入口可稳定延续 — 组内结论:pass
+
+| Scenario | 期望来源 | 验证方式（覆盖它的旅程） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| Gateway 重启后继续既有会话 | `spec.md` | 只重启 exact-head Gateway；恢复同一 group session 并 catch-up 11:58 背景后继续 11:59 触发 | `sess_69baf6f9aa5720ed.jsonl` | pass | 同一 session 的 normal/group-buffer历史保持原时间与 Feishu 来源。 |
+| 功能启用前的旧消息缺少可靠上下文 | `spec.md` | `executed_base@5dd22bb4f` 写入 raw old turn，升级到 exact head 后继续同一 direct session | `sess_92a8a13d460d7693.jsonl` lines 13,16-17 | pass | 旧消息 raw/unknown；新消息才有 Feishu envelope。 |
+
+### Requirement: 非 PA 入口保持既有行为 — 组内结论:pass
+
+| Scenario | 期望来源 | 验证方式（覆盖它的旅程） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 用户继续使用 Coding CLI | `spec.md` | 临时 cwd 运行真实 `coding_cli.main --text` 并检查 provider payload | `sess_36559fd27730d5af`；12:02 provider request | pass | user content 无 PA envelope；system 保留 CLI current datetime。 |
+| PA 产生非真人入站消息 | `spec.md` | N/A | N/A | not-applicable | heartbeat/cron/subagent/internal notification 没有统一真人可操作入口；这是实现来源分类 Scenario，reviewer 不伪造内部调用。 |
+
+## Current-main Adjacent Controls
+
+| Journey | Evidence | Result | Notes |
+|---|---|---|---|
+| 真实 Feishu 群 `/skill:lark-im` | provider 改写 + transcript `skill_view(name="lark-im")` + 飞书回复 | pass | 命令须位于正文开头；把真实 @mention 放在 slash 前会成为普通正文，不算有效命令。 |
+| 群聊 `/effort` 仅作用明确 target | 裸 `/effort max` 无回复；`/effort max @测试agent` 单条控制确认 | pass | 未观察到 envelope 扩大控制范围。 |
+| Workflow 已启用后的 `/workflows` | UI 保存 profile v2；直接命令返回“暂无 Workflow 运行记录” | pass | 命令 handler 正常。 |
+| Web IM `/effort max` | 直接命令返回“已将当前会话的推理档位设为 max” | pass | 命令 handler 正常。 |
+| Workflow / effort slash 发现 | fresh chat 输入 `/`；对应 option count 均为 0 | fail | R3-I1。 |
+| active steer envelope | long tool run 中追加真人消息；provider 收到 `[Web IM ... 12:06 CST]` | pass | 不对既有 durability 作新断言。 |
+
+## 上层文档同步
+
+- [x] `SPEC.md`：无需更新；本轮未发现跨包顶点架构变化。
+- [x] `docs/specs/<包>/`：feat-530 的 canonical 已反映逐消息 envelope；R3-I1 与现有 `docs/specs/im/web-chat-ux.md` / `workflows.md` 契约不一致，需要修实现而非改契约。
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新；没有新增工作约定。
+- [x] `docs/specs/CONTRIBUTING.md`：无需更新；没有改变文档体系。
