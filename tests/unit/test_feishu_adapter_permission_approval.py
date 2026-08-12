@@ -229,7 +229,7 @@ def test_permission_cards_render_any_tool_input_as_fields(
         "**token · 1 line**\nsecret-token-value",
     ]
     assert all(field["background_style"] == "grey-50" for field in pending_fields)
-    assert all(field["columns"][0]["padding"] == "8px 12px" for field in pending_fields)
+    assert all("padding" not in field["columns"][0] for field in pending_fields)
     assert all(len(field["columns"][0]["elements"]) == 2 for field in pending_fields)
     assert '{"command":' not in str(pending_card)
 
@@ -403,7 +403,7 @@ def test_permission_card_compacts_realistic_long_input_for_every_tool(
         for field in input_fields
     )
     assert all("padding" not in field["header"] for field in input_fields)
-    assert all(field["padding"] == "0px 12px 10px 12px" for field in input_fields)
+    assert all("padding" not in field for field in input_fields)
     assert all(field["vertical_spacing"] == "4px" for field in input_fields)
     assert all(
         field["header"]["icon"]
@@ -416,6 +416,7 @@ def test_permission_card_compacts_realistic_long_input_for_every_tool(
     )
     assert all(field["header"]["icon_position"] == "right" for field in input_fields)
     assert all(field["header"]["icon_expanded_angle"] == 180 for field in input_fields)
+    assert '"padding"' not in json.dumps(card)
     assert [field["elements"][0]["content"] for field in input_fields] == [
         _escaped_input_value(value) for value in _long_tool_input().values()
     ]

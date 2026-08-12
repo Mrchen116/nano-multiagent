@@ -656,7 +656,6 @@ def _short_input_container(
                 "width": "weighted",
                 "weight": 1,
                 "background_style": "grey-50",
-                "padding": "8px 12px",
                 "vertical_spacing": "2px",
                 "elements": [
                     {
@@ -692,7 +691,6 @@ def _long_input_panel(
         "border": {"color": "grey", "corner_radius": "5px"},
         "direction": "vertical",
         "vertical_spacing": "4px",
-        "padding": "0px 12px 10px 12px",
         "margin": "0px 0px 4px 0px",
         "header": {
             "title": {
