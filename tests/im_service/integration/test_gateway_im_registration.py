@@ -174,7 +174,7 @@ def test_gateway_reregistration_preserves_canonical_agent_labels_after_restart(
             ("agent-m170-alpha",),
         ).fetchone()
         assert legacy_provenance["workspace_is_default"] is None
-        assert first_listing.json()[0]["workspace_is_default"] is False
+        assert first_listing.json()[0]["workspace_is_default"] is None
 
         app.state.connection.execute(
             "DELETE FROM agent_profiles WHERE agent_id IN (?, ?)",
