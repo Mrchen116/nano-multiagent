@@ -227,6 +227,13 @@ None.
 
 ## Corrected Delta Reconciliation
 
+> Current reconciliation snapshot: `50b88f52c71758eb0b65248bbb86f207f600d762`
+>
+> Executed base: `5dd22bb4fa2fbcbd10d247ff3f3c77f71f598535`
+> Mode: `corrected-delta`
+
+The requirement/scenario matrix below is retained as the complete four-delta inventory. This revalidation checked every row against the final implementation and current canonical specs; current code locations include `human_message_context.py:53-210`, `inbound_pipeline.py:120-176`, `session_run_coordinator.py:1482-1531`, `feature_registry.py:54-88`, `core_sections.py:320-339`, `agent/sdk/kernel.py:2248-2340`, `skill_commands.py:6-60`, and `runtime.py:67-90,478-493`.
+
 | Delta item | Implementation evidence | Test evidence | Outcome |
 |---|---|---|---|
 | `specs/gateway/routing-delivery.md` ADDED Requirement: PA 为每条真人消息固定模型侧发生时间与实际入口 | Provider/receipt facts enter `InboundMessage` (`src/personal_assistant/channels/base.py:27-52`), are frozen after raw shadow consumers (`src/personal_assistant/gateway/inbound_pipeline.py:141-153`), and are projected only into model parts (`src/personal_assistant/gateway/session_run_coordinator.py:1174-1223`). | Gateway envelope, persistence, readable projection, prompt policy, and active-steer suites included in the 195-test reconciliation run. | aligned |
@@ -263,7 +270,9 @@ None.
 
 ### Uncovered Observable Behavior
 
-None. `git diff origin/main...a26e5ca4fee9033bd9c701bd9213320b0c83f2da` uses merge-base `c40a9aa80f3f9107327217b868f11ec664d34bf9`; every changed consumer-visible behavior maps to one of the four reconciled deltas above. Optional PA-internal dataclass fields, process-local provenance plumbing, capability docstrings/comments, tests, and evidence do not create additional consumer contracts. Focused reconciliation validation: 195 passed.
+None. The final unit diff against its executed current-main base contains the four reconciled delta surfaces plus the R3 frontend cache-key repair. The repair only changes successful Agent-config save invalidation from obsolete `['chat', 'slash-skills']` to observed `['chat', 'slash-candidates']` (`src/IM/frontend/src/features/settings/agents/agent-detail-page.tsx:1352-1373`); that query still reads live Gateway config and capabilities (`src/IM/frontend/src/features/chat/chat-workspace-page.tsx:412-465`). It restores—not expands—the existing canonical Workflow/slash behavior: saved Workflow selection changes the dynamic candidates, ordinary `/effort` keeps Gateway-provided model levels, and group effort stays Agent-addressed (`docs/specs/im/workflows.md:48-60`; `docs/specs/im/web-chat-ux.md:135-154`; `docs/specs/gateway/agent-capabilities.md:403-415`). The dedicated integration regression covers cached disabled → enabled profile refresh and direct command insertion (`chat-workspace.integration.test.tsx:443-490`).
+
+Current-main Workflow delivery, typed ingress, model reasoning composition, and Gateway-owned workspace roots remain separately owned by their current canonical specs—not newly invented feat-530 behavior—and compose without changing the envelope contract. The final focused validation reran `test_inbound_pipeline_session.py`, `test_gateway_pipeline_no_fanout.py`, `test_workflow_commands.py`, and `test_workspace_root_mirror_contract.py`; 208 focused Python tests passed. Round 4 already passed the unchanged R3 cache repair at its code snapshot with the 196-test frontend seam suite and 58-test Gateway boundary set; `50b88f52` adds documentation only after that code commit. `git diff --check 5dd22bb4fa2fbcbd10d247ff3f3c77f71f598535..50b88f52c71758eb0b65248bbb86f207f600d762` passed.
 
 Outcome: aligned
 
