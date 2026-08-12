@@ -1,9 +1,13 @@
 """Unit tests for realtime_stream hook event schemas (feat-338)."""
 
+from types import SimpleNamespace
+
 from agent.core.hooks.context import HookContext
 from agent.core.hooks.registry import HookRegistry
 from agent.core.hooks.runner import HookRunner
+from agent.core.session.types import INTERNAL_RUNTIME_KEY
 from agent.platform.hooks.builtins.realtime_stream import setup as setup_realtime_stream
+from agent.platform.tools.builtins.workflow import WorkflowTool
 
 
 class _FakePublisher:
@@ -156,6 +160,48 @@ async def test_tool_call_emits_tool_start_with_presentation() -> None:
     assert evt["data"]["name"] == "read"
     assert "presentation" in evt["data"]
     assert evt["data"]["presentation"]["visible"] is True
+
+
+async def test_workflow_tool_start_uses_session_guideline_and_flat_detail() -> None:
+    hooks = HookRegistry()
+    setup_realtime_stream(hooks)
+    runner = HookRunner(registry=hooks)
+    pub = _FakePublisher()
+    workflow = WorkflowTool(manager=object())  # type: ignore[arg-type]
+    ctx = HookContext(
+        session_id="sess_1",
+        turn_id="turn_1",
+        metadata={
+            "run_id": "run_1",
+            INTERNAL_RUNTIME_KEY: {"workflow_size_guideline": "small"},
+            "tool_registry": SimpleNamespace(get=lambda _name: workflow),
+        },
+        session_event_publisher=pub,
+    )
+    script = 'meta = {"name": "review"}\nasync def main(): return "ok"'
+
+    diagnostics = await runner.dispatch_observe(
+        "tool_call",
+        {
+            "call_id": "call-workflow",
+            "name": "Workflow",
+            "arguments": {
+                "script": script,
+                "description": "review changes",
+            },
+            "run_id": "run_1",
+        },
+        ctx,
+    )
+
+    assert all(item.status == "ok" for item in diagnostics)
+    detail = pub.events[0]["data"]["presentation"]["detail"]
+    assert detail == {
+        "description": "review changes",
+        "source": "inline Python",
+        "guideline": "small",
+        "script_preview": script,
+    }
 
 
 async def test_tool_result_emits_tool_end_with_presentation() -> None:

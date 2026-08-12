@@ -1,6 +1,6 @@
 # kernel (agent) - Runs Specification
 
-> 对齐: feat-510
+> 对齐: feat-517, bugfix-525
 > 上级: [kernel (agent) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)「给库/内核写契约的额外纪律」。本目录只收 **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 + 归档 design)。
@@ -34,7 +34,7 @@
 
 ### Requirement: 经 submit 投递的消息可 steer 进活跃 run 的下一轮
 
-消费者经 `Kernel.submit(steer=True)` 投递用户消息时，内核按会话当前是否有活跃 run 决定注入或新建，结果由返回的 `RunInfo.injected` 标识；`steer=False`（默认）保持"总是新建 run"的既有语义。
+消费者经 `Kernel.submit(steer=True)` 投递消息时，内核按会话当前是否有活跃 run 决定注入或新建，结果由返回的 `RunInfo.injected` 标识；`steer=False`（默认）保持"总是新建 run"的既有语义。消息的 origin 由消费者随原始注入来源提供，注入、异常转交或新建 fallback 都不改变它。
 
 #### Scenario: 有活跃 run 时注入其下一轮
 - **GIVEN** 某会话有一个正在执行的 run
@@ -64,8 +64,8 @@
 #### Scenario: 活跃 run 异常终止时注入的消息不丢
 - **GIVEN** 一条 steer 消息注入了一个活跃 run，而该 run 随后因非用户原因异常终止（消息尚未被消费）
 - **WHEN** 内核处理这次终止
-- **THEN** 该消息不丢失，由一个后续 run 接着消费，其 origin 跟随注入来源（用户消息为 USER）、内容（含图片）完整保留
-
+- **THEN** 该消息不丢失，由一个后续 run 接着消费；可信人工消息保持 HUMAN，普通 SDK 用户消息保持 USER，自动来源保持原 automation origin
+- **AND** 内容（含图片）完整保留
 ### Requirement: 消费者可只尝试向预期活跃 run 注入且不创建 fallback
 
 已拥有 normal-run admission 的消费者可调用 `Kernel.try_steer()`；该调用只尝试注入，不负责创建 fallback run。消费者可携带自己观察到的 active run id，避免在 run 切换窗口把消息注入同 session 的替代 run。
@@ -257,3 +257,55 @@
 #### Scenario: 重复关闭
 - **WHEN** 消费者多次调用或混用 `kernel.aclose()` 与 `kernel.close()`
 - **THEN** 后续调用安全返回,不重复停止 loop、不抛 secondary exception
+
+### Requirement: 消费者可保留运行来源并把可信人工输入与自动输入区分
+
+#### Scenario: 交互产品提交可信人工输入
+- **GIVEN** 消费者已验证本次内容来自当前交互用户
+- **WHEN** 消费者以 human origin 提交该内容
+- **THEN** 内核在该轮 provider input 和事件中保留可信人工来源
+- **AND** 依赖人工来源的 turn attachment 可据此生效
+
+#### Scenario: 自动来源保持非人工
+- **WHEN** 消费者提交 heartbeat、cron、后台通知、webhook、bot 转发或普通非交互 SDK 内容
+- **THEN** 对应 origin 保持自动或普通 user 来源，不被提升为可信人工输入
+- **AND** 内容中出现与人工触发相同的关键词也不能改变来源
+
+#### Scenario: Workflow 子运行有独立来源
+- **WHEN** Workflow 派发子 Agent
+- **THEN** 子运行的 origin 可被消费者识别为 workflow
+- **AND** 该来源不能冒充新的人工 opt-in
+
+### Requirement: self-evolution side-chain 只向 session stream 暴露明确业务结果
+
+消费者经 `agent.sdk` 运行启用了 self-evolution 的会话时，后台 review 继承主会话能力并完成真实 memory/skill 更新，但其内部 assistant、tool 与 turn 过程不成为父 session 的普通 realtime events。需要驱动产品状态的业务事件继续可观察；只有返回结果中至少一条 mutating memory/skill tool call 被确认成功时才发布最终 structured `self_evolution_review` 更新事件，并携带非空真实更新对象与 originating run trace，供消费者选择正确投递路径。no-save、只有读取/列举或写操作失败时不发布该更新事件；若 fork 整体 `completed=False` 但此前已有确认成功的写入，仍发布对应真实更新对象。
+
+#### Scenario: memory review 不产生第二条 assistant 输出
+
+- **GIVEN** 消费者提交的一轮触发后台 memory review
+- **WHEN** 消费者从该轮 start sequence 持续读取 session stream 直到后台 review 结束
+- **THEN** stream 只含该前台轮次的 assistant/tool/turn realtime events，不含 review fork 的 prompt、tool 过程或完成确认
+- **AND** 若 memory 持久更新成功，消费者收到携带 memory 更新对象与 originating run trace 的最终 `self_evolution_review`
+
+#### Scenario: skill review 暴露可归属的创建事件
+
+- **GIVEN** 消费者提交的一轮触发后台 skill review，且 review 成功创建 Skill
+- **WHEN** 消费者持续读取同一 session stream
+- **THEN** stream 不含 review fork 的普通 assistant/tool/turn realtime events
+- **AND** 消费者收到一条保留创建结果并标明 self-evolution 来源的 `skill_created` 业务事件
+- **AND** 消费者随后收到携带 skills 更新对象与 originating run trace 的最终 `self_evolution_review`
+
+#### Scenario: no-save 或写操作失败不产生更新事件
+
+- **GIVEN** self-evolution review 未执行 mutating tool、只执行读取/列举，或所有 mutating tool result 均失败
+- **WHEN** 后台 review 结束
+- **THEN** consumer 不收到 `self_evolution_review` 更新事件
+- **AND** review fork 的 raw assistant/tool/turn 过程仍保持私有
+
+#### Scenario: incomplete fork 已有成功写入时仍报告真实更新
+
+- **GIVEN** self-evolution fork 返回 `completed=False`
+- **AND** 返回结果中存在至少一个已确认成功的 mutating memory/skill tool result
+- **WHEN** hook 汇总真实更新对象
+- **THEN** consumer 收到只包含这些成功更新对象的 `self_evolution_review`
+- **AND** 不把未成功或只被 review 的对象标记为已更新

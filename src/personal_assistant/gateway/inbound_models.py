@@ -8,8 +8,44 @@ from typing import Any, Literal
 
 from personal_assistant.channels.base import InboundMessage, OutboundMessage
 from personal_assistant.gateway.agent_catalog import LiveAgentSnapshot
-from personal_assistant.gateway.runtime_protocol import external_identity_from_message
 from personal_assistant.gateway.session_keys import build_external_session_key
+
+
+@dataclass(frozen=True, slots=True)
+class ShadowConversationRef:
+    """Identify one confirmed IM shadow anchor."""
+
+    conversation_id: str
+    im_message_id: str
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.conversation_id, str)
+            or not self.conversation_id.strip()
+        ):
+            raise ValueError("conversation_id must be a non-empty string")
+        if not isinstance(self.im_message_id, str) or not self.im_message_id.strip():
+            raise ValueError("im_message_id must be a non-empty string")
+
+
+@dataclass(frozen=True, slots=True)
+class GatewayShadowState:
+    """Carry the Gateway-owned durable saga and optional confirmed IM anchor."""
+
+    saga_id: str | None = None
+    ref: ShadowConversationRef | None = None
+
+    def __post_init__(self) -> None:
+        if self.ref is not None and self.saga_id is None:
+            raise ValueError("shadow ref requires saga_id")
+
+
+@dataclass(frozen=True, slots=True)
+class RoutedInbound:
+    """Pair one normalized channel message with Gateway-owned shadow state."""
+
+    message: InboundMessage
+    shadow: GatewayShadowState = GatewayShadowState()
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,17 +53,23 @@ class InboundRunRequest:
     """Capture one routed message for coordinator admission.
 
     Args:
-        message: Normalized inbound message after any shadow synchronization.
+        routed: Normalized message plus Gateway-owned shadow state.
         agent: One immutable live Agent revision captured at the routing boundary.
         session_key: Gateway-local FIFO and active-run coordination key.
         sender_label: Stable display label used for group-message prefixes.
     """
 
-    message: InboundMessage
+    routed: RoutedInbound
     agent: LiveAgentSnapshot
     session_key: str
     sender_label: str
     generation: int = 0
+
+    @property
+    def message(self) -> InboundMessage:
+        """Return the normalized message carried by this routed inbound."""
+
+        return self.routed.message
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,14 +77,20 @@ class StopRunRequest:
     """Capture one routed stop command for coordinator admission.
 
     Args:
-        message: Normalized inbound control message.
+        routed: Normalized message plus Gateway-owned shadow state.
         agent: One immutable live Agent revision captured at the routing boundary.
         session_key: Gateway-local key whose active run should be interrupted.
     """
 
-    message: InboundMessage
+    routed: RoutedInbound
     agent: LiveAgentSnapshot
     session_key: str
+
+    @property
+    def message(self) -> InboundMessage:
+        """Return the normalized message carried by this routed inbound."""
+
+        return self.routed.message
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,10 +102,16 @@ class NewSessionRequest:
     instead of creating another session.
     """
 
-    message: InboundMessage
+    routed: RoutedInbound
     agent: LiveAgentSnapshot
     session_key: str
     operation_id: str | None = None
+
+    @property
+    def message(self) -> InboundMessage:
+        """Return the normalized message carried by this routed inbound."""
+
+        return self.routed.message
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,12 +123,53 @@ class CompactSessionRequest:
     compaction rewrite the fresh context.
     """
 
-    message: InboundMessage
+    routed: RoutedInbound
     agent: LiveAgentSnapshot
     session_key: str
     focus: str | None = None
     operation_id: str | None = None
     generation: int = 0
+
+    @property
+    def message(self) -> InboundMessage:
+        """Return the normalized message carried by this routed inbound."""
+
+        return self.routed.message
+
+
+@dataclass(frozen=True, slots=True)
+class WorkflowCommandRequest:
+    """Capture one active-Workflow slash command from a human conversation."""
+
+    routed: RoutedInbound
+    agent: LiveAgentSnapshot
+    session_key: str
+    command_text: str
+    sender_label: str
+    operation_id: str | None = None
+
+    @property
+    def message(self) -> InboundMessage:
+        """Return the normalized message carried by this routed inbound."""
+
+        return self.routed.message
+
+
+@dataclass(frozen=True, slots=True)
+class EffortCommandRequest:
+    """Capture one model-capability-derived session effort command."""
+
+    routed: RoutedInbound
+    agent: LiveAgentSnapshot
+    session_key: str
+    command_text: str
+    operation_id: str | None = None
+
+    @property
+    def message(self) -> InboundMessage:
+        """Return the normalized message carried by this routed inbound."""
+
+        return self.routed.message
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,7 +209,7 @@ class RelayLifecycleUpdate:
 
 
 RelayLifecycleCallback = Callable[
-    [InboundMessage, RelayLifecycleUpdate], Awaitable[None]
+    [RoutedInbound, RelayLifecycleUpdate], Awaitable[None]
 ]
 
 
@@ -129,7 +224,7 @@ def build_group_context_key(message: InboundMessage, agent_id: str) -> str:
         Stable external identity key when present, otherwise the Web IM/channel key.
     """
 
-    external_identity = external_identity_from_message(message)
+    external_identity = message.ingress.external_conversation
     if external_identity is not None:
         return build_external_session_key(
             external_source=external_identity.external_source,

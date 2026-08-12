@@ -137,6 +137,39 @@ class RuntimeRunner(BackgroundSubagentRunner):
             foreground_stopper=self._foreground_stopper,
         )
 
+    def start_workflow_agent(
+        self,
+        *,
+        agent_session_id: str,
+        parent_session_id: str,
+        prompt: str,
+        workspace_root: Path,
+        llm_session_id: str | None = None,
+        model: str | None = None,
+        workflow_run_id: str | None = None,
+        agent_call_id: str | None = None,
+    ) -> ForegroundSubagentHandle:
+        """Start a result-bearing auxiliary target tagged as Workflow origin."""
+
+        controller = RunController()
+        auxiliary, _session = self._start_auxiliary(
+            agent_session_id=agent_session_id,
+            parent_session_id=parent_session_id,
+            prompt=prompt,
+            workspace_root=workspace_root,
+            llm_session_id=llm_session_id,
+            model=model,
+            controller=controller,
+            origin=RunOrigin.WORKFLOW,
+            run_id=workflow_run_id,
+        )
+        return _ControllerHandle(
+            controller=controller,
+            auxiliary=auxiliary,
+            session_id=agent_session_id,
+            foreground_stopper=self._foreground_stopper,
+        )
+
     def _start_auxiliary(
         self,
         *,
@@ -147,6 +180,8 @@ class RuntimeRunner(BackgroundSubagentRunner):
         llm_session_id: str | None,
         model: str | None,
         controller: RunController,
+        origin: RunOrigin = RunOrigin.BACKGROUND_TASK,
+        run_id: str | None = None,
     ) -> tuple[AuxiliaryHandle, Any]:
         ref = SessionRef(
             session_id=agent_session_id,
@@ -163,8 +198,9 @@ class RuntimeRunner(BackgroundSubagentRunner):
                 TurnRequest(
                     parts=({"type": "text", "text": prompt},),
                     llm_session_id=llm_session_id,
+                    run_id=run_id,
                     controller=controller,
-                    origin=RunOrigin.BACKGROUND_TASK,
+                    origin=origin,
                     model=model,
                 ),
             ),

@@ -88,7 +88,9 @@ class OpenAICompatMapper:
         )
 
     def _map_message(self, message: LLMMessage) -> Mapping[str, Any]:
-        mapped: dict[str, Any] = {"role": message.role}
+        mapped: dict[str, Any] = {
+            "role": "system" if message.role == "turn_system" else message.role
+        }
         if message.role == "assistant" and message.tool_calls:
             mapped["content"] = message.content or ""
             mapped["tool_calls"] = [

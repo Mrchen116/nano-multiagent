@@ -112,6 +112,14 @@ def test_processor_renders_flat_self_evolution_review_subject(
         {
             "event": "self_evolution_review",
             "session_id": "sess-123",
+            "updated_targets": [
+                target
+                for target, updated in (
+                    ("skills", reviewed_skills),
+                    ("memory", reviewed_memory),
+                )
+                if updated
+            ],
             "reviewed_skills": reviewed_skills,
             "reviewed_memory": reviewed_memory,
             "completed": True,
@@ -119,3 +127,41 @@ def test_processor_renders_flat_self_evolution_review_subject(
     )
 
     assert lines == [f"· background self-evolution review: {subject} updated"]
+
+
+def test_processor_renders_revisioned_workflow_progress_once() -> None:
+    processor = BackgroundRunEventProcessor()
+    event = {
+        "event": "workflow_run_updated",
+        "workflow_run_id": "wf_1",
+        "revision": 3,
+        "name": "review",
+        "status": "running",
+        "current_phase": "Verify",
+        "agents": [
+            {"status": "completed"},
+            {"status": "running"},
+        ],
+    }
+
+    assert processor.process(event) == [
+        "Workflow wf_1 · review · running · Agents 1/2 · Verify"
+    ]
+    assert processor.process(event) == []
+
+
+def test_processor_does_not_render_an_empty_self_evolution_receipt() -> None:
+    processor = BackgroundRunEventProcessor()
+
+    lines = processor.process(
+        {
+            "event": "self_evolution_review",
+            "session_id": "sess-123",
+            "updated_targets": [],
+            "reviewed_skills": False,
+            "reviewed_memory": False,
+            "completed": True,
+        }
+    )
+
+    assert lines == []

@@ -218,6 +218,45 @@ def test_skill_created_event_reaches_handler_without_im_connection() -> None:
     ]
 
 
+def test_self_evolution_skill_created_skips_per_run_handler() -> None:
+    """The persistent subscriber exclusively owns source-marked skill events."""
+    received: list[tuple[str, dict[str, Any]]] = []
+    observer = build_kernel_event_observer(
+        im_connection_manager_factory=lambda: None,
+        run_context_store=delivery_context_store(
+            {
+                "run-1": {
+                    "conversation_id": "conv-1",
+                    "message_id": "msg-1",
+                    "agent_id": "agent-1",
+                }
+            }
+        ),
+        skill_created_handler=lambda agent_id, event: received.append(
+            (agent_id, dict(event))
+        ),
+    )
+
+    async def _drive() -> None:
+        maybe = observer(
+            {
+                "event": "skill_created",
+                "run_id": "run-1",
+                "name": "review-skill",
+                "scope": "agent",
+                "source": "self_evolution",
+            }
+        )
+        if asyncio.iscoroutine(maybe):
+            await maybe
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+    asyncio.run(_drive())
+
+    assert received == []
+
+
 def _upserted_payload(manager: _FakeManager) -> dict[str, Any]:
     for message_type, payload in manager.sent:
         if (

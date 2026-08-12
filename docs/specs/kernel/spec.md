@@ -1,6 +1,6 @@
 # kernel (agent) Specification
 
-> 对齐: feat-519
+> 对齐: feat-517, bugfix-525
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)「给库/内核写契约的额外纪律」。本目录只收 **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 + 归档 design)。
 
@@ -19,10 +19,11 @@
 
 | Area | Covers | Requirements |
 |---|---|---|
-| [SDK Boundary](sdk-boundary.md) | SDK 表面、产品中立装配、扩展协议、能力查询、公开类型 | 5 |
-| [Runs](runs.md) | create_session、submit/stream、steer、权限、中断、liveness、关闭 | 12 |
+| [SDK Boundary](sdk-boundary.md) | SDK 表面、产品中立装配、扩展协议、能力查询、公开类型与 Workflow 管理 | 6 |
+| [Runs](runs.md) | create_session、submit/stream、steer、运行来源、权限、中断、liveness、关闭与 self-evolution side-chain 事件可见性 | 14 |
 | [Model Runtime](model-runtime.md) | LLM config、per-run model routing、推理强度、模型错误恢复 | 3 |
-| [Background Tasks](background-tasks.md) | 后台完成通知、subagent follow-up、task_stop、派生子 agent 隔离、workspace 产品目录下的后台输出 | 5 |
+| [Background Tasks](background-tasks.md) | 后台完成通知、subagent follow-up、Workflow、task_stop、派生子 agent 隔离 | 6 |
+| [Workflows](workflows.md) | Python Workflow tool、编排 runtime、子 Agent、后台控制、resume、保存发现、预算与规模 | 8 |
 | [Context and Persistence](context-persistence.md) | compaction、会话档案、事件恢复、append_message、tool call 闭合、AGENTS.md、图片、运行配置、fork_session | 11 |
 | [Tools and Hooks](tools-hooks.md) | built-in tools、Hook、presenter、授权决策、cache/thinking、拒绝文本、session-local workspace extensions | 11 |
 | [Skills](skills.md) | 有序 Skill 发现、读取、管理、生命周期、使用统计、preview/list_skills | 8 |

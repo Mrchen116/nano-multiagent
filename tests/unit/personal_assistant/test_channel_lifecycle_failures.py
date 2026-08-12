@@ -6,7 +6,6 @@ import asyncio
 import multiprocessing
 import threading
 import time
-from types import SimpleNamespace
 
 import pytest
 
@@ -152,14 +151,8 @@ class _WorkerAdapter:
             multiprocessing_context=multiprocessing.get_context("spawn"),
             event_queue_capacity=1,
             join_timeout=0.2,
+            startup_timeout=max(0.0, startup_deadline - time.monotonic()),
         )
-        ready_event = self.runtime._ready_event
-
-        def wait_for_startup(_default_timeout: float) -> bool:
-            remaining = startup_deadline - time.monotonic()
-            return ready_event.wait(max(0.0, min(30.0, remaining)))
-
-        self.runtime._ready_event = SimpleNamespace(wait=wait_for_startup)
 
     def start(self, _handler) -> None:
         self.runtime.start()
@@ -250,18 +243,25 @@ def test_backpressure_reaps_noncooperative_listener_and_restarts_once() -> None:
 
 def test_backpressure_retry_budget_reaps_final_listener() -> None:
     """Three retries end failed with no child and no extra automatic restart."""
-    adapters: list[_WorkerAdapter] = []
+    immediate_adapters: list[_ImmediateStatusAdapter] = []
+    final_adapters: list[_WorkerAdapter] = []
     startup_deadline = time.monotonic() + 75.0
 
     def factory(_spec, _binder, status_handler):
-        pressure = len(adapters) < 4
+        if len(immediate_adapters) < 3:
+            adapter = _ImmediateStatusAdapter(
+                status_handler=status_handler,
+                pressure=True,
+            )
+            immediate_adapters.append(adapter)
+            return adapter
         adapter = _WorkerAdapter(
-            target=_noncooperative_pressure_worker if pressure else _stable_worker,
+            target=_noncooperative_pressure_worker,
             status_handler=status_handler,
-            block_events=pressure,
+            block_events=True,
             startup_deadline=startup_deadline,
         )
-        adapters.append(adapter)
+        final_adapters.append(adapter)
         return adapter
 
     manager = ChannelManager(
@@ -278,14 +278,16 @@ def test_backpressure_retry_budget_reaps_final_listener() -> None:
         # loaded CI workers without adding delay to the successful path.
         _wait_until(
             lambda: (
-                len(adapters) == 4
+                len(immediate_adapters) == 3
+                and len(final_adapters) == 1
                 and manager.registry.get("feishu:agent-a") is None
-                and all(not item.runtime.is_alive for item in adapters)
+                and all(adapter.stopped for adapter in immediate_adapters)
+                and final_adapters[0].runtime.is_alive is False
             ),
             timeout=45,
         )
         time.sleep(0.6)
-        assert len(adapters) == 4
+        assert len(immediate_adapters) + len(final_adapters) == 4
     finally:
         asyncio.run(manager.close())
 

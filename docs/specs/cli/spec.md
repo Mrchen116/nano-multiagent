@@ -1,6 +1,6 @@
 # cli (coding_cli) Specification
 
-> 对齐: refactor-513
+> 对齐: feat-517, bugfix-525
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本契约层只收 **终端用户在 CLI 上可观察的对外行为**；CLI 内部如何编排内核、渲染、消费事件不在此层。每条 Scenario 的主语是在终端敲命令或读输出的人、消费 JSON/NDJSON 的脚本，或契约测试。
 
@@ -18,7 +18,7 @@
 
 | Area | Covers | Requirements |
 |---|---|---|
-| [Interactive REPL](interactive-repl.md) | 启动、会话、斜杠命令、流式呈现、运行中输入、错误和非 TTY | 7 |
+| [Interactive REPL](interactive-repl.md) | 启动、会话、斜杠命令、Workflow opt-in/控制、流式呈现、运行中输入、错误、非 TTY 与自进化更新提示 | 10 |
 | [Automation Interface](automation-interface.md) | `llm-config get` JSON 与 `--text` NDJSON | 2 |
 | [Product Integration](product-integration.md) | SDK 边界、CLI 自有装配和扩展目录 | 2 |
 

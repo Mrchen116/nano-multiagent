@@ -36,7 +36,7 @@ from IM.api.ws.event_types import (
     build_tool_call_completed_payload,
     build_tool_call_upserted_payload,
 )
-from IM.domain.models import Message, TokenUsage, ToolCall
+from IM.domain.models import BackgroundReturn, Message, TokenUsage, ToolCall
 from IM.infra.repositories.events import EventRepository
 from IM.infra.repositories.messages import MessageRepository
 
@@ -77,6 +77,7 @@ class EventBridge:
         agent_user_id: str,
         agent_id: str,
         content: str,
+        background_returns: list[BackgroundReturn] | None = None,
     ) -> Message:
         """Persist a one-shot completed agent message and emit message.created + message.completed.
 
@@ -89,7 +90,8 @@ class EventBridge:
             conversation_id: Conversation that receives the notification.
             agent_user_id: IM user-row id for the sending agent.
             agent_id: Stable agent identifier (currently forwarded in the WS payload).
-            content: Final message text; must be non-empty.
+            content: Final message text; may be empty when a background return exists.
+            background_returns: Terminal task results displayed in the process timeline.
 
         Returns:
             The persisted message entity with ``delivery_status="completed"``.
@@ -100,10 +102,13 @@ class EventBridge:
             sender_user_id=agent_user_id,
             content=content,
             sender_type="agent",
+            background_returns=background_returns,
             # Disable the auto-complete path: we control delivery_status explicitly below
             # so the two event emissions (created + completed) are the sole source of truth.
             auto_complete_delivery=False,
         )
+        if message.delivery_status == "completed":
+            return message
         # Settle delivery_status to completed before emitting so any reader that fetches
         # the message row after the event lands sees the terminal state.
         message = self.message_repository.update_runtime_state(
@@ -141,6 +146,7 @@ class EventBridge:
         agent_user_id: str,
         agent_id: str,
         caller_idempotency_key: str | None = None,
+        background_returns: list[BackgroundReturn] | None = None,
     ) -> Message:
         """Create the agent's empty placeholder message and emit ``message.created``.
 
@@ -165,6 +171,7 @@ class EventBridge:
             auto_complete_delivery=False,
             allow_empty=True,
             caller_idempotency_key=caller_idempotency_key,
+            background_returns=background_returns,
         )
         if created.delivery_status != "sent":
             return created

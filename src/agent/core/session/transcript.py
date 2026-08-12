@@ -89,6 +89,9 @@ class JsonlTranscript:
                     "model": spec.runtime_model,
                     "features": spec.runtime_features,
                     "reasoning_effort": spec.runtime_reasoning_effort,
+                    "reasoning_effort_override": spec.runtime_reasoning_effort_override,
+                    "workflow_ultracode": spec.runtime_workflow_ultracode,
+                    "workflow_size_guideline": spec.runtime_workflow_size_guideline,
                 }
             )
             metadata[INTERNAL_RUNTIME_KEY] = runtime_metadata

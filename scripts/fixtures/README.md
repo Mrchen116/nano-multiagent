@@ -21,3 +21,18 @@ deterministic `write` tool use for each new user turn, and returns a final ACK a
 the tool result. Classifier calls normally return `<block>no</block>`; model
 `approval-fail` returns unparseable content so the real attended permission path can
 be tested without an alternate-model fallback.
+
+## Self-evolution acceptance fixtures
+
+`openai_self_evolution_recording.py` drives the two deterministic real-stack
+self-evolution journeys owned by `scripts/e2e-self-evolution.sh`. It selects
+responses only from explicit fixture state, request index, message roles, and the
+latest tool result ID; it never matches the private review prompt text. Its control
+state proves that a review branch ran, while product assertions come from the real
+IM HTTP/WebSocket relay.
+
+`self_evolution_gateway_replay_fault.py` delegates to the production Gateway entry
+after installing one fixture-process-only stream fault. The fault occurs before the
+marked self-evolution `skill_created` event is yielded, so the persistent subscriber
+must reconnect and replay the same sequence. It does not change production routing
+or expose user-visible diagnostics.

@@ -121,6 +121,16 @@ class TaskStopTool(WiringMixin):
                 details={"code": "task_not_found"},
             )
 
+        if (
+            record.status.value == "stopped"
+            and record.task_type == BackgroundTaskType.WORKFLOW
+        ):
+            return {
+                "status": "stopped",
+                "task_id": task_id,
+                "task_type": record.task_type.value,
+                "output_file": record.output_file,
+            }
         if record.status.value in ("completed", "failed", "killed"):
             raise ToolError(
                 f"Task '{task_id}' is already {record.status.value}.",
@@ -148,6 +158,13 @@ class TaskStopTool(WiringMixin):
         #  - bash: synchronously kill with notified=True so the _NotifyingStore
         #    suppresses the model-facing <task-notification> (the LLM already has
         #    the tool_result; a killed/exit notification would be pure noise).
+        if record.task_type == BackgroundTaskType.WORKFLOW:
+            return {
+                "status": "stopping",
+                "task_id": task_id,
+                "task_type": record.task_type.value,
+                "output_file": record.output_file,
+            }
         if record.task_type != BackgroundTaskType.SUBAGENT:
             registry.kill(task_id, reason="stopped by user", notified=True)
 
@@ -164,13 +181,14 @@ class TaskStopTool(WiringMixin):
         if not isinstance(output, Mapping):
             return json_serialize(output)
 
-        if output.get("status") == "killed":
+        if output.get("status") in {"killed", "stopping", "stopped"}:
+            status = str(output.get("status"))
             lines = [
-                "Task stopped.",
+                "Task stop requested." if status == "stopping" else "Task stopped.",
                 "",
                 f"task_id: {output.get('task_id', '')}",
                 f"task_type: {output.get('task_type', '')}",
-                "status: killed",
+                f"status: {status}",
             ]
             if output.get("output_file"):
                 lines.append(f"output_file: {output['output_file']}")

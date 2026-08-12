@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 from weakref import WeakKeyDictionary
 
+from agent.sdk import ModelReasoningCatalog
 from personal_assistant.channels.base import ReplyContext
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
@@ -72,7 +73,9 @@ def build_inbound_pipeline(
         Callable[[str, str, str, str | None, str], ExternalShadowOutput] | None
     ) = None,
     bg_reply_sender: Callable[[str, ReplyContext, str], Awaitable[None]] | None = None,
+    update_workflow_size_guideline: Callable[[str, str], None] | None = None,
     max_session_drain_locks: int = 4096,
+    reasoning_catalog: ModelReasoningCatalog | None = None,
 ) -> InboundPipeline:
     """Build production owners explicitly while preserving concise test setup."""
 
@@ -81,6 +84,7 @@ def build_inbound_pipeline(
         catalog=catalog,
         repository=session_store,
         kernel=kernel,
+        reasoning_catalog=reasoning_catalog,
     )
     if product_default_model is None:
         product_default_model = "test-model"
@@ -95,10 +99,12 @@ def build_inbound_pipeline(
         gateway_internal_port=gateway_internal_port,
         gateway_dispatch_url_provider=gateway_dispatch_url_provider,
         product_default_model=product_default_model,
+        reasoning_catalog=reasoning_catalog,
         relay_lifecycle_callback=relay_lifecycle_callback,
         kernel_event_observer=kernel_event_observer,
         shadow_output_prepare=shadow_output_prepare,
         bg_reply_sender=bg_reply_sender,
+        update_workflow_size_guideline=update_workflow_size_guideline,
         run_idle_timeout_seconds=run_idle_timeout_seconds,
         max_transition_locks=max_session_drain_locks,
     )

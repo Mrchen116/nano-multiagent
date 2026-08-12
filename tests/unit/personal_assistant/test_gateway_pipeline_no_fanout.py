@@ -7,6 +7,7 @@ must NOT be populated from a single relay.  Only the relay's own agent_id is buf
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from pathlib import Path
 
 from personal_assistant.channels.base import InboundMessage, OutboundMessage
@@ -195,6 +196,32 @@ def test_mention_message_does_not_broadcast_to_non_target_agent_buffer(
     assert drained_a == [], (
         f"agent-a buffer must not receive @agent-b relay's message, got: {drained_a}"
     )
+
+
+def test_group_effort_requires_its_explicit_target_even_for_always_agents(
+    tmp_path: Path,
+) -> None:
+    """A model-specific group control cannot change an ALWAYS peer's session."""
+
+    agent_a, agent_b = _two_agents(tmp_path)
+    agents = (agent_a, replace(agent_b, group_reply_policy="ALWAYS"))
+    pipeline, _, kernel = _build_pipeline(
+        tmp_path, agents=agents, default_agent_id="agent-a"
+    )
+    relay_for_always_peer = InboundMessage(
+        channel_name="web_relay",
+        text='<mention type="agent" target_id="agent-a"/> /effort high',
+        external_user_id="user-1",
+        external_chat_id="conv-1",
+        is_group=True,
+        agent_id="agent-b",
+        metadata={"mentioned_agent_ids": ["agent-a"]},
+    )
+
+    result = asyncio.run(pipeline.handle_inbound(relay_for_always_peer))
+
+    assert result is None
+    assert kernel.send_calls == []
 
 
 def test_peer_agent_reply_relay_buffers_when_self_not_mentioned(tmp_path: Path) -> None:

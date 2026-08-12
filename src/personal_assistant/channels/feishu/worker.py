@@ -19,6 +19,7 @@ _CARD_ACTION_FALLBACK = {
     "error": "temporarily_unavailable",
     "message": "Card action could not be processed; please retry.",
 }
+_STARTUP_LIVENESS_POLL_SECONDS = 0.05
 
 
 @dataclass(slots=True)
@@ -246,6 +247,7 @@ class FeishuWorkerRuntime:
         domain: str = "https://open.feishu.cn",
         event_queue_capacity: int = 128,
         join_timeout: float = 2.0,
+        startup_timeout: float = 30.0,
         drain_timeout: float = 5.0,
         worker_target: Callable[[FeishuWorkerProcessContext], None] | None = None,
         multiprocessing_context: Any | None = None,
@@ -284,6 +286,7 @@ class FeishuWorkerRuntime:
         self._on_status = on_status
         self._on_card_action = on_card_action
         self._join_timeout = join_timeout
+        self._startup_timeout = startup_timeout
         self._drain_timeout = drain_timeout
         self._monitor_stop = threading.Event()
         self._accept_events = True
@@ -314,8 +317,21 @@ class FeishuWorkerRuntime:
             self._process.start()
             self._started = True
             try:
-                if not self._ready_event.wait(max(5.0, self._join_timeout)):
-                    raise RuntimeError("feishu worker did not initialize")
+                startup_deadline = time.monotonic() + self._startup_timeout
+                while True:
+                    remaining = startup_deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise RuntimeError(
+                            "feishu worker bootstrap readiness timed out"
+                        )
+                    if self._ready_event.wait(
+                        min(remaining, _STARTUP_LIVENESS_POLL_SECONDS)
+                    ):
+                        break
+                    if not self._process.is_alive():
+                        raise RuntimeError(
+                            "feishu worker exited before bootstrap readiness"
+                        )
                 threads = (
                     threading.Thread(target=self._event_loop, daemon=True),
                     threading.Thread(target=self._status_loop, daemon=True),

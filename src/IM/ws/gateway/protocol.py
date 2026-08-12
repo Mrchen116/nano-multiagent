@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from IM.domain.models import TokenUsage, ToolCall
+from IM.domain.models import BackgroundReturn, TokenUsage, ToolCall
 
 """Package-local parsers for Gateway websocket runtime protocol frames."""
 
@@ -54,6 +54,7 @@ class StreamingDeltaEvent:
     reason: str | None
     process_seq: int | None
     elapsed_ms: int | None
+    background_returns: tuple[BackgroundReturn, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,7 +182,72 @@ def parse_streaming_delta_event(payload: Mapping[str, object]) -> StreamingDelta
             if kind == "message_completed"
             else None
         ),
+        background_returns=(
+            parse_background_returns(payload.get("background_returns"))
+            if kind == "turn_start"
+            else ()
+        ),
     )
+
+
+def parse_background_returns(value: object) -> tuple[BackgroundReturn, ...]:
+    """Parse the typed message sidecar and deduplicate it by task id."""
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise ValueError("background_returns must be an array")
+    result: list[BackgroundReturn] = []
+    seen: set[str] = set()
+    for index, raw in enumerate(value):
+        if not isinstance(raw, dict):
+            raise ValueError(f"background_returns[{index}] must be an object")
+        task_id = _require_text(
+            raw.get("task_id"), field_name=f"background_returns[{index}].task_id"
+        )
+        if task_id in seen:
+            continue
+        seen.add(task_id)
+        try:
+            result.append(
+                BackgroundReturn(
+                    task_id=task_id,
+                    task_type=_require_text(
+                        raw.get("task_type"),
+                        field_name=f"background_returns[{index}].task_type",
+                    ),
+                    status=_require_text(
+                        raw.get("status"),
+                        field_name=f"background_returns[{index}].status",
+                    ),
+                    description=_require_text(
+                        raw.get("description"),
+                        field_name=f"background_returns[{index}].description",
+                    ),
+                    agent_id=_optional_text(raw.get("agent_id")),
+                    workflow_run_id=_optional_text(raw.get("workflow_run_id")),
+                    result=_optional_text(raw.get("result")),
+                    error=_optional_text(raw.get("error")),
+                    usage=_optional_dict(raw.get("usage")),
+                    tool_use_count=_optional_non_negative_int(
+                        raw.get("tool_use_count"),
+                        field_name=f"background_returns[{index}].tool_use_count",
+                    ),
+                    duration_ms=_optional_non_negative_int(
+                        raw.get("duration_ms"),
+                        field_name=f"background_returns[{index}].duration_ms",
+                    ),
+                    output_file=_optional_text(raw.get("output_file")),
+                    diagnostics=_optional_text(raw.get("diagnostics")),
+                    resume_hint=_optional_text(raw.get("resume_hint")),
+                    seq=_optional_non_negative_int(
+                        raw.get("seq"),
+                        field_name=f"background_returns[{index}].seq",
+                    ),
+                )
+            )
+        except ValueError as exc:
+            raise ValueError(f"invalid background return: {exc}") from exc
+    return tuple(result)
 
 
 def parse_delivery_receipt_event(

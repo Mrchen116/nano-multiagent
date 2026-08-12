@@ -7,23 +7,36 @@ from dataclasses import replace
 from pathlib import Path
 
 import httpx
+from agent.sdk import (
+    LLMConfig,
+    LLMModel,
+    LLMProvider,
+    ModelReasoningCapability,
+    ModelReasoningCatalog,
+    WorkflowRunInfo,
+)
 
 from personal_assistant.channels.base import (
+    ExternalConversationIdentity,
     ExternalInboundEventIdentity,
+    IMRelayIngress,
+    InboundIngress,
     InboundMessage,
     OutboundMessage,
 )
 from personal_assistant.config.local_store import AgentWorkspaceConfig
+from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from tests.helpers.inbound_pipeline import build_inbound_pipeline, inbound_graph
 from personal_assistant.gateway.outbound_router import OutboundRouter
-from personal_assistant.gateway.run_queue import SessionRunQueue
-from personal_assistant.gateway.runtime_protocol import (
-    ExternalConversationIdentity,
-    RuntimeProtocolFacts,
+from personal_assistant.gateway.inbound_models import (
+    GatewayShadowState,
     ShadowConversationRef,
-    attach_runtime_protocol,
 )
+from personal_assistant.gateway.runtime_delivery.background import (
+    reply_context_im_conversation_id,
+)
+from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.shadow_saga import ExternalShadowSagaStore
 from personal_assistant.gateway.shadow_sync import IMShadowConversationSync
 from personal_assistant.gateway.session_keys import (
@@ -40,7 +53,7 @@ class _ShadowSync:
         self,
         *,
         conversation_id: str | None = "shadow-conv-1",
-        shadow_saga_id: str | None = None,
+        shadow_saga_id: str = "shadow-saga-1",
     ) -> None:
         self.conversation_id = conversation_id
         self.shadow_saga_id = shadow_saga_id
@@ -48,14 +61,16 @@ class _ShadowSync:
 
     async def sync_user_message(
         self, message: InboundMessage, *, agent_id: str
-    ) -> ShadowConversationRef | None:
+    ) -> GatewayShadowState:
         self.calls.append({"message": message, "agent_id": agent_id})
         if self.conversation_id is None:
-            return None
-        return ShadowConversationRef(
-            conversation_id=self.conversation_id,
-            im_message_id="shadow-message-1",
-            shadow_saga_id=self.shadow_saga_id,
+            return GatewayShadowState()
+        return GatewayShadowState(
+            saga_id=self.shadow_saga_id,
+            ref=ShadowConversationRef(
+                conversation_id=self.conversation_id,
+                im_message_id="shadow-message-1",
+            ),
         )
 
 
@@ -69,7 +84,7 @@ class _BlockingCompactShadowSync(_ShadowSync):
 
     async def sync_user_message(
         self, message: InboundMessage, *, agent_id: str
-    ) -> ShadowConversationRef | None:
+    ) -> GatewayShadowState:
         if message.text == "/compact":
             self.compact_started.set()
             await self.release_compact.wait()
@@ -86,6 +101,18 @@ def _external_message(text: str) -> InboundMessage:
         external_chat_id="oc_feishu_chat",
         is_group=False,
         agent_id="agent-a",
+        ingress=InboundIngress(
+            external_conversation=ExternalConversationIdentity(
+                external_source="feishu",
+                external_chat_id="oc_feishu_chat",
+                agent_id="agent-a",
+                trigger_source="feishu",
+            ),
+            external_event=ExternalInboundEventIdentity(
+                connector_account_id="app-a",
+                provider_event_id=f"event-{text}",
+            ),
+        ),
         metadata={
             "external_source": "feishu",
             "external_chat_id": "oc_feishu_chat",
@@ -197,7 +224,402 @@ def test_inbound_pipeline_runs_four_steps_and_replies_via_origin_channel(
     ]
 
 
-def test_external_inbound_syncs_user_message_and_seeds_shadow_metadata(
+def test_active_workflow_commands_query_config_and_invoke_named_definition(
+    tmp_path: Path,
+) -> None:
+    async def _run() -> None:
+        workspace = tmp_path / "workflow-agent"
+        workspace.mkdir()
+        agents = (
+            AgentWorkspaceConfig(
+                agent_id="agent-a",
+                workspace_root=workspace,
+                title="Agent A",
+                default_model="test-model",
+                tool_allowlist=("read", "Workflow"),
+            ),
+        )
+        channel = _FakeChannel("web_relay")
+        kernel = ControlledKernel()
+        configured: list[tuple[str, str]] = []
+        reasoning_catalog = ModelReasoningCatalog(
+            LLMConfig.from_catalog(
+                default_model="test-model",
+                providers=(
+                    LLMProvider(
+                        name="test",
+                        base_url="http://test.invalid",
+                        models=(
+                            LLMModel(
+                                name="test-model",
+                                reasoning=ModelReasoningCapability(
+                                    kind="selectable",
+                                    default="high",
+                                    levels=("low", "high", "xhigh"),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        )
+        pipeline = build_inbound_pipeline(
+            kernel=kernel,
+            agents=agents,
+            outbound_router=OutboundRouter(ChannelRegistry((channel,))),
+            run_queue=SessionRunQueue(),
+            session_store=SessionBindingStore(),
+            default_agent_id="agent-a",
+            update_workflow_size_guideline=lambda agent_id, value: configured.append(
+                (agent_id, value)
+            ),
+            reasoning_catalog=reasoning_catalog,
+        )
+
+        listed = await pipeline.handle_inbound(
+            InboundMessage(
+                channel_name="web_relay",
+                text="/workflows",
+                external_user_id="user-1",
+                external_chat_id="chat-1",
+                is_group=False,
+                agent_id="agent-a",
+            )
+        )
+        assert listed is not None
+        assert listed.reply_text == "暂无 Workflow 运行记录。"
+        assert kernel.submit_calls == []
+
+        kernel.workflow_runs["wf_123"] = WorkflowRunInfo(
+            run_id="wf_123",
+            task_id="wt_123",
+            parent_session_id=listed.kernel_session_id,
+            revision=1,
+            status="running",
+            name="review",
+            description="Review changes",
+            transcript_dir="/tmp/wf_123",
+        )
+        paused = await pipeline.handle_inbound(
+            InboundMessage(
+                channel_name="web_relay",
+                text="/workflows wf_123 pause",
+                external_user_id="user-1",
+                external_chat_id="chat-1",
+                is_group=False,
+                agent_id="agent-a",
+            )
+        )
+        assert paused is not None
+        assert "wf_123 · review · pause" in paused.reply_text
+
+        saved = await pipeline.handle_inbound(
+            InboundMessage(
+                channel_name="web_relay",
+                text="/workflows wf_123 save project saved-review",
+                external_user_id="user-1",
+                external_chat_id="chat-1",
+                is_group=False,
+                agent_id="agent-a",
+            )
+        )
+        assert saved is not None
+        assert saved.reply_text == (
+            "已保存 Workflow /saved-review\n路径: /saved/saved-review.py"
+        )
+
+        configured_result = await pipeline.handle_inbound(
+            InboundMessage(
+                channel_name="web_relay",
+                text="/config workflowSizeGuideline large",
+                external_user_id="user-1",
+                external_chat_id="chat-1",
+                is_group=False,
+                agent_id="agent-a",
+            )
+        )
+        assert configured_result is not None
+        assert configured == [("agent-a", "large")]
+        assert "下一轮起生效" in configured_result.reply_text
+
+        effort_result = await pipeline.handle_inbound(
+            InboundMessage(
+                channel_name="web_relay",
+                text="/effort ultracode",
+                external_user_id="user-1",
+                external_chat_id="chat-1",
+                is_group=False,
+                agent_id="agent-a",
+            )
+        )
+        assert effort_result is not None
+        assert effort_result.reply_text == "Ultracode 已开启。"
+        assert kernel.reconfigure_calls[-1][1].workflow_ultracode is True
+        assert kernel.reconfigure_calls[-1][1].reasoning_effort == "xhigh"
+        assert kernel.reconfigure_calls[-1][1].reasoning_effort_override == "xhigh"
+
+        invoking = asyncio.create_task(
+            pipeline.handle_inbound(
+                InboundMessage(
+                    channel_name="web_relay",
+                    text="/deep-research compare providers",
+                    external_user_id="user-1",
+                    external_chat_id="chat-1",
+                    is_group=False,
+                    agent_id="agent-a",
+                )
+            )
+        )
+        await kernel.wait_stream("run-1")
+        submitted_text = kernel.submit_calls[0]["parts"][0]["text"]
+        assert 'saved Workflow named "deep-research"' in submitted_text
+        assert "compare providers" in submitted_text
+        kernel.finish("run-1", text="launched")
+        invoked = await invoking
+        assert invoked is not None
+        assert invoked.reply_text == "launched"
+
+    asyncio.run(_run())
+
+
+def test_effort_override_survives_legal_model_change_and_clears_when_illegal(
+    tmp_path: Path,
+) -> None:
+    """Gateway reconciles a session override against every new effective model."""
+
+    async def _run() -> None:
+        workspace = tmp_path / "effort-agent"
+        workspace.mkdir()
+        initial = AgentWorkspaceConfig(
+            agent_id="agent-a",
+            workspace_root=workspace,
+            default_model="model-a",
+            reasoning_effort="high",
+            tool_allowlist=("read",),
+        )
+        catalog = LiveAgentCatalog((initial,))
+        reasoning_catalog = ModelReasoningCatalog(
+            LLMConfig.from_catalog(
+                default_model="model-a",
+                providers=(
+                    LLMProvider(
+                        name="test",
+                        base_url="http://test.invalid",
+                        models=(
+                            LLMModel(
+                                name="model-a",
+                                reasoning=ModelReasoningCapability(
+                                    kind="selectable",
+                                    default="high",
+                                    levels=("low", "high", "xhigh"),
+                                ),
+                            ),
+                            LLMModel(
+                                name="model-b",
+                                reasoning=ModelReasoningCapability(
+                                    kind="selectable",
+                                    default="medium",
+                                    levels=("low", "medium"),
+                                ),
+                            ),
+                            LLMModel(
+                                name="model-c",
+                                reasoning=ModelReasoningCapability(
+                                    kind="selectable",
+                                    default="medium",
+                                    levels=("medium", "high"),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        )
+        kernel = ControlledKernel()
+        pipeline = build_inbound_pipeline(
+            kernel=kernel,
+            agent_catalog=catalog,
+            outbound_router=OutboundRouter(ChannelRegistry((_FakeChannel("web"),))),
+            run_queue=SessionRunQueue(),
+            session_store=SessionBindingStore(),
+            default_agent_id="agent-a",
+            reasoning_catalog=reasoning_catalog,
+        )
+
+        async def _message(text: str):
+            return await pipeline.handle_inbound(
+                InboundMessage(
+                    channel_name="web",
+                    text=text,
+                    external_user_id="user-1",
+                    external_chat_id="chat-1",
+                    is_group=False,
+                    agent_id="agent-a",
+                )
+            )
+
+        selected = await _message("/effort low")
+        assert selected is not None
+        assert selected.reply_text == "已将当前会话的推理档位设为 low。"
+
+        async def _run_turn(run_id: str) -> None:
+            pending = asyncio.create_task(_message(f"message for {run_id}"))
+            await kernel.wait_stream(run_id)
+            kernel.finish(run_id, text="ok")
+            await pending
+
+        await _run_turn("run-1")
+        graph = inbound_graph(pipeline)
+        binding = graph.binder.lookup("web:chat-1:agent-a")
+        assert binding is not None
+        state = await kernel.get_session_runtime(
+            session_id=binding.kernel_session_id, workspace_root=workspace
+        )
+        assert state is not None
+        assert state.runtime.model == "model-a"
+        assert state.runtime.reasoning_effort_override == "low"
+
+        catalog.publish(
+            replace(initial, default_model="model-b", reasoning_effort="medium")
+        )
+        await _run_turn("run-2")
+        state = await kernel.get_session_runtime(
+            session_id=binding.kernel_session_id, workspace_root=workspace
+        )
+        assert state is not None
+        assert (state.runtime.model, state.runtime.reasoning_effort) == (
+            "model-b",
+            "low",
+        )
+        assert state.runtime.reasoning_effort_override == "low"
+
+        catalog.publish(
+            replace(initial, default_model="model-c", reasoning_effort="medium")
+        )
+        await _run_turn("run-3")
+        state = await kernel.get_session_runtime(
+            session_id=binding.kernel_session_id, workspace_root=workspace
+        )
+        assert state is not None
+        assert (state.runtime.model, state.runtime.reasoning_effort) == (
+            "model-c",
+            "medium",
+        )
+        assert state.runtime.reasoning_effort_override is None
+
+    asyncio.run(_run())
+
+
+def test_workflow_disable_clears_ultracode_but_keeps_a_legal_override(
+    tmp_path: Path,
+) -> None:
+    """Removing Workflow only clears its special standing mode."""
+
+    async def _run() -> None:
+        workspace = tmp_path / "workflow-effort-agent"
+        workspace.mkdir()
+        initial = AgentWorkspaceConfig(
+            agent_id="agent-a",
+            workspace_root=workspace,
+            default_model="model-a",
+            tool_allowlist=("read", "Workflow"),
+        )
+        catalog = LiveAgentCatalog((initial,))
+        reasoning_catalog = ModelReasoningCatalog(
+            LLMConfig.from_catalog(
+                default_model="model-a",
+                providers=(
+                    LLMProvider(
+                        name="test",
+                        base_url="http://test.invalid",
+                        models=(
+                            LLMModel(
+                                name="model-a",
+                                reasoning=ModelReasoningCapability(
+                                    kind="selectable",
+                                    default="high",
+                                    levels=("low", "high", "xhigh"),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        )
+        kernel = ControlledKernel()
+        pipeline = build_inbound_pipeline(
+            kernel=kernel,
+            agent_catalog=catalog,
+            outbound_router=OutboundRouter(ChannelRegistry((_FakeChannel("web"),))),
+            run_queue=SessionRunQueue(),
+            session_store=SessionBindingStore(),
+            default_agent_id="agent-a",
+            reasoning_catalog=reasoning_catalog,
+        )
+        message = lambda text: pipeline.handle_inbound(
+            InboundMessage(
+                channel_name="web",
+                text=text,
+                external_user_id="user-1",
+                external_chat_id="chat-1",
+                is_group=False,
+                agent_id="agent-a",
+            )
+        )
+        selected = await message("/effort ultracode")
+        assert selected is not None
+        assert selected.reply_text == "Ultracode 已开启。"
+        catalog.publish(replace(initial, tool_allowlist=("read",)))
+        pending = asyncio.create_task(message("ordinary task"))
+        await kernel.wait_stream("run-1")
+        kernel.finish("run-1", text="ok")
+        await pending
+
+        binding = inbound_graph(pipeline).binder.lookup("web:chat-1:agent-a")
+        assert binding is not None
+        state = await kernel.get_session_runtime(
+            session_id=binding.kernel_session_id, workspace_root=workspace
+        )
+        assert state is not None
+        assert state.runtime.reasoning_effort_override == "xhigh"
+        assert state.runtime.workflow_ultracode is False
+
+    asyncio.run(_run())
+
+
+def test_disabled_workflow_slash_command_remains_normal_user_text(
+    tmp_path: Path,
+) -> None:
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web")
+    kernel = _FakeKernel()
+    pipeline = build_inbound_pipeline(
+        kernel=kernel,
+        agents=agents,
+        outbound_router=OutboundRouter(ChannelRegistry((channel,))),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+
+    result = asyncio.run(
+        pipeline.handle_inbound(
+            InboundMessage(
+                channel_name="web",
+                text="/workflows",
+                external_user_id="user-1",
+                external_chat_id="chat-1",
+                is_group=False,
+            )
+        )
+    )
+
+    assert result is not None
+    assert result.reply_text == "reply:/workflows"
+    assert kernel.send_calls[0]["texts"] == ["/workflows"]
+
+
+def test_anchored_external_inbound_persists_and_refreshes_shadow_reply_target(
     tmp_path: Path,
 ) -> None:
     agents = _agents(tmp_path)
@@ -205,14 +627,19 @@ def test_external_inbound_syncs_user_message_and_seeds_shadow_metadata(
     registry = ChannelRegistry((channel,))
     kernel_client = _FakeKernel()
     sync = _ShadowSync(conversation_id="shadow-conv-1")
+    session_store = SessionBindingStore()
     lifecycle: list[tuple[str, str | None, str | None]] = []
 
-    async def _capture(message: InboundMessage, update) -> None:  # noqa: ANN001
+    async def _capture(routed, update) -> None:  # noqa: ANN001
         lifecycle.append(
             (
                 update.phase,
                 update.run_id,
-                message.metadata.get("shadow_conversation_id"),
+                (
+                    routed.shadow.ref.conversation_id
+                    if routed.shadow.ref is not None
+                    else None
+                ),
             )
         )
 
@@ -221,7 +648,7 @@ def test_external_inbound_syncs_user_message_and_seeds_shadow_metadata(
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
+        session_store=session_store,
         default_agent_id="agent-a",
         relay_lifecycle_callback=_capture,
         shadow_sync=sync,
@@ -233,6 +660,18 @@ def test_external_inbound_syncs_user_message_and_seeds_shadow_metadata(
         external_chat_id="oc_feishu_chat",
         is_group=False,
         agent_id="agent-a",
+        ingress=InboundIngress(
+            external_conversation=ExternalConversationIdentity(
+                external_source="feishu",
+                external_chat_id="oc_feishu_chat",
+                agent_id="agent-a",
+                trigger_source="feishu",
+            ),
+            external_event=ExternalInboundEventIdentity(
+                connector_account_id="app-a",
+                provider_event_id="event-ping",
+            ),
+        ),
         metadata={
             "external_source": "feishu",
             "external_chat_id": "oc_feishu_chat",
@@ -249,6 +688,30 @@ def test_external_inbound_syncs_user_message_and_seeds_shadow_metadata(
     assert lifecycle[0] == ("accepted", "run-1", "shadow-conv-1")
     assert channel.sent[0].target_chat_id == "oc_feishu_chat"
 
+    session_key = build_session_key(inbound, agent_id="agent-a")
+    binding = session_store.get(session_key)
+    assert binding is not None
+    assert reply_context_im_conversation_id(binding.reply_context) == "shadow-conv-1"
+
+    sync.conversation_id = "shadow-conv-2"
+    refreshed = replace(
+        inbound,
+        text="second anchored message",
+        ingress=replace(
+            inbound.ingress,
+            external_event=ExternalInboundEventIdentity(
+                connector_account_id="app-a",
+                provider_event_id="event-second",
+            ),
+        ),
+    )
+    second_result = asyncio.run(pipeline.handle_inbound(refreshed))
+
+    assert second_result is not None
+    binding = session_store.get(session_key)
+    assert binding is not None
+    assert reply_context_im_conversation_id(binding.reply_context) == "shadow-conv-2"
+
 
 def test_external_shadow_sync_failure_does_not_block_or_seed_lazy_direct(
     tmp_path: Path,
@@ -260,12 +723,16 @@ def test_external_shadow_sync_failure_does_not_block_or_seed_lazy_direct(
     sync = _ShadowSync(conversation_id=None)
     lifecycle: list[tuple[str, str | None, str | None]] = []
 
-    async def _capture(message: InboundMessage, update) -> None:  # noqa: ANN001
+    async def _capture(routed, update) -> None:  # noqa: ANN001
         lifecycle.append(
             (
                 update.phase,
                 update.run_id,
-                message.metadata.get("shadow_conversation_id"),
+                (
+                    routed.shadow.ref.conversation_id
+                    if routed.shadow.ref is not None
+                    else None
+                ),
             )
         )
 
@@ -286,6 +753,18 @@ def test_external_shadow_sync_failure_does_not_block_or_seed_lazy_direct(
         external_chat_id="oc_feishu_chat",
         is_group=False,
         agent_id="agent-a",
+        ingress=InboundIngress(
+            external_conversation=ExternalConversationIdentity(
+                external_source="feishu",
+                external_chat_id="oc_feishu_chat",
+                agent_id="agent-a",
+                trigger_source="feishu",
+            ),
+            external_event=ExternalInboundEventIdentity(
+                connector_account_id="app-a",
+                provider_event_id="event-outage",
+            ),
+        ),
         metadata={
             "external_source": "feishu",
             "external_chat_id": "oc_feishu_chat",
@@ -336,22 +815,20 @@ def test_external_without_provider_identity_replies_without_shadow_side_effects(
         default_agent_id="agent-a",
         shadow_sync=shadow_sync,
     )
-    inbound = attach_runtime_protocol(
-        InboundMessage(
-            channel_name="slack:agent-a",
-            text="still answer",
-            external_user_id="slack-user",
-            external_chat_id="slack-chat",
-            is_group=False,
-            agent_id="agent-a",
-        ),
-        RuntimeProtocolFacts(
-            external_identity=ExternalConversationIdentity(
+    inbound = InboundMessage(
+        channel_name="slack:agent-a",
+        text="still answer",
+        external_user_id="slack-user",
+        external_chat_id="slack-chat",
+        is_group=False,
+        agent_id="agent-a",
+        ingress=InboundIngress(
+            external_conversation=ExternalConversationIdentity(
                 external_source="slack",
                 external_chat_id="slack-chat",
                 agent_id="agent-a",
                 trigger_source="external",
-            )
+            ),
         ),
     )
 
@@ -423,27 +900,23 @@ def test_im_outage_keeps_external_delivery_and_durably_records_final_shadow_outp
         shadow_sync=sync,
         shadow_output_prepare=prepare_output,
     )
-    inbound = attach_runtime_protocol(
-        replace(
-            InboundMessage(
-                channel_name="feishu:agent-a",
-                text="reply despite IM outage",
-                external_user_id="ou_user",
-                external_chat_id="oc_feishu_chat",
-                is_group=False,
-                agent_id="agent-a",
-            ),
-            external_event_identity=ExternalInboundEventIdentity(
-                connector_account_id="app-a", provider_event_id="event-a"
-            ),
-        ),
-        RuntimeProtocolFacts(
-            external_identity=ExternalConversationIdentity(
+    inbound = InboundMessage(
+        channel_name="feishu:agent-a",
+        text="reply despite IM outage",
+        external_user_id="ou_user",
+        external_chat_id="oc_feishu_chat",
+        is_group=False,
+        agent_id="agent-a",
+        ingress=InboundIngress(
+            external_conversation=ExternalConversationIdentity(
                 external_source="feishu",
                 external_chat_id="oc_feishu_chat",
                 agent_id="agent-a",
                 trigger_source="external",
-            )
+            ),
+            external_event=ExternalInboundEventIdentity(
+                connector_account_id="app-a", provider_event_id="event-a"
+            ),
         ),
     )
 
@@ -485,6 +958,18 @@ def test_online_shadow_anchor_does_not_prepare_duplicate_final_output(
         external_chat_id="oc_feishu_chat",
         is_group=False,
         agent_id="agent-a",
+        ingress=InboundIngress(
+            external_conversation=ExternalConversationIdentity(
+                external_source="feishu",
+                external_chat_id="oc_feishu_chat",
+                agent_id="agent-a",
+                trigger_source="feishu",
+            ),
+            external_event=ExternalInboundEventIdentity(
+                connector_account_id="app-a",
+                provider_event_id="event-online",
+            ),
+        ),
         metadata={
             "external_source": "feishu",
             "external_chat_id": "oc_feishu_chat",
@@ -625,8 +1110,10 @@ def test_inbound_pipeline_emits_running_and_completed_relay_lifecycle_reports_wh
     kernel_client = _FakeKernel()
     seen: list[tuple[str, str | None, str | None]] = []
 
-    async def _capture(message: InboundMessage, update) -> None:  # noqa: ANN001
-        seen.append((update.phase, update.run_id, message.metadata.get("message_id")))
+    async def _capture(routed, update) -> None:  # noqa: ANN001
+        seen.append(
+            (update.phase, update.run_id, routed.message.metadata.get("message_id"))
+        )
 
     pipeline = build_inbound_pipeline(
         kernel=kernel_client,
@@ -643,6 +1130,13 @@ def test_inbound_pipeline_emits_running_and_completed_relay_lifecycle_reports_wh
         external_user_id="user-1",
         external_chat_id="conv-1",
         is_group=False,
+        ingress=InboundIngress(
+            im_relay=IMRelayIngress(
+                relay_task_id="relay-1",
+                idempotency_key="idem-1",
+                im_message_id="msg-1",
+            )
+        ),
         metadata={"relay_task_id": "relay-1", "message_id": "msg-1"},
     )
 
@@ -749,12 +1243,12 @@ def test_inbound_pipeline_builds_reply_text_from_session_events_when_run_snapsho
     kernel_client = _FakeKernel()
     seen: list[tuple[str, str | None, str | None, str | None]] = []
 
-    async def _capture(message: InboundMessage, update) -> None:  # noqa: ANN001
+    async def _capture(routed, update) -> None:  # noqa: ANN001
         seen.append(
             (
                 update.phase,
                 update.run_id,
-                message.metadata.get("message_id"),
+                routed.message.metadata.get("message_id"),
                 update.reply_text,
             )
         )
@@ -774,6 +1268,13 @@ def test_inbound_pipeline_builds_reply_text_from_session_events_when_run_snapsho
         external_user_id="user-1",
         external_chat_id="conv-1",
         is_group=False,
+        ingress=InboundIngress(
+            im_relay=IMRelayIngress(
+                relay_task_id="relay-1",
+                idempotency_key="idem-1",
+                im_message_id="msg-1",
+            )
+        ),
         metadata={"relay_task_id": "relay-1", "message_id": "msg-1"},
     )
     kernel_client.session_events["sess-1"] = [

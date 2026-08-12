@@ -16,11 +16,29 @@ REPL_COMMANDS = (
     "/tools",
     "/compact",
     "/history",
+    "/workflows",
+    "/config",
+    "/effort",
     "/exit",
 )
 HELP_LINE = (
+    "Commands: /help /new /use <session_id> /session /tools /compact /history [n] "
+    "/workflows /config workflowSizeGuideline <value> /exit"
+)
+_HELP_LINE_WITHOUT_WORKFLOW = (
     "Commands: /help /new /use <session_id> /session /tools /compact /history [n] /exit"
 )
+
+
+def help_line(*, workflow_enabled: bool, effort_values: Sequence[str] = ()) -> str:
+    """Return help text for the active session capability snapshot."""
+
+    line = HELP_LINE if workflow_enabled else _HELP_LINE_WITHOUT_WORKFLOW
+    if effort_values:
+        return (
+            f"{line.removesuffix(' /exit')} /effort <{'|'.join(effort_values)}> /exit"
+        )
+    return line
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,7 +68,10 @@ def is_repl_command_candidate(line: str) -> bool:
     body = command[1:]
     if "/" in body:
         return False
-    return all(char.isalnum() or char in {"_", "-"} for char in body)
+    parts = body.split(":")
+    if len(parts) > 2 or any(not part for part in parts):
+        return False
+    return all(char.isalnum() or char in {"_", "-"} for part in parts for char in part)
 
 
 def handle_repl_command(

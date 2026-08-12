@@ -8,6 +8,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from agent.sdk import TERMINAL_RUN_STATUSES
+from personal_assistant.gateway.background_subscriptions import (
+    BackgroundSubscriptionManager,
+    BackgroundSubscriptionRequest,
+)
 from personal_assistant.gateway.runtime_delivery.context import (
     RunDeliveryContextStore,
     RunDeliveryTerminalProjection,
@@ -41,6 +45,7 @@ async def stream_run_to_completion(
     run_context_store: RunDeliveryContextStore,
     observer: Callable[..., Any] | None,
     stream_anchor: int = 0,
+    background_subscriptions: BackgroundSubscriptionManager | None = None,
 ) -> StreamRunOutcome:
     """Deliver one kernel run and return its canonical terminal outcome.
 
@@ -50,6 +55,19 @@ async def stream_run_to_completion(
     Raises:
         RuntimeError: The stream closes without a canonical terminal run status.
     """
+
+    if background_subscriptions is not None:
+        # Marked self-evolution Skill events have one owner: the persistent
+        # session subscriber. Admit it before the per-run observer starts so
+        # cron/heartbeat events remain covered both before and after terminal.
+        await background_subscriptions.ensure(
+            BackgroundSubscriptionRequest(
+                session_id=kernel_session_id,
+                after_sequence=stream_anchor,
+                reply_context=None,
+                agent_id=agent_id,
+            )
+        )
 
     _seed_owner_direct_stream_context(
         run_context_store=run_context_store,

@@ -2,17 +2,38 @@
 
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Literal, Mapping
 
 from agent.core.agent.loop import AgentLoop, ToolRegistryLike
 from agent.core.agent.policies import AgentPolicies
 from agent.core.agent.state import AgentState
-from agent.core.hooks.context import HookContext
+from agent.core.hooks.context import HookContext, HookSessionEventPublisher
 from agent.core.llm.interfaces import LLMClient
 from agent.core.runs.origin import RunOrigin
 from agent.core.skills.registry import SkillMetadata
 from agent.core.session.context_state import SessionFileState
 from agent.core.types import Message, ToolSpec, TurnResult
+
+
+# Self-evolution side-chains may publish only business events required to activate
+# their durable updates. Ordinary realtime assistant/tool/turn events are private to
+# the fork and must never be added to this allowlist.
+_SELF_EVOLUTION_BUSINESS_EVENT_ALLOWLIST = frozenset({"skill_created"})
+
+
+def _self_evolution_event_publisher(
+    parent_publisher: HookSessionEventPublisher | None,
+) -> HookSessionEventPublisher:
+    """Forward only self-evolution business events to the parent session."""
+
+    def _publish(event: str, data: Mapping[str, Any]) -> None:
+        if (
+            parent_publisher is not None
+            and event in _SELF_EVOLUTION_BUSINESS_EVENT_ALLOWLIST
+        ):
+            parent_publisher(event, {**data, "source": "self_evolution"})
+
+    return _publish
 
 
 @dataclass(frozen=True)
@@ -174,6 +195,7 @@ def make_fork_conversation(
         An async callable with signature:
             fork_conversation(review_prompt: str, *, tool_allowlist: tuple[str,...],
                               max_turns: int,
+                              event_policy: Literal["inherit", "self_evolution"],
                               metadata_overrides: Mapping[str, Any] | None = None)
                               -> ForkResult
     """
@@ -183,6 +205,7 @@ def make_fork_conversation(
         *,
         tool_allowlist: tuple[str, ...] = (),
         max_turns: int = 16,
+        event_policy: Literal["inherit", "self_evolution"] = "inherit",
         metadata_overrides: Mapping[str, Any] | None = None,
     ) -> ForkResult:
         """Execute a fork side-chain with the parent turn's context.
@@ -192,12 +215,21 @@ def make_fork_conversation(
             tool_allowlist: Tools allowed to actually execute. Enforced at the
                 execution layer — the LLM still sees the full inherited tool list.
             max_turns: Max LLM iterations.
+            event_policy: Session-event visibility policy. ``inherit`` preserves
+                the parent publisher; ``self_evolution`` exposes only marked
+                business events.
             metadata_overrides: Metadata applied only to this fork side-chain.
 
         Returns:
             ForkResult with turn_result and summary info.
+
+        Raises:
+            ValueError: When event_policy is unknown.
         """
         from agent.core.ids import make_turn_id
+
+        if event_policy not in {"inherit", "self_evolution"}:
+            raise ValueError(f"unknown fork event_policy: {event_policy}")
 
         # Build state for fork: parent history + review_prompt as user turn.
         # Convert messages_snapshot to Message objects if they are raw dicts.
@@ -220,6 +252,9 @@ def make_fork_conversation(
         # self-improvement agent can't use even its allowlisted tools). replace()
         # carries every parent capability; we only override:
         #  - fork_conversation=None: anti-recursion (a review fork can't spawn one)
+        #  - session_event_publisher: generic forks inherit parent visibility;
+        #    only an explicit self-evolution policy filters raw side-chain events
+        #    and forwards source-marked business events for Gateway config sync
         #  - run_origin=BACKGROUND_TASK: the fork is unattended, so a gate `ask`
         #    resolves via unattended_fallback instead of parking on a non-existent
         #    human. The tool_execution_allowlist remains the hard safety boundary.
@@ -234,6 +269,13 @@ def make_fork_conversation(
             fork_hook_ctx = replace(
                 parent_hook_ctx,
                 fork_conversation=None,
+                session_event_publisher=(
+                    _self_evolution_event_publisher(
+                        parent_hook_ctx.session_event_publisher
+                    )
+                    if event_policy == "self_evolution"
+                    else parent_hook_ctx.session_event_publisher
+                ),
                 metadata=fork_metadata,
             )
 

@@ -81,11 +81,20 @@ describe("AppShell", () => {
 
   it("renders the mobile bottom nav with three tabs below 768px", () => {
     setViewportWidth(640);
-    renderShell("/chat");
+    const { container } = renderShell("/chat");
     const mobile = screen.getByRole("navigation", { name: /mobile/i });
-    expect(within(mobile).getByRole("link", { name: /chat/i })).toHaveAttribute("href", "/chat");
+    const chatLink = within(mobile).getByRole("link", { name: /chat/i });
+    expect(chatLink).toHaveAttribute("href", "/chat");
+    expect(chatLink).toHaveClass("active");
     expect(within(mobile).getByRole("link", { name: /agents/i })).toHaveAttribute("href", "/settings/agents");
     expect(within(mobile).getByRole("link", { name: /me/i })).toHaveAttribute("href", "/me");
+    expect(container.querySelectorAll("svg[data-mobile-nav-icon]")).toHaveLength(3);
+    expect(container.querySelector('[data-mobile-nav-icon="chat"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-mobile-nav-icon="agents"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-mobile-nav-icon="me"]')).toBeInTheDocument();
+    expect(mobile).not.toHaveTextContent("💬");
+    expect(mobile).not.toHaveTextContent("🤖");
+    expect(mobile).not.toHaveTextContent("👤");
   });
 
   it("UserMenu sign-out clears auth store", async () => {

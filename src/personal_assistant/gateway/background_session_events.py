@@ -9,8 +9,9 @@ Architecture:
 - One ``BackgroundSessionEventSubscriber`` per kernel session.
 - Runs as an asyncio background task; never blocks the inbound pipeline.
 - Reconnects on stream errors with configurable backoff.
-- Only the caller-supplied ``on_event`` callback decides what to do with each event;
-  this module applies no business logic.
+- Raw assistant/tool/turn events remain filtered; only structured session notices,
+  ordinary background Agent output, and source-marked self-evolution business events
+  reach their dedicated callbacks.
 """
 
 from __future__ import annotations
@@ -26,12 +27,44 @@ _log = logging.getLogger(__name__)
 # All other events (run_status, assistant_message, etc.) are ignored by on_event.
 # BACKGROUND_TASK run output (assistant_message with origin=BACKGROUND_TASK) is handled
 # separately via bg_run_output_callback — see bugfix-404-M3.
-_SESSION_EVENT_NAMES = frozenset({"self_evolution_review"})
+_SESSION_EVENT_NAMES = frozenset(
+    {
+        "self_evolution_review",
+        "permission_request",
+        "permission_resolved",
+        "workflow_run_updated",
+    }
+)
 
 # Origin value produced by BACKGROUND_TASK-origin runs.
 # Must match RunOrigin.BACKGROUND_TASK.value = "background_task" (StrEnum, lowercase).
 _BACKGROUND_TASK_ORIGIN = "background_task"
+_SELF_EVOLUTION_SOURCE = "self_evolution"
 _STOP_HANDOFF_GRACE_SECONDS = 0.1
+
+
+async def _invoke_callback(
+    callback: Callable[[Mapping[str, Any]], Awaitable[None]],
+    event: Mapping[str, Any],
+    *,
+    callback_idle: asyncio.Event,
+    error_message: str,
+    session_id: str,
+    event_name: object,
+) -> None:
+    """Run one accepted callback under the subscriber shutdown invariant."""
+
+    callback_idle.clear()
+    try:
+        await callback(event)
+    except Exception:
+        _log.warning(
+            error_message,
+            exc_info=True,
+            extra={"session_id": session_id, "event": event_name},
+        )
+    finally:
+        callback_idle.set()
 
 
 class BackgroundSessionEventSubscriber:
@@ -60,6 +93,8 @@ class BackgroundSessionEventSubscriber:
         bg_run_output_callback: Optional async callback invoked when a BACKGROUND_TASK-origin
             ``assistant_message`` event arrives. Called instead of on_event for those events.
             If None, BACKGROUND_TASK assistant_message events are silently dropped (pre-M3 behavior).
+        skill_created_callback: Optional async callback for source-marked
+            self-evolution ``skill_created`` business events.
     """
 
     def __init__(
@@ -75,6 +110,8 @@ class BackgroundSessionEventSubscriber:
         workspace_root: str | None = None,
         bg_run_output_callback: Callable[[Mapping[str, Any]], Awaitable[None]]
         | None = None,
+        skill_created_callback: Callable[[Mapping[str, Any]], Awaitable[None]]
+        | None = None,
     ) -> None:
         self._kernel_client = kernel_client
         self._session_id = session_id
@@ -88,6 +125,7 @@ class BackgroundSessionEventSubscriber:
         self._workspace_root = workspace_root
         # bugfix-404-M3: relay BACKGROUND_TASK run output back to IM conversation.
         self._bg_run_output_callback = bg_run_output_callback
+        self._skill_created_callback = skill_created_callback
         self._task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
         self._callback_idle = asyncio.Event()
@@ -196,35 +234,36 @@ class BackgroundSessionEventSubscriber:
                         and event.get("origin") == _BACKGROUND_TASK_ORIGIN
                         and self._bg_run_output_callback is not None
                     ):
-                        self._callback_idle.clear()
-                        try:
-                            await self._bg_run_output_callback(event)
-                        except Exception:
-                            _log.warning(
-                                "background run output relay callback error",
-                                exc_info=True,
-                                extra={
-                                    "session_id": self._session_id,
-                                    "event": event_name,
-                                },
-                            )
-                        finally:
-                            self._callback_idle.set()
+                        await _invoke_callback(
+                            self._bg_run_output_callback,
+                            event,
+                            callback_idle=self._callback_idle,
+                            error_message="background run output relay callback error",
+                            session_id=self._session_id,
+                            event_name=event_name,
+                        )
+                    elif (
+                        event_name == "skill_created"
+                        and event.get("source") == _SELF_EVOLUTION_SOURCE
+                        and self._skill_created_callback is not None
+                    ):
+                        await _invoke_callback(
+                            self._skill_created_callback,
+                            event,
+                            callback_idle=self._callback_idle,
+                            error_message="self-evolution skill-created callback error",
+                            session_id=self._session_id,
+                            event_name=event_name,
+                        )
                     elif event_name in self._event_filter:
-                        self._callback_idle.clear()
-                        try:
-                            await self._on_event(event)
-                        except Exception:
-                            _log.warning(
-                                "background session event callback error",
-                                exc_info=True,
-                                extra={
-                                    "session_id": self._session_id,
-                                    "event": event_name,
-                                },
-                            )
-                        finally:
-                            self._callback_idle.set()
+                        await _invoke_callback(
+                            self._on_event,
+                            event,
+                            callback_idle=self._callback_idle,
+                            error_message="background session event callback error",
+                            session_id=self._session_id,
+                            event_name=event_name,
+                        )
                     # The stream may already have dequeued this event when shutdown
                     # requested stop. Deliver that accepted buffer exactly once, then
                     # leave without reconnecting or waiting for another event.

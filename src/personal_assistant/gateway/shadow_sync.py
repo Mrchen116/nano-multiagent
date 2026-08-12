@@ -11,7 +11,9 @@ from typing import Any
 import httpx
 
 from personal_assistant.channels.base import (
+    ExternalConversationIdentity,
     ExternalInboundEventIdentity,
+    InboundIngress,
     InboundMessage,
     ReplyContext,
 )
@@ -19,13 +21,9 @@ from personal_assistant.gateway.im_http_transport import (
     build_im_http_headers,
     normalize_im_http_base_url,
 )
-from personal_assistant.gateway.runtime_protocol import (
-    ExternalConversationIdentity,
-    RuntimeProtocolFacts,
+from personal_assistant.gateway.inbound_models import (
+    GatewayShadowState,
     ShadowConversationRef,
-    attach_runtime_protocol,
-    external_identity_from_message,
-    strip_runtime_protocol_metadata,
 )
 from personal_assistant.gateway.shadow_saga import (
     ExternalShadowBubble,
@@ -82,8 +80,8 @@ class IMShadowConversationSync:
 
     async def sync_user_message(
         self, message: InboundMessage, *, agent_id: str
-    ) -> ShadowConversationRef | None:
-        identity = external_identity_from_message(message)
+    ) -> GatewayShadowState:
+        identity = message.ingress.external_conversation
         if identity is None:
             if self._saga_store is not None:
                 self._saga_store.prepare(
@@ -91,18 +89,18 @@ class IMShadowConversationSync:
                     agent_id=agent_id,
                     owner_id=self._owner_user_id,
                 )
-            return None
+            return GatewayShadowState()
         if identity.trigger_source == "im":
-            return None
-        if message.external_event_identity is None:
+            return GatewayShadowState()
+        if message.ingress.external_event is None:
             if self._saga_store is not None:
                 self._saga_store.prepare(
                     message=message,
                     agent_id=agent_id,
                     owner_id=self._owner_user_id,
                 )
-            return None
-        metadata = strip_runtime_protocol_metadata(message.metadata)
+            return GatewayShadowState()
+        metadata = dict(message.metadata)
         external_source = identity.external_source
         external_chat_id = identity.external_chat_id
         saga_store = self._saga_store
@@ -120,7 +118,7 @@ class IMShadowConversationSync:
         )
         if saga is not None and saga.shadow_ref is not None:
             self._promote_boundary(saga_id=saga.saga_id, shadow_ref=saga.shadow_ref)
-            return saga.shadow_ref
+            return GatewayShadowState(saga_id=saga.saga_id, ref=saga.shadow_ref)
         try:
             token = await self._token_getter()
             headers = build_im_http_headers(token)
@@ -136,7 +134,7 @@ class IMShadowConversationSync:
                 )
                 if (
                     saga_store is not None
-                    and message.external_event_identity is not None
+                    and message.ingress.external_event is not None
                 ):
                     await self._require_authenticated_node_owner(
                         client,
@@ -145,7 +143,7 @@ class IMShadowConversationSync:
                 if (
                     saga is None
                     and saga_store is not None
-                    and message.external_event_identity is not None
+                    and message.ingress.external_event is not None
                 ):
                     saga = saga_store.prepare(
                         message=message,
@@ -223,7 +221,6 @@ class IMShadowConversationSync:
                 shadow_ref = ShadowConversationRef(
                     conversation_id=conversation_id,
                     im_message_id=im_message_id,
-                    shadow_saga_id=saga.saga_id if saga is not None else None,
                 )
                 if saga is not None:
                     saga_store = self._saga_store
@@ -232,7 +229,11 @@ class IMShadowConversationSync:
                         saga_id=saga.saga_id, shadow_ref=shadow_ref
                     )
                     self._promote_boundary(saga_id=saga.saga_id, shadow_ref=shadow_ref)
-                return shadow_ref
+                return (
+                    GatewayShadowState(saga_id=saga.saga_id, ref=shadow_ref)
+                    if saga is not None
+                    else GatewayShadowState()
+                )
         except Exception as exc:
             if saga is None:
                 raise
@@ -457,25 +458,17 @@ class IMShadowConversationSync:
             if saga.shadow_ref is None:
                 payload = json.loads(saga.canonical_inbound_json)
                 external_event = payload["external_event_identity"]
-                message = attach_runtime_protocol(
-                    InboundMessage(
-                        channel_name=str(payload["channel_name"]),
-                        text=str(payload["text"]),
-                        external_user_id=str(payload["external_user_id"]),
-                        external_chat_id=str(payload["external_chat_id"]),
-                        is_group=bool(payload["is_group"]),
-                        agent_id=saga.agent_id,
-                        thread_id=payload.get("thread_id"),
-                        metadata=payload["metadata"],
-                        external_event_identity=ExternalInboundEventIdentity(
-                            connector_account_id=str(
-                                external_event["connector_account_id"]
-                            ),
-                            provider_event_id=str(external_event["provider_event_id"]),
-                        ),
-                    ),
-                    RuntimeProtocolFacts(
-                        external_identity=ExternalConversationIdentity(
+                message = InboundMessage(
+                    channel_name=str(payload["channel_name"]),
+                    text=str(payload["text"]),
+                    external_user_id=str(payload["external_user_id"]),
+                    external_chat_id=str(payload["external_chat_id"]),
+                    is_group=bool(payload["is_group"]),
+                    agent_id=saga.agent_id,
+                    thread_id=payload.get("thread_id"),
+                    metadata=payload["metadata"],
+                    ingress=InboundIngress(
+                        external_conversation=ExternalConversationIdentity(
                             external_source=str(
                                 payload["external_identity"]["external_source"]
                             ),
@@ -489,7 +482,13 @@ class IMShadowConversationSync:
                             trigger_source=payload["external_identity"].get(
                                 "trigger_source"
                             ),
-                        )
+                        ),
+                        external_event=ExternalInboundEventIdentity(
+                            connector_account_id=str(
+                                external_event["connector_account_id"]
+                            ),
+                            provider_event_id=str(external_event["provider_event_id"]),
+                        ),
                     ),
                 )
                 await self.sync_user_message(message, agent_id=saga.agent_id)
@@ -602,8 +601,8 @@ def _shadow_message_headers(
 
     if saga_user_idempotency_key is not None:
         return {"Idempotency-Key": saga_user_idempotency_key}
-    event_identity = message.external_event_identity
-    external_identity = external_identity_from_message(message)
+    event_identity = message.ingress.external_event
+    external_identity = message.ingress.external_conversation
     if event_identity is None or external_identity is None:
         return None
     return {

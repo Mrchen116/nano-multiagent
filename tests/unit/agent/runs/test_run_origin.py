@@ -6,6 +6,8 @@ from agent.core.runs.registry import RunRecord, RunStatus
 
 def test_run_origin_enum_values() -> None:
     assert RunOrigin.USER == "user"
+    assert RunOrigin.HUMAN == "human"
+    assert RunOrigin.WORKFLOW == "workflow"
     assert RunOrigin.BACKGROUND_TASK == "background_task"
     assert RunOrigin.HEARTBEAT == "heartbeat"
 

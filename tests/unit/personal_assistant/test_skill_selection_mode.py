@@ -40,6 +40,62 @@ def test_runtime_keeps_legacy_empty_as_default_discovery(tmp_path: Path) -> None
     assert runtime.skills is None
 
 
+def test_runtime_projects_workflow_guideline_with_active_tool(tmp_path: Path) -> None:
+    snapshot = LiveAgentCatalog(
+        (
+            AgentWorkspaceConfig(
+                agent_id="a",
+                workspace_root=tmp_path / "ws",
+                tool_allowlist=("read", "Workflow"),
+                workflow_size_guideline="large",
+            ),
+        )
+    ).require("a")
+
+    runtime = project_agent_runtime(
+        snapshot,
+        scenario={},
+        resolved_model="test-model",
+    ).runtime
+
+    assert runtime.workflow_size_guideline == "large"
+
+
+def test_runtime_distinguishes_default_from_explicit_medium_guideline(
+    tmp_path: Path,
+) -> None:
+    default_snapshot = LiveAgentCatalog(
+        (
+            AgentWorkspaceConfig(
+                agent_id="default",
+                workspace_root=tmp_path / "default",
+                tool_allowlist=("Workflow",),
+            ),
+            AgentWorkspaceConfig(
+                agent_id="explicit",
+                workspace_root=tmp_path / "explicit",
+                tool_allowlist=("Workflow",),
+                workflow_size_guideline="medium",
+                workflow_size_guideline_explicit=True,
+            ),
+        )
+    )
+
+    default_runtime = project_agent_runtime(
+        default_snapshot.require("default"),
+        scenario={},
+        resolved_model="test-model",
+    ).runtime
+    explicit_runtime = project_agent_runtime(
+        default_snapshot.require("explicit"),
+        scenario={},
+        resolved_model="test-model",
+    ).runtime
+
+    assert default_runtime.workflow_size_guideline is None
+    assert explicit_runtime.workflow_size_guideline == "medium"
+
+
 def test_explicit_empty_round_trips_gateway_yaml(tmp_path: Path) -> None:
     source = tmp_path / "source.yaml"
     workspace = tmp_path / "ws"

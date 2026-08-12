@@ -17,6 +17,7 @@ from agent.core.session.jsonl_writer import JsonlWriter
 from agent.core.session.transcript import JsonlTranscript
 from agent.core.session.types import (
     INTERNAL_PROMPT_SLOTS_KEY,
+    INTERNAL_RUNTIME_KEY,
     NewSession,
     PromptSlotSeed,
     PromptSlotText,
@@ -145,6 +146,27 @@ def test_prompt_seed_is_persisted_for_the_child_session(tmp_path: Path) -> None:
     )
 
     assert _load_prompt_seed(control, child_ref) == seed
+
+
+def test_runtime_model_and_effort_are_persisted_for_the_child_session(
+    tmp_path: Path,
+) -> None:
+    control = _control(tmp_path)
+
+    child_ref = control.create_subagent(
+        workspace_root=tmp_path,
+        skills=None,
+        metadata={},
+        parent_session_id=control.ref.session_id,
+        runtime_model="codexOAuth:gpt-5.6-luna",
+        runtime_reasoning_effort="low",
+    )
+
+    config = JsonlTranscript(
+        ref=child_ref, files=control.files, writer=JsonlWriter()
+    ).load_config()
+    assert config.runtime_model == "codexOAuth:gpt-5.6-luna"
+    assert config.metadata[INTERNAL_RUNTIME_KEY]["reasoning_effort"] == "low"
 
 
 def test_omitted_prompt_seed_defaults_to_empty(tmp_path: Path) -> None:

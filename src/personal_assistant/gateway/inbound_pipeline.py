@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 import logging
 from types import MappingProxyType
 from typing import Protocol
@@ -11,21 +11,21 @@ from typing import Protocol
 from personal_assistant.channels.base import InboundMessage
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
+from personal_assistant.gateway.effort_commands import parse_effort_command
 from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.gateway.inbound_models import (
     CompactSessionRequest,
+    EffortCommandRequest,
+    GatewayShadowState,
     InboundRunRequest,
     NewSessionRequest,
     PipelineResult,
+    RoutedInbound,
     StopRunRequest,
+    WorkflowCommandRequest,
     build_group_context_key,
 )
-from personal_assistant.gateway.runtime_protocol import (
-    ShadowConversationRef,
-    attach_runtime_protocol,
-    external_identity_from_message,
-    runtime_protocol_or_derive,
-)
+from personal_assistant.product import resolve_enabled_tools
 from personal_assistant.gateway.session_keys import build_session_key
 from personal_assistant.gateway.session_run_coordinator import SessionRunCoordinator
 from personal_assistant.gateway.shadow_sync import ShadowSyncPendingError
@@ -36,8 +36,8 @@ class ShadowConversationSync(Protocol):
 
     async def sync_user_message(
         self, message: InboundMessage, *, agent_id: str
-    ) -> ShadowConversationRef | None:
-        """Persist one inbound user message and return its durable IM anchor."""
+    ) -> GatewayShadowState:
+        """Persist one inbound user message and return its Gateway shadow state."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,12 +113,22 @@ class InboundPipeline:
 
         agent_id = self._resolve_agent(message)
         agent = self._agent_catalog.require(agent_id)
-        command, focus = self._parse_control_command(message, agent_id=agent_id)
+        normalized_command = self._normalize_command_text(message, agent_id=agent_id)
+        group_control_text = (
+            self._normalize_command_text(
+                message, agent_id=agent_id, strip_all_mentions=True
+            )
+            if message.is_group
+            else normalized_command
+        )
+        command, focus = self._parse_control_command(group_control_text)
+        effort_command = parse_effort_command(group_control_text)
         should_process = self._should_process(
             message,
             agent_id=agent_id,
             agent_config=agent.config,
-            control_command=command,
+            control_command=command
+            or ("effort" if effort_command is not None else None),
         )
         sender_label = _resolve_sender_label(message)
         sync_only = message.metadata.get("sync_only") is True
@@ -132,7 +142,7 @@ class InboundPipeline:
             else None
         )
         try:
-            message = await self._sync_external_shadow_message(
+            shadow = await self._sync_external_shadow_message(
                 message, agent_id=agent_id
             )
         except BaseException:
@@ -151,10 +161,11 @@ class InboundPipeline:
         if sync_only or not should_process:
             return None
 
+        routed = RoutedInbound(message=message, shadow=shadow)
         if command == "stop":
             return await self._run_coordinator.stop(
                 StopRunRequest(
-                    message=message,
+                    routed=routed,
                     agent=agent,
                     session_key=session_key,
                 )
@@ -162,10 +173,10 @@ class InboundPipeline:
         if command == "new":
             return await self._run_coordinator.new_session(
                 NewSessionRequest(
-                    message=message,
+                    routed=routed,
                     agent=agent,
                     session_key=session_key,
-                    operation_id=self._control_operation_id(message),
+                    operation_id=self._control_operation_id(routed),
                 )
             )
         if command == "compact":
@@ -173,16 +184,43 @@ class InboundPipeline:
             return await self._run_coordinator.commit_compact(
                 compact_reservation,
                 CompactSessionRequest(
-                    message=message,
+                    routed=routed,
                     agent=agent,
                     session_key=session_key,
                     focus=focus,
-                    operation_id=self._control_operation_id(message),
+                    operation_id=self._control_operation_id(routed),
                 ),
             )
+        if normalized_command.startswith("/"):
+            effort_result = await self._run_coordinator.effort_command(
+                EffortCommandRequest(
+                    routed=routed,
+                    agent=agent,
+                    session_key=session_key,
+                    command_text=normalized_command,
+                    operation_id=self._control_operation_id(routed),
+                )
+            )
+            if effort_result is not None:
+                return effort_result
+        if normalized_command.startswith("/") and "Workflow" in resolve_enabled_tools(
+            agent.config
+        ):
+            workflow_result = await self._run_coordinator.workflow_command(
+                WorkflowCommandRequest(
+                    routed=routed,
+                    agent=agent,
+                    session_key=session_key,
+                    command_text=normalized_command,
+                    sender_label=sender_label,
+                    operation_id=self._control_operation_id(routed),
+                )
+            )
+            if workflow_result is not None:
+                return workflow_result
         return await self._run_coordinator.dispatch(
             InboundRunRequest(
-                message=message,
+                routed=routed,
                 agent=agent,
                 session_key=session_key,
                 sender_label=sender_label,
@@ -191,15 +229,15 @@ class InboundPipeline:
 
     async def _sync_external_shadow_message(
         self, message: InboundMessage, *, agent_id: str
-    ) -> InboundMessage:
+    ) -> GatewayShadowState:
         sync = self._shadow_sync
-        external_identity = external_identity_from_message(message)
-        if sync is None or message.channel_name == "web_relay":
-            return message
+        external_identity = message.ingress.external_conversation
+        if sync is None or message.ingress.im_relay is not None:
+            return GatewayShadowState()
         if external_identity is not None and external_identity.trigger_source == "im":
-            return message
+            return GatewayShadowState()
         try:
-            shadow_ref = await sync.sync_user_message(message, agent_id=agent_id)
+            return await sync.sync_user_message(message, agent_id=agent_id)
         except ShadowSyncPendingError as exc:
             logging.getLogger(__name__).warning(
                 "external shadow anchor pending channel=%s chat=%s agent=%s: %s",
@@ -208,31 +246,7 @@ class InboundPipeline:
                 agent_id,
                 exc,
             )
-            protocol = runtime_protocol_or_derive(message)
-            return attach_runtime_protocol(
-                message,
-                replace(protocol, shadow_saga_id=exc.saga_id),
-            )
-        if shadow_ref is None:
-            return message
-        protocol = runtime_protocol_or_derive(message)
-        enriched = replace(
-            message,
-            metadata={
-                **message.metadata,
-                "shadow_conversation_id": shadow_ref.conversation_id,
-                "message_id": shadow_ref.im_message_id,
-            },
-        )
-        return attach_runtime_protocol(
-            enriched,
-            replace(
-                protocol,
-                shadow_saga_id=shadow_ref.shadow_saga_id,
-                shadow_ref=shadow_ref,
-                im_message_id=shadow_ref.im_message_id,
-            ),
-        )
+            return GatewayShadowState(saga_id=exc.saga_id)
 
     def _resolve_agent(self, message: InboundMessage) -> str:
         metadata = message.metadata
@@ -307,15 +321,15 @@ class InboundPipeline:
         if (
             control_command == "new"
             and message.text.strip() == "/new"
-            and message.channel_name == "web_relay"
-            and message.metadata.get("external_source") is None
+            and message.ingress.im_relay is not None
+            and message.ingress.external_conversation is None
             and not has_mentioned_target
             and not has_reply_target
         ):
             return True
         # Controls other than the explicit group-wide `/new` require a concrete
         # target regardless of the Agent's normal group reply policy.
-        if control_command in {"new", "compact"}:
+        if control_command in {"new", "compact", "effort"}:
             if isinstance(mentioned, list) and agent_id in mentioned:
                 return True
             if has_reply_target and reply_to.strip() == agent_id:
@@ -330,10 +344,10 @@ class InboundPipeline:
         return f"@{agent_id}" in message.text
 
     @staticmethod
-    def _parse_control_command(
-        message: InboundMessage, *, agent_id: str
-    ) -> tuple[str | None, str | None]:
-        """Return one exact control command and optional compact focus.
+    def _normalize_command_text(
+        message: InboundMessage, *, agent_id: str, strip_all_mentions: bool = False
+    ) -> str:
+        """Strip structural mentions once for every shared slash-command parser.
 
         Mention stripping deliberately remains here at the shared inbound seam so
         Web IM and Feishu cannot acquire subtly different command grammars.
@@ -347,10 +361,24 @@ class InboundPipeline:
             isinstance(reply_to, str) and reply_to.strip() == agent_id
         )
         candidates = {f"@{agent_id}"}
-        if structurally_mentioned:
-            candidates.add(f'<mention type="agent" target_id="{agent_id}"/>')
+        target_ids = (
+            {
+                candidate
+                for candidate in mentioned
+                if isinstance(candidate, str) and candidate.strip()
+            }
+            if strip_all_mentions and isinstance(mentioned, list)
+            else {agent_id}
+        )
+        if structurally_mentioned or strip_all_mentions:
+            candidates.update(
+                f'<mention type="agent" target_id="{target_id}"/>'
+                for target_id in target_ids
+            )
         feishu_mentions = message.metadata.get("feishu_mentions")
-        if structurally_mentioned and isinstance(feishu_mentions, list):
+        if (structurally_mentioned or strip_all_mentions) and isinstance(
+            feishu_mentions, list
+        ):
             for mention in feishu_mentions:
                 if not isinstance(mention, Mapping):
                     continue
@@ -364,6 +392,12 @@ class InboundPipeline:
         for mention in sorted(candidates, key=len, reverse=True):
             normalized = normalized.replace(mention, " ")
         normalized = " ".join(normalized.split())
+        return normalized
+
+    @staticmethod
+    def _parse_control_command(normalized: str) -> tuple[str | None, str | None]:
+        """Return one exact built-in control command and optional compact focus."""
+
         if normalized == "/stop":
             return "stop", None
         if normalized == "/new":
@@ -377,15 +411,17 @@ class InboundPipeline:
         return None, None
 
     @staticmethod
-    def _control_operation_id(message: InboundMessage) -> str | None:
+    def _control_operation_id(routed: RoutedInbound) -> str | None:
         """Return the durable ingress identity usable for a replay-safe control."""
 
-        protocol = runtime_protocol_or_derive(message)
-        if protocol.shadow_saga_id:
-            return f"shadow:{protocol.shadow_saga_id}"
+        if routed.shadow.saga_id:
+            return f"shadow:{routed.shadow.saga_id}"
+        relay = routed.message.ingress.im_relay
+        if relay is None:
+            return None
         for prefix, value in (
-            ("relay", protocol.relay_task_id),
-            ("relay", protocol.idempotency_key),
+            ("relay", relay.relay_task_id),
+            ("relay", relay.idempotency_key),
         ):
             if value:
                 return f"{prefix}:{value}"
