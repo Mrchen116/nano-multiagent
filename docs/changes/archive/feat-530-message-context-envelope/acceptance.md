@@ -420,3 +420,62 @@ N/A。spec/design 没有引用 must-match 原型、设计稿或 reference screen
 - [x] `docs/specs/<包>/`：feat-530 的 canonical 已反映逐消息 envelope；R3-I1 与现有 `docs/specs/im/web-chat-ux.md` / `workflows.md` 契约不一致，需要修实现而非改契约。
 - [x] `AGENTS.md` / `CLAUDE.md`：无需更新；没有新增工作约定。
 - [x] `docs/specs/CONTRIBUTING.md`：无需更新；没有改变文档体系。
+
+---
+
+# Round 4 — 2026-08-12
+
+> Validation snapshot: `6426d722ef5328114775dc29706e1c94d05462e6 → ddd0ead71dc5113d94ef73c79f376eeed0b1c579`
+
+> Revalidation mode: targeted Fast-lane。只复验 R3-I1；Round 3 的其余 live evidence 保留为历史覆盖，不被表述为 `ddd0ead` 的重新实证。
+
+## Verdict
+
+`pass`
+
+- Highest Required Action: `pass`
+- Review round: `4`
+- R3-I1 已关闭：保存 Workflow 后，fresh direct Web IM 的 slash picker 立即显示 `/workflows`，并显示有效模型可用的 `/effort` 值 `high, max`；用户可以从 picker 选择后完成控制请求。
+
+## Targeted User Journey
+
+在全新隔离环境中先执行 `e2e-down`，重建本 worktree 前端产物，再以专用 `e2e-up.sh --feishu` stack 启动 IM `127.0.0.1:53038` 和 Gateway。使用独立、未复用页面的 Web IM 测试用户登录；没有访问生产服务、未知身份或用户数据。
+
+1. 打开 `e2e` Agent 的 Config，真实选择 `Workflow` 并保存。页面由 `v1` 更新为 `v2`，`Workflow` 变为 pressed。
+2. 通过 “Open chat” 打开全新 direct chat `b1adda34bfea4118819dd5c03b2671f8`。在 composer 输入 `/` 后，live picker 同时显示静态 `/stop`、`/new`、`/compact`、skills，以及动态 `/workflows` 和 `/effort — Set session reasoning effort: high, max`；这不是旧聊天残留。
+3. 从 picker 选择 `/workflows` 并发送，Gateway 在聊天中返回 `暂无 Workflow 运行记录。`。
+4. 从 picker 两次选择 `/effort`；该行显示的有效模型值为 `high, max`，分别发送 `/effort high` 与 `/effort max`，均收到正常控制回执：`已将当前会话的推理档位设为 high。`、`已将当前会话的推理档位设为 max。`。
+5. 同一 picker 的静态能力没有回归：选择并发送 `/new` 收到 `已开始新会话。`；`lark-im` skill option 仍可见，选择后 composer 正确写入 `/skill:lark-im`（随后清空，未向外部服务发送 skill 请求）。
+
+以上是实际页面可见的用户旅程；未以单测、源码或缓存实现细节替代验收。
+
+## Reference Artifacts Reviewed
+
+N/A。spec/design 没有引用 must-match 原型、设计稿或 reference screenshot。
+
+## Issue Closure
+
+| Issue | Round 3 state | Round 4 live evidence at `ddd0ead` | Result |
+|---|---|---|---|
+| R3-I1 — Workflow / effort 动态 slash 不可发现 | fresh picker 中两项 option count 均为 0 | 保存 Workflow 至 profile `v2` 后的 fresh direct picker 真实显示 `/workflows` 和 `/effort — high, max`；选择并发送 `/workflows`、`/effort high`、`/effort max` 都有正常控制回执 | closed |
+
+Round 4 没有发现新的 blocking、major 或 minor issue。
+
+## 验收覆盖更新
+
+| Scenario / Issue | 复验方式 | `ddd0ead` 证据 | 结果 | 备注 |
+|---|---|---|---|---|
+| R3-I1；current Web IM 动态 slash 发现契约 | 全新隔离 stack、全新浏览器页、保存 Workflow 后新建 direct chat 输入 `/` | profile `v1 → v2`；live picker options；三条 picker 驱动的控制回执 | pass | `/effort` 的 picker 行明确列出有效值 `high, max`。 |
+| 相邻静态 slash / skill picker 可用性 | 同一 fresh direct chat 的同一 picker | `/new` 选择并返回“已开始新会话。”；`lark-im` option 选择后填入 `/skill:lark-im` | pass | skill 未执行，避免把隔离 picker 验收扩展成外部操作。 |
+| Round 3 已覆盖的其余 feat-530 spec scenarios | Fast-lane 未重跑 | Round 3 历史 live evidence | inherited (historical) | 这些历史证据不作为 `ddd0ead` 的直接实证；本轮 scope 仅为 R3-I1。 |
+
+## Side Findings
+
+无。
+
+## 上层文档同步
+
+- [x] `SPEC.md`：无需更新；R3-I1 是已实现的动态发现恢复，不改变跨包架构。
+- [x] `docs/specs/<包>/`：无需更新；本轮实现重新满足既有 Web IM / Workflow 发现契约。
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新；没有新增工作约定。
+- [x] `docs/specs/CONTRIBUTING.md`：无需更新；没有改变文档体系。
