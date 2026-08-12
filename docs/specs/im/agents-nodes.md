@@ -1,6 +1,6 @@
 # IM - Agents and Nodes Specification
 
-> 对齐: feat-519
+> 对齐: feat-517
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -556,3 +556,19 @@ agent 设置 detail 页的工具面板按存储的 `tool_allowlist` 渲染勾选
 - **GIVEN** Gateway 上报任意显式外部代码仓路径 P 且 `workspace_is_default=false`
 - **WHEN** IM 返回该 Agent 的配置
 - **THEN** `workspace_root` 为 P、`workspace_is_default` 为 false，且 IM 不改写 P
+
+### Requirement: Agent 配置页以单一 Workflow 工具选择管理完整能力
+
+#### Scenario: Workflow 默认未选择
+- **WHEN** 用户新建 Agent 或查看没有显式启用 Workflow 的 Agent
+- **THEN** 工具选择器显示 `Workflow` 可选项但不默认选中
+
+#### Scenario: 选择 Workflow
+- **WHEN** 用户勾选 `Workflow` 并成功保存 Agent
+- **THEN** 页面只以现有工具 pill 的选中态显示已选择真值，不增加工具说明、独立开关或嵌套设置
+- **AND** 该 Agent 下一轮在 Web/外部 IM 完整获得 Workflow 能力
+
+#### Scenario: 取消 Workflow
+- **WHEN** 用户取消 `Workflow` 并成功保存 Agent
+- **THEN** 页面显示未选择真值
+- **AND** 该 Agent 下一轮完整失去 Workflow tool、prompt、commands 与 ultracode 入口

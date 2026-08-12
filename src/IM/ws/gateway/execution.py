@@ -242,6 +242,10 @@ class GatewayExecution:
                     "agent_user_id": agent_user_id,
                     "agent_id": agent_id,
                 }
+                if event.background_returns:
+                    turn_start_args["background_returns"] = list(
+                        event.background_returns
+                    )
                 if event.shadow_message_id is not None:
                     turn_start_args["caller_idempotency_key"] = event.shadow_message_id
                 created_message = self._event_bridge.on_turn_start(
@@ -284,6 +288,8 @@ class GatewayExecution:
                 "agent_user_id": agent_user_id,
                 "agent_id": agent_id,
             }
+            if event.background_returns:
+                turn_start_args["background_returns"] = list(event.background_returns)
             if event.shadow_message_id is not None:
                 turn_start_args["caller_idempotency_key"] = event.shadow_message_id
             created_message = self._event_bridge.on_turn_start(**turn_start_args)

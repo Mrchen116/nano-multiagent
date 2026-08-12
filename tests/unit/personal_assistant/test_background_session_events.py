@@ -115,6 +115,57 @@ async def test_background_subscriber_ignores_non_session_events() -> None:
 
 
 @pytest.mark.asyncio
+async def test_background_subscriber_forwards_workflow_permission_lifecycle() -> None:
+    """The long-lived session owner keeps child permissions after launch returns."""
+    from personal_assistant.gateway.background_session_events import (
+        BackgroundSessionEventSubscriber,
+    )
+
+    received: list[dict[str, Any]] = []
+
+    async def _on_event(event: Mapping[str, Any]) -> None:
+        received.append(dict(event))
+
+    kernel_client = MagicMock()
+    kernel_client.stream_session = MagicMock(
+        return_value=_finite_event_stream(
+            {
+                "event": "permission_request",
+                "workflow_run_id": "wf_123",
+                "agent_call_id": "agent-call-1",
+                "request_id": "request-1",
+            },
+            {
+                "event": "permission_resolved",
+                "workflow_run_id": "wf_123",
+                "agent_call_id": "agent-call-1",
+                "request_id": "request-1",
+            },
+            {
+                "event": "workflow_run_updated",
+                "workflow_run_id": "wf_123",
+                "status": "completed",
+            },
+        )
+    )
+
+    subscriber = BackgroundSessionEventSubscriber(
+        kernel_client=kernel_client,
+        session_id="sess1",
+        on_event=_on_event,
+    )
+    await subscriber.start()
+    await asyncio.sleep(0.05)
+    await subscriber.stop()
+
+    assert [event["event"] for event in received] == [
+        "permission_request",
+        "permission_resolved",
+        "workflow_run_updated",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_background_subscriber_routes_only_marked_self_evolution_skill() -> None:
     """Only source-marked skill creation is a persistent business event."""
     from personal_assistant.gateway.background_session_events import (

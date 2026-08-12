@@ -69,6 +69,11 @@ export interface AgentAllowlistOption {
   source_group?: "workspace" | "global" | "compatibility" | null;
 }
 
+export interface AgentCommandOption {
+  name: string;
+  description: string;
+}
+
 // bugfix-429 R5: a selectable model with its registered provider/format, so the
 // agent-config dropdown can label each option (e.g. "codex_oauth:gpt-5.5 · openai_compat").
 export type ModelReasoningDescriptor =
@@ -276,6 +281,7 @@ interface AgentCapabilitiesWire {
   model_options?: Array<string | ModelOptionWire>;
   skills: Array<string | AgentAllowlistOption>;
   tools: Array<string | AgentAllowlistOption>;
+  commands?: AgentCommandOption[];
   platform_default_model?: string | null;
   // feat-379-M3: feature toggle projection from FEATURE_REGISTRY
   features?: AgentFeature[];

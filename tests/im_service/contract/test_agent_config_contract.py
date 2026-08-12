@@ -492,6 +492,10 @@ def test_agent_capabilities_features_contract(
             "models": ["model-x"],
             "skills": [],
             "tools": [],
+            "commands": [
+                {"name": "workflows", "description": "Inspect Workflow runs"},
+                {"name": "deep-research", "description": "Run deep research"},
+            ],
             "platform_default_model": None,
             # feat-379-M2: features projection from FEATURE_REGISTRY
             "features": _GATEWAY_FEATURES,
@@ -524,6 +528,10 @@ def test_agent_capabilities_features_contract(
 
     assert response.status_code == 200
     body = response.json()
+    assert body["commands"] == [
+        {"name": "workflows", "description": "Inspect Workflow runs"},
+        {"name": "deep-research", "description": "Run deep research"},
+    ]
     # capabilities response must include features key
     assert "features" in body
     features = body["features"]

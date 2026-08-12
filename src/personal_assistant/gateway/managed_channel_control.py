@@ -15,7 +15,6 @@ from personal_assistant.channels.channel_credentials import (
     GatewayChannelAad,
     GatewayChannelKey,
 )
-from personal_assistant.channels.feishu import FeishuAdapter
 from personal_assistant.channels.feishu.preflight import probe_feishu_runtime
 from personal_assistant.gateway.agent_config_sync import IMAgentConfigSync
 from personal_assistant.gateway.channel_manager import (
@@ -392,6 +391,8 @@ class ManagedChannelControl:
                 status_message=getattr(worker_status, "status_message", None),
                 checks=getattr(worker_status, "checks", ()),
             )
+
+        from personal_assistant.channels.feishu.adapter import FeishuAdapter
 
         return ProviderRuntimeBuild(
             adapter=FeishuAdapter(

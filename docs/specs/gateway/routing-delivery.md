@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Routing and Delivery Specification
 
-> 对齐: bugfix-525
+> 对齐: feat-517, bugfix-525
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -52,7 +52,7 @@
 
 ### Requirement: 群聊只在被 @提及 / 回复 Agent / 明确的全群控制命令时触发 Agent
 
-群聊流量在分配任何内核会话或队列槽**之前**先过 @提及门控。未被点名的群聊消息不触发 Agent 执行;Agent 判断无需回复时输出约定 token(`NO_REPLY`)则不向用户发言。门控策略由各 Agent 的 `group_reply_policy`决定(默认 `MENTION`;`ALWAYS` 则有消息即回)。裸 `/stop` 与内置 Web IM 群聊中的精确裸 `/new` 不受 MENTION 门控：前者只中断正在运行的 Agent，后者为群内每个 Agent 重开各自的共同会话。`/compact` 和 `/compact <关注点>` 仍必须以 mention 或 reply 明确指向 Agent。
+群聊流量在分配任何内核会话或队列槽**之前**先过 @提及门控。未被点名的群聊消息不触发 Agent 执行;Agent 判断无需回复时输出约定 token(`NO_REPLY`)则不向用户发言。门控策略由各 Agent 的 `group_reply_policy`决定(默认 `MENTION`;`ALWAYS` 则有消息即回)。裸 `/stop` 与内置 Web IM 群聊中的精确裸 `/new` 不受 MENTION 门控：前者只中断正在运行的 Agent，后者为群内每个 Agent 重开各自的共同会话。`/compact`、`/compact <关注点>` 和 `/effort <level>` 仍必须以 mention 或 reply 明确指向 Agent，且不因该 Agent 或其他 Agent 的 `ALWAYS` 策略扩大成群组控制。
 
 #### Scenario: 群聊未被 @提及的消息不触发 Agent
 - **GIVEN** 一个 `group_reply_policy=MENTION` 的 Agent 在某群聊中
@@ -86,6 +86,11 @@
 - **THEN** Gateway 不压缩该 Agent 的群会话，也不发送控制确认
 - **WHEN** 用户通过结构化 mention、文本 `@Agent` 或回复该 Agent 发送 `/new`、`/compact` 或 `/compact <关注点>`
 - **THEN** Gateway 只在被指向 Agent 的群会话上执行命令，并在同一群返回控制确认
+
+#### Scenario: 群聊推理档位始终需要明确目标
+- **GIVEN** 群内一个或多个 Agent 的 `group_reply_policy=ALWAYS`
+- **WHEN** 用户发送指向 Agent A 的 `/effort <level>`，Gateway 向参与者 fan-out relay
+- **THEN** 只有 Agent A 处理该命令；其他 Agent 不创建会话、不改写 session effort，也不把命令交给模型
 
 ### Requirement: 用户可用文本命令切换当前 Agent 会话
 
@@ -293,17 +298,41 @@ Gateway 持久化聊天与内核会话的绑定及该聊天实际采用的运行
 
 ### Requirement: 后台任务完成后 Gateway 把 Agent 回复中继回原 IM 对话
 
-用户让 Agent 后台执行长任务（`run_in_background`），Agent 立即回复「已启动」后主轮结束；任务完成后，Gateway 把 Agent 的完成回复投递回触发该任务的原 IM 对话——用户在同一对话看到内含任务结果的第二条回复。重复投递（如 Gateway 重启后重放）经去重，用户不会看到重复的第二条回复。
+用户让 Agent 后台执行长任务后，主轮先回复已启动；任务结束时，Gateway 把消费该 `<task-notification>` 后产生的普通 Agent 回复投递回原 IM 对话。既有 background Bash 继续以第二条文本回复送达。对内置 Web IM 的后台 subagent / Workflow，回复还携带与 notification 同源的结构化后台返回，让用户核对原始 result 或 error 与来源；对不提供内部过程时间线的外部 IM，继续只投递普通文本。重复投递经稳定 identity 去重，不产生重复消息或重复后台返回。
 
-#### Scenario: 后台任务完成后用户在 IM 对话收到包含结果的第二条回复
+#### Scenario: 后台 Bash 完成后用户在 IM 对话收到包含结果的第二条回复
 - **GIVEN** 用户经 IM 直聊让 Agent 后台执行一个命令（如 `run_in_background: sleep 30 && echo X`）
-- **WHEN** 主轮返回「已启动」，任务在后台完成
-- **THEN** 用户在同一 IM 对话收到第二条 Agent 回复，内含后台任务输出（如「X」）
+- **WHEN** 主轮返回“已启动”，任务在后台完成
+- **THEN** 用户在同一 IM 对话收到第二条 Agent 回复，内含后台任务输出（如“X”）
+- **AND** 本 unit 不要求该 Bash 回复增加结构化后台返回过程项
+
+#### Scenario: 后台 Agent 完成后 Web IM 收到正文与可归因返回
+- **GIVEN** 用户经 Web IM 让 Agent 以 `run_in_background=true` 派发一个 subagent
+- **WHEN** 主轮已返回“已启动”，subagent 稍后完成并由 parent 生成综合回复
+- **THEN** 用户在同一对话收到第二条普通 Agent 回复
+- **AND** 该回复同时携带 subagent 的 task/agent identity、status、未经主 Agent 改写的 result/error、usage、duration 与 output artifact
+
+#### Scenario: 后台 Workflow 使用相同投递通路
+- **GIVEN** 用户经 Web IM 启动一个 Workflow
+- **WHEN** Workflow completed、failed 或 stopped，parent 生成综合回复
+- **THEN** Gateway 用相同消息 sidecar 携带 Workflow task/run identity、terminal value、usage、diagnostics 与 resume hint
+- **AND** 不把 terminal 当作 launch ToolCall 的后续更新
+
+#### Scenario: 后台 Workflow 终态 continuation 使用原 parent session runtime
+- **GIVEN** Workflow 所属 parent session 的持久 runtime 选择了特定 model 与 effort，且该 session 在终态通知到达时没有 active run
+- **WHEN** Gateway 因该通知启动普通综合回复
+- **THEN** continuation 使用原 parent session 持久化的 model 与 effort
+- **AND** 不回落到进程默认模型，也不借用其他 session 的 runtime
+
+#### Scenario: 外部 IM 保持普通文本回复
+- **WHEN** 同一后台返回来自飞书等外部 channel
+- **THEN** Gateway 仍把主 Agent 的普通文本回复发回原聊天
+- **AND** 不新增外部卡片、raw XML 或 Web 专用过程字段
 
 #### Scenario: Gateway 重启不产生重复的后台回复
-- **GIVEN** 某后台任务回复已投递到 IM 对话
-- **WHEN** Gateway 重启后该回复被重放
-- **THEN** 该对话中不出现重复的第二条回复
+- **GIVEN** 某后台任务回复及其结构化返回已投递到 IM 对话
+- **WHEN** Gateway 重启后同一 task 的事件被重放
+- **THEN** 该对话中不出现重复的第二条回复，同一消息中也不出现重复后台返回
 
 ### Requirement: self-evolution 维护过程不作为 Agent 聊天文本投递
 

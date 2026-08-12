@@ -562,6 +562,96 @@ def test_save_local_config_round_trip_preserves_empty_tool_allowlist(
     assert raw["agents"][0]["tool_allowlist"] == []
 
 
+def test_save_local_config_round_trips_workflow_size_guideline(tmp_path: Path) -> None:
+    """The PA-only Workflow guideline remains durable without an IM form field."""
+
+    config_path = tmp_path / "node-config.yaml"
+    workspace_root = tmp_path / "agents" / "a"
+    workspace_root.mkdir(parents=True)
+    config_path.write_text(
+        "\n".join(
+            [
+                "node:",
+                "  node_id: n1",
+                "agents:",
+                "  - agent_id: agent-a",
+                f"    workspace_root: {workspace_root}",
+                "    workflow_size_guideline: large",
+            ]
+        )
+        + "\n"
+        + _LLM_YAML,
+        encoding="utf-8",
+    )
+
+    original = load_local_config(config_path)
+    assert original.agents[0].workflow_size_guideline == "large"
+    assert original.agents[0].workflow_size_guideline_explicit is True
+
+    saved_path = tmp_path / "saved-config.yaml"
+    save_local_config(original, saved_path)
+    reloaded = load_local_config(saved_path)
+
+    assert reloaded.agents[0].workflow_size_guideline == "large"
+    assert reloaded.agents[0].workflow_size_guideline_explicit is True
+
+
+def test_explicit_medium_workflow_guideline_round_trips(tmp_path: Path) -> None:
+    config_path = tmp_path / "node-config.yaml"
+    workspace_root = tmp_path / "agents" / "a"
+    workspace_root.mkdir(parents=True)
+    config_path.write_text(
+        "\n".join(
+            [
+                "node:",
+                "  node_id: n1",
+                "agents:",
+                "  - agent_id: agent-a",
+                f"    workspace_root: {workspace_root}",
+                "    workflow_size_guideline: medium",
+            ]
+        )
+        + "\n"
+        + _LLM_YAML,
+        encoding="utf-8",
+    )
+
+    original = load_local_config(config_path)
+    saved_path = tmp_path / "saved-config.yaml"
+    save_local_config(original, saved_path)
+    reloaded = load_local_config(saved_path)
+
+    assert original.agents[0].workflow_size_guideline_explicit is True
+    assert reloaded.agents[0].workflow_size_guideline_explicit is True
+    assert "workflow_size_guideline: medium" in saved_path.read_text(encoding="utf-8")
+
+
+def test_load_local_config_rejects_invalid_workflow_size_guideline(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "node-config.yaml"
+    workspace_root = tmp_path / "agents" / "a"
+    workspace_root.mkdir(parents=True)
+    config_path.write_text(
+        "\n".join(
+            [
+                "node:",
+                "  node_id: n1",
+                "agents:",
+                "  - agent_id: agent-a",
+                f"    workspace_root: {workspace_root}",
+                "    workflow_size_guideline: enormous",
+            ]
+        )
+        + "\n"
+        + _LLM_YAML,
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="workflow_size_guideline"):
+        load_local_config(config_path)
+
+
 def test_save_local_config_creates_missing_parent_directories(tmp_path: Path) -> None:
     config_path = tmp_path / "node-config.yaml"
     workspace_root = tmp_path / "agents" / "assistant-a"

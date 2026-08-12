@@ -1,6 +1,7 @@
 """Unit tests for gateway websocket connection management."""
 
 import asyncio
+import json
 from pathlib import Path
 
 import pytest
@@ -1645,6 +1646,99 @@ def test_agent_message_user_target_emits_message_created_event(
     assert created_payload.get("delivery_status") == "completed", (
         "message.created payload must carry delivery_status=completed for instant messages; "
         f"got {created_payload.get('delivery_status')!r}"
+    )
+
+
+def test_agent_message_accepts_sidecar_only_and_rejects_both_empty(
+    tmp_path: Path,
+) -> None:
+    """The shared agent.message wire is visible when text or a typed sidecar exists."""
+    handler, connection, emitted = _build_handler_with_event_bridge_and_notify(tmp_path)
+    websocket = StubWebSocket()
+    users = UserRepository(connection)
+    users.create_user(username="agent:bg-agent", display_name="BG Agent")
+    human = users.create_user(username="nano", display_name="Nano User")
+    base = {
+        "from_session_id": "bg-agent|tool_call:bg-sidecar",
+        "to": f"user:{human.id}",
+        "text": "",
+    }
+
+    accepted = asyncio.run(
+        handler.runtime.handle_message(
+            websocket=websocket,
+            message_type="agent.message",
+            payload={
+                **base,
+                "background_returns": [
+                    {
+                        "task_id": "wt-1",
+                        "task_type": "workflow",
+                        "status": "completed",
+                        "description": "review",
+                        "workflow_run_id": "wf-1",
+                        "result": "raw",
+                    }
+                ],
+            },
+        )
+    )
+    rejected = asyncio.run(
+        handler.runtime.handle_message(
+            websocket=websocket,
+            message_type="agent.message",
+            payload={**base, "from_session_id": "bg-agent|tool_call:bg-empty"},
+        )
+    )
+
+    assert accepted["type"] == "ack"
+    assert rejected["type"] == "error"
+    assert rejected["payload"]["code"] == "invalid_agent_message"
+    created = [event for event in emitted if event.event_type == "message.created"]
+    assert len(created) == 1
+    payload = json.loads(created[0].payload_json)
+    assert payload["content"] == ""
+    assert payload["background_returns"][0]["task_id"] == "wt-1"
+
+
+def test_agent_message_replay_deduplicates_by_background_task_id(
+    tmp_path: Path,
+) -> None:
+    """A Gateway replay with a new dispatch id cannot create a second task result."""
+    handler, connection, emitted = _build_handler_with_event_bridge_and_notify(tmp_path)
+    websocket = StubWebSocket()
+    users = UserRepository(connection)
+    users.create_user(username="agent:bg-agent", display_name="BG Agent")
+    human = users.create_user(username="nano", display_name="Nano User")
+
+    def send(dispatch_id: str):
+        return asyncio.run(
+            handler.runtime.handle_message(
+                websocket=websocket,
+                message_type="agent.message",
+                payload={
+                    "from_session_id": f"bg-agent|tool_call:{dispatch_id}",
+                    "to": f"user:{human.id}",
+                    "text": "done",
+                    "background_returns": [
+                        {
+                            "task_id": "wt-replayed",
+                            "task_type": "workflow",
+                            "status": "completed",
+                            "description": "review",
+                            "result": "raw",
+                        }
+                    ],
+                },
+            )
+        )
+
+    first = send("dispatch-1")
+    second = send("dispatch-2")
+
+    assert first["payload"]["message_id"] == second["payload"]["message_id"]
+    assert (
+        len([event for event in emitted if event.event_type == "message.created"]) == 1
     )
 
 

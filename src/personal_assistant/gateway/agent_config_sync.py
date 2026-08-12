@@ -15,8 +15,11 @@ from pathlib import Path
 
 import httpx
 
+from agent.sdk import LLMConfig
+
 from personal_assistant.config.local_store import (
     AgentWorkspaceConfig,
+    DEFAULT_WORKFLOW_SIZE_GUIDELINE,
     LocalConfig,
     RuntimeConfigOwner,
     WORKSPACE_CONFIG_DIRNAME as _WCD,
@@ -237,7 +240,7 @@ class IMAgentConfigSync:
         # used by _IMBootstrapClient (main.py:599-613).
         self._token_getter = token_getter
         self._reasoning_catalog = reasoning_catalog or ModelReasoningCatalog(
-            local_config.llm
+            LLMConfig.from_payload(local_config.llm)
         )
         self._operation_receipts = operation_receipts or ConfigApplyReceiptStore(
             local_config.source_path.parent / "config-apply-receipts-v1.json"
@@ -833,6 +836,7 @@ class IMAgentConfigSync:
         default_model = _optional_operation_text(payload.get("default_model"))
         reasoning_effort = _optional_operation_text(payload.get("reasoning_effort"))
         self._reasoning_catalog.validate(default_model, reasoning_effort)
+        existing_agent = self._local_agent(agent_id)
         return AgentWorkspaceConfig(
             agent_id=agent_id,
             workspace_root=Path(workspace_text).expanduser().resolve(),
@@ -853,6 +857,16 @@ class IMAgentConfigSync:
             ),
             default_model=default_model,
             reasoning_effort=reasoning_effort,
+            workflow_size_guideline=(
+                existing_agent.workflow_size_guideline
+                if existing_agent is not None
+                else DEFAULT_WORKFLOW_SIZE_GUIDELINE
+            ),
+            workflow_size_guideline_explicit=(
+                existing_agent.workflow_size_guideline_explicit
+                if existing_agent is not None
+                else False
+            ),
             features={
                 key: value
                 for key, value in raw_features.items()
@@ -1370,6 +1384,16 @@ class IMAgentConfigSync:
             group_reply_policy=_optional_text("group_reply_policy"),
             default_model=default_model,
             reasoning_effort=reasoning_effort,
+            workflow_size_guideline=(
+                existing_agent.workflow_size_guideline
+                if existing_agent is not None
+                else DEFAULT_WORKFLOW_SIZE_GUIDELINE
+            ),
+            workflow_size_guideline_explicit=(
+                existing_agent.workflow_size_guideline_explicit
+                if existing_agent is not None
+                else False
+            ),
             features=features,
             custom_prompt=_optional_text("custom_prompt"),
             heartbeat_every=heartbeat_every,

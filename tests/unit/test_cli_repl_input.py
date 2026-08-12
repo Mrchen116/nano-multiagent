@@ -5,6 +5,7 @@ CJK 显示宽度、粘贴分组和外部输出回显等输入层行为。
 """
 
 import io
+from contextlib import nullcontext
 
 from coding_cli.input import repl_commands, repl_input
 from coding_cli.main import run_cli
@@ -70,6 +71,37 @@ def test_repl_input_engine_supports_inline_insert_at_cursor() -> None:
     )
 
     assert typed == "helXlo"
+
+
+def test_permission_picker_builds_blocking_key_reader_with_current_contract(
+    monkeypatch,
+) -> None:
+    output = io.StringIO()
+    build_calls = []
+
+    def _build_key_reader(stdin, *, on_idle, idle_interval_seconds):  # noqa: ANN001
+        build_calls.append((stdin, on_idle, idle_interval_seconds))
+        return _iter_keys(["\r"])
+
+    monkeypatch.setattr(repl_input, "termios", object())
+    monkeypatch.setattr(repl_input, "_stdin_raw_mode", lambda _stdin: nullcontext())
+    monkeypatch.setattr(repl_input, "_build_key_reader", _build_key_reader)
+
+    decision = repl_input.read_permission_choice(
+        header="Permission request: Workflow",
+        options=(
+            repl_input.PermissionOption(
+                id="allow_once",
+                label="Allow once",
+                description="Allow this launch",
+            ),
+        ),
+        out=output,
+    )
+
+    assert decision == "allow_once"
+    assert build_calls == [(repl_input.sys.stdin, None, 0.5)]
+    assert "Selected: Allow once" in output.getvalue()
 
 
 def test_repl_input_engine_supports_left_right_with_backspace_editing() -> None:

@@ -20,6 +20,7 @@
 | 浏览器要求绑定 | 按 `gateway.log` 的 `NEXT Open ...`，用当前登录 owner 完成确认。 |
 | Web IM 显示 Gateway offline | 检查 Gateway 进程、IM WebSocket、节点页 `last_error`；恢复后验证消息往返。 |
 | Agent 能力为空或接口 503 | 检查是否有旧 Gateway、重复 node_id 或目标 Gateway 尚未完成注册。 |
+| 看不到 `/workflows`、`/deep-research` 或 `ultracode` | 确认该 Agent 已在工具选择中启用 `Workflow` 并成功保存，再在下一轮新回复打开 slash 面板；`ultracode` 还要求当前有效模型支持 `xhigh`。 |
 | `workspace_root does not exist` | 创建 config 中的准确目录，或移除显式路径使用默认 workspace。 |
 | Agent 不回复或 LLM 报错 | 核对实际 `default_model`、provider 协议、上游健康和本次 LLM 日志。 |
 | 飞书保存后未连接 | 查看通道 runtime diagnostics、节点 online、App 凭据、Bot/长连接设置和权限；修正后重连。 |

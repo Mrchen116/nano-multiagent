@@ -27,6 +27,7 @@ dependencies = [
   "ddgs>=9,<11",
   # feat-464: external-channel secrets use an X25519 + HKDF + AES-GCM envelope.
   "cryptography>=45,<47",
+  "jsonschema>=4.23,<5.0",
   # feat-447: 飞书 SDK —— FeishuClient WebSocket 长连接 + REST API
   "lark-oapi>=1.6.9,<2.0",
 ]
@@ -56,6 +57,8 @@ include = ["agent*", "coding_cli*", "personal_assistant*"]
 
 [tool.setuptools.package-data]
 personal_assistant = ["builtin_skills/**"]
+"agent.platform.tools.builtins" = ["workflow_tool_prompt.md"]
+"agent.platform.workflows" = ["bundled/*.py"]
 
 [tool.ruff]
 # feat-388: target-version 与 requires-python = ">=3.11" 对齐

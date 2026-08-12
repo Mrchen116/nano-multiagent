@@ -16,6 +16,7 @@ from IM.infra.repositories.messages import MessageRepository
 from .protocol import (
     _not_registered_error,
     _require_text,
+    parse_background_returns,
     parse_delivery_receipt_event,
 )
 
@@ -192,7 +193,17 @@ class GatewayRelay:
             }
 
         try:
-            text = _require_text(payload.get("text"), field_name="text").strip()
+            raw_text = payload.get("text")
+            if not isinstance(raw_text, str):
+                raise ValueError("text must be a string")
+            text = raw_text.strip()
+            background_returns = list(
+                parse_background_returns(payload.get("background_returns"))
+            )
+            if not text and not background_returns:
+                raise ValueError(
+                    "agent.message requires non-empty text or background_returns"
+                )
             target = _require_text(payload.get("to"), field_name="to").strip()
             source_raw = _require_text(
                 payload.get("from_session_id"), field_name="from_session_id"
@@ -257,6 +268,7 @@ class GatewayRelay:
                                 agent_user_id=sender_user_id,
                                 agent_id=source_agent_id,
                                 content=text,
+                                background_returns=background_returns,
                             )
                         else:
                             message = self._message_repository.create_message(
@@ -264,6 +276,7 @@ class GatewayRelay:
                                 sender_user_id=sender_user_id,
                                 sender_type="agent",
                                 content=text,
+                                background_returns=background_returns,
                             )
                         # The asyncio lock is process-local. The durable first write is
                         # the authority when another handler/process races this message.

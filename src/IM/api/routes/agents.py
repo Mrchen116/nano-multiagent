@@ -209,6 +209,13 @@ class FeatureCapabilityResponse(BaseModel):
     requires_tool: str | None = None
 
 
+class AgentCommandResponse(BaseModel):
+    """One slash command exposed by the Agent's active runtime capabilities."""
+
+    name: str
+    description: str = ""
+
+
 class AgentCapabilitiesResponse(BaseModel):
     """Node-backed runtime capability data for one agent workspace."""
 
@@ -218,6 +225,7 @@ class AgentCapabilitiesResponse(BaseModel):
     models: list[ModelOptionResponse] = Field(default_factory=list)
     skills: list[AllowlistOptionResponse] = Field(default_factory=list)
     tools: list[AllowlistOptionResponse] = Field(default_factory=list)
+    commands: list[AgentCommandResponse] = Field(default_factory=list)
     platform_default_model: str | None = None
     # feat-379-M2: feature toggle projection from FEATURE_REGISTRY (decision 7)
     features: list[FeatureCapabilityResponse] = Field(default_factory=list)
@@ -366,9 +374,7 @@ def to_agent_summary_response(
     )
 
 
-def require_workspace_root(
-    profile: AgentProfile, *, service: ConfigService
-) -> str:
+def require_workspace_root(profile: AgentProfile, *, service: ConfigService) -> str:
     """Return a Gateway-confirmed workspace root for a path-dependent action."""
     workspace_root = service.workspace_root_for_profile(profile)
     if workspace_root is None:
@@ -500,6 +506,7 @@ async def get_agent_capabilities(
         models=coerce_model_options(payload.get("models")),
         skills=coerce_allowlist_options(payload.get("skills")),
         tools=coerce_allowlist_options(payload.get("tools")),
+        commands=_coerce_command_list(payload.get("commands")),
         platform_default_model=platform_default,
         features=features,
     )
@@ -693,6 +700,30 @@ def _coerce_feature_list(value: object) -> list[FeatureCapabilityResponse]:
                 default_on=default_on,
                 available=available,
                 requires_tool=requires_tool if isinstance(requires_tool, str) else None,
+            )
+        )
+    return result
+
+
+def _coerce_command_list(value: object) -> list[AgentCommandResponse]:
+    """Validate commands discovered by the owning Gateway for this Agent."""
+
+    if not isinstance(value, list):
+        return []
+    result: list[AgentCommandResponse] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        raw_name = item.get("name")
+        if not isinstance(raw_name, str) or not raw_name.strip():
+            continue
+        raw_description = item.get("description")
+        result.append(
+            AgentCommandResponse(
+                name=raw_name.strip(),
+                description=(
+                    raw_description.strip() if isinstance(raw_description, str) else ""
+                ),
             )
         )
     return result

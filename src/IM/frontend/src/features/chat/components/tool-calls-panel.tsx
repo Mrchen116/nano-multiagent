@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 
 import { useTranslation } from "../../../i18n";
-import type { ThinkingSegment, ToolCall } from "../chat-types";
+import type { BackgroundReturn, ThinkingSegment, ToolCall } from "../chat-types";
 import { ToolDetailBody } from "./tool-detail-renderers";
 import {
   collapsedSummary,
@@ -16,6 +16,8 @@ interface ToolCallsPanelProps {
   toolCalls: ToolCall[];
   // feat-439-M2: 整轮多段思考。与 toolCalls 按 seq merge 成一条「过程」时间线。
   thinking?: ThinkingSegment[];
+  /** feat-517: terminal task returns are independent process items, not tools. */
+  backgroundReturns?: BackgroundReturn[];
 }
 
 // feat-414: 抽共享工具，供单工具行与气泡耗时复用（message-pane.tsx import 它）。
@@ -32,7 +34,8 @@ export function formatDuration(ms: number): string {
 
 type ProcessItem =
   | { kind: "thinking"; segment: ThinkingSegment; key: string }
-  | { kind: "tool"; call: ToolCall; key: string };
+  | { kind: "tool"; call: ToolCall; key: string }
+  | { kind: "background-return"; value: BackgroundReturn; key: string };
 
 /**
  * feat-439-M2: 把整轮的思考段与工具调用按真实时序 merge 成一条流。
@@ -45,16 +48,29 @@ type ProcessItem =
  */
 function buildTimeline(
   toolCalls: ToolCall[],
-  thinking: ThinkingSegment[]
+  thinking: ThinkingSegment[],
+  backgroundReturns: BackgroundReturn[],
 ): ProcessItem[] {
   const items: { sortKey: number; item: ProcessItem }[] = [];
   for (const s of thinking) {
     items.push({ sortKey: s.seq, item: { kind: "thinking", segment: s, key: `think-${s.seq}` } });
   }
-  const LEGACY_BASE = 1e9; // 无 seq 的旧工具行排到末尾，保持彼此原顺序
-  toolCalls.forEach((c, i) => {
-    const sortKey = typeof c.seq === "number" ? c.seq : LEGACY_BASE + i;
+  const LEGACY_BASE = 1e9; // 无 seq 的历史行排到末尾，保持彼此原顺序
+  let legacyIndex = 0;
+  toolCalls.forEach((c) => {
+    const sortKey = typeof c.seq === "number" ? c.seq : LEGACY_BASE + legacyIndex++;
     items.push({ sortKey, item: { kind: "tool", call: c, key: `tool-${c.id}` } });
+  });
+  backgroundReturns.forEach((value) => {
+    const sortKey = typeof value.seq === "number" ? value.seq : LEGACY_BASE + legacyIndex++;
+    items.push({
+      sortKey,
+      item: {
+        kind: "background-return",
+        value,
+        key: `background-return-${value.task_id}`,
+      },
+    });
   });
   return items.sort((a, b) => a.sortKey - b.sortKey).map((entry) => entry.item);
 }
@@ -68,14 +84,22 @@ function buildTimeline(
  *
  * Dark-theme styling with expand/collapse animation (im-components.jsx).
  */
-export function ToolCallsPanel({ toolCalls, thinking }: ToolCallsPanelProps) {
+export function ToolCallsPanel({
+  toolCalls,
+  thinking,
+  backgroundReturns,
+}: ToolCallsPanelProps) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const segments = thinking ?? [];
-  if (toolCalls.length === 0 && segments.length === 0) return null;
+  const returns = backgroundReturns ?? [];
+  if (toolCalls.length === 0 && segments.length === 0 && returns.length === 0) return null;
   const anyRunning = toolCalls.some((c) => c.status === "running");
   // feat-439-M2 fix: 长对话避免每次渲染重排过程项。
-  const timeline = useMemo(() => buildTimeline(toolCalls, segments), [toolCalls, segments]);
+  const timeline = useMemo(
+    () => buildTimeline(toolCalls, segments, returns),
+    [toolCalls, segments, returns],
+  );
 
   // feat-434-M1: collapsed-state approval count suffix「K 次授权 · X 允许 · Y 拒绝」.
   // Audits "how many times the user approved" (bugfix-367 risk保住) without the old
@@ -116,6 +140,14 @@ export function ToolCallsPanel({ toolCalls, thinking }: ToolCallsPanelProps) {
             <span className="chat-tool-calls-sep">·</span>
             <span className="chat-process-think-count">
               {t("chat.messagePane.thinkingCount", { count: segments.length })}
+            </span>
+          </>
+        )}
+        {returns.length > 0 && (
+          <>
+            <span className="chat-tool-calls-sep">·</span>
+            <span className="chat-process-background-count">
+              {t("chat.messagePane.backgroundReturnCount", { count: returns.length })}
             </span>
           </>
         )}
@@ -163,8 +195,10 @@ export function ToolCallsPanel({ toolCalls, thinking }: ToolCallsPanelProps) {
               return timeline.map((item) =>
                 item.kind === "thinking" ? (
                   <ThinkingRow key={item.key} segment={item.segment} />
-                ) : (
+                ) : item.kind === "tool" ? (
                   <ToolCallRow key={item.key} call={item.call} defaultOpen={toolIndex++ === 0} />
+                ) : (
+                  <BackgroundReturnRow key={item.key} value={item.value} />
                 )
               );
             })()}
@@ -172,6 +206,132 @@ export function ToolCallsPanel({ toolCalls, thinking }: ToolCallsPanelProps) {
         </div>
       )}
     </div>
+  );
+}
+
+function BackgroundReturnField({ label, value }: { label: string; value: string }) {
+  if (!value) return null;
+  return (
+    <div className="chat-process-background-field">
+      <span className="chat-process-background-key">{label}</span>
+      <span className="chat-process-background-value">{value}</span>
+    </div>
+  );
+}
+
+function BackgroundReturnRow({ value }: { value: BackgroundReturn }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const failed = value.status === "failed" || value.status === "killed";
+  const stopped = value.status === "stopped";
+  const statusColor = failed
+    ? "oklch(0.55 0.15 25)"
+    : stopped
+      ? "oklch(0.65 0.14 75)"
+      : "oklch(0.55 0.18 145)";
+  const statusIcon = failed ? "✕" : stopped ? "■" : "●";
+  const rowStatus = failed ? "failed" : stopped ? "stopped" : "completed";
+  const sourceType = value.task_type === "workflow" ? "Workflow" : "Agent";
+  const sourceIdentity = value.task_type === "workflow"
+    ? value.workflow_run_id || value.description
+    : value.agent_id || value.description;
+  const statusLabel = t(`chat.messagePane.backgroundStatus.${value.status}`);
+
+  return (
+    <li className="chat-tool-call-item chat-process-item" data-testid="process-item">
+      <button
+        type="button"
+        className={`chat-tool-call-row chat-process-background-row chat-tool-call-row--${rowStatus}`}
+        onClick={() => setOpen((current) => !current)}
+        aria-expanded={open}
+        data-testid="process-background-return-toggle"
+      >
+        <span className="chat-tool-call-status-icon" style={{ color: statusColor }}>
+          {statusIcon}
+        </span>
+        <span className="chat-tool-call-name chat-process-background-name">
+          <span aria-hidden="true">↳</span>{" "}
+          {t("chat.messagePane.backgroundReturn")}
+        </span>
+        <span className="chat-tool-call-summary chat-process-background-summary">
+          {sourceType} {sourceIdentity} · {statusLabel}
+        </span>
+        {typeof value.duration_ms === "number" && (
+          <span className="chat-tool-call-duration">{formatDuration(value.duration_ms)}</span>
+        )}
+        <span className="chat-tool-call-arrow">{open ? "▾" : "▸"}</span>
+      </button>
+      {open && (
+        <div className="chat-tool-call-body chat-tool-call-body--open">
+          <div
+            className="chat-tool-call-body-inner chat-process-background-body"
+            data-testid="process-background-return-body"
+          >
+            <div className="chat-tool-call-section">
+              <span className="chat-tool-call-section-label">
+                {t("chat.messagePane.backgroundTaskLabel")}
+              </span>
+              <div className="chat-process-background-fields">
+                <BackgroundReturnField label="description" value={value.description} />
+                <BackgroundReturnField label="task_id" value={value.task_id} />
+                <BackgroundReturnField label="agent_id" value={value.agent_id ?? ""} />
+                <BackgroundReturnField
+                  label="workflow_run_id"
+                  value={value.workflow_run_id ?? ""}
+                />
+                <BackgroundReturnField label="status" value={value.status} />
+                <BackgroundReturnField
+                  label="duration_ms"
+                  value={typeof value.duration_ms === "number" ? String(value.duration_ms) : ""}
+                />
+                <BackgroundReturnField
+                  label="tool_use_count"
+                  value={typeof value.tool_use_count === "number" ? String(value.tool_use_count) : ""}
+                />
+              </div>
+            </div>
+            {value.result && (
+              <div className="chat-tool-call-section">
+                <span className="chat-tool-call-section-label">
+                  {t("chat.messagePane.backgroundRawResultLabel")}
+                </span>
+                <pre className="chat-tool-call-pre chat-process-background-raw">{value.result}</pre>
+              </div>
+            )}
+            {value.error && (
+              <div className="chat-tool-call-section">
+                <span className="chat-tool-call-section-label">
+                  {t("chat.messagePane.backgroundRawErrorLabel")}
+                </span>
+                <pre className="chat-tool-call-pre chat-process-background-error">{value.error}</pre>
+              </div>
+            )}
+            {value.usage && (
+              <div className="chat-tool-call-section">
+                <span className="chat-tool-call-section-label">
+                  {t("chat.messagePane.backgroundUsageLabel")}
+                </span>
+                <pre className="chat-tool-call-pre chat-process-background-raw">
+                  {JSON.stringify(value.usage, null, 2)}
+                </pre>
+              </div>
+            )}
+            {(value.output_file || value.diagnostics || value.resume_hint) && (
+              <div className="chat-tool-call-section">
+                <span className="chat-tool-call-section-label">
+                  {t("chat.messagePane.backgroundArtifactsLabel")}
+                </span>
+                <div className="chat-process-background-fields">
+                  <BackgroundReturnField label="output_file" value={value.output_file ?? ""} />
+                  <BackgroundReturnField label="diagnostics" value={value.diagnostics ?? ""} />
+                  <BackgroundReturnField label="resume_hint" value={value.resume_hint ?? ""} />
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </li>
   );
 }
 

@@ -1,4 +1,7 @@
-import type { AgentAllowlistOption } from "../../settings/agents/im-agent-config-api";
+import type {
+  AgentAllowlistOption,
+  AgentCommandOption,
+} from "../../settings/agents/im-agent-config-api";
 
 /**
  * feat-430: slash picker candidate model + pure assembly helpers.
@@ -12,6 +15,10 @@ export interface SlashCommandCandidate {
   kind: "command";
   name: string;
   description: string;
+  /** Group-only source label for a command scoped to one Agent session. */
+  fromAgents?: string[];
+  /** Agent to mention when selecting a group-scoped command. */
+  targetAgentId?: string;
 }
 
 export interface SlashSkillCandidate {
@@ -25,6 +32,41 @@ export interface SlashSkillCandidate {
 }
 
 export type SlashCandidate = SlashCommandCandidate | SlashSkillCandidate;
+
+export interface AgentCommandSource {
+  agentId: string;
+  agentDisplayName: string;
+  commands: ReadonlyArray<AgentCommandOption>;
+}
+
+/** Union already-authorized runtime commands across a conversation's agents. */
+export function buildSlashCommands(
+  perAgent: ReadonlyArray<AgentCommandSource>,
+): SlashCommandCandidate[] {
+  const byName = new Map<string, SlashCommandCandidate>();
+  const perAgentEffort: SlashCommandCandidate[] = [];
+  for (const { agentId, agentDisplayName, commands } of perAgent) {
+    for (const command of commands) {
+      if (command.name === "effort") {
+        perAgentEffort.push({
+          kind: "command",
+          ...command,
+          fromAgents: [agentDisplayName],
+          targetAgentId: agentId,
+        });
+        continue;
+      }
+      if (!byName.has(command.name)) {
+        byName.set(command.name, { kind: "command", ...command });
+      }
+    }
+  }
+  return [...byName.values(), ...perAgentEffort].sort(
+    (a, b) =>
+      a.name.localeCompare(b.name) ||
+      (a.fromAgents?.[0] ?? "").localeCompare(b.fromAgents?.[0] ?? ""),
+  );
+}
 
 /**
  * One conversation agent's enabled skills, ready for union/dedup.

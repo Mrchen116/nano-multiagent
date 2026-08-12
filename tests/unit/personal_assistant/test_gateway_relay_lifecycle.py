@@ -1290,6 +1290,233 @@ def test_direct_web_empty_completion_after_process_discards_provisional_message(
     assert manager.sent_frames[-1][1]["reason"] == "empty_visible_reply"
 
 
+def test_direct_web_opening_background_return_keeps_completed_message() -> None:
+    """An opening background return is visible content even without reply text."""
+    store = RunDeliveryContextStore()
+    context = store.seed_from_lifecycle(
+        routed=_relay_routed(conversation_id="direct-conv"),
+        update=RelayLifecycleUpdate(
+            phase="accepted",
+            agent_id="agent-a",
+            session_key="web:user-1:direct-conv:agent-a",
+            run_id="run-with-background-return",
+            kernel_session_id="sess-1",
+        ),
+        owner_user_id="owner-1",
+    )
+    assert context is not None
+
+    background_return = {
+        "task_id": "wt_123",
+        "task_type": "workflow",
+        "status": "completed",
+        "description": "review changes",
+        "workflow_run_id": "wf_123",
+        "result": {"summary": "2 findings"},
+    }
+    manager = _AckingIMManager(message_id="im-msg-with-background-return")
+    observer = _build_kernel_event_observer(
+        im_connection_manager_factory=lambda: manager,
+        run_context_store=store,
+    )
+
+    async def _exercise() -> None:
+        started = observer(
+            {
+                "event": "run_status",
+                "run_id": "run-with-background-return",
+                "status": "running",
+                "background_returns": [background_return],
+            }
+        )
+        assert asyncio.iscoroutine(started)
+        await started
+        ended = observer(
+            {
+                "event": "turn_end",
+                "run_id": "run-with-background-return",
+                "completed": True,
+            }
+        )
+        if asyncio.iscoroutine(ended):
+            await ended
+
+    asyncio.run(_exercise())
+
+    payloads = [payload for _, payload in manager.sent_frames]
+    assert payloads[0]["kind"] == "turn_start"
+    assert payloads[0]["background_returns"] == [background_return]
+    assert payloads[-1]["kind"] == "message_completed"
+    assert "message_discarded" not in {payload["kind"] for payload in payloads}
+    assert context.visible_reply_committed is True
+
+
+def test_direct_web_denied_workflow_keeps_terminal_tool_row() -> None:
+    """A denied Workflow has no running phase but remains visible as tool audit."""
+    store = RunDeliveryContextStore()
+    context = store.seed_from_lifecycle(
+        routed=_relay_routed(conversation_id="direct-conv"),
+        update=RelayLifecycleUpdate(
+            phase="accepted",
+            agent_id="agent-a",
+            session_key="web:user-1:direct-conv:agent-a",
+            run_id="run-workflow-denied",
+            kernel_session_id="sess-1",
+        ),
+        owner_user_id="owner-1",
+    )
+    assert context is not None
+    manager = _AckingIMManager(message_id="im-msg-workflow-denied")
+    observer = _build_kernel_event_observer(
+        im_connection_manager_factory=lambda: manager,
+        run_context_store=store,
+    )
+
+    async def _exercise() -> None:
+        started = observer(
+            {
+                "event": "run_status",
+                "run_id": "run-workflow-denied",
+                "status": "running",
+            }
+        )
+        assert asyncio.iscoroutine(started)
+        await started
+        observer(
+            {
+                "event": "tool_end",
+                "run_id": "run-workflow-denied",
+                "call_id": "workflow-call",
+                "name": "Workflow",
+                "arguments": {"script": "async def main(): pass"},
+                "reason_code": "denied",
+                "approval": "user_deny",
+                "error": "Permission denied by user",
+            }
+        )
+        await asyncio.sleep(0)
+        ended = observer(
+            {"event": "turn_end", "run_id": "run-workflow-denied", "completed": True}
+        )
+        if asyncio.iscoroutine(ended):
+            await ended
+        await asyncio.sleep(0)
+
+    asyncio.run(_exercise())
+
+    payloads = [payload for _, payload in manager.sent_frames]
+    kinds = [payload["kind"] for payload in payloads]
+    assert "tool_call_upserted" not in kinds
+    denied = next(
+        payload for payload in payloads if payload["kind"] == "tool_call_completed"
+    )
+    assert denied["tool_call"]["reason"] == "denied"
+    assert denied["tool_call"]["approval"] == "user_deny"
+    assert kinds[-1] == "message_completed"
+    assert "message_discarded" not in kinds
+
+
+def test_non_web_shadow_context_keeps_literal_reply_visibility() -> None:
+    """The direct Web fix must not broaden to arbitrary shadow transports."""
+    store = RunDeliveryContextStore()
+    context = store.seed_from_lifecycle(
+        routed=RoutedInbound(
+            message=InboundMessage(
+                channel_name="custom_relay",
+                text="literal protocol text",
+                external_user_id="user-1",
+                external_chat_id="custom-conv",
+                is_group=False,
+                agent_id="agent-a",
+            ),
+            shadow=GatewayShadowState(
+                saga_id="saga-1",
+                ref=ShadowConversationRef(
+                    conversation_id="shadow-conv-1",
+                    im_message_id="shadow-message-1",
+                ),
+            ),
+        ),
+        update=RelayLifecycleUpdate(
+            phase="accepted",
+            agent_id="agent-a",
+            session_key="custom:user-1:agent-a",
+            run_id="run-custom",
+            kernel_session_id="sess-1",
+        ),
+        owner_user_id="",
+    )
+
+    assert context is not None
+    assert context.visibility_policy is ReplyVisibilityPolicy.LITERAL_TEXT
+    assert context.discard_empty_completion is False
+
+
+def test_non_web_empty_completion_keeps_existing_completed_message_semantics() -> None:
+    """An empty external completion is not reclassified as direct-Web silence."""
+    store = RunDeliveryContextStore()
+    context = store.seed_from_lifecycle(
+        routed=RoutedInbound(
+            message=InboundMessage(
+                channel_name="custom_relay",
+                text="external request",
+                external_user_id="user-1",
+                external_chat_id="custom-conv",
+                is_group=False,
+                agent_id="agent-a",
+            ),
+            shadow=GatewayShadowState(
+                saga_id="saga-1",
+                ref=ShadowConversationRef(
+                    conversation_id="shadow-conv-1",
+                    im_message_id="shadow-message-1",
+                ),
+            ),
+        ),
+        update=RelayLifecycleUpdate(
+            phase="accepted",
+            agent_id="agent-a",
+            session_key="custom:user-1:agent-a",
+            run_id="run-custom-empty",
+            kernel_session_id="sess-1",
+        ),
+        owner_user_id="",
+    )
+    assert context is not None
+
+    manager = _AckingIMManager(message_id="im-msg-custom-empty")
+    observer = _build_kernel_event_observer(
+        im_connection_manager_factory=lambda: manager,
+        run_context_store=store,
+    )
+
+    async def _exercise() -> None:
+        started = observer(
+            {"event": "run_status", "run_id": "run-custom-empty", "status": "running"}
+        )
+        assert asyncio.iscoroutine(started)
+        await started
+        observer(
+            {
+                "event": "assistant_message",
+                "run_id": "run-custom-empty",
+                "message_id": "kernel-msg-custom-empty",
+                "content": "",
+                "reasoning_content": "External process detail.",
+                "group_id": "kernel-msg-custom-empty",
+            }
+        )
+        await asyncio.sleep(0)
+        observer({"event": "turn_end", "run_id": "run-custom-empty", "completed": True})
+        await asyncio.sleep(0)
+
+    asyncio.run(_exercise())
+
+    kinds = [payload["kind"] for _, payload in manager.sent_frames]
+    assert kinds[-1] == "message_completed"
+    assert "message_discarded" not in kinds
+
+
 def test_later_no_reply_preserves_preceding_real_bubble() -> None:
     """A final silence token must not discard an earlier visible assistant message."""
 

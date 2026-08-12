@@ -15,6 +15,7 @@ class BackgroundTaskStatus(StrEnum):
     COMPLETED = "completed"
     FAILED = "failed"
     KILLED = "killed"
+    STOPPED = "stopped"
 
 
 class BackgroundTaskType(StrEnum):
@@ -22,6 +23,7 @@ class BackgroundTaskType(StrEnum):
 
     SUBAGENT = "subagent"
     BASH = "bash"
+    WORKFLOW = "workflow"
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +39,7 @@ class BackgroundTaskRecord:
     parent_session_id: str
     agent_id: str | None = None
     agent_session_id: str | None = None
+    workflow_run_id: str | None = None
     description: str = ""
     prompt: str | None = None
     agent_type: str | None = None
@@ -53,6 +56,8 @@ class BackgroundTaskRecord:
     usage: Mapping[str, Any] | None = None
     tool_use_count: int | None = None
     duration_ms: int | None = None
+    diagnostics: str | None = None
+    resume_hint: str | None = None
     notified: bool = False
     # Captured at registration from the parent session's workspace_root so the
     # delivery path can locate the JSONL even when the session is idle (bugfix-404).

@@ -3,7 +3,7 @@
 from pathlib import Path
 import json
 
-from IM.domain.models import SystemNotice
+from IM.domain.models import BackgroundReturn, SystemNotice
 from IM.infra.db import connect, initialize_schema
 from IM.infra.repositories.agents import AgentProfileRepository
 from IM.infra.repositories.bindings import BindRepository
@@ -61,6 +61,60 @@ def test_message_roundtrip_keeps_order(tmp_path: Path) -> None:
     assert [item.id for item in listed] == [first.id, second.id]
     assert [item.content for item in listed] == ["hello", "world"]
     assert listed[0].delivery_status == "completed"
+
+
+def test_background_returns_roundtrip_deduplicates_and_share_process_sequence(
+    tmp_path: Path,
+) -> None:
+    """Background returns are message-owned process items keyed by task id."""
+    users, conversations, messages, _, _, _ = _build_repositories(tmp_path)
+    owner = users.create_user(username="owner", display_name="Owner")
+    conversation = conversations.create_conversation(
+        title="workflow", participant_ids=[owner.id]
+    )
+
+    created = messages.create_message(
+        conversation_id=conversation.id,
+        sender_user_id=owner.id,
+        sender_type="agent",
+        content="",
+        background_returns=[
+            BackgroundReturn(
+                task_id="wt-1",
+                task_type="workflow",
+                status="completed",
+                description="review changes",
+                workflow_run_id="wf-1",
+                result="raw result",
+                usage={"total_tokens": 42},
+                diagnostics="/tmp/wf-1",
+            ),
+            BackgroundReturn(
+                task_id="wt-1",
+                task_type="workflow",
+                status="completed",
+                description="duplicate replay",
+            ),
+            BackgroundReturn(
+                task_id="agent-1",
+                task_type="subagent",
+                status="failed",
+                description="verify api",
+                agent_id="verify-api",
+                error="contract mismatch",
+            ),
+        ],
+    )
+    updated = messages.append_thinking_segment(message_id=created.id, text="summarize")
+
+    listed = messages.list_messages(conversation_id=conversation.id)
+    assert [item.task_id for item in listed[0].background_returns or []] == [
+        "wt-1",
+        "agent-1",
+    ]
+    assert [item.seq for item in listed[0].background_returns or []] == [0, 1]
+    assert updated.thinking is not None and updated.thinking[0].seq == 2
+    assert listed[0].background_returns == created.background_returns
 
 
 def test_system_notice_roundtrip_event_and_retry_are_exactly_once(

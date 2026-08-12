@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Agent Capabilities Specification
 
-> 对齐: bugfix-525
+> 对齐: feat-517, bugfix-525
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -13,7 +13,7 @@ agent 模型选择、工具白名单、Skill 选择与发现、上下文窗口�
 
 ### Requirement: Agent 选定的模型在每次新回复开始时生效
 
-Gateway 在每次新回复开始时按 Agent 当前 `default_model` 选择模型；未选模型时回退产品层全局默认。这个结果是 Agent 的有效模型。有效模型声明可调推理能力时，Gateway 为该轮使用 Agent 已保存的 `reasoning_effort`；未保存时使用该模型配置的推荐 default。`default_model` 为空时也可以保存属于平台默认模型的 `reasoning_effort`，且不因此把 Agent 固定到该模型。既有聊天改模型或推理强度不创建空会话，模型与同代 prompt、skills、tools、features 一起生效并保留历史。已经开始的整轮及其采纳的插话继续使用启动时的完整配置。
+Gateway 在每次新回复开始时按 Agent 当前 `default_model` 选择模型；未选模型时回退产品层全局默认。这个结果是 Agent 的有效模型。有效模型声明可调推理能力时，Gateway 先使用 Agent 已保存的 `reasoning_effort` 或该模型推荐 default；若会话已有仍为该模型合法的 `/effort` override，则后者覆盖 baseline，不回写 Agent 配置。模型切换后不合法的 override 被清除而不近似替换；取消 Workflow 只关闭 ultracode mode，仍保留合法普通 override。`default_model` 为空时也可以保存属于平台默认模型的 `reasoning_effort`，且不因此把 Agent 固定到该模型。既有聊天改模型或推理强度不创建空会话，模型与同代 prompt、skills、tools、features 一起生效并保留历史。已经开始的整轮及其采纳的插话继续使用启动时的完整配置。
 
 #### Scenario: Agent 选定模型和推理强度后对话使用这一组配置
 - **GIVEN** 某 Agent 配置模型 B 和 B 支持的推理强度 H
@@ -399,3 +399,21 @@ Gateway 对 self-evolution review 成功产生的 `skill_created` 业务事件�
 - **GIVEN** config 某模型条目把 `context_window` 写成非正整数
 - **WHEN** 运维者用该模型经 Gateway 跑对话
 - **THEN** Gateway 不崩溃,按未声明处理回退内核默认上限
+
+### Requirement: Workflow 是 Agent 可选且默认关闭的完整能力
+
+#### Scenario: 能力列表提供 Workflow
+- **WHEN** IM 查询节点或 Agent 可选工具
+- **THEN** Gateway 报告 `Workflow` 为可选择、默认关闭的工具，并提供描述
+
+#### Scenario: 保存启用 Workflow
+- **WHEN** 用户把 `Workflow` 加入 Agent tool allowlist 并保存成功
+- **THEN** Agent 的下一轮完整采用 Workflow tool、prompt、commands 与 ultracode 入口
+
+#### Scenario: 保存禁用 Workflow
+- **WHEN** 用户从 Agent tool allowlist 移除 `Workflow` 并保存成功
+- **THEN** Agent 的下一轮完整移除相同能力，不保留 hidden Workflow prompt
+
+#### Scenario: 运行中配置更新
+- **WHEN** Agent 正在回复或已启动 Workflow 时保存新的 Workflow 工具选择
+- **THEN** 当前整轮及其 Workflow 保持启动时配置，下一轮整体采用新配置

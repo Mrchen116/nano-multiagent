@@ -120,6 +120,33 @@ export interface ThinkingSegment {
   text: string;
 }
 
+export type BackgroundTaskType = "subagent" | "workflow";
+export type BackgroundReturnStatus = "completed" | "failed" | "stopped" | "killed";
+
+/**
+ * feat-517: one terminal subagent/Workflow result attached to the assistant
+ * message that consumed its task notification. This is a third process item,
+ * not a ToolCall: result/error remain the background task's unmodified values.
+ */
+export interface BackgroundReturn {
+  task_id: string;
+  task_type: BackgroundTaskType;
+  status: BackgroundReturnStatus;
+  description: string;
+  agent_id?: string | null;
+  workflow_run_id?: string | null;
+  result?: string | null;
+  error?: string | null;
+  usage?: Record<string, unknown> | null;
+  tool_use_count?: number | null;
+  duration_ms?: number | null;
+  output_file?: string | null;
+  diagnostics?: string | null;
+  resume_hint?: string | null;
+  /** Shared per-message process sequence assigned by IM persistence. */
+  seq?: number | null;
+}
+
 export interface TokenUsage {
   output: number;
   context_used: number;
@@ -152,6 +179,8 @@ export interface Message {
   tool_calls?: ToolCall[];
   /** feat-439-M2: 整轮多段思考（过程时间线）。undefined = 无思考 / 旧行（不留空壳）。 */
   thinking?: ThinkingSegment[];
+  /** feat-517: terminal background task returns displayed as process items. */
+  background_returns?: BackgroundReturn[];
   token_usage?: TokenUsage | null;
   /** feat-414: 本轮 agent 处理墙钟（毫秒）。用户消息及旧行为 undefined / null。 */
   elapsed_ms?: number | null;
@@ -236,8 +265,8 @@ export function classifyConversationKind(c: Pick<Conversation, "type" | "direct_
 
 export type WsEvent =
   | { type: "agent.config.changed"; seq?: number; id: string; conversation_id: string; agent_id: string; before_message_id: string; applied_at: string }
-  | { type: "message.created"; seq?: number; conversation_id: string; message_id: string; sender_user_id: string; sender_type: string; sender?: Actor | null; sender_display_name?: string | null; content: string; attachments?: Attachment[]; tool_calls: ToolCall[]; thinking?: ThinkingSegment[]; token_usage: TokenUsage | null; delivery_status: DeliveryStatus; created_at: string; system_notice?: SystemNotice | null }
-  | { type: "message.reconciled"; seq?: number; conversation_id: string; message_id: string; sender_user_id: string; sender_type: string; sender?: Actor | null; sender_display_name?: string | null; content: string; attachments: Attachment[]; tool_calls: ToolCall[]; thinking: ThinkingSegment[]; token_usage: TokenUsage | null; delivery_status: Extract<DeliveryStatus, "completed" | "failed">; created_at: string; elapsed_ms: number | null; kernel_message_id: string | null; permission_requests?: PermissionRequest[] }
+  | { type: "message.created"; seq?: number; conversation_id: string; message_id: string; sender_user_id: string; sender_type: string; sender?: Actor | null; sender_display_name?: string | null; content: string; attachments?: Attachment[]; tool_calls: ToolCall[]; thinking?: ThinkingSegment[]; background_returns?: BackgroundReturn[]; token_usage: TokenUsage | null; delivery_status: DeliveryStatus; created_at: string; system_notice?: SystemNotice | null }
+  | { type: "message.reconciled"; seq?: number; conversation_id: string; message_id: string; sender_user_id: string; sender_type: string; sender?: Actor | null; sender_display_name?: string | null; content: string; attachments: Attachment[]; tool_calls: ToolCall[]; thinking: ThinkingSegment[]; background_returns?: BackgroundReturn[]; token_usage: TokenUsage | null; delivery_status: Extract<DeliveryStatus, "completed" | "failed">; created_at: string; elapsed_ms: number | null; kernel_message_id: string | null; permission_requests?: PermissionRequest[] }
   | { type: "message.delta"; seq?: number; conversation_id: string; message_id: string; delta_text: string }
   | { type: "message.completed"; seq?: number; conversation_id: string; message_id: string; content: string; token_usage: TokenUsage | null; delivery_status?: Extract<DeliveryStatus, "completed" | "failed">; elapsed_ms?: number | null; kernel_message_id?: string | null }
   | { type: "message.discarded"; seq?: number; conversation_id: string; message_id: string; reason: string }

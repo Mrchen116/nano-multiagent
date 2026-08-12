@@ -7,6 +7,8 @@ class RunOrigin(StrEnum):
     """Source of run initiation."""
 
     USER = "user"
+    HUMAN = "human"
+    WORKFLOW = "workflow"
     BACKGROUND_TASK = "background_task"
     HEARTBEAT = "heartbeat"
     # feat-394-M7 R5-1 fix: cron runs are unattended isolated executions;
