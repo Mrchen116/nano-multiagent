@@ -70,3 +70,60 @@ None.
 
 - `src/agent/core/agent/liveness.py:1-18` 仍写“three windows / two ... produce no business events”，`src/agent/core/agent/liveness.py:94` 的 source 示例也只有 `llm` / `permission`。本 unit 已加入第四个 `compaction` await，建议同步更新模块/API docstring，避免长期契约注释继续描述旧窗口集合。
 
+# Round 2
+
+## Verification Report: bugfix-536
+
+### Summary
+
+Mode: targeted-closure
+Delta range: `dc3173750ccbb329003fe3110ff838819e6b36e6..17994ef0fb69f4425a62a29fd039e9047d195efb`
+Focus issues: CRITICAL-1 recovery successor failure without a new suffix leaves the session busy; Round 1 product issue exact `/new` does not isolate the old conversation transcript
+requires_full_verification: false
+
+> The supplied pre-fix SHA had one extra trailing character; this round normalized it to the actual first parent `dc3173750ccbb329003fe3110ff838819e6b36e6` of `17994ef0f`.
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 2/2 |
+| Correctness | 2/2 |
+| Coherence | Followed |
+
+All checks passed. Ready for PR.
+
+## Targeted Closure
+
+| Focus issue | Implementation / contract evidence | Test / scenario evidence | Status |
+|---|---|---|---|
+| CRITICAL-1: failed adopted successor with no new suffix leaves the logical active marker busy | `src/personal_assistant/gateway/session_run_coordinator.py:2311-2341` now closes `claim.run_id` after nested handoff proves that no suffix was adopted. The cleanup remains inside the recovery owner that knows the successor identity and leaves the existing suffix re-handoff path unchanged. | `tests/unit/personal_assistant/test_recovery_handoff_coordinator.py:184-220` asserts root and follower each fail once, `is_session_busy()` becomes false, and a later ordinary message submits and replies. Focused rerun passed. | closed |
+| Round 1 product issue: exact `/new` must isolate the old conversation transcript | Existing production code already creates a fresh Kernel session in `GatewaySessionBinder.prepare_reset()` (`src/personal_assistant/gateway/session_binder.py:318-330`), atomically publishes that new binding from `SessionRunCoordinator.new_session()` (`src/personal_assistant/gateway/session_run_coordinator.py:491-585`), and dispatch resolves the published binding. The M2 delta correctly makes no speculative reset-source change because no current reuse path was found. | `tests/integration/test_session_run_coordinator_reset.py:64-123` uses the real Kernel and inspects the actual second model request: session id changes, the following turn uses the published new id, and the old sentinel is absent. Existing parser/control coverage plus the recorded isolated Web IM public-relay journey in `M2-fix-recovery-closure/progress.md:53-65` confirms exact `/new`, distinct fresh JSONL, and `UNKNOWN`, while non-exact `/new ...` retains the old context. Focused rerun passed. | closed |
+
+The Round 1 live result and Round 2 result differ despite no reset-source delta. That does not leave a current implementation route open: the deterministic request-level regression proves the old transcript is absent at the model boundary, and the independent public Web IM journey proves the same property through the user ingress. A source change made only to satisfy the earlier report would be unsupported by the current route evidence.
+
+## Relevant Contract and Scenario Evidence
+
+- Incident control boundary: `incident.md:38-40,84-88` requires exact `/new` to reopen without old context while non-exact text remains ordinary input. The real-Kernel regression and Web IM journey cover both sides.
+- Design recovery closure: `design.md:81-105` requires the logical active marker and FIFO to release after a failed successor with no further suffix. The new cleanup and regression match this owner/state transition.
+- Gateway delta failure closure: `specs/gateway/routing-delivery.md:13-18` requires unrecoverable followers to fail once and release the session. The new regression observes terminal lifecycle and subsequent admission.
+- No architecture drift was introduced: the only source delta stays in the shared `personal_assistant` coordinator, adds no `agent.core` import, creates no Feishu-specific path, and preserves the existing Kernel SDK / Gateway / IM dependency direction.
+
+## Validation
+
+- Focused closure and exact-control suite: `9 passed, 15 deselected in 2.69s`.
+- M1+M2 aggregate: `160 passed, 1 failed in 11.97s`; the sole failure was the pre-existing thread-gated structured-image steer test, outside this delta. Its immediate isolated rerun passed, then it passed again alongside both closure tests (`3 passed in 2.35s`), so it is not evidence of a stable regression from this patch.
+- Changed-source Ruff: passed.
+- `git diff --check dc3173750..17994ef0f`: passed.
+
+## Issues
+
+### CRITICAL
+
+None.
+
+### WARNING
+
+None.
+
+### SUGGESTION
+
+None in the targeted delta. Round 1's non-blocking liveness-docstring suggestion was outside this round's focus and remains recorded above.
