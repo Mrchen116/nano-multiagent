@@ -49,7 +49,8 @@ verifier 与 code review 的结论都是判断输入；结合完整上下文核�
 3. 不亲自实现 milestone。一个实现型 milestone 只交给一个 `change-impl-worker`；无依赖且无
    写冲突的 milestone 默认并行。
 4. 不设置 harness 自动 worktree isolation。为 worker 分配明确路径，由 worker 按自身 skill
-   创建和清理 worktree。
+   创建和清理 worktree。orchestrator 直接创建或接管的临时 worktree 由自己收尾，不按目录名称
+   通配清理其他 unit。
 5. 不改写已确认的首文档或关键设计决策。可追加实施期 Changelog / fix milestone 记录、校正
    delta-spec，并在收尾归并 canonical spec；需要改变需求、范围或设计决策时退回对应 author。
 6. reviewer、verifier 和 code-review finder/verifier 必须独立于实现判断，只按各自 skill
@@ -59,8 +60,10 @@ verifier 与 code review 的结论都是判断输入；结合完整上下文核�
 8. 同一 issue 经 5 个有效修复轮仍未关闭，或同一 unit 经 7 个有效验收轮仍未收口，停止并交人。
 9. final sync、门禁有效性判断、canonical spec 归并、本地 CI、完整归档、PR 和远端 CI 都是
    交付组成部分；required CI 未绿不得报告完成。
-10. 完成、暂停、升级和失败退出前都清理由本 unit 启动的进程。正常完成时删除 unit worktree；
-    阻塞时保留可恢复 worktree、日志和数据，不用 destructive reset 掩盖现场。
+10. 完成、暂停、升级和失败退出前都清理由本 unit 启动的进程。正常完成时删除 unit worktree，
+    并按本次实际路径核对临时 worktree 已由其 owner 清理；仅用户明确要求保留测试现场时例外，
+    并在交付中列明路径、理由和后续清理触发。阻塞时保留可恢复 worktree、日志和数据，不用
+    destructive reset 掩盖现场。
 
 ## 输入与状态恢复
 
@@ -328,6 +331,7 @@ deployment 等高风险变化，或影响边界无法说清时，对所有适用
 - 所有适用 gate 对最终状态都有可追溯的有效结论；
 - canonical spec 与实际行为一致，整个 unit 已归档；
 - PR 已创建且 required CI 全绿；
-- 主仓 checkout 未受影响，本 unit 运行时资源已清理。
+- 主仓 checkout 未受影响，本 unit 运行时资源和 worktree 已清理，或交付中明确列出了用户要求
+  保留的测试现场。
 
 输出 PR URL、最终 head、有效门禁摘要和需要人审查的已知事项。CI 绿即退出，不等待 merge。

@@ -41,7 +41,8 @@ checkout 中已有的分支、修改和未跟踪文件。
 ## 组织实施
 
 - 根据任务本身决定直接实现还是使用 subagent，以及拆分、顺序、并行度、工作区、提交和
-  交接方式。
+  交接方式。每个实际创建的 worktree 由创建者负责收尾；主 Agent 收尾 unit worktree 与本流程
+  直接创建或接管的其他工作区。
 - 把 milestone 当作必须完成的交付目标；逐条满足其范围和退出标准。
 - 自行管理协作中的写入冲突与集成，最终状态统一落在 unit 分支。
 - 自行选择实施记录的形式；记录范围、关键决策、design 偏差、测试、真实入口证据和相关
@@ -144,8 +145,9 @@ verifier subagent，不得省略为自我审查。验收 subagent 只按各自 s
    然后等待 required CI checks 全绿。仅当用户明确要求提前查看未完成 diff 时，才可先创建
    Draft 作为中间产物；交付条件全部满足后必须执行 `gh pr ready`，再等待 required CI。
    CI 失败时先定位根因并修复，再复验受 delta 影响的闸；更新 PR 中对应的 head 和验证状态。
-8. CI 全绿后清理由本 unit 创建的运行时资源和临时 worktree，输出 PR URL。未获用户明确
-   授权时不合并 PR。
+8. CI 全绿后清理由本 unit 创建的运行时资源和临时 worktree，并按本次实际路径用
+   `git worktree list` 核对没有遗留。仅用户明确要求保留测试现场时例外，并在交付中列明路径、
+   理由和后续清理触发。输出 PR URL；未获用户明确授权时不合并 PR。
 
 ## 完成条件
 
@@ -157,6 +159,7 @@ verifier subagent，不得省略为自我审查。验收 subagent 只按各自 s
 - 所有适用门禁对最终状态各有有效结论，所有成立且阻塞交付的 finding 已关闭；
 - canonical spec 已按实际行为同步，整个 unit 已归档；
 - PR 已创建且 required CI checks 全绿；
-- 主仓 checkout 未受影响，本 unit 启动的运行时资源已清理。
+- 主仓 checkout 未受影响，本 unit 启动的运行时资源和 worktree 已清理，或交付中明确列出了
+  用户要求保留的测试现场。
 
 若被阻塞，报告已完成范围、阻塞原因、证据和可恢复现场。
