@@ -1552,14 +1552,44 @@ class SessionRunCoordinator:
         """Atomically stop steer admission and capture every accepted follower."""
 
         async with self._transition(session_key):
-            active = self._active_runs.get(session_key)
-            if active is not None and active.run_id == run_id:
-                self._active_runs.pop(session_key, None)
-            self._user_interrupted_runs.discard(run_id)
-            self._reset_suppressed_runs.discard(run_id)
-            self._consumed_steer_counts.pop(run_id, None)
-            return tuple(
-                follower.request for follower in self._steered_requests.pop(run_id, ())
+            return self._close_active_run_locked(
+                session_key=session_key,
+                run_id=run_id,
+            )
+
+    def _close_active_run_locked(
+        self, *, session_key: str, run_id: str
+    ) -> tuple[InboundRunRequest, ...]:
+        """Close an active run while its session transition lock is held."""
+
+        active = self._active_runs.get(session_key)
+        if active is not None and active.run_id == run_id:
+            self._active_runs.pop(session_key, None)
+        self._user_interrupted_runs.discard(run_id)
+        self._reset_suppressed_runs.discard(run_id)
+        self._consumed_steer_counts.pop(run_id, None)
+        return tuple(
+            follower.request for follower in self._steered_requests.pop(run_id, ())
+        )
+
+    async def _close_failed_successor_without_suffix(
+        self, *, session_key: str, run_id: str
+    ) -> tuple[InboundRunRequest, ...] | None:
+        """Close a failed successor only when no unconsumed follower can re-handoff.
+
+        ``None`` means an admitted suffix exists and recovery retains the logical
+        owner. A follower admitted before close is returned for the caller's
+        exactly-once failed lifecycle.
+        """
+
+        async with self._transition(session_key):
+            consumed = self._consumed_steer_counts.get(run_id, 0)
+            accepted = self._steered_requests.get(run_id, [])
+            if accepted[consumed:]:
+                return None
+            return self._close_active_run_locked(
+                session_key=session_key,
+                run_id=run_id,
             )
 
     async def _emit_follower_lifecycle(
@@ -2309,18 +2339,33 @@ class SessionRunCoordinator:
                     )
                 anchor = claim.followers[0].request
                 if terminal_state.get("status") != "completed":
+                    failed = RelayLifecycleUpdate(
+                        phase="failed",
+                        agent_id=anchor.agent.agent_id,
+                        session_key=anchor.session_key,
+                        run_id=claim.run_id,
+                        error="recovery successor did not complete",
+                    )
                     await self._emit_follower_lifecycle(
                         tuple(item.request for item in claim.followers),
-                        RelayLifecycleUpdate(
-                            phase="failed",
-                            agent_id=anchor.agent.agent_id,
-                            session_key=anchor.session_key,
-                            run_id=claim.run_id,
-                            error="recovery successor did not complete",
-                        ),
+                        failed,
                     )
                     self._recovery_handoffs.pop(predecessor_run_id, None)
                     ledger.close()
+                    terminal_followers = (
+                        await self._close_failed_successor_without_suffix(
+                            session_key=request.session_key,
+                            run_id=claim.run_id,
+                        )
+                    )
+                    if terminal_followers is not None:
+                        # The suffix decision and active-marker close share one
+                        # transition lock. A follower admitted before that point is
+                        # captured here and must receive a terminal lifecycle.
+                        await self._emit_follower_lifecycle(terminal_followers, failed)
+                        raise RecoveryHandoffError(
+                            "recovery successor did not complete"
+                        )
                     nested = await self._await_recovery_handoff(
                         stream=stream,
                         predecessor_run_id=claim.run_id,
@@ -2331,13 +2376,6 @@ class SessionRunCoordinator:
                     )
                     if nested is not None:
                         return nested
-                    # The nested owner had no newly accepted suffix to adopt, so the
-                    # terminal successor remains the current active marker. Close it
-                    # here; the outer turn only knows its original predecessor id.
-                    await self._close_active_run(
-                        session_key=request.session_key,
-                        run_id=claim.run_id,
-                    )
                     raise RecoveryHandoffError("recovery successor did not complete")
                 state.completed_run_ids.add(claim.run_id)
                 accepted_during_successor = await self._close_active_run(
