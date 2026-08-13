@@ -181,6 +181,46 @@ async def test_corrupt_handoff_fails_once_and_releases_session(tmp_path: Path) -
 
 
 @pytest.mark.asyncio
+async def test_failed_adopted_successor_without_suffix_releases_session(
+    tmp_path: Path,
+) -> None:
+    (
+        coordinator,
+        kernel,
+        catalog,
+        router,
+        message,
+        primary,
+        lifecycle,
+        _,
+    ) = await _admitted_recovery(tmp_path)
+    _push_old_terminal(kernel)
+    _push_successor(kernel, pending_ids=["pending-1"])
+    _push_settlement(kernel)
+    kernel.push("run-1", {"event": "run_status", "run_id": "run-2", "status": "failed"})
+
+    with pytest.raises(RecoveryHandoffError, match="successor did not complete"):
+        await primary
+
+    session_key = build_session_key(message, agent_id="agent-a")
+    assert not coordinator.is_session_busy(session_key)
+    assert [(text, phase) for text, phase, _ in lifecycle if phase == "failed"] == [
+        ("primary", "failed"),
+        ("follow-1", "failed"),
+    ]
+
+    later = asyncio.create_task(
+        coordinator.dispatch(_request(replace(message, text="ordinary next"), catalog))
+    )
+    await kernel.wait_stream("run-2")
+    kernel.finish("run-2", text="ordinary reply")
+    assert (await later).reply_text == "ordinary reply"
+    channel = router._registry.get("web_relay")  # noqa: SLF001
+    assert channel is not None
+    assert [item.text for item in channel.sent] == ["ordinary reply"]
+
+
+@pytest.mark.asyncio
 async def test_new_message_during_adopted_successor_stays_same_run(
     tmp_path: Path,
 ) -> None:

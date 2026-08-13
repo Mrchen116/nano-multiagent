@@ -2331,6 +2331,13 @@ class SessionRunCoordinator:
                     )
                     if nested is not None:
                         return nested
+                    # The nested owner had no newly accepted suffix to adopt, so the
+                    # terminal successor remains the current active marker. Close it
+                    # here; the outer turn only knows its original predecessor id.
+                    await self._close_active_run(
+                        session_key=request.session_key,
+                        run_id=claim.run_id,
+                    )
                     raise RecoveryHandoffError("recovery successor did not complete")
                 state.completed_run_ids.add(claim.run_id)
                 accepted_during_successor = await self._close_active_run(
