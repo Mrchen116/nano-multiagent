@@ -37,10 +37,11 @@ ssh mini                  # Host mini -> 100.88.34.122, user czj, id_rsa 免密
 | 机器 | 角色 | 生产运行代码 | LLM 代理 |
 |---|---|---|---|
 | Mac mini | IM + Gateway `mac-mini` + SearXNG | 主仓 `~/Repos/nano-multiagent` 的 `main` | `~/Repos/LLM_Bridge`（:4000） |
-| 本机 | Gateway `macbook-air` only | `~/Repos/nano-multiagent/.worktrees/prod-main-<short-sha>`，detached 于最新 `origin/main` | `~/Repos/LLM_PROXY`（:4000） |
+| 本机 | Gateway `macbook-air` only | 唯一保留的 `~/Repos/nano-multiagent/.worktrees/prod-main-<short-sha>`，detached 于已验证的最新 `origin/main` | `~/Repos/LLM_PROXY`（:4000） |
 
 - **mini 是生产主仓**：在 `~/Repos/nano-multiagent` 的 `main` 上 `git pull --ff-only`，IM 和 mini Gateway 都从该主仓启动。根目录可保留运行时未跟踪目录（如 `data/`、`.worktrees/`），但不得有会阻塞快进的已跟踪改动。
 - **macbook-air 不从主仓运行生产 Gateway**：本机主仓可能有用户脏改动，部署只在主仓执行 `git fetch origin`；再创建或复用一个 `prod-main-<short-sha>` worktree，令其 detached 于 `origin/main` 的精确 SHA，并从那个 worktree 重启 Gateway。不要在本机主仓运行 `git pull` 或 Gateway。
+- **production worktree 只保留当前部署版本**：旧 `prod-main-*` 是上一次本机 Gateway 的运行目录，必须等新 worktree 已重启 Gateway 且完成下方验证清单后再回收。验证通过后，删除所有干净的旧 `prod-main-*` 并执行 `git worktree prune`；若旧目录有未提交内容则保留并报告，不能强删。不得清理其他用途的 worktree。
 - production worktree 共用主仓的 `.venv`；从 worktree 启动时显式使用 `~/Repos/nano-multiagent/.venv/bin/python`，不要在 worktree 创建或提交虚拟环境。
 
 两个 ssh 坑：
@@ -117,9 +118,10 @@ ssh mini 'cd ~/Repos/nano-multiagent && \
 # ——— 本机 ———
 # 6. 只 fetch 本机主仓；不要在这里 pull 或启动生产 Gateway
 cd ~/Repos/nano-multiagent && git status -sb && git fetch origin
+repo_root=$PWD
 target=$(git rev-parse origin/main)
 short=$(git rev-parse --short "$target")
-prod_worktree="$PWD/.worktrees/prod-main-$short"
+prod_worktree="$repo_root/.worktrees/prod-main-$short"
 if [[ -e "$prod_worktree" ]]; then
   [[ $(git -C "$prod_worktree" rev-parse HEAD) == "$target" ]] || {
     print -u2 -r -- "existing production worktree is not $target: $prod_worktree"
@@ -142,6 +144,18 @@ cd ~/Repos/LLM_PROXY && nohup .venv/bin/python start_proxy.py --ui >> nohup.out 
 cd "$prod_worktree" && \
   SEARXNG_URL=http://100.88.34.122:8888 PYTHONPATH=src \
   ~/Repos/nano-multiagent/.venv/bin/python -m personal_assistant.main restart
+
+# 10. 先完成下方验证清单，确认本机 Gateway 已从 $prod_worktree 健康运行，
+#     再回收干净的旧 production worktree。不得用 --force，也不得碰其他 worktree。
+for stale_worktree in "$repo_root"/.worktrees/prod-main-*; do
+  [[ -d "$stale_worktree" && "$stale_worktree" != "$prod_worktree" ]] || continue
+  if [[ -n "$(git -C "$stale_worktree" status --porcelain)" ]]; then
+    print -u2 -r -- "keeping non-clean stale production worktree: $stale_worktree"
+    continue
+  fi
+  git -C "$repo_root" worktree remove "$stale_worktree"
+done
+git -C "$repo_root" worktree prune
 ```
 
 ## 局部动作（用户指定时只做这些）
