@@ -4,9 +4,9 @@
 
 ## Summary
 
-Mode: full  
-Delta range: N/A  
-Focus issues: N/A  
+Mode: full<br>
+Delta range: N/A<br>
+Focus issues: N/A<br>
 requires_full_verification: false
 
 | 维度 | 结果 |
@@ -209,3 +209,46 @@ None.
 
 - `src/agent/core/agent/liveness.py:1-18,94` 仍把 await-bound liveness 描述为旧的 “three windows / two silent windows”，且 source 示例漏掉 `compaction`。更新 docstring 为当前四类窗口并加入 `compaction`，避免实现与维护注释长期漂移。
 - `docs/changes/bugfix-536-feishu-steer-recovery/M3-fix-recovery-concurrency/tasks.md:1-31` 缺少 `docs/development/testing.md:95` 强制要求的“测试策略 / 受影响既有测试处置”段。补记为何新的 concurrency 文件是该竞态的最低 owner、与既有 recovery 测试不重复，以及 admission/terminal/control 测试的 keep 处置。
+
+# Round 4
+
+## Verification Report: bugfix-536
+
+### Summary
+
+Mode: targeted-closure
+Delta range: `307a31be30b25a2fdb0c24b7ce35fef0799a4961..61de64ca69f21e6af48fb78eeed0fa55e72ad2d4`
+Focus issues: WARNING-1 final unit tree failed CI-required `ruff format --check .`
+requires_full_verification: false
+
+> Validation snapshot: `84b386b42 → 61de64ca69f21e6af48fb78eeed0fa55e72ad2d4`
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 1/1 |
+| Correctness | 1/1 |
+| Coherence | Followed |
+
+All checks passed. Ready for PR.
+
+## Targeted Closure
+
+| Focus issue | Implementation / contract evidence | Validation | Status |
+|---|---|---|---|
+| WARNING-1: final unit tree failed the CI-required Ruff format gate | M4 mechanically formatted only `src/personal_assistant/gateway/inbound_models.py` and `tests/contract/test_kernel_sdk_behavior_contract.py`; the remaining Python delta in `src/agent/core/agent/liveness.py` is documentation text only. M4 also records the prior verifier suggestions in the M3/M4 task documentation without changing runtime behavior, tests, design, or delta-spec. | At `61de64ca69f21e6af48fb78eeed0fa55e72ad2d4`, `ruff format --check .` reports `953 files already formatted`. The M4 evidence records `64 passed`, scoped Ruff lint, docs check, and clean M4 diff. | closed |
+
+M4 is mechanical formatting and documentation text only. It does not alter the recovery implementation, public contract, or user-observable behavior, so the Round 3 full behavior conclusions remain valid and no user journey re-evaluation is required.
+
+## Issues
+
+### CRITICAL
+
+None.
+
+### WARNING
+
+None.
+
+### SUGGESTION
+
+None. Both Round 3 suggestions were also closed by M4 documentation updates.
