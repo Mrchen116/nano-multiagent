@@ -40,12 +40,25 @@
   - Prototype Comparison: N/A。
 - Debug note: 首版对 `anext(stream)` 使用 `wait_for`，idle timeout 会取消并关闭 async generator，导致 terminal 后恢复事件永远不可达；改为保留 stream owner，并以 event/control task 的 FIRST_COMPLETED 等待。adopt 后 same-run steer 的 controlled Kernel 还需显式模拟 Kernel active successor；测试据此修正 fake，而非更改产品逻辑。
 - Rollback: 回退本 R commit。
-- Commits: pending。
+- Commits: `350e42f24 fix(bugfix-536/M1/R2): 接管恢复交付链`。
 - Next: R3 final gates and integration。
 
 ## R3 — 跨层入口回归与交付门禁
 
-- Status: TODO
+- Context: R1/R2 的最低 owner 已绿，收尾需把整个 M1 Kernel/SDK/Gateway/delivery seam 同时回归，并以真实 Kernel 固化产品入口接线。
+- Decision: integration regression 使用真实 `build_kernel()`、真实 binder、common `SessionRunCoordinator.dispatch()` 与 router，仅 LLM provider/channel 为 deterministic test double；不以 mock-only successor 作为跨层证据。
+- Evidence:
+  - Tests: M1 focused aggregate — 159 passed in 10.60s。
+  - Static: scoped `ruff check` — all checks passed；`python scripts/docs_check.py` — 220 maintained Markdown sources / 70 required routes passed；`git diff --check` — passed。
+  - Entry: real Kernel predecessor cancel 自动发布 terminal、continuation descriptor 和 settlement；Gateway adopted follower 得到 `continued without resend`，channel 只收到一次，下一轮 request transcript 含原 follower。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression: `tests/integration/test_session_run_coordinator_recovery.py` — 1 passed；未连接真实飞书租户，外部 ACK/receipt 副作用由 runtime-delivery unit owner 验证。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 依次回退 R3、R2、R1 commit。
+- Commits: pending。
+- Next: commit final evidence, integrate unit branch, clean worker worktree。
 
 ## Promotion Candidates
 
