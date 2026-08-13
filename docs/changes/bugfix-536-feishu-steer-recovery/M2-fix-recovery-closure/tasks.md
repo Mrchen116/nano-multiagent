@@ -9,10 +9,10 @@
 
 ## 退出标准
 
-- [ ] adopted successor 非 completed 且没有未消费 follower suffix 时，root 与 follower 恰好各终态一次，active/busy 清空，下一条普通消息可提交并回复。
-- [ ] successor 仍有 suffix 时继续 recovery handoff；`/stop`、`/new`、shutdown 的既有围栏与无重复投递不变。
-- [ ] 精确 `/new` 后普通消息由新 Kernel transcript 执行，不含前一会话用户/助手上下文；非精确 `/new ...` 仍作为普通输入。
-- [ ] 相关 unit、真实 Kernel integration、M1 aggregate 与隔离 Web IM 真栈路径通过。
+- [x] adopted successor 非 completed 且没有未消费 follower suffix 时，root 与 follower 恰好各终态一次，active/busy 清空，下一条普通消息可提交并回复。
+- [x] successor 仍有 suffix 时继续 recovery handoff；`/stop`、`/new`、shutdown 的既有围栏与无重复投递不变。
+- [x] 精确 `/new` 后普通消息由新 Kernel transcript 执行，不含前一会话用户/助手上下文；非精确 `/new ...` 仍作为普通输入。
+- [x] 相关 unit、真实 Kernel integration、M1 aggregate 与隔离 Web IM 真栈路径通过。
 
 ## 测试策略
 

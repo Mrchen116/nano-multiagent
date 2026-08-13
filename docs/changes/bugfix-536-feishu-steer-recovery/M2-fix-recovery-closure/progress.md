@@ -46,6 +46,23 @@
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: 回退本 roadpoint commit 即移除 regression；没有对应 production source 变更。
+- Commits: `52317cd69`（real-Kernel reset regression）
+
+## R4 — Aggregate、静态检查与真栈复验
+
+- Context: M2 同时关闭 recovery closure 代码缺陷与 Round 1 exact `/new` 产品回归报告；需要确认 M1 全范围没有退化，并以共同 Gateway/IM 入口复验用户命令边界。
+- Decision: 扩展 M1 aggregate 纳入 reset integration，运行 docs/static/diff checks，并在同一 shell 生命周期内起隔离真栈后执行 old-secret → nonexact `/new ...` → exact `/new` → fresh query。
+- Rationale: live Gateway children 会在命令会话结束时被环境清理，所以起栈、验证与 `e2e-down.sh` 必须同一 shell；静态 reset test 锁定可重复的 transcript 不变量，真栈锁定用户可见入口。
+- Evidence:
+  - Tests: M1 aggregate 加 M2 reset integration：`161 passed in 11.58s`。
+  - Entry: isolated conversation `0c07d72b488f45688c597afe8d705a8a`；nonexact `/new please…` 回 `M2FINAL1EB8BBABD7`，exact `/new` 回 `已开始新会话。`，fresh session `sess_050904d571dd6819` transcript 无旧 secret，后续回 `UNKNOWN`。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A；Web IM REST relay 是该用户路径的真实公共 ingress，非前端渲染变更。
+  - E2E/Regression: `scripts/e2e-up.sh --wt` + IM public REST journey passed；trap 执行 `scripts/e2e-down.sh --wt`，无遗留 PID/runtime 文件。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+  - Static: Ruff check passed；Ruff format check passed；`scripts/docs_check.py` passed（224 maintained Markdown sources, 70 required routes）；`git diff --check origin/unit/bugfix-536...HEAD` passed。
+- Rollback: 回退 M2 commits `88ebc2e93` 与 `52317cd69`（以及本 evidence commit）即可回到 pre-fix behavior。
 - Commits: pending
 
 ## Promotion Candidates
