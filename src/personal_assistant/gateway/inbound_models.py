@@ -197,9 +197,7 @@ class PipelineResult:
 class RelayLifecycleUpdate:
     """Describe one relay-visible execution milestone emitted by the pipeline."""
 
-    phase: Literal[
-        "accepted", "recovery_adopted", "running", "completed", "failed"
-    ]
+    phase: Literal["accepted", "recovery_adopted", "running", "completed", "failed"]
     agent_id: str
     session_key: str
     run_id: str | None = None
