@@ -12,14 +12,14 @@ follower ledger without settlement.
 
 ## Exit criteria
 
-- [ ] Linearize the unconsumed-suffix decision and terminal successor close under
+- [x] Linearize the unconsumed-suffix decision and terminal successor close under
   the session transition owner.
-- [ ] Preserve re-handoff when an unconsumed suffix already exists; preserve
+- [x] Preserve re-handoff when an unconsumed suffix already exists; preserve
   normal same-run steering and explicit control/shutdown fences.
-- [ ] Add a deterministic regression that holds dispatch preparation inside the
+- [x] Add a deterministic regression that holds dispatch preparation inside the
   transition lock, accepts a concurrent follower, and proves exactly-one
   terminal lifecycle, released busy state, and a following normal reply.
-- [ ] Run focused recovery tests, the M1/M2 aggregate, static/doc checks, and a
+- [x] Run focused recovery tests, the M1/M2 aggregate, static/doc checks, and a
   relevant isolated Gateway/Web IM public-path smoke.
 
 ## Plan
