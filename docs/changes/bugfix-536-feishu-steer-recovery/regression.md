@@ -156,3 +156,88 @@
 - [x] `docs/specs/<包>/`（长青行为契约层）：**仍需按 Round 1 结论在收尾归并既有 delta-spec**；Round 2 没有新增契约增量。
 - [x] `AGENTS.md` / `CLAUDE.md`：**无需更新**。
 - [x] `docs/specs/CONTRIBUTING.md`（文档规范）：**无需更新**。
+
+---
+
+# Round 3 — 2026-08-13
+
+> Validation snapshot: `84b386b42 → 97c1ec3f1160724f276af8ca20f64558ddb144fc`
+>
+> Revalidation mode: `full`
+>
+> Fix delta reviewed as product scope: `fa4fd446facb1ee0b3a9b7f5c34272e53f13f279..97c1ec3f1160724f276af8ca20f64558ddb144fc`
+
+## Verdict
+
+- **Verdict**: `pass`
+- **Highest Required Action**: `pass`
+- M3 改动共享并发 recovery closure 后，本轮未继承上一轮结论，重新走完全部 incident 用户场景与显式控制边界。
+- 隔离真栈在约 245k-token 输入上触发自动压缩，压缩中追加消息没有误报失败，最终只出现一次非空回复；随后同一聊天继续消息仍保留压缩前上下文。
+- 真正中断前已接受 follower 的恢复、恢复后的继续、Web IM 与外部入口 ACK/terminal 语义均通过；M3 的极窄并发窗口只作为补充确定性证据使用。
+
+## Reference Artifacts Reviewed
+
+- 无原型、设计稿或视觉 must-match 契约；本轮以 `incident.md` 的全部 Requirement/Scenario、范围与非目标，`design.md` 的 Reviewer Runbook，以及隔离 Web IM 时间线为验收真值。
+
+## User Journeys Exercised
+
+1. **自动压缩中追加并继续**：隔离 IM + Gateway 真栈接收 480,112 字符长上下文，模型侧首次输入约 245k tokens；Agent 气泡仍为 `running` 时追加普通消息，等待压缩和续聊结算，再在同一聊天发送下一条普通消息。
+2. **真正中断后的可见接管**：真实 Kernel + common Gateway coordinator 确定性中断 predecessor；在已接受、未消费 follower 的条件下验证无需重发、一次终态、一次可见回复，并验证 adopted successor 与失败收口后的下一条消息仍可继续。
+3. **控制命令边界**：真栈建立一次性口令，验证非精确 `/stop ...`、`/new ...` 都是普通输入；在运行中发送精确 `/stop`，确认停止且无迟到正文；两个独立 agent/workspace 验证精确 `/new` 不携带本轮旧 transcript。
+4. **共同入口与 M3 并发补充**：真 Web IM relay 入口验证正常回复；common external delivery 契约验证首次 Feishu ingress ACK、recovery adoption 不产生第二次 ACK/sent receipt；确定性锁竞争旅程补验并发 follower 仅一次结算。
+
+## 验收标准覆盖
+
+### Requirement: 聊天中追加的消息在活跃但安静的阶段仍正常继续
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 自动压缩期间追加消息 | `incident.md` 目标状态与 Scenario | 隔离 IM + Gateway 真栈，经 Web IM 客户端使用的 REST relay 入口发送长上下文，1 秒后追加普通消息，结算后继续同一聊天 | conversation `7e3b4ad56fd84e43b9569de6cde34cf3`；root `d982a9...`、supplement `922be4...` 均 `completed`；旧 provisional Agent 气泡 `5cebae...` 为空正文 `completed`、未误报 failed；唯一非空续聊 `629dc2...` 为 `R3-COMPACT-SUPPLEMENT-PASS`；`cache_total_input_tokens=251804`、压缩后 `context_used=6340`；后续 `cdf4fa...` → `8425b1...` 回复 `R3-CONTINUE-PASS` | `pass` | 压缩等待约 48 秒；补充消息无需重发、无超时或重复回复，继续消息仍使用压缩前标记。 |
+
+### Requirement: 真正中断后，已接收的后续消息仍有一次可见的继续结果
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 中断前已接收补充消息 | `incident.md` 目标状态与 Scenario | 真实 Kernel + common Gateway coordinator 的确定性中断/恢复旅程；外部 delivery no-second-ACK 契约 | `test_real_kernel_recovery_handoff_delivers_accepted_follower_once`、`test_correlated_successor_delivers_once_and_terminalizes_all_followers`、`test_recovery_adopted_seeds_context_without_second_ack_or_sent_receipt` 均通过 | `pass` | predecessor 在消息已接受、未消费时终止；补充消息无需重发，仅一次 terminal 和可见回复。未连接真实飞书 tenant。 |
+| 中断后的下一条正常消息 | `incident.md` 目标状态与 Scenario | adopted successor 期间继续普通消息；failed successor 无 suffix 收口后再发消息；真栈压缩续聊后继续 | `test_new_message_during_adopted_successor_stays_same_run`、`test_failed_adopted_successor_without_suffix_releases_session` 均通过；真栈 `cdf4fa...` → `8425b1...` 为 `completed/R3-CONTINUE-PASS` | `pass` | 恢复链与失败收口均释放/续接正确，用户无需重建聊天。 |
+
+### Requirement: 所有 Gateway 聊天入口体验一致
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 从不同入口继续同一聊天 | `incident.md` 目标状态与 Scenario；派发约束“不访问真飞书生产 tenant” | Web IM 隔离真栈 + common runtime-delivery 外部 ingress 契约 | Web IM conversations `7e3b4a...`、`ded422...`、`aecc97...` 正常 relay/持久化；`test_relay_lifecycle_accepted_acks_feishu_message_processing_started` 与 recovery adopted no-second-ACK/no-second-receipt 均通过 | `pass` | common Gateway 行为一致；飞书只核共用入口/投递 seam，不连接或修改真实租户。 |
+
+### Requirement: 显式控制命令语义保持不变（范围与非目标）
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 非精确 `/stop ...` 与 `/new ...` 是普通输入 | `incident.md` 澄清 Q4、范围与非目标 | 隔离 Web IM + Gateway 真栈，在已建立一次性口令的同一聊天分别发送两种非精确文本 | conversation `ded422bf6d664edaa3bb5ce21da79bf3`：`b9f7ae...` → `e2cfe6...`、`a283a3...` → `a5065f...`，两次均 `completed`、回复 `R3CTRL-玉衡-81X`、tool calls 0 | `pass` | 两条都没有触发控制确认文案或丢失当前上下文。 |
+| 精确 `/stop` 停止当前运行 | `incident.md` 范围与非目标 | 真栈先发起静默长操作，再发送精确 `/stop`，额外等待 12 秒检查迟到输出 | run request `8ce32c...` 的 provisional Agent 气泡 `8fe5fe...` 空正文 `completed`；`/stop` `c31c20...` → `3a77d1...` 回复 `已停止当前操作。`；未出现 `SHOULD-NOT-ARRIVE` | `pass` | 停止优先，旧运行没有迟到正文。 |
+| 精确 `/new` 重开且不带当前旧 transcript | `incident.md` 澄清 Q4、范围与非目标；Round 1 Issue 1 | 两个独立 agent/workspace 建立只存在当前 transcript 且 tool calls 0 的一次性口令，再精确 `/new` 后冷询问 | e2e conversation `ded422...` 未返回本轮 `R3CTRL-玉衡-81X`；e2e-peer conversation `aecc9799ad8f4ae19655b6abba19baca`：旧口令 `R3PEER-天枢-94Q`、`/new` 回复 `已开始新会话。`、冷询问回复 `UNKNOWN`，tool calls 0 | `pass` | 第一个长期使用过的隔离 workspace 冷询问答了一个历史 R2 测试词，但没有泄漏本轮旧 transcript；第二个独立 workspace 给出无歧义 `UNKNOWN`。该观察不作为 `/new` transcript 隔离失败。 |
+
+## M3 并发补充证据
+
+- `test_lock_held_accepted_follower_is_terminalized_at_failed_successor_close` 通过：锁竞争中先被接受的 follower 只收到一次 terminal，并能进入后续恢复。
+- 本轮相关 10 个用例整体结果：`10 passed in 2.36s`，覆盖 compaction parent liveness、真实 Kernel 恢复、一次交付、failed-successor 释放、adopted successor 继续、`/stop`/`/new` recovery fence、外部 ACK/receipt 与 M3 并发。
+- 该确定性旅程仅补足难以稳定人工卡点的极窄交错；用户可观察主路径仍由上述隔离真栈与真实 Kernel/common Gateway 旅程给出。
+
+## 复验方法控制
+
+- 严格使用 Runbook：先停再起隔离服务；IM `http://127.0.0.1:57892`，Gateway PID `99909` 的 cwd 为 unit worktree，首页 bundle 为 `index-C_9quz9B.js`。
+- 未使用生产端口、生产 IM、个人 Gateway config 或真实飞书 tenant；隔离栈使用 worktree config、随机 secret、独立 DB/node/workspace。
+- 长期使用过的 e2e workspace 在 `/new` 冷询问中回了历史 R2 测试词；因本轮口令未泄漏，且第二个独立 e2e-peer workspace 无歧义返回 `UNKNOWN`，该结果被保留为方法观察，不用它替代第二次独立验证。
+
+## Issues
+
+- 无。
+
+## Side Findings
+
+- 无。
+
+## 上层文档同步
+
+- [x] `SPEC.md`（跨包顶点架构）：**无需更新**；包边界、依赖方向与部署拓扑未变化。
+- [x] `docs/specs/<包>/`（长青行为契约层）：**仍需在 orchestrator 收尾按最终实现归并本 unit 的三份 delta-spec**；Round 3 没有新增契约增量。
+- [x] `AGENTS.md` / `CLAUDE.md`：**无需更新**；开发路由与架构红线未变化。
+- [x] `docs/specs/CONTRIBUTING.md`（文档规范）：**无需更新**；本 unit 未改变文档体系。
