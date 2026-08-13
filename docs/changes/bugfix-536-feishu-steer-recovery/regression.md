@@ -92,3 +92,67 @@
 - [x] `AGENTS.md` / `CLAUDE.md`：**无需更新**；开发路由与架构红线未变。
 - [x] `docs/specs/CONTRIBUTING.md`（文档规范）：**无需更新**；本 unit 没有修改文档体系。
 
+---
+
+# Round 2 — 2026-08-13
+
+> Validation snapshot: `84b386b42 → 17994ef0fb69f4425a62a29fd039e9047d195efb`
+>
+> Revalidation mode: `targeted`
+
+## Verdict
+
+- **Verdict**: `pass`
+- **Highest Required Action**: `pass`
+- Round 1 Issue 1 已关闭：两个独立隔离 Web IM 直聊都证明非精确 `/new ...` 是保留当前上下文的普通输入；精确 `/new` 显示“已开始新会话”后，针对仅存在于重开前会话且从未持久化的临时口令询问均只回复 `UNKNOWN`。
+- fix delta 同时触及恢复链收口，因此补跑受影响的恢复旅程；已接收 follower 的一次可见恢复与失败 successor 后释放聊天均通过，上一轮其余覆盖结论继续继承。
+
+## Reference Artifacts Reviewed
+
+- 无原型、设计稿或视觉 must-match 契约；本轮继续以 `incident.md` 的精确 `/new` 非目标约束、`design.md` 的 Reviewer Runbook、Round 1 Issue 1 和隔离真栈消息时间线为验收真值。
+
+## User Journeys Exercised
+
+1. **独立聊天 A 的命令边界与冷上下文**：在隔离 Web IM + Gateway 真栈中将 `雪瓷-R2-4PMD` 仅放入当前会话，确认无工具调用；发送非精确 `/new please...` 得到该口令；发送精确 `/new` 后，询问仅存在于重开前会话且从未持久化的口令，得到 `UNKNOWN`。
+2. **独立聊天 B 重复复现**：用新口令 `琉璃-R2-7XVN` 重复“仅当前会话 → 非精确 `/new later...` → 精确 `/new` → 冷上下文询问”，得到相同结果。
+3. **受 fix delta 影响的恢复链**：补跑真实 Kernel + common Gateway 的 accepted follower 恢复旅程，以及 failed adopted successor 无 suffix 后释放聊天、下一条普通消息可继续的旅程。
+
+## 验收标准覆盖（Round 2 targeted update）
+
+### Requirement: 显式控制命令语义保持不变（Round 1 Issue 1）
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 精确 `/new` 重开且不带旧会话上下文 | `incident.md` 范围与非目标；Round 1 Issue 1 | 两个独立隔离 Web IM + Gateway 真栈直聊；口令仅放入当前 session，确认 Agent 回复无 tool call；精确 `/new` 后询问该未持久化口令 | conversation A `307570b53bf5430c9080b29167578060`：`/new` `3d8d182c...` → `已开始新会话。` `5cca453b...` → 冷询问 `94e9e79d...` → `UNKNOWN` `7b441bb2...`；conversation B `000b1655bbf8459ba85667fdc3e6f4fd`：`/new` `df898dcf...` → 确认 `6161d2e0...` → 冷询问 `374b1d9f...` → `UNKNOWN` `03ac7b8a...` | `pass` | 两个新 sentinel 均未被工具或持久记忆保存；旧会话口令未出现在重开后的回复。 |
+| 非精确 `/new ...` 仍是普通输入 | `incident.md` 澄清 Q4 与范围/非目标 | 在每个精确 `/new` 之前发送带额外文本的 `/new ...`，要求回当前 session 口令 | conversation A：`/new please...` `38fbbe07...` → `雪瓷-R2-4PMD` `8f128ba6...`；conversation B：`/new later...` `9a0ec145...` → `琉璃-R2-7XVN` `31a77738...`；四条均 `completed`，Agent tool call 数为 0 | `pass` | 两种非精确形式均未触发“已开始新会话”，且保留原上下文。 |
+
+### Requirement: 真正中断后，已接收的后续消息仍有一次可见的继续结果
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 中断前已接收补充消息；恢复失败收口后下一条普通消息仍可继续 | `incident.md` 对应两个 Scenario；fix delta `dc3173750ccbb329003fe3110ff838819e6b36e6..17994ef0fb69f4425a62a29fd039e9047d195efb` | 真实 Kernel + common Gateway 恢复集成旅程；受影响的 failed successor/no-suffix 旅程 | `test_real_kernel_recovery_handoff_delivers_accepted_follower_once` 与 `test_failed_adopted_successor_without_suffix_releases_session`：`2 passed in 2.35s` | `pass` | fix delta 触及该收口路径，因此本轮重新验证；上一轮同 Requirement 其余证据继续继承。 |
+
+### 其余 Round 1 覆盖
+
+- `自动压缩期间追加消息`、`中断后的下一条正常消息`、`从不同入口继续同一聊天`：Round 1 均为 `pass`；本轮 targeted fix 未要求重跑其完整长上下文或外部 channel 旅程，结论继承。
+
+## 复验方法控制
+
+- 一个预探针曾触发 Agent 主动调用 memory 工具写入隔离测试 workspace，因此该探针被剔除，未计入 `/new` 隔离结论。
+- 两个有效 sentinel 的建立、非精确命令回复和精确命令后的冷询问均显示 `tool_calls=[]`；冷询问明确限定“只存在于 `/new` 前当前 IM 会话、从未写入持久记忆”，避免把长期记忆与 session transcript 混为一谈。
+- 按派发约束未连接真实飞书或生产；Web IM 使用客户端同一公开 REST relay 入口，隔离栈由 `scripts/e2e-up.sh --wt` 启动并由 `scripts/e2e-down.sh --wt` 清理，端口 `63993`、PID 文件与监听均已释放。
+
+## Issues
+
+- 无。Round 1 Issue 1 已由两次独立真栈复验关闭。
+
+## Side Findings
+
+- 无。
+
+## 上层文档同步
+
+- [x] `SPEC.md`（跨包顶点架构）：**无需更新**；本轮没有发现新的跨包行为或边界变化。
+- [x] `docs/specs/<包>/`（长青行为契约层）：**仍需按 Round 1 结论在收尾归并既有 delta-spec**；Round 2 没有新增契约增量。
+- [x] `AGENTS.md` / `CLAUDE.md`：**无需更新**。
+- [x] `docs/specs/CONTRIBUTING.md`（文档规范）：**无需更新**。
