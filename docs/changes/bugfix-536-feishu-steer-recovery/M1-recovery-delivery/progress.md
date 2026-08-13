@@ -53,12 +53,12 @@
   - Entry: real Kernel predecessor cancel 自动发布 terminal、continuation descriptor 和 settlement；Gateway adopted follower 得到 `continued without resend`，channel 只收到一次，下一轮 request transcript 含原 follower。
   - Frontend State Matrix: N/A。
   - Browser QA: N/A。
-  - E2E/Regression: `tests/integration/test_session_run_coordinator_recovery.py` — 1 passed；未连接真实飞书租户，外部 ACK/receipt 副作用由 runtime-delivery unit owner 验证。
+  - E2E/Regression: `tests/integration/test_session_run_coordinator_recovery.py` — 1 passed。隔离真 IM + 真 Gateway 栈从 Web IM REST 发入 `请只回复这句话：bugfix-536 真栈验收通过`，`relay_tasks` 以 `completed/completed` 结算并记录同文 reply，IM `messages` 写入一条 `sender_type=agent`、`delivery_status=completed` 的 `bugfix-536 真栈验收通过`；端口 `59484` 与 PID 均已清理。未连接真实飞书租户，Feishu ACK/receipt 副作用由 common runtime-delivery owner 验证。
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: 依次回退 R3、R2、R1 commit。
-- Commits: pending。
-- Next: commit final evidence, integrate unit branch, clean worker worktree。
+- Commits: `aa12e0ad2 test(bugfix-536/M1/R3): 固化恢复链验收证据`，integration merge `a81424471`；真栈补充证据见后续 milestone evidence commit。
+- Next: milestone complete。
 
 ## Promotion Candidates
 
