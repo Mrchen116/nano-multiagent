@@ -1111,7 +1111,9 @@ async def test_non_user_terminal_publishes_correlated_recovery_protocol(
         assert len(continuation_indexes) == 3
         assert terminal_index < continuation_indexes[0] < settlement_index
 
-        continuations = [events[index]["continuation"] for index in continuation_indexes]
+        continuations = [
+            events[index]["continuation"] for index in continuation_indexes
+        ]
         recovery_ids = {continuation["recovery_id"] for continuation in continuations}
         assert len(recovery_ids) == 1
         assert all(

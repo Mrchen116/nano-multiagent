@@ -16,12 +16,37 @@
   its task record lacks the required testing strategy and affected-test
   disposition. M4 documents that ownership without changing test behavior.
 
-## R2 — in progress
+## R2 — 2026-08-13: exact hygiene changes
 
-- Pending exact formatter invocation, docstring/task-record updates, and
-  focused validation.
+- Ran repository Ruff's formatter on exactly the two named paths. Its only
+  mechanical changes collapse the `RelayLifecycleUpdate.phase` `Literal` and
+  wrap the contract-test continuation comprehension; no other file was passed
+  to the formatting command.
+- Updated only `liveness.py` documentation: the module now names long tool,
+  non-stream LLM, permission, and parent-compaction waits, distinguishes the
+  execution-update projection from direct heartbeats, and includes
+  `"compaction"` in the `liveness_ticker` source examples. Runtime code is
+  unchanged.
+- Added the missing M3 testing strategy and affected-test table. It assigns the
+  lock-held admission-wins interleaving to
+  `test_recovery_handoff_concurrency.py`; the existing coordinator tests retain
+  distinct no-suffix terminal/release, normal same-run, and control/shutdown
+  responsibilities.
 
-## R3 — pending
+## R3 — 2026-08-13: gates
 
-- Pending mandatory full formatter gate, lint, focused tests, docs/diff checks,
-  integration, push, and worker cleanup.
+- Focused tests:
+  `pytest -q tests/unit/test_liveness_ticker.py tests/unit/test_loop_compact.py
+  tests/contract/test_kernel_sdk_behavior_contract.py
+  tests/unit/personal_assistant/test_recovery_handoff_coordinator.py
+  tests/unit/personal_assistant/test_recovery_handoff_concurrency.py` →
+  `64 passed in 3.18s`.
+- Required gates: `ruff format --check .` → `953 files already formatted`;
+  `ruff check` on the three changed Python files passed;
+  `scripts/docs_check.py` → `228 maintained Markdown sources, 70 required
+  routes`; `git diff --check` passed.
+- FL reuse: as the original M1–M3 worker, omitted a red test and a fresh
+  runtime smoke because this M4 has only mechanical formatting and stale
+  documentation corrections; focused existing tests and the full formatter
+  gate protect the affected seams.
+- Pending commit, unit integration/push, and worktree/branch cleanup.
