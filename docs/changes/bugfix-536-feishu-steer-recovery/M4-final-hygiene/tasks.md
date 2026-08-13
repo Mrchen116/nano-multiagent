@@ -23,4 +23,4 @@ and complete the M3 test-strategy record without expanding the approved unit.
 |---|---|---|
 | R1 — establish scope and baseline formatter drift | done | `progress.md` R1 |
 | R2 — apply mechanical formatting and documentation hygiene | done | `progress.md` R2 |
-| R3 — run gates, integrate, and clean worker resources | doing | pending |
+| R3 — run gates, integrate, and clean worker resources | done | `progress.md` R3 |
