@@ -7,10 +7,13 @@ most recent stream event, so each window needs a bounded heartbeat path rather t
 being mistaken for a true stall.
 
 ``execution_update_ticker`` covers tools through the existing execution-update
-projection. ``liveness_ticker`` emits ``run_heartbeat`` directly for the LLM,
-permission, and compaction awaits. Every ticker starts only while its guarded await
-is in flight and stops when that await returns, raises, or is cancelled; it proves
-progress through the wait without masking a genuine deadlock.
+projection. LLM iteration uses ``_with_liveness_heartbeat`` and its
+``liveness_ticker``; parent-run compaction uses ``liveness_ticker`` directly.
+Permission waiting owns the same ``_emit_liveness_heartbeats`` mechanism in its
+runtime broker, where it manually starts, cancels, and drains the task. Every owner
+starts a ticker only while its guarded await is in flight and stops it when that await
+returns, raises, or is cancelled; it proves progress through the wait without masking
+a genuine deadlock.
 
 Kept in ``core`` (no platform import): the caller injects a ``publish`` callable that
 routes to the platform event hub via the hook context's session event publisher.
@@ -79,18 +82,21 @@ async def liveness_ticker(
     source: str,
     interval: float = DEFAULT_LIVENESS_HEARTBEAT_INTERVAL_SECONDS,
 ) -> AsyncIterator[None]:
-    """Run a background heartbeat ticker for the duration of the ``async with`` body.
+    """Run an LLM or compaction heartbeat for the ``async with`` body.
 
-    The ticker is cancelled (and drained) on exit regardless of how the body leaves —
-    normal return, exception, or CancelledError — so it can never outlive the await it
-    was guarding. A no-op when ``publish`` or ``run_id`` is missing (e.g. CLI without a
-    session event hub), so callers need not branch on availability.
+    ``_with_liveness_heartbeat`` owns this wrapper for LLM iteration, and the parent
+    compaction caller uses it directly. Permission waits use the same underlying
+    emitter but own task lifecycle in the runtime broker. This ticker is cancelled and
+    drained on exit regardless of how the body leaves — normal return, exception, or
+    CancelledError — so it can never outlive the guarded await. It is a no-op when
+    ``publish`` or ``run_id`` is missing (for example, a CLI without a session event
+    hub), so these owners need not branch on availability.
 
     Args:
         publish: ``(event_name, payload)`` callable routing to the session event hub.
         run_id: Run the heartbeat is attributed to; required to be useful.
-        source: Liveness source tag (``"llm"`` / ``"permission"`` /
-            ``"compaction"``) for observability.
+        source: Liveness source tag (``"llm"`` / ``"compaction"``) for
+            observability; the permission owner calls the underlying emitter directly.
         interval: Seconds between heartbeats; must be ≪ watchdog timeout.
     """
     if publish is None or not run_id:
