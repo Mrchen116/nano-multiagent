@@ -27,5 +27,5 @@ follower ledger without settlement.
 | Step | Status | Evidence |
 |---|---|---|
 | R1 — establish baseline and lock ownership | done | `progress.md` R1 |
-| R2 — implement owner-level atomic closure and regression | doing | pending |
-| R3 — validate, integrate, and clean isolated runtime/worktree | todo | pending |
+| R2 — implement owner-level atomic closure and regression | done | `progress.md` R2 |
+| R3 — validate, integrate, and clean isolated runtime/worktree | done | `progress.md` R3 |

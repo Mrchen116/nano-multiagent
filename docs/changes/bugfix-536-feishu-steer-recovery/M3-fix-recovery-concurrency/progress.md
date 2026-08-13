@@ -16,11 +16,47 @@
   successor and capture every follower. A dispatch admitted first becomes a
   re-handoff suffix; a dispatch after closure becomes a normal queued turn.
 
-## R2 — in progress
+## R2 — 2026-08-13: atomic close and deterministic race
 
-- Pending implementation and deterministic lock-held regression.
+- Added `_close_active_run_locked()` and
+  `_close_failed_successor_without_suffix()` in the coordinator. The latter
+  checks the unconsumed successor suffix and closes/captures the active run
+  while still holding the same transition lock used by `dispatch()`.
+- The failed-successor owner emits a terminal failure for every captured
+  concurrent follower. If a dispatch completed admission first, the helper
+  instead returns `None` and preserves the existing nested re-handoff path.
+- Added `test_recovery_handoff_concurrency.py`. Its blocking image resolver
+  holds `dispatch()` inside transition preparation while the successor receives
+  its failed terminal event. The dispatch then calls `try_steer()` and appends
+  its follower before releasing the lock. The test drives a valid `run-3`
+  recovery descriptor/settlement and asserts the racing follower has exactly
+  one accepted and one completed lifecycle, no duplicate terminal, released
+  busy state, and a following ordinary reply. The existing M2 no-suffix test
+  remains the failure-settlement companion.
+- Focused recovery validation:
+  `pytest -q tests/unit/personal_assistant/test_recovery_handoff.py
+  tests/unit/personal_assistant/test_recovery_handoff_coordinator.py
+  tests/unit/personal_assistant/test_recovery_handoff_concurrency.py
+  tests/integration/test_session_run_coordinator_recovery.py` →
+  `14 passed in 2.55s`.
+- M1/M2 aggregate plus this regression:
+  `pytest -q` over the named compaction, Kernel pending/terminal/registry,
+  SDK contract, coordinator admission/terminal/steer/lifecycle/recovery,
+  real-Kernel recovery/reset suites → `162 passed in 13.56s`.
 
-## R3 — pending
+## R3 — 2026-08-13: validation and true-stack smoke
 
-- Pending focused/aggregate/static checks, isolated true-stack smoke,
-  integration, push, and worker cleanup.
+- `ruff check` and `ruff format --check` for the changed coordinator/test files
+  passed. `scripts/docs_check.py` passed (`226 maintained Markdown sources,
+  70 required routes`), and both baseline-to-HEAD and working-tree
+  `git diff --check` were clean.
+- Isolated true stack: `scripts/e2e-up.sh --wt` started IM on `53689` and
+  Gateway pid `76807`; the public Web IM REST relay created conversation
+  `85de0bffec0542849e6b232400c0004c` and received the exact normal reply
+  `M3-SMOKE-CFA12398`. `scripts/e2e-down.sh --wt` ran through the shell trap;
+  no `.im.pid`, `.gateway.pid`, or `.e2e-ports.env` remained. This smoke proves
+  the common user entry still replies; the rare successor interleaving remains
+  covered by the deterministic coordinator test above.
+- No approved design or delta-spec changed: the fix only linearizes the existing
+  Gateway logical-owner rule from Design Decision 3.
+- Pending commit, unit-branch integration/push, and worktree/branch cleanup.
