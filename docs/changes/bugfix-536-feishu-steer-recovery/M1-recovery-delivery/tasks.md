@@ -41,13 +41,13 @@
 
 ### R1 — 父 run liveness 与 Kernel recovery protocol
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 红测 compaction heartbeat、opaque pending id、multi-origin batch descriptor、old-terminal-first 与 exactly-once settlement；最小实现 run-control/registry/SDK contract。
 - 验证: focused unit + contract tests；`agent.sdk` surface contract。
 
 ### R2 — Gateway recovery ledger 与 delivery adoption
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 红测 prefix/suffix、valid/corrupt/duplicate/late recovery、logical active marker、typed adoption、ACK/receipt/final delivery count 与 control/shutdown 收口；实现 ledger 并接入 coordinator/runtime delivery。
 - 验证: focused coordinator/lifecycle unit tests。
 

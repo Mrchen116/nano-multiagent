@@ -29,6 +29,7 @@ from agent.sdk import (
     LLMConfig,
     LLMModel,
     LLMProvider,
+    RunOrigin,
     build_kernel,
 )
 from agent.core.llm.interfaces import LLMMessage, LLMToolCall
@@ -1039,7 +1040,104 @@ async def test_try_steer_active_run_reuses_existing_run(tmp_path: Path) -> None:
         assert steered is not None
         assert steered.injected is True
         assert steered.run_id == active.run_id
+        assert steered.pending_id is not None
+        assert steered.pending_id.startswith("pending_")
         assert set(kernel._c.runs_registry._runs) == runs_before  # noqa: SLF001
+    finally:
+        gate.set()
+        kernel.close()
+
+
+async def test_non_user_terminal_publishes_correlated_recovery_protocol(
+    tmp_path: Path,
+) -> None:
+    """SDK stream closes an accepted steer handoff without consumer inference."""
+
+    gate = threading.Event()
+    kernel = _build_kernel(tmp_path, _llm_client_override=_ThreadGatedClient(gate))
+    try:
+        session = await kernel.create_session(workspace_root=tmp_path)
+        active = kernel.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "long task"}],
+            workspace_root=tmp_path,
+        )
+        await _wait_for_run_status(kernel, active.run_id, "running")
+        steered = [
+            kernel.try_steer(
+                session_id=session.session_id,
+                parts=[{"type": "text", "text": text}],
+                origin=origin,
+                expected_run_id=active.run_id,
+            )
+            for text, origin in (
+                ("recover user one", RunOrigin.USER),
+                ("recover background", RunOrigin.BACKGROUND_TASK),
+                ("recover user two", RunOrigin.USER),
+            )
+        ]
+        assert all(item is not None and item.pending_id for item in steered)
+
+        kernel.cancel(active.run_id)
+        events: list[dict[str, Any]] = []
+        try:
+            async with asyncio.timeout(3):
+                async for event in kernel.stream(
+                    session.session_id, after_sequence=active.start_sequence
+                ):
+                    events.append(event)
+                    if event.get("event") == "recovery_settled":
+                        break
+        except TimeoutError:
+            pytest.fail(f"recovery settlement missing; observed events={events!r}")
+
+        terminal_index = next(
+            index
+            for index, event in enumerate(events)
+            if event.get("event") == "run_status"
+            and event.get("run_id") == active.run_id
+            and event.get("status") == "cancelled"
+        )
+        continuation_indexes = [
+            index
+            for index, event in enumerate(events)
+            if event.get("event") == "run_status" and event.get("continuation")
+        ]
+        settlement_index = next(
+            index
+            for index, event in enumerate(events)
+            if event.get("event") == "recovery_settled"
+        )
+        assert len(continuation_indexes) == 3
+        assert terminal_index < continuation_indexes[0] < settlement_index
+
+        continuations = [events[index]["continuation"] for index in continuation_indexes]
+        recovery_ids = {continuation["recovery_id"] for continuation in continuations}
+        assert len(recovery_ids) == 1
+        assert all(
+            continuation["predecessor_run_id"] == active.run_id
+            for continuation in continuations
+        )
+        assert [continuation["batch_index"] for continuation in continuations] == [
+            0,
+            1,
+            2,
+        ]
+        assert [continuation["origin"] for continuation in continuations] == [
+            "user",
+            "background_task",
+            "user",
+        ]
+        assert [continuation["pending_ids"] for continuation in continuations] == [
+            [item.pending_id] for item in steered if item is not None
+        ]
+        settlement = events[settlement_index]
+        assert settlement["recovery_id"] == continuations[0]["recovery_id"]
+        assert settlement["predecessor_run_id"] == active.run_id
+        assert settlement["outcome"] == "scheduled"
+        assert settlement["successor_run_ids"] == [
+            events[index]["run_id"] for index in continuation_indexes
+        ]
     finally:
         gate.set()
         kernel.close()

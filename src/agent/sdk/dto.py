@@ -61,6 +61,8 @@ class RunInfo:
             active run's next round (``run_id`` is that active run; no new run was
             created); False for a freshly created run. Consumers use this to decide
             whether to start their own per-run event loop (bugfix-426 决策1).
+        pending_id: Kernel-owned opaque identity for a successfully injected
+            pending message. ``None`` for newly submitted runs.
     """
 
     run_id: str
@@ -68,6 +70,7 @@ class RunInfo:
     status: str
     start_sequence: int = 0
     injected: bool = False
+    pending_id: str | None = None
 
 
 # ---------------------------------------------------------------------------
