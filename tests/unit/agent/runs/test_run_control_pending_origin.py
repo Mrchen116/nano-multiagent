@@ -32,6 +32,8 @@ def test_enqueue_drain_carries_origin_fifo() -> None:
         RunOrigin.USER,
         RunOrigin.BACKGROUND_TASK,
     ]
+    assert all(p.pending_id.startswith("pending_") for p in drained)
+    assert drained[0].pending_id != drained[1].pending_id
 
 
 def test_drain_empties_queue() -> None:

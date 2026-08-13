@@ -1,18 +1,19 @@
-"""Await-bound liveness heartbeat ticker (bugfix-417-M3 R3).
+"""Provide await-bound liveness tickers for the run's four quiet windows.
 
-Two of the three "alive-but-quiet" windows the run can sit in produce no business
-events on ``kernel.stream``: waiting for the (non-stream) LLM to return its first
-chunk, and parking on a human permission decision. Both watchdogs (Gateway / IM)
-judge liveness by the most recent stream event, so a long-but-live wait used to look
-identical to a true stall and get reaped.
+Long tool execution, waiting for a non-stream LLM chunk, parking on a human
+permission decision, and parent-run compaction can each remain live without a
+business event on ``kernel.stream``. Gateway and IM watchdogs judge liveness by the
+most recent stream event, so each window needs a bounded heartbeat path rather than
+being mistaken for a true stall.
 
-This module provides a ticker that runs ONLY while a specific await is in flight and
-emits a ``run_heartbeat`` session event (the same event type the tool-execution
-heartbeat publishes in R2) at an interval far below the watchdog timeout. The ticker
-is await-bound: it starts before the await, stops the instant the await returns,
-raises, or the run is cancelled — so the heartbeat proves *progress through this
-wait*, never mere "the Task object still exists" (which would mask a real deadlock,
-violating design decision 2's invariant).
+``execution_update_ticker`` covers tools through the existing execution-update
+projection. LLM iteration uses ``_with_liveness_heartbeat`` and its
+``liveness_ticker``; parent-run compaction uses ``liveness_ticker`` directly.
+Permission waiting owns the same ``_emit_liveness_heartbeats`` mechanism in its
+runtime broker, where it manually starts, cancels, and drains the task. Every owner
+starts a ticker only while its guarded await is in flight and stops it when that await
+returns, raises, or is cancelled; it proves progress through the wait without masking
+a genuine deadlock.
 
 Kept in ``core`` (no platform import): the caller injects a ``publish`` callable that
 routes to the platform event hub via the hook context's session event publisher.
@@ -81,17 +82,21 @@ async def liveness_ticker(
     source: str,
     interval: float = DEFAULT_LIVENESS_HEARTBEAT_INTERVAL_SECONDS,
 ) -> AsyncIterator[None]:
-    """Run a background heartbeat ticker for the duration of the ``async with`` body.
+    """Run an LLM or compaction heartbeat for the ``async with`` body.
 
-    The ticker is cancelled (and drained) on exit regardless of how the body leaves —
-    normal return, exception, or CancelledError — so it can never outlive the await it
-    was guarding. A no-op when ``publish`` or ``run_id`` is missing (e.g. CLI without a
-    session event hub), so callers need not branch on availability.
+    ``_with_liveness_heartbeat`` owns this wrapper for LLM iteration, and the parent
+    compaction caller uses it directly. Permission waits use the same underlying
+    emitter but own task lifecycle in the runtime broker. This ticker is cancelled and
+    drained on exit regardless of how the body leaves — normal return, exception, or
+    CancelledError — so it can never outlive the guarded await. It is a no-op when
+    ``publish`` or ``run_id`` is missing (for example, a CLI without a session event
+    hub), so these owners need not branch on availability.
 
     Args:
         publish: ``(event_name, payload)`` callable routing to the session event hub.
         run_id: Run the heartbeat is attributed to; required to be useful.
-        source: Liveness source tag (``"llm"`` / ``"permission"``) for observability.
+        source: Liveness source tag (``"llm"`` / ``"compaction"``) for
+            observability; the permission owner calls the underlying emitter directly.
         interval: Seconds between heartbeats; must be ≪ watchdog timeout.
     """
     if publish is None or not run_id:
