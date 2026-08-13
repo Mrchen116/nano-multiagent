@@ -49,4 +49,21 @@
   runtime smoke because this M4 has only mechanical formatting and stale
   documentation corrections; focused existing tests and the full formatter
   gate protect the affected seams.
-- Pending commit, unit integration/push, and worktree/branch cleanup.
+- M4 material range: `62c2f24110b2f98cf7eb30aef6849bffd603c752..4470ac10a3e702289bb07be44917d87349c5ea7c`.
+  It comprises plan `62beb233c`, implementation `94ba411c6`, and the first
+  no-ff unit integration `4470ac10a`; no code, test behavior, report, design,
+  or delta-spec changed outside the declared scope.
+- Exact validation commands run before integration:
+  `pytest -q tests/unit/test_liveness_ticker.py tests/unit/test_loop_compact.py
+  tests/contract/test_kernel_sdk_behavior_contract.py
+  tests/unit/personal_assistant/test_recovery_handoff_coordinator.py
+  tests/unit/personal_assistant/test_recovery_handoff_concurrency.py`;
+  `ruff format --check .`; `ruff check
+  src/personal_assistant/gateway/inbound_models.py
+  tests/contract/test_kernel_sdk_behavior_contract.py
+  src/agent/core/agent/liveness.py`; `python scripts/docs_check.py`; and
+  `git diff --check origin/unit/bugfix-536..HEAD`.
+- The first integration was pushed to `origin/unit/bugfix-536`; this final
+  evidence record is documentation-only. No service was started, so no runtime
+  process or port cleanup was required; the worktree and milestone branch are
+  removed after this record is integrated.
