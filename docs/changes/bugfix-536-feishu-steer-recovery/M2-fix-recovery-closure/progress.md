@@ -14,7 +14,7 @@
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: 删除 M2 的提交即可回到 `dc3173750`。
-- Commits: pending
+- Commits: `0f2accd16`（M2 plan）
 
 ## R2 — 收口无 suffix 的失败 successor
 
@@ -30,6 +30,22 @@
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: 回退本 roadpoint commit 即恢复 `dc3173750` 行为。
+- Commits: `88ebc2e93`（recovery closure）
+
+## R3 — 验证精确 `/new` 的真实 transcript 隔离
+
+- Context: Round 1 product report 要求修复 exact `/new` 后旧会话口令可见；现有 coordinator/binder 已走 `prepare_reset` → `publish_reset`，但此前没有真实 Kernel transcript regression。
+- Decision: 新建专属 real-Kernel integration，使用请求上下文探针证明先前 sentinel 不会进入 reset 后的模型请求；同时以隔离 Web IM + Gateway 真栈按报告语义重跑。
+- Rationale: 基线 `dc3173750` 在真实 reset path 已满足这个契约，未发现可归因的 Gateway/Kernel 复用点；因此不添加会改变用户行为的伪修，而以 durable regression 锁定实际 session 边界。
+- Evidence:
+  - Tests: `tests/integration/test_session_run_coordinator_reset.py` 为 `1 passed in 2.28s`；其后与 exact `/new`、`/stop` public control tests 为 `3 passed in 2.52s`。
+  - Entry: 隔离 Web IM 直聊先写随机 `M2RESET…`，精确 `/new` 后 binding 切至新 session；旧 secret 只在旧 JSONL，新 JSONL 不含它，后续自然语言询问返回 `UNKNOWN`。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A；此路径通过真实 IM REST relay 入口，不依赖浏览器 DOM。
+  - E2E/Regression: 真栈在同一脚本中以 `scripts/e2e-up.sh --wt` 起停，因执行环境的默认 Python 缺 PyYAML，显式使用 repository `.venv/bin` 在 PATH；服务由 trap 调 `e2e-down.sh` 清理。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退本 roadpoint commit 即移除 regression；没有对应 production source 变更。
 - Commits: pending
 
 ## Promotion Candidates

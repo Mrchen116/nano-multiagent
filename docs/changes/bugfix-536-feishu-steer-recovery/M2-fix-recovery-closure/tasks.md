@@ -17,7 +17,7 @@
 ## 测试策略
 
 - 被测行为（来自退出标准）：recovery owner 的失败收口；精确 `/new` 的 bind-to-fresh-transcript；命令精确匹配与控制围栏。
-- 已有测试在：`tests/unit/personal_assistant/test_recovery_handoff_coordinator.py`（扩展）和 `tests/integration/test_session_run_coordinator_real_kernel.py`（扩展）；无新测试文件，两个文件均为所属行为测试面且仍小于 400 行。
+- 已有测试在：`tests/unit/personal_assistant/test_recovery_handoff_coordinator.py`（扩展）；新建 `tests/integration/test_session_run_coordinator_reset.py`，理由：现有 real-Kernel 文件已 531 行，reset isolation 是独立 Gateway/Kernel 语义。
 - 落层/目录/marker：`tests/unit/`、`tests/integration/`，marker：无；真 Web IM 作为一次性 live acceptance，不固化依赖本机 LLM 的断言。
 - 可选依赖 importorskip：无。
 - 本 milestone 产生的一次性验收证据（收尾删除，不进套件）：隔离真栈 session binding/transcript 与 IM 可见消息检查，命令和结果记录于 `progress.md`。
