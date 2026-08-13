@@ -127,3 +127,85 @@ None.
 ### SUGGESTION
 
 None in the targeted delta. Round 1's non-blocking liveness-docstring suggestion was outside this round's focus and remains recorded above.
+
+# Round 3
+
+## Verification Report: bugfix-536
+
+### Summary
+
+Mode: full
+Delta range: `fa4fd446facb1ee0b3a9b7f5c34272e53f13f279..97c1ec3f1160724f276af8ca20f64558ddb144fc`
+Focus issues: confirmed M2 cleanup race where a concurrently accepted follower could be popped without settlement; all original incident/design/delta requirements
+requires_full_verification: false
+
+> Validation snapshot: `84b386b42 → 97c1ec3f1160724f276af8ca20f64558ddb144fc`
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 13/13 |
+| Correctness | 25/25 |
+| Coherence | 有偏离 |
+
+0 critical issue(s), 1 warning(s) found. Fix before PR.
+
+## Completeness
+
+- Tasks: M1 `5/5`、M2 `4/4`、M3 `4/4`，共 `13/13` 个勾选退出项均能从实现、永久回归和实施记录复核。M3 将 successor suffix 判定与 active close/capture 线性化到同一 session transition lock；admission 先完成时进入正常 nested re-handoff，close 先完成时后到消息进入既有 FIFO。
+- Spec 覆盖：incident 的 3 个 Requirement / 4 个 Scenario，以及 kernel、Gateway、IM delta 的 21 个 Scenario 均有实现与测试映射。自动压缩 heartbeat、pending identity、descriptor/settlement、Gateway adoption、控制围栏、失败收口、入口共享和真静默回收均未因 M3 退化。
+- Evidence：M1/M2/M3 相关聚合为 `162 passed in 13.41s`；全量 `tests/contract` 为 `154 passed in 7.04s`；Ruff lint 和 docs check 通过。M3 的 deterministic interleaving 测试直接覆盖本轮 focus race。
+- Prototype / Reference：N/A；design 没有前端原型或 reference must-match。
+
+## Correctness
+
+| Requirement / Scenario group | 实现位置 | 测试覆盖 | 状态 |
+|---|---|---|---|
+| Incident：自动压缩期间追加消息仍正常继续 | `src/agent/core/agent/loop.py:1058-1064`; `src/agent/core/agent/compaction/summarizer.py:72-77` | `tests/unit/test_loop_compact.py:201-248,724-770` | covered：父 run 发 `source=compaction` heartbeat，sidechain 业务内容仍静默，same-run steer 保持原上下文 |
+| Incident：中断前 accepted follower 一次可见恢复 | `src/agent/core/runs/registry.py:627-684,948-972`; `src/personal_assistant/gateway/session_run_coordinator.py:2204-2401` | `tests/integration/test_session_run_coordinator_recovery.py:60-148`; recovery unit suites | covered：old terminal、descriptor、settlement、adoption、一次 final/terminal 均通过真实 Kernel 接线 |
+| Incident：恢复收口后下一条普通消息继续 | `src/personal_assistant/gateway/session_run_coordinator.py:1549-1594,2341-2388` | `tests/unit/personal_assistant/test_recovery_handoff_coordinator.py:184-220`; `tests/unit/personal_assistant/test_recovery_handoff_concurrency.py:105-191` | covered：失败 successor 的 logical owner 释放；nested re-handoff 后也释放，后续普通消息正常回复 |
+| Incident：飞书、Web IM 和其他入口共用行为 | `src/personal_assistant/gateway/session_run_coordinator.py:413-489`; `src/personal_assistant/gateway/runtime_delivery/lifecycle.py:31-60` | lifecycle、common Gateway integration 及记录的隔离 Web IM smoke | covered：无 Feishu 专用恢复器，各 channel 复用 coordinator/lifecycle seam |
+| Kernel delta：opaque pending identity、continuation descriptor、exactly-once settlement | `src/agent/core/agent/run_control.py:21-29,121-145`; `src/agent/core/runs/registry.py:627-684,948-972`; `src/agent/sdk/dto.py:61-73`; `src/agent/sdk/kernel.py:1780-1818` | `tests/contract/test_kernel_sdk_behavior_contract.py:1018-1151`; run-control/registry tests | covered：direct predecessor、batch/origin/exact ids 与一次 settlement 均从 SDK public seam 可见 |
+| Gateway delta：exact suffix adoption、corrupt/none/unavailable fail-closed、控制与 shutdown | `src/personal_assistant/gateway/session_run_coordinator.py:154-290,2204-2673` | `tests/unit/personal_assistant/test_recovery_handoff.py`; `test_recovery_handoff_coordinator.py`; terminal/control tests | covered：只认领 exact user suffix；错误链接失败并释放；`/stop`、`/new`、shutdown fence 保持 |
+| M3 focus：accepted follower 与 failed-successor cleanup 竞态 | `src/personal_assistant/gateway/session_run_coordinator.py:1549-1594,2341-2379` | `tests/unit/personal_assistant/test_recovery_handoff_concurrency.py:105-191` | closed：suffix read 与 close/capture 同锁；admission-wins follower 进入 run-3 并恰好 completed 一次，no-suffix companion 失败一次且释放 busy |
+| Delivery delta：`recovery_adopted` 不重复 ACK/receipt，anchor 一次回信、followers 一次 terminal | `src/personal_assistant/gateway/inbound_models.py:197-212`; `src/personal_assistant/gateway/runtime_delivery/lifecycle.py:31-60`; coordinator `:2271-2294,2503-2540` | `tests/unit/personal_assistant/test_gateway_relay_lifecycle.py:376-431`; recovery coordinator/concurrency tests | covered |
+| Liveness delta：工具、主模型、compaction、permission 与真静默回收 | `src/agent/core/agent/liveness.py:44-110,183-204`; `src/agent/core/agent/loop.py:1058-1064`; coordinator `:2102-2160`; IM existing watchdog seam | loop/terminal/IM contract coverage；全量 contract 通过 | covered：新增 compaction producer 沿既有 heartbeat 通路；无 heartbeat 的真实 stall 仍收口 |
+| Explicit `/new` / `/stop` 与非精确文本边界 | `src/personal_assistant/gateway/session_run_coordinator.py:491-585,894-950` | `tests/integration/test_session_run_coordinator_reset.py:64-123`; admission/control/recovery suites | covered：精确 `/new` 发布 fresh Kernel session；非精确文本走普通 dispatch；控制不恢复旧输出 |
+
+## Coherence
+
+| design 决策 | 遵守? | 代码证据 |
+|---|---|---|
+| 决策 1：parent compaction await 发 liveness，sidechain 静默 | 是 | `src/agent/core/agent/loop.py:1058-1064`; summarizer 的 no-op publisher 保持 |
+| 决策 2：Kernel 提供完整、可结算的 recovery 描述 | 是 | `src/agent/core/runs/registry.py:627-684,948-972`; `src/agent/sdk/dto.py:61-73` |
+| 决策 3：Gateway ledger 精确交接 suffix，并在成功/失败后释放 logical owner | 是 | `src/personal_assistant/gateway/session_run_coordinator.py:2204-2401`; M3 atomic helper `:1549-1594` |
+| 决策 4：typed no-ACK adoption 复用 delivery context | 是 | `src/personal_assistant/gateway/inbound_models.py:197-212`; `runtime_delivery/lifecycle.py:31-60` |
+| 架构自洽：PA 只经 `agent.sdk`、IM 不调用 Kernel、无 channel 平行恢复机制 | 是 | changed imports 与 `tests/contract` 154 项通过 |
+| 项目格式与过程规范 | 否 | `ruff format --check .` 拒绝 2 个本 unit 修改文件；M3 `tasks.md` 缺少 testing.md 要求的测试策略段 |
+
+### Prototype / Reference Contract
+
+N/A。
+
+## Validation
+
+- Focused recovery + Kernel/Gateway/reset/lifecycle/compaction aggregate: `162 passed in 13.41s`.
+- Full contract suite: `154 passed in 7.04s`.
+- `ruff check` on all unit-touched Python files: passed.
+- `ruff format --check .`: failed only for `src/personal_assistant/gateway/inbound_models.py` and `tests/contract/test_kernel_sdk_behavior_contract.py`.
+- `scripts/docs_check.py`: passed (`226 maintained Markdown sources, 70 required routes`).
+- `git diff --check 84b386b42..97c1ec3f1`: reports only the three pre-existing Markdown hard-break spaces in Round 1 `verification.md:7-9`; the M3 source delta itself is whitespace-clean.
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+None.
+
+### WARNING（提 PR 前必须修）
+
+- **WARNING-1 — 最终 unit tree 未通过 CI 强制的 Ruff format gate。** `.github/workflows/ci.yml:43-44` 执行 `ruff format --check .`；本轮在 `97c1ec3f` 复跑时，`src/personal_assistant/gateway/inbound_models.py:200-202` 与 `tests/contract/test_kernel_sdk_behavior_contract.py:1114` 被报告为需要格式化。对这两个文件运行仓库 Ruff formatter，只提交机械格式差异，再复跑 `ruff format --check .` 与受影响测试；否则远端 CI 会在提 PR 后失败。
+
+### SUGGESTION（可以修）
+
+- `src/agent/core/agent/liveness.py:1-18,94` 仍把 await-bound liveness 描述为旧的 “three windows / two silent windows”，且 source 示例漏掉 `compaction`。更新 docstring 为当前四类窗口并加入 `compaction`，避免实现与维护注释长期漂移。
+- `docs/changes/bugfix-536-feishu-steer-recovery/M3-fix-recovery-concurrency/tasks.md:1-31` 缺少 `docs/development/testing.md:95` 强制要求的“测试策略 / 受影响既有测试处置”段。补记为何新的 concurrency 文件是该竞态的最低 owner、与既有 recovery 测试不重复，以及 admission/terminal/control 测试的 keep 处置。
