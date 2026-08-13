@@ -373,6 +373,57 @@ def test_typed_store_fresh_relay_accepted_still_sends_sent_receipt() -> None:
     ]
 
 
+def test_recovery_adopted_seeds_context_without_second_ack_or_sent_receipt() -> None:
+    reporter = UpstreamReporter(
+        node=NodeConfig(node_id="node-local"), agents=(), send_frame=lambda _t, _p: None
+    )
+    manager = _FakeIMManager([])
+    channel = _AckChannel()
+    context_store = RunDeliveryContextStore()
+    callback = _build_relay_lifecycle_callback(
+        reporter=reporter,
+        im_connection_manager_factory=lambda: manager,
+        run_context_store=context_store,
+        channel_registry=ChannelRegistry((channel,)),
+    )
+    routed = RoutedInbound(
+        message=InboundMessage(
+            channel_name="feishu:agent-a",
+            text="follow-up",
+            external_user_id="ou-user",
+            external_chat_id="oc-chat",
+            is_group=False,
+            ingress=InboundIngress(
+                im_relay=IMRelayIngress(
+                    relay_task_id="relay-follow-up",
+                    idempotency_key="idem-follow-up",
+                    im_message_id="im-follow-up",
+                )
+            ),
+            metadata={"feishu_message_id": "om-follow-up"},
+        )
+    )
+
+    asyncio.run(
+        callback(
+            routed,
+            RelayLifecycleUpdate(
+                phase="recovery_adopted",
+                agent_id="agent-a",
+                session_key="feishu:oc-chat:agent-a",
+                run_id="run-successor",
+                previous_run_id="run-old",
+                recovery_id="recovery-1",
+                kernel_session_id="sess-1",
+            ),
+        )
+    )
+
+    assert context_store.get("run-successor") is not None
+    assert channel.acked == []
+    assert manager.sent_frames == []
+
+
 def test_typed_context_store_holds_turn_start_ack_message_id() -> None:
     context_store = RunDeliveryContextStore()
     context_store.seed(

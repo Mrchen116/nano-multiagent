@@ -506,7 +506,9 @@ def _to_prompt_seed(prompt: PromptSlots | None) -> PromptSlotSeed:
     )
 
 
-def _to_run_info(record: Any, *, injected: bool = False) -> RunInfo:
+def _to_run_info(
+    record: Any, *, injected: bool = False, pending_id: str | None = None
+) -> RunInfo:
     """Map an internal RunRecord to the SDK-owned RunInfo boundary DTO.
 
     ``injected`` is set by the steer path when the message was injected into an
@@ -520,6 +522,7 @@ def _to_run_info(record: Any, *, injected: bool = False) -> RunInfo:
         status=getattr(status, "value", status) if status is not None else "",
         start_sequence=int(getattr(record, "start_sequence", 0) or 0),
         injected=injected,
+        pending_id=pending_id,
     )
 
 
@@ -1690,8 +1693,9 @@ class Kernel:
                 a replacement run for the same session is never targeted.
 
         Returns:
-            The active ``RunInfo`` with ``injected=True`` when accepted, otherwise
-            ``None``. A ``None`` result guarantees this call created no run.
+            The active ``RunInfo`` with ``injected=True`` and an opaque
+            ``pending_id`` when accepted, otherwise ``None``. A ``None`` result
+            guarantees this call created no run.
         """
 
         return self._try_inject_active_run(
@@ -1798,20 +1802,20 @@ class Kernel:
         user_content = render_user_content_parts(parsed_parts) or render_user_text(
             parsed_parts
         )
-        accepted_run_id = registry.try_inject_pending_message(
+        accepted = registry.try_inject_pending_message(
             session_id,
             LLMMessage(role="user", content=user_content),
             origin=origin,
             expected_run_id=expected_run_id,
         )
-        if accepted_run_id is None:
+        if accepted is None:
             return None
-        record = registry.get(accepted_run_id)
+        record = registry.get(accepted.run_id)
         if record is None:
             raise RuntimeError(
-                f"accepted steer run disappeared from registry: {accepted_run_id}"
+                f"accepted steer run disappeared from registry: {accepted.run_id}"
             )
-        return _to_run_info(record, injected=True)
+        return _to_run_info(record, injected=True, pending_id=accepted.pending_id)
 
     def stream(
         self,
