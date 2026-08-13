@@ -8,10 +8,10 @@
 
 ## 退出标准
 
-- [ ] 自动压缩 await 周期发出 `run_heartbeat(source=compaction)`，且 sidechain 内容仍保持静默。
-- [ ] successful steer 返回 opaque `pending_id`；异常终态的 continuation queued status 与 exactly-once settlement 完整关联 batch。
-- [ ] Gateway ledger 区分已消费前缀与未消费后缀，验证 successor/settlement，覆盖失败收口与 `/stop`、`/new`、shutdown 竞态。
-- [ ] `recovery_adopted` 只 seed successor delivery context，不重复 external ACK/relay sent receipt；最终文本只从 batch anchor 投递一次，所有 follower 各自恰好一次 terminal lifecycle。
+- [x] 自动压缩 await 周期发出 `run_heartbeat(source=compaction)`，且 sidechain 内容仍保持静默。
+- [x] successful steer 返回 opaque `pending_id`；异常终态的 continuation queued status 与 exactly-once settlement 完整关联 batch。
+- [x] Gateway ledger 区分已消费前缀与未消费后缀，验证 successor/settlement，覆盖失败收口与 `/stop`、`/new`、shutdown 竞态。
+- [x] `recovery_adopted` 只 seed successor delivery context，不重复 external ACK/relay sent receipt；最终文本只从 batch anchor 投递一次，所有 follower 各自恰好一次 terminal lifecycle。
 - [ ] 最窄相关 pytest、Ruff、docs check、`git diff --check` 全绿，并留下真实 Gateway 入口验证证据。
 
 ## 测试策略
@@ -47,12 +47,12 @@
 
 ### R2 — Gateway recovery ledger 与 delivery adoption
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 红测 prefix/suffix、valid/corrupt/duplicate/late recovery、logical active marker、typed adoption、ACK/receipt/final delivery count 与 control/shutdown 收口；实现 ledger 并接入 coordinator/runtime delivery。
 - 验证: focused coordinator/lifecycle unit tests。
 
 ### R3 — 跨层入口回归与交付门禁
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 以真实 Kernel + common Gateway dispatch 固化 old terminal→successor→settlement→visible completion 路径，并验证恢复后下一条消息、正常 same-run steer、`/stop`、`/new` 不变。
 - 验证: focused integration、相关 pytest 全集、Ruff、docs check、`git diff --check`。

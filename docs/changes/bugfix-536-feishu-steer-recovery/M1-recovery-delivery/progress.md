@@ -22,12 +22,26 @@
   - Prototype Comparison: N/A。
 - Debug note: 首轮测试在 cancel 后误打开 provider gate，使 pending 被同 run 正常消费；事件证据包含 `injection_consumed` 而无 settlement。按 systematic-debugging 反向定位后确认产品实现无异常，修正测试条件为真 cancel-before-consume；没有用 sleep/重试掩盖。
 - Rollback: 回退本 R commit。
-- Commits: pending。
+- Commits: `5eccd3274 fix(bugfix-536/M1/R1): 建立内核恢复交接协议`。
 - Next: R2 Gateway ledger 与 typed adoption。
 
 ## R2 — Gateway recovery ledger 与 delivery adoption
 
-- Status: TODO
+- Context: old terminal 到 continuation settlement 之间，Gateway 必须继续拥有 logical active marker；successor queued 后则按 Kernel pending identity 将 follower 后缀交给对应 user batch。
+- Decision: 在 coordinator 内建立 `RecoveryHandoffLedger` 与 active handoff state；已消费 prefix 立即失败收口，suffix 只接受 exact pending-id prefix；settlement 校验完整 successor 集。`recovery_adopted` 只 seed successor context；`/stop`、`/new`、shutdown 通过 control event 唤醒等待、fence ledger 并取消已知 successor。successor 再次非用户终止时递归进入同一 handoff 状态机。
+- Rationale: 交付 owner 不依赖 timing 猜测，错误/缺失链接 fail closed，正常 same-run steer 在 adopted successor 上仍使用原 `try_steer(expected_run_id=...)` 路径；channel adapter 不获得 Kernel queue 细节。
+- Evidence:
+  - Tests: `/Users/czj/Repos/nano-multiagent/.venv/bin/pytest -q tests/unit/personal_assistant/test_session_run_coordinator_admission.py tests/unit/personal_assistant/test_session_run_coordinator_terminal.py tests/unit/personal_assistant/test_session_run_coordinator_steer_identity.py tests/unit/personal_assistant/test_gateway_relay_lifecycle.py tests/unit/personal_assistant/test_recovery_handoff.py tests/unit/personal_assistant/test_recovery_handoff_coordinator.py tests/integration/test_session_run_coordinator_real_kernel.py tests/integration/test_session_run_coordinator_recovery.py` — 86 passed in 6.71s。
+  - Entry: controlled coordinator 覆盖 multi-origin/duplicate/late、consumed prefix/suffix、corrupt link、adopt 后 same-run steer、`/stop`/`/new`/shutdown；runtime-delivery 测试断言 adoption 不增加 external ACK 和 relay sent receipt。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression: `tests/integration/test_session_run_coordinator_recovery.py::test_real_kernel_recovery_handoff_delivers_accepted_follower_once` 使用真实 Kernel 与 common Gateway `dispatch()`，验证 old terminal 在 successor descriptor 前、accepted follower 无需重发、仅一次 visible final delivery。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Debug note: 首版对 `anext(stream)` 使用 `wait_for`，idle timeout 会取消并关闭 async generator，导致 terminal 后恢复事件永远不可达；改为保留 stream owner，并以 event/control task 的 FIRST_COMPLETED 等待。adopt 后 same-run steer 的 controlled Kernel 还需显式模拟 Kernel active successor；测试据此修正 fake，而非更改产品逻辑。
+- Rollback: 回退本 R commit。
+- Commits: pending。
+- Next: R3 final gates and integration。
 
 ## R3 — 跨层入口回归与交付门禁
 
