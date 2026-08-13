@@ -63,7 +63,7 @@
   - Prototype Comparison: N/A。
   - Static: Ruff check passed；Ruff format check passed；`scripts/docs_check.py` passed（224 maintained Markdown sources, 70 required routes）；`git diff --check origin/unit/bugfix-536...HEAD` passed。
 - Rollback: 回退 M2 commits `88ebc2e93` 与 `52317cd69`（以及本 evidence commit）即可回到 pre-fix behavior。
-- Commits: pending
+- Commits: `d579b422e`（aggregate and true-stack evidence）
 
 ## Promotion Candidates
 
