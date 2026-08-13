@@ -59,4 +59,10 @@
   covered by the deterministic coordinator test above.
 - No approved design or delta-spec changed: the fix only linearizes the existing
   Gateway logical-owner rule from Design Decision 3.
-- Pending commit, unit-branch integration/push, and worktree/branch cleanup.
+- M3 plan `9b2da8c4c` and implementation/evidence `8da962db8` were merged as
+  unit commit `e49b64101` (`merge: bugfix-536 M3 recovery closure race`) and
+  pushed to `origin/unit/bugfix-536`. Post-merge
+  `git diff --check fa4fd446..e49b64101` passed; the exact range changes four
+  files (`344 insertions`, `22 deletions`).
+- Worker worktree/branch cleanup follows this final evidence-record commit; no
+  service process or generated e2e PID/config file is retained.
