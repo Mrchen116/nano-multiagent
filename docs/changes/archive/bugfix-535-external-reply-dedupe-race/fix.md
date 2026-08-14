@@ -51,5 +51,7 @@
 - `pytest -q tests/unit/personal_assistant/test_gateway_web_relay_adapter.py tests/unit/personal_assistant/test_external_visible_delivery.py tests/unit/personal_assistant/test_gateway_relay_lifecycle.py tests/unit/personal_assistant/test_session_run_coordinator_terminal.py`：74 passed。
 - `pytest -q tests/unit/personal_assistant`：1078 passed（一个上游依赖 deprecation warning）。
 - touched code/test 的 Ruff check 与 format、`git diff --check`：通过。
+- 最终独立 code review 在 `validated_at=6061e60a9`、`executed_base=bf8b3cb10` 上无剩余 finding；取消 waiter 与 completed-cache eviction 两项前序 finding 均由独立 verifier 复验关闭。
+- 归档态 CI 等价门禁：Agent + PA 非 E2E `1666 passed`，其余 Python 非 E2E `1801 passed`，前端 Vitest `661 passed`；文档完整性、unit 归档守卫、全仓 Ruff check/format、critical dependency audit 与 `git diff --check` 均通过。
 
 第二轮 review 修复后在 `7332404c6` 上重跑真实入口。按 `docs/development/worktree-runtime.md` 核验权限为 `0600` 的私有环境、专用 non-default CLI profile、匹配的测试 App/Bot/user 身份和 LLM proxy 健康后，在 milestone worktree 运行 `scripts/e2e-up.sh --feishu` 和 `scripts/e2e-feishu-probe.py`。真实 probe `nano-e2e-feishu-probe-fad29572630c0434` 经飞书进入隔离 Gateway 并完成 Agent run；唯一 final suffix `fad29572630c0434` 在真实飞书 P2P 中只有一条 App 消息，8 秒 quiet window 后仍为一条，IM shadow 也只有一条 completed agent final，因此用户可见最终回复恰好一次。随后 `e2e-down.sh` 已停止两个进程并确认高位端口 `61954`、listener lock、tmux、PID、临时 config 与 secrets 全部清理。精确 message id、进程与清理证据见 `M1-fix/progress.md`。

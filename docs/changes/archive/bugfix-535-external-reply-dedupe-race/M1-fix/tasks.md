@@ -43,3 +43,4 @@
 - [DONE] R3: Prove a single real Feishu final reply through the dedicated isolated E2E chain and clean every script-owned runtime resource.
 - [DONE] R4: Close the review-confirmed owner-failure gap by waiting for the in-flight result, then rerun automated and real Feishu validation.
 - [DONE] R5: Replace the condition worker wait and cache-based result handoff with a cancellation-owned async flight outcome; rerun automated and real Feishu validation.
+- [DONE] R6: Close independent code review, merge the observable contract into the canonical spec, and pass final delivery gates.

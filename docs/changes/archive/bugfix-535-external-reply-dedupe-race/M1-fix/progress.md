@@ -77,3 +77,16 @@
 - Commits: `7332404c6`.
 - Next: run final docs/code gates, integrate into `unit/bugfix-535`, push, and remove the milestone worktree/branch.
 - Promotion Candidates: none.
+
+## R6 — Final review and contract closeout
+
+- Context: the final code-review pass ran against `validated_at=6061e60a9` with `executed_base=bf8b3cb10` after both earlier concurrency findings had been fixed.
+- Decision: close the unit with no remaining code finding and merge the clarified user-visible behavior into the canonical external-channel specification. The contract now states that overlapping delivery opportunities produce one final reply, a live fallback may take over after an earlier failure, and a cancelled old run cannot late-send.
+- Evidence:
+  - Full independent finder across correctness, regression, async cancellation, provider I/O, concurrency, tests, and maintainability returned no finding.
+  - Independent closure verification for the cancelled-waiter finding passed the four focused cases and the Router/terminal coordinator suites.
+  - Independent closure verification for completed-cache eviction forced `max_dedupe_keys=1`, observed the shared semantic key evicted while the active owner outcome remained available, and observed exactly one provider send.
+  - Local CI-equivalent gates passed: documentation integrity, archived-unit guard, full-repository Ruff check/format, Agent + PA non-E2E split (`1666 passed`), remaining Python non-E2E split (`1801 passed`), frontend critical dependency audit, and frontend Vitest (`661 passed`).
+- Rollback: revert the canonical/delta-spec closeout commit; product rollback remains the implementation commits recorded above.
+- Commits: final implementation integration `6061e60a9`; closeout commit follows this record.
+- Promotion Candidates: none.
