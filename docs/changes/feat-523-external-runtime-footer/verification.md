@@ -194,3 +194,50 @@ None.
 None.
 
 All checks passed. Ready for PR.
+
+# Round 3 — P1 Runtime-Footer Budget Closure
+
+> Validation snapshot: `2e343507d71434a733ca1430585ce95f7b43ea62 → b58d3be2188758da24c1b05095976c5b62686cb1`
+>
+> Mode: `targeted-closure` · Focus issues: `P1 oversized runtime footer / card limit` · requires_full_verification: false
+
+## Summary
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | P1 closure change and its two durable regressions present |
+| Correctness | The configured-model-label path and full card payload are bounded |
+| Coherence | Followed |
+
+## Focus-Issue Verification
+
+| Focus issue | Implementation evidence | Test evidence | Status |
+|---|---|---|---|
+| A pathological configured model label could make a nominally truncated Feishu card exceed the 30,000-byte payload limit | `runtime_footer.py:10,67-89` normalizes the model display label at the Gateway policy owner to at most 512 characters before it becomes `runtime_footer`; `adapter.py:680-718` still measures the full serialized UTF-8 card and retains the exact Gateway footer | `test_runtime_footer.py:102-111` protects the 30,000-character model-label projection; `test_feishu_adapter_send.py:126-140` sends that projection through `_build_runtime_card` and asserts the serialized card remains `<30_000` bytes while retaining the footer | closed |
+
+The cap is byte-safe even for multibyte Unicode labels: at most 512 Python
+characters can contribute at most 2,048 UTF-8 bytes, leaving the existing card
+builder's full-payload check as the final guard. The change remains in the
+Gateway's semantic presentation policy; the Feishu adapter does not invent a
+second model-label truncation rule.
+
+Independent targeted checks passed:
+
+- `pytest tests/unit/personal_assistant/test_runtime_footer.py tests/unit/test_feishu_adapter_send.py` — **17 passed**.
+- `ruff check src/personal_assistant/gateway/runtime_footer.py tests/unit/personal_assistant/test_runtime_footer.py tests/unit/test_feishu_adapter_send.py`, `python scripts/docs_check.py`, and `git diff --check 2e343507d..HEAD` — passed.
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+None.
+
+### WARNING（提 PR 前必须修）
+
+None.
+
+### SUGGESTION（可以修）
+
+None.
+
+All checks passed. Ready for PR.
