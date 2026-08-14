@@ -173,3 +173,65 @@ None.
 - [x] `docs/specs/gateway/` (evergreen behavior): needs the unit's canonical modified delta merged during orchestrator closeout, replacing the old text-footer wording with the Feishu-card contract.
 - [x] `AGENTS.md` / `CLAUDE.md`: no update needed.
 - [x] `docs/specs/CONTRIBUTING.md`: no update needed; documentation-system behavior did not change.
+
+---
+
+# Round 3 — 2026-08-15
+
+> Validation snapshot: `6683c3f10 → b58d3be2188758da24c1b05095976c5b62686cb1`
+>
+> Revalidation mode: targeted Fast-lane. Focus: P1 repair for a pathological
+> display-model label exceeding the single-card payload budget. Round 2's
+> complete coverage and native-client visual evidence are inherited; this round
+> re-exercises the ordinary final-reply card that normal users receive.
+
+## Verdict
+
+**pass**
+
+**Highest Required Action:** `pass`
+
+After fetching the repair, I restarted only this reviewer's isolated IM +
+Gateway + dedicated Feishu listener. A fresh ordinary message from the
+dedicated test user completed with `scripts/e2e-feishu-probe.py --timeout 120`.
+That real Feishu journey again verified exactly one `interactive` final card
+with the answer body and the compact `model · ctx %` footer, while the linked
+shadow remains body-only. The normal product path therefore retains the card
+layout accepted in Round 2.
+
+## Targeted User Journey Exercised
+
+1. Started a clean isolated stack at `b58d3be2`, confirmed IM health and both
+   reviewer-owned service PIDs, then sent the probe through the non-default
+   dedicated Feishu test profile.
+2. The probe passed its real-platform assertions: the fresh nonce received one
+   final `interactive` card containing both the original answer body and the
+   runtime footer, with no second footer post; its corresponding Web IM shadow
+   remained the original body.
+
+The installed Feishu client became screen-locked after the fresh probe, so I
+did not substitute a stale or non-client visual claim for a new screenshot.
+Fast-lane reuses the Round 2 native-client capture of the unchanged normal
+card layout; the fresh real-platform probe is the targeted post-fix evidence.
+
+## Focused Acceptance Coverage
+
+### Requirement: 外部 channel 的最终回复可显示运行信息 — focused conclusion: pass
+
+| Scenario | Verification method | Evidence | Result | Notes |
+|---|---|---|---|---|
+| 已启用的飞书最终回复是一张带运行信息的原生卡片 | Fresh ordinary dedicated-Feishu journey after the P1 repair | `e2e-feishu-probe.py --timeout 120` passed on `b58d3be2`; Round 2 native-client card capture is inherited | pass | One interactive card, body plus compact footer, no detached second post. |
+
+All other pass / not-applicable rows are inherited unchanged from Round 2; the
+repair did not expand the user journey or introduce a new product surface.
+
+## Issues
+
+None.
+
+## Upstream Documentation Sync
+
+- [x] `SPEC.md`: no update needed.
+- [x] `docs/specs/gateway/`: unchanged; the unit's card delta still needs normal orchestrator closeout merge.
+- [x] `AGENTS.md` / `CLAUDE.md`: no update needed.
+- [x] `docs/specs/CONTRIBUTING.md`: no update needed.
