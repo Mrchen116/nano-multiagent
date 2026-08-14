@@ -1,6 +1,6 @@
 ---
 name: change-impl-worker
-description: 仅当 `change-orchestrator` 明确派发一个需要独立实现 owner 的 milestone 或修复时使用；在规划的 milestone worktree 中完成实现、测试和适用的真实入口验证。
+description: 仅当 `change-orchestrator` 在派发任务中明确要求使用本 skill 时触发；其他场景不得自行选择。
 ---
 
 # Change Implementation Worker
