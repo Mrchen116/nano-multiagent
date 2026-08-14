@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - External Channels Specification
 
-> 对齐: bugfix-529
+> 对齐: bugfix-535
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -124,7 +124,7 @@ Agent 回复是否回写外部 channel 取决于触发该 run 的用户消息来
 
 ### Requirement: 外部 channel 可见回复镜像
 
-飞书消息触发 agent run 时，Gateway 把该 run 中每个用户可见 assistant 文本气泡镜像回原飞书 chat。镜像边界是完整 assistant 气泡完成，不是 token delta；同一个最终气泡不得在 run terminal 阶段重复发送。thinking、tool telemetry、token usage、debug/status 等运行态事件不作为普通飞书聊天消息外发。
+飞书消息触发 agent run 时，Gateway 把该 run 中每个用户可见 assistant 文本气泡镜像回原飞书 chat。镜像边界是完整 assistant 气泡完成，不是 token delta；同一个最终气泡即使遇到重叠的投递机会也只能成功发送一次。较早的投递失败时，仍存活的兜底机会必须能够接管；已取消的旧 run 不得在取消后晚发该气泡。thinking、tool telemetry、token usage、debug/status 等运行态事件不作为普通飞书聊天消息外发。
 
 #### Scenario: 飞书收到中间可见回复和最终回复
 - **GIVEN** 用户在飞书向 plato-bot 发送一个会让 agent 先回复“我查一下”再继续处理的问题
@@ -132,10 +132,12 @@ Agent 回复是否回写外部 channel 取决于触发该 run 的用户消息来
 - **THEN** 飞书原对话也收到对应文本消息
 - **AND** 后续最终答案也发送到同一飞书对话
 
-#### Scenario: 最终气泡不重复发送
+#### Scenario: 重叠投递机会只产生一条最终气泡
 - **GIVEN** 外部 channel 触发的 run 产生了一个最终 assistant 文本气泡
-- **WHEN** Gateway 已经按气泡完成边界把该文本镜像到飞书
-- **THEN** run terminal 后不得再把同一文本发送第二次
+- **WHEN** Gateway 的多个投递机会在首次发送完成前重叠
+- **THEN** 飞书原对话最终只收到一条该文本消息
+- **AND** 较早发送失败时，仍存活的兜底机会可以接管并发送一次
+- **AND** 已取消的旧 run 不会在取消后晚发该文本
 
 #### Scenario: IM 触发 run 不走外部镜像
 - **GIVEN** 用户在内部 IM 的 `plato · feishu` 影子会话中发送消息

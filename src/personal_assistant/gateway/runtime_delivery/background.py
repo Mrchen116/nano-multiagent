@@ -32,12 +32,13 @@ async def _invoke_external_reply_sender(
 ) -> None:
     """Call a channel sender without blocking the Gateway event loop.
 
-    Composition supplies a synchronous OutboundRouter sender, while tests and
-    alternate channel integrations may return an awaitable. Calling the sender in a
-    worker thread preserves the synchronous path's retry behavior; awaiting a returned
-    awaitable on this loop preserves the asynchronous contract.
+    Async senders retain event-loop cancellation ownership. Synchronous integrations
+    run in a worker, and a returned awaitable is still honored.
     """
-    result = await asyncio.to_thread(sender, text, metadata)
+    if inspect.iscoroutinefunction(sender):
+        result = sender(text, metadata)
+    else:
+        result = await asyncio.to_thread(sender, text, metadata)
     if inspect.isawaitable(result):
         await result
 
