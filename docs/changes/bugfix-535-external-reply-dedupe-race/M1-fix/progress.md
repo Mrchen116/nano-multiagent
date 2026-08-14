@@ -2,10 +2,10 @@
 
 ## Scope and decision
 
-- Scope: only the process-local race between observer-final mirror and terminal-final fallback in `OutboundRouter.send_text()`.
-- Decision: atomically reserve every derived dedupe key before provider I/O. A competing call is suppressed only for completed keys; overlapping in-flight keys make it wait for the owner result. Owner success atomically completes the keys; owner failure releases them so the waiter can reserve and retry.
-- Rationale: final contexts use different physical keys but share a derived `run_id:final_text:<text>` semantic key. Reservation prevents duplicate provider I/O, while condition notification preserves terminal fallback if observer delivery fails after the fallback has already arrived.
-- Non-dedupe sends use the same direct provider-send behavior: an empty key set takes no reservation/cache mutation.
+- Scope: only the process-local race between observer-final mirror and terminal-final fallback in `OutboundRouter`; observer and terminal remain separate product paths.
+- Decision: atomically claim every derived dedupe key before provider I/O and publish each active owner's result through an explicit per-flight future. The two ordinary-final production paths use the cancellation-owned async Router seam; provider I/O alone runs in a worker thread.
+- Rationale: final contexts use different physical keys but share a derived `run_id:final_text:<text>` semantic key. An explicit flight result lets a live fallback retry after owner failure and lets a cancelled fallback disappear without leaving a worker. It also prevents the bounded completed-key LRU from becoming the result handoff for already-overlapping calls.
+- Non-dedupe sends retain direct provider-send behavior and use no claim/cache state.
 
 ## R1 — Deterministic regression protection
 
@@ -56,5 +56,24 @@
   - Cleanup: `e2e-down.sh` stopped IM PID `51998` and Gateway PID `52082`; TCP `55805`, the dedicated listener lock, tmux session, PID files, JWT secret, generated Gateway config, channel credentials/manifest, config receipts, and Feishu LLM trace were absent afterward.
 - Rollback: revert `ccd5feb31`.
 - Commits: `ccd5feb31`.
+- Next: run final docs/code gates, integrate into `unit/bugfix-535`, push, and remove the milestone worktree/branch.
+- Promotion Candidates: none.
+
+## R5 — Review fix round 2: make the overlapping result handoff cancellation-owned
+
+- Context: review at `pre_fix_head=7e9256262` independently confirmed two blocking orders with the `Condition` implementation. First, cancelling the coroutine awaiting a terminal `asyncio.to_thread()` did not stop its condition-waiting worker; after the observer owner failed, that stale worker woke and sent an old final. Second, completed-cache capacity could evict the shared semantic key before the waiter reacquired the condition, so an owner success was lost as a transient result and a duplicate send followed.
+- Decision: replace the synchronous condition wait with an async `OutboundRouter.send_text_async()` seam for observer and terminal final delivery. A process-local active-flight map, protected by a short-held lock, maps every physical/semantic key to one explicit provider outcome. A live waiter awaits that future on the Gateway loop: success suppresses it, failure lets it atomically claim and retry, and cancellation removes the waiter without a background worker. The existing bounded LRU remains only the completed-call cache. `channel.send()` stays in `asyncio.to_thread()` and its owner outcome is finalized even if the awaiting owner task is cancelled after provider I/O begins.
+- Rationale: both review findings came from using a synchronous waiter plus the global completed LRU as an overlapping-call result channel. The fix stays inside the confirmed lite design: it changes neither observer/terminal ownership nor reset semantics, and adds no cross-component protocol.
+- Process: used the main `change-impl-worker` flow because the correct async ownership seam required Router changes plus the two existing production call sites and async-sender invocation wiring.
+- Evidence:
+  - Pre-fix reproductions: cancelled waiter produced `provider_attempts=2` and `late_fallback_sent=True`; completed-cache eviction at `max_dedupe_keys=1` produced two non-null results and two provider sends.
+  - RED: the four focused async ownership cases failed before implementation because the Router had no cancellation-owned async seam. The new exact regressions are `test_outbound_router_cancelled_fallback_never_sends_after_owner_failure` and `test_outbound_router_waiter_observes_success_after_completed_key_eviction`; the existing concurrent success and owner-failure cases were migrated to the same public seam.
+  - Tests: focused concurrent cases `4 passed`; Router owner file `15 passed`; Router plus external-visible, relay-lifecycle, and terminal coordinator files `74 passed`; the full `tests/unit/personal_assistant` suite `1078 passed` with one pre-existing dependency deprecation warning.
+  - Static checks: Ruff check and format passed for all five touched code/test files; `git diff --check` passed.
+  - Entry: dedicated `feishu:e2e` probe `nano-e2e-feishu-probe-fad29572630c0434` entered the isolated Gateway and completed an actual Agent run. Real Feishu P2P history contained the one test-user probe and exactly one App final containing suffix `fad29572630c0434`; after an 8-second quiet window the App-final count remained one. The final message id was `om_x100b68c4e24edca0c2a9da7495af6a6`; the isolated IM shadow independently had one completed agent final, `3e321bfd6e38499690517404ed7e9bf5`.
+  - Isolation: private env mode `0600`, non-default profile, verified matching test App/Bot/user identities, and LLM proxy health were checked before launch. Only the worktree copy of `config/e2e/gateway.yaml` enabled `feishu:e2e`; production/default credentials and port `8011` were not used. The isolated IM port was `61954`.
+  - Cleanup: `e2e-down.sh` stopped IM PID `10638` and Gateway PID `10798`; both PIDs were gone, TCP `61954` was released, and the dedicated listener lock, tmux session, PID files, ports env, JWT secret, generated Gateway config, channel credential key/manifest, config receipts, and Feishu LLM trace were absent afterward.
+- Rollback: revert `7332404c6`.
+- Commits: `7332404c6`.
 - Next: run final docs/code gates, integrate into `unit/bugfix-535`, push, and remove the milestone worktree/branch.
 - Promotion Candidates: none.

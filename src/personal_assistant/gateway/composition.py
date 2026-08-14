@@ -328,7 +328,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         background_subscription_manager_provider=lambda: background_subscriptions,
     )
 
-    def _send_external_reply(text: str, metadata: Mapping[str, str]) -> None:
+    async def _send_external_reply(text: str, metadata: Mapping[str, str]) -> None:
         channel_name = metadata.get("channel_name") or ""
         target_chat_id = metadata.get("target_chat_id") or ""
         if not channel_name or not target_chat_id:
@@ -338,7 +338,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
             for key, value in metadata.items()
             if key not in {"channel_name", "target_chat_id", "reply_thread_id"}
         }
-        outbound_router.send_text(
+        await outbound_router.send_text_async(
             text=text,
             reply_context=ReplyContext(
                 channel_name=channel_name,
