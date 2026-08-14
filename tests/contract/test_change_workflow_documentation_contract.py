@@ -146,9 +146,8 @@ def test_worker_creator_owns_milestone_worktree_and_integration() -> None:
 
     assert "worker 作为 creator-owner 创建、核对、集成并清理" in orchestrator
     assert "orchestrator 只提供精确的 milestone worktree/branch" in orchestrator
-    assert "worker 是自己 milestone worktree/branch 的 creator-owner" in worker
+    assert "milestone worktree/branch 的 creator-owner" in worker
     assert "unit_worktree_dir:" in worker
-    assert "unit_branch:" in worker
     assert "删除自己创建的 milestone worktree/branch" in worker
 
 

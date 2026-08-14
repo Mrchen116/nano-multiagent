@@ -29,7 +29,6 @@ unit_dir: <type-id-short-desc>
 milestone_id: <unit-id-MN>
 milestone_dir: <MN-short-desc>
 unit_worktree_dir: <absolute-unit-worktree-path>
-unit_branch: unit/<unit-id>
 worktree_dir: <absolute-path>
 branch: <planned-milestone-branch>
 mode: full | lite
@@ -39,7 +38,7 @@ assignment: milestone | substantive-fix
 orchestrator 提供 unit 与 milestone 的精确路径和 branch 名，不预建 milestone worktree。worker 是自己
 milestone worktree/branch 的 creator-owner，负责：
 
-- 从当前 `unit_branch` 创建或安全恢复 `worktree_dir` / `branch`，只在该现场写本 assignment 的文件；
+- 从 `unit_worktree_dir` 当前 checkout 的分支创建或安全恢复 `worktree_dir` / `branch`，只在该现场写本 assignment 的文件；
 - 提交实现；DONE 时把结果集成并 push 到 unit branch，HANDOFF 时 push milestone branch；
 - 清理自己启动的进程和临时运行资源；
 - DONE 后删除自己创建的 milestone worktree/branch；HANDOFF/BLOCKED 时保留可恢复现场。
@@ -139,7 +138,7 @@ worker 不因未来可能 rebase 而提前重复 gate。orchestrator 集成后�
 
 1. 在最终 worker HEAD 上运行受影响的最窄测试和风险要求的扩展/真实入口验证。
 2. 确认只有本 assignment 的修改，没有 secret、本机状态或临时运行文件。
-3. fetch 当前 `unit_branch`，rebase milestone branch；只对实际失效的 gate 重跑受影响范围。
+3. 获取 `unit_worktree_dir` 当前分支，rebase milestone branch；只对实际失效的 gate 重跑受影响范围。
 4. 按 [共享锁协议](references/worktree-integration.md#共享-unit-集成锁) 获取 unit 集成锁，复核
    unit HEAD 未在步骤 3 后前移；若前移，释放锁并重复 rebase/失效判断。确认未变后才在
    `unit_worktree_dir` 合入、push；需要新实现判断的冲突先报告，不用覆盖或 reset 绕过。

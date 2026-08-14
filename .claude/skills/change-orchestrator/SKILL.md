@@ -148,7 +148,6 @@ unit_dir: <unit_dir>
 milestone_id: <unit_id>-M<N>
 milestone_dir: M<N>-<title>
 unit_worktree_dir: <repo-root>/.worktrees/unit-<unit_id>
-unit_branch: unit/<unit_id>
 worktree_dir: <repo-root>/.worktrees/<milestone_id>
 branch: milestone/<milestone_id>
 mode: full | lite
