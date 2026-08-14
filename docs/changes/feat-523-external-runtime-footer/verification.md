@@ -77,3 +77,22 @@ None.
 None.
 
 All checks passed. Ready for PR.
+
+## Corrected Delta Reconciliation
+
+> Reconciled snapshot: `6683c3f10 → d46478a726434d0474979670df3cb84b6da8b5fe`
+
+| Delta item | Implementation evidence | Test evidence | Outcome |
+|---|---|---|---|
+| `external-channels.md` Requirement: 外部 channel 最终回复的可配置运行信息页脚 | `runtime_footer.py:20-60` resolves the platform policy and renders only the available model / prompt-window percentage; `composition.py:506-519` injects that one policy into Gateway delivery | `test_runtime_footer.py:12-107`; targeted verifier run: 109 passed | aligned |
+| Scenario: 全局启用后外部最终回复显示本轮运行信息 | The accepted lifecycle carries the resolved model (`session_run_coordinator.py:1418-1441`); terminal facts are cached from the successful `turn_end` and passed to the formatter (`runtime_delivery/observer.py:533-561,877-878`) | `test_gateway_relay_lifecycle.py:887-1002`; real isolated Feishu result in `M1-gateway-runtime-footer/evidence.md:12-25` | aligned |
+| Scenario: 单一外部 channel 覆盖全局设置 | `runtime_footer.py:40-44` gives an explicit adapter-platform value precedence over the global flag; typed parsing retains explicit `true` and `false` overrides (`config/local_store.py:1472-1512`) | `test_runtime_footer.py:47-63`; `test_local_store.py:222-256` | aligned |
+| Scenario: 单一外部 channel 可以独立启用页脚 | The same precedence path applies an explicit `feishu` enable even while the global default is false (`runtime_footer.py:40-44`) | `test_runtime_footer.py:28-44`; `test_local_store.py:222-256` | aligned |
+| Scenario: 非最终或内部消息不附加运行信息 | The projection is created only for `turn_end` (`runtime_delivery/observer.py:867-878`); intermediate sends retain `cleaned_text`, while final sends use the cached value and shadow records retain plain text (`runtime_delivery/observer.py:316-369,1510-1519`) | `test_gateway_relay_lifecycle.py:948-1002`; isolated shadow evidence in `M1-gateway-runtime-footer/evidence.md:20-21` | aligned |
+| Scenario: 运行信息缺失时静默省略 | The formatter emits only valid values and returns the unmodified body when neither is available (`runtime_footer.py:47-60`) | `test_runtime_footer.py:66-107` | aligned |
+
+### Uncovered Observable Behavior
+
+None. The final unit diff's only new external presentation surface is the opt-in footer above. Its accepted-model propagation (including recovery adoption at `session_run_coordinator.py:2195-2202,2287-2298`) preserves that same run-bound model fact rather than creating a second user-visible feature; `test_recovery_handoff_coordinator.py:100-128` covers it. The committed `config/e2e/gateway.yaml:12-16` only enables the dedicated isolated Feishu fixture and does not alter production or local defaults.
+
+Outcome: aligned
