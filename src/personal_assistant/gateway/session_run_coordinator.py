@@ -1437,6 +1437,7 @@ class SessionRunCoordinator:
                 anchor_sequence=anchor_sequence,
                 request=request,
                 binding=binding,
+                model=runtime_projection.runtime.model,
                 on_other=lambda event: self._on_other_event(event, binding=binding),
             )
             final_run_id = str(run_state.get("run_id") or run_id or "")
@@ -2097,6 +2098,7 @@ class SessionRunCoordinator:
         anchor_sequence: int | None,
         request: InboundRunRequest,
         binding: SessionBinding,
+        model: str,
         on_other: Callable[[Mapping[str, object]], Awaitable[None] | None],
     ) -> tuple[
         Mapping[str, object],
@@ -2195,6 +2197,7 @@ class SessionRunCoordinator:
                 predecessor_run_id=run_id,
                 request=request,
                 binding=binding,
+                model=model,
                 on_other=on_other,
             )
             if recovery is not None:
@@ -2215,6 +2218,7 @@ class SessionRunCoordinator:
         predecessor_run_id: str,
         request: InboundRunRequest,
         binding: SessionBinding,
+        model: str,
         on_other: Callable[[Mapping[str, object]], Awaitable[None] | None],
         predecessor_terminal_emitted: bool = False,
     ) -> (
@@ -2290,6 +2294,7 @@ class SessionRunCoordinator:
                             run_id=claim.run_id,
                             recovery_id=claim.recovery_id,
                             kernel_session_id=binding.kernel_session_id,
+                            model=model,
                         ),
                     )
                     if len(state.claims) == 1:
@@ -2378,6 +2383,7 @@ class SessionRunCoordinator:
                         predecessor_run_id=claim.run_id,
                         request=anchor,
                         binding=binding,
+                        model=model,
                         on_other=on_other,
                         predecessor_terminal_emitted=True,
                     )
