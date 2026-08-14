@@ -6,6 +6,7 @@ import queue
 import threading
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable
+from uuid import uuid4
 
 if TYPE_CHECKING:
     from agent.core.background_tasks.notifications import BackgroundReturnInfo
@@ -25,6 +26,7 @@ class PendingMessage:
     message: "LLMMessage"
     origin: "RunOrigin"
     background_return: "BackgroundReturnInfo | None" = None
+    pending_id: str = field(default_factory=lambda: f"pending_{uuid4().hex}")
 
 
 @dataclass
@@ -114,21 +116,32 @@ class RunController:
             terminal, aborted, or cancelled, in which case the caller must not report
             the message as queued.
         """
+        return (
+            self.enqueue_pending_message(message, origin, background_return) is not None
+        )
+
+    def enqueue_pending_message(
+        self,
+        message: "LLMMessage",
+        origin: "RunOrigin",
+        background_return: "BackgroundReturnInfo | None" = None,
+    ) -> str | None:
+        """Enqueue a pending message and return its Kernel-owned identity."""
+
         with self._terminal_lock:
             if (
                 self._terminal_committed.is_set()
                 or self.abort_event.is_set()
                 or self.cancel_event.is_set()
             ):
-                return False
-            self._pending.put_nowait(
-                PendingMessage(
-                    message=message,
-                    origin=origin,
-                    background_return=background_return,
-                )
+                return None
+            pending = PendingMessage(
+                message=message,
+                origin=origin,
+                background_return=background_return,
             )
-            return True
+            self._pending.put_nowait(pending)
+            return pending.pending_id
 
     def try_commit_terminal(self) -> list[PendingMessage]:
         """At the loop's terminal decision, atomically re-check for pending messages.

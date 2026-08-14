@@ -35,7 +35,11 @@ from agent.core.tools.result_budget import (
 from agent.core.session.context_state import SessionFileState, read_file_slice
 from agent.core.session.entries import CompactionEntry, SessionEntry
 
-from .liveness import _with_liveness_heartbeat, session_event_publisher
+from .liveness import (
+    _with_liveness_heartbeat,
+    liveness_ticker,
+    session_event_publisher,
+)
 from .compaction.planner import CompactionPlanner
 from .compaction.summarizer import CompactionSummarizer
 from .compaction.policy import should_compact
@@ -1051,17 +1055,22 @@ class AgentLoop:
         dropped_messages = tuple(
             message_from_turn_entry(e) for e in plan.dropped_events
         )
-        summary = await self._compaction_summarizer.summarize(
-            session_id=session_id,
-            system_prompt=rendered_system_prompt,
-            dropped_messages=dropped_messages,
-            # bugfix-443 (root cause B): the proactive-threshold compaction must
-            # also run the summarizer on this run's model (the other summarize
-            # call site already does). The summary_model mutual-exclusion is owned
-            # by CompactionSummarizer (bugfix-443 fix1 altitude #3).
-            model_override=active_model,
-            hook_ctx=hook_ctx,
-        )
+        async with liveness_ticker(
+            publish=session_event_publisher(hook_ctx),
+            run_id=_resolve_hook_run_id(hook_ctx),
+            source="compaction",
+        ):
+            summary = await self._compaction_summarizer.summarize(
+                session_id=session_id,
+                system_prompt=rendered_system_prompt,
+                dropped_messages=dropped_messages,
+                # bugfix-443 (root cause B): the proactive-threshold compaction must
+                # also run the summarizer on this run's model (the other summarize
+                # call site already does). The summary_model mutual-exclusion is owned
+                # by CompactionSummarizer (bugfix-443 fix1 altitude #3).
+                model_override=active_model,
+                hook_ctx=hook_ctx,
+            )
         if summary is None:
             consecutive_failures = (
                 failure_tracker.record_summary_failure()

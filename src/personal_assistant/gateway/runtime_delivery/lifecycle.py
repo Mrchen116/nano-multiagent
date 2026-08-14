@@ -41,6 +41,13 @@ def build_relay_lifecycle_callback(
                 run_context_store=run_context_store,
                 owner_user_id=owner_user_id,
             )
+        elif update.phase == "recovery_adopted":
+            _seed_run_context(
+                routed=routed,
+                update=update,
+                run_context_store=run_context_store,
+                owner_user_id=owner_user_id,
+            )
         elif update.phase in ("completed", "failed", "cancelled"):
             _discard_run_context(
                 run_context_store=run_context_store,

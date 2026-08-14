@@ -129,6 +129,157 @@ class _MessagePartsProjection:
     readable_fallback: str
 
 
+@dataclass(frozen=True, slots=True)
+class AcceptedRecoveryFollower:
+    """Associate one accepted Gateway follower with its Kernel pending identity."""
+
+    pending_id: str
+    request: InboundRunRequest
+
+
+@dataclass(frozen=True, slots=True)
+class RecoveryHandoffClaim:
+    """Describe one validated user continuation batch adopted by the Gateway."""
+
+    run_id: str
+    recovery_id: str
+    batch_index: int
+    followers: tuple[AcceptedRecoveryFollower, ...]
+
+
+class RecoveryHandoffError(RuntimeError):
+    """Report an authoritative but invalid or unavailable recovery handoff."""
+
+
+class RecoveryHandoffLedger:
+    """Validate one old-run follower suffix through successor settlement."""
+
+    def __init__(
+        self,
+        *,
+        predecessor_run_id: str,
+        followers: tuple[AcceptedRecoveryFollower, ...],
+    ) -> None:
+        self.predecessor_run_id = predecessor_run_id
+        self._remaining = list(followers)
+        self._recovery_id: str | None = None
+        self._successor_run_ids: list[str] = []
+        self._batch_indexes: set[int] = set()
+        self._settled = False
+        self._closed = False
+
+    @property
+    def remaining_followers(self) -> tuple[AcceptedRecoveryFollower, ...]:
+        """Return the follower suffix not yet claimed by a successor."""
+
+        return tuple(self._remaining)
+
+    @property
+    def successor_run_ids(self) -> tuple[str, ...]:
+        """Return every linked successor observed before settlement."""
+
+        return tuple(self._successor_run_ids)
+
+    def close(self) -> tuple[AcceptedRecoveryFollower, ...]:
+        """Fence the ledger and return followers that still need failure closure."""
+
+        if self._closed:
+            return ()
+        self._closed = True
+        remaining = tuple(self._remaining)
+        self._remaining.clear()
+        return remaining
+
+    def observe_successor(
+        self, event: Mapping[str, object]
+    ) -> RecoveryHandoffClaim | None:
+        """Validate and claim one continuation queued event when it is user-owned."""
+
+        if self._closed or self._settled:
+            return None
+        continuation = event.get("continuation")
+        if not isinstance(continuation, Mapping):
+            return None
+        predecessor = continuation.get("predecessor_run_id")
+        if predecessor != self.predecessor_run_id:
+            return None
+        run_id = event.get("run_id")
+        recovery_id = continuation.get("recovery_id")
+        batch_index = continuation.get("batch_index")
+        origin = continuation.get("origin")
+        pending_ids = continuation.get("pending_ids")
+        if (
+            not isinstance(run_id, str)
+            or not run_id
+            or not isinstance(recovery_id, str)
+            or not recovery_id
+            or not isinstance(batch_index, int)
+            or isinstance(batch_index, bool)
+            or batch_index < 0
+            or not isinstance(origin, str)
+            or not isinstance(pending_ids, list)
+            or not pending_ids
+            or any(not isinstance(item, str) or not item for item in pending_ids)
+        ):
+            raise RecoveryHandoffError("invalid continuation descriptor")
+        if self._recovery_id is None:
+            self._recovery_id = recovery_id
+        elif recovery_id != self._recovery_id:
+            raise RecoveryHandoffError("recovery id mismatch")
+        if run_id in self._successor_run_ids or batch_index in self._batch_indexes:
+            return None
+        self._successor_run_ids.append(run_id)
+        self._batch_indexes.add(batch_index)
+        if origin != "user":
+            return None
+
+        expected = [item.pending_id for item in self._remaining[: len(pending_ids)]]
+        if pending_ids != expected:
+            raise RecoveryHandoffError("user continuation pending ids mismatch")
+        claimed = tuple(self._remaining[: len(pending_ids)])
+        del self._remaining[: len(pending_ids)]
+        return RecoveryHandoffClaim(
+            run_id=run_id,
+            recovery_id=recovery_id,
+            batch_index=batch_index,
+            followers=claimed,
+        )
+
+    def observe_settlement(self, event: Mapping[str, object]) -> bool:
+        """Validate the exactly-once authoritative settlement for this recovery."""
+
+        if self._closed or self._settled:
+            return False
+        if event.get("predecessor_run_id") != self.predecessor_run_id:
+            return False
+        recovery_id = event.get("recovery_id")
+        if not isinstance(recovery_id, str) or not recovery_id:
+            raise RecoveryHandoffError("invalid recovery settlement")
+        if self._recovery_id is not None and recovery_id != self._recovery_id:
+            raise RecoveryHandoffError("recovery settlement id mismatch")
+        self._recovery_id = recovery_id
+        outcome = event.get("outcome")
+        if outcome != "scheduled":
+            raise RecoveryHandoffError(f"recovery settlement {outcome}")
+        successor_run_ids = event.get("successor_run_ids")
+        if successor_run_ids != self._successor_run_ids:
+            raise RecoveryHandoffError("recovery successor ids mismatch")
+        if self._remaining:
+            raise RecoveryHandoffError("recovery left unclaimed pending ids")
+        self._settled = True
+        return True
+
+
+@dataclass(slots=True)
+class _RecoveryHandoffState:
+    """Keep one predecessor ledger reachable by shutdown and control cleanup."""
+
+    ledger: RecoveryHandoffLedger
+    claims: dict[str, RecoveryHandoffClaim]
+    completed_run_ids: set[str]
+    control_event: asyncio.Event
+
+
 @dataclass(slots=True)
 class _CompactReservation:
     """Hold one FIFO slot while inbound metadata is prepared."""
@@ -245,8 +396,10 @@ class SessionRunCoordinator:
         self._update_workflow_size_guideline = update_workflow_size_guideline
         self._run_idle_timeout_seconds = run_idle_timeout_seconds
         self._active_runs: dict[str, _ActiveRunHandle] = {}
-        self._steered_requests: dict[str, list[InboundRunRequest]] = {}
+        self._steered_requests: dict[str, list[AcceptedRecoveryFollower]] = {}
         self._consumed_steer_counts: dict[str, int] = {}
+        self._recovery_handoffs: dict[str, _RecoveryHandoffState] = {}
+        self._terminalized_recovery_roots: set[str] = set()
         self._queued_compactions: dict[str, int] = {}
         self._user_interrupted_runs: set[str] = set()
         self._reset_suppressed_runs: set[str] = set()
@@ -299,7 +452,10 @@ class SessionRunCoordinator:
                                 f"expected={active.run_id}, actual={record.run_id}"
                             )
                         self._steered_requests.setdefault(active.run_id, []).append(
-                            request
+                            AcceptedRecoveryFollower(
+                                pending_id=record.pending_id,
+                                request=request,
+                            )
                         )
                         injected_result = PipelineResult(
                             agent_id=request.agent.agent_id,
@@ -420,6 +576,7 @@ class SessionRunCoordinator:
             )
             if active is not None:
                 self._reset_suppressed_runs.add(active.run_id)
+                self._fence_recovery_for_control(active.run_id, reset=True)
                 self._active_runs.pop(request.session_key, None)
                 if self._commit_run_delivery is not None:
                     await self._commit_run_delivery(active.run_id)
@@ -760,6 +917,7 @@ class SessionRunCoordinator:
                 # This order is the user-stop attribution contract. The original
                 # stream consumer performs reconcile after Kernel interruption.
                 self._user_interrupted_runs.add(active_run_id)
+                self._fence_recovery_for_control(active_run_id, reset=False)
                 self._kernel.interrupt(binding.kernel_session_id)
                 self._kernel.append_message(
                     session_id=binding.kernel_session_id,
@@ -1265,16 +1423,25 @@ class SessionRunCoordinator:
                     kernel_session_id=binding.kernel_session_id,
                 ),
             )
-            run_state, reply_text = await self._await_terminal_run(
+            (
+                run_state,
+                reply_text,
+                terminal_request,
+                recovery_followers,
+            ) = await self._await_terminal_run(
                 kernel_session_id=binding.kernel_session_id,
                 run_id=run_id or "",
                 anchor_sequence=anchor_sequence,
+                request=request,
+                binding=binding,
                 on_other=lambda event: self._on_other_event(event, binding=binding),
             )
-            terminal_followers = await self._close_active_run(
+            final_run_id = str(run_state.get("run_id") or run_id or "")
+            closed_followers = await self._close_active_run(
                 session_key=request.session_key,
-                run_id=run_id or "",
+                run_id=final_run_id,
             )
+            terminal_followers = (*recovery_followers, *closed_followers)
             active_closed = True
             if self._background_subscriptions is not None:
                 await self._background_subscriptions.ensure_after_foreground_terminal(
@@ -1286,44 +1453,50 @@ class SessionRunCoordinator:
                     )
                 )
             await self._emit_lifecycle(
-                request.routed,
+                terminal_request.routed,
                 RelayLifecycleUpdate(
                     phase="running",
-                    agent_id=request.agent.agent_id,
-                    session_key=request.session_key,
-                    run_id=run_id,
+                    agent_id=terminal_request.agent.agent_id,
+                    session_key=terminal_request.session_key,
+                    run_id=final_run_id,
                     reply_text=reply_text,
                 ),
             )
             outbound, detail = await self._deliver_final_reply(
-                request=request,
+                request=terminal_request,
                 binding=binding,
-                run_id=run_id or "",
+                run_id=final_run_id,
                 run_state=run_state,
                 reply_text=reply_text,
             )
             result = PipelineResult(
-                agent_id=request.agent.agent_id,
-                session_key=request.session_key,
+                agent_id=terminal_request.agent.agent_id,
+                session_key=terminal_request.session_key,
                 kernel_session_id=binding.kernel_session_id,
-                run_id=run_id or "",
+                run_id=final_run_id,
                 reply_text=reply_text,
                 outbound=outbound,
             )
             completed = RelayLifecycleUpdate(
                 phase="completed",
-                agent_id=request.agent.agent_id,
-                session_key=request.session_key,
-                run_id=run_id,
+                agent_id=terminal_request.agent.agent_id,
+                session_key=terminal_request.session_key,
+                run_id=final_run_id,
                 reply_text=reply_text,
                 detail=detail,
                 usage=self._extract_usage(run_state),
             )
-            await self._emit_lifecycle(request.routed, completed)
+            await self._emit_lifecycle(terminal_request.routed, completed)
             await self._emit_follower_lifecycle(terminal_followers, completed)
             return result
         except asyncio.CancelledError:
             try:
+                if run_id:
+                    await self._abort_recovery_handoff(
+                        predecessor_run_id=run_id,
+                        request=request,
+                        error=_SHUTDOWN_ACTIVE_RUN_CANCELLED,
+                    )
                 if run_id and not active_closed:
                     terminal_followers = await self._close_active_run(
                         session_key=request.session_key,
@@ -1337,7 +1510,8 @@ class SessionRunCoordinator:
                     run_id=run_id,
                     error=_SHUTDOWN_ACTIVE_RUN_CANCELLED,
                 )
-                await self._emit_lifecycle(request.routed, failed)
+                if run_id not in self._terminalized_recovery_roots:
+                    await self._emit_lifecycle(request.routed, failed)
                 await self._emit_follower_lifecycle(terminal_followers, failed)
             finally:
                 admission_event.set()
@@ -1357,7 +1531,8 @@ class SessionRunCoordinator:
                     run_id=run_id,
                     error=str(exc),
                 )
-                await self._emit_lifecycle(request.routed, failed)
+                if run_id not in self._terminalized_recovery_roots:
+                    await self._emit_lifecycle(request.routed, failed)
                 await self._emit_follower_lifecycle(terminal_followers, failed)
             finally:
                 admission_event.set()
@@ -1368,6 +1543,8 @@ class SessionRunCoordinator:
                     session_key=request.session_key,
                     run_id=run_id,
                 )
+            if run_id:
+                self._terminalized_recovery_roots.discard(run_id)
 
     async def _close_active_run(
         self, *, session_key: str, run_id: str
@@ -1375,13 +1552,45 @@ class SessionRunCoordinator:
         """Atomically stop steer admission and capture every accepted follower."""
 
         async with self._transition(session_key):
-            active = self._active_runs.get(session_key)
-            if active is not None and active.run_id == run_id:
-                self._active_runs.pop(session_key, None)
-            self._user_interrupted_runs.discard(run_id)
-            self._reset_suppressed_runs.discard(run_id)
-            self._consumed_steer_counts.pop(run_id, None)
-            return tuple(self._steered_requests.pop(run_id, ()))
+            return self._close_active_run_locked(
+                session_key=session_key,
+                run_id=run_id,
+            )
+
+    def _close_active_run_locked(
+        self, *, session_key: str, run_id: str
+    ) -> tuple[InboundRunRequest, ...]:
+        """Close an active run while its session transition lock is held."""
+
+        active = self._active_runs.get(session_key)
+        if active is not None and active.run_id == run_id:
+            self._active_runs.pop(session_key, None)
+        self._user_interrupted_runs.discard(run_id)
+        self._reset_suppressed_runs.discard(run_id)
+        self._consumed_steer_counts.pop(run_id, None)
+        return tuple(
+            follower.request for follower in self._steered_requests.pop(run_id, ())
+        )
+
+    async def _close_failed_successor_without_suffix(
+        self, *, session_key: str, run_id: str
+    ) -> tuple[InboundRunRequest, ...] | None:
+        """Close a failed successor only when no unconsumed follower can re-handoff.
+
+        ``None`` means an admitted suffix exists and recovery retains the logical
+        owner. A follower admitted before close is returned for the caller's
+        exactly-once failed lifecycle.
+        """
+
+        async with self._transition(session_key):
+            consumed = self._consumed_steer_counts.get(run_id, 0)
+            accepted = self._steered_requests.get(run_id, [])
+            if accepted[consumed:]:
+                return None
+            return self._close_active_run_locked(
+                session_key=session_key,
+                run_id=run_id,
+            )
 
     async def _emit_follower_lifecycle(
         self,
@@ -1879,29 +2088,54 @@ class SessionRunCoordinator:
         kernel_session_id: str,
         run_id: str,
         anchor_sequence: int | None,
+        request: InboundRunRequest,
+        binding: SessionBinding,
         on_other: Callable[[Mapping[str, object]], Awaitable[None] | None],
-    ) -> tuple[Mapping[str, object], str]:
+    ) -> tuple[
+        Mapping[str, object],
+        str,
+        InboundRunRequest,
+        tuple[InboundRunRequest, ...],
+    ]:
         reply_text = ""
         run_state: Mapping[str, object] | None = None
+        watchdog_reconciled = False
         stream = self._kernel.stream(
             kernel_session_id, after_sequence=anchor_sequence or 0
         )
         watchdog_timeout: float | None = self._run_idle_timeout_seconds
+        next_event_task: asyncio.Task[Mapping[str, object]] | None = None
         try:
             while True:
                 try:
-                    event = await asyncio.wait_for(
-                        anext(stream), timeout=watchdog_timeout
-                    )
+                    if next_event_task is None:
+                        next_event_task = asyncio.create_task(anext(stream))
+                    if watchdog_timeout is None:
+                        event = await next_event_task
+                    else:
+                        done, _ = await asyncio.wait(
+                            {next_event_task}, timeout=watchdog_timeout
+                        )
+                        if not done:
+                            if watchdog_reconciled:
+                                next_event_task.cancel()
+                                await asyncio.gather(
+                                    next_event_task, return_exceptions=True
+                                )
+                                raise TimeoutError(
+                                    f"kernel run {run_id} produced no events for "
+                                    f"{self._run_idle_timeout_seconds:g}s"
+                                )
+                            self._kernel.cancel(run_id)
+                            await self._emit_terminal_reconcile(
+                                run_id, reason="stalled"
+                            )
+                            watchdog_reconciled = True
+                            continue
+                        event = next_event_task.result()
+                    next_event_task = None
                 except StopAsyncIteration:
                     break
-                except TimeoutError:
-                    self._kernel.cancel(run_id)
-                    await self._emit_terminal_reconcile(run_id, reason="stalled")
-                    raise TimeoutError(
-                        f"kernel run {run_id} produced no events for "
-                        f"{self._run_idle_timeout_seconds:g}s"
-                    ) from None
                 if event.get("run_id") != run_id:
                     result = on_other(event)
                     if asyncio.iscoroutine(result):
@@ -1933,27 +2167,510 @@ class SessionRunCoordinator:
                 ):
                     run_state = event
                     break
+            if run_state is None:
+                user_stopped = run_id in self._user_interrupted_runs
+                if not watchdog_reconciled:
+                    await self._emit_terminal_reconcile(run_id, reason="interrupted")
+                if user_stopped:
+                    return {"status": "cancelled"}, reply_text, request, ()
+                raise RuntimeError("stream ended without terminal run_status")
+            status = run_state.get("status")
+            if status == "completed":
+                return run_state, reply_text, request, ()
+
+            user_stopped = run_id in self._user_interrupted_runs
+            if not watchdog_reconciled:
+                await self._emit_terminal_reconcile(run_id, reason="interrupted")
+            if status == "cancelled" and user_stopped:
+                return run_state, reply_text, request, ()
+            recovery = await self._await_recovery_handoff(
+                stream=stream,
+                predecessor_run_id=run_id,
+                request=request,
+                binding=binding,
+                on_other=on_other,
+            )
+            if recovery is not None:
+                return recovery
+            raise RuntimeError(self._extract_run_error(run_state, str(status or "")))
         finally:
+            if next_event_task is not None and not next_event_task.done():
+                next_event_task.cancel()
+                await asyncio.gather(next_event_task, return_exceptions=True)
             close_stream = getattr(stream, "aclose", None)
             if callable(close_stream):
                 await close_stream()
-        if run_state is None:
-            user_stopped = run_id in self._user_interrupted_runs
-            await self._emit_terminal_reconcile(run_id, reason="interrupted")
-            if user_stopped:
-                return {"status": "cancelled"}, reply_text
-            raise RuntimeError("stream ended without terminal run_status")
-        status = run_state.get("status")
-        if status == "cancelled":
-            user_stopped = run_id in self._user_interrupted_runs
-            await self._emit_terminal_reconcile(run_id, reason="interrupted")
-            if user_stopped:
-                return run_state, reply_text
-            raise RuntimeError(self._extract_run_error(run_state, str(status)))
-        if status != "completed":
-            await self._emit_terminal_reconcile(run_id, reason="interrupted")
-            raise RuntimeError(self._extract_run_error(run_state, str(status or "")))
-        return run_state, reply_text
+
+    async def _await_recovery_handoff(
+        self,
+        *,
+        stream: AsyncIterator[Mapping[str, object]],
+        predecessor_run_id: str,
+        request: InboundRunRequest,
+        binding: SessionBinding,
+        on_other: Callable[[Mapping[str, object]], Awaitable[None] | None],
+        predecessor_terminal_emitted: bool = False,
+    ) -> (
+        tuple[
+            Mapping[str, object],
+            str,
+            InboundRunRequest,
+            tuple[InboundRunRequest, ...],
+        ]
+        | None
+    ):
+        """Adopt a validated recovery successor for the unconsumed follower suffix."""
+
+        consumed = self._consumed_steer_counts.get(predecessor_run_id, 0)
+        accepted = self._steered_requests.get(predecessor_run_id, [])
+        consumed_prefix = tuple(accepted[:consumed])
+        suffix = tuple(accepted[consumed:])
+        if not suffix:
+            return None
+        ledger = RecoveryHandoffLedger(
+            predecessor_run_id=predecessor_run_id,
+            followers=suffix,
+        )
+        state = _RecoveryHandoffState(
+            ledger=ledger,
+            claims={},
+            completed_run_ids=set(),
+            control_event=asyncio.Event(),
+        )
+        self._recovery_handoffs[predecessor_run_id] = state
+        failed = RelayLifecycleUpdate(
+            phase="failed",
+            agent_id=request.agent.agent_id,
+            session_key=request.session_key,
+            run_id=predecessor_run_id,
+            error="predecessor_run_terminal",
+        )
+        if not predecessor_terminal_emitted:
+            await self._emit_lifecycle(request.routed, failed)
+        await self._emit_follower_lifecycle(
+            tuple(item.request for item in consumed_prefix), failed
+        )
+        if not predecessor_terminal_emitted:
+            self._terminalized_recovery_roots.add(predecessor_run_id)
+        async with self._transition(request.session_key):
+            self._steered_requests[predecessor_run_id] = list(suffix)
+        successor_events: dict[str, list[Mapping[str, object]]] = {}
+        try:
+            while True:
+                event = await self._next_recovery_event(stream=stream, state=state)
+                if event is None:
+                    return await self._finish_recovery_control(
+                        predecessor_run_id=predecessor_run_id,
+                        request=request,
+                        state=state,
+                    )
+                if event.get("event") == "recovery_settled":
+                    if ledger.observe_settlement(event):
+                        break
+                    continue
+                claim = ledger.observe_successor(event)
+                if claim is not None:
+                    state.claims[claim.run_id] = claim
+                    successor_events.setdefault(claim.run_id, []).append(event)
+                    anchor = claim.followers[0].request
+                    await self._emit_lifecycle(
+                        anchor.routed,
+                        RelayLifecycleUpdate(
+                            phase="recovery_adopted",
+                            agent_id=anchor.agent.agent_id,
+                            session_key=anchor.session_key,
+                            previous_run_id=predecessor_run_id,
+                            run_id=claim.run_id,
+                            recovery_id=claim.recovery_id,
+                            kernel_session_id=binding.kernel_session_id,
+                        ),
+                    )
+                    if len(state.claims) == 1:
+                        await self._activate_recovery_successor(
+                            request=request,
+                            binding=binding,
+                            claim=claim,
+                        )
+                    continue
+                event_run_id = event.get("run_id")
+                if isinstance(event_run_id, str) and event_run_id in state.claims:
+                    successor_events.setdefault(event_run_id, []).append(event)
+                    continue
+                result = on_other(event)
+                if asyncio.iscoroutine(result):
+                    await result
+
+            if not state.claims:
+                raise RecoveryHandoffError("recovery settlement has no user successor")
+            async with self._transition(request.session_key):
+                self._steered_requests.pop(predecessor_run_id, None)
+                self._consumed_steer_counts.pop(predecessor_run_id, None)
+
+            ordered_claims = sorted(
+                state.claims.values(), key=lambda item: item.batch_index
+            )
+            final_result: (
+                tuple[
+                    Mapping[str, object],
+                    str,
+                    InboundRunRequest,
+                    tuple[InboundRunRequest, ...],
+                ]
+                | None
+            ) = None
+            for index, claim in enumerate(ordered_claims):
+                await self._activate_recovery_successor(
+                    request=request,
+                    binding=binding,
+                    claim=claim,
+                )
+                terminal_state, reply_text = await self._await_recovery_successor(
+                    stream=stream,
+                    state=state,
+                    claim=claim,
+                    queued=successor_events.get(claim.run_id, []),
+                    on_other=on_other,
+                )
+                if terminal_state is None:
+                    return await self._finish_recovery_control(
+                        predecessor_run_id=predecessor_run_id,
+                        request=request,
+                        state=state,
+                    )
+                anchor = claim.followers[0].request
+                if terminal_state.get("status") != "completed":
+                    failed = RelayLifecycleUpdate(
+                        phase="failed",
+                        agent_id=anchor.agent.agent_id,
+                        session_key=anchor.session_key,
+                        run_id=claim.run_id,
+                        error="recovery successor did not complete",
+                    )
+                    await self._emit_follower_lifecycle(
+                        tuple(item.request for item in claim.followers),
+                        failed,
+                    )
+                    self._recovery_handoffs.pop(predecessor_run_id, None)
+                    ledger.close()
+                    terminal_followers = (
+                        await self._close_failed_successor_without_suffix(
+                            session_key=request.session_key,
+                            run_id=claim.run_id,
+                        )
+                    )
+                    if terminal_followers is not None:
+                        # The suffix decision and active-marker close share one
+                        # transition lock. A follower admitted before that point is
+                        # captured here and must receive a terminal lifecycle.
+                        await self._emit_follower_lifecycle(terminal_followers, failed)
+                        raise RecoveryHandoffError(
+                            "recovery successor did not complete"
+                        )
+                    nested = await self._await_recovery_handoff(
+                        stream=stream,
+                        predecessor_run_id=claim.run_id,
+                        request=anchor,
+                        binding=binding,
+                        on_other=on_other,
+                        predecessor_terminal_emitted=True,
+                    )
+                    if nested is not None:
+                        return nested
+                    raise RecoveryHandoffError("recovery successor did not complete")
+                state.completed_run_ids.add(claim.run_id)
+                accepted_during_successor = await self._close_active_run(
+                    session_key=request.session_key,
+                    run_id=claim.run_id,
+                )
+                followers = (
+                    *(item.request for item in claim.followers[1:]),
+                    *accepted_during_successor,
+                )
+                final_result = terminal_state, reply_text, anchor, followers
+                if index < len(ordered_claims) - 1:
+                    await self._complete_recovery_batch(
+                        request=anchor,
+                        followers=followers,
+                        binding=binding,
+                        run_state=terminal_state,
+                        reply_text=reply_text,
+                    )
+            assert final_result is not None
+            self._recovery_handoffs.pop(predecessor_run_id, None)
+            ledger.close()
+            return final_result
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            await self._abort_recovery_handoff(
+                predecessor_run_id=predecessor_run_id,
+                request=request,
+                error=str(exc),
+            )
+            raise
+
+    async def _next_recovery_event(
+        self,
+        *,
+        stream: AsyncIterator[Mapping[str, object]],
+        state: _RecoveryHandoffState,
+    ) -> Mapping[str, object] | None:
+        """Wait for one protocol event while letting controls fence an idle stream."""
+
+        next_event = asyncio.create_task(anext(stream))
+        controlled = asyncio.create_task(state.control_event.wait())
+        try:
+            done, _ = await asyncio.wait(
+                {next_event, controlled},
+                timeout=self._run_idle_timeout_seconds,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if controlled in done:
+                return None
+            if next_event in done:
+                return next_event.result()
+            raise TimeoutError("recovery handoff produced no events")
+        finally:
+            for task in (next_event, controlled):
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(next_event, controlled, return_exceptions=True)
+
+    async def _activate_recovery_successor(
+        self,
+        *,
+        request: InboundRunRequest,
+        binding: SessionBinding,
+        claim: RecoveryHandoffClaim,
+    ) -> None:
+        """Publish one validated user successor as the logical same-chat owner."""
+
+        anchor = claim.followers[0].request
+        async with self._transition(request.session_key):
+            self._active_runs[request.session_key] = _ActiveRunHandle(
+                run_id=claim.run_id,
+                binding=binding,
+                agent=anchor.agent,
+            )
+            self._steered_requests.setdefault(claim.run_id, [])
+
+    async def _await_recovery_successor(
+        self,
+        *,
+        stream: AsyncIterator[Mapping[str, object]],
+        state: _RecoveryHandoffState,
+        claim: RecoveryHandoffClaim,
+        queued: list[Mapping[str, object]],
+        on_other: Callable[[Mapping[str, object]], Awaitable[None] | None],
+    ) -> tuple[Mapping[str, object] | None, str]:
+        """Consume one adopted successor through its terminal status."""
+
+        reply_text = ""
+        while True:
+            event = (
+                queued.pop(0)
+                if queued
+                else await self._next_recovery_event(stream=stream, state=state)
+            )
+            if event is None:
+                return None, reply_text
+            if event.get("run_id") != claim.run_id:
+                result = on_other(event)
+                if asyncio.iscoroutine(result):
+                    await result
+                continue
+            if event.get("event") == "injection_consumed":
+                consumed_event = self._attach_consumed_steer_identity(
+                    claim.run_id, event
+                )
+                if consumed_event is None:
+                    continue
+                event = consumed_event
+            if self._kernel_event_observer is not None:
+                result = self._kernel_event_observer(event)
+                if asyncio.iscoroutine(result):
+                    await result
+            if event.get("event") == "assistant_message" and isinstance(
+                event.get("content"), str
+            ):
+                reply_text = str(event["content"])
+            if (
+                event.get("event") == "run_status"
+                and event.get("status") in TERMINAL_RUN_STATUSES
+            ):
+                return event, reply_text
+
+    async def _complete_recovery_batch(
+        self,
+        *,
+        request: InboundRunRequest,
+        followers: tuple[InboundRunRequest, ...],
+        binding: SessionBinding,
+        run_state: Mapping[str, object],
+        reply_text: str,
+    ) -> None:
+        """Deliver one non-final recovered batch before the logical chain continues."""
+
+        run_id = str(run_state.get("run_id") or "")
+        running = RelayLifecycleUpdate(
+            phase="running",
+            agent_id=request.agent.agent_id,
+            session_key=request.session_key,
+            run_id=run_id,
+            reply_text=reply_text,
+        )
+        await self._emit_lifecycle(request.routed, running)
+        _, detail = await self._deliver_final_reply(
+            request=request,
+            binding=binding,
+            run_id=run_id,
+            run_state=run_state,
+            reply_text=reply_text,
+        )
+        completed = RelayLifecycleUpdate(
+            phase="completed",
+            agent_id=request.agent.agent_id,
+            session_key=request.session_key,
+            run_id=run_id,
+            reply_text=reply_text,
+            detail=detail,
+            usage=self._extract_usage(run_state),
+        )
+        await self._emit_lifecycle(request.routed, completed)
+        await self._emit_follower_lifecycle(followers, completed)
+
+    def _fence_recovery_for_control(self, run_id: str, *, reset: bool) -> None:
+        """Wake and fence a recovery ledger reached by an explicit control."""
+
+        for predecessor_run_id, state in self._recovery_handoffs.items():
+            successor_run_ids = state.ledger.successor_run_ids
+            if run_id != predecessor_run_id and run_id not in successor_run_ids:
+                continue
+            affected = (predecessor_run_id, *successor_run_ids)
+            markers = (
+                self._reset_suppressed_runs if reset else self._user_interrupted_runs
+            )
+            markers.update(affected)
+            state.ledger.close()
+            state.control_event.set()
+            for successor_run_id in successor_run_ids:
+                if successor_run_id not in state.completed_run_ids:
+                    self._kernel.cancel(successor_run_id)
+            return
+
+    async def _finish_recovery_control(
+        self,
+        *,
+        predecessor_run_id: str,
+        request: InboundRunRequest,
+        state: _RecoveryHandoffState,
+    ) -> tuple[
+        Mapping[str, object],
+        str,
+        InboundRunRequest,
+        tuple[InboundRunRequest, ...],
+    ]:
+        """Close an adopted chain under `/stop` or `/new` without visible output."""
+
+        ordered = sorted(state.claims.values(), key=lambda item: item.batch_index)
+        if not ordered:
+            await self._abort_recovery_handoff(
+                predecessor_run_id=predecessor_run_id,
+                request=request,
+                error="recovery interrupted by control",
+            )
+            raise RecoveryHandoffError("recovery interrupted by control")
+        anchor = ordered[0].followers[0].request
+        claimed = tuple(
+            follower.request
+            for claim in ordered
+            for follower in claim.followers
+            if follower.request is not anchor
+        )
+        claimed_pending_ids = {
+            follower.pending_id for claim in ordered for follower in claim.followers
+        }
+        unclaimed = tuple(
+            item.request
+            for item in self._steered_requests.get(predecessor_run_id, ())
+            if item.pending_id not in claimed_pending_ids
+        )
+        followers = claimed + unclaimed
+        for successor_run_id in state.ledger.successor_run_ids:
+            followers += tuple(
+                item.request
+                for item in self._steered_requests.pop(successor_run_id, ())
+            )
+        async with self._transition(request.session_key):
+            self._recovery_handoffs.pop(predecessor_run_id, None)
+            self._steered_requests.pop(predecessor_run_id, None)
+            self._consumed_steer_counts.pop(predecessor_run_id, None)
+        return (
+            {
+                "event": "run_status",
+                "run_id": ordered[0].run_id,
+                "status": "cancelled",
+            },
+            "",
+            anchor,
+            followers,
+        )
+
+    async def _abort_recovery_handoff(
+        self,
+        *,
+        predecessor_run_id: str,
+        request: InboundRunRequest,
+        error: str,
+    ) -> None:
+        """Fail every unsettled accepted follower and fence known successors."""
+
+        state = self._recovery_handoffs.pop(predecessor_run_id, None)
+        if state is None:
+            return
+        for successor_run_id in state.ledger.successor_run_ids:
+            if successor_run_id not in state.completed_run_ids:
+                self._kernel.cancel(successor_run_id)
+        state.ledger.close()
+        claimed_pending_ids: set[str] = set()
+        for claim in state.claims.values():
+            claimed_pending_ids.update(item.pending_id for item in claim.followers)
+            failed = RelayLifecycleUpdate(
+                phase="failed",
+                agent_id=request.agent.agent_id,
+                session_key=request.session_key,
+                run_id=claim.run_id,
+                error=error,
+            )
+            await self._emit_follower_lifecycle(
+                tuple(item.request for item in claim.followers), failed
+            )
+            accepted_during_successor = tuple(
+                item.request for item in self._steered_requests.pop(claim.run_id, ())
+            )
+            await self._emit_follower_lifecycle(accepted_during_successor, failed)
+        unclaimed = tuple(
+            item.request
+            for item in self._steered_requests.pop(predecessor_run_id, ())
+            if item.pending_id not in claimed_pending_ids
+        )
+        await self._emit_follower_lifecycle(
+            unclaimed,
+            RelayLifecycleUpdate(
+                phase="failed",
+                agent_id=request.agent.agent_id,
+                session_key=request.session_key,
+                run_id=predecessor_run_id,
+                error=error,
+            ),
+        )
+        async with self._transition(request.session_key):
+            active = self._active_runs.get(request.session_key)
+            if active is not None and (
+                active.run_id == predecessor_run_id
+                or active.run_id in state.ledger.successor_run_ids
+            ):
+                self._active_runs.pop(request.session_key, None)
 
     def _attach_consumed_steer_identity(
         self, run_id: str, event: Mapping[str, object]
@@ -1990,7 +2707,7 @@ class SessionRunCoordinator:
             return event
         end = min(index + message_count, len(followers))
         self._consumed_steer_counts[run_id] = end
-        shadow = followers[end - 1].routed.shadow
+        shadow = followers[end - 1].request.routed.shadow
         enriched = dict(event)
         if shadow.saga_id is not None:
             enriched["shadow_saga_id"] = shadow.saga_id

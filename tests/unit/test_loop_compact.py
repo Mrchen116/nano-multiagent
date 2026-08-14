@@ -9,6 +9,7 @@ Exit criteria from design.md:
 """
 
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pytest
@@ -195,6 +196,66 @@ async def test_loop_triggers_compact_when_token_threshold_exceeded() -> None:
     assert len(compact_msgs) == 1, (
         f"Expected 1 compact summary, got {len(compact_msgs)}"
     )
+
+
+async def test_loop_compaction_wait_emits_parent_run_liveness(monkeypatch) -> None:
+    """Automatic compaction owns a parent-run heartbeat without sidechain events."""
+
+    observed: list[tuple[str | None, str]] = []
+
+    @asynccontextmanager
+    async def _recording_ticker(*, publish, run_id, source, interval=10.0):  # noqa: ANN001
+        assert publish is not None
+        observed.append((run_id, source))
+        publish(
+            "run_heartbeat",
+            {"event": "run_heartbeat", "run_id": run_id, "source": source},
+        )
+        yield
+
+    monkeypatch.setattr("agent.core.agent.loop.liveness_ticker", _recording_ticker)
+    events: list[tuple[str, dict]] = []
+    history = tuple(
+        Message(
+            message_id=f"msg_{index}",
+            role="user" if index % 2 == 0 else "assistant",
+            content="x" * 800,
+        )
+        for index in range(10)
+    )
+    loop = AgentLoop(
+        llm_client=_FakeLLMClient(),
+        model="test-model",
+        compaction_settings=CompactionSettings(
+            enabled=True, context_window=100, reserve_tokens=10
+        ),
+        compaction_planner=_FakeCompactionPlanner(),
+        compaction_summarizer=_FakeCompactionSummarizer(),
+        compaction_entries=lambda: _FakeCompactionEntries(history).list_entries(
+            "sess-compact"
+        ),
+    )
+    state = _make_state(history_messages=history, user_text="trigger")
+    hook_ctx = HookContext(
+        session_id=state.session_id,
+        metadata={"run_id": "run-parent"},
+        session_event_publisher=lambda event, data: events.append((event, dict(data))),
+    )
+
+    async for _ in loop.run(state, hook_ctx=hook_ctx):
+        pass
+
+    assert observed == [("run-parent", "compaction")]
+    assert events == [
+        (
+            "run_heartbeat",
+            {
+                "event": "run_heartbeat",
+                "run_id": "run-parent",
+                "source": "compaction",
+            },
+        )
+    ]
 
 
 async def test_loop_continues_iteration_after_compact() -> None:
