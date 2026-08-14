@@ -62,11 +62,9 @@ M<N>-<short-desc>
 
 示例：`M1-domain-model`、`M2-ui-picker`。
 
-Full 模式在 design 阶段只创建含 `.gitkeep` 的空 milestone 骨架。只有向目录加入真实内容时才删除
-`.gitkeep`；没有过程记录或 evidence 的 milestone 可以保留它。两种流程都按实际需要选择
-`tasks.md`、`progress.md` 和 `evidence/`，只要 milestone 范围、关键决策、design 偏差、测试、真实
-入口证据和相关 commit 能够逐条复核。原流程是否创建过程文档由 worker 的复杂度、交接和证据需要
-决定，不再作为固定产物。
+Full 模式在 design 阶段只创建含 `.gitkeep` 的空 milestone 骨架。原流程的 worker 开始已派发的
+milestone 时创建简短 `tasks.md`、`progress.md` 并删除 `.gitkeep`；两份记录只写实施块、进展和验证。
+`evidence/` 仍按验证需要创建。简化流程按自己的实施组织记录过程，但不补造没有发生过的 worker 记录。
 
 ## Unit 之间的关系
 
@@ -98,8 +96,8 @@ docs/changes/<unit-dir>/
 ├── specs/                            # 对 canonical specs 的 delta
 │   └── <package>/<target>.md
 ├── M1-<slice>/
-│   ├── tasks.md                         # 两种流程均按复杂拆分/恢复需要
-│   ├── progress.md                      # 两种流程均按交接/design issue/evidence 需要
+│   ├── tasks.md                         # 原流程 worker 固定创建；简化流程按需
+│   ├── progress.md                      # 原流程 worker 固定创建；简化流程按需
 │   └── evidence/                        # 按验证需要
 ├── M2-<slice>/
 │   └── ...
@@ -118,13 +116,13 @@ docs/changes/<unit-dir>/
 ├── fix.md
 └── M1-fix/
     ├── .gitkeep                    # 没有其他 milestone 记录时
-    ├── tasks.md                    # 按复杂拆分/恢复需要
-    ├── progress.md                 # 按交接/design issue/evidence 需要
+    ├── tasks.md                    # 原流程 worker 固定创建；简化流程按需
+    ├── progress.md                 # 原流程 worker 固定创建；简化流程按需
     └── evidence/                   # 按需
 ```
 
 `fix.md` 依次记录现象/复现、根因、修复、验证。spec author 写前两部分，选定的实施流程回填后两部分。
-两种流程都保留单个 `M1-fix` 交付目标和可复核证据，不强制 `tasks.md` / `progress.md`。
+两种流程都保留单个 `M1-fix` 交付目标和可复核证据；原流程的 worker 创建两份短记录。
 
 ### 快速开发
 
@@ -148,7 +146,7 @@ docs/changes/<unit-dir>/
 | `spec-review.md`（可选） | `change-spec-reviewer` | 按需复核发现问题时留下的台账 |
 | `design.md`、`prototype.html`、`specs/**`、milestone 空骨架 | `change-design-author`；快速开发的 as-built design 与 delta 为 `change-fast-close` | 怎么做、实际怎么实现、契约增量和实施切片 |
 | `design-review.md` | `change-design-reviewer` + `change-design-author` | reviewer 逐轮追加审查，author 追加 resolutions |
-| `tasks.md`、`progress.md`、`evidence/**`、`fix.md` 后两部分 | 原流程为 `change-impl-worker`；简化流程为 `change-orchestrator-simple` | 单 milestone 的按需计划、恢复记录和证据；缺少过程文档本身不影响完成判定 |
+| `tasks.md`、`progress.md`、`evidence/**`、`fix.md` 后两部分 | 原流程为 `change-impl-worker`；简化流程为 `change-orchestrator-simple` | 原流程 worker 固定留下的简短计划/进展，以及按需 evidence；简化流程只记录实际发生的过程 |
 | 快速开发 `analysis.md`（可选） | `change-fast-close` / 当前实施会话 | 实现前后的取证、样本口径、观察与推论；不替代首文档或 as-built design |
 | `verification.md` | `change-verifier` | 实现与 spec/design/milestone 的一致性 |
 | `acceptance.md` / `regression.md` | `change-reviewer` | 用户旅程与产品可用性 |
@@ -164,8 +162,8 @@ docs/changes/<unit-dir>/
 | Full `design.md` | 架构、接口、数据流、关键权衡、风险回退 | roadpoint 级实现步骤 |
 | 快速开发 `design.md` | 当前代码实际采用的结构、调用链、数据流、决策和风险回退 | 虚构的事前候选方案、milestone 或 review 过程 |
 | delta-spec | 本 unit 对 current 行为契约的 ADDED/MODIFIED/REMOVED | 实现过程和历史叙事 |
-| `tasks.md`（按需） | 复杂 milestone 的实施块、测试策略和退出标准 | 重新决定已经锁定的架构、固定数量 roadpoint |
-| `progress.md`（按需） | HANDOFF、design issue、非显然决定和 durable evidence locator | 重复代码、首文档、design 或无关 `N/A` 清单 |
+| `tasks.md` | 已派发 worker milestone 的实际实施块和验证 | 重新决定已经锁定的架构、固定数量 roadpoint |
+| `progress.md` | 已派发 worker milestone 的进展、必要决定和验证/evidence | 重复代码、首文档、design 或无关 `N/A` 清单 |
 | 快速开发 `analysis.md`（按需） | 取证方法、来源事实、观察、推论及其如何驱动本次变更 | 冒充需求、最终实现或 current 契约 |
 | acceptance/regression | 用户可观察旅程和 verdict | 用读源码代替真实产品体验 |
 
@@ -177,7 +175,7 @@ docs/changes/<unit-dir>/
 
 1. 首文档说明目标、范围和 Gate 1 是否已经收口。
 2. `design.md`、`design-review.md` 和 milestone 骨架说明 Full unit 的设计与 Gate 2 状态；`fix.md` 说明 Bugfix lite 状态。
-3. milestone commits、实际存在的 `tasks.md` / `progress.md` 和 evidence 说明实施进度；Full unit 的
+3. milestone commits、worker 留下的 `tasks.md` / `progress.md` 和 evidence 说明实施进度；Full unit 的
    验收报告和快速开发 unit 的 `code-review.md` 说明已经完成的门禁。
 4. branch、worktree、PR 和 CI 通过 Git、`git worktree` 与 GitHub 实时查询，不写入手工快照。
 

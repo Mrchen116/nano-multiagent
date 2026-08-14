@@ -23,7 +23,7 @@ unit 直接闭环      worker milestone
   +----------------> commit + test strategy
                               |
                               v
-                     shared unit lock + rebase
+                 tasks/progress + shared lock + rebase
                               |
                               v
                     unit branch 集成/推送/独立关闭
@@ -34,8 +34,8 @@ unit 直接闭环      worker milestone
 | 模块 | as-built 变更 | 理由 |
 | --- | --- | --- |
 | `change-orchestrator` | 用少量原则判断直接闭环或派 worker；直接闭环在 unit worktree；向 worker 提供实施现场 | 让流程成本随风险变化 |
-| `change-impl-worker` | 从固定 SOP 收缩为 creator-owner、锁集成和简短交接 | 保留可交付性，移除固定过程税 |
-| worker references/assets | 把 worktree、真实入口、实现记录拆成按需参考；压缩 tasks/progress 模板 | 减少预读和强制文档写入 |
+| `change-impl-worker` | 收缩为 creator-owner、自主实施、短记录和锁集成 | 保留可交付性，移除固定过程税 |
+| worker references/assets | 只保留 worktree、真实入口参考和极简 tasks/progress 模板 | 减少预读和冗长文档写入 |
 | workflow 文档与相邻 skills | 对齐“可选工件、按风险验证、未知根因才调试”的术语与入口 | 让调度和执行边界一致 |
 | 契约测试 | 覆盖自主路由原则、锁、unit head、测试复用和文档用词 | 防止旧的固定流程重新引入 |
 
@@ -45,9 +45,9 @@ unit 直接闭环      worker milestone
 
 不维护“哪些改动必定派 worker”的分类表。调度者结合当前证据判断：当直接闭环已经可靠且独立 worker 不增加价值时直接完成；当独立 owner、隔离现场或深入实现/验证能提高交付可靠性时派 worker。范围或证据变化时重新判断，不按行数阈值机械处理。
 
-### 工件与参考按需加载
+### 固定短记录，按需内容
 
-`tasks.md`、`progress.md`、额外基线、真实入口验证和实现记录只在协作、交接、风险或证据缺口要求时创建/读取。worker 的必要 DONE 字段替代了固定过程日志的最小交接信息。
+已派发 worker 的每个 milestone 都创建 `tasks.md` 和 `progress.md`，但模板只留下实施块、进展和验证。额外基线、真实入口验证和文档内容仍由风险和证据缺口决定；不要求 roadpoint、台账字段或专门回报格式。
 
 ### 验证按实际变化决定是否复用
 

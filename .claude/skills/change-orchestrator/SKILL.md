@@ -25,7 +25,7 @@ verifier 与 code review 的结论都是判断输入；结合完整上下文核�
   `Runbook for Reviewer` / reference contract；
 - unit 目录结构和受审产物的变更状态；delta-spec、prototype、references 的正文由实际消费它们的
   阶段或角色读取；
-- 恢复现场时，只读取当前状态所需的 milestone commits、按需存在的 `tasks.md` / `progress.md`、
+- 恢复现场时，只读取当前状态所需的 milestone commits、worker 留下的 `tasks.md` / `progress.md`、
   evidence 和验收报告；
 - 实时 branch、worktree、开放 PR 和 CI 状态。
 
@@ -140,23 +140,9 @@ milestone。
 按当前 harness 后台派发，并为每个角色保留稳定身份，供澄清、HANDOFF 和 fix loop 复用。派发
 subagent 时由 subagent 自行加载对应 skill；orchestrator 提供精确现场计划并按本文件定义的输入、
 输出和读写边界验收结果。派发 worker 时明确要求使用
-`change-impl-worker`，至少提供：
-
-```yaml
-unit_id: <unit_id>
-unit_dir: <unit_dir>
-milestone_id: <unit_id>-M<N>
-milestone_dir: M<N>-<title>
-unit_worktree_dir: <repo-root>/.worktrees/unit-<unit_id>
-worktree_dir: <repo-root>/.worktrees/<milestone_id>
-branch: milestone/<milestone_id>
-mode: full | lite
-assignment: milestone | substantive-fix
-frontend_reference_contract: <相关 must-match/may-adapt 行或 N/A>
-```
-
-Lite worker 还要回填 `fix.md` 的修复和验证。不要重复 worker skill 已经定义的测试、记录和证据
-规则，也不要要求固定 roadpoint、plan commit 或 `tasks.md` / `progress.md`。
+`change-impl-worker`，说明 assignment、退出标准/相关设计、unit 与 milestone 目录，以及 unit
+worktree 和 worker worktree/branch。Lite worker 还要回填 `fix.md` 的修复和验证。worker 自行创建
+固定的简短 `tasks.md` / `progress.md`；不要再规定 roadpoint、plan commit 或回报字段。
 
 ### 协作与异常
 
@@ -177,11 +163,11 @@ worker 回报 DONE 后逐项核对：
 - 前端/reference 项包含适用 viewport、真实入口交互和逐项 prototype comparison；
 - live-critical 项包含隔离真实服务链路产生的用户可见结果；
 - lite 的 `fix.md` 后两段已经回填；
-- worker 启动的进程与其 milestone worktree/branch 已清理；按需存在的实施记录和 durable evidence
-  可从 DONE 回报定位。
+- worker 启动的进程与其 milestone worktree/branch 已清理；`tasks.md`、`progress.md` 和 durable
+  evidence 可从 unit 中定位。
 
 证据只证明前置状态、把关键验证留给 reviewer、落在临时路径、或明确写着“后续补”时均不算
-DONE。缺少 `tasks.md` / `progress.md` 本身不是问题；退出标准无法复查才退回原 worker。
+DONE。若 worker 没有留下固定的两份短记录，退回原 worker 补齐；不以其条目数量或格式取代退出标准证据。
 
 orchestrator 只签收已经由 worker 集成并 push 的 unit HEAD；根据实际 merge delta 判断已有 gate
 是否失效，不机械重复同一命令。发现未清理现场、不可达提交或需要实现判断的冲突时退回同一
@@ -256,8 +242,7 @@ gate 不要求新报告。
 
 这不是穷举规则：结合当前证据、风险和 unit 目标自主判断；范围或证据变化时重新判断。派发或直接
 修复前都把当前 unit HEAD 记录为 `pre_fix_head`。直接修复不等于自我验收；对应的
-reviewer/verifier/code-review closure 仍按下节独立执行。worker 若返回 `ROUTE_BACK`，orchestrator
-重新核实而不是强迫它走完整流程。
+reviewer/verifier/code-review closure 仍按下节独立执行。
 
 reviewer 提议 `revise-design` 只有同时满足以下条件才升级：
 

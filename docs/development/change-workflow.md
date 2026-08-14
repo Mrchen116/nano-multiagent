@@ -108,8 +108,8 @@ Full unit 由 `change-design-author` 基于首文档、current specs 和真实�
 - 面向 canonical specs 的 delta-spec；
 - milestone 表和仅含 `.gitkeep` 的 milestone 目录骨架。
 
-`tasks.md` 和 `progress.md` 不在设计阶段预填。实施期只有复杂拆分、交接、design issue 或 durable
-evidence 需要时才由 worker 按需创建；缺少这两份过程文档本身不影响 milestone 完成判定。
+`tasks.md` 和 `progress.md` 不在设计阶段预填。原流程中，worker 开始一个已派发的 milestone 时从
+模板创建两份简短记录；它们记录实际实施块、进展和验证，不预设 roadpoint 或台账字段。
 
 ### 门禁 2：独立设计审查闭环
 
@@ -145,18 +145,18 @@ Full unit 在 Gate 2 通过后、Bugfix lite 在首文档收口后，均有两�
 - orchestrator 提供精确的 milestone worktree/branch 计划；worker 作为 creator-owner 创建并核对
   自己的现场，完成实现、rebase、unit 集成和清理；
 - worker 根据任务自主拆分，按 Red/Verify → Green 的验证纪律实施，并先跑最窄验证；不强制
-  roadpoint 数量、plan commit、逐步骤 push 或过程文档；
+  roadpoint 数量、plan commit 或逐步骤 push；
 - 只修改 milestone 范围内的文件；
-- 复杂拆分、HANDOFF、design issue 或持久 evidence 需要时，按需创建 `tasks.md`、`progress.md`
-  和 `evidence/`；普通 milestone 可由 design 行、commits、测试结果、evidence 和 DONE 回报完整复查；
+- worker 开始时创建简短 `tasks.md`、`progress.md`；`evidence/` 仍按验证需要创建。两份记录只补充
+  design 行、commits、测试结果和 evidence，不替代它们；
 - 在自己的 worktree 提交，完成后合入并 push unit 分支；orchestrator 根据实际 delta 判断既有 gate
   是否失效。
 
-实施中发现 design 错误、遗漏或无法执行时，worker 必须暂停受影响编码并通知 orchestrator；需要
-恢复现场时才写精简 `progress.md`。design/spec 由对应 owner 修订，worker 不维护影子方案。
+实施中发现 design 错误、遗漏或无法执行时，worker 必须暂停受影响编码并通知 orchestrator，并在
+`progress.md` 写明事实和恢复条件。design/spec 由对应 owner 修订，worker 不维护影子方案。
 
 两种流程都以 milestone 退出标准能够从最终 unit tree、commits、测试和实际 evidence 逐条复核为
-准；过程文档只在实际存在时参与核对。全部结果统一落在 unit 分支后，进入验收阶段。
+准；两份简短过程记录用于恢复和交接，不以文档形式取代这些证据。全部结果统一落在 unit 分支后，进入验收阶段。
 
 ## 阶段 4：selected validation gates
 
@@ -169,8 +169,8 @@ Full unit 在 Gate 2 通过后、Bugfix lite 在首文档收口后，均有两�
 
 Full 和 Bugfix lite 的门禁组合同时适用于原流程和简化流程。
 
-- verifier 核对实现是否完整、正确且与 spec、design、milestone 一致；两种流程都只把实际存在的
-  `tasks.md` / `progress.md` 作为补充记录，缺少文件本身不是 finding；
+- verifier 核对实现是否完整、正确且与 spec、design、milestone 一致；原流程的 worker milestone
+  应有 `tasks.md` / `progress.md` 作为补充记录，不能因其缺少实质证据而放行；
 - reviewer 走真实产品旅程，只验用户可观察结果；
 - code review 审查 unit diff；
 - 原流程的门禁发现问题后由 `change-orchestrator` 判断独立 worker 是否会实质提高交付可靠性。范围和
