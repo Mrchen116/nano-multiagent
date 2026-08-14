@@ -351,6 +351,7 @@ class SessionRunCoordinator:
         reasoning_catalog: ModelReasoningCatalog | None = None,
         relay_lifecycle_callback: RelayLifecycleCallback | None = None,
         kernel_event_observer: Callable[[Mapping[str, Any]], object] | None = None,
+        external_final_projection_provider: Callable[[str], str | None] | None = None,
         shadow_output_prepare: (
             Callable[[str, str, str, str | None, str], ExternalShadowOutput] | None
         ) = None,
@@ -384,6 +385,7 @@ class SessionRunCoordinator:
         self._reasoning_catalog = reasoning_catalog
         self._relay_lifecycle_callback = relay_lifecycle_callback
         self._kernel_event_observer = kernel_event_observer
+        self._external_final_projection_provider = external_final_projection_provider
         self._shadow_output_prepare = shadow_output_prepare
         self._bg_reply_sender = bg_reply_sender
         self._node_id = node_id
@@ -1421,6 +1423,7 @@ class SessionRunCoordinator:
                     session_key=request.session_key,
                     run_id=run_id,
                     kernel_session_id=binding.kernel_session_id,
+                    model=runtime_projection.runtime.model,
                 ),
             )
             (
@@ -1656,7 +1659,12 @@ class SessionRunCoordinator:
         ):
             return None, {"suppressed_by": "no_reply_token"}
         reply_context = binding.reply_context
+        external_reply_text = reply_text
         if _is_external_channel_inbound(request.message):
+            if self._external_final_projection_provider is not None:
+                cached = self._external_final_projection_provider(run_id)
+                if cached:
+                    external_reply_text = cached
             shadow = request.routed.shadow
             if (
                 shadow.saga_id is not None
@@ -1674,7 +1682,7 @@ class SessionRunCoordinator:
             metadata.update(
                 {
                     "reply_phase": "final",
-                    "reply_dedupe_key": f"{run_id}:text:{reply_text.strip()}",
+                    "reply_dedupe_key": f"{run_id}:text:{external_reply_text.strip()}",
                 }
             )
             feishu_message_id = request.message.metadata.get("feishu_message_id")
@@ -1682,7 +1690,7 @@ class SessionRunCoordinator:
                 metadata["feishu_message_id"] = feishu_message_id
             reply_context = replace(reply_context, metadata=metadata)
         outbound = await self._outbound_router.send_text_async(
-            text=reply_text,
+            text=external_reply_text,
             reply_context=reply_context,
         )
         return outbound, None

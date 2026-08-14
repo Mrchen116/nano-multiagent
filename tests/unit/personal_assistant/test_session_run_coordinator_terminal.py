@@ -23,9 +23,12 @@ from personal_assistant.gateway.inbound_models import (
 from personal_assistant.gateway.background_subscriptions import (
     BackgroundSubscriptionManager,
 )
+from personal_assistant.gateway.channel_registry import ChannelRegistry
+from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.session_keys import build_session_key
 from personal_assistant.gateway.session_run_coordinator import SessionRunCoordinator
 
+from ._pipeline_helpers import _FakeChannel
 from ._session_run_coordinator_helpers import build_dependencies, inbound
 
 
@@ -328,6 +331,54 @@ async def test_no_reply_never_reaches_group_or_external_target(
     result = await running
     assert result.reply_text == "NO_REPLY"
     assert result.outbound is None
+
+
+@pytest.mark.asyncio
+async def test_external_final_fallback_reuses_observer_footer_projection(
+    tmp_path: Path,
+) -> None:
+    """The direct terminal fallback sends the observer's exact cached projection."""
+
+    kernel, catalog, binder, _router, group_store = build_dependencies(tmp_path)
+    feishu = _FakeChannel("feishu:agent-a")
+    router = OutboundRouter(ChannelRegistry((feishu,)))
+    lifecycle: list[RelayLifecycleUpdate] = []
+
+    async def _capture(_routed, update: RelayLifecycleUpdate) -> None:
+        lifecycle.append(update)
+
+    coordinator = SessionRunCoordinator(
+        kernel=kernel,
+        session_binder=binder,
+        outbound_router=router,
+        group_context_store=group_store,
+        external_final_projection_provider=lambda run_id: (
+            "done\n\ngpt-5.4 · 42%" if run_id == "run-1" else None
+        ),
+        relay_lifecycle_callback=_capture,
+    )
+    message = replace(
+        inbound(chat_id="external-fallback", text="work"),
+        channel_name="feishu:agent-a",
+        ingress=InboundIngress(
+            external_conversation=ExternalConversationIdentity(
+                external_source="feishu",
+                external_chat_id="feishu:app:dm:user-1",
+                agent_id="agent-a",
+                conversation_type="direct",
+                trigger_source="feishu",
+            )
+        ),
+    )
+
+    running = asyncio.create_task(coordinator.dispatch(_request(message, catalog)))
+    await kernel.wait_stream("run-1")
+    kernel.finish("run-1", text="done")
+
+    result = await running
+    assert result.reply_text == "done"
+    assert [outbound.text for outbound in feishu.sent] == ["done\n\ngpt-5.4 · 42%"]
+    assert lifecycle[0].model == "test-model"
 
 
 @pytest.mark.asyncio

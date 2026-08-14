@@ -219,6 +219,71 @@ def test_load_local_config_reads_yaml_and_applies_defaults(tmp_path: Path) -> No
     assert config.im_service is None
 
 
+def test_load_local_config_parses_and_round_trips_runtime_footer_display(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "node-config.yaml"
+    workspace_root = tmp_path / "agents" / "assistant-a"
+    workspace_root.mkdir(parents=True)
+    config_path.write_text(
+        "\n".join(
+            [
+                "node:",
+                "  node_id: node-local",
+                "agents:",
+                "  - agent_id: assistant-a",
+                f"    workspace_root: {workspace_root}",
+                "display:",
+                "  runtime_footer:",
+                "    enabled: false",
+                "  platforms:",
+                "    feishu:",
+                "      runtime_footer:",
+                "        enabled: true",
+            ]
+        )
+        + "\n"
+        + _LLM_YAML,
+        encoding="utf-8",
+    )
+
+    config = load_local_config(config_path)
+    assert config.display.runtime_footer_enabled is False
+    assert config.display.platform_runtime_footer_enabled == {"feishu": True}
+
+    saved = tmp_path / "saved.yaml"
+    save_local_config(config, saved)
+    assert load_local_config(saved).display == config.display
+
+
+def test_load_local_config_rejects_invalid_runtime_footer_display(tmp_path: Path) -> None:
+    config_path = tmp_path / "node-config.yaml"
+    workspace_root = tmp_path / "agents" / "assistant-a"
+    workspace_root.mkdir(parents=True)
+    config_path.write_text(
+        "\n".join(
+            [
+                "node:",
+                "  node_id: node-local",
+                "agents:",
+                "  - agent_id: assistant-a",
+                f"    workspace_root: {workspace_root}",
+                "display:",
+                "  runtime_footer:",
+                '    enabled: "yes"',
+            ]
+        )
+        + "\n"
+        + _LLM_YAML,
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError, match="display.runtime_footer.enabled must be a boolean"
+    ):
+        load_local_config(config_path)
+
+
 def test_load_local_config_preserves_multiple_seed_agents_in_order(
     tmp_path: Path,
 ) -> None:

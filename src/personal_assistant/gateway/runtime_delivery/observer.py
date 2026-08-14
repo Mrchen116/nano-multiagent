@@ -26,6 +26,7 @@ from personal_assistant.ws.im_connection import IMConnectionManager
 
 from .background import _invoke_external_reply_sender
 from .context import RunDeliveryContext, RunDeliveryContextStore
+from ..runtime_footer import TerminalFooterFacts
 from .task_tracker import RuntimeDeliveryTaskTracker
 
 _log = logging.getLogger("personal_assistant.gateway.runtime_delivery.observer")
@@ -151,6 +152,9 @@ def build_kernel_event_observer(
     run_context_store: RunDeliveryContextStore,
     running_tool_calls: dict[str, dict[str, dict[str, Any]]] | None = None,
     external_reply_sender: Callable[[str, Mapping[str, str]], Any] | None = None,
+    external_final_text_formatter: (
+        Callable[[str, str, TerminalFooterFacts], str] | None
+    ) = None,
     shadow_output_prepare: (
         Callable[[str, str, str, str | None, str], ExternalShadowOutput] | None
     ) = None,
@@ -325,6 +329,11 @@ def build_kernel_event_observer(
         external_metadata = _external_context_metadata(ctx)
         if external_metadata is None:
             return
+        external_text = (
+            ctx.external_final_text
+            if phase == "final" and ctx.external_final_text
+            else cleaned_text
+        )
         kernel_message_id = ctx.kernel_message_id or None
         saga_id = ctx.shadow_saga_id
         if (
@@ -356,7 +365,7 @@ def build_kernel_event_observer(
                 sender=sender,
                 rid=rid,
                 phase=phase,
-                text=cleaned_text,
+                text=external_text,
                 metadata=metadata,
             ),
             name=f"external-reply:{rid}:{phase}",
@@ -520,6 +529,36 @@ def build_kernel_event_observer(
             cache_total_input if isinstance(cache_total_input, int) else 0
         )
         return payload
+
+    def _cache_external_final_text(
+        *, ctx: RunDeliveryContext, event: Mapping[str, Any]
+    ) -> None:
+        """Build the single terminal external projection before either send path."""
+
+        if _external_context_metadata(ctx) is None or event.get("completed") is False:
+            return
+        text = ctx.external_current_text.strip()
+        if not text or is_protocol_silence_token(text):
+            return
+        usage = event.get("usage")
+        prompt = usage.get("prompt_tokens") if isinstance(usage, Mapping) else None
+        if not isinstance(prompt, int):
+            prompt = usage.get("input_tokens") if isinstance(usage, Mapping) else None
+        context_window = event.get("context_window")
+        facts = TerminalFooterFacts(
+            model=ctx.model or None,
+            prompt_tokens=prompt if isinstance(prompt, int) else None,
+            context_window=(
+                context_window if isinstance(context_window, int) else None
+            ),
+        )
+        ctx.terminal_footer_facts = facts
+        if external_final_text_formatter is None:
+            ctx.external_final_text = text
+            return
+        ctx.external_final_text = external_final_text_formatter(
+            text, ctx.reply_channel_name, facts
+        )
 
     @dataclass(slots=True)
     class _DeliveryEventScope:
@@ -835,6 +874,8 @@ def build_kernel_event_observer(
             # terminalizes. Bump the recovery generation again so a recovery pass
             # that captured its snapshot list before this moment cannot strand it.
             _notify_shadow_pending()
+        if event_name == "turn_end":
+            _cache_external_final_text(ctx=ctx, event=event)
         if event_name == "injection_consumed" and consumed_shadow_anchor_pending:
             old_kernel_message_id = ctx.kernel_message_id
             _clear_live_bubble_context(rid=run_id, clear_conversation=True)

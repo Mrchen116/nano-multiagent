@@ -911,6 +911,7 @@ def test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion() 
 
     manager = _Manager()
     mirrored: list[tuple[str, dict[str, str]]] = []
+    shadowed: list[str] = []
     run_context_store = delivery_context_store(
         {
             "run-1": {
@@ -923,6 +924,8 @@ def test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion() 
                 "reply_channel_name": "feishu:agent-a",
                 "reply_target_chat_id": "feishu:cli_a:dm:ou_user",
                 "feishu_message_id": "om_msg_1",
+                "model": "provider/path/gpt-5.4",
+                "shadow_saga_id": "saga-1",
             }
         }
     )
@@ -932,6 +935,12 @@ def test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion() 
         run_context_store=run_context_store,
         external_reply_sender=lambda text, metadata: mirrored.append(
             (text, dict(metadata))
+        ),
+        external_final_text_formatter=lambda text, _channel_name, facts: (
+            f"{text}\n\n{facts.model} · 42%"
+        ),
+        shadow_output_prepare=lambda _saga, _run, _phase, _kernel, text: (
+            shadowed.append(text)
         ),
         task_tracker=tracker,
     )
@@ -980,7 +989,7 @@ def test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion() 
             },
         ),
         (
-            "Final answer.",
+            "Final answer.\n\nprovider/path/gpt-5.4 · 42%",
             {
                 "reply_phase": "final",
                 "reply_dedupe_key": "run-1:bubble:kernel-msg-b",
@@ -990,6 +999,7 @@ def test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion() 
             },
         ),
     ]
+    assert shadowed == ["I will check.", "Final answer."]
 
 
 def test_kernel_event_observer_does_not_mirror_im_triggered_shadow_runs() -> None:
