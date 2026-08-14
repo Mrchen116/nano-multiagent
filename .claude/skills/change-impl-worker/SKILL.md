@@ -9,8 +9,6 @@ description: 仅当 `change-orchestrator` 明确派发一个需要独立实现 o
 
 在规划的 milestone worktree 中完成一个 implementation assignment：遵循已确认的需求和设计，在现有架构的正确位置实现，留下与风险相称的回归保护和真实入口证据，并集成进 unit branch。
 
-流程服务于交付，不以生成 roadpoint、过程文档或 Git 仪式为目标。默认使用最简单、可复查的执行方式；只有复杂度、交接或证据需要时才增加记录。
-
 ## 1. 路由
 
 是否派 worker 由 orchestrator 结合完整上下文判断，不使用固定分类表或行数阈值。worker 的职责是
@@ -63,7 +61,7 @@ milestone worktree/branch 的 creator-owner，负责：
 
 ## 4. 规划与基线
 
-根据任务本身决定实施顺序和 commit 边界，不强制 3–7 个 roadpoint。默认不创建 `tasks.md` / `progress.md`，不创建 plan commit。
+根据任务本身组织实施顺序、commit 边界和必要记录。
 
 测试基线按它能回答的问题选择：
 
@@ -90,7 +88,7 @@ milestone worktree/branch 的 creator-owner，负责：
 - 测试可观察行为和稳定 seam；不要把 milestone 编号或私有实现写成永久测试契约。
 - 先跑最窄相关测试，再按实际风险扩大。不要在每个内部步骤后重复同一完整 gate。
 
-自然组织 commit：一个 coherent change 可以只有一个 commit；复杂 assignment 可按可审查边界拆分。测试、实现和必要记录可以同一 commit，不要求 plan commit、逐步骤 commit 或每段 push。
+按可审查边界组织 commit。
 
 ### 5.3 真实入口
 

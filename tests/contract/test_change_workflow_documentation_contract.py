@@ -132,8 +132,8 @@ def test_strict_worker_process_records_are_optional() -> None:
     verifier = _read(".claude/skills/change-verifier/SKILL.md")
     worker = _read(".claude/skills/change-impl-worker/SKILL.md")
 
-    assert "roadpoint 数量、plan commit、逐步骤 push 或过程文档" in workflow
-    assert "默认不创建 `tasks.md` / `progress.md`" in worker
+    assert "worker 根据任务自主拆分" in workflow
+    assert "根据任务本身组织实施顺序、commit 边界和必要记录" in worker
     assert "缺少 `tasks.md` / `progress.md` 本身不是问题" in orchestrator
     assert "不再作为固定产物" in storage
     assert "缺少文件本身不是 finding" in verifier
