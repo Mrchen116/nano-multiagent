@@ -1,549 +1,198 @@
 ---
 name: change-impl-worker
-description: 仅当 `change-orchestrator` 在派发给 subagent 的任务中明确要求使用本 skill 时触发：执行指定 milestone，或处理其 reviewer 反馈循环中的定向 fix。其他场景不得由 agent 自行选择。
+description: 仅当 `change-orchestrator` 明确派发实质 implementation milestone 或 substantive fix 时使用；在规划的 milestone worktree 中完成实现、测试和适用的真实入口验证。artifact-only 与 bounded closure 不使用本 skill。
 ---
 
-# Implementation Worker: 后端 TDD,前端状态驱动 + 浏览器验收
+# Change Implementation Worker
 
-## 你的目标
+## 目标
 
-把这一个 milestone **真正做好**:代码落在架构意图该在的位置、产品从真实入口确实能用、留下能防复发的测试。
+在规划的 milestone worktree 中完成一个实质 implementation assignment：遵循已确认的需求和设计，在现有架构的正确位置实现，留下与风险相称的回归保护和真实入口证据，并集成进 unit branch。
 
-你在自己的 worktree 里写测试/验收、写实现、补文档,完成后合到 unit 集成分支,清理退出。TDD 红绿、测试门禁、状态矩阵这些是**保证质量的手段**,不是目的——别为了走完流程而走流程,目的始终是"这个 milestone 的功能用户真的能用、且不会悄悄退化"。
+流程服务于交付，不以生成 roadpoint、过程文档或 Git 仪式为目标。默认使用最简单、可复查的执行方式；只有复杂度、交接或证据需要时才增加记录。
 
-**流程不可能面面俱到。** 它没写到的情况出现时,以这个目标为准绳自己判断,像一个对交付质量负责的工程师。遇到自己拍不了板的决策,随时找 orchestrator(你的 leader)——见 §2.5。
+## 1. 先核对路由
 
-## §0 不可越界的硬规则
+worker 只接 **substantive implementation**。收到任务后先按下表判断；orchestrator 的标签是输入，不替代你的事实核对。
 
-1. **遵循 design;design 没写到、你自己填的地方,默认复用 / 扩展现有架构**。design 定了的(关键决策 / 接口 / 数据流)照 design 做。但 **design 总会留一堆实现细节让你自己填**——这些自决处,**你要让实现和现有架构一致,而不只是图"尽快跑起来 / 测试过"**:先看项目里**同类的事已有怎么做**(service / repo / API client / 组件 / 状态 / 校验 / 错误处理 / 配置 / 权限 / 持久化 / 测试),默认沿用扩展,**注意别新写一套局部能跑的平行物**。(design 本身让你造一套和既有重复的 → 那是 design 问题,走 §4 pause。)
-2. **禁止兜底/降级/防御性编程**。不要写假装稳定的代码——`try/except` 吞错、神秘 fallback、临时常量、heuristic 修补——它们让数据静默错误而你毫不知情。错误应该大声失败(raise/assert),不要静默吞掉。
-3. **测试/验收必须证明产品能用,不只是代码能跑**。新功能、以及**修复用户报告的运行时缺陷**,都必须**至少一个真实入口验证**(浏览器 / CLI / HTTP endpoint)——新功能证明用户真能用,bug 修复证明用户报的那个症状真的消失。后端/API 通常沉淀为自动化入口测试;前端 UI 按 §3.1 风险分级选择 regression 保护,并记录真实浏览器验收证据。"全是 mock 的单元测试全绿"不是完成依据——历史上多次单测全绿但产品根本不能用 / bug 仍在(单测复现的是你写的那段代码,不是用户报的那个现象)。**对跨进程 / 运行时行为(投递、集成、调度),"真实入口验证"= 真把系统跑起来、跑到用户可见结果(真消息进直聊 / 页面真出现);stub、进程内 tick、"集成测试用桩"都不算——它们恰好掩盖集成缝的 bug,还会把确定性 bug 误导成"race / 需底层支持"。env 跑不通时不许降级用单测/集成顶替凑 DONE(见 §0.10)。**
-4. **测试门禁**。提交实现前 `<test_command>` 必须全绿。
-5. **Pause-on-design-issue**。实现期发现 design 偏差,立即停手,走 §4 的修订流程,**禁止悄悄绕过**。
-6. **范围边界**。只改 design.md Milestone 表"范围"列里的文件;越界要先停手,通过 progress.md 记录 + 通知 orchestrator,不要顺手扩范围。
-7. **out-of-unit 发现立 issue 不顺手修**。发现根因不在本 unit 的 bug → `gh issue create`,继续做本职工作,不要顺手修(顺手修会让本 unit 范围爆炸,也会让 reviewer 验收逻辑错乱)。
-8. **worktree 路径锚定主仓**。`$(git rev-parse --show-toplevel)/.worktrees/<milestone_id>`,绝对路径,禁止嵌套 worktree。
-9. **前端 UI 变更必须真实浏览器验收**。任何影响用户界面的改动,不能只依赖 jsdom、组件测试、类型检查或截图脑补。必须用真实浏览器打开相关页面/状态,完成关键交互,检查 console error / network failure,并在 progress.md 记录证据。核心业务路径和历史 bug 必须留下可重复的 regression 保护;若项目已有浏览器 E2E 体系,核心路径优先沉淀为 E2E 用例;没有则补适合现有测试体系的交互/回归测试,不为单个 milestone 强行引入新基础设施。视觉/样式细节以截图证据和状态覆盖为主,不强行用 E2E 测样式。
-10. **假设主机被并发使用,自取并回收运行时资源**。任何占端口 / 绑 socket / 起长驻服务的动作:**之前**按 [`docs/development/worktree-runtime.md`](../../../docs/development/worktree-runtime.md) 分配并隔离资源,**之后**退出/HANDOFF 前停止自己启动的进程并确认端口释放。资源被占且无法切换 → 阻塞,按 §8.2 HANDOFF,不准改写 evidence 标准回避。**live 环境跑不通(proxy / WS / 绑定 / 服务起不来)同样算阻塞**:不许自己降级成"API 层验证 / 集成测试也行"凑 DONE,而是 `SendMessage` 找 orchestrator(§2.5.1,它会修 env 或调整),并在回报里**如实披露 env 受阻**——别报一个干净的 DONE 把"其实没跑通 live"吞掉(这会让 orchestrator 误签收、把 live 验证甩进往返轮)。
-11. **撞到 bug 先找根因再修**。遇到非平凡 bug / 测试失败 / 意外行为 → **动手修之前先 invoke `systematic-debugging` skill 走根因纪律**,禁止「猜一个改一下试试」。与 §0.2(禁兜底)同源:都要求修根因、不修症状、不让错误静默蔓延。根因定位后回 §5(先写复现红测再修)。展开见 §7.2。
-12. **契约层永不由你写**。`docs/specs/`(canonical,归 orchestrator)、`<unit_path>/specs/`(delta,归 design-author)都不归你——你只写 milestone 内 `progress.md` / `tasks.md`。对外行为有变就在 progress.md 记一句给 orchestrator,别顺手写:实现视角写出的契约必带实现细节。
+| 类型 | 判据 | 处理方式 |
+|---|---|---|
+| `artifact-only` | 只改报告、evidence、链接、格式或元数据，不改变产品代码、测试语义、需求或设计 | 不修改；回报 `ROUTE_BACK: artifact-only`，由 owner/orchestrator 直接修 |
+| `bounded-closure` | exact delta、正确修复层和 closure gate 都已明确，且不改变用户可观察或已声明稳定产品行为，不触及产品架构或生产高风险边界 | 不修改；回报 `ROUTE_BACK: bounded-closure`，由 orchestrator 直接修并保留独立 closure |
+| `substantive` | 改变用户可观察或已声明稳定产品行为，触及产品架构/生产 schema、protocol、auth、persistence、concurrency、live-critical 链路，或正确修复仍需实现判断、跨 owner 协调、非平凡回归保护 | 继续本 skill |
 
----
+按表格从上到下判定；不能简洁证明前两类时按 substantive。不要用文件数或行数单独判定。一个
+11 行共享 helper 在正确修复层仍不明确时可能是 substantive；20 个文件的机械格式化也可能只是
+bounded closure。
 
-## §FL Reviewer 反馈循环里的 fix — 三条正交的轻量化
+## 2. 输入和所有权
 
-orchestrator 把这批 fix 标为「reviewer 反馈循环的小修」(派发措辞),或 `SendMessage` 唤醒你续修时适用。有三条**正交**的轻量化,各有判据,可单独可叠加;别把它们焊成"小修就一起全省"。
-
-**① 复用上下文** —— 当你是被 `SendMessage` **唤醒的原 milestone worker**(上下文/worktree 还在):
-- §2.3 六读、§2.4 跑基线 自然省掉——你本来就有,不必重做;复用你原 milestone 的 worktree。
-- **但若你是被新派来修 fix 的**(不是原 worker):这些**不能省**,该读的上下文读全、该跑的基线跑——否则不懂架构容易治标(见 ③)。
-
-**② 减流程仪式** —— fix 单点、一步到位时:
-- §3 → 不复制 tasks.md 模板,fix 列表写 commit message 或 progress 续段。
-- **判据**:fix 自包含、不需要拆 roadpoint。装不下(>100 行 / 跨 3+ 文件 / 需分步)→ 升级回主流程。
-- ⚡**红测试不豁免行为/契约类 fix**:只有 typo / 样式 / 文案这类**本质写不出有意义断言**的才免 §5 红测。**只要这个 fix 能被测试断言(逻辑 / 契约 / 数据流改动),就必须先写红测试**——当初漏 bug 往往正因没测到,免了下轮还漏。
-
-**③ 架构治本(底线,不是轻量化)** —— §0.1 在 fix 下**不放松**:reviewer 给的「最小路径 / 改第 X 行」是现象线索,不是方案。判断根因在哪层,在架构正确的位置治本,不在崩溃点贴补丁绕过契约。复用原 worker 反而更利于此——你最懂自己写过的那层。
-
-**硬边界**(破任一即退主流程):
-
-1. reviewer 仍独立验收(你不自我验收)
-2. fix 历史可从 commit message / progress 看到
-3. 集成路径不变(§6 rebase + unit 锁 + merge **不放松**)
-4. 单 commit 可 `git revert` 到上一稳定态
-
-**保留**:§0.1-§0.3、§0.6-§0.10、§6 集成。
-
-每次走轻量化在 commit message 或 progress 写一句"省略 §X,理由 <Y>",留决策痕迹。
-
-**升级回主流程**:fix 实际不止小修 / 硬边界即将破 / 单 commit 装不下(>100 行 / 跨 3+ 文件)——立刻停手,在 progress 记触发原因,按 §3 复制 tasks.md,从下一 roadpoint 起按 §5 走。已写 commit 不 revert。
-
----
-
-## §1 输入契约
-
-orchestrator 派发的 prompt 必须含以下字段(缺即拒绝执行,要求 orchestrator 补齐):
+派发包必须包含：
 
 ```yaml
-unit_id: <type>-<id>                         # 例: feat-104(逻辑标识)
-unit_dir: <type>-<id>[-<short-desc>]         # 例: feat-104-chat-mention-picker(实际目录)
-milestone_id: <unit_id>-M<N>                 # 例: feat-104-M1
-milestone_dir: M<N>-<title>                  # 例: M1-domain-model(在 unit_dir 下)
-worktree_dir: <repo_root>/.worktrees/<milestone_id>
-unit_worktree_dir: <repo_root>/.worktrees/unit-<unit_id>   # 集成 merge 在此进行,不进主仓
-branch: milestone/<milestone_id>
-mode: full | lite                            # lite 时还需写 fix.md 修复/验证两段
+unit_id: <type-id>
+unit_dir: <type-id-short-desc>
+milestone_id: <unit-id-MN>
+milestone_dir: <MN-short-desc>
+unit_worktree_dir: <absolute-unit-worktree-path>
+unit_branch: unit/<unit-id>
+worktree_dir: <absolute-path>
+branch: <planned-milestone-branch>
+base_head: <worker-start-head>
+mode: full | lite
+assignment: milestone | substantive-fix
 ```
 
-进入 milestone worktree 后先解析 unit 文档根路径;PR 前为活动区,归档后的 CI/fix 轮为历史区：
+orchestrator 提供 unit 与 milestone 的精确路径、branch 名和 `base_head`，不预建 milestone
+worktree。worker 是自己 milestone worktree/branch 的 creator-owner，负责：
 
-```bash
-unit_matches=$(find docs/changes docs/changes/archive -mindepth 1 -maxdepth 1 -type d \
-  -name "$unit_dir" -print 2>/dev/null)
-match_count=$(printf '%s\n' "$unit_matches" | sed '/^$/d' | wc -l | tr -d ' ')
-if [[ "$match_count" -eq 0 ]]; then echo "unit path not found: $unit_dir" >&2; exit 1; fi
-if [[ "$match_count" -ne 1 ]]; then
-  echo "unit path is ambiguous: $unit_dir" >&2
-  printf '%s\n' "$unit_matches" >&2
-  exit 1
-fi
-unit_path=$unit_matches
-```
+- 从 `base_head` 创建或安全恢复 `worktree_dir` / `branch`，只在该现场写本 assignment 的文件；
+- 提交实现；DONE 时把结果集成并 push 到 unit branch，HANDOFF 时 push milestone branch；
+- 清理自己启动的进程和临时运行资源；
+- DONE 后删除自己创建的 milestone worktree/branch；HANDOFF/BLOCKED 时保留可恢复现场。
 
-其他配置(`test_command` / `forbidden_scope` / `prevention_rules`)**不在派发包里**——你自己从 `<unit_path>/design.md`(lite 模式下读 fix.md)、`AGENTS.md` 和它路由到的 canonical 文档读出来。设计期省派发包字段,实施期 worker 自取上下文。
+缺字段、目录/branch 不符、`base_head` 不可解释，或存在来源不明的 dirty 内容时停止并报告；禁止 reset 或覆盖现场。
 
-**完整路径推导**:`<unit_path>/<milestone_dir>/`;`unit_path` 可能位于活动区或 archive。
+在 `docs/changes/`、`docs/changes/archive/` 中按 `unit_dir` 唯一解析 unit。retired unit 不实施。
 
----
+## 3. 渐进读取上下文
 
-## §2 启动序列
+只读取支持当前 assignment 决策所需的内容：
 
-### §2.1 Sync Gate(自检 unit 分支)
+1. unit 首文档；Full 再读 `design.md` 中相关决策、milestone 行、退出标准和 reference contract；lite 读 `fix.md`。
+2. 仓库及受影响目录的 `AGENTS.md` / `CLAUDE.md`。
+3. 相关 current spec、现有实现、调用方和现有测试；先查同类能力，避免平行实现。
+4. 写测试前读 `docs/development/testing.md`；写产品代码时遵循 `docs/development/coding-guidelines.md`。
+5. 创建/恢复 milestone 现场或进入 DONE 集成前，读取 [worktree 创建、集成与清理](references/worktree-integration.md)。
+6. 涉及浏览器、真实入口、跨进程或外部系统时，读取 [真实入口与运行证据](references/real-entry-validation.md)。
+7. 需要实施台账、复杂任务恢复或 HANDOFF 时，读取 [按需实施记录](references/implementation-records.md)。
 
-启动第一件事——确认本地和远端的 `unit/<unit-id>` 分支同步:
+同一 worker 被续跑、相关文档版本未变时复用已有上下文，不重新完整读取。无需发送固定“开工”消息；只有意图/范围不清、设计问题或阻塞时联系 orchestrator。
 
-```bash
-cd "$(git rev-parse --show-toplevel)"
-git fetch origin
+## 4. 规划与基线
 
-LOCAL=$(git rev-parse "unit/<unit-id>" 2>/dev/null || echo "")
-REMOTE=$(git rev-parse "origin/unit/<unit-id>" 2>/dev/null || echo "")
+根据任务本身决定实施顺序和 commit 边界，不强制 3–7 个 roadpoint。默认不创建 `tasks.md` / `progress.md`，不创建 plan commit。
 
-[[ -z "$REMOTE" ]] && fail "remote unit branch missing — orchestrator should have created it"
-[[ "$LOCAL" == "$REMOTE" ]] || git checkout "unit/<unit-id>" && git pull --ff-only
-```
+测试基线按它能回答的问题选择：
 
-如果本地和远端分叉(非 fast-forward):**停下来报告**,不要强制 reset。orchestrator 会处理。
+- 有同一 `base_head`、相同环境的可信近期结果时复用，不重跑。
+- 需要区分既有行为与本次回归时，跑能暴露该风险的最窄 baseline。
+- 不为了“基线仪式”先跑全仓测试；完整 unit/CI gate 由 orchestrator 在集成树上统一执行。
+- baseline 已有无关失败时记录命令和证据并报告，不顺手扩大范围。
 
-### §2.2 创建 / 复用 worktree
+## 5. 实施与验证
 
-```bash
-repo_root=$(git rev-parse --show-toplevel)
+### 5.1 架构与范围
 
-# 已存在 → 复用(换人续跑)
-[[ -d "$worktree_dir" ]] && cd "$worktree_dir" || \
-  git -C "$repo_root" worktree add -b "$branch" "$worktree_dir" "origin/unit/<unit-id>"
-```
+- 遵循 design 已确认的关键决策、接口、数据流、范围和退出标准。
+- design 未规定的实现细节默认扩展已有 service/repository/adapter/component/fixture，不新造平行机制。
+- 禁止吞错、神秘 fallback、临时常量和只绕过症状的 heuristic。
+- 只改 milestone 范围；实现正确性必需但 design 未列出的文件先报告，由 orchestrator 判断是否修订范围。
+- `docs/specs/`、unit delta-spec 和已确认设计不由 worker擅自改写。
 
-显式从 `origin/unit/<unit-id>` 拉 —— 这是 stale-base 的第二道防线。
+### 5.2 Red / Green 是验证纪律，不是提交结构
 
-### §2.3 读上下文(不可跳过)
+- 可测试的新行为或 bug 修复，先获得能复现缺失能力的失败证据，再完成 Green。
+- 纯重构使用既有行为保护证明前后不变，不制造虚假的红测。
+- 视觉/交互变更可用明确的前态复现、状态清单或截图对照代替没有意义的自动化红测。
+- 测试可观察行为和稳定 seam；不要把 milestone 编号或私有实现写成永久测试契约。
+- 先跑最窄相关测试，再按实际风险扩大。不要在每个内部步骤后重复同一完整 gate。
 
-按顺序读,缺哪个就停下来报告:
+自然组织 commit：一个 coherent change 可以只有一个 commit；复杂 assignment 可按可审查边界拆分。测试、实现和必要记录可以同一 commit，不要求 plan commit、逐步骤 commit 或每段 push。
 
-1. **`<unit_path>/<首文档>.md`** —— 用户视角和验收标准(lite 模式下首文档是 fix.md,前两段已写)
-2. **`<unit_path>/design.md`** —— 架构意图、关键决策、接口、Milestone 表对应行(本 milestone 的"范围 / 退出标准")。如果 design.md 链接了前端原型 `prototype.html`,必须在规划前打开参考,并提取 `## 前端原型` 的原型对齐契约;本 milestone 相关的 `must-match` 行要复制到 `tasks.md` 的 Prototype / Reference Contract。**lite 模式跳过这步**(没有 design.md)
-3. **`CLAUDE.md` / `AGENTS.md`** —— 项目级硬约束、关键入口和模块边界
-4. **`docs/development/coding-guidelines.md`** —— 本仓代码编写规范的唯一真源。**在写任何代码之前必须读完并遵守**
-5. **`docs/README.md` 路由到的相关 current 文档** —— 架构、行为、开发或运行规则按问题读取，不从历史日志提取现行约束
-6. **现有代码结构** —— 模块划分、命名约定、已有 fixture / helper(避免重复造轮子)
-7. **`docs/development/testing.md`** —— 测试规范的唯一真源：先用“稳定风险 → 可观察 seam → 最低暴露层 → 不重复 → 长期门禁”判断测试是否值得存在，再决定既有测试的处置。**在写任何测试（含红测）之前必须读完**——它定义本 milestone 测试的取舍。放在“现有测试”之前读：**先立标准，再看样本**。
-8. **现有测试结构** —— 已有哪些测试、组织方式、入口测试是怎么写的。⚠️ 现状里可能掺着反模式(mock 断言某内部函数「被调用」、测一条已失效/no-op 的实现路径);先用上一条测试规范的判据过一遍再参照,**别无脑模仿现状**——坏样本会让你把实现细节当成测试目标。
+### 5.3 真实入口
 
-读完后心里要有清晰的:**本 milestone 的边界 / 涉及的文件 / 已有可复用的东西 / 测试该测什么·不该测什么 / 哪些既有测试会受影响**。
+新功能、用户报告的运行时 bug、前端 UI、跨进程/投递/调度等集成缝必须按 [真实入口与运行证据](references/real-entry-validation.md) 完成适用验证。纯内部、无用户入口影响的重构不强制制造 live 验收。
 
-### §2.4 跑测试基线
+环境无法满足必需证据时报告 `BLOCKED`，不要用 mock、stub 或低一层测试冒充真实链路。
 
-```bash
-<test_command>   # 从 CLAUDE.md / pyproject.toml / package.json 推断
-```
+### 5.4 测试失败分流
 
-基线必须全绿。已经有失败 → **先停下报告**,让 orchestrator / 用户决定是不是先修主线再开干。不要在红色基线上加新测试,会被淹没。
+先分类，再决定是否使用 `systematic-debugging`：
 
-### §2.5 读完上下文后报信(不准提前发)
+- 预期 TDD 红测：确认失败点正确后继续。
+- 已知环境/操作错误或直接遗漏：修正环境/操作，或报告阻塞。
+- 根因仍不明确的异常、flaky、运行时或集成失败：调用 `systematic-debugging`，稳定复现并定位根因后再修。
 
-**必须在 §2.3 / §2.4 完成之后**才发这个信。在此之前发(例如刚收到派发就回 "开工,正在读 design.md")视为违规,orchestrator 会要求你回到 §2.3 重来。
+不要把所有非零退出都升级成完整调试流程；也不要用 skip、xfail、放宽断言、sleep 或重试掩盖真实失败。
 
-- **没疑问**:一句话报 "已读懂 M<N>,范围 = <design.md 范围列摘要>,影响文件 = <X>,开始实施"。⚠️ 反例:`"开工,正在读 design.md"` / `"收到,即将开始"` —— 未完成态,不算报信。
-- **有疑问**:把对 milestone **意图 / 范围 / 退出标准**的不确定列出来(只问意图,不问 "怎么写"——实现是你的活),`SendMessage` 给 orchestrator。
+## 6. 设计问题与范围外发现
 
-澄清问答都记进 progress.md——换人续跑的 worker 要看得到。
+发现已确认 design 错误、遗漏或不可执行时：
 
-### §2.5.1 随时可以找 leader 决策(不限开工、不限轮数)
+1. 停止受影响编码，保留已完成的安全工作。
+2. 向 orchestrator 报告原决策、直接证据、建议修订和波及范围。
+3. 不自行修改 design/spec；等待对应 owner 更新并确认后续路径。
+4. 恢复时只重读变更过的相关内容。
 
-orchestrator 是这个 unit 的技术领导者,手里有全局(用户意图、整体拆分、milestone 间依赖、reviewer 会怎么验)。**只要你撞上一个自己负不起责任拍板的决策,就直接 `SendMessage` 问它**——不必等"开工报信"那一刻,干到一半发现也照问;也没有"最多几轮"的限制,谈到清楚为止。该问不问、硬按猜测往下写,返工的代价远比多问几句大。
+范围外问题只报告证据、严重度和建议 owner；是否建立 issue 由 orchestrator 决定，不由 worker 自动扩大外部写入。
 
-什么该问 leader、什么自己定:
+## 7. 验证结果的有效性
 
-- **实现怎么写**(用什么数据结构、函数怎么拆、测试怎么组织)→ 你自己的活,别问。
-- **design 既有意图框架内的理解歧义**(范围边界到底切在哪、退出标准要观察的是什么、两个 milestone 衔接处谁负责)→ **问 leader**,它串起全局给你答案。
-- **答这个问题必须改 / 补一个 design 决策**(design 写错了、漏了、行不通)→ 这不是"问一句"能了的,走 §4 Pause-on-design-issue:停手、记录、由 orchestrator 决定是否回 design-author。
+一次 gate 的结论绑定到：代码树、命令和会影响结果的环境。三者未变时可以复用；发生以下任一情况才重跑受影响范围：
 
-简单说:**理解层的不确定 → 随时问 leader;design 层的缺口 → 走 §4。** 两者都好过自己闷头猜。问答记进 progress.md。
+- 实现或测试树变化；
+- rebase/merge 实际改变相关文件或依赖；
+- 配置、依赖、服务或运行环境变化；
+- 原 gate 未覆盖新风险，或无法证明仍有效。
 
----
+worker 不因未来可能 rebase 而提前重复 gate。orchestrator 集成后根据实际 delta 决定保留、局部重跑或扩大验证。
 
-## §3 规划:写 tasks.md(只做一次)
+## 8. DONE、HANDOFF 与 BLOCKED
 
-复制本 skill `assets/tasks.md` 模板到:
+### DONE
 
-```
-<unit_path>/<milestone_dir>/tasks.md
-```
+退出标准全部满足后：
 
-(这个目录由 design-author 已经创建为空,或 lite 模式下由 orchestrator 创建)
-
-design-author 用 `.gitkeep` 让空目录能跨 commit/worktree 保留。首次规划前删除它：
-
-```bash
-rm -f "<unit_path>/<milestone_dir>/.gitkeep"
-```
-
-填写:
-
-- **目标**:抄 design.md Milestone 表对应行的"退出标准"(lite 模式抄 fix.md "现象/根因"段)
-- **退出标准**:同上,可补充
-- **测试策略**:见 §3.1
-- **受影响的既有测试处置**:按 `docs/development/testing.md` 只记录本 milestone 影响的 `keep / rewrite-merge / delete`,不建全仓台账;没有时写明搜索范围和理由
-- **Roadpoints**:把 milestone 拆成 3-7 个 roadpoint(R1/R2/...),每个能独立按 §5 Red→Green 完成。tasks.md 里每个 roadpoint 状态字段用 `TODO / DOING / DONE / BLOCKED` 四档之一
-
-复制 `assets/progress.md` 模板到 `<unit_path>/<milestone_dir>/progress.md`(空骨架,后续每个 R 完成补齐)。
-
-提交一次"plan" commit + `git push -u origin <branch>`。
-
-### §3.1 Tests Plan(核心:测试必须证明产品能用)
-
-> 测试规范以 **`docs/development/testing.md`** 为唯一真源(§2.3 已列为**写测试前必读**):测什么/不测什么的停止条件、"先定位再新建"、命名禁流水号、目录即分层 + e2e marker、可选依赖 importorskip、临时验收证据 ≠ 永久回归测试、单文件行数上限。本节只讲 milestone 内的规划动作,规则细节不在这里重复。
-
-按以下顺序思考:
-
-**第一步:确定"怎么证明这个功能对用户真的能用"**
-
-- 这个改动最终影响用户的入口是什么?(浏览器页面?CLI 命令?HTTP API?)
-- 用户会怎么触发这个功能?
-- 如果我是用户,我怎么验证它 work 了?
-
-**第二步:选择测试策略**
-
-| 场景 | 策略 |
-|---|---|
-| 新功能(后端/API) | **必须**至少一个真实入口测试(HTTP 请求 / CLI 命令),证明用户真能调通 |
-| 新功能(前端核心业务路径) | **必须**留下可重复 regression 保护。若项目已有浏览器 E2E 体系,写/更新 E2E;否则补现有测试体系中的交互/集成测试。完成后还必须真实浏览器验收 |
-| 新功能(前端普通 UI) | 必须列出 UI 状态矩阵,并完成真实浏览器临时验收。复杂交互补组件/集成测试;纯展示/视觉状态可用状态矩阵 + 截图证据 |
-| 前端历史 bug 修复 | **必须**补 regression case。业务路径断裂优先 E2E(若已有体系)或组件/集成回归;组件状态、长文本、空态、响应式问题可用组件测试、截图证据或验收脚本 |
-| 前端视觉/样式细节 | 不强行写 E2E。必须真实浏览器截图验证,并覆盖相关 viewport / 状态;若项目已有视觉回归体系可复用,不为单个 milestone 强行引入 |
-| Bug 修复 | 优先在现有测试文件中补能复现该 bug 的用例。不要新建文件除非现有文件确实不合适 |
-| 重构 | 现有测试不改就该通过(行为不变)。需要改测试 → 行为变了,要重新审视 |
-| 纯内部改动(不影响用户入口) | 单元/集成测试即可,但要确认确实不影响入口 |
-
-**前端视觉 / reference 自测**:
-
-如果首文档、design.md 或 milestone 退出标准里出现原型、设计稿、reference screenshot、视觉一致、像素级、响应式、布局/样式等要求,worker 必须在合并前做一次真实界面自测:
-
-- 用产品真实入口打开相关页面/状态,不要只依赖 jsdom / 组件测试。
-- 覆盖 design / 首文档明确要求的关键 viewport 或形态(例如桌面/移动、空态/加载/完成态)。
-- 截图或录屏必须落在 unit 目录内(例如 `<unit_path>/<milestone_dir>/evidence/`),并在 `progress.md` 记录路径;只给 `/tmp/...` 或临时浏览器状态不算可复查证据。
-- 如果有原型/设计稿/reference,必须在 `progress.md` 写 `Prototype Comparison` 表,逐行记录对照对象、实际证据、viewport/状态、match/deviation、偏离是否被 design 授权。页面"能渲染"不等于"符合 reference"。
-- 如果原型与 design 文字互相冲突,或不清楚某个原型区域是 `must-match` 还是占位,立即问 orchestrator;不要自己取舍后继续报 DONE。
-
-这不是要求每个 CSS 像素都自动化测试。它是 worker 的交付自检:确保真实视觉效果和真实交互效果没有明显偏离任务目标。不能把这一步留到 reviewer 才第一次发现。
-
-**第三步:避免常见陷阱**
-
-- ❌ 每个内部函数都写单元测试 → 测试爆炸,重构时全要改
-- ❌ mock 掉所有依赖 → 测试通过但真实链路断了
-- ❌ 为凑测试数量新建大量小文件 → 维护噩梦
-- ❌ 前端只跑组件测试,不真实打开页面看最终效果
-- ❌ 有原型/reference 却只说"页面渲染正常",不做对照
-- ✅ 用最低层、能覆盖完整失败原因的测试 > 多个各自只锁内部 mock 步骤的测试
-- ✅ 优先归入同一风险 owner；没有合适 owner 时新建语义明确的测试文件
-- ✅ 删除被新测试覆盖的旧测试
-
-### §3.2 Frontend Implementation Plan
-
-如果 milestone 涉及前端 UI,`tasks.md` 里必须额外写清楚以下内容。
-
-**1. UI 状态矩阵**
-
-至少检查并标记适用项:
-
-- default
-- loading
-- empty
-- error
-- disabled
-- submitting
-- permission denied
-- long content
-- missing/nullable data
-- mobile viewport
-- desktop viewport
-- dark mode,如果项目支持
-
-不适用的状态必须写 `N/A`,不能完全省略。
-
-**2. 用户路径分类**
-
-把本 milestone 涉及的前端变化归类为以下之一:
-
-- `critical-path`: 核心业务路径,必须有可重复 regression 保护;若项目已有浏览器 E2E 体系,优先落库 E2E
-- `normal-ui`: 普通 UI 改动,必须真实浏览器临时验收,不一定落库 E2E
-- `visual-only`: 视觉/样式细节,必须真实浏览器截图验证,不强行写 E2E
-- `bug-regression`: 历史 bug 修复,必须补 regression case
-
-**3. 测试与验收映射**
-
-在 `tasks.md` 中写明:
-
-| 风险点 | 验收方式 | 是否落库 |
-|---|---|---|
-| <例如:创建对象流程> | E2E(若已有体系)或交互/集成回归 + 浏览器验收 | 是 |
-| <例如:长标题溢出> | 状态矩阵 + 浏览器截图 | 视风险 |
-| <例如:按钮视觉调整> | 浏览器临时验收截图 | 否 |
-
-**4. 浏览器验收要求**
-
-前端 UI 任务完成前必须:
-
-- 打开真实页面入口
-- 执行关键点击/输入/选择/提交
-- 检查 console error
-- 检查 failed network request
-- 覆盖设计要求中的 viewport
-- 记录截图/录屏路径,或记录可复查的浏览器验收证据
-
----
-
-## §4 Pause-on-design-issue(实施期发现 design 偏差)
-
-实施过程中发现 design.md 写错了 / 漏了 / 行不通——**立即停手**,不要悄悄改方案绕过去。phase-locked 不重要,知识同步重要。
-
-操作:
-
-1. 暂停编码,不要继续写代码
-2. 在 `progress.md` 加一段记录:
-
-```markdown
-## [Design 修订] R<n>: <一句话标题>
-
-- 现状方案: <design.md 原写的>
-- 新方案: <发现需要怎么做>
-- 原因: <为什么 design 不对>
-- 影响范围: <仅本 milestone | 影响 M2/M3/...>
-- design.md 是否同步改: <是 / 是,且加了 Changelog>
-```
-
-3. 同步改 `<unit_path>/design.md` 正文
-4. **如果影响后续 milestone**,在 `design.md` 顶部 Changelog 段追加一行:
-
-```markdown
-- YYYY-MM-DD (M<N>): <一句话> — 详见 M<N>/progress.md
-```
-
-5. 通知 orchestrator(回报状态),orchestrator 决定继续还是回 design-author 复审
-6. 得到继续信号后再恢复编码
-
----
-
-## §5 执行循环:每个 roadpoint 走 TDD(Red → Green)
-
-每个 roadpoint 工作顺序是 Red/Verify → Green →(必要的 Browser QA / Refactor)→ 门禁 → 提交并补齐 progress。同一 roadpoint 的测试、实现、progress 通常一次提交。
-
-Red/Verify 的含义按任务类型区分:
-
-| 任务类型 | Red/Verify 应产出什么 |
-|---|---|
-| 后端/API/纯逻辑 | 失败测试,确认失败点 = 当前缺失能力 |
-| 前端核心业务路径 | 失败/可复现的 E2E(若已有体系)或交互/集成 regression |
-| 前端普通 UI | UI 状态矩阵 + 必要组件测试/验收清单,能说明待实现状态 |
-| 前端历史 bug | 能复现 bug 的 regression test / 验收脚本 / 截图证据 |
-| 前端视觉细节 | 状态矩阵 + reference/截图验收说明,不强行写 E2E |
-
-| 步骤 | 做什么 | 说明 |
-|---|---|---|
-| Verify/Red | 写测试、状态矩阵、验收清单或截图对照说明,明确当前缺失能力;**后端/API 必须亲眼确认测试红** | 必须先于实现,不得跳过 |
-| Green | 最小实现让测试/状态/路径通过 | — |
-| Browser QA | 前端任务必须真实浏览器验收;后端/API 任务必须真实入口验收 | — |
-| Refactor | 行为不变的重构;改行为先补测试/状态/验收清单 | — |
-| 既有测试 | 按 `tasks.md` 完成 `keep / rewrite-merge / delete`;风险仍在时先跑通最低层替代保护再删旧测试 | 只处理本 milestone 受影响的测试 |
-| 门禁 | `<test_command>` 以及本 roadpoint 相关浏览器/E2E/组件检查按 `tasks.md` 规划通过 | 提交前必过 |
-| Commit | 提交本 roadpoint(测试+实现+progress) | `feat\|fix\|refactor\|test\|docs(<unit>/<milestone>/R<n>): <描述>` |
-| Push | `git push` 保存现场 | — |
-
-冒号后描述用中文,简短具体。
-
-### §5.1 progress.md 记录模板(每个 roadpoint 完成后补齐)
-
-```markdown
-### R<n> — <标题>
-
-- Context: <问题/约束/边界>
-- Decision: <最终方案>
-- Rationale: <为什么这样做>
-- Evidence:
-  - Tests: <test_command 结果摘要>
-  - Entry: <真实入口验证结果——不只是"单元测试通过">
-  - Frontend State Matrix: <default/loading/empty/error/mobile/long-content 等覆盖情况;非前端写 N/A>
-  - Browser QA: <打开的 URL / 用户路径 / console error 检查 / network failure 检查;非前端写 N/A>
-  - E2E/Regression: <E2E 或 regression 用例路径 + 命令 + 结果;不适用写 N/A 和原因>
-  - Visual/Interaction: <截图/录屏路径、viewport、reference 对照结论;非前端写 N/A>
-  - Prototype Comparison: <若 design 有前端原型/reference,填逐项对照表;非前端写 N/A>
-- Rollback: <回退到哪个 commit>
-- Commits: <hash>
-- Next: <下一步,或本 milestone 已完成>
-```
-
-前端原型 / reference 相关 milestone 的 `Prototype Comparison` 表格式:
-
-| Reference | Required contract | Actual evidence | Viewport / state | Result | Deviation rationale |
-|---|---|---|---|---|---|
-| <prototype.html 区域或 reference 名> | <must-match 内容> | <unit 目录内截图/录屏/报告路径> | <desktop/mobile/empty/error 等> | match / deviation / blocked | <若 deviation,引用 design 授权;否则写 N/A> |
-
-实现中发现可能跨任务复用的规则时，先写到本 milestone `progress.md` 的 `Promotion Candidates`。每条必须给出
-建议 owner（`SPEC.md`、`docs/specs/`、`docs/development/`、`docs/operations/`、代码/测试/CI 或 skill）、
-证据和适用范围。它仍是候选，不直接新建通用日志；orchestrator 在收尾时核实并归并到唯一 owner。
-
----
-
-## §6 集成到 unit 分支
-
-所有 roadpoint DONE、`tasks.md` 的既有测试处置与最终实现一致,且满足 milestone 退出标准后(**lite 模式**:在此之前先回填 fix.md 的"修复"和"验证"段——见 §6.0):
-
-### §6.0 lite 模式回填 fix.md(仅 lite)
-
-如果 `mode: lite`,在合并前必须把 fix.md 后两段写完:
-
-- **修复**:改了什么 + commit hash 列表
-- **验证**:**按 fix.md【现象 / 复现】里写的那个用户原始症状**,在真实入口(浏览器 / CLI / HTTP endpoint)走一遍——修前能复现、修后同一路径不再复现,给出真实运行证据(日志 / 截图 / 命令输出)。单测红转绿可作为补充,但**不能替代**这一步:单测复现的是你写的那段代码,证明不了用户报的那个现象消失了。
-
-写完 fix.md commit 一次:`docs(fix): <unit-id> 回填修复 + 验证段`。然后再走 §6.1 集成。
-
-### §6.1 集成步骤
-
-```bash
-# Rebase
-cd "$worktree_dir"
-git fetch origin
-git rebase "origin/unit/<unit-id>"           # 冲突处理见 §7.1
-<test_command>                                # 必须全绿
-
-# 取 unit 锁(unit 内多 worker 互斥)
-mkdir "$repo_root/data/locks/unit-<unit-id>.lock" || retry_with_backoff
-
-# Merge 在 unit worktree 内做,主仓 HEAD 不动(orchestrator §0.15)
-cd "$unit_worktree_dir"
-git pull --ff-only origin "unit/<unit-id>"
-git merge --no-ff "$branch"
-git push origin "unit/<unit-id>"
-
-# 释放锁
-rmdir "$repo_root/data/locks/unit-<unit-id>.lock"
-```
-
----
-
-## §7 异常处理
-
-### §7.1 Rebase 冲突
-
-```
-git status → 查看冲突文件 → 逐文件理解双方意图 → 手动解决
-git add <resolved> → git rebase --continue → 重复直到完成
-```
-
-禁止直接放弃或标记失败。冲突说明本 milestone 和 unit 上的别的 milestone 范围有交集——`design.md` 的"范围"列没切干净——这种问题严重,完成后要在 progress.md 末尾标记 + 通知 orchestrator,以便 design-author 下次拆分时改进。
-
-### §7.2 测试失败
-
-分析原因 → 修复 → 重跑 → 全绿 → 提交修复。**不许 skip 测试 / 加 `xfail` 蒙混过关**。
-
-「分析原因」不是扫一眼报错就改——**invoke `systematic-debugging` skill 走根因纪律**:逐字读报错 → 稳定复现 → 多组件系统先打边界日志定位是哪层断 → 反向追到坏值源头 → 写下单一假设最小验证。根因定位后才回 §5(先写复现红测再修)动手修。撞到 flaky 别加 `sleep`/重试蒙,按 skill 的 condition-based-waiting 根治。
-
-### §7.3 连续失败回退
-
-同一 roadpoint 连续失败 > 6 次:
-
-1. 回退到上一稳定 commit(本 roadpoint 开始前,或上一 roadpoint 完成点)
-2. 在 progress.md 记录:失败现象、根因、回退目标、重拆方案
-3. roadpoint 拆小,从 Verify/Red 重做
-
-如果第二次重拆又卡住——**停手通知 orchestrator**,这通常是 design 层的问题,走 Pause-on-design-issue。
-
-> 注意区分两个**并列**的轴:本节的「同一 roadpoint 6 次失败 → 回退重拆」是 **roadpoint 级机械重试上限**;而 `systematic-debugging` skill 里的「同一个 bug、同类修复连续 3 次失败、每次在别处冒新问题 → 停手质疑架构」是 **架构信号**(更早触发,指向方向选错)。两者各管各的,数值不通用——调单个 bug 时按 skill 的 3-strike 判架构,roadpoint 整体卡死时按本节 6 次回退。两条都通向「停手上报 orchestrator」。
-
----
-
-## §8 清理 + 交接
-
-### §8.1 正常完成(本 milestone DONE)
-
-```bash
-cd "$repo_root"
-git worktree remove "$worktree_dir"
-git branch -d "$branch"                          # 已 merge 进 unit 分支
-git push origin --delete "$branch"               # 远端也删
-```
-
-向 orchestrator 回报:
-
-```
+1. 在最终 worker HEAD 上运行受影响的最窄测试和风险要求的扩展/真实入口验证。
+2. 确认只有本 assignment 的修改，没有 secret、本机状态或临时运行文件。
+3. fetch 当前 `unit_branch`，rebase milestone branch；只对实际失效的 gate 重跑受影响范围。
+4. 按 [共享锁协议](references/worktree-integration.md#共享-unit-集成锁) 获取 unit 集成锁，复核
+   unit HEAD 未在步骤 3 后前移；若前移，释放锁并重复 rebase/失效判断。确认未变后才在
+   `unit_worktree_dir` 合入、push；需要新实现判断的冲突先报告，不用覆盖或 reset 绕过。
+5. 确认提交和 evidence 从 unit HEAD 可达，清理运行资源与自己创建的 milestone worktree/branch。
+6. 回报：
+
+```yaml
 milestone_id: <id>
 status: DONE
-roadpoints_completed: [R1, R2, ...]
-key_design_summary: <一两句>
-live_evidence: <live-critical 工作必填:真端到端跑到用户可见结果的证据(消息/截图/log 路径);非 live-critical 写 N/A>
-prototype_evidence: <前端原型/reference milestone 必填:Prototype Comparison 表位置 + durable evidence 目录;非前端写 N/A>
-env_caveats: <如实写有没有 env 受阻 / 降级 / 没跑通 live 的地方;全部真跑通写 none——绝不留空或掩盖>
-promotion_candidates: [<候选标题 + 建议 owner>]   # 没有则 []
+head: <sha>
+unit_head: <integrated-and-pushed-sha>
+commits: [<sha>, ...]
+changed_files: [<path>, ...]
+test_strategy:
+  risk_and_seam: <what can regress and the stable seam exercised>
+  existing_coverage:
+    - disposition: <keep | rewrite-merge | delete | none>
+      locator: <path::test or searched scope>
+      rationale: <why this preserves or replaces the risk owner>
+  lowest_layer_and_owner: <test layer and file owner>
+tests:
+  - command: <command>
+    result: <pass summary>
+    tested_head: <commit sha>
+    tree: <git tree sha>
+entry_evidence: <durable path/locator or N/A with reason>
+implementation_records: [<optional paths>]
+design_deviations: []
+env_caveats: <none or limitation>
+promotion_candidates: []
 ```
 
-若本 milestone 涉及前端原型 / reference,但 `prototype_evidence` 缺失、只有 `/tmp` 证据、或没有逐项对照结论,不得回报 `DONE`;改报 `BLOCKED` 或继续补证据。
+`head` 是最终 rebased milestone commit，`unit_head` 是已 push 的集成 commit；每条测试同时报告
+实际受测 commit 与 Git tree。rebase 后 tree 等价时，保留原测试并在结果中说明等价证据。
 
-### §8.2 需要交棒(未完成)
+### HANDOFF
 
-1. 更新 tasks.md(未完成 roadpoint 标 `DOING` 或 `BLOCKED`)+ progress.md(写当前卡点和 promotion candidates),提交 + push
-2. **保留 worktree 和 branch**,不删
-3. 向 orchestrator 回报:
+任务可继续但当前 worker 无法完成时，提交并 push 可恢复的 milestone branch；仅在聊天不足以恢复时创建精简 `progress.md`。回报当前 head、已完成内容、下一步、blocker 和必要环境定位。保留 worktree，由 orchestrator 接管。
 
-```
-milestone_id: <id>
-status: HANDOFF
-blocker: <一句话卡点>
-last_stable_commit: <hash>
-```
+### BLOCKED / ROUTE_BACK
 
-orchestrator 会派新 worker 接同一个 worktree 续跑。新 worker 启动时按 §2 读所有上下文,然后从 progress.md 的"Next"段往下做。
+缺输入、设计决策、权限、必需外部资源或真实入口环境时回报 `BLOCKED`。任务属于 §1 前两类时回报 `ROUTE_BACK`。两者都不得伪报 DONE，也不得为证明“做过流程”创建空文档或无意义 commit。
 
----
+## 完成标准
 
-## §9 反 anti-pattern
-
-- **不要跳过红、直接写"已通过"的测试**。后端/API/纯逻辑必须先写失败测试并确认失败点 = 缺失能力;前端 UI 必须先沉淀可验证验收清单、状态矩阵或 regression 复现。Red/Verify 的目的是证明当前缺失能力,不是宣称已经完成。
-- **不要把 R 拆得太碎**。装不下有意义的红测+实现就合并 R 或重新规划。
-- **不要 mock 真实入口**。HTTP 测试就发真请求(到本地 server),CLI 测试就跑真命令(子进程)。mock 入口等于不测试。
-- **不要用注释/TODO 留尾巴**。"// TODO: 这里以后改" 在本 milestone 内必须解决,否则就拆成新 R 或新 milestone。可复用知识先写 progress.md 的 Promotion Candidates，不能用泛化日志代替 owner 归并。
-- **不要逐行复述代码做注释**。注释写"为什么 / 约束 / 来源"(照抄外部实现时标 `Provenance: <源>` 是对的),**不写"这行在做什么"**——几乎每处都挂注释 = 噪声,收尾会被人要求清掉。
-- **不要把一次性测试留成永久回归**。迁移期红测、“断言某死代码 / 字段已不存在”、跨层重复的断言，落地后该删就删（判据见 `docs/development/testing.md`：半年后它是否仍应在自己的固定质量门禁中保护真实风险？否则删）——别攒成一堆没回归价值的测试拖垮体量。
-- **不要在没通知的情况下扩范围**。design.md "范围"列写哪里就改哪里。需要扩范围 → §4 Pause-on-design-issue。
-
-### 前端 anti-pattern
-
-- **不要只靠 jsdom / 组件测试就结束前端任务**。真实浏览器里打开页面、执行用户操作、检查 console/network 是交付门槛。
-- **不要把 E2E 当成所有前端问题的答案**。视觉细节、长文本溢出、空态样式优先用状态矩阵 + 浏览器截图验证。
-- **不要只验证 happy path**。前端至少考虑 loading / empty / error / disabled / long content / mobile 等适用状态。
-- **不要只看页面能打开**。必须执行关键用户操作,并记录可复查证据。
-- **不要把核心业务路径只留在截图里**。核心路径和历史 bug 必须有可重复 regression 保护;如果项目没有 E2E 基础设施,用现有测试体系补交互/集成回归,不要为单个 milestone 强行搭新体系。
-- **不要把业务逻辑塞进 JSX/模板事件回调里**。复杂逻辑应进入 hook/service/adapter 等可测试边界。
-- **不要裸接 API shape 到 UI**。涉及接口数据时,优先使用 schema / adapter / normalized view model。
-
----
-
-## §10 输入输出契约
-
-**输入**:派发包 4 字段 + `<unit_path>/` 已通过门禁 2(design.md 存在,Milestone 表完整,本 milestone 子目录已建空)。
-
-**输出**:
-
-- `<unit_path>/<milestone_dir>/tasks.md` —— roadpoint 列表全部 DONE,受影响既有测试的处置与验证已闭环
-- `<unit_path>/<milestone_dir>/progress.md` —— 每个 roadpoint 的 Context/Decision/Rationale/Evidence/Rollback/Commits 段
-- 代码 + 测试/验收清单/验收证据,合到 `unit/<unit_id>` 分支
-- `progress.md` 的 Promotion Candidates(若发现需要归并到长期 owner 的知识)
-- design.md 的 Changelog(若实施期有偏差修订)
-- lite 模式还需:`<unit_path>/fix.md` 的"修复"和"验证"段已回填
-- `gh issue create` 立的 out-of-unit issue(若有)
-- 回报字符串(§8.1 / §8.2 格式)给 orchestrator
-
-下游(reviewer 和 orchestrator):
-
-- reviewer 不读你的代码,但读你的 progress.md 来理解哪些行为已经实现 / 哪些 design 修订过
-- orchestrator 据回报字符串决定派下一个 milestone 还是派 reviewer
+- 实现位于现有架构的正确 owner，没有平行机制或静默兜底。
+- milestone 每条退出标准可追到代码、测试或真实入口证据。
+- 测试和证据与风险相称，没有用重复 gate、样板文档或 Git 仪式替代判断。
+- 结果已集成并 push 到 unit branch，worker 创建的运行资源和 milestone worktree/branch 已清理。

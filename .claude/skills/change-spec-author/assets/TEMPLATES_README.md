@@ -4,10 +4,10 @@
 
 | 变更类型 | 根目录文档 | 每个 milestone |
 |---|---|---|
-| feat | `spec.md`, `design.md`, `acceptance.md` | `tasks.md`, `progress.md` |
-| refactor / perf | `motivation.md`, `design.md`, `acceptance.md` | `tasks.md`, `progress.md` |
-| bugfix lite | `fix.md` | `tasks.md`, `progress.md` |
-| bugfix full | `incident.md`, `regression.md` | `tasks.md`, `progress.md` |
+| feat | `spec.md`, `design.md`, `acceptance.md` | 按需 `tasks.md`, `progress.md`, `evidence/` |
+| refactor / perf | `motivation.md`, `design.md`, `acceptance.md` | 按需 `tasks.md`, `progress.md`, `evidence/` |
+| bugfix lite | `fix.md` | 按需 `tasks.md`, `progress.md`, `evidence/` |
+| bugfix full | `incident.md`, `regression.md` | 按需 `tasks.md`, `progress.md`, `evidence/` |
 
 ## 填写硬约束（违反 = 打回）
 

@@ -111,3 +111,89 @@ def test_simplified_flow_supports_full_and_bugfix_lite() -> None:
     assert "Full 和 Bugfix lite 的门禁组合同时适用" in workflow
     assert "Full 或 Bugfix lite change unit" in simple_orchestrator
     assert "不因此强制创建 `tasks.md` 或 `progress.md`" in simple_orchestrator
+
+
+def test_strict_flow_routes_small_closures_before_worker_dispatch() -> None:
+    workflow = _read("docs/development/change-workflow.md")
+    orchestrator = _read(".claude/skills/change-orchestrator/SKILL.md")
+    worker = _read(".claude/skills/change-impl-worker/SKILL.md")
+
+    for classification in ("artifact-only", "bounded closure", "substantive"):
+        assert classification in orchestrator
+        assert classification in worker
+    assert "不派 worker、不建 milestone/process docs" in orchestrator
+    assert "不派 implementation worker" in orchestrator
+    assert "ROUTE_BACK: artifact-only" in worker
+    assert "ROUTE_BACK: bounded-closure" in worker
+    assert "不改变用户可观察/稳定产品行为" in workflow
+    assert "生产高风险边界时才是 bounded closure" in workflow
+    assert "不能证明前两类时按 substantive" in workflow
+
+
+def test_strict_worker_process_records_are_optional() -> None:
+    workflow = _read("docs/development/change-workflow.md")
+    storage = _read("docs/changes/README.md")
+    orchestrator = _read(".claude/skills/change-orchestrator/SKILL.md")
+    verifier = _read(".claude/skills/change-verifier/SKILL.md")
+    worker = _read(".claude/skills/change-impl-worker/SKILL.md")
+
+    assert "roadpoint 数量、plan commit、逐步骤 push 或过程文档" in workflow
+    assert "默认不创建 `tasks.md` / `progress.md`" in worker
+    assert "缺少 `tasks.md` / `progress.md` 本身不是问题" in orchestrator
+    assert "不再作为固定产物" in storage
+    assert "缺少文件本身不是 finding" in verifier
+    assert len(worker.splitlines()) <= 250
+
+
+def test_worker_creator_owns_milestone_worktree_and_integration() -> None:
+    orchestrator = _read(".claude/skills/change-orchestrator/SKILL.md")
+    worker = _read(".claude/skills/change-impl-worker/SKILL.md")
+
+    assert "worker 作为 creator-owner 创建、核对、集成并清理" in orchestrator
+    assert "orchestrator 只提供精确的 milestone worktree/branch" in orchestrator
+    assert "worker 是自己 milestone worktree/branch 的 creator-owner" in worker
+    assert "unit_worktree_dir:" in worker
+    assert "unit_branch:" in worker
+    assert "删除自己创建的 milestone worktree/branch" in worker
+
+
+def test_parallel_workers_share_one_unit_integration_lock() -> None:
+    worker = _read(".claude/skills/change-impl-worker/SKILL.md")
+    integration = _read(
+        ".claude/skills/change-impl-worker/references/worktree-integration.md"
+    )
+
+    assert "共享锁协议" in worker
+    assert "--git-common-dir" in integration
+    assert "nano-unit-locks/<unit_id>.lock" in integration
+    assert "原子 `mkdir`" in integration
+    assert "不得删除或接管" in integration
+    assert "若已\n  前移" in integration
+    assert "释放锁" in integration
+
+
+def test_worker_done_reports_test_strategy_not_only_commands() -> None:
+    orchestrator = _read(".claude/skills/change-orchestrator/SKILL.md")
+    worker = _read(".claude/skills/change-impl-worker/SKILL.md")
+
+    for field in (
+        "risk_and_seam",
+        "existing_coverage",
+        "disposition",
+        "locator",
+        "rationale",
+        "lowest_layer_and_owner",
+        "tested_head",
+    ):
+        assert field in worker
+    assert "`test_strategy`" in orchestrator
+
+
+def test_worker_reuses_valid_results_and_narrows_debugging_trigger() -> None:
+    worker = _read(".claude/skills/change-impl-worker/SKILL.md")
+
+    assert "三者未变时可以复用" in worker
+    assert "不机械重复同一命令" in _read(".claude/skills/change-orchestrator/SKILL.md")
+    assert "预期 TDD 红测" in worker
+    assert "根因仍不明确" in worker
+    assert "不要把所有非零退出都升级成完整调试流程" in worker

@@ -1,6 +1,6 @@
 ---
 name: change-design-author
-description: 用于在首文档(spec/incident/motivation)定稿后,和人交互式对齐"怎么做",产出 design.md + Milestone 拆分表 + 空目录骨架。触发条件:用户在某 unit 已有 spec/incident/motivation 的前提下提到"出方案 / 写设计 / 拆 milestone / 该怎么做 / 准备开搞"等任何"开始落地"的信号;或 `change-spec-author` 完成时给出"门禁 1 通过"提示后用户继续推进。这是门禁 2 之前唯一允许动笔的阶段,定稿后由 `change-orchestrator` 接手实施。不要用于:写代码、立 git 分支、预填 milestone 内的 tasks.md(那是 worker 的事)、回头改用户场景(那要回 change-spec-author)。
+description: 用于在首文档(spec/incident/motivation)定稿后,和人交互式对齐"怎么做",产出 design.md + Milestone 拆分表 + 空目录骨架。触发条件:用户在某 unit 已有 spec/incident/motivation 的前提下提到"出方案 / 写设计 / 拆 milestone / 该怎么做 / 准备开搞"等任何"开始落地"的信号;或 `change-spec-author` 完成时给出"门禁 1 通过"提示后用户继续推进。这是门禁 2 之前唯一允许动笔的阶段,定稿后由 `change-orchestrator` 接手实施。不要用于:写代码、立 git 分支、预填 milestone 内的按需实施记录、回头改用户场景(那要回 change-spec-author)。
 ---
 
 # Change Design Author
@@ -31,7 +31,8 @@ description: 用于在首文档(spec/incident/motivation)定稿后,和人交互�
 2. **不回头改用户场景 / 验收标准**。对齐中发现用户视角有疏漏,**停下来**让用户回 `change-spec-author` 修订首文档——混着改,门禁 1 就形同虚设。首文档被修订 / 中途加新需求后,变更的那部分必须重走 §3.0 grounding + §5 自检,不能直接打补丁塞进 design。
 3. **交互式,一次一个问题**。每个关键决策、每条 milestone 拆分理由,逐个问用户确认 + 给推荐。不要一次性出完整 design.md 让用户"看一下行不行"——这种是给自己签字,不是对齐。
 4. **不创建 git 分支**。`unit/<unit-id>` 由 `change-orchestrator` 在接手时创建。design.md 顶部只写"Unit branch: `unit/<unit-id>` (will be created by orchestrator)"作为意图声明。
-5. **milestone 骨架只放 `.gitkeep`,不预填 tasks.md / progress.md**。这两个文件由 worker 自己 explore 代码后写,你预填的会被推翻,纯浪费。
+5. **milestone 骨架只放 `.gitkeep`,不预填 tasks.md / progress.md**。实施期是否需要这些记录由
+   worker 根据复杂拆分、交接和证据决定；你预填的会被推翻,纯浪费。
 6. **默认单 milestone**。颗粒度规则是反向门槛——拆分要举证,不拆是默认(详见 §3)。
 7. **不调研代码仓不动笔**。design.md 的每一句话都要建立在"现状是什么"之上——不读现有代码就出方案,等于闭着眼画图。§3.0 是强制前置步骤,跳过 = 设计失效。
 
@@ -69,7 +70,8 @@ description: 用于在首文档(spec/incident/motivation)定稿后,和人交互�
 
 `fix.md` 模板的 unit 是 lite 路径——**没有独立 design 阶段**。如果首文档是 `fix.md`,告诉用户:
 
-> bugfix lite 不需要独立 design。可以直接启动 `change-orchestrator` 进入实施(默认单 milestone),worker 会在 progress.md 里规划修复路径,并回填 fix.md 的"修复 + 验证"两段。
+> bugfix lite 不需要独立 design。可以直接启动 `change-orchestrator` 进入实施(默认单 milestone),
+> worker 自主组织修复并回填 fix.md 的"修复 + 验证"两段；不强制 `progress.md`。
 
 然后退出。lite 路径不走本 skill。
 
@@ -164,7 +166,8 @@ design.md 的核心段落:**架构总览、关键决策、接口与数据流、�
 #### §3.0.4 不可越界
 
 - 调研期间**只读**,不动任何文件。
-- 调研结果有矛盾 / 看不懂时,问用户或问 `change-impl-worker` 之前的 progress.md / 历史 design.md,**不要靠猜**。
+- 调研结果有矛盾 / 看不懂时,问用户，并查看历史 design、commits 与实际存在的 worker 记录，
+  **不要靠猜**。
 - 如果调研发现首文档里某个用户场景在现有架构下完全跑不通(不是难,是逻辑上不可能),回 §1 退出本 skill 让用户回 `change-spec-author` 修首文档——这是门禁 1 的延后暴露,不能在 design 阶段硬塞。
 
 #### §3.0.5 按决策需要 call-in `codebase-design`
@@ -332,7 +335,8 @@ design.md 读起来像文字墙,根源是该画的地方在用散文描述。人
 - milestone_dir(在 unit_dir 下)= `M<N>-<title>`,例 `M1-impl`、`M2-ui-picker`、`M3-presentation-layer`
 - 完整路径 = `docs/changes/<unit_dir>/M<N>-<title>/`
 
-**不要**因为感觉"这个 unit 看起来不止一步"就拆 milestone——unit 内部分步用 worker 的 roadpoint(`tasks.md` 里的 R1/R2)就够了,milestone 是更粗的颗粒度。
+**不要**因为感觉"这个 unit 看起来不止一步"就拆 milestone——unit 内的实施拆分由 worker 自主
+决定，milestone 是更粗的交付颗粒度。
 
 ### §4.2 拆分的硬触发条件(任一即可,且必须显式举证)
 
@@ -370,7 +374,7 @@ design.md 读起来像文字墙,根源是该画的地方在用散文描述。人
 - ✅ "用户视角能观察到的能力变化",或
 - ✅ "独立可部署的子系统(单跑 unit 分支能验证)"
 
-不达上述标准的产物属于 worker 内的 roadpoint(R1/R2),不该独立成 milestone。
+不达上述标准的产物属于 worker 内部实施步骤,不该独立成 milestone。
 
 注:实现层验收标准(单测、构建、保真点)是退出标准的**合法组成**(见 §4.6 的 `[worker]` 轨),但不能让一个 milestone 只为"补测试"而存在——milestone 本身必须交付上面说的那种价值。
 
@@ -411,7 +415,8 @@ design.md 是**实现层验收标准的家**。退出标准列分两轨,每条**
 若存在 `## 前端原型`,Milestone 表还必须覆盖原型对齐契约:
 
 - `[reviewer]` <原型区域> 在真实产品入口中呈现同等用户可观察结构/交互,覆盖 `<prototype.html#...>` 的 `must-match` 行。
-- `[worker]` `progress.md` 留下真实浏览器截图/录屏和原型对照结论,证据落在 unit 目录内,不能只给 `/tmp` 临时路径。
+- `[worker]` 留下真实浏览器截图/录屏和原型对照结论,证据落在 unit 目录内，并可从 DONE 回报
+  或按需 `progress.md` 定位，不能只给 `/tmp` 临时路径。
 
 两轨都要写实、可验,不要空喊"实现 X 功能"。`[worker]` 轨的条目还会被 `change-orchestrator` 抽进 PR body,作为人(架构师)review PR 时的清单。
 
@@ -442,8 +447,9 @@ touch docs/changes/<unit_dir>/M1-<title>/.gitkeep docs/changes/<unit_dir>/M2-<ti
 ...
 ```
 
-`.gitkeep` 是唯一允许的占位文件，确保 milestone 骨架能进入 Git 并到达后续 worktree。worker 启动时删除
-`.gitkeep`，再创建 `tasks.md` / `progress.md`。
+`.gitkeep` 是唯一允许的占位文件，确保 milestone 骨架能进入 Git 并到达后续 worktree。只有向目录
+加入真实内容时才删除它；没有过程记录或 evidence 时可以保留。`tasks.md` / `progress.md` 只在复杂
+拆分、交接、design issue 或 evidence 需要时创建。
 
 ---
 
