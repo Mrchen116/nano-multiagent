@@ -1,29 +1,23 @@
 ---
 name: change-impl-worker
-description: 仅当 `change-orchestrator` 明确派发实质 implementation milestone 或 substantive fix 时使用；在规划的 milestone worktree 中完成实现、测试和适用的真实入口验证。artifact-only 与 bounded closure 不使用本 skill。
+description: 仅当 `change-orchestrator` 明确派发一个需要独立实现 owner 的 milestone 或修复时使用；在规划的 milestone worktree 中完成实现、测试和适用的真实入口验证。
 ---
 
 # Change Implementation Worker
 
 ## 目标
 
-在规划的 milestone worktree 中完成一个实质 implementation assignment：遵循已确认的需求和设计，在现有架构的正确位置实现，留下与风险相称的回归保护和真实入口证据，并集成进 unit branch。
+在规划的 milestone worktree 中完成一个 implementation assignment：遵循已确认的需求和设计，在现有架构的正确位置实现，留下与风险相称的回归保护和真实入口证据，并集成进 unit branch。
 
 流程服务于交付，不以生成 roadpoint、过程文档或 Git 仪式为目标。默认使用最简单、可复查的执行方式；只有复杂度、交接或证据需要时才增加记录。
 
-## 1. 先核对路由
+## 1. 路由
 
-worker 只接 **substantive implementation**。收到任务后先按下表判断；orchestrator 的标签是输入，不替代你的事实核对。
+是否派 worker 由 orchestrator 结合完整上下文判断，不使用固定分类表或行数阈值。worker 的职责是
+承担一个独立 owner、隔离现场或深入实现/验证确实能提高交付可靠性的 assignment。
 
-| 类型 | 判据 | 处理方式 |
-|---|---|---|
-| `artifact-only` | 只改报告、evidence、链接、格式或元数据，不改变产品代码、测试语义、需求或设计 | 不修改；回报 `ROUTE_BACK: artifact-only`，由 owner/orchestrator 直接修 |
-| `bounded-closure` | exact delta、正确修复层和 closure gate 都已明确，且不改变用户可观察或已声明稳定产品行为，不触及产品架构或生产高风险边界 | 不修改；回报 `ROUTE_BACK: bounded-closure`，由 orchestrator 直接修并保留独立 closure |
-| `substantive` | 改变用户可观察或已声明稳定产品行为，触及产品架构/生产 schema、protocol、auth、persistence、concurrency、live-critical 链路，或正确修复仍需实现判断、跨 owner 协调、非平凡回归保护 | 继续本 skill |
-
-按表格从上到下判定；不能简洁证明前两类时按 substantive。不要用文件数或行数单独判定。一个
-11 行共享 helper 在正确修复层仍不明确时可能是 substantive；20 个文件的机械格式化也可能只是
-bounded closure。
+如果收到的 assignment 显然可以在 unit 中直接安全闭环，且独立 worker 不会增加有价值的 ownership
+或验证，回报 `ROUTE_BACK` 和简短事实理由；不要为适配本 skill 硬造 milestone。
 
 ## 2. 输入和所有权
 
@@ -188,7 +182,8 @@ promotion_candidates: []
 
 ### BLOCKED / ROUTE_BACK
 
-缺输入、设计决策、权限、必需外部资源或真实入口环境时回报 `BLOCKED`。任务属于 §1 前两类时回报 `ROUTE_BACK`。两者都不得伪报 DONE，也不得为证明“做过流程”创建空文档或无意义 commit。
+缺输入、设计决策、权限、必需外部资源或真实入口环境时回报 `BLOCKED`。任务不值得独立 worker
+ownership 时回报 `ROUTE_BACK`。两者都不得伪报 DONE，也不得为证明“做过流程”创建空文档或无意义 commit。
 
 ## 完成标准
 

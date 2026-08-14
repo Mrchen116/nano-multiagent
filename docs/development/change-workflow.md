@@ -135,7 +135,7 @@ Full unit 在 Gate 2 通过后、Bugfix lite 在首文档收口后，均有两�
 
 | 实施方式 | 触发条件 | 实施组织 | 固定交付要求 |
 |---|---|---|---|
-| 原流程 | 默认 | `change-orchestrator` 建立 unit worktree；为 substantive milestone 准备隔离 worktree 并派 worker，直接处理 artifact-only/bounded closure；Bugfix lite 派发单个 worker | 完成全部 milestone、适用门禁、契约归并、归档和 PR/CI |
+| 原流程 | 默认 | `change-orchestrator` 建立 unit worktree；根据独立 owner、隔离现场和实现/验证的实际收益决定直接闭环或派 worker；Bugfix lite 派发单个 worker | 完成全部 milestone、适用门禁、契约归并、归档和 PR/CI |
 | 简化流程 | 用户点名 `$change-orchestrator-simple` | 在一个 unit worktree 内端到端负责，自主决定直接实现或使用 subagent，不强制 worker、milestone worktree、roadpoint 或过程台账 | 完成全部 milestone、适用门禁、契约归并、归档和 PR/CI |
 
 两种方式共享各自已经确认的首文档、milestone 目标和工程质量底线；Full 额外共享已通过 Gate 2 的 design。选择简化流程只改变实施组织，不改变需求、设计和交付标准。Bugfix lite 在两种方式下都保持唯一的 `M1-fix`。
@@ -173,11 +173,9 @@ Full 和 Bugfix lite 的门禁组合同时适用于原流程和简化流程。
   `tasks.md` / `progress.md` 作为补充记录，缺少文件本身不是 finding；
 - reviewer 走真实产品旅程，只验用户可观察结果；
 - code review 审查 unit diff；
-- 原流程的门禁发现问题后由 `change-orchestrator` 按顺序判真并分类：artifact-only 直接关闭；只有
-  exact delta、正确修复层和 closure gate 都明确，且不改变用户可观察/稳定产品行为、不触及产品
-  架构或生产高风险边界时才是 bounded closure，由 orchestrator 直接修并接受独立 closure；其余
-  正确修复仍需判断或触及上述行为/边界的场景才派 worker；不能证明前两类时按 substantive
-  implementation；
+- 原流程的门禁发现问题后由 `change-orchestrator` 判断独立 worker 是否会实质提高交付可靠性。范围和
+  验证已经清楚、直接闭环更合适时由 unit 直接修；需要独立 owner、隔离现场或深入实现/验证时才派
+  worker。不要使用固定分类表替代当前上下文判断；两种方式都保留适用的独立 closure；
 - 简化流程的门禁发现问题后由 `change-orchestrator-simple` 判真并自主组织修复；
 - 快速开发的 code review 发现问题后，由执行 `change-fast-close` 的主会话判真和修复；
 - 修复后按变更范围重跑、局部复验或保留仍然有效的门禁结论；快速开发的修复改变用户可观察行为时交回用户确认。
@@ -210,9 +208,9 @@ CI 全绿后收尾 owner 交棒，由人审查和 merge。归档表示 unit 已�
 | `change-spec-reviewer` | 按需独立复核首文档质量 | 修改首文档、审实现、充当默认门禁 |
 | `change-design-author` | 现状 grounding、方案、delta-spec、milestone | 产品代码 |
 | `change-design-reviewer` | 独立审查设计，并在同一上下文中完成后续轮次 | 修改方案或实现 |
-| `change-orchestrator` | sync、调度、判真、artifact/bounded closure、门禁、契约归并、归档和 PR/CI | 实现 substantive milestone |
+| `change-orchestrator` | sync、调度、判真、直接闭环、门禁、契约归并、归档和 PR/CI | 接管已派发的 implementation milestone |
 | `change-orchestrator-simple` | 在 unit worktree 内自主组织实现，并负责适用门禁、契约归并、归档和 PR/CI | 改写已经确认的需求、设计或交付标准 |
-| `change-impl-worker` | substantive milestone/fix 的实现、测试和适用证据 | artifact/bounded closure、擅自改写需求或绕过设计 |
+| `change-impl-worker` | 需要独立 owner 的 milestone/fix 实现、测试和适用证据 | 擅自改写需求或绕过设计 |
 | `change-fast-close` | 为已完成的快速开发 diff 补 unit、as-built design、用户验收记录、code review、契约归并和归档 | 伪造事前流程、代替用户验收 |
 | `change-verifier` | 实现与 spec/design/milestone 的一致性 | 写代码、产品体验判断 |
 | `change-reviewer` | 用户旅程和产品可用性 | 写代码、用源码检查替代真实旅程 |

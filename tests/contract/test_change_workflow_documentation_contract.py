@@ -113,21 +113,16 @@ def test_simplified_flow_supports_full_and_bugfix_lite() -> None:
     assert "不因此强制创建 `tasks.md` 或 `progress.md`" in simple_orchestrator
 
 
-def test_strict_flow_routes_small_closures_before_worker_dispatch() -> None:
+def test_strict_flow_uses_judgment_not_a_worker_routing_taxonomy() -> None:
     workflow = _read("docs/development/change-workflow.md")
     orchestrator = _read(".claude/skills/change-orchestrator/SKILL.md")
     worker = _read(".claude/skills/change-impl-worker/SKILL.md")
 
-    for classification in ("artifact-only", "bounded closure", "substantive"):
-        assert classification in orchestrator
-        assert classification in worker
-    assert "不派 worker、不建 milestone/process docs" in orchestrator
-    assert "不派 implementation worker" in orchestrator
-    assert "ROUTE_BACK: artifact-only" in worker
-    assert "ROUTE_BACK: bounded-closure" in worker
-    assert "不改变用户可观察/稳定产品行为" in workflow
-    assert "生产高风险边界时才是 bounded closure" in workflow
-    assert "不能证明前两类时按 substantive" in workflow
+    assert "判断而不是分类表" in orchestrator
+    assert "独立 worker 不会带来额外 ownership、隔离或探索" in orchestrator
+    assert "不使用固定分类表或行数阈值" in worker
+    assert "ROUTE_BACK" in worker
+    assert "不要使用固定分类表替代当前上下文判断" in workflow
 
 
 def test_strict_worker_process_records_are_optional() -> None:

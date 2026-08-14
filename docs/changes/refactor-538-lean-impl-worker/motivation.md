@@ -14,8 +14,8 @@
 
 ## 目标状态
 
-- 只有实质性实现进入 `change-impl-worker` 的完整 milestone 生命周期。
-- 纯工件与边界闭环由调度者在 unit worktree 直接完成，不创建 worker、milestone 文档或 worktree。
+- 调度者按当前任务判断独立 worker 是否能带来足够的 ownership、隔离或实现/验证收益；不能时直接闭环。
+- 不用分类表或行数阈值决定是否派 worker。
 - 文档、基线、调试、测试复跑按风险和证据缺口触发，而不是按固定清单触发。
 - 保留 worker 创建并清理自己 milestone worktree 的既有所有权，同时以共享锁串行 unit 分支集成。
 
@@ -23,23 +23,17 @@
 
 ### Requirement: 小闭环不再承受完整 milestone 流程
 
-#### Scenario: 纯工件修正
+#### Scenario: 直接闭环更合适
 
-- **WHEN** 变更只更新已有事实型工件，且没有实现、行为或验证缺口
+- **WHEN** 范围和所需验证已经清楚，且独立 worker 不会提高交付可靠性
 - **THEN** 调度者在 unit worktree 直接完成、验证差异并独立关闭
 - **AND THEN** 不派发 worker，也不创建 milestone 的 `tasks.md`、`progress.md` 或 worktree
 
-#### Scenario: 有界实现闭环
-
-- **WHEN** 定向修复已明确，影响层和最小验证命令已知，且不改变用户可观察或稳定产品行为
-- **THEN** 调度者直接实施并运行该验证
-- **AND THEN** 只按缺口补充必要证据，不生成固定过程文档
-
 ### Requirement: 实质性交付仍保留质量边界
 
-#### Scenario: 真实入口或高风险边界发生变化
+#### Scenario: 独立 worker 能提高交付可靠性
 
-- **WHEN** 改动涉及用户可观察/稳定产品行为、产品架构或生产高风险边界，或需要跨 owner 判断
+- **WHEN** 独立 owner、隔离现场、实现/验证探索或协调能帮助可靠交付
 - **THEN** 调度者派发完整 `change-impl-worker` milestone
 - **AND THEN** worker 记录复用的测试及其 tree，串行集成到 unit 分支，并按适用风险做独立关闭
 
@@ -47,7 +41,7 @@
 
 范围是 change workflow 的 skill、模板、流程文档和对应契约测试。不会修改产品运行时代码、产品 current spec 或部署契约。
 
-本次不通过行数阈值决定流程：短改动若改变高风险行为仍是实质性实现。也不改变 `feat-537` 已确立的 worker 创建/拥有/清理 milestone worktree 责任。
+本次不通过行数阈值或穷举分类决定流程；模型结合上下文作出判断。也不改变 `feat-537` 已确立的 worker 创建/拥有/清理 milestone worktree 责任。
 
 ## 回滚
 
