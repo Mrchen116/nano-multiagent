@@ -247,6 +247,20 @@ def test_outbound_router_bounds_dedupe_key_memory() -> None:
     assert [item.text for item in adapter.sent] == ["first", "second", "first"]
 
 
+def _external_final_reply_contexts() -> tuple[ReplyContext, ReplyContext]:
+    def _context(dedupe_key: str) -> ReplyContext:
+        return ReplyContext(
+            channel_name="feishu:agent-a",
+            target_chat_id="feishu:cli_a:dm:ou_user",
+            metadata={"reply_phase": "final", "reply_dedupe_key": dedupe_key},
+        )
+
+    return (
+        _context("run-1:bubble:kmsg-1"),
+        _context("run-1:text:Final answer."),
+    )
+
+
 def test_outbound_router_dedupes_concurrent_external_final_reply_paths() -> None:
     class _BlockingAdapter:
         name = "feishu:agent-a"
@@ -269,22 +283,7 @@ def test_outbound_router_dedupes_concurrent_external_final_reply_paths() -> None
 
     adapter = _BlockingAdapter()
     router = OutboundRouter(ChannelRegistry([adapter]))
-    mirrored_context = ReplyContext(
-        channel_name="feishu:agent-a",
-        target_chat_id="feishu:cli_a:dm:ou_user",
-        metadata={
-            "reply_phase": "final",
-            "reply_dedupe_key": "run-1:bubble:kmsg-1",
-        },
-    )
-    terminal_context = ReplyContext(
-        channel_name="feishu:agent-a",
-        target_chat_id="feishu:cli_a:dm:ou_user",
-        metadata={
-            "reply_phase": "final",
-            "reply_dedupe_key": "run-1:text:Final answer.",
-        },
-    )
+    mirrored_context, terminal_context = _external_final_reply_contexts()
     results: list[OutboundMessage | None] = []
 
     mirror_thread = Thread(
@@ -295,22 +294,16 @@ def test_outbound_router_dedupes_concurrent_external_final_reply_paths() -> None
     mirror_thread.start()
     assert adapter.send_started.wait(timeout=1)
 
-    terminal_finished = Event()
-
     def _send_terminal() -> None:
-        try:
-            results.append(
-                router.send_text(text="Final answer.", reply_context=terminal_context)
-            )
-        finally:
-            terminal_finished.set()
+        results.append(
+            router.send_text(text="Final answer.", reply_context=terminal_context)
+        )
 
     terminal_thread = Thread(target=_send_terminal)
     terminal_thread.start()
     try:
-        # A reserved semantic key lets the fallback return while the mirror send
-        # remains held; the baseline blocks here until both sends complete.
-        assert terminal_finished.wait(timeout=0.2)
+        terminal_thread.join(timeout=0.2)
+        assert terminal_thread.is_alive()
     finally:
         adapter.allow_send_to_return.set()
         mirror_thread.join(timeout=1)
@@ -319,6 +312,67 @@ def test_outbound_router_dedupes_concurrent_external_final_reply_paths() -> None
     assert not mirror_thread.is_alive()
     assert not terminal_thread.is_alive()
     assert len([result for result in results if result is not None]) == 1
+    assert [item.text for item in adapter.sent] == ["Final answer."]
+
+
+def test_outbound_router_fallback_sends_after_inflight_final_send_fails() -> None:
+    class _FailFirstBlockingAdapter:
+        name = "feishu:agent-a"
+
+        def __init__(self) -> None:
+            self.attempts = 0
+            self.sent: list[OutboundMessage] = []
+            self.send_started = Event()
+            self.fail_first_send = Event()
+
+        def start(self, _on_inbound) -> None:  # noqa: ANN001
+            return None
+
+        def send(self, outbound: OutboundMessage) -> None:
+            self.attempts += 1
+            if self.attempts == 1:
+                self.send_started.set()
+                assert self.fail_first_send.wait(timeout=1)
+                raise RuntimeError("provider unavailable")
+            self.sent.append(outbound)
+
+        def stop(self) -> None:
+            return None
+
+    adapter = _FailFirstBlockingAdapter()
+    router = OutboundRouter(ChannelRegistry([adapter]))
+    mirrored_context, terminal_context = _external_final_reply_contexts()
+    observer_errors: list[str] = []
+    terminal_results: list[OutboundMessage | None] = []
+
+    def _send_mirrored() -> None:
+        try:
+            router.send_text(text="Final answer.", reply_context=mirrored_context)
+        except Exception as error:
+            observer_errors.append(str(error))
+
+    mirror_thread = Thread(target=_send_mirrored)
+    mirror_thread.start()
+    assert adapter.send_started.wait(timeout=1)
+
+    terminal_thread = Thread(
+        target=lambda: terminal_results.append(
+            router.send_text(text="Final answer.", reply_context=terminal_context)
+        )
+    )
+    terminal_thread.start()
+    try:
+        terminal_thread.join(timeout=0.2)
+        assert terminal_thread.is_alive()
+    finally:
+        adapter.fail_first_send.set()
+        mirror_thread.join(timeout=1)
+        terminal_thread.join(timeout=1)
+
+    assert not terminal_thread.is_alive()
+    assert observer_errors == ["provider unavailable"]
+    assert terminal_results[0] is not None
+    assert adapter.attempts == 2
     assert [item.text for item in adapter.sent] == ["Final answer."]
 
 
