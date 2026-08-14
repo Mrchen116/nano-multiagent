@@ -33,8 +33,8 @@ unit 直接闭环      worker milestone
 
 | 模块 | as-built 变更 | 理由 |
 | --- | --- | --- |
-| `change-orchestrator` | 用少量原则判断直接闭环或派 worker；直接闭环在 unit worktree；向 worker 传递 unit branch 信息 | 让流程成本随风险变化 |
-| `change-impl-worker` | 从固定 SOP 收缩为 creator-owner、锁集成、测试策略和 DONE 契约 | 保留可交付性，移除固定过程税 |
+| `change-orchestrator` | 用少量原则判断直接闭环或派 worker；直接闭环在 unit worktree；向 worker 提供实施现场 | 让流程成本随风险变化 |
+| `change-impl-worker` | 从固定 SOP 收缩为 creator-owner、锁集成和简短交接 | 保留可交付性，移除固定过程税 |
 | worker references/assets | 把 worktree、真实入口、实现记录拆成按需参考；压缩 tasks/progress 模板 | 减少预读和强制文档写入 |
 | workflow 文档与相邻 skills | 对齐“可选工件、按风险验证、未知根因才调试”的术语与入口 | 让调度和执行边界一致 |
 | 契约测试 | 覆盖自主路由原则、锁、unit head、测试复用和文档用词 | 防止旧的固定流程重新引入 |
@@ -49,9 +49,9 @@ unit 直接闭环      worker milestone
 
 `tasks.md`、`progress.md`、额外基线、真实入口验证和实现记录只在协作、交接、风险或证据缺口要求时创建/读取。worker 的必要 DONE 字段替代了固定过程日志的最小交接信息。
 
-### 测试结果按 Git tree 有条件复用
+### 验证按实际变化决定是否复用
 
-worker 在测试策略中记录 `tested_head` 和 `tree`。集成后只有代码 tree、命令、环境或风险变化时才需要重跑，避免“rebase/merge 后同 tree 再跑”的无信息重复。
+代码、命令、环境和风险未变时可以保留有效验证；发生实际变化才重跑受影响范围，避免“rebase/merge 后同 tree 再跑”的无信息重复。
 
 ### 保持 worker creator-owner，使用共享锁集成
 

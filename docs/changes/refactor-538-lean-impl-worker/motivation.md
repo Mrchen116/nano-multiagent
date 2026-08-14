@@ -35,7 +35,7 @@
 
 - **WHEN** 独立 owner、隔离现场、实现/验证探索或协调能帮助可靠交付
 - **THEN** 调度者派发完整 `change-impl-worker` milestone
-- **AND THEN** worker 记录复用的测试及其 tree，串行集成到 unit 分支，并按适用风险做独立关闭
+- **AND THEN** worker 完成必要验证、串行集成到 unit 分支，并按适用风险做独立关闭
 
 ## 范围与非目标
 

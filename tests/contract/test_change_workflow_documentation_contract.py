@@ -166,23 +166,6 @@ def test_parallel_workers_share_one_unit_integration_lock() -> None:
     assert "释放锁" in integration
 
 
-def test_worker_done_reports_test_strategy_not_only_commands() -> None:
-    orchestrator = _read(".claude/skills/change-orchestrator/SKILL.md")
-    worker = _read(".claude/skills/change-impl-worker/SKILL.md")
-
-    for field in (
-        "risk_and_seam",
-        "existing_coverage",
-        "disposition",
-        "locator",
-        "rationale",
-        "lowest_layer_and_owner",
-        "tested_head",
-    ):
-        assert field in worker
-    assert "`test_strategy`" in orchestrator
-
-
 def test_worker_reuses_valid_results_and_narrows_debugging_trigger() -> None:
     worker = _read(".claude/skills/change-impl-worker/SKILL.md")
 

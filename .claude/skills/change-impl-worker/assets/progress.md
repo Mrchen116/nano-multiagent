@@ -9,7 +9,7 @@
 - 关键决定：<决定 + 理由；没有则省略>
 - Design issue：<原决策、证据、建议修订、影响；没有则省略>
 - 验证：
-  - `<command>` — <result> — tree `<sha>`
+  - `<command>` — <result>
 - Evidence：<unit 内持久路径/locator；没有则省略>
 - 下一步/恢复条件：<仅 HANDOFF/BLOCKED 时填写>
 

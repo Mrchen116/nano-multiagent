@@ -171,9 +171,8 @@ Lite worker 还要回填 `fix.md` 的修复和验证。不要重复 worker skill
 
 worker 回报 DONE 后逐项核对：
 
-- `unit_head` 已 push，worker commits、changed files 与派发范围一致，且可从 unit branch 到达；
-- worker 对测试风险、稳定 seam、既有覆盖的保留/改写/合并/删除以及最低测试层/文件 owner 有明确
-  `test_strategy`，不是仅列执行命令；
+- 从 unit worktree 核对集成结果、范围和现场状态；
+- worker 回报的验证与证据足以说明退出标准已满足；
 - `design.md` 中该 milestone 的每条退出标准都有直接、充分、可复查的证据；
 - 前端/reference 项包含适用 viewport、真实入口交互和逐项 prototype comparison；
 - live-critical 项包含隔离真实服务链路产生的用户可见结果；

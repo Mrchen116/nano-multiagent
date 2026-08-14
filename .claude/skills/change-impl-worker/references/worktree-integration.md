@@ -36,5 +36,5 @@ worktree/branch 的 creator-owner；orchestrator 只提供精确路径和 branch
 和 branch 执行清理：移除 milestone worktree，删除已合入的本地 branch；HANDOFF 时若曾 push
 milestone branch，正常 DONE 后一并删除对应远端 branch。
 
-禁止通配删除 `.worktrees/` 中的其他目录。HANDOFF/BLOCKED 保留精确现场，并把 owner、path、head
-和恢复条件交给 orchestrator；接管者成为 adopter-owner，完成后承担同一清理责任。
+禁止通配删除 `.worktrees/` 中的其他目录。HANDOFF/BLOCKED 保留精确现场，并把 owner、path 和恢复
+条件交给 orchestrator；接管者成为 adopter-owner，完成后承担同一清理责任。

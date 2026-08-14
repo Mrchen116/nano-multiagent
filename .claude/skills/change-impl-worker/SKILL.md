@@ -141,40 +141,12 @@ worker 不因未来可能 rebase 而提前重复 gate。orchestrator 集成后�
    unit HEAD 未在步骤 3 后前移；若前移，释放锁并重复 rebase/失效判断。确认未变后才在
    `unit_worktree_dir` 合入、push；需要新实现判断的冲突先报告，不用覆盖或 reset 绕过。
 5. 确认提交和 evidence 从 unit HEAD 可达，清理运行资源与自己创建的 milestone worktree/branch。
-6. 回报：
-
-```yaml
-milestone_id: <id>
-status: DONE
-head: <sha>
-unit_head: <integrated-and-pushed-sha>
-commits: [<sha>, ...]
-changed_files: [<path>, ...]
-test_strategy:
-  risk_and_seam: <what can regress and the stable seam exercised>
-  existing_coverage:
-    - disposition: <keep | rewrite-merge | delete | none>
-      locator: <path::test or searched scope>
-      rationale: <why this preserves or replaces the risk owner>
-  lowest_layer_and_owner: <test layer and file owner>
-tests:
-  - command: <command>
-    result: <pass summary>
-    tested_head: <commit sha>
-    tree: <git tree sha>
-entry_evidence: <durable path/locator or N/A with reason>
-implementation_records: [<optional paths>]
-design_deviations: []
-env_caveats: <none or limitation>
-promotion_candidates: []
-```
-
-`head` 是最终 rebased milestone commit，`unit_head` 是已 push 的集成 commit；每条测试同时报告
-实际受测 commit 与 Git tree。rebase 后 tree 等价时，保留原测试并在结果中说明等价证据。
+6. 简短回报完成内容、实际验证和证据，以及需要 orchestrator 知道的偏差、环境限制或下一步。Git
+   状态、提交和文件范围由 orchestrator 直接从 unit worktree 核实。
 
 ### HANDOFF
 
-任务可继续但当前 worker 无法完成时，提交并 push 可恢复的 milestone branch；仅在聊天不足以恢复时创建精简 `progress.md`。回报当前 head、已完成内容、下一步、blocker 和必要环境定位。保留 worktree，由 orchestrator 接管。
+任务可继续但当前 worker 无法完成时，提交并 push 可恢复的 milestone branch；仅在聊天不足以恢复时创建精简 `progress.md`。回报已完成内容、下一步、blocker 和必要环境定位。保留 worktree，由 orchestrator 接管。
 
 ### BLOCKED / ROUTE_BACK
 
