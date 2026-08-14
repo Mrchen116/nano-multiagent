@@ -71,7 +71,7 @@ projection 有 `text` 和可选 `runtime_footer`。`text` 是该 adapter 应发�
 
 有效开关仍为 global 默认值再由 platform key 覆盖；`feishu:plato` 归为 `feishu`。当启用时，Feishu 的 projection 保留原 `text` 并设置 `runtime_footer`；其余 external adapter 的 projection 把同一 compact string 追加到 `text`，这样 future channel 不会漏掉用户要求的运行信息。没有第二个已接入平台，故不提前发明跨平台 card protocol 或 renderer registry。
 
-compact string 仅包含实际可得的字段：`provider:model · ctx 42%`、仅模型、或仅 `ctx 42%`。这比原先裸 `%` 更明确地表达用户请求的 context 占用。
+compact string 仅包含实际可得的字段：`provider:model · ctx 42%`、仅模型、或仅 `ctx 42%`。这比原先裸 `%` 更明确地表达用户请求的 context 占用。Gateway 对异常长的 model identifier 先收敛为最多 512 个字符的显示标签并加 `...`，使普通配置值不会挤占飞书单卡预算；adapter 仍逐字采用该 Gateway string，不自行裁剪运行事实。
 
 ### 决策 3：Feishu adapter 在最终回复把 Gateway hint 渲染为单张原生卡片
 

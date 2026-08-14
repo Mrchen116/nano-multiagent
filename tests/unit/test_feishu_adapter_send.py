@@ -15,7 +15,12 @@ from personal_assistant.channels.feishu.adapter import (
     FeishuAdapter,
 )
 from personal_assistant.channels.feishu.client import FeishuAPIError
+from personal_assistant.config.local_store import DisplayConfig
 from personal_assistant.gateway.group_context_store import GroupContextStore
+from personal_assistant.gateway.runtime_footer import (
+    TerminalFooterFacts,
+    build_external_final_projection,
+)
 
 
 def _adapter(client_class: MagicMock) -> tuple[FeishuAdapter, MagicMock]:
@@ -116,6 +121,23 @@ def test_runtime_card_bounds_oversized_body_without_dropping_footer() -> None:
     assert len(json.dumps(card, ensure_ascii=False).encode()) < 30_000
     assert card["elements"][0]["content"].endswith("... truncated")
     assert card["elements"][2]["elements"][0]["content"] == "gpt-5.4 · ctx 42%"
+
+
+def test_runtime_card_stays_bounded_for_an_oversized_configured_model() -> None:
+    projection = build_external_final_projection(
+        "Answer.",
+        config=DisplayConfig(runtime_footer_enabled=True),
+        channel_name="feishu:agent-a",
+        facts=TerminalFooterFacts(model="x" * 30_000),
+    )
+
+    card = _build_runtime_card(
+        text=projection.text,
+        runtime_footer=projection.runtime_footer,
+    )
+
+    assert len(json.dumps(card, ensure_ascii=False).encode()) < 30_000
+    assert card["elements"][2]["elements"][0]["content"] == projection.runtime_footer
 
 
 @patch("personal_assistant.channels.feishu.adapter.FeishuClient")

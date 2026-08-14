@@ -7,6 +7,8 @@ import math
 
 from personal_assistant.config.local_store import DisplayConfig
 
+_MAX_DISPLAY_MODEL_CHARS = 512
+
 
 @dataclass(frozen=True, slots=True)
 class TerminalFooterFacts:
@@ -67,7 +69,7 @@ def _footer_values(facts: TerminalFooterFacts) -> list[str]:
     model = facts.model.strip() if isinstance(facts.model, str) else ""
     display_model = model.rsplit("/", 1)[-1].strip()
     if display_model:
-        values.append(display_model)
+        values.append(_compact_model_label(display_model))
     if (
         isinstance(facts.prompt_tokens, int)
         and facts.prompt_tokens >= 0
@@ -77,3 +79,11 @@ def _footer_values(facts: TerminalFooterFacts) -> list[str]:
         percentage = math.floor(100 * facts.prompt_tokens / facts.context_window + 0.5)
         values.append(f"ctx {min(100, max(0, percentage))}%")
     return values
+
+
+def _compact_model_label(label: str) -> str:
+    """Keep one configured model identifier safe for compact external display."""
+
+    if len(label) <= _MAX_DISPLAY_MODEL_CHARS:
+        return label
+    return f"{label[: _MAX_DISPLAY_MODEL_CHARS - 3]}..."

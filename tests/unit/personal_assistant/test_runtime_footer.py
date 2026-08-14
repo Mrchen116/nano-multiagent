@@ -97,3 +97,15 @@ def test_projection_omits_missing_facts_and_clamps_context() -> None:
         channel_name="future-channel",
         facts=TerminalFooterFacts(),
     ) == ExternalFinalProjection(text="Answer.")
+
+
+def test_projection_compacts_an_oversized_model_label() -> None:
+    projection = build_external_final_projection(
+        "Answer.",
+        config=DisplayConfig(runtime_footer_enabled=True),
+        channel_name="feishu:agent-a",
+        facts=TerminalFooterFacts(model="x" * 30_000),
+    )
+
+    assert projection.runtime_footer.endswith("...")
+    assert len(projection.runtime_footer) == 512
