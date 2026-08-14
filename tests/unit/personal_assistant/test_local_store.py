@@ -256,7 +256,9 @@ def test_load_local_config_parses_and_round_trips_runtime_footer_display(
     assert load_local_config(saved).display == config.display
 
 
-def test_load_local_config_rejects_invalid_runtime_footer_display(tmp_path: Path) -> None:
+def test_load_local_config_rejects_invalid_runtime_footer_display(
+    tmp_path: Path,
+) -> None:
     config_path = tmp_path / "node-config.yaml"
     workspace_root = tmp_path / "agents" / "assistant-a"
     workspace_root.mkdir(parents=True)

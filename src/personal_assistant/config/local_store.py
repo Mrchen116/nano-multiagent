@@ -935,7 +935,10 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
             "tick_interval_seconds": config.heartbeat.tick_interval_seconds
         }
 
-    if config.display.runtime_footer_enabled or config.display.platform_runtime_footer_enabled:
+    if (
+        config.display.runtime_footer_enabled
+        or config.display.platform_runtime_footer_enabled
+    ):
         display: dict[str, Any] = {}
         if config.display.runtime_footer_enabled:
             display["runtime_footer"] = {"enabled": True}
