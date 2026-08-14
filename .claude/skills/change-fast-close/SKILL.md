@@ -46,7 +46,6 @@ python3 .claude/skills/change-spec-author/scripts/next_unit_id.py <type>
 ```text
 docs/changes/<unit-dir>/
 ├── spec.md | incident.md | motivation.md
-├── analysis.md                         # 可选；事后取证/研究是决策输入时
 ├── design.md
 ├── specs/
 │   └── <package>/<target>.md
@@ -54,10 +53,6 @@ docs/changes/<unit-dir>/
 ```
 
 使用本 skill 的 `assets/design.md` 和 `assets/code-review.md`。首文档的字段骨架复用 `.claude/skills/change-spec-author/assets/` 中对应的 `spec.md`、`incident.md` 或 `motivation.md`，删除模板注释后按已经确认的事实填写。
-
-用户要求把 session 分析、事故取证或研究依据留在 unit 时创建 `analysis.md`：分开记录来源事实、
-直接观察、综合推论和最终改造映射，并给出可复查 locator。它不替代首文档的用户意图或
-`design.md` 的 as-built 实现。
 
 快速开发 unit 不创建 milestone 目录、`tasks.md`、`progress.md`、`design-review.md`、`verification.md` 或 reviewer 产出的 `acceptance.md`。没有发生过的过程不能事后补造。
 
