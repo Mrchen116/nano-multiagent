@@ -12,7 +12,7 @@
 - A provider send exception releases the reservation so a later retry can send.
 - Existing completed-key eviction behavior remains covered.
 - Narrow and nearby automated tests plus Python lint/format pass.
-- Perform the dedicated isolated Feishu E2E validation, or record the exact environmental blocker without claiming DONE.
+- Perform the dedicated isolated Feishu E2E validation and prove exactly one user-visible final reply.
 
 ## Test strategy
 
@@ -34,4 +34,4 @@
 
 - [DONE] R1: Add deterministic concurrent final-path RED regression and failure-retry regression.
 - [DONE] R2: Add atomic multi-key reservation, success commit, and exception rollback in `OutboundRouter`.
-- [BLOCKED] R3: Prove a single real Feishu final reply through the dedicated isolated E2E chain; service launch permission was denied by the execution environment.
+- [DONE] R3: Prove a single real Feishu final reply through the dedicated isolated E2E chain and clean every script-owned runtime resource.
