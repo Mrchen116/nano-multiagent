@@ -142,3 +142,56 @@ Approved — 0 CRITICAL / 0 WARNING
 ### Recommendations
 
 - [R2-R1] Keep the parity test phrased in terms of physical text and one final outbound bubble; that directly guards the observed router contract rather than a private helper call.
+
+## Round 3
+
+### Metadata
+
+- reviewer: `/root/feat_523_design_review_r3`
+- review_mode: `delta`
+- mode_reason: `The only new design atoms since Round 2 are the repository-owned Feishu E2E fixture enabling the opt-in footer and the reviewer prerequisite that names it. They do not alter the terminal delivery architecture, model/facts carriers, or product contract reviewed in Round 2.`
+- started_at: `2026-08-14T22:52:00+08:00`
+- completed_at: `2026-08-14T22:57:19+08:00`
+- duration: `5m 19s`
+
+### Verdict
+
+Approved — 0 CRITICAL / 0 WARNING
+
+### Coverage
+
+- Re-read the new fixture atom and reviewer prerequisite, plus the retained Round 2 decision and acceptance boundaries. `config/e2e/gateway.yaml:1-45` is repository-owned and contains no Feishu App credentials; it enables only `display.runtime_footer.enabled` while retaining the Feishu channel as disabled with empty settings.
+- Traced the real launcher rather than treating the fixture as documentation: `scripts/e2e-up.sh:167-177` copies that fixture into worktree-local `.gateway-config.yaml`, injects private credentials only into that copy for `--feishu`, and makes the copy mode 0600. The documented runtime contract confirms the source fixture is never modified (`docs/development/worktree-runtime.md:26-37,83-87`).
+- Rechecked the default policy input and its consumer-level coverage: absent `display` returns `DisplayConfig()` with `runtime_footer_enabled=False` (`src/personal_assistant/config/local_store.py:317-326,1472-1485`); the focused formatter test uses that default and preserves the plain answer (`tests/unit/personal_assistant/test_runtime_footer.py:14-27`). The fixture is therefore a deliberately enabled isolated test profile, not a production/local default change.
+- Re-ran the reviewer journey prerequisites against the actual probe boundary: `e2e-feishu-probe.py` requires an active `--feishu` worktree and a verified non-default profile before it sends a nonce (`scripts/e2e-feishu-probe.py:83-149`), while the runbook explicitly prohibits reviewer-side config edits and requires cleanup (`design.md:168-176`).
+
+### 历史问题闭环
+
+| 历史项 | Author Resolution | 本轮核实 | 状态 |
+|---|---|---|---|
+| Round 2 Approved | The terminal projection remains observer-owned and default-off. | The fixture and runbook are limited to E2E setup; no formatter ownership, facts hand-off, or canonical external-channel behavior changed. | retained_from: Round 2 |
+
+### Delta 评审台账
+
+| 原子 | 本轮核实与证据 | 结论 |
+|---|---|---|
+| Dedicated secret-free E2E fixture | The tracked fixture contains test IM credentials only, has no App ID/secret/Bot ID, and keeps `feishu:e2e` disabled (`config/e2e/gateway.yaml:1-45`). `--feishu` derives a private worktree copy before it renders channel credentials (`scripts/e2e-up.sh:169-175`). | 成立 |
+| Default-off production/local behavior | The typed absent-config default is false (`local_store.py:317-326,1472-1485`); the sole `enabled: true` addition is under `config/e2e/`, whose launcher path is explicitly an isolated copy (`e2e-up.sh:167-177`; `worktree-runtime.md:83-87`). | 成立 |
+| Zero-tracked-config-write, reproducible reviewer journey | The runbook fixes the known fixture instead of asking a reviewer to patch YAML (`design.md:172-176`). It names the isolated start, health and probe commands; the launcher rejects an explicit alternate main config with `--feishu` (`scripts/e2e-up.sh:124-135`) and the probe rejects a non-Feishu stack (`e2e-feishu-probe.py:83-89`). Generated worktree-local state and the deliberate test-chat message remain necessary runtime side effects, but neither mutates a tracked config nor reaches a production bot/profile. | 成立 |
+
+### 架构进攻
+
+| 角度 | 检查 | 结论 |
+|---|---|---|
+| 归属 | Tested whether opt-in belongs in a reviewer command or in the E2E fixture. | The fixture is the narrow ownership boundary: it is copied only into an isolated worktree and lets the runbook remain declarative. Putting this in reviewer instructions would reintroduce untracked manual configuration drift. |
+| 该不该存在 | Applied deletion test to the one `enabled: true` stanza. | Removing it forces every real-Feishu reviewer to mutate config before validation, defeating reproducibility. It is a concrete fixture requirement, not a production compatibility switch. |
+| 深/浅 | Compared the fixture with a new script flag or adapter-specific setup. | A six-line typed config fragment reuses the existing loader and launcher copy step; a new flag or parallel config generator would add a wider, shallower surface. |
+| 治本/补丁 | Tested the flow against the earlier manual-enable failure mode. | Checked-in, secret-free opt-in plus private-copy credential injection fixes the source of reviewer configuration drift while preserving the existing isolation/lock guardrails. |
+
+### Issues
+
+- None.
+
+### Recommendations
+
+- [R3-R1] In reviewer evidence, state that “zero-write” means no tracked-config edit; the isolated launch necessarily creates disposable worktree runtime files and the real Feishu journey necessarily posts one message to the dedicated test chat.
