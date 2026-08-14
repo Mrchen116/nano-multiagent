@@ -96,3 +96,101 @@ All checks passed. Ready for PR.
 None. The final unit diff's only new external presentation surface is the opt-in footer above. Its accepted-model propagation (including recovery adoption at `session_run_coordinator.py:2195-2202,2287-2298`) preserves that same run-bound model fact rather than creating a second user-visible feature; `test_recovery_handoff_coordinator.py:100-128` covers it. The committed `config/e2e/gateway.yaml:12-16` only enables the dedicated isolated Feishu fixture and does not alter production or local defaults.
 
 Outcome: aligned
+
+# Round 2 — Native Feishu Card Reverification
+
+> Validation snapshot: `6683c3f10296a971affefc3f7e5eb3bba58bf67f → c4d411dd8aef8faaf72839602cdbe4d90e18672d`
+>
+> Mode: `full` · Delta range: N/A · Focus issues: the previous plain-text presentation is superseded by the approved native-card design · requires_full_verification: false
+
+## Summary
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 1/1 milestone complete; 3/3 requirements mapped |
+| Correctness | 10/10 spec scenarios and 7/7 delta scenarios covered |
+| Coherence | Followed |
+
+This round verifies the user-corrected Feishu behavior at the exact `c4d411dd8`
+implementation commit. The active unit retains a `MODIFIED` Gateway delta for
+the still-unmerged evergreen text-footer rule; its replacement describes the
+card behavior and does not compete with a second parallel requirement.
+
+Independent checks at this snapshot passed:
+
+- `pytest tests/unit/personal_assistant tests/unit/test_feishu_adapter_send.py tests/unit/test_feishu_client.py tests/unit/test_feishu_client_interactive.py tests/unit/test_e2e_feishu_probe.py` — **1116 passed**.
+- `pytest tests/contract/test_cli_sdk_only_contract.py tests/contract/test_core_no_platform_imports.py` — **5 passed**.
+- `ruff check src/personal_assistant tests/unit/personal_assistant tests/unit/test_feishu_adapter_send.py tests/unit/test_e2e_feishu_probe.py`, `python scripts/docs_check.py`, and `git diff --check 6683c3f10...HEAD` — passed.
+
+## Completeness
+
+- **M1 (1/1):** its projection policy, final-path propagation, Feishu renderer,
+  shared Markdown-image preparation, bounded-card handling, delta, durable
+  tests, and isolated Feishu evidence are present at
+  `design.md:125-163`, `runtime_footer.py:20-79`,
+  `channels/feishu/{client,adapter}.py:134-177,362-370,680-718`, and
+  `M1-gateway-runtime-footer/evidence.md:3-24`. The unit has no `tasks.md`;
+  the design's single milestone has concrete implementation and evidence
+  instead.
+- **Spec coverage (3/3):** the final-presentation requirement maps to the
+  Gateway projection and adapter card; the config requirement maps to
+  `DisplayConfig` and platform precedence; the Web IM requirement maps to the
+  original-body-only shadow path.
+- **Prototype/reference contract:** N/A. `design.md` has no frontend prototype.
+  Its explicit native-card contract is instead covered by the Feishu adapter
+  payload test and recorded isolated-platform evidence.
+
+## Correctness
+
+| Requirement / Scenario | Implementation evidence | Permanent test / durable evidence | Status |
+|---|---|---|---|
+| Enabled Feishu final reply is one native card with body and `model · ctx N%` | `runtime_footer.py:43-51`, `observer.py:332-370`, `adapter.py:160-177,680-712` | `test_runtime_footer.py:26-42`; `test_feishu_adapter_send.py:66-107`; isolated card evidence `M1-gateway-runtime-footer/evidence.md:10-24` | covered |
+| Enabled non-Feishu external channel receives the same facts using its existing text capability | `runtime_footer.py:48-51` | `test_runtime_footer.py:45-55` | covered |
+| Intermediate, tool, approval, and control delivery does not acquire a footer | `observer.py:332-363,1511-1520`; `adapter.py:671-677` | `test_gateway_relay_lifecycle.py:984-1007`; `test_feishu_adapter_send.py:121-145` | covered |
+| Incomplete facts omit unknown fields; no facts leave the body and card transport unchanged | `runtime_footer.py:45-50,65-79` | `test_runtime_footer.py:70-99` | covered |
+| Oversized Feishu body remains one UTF-8-bounded card with an explicit truncation marker and retained footer | `adapter.py:680-718` | `test_feishu_adapter_send.py:110-118` | covered |
+| Default configuration exposes no runtime information | `config/local_store.py:316-326`; `runtime_footer.py:43-47` | `test_runtime_footer.py:13-23` | covered |
+| Global enable covers all external adapters; per-platform settings override it in either direction | `runtime_footer.py:54-62`; `config/local_store.py:1476-1515` | `test_runtime_footer.py:26-67`; `test_local_store.py:222-284` | covered |
+| Internal Web IM and the external shadow retain the original body | `observer.py:324-349`; `session_run_coordinator.py:1674-1686` | `test_gateway_relay_lifecycle.py:984-1007`; isolated shadow evidence `M1-gateway-runtime-footer/evidence.md:21-24` | covered |
+| Observer mirror and coordinator fallback send the same run-owned projection and hint | `observer.py:534-562`; `composition.py:506-512,640-644`; `session_run_coordinator.py:1665-1704` | `test_session_run_coordinator_terminal.py:337-389` | covered |
+
+The seven delta scenarios are covered by the first five rows plus the
+configuration and shadow rows. The `scripts/e2e-feishu-probe.py:162-210,240-259`
+probe is a durable E2E helper with safety guards and selects only the nonce-bound
+`interactive` reply before checking that the linked shadow lacks `ctx`; its
+parser behavior is covered by `test_e2e_feishu_probe.py:60-100`.
+
+## Coherence
+
+| Design decision | 遵守? | Code evidence |
+|---|---|---|
+| D1: observer creates one run-owned projection; mirror and fallback only consume it | 是 | `observer.py:534-562,1511-1520`; `context.py:109-115`; `session_run_coordinator.py:1665-1704` |
+| D2: Gateway owns configuration, fact formatting, and future-channel semantics | 是 | `runtime_footer.py:28-79`; `composition.py:506-512`; no adapter reads config or token/model facts |
+| D3: Feishu renders a prepared, single native card within the full UTF-8 budget | 是 | `client.py:321-370,476-490`; `adapter.py:160-177,680-718` |
+| D4: `runtime_footer` is final-delivery metadata only; dedupe and Web IM remain generic | 是 | `observer.py:356-370`; `session_run_coordinator.py:1687-1703` |
+
+The change stays within `personal_assistant`, uses the existing Feishu interactive
+message seam, and does not add an IM-to-Agent import, cross-process filesystem
+coupling, or a second configuration owner. The targeted import-boundary contracts
+passed.
+
+## Prototype / Reference Contract
+
+N/A. The explicit Feishu visual structure in the design is represented by the
+card payload test and isolated real-platform evidence, not a frontend artifact.
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+None.
+
+### WARNING（提 PR 前必须修）
+
+None.
+
+### SUGGESTION（可以修）
+
+None.
+
+All checks passed. Ready for PR.
