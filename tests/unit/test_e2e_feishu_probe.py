@@ -67,9 +67,7 @@ def test_probe_selects_only_nonce_bound_interactive_runtime_card(
             {"tag": "hr"},
             {
                 "tag": "note",
-                "elements": [
-                    {"tag": "plain_text", "content": "gpt-5.4 · ctx 42%"}
-                ],
+                "elements": [{"tag": "plain_text", "content": "gpt-5.4 · ctx 42%"}],
             },
         ]
     }

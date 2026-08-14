@@ -329,9 +329,7 @@ def build_kernel_event_observer(
         external_metadata = _external_context_metadata(ctx)
         if external_metadata is None:
             return
-        projection = (
-            ctx.external_final_projection if phase == "final" else None
-        )
+        projection = ctx.external_final_projection if phase == "final" else None
         external_text = projection.text if projection is not None else cleaned_text
         kernel_message_id = ctx.kernel_message_id or None
         saga_id = ctx.shadow_saga_id
