@@ -1681,8 +1681,7 @@ class SessionRunCoordinator:
             if isinstance(feishu_message_id, str) and feishu_message_id.strip():
                 metadata["feishu_message_id"] = feishu_message_id
             reply_context = replace(reply_context, metadata=metadata)
-        outbound = await asyncio.to_thread(
-            self._outbound_router.send_text,
+        outbound = await self._outbound_router.send_text_async(
             text=reply_text,
             reply_context=reply_context,
         )
