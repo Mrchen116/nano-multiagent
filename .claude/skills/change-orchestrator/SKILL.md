@@ -124,8 +124,8 @@ milestone。
 2. 在 `<repo-root>/.worktrees/unit-<unit_id>` 建立或恢复 `unit/<unit_id>`。
 3. 首次建立后推送远端；恢复时只接受可解释且可安全整合的现有状态。
 4. 只规划 milestone worktree/branch 名称，不提前创建。派发时把
-   `<repo-root>/.worktrees/<unit_id>-M<N>`、`milestone/<unit_id>-M<N>` 和当前 pushed unit HEAD
-   作为 `base_head` 交给 worker，由 worker 创建或安全恢复并拥有该现场。
+   `<repo-root>/.worktrees/<unit_id>-M<N>`、`milestone/<unit_id>-M<N>` 交给 worker，由 worker
+   从当前 unit branch 创建或安全恢复并拥有该现场。
 5. 为 verifier 规划独立 worktree；reviewer 按其 skill 使用 unit worktree 或独立运行现场。
 
 主仓只用于只读发现；后续 git 操作显式指定 unit worktree。
@@ -151,7 +151,6 @@ unit_worktree_dir: <repo-root>/.worktrees/unit-<unit_id>
 unit_branch: unit/<unit_id>
 worktree_dir: <repo-root>/.worktrees/<milestone_id>
 branch: milestone/<milestone_id>
-base_head: <worker-start-head>
 mode: full | lite
 assignment: milestone | substantive-fix
 frontend_reference_contract: <相关 must-match/may-adapt 行或 N/A>

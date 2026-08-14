@@ -1,11 +1,11 @@
 # Worktree 创建、集成与清理
 
 本文件只在创建/恢复 milestone 现场和 DONE 集成时读取。worker 是自己 milestone
-worktree/branch 的 creator-owner；orchestrator 只提供精确路径、branch 和 `base_head`。
+worktree/branch 的 creator-owner；orchestrator 只提供精确路径和 branch。
 
 ## 创建或恢复
 
-- 新现场从派发的 `base_head` 创建 `branch` 与 `worktree_dir`，不从主 checkout 的当前 HEAD 猜起点。
+- 新现场从当前 `unit_branch` 创建 `branch` 与 `worktree_dir`，不从主 checkout 的当前 HEAD 猜起点。
 - 已存在现场时，核对它已注册到精确路径、checkout 的 branch 正确、HEAD 可解释且没有来源不明的
   dirty；任一不符就报告，不 reset、覆盖或另建同名现场。
 - `unit_worktree_dir` 必须 checkout 派发的 `unit_branch`；主 checkout 只做只读发现。

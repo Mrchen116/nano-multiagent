@@ -32,20 +32,19 @@ unit_worktree_dir: <absolute-unit-worktree-path>
 unit_branch: unit/<unit-id>
 worktree_dir: <absolute-path>
 branch: <planned-milestone-branch>
-base_head: <worker-start-head>
 mode: full | lite
 assignment: milestone | substantive-fix
 ```
 
-orchestrator 提供 unit 与 milestone 的精确路径、branch 名和 `base_head`，不预建 milestone
-worktree。worker 是自己 milestone worktree/branch 的 creator-owner，负责：
+orchestrator 提供 unit 与 milestone 的精确路径和 branch 名，不预建 milestone worktree。worker 是自己
+milestone worktree/branch 的 creator-owner，负责：
 
-- 从 `base_head` 创建或安全恢复 `worktree_dir` / `branch`，只在该现场写本 assignment 的文件；
+- 从当前 `unit_branch` 创建或安全恢复 `worktree_dir` / `branch`，只在该现场写本 assignment 的文件；
 - 提交实现；DONE 时把结果集成并 push 到 unit branch，HANDOFF 时 push milestone branch；
 - 清理自己启动的进程和临时运行资源；
 - DONE 后删除自己创建的 milestone worktree/branch；HANDOFF/BLOCKED 时保留可恢复现场。
 
-缺字段、目录/branch 不符、`base_head` 不可解释，或存在来源不明的 dirty 内容时停止并报告；禁止 reset 或覆盖现场。
+缺字段、目录/branch 不符，或存在来源不明的 dirty 内容时停止并报告；禁止 reset 或覆盖现场。
 
 在 `docs/changes/`、`docs/changes/archive/` 中按 `unit_dir` 唯一解析 unit。retired unit 不实施。
 
@@ -69,7 +68,7 @@ worktree。worker 是自己 milestone worktree/branch 的 creator-owner，负责
 
 测试基线按它能回答的问题选择：
 
-- 有同一 `base_head`、相同环境的可信近期结果时复用，不重跑。
+- 有同一代码树、相同环境的可信近期结果时复用，不重跑。
 - 需要区分既有行为与本次回归时，跑能暴露该风险的最窄 baseline。
 - 不为了“基线仪式”先跑全仓测试；完整 unit/CI gate 由 orchestrator 在集成树上统一执行。
 - baseline 已有无关失败时记录命令和证据并报告，不顺手扩大范围。
