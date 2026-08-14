@@ -173,7 +173,7 @@ flowchart TD
 
 **Review 驱动方式**: 端到端真栈；本 unit 不改客户端面，但 footer 仅能在真实外部平台气泡中观察，reviewer 必须在专用 Feishu 测试 chat 发送普通问题并查看 Bot 回复，随后在对应 IM shadow 核对正文未附加 footer。不得用内部 sender 或生产 chat 代替。
 
-**验收前置**: `${XDG_CONFIG_HOME:-~/.config}/nano-multiagent/feishu-e2e.env` 存在且 0600；其中声明的非 default `lark-cli` profile 通过 `auth status --json --verify`；测试用户与测试 Bot 已在同一 Feishu chat。缺任一项，真实 Feishu 验收阻塞，必须保留隔离日志并执行 `e2e-down.sh`。
+**验收前置**: `${XDG_CONFIG_HOME:-~/.config}/nano-multiagent/feishu-e2e.env` 存在且 0600；其中声明的非 default `lark-cli` profile 通过 `auth status --json --verify`；测试用户与测试 Bot 已在同一 Feishu chat。`config/e2e/gateway.yaml` 是仅用于此专用隔离栈的 fixture，明确设置 `display.runtime_footer.enabled: true`，故 reviewer 不需也不得临时修改 config；生产/本地默认值仍为关闭。缺任一项，真实 Feishu 验收阻塞，必须保留隔离日志并执行 `e2e-down.sh`。
 
 ## Milestones
 

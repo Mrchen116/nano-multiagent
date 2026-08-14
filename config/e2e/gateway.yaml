@@ -9,6 +9,12 @@ im_service:
   username: nano
   password: nano1234
 
+# This isolated fixture deliberately exercises the opt-in external footer.
+# Production/local configuration remains disabled unless an operator enables it.
+display:
+  runtime_footer:
+    enabled: true
+
 agents:
   - agent_id: e2e
     title: E2E Agent
