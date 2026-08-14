@@ -74,7 +74,7 @@ from personal_assistant.gateway.readable_input_projection import (
 from personal_assistant.gateway.runtime_delivery.context import (
     RunDeliveryContextStore,
 )
-from personal_assistant.gateway.runtime_footer import format_external_final_text
+from personal_assistant.gateway.runtime_footer import build_external_final_projection
 from personal_assistant.gateway.runtime_delivery.background import (
     build_bg_reply_sender,
     build_session_event_callback,
@@ -503,8 +503,8 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         external_permission_resolved_sender=_mark_external_permission_resolved,
     )
 
-    def _format_external_final_text(text, channel_name, facts) -> str:
-        return format_external_final_text(
+    def _build_external_final_projection(text, channel_name, facts):
+        return build_external_final_projection(
             text,
             config=config_owner.snapshot().display,
             channel_name=channel_name,
@@ -516,7 +516,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         im_connection_manager_factory=lambda: im_connection_manager,
         run_context_store=run_delivery_contexts,
         external_reply_sender=_send_external_reply,
-        external_final_text_formatter=_format_external_final_text,
+        external_final_projection_builder=_build_external_final_projection,
         shadow_output_prepare=shadow_output_prepare,
         shadow_output_mirror=None,
         shadow_bubble_record=(
@@ -638,7 +638,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         relay_lifecycle_callback=relay_lifecycle_callback,
         kernel_event_observer=_kernel_event_observer,
         external_final_projection_provider=lambda run_id: (
-            context.external_final_text or None
+            context.external_final_projection
             if (context := run_delivery_contexts.get(run_id)) is not None
             else None
         ),

@@ -195,3 +195,115 @@ Approved — 0 CRITICAL / 0 WARNING
 ### Recommendations
 
 - [R3-R1] In reviewer evidence, state that “zero-write” means no tracked-config edit; the isolated launch necessarily creates disposable worktree runtime files and the real Feishu journey necessarily posts one message to the dedicated test chat.
+
+## Round 4
+
+### Metadata
+
+- reviewer: `/root/feat_523_card_design_review`
+- review_mode: `full`
+- mode_reason: `Reviewer failover is required: the previous reviewer worker is not recoverable, and the user corrected the core Feishu contract from a plain-text footer to one native card. That change crosses the external consumer contract, adapter transport, payload form, delta-spec reconciliation, and E2E proof boundaries, so Round 1–3 approval cannot be retained as a delta or closure review.`
+- started_at: `2026-08-15T01:29:06+08:00`
+- completed_at: `2026-08-15T01:33:03+08:00`
+- duration: `3m 57s`
+
+### Verdict
+
+Issues Found — 3 CRITICAL / 0 WARNING
+
+### 历史问题闭环
+
+| 历史项 | Author Resolution | 本轮核实 | 状态 |
+|---|---|---|---|
+| Round 1–3 approvals | Those rounds approved the now-superseded plain-text footer design and its isolated fixture. | `HEAD` already contains the archived feature's canonical requirement, which still says to append a text footer (`docs/specs/gateway/external-channels.md:148-181`); the active first spec and D3 instead require a native interactive card (`spec.md:31-36`; `design.md:75-81`). The prior reviewer cannot be resumed, so its prior conclusion is not an effective Gate 2 approval for this user-corrected contract. | superseded — re-reviewed in full |
+| R1-C1/R1-C2/R1-W1 | The former author resolutions established observer-owned, cached final text and full config override precedence. | The revised design retains a single run-owned projection, unchanged shadow body, and two consumers (`design.md:59-65,83-120`); current Gateway wiring still exposes the observer cache to the fallback and preserves final-text dedupe (`runtime_delivery/observer.py:533-561`; `session_run_coordinator.py:1639-1697`; `outbound_router.py:180-195`). | retained as architecture evidence, not as approval |
+
+### Coverage
+
+- Read the complete active `spec.md`, `design.md`, Gateway delta spec, all three prior review rounds, the existing canonical external-channel requirement, and the reopening diff. The inventory covers all three clarification records; the eight first-spec scenarios; both scope statements; the delta requirement and its six scenarios; four present-state assertions; decisions 1–4; and M1.
+- Traced the production delivery seam instead of relying on the former text-footer review: `RunDeliveryContext` holds run-owned final material (`runtime_delivery/context.py:92-118,363-454`), the observer constructs it at successful `turn_end` before mirror delivery (`observer.py:533-561,866-878,1510-1519`), and the coordinator reads the same cached projection in its no-shadow fallback (`session_run_coordinator.py:1639-1697`). `OutboundRouter` copies opaque metadata without changing its final text dedupe (`channels/base.py:113-129`; `outbound_router.py:52-72,180-195`).
+- Traced the actual Feishu transports. Ordinary replies use `send_message()` as a `post` and first resolve Markdown images (`channels/feishu/client.py:321-360,412-447`); interactive delivery simply JSON-serializes a supplied card (`:466-480`). Approval cards prove the native `wide_screen_mode` / `markdown` / `hr` transport and an actual UTF-8 card-size boundary, not a reusable normal-reply body projection (`channels/feishu/approval.py:385-426,564-570`; `tests/unit/test_feishu_adapter_permission_approval.py:278-363`).
+- Checked the isolated E2E boundary. The fixture enables the feature only in the generated E2E config (`config/e2e/gateway.yaml:12-16`), and the current probe verifies ingress only (`scripts/e2e-feishu-probe.py:83-149`); the design correctly assigns a stronger outbound-card/shadow assertion and native screenshot to this unit (`design.md:131-144`).
+
+### 核实台账
+
+| 类型 | 原子 | 本轮核实与证据 | 结论 |
+|---|---|---|---|
+| 现状 | typed config can own default/global/platform policy | `DisplayConfig` defaults to false and stores platform overrides (`config/local_store.py:317-326`); the current formatter normalizes a channel to its platform before applying that precedence (`gateway/runtime_footer.py:34-44`). | 成立 |
+| 现状 | normal and fallback terminal sends can share a run-owned projection | Observer caches terminal facts/text before its final mirror (`runtime_delivery/observer.py:533-561,1510-1519`); coordinator consumes the cache before router send (`session_run_coordinator.py:1663-1695`). | 成立 |
+| 现状 | metadata is a narrow adapter hint and does not alter generic routing | `ReplyContext` and `OutboundMessage` both carry opaque metadata (`channels/base.py:96-129`); router copies it while dedupe keys remain derived from text plus existing reply identity (`outbound_router.py:52-72,180-195`). | 成立 |
+| 现状 | Feishu can send one interactive card but its current normal path is a post | `FeishuAdapter.send()` currently calls `send_message()` (`channels/feishu/adapter.py:131-163`); client has a separate `send_interactive_message()` API (`client.py:466-480`). | 成立; body-transport gap is R4-C2 |
+| 决策 1 | one projection / two terminal consumers | The proposed observer-owned immutable projection directly matches the actual terminal-event ownership and fallback timing. Keeping plain `cleaned_text` for the shadow also preserves the external-shadow contract. | 成立 |
+| 决策 2 | Gateway owns semantics; Feishu is a presentation specialization; future channels get text | A small policy module is the right owner: config/facts are Gateway-owned while router remains generic. The non-Feishu text branch avoids speculative cross-platform card abstractions. | 成立 |
+| 决策 3 | final Feishu card has original body plus compact footer, no second post | `reply_phase == "final"` plus a nonempty hint is sufficiently narrow to exclude intermediate/control/approval paths, and the approval client proves interactive send is available. But the design omits the current normal-body preparation and card-size contract. | 不完整，见 R4-C2/R4-C3 |
+| 决策 4 | hint does not change dedupe or shadow | Carrying `runtime_footer` only in the final external metadata lets both terminal paths send identical body+hint while the shadow keeps the body. Existing final-text dedupe therefore remains applicable. | 成立 |
+| spec | Feishu receives one native card with body and compact runtime information | D1–D4 map the user-visible card to a single normal final send; the E2E/screenshot gate is consumer-facing. It is not yet safe for all existing normal bodies or legal card sizes (R4-C2/R4-C3). | 部分覆盖 |
+| spec | future external channels receive the same runtime facts via their supported text presentation | D2 produces platform-neutral compact text for non-Feishu adapters rather than leaking Feishu JSON through the router. | 覆盖 |
+| spec | intermediate/tool/approval/control/empty replies and Web IM shadow remain unchanged | The hint is final-only; approval uses a separate adapter entry point; observer shadow writes `cleaned_text`, not the external projection (`design.md:63,77-87`; `observer.py:316-372`). | 覆盖 |
+| spec | defaults, both override polarities, and partial facts are preserved | D1/D2 specify default-off, explicit platform precedence, model-only/percent-only/plain outcomes; M1 names the focused tests. | 覆盖 |
+| spec | scope/non-goals | The plan does not add telemetry fields, a second footer post, or a future-channel card framework. | 不越界 |
+| delta-spec | canonical external-channel behavior is reconciled without contradictory requirements | The active delta declares an ADDED, differently named requirement (`specs/gateway/external-channels.md:3-45`), but the canonical target already has the text-footer requirement being replaced (`docs/specs/gateway/external-channels.md:148-181`). | 不成立，见 R4-C1 |
+| milestone | M1 is one vertical card-presentation slice with dual exits | M1 joins Gateway policy, propagation, adapter, tests, real E2E and screenshot. Its exits omit the three mandatory closure targets below. | 不完整，见 R4-C1/R4-C2/R4-C3 |
+
+### 架构进攻
+
+| 角度 | 检查 | 结论 |
+|---|---|---|
+| 归属 | Tested putting runtime facts/card JSON in IM, router, adapter, and Gateway policy. | Gateway remains the correct owner of facts and enablement; the adapter should own only Feishu serialization. No dependency-boundary issue. |
+| 该不该存在 | Applied deletion tests to the projection, metadata hint, and a cross-platform card abstraction. | Deleting the projection recreates observer/fallback drift; deleting the hint forces Feishu policy into the adapter. A renderer registry/protocol for one adapter would be premature. |
+| 深/浅 | Compared the proposed `runtime_footer` policy with the existing provider transport surface. | Policy is usefully deep, but D3 currently bypasses the existing post body's image preparation and has no bounded-card body seam. A small shared Feishu body-preparation/card-builder seam is justified by that concrete transport difference (R4-C2/R4-C3), not by hypothetical providers. |
+| 治本/补丁 | Tested the card plan against canonical reconciliation, native payload limits, and normal Markdown replies. | One native final card is the right product direction, but leaving the old canonical footer requirement, raw body transport, or unbounded payload in place makes the correction fail at merge time or for ordinary users. These are contract gaps, not implementation polish. |
+
+### Issues
+
+- [R4-C1][CRITICAL] [delta spec: ADDED Requirement] The delta is marked `ADDED` with a new title even though the current canonical target already contains `Requirement: 外部 channel 最终回复的可配置运行信息页脚` and its text-footer scenarios (`docs/specs/gateway/external-channels.md:148-181`). This reopened unit changes that behavior from post-body append to one Feishu card; it must be a `MODIFIED` requirement anchored to that exact existing title, retaining and updating its existing scenarios (and adding only genuinely new scenarios). If left as ADDED, canonical reconciliation preserves both “append beneath the body” and “do not append a post body” contracts, so the next worker/closer cannot produce one coherent current behavior.
+
+- [R4-C2][CRITICAL] [决策 3 / 文件与测试范围 / M1] The card design does not preserve the established normal-reply body transport. Today `send_message()` resolves Markdown image sources/uploaded `img_` keys before creating the post (`channels/feishu/client.py:346-360,412-447`), while `send_interactive_message()` only serializes a raw mapping (`:466-480`). D3 passes “original assistant Markdown” straight into the card without saying which shared client-owned preparation it consumes or testing it. Specify a minimal shared Feishu body-preparation seam used by both post and card paths, and require a card-payload regression with an outbound Markdown image plus ordinary Markdown. Otherwise, enabling the feature can turn a previously rendered normal reply image into a raw/unresolvable source in the card, violating the spec's promise that the card's upper body is the original reply.
+
+- [R4-C3][CRITICAL] [决策 3 / 验收策略 / 风险 / M1] The single-card normal-reply contract has no serialized payload budget or overflow behavior. This repository already treats the interactive-card UTF-8 payload as a `<30_000` byte boundary, including escaped Markdown and emoji (`tests/unit/test_feishu_adapter_permission_approval.py:278-363`; `docs/changes/archive/bugfix-529-feishu-approval-compact-input/M1-fix/progress.md:125-141`), but normal assistant bodies are unbounded and D3 explicitly forbids falling back to a text-footer post after a card error. Require the first spec/design to choose the user-visible overflow behavior compatible with “one card”, then budget the complete JSON at the same `send_interactive_message()` serializer seam and add an oversized-body regression. Without this, a long ordinary answer can have its entire final reply rejected by Feishu instead of receiving the promised one-card result; different workers will otherwise guess between silent truncation, provider failure, and a forbidden second message.
+
+### Recommendations
+
+- [R4-R1] Keep the existing E2E fixture and extend its probe through the verified dedicated user profile's `+chat-messages-list`/message-content read path: bind the nonce to one new bot reply, assert `msg_type=interactive`, the unmodified body and footer in the same card JSON, exactly one final bot message, and the corresponding IM shadow body without the footer. The screenshot remains the separate visual proof of the compact bottom region.
+- [R4-R2] Keep the existing final-text dedupe assertion, but make parity assert the complete Feishu delivery tuple `(body, runtime_footer hint, reply_phase)` for observer-first and fallback-only sends; that detects a one-path post/card split before provider I/O.
+
+### Author Resolutions
+
+| Issue | Resolution | Evidence |
+|---|---|---|
+| R4-C1 | accepted — the active delta now uses `MODIFIED Requirements` and retains the exact existing title `外部 channel 最终回复的可配置运行信息页脚`; its full replacement contract makes Feishu card behavior, other-channel presentation, and single-card overflow coherent with the canonical target. | `specs/gateway/external-channels.md`; `spec.md` overflow scenario; `design.md` file/test scope and M1. |
+| R4-C2 | accepted — FeishuClient owns a shared public Markdown body-preparation seam, reused by existing post delivery and the runtime-card adapter path before card construction. | `design.md` 决策 3、文件与测试范围、验收策略。 |
+| R4-C3 | accepted — the user-visible overflow behavior is one card with a body-prefix ending `... truncated` and an intact runtime note. The adapter builder must measure the complete serialized UTF-8 card at the existing `<30,000` boundary; no split or text-footer fallback is permitted. | `spec.md` and delta overflow scenarios; `design.md` 决策 3、风险、M1。 |
+
+## Round 5
+
+### Metadata
+
+- reviewer: `/root/feat_523_card_design_review`
+- review_mode: `closure`
+- mode_reason: `The author changed only the three R4 closure targets: canonical delta reconciliation, the shared Feishu Markdown-body preparation seam, and the one-card serialized payload/overflow contract. Those changes are bounded and do not alter the Gateway projection, final-delivery ownership, config semantics, or future-channel policy established in Round 4.`
+- started_at: `2026-08-15T01:37:42+08:00`
+- completed_at: `2026-08-15T01:38:05+08:00`
+- duration: `23s`
+
+### Verdict
+
+Approved — 0 CRITICAL / 0 WARNING
+
+### 历史问题闭环
+
+| 历史项 | Author Resolution | 本轮核实 | 状态 |
+|---|---|---|---|
+| R4-C1 | Delta is now `MODIFIED` under the exact canonical requirement title. | The canonical target's existing `外部 channel 最终回复的可配置运行信息页脚` requirement remains at `docs/specs/gateway/external-channels.md:148-181`; the delta now uses `## MODIFIED Requirements`, repeats that exact title, and replaces its post-footer scenarios with Feishu-card, non-Feishu, configuration, non-final, partial-fact, and overflow scenarios (`specs/gateway/external-channels.md:3-54`). No competing added rule remains. | closed |
+| R4-C2 | Client owns one shared public Markdown body-preparation seam for post and card. | D3 now makes the seam's ownership, existing image upload/image-key behavior, and both callers explicit (`design.md:76-84`); file/test scope requires `client.py` plus `adapter.py` and a shared ordinary-Markdown/image regression (`:125-137`). This is the narrowest viable extension of today's post-only preparation (`src/personal_assistant/channels/feishu/client.py:346-447`), not a new renderer abstraction. | closed |
+| R4-C3 | Overflow is one card with a `... truncated` body prefix and retained footer, budgeted at the complete serializer seam. | First spec and modified delta give the user-visible one-card/no-second-message result (`spec.md:56-61`; `specs/gateway/external-channels.md:47-54`). D3 fixes the complete `json.dumps(card, ensure_ascii=False).encode()` `<30_000` boundary, character-boundary truncation, retained note, and no fallback (`design.md:80-84`); tests, E2E, risks, and M1 all carry that same measurable condition (`:125-163`). | closed |
+| R4-R1 | Probe should verify one native reply plus plain shadow; screenshot remains visual proof. | The revised E2E requirement binds a nonce to exactly one `msg_type=interactive` reply and verifies the card/body/footer plus plain shadow (`design.md:137-140`). | adopted |
+| R4-R2 | Parity should cover the complete Feishu delivery tuple. | Unit tests now explicitly require observer-first/fallback-only equality of `(body, runtime_footer, reply_phase)` (`design.md:135-137`). | adopted |
+
+### Issues
+
+- None.
+
+### Recommendations
+
+- None. The R4 recommendations are incorporated into the closure evidence above.

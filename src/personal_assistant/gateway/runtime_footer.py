@@ -1,4 +1,4 @@
-"""Format optional runtime facts for a completed external assistant reply."""
+"""Project optional runtime facts for completed external assistant replies."""
 
 from __future__ import annotations
 
@@ -17,31 +17,49 @@ class TerminalFooterFacts:
     context_window: int | None = None
 
 
-def format_external_final_text(
+@dataclass(frozen=True, slots=True)
+class ExternalFinalProjection:
+    """One run-owned external final delivery representation."""
+
+    text: str
+    runtime_footer: str = ""
+
+
+def build_external_final_projection(
     text: str,
     *,
     config: DisplayConfig,
     channel_name: str,
     facts: TerminalFooterFacts,
-) -> str:
-    """Append one enabled external runtime footer, or preserve plain text.
+) -> ExternalFinalProjection:
+    """Build one enabled external runtime projection, or preserve plain text.
 
     The caller owns terminal-event timing and supplies the run-bound facts.  This
-    module only applies stable display policy so adapter and fallback paths can
-    reuse one exact projection.
+    module only applies stable display policy so adapter and fallback paths reuse
+    one exact representation. Feishu receives an adapter presentation hint; other
+    external adapters retain the compatible text representation.
     """
 
     if not _runtime_footer_enabled(config, channel_name):
-        return text
+        return ExternalFinalProjection(text=text)
     values = _footer_values(facts)
-    return f"{text}\n\n{' · '.join(values)}" if values else text
+    if not values:
+        return ExternalFinalProjection(text=text)
+    footer = " · ".join(values)
+    if _platform_name(channel_name) == "feishu":
+        return ExternalFinalProjection(text=text, runtime_footer=footer)
+    return ExternalFinalProjection(text=f"{text}\n\n{footer}")
 
 
 def _runtime_footer_enabled(config: DisplayConfig, channel_name: str) -> bool:
-    platform = channel_name.split(":", 1)[0]
+    platform = _platform_name(channel_name)
     return config.platform_runtime_footer_enabled.get(
         platform, config.runtime_footer_enabled
     )
+
+
+def _platform_name(channel_name: str) -> str:
+    return channel_name.split(":", 1)[0]
 
 
 def _footer_values(facts: TerminalFooterFacts) -> list[str]:
@@ -57,5 +75,5 @@ def _footer_values(facts: TerminalFooterFacts) -> list[str]:
         and facts.context_window > 0
     ):
         percentage = math.floor(100 * facts.prompt_tokens / facts.context_window + 0.5)
-        values.append(f"{min(100, max(0, percentage))}%")
+        values.append(f"ctx {min(100, max(0, percentage))}%")
     return values

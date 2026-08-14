@@ -25,6 +25,7 @@ from personal_assistant.gateway.background_subscriptions import (
 )
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.outbound_router import OutboundRouter
+from personal_assistant.gateway.runtime_footer import ExternalFinalProjection
 from personal_assistant.gateway.session_keys import build_session_key
 from personal_assistant.gateway.session_run_coordinator import SessionRunCoordinator
 
@@ -353,7 +354,12 @@ async def test_external_final_fallback_reuses_observer_footer_projection(
         outbound_router=router,
         group_context_store=group_store,
         external_final_projection_provider=lambda run_id: (
-            "done\n\ngpt-5.4 · 42%" if run_id == "run-1" else None
+            ExternalFinalProjection(
+                text="done",
+                runtime_footer="gpt-5.4 · ctx 42%",
+            )
+            if run_id == "run-1"
+            else None
         ),
         relay_lifecycle_callback=_capture,
     )
@@ -377,7 +383,9 @@ async def test_external_final_fallback_reuses_observer_footer_projection(
 
     result = await running
     assert result.reply_text == "done"
-    assert [outbound.text for outbound in feishu.sent] == ["done\n\ngpt-5.4 · 42%"]
+    assert [outbound.text for outbound in feishu.sent] == ["done"]
+    assert feishu.sent[0].metadata["runtime_footer"] == "gpt-5.4 · ctx 42%"
+    assert feishu.sent[0].metadata["reply_phase"] == "final"
     assert lifecycle[0].model == "test-model"
 
 

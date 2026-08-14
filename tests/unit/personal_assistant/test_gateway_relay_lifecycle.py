@@ -53,6 +53,7 @@ from personal_assistant.gateway.runtime_delivery.task_tracker import (
     RuntimeDeliveryTaskTracker,
 )
 from personal_assistant.gateway.reply_visibility import ReplyVisibilityPolicy
+from personal_assistant.gateway.runtime_footer import ExternalFinalProjection
 from personal_assistant.gateway.runtime import GatewayRuntime
 from personal_assistant.gateway.process_lifecycle import RuntimeFactories, run_gateway
 from personal_assistant.gateway.composition import (
@@ -936,8 +937,11 @@ def test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion() 
         external_reply_sender=lambda text, metadata: mirrored.append(
             (text, dict(metadata))
         ),
-        external_final_text_formatter=lambda text, _channel_name, facts: (
-            f"{text}\n\n{facts.model} · 42%"
+        external_final_projection_builder=lambda text, _channel_name, facts: (
+            ExternalFinalProjection(
+                text=text,
+                runtime_footer=f"{facts.model} · ctx 42%",
+            )
         ),
         shadow_output_prepare=lambda _saga, _run, _phase, _kernel, text: (
             shadowed.append(text)
@@ -989,13 +993,14 @@ def test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion() 
             },
         ),
         (
-            "Final answer.\n\nprovider/path/gpt-5.4 · 42%",
+            "Final answer.",
             {
                 "reply_phase": "final",
                 "reply_dedupe_key": "run-1:bubble:kernel-msg-b",
                 "channel_name": "feishu:agent-a",
                 "target_chat_id": "feishu:cli_a:dm:ou_user",
                 "feishu_message_id": "om_msg_1",
+                "runtime_footer": "provider/path/gpt-5.4 · ctx 42%",
             },
         ),
     ]

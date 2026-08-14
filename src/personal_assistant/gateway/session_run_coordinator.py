@@ -66,6 +66,7 @@ from personal_assistant.gateway.effort_commands import (
     parse_effort_command,
 )
 from personal_assistant.gateway.outbound_router import OutboundRouter
+from personal_assistant.gateway.runtime_footer import ExternalFinalProjection
 from personal_assistant.gateway.reply_visibility import (
     ReplyVisibilityPolicy,
     is_protocol_silence_token,
@@ -351,7 +352,9 @@ class SessionRunCoordinator:
         reasoning_catalog: ModelReasoningCatalog | None = None,
         relay_lifecycle_callback: RelayLifecycleCallback | None = None,
         kernel_event_observer: Callable[[Mapping[str, Any]], object] | None = None,
-        external_final_projection_provider: Callable[[str], str | None] | None = None,
+        external_final_projection_provider: (
+            Callable[[str], ExternalFinalProjection | None] | None
+        ) = None,
         shadow_output_prepare: (
             Callable[[str, str, str, str | None, str], ExternalShadowOutput] | None
         ) = None,
@@ -1661,11 +1664,13 @@ class SessionRunCoordinator:
             return None, {"suppressed_by": "no_reply_token"}
         reply_context = binding.reply_context
         external_reply_text = reply_text
+        external_runtime_footer = ""
         if _is_external_channel_inbound(request.message):
             if self._external_final_projection_provider is not None:
                 cached = self._external_final_projection_provider(run_id)
                 if cached:
-                    external_reply_text = cached
+                    external_reply_text = cached.text
+                    external_runtime_footer = cached.runtime_footer
             shadow = request.routed.shadow
             if (
                 shadow.saga_id is not None
@@ -1686,6 +1691,8 @@ class SessionRunCoordinator:
                     "reply_dedupe_key": f"{run_id}:text:{external_reply_text.strip()}",
                 }
             )
+            if external_runtime_footer:
+                metadata["runtime_footer"] = external_runtime_footer
             feishu_message_id = request.message.metadata.get("feishu_message_id")
             if isinstance(feishu_message_id, str) and feishu_message_id.strip():
                 metadata["feishu_message_id"] = feishu_message_id

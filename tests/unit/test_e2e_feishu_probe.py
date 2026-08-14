@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 
 import pytest
@@ -54,3 +55,47 @@ def test_probe_default_env_path_honors_xdg_config_home(
     assert probe_module._default_e2e_env_path() == (
         tmp_path / "nano-multiagent" / "feishu-e2e.env"
     )
+
+
+def test_probe_selects_only_nonce_bound_interactive_runtime_card(
+    probe_module: object,
+) -> None:
+    nonce = "nano-e2e-feishu-probe-abc123"
+    card = {
+        "elements": [
+            {"tag": "markdown", "content": f"Received {nonce}"},
+            {"tag": "hr"},
+            {
+                "tag": "note",
+                "elements": [
+                    {"tag": "plain_text", "content": "gpt-5.4 · ctx 42%"}
+                ],
+            },
+        ]
+    }
+    messages = [
+        {"msg_type": "post", "content": nonce},
+        {"msg_type": "interactive", "content": json.dumps(card)},
+    ]
+
+    cards = probe_module._runtime_card_messages(messages, nonce)
+
+    assert cards == [card]
+    assert probe_module._card_has_runtime_footer(cards[0])
+
+
+def test_probe_accepts_feishu_rendered_interactive_card_content(
+    probe_module: object,
+) -> None:
+    nonce = "nano-e2e-feishu-probe-rendered"
+    messages = [
+        {
+            "msg_type": "interactive",
+            "content": f"<card>\nProbe received: {nonce}\n---\nctx 42%\n</card>",
+        }
+    ]
+
+    cards = probe_module._runtime_card_messages(messages, nonce)
+
+    assert cards == [{"rendered_content": messages[0]["content"]}]
+    assert probe_module._card_has_runtime_footer(cards[0])

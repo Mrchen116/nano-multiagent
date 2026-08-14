@@ -12,7 +12,10 @@ from personal_assistant.gateway.inbound_models import (
     ShadowConversationRef,
 )
 from personal_assistant.gateway.reply_visibility import ReplyVisibilityPolicy
-from personal_assistant.gateway.runtime_footer import TerminalFooterFacts
+from personal_assistant.gateway.runtime_footer import (
+    ExternalFinalProjection,
+    TerminalFooterFacts,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,7 +110,7 @@ class RunDeliveryContext:
     rolling: bool = False
     external_current_text: str = ""
     external_intermediate_sent_marker: str = ""
-    external_final_text: str = ""
+    external_final_projection: ExternalFinalProjection | None = None
     terminal_footer_facts: TerminalFooterFacts | None = None
     visibility_policy: ReplyVisibilityPolicy = ReplyVisibilityPolicy.LITERAL_TEXT
     discard_empty_completion: bool = False

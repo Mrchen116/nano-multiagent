@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -9,7 +10,10 @@ import pytest
 pytest.importorskip("lark_oapi")
 
 from personal_assistant.channels.base import OutboundMessage
-from personal_assistant.channels.feishu.adapter import FeishuAdapter
+from personal_assistant.channels.feishu.adapter import (
+    _build_runtime_card,
+    FeishuAdapter,
+)
 from personal_assistant.channels.feishu.client import FeishuAPIError
 from personal_assistant.gateway.group_context_store import GroupContextStore
 
@@ -55,6 +59,89 @@ def test_send_maps_stable_target_to_provider_address(
         receive_id=receive_id,
         text="reply",
         receive_id_type=receive_id_type,
+    )
+
+
+@patch("personal_assistant.channels.feishu.adapter.FeishuClient")
+def test_send_final_runtime_footer_as_one_prepared_interactive_card(
+    client_class: MagicMock,
+) -> None:
+    adapter, client = _adapter(client_class)
+    client.prepare_outbound_markdown.return_value = "reply ![chart](img_card_1)"
+
+    adapter.send(
+        OutboundMessage(
+            channel_name="feishu:plato",
+            text="reply ![chart](https://example.test/chart.png)",
+            target_chat_id="feishu:cli_a:dm:ou_user1",
+            metadata={
+                "reply_phase": "final",
+                "runtime_footer": "gpt-5.4 · ctx 42%",
+            },
+        )
+    )
+
+    client.prepare_outbound_markdown.assert_called_once_with(
+        "reply ![chart](https://example.test/chart.png)"
+    )
+    client.send_message.assert_not_called()
+    client.send_interactive_message.assert_called_once()
+    kwargs = client.send_interactive_message.call_args.kwargs
+    assert kwargs["receive_id"] == "ou_user1"
+    assert kwargs["receive_id_type"] == "open_id"
+    assert kwargs["card"] == {
+        "config": {"wide_screen_mode": True},
+        "elements": [
+            {"tag": "markdown", "content": "reply ![chart](img_card_1)"},
+            {"tag": "hr"},
+            {
+                "tag": "note",
+                "elements": [
+                    {
+                        "tag": "plain_text",
+                        "content": "gpt-5.4 · ctx 42%",
+                    }
+                ],
+            },
+        ],
+    }
+
+
+def test_runtime_card_bounds_oversized_body_without_dropping_footer() -> None:
+    card = _build_runtime_card(
+        text="😀" * 40_000,
+        runtime_footer="gpt-5.4 · ctx 42%",
+    )
+
+    assert len(json.dumps(card, ensure_ascii=False).encode()) < 30_000
+    assert card["elements"][0]["content"].endswith("... truncated")
+    assert card["elements"][2]["elements"][0]["content"] == "gpt-5.4 · ctx 42%"
+
+
+@patch("personal_assistant.channels.feishu.adapter.FeishuClient")
+def test_runtime_footer_hint_does_not_change_nonfinal_transport(
+    client_class: MagicMock,
+) -> None:
+    adapter, client = _adapter(client_class)
+
+    adapter.send(
+        OutboundMessage(
+            channel_name="feishu:plato",
+            text="progress",
+            target_chat_id="feishu:cli_a:group:oc_group",
+            metadata={
+                "reply_phase": "intermediate",
+                "runtime_footer": "gpt-5.4 · ctx 42%",
+            },
+        )
+    )
+
+    client.send_interactive_message.assert_not_called()
+    client.prepare_outbound_markdown.assert_not_called()
+    client.send_message.assert_called_once_with(
+        receive_id="oc_group",
+        text="progress",
+        receive_id_type="chat_id",
     )
 
 
