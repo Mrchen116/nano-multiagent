@@ -60,6 +60,12 @@
 - **THEN** 该 channel 的最终回复不显示页脚
 - **AND** 未单独关闭的外部 channel 继续显示页脚
 
+#### Scenario: 单一外部 channel 可以独立开启
+- **GIVEN** Gateway 未全局启用运行信息页脚
+- **WHEN** 某一外部 channel 被单独开启该功能
+- **THEN** 该 channel 的普通最终回复显示页脚
+- **AND** 未单独开启的外部 channel 保持不显示
+
 ### Requirement: 内部 Web IM 保持原有消息体验
 
 #### Scenario: 内部 Web IM 不显示外部页脚
