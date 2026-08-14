@@ -80,25 +80,37 @@ All checks passed. Ready for PR.
 
 ## Corrected Delta Reconciliation
 
-> Reconciled snapshot: `6683c3f10296a971affefc3f7e5eb3bba58bf67f → 7d82cc54e477acb1c6648ed902c31e20428025e0`
+> Reconciled snapshot: `0135de35cf8fd175e0b3a2d08b28b9113f3183b2`
+>
+> Mode: `corrected-delta` · Executed base: `6683c3f10296a971affefc3f7e5eb3bba58bf67f` (`origin/main` at fetch time)
 
 | Delta item | Implementation evidence | Test evidence | Outcome |
 |---|---|---|---|
-| `external-channels.md` Requirement: 外部 channel 最终回复的可配置运行信息页脚 | `runtime_footer.py:30-53` applies one Gateway policy; `composition.py:506-519` injects it into terminal delivery; `observer.py:332-370` carries the Feishu-only hint without changing shadow text | `test_runtime_footer.py:13-55`; `test_gateway_relay_lifecycle.py:984-1007` | aligned |
-| Scenario: 全局启用后飞书最终回复使用原生卡片显示本轮运行信息 | `runtime_footer.py:45-53` keeps Feishu body clean and supplies `runtime_footer`; `adapter.py:160-177,671-718` sends exactly one prepared `interactive` card whose body, divider, and note contain the final projection | `test_runtime_footer.py:26-42`; `test_feishu_adapter_send.py:71-112`; isolated platform evidence `M1-gateway-runtime-footer/evidence.md:10-24` | aligned |
-| Scenario: 全局启用后其他外部 channel 显示本轮运行信息 | `runtime_footer.py:51-53` preserves the same compact facts in a compatible text representation for a non-Feishu adapter | `test_runtime_footer.py:45-55` | aligned |
-| Scenarios: 单一外部 channel 覆盖全局设置 / 可以独立启用页脚 | `runtime_footer.py:56-64` derives platform key and gives an explicit platform value precedence over the global default | `test_runtime_footer.py:26-42,58-67`; `test_local_store.py:222-284` | aligned |
-| Scenario: 非最终或内部消息不呈现运行信息 | `observer.py:332-363,1509-1520` only attaches the hint for a final projection; `adapter.py:671-677` rejects a hint outside `reply_phase == "final"`; `session_run_coordinator.py:1668-1703` uses the same rule in the fallback | `test_gateway_relay_lifecycle.py:984-1007`; `test_feishu_adapter_send.py:143-167`; `test_session_run_coordinator_terminal.py:338-389` | aligned |
-| Scenario: 运行信息缺失时静默省略 | `runtime_footer.py:45-50,67-81` emits only valid facts and leaves the body untouched when neither fact is available | `test_runtime_footer.py:70-99` | aligned |
-| Scenario: 飞书单卡大小超限时保留可读正文和运行信息 | `adapter.py:680-718` measures the full UTF-8 card and retains one explicitly truncated body plus its footer; however `runtime_footer.py:10,67-89` additionally changes an over-512-character configured model label before card construction | `test_feishu_adapter_send.py:115-140`; `test_runtime_footer.py:102-111` | delta-mismatch |
+| `external-channels.md` Requirement: 外部 channel 最终回复的可配置运行信息页脚 | `runtime_footer.py:45-53` applies the default-off, platform-overridable projection; `observer.py:332-370,534-562` keeps the Web IM/external shadow body clean and passes only the final Feishu hint; `session_run_coordinator.py:1665-1703` reuses it in the fallback | `test_runtime_footer.py:13-67`; `test_gateway_relay_lifecycle.py`; `test_session_run_coordinator_terminal.py` | aligned |
+| Scenario: 全局启用后飞书最终回复使用原生卡片显示本轮运行信息 | `runtime_footer.py:50-53` preserves the body and supplies `runtime_footer`; `adapter.py:160-177,680-718` sends exactly one `interactive` card with prepared Markdown body, divider, and compact note | `test_runtime_footer.py:25-42`; `test_feishu_adapter_send.py:65-107`; isolated platform evidence `M1-gateway-runtime-footer/evidence.md:10-24` | aligned |
+| Scenario: 全局启用后其他外部 channel 显示本轮运行信息 | `runtime_footer.py:50-53` appends the same compact facts using the non-Feishu text representation | `test_runtime_footer.py:45-55` | aligned |
+| Scenarios: 单一外部 channel 覆盖全局设置 / 可以独立启用页脚 | `runtime_footer.py:45-46,56-64` gives an explicit platform value precedence over the global default | `test_runtime_footer.py:25-42,58-67`; `test_local_store.py` | aligned |
+| Scenario: 非最终或内部消息不呈现运行信息 | `observer.py:332-363,1511-1520` only attaches a hint to a final projection; `adapter.py:671-677` rejects it outside `reply_phase == "final"`; shadow persistence receives `cleaned_text` | `test_gateway_relay_lifecycle.py`; `test_feishu_adapter_send.py:142-167`; `test_session_run_coordinator_terminal.py` | aligned |
+| Scenario: 运行信息缺失时静默省略 | `runtime_footer.py:47-49,67-81` emits only valid model / context facts and otherwise keeps the original body | `test_runtime_footer.py:70-99` | aligned |
+| Scenario: 异常长模型标识仍保留紧凑运行信息 | `runtime_footer.py:10,67-89` compacts a model label longer than 512 characters to a 512-character display label ending in `...`; the adapter adopts that Gateway-owned string unchanged | `test_runtime_footer.py:102-111`; `test_feishu_adapter_send.py:121-140` | aligned |
+| Scenario: 飞书单卡大小超限时保留可读正文和运行信息 | `adapter.py:680-718` serializes the complete UTF-8 card, retains one beginning-of-body prefix ending in `... truncated`, and preserves the note without a second card or post | `test_feishu_adapter_send.py:110-140` | aligned |
 
-### Uncovered Observable Behavior
+### Diff Coverage
 
-`runtime_footer.py:10,67-89` compacts a configured model display label longer than 512 characters with `...` before the card builder runs. This is an intentionally approved implementation decision (`design.md:72-75`) and its permanent regression coverage is present (`test_runtime_footer.py:102-111`; `test_feishu_adapter_send.py:126-140`), so it is not an implementation mismatch. It is nevertheless a new user-observable presentation behavior in the final unit diff that the active delta at `specs/gateway/external-channels.md:7,47-52` neither states nor qualifies; that delta currently says the card preserves the obtainable model/runtime information.
+The remaining outward-facing changes in the unit diff are the typed display
+configuration (`config/local_store.py`) and the isolated Feishu probe.  The
+configuration implements the requirement's default-off/global/per-platform
+controls; the probe observes one nonce-bound `interactive` card and a plain
+shadow.  The accepted/recovery model propagation only supplies the same
+requirement's run-resolved model fact.  No changed external presentation is
+outside the modified requirement and its seven scenarios.
 
-Before PR, amend the delta requirement or its overflow scenario to state that a pathological model identifier is compacted to the Gateway's bounded display label (512 characters plus the `...` marker) before the one-card budget is applied, then run this corrected-delta reconciliation again. No source or test change is indicated.
+Independent corrected-delta checks passed:
 
-Outcome: delta-mismatch
+- `pytest tests/unit/personal_assistant/test_runtime_footer.py tests/unit/test_feishu_adapter_send.py tests/unit/test_e2e_feishu_probe.py tests/unit/personal_assistant/test_gateway_relay_lifecycle.py::test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion tests/unit/personal_assistant/test_session_run_coordinator_terminal.py::test_external_final_fallback_reuses_observer_footer_projection tests/unit/personal_assistant/test_local_store.py tests/unit/personal_assistant/test_recovery_handoff_coordinator.py` — **82 passed**.
+- `ruff check src/personal_assistant/gateway/runtime_footer.py src/personal_assistant/channels/feishu/adapter.py src/personal_assistant/channels/feishu/client.py tests/unit/personal_assistant/test_runtime_footer.py tests/unit/test_feishu_adapter_send.py tests/unit/test_e2e_feishu_probe.py`, `python scripts/docs_check.py`, and `git diff --check origin/main...HEAD` — passed.
+
+Outcome: aligned
 
 # Round 2 — Native Feishu Card Reverification
 
