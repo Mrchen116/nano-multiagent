@@ -206,6 +206,7 @@ class RelayLifecycleUpdate:
     detail: Mapping[str, Any] | None = None
     usage: Mapping[str, int] | None = None
     kernel_session_id: str | None = None
+    model: str | None = None
     previous_run_id: str | None = None
     recovery_id: str | None = None
 

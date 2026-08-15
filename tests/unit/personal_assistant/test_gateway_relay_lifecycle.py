@@ -53,6 +53,7 @@ from personal_assistant.gateway.runtime_delivery.task_tracker import (
     RuntimeDeliveryTaskTracker,
 )
 from personal_assistant.gateway.reply_visibility import ReplyVisibilityPolicy
+from personal_assistant.gateway.runtime_footer import ExternalFinalProjection
 from personal_assistant.gateway.runtime import GatewayRuntime
 from personal_assistant.gateway.process_lifecycle import RuntimeFactories, run_gateway
 from personal_assistant.gateway.composition import (
@@ -911,6 +912,7 @@ def test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion() 
 
     manager = _Manager()
     mirrored: list[tuple[str, dict[str, str]]] = []
+    shadowed: list[str] = []
     run_context_store = delivery_context_store(
         {
             "run-1": {
@@ -923,6 +925,8 @@ def test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion() 
                 "reply_channel_name": "feishu:agent-a",
                 "reply_target_chat_id": "feishu:cli_a:dm:ou_user",
                 "feishu_message_id": "om_msg_1",
+                "model": "provider/path/gpt-5.4",
+                "shadow_saga_id": "saga-1",
             }
         }
     )
@@ -932,6 +936,15 @@ def test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion() 
         run_context_store=run_context_store,
         external_reply_sender=lambda text, metadata: mirrored.append(
             (text, dict(metadata))
+        ),
+        external_final_projection_builder=lambda text, _channel_name, facts: (
+            ExternalFinalProjection(
+                text=text,
+                runtime_footer=f"{facts.model} · ctx 42%",
+            )
+        ),
+        shadow_output_prepare=lambda _saga, _run, _phase, _kernel, text: (
+            shadowed.append(text)
         ),
         task_tracker=tracker,
     )
@@ -987,9 +1000,11 @@ def test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion() 
                 "channel_name": "feishu:agent-a",
                 "target_chat_id": "feishu:cli_a:dm:ou_user",
                 "feishu_message_id": "om_msg_1",
+                "runtime_footer": "provider/path/gpt-5.4 · ctx 42%",
             },
         ),
     ]
+    assert shadowed == ["I will check.", "Final answer."]
 
 
 def test_kernel_event_observer_does_not_mirror_im_triggered_shadow_runs() -> None:

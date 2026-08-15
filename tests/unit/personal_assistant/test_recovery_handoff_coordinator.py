@@ -42,6 +42,7 @@ async def _admitted_recovery(tmp_path: Path, *, follower_count: int = 1):  # noq
     async def _capture(message, update) -> None:  # noqa: ANN001
         lifecycle.append((message.message.text, update.phase, update.run_id))
         if update.phase == "recovery_adopted":
+            adopted.model = update.model  # type: ignore[attr-defined]
             adopted.set()
 
     coordinator = SessionRunCoordinator(
@@ -100,7 +101,7 @@ def _push_settlement(kernel) -> None:  # noqa: ANN001
 async def test_correlated_successor_delivers_once_and_terminalizes_all_followers(
     tmp_path: Path,
 ) -> None:
-    _, kernel, _, router, _, primary, lifecycle, _ = await _admitted_recovery(
+    _, kernel, _, router, _, primary, lifecycle, adopted = await _admitted_recovery(
         tmp_path, follower_count=2
     )
     _push_old_terminal(kernel)
@@ -118,6 +119,7 @@ async def test_correlated_successor_delivers_once_and_terminalizes_all_followers
     channel = router._registry.get("web_relay")  # noqa: SLF001
     assert channel is not None
     assert [item.text for item in channel.sent] == ["continued"]
+    assert getattr(adopted, "model") == "test-model"
     assert lifecycle[-4:] == [
         ("follow-1", "recovery_adopted", "run-2"),
         ("follow-1", "running", "run-2"),

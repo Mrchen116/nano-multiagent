@@ -12,6 +12,10 @@ from personal_assistant.gateway.inbound_models import (
     ShadowConversationRef,
 )
 from personal_assistant.gateway.reply_visibility import ReplyVisibilityPolicy
+from personal_assistant.gateway.runtime_footer import (
+    ExternalFinalProjection,
+    TerminalFooterFacts,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,6 +96,7 @@ class RunDeliveryContext:
     agent_id: str
     kernel_session_id: str
     delivery_target: RunDeliveryTarget
+    model: str = ""
     trigger_source: str = ""
     reply_channel_name: str = ""
     reply_target_chat_id: str = ""
@@ -105,6 +110,8 @@ class RunDeliveryContext:
     rolling: bool = False
     external_current_text: str = ""
     external_intermediate_sent_marker: str = ""
+    external_final_projection: ExternalFinalProjection | None = None
+    terminal_footer_facts: TerminalFooterFacts | None = None
     visibility_policy: ReplyVisibilityPolicy = ReplyVisibilityPolicy.LITERAL_TEXT
     discard_empty_completion: bool = False
     visible_reply_committed: bool = False
@@ -425,6 +432,7 @@ class RunDeliveryContextStore:
                 agent_id=agent_id,
                 kernel_session_id=update.kernel_session_id or "",
                 delivery_target=delivery_target,
+                model=update.model or "",
                 trigger_source=trigger_source,
                 reply_channel_name=reply_channel_name,
                 reply_target_chat_id=reply_target_chat_id,

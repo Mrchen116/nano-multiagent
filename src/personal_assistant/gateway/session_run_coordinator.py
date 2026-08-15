@@ -66,6 +66,7 @@ from personal_assistant.gateway.effort_commands import (
     parse_effort_command,
 )
 from personal_assistant.gateway.outbound_router import OutboundRouter
+from personal_assistant.gateway.runtime_footer import ExternalFinalProjection
 from personal_assistant.gateway.reply_visibility import (
     ReplyVisibilityPolicy,
     is_protocol_silence_token,
@@ -351,6 +352,9 @@ class SessionRunCoordinator:
         reasoning_catalog: ModelReasoningCatalog | None = None,
         relay_lifecycle_callback: RelayLifecycleCallback | None = None,
         kernel_event_observer: Callable[[Mapping[str, Any]], object] | None = None,
+        external_final_projection_provider: (
+            Callable[[str], ExternalFinalProjection | None] | None
+        ) = None,
         shadow_output_prepare: (
             Callable[[str, str, str, str | None, str], ExternalShadowOutput] | None
         ) = None,
@@ -384,6 +388,7 @@ class SessionRunCoordinator:
         self._reasoning_catalog = reasoning_catalog
         self._relay_lifecycle_callback = relay_lifecycle_callback
         self._kernel_event_observer = kernel_event_observer
+        self._external_final_projection_provider = external_final_projection_provider
         self._shadow_output_prepare = shadow_output_prepare
         self._bg_reply_sender = bg_reply_sender
         self._node_id = node_id
@@ -1421,6 +1426,7 @@ class SessionRunCoordinator:
                     session_key=request.session_key,
                     run_id=run_id,
                     kernel_session_id=binding.kernel_session_id,
+                    model=runtime_projection.runtime.model,
                 ),
             )
             (
@@ -1434,6 +1440,7 @@ class SessionRunCoordinator:
                 anchor_sequence=anchor_sequence,
                 request=request,
                 binding=binding,
+                model=runtime_projection.runtime.model,
                 on_other=lambda event: self._on_other_event(event, binding=binding),
             )
             final_run_id = str(run_state.get("run_id") or run_id or "")
@@ -1656,7 +1663,14 @@ class SessionRunCoordinator:
         ):
             return None, {"suppressed_by": "no_reply_token"}
         reply_context = binding.reply_context
+        external_reply_text = reply_text
+        external_runtime_footer = ""
         if _is_external_channel_inbound(request.message):
+            if self._external_final_projection_provider is not None:
+                cached = self._external_final_projection_provider(run_id)
+                if cached:
+                    external_reply_text = cached.text
+                    external_runtime_footer = cached.runtime_footer
             shadow = request.routed.shadow
             if (
                 shadow.saga_id is not None
@@ -1674,15 +1688,17 @@ class SessionRunCoordinator:
             metadata.update(
                 {
                     "reply_phase": "final",
-                    "reply_dedupe_key": f"{run_id}:text:{reply_text.strip()}",
+                    "reply_dedupe_key": f"{run_id}:text:{external_reply_text.strip()}",
                 }
             )
+            if external_runtime_footer:
+                metadata["runtime_footer"] = external_runtime_footer
             feishu_message_id = request.message.metadata.get("feishu_message_id")
             if isinstance(feishu_message_id, str) and feishu_message_id.strip():
                 metadata["feishu_message_id"] = feishu_message_id
             reply_context = replace(reply_context, metadata=metadata)
         outbound = await self._outbound_router.send_text_async(
-            text=reply_text,
+            text=external_reply_text,
             reply_context=reply_context,
         )
         return outbound, None
@@ -2089,6 +2105,7 @@ class SessionRunCoordinator:
         anchor_sequence: int | None,
         request: InboundRunRequest,
         binding: SessionBinding,
+        model: str,
         on_other: Callable[[Mapping[str, object]], Awaitable[None] | None],
     ) -> tuple[
         Mapping[str, object],
@@ -2187,6 +2204,7 @@ class SessionRunCoordinator:
                 predecessor_run_id=run_id,
                 request=request,
                 binding=binding,
+                model=model,
                 on_other=on_other,
             )
             if recovery is not None:
@@ -2207,6 +2225,7 @@ class SessionRunCoordinator:
         predecessor_run_id: str,
         request: InboundRunRequest,
         binding: SessionBinding,
+        model: str,
         on_other: Callable[[Mapping[str, object]], Awaitable[None] | None],
         predecessor_terminal_emitted: bool = False,
     ) -> (
@@ -2282,6 +2301,7 @@ class SessionRunCoordinator:
                             run_id=claim.run_id,
                             recovery_id=claim.recovery_id,
                             kernel_session_id=binding.kernel_session_id,
+                            model=model,
                         ),
                     )
                     if len(state.claims) == 1:
@@ -2370,6 +2390,7 @@ class SessionRunCoordinator:
                         predecessor_run_id=claim.run_id,
                         request=anchor,
                         binding=binding,
+                        model=model,
                         on_other=on_other,
                         predecessor_terminal_emitted=True,
                     )
