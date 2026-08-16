@@ -1,6 +1,6 @@
 ---
 name: change-orchestrator
-description: 用于在某个 unit 的 design.md 定稿后接管整个实施阶段——目标：统筹高质量完成该需求。创建 unit 集成分支、派发 worker 在 worktree 内并行/串行实施 milestone、调度 reviewer 验收、处理 fix-implementation 循环、最终给 main 提 PR 后退出。触发条件:用户说"开干 / 跑这个 unit / 启动 orchestrator / 把 feat-X 做完 / 把这个 bugfix 跑完";或 `change-design-author` 完成时给出"门禁 2 通过"提示后用户推进。不要用于:写代码(那是 worker)
+description: 用于在某个 unit 的 design.md 定稿后接管整个实施阶段——目标：统筹高质量完成该需求。创建 unit 集成分支、按实际收益派发 worker 在 worktree 内并行/串行实施 milestone、调度 reviewer 验收、处理修复循环、最终给 main 提 PR 后退出。触发条件:用户说"开干 / 跑这个 unit / 启动 orchestrator / 把 feat-X 做完 / 把这个 bugfix 跑完";或 `change-design-author` 完成时给出"门禁 2 通过"提示后用户推进。不要用于亲自接管已派发的 implementation milestone；清晰的小闭环可由本角色直接关闭。
 ---
 
 # Change Orchestrator
@@ -25,8 +25,8 @@ verifier 与 code review 的结论都是判断输入；结合完整上下文核�
   `Runbook for Reviewer` / reference contract；
 - unit 目录结构和受审产物的变更状态；delta-spec、prototype、references 的正文由实际消费它们的
   阶段或角色读取；
-- 恢复现场时，只读取当前状态所需的 milestone `tasks.md`、`progress.md`、evidence、验收报告和
-  相关 commits；
+- 恢复现场时，只读取当前状态所需的 milestone commits、worker 留下的 `tasks.md` / `progress.md`、
+  evidence 和验收报告；
 - 实时 branch、worktree、开放 PR 和 CI 状态。
 
 进入对应阶段时再读取：
@@ -46,11 +46,12 @@ verifier 与 code review 的结论都是判断输入；结合完整上下文核�
    设计决策或回归矩阵，实施中超出该边界时停止并交回 author 升级为 Full。
 2. 主仓 checkout 的分支、dirty 和 untracked 内容不动。所有 unit 写入、集成、同步、归档和 PR
    准备都在专属 unit worktree 中完成。
-3. 不亲自实现 milestone。一个实现型 milestone 只交给一个 `change-impl-worker`；无依赖且无
-   写冲突的 milestone 默认并行。
-4. 不设置 harness 自动 worktree isolation。为 worker 分配明确路径，由 worker 按自身 skill
-   创建和清理 worktree。orchestrator 直接创建或接管的临时 worktree 由自己收尾，不按目录名称
-   通配清理其他 unit。
+3. 不亲自接管已派发的 implementation milestone。每个 worker 负责一个清晰 assignment；无依赖且无
+   写冲突的 assignment 可以并行。根据实际交付收益决定是直接关闭一个清晰的小闭环，还是派 worker
+   获得独立 owner、隔离现场或深入实现/验证；两种方式都保留适用的独立 closure。
+4. 不设置 harness 自动 worktree isolation。orchestrator 只提供精确的 milestone worktree/branch
+   计划；worker 作为 creator-owner 创建、核对、集成并清理自己的 milestone 现场。禁止按目录
+   名称通配清理其他 unit。
 5. 不改写已确认的首文档或关键设计决策。可追加实施期 Changelog / fix milestone 记录、校正
    delta-spec，并在收尾归并 canonical spec；需要改变需求、范围或设计决策时退回对应 author。
 6. reviewer、verifier 和 code-review finder/verifier 必须独立于实现判断，只按各自 skill
@@ -122,7 +123,9 @@ milestone。
    `main`。现有 unit 分支与 `origin/main` 的关系不安全时停止并报告。
 2. 在 `<repo-root>/.worktrees/unit-<unit_id>` 建立或恢复 `unit/<unit_id>`。
 3. 首次建立后推送远端；恢复时只接受可解释且可安全整合的现有状态。
-4. 为每个 milestone 规划 `<repo-root>/.worktrees/<unit_id>-M<N>`，但不代 worker 创建。
+4. 只规划 milestone worktree/branch 名称，不提前创建。派发时把
+   `<repo-root>/.worktrees/<unit_id>-M<N>`、`milestone/<unit_id>-M<N>` 交给 worker，由 worker
+   从当前 unit branch 创建或安全恢复并拥有该现场。
 5. 为 verifier 规划独立 worktree；reviewer 按其 skill 使用 unit worktree 或独立运行现场。
 
 主仓只用于只读发现；后续 git 操作显式指定 unit worktree。
@@ -135,23 +138,11 @@ milestone。
 冲突的 milestone；需要串行时记录实际依赖或冲突理由。
 
 按当前 harness 后台派发，并为每个角色保留稳定身份，供澄清、HANDOFF 和 fix loop 复用。派发
-subagent 时由 subagent 自行加载对应 skill；orchestrator 只提供交接所需的派发包，并按本文件
-定义的输入、输出和读写边界验收结果。派发 worker 时明确要求使用 `change-impl-worker`，至少提供：
-
-```yaml
-unit_id: <unit_id>
-unit_dir: <unit_dir>
-milestone_id: <unit_id>-M<N>
-milestone_dir: M<N>-<title>
-worktree_dir: <repo-root>/.worktrees/<milestone_id>
-unit_worktree_dir: <repo-root>/.worktrees/unit-<unit_id>
-branch: milestone/<milestone_id>
-mode: full | lite
-frontend_reference_contract: <相关 must-match/may-adapt 行或 N/A>
-```
-
-Lite worker 还要回填 `fix.md` 的修复和验证。不要重复 worker skill 已经定义的 TDD、记录、git 和
-清理步骤。
+subagent 时由 subagent 自行加载对应 skill；orchestrator 提供精确现场计划并按本文件定义的输入、
+输出和读写边界验收结果。派发 worker 时明确要求使用
+`change-impl-worker`，说明 assignment、退出标准/相关设计、unit 与 milestone 目录，以及 unit
+worktree 和 worker worktree/branch。Lite worker 还要回填 `fix.md` 的修复和验证。worker 自行创建
+固定的简短 `tasks.md` / `progress.md`；不要再规定 roadpoint、plan commit 或回报字段。
 
 ### 协作与异常
 
@@ -166,16 +157,21 @@ Lite worker 还要回填 `fix.md` 的修复和验证。不要重复 worker skill
 
 worker 回报 DONE 后逐项核对：
 
-- milestone 分支已经按 worker contract 合入 unit 分支；
-- `tasks.md`、`progress.md`、commit 和 durable evidence 满足 worker 输出契约；
+- 从 unit worktree 核对集成结果、范围和现场状态；
+- worker 回报的验证与证据足以说明退出标准已满足；
 - `design.md` 中该 milestone 的每条退出标准都有直接、充分、可复查的证据；
 - 前端/reference 项包含适用 viewport、真实入口交互和逐项 prototype comparison；
 - live-critical 项包含隔离真实服务链路产生的用户可见结果；
 - lite 的 `fix.md` 后两段已经回填；
-- worker 启动的进程、milestone worktree 和分支已经按 contract 清理。
+- worker 启动的进程与其 milestone worktree/branch 已清理；`tasks.md`、`progress.md` 和 durable
+  evidence 可从 unit 中定位。
 
 证据只证明前置状态、把关键验证留给 reviewer、落在临时路径、或明确写着“后续补”时均不算
-DONE。退回原 worker 补齐，不代写其产物，也不把缺失验证转嫁给下一道门禁。
+DONE。若 worker 没有留下固定的两份短记录，退回原 worker 补齐；不以其条目数量或格式取代退出标准证据。
+
+orchestrator 只签收已经由 worker 集成并 push 的 unit HEAD；根据实际 merge delta 判断已有 gate
+是否失效，不机械重复同一命令。发现未清理现场、不可达提交或需要实现判断的冲突时退回同一
+worker 关闭，不接管其 creator-owner 责任。
 
 ## 独立验收与修复循环
 
@@ -224,7 +220,7 @@ gate 不要求新报告。
 
 1. 作废该角色本轮 verdict；
 2. 在不丢弃其他并行工作和合法报告的前提下移除越界 delta；
-3. 把报告中的问题当线索交给独立 worker 重新判断和实现；
+3. 把报告中的问题当线索，按下节原则重新判断直接闭环或派 worker；
 4. 修复后让该角色对同一轮重新验收。
 
 ### 裁决 findings
@@ -237,10 +233,16 @@ gate 不要求新报告。
 - 根因和符合架构的修复层；
 - 哪些问题其实重复指向同一根因。
 
-所有成立且阻塞的问题合并去重后交给一个 fix worker；只有能独立并行且写入不冲突时才拆多个。
-派发前把当前 unit HEAD 记录为 `pre_fix_head`。优先唤醒熟悉相关模块的原 worker。
-self-contained fix 可走 worker 的 fast lane；需要独立记录的较大 fix 使用下一个
-`M<N>-fix-*`。可追加 milestone/Changelog 作为实施记录，但不得借此改写设计决策。
+所有成立且阻塞的问题合并去重后，用判断而不是分类表决定修复方式：
+
+- 当范围、正确处理位置和所需验证已经清楚，并且独立 worker 不会带来额外 ownership、隔离或探索
+  价值时，在 unit worktree 直接关闭；不为此创建 milestone 或过程文档。
+- 当独立 owner、隔离现场、实现/验证探索或协调能实质提高交付可靠性时，派
+  `change-impl-worker`；优先复用熟悉相关模块的原 worker，必要时建立 `M<N>-fix-*`。
+
+这不是穷举规则：结合当前证据、风险和 unit 目标自主判断；范围或证据变化时重新判断。派发或直接
+修复前都把当前 unit HEAD 记录为 `pre_fix_head`。直接修复不等于自我验收；对应的
+reviewer/verifier/code-review closure 仍按下节独立执行。
 
 reviewer 提议 `revise-design` 只有同时满足以下条件才升级：
 
@@ -256,7 +258,7 @@ side finding 只记录。
 
 ### 选择性复验
 
-fix worker 先按普通 milestone 的 DONE 和 live 签收标准通过，再检查 `pre_fix_head..HEAD`：
+修复按对应 direct closure 或 worker DONE 标准通过后，再检查 `pre_fix_head..HEAD`：
 
 - 旧 finding 是否关闭：使用对应 gate 的 closure / targeted 模式；
 - 新源码 delta 是否引入风险：code review 使用 `patch`；可能引入 spec/design 偏离时 verifier
@@ -283,8 +285,9 @@ deployment 等高风险变化，或影响边界无法说清时，对所有适用
    push 后复验。
 3. 对账通过后按 `docs/specs/CONTRIBUTING.md` 机械归并到语义最窄的 canonical spec，并 commit、
    push；Bugfix lite 触及对外行为但没有 delta 时补最小 delta 后归并。
-4. 核实 milestone `Promotion Candidates`，只把有证据的长期知识写入唯一权威 owner；需要改
-   源码、测试、CI 或 skill 时交 worker，并重新判断门禁影响；产生的归并修改 commit、push。
+4. 核实实际存在的 `Promotion Candidates`，只把有证据的长期知识写入唯一权威 owner；需要改
+   源码、测试、CI 或 skill 时按实际交付收益决定 direct closure 或 worker，并重新判断门禁影响；
+   产生的归并修改 commit、push。
 5. 从当前 CI 配置读取并运行本地等价检查，使用只检查、不改写的格式化命令。失败走修复循环。
 6. 再次确认新增文档/CI fix 和最新 main 没使门禁失效。
 7. 用 `git mv` 把完整 unit 目录从 active 移入 `docs/changes/archive/`，不删除、压缩或拆散
@@ -293,8 +296,8 @@ deployment 等高风险变化，或影响边界无法说清时，对所有适用
 8. 按 PR body reference 从归档产物组装可追溯 PR，链接固定到已 push 的当前 PR head，列 spec
    delta 和每道 gate 的执行/有效范围。
 9. 创建 `unit/<unit_id>` → `main` 的 PR，标题使用
-   `[<type>] <short description> (<unit_id>)`，并等待 required CI。CI 失败时定位根因、派
-   worker、按 delta 复验受影响 gate、更新 PR head/summary，直到全绿。
+   `[<type>] <short description> (<unit_id>)`，并等待 required CI。CI 失败时定位根因、按 finding
+   判断 direct closure 或 worker、按 delta 复验受影响 gate、更新 PR head/summary，直到全绿。
 10. 清理本 unit 进程和 unit worktree，输出 PR URL并交人审查。未经明确授权不 merge。
 
 门禁报告保留实际执行时的 `executed_base` / `validated_at`；final sync 后另记

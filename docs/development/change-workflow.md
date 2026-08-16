@@ -108,7 +108,8 @@ Full unit 由 `change-design-author` 基于首文档、current specs 和真实�
 - 面向 canonical specs 的 delta-spec；
 - milestone 表和仅含 `.gitkeep` 的 milestone 目录骨架。
 
-`tasks.md` 和 `progress.md` 不在设计阶段预填，由 worker 进入自己的 worktree、完成探索后创建。
+`tasks.md` 和 `progress.md` 不在设计阶段预填。原流程中，worker 开始一个已派发的 milestone 时从
+模板创建两份简短记录；它们记录实际实施块、进展和验证，不预设 roadpoint 或台账字段。
 
 ### 门禁 2：独立设计审查闭环
 
@@ -134,21 +135,28 @@ Full unit 在 Gate 2 通过后、Bugfix lite 在首文档收口后，均有两�
 
 | 实施方式 | 触发条件 | 实施组织 | 固定交付要求 |
 |---|---|---|---|
-| 原流程 | 默认 | `change-orchestrator` 建立 unit worktree；Full 按 milestone 派发 worker，Bugfix lite 派发单个 worker | 完成全部 milestone、适用门禁、契约归并、归档和 PR/CI |
+| 原流程 | 默认 | `change-orchestrator` 建立 unit worktree；design 已拆出的独立 milestone（包括 Bugfix lite 的 `M1-fix`）派 worker。未形成 milestone 的自包含小闭环，才按独立 owner 的实际收益决定直接完成或派 worker | 完成全部 milestone、适用门禁、契约归并、归档和 PR/CI |
 | 简化流程 | 用户点名 `$change-orchestrator-simple` | 在一个 unit worktree 内端到端负责，自主决定直接实现或使用 subagent，不强制 worker、milestone worktree、roadpoint 或过程台账 | 完成全部 milestone、适用门禁、契约归并、归档和 PR/CI |
 
 两种方式共享各自已经确认的首文档、milestone 目标和工程质量底线；Full 额外共享已通过 Gate 2 的 design。选择简化流程只改变实施组织，不改变需求、设计和交付标准。Bugfix lite 在两种方式下都保持唯一的 `M1-fix`。
 
 原流程的每个 milestone：
 
-- worker 删除 `.gitkeep`，创建并维护 `tasks.md`、`progress.md` 和需要的 `evidence/`；
-- 按 roadpoint 执行 Red/Verify → Green，并先跑最窄验证；
+- orchestrator 提供精确的 milestone worktree/branch 计划；worker 作为 creator-owner 创建并核对
+  自己的现场，完成实现、rebase、unit 集成和清理；
+- worker 根据任务自主拆分，按 Red/Verify → Green 的验证纪律实施，并先跑最窄验证；不强制
+  roadpoint 数量、plan commit 或逐步骤 push；
 - 只修改 milestone 范围内的文件；
-- 在自己的 worktree 提交，完成后由 orchestrator 合入 unit 分支。
+- worker 开始时创建简短 `tasks.md`、`progress.md`；`evidence/` 仍按验证需要创建。两份记录只补充
+  design 行、commits、测试结果和 evidence，不替代它们；
+- 在自己的 worktree 提交，完成后合入并 push unit 分支；orchestrator 根据实际 delta 判断既有 gate
+  是否失效。
 
-实施中发现 design 错误、遗漏或无法执行时，worker 必须暂停编码，在 `progress.md` 记录修订原因和影响，同步 design 后通知 orchestrator。orchestrator 决定继续、复审或返回 design/spec 阶段，不能让 worker 静默绕过已经确认的方案。
+实施中发现 design 错误、遗漏或无法执行时，worker 必须暂停受影响编码并通知 orchestrator，并在
+`progress.md` 写明事实和恢复条件。design/spec 由对应 owner 修订，worker 不维护影子方案。
 
-原流程的 milestone 退出标准、tasks、progress 和 evidence 齐全，简化流程的 milestone 退出标准和实际证据可逐条复核，并已统一落在 unit 分支后，进入验收阶段。
+两种流程都以 milestone 退出标准能够从最终 unit tree、commits、测试和实际 evidence 逐条复核为
+准；两份简短过程记录用于恢复和交接，不以文档形式取代这些证据。全部结果统一落在 unit 分支后，进入验收阶段。
 
 ## 阶段 4：selected validation gates
 
@@ -161,10 +169,13 @@ Full unit 在 Gate 2 通过后、Bugfix lite 在首文档收口后，均有两�
 
 Full 和 Bugfix lite 的门禁组合同时适用于原流程和简化流程。
 
-- verifier 核对实现是否完整、正确且与 spec、design、milestone 一致；原流程同时核对 tasks/progress，简化流程核对实际存在的实施记录；
+- verifier 核对实现是否完整、正确且与 spec、design、milestone 一致；原流程的 worker milestone
+  应有 `tasks.md` / `progress.md` 作为补充记录，不能因其缺少实质证据而放行；
 - reviewer 走真实产品旅程，只验用户可观察结果；
 - code review 审查 unit diff；
-- 原流程的门禁发现问题后由 `change-orchestrator` 判真并派 worker 修复；
+- 原流程的门禁发现问题后由 `change-orchestrator` 判断独立 worker 是否会实质提高交付可靠性。范围和
+  验证已经清楚、直接闭环更合适时由 unit 直接修；需要独立 owner、隔离现场或深入实现/验证时才派
+  worker。不要使用固定分类表替代当前上下文判断；两种方式都保留适用的独立 closure；
 - 简化流程的门禁发现问题后由 `change-orchestrator-simple` 判真并自主组织修复；
 - 快速开发的 code review 发现问题后，由执行 `change-fast-close` 的主会话判真和修复；
 - 修复后按变更范围重跑、局部复验或保留仍然有效的门禁结论；快速开发的修复改变用户可观察行为时交回用户确认。
@@ -197,9 +208,9 @@ CI 全绿后收尾 owner 交棒，由人审查和 merge。归档表示 unit 已�
 | `change-spec-reviewer` | 按需独立复核首文档质量 | 修改首文档、审实现、充当默认门禁 |
 | `change-design-author` | 现状 grounding、方案、delta-spec、milestone | 产品代码 |
 | `change-design-reviewer` | 独立审查设计，并在同一上下文中完成后续轮次 | 修改方案或实现 |
-| `change-orchestrator` | sync、调度、判真、门禁、契约归并、归档和 PR/CI | 实现 milestone |
+| `change-orchestrator` | sync、调度、判真、直接闭环、门禁、契约归并、归档和 PR/CI | 接管已派发的 implementation milestone |
 | `change-orchestrator-simple` | 在 unit worktree 内自主组织实现，并负责适用门禁、契约归并、归档和 PR/CI | 改写已经确认的需求、设计或交付标准 |
-| `change-impl-worker` | 单 milestone 实现、测试、任务记录和证据 | 擅自改写需求或绕过设计 |
+| `change-impl-worker` | 需要独立 owner 的 milestone/fix 实现、测试和适用证据 | 擅自改写需求或绕过设计 |
 | `change-fast-close` | 为已完成的快速开发 diff 补 unit、as-built design、用户验收记录、code review、契约归并和归档 | 伪造事前流程、代替用户验收 |
 | `change-verifier` | 实现与 spec/design/milestone 的一致性 | 写代码、产品体验判断 |
 | `change-reviewer` | 用户旅程和产品可用性 | 写代码、用源码检查替代真实旅程 |

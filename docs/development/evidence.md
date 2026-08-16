@@ -6,9 +6,9 @@
 
 | 类型 | 能证明什么 | 不能单独证明什么 | 执行或观察入口 | 保存位置 |
 |---|---|---|---|---|
-| unit / integration / contract 测试 | 指定代码行为和边界可重复通过 | 真进程装配、浏览器体验、外部系统可用 | [`local-development.md`](local-development.md) 与 [`testing.md`](testing.md) | `tests/`；结果摘要写 unit `progress.md` |
-| 前端测试与 build | 组件行为、静态构建可完成 | 真实后端、浏览器布局和完整用户旅程 | `src/IM/frontend` 的 `npm run test` / `npm run build` | 测试代码；结果摘要写 `progress.md` |
-| 关键路径 E2E | 真 IM + Gateway 进程上的指定用户旅程 | 清单之外的产品完整性、所有浏览器状态 | [`e2e-critical-paths.md`](e2e-critical-paths.md) | 长期脚本和 `tests/e2e/`；当次结果写 `progress.md` |
+| unit / integration / contract 测试 | 指定代码行为和边界可重复通过 | 真进程装配、浏览器体验、外部系统可用 | [`local-development.md`](local-development.md) 与 [`testing.md`](testing.md) | `tests/`；结果摘要写实际实施记录、DONE 回报或 PR Validation Summary |
+| 前端测试与 build | 组件行为、静态构建可完成 | 真实后端、浏览器布局和完整用户旅程 | `src/IM/frontend` 的 `npm run test` / `npm run build` | 测试代码；结果摘要写实际实施记录、DONE 回报或 PR Validation Summary |
+| 关键路径 E2E | 真 IM + Gateway 进程上的指定用户旅程 | 清单之外的产品完整性、所有浏览器状态 | [`e2e-critical-paths.md`](e2e-critical-paths.md) | 长期脚本和 `tests/e2e/`；当次结果写实际实施记录或验收报告 |
 | 手工真栈 / 浏览器验收 | 某个 commit、环境和 viewport 下的真实体验 | 未来回归、其他环境或未走到的场景 | [`worktree-runtime.md`](worktree-runtime.md) + unit reviewer runbook | `<unit>/M*/evidence/` 与 acceptance/regression 报告 |
 | verifier / reviewer 报告 | 对 spec/design 或用户旅程的独立判定 | 报告未覆盖的行为；原始运行本身 | [`change-workflow.md`](change-workflow.md) | unit 根部的 verification/acceptance/regression 报告 |
 | code review 结果 | 对指定 diff range 的 correctness 与维护风险判定 | 产品旅程或未进入该 diff 的代码 | `change-code-review`，由 orchestrator 执行和判真 | Full/lite 写 PR Validation Summary；快速开发另写 unit `code-review.md` |
@@ -24,7 +24,7 @@
 
 | 层次 | 何时使用 | 权威入口 | 结果如何记录 |
 |---|---|---|---|
-| 最窄开发反馈 | 每个 roadpoint 修改后，先验证直接受影响的行为 | [`testing.md`](testing.md) 与现有测试/包脚本 | 命令和结果摘要写当前 `progress.md` |
+| 最窄开发反馈 | 一个 coherent change 完成后，先验证直接受影响的行为 | [`testing.md`](testing.md) 与现有测试/包脚本 | 命令和结果摘要写实际实施记录或 DONE 回报 |
 | 风险扩展验证 | 跨模块、架构边界、前端静态构建或真实进程受到影响时 | [`local-development.md`](local-development.md)、[`worktree-runtime.md`](worktree-runtime.md) | 记录选择依据、命令、结果和未覆盖面 |
 | selected validation gates | unit 的所有 milestone 合入后，按 unit 类型做独立 verifier、reviewer 和 code review | [`change-workflow.md`](change-workflow.md#阶段-4selected-validation-gates) | verifier/reviewer 写 unit 报告；code review 写 PR Validation Summary，快速开发另写 `code-review.md` |
 | 本地 CI 等价检查 | 归档和提 PR 前 | 当前 [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) 中每个 job 的实际命令 | PR Validation Summary 写通过的 job |
@@ -34,7 +34,7 @@
 
 ## 一条可复查记录需要什么
 
-在 `progress.md`、验收报告、`code-review.md` 或 PR Validation Summary 引用证据时，至少写清：
+在实施记录、DONE 回报、验收报告、`code-review.md` 或 PR Validation Summary 引用证据时，至少写清：
 
 1. **Claim**：这次要证明的具体行为或退出标准。
 2. **Baseline**：branch、commit SHA，以及会影响结果的配置/环境。
