@@ -3,7 +3,7 @@
 ## Scope
 
 - Base: `bf8b3cb108764536dba5db94dfd9f0623d60ff88`
-- Change: 精简 `change-impl-worker` 的路由、按需工件、验证复用和 unit 分支集成契约，并同步流程文档与契约测试。
+- Change: 精简 `change-impl-worker` 的实施契约、固定短记录、验证复用和 unit 分支集成，并同步流程文档。
 
 ## Review decision
 
