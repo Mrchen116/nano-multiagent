@@ -8,13 +8,13 @@
 
 ## 动机
 
-`change-impl-worker` 把不同复杂度的工作都当作完整 milestone：冗长的过程台账、反复状态检查、拆分提交、完整回归和 worktree 生命周期会附着在只需定向收尾的小变更上。历史 session 表明，这些流程成本在小闭环中经常超过实现本身；详细证据见 [analysis.md](analysis.md)。
+这套流程原本让 orchestrator 保持全局调度、集成和门禁注意力，把 design 拆出的独立实现面交给 worker 专注完成并提高并行度。问题不在独立 owner 本身，而在 worker 内冗长的过程台账、反复状态检查、拆分提交和无信息的测试复跑；它们会让交接成本超过实现收益。详细证据见 [analysis.md](analysis.md)。
 
 这不是要降低实质性改动的验收强度。真实入口、跨进程链路、用户可观察行为或高风险边界仍需要独立验收；要移除的是与改动风险无关的固定流程税。
 
 ## 目标状态
 
-- 调度者按当前任务判断独立 worker 是否能带来足够的 ownership、隔离或实现/验证收益；不能时直接闭环。
+- design 已拆出的独立 milestone 交给 worker；未形成 milestone 的自包含小闭环才由调度者判断是否直接完成。
 - 不用分类表或行数阈值决定是否派 worker。
 - worker 固定留下极简 `tasks.md` / `progress.md`；文档内容、基线、调试和测试复跑仍按风险和证据缺口决定。
 - 保留 worker 创建并清理自己 milestone worktree 的既有所有权，同时以共享锁串行 unit 分支集成。
@@ -25,7 +25,7 @@
 
 #### Scenario: 直接闭环更合适
 
-- **WHEN** 范围和所需验证已经清楚，且独立 worker 不会提高交付可靠性
+- **WHEN** 一个自包含闭环不属于已设计 milestone，且独立 worker 不会提高交付可靠性
 - **THEN** 调度者在 unit worktree 直接完成、验证差异并独立关闭
 - **AND THEN** 不派发 worker，也不创建 milestone 的 `tasks.md`、`progress.md` 或 worktree
 

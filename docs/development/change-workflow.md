@@ -135,7 +135,7 @@ Full unit 在 Gate 2 通过后、Bugfix lite 在首文档收口后，均有两�
 
 | 实施方式 | 触发条件 | 实施组织 | 固定交付要求 |
 |---|---|---|---|
-| 原流程 | 默认 | `change-orchestrator` 建立 unit worktree；根据独立 owner、隔离现场和实现/验证的实际收益决定直接闭环或派 worker；Bugfix lite 派发单个 worker | 完成全部 milestone、适用门禁、契约归并、归档和 PR/CI |
+| 原流程 | 默认 | `change-orchestrator` 建立 unit worktree；design 已拆出的独立 milestone（包括 Bugfix lite 的 `M1-fix`）派 worker。未形成 milestone 的自包含小闭环，才按独立 owner 的实际收益决定直接完成或派 worker | 完成全部 milestone、适用门禁、契约归并、归档和 PR/CI |
 | 简化流程 | 用户点名 `$change-orchestrator-simple` | 在一个 unit worktree 内端到端负责，自主决定直接实现或使用 subagent，不强制 worker、milestone worktree、roadpoint 或过程台账 | 完成全部 milestone、适用门禁、契约归并、归档和 PR/CI |
 
 两种方式共享各自已经确认的首文档、milestone 目标和工程质量底线；Full 额外共享已通过 Gate 2 的 design。选择简化流程只改变实施组织，不改变需求、设计和交付标准。Bugfix lite 在两种方式下都保持唯一的 `M1-fix`。

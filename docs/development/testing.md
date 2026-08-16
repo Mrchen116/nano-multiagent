@@ -99,10 +99,11 @@ TDD 过程里产生两种东西，去向不同：
 - MUST NOT 用无条件 `skip`/`xfail` 蒙混过关。测试该绿就让它绿，该删就删。第 5 节的 `importorskip` 和已有的环境能力门禁用于“依赖/能力确实不可用”的场景，不是隐藏产品失败。**唯一合规的产品 xfail 例外**：已知产品回归（测试正确、产品有 bug）可打 `@pytest.mark.xfail(strict=True, reason="<现象>; tracked in #<N>")`，条件：① 必须附 issue 编号；② `strict=True`（修好后转 xpass 自动报错，强制摘标）；③ 该测试不得删除（删除=掩盖 bug）。无 issue 编号的 xfail 视同蒙混，审查拒绝。
 - 复用现有 fixture/helper，不重复造。
 
-## 8) 测试策略必须可复查，载体按需
+## 8) 测试策略必须可复查
 
-实施者必须完成以下判断，但不为此强制创建 `tasks.md`。复杂 milestone 写入按需 `tasks.md`；简单
-assignment 可在 commit/DONE 回报中用同样字段概括：
+已派发 worker 固定创建简短 `tasks.md` / `progress.md`，但不必把完整测试策略台账填进 `tasks.md`。
+复杂 milestone 可在其中展开；简单 milestone 只保留实际实施块、验证和必要结论。直接闭环或简化流程
+可以在 commit/DONE 回报中留下同样可复查的信息：
 
 ```markdown
 ## 测试策略
