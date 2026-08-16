@@ -64,6 +64,7 @@ class ControlledKernel:
         self._events: dict[str, asyncio.Queue[dict[str, Any]]] = {}
         self._stream_started: dict[str, asyncio.Event] = {}
         self._submit_changed = asyncio.Event()
+        self._pending_index = 0
 
     def try_steer(
         self,
@@ -95,7 +96,12 @@ class ControlledKernel:
             or (expected_run_id is not None and expected_run_id != run_id)
         ):
             return None
-        return SimpleNamespace(run_id=run_id, injected=True)
+        self._pending_index += 1
+        return SimpleNamespace(
+            run_id=run_id,
+            injected=True,
+            pending_id=f"pending-{self._pending_index}",
+        )
 
     async def create_session(
         self,
@@ -222,8 +228,6 @@ class ControlledKernel:
             while True:
                 event = await queue.get()
                 yield event
-                if event.get("event") == "run_status":
-                    return
 
         return _generate()
 
@@ -266,7 +270,7 @@ class ControlledKernel:
     def push(self, run_id: str, event: dict[str, Any]) -> None:
         """Publish one non-terminal stream event for a controlled run."""
 
-        self._events[run_id].put_nowait({**event, "run_id": run_id})
+        self._events[run_id].put_nowait({"run_id": run_id, **event})
 
     def interrupt(self, session_id: str) -> None:
         run_id = self._latest_run_by_session[session_id]

@@ -65,6 +65,7 @@ def delivery_context_store(
                 agent_id=agent_id,
                 kernel_session_id=str(values.get("kernel_session_id", "")),
                 delivery_target=target,
+                model=str(values.get("model", "")),
                 trigger_source=str(values.get("trigger_source", "")),
                 reply_channel_name=str(values.get("reply_channel_name", "")),
                 reply_target_chat_id=str(values.get("reply_target_chat_id", "")),

@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
+from threading import Event
+
+import pytest
 
 from personal_assistant.channels.base import (
     InboundMessage,
@@ -244,6 +248,246 @@ def test_outbound_router_bounds_dedupe_key_memory() -> None:
 
     assert replay_after_eviction is not None
     assert [item.text for item in adapter.sent] == ["first", "second", "first"]
+
+
+def _external_final_reply_contexts() -> tuple[ReplyContext, ReplyContext]:
+    def _context(dedupe_key: str) -> ReplyContext:
+        return ReplyContext(
+            channel_name="feishu:agent-a",
+            target_chat_id="feishu:cli_a:dm:ou_user",
+            metadata={"reply_phase": "final", "reply_dedupe_key": dedupe_key},
+        )
+
+    return (
+        _context("run-1:bubble:kmsg-1"),
+        _context("run-1:text:Final answer."),
+    )
+
+
+@pytest.mark.asyncio
+async def test_outbound_router_dedupes_concurrent_external_final_reply_paths() -> None:
+    class _BlockingAdapter:
+        name = "feishu:agent-a"
+
+        def __init__(self) -> None:
+            self.sent: list[OutboundMessage] = []
+            self.send_started = Event()
+            self.allow_send_to_return = Event()
+
+        def start(self, _on_inbound) -> None:  # noqa: ANN001
+            return None
+
+        def send(self, outbound: OutboundMessage) -> None:
+            self.sent.append(outbound)
+            self.send_started.set()
+            assert self.allow_send_to_return.wait(timeout=1)
+
+        def stop(self) -> None:
+            return None
+
+    adapter = _BlockingAdapter()
+    router = OutboundRouter(ChannelRegistry([adapter]))
+    mirrored_context, terminal_context = _external_final_reply_contexts()
+    mirror_task = asyncio.create_task(
+        router.send_text_async(text="Final answer.", reply_context=mirrored_context)
+    )
+    assert await asyncio.to_thread(adapter.send_started.wait, 1)
+    terminal_task = asyncio.create_task(
+        router.send_text_async(text="Final answer.", reply_context=terminal_context)
+    )
+    await asyncio.sleep(0)
+    try:
+        assert not terminal_task.done()
+    finally:
+        adapter.allow_send_to_return.set()
+    results = await asyncio.wait_for(
+        asyncio.gather(mirror_task, terminal_task), timeout=1
+    )
+
+    assert len([result for result in results if result is not None]) == 1
+    assert [item.text for item in adapter.sent] == ["Final answer."]
+
+
+@pytest.mark.asyncio
+async def test_outbound_router_fallback_sends_after_inflight_final_send_fails() -> None:
+    class _FailFirstBlockingAdapter:
+        name = "feishu:agent-a"
+
+        def __init__(self) -> None:
+            self.attempts = 0
+            self.sent: list[OutboundMessage] = []
+            self.send_started = Event()
+            self.fail_first_send = Event()
+
+        def start(self, _on_inbound) -> None:  # noqa: ANN001
+            return None
+
+        def send(self, outbound: OutboundMessage) -> None:
+            self.attempts += 1
+            if self.attempts == 1:
+                self.send_started.set()
+                assert self.fail_first_send.wait(timeout=1)
+                raise RuntimeError("provider unavailable")
+            self.sent.append(outbound)
+
+        def stop(self) -> None:
+            return None
+
+    adapter = _FailFirstBlockingAdapter()
+    router = OutboundRouter(ChannelRegistry([adapter]))
+    mirrored_context, terminal_context = _external_final_reply_contexts()
+    mirror_task = asyncio.create_task(
+        router.send_text_async(text="Final answer.", reply_context=mirrored_context)
+    )
+    assert await asyncio.to_thread(adapter.send_started.wait, 1)
+    terminal_task = asyncio.create_task(
+        router.send_text_async(text="Final answer.", reply_context=terminal_context)
+    )
+    await asyncio.sleep(0)
+    try:
+        assert not terminal_task.done()
+    finally:
+        adapter.fail_first_send.set()
+    with pytest.raises(RuntimeError, match="provider unavailable"):
+        await asyncio.wait_for(mirror_task, timeout=1)
+    terminal_result = await asyncio.wait_for(terminal_task, timeout=1)
+
+    assert terminal_result is not None
+    assert adapter.attempts == 2
+    assert [item.text for item in adapter.sent] == ["Final answer."]
+
+
+@pytest.mark.asyncio
+async def test_outbound_router_cancelled_fallback_never_sends_after_owner_failure() -> (
+    None
+):
+    class _FailFirstBlockingAdapter:
+        name = "feishu:agent-a"
+
+        def __init__(self) -> None:
+            self.attempts = 0
+            self.send_started = Event()
+            self.fail_first_send = Event()
+
+        def start(self, _on_inbound) -> None:  # noqa: ANN001
+            return None
+
+        def send(self, _outbound: OutboundMessage) -> None:
+            self.attempts += 1
+            if self.attempts == 1:
+                self.send_started.set()
+                assert self.fail_first_send.wait(timeout=1)
+                raise RuntimeError("provider unavailable")
+            raise AssertionError("cancelled fallback must not reach the provider")
+
+        def stop(self) -> None:
+            return None
+
+    adapter = _FailFirstBlockingAdapter()
+    router = OutboundRouter(ChannelRegistry([adapter]))
+    mirrored_context, terminal_context = _external_final_reply_contexts()
+    owner_task = asyncio.create_task(
+        router.send_text_async(text="Final answer.", reply_context=mirrored_context)
+    )
+    assert await asyncio.to_thread(adapter.send_started.wait, 1)
+    fallback_task = asyncio.create_task(
+        router.send_text_async(text="Final answer.", reply_context=terminal_context)
+    )
+    # One scheduler turn lets the fallback attach to the active owner before cancel.
+    await asyncio.sleep(0)
+    assert not fallback_task.done()
+
+    fallback_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await fallback_task
+    adapter.fail_first_send.set()
+    with pytest.raises(RuntimeError, match="provider unavailable"):
+        await asyncio.wait_for(owner_task, timeout=1)
+
+    assert adapter.attempts == 1
+
+
+@pytest.mark.asyncio
+async def test_outbound_router_waiter_observes_success_after_completed_key_eviction() -> (
+    None
+):
+    class _BlockingAdapter:
+        name = "feishu:agent-a"
+
+        def __init__(self) -> None:
+            self.sent: list[OutboundMessage] = []
+            self.send_started = Event()
+            self.allow_send_to_return = Event()
+
+        def start(self, _on_inbound) -> None:  # noqa: ANN001
+            return None
+
+        def send(self, outbound: OutboundMessage) -> None:
+            self.sent.append(outbound)
+            self.send_started.set()
+            assert self.allow_send_to_return.wait(timeout=1)
+
+        def stop(self) -> None:
+            return None
+
+    adapter = _BlockingAdapter()
+    router = OutboundRouter(ChannelRegistry([adapter]), max_dedupe_keys=1)
+    mirrored_context, terminal_context = _external_final_reply_contexts()
+    owner_task = asyncio.create_task(
+        router.send_text_async(text="Final answer.", reply_context=mirrored_context)
+    )
+    assert await asyncio.to_thread(adapter.send_started.wait, 1)
+    waiter_task = asyncio.create_task(
+        router.send_text_async(text="Final answer.", reply_context=terminal_context)
+    )
+    await asyncio.sleep(0)
+    assert not waiter_task.done()
+
+    adapter.allow_send_to_return.set()
+    results = await asyncio.wait_for(asyncio.gather(owner_task, waiter_task), timeout=1)
+
+    assert len([result for result in results if result is not None]) == 1
+    assert [item.text for item in adapter.sent] == ["Final answer."]
+
+
+def test_outbound_router_releases_dedupe_reservation_after_send_failure() -> None:
+    class _FailOnceAdapter:
+        name = "feishu:agent-a"
+
+        def __init__(self) -> None:
+            self.attempts = 0
+            self.sent: list[OutboundMessage] = []
+
+        def start(self, _on_inbound) -> None:  # noqa: ANN001
+            return None
+
+        def send(self, outbound: OutboundMessage) -> None:
+            self.attempts += 1
+            if self.attempts == 1:
+                raise RuntimeError("provider unavailable")
+            self.sent.append(outbound)
+
+        def stop(self) -> None:
+            return None
+
+    adapter = _FailOnceAdapter()
+    router = OutboundRouter(ChannelRegistry([adapter]))
+    context = ReplyContext(
+        channel_name="feishu:agent-a",
+        target_chat_id="feishu:cli_a:dm:ou_user",
+        metadata={"reply_dedupe_key": "run-1:text:retryable"},
+    )
+
+    try:
+        router.send_text(text="retryable", reply_context=context)
+    except RuntimeError as error:
+        assert str(error) == "provider unavailable"
+    else:
+        raise AssertionError("provider failure must propagate")
+    retried = router.send_text(text="retryable", reply_context=context)
+
+    assert retried is not None
+    assert [item.text for item in adapter.sent] == ["retryable"]
 
 
 def test_outbound_router_dedupes_external_final_reply_across_paths() -> None:

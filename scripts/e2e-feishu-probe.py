@@ -12,6 +12,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 from e2e_feishu_config import FeishuE2EConfigError, load_e2e_env
 
@@ -89,29 +90,124 @@ def _require_feishu_stack(worktree: Path) -> None:
         raise RuntimeError("the target worktree was not started with --feishu")
 
 
-def _send_probe(profile: str, bot_open_id: str) -> None:
-    """Send one nonce through the selected test App as its verified test user."""
-    nonce = f"nano-e2e-feishu-probe-{secrets.token_hex(8)}"
+def _lark_json(profile: str, *args: str) -> dict[str, Any]:
+    """Run one dedicated-profile Lark command and return its successful envelope."""
+
     result = subprocess.run(
-        [
-            "lark-cli",
-            "--profile",
-            profile,
-            "im",
-            "+messages-send",
-            "--as",
-            "user",
-            "--user-id",
-            bot_open_id,
-            "--text",
-            nonce,
-        ],
+        ["lark-cli", "--profile", profile, *args, "--format", "json"],
         capture_output=True,
         text=True,
         check=False,
+        env={
+            **os.environ,
+            "LARKSUITE_CLI_NO_UPDATE_NOTIFIER": "1",
+            "LARKSUITE_CLI_NO_SKILLS_NOTIFIER": "1",
+        },
     )
     if result.returncode != 0:
-        raise RuntimeError("lark-cli could not send the Feishu E2E probe")
+        raise RuntimeError("dedicated lark-cli profile command failed")
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("dedicated lark-cli profile returned invalid JSON") from exc
+    if not isinstance(payload, dict) or payload.get("ok") is not True:
+        raise RuntimeError("dedicated lark-cli profile returned a failed envelope")
+    return payload
+
+
+def _send_probe(profile: str, bot_open_id: str) -> tuple[str, str]:
+    """Send one nonce and return it with the target chat identity."""
+
+    nonce = f"nano-e2e-feishu-probe-{secrets.token_hex(8)}"
+    payload = _lark_json(
+        profile,
+        "im",
+        "+messages-send",
+        "--as",
+        "user",
+        "--user-id",
+        bot_open_id,
+        "--text",
+        nonce,
+        "--idempotency-key",
+        secrets.token_hex(12),
+    )
+    data = payload.get("data")
+    chat_id = data.get("chat_id") if isinstance(data, dict) else None
+    if not isinstance(chat_id, str) or not chat_id:
+        raise RuntimeError("Feishu E2E probe send did not return a chat id")
+    return nonce, chat_id
+
+
+def _lark_messages(profile: str, chat_id: str) -> list[dict[str, Any]]:
+    """Read the dedicated test chat as the verified test user."""
+
+    payload = _lark_json(
+        profile,
+        "im",
+        "+chat-messages-list",
+        "--as",
+        "user",
+        "--chat-id",
+        chat_id,
+        "--page-size",
+        "50",
+        "--no-reactions",
+    )
+    data = payload.get("data")
+    messages = data.get("messages") if isinstance(data, dict) else None
+    return [item for item in messages or [] if isinstance(item, dict)]
+
+
+def _runtime_card_messages(
+    messages: list[dict[str, Any]], nonce: str
+) -> list[dict[str, Any]]:
+    """Select final runtime cards bound to this probe's unique nonce."""
+
+    matches: list[dict[str, Any]] = []
+    for message in messages:
+        message_type = message.get("msg_type") or message.get("message_type")
+        content = message.get("content")
+        if message_type != "interactive" or not isinstance(content, str):
+            continue
+        try:
+            card = json.loads(content)
+        except json.JSONDecodeError:
+            card = {"rendered_content": content}
+        if isinstance(card, dict) and nonce in json.dumps(card, ensure_ascii=False):
+            matches.append(card)
+    return matches
+
+
+def _shadow_final_content(path: Path, nonce: str) -> str | None:
+    """Return the durable plain final shadow content for this probe, if ready."""
+
+    if not path.is_file():
+        return None
+    try:
+        with sqlite3.connect(path) as connection:
+            row = connection.execute(
+                """
+                SELECT bubble.content
+                FROM external_shadow_sagas AS saga
+                JOIN external_shadow_bubbles AS bubble ON bubble.saga_id = saga.saga_id
+                WHERE saga.canonical_inbound_json LIKE ?
+                  AND bubble.state IN ('ready', 'reconciled')
+                  AND bubble.delivery_status = 'completed'
+                ORDER BY bubble.bubble_ordinal DESC
+                LIMIT 1
+                """,
+                (f"%{nonce}%",),
+            ).fetchone()
+    except sqlite3.Error:
+        return None
+    return str(row[0]) if row and isinstance(row[0], str) else None
+
+
+def _card_has_runtime_footer(card: dict[str, Any]) -> bool:
+    """Require a compact context label inside the native card payload."""
+
+    return "ctx " in json.dumps(card, ensure_ascii=False)
 
 
 def main() -> int:
@@ -135,18 +231,32 @@ def main() -> int:
         _require_test_profile(_profile_status(profile), values, profile)
         _require_feishu_stack(args.wt)
         before = _saga_count(args.wt / "external_shadow_sagas.sqlite3")
-        _send_probe(profile, values["NANO_MULTIAGENT_E2E_FEISHU_BOT_OPEN_ID"])
+        nonce, chat_id = _send_probe(
+            profile, values["NANO_MULTIAGENT_E2E_FEISHU_BOT_OPEN_ID"]
+        )
     except (FeishuE2EConfigError, RuntimeError) as exc:
         parser.error(str(exc))
 
     deadline = time.monotonic() + args.timeout
     saga_path = args.wt / "external_shadow_sagas.sqlite3"
     while time.monotonic() < deadline:
-        if _saga_count(saga_path) > before:
-            print(f"Feishu E2E ingress probe passed (profile={profile})")
+        if _saga_count(saga_path) <= before:
+            time.sleep(0.25)
+            continue
+        cards = _runtime_card_messages(_lark_messages(profile, chat_id), nonce)
+        shadow_text = _shadow_final_content(saga_path, nonce)
+        if (
+            len(cards) == 1
+            and _card_has_runtime_footer(cards[0])
+            and shadow_text
+            and "ctx " not in shadow_text
+        ):
+            print(f"Feishu E2E runtime card probe passed (profile={profile})")
             return 0
         time.sleep(0.25)
-    parser.error("Feishu E2E probe message was not received by the isolated Gateway")
+    parser.error(
+        "Feishu E2E probe did not observe one interactive runtime card and plain shadow"
+    )
 
 
 if __name__ == "__main__":

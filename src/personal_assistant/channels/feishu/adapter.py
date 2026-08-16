@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import base64
 from concurrent.futures import ThreadPoolExecutor
+import json
 import logging
 import threading
 from collections.abc import Callable, Mapping
@@ -40,6 +41,8 @@ from personal_assistant.gateway.group_context_store import GroupContextStore
 logger = logging.getLogger(__name__)
 
 _ACK_REACTION_EMOJI_TYPE = "THINKING"
+_RUNTIME_CARD_MAX_UTF8_BYTES = 30_000
+_RUNTIME_CARD_TRUNCATION = "... truncated"
 
 
 class FeishuAdapter:
@@ -155,11 +158,23 @@ class FeishuAdapter:
         receive_id_type = "open_id" if ":dm:" in outbound.target_chat_id else "chat_id"
 
         try:
-            self._client.send_message(
-                receive_id=receive_id,
-                text=outbound.text,
-                receive_id_type=receive_id_type,
-            )
+            runtime_footer = _runtime_footer_for(outbound)
+            if runtime_footer:
+                prepared_text = self._client.prepare_outbound_markdown(outbound.text)
+                self._client.send_interactive_message(
+                    receive_id=receive_id,
+                    receive_id_type=receive_id_type,
+                    card=_build_runtime_card(
+                        text=prepared_text,
+                        runtime_footer=runtime_footer,
+                    ),
+                )
+            else:
+                self._client.send_message(
+                    receive_id=receive_id,
+                    text=outbound.text,
+                    receive_id_type=receive_id_type,
+                )
             self._remove_ack_after_reply(outbound)
         except FeishuAuthError:
             logger.error(
@@ -651,6 +666,56 @@ class FeishuAdapter:
                 },
             )
             return None
+
+
+def _runtime_footer_for(outbound: OutboundMessage) -> str:
+    """Return the Gateway-approved final runtime footer, if present."""
+
+    footer = outbound.metadata.get("runtime_footer")
+    if outbound.metadata.get("reply_phase") != "final" or not isinstance(footer, str):
+        return ""
+    return footer.strip()
+
+
+def _build_runtime_card(*, text: str, runtime_footer: str) -> dict[str, Any]:
+    """Build one bounded Feishu card for an ordinary final reply."""
+
+    def build(body: str) -> dict[str, Any]:
+        return {
+            "config": {"wide_screen_mode": True},
+            "elements": [
+                {"tag": "markdown", "content": body},
+                {"tag": "hr"},
+                {
+                    "tag": "note",
+                    "elements": [
+                        {"tag": "plain_text", "content": runtime_footer},
+                    ],
+                },
+            ],
+        }
+
+    card = build(text)
+    if _runtime_card_size(card) < _RUNTIME_CARD_MAX_UTF8_BYTES:
+        return card
+
+    low, high = 0, len(text)
+    best = _RUNTIME_CARD_TRUNCATION
+    while low <= high:
+        midpoint = (low + high) // 2
+        candidate = f"{text[:midpoint].rstrip()}\n\n{_RUNTIME_CARD_TRUNCATION}"
+        if _runtime_card_size(build(candidate)) < _RUNTIME_CARD_MAX_UTF8_BYTES:
+            best = candidate
+            low = midpoint + 1
+        else:
+            high = midpoint - 1
+    return build(best)
+
+
+def _runtime_card_size(card: Mapping[str, Any]) -> int:
+    """Measure one card at the same serializer seam as the Feishu client."""
+
+    return len(json.dumps(dict(card), ensure_ascii=False).encode())
 
 
 def _is_bot_mentioned(mentions: list[FeishuMention], bot_open_id: str | None) -> bool:

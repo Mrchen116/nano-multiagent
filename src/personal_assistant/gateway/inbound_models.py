@@ -197,7 +197,7 @@ class PipelineResult:
 class RelayLifecycleUpdate:
     """Describe one relay-visible execution milestone emitted by the pipeline."""
 
-    phase: Literal["accepted", "running", "completed", "failed"]
+    phase: Literal["accepted", "recovery_adopted", "running", "completed", "failed"]
     agent_id: str
     session_key: str
     run_id: str | None = None
@@ -206,6 +206,9 @@ class RelayLifecycleUpdate:
     detail: Mapping[str, Any] | None = None
     usage: Mapping[str, int] | None = None
     kernel_session_id: str | None = None
+    model: str | None = None
+    previous_run_id: str | None = None
+    recovery_id: str | None = None
 
 
 RelayLifecycleCallback = Callable[

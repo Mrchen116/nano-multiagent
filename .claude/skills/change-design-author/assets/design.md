@@ -5,7 +5,7 @@
 禁止：用户需求重述（→ spec.md / motivation.md）、行级实现细节（→ 代码）。
 
 实现期发现 design 不完美：
-- 只影响当前 milestone：直接改本文 + 在 milestone 的 progress.md 记一笔。
+- 只影响当前 milestone：由 design owner 直接改本文。
 - 影响后续 milestone：必须在下方 Changelog 追加一条，否则后续 milestone 启动时只读 design 会漏掉。
 
 配图原则：先定位本需求的难点（结构乱 / 流程跨模块 / 状态复杂 / 数据为核心…），据此选图，不要每类都画。默认打底＝一张静态结构图 + 一张主流程时序图，再按最尖锐的难点加一张专门图。难点→选哪张图、各类图的本项目 mermaid 骨架见 skill 的 references/diagrams.md。图配 1-2 句话点出它回答什么。骨架是地板不是天花板。
@@ -19,7 +19,7 @@
 
 <!-- design 阶段保持空：对齐/推翻在对应段落原地重写，不在此记流水账（避免读者先撞一堆自我纠错史）。
      仅 orchestrator 接手后、worker 实施中发现 design 需改时才追加。
-     格式：YYYY-MM-DD (Mx): 一句话 — 详见 Mx/progress.md -->
+     格式：YYYY-MM-DD (Mx): 一句话 — 详见相应 evidence 或 commit -->
 
 ## 现状分析
 
@@ -137,7 +137,7 @@ Review 驱动方式(必填一行):reviewer **一律走端到端真栈**,只在"�
              并会被 orchestrator 抽进 PR body 供架构师 PR review。
 前端相关 unit 还必须把 `## 前端原型` 的每个 must-match 行投影到退出标准：
 - [reviewer] 真实产品入口呈现同等用户可观察结构 / 交互。
-- [worker] progress.md 留下真实浏览器截图/录屏和原型对照结论，证据落在 unit 目录内。
+- [worker] 留下真实浏览器截图/录屏和原型对照结论，证据落在 unit 目录内。
 -->
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |

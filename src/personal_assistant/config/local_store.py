@@ -314,6 +314,19 @@ class HeartbeatConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class DisplayConfig:
+    """Configure optional presentation details for external channel replies.
+
+    Args:
+        runtime_footer_enabled: Default runtime-footer visibility for external channels.
+        platform_runtime_footer_enabled: Explicit per-platform visibility overrides.
+    """
+
+    runtime_footer_enabled: bool = False
+    platform_runtime_footer_enabled: dict[str, bool] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
 class LocalConfig:
     """Represent the full local gateway configuration document.
 
@@ -326,6 +339,7 @@ class LocalConfig:
         im_service: Optional upstream IM service configuration.
         llm: LLM registry configuration (required; no hardcoded fallback).
         source_path: Absolute file path used to load the config.
+        display: Optional external reply presentation settings.
     """
 
     node: NodeConfig
@@ -336,6 +350,7 @@ class LocalConfig:
     im_service: IMServiceConfig | None
     llm: LLMConfigPayload
     source_path: Path
+    display: DisplayConfig = field(default_factory=DisplayConfig)
 
 
 class RuntimeConfigOwner:
@@ -613,6 +628,7 @@ def load_local_config(config_path: str | Path) -> LocalConfig:
     gateway = _parse_gateway_lifecycle(raw.get("gateway"))
     heartbeat = _parse_heartbeat(raw.get("heartbeat"))
     im_service = _parse_im_service(raw.get("im_service"))
+    display = _parse_display(raw.get("display"))
     return LocalConfig(
         node=node,
         agents=agents,
@@ -622,6 +638,7 @@ def load_local_config(config_path: str | Path) -> LocalConfig:
         im_service=im_service,
         llm=llm,
         source_path=source_path,
+        display=display,
     )
 
 
@@ -917,6 +934,20 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
         data["heartbeat"] = {
             "tick_interval_seconds": config.heartbeat.tick_interval_seconds
         }
+
+    if (
+        config.display.runtime_footer_enabled
+        or config.display.platform_runtime_footer_enabled
+    ):
+        display: dict[str, Any] = {}
+        if config.display.runtime_footer_enabled:
+            display["runtime_footer"] = {"enabled": True}
+        if config.display.platform_runtime_footer_enabled:
+            display["platforms"] = {
+                platform: {"runtime_footer": {"enabled": enabled}}
+                for platform, enabled in config.display.platform_runtime_footer_enabled.items()
+            }
+        data["display"] = display
 
     # IM service
     if config.im_service is not None:
@@ -1439,6 +1470,49 @@ def _parse_heartbeat(payload: Any) -> HeartbeatConfig:
         field_name="heartbeat.tick_interval_seconds",
     )
     return HeartbeatConfig(tick_interval_seconds=tick_interval_seconds)
+
+
+def _parse_display(payload: Any) -> DisplayConfig:
+    """Parse optional runtime-footer visibility settings for external channels."""
+
+    if payload is None:
+        return DisplayConfig()
+    if not isinstance(payload, dict):
+        raise ValueError("display must be a mapping")
+
+    runtime_footer = payload.get("runtime_footer", {})
+    if not isinstance(runtime_footer, dict):
+        raise ValueError("display.runtime_footer must be a mapping")
+    enabled = runtime_footer.get("enabled", False)
+    if not isinstance(enabled, bool):
+        raise ValueError("display.runtime_footer.enabled must be a boolean")
+
+    raw_platforms = payload.get("platforms", {})
+    if not isinstance(raw_platforms, dict):
+        raise ValueError("display.platforms must be a mapping")
+    platform_overrides: dict[str, bool] = {}
+    for platform, raw_platform in raw_platforms.items():
+        if not isinstance(platform, str) or not platform.strip():
+            raise ValueError("display.platforms keys must be non-empty strings")
+        if not isinstance(raw_platform, dict):
+            raise ValueError(f"display.platforms.{platform} must be a mapping")
+        platform_footer = raw_platform.get("runtime_footer", {})
+        if not isinstance(platform_footer, dict):
+            raise ValueError(
+                f"display.platforms.{platform}.runtime_footer must be a mapping"
+            )
+        if "enabled" not in platform_footer:
+            continue
+        platform_enabled = platform_footer["enabled"]
+        if not isinstance(platform_enabled, bool):
+            raise ValueError(
+                f"display.platforms.{platform}.runtime_footer.enabled must be a boolean"
+            )
+        platform_overrides[platform.strip()] = platform_enabled
+    return DisplayConfig(
+        runtime_footer_enabled=enabled,
+        platform_runtime_footer_enabled=platform_overrides,
+    )
 
 
 def _parse_im_service(payload: Any) -> IMServiceConfig | None:

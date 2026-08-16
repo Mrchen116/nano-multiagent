@@ -1,0 +1,296 @@
+# Verification Report: bugfix-536
+
+> Validation snapshot: `84b386b42 → 5d8a6dea3`
+
+## Summary
+
+Mode: full<br>
+Delta range: N/A<br>
+Focus issues: N/A<br>
+requires_full_verification: false
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 4/5 |
+| Correctness | 24/25 |
+| Coherence | 有偏离 |
+
+1 critical issue(s), 0 warning(s) found. Fix before PR.
+
+## Completeness
+
+- Tasks: 4/5 实际满足。`tasks.md` 的 5 项均勾选，但第 3 项要求 Gateway recovery ledger 覆盖失败收口；已认领 successor 自身失败且没有新 suffix 时，active marker 没有释放，见 CRITICAL-1。
+- Spec 覆盖：parent compaction liveness、opaque pending identity、continuation descriptor/settlement、正常 recovery adoption、一次最终投递、no-ACK adoption、显式控制与共用 Gateway 入口均已有实现；recovery successor 的终态失败收口不完整。
+- Milestone evidence：复跑 M1 聚合测试为 `159 passed in 10.76s`；全量 contract tests 为 `154 passed in 8.73s`；scoped Ruff、`scripts/docs_check.py`（220 maintained sources / 70 routes）和 `git diff --check 84b386b42..5d8a6dea3` 均通过。另以现有 controlled Kernel 只读复现 successor 失败分支，结果为 `RecoveryHandoffError`、`busy=True`、active=`run-2`。
+- Prototype / Reference 覆盖：N/A；design 无前端原型或 reference artifact。
+
+## Correctness
+
+| Requirement / Scenario | 实现位置（file:line） | 测试覆盖 | 状态 |
+|---|---|---|---|
+| Incident：自动压缩期间追加消息 | `src/agent/core/agent/loop.py:1058`; `src/agent/core/agent/compaction/summarizer.py:72` | `tests/unit/test_loop_compact.py:201`; `tests/unit/test_loop_compact.py:724` | covered：父 run 发 `source=compaction` 心跳，sidechain publisher 仍为 no-op；正常 same-run steer 走既有 admission seam |
+| Incident：中断前已接收补充消息 | `src/agent/core/runs/registry.py:627`; `src/personal_assistant/gateway/session_run_coordinator.py:2174` | `tests/integration/test_session_run_coordinator_recovery.py:60` | covered：真实 Kernel descriptor/settlement 被 common Gateway 接管并只回一次 |
+| Incident：中断后的下一条正常消息 | `src/personal_assistant/gateway/session_run_coordinator.py:413`; `src/personal_assistant/gateway/session_run_coordinator.py:2334` | 正常/成功恢复路径有既有 admission 与 `tests/unit/personal_assistant/test_recovery_handoff_coordinator.py:184`；缺 successor 失败后继续消息回归 | 缺实现：successor 失败无 suffix 时恢复流程未释放 logical active marker，不能声称所有恢复收口后的下一条消息都从干净状态继续 |
+| Incident：飞书、Web IM 与其他 Gateway 入口一致 | `src/personal_assistant/gateway/session_run_coordinator.py:413`; `src/personal_assistant/gateway/runtime_delivery/lifecycle.py:31` | Web/common integration `tests/integration/test_session_run_coordinator_recovery.py:60`; Feishu lifecycle `tests/unit/personal_assistant/test_gateway_relay_lifecycle.py:376` | covered：无 Feishu 专用 recovery 分支，入口共用 coordinator/lifecycle owner |
+| Kernel delta：pending identity 关联 continuation batch | `src/agent/core/agent/run_control.py:121`; `src/agent/core/runs/registry.py:640`; `src/agent/sdk/kernel.py:1805` | `tests/contract/test_kernel_sdk_behavior_contract.py:1051` | covered：Kernel-owned id、direct predecessor、batch index/origin/exact ids 均从 SDK stream 暴露 |
+| Kernel delta：recovery settlement 恰好一次收口 | `src/agent/core/runs/registry.py:627`; `src/agent/core/runs/registry.py:948` | `tests/contract/test_kernel_sdk_behavior_contract.py:1051`; `tests/unit/personal_assistant/test_recovery_handoff.py:43` | covered：old terminal 在先，successor descriptors 在 settlement 前；Gateway 对 duplicate/late settlement 无副作用 |
+| Kernel/Gateway/IM delta：静默长工具、主模型、自动压缩、权限等待四类 liveness | `src/agent/core/agent/loop.py:1058`; `src/agent/core/agent/liveness.py:76`; `src/personal_assistant/gateway/session_run_coordinator.py:2076` | 新增 compaction call-site 测试 `tests/unit/test_loop_compact.py:201`；其余窗口由既有 liveness/watchdog tests 覆盖 | covered：四类均走既有 `run_heartbeat` stream 路径；真实无心跳仍由原 idle timeout 回收 |
+| Gateway delta：valid recovery exact suffix、prefix/suffix、multi-origin、duplicate/late/corrupt | `src/personal_assistant/gateway/session_run_coordinator.py:154`; `src/personal_assistant/gateway/session_run_coordinator.py:2195` | `tests/unit/personal_assistant/test_recovery_handoff.py:43`; `tests/unit/personal_assistant/test_recovery_handoff_coordinator.py:100` | covered：只认领 user origin 的 exact pending-id prefix，并以 settlement successor 全集校验 |
+| Gateway delta：无法验证/无法恢复时失败并释放会话 | `src/personal_assistant/gateway/session_run_coordinator.py:2311`; `src/personal_assistant/gateway/session_run_coordinator.py:2574` | corrupt/unavailable 有覆盖；successor terminal failure 无覆盖 | 缺实现：corrupt/unavailable 会 fail closed，但已认领 successor 失败且无新 suffix 时遗留 active marker（CRITICAL-1） |
+| Gateway delta：`/stop`、`/new`、shutdown 收口且不泄漏恢复输出 | `src/personal_assistant/gateway/session_run_coordinator.py:579`; `src/personal_assistant/gateway/session_run_coordinator.py:920`; `src/personal_assistant/gateway/session_run_coordinator.py:2497` | `tests/unit/personal_assistant/test_recovery_handoff_coordinator.py:226`; `tests/unit/personal_assistant/test_recovery_handoff_coordinator.py:269` | covered |
+| Gateway delta：`recovery_adopted` 不重复 ACK/`sent` receipt，final 由 anchor 一次发送、各 follower 一次 terminal | `src/personal_assistant/gateway/runtime_delivery/lifecycle.py:44`; `src/personal_assistant/gateway/session_run_coordinator.py:2248`; `src/personal_assistant/gateway/session_run_coordinator.py:2458` | `tests/unit/personal_assistant/test_gateway_relay_lifecycle.py:376`; `tests/unit/personal_assistant/test_recovery_handoff_coordinator.py:100` | covered |
+| Gateway 既有路由、FIFO/并行、真实 stall、工具/LLM/权限 liveness 场景 | 既有 coordinator、run queue 与 runtime delivery seams；本 diff 未另造路径 | M1 聚合中相关 admission/terminal/real-kernel tests 全绿 | covered；本 unit 沿用既有 owner |
+| IM delta：四类 heartbeat 刷新、真静默 stale 回收 | `src/IM/ws/gateway/execution.py:353`; `src/IM/ws/gateway/sessions.py:436`（既有消费 seam） | 既有 IM watchdog/liveness contract；新增 Kernel compaction producer 测试 | covered；本 diff 不改变 IM 协议或反向调用 Kernel |
+
+## Coherence
+
+| design 决策 | 遵守? | 代码证据（file:line） |
+|---|---|---|
+| 决策 1：parent compaction await 发 liveness，sidechain 保持静默 | 是 | `src/agent/core/agent/loop.py:1058`; `src/agent/core/agent/compaction/summarizer.py:72` |
+| 决策 2：Kernel 暴露 opaque pending id、完整 descriptor 与一次 settlement | 是 | `src/agent/core/agent/run_control.py:121`; `src/agent/core/runs/registry.py:640`; `src/agent/core/runs/registry.py:948`; `src/agent/sdk/dto.py:61` |
+| 决策 3：Gateway ledger 精确交接 suffix，并在成功或失败后释放 logical owner | 否 | `src/personal_assistant/gateway/session_run_coordinator.py:2311` 的 successor failure 分支未执行 `claim.run_id` 的 active cleanup；外层异常清理仍只以原 predecessor `run_id` 调用 `_close_active_run()`（`:1521`） |
+| 决策 4：typed `recovery_adopted` 只 seed context，不复制 channel ACK/receipt | 是 | `src/personal_assistant/gateway/inbound_models.py:197`; `src/personal_assistant/gateway/runtime_delivery/lifecycle.py:33` |
+| 架构自洽：产品包只依赖 `agent.sdk`，IM 不调用 Kernel，各 channel 复用 Gateway owner | 是 | `src/personal_assistant/gateway/session_run_coordinator.py:15`; `src/personal_assistant/gateway/runtime_delivery/lifecycle.py:21`; changed-file import scan 与 contract tests 均通过 |
+
+### Prototype / Reference Contract
+
+N/A。
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+- **CRITICAL-1 — recovery successor 失败且没有新 suffix 时不会释放 active marker。** `src/personal_assistant/gateway/session_run_coordinator.py:2311-2334` 在 successor 非 `completed` 后尝试 nested handoff；nested 因无 suffix 返回 `None` 时直接抛错，只有 completed 分支才在 `:2336` 调 `_close_active_run(... claim.run_id)`。随后外层异常处理 `src/personal_assistant/gateway/session_run_coordinator.py:1521-1525` 仍用原 predecessor id 清理，因此无法移除当前 active successor。可复现结果是 follower 已 failed，但 `is_session_busy()` 仍为 true、active 仍指向失败 run。修复时在 nested 返回 `None` 的失败路径原子关闭 `claim.run_id`（或让异常清理跟踪当前 logical owner），并在 `tests/unit/personal_assistant/test_recovery_handoff_coordinator.py` 增加“adopted successor failed、无后续 pending”回归：断言 root/follower 各一次 terminal、session 不 busy、active marker 清空，随后一条普通消息可正常提交和回复。
+
+### WARNING（提 PR 前必须修）
+
+None.
+
+### SUGGESTION（可以修）
+
+- `src/agent/core/agent/liveness.py:1-18` 仍写“three windows / two ... produce no business events”，`src/agent/core/agent/liveness.py:94` 的 source 示例也只有 `llm` / `permission`。本 unit 已加入第四个 `compaction` await，建议同步更新模块/API docstring，避免长期契约注释继续描述旧窗口集合。
+
+# Round 2
+
+## Verification Report: bugfix-536
+
+### Summary
+
+Mode: targeted-closure
+Delta range: `dc3173750ccbb329003fe3110ff838819e6b36e6..17994ef0fb69f4425a62a29fd039e9047d195efb`
+Focus issues: CRITICAL-1 recovery successor failure without a new suffix leaves the session busy; Round 1 product issue exact `/new` does not isolate the old conversation transcript
+requires_full_verification: false
+
+> The supplied pre-fix SHA had one extra trailing character; this round normalized it to the actual first parent `dc3173750ccbb329003fe3110ff838819e6b36e6` of `17994ef0f`.
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 2/2 |
+| Correctness | 2/2 |
+| Coherence | Followed |
+
+All checks passed. Ready for PR.
+
+## Targeted Closure
+
+| Focus issue | Implementation / contract evidence | Test / scenario evidence | Status |
+|---|---|---|---|
+| CRITICAL-1: failed adopted successor with no new suffix leaves the logical active marker busy | `src/personal_assistant/gateway/session_run_coordinator.py:2311-2341` now closes `claim.run_id` after nested handoff proves that no suffix was adopted. The cleanup remains inside the recovery owner that knows the successor identity and leaves the existing suffix re-handoff path unchanged. | `tests/unit/personal_assistant/test_recovery_handoff_coordinator.py:184-220` asserts root and follower each fail once, `is_session_busy()` becomes false, and a later ordinary message submits and replies. Focused rerun passed. | closed |
+| Round 1 product issue: exact `/new` must isolate the old conversation transcript | Existing production code already creates a fresh Kernel session in `GatewaySessionBinder.prepare_reset()` (`src/personal_assistant/gateway/session_binder.py:318-330`), atomically publishes that new binding from `SessionRunCoordinator.new_session()` (`src/personal_assistant/gateway/session_run_coordinator.py:491-585`), and dispatch resolves the published binding. The M2 delta correctly makes no speculative reset-source change because no current reuse path was found. | `tests/integration/test_session_run_coordinator_reset.py:64-123` uses the real Kernel and inspects the actual second model request: session id changes, the following turn uses the published new id, and the old sentinel is absent. Existing parser/control coverage plus the recorded isolated Web IM public-relay journey in `M2-fix-recovery-closure/progress.md:53-65` confirms exact `/new`, distinct fresh JSONL, and `UNKNOWN`, while non-exact `/new ...` retains the old context. Focused rerun passed. | closed |
+
+The Round 1 live result and Round 2 result differ despite no reset-source delta. That does not leave a current implementation route open: the deterministic request-level regression proves the old transcript is absent at the model boundary, and the independent public Web IM journey proves the same property through the user ingress. A source change made only to satisfy the earlier report would be unsupported by the current route evidence.
+
+## Relevant Contract and Scenario Evidence
+
+- Incident control boundary: `incident.md:38-40,84-88` requires exact `/new` to reopen without old context while non-exact text remains ordinary input. The real-Kernel regression and Web IM journey cover both sides.
+- Design recovery closure: `design.md:81-105` requires the logical active marker and FIFO to release after a failed successor with no further suffix. The new cleanup and regression match this owner/state transition.
+- Gateway delta failure closure: `specs/gateway/routing-delivery.md:13-18` requires unrecoverable followers to fail once and release the session. The new regression observes terminal lifecycle and subsequent admission.
+- No architecture drift was introduced: the only source delta stays in the shared `personal_assistant` coordinator, adds no `agent.core` import, creates no Feishu-specific path, and preserves the existing Kernel SDK / Gateway / IM dependency direction.
+
+## Validation
+
+- Focused closure and exact-control suite: `9 passed, 15 deselected in 2.69s`.
+- M1+M2 aggregate: `160 passed, 1 failed in 11.97s`; the sole failure was the pre-existing thread-gated structured-image steer test, outside this delta. Its immediate isolated rerun passed, then it passed again alongside both closure tests (`3 passed in 2.35s`), so it is not evidence of a stable regression from this patch.
+- Changed-source Ruff: passed.
+- `git diff --check dc3173750..17994ef0f`: passed.
+
+## Issues
+
+### CRITICAL
+
+None.
+
+### WARNING
+
+None.
+
+### SUGGESTION
+
+None in the targeted delta. Round 1's non-blocking liveness-docstring suggestion was outside this round's focus and remains recorded above.
+
+# Round 3
+
+## Verification Report: bugfix-536
+
+### Summary
+
+Mode: full
+Delta range: `fa4fd446facb1ee0b3a9b7f5c34272e53f13f279..97c1ec3f1160724f276af8ca20f64558ddb144fc`
+Focus issues: confirmed M2 cleanup race where a concurrently accepted follower could be popped without settlement; all original incident/design/delta requirements
+requires_full_verification: false
+
+> Validation snapshot: `84b386b42 → 97c1ec3f1160724f276af8ca20f64558ddb144fc`
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 13/13 |
+| Correctness | 25/25 |
+| Coherence | 有偏离 |
+
+0 critical issue(s), 1 warning(s) found. Fix before PR.
+
+## Completeness
+
+- Tasks: M1 `5/5`、M2 `4/4`、M3 `4/4`，共 `13/13` 个勾选退出项均能从实现、永久回归和实施记录复核。M3 将 successor suffix 判定与 active close/capture 线性化到同一 session transition lock；admission 先完成时进入正常 nested re-handoff，close 先完成时后到消息进入既有 FIFO。
+- Spec 覆盖：incident 的 3 个 Requirement / 4 个 Scenario，以及 kernel、Gateway、IM delta 的 21 个 Scenario 均有实现与测试映射。自动压缩 heartbeat、pending identity、descriptor/settlement、Gateway adoption、控制围栏、失败收口、入口共享和真静默回收均未因 M3 退化。
+- Evidence：M1/M2/M3 相关聚合为 `162 passed in 13.41s`；全量 `tests/contract` 为 `154 passed in 7.04s`；Ruff lint 和 docs check 通过。M3 的 deterministic interleaving 测试直接覆盖本轮 focus race。
+- Prototype / Reference：N/A；design 没有前端原型或 reference must-match。
+
+## Correctness
+
+| Requirement / Scenario group | 实现位置 | 测试覆盖 | 状态 |
+|---|---|---|---|
+| Incident：自动压缩期间追加消息仍正常继续 | `src/agent/core/agent/loop.py:1058-1064`; `src/agent/core/agent/compaction/summarizer.py:72-77` | `tests/unit/test_loop_compact.py:201-248,724-770` | covered：父 run 发 `source=compaction` heartbeat，sidechain 业务内容仍静默，same-run steer 保持原上下文 |
+| Incident：中断前 accepted follower 一次可见恢复 | `src/agent/core/runs/registry.py:627-684,948-972`; `src/personal_assistant/gateway/session_run_coordinator.py:2204-2401` | `tests/integration/test_session_run_coordinator_recovery.py:60-148`; recovery unit suites | covered：old terminal、descriptor、settlement、adoption、一次 final/terminal 均通过真实 Kernel 接线 |
+| Incident：恢复收口后下一条普通消息继续 | `src/personal_assistant/gateway/session_run_coordinator.py:1549-1594,2341-2388` | `tests/unit/personal_assistant/test_recovery_handoff_coordinator.py:184-220`; `tests/unit/personal_assistant/test_recovery_handoff_concurrency.py:105-191` | covered：失败 successor 的 logical owner 释放；nested re-handoff 后也释放，后续普通消息正常回复 |
+| Incident：飞书、Web IM 和其他入口共用行为 | `src/personal_assistant/gateway/session_run_coordinator.py:413-489`; `src/personal_assistant/gateway/runtime_delivery/lifecycle.py:31-60` | lifecycle、common Gateway integration 及记录的隔离 Web IM smoke | covered：无 Feishu 专用恢复器，各 channel 复用 coordinator/lifecycle seam |
+| Kernel delta：opaque pending identity、continuation descriptor、exactly-once settlement | `src/agent/core/agent/run_control.py:21-29,121-145`; `src/agent/core/runs/registry.py:627-684,948-972`; `src/agent/sdk/dto.py:61-73`; `src/agent/sdk/kernel.py:1780-1818` | `tests/contract/test_kernel_sdk_behavior_contract.py:1018-1151`; run-control/registry tests | covered：direct predecessor、batch/origin/exact ids 与一次 settlement 均从 SDK public seam 可见 |
+| Gateway delta：exact suffix adoption、corrupt/none/unavailable fail-closed、控制与 shutdown | `src/personal_assistant/gateway/session_run_coordinator.py:154-290,2204-2673` | `tests/unit/personal_assistant/test_recovery_handoff.py`; `test_recovery_handoff_coordinator.py`; terminal/control tests | covered：只认领 exact user suffix；错误链接失败并释放；`/stop`、`/new`、shutdown fence 保持 |
+| M3 focus：accepted follower 与 failed-successor cleanup 竞态 | `src/personal_assistant/gateway/session_run_coordinator.py:1549-1594,2341-2379` | `tests/unit/personal_assistant/test_recovery_handoff_concurrency.py:105-191` | closed：suffix read 与 close/capture 同锁；admission-wins follower 进入 run-3 并恰好 completed 一次，no-suffix companion 失败一次且释放 busy |
+| Delivery delta：`recovery_adopted` 不重复 ACK/receipt，anchor 一次回信、followers 一次 terminal | `src/personal_assistant/gateway/inbound_models.py:197-212`; `src/personal_assistant/gateway/runtime_delivery/lifecycle.py:31-60`; coordinator `:2271-2294,2503-2540` | `tests/unit/personal_assistant/test_gateway_relay_lifecycle.py:376-431`; recovery coordinator/concurrency tests | covered |
+| Liveness delta：工具、主模型、compaction、permission 与真静默回收 | `src/agent/core/agent/liveness.py:44-110,183-204`; `src/agent/core/agent/loop.py:1058-1064`; coordinator `:2102-2160`; IM existing watchdog seam | loop/terminal/IM contract coverage；全量 contract 通过 | covered：新增 compaction producer 沿既有 heartbeat 通路；无 heartbeat 的真实 stall 仍收口 |
+| Explicit `/new` / `/stop` 与非精确文本边界 | `src/personal_assistant/gateway/session_run_coordinator.py:491-585,894-950` | `tests/integration/test_session_run_coordinator_reset.py:64-123`; admission/control/recovery suites | covered：精确 `/new` 发布 fresh Kernel session；非精确文本走普通 dispatch；控制不恢复旧输出 |
+
+## Coherence
+
+| design 决策 | 遵守? | 代码证据 |
+|---|---|---|
+| 决策 1：parent compaction await 发 liveness，sidechain 静默 | 是 | `src/agent/core/agent/loop.py:1058-1064`; summarizer 的 no-op publisher 保持 |
+| 决策 2：Kernel 提供完整、可结算的 recovery 描述 | 是 | `src/agent/core/runs/registry.py:627-684,948-972`; `src/agent/sdk/dto.py:61-73` |
+| 决策 3：Gateway ledger 精确交接 suffix，并在成功/失败后释放 logical owner | 是 | `src/personal_assistant/gateway/session_run_coordinator.py:2204-2401`; M3 atomic helper `:1549-1594` |
+| 决策 4：typed no-ACK adoption 复用 delivery context | 是 | `src/personal_assistant/gateway/inbound_models.py:197-212`; `runtime_delivery/lifecycle.py:31-60` |
+| 架构自洽：PA 只经 `agent.sdk`、IM 不调用 Kernel、无 channel 平行恢复机制 | 是 | changed imports 与 `tests/contract` 154 项通过 |
+| 项目格式与过程规范 | 否 | `ruff format --check .` 拒绝 2 个本 unit 修改文件；M3 `tasks.md` 缺少 testing.md 要求的测试策略段 |
+
+### Prototype / Reference Contract
+
+N/A。
+
+## Validation
+
+- Focused recovery + Kernel/Gateway/reset/lifecycle/compaction aggregate: `162 passed in 13.41s`.
+- Full contract suite: `154 passed in 7.04s`.
+- `ruff check` on all unit-touched Python files: passed.
+- `ruff format --check .`: failed only for `src/personal_assistant/gateway/inbound_models.py` and `tests/contract/test_kernel_sdk_behavior_contract.py`.
+- `scripts/docs_check.py`: passed (`226 maintained Markdown sources, 70 required routes`).
+- `git diff --check 84b386b42..97c1ec3f1`: reports only the three pre-existing Markdown hard-break spaces in Round 1 `verification.md:7-9`; the M3 source delta itself is whitespace-clean.
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+None.
+
+### WARNING（提 PR 前必须修）
+
+- **WARNING-1 — 最终 unit tree 未通过 CI 强制的 Ruff format gate。** `.github/workflows/ci.yml:43-44` 执行 `ruff format --check .`；本轮在 `97c1ec3f` 复跑时，`src/personal_assistant/gateway/inbound_models.py:200-202` 与 `tests/contract/test_kernel_sdk_behavior_contract.py:1114` 被报告为需要格式化。对这两个文件运行仓库 Ruff formatter，只提交机械格式差异，再复跑 `ruff format --check .` 与受影响测试；否则远端 CI 会在提 PR 后失败。
+
+### SUGGESTION（可以修）
+
+- `src/agent/core/agent/liveness.py:1-18,94` 仍把 await-bound liveness 描述为旧的 “three windows / two silent windows”，且 source 示例漏掉 `compaction`。更新 docstring 为当前四类窗口并加入 `compaction`，避免实现与维护注释长期漂移。
+- `docs/changes/bugfix-536-feishu-steer-recovery/M3-fix-recovery-concurrency/tasks.md:1-31` 缺少 `docs/development/testing.md:95` 强制要求的“测试策略 / 受影响既有测试处置”段。补记为何新的 concurrency 文件是该竞态的最低 owner、与既有 recovery 测试不重复，以及 admission/terminal/control 测试的 keep 处置。
+
+# Round 4
+
+## Verification Report: bugfix-536
+
+### Summary
+
+Mode: targeted-closure
+Delta range: `307a31be30b25a2fdb0c24b7ce35fef0799a4961..61de64ca69f21e6af48fb78eeed0fa55e72ad2d4`
+Focus issues: WARNING-1 final unit tree failed CI-required `ruff format --check .`
+requires_full_verification: false
+
+> Validation snapshot: `84b386b42 → 61de64ca69f21e6af48fb78eeed0fa55e72ad2d4`
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 1/1 |
+| Correctness | 1/1 |
+| Coherence | Followed |
+
+All checks passed. Ready for PR.
+
+## Targeted Closure
+
+| Focus issue | Implementation / contract evidence | Validation | Status |
+|---|---|---|---|
+| WARNING-1: final unit tree failed the CI-required Ruff format gate | M4 mechanically formatted only `src/personal_assistant/gateway/inbound_models.py` and `tests/contract/test_kernel_sdk_behavior_contract.py`; the remaining Python delta in `src/agent/core/agent/liveness.py` is documentation text only. M4 also records the prior verifier suggestions in the M3/M4 task documentation without changing runtime behavior, tests, design, or delta-spec. | At `61de64ca69f21e6af48fb78eeed0fa55e72ad2d4`, `ruff format --check .` reports `953 files already formatted`. The M4 evidence records `64 passed`, scoped Ruff lint, docs check, and clean M4 diff. | closed |
+
+M4 is mechanical formatting and documentation text only. It does not alter the recovery implementation, public contract, or user-observable behavior, so the Round 3 full behavior conclusions remain valid and no user journey re-evaluation is required.
+
+## Issues
+
+### CRITICAL
+
+None.
+
+### WARNING
+
+None.
+
+### SUGGESTION
+
+None. Both Round 3 suggestions were also closed by M4 documentation updates.
+
+## Corrected Delta Reconciliation
+
+> Validation snapshot: `84b386b42 → fbf517d8cb4904e0743d8e057c527c5f0c24365f`
+>
+> Corrected-delta validation rerun: `166 passed in 8.05s` across the Kernel compaction / SDK protocol, Gateway recovery / admission / terminal / reset / lifecycle, and IM heartbeat / relay-watchdog suites.
+> Direct quiet-window producer rerun: `10 passed in 6.85s` across the generic liveness ticker and real silent-tool integration.
+
+| Delta item | Implementation evidence | Test evidence | Outcome |
+|---|---|---|---|
+| `specs/kernel/runs.md` ADDED Requirement: SDK consumers receive a settleable pending handoff | `src/agent/core/agent/run_control.py:123-144`; `src/agent/core/runs/registry.py:400-442,627-686,914-971`; `src/agent/sdk/dto.py:38-67`; `src/agent/sdk/kernel.py:1656-1818` | `tests/contract/test_kernel_sdk_behavior_contract.py:1017-1045,1051-1142` | aligned |
+| Kernel Scenario: correlate each recovery batch by pending identity | `src/agent/core/runs/registry.py:640-679` publishes direct predecessor, batch index, origin, and exact opaque ids on each queued successor | `tests/contract/test_kernel_sdk_behavior_contract.py:1066-1135` proves three mixed-origin batches without timing or active-id inference | aligned |
+| Kernel Scenario: recovery settlement reliably closes | `src/agent/core/runs/registry.py:627-686,948-971` publishes one settlement after scheduling or the single unavailable exit; `src/agent/core/runs/registry.py:612-626` emits no protocol for no pending or user-held pending | `tests/contract/test_kernel_sdk_behavior_contract.py:1081-1142`; `tests/contract/test_kernel_sdk_behavior_contract.py:1323-1381` proves normal same-run consumption creates no continuation | aligned |
+| `specs/kernel/runs.md` MODIFIED Requirement: all four alive-but-quiet windows produce stream liveness | `src/agent/core/agent/liveness.py:1-18,44-110,183-204`; `src/agent/core/agent/loop.py:454-460,1058-1073`; `src/agent/core/agent/runtime.py:1433-1450`; existing tool execution projection | `tests/unit/test_liveness_ticker.py:33-103`; `tests/unit/test_loop_compact.py:201-255`; existing tool integration coverage | aligned |
+| Kernel Scenario: silent long tool keeps stream active | Existing generic execution ticker and realtime stream projection emit `run_heartbeat` with the parent run id | `tests/integration/test_bash_engine.py:141-160,268-299` | aligned |
+| Kernel Scenario: main-model wait keeps stream active | `src/agent/core/agent/loop.py:454-460` wraps the main model iterator in the await-bound ticker | `tests/unit/test_liveness_ticker.py:82-103` | aligned |
+| Kernel Scenario: automatic compaction wait keeps parent stream active without sidechain leakage | `src/agent/core/agent/loop.py:1058-1073` emits `source=compaction` for the parent; `src/agent/core/agent/compaction/summarizer.py:72-79` keeps the sidechain publisher no-op | `tests/unit/test_loop_compact.py:201-255,724-765` | aligned |
+| Kernel Scenario: parked permission wait keeps stream active | `src/agent/core/agent/runtime.py:1433-1450` owns the same heartbeat emitter while the permission await is parked | `tests/unit/test_liveness_ticker.py:67-79,105-109`; existing permission SDK contract coverage | aligned |
+| `specs/gateway/routing-delivery.md` ADDED Requirement: Gateway maintains visible recovery delivery for accepted ordinary messages | `src/personal_assistant/gateway/session_run_coordinator.py:430-469,2204-2401`; `src/personal_assistant/gateway/runtime_delivery/lifecycle.py:31-60` | `tests/integration/test_session_run_coordinator_recovery.py:60-148`; `tests/unit/personal_assistant/test_recovery_handoff_coordinator.py:100-157` | aligned |
+| Gateway Scenario: accepted pre-interruption steer is delivered once in the same chat | `src/personal_assistant/gateway/session_run_coordinator.py:2224-2294,2303-2401,2503-2540` validates, adopts, and completes the exact user suffix through the original routed request | `tests/integration/test_session_run_coordinator_recovery.py:60-148`; `tests/unit/personal_assistant/test_recovery_handoff_coordinator.py:100-129` | aligned |
+| Gateway Scenario: unverifiable or unavailable recovery fails closed and releases the session | `src/personal_assistant/gateway/session_run_coordinator.py:196-266,2402-2437,2619-2673` rejects corrupt / unavailable settlement, terminalizes only unsettled followers, fences successors, and removes the logical owner | `tests/unit/personal_assistant/test_recovery_handoff.py:107-196`; `tests/unit/personal_assistant/test_recovery_handoff_coordinator.py:158-220`; `tests/unit/personal_assistant/test_recovery_handoff_concurrency.py:101-191` | aligned |
+| Gateway Scenario: exact `/stop` and `/new` fence recovery; other text remains ordinary | `src/personal_assistant/gateway/session_run_coordinator.py:491-585,894-950,2542-2617` fences known recovery ids and suppresses output only through the existing exact controls | `tests/unit/personal_assistant/test_recovery_handoff_coordinator.py:224-307`; `tests/integration/test_session_run_coordinator_reset.py:65-123` | aligned |
+| `specs/gateway/routing-delivery.md` MODIFIED Requirement: four-step routing plus the correct Gateway watchdog ownership | Existing routing / reply-owner seams remain unchanged; `src/personal_assistant/gateway/session_run_coordinator.py:2085-2195` resets idle on ordinary events and heartbeats, but intentionally sets `watchdog_timeout=None` for a pending permission request and re-arms it only on `permission_resolved` | `tests/unit/personal_assistant/test_session_run_coordinator_terminal.py:43-112`; admission and route suites in the 166-test rerun | aligned |
+| Gateway Scenario: direct chat routes to the default Agent and returns to the original channel target | Existing coordinator binding and `OutboundRouter` path are reused; recovery adoption retains the exact `InboundRunRequest` / routed target at `src/personal_assistant/gateway/session_run_coordinator.py:2271-2294,2503-2540` | Existing notice-route / relay-lifecycle tests plus `tests/integration/test_session_run_coordinator_recovery.py:60-148` | aligned |
+| Gateway Scenario: same-session FIFO, cross-session parallelism | Existing admission queue remains the owner; active same-run steer still precedes fallback queueing at `src/personal_assistant/gateway/session_run_coordinator.py:413-489`, and recovery publishes one logical active successor at `:2439-2455` | `tests/unit/personal_assistant/test_session_run_coordinator_admission.py:615-691,873-903` | aligned |
+| Gateway Scenario: lost liveness cancels the run and releases same-session work | `src/personal_assistant/gateway/session_run_coordinator.py:2102-2134,2170-2195` retains the bounded cancel / reconcile path; recovery failure cleanup releases its logical owner at `:2619-2673` | `tests/unit/personal_assistant/test_session_run_coordinator_terminal.py:116-162`; recovery closure tests | aligned |
+| Gateway Scenario: silent long command heartbeat prevents idle cancellation | `src/personal_assistant/gateway/session_run_coordinator.py:2109-2160` treats every run event, including `run_heartbeat`, as renewed liveness | `tests/unit/personal_assistant/test_session_run_coordinator_terminal.py:43-67`; Kernel tool integration coverage | aligned |
+| Gateway Scenario: main-model heartbeat prevents idle cancellation | The same source-agnostic event loop at `src/personal_assistant/gateway/session_run_coordinator.py:2109-2160` consumes main-model heartbeats | `tests/unit/personal_assistant/test_session_run_coordinator_terminal.py:43-67`; `tests/unit/test_liveness_ticker.py:82-103` | aligned |
+| Gateway Scenario: automatic compaction heartbeat prevents idle cancellation and later steer continues normally | `src/agent/core/agent/loop.py:1058-1073` adds the missing producer; Gateway's generic stream loop consumes it without a compaction exception; normal same-run steer remains at `src/personal_assistant/gateway/session_run_coordinator.py:413-469` | `tests/unit/test_loop_compact.py:201-255,261-292`; `tests/unit/personal_assistant/test_session_run_coordinator_terminal.py:43-67`; same-run admission tests | aligned |
+| Gateway Scenario: pending human permission remains exempt even if no heartbeat arrives, then normal idle detection resumes | `src/personal_assistant/gateway/session_run_coordinator.py:2153-2159` deliberately suspends the Gateway watchdog on `permission_request` and restores it on `permission_resolved`; this is not rewritten as uniform Gateway heartbeat-only handling | `tests/unit/personal_assistant/test_session_run_coordinator_terminal.py:71-112` explicitly omits heartbeats during the parked interval, then proves post-resolution silence is cancelled | aligned |
+| `specs/im/gateway-relay.md` MODIFIED Requirement: IM relay watchdog uses source-agnostic liveness for all four quiet windows | `src/IM/ws/gateway/execution.py:353-360` persists every `run_heartbeat` as liveness regardless of source; the relay watchdog compares the latest conversation event, while `src/IM/ws/gateway/sessions.py:428-446` does not refresh a permission-specific exception | `tests/im_service/unit/test_event_bridge.py:322-350`; `tests/im_service/unit/test_relay_watchdog.py:514-589` | aligned |
+| IM Scenario: active long-tool message is not reaped | Generic run-heartbeat persistence at `src/IM/ws/gateway/execution.py:353-360` advances the same liveness fact consumed by the watchdog | `tests/integration/test_bash_engine.py:141-160,268-299`; `tests/im_service/unit/test_relay_watchdog.py:514-550` | aligned |
+| IM Scenario: active main-model wait message is not reaped | Main-model producer and IM generic consumer are `src/agent/core/agent/loop.py:454-460` and `src/IM/ws/gateway/execution.py:353-360` | `tests/unit/test_liveness_ticker.py:82-103`; `tests/im_service/unit/test_relay_watchdog.py:514-550` | aligned |
+| IM Scenario: active automatic-compaction message is not reaped and later reply still relays | Compaction now emits the parent run heartbeat at `src/agent/core/agent/loop.py:1058-1073`; IM consumes it generically at `src/IM/ws/gateway/execution.py:353-360`; normal delivery remains owned by the shared Gateway lifecycle | `tests/unit/test_loop_compact.py:201-255,261-292`; `tests/im_service/unit/test_relay_watchdog.py:514-550`; recovery / lifecycle rerun | aligned |
+| IM Scenario: parked permission message is not reaped without an IM permission exemption | Permission emits the same event in `src/agent/core/agent/runtime.py:1433-1450`; IM persists it through `src/IM/ws/gateway/execution.py:353-360` and does not classify the source | `tests/im_service/unit/test_event_bridge.py:322-350`; `tests/im_service/unit/test_relay_watchdog.py:514-550` | aligned |
+| IM Scenario: true silence is eventually failed and emits relay failure | The relay watchdog uses stale latest-event time and retains the ordinary failed transition; no type-specific permanent exemption was added | `tests/im_service/unit/test_relay_watchdog.py:553-589` | aligned |
+
+### Uncovered Observable Behavior
+
+None. Reverse inspection of `84b386b42..fbf517d8c` found only the covered opaque pending / recovery protocol, Gateway recovery ownership and typed adoption lifecycle, parent-run compaction liveness, and their exactly-once / control / failure closure semantics. The final M4/M5 formatting, test-strategy, and liveness-docstring changes add no external behavior.
+
+Outcome: aligned

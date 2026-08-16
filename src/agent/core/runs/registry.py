@@ -7,6 +7,7 @@ from pathlib import Path
 from threading import Lock
 from collections.abc import Awaitable, Callable
 from typing import Any, Mapping, Protocol, Sequence
+from uuid import uuid4
 
 from agent.core.ids import make_run_id
 from agent.core.errors import CompactionError
@@ -87,6 +88,15 @@ class RunRecord:
     # does this run begin in the session stream", so no consumer needs to dedup
     # replayed history (e.g. stale self_evolution_review) on every new turn.
     start_sequence: int = 0
+    continuation: Mapping[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PendingInjection:
+    """Identify one message accepted by an active run's pending queue."""
+
+    run_id: str
+    pending_id: str
 
 
 class EventHubLike(Protocol):
@@ -184,6 +194,7 @@ class RunsRegistry:
         workspace_root: Path | None = None,
         flush_held: bool = True,
         model: str | None = None,
+        continuation: Mapping[str, Any] | None = None,
     ) -> RunRecord:
         """Prepare semantic state, bind an executor token, then publish the run."""
 
@@ -233,6 +244,7 @@ class RunsRegistry:
             workspace_root=ref.workspace_root,
             start_sequence=start_sequence,
             model=model,
+            continuation=continuation,
         )
         controller = RunController()
         sink = _RegistryCompletionSink(
@@ -392,7 +404,7 @@ class RunsRegistry:
         *,
         expected_run_id: str | None = None,
         background_return: BackgroundReturnInfo | None = None,
-    ) -> str | None:
+    ) -> PendingInjection | None:
         """Atomically compare, inject, and return the accepted active run identity.
 
         Args:
@@ -403,8 +415,8 @@ class RunsRegistry:
                 rejects the operation without injecting into a replacement run.
 
         Returns:
-            The exact run id whose controller accepted the message, or ``None``
-            when no matching active run can accept it.
+            The exact run and opaque pending identity accepted by the controller,
+            or ``None`` when no matching active run can accept it.
 
         Notes:
             The registry lock remains held through the controller's non-blocking
@@ -422,9 +434,12 @@ class RunsRegistry:
             # Controller admission shares its terminal lock with the loop's terminal
             # commit. Keeping both locks through enqueue makes active identity and
             # terminal acceptance one linearizable decision.
-            if not controller.enqueue_message(message, origin, background_return):
+            pending_id = controller.enqueue_pending_message(
+                message, origin, background_return
+            )
+            if pending_id is None:
                 return None
-            return run_id
+            return PendingInjection(run_id=run_id, pending_id=pending_id)
 
     def get(self, run_id: str) -> RunRecord | None:
         with self._lock:
@@ -555,6 +570,7 @@ class RunsRegistry:
             finally:
                 self._settle_terminal_pending(
                     controller,
+                    predecessor_run_id=run_id,
                     session_id=record.session_id,
                     workspace_root=record.workspace_root,
                     model=record.model,
@@ -566,6 +582,7 @@ class RunsRegistry:
         self,
         controller: RunController | None,
         *,
+        predecessor_run_id: str,
         session_id: str,
         workspace_root: Path | None,
         model: str | None = None,
@@ -607,26 +624,66 @@ class RunsRegistry:
             with self._lock:
                 self._held_pending.setdefault(session_id, []).extend(stranded)
             return
+        recovery_id = f"recovery_{uuid4().hex}"
         with self._lock:
-            if self._state is not _RegistryState.OPEN:
-                return
-        for origin_batch, pending_batch in _group_pending_by_origin(stranded):
-            self.submit(
+            registry_open = self._state is _RegistryState.OPEN
+        if not registry_open:
+            self._publish_recovery_settlement(
                 session_id=session_id,
-                parts=[
-                    part
-                    for pending in pending_batch
-                    for part in _input_parts_from_message(pending.message)
-                ],
-                origin=origin_batch,
-                source_background_returns=tuple(
-                    pending.background_return
-                    for pending in pending_batch
-                    if pending.background_return is not None
-                ),
-                workspace_root=workspace_root,
-                model=model,
+                recovery_id=recovery_id,
+                predecessor_run_id=predecessor_run_id,
+                outcome="unavailable",
+                successor_run_ids=(),
             )
+            return
+
+        successors: list[str] = []
+        for batch_index, (origin_batch, pending_batch) in enumerate(
+            _group_pending_by_origin(stranded)
+        ):
+            try:
+                successor = self.submit(
+                    session_id=session_id,
+                    parts=[
+                        part
+                        for pending in pending_batch
+                        for part in _input_parts_from_message(pending.message)
+                    ],
+                    origin=origin_batch,
+                    source_background_returns=tuple(
+                        pending.background_return
+                        for pending in pending_batch
+                        if pending.background_return is not None
+                    ),
+                    workspace_root=workspace_root,
+                    model=model,
+                    continuation={
+                        "recovery_id": recovery_id,
+                        "predecessor_run_id": predecessor_run_id,
+                        "batch_index": batch_index,
+                        "origin": origin_batch.value,
+                        "pending_ids": [
+                            pending.pending_id for pending in pending_batch
+                        ],
+                    },
+                )
+            except RegistryClosedError:
+                self._publish_recovery_settlement(
+                    session_id=session_id,
+                    recovery_id=recovery_id,
+                    predecessor_run_id=predecessor_run_id,
+                    outcome="unavailable",
+                    successor_run_ids=tuple(successors),
+                )
+                return
+            successors.append(successor.run_id)
+        self._publish_recovery_settlement(
+            session_id=session_id,
+            recovery_id=recovery_id,
+            predecessor_run_id=predecessor_run_id,
+            outcome="scheduled",
+            successor_run_ids=tuple(successors),
+        )
 
     def _set_status(
         self,
@@ -870,6 +927,8 @@ class RunsRegistry:
             payload["background_returns"] = [
                 item.to_dict() for item in record.source_background_returns
             ]
+        if record.continuation is not None:
+            payload["continuation"] = dict(record.continuation)
         if record.turn_id is not None:
             payload["turn_id"] = record.turn_id
         if record.stop_reason is not None:
@@ -884,6 +943,31 @@ class RunsRegistry:
             event="run_status",
             session_id=record.session_id,
             data=payload,
+        )
+
+    def _publish_recovery_settlement(
+        self,
+        *,
+        session_id: str,
+        recovery_id: str,
+        predecessor_run_id: str,
+        outcome: str,
+        successor_run_ids: tuple[str, ...],
+    ) -> None:
+        """Publish the authoritative closure for one recovery attempt."""
+
+        if self._event_hub is None:
+            return
+        self._event_hub.publish(
+            event="recovery_settled",
+            session_id=session_id,
+            data={
+                "event": "recovery_settled",
+                "recovery_id": recovery_id,
+                "predecessor_run_id": predecessor_run_id,
+                "outcome": outcome,
+                "successor_run_ids": list(successor_run_ids),
+            },
         )
 
 

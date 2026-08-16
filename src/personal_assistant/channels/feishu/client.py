@@ -343,7 +343,7 @@ class FeishuClient:
             FeishuAuthError: When the feishu API returns 401/403.
             FeishuAPIError: When the feishu API returns any other error.
         """
-        resolved_text = self._resolve_outbound_markdown_images(text)
+        resolved_text = self.prepare_outbound_markdown(text)
         content = json.dumps(
             {
                 "zh_cn": {
@@ -358,6 +358,16 @@ class FeishuClient:
             msg_type="post",
             content=content,
         )
+
+    def prepare_outbound_markdown(self, text: str) -> str:
+        """Resolve outbound Markdown resources for every Feishu text surface.
+
+        Runtime cards and ordinary rich-text posts share this preparation so an
+        image that renders in a normal reply keeps rendering when the Gateway
+        opts into card presentation.
+        """
+
+        return self._resolve_outbound_markdown_images(text)
 
     def download_message_image(
         self,

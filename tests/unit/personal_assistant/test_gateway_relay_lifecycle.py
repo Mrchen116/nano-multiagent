@@ -53,6 +53,7 @@ from personal_assistant.gateway.runtime_delivery.task_tracker import (
     RuntimeDeliveryTaskTracker,
 )
 from personal_assistant.gateway.reply_visibility import ReplyVisibilityPolicy
+from personal_assistant.gateway.runtime_footer import ExternalFinalProjection
 from personal_assistant.gateway.runtime import GatewayRuntime
 from personal_assistant.gateway.process_lifecycle import RuntimeFactories, run_gateway
 from personal_assistant.gateway.composition import (
@@ -371,6 +372,57 @@ def test_typed_store_fresh_relay_accepted_still_sends_sent_receipt() -> None:
             },
         )
     ]
+
+
+def test_recovery_adopted_seeds_context_without_second_ack_or_sent_receipt() -> None:
+    reporter = UpstreamReporter(
+        node=NodeConfig(node_id="node-local"), agents=(), send_frame=lambda _t, _p: None
+    )
+    manager = _FakeIMManager([])
+    channel = _AckChannel()
+    context_store = RunDeliveryContextStore()
+    callback = _build_relay_lifecycle_callback(
+        reporter=reporter,
+        im_connection_manager_factory=lambda: manager,
+        run_context_store=context_store,
+        channel_registry=ChannelRegistry((channel,)),
+    )
+    routed = RoutedInbound(
+        message=InboundMessage(
+            channel_name="feishu:agent-a",
+            text="follow-up",
+            external_user_id="ou-user",
+            external_chat_id="oc-chat",
+            is_group=False,
+            ingress=InboundIngress(
+                im_relay=IMRelayIngress(
+                    relay_task_id="relay-follow-up",
+                    idempotency_key="idem-follow-up",
+                    im_message_id="im-follow-up",
+                )
+            ),
+            metadata={"feishu_message_id": "om-follow-up"},
+        )
+    )
+
+    asyncio.run(
+        callback(
+            routed,
+            RelayLifecycleUpdate(
+                phase="recovery_adopted",
+                agent_id="agent-a",
+                session_key="feishu:oc-chat:agent-a",
+                run_id="run-successor",
+                previous_run_id="run-old",
+                recovery_id="recovery-1",
+                kernel_session_id="sess-1",
+            ),
+        )
+    )
+
+    assert context_store.get("run-successor") is not None
+    assert channel.acked == []
+    assert manager.sent_frames == []
 
 
 def test_typed_context_store_holds_turn_start_ack_message_id() -> None:
@@ -860,6 +912,7 @@ def test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion() 
 
     manager = _Manager()
     mirrored: list[tuple[str, dict[str, str]]] = []
+    shadowed: list[str] = []
     run_context_store = delivery_context_store(
         {
             "run-1": {
@@ -872,6 +925,8 @@ def test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion() 
                 "reply_channel_name": "feishu:agent-a",
                 "reply_target_chat_id": "feishu:cli_a:dm:ou_user",
                 "feishu_message_id": "om_msg_1",
+                "model": "provider/path/gpt-5.4",
+                "shadow_saga_id": "saga-1",
             }
         }
     )
@@ -881,6 +936,15 @@ def test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion() 
         run_context_store=run_context_store,
         external_reply_sender=lambda text, metadata: mirrored.append(
             (text, dict(metadata))
+        ),
+        external_final_projection_builder=lambda text, _channel_name, facts: (
+            ExternalFinalProjection(
+                text=text,
+                runtime_footer=f"{facts.model} · ctx 42%",
+            )
+        ),
+        shadow_output_prepare=lambda _saga, _run, _phase, _kernel, text: (
+            shadowed.append(text)
         ),
         task_tracker=tracker,
     )
@@ -936,9 +1000,11 @@ def test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion() 
                 "channel_name": "feishu:agent-a",
                 "target_chat_id": "feishu:cli_a:dm:ou_user",
                 "feishu_message_id": "om_msg_1",
+                "runtime_footer": "provider/path/gpt-5.4 · ctx 42%",
             },
         ),
     ]
+    assert shadowed == ["I will check.", "Final answer."]
 
 
 def test_kernel_event_observer_does_not_mirror_im_triggered_shadow_runs() -> None:

@@ -2,12 +2,14 @@
 
 按变更类型选模板复制到 `docs/changes/<type-id>/`。
 
-| 变更类型 | 根目录文档 | 每个 milestone |
-|---|---|---|
-| feat | `spec.md`, `design.md`, `acceptance.md` | `tasks.md`, `progress.md` |
-| refactor / perf | `motivation.md`, `design.md`, `acceptance.md` | `tasks.md`, `progress.md` |
-| bugfix lite | `fix.md` | `tasks.md`, `progress.md` |
-| bugfix full | `incident.md`, `regression.md` | `tasks.md`, `progress.md` |
+| 变更类型 | 首文档 |
+|---|---|
+| feat | `spec.md`, `design.md`, `acceptance.md` |
+| refactor / perf | `motivation.md`, `design.md`, `acceptance.md` |
+| bugfix lite | `fix.md` |
+| bugfix full | `incident.md`, `regression.md` |
+
+此表只说明首文档模板；milestone 产物不在 spec 阶段创建。
 
 ## 填写硬约束（违反 = 打回）
 

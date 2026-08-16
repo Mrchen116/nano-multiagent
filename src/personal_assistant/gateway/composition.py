@@ -74,6 +74,7 @@ from personal_assistant.gateway.readable_input_projection import (
 from personal_assistant.gateway.runtime_delivery.context import (
     RunDeliveryContextStore,
 )
+from personal_assistant.gateway.runtime_footer import build_external_final_projection
 from personal_assistant.gateway.runtime_delivery.background import (
     build_bg_reply_sender,
     build_session_event_callback,
@@ -328,7 +329,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         background_subscription_manager_provider=lambda: background_subscriptions,
     )
 
-    def _send_external_reply(text: str, metadata: Mapping[str, str]) -> None:
+    async def _send_external_reply(text: str, metadata: Mapping[str, str]) -> None:
         channel_name = metadata.get("channel_name") or ""
         target_chat_id = metadata.get("target_chat_id") or ""
         if not channel_name or not target_chat_id:
@@ -338,7 +339,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
             for key, value in metadata.items()
             if key not in {"channel_name", "target_chat_id", "reply_thread_id"}
         }
-        outbound_router.send_text(
+        await outbound_router.send_text_async(
             text=text,
             reply_context=ReplyContext(
                 channel_name=channel_name,
@@ -501,11 +502,21 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         external_permission_request_sender=_send_external_permission_request,
         external_permission_resolved_sender=_mark_external_permission_resolved,
     )
+
+    def _build_external_final_projection(text, channel_name, facts):
+        return build_external_final_projection(
+            text,
+            config=config_owner.snapshot().display,
+            channel_name=channel_name,
+            facts=facts,
+        )
+
     skill_created_handler = getattr(im_config_sync_client, "handle_skill_created", None)
     _kernel_event_observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: im_connection_manager,
         run_context_store=run_delivery_contexts,
         external_reply_sender=_send_external_reply,
+        external_final_projection_builder=_build_external_final_projection,
         shadow_output_prepare=shadow_output_prepare,
         shadow_output_mirror=None,
         shadow_bubble_record=(
@@ -626,6 +637,11 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         reasoning_catalog=reasoning_catalog,
         relay_lifecycle_callback=relay_lifecycle_callback,
         kernel_event_observer=_kernel_event_observer,
+        external_final_projection_provider=lambda run_id: (
+            context.external_final_projection
+            if (context := run_delivery_contexts.get(run_id)) is not None
+            else None
+        ),
         shadow_output_prepare=shadow_output_prepare,
         bg_reply_sender=bg_reply_sender,
         node_id=config.node.node_id,
