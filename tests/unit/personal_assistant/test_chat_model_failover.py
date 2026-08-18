@@ -198,3 +198,50 @@ async def test_switch_notice_is_sent_once_before_backup_reply(tmp_path: Path) ->
     assert texts[-1] == "backup reply"
     notice_at = texts.index("已改用 backup-model，因为主模型不可用。")
     assert notice_at < texts.index("backup reply")
+
+
+@pytest.mark.asyncio
+async def test_exhausted_chain_stays_failed_without_switch_notice(
+    tmp_path: Path,
+) -> None:
+    kernel, catalog, binder, _, group_store = build_dependencies(tmp_path)
+    _publish_fallbacks(catalog, "backup-a", "backup-b")
+    channel = _FakeChannel("web_relay")
+    coordinator = SessionRunCoordinator(
+        kernel=kernel,
+        session_binder=binder,
+        outbound_router=OutboundRouter(ChannelRegistry((channel,))),
+        group_context_store=group_store,
+        sticky_store=ModelStickyStore(),
+    )
+    running = asyncio.create_task(
+        coordinator.dispatch(_request(inbound(chat_id="chat-a", text="hello"), catalog))
+    )
+    await kernel.wait_stream("run-1")
+    kernel.finish(
+        "run-1",
+        status="failed",
+        text="⚠️ 模型调用失败（test-model）: quota",
+        error={"kind": "quota", "message": "quota"},
+    )
+    await kernel.wait_stream("run-2")
+    kernel.finish(
+        "run-2",
+        status="failed",
+        text="⚠️ 模型调用失败（backup-a）: quota",
+        error={"kind": "quota", "message": "quota"},
+    )
+    await kernel.wait_stream("run-3")
+    kernel.finish(
+        "run-3",
+        status="failed",
+        text="⚠️ 模型调用失败（backup-b）: quota",
+        error={"kind": "quota", "message": "quota"},
+    )
+    with pytest.raises(RuntimeError, match="quota"):
+        await running
+
+    assert [call["run_id"] for call in kernel.replay_calls] == ["run-2", "run-3"]
+    texts = [item.text for item in channel.sent]
+    assert all("已改用" not in text for text in texts)
+    assert len(kernel.submit_calls) == 1

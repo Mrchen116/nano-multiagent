@@ -37,6 +37,7 @@ def _llm() -> LLMConfigPayload:
                             levels=("low", "high", "max"),
                         ),
                     ),
+                    LLMModelPayload(name="backup:model"),
                 ),
             ),
         ),

@@ -142,3 +142,58 @@ def test_config_operation_recovers_each_write_boundary_once(
     ]
     assert len(final_agents) == 1
     assert final_agents[0].reasoning_effort == applied_agent["reasoning_effort"]
+
+
+def test_config_operation_apply_persists_model_fallbacks(tmp_path: Path) -> None:
+    workspace = tmp_path / "seed"
+    workspace.mkdir()
+    agent = AgentWorkspaceConfig(
+        agent_id="seed",
+        workspace_root=workspace,
+        title="Seed",
+        skills=("plan",),
+        tool_allowlist=("read",),
+        group_reply_policy="manual",
+        default_model="test:model",
+    )
+    config = LocalConfig(
+        node=NodeConfig(node_id="node-1"),
+        agents=(agent,),
+        channels=(),
+        gateway=GatewayLifecycleConfig(),
+        heartbeat=HeartbeatConfig(),
+        im_service=None,
+        llm=_llm(),
+        source_path=tmp_path / "config.yaml",
+    )
+    save_local_config(config, config.source_path)
+    gateway = _sync(config, receipts=ConfigApplyReceiptStore(tmp_path / "receipts.json"))
+    candidate = {**_agent_payload(agent), "model_fallbacks": ["backup:model"]}
+
+    result = gateway.handle_agent_config_operation(
+        "apply",
+        {
+            "operation_id": "op-apply-fallbacks",
+            "candidate_fingerprint": agent_operation_fingerprint(candidate),
+            "expected_previous_fingerprint": agent_operation_fingerprint(
+                _agent_payload(agent)
+            ),
+            "agent": candidate,
+        },
+    )
+
+    assert result["status"] == "applied"
+    assert result["agent"]["model_fallbacks"] == ["backup:model"]
+    restored = load_local_config(config.source_path)
+    assert restored.agents[0].model_fallbacks == ("backup:model",)
+
+    replay = gateway.handle_agent_config_operation(
+        "apply",
+        {
+            "operation_id": "op-apply-fallbacks-again",
+            "candidate_fingerprint": agent_operation_fingerprint(candidate),
+            "expected_previous_fingerprint": agent_operation_fingerprint(candidate),
+            "agent": candidate,
+        },
+    )
+    assert replay["status"] == "applied"

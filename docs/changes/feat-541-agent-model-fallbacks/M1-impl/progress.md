@@ -4,7 +4,24 @@
 
 测可观察行为：失败气泡含模型 id、`run_status.error.kind` 经 SDK stream 可见、replay 不追加 user parts、候选链/粘性/第一次 admit、心跳/cron 显式 `model=candidates[0]`、kind 决定是否换、内核拒绝则收口、说明只发一次、配置保存清粘性、IM 读写校验、前端折叠入口、备用列表不进内核、PA 不 import `agent.core`。
 
-优先扩展既有文件（`test_local_store.py`、IM repository/contract、vitest 详情/创建页）。新文件均未超 400 行。未 skip/xfail。未跑隔离端口真栈 e2e。
+Verifier R1 缺的回归：`failover_unattended_run` 的 quota / `context_length` / 拒绝 replay / 整链耗尽；心跳复用 canonical session 时 admit sticky 备用；聊天整链耗尽不发「已改用」。前端清空备用后 PATCH `model_fallbacks: []`。
+
+优先扩展既有文件。新文件均未超 400 行。未 skip/xfail。
+
+## 真实入口
+
+隔离栈：worktree `scripts/e2e-up.sh --wt … --main-config ~/.nanoassistant/config.yaml`（必须用 worktree 脚本，主仓 `PYTHONPATH` 没有 `model_fallbacks_json` 列）。Vite 代理到本次 `IM_URL`。浏览器 1440 / 375 截图：
+
+- `M1-impl/screenshots/desktop-create-collapsed.png`
+- `M1-impl/screenshots/desktop-create-expanded.png`
+- `M1-impl/screenshots/desktop-edit-collapsed.png`（已配「备用 1 个」）
+- `M1-impl/screenshots/desktop-edit-expanded.png`
+- `M1-impl/screenshots/mobile-create-collapsed.png`
+- `M1-impl/screenshots/mobile-create-expanded.png`
+- `M1-impl/screenshots/mobile-edit-collapsed.png`
+- `M1-impl/screenshots/mobile-edit-expanded.png`
+
+编辑页 PATCH `plato`：`default_model=deepseek:deepseek-v4-flash`，`model_fallbacks=["kimiCoding:kimi-for-coding"]`，mirror GET 回读一致。console 无 pageerror。
 
 ## Commits
 
@@ -13,6 +30,29 @@
 - `6c1d51e1f` Gateway 粘性 failover、心跳/cron 显式 admit、前端折叠入口
 
 ## 命令结果
+
+```
+PATH=/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH python -m pytest \
+  tests/unit/personal_assistant/test_unattended_model_admit.py \
+  tests/unit/personal_assistant/test_chat_model_failover.py \
+  tests/unit/personal_assistant/test_gateway_config_operations.py \
+  tests/unit/personal_assistant/test_gateway_config_operation_validation.py \
+  -q --tb=line
+```
+
+29 passed（含 unattended failover / canonical sticky / 整链耗尽 / apply 持久化备用链）。
+
+```
+cd src/IM/frontend && npm test -- --run src/features/settings/agents/agent-detail-page.test.tsx
+```
+
+20 passed（含清空备用后 PATCH `model_fallbacks: []`）。
+
+## Changelog
+
+- Gateway `_agent_operation_payload` 漏了 `model_fallbacks`，只改备用列表时指纹对不上、apply 可能空写。已补进 payload，并用 apply 单测锁住。
+
+## 先前实现命令结果
 
 ```
 PATH=/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH python -m pytest \
@@ -65,6 +105,4 @@ cd src/IM/frontend && npm test -- --run \
 
 3 files / 50 tests passed。worktree 前端无独立 `node_modules`，vitest 临时借用主仓依赖，未提交。
 
-## Changelog
-
-（无实施偏差）
+聊天同轮切换截图留给 reviewer 真栈（需把主模型设成目录内会认证失败/欠费的 id）。配置卡 1440/375 已落盘。
