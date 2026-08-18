@@ -5,7 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from personal_assistant.config.local_store import resolve_model_candidates, resolve_run_model
+from personal_assistant.config.local_store import (
+    resolve_model_candidates,
+    resolve_run_model,
+)
 from personal_assistant.config.model_reasoning import ModelReasoningCatalog
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog, LiveAgentSnapshot
 from personal_assistant.gateway.session_binder import GatewaySessionBinder

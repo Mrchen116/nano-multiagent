@@ -850,7 +850,9 @@ def _build_heartbeat_message(
     return "\n".join(parts)
 
 
-def _admit_model(kernel_client: object, *, agent_id: str, session_id: str) -> str | None:
+def _admit_model(
+    kernel_client: object, *, agent_id: str, session_id: str
+) -> str | None:
     admit = getattr(kernel_client, "admit_model", None)
     if not callable(admit):
         return None

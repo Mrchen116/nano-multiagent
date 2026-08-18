@@ -39,6 +39,12 @@ def _project_run_failure(error: BaseException) -> dict[str, Any]:
             "message": str(error),
             "kind": project_model_error_kind(error),
         }
+    if isinstance(error, TimeoutError):
+        return {
+            "code": "run_execution_failed",
+            "message": str(error),
+            "kind": "timeout",
+        }
     return {
         "code": "run_execution_failed",
         "message": str(error),
@@ -836,7 +842,7 @@ class RunsRegistry:
             run_id,
             status=RunStatus.FAILED,
             stop_reason="timeout",
-            error={"code": "run_timeout", "message": message},
+            error={"code": "run_timeout", "message": message, "kind": "timeout"},
             only_if={RunStatus.RUNNING},
         )
         if updated is not None and updated.status is RunStatus.FAILED:
@@ -919,7 +925,6 @@ class RunsRegistry:
                 session_id=record.session_id,
             ),
         )
-
 
     def _persist_run_status_entry(self, record: RunRecord) -> None:
         # JSONL architecture keeps run status in the event hub; this remains a

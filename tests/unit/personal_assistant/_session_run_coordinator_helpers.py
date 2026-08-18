@@ -287,6 +287,8 @@ class ControlledKernel:
         session_id: str,
         workspace_root: Path,
         origin: object | None = None,
+        trace_id: str | None = None,
+        **_kwargs: object,
     ) -> SimpleNamespace:
         """Start a new run without appending another user turn."""
 
@@ -304,6 +306,7 @@ class ControlledKernel:
                 "workspace_root": str(workspace_root),
                 "origin": origin,
                 "run_id": run_id,
+                "trace_id": trace_id,
             }
         )
         self._latest_run_by_session[session_id] = run_id

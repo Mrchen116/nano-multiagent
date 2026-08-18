@@ -38,7 +38,10 @@ from personal_assistant.config.skill_selection import (
 )
 from personal_assistant.builtin_skills.lark_bundle import lark_skill_names
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
-from personal_assistant.gateway.model_fallback import ModelStickyStore, model_chain_changed
+from personal_assistant.gateway.model_fallback import (
+    ModelStickyStore,
+    model_chain_changed,
+)
 from personal_assistant.gateway.config_apply_receipts import (
     ConfigApplyReceiptStore,
     ConfigOperationReceipt,
@@ -124,7 +127,9 @@ def canonical_agent_operation_payload(
         )
         or "manual",
         "default_model": _optional_operation_text(payload.get("default_model")),
-        "model_fallbacks": list(_operation_string_tuple(payload.get("model_fallbacks"))),
+        "model_fallbacks": list(
+            _operation_string_tuple(payload.get("model_fallbacks"))
+        ),
         "reasoning_effort": _optional_operation_text(payload.get("reasoning_effort")),
         "workspace_root": workspace_root.strip()
         if isinstance(workspace_root, str) and workspace_root.strip()

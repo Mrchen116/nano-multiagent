@@ -49,9 +49,7 @@ class ModelStickyStore:
             return None
         return self._by_session.get(session_id)
 
-    def set(
-        self, session_id: str, agent_id: str, sticky: StickyModelOverride
-    ) -> None:
+    def set(self, session_id: str, agent_id: str, sticky: StickyModelOverride) -> None:
         """Remember sticky model for one session belonging to ``agent_id``."""
 
         previous_agent = self._agent_by_session.get(session_id)

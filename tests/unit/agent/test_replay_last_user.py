@@ -70,7 +70,9 @@ async def _fail_quota():
         "insufficient balance",
         details={"status_code": 403, "provider_code": "insufficient_quota"},
     )
-    yield LLMMessage(role="assistant", content="", finish_reason="stop")  # pragma: no cover
+    yield LLMMessage(
+        role="assistant", content="", finish_reason="stop"
+    )  # pragma: no cover
 
 
 async def _succeed(text: str = "backup-ok"):

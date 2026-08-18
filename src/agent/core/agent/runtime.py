@@ -404,14 +404,8 @@ class AgentEngine:
                 raise ValueError("replay-last-user requires a prior user message")
             user_text = last_user.content if isinstance(last_user.content, str) else ""
             if last_user.parts:
-                input_parts = parse_input_parts(
-                    [{"type": "text", "text": user_text}]
-                    if not any(
-                        isinstance(part, Mapping) and part.get("type") == "text"
-                        for part in last_user.parts
-                    )
-                    else list(last_user.parts)
-                )
+                # 保留原 user parts（含图片），不要退化成纯文本占位。
+                input_parts = parse_input_parts(list(last_user.parts))
             else:
                 input_parts = parse_input_parts(
                     [{"type": "text", "text": user_text}] if user_text else []

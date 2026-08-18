@@ -11,7 +11,10 @@ import pytest
 from personal_assistant.gateway.inbound_models import InboundRunRequest, RoutedInbound
 from personal_assistant.gateway.session_keys import build_session_key
 from personal_assistant.gateway.session_run_coordinator import SessionRunCoordinator
-from personal_assistant.gateway.model_fallback import ModelStickyStore, StickyModelOverride
+from personal_assistant.gateway.model_fallback import (
+    ModelStickyStore,
+    StickyModelOverride,
+)
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.outbound_router import OutboundRouter
 
@@ -66,6 +69,7 @@ async def test_quota_failure_replays_without_copying_user_parts(tmp_path: Path) 
     assert kernel.replay_calls[0]["run_id"] == "run-2"
     assert sticky.get(result.kernel_session_id).model == "backup-model"
     assert sticky.get(result.kernel_session_id).noticed is True
+    assert coordinator.is_session_busy(result.session_key) is False
 
 
 @pytest.mark.asyncio
@@ -245,3 +249,4 @@ async def test_exhausted_chain_stays_failed_without_switch_notice(
     texts = [item.text for item in channel.sent]
     assert all("已改用" not in text for text in texts)
     assert len(kernel.submit_calls) == 1
+    assert coordinator.is_session_busy("web_relay:chat-a:agent-a") is False

@@ -22,7 +22,10 @@ from agent.sdk import (
     WorkflowSaveScope,
 )
 
-from personal_assistant.config.local_store import resolve_model_candidates, resolve_run_model
+from personal_assistant.config.local_store import (
+    resolve_model_candidates,
+    resolve_run_model,
+)
 from personal_assistant.config.model_reasoning import ModelReasoningCatalog
 from personal_assistant.gateway.session_composition import project_agent_runtime
 from personal_assistant.gateway.model_fallback import (
@@ -1342,6 +1345,7 @@ class SessionRunCoordinator:
         binding: SessionBinding | None = None
         terminal_followers: tuple[InboundRunRequest, ...] = ()
         active_closed = False
+        trace_id: str | None = None
         try:
             failure_kind: str | None = None
             async with self._transition(request.session_key):
@@ -1488,6 +1492,7 @@ class SessionRunCoordinator:
                 current_model=runtime_projection.runtime.model,
                 run_id=run_id or "",
                 anchor_sequence=anchor_sequence,
+                trace_id=trace_id,
             )
             if run_state.get("status") == "completed":
                 await self._announce_fallback_if_needed(
@@ -1559,17 +1564,20 @@ class SessionRunCoordinator:
                         request=request,
                         error=_SHUTDOWN_ACTIVE_RUN_CANCELLED,
                     )
-                if run_id and not active_closed:
+                close_run_id = self._turn_close_run_id(
+                    session_key=request.session_key, run_id=run_id
+                )
+                if close_run_id and not active_closed:
                     terminal_followers = await self._close_active_run(
                         session_key=request.session_key,
-                        run_id=run_id,
+                        run_id=close_run_id,
                     )
                     active_closed = True
                 failed = RelayLifecycleUpdate(
                     phase="failed",
                     agent_id=request.agent.agent_id,
                     session_key=request.session_key,
-                    run_id=run_id,
+                    run_id=close_run_id or run_id,
                     error=_SHUTDOWN_ACTIVE_RUN_CANCELLED,
                 )
                 if run_id not in self._terminalized_recovery_roots:
@@ -1580,17 +1588,20 @@ class SessionRunCoordinator:
             raise
         except Exception as exc:
             try:
-                if run_id and not active_closed:
+                close_run_id = self._turn_close_run_id(
+                    session_key=request.session_key, run_id=run_id
+                )
+                if close_run_id and not active_closed:
                     terminal_followers = await self._close_active_run(
                         session_key=request.session_key,
-                        run_id=run_id,
+                        run_id=close_run_id,
                     )
                     active_closed = True
                 failed = RelayLifecycleUpdate(
                     phase="failed",
                     agent_id=request.agent.agent_id,
                     session_key=request.session_key,
-                    run_id=run_id,
+                    run_id=close_run_id or run_id,
                     error=str(exc),
                 )
                 if run_id not in self._terminalized_recovery_roots:
@@ -1600,10 +1611,13 @@ class SessionRunCoordinator:
                 admission_event.set()
             raise
         finally:
-            if run_id and not active_closed:
+            close_run_id = self._turn_close_run_id(
+                session_key=request.session_key, run_id=run_id
+            )
+            if close_run_id and not active_closed:
                 await self._close_active_run(
                     session_key=request.session_key,
-                    run_id=run_id,
+                    run_id=close_run_id,
                 )
             if run_id:
                 self._terminalized_recovery_roots.discard(run_id)
@@ -1633,6 +1647,22 @@ class SessionRunCoordinator:
         return tuple(
             follower.request for follower in self._steered_requests.pop(run_id, ())
         )
+
+    def _adopt_active_run(self, *, session_key: str, run_id: str) -> None:
+        """Keep the session busy handle on the failover replay that now owns the turn."""
+
+        active = self._active_runs.get(session_key)
+        if active is None:
+            return
+        self._active_runs[session_key] = replace(active, run_id=run_id)
+
+    def _turn_close_run_id(self, *, session_key: str, run_id: str | None) -> str:
+        """Prefer the live busy handle so failover replay still gets closed."""
+
+        active = self._active_runs.get(session_key)
+        if active is not None:
+            return active.run_id
+        return run_id or ""
 
     async def _close_failed_successor_without_suffix(
         self, *, session_key: str, run_id: str
@@ -1848,12 +1878,12 @@ class SessionRunCoordinator:
         """Produce the sole model-and-capability value for a new run admission."""
 
         existing = (
-            self._session_binder.lookup(session_key) if session_key is not None else None
+            self._session_binder.lookup(session_key)
+            if session_key is not None
+            else None
         )
         kernel_session_id = existing.kernel_session_id if existing is not None else None
-        model = self._resolve_agent_model(
-            agent, kernel_session_id=kernel_session_id
-        )
+        model = self._resolve_agent_model(agent, kernel_session_id=kernel_session_id)
         if model is None:
             raise ValueError("new run requires a resolved model")
         chain_head = resolve_run_model(
@@ -1886,9 +1916,7 @@ class SessionRunCoordinator:
         runtime = self._reconcile_runtime(
             baseline=runtime,
             persisted=current.runtime if current is not None else None,
-            skip_effort_overlay=self._is_fallback_candidate(
-                agent, runtime.model
-            ),
+            skip_effort_overlay=self._is_fallback_candidate(agent, runtime.model),
         )
         desired = self._kernel.identify_runtime(runtime=runtime)
         applied_matches = (
@@ -2181,6 +2209,7 @@ class SessionRunCoordinator:
         current_model: str,
         run_id: str,
         anchor_sequence: int | None,
+        trace_id: str | None = None,
     ) -> tuple[Mapping[str, object], str, str, int | None]:
         """Replay onto the next candidate when error.kind is failover-eligible."""
 
@@ -2207,6 +2236,7 @@ class SessionRunCoordinator:
                     session_id=session_id,
                     workspace_root=agent.config.workspace_root,
                     origin=RunOrigin.HUMAN,
+                    trace_id=trace_id,
                 )
             except ReplayLastUserRejected:
                 self._sticky_store.set(
@@ -2214,8 +2244,14 @@ class SessionRunCoordinator:
                     agent.agent_id,
                     StickyModelOverride(model=nxt, noticed=False),
                 )
-                raise RuntimeError(self._extract_run_error(run_state, "failed")) from None
+                raise RuntimeError(
+                    self._extract_run_error(run_state, "failed")
+                ) from None
             current_model = nxt
+            async with self._transition(request.session_key):
+                self._adopt_active_run(
+                    session_key=request.session_key, run_id=replay.run_id
+                )
             self._sticky_store.set(
                 session_id,
                 agent.agent_id,
@@ -2246,7 +2282,11 @@ class SessionRunCoordinator:
                 agent.config, product_default=self._product_default_model
             )
             sticky = self._sticky_store.get(session_id)
-            if chain_head and nxt != chain_head and (sticky is None or not sticky.noticed):
+            if (
+                chain_head
+                and nxt != chain_head
+                and (sticky is None or not sticky.noticed)
+            ):
                 await self._deliver_control_reply(
                     text=switch_notice(nxt),
                     binding=binding,

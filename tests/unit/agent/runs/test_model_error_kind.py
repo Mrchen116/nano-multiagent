@@ -25,6 +25,10 @@ def test_quota_from_balance_text() -> None:
     assert project_model_error_kind(_error("insufficient balance")) == "quota"
 
 
+def test_quota_from_overdue_text() -> None:
+    assert project_model_error_kind(_error("Payment overdue")) == "quota"
+
+
 def test_quota_from_chinese_billing_text() -> None:
     assert project_model_error_kind(_error("账户欠费，额度不足")) == "quota"
 
@@ -36,7 +40,9 @@ def test_credit_card_required_is_not_quota() -> None:
 
 
 def test_rate_limit_from_429() -> None:
-    assert project_model_error_kind(_error("slow down", status_code=429)) == "rate_limit"
+    assert (
+        project_model_error_kind(_error("slow down", status_code=429)) == "rate_limit"
+    )
 
 
 def test_auth_from_invalid_api_key() -> None:
@@ -56,8 +62,20 @@ def test_timeout_from_message() -> None:
     assert project_model_error_kind(_error("request timeout")) == "timeout"
 
 
+def test_timeout_from_timed_out_message() -> None:
+    assert project_model_error_kind(_error("The read operation timed out")) == "timeout"
+
+
+def test_timeout_from_http_408() -> None:
+    assert (
+        project_model_error_kind(_error("request failed", status_code=408)) == "timeout"
+    )
+
+
 def test_overload_from_5xx() -> None:
-    assert project_model_error_kind(_error("bad gateway", status_code=503)) == "overload"
+    assert (
+        project_model_error_kind(_error("bad gateway", status_code=503)) == "overload"
+    )
 
 
 def test_overload_from_overloaded_text() -> None:
@@ -75,7 +93,8 @@ def test_context_length_from_provider_code() -> None:
 
 def test_context_length_from_window_text() -> None:
     assert (
-        project_model_error_kind(_error("exceeds the context window")) == "context_length"
+        project_model_error_kind(_error("exceeds the context window"))
+        == "context_length"
     )
 
 

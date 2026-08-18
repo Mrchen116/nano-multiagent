@@ -47,7 +47,7 @@ def project_model_error_kind(error: ModelError) -> str:
         return "quota"
     if status in {401, 403} or _is_auth(provider_code, provider_type, blob):
         return "auth"
-    if "timeout" in blob:
+    if "timeout" in blob or "timed out" in blob or "timed-out" in blob or status == 408:
         return "timeout"
     if _is_overload(status, blob):
         return "overload"
@@ -84,7 +84,15 @@ def _is_quota(blob: str) -> bool:
         return False
     return any(
         token in blob
-        for token in ("欠费", "额度", "balance", "insufficient", "billing", "quota")
+        for token in (
+            "欠费",
+            "额度",
+            "balance",
+            "insufficient",
+            "billing",
+            "quota",
+            "overdue",
+        )
     )
 
 

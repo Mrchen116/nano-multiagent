@@ -291,7 +291,9 @@ def test_update_profile_preserves_non_default_workspace_root(tmp_path: Path) -> 
     )
 
 
-def test_model_fallbacks_roundtrip_and_missing_column_defaults_empty(tmp_path: Path) -> None:
+def test_model_fallbacks_roundtrip_and_missing_column_defaults_empty(
+    tmp_path: Path,
+) -> None:
     users, _, _, profiles, _, _ = _build_repositories(tmp_path)
     owner_user = users.create_user(username="owner", display_name="Owner")
     agent_user = users.create_user(username="agent-fb", display_name="Fallback")

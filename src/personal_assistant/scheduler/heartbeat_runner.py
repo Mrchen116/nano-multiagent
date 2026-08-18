@@ -9,7 +9,10 @@ from typing import Any
 
 from agent.sdk import RunOrigin
 
-from personal_assistant.config.local_store import HeartbeatConfig, resolve_model_candidates
+from personal_assistant.config.local_store import (
+    HeartbeatConfig,
+    resolve_model_candidates,
+)
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
 from personal_assistant.gateway.model_fallback import (
     failover_unattended_run,

@@ -167,7 +167,9 @@ def test_config_operation_apply_persists_model_fallbacks(tmp_path: Path) -> None
         source_path=tmp_path / "config.yaml",
     )
     save_local_config(config, config.source_path)
-    gateway = _sync(config, receipts=ConfigApplyReceiptStore(tmp_path / "receipts.json"))
+    gateway = _sync(
+        config, receipts=ConfigApplyReceiptStore(tmp_path / "receipts.json")
+    )
     candidate = {**_agent_payload(agent), "model_fallbacks": ["backup:model"]}
 
     result = gateway.handle_agent_config_operation(

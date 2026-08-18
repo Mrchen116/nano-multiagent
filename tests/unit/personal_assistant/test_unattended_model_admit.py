@@ -26,7 +26,9 @@ from personal_assistant.scheduler.heartbeat_scheduler import (
 )
 
 
-def test_submit_message_uses_explicit_candidate_not_saved_primary(tmp_path: Path) -> None:
+def test_submit_message_uses_explicit_candidate_not_saved_primary(
+    tmp_path: Path,
+) -> None:
     captured: list[str | None] = []
 
     def _submit(**kwargs: object) -> object:
