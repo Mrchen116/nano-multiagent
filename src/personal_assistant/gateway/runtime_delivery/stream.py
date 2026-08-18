@@ -117,6 +117,12 @@ async def stream_run_to_completion(
                     and observer is not None
                     and not abnormal_terminal_reconciled
                 ):
+                    if hold_assistant_events:
+                        for held in hold_assistant_events:
+                            observation = observer(held)
+                            if asyncio.iscoroutine(observation):
+                                await observation
+                        hold_assistant_events.clear()
                     reconcile = observer(
                         {
                             "event": "run_terminal_reconcile",
@@ -131,7 +137,7 @@ async def stream_run_to_completion(
                         await reconcile
                 break
     finally:
-        # 先发「已改用」再冲刷备用正文；失败气泡在 completed 之外立刻冲刷。
+        # 成功路径先发「已改用」再冲刷备用正文；失败气泡已在 reconcile 前冲刷。
         if hold_assistant_events and observer is not None:
             status = (
                 str(terminal_event["status"]) if terminal_event is not None else None

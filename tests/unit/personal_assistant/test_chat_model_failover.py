@@ -211,12 +211,14 @@ async def test_exhausted_chain_stays_failed_without_switch_notice(
     kernel, catalog, binder, _, group_store = build_dependencies(tmp_path)
     _publish_fallbacks(catalog, "backup-a", "backup-b")
     channel = _FakeChannel("web_relay")
+    observed: list[dict[str, object]] = []
     coordinator = SessionRunCoordinator(
         kernel=kernel,
         session_binder=binder,
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
         group_context_store=group_store,
         sticky_store=ModelStickyStore(),
+        kernel_event_observer=observed.append,
     )
     running = asyncio.create_task(
         coordinator.dispatch(_request(inbound(chat_id="chat-a", text="hello"), catalog))
@@ -248,5 +250,23 @@ async def test_exhausted_chain_stays_failed_without_switch_notice(
     assert [call["run_id"] for call in kernel.replay_calls] == ["run-2", "run-3"]
     texts = [item.text for item in channel.sent]
     assert all("已改用" not in text for text in texts)
+    observed_failures = [
+        event["content"]
+        for event in observed
+        if event.get("event") == "assistant_message"
+    ]
+    assert observed_failures == [
+        "⚠️ 模型调用失败（test-model）: quota",
+        "⚠️ 模型调用失败（backup-a）: quota",
+        "⚠️ 模型调用失败（backup-b）: quota",
+    ]
+    for run_id in ("run-2", "run-3"):
+        names = [
+            event["event"]
+            for event in observed
+            if event.get("run_id") == run_id
+            and event["event"] in {"assistant_message", "run_terminal_reconcile"}
+        ]
+        assert names[:2] == ["assistant_message", "run_terminal_reconcile"]
     assert len(kernel.submit_calls) == 1
     assert coordinator.is_session_busy("web_relay:chat-a:agent-a") is False

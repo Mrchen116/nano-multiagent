@@ -2367,14 +2367,15 @@ class SessionRunCoordinator:
         )
 
     async def _flush_held_assistant_events(
-        self, events: list[Mapping[str, object]]
+        self, events: list[Mapping[str, object]] | None
     ) -> None:
-        if self._kernel_event_observer is None:
+        if not events or self._kernel_event_observer is None:
             return
         for event in events:
             result = self._kernel_event_observer(event)
             if asyncio.iscoroutine(result):
                 await result
+        events.clear()
 
     async def _await_terminal_run(
         self,
@@ -2423,6 +2424,9 @@ class SessionRunCoordinator:
                                     f"{self._run_idle_timeout_seconds:g}s"
                                 )
                             self._kernel.cancel(run_id)
+                            await self._flush_held_assistant_events(
+                                held_assistant_events
+                            )
                             await self._emit_terminal_reconcile(
                                 run_id, reason="stalled"
                             )
@@ -2472,6 +2476,7 @@ class SessionRunCoordinator:
             if run_state is None:
                 user_stopped = run_id in self._user_interrupted_runs
                 if not watchdog_reconciled:
+                    await self._flush_held_assistant_events(held_assistant_events)
                     await self._emit_terminal_reconcile(run_id, reason="interrupted")
                 if user_stopped:
                     return {"status": "cancelled"}, reply_text, request, ()
@@ -2482,6 +2487,8 @@ class SessionRunCoordinator:
 
             user_stopped = run_id in self._user_interrupted_runs
             if not watchdog_reconciled:
+                # 失败/取消先冲刷被 hold 的失败气泡，再 finalize；否则备用候选的 ⚠️ 会迟到被丢掉。
+                await self._flush_held_assistant_events(held_assistant_events)
                 await self._emit_terminal_reconcile(run_id, reason="interrupted")
             if status == "cancelled" and user_stopped:
                 return run_state, reply_text, request, ()

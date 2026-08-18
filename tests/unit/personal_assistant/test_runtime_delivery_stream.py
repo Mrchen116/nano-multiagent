@@ -315,3 +315,45 @@ async def test_owner_direct_stream_admits_one_persistent_skill_owner(
     assert kernel.persistent_calls == [(session_id, stream_anchor)]
     assert received == [("agent-a", f"skill-{run_id}")]
     await manager.aclose(asyncio.get_running_loop().time() + 1)
+
+
+@pytest.mark.asyncio
+async def test_held_failure_bubble_flushes_before_terminal_reconcile() -> None:
+    observed: list[dict[str, Any]] = []
+    held: list[Mapping[str, Any]] = []
+    kernel = _StreamingKernel(
+        [
+            {
+                "run_id": "run-held-fail",
+                "event": "assistant_message",
+                "content": "⚠️ 模型调用失败（backup）: quota",
+            },
+            {
+                "run_id": "run-held-fail",
+                "event": "run_status",
+                "status": "failed",
+                "error": {"kind": "quota", "message": "quota"},
+            },
+        ]
+    )
+
+    outcome = await stream_run_to_completion(
+        run_id="run-held-fail",
+        kernel_session_id="session-1",
+        agent_id="agent-a",
+        owner_user_id="owner-a",
+        kernel=kernel,
+        run_context_store=RunDeliveryContextStore(),
+        observer=observed.append,
+        hold_assistant_events=held,
+    )
+
+    assert outcome.status == "failed"
+    names = [event["event"] for event in observed]
+    assert names == [
+        "run_status",
+        "assistant_message",
+        "run_terminal_reconcile",
+    ]
+    assert observed[1]["content"] == "⚠️ 模型调用失败（backup）: quota"
+    assert held == []
