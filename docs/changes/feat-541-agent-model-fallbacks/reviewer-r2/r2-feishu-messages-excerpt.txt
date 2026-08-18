@@ -1,0 +1,8 @@
+post		备用链
+post		已改用 deepseek:deepseek-v4-flash，因为主模型不可用。
+post		⚠️ 模型调用失败（mimo:mimo-v2.5-pro）:anthropic: stream ended without terminal event
+text		feat-541 r2 飞书备用链验收：只回复三个字备用链 nonce=c29b4dc5
+post		⚠️ 模型调用失败（mimo:mimo-v2.5-pro）:anthropic: stream ended without terminal event
+text		feat-541 飞书备用链验收：只回复三个字备用链
+interactive		<card> Received the probe message `nano-e2e-feishu-probe-ae33149b7f0fda0e` over Feishu at 2026-08-15 02:08 CST. Channel is working — replying as expected. --- 📝 deepseek:deepseek-v4-flash · ctx 2% </card>
+text		nano-e2e-feishu-probe-ae33149b7f0fda0e
