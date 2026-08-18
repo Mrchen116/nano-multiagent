@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>feat-540 原型 — Agents 列表条目设备归属标注</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "SF Pro", "Helvetica Neue", "PingFang SC", sans-serif;
+    background: oklch(0.97 0.005 240);
+    color: oklch(0.20 0.01 240);
+    padding: 32px 24px 64px;
+  }
+  .mono { font-family: "SF Mono", "IBM Plex Mono", ui-monospace, monospace; }
+  h1 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+  .sub { font-size: 13px; color: oklch(0.50 0.01 240); margin-bottom: 28px; max-width: 880px; line-height: 1.7; }
+  .panels { display: flex; gap: 40px; flex-wrap: wrap; align-items: flex-start; }
+  .panel-label { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: oklch(0.55 0.01 240); margin: 0 0 10px 2px; }
+  .frame { box-shadow: 0 8px 30px oklch(0.85 0.01 240 / 0.5); border-radius: 14px; overflow: hidden; }
+
+  /* ─── 桌面侧栏(深底 240px)── 与产品 agents-list-page / agents-rail-desktop 同 token ─── */
+  .sb-d {
+    width: 240px; background: oklch(0.24 0.012 240);
+    display: flex; flex-direction: column;
+    border-right: 1px solid oklch(0.29 0.010 240);
+  }
+  .sb-d header {
+    padding: 14px 12px 10px; border-bottom: 1px solid oklch(0.29 0.010 240);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .sb-d header .t { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: oklch(0.55 0.01 240); }
+  .sb-d header .new {
+    height: 36px; padding: 0 12px; border-radius: 8px; border: none;
+    background: oklch(0.30 0.012 240); color: #fff; font-size: 13px; font-weight: 600;
+    display: inline-flex; align-items: center; font-family: inherit;
+  }
+  .rows { padding: 6px 8px; }
+  .row {
+    width: 100%; display: flex; align-items: center; gap: 12px;
+    padding: 9px 10px; border-radius: 12px; min-height: 52px; margin-bottom: 4px;
+    background: transparent; position: relative;
+  }
+  .row.hover { background: oklch(0.28 0.012 240); }
+  .row.active { background: oklch(0.31 0.015 240); outline: 1px solid oklch(0.40 0.08 180); }
+
+  .av { position: relative; flex-shrink: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; }
+  .av .badge {
+    position: absolute; bottom: 1px; right: 1px; border-radius: 50%;
+    border: 2px solid oklch(0.24 0.012 240);
+  }
+  .badge.on { background: oklch(0.55 0.18 145); }
+  .badge.off { background: oklch(0.45 0.01 240); }
+  .av.d { width: 32px; height: 32px; font-size: 13px; }
+  .av.d .badge { width: 9px; height: 9px; }
+  .av.m { width: 38px; height: 38px; font-size: 15px; }
+  .av.m .badge { width: 11px; height: 11px; border-color: oklch(0.93 0.007 240); }
+  .row.active .av .badge { border-color: oklch(0.31 0.015 240); }
+
+  .txt { min-width: 0; flex: 1; text-align: left; }
+  .l1 { font-size: 13px; font-weight: 600; color: oklch(0.86 0.01 240); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row.active .l1 { color: #fff; }
+  .l2 { margin-top: 2px; font-size: 11px; color: oklch(0.64 0.01 240); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row.active .l2 { color: oklch(0.70 0.01 240); }
+
+  /* ★ 本次新增:右缘设备名。与第二行同一基线高度;只截断自己,永不挤压名字两行 */
+  .dev {
+    flex-shrink: 0; align-self: flex-end;
+    padding-bottom: 1px;               /* 视觉上与 l2 基线对齐 */
+    font-size: 11px; color: oklch(0.55 0.01 240);
+    max-width: 92px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .row.active .dev { color: oklch(0.64 0.01 240); }
+
+  /* ─── 移动端(浅底全宽)── */
+  .sb-m {
+    width: 300px; background: oklch(0.93 0.007 240);
+    display: flex; flex-direction: column;
+  }
+  .sb-m header {
+    padding: 10px 16px 12px; border-bottom: 1px solid oklch(0.87 0.006 240);
+    position: relative; height: 58px; display: flex; align-items: center; justify-content: center;
+  }
+  .sb-m header .t { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; color: oklch(0.14 0.01 240); }
+  .sb-m header .new {
+    position: absolute; right: 16px; top: 10px; height: 36px; padding: 0 14px;
+    border-radius: 10px; border: none; background: oklch(0.52 0.14 180); color: #fff;
+    font-size: 13px; font-weight: 600; display: inline-flex; align-items: center; font-family: inherit;
+  }
+  .sb-m .rows { padding: 8px 10px; }
+  .sb-m .row { padding: 12px 10px; }
+  .sb-m .row.active { background: oklch(0.90 0.010 180); outline: 1px solid oklch(0.75 0.12 180); }
+  .sb-m .l1 { font-size: 15px; color: oklch(0.14 0.01 240); }
+  .sb-m .l2 { font-size: 12.5px; color: oklch(0.55 0.01 240); font-family: inherit; }
+  .sb-m .meta { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; flex-shrink: 0; }
+  .sb-m .dev { align-self: auto; padding-bottom: 0; font-size: 12px; color: oklch(0.60 0.01 240); max-width: 110px; }
+  .chev { font-size: 11px; color: oklch(0.65 0.01 240); line-height: 1; }
+
+  /* ─── 注解 ─── */
+  .notes { margin-top: 40px; max-width: 900px; font-size: 13px; line-height: 1.9; }
+  .notes h2 { font-size: 14px; margin-bottom: 8px; }
+  .notes table { border-collapse: collapse; width: 100%; margin-top: 10px; }
+  .notes th, .notes td { border: 1px solid oklch(0.88 0.005 240); padding: 6px 10px; text-align: left; font-size: 12.5px; }
+  .notes th { background: oklch(0.95 0.005 240); }
+  .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 5px; }
+  .before-after { display: flex; gap: 24px; margin-top: 14px; flex-wrap: wrap; }
+  .ba-card { border: 1px solid oklch(0.88 0.005 240); border-radius: 10px; overflow: hidden; }
+  .ba-card .cap { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: oklch(0.55 0.01 240); padding: 8px 10px; background: oklch(0.96 0.004 240); }
+  .ba-row { width: 240px; display: flex; align-items: center; gap: 12px; padding: 9px 10px; background: oklch(0.24 0.012 240); }
+  .ba-old .l1 { color: oklch(0.18 0.01 240); }
+  .ba-old .l2 { color: oklch(0.50 0.01 240); }
+  .mark { color: oklch(0.55 0.14 180); font-weight: 700; }
+</style>
+</head>
+<body>
+
+<h1>feat-540 原型:Agents 列表条目设备归属标注</h1>
+<p class="sub">
+  覆盖状态:普通 / 选中(active)/ hover / 别名设备 / 归属设备离线 / 无归属信息 / 超长 Agent ID 截断。桌面与移动两版。
+  <span class="mark">★</span> 标注本次新增元素。头像角标(绿=在线,灰=离线)在两个侧栏组件统一启用——详情页侧栏(rail)的头像今天没有角标,本次补上。
+</p>
+
+<div class="panels">
+
+  <!-- ═══ 桌面:深底侧栏 ═══ -->
+  <div>
+    <p class="panel-label">桌面 · 深色侧栏 240px(首页 / 详情 / 新建三处同款)</p>
+    <div class="frame sb-d">
+      <header><span class="t">Agents</span><button class="new">+ New</button></header>
+      <div class="rows">
+
+        <div class="row active">
+          <div class="av d" style="background: oklch(0.52 0.14 80)">DE<span class="badge on"></span></div>
+          <div class="txt"><p class="l1">default-agent</p><p class="l2 mono">default-agent</p></div>
+          <span class="dev">mac-mini</span>
+        </div>
+
+        <div class="row">
+          <div class="av d" style="background: oklch(0.52 0.14 30)">PL<span class="badge on"></span></div>
+          <div class="txt"><p class="l1">plato</p><p class="l2 mono">plato</p></div>
+          <span class="dev">mac-mini</span>
+        </div>
+
+        <div class="row hover">
+          <div class="av d" style="background: oklch(0.52 0.14 95)">HU<span class="badge on"></span></div>
+          <div class="txt"><p class="l1">hume</p><p class="l2 mono">hume</p></div>
+          <span class="dev">macbook-air</span>
+        </div>
+
+        <!-- 设备设置了别名:与 Account 页一致显示别名(alias || node_name) -->
+        <div class="row">
+          <div class="av d" style="background: oklch(0.52 0.14 20)">LU<span class="badge on"></span></div>
+          <div class="txt"><p class="l1">luban</p><p class="l2 mono">luban</p></div>
+          <span class="dev">工作室</span>
+        </div>
+
+        <!-- 归属设备离线:角标灰,设备名照常显示(不变灰) -->
+        <div class="row">
+          <div class="av d" style="background: oklch(0.52 0.14 70)">SP<span class="badge off"></span></div>
+          <div class="txt"><p class="l1">SpecLab Architect</p><p class="l2 mono">sdexp-architect-504</p></div>
+          <span class="dev">macbook-air</span>
+        </div>
+
+        <!-- 无归属信息:右缘留空,不显示占位符 -->
+        <div class="row">
+          <div class="av d" style="background: oklch(0.52 0.14 150)">ST<span class="badge off"></span></div>
+          <div class="txt"><p class="l1">standalone-bot</p><p class="l2 mono">standalone-bot</p></div>
+        </div>
+
+        <!-- 超长 Agent ID:截 id(今天本就截),设备名永远完整 -->
+        <div class="row">
+          <div class="av d" style="background: oklch(0.52 0.14 200)">MI<span class="badge on"></span></div>
+          <div class="txt"><p class="l1">Migration Verify 20260816</p><p class="l2 mono">migration-verification-2026…</p></div>
+          <span class="dev">macbook-air</span>
+        </div>
+
+        <!-- 超长设备名(防御):只截设备名,名字两行不动 -->
+        <div class="row">
+          <div class="av d" style="background: oklch(0.52 0.14 260)">WO<span class="badge on"></span></div>
+          <div class="txt"><p class="l1">workstation</p><p class="l2 mono">workstation</p></div>
+          <span class="dev">my-very-long-workst…</span>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 移动端:浅底全宽 ═══ -->
+  <div>
+    <p class="panel-label">移动端 · 浅底全宽(第二行为 description)</p>
+    <div class="frame sb-m">
+      <header><h1 class="t">Agents</h1><button class="new">+ New</button></header>
+      <div class="rows">
+
+        <div class="row active">
+          <div class="av m" style="background: oklch(0.52 0.14 80)">DE<span class="badge on"></span></div>
+          <div class="txt"><p class="l1">default-agent</p><p class="l2">Runtime agent advertised by demo-node.</p></div>
+          <div class="meta"><span class="dev">mac-mini</span><span class="chev">›</span></div>
+        </div>
+
+        <div class="row">
+          <div class="av m" style="background: oklch(0.52 0.14 95)">HU<span class="badge on"></span></div>
+          <div class="txt"><p class="l1">hume</p><p class="l2">Answers with related clauses.</p></div>
+          <div class="meta"><span class="dev">macbook-air</span><span class="chev">›</span></div>
+        </div>
+
+        <div class="row">
+          <div class="av m" style="background: oklch(0.52 0.14 70)">SP<span class="badge off"></span></div>
+          <div class="txt"><p class="l1">SpecLab Architect</p><p class="l2">Designs spec experiments.</p></div>
+          <div class="meta"><span class="dev">macbook-air</span><span class="chev">›</span></div>
+        </div>
+
+        <div class="row">
+          <div class="av m" style="background: oklch(0.52 0.14 150)">ST<span class="badge off"></span></div>
+          <div class="txt"><p class="l1">standalone-bot</p><p class="l2">No owning node.</p></div>
+          <div class="meta"><span class="chev">›</span></div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 颜色修复 before / after ═══ -->
+<div class="notes">
+  <h2>既有 bug 修复:首页侧栏桌面端深底深字(本 unit 并入)</h2>
+  <div class="before-after">
+    <div class="ba-card">
+      <div class="cap">Before · 今天的首页侧栏(名字近乎不可见)</div>
+      <div class="ba-row ba-old">
+        <div class="av d" style="background: oklch(0.52 0.14 30)">PL<span class="badge on"></span></div>
+        <div class="txt"><p class="l1">plato</p><p class="l2 mono">plato</p></div>
+      </div>
+    </div>
+    <div class="ba-card">
+      <div class="cap">After · 与详情页侧栏统一</div>
+      <div class="ba-row">
+        <div class="av d" style="background: oklch(0.52 0.14 30)">PL<span class="badge on"></span></div>
+        <div class="txt"><p class="l1">plato</p><p class="l2 mono">plato</p></div>
+      </div>
+    </div>
+  </div>
+
+  <h2 style="margin-top:32px">视觉规范(三者字号 / 字色 / 字重)</h2>
+  <table>
+    <tr><th>元素</th><th>桌面 · 普通</th><th>桌面 · 选中</th><th>移动端</th></tr>
+    <tr>
+      <td>显示名</td>
+      <td>13px semibold sans · <span class="sw" style="background:oklch(0.86 0.01 240)"></span>oklch(0.86 0.01 240)</td>
+      <td>13px semibold · #fff</td>
+      <td>15px semibold · <span class="sw" style="background:oklch(0.14 0.01 240)"></span>oklch(0.14 0.01 240)</td>
+    </tr>
+    <tr>
+      <td>Agent ID / description</td>
+      <td>11px mono · <span class="sw" style="background:oklch(0.64 0.01 240)"></span>oklch(0.64 0.01 240)</td>
+      <td>11px mono · <span class="sw" style="background:oklch(0.70 0.01 240)"></span>oklch(0.70 0.01 240)</td>
+      <td>12.5px sans · <span class="sw" style="background:oklch(0.55 0.01 240)"></span>oklch(0.55 0.01 240)</td>
+    </tr>
+    <tr>
+      <td><span class="mark">★</span> 设备名</td>
+      <td>11px sans · <span class="sw" style="background:oklch(0.55 0.01 240)"></span>oklch(0.55 0.01 240)</td>
+      <td>11px sans · <span class="sw" style="background:oklch(0.64 0.01 240)"></span>oklch(0.64 0.01 240)</td>
+      <td>12px sans · <span class="sw" style="background:oklch(0.60 0.01 240)"></span>oklch(0.60 0.01 240)</td>
+    </tr>
+  </table>
+  <p style="margin-top:10px">
+    层级理据:深底上明度阶梯 显示名(0.86)&gt; ID(0.64)&gt; 设备名(0.55),读出主次;设备名用 sans 与 ID 的 mono 区分,避免被误认成第二个 ID;离线不变灰——状态只由头像角标表达,避免双重编码。
+    取值:与 Account 页同优先级 <code>alias || node_name</code>(如「工作室」行);节点表查不到回退 <code>node_id</code>,无归属则不渲染。
+    排布:桌面设备名右对齐、与第二行同基线;移动端设备名占原圆点位(右列上层),「›」在其下。截断规则:显示名 / ID 截断行为与今天完全一致;设备名仅自身超长才截断,永不挤压名字两行。
+  </p>
+</div>
+
+</body>
+</html>
