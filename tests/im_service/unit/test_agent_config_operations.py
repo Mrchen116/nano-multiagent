@@ -39,6 +39,7 @@ def test_gateway_candidate_uses_gateway_canonical_values() -> None:
         "tool_allowlist": ["read"],
         "group_reply_policy": "manual",
         "default_model": "model-a",
+        "model_fallbacks": [],
         "reasoning_effort": "high",
         "workspace_root": "/srv/agent-1",
         "features": {"heartbeat": True},

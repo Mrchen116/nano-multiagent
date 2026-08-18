@@ -90,6 +90,7 @@ class ConfigService:
         custom_prompt: str | None = None,
         skills_selection_mode: str | None = None,
         notify_config_sync: bool = True,
+        model_fallbacks: list[str] | None = None,
     ) -> AgentProfile:
         """Create one agent profile under exactly one known node."""
         existing = self._profiles.get_profile(agent_id=agent_id)
@@ -127,6 +128,7 @@ class ConfigService:
             features=features,
             custom_prompt=custom_prompt,
             skills_selection_mode=skills_selection_mode,
+            model_fallbacks=model_fallbacks,
         )
         # feat-340-M18 R9-1: pair every newly-created agent with an IM users row so the
         # subsequent `POST /im/v1/conversations { participant_ids: [user_id] }` flow
@@ -158,6 +160,7 @@ class ConfigService:
         features: dict[str, bool],
         custom_prompt: str | None,
         skills_selection_mode: str | None = None,
+        model_fallbacks: list[str] | None = None,
     ) -> AgentProfile:
         """Claim the exact Gateway registration seed for an active create operation."""
         if self._nodes is None:
@@ -185,6 +188,7 @@ class ConfigService:
             features=features,
             custom_prompt=custom_prompt,
             skills_selection_mode=skills_selection_mode,
+            model_fallbacks=model_fallbacks,
         )
         if claimed is None:
             raise ValueError("agent_id already exists")
@@ -224,6 +228,7 @@ class ConfigService:
         features: dict[str, bool],
         custom_prompt: str | None,
         skills_selection_mode: str | None = None,
+        model_fallbacks: list[str] | None = None,
     ) -> AgentProfile:
         """Claim a matching Gateway create operation after a lost response.
 
@@ -261,6 +266,7 @@ class ConfigService:
             features=features,
             custom_prompt=custom_prompt,
             skills_selection_mode=skills_selection_mode,
+            model_fallbacks=model_fallbacks,
         )
         if claimed is None:
             raise ValueError("agent_id already exists")
@@ -391,6 +397,7 @@ class ConfigService:
         heartbeat_json: str | None = None,
         skills_selection_mode: str | None = None,
         notify_config_sync: bool = True,
+        model_fallbacks: list[str] | None = None,
     ) -> AgentProfile:
         """Update one agent profile using profile_version optimistic locking.
 
@@ -425,6 +432,7 @@ class ConfigService:
             custom_prompt=custom_prompt,
             heartbeat_json=heartbeat_json,
             skills_selection_mode=skills_selection_mode,
+            model_fallbacks=model_fallbacks,
         )
         if notify_config_sync:
             self._notify_config_sync(

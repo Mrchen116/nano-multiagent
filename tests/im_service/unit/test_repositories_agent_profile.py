@@ -289,3 +289,37 @@ def test_update_profile_preserves_non_default_workspace_root(tmp_path: Path) -> 
         f"update_profile 后 workspace_root 应保持 {custom_ws!r}，"
         f"实际变为 {profile_after.workspace_root!r}（被错误改写）"
     )
+
+
+def test_model_fallbacks_roundtrip_and_missing_column_defaults_empty(tmp_path: Path) -> None:
+    users, _, _, profiles, _, _ = _build_repositories(tmp_path)
+    owner_user = users.create_user(username="owner", display_name="Owner")
+    agent_user = users.create_user(username="agent-fb", display_name="Fallback")
+    seeded = profiles.upsert_profile(
+        agent_id=agent_user.id,
+        owner_id=owner_user.owner_id,
+        display_name="Fallback",
+        description="",
+        skills=[],
+        tool_allowlist=[],
+        group_reply_policy="manual",
+        default_model="primary",
+        workspace_root=None,
+    )
+    assert seeded.model_fallbacks == []
+
+    updated = profiles.update_profile(
+        agent_id=agent_user.id,
+        profile_version=seeded.profile_version,
+        display_name="Fallback",
+        description="",
+        skills=[],
+        tool_allowlist=[],
+        group_reply_policy="manual",
+        default_model="primary",
+        model_fallbacks=["backup", "third"],
+    )
+    assert updated.model_fallbacks == ["backup", "third"]
+    reloaded = profiles.get_profile(agent_id=agent_user.id)
+    assert reloaded is not None
+    assert reloaded.model_fallbacks == ["backup", "third"]

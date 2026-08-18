@@ -48,6 +48,7 @@ class AgentConfigResponse(BaseModel):
     tool_allowlist: list[str]
     group_reply_policy: str
     default_model: str | None
+    model_fallbacks: list[str] = Field(default_factory=list)
     reasoning_effort: str | None = None
     workspace_root: str | None
     workspace_is_default: bool | None
@@ -77,6 +78,7 @@ class UpdateAgentConfigRequest(BaseModel):
     tool_allowlist: list[str] = Field(default_factory=list)
     group_reply_policy: str = Field(min_length=1)
     default_model: str | None = None
+    model_fallbacks: list[str] = Field(default_factory=list)
     reasoning_effort: str | None = None
     # feat-379-M5 (ISSUE-2): per-agent feature flags and custom prompt supplement
     features: dict[str, bool] = Field(default_factory=dict)
@@ -266,6 +268,7 @@ def to_agent_config_response(
         tool_allowlist=profile.tool_allowlist,
         group_reply_policy=profile.group_reply_policy,
         default_model=profile.default_model,
+        model_fallbacks=list(profile.model_fallbacks),
         reasoning_effort=profile.reasoning_effort,
         workspace_root=service.workspace_root_for_profile(profile),
         workspace_is_default=service.workspace_is_default_for_profile(profile),
@@ -295,6 +298,7 @@ def _merge_live_agent_profile(
     group_reply_policy = payload.get("group_reply_policy")
     default_model = payload.get("default_model")
     reasoning_effort = payload.get("reasoning_effort")
+    model_fallbacks = payload.get("model_fallbacks")
     return AgentProfile(
         agent_id=profile.agent_id,
         owner_id=profile.owner_id,
@@ -322,6 +326,9 @@ def _merge_live_agent_profile(
         default_model=default_model
         if isinstance(default_model, str) or default_model is None
         else profile.default_model,
+        model_fallbacks=[item for item in model_fallbacks if isinstance(item, str)]
+        if isinstance(model_fallbacks, list)
+        else profile.model_fallbacks,
         reasoning_effort=(
             reasoning_effort
             if isinstance(reasoning_effort, str) or reasoning_effort is None
@@ -566,6 +573,7 @@ async def update_agent_config(
                 "tool_allowlist": list(payload.tool_allowlist),
                 "group_reply_policy": payload.group_reply_policy,
                 "default_model": payload.default_model,
+                "model_fallbacks": list(payload.model_fallbacks),
                 "features": dict(payload.features),
             }
         )

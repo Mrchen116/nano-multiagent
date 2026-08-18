@@ -49,6 +49,7 @@ def test_agent_config_contract_shape_and_conflict_status(tmp_path: Path) -> None
             "tool_allowlist",
             "group_reply_policy",
             "default_model",
+            "model_fallbacks",
             "reasoning_effort",
             "workspace_root",
             "workspace_is_default",
@@ -60,6 +61,7 @@ def test_agent_config_contract_shape_and_conflict_status(tmp_path: Path) -> None
         }
         assert response.json()["workspace_root"] is None
         assert response.json()["workspace_is_default"] is None
+        assert response.json()["model_fallbacks"] == []
 
 
 @pytest.mark.parametrize(
@@ -160,6 +162,7 @@ def test_patch_agent_config_persists_features_and_custom_prompt(tmp_path: Path) 
                 "tool_allowlist": ["memory"],
                 "group_reply_policy": "manual",
                 "default_model": None,
+                "model_fallbacks": ["backup"],
                 "features": {"memory_curation": False},
                 "custom_prompt": "You are a helpful chef.",
             },
@@ -173,6 +176,7 @@ def test_patch_agent_config_persists_features_and_custom_prompt(tmp_path: Path) 
         assert body["custom_prompt"] == "You are a helpful chef.", (
             f"custom_prompt not persisted: {body}"
         )
+        assert body["model_fallbacks"] == ["backup"]
 
         # GET must return the same values (proves DB write, not just response echo)
         get_resp = client.get("/im/v1/agents/agent-persist/config?source=mirror")
@@ -180,6 +184,7 @@ def test_patch_agent_config_persists_features_and_custom_prompt(tmp_path: Path) 
         get_body = get_resp.json()
         assert get_body["features"] == {"memory_curation": False}
         assert get_body["custom_prompt"] == "You are a helpful chef."
+        assert get_body["model_fallbacks"] == ["backup"]
 
 
 def test_node_capabilities_contract_shape(

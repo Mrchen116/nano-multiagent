@@ -31,7 +31,7 @@ class AgentProfileRepository:
         rows = self._connection.execute(
             """
             SELECT agent_id, owner_id, node_id, display_name, description, skills_json, skills_selection_mode,
-                   tool_allowlist_json, group_reply_policy, default_model, reasoning_effort,
+                   tool_allowlist_json, group_reply_policy, default_model, model_fallbacks_json, reasoning_effort,
                    workspace_root, workspace_is_default, profile_version,
                    is_stale, features_json, custom_prompt, heartbeat_json
             FROM agent_profiles
@@ -52,7 +52,7 @@ class AgentProfileRepository:
         rows = self._connection.execute(
             """
             SELECT ap.agent_id, ap.owner_id, ap.node_id, ap.display_name, ap.description, ap.skills_json, ap.skills_selection_mode,
-                   ap.tool_allowlist_json, ap.group_reply_policy, ap.default_model, ap.reasoning_effort,
+                   ap.tool_allowlist_json, ap.group_reply_policy, ap.default_model, ap.model_fallbacks_json, ap.reasoning_effort,
                    ap.workspace_root, ap.workspace_is_default, ap.profile_version,
                    ap.is_stale, ap.features_json, ap.custom_prompt, ap.heartbeat_json
             FROM agent_profiles ap
@@ -84,7 +84,7 @@ class AgentProfileRepository:
         rows = self._connection.execute(
             """
             SELECT ap.agent_id, ap.owner_id, ap.node_id, ap.display_name, ap.description, ap.skills_json, ap.skills_selection_mode,
-                   ap.tool_allowlist_json, ap.group_reply_policy, ap.default_model, ap.reasoning_effort,
+                   ap.tool_allowlist_json, ap.group_reply_policy, ap.default_model, ap.model_fallbacks_json, ap.reasoning_effort,
                    ap.workspace_root, ap.workspace_is_default, ap.profile_version,
                    ap.is_stale, ap.features_json, ap.custom_prompt, ap.heartbeat_json
             FROM agent_profiles ap
@@ -129,7 +129,7 @@ class AgentProfileRepository:
         row = self._connection.execute(
             """
             SELECT agent_id, owner_id, node_id, display_name, description, skills_json, skills_selection_mode,
-                   tool_allowlist_json, group_reply_policy, default_model, reasoning_effort,
+                   tool_allowlist_json, group_reply_policy, default_model, model_fallbacks_json, reasoning_effort,
                    workspace_root, workspace_is_default, profile_version,
                    is_stale, features_json, custom_prompt, heartbeat_json
             FROM agent_profiles
@@ -180,10 +180,10 @@ class AgentProfileRepository:
                 INSERT INTO agent_profiles(
                     agent_id, owner_id, node_id, display_name, description,
                     skills_json, skills_selection_mode, tool_allowlist_json, group_reply_policy,
-                    default_model, reasoning_effort, workspace_root, workspace_is_default,
+                    default_model, model_fallbacks_json, reasoning_effort, workspace_root, workspace_is_default,
                     registration_seed, pending_create_operation_id, profile_version,
                     created_at, updated_at, features_json, custom_prompt
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, '{}'), ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, '{}'), ?)
                 ON CONFLICT(agent_id) DO UPDATE SET
                     owner_id = excluded.owner_id,
                     node_id = excluded.node_id,
@@ -228,6 +228,7 @@ class AgentProfileRepository:
                     tool_allowlist_json,
                     group_reply_policy,
                     default_model,
+                    "[]",
                     reasoning_effort,
                     workspace_root,
                     None if workspace_is_default is None else int(workspace_is_default),
@@ -279,6 +280,7 @@ class AgentProfileRepository:
         features: dict[str, bool],
         custom_prompt: str | None,
         skills_selection_mode: str | None = None,
+        model_fallbacks: list[str] | None = None,
     ) -> AgentProfile | None:
         """Atomically claim only the seed matching its Gateway-owned workspace."""
         with self._connection:
@@ -287,7 +289,7 @@ class AgentProfileRepository:
                 UPDATE agent_profiles
                 SET owner_id = ?, display_name = ?, description = ?,
                     skills_json = ?, skills_selection_mode = ?, tool_allowlist_json = ?,
-                    group_reply_policy = ?, default_model = ?, reasoning_effort = ?,
+                    group_reply_policy = ?, default_model = ?, model_fallbacks_json = ?, reasoning_effort = ?,
                     features_json = ?, custom_prompt = ?, updated_at = ?,
                     is_stale = 0, staled_at = NULL, registration_seed = 0,
                     pending_create_operation_id = NULL
@@ -304,6 +306,7 @@ class AgentProfileRepository:
                     _encode_json_list(tool_allowlist),
                     group_reply_policy,
                     default_model,
+                    _encode_json_list(model_fallbacks or []),
                     reasoning_effort,
                     json.dumps(features, ensure_ascii=False),
                     custom_prompt,
@@ -451,6 +454,7 @@ class AgentProfileRepository:
         features: dict[str, bool],
         custom_prompt: str | None,
         skills_selection_mode: str | None = None,
+        model_fallbacks: list[str] | None = None,
     ) -> AgentProfile | None:
         """Finalize exactly one matching Gateway create operation.
 
@@ -464,7 +468,7 @@ class AgentProfileRepository:
                 UPDATE agent_profiles
                 SET owner_id = ?, display_name = ?, description = ?,
                     skills_json = ?, skills_selection_mode = ?, tool_allowlist_json = ?,
-                    group_reply_policy = ?, default_model = ?, reasoning_effort = ?,
+                    group_reply_policy = ?, default_model = ?, model_fallbacks_json = ?, reasoning_effort = ?,
                     features_json = ?, custom_prompt = ?, updated_at = ?,
                     is_stale = 0, staled_at = NULL, registration_seed = 0,
                     pending_create_operation_id = NULL
@@ -492,6 +496,7 @@ class AgentProfileRepository:
                     _encode_json_list(tool_allowlist),
                     group_reply_policy,
                     default_model,
+                    _encode_json_list(model_fallbacks or []),
                     reasoning_effort,
                     json.dumps(features, ensure_ascii=False),
                     custom_prompt,
@@ -549,6 +554,7 @@ class AgentProfileRepository:
         features: dict[str, bool] | None = None,
         custom_prompt: str | None = None,
         skills_selection_mode: str | None = None,
+        model_fallbacks: list[str] | None = None,
     ) -> AgentProfile:
         """Insert one new profile without replacement semantics.
 
@@ -566,10 +572,10 @@ class AgentProfileRepository:
                     INSERT INTO agent_profiles(
                         agent_id, owner_id, node_id, display_name, description,
                         skills_json, skills_selection_mode, tool_allowlist_json, group_reply_policy,
-                        default_model, reasoning_effort, workspace_root, workspace_is_default,
+                        default_model, model_fallbacks_json, reasoning_effort, workspace_root, workspace_is_default,
                         profile_version, created_at, updated_at, features_json,
                         custom_prompt
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, COALESCE(?, '{}'), ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, COALESCE(?, '{}'), ?)
                     """,
                     (
                         agent_id,
@@ -582,6 +588,7 @@ class AgentProfileRepository:
                         _encode_json_list(tool_allowlist),
                         group_reply_policy,
                         default_model,
+                        _encode_json_list(model_fallbacks or []),
                         reasoning_effort,
                         workspace_root,
                         None
@@ -657,6 +664,7 @@ class AgentProfileRepository:
         custom_prompt: str | None = None,
         heartbeat_json: str | None = None,
         skills_selection_mode: str | None = None,
+        model_fallbacks: list[str] | None = None,
     ) -> "AgentProfile":
         """Update a profile with optimistic locking on profile_version.
 
@@ -691,6 +699,11 @@ class AgentProfileRepository:
             if skills_selection_mode is not None
             else current.skills_selection_mode
         )
+        resolved_model_fallbacks = (
+            model_fallbacks
+            if model_fallbacks is not None
+            else list(current.model_fallbacks)
+        )
         with self._connection:
             cursor = self._connection.execute(
                 """
@@ -702,6 +715,7 @@ class AgentProfileRepository:
                     tool_allowlist_json = ?,
                     group_reply_policy = ?,
                     default_model = ?,
+                    model_fallbacks_json = ?,
                     reasoning_effort = ?,
                     profile_version = ?,
                     updated_at = ?,
@@ -720,6 +734,7 @@ class AgentProfileRepository:
                     _encode_json_list(tool_allowlist),
                     group_reply_policy,
                     default_model,
+                    _encode_json_list(resolved_model_fallbacks),
                     reasoning_effort,
                     next_version,
                     updated_at,
@@ -795,6 +810,11 @@ class AgentProfileRepository:
             tool_allowlist=_decode_string_list(row["tool_allowlist_json"]),
             group_reply_policy=row["group_reply_policy"],
             default_model=row["default_model"],
+            model_fallbacks=(
+                _decode_string_list(row["model_fallbacks_json"])
+                if "model_fallbacks_json" in keys and row["model_fallbacks_json"]
+                else []
+            ),
             reasoning_effort=row["reasoning_effort"],
             workspace_root=row["workspace_root"],
             workspace_is_default=(

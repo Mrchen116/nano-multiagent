@@ -29,6 +29,7 @@ _GATEWAY_CONFIG_KEYS = (
     "tool_allowlist",
     "group_reply_policy",
     "default_model",
+    "model_fallbacks",
     "reasoning_effort",
     "workspace_root",
     "features",
@@ -336,6 +337,9 @@ class AgentConfigOperationCoordinator:
         default_model = _optional_text_from_result(
             result_agent, "default_model", fallback=candidate.get("default_model")
         )
+        model_fallbacks = _string_list_from_result(
+            result_agent, "model_fallbacks", fallback=candidate.get("model_fallbacks")
+        )
         reasoning_effort = _optional_text_from_result(
             result_agent,
             "reasoning_effort",
@@ -392,6 +396,7 @@ class AgentConfigOperationCoordinator:
                     tool_allowlist=tool_allowlist,
                     group_reply_policy=group_reply_policy,
                     default_model=default_model,
+                    model_fallbacks=model_fallbacks,
                     reasoning_effort=reasoning_effort,
                     features=features,
                     custom_prompt=custom_prompt,
@@ -415,6 +420,7 @@ class AgentConfigOperationCoordinator:
             tool_allowlist=tool_allowlist,
             group_reply_policy=group_reply_policy,
             default_model=default_model,
+            model_fallbacks=model_fallbacks,
             reasoning_effort=reasoning_effort,
             workspace_root=workspace_root,
             workspace_is_default=workspace_is_default,
@@ -458,6 +464,11 @@ class AgentConfigOperationCoordinator:
             or "manual",
             default_model=_optional_text_from_result(
                 result_agent, "default_model", fallback=candidate.get("default_model")
+            ),
+            model_fallbacks=_string_list_from_result(
+                result_agent,
+                "model_fallbacks",
+                fallback=candidate.get("model_fallbacks"),
             ),
             reasoning_effort=_optional_text_from_result(
                 result_agent,
@@ -533,6 +544,7 @@ def candidate_from_profile(
         "tool_allowlist": list(profile.tool_allowlist),
         "group_reply_policy": profile.group_reply_policy,
         "default_model": profile.default_model,
+        "model_fallbacks": list(profile.model_fallbacks),
         "reasoning_effort": profile.reasoning_effort,
         "workspace_root": service.workspace_root_for_profile(profile),
         "features": dict(profile.features),
@@ -555,6 +567,7 @@ def gateway_candidate(candidate: dict[str, object]) -> dict[str, object]:
         )
         or "manual",
         "default_model": _optional_operation_text(candidate.get("default_model")),
+        "model_fallbacks": _operation_string_list(candidate.get("model_fallbacks")),
         "reasoning_effort": _optional_operation_text(candidate.get("reasoning_effort")),
         "workspace_root": _optional_operation_text(candidate.get("workspace_root")),
         "features": {

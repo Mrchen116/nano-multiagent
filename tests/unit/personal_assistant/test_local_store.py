@@ -449,6 +449,7 @@ def test_parse_agents_defaults_new_fields_to_none(tmp_path: Path) -> None:
     assert not hasattr(agent, "system_prompt")
     assert agent.group_reply_policy is None
     assert agent.default_model is None
+    assert agent.model_fallbacks == ()
     assert agent.skills == ()
     from personal_assistant.product import DEFAULT_TOOL_IDS
 
@@ -494,6 +495,39 @@ def test_parse_agents_loads_extended_fields(tmp_path: Path) -> None:
     assert agent.tool_allowlist == ("Read", "Write")
     assert agent.group_reply_policy == "always"
     assert agent.default_model == "codex_oauth:gpt-5.5"
+    assert agent.model_fallbacks == ()
+
+
+def test_parse_agents_loads_model_fallbacks(tmp_path: Path) -> None:
+    """YAML model_fallbacks round-trip; missing field stays empty."""
+    config_path = tmp_path / "node-config.yaml"
+    workspace_root = tmp_path / "agents" / "a"
+    workspace_root.mkdir(parents=True)
+    config_path.write_text(
+        "\n".join(
+            [
+                "node:",
+                "  node_id: n1",
+                "agents:",
+                "  - agent_id: agent-a",
+                f"    workspace_root: {workspace_root}",
+                "    default_model: kimiCoding:K2.6",
+                "    model_fallbacks:",
+                "      - codex_oauth:gpt-5.5",
+            ]
+        )
+        + "\n"
+        + _LLM_YAML,
+        encoding="utf-8",
+    )
+
+    config = load_local_config(config_path)
+    assert config.agents[0].model_fallbacks == ("codex_oauth:gpt-5.5",)
+
+    saved_path = tmp_path / "saved-config.yaml"
+    save_local_config(config, saved_path)
+    reloaded = load_local_config(saved_path)
+    assert reloaded.agents[0].model_fallbacks == ("codex_oauth:gpt-5.5",)
 
 
 def test_parse_agents_explicit_empty_tool_allowlist_is_preserved(
@@ -921,6 +955,7 @@ def test_save_local_config_omits_none_fields(tmp_path: Path) -> None:
     assert "system_prompt" not in agent_raw
     assert "group_reply_policy" not in agent_raw
     assert "default_model" not in agent_raw
+    assert "model_fallbacks" not in agent_raw
     assert "title" not in agent_raw
     # Empty tuples should also be absent
     assert "skills" not in agent_raw

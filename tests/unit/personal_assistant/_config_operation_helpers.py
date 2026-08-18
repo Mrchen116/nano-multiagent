@@ -51,6 +51,7 @@ def _agent_payload(agent: AgentWorkspaceConfig) -> dict[str, object]:
         "tool_allowlist": list(agent.tool_allowlist),
         "group_reply_policy": agent.group_reply_policy or "manual",
         "default_model": agent.default_model,
+        "model_fallbacks": list(agent.model_fallbacks),
         "reasoning_effort": agent.reasoning_effort,
         "workspace_root": str(agent.workspace_root),
         "features": dict(agent.features),
