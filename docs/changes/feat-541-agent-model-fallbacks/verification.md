@@ -137,3 +137,82 @@ Worker 退出标准对照：
 ## Corrected Delta Reconciliation
 
 N/A（`verification_mode=full`）
+
+# Round 2
+
+> Validation snapshot: `f6c4c223d → be74b878f`
+
+## Summary
+
+Mode: targeted-closure
+Delta range: `e2b77493c..be74b878f`
+Focus issues: 心跳/cron failover 循环无测；直聊已粘备用后心跳复用同一 session 无测；整链耗尽无测；1440/375 截图未落 unit 目录
+requires_full_verification: false
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 4/4 focus issues 关闭；M1 截图退出标准可证明 |
+| Correctness | 相关 scenario 现有回归测试；断言对得上 WHEN/THEN |
+| Coherence | Followed；delta 未触及架构边界 |
+
+All checks passed. Ready for PR.
+
+R1 四条 WARNING 均已关闭。Delta 另修了 apply 指纹漏 `model_fallbacks`（只改编用无法落盘），属既有 apply 机制补字段，不是平行选模。R1 SUGGESTION-2（前端清空 PATCH）一并关闭；R1 SUGGESTION-1（`/new` / 另一聊天无专测）仍开放、不阻塞。
+
+## Completeness
+
+Worker 退出标准对照（只核 focus 相关项）：
+
+| 退出标准 | 本轮状态 |
+|---|---|
+| 心跳/cron `kind` 可换则 replay、拒绝则收口 | 关闭：`failover_unattended_run` 现有 quota / context_length / rejected / 整链耗尽单测 |
+| 心跳复用 canonical 直聊时共享粘性 | 关闭：真实 `InProcessKernelClient` + 共享 `ModelStickyStore` + `HeartbeatScheduler.tick` |
+| 整链耗尽留下失败、不伪装成功 | 关闭：聊天 + unattended 两条 |
+| 真实浏览器 1440/375 截图落 unit 目录 | 关闭：8 张 PNG 在 `M1-impl/screenshots/`，`progress.md` 写了路径 |
+
+## Correctness
+
+| Focus / Scenario | 实现位置 | 测试覆盖 | 状态 |
+|---|---|---|---|
+| W1 心跳/cron failover 循环 | `heartbeat_runner.py:347`、`cron_execution_service.py:486` → `model_fallback.py:152` | `test_unattended_quota_replays_backup_and_notices_once`（replay 无 `parts`、notice 一次、sticky noticed）；`test_unattended_context_length_does_not_replay`；`test_unattended_rejected_replay_sticks_next_candidate` | **closed** |
+| W2 直聊已粘备用后心跳复用同一 session | `heartbeat_scheduler.py:446-449,518-528` `_admit_model(..., session_id=)`；`kernel_client.py:247-255` | `test_heartbeat_reuses_canonical_session_sticky_model`：sticky=`backup` 写在 `canonical-sess`，`submit` 捕获 `model=="backup"` 且 `session_id=="canonical-sess"` | **closed** |
+| W3 整链耗尽 | 聊天 `session_run_coordinator.py:2200-2201`；unattended `model_fallback.py:185-186` | `test_exhausted_chain_stays_failed_without_switch_notice`：两次 replay、无「已改用」、`RuntimeError`、`submit_calls==1`；`test_unattended_exhausted_chain_stays_failed_without_notice`：两次 reconfigure/replay、无 notice、仍 failed | **closed** |
+| W4 1440/375 截图 | `M1-impl/screenshots/*.png`；`progress.md:13-22` | desktop 1440×900 / mobile 375×812；新建折叠「备用 未设置」、编辑折叠「备用 1 个」、展开可见序号 select +「+ 添加备用」 | **closed** |
+| R1 S2 清空备用 PATCH | `agent-detail-page.test.tsx:609-648` | 删光后折叠「Fallbacks unset」，PATCH `model_fallbacks: []` | **closed**（非 focus，delta 顺带） |
+| apply 只改 fallbacks 能落盘 | `agent_config_sync.py:1605` `_agent_operation_payload` 补字段 | `test_config_operation_apply_persists_model_fallbacks` | 对齐 spec 保存路径；非平行机制 |
+
+本轮跑过：`pytest tests/unit/personal_assistant/test_unattended_model_admit.py tests/unit/personal_assistant/test_chat_model_failover.py tests/unit/personal_assistant/test_gateway_config_operations.py` → 21 passed。
+
+## Coherence
+
+| 检查 | 结果 |
+|---|---|
+| 决策 3：心跳显式 `model=candidates[0]`，canonical 共享粘性 | 遵守；本轮测试经真实 shim + scheduler，不再只测 fake admit |
+| 决策 6：只看 `error.kind` | unattended 测试按 kind 分支，不读 `reply_text` |
+| §4.3 架构 | payload 补 `model_fallbacks` 仍走既有 fingerprint/apply；PA 未 import `agent.core`；未把 fallbacks 塞进内核 |
+
+### Prototype / Reference Contract（focus 截图项）
+
+| Reference contract | Durable evidence | Status |
+|---|---|---|
+| 默认折叠：标签行右侧「备用 未设置」，不撑高 | `desktop-create-collapsed.png`（1440×900）、`mobile-create-collapsed.png`（375×812） | covered |
+| 已配仍折叠：「备用 N 个」 | `desktop-edit-collapsed.png` / `mobile-edit-collapsed.png`（「备用 1 个」） | covered |
+| 展开后添加/删除入口 | `*-create-expanded.png` / `*-edit-expanded.png` | covered |
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+无。
+
+### WARNING（提 PR 前必须修）
+
+无。
+
+### SUGGESTION（可以修）
+
+1. **（继承 R1）`/new` 与「另一聊天互不影响」无专门测试。** 粘性按 `kernel_session_id` 存放，行为是结构性的。若要锁契约，可在 `test_chat_model_failover.py` 加 chat-a sticky 后 chat-b 第一次 reconfigure 仍是链头。
+
+## Corrected Delta Reconciliation
+
+N/A（`verification_mode=targeted-closure`）
