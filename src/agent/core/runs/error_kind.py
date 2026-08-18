@@ -109,4 +109,9 @@ def _is_auth(provider_code: str, provider_type: str, blob: str) -> bool:
 def _is_overload(status: int | None, blob: str) -> bool:
     if status is not None and status >= 500:
         return True
-    return "overloaded" in blob or "overload" in blob
+    # 流在终态事件前被掐断：网络断开或供应商中途 abort，按服务不可用换模型。
+    return (
+        "overloaded" in blob
+        or "overload" in blob
+        or "stream ended without terminal" in blob
+    )

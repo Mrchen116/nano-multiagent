@@ -82,6 +82,24 @@ def test_overload_from_overloaded_text() -> None:
     assert project_model_error_kind(_error("model is overloaded")) == "overload"
 
 
+def test_truncated_stream_is_overload() -> None:
+    assert (
+        project_model_error_kind(
+            _error("anthropic: stream ended without terminal event")
+        )
+        == "overload"
+    )
+
+
+def test_openai_compat_truncated_stream_is_overload() -> None:
+    assert (
+        project_model_error_kind(
+            _error("openai_compat: stream ended without terminal event")
+        )
+        == "overload"
+    )
+
+
 def test_context_length_from_provider_code() -> None:
     assert (
         project_model_error_kind(

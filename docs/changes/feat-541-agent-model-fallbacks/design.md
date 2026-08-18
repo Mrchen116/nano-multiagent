@@ -114,9 +114,9 @@ Before：一次 submit，失败气泡没有模型名，整轮停住。After：�
 
 ### 决策 6: 何时换候选（Gateway 判定，不改内核分类器）
 
-**选了 Gateway 读 `run_status.error.kind`（SDK 投影），不 `except ModelError`、不 import `agent.core`。欠费/额度、过载/5xx、超时、限流、认证失败都换；上下文超长不换。不把 `retryable` 当作唯一开关。**
+**选了 Gateway 读 `run_status.error.kind`（SDK 投影），不 `except ModelError`、不 import `agent.core`。欠费/额度、过载/5xx、超时、限流、认证失败都换；上下文超长不换。不把 `retryable` 当作唯一开关。供应商流在终态事件前被掐断（`stream ended without terminal event`）投影为 `overload`。**
 
-- **理由**: 生产上 `ModelError` 被压成 `{code: "run_execution_failed", message: str(exc)}`，`agent.sdk` 也不导出该类型。认证失败在分类器里不可重试，但换另一家模型仍有意义。上下文超长走压缩路径。内核把既有分类结果投影成稳定 `kind`，不改 `error_classifier` 的重试表。
+- **理由**: 生产上 `ModelError` 被压成 `{code: "run_execution_failed", message: str(exc)}`，`agent.sdk` 也不导出该类型。认证失败在分类器里不可重试，但换另一家模型仍有意义。上下文超长走压缩路径。内核把既有分类结果投影成稳定 `kind`，不改 `error_classifier` 的重试表。truncated stream 是网络断开或供应商中途 abort，属于「服务挂了」，不是工具/逻辑失败。
 - **拒绝**: 只在 `retryable=True` 时换 — 认证失败将被漏掉。产品层解析 `⚠️` 字符串 — 文案一改就失效。把 failover 列表塞进内核 — 违反决策 1。
 - **风险**: `kind=other` 不换，避免把工具/逻辑失败当成模型可用性失败。写错的模型名若被标成 auth/not-found 仍会走进备用链；可接受。
 
