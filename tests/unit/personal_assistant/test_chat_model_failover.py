@@ -250,6 +250,10 @@ async def test_exhausted_chain_stays_failed_without_switch_notice(
     assert [call["run_id"] for call in kernel.replay_calls] == ["run-2", "run-3"]
     texts = [item.text for item in channel.sent]
     assert all("已改用" not in text for text in texts)
+    assert texts == [
+        "⚠️ 模型调用失败（backup-a）: quota",
+        "⚠️ 模型调用失败（backup-b）: quota",
+    ]
     observed_failures = [
         event["content"]
         for event in observed

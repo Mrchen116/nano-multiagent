@@ -2282,6 +2282,16 @@ class SessionRunCoordinator:
             anchor_sequence = replay.start_sequence
             if run_state.get("status") != "completed":
                 await self._flush_held_assistant_events(held)
+                # replay 不 emit accepted，observer 没有 delivery context，会丢掉
+                # 该 run 的失败气泡；成功路径靠回合结束的 _deliver_final_reply。
+                # 整链耗尽会 raise，走不到那里，所以每轮备用失败都在这里投出 ⚠️。
+                await self._deliver_final_reply(
+                    request=request,
+                    binding=binding,
+                    run_id=run_id,
+                    run_state=run_state,
+                    reply_text=reply_text,
+                )
                 continue
             chain_head = resolve_run_model(
                 agent.config, product_default=self._product_default_model
