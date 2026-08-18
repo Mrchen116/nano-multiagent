@@ -14,6 +14,8 @@ design.md Milestone 表退出标准 1-7、9 的用户可观察行为,在真实 I
 - 前端: `npm run dev -- --port 5410`,`VITE_IM_PROXY_TARGET=http://127.0.0.1:62686`。
 - 浏览器: playwright-cli,desktop 1280x720 / mobile 390x844(viewport resize)。
 
+- 2026-08-18 19:00 UTC: 应用 code-review 关闭项后,在 worktree 内重跑 `cd src/IM/frontend && npm test`: 69 files / 677 tests passed;`npx tsc -b` exit 0。额外改动:shared `initialsOf` 抽到 avatar.tsx、hover 改为 Tailwind 类、focus-visible 恢复、nodes queryKey 合并、`nodesPending` 防闪、nodes-page alias 编辑后失效 agents 缓存。
+
 ## 结果(逐退出标准)
 
 | # | 标准 | 结果 | 证据 |
