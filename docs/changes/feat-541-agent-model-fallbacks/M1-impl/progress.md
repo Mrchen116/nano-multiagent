@@ -10,7 +10,7 @@
 
 - `24ada38e8` 内核三条缝
 - `44b02de9c` 配置层 `model_fallbacks`
-- 本提交：Gateway 粘性 failover、心跳/cron 显式 admit、前端折叠入口
+- `6c1d51e1f` Gateway 粘性 failover、心跳/cron 显式 admit、前端折叠入口
 
 ## 命令结果
 
