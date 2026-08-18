@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const apiMocks = vi.hoisted(() => ({
   getAgentDetailState: vi.fn(),
   listAgentSummaries: vi.fn(),
+  listNodes: vi.fn(),
   listAgents: vi.fn(),
   navigate: vi.fn(),
 }));
@@ -30,6 +31,7 @@ vi.mock("../../../hooks/use-is-mobile", () => ({ useIsMobile: () => false }));
 vi.mock("./im-agent-config-api", () => ({
   getAgentDetailState: apiMocks.getAgentDetailState,
   listAgentSummaries: apiMocks.listAgentSummaries,
+  listNodes: apiMocks.listNodes,
   promptPreview: vi.fn(),
   updateAgentConfig: vi.fn(),
 }));
@@ -105,6 +107,7 @@ function renderDetail() {
 }
 
 beforeEach(() => {
+  apiMocks.listNodes.mockResolvedValue([]);
   apiMocks.listAgentSummaries.mockResolvedValue([
     {
       agent_id: "agent-1",

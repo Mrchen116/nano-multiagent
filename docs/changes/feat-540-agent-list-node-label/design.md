@@ -6,6 +6,8 @@
 
 ## Changelog
 
+- 2026-08-18 (M1): 决策 3 移动端显示名字色以现状 `oklch(0.18 0.01 240)` 为准(design 表与 prototype 误写 `0.14`,与决策 4「移动端不动」自相矛盾;实现与本文档已按现状值统一)。
+
 ## 现状分析
 
 ### 涉及范围
@@ -82,7 +84,7 @@ before(两份行实现,已漂移)                after(单一共享行组件)
 
 | 元素 | 桌面 · 普通 | 桌面 · 选中 | 移动端 |
 |---|---|---|---|
-| 显示名 | 13px semibold sans · `oklch(0.86 0.01 240)` | `#fff` | 15px semibold · `oklch(0.14 0.01 240)` |
+| 显示名 | 13px semibold sans · `oklch(0.86 0.01 240)` | `#fff` | 15px semibold · `oklch(0.18 0.01 240)` |
 | Agent ID / description | 11px mono · `oklch(0.64 0.01 240)` | `oklch(0.70 0.01 240)` | 12.5px sans · `oklch(0.55 0.01 240)` |
 | 设备名(新增) | 11px sans · `oklch(0.55 0.01 240)` | `oklch(0.64 0.01 240)` | 12px sans · `oklch(0.60 0.01 240)` |
 

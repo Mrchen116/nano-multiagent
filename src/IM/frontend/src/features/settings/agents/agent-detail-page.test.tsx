@@ -10,6 +10,7 @@ const apiMocks = vi.hoisted(() => ({
   createConversationMock: vi.fn(),
   listAgentsMock: vi.fn(),
   listAgentSummariesMock: vi.fn(),
+  listNodesMock: vi.fn(),
   navigateMock: vi.fn(),
   promptPreviewMock: vi.fn(),
   listAgentCronJobsMock: vi.fn(),
@@ -43,6 +44,7 @@ vi.mock("./im-agent-config-api", () => ({
   getAgentDetailState: apiMocks.getAgentDetailStateMock,
   updateAgentConfig: apiMocks.updateAgentConfigMock,
   listAgentSummaries: apiMocks.listAgentSummariesMock,
+  listNodes: apiMocks.listNodesMock,
   promptPreview: apiMocks.promptPreviewMock,
   listAgentCronJobs: apiMocks.listAgentCronJobsMock,
   deleteAgentCronJob: apiMocks.deleteAgentCronJobMock,
@@ -81,6 +83,7 @@ afterEach(() => {
   apiMocks.createConversationMock.mockReset();
   apiMocks.listAgentsMock.mockReset();
   apiMocks.listAgentSummariesMock.mockReset();
+  apiMocks.listNodesMock.mockReset();
   apiMocks.navigateMock.mockReset();
   apiMocks.promptPreviewMock.mockReset();
   apiMocks.listAgentCronJobsMock.mockReset();
@@ -92,9 +95,10 @@ afterEach(() => {
   apiMocks.updateAgentChannelMock.mockReset();
 });
 
-// Default listAgentSummaries so the desktop rail (R12-bis-1) doesn't break tests.
+// Default listAgentSummaries/listNodes so the desktop rail (R12-bis-1) doesn't break tests.
 beforeEach(() => {
   apiMocks.listAgentChannelsMock.mockResolvedValue([]);
+  apiMocks.listNodesMock.mockResolvedValue([]);
   apiMocks.listAgentSummariesMock.mockResolvedValue([
     { agent_id: "agent-core-1", display_name: "Core Planner", owner_id: "owner-1", description: "", profile_version: 1, default_model: null, workspace_root: "", workspace_is_default: false }
   ]);
