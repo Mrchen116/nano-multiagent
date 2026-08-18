@@ -340,3 +340,124 @@ Agent `feat541 r2 chat`：主模型 `volcanoArk:doubao-seed-2-0-code-preview-260
 2. 无备用 + 整链耗尽 — Scenario 没配备用 / 整链耗尽
 3. 心跳冒泡 — Scenario 心跳 tick
 4. 飞书测试 Bot 真发消息 — Scenario 外部通道说明
+
+---
+
+# Round 3 — 2026-08-18
+
+> Fast-lane 复验。Validation snapshot: `f6c4c223d → 60daaa6ac`。fix delta `965aab3c2..60daaa6ac`。
+>
+> 复用上轮上下文，只复验 R2 Issue 2。先 `e2e-down` 再 worktree `e2e-up.sh --main-config ~/.nanoassistant/config.yaml`（IM `http://127.0.0.1:49773`，Vite `http://127.0.0.1:51269`，`zh.json` 含「备用」×4）。未动 `:8011`。未扩回全旅程：派发包限定 targeted / Issue 2，同屏未见新副作用。
+
+## Verdict
+
+**fail**
+
+## Highest Required Action
+
+**fix-implementation**
+
+整条备用链都挂时，用户仍然只看到第一个候选的失败。本轮专门针对「备用失败气泡被收口丢掉」的修复之后，现象与 R2 相同。
+
+## 用户旅程体验
+
+### Journey J — 整链耗尽（Issue 2）
+
+Agent `feat541 r3 exhaust`（id `r541r3exh`）：主模型 `volcanoArk:doubao-seed-2-0-code-preview-260215`，备用 `mimo:mimo-v2.5-pro`。编辑页核过「备用 1 个」，展开后备用行确是 mimo。
+
+18:20 发「请只回复三个字：耗尽链」。约 18:28 出现：
+
+> ⚠️ 模型调用失败（volcanoArk:doubao-seed-2-0-code-preview-260215）:anthropic: stream ended without terminal event
+
+会话落到「失败」，⏱ 消失。等到 18:31 仍只有这一条带模型名的失败，没有 mimo 名、没有第二条失败、没有「已改用」、没有成功正文。约 19:23 再打开同一会话，画面不变。
+
+证据：`reviewer-r3/r3-config-verify.json`、`r3-edit-expanded.png`、`r3-chat-sent.png`、`r3-chat-settled.png`、`r3-chat-settled-body.txt`、`r3-chat-rewatch-end.png`、`r3-notes.json`。
+
+## Reference Artifacts Reviewed
+
+| Reference | Required contract | Actual product evidence | Viewport / state | Comparison conclusion |
+|---|---|---|---|---|
+| prototype.html 空配置卡 / 已配折叠 / 展开 / 清空 | 同 R1 must-match | 继承 R1 / R2 | desktop 1440 / mobile 375 | match（本轮未重跑配置页） |
+| prototype.html 聊天首次切换 | 失败气泡（含模型名）→「已改用」→ 正文 | 继承 R2 | Web IM 单聊 | match（本轮未重跑；R2 已关闭 Issue 1） |
+| prototype.html 飞书同一顺序 | 失败提示 → 说明 → 正文 | 继承 R2 | 飞书测试 Bot DM | match（本轮未重跑；R2 已关闭 Issue 3） |
+| spec「整条备用链都失败」 | 每个失败候选留下带该模型名的失败提示；无伪装成功 | `r3-chat-settled.png` | Web IM 单聊，主+备都会断流 | **deviation**：只有主模型一条失败 |
+
+## 问题清单
+
+### Issue 1 — 主模型失败后本轮没有改用备用 — **关闭（继承 R2）**
+
+### Issue 2 — 整条备用链失败时看不到每一个候选的失败 — **仍开放**
+
+- **Severity:** major
+- **Regression Relation:** direct
+- **Recommended Action:** fix-implementation
+- **Action Rationale:** 直接违反「整条备用链都失败时按现状失败呈现」：每个失败的候选都要留下带该模型名的失败提示。本轮已加载 `60daaa6ac` 后的隔离 Gateway，耗尽链仍只露出第一个候选。未给 `revise-design`：这是该问题的第一轮针对性修复复验，设计口径清楚，继续修实现。
+- **现象:** `feat541 r3 exhaust` 主 volcanoArk、备 mimo，18:20 发出后约 18:28 出现 volcanoArk 失败，会话停在「失败」。18:31 与 19:23 仍无 mimo 名、无第二条失败、无「已改用」、无伪装成功。
+- **期望 / 实际 / 步骤:**
+  - 期望：两条带模型名的失败（volcanoArk 与 mimo），没有「已改用」，没有成功正文。
+  - 实际：只有 volcanoArk 一条失败。
+  - 步骤：隔离栈新建 Agent → 主模型选 volcanoArk、备用选 mimo → 打开聊天发一条 → 等到本轮结束并再打开确认。
+- **证据:** `reviewer-r3/r3-chat-settled.png`、`r3-chat-settled-body.txt`、`r3-chat-rewatch-end.png`、`r3-notes.json`
+
+### Issue 3 — 飞书原 chat 看不到失败提示和切换说明 — **关闭（继承 R2）**
+
+## 验收标准覆盖
+
+本轮 Fast-lane：只更新 Issue 2 对应行；其余继承 R2。上下文超长 / 定时任务仍 inconclusive。
+
+### Requirement: Agent 配置页可设置有序备用模型，且默认不占地方 — 组内结论: pass（继承 R1/R2）
+
+| Scenario | 期望来源 | 验证方式(覆盖它的旅程) | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 默认折叠，主模型选择仍是重点 | spec.md；prototype.html | 继承 R1 | R1 | pass | 本轮未重跑 |
+| 展开后按序添加备用并保存 | spec.md；prototype.html | 本轮新建 r541r3exh 保存「备用 1 个」 | `r3-config-verify.json`、`r3-edit-expanded.png` | pass | 主 volcanoArk、备 mimo |
+| 清空备用后与从未配置等价 | spec.md；prototype.html | 继承 R1 | R1 | pass | 本轮未重跑 |
+
+### Requirement: 主模型因可用性失败时本轮改用备用并继续回复 — 组内结论: fail
+
+| Scenario | 期望来源 | 验证方式(覆盖它的旅程) | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 欠费或服务不可用时本轮仍收到回复 | spec.md；prototype 聊天 | 继承 R2 Journey E / I | R2 | pass | 本轮未重跑 |
+| 上下文太长不换模型 | spec.md | 继承 R1 | 继承 R1 | inconclusive | 环境限制，不据此给 pass |
+| 没配备用时失败呈现与现在一样 | spec.md | 继承 R2 Journey G | R2 | pass | 本轮未重跑 |
+| 整条备用链都失败时按现状失败呈现 | spec.md | Journey J：r541r3exh | `r3-chat-settled.png`、`r3-chat-rewatch-end.png` | fail | Issue 2 仍在。只看到第一个候选失败 |
+
+### Requirement: 换到备用时 Web IM 与外部通道都有轻量说明，且不打扰后续轮次 — 组内结论: pass（继承 R2）
+
+| Scenario | 期望来源 | 验证方式(覆盖它的旅程) | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 首次切换时 Web IM 看到说明 | spec.md；prototype 聊天 | 继承 R2 | R2 | pass | 本轮未重跑 |
+| 外部通道同样看到说明 | spec.md；prototype 飞书 | 继承 R2 | R2 | pass | 本轮未重跑 |
+| 粘在备用上之后不再每条都提示 | spec.md | 继承 R2 | R2 | pass | 本轮未重跑 |
+
+### Requirement: 切换粘在当前聊天，不改写 Agent 保存的主模型 — 组内结论: pass（继承 R2）
+
+| Scenario | 期望来源 | 验证方式(覆盖它的旅程) | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 编辑页仍显示原来保存的主模型和备用列表 | spec.md | 继承 R2 | R2 | pass | 本轮未重跑 |
+| 同一聊天后续轮次继续用能用的备用 | spec.md | 继承 R2 | R2 | pass | 本轮未重跑 |
+| `/new` 后重新从主模型试起 | spec.md | 继承 R2 | R2 | pass | 本轮未重跑 |
+| 改 Agent 模型配置后重新从主模型试起 | spec.md | 继承 R1 | R1 | pass | 本轮未重跑 |
+| 另一个聊天互不影响 | spec.md | 继承 R2 | R2 | pass | 本轮未重跑 |
+
+### Requirement: 心跳与定时任务走同一条备用链 — 组内结论: fail（组内仍有 inconclusive，继承 R2）
+
+| Scenario | 期望来源 | 验证方式(覆盖它的旅程) | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 心跳在主模型不可用时仍能完成 tick | spec.md | 继承 R2 Journey H | R2 | pass | 本轮未重跑 |
+| 定时任务在主模型不可用时仍能跑完 | spec.md | 继承 R1 | 继承 R1 | inconclusive | Fast-lane 焦点未含 cron；未关闭 |
+
+## 上层文档同步
+
+- [x] `SPEC.md`（跨包顶点架构）：无需更新（同 R1）
+- [x] `docs/specs/<包>/`（长青行为契约层）：**需要更新**（同 R1，待验收通过后 orchestrator §7.1 归并）
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新
+- [x] `docs/specs/CONTRIBUTING.md`：无需更新
+
+## Side Findings
+
+- 本轮无新的同屏副作用。Issue 2 仍是唯一开放项。
+
+## User Journeys Exercised
+
+1. Web IM 整链耗尽 — Scenario 整条备用链都失败时按现状失败呈现（Issue 2）
