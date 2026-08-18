@@ -101,6 +101,7 @@ def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(
                 "tool_allowlist": ["read"],
                 "group_reply_policy": "MENTION",
                 "default_model": "claude-sonnet-4",
+                "model_fallbacks": [],
                 "reasoning_effort": None,
                 "workspace_root": None,
                 "heartbeat_json": None,
