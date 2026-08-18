@@ -27,11 +27,11 @@ design.md Milestone 表退出标准 1-7、9 的用户可观察行为,在真实 I
 | 7 | 桌面首页未选中条目浅色可读,三处观感一致 | pass。首页侧栏 0.86/0.64 浅字(before 为 0.18 深字,修复点),首页/详情/新建三处一致 | screenshots/desktop-index-hover.png(before 对照见 prototype.html) |
 | 9 | 真实浏览器截图对照 prototype.html | pass。console 无错误(仅 vite hmr 噪声) | 本目录 screenshots/ 全量 |
 
-## 边界说明(spec 偏差,待用户裁决)
+## 边界说明(spec 偏差,已按用户裁决收口)
 
 Scenario「无归属信息的条目右缘留空」在真实产品内**不可达**:`GET /im/v1/agents` 的 SQL 强制 `JOIN nodes` + `WHERE ap.node_id IS NOT NULL AND ap.node_id != ''`(`src/IM/infra/repositories/agents.py:72-100`),无归属 agent 根本不进列表。曾直接向 DB 插入 `node_id=NULL` 的 profile 验证,列表确实不返回它(已删除该临时行)。
 
-防御性渲染(agent 无 node_id 时右缘不渲染)保留在共享组件中并由 `agent-row.test.tsx` 锁定,但 spec 该 Scenario 无法经真实产品旅程验收。建议:spec 该 Scenario 改写为「归属设备暂未出现在节点表时,条目右缘回退显示设备 ID」(现实可达的边界),「无归属不渲染」降级为组件级防御断言。spec 变更需回 change-spec-author 口径,待用户裁决后同步 design / delta-spec / M1 退出标准 3。
+**裁决(2026-08-18,用户原话):「这种压根不会出现的场景就不应该写,改干净」**——该 Scenario 已从 spec.md / delta-spec / M1 退出标准 / prototype.html 删除(spec Q8,design Changelog 第二条)。组件层防御性渲染(无 `node_id` → 不渲染设备名;节点表缺失 → 回退显示设备 ID)保留,由 `agent-row.test.tsx` 锁定,M1 退出标准 3 转为 [worker] 轨单测覆盖。本表退出标准 3 一行据此同步。
 
 ## 进程与现场
 
