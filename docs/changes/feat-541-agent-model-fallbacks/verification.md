@@ -215,4 +215,54 @@ Worker 退出标准对照（只核 focus 相关项）：
 
 ## Corrected Delta Reconciliation
 
-N/A（`verification_mode=targeted-closure`）
+> Mode: corrected-delta · snapshot `f6c4c223d → aa11eb4e0` · delta 在 `docs/changes/feat-541-agent-model-fallbacks/specs/`，canonical 已归并到 `docs/specs/`。REMOVED 均为空。不重验收 full/targeted 结论。
+
+| Delta item | Implementation evidence | Test evidence | Outcome |
+|---|---|---|---|
+| `specs/kernel/runs.md` ADDED：消费者可在模型失败后复用上一条用户消息换模型再跑 | SDK `Kernel.replay_last_user` `src/agent/sdk/kernel.py:1783-1828`；runtime 复用 `last_user` 不 `history.append` `src/agent/core/agent/runtime.py:597-610`；不读 fallbacks；产品层只看 `error.kind` | `tests/unit/agent/test_replay_last_user.py:202`；合同导出 `tests/contract/test_agent_sdk_surface_contract.py` | aligned |
+| Scenario: replay 不复制用户消息 | 同上；新 run `parts=()` + `replay_last_user=True` | `test_replay_last_user_does_not_append_another_user` 断言用户消息仍一条、第二次请求走 backup-model | aligned |
+| Scenario: 仅 provider-error 气泡不阻止 replay | `_raise_if_replay_blocked` 跳过 `is_provider_error` `src/agent/sdk/kernel.py:2771-2772` | `test_replay_last_user.py:202`（失败气泡后 replay 成功） | aligned |
+| Scenario: 已有真实输出则不可 replay 原位重放 | 非 provider-error assistant / tool 事件抛 `ReplayLastUserRejected` `kernel.py:2767-2777` | `test_replay_last_user_rejects_non_provider_error_output` `test_replay_last_user.py:236` | aligned |
+| `specs/kernel/model-runtime.md` ADDED：失败对消费者可见时必须带上该 run 的模型 id | `_build_provider_error_message` `src/agent/core/agent/runtime.py:2542-2558` 文案 `⚠️ 模型调用失败（{model_id}）:`；`is_provider_error` 仍滤出下一轮上下文 | `test_provider_error_bubble_includes_model_id` `test_replay_last_user.py:145` | aligned |
+| Scenario: 失败文案含模型 id | 同上 | 同上，断言 `primary-model` 出现在 assistant 文案 | aligned |
+| `specs/kernel/model-runtime.md` ADDED：run 失败终态向消费者暴露可判定的错误种类 | `project_model_error_kind` `src/agent/core/runs/error_kind.py:13-54`；registry `_project_run_failure` `src/agent/core/runs/registry.py:31-51` 把 `kind` 写入 `run_status.error`；PA 经 SDK stream 读取，合同禁止 `agent.core` | `test_failed_run_status_exposes_kind_on_stream` `test_replay_last_user.py:173`；`tests/unit/agent/runs/test_model_error_kind.py`；`tests/contract/test_model_fallback_boundary.py:18` | aligned |
+| Scenario: 可用性失败带 kind | quota/overload/timeout/rate_limit/auth 投影；`TimeoutError`/`run_timeout`/`408`/`timed out` → `timeout` `registry.py:42-46,845` | `test_model_error_kind.py` 各 kind 用例；stream 断言 `error.kind=="quota"` | aligned |
+| Scenario: 上下文过长带独立 kind | `context_length` 独立；compaction `ModelError` 终态投影 `other`，不进 `FAILOVER_KINDS` | `test_model_error_kind.py` context_length；compaction 集成断言 kind=`other` | aligned |
+| `specs/im/agents-nodes.md` ADDED：配置页可设置有序备用模型，且默认不占地方 | `model-fallback-field.tsx:40-88` 默认折叠、数量在标签行右侧；主模型 select 仍由页面 children 原位传入；保存 `model_fallbacks` | detail `agent-detail-page.test.tsx:578`；create `agent-create.test.tsx:735` | aligned |
+| Scenario: 默认折叠，主模型选择仍是重点 | `aria-expanded=false`；未展开无「+ 添加备用」 | 同上两条 vitest | aligned |
+| Scenario: 展开后按序添加备用并保存 | 展开添加/序号 select；IM 有序 JSON 落盘 `src/IM/infra/repositories/agents.py:283-309,813-815` | vitest 展开添加；`test_model_fallbacks_roundtrip_and_missing_column_defaults_empty`；config contract PATCH 保序 | aligned |
+| Scenario: 清空备用后与从未配置等价 | 保存 `[]`；缺省列 `DEFAULT '[]'` `src/IM/infra/db.py:64,757-759` | `agent-detail-page.test.tsx:609` PATCH `model_fallbacks: []`；schema 旧行缺省 `[]` | aligned |
+| Scenario: 自动切换不改写编辑页主模型 | 粘性只在 Gateway 内存 `ModelStickyStore`；IM `default_model` / `model_fallbacks` 不因 failover 写入 | 配置 roundtrip 仍是保存值；聊天 sticky 测不断言改 profile | aligned |
+| `specs/im/agents-nodes.md` MODIFIED：配置中心可读可改，纳入有序 `model_fallbacks` | API/schema/domain 增加字段；apply 指纹含 `model_fallbacks` `agent_config_sync.py:1601-1610`；Gateway `normalize_model_fallbacks` `local_store.py:715-760` | `test_agent_config_contract.py:52-64,165`；`test_config_operation_apply_persists_model_fallbacks` | aligned |
+| Scenario: 读配置暴露稳定字段集（含 `model_fallbacks`） | GET 投影 `src/IM/api/routes/agents.py:271` | `test_agent_config_contract.py:52-64` 断言字段与缺省 `[]` | aligned |
+| Scenario: 既有聊天下一轮采用更新后的模型、备用列表和推理强度 | 下轮 `_project_runtime` 读最新 catalog + 组链 `session_run_coordinator.py:1876-1904,3100-3118` | apply 落盘测 + 组链测；既有「下轮才换配置」路径未改 | aligned |
+| Scenario: 保存的备用模型必须属于 Gateway apply 时的有效模型目录 | `normalize_model_fallbacks` 目录外 `ValueError`、去重、去掉有效主模型 | `test_normalize_drops_primary_and_unknown_ids_raise` `test_model_candidate_chain.py:64` | aligned |
+| MODIFIED 其余既有 Scenario（PATCH 乐观锁、推理档校验、ACK 恢复、live 合并、heartbeat cadence） | 正文只插入 `model_fallbacks`，未改这些路径 | 既有 IM/Gateway 配置测仍覆盖 | aligned |
+| `specs/gateway/agent-capabilities.md` ADDED：主模型可用性失败时按有序备用链换模型，本轮继续回复 | 组链 `resolve_model_candidates` `local_store.py:679-712`；聊天 `_failover_chat_if_needed` `session_run_coordinator.py:2206-2306`；`FAILOVER_KINDS` `model_fallback.py:21,110-113`；粘性不写回 `default_model`；备用 `apply_saved_reasoning=False` + `skip_effort_overlay` `session_run_coordinator.py:1897-1904,1924,2348-2354,3120-3124`；说明 `SWITCH_NOTICE_TEMPLATE` 经 `_deliver_control_reply` `ack_tag="model-fallback-ack"` | `tests/unit/personal_assistant/test_chat_model_failover.py`；`test_model_candidate_chain.py`；`test_model_fallback_boundary.py:14` | aligned |
+| Scenario: 欠费或服务不可用时本轮仍收到回复 | quota/auth 等 `should_failover` → `replay_last_user`，聊天 submit 省略 `model=` `session_run_coordinator.py:1414-1420` | `test_quota_failure_replays_without_copying_user_parts`；`test_sticky_is_used_on_the_next_admit`（`kind=auth`） | aligned |
+| Scenario: 上下文太长不换模型 | `FAILOVER_KINDS` 不含 `context_length` | `test_context_length_does_not_replay` | aligned |
+| Scenario: 没配备用时失败呈现与现在一样 | 空 fallbacks → 单元素链头 `local_store.py:707-712`；`next_candidate` 穷尽则收口，不塞平台默认当备用 | `test_empty_fallbacks_are_just_the_chain_head` | aligned |
+| Scenario: 整条备用链都失败时按现状失败呈现 | 聊天穷尽 `raise RuntimeError` `session_run_coordinator.py:2234-2235`；无「已改用」 | `test_exhausted_chain_stays_failed_without_switch_notice` | aligned |
+| Scenario: 已有真实回复后再失败则本轮不换 | `ReplayLastUserRejected` → 本轮收口并 sticky 下一候选 `session_run_coordinator.py:2246-2254`（与 design 决策 2/粘性状态机一致） | `test_rejected_replay_closes_the_turn_and_sticks_next_candidate` | aligned |
+| Scenario: 首次切换有轻量说明，粘住后不再每条提示 | 先 `_deliver_control_reply` 再 flush 正文；`noticed` 后不再发 | `test_switch_notice_is_sent_once_before_backup_reply` | aligned |
+| Scenario: 粘在当前聊天，不改写保存的主模型 | sticky 键=`kernel_session_id`；IM profile 仍存原 `default_model` | `test_sticky_is_used_on_the_next_admit` | aligned |
+| Scenario: `/new` 或改模型配置后重新从主模型试起 | `/new` 换 kernel session，旧 key 自然不用 `model_fallback.py:36-37,82-94`；保存主模型/备用 `clear_agent` `agent_config_sync.py:1472-1477` | 改配置：`test_publishing_changed_fallbacks_clears_agent_sticky`；`/new` 无专测，行为由新 session_id 结构性保证 | aligned |
+| Scenario: 另一个聊天互不影响 | sticky 按 `kernel_session_id` 隔离 | 无跨 chat 专测；`test_sticky_store_clears_all_sessions_for_an_agent` 证明按 session 存放。与 R1 SUGGESTION 相同，不构成 delta/实现冲突 | aligned |
+| `specs/gateway/agent-capabilities.md` MODIFIED：每次新回复开始时先组链再 admit | `_resolve_agent_model` 用 `candidates[0]`（有 sticky 即备用）`session_run_coordinator.py:3100-3118`；无备用无 sticky 时链头即本轮模型；保存链变更清粘性 | `test_sticky_is_used_on_the_next_admit`；`test_candidates_with_sticky_skip_earlier_models` | aligned |
+| MODIFIED 既有 Scenario（选模型+推理档、改配置保留历史、进行中整轮不换、空 default_model 覆盖强度、heartbeat/cron 完整配置） | 只把 admit 从裸 `default_model` 改成组链后的 `candidates[0]`；链头仍走原 reasoning/`/effort` | 既有能力测 + 本 unit 组链/粘性测 | aligned |
+| `specs/gateway/heartbeat-cron.md` ADDED：心跳与 cron 走同一条备用链 | `failover_unattended_run` `model_fallback.py:150-241`；heartbeat `heartbeat_runner.py:287-364`；cron `cron_execution_service.py:422-500`；admit/submit 显式 `model=candidates[0]` `heartbeat_scheduler.py:518-528`、`cron_runner.py:149-161`、`kernel_client.py:217-258` | `test_unattended_model_admit.py` | aligned |
+| Scenario: 心跳在主模型不可用时仍能完成 tick | 同上 helper：quota replay、notice 一次、失败气泡带模型名走内核文案 | `test_unattended_quota_replays_backup_and_notices_once` | aligned |
+| Scenario: 心跳复用已粘备用的直聊时仍用备用 | canonical session + 共享 `ModelStickyStore`；submit 捕获 `model==backup` | `test_heartbeat_reuses_canonical_session_sticky_model` | aligned |
+| Scenario: 定时任务在主模型不可用时仍能跑完 | cron 与 heartbeat 共用 `failover_unattended_run` | 同上 unattended 四条（quota / context_length / rejected / exhausted） | aligned |
+| `specs/gateway/external-channels.md` MODIFIED：用户可见事件含备用切换说明，与压缩控制确认同一投递形态 | 聊天 `_deliver_control_reply` `session_run_coordinator.py:2155-2198,2295-2302`（与 `/compact` 同函数）；按 `reply_context` 触发源路由，不是运行页脚 | `test_switch_notice_is_sent_once_before_backup_reply` 走该出站；飞书/IM 分流复用既有控制确认路径 | aligned |
+| Scenario: 飞书触发的模型备用切换说明回到原 chat | `_bg_reply_sender` / outbound 与 compact 相同；飞书触发的 `reply_context` 回原 chat 并同步 shadow | 无飞书专用新测；与既有「控制确认外发」同一函数，delta 未另造通道 | aligned |
+| Scenario: 内部 IM 触发的模型备用切换说明不回写飞书 | 内部 IM `reply_context` 只留 Web IM | 同上，触发源规则未改 | aligned |
+| MODIFIED 既有 Scenario（`/stop` `/new` `/compact`、预处理失败、后台文本、self-evolution、其它内部事件不外发） | 只把「轻量说明」加入用户可见事件清单，未改这些命令语义 | 既有 external-channels / stop 测 | aligned |
+
+### Uncovered Observable Behavior
+
+None。unit 代码 diff（`f6c4c223d..aa11eb4e0`）里后续修补——换模后释放 session busy、timeout kind 补齐、`/stop` 时 flush 被 hold 的备用正文、create payload 带空 `model_fallbacks`、compaction 溢出 kind=`other`——分别落在「心跳同链可跑」「kind 区分超时」「先说明后正文的 hold 不得留下空泡」「缺省 `[]` 与从未配置等价」「compaction 不换模型」这些已有 delta 句下，没有多写新的对外产品行为。
+
+与 unit `spec.md` / `design.md` 对照：Gateway 持链、内核三条缝、第一次 admit=`candidates[0]`、心跳/cron 禁止省略 `model=`、说明走控制确认、备用跳过主模型强度与 `/effort`、只读 `error.kind`，均与实现一致。delta 没有把失败气泡当成真实正文，也没有要求内核持有 fallbacks。
+
+Outcome: aligned
