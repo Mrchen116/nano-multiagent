@@ -18,7 +18,7 @@ All checks passed. Ready for PR.
 ## Completeness
 
 - **Milestone 完成度**: feat-540-M1 全部 9 条退出标准均有实现或证据：
-  - 1-2 多设备逐条标注 / 别名：由 `AgentRow` + `nodeLabelOf` 实现，真栈截图 `desktop-index.png`、`desktop-account.png` 可复查。
+  - 1-2 多设备逐条标注 / 别名：由 `AgentRow` + `nodeLabelOf` 实现，真栈截图 `desktop-index.png` 可复查。
   - 3 无归属留空：产品内不可达，降级为 `agent-row.test.tsx` 单测锁定不渲染路径。
   - 4 移动端标注：由 `AgentRow` 移动分支实现，真栈截图 `mobile-index.png` 可复查。
   - 5 名字两行 / 行高 / 状态角标：`AgentRow` 保留 `min-h-[52px]`、名字 `truncate`、设备名 `shrink-0 max-w-[92px]`、以 `Avatar` status 取代右缘圆点。
@@ -58,9 +58,9 @@ All checks passed. Ready for PR.
 
 | Reference contract | Milestone projection | Implementation evidence | Durable evidence | Status |
 |---|---|---|---|---|
-| 桌面行：右缘设备名（右对齐、与第二行同基线、明度阶梯） | M1 退出标准 1、5、6 | `agent-row.tsx:120-128` | `M1-impl/screenshots/desktop-index.png`、`desktop-detail.png`、`desktop-create.png` | covered |
+| 桌面行：右缘设备名（右对齐、与第二行同基线、明度阶梯） | M1 退出标准 1、5、6 | `agent-row.tsx:120-128` | `M1-impl/screenshots/desktop-index.png` | covered |
 | 移动行：设备名占原圆点位 + 「›」在其下 | M1 退出标准 4 | `agent-row.tsx:111-119` | `M1-impl/screenshots/mobile-index.png` | covered |
-| 首页行文字色修复（0.86/0.64 + 选中态） | M1 退出标准 7 | `agent-row.tsx:86-106` | `M1-impl/screenshots/desktop-index-hover.png` | covered |
+| 首页行文字色修复（0.86/0.64 + 选中态） | M1 退出标准 7 | `agent-row.tsx:86-106` | `M1-impl/screenshots/desktop-index.png` | covered |
 | 头像状态角标两组件一致；右缘无独立圆点 | M1 退出标准 5 | `agent-row.tsx:79-84`；无 `rounded-full` 状态 dot | `M1-impl/screenshots/desktop-index.png` | covered |
 
 ## Issues

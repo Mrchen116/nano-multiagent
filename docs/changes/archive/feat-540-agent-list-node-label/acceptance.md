@@ -27,10 +27,10 @@
 
 | Reference | Required contract | Actual product evidence | Viewport / state | Comparison conclusion |
 |---|---|---|---|---|
-| prototype.html 桌面行 | 右缘设备名右对齐、与第二行同基线、明度阶梯(显示名 0.86 / ID 0.64 / 设备名 0.55) | review-desktop-index.png / review-desktop-detail.png | desktop 普通/选中 | match |
+| prototype.html 桌面行 | 右缘设备名右对齐、与第二行同基线、明度阶梯(显示名 0.86 / ID 0.64 / 设备名 0.55) | review-desktop-index.png | desktop 普通/选中 | match |
 | prototype.html 移动行 | 设备名占原圆点位,chevron 在其下 | review-mobile-index.png | mobile 390×844 | match |
-| prototype.html 颜色修复 | 桌面首页未选中显示名 0.86、ID 0.64;选中态 ID 0.70 | review-desktop-index.png / review-desktop-detail.png | desktop 未选中/选中 | match(经 computed style 复核) |
-| prototype.html 状态表达 | 头像状态角标一致;右缘无独立圆点 | review-desktop-index.png / review-desktop-offline.png | desktop 在线/离线 | match |
+| prototype.html 颜色修复 | 桌面首页未选中显示名 0.86、ID 0.64;选中态 ID 0.70 | review-desktop-index.png | desktop 未选中/选中 | match(经 computed style 复核) |
+| prototype.html 状态表达 | 头像状态角标一致;右缘无独立圆点 | review-desktop-index.png / M1-impl/desktop-offline-node.png | desktop 在线/离线 | match |
 
 ## 问题清单
 
@@ -42,9 +42,9 @@
 
 | Scenario | 期望来源 | 验证方式(覆盖它的旅程) | 证据 | 结果 | 备注 |
 |---|---|---|---|---|---|
-| 多设备下逐条标注 | spec.md / prototype.html | 桌面端打开首页、详情页、新建页,观察三处左栏条目 | review-desktop-index.png, review-desktop-detail.png, review-desktop-create.png | pass | e2e/e2e-peer 标 `wt-unit-feat-540-38743`;air 三个 agent 标 `工作室`;设备名右对齐 |
-| 设备设置别名时显示别名 | spec.md | Account 页确认别名后,核对列表显示 | review-desktop-account.png, review-desktop-index.png | pass | 与 Account 页一致显示「工作室」 |
-| 设备离线仍显示归属 | spec.md | kill gateway-air 后刷新首页 | review-desktop-offline.png | pass | air agent 头像角标变灰,`工作室` 仍显示 |
+| 多设备下逐条标注 | spec.md / prototype.html | 桌面端打开首页、详情页、新建页,观察三处左栏条目 | review-desktop-index.png | pass | e2e/e2e-peer 标 `wt-unit-feat-540-38743`;air 三个 agent 标 `工作室`;设备名右对齐 |
+| 设备设置别名时显示别名 | spec.md | Account 页确认别名后,核对列表显示 | review-desktop-index.png | pass | 与 Account 页一致显示「工作室」 |
+| 设备离线仍显示归属 | spec.md | kill gateway-air 后刷新首页 | M1-impl/desktop-offline-node.png | pass | air agent 头像角标变灰,`工作室` 仍显示 |
 | 移动端同样标注 | spec.md / prototype.html | 390×844 viewport 打开首页 | review-mobile-index.png | pass | 设备名在条目右上,chevron 在其下 |
 
 ### Requirement: 标注不牺牲条目既有信息与状态表达 — 组内结论: pass
@@ -52,14 +52,14 @@
 | Scenario | 期望来源 | 验证方式(覆盖它的旅程) | 证据 | 结果 | 备注 |
 |---|---|---|---|---|---|
 | 名字两行与行高不被挤压 | spec.md / design 决策 3 | 观察列表条目;检查 DOM 行高与文本样式 | review-desktop-index.png, review-mobile-index.png | pass | 行高 52px;显示名 13px oklch(0.86), ID 11px mono oklch(0.64), 设备名 11px sans oklch(0.55);设备名仅自身超长时截断 |
-| 在线状态由头像角标表达 | spec.md / prototype.html | 观察条目头像与右缘 | review-desktop-index.png, review-desktop-offline.png | pass | 头像右下绿/灰角标;右缘无独立状态圆点 |
+| 在线状态由头像角标表达 | spec.md / prototype.html | 观察条目头像与右缘 | review-desktop-index.png / M1-impl/desktop-offline-node.png | pass | 头像右下绿/灰角标;右缘无独立状态圆点 |
 
 ### Requirement: 三处列表条目文字在深色侧栏上清晰可读 — 组内结论: pass
 
 | Scenario | 期望来源 | 验证方式(覆盖它的旅程) | 证据 | 结果 | 备注 |
 |---|---|---|---|---|---|
 | 桌面端首页列表未选中条目可读 | spec.md / prototype.html | 桌面端查看首页列表 | review-desktop-index.png | pass | 显示名 oklch(0.86)、ID oklch(0.64), 在深底上可读 |
-| 选中与 hover 条目可读性一致 | spec.md / prototype.html | 详情页选中条目;hover 条目;复核 computed style | review-desktop-detail.png, review-desktop-hover.png | pass | 选中: outline oklch(0.4 0.08 180) 1px + bg oklch(0.31 0.015 240);hover bg oklch(0.28 0.012 240);文字可读 |
+| 选中与 hover 条目可读性一致 | spec.md / prototype.html | 详情页选中条目;hover 条目;复核 computed style | review-desktop-index.png | pass | 选中: outline oklch(0.4 0.08 180) 1px + bg oklch(0.31 0.015 240);hover bg oklch(0.28 0.012 240);文字可读 |
 
 ## 上层文档同步
 

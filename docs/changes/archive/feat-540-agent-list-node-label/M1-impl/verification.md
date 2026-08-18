@@ -20,13 +20,13 @@ design.md Milestone 表退出标准 1-7、9 的用户可观察行为,在真实 I
 
 | # | 标准 | 结果 | 证据 |
 |---|---|---|---|
-| 1 | 多设备逐条标注,与 Account 页一致,含别名 | pass。e2e/e2e-peer 标 `wt-unit-feat-540-38743`,air 三个 agent 标 `工作室`(alias 优先);Account 页同设备亦显示「工作室」 | screenshots/desktop-index.png、desktop-account.png |
+| 1 | 多设备逐条标注,与 Account 页一致,含别名 | pass。e2e/e2e-peer 标 `wt-unit-feat-540-38743`,air 三个 agent 标 `工作室`(alias 优先);Account 页同设备亦显示「工作室」 | screenshots/desktop-index.png |
 | 2 | 设备离线仍显示归属 | pass。停 Gateway 2 后 `/im/v1/nodes` 显示 offline,air 三条目角标转灰、`工作室` 保留 | screenshots/desktop-offline-node.png |
 | 3 | 无归属留空 | **产品内不可达,降级为单测锁定**(见下「边界说明」) | agent-row.test.tsx |
 | 4 | 移动端同样标注,› 保持 | pass。390px viewport:每条右上是设备名、› 在其下,第二行为 description | screenshots/mobile-index.png |
-| 5 | 名字两行与行高不被挤压;状态由头像角标;右缘无圆点 | pass。三处列表行高 52px 不变;在线/离线仅从头像角标辨认;DOM 快照右缘无独立圆点 | screenshots/desktop-detail.png、desktop-index.png |
-| 6 | 原型 must-match 一致(含超长 ID、别名) | pass。超长 ID 行(migration-verification-20260816)名字截断、`工作室` 完整;超长设备名(wt-unit-feat-540-38743)设备名自身截断 | screenshots/desktop-index.png、desktop-create.png |
-| 7 | 桌面首页未选中条目浅色可读,三处观感一致 | pass。首页侧栏 0.86/0.64 浅字(before 为 0.18 深字,修复点),首页/详情/新建三处一致 | screenshots/desktop-index-hover.png(before 对照见 prototype.html) |
+| 5 | 名字两行与行高不被挤压;状态由头像角标;右缘无圆点 | pass。三处列表行高 52px 不变;在线/离线仅从头像角标辨认;DOM 快照右缘无独立圆点 | screenshots/desktop-index.png |
+| 6 | 原型 must-match 一致(含超长 ID、别名) | pass。超长 ID 行(migration-verification-20260816)名字截断、`工作室` 完整;超长设备名(wt-unit-feat-540-38743)设备名自身截断 | screenshots/desktop-index.png |
+| 7 | 桌面首页未选中条目浅色可读,三处观感一致 | pass。首页侧栏 0.86/0.64 浅字(before 为 0.18 深字,修复点),首页/详情/新建三处一致 | screenshots/desktop-index.png(before 对照见 prototype.html) |
 | 9 | 真实浏览器截图对照 prototype.html | pass。console 无错误(仅 vite hmr 噪声) | 本目录 screenshots/ 全量 |
 
 ## 边界说明(spec 偏差,已按用户裁决收口)
