@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from personal_assistant.config.local_store import resolve_run_model
+from personal_assistant.config.local_store import resolve_model_candidates, resolve_run_model
 from personal_assistant.config.model_reasoning import ModelReasoningCatalog
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog, LiveAgentSnapshot
 from personal_assistant.gateway.session_binder import GatewaySessionBinder
@@ -14,6 +14,7 @@ from personal_assistant.gateway.session_composition import (
     project_agent_session_capabilities,
 )
 from personal_assistant.gateway.human_message_context import PaTimeContext
+from personal_assistant.gateway.model_fallback import ModelStickyStore
 
 if TYPE_CHECKING:
     from agent.sdk import Kernel
@@ -40,6 +41,7 @@ class InProcessKernelClient:
         product_default_model: str | None = None,
         reasoning_catalog: ModelReasoningCatalog | None = None,
         time_context: PaTimeContext | None = None,
+        sticky_store: ModelStickyStore | None = None,
     ) -> None:
         self._kernel = kernel
         # refactor-406-M1 R6: per-agent config for building PromptSlots at
@@ -53,6 +55,7 @@ class InProcessKernelClient:
         self._product_default_model = product_default_model
         self._reasoning_catalog = reasoning_catalog
         self._time_context = time_context
+        self._sticky_store = sticky_store or ModelStickyStore()
 
     async def create_session(
         self,
@@ -77,9 +80,9 @@ class InProcessKernelClient:
                 else None
             )
         if snapshot is not None:
-            model = resolve_run_model(
-                snapshot.config,
-                product_default=self._product_default_model,
+            model = self._first_candidate(snapshot, session_id=None)
+            chain_head = resolve_run_model(
+                snapshot.config, product_default=self._product_default_model
             )
             if model is not None:
                 runtime = project_agent_runtime(
@@ -88,6 +91,7 @@ class InProcessKernelClient:
                     resolved_model=model,
                     reasoning_catalog=self._reasoning_catalog,
                     time_context=self._time_context,
+                    apply_saved_reasoning=chain_head is None or model == chain_head,
                 ).runtime
             else:
                 capabilities = project_agent_session_capabilities(
@@ -145,18 +149,19 @@ class InProcessKernelClient:
     ) -> None:
         """Align a reused unattended session before its next background run."""
 
-        model = resolve_run_model(
-            agent_snapshot.config,
-            product_default=self._product_default_model,
-        )
+        model = self._first_candidate(agent_snapshot, session_id=session_id)
         if model is None:
             return
+        chain_head = resolve_run_model(
+            agent_snapshot.config, product_default=self._product_default_model
+        )
         runtime = project_agent_runtime(
             agent_snapshot,
             scenario=metadata or {"agent_id": agent_snapshot.agent_id},
             resolved_model=model,
             reasoning_catalog=self._reasoning_catalog,
             time_context=self._time_context,
+            apply_saved_reasoning=chain_head is None or model == chain_head,
         ).runtime
         desired = self._kernel.identify_runtime(runtime=runtime)
         current = await self._kernel.get_session_runtime(
@@ -206,9 +211,8 @@ class InProcessKernelClient:
             run_origin = _RunOrigin.CRON
         else:
             run_origin = _RunOrigin.USER
-        # bugfix-429 决策2 / fix-r1 #3: resolve via the shared helper — explicit
-        # model (heartbeat passes agent.default_model) wins; else the agent looked
-        # up by agent_id (cron); else the product default. The kernel holds none.
+        # 心跳/cron 必须显式传入 candidates[0]。shim 无论是否传 model 都会
+        # 再走 resolve_run_model；省略会把备用粘性打回链头。内核不持备用链。
         snapshot = (
             self._agent_catalog.get(agent_id)
             if self._agent_catalog is not None and isinstance(agent_id, str)
@@ -228,6 +232,27 @@ class InProcessKernelClient:
             model=resolved_model,
         )
         return {"run_id": run_record.run_id, "anchor_sequence": 0, "status": "queued"}
+
+    def _first_candidate(
+        self, snapshot: LiveAgentSnapshot, *, session_id: str | None
+    ) -> str | None:
+        sticky = self._sticky_store.get(session_id)
+        candidates = resolve_model_candidates(
+            snapshot.config,
+            product_default=self._product_default_model,
+            sticky=sticky.model if sticky is not None else None,
+        )
+        return candidates[0] if candidates else None
+
+    def admit_model(self, *, agent_id: str, session_id: str | None) -> str | None:
+        """Return the first candidate that heartbeat/cron must pass to submit_message."""
+
+        if self._agent_catalog is None:
+            return None
+        snapshot = self._agent_catalog.get(agent_id)
+        if snapshot is None:
+            return None
+        return self._first_candidate(snapshot, session_id=session_id)
 
     def current_event_sequence(self) -> int:
         """Return the kernel's current max event sequence for use as a stream anchor.

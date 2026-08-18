@@ -520,9 +520,12 @@ class HeartbeatScheduler:
             texts=[message],
             workspace_root=str(agent.workspace_root),
             origin="heartbeat",
-            # bugfix-429: agent's selected model (None → shim falls back to the
-            # product default), so unattended heartbeat runs honour per-agent model.
-            model=agent.default_model,
+            # 心跳必须显式把 candidates[0] 传给 shim；省略会被 resolve 成链头。
+            model=_admit_model(
+                self._kernel_client,
+                agent_id=agent.agent_id,
+                session_id=session_id,
+            ),
         )
         run_id = str(run_payload.get("run_id", "")).strip()
         if not run_id:
@@ -845,3 +848,10 @@ def _build_heartbeat_message(
     if instructions and instructions.strip():
         parts.append(f"\n\n{instructions.strip()}")
     return "\n".join(parts)
+
+
+def _admit_model(kernel_client: object, *, agent_id: str, session_id: str) -> str | None:
+    admit = getattr(kernel_client, "admit_model", None)
+    if not callable(admit):
+        return None
+    return admit(agent_id=agent_id, session_id=session_id)

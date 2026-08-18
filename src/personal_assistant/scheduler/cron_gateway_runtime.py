@@ -10,6 +10,8 @@ from typing import Any
 
 from personal_assistant.config.local_store import WORKSPACE_CONFIG_DIRNAME
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
+from personal_assistant.gateway.human_message_context import PaTimeContext
+from personal_assistant.gateway.model_fallback import ModelStickyStore
 from personal_assistant.gateway.runtime_delivery.context import RunDeliveryContextStore
 from personal_assistant.gateway.session_binder import GatewaySessionBinder
 from personal_assistant.scheduler.cron_execution_service import (
@@ -55,6 +57,10 @@ class GatewayCronRuntime:
         run_context_store: RunDeliveryContextStore,
         kernel_event_observer_provider: Callable[[], Any | None],
         background_subscription_manager_provider: Callable[[], Any | None],
+        sticky_store: ModelStickyStore | None = None,
+        product_default_model: str | None = None,
+        reasoning_catalog: Any | None = None,
+        time_context: PaTimeContext | None = None,
     ) -> None:
         self._registry = registry
         self._agent_catalog = agent_catalog
@@ -68,6 +74,10 @@ class GatewayCronRuntime:
         self._background_subscription_manager_provider = (
             background_subscription_manager_provider
         )
+        self._sticky_store = sticky_store
+        self._product_default_model = product_default_model
+        self._reasoning_catalog = reasoning_catalog
+        self._time_context = time_context
 
     def register_agent(
         self,
@@ -103,6 +113,11 @@ class GatewayCronRuntime:
                 background_subscriptions=(
                     self._background_subscription_manager_provider()
                 ),
+                agent_catalog=self._agent_catalog,
+                sticky_store=self._sticky_store,
+                product_default_model=self._product_default_model,
+                reasoning_catalog=self._reasoning_catalog,
+                time_context=self._time_context,
             ),
             gateway_loop=gateway_loop,
         )

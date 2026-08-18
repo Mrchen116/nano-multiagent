@@ -13,6 +13,7 @@ import {
   normalizeReasoningEffort,
   reasoningEffortAfterModelChange,
 } from "./model-reasoning-field";
+import { fallbacksAfterPrimaryChange, ModelFallbackField } from "./model-fallback-field";
 import { PillSelector } from "./pill-selector";
 import { SkillSourceSelector } from "./skill-source-selector";
 import {
@@ -64,6 +65,7 @@ function normalizeDraft(draft: CreateAgentFormState, modelOptions: ModelOption[]
     skills: normalizeAllowlist(draft.skills),
     tool_allowlist: normalizeAllowlist(draft.tool_allowlist),
     default_model: defaultModel,
+    model_fallbacks: fallbacksAfterPrimaryChange(draft.model_fallbacks ?? [], defaultModel),
     reasoning_effort: normalizeReasoningEffort(modelOptions, defaultModel, draft.reasoning_effort),
     workspace_root: normalizeText(draft.workspace_root ?? "") || null,
     confirm_existing_workspace: draft.confirm_existing_workspace ?? false
@@ -105,6 +107,7 @@ const EMPTY_DRAFT: CreateAgentFormState = {
   tool_allowlist: [],
   group_reply_policy: "MENTION",
   default_model: null,
+  model_fallbacks: [],
   reasoning_effort: null,
   workspace_root: null,
   confirm_existing_workspace: false
@@ -393,6 +396,7 @@ export function AgentCreatePage() {
       skills: [],
       tool_allowlist: [],
       default_model: null,
+      model_fallbacks: [],
       reasoning_effort: null,
     }));
     setWorkspaceError(null);
@@ -977,8 +981,18 @@ export function AgentCreatePage() {
               }}
             />
           </div>
-          <div className="im-agent-field">
-            <Label.Root htmlFor="default-model">{t("agents.form.access.model")}</Label.Root>
+          <ModelFallbackField
+            label={t("agents.form.access.model")}
+            labelHtmlFor="default-model"
+            models={availableModels}
+            primary={effectiveReasoningModel(draft.default_model, platformDefaultModel)}
+            value={draft.model_fallbacks ?? []}
+            onChange={(modelFallbacks) => {
+              setErrorMessage(null);
+              setIsDirty(true);
+              setDraft({ ...draft, model_fallbacks: modelFallbacks });
+            }}
+          >
             <select
               id="default-model"
               className="im-input"
@@ -991,6 +1005,7 @@ export function AgentCreatePage() {
                 setDraft({
                   ...draft,
                   default_model: defaultModel,
+                  model_fallbacks: fallbacksAfterPrimaryChange(draft.model_fallbacks ?? [], effectiveModel),
                   reasoning_effort: reasoningEffortAfterModelChange(
                     modelOptions,
                     effectiveModel,
@@ -1016,7 +1031,7 @@ export function AgentCreatePage() {
                 );
               })}
             </select>
-          </div>
+          </ModelFallbackField>
           <ModelReasoningField
             idPrefix="create-agent"
             modelOptions={modelOptions}

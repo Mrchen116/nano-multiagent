@@ -15,15 +15,24 @@ from uuid import uuid4
 from agent.sdk import (
     TERMINAL_RUN_STATUSES,
     USER_INTERRUPT_RECOVERY_CONTENT,
+    ReplayLastUserRejected,
     RunOrigin,
     SessionRuntimeConfig,
     WorkflowControlAction,
     WorkflowSaveScope,
 )
 
-from personal_assistant.config.local_store import resolve_run_model
+from personal_assistant.config.local_store import resolve_model_candidates, resolve_run_model
 from personal_assistant.config.model_reasoning import ModelReasoningCatalog
 from personal_assistant.gateway.session_composition import project_agent_runtime
+from personal_assistant.gateway.model_fallback import (
+    ModelStickyStore,
+    StickyModelOverride,
+    error_kind_from_run_state,
+    next_candidate,
+    should_failover,
+    switch_notice,
+)
 
 from personal_assistant.channels.base import (
     InboundMessage,
@@ -372,6 +381,7 @@ class SessionRunCoordinator:
         max_transition_locks: int = _MAX_SESSION_TRANSITION_LOCKS,
         readable_input_projection_store: ReadableInputProjectionStore | None = None,
         time_context: PaTimeContext | None = None,
+        sticky_store: ModelStickyStore | None = None,
     ) -> None:
         if run_idle_timeout_seconds <= 0:
             raise ValueError("run_idle_timeout_seconds must be > 0")
@@ -414,6 +424,7 @@ class SessionRunCoordinator:
         self._max_transition_locks = max(1, max_transition_locks)
         self._readable_input_projection_store = readable_input_projection_store
         self._time_context = time_context
+        self._sticky_store = sticky_store or ModelStickyStore()
 
     async def dispatch(self, request: InboundRunRequest) -> PipelineResult:
         """Admit one normal message through steer or per-session FIFO.
@@ -531,7 +542,9 @@ class SessionRunCoordinator:
                         outbound=outbound,
                     )
             agent = self._latest_agent(request.agent)
-            runtime = self._project_runtime(agent=agent, message=request.message)
+            runtime = self._project_runtime(
+                agent=agent, message=request.message, session_key=request.session_key
+            )
             dispatch_url, fallback_port = self._dispatch_endpoint_metadata()
             try:
                 candidate = await self._session_binder.prepare_reset(
@@ -1074,14 +1087,20 @@ class SessionRunCoordinator:
                     reply_text = "推理档位命令未执行: 当前会话没有完整 runtime。"
                 else:
                     baseline = self._project_runtime(
-                        agent=agent, message=request.message
+                        agent=agent,
+                        message=request.message,
+                        session_key=request.session_key,
                     ).runtime
                     reply_text = await self._execute_effort_command(
                         command,
                         session_id=binding.kernel_session_id,
                         agent=agent,
                         runtime=self._reconcile_runtime(
-                            baseline=baseline, persisted=state.runtime
+                            baseline=baseline,
+                            persisted=state.runtime,
+                            skip_effort_overlay=self._is_fallback_candidate(
+                                agent, baseline.model
+                            ),
                         ),
                     )
                 if request.operation_id is not None:
@@ -1213,7 +1232,9 @@ class SessionRunCoordinator:
         *,
         agent: LiveAgentSnapshot,
     ) -> SessionBinding:
-        runtime_projection = self._project_runtime(agent=agent, message=request.message)
+        runtime_projection = self._project_runtime(
+            agent=agent, message=request.message, session_key=request.session_key
+        )
         dispatch_url, fallback_port = self._dispatch_endpoint_metadata()
         return await self._session_binder.resolve(
             SessionBindingRequest(
@@ -1349,6 +1370,7 @@ class SessionRunCoordinator:
                 runtime_projection = self._project_runtime(
                     agent=latest_agent,
                     message=request.message,
+                    session_key=request.session_key,
                 )
                 binding = await self._ensure_binding(
                     request,
@@ -1429,6 +1451,11 @@ class SessionRunCoordinator:
                     model=runtime_projection.runtime.model,
                 ),
             )
+            hold_initial: list[Mapping[str, object]] | None = None
+            sticky = self._sticky_store.get(binding.kernel_session_id)
+            if sticky is not None and not sticky.noticed:
+                # 待提示的 sticky 成功轮要把说明插在正文前，所以先 hold；失败则立刻冲刷气泡。
+                hold_initial = []
             (
                 run_state,
                 reply_text,
@@ -1442,7 +1469,35 @@ class SessionRunCoordinator:
                 binding=binding,
                 model=runtime_projection.runtime.model,
                 on_other=lambda event: self._on_other_event(event, binding=binding),
+                held_assistant_events=hold_initial,
             )
+            if run_state.get("status") == "failed" and hold_initial:
+                await self._flush_held_assistant_events(hold_initial)
+                hold_initial = None
+            (
+                run_state,
+                reply_text,
+                run_id,
+                anchor_sequence,
+            ) = await self._failover_chat_if_needed(
+                run_state=run_state,
+                reply_text=reply_text,
+                request=request,
+                binding=binding,
+                agent=latest_agent,
+                current_model=runtime_projection.runtime.model,
+                run_id=run_id or "",
+                anchor_sequence=anchor_sequence,
+            )
+            if run_state.get("status") == "completed":
+                await self._announce_fallback_if_needed(
+                    binding=binding,
+                    agent=latest_agent,
+                    request=request,
+                    model=runtime_projection.runtime.model,
+                )
+                if hold_initial:
+                    await self._flush_held_assistant_events(hold_initial)
             final_run_id = str(run_state.get("run_id") or run_id or "")
             closed_followers = await self._close_active_run(
                 session_key=request.session_key,
@@ -1788,18 +1843,29 @@ class SessionRunCoordinator:
         *,
         agent: LiveAgentSnapshot,
         message: InboundMessage,
+        session_key: str | None = None,
     ):
         """Produce the sole model-and-capability value for a new run admission."""
 
-        model = self._resolve_agent_model(agent)
+        existing = (
+            self._session_binder.lookup(session_key) if session_key is not None else None
+        )
+        kernel_session_id = existing.kernel_session_id if existing is not None else None
+        model = self._resolve_agent_model(
+            agent, kernel_session_id=kernel_session_id
+        )
         if model is None:
             raise ValueError("new run requires a resolved model")
+        chain_head = resolve_run_model(
+            agent.config, product_default=self._product_default_model
+        )
         return project_agent_runtime(
             agent,
             scenario=dict(message.metadata),
             resolved_model=model,
             reasoning_catalog=self._reasoning_catalog,
             time_context=self._time_context,
+            apply_saved_reasoning=chain_head is None or model == chain_head,
         )
 
     async def _admit_runtime(
@@ -1820,6 +1886,9 @@ class SessionRunCoordinator:
         runtime = self._reconcile_runtime(
             baseline=runtime,
             persisted=current.runtime if current is not None else None,
+            skip_effort_overlay=self._is_fallback_candidate(
+                agent, runtime.model
+            ),
         )
         desired = self._kernel.identify_runtime(runtime=runtime)
         applied_matches = (
@@ -1903,14 +1972,16 @@ class SessionRunCoordinator:
         *,
         baseline: SessionRuntimeConfig,
         persisted: SessionRuntimeConfig | None,
+        skip_effort_overlay: bool = False,
     ) -> SessionRuntimeConfig:
         """Apply a legal persisted session effort override to a fresh baseline.
 
         A retained Gateway session must pick up Agent configuration changes each
         admission without losing an override that remains legal for the new model.
+        Fallback candidates skip the /effort overlay and the Agent-saved intensity.
         """
 
-        if persisted is None:
+        if persisted is None or skip_effort_overlay:
             return baseline
         catalog = self._reasoning_catalog
         override = persisted.reasoning_effort_override
@@ -1990,7 +2061,9 @@ class SessionRunCoordinator:
 
     async def _ensure_binding_for_stop(self, request: StopRunRequest) -> SessionBinding:
         agent = self._latest_agent(request.agent)
-        runtime_projection = self._project_runtime(agent=agent, message=request.message)
+        runtime_projection = self._project_runtime(
+            agent=agent, message=request.message, session_key=request.session_key
+        )
         dispatch_url, fallback_port = self._dispatch_endpoint_metadata()
         return await self._session_binder.resolve(
             SessionBindingRequest(
@@ -2097,6 +2170,167 @@ class SessionRunCoordinator:
         if self._relay_lifecycle_callback is not None:
             await self._relay_lifecycle_callback(routed, update)
 
+    async def _failover_chat_if_needed(
+        self,
+        *,
+        run_state: Mapping[str, object],
+        reply_text: str,
+        request: InboundRunRequest,
+        binding: SessionBinding,
+        agent: LiveAgentSnapshot,
+        current_model: str,
+        run_id: str,
+        anchor_sequence: int | None,
+    ) -> tuple[Mapping[str, object], str, str, int | None]:
+        """Replay onto the next candidate when error.kind is failover-eligible."""
+
+        session_id = binding.kernel_session_id
+        while run_state.get("status") == "failed":
+            kind = error_kind_from_run_state(run_state)
+            if not should_failover(kind):
+                raise RuntimeError(self._extract_run_error(run_state, "failed"))
+            nxt = next_candidate(
+                resolve_model_candidates(
+                    agent.config,
+                    product_default=self._product_default_model,
+                    sticky=current_model,
+                ),
+                current_model,
+            )
+            if nxt is None:
+                raise RuntimeError(self._extract_run_error(run_state, "failed"))
+            try:
+                await self._reconfigure_fallback_runtime(
+                    binding=binding, agent=agent, model=nxt
+                )
+                replay = self._kernel.replay_last_user(
+                    session_id=session_id,
+                    workspace_root=agent.config.workspace_root,
+                    origin=RunOrigin.HUMAN,
+                )
+            except ReplayLastUserRejected:
+                self._sticky_store.set(
+                    session_id,
+                    agent.agent_id,
+                    StickyModelOverride(model=nxt, noticed=False),
+                )
+                raise RuntimeError(self._extract_run_error(run_state, "failed")) from None
+            current_model = nxt
+            self._sticky_store.set(
+                session_id,
+                agent.agent_id,
+                StickyModelOverride(model=nxt, noticed=False),
+            )
+            held: list[Mapping[str, object]] = []
+            (
+                run_state,
+                reply_text,
+                _terminal_request,
+                _followers,
+            ) = await self._await_terminal_run(
+                kernel_session_id=session_id,
+                run_id=replay.run_id,
+                anchor_sequence=replay.start_sequence,
+                request=request,
+                binding=binding,
+                model=nxt,
+                on_other=lambda event: self._on_other_event(event, binding=binding),
+                held_assistant_events=held,
+            )
+            run_id = replay.run_id
+            anchor_sequence = replay.start_sequence
+            if run_state.get("status") != "completed":
+                await self._flush_held_assistant_events(held)
+                continue
+            chain_head = resolve_run_model(
+                agent.config, product_default=self._product_default_model
+            )
+            sticky = self._sticky_store.get(session_id)
+            if chain_head and nxt != chain_head and (sticky is None or not sticky.noticed):
+                await self._deliver_control_reply(
+                    text=switch_notice(nxt),
+                    binding=binding,
+                    agent_id=agent.agent_id,
+                    ack_tag="model-fallback-ack",
+                    source_routed=request.routed,
+                    operation_id=None,
+                )
+                self._sticky_store.mark_noticed(session_id)
+            await self._flush_held_assistant_events(held)
+            return run_state, reply_text, run_id, anchor_sequence
+        return run_state, reply_text, run_id, anchor_sequence
+
+    async def _announce_fallback_if_needed(
+        self,
+        *,
+        binding: SessionBinding,
+        agent: LiveAgentSnapshot,
+        request: InboundRunRequest,
+        model: str,
+    ) -> None:
+        """Send the one-shot switch notice after a fallback candidate succeeds."""
+
+        session_id = binding.kernel_session_id
+        sticky = self._sticky_store.get(session_id)
+        used = sticky.model if sticky is not None else model
+        chain_head = resolve_run_model(
+            agent.config, product_default=self._product_default_model
+        )
+        if chain_head and used == chain_head:
+            self._sticky_store.drop_session(session_id)
+            return
+        if sticky is None or sticky.noticed:
+            return
+        await self._deliver_control_reply(
+            text=switch_notice(used),
+            binding=binding,
+            agent_id=agent.agent_id,
+            ack_tag="model-fallback-ack",
+            source_routed=request.routed,
+            operation_id=None,
+        )
+        self._sticky_store.mark_noticed(session_id)
+
+    async def _reconfigure_fallback_runtime(
+        self,
+        *,
+        binding: SessionBinding,
+        agent: LiveAgentSnapshot,
+        model: str,
+    ) -> None:
+        """Switch the session to a fallback model without writing IM config boundary."""
+
+        runtime = project_agent_runtime(
+            agent,
+            scenario={"agent_id": agent.agent_id},
+            resolved_model=model,
+            reasoning_catalog=self._reasoning_catalog,
+            time_context=self._time_context,
+            apply_saved_reasoning=False,
+        ).runtime
+        result = await self._kernel.reconfigure_session(
+            session_id=binding.kernel_session_id,
+            workspace_root=agent.config.workspace_root,
+            runtime=runtime,
+        )
+        self._session_binder.persist_applied_runtime(
+            binding,
+            runtime_fingerprint=result.state.identity.runtime_fingerprint,
+            fingerprint_schema=result.state.identity.fingerprint_schema,
+            profile_version=binding.applied_profile_version,
+            agent=agent,
+        )
+
+    async def _flush_held_assistant_events(
+        self, events: list[Mapping[str, object]]
+    ) -> None:
+        if self._kernel_event_observer is None:
+            return
+        for event in events:
+            result = self._kernel_event_observer(event)
+            if asyncio.iscoroutine(result):
+                await result
+
     async def _await_terminal_run(
         self,
         *,
@@ -2107,6 +2341,7 @@ class SessionRunCoordinator:
         binding: SessionBinding,
         model: str,
         on_other: Callable[[Mapping[str, object]], Awaitable[None] | None],
+        held_assistant_events: list[Mapping[str, object]] | None = None,
     ) -> tuple[
         Mapping[str, object],
         str,
@@ -2163,9 +2398,15 @@ class SessionRunCoordinator:
                         continue
                     event = consumed_event
                 if self._kernel_event_observer is not None:
-                    result = self._kernel_event_observer(event)
-                    if asyncio.iscoroutine(result):
-                        await result
+                    if (
+                        held_assistant_events is not None
+                        and event.get("event") == "assistant_message"
+                    ):
+                        held_assistant_events.append(event)
+                    else:
+                        result = self._kernel_event_observer(event)
+                        if asyncio.iscoroutine(result):
+                            await result
                 event_name = event.get("event")
                 if event_name == "permission_request":
                     # Waiting for a human is an intentional parked state, not lost
@@ -2209,6 +2450,9 @@ class SessionRunCoordinator:
             )
             if recovery is not None:
                 return recovery
+            # failed 带着 kind 返回，让调用方决定是否 replay；不要先 raise 丢掉 kind。
+            if status == "failed":
+                return run_state, reply_text, request, ()
             raise RuntimeError(self._extract_run_error(run_state, str(status or "")))
         finally:
             if next_event_task is not None and not next_event_task.done():
@@ -2802,16 +3046,37 @@ class SessionRunCoordinator:
             self._transition_locks.pop(removable, None)
 
     def _resolve_model(self, request: InboundRunRequest) -> str | None:
-        return self._resolve_agent_model(request.agent)
+        existing = self._session_binder.lookup(request.session_key)
+        kernel_session_id = existing.kernel_session_id if existing is not None else None
+        return self._resolve_agent_model(
+            request.agent, kernel_session_id=kernel_session_id
+        )
 
-    def _resolve_agent_model(self, agent: LiveAgentSnapshot) -> str | None:
+    def _resolve_agent_model(
+        self,
+        agent: LiveAgentSnapshot,
+        *,
+        kernel_session_id: str | None = None,
+    ) -> str | None:
         configured_default = self._product_default_model
         if configured_default is None:
             get_llm_config = getattr(self._kernel, "get_llm_config", None)
             if callable(get_llm_config):
                 config = get_llm_config()
                 configured_default = config.default_model or config.model
-        return resolve_run_model(agent.config, product_default=configured_default)
+        sticky = self._sticky_store.get(kernel_session_id)
+        candidates = resolve_model_candidates(
+            agent.config,
+            product_default=configured_default,
+            sticky=sticky.model if sticky is not None else None,
+        )
+        return candidates[0] if candidates else None
+
+    def _is_fallback_candidate(self, agent: LiveAgentSnapshot, model: str) -> bool:
+        chain_head = resolve_run_model(
+            agent.config, product_default=self._product_default_model
+        )
+        return bool(chain_head) and model != chain_head
 
     @staticmethod
     def _is_no_reply_token(text: str) -> bool:

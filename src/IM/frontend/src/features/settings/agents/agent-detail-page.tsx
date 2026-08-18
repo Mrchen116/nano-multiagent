@@ -16,6 +16,7 @@ import {
   normalizeReasoningEffort,
   reasoningEffortAfterModelChange,
 } from "./model-reasoning-field";
+import { fallbacksAfterPrimaryChange, ModelFallbackField } from "./model-fallback-field";
 import { PillSelector } from "./pill-selector";
 import { SkillSourceSelector } from "./skill-source-selector";
 import { AgentChannelsPanel } from "./agent-channels-panel";
@@ -63,6 +64,7 @@ function normalizeAgentConfig(
     skills: normalizeAllowlist(config.skills),
     tool_allowlist: normalizeAllowlist(config.tool_allowlist),
     default_model: defaultModel,
+    model_fallbacks: fallbacksAfterPrimaryChange(config.model_fallbacks ?? [], defaultModel),
     reasoning_effort: normalizeReasoningEffort(modelOptions, defaultModel, config.reasoning_effort),
   };
 }
@@ -1884,8 +1886,19 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
               }}
             />
           </div>
-          <div className="im-agent-field">
-            <Label.Root htmlFor="default-model">{t("agents.form.access.model")}</Label.Root>
+          <ModelFallbackField
+            label={t("agents.form.access.model")}
+            labelHtmlFor="default-model"
+            models={availableModels}
+            primary={effectiveReasoningModel(draft.default_model, platformDefaultModel)}
+            value={draft.model_fallbacks ?? []}
+            disabled={detailQuery.isLoading && availableModels.length === 0}
+            onChange={(modelFallbacks) => {
+              setSaved(false);
+              setErrorMessage(null);
+              setDraft({ ...draft, model_fallbacks: modelFallbacks });
+            }}
+          >
             <select
               id="default-model"
               className="im-input"
@@ -1900,6 +1913,7 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
                 setDraft({
                   ...draft,
                   default_model: defaultModel,
+                  model_fallbacks: fallbacksAfterPrimaryChange(draft.model_fallbacks ?? [], effectiveModel),
                   reasoning_effort: reasoningEffortAfterModelChange(
                     modelOptions,
                     effectiveModel,
@@ -1925,7 +1939,7 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
                 );
               })}
             </select>
-          </div>
+          </ModelFallbackField>
           <ModelReasoningField
             idPrefix="detail-agent"
             modelOptions={modelOptions}

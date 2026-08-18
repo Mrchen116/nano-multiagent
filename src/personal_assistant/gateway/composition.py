@@ -106,6 +106,7 @@ from personal_assistant.gateway.session_binder import (
 )
 from personal_assistant.gateway.distill_prompt import build_distill_prompt_handler
 from personal_assistant.gateway.session_run_coordinator import SessionRunCoordinator
+from personal_assistant.gateway.model_fallback import ModelStickyStore
 from personal_assistant.gateway.shadow_sync import IMShadowConversationSync
 from personal_assistant.gateway.workflow_permission_bindings import (
     WorkflowPermissionDeliveryBindingRegistry,
@@ -286,6 +287,8 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         time_context=time_context,
     )
     boundary_outbox = BoundaryOutboxDispatcher(store=session_store)
+    # 聊天 / 心跳 / cron 共用一份进程内粘性；配置 apply 也清同一份。
+    sticky_store = ModelStickyStore()
     kernel_shim = kernel_client.InProcessKernelClient(
         kernel,
         agent_catalog=agent_catalog,
@@ -293,6 +296,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         product_default_model=config.llm.default_model,
         reasoning_catalog=reasoning_catalog,
         time_context=time_context,
+        sticky_store=sticky_store,
     )
     # feat-394 decision 3: canonical direct-chat kernel session store.
     # Updated by HeartbeatScheduler.tick() via session_store.find_direct_by_agent()
@@ -327,6 +331,10 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         run_context_store=run_delivery_contexts,
         kernel_event_observer_provider=lambda: _kernel_event_observer,
         background_subscription_manager_provider=lambda: background_subscriptions,
+        sticky_store=sticky_store,
+        product_default_model=config.llm.default_model,
+        reasoning_catalog=reasoning_catalog,
+        time_context=time_context,
     )
 
     async def _send_external_reply(text: str, metadata: Mapping[str, str]) -> None:
@@ -423,6 +431,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
             operation_receipts=ConfigApplyReceiptStore(
                 runtime_dir / "config-apply-receipts-v1.json"
             ),
+            sticky_store=sticky_store,
         )
         # Build a token_getter closure that auto-refreshes the access token on reconnect.
         # The auth client uses the IM HTTP base URL so it can reach /im/v1/auth/* endpoints.
@@ -659,6 +668,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         image_resolver=image_resolver,
         readable_input_projection_store=readable_input_projection_store,
         time_context=time_context,
+        sticky_store=sticky_store,
     )
     pipeline = InboundPipeline(
         agent_catalog=agent_catalog,
@@ -717,6 +727,11 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         kernel_event_observer=(_kernel_event_observer if _owner_user_id else None),
         cron_tick_fn=cron_runtime.tick_agent,
         background_subscriptions=background_subscriptions,
+        sticky_store=sticky_store,
+        product_default_model=config.llm.default_model,
+        reasoning_catalog=reasoning_catalog,
+        time_context=time_context,
+        session_binder=session_binder,
     )
 
     if config.im_service is not None:

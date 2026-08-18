@@ -26,6 +26,7 @@ from personal_assistant.config.local_store import (
     default_local_config_path,
     enabled_feishu_agent_ids,
     ensure_workspace_defaults,
+    normalize_model_fallbacks,
     save_sensitive_local_config,
 )
 from personal_assistant.config.model_reasoning import ModelReasoningCatalog
@@ -37,6 +38,7 @@ from personal_assistant.config.skill_selection import (
 )
 from personal_assistant.builtin_skills.lark_bundle import lark_skill_names
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
+from personal_assistant.gateway.model_fallback import ModelStickyStore, model_chain_changed
 from personal_assistant.gateway.config_apply_receipts import (
     ConfigApplyReceiptStore,
     ConfigOperationReceipt,
@@ -122,6 +124,7 @@ def canonical_agent_operation_payload(
         )
         or "manual",
         "default_model": _optional_operation_text(payload.get("default_model")),
+        "model_fallbacks": list(_operation_string_tuple(payload.get("model_fallbacks"))),
         "reasoning_effort": _optional_operation_text(payload.get("reasoning_effort")),
         "workspace_root": workspace_root.strip()
         if isinstance(workspace_root, str) and workspace_root.strip()
@@ -210,6 +213,7 @@ class IMAgentConfigSync:
         reasoning_catalog: ModelReasoningCatalog | None = None,
         operation_receipts: ConfigApplyReceiptStore | None = None,
         operation_phase_hook: OperationPhaseHook | None = None,
+        sticky_store: ModelStickyStore | None = None,
     ) -> None:
         self._base_url = normalize_im_http_base_url(base_url)
         self._base_headers = build_im_http_headers(token)
@@ -247,6 +251,7 @@ class IMAgentConfigSync:
         )
         self._operation_phase_hook = operation_phase_hook
         self._operation_lock = threading.RLock()
+        self._sticky_store = sticky_store
 
     def sync_agent(self, *, agent_id: str, profile_version: int) -> None:
         deadline = self._monotonic() + self._timeout_seconds
@@ -348,6 +353,12 @@ class IMAgentConfigSync:
         )
         # Validate the candidate before any workspace setup can mutate its path.
         self._reasoning_catalog.validate(default_model, reasoning_effort)
+        model_fallbacks = normalize_model_fallbacks(
+            agent_payload.get("model_fallbacks"),
+            known_models=set(self._reasoning_catalog.known_model_ids()),
+            primary=default_model or self._reasoning_catalog.default_model,
+            field_name="model_fallbacks",
+        )
 
         if workspace_is_default:
             try:
@@ -427,6 +438,7 @@ class IMAgentConfigSync:
             tool_allowlist=tool_allowlist,
             group_reply_policy=group_reply_policy,
             default_model=default_model,
+            model_fallbacks=model_fallbacks,
             reasoning_effort=reasoning_effort,
             features=features,
             custom_prompt=custom_prompt,
@@ -461,6 +473,7 @@ class IMAgentConfigSync:
             "tool_allowlist": list(agent.tool_allowlist),
             "group_reply_policy": agent.group_reply_policy or "MENTION",
             "default_model": agent.default_model,
+            "model_fallbacks": list(agent.model_fallbacks),
             "reasoning_effort": agent.reasoning_effort,
             "workspace_root": str(agent.workspace_root),
             "workspace_is_default": agent.workspace_is_default,
@@ -836,6 +849,12 @@ class IMAgentConfigSync:
         default_model = _optional_operation_text(payload.get("default_model"))
         reasoning_effort = _optional_operation_text(payload.get("reasoning_effort"))
         self._reasoning_catalog.validate(default_model, reasoning_effort)
+        model_fallbacks = normalize_model_fallbacks(
+            payload.get("model_fallbacks"),
+            known_models=set(self._reasoning_catalog.known_model_ids()),
+            primary=default_model or self._reasoning_catalog.default_model,
+            field_name="model_fallbacks",
+        )
         existing_agent = self._local_agent(agent_id)
         return AgentWorkspaceConfig(
             agent_id=agent_id,
@@ -856,6 +875,7 @@ class IMAgentConfigSync:
                 payload.get("group_reply_policy")
             ),
             default_model=default_model,
+            model_fallbacks=model_fallbacks,
             reasoning_effort=reasoning_effort,
             workflow_size_guideline=(
                 existing_agent.workflow_size_guideline
@@ -1355,6 +1375,12 @@ class IMAgentConfigSync:
         default_model = _optional_text("default_model")
         reasoning_effort = _optional_text("reasoning_effort")
         self._reasoning_catalog.validate(default_model, reasoning_effort)
+        model_fallbacks = normalize_model_fallbacks(
+            payload.get("model_fallbacks"),
+            known_models=set(self._reasoning_catalog.known_model_ids()),
+            primary=default_model or self._reasoning_catalog.default_model,
+            field_name="model_fallbacks",
+        )
         existing_agent = self._local_agent(agent_id)
         return AgentWorkspaceConfig(
             agent_id=agent_id,
@@ -1383,6 +1409,7 @@ class IMAgentConfigSync:
             ),
             group_reply_policy=_optional_text("group_reply_policy"),
             default_model=default_model,
+            model_fallbacks=model_fallbacks,
             reasoning_effort=reasoning_effort,
             workflow_size_guideline=(
                 existing_agent.workflow_size_guideline
@@ -1434,8 +1461,15 @@ class IMAgentConfigSync:
             ),
             None,
         )
+        previous_snapshot = self._agent_catalog.get(agent_config.agent_id)
         if local_current != agent_config:
             self._persist_agent_config(agent_config)
+        if (
+            self._sticky_store is not None
+            and previous_snapshot is not None
+            and model_chain_changed(previous_snapshot.config, agent_config)
+        ):
+            self._sticky_store.clear_agent(agent_config.agent_id)
         current = self._agent_catalog.get(agent_config.agent_id)
         if current is not None and current.config == agent_config:
             return
@@ -1459,6 +1493,7 @@ class IMAgentConfigSync:
                 "tool_allowlist": list(agent.tool_allowlist),
                 "group_reply_policy": agent.group_reply_policy or "manual",
                 "default_model": agent.default_model,
+                "model_fallbacks": list(agent.model_fallbacks),
                 "reasoning_effort": agent.reasoning_effort,
                 "workspace_root": str(agent.workspace_root),
                 "workspace_is_default": agent.workspace_is_default,

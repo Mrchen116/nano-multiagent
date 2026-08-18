@@ -1081,6 +1081,90 @@ body {
   font-weight: 600;
 }
 
+.im-agent-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.im-agent-fallback-toggle {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--im-accent);
+  white-space: nowrap;
+}
+
+.im-agent-fallback-toggle:hover {
+  text-decoration: underline;
+}
+
+.im-agent-fallback-count {
+  color: var(--im-text-muted);
+  font-weight: 500;
+}
+
+.im-agent-fallback-panel {
+  display: grid;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.im-agent-fallback-list {
+  display: grid;
+  gap: 8px;
+}
+
+.im-agent-fallback-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.im-agent-fallback-idx {
+  flex-shrink: 0;
+  width: 18px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--im-text-muted);
+  text-align: right;
+}
+
+.im-agent-fallback-remove {
+  flex-shrink: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: var(--im-text-muted);
+  font-size: 0.78rem;
+  padding: 4px 6px;
+}
+
+.im-agent-fallback-remove:hover {
+  color: var(--im-danger);
+}
+
+.im-agent-fallback-add {
+  width: fit-content;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--im-accent);
+}
+
+.im-agent-fallback-add:hover {
+  text-decoration: underline;
+}
+
 .im-agent-reasoning-field {
   padding-top: 0.15rem;
 }

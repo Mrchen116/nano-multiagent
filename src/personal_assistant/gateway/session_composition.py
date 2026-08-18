@@ -56,6 +56,7 @@ def project_agent_runtime(
     resolved_model: str,
     reasoning_catalog: ModelReasoningCatalog | None = None,
     time_context: PaTimeContext | None = None,
+    apply_saved_reasoning: bool = True,
 ) -> ProjectedAgentRuntime:
     """Project one captured Agent snapshot into all future-turn settings.
 
@@ -65,14 +66,17 @@ def project_agent_runtime(
         resolved_model: Product-resolved model for this exact admission.
         reasoning_catalog: Gateway model capability catalog used to resolve effort.
         time_context: Gateway-startup timezone snapshot for the stable PA prompt.
+        apply_saved_reasoning: When False, use the candidate model's default
+            effort instead of the Agent-saved intensity (fallback candidates).
 
     Returns:
         The raw SDK runtime and optional IM profile provenance.
     """
 
     config = agent.config
+    selected_effort = config.reasoning_effort if apply_saved_reasoning else None
     reasoning_effort = (
-        reasoning_catalog.resolve(resolved_model, config.reasoning_effort)
+        reasoning_catalog.resolve(resolved_model, selected_effort)
         if reasoning_catalog is not None
         else None
     )

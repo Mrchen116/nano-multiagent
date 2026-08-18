@@ -151,9 +151,14 @@ class CronRunner:
                 texts=[job.instruction],
                 workspace_root=str(self._workspace_root),
                 origin="cron",
-                # bugfix-429: shim resolves this agent's model (default_model or
-                # product default) so unattended cron runs honour per-agent model.
+                # 心跳/cron 必须显式把 candidates[0] 传给 shim；省略会再 resolve_run_model
+                # 成链头，和已 reconfigure 的备用 runtime 冲突。
                 agent_id=self._agent_id,
+                model=_admit_model(
+                    self._kernel_client,
+                    agent_id=self._agent_id,
+                    session_id=session_id,
+                ),
             )
         except Exception:  # noqa: BLE001
             _logger.exception(
@@ -246,3 +251,10 @@ class CronRunner:
             )
             return binding.kernel_session_id if binding is not None else None
         return None
+
+
+def _admit_model(kernel_client: object, *, agent_id: str, session_id: str) -> str | None:
+    admit = getattr(kernel_client, "admit_model", None)
+    if not callable(admit):
+        return None
+    return admit(agent_id=agent_id, session_id=session_id)

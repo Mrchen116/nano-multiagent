@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -27,12 +27,14 @@ class StreamRunOutcome:
         final_text: Latest non-empty assistant message, including partial output.
         delivery: Minimal delivery projection captured while removing the context.
         error: Kernel-provided failure detail, when present.
+        error_kind: Kernel-projected ``run_status.error.kind``, when present.
     """
 
     status: str
     final_text: str
     delivery: RunDeliveryTerminalProjection | None
     error: str | None
+    error_kind: str | None = None
 
 
 async def stream_run_to_completion(
@@ -46,6 +48,8 @@ async def stream_run_to_completion(
     observer: Callable[..., Any] | None,
     stream_anchor: int = 0,
     background_subscriptions: BackgroundSubscriptionManager | None = None,
+    hold_assistant_events: list[Mapping[str, Any]] | None = None,
+    before_assistant_flush: Callable[[], Awaitable[None]] | None = None,
 ) -> StreamRunOutcome:
     """Deliver one kernel run and return its canonical terminal outcome.
 
@@ -91,7 +95,12 @@ async def stream_run_to_completion(
                 content = str(event.get("content") or "").strip()
                 if content:
                     final_result_text = content
-            if observer is not None:
+            if (
+                hold_assistant_events is not None
+                and event.get("event") == "assistant_message"
+            ):
+                hold_assistant_events.append(event)
+            elif observer is not None:
                 observation = observer(event)
                 if asyncio.iscoroutine(observation):
                     await observation
@@ -122,6 +131,17 @@ async def stream_run_to_completion(
                         await reconcile
                 break
     finally:
+        # 先发「已改用」再冲刷备用正文；失败气泡在 completed 之外立刻冲刷。
+        if hold_assistant_events and observer is not None:
+            status = (
+                str(terminal_event["status"]) if terminal_event is not None else None
+            )
+            if status == "completed" and before_assistant_flush is not None:
+                await before_assistant_flush()
+            for held in hold_assistant_events:
+                observation = observer(held)
+                if asyncio.iscoroutine(observation):
+                    await observation
         terminal_delivery = _take_stream_delivery(
             run_context_store=run_context_store, run_id=run_id
         )
@@ -134,6 +154,7 @@ async def stream_run_to_completion(
         final_text=final_result_text,
         delivery=terminal_delivery,
         error=_extract_terminal_error(terminal_event, status=status),
+        error_kind=_extract_terminal_kind(terminal_event),
     )
 
 
@@ -149,6 +170,15 @@ def _extract_terminal_error(
             return message.strip()
     if status == "failed":
         return f"kernel run ended with status={status}"
+    return None
+
+
+def _extract_terminal_kind(terminal_event: Mapping[str, Any]) -> str | None:
+    error = terminal_event.get("error")
+    if isinstance(error, Mapping):
+        kind = error.get("kind")
+        if isinstance(kind, str) and kind.strip():
+            return kind.strip()
     return None
 
 

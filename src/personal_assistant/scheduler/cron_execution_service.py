@@ -31,6 +31,15 @@ from typing import Any, Awaitable, Callable, Mapping, Protocol
 
 import logging
 
+from agent.sdk import RunOrigin
+
+from personal_assistant.config.local_store import resolve_model_candidates
+from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
+from personal_assistant.gateway.model_fallback import (
+    ModelStickyStore,
+    failover_unattended_run,
+    switch_notice,
+)
 from personal_assistant.gateway.runtime_delivery.context import RunDeliveryContextStore
 from personal_assistant.gateway.runtime_delivery.stream import (
     StreamRunOutcome,
@@ -371,19 +380,29 @@ class CronRunTerminalConsumer:
         run_context_store: RunDeliveryContextStore,
         observer: Callable[..., Any] | None = None,
         background_subscriptions: Any | None = None,
+        agent_catalog: LiveAgentCatalog | None = None,
+        sticky_store: ModelStickyStore | None = None,
+        product_default_model: str | None = None,
+        reasoning_catalog: Any | None = None,
+        time_context: Any | None = None,
     ) -> None:
         self._kernel = kernel
         self._owner_user_id = owner_user_id
         self._run_context_store = run_context_store
         self._observer = observer
         self._background_subscriptions = background_subscriptions
+        self._agent_catalog = agent_catalog
+        self._sticky_store = sticky_store
+        self._product_default_model = product_default_model
+        self._reasoning_catalog = reasoning_catalog
+        self._time_context = time_context
 
     async def consume(
         self, *, run_id: str, kernel_session_id: str, agent_id: str
     ) -> StreamRunOutcome:
         """Consume one run, optionally translating events through IM delivery."""
 
-        return await stream_run_to_completion(
+        outcome = await stream_run_to_completion(
             run_id=run_id,
             kernel_session_id=kernel_session_id,
             agent_id=agent_id,
@@ -392,6 +411,92 @@ class CronRunTerminalConsumer:
             run_context_store=self._run_context_store,
             observer=self._observer,
             background_subscriptions=self._background_subscriptions,
+        )
+        return await self._failover_if_needed(
+            run_id=run_id,
+            kernel_session_id=kernel_session_id,
+            agent_id=agent_id,
+            outcome=outcome,
+        )
+
+    async def _failover_if_needed(
+        self,
+        *,
+        run_id: str,
+        kernel_session_id: str,
+        agent_id: str,
+        outcome: StreamRunOutcome,
+    ) -> StreamRunOutcome:
+        if self._sticky_store is None or self._agent_catalog is None:
+            return outcome
+        snapshot = self._agent_catalog.get(agent_id)
+        if snapshot is None:
+            return outcome
+        sticky = self._sticky_store.get(kernel_session_id)
+        candidates = resolve_model_candidates(
+            snapshot.config,
+            product_default=self._product_default_model,
+            sticky=sticky.model if sticky is not None else None,
+        )
+        if not candidates:
+            return outcome
+
+        async def _consume_replay(
+            *,
+            run_id: str,
+            stream_anchor: int,
+            before_flush: Any,
+        ) -> StreamRunOutcome:
+            held: list[Any] = []
+            return await stream_run_to_completion(
+                run_id=run_id,
+                kernel_session_id=kernel_session_id,
+                agent_id=agent_id,
+                owner_user_id=self._owner_user_id,
+                kernel=self._kernel,
+                run_context_store=self._run_context_store,
+                observer=self._observer,
+                stream_anchor=stream_anchor,
+                background_subscriptions=self._background_subscriptions,
+                hold_assistant_events=held,
+                before_assistant_flush=before_flush,
+            )
+
+        async def _deliver_notice(model: str) -> None:
+            if self._observer is None:
+                return
+            notice_run_id = f"{run_id}:model-fallback-ack"
+            self._run_context_store.seed_owner_direct_run(
+                run_id=notice_run_id,
+                agent_id=agent_id,
+                kernel_session_id=kernel_session_id,
+                owner_user_id=self._owner_user_id,
+            )
+            observation = self._observer(
+                {
+                    "event": "assistant_message",
+                    "run_id": notice_run_id,
+                    "content": switch_notice(model),
+                }
+            )
+            if asyncio.iscoroutine(observation):
+                await observation
+            self._run_context_store.take(notice_run_id)
+
+        return await failover_unattended_run(
+            kernel=self._kernel,
+            session_id=kernel_session_id,
+            workspace_root=snapshot.config.workspace_root,
+            agent_snapshot=snapshot,
+            sticky_store=self._sticky_store,
+            product_default=self._product_default_model,
+            reasoning_catalog=self._reasoning_catalog,
+            time_context=self._time_context,
+            current_model=candidates[0],
+            outcome=outcome,
+            origin=RunOrigin.CRON,
+            consume_replay=_consume_replay,
+            deliver_notice=_deliver_notice,
         )
 
 

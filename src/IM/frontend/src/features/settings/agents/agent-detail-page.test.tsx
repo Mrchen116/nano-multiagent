@@ -575,6 +575,36 @@ describe("agent detail page", () => {
     expect(apiMocks.navigateMock).not.toHaveBeenCalled();
   });
 
+  it("keeps fallbacks collapsed on the default model label row", async () => {
+    const user = userEvent.setup();
+    apiMocks.getAgentSkillsUsageMock.mockResolvedValue(makeSkillsUsage());
+    apiMocks.getAgentDetailStateMock.mockResolvedValue({
+      ...makeDashboardDetailState(),
+      config: {
+        ...makeDashboardDetailState().config,
+        default_model: "primary",
+        model_fallbacks: ["backup"],
+      },
+      capabilities: {
+        ...makeDashboardDetailState().capabilities,
+        model_options: [
+          { name: "primary", provider: "p1" },
+          { name: "backup", provider: "p2" },
+          { name: "third", provider: "p3" },
+        ],
+      },
+    });
+
+    renderDetailPage();
+    const toggle = await screen.findByRole("button", { name: /Fallbacks 1/i });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: /\+ Add fallback/i })).toBeNull();
+
+    await user.click(toggle);
+    expect(await screen.findByRole("button", { name: /\+ Add fallback/i })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /\+ Add fallback/i }));
+    expect(screen.getByLabelText("Fallback 2")).toBeInTheDocument();
+  });
 });
 
 describe("agent behavior settings", () => {
