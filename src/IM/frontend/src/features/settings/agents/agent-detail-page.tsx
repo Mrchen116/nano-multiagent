@@ -7,7 +7,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
 import { createConversation } from "../../chat/chat-api";
-import { Avatar, colorForAgent } from "../../chat/components/avatar";
+import { Avatar, colorForAgent, initialsOf } from "../../chat/components/avatar";
 import { AgentsRailDesktop } from "./agents-rail-desktop";
 import {
   effectiveReasoningModel,
@@ -84,12 +84,6 @@ function resolveEffectiveFeatures(
     result[feat.key] = draftFeatures?.[feat.key] ?? feat.default_on;
   }
   return result;
-}
-
-function initialsOf(displayName: string): string {
-  const trimmed = displayName.trim();
-  if (!trimmed) return "AG";
-  return trimmed.slice(0, 2).toUpperCase();
 }
 
 function resolveModelOptions(modelOptions: ModelOption[] | undefined, currentModel: string | null): ModelOption[] {

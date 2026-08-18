@@ -111,6 +111,23 @@ describe("AgentRow on desktop", () => {
     expect(within(row).getByText("mac-mini")).toHaveClass("text-[oklch(0.64_0.01_240)]");
   });
 
+  it("gets its hover background from Tailwind classes, suppressed while active", () => {
+    const { unmount } = render(
+      <AgentRow agent={AGENT} nodes={NODES} isActive={false} isMobile={false} onSelect={() => {}} />
+    );
+    expect(screen.getByRole("button", { name: "Planner" })).toHaveClass(
+      "hover:bg-[oklch(0.28_0.012_240)]"
+    );
+    unmount();
+
+    render(
+      <AgentRow agent={AGENT} nodes={NODES} isActive={true} isMobile={false} onSelect={() => {}} />
+    );
+    expect(screen.getByRole("button", { name: "Planner" })).not.toHaveClass(
+      "hover:bg-[oklch(0.28_0.012_240)]"
+    );
+  });
+
   it("truncates only the device label itself, never the identity lines", () => {
     renderRow();
 

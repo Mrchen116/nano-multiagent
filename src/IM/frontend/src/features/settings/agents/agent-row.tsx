@@ -1,11 +1,5 @@
-import { Avatar, colorForAgent } from "../../chat/components/avatar";
+import { Avatar, colorForAgent, initialsOf } from "../../chat/components/avatar";
 import type { AgentSummary, NodeSummary } from "./im-agent-config-api";
-
-function initialsOf(displayName: string): string {
-  const trimmed = displayName.trim();
-  if (!trimmed) return "AG";
-  return trimmed.slice(0, 2).toUpperCase();
-}
 
 /** Online when the agent's owning node reports online, via the agent's own
  *  node_status first and the nodes table as fallback. */
@@ -53,25 +47,21 @@ export function AgentRow({ agent, nodes, isActive, isMobile, onSelect }: AgentRo
       onClick={() => onSelect(agent.agent_id)}
       className={`flex w-full items-center gap-3 rounded-xl border-none text-left font-inherit mb-1 min-h-[52px] transition-colors ${
         isActive ? "outline outline-1" : "outline-none"
-      } ${isMobile ? "px-[10px] py-[12px]" : "px-[10px] py-[9px]"}`}
+      } ${isMobile ? "px-[10px] py-[12px]" : "px-[10px] py-[9px]"} ${
+        isActive
+          ? ""
+          : isMobile
+            ? "hover:bg-[oklch(0.90_0.006_240)]"
+            : "hover:bg-[oklch(0.28_0.012_240)]"
+      }`}
       style={{
         background: isActive
           ? (isMobile ? "oklch(0.90 0.010 180)" : "oklch(0.31 0.015 240)")
-          : "transparent",
+          : undefined,
         outlineColor: isActive
           ? (isMobile ? "oklch(0.75 0.12 180)" : "oklch(0.40 0.08 180)")
           : "transparent",
         cursor: "pointer",
-      }}
-      onMouseEnter={(e) => {
-        if (!isActive) {
-          e.currentTarget.style.background = isMobile
-            ? "oklch(0.90 0.006 240)"
-            : "oklch(0.28 0.012 240)";
-        }
-      }}
-      onMouseLeave={(e) => {
-        if (!isActive) e.currentTarget.style.background = "transparent";
       }}
       aria-label={agent.display_name}
       aria-current={isActive ? "page" : undefined}
@@ -85,13 +75,9 @@ export function AgentRow({ agent, nodes, isActive, isMobile, onSelect }: AgentRo
       <div className="min-w-0 flex-1">
         <p
           className={`m-0 font-semibold truncate ${
-            isMobile ? "text-[15px]" : "text-[13px]"
-          } ${
-            isActive && !isMobile
-              ? "text-white"
-              : isMobile
-                ? "text-[oklch(0.18_0.01_240)]"
-                : "text-[oklch(0.86_0.01_240)]"
+            isMobile
+              ? "text-[15px] text-[oklch(0.18_0.01_240)]"
+              : `text-[13px] ${isActive ? "text-white" : "text-[oklch(0.86_0.01_240)]"}`
           }`}
         >
           {agent.display_name}
