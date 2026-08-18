@@ -1346,6 +1346,7 @@ class SessionRunCoordinator:
         terminal_followers: tuple[InboundRunRequest, ...] = ()
         active_closed = False
         trace_id: str | None = None
+        hold_initial: list[Mapping[str, object]] | None = None
         try:
             failure_kind: str | None = None
             async with self._transition(request.session_key):
@@ -1455,7 +1456,7 @@ class SessionRunCoordinator:
                     model=runtime_projection.runtime.model,
                 ),
             )
-            hold_initial: list[Mapping[str, object]] | None = None
+            hold_initial = None
             sticky = self._sticky_store.get(binding.kernel_session_id)
             if sticky is not None and not sticky.noticed:
                 # 待提示的 sticky 成功轮要把说明插在正文前，所以先 hold；失败则立刻冲刷气泡。
@@ -1475,7 +1476,7 @@ class SessionRunCoordinator:
                 on_other=lambda event: self._on_other_event(event, binding=binding),
                 held_assistant_events=hold_initial,
             )
-            if run_state.get("status") == "failed" and hold_initial:
+            if hold_initial is not None and run_state.get("status") != "completed":
                 await self._flush_held_assistant_events(hold_initial)
                 hold_initial = None
             (
@@ -1503,6 +1504,7 @@ class SessionRunCoordinator:
                 )
                 if hold_initial:
                     await self._flush_held_assistant_events(hold_initial)
+                    hold_initial = None
             final_run_id = str(run_state.get("run_id") or run_id or "")
             closed_followers = await self._close_active_run(
                 session_key=request.session_key,
@@ -1611,6 +1613,9 @@ class SessionRunCoordinator:
                 admission_event.set()
             raise
         finally:
+            if hold_initial:
+                await self._flush_held_assistant_events(hold_initial)
+                hold_initial = None
             close_run_id = self._turn_close_run_id(
                 session_key=request.session_key, run_id=run_id
             )
