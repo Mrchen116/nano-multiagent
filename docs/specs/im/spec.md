@@ -1,6 +1,6 @@
 # IM Specification
 
-> 对齐: bugfix-536
+> 对齐: feat-541
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端(内置 Web IM)、Node Gateway(`personal_assistant`)、终端用户,以及 `tests/im_service/` 里的契约测试。
 
@@ -24,7 +24,7 @@
 | [Tool Timeline](tool-timeline.md) | thinking、tool/reasoning 与可归因后台返回共享消息内过程折叠 | 8 |
 | [Workflows](workflows.md) | Workflow 在既有 tool、permission、slash 与普通消息 surface 中的呈现和开关 | 2 |
 | [Response Metrics](response-metrics.md) | 墙钟耗时、气泡指标、缓存命中率 | 3 |
-| [Agents and Nodes](agents-nodes.md) | Agent 配置、能力选择、节点绑定与 Workflow tool pill | 24 |
+| [Agents and Nodes](agents-nodes.md) | Agent 配置、能力选择、节点绑定与 Workflow tool pill | 25 |
 | [Gateway Relay](gateway-relay.md) | 后台 Agent / Workflow 普通回复的实时到达、原始返回持久化与重放去重 | 11 |
 
 ## Maintenance Rule

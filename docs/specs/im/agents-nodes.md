@@ -1,6 +1,6 @@
 # IM - Agents and Nodes Specification
 
-> 对齐: feat-517
+> 对齐: feat-541
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -11,13 +11,38 @@ Agent 配置中心、外部 channel 控制面、节点绑定、节点状态、ru
 
 ## Requirements
 
+### Requirement: Agent 配置页可设置有序备用模型，且默认不占地方
+
+Agent 新建页与编辑页的主模型选择器仍在原位置。备用模型是紧挨该选择器的次要入口：默认收起，不把表单撑高；未展开时仍能看出已配备用数量。展开后从该节点可用模型目录按优先级添加与主模型不同的模型，保存后再次打开顺序不变。清空备用并保存后与从未配置等价。自动切换不会改写页面上保存的主模型。
+
+#### Scenario: 默认折叠，主模型选择仍是重点
+- **WHEN** 打开 Agent 新建页或编辑页
+- **THEN** 主模型选择器仍在原位置，可单独完成「这个 Agent 用哪个模型」
+- **AND** 备用模型区域默认收起，不把表单撑高到需要滚动才能看到主模型以外的常用项
+
+#### Scenario: 展开后按序添加备用并保存
+- **GIVEN** 该 Agent 所在节点有多个可用模型
+- **WHEN** 用户展开备用区域，按优先级加入一个或多个与主模型不同的模型并保存
+- **THEN** 再次打开该 Agent 编辑页时，展开后仍看到同一顺序的备用列表
+- **AND** 未展开时仍能看出已配备用数量，不必先展开才能知道配没配
+
+#### Scenario: 清空备用后与从未配置等价
+- **GIVEN** 某 Agent 已保存过备用列表
+- **WHEN** 用户把备用全部去掉并保存
+- **THEN** 该 Agent 不再有备用链
+
+#### Scenario: 自动切换不改写编辑页主模型
+- **GIVEN** 某聊天已经自动改用备用模型
+- **WHEN** 用户打开该 Agent 的编辑页
+- **THEN** 主模型选择器与备用列表仍是保存过的配置
+
 ### Requirement: Agent 配置中心可读可改，版本乐观锁，新运行配置由既有聊天下一轮新回复采用
 
-前端经 `/im/v1/agents/*` 读写 Agent 展示与运行配置，配置以 `profile_version` 乐观锁持久化。展示字段更新立即反映在 UI；model、其可空 `reasoning_effort`、可见的 Custom Instructions (`custom_prompt`)、skills、tools 与运行 features 等配置由 Gateway 在每个既有聊天下一轮新回复开始时采用，并保持该聊天历史。已在进行的整轮不切换。IM 自有字段在 live 快照合并时仍以持久值为准。公开 Agent profile 和能力目录都不提供 `system_prompt` 或上游请求参数。
+前端经 `/im/v1/agents/*` 读写 Agent 展示与运行配置，配置以 `profile_version` 乐观锁持久化。展示字段更新立即反映在 UI；model、有序 `model_fallbacks`、其可空 `reasoning_effort`、可见的 Custom Instructions (`custom_prompt`)、skills、tools 与运行 features 等配置由 Gateway 在每个既有聊天下一轮新回复开始时采用，并保持该聊天历史。已在进行的整轮不切换。IM 自有字段在 live 快照合并时仍以持久值为准。公开 Agent profile 和能力目录都不提供 `system_prompt` 或上游请求参数。缺省或空的 `model_fallbacks` 与从未配置等价。
 
 #### Scenario: 读配置暴露稳定字段集
 - **WHEN** 前端读取 Agent 配置
-- **THEN** 响应保留既有稳定配置字段、可空 `reasoning_effort` 及 profile version
+- **THEN** 响应保留既有稳定配置字段、可空 `reasoning_effort`、有序 `model_fallbacks` 及 profile version
 - **AND** 专属人设只以可见的 `custom_prompt` 返回，不含 profile `system_prompt`
 
 #### Scenario: PATCH 经 Gateway 可恢复 apply 后持久化运行配置并保持乐观锁
@@ -28,13 +53,19 @@ Agent 配置中心、外部 channel 控制面、节点绑定、节点状态、ru
 #### Scenario: 既有聊天下一轮新回复采用成功保存的运行配置
 - **GIVEN** 某聊天已形成历史且当前没有新回复在开始
 - **WHEN** 用户成功更新 Agent 运行配置后回到该聊天发消息
-- **THEN** 下一轮新回复使用更新后的模型和推理强度，并延续原聊天历史
+- **THEN** 下一轮新回复使用更新后的模型、备用列表和推理强度，并延续原聊天历史
 
 #### Scenario: 保存的推理强度必须属于 Gateway apply 时的有效模型目录
 - **GIVEN** Agent 明确选择模型 M，或继承 Gateway 的平台默认模型 M
 - **WHEN** 前端保存 M 的推理强度
 - **THEN** Gateway 在 apply 时以 M 的当前能力验证该选择并确认其本地配置已落地后，IM 才持久化
 - **AND** 当目录已更新而该强度失效时返回冲突、不写新 profile，也不表示保存成功
+
+#### Scenario: 保存的备用模型必须属于 Gateway apply 时的有效模型目录
+- **GIVEN** 该节点当前可用模型目录
+- **WHEN** 前端保存 `model_fallbacks`
+- **THEN** Gateway 在 apply 时确认每一项都在目录中、与当时有效主模型不同，并去重保序
+- **AND** 目录外的项返回冲突、不写新 profile
 
 #### Scenario: Gateway 成功 apply 后 IM 乐观锁失败会恢复 Gateway 原配置
 - **GIVEN** Gateway 已成功 apply 一个候选 Agent 配置
