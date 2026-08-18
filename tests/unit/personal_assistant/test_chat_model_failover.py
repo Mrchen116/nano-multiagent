@@ -212,6 +212,11 @@ async def test_exhausted_chain_stays_failed_without_switch_notice(
     _publish_fallbacks(catalog, "backup-a", "backup-b")
     channel = _FakeChannel("web_relay")
     observed: list[dict[str, object]] = []
+    visible_replies: list[str] = []
+
+    async def _bg_reply_sender(text: str, _reply_context: object, _from: str) -> None:
+        visible_replies.append(text)
+
     coordinator = SessionRunCoordinator(
         kernel=kernel,
         session_binder=binder,
@@ -219,6 +224,7 @@ async def test_exhausted_chain_stays_failed_without_switch_notice(
         group_context_store=group_store,
         sticky_store=ModelStickyStore(),
         kernel_event_observer=observed.append,
+        bg_reply_sender=_bg_reply_sender,
     )
     running = asyncio.create_task(
         coordinator.dispatch(_request(inbound(chat_id="chat-a", text="hello"), catalog))
@@ -250,7 +256,8 @@ async def test_exhausted_chain_stays_failed_without_switch_notice(
     assert [call["run_id"] for call in kernel.replay_calls] == ["run-2", "run-3"]
     texts = [item.text for item in channel.sent]
     assert all("已改用" not in text for text in texts)
-    assert texts == [
+    assert all("已改用" not in text for text in visible_replies)
+    assert visible_replies == [
         "⚠️ 模型调用失败（backup-a）: quota",
         "⚠️ 模型调用失败（backup-b）: quota",
     ]
