@@ -108,6 +108,14 @@ if TYPE_CHECKING:
 CanUseToolFn = Callable[[str, Any, Any], Awaitable[PermissionDecision]]
 
 
+class ReplayLastUserRejected(ValueError):
+    """Refuse replay-last-user because the failed run already produced real output.
+
+    Gateway treats this as the current candidate's terminal: do not retry the same
+    request in-place. If another fallback remains, stick to it for the next turn.
+    """
+
+
 @dataclass
 class _KernelComponents:
     """Hold all assembled platform components for a Kernel instance."""
@@ -1772,6 +1780,53 @@ class Kernel:
         )
         return _to_run_info(record)
 
+    def replay_last_user(
+        self,
+        *,
+        session_id: str,
+        origin: RunOrigin = RunOrigin.USER,
+        workspace_root: str | Path | None = None,
+        trace_id: str | None = None,
+    ) -> RunInfo:
+        """Start a new run that reuses the last user message without appending another.
+
+        Callers must ``reconfigure_session`` to the next model first. Empty
+        ``registry.submit`` parts stay illegal; this entry is the only way to
+        start a turn without new user parts.
+
+        Args:
+            session_id: Session whose last user turn should be replayed.
+            origin: Message origin recorded on the new run.
+            workspace_root: Session workspace root.
+            trace_id: Optional trace correlation id.
+
+        Returns:
+            RunInfo for the newly queued run.
+
+        Raises:
+            ReplayLastUserRejected: The failed run already produced a non
+                provider-error assistant body or tool events.
+            ValueError: Session is missing or has no user message to replay.
+        """
+        effective_root = Path(workspace_root or self._repo_root).expanduser().resolve()
+        ref = SessionRef(session_id=session_id, workspace_root=effective_root)
+        if self._c.directory.get(ref) is None:
+            raise ValueError(f"session does not exist: {session_id}")
+        conversation = self._c.directory.open(ref)
+        messages = conversation.history_snapshot()
+        _raise_if_replay_blocked(messages)
+        runtime_model = conversation.config_snapshot()[0].runtime_model
+        record = self._c.runs_registry.submit(
+            session_id=session_id,
+            parts=(),
+            origin=origin,
+            workspace_root=effective_root,
+            trace_id=trace_id,
+            model=runtime_model,
+            replay_last_user=True,
+        )
+        return _to_run_info(record)
+
     def _try_inject_active_run(
         self,
         *,
@@ -2695,6 +2750,31 @@ class Kernel:
     def _broker(self) -> PermissionBroker:
         """Expose broker for testing purposes."""
         return self._c.permission_broker
+
+
+def _raise_if_replay_blocked(messages: Sequence[Any]) -> None:
+    """Reject replay when the last user turn already produced real output."""
+
+    last_user_index = None
+    for index, message in enumerate(messages):
+        if getattr(message, "role", None) == "user":
+            last_user_index = index
+    if last_user_index is None:
+        raise ValueError("replay-last-user requires a prior user message")
+    for message in messages[last_user_index + 1 :]:
+        role = getattr(message, "role", None)
+        metadata = getattr(message, "metadata", None) or {}
+        if role == "tool":
+            raise ReplayLastUserRejected("run already produced tool events")
+        if role != "assistant":
+            continue
+        if metadata.get("is_provider_error"):
+            continue
+        content = getattr(message, "content", "") or ""
+        if str(content).strip():
+            raise ReplayLastUserRejected("run already produced assistant output")
+        if getattr(message, "tool_calls", None) or metadata.get("tool_calls"):
+            raise ReplayLastUserRejected("run already produced tool events")
 
 
 def _bind_wiring_to_tool_registry(

@@ -19,7 +19,7 @@ Public API:
     TERMINAL_RUN_STATUSES — terminal run-status set (C1 re-export)
 """
 
-from .kernel import CanUseToolFn, Kernel, build_kernel
+from .kernel import CanUseToolFn, Kernel, ReplayLastUserRejected, build_kernel
 from .contracts import HookAPI, Tool, ToolContext
 from .dto import (
     FeatureInfo,
@@ -58,6 +58,7 @@ __all__ = [
     # Core kernel assembly
     "CanUseToolFn",
     "Kernel",
+    "ReplayLastUserRejected",
     "build_kernel",
     # 2-layer surface (refactor-406 决策 2/4/5/6/8)
     "Tool",
