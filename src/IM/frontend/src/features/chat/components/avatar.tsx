@@ -79,6 +79,7 @@ export function Avatar({ initials, color, size = 32, status }: AvatarProps) {
       {status && (
         <span
           className={`chat-avatar-status chat-avatar-status--${status}`}
+          aria-label={status}
           style={{
             width: dotSize,
             height: dotSize,

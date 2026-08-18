@@ -119,6 +119,7 @@ export function AgentsListPage() {
                 key={agent.agent_id}
                 agent={agent}
                 nodes={nodes}
+                nodesPending={nodesQuery.isPending}
                 isActive={agent.agent_id === activeAgentId}
                 isMobile={isMobile}
                 onSelect={(agentId) => navigate(`/settings/agents/${agentId}`)}

@@ -77,12 +77,14 @@ describe("AgentRow on desktop", () => {
     expect(within(row).getByText("mac-mini")).toBeInTheDocument();
   });
 
-  it("has no standalone status dot at the trailing edge — presence lives on the avatar badge", () => {
+  it("exposes presence only on the avatar badge — no standalone status dot at the trailing edge", () => {
     renderRow();
 
     const row = screen.getByRole("button", { name: "Planner" });
-    expect(within(row).queryByLabelText("online")).not.toBeInTheDocument();
-    expect(within(row).queryByLabelText("offline")).not.toBeInTheDocument();
+    const badges = within(row).getAllByLabelText("online");
+    expect(badges).toHaveLength(1);
+    expect(badges[0]).toHaveClass("chat-avatar-status");
+    expect(within(row).queryAllByLabelText("offline")).toHaveLength(0);
   });
 
   it("renders nothing at the trailing edge when the agent has no owning node", () => {
@@ -116,7 +118,8 @@ describe("AgentRow on desktop", () => {
       <AgentRow agent={AGENT} nodes={NODES} isActive={false} isMobile={false} onSelect={() => {}} />
     );
     expect(screen.getByRole("button", { name: "Planner" })).toHaveClass(
-      "hover:bg-[oklch(0.28_0.012_240)]"
+      "hover:bg-[oklch(0.28_0.012_240)]",
+      "focus-visible:bg-[oklch(0.29_0.012_240)]"
     );
     unmount();
 
@@ -133,6 +136,25 @@ describe("AgentRow on desktop", () => {
 
     const row = screen.getByRole("button", { name: "Planner" });
     expect(within(row).getByText("mac-mini")).toHaveClass("truncate", "max-w-[92px]", "shrink-0");
+  });
+
+  it("keeps the device label slot empty while the nodes query is pending", () => {
+    renderRow({ nodes: [], nodesPending: true });
+
+    const row = screen.getByRole("button", { name: "Planner" });
+    expect(within(row).queryByText("node-1")).not.toBeInTheDocument();
+    expect(within(row).queryByText("mac-mini")).not.toBeInTheDocument();
+  });
+
+  it("marks the active row with the prototype background and outline", () => {
+    render(
+      <AgentRow agent={AGENT} nodes={NODES} isActive={true} isMobile={false} onSelect={() => {}} />
+    );
+
+    const row = screen.getByRole("button", { name: "Planner" });
+    expect(row).toHaveClass("outline", "outline-1");
+    expect(row.style.background).toBe("oklch(0.31 0.015 240)");
+    expect(row.style.outlineColor).toMatch(/^oklch\(0\.4\s+0\.08\s+180\)$/);
   });
 
   it("invokes onSelect with the agent id", async () => {

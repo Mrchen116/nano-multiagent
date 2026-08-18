@@ -26,6 +26,10 @@ export interface AgentRowProps {
   /** Nodes table for the device label join and status fallback; may be empty
    *  when the nodes query failed (label falls back to node_id). */
   nodes: NodeSummary[];
+  /** While the nodes query is still pending the label slot stays empty —
+   *  showing the node_id fallback first would flash before the real name
+   *  arrives. */
+  nodesPending?: boolean;
   isActive: boolean;
   isMobile: boolean;
   onSelect: (agentId: string) => void;
@@ -37,9 +41,9 @@ export interface AgentRowProps {
  * identical; the right edge carries the owning-device label instead of a
  * standalone status dot — presence lives on the avatar badge only.
  */
-export function AgentRow({ agent, nodes, isActive, isMobile, onSelect }: AgentRowProps) {
+export function AgentRow({ agent, nodes, nodesPending = false, isActive, isMobile, onSelect }: AgentRowProps) {
   const status = statusOf(agent, nodes);
-  const deviceLabel = nodeLabelOf(agent, nodes);
+  const deviceLabel = nodesPending ? null : nodeLabelOf(agent, nodes);
 
   return (
     <button
@@ -52,7 +56,7 @@ export function AgentRow({ agent, nodes, isActive, isMobile, onSelect }: AgentRo
           ? ""
           : isMobile
             ? "hover:bg-[oklch(0.90_0.006_240)]"
-            : "hover:bg-[oklch(0.28_0.012_240)]"
+            : "hover:bg-[oklch(0.28_0.012_240)] focus-visible:bg-[oklch(0.29_0.012_240)]"
       }`}
       style={{
         background: isActive

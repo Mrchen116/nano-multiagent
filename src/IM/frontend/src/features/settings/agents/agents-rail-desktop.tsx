@@ -64,6 +64,7 @@ export function AgentsRailDesktop({ activeId, isCreatePage = false, onSelectAgen
             key={agent.agent_id}
             agent={agent}
             nodes={nodes}
+            nodesPending={nodesQuery.isPending}
             isActive={agent.agent_id === activeId}
             isMobile={false}
             onSelect={selectAgent}
