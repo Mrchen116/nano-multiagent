@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>feat-541 原型 — Agent 备用模型折叠入口与切换说明</title>
+<style>
+  :root {
+    --im-bg: oklch(0.98 0.005 240);
+    --im-surface: oklch(1 0 0);
+    --im-text: oklch(0.21 0.012 240);
+    --im-text-muted: oklch(0.5 0.012 240);
+    --im-border: oklch(0.9 0.008 240);
+    --im-accent: oklch(0.52 0.14 180);
+    --im-danger: oklch(0.58 0.18 25);
+    --im-font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--im-font-sans);
+    background: var(--im-bg);
+    color: var(--im-text);
+    padding: 32px 24px 72px;
+  }
+  h1 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+  .sub { font-size: 13px; color: var(--im-text-muted); margin-bottom: 28px; max-width: 880px; line-height: 1.7; }
+  .panels { display: flex; gap: 36px; flex-wrap: wrap; align-items: flex-start; }
+  .col { display: flex; flex-direction: column; gap: 18px; }
+  .panel-label {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--im-text-muted); margin: 0 0 8px 2px;
+  }
+
+  .im-agent-card {
+    width: min(520px, 100%);
+    background: var(--im-surface);
+    border: 1px solid var(--im-border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    display: grid;
+    gap: 14px;
+    box-shadow: 0 12px 32px -22px oklch(0.2 0.012 240 / 0.45);
+  }
+  .im-agent-card-title { margin: 0; font-size: 0.95rem; font-weight: 700; }
+  .im-agent-card-sub { margin: 0; font-size: 0.78rem; color: var(--im-text-muted); }
+  .im-agent-access-skills-link {
+    margin-top: 0.5rem; padding: 0; border: 0; background: transparent;
+    color: var(--im-accent); font: inherit; font-size: 0.78rem; font-weight: 600; cursor: pointer;
+  }
+  .im-agent-field { display: flex; flex-direction: column; gap: 0.25rem; }
+  .im-agent-field label { font-size: 0.78rem; font-weight: 600; }
+  .im-agent-field-help { font-size: 0.72rem; color: var(--im-text-muted); }
+  .im-input {
+    width: 100%; border: 1px solid var(--im-border); border-radius: 0.625rem;
+    background: var(--im-surface); padding: 0.55rem 0.75rem; font: inherit; color: var(--im-text);
+  }
+  .label-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .fallback-toggle {
+    padding: 0; border: 0; background: transparent; cursor: pointer;
+    font: inherit; font-size: 0.72rem; font-weight: 600; color: var(--im-accent);
+    white-space: nowrap;
+  }
+  .fallback-toggle:hover { text-decoration: underline; }
+  .fallback-toggle .count { color: var(--im-text-muted); font-weight: 500; }
+  .fallback-panel { display: none; margin-top: 6px; }
+  .fallback-panel.open { display: grid; gap: 8px; }
+  .fb-list { display: grid; gap: 8px; }
+  .fb-row { display: flex; align-items: center; gap: 8px; }
+  .fb-idx {
+    flex-shrink: 0; width: 18px; font-size: 0.72rem; font-weight: 600;
+    color: var(--im-text-muted); text-align: right;
+  }
+  .fb-remove {
+    flex-shrink: 0; border: 0; background: transparent; cursor: pointer;
+    color: var(--im-text-muted); font-size: 0.78rem; padding: 4px 6px;
+  }
+  .fb-remove:hover { color: var(--im-danger); }
+  .fb-add {
+    width: fit-content; padding: 0; border: 0; background: transparent; cursor: pointer;
+    font: inherit; font-size: 0.78rem; font-weight: 600; color: var(--im-accent);
+  }
+  .fb-add:hover { text-decoration: underline; }
+  .fb-add[hidden] { display: none; }
+
+  .chat {
+    width: min(420px, 100%);
+    background: var(--im-surface);
+    border: 1px solid var(--im-border);
+    border-radius: 12px;
+    padding: 16px 14px 18px;
+    display: flex; flex-direction: column; gap: 12px;
+    min-height: 280px;
+  }
+  .chat-bubble { display: flex; gap: 8px; align-items: flex-end; }
+  .chat-bubble--user { justify-content: flex-end; }
+  .av {
+    width: 30px; height: 30px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 12px; font-weight: 600; flex-shrink: 0;
+    background: oklch(0.55 0.12 200);
+  }
+  .chat-bubble-meta { font-size: 0.72rem; font-weight: 600; color: oklch(0.45 0.08 200); margin-bottom: 2px; }
+  .chat-bubble-card {
+    background: oklch(0.91 0.007 240); border-radius: 1rem;
+    padding: 9px 13px; font-size: 0.875rem; line-height: 1.5; max-width: 280px;
+  }
+  .chat-bubble--user .chat-bubble-card {
+    background: oklch(0.52 0.14 180); color: oklch(0.99 0 0);
+  }
+  .note {
+    font-size: 12px; color: var(--im-text-muted); max-width: 520px; line-height: 1.6;
+  }
+</style>
+</head>
+<body>
+  <h1>feat-541 原型 — 备用模型折叠入口与切换说明</h1>
+  <p class="sub">
+    下面两张配置卡都可以点：右侧「备用」展开/收起，「+ 添加备用」会插入一行 select，✕ 删除。
+    不能选当前主模型；目录用尽后添加入口消失。收起时标签行仍显示「未设置 / N 个」。
+  </p>
+
+  <div class="panels">
+    <div class="col">
+      <div>
+        <p class="panel-label">从空开始 · 点「备用」再「+ 添加备用」</p>
+        <section class="im-agent-card" data-editor="empty"></section>
+      </div>
+      <div>
+        <p class="panel-label">已配 2 个 · 默认仍折叠，点开可改</p>
+        <section class="im-agent-card" data-editor="filled"></section>
+        <p class="note" style="margin-top:8px">未展开也能从数量看出已配。主模型选择器仍是保存值，不因自动切换被改掉。</p>
+      </div>
+    </div>
+
+    <div class="col">
+      <div>
+        <p class="panel-label">聊天 · 首次切换（Web IM）</p>
+        <div class="chat">
+          <div class="chat-bubble chat-bubble--user">
+            <div class="chat-bubble-card">帮我看一下今早的日程</div>
+          </div>
+          <div class="chat-bubble">
+            <span class="av">助</span>
+            <div>
+              <div class="chat-bubble-meta">助手</div>
+              <div class="chat-bubble-card">⚠️ 模型调用失败（kimiCoding:K2.6）: insufficient balance</div>
+            </div>
+          </div>
+          <div class="chat-bubble">
+            <span class="av">助</span>
+            <div>
+              <div class="chat-bubble-meta">助手</div>
+              <div class="chat-bubble-card">已改用 glm-4.6，因为主模型不可用。</div>
+            </div>
+          </div>
+          <div class="chat-bubble">
+            <span class="av">助</span>
+            <div>
+              <div class="chat-bubble-meta">助手</div>
+              <div class="chat-bubble-card">今天上午 10:00 有产品评审，下午没有其它安排。</div>
+            </div>
+          </div>
+        </div>
+        <p class="note" style="margin-top:8px">
+          先看到带模型名的失败，再「已改用」，再正文。用户不必再发一条。
+          备用也挂时会出现第二条「⚠️ 模型调用失败（另一个模型）:…」。飞书同一顺序。
+        </p>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const MODELS = [
+    { id: "kimiCoding:K2.6", label: "kimiCoding:K2.6 · Kimi" },
+    { id: "glm-4.6", label: "glm-4.6 · Zhipu" },
+    { id: "codex_oauth:gpt-5.5", label: "codex_oauth:gpt-5.5 · OpenAI" },
+  ];
+
+  function availableFallbacks(primary, taken) {
+    return MODELS.filter((m) => m.id !== primary && !taken.includes(m.id));
+  }
+
+  function optionHtml(model, selectedId, disabledIds) {
+    const selected = model.id === selectedId ? " selected" : "";
+    const disabled = disabledIds.includes(model.id) ? " disabled" : "";
+    return `<option value="${model.id}"${selected}${disabled}>${model.label}</option>`;
+  }
+
+  function mountEditor(root, { primary, fallbacks, open }) {
+    const state = { primary, fallbacks: [...fallbacks], open };
+    const uid = Math.random().toString(36).slice(2, 8);
+
+    root.innerHTML = `
+      <div>
+        <h3 class="im-agent-card-title">访问与模型</h3>
+        <p class="im-agent-card-sub">允许列表保持最小。</p>
+        <button type="button" class="im-agent-access-skills-link">View skill statistics</button>
+      </div>
+      <div class="im-agent-field">
+        <span style="font-size:0.78rem;font-weight:600">技能</span>
+        <div class="im-input" style="color:var(--im-text-muted)">按当前可发现 Skill 使用</div>
+      </div>
+      <div class="im-agent-field">
+        <span style="font-size:0.78rem;font-weight:600">工具允许列表</span>
+        <div class="im-input" style="color:var(--im-text-muted)">已选核心工具…</div>
+      </div>
+      <div class="im-agent-field">
+        <div class="label-row">
+          <label for="primary-${uid}">默认模型</label>
+          <button type="button" class="fallback-toggle" aria-expanded="${state.open}"></button>
+        </div>
+        <select id="primary-${uid}" class="im-input js-primary"></select>
+        <div class="fallback-panel${state.open ? " open" : ""}">
+          <p class="im-agent-field-help js-help"></p>
+          <div class="fb-list"></div>
+          <button type="button" class="fb-add">+ 添加备用</button>
+        </div>
+      </div>
+      <div class="im-agent-field">
+        <label>推理强度</label>
+        <select class="im-input"><option>高</option></select>
+        <p class="im-agent-field-help">此模型推荐“高”。切换模型时，仅会保留新模型也支持的强度。</p>
+      </div>
+    `;
+
+    const toggle = root.querySelector(".fallback-toggle");
+    const panel = root.querySelector(".fallback-panel");
+    const list = root.querySelector(".fb-list");
+    const addBtn = root.querySelector(".fb-add");
+    const help = root.querySelector(".js-help");
+    const primarySelect = root.querySelector(".js-primary");
+
+    function renderToggle() {
+      toggle.setAttribute("aria-expanded", state.open ? "true" : "false");
+      if (state.open) {
+        toggle.textContent = "收起备用";
+        return;
+      }
+      if (state.fallbacks.length === 0) {
+        toggle.innerHTML = `备用 <span class="count">未设置</span>`;
+      } else {
+        toggle.innerHTML = `备用 <span class="count">${state.fallbacks.length} 个</span>`;
+      }
+    }
+
+    function renderPrimary() {
+      primarySelect.innerHTML = MODELS.map((m) => optionHtml(m, state.primary, [])).join("");
+    }
+
+    function renderList() {
+      list.innerHTML = state.fallbacks.map((id, index) => {
+        const disabled = state.fallbacks.filter((other) => other !== id);
+        const options = MODELS
+          .filter((m) => m.id !== state.primary)
+          .map((m) => optionHtml(m, id, disabled))
+          .join("");
+        return `
+          <div class="fb-row" data-index="${index}">
+            <span class="fb-idx">${index + 1}</span>
+            <select class="im-input js-fallback">${options}</select>
+            <button type="button" class="fb-remove" aria-label="移除">✕</button>
+          </div>`;
+      }).join("");
+
+      const remaining = availableFallbacks(state.primary, state.fallbacks);
+      addBtn.hidden = remaining.length === 0;
+      help.textContent = state.fallbacks.length === 0
+        ? "主模型不可用时按顺序改用。不配则失败呈现与现在一样。"
+        : remaining.length === 0
+          ? "已覆盖该节点其余可用模型。按优先级从上到下。"
+          : "按优先级从上到下。不能与主模型相同。";
+    }
+
+    function render() {
+      renderToggle();
+      renderPrimary();
+      renderList();
+    }
+
+    toggle.addEventListener("click", () => {
+      state.open = !state.open;
+      panel.classList.toggle("open", state.open);
+      renderToggle();
+    });
+
+    primarySelect.addEventListener("change", () => {
+      state.primary = primarySelect.value;
+      state.fallbacks = state.fallbacks.filter((id) => id !== state.primary);
+      render();
+    });
+
+    addBtn.addEventListener("click", () => {
+      const next = availableFallbacks(state.primary, state.fallbacks)[0];
+      if (!next) return;
+      if (!state.open) {
+        state.open = true;
+        panel.classList.add("open");
+      }
+      state.fallbacks.push(next.id);
+      render();
+      const last = list.querySelector(".fb-row:last-child .js-fallback");
+      if (last) last.focus();
+    });
+
+    list.addEventListener("click", (event) => {
+      const remove = event.target.closest(".fb-remove");
+      if (!remove) return;
+      const row = remove.closest(".fb-row");
+      state.fallbacks.splice(Number(row.dataset.index), 1);
+      render();
+    });
+
+    list.addEventListener("change", (event) => {
+      const select = event.target.closest(".js-fallback");
+      if (!select) return;
+      const row = select.closest(".fb-row");
+      state.fallbacks[Number(row.dataset.index)] = select.value;
+      render();
+    });
+
+    render();
+  }
+
+  mountEditor(document.querySelector('[data-editor="empty"]'), {
+    primary: "kimiCoding:K2.6",
+    fallbacks: [],
+    open: false,
+  });
+  mountEditor(document.querySelector('[data-editor="filled"]'), {
+    primary: "kimiCoding:K2.6",
+    fallbacks: ["glm-4.6", "codex_oauth:gpt-5.5"],
+    open: false,
+  });
+</script>
+</body>
+</html>
