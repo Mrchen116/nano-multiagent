@@ -201,7 +201,7 @@ Agent `feat541 r2 chat`：主模型 `volcanoArk:doubao-seed-2-0-code-preview-260
 
 无弹窗、无确认按钮。用户不必再发一条就完成了换模。
 
-证据：`reviewer-r2/r2c-chat-failover-settled.png`、`r2c-chat-failover-settled-body.txt`。
+证据：`reviewer-r2/r2c-chat-failover-settled.png`。
 
 ### Journey F — 粘性、`/new`、另一聊天（R1 inconclusive）
 
@@ -213,7 +213,7 @@ Agent `feat541 r2 chat`：主模型 `volcanoArk:doubao-seed-2-0-code-preview-260
 
 编辑页仍显示「备用 1 个」，主模型选项仍是保存过的 volcanoArk，没有被改成 deepseek。
 
-证据：`r2c-chat-sticky-settled.png`、`r2c-chat-slash-new-body.txt`、`r2c-chat-after-new-settled-body.txt`、`r2c-chat-other-settled-body.txt`、`r2c-edit-after-body.txt`。
+证据：`r2c-chat-sticky-settled.png`、`r2c-chat-slash-new.png`、`r2c-chat-after-new-settled.png`、`r2c-chat-other-settled.png`、`r2c-edit-after.png`。
 
 ### Journey G — 没配备用 / 整链耗尽（Issue 2）
 
@@ -221,13 +221,13 @@ Agent `feat541 r2 chat`：主模型 `volcanoArk:doubao-seed-2-0-code-preview-260
 
 `feat541 r2 exhaust`（主 volcanoArk、备 mimo，两个都会断流）从 17:41 等到 17:54，界面始终只有 volcanoArk 这一条带模型名的失败，没有第二条带 mimo 名的失败，也没有 ⏱。用户分不清备用有没有挂。
 
-证据：`r2c-chat-nofb-settled.png`、`r2c-chat-exhaust-settled.png`、`r2d-exhaust-final-body.txt`。
+证据：`r2c-chat-nofb-settled.png`、`r2c-chat-exhaust-settled.png`、`r2d-exhaust-final.png`。
 
 ### Journey H — 心跳（R1 inconclusive）
 
 `feat541 r2 failover` 打开心跳、节律 1 分钟，工作区 `HEARTBEAT.md` 要求每 tick 回复「心跳备用」。canonical 直聊里可见：volcanoArk 失败 →「已改用 deepseek…」→「心跳备用」；之后多数 tick 只回「心跳备用」，不再重复切换说明。心跳在主模型不可用时能完成，并向用户冒泡。
 
-证据：`r2d-heartbeat-row0.png`、`r2d-heartbeat-row0-body.txt`。
+证据：`r2d-heartbeat-row0.png`。
 
 ### Journey I — 飞书原 chat（Issue 3）
 
@@ -268,7 +268,7 @@ Agent `feat541 r2 chat`：主模型 `volcanoArk:doubao-seed-2-0-code-preview-260
   - 期望：两条带模型名的失败（volcanoArk 与 mimo），没有成功回复。
   - 实际：只有 volcanoArk 一条失败。
   - 步骤：Agent 保存两个都会断流的候选 → 打开聊天发一条 → 等到本轮结束。
-- **证据:** `r2c-chat-exhaust-settled.png`、`r2d-exhaust-final-body.txt`
+- **证据:** `r2c-chat-exhaust-settled.png`、`r2d-exhaust-final.png`
 
 ### Issue 3 — 飞书原 chat 看不到失败提示和切换说明 — **关闭**
 
@@ -283,7 +283,7 @@ Agent `feat541 r2 chat`：主模型 `volcanoArk:doubao-seed-2-0-code-preview-260
 | Scenario | 期望来源 | 验证方式(覆盖它的旅程) | 证据 | 结果 | 备注 |
 |---|---|---|---|---|---|
 | 默认折叠，主模型选择仍是重点 | spec.md；prototype.html | 继承 R1 Journey A | R1 `r1-desktop-create-collapsed-modelrow.png` | pass | 本轮未重跑 |
-| 展开后按序添加备用并保存 | spec.md；prototype.html | 继承 R1；本轮新建 r541r2chat 再次保存「备用 1 个」 | `r2c-edit-after-body.txt` | pass | 未展开「备用 1 个」 |
+| 展开后按序添加备用并保存 | spec.md；prototype.html | 继承 R1；本轮新建 r541r2chat 再次保存「备用 1 个」 | `r2c-edit-after.png` | pass | 未展开「备用 1 个」 |
 | 清空备用后与从未配置等价 | spec.md；prototype.html | 继承 R1 | R1 `r1-desktop-cleared-modelrow.png` | pass | 本轮未重跑 |
 
 ### Requirement: 主模型因可用性失败时本轮改用备用并继续回复 — 组内结论: fail
@@ -293,7 +293,7 @@ Agent `feat541 r2 chat`：主模型 `volcanoArk:doubao-seed-2-0-code-preview-260
 | 欠费或服务不可用时本轮仍收到回复 | spec.md Q5/Q9；prototype 聊天 | Journey E Web IM；Journey I 飞书 | `r2c-chat-failover-settled.png`、`r2-feishu-messages-excerpt.txt` | pass | 关闭 Issue 1。失败文案仍是 stream ended，但已改用备用 |
 | 上下文太长不换模型 | spec.md | 本轮未灌满窗口 | 继承 R1 | inconclusive | 环境限制，不据此给 pass |
 | 没配备用时失败呈现与现在一样 | spec.md | Journey G：r541r2nofb | `r2c-chat-nofb-settled.png` | pass | 仅一条带主模型名的失败 |
-| 整条备用链都失败时按现状失败呈现 | spec.md | Journey G：r541r2exh | `r2c-chat-exhaust-settled.png`、`r2d-exhaust-final-body.txt` | fail | Issue 2 仍在。只看到第一个候选失败 |
+| 整条备用链都失败时按现状失败呈现 | spec.md | Journey G：r541r2exh | `r2c-chat-exhaust-settled.png`、`r2d-exhaust-final.png` | fail | Issue 2 仍在。只看到第一个候选失败 |
 
 ### Requirement: 换到备用时 Web IM 与外部通道都有轻量说明，且不打扰后续轮次 — 组内结论: pass
 
@@ -307,17 +307,17 @@ Agent `feat541 r2 chat`：主模型 `volcanoArk:doubao-seed-2-0-code-preview-260
 
 | Scenario | 期望来源 | 验证方式(覆盖它的旅程) | 证据 | 结果 | 备注 |
 |---|---|---|---|---|---|
-| 编辑页仍显示原来保存的主模型和备用列表 | spec.md | 切换后打开 r541r2chat 编辑页 | `r2c-edit-after-body.txt` | pass | 「备用 1 个」；未写成正在用的 deepseek |
+| 编辑页仍显示原来保存的主模型和备用列表 | spec.md | 切换后打开 r541r2chat 编辑页 | `r2c-edit-after.png` | pass | 「备用 1 个」；未写成正在用的 deepseek |
 | 同一聊天后续轮次继续用能用的备用 | spec.md | Journey F 粘性 | `r2c-chat-sticky-settled.png` | pass | 直接回「粘性」，没有再撞主模型失败 |
-| `/new` 后重新从主模型试起 | spec.md | Journey F `/new` 后再发 | `r2c-chat-after-new-settled-body.txt` | pass | 再次 volcanoArk 失败 + 已改用 |
+| `/new` 后重新从主模型试起 | spec.md | Journey F `/new` 后再发 | `r2c-chat-after-new-settled.png` | pass | 再次 volcanoArk 失败 + 已改用 |
 | 改 Agent 模型配置后重新从主模型试起 | spec.md | 继承 R1 Journey C kimi | R1 `r1-chat-kimi-settled.png` | pass | 本轮未重跑；R1 已 pass |
-| 另一个聊天互不影响 | spec.md | Journey F 群聊 | `r2c-chat-other-settled-body.txt` | pass | 群聊仍先试主模型再切换 |
+| 另一个聊天互不影响 | spec.md | Journey F 群聊 | `r2c-chat-other-settled.png` | pass | 群聊仍先试主模型再切换 |
 
 ### Requirement: 心跳与定时任务走同一条备用链 — 组内结论: fail
 
 | Scenario | 期望来源 | 验证方式(覆盖它的旅程) | 证据 | 结果 | 备注 |
 |---|---|---|---|---|---|
-| 心跳在主模型不可用时仍能完成 tick | spec.md | Journey H 打开心跳 1 分钟 | `r2d-heartbeat-row0-body.txt` | pass | 失败 → 已改用 → 心跳备用；后续 tick 不再重复已改用 |
+| 心跳在主模型不可用时仍能完成 tick | spec.md | Journey H 打开心跳 1 分钟 | `r2d-heartbeat-row0.png` | pass | 失败 → 已改用 → 心跳备用；后续 tick 不再重复已改用 |
 | 定时任务在主模型不可用时仍能跑完 | spec.md | 本轮未建立立刻跑的 cron | 继承 R1 | inconclusive | Fast-lane 焦点未含 cron；未关闭 |
 
 ## 上层文档同步
@@ -371,7 +371,7 @@ Agent `feat541 r3 exhaust`（id `r541r3exh`）：主模型 `volcanoArk:doubao-se
 
 会话落到「失败」，⏱ 消失。等到 18:31 仍只有这一条带模型名的失败，没有 mimo 名、没有第二条失败、没有「已改用」、没有成功正文。约 19:23 再打开同一会话，画面不变。
 
-证据：`reviewer-r3/r3-config-verify.json`、`r3-edit-expanded.png`、`r3-chat-sent.png`、`r3-chat-settled.png`、`r3-chat-settled-body.txt`、`r3-chat-rewatch-end.png`、`r3-notes.json`。
+证据：`reviewer-r3/r3-config-verify.json`、`r3-edit-expanded.png`、`r3-chat-sent.png`、`r3-chat-settled.png`、`r3-chat-rewatch-end.png`、`r3-notes.json`。
 
 ## Reference Artifacts Reviewed
 
@@ -397,7 +397,7 @@ Agent `feat541 r3 exhaust`（id `r541r3exh`）：主模型 `volcanoArk:doubao-se
   - 期望：两条带模型名的失败（volcanoArk 与 mimo），没有「已改用」，没有成功正文。
   - 实际：只有 volcanoArk 一条失败。
   - 步骤：隔离栈新建 Agent → 主模型选 volcanoArk、备用选 mimo → 打开聊天发一条 → 等到本轮结束并再打开确认。
-- **证据:** `reviewer-r3/r3-chat-settled.png`、`r3-chat-settled-body.txt`、`r3-chat-rewatch-end.png`、`r3-notes.json`
+- **证据:** `reviewer-r3/r3-chat-settled.png`、`r3-chat-rewatch-end.png`、`r3-notes.json`
 
 ### Issue 3 — 飞书原 chat 看不到失败提示和切换说明 — **关闭（继承 R2）**
 
@@ -494,7 +494,7 @@ Agent `feat541 r3 exhaust`（id `r541r3exh`）：主模型 `volcanoArk:doubao-se
 
 会话落到「失败」，⏱ 消失。等到 19:50 仍只有这一条带模型名的失败。19:51–20:01 再打开同一会话持续观察约 10 分钟，画面不变：没有 mimo 名、没有第二条失败、没有「已改用」、没有成功正文。
 
-证据：`reviewer-r4/r4-config-verify.json`、`r4-edit-expanded.png`、`r4-chat-sent.png`、`r4-chat-first-warn.png`、`r4-chat-settled.png`、`r4-chat-settled-body.txt`、`r4-rewatch2-end.png`、`r4-rewatch-notes.json`。
+证据：`reviewer-r4/r4-config-verify.json`、`r4-edit-expanded.png`、`r4-chat-sent.png`、`r4-chat-first-warn.png`、`r4-chat-settled.png`、`r4-rewatch2-end.png`、`r4-rewatch-notes.json`。
 
 ## Reference Artifacts Reviewed
 
@@ -520,7 +520,7 @@ Agent `feat541 r3 exhaust`（id `r541r3exh`）：主模型 `volcanoArk:doubao-se
   - 期望：两条带模型名的失败（volcanoArk 与 mimo），没有「已改用」，没有成功正文。
   - 实际：只有 volcanoArk 一条失败。
   - 步骤：隔离栈新建 Agent（不复用 r3）→ 主模型选 volcanoArk、备用选 mimo → 打开聊天发一条 → 等到本轮结束并再打开确认约 10 分钟。
-- **证据:** `reviewer-r4/r4-chat-settled.png`、`r4-chat-settled-body.txt`、`r4-rewatch2-end.png`、`r4-rewatch-notes.json`
+- **证据:** `reviewer-r4/r4-chat-settled.png`、`r4-rewatch2-end.png`、`r4-rewatch-notes.json`
 
 ### Issue 3 — 飞书原 chat 看不到失败提示和切换说明 — **关闭（继承 R2）**
 
@@ -622,7 +622,7 @@ Agent `feat541 r3 exhaust`（id `r541r3exh`）：主模型 `volcanoArk:doubao-se
 
 第二条看起来像普通助手气泡（时间旁没有「失败」二字），正文是带 mimo 名的模型调用失败。没有「已改用」，没有成功正文。再打开同一会话，两条 ⚠️ 都还在。
 
-证据：`reviewer-r5/r5-config-verify.json`、`r5-edit-expanded.png`、`r5-chat-sent.png`、`r5-chat-first-warn.png`、`r5-chat-mimo-warn.png`、`r5-chat-settled.png`、`r5-chat-settled-body.txt`、`r5-chat-rewatch.png`、`r5-notes.json`。
+证据：`reviewer-r5/r5-config-verify.json`、`r5-edit-expanded.png`、`r5-chat-sent.png`、`r5-chat-first-warn.png`、`r5-chat-mimo-warn.png`、`r5-chat-settled.png`、`r5-chat-rewatch.png`、`r5-notes.json`。
 
 ## Reference Artifacts Reviewed
 
@@ -648,7 +648,7 @@ Agent `feat541 r3 exhaust`（id `r541r3exh`）：主模型 `volcanoArk:doubao-se
   - 期望：用户消息 → 带 volcanoArk 名的 ⚠️ → 带 mimo 名的 ⚠️（或含 mimo 的「模型调用失败」正文）→ 会话失败。没有「已改用」，没有成功正文。
   - 实际：与期望一致。第二条 ⚠️ 外观像普通助手消息，正文为 `⚠️ 模型调用失败（mimo:mimo-v2.5-pro）: anthropic: stream ended without terminal event`。
   - 步骤：隔离栈新建 Agent（不复用 r4/r3）→ 主模型选 volcanoArk、备用选 mimo → 打开聊天发一条 → 等到本轮结束（第一条后继续等同等时间）并再打开确认。
-- **证据:** `reviewer-r5/r5-chat-first-warn.png`、`r5-chat-mimo-warn.png`、`r5-chat-settled.png`、`r5-chat-settled-body.txt`、`r5-chat-rewatch.png`、`r5-notes.json`
+- **证据:** `reviewer-r5/r5-chat-first-warn.png`、`r5-chat-mimo-warn.png`、`r5-chat-settled.png`、`r5-chat-rewatch.png`、`r5-notes.json`
 
 ### Issue 3 — 飞书原 chat 看不到失败提示和切换说明 — **关闭（继承 R2）**
 
