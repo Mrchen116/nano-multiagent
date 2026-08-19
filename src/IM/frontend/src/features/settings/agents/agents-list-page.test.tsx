@@ -76,6 +76,15 @@ describe("agents list page", () => {
     expect(apiMocks.navigate).toHaveBeenCalledWith("/settings/agents/agent-core-1");
   });
 
+  it("labels each agent row with the owning device name from the nodes table", async () => {
+    mockAgentsAndNodes();
+
+    renderRouter({ routes: appRoutes, initialEntries: ["/settings/agents"] });
+
+    const row = await screen.findByRole("button", { name: /Core Planner/i });
+    expect(row).toHaveTextContent("MacBook");
+  });
+
   it("shows an empty state with a path to nodes", async () => {
     mockAgentsAndNodes([], []);
 

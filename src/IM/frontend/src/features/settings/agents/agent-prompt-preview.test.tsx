@@ -15,6 +15,7 @@ const apiMocks = vi.hoisted(() => ({
   getAgentDetailStateMock: vi.fn(),
   updateAgentConfigMock: vi.fn(),
   listAgentSummariesMock: vi.fn(),
+  listNodesMock: vi.fn(),
   listAgentsMock: vi.fn(),
   navigateMock: vi.fn(),
   promptPreviewMock: vi.fn(),
@@ -43,6 +44,7 @@ vi.mock("./im-agent-config-api", () => ({
   getAgentDetailState: apiMocks.getAgentDetailStateMock,
   updateAgentConfig: apiMocks.updateAgentConfigMock,
   listAgentSummaries: apiMocks.listAgentSummariesMock,
+  listNodes: apiMocks.listNodesMock,
   promptPreview: apiMocks.promptPreviewMock,
 }));
 
@@ -124,6 +126,7 @@ function makeAgentState(opts: {
 }
 
 beforeEach(() => {
+  apiMocks.listNodesMock.mockResolvedValue([]);
   apiMocks.listAgentSummariesMock.mockResolvedValue([
     {
       agent_id: "agent-preview-1",

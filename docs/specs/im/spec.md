@@ -24,7 +24,7 @@
 | [Tool Timeline](tool-timeline.md) | thinking、tool/reasoning 与可归因后台返回共享消息内过程折叠 | 8 |
 | [Workflows](workflows.md) | Workflow 在既有 tool、permission、slash 与普通消息 surface 中的呈现和开关 | 2 |
 | [Response Metrics](response-metrics.md) | 墙钟耗时、气泡指标、缓存命中率 | 3 |
-| [Agents and Nodes](agents-nodes.md) | Agent 配置、能力选择、节点绑定与 Workflow tool pill | 24 |
+| [Agents and Nodes](agents-nodes.md) | Agent 配置、能力选择、节点绑定、设备归属标注与 Workflow tool pill | 26 |
 | [Gateway Relay](gateway-relay.md) | 后台 Agent / Workflow 普通回复的实时到达、原始返回持久化与重放去重 | 11 |
 
 ## Maintenance Rule

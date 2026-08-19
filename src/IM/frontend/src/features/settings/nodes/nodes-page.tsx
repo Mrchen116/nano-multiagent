@@ -137,6 +137,9 @@ export function NodesPage() {
       }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["settings", "nodes"] });
+      // The agents list/rail cache the same /im/v1/nodes payload under their
+      // own key for device labels; alias edits must reach them too.
+      await queryClient.invalidateQueries({ queryKey: ["settings", "agents", "nodes-status"] });
     }
   });
 
