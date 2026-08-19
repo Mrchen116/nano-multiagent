@@ -29,6 +29,15 @@ export function colorForAgent(agent: { display_name?: string | null; agent_id?: 
   return colorForAgentSeed(agent.display_name || agent.agent_id || "");
 }
 
+/** Initials for an agent display name. The same name must render the same
+ *  initials on every surface (settings list, detail, chat), so the rule lives
+ *  here once instead of being copied per call site. */
+export function initialsOf(displayName: string): string {
+  const trimmed = displayName.trim();
+  if (!trimmed) return "AG";
+  return trimmed.slice(0, 2).toUpperCase();
+}
+
 interface AvatarProps {
   initials: string;
   /** Must be provided by every call site via colorForAgent(). Required to prevent
@@ -70,6 +79,7 @@ export function Avatar({ initials, color, size = 32, status }: AvatarProps) {
       {status && (
         <span
           className={`chat-avatar-status chat-avatar-status--${status}`}
+          aria-label={status}
           style={{
             width: dotSize,
             height: dotSize,

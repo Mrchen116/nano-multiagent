@@ -4,7 +4,8 @@
 
 > Unit branch: `unit/feat-540` (will be created by orchestrator)
 
-## Changelog
+- 2026-08-18 (M1): 决策 3 移动端显示名字色以现状 `oklch(0.18 0.01 240)` 为准(design 表与 prototype 误写 `0.14`,与决策 4「移动端不动」自相矛盾;实现与本文档已按现状值统一)。
+- 2026-08-18 (M1): Scenario「无归属信息的条目右缘留空」从 spec/delta-spec/退出标准/原型删除——真栈验证发现列表接口强制 `JOIN nodes` + `node_id IS NOT NULL`(src/IM/infra/repositories/agents.py:88-90),无归属 agent 不进列表,前提不可达;用户裁决「这种压根不会出现的场景就不应该写,改干净」(spec Q8)。组件层防御性渲染保留,单测锁定。
 
 ## 现状分析
 
@@ -82,7 +83,7 @@ before(两份行实现,已漂移)                after(单一共享行组件)
 
 | 元素 | 桌面 · 普通 | 桌面 · 选中 | 移动端 |
 |---|---|---|---|
-| 显示名 | 13px semibold sans · `oklch(0.86 0.01 240)` | `#fff` | 15px semibold · `oklch(0.14 0.01 240)` |
+| 显示名 | 13px semibold sans · `oklch(0.86 0.01 240)` | `#fff` | 15px semibold · `oklch(0.18 0.01 240)` |
 | Agent ID / description | 11px mono · `oklch(0.64 0.01 240)` | `oklch(0.70 0.01 240)` | 12.5px sans · `oklch(0.55 0.01 240)` |
 | 设备名(新增) | 11px sans · `oklch(0.55 0.01 240)` | `oklch(0.64 0.01 240)` | 12px sans · `oklch(0.60 0.01 240)` |
 
@@ -146,8 +147,8 @@ statusOf(agent, nodes): "online" | "offline"   // 语义不变,两组件统一
 
 | 原型区域 / 状态 | 对齐级别 | 产品入口 | 必验 viewport / 状态 | 下游验收投影 |
 |---|---|---|---|---|
-| 桌面行:右缘设备名(右对齐、与第二行同基线、明度阶梯) | must-match | `/settings/agents` 首页 + 详情页 + 新建页 | desktop:普通/选中/离线节点/无归属/超长 ID/别名设备 | feat-540-M1 退出标准 1-6 |
-| 移动行:设备名占原圆点位 + 「›」在其下 | must-match | 同上(移动形态) | mobile <768px:普通/选中/无归属 | feat-540-M1 退出标准 4 |
+| 桌面行:右缘设备名(右对齐、与第二行同基线、明度阶梯) | must-match | `/settings/agents` 首页 + 详情页 + 新建页 | desktop:普通/选中/离线节点/超长 ID/别名设备 | feat-540-M1 退出标准 1-6 |
+| 移动行:设备名占原圆点位 + 「›」在其下 | must-match | 同上(移动形态) | mobile <768px:普通/选中 | feat-540-M1 退出标准 4 |
 | 首页行文字色修复(0.86/0.64 + 选中态) | must-match | `/settings/agents` 首页 | desktop 未选中/选中/hover | feat-540-M1 退出标准 7 |
 | 头像状态角标两组件一致;右缘无独立圆点 | must-match | 三处列表 | desktop + mobile | feat-540-M1 退出标准 5 |
 | hover 底色、圆角、行高 52px | may-adapt(沿用现有值,非本 unit 对象) | 三处列表 | desktop + mobile | N/A |
@@ -186,4 +187,4 @@ statusOf(agent, nodes): "online" | "offline"   // 语义不变,两组件统一
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| feat-540-M1 | impl | — | A | `src/IM/frontend/src/features/settings/agents/`:新增 `agent-row.tsx`(共享行组件)+ 改 `agents-list-page.tsx`、`agents-rail-desktop.tsx` 接入;测试 `agent-row.test.tsx`(新)、`agents-list-page.test.tsx`、`agents-rail-desktop.test.tsx` | 1. [reviewer] 多设备账号下,三处列表每个条目右缘右对齐显示归属设备名,与 Account 页设备名一致;设备设置了别名时与 Account 页一样显示别名(spec Scenario「多设备下逐条标注」)<br>2. [reviewer] 归属设备离线的 agent 右缘仍显示设备名(Scenario「设备离线仍显示归属」)<br>3. [reviewer] 无归属信息的 agent 右缘留空、无占位符(Scenario「无归属信息的条目右缘留空」)<br>4. [reviewer] mobile viewport 下每条同样标注,› 保持可见(Scenario「移动端同样标注」+ 原型移动契约)<br>5. [reviewer] 名字两行与行高不被挤压;状态从头像角标辨认;右缘无独立圆点(Req「标注不牺牲条目既有信息与状态表达」两 Scenario + 原型角标契约)<br>6. [reviewer] 三处列表桌面行设备名呈现与原型 must-match 行一致(超长 ID 截断规则、别名设备含在内)<br>7. [reviewer] 桌面端首页未选中条目名字浅色可读,选中/hover 三处观感一致(Req「三处列表条目文字在深色侧栏上清晰可读」两 Scenario + 原型修复契约)<br>8. [worker] `cd src/IM/frontend && npm test -- src/features/settings/agents` 全绿<br>9. [worker] 真实浏览器截图(desktop 首页 / 详情页、mobile 首页)与 prototype.html 逐状态对照,结论与截图存 `docs/changes/feat-540-agent-list-node-label/M1-impl/` |
+| feat-540-M1 | impl | — | A | `src/IM/frontend/src/features/settings/agents/`:新增 `agent-row.tsx`(共享行组件)+ 改 `agents-list-page.tsx`、`agents-rail-desktop.tsx` 接入;测试 `agent-row.test.tsx`(新)、`agents-list-page.test.tsx`、`agents-rail-desktop.test.tsx` | 1. [reviewer] 多设备账号下,三处列表每个条目右缘右对齐显示归属设备名,与 Account 页设备名一致;设备设置了别名时与 Account 页一样显示别名(spec Scenario「多设备下逐条标注」+「设备设置别名时显示别名」)<br>2. [reviewer] 归属设备离线的 agent 右缘仍显示设备名(Scenario「设备离线仍显示归属」)<br>3. [worker] 设备名解析的防御路径(节点表暂未含该设备 → 回退显示设备 ID;agent 无 `node_id` → 不渲染设备名)有单测覆盖——该状态经 SQL 层核实不会出现在列表接口,不进产品契约,仅作组件鲁棒性<br>4. [reviewer] mobile viewport 下每条同样标注,› 保持可见(Scenario「移动端同样标注」+ 原型移动契约)<br>5. [reviewer] 名字两行与行高不被挤压;状态从头像角标辨认;右缘无独立圆点(Req「标注不牺牲条目既有信息与状态表达」两 Scenario + 原型角标契约)<br>6. [reviewer] 三处列表桌面行设备名呈现与原型 must-match 行一致(超长 ID 截断规则、别名设备含在内)<br>7. [reviewer] 桌面端首页未选中条目名字浅色可读,选中/hover 三处观感一致(Req「三处列表条目文字在深色侧栏上清晰可读」两 Scenario + 原型修复契约)<br>8. [worker] `cd src/IM/frontend && npm test -- src/features/settings/agents` 全绿<br>9. [worker] 真实浏览器截图(desktop 首页 / 详情页、mobile 首页)与 prototype.html 逐状态对照,结论与截图存 `docs/changes/feat-540-agent-list-node-label/M1-impl/` |

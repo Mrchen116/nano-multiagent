@@ -90,7 +90,7 @@
   .sb-m .rows { padding: 8px 10px; }
   .sb-m .row { padding: 12px 10px; }
   .sb-m .row.active { background: oklch(0.90 0.010 180); outline: 1px solid oklch(0.75 0.12 180); }
-  .sb-m .l1 { font-size: 15px; color: oklch(0.14 0.01 240); }
+  .sb-m .l1 { font-size: 15px; color: oklch(0.18 0.01 240); }
   .sb-m .l2 { font-size: 12.5px; color: oklch(0.55 0.01 240); font-family: inherit; }
   .sb-m .meta { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; flex-shrink: 0; }
   .sb-m .dev { align-self: auto; padding-bottom: 0; font-size: 12px; color: oklch(0.60 0.01 240); max-width: 110px; }
@@ -116,7 +116,7 @@
 
 <h1>feat-540 原型:Agents 列表条目设备归属标注</h1>
 <p class="sub">
-  覆盖状态:普通 / 选中(active)/ hover / 别名设备 / 归属设备离线 / 无归属信息 / 超长 Agent ID 截断。桌面与移动两版。
+  覆盖状态:普通 / 选中(active)/ hover / 别名设备 / 归属设备离线 / 超长 Agent ID 截断。桌面与移动两版。
   <span class="mark">★</span> 标注本次新增元素。头像角标(绿=在线,灰=离线)在两个侧栏组件统一启用——详情页侧栏(rail)的头像今天没有角标,本次补上。
 </p>
 
@@ -161,12 +161,6 @@
           <span class="dev">macbook-air</span>
         </div>
 
-        <!-- 无归属信息:右缘留空,不显示占位符 -->
-        <div class="row">
-          <div class="av d" style="background: oklch(0.52 0.14 150)">ST<span class="badge off"></span></div>
-          <div class="txt"><p class="l1">standalone-bot</p><p class="l2 mono">standalone-bot</p></div>
-        </div>
-
         <!-- 超长 Agent ID:截 id(今天本就截),设备名永远完整 -->
         <div class="row">
           <div class="av d" style="background: oklch(0.52 0.14 200)">MI<span class="badge on"></span></div>
@@ -208,12 +202,6 @@
           <div class="av m" style="background: oklch(0.52 0.14 70)">SP<span class="badge off"></span></div>
           <div class="txt"><p class="l1">SpecLab Architect</p><p class="l2">Designs spec experiments.</p></div>
           <div class="meta"><span class="dev">macbook-air</span><span class="chev">›</span></div>
-        </div>
-
-        <div class="row">
-          <div class="av m" style="background: oklch(0.52 0.14 150)">ST<span class="badge off"></span></div>
-          <div class="txt"><p class="l1">standalone-bot</p><p class="l2">No owning node.</p></div>
-          <div class="meta"><span class="chev">›</span></div>
         </div>
 
       </div>

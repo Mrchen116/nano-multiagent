@@ -3,108 +3,14 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
-import { Avatar, colorForAgent } from "../../chat/components/avatar";
+import { AgentRow } from "./agent-row";
 import { useAgentStatusBroadcastConsumer } from "./agent-status-ws-consumer";
-import { listAgentSummaries, listNodes, type AgentSummary, type NodeSummary } from "./im-agent-config-api";
-
-function initialsOf(displayName: string): string {
-  const trimmed = displayName.trim();
-  if (!trimmed) return "AG";
-  return trimmed.slice(0, 2).toUpperCase();
-}
-
-function statusOf(agent: AgentSummary, nodes: NodeSummary[]): "online" | "offline" {
-  if (agent.node_status === "online") return "online";
-  if (agent.node_status === "offline") return "offline";
-  if (!agent.node_id) return "offline";
-  const node = nodes.find((n) => n.node_id === agent.node_id);
-  return node?.status === "online" ? "online" : "offline";
-}
-
-function AgentRow(props: {
-  agent: AgentSummary;
-  status: "online" | "offline";
-  isMobile: boolean;
-  isActive?: boolean;
-}) {
-  const { agent, status, isMobile, isActive } = props;
-  const initials = initialsOf(agent.display_name);
-  const navigate = useNavigate();
-
-  // Prototype: im-settings-page.jsx:44-70 AgentListView row styling
-  return (
-    <button
-      type="button"
-      onClick={() => navigate(`/settings/agents/${agent.agent_id}`)}
-      className={`flex w-full items-center gap-3 rounded-xl border-none text-left font-inherit mb-1 min-h-[52px] transition-colors ${
-        isActive ? "outline outline-1" : "outline-none"
-      } ${isMobile ? "px-[10px] py-[12px]" : "px-[10px] py-[9px]"}`}
-      style={{
-        background: isActive
-          ? (isMobile ? "oklch(0.90 0.010 180)" : "oklch(0.31 0.015 240)")
-          : "transparent",
-        outlineColor: isActive
-          ? (isMobile ? "oklch(0.75 0.12 180)" : "oklch(0.40 0.08 180)")
-          : "transparent",
-        cursor: "pointer",
-      }}
-      onMouseEnter={(e) => {
-        if (!isActive) {
-          e.currentTarget.style.background = isMobile
-            ? "oklch(0.90 0.006 240)"
-            : "oklch(0.28 0.012 240)";
-        }
-      }}
-      onMouseLeave={(e) => {
-        if (!isActive) e.currentTarget.style.background = "transparent";
-      }}
-      aria-label={agent.display_name}
-    >
-      <Avatar
-        initials={initials}
-        color={colorForAgent(agent)}
-        size={isMobile ? 38 : 32}
-        status={status}
-      />
-      <div className="min-w-0 flex-1">
-        <p
-          className={`m-0 font-semibold truncate ${
-            isMobile ? "text-[15px]" : "text-[13px]"
-          } ${isActive && !isMobile ? "text-white" : "text-[oklch(0.18_0.01_240)]"}`}
-        >
-          {agent.display_name}
-        </p>
-        <p
-          className={`m-0 mt-[2px] truncate ${
-            isMobile
-              ? "text-[12.5px] text-[oklch(0.55_0.01_240)]"
-              : "font-mono text-[11px] text-[oklch(0.50_0.01_240)]"
-          }`}
-        >
-          {isMobile ? agent.description || agent.agent_id : agent.agent_id}
-        </p>
-      </div>
-      <div className="flex flex-col items-end gap-[3px] shrink-0">
-        <span
-          className="inline-block h-2 w-2 shrink-0 rounded-full"
-          style={{
-            background: status === "online"
-              ? "oklch(0.55 0.18 145)"
-              : "oklch(0.45 0.01 240)",
-          }}
-          aria-label={status}
-        />
-        {isMobile && (
-          <span className="text-[11px] text-[oklch(0.65_0.01_240)]">›</span>
-        )}
-      </div>
-    </button>
-  );
-}
+import { listAgentSummaries, listNodes } from "./im-agent-config-api";
 
 export function AgentsListPage() {
   const isMobile = useIsMobile();
   const { t } = useTranslation();
+  const navigate = useNavigate();
   useAgentStatusBroadcastConsumer();
   const agentsQuery = useQuery({ queryKey: ["settings", "agents"], queryFn: listAgentSummaries });
   const nodesQuery = useQuery({ queryKey: ["settings", "agents", "nodes-status"], queryFn: listNodes });
@@ -212,9 +118,11 @@ export function AgentsListPage() {
               <AgentRow
                 key={agent.agent_id}
                 agent={agent}
-                status={statusOf(agent, nodes)}
-                isMobile={isMobile}
+                nodes={nodes}
+                nodesPending={nodesQuery.isPending}
                 isActive={agent.agent_id === activeAgentId}
+                isMobile={isMobile}
+                onSelect={(agentId) => navigate(`/settings/agents/${agentId}`)}
               />
             ))}
           </nav>

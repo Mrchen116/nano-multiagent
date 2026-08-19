@@ -375,7 +375,9 @@ export function AgentCreatePage() {
   const blocker = useBlocker(() => isDirty && !allowExitRef.current);
 
   const nodesQuery = useQuery({
-    queryKey: ["settings", "agents", "create", "nodes"],
+    // Shares the agents list/rail cache for the same /im/v1/nodes payload so
+    // the create page never issues a duplicate request or shows divergent nodes.
+    queryKey: ["settings", "agents", "nodes-status"],
     queryFn: listNodes,
     staleTime: 30_000
   });
