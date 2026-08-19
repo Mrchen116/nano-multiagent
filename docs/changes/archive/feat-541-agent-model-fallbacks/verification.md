@@ -168,7 +168,7 @@ Worker 退出标准对照（只核 focus 相关项）：
 | 心跳/cron `kind` 可换则 replay、拒绝则收口 | 关闭：`failover_unattended_run` 现有 quota / context_length / rejected / 整链耗尽单测 |
 | 心跳复用 canonical 直聊时共享粘性 | 关闭：真实 `InProcessKernelClient` + 共享 `ModelStickyStore` + `HeartbeatScheduler.tick` |
 | 整链耗尽留下失败、不伪装成功 | 关闭：聊天 + unattended 两条 |
-| 真实浏览器 1440/375 截图落 unit 目录 | 关闭：8 张 PNG 在 `M1-impl/screenshots/`，`progress.md` 写了路径 |
+| 真实浏览器 1440/375 截图落 unit 目录 | 关闭：关键画面见 `acceptance.md` 文末归档证据 |
 
 ## Correctness
 
@@ -177,7 +177,7 @@ Worker 退出标准对照（只核 focus 相关项）：
 | W1 心跳/cron failover 循环 | `heartbeat_runner.py:347`、`cron_execution_service.py:486` → `model_fallback.py:152` | `test_unattended_quota_replays_backup_and_notices_once`（replay 无 `parts`、notice 一次、sticky noticed）；`test_unattended_context_length_does_not_replay`；`test_unattended_rejected_replay_sticks_next_candidate` | **closed** |
 | W2 直聊已粘备用后心跳复用同一 session | `heartbeat_scheduler.py:446-449,518-528` `_admit_model(..., session_id=)`；`kernel_client.py:247-255` | `test_heartbeat_reuses_canonical_session_sticky_model`：sticky=`backup` 写在 `canonical-sess`，`submit` 捕获 `model=="backup"` 且 `session_id=="canonical-sess"` | **closed** |
 | W3 整链耗尽 | 聊天 `session_run_coordinator.py:2200-2201`；unattended `model_fallback.py:185-186` | `test_exhausted_chain_stays_failed_without_switch_notice`：两次 replay、无「已改用」、`RuntimeError`、`submit_calls==1`；`test_unattended_exhausted_chain_stays_failed_without_notice`：两次 reconfigure/replay、无 notice、仍 failed | **closed** |
-| W4 1440/375 截图 | `M1-impl/screenshots/*.png`；`progress.md:13-22` | desktop 1440×900 / mobile 375×812；新建折叠「备用 未设置」、编辑折叠「备用 1 个」、展开可见序号 select +「+ 添加备用」 | **closed** |
+| W4 1440/375 截图 | `reviewer-r1/r1-desktop-create-collapsed-modelrow.png` | 新建折叠「备用 未设置」；展开/已配折叠见验收文字记录 | **closed** |
 | R1 S2 清空备用 PATCH | `agent-detail-page.test.tsx:609-648` | 删光后折叠「Fallbacks unset」，PATCH `model_fallbacks: []` | **closed**（非 focus，delta 顺带） |
 | apply 只改 fallbacks 能落盘 | `agent_config_sync.py:1605` `_agent_operation_payload` 补字段 | `test_config_operation_apply_persists_model_fallbacks` | 对齐 spec 保存路径；非平行机制 |
 
@@ -195,9 +195,9 @@ Worker 退出标准对照（只核 focus 相关项）：
 
 | Reference contract | Durable evidence | Status |
 |---|---|---|
-| 默认折叠：标签行右侧「备用 未设置」，不撑高 | `desktop-create-collapsed.png`（1440×900）、`mobile-create-collapsed.png`（375×812） | covered |
-| 已配仍折叠：「备用 N 个」 | `desktop-edit-collapsed.png` / `mobile-edit-collapsed.png`（「备用 1 个」） | covered |
-| 展开后添加/删除入口 | `*-create-expanded.png` / `*-edit-expanded.png` | covered |
+| 默认折叠：标签行右侧「备用 未设置」，不撑高 | `reviewer-r1/r1-desktop-create-collapsed-modelrow.png` | covered |
+| 已配仍折叠：「备用 N 个」 | 验收文字记录；关键画面见 `acceptance.md` 文末归档证据 | covered |
+| 展开后添加/删除入口 | 验收文字记录；关键画面见 `acceptance.md` 文末归档证据 | covered |
 
 ## Issues
 

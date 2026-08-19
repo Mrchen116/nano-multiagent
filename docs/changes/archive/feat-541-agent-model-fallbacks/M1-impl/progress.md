@@ -10,16 +10,7 @@ Verifier R1 缺的回归：`failover_unattended_run` 的 quota / `context_length
 
 ## 真实入口
 
-隔离栈：worktree `scripts/e2e-up.sh --wt … --main-config ~/.nanoassistant/config.yaml`（必须用 worktree 脚本，主仓 `PYTHONPATH` 没有 `model_fallbacks_json` 列）。Vite 代理到本次 `IM_URL`。浏览器 1440 / 375 截图：
-
-- `M1-impl/screenshots/desktop-create-collapsed.png`
-- `M1-impl/screenshots/desktop-create-expanded.png`
-- `M1-impl/screenshots/desktop-edit-collapsed.png`（已配「备用 1 个」）
-- `M1-impl/screenshots/desktop-edit-expanded.png`
-- `M1-impl/screenshots/mobile-create-collapsed.png`
-- `M1-impl/screenshots/mobile-create-expanded.png`
-- `M1-impl/screenshots/mobile-edit-collapsed.png`
-- `M1-impl/screenshots/mobile-edit-expanded.png`
+隔离栈：worktree `scripts/e2e-up.sh --wt … --main-config ~/.nanoassistant/config.yaml`（必须用 worktree 脚本，主仓 `PYTHONPATH` 没有 `model_fallbacks_json` 列）。Vite 代理到本次 `IM_URL`。关键画面见 `acceptance.md` 文末归档证据，不另存 M1 过程截图。
 
 编辑页 PATCH `plato`：`default_model=deepseek:deepseek-v4-flash`，`model_fallbacks=["kimiCoding:kimi-for-coding"]`，mirror GET 回读一致。console 无 pageerror。
 
