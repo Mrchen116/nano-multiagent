@@ -37,6 +37,7 @@ function makeConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
     tool_allowlist: [],
     group_reply_policy: "MENTION",
     default_model: null,
+    model_fallbacks: [],
     reasoning_effort: null,
     workspace_root: "/tmp/agent-a",
     workspace_is_default: true,
