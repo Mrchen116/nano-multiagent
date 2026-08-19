@@ -65,6 +65,8 @@ class ControlledKernel:
         self._stream_started: dict[str, asyncio.Event] = {}
         self._submit_changed = asyncio.Event()
         self._pending_index = 0
+        self.replay_calls: list[dict[str, Any]] = []
+        self.reject_replay = False
 
     def try_steer(
         self,
@@ -258,14 +260,72 @@ class ControlledKernel:
             await asyncio.wait_for(self._submit_changed.wait(), timeout=1)
 
     def finish(
-        self, run_id: str, *, status: str = "completed", text: str = "ok"
+        self,
+        run_id: str,
+        *,
+        status: str = "completed",
+        text: str = "ok",
+        error: dict[str, Any] | None = None,
+        usage: dict[str, Any] | None = None,
+        context_window: int | None = None,
     ) -> None:
         queue = self._events[run_id]
         if text:
             queue.put_nowait(
                 {"event": "assistant_message", "run_id": run_id, "content": text}
             )
-        queue.put_nowait({"event": "run_status", "run_id": run_id, "status": status})
+        if usage is not None:
+            turn_end: dict[str, Any] = {
+                "event": "turn_end",
+                "run_id": run_id,
+                "completed": status == "completed",
+                "usage": usage,
+            }
+            if context_window is not None:
+                turn_end["context_window"] = context_window
+            queue.put_nowait(turn_end)
+        event: dict[str, Any] = {
+            "event": "run_status",
+            "run_id": run_id,
+            "status": status,
+        }
+        if error is not None:
+            event["error"] = error
+        queue.put_nowait(event)
+
+    def replay_last_user(
+        self,
+        *,
+        session_id: str,
+        workspace_root: Path,
+        origin: object | None = None,
+        trace_id: str | None = None,
+        **_kwargs: object,
+    ) -> SimpleNamespace:
+        """Start a new run without appending another user turn."""
+
+        if self.reject_replay:
+            from agent.sdk import ReplayLastUserRejected
+
+            raise ReplayLastUserRejected(
+                "session already produced a non-error assistant reply"
+            )
+        self._run_index += 1
+        run_id = f"run-{self._run_index}"
+        self.replay_calls.append(
+            {
+                "session_id": session_id,
+                "workspace_root": str(workspace_root),
+                "origin": origin,
+                "run_id": run_id,
+                "trace_id": trace_id,
+            }
+        )
+        self._latest_run_by_session[session_id] = run_id
+        self._events[run_id] = asyncio.Queue()
+        self._stream_started[run_id] = asyncio.Event()
+        self._submit_changed.set()
+        return SimpleNamespace(run_id=run_id, injected=False, start_sequence=0)
 
     def push(self, run_id: str, event: dict[str, Any]) -> None:
         """Publish one non-terminal stream event for a controlled run."""

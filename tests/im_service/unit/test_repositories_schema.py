@@ -49,6 +49,11 @@ def test_initialize_schema_adds_nullable_reasoning_effort_to_legacy_profiles(
     ).fetchone()
     assert "reasoning_effort" in columns
     assert row["reasoning_effort"] is None
+    assert "model_fallbacks_json" in columns
+    fallbacks = connection.execute(
+        "SELECT model_fallbacks_json FROM agent_profiles WHERE agent_id = 'legacy'"
+    ).fetchone()
+    assert fallbacks["model_fallbacks_json"] == "[]"
 
 
 def test_initialize_schema_preserves_missing_agent_workspace_roots(

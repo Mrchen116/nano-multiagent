@@ -153,6 +153,7 @@ class TurnRequest:
     origin: Any = None
     model: str | None = None
     source_background_returns: tuple[Mapping[str, Any], ...] = ()
+    replay_last_user: bool = False
 
 
 @dataclass(frozen=True, slots=True)

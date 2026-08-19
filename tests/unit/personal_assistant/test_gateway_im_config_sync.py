@@ -1128,6 +1128,7 @@ def test_sync_agent_repairs_static_feishu_mirror_once_before_publish(
         "tool_allowlist": [],
         "group_reply_policy": "manual",
         "default_model": None,
+        "model_fallbacks": [],
         "reasoning_effort": None,
         "workspace_root": str(workspace_root),
         "features": {},

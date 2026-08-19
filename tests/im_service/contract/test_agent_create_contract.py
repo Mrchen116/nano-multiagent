@@ -82,6 +82,7 @@ def test_agent_create_contract_shape_and_validation(tmp_path: Path) -> None:
             "tool_allowlist",
             "group_reply_policy",
             "default_model",
+            "model_fallbacks",
             "reasoning_effort",
             "workspace_root",
             "workspace_is_default",

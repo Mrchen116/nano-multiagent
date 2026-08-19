@@ -579,6 +579,78 @@ describe("agent detail page", () => {
     expect(apiMocks.navigateMock).not.toHaveBeenCalled();
   });
 
+  it("keeps fallbacks collapsed on the default model label row", async () => {
+    const user = userEvent.setup();
+    apiMocks.getAgentSkillsUsageMock.mockResolvedValue(makeSkillsUsage());
+    apiMocks.getAgentDetailStateMock.mockResolvedValue({
+      ...makeDashboardDetailState(),
+      config: {
+        ...makeDashboardDetailState().config,
+        default_model: "primary",
+        model_fallbacks: ["backup"],
+      },
+      capabilities: {
+        ...makeDashboardDetailState().capabilities,
+        model_options: [
+          { name: "primary", provider: "p1" },
+          { name: "backup", provider: "p2" },
+          { name: "third", provider: "p3" },
+        ],
+      },
+    });
+
+    renderDetailPage();
+    const toggle = await screen.findByRole("button", { name: /Fallbacks 1/i });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: /\+ Add fallback/i })).toBeNull();
+
+    await user.click(toggle);
+    expect(await screen.findByRole("button", { name: /\+ Add fallback/i })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /\+ Add fallback/i }));
+    expect(screen.getByLabelText("Fallback 2")).toBeInTheDocument();
+  });
+
+  it("saves empty model_fallbacks after the last backup is removed", async () => {
+    const user = userEvent.setup();
+    apiMocks.getAgentSkillsUsageMock.mockResolvedValue(makeSkillsUsage());
+    apiMocks.getAgentDetailStateMock.mockResolvedValue({
+      ...makeDashboardDetailState(),
+      config: {
+        ...makeDashboardDetailState().config,
+        default_model: "primary",
+        model_fallbacks: ["backup"],
+      },
+      capabilities: {
+        ...makeDashboardDetailState().capabilities,
+        model_options: [
+          { name: "primary", provider: "p1" },
+          { name: "backup", provider: "p2" },
+        ],
+      },
+    });
+    apiMocks.updateAgentConfigMock.mockResolvedValue({
+      ...makeDashboardDetailState().config,
+      default_model: "primary",
+      model_fallbacks: [],
+      profile_version: 2,
+    });
+
+    renderDetailPage();
+    const toggle = await screen.findByRole("button", { name: /Fallbacks 1/i });
+    await user.click(toggle);
+    await user.click(await screen.findByRole("button", { name: /^Remove$/i }));
+    await user.click(screen.getByRole("button", { name: /Hide fallbacks/i }));
+    expect(await screen.findByRole("button", { name: /Fallbacks unset/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Save Agent/i }));
+    await waitFor(() => {
+      expect(apiMocks.updateAgentConfigMock).toHaveBeenCalled();
+    });
+    const patchBody = apiMocks.updateAgentConfigMock.mock.calls.at(-1)?.[1] as {
+      model_fallbacks?: string[];
+    };
+    expect(patchBody.model_fallbacks).toEqual([]);
+  });
 });
 
 describe("agent behavior settings", () => {

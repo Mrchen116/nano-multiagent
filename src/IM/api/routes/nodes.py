@@ -108,6 +108,7 @@ class CreateNodeAgentRequest(BaseModel):
     tool_allowlist: list[str] = Field(default_factory=list)
     group_reply_policy: str = Field(min_length=1)
     default_model: str | None = None
+    model_fallbacks: list[str] = Field(default_factory=list)
     reasoning_effort: str | None = None
     workspace_root: str | None = None
     confirm_existing_workspace: bool = False
@@ -326,6 +327,7 @@ async def create_node_agent(
         "tool_allowlist": payload.tool_allowlist,
         "group_reply_policy": payload.group_reply_policy,
         "default_model": payload.default_model,
+        "model_fallbacks": list(payload.model_fallbacks),
         "reasoning_effort": payload.reasoning_effort,
         "workspace_root": payload.workspace_root,
         "heartbeat_json": None,

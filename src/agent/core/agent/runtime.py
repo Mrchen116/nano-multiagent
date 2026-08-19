@@ -299,6 +299,7 @@ class AgentEngine:
                 origin=request.origin,
                 model=request.model,
                 source_background_returns=request.source_background_returns,
+                replay_last_user=request.replay_last_user,
             )
         finally:
             self._active_execution_scope.reset(scope_token)
@@ -374,6 +375,7 @@ class AgentEngine:
         origin: Any = None,
         model: str | None = None,
         source_background_returns: tuple[Mapping[str, Any], ...] = (),
+        replay_last_user: bool = False,
     ) -> TurnResult:
         """Internal run implementation (assumes session lock is held)."""
 
@@ -392,10 +394,29 @@ class AgentEngine:
         )
         frozen_system_prompt = config.system_prompt
 
-        input_parts = parse_input_parts(parts)
-        user_text = render_user_text(input_parts)
-        if not user_text:
-            raise ValueError("empty input parts are not allowed")
+        last_user: Message | None = None
+        if replay_last_user:
+            last_user = next(
+                (message for message in reversed(history) if message.role == "user"),
+                None,
+            )
+            if last_user is None:
+                raise ValueError("replay-last-user requires a prior user message")
+            user_text = last_user.content if isinstance(last_user.content, str) else ""
+            if last_user.parts:
+                # 保留原 user parts（含图片），不要退化成纯文本占位。
+                input_parts = parse_input_parts(list(last_user.parts))
+            else:
+                input_parts = parse_input_parts(
+                    [{"type": "text", "text": user_text}] if user_text else []
+                )
+            if not user_text:
+                user_text = render_user_text(input_parts)
+        else:
+            input_parts = parse_input_parts(parts)
+            user_text = render_user_text(input_parts)
+            if not user_text:
+                raise ValueError("empty input parts are not allowed")
 
         turn_id = make_turn_id()
         state.partial_turn_id = turn_id
@@ -473,7 +494,7 @@ class AgentEngine:
         transformed_text = input_payload.get("text", user_text)
         if isinstance(transformed_text, str):
             user_text = transformed_text
-        if not user_text:
+        if not user_text and not replay_last_user:
             raise ValueError("empty input parts are not allowed")
         # feat-430 fix-r2: rewrite the `/skill:` shortcut on the command-bearing text part.
         # Single-part turns rewrite the (possibly hook-transformed) user_text directly.
@@ -481,16 +502,19 @@ class AgentEngine:
         # user_text from the rewritten parts, so the transformation survives the later
         # last-part split (group buffered context OR text + trailing image) and never
         # corrupts the joined/persisted text by mis-reading an image placeholder line.
-        slash_skill_command = (
-            _parse_skill_command_in_parts(input_parts)
-            if len(input_parts) > 1
-            else parse_skill_command(user_text)
-        )
-        if len(input_parts) > 1:
-            input_parts = _rewrite_skill_command_in_parts(input_parts)
-            user_text = render_user_text(input_parts)
-        else:
-            user_text = rewrite_skill_command(user_text)
+        # replay 不再次解析 /skill:，避免把已经执行过的快捷指令再跑一遍。
+        slash_skill_command = None
+        if not replay_last_user:
+            slash_skill_command = (
+                _parse_skill_command_in_parts(input_parts)
+                if len(input_parts) > 1
+                else parse_skill_command(user_text)
+            )
+            if len(input_parts) > 1:
+                input_parts = _rewrite_skill_command_in_parts(input_parts)
+                user_text = render_user_text(input_parts)
+            else:
+                user_text = rewrite_skill_command(user_text)
 
         before_payload, _ = await self._dispatch_intercept(
             "before_agent_start",
@@ -500,7 +524,7 @@ class AgentEngine:
         message_override = before_payload.get("message")
         if isinstance(message_override, str):
             user_text = message_override
-        if not user_text:
+        if not user_text and not replay_last_user:
             raise ValueError("empty input parts are not allowed")
         hook_system_prompt_override = before_payload.get("system_prompt")
         if isinstance(hook_system_prompt_override, str):
@@ -570,25 +594,35 @@ class AgentEngine:
         )
 
         turn_count = sum(1 for message in history if message.role == "user")
-        user_message_id = make_message_id()
+        if replay_last_user:
+            assert last_user is not None
+            user_msg = last_user
+            loop_history = tuple(
+                message
+                for message in history
+                if message.message_id != last_user.message_id
+            )
+        else:
+            user_message_id = make_message_id()
 
-        # bugfix-433 决策2/4: carry structured image blocks on the user turn so they
-        # both reach the provider this turn and persist for cross-turn replay. None
-        # for text-only turns keeps content:str and writes no `parts` (text golden).
-        user_content_parts = render_user_content_parts(input_parts)
-        user_msg = Message(
-            message_id=user_message_id,
-            parent_message_id=history[-1].message_id if history else None,
-            role="user",
-            content=user_text,
-            parts=tuple(user_content_parts) if user_content_parts else None,
-        )
-        history.append(user_msg)
-        state.transcript.append_messages(
-            [user_msg],
-            durable=True,
-            turn_id=turn_id,
-        )
+            # bugfix-433 决策2/4: carry structured image blocks on the user turn so they
+            # both reach the provider this turn and persist for cross-turn replay. None
+            # for text-only turns keeps content:str and writes no `parts` (text golden).
+            user_content_parts = render_user_content_parts(input_parts)
+            user_msg = Message(
+                message_id=user_message_id,
+                parent_message_id=history[-1].message_id if history else None,
+                role="user",
+                content=user_text,
+                parts=tuple(user_content_parts) if user_content_parts else None,
+            )
+            history.append(user_msg)
+            state.transcript.append_messages(
+                [user_msg],
+                durable=True,
+                turn_id=turn_id,
+            )
+            loop_history = tuple(history[:-1])
         preloop_messages: list[Message] = []
         if (
             slash_skill_command is not None
@@ -613,11 +647,12 @@ class AgentEngine:
                 await state.transcript.flush_async()
 
         # Remove the user message we just added from history passed to loop.
-        loop_history = tuple(history[:-1])
-        if preloop_messages:
-            loop_history = tuple(history[: -1 - len(preloop_messages)]) + tuple(
-                preloop_messages
-            )
+        if not replay_last_user:
+            loop_history = tuple(history[:-1])
+            if preloop_messages:
+                loop_history = tuple(history[: -1 - len(preloop_messages)]) + tuple(
+                    preloop_messages
+                )
 
         # Multi-part expansion (M246)
         effective_user_text = user_text
@@ -809,6 +844,7 @@ class AgentEngine:
                 # by the re-raised ModelError as before).
                 error_msg = _build_provider_error_message(
                     exc,
+                    model=model or state.active_model,
                     parent_message_id=user_msg.message_id,
                 )
                 history.append(error_msg)
@@ -2506,17 +2542,20 @@ _COMPACTION_FAILURE_TEXT = (
 def _build_provider_error_message(
     exc: ModelError,
     *,
+    model: str | None = None,
     parent_message_id: str | None = None,
 ) -> Message:
     """Build a synthetic assistant Message that surfaces a provider error to the user.
 
     The message is persisted with is_provider_error=True so build_chat_messages can
     filter it out of the next LLM history (CC isSyntheticApiErrorMessage pattern).
+    The model id is required so consecutive fallback failures remain distinguishable.
     """
     raw_text = str(exc)
     if len(raw_text) > _PROVIDER_ERROR_MAX_CHARS:
         raw_text = raw_text[:_PROVIDER_ERROR_MAX_CHARS] + "…(truncated)"
-    content = f"⚠️ 模型调用失败:{raw_text}"
+    model_id = model.strip() if isinstance(model, str) and model.strip() else "unknown"
+    content = f"⚠️ 模型调用失败（{model_id}）:{raw_text}"
     return Message(
         message_id=make_message_id(),
         parent_message_id=parent_message_id,

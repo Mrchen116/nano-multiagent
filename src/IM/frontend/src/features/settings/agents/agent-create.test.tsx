@@ -241,6 +241,7 @@ describe("agent create page", () => {
         tool_allowlist: ["read"],
         group_reply_policy: "MENTION",
         default_model: null,
+        model_fallbacks: [],
         reasoning_effort: "max",
         workspace_root: null,
         confirm_existing_workspace: false
@@ -729,5 +730,42 @@ describe("agent create prompt preview", () => {
     expect(body).toHaveProperty("skill_ids");
     expect(body.workspace_mode).toBe("default");
     expect(body.workspace_root).toBeNull();
+  });
+
+  it("keeps fallbacks collapsed beside the default model label", async () => {
+    const user = userEvent.setup();
+    mockNodes();
+    apiMocks.getNodeCreateStateMock.mockResolvedValue({
+      node: {
+        node_id: "node-1",
+        owner_id: "owner-1",
+        node_name: "MacBook",
+        status: "online",
+        last_heartbeat_at: "2026-03-13T10:00:00Z",
+        agent_count: 0,
+        version: "1.0.0"
+      },
+      capabilities: {
+        node_id: "node-1",
+        node_name: "MacBook",
+        node_status: "online",
+        capabilities_updated_at: "2026-03-13T10:00:00Z",
+        skills: [],
+        tools: [],
+        model_options: [
+          { name: "codex_oauth:gpt-5.5", provider: "openai_compat" },
+          { name: "glm-4.6", provider: "zhipu" }
+        ],
+        platform_default_model: "codex_oauth:gpt-5.5"
+      }
+    });
+
+    renderCreatePage();
+    const toggle = await screen.findByRole("button", { name: /Fallbacks unset/i });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: /\+ Add fallback/i })).toBeNull();
+    await user.click(toggle);
+    await user.click(await screen.findByRole("button", { name: /\+ Add fallback/i }));
+    expect(screen.getByLabelText("Fallback 1")).toHaveValue("glm-4.6");
   });
 });

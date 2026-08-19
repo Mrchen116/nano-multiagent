@@ -7,10 +7,20 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from personal_assistant.config.local_store import HeartbeatConfig
+from agent.sdk import RunOrigin
+
+from personal_assistant.config.local_store import (
+    HeartbeatConfig,
+    resolve_model_candidates,
+)
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
+from personal_assistant.gateway.model_fallback import (
+    failover_unattended_run,
+    switch_notice,
+)
 from personal_assistant.gateway.runtime_delivery.context import RunDeliveryContextStore
 from personal_assistant.gateway.runtime_delivery.stream import (
+    StreamRunOutcome,
     stream_run_to_completion as _stream_run_to_completion,
 )
 from personal_assistant.gateway.session_binder import GatewaySessionBinder
@@ -60,6 +70,10 @@ class PollingHeartbeatRunner:
         agent_catalog: LiveAgentCatalog | None = None,
         session_binder: GatewaySessionBinder | None = None,
         background_subscriptions: Any | None = None,
+        sticky_store: Any | None = None,
+        product_default_model: str | None = None,
+        reasoning_catalog: Any | None = None,
+        time_context: Any | None = None,
     ) -> None:
         self._scheduler = scheduler
         self._config = config
@@ -79,6 +93,10 @@ class PollingHeartbeatRunner:
         self._agent_catalog = agent_catalog
         self._session_binder = session_binder
         self._background_subscriptions = background_subscriptions
+        self._sticky_store = sticky_store
+        self._product_default_model = product_default_model
+        self._reasoning_catalog = reasoning_catalog
+        self._time_context = time_context
 
     async def start(self) -> None:
         """Start background scheduler ticking exactly once."""
@@ -232,6 +250,7 @@ class PollingHeartbeatRunner:
                 stream_anchor=record.stream_anchor,
                 background_subscriptions=self._background_subscriptions,
             )
+            outcome = await self._failover_heartbeat_if_needed(record, outcome)
             delivery = outcome.delivery
         except Exception:  # noqa: BLE001  — delivery failure does not disrupt gateway loop
             _hb_logger.exception(
@@ -263,6 +282,86 @@ class PollingHeartbeatRunner:
                     agent_id,
                     run_id,
                 )
+
+    async def _failover_heartbeat_if_needed(
+        self, record: "HeartbeatRunRecord", outcome: StreamRunOutcome
+    ) -> StreamRunOutcome:
+        if (
+            self._sticky_store is None
+            or self._agent_catalog is None
+            or self._kernel is None
+            or self._run_context_store is None
+        ):
+            return outcome
+        snapshot = self._agent_catalog.get(record.agent_id)
+        if snapshot is None:
+            return outcome
+        sticky = self._sticky_store.get(record.session_id)
+        candidates = resolve_model_candidates(
+            snapshot.config,
+            product_default=self._product_default_model,
+            sticky=sticky.model if sticky is not None else None,
+        )
+        if not candidates:
+            return outcome
+
+        async def _consume_replay(
+            *,
+            run_id: str,
+            stream_anchor: int,
+            before_flush: Any,
+        ) -> StreamRunOutcome:
+            held: list[Any] = []
+            return await _stream_run_to_completion(
+                run_id=run_id,
+                kernel_session_id=record.session_id,
+                agent_id=record.agent_id,
+                owner_user_id=self._owner_user_id,
+                kernel=self._kernel,
+                run_context_store=self._run_context_store,
+                observer=self._kernel_event_observer,
+                stream_anchor=stream_anchor,
+                background_subscriptions=self._background_subscriptions,
+                hold_assistant_events=held,
+                before_assistant_flush=before_flush,
+            )
+
+        async def _deliver_notice(model: str) -> None:
+            if self._kernel_event_observer is None:
+                return
+            notice_run_id = f"{record.run_id}:model-fallback-ack"
+            self._run_context_store.seed_owner_direct_run(
+                run_id=notice_run_id,
+                agent_id=record.agent_id,
+                kernel_session_id=record.session_id,
+                owner_user_id=self._owner_user_id,
+            )
+            observation = self._kernel_event_observer(
+                {
+                    "event": "assistant_message",
+                    "run_id": notice_run_id,
+                    "content": switch_notice(model),
+                }
+            )
+            if asyncio.iscoroutine(observation):
+                await observation
+            self._run_context_store.take(notice_run_id)
+
+        return await failover_unattended_run(
+            kernel=self._kernel,
+            session_id=record.session_id,
+            workspace_root=snapshot.config.workspace_root,
+            agent_snapshot=snapshot,
+            sticky_store=self._sticky_store,
+            product_default=self._product_default_model,
+            reasoning_catalog=self._reasoning_catalog,
+            time_context=self._time_context,
+            current_model=candidates[0],
+            outcome=outcome,
+            origin=RunOrigin.HEARTBEAT,
+            consume_replay=_consume_replay,
+            deliver_notice=_deliver_notice,
+        )
 
 
 def _consume_task_exception(task: asyncio.Task[object]) -> None:

@@ -198,6 +198,7 @@ describe("agent edit page", () => {
             tool_allowlist: ["read_file"],
             group_reply_policy: "MENTION",
             default_model: null,
+            model_fallbacks: [],
             reasoning_effort: "max"
           })
         })

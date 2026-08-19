@@ -67,6 +67,18 @@ describe("normalizeAgentConfigResponse heartbeat cadence", () => {
   });
 });
 
+describe("normalizeAgentConfigResponse model fallbacks", () => {
+  it("defaults a missing list to empty", () => {
+    expect(normalizeAgentConfigResponse(BASE_RAW).model_fallbacks).toEqual([]);
+  });
+
+  it("keeps a saved ordered list", () => {
+    expect(
+      normalizeAgentConfigResponse({ ...BASE_RAW, model_fallbacks: ["backup", "third"] }).model_fallbacks,
+    ).toEqual(["backup", "third"]);
+  });
+});
+
 describe("normalizeAgentConfigResponse legacy skill selection", () => {
   it("maps absent mode with empty skills to default discovery", () => {
     expect(normalizeAgentConfigResponse(BASE_RAW).skills_selection_mode).toBe(

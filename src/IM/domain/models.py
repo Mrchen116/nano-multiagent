@@ -78,6 +78,7 @@ class AgentProfile:
     tool_allowlist: list[str] = field(default_factory=list)
     group_reply_policy: str = "manual"
     default_model: str | None = None
+    model_fallbacks: list[str] = field(default_factory=list)
     reasoning_effort: str | None = None
     workspace_root: str | None = None
     workspace_is_default: bool | None = None

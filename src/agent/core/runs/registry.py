@@ -10,7 +10,8 @@ from typing import Any, Mapping, Protocol, Sequence
 from uuid import uuid4
 
 from agent.core.ids import make_run_id
-from agent.core.errors import CompactionError
+from agent.core.errors import CompactionError, ModelError
+from agent.core.runs.error_kind import project_model_error_kind
 from agent.core.utils.time import utc_now_iso as _utc_now_iso
 from agent.core.llm.interfaces import LLMMessage
 from agent.core.background_tasks.notifications import BackgroundReturnInfo
@@ -25,6 +26,29 @@ from agent.core.session.directory import SessionDirectory
 from agent.core.session.types import SessionRef, TurnRequest
 from agent.core.agent.run_control import PendingMessage, RunController
 from agent.core.workspace import WorkspaceExecutionScope
+
+
+def _project_run_failure(error: BaseException) -> dict[str, Any]:
+    """Serialize a terminal run error, projecting ModelError into a stable kind."""
+
+    if isinstance(error, CompactionError):
+        return error.to_dict()
+    if isinstance(error, ModelError):
+        return {
+            "code": "run_execution_failed",
+            "message": str(error),
+            "kind": project_model_error_kind(error),
+        }
+    if isinstance(error, TimeoutError):
+        return {
+            "code": "run_execution_failed",
+            "message": str(error),
+            "kind": "timeout",
+        }
+    return {
+        "code": "run_execution_failed",
+        "message": str(error),
+    }
 
 
 class RegistryClosedError(RuntimeError):
@@ -195,12 +219,14 @@ class RunsRegistry:
         flush_held: bool = True,
         model: str | None = None,
         continuation: Mapping[str, Any] | None = None,
+        replay_last_user: bool = False,
     ) -> RunRecord:
         """Prepare semantic state, bind an executor token, then publish the run."""
 
         if workspace_root is None:
             raise ValueError("workspace_root is required to submit a session")
-        if not parts:
+        # 空 parts 仍非法；replay-last-user 复用 transcript 里最近一条用户消息。
+        if not parts and not replay_last_user:
             raise ValueError("empty input parts are not allowed")
         with self._lock:
             if self._state is not _RegistryState.OPEN:
@@ -266,6 +292,7 @@ class RunsRegistry:
                     source_background_returns=tuple(
                         item.to_dict() for item in normalized_background_returns
                     ),
+                    replay_last_user=replay_last_user,
                 ),
                 sink,
             )
@@ -553,14 +580,7 @@ class RunsRegistry:
                     elif completion.error is not None:
                         await self._mark_failed_async(
                             run_id,
-                            error=(
-                                completion.error.to_dict()
-                                if isinstance(completion.error, CompactionError)
-                                else {
-                                    "code": "run_execution_failed",
-                                    "message": str(completion.error),
-                                }
-                            ),
+                            error=_project_run_failure(completion.error),
                         )
                     elif completion.result is not None:
                         if completion.result.stop_reason == "aborted":
@@ -822,7 +842,7 @@ class RunsRegistry:
             run_id,
             status=RunStatus.FAILED,
             stop_reason="timeout",
-            error={"code": "run_timeout", "message": message},
+            error={"code": "run_timeout", "message": message, "kind": "timeout"},
             only_if={RunStatus.RUNNING},
         )
         if updated is not None and updated.status is RunStatus.FAILED:

@@ -40,6 +40,7 @@ EXPECTED_SURFACE: frozenset[str] = frozenset(
         # Core kernel assembly
         "build_kernel",
         "Kernel",
+        "ReplayLastUserRejected",
         "CanUseToolFn",
         # 2-layer surface (决策 2/4/5/6/8)
         "Tool",

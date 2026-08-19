@@ -115,6 +115,7 @@ def test_kernel_exposes_required_methods(tmp_path: Path) -> None:
         assert callable(getattr(kernel, "compact", None))
         # Sync non-blocking methods
         assert callable(getattr(kernel, "submit", None))
+        assert callable(getattr(kernel, "replay_last_user", None))
         assert callable(getattr(kernel, "stream", None))
         assert callable(getattr(kernel, "interrupt", None))
         assert callable(getattr(kernel, "cancel", None))

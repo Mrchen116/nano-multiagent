@@ -48,6 +48,7 @@ export interface AgentConfig {
   tool_allowlist: string[];
   group_reply_policy: "ALWAYS" | "MENTION" | "NO_REPLY" | string;
   default_model: string | null;
+  model_fallbacks: string[];
   reasoning_effort: string | null;
   workspace_root: string | null;
   workspace_is_default: boolean | null;
@@ -158,6 +159,7 @@ export interface NodeAgentCreateRequest {
   tool_allowlist: string[];
   group_reply_policy: "ALWAYS" | "MENTION" | "NO_REPLY" | string;
   default_model: string | null;
+  model_fallbacks?: string[];
   reasoning_effort: string | null;
   workspace_root: string | null;
   confirm_existing_workspace?: boolean;
@@ -182,6 +184,7 @@ export interface UpdateAgentConfigRequest {
   tool_allowlist: string[];
   group_reply_policy: "ALWAYS" | "MENTION" | "NO_REPLY" | string;
   default_model: string | null;
+  model_fallbacks?: string[];
   reasoning_effort: string | null;
 }
 
@@ -562,6 +565,9 @@ export function normalizeAgentConfigResponse(raw: Record<string, unknown>): Agen
             ? "explicit_allowlist"
             : "default_discovery",
     heartbeat,
+    model_fallbacks: Array.isArray(config.model_fallbacks)
+      ? config.model_fallbacks.filter((item): item is string => typeof item === "string" && Boolean(item.trim()))
+      : [],
     reasoning_effort:
       typeof config.reasoning_effort === "string" && config.reasoning_effort.trim()
         ? config.reasoning_effort.trim()
@@ -664,6 +670,7 @@ export async function updateAgentConfig(agentId: string, next: UpdateAgentConfig
       tool_allowlist: next.tool_allowlist,
       group_reply_policy: next.group_reply_policy,
       default_model: next.default_model,
+      model_fallbacks: next.model_fallbacks ?? [],
       reasoning_effort: next.reasoning_effort,
     }),
   });

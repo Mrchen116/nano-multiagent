@@ -180,6 +180,8 @@ class AgentWorkspaceConfig:
         tool_allowlist: Allowed tool names restricting the agent's tool access.
         group_reply_policy: Reply policy in group conversations (e.g. "always", "mention_only").
         default_model: Default LLM model identifier for this agent.
+        model_fallbacks: Ordered backup model ids after the saved chain head.
+            Empty when unset. Never contains the effective primary.
         reasoning_effort: Optional selectable reasoning level for the effective model.
         workflow_size_guideline: Prompt guidance for the next active Workflow turn.
         workflow_size_guideline_explicit: Whether the user selected the guideline.
@@ -219,6 +221,7 @@ class AgentWorkspaceConfig:
     tool_allowlist: tuple[str, ...] = ()
     group_reply_policy: str | None = None
     default_model: str | None = None
+    model_fallbacks: tuple[str, ...] = ()
     reasoning_effort: str | None = None
     workflow_size_guideline: str = DEFAULT_WORKFLOW_SIZE_GUIDELINE
     workflow_size_guideline_explicit: bool = False
@@ -673,6 +676,90 @@ def resolve_run_model(
     return product_default
 
 
+def resolve_model_candidates(
+    agent: "AgentWorkspaceConfig | None",
+    *,
+    product_default: str | None,
+    sticky: str | None = None,
+) -> list[str]:
+    """Build the ordered model candidate chain for one admit.
+
+    The saved chain head is still ``resolve_run_model``; sticky only rotates
+    which remaining candidate is tried first. The kernel never sees this list.
+
+    Args:
+        agent: Agent config, or None when the agent is unknown.
+        product_default: Product-level default model (config ``llm.default_model``).
+        sticky: Previously chosen fallback model id, or None.
+
+    Returns:
+        Ordered unique model ids. Empty when neither the agent nor the product
+        default can name a model.
+    """
+
+    head = resolve_run_model(agent, product_default=product_default)
+    fallbacks = (
+        list(getattr(agent, "model_fallbacks", ()) or ()) if agent is not None else []
+    )
+    chain: list[str] = []
+    if head:
+        chain.append(head)
+    for model_id in fallbacks:
+        if model_id and model_id not in chain:
+            chain.append(model_id)
+    if sticky and sticky in chain:
+        return chain[chain.index(sticky) :]
+    return chain
+
+
+def normalize_model_fallbacks(
+    raw: object,
+    *,
+    known_models: set[str],
+    primary: str | None,
+    field_name: str,
+) -> tuple[str, ...]:
+    """Normalize an ordered fallback list against the node model catalog.
+
+    Unknown ids are a config conflict and must not be written. Duplicates and
+    the effective primary are dropped so the saved chain never retries itself.
+
+    Args:
+        raw: YAML/API list, or None when the field is absent (treated as empty).
+        known_models: Model ids registered on this node.
+        primary: Effective chain-head model to exclude from the list.
+        field_name: Diagnostic label for validation errors.
+
+    Returns:
+        Deduplicated fallback ids that are not the primary.
+
+    Raises:
+        ValueError: When the field is the wrong type or names an unknown model.
+    """
+
+    if raw is None:
+        return ()
+    if not isinstance(raw, (list, tuple)):
+        raise ValueError(f"{field_name} must be a list of model ids")
+    seen: set[str] = set()
+    result: list[str] = []
+    for index, item in enumerate(raw):
+        if not isinstance(item, str) or not item.strip():
+            raise ValueError(f"{field_name}[{index}] must be a non-empty string")
+        model_id = item.strip()
+        if model_id not in known_models:
+            available = ", ".join(sorted(known_models))
+            raise ValueError(
+                f"{field_name}[{index}]='{model_id}' not found in node model catalog "
+                f"(available: {available})"
+            )
+        if model_id == primary or model_id in seen:
+            continue
+        seen.add(model_id)
+        result.append(model_id)
+    return tuple(result)
+
+
 def provision_lark_skill_bundle_for_gateway(
     config_owner: RuntimeConfigOwner,
     *,
@@ -863,6 +950,8 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
             agent_dict["group_reply_policy"] = agent.group_reply_policy
         if agent.default_model is not None:
             agent_dict["default_model"] = agent.default_model
+        if agent.model_fallbacks:
+            agent_dict["model_fallbacks"] = list(agent.model_fallbacks)
         if agent.reasoning_effort is not None:
             agent_dict["reasoning_effort"] = agent.reasoning_effort
         if (
@@ -1280,6 +1369,12 @@ def _parse_agents(
                 f"agents[{index}].default_model='{default_model}' not found in llm.providers "
                 f"(available: {available})"
             )
+        model_fallbacks = normalize_model_fallbacks(
+            item.get("model_fallbacks"),
+            known_models=known_models,
+            primary=default_model or llm.default_model,
+            field_name=f"agents[{index}].model_fallbacks",
+        )
         reasoning_effort = _optional_string(
             item.get("reasoning_effort"),
             field_name=f"agents[{index}].reasoning_effort",
@@ -1353,6 +1448,7 @@ def _parse_agents(
                 tool_allowlist=tool_allowlist,
                 group_reply_policy=group_reply_policy,
                 default_model=default_model,
+                model_fallbacks=model_fallbacks,
                 reasoning_effort=reasoning_effort,
                 workflow_size_guideline=workflow_size_guideline,
                 workflow_size_guideline_explicit=(

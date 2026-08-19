@@ -835,6 +835,7 @@ async def test_overflow_stale_commit_keeps_original_error_and_does_not_count(
         assert _terminal_error(stale_events) == {
             "code": "run_execution_failed",
             "message": "context overflow",
+            "kind": "other",
         }
         assert not any(
             event.get("content") == COMPACTION_FAILURE_TEXT for event in stale_events

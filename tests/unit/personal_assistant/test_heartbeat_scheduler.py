@@ -14,11 +14,12 @@ from personal_assistant.scheduler.heartbeat_scheduler import (
 
 
 class _FakeKernelClient:
-    def __init__(self) -> None:
+    def __init__(self, admit_by_agent: dict[str, str] | None = None) -> None:
         self.created_sessions: list[dict[str, object]] = []
         self.sent_messages: list[dict[str, object]] = []
         self._session_counter = 0
         self._run_counter = 0
+        self._admit_by_agent = admit_by_agent or {}
 
     async def create_session(
         self,
@@ -41,6 +42,9 @@ class _FakeKernelClient:
 
     def current_event_sequence(self) -> int:
         return 0
+
+    def admit_model(self, *, agent_id: str, session_id: str | None) -> str | None:
+        return self._admit_by_agent.get(agent_id)
 
     def submit_message(
         self, *, session_id: str, texts: list[str], **kwargs: object
@@ -107,7 +111,7 @@ def test_scheduler_passes_agent_model_to_submit(tmp_path: Path) -> None:
         default_model="codex_oauth:gpt-5.5",
     )
     _write_heartbeat(agent.workspace_root, "- Check inbox status\n")
-    kernel = _FakeKernelClient()
+    kernel = _FakeKernelClient(admit_by_agent={"gpt-agent": "codex_oauth:gpt-5.5"})
     scheduler = HeartbeatScheduler(
         agents=(agent,),
         kernel_client=kernel,

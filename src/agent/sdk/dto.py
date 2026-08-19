@@ -433,10 +433,25 @@ class ModelReasoningCatalog:
             for model in provider.models:
                 self._capabilities[model.name] = model.reasoning
 
+    @property
+    def default_model(self) -> str:
+        """Return the catalog's product-level default model id."""
+
+        return self._default_model
+
     def capability_for(self, model: str) -> ModelReasoningCapability | None:
         """Return one model's descriptor, or ``None`` when it has none."""
 
         return self._capabilities.get(model)
+
+    def known_model_ids(self) -> frozenset[str]:
+        """Return model ids registered in this node's catalog.
+
+        ``capability_for`` cannot answer membership: unknown models and models
+        without reasoning both return ``None``.
+        """
+
+        return frozenset(self._capabilities)
 
     def validate(self, model: str | None, selected_effort: str | None) -> None:
         """Validate one model and selected effort pairing.
