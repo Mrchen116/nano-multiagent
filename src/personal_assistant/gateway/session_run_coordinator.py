@@ -2441,9 +2441,7 @@ class SessionRunCoordinator:
         if not events:
             return
         messages = [
-            event
-            for event in events
-            if event.get("event") == "assistant_message"
+            event for event in events if event.get("event") == "assistant_message"
         ]
         events.clear()
         await self._flush_held_assistant_events(messages)
@@ -2518,9 +2516,8 @@ class SessionRunCoordinator:
                         continue
                     event = consumed_event
                 if self._kernel_event_observer is not None:
-                    if (
-                        held_assistant_events is not None
-                        and _should_hold_for_notice(event)
+                    if held_assistant_events is not None and _should_hold_for_notice(
+                        event
                     ):
                         held_assistant_events.append(event)
                     else:
