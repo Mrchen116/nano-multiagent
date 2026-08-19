@@ -8,7 +8,11 @@ from pathlib import Path
 
 import pytest
 
-from personal_assistant.gateway.inbound_models import InboundRunRequest, RoutedInbound
+from personal_assistant.gateway.inbound_models import (
+    InboundRunRequest,
+    RelayLifecycleUpdate,
+    RoutedInbound,
+)
 from personal_assistant.gateway.session_keys import build_session_key
 from personal_assistant.gateway.session_run_coordinator import SessionRunCoordinator
 from personal_assistant.gateway.model_fallback import (
@@ -17,6 +21,10 @@ from personal_assistant.gateway.model_fallback import (
 )
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.outbound_router import OutboundRouter
+from personal_assistant.gateway.runtime_delivery.context import RunDeliveryContextStore
+from personal_assistant.gateway.runtime_delivery.lifecycle import (
+    build_relay_lifecycle_callback,
+)
 
 from ._pipeline_helpers import _FakeChannel
 from ._session_run_coordinator_helpers import build_dependencies, inbound
@@ -176,12 +184,53 @@ async def test_switch_notice_is_sent_once_before_backup_reply(tmp_path: Path) ->
     _publish_fallbacks(catalog, "backup-model")
     channel = _FakeChannel("web_relay")
     sticky = ModelStickyStore()
+    visible: list[str] = []
+    observed: list[dict[str, object]] = []
+    order: list[str] = []
+    phases: list[tuple[str, str | None, str | None]] = []
+    store = RunDeliveryContextStore()
+    real_lifecycle = build_relay_lifecycle_callback(
+        reporter=None,
+        im_connection_manager_factory=lambda: None,
+        run_context_store=store,
+        owner_user_id="user-a",
+    )
+
+    async def bg_reply_sender(text: str, _ctx: object, _from_session_id: str) -> None:
+        visible.append(text)
+        order.append(f"notice:{text}")
+
+    async def lifecycle(_routed: object, update: RelayLifecycleUpdate) -> None:
+        await real_lifecycle(_routed, update)
+        phases.append((update.phase, update.run_id, update.previous_run_id))
+
+    dropped: list[dict[str, object]] = []
+
+    def observer(event: dict[str, object]) -> None:
+        run_id = str(event.get("run_id") or "")
+        if store.get(run_id) is None:
+            dropped.append(event)
+            return
+        observed.append(event)
+        name = str(event.get("event") or "")
+        if name == "assistant_message":
+            order.append(f"assistant:{event.get('content')}")
+        elif name == "turn_end":
+            order.append("turn_end")
+
+    async def drain(run_id: str) -> None:
+        order.append(f"drain:{run_id}")
+
     coordinator = SessionRunCoordinator(
         kernel=kernel,
         session_binder=binder,
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
         group_context_store=group_store,
         sticky_store=sticky,
+        bg_reply_sender=bg_reply_sender,
+        kernel_event_observer=observer,
+        relay_lifecycle_callback=lifecycle,
+        drain_run_delivery=drain,
     )
     running = asyncio.create_task(
         coordinator.dispatch(_request(inbound(chat_id="chat-a", text="hello"), catalog))
@@ -194,14 +243,29 @@ async def test_switch_notice_is_sent_once_before_backup_reply(tmp_path: Path) ->
         error={"kind": "quota", "message": "quota"},
     )
     await kernel.wait_stream("run-2")
-    kernel.finish("run-2", text="backup reply")
+    kernel.finish(
+        "run-2",
+        text="backup reply",
+        usage={"prompt_tokens": 12, "completion_tokens": 4, "total_tokens": 16},
+        context_window=200000,
+    )
     await running
 
-    texts = [item.text for item in channel.sent]
-    assert texts.count("已改用 backup-model，因为主模型不可用。") == 1
-    assert texts[-1] == "backup reply"
-    notice_at = texts.index("已改用 backup-model，因为主模型不可用。")
-    assert notice_at < texts.index("backup reply")
+    assert visible == ["已改用 backup-model，因为主模型不可用。"]
+    assert "backup reply" not in visible
+    assert ("recovery_adopted", "run-2", "run-1") in phases
+    assert dropped == []
+    notice_at = order.index("notice:已改用 backup-model，因为主模型不可用。")
+    reply_at = order.index("assistant:backup reply")
+    drain_at = order.index("drain:run-2")
+    turn_end_at = order.index("turn_end")
+    assert notice_at < reply_at < drain_at < turn_end_at
+    backup_turn_end = next(
+        event
+        for event in observed
+        if event.get("event") == "turn_end" and event.get("run_id") == "run-2"
+    )
+    assert backup_turn_end["usage"]["total_tokens"] == 16
 
 
 @pytest.mark.asyncio
@@ -256,11 +320,7 @@ async def test_exhausted_chain_stays_failed_without_switch_notice(
     assert [call["run_id"] for call in kernel.replay_calls] == ["run-2", "run-3"]
     texts = [item.text for item in channel.sent]
     assert all("已改用" not in text for text in texts)
-    assert all("已改用" not in text for text in visible_replies)
-    assert visible_replies == [
-        "⚠️ 模型调用失败（backup-a）: quota",
-        "⚠️ 模型调用失败（backup-b）: quota",
-    ]
+    assert visible_replies == []
     observed_failures = [
         event["content"]
         for event in observed

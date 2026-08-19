@@ -590,6 +590,11 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         run_delivery_contexts.quiesce(run_id)
         await runtime_delivery_tasks.drain_run(run_id)
 
+    async def _drain_run_delivery(run_id: str) -> None:
+        """等已入队的流式投递落地，不 quiesce，避免备用正文被压住。"""
+
+        await runtime_delivery_tasks.drain_run(run_id)
+
     def _restore_run_delivery(run_id: str) -> None:
         """Release deferred old-run output when reset publication aborts."""
 
@@ -656,6 +661,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         node_id=config.node.node_id,
         boundary_outbox=boundary_outbox,
         quiesce_run_delivery=_quiesce_run_delivery,
+        drain_run_delivery=_drain_run_delivery,
         restore_run_delivery=_restore_run_delivery,
         commit_run_delivery=_commit_run_delivery,
         drain_external_control_deliveries=(

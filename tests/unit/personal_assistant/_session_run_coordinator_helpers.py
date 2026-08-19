@@ -266,12 +266,24 @@ class ControlledKernel:
         status: str = "completed",
         text: str = "ok",
         error: dict[str, Any] | None = None,
+        usage: dict[str, Any] | None = None,
+        context_window: int | None = None,
     ) -> None:
         queue = self._events[run_id]
         if text:
             queue.put_nowait(
                 {"event": "assistant_message", "run_id": run_id, "content": text}
             )
+        if usage is not None:
+            turn_end: dict[str, Any] = {
+                "event": "turn_end",
+                "run_id": run_id,
+                "completed": status == "completed",
+                "usage": usage,
+            }
+            if context_window is not None:
+                turn_end["context_window"] = context_window
+            queue.put_nowait(turn_end)
         event: dict[str, Any] = {
             "event": "run_status",
             "run_id": run_id,

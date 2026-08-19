@@ -110,6 +110,20 @@ if TYPE_CHECKING:
     from agent.sdk import Kernel
 
 
+# 插入「已改用」前要 hold 的观察者事件。只 hold assistant_message 时，
+# turn_end 会先把空气泡按 empty_visible_reply 丢掉，token 芯片就贴不到
+# 用户看见的那条回复上。run_status=running 也要 hold，避免空占位气泡
+# 出现在切换说明前面。
+_HOLD_FOR_NOTICE_EVENTS = frozenset({"assistant_message", "turn_end"})
+
+
+def _should_hold_for_notice(event: Mapping[str, object]) -> bool:
+    name = event.get("event")
+    if name in _HOLD_FOR_NOTICE_EVENTS:
+        return True
+    return name == "run_status" and event.get("status") == "running"
+
+
 _DEFAULT_GATEWAY_INTERNAL_PORT = 8089
 _DEFAULT_RUN_IDLE_TIMEOUT_SECONDS = 120.0
 _MAX_SESSION_TRANSITION_LOCKS = 4096
@@ -378,6 +392,7 @@ class SessionRunCoordinator:
         quiesce_run_delivery: Callable[[str], Awaitable[None]] | None = None,
         restore_run_delivery: Callable[[str], None] | None = None,
         commit_run_delivery: Callable[[str], Awaitable[None]] | None = None,
+        drain_run_delivery: Callable[[str], Awaitable[None]] | None = None,
         drain_external_control_deliveries: Callable[[], Awaitable[None]] | None = None,
         update_workflow_size_guideline: Callable[[str, str], None] | None = None,
         run_idle_timeout_seconds: float = _DEFAULT_RUN_IDLE_TIMEOUT_SECONDS,
@@ -410,6 +425,7 @@ class SessionRunCoordinator:
         self._quiesce_run_delivery = quiesce_run_delivery
         self._restore_run_delivery = restore_run_delivery
         self._commit_run_delivery = commit_run_delivery
+        self._drain_run_delivery = drain_run_delivery
         self._drain_external_control_deliveries = drain_external_control_deliveries
         self._update_workflow_size_guideline = update_workflow_size_guideline
         self._run_idle_timeout_seconds = run_idle_timeout_seconds
@@ -2252,6 +2268,7 @@ class SessionRunCoordinator:
                 raise RuntimeError(
                     self._extract_run_error(run_state, "failed")
                 ) from None
+            predecessor_run_id = run_id
             current_model = nxt
             async with self._transition(request.session_key):
                 self._adopt_active_run(
@@ -2261,6 +2278,20 @@ class SessionRunCoordinator:
                 session_id,
                 agent.agent_id,
                 StickyModelOverride(model=nxt, noticed=False),
+            )
+            # replay 是新 run_id，没有 accepted；不发 recovery_adopted 的话
+            # observer 会因 ctx is None 丢掉备用正文和 turn_end。
+            await self._emit_lifecycle(
+                request.routed,
+                RelayLifecycleUpdate(
+                    phase="recovery_adopted",
+                    agent_id=agent.agent_id,
+                    session_key=request.session_key,
+                    previous_run_id=predecessor_run_id,
+                    run_id=replay.run_id,
+                    kernel_session_id=session_id,
+                    model=nxt,
+                ),
             )
             held: list[Mapping[str, object]] = []
             (
@@ -2281,19 +2312,9 @@ class SessionRunCoordinator:
             run_id = replay.run_id
             anchor_sequence = replay.start_sequence
             if run_state.get("status") != "completed":
-                await self._flush_held_assistant_events(held)
-                # Web IM 的用户可见文本走 bg_reply_sender（send_agent_message），
-                # 与「已改用」同一条路。_deliver_final_reply 对 web_relay 只记
-                # 内存 outbound，不会出现在聊天里。
-                if reply_text.strip():
-                    await self._deliver_control_reply(
-                        text=reply_text,
-                        binding=binding,
-                        agent_id=agent.agent_id,
-                        ack_tag=f"model-fallback-fail-{run_id}",
-                        source_routed=request.routed,
-                        operation_id=None,
-                    )
+                # 失败 ⚠️ 走 observer：recovery_adopted 已 seed ctx。
+                # 再走控制通道会和流式气泡重复一条。
+                await self._flush_held_assistant_messages_only(held)
                 continue
             chain_head = resolve_run_model(
                 agent.config, product_default=self._product_default_model
@@ -2313,6 +2334,8 @@ class SessionRunCoordinator:
                     operation_id=None,
                 )
                 self._sticky_store.mark_noticed(session_id)
+            # 说明先发出，再按原顺序冲刷 assistant_message → turn_end，
+            # 让 Web IM 走普通流式气泡（带 token_usage），而不是控制消息。
             await self._flush_held_assistant_events(held)
             return run_state, reply_text, run_id, anchor_sequence
         return run_state, reply_text, run_id, anchor_sequence
@@ -2383,11 +2406,47 @@ class SessionRunCoordinator:
     ) -> None:
         if not events or self._kernel_event_observer is None:
             return
+        pending_turn_end: list[Mapping[str, object]] = []
+        run_ids: list[str] = []
         for event in events:
+            rid = event.get("run_id")
+            if isinstance(rid, str) and rid:
+                run_ids.append(rid)
+            if event.get("event") == "turn_end":
+                pending_turn_end.append(event)
+                continue
             result = self._kernel_event_observer(event)
             if asyncio.iscoroutine(result):
                 await result
         events.clear()
+        # assistant_message 有 message_id 时走 task_tracker 不等待；turn_end
+        # 抢跑会把空气泡 completed，token 芯片贴不上。
+        if self._drain_run_delivery is not None:
+            seen: set[str] = set()
+            for rid in run_ids:
+                if rid in seen:
+                    continue
+                seen.add(rid)
+                await self._drain_run_delivery(rid)
+        for event in pending_turn_end:
+            result = self._kernel_event_observer(event)
+            if asyncio.iscoroutine(result):
+                await result
+
+    async def _flush_held_assistant_messages_only(
+        self, events: list[Mapping[str, object]] | None
+    ) -> None:
+        """失败时只冲刷正文，丢掉 hold 住的 turn_end，避免空气泡被提前 completed。"""
+
+        if not events:
+            return
+        messages = [
+            event
+            for event in events
+            if event.get("event") == "assistant_message"
+        ]
+        events.clear()
+        await self._flush_held_assistant_events(messages)
 
     async def _await_terminal_run(
         self,
@@ -2461,7 +2520,7 @@ class SessionRunCoordinator:
                 if self._kernel_event_observer is not None:
                     if (
                         held_assistant_events is not None
-                        and event.get("event") == "assistant_message"
+                        and _should_hold_for_notice(event)
                     ):
                         held_assistant_events.append(event)
                     else:
@@ -2500,7 +2559,8 @@ class SessionRunCoordinator:
             user_stopped = run_id in self._user_interrupted_runs
             if not watchdog_reconciled:
                 # 失败/取消先冲刷被 hold 的失败气泡，再 finalize；否则备用候选的 ⚠️ 会迟到被丢掉。
-                await self._flush_held_assistant_events(held_assistant_events)
+                # turn_end 留给成功路径在「已改用」之后冲刷，失败则丢掉以免空气泡 completed。
+                await self._flush_held_assistant_messages_only(held_assistant_events)
                 await self._emit_terminal_reconcile(run_id, reason="interrupted")
             if status == "cancelled" and user_stopped:
                 return run_state, reply_text, request, ()

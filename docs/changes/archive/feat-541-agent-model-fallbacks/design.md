@@ -5,6 +5,8 @@
 
 ## Changelog
 
+- 2026-08-19 试用对齐（spec Q10/Q11）：明确不可重试（401 / 无效密钥）立刻带模型名失败，再走备用；网络抖动和限流才对同一模型按既有预算重试。备用成功路径必须先投「已改用」（控制通道），再冲刷普通流式正文；Web IM 正文带 token 用量，正文不进控制消息。实现上 replay 后发 `recovery_adopted` 给 `RunDeliveryContext`，hold `assistant_message` / `turn_end` / `run_status=running` 到说明完成后再 flush，并 `drain_run_delivery`（不要 quiesce）。删除「截断流一律投影为 overload」——真实永久错误不得被洗成可重试的 `stream ended without terminal event`。
+
 ## 现状分析
 
 ### 涉及范围
@@ -68,7 +70,7 @@ graph TD
     SDK -->|"⚠️ 失败气泡含模型名<br/>run_status.error.kind"| Failover
 ```
 
-Before：一次 submit，失败气泡没有模型名，整轮停住。After：失败气泡带模型名；Gateway 按链 replay 同一条用户消息，成功后再发「已改用」。
+Before：一次 submit，失败气泡没有模型名，整轮停住。After：失败气泡带模型名；Gateway 按链 replay 同一条用户消息；成功后先发「已改用」，再冲刷备用模型的普通流式正文（Web IM 带 token）。
 
 ## 关键决策
 
@@ -98,11 +100,11 @@ Before：一次 submit，失败气泡没有模型名，整轮停住。After：�
 
 ### 决策 4: 切换说明的投递形态
 
-**选了 复用压缩/控制确认同一条系统消息路径（`_deliver_control_reply`），不新开气泡类型，也不走运行信息页脚。**
+**选了 「已改用」复用压缩/控制确认同一条系统消息路径（`_deliver_control_reply`）；备用正文不走控制通道，走普通 assistant 流式气泡（Web IM 带 token 用量）。**
 
-- **理由**: 用户指定「类似压缩」。`/compact` 成功时发「已压缩当前会话。」，经控制确认同时到 Web IM 与飞书（外部触发时）。切换说明同样是一句短系统消息，粘住后的轮次不再发。
-- **拒绝**: 运行信息页脚 — 默认关且语义是「本轮用了什么模型」。只写 IM 的 `node.system_message` — 飞书用户看不到（外部-channels 明确：其它系统通知不外发飞书，但控制确认会外发）。
-- **风险**: 控制确认和 assistant 回复是两条消息，用户会先看到一句系统说明再看到备用模型的回复（或相反，取决于投递顺序）。实现上应先发说明再发回复，与「压缩确认独立成条」一致。
+- **理由**: 用户指定说明「类似压缩」。`/compact` 成功时发「已压缩当前会话。」，经控制确认同时到 Web IM 与飞书（外部触发时）。试用对齐：只见「已改用」不见正文、或把正文塞进控制消息后 Web IM 没有 token 芯片——说明和正文必须是两条独立消息。控制通道只发短说明；正文必须是 observer 转发的 `assistant_message`，并带 `turn_end` / token 用量。粘住后的轮次不再发说明。
+- **拒绝**: 运行信息页脚 — 默认关且语义是「本轮用了什么模型」。只写 IM 的 `node.system_message` — 飞书用户看不到（外部-channels 明确：其它系统通知不外发飞书，但控制确认会外发）。把备用正文塞进 `_deliver_control_reply`。
+- **风险**: 控制确认和 assistant 回复是两条消息。实现必须：replay 后先发 `recovery_adopted` 让 observer 有投递上下文；hold 流式正文直到说明投出；再 flush（先非 `turn_end`，`drain_run_delivery` 不要 quiesce，再 `turn_end`）。失败气泡不 hold。
 
 ### 决策 5: 切到备用时的推理强度
 
@@ -114,10 +116,10 @@ Before：一次 submit，失败气泡没有模型名，整轮停住。After：�
 
 ### 决策 6: 何时换候选（Gateway 判定，不改内核分类器）
 
-**选了 Gateway 读 `run_status.error.kind`（SDK 投影），不 `except ModelError`、不 import `agent.core`。欠费/额度、过载/5xx、超时、限流、认证失败都换；上下文超长不换。不把 `retryable` 当作唯一开关。供应商流在终态事件前被掐断（`stream ended without terminal event`）投影为 `overload`。**
+**选了 Gateway 读 `run_status.error.kind`（SDK 投影），不 `except ModelError`、不 import `agent.core`。欠费/额度、过载/5xx、超时、限流、认证失败都换；上下文超长不换。不把 `retryable` 当作唯一开关。明确永久错误（401 / 无效密钥等）必须投影为 `kind=auth`（或其它永久 kind）并立刻终态，再走备用；不能对着同一模型打满重试预算，也不能用通用 `stream ended without terminal event` 冒充 overload。流在终态前断开时，保留最后一次真实上游错误；只有没有更具体分类时才落到 overload / timeout 这类可用性 kind。**
 
-- **理由**: 生产上 `ModelError` 被压成 `{code: "run_execution_failed", message: str(exc)}`，`agent.sdk` 也不导出该类型。认证失败在分类器里不可重试，但换另一家模型仍有意义。上下文超长走压缩路径。内核把既有分类结果投影成稳定 `kind`，不改 `error_classifier` 的重试表。truncated stream 是网络断开或供应商中途 abort，属于「服务挂了」，不是工具/逻辑失败。
-- **拒绝**: 只在 `retryable=True` 时换 — 认证失败将被漏掉。产品层解析 `⚠️` 字符串 — 文案一改就失效。把 failover 列表塞进内核 — 违反决策 1。
+- **理由**: 生产上 `ModelError` 被压成 `{code: "run_execution_failed", message: str(exc)}`，`agent.sdk` 也不导出该类型。认证失败在分类器里不可重试，但换另一家模型仍有意义。用户澄清：同模型重试只覆盖网络不好或限流；明确不可重试场景立刻报错。上下文超长走压缩路径。内核把既有分类结果投影成稳定 `kind`，不改 `error_classifier` 的重试表（见 kernel `model-runtime`：明确永久错误快速失败；重试耗尽返回最后真实错误）。
+- **拒绝**: 只在 `retryable=True` 时换 — 认证失败将被漏掉。产品层解析 `⚠️` 字符串 — 文案一改就失效。把 failover 列表塞进内核 — 违反决策 1。截断流一律投影为 `overload` — 会把真实 401 洗成可重试空转。
 - **风险**: `kind=other` 不换，避免把工具/逻辑失败当成模型可用性失败。写错的模型名若被标成 auth/not-found 仍会走进备用链；可接受。
 
 ## 接口与数据流
@@ -138,9 +140,9 @@ sequenceDiagram
     K-->>GW: run_status.failed kind
     alt kind 可换且内核允许 replay
         GW->>K: reconfigure(下一候选) + replay-last-user
-        K-->>GW: 成功回复
-        GW->>IM: 「已改用 …」
-        GW->>IM: assistant 正文
+        K-->>GW: 成功回复（普通 assistant 流）
+        GW->>IM: 「已改用 …」（控制通道）
+        GW->>IM: assistant 正文（Web IM 带 token）
     else 内核因已有真实输出拒绝 replay
         GW->>GW: 本轮收口，sticky=下一候选
     end
@@ -192,7 +194,7 @@ Agent 配置新增有序列表 `model_fallbacks: string[]`，与 `default_model`
    - 聊天：继续直调 `Kernel.submit` 且省略 `model=`（`session_run_coordinator.py:1387-1393`），runtime 已是 `candidates[0]`。
    - 心跳/cron **只走** `InProcessKernelClient.submit_message`。该 shim 无论 caller 是否传 `model=`，今天都会 `resolve_run_model` 再 `kernel.submit(model=resolved_model)`（`kernel_client.py:218-229`）；`explicit` 为空时解出的是保存的链头，不是 runtime。因此禁止「像聊天一样省略」。心跳/cron 必须显式 `submit_message(model=candidates[0])`。禁止 `model=agent.default_model`。`resolve_run_model` 只给组链当链头。
 4. **failover 循环**在等终态之后：
-   - 聊天：`session_run_coordinator._await_terminal_run` 之后；observer **照常转发**失败气泡（不要 hold）。
+   - 聊天：`session_run_coordinator._await_terminal_run` 之后；observer **照常转发**失败气泡（不要 hold）。备用成功路径 hold 流式正文到「已改用」投出后再 flush。
    - 心跳：`heartbeat_runner` 等到 `stream_run_to_completion` 之后。
    - cron：`CronRunTerminalConsumer`（`cron_execution_service.py`）等终态，不在 `cron_runner.submit`。
    - 换候选：**禁止**再次 `submit` 同一份 user parts。走 SDK replay-last-user：先 `reconfigure_session` 到下一模型（及该模型默认 reasoning），再发起不携带新 user parts 的 run。
@@ -209,11 +211,11 @@ SDK `run_status.error.kind`：`quota` / `overload` / `timeout` / `rate_limit` / 
 
 **产品循环（写死，禁止第三种猜法）**：
 
-1. observer 照常转发所有 assistant，包括失败气泡。
-2. 终态后只看 `kind`：可换且链上还有下一候选 → 调用 replay-last-user；不可换 → 本轮收口。
+1. observer 照常转发每个失败候选的失败气泡，不要 hold。备用成功路径：hold `assistant_message`、`turn_end` 以及 `run_status=running`，直到「已改用」投出后再 flush。
+2. 终态后只看 `kind`：可换且链上还有下一候选 → 调用 replay-last-user；不可换 → 本轮收口。明确永久错误必须已经是立刻终态的 `kind`，不能先空转再换。
 3. **不要**用 `reply_text` 是否为空，**不要**匹配 `⚠️`，**不要**从 stream metadata 猜 `is_provider_error`（生产上这些通道区分不了失败气泡和真回复）。
 4. 内核若因「本 run 已有非 provider-error 的 assistant 正文或工具事件」拒绝 replay → 本轮收口；若链上还有下一候选，sticky=`{model:下一候选, noticed:false}`。
-5. 内核接受 replay → 失败气泡已经在聊天里；继续下一候选。
+5. 内核接受 replay → 失败气泡已经在聊天里；发 `recovery_adopted` 后继续下一候选。成功时控制通道只发 switch_notice，再冲刷普通正文。
 
 | 本轮情况 | 动作 |
 |---|---|
@@ -235,19 +237,19 @@ SDK `run_status.error.kind`：`quota` / `overload` / `timeout` / `rate_limit` / 
 
 - 文案：`已改用 {model}，因为主模型不可用。` `{model}` 用目录里的模型 id（与选择器一致）。
 - 投递：复用 `_deliver_control_reply`（与「已压缩当前会话。」同一出站）。若该函数目前绑死 compact 的 `ControlOperation`，抽一层短系统文本投递供 compact 与 fallback 共用，用户可见形态不变。
-- 顺序：先说明，再备用正文。
+- 顺序：先说明，再冲刷备用普通正文（含 Web IM token）；正文不进控制消息。
 - Web IM：普通 Agent 短气泡（压缩确认就是这种，不是居中 `chat-bubble-system`）。
 - 飞书等外部通道：同一句 Bot 文本（控制确认会外发；其它系统通知不会）。
 - 心跳/cron 若本轮向用户发出了可见内容：先带模型名的失败提示（若发生了可用性失败），成功后再「已改用」再正文。
 
 ### 测试面
 
-Gateway 产品层：组链、粘性、失败气泡不挡换、真实正文后不换、replay 不复制用户消息、说明只发一次、心跳/cron 同链。Kernel：失败文案含模型 id、`error.kind`、replay-last-user。IM：`model_fallbacks` 读写。前端：折叠/数量/增删。不测内核同请求 `RetryingLLMClient`。
+Gateway 产品层：组链、粘性、失败气泡不挡换、真实正文后不换、replay 不复制用户消息、说明只发一次且先于流式正文、正文带 usage 且不走控制通道、心跳/cron 同链。Kernel：失败文案含模型 id、`error.kind`、replay-last-user、明确永久错误立刻终态。IM：`model_fallbacks` 读写。前端：折叠/数量/增删。不测内核同请求 `RetryingLLMClient` 的网络抖动预算。
 
 ## 前端原型
 
 - 原型文件: [prototype.html](prototype.html)
-- 覆盖范围: Agent 新建/编辑页折叠备用入口；Web IM 首次切换三条消息（带模型名的失败气泡、「已改用」、正文）。
+- 覆盖范围: Agent 新建/编辑页折叠备用入口；Web IM 首次切换三条消息（带模型名的失败气泡、「已改用」、普通正文且带 token）。
 
 ### 现有 UX grounding
 
@@ -256,7 +258,7 @@ Gateway 产品层：组链、粘性、失败气泡不挡换、真实正文后不
 | `agent-detail-page.tsx` / `agent-create-page.tsx` 访问卡片 | 白底 12px 圆角卡、标题「访问与模型」、主模型是 `im-input` `<select>`，紧挨 `ModelReasoningField` | 主模型 select 与推理档位置、文案、控件都不改 |
 | 同卡「View skill statistics」 | 0.78rem 无底文字链、强调色 | 折叠入口用同类文字链，不新开卡片、不用 `<details>` 整块把表单撑开 |
 | 字段 label | 0.78rem semibold，字段纵向 gap 很小 | 「备用 · 未设置 / N 个」放在「默认模型」**标签行右侧**，收起时不增加表单高度 |
-| 聊天 `message-pane` 压缩确认与失败气泡 | 短句独立成 Agent 气泡；bugfix-380 失败也是 Agent 气泡 | 失败文案改为含模型名；「已改用」仍走压缩确认形态；顺序：失败 → 已改用 → 正文 |
+| 聊天 `message-pane` 压缩确认与失败气泡 | 短句独立成 Agent 气泡；bugfix-380 失败也是 Agent 气泡 | 失败文案改为含模型名；「已改用」仍走压缩确认形态；顺序：失败 → 已改用 → 普通正文（Web IM 带 token） |
 
 不改变既有 UX 骨架。备用列表展开后用与主模型相同的 `im-input` select，行左序号、行右 ✕；「+ 添加备用」仍是文字链。
 
@@ -268,7 +270,7 @@ Gateway 产品层：组链、粘性、失败气泡不挡换、真实正文后不
 | 已配备用仍折叠：右侧显示「备用 N 个」，主模型仍是保存值 | must-match | Agent 编辑页 | 已保存 ≥1 个备用、未点开 | M1 `[reviewer]` 未展开能看出已配 |
 | 展开后点「+ 添加备用」立刻多一行 select（预填下一个未占用模型并 focus）；✕ 删除；不能选主模型或已占用项；目录用尽后添加入口消失 | must-match | 同上 | 从空添加、改主模型挤掉冲突项、删到空 | M1 `[reviewer]` 展开保存 |
 | 清空备用保存后折叠文案回到「未设置」 | must-match | Agent 编辑页 | 清空并保存 | M1 `[reviewer]` 清空等价从未配置 |
-| 聊天首次切换：失败气泡（含模型名）→ 短说明 → 正文；无弹窗/按钮 | must-match | Web IM `/chat` 单聊 | 主模型不可用且本轮切到备用 | M1 `[reviewer]` Web IM 说明 |
+| 聊天首次切换：失败气泡（含模型名）→ 短说明 → 普通正文（Web IM 带 token）；无弹窗/按钮 | must-match | Web IM `/chat` 单聊 | 主模型不可用且本轮切到备用 | M1 `[reviewer]` Web IM 说明 |
 | 飞书同样：失败提示（含模型名）→ 说明 → 正文 | must-match | 飞书原 chat | 外部通道触发的同轮切换 | M1 `[reviewer]` 外部通道说明 |
 | 原型里技能/工具选择器、推理档内部选项 | out-of-scope | — | — | 真实页保持现有实现 |
 | 折叠控件是否用 button vs summary | may-adapt | Agent 表单 | — | 必须保持「标签行右侧文字链、默认不占垂直空间」；可用现有 button 类，不要改成第二张卡或默认展开的多行 select |
@@ -287,7 +289,8 @@ Gateway 产品层：组链、粘性、失败气泡不挡换、真实正文后不
 - **Gateway 重启丢粘性**：接受，本期不持久化。
 - **心跳 submit 盖住粘性**：今天 `submit_message(model=agent.default_model)` 在 runtime 已是备用时会被内核拒；只删这个 kwargs、不改成 `candidates[0]`，shim 仍会注入链头。应对：心跳/cron 显式 `model=candidates[0]`。worker 单测必须覆盖「直聊已粘备用后心跳复用同一 session」。
 - **重复用户消息**：第二次普通 `submit(parts)` 会在 IM 再写一条用户气泡。应对：只走 replay-last-user。
-- **可见顺序**：失败气泡 →「已改用」→ 备用正文。observer 不 hold 失败气泡。
+- **可见顺序**：失败气泡立即投出 →「已改用」→ 再冲刷流式正文（Web IM 带 token）。备用成功路径 hold 正文，不 hold 失败气泡。
+- **空转重试**：401 / 无效密钥若被洗成空流，会打满同一模型重试预算。应对：分类器永久错误立刻终态；Gateway 信任投影 `kind`，不把截断流一律当成 overload。
 - **认证失败也会换模型**：写错的模型名可能走进备用链。接受。
 - **降级**：`model_fallbacks` 为空时行为与现在相同（仅失败文案多了模型名）。回滚备用链时去掉 failover 循环与字段；失败文案带模型名可单独保留。
 
@@ -303,7 +306,7 @@ Gateway 产品层：组链、粘性、失败气泡不挡换、真实正文后不
 
 启动前先 down 再 up，避免 stale binary。用完执行 down。`--main-config` 只把模型目录/凭据拷进 worktree 副本，不写回 `~/.nanoassistant/config.yaml`。
 
-**Review 驱动方式**: 端到端真栈；本 unit 改了客户端面，必须真点 Web IM：Agent 新建/编辑页的折叠备用入口（1440 与 375）、保存后再打开；单聊发消息必须看到「带模型名的失败提示 → 已改用 → 正文」；`/new` 与改配置清粘性。飞书旅程必须真发飞书消息，不能只用 IM HTTP 代替。
+**Review 驱动方式**: 端到端真栈；本 unit 改了客户端面，必须真点 Web IM：Agent 新建/编辑页的折叠备用入口（1440 与 375）、保存后再打开；单聊发消息必须看到「带模型名的失败提示 → 已改用 → 普通正文（带 token）」；`/new` 与改配置清粘性。飞书旅程必须真发飞书消息，不能只用 IM HTTP 代替。
 
 **验收前置**:
 
@@ -323,8 +326,8 @@ Gateway 产品层：组链、粘性、失败气泡不挡换、真实正文后不
 退出标准：
 
 - `[reviewer]` 默认折叠不占位；未展开能看出已配数量；展开可增删保存，刷新顺序不变（Scenario: 默认折叠 / 展开后按序添加 / 清空备用）。覆盖 `prototype.html` 配置卡 must-match。
-- `[reviewer]` 主模型可用性失败时先看到带该模型名的失败提示，不必再发消息即可收到备用回复；没配则只有这一条失败（带模型名）；整链耗尽时每条失败都带对应模型名；上下文超长不换。
-- `[reviewer]` Web IM 顺序：失败气泡 →「已改用 {model}，因为主模型不可用。」→ 正文；无弹窗；粘住后不再每条提示；飞书原 chat 同样先失败提示再说明再正文。覆盖原型聊天 / 飞书 must-match。
+- `[reviewer]` 主模型可用性失败时先看到带该模型名的失败提示；明确不可重试的错误很快出现，不对同一模型空转；不必再发消息即可收到备用普通回复（Web IM 带 token）；没配则只有这一条失败（带模型名）；整链耗尽时每条失败都带对应模型名；上下文超长不换。
+- `[reviewer]` Web IM 顺序：失败气泡 →「已改用 {model}，因为主模型不可用。」→ 普通助手正文（带 token）；无弹窗；「已改用」不是正文容器；粘住后不再每条提示；飞书原 chat 同样先失败提示再说明再正文。覆盖原型聊天 / 飞书 must-match。
 - `[reviewer]` 编辑页仍显示保存的主模型；`/new` 或保存主模型/备用列表后下一轮从主模型试起；另一聊天互不影响。
 - `[reviewer]` 心跳 tick 与 cron 在主模型不可用时仍能完成；若向用户发出可见内容，同样先有带模型名的失败提示，成功切换时再带说明。
 - `[worker]` 组链、粘性接到第一次 admit，心跳/cron 经 `submit_message` **显式** `model=candidates[0]`（禁止省略、禁止 `model=agent.default_model`；含心跳复用 canonical 直聊时共享）、`kind` 可换则尝试 replay、以内核拒绝为准、不看 `reply_text`/不匹配 `⚠️`、replay 不复制用户消息、说明只发一次、心跳/cron 同链、配置保存清粘性、`kind` 认证仍换、上下文超长不换 — 最窄 PA / IM / kernel 单测全绿。
