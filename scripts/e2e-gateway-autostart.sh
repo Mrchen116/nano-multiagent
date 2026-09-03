@@ -123,6 +123,36 @@ PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 launchctl print "gui/$(id -u)/$LABEL" >/dev/null
 FIRST_PID=$(wait_for_new_gateway)
 
+"$AUTOSTART_PYTHON" - "$LABEL" "$AUTOSTART_PYTHON" "$IM_URL" <<'PY'
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+label = sys.argv[1]
+python = Path(sys.argv[2])
+transient_url = sys.argv[3]
+result = subprocess.run(
+    ["/bin/launchctl", "print", f"gui/{os.getuid()}/{label}"],
+    capture_output=True,
+    check=True,
+    text=True,
+)
+lines = [line.strip() for line in result.stdout.splitlines()]
+program = next(
+    line.removeprefix("program = ")
+    for line in lines
+    if line.startswith("program = ")
+)
+arguments_start = lines.index("arguments = {")
+arguments_end = lines.index("}", arguments_start)
+arguments = lines[arguments_start + 1 : arguments_end]
+assert program == str(python.absolute())
+assert arguments[0] == str(python.absolute())
+assert "--auto-bind" in arguments
+assert arguments[arguments.index("--im-service-url") + 1] == transient_url
+PY
+
 "$AUTOSTART_PYTHON" - "$PLIST" "$AUTOSTART_CONFIG" "$REPO_ROOT" "$AUTOSTART_PYTHON" "$IM_URL" <<'PY'
 import plistlib
 import sys
@@ -136,7 +166,8 @@ transient_url = sys.argv[5]
 payload = plistlib.loads(plist_path.read_bytes())
 arguments = payload["ProgramArguments"]
 assert payload["KeepAlive"] is True
-assert payload["Program"] == str(python.resolve())
+assert payload["Program"] == str(python.absolute())
+assert arguments[0] == str(python.absolute())
 assert payload["WorkingDirectory"] == str(repo_root.resolve())
 assert payload["EnvironmentVariables"] == {
     "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",

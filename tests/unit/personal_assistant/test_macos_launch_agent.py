@@ -102,6 +102,38 @@ def test_apply_persists_stable_definition_but_bootstraps_transient_controls(
     assert list(launch_agents.glob(".*.bootstrap.plist")) == []
 
 
+def test_plist_preserves_virtualenv_python_symlink(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    base_python = tmp_path / "homebrew" / "bin" / "python3"
+    base_python.parent.mkdir(parents=True)
+    base_python.touch()
+    venv_python = tmp_path / "venv" / "bin" / "python"
+    venv_python.parent.mkdir(parents=True)
+    venv_python.symlink_to(base_python)
+
+    source_root = tmp_path / "checkout" / "src"
+    source_root.mkdir(parents=True)
+    source_link = tmp_path / "current-src"
+    source_link.symlink_to(source_root, target_is_directory=True)
+
+    monkeypatch.setattr(macos_launch_agent, "_python_executable", lambda: venv_python)
+    monkeypatch.setattr(macos_launch_agent, "_source_root", lambda: source_link)
+
+    payload = macos_launch_agent._plist_payload(
+        config_path=tmp_path / "config.yaml",
+        log_path=tmp_path / "gateway.log",
+        shutdown_grace_seconds=5,
+    )
+
+    assert venv_python.is_absolute()
+    assert venv_python.resolve() == base_python
+    assert payload["Program"] == str(venv_python)
+    assert payload["ProgramArguments"][0] == str(venv_python)
+    assert payload["WorkingDirectory"] == str(source_root.parent)
+    assert payload["EnvironmentVariables"]["PYTHONPATH"] == str(source_root)
+
+
 def test_stop_current_login_is_idempotent_when_job_is_not_loaded(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
