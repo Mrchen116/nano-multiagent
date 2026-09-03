@@ -186,3 +186,48 @@ N/A — design 不含前端原型或 reference artifact。
 ### SUGGESTION（可以修）
 
 - Round 1 的非阻塞提交 scope 建议仍未变化：实现提交使用 `feat(gateway)` / `fix(gateway)`，而仓库 milestone 约定建议使用 unit id scope（`docs/development/local-development.md:98-106`）。历史提交不应为此改写；后续 unit 按约定命名即可。
+
+## Corrected Delta Reconciliation
+
+> Reconciled snapshot: `dd6a4d58fc4545e498e26ae9ef1d833d005df396 → 99f8a4281da1ce559c1da640830e72c0a1180d28`
+>
+> Verification mode: `corrected-delta`
+
+| Delta item | Implementation evidence | Test evidence | Outcome |
+|---|---|---|---|
+| `specs/gateway/spec.md` / Service Lifecycle Requirement count `10` | canonical 当前为 7；本 delta `ADDED 3 + MODIFIED 1 + REMOVED 0`，所以无损归并后为 10；MODIFIED 标题与 canonical 的 `运维者用启停命令把 Gateway 当后台服务管理` 精确匹配，3 个 ADDED 标题均不与现有 Requirement 冲突 | `scripts/docs_check.py` 对当前入口/delta 路由通过；本轮结构计数复核为 canonical 7、ADDED 3、MODIFIED 1、REMOVED 0 | aligned |
+| `service-lifecycle.md` / ADDED `macOS Gateway 的登录自启意图和稳定运行环境由本地配置拥有` | typed config/default/save/validation：`src/personal_assistant/config/local_store.py:294-306,1018-1031,1553-1589`；模式选择与环境优先级：`src/personal_assistant/gateway/process_lifecycle.py:124-158,218-260` | `tests/unit/personal_assistant/config/test_gateway_lifecycle_config.py:46-163`; `tests/unit/personal_assistant/test_gateway_autostart.py:39-275` | aligned |
+| 该 Requirement / Scenario `缺省配置默认开启登录自启` | `GatewayLifecycleConfig.autostart=True`，macOS 默认进入 managed path：`local_store.py:305`; `process_lifecycle.py:244-260` | config default test、`test_macos_default_start_uses_launch_agent`、真 LaunchAgent critical path | aligned |
+| 该 Requirement / Scenario `显式开启登录自启` | YAML parser 保留显式 bool，managed path 应用 stable LaunchAgent：`local_store.py:1569-1589`; `process_lifecycle.py:244-260` | config round-trip、managed launch unit test、最终 head 真 E2E | aligned |
+| 该 Requirement / Scenario `显式关闭登录自启` | `autostart=false` 先永久移除定义，再启动 detached：`process_lifecycle.py:244-258`; `macos_launch_agent.py:143-161` | disable-path unit tests；critical path 核对 job/plist 消失且 detached Gateway live | aligned |
+| 该 Requirement / Scenario `登录自启关闭未完整应用时不虚报成功` | remove 抛错时不会越过到 detached launch：`process_lifecycle.py:244-253`; `macos_launch_agent.py:143-161` | `test_disable_failure_does_not_start_detached_replacement`; `test_permanently_remove_keeps_definition_when_bootout_fails` | aligned |
+| 该 Requirement / Scenario `只编辑配置不改变当前运行方式` | 无 watcher/reconcile；仅有效 start/restart 加载并应用配置，裸 start 先拒绝 live state/loaded job：`process_lifecycle.py:182-215,263-297` | live PID 重复启动与 loaded-before-state 两类回归；acceptance Round 1 Journey 1 / Round 2 Journey C | aligned |
+| 该 Requirement / Scenario `配置环境在两种后台模式中保持一致`（含 corrected baseline PATH） | `run_gateway()` 统一执行 inherited → YAML → 显式 auto-bind：`process_lifecycle.py:124-158`；stable plist 不复制 YAML 值，但提供 `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin` 与 `PYTHONPATH`：`macos_launch_agent.py:18,188-222`；显式 YAML `PATH` 在 runtime 覆盖 baseline | environment precedence 与 custom-PATH lifecycle tests；`test_apply_persists_stable_definition_but_bootstraps_transient_controls`; `scripts/e2e-gateway-autostart.sh:141-145`; acceptance Round 2 Journey D | aligned |
+| `service-lifecycle.md` / ADDED `启用登录自启的 macOS Gateway 由系统保持运行` | stable LaunchAgent 直接监督 foreground Gateway，`KeepAlive=true`：`macos_launch_agent.py:188-222` | plist unit test、真 LaunchAgent critical path、acceptance Round 1/2 | aligned |
+| 该 Requirement / Scenario `用户登录后自动运行` | stable plist 留在 `~/Library/LaunchAgents`，Program/argv/working directory 均为绝对稳定定义：`macos_launch_agent.py:22-31,188-222` | critical path 与 acceptance 均在 stop 后 bootstrap retained plist，观察新 PID 与 node online | aligned |
+| 该 Requirement / Scenario `Gateway 意外退出后自动恢复` | launchd 直接监督 foreground child 且 `KeepAlive=true`：`macos_launch_agent.py:188-222` | critical path 对 child `SIGKILL` 后核对新 PID 和 node online | aligned |
+| 该 Requirement / Scenario `人工停止只暂停当前登录会话` | `stop_current_login()` 用 `bootout --wait` 并保留 stable plist；只有 `permanently_remove()` 删除：`macos_launch_agent.py:110-161`; `process_lifecycle.py:482-548` | managed stop tests、async bootout test、critical path stop + retained-plist bootstrap | aligned |
+| `service-lifecycle.md` / ADDED `登录自启应用失败时 Gateway 降级运行并如实失败` | apply/start failure 先 permanent rollback，确认安全后只起一个 detached Gateway，并保留原错误：`process_lifecycle.py:299-366`; CLI 打印 running + failed 且返回 1：`main.py:116-143` | rollback/fallback/fail-closed unit tests、CLI degraded-result test、acceptance Round 1 Journey 4 | aligned |
+| 该 Requirement / Scenario `登录服务应用失败后降级为普通后台进程` | 同上；rollback 无法证明安全时直接失败，不会起第二实例 | `test_launch_agent_failure_rolls_back_then_runs_one_detached_gateway`; `test_launch_agent_rollback_failure_does_not_start_detached_gateway`; CLI test | aligned |
+| `service-lifecycle.md` / MODIFIED `运维者用启停命令把 Gateway 当后台服务管理` | canonical 原 Requirement 的 PID/process-birth、lock、shutdown 顺序与首因契约全部保留；增量只把 macOS autostart 模式、managed stop 和反馈并入同一 lifecycle owner：`process_lifecycle.py:182-669`; `main.py:26-143` | `personal_assistant` 全包最终实现复验 `1138 passed`；全部 contract `156 passed` | aligned |
+| 该 Requirement / Scenario `默认启动后台运行并尽快返回` | 非 macOS 仍 detached；macOS 按配置选 managed/detached，均等待 state 的 PID + birth 后返回结果：`process_lifecycle.py:182-260,299-414`; `main.py:26-41` | background launch、managed launch、non-mac output、CLI feedback tests；真 E2E | aligned |
+| 该 Requirement / Scenario `重复启动被单实例锁拦下` | live state、legacy PID 与 loaded LaunchAgent 均 fail closed，给出 stop/restart 指引：`process_lifecycle.py:263-297` | PID live-state test、loaded-before-state test、CLI next-step test | aligned |
+| 该 Requirement / Scenario `stop 终止 Gateway 并清理当前运行状态` | managed path 先 bootout，随后复用 process-birth waiter；detached path 保持原 stop/STALE/NOT RUNNING 语义：`process_lifecycle.py:424-442,482-570` | PID lifecycle stop tests、managed stop test、CLI stop/not-running/stale tests、真 E2E | aligned |
+| 该 Requirement / Scenario `stop 无法停止登录服务时不越过失败` | bootout 在 state 读取和 signal 前执行；异常直接向 CLI 传播：`process_lifecycle.py:489-497,532-548` | `test_managed_stop_failure_does_not_signal_process`; acceptance Round 1 Journey 4 | aligned |
+| 该 Requirement / Scenario `start stop restart 对同一 config 串行` | start/stop/restart 共用 resolved-config lifecycle lock，restart 一次持锁完成 stop + reload + start：`process_lifecycle.py:207,441,445-479,604-615` | `test_main_restart_command_uses_serialized_lifecycle_operation` 与既有 lifecycle tests | aligned |
+| 该 Requirement / Scenario `stop 只向已证明的进程实例发信号` | 每次 signal 前核对 process birth；legacy state 通过绝对 `/bin/ps` command + config 归属收敛，身份变化 fail closed：`process_lifecycle.py:647-814` | `test_stop_gateway_rejects_legacy_pid_owned_by_another_command`; `test_stop_gateway_does_not_signal_reused_pid`; custom PATH regression | aligned |
+| 该 Requirement / Scenario `stop 收拢活动运行后终止 Gateway` | runtime shutdown owner 未被本 unit 改写；managed/detached 最终都运行同一 foreground Gateway 和既有 shutdown graph | `test_shutdown_seals_then_closes_kernel_and_drains_one_deadline`; shutdown timeout isolation 与 runtime lifecycle tests | aligned |
+| 该 Requirement / Scenario `真实故障在关闭后仍是主要错误` | 本 unit 未建立平行 runtime/shutdown owner；既有首因与 best-effort cleanup 路径继续由同一 runtime 实现 | shutdown resource graph、timeout isolation、IM cleanup exception regressions；全包 1138 项通过 | aligned |
+| `service-lifecycle.md` / REMOVED Requirements | `无`；最终实现未删除 canonical 的其他 6 条 Service Lifecycle Requirement，也未删除 MODIFIED Requirement 的既有行为 | canonical 标题/场景结构对账；最终 unit diff 与全包测试 | aligned |
+
+### Merge safety
+
+- canonical `service-lifecycle.md` 当前有 7 条 Requirement；应用 3 条 ADDED、原位替换 1 条 MODIFIED、删除 0 条后为 10，与 unit `specs/gateway/spec.md` 的入口数字一致。
+- MODIFIED Requirement 保留 canonical 的 7 个既有场景语义：两个场景仅改名以容纳 managed/detached 两种后台模式，另外 5 个标题保持；新增 `stop 无法停止登录服务时不越过失败`，没有吞掉原约束。
+- 3 条 ADDED Requirement 名称均为新名称，适合直接插入 Service Lifecycle area；其他 canonical area 与 Requirement 数无需改动。
+
+### Uncovered Observable Behavior
+
+None. Review 后的产品代码变更均为既有 delta 行为的闭环：`bootout --wait`、loaded/no-state 检查与绝对 `/bin/ps` 分别加强 stop、单实例和身份安全；瞬时 IM URL 防回写落实“本次显式控制”不成为稳定配置；环境非法值校验落实 OS environment 可用性；E2E cleanup 与部署 skill 变量修复不新增 Gateway 产品行为。固定 macOS baseline `PATH` 已明确写入 ADDED environment Scenario，不再是 delta 外行为。
+
+Outcome: aligned
