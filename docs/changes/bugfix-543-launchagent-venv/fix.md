@@ -46,7 +46,8 @@ plist 断言也改为要求保留未解引用的绝对 Python 路径。
   `Program` 被解析为 base Python，测试如期失败。
 - `tests/unit/personal_assistant/test_macos_launch_agent.py` 与
   `tests/unit/personal_assistant/test_gateway_autostart.py`：15 passed。
-- macOS 隔离 LaunchAgent critical path：1 passed in 20.86s；使用 repo venv 的真实符号链接，
+- macOS 隔离 LaunchAgent critical path：在实现提交 `914b1da95` 上 1 passed in 19.37s；
+  使用 repo venv 的真实符号链接，
   覆盖 plist、启动、崩溃恢复、人工暂停、模拟登录恢复和关闭自启。
 - 受影响 Python 文件通过 Ruff，E2E shell 通过 `bash -n`，最终 diff 通过
   `git diff --check`。

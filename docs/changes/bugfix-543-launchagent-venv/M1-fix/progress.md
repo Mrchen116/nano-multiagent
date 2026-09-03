@@ -15,6 +15,9 @@
 
 - RED：新回归测试在修复前失败，`Program` 实际值是符号链接的 base Python，而非 `venv/bin/python`。
 - `pytest -q tests/unit/personal_assistant/test_macos_launch_agent.py tests/unit/personal_assistant/test_gateway_autostart.py`：15 passed。
-- `NANO_MULTIAGENT_RUN_LAUNCH_AGENT_E2E=1 pytest -q tests/e2e/critical_paths/test_gateway_autostart_critical_path.py`：1 passed in 20.86s。
+- 在 clean 实现提交 `914b1da95` 上执行
+  `NANO_MULTIAGENT_RUN_LAUNCH_AGENT_E2E=1 pytest -q tests/e2e/critical_paths/test_gateway_autostart_critical_path.py`：
+  1 passed in 19.37s。
 - `ruff check` 及 `ruff format --check` 覆盖受影响 Python 文件；`bash -n scripts/e2e-gateway-autostart.sh` 和 `git diff --check` 通过。
+- 二次 E2E 结束后已核对本轮 config-scoped job/plist 未残留，也无指向 pytest 临时 config 的 Gateway/IM 进程。
 - 详细证据见 [`evidence/implementation.md`](evidence/implementation.md)。
