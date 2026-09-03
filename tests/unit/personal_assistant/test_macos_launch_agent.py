@@ -86,7 +86,10 @@ def test_apply_persists_stable_definition_but_bootstraps_transient_controls(
     assert stable["KeepAlive"] is True
     assert stable["ExitTimeOut"] == 3
     assert stable["WorkingDirectory"] == "/checkout"
-    assert stable["EnvironmentVariables"] == {"PYTHONPATH": "/checkout/src"}
+    assert stable["EnvironmentVariables"] == {
+        "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "PYTHONPATH": "/checkout/src",
+    }
     assert stable["StandardOutPath"] == str(log_path)
     assert "--auto-bind" not in stable_args
     assert "http://im.once:8011" not in stable_args
@@ -124,6 +127,7 @@ def test_stop_current_login_waits_for_async_bootout_completion(
         macos_launch_agent.stop_current_login(config_path=tmp_path / "config.yaml")
         is True
     )
+    assert any(call[1:3] == ("bootout", "--wait") for call in launchctl.calls)
 
 
 def test_permanently_remove_keeps_definition_when_bootout_fails(

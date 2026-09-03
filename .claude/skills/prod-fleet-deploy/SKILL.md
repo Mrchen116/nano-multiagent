@@ -169,7 +169,11 @@ ssh mini 'cd ~/Repos/nano-multiagent && umask 077 && .venv/bin/python -c '"'"'im
 
 # 两边 Gateway 重新认证
 ssh mini 'cd ~/Repos/nano-multiagent && PYTHONPATH=src .venv/bin/python -m personal_assistant.main restart'
-cd "$prod_worktree" && PYTHONPATH=src ~/Repos/nano-multiagent/.venv/bin/python -m personal_assistant.main restart
+local_target=$(git -C ~/Repos/nano-multiagent rev-parse origin/main)
+local_short=$(git -C ~/Repos/nano-multiagent rev-parse --short "$local_target")
+local_prod_worktree="$HOME/Repos/nano-multiagent/.worktrees/prod-main-$local_short"
+[[ -d "$local_prod_worktree" ]] || { print -u2 -r -- "missing production worktree: $local_prod_worktree"; exit 1; }
+cd "$local_prod_worktree" && PYTHONPATH=src ~/Repos/nano-multiagent/.venv/bin/python -m personal_assistant.main restart
 ```
 
 浏览器中的 Web IM 会被要求重新登录。换钥后必须完成下方完整验证清单。
@@ -200,6 +204,10 @@ curl -s "$IM/im/v1/nodes" -H "Authorization: Bearer $TOKEN"
 # 两边 LaunchAgent 必须 loaded；CLI 计算 label，避免手写 config hash
 ssh mini 'cd ~/Repos/nano-multiagent && label=$(PYTHONPATH=src .venv/bin/python -c '\''from personal_assistant.gateway.macos_launch_agent import launch_agent_label; print(launch_agent_label("~/.nanoassistant/config.yaml"))'\'') && launchctl print "gui/$(id -u)/$label"'
 ssh mini 'cd ~/Repos/nano-multiagent && label=$(PYTHONPATH=src .venv/bin/python -c '\''from personal_assistant.gateway.macos_launch_agent import launch_agent_label; print(launch_agent_label("~/.nanoassistant/config.yaml"))'\'') && plutil -p "$HOME/Library/LaunchAgents/$label.plist" && sed -n "1,120p" "$HOME/.nanoassistant/.gateway-state.json" && ps -ax -o pid=,command= | grep "[p]ersonal_assistant.main"'
+local_target=$(git -C ~/Repos/nano-multiagent rev-parse origin/main)
+local_short=$(git -C ~/Repos/nano-multiagent rev-parse --short "$local_target")
+prod_worktree="$HOME/Repos/nano-multiagent/.worktrees/prod-main-$local_short"
+[[ -d "$prod_worktree" ]] || { print -u2 -r -- "missing production worktree: $prod_worktree"; exit 1; }
 cd "$prod_worktree"
 local_label=$(PYTHONPATH=src ~/Repos/nano-multiagent/.venv/bin/python -c 'from personal_assistant.gateway.macos_launch_agent import launch_agent_label; print(launch_agent_label("~/.nanoassistant/config.yaml"))')
 launchctl print "gui/$(id -u)/$local_label"

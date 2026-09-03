@@ -358,6 +358,12 @@ class LocalConfig:
     llm: LLMConfigPayload
     source_path: Path
     display: DisplayConfig = field(default_factory=DisplayConfig)
+    _persistent_im_service: IMServiceConfig | None = field(
+        default=None, repr=False, compare=False
+    )
+    _has_transient_im_service_url: bool = field(
+        default=False, repr=False, compare=False
+    )
 
 
 class RuntimeConfigOwner:
@@ -433,7 +439,12 @@ def load_gateway_runtime_config(
     override_url = im_service_url_override.strip()
     old_im = config.im_service
     if old_im is None:
-        return replace(config, im_service=IMServiceConfig(url=override_url))
+        return replace(
+            config,
+            im_service=IMServiceConfig(url=override_url),
+            _persistent_im_service=None,
+            _has_transient_im_service_url=True,
+        )
     return replace(
         config,
         im_service=IMServiceConfig(
@@ -443,6 +454,8 @@ def load_gateway_runtime_config(
             username=old_im.username,
             password=old_im.password,
         ),
+        _persistent_im_service=old_im,
+        _has_transient_im_service_url=True,
     )
 
 
@@ -1047,16 +1060,21 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
         data["display"] = display
 
     # IM service
-    if config.im_service is not None:
-        im_dict: dict[str, Any] = {"url": config.im_service.url}
-        if config.im_service.token is not None:
-            im_dict["token"] = config.im_service.token
-        if config.im_service.refresh_token is not None:
-            im_dict["refresh_token"] = config.im_service.refresh_token
-        if config.im_service.username is not None:
-            im_dict["username"] = config.im_service.username
-        if config.im_service.password is not None:
-            im_dict["password"] = config.im_service.password
+    persisted_im_service = (
+        config._persistent_im_service
+        if config._has_transient_im_service_url
+        else config.im_service
+    )
+    if persisted_im_service is not None:
+        im_dict: dict[str, Any] = {"url": persisted_im_service.url}
+        if persisted_im_service.token is not None:
+            im_dict["token"] = persisted_im_service.token
+        if persisted_im_service.refresh_token is not None:
+            im_dict["refresh_token"] = persisted_im_service.refresh_token
+        if persisted_im_service.username is not None:
+            im_dict["username"] = persisted_im_service.username
+        if persisted_im_service.password is not None:
+            im_dict["password"] = persisted_im_service.password
         data["im_service"] = im_dict
 
     # LLM config
@@ -1558,9 +1576,14 @@ def _parse_gateway_lifecycle(payload: Any) -> GatewayLifecycleConfig:
     for key, value in environment_raw.items():
         if not isinstance(key, str) or not key.strip():
             raise ValueError("gateway.environment keys must be non-empty strings")
+        normalized_key = key.strip()
+        if "=" in normalized_key or "\0" in normalized_key:
+            raise ValueError("gateway.environment keys cannot contain '=' or NUL")
         if not isinstance(value, str):
             raise ValueError(f"gateway.environment.{key} must be a string")
-        environment[key.strip()] = value
+        if "\0" in value:
+            raise ValueError(f"gateway.environment.{normalized_key} cannot contain NUL")
+        environment[normalized_key] = value
     return GatewayLifecycleConfig(
         autostart=autostart,
         environment=environment,

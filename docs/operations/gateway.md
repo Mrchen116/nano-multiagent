@@ -51,7 +51,7 @@ llm:
 - `agents[].workspace_root` 省略时，Gateway 在 `~/.nanoassistant/workspaces/<agent-id>/` 创建默认 workspace；需要固定位置时显式填写绝对路径。
 - `im_service.username` / `password` 可用于 Gateway 首次登录和 token 刷新失败后的凭据回退。
 - `gateway.autostart` 默认 `true`。macOS 默认安装当前用户的 LaunchAgent，登录后启动并在异常退出时恢复；设为 `false` 后，下一次有效启动改用普通后台进程并删除持久定义。其他平台始终使用普通后台进程。
-- `gateway.environment` 只接受字符串键值，作为普通后台和登录自启共同使用的稳定环境。配置值覆盖同名继承环境；本次显式 CLI 控制仍有最高优先级。需要外部命令时应在这里显式提供合适的 `PATH`。
+- `gateway.environment` 只接受操作系统环境可用的字符串键值，作为普通后台和登录自启共同使用的稳定环境。配置值覆盖同名继承环境；本次显式 CLI 控制仍有最高优先级。macOS 登录服务默认可发现系统目录和 Homebrew 常用目录；工具位于其他目录时，在这里显式设置 `PATH`。
 - 本地 LLM 代理配置、协议、交互日志和验证方法见 [`../development/llm-integration.md`](../development/llm-integration.md)。
 
 ## 启动、停止与重启

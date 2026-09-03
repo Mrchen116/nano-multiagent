@@ -13,6 +13,15 @@ from personal_assistant.gateway import process_lifecycle
 from ._main_helpers import _FakeProcess, build_config
 
 
+@pytest.fixture(autouse=True)
+def _assume_launch_agent_is_not_loaded(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        process_lifecycle.macos_launch_agent,
+        "is_loaded",
+        lambda **_kwargs: False,
+    )
+
+
 def _publish_state(config_path: Path, *, pid: int, process_start: str) -> None:
     (config_path.parent / ".gateway-state.json").write_text(
         json.dumps(
@@ -83,6 +92,29 @@ def test_non_macos_keeps_detached_mode_and_marks_autostart_not_applicable(
     )
 
     assert result.autostart_status == "not_applicable"
+
+
+def test_macos_start_rejects_loaded_launch_agent_before_state_publication(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config = build_config(tmp_path)
+    monkeypatch.setattr(process_lifecycle.sys, "platform", "darwin")
+    monkeypatch.setattr(
+        process_lifecycle.macos_launch_agent,
+        "is_loaded",
+        lambda **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        process_lifecycle.macos_launch_agent,
+        "apply_and_start",
+        lambda **_kwargs: pytest.fail("bare start must preserve the loaded service"),
+    )
+
+    with pytest.raises(process_lifecycle.GatewayStartupError, match="already running"):
+        process_lifecycle.launch_gateway_in_background(
+            config_path=config.source_path,
+            load_config=lambda _path: config,
+        )
 
 
 def test_launch_agent_failure_rolls_back_then_runs_one_detached_gateway(
@@ -214,6 +246,34 @@ def test_run_gateway_applies_explicit_cli_control_after_config_environment(
         "searxng": "http://config-searxng",
         "auto_bind": "1",
     }
+
+
+def test_run_gateway_process_identity_ignores_configured_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    base = build_config(tmp_path)
+    config = replace(
+        base,
+        gateway=replace(base.gateway, environment={"PATH": "/gateway/tools"}),
+    )
+    monkeypatch.setenv("PATH", "/inherited/tools")
+    monkeypatch.setattr(
+        process_lifecycle, "install_builtin_skills_for_gateway", lambda: None
+    )
+
+    class _Runtime:
+        def run_forever(self) -> int:
+            return 0
+
+    result = process_lifecycle.run_gateway(
+        config_path=config.source_path,
+        factories=process_lifecycle.RuntimeFactories(
+            load_config=lambda _path: config,
+            build_runtime=lambda _config: _Runtime(),
+        ),
+    )
+
+    assert result == 0
 
 
 def test_managed_stop_boots_out_before_process_cleanup(

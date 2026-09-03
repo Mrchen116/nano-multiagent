@@ -287,6 +287,13 @@ def _clear_or_reject_existing_gateway(config: LocalConfig) -> None:
                     next_step="Run 'stop' to shut it down first, or 'restart' to replace it.",
                 )
             _remove_legacy_gateway_pid(config, expected_pid=legacy_pid)
+    if sys.platform == "darwin" and macos_launch_agent.is_loaded(
+        config_path=config.source_path
+    ):
+        raise GatewayStartupError(
+            summary="gateway is already running under the macOS LaunchAgent",
+            next_step="Run 'stop' to shut it down first, or 'restart' to replace it.",
+        )
 
 
 def _launch_managed_gateway_unlocked(
@@ -640,7 +647,7 @@ def _read_legacy_gateway_pid(config: LocalConfig) -> int | None:
 def _process_start_identity(pid: int) -> str | None:
     """Read the OS process birth identity for one PID without signalling it."""
     result = subprocess.run(
-        ["ps", "-p", str(pid), "-o", "lstart="],
+        ["/bin/ps", "-p", str(pid), "-o", "lstart="],
         capture_output=True,
         text=True,
         check=False,
@@ -655,7 +662,7 @@ def _process_start_identity(pid: int) -> str | None:
 def _process_command(pid: int) -> str | None:
     """Read the full live command for one PID without signalling it."""
     result = subprocess.run(
-        ["ps", "-ww", "-p", str(pid), "-o", "command="],
+        ["/bin/ps", "-ww", "-p", str(pid), "-o", "command="],
         capture_output=True,
         text=True,
         check=False,

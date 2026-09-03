@@ -110,8 +110,10 @@ Kernel 的运行拓扑不变。
 - **优先级**：`gateway.environment` 覆盖同名 inherited process environment，但不能取消
   本次显式 CLI control；例如 YAML 即使设置 `NANO_MULTIAGENT_AUTO_BIND` 为其他值，显式
   `--auto-bind` 最终仍强制为 `1`。这不是通用参数覆盖框架，只是保住现有 CLI 契约。
-- **风险**：使用 Homebrew 等外部命令的 Agent 还需显式配置合适的 `PATH`；文档和生产
-  配置必须把当前 inline `SEARXNG_URL` 迁入 YAML。`--auto-bind` 和
+- **运行基线**：LaunchAgent 使用固定的 macOS 系统路径并包含 Apple Silicon 与 Intel
+  Homebrew 常用目录，避免升级后让既有 Agent 突然找不到常用命令；非标准工具目录仍由
+  `gateway.environment.PATH` 显式覆盖。生产配置必须把当前 inline `SEARXNG_URL` 迁入
+  YAML。`--auto-bind` 和
   `--im-service-url` 仍是单次启动控制，不并入稳定 environment。
 
 ### 决策 2: launchd 直接监督现有前台 Gateway
@@ -252,7 +254,7 @@ label、plist XML、`launchctl print / bootstrap / bootout`、原子写文件及
 | `Label` | `io.github.mrchen116.nano-multiagent.gateway.<sha256(resolved-config)前16位>` | 无 |
 | `Program` / `ProgramArguments` | 当前绝对 Python；`-m personal_assistant.main --config <resolved> --foreground` | 仅按本次 CLI 增加 `--auto-bind` / `--im-service-url` |
 | `WorkingDirectory` | 当前加载 `personal_assistant` 的源码 checkout 根 | 无 |
-| `EnvironmentVariables` | 仅派生源码根的 `PYTHONPATH` | 无；`gateway.environment` 由进程加载 YAML 后应用 |
+| `EnvironmentVariables` | 派生源码根的 `PYTHONPATH`，以及包含系统目录和两种 Homebrew 常用目录的固定 `PATH` | 无；`gateway.environment` 由进程加载 YAML 后应用并可覆盖 `PATH` |
 | `StandardOutPath` / `StandardErrorPath` | config 同目录 `gateway.log` | 无 |
 | `KeepAlive` | `true` | 无 |
 | `ExitTimeOut` | `max(1, ceil(gateway.shutdown_grace_seconds))` | 无 |

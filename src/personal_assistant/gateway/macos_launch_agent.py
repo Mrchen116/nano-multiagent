@@ -15,6 +15,7 @@ from typing import Any
 from uuid import uuid4
 
 _LABEL_PREFIX = "io.github.mrchen116.nano-multiagent.gateway"
+_DEFAULT_GATEWAY_PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 _UNLOAD_POLL_ATTEMPTS = 50
 _UNLOAD_POLL_SECONDS = 0.1
 
@@ -29,6 +30,11 @@ def launch_agent_label(config_path: str | Path) -> str:
 def plist_path_for_config(config_path: str | Path) -> Path:
     """Return the persistent user LaunchAgent plist path for one config."""
     return _launch_agents_directory() / f"{launch_agent_label(config_path)}.plist"
+
+
+def is_loaded(*, config_path: str | Path) -> bool:
+    """Return whether this config's job exists in the current GUI domain."""
+    return _job_is_loaded(_identity(config_path))
 
 
 def apply_and_start(
@@ -120,7 +126,9 @@ def stop_current_login(*, config_path: str | Path) -> bool:
     identity = _identity(config_path)
     if not _job_is_loaded(identity):
         return False
-    result = _run_launchctl(["/bin/launchctl", "bootout", identity.service_target])
+    result = _run_launchctl(
+        ["/bin/launchctl", "bootout", "--wait", identity.service_target]
+    )
     _require_success(result, action="boot out Gateway LaunchAgent")
     for attempt in range(_UNLOAD_POLL_ATTEMPTS):
         if not _job_is_loaded(identity):
@@ -204,7 +212,10 @@ def _plist_payload(
         "Program": str(python),
         "ProgramArguments": arguments,
         "WorkingDirectory": str(source_root.parent),
-        "EnvironmentVariables": {"PYTHONPATH": str(source_root)},
+        "EnvironmentVariables": {
+            "PATH": _DEFAULT_GATEWAY_PATH,
+            "PYTHONPATH": str(source_root),
+        },
         "StandardOutPath": str(log_path),
         "StandardErrorPath": str(log_path),
         "KeepAlive": True,

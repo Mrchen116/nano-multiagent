@@ -10,6 +10,7 @@ import yaml
 
 from personal_assistant.config.local_store import (
     RuntimeConfigOwner,
+    load_gateway_runtime_config,
     load_local_config,
     save_local_config,
 )
@@ -102,6 +103,38 @@ def test_runtime_config_owner_persist_preserves_gateway_fields(tmp_path: Path) -
     assert restored.gateway.environment == {"SEARXNG_URL": "http://searxng.local:8888"}
 
 
+def test_transient_im_url_is_not_written_by_later_runtime_config_save(
+    tmp_path: Path,
+) -> None:
+    source = _write_config(tmp_path)
+    payload = yaml.safe_load(source.read_text(encoding="utf-8"))
+    payload["im_service"] = {
+        "url": "http://stable-im:8011",
+        "token": "stable-token",
+    }
+    source.write_text(
+        yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8"
+    )
+    runtime_config = load_gateway_runtime_config(
+        source,
+        im_service_url_override="http://one-launch-im:8011",
+    )
+    owner = RuntimeConfigOwner(runtime_config)
+
+    owner.persist(
+        lambda config: replace(
+            config, node=replace(config.node, node_id="updated-node")
+        ),
+        save_config=save_local_config,
+    )
+
+    restored = load_local_config(source)
+    assert restored.node.node_id == "updated-node"
+    assert restored.im_service is not None
+    assert restored.im_service.url == "http://stable-im:8011"
+    assert restored.im_service.token == "stable-token"
+
+
 @pytest.mark.parametrize(
     ("gateway_lines", "message"),
     [
@@ -110,6 +143,14 @@ def test_runtime_config_owner_persist_preserves_gateway_fields(tmp_path: Path) -
         (
             ["  environment:", "    SEARXNG_URL: 123"],
             "gateway.environment.SEARXNG_URL must be a string",
+        ),
+        (
+            ["  environment:", '    "INVALID=KEY": value'],
+            "gateway.environment keys cannot contain",
+        ),
+        (
+            ["  environment:", '    VALID: "value\\0suffix"'],
+            "gateway.environment.VALID cannot contain NUL",
         ),
     ],
 )

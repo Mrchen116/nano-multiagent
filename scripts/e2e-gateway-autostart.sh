@@ -138,7 +138,10 @@ arguments = payload["ProgramArguments"]
 assert payload["KeepAlive"] is True
 assert payload["Program"] == str(python.resolve())
 assert payload["WorkingDirectory"] == str(repo_root.resolve())
-assert payload["EnvironmentVariables"] == {"PYTHONPATH": str((repo_root / "src").resolve())}
+assert payload["EnvironmentVariables"] == {
+    "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+    "PYTHONPATH": str((repo_root / "src").resolve()),
+}
 assert str(config_path.resolve()) in arguments
 assert "--auto-bind" not in arguments
 assert transient_url not in arguments
