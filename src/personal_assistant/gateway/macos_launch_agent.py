@@ -194,7 +194,7 @@ def _plist_payload(
     im_service_url_override: str | None = None,
 ) -> dict[str, Any]:
     source_root = _source_root().resolve()
-    python = _python_executable().resolve()
+    python = _python_executable().absolute()
     arguments = [
         str(python),
         "-m",

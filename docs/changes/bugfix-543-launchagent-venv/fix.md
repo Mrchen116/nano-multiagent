@@ -32,8 +32,24 @@ LaunchAgent 定义）。实际代码对 `sys.executable` 调用了 `Path.resolve
 
 ## 修复
 
-<!-- 实施后回填。 -->
+生成 LaunchAgent plist 时，当前 Python 只转换为绝对路径，不再解析符号链接。
+因此稳定和带一次性参数的临时 plist 都会在 `Program` 及
+`ProgramArguments[0]` 中保留调用 Gateway 的 venv 解释器，launchd 能继承其已安装依赖。
+
+源码根路径仍按 feat-542 的原有语义解析，`WorkingDirectory`、`PYTHONPATH`、
+LaunchAgent 加载/停止/崩溃恢复及失败降级逻辑均未改变。真 macOS E2E 中的
+plist 断言也改为要求保留未解引用的绝对 Python 路径。
 
 ## 验证
 
-<!-- 实施后回填。 -->
+- 回归测试使用真实临时 `venv/bin/python -> homebrew/bin/python3` 符号链接；修复前
+  `Program` 被解析为 base Python，测试如期失败。
+- `tests/unit/personal_assistant/test_macos_launch_agent.py` 与
+  `tests/unit/personal_assistant/test_gateway_autostart.py`：15 passed。
+- macOS 隔离 LaunchAgent critical path：1 passed in 20.86s；使用 repo venv 的真实符号链接，
+  覆盖 plist、启动、崩溃恢复、人工暂停、模拟登录恢复和关闭自启。
+- 受影响 Python 文件通过 Ruff，E2E shell 通过 `bash -n`，最终 diff 通过
+  `git diff --check`。
+
+详细方法、结果与证据边界见
+[`M1-fix/evidence/implementation.md`](M1-fix/evidence/implementation.md)。

@@ -136,7 +136,8 @@ transient_url = sys.argv[5]
 payload = plistlib.loads(plist_path.read_bytes())
 arguments = payload["ProgramArguments"]
 assert payload["KeepAlive"] is True
-assert payload["Program"] == str(python.resolve())
+assert payload["Program"] == str(python.absolute())
+assert arguments[0] == str(python.absolute())
 assert payload["WorkingDirectory"] == str(repo_root.resolve())
 assert payload["EnvironmentVariables"] == {
     "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
