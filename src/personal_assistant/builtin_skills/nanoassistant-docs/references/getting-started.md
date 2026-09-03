@@ -21,6 +21,11 @@ channels:
 im_service:
   url: http://127.0.0.1:8011
 
+gateway:
+  autostart: true
+  environment:
+    SEARXNG_URL: http://127.0.0.1:8888
+
 llm:
   default_model: <model-id>
   providers:
@@ -69,7 +74,9 @@ PYTHONPATH=src python -m personal_assistant.main --foreground
 
 使用非默认配置时，start、stop、restart 都传同一 `--config /absolute/path/to/config.yaml`。`--im-service-url` 只覆盖本次连接的 IM 地址；`--auto-bind` 用于自动化，日常使用通过浏览器确认绑定。
 
-`Gateway started (pid=...)` 只证明后台 child 已创建有效运行态且当时存活，不证明 IM、Agent 或渠道已经就绪。继续检查 `gateway.log` 和 Web IM 节点状态。
+macOS 默认使用当前用户的 LaunchAgent，登录后启动并在异常退出时恢复；`gateway.autostart: false` 改用普通后台进程。配置变更在停止状态的下一次启动或 `restart` 时应用。人工 `stop` 只暂停当前登录期间的服务，配置仍开启时下次登录会恢复；`--foreground` 不修改自启设置。
+
+`Gateway started (pid=...)` 只证明 Gateway 已创建有效运行态且当时存活，不证明 IM、Agent 或渠道已经就绪。继续检查 `gateway.log` 和 Web IM 节点状态。若同时显示 `Autostart: failed`，Gateway 虽已降级运行，但命令会返回非零；应保留错误并排查 LaunchAgent。
 
 ## 4. 绑定并聊天
 

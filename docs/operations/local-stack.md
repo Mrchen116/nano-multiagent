@@ -47,7 +47,9 @@ PYTHONPATH=src .venv/bin/python -m personal_assistant.main \
   --im-service-url http://127.0.0.1:8011
 ```
 
-默认命令在后台启动 Gateway 并返回 `Gateway started (pid=...)`、IM 地址和日志路径。这只证明后台 child 已建立运行态且当时仍存活；继续查看 config 同目录的 `gateway.log`，并在 Web IM 的节点页面确认节点已经连接。
+macOS 默认命令会注册当前用户的 LaunchAgent，并返回 `Gateway started (pid=...)`、`Autostart: enabled ...`、IM 地址和日志路径；登录后自动启动，异常退出时由 launchd 恢复。其他平台沿用普通后台进程。只想让这个本地栈使用普通后台模式时，在 config 中设置 `gateway.autostart: false` 后启动或 `restart`。
+
+这些输出只证明 Gateway 已建立运行态且当时仍存活；继续查看 config 同目录的 `gateway.log`，并在 Web IM 的节点页面确认节点已经连接。
 
 首次连接一个尚未绑定的节点时，Gateway 会尝试打开绑定页，并把 `ACTION ...` / `NEXT ...` 写入日志。按页面完成绑定即可；`--auto-bind` 只用于自动化和隔离 E2E。
 
@@ -87,7 +89,7 @@ PYTHONPATH=src .venv/bin/python -m personal_assistant.main stop \
   --config /absolute/path/to/config.yaml
 ```
 
-看到 `STOPPED`、`NOT RUNNING` 或 `STALE` 后，再在 IM 所在终端发送 `Ctrl-C`。`STOPPED` 表示实例已关闭，`NOT RUNNING` 表示该 config 没有运行态，`STALE` 表示 CLI 识别并清理了失效记录；详细语义见 [`gateway.md`](gateway.md#运行状态与可用性)。
+看到 `STOPPED`、`NOT RUNNING` 或 `STALE` 后，再在 IM 所在终端发送 `Ctrl-C`。macOS 上 `stop` 只暂停当前登录会话；配置仍为 `autostart: true` 时，下次登录会再次启动 Gateway。`STOPPED` 表示实例已关闭，`NOT RUNNING` 表示该 config 没有运行态，`STALE` 表示 CLI 识别并清理了失效记录；详细语义见 [`gateway.md`](gateway.md#运行状态与可用性)。
 
 ## Current behavior
 

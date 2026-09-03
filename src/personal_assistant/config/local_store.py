@@ -292,14 +292,18 @@ class IMServiceConfig:
 
 @dataclass(frozen=True, slots=True)
 class GatewayLifecycleConfig:
-    """Configure lifecycle timing for the Gateway background process.
+    """Configure lifecycle and stable environment for the Gateway process.
 
     Args:
+        autostart: Whether macOS should keep the Gateway running as a user LaunchAgent.
+        environment: Stable environment values applied inside the Gateway process.
         startup_timeout_seconds: Maximum wait for a background child to write its PID.
         shutdown_grace_seconds: Grace period before the launcher force-kills the process group.
         poll_interval_seconds: Delay between child liveness checks.
     """
 
+    autostart: bool = True
+    environment: dict[str, str] = field(default_factory=dict)
     startup_timeout_seconds: float = _DEFAULT_STARTUP_TIMEOUT_SECONDS
     shutdown_grace_seconds: float = _DEFAULT_SHUTDOWN_GRACE_SECONDS
     poll_interval_seconds: float = _DEFAULT_POLL_INTERVAL_SECONDS
@@ -1006,6 +1010,10 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
 
     # Gateway lifecycle — only emit non-default values to keep output concise.
     gateway_dict: dict[str, Any] = {}
+    if not config.gateway.autostart:
+        gateway_dict["autostart"] = False
+    if config.gateway.environment:
+        gateway_dict["environment"] = dict(config.gateway.environment)
     if config.gateway.startup_timeout_seconds != _DEFAULT_STARTUP_TIMEOUT_SECONDS:
         gateway_dict["startup_timeout_seconds"] = config.gateway.startup_timeout_seconds
     if config.gateway.shutdown_grace_seconds != _DEFAULT_SHUTDOWN_GRACE_SECONDS:
@@ -1525,22 +1533,37 @@ def _validate_feishu_settings(settings: dict[str, Any], *, prefix: str) -> None:
 
 
 def _parse_gateway_lifecycle(payload: Any) -> GatewayLifecycleConfig:
-    """Parse Gateway-owned lifecycle timing.
+    """Parse Gateway-owned lifecycle and stable environment.
 
     Args:
         payload: Optional canonical ``gateway`` mapping.
 
     Returns:
-        Gateway-owned lifecycle timing.
+        Gateway-owned lifecycle and environment settings.
 
     Raises:
-        ValueError: When ``gateway`` or a selected timing value is malformed.
+        ValueError: When ``gateway`` or one of its values is malformed.
     """
     if payload is None:
         payload = {}
     if not isinstance(payload, dict):
         raise ValueError("gateway must be a mapping")
+    autostart = payload.get("autostart", True)
+    if not isinstance(autostart, bool):
+        raise ValueError("gateway.autostart must be a boolean")
+    environment_raw = payload.get("environment", {})
+    if not isinstance(environment_raw, dict):
+        raise ValueError("gateway.environment must be a mapping")
+    environment: dict[str, str] = {}
+    for key, value in environment_raw.items():
+        if not isinstance(key, str) or not key.strip():
+            raise ValueError("gateway.environment keys must be non-empty strings")
+        if not isinstance(value, str):
+            raise ValueError(f"gateway.environment.{key} must be a string")
+        environment[key.strip()] = value
     return GatewayLifecycleConfig(
+        autostart=autostart,
+        environment=environment,
         startup_timeout_seconds=_positive_number(
             payload.get("startup_timeout_seconds", _DEFAULT_STARTUP_TIMEOUT_SECONDS),
             field_name="gateway.startup_timeout_seconds",

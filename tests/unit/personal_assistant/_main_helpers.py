@@ -153,6 +153,7 @@ def build_config(tmp_path: Path) -> LocalConfig:
         agents=(),
         channels=(),
         gateway=GatewayLifecycleConfig(
+            autostart=False,
             startup_timeout_seconds=0.2,
             poll_interval_seconds=0.0,
             shutdown_grace_seconds=0.1,
@@ -175,6 +176,7 @@ def make_minimal_config(tmp_path: Path) -> LocalConfig:
         ),
         channels=(),
         gateway=GatewayLifecycleConfig(
+            autostart=False,
             startup_timeout_seconds=0.1,
             poll_interval_seconds=0.0,
             shutdown_grace_seconds=0.1,

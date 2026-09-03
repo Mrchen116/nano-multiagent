@@ -23,6 +23,17 @@ ps -ax -o pid=,command= | grep '[p]ersonal_assistant.main'
 tail -n 100 "$GATEWAY_DIR/gateway.log"
 ```
 
+macOS 自启还要核对对应 LaunchAgent。label 由 config 绝对路径稳定派生，可直接用当前 checkout 的实现计算：
+
+```bash
+CONFIG="$HOME/.nanoassistant/config.yaml"
+LABEL=$(PYTHONPATH=src .venv/bin/python -c \
+  'from personal_assistant.gateway.macos_launch_agent import launch_agent_label; import sys; print(launch_agent_label(sys.argv[1]))' \
+  "$CONFIG")
+launchctl print "gui/$(id -u)/$LABEL"
+plutil -p "$HOME/Library/LaunchAgents/$LABEL.plist"
+```
+
 `curl` 返回 `401` 的数据面接口仍然证明 HTTP 服务可达，只表示该接口要求 Bearer token。PID 文件、状态文件和历史日志都要与 live process 及本次启动时间交叉核对。
 
 ## 常见症状
@@ -32,6 +43,8 @@ tail -n 100 "$GATEWAY_DIR/gateway.log"
 | `/` 或 `/chat` 打不开 | IM 进程、`8011` 监听和 OpenAPI | 启动 IM；端口被占时确认占用者，不直接覆盖 |
 | OpenAPI 可达但没有 Web IM 页面 | `src/IM/frontend/dist/index.html` 是否存在 | 在前端目录执行 `npm install && npm run build`，再刷新页面 |
 | Gateway 启动后立刻退出 | `gateway.log` 的第一个错误、config 的 `llm:` / `web_relay` / IM 地址 | 修正原始配置后，对同一 config 重新启动 |
+| `Autostart: failed`，但 Gateway 已运行 | CLI 后续原始错误、`launchctl print`、plist 路径和 `gateway.log` | 当前是降级后台进程；修复 LaunchAgent 条件后执行 `restart`，命令回到零才算完整恢复 |
+| `stop` 后下次登录又上线 | config 中 `gateway.autostart` 是否仍为 `true` | 这是当前登录临时停止的预期行为；长期关闭需 stop、改为 `false`、再默认启动 |
 | `gateway already running` | 状态文件中的 config、PID 和 process birth | 需要替换时使用 `restart`；不要启动第二个同 config 实例 |
 | `NOT RUNNING` 或 `STALE` | 是否传了与启动时相同的 `--config`，日志是否属于旧运行 | 确认 config；保存证据后重新启动 |
 | 浏览器要求绑定 | `gateway.log` 中的 `NEXT Open ...` 和当前登录用户 | 用当前用户打开绑定页并确认，随后回到节点或聊天页 |
