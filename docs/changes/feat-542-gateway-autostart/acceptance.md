@@ -167,3 +167,140 @@ N/A。本 unit 没有原型、视觉稿、reference screenshot 或 must-match �
 
 README、Gateway / local-stack / prod-fleet / troubleshooting 运维说明已经呈现本次可观察
 行为；reviewer 未修改这些文档。
+
+---
+
+# Round 2 — 2026-09-03
+
+> Validation snapshot: `aab3ebcfa4d4400d58d920f417c913da6cc3a19b → a85870eedd32d42a22208ab35fdf28d6a57b3188`
+
+> Revalidation mode: targeted Fast-lane（post-code-review）
+
+## Verdict
+
+**pass**
+
+**Highest Required Action:** `pass`
+
+Issue counts: blocking 0 / major 0 / minor 0。
+
+Round 1 的 13 条 Scenario 均为 pass、无 fail / inconclusive 遗留。本轮只重走后续修订
+影响的用户面边界：停止命令返回时的真实卸载状态、LaunchAgent loaded 但 state 暂缺时
+的单实例保护、一次性 IM override、默认 PATH、无效稳定环境配置，以及真实 E2E 的清理。
+这些范围在最终 head 上均符合 spec；其余 Scenario 继承 Round 1 的有效结论。
+
+## Fast-lane 用户旅程
+
+### Journey A — 最终 head 的真实 LaunchAgent critical path 与清理
+
+- 在最终 head 重新执行真 macOS LaunchAgent critical path，结果为
+  `1 passed in 18.23s`。
+- 运行前后 `~/Library/LaunchAgents` 下 Gateway plist 集合完全一致，且没有指向本轮临时
+  config 的 Gateway 进程残留。E2E 没有把一次验收留下成下次启动的隐形服务。
+
+### Journey B — transient IM override 不成为长期配置
+
+1. 隔离 config 持久 IM 地址为 `http://127.0.0.1:49880`；以
+   `--im-service-url http://localhost:49880 --auto-bind` 启动。CLI 返回：
+
+   ```text
+   Gateway started (pid=75033)
+   Autostart:       enabled (macOS login and crash recovery)
+   IM service:      http://localhost:49880  [connected]
+   ```
+
+2. 启动前后 YAML 的 `im_service.url` 均为 `http://127.0.0.1:49880`；stable plist argv
+   也没有 `--im-service-url` 或 override 值。
+3. 执行产品 `stop` 后直接 bootstrap retained stable plist，出现 live PID 75304，live
+   command 只有 `--config ... --foreground`，节点恢复 `online`，YAML 仍是持久地址。
+   因而一次性 override 只影响当前登录加载，没有经凭据刷新回写或下一次登录泄漏。
+
+### Journey C — loaded/no-state 单实例保护与 stop 完成边界
+
+1. 在 PID 75033 对应 LaunchAgent 正常 loaded 时，把本轮 state 暂时移出活动路径，再执行
+   裸启动。CLI 返回退出 1：
+
+   ```text
+   gateway is already running under the macOS LaunchAgent
+   → Run 'stop' to shut it down first, or 'restart' to replace it.
+   ```
+
+   前后 PID 均为 75033，匹配该 config 的 live process 始终只有 1 个；随后恢复 state。
+2. 执行产品 `stop`，约 1 秒返回 `STOPPED service=<derived-label>`。在命令返回后的首次
+   检查中，job 已 not loaded、旧 PID 已退出、state 已清理；用户不会在“STOPPED”后立刻
+   撞见仍 loaded 的旧服务。
+
+### Journey D — 默认 PATH 与无效 environment 的用户反馈
+
+- 未配置 `gateway.environment.PATH` 时，stable plist 明确提供
+  `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`，同时保留 unit
+  worktree 的 `PYTHONPATH`；Gateway 启动和节点 online 正常。
+- 对两个隔离无效 config 执行真实裸启动：空键返回
+  `ERROR gateway.environment keys must be non-empty strings`，非字符串值返回
+  `ERROR gateway.environment.REVIEW_VALUE must be a string`；两者均退出 1，且没有创建
+  plist、job 或 state。
+- 只读核对生产部署 runbook：mini 操作保持在远端 ssh 命令中，本机 Gateway 的 target、
+  worktree 与 label 使用本机独立变量；本轮没有执行或改动生产部署。
+
+## Round 2 验收标准覆盖
+
+### Requirement: 用户通过本地配置选择 Gateway 是否登录自启 — 组内结论: pass
+
+| Scenario | Round 2 验证方式 | 证据 | 结果 | 继承说明 |
+|---|---|---|---|---|
+| 运行中裸启动不替换实例 | Journey C：loaded job + state 暂缺时裸启动 | `already running under the macOS LaunchAgent`；exit 1；PID 不变；只有一个匹配进程 | pass | 更新最终 head 证据 |
+| 其余 5 条 Scenario | Round 1 全量旅程；Journey A 重新跑真 critical path | Round 1 逐 Scenario 证据 + 最终 head `1 passed in 18.23s` | pass | 未受本轮 delta 影响，继承 Round 1 |
+
+### Requirement: Gateway 的稳定运行环境由本地配置拥有 — 组内结论: pass
+
+| Scenario | Round 2 验证方式 | 证据 | 结果 | 继承说明 |
+|---|---|---|---|---|
+| 普通后台与登录自启使用同一环境 | Journey B / D：override 启动、stable bootstrap、默认 PATH、无效键值 | YAML URL 前后不变；下一登录 command 无 override 且节点 online；stable PATH 完整；无效值清晰非零且无服务 | pass | Round 1 的两级环境优先级证据继续有效 |
+
+### Requirement: 开启后 Gateway 由系统持续保持在线 — 组内结论: pass
+
+| Scenario | Round 2 验证方式 | 证据 | 结果 | 继承说明 |
+|---|---|---|---|---|
+| 用户登录后自动上线 | Journey B：stop 后 stable bootstrap | PID 75304；command 无 transient override；节点 online | pass | 更新最终 head 证据 |
+| 意外退出后自动恢复 | Journey A 真 critical path | `1 passed in 18.23s`；Round 1 已记录 PID 更替与节点 online | pass | 继承 Round 1 直接产品证据 |
+
+### Requirement: 人工停止与长期自启意图互不混淆 — 组内结论: pass
+
+| Scenario | Round 2 验证方式 | 证据 | 结果 | 继承说明 |
+|---|---|---|---|---|
+| 人工停止不被立即拉起 | Journey C：stop 返回后立即检查 | `STOPPED service=...`；job not loaded；PID dead；state missing | pass | 更新最终 head 证据 |
+| 临时停止后下次登录恢复 | Journey B：retained stable plist bootstrap | 新 PID 75304；节点 online | pass | 更新最终 head 证据 |
+| 人工停止无法卸载登录服务时不虚报成功 | Round 1 Journey 4 | exit 1；同一 PID/job 保持；无 STOPPED | pass | 未受本轮 delta 影响，继承 Round 1 |
+
+### Requirement: 自启应用失败时保持当前可用并如实反馈 — 组内结论: pass
+
+| Scenario | Round 2 验证方式 | 证据 | 结果 | 继承说明 |
+|---|---|---|---|---|
+| 开启自启失败后降级运行 | Round 1 Journey 4；Journey A 最终 head 真 critical path | Round 1 的真实 bootstrap failure 降级证据保持有效；最终 E2E 通过且清理无残留 | pass | 未受本轮用户面语义修订影响，继承 Round 1 |
+
+## Reference Artifacts Reviewed
+
+N/A。本 unit 没有原型或视觉 reference。
+
+## 问题清单
+
+无。
+
+## Cleanup
+
+本轮手工 Gateway 已通过产品 `stop` 关闭，隔离 IM 已停止且 49880 端口无 listener；
+stable plist、无效测试 config 与 lifecycle lock 已移出活动位置，worktree 无本轮 PID、
+config、credential、state 或 tmux session。真 E2E 运行前后 Gateway plist 集合一致。
+
+## 上层文档同步
+
+- [x] `SPEC.md`：**无需更新**，跨包拓扑未变。
+- [x] `docs/specs/gateway/`：**需要更新**，仍由 orchestrator §7.1 把 unit delta 归并进
+  canonical service-lifecycle（当前 index 仍为 7）。
+- [x] `AGENTS.md` / `CLAUDE.md`：**无需更新**。
+- [x] `docs/specs/CONTRIBUTING.md`：**无需更新**。
+
+## Round 2 Final Scope
+
+最终有效验收范围为：Round 1 对 13 条 Scenario 的全量真实产品证据，加上 Round 2 对
+post-code-review 影响面的 targeted 复验；最终 verdict 仍为 `pass`，无需再次复验。
