@@ -76,7 +76,7 @@ ssh mini                  # Host mini -> 100.88.34.122, user czj, id_rsa 免密
 5. **本机禁止起 IM `:8011`**。Web IM 入口：`http://100.88.34.122:8011/`。
 6. **IM 前端 `src/IM/frontend/dist` 被 gitignore**——mini 上 pull 到前端改动后必须 `npm ci && npm run build`。
 7. **IM 签名密钥只保存在 mini `~/.nanoassistant/im-jwt-secret`（`0600`）**；不得把值写进仓库、shell history 或临时命令。常规部署在停止旧 IM 前读出并复用它；文件缺失或为空时必须直接失败。主动换钥才覆盖该文件，并会使 Web IM 既有登录态失效。
-8. **两边 Gateway 启动都带 `SEARXNG_URL=http://100.88.34.122:8888`**（SearXNG 只在 mini；本机经 Tailscale 访问）。mini 上也可用 `http://127.0.0.1:8888`。
+8. **两边 Gateway 的稳定环境写进各自 config 的 `gateway.environment`**。`SEARXNG_URL` 在 mini 使用 `http://127.0.0.1:8888`，本机使用 `http://100.88.34.122:8888`；不得再靠一次启动命令前的 inline 环境，否则下次登录会丢失。
 9. **LLM 代理配置只在启动时加载**；改 `upstreams.json` / `.env` 必须重启对应代理。改前留 `.bak`。
 10. 顺序：**IM →（各机 LLM 代理若需要）→ 两边 Gateway**。Gateway 启动即连 IM。
 
@@ -109,9 +109,9 @@ ssh mini 'zsh -lc '"'"'
 ssh mini 'kill $(lsof -ti:4000) 2>/dev/null; sleep 1; cd ~/Repos/LLM_Bridge && \
   nohup .venv/bin/python start_proxy.py --ui >> nohup.out 2>&1 &'
 
-# 5. 重启 mini Gateway
-ssh mini 'cd ~/Repos/nano-multiagent && \
-  SEARXNG_URL=http://127.0.0.1:8888 PYTHONPATH=src \
+# 5. 确认 mini config 的 gateway.autostart=true 且
+#    gateway.environment.SEARXNG_URL=http://127.0.0.1:8888，再重启 Gateway
+ssh mini 'cd ~/Repos/nano-multiagent && PYTHONPATH=src \
   .venv/bin/python -m personal_assistant.main restart'
 
 # ——— 本机 ———
@@ -137,10 +137,10 @@ lsof -ti:8011 && echo "ABORT: 本机 :8011 被占用，生产模式禁止本地 
 kill $(lsof -ti:4000) 2>/dev/null; sleep 1
 cd ~/Repos/LLM_PROXY && nohup .venv/bin/python start_proxy.py --ui >> nohup.out 2>&1 &
 
-# 9. 确认 config：node_id=macbook-air，im_service.url=http://100.88.34.122:8011
+# 9. 确认 config：node_id=macbook-air，im_service.url=http://100.88.34.122:8011，
+#    gateway.autostart=true，gateway.environment.SEARXNG_URL=http://100.88.34.122:8888
 #    从刚刚对齐 latest main 的 prod-main-* worktree 重启本机 Gateway
-cd "$prod_worktree" && \
-  SEARXNG_URL=http://100.88.34.122:8888 PYTHONPATH=src \
+cd "$prod_worktree" && PYTHONPATH=src \
   ~/Repos/nano-multiagent/.venv/bin/python -m personal_assistant.main restart
 ```
 
@@ -168,8 +168,12 @@ ssh mini 'cd ~/Repos/nano-multiagent && umask 077 && .venv/bin/python -c '"'"'im
 # 接着执行完整闭环的步骤 3 重启 IM；随后两个 Gateway 用保存的账号凭据重新认证
 
 # 两边 Gateway 重新认证
-ssh mini 'cd ~/Repos/nano-multiagent && SEARXNG_URL=http://127.0.0.1:8888 PYTHONPATH=src .venv/bin/python -m personal_assistant.main restart'
-cd ~/Repos/nano-multiagent && SEARXNG_URL=http://100.88.34.122:8888 PYTHONPATH=src .venv/bin/python -m personal_assistant.main restart
+ssh mini 'cd ~/Repos/nano-multiagent && PYTHONPATH=src .venv/bin/python -m personal_assistant.main restart'
+local_target=$(git -C ~/Repos/nano-multiagent rev-parse origin/main)
+local_short=$(git -C ~/Repos/nano-multiagent rev-parse --short "$local_target")
+local_prod_worktree="$HOME/Repos/nano-multiagent/.worktrees/prod-main-$local_short"
+[[ -d "$local_prod_worktree" ]] || { print -u2 -r -- "missing production worktree: $local_prod_worktree"; exit 1; }
+cd "$local_prod_worktree" && PYTHONPATH=src ~/Repos/nano-multiagent/.venv/bin/python -m personal_assistant.main restart
 ```
 
 浏览器中的 Web IM 会被要求重新登录。换钥后必须完成下方完整验证清单。
@@ -197,6 +201,22 @@ echo "IM owner=$OWNER"
 # 两节点均应 online（名称以现网为准；已迁移则是 mac-mini + macbook-air）
 curl -s "$IM/im/v1/nodes" -H "Authorization: Bearer $TOKEN"
 
+# 两边 LaunchAgent 必须 loaded；CLI 计算 label，避免手写 config hash
+ssh mini 'cd ~/Repos/nano-multiagent && label=$(PYTHONPATH=src .venv/bin/python -c '\''from personal_assistant.gateway.macos_launch_agent import launch_agent_label; print(launch_agent_label("~/.nanoassistant/config.yaml"))'\'') && launchctl print "gui/$(id -u)/$label"'
+ssh mini 'cd ~/Repos/nano-multiagent && label=$(PYTHONPATH=src .venv/bin/python -c '\''from personal_assistant.gateway.macos_launch_agent import launch_agent_label; print(launch_agent_label("~/.nanoassistant/config.yaml"))'\'') && plutil -p "$HOME/Library/LaunchAgents/$label.plist" && sed -n "1,120p" "$HOME/.nanoassistant/.gateway-state.json" && ps -ax -o pid=,command= | grep "[p]ersonal_assistant.main"'
+local_target=$(git -C ~/Repos/nano-multiagent rev-parse origin/main)
+local_short=$(git -C ~/Repos/nano-multiagent rev-parse --short "$local_target")
+prod_worktree="$HOME/Repos/nano-multiagent/.worktrees/prod-main-$local_short"
+[[ -d "$prod_worktree" ]] || { print -u2 -r -- "missing production worktree: $prod_worktree"; exit 1; }
+cd "$prod_worktree"
+local_label=$(PYTHONPATH=src ~/Repos/nano-multiagent/.venv/bin/python -c 'from personal_assistant.gateway.macos_launch_agent import launch_agent_label; print(launch_agent_label("~/.nanoassistant/config.yaml"))')
+launchctl print "gui/$(id -u)/$local_label"
+
+# 强制：stable plist 与 live command/state 都指向本次目标 checkout；确认后才清理旧 production worktree
+plutil -p "$HOME/Library/LaunchAgents/$local_label.plist"
+sed -n '1,120p' "$HOME/.nanoassistant/.gateway-state.json"
+ps -ax -o pid=,command= | grep '[p]ersonal_assistant.main'
+
 # 强制：两边 Gateway config 的 node.user_id == IM owner（错则飞书影子会话会静默失败）
 ssh mini "python3 -c \"import yaml;from pathlib import Path;u=yaml.safe_load(Path.home().joinpath('.nanoassistant/config.yaml').read_text())['node']['user_id'];print(u);assert u=='$OWNER', u\""
 python3 -c "import yaml;from pathlib import Path;u=yaml.safe_load(Path.home().joinpath('.nanoassistant/config.yaml').read_text())['node']['user_id'];print(u);assert u=='$OWNER', u"
@@ -217,7 +237,7 @@ ssh mini 'curl -s --max-time 15 "http://127.0.0.1:8888/search?q=test&format=json
 | 服务 | 位置 |
 |---|---|
 | IM | mini `~/Repos/nano-multiagent/im-service.log` |
-| Gateway（每机各自） | 该机 `~/.nanoassistant/gateway.log`；PID 见同目录 `.gateway-state.json` |
+| Gateway（每机各自） | 该机 `~/.nanoassistant/gateway.log`；PID 见同目录 `.gateway-state.json`；服务定义见 `~/Library/LaunchAgents/io.github.mrchen116.nano-multiagent.gateway.*.plist` |
 | LLM_Bridge | mini `~/Repos/LLM_Bridge/nohup.out` |
 | LLM_PROXY | 本机 `~/Repos/LLM_PROXY/nohup.out` |
 
@@ -250,3 +270,4 @@ ssh mini 'curl -s --max-time 15 "http://127.0.0.1:8888/search?q=test&format=json
 | 本机 Gateway HTTP 能登录但节点不上线 / WS 报 SOCKS | 系统开了 Clash 等 SOCKS；当前代码 IM WS 已 `proxy=None` 直连。旧进程需重启 Gateway |
 | 飞书能回，内部 IM 看不到飞书会话/消息 | `node.user_id` ≠ `GET /im/v1/me.id`（常见残留 `demo-user`）。日志：`configured node owner differs from authenticated IM owner`。处理：stop → 改成真实 UUID → 清 saga 里 stale `owner_id` pending → restart。代码层静默双轨见 issue #225 |
 | 改完 config 又变回旧值 | 未先 stop；运行中 token 回写冲掉编辑 |
+| `Autostart: failed` 但 Gateway 有 PID | LaunchAgent 应用失败后已安全降级；该命令仍为非零，不算完整部署。保留原始错误，修复后 `restart` 并重跑 LaunchAgent/state/online 验证 |

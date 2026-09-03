@@ -26,7 +26,7 @@ from personal_assistant.config.local_store import (
     load_gateway_runtime_config,
     load_local_config,
 )
-from personal_assistant.gateway import runtime
+from personal_assistant.gateway import macos_launch_agent, runtime
 from personal_assistant.gateway.im_bootstrap import GatewayStartupError
 
 _log = logging.getLogger("personal_assistant.gateway.process_lifecycle")
@@ -72,18 +72,22 @@ class RuntimeFactories:
 
 
 @dataclass(frozen=True, slots=True)
-class BackgroundLaunchResult:
-    """Describe the operator-facing result of a successful background launch.
+class GatewayLaunchResult:
+    """Describe the operator-facing result of a Gateway launch.
 
     Args:
-        pid: Process id of the detached foreground child now hosting the gateway runtime.
-        log_path: File receiving the detached child stdout/stderr stream.
+        pid: Process id now hosting the Gateway runtime.
+        log_path: File receiving the Gateway stdout/stderr stream.
         im_service_url: Optional IM service URL configured for this gateway.
+        autostart_status: Effective macOS autostart state, or ``not_applicable``.
+        autostart_error: Original LaunchAgent application error after safe fallback.
     """
 
     pid: int
     log_path: Path
     im_service_url: str | None = None
+    autostart_status: str = "not_applicable"
+    autostart_error: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,12 +126,15 @@ def run_gateway(
     config_path: str | Path,
     factories: RuntimeFactories | Mapping[str, Any] | None = None,
     im_service_url_override: str | None = None,
+    auto_bind: bool = False,
 ) -> int:
     """Load config, build runtime, and execute the gateway entry flow.
 
     Args:
         config_path: YAML config file passed by the operator.
         factories: Optional factory overrides used by tests.
+        im_service_url_override: Optional IM URL for this process only.
+        auto_bind: Whether this explicit launch should automatically confirm binding.
 
     Returns:
         Process exit code. `0` means the managed startup/shutdown sequence succeeded.
@@ -139,6 +146,9 @@ def run_gateway(
         load_config=resolved_factories.load_config,
         im_service_url_override=im_service_url_override,
     )
+    os.environ.update(config.gateway.environment)
+    if auto_bind:
+        os.environ["NANO_MULTIAGENT_AUTO_BIND"] = "1"
     # This foreground process owns persistent packaged-skill installation; detached
     # launchers only spawn this entry and must not duplicate the filesystem effect.
     install_builtin_skills_for_gateway()
@@ -176,17 +186,20 @@ def launch_gateway_in_background(
     spawn_process: BackgroundProcessFactory | None = None,
     wait_for_start: StartWaiter | None = None,
     im_service_url_override: str | None = None,
-) -> BackgroundLaunchResult:
-    """Start the gateway in a detached child and confirm its PID is live.
+    auto_bind: bool = False,
+) -> GatewayLaunchResult:
+    """Start the Gateway in its configured background mode and confirm it is live.
 
     Args:
         config_path: Operator-provided config path forwarded to the detached child.
         load_config: Config loader used to resolve lifecycle timing before spawning.
         spawn_process: Optional detached-child launcher override used by tests.
         wait_for_start: Optional PID/start confirmation waiter override used by tests.
+        im_service_url_override: Optional IM URL for this launch only.
+        auto_bind: Whether this launch should automatically confirm node binding.
 
     Returns:
-        Detached process metadata once the child writes its PID and remains alive.
+        Process metadata and effective autostart status once the Gateway is live.
 
     Raises:
         RuntimeError: When the detached child exits or never confirms startup.
@@ -198,6 +211,7 @@ def launch_gateway_in_background(
             spawn_process=spawn_process,
             wait_for_start=wait_for_start,
             im_service_url_override=im_service_url_override,
+            auto_bind=auto_bind,
         )
 
 
@@ -208,7 +222,8 @@ def _launch_gateway_in_background_unlocked(
     spawn_process: BackgroundProcessFactory | None,
     wait_for_start: StartWaiter | None,
     im_service_url_override: str | None,
-) -> BackgroundLaunchResult:
+    auto_bind: bool,
+) -> GatewayLaunchResult:
     """Execute one background launch while the caller holds its lifecycle lock."""
 
     config = load_gateway_runtime_config(
@@ -216,6 +231,37 @@ def _launch_gateway_in_background_unlocked(
         load_config=load_config,
         im_service_url_override=im_service_url_override,
     )
+    _clear_or_reject_existing_gateway(config)
+    if sys.platform != "darwin":
+        return _launch_detached_gateway_unlocked(
+            config=config,
+            spawn_process=spawn_process,
+            wait_for_start=wait_for_start,
+            im_service_url_override=im_service_url_override,
+            auto_bind=auto_bind,
+            autostart_status="not_applicable",
+        )
+    if not config.gateway.autostart:
+        macos_launch_agent.permanently_remove(config_path=config.source_path)
+        return _launch_detached_gateway_unlocked(
+            config=config,
+            spawn_process=spawn_process,
+            wait_for_start=wait_for_start,
+            im_service_url_override=im_service_url_override,
+            auto_bind=auto_bind,
+            autostart_status="disabled",
+        )
+    return _launch_managed_gateway_unlocked(
+        config=config,
+        spawn_process=spawn_process,
+        wait_for_start=wait_for_start,
+        im_service_url_override=im_service_url_override,
+        auto_bind=auto_bind,
+    )
+
+
+def _clear_or_reject_existing_gateway(config: LocalConfig) -> None:
+    """Reject a live instance and clear only stale lifecycle evidence."""
     state_path = _gateway_state_path(config)
     existing_state = _read_gateway_state(state_path)
     if existing_state is not None:
@@ -241,11 +287,104 @@ def _launch_gateway_in_background_unlocked(
                     next_step="Run 'stop' to shut it down first, or 'restart' to replace it.",
                 )
             _remove_legacy_gateway_pid(config, expected_pid=legacy_pid)
+    if sys.platform == "darwin" and macos_launch_agent.is_loaded(
+        config_path=config.source_path
+    ):
+        raise GatewayStartupError(
+            summary="gateway is already running under the macOS LaunchAgent",
+            next_step="Run 'stop' to shut it down first, or 'restart' to replace it.",
+        )
 
+
+def _launch_managed_gateway_unlocked(
+    *,
+    config: LocalConfig,
+    spawn_process: BackgroundProcessFactory | None,
+    wait_for_start: StartWaiter | None,
+    im_service_url_override: str | None,
+    auto_bind: bool,
+) -> GatewayLaunchResult:
+    """Apply one LaunchAgent, falling back only after a proven-safe rollback."""
+    log_path = _default_gateway_log_path(config)
+    try:
+        macos_launch_agent.apply_and_start(
+            config_path=config.source_path,
+            log_path=log_path,
+            shutdown_grace_seconds=config.gateway.shutdown_grace_seconds,
+            auto_bind=auto_bind,
+            im_service_url_override=im_service_url_override,
+        )
+        state = _wait_for_gateway_state(
+            config, timeout_seconds=config.gateway.startup_timeout_seconds
+        )
+    except Exception as autostart_error:  # noqa: BLE001
+        try:
+            macos_launch_agent.permanently_remove(config_path=config.source_path)
+            _confirm_gateway_stopped_after_bootout(config)
+        except Exception as rollback_error:  # noqa: BLE001
+            raise GatewayStartupError(
+                summary=(
+                    f"Gateway autostart failed ({autostart_error}); "
+                    f"rollback also failed ({rollback_error})"
+                ),
+                next_step="Inspect launchctl state before starting another Gateway.",
+            ) from rollback_error
+        fallback = _launch_detached_gateway_unlocked(
+            config=config,
+            spawn_process=spawn_process,
+            wait_for_start=wait_for_start,
+            im_service_url_override=im_service_url_override,
+            auto_bind=auto_bind,
+            autostart_status="failed",
+            autostart_error=str(autostart_error),
+        )
+        return fallback
+    return GatewayLaunchResult(
+        pid=state.pid,
+        log_path=log_path,
+        im_service_url=config.im_service.url if config.im_service is not None else None,
+        autostart_status="enabled",
+    )
+
+
+def _confirm_gateway_stopped_after_bootout(config: LocalConfig) -> None:
+    """Prove a partially started managed Gateway is gone before fallback."""
+    state_path = _gateway_state_path(config)
+    state = _read_gateway_state(state_path)
+    if state is None:
+        return
+    _assert_gateway_state_static(config, state)
+    if state.process_start is None:
+        state = _upgrade_legacy_gateway_state(config, state.pid, state)
+        if state is None:
+            _remove_gateway_state(state_path)
+            return
+    if _gateway_process_matches(state) and not _wait_for_gateway_exit(config, state):
+        raise RuntimeError(
+            f"managed Gateway pid={state.pid} remained live after LaunchAgent rollback"
+        )
+    _clear_gateway_lifecycle(config, state_path, state)
+
+
+def _launch_detached_gateway_unlocked(
+    *,
+    config: LocalConfig,
+    spawn_process: BackgroundProcessFactory | None,
+    wait_for_start: StartWaiter | None,
+    im_service_url_override: str | None,
+    auto_bind: bool,
+    autostart_status: str,
+    autostart_error: str | None = None,
+) -> GatewayLaunchResult:
+    """Launch the existing detached child after mode selection is complete."""
+
+    state_path = _gateway_state_path(config)
     log_path = _default_gateway_log_path(config)
     log_offset = log_path.stat().st_size if log_path.exists() else 0
     argv = _background_gateway_argv(
-        config.source_path, im_service_url_override=im_service_url_override
+        config.source_path,
+        im_service_url_override=im_service_url_override,
+        auto_bind=auto_bind,
     )
     launcher = spawn_process or _spawn_background_gateway_process
     start_waiter = wait_for_start or _wait_for_gateway_start
@@ -262,10 +401,12 @@ def _launch_gateway_in_background_unlocked(
             summary=summary,
             next_step=f"Check the log for details: tail -20 {log_path}",
         ) from exc
-    result = BackgroundLaunchResult(
+    result = GatewayLaunchResult(
         pid=process.pid,
         log_path=log_path,
         im_service_url=config.im_service.url if config.im_service is not None else None,
+        autostart_status=autostart_status,
+        autostart_error=autostart_error,
     )
     published_state = _read_gateway_state(state_path)
     if published_state is None:
@@ -308,7 +449,8 @@ def restart_gateway(
     spawn_process: BackgroundProcessFactory | None = None,
     wait_for_start: StartWaiter | None = None,
     im_service_url_override: str | None = None,
-) -> BackgroundLaunchResult:
+    auto_bind: bool = False,
+) -> GatewayLaunchResult:
     """Stop and start one Gateway as a single serialized lifecycle operation.
 
     Args:
@@ -317,6 +459,7 @@ def restart_gateway(
         spawn_process: Optional detached-child launcher override used by tests.
         wait_for_start: Optional process-start confirmation override used by tests.
         im_service_url_override: Optional IM service URL forwarded to the new process.
+        auto_bind: Whether the replacement should automatically confirm node binding.
 
     Returns:
         Metadata for the replacement background Gateway.
@@ -332,6 +475,7 @@ def restart_gateway(
             spawn_process=spawn_process,
             wait_for_start=wait_for_start,
             im_service_url_override=im_service_url_override,
+            auto_bind=auto_bind,
         )
 
 
@@ -343,11 +487,24 @@ def _stop_gateway_unlocked(
     """Stop one Gateway while the caller holds its lifecycle lock."""
 
     config = load_config(config_path)
+    launch_agent_stopped = False
+    if sys.platform == "darwin" and (
+        config.gateway.autostart
+        or macos_launch_agent.plist_path_for_config(config.source_path).exists()
+    ):
+        launch_agent_stopped = macos_launch_agent.stop_current_login(
+            config_path=config.source_path
+        )
     state_path = _gateway_state_path(config)
     state = _read_gateway_state(state_path)
     if state is None:
         pid = _read_legacy_gateway_pid(config)
         if pid is None:
+            if launch_agent_stopped:
+                return (
+                    "STOPPED "
+                    f"service={macos_launch_agent.launch_agent_label(config.source_path)}"
+                )
             return f"NOT RUNNING config={config.source_path.name} state={state_path}"
         success_target = f"pid_file={_legacy_gateway_pid_path(config)}"
         state_to_remove = None
@@ -368,9 +525,13 @@ def _stop_gateway_unlocked(
         signal_state = state
     if not _gateway_process_matches(signal_state):
         _clear_gateway_lifecycle(config, state_to_remove, signal_state)
+        if launch_agent_stopped:
+            return f"STOPPED pid={pid} {success_target}"
         return f"STALE pid={pid} {success_target}"
 
-    if not _signal_gateway_process(signal_state, signal.SIGTERM):
+    if not launch_agent_stopped and not _signal_gateway_process(
+        signal_state, signal.SIGTERM
+    ):
         _clear_gateway_lifecycle(config, state_to_remove, signal_state)
         return f"STOPPED pid={pid} {success_target}"
     if _wait_for_gateway_exit(config, signal_state):
@@ -486,7 +647,7 @@ def _read_legacy_gateway_pid(config: LocalConfig) -> int | None:
 def _process_start_identity(pid: int) -> str | None:
     """Read the OS process birth identity for one PID without signalling it."""
     result = subprocess.run(
-        ["ps", "-p", str(pid), "-o", "lstart="],
+        ["/bin/ps", "-p", str(pid), "-o", "lstart="],
         capture_output=True,
         text=True,
         check=False,
@@ -501,7 +662,7 @@ def _process_start_identity(pid: int) -> str | None:
 def _process_command(pid: int) -> str | None:
     """Read the full live command for one PID without signalling it."""
     result = subprocess.run(
-        ["ps", "-ww", "-p", str(pid), "-o", "command="],
+        ["/bin/ps", "-ww", "-p", str(pid), "-o", "command="],
         capture_output=True,
         text=True,
         check=False,
@@ -704,7 +865,10 @@ def _remove_gateway_state(
 
 
 def _background_gateway_argv(
-    config_path: Path, *, im_service_url_override: str | None = None
+    config_path: Path,
+    *,
+    im_service_url_override: str | None = None,
+    auto_bind: bool = False,
 ) -> list[str]:
     argv = [
         sys.executable,
@@ -716,6 +880,8 @@ def _background_gateway_argv(
     if isinstance(im_service_url_override, str) and im_service_url_override.strip():
         argv.extend(["--im-service-url", im_service_url_override.strip()])
     argv.append("--foreground")
+    if auto_bind:
+        argv.append("--auto-bind")
     return argv
 
 
@@ -739,21 +905,39 @@ def _wait_for_gateway_start(
     This is a process-start confirmation, not a runtime/channel readiness signal.
     ``run_gateway`` writes one atomic state document before entering ``run_forever``.
     """
+    _wait_for_gateway_state(
+        config,
+        timeout_seconds=timeout_seconds,
+        process=process,
+        expected_pid=process.pid,
+    )
+
+
+def _wait_for_gateway_state(
+    config: LocalConfig,
+    *,
+    timeout_seconds: float,
+    process: ProcessLike | None = None,
+    expected_pid: int | None = None,
+) -> GatewayRuntimeState:
+    """Wait for one live Gateway to publish complete lifecycle state."""
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() <= deadline:
-        return_code = process.poll()
-        if return_code is not None:
-            raise RuntimeError(
-                f"gateway exited before startup confirmation with return code {return_code}"
-            )
+        if process is not None:
+            return_code = process.poll()
+            if return_code is not None:
+                raise RuntimeError(
+                    "gateway exited before startup confirmation with return code "
+                    f"{return_code}"
+                )
         state = _read_gateway_state(_gateway_state_path(config))
         if state is not None and state.process_start is not None:
-            _assert_gateway_state_static(config, state, expected_pid=process.pid)
+            _assert_gateway_state_static(config, state, expected_pid=expected_pid)
             if not _gateway_process_matches(state):
                 raise RuntimeError(
                     "gateway exited before process identity confirmation"
                 )
-            return
+            return state
         time.sleep(config.gateway.poll_interval_seconds or 0.2)
     raise RuntimeError(
         "timed out waiting for gateway startup confirmation "

@@ -292,14 +292,18 @@ class IMServiceConfig:
 
 @dataclass(frozen=True, slots=True)
 class GatewayLifecycleConfig:
-    """Configure lifecycle timing for the Gateway background process.
+    """Configure lifecycle and stable environment for the Gateway process.
 
     Args:
+        autostart: Whether macOS should keep the Gateway running as a user LaunchAgent.
+        environment: Stable environment values applied inside the Gateway process.
         startup_timeout_seconds: Maximum wait for a background child to write its PID.
         shutdown_grace_seconds: Grace period before the launcher force-kills the process group.
         poll_interval_seconds: Delay between child liveness checks.
     """
 
+    autostart: bool = True
+    environment: dict[str, str] = field(default_factory=dict)
     startup_timeout_seconds: float = _DEFAULT_STARTUP_TIMEOUT_SECONDS
     shutdown_grace_seconds: float = _DEFAULT_SHUTDOWN_GRACE_SECONDS
     poll_interval_seconds: float = _DEFAULT_POLL_INTERVAL_SECONDS
@@ -354,6 +358,12 @@ class LocalConfig:
     llm: LLMConfigPayload
     source_path: Path
     display: DisplayConfig = field(default_factory=DisplayConfig)
+    _persistent_im_service: IMServiceConfig | None = field(
+        default=None, repr=False, compare=False
+    )
+    _has_transient_im_service_url: bool = field(
+        default=False, repr=False, compare=False
+    )
 
 
 class RuntimeConfigOwner:
@@ -429,7 +439,12 @@ def load_gateway_runtime_config(
     override_url = im_service_url_override.strip()
     old_im = config.im_service
     if old_im is None:
-        return replace(config, im_service=IMServiceConfig(url=override_url))
+        return replace(
+            config,
+            im_service=IMServiceConfig(url=override_url),
+            _persistent_im_service=None,
+            _has_transient_im_service_url=True,
+        )
     return replace(
         config,
         im_service=IMServiceConfig(
@@ -439,6 +454,8 @@ def load_gateway_runtime_config(
             username=old_im.username,
             password=old_im.password,
         ),
+        _persistent_im_service=old_im,
+        _has_transient_im_service_url=True,
     )
 
 
@@ -1006,6 +1023,10 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
 
     # Gateway lifecycle — only emit non-default values to keep output concise.
     gateway_dict: dict[str, Any] = {}
+    if not config.gateway.autostart:
+        gateway_dict["autostart"] = False
+    if config.gateway.environment:
+        gateway_dict["environment"] = dict(config.gateway.environment)
     if config.gateway.startup_timeout_seconds != _DEFAULT_STARTUP_TIMEOUT_SECONDS:
         gateway_dict["startup_timeout_seconds"] = config.gateway.startup_timeout_seconds
     if config.gateway.shutdown_grace_seconds != _DEFAULT_SHUTDOWN_GRACE_SECONDS:
@@ -1039,16 +1060,21 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
         data["display"] = display
 
     # IM service
-    if config.im_service is not None:
-        im_dict: dict[str, Any] = {"url": config.im_service.url}
-        if config.im_service.token is not None:
-            im_dict["token"] = config.im_service.token
-        if config.im_service.refresh_token is not None:
-            im_dict["refresh_token"] = config.im_service.refresh_token
-        if config.im_service.username is not None:
-            im_dict["username"] = config.im_service.username
-        if config.im_service.password is not None:
-            im_dict["password"] = config.im_service.password
+    persisted_im_service = (
+        config._persistent_im_service
+        if config._has_transient_im_service_url
+        else config.im_service
+    )
+    if persisted_im_service is not None:
+        im_dict: dict[str, Any] = {"url": persisted_im_service.url}
+        if persisted_im_service.token is not None:
+            im_dict["token"] = persisted_im_service.token
+        if persisted_im_service.refresh_token is not None:
+            im_dict["refresh_token"] = persisted_im_service.refresh_token
+        if persisted_im_service.username is not None:
+            im_dict["username"] = persisted_im_service.username
+        if persisted_im_service.password is not None:
+            im_dict["password"] = persisted_im_service.password
         data["im_service"] = im_dict
 
     # LLM config
@@ -1525,22 +1551,42 @@ def _validate_feishu_settings(settings: dict[str, Any], *, prefix: str) -> None:
 
 
 def _parse_gateway_lifecycle(payload: Any) -> GatewayLifecycleConfig:
-    """Parse Gateway-owned lifecycle timing.
+    """Parse Gateway-owned lifecycle and stable environment.
 
     Args:
         payload: Optional canonical ``gateway`` mapping.
 
     Returns:
-        Gateway-owned lifecycle timing.
+        Gateway-owned lifecycle and environment settings.
 
     Raises:
-        ValueError: When ``gateway`` or a selected timing value is malformed.
+        ValueError: When ``gateway`` or one of its values is malformed.
     """
     if payload is None:
         payload = {}
     if not isinstance(payload, dict):
         raise ValueError("gateway must be a mapping")
+    autostart = payload.get("autostart", True)
+    if not isinstance(autostart, bool):
+        raise ValueError("gateway.autostart must be a boolean")
+    environment_raw = payload.get("environment", {})
+    if not isinstance(environment_raw, dict):
+        raise ValueError("gateway.environment must be a mapping")
+    environment: dict[str, str] = {}
+    for key, value in environment_raw.items():
+        if not isinstance(key, str) or not key.strip():
+            raise ValueError("gateway.environment keys must be non-empty strings")
+        normalized_key = key.strip()
+        if "=" in normalized_key or "\0" in normalized_key:
+            raise ValueError("gateway.environment keys cannot contain '=' or NUL")
+        if not isinstance(value, str):
+            raise ValueError(f"gateway.environment.{key} must be a string")
+        if "\0" in value:
+            raise ValueError(f"gateway.environment.{normalized_key} cannot contain NUL")
+        environment[normalized_key] = value
     return GatewayLifecycleConfig(
+        autostart=autostart,
+        environment=environment,
         startup_timeout_seconds=_positive_number(
             payload.get("startup_timeout_seconds", _DEFAULT_STARTUP_TIMEOUT_SECONDS),
             field_name="gateway.startup_timeout_seconds",

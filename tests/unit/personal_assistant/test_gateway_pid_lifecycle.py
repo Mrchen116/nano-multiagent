@@ -21,6 +21,14 @@ from agent.core.llm.model_registry import _reset_for_tests
 from ._main_helpers import _FakeProcess, build_config
 
 
+@pytest.fixture(autouse=True)
+def _use_existing_detached_platform(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep this legacy suite focused on the non-macOS detached lifecycle."""
+    monkeypatch.setattr(
+        "personal_assistant.gateway.process_lifecycle.sys.platform", "linux"
+    )
+
+
 def _write_state(config_path: Path, *, pid: int, process_start: str | None) -> Path:
     state_path = config_path.parent / ".gateway-state.json"
     state_path.write_text(

@@ -78,11 +78,14 @@ PYTHONPATH=src python -m personal_assistant.main --im-service-url http://<im-hos
 
 ```text
 Gateway started (pid=<pid>)
+Autostart:       enabled (macOS login and crash recovery)
 IM service:      http://<im-host>:8011  [connected|unavailable (running offline, will retry)]
 Log:             <config目录>/gateway.log
 ```
 
-这只确认后台子进程已写出带进程出生标识的运行态并仍存活，不代表运行时或渠道已经就绪。IM 连接、节点绑定和渠道启动结果仍需查看 `gateway.log` 或 Web IM 节点状态。
+macOS 默认把 Gateway 注册为当前用户的 LaunchAgent，登录后自动启动，并在异常退出时恢复。其他平台沿用普通后台进程。可在配置中设置 `gateway.autostart: false` 关闭 macOS 自启；修改运行中实例的配置后使用 `restart` 才会生效。
+
+启动结果只确认 Gateway 已写出带进程出生标识的运行态并仍存活，不代表运行时或渠道已经就绪。IM 连接、节点绑定和渠道启动结果仍需查看 `gateway.log` 或 Web IM 节点状态。
 
 启动后的预期行为：
 - 未绑定节点：Gateway 会把 `ACTION ...` / `NEXT ...` 写入 `gateway.log`，并尝试打开绑定页；默认绑定页位于 `http://127.0.0.1:8011/bind/confirm?token=...`。
@@ -113,6 +116,8 @@ ERROR gateway already running (pid=<pid>). Run `stop` first or `restart` to repl
 - `STOPPED ...`：后台 Gateway 已关闭；若优雅等待超时会额外显示 `forced=true`。
 - `NOT RUNNING ...`：没有可用运行态记录，可直接重新执行 `start`。
 - `STALE ...`：记录里的 PID 已失效；CLI 会自动清掉陈旧状态文件，然后你可以重新执行 `start`。
+
+macOS 上人工 `stop` 只暂停当前登录期间的 LaunchAgent，保留其持久定义；若配置仍为 `autostart: true`，下次登录会再次启动。长期关闭需要先停止 Gateway，把配置改为 `gateway.autostart: false`，再执行一次默认启动。
 
 你会看到的就绪信号：
 - 默认路径下，终端先打印 `Gateway started (pid=...)` 并返回；随后可查看 `gateway.log` 或 Web IM/绑定页确认 Gateway 已就绪。

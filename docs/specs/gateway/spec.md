@@ -1,6 +1,6 @@
 # gateway (personal_assistant) Specification
 
-> 对齐: feat-541
+> 对齐: feat-542
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
 
@@ -19,7 +19,7 @@
 | Area | Covers | Requirements |
 |---|---|---|
 | [Routing and Delivery](routing-delivery.md) | 入站路由、逐消息时间与实际入口、会话控制与投递、后台 Agent / Workflow 原始返回、self-evolution 维护隔离与重放去重、PA 可读聊天副本 | 17 |
-| [Service Lifecycle](service-lifecycle.md) | 启停、IM WS、reconnect/ack、auto-bind、默认本机 home/workspace、cache warning | 7 |
+| [Service Lifecycle](service-lifecycle.md) | 启停、macOS 登录自启与异常恢复、IM WS、reconnect/ack、auto-bind、默认本机 home/workspace、cache warning | 10 |
 | [Agent Capabilities](agent-capabilities.md) | 完整运行配置、模型配置、推理能力、可恢复配置 operation、Skill 选择、self-evolution 调和、tool allowlist 与可选 Workflow | 15 |
 | [Heartbeat and Cron](heartbeat-cron.md) | per-agent heartbeat / cron 开关、调度、错过周期语义 | 2 |
 | [Relay Protocol](relay-protocol.md) | active/idle 后台返回经既有消息协议精确绑定与透传 | 14 |

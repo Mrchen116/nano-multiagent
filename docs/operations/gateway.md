@@ -25,6 +25,11 @@ im_service:
   # username: <im-username>
   # password: <im-password>
 
+gateway:
+  autostart: true
+  environment:
+    SEARXNG_URL: http://127.0.0.1:8888
+
 llm:
   default_model: <model-id>
   # tool_approval_model: <registered-model-id>
@@ -45,6 +50,8 @@ llm:
 - `im_service` 存在时需要启用内置 `web_relay`。
 - `agents[].workspace_root` 省略时，Gateway 在 `~/.nanoassistant/workspaces/<agent-id>/` 创建默认 workspace；需要固定位置时显式填写绝对路径。
 - `im_service.username` / `password` 可用于 Gateway 首次登录和 token 刷新失败后的凭据回退。
+- `gateway.autostart` 默认 `true`。macOS 默认安装当前用户的 LaunchAgent，登录后启动并在异常退出时恢复；设为 `false` 后，下一次有效启动改用普通后台进程并删除持久定义。其他平台始终使用普通后台进程。
+- `gateway.environment` 只接受操作系统环境可用的字符串键值，作为普通后台和登录自启共同使用的稳定环境。配置值覆盖同名继承环境；本次显式 CLI 控制仍有最高优先级。macOS 登录服务默认可发现系统目录和 Homebrew 常用目录；工具位于其他目录时，在这里显式设置 `PATH`。
 - 本地 LLM 代理配置、协议、交互日志和验证方法见 [`../development/llm-integration.md`](../development/llm-integration.md)。
 
 ## 启动、停止与重启
@@ -77,6 +84,10 @@ PYTHONPATH=src .venv/bin/python -m personal_assistant.main \
 
 `--im-service-url` 只覆盖本次启动连接的 IM 地址。`--auto-bind` 自动确认首次节点绑定，供脚本和 E2E 使用；日常实例通过浏览器确认绑定。
 
+macOS 上，默认启动和 `restart` 会按当前配置应用 LaunchAgent。运行中的 Gateway 再次执行默认启动仍会拒绝重复实例；只编辑配置不会切换当前运行方式，使用 `restart` 才会应用。`--foreground` 仅供当前终端调试，不安装或修改 LaunchAgent。
+
+人工 `stop` 会先从当前登录会话 bootout 服务，因此不会被 `KeepAlive` 立即重拉，但仍保留 plist；配置保持 `autostart: true` 时，下次登录会恢复。若要长期关闭，先停止进程，把配置改为 `false`，再执行一次默认启动。若 LaunchAgent 应用失败，CLI 会明确显示 Gateway 已降级为普通后台运行，并返回非零退出码；部署自动化不能把它当作完整成功。
+
 ## 运行状态与可用性
 
 同一 config 的 start、stop 和 restart 由 config 目录中的 lifecycle lock 串行化。后台实例的 PID、规范化 config 路径和 process birth 写入同目录的 `.gateway-state.json`，运行日志写入 `gateway.log`。
@@ -86,6 +97,9 @@ PYTHONPATH=src .venv/bin/python -m personal_assistant.main \
 | 输出 | 含义 | 下一步 |
 |---|---|---|
 | `Gateway started (pid=...)` | 后台 child 已写入有效运行态，启动命令可以返回 | 继续看日志和 IM 节点状态 |
+| `Autostart: enabled ...` | macOS 当前登录服务已加载，具备登录启动与异常恢复 | 继续验证运行态与节点 online |
+| `Autostart: disabled ...` | 配置已关闭自启，当前是普通后台进程 | 无需自启时属于预期状态 |
+| `Autostart: failed ...` | Gateway 已降级运行，但登录自启未生效且命令非零 | 保留原始错误，检查 `launchctl` 与 plist |
 | `STOPPED ...` | 目标实例已停止；超时强停时带 `forced=true` | 可以关闭 IM 或再次启动 |
 | `NOT RUNNING ...` | 该 config 目录没有可管理的运行态 | 确认 config 后直接启动 |
 | `STALE ...` | 状态文件中的进程身份已经失效，CLI 已清理陈旧状态 | 保留相关日志后重新启动 |
@@ -115,7 +129,7 @@ IM 暂时不可达时，Gateway 可以保持本地自治并继续重连；Web IM
 
 ## `web_search` provider
 
-Gateway 进程通过环境变量选择 `web_search` 的运行时 provider：
+Gateway 进程通过 `gateway.environment` 中的环境值选择 `web_search` 的运行时 provider：
 
 | provider | 配置 | 默认行为 |
 |---|---|---|
@@ -123,11 +137,12 @@ Gateway 进程通过环境变量选择 `web_search` 的运行时 provider：
 | Brave | `BRAVE_API_KEY` | 调用时显式选择 `brave` |
 | SearXNG | `SEARXNG_URL` | 设置后成为未显式选择 provider 时的默认项 |
 
-例如：
+例如，把下面内容加入 Gateway YAML 后执行 `restart`：
 
-```bash
-SEARXNG_URL=http://127.0.0.1:8888 \
-  PYTHONPATH=src .venv/bin/python -m personal_assistant.main
+```yaml
+gateway:
+  environment:
+    SEARXNG_URL: http://127.0.0.1:8888
 ```
 
 显式选择 provider 会覆盖默认选择。provider 未配置、不可达、返回非 2xx 或不可解析响应时，工具明确报错，不静默切换到另一个 provider；SearXNG 实例需要启用 JSON 输出格式。`web_search` 只返回搜索结果，正文读取仍由 `web_fetch` 完成。

@@ -18,6 +18,7 @@ LLM_PROXY :4000                            Gateway node_id=mac-mini
 - 两边 `node_id` 必须不同；后连同名会踢掉先连。
 - 两边 Gateway 使用同一个 IM owner；`node.user_id` 必须是该用户的 **IM UUID**（`GET /im/v1/me`），不能是用户名或占位符。错了会出现飞书能回、内部 IM 看不到影子会话。
 - mini 上 LLM 走 `LLM_Bridge`；本机 Gateway 走本机 `LLM_PROXY`。两边 SearXNG 都指向 mini `:8888`。
+- 两边 Gateway 的 `gateway.autostart` 保持默认开启，稳定的 SearXNG 地址写入各机 `gateway.environment.SEARXNG_URL`；不要依赖一次重启命令前的 inline 环境。
 
 ## 节点身份
 
@@ -34,7 +35,7 @@ LLM_PROXY :4000                            Gateway node_id=mac-mini
 |---|---|
 | 全量更新代码并重启舰队 | 触发 `prod-fleet-deploy` 完整闭环 |
 | 只重启 IM / 某一侧 Gateway / LLM 代理 | 同一 skill 的「局部动作」表 |
-| 改 Gateway 配置 | 目标机先 `stop`，改 config，再启动；细节见 [`gateway.md`](gateway.md) |
+| 改 Gateway 配置 | 目标机先 `stop`，改 config，再启动；运行中直接编辑可能被 token 回写覆盖，细节见 [`gateway.md`](gateway.md) |
 | 排障 | [`troubleshooting.md`](troubleshooting.md)；结合两边 `gateway.log` 与 IM `im-service.log` |
 
 mini 的 IM 签名密钥是生产持久状态：`~/.nanoassistant/im-jwt-secret`（权限 `0600`）。常规更新在停止 IM 前读取并复用它，不能临时生成。需要主动换钥时才覆盖这个文件；换钥会使 Web IM 既有登录态失效，之后须重启两台 Gateway 让其重新认证并恢复在线。首次从旧目录升级时，先执行 [`PA workspace layout migration`](pa-workspace-layout-migration.md)，再按 [`prod-fleet-deploy` skill](../../.claude/skills/prod-fleet-deploy/SKILL.md) 完成启停与验收。
@@ -47,6 +48,7 @@ mini 的 IM 签名密钥是生产持久状态：`~/.nanoassistant/im-jwt-secret`
 2. `GET /im/v1/nodes` 中两个生产节点均为 `online`。
 3. 本机 `lsof -ti:8011` 为空（无本地 IM）。
 4. 两边 `node.user_id` 等于 `GET /im/v1/me` 的用户 id；gateway 日志无持续的 `configured node owner differs`。
+5. 两边 LaunchAgent 均已加载；plist、live process 与 `.gateway-state.json` 都指向本次部署的 checkout 和同一 PID/process birth。本机旧 production worktree 只能在这些证据成立后清理。
 
 ## 飞书
 

@@ -19,7 +19,7 @@ from personal_assistant.config.local_store import (
 )
 from personal_assistant.builtin_skills.lark_bundle import lark_skill_names
 from personal_assistant.gateway.process_lifecycle import (
-    BackgroundLaunchResult,
+    GatewayLaunchResult,
     GatewayStartupError,
     launch_gateway_in_background,
 )
@@ -45,6 +45,14 @@ _DEFAULT_TEST_LLM = LLMConfigPayload(
         ),
     ),
 )
+
+
+@pytest.fixture(autouse=True)
+def _use_existing_detached_platform(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep this legacy suite focused on the non-macOS detached launcher."""
+    monkeypatch.setattr(
+        "personal_assistant.gateway.process_lifecycle.sys.platform", "linux"
+    )
 
 
 def test_launch_gateway_in_background_spawns_foreground_child_and_waits_for_start(
@@ -86,7 +94,7 @@ def test_launch_gateway_in_background_spawns_foreground_child_and_waits_for_star
         wait_for_start=_wait_for_start,
     )
 
-    assert result == BackgroundLaunchResult(
+    assert result == GatewayLaunchResult(
         pid=2468,
         log_path=config.source_path.parent / "gateway.log",
     )

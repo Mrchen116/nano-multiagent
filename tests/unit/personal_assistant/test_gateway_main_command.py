@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from personal_assistant.gateway.im_bootstrap import GatewayStartupError
-from personal_assistant.gateway.process_lifecycle import BackgroundLaunchResult
+from personal_assistant.gateway.process_lifecycle import GatewayLaunchResult
 from personal_assistant.main import main
 
 
@@ -13,14 +13,17 @@ def test_main_defaults_to_background_launch(
     monkeypatch, capsys, tmp_path: Path
 ) -> None:
     seen: dict[str, object] = {}
-    result = BackgroundLaunchResult(
+    result = GatewayLaunchResult(
         pid=999,
         log_path=tmp_path / "gateway.log",
     )
 
     def _launch_background(
-        *, config_path: str, im_service_url_override: str | None = None
-    ) -> BackgroundLaunchResult:
+        *,
+        config_path: str,
+        im_service_url_override: str | None = None,
+        auto_bind: bool = False,
+    ) -> GatewayLaunchResult:
         seen["background"] = (config_path, im_service_url_override)
         return result
 
@@ -51,7 +54,7 @@ def test_main_passes_im_service_url_override_to_background_launch(
 
     def _launch_background(**kwargs):  # noqa: ANN001
         seen.update(kwargs)
-        return BackgroundLaunchResult(
+        return GatewayLaunchResult(
             pid=1,
             log_path=tmp_path / "gateway.log",
             im_service_url="http://im.remote:9011",
@@ -84,6 +87,7 @@ def test_main_passes_im_service_url_override_to_background_launch(
     assert seen == {
         "config_path": str(tmp_path / "node-config.yaml"),
         "im_service_url_override": "http://im.remote:9011",
+        "auto_bind": False,
     }
     assert capsys.readouterr().out == (
         "Gateway started (pid=1)\n"
@@ -102,7 +106,7 @@ def test_main_defaults_to_canonical_config_path_when_flag_missing(
 
     def _launch_background(**kwargs):  # noqa: ANN001
         seen["background"] = kwargs["config_path"]
-        return BackgroundLaunchResult(
+        return GatewayLaunchResult(
             pid=1,
             log_path=tmp_path / "gateway.log",
         )
@@ -132,9 +136,18 @@ def test_main_runs_gateway_in_foreground_when_requested(
     seen: dict[str, object] = {}
 
     def _run_gateway(
-        *, config_path: str, factories=None, im_service_url_override: str | None = None
+        *,
+        config_path: str,
+        factories=None,
+        im_service_url_override: str | None = None,
+        auto_bind: bool = False,
     ) -> int:  # noqa: ANN001
-        seen["foreground"] = (config_path, factories, im_service_url_override)
+        seen["foreground"] = (
+            config_path,
+            factories,
+            im_service_url_override,
+            auto_bind,
+        )
         return 0
 
     monkeypatch.setattr(
@@ -150,7 +163,9 @@ def test_main_runs_gateway_in_foreground_when_requested(
     exit_code = main(["--config", str(tmp_path / "node-config.yaml"), "--foreground"])
 
     assert exit_code == 0
-    assert seen == {"foreground": (str(tmp_path / "node-config.yaml"), None, None)}
+    assert seen == {
+        "foreground": (str(tmp_path / "node-config.yaml"), None, None, False)
+    }
 
 
 def test_main_passes_im_service_url_override_to_foreground_run(
@@ -159,9 +174,18 @@ def test_main_passes_im_service_url_override_to_foreground_run(
     seen: dict[str, object] = {}
 
     def _run_gateway(
-        *, config_path: str, factories=None, im_service_url_override: str | None = None
+        *,
+        config_path: str,
+        factories=None,
+        im_service_url_override: str | None = None,
+        auto_bind: bool = False,
     ) -> int:  # noqa: ANN001
-        seen["foreground"] = (config_path, factories, im_service_url_override)
+        seen["foreground"] = (
+            config_path,
+            factories,
+            im_service_url_override,
+            auto_bind,
+        )
         return 0
 
     monkeypatch.setattr(
@@ -190,6 +214,7 @@ def test_main_passes_im_service_url_override_to_foreground_run(
             str(tmp_path / "node-config.yaml"),
             None,
             "http://im.remote:9011",
+            False,
         )
     }
 
@@ -309,13 +334,17 @@ def test_main_restart_command_uses_serialized_lifecycle_operation(
     seen: dict[str, object] = {}
 
     def _restart(
-        *, config_path: str, im_service_url_override: str | None = None
-    ) -> BackgroundLaunchResult:
+        *,
+        config_path: str,
+        im_service_url_override: str | None = None,
+        auto_bind: bool = False,
+    ) -> GatewayLaunchResult:
         seen.update(
             config_path=config_path,
             im_service_url_override=im_service_url_override,
+            auto_bind=auto_bind,
         )
-        return BackgroundLaunchResult(
+        return GatewayLaunchResult(
             pid=1234,
             log_path=tmp_path / "gateway.log",
         )
@@ -331,6 +360,7 @@ def test_main_restart_command_uses_serialized_lifecycle_operation(
     assert seen == {
         "config_path": config_path,
         "im_service_url_override": None,
+        "auto_bind": False,
     }
     out = capsys.readouterr().out
     assert "Gateway started (pid=1234)" in out

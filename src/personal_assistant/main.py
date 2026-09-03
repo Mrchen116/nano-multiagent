@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 
@@ -24,9 +23,15 @@ def _check_im_reachable(url: str) -> bool:
         return False
 
 
-def _print_gateway_started(result: process_lifecycle.BackgroundLaunchResult) -> None:
+def _print_gateway_started(result: process_lifecycle.GatewayLaunchResult) -> None:
     """Print the result of a successful foreground or background launch."""
     print(f"Gateway started (pid={result.pid})")
+    if result.autostart_status == "enabled":
+        print("Autostart:       enabled (macOS login and crash recovery)")
+    elif result.autostart_status == "disabled":
+        print("Autostart:       disabled (detached background process)")
+    elif result.autostart_status == "failed":
+        print("Autostart:       failed (Gateway is running in detached mode)")
     if result.im_service_url is not None:
         reachable = _check_im_reachable(result.im_service_url)
         status = (
@@ -75,12 +80,21 @@ def main(argv: list[str] | None = None) -> int:
         command_parser = subparsers.add_parser(command, help=help_text)
         command_parser.add_argument(
             "--config",
+            default=argparse.SUPPRESS,
             help="Path to local gateway config (defaults to ~/.nanoassistant/config.yaml)",
         )
         command_parser.add_argument(
             "--im-service-url",
+            default=argparse.SUPPRESS,
             help="Override the upstream IM service base URL for this launch",
         )
+        if command == "restart":
+            command_parser.add_argument(
+                "--auto-bind",
+                action="store_true",
+                default=argparse.SUPPRESS,
+                help="Automatically confirm the IM node binding for this launch",
+            )
     args = parser.parse_args(argv)
     command = args.command or "start"
     resolved_config_path = (
@@ -88,8 +102,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.config
         else str(default_local_config_path())
     )
-    if getattr(args, "auto_bind", False):
-        os.environ["NANO_MULTIAGENT_AUTO_BIND"] = "1"
+    auto_bind = bool(getattr(args, "auto_bind", False))
     try:
         if command == "stop":
             print(process_lifecycle.stop_gateway(config_path=resolved_config_path))
@@ -98,19 +111,36 @@ def main(argv: list[str] | None = None) -> int:
             result = process_lifecycle.restart_gateway(
                 config_path=resolved_config_path,
                 im_service_url_override=args.im_service_url,
+                auto_bind=auto_bind,
             )
             _print_gateway_started(result)
+            if result.autostart_status == "failed":
+                print(
+                    "ERROR Gateway is running, but macOS login autostart failed: "
+                    f"{result.autostart_error}",
+                    file=sys.stderr,
+                )
+                return 1
             return 0
         if args.foreground:
             return process_lifecycle.run_gateway(
                 config_path=resolved_config_path,
                 im_service_url_override=args.im_service_url,
+                auto_bind=auto_bind,
             )
         result = process_lifecycle.launch_gateway_in_background(
             config_path=resolved_config_path,
             im_service_url_override=args.im_service_url,
+            auto_bind=auto_bind,
         )
         _print_gateway_started(result)
+        if result.autostart_status == "failed":
+            print(
+                "ERROR Gateway is running, but macOS login autostart failed: "
+                f"{result.autostart_error}",
+                file=sys.stderr,
+            )
+            return 1
         return 0
     except im_bootstrap.GatewayStartupError as exc:
         im_bootstrap.emit_gateway_feedback("ERROR", exc.summary, exc.next_step)
