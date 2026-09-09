@@ -620,7 +620,13 @@
       "工作记录读取失败": "Unable to load work records",
       "已拒绝": "Denied",
       "已授权": "Allowed",
-      "未执行": "Not executed"
+      "未执行": "Not executed",
+      "← 返回工作": "← Back to work",
+      "已定位原消息": "Original message located",
+      "无法读取此聊天": "Unable to read this chat",
+      "正在加载原消息所在历史…": "Loading original message history…",
+      "历史读取失败，请重新打开链接重试": "Unable to load history. Reopen the link to retry.",
+      "聊天已打开，但原消息已不可定位": "Chat opened, but the original message is unavailable"
     }
   },
   "chat": {

@@ -1099,7 +1099,7 @@ export function ChatWorkspacePage() {
 
   return (
     <div className="chat-workspace" ref={chatRootRef}>
-      {(workReturnUrl || locatorNotice) && <div className="im-work-chat-navigation" role="status">{workReturnUrl && <button type="button" onClick={() => navigate(workReturnUrl)}>← 返回工作</button>}{locatorNotice && <span>{locatorNotice}</span>}</div>}
+      {(workReturnUrl || locatorNotice) && <div className="im-work-chat-navigation" role="status">{workReturnUrl && <button type="button" onClick={() => navigate(workReturnUrl)}>{t("agents.work.← 返回工作")}</button>}{locatorNotice && <span>{t(`agents.work.${locatorNotice}`, {defaultValue:locatorNotice})}</span>}</div>}
       {forkToast && (
         <div className="fork-toast show" role="status" aria-live="polite">
           <div className="min-w-0 flex-1">
