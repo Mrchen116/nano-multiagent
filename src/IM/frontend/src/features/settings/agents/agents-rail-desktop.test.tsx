@@ -50,7 +50,7 @@ afterEach(() => {
   apiMocks.listNodes.mockReset();
 });
 
-it("uses readable normal and active identity colors on the dark desktop rail", async () => {
+it("uses readable normal and active identity colors on the light desktop rail", async () => {
   apiMocks.listAgentSummaries.mockResolvedValue(SAMPLE_AGENTS);
   apiMocks.listNodes.mockResolvedValue(SAMPLE_NODES);
 
@@ -58,9 +58,9 @@ it("uses readable normal and active identity colors on the dark desktop rail", a
 
   const activeRow = await screen.findByRole("button", { name: /Planner/i });
   const normalRow = screen.getByRole("button", { name: /Researcher/i });
-  expect(within(activeRow).getByText("Planner")).toHaveClass("text-white");
-  expect(within(normalRow).getByText("Researcher")).toHaveClass("text-[oklch(0.86_0.01_240)]");
-  expect(within(normalRow).getByText("agent-two")).toHaveClass("text-[oklch(0.64_0.01_240)]");
+  expect(within(activeRow).getByText("Planner")).toHaveClass("text-im-text");
+  expect(within(normalRow).getByText("Researcher")).toHaveClass("text-im-text");
+  expect(within(normalRow).getByText("agent-two")).toHaveClass("text-im-text-muted");
 });
 
 it("labels each row with the owning device name resolved from the nodes table", async () => {

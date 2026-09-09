@@ -31,17 +31,17 @@ export function AgentsRailDesktop({ activeId, isCreatePage = false, onSelectAgen
   return (
     <aside
       data-testid="agents-rail-desktop"
-      className="hidden bg-[oklch(0.24_0.012_240)] lg:flex lg:w-[240px] lg:flex-col lg:border-r lg:border-[oklch(0.29_0.010_240)]"
+      className="hidden bg-[var(--im-sidebar)] lg:flex lg:w-[240px] lg:flex-col lg:border-r lg:border-im-border"
       aria-label={t("agents.title")}
     >
-      <div className="flex items-center justify-between px-3 py-[10px] border-b border-[oklch(0.29_0.010_240)]">
+      <div className="flex items-center justify-between px-3 py-[10px] border-b border-im-border">
         <span className="text-[11px] font-bold tracking-[0.08em] uppercase text-[oklch(0.55_0.01_240)]">
           {t("agents.title")}
         </span>
         {isCreatePage ? (
           <button
             className="inline-flex h-9 items-center rounded-lg border-0 px-3 text-[13px] font-semibold text-white"
-            style={{ background: "oklch(0.30 0.012 240)", cursor: "default" }}
+            style={{ background: "var(--im-accent)", cursor: "default" }}
             type="button"
             disabled
             aria-current="page"
@@ -52,7 +52,7 @@ export function AgentsRailDesktop({ activeId, isCreatePage = false, onSelectAgen
           <Link
             to="/settings/agents/new"
             className="inline-flex h-9 items-center rounded-lg px-3 text-[13px] font-semibold text-white"
-            style={{ background: "oklch(0.30 0.012 240)" }}
+            style={{ background: "var(--im-accent)" }}
           >
             {t("agents.newButton")}
           </Link>

@@ -182,6 +182,8 @@
     }
   },
   "agents": {
+    "selectTitle": "选择一个 Agent",
+    "selectBody": "从左侧选择 Agent，查看和编辑它的配置。",
     "title": "Agents",
     "newButton": "+ 新建",
     "loadError": "无法加载 Agent 列表。",

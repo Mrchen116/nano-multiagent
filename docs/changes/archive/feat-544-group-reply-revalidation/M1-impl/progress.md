@@ -35,3 +35,9 @@ On user request, output status messages now use the existing `<system-reminder>`
 Worktree remains available at the user's explicit request; isolated services remain stopped. Cleanup awaits a subsequent user instruction.
 
 The follow-up v4 real-model validation is complete: six targeted cases passed; actual proxy requests, candidate metadata and user-visible outcomes are recorded in [v4 real retest](evaluation/v4-real-retest.json). This supplements the earlier request-capture unit validation. Existing test sessions are preserved; the new isolated services are stopped after evidence collection, with the worktree retained as requested.
+
+## Synchronization with main after PR #286
+
+Merged main `6346c8374` (bugfix-545) into this branch. Resolved the Process renderer by retaining main's default-collapsed tools and adding the reply-process row; adapted the new draft/reference colors to main's shared light palette rather than restoring the old dark surface. Kept main's sidebar/mobile layout and updated the combined IM requirement counts. The existing held-send UI regression now explicitly expands the tool before checking its details.
+
+Validation: full frontend **71 files / 689 tests passed**; documentation integrity, Ruff check/format and diff checks passed. Real merged-stack date correction `date-correction-1788923833.json` withheld the old draft and completed the September 19 final notice. Desktop/mobile draft expansion visually rechecked. Main changes touch frontend/docs only; the kernel/Gateway commit and revalidation code are unchanged from the six-case v4 real-model retest.

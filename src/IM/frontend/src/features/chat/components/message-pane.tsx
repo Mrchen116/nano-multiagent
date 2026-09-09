@@ -37,7 +37,7 @@ import {
   type Message,
   type TimelineItem
 } from "../chat-types";
-import { Avatar, colorForAgentSeed } from "./avatar";
+import { Avatar, GroupAvatar, colorForAgentSeed, foregroundForAvatar } from "./avatar";
 import { KindBadge } from "./kind-badge";
 import { parseMentions } from "./mention-parser";
 import { MentionPicker } from "./mention-picker";
@@ -749,16 +749,22 @@ export function MessagePane({
     <section className="chat-pane" aria-label={conversation.title}>
       <header className="chat-pane-header">
         {onBack && (
-          <button type="button" className="chat-pane-back" onClick={onBack} aria-label="Back">‹</button>
+          <button type="button" className="chat-pane-back" onClick={onBack} aria-label="Back">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+              <path d="m12 5-7 7 7 7M5 12h14" />
+            </svg>
+          </button>
         )}
-        <Avatar
-          // 只有 direct-agent 用该 agent 的头像；群 / agent-network 用群名 initials +
-          // 群色(紫)，与左侧会话列表的群头像一致，不再误用第一个 agent 的头像。
-          initials={kind === "direct-agent" ? (agentInitials ?? conversation.title.slice(0, 2)) : conversation.title.slice(0, 2)}
-          color={kind === "direct-agent" ? (agentColor ?? "oklch(0.52 0.14 270)") : "oklch(0.52 0.14 270)"}
-          size={34}
-          status={kind === "direct-agent" ? nodeStatus : null}
-        />
+        {conversation.type === "group" ? (
+          <GroupAvatar size={34} label={t("chat.list.filters.group")} />
+        ) : (
+          <Avatar
+            initials={kind === "direct-agent" ? (agentInitials ?? conversation.title.slice(0, 2)) : conversation.title.slice(0, 2)}
+            color={kind === "direct-agent" ? (agentColor ?? "oklch(0.52 0.14 270)") : "oklch(0.52 0.14 270)"}
+            size={34}
+            status={kind === "direct-agent" ? nodeStatus : null}
+          />
+        )}
         <div className="chat-pane-header-body">
           <h2 className="chat-pane-title">{conversation.title}</h2>
           <div className="chat-pane-header-meta">
@@ -781,20 +787,19 @@ export function MessagePane({
         </div>
         {!isMobile && <KindBadge kind={kind} />}
         {onOpenConfig && (
-          isMobile ? (
-            <button
-              type="button"
-              className="chat-pane-config chat-pane-config-icon"
-              onClick={onOpenConfig}
-              aria-label={t("chat.messagePane.config")}
-            >
-              ⚙
-            </button>
-          ) : (
-            <button type="button" className="chat-pane-config" onClick={onOpenConfig} aria-label={t("chat.messagePane.config")}>
-              ⚙ {t("chat.messagePane.config")}
-            </button>
-          )
+          <button
+            type="button"
+            className={`chat-pane-config${isMobile ? " chat-pane-config-icon" : ""}`}
+            onClick={onOpenConfig}
+            aria-label={t("chat.messagePane.config")}
+          >
+            {/* Lucide settings v0.468.0; ISC notice in ./avatar.tsx. */}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+              <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+            {!isMobile && <span>{t("chat.messagePane.config")}</span>}
+          </button>
         )}
       </header>
 
@@ -1308,6 +1313,36 @@ function MessageBubble({
   const toolbarRef = useRef<HTMLDivElement | null>(null);
   const moreButtonRef = useRef<HTMLButtonElement | null>(null);
   const recentPointerRef = useRef<RecentPointerRecord | null>(null);
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const holdOrigin = useRef<{ x: number; y: number } | null>(null);
+
+  function cancelHold() {
+    if (holdTimer.current !== null) clearTimeout(holdTimer.current);
+    holdTimer.current = null;
+    holdOrigin.current = null;
+  }
+
+  useEffect(() => cancelHold, []);
+
+  function startHold(e: React.TouchEvent<HTMLDivElement>) {
+    cancelHold();
+    if (!isMobile || !hasMessageActions || e.touches.length !== 1) return;
+    if ((e.target as HTMLElement).closest("button, a, input, textarea, select")) return;
+    const touch = e.touches[0];
+    holdOrigin.current = { x: touch.clientX, y: touch.clientY };
+    const target = e.target;
+    holdTimer.current = setTimeout(() => {
+      cancelHold();
+      openMessageMenu("mouse", target, touch.clientX, touch.clientY);
+    }, 500);
+  }
+
+  function moveHold(e: React.TouchEvent<HTMLDivElement>) {
+    const origin = holdOrigin.current;
+    const touch = e.touches[0];
+    if (origin && (!touch || Math.hypot(touch.clientX - origin.x, touch.clientY - origin.y) > 10)) cancelHold();
+  }
+
 
   function recordPointer(e: ReactPointerEvent<HTMLElement>) {
     const native = e.nativeEvent;
@@ -1328,10 +1363,6 @@ function MessageBubble({
   }
 
   function handleContextMenu(e: React.MouseEvent<HTMLDivElement>) {
-    const body = bodyRef.current;
-    const interactionRoot = body ?? (forkEligible ? cardRef.current : null);
-    if (!interactionRoot) return;
-
     const native = e.nativeEvent as MouseEvent & { pointerType?: string };
     const contextFacts: ContextMenuContextFacts = {
       messageId: message.id,
@@ -1344,29 +1375,25 @@ function MessageBubble({
       timeStamp: native.timeStamp,
     };
     const modality = resolveContextMenuModality(contextFacts, recentPointerRef.current);
-    const keepNative = shouldKeepNativeContextMenu(
-      modality,
-      interactionRoot,
-      native.target,
-      native.clientX,
-      native.clientY,
-      window.getSelection(),
-      document
-    );
+    if (openMessageMenu(modality, native.target, native.clientX, native.clientY)) e.preventDefault();
+  }
 
-    if (keepNative) {
+  function openMessageMenu(
+    modality: Parameters<typeof shouldKeepNativeContextMenu>[0],
+    target: EventTarget | null,
+    x: number,
+    y: number
+  ): boolean {
+    const body = bodyRef.current;
+    const interactionRoot = body ?? (forkEligible ? cardRef.current : null);
+    if (!interactionRoot) return false;
+    // Hold and right-click share native selection/link handling and the same menu.
+    if (shouldKeepNativeContextMenu(modality, interactionRoot, target, x, y, window.getSelection(), document)) {
       recentPointerRef.current = null;
-      return;
+      return false;
     }
-
-    e.preventDefault();
-    onMenuRequest({
-      messageId: message.id,
-      bodyElement: body,
-      x: native.clientX,
-      y: native.clientY,
-      trigger: cardRef.current,
-    });
+    onMenuRequest({ messageId: message.id, bodyElement: body, x, y, trigger: cardRef.current });
+    return true;
   }
 
   function handleCopy() {
@@ -1433,7 +1460,7 @@ function MessageBubble({
         <span
           data-testid={`message-avatar-${message.id}`}
           className="inline-flex shrink-0 items-center justify-center w-[30px] h-[30px] rounded-full text-white text-[12px] font-semibold"
-          style={{ backgroundColor: senderColor }}
+          style={{ backgroundColor: senderColor, color: foregroundForAvatar(senderColor) }}
           aria-hidden
         >
           {initials}
@@ -1442,7 +1469,7 @@ function MessageBubble({
       <div className="flex flex-col min-w-0">
         {!isUser && (
           <div className="chat-bubble-meta">
-            <span className="chat-bubble-sender" style={{ color: senderColor }}>
+            <span className="chat-bubble-sender" style={{ color: isAgent && message.sender.display_name ? foregroundForAvatar(senderColor) : senderColor }}>
               {message.sender.display_name ?? message.sender.id}
             </span>
           </div>
@@ -1451,6 +1478,10 @@ function MessageBubble({
           ref={cardRef}
           data-testid={`message-bubble-${message.id}`}
           className="chat-bubble-card"
+          onTouchStart={startHold}
+          onTouchMove={moveHold}
+          onTouchEnd={cancelHold}
+          onTouchCancel={cancelHold}
           onPointerDownCapture={recordPointer}
           onContextMenu={handleContextMenu}
           tabIndex={-1}
@@ -1546,8 +1577,8 @@ function MessageBubble({
             <span className="text-[oklch(0.55 0.15 25)]">{t("chat.messagePane.failed")}</span>
           )}
 
-          {/* Compact / coarse More trigger. CSS decides visibility when actions exist. */}
-          {hasMessageActions && (
+          {/* Desktop touch devices retain an explicit action entry; mobile uses long-press. */}
+          {hasMessageActions && !isMobile && (
             <button
               ref={moreButtonRef}
               type="button"

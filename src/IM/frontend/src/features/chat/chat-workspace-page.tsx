@@ -1183,6 +1183,7 @@ export function ChatWorkspacePage() {
               agent_id: a.agent_id,
               display_name: a.display_name,
               description: a.description,
+              node_name: nodeRow?.node_name || a.node_id,
               status: nodeRow?.status === "online" ? "online" : "offline"
             };
           })}

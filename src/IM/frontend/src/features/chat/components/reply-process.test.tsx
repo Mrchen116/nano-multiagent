@@ -28,5 +28,7 @@ it("labels held send_message text as unsent without reporting successful sending
   render(<ToolCallsPanel toolCalls={[{id:"send",name:"send_message",status:"completed",input:{text:"held text"},detail:{status:"held_for_revalidation",text:"held text"}}]} />);
   fireEvent.click(screen.getByRole("button", {name:/process|过程/i}));
   expect(screen.getByText("未发送")).toBeInTheDocument();
+  expect(screen.queryByText("未发送 · 已保留为草稿")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", {name: /send_message/}));
   expect(screen.getByText("未发送 · 已保留为草稿")).toBeInTheDocument();
 });

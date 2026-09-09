@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 
 import { useTranslation } from "../../../i18n";
 import { classifyConversationKind, type Conversation, type ConversationKind } from "../chat-types";
-import { Avatar, colorForAgent, colorForAgentSeed } from "./avatar";
+import { Avatar, GroupAvatar, colorForAgent, colorForAgentSeed } from "./avatar";
 import {
   getDistillConversationUnavailableKey,
   isDistillConversationEligible,
@@ -103,27 +103,21 @@ export function ConversationSidebar({
             {t("chat.list.newGroup")}
           </button>
         </div>
-        <div className="chat-sidebar-distill-actions">
-          {distillMode ? (
-            <>
-              <button type="button" className="chat-sidebar-action" onClick={onCancelDistillMode}>
-                {t("chat.list.cancel")}
-              </button>
-              <button
-                type="button"
-                className="chat-sidebar-action chat-sidebar-action--primary"
-                disabled={selectedDistillEligibleCount === 0}
-                onClick={onStartDistill}
-              >
-                {t("chat.list.distillToSkill")}
-              </button>
-            </>
-          ) : (
-            <button type="button" className="chat-sidebar-action" onClick={() => onEnterDistillMode?.()}>
-              {t("chat.list.generateSkill")}
+        {distillMode && (
+          <div className="chat-sidebar-distill-actions">
+            <button type="button" className="chat-sidebar-action" onClick={onCancelDistillMode}>
+              {t("chat.list.cancel")}
             </button>
-          )}
-        </div>
+            <button
+              type="button"
+              className="chat-sidebar-action chat-sidebar-action--primary"
+              disabled={selectedDistillEligibleCount === 0}
+              onClick={onStartDistill}
+            >
+              {t("chat.list.distillToSkill")}
+            </button>
+          </div>
+        )}
         {distillMode && distillNotice ? (
           <p className="chat-distill-error" role="alert">
             {distillNotice}
@@ -226,7 +220,7 @@ export function ConversationSidebar({
                       onChange={() => onToggleDistillConversation?.(c.id)}
                     />
                     <span data-testid={`conv-avatar-${c.id}`} className="chat-sidebar-row-avatar">
-                      <Avatar initials={c.title.slice(0, 2)} color={avatarColor} size={36} status={agentStatus} />
+                      {c.type === "group" ? <GroupAvatar size={36} label={t("chat.list.filters.group")} /> : <Avatar initials={c.title.slice(0, 2)} color={avatarColor} size={36} status={agentStatus} />}
                     </span>
                     <span className="chat-sidebar-row-body">
                       <span className="chat-sidebar-row-title-line">
@@ -260,7 +254,7 @@ export function ConversationSidebar({
                     aria-current={active ? "true" : undefined}
                   >
                   <span data-testid={`conv-avatar-${c.id}`} className="chat-sidebar-row-avatar">
-                    <Avatar initials={c.title.slice(0, 2)} color={avatarColor} size={36} status={agentStatus} />
+                    {c.type === "group" ? <GroupAvatar size={36} label={t("chat.list.filters.group")} /> : <Avatar initials={c.title.slice(0, 2)} color={avatarColor} size={36} status={agentStatus} />}
                   </span>
                   <span className="chat-sidebar-row-body">
                     <span className="chat-sidebar-row-title-line">
@@ -285,6 +279,13 @@ export function ConversationSidebar({
           })
         )}
       </ul>
+      {!distillMode && (
+        <footer className="chat-sidebar-secondary">
+          <button type="button" onClick={() => onEnterDistillMode?.()}>
+            {t("chat.list.generateSkill")}
+          </button>
+        </footer>
+      )}
     </aside>
   );
 }
