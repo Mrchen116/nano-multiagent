@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useLocation } from "react-router-dom";
 
 import { InAppToast } from "./components/in-app-toast";
 
@@ -304,6 +304,12 @@ function mergePermissionRequests(
 export function ChatWorkspacePage() {
   const { conversationId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const locatorMessageId = new URLSearchParams(location.search).get("message_id");
+  const workReturnUrl = typeof location.state?.workReturnUrl === "string" ? location.state.workReturnUrl : null;
+  const [locatorNotice, setLocatorNotice] = useState("");
+  const locatedRef = useRef("");
+  const chatRootRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
   const queryClient = useQueryClient();
   const { t } = useTranslation();
@@ -680,6 +686,40 @@ export function ChatWorkspacePage() {
       }
     }
   }, [conversationId, hasMoreHistory, historyCursor, isLoadingHistory]);
+
+  useEffect(() => {
+    locatedRef.current = "";
+    setLocatorNotice("");
+  }, [conversationId, locatorMessageId]);
+
+  useEffect(() => {
+    if (!locatorMessageId || !conversationId || locatedRef.current === `${conversationId}:${locatorMessageId}`) return;
+    if (messagesQuery.isError || (conversationsQuery.isSuccess && !activeConversation)) {
+      setLocatorNotice("无法读取此聊天"); return;
+    }
+    if (messagesQuery.isLoading || hasMoreHistory === null || isLoadingHistory) return;
+    const messageExists = streamState.messages.some(message => message.id === locatorMessageId);
+    if (!messageExists) {
+      if (hasMoreHistory) {
+        setLocatorNotice("正在加载原消息所在历史…");
+        void loadOlderMessages().catch(() => { setLocatorNotice("历史读取失败，请重新打开链接重试"); locatedRef.current = `${conversationId}:${locatorMessageId}`; });
+      } else if (streamState.messages.length || messagesQuery.data?.items.length === 0) {
+        setLocatorNotice("聊天已打开，但原消息已不可定位");
+      }
+      return;
+    }
+    const frame = requestAnimationFrame(() => {
+      const element = Array.from(chatRootRef.current?.querySelectorAll<HTMLElement>("[data-message-id]") ?? []).find(node => node.dataset.messageId === locatorMessageId);
+      if (!element) return;
+      element.scrollIntoView?.({ block: "center", behavior: "instant" });
+      element.classList.add("im-work-message-target");
+      element.tabIndex = -1;
+      element.focus({ preventScroll: true });
+      locatedRef.current = `${conversationId}:${locatorMessageId}`;
+      setLocatorNotice("已定位原消息");
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [locatorMessageId, conversationId, messagesQuery.isError, messagesQuery.isLoading, messagesQuery.data, conversationsQuery.isSuccess, activeConversation, hasMoreHistory, isLoadingHistory, streamState.messages, loadOlderMessages]);
 
   // Captures the latest sendersById via a ref so a fresh agents fetch becomes
   // visible to in-flight reducer dispatches without recreating the user stream.
@@ -1058,7 +1098,8 @@ export function ChatWorkspacePage() {
   }
 
   return (
-    <div className="chat-workspace">
+    <div className="chat-workspace" ref={chatRootRef}>
+      {(workReturnUrl || locatorNotice) && <div className="im-work-chat-navigation" role="status">{workReturnUrl && <button type="button" onClick={() => navigate(workReturnUrl)}>← 返回工作</button>}{locatorNotice && <span>{locatorNotice}</span>}</div>}
       {forkToast && (
         <div className="fork-toast show" role="status" aria-live="polite">
           <div className="min-w-0 flex-1">

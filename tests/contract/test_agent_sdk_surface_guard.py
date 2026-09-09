@@ -45,6 +45,7 @@ EXPECTED_SURFACE: frozenset[str] = frozenset(
         # 2-layer surface (决策 2/4/5/6/8)
         "Tool",
         "ToolContext",
+        "tool_content_digest",
         "HookAPI",
         "PromptSlots",
         "PromptText",

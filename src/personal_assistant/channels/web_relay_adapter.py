@@ -9,7 +9,7 @@ from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Callable
 
 from personal_assistant._utils import _optional_text, _require_text
 from personal_assistant.channels.base import (
@@ -171,6 +171,7 @@ class WebRelayAdapter:
 
     def __init__(self, *, dedup_store: RelayDeduplicationStore | None = None) -> None:
         self._on_inbound: InboundHandler | None = None
+        self.durable_inbox_agent: Callable[[str], bool] | None = None
         self.sent: list[OutboundMessage] = []
         self._seen_idempotency_keys: deque[str] = deque()
         self._dedup_store = dedup_store
@@ -207,6 +208,11 @@ class WebRelayAdapter:
             raise RuntimeError("web relay adapter is not started")
         envelope = _parse_relay_payload(payload)
         message = _build_inbound(envelope, payload)
+        if self.durable_inbox_agent is not None and self.durable_inbox_agent(
+            envelope.agent_id
+        ):
+            callback(message)
+            return message
         if self._contains_seen_key(envelope.idempotency_key):
             return message
         self._remember_seen_key(envelope.idempotency_key)
@@ -249,6 +255,16 @@ def _build_inbound(
     if envelope.participants:
         extra["participants"] = envelope.participants
     metadata = dict(envelope.metadata)
+    raw_message = payload.get("message")
+    if isinstance(raw_message, Mapping) and raw_message.get("sender_type") in {
+        "user",
+        "agent",
+        "system",
+    }:
+        metadata["sender_type"] = raw_message["sender_type"]
+    raw_sender = payload.get("sender")
+    if isinstance(raw_sender, Mapping) and raw_sender.get("agent_id"):
+        metadata["sender_agent_id"] = raw_sender["agent_id"]
     external_agent_id = _optional_text(metadata.get("agent_id"))
     external_source = _optional_text(metadata.get("external_source"))
     external_chat_id = _optional_text(metadata.get("external_chat_id"))

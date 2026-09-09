@@ -171,6 +171,19 @@ class GatewayExecution:
 
         if kind == "turn_start":
             agent_id = _require_text(event.agent_id, field_name="agent_id")
+            if (
+                self._conversation_persistence is not None
+                and self._conversation_persistence.agent_work_mode(agent_id=agent_id)
+                == "global"
+                and payload.get("delivery_source") != "cron"
+            ):
+                return {
+                    "type": "error",
+                    "payload": {
+                        "code": "global_work_requires_journal",
+                        "message_type": "node.streaming_delta",
+                    },
+                }
             to_user_id = event.to_user_id
             raw_conversation_id = event.conversation_id
 

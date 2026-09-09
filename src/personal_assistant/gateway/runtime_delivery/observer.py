@@ -175,6 +175,7 @@ def build_kernel_event_observer(
         Callable[[str, str, Mapping[str, str]], Any] | None
     ) = None,
     skill_created_handler: Callable[[str, Mapping[str, object]], Any] | None = None,
+    work_recorder: Any | None = None,
     task_tracker: RuntimeDeliveryTaskTracker | None = None,
     workflow_permission_bindings: WorkflowPermissionDeliveryBindingRegistry
     | None = None,
@@ -1123,6 +1124,11 @@ def build_kernel_event_observer(
                     delta_key: str | None = delta_idempotency_key,
                 ) -> None:
                     try:
+                        work_session = (
+                            work_recorder.store.get_work_session(ctx.kernel_session_id)
+                            if work_recorder is not None
+                            else None
+                        )
                         ack = await mgr.send_json_await_ack(
                             "node.streaming_delta",
                             {
@@ -1131,6 +1137,11 @@ def build_kernel_event_observer(
                                 "agent_id": aid,
                                 "run_id": rid,
                                 "shadow_message_id": ctx.shadow_message_id,
+                                **(
+                                    {"delivery_source": "cron"}
+                                    if work_session and work_session["scope"] == "cron"
+                                    else {}
+                                ),
                             },
                         )
                         ack_payload = (
@@ -1178,6 +1189,10 @@ def build_kernel_event_observer(
                                 kernel_message_id=new_kernel_id,
                             )
                         if returned_msg_id:
+                            if live_ctx is not None:
+                                live_ctx.record_assistant_text(
+                                    text, kernel_message_id=new_kernel_id
+                                )
                             if reasoning_text:
                                 await mgr.send_json(
                                     "node.streaming_delta",
@@ -1542,13 +1557,34 @@ def build_kernel_event_observer(
                             if snapshot is not None
                             else None,
                         }
-                        if snapshot is None:
+                        work_session = (
+                            work_recorder.store.get_work_session(ctx.kernel_session_id)
+                            if work_recorder is not None
+                            else None
+                        )
+                        global_cron = (
+                            work_session is not None and work_session["scope"] == "cron"
+                        )
+                        if snapshot is None and not global_cron:
                             await mgr.send_json(
                                 "node.streaming_delta", completion_payload
                             )
                         else:
                             await mgr.send_json_await_ack(
                                 "node.streaming_delta", completion_payload
+                            )
+                        if global_cron and turn_completed:
+                            work_recorder.record(
+                                agent_id=work_session["root_agent_id"],
+                                session_id=ctx.kernel_session_id,
+                                event_type="cron_delivery",
+                                event_id=f"cron-delivery:{run_id}:{message_id}",
+                                payload={
+                                    "run_id": run_id,
+                                    "conversation_id": conversation_id,
+                                    "message_id": message_id,
+                                    "text": ctx.external_current_text,
+                                },
                             )
                         if (
                             snapshot is not None

@@ -31,7 +31,7 @@ scripts/e2e-self-evolution.sh
 
 ## v1 必保活路径
 
-> 「守护测试」列指向 `tests/e2e/critical_paths/` 下的测试函数，均经真 Gateway 进程真跑通过。heartbeat（原 #7）端到端不冒泡（真实产品 bug #126），其 e2e 旅程已写但标 `@pytest.mark.xfail(strict=True, #126)`（真跑 → 预期 XFAIL；#126 修复后转 XPASS 即 strict 报错提醒去 xfail），暂移至下方 backlog 段——故 v1 必保活当前为 17 条。
+> 「守护测试」列指向 `tests/e2e/critical_paths/` 下的测试函数，运行方式与验证状态按各行说明记录。heartbeat（原 #7）端到端不冒泡（真实产品 bug #126），其 e2e 旅程已写但标 `@pytest.mark.xfail(strict=True, #126)`（真跑 → 预期 XFAIL；#126 修复后转 XPASS 即 strict 报错提醒去 xfail），暂移至下方 backlog 段——故 v1 必保活当前为 18 条。
 
 | # | 用户旅程 | 守护测试 | 归属子系统 | 引入 unit |
 |---|---|---|---|---|
@@ -52,6 +52,7 @@ scripts/e2e-self-evolution.sh
 | 16 | **含工具历史的上下文压缩与重启连续**——短会话真执行一次工具后，以受控 usage/context window 触发 threshold 压缩；压缩后继续任务、再重启 Gateway 追问，回复都保留原目标。**fake LLM**：真 IM + 真 Gateway + recording Anthropic stub 校验 summary request 中 tool use/result 配对，并核对隔离 session JSONL 的有效 boundary；**不门控 / 不调用** `:4000` 真 proxy | `test_context_compaction_continuity_critical_path.py::test_tool_history_compacts_and_survives_gateway_restart` | gateway + kernel + im | bugfix-520 |
 | 17 | **self-evolution 私有 review 与 Skill 激活**——经真 IM + production Gateway 完成前台回复后，受控 no-save review 的 raw 回复不进入聊天；真实 `skill_manage(create)` 在前台 terminal 后即使 persistent stream 断线重放，仍恰好一次生成 structured notice、同步 explicit allowlist，并在新会话实际调用新 Skill。**fake LLM**：fixture 只按请求状态、role 与 tool-call/result 结构驱动；**不门控 / 不调用** `:4000` 真 proxy | `test_self_evolution_visibility_critical_path.py::test_no_save_review_stays_private_after_foreground_completion` + `test_self_evolution_skill_activation_critical_path.py::test_terminal_late_skill_create_replays_and_activates_in_a_new_session` | gateway + kernel + im | bugfix-525 |
 | 18 | **macOS Gateway 常驻**——默认启动安装用户 LaunchAgent；crash 后 PID 更新并重新 online；人工 stop 本登录不重拉但稳定定义可再次 bootstrap；配置关闭后只运行 detached 且定义消失。**不调用真 LLM**，使用隔离 IM/config，显式开关 `NANO_MULTIAGENT_RUN_LAUNCH_AGENT_E2E=1` | `test_gateway_autostart_critical_path.py::test_macos_gateway_autostart_crash_stop_login_and_disable`（驱动 `scripts/e2e-gateway-autostart.sh`；仅 macOS） | gateway（`docs/specs/gateway/service-lifecycle.md`） | feat-542 |
+| 19 | **Global Agent 跨聊天持续统筹（J2）**——A 的任务真实委派后台子 Agent；B 修订正文经 Inbox 摄取后跟进同一子 Agent；工作区标记释放后仅显式投递修订结果到 A，主 Session 不变且内部过程不进入聊天。**真 LLM**：沿用 live proxy 双门控和 `e2e_stack`；feat-546 已完成真实模型验收，含同一子 Agent 跟进与目标 ACK 断言 | `test_global_agent_inbox_critical_path.py::test_global_agent_reads_cross_chat_amendment_and_follows_same_child` | gateway + kernel + im | feat-546 |
 
 ## 已知缺口 / backlog（暂无 e2e 兜底）
 

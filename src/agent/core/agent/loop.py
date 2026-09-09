@@ -1,6 +1,7 @@
 """Agent turn loop that mediates model calls, tools, and hooks."""
 
 import json
+import copy
 import time
 from collections.abc import AsyncIterator, Callable
 from contextvars import ContextVar
@@ -445,7 +446,7 @@ class AgentLoop:
                     )
                     buffered_body: list[Message] = []
                     iteration_tool_calls: list[ToolCall] = []
-                    early_tool_results: list[ToolResult] = []
+                    early_tool_results: list[Message] = []
                     finish_reason: str | None = None
                     latest_usage: TokenUsage | None = None
 
@@ -588,7 +589,7 @@ class AgentLoop:
                                     )
                                     last_parent_id = tool_msg.message_id
                                     yield tool_msg
-                                    early_tool_results.append(result)
+                                    early_tool_results.append(tool_msg)
                                     await self._dispatch_tool_result_hook(
                                         result, active_hook_ctx, run_id
                                     )
@@ -608,9 +609,7 @@ class AgentLoop:
                     for result in early_tool_results:
                         _append_llm_message(
                             llm_messages,
-                            self._build_llm_tool_result_message(
-                                result, session_id=state.session_id
-                            ),
+                            self._build_llm_tool_result_message(result),
                         )
                     if executor is not None:
                         async for result in executor.get_remaining_results():
@@ -625,9 +624,7 @@ class AgentLoop:
                             yield tool_msg
                             _append_llm_message(
                                 llm_messages,
-                                self._build_llm_tool_result_message(
-                                    result, session_id=state.session_id
-                                ),
+                                self._build_llm_tool_result_message(tool_msg),
                             )
                             await self._dispatch_tool_result_hook(
                                 result, active_hook_ctx, run_id
@@ -1009,15 +1006,19 @@ class AgentLoop:
             return self._available_tools
         return ()
 
-    def _serialize_tool_result(self, result: ToolResult, *, session_id: str) -> str:
+    def _serialize_tool_result(
+        self, result: ToolResult, *, session_id: str
+    ) -> tuple[Any, str]:
         """Serialize tool result via tool adapter, then apply budget compression."""
 
+        serialization_status = "succeeded"
         registry = self._current_tool_registry()
         tool = registry.get(result.name) if registry is not None else None
         if tool is not None and hasattr(tool, "serialize_result"):
             try:
                 raw_content = tool.serialize_result(result.output, result.error)
-            except Exception:  # pragma: no cover - defensive fallback.
+            except Exception:
+                serialization_status = "fallback"
                 raw_content = _serialize_tool_result_content(result)
         else:
             raw_content = _serialize_tool_result_content(result)
@@ -1035,17 +1036,16 @@ class AgentLoop:
                 max_size_chars=max_size,
             )
 
-        return raw_content
+        return copy.deepcopy(raw_content), serialization_status
 
-    def _build_llm_tool_result_message(
-        self, result: ToolResult, *, session_id: str
-    ) -> LLMMessage:
+    def _build_llm_tool_result_message(self, message: Message) -> LLMMessage:
         """Build an LLMMessage for appending to the live prompt."""
 
         return LLMMessage(
             role="tool",
-            content=self._serialize_tool_result(result, session_id=session_id),
-            tool_call_id=result.call_id,
+            content=message.content,
+            tool_call_id=message.tool_call_id,
+            is_error=message.metadata.get("tool_error") is not None,
         )
 
     def _build_tool_result_message(
@@ -1058,15 +1058,19 @@ class AgentLoop:
     ) -> Message:
         """Build a Message for yielding a completed tool result."""
 
+        content, serialization_status = self._serialize_tool_result(
+            result, session_id=session_id
+        )
         return Message(
             message_id=make_message_id(),
             parent_message_id=parent_message_id,
             group_id=group_id,
             role="tool",
-            content=self._serialize_tool_result(result, session_id=session_id),
+            content=content,
             tool_call_id=result.call_id,
             metadata={
                 "tool_phase": "result",
+                "serialization_status": serialization_status,
                 "tool_call_id": result.call_id,
                 "tool_name": result.name,
                 "tool_output": result.output,

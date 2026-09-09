@@ -1,0 +1,250 @@
+"""Protect authenticated work transport, conversation scope and live permission routing."""
+
+import threading
+from fastapi.testclient import TestClient
+from IM.app import create_app
+from IM.infra.repositories.agents import AgentProfileRepository
+from IM.infra.repositories.conversations import ConversationRepository
+from IM.infra.repositories.messages import MessageRepository
+from IM.infra.repositories.nodes import NodeRepository
+from .conftest import authorize, register_user, seed_user_under_owner
+
+
+def test_work_http_journal_query_and_permission_share_real_ownership(tmp_path):
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner = register_user(client, username="owner")
+        stranger = register_user(client, username="stranger")
+        authorize(client, owner)
+        db = app.state.connection
+        NodeRepository(db).upsert_node(
+            node_id="node", node_name="Node", owner_id=owner.owner_id
+        )
+        AgentProfileRepository(db).create_profile(
+            agent_id="global",
+            owner_id=owner.owner_id,
+            node_id="node",
+            display_name="Global",
+            description="",
+            skills=[],
+            tool_allowlist=[],
+            group_reply_policy="ALWAYS",
+            default_model=None,
+            workspace_root=None,
+            work_mode="global",
+        )
+        agent_user = seed_user_under_owner(
+            client, username="agent:global", owner_id=owner.owner_id
+        )
+        conversations = ConversationRepository(db)
+        visible = conversations.create_conversation(
+            title="Public",
+            participant_ids=[owner.id, agent_user],
+            caller_owner_id=owner.owner_id,
+        )
+        private = conversations.create_conversation(
+            title="Private",
+            participant_ids=[owner.id, stranger.id],
+            caller_owner_id=owner.owner_id,
+        )
+        message = MessageRepository(db).create_message(
+            conversation_id=visible.id,
+            sender_user_id=owner.id,
+            sender_type="user",
+            content="Remember the real constraint",
+            attachments=[],
+        )
+        base = "/im/v1/agents/global/work"
+
+        def event(seq, kind, payload, turn="turn"):
+            return dict(
+                seq=seq,
+                event_id=f"event-{seq}",
+                root_agent_id="global",
+                session_id="main",
+                turn_id=turn,
+                type=kind,
+                observed_at="2026-09-09T00:00:00Z",
+                payload=payload,
+            )
+
+        with client.websocket_connect("/im/ws/gateway") as ws:
+            ws.send_json(
+                {
+                    "type": "node.register",
+                    "payload": {
+                        "node_id": "node",
+                        "agents": ["global"],
+                        "agent_work_modes": {"global": "global"},
+                        "capabilities": {},
+                    },
+                }
+            )
+            assert ws.receive_json()["type"] == "ack"
+            # Global main execution stays in the journal; an isolated cron's
+            # explicit final delivery still uses the owner-direct message route.
+            delivery = {
+                "node_id": "node",
+                "kind": "turn_start",
+                "agent_id": "global",
+                "to_user_id": owner.id,
+                "run_id": "cron-final",
+            }
+            ws.send_json({"type": "node.streaming_delta", "payload": delivery})
+            assert (
+                ws.receive_json()["payload"]["code"] == "global_work_requires_journal"
+            )
+            ws.send_json(
+                {
+                    "type": "node.streaming_delta",
+                    "payload": {**delivery, "delivery_source": "cron"},
+                }
+            )
+            cron_ack = ws.receive_json()
+            assert cron_ack["type"] == "ack"
+            assert cron_ack["payload"]["message_id"]
+            events = [
+                event(1, "session_registered", {"scope": "global_main"}, None),
+                event(2, "turn_started", {"origin": "user", "model": "fixture"}),
+                event(
+                    3,
+                    "permission_request",
+                    {
+                        "request_id": "permit",
+                        "tool_name": "bash",
+                        "tool_input": {"command": "pwd"},
+                        "question": "Allow?",
+                        "options": [
+                            {
+                                "id": "allow_once",
+                                "label": "Allow once",
+                                "description": "",
+                            },
+                            {"id": "deny", "label": "Deny", "description": ""},
+                        ],
+                    },
+                ),
+            ]
+            batch = {
+                "node_id": "node",
+                "journal_id": "j",
+                "from_seq": 1,
+                "events": events,
+            }
+            ws.send_json({"type": "agent.work.append", "payload": batch})
+            assert ws.receive_json() == {
+                "type": "agent.work.ack",
+                "payload": {"journal_id": "j", "through_seq": 3},
+            }
+            view = client.get(base).json()
+            assert view["node_connection_state"] == "online"
+            assert view["main_execution"] == "waiting_permission"
+            assert view["turns"][0]["items"][0]["payload"]["tool_input"] == {
+                "command": "pwd"
+            }
+            ws.send_json({"type": "agent.work.append", "payload": batch})
+            assert ws.receive_json()["payload"]["through_seq"] == 3
+            assert len(client.get(base).json()["turns"][0]["items"]) == 1
+            for target, expected in [(visible.id, True), (private.id, False)]:
+                ws.send_json(
+                    {
+                        "type": "conversation.query",
+                        "payload": {
+                            "node_id": "node",
+                            "request_id": "read",
+                            "agent_id": "global",
+                            "session_id": "main",
+                            "action": "read",
+                            "target": target,
+                            "limit": 20,
+                        },
+                    }
+                )
+                result = ws.receive_json()["payload"]
+                assert result["ok"] is expected
+                if expected:
+                    assert result["result"]["messages"][0]["message_id"] == message.id
+                    assert result["result"]["messages"][0]["content"] == [
+                        {"type": "text", "text": "Remember the real constraint"}
+                    ]
+                else:
+                    assert result["error"] == "target_not_accessible"
+            assert (
+                client.post(
+                    f"{base}/permissions/permit", json={"decision": "allow_always"}
+                ).status_code
+                == 409
+            )
+            holder = {}
+            worker = threading.Thread(
+                target=lambda: holder.setdefault(
+                    "response",
+                    client.post(
+                        f"{base}/permissions/permit",
+                        json={"decision": "deny", "reason": "keep current files"},
+                    ),
+                )
+            )
+            worker.start()
+            control = ws.receive_json()
+            assert control == {
+                "type": "agent.work.permission",
+                "payload": {
+                    "request_id": "permit",
+                    "root_agent_id": "global",
+                    "session_id": "main",
+                    "decision": "deny",
+                    "reason": "keep current files",
+                },
+            }
+            ws.send_json(
+                {
+                    "type": "agent.work.permission.result",
+                    "payload": {"node_id": "node", "request_id": "permit", "ok": True},
+                }
+            )
+            assert ws.receive_json()["type"] == "ack"
+            worker.join(2)
+            assert holder["response"].status_code == 200
+            ws.send_json(
+                {
+                    "type": "agent.work.append",
+                    "payload": {
+                        "node_id": "node",
+                        "journal_id": "j",
+                        "from_seq": 4,
+                        "events": [
+                            event(
+                                4,
+                                "permission_resolved",
+                                {"request_id": "permit", "decision": "deny"},
+                            )
+                        ],
+                    },
+                }
+            )
+            assert ws.receive_json()["payload"]["through_seq"] == 4
+            assert (
+                client.post(
+                    f"{base}/permissions/permit", json={"decision": "deny"}
+                ).status_code
+                == 409
+            )
+            assert (
+                client.patch(
+                    "/im/v1/agents/global/config",
+                    json={
+                        "profile_version": 1,
+                        "display_name": "Global",
+                        "group_reply_policy": "ALWAYS",
+                        "work_mode": "single_thread",
+                    },
+                ).status_code
+                == 409
+            )
+            assert client.get(f"{base}/sessions/unrelated/turns").status_code == 404
+            authorize(client, stranger)
+            assert client.get(base).status_code == 404
+            authorize(client, owner)
+        assert client.get(base).json()["node_connection_state"] == "offline"
+        assert client.get("/im/v1/agents/global/config").json()["work_mode"] == "global"

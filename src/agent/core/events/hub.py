@@ -13,7 +13,9 @@ import asyncio
 import queue
 import time
 from dataclasses import dataclass
-from threading import Lock
+from threading import Lock, RLock
+from collections.abc import Callable
+import logging
 from typing import Any, AsyncIterator, Iterator
 
 from agent.core.ids import make_event_id
@@ -43,6 +45,22 @@ class _Subscriber:
     overflow_marked: bool = False
 
 
+class EventSubscription:
+    """Close synchronous observation after all entered callbacks finish."""
+
+    def __init__(
+        self, hub: EventStreamHub, listener: Callable[[StreamEvent], None]
+    ) -> None:
+        self._hub = hub
+        self._listener = listener
+
+    def close(self) -> None:
+        """Remove this observer, waiting for any callback already in progress."""
+        with self._hub._publish_lock:
+            if self._listener in self._hub._observers:
+                self._hub._observers.remove(self._listener)
+
+
 class EventStreamHub:
     """Publish/subscribe hub for session and global event streams.
 
@@ -57,8 +75,27 @@ class EventStreamHub:
         self._subscribers: list[_Subscriber] = []
         self._lock = Lock()
         self._next_sequence_num: int = 1
+        self._publish_lock = RLock()
+        self._observers: list[Callable[[StreamEvent], None]] = []
+
+    def observe(self, listener: Callable[[StreamEvent], None]) -> EventSubscription:
+        """Observe future events synchronously, before live fanout.
+
+        Listener callbacks must stay short and must not reenter the Kernel.
+        Exceptions are logged and isolated from the executing tool.
+        """
+        with self._publish_lock:
+            self._observers.append(listener)
+        return EventSubscription(self, listener)
 
     def publish(
+        self, *, event: str, session_id: str, data: dict[str, Any]
+    ) -> StreamEvent:
+        """Publish in total order, including observers and existing live subscribers."""
+        with self._publish_lock:
+            return self._publish(event=event, session_id=session_id, data=data)
+
+    def _publish(
         self,
         *,
         event: str,
@@ -90,6 +127,13 @@ class EventStreamHub:
                 created_at=_utc_now_iso(),
                 data=payload,
             )
+        for listener in tuple(self._observers):
+            try:
+                listener(stream_event)
+            except Exception:
+                logging.getLogger(__name__).exception("Runtime event observer failed")
+
+        with self._lock:
             self._history.append(stream_event)
             if len(self._history) > self._history_limit:
                 overflow = len(self._history) - self._history_limit

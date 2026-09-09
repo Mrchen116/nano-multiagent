@@ -111,6 +111,7 @@ class GatewayNodePersistence:
         version: str,
         agent_ids: list[str],
         agent_workspaces: dict[str, str],
+        agent_work_modes: dict[str, str] | None = None,
         agent_workspace_is_default: dict[str, bool] | None = None,
         agent_create_operations: dict[str, str] | None = None,
         agent_skills: dict[str, list[str]] | None = None,
@@ -210,6 +211,10 @@ class GatewayNodePersistence:
                 group_reply_policy=group_reply_policy,
                 default_model=default_model,
                 reasoning_effort=reasoning_effort,
+                work_mode=(agent_work_modes or {}).get(
+                    agent_id,
+                    existing.work_mode if existing is not None else "single_thread",
+                ),
                 workspace_root=workspace_root,
                 workspace_is_default=workspace_is_default,
                 registration_seed=existing is None,
@@ -343,6 +348,11 @@ class GatewayConversationPersistence:
         self._conversations = ConversationRepository(connection)
         self._profiles = AgentProfileRepository(connection)
         self._users = UserRepository(connection)
+
+    def agent_work_mode(self, *, agent_id: str) -> str:
+        """Return persisted execution scope without accessing Gateway runtime files."""
+        profile = self._profiles.get_profile(agent_id=agent_id)
+        return profile.work_mode if profile is not None else "single_thread"
 
     def agent_user_id(self, *, agent_id: str) -> str | None:
         """Return the synthetic IM user id for an agent, or None when absent."""

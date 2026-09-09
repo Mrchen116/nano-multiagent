@@ -356,7 +356,9 @@ def _new_request_id() -> str:
 class CronRunnerPort(Protocol):
     """Public cron runner operations consumed by the execution owner."""
 
-    async def submit(self, *, job: CronJob) -> tuple[str, str] | None: ...
+    async def submit(
+        self, *, job: CronJob, request_id: str | None = None, trigger: str | None = None
+    ) -> tuple[str, str] | None: ...
 
     async def append_awareness(self, *, result_text: str) -> bool: ...
 
@@ -402,6 +404,11 @@ class CronRunTerminalConsumer:
     ) -> StreamRunOutcome:
         """Consume one run, optionally translating events through IM delivery."""
 
+        snapshot = self._agent_catalog.get(agent_id) if self._agent_catalog else None
+        global_mode = snapshot is not None and snapshot.config.work_mode == "global"
+        observer = (
+            _final_delivery_observer(self._observer) if global_mode else self._observer
+        )
         outcome = await stream_run_to_completion(
             run_id=run_id,
             kernel_session_id=kernel_session_id,
@@ -409,8 +416,10 @@ class CronRunTerminalConsumer:
             owner_user_id=self._owner_user_id,
             kernel=self._kernel,
             run_context_store=self._run_context_store,
-            observer=self._observer,
-            background_subscriptions=self._background_subscriptions,
+            observer=observer,
+            background_subscriptions=None
+            if global_mode
+            else self._background_subscriptions,
         )
         return await self._failover_if_needed(
             run_id=run_id,
@@ -455,11 +464,21 @@ class CronRunTerminalConsumer:
                 owner_user_id=self._owner_user_id,
                 kernel=self._kernel,
                 run_context_store=self._run_context_store,
-                observer=self._observer,
+                observer=_final_delivery_observer(
+                    self._observer, before_final=before_flush
+                )
+                if snapshot.config.work_mode == "global"
+                else self._observer,
                 stream_anchor=stream_anchor,
-                background_subscriptions=self._background_subscriptions,
-                hold_assistant_events=held,
-                before_assistant_flush=before_flush,
+                background_subscriptions=None
+                if snapshot.config.work_mode == "global"
+                else self._background_subscriptions,
+                hold_assistant_events=None
+                if snapshot.config.work_mode == "global"
+                else held,
+                before_assistant_flush=None
+                if snapshot.config.work_mode == "global"
+                else before_flush,
             )
 
         async def _deliver_notice(model: str) -> None:
@@ -497,7 +516,51 @@ class CronRunTerminalConsumer:
             origin=RunOrigin.CRON,
             consume_replay=_consume_replay,
             deliver_notice=_deliver_notice,
+            scenario={"agent_id": agent_id, "pa_work_scope": "cron"}
+            if snapshot.config.work_mode == "global"
+            else None,
         )
+
+
+def _final_delivery_observer(
+    observer: Callable[..., Any] | None,
+    *,
+    before_final: Callable[[], Awaitable[None]] | None = None,
+) -> Callable[..., Any] | None:
+    if observer is None:
+        return None
+    latest: Mapping[str, Any] | None = None
+
+    async def deliver(event: Mapping[str, Any]) -> None:
+        nonlocal latest
+        kind = event.get("event")
+        if kind == "assistant_message":
+            latest = event
+            return
+        if kind not in {"turn_end", "run_status", "run_terminal_reconcile"}:
+            return
+        if latest is not None and (
+            kind == "turn_end"
+            or (kind == "run_status" and event.get("status") == "completed")
+        ):
+            # Only the final body is a scheduled delivery; thinking and tools
+            # already belong to the work recorder's isolated Session timeline.
+            if before_final is not None:
+                await before_final()
+            body = {
+                key: value
+                for key, value in latest.items()
+                if key not in {"reasoning_content", "reasoning", "thinking"}
+            }
+            result = observer(body)
+            if asyncio.iscoroutine(result):
+                await result
+            latest = None
+        result = observer(event)
+        if asyncio.iscoroutine(result):
+            await result
+
+    return deliver
 
 
 class CronExecutionService:
@@ -585,7 +648,6 @@ class CronExecutionService:
     ) -> None:
         """Own accepted-to-terminal execution for production cron requests."""
 
-        del trigger
         job = self._job_store.get(job_id)
         if job is None:
             self._runs_store.update_status(
@@ -599,7 +661,9 @@ class CronExecutionService:
         self._runs_store.update_status(request_id, "running", started_at=_utc_now())
         assert self._runner is not None
         try:
-            submitted = await self._runner.submit(job=job)
+            submitted = await self._runner.submit(
+                job=job, request_id=request_id, trigger=trigger
+            )
         except Exception:  # noqa: BLE001
             _log.exception(
                 "cron submit failed: agent=%s job=%s request=%s",

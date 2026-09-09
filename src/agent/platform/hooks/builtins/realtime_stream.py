@@ -58,7 +58,11 @@ def setup(hooks):  # noqa: ANN001, ANN201
         if not isinstance(event, Mapping):
             return
         run_id = _extract_run_id(event)
-        if run_id is None:
+        if (
+            not ctx.session_id
+            or not ctx.turn_id
+            or (run_id is None and not event.get("turn_id"))
+        ):
             return
         msg_role = event.get("role")
         if msg_role != "assistant":
@@ -72,7 +76,7 @@ def setup(hooks):  # noqa: ANN001, ANN201
         payload = {
             "event": "assistant_message",
             "run_id": run_id,
-            "turn_id": event.get("turn_id"),
+            "turn_id": event.get("turn_id") or ctx.turn_id,
             "message_id": event.get("message_id"),
             "group_id": event.get("group_id"),
             "content": event.get("content") or "",
@@ -94,14 +98,18 @@ def setup(hooks):  # noqa: ANN001, ANN201
         if not isinstance(event, Mapping):
             return
         run_id = _extract_run_id(event)
-        if run_id is None:
+        if (
+            not ctx.session_id
+            or not ctx.turn_id
+            or (run_id is None and not event.get("turn_id"))
+        ):
             return
         presenter = _resolve_presenter(ctx, event.get("name", ""))
         presentation = _format_start(presenter, event.get("arguments") or {}, ctx)
         payload = {
             "event": "tool_start",
             "run_id": run_id,
-            "turn_id": event.get("turn_id"),
+            "turn_id": event.get("turn_id") or ctx.turn_id,
             "call_id": event.get("call_id"),
             "name": event.get("name"),
             "arguments": _as_mapping_or_none(event.get("arguments")),
@@ -113,8 +121,14 @@ def setup(hooks):  # noqa: ANN001, ANN201
         if not isinstance(event, Mapping):
             return
         run_id = _extract_run_id(event)
-        if run_id is None:
+        if (
+            not ctx.session_id
+            or not ctx.turn_id
+            or (run_id is None and not event.get("turn_id"))
+        ):
             return
+        # Registry result interception has no execution identity; only the
+        # loop observation has the final result, call id and error classification.
         presenter = _resolve_presenter(ctx, event.get("name", ""))
         duration_ms = event.get("duration_ms") or 0
         presentation = _format_end(
@@ -127,7 +141,7 @@ def setup(hooks):  # noqa: ANN001, ANN201
         payload = {
             "event": "tool_end",
             "run_id": run_id,
-            "turn_id": event.get("turn_id"),
+            "turn_id": event.get("turn_id") or ctx.turn_id,
             "call_id": event.get("call_id"),
             "name": event.get("name"),
             "arguments": _as_mapping_or_none(event.get("arguments")),
@@ -161,11 +175,16 @@ def setup(hooks):  # noqa: ANN001, ANN201
         if not isinstance(phase, str) or not phase:
             return
         run_id = _extract_run_id(event)
-        if run_id is None:
+        if (
+            not ctx.session_id
+            or not ctx.turn_id
+            or (run_id is None and not event.get("turn_id"))
+        ):
             return
         hb_payload: dict[str, Any] = {
             "event": "run_heartbeat",
             "run_id": run_id,
+            "turn_id": event.get("turn_id") or ctx.turn_id,
             "source": "tool",
             "phase": phase,
         }
@@ -182,7 +201,11 @@ def setup(hooks):  # noqa: ANN001, ANN201
         if not isinstance(event, Mapping):
             return
         run_id = _extract_run_id(event)
-        if run_id is None:
+        if (
+            not ctx.session_id
+            or not ctx.turn_id
+            or (run_id is None and not event.get("turn_id"))
+        ):
             return
         if event.get("session_stream_published"):
             return
@@ -191,7 +214,7 @@ def setup(hooks):  # noqa: ANN001, ANN201
             data={
                 "event": "injection_consumed",
                 "run_id": run_id,
-                "turn_id": event.get("turn_id"),
+                "turn_id": event.get("turn_id") or ctx.turn_id,
                 "message_count": event.get("message_count"),
                 "pending_ids": event.get("pending_ids") or [],
                 "context_revision": event.get("context_revision"),
@@ -204,12 +227,16 @@ def setup(hooks):  # noqa: ANN001, ANN201
         if not isinstance(event, Mapping):
             return
         run_id = _extract_run_id(event)
-        if run_id is None:
+        if (
+            not ctx.session_id
+            or not ctx.turn_id
+            or (run_id is None and not event.get("turn_id"))
+        ):
             return
         payload: dict[str, Any] = {
             "event": "turn_end",
             "run_id": run_id,
-            "turn_id": event.get("turn_id"),
+            "turn_id": event.get("turn_id") or ctx.turn_id,
             "completed": bool(event.get("completed")),
             "stop_reason": event.get("stop_reason"),
         }
@@ -253,7 +280,7 @@ def _as_mapping_or_none(value: Any) -> dict[str, Any] | None:
 
 
 def _skill_created_payload(
-    event: Mapping[str, Any], run_id: str
+    event: Mapping[str, Any], run_id: str | None
 ) -> dict[str, Any] | None:
     """Project successful skill_manage(create) results into a narrow machine event."""
 

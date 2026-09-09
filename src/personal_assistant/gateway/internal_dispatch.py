@@ -75,12 +75,18 @@ class InternalDispatchHandler:
         kernel: Kernel | None = None,
         session_binder: GatewaySessionBinder | None = None,
         direct_channel_name: str = "web_relay",
+        global_inbox: Any | None = None,
+        work_recorder: Any | None = None,
+        shadow_sync: Any | None = None,
     ) -> None:
         self._im_connection_manager = im_connection_manager
         self._kernel_client = kernel_client
         self._kernel = kernel
         self._session_binder = session_binder
         self._direct_channel_name = direct_channel_name
+        self._global_inbox = global_inbox
+        self._work_recorder = work_recorder
+        self._shadow_sync = shadow_sync
         self._sealed = False
 
     def seal(self) -> None:
@@ -163,6 +169,8 @@ class InternalDispatchHandler:
                 "ok": False,
                 "error": "origin Kernel session provenance is not registered",
             }
+        if provenance is not None and provenance.agent.config.work_mode == "global":
+            return await self._dispatch_global(payload, dispatch_payload, provenance)
         try:
             context_revision = payload.get("context_revision")
             origin_run_id = payload.get("origin_run_id")
@@ -245,6 +253,183 @@ class InternalDispatchHandler:
             "text": text.strip(),
             **ack.as_dict(),
         }
+
+    async def _dispatch_global(
+        self,
+        payload: Mapping[str, Any],
+        dispatch: dict[str, Any],
+        provenance: SessionProvenance,
+    ) -> dict[str, Any]:
+        inbox = self._global_inbox
+        recorder = self._work_recorder
+        if inbox is None or recorder is None:
+            return {"ok": False, "error": "global dispatch service unavailable"}
+        agent_id = provenance.agent.agent_id
+        session_id = provenance.kernel_session_id
+        target = dispatch["to"]
+        target_info = inbox.get_target(agent_id, target)
+        if target_info and target_info.get("permission_status") != "allowed":
+            return {"ok": False, "error": "target_not_accessible"}
+        if target.startswith("local:"):
+            if (
+                target_info
+                and not target_info.get("conversation_id")
+                and self._shadow_sync is not None
+            ):
+                saga_id = (
+                    (target_info.get("reply_context") or {})
+                    .get("metadata", {})
+                    .get("global_shadow_saga_id")
+                )
+                anchor = self._shadow_sync.resolved_anchor(saga_id) if saga_id else None
+                if anchor is not None:
+                    target_info = inbox.update_target(
+                        agent_id, target, conversation_id=anchor.conversation_id
+                    )
+            if not target_info or not target_info.get("conversation_id"):
+                return {
+                    "ok": False,
+                    "error": "source_unavailable: conversation has not synchronized",
+                }
+            dispatch["to"] = target_info["conversation_id"]
+        metadata = (target_info or {}).get("reply_context", {}) or {}
+        native_group = bool(
+            target_info
+            and target_info.get("kind") == "group"
+            and target_info.get("channel") == "web_relay"
+            and not metadata.get("metadata", {}).get("external_source")
+        )
+        call_id = payload.get("dispatch_request_id")
+        run_id = payload.get("origin_run_id")
+        revision = payload.get("context_revision")
+        draft_id = f"draft:{run_id}:{call_id}"
+        facts = {
+            "tool_call_id": call_id,
+            "run_id": run_id,
+            "target": target,
+            "text": dispatch["text"],
+            "draft_id": draft_id,
+        }
+        try:
+            if native_group:
+                async with inbox.target_lock(agent_id, target):
+                    blocking = inbox.blocking_entries(agent_id, target)
+                    if blocking:
+                        recorder.record(
+                            agent_id=agent_id,
+                            session_id=session_id,
+                            event_type="draft_withheld",
+                            event_id=f"withheld:{session_id}:{call_id}",
+                            payload={
+                                **facts,
+                                "source_refs": [
+                                    {
+                                        "conversation_id": target,
+                                        "message_id": entry.get("message_id"),
+                                        "entry_seq": entry["seq"],
+                                    }
+                                    for entry in blocking
+                                ],
+                            },
+                        )
+                        return {
+                            "ok": False,
+                            "status": "held_for_revalidation",
+                            "draft_id": draft_id,
+                        }
+                    if not isinstance(run_id, str) or type(revision) is not int:
+                        return {
+                            "ok": False,
+                            "error": "global output run identity is missing",
+                        }
+                    send_task = None
+
+                    def enqueue() -> None:
+                        nonlocal send_task
+                        send_task = asyncio.create_task(
+                            self._im_connection_manager.send_agent_message(
+                                dict(dispatch)
+                            )
+                        )
+
+                    decision = self._kernel.try_commit_output(
+                        session_id=session_id,
+                        expected_run_id=run_id,
+                        context_revision=revision,
+                        publish=enqueue,
+                        draft={
+                            "draft_id": draft_id,
+                            "source": "send_message",
+                            "text": dispatch["text"],
+                            "tool_call_id": call_id,
+                        },
+                    )
+                    if decision == "stale":
+                        recorder.record(
+                            agent_id=agent_id,
+                            session_id=session_id,
+                            event_type="draft_withheld",
+                            event_id=f"withheld:{session_id}:{call_id}",
+                            payload=facts,
+                        )
+                        return {
+                            "ok": False,
+                            "status": "held_for_revalidation",
+                            "draft_id": draft_id,
+                        }
+                    if decision != "committed":
+                        return {
+                            "ok": False,
+                            "error": "global output run is no longer active",
+                        }
+                ack = await send_task
+            else:
+                ack = await self._im_connection_manager.send_agent_message(dispatch)
+            recorder.record(
+                agent_id=agent_id,
+                session_id=session_id,
+                event_type="dispatch_confirmed",
+                event_id=f"dispatch:{session_id}:{call_id}",
+                payload={**facts, **ack.as_dict()},
+            )
+            return {"ok": True, "to": target, "text": dispatch["text"], **ack.as_dict()}
+        except Exception as exc:
+            return {"ok": False, "error": f"IM dispatch failed: {exc}"}
+
+    def build_query_handler(self, tool_name: str) -> Callable:
+        """Build a loopback query handler with actual Session provenance checks."""
+        from aiohttp import web
+
+        async def handle(request: Any) -> Any:
+            try:
+                payload = await request.json()
+                if self._sealed or self._global_inbox is None:
+                    raise ValueError("source_unavailable")
+                agent_id = payload.get("source_agent_id")
+                session_id = payload.get("origin_kernel_session_id")
+                call_id = payload.get("tool_call_id")
+                if (
+                    self._capture_source_provenance(session_id, agent_id) is None
+                    or not isinstance(call_id, str)
+                    or not call_id
+                ):
+                    raise ValueError("scope_not_allowed")
+                result = await self._global_inbox.execute(
+                    tool_name,
+                    agent_id=agent_id,
+                    session_id=session_id,
+                    tool_call_id=call_id,
+                    args=payload.get("args", {}),
+                )
+                return web.json_response({"ok": True, "result": result})
+            except (ValueError, TypeError) as exc:
+                return web.json_response({"ok": False, "error": str(exc)}, status=400)
+            except Exception as exc:
+                return web.json_response(
+                    {"ok": False, "error": f"source_unavailable: {exc}"}, status=503
+                )
+
+        return handle
 
     async def _sync_direct_session(
         self,

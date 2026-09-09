@@ -31,6 +31,7 @@ _GATEWAY_CONFIG_KEYS = (
     "default_model",
     "model_fallbacks",
     "reasoning_effort",
+    "work_mode",
     "workspace_root",
     "features",
     "custom_prompt",
@@ -166,6 +167,8 @@ class AgentConfigOperationCoordinator:
         candidate: dict[str, object],
     ) -> AgentProfile:
         """Submit Gateway apply, then CAS the IM profile or compensate Gateway."""
+        if candidate.get("work_mode", profile.work_mode) != profile.work_mode:
+            raise ValueError("work_mode is immutable")
         lock = await self._gateway.config_operation_lock(agent_id=profile.agent_id)
         async with lock:
             previous_candidate = candidate_from_profile(profile, service=self._service)
@@ -410,6 +413,7 @@ class AgentConfigOperationCoordinator:
                 return existing
             raise ConfigApplyPendingError("config_apply_pending")
         return self._service.create_profile(
+            work_mode=str(candidate.get("work_mode") or "single_thread"),
             agent_id=operation.agent_id,
             owner_id=operation.owner_id,
             node_id=operation.node_id,
@@ -546,6 +550,7 @@ def candidate_from_profile(
         "default_model": profile.default_model,
         "model_fallbacks": list(profile.model_fallbacks),
         "reasoning_effort": profile.reasoning_effort,
+        "work_mode": profile.work_mode,
         "workspace_root": service.workspace_root_for_profile(profile),
         "features": dict(profile.features),
         "custom_prompt": profile.custom_prompt,
@@ -569,6 +574,7 @@ def gateway_candidate(candidate: dict[str, object]) -> dict[str, object]:
         "default_model": _optional_operation_text(candidate.get("default_model")),
         "model_fallbacks": _operation_string_list(candidate.get("model_fallbacks")),
         "reasoning_effort": _optional_operation_text(candidate.get("reasoning_effort")),
+        "work_mode": candidate.get("work_mode") or "single_thread",
         "workspace_root": _optional_operation_text(candidate.get("workspace_root")),
         "features": {
             key: value

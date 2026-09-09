@@ -157,3 +157,94 @@ def test_auxiliary_is_owned_through_shutdown_and_new_targets_are_rejected() -> N
             _Session([]),
             TurnRequest(parts=({"type": "text", "text": "late"},)),
         )
+
+
+def test_idle_admission_stays_busy_until_completion_settlement_finishes() -> None:
+    settling = threading.Event()
+    release = threading.Event()
+    idle = threading.Event()
+
+    class SettlingSink(_Sink):
+        async def complete(self, completion):
+            settling.set()
+            assert await asyncio.to_thread(release.wait, 2)
+            super().complete(completion)
+
+    executor = KernelExecutor(on_session_idle=lambda session: idle.set())
+    session = _Session([])
+    request = TurnRequest(parts=({"type": "text", "text": "work"},))
+    try:
+        executor.start_top_level("initial", session, request, SettlingSink([]))
+        assert settling.wait(1)
+        assert (
+            executor.start_top_level(
+                "too-early", session, request, _Sink([]), only_if_idle=True
+            )
+            is None
+        )
+        release.set()
+        assert idle.wait(1)
+        accepted = _Sink([])
+        assert (
+            executor.start_top_level(
+                "next", session, request, accepted, only_if_idle=True
+            )
+            is not None
+        )
+        assert accepted.completed.wait(1)
+    finally:
+        release.set()
+        executor.shutdown()
+
+
+@pytest.mark.parametrize("queued_kind", ["turn", "compact"])
+def test_idle_admission_rejects_queued_carriers_before_they_start(queued_kind) -> None:
+    blocked = threading.Event()
+    release = threading.Event()
+
+    class BlockingSession(_Session):
+        async def submit_turn(self, request):
+            if request.parts[0]["text"] == "hold-loop":
+                blocked.set()
+                assert release.wait(2)
+            return await super().submit_turn(request)
+
+        async def compact(self, **kwargs):
+            return None
+
+    executor = KernelExecutor()
+    blocker = BlockingSession([])
+    session = BlockingSession([])
+    hold = TurnRequest(parts=({"type": "text", "text": "hold-loop"},))
+    next_request = TurnRequest(parts=({"type": "text", "text": "queued"},))
+    thread = None
+    try:
+        executor.start_top_level("block-owner-loop", blocker, hold, _Sink([]))
+        assert blocked.wait(1)
+        if queued_kind == "turn":
+            executor.start_top_level("queued-turn", session, next_request, _Sink([]))
+        else:
+
+            def compact():
+                asyncio.run(executor.compact(session))
+
+            thread = threading.Thread(target=compact)
+            thread.start()
+            # Admission is synchronous before the lifecycle awaits its result.
+            import time
+
+            deadline = time.monotonic() + 1
+            while executor.active_target_count < 2 and time.monotonic() < deadline:
+                time.sleep(0.001)
+            assert executor.active_target_count == 2
+        assert (
+            executor.start_top_level(
+                "idle-attempt", session, next_request, _Sink([]), only_if_idle=True
+            )
+            is None
+        )
+    finally:
+        release.set()
+        if thread is not None:
+            thread.join(2)
+        executor.shutdown()

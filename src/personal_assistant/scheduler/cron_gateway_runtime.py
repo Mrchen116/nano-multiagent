@@ -61,6 +61,7 @@ class GatewayCronRuntime:
         product_default_model: str | None = None,
         reasoning_catalog: Any | None = None,
         time_context: PaTimeContext | None = None,
+        work_recorder: Any | None = None,
     ) -> None:
         self._registry = registry
         self._agent_catalog = agent_catalog
@@ -78,6 +79,7 @@ class GatewayCronRuntime:
         self._product_default_model = product_default_model
         self._reasoning_catalog = reasoning_catalog
         self._time_context = time_context
+        self._work_recorder = work_recorder
 
     def register_agent(
         self,
@@ -97,6 +99,8 @@ class GatewayCronRuntime:
                 workspace_root=workspace_root,
                 kernel_client=self._kernel_client,
                 session_binder=self._session_binder,
+                agent_catalog=self._agent_catalog,
+                work_recorder=self._work_recorder,
                 canonical_session_id_provider=lambda: self._canonical_session_store.get(
                     agent_id
                 ),

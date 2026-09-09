@@ -4,6 +4,9 @@ import asyncio
 import contextlib
 import json
 import logging
+import time
+from agent.core.tools.content import tool_content_digest
+from agent.core.utils.time import utc_now_iso
 from contextvars import ContextVar
 from dataclasses import replace
 from pathlib import Path
@@ -277,6 +280,10 @@ class AgentEngine:
             build_skill_reinjection=self._build_skill_reinjection_message,
         )
 
+    _turn_observation: ContextVar[dict[str, Any] | None] = ContextVar(
+        "turn_observation", default=None
+    )
+
     async def execute_turn(
         self, state: ConversationState, request: TurnRequest
     ) -> TurnResult:
@@ -286,8 +293,10 @@ class AgentEngine:
         scope_token = self._active_execution_scope.set(
             self._scope_for_workspace(state.config.workspace_root)
         )
+        observation: dict[str, Any] = {"terminal": False}
+        observation_token = self._turn_observation.set(observation)
         try:
-            return await self._run_locked(
+            result = await self._run_locked(
                 session_id=state.ref.session_id,
                 parts=request.parts,
                 llm_session_id=request.llm_session_id,
@@ -300,8 +309,34 @@ class AgentEngine:
                 model=request.model,
                 source_background_returns=request.source_background_returns,
                 replay_last_user=request.replay_last_user,
+                submission_id=request.submission_id,
             )
+            if not observation["terminal"] and observation.get("publisher"):
+                observation["publisher"](
+                    "turn_end",
+                    {
+                        "run_id": request.run_id,
+                        "completed": result.completed,
+                        "stop_reason": result.stop_reason,
+                    },
+                )
+            return result
+        except BaseException as exc:
+            if not observation["terminal"] and observation.get("publisher"):
+                observation["publisher"](
+                    "turn_end",
+                    {
+                        "run_id": request.run_id,
+                        "completed": False,
+                        "stop_reason": "cancelled"
+                        if isinstance(exc, asyncio.CancelledError)
+                        else "failed",
+                        "error": str(exc) or type(exc).__name__,
+                    },
+                )
+            raise
         finally:
+            self._turn_observation.reset(observation_token)
             self._active_execution_scope.reset(scope_token)
             self._active_state.reset(token)
 
@@ -376,6 +411,7 @@ class AgentEngine:
         model: str | None = None,
         source_background_returns: tuple[Mapping[str, Any], ...] = (),
         replay_last_user: bool = False,
+        submission_id: str | None = None,
     ) -> TurnResult:
         """Internal run implementation (assumes session lock is held)."""
 
@@ -474,6 +510,19 @@ class AgentEngine:
             metadata=hook_metadata,
             controller=controller,
         )
+
+        if hook_ctx.session_event_publisher is not None:
+            hook_ctx.publish_session_event(
+                event="turn_started",
+                data={
+                    "session_id": session_id,
+                    "turn_id": turn_id,
+                    "run_id": run_id,
+                    "origin": getattr(origin, "value", origin),
+                    "model": model or self._llm_config.model,
+                    "started_at": utc_now_iso(),
+                },
+            )
 
         input_payload, handled = await self._dispatch_intercept(
             "input",
@@ -615,6 +664,9 @@ class AgentEngine:
                 role="user",
                 content=user_text,
                 parts=tuple(user_content_parts) if user_content_parts else None,
+                metadata={"submission_id": submission_id, "run_id": run_id}
+                if submission_id
+                else {},
             )
             history.append(user_msg)
             state.transcript.append_messages(
@@ -622,6 +674,16 @@ class AgentEngine:
                 durable=True,
                 turn_id=turn_id,
             )
+            if hook_ctx.session_event_publisher is not None:
+                hook_ctx.publish_session_event(
+                    event="turn_input_committed",
+                    data={
+                        "session_id": session_id,
+                        "turn_id": turn_id,
+                        "run_id": run_id,
+                        "submission_id": submission_id,
+                    },
+                )
             loop_history = tuple(history[:-1])
         preloop_messages: list[Message] = []
         if (
@@ -643,6 +705,7 @@ class AgentEngine:
                     durable=preloop_msg.role == "tool",
                     turn_id=turn_id,
                 )
+                self._publish_tool_commit(preloop_msg, hook_ctx, run_id=run_id)
             if preloop_messages:
                 await state.transcript.flush_async()
 
@@ -730,6 +793,7 @@ class AgentEngine:
                     durable=msg.role == "tool",
                     turn_id=turn_id,
                 )
+                self._publish_tool_commit(msg, hook_ctx, run_id=run_id)
             await state.transcript.flush_async()
             # bugfix-410-M2 R1: orphaned tool_call recovery moved to the run
             # `finally` below (see _recover_orphaned_tool_calls). The bugfix-402
@@ -826,6 +890,7 @@ class AgentEngine:
                                 durable=msg.role == "tool",
                                 turn_id=turn_id,
                             )
+                            self._publish_tool_commit(msg, hook_ctx, run_id=run_id)
                         await state.transcript.flush_async()
                     except CompactionError:
                         await self._emit_compaction_failure(
@@ -983,6 +1048,30 @@ class AgentEngine:
                 )
 
         return turn_result
+
+    def _publish_tool_commit(
+        self, message: Message, hook_ctx: HookContext, *, run_id: str | None
+    ) -> None:
+        if (
+            message.role != "tool"
+            or "serialization_status" not in message.metadata
+            or hook_ctx.session_event_publisher is None
+        ):
+            return
+        hook_ctx.publish_session_event(
+            event="tool_result_committed",
+            data={
+                "session_id": hook_ctx.session_id,
+                "turn_id": hook_ctx.turn_id,
+                "run_id": run_id,
+                "message_id": message.message_id,
+                "tool_call_id": message.tool_call_id,
+                "name": message.metadata.get("tool_name"),
+                "is_error": message.metadata.get("tool_error") is not None,
+                "serialization_status": message.metadata["serialization_status"],
+                "content_digest": tool_content_digest(message.content),
+            },
+        )
 
     def get_llm_config(self) -> LLMFactoryConfig:
         """Return active LLM configuration used by the runtime."""
@@ -1374,6 +1463,31 @@ class AgentEngine:
                 registry=hook_runner.registry,
                 session_id=session_id,
             )
+        observation = self._turn_observation.get()
+        if (
+            session_event_publisher is not None
+            and observation is not None
+            and turn_id is not None
+        ):
+            raw_publisher = session_event_publisher
+
+            def _session_turn_publisher(event: str, data: Mapping[str, Any]) -> None:
+                payload = {"turn_id": turn_id, **data}
+                if event == "turn_started":
+                    observation["started"] = time.monotonic()
+                    observation["model"] = payload.get("model")
+                elif event == "turn_end":
+                    observation["terminal"] = True
+                    payload["finished_at"] = utc_now_iso()
+                    if "started" in observation:
+                        payload["elapsed_ms"] = max(
+                            0, int((time.monotonic() - observation["started"]) * 1000)
+                        )
+                    payload["model"] = observation.get("model")
+                raw_publisher(event, payload)
+
+            session_event_publisher = _session_turn_publisher
+            observation["publisher"] = _session_turn_publisher
         output_event_publisher = session_event_publisher
         if session_event_publisher is not None and controller is not None:
             unguarded_publisher = session_event_publisher
@@ -1436,6 +1550,8 @@ class AgentEngine:
                         "permission_request",
                         {
                             "run_id": run_id_for_broker,
+                            "turn_id": turn_id,
+                            "execution_session_id": session_id,
                             "request_id": req.id,
                             "tool_name": req.tool_name,
                             "tool_input": dict(req.tool_input)
@@ -1634,6 +1750,8 @@ class AgentEngine:
                                 "permission_resolved",
                                 {
                                     "run_id": run_id_for_broker,
+                                    "turn_id": turn_id,
+                                    "execution_session_id": session_id,
                                     "request_id": req.id,
                                     "decision": getattr(response, "decision", "deny"),
                                     **permission_correlation,
@@ -1847,6 +1965,7 @@ class AgentEngine:
             tool_call_id=call_id,
             metadata={
                 "tool_name": "skill_view",
+                "serialization_status": "succeeded",
                 "tool_call_id": call_id,
                 "tool_output": output,
                 "tool_error": error,

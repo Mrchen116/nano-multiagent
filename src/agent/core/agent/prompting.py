@@ -117,6 +117,8 @@ def build_chat_messages(
                 name=message.name,
                 tool_call_id=message.tool_call_id or _extract_tool_call_id(metadata),
                 tool_calls=_extract_tool_calls(metadata),
+                is_error=message.role == "tool"
+                and metadata.get("tool_error") is not None,
                 reasoning_content=message.reasoning_content,
                 reasoning_signature=message.reasoning_signature,
             )

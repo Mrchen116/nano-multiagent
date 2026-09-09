@@ -1,6 +1,6 @@
 # IM - Agents and Nodes Specification
 
-> 对齐: feat-541
+> 对齐: feat-546
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -646,3 +646,17 @@ Agents 设置首页、agent 详情页与新建页的左侧列表在桌面端浅�
 - **WHEN** 在桌面端查看列表
 - **THEN** 未选中条目的显示名与 Agent ID 以正文与辅助文字颜色呈现在浅色侧栏上,清晰可读
 - **AND** 选中与 hover 底色上文字保持可读
+
+### Requirement: 新建时选择工作模式，已有 Agent 保持原行为
+
+#### Scenario: 新建全局 Agent
+- **WHEN** 用户创建 Agent 并选择全局模式
+- **THEN** 创建结果保留该选择，后续跨聊天工作按全局方式进行
+
+#### Scenario: 保留单 Thread 方式
+- **WHEN** 用户使用已有 Agent，或新建时选择单 Thread 模式
+- **THEN** 继续使用当前各聊天独立工作的行为
+
+#### Scenario: 不提供模式切换
+- **WHEN** 用户查看或编辑一个已创建 Agent 的配置
+- **THEN** 可以辨认其模式，但不能将其改成另一种模式

@@ -2,7 +2,7 @@
 
 > 对齐: [spec.md](spec.md)（2026-09-09 实验版本需求）
 > Unit branch: `unit/feat-546` (will be created by orchestrator)
-> 状态：设计与接口已收口；门禁 2 结论以 [独立设计审查](design-review.md) 为准。尚未实施。
+> 状态：设计与接口已收口；门禁 2 结论以 [独立设计审查](design-review.md) 为准。已实施；实际自测与剩余飞书授权前提见 [M1 进度](M1-global-agent-inbox/progress.md)。
 
 ## Changelog
 
@@ -105,6 +105,14 @@ Gateway target 接收锁与 Kernel 输出准入一起决定 enqueue 前后的先
 ### D13：保留不同自动来源的执行边界
 
 **全局 Heartbeat 使用主 Session；Cron 继续隔离执行与原明确投递，过程在“其他执行”查看。** cron canonical awareness 写回主上下文以支持后续追问，不再生成重复 Inbox 通知。全局普通工作正文不自动发聊天；既有调度任务的明确结果投递与之区分。后台 Bash／subagent／Workflow 使用真实 task 类型；active 摄取不改原触发标题，idle 返回才产生新运行。
+
+### 实施校正（真实入口验收）
+
+- Inbox 唤醒使用 `HUMAN` origin 保持既有 Workflow 显式授权语义；工作标题仍依据 Inbox admission，不能把 origin 当作来源标签。Inbox 用户正文同时经新工具的可选结果投影进入自动审批上下文，避免审批只看通知而漏掉实际用户请求；原审批规则不变。
+- Workflow 权限事件区分通知接收者与 `execution_session_id`；工作记录按实际执行 Session 归属，并保留 parent 身份。允许／拒绝沿原 permission broker 生效。
+- 全局主执行拒绝旧聊天过程占位；已声明的隔离 cron 最终结果经 `delivery_source=cron` 保留 owner-direct 投递路径。投递事实仅在最终消息 ACK 后记录实际目标、消息 identity 与正文，不以 turn-start 路由冒充成功交付。
+- 提交 identity 已受理且输入已持久时重试复用收据；若实际受理在输入持久前终止，则允许同一 identity 重试。Gateway 对此按 1/5/30 秒退避，不重放已持久输入的中断执行。
+- Gate 3 的独立检查子 Agent 按用户明确要求免除；本阶段不声明 code review、reviewer 或 verifier 通过。实际入口、相关测试、文档、归档及 CI 仍由实施阶段完成。
 
 ## 接口与数据流
 

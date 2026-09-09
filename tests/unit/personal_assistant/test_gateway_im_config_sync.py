@@ -1122,6 +1122,7 @@ def test_sync_agent_repairs_static_feishu_mirror_once_before_publish(
     assert tuple(skills) == expected
     assert owners.catalog.require("agent-static").config.skills == expected
     assert sync.current_agent_payload(agent_id="agent-static") == {
+        "work_mode": "single_thread",
         "display_name": "Static",
         "skills": [*expected],
         "skills_selection_mode": "explicit_allowlist",

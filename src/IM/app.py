@@ -43,6 +43,9 @@ from IM.ws.gateway.control import GatewayControl
 from IM.ws.gateway.execution import GatewayExecution
 from IM.ws.gateway.relay import GatewayRelay
 from IM.ws.gateway.runtime import GatewayRuntime
+from IM.ws.gateway.work import GatewayWork
+from IM.infra.repositories.agent_work import AgentWorkRepository
+from IM.api.routes.agent_work import router as agent_work_router
 from IM.ws.gateway.sessions import GatewayAuthorizationError, GatewaySessions
 from IM.ws.user_stream import (
     UserStreamRegistry,
@@ -365,7 +368,18 @@ def create_app(
             event_repository=event_repository,
             lock=gateway_lock,
         )
+        work_repository = AgentWorkRepository(connection)
+        work_repository.mark_active_unknown()
+        gateway_work = GatewayWork(
+            connection=connection,
+            repository=work_repository,
+            sessions=gateway_sessions,
+            registry=registry,
+        )
+        app_instance.state.work_repository = work_repository
+        app_instance.state.gateway_work = gateway_work
         gateway_runtime = GatewayRuntime(
+            work=gateway_work,
             sessions=gateway_sessions,
             control=gateway_control,
             channel_control=gateway_channel_control,
@@ -430,6 +444,7 @@ def create_app(
     app.include_router(auth_router)
     app.include_router(account_router)
     app.include_router(agent_router)
+    app.include_router(agent_work_router)
     app.include_router(agent_channels_router)
     app.include_router(web_im_router)
     app.include_router(message_router)

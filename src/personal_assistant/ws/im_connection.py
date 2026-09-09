@@ -310,6 +310,8 @@ class IMConnectionManager:
         distill_prompt_handler: DistillPromptHandler | None = None,
         token_getter: TokenGetter | None = None,
         permission_response_handler: PermissionResponseHandler | None = None,
+        work_permission_handler: Callable[[Mapping[str, object]], bool] | None = None,
+        work_connected_callback: Callable[[], None] | None = None,
         on_connected: Callable[[ManagedChannelConnectionSender], Awaitable[None]]
         | None = None,
         managed_channel_bindings: ManagedChannelBindings | None = None,
@@ -336,6 +338,8 @@ class IMConnectionManager:
         self._distill_prompt_handler = distill_prompt_handler
         # Called when IM pushes a permission_response so PA can POST it to the agent.
         self._permission_response_handler = permission_response_handler
+        self._work_permission_handler = work_permission_handler
+        self._work_connected_callback = work_connected_callback
         # token_getter is called on each connect attempt to supply a fresh access token.
         # When absent the static config.token is used (backwards-compatible behaviour).
         self._token_getter = token_getter
@@ -924,11 +928,50 @@ class IMConnectionManager:
                 self._registration_deadline = None
                 self._reconnect_delay = self._config.reconnect_initial_seconds
                 await self._notify_registered()
+                if self._work_connected_callback is not None:
+                    self._work_connected_callback()
                 # on_connected runs inside the receive owner after register ACK.
                 # Starting heartbeat earlier would send an ACK-gated control frame
                 # while this callback prevents the receive owner from consuming it.
                 self._start_heartbeat_loop()
             await self._flush_pending_frames()
+            return
+        if message_type in {"agent.work.ack", "conversation.query.result"}:
+            request_type = (
+                "agent.work.append"
+                if message_type == "agent.work.ack"
+                else "conversation.query"
+            )
+            owner = self._wire_frame_owner
+            key = "journal_id" if message_type == "agent.work.ack" else "request_id"
+            if (
+                owner is not None
+                and owner.frame.message_type == request_type
+                and owner.frame.payload.get(key) == body.get(key)
+            ):
+                self._ack_pending_frame({**body, "message_type": request_type})
+                await self._flush_pending_frames()
+            return
+        if message_type == "agent.work.permission":
+            try:
+                accepted = (
+                    self._work_permission_handler is not None
+                    and self._work_permission_handler(body)
+                )
+            except Exception:
+                accepted = False
+            await self.send_json(
+                "agent.work.permission.result",
+                {
+                    "request_id": body.get("request_id"),
+                    "ok": accepted,
+                    **(
+                        {}
+                        if accepted
+                        else {"error": "permission request is no longer pending"}
+                    ),
+                },
+            )
             return
         if message_type == "relay.message":
             self._relay_adapter.accept_relay(body)
@@ -1253,6 +1296,11 @@ class IMConnectionManager:
                         tool_ids,
                         scenario,
                         skill_ids,
+                        **(
+                            {"work_mode": "global"}
+                            if body.get("work_mode") == "global"
+                            else {}
+                        ),
                     )
                 )
                 if isinstance(result, Mapping):
@@ -1339,6 +1387,11 @@ class IMConnectionManager:
                         tool_ids,
                         scenario,
                         skill_ids,
+                        **(
+                            {"work_mode": "global"}
+                            if body.get("work_mode") == "global"
+                            else {}
+                        ),
                     )
                 )
                 if isinstance(result, Mapping):

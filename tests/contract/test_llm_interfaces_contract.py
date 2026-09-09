@@ -31,6 +31,7 @@ def test_llm_message_contract() -> None:
         "usage",
         "reasoning_content",
         "reasoning_signature",
+        "is_error",
     ]
 
 

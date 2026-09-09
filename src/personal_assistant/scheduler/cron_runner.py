@@ -17,9 +17,10 @@ import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from collections.abc import Callable
-from typing import Protocol
+from typing import Protocol, Any
 
 from personal_assistant.gateway.session_binder import GatewaySessionBinder
+from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
 from personal_assistant.scheduler.cron_scheduler import CronJob, CronJobStore
 
 _logger = logging.getLogger(__name__)
@@ -93,6 +94,8 @@ class CronRunner:
         session_binder: GatewaySessionBinder | None = None,
         canonical_session_id: str | None = None,
         canonical_session_id_provider: Callable[[], str | None] | None = None,
+        agent_catalog: LiveAgentCatalog | None = None,
+        work_recorder: Any | None = None,
     ) -> None:
         self._agent_id = agent_id
         self._workspace_root = workspace_root
@@ -100,8 +103,12 @@ class CronRunner:
         self._session_binder = session_binder
         self._canonical_session_id = canonical_session_id
         self._canonical_session_id_provider = canonical_session_id_provider
+        self._agent_catalog = agent_catalog
+        self._work_recorder = work_recorder
 
-    async def submit(self, *, job: CronJob) -> tuple[str, str] | None:
+    async def submit(
+        self, *, job: CronJob, request_id: str | None = None, trigger: str | None = None
+    ) -> tuple[str, str] | None:
         """Submit one cron job as an isolated run and return (run_id, kernel_session_id).
 
         The session key is ``cron:<jobId>`` — an ephemeral isolated session that
@@ -122,12 +129,31 @@ class CronRunner:
         # feat-394-M6 R2 fix: do not pass session_id to create_session — InProcessKernelClient
         # has no such parameter.  Kernel generates the session id; we read it from the payload.
         # The title "cron:<jobId>" is purely cosmetic (visible in session list).
+        snapshot = (
+            self._agent_catalog.get(self._agent_id) if self._agent_catalog else None
+        )
+        global_mode = snapshot is not None and snapshot.config.work_mode == "global"
+        metadata = {"agent_id": self._agent_id}
+        if global_mode:
+            metadata.update(
+                pa_work_scope="cron",
+                job_id=job.id,
+                request_id=request_id,
+                trigger=trigger,
+            )
+        create = self._kernel_client.create_session
+        create_args = {}
+        create_agent = getattr(self._kernel_client, "create_agent_session", None)
+        if snapshot is not None and callable(create_agent):
+            create = create_agent
+            create_args["agent_snapshot"] = snapshot
         try:
-            session_payload = await self._kernel_client.create_session(
+            session_payload = await create(
+                **create_args,
                 workspace_root=str(self._workspace_root),
                 product_id="personal_assistant",
                 title=f"cron:{job.id}",
-                metadata={"agent_id": self._agent_id},
+                metadata=metadata,
             )
         except Exception:  # noqa: BLE001
             _logger.exception(
@@ -145,6 +171,27 @@ class CronRunner:
             )
             return None
 
+        if global_mode and self._work_recorder is not None:
+            self._work_recorder.register(
+                agent_id=self._agent_id,
+                session_id=session_id,
+                scope="cron",
+                workspace_root=str(self._workspace_root),
+                job_id=job.id,
+                request_id=request_id,
+                trigger=trigger,
+            )
+            self._work_recorder.record(
+                agent_id=self._agent_id,
+                session_id=session_id,
+                event_type="cron_trigger",
+                event_id=f"cron-trigger:{request_id or session_id}",
+                payload={
+                    "job_id": job.id,
+                    "request_id": request_id,
+                    "trigger": trigger,
+                },
+            )
         try:
             run_payload = self._kernel_client.submit_message(
                 session_id=session_id,
@@ -208,7 +255,18 @@ class CronRunner:
         Returns:
             True when awareness was appended; False when no canonical session exists.
         """
-        session_id = session_id or self.resolve_canonical_session_id()
+        snapshot = (
+            self._agent_catalog.get(self._agent_id) if self._agent_catalog else None
+        )
+        if snapshot is not None and snapshot.config.work_mode == "global":
+            if self._session_binder is None:
+                raise RuntimeError(
+                    "Global cron awareness requires the global Session binder"
+                )
+            binding = await self._session_binder.resolve_global(snapshot)
+            session_id = binding.kernel_session_id
+        else:
+            session_id = session_id or self.resolve_canonical_session_id()
         if not session_id:
             _logger.debug(
                 "cron: awareness skip — empty session_id: agent=%s", self._agent_id

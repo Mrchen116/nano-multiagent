@@ -7,7 +7,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from agent.sdk import RunOrigin
+from agent.sdk import RunOrigin, TERMINAL_RUN_STATUSES
 
 from personal_assistant.config.local_store import (
     HeartbeatConfig,
@@ -74,6 +74,7 @@ class PollingHeartbeatRunner:
         product_default_model: str | None = None,
         reasoning_catalog: Any | None = None,
         time_context: Any | None = None,
+        work_recorder: Any | None = None,
     ) -> None:
         self._scheduler = scheduler
         self._config = config
@@ -97,6 +98,7 @@ class PollingHeartbeatRunner:
         self._product_default_model = product_default_model
         self._reasoning_catalog = reasoning_catalog
         self._time_context = time_context
+        self._work_recorder = work_recorder
 
     async def start(self) -> None:
         """Start background scheduler ticking exactly once."""
@@ -167,16 +169,14 @@ class PollingHeartbeatRunner:
                 summary = None
             # feat-393: consume each triggered heartbeat run through the shared observer so
             # results are delivered to the owner's canonical IM direct conversation.
-            if (
-                summary is not None
-                and self._kernel is not None
-                and self._run_context_store is not None
-                and self._owner_user_id
-            ):
+            if summary is not None and self._kernel is not None:
                 for record in summary.triggered_runs:
                     if self._stop_requested:
                         break
-                    await self._consume_heartbeat_run(record)
+                    if record.work_scope == "global_main" or (
+                        self._run_context_store is not None and self._owner_user_id
+                    ):
+                        await self._consume_heartbeat_run(record)
             # feat-394-M3 CRITICAL-1 fix: unified polling tick also drives cron scheduling.
             # Design §架构总览: "统一 Polling 调度 tick（扩展现 PollingHeartbeatRunner）".
             # For each agent with cron_enabled=True, invoke the cron tick function.
@@ -234,6 +234,21 @@ class PollingHeartbeatRunner:
         kernel_session_id = record.session_id
         agent_id = record.agent_id
 
+        if record.work_scope == "global_main":
+            try:
+                outcome = await consume_work_run(
+                    kernel=self._kernel,
+                    run_id=run_id,
+                    session_id=kernel_session_id,
+                    stream_anchor=record.stream_anchor,
+                )
+                await self._failover_heartbeat_if_needed(record, outcome)
+            except Exception:
+                _hb_logger.exception(
+                    "global heartbeat failed: agent=%s run=%s", agent_id, run_id
+                )
+            return
+
         assert self._run_context_store is not None  # guard (checked in _run_loop)
 
         try:
@@ -290,7 +305,7 @@ class PollingHeartbeatRunner:
             self._sticky_store is None
             or self._agent_catalog is None
             or self._kernel is None
-            or self._run_context_store is None
+            or (self._run_context_store is None and record.work_scope != "global_main")
         ):
             return outcome
         snapshot = self._agent_catalog.get(record.agent_id)
@@ -311,6 +326,16 @@ class PollingHeartbeatRunner:
             stream_anchor: int,
             before_flush: Any,
         ) -> StreamRunOutcome:
+            if record.work_scope == "global_main":
+                result = await consume_work_run(
+                    kernel=self._kernel,
+                    run_id=run_id,
+                    session_id=record.session_id,
+                    stream_anchor=stream_anchor,
+                )
+                if result.status == "completed":
+                    await before_flush()
+                return result
             held: list[Any] = []
             return await _stream_run_to_completion(
                 run_id=run_id,
@@ -327,6 +352,15 @@ class PollingHeartbeatRunner:
             )
 
         async def _deliver_notice(model: str) -> None:
+            if record.work_scope == "global_main":
+                if self._work_recorder is not None:
+                    self._work_recorder.record(
+                        agent_id=record.agent_id,
+                        session_id=record.session_id,
+                        event_type="model_fallback",
+                        payload={"model": model, "text": switch_notice(model)},
+                    )
+                return
             if self._kernel_event_observer is None:
                 return
             notice_run_id = f"{record.run_id}:model-fallback-ack"
@@ -361,7 +395,44 @@ class PollingHeartbeatRunner:
             origin=RunOrigin.HEARTBEAT,
             consume_replay=_consume_replay,
             deliver_notice=_deliver_notice,
+            scenario={"agent_id": record.agent_id, "pa_work_scope": "global_main"}
+            if record.work_scope == "global_main"
+            else None,
+            revalidate_output=record.work_scope == "global_main",
         )
+
+
+async def consume_work_run(
+    *, kernel: Any, run_id: str, session_id: str, stream_anchor: int = 0
+) -> StreamRunOutcome:
+    """Wait for a work-owned run without assigning any chat delivery context.
+
+    The composition's SDK observer already persists each event. This consumer
+    only observes terminal state for scheduler lifecycle and fallback handling.
+    """
+    final_text = ""
+    async for event in kernel.stream(session_id, after_sequence=stream_anchor):
+        if event.get("run_id") != run_id:
+            continue
+        if event.get("event") == "assistant_message":
+            final_text = str(event.get("content") or "").strip() or final_text
+        if (
+            event.get("event") == "run_status"
+            and event.get("status") in TERMINAL_RUN_STATUSES
+        ):
+            error = event.get("error")
+            return StreamRunOutcome(
+                status=str(event["status"]),
+                final_text=final_text,
+                delivery=None,
+                error=str(error.get("message") or "")
+                if isinstance(error, dict)
+                else str(error)
+                if error
+                else None,
+                error_kind=error.get("kind") if isinstance(error, dict) else None,
+            )
+    raise RuntimeError("work stream ended without terminal run_status")
 
 
 def _consume_task_exception(task: asyncio.Task[object]) -> None:

@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS agent_profiles (
     default_model TEXT,
     model_fallbacks_json TEXT NOT NULL DEFAULT '[]',
     reasoning_effort TEXT,
+    work_mode TEXT NOT NULL DEFAULT 'single_thread',
     workspace_root TEXT,
     workspace_is_default INTEGER,
     registration_seed INTEGER NOT NULL DEFAULT 0,
@@ -749,6 +750,10 @@ def _migrate_agent_profile_tables(connection: sqlite3.Connection) -> None:
     if agent_column_names and "heartbeat_json" not in agent_column_names:
         connection.execute("ALTER TABLE agent_profiles ADD COLUMN heartbeat_json TEXT")
 
+    if agent_column_names and "work_mode" not in agent_column_names:
+        connection.execute(
+            "ALTER TABLE agent_profiles ADD COLUMN work_mode TEXT NOT NULL DEFAULT 'single_thread'"
+        )
     if agent_column_names and "reasoning_effort" not in agent_column_names:
         connection.execute(
             "ALTER TABLE agent_profiles ADD COLUMN reasoning_effort TEXT"

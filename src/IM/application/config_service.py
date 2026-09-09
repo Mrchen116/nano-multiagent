@@ -85,6 +85,7 @@ class ConfigService:
         default_model: str | None,
         workspace_root: str | None,
         reasoning_effort: str | None = None,
+        work_mode: str = "single_thread",
         workspace_is_default: bool | None = None,
         features: dict[str, bool] | None = None,
         custom_prompt: str | None = None,
@@ -121,6 +122,7 @@ class ConfigService:
             group_reply_policy=group_reply_policy,
             default_model=default_model,
             reasoning_effort=reasoning_effort,
+            work_mode=work_mode,
             workspace_root=self.normalize_workspace_root(
                 agent_id=agent_id, workspace_root=workspace_root
             ),

@@ -16,6 +16,7 @@ from .protocol import (
 )
 from .relay import GatewayRelay
 from .sessions import GatewaySessions
+from .work import GatewayWork
 
 
 class GatewayRuntime:
@@ -24,6 +25,9 @@ class GatewayRuntime:
     _SUPPORTED_UPSTREAM_TYPES = frozenset(
         {
             "node.heartbeat",
+            "agent.work.append",
+            "conversation.query",
+            "agent.work.permission.result",
             "node.report",
             "node.delivery_receipt",
             "agent.config",
@@ -59,12 +63,14 @@ class GatewayRuntime:
         channel_control: GatewayChannelControl,
         relay: GatewayRelay,
         execution: GatewayExecution,
+        work: GatewayWork | None = None,
     ) -> None:
         self._sessions = sessions
         self._control = control
         self._channel_control = channel_control
         self._relay = relay
         self._execution = execution
+        self._work = work
 
     async def serve(
         self, websocket: WebSocket, *, authenticated_owner_id: str = ""
@@ -143,6 +149,21 @@ class GatewayRuntime:
                 payload=payload,
                 authenticated_owner_id=authenticated_owner_id,
             )
+        if message_type in {
+            "agent.work.append",
+            "conversation.query",
+            "agent.work.permission.result",
+        }:
+            if self._work is None or not await self._sessions.is_registered_sender(
+                websocket=websocket, node_id=str(payload.get("node_id", ""))
+            ):
+                return {"type": "error", "payload": {"code": "node_not_registered"}}
+            handler = {
+                "agent.work.append": self._work.append,
+                "conversation.query": self._work.query,
+                "agent.work.permission.result": self._work.permission_result,
+            }[message_type]
+            return await handler(payload=payload)
         handlers = {
             "node.heartbeat": self._sessions.heartbeat,
             "node.report": self._execution.handle_report,

@@ -357,6 +357,9 @@ class GatewaySessions:
                 version=version,
                 agent_ids=agents,
                 agent_workspaces=agent_workspaces,
+                agent_work_modes=payload.get("agent_work_modes")
+                if isinstance(payload.get("agent_work_modes"), dict)
+                else {},
                 agent_workspace_is_default=agent_workspace_is_default,
                 agent_create_operations=agent_create_operations,
                 agent_skills=agent_skills,

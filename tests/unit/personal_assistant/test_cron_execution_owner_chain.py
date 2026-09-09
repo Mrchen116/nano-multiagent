@@ -16,7 +16,9 @@ class _Runner:
         self.submitted: list[str] = []
         self.awareness: list[str] = []
 
-    async def submit(self, *, job: CronJob) -> tuple[str, str]:
+    async def submit(
+        self, *, job: CronJob, request_id=None, trigger=None
+    ) -> tuple[str, str]:
         self.submitted.append(job.id)
         return "run-1", "session-isolated"
 

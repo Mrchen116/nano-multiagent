@@ -375,6 +375,9 @@ class UpstreamReporter:
                 for agent in self._agents
                 if agent.skills_selection_mode is not None
             },
+            "agent_work_modes": {
+                agent.agent_id: agent.work_mode for agent in self._agents
+            },
             "agent_tool_allowlist": {
                 agent.agent_id: list(agent.tool_allowlist) for agent in self._agents
             },

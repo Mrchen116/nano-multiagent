@@ -147,6 +147,19 @@ class JsonlTranscript:
                 external_epoch=self._external_epoch,
             )
 
+    def submission_receipt(self, submission_id: str) -> dict[str, Any] | None:
+        """Find a durable submitted input even when compaction hid its context."""
+        with self._mutex:
+            self._writer.durable_barrier(self._path)
+            for entry in self._files.read_raw_entries(self._ref):
+                if entry.get("submission_id") == submission_id:
+                    return {
+                        "run_id": entry.get("run_id"),
+                        "turn_id": entry.get("turn_id"),
+                        "input_committed": True,
+                    }
+        return None
+
     def load_config(self) -> SessionConfig:
         """Project config entries without constructing conversation messages."""
 
@@ -894,6 +907,8 @@ def _turn_metadata(entry: Mapping[str, Any]) -> dict[str, Any]:
         "tool_output",
         "output_status",
         "withheld_message_ids",
+        "submission_id",
+        "run_id",
     )
     metadata = {key: entry[key] for key in keys if key in entry}
     if "idempotency_key" in entry:
@@ -915,6 +930,8 @@ def _copy_turn_metadata(entry: dict[str, Any], metadata: Mapping[str, Any]) -> N
         "tool_output",
         "output_status",
         "withheld_message_ids",
+        "submission_id",
+        "run_id",
         "tool_call_id",
         "group_id",
         "reasoning_content",

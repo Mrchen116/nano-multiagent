@@ -53,6 +53,7 @@ class HeartbeatRunRecord:
     run_id: str
     session_id: str
     stream_anchor: int = 0
+    work_scope: str = "single_thread"
 
 
 @dataclass(frozen=True, slots=True)
@@ -316,36 +317,37 @@ class HeartbeatScheduler:
             # reactive approach (turn_start ack → fill) which failed for first-tick,
             # restart, and silent-polling scenarios (silent polls never ack → never fill).
             # Pure gateway read — no IM HTTP call required.
-            _canonical_session_key: str | None = None
-            _binding = (
-                self._session_binder.find_canonical_direct(
-                    channel_name="web_relay", agent_id=agent.agent_id
-                )
-                if self._session_binder is not None
-                else None
-            )
-            if _binding is not None:
-                if _binding is not None and _binding.kernel_session_id:
-                    self._canonical_session_store[agent.agent_id] = (
-                        _binding.kernel_session_id
+            if agent.work_mode != "global":
+                _canonical_session_key: str | None = None
+                _binding = (
+                    self._session_binder.find_canonical_direct(
+                        channel_name="web_relay", agent_id=agent.agent_id
                     )
-                    _canonical_session_key = _binding.session_key
-            elif self._session_binder is not None:
-                self._canonical_session_store.pop(agent.agent_id, None)
-            # feat-394 decision 3: busy-session gate — skip when canonical session is running
-            # a turn (avoid concurrent runs in the same direct-chat kernel session).
-            canonical_session = self._canonical_session_store.get(agent.agent_id)
-            if canonical_session and canonical_session in self._busy_sessions:
-                skipped_agents.append(agent.agent_id)
-                continue
-            # The coordinator busy gate covers queued, admitting, and active work for
-            # the canonical direct-chat session key.
-            # This prevents heartbeat from executing while user messages are in flight,
-            # which would force user messages to wait behind the heartbeat LLM call.
-            if _canonical_session_key is not None:
-                if self._is_session_busy(_canonical_session_key):
+                    if self._session_binder is not None
+                    else None
+                )
+                if _binding is not None:
+                    if _binding is not None and _binding.kernel_session_id:
+                        self._canonical_session_store[agent.agent_id] = (
+                            _binding.kernel_session_id
+                        )
+                        _canonical_session_key = _binding.session_key
+                elif self._session_binder is not None:
+                    self._canonical_session_store.pop(agent.agent_id, None)
+                # feat-394 decision 3: busy-session gate — skip when canonical session is running
+                # a turn (avoid concurrent runs in the same direct-chat kernel session).
+                canonical_session = self._canonical_session_store.get(agent.agent_id)
+                if canonical_session and canonical_session in self._busy_sessions:
                     skipped_agents.append(agent.agent_id)
                     continue
+                # The coordinator busy gate covers queued, admitting, and active work for
+                # the canonical direct-chat session key.
+                # This prevents heartbeat from executing while user messages are in flight,
+                # which would force user messages to wait behind the heartbeat LLM call.
+                if _canonical_session_key is not None:
+                    if self._is_session_busy(_canonical_session_key):
+                        skipped_agents.append(agent.agent_id)
+                        continue
             heartbeat_path = (
                 agent.workspace_root / WORKSPACE_CONFIG_DIRNAME / "HEARTBEAT.md"
             )
@@ -368,14 +370,16 @@ class HeartbeatScheduler:
                     )
                     for due_at in due_times:
                         any_due = True
-                        triggered_runs.append(
-                            await self._submit_run(
-                                agent=agent,
-                                agent_snapshot=agent_snapshot,
-                                due_at=due_at,
-                                instructions=task.prompt,
-                            )
+                        record = await self._submit_run(
+                            agent=agent,
+                            agent_snapshot=agent_snapshot,
+                            due_at=due_at,
+                            instructions=task.prompt,
                         )
+                        if record is not None:
+                            triggered_runs.append(record)
+                        elif agent.agent_id not in skipped_agents:
+                            skipped_agents.append(agent.agent_id)
                         per_task_last_due[task.name] = due_at.isoformat()
                 if any_due:
                     state_agents[agent.agent_id] = _AgentState(
@@ -406,14 +410,16 @@ class HeartbeatScheduler:
                 if not due_times:
                     continue
                 for due_at in due_times:
-                    triggered_runs.append(
-                        await self._submit_run(
-                            agent=agent,
-                            agent_snapshot=agent_snapshot,
-                            due_at=due_at,
-                            instructions=spec.instructions,
-                        )
+                    record = await self._submit_run(
+                        agent=agent,
+                        agent_snapshot=agent_snapshot,
+                        due_at=due_at,
+                        instructions=spec.instructions,
                     )
+                    if record is not None:
+                        triggered_runs.append(record)
+                    elif agent.agent_id not in skipped_agents:
+                        skipped_agents.append(agent.agent_id)
                     state_agents[agent.agent_id] = _AgentState(
                         last_due_at=due_at.isoformat(),
                         per_task_last_due=agent_state.per_task_last_due,
@@ -443,6 +449,15 @@ class HeartbeatScheduler:
         Raises:
             RuntimeError: When the kernel session creation returns an empty or malformed session_id.
         """
+        if agent.work_mode == "global":
+            if self._session_binder is None:
+                raise RuntimeError(
+                    "Global heartbeat requires the global Session binder"
+                )
+            binding = await self._session_binder.resolve_global(
+                agent_snapshot or LiveAgentSnapshot(config=agent, revision=0)
+            )
+            return binding.kernel_session_id
         # Check canonical session first (feat-394 decision 3: run in owner direct-chat session).
         canonical_id = self._canonical_session_store.get(agent.agent_id)
         if canonical_id:
@@ -486,7 +501,7 @@ class HeartbeatScheduler:
         agent_snapshot: LiveAgentSnapshot | None,
         due_at: datetime,
         instructions: str,
-    ) -> HeartbeatRunRecord:
+    ) -> HeartbeatRunRecord | None:
         # feat-393 decision 4: stable :heartbeat session reused across ticks instead of
         # fresh session per tick.  Reuse preserves standing-task context continuity and
         # ensures heartbeat runs are never detached from a resolvable IM conversation target.
@@ -496,12 +511,22 @@ class HeartbeatScheduler:
         )
         ensure_runtime = getattr(self._kernel_client, "ensure_agent_runtime", None)
         if agent_snapshot is not None and callable(ensure_runtime):
-            await ensure_runtime(
+            applied = await ensure_runtime(
+                **({"only_if_idle": True} if agent.work_mode == "global" else {}),
                 session_id=session_id,
                 agent_snapshot=agent_snapshot,
                 workspace_root=str(agent.workspace_root),
-                metadata={"agent_id": agent.agent_id},
+                metadata={
+                    "agent_id": agent.agent_id,
+                    **(
+                        {"pa_work_scope": "global_main"}
+                        if agent.work_mode == "global"
+                        else {}
+                    ),
+                },
             )
+            if applied is False:
+                return None
         message = _build_heartbeat_message(
             agent_id=agent.agent_id, due_at=due_at, instructions=instructions
         )
@@ -515,7 +540,24 @@ class HeartbeatScheduler:
         # The stateless kernel needs workspace_root to locate the session JSONL;
         # origin=heartbeat lets auto_mode_gate detect unattended context and skip
         # blocking permission requests that nobody is around to answer.
-        run_payload = self._kernel_client.submit_message(
+        submit = (
+            self._kernel_client.submit_message
+            if agent.work_mode != "global"
+            else self._kernel_client.try_submit_idle
+        )
+        admission = {}
+        if agent.work_mode == "global":
+            import hashlib
+
+            # Distinct due tasks may share the same timestamp; include their real input.
+            task_key = hashlib.sha256(instructions.encode()).hexdigest()[:16]
+            admission = {
+                "submission_id": f"heartbeat:{agent.agent_id}:{due_at.isoformat()}:{task_key}",
+                "revalidate_output": True,
+                "agent_id": agent.agent_id,
+            }
+        run_payload = submit(
+            **admission,
             session_id=session_id,
             texts=[message],
             workspace_root=str(agent.workspace_root),
@@ -527,6 +569,8 @@ class HeartbeatScheduler:
                 session_id=session_id,
             ),
         )
+        if run_payload is None and agent.work_mode == "global":
+            return None
         run_id = str(run_payload.get("run_id", "")).strip()
         if not run_id:
             raise RuntimeError("heartbeat submission did not return run_id")
@@ -536,6 +580,9 @@ class HeartbeatScheduler:
             run_id=run_id,
             session_id=session_id,
             stream_anchor=stream_anchor,
+            work_scope="global_main"
+            if agent.work_mode == "global"
+            else "single_thread",
         )
 
 

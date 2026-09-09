@@ -105,6 +105,7 @@ const EMPTY_DRAFT: CreateAgentFormState = {
   skills: [],
   skills_selection_mode: "explicit_allowlist",
   tool_allowlist: [],
+  work_mode: "single_thread",
   group_reply_policy: "MENTION",
   default_model: null,
   model_fallbacks: [],
@@ -162,6 +163,7 @@ function CreateBehaviorCard({
         features: effectiveFeatures,
         custom_prompt: draft.custom_prompt ?? "",
         tool_ids: draft.tool_allowlist ?? [],
+        ...(draft.work_mode === "global" ? { work_mode: "global" as const } : {}),
         skill_ids: draft.skills ?? [],
         agent_id_hint: draft.agent_id || undefined,
         workspace_mode: workspaceMode,
@@ -178,6 +180,7 @@ function CreateBehaviorCard({
     effectiveFeatures,
     draft.custom_prompt,
     draft.tool_allowlist,
+    draft.work_mode,
     draft.skills,
     draft.agent_id,
     workspaceMode,
@@ -195,6 +198,7 @@ function CreateBehaviorCard({
     draft.custom_prompt,
     draft.features,
     draft.tool_allowlist,
+    draft.work_mode,
     draft.skills,
     draft.agent_id,
     workspaceMode,
@@ -397,6 +401,7 @@ export function AgentCreatePage() {
       ...current,
       skills: [],
       tool_allowlist: [],
+  work_mode: "single_thread",
       default_model: null,
       model_fallbacks: [],
       reasoning_effort: null,
@@ -709,6 +714,16 @@ export function AgentCreatePage() {
         style={{ padding: isMobile ? "14px 14px" : "20px 28px", gap: 14 }}
       >
         <section className="im-agent-card">
+          <h3 className="im-agent-card-title">工作模式</h3>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {(["single_thread", "global"] as const).map(mode => <label key={mode} className="flex cursor-pointer gap-3 rounded-lg border border-[var(--im-border)] p-3">
+              <input type="radio" name="work_mode" value={mode} checked={(draft.work_mode ?? "single_thread") === mode} onChange={() => { setDraft({ ...draft, work_mode: mode }); setIsDirty(true); }} />
+              <span><strong>{mode === "global" ? "全局模式 · 实验" : "单 Thread"}</strong><small className="block text-slate-500">{mode === "global" ? "一个持续上下文统筹各聊天，按需读取收件箱和委派。" : "每个聊天独立上下文，保持现有工作方式。"}</small></span>
+            </label>)}
+          </div>
+          <p className="text-xs text-slate-500">创建后固定，不能切换工作模式。全局模式固定保留 inbox、conversations、send_message、agent，其他工具仍可配置。</p>
+        </section>
+        <section className="im-agent-card">
           <div>
             <h3 className="im-agent-card-title">{t("agents.form.identity.title")}</h3>
             <p className="im-agent-card-sub">{t("agents.form.identity.subNew")}</p>
@@ -961,7 +976,8 @@ export function AgentCreatePage() {
               testId="pill-selector-tools"
               label={t("agents.form.access.tools")}
               selected={draft.tool_allowlist}
-              options={capabilities.tools}
+              fixed={draft.work_mode === "global" ? ["inbox", "conversations", "send_message", "agent"] : []}
+              options={draft.work_mode === "global" ? [...capabilities.tools, ...["inbox", "conversations", "send_message", "agent"].filter(name => !capabilities.tools.some(t => t.name === name)).map(name => ({ name }))] : capabilities.tools}
               isLoading={createStateQuery.isLoading}
               errorMessage={createStateQuery.isError ? queryErrorDetail : null}
               onRetry={() => void createStateQuery.refetch()}

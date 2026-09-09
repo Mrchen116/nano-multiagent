@@ -39,6 +39,7 @@ class ToolContext(Protocol):
     cwd: Any
     session_id: Any
     session_metadata: Mapping[str, Any]
+    tool_call_id: str | None
     run_id: str | None
     context_revision: int | None
     revalidate_output: bool

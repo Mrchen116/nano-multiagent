@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import contextvars
+import inspect
 import threading
 from dataclasses import dataclass
 from enum import StrEnum
@@ -61,7 +62,7 @@ class TopLevelCompletionSink(Protocol):
     def bind_target(self, token: TargetToken) -> None:
         """Publish a prepared run only after target admission succeeds."""
 
-    def complete(self, completion: TargetCompletion) -> None:
+    def complete(self, completion: TargetCompletion) -> Awaitable[None] | None:
         """Consume one terminal carrier outcome and cleanup acknowledgement."""
 
     def started(self, token: TargetToken) -> None:
@@ -138,6 +139,7 @@ class _Target:
 class _LifecycleTarget:
     token: TargetToken
     operation: Callable[[], Awaitable[Any]]
+    session: ConversationTarget
     result_future: concurrent.futures.Future[Any]
     cleanup_ack: threading.Event
     task: asyncio.Task[None] | None = None
@@ -152,7 +154,9 @@ class KernelExecutor:
         *,
         cancel_grace_seconds: float = 0.1,
         drain_timeout_seconds: float = 30.0,
+        on_session_idle: Callable[[ConversationTarget], None] | None = None,
     ) -> None:
+        self._on_session_idle = on_session_idle
         self._cancel_grace_seconds = max(0.0, cancel_grace_seconds)
         self._drain_timeout_seconds = max(0.1, drain_timeout_seconds)
         self._guard = threading.Condition()
@@ -175,16 +179,20 @@ class KernelExecutor:
         session: ConversationTarget,
         request: TurnRequest,
         completion_sink: TopLevelCompletionSink,
-    ) -> TargetToken:
+        *,
+        only_if_idle: bool = False,
+    ) -> TargetToken | None:
         """Bind a prepared run token before scheduling its carrier Task."""
 
-        return self._admit(
+        target = self._admit(
             kind="top_level",
             owner_id=run_id,
             session=session,
             request=request,
             sink=completion_sink,
-        ).token
+            only_if_idle=only_if_idle,
+        )
+        return target.token if target is not None else None
 
     def start_auxiliary(
         self,
@@ -223,6 +231,7 @@ class KernelExecutor:
         return await asyncio.wrap_future(
             self._admit_lifecycle(
                 "compact",
+                session,
                 lambda: session.compact(focus=focus, idempotency_key=idempotency_key),
             )
         )
@@ -236,7 +245,7 @@ class KernelExecutor:
         """Run fork capture/persist as a tracked lifecycle target on the owner loop."""
 
         return await asyncio.wrap_future(
-            self._admit_lifecycle("fork", lambda: session.fork(up_to=up_to))
+            self._admit_lifecycle("fork", session, lambda: session.fork(up_to=up_to))
         )
 
     async def discard_turn(
@@ -250,18 +259,22 @@ class KernelExecutor:
         return await asyncio.wrap_future(
             self._admit_lifecycle(
                 "discard_turn",
+                session,
                 lambda: session.discard_turn(turn_id),
             )
         )
 
-    async def replace_runtime(self, session: ConversationTarget, **kwargs: Any) -> bool:
-        """Run a complete runtime replacement on the conversation owner loop."""
-
-        return await asyncio.wrap_future(
-            self._admit_lifecycle(
-                "replace_runtime", lambda: session.replace_runtime(**kwargs)
-            )
+    async def replace_runtime(
+        self, session: ConversationTarget, *, only_if_idle: bool = False, **kwargs: Any
+    ) -> bool | None:
+        """Replace runtime, optionally rejecting busy Sessions without queueing."""
+        future = self._admit_lifecycle(
+            "replace_runtime",
+            session,
+            lambda: session.replace_runtime(**kwargs),
+            only_if_idle=only_if_idle,
         )
+        return None if future is None else await asyncio.wrap_future(future)
 
     def request_cancel(self, token: TargetToken, *, force: bool = False) -> bool:
         """Request carrier cancellation, optionally bypassing cooperative grace."""
@@ -351,7 +364,8 @@ class KernelExecutor:
         request: TurnRequest,
         sink: TopLevelCompletionSink | None = None,
         result_future: concurrent.futures.Future[TurnResult] | None = None,
-    ) -> _Target:
+        only_if_idle: bool = False,
+    ) -> _Target | None:
         context = contextvars.copy_context()
         token = TargetToken(
             token_id=ids.make_event_id(),
@@ -371,6 +385,12 @@ class KernelExecutor:
                 raise ExecutorClosedError(
                     "executor is shutting down; no new targets are accepted"
                 )
+            # Every accepted carrier occupies its session through cleanup, including
+            # carriers not yet scheduled and queued lifecycle operations.
+            if only_if_idle and any(
+                item.session is session for item in self._targets.values()
+            ):
+                return None
             if sink is not None:
                 sink.bind_target(token)
             self._targets[token.token_id] = target
@@ -380,8 +400,11 @@ class KernelExecutor:
     def _admit_lifecycle(
         self,
         owner_id: str,
+        session: ConversationTarget,
         operation: Callable[[], Awaitable[Any]],
-    ) -> concurrent.futures.Future[Any]:
+        *,
+        only_if_idle: bool = False,
+    ) -> concurrent.futures.Future[Any] | None:
         context = contextvars.copy_context()
         token = TargetToken(
             token_id=ids.make_event_id(),
@@ -392,6 +415,7 @@ class KernelExecutor:
         target = _LifecycleTarget(
             token=token,
             operation=operation,
+            session=session,
             result_future=future,
             cleanup_ack=threading.Event(),
         )
@@ -400,6 +424,10 @@ class KernelExecutor:
                 raise ExecutorClosedError(
                     "executor is shutting down; no new targets are accepted"
                 )
+            if only_if_idle and any(
+                item.session is session for item in self._targets.values()
+            ):
+                return None
             self._targets[token.token_id] = target
             self._loop.call_soon_threadsafe(self._schedule_lifecycle, target, context)
         return future
@@ -481,15 +509,23 @@ class KernelExecutor:
                 error=error,
                 cancelled=cancelled,
             )
-            with self._guard:
-                self._targets.pop(target.token.token_id, None)
-                target.cleanup_ack.set()
-                self._guard.notify_all()
-            if target.sink is not None:
-                try:
-                    target.sink.complete(completion)
-                except Exception:
-                    pass
+            try:
+                if target.sink is not None:
+                    settlement = target.sink.complete(completion)
+                    if inspect.isawaitable(settlement):
+                        finish = asyncio.ensure_future(settlement)
+                        # Cancellation must not reopen idle admission before terminal
+                        # hooks and stranded-input settlement have actually finished.
+                        while not finish.done():
+                            try:
+                                await asyncio.shield(finish)
+                            except asyncio.CancelledError:
+                                continue
+                        finish.result()
+            except Exception:
+                pass
+            finally:
+                self._release(target)
 
     async def _run_lifecycle(self, target: _LifecycleTarget) -> None:
         try:
@@ -503,10 +539,18 @@ class KernelExecutor:
             if not target.result_future.done():
                 target.result_future.set_exception(exc)
         finally:
-            with self._guard:
-                self._targets.pop(target.token.token_id, None)
-                target.cleanup_ack.set()
-                self._guard.notify_all()
+            self._release(target)
+
+    def _release(self, target: _Target | _LifecycleTarget) -> None:
+        with self._guard:
+            self._targets.pop(target.token.token_id, None)
+            target.cleanup_ack.set()
+            self._guard.notify_all()
+            idle = not any(
+                item.session is target.session for item in self._targets.values()
+            )
+        if idle and self._on_session_idle is not None:
+            self._on_session_idle(target.session)
 
     def _run_loop(self) -> None:
         asyncio.set_event_loop(self._loop)

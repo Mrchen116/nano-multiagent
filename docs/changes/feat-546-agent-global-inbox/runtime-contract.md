@@ -77,6 +77,8 @@ native `target` 为现有 conversation ID；外部已物化 shadow 同样返回 
 
 `inbox.read` 选页时保存不可变 receipt，结果的完整正文、来源和实际图片块由新工具的确定性 `serialize_result` 返回。该工具自管预算并设置 `max_result_size_chars=None`，复用现有多模态 tool result 路径，避免通用压缩把正文换成预览。receipt 按真实主 Session/tool_call 绑定，保存预期最终模型 content 的 digest；receipt_id 只是该页面身份。`conversations` 同样自管页面预算，但不生成消费 receipt。
 
+**自动权限上下文**：消息正文经 Inbox 工具进入主会话，不能只给审批模型发送 synthetic wake。新增 InboxTool 提供可选 `to_auto_classifier_result(content)` 投影，提取实际 read receipt 中 `sender.kind=user` 的文本、消息／来源身份与完整性；Agent/Bot 回复、图片数据和 check 摘要不作为用户授权。Kernel 按持久历史中的真实 call identity 配对成功结果，只有显式提供该投影的工具才加入审批 transcript；旧工具行为、动作参数、结果与 Presenter 不变。结果投影异常仍 fail closed，不能用这条上下文路径直接绕过审批。
+
 **消费入口唯一采用新增 SDK `tool_result_committed` 事件，不采用既有原始 `tool_result` hook 或 Presenter。** Gateway composition 只注册一份 `GlobalWorkRecorder` SDK observer：收到此事件，验证实际 work scope，再调用 `GlobalInboxService.confirm_committed_read(proof)`；服务以 session_id/tool_call_id 查询服务器 receipt，要求 name=inbox、is_error=false、serialization_status=succeeded 及实际 content_digest 匹配，再在同一 SQLite 事务提交对应 parts、完整消息 consumed_at 和 `inbox_read_committed` 工作事件。事件必须来自 Kernel durable tool-message 边界；不能用模型传入 ID、原始 output 重算值或最大 seq 冒充证明。
 
 Kernel 在构造 tool message 时记录实际 serializer 成功或 fallback 状态，对真正提交的最终 Message.content（包括预算处理后的内容）计算 digest，durable append 成功后才发布证明；同一份最终 content 同时用于当前轮 LLM 工具消息和 transcript，不能再独立序列化第二遍。既有 serializer 异常 fallback 的模型可见行为保留，但证明标为 fallback，Inbox 不确认。工具错误、durable barrier 失败、digest 不匹配均不确认；观察/确认失败或 durable 后崩溃造成漏确认时，待读仍保留，重启后按稳定消息 ID 重新读取，不补猜消费或重放工具副作用。已经成功确认的 parts 不因重启回退。完整事件字段和 digest 格式见工作轨迹契约。客户端打开聊天、conversations 历史查询、Presenter 格式化均不调用该提交。

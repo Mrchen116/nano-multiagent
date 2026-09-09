@@ -261,6 +261,12 @@ class IMShadowConversationSync:
             content=content,
         )
 
+    def resolved_anchor(self, saga_id: str) -> Any:
+        """Return a previously confirmed shadow anchor without performing IO."""
+        if self._saga_store is None:
+            return None
+        return self._saga_store.require(saga_id).shadow_ref
+
     def reply_context_for_saga(self, saga_id: str) -> ReplyContext:
         """Return the original external reply target captured by one durable saga."""
 

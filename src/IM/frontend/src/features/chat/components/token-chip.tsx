@@ -6,6 +6,7 @@ import type { TokenUsage } from "../chat-types";
 interface TokenChipProps {
   usage: TokenUsage | null | undefined;
   dataTestId?: string;
+  workAccounting?: boolean;
 }
 
 /**
@@ -17,7 +18,7 @@ interface TokenChipProps {
  * Clicking the chip expands a detail panel showing prompt/completion/total/context
  * breakdown, matching the prototype's TokenChip interaction (im-components.jsx).
  */
-export function TokenChip({ usage, dataTestId }: TokenChipProps) {
+export function TokenChip({ usage, dataTestId, workAccounting = false }: TokenChipProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   if (!usage) return null;
@@ -77,13 +78,14 @@ export function TokenChip({ usage, dataTestId }: TokenChipProps) {
 
       {open && (
         <div className="chat-token-chip-detail">
+          {workAccounting && <p className="text-xs text-slate-500">上下文取本轮最近一次输入，输出为本轮累计；主、子 Session 分别统计，不代表计费总量。</p>}
           <div className="chat-token-chip-detail-row">
             <span className="chat-token-chip-detail-label">{t("chat.messagePane.tokenOutput")}</span>
             <span className="chat-token-chip-detail-value">{usage.output.toLocaleString()}</span>
           </div>
           {usage.total !== undefined && usage.total > 0 && (
             <div className="chat-token-chip-detail-row">
-              <span className="chat-token-chip-detail-label">{t("chat.messagePane.tokenTotal")}</span>
+              <span className="chat-token-chip-detail-label">{workAccounting ? "上下文 + 本轮输出" : t("chat.messagePane.tokenTotal")}</span>
               <span className="chat-token-chip-detail-value">{usage.total.toLocaleString()}</span>
             </div>
           )}
@@ -98,7 +100,7 @@ export function TokenChip({ usage, dataTestId }: TokenChipProps) {
           <div className="chat-token-chip-detail-row">
             <span className="chat-token-chip-detail-label">{t("chat.messagePane.tokenCacheHit")}</span>
             <span className="chat-token-chip-detail-value">
-              {`${cacheRead.toLocaleString()} (${cachePct}%)`}
+              {workAccounting && (usage.cache_read_tokens == null || usage.cache_total_input_tokens == null) ? "未报告" : `${cacheRead.toLocaleString()} (${cachePct}%)`}
             </span>
           </div>
           {hasWindow && (

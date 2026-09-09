@@ -21,8 +21,10 @@ import type { PermissionOption, PermissionRequest } from "../chat-types";
 
 export interface PermissionCardProps {
   request: PermissionRequest;
-  conversationId: string;
-  messageId: string;
+  conversationId?: string;
+  messageId?: string;
+  endpoint?: string;
+  disabled?: boolean;
   /** Called with the chosen decision string after a successful POST. */
   onResolved(decision: string): void;
   /** Test seam: override fetch. Defaults to authFetch (injects Authorization header). */
@@ -79,6 +81,8 @@ export function PermissionCard({
   request,
   conversationId,
   messageId,
+  endpoint,
+  disabled = false,
   onResolved,
   fetchFn = authFetch,
 }: PermissionCardProps) {
@@ -100,7 +104,7 @@ export function PermissionCard({
     const carriesReason = option.id === "deny" && trimmedReason.length > 0;
     try {
       const resp = await fetchFn(
-        `/im/v1/conversations/${conversationId}/permissions/${request.request_id}`,
+        endpoint ?? `/im/v1/conversations/${conversationId}/permissions/${request.request_id}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -175,7 +179,7 @@ export function PermissionCard({
         rows={2}
         value={reason}
         onChange={(e) => setReason(e.target.value)}
-        disabled={isSubmitting}
+        disabled={disabled || isSubmitting}
         placeholder={t("chat.permission.reasonPlaceholder")}
         aria-label={t("chat.permission.reasonLabel")}
       />
@@ -192,7 +196,7 @@ export function PermissionCard({
               type="button"
               className={`chat-permission-btn${variant}`}
               onClick={() => handleChoice(opt)}
-              disabled={isSubmitting}
+              disabled={disabled || isSubmitting}
               aria-busy={isChosen}
               title={opt.description}
             >

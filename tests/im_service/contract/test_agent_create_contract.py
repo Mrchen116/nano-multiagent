@@ -84,6 +84,7 @@ def test_agent_create_contract_shape_and_validation(tmp_path: Path) -> None:
             "default_model",
             "model_fallbacks",
             "reasoning_effort",
+            "work_mode",
             "workspace_root",
             "workspace_is_default",
             "profile_version",

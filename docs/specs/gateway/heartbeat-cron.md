@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Heartbeat and Cron Specification
 
-> 对齐: feat-541
+> 对齐: feat-546
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -15,12 +15,14 @@ heartbeat 与 cron 两套本地主动机制的 per-agent 开关、调度和错�
 
 Gateway 提供两套**相互独立**的本地主动行为机制,均完全在本地调度(IM 服务不作调度源),各自由 IM 配置页上一个 per-agent 开关启停(配置经 IM→Gateway 同步生效):
 
-- **Heartbeat**:周期性"带上下文"唤醒。携带该 Agent 与 owner 的 canonical 直聊上下文。**顶层节律 (多久唤醒一次)来自 agent 配置 `heartbeat.every`(未配置默认 30m),不来自 HEARTBEAT.md**; `<workspace_root>/.nanoassistant/HEARTBEAT.md`(Agent 可经对话自管写入)承载任务内容:freeform 任务清单 + 可选 `tasks:` 块的 per-task 独立频率子节律。活跃时段(activeHours)限制来自配置;无可冒泡内容时回 `HEARTBEAT_OK` 静默、不打扰用户。
-- **Cron**:无上下文的定时任务。可挂多条,各在隔离 session 执行(不带对话上下文),由 Agent 经 cron 工具自管 (注册/查看/删除)。结果文本回发 owner 的 canonical 直聊;用户可就该结果追问,Agent 记得自己汇报过什么。
+- **Heartbeat**:周期性"带上下文"唤醒。单 Thread 模式携带该 Agent 与 owner 的 canonical 直聊上下文；全局模式携带该 Agent 的持续主工作上下文。**顶层节律 (多久唤醒一次)来自 agent 配置 `heartbeat.every`(未配置默认 30m),不来自 HEARTBEAT.md**; `<workspace_root>/.nanoassistant/HEARTBEAT.md`(Agent 可经对话自管写入)承载任务内容:freeform 任务清单 + 可选 `tasks:` 块的 per-task 独立频率子节律。活跃时段(activeHours)限制来自配置;无可冒泡内容时回 `HEARTBEAT_OK` 静默、不打扰用户。
+- **Cron**:无上下文的定时任务。可挂多条,各在隔离 session 执行(不带对话上下文),由 Agent 经 cron 工具自管 (注册/查看/删除)。结果文本按既有明确投递策略回发；单 Thread 的 awareness 保存在 owner canonical 直聊，全局模式保存在主工作上下文。用户可就该结果追问，Agent 记得自己汇报过什么。
 
 两套机制**均不补跑积压**:停机/空闲错过多个周期后,恢复只推进到最近一次边界触发一次(不刷屏回填); 已过期的一次性(`at`)任务恢复后不补跑。
 
 Cron 的定时触发和 Agent 手动触发具有同一执行语义:同样的 Kernel 提交、IM 投递、运行历史和 canonical-session awareness;手动触发只改变触发时机并立即返回入队确认。手动触发请求按发起请求的 Agent 身份路由——多 Agent 并存、Agent 在运行期新建、或请求来自 heartbeat / cron 隔离会话时均路由到正确 Agent,互不串扰。运行历史必须区分 trigger,记录 accepted/running/terminal 状态、Kernel run、目标会话、结果或错误;仅有最近一次调度时间不构成运行历史。Gateway 关闭时已入队的 cron 投递在 IM 连接关闭前完成收拢。
+
+以下既有 Scenario 中按 owner canonical 直聊冒泡、结果投递和追问的规则适用于 `single_thread`；global 的主上下文及独立 Cron 归属见文末两个全局场景。开关、节律、幂等、触发历史和配置同步规则适用于两种模式。
 
 #### Scenario: 未启用的 Agent 两套机制都不跑
 - **GIVEN** 某 Agent 的 heartbeat 与 cron 开关均关闭
@@ -93,6 +95,16 @@ Cron 的定时触发和 Agent 手动触发具有同一执行语义:同样的 Ker
 - **GIVEN** Gateway 断连期间 owner 改了某 Agent 的 enable / cadence(增量同步未送达)
 - **WHEN** Gateway 重连 IM 并完成全量对账
 - **THEN** 该 Agent 的调度行为收敛到 IM 当前真值
+
+#### Scenario: 全局模式周期唤醒
+- **GIVEN** Agent 使用全局模式并启用 Heartbeat
+- **WHEN** 一个有效 tick 到达
+- **THEN** 使用该 Agent 的持续主上下文，保留原节律、静默和错过周期规则；忙碌时跳过本 tick，不追加排队唤醒或另建并行主执行
+
+#### Scenario: 全局模式 Cron 仍隔离执行
+- **WHEN** 全局 Agent 的 cron 被定时或手动触发
+- **THEN** 保留独立执行上下文和明确结果投递，运行历史区分两种 trigger
+- **AND** 工作页可查看该独立执行，统计不混入主上下文；结果可在主上下文追问而不重复投递
 
 ### Requirement: 心跳与 cron 走该 Agent 同一条模型备用链
 

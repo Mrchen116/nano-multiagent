@@ -425,8 +425,10 @@ async def test_pending_injection_consumed_emits_injection_consumed() -> None:
     assert evt["data"]["user_message_count"] == 1
 
 
-async def test_pending_injection_consumed_without_run_id_is_skipped() -> None:
-    """No run_id → nothing to scope the bubble roll to; emit nothing."""
+async def test_pending_injection_consumed_without_run_id_preserves_session_scope() -> (
+    None
+):
+    """Ordinary child turns retain their real Session and Turn without a run."""
     hooks = HookRegistry()
     setup_realtime_stream(hooks)
     runner = HookRunner(registry=hooks)
@@ -440,4 +442,5 @@ async def test_pending_injection_consumed_without_run_id_is_skipped() -> None:
         {"session_id": "sess_1", "turn_id": "turn_1", "message_count": 1},
         ctx,
     )
-    assert len(pub.events) == 0
+    assert pub.events[0]["data"]["run_id"] is None
+    assert pub.events[0]["data"]["turn_id"] == "turn_1"

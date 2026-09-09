@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Label from "@radix-ui/react-label";
 import type { FocusEvent, FormEvent, MouseEvent, ReactNode } from "react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
@@ -19,6 +19,7 @@ import {
 import { fallbacksAfterPrimaryChange, ModelFallbackField } from "./model-fallback-field";
 import { PillSelector } from "./pill-selector";
 import { SkillSourceSelector } from "./skill-source-selector";
+import { AgentWorkPanel } from "./agent-work-panel";
 import { AgentChannelsPanel } from "./agent-channels-panel";
 import { useAgentStatusBroadcastConsumer } from "./agent-status-ws-consumer";
 import {
@@ -163,6 +164,7 @@ function BehaviorCard({
         features: effectiveFeatures,
         custom_prompt: draft.custom_prompt ?? "",
         tool_ids: draft.tool_allowlist ?? [],
+        ...(draft.work_mode === "global" ? { work_mode: "global" as const } : {}),
         skill_ids: effectiveSkillIds
       });
       setPreviewText(text);
@@ -171,7 +173,7 @@ function BehaviorCard({
     } finally {
       setPreviewLoading(false);
     }
-  }, [agentId, effectiveFeatures, draft.custom_prompt, draft.tool_allowlist, effectiveSkillIds]);
+  }, [agentId, effectiveFeatures, draft.custom_prompt, draft.work_mode, draft.tool_allowlist, effectiveSkillIds]);
 
   // Debounce preview re-fetch when draft changes while preview is open.
   useEffect(() => {
@@ -180,7 +182,7 @@ function BehaviorCard({
     previewTimer.current = setTimeout(() => { void fetchPreview(); }, 600);
     return () => { if (previewTimer.current) clearTimeout(previewTimer.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewOpen, draft.custom_prompt, draft.features, draft.tool_allowlist, effectiveSkillIds]);
+  }, [previewOpen, draft.custom_prompt, draft.features, draft.work_mode, draft.tool_allowlist, effectiveSkillIds]);
 
   function handlePreviewToggle() {
     if (!previewOpen) {
@@ -699,7 +701,7 @@ function CronCard({ agentId, draft, onToggle, hideEnableToggle = false }: CronCa
 }
 
 type SkillsUsageView = "list" | "agent" | "health";
-type AgentDetailSection = "overview" | "config" | "channels" | "skills" | "sessions";
+type AgentDetailSection = "work" | "overview" | "config" | "channels" | "skills" | "sessions";
 
 const CONTRIBUTION_DAYS = 365;
 const HEATMAP_DATA_DAYS = 30;
@@ -1278,7 +1280,9 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
   const [applyPending, setApplyPending] = useState(false);
   const [hasAttemptedSave, setHasAttemptedSave] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
-  const [activeSection, setActiveSection] = useState<AgentDetailSection>("config");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeSection = (searchParams.get("view") ?? "config") as AgentDetailSection;
+  const setActiveSection = (section: AgentDetailSection) => setSearchParams({ view: section }, { replace: true });
   const savedResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -1632,6 +1636,7 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
           aria-label={t("agents.detail.sections.navLabel")}
         >
           {([
+            ...(draft.work_mode === "global" ? [["work", "工作"]] : []),
             ["overview", t("agents.detail.sections.overview")],
             ["config", t("agents.detail.sections.config")],
             ["channels", t("agents.detail.sections.channels")],
@@ -1656,7 +1661,9 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
       </header>
 
       <div className="im-agent-panel-body im-agent-detail-body">
-        {activeSection === "skills" ? (
+        {activeSection === "work" && draft.work_mode === "global" ? (
+          <AgentWorkPanel agentId={agentId} />
+        ) : activeSection === "skills" ? (
           <AgentSkillsUsagePanel agentId={agentId} />
         ) : activeSection === "overview" ? (
           <PrototypePlaceholder title={t("agents.detail.sections.overview")}>
@@ -1674,6 +1681,7 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
           <div>
             <h3 className="im-agent-card-title">{t("agents.form.identity.title")}</h3>
             <p className="im-agent-card-sub">{t("agents.form.identity.subEdit")}</p>
+            <p className="text-xs text-slate-500">工作模式：{draft.work_mode === "global" ? "全局模式 · 实验" : "单 Thread"} · 创建后固定</p>
           </div>
           {/* M19/R11-4: Identity row1 = Agent ID + Display Name (Owner UUID 对用户无意义, 移除). */}
           <div className="im-agent-card-grid-2" data-testid="agent-identity-row1">
@@ -1860,7 +1868,8 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
               testId="pill-selector-tools"
               label={t("agents.form.access.tools")}
               selected={draft.tool_allowlist}
-              options={capabilities.tools}
+              fixed={draft.work_mode === "global" ? ["inbox", "conversations", "send_message", "agent"] : []}
+              options={draft.work_mode === "global" ? [...capabilities.tools, ...["inbox", "conversations", "send_message", "agent"].filter(name => !capabilities.tools.some(t => t.name === name)).map(name => ({ name }))] : capabilities.tools}
               isLoading={detailQuery.isLoading}
               errorMessage={detailQuery.isError ? queryErrorDetail : null}
               onRetry={() => void detailQuery.refetch()}
