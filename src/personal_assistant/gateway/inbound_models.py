@@ -72,6 +72,28 @@ class InboundRunRequest:
         return self.routed.message
 
 
+def im_source_reference(message: InboundMessage, sender: str) -> dict[str, str] | None:
+    """Project a native IM input into a durable Process source reference.
+
+    Args:
+        message: The accepted or buffered inbound carrying transport identity.
+        sender: Display label already resolved by Gateway admission.
+
+    Returns:
+        Native message identity and display snapshot, or None for other channels.
+    """
+
+    relay = message.ingress.im_relay
+    if relay is None or not relay.im_message_id:
+        return None
+    occurred = message.source_timestamp or message.received_timestamp
+    return {
+        "message_id": relay.im_message_id,
+        "sender": sender,
+        "timestamp": occurred.isoformat() if occurred is not None else "",
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class StopRunRequest:
     """Capture one routed stop command for coordinator admission.

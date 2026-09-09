@@ -1,7 +1,7 @@
 """SQLite repositories for IM users, conversations, and messages."""
 
 from collections.abc import Callable
-from dataclasses import replace
+from dataclasses import asdict, replace
 import hashlib
 import json
 import sqlite3
@@ -11,6 +11,7 @@ from IM.domain.models import (
     Actor,
     Attachment,
     BackgroundReturn,
+    ReplyProcessItem,
     ConversationEvent,
     Message,
     SystemNotice,
@@ -30,6 +31,7 @@ from IM.infra.repositories._message_projection import (
     _attachment_to_dict,
     _decode_attachments,
     _decode_background_returns,
+    _decode_reply_process,
     _decode_system_notice,
     _decode_thinking,
     _decode_token_usage,
@@ -87,6 +89,7 @@ class MessageRepository:
         caller_idempotency_key: str | None = None,
         system_notice: SystemNotice | None = None,
         background_returns: list[BackgroundReturn] | None = None,
+        reply_process: list[ReplyProcessItem] | None = None,
         created_at: str | None = None,
     ) -> Message:
         """Create a message in a conversation.
@@ -122,6 +125,7 @@ class MessageRepository:
             and not content.strip()
             and not normalized_attachments
             and not normalized_background_returns
+            and not reply_process
         ):
             raise ValueError("message must include content or attachments")
         if sender_type not in {"user", "agent", "system"}:
@@ -181,6 +185,7 @@ class MessageRepository:
                     messages.kernel_message_id,
                     messages.system_notice_json,
                     messages.background_returns_json,
+                messages.reply_process_json,
                     users.username AS sender_username,
                     COALESCE(messages.sender_display_name, users.display_name)
                         AS sender_display_name
@@ -294,6 +299,7 @@ class MessageRepository:
             kernel_message_id=kernel_message_id,
             system_notice=system_notice,
             background_returns=normalized_background_returns or None,
+            reply_process=reply_process or None,
         )
         with self._connection:
             self._connection.execute(
@@ -313,8 +319,8 @@ class MessageRepository:
                     sender_display_name,
                     caller_idempotency_key,
                     system_notice_json,
-                    background_returns_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    background_returns_json, reply_process_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     message_id,
@@ -332,6 +338,10 @@ class MessageRepository:
                     stored_idempotency_key,
                     system_notice_json,
                     background_returns_json,
+                    json.dumps(
+                        [asdict(item) for item in (reply_process or [])],
+                        ensure_ascii=False,
+                    ),
                 ),
             )
             pending_live_events.append(
@@ -701,7 +711,7 @@ class MessageRepository:
                 "content_append and content_replace are mutually exclusive"
             )
         row = self._connection.execute(
-            "SELECT content, tool_calls_json, thinking_json, background_returns_json, token_usage_json, conversation_id FROM messages WHERE id = ?",
+            "SELECT content, tool_calls_json, thinking_json, background_returns_json, reply_process_json, token_usage_json, conversation_id FROM messages WHERE id = ?",
             (message_id,),
         ).fetchone()
         if row is None:
@@ -741,6 +751,7 @@ class MessageRepository:
                             existing_thinking,
                             list(existing_by_id.values()),
                             existing_background_returns,
+                            _decode_reply_process(row["reply_process_json"]),
                         )
                     )
                     existing_by_id[upsert.id] = replace(upsert, seq=seq)
@@ -761,6 +772,19 @@ class MessageRepository:
 
         sets: list[str] = []
         values: list[object] = []
+        if delivery_status in {"completed", "failed"}:
+            process = _decode_reply_process(row["reply_process_json"])
+            if process:
+                process = [
+                    replace(item, status=delivery_status)
+                    if item.kind == "revalidation" and item.status == "running"
+                    else item
+                    for item in process
+                ]
+                sets.append("reply_process_json = ?")
+                values.append(
+                    json.dumps([asdict(item) for item in process], ensure_ascii=False)
+                )
         if next_content is not None:
             sets.append("content = ?")
             values.append(next_content)
@@ -806,6 +830,7 @@ class MessageRepository:
                 messages.tool_calls_json,
                 messages.thinking_json,
                 messages.background_returns_json,
+                messages.reply_process_json,
                 messages.token_usage_json,
                 messages.elapsed_ms,
                 messages.permission_request_json,
@@ -821,6 +846,71 @@ class MessageRepository:
         ).fetchone()
         return self._message_from_row(refreshed)
 
+    def upsert_reply_process(
+        self, *, message_id: str, item: ReplyProcessItem
+    ) -> Message:
+        """Persist one process item, retaining its first sequence on replay.
+
+        Args:
+            message_id: Stable owning message ID.
+            item: Typed process record, including the full held draft when present.
+
+        Returns:
+            Updated message including all process items.
+        """
+        with self._connection:
+            row = self._message_row(message_id)
+            if row is None:
+                raise ValueError(f"message_id not found: {message_id}")
+            message = self._message_from_row(row)
+            items = list(message.reply_process or [])
+            index = next(
+                (i for i, old in enumerate(items) if old.item_id == item.item_id), None
+            )
+            if index is None:
+                item = replace(
+                    item,
+                    seq=_next_process_seq(
+                        message.thinking or [],
+                        message.tool_calls or [],
+                        message.background_returns,
+                        items,
+                    ),
+                )
+                items.append(item)
+            else:
+                old = items[index]
+                item = replace(item, seq=old.seq)
+                if (
+                    old.status in {"completed", "failed", "stopped"}
+                    and item.status == "running"
+                ):
+                    item = replace(item, status=old.status)
+                items[index] = item
+            self._connection.execute(
+                "UPDATE messages SET reply_process_json = ? WHERE id = ?",
+                (
+                    json.dumps([asdict(value) for value in items], ensure_ascii=False),
+                    message_id,
+                ),
+            )
+            event = self._insert_event(
+                conversation_id=message.conversation_id,
+                message_id=message_id,
+                event_type="reply_process.updated",
+                delivery_status=message.delivery_status,
+                payload={
+                    "conversation_id": message.conversation_id,
+                    "message_id": message_id,
+                    "reply_process": [asdict(value) for value in items],
+                },
+            )
+        if self._notify is not None:
+            self._notify(event)
+        row = self._message_row(message_id)
+        assert row is not None
+        return self._message_from_row(row)
+
     def append_thinking_segment(
         self, *, message_id: str, text: str, process_seq: int | None = None
     ) -> Message:
@@ -835,7 +925,7 @@ class MessageRepository:
         # update_runtime_state 写法），避免并发/崩溃下读到旧 seq 后半写导致序号错乱。
         with self._connection:
             row = self._connection.execute(
-                "SELECT tool_calls_json, thinking_json, background_returns_json FROM messages WHERE id = ?",
+                "SELECT tool_calls_json, thinking_json, background_returns_json, reply_process_json FROM messages WHERE id = ?",
                 (message_id,),
             ).fetchone()
             if row is None:
@@ -849,7 +939,10 @@ class MessageRepository:
                 process_seq
                 if process_seq is not None
                 else _next_process_seq(
-                    existing, existing_tools, existing_background_returns
+                    existing,
+                    existing_tools,
+                    existing_background_returns,
+                    _decode_reply_process(row["reply_process_json"]),
                 )
             )
             if not any(segment.seq == seq for segment in existing):
@@ -872,6 +965,7 @@ class MessageRepository:
                 messages.tool_calls_json,
                 messages.thinking_json,
                 messages.background_returns_json,
+                messages.reply_process_json,
                 messages.token_usage_json,
                 messages.elapsed_ms,
                 messages.permission_request_json,
@@ -886,6 +980,11 @@ class MessageRepository:
             (message_id,),
         ).fetchone()
         return self._message_from_row(refreshed)
+
+    def get_message(self, *, message_id: str) -> Message | None:
+        """Return a message and its persisted Process by stable ID."""
+        row = self._message_row(message_id)
+        return self._message_from_row(row) if row is not None else None
 
     def get_conversation_id(self, *, message_id: str) -> str | None:
         """Return a message's conversation_id without mutating the row (bugfix-417-M3).
@@ -971,6 +1070,7 @@ class MessageRepository:
                 messages.tool_calls_json,
                 messages.thinking_json,
                 messages.background_returns_json,
+                messages.reply_process_json,
                 messages.token_usage_json,
                 messages.elapsed_ms,
                 messages.permission_request_json,
@@ -1224,6 +1324,11 @@ class MessageRepository:
             tool_calls=_decode_tool_calls(tool_calls_value),
             thinking=_decode_thinking(thinking_value),
             background_returns=_decode_background_returns(background_returns_value),
+            reply_process=_decode_reply_process(
+                row["reply_process_json"]
+                if "reply_process_json" in row.keys()
+                else None
+            ),
             token_usage=_decode_token_usage(token_usage_value),
             elapsed_ms=elapsed_ms_value,
             permission_requests=permission_requests,
@@ -1246,6 +1351,7 @@ class MessageRepository:
                 messages.tool_calls_json,
                 messages.thinking_json,
                 messages.background_returns_json,
+                messages.reply_process_json,
                 messages.token_usage_json,
                 messages.elapsed_ms,
                 messages.permission_request_json,

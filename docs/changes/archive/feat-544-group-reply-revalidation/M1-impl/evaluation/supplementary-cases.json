@@ -1,0 +1,7 @@
+{
+  "version": "development-v2",
+  "classification": "additional open development case frozen before execution",
+  "cases": [
+    {"id":"allowed-silence","input":"请写一份约600字的会议通知，日期9月12日，地点A会议室，不要使用工具。","updates":["不需要这条通知了，请保持静默，不要发通知，也不需要任何确认。"],"expect":"Old complete draft retained in Process; new process-only segment completed; no visible NO_REPLY or invented acknowledgment; silence explicitly authorized by latest request"}
+  ]
+}

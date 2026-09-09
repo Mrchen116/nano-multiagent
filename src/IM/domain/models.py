@@ -176,6 +176,34 @@ class ThinkingSegment:
 
 
 @dataclass(frozen=True, slots=True)
+class ReplyProcessItem:
+    """A held draft, adopted-message batch, or segment handoff in Process."""
+
+    item_id: str
+    kind: str
+    run_id: str
+    seq: int | None = None
+    text: str | None = None
+    source: str | None = None
+    draft_id: str | None = None
+    tool_call_id: str | None = None
+    source_messages: list[dict[str, str]] = field(default_factory=list)
+    predecessor_message_id: str | None = None
+    successor_message_id: str | None = None
+    status: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.item_id or not self.run_id:
+            raise ValueError("reply process requires item_id and run_id")
+        if self.kind not in {"draft", "revalidation", "segment_handoff"}:
+            raise ValueError("unknown reply process kind")
+        if self.status not in {None, "running", "completed", "failed", "stopped"}:
+            raise ValueError("unknown reply process status")
+        if self.kind == "draft" and not isinstance(self.text, str):
+            raise ValueError("draft requires full text")
+
+
+@dataclass(frozen=True, slots=True)
 class BackgroundReturn:
     """One terminal background-task result attached to an assistant message."""
 
@@ -329,6 +357,7 @@ class Message:
     # 与 tool_calls 并存、由渲染端按 seq 升序 merge 成时间线。
     thinking: list[ThinkingSegment] | None = None
     background_returns: list[BackgroundReturn] | None = None
+    reply_process: list[ReplyProcessItem] | None = None
     token_usage: TokenUsage | None = None
     # feat-414: 本轮 agent 处理墙钟耗时（毫秒）。turn_start 建行时为 None，
     # on_message_completed 写入（见 event_bridge.py）。用户消息始终为 None。

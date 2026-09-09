@@ -62,3 +62,4 @@ class BackgroundTaskRecord:
     # Captured at registration from the parent session's workspace_root so the
     # delivery path can locate the JSONL even when the session is idle (bugfix-404).
     workspace_root: str | None = None
+    revalidate_output: bool = False

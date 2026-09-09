@@ -394,10 +394,15 @@ class GatewayConversationPersistence:
         source_user = self._users.get_user_by_username(
             username=f"agent:{source_agent_id}"
         )
-        if conversation is None or source_user is None:
+        if (
+            conversation is None
+            or source_user is None
+            or conversation.type != "group"
+            or conversation.external_source is not None
+        ):
             return None
         participant_ids = conversation.participant_ids
-        if not participant_ids:
+        if source_user.id not in participant_ids:
             return None
         placeholders = ",".join("?" for _ in participant_ids)
         participant_rows = self._connection.execute(

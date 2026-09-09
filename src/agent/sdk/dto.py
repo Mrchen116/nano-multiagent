@@ -71,6 +71,7 @@ class RunInfo:
     start_sequence: int = 0
     injected: bool = False
     pending_id: str | None = None
+    revalidate_output: bool = False
 
 
 # ---------------------------------------------------------------------------

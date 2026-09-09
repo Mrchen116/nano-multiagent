@@ -42,6 +42,9 @@ class RunController:
     with enqueue so stop/cancel and message acceptance are linearizable.
     """
 
+    revalidate_output: bool = False
+    accepted_revision: int = 0
+    context_revision: int = 0
     cancel_event: threading.Event = field(default_factory=threading.Event)
     abort_event: threading.Event = field(default_factory=threading.Event)
     # Set when the interrupt was initiated by the user (/stop, CLI Ctrl-C) rather
@@ -140,6 +143,7 @@ class RunController:
                 origin=origin,
                 background_return=background_return,
             )
+            self.accepted_revision += 1
             self._pending.put_nowait(pending)
             return pending.pending_id
 
@@ -160,9 +164,18 @@ class RunController:
         with self._terminal_lock:
             drained = self._drain_locked()
             if drained:
+                self.context_revision = self.accepted_revision
                 return drained
             self._terminal_committed.set()
             return []
+
+    def try_finish_terminal(self) -> bool:
+        """Finish only if no input is pending, leaving consumption to the next round."""
+        with self._terminal_lock:
+            if not self._pending.empty():
+                return False
+            self._terminal_committed.set()
+            return True
 
     def commit_terminal(self) -> None:
         """Unconditionally commit the run's terminal — a HARD stop with no re-drain.
@@ -186,7 +199,37 @@ class RunController:
 
     def drain_pending(self) -> list[PendingMessage]:
         """Drain and return all pending messages in FIFO order. Non-blocking."""
-        return self._drain_locked()
+        with self._terminal_lock:
+            return self._drain_locked()
+
+    def drain_pending_with_revision(self) -> tuple[list[PendingMessage], int]:
+        """Consume the next model input batch and its accepted revision atomically."""
+        with self._terminal_lock:
+            if self.is_aborted or self.is_cancelled:
+                return [], self.context_revision
+            messages = self._drain_locked()
+            self.context_revision = self.accepted_revision
+            return messages, self.context_revision
+
+    def try_commit_output(
+        self, context_revision: int, publish: Callable[[], None]
+    ) -> str:
+        """Commit synchronous output only for current, active model context.
+
+        Args:
+            context_revision: Revision captured when the model inputs were drained.
+            publish: Short synchronous enqueue callback; must not reenter this controller.
+
+        Returns:
+            committed, stale, or inactive. Rejected callbacks are never invoked.
+        """
+        with self._terminal_lock:
+            if self.is_aborted or self.is_cancelled or self.is_terminal_committed:
+                return "inactive"
+            if context_revision != self.accepted_revision:
+                return "stale"
+            publish()
+            return "committed"
 
     def _drain_locked(self) -> list[PendingMessage]:
         msgs: list[PendingMessage] = []

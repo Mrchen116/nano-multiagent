@@ -182,7 +182,7 @@ class GatewayRuntime:
                 )
             ),
             "agent.message": self._relay.handle_agent_message,
-            "node.streaming_delta": self._execution.handle_streaming_delta,
+            "node.streaming_delta": self._relay.handle_streaming_delta,
             "node.system_message": self._relay.handle_system_message,
         }
         if message_type == "agent.config.boundary":

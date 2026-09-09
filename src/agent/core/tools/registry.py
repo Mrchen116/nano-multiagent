@@ -347,6 +347,11 @@ class ToolRegistry:
             execution_context = execution_base_context.with_session(
                 active_hook_context.session_id,
                 tool_call_id=tool_call_id,
+                run_id=active_hook_context.metadata.get("run_id"),
+                context_revision=active_hook_context.metadata.get("context_revision"),
+                revalidate_output=bool(
+                    active_hook_context.metadata.get("revalidate_output")
+                ),
                 safety_overrides=safety_overrides,
                 execution_event_callback=_emit_execution_update,
                 session_metadata=dict(active_hook_context.metadata)

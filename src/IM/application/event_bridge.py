@@ -36,7 +36,13 @@ from IM.api.ws.event_types import (
     build_tool_call_completed_payload,
     build_tool_call_upserted_payload,
 )
-from IM.domain.models import BackgroundReturn, Message, TokenUsage, ToolCall
+from IM.domain.models import (
+    BackgroundReturn,
+    Message,
+    ReplyProcessItem,
+    TokenUsage,
+    ToolCall,
+)
 from IM.infra.repositories.events import EventRepository
 from IM.infra.repositories.messages import MessageRepository
 
@@ -291,6 +297,10 @@ class EventBridge:
             ),
         )
 
+    def on_reply_process(self, *, message_id: str, item: ReplyProcessItem) -> None:
+        """Persist Process only and broadcast its canonical snapshot to browsers."""
+        self.message_repository.upsert_reply_process(message_id=message_id, item=item)
+
     def on_thinking_segment(
         self, *, message_id: str, text: str, process_seq: int | None = None
     ) -> None:
@@ -344,6 +354,9 @@ class EventBridge:
             delivery_status=delivery_status,
             kernel_message_id=kernel_message_id,
         )
+        for item in current.reply_process or []:
+            if item.kind == "revalidation":
+                self.on_reply_process(message_id=message_id, item=item)
         turn_start = datetime.fromisoformat(current.created_at)
         resolved_elapsed_ms = (
             elapsed_ms
@@ -385,6 +398,10 @@ class EventBridge:
             Repeated calls are idempotent.
         """
 
+        current = self.message_repository.get_message(message_id=message_id)
+        if current is not None and current.reply_process:
+            self.on_message_completed(message_id=message_id, final_content="")
+            return
         self.message_repository.discard_running_agent_message(
             message_id=message_id, reason=reason
         )

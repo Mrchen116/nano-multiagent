@@ -101,10 +101,10 @@ Agent 解读：确认当前交互方向：旧块 Process 可展开完整未发�
 
 核对基线为本地 `main` 的 `dd6a4d58fc4545e498e26ae9ef1d833d005df396`，工作区有其他未提交工作；本单只新增此文档。以下是代码与契约分析，不是生产对话复现或故障频率统计。
 
-- 内置群支持多个 Agent。默认未被提及的群消息留作背景，下一次触发时带入；已运行 Agent 还具备插话能力。两者决定何时接收、处理消息，没有定义发言前对群中变化的最终复核。见 [路由与投递契约](../../specs/gateway/routing-delivery.md)。
-- A 完成回复后会向同群其他 Agent 转发；B 未被点名时可只缓冲而不处理。因此“已经转发给 B”不能证明“B 这次发言已考虑 A”。代码依据：[群回复转发](../../../src/IM/ws/gateway/relay.py)、[群消息缓冲](../../../src/personal_assistant/gateway/inbound_pipeline.py)。
-- 当前主动发送工具没有依据上下文新旧情况保留草稿的产品反馈；普通回复经事件流传递，但事件流不等于正文逐 token 公开。已核实 OpenAI-compatible provider 累积正文至完成事件后整段交付（见 `src/agent/platform/llm/providers/openai_compat/client.py`）。仅约束主动发送工具会留下普通回复出口。代码依据：[发送工具](../../../src/personal_assistant/tools/send_message.py)、[消息逐步展示](../../../src/IM/application/event_bridge.py)。
-- 外部群按 Agent 建立独立影子会话，同一外部群不等于一个完整共享的内部房间；不能直接把内部影子记录当作外部群的全部实时状态。见 [会话消息契约](../../specs/im/conversations-messages.md)。
+- 内置群支持多个 Agent。默认未被提及的群消息留作背景，下一次触发时带入；已运行 Agent 还具备插话能力。两者决定何时接收、处理消息，没有定义发言前对群中变化的最终复核。见 [路由与投递契约](../../../specs/gateway/routing-delivery.md)。
+- A 完成回复后会向同群其他 Agent 转发；B 未被点名时可只缓冲而不处理。因此“已经转发给 B”不能证明“B 这次发言已考虑 A”。代码依据：[群回复转发](../../../../src/IM/ws/gateway/relay.py)、[群消息缓冲](../../../../src/personal_assistant/gateway/inbound_pipeline.py)。
+- 当前主动发送工具没有依据上下文新旧情况保留草稿的产品反馈；普通回复经事件流传递，但事件流不等于正文逐 token 公开。已核实 OpenAI-compatible provider 累积正文至完成事件后整段交付（见 `src/agent/platform/llm/providers/openai_compat/client.py`）。仅约束主动发送工具会留下普通回复出口。代码依据：[发送工具](../../../../src/personal_assistant/tools/send_message.py)、[消息逐步展示](../../../../src/IM/application/event_bridge.py)。
+- 外部群按 Agent 建立独立影子会话，同一外部群不等于一个完整共享的内部房间；不能直接把内部影子记录当作外部群的全部实时状态。见 [会话消息契约](../../../specs/im/conversations-messages.md)。
 
 ### Raft 参考与本单取舍
 

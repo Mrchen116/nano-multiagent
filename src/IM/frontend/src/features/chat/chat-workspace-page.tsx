@@ -129,6 +129,18 @@ export function mergeMessageWithExisting(message: Message, existing?: Message): 
   ) {
     out = { ...out, permission_requests };
   }
+  const processById = new Map((message.reply_process ?? []).map(item => [item.item_id, item]));
+  for (const item of existing?.reply_process ?? []) {
+    const stored = processById.get(item.item_id);
+    if (!stored || stored.status === "running" || item.status !== "running") processById.set(item.item_id, item);
+  }
+  if (processById.size) {
+    out = {...out, reply_process: [...processById.values()].sort((a, b) => a.seq - b.seq)};
+    // Process-only terminal replies may have no token usage to preserve their state.
+    if (out.delivery_status === "running" && existing && existing.delivery_status !== "running") {
+      out = {...out, delivery_status: existing.delivery_status};
+    }
+  }
   const background_returns = mergeBackgroundReturns(
     message.background_returns,
     existing?.background_returns,

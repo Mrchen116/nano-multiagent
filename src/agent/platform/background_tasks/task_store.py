@@ -72,4 +72,5 @@ def _record_to_dict(record: BackgroundTaskRecord) -> dict[str, Any]:
         "duration_ms": record.duration_ms,
         "tool_use_count": record.tool_use_count,
         "notified": record.notified,
+        "revalidate_output": record.revalidate_output,
     }

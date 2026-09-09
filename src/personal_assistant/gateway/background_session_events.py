@@ -44,25 +44,26 @@ _STOP_HANDOFF_GRACE_SECONDS = 0.1
 
 
 async def _invoke_callback(
-    callback: Callable[[Mapping[str, Any]], Awaitable[None]],
+    callback: Callable[[Mapping[str, Any]], Awaitable[None | bool]],
     event: Mapping[str, Any],
     *,
     callback_idle: asyncio.Event,
     error_message: str,
     session_id: str,
     event_name: object,
-) -> None:
+) -> bool:
     """Run one accepted callback under the subscriber shutdown invariant."""
 
     callback_idle.clear()
     try:
-        await callback(event)
+        return bool(await callback(event))
     except Exception:
         _log.warning(
             error_message,
             exc_info=True,
             extra={"session_id": session_id, "event": event_name},
         )
+        return False
     finally:
         callback_idle.set()
 
@@ -93,6 +94,8 @@ class BackgroundSessionEventSubscriber:
         bg_run_output_callback: Optional async callback invoked when a BACKGROUND_TASK-origin
             ``assistant_message`` event arrives. Called instead of on_event for those events.
             If None, BACKGROUND_TASK assistant_message events are silently dropped (pre-M3 behavior).
+        background_run_event_callback: Optional first receiver for all stream events;
+            True claims delivery and suppresses the legacy callbacks.
         skill_created_callback: Optional async callback for source-marked
             self-evolution ``skill_created`` business events.
     """
@@ -110,6 +113,8 @@ class BackgroundSessionEventSubscriber:
         workspace_root: str | None = None,
         bg_run_output_callback: Callable[[Mapping[str, Any]], Awaitable[None]]
         | None = None,
+        background_run_event_callback: Callable[[Mapping[str, Any]], Awaitable[bool]]
+        | None = None,
         skill_created_callback: Callable[[Mapping[str, Any]], Awaitable[None]]
         | None = None,
     ) -> None:
@@ -126,6 +131,7 @@ class BackgroundSessionEventSubscriber:
         # bugfix-404-M3: relay BACKGROUND_TASK run output back to IM conversation.
         self._bg_run_output_callback = bg_run_output_callback
         self._skill_created_callback = skill_created_callback
+        self._background_run_event_callback = background_run_event_callback
         self._task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
         self._callback_idle = asyncio.Event()
@@ -225,6 +231,19 @@ class BackgroundSessionEventSubscriber:
                     if isinstance(seq, int):
                         last_sequence = max(last_sequence, seq)
                     event_name = event.get("event")
+                    if self._background_run_event_callback is not None:
+                        handled = await _invoke_callback(
+                            self._background_run_event_callback,
+                            event,
+                            callback_idle=self._callback_idle,
+                            error_message="background run event callback error",
+                            session_id=self._session_id,
+                            event_name=event_name,
+                        )
+                        if handled:
+                            if self._stop_event.is_set():
+                                return
+                            continue
                     # bugfix-404-M3: BACKGROUND_TASK run output takes priority over the
                     # session-event filter. When a background run finishes, the kernel emits
                     # assistant_message with origin=BACKGROUND_TASK; route that to the relay

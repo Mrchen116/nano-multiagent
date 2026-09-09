@@ -149,6 +149,9 @@ class ToolContext:
     safety: ToolSafetyLike
     session_id: str | None = None
     tool_call_id: str | None = None
+    run_id: str | None = None
+    context_revision: int | None = None
+    revalidate_output: bool = False
     safety_overrides: Mapping[str, Any] = field(default_factory=dict)
     execution_event_callback: Callable[[Mapping[str, Any]], None] | None = None
     skill_batch_review_enqueue: Callable[[Any], bool] | None = None
@@ -197,6 +200,9 @@ class ToolContext:
         session_id: str | None,
         *,
         tool_call_id: str | None = None,
+        run_id: str | None = None,
+        context_revision: int | None = None,
+        revalidate_output: bool = False,
         safety_overrides: Mapping[str, Any] | None = None,
         execution_event_callback: Callable[[Mapping[str, Any]], None] | None = None,
         skill_batch_review_enqueue: Callable[[Any], bool] | None = None,
@@ -212,6 +218,9 @@ class ToolContext:
             safety=self.safety,
             session_id=session_id,
             tool_call_id=tool_call_id,
+            run_id=run_id,
+            context_revision=context_revision,
+            revalidate_output=revalidate_output,
             safety_overrides=dict(safety_overrides or {}),
             execution_event_callback=execution_event_callback,
             skill_batch_review_enqueue=(

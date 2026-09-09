@@ -113,6 +113,7 @@ class RunRecord:
     # replayed history (e.g. stale self_evolution_review) on every new turn.
     start_sequence: int = 0
     continuation: Mapping[str, Any] | None = None
+    revalidate_output: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,6 +221,7 @@ class RunsRegistry:
         model: str | None = None,
         continuation: Mapping[str, Any] | None = None,
         replay_last_user: bool = False,
+        revalidate_output: bool = False,
     ) -> RunRecord:
         """Prepare semantic state, bind an executor token, then publish the run."""
 
@@ -271,8 +273,9 @@ class RunsRegistry:
             start_sequence=start_sequence,
             model=model,
             continuation=continuation,
+            revalidate_output=revalidate_output,
         )
-        controller = RunController()
+        controller = RunController(revalidate_output=revalidate_output)
         sink = _RegistryCompletionSink(
             registry=self,
             record=record,
@@ -467,6 +470,47 @@ class RunsRegistry:
             if pending_id is None:
                 return None
             return PendingInjection(run_id=run_id, pending_id=pending_id)
+
+    def try_commit_output(
+        self,
+        *,
+        session_id: str,
+        expected_run_id: str,
+        context_revision: int,
+        publish: Callable[[], None],
+        draft: Mapping[str, Any] | None = None,
+    ) -> str:
+        """Commit output against an exact active run and consumed input revision.
+
+        Args:
+            session_id: Owning session.
+            expected_run_id: Exact run that generated the candidate.
+            context_revision: Consumed revision captured by that model call.
+            publish: Synchronous enqueue callback, without IO or registry reentry.
+            draft: Optional withheld draft event fields for a rejected candidate.
+
+        Returns:
+            committed, stale, or inactive.
+        """
+        with self._lock:
+            if self._active_run_by_session.get(session_id) != expected_run_id:
+                return "inactive"
+            controller = self._controllers.get(expected_run_id)
+            if controller is None:
+                return "inactive"
+            result = controller.try_commit_output(context_revision, publish)
+            if result == "stale" and draft is not None and self._event_hub is not None:
+                self._event_hub.publish(
+                    session_id=session_id,
+                    event="draft_withheld",
+                    data={
+                        **dict(draft),
+                        "event": "draft_withheld",
+                        "run_id": expected_run_id,
+                        "context_revision": context_revision,
+                    },
+                )
+            return result
 
     def get(self, run_id: str) -> RunRecord | None:
         with self._lock:
@@ -677,6 +721,7 @@ class RunsRegistry:
                     ),
                     workspace_root=workspace_root,
                     model=model,
+                    revalidate_output=controller.revalidate_output,
                     continuation={
                         "recovery_id": recovery_id,
                         "predecessor_run_id": predecessor_run_id,
@@ -941,6 +986,7 @@ class RunsRegistry:
             "status": record.status.value,
             "origin": record.origin.value,
             "source_task_id": record.source_task_id,
+            "revalidate_output": record.revalidate_output,
             "created_at": record.updated_at,
         }
         if record.source_background_returns:

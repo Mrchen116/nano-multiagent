@@ -695,6 +695,10 @@ function isResultPending(call: ToolCall, detail: ToolDetail): boolean {
  */
 export function ToolDetailBody({ call }: { call: ToolCall }) {
   const detail = call.detail;
+  if (call.name === "send_message" && (detail?.status === "pending_revalidation" || detail?.status === "held_for_revalidation")) {
+    return <div><p>{detail.status === "pending_revalidation" ? "待发送 · 正文尚未提交" : "未发送 · 已保留为草稿"}</p>
+      <pre className="chat-tool-call-pre">{String(detail.text ?? (call.input && typeof call.input === "object" && "text" in call.input ? call.input.text : "") ?? "")}</pre></div>;
+  }
   if (detail && isErrorOnly(detail)) {
     return <ErrorCard detail={detail} />;
   }

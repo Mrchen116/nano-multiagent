@@ -20,6 +20,7 @@ from IM.domain.models import (
     AgentConfigChangedBoundary,
     Attachment,
     BackgroundReturn,
+    ReplyProcessItem,
     Conversation,
     Message,
     ThinkingSegment,
@@ -198,6 +199,7 @@ class MessageResponse(BaseModel):
     # feat-439-M2: 整轮多段思考（过程时间线），历史回放还原过程盘。空列表 = 无思考。
     thinking: list[ThinkingSegmentPayload] = []
     background_returns: list[BackgroundReturnPayload] = []
+    reply_process: list[ReplyProcessItem] = []
     token_usage: TokenUsagePayload | None = None
     # feat-414: 本轮 agent 处理墙钟（毫秒）。用户消息及旧行均为 None。
     elapsed_ms: int | None = None
@@ -305,6 +307,7 @@ def to_message_response(message: Message) -> MessageResponse:
             ThinkingSegmentPayload(seq=s.seq, text=s.text)
             for s in (message.thinking or [])
         ],
+        reply_process=message.reply_process or [],
         background_returns=[
             BackgroundReturnPayload.from_domain(item)
             for item in (message.background_returns or [])

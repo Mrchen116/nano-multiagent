@@ -28,6 +28,7 @@ from personal_assistant.gateway.inbound_models import (
     StopRunRequest,
     WorkflowCommandRequest,
     build_group_context_key,
+    im_source_reference,
 )
 from personal_assistant.product import resolve_enabled_tools
 from personal_assistant.gateway.session_keys import build_session_key
@@ -164,11 +165,15 @@ class InboundPipeline:
 
         if message.is_group and self._group_context_store is not None:
             if sync_only or not should_process:
+                buffered_metadata = _buffered_input_metadata(message.metadata)
+                source = im_source_reference(message, sender_label)
+                if source is not None:
+                    buffered_metadata["_im_source_reference"] = source
                 self._group_context_store.append(
                     build_group_context_key(message, agent_id),
                     message.text,
                     sender=sender_label,
-                    metadata=_buffered_input_metadata(message.metadata),
+                    metadata=buffered_metadata,
                 )
         if sync_only or not should_process:
             return None

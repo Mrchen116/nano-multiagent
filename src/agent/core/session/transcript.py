@@ -892,6 +892,8 @@ def _turn_metadata(entry: Mapping[str, Any]) -> dict[str, Any]:
         "tool_name",
         "tool_error",
         "tool_output",
+        "output_status",
+        "withheld_message_ids",
     )
     metadata = {key: entry[key] for key in keys if key in entry}
     if "idempotency_key" in entry:
@@ -911,6 +913,8 @@ def _copy_turn_metadata(entry: dict[str, Any], metadata: Mapping[str, Any]) -> N
         "tool_name",
         "tool_error",
         "tool_output",
+        "output_status",
+        "withheld_message_ids",
         "tool_call_id",
         "group_id",
         "reasoning_content",

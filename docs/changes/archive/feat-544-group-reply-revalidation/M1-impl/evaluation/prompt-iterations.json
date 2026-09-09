@@ -1,0 +1,36 @@
+{
+  "v1": {
+    "text": "[Output status: the preceding assistant text was NOT SENT. Consider the subsequent new messages and continue under the original reply rules.]",
+    "sha256": "500e108970346ba19d51ed6bb636d494e6847c970a229f6b82b3ee59c1ad2432"
+  },
+  "v2": {
+    "text": "[Output status: the preceding assistant text was NOT SENT. Consider the subsequent new messages and continue under the original reply rules. Do not describe withheld text as already delivered or refer the recipient to it. If a reply is still called for, provide the complete current answer; an unrelated update does not cancel the original request.]",
+    "sha256": "a3f93138f52ba3b23d41e3d313fae273d7e1e46be559424734735751da6c946b",
+    "trigger": "repeated-update-1788919005.json",
+    "change": "Explicitly prohibit describing withheld output as delivered, require complete current answer when reply remains warranted, preserve request on irrelevant updates."
+  },
+  "configuration_notes": [
+    "General text cases configured deepseek:deepseek-v4-flash with fixture default reasoning high; image case configured codexOAuth:gpt-5.6-sol. These are development calls, not sealed exact-version measurements.",
+    "First test Agent had no tools. Added bash/send_message for tool and background cases; this changes instrumentation and is not attributed to prompt v2.",
+    "Repeated update v1 used timer and batched two inputs; v2 waits for first revalidation segment before sending second update.",
+    "Tool v2/v3 use explicit target conversation ID. Existing routing prompt remains unchanged.",
+    "Background v4 injects after actual background bash read tool completes while parent model generates; earlier attempts retained."
+  ],
+  "v3": {
+    "committed_text": "COMMITTED FOR DELIVERY by the local output gate. This records submission to the delivery path, not a remote delivery acknowledgment. ",
+    "withheld_text": "NOT SENT. Only this candidate was withheld; earlier committed candidates remain committed, even if their text is identical. Consider the subsequent new messages and continue under the original reply rules. Do not describe this withheld candidate as already delivered or refer the recipient to it. If a reply is still called for, provide the complete current answer; an unrelated update does not cancel the original request. ",
+    "sha256": "622b9bc6a27e5c6a74c6221150d1b285dd19da2c02081c6bdf014a5ba9a8c3ed",
+    "trigger": "raft-counting-1.json",
+    "change": "Candidate ID scopes status; every locally committed candidate also records status. JSONL retains candidate/message IDs and state. Earlier identical committed text is not reclassified by later withholding.",
+    "boundary": "Local gate commit does not assert remote delivery. Fanout bug fixed at the same time, so counting differences do not isolate prompt effects."
+  },
+  "v4": {
+    "committed_text": "<system-reminder>\nOutput status of the immediately preceding assistant text: COMMITTED FOR DELIVERY by the local output gate. This records submission to the delivery path, not a remote delivery acknowledgment.\n</system-reminder>",
+    "withheld_text": "<system-reminder>\nOutput status of the immediately preceding assistant text: NOT SENT. Only this text was withheld; earlier committed text remains committed, even if their text is identical. Consider the subsequent new messages and continue under the original reply rules. Do not describe this withheld text as already delivered or refer the recipient to it. If a reply is still called for, provide the complete current answer; an unrelated update does not cancel the original request.\n</system-reminder>",
+    "sha256": "d749812db4868a3ee7c61073c9e45f456853b4f223721e7fbdab1e0f3669f76d",
+    "trigger": "User requested existing system-reminder wrapper and removal of candidate IDs that preceding model-visible messages do not expose.",
+    "change": "Reuse system-reminder convention; identify immediately preceding assistant text. Candidate/message IDs remain in internal durable metadata.",
+    "validation": "Existing request-capture and JSONL reload test updated: observed red for exposed candidate ID, then all 4 output revalidation tests passed. Earlier real-model logs are v3 and are not relabeled as v4.",
+    "real_model_retest": "Six fresh DeepSeek real-stack cases passed on ed925a8ab. Every case has actual proxy requests containing the system-reminder wrapper and no candidate IDs in model-visible text, plus persisted withheld state and completed revalidation. See v4-real-retest.json. Previous v3 observations remain unchanged."
+  }
+}

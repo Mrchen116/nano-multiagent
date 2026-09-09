@@ -1374,6 +1374,7 @@ class AgentEngine:
                 registry=hook_runner.registry,
                 session_id=session_id,
             )
+        output_event_publisher = session_event_publisher
         if session_event_publisher is not None and controller is not None:
             unguarded_publisher = session_event_publisher
 
@@ -1675,6 +1676,7 @@ class AgentEngine:
             metadata=final_metadata,
             model_caller=self._call_hook_model,
             session_event_publisher=session_event_publisher,
+            output_event_publisher=output_event_publisher,
             permission_requester=permission_requester,
             subagent_control=self._state().subagent_control,
         )
@@ -2457,7 +2459,12 @@ def build_turn_result(
     else:
         meta = dict(turn_meta.metadata)
 
-    assistant_msgs = [m for m in body if m.role == "assistant"]
+    withheld_ids = {
+        item for msg in body for item in msg.metadata.get("withheld_message_ids", [])
+    }
+    assistant_msgs = [
+        m for m in body if m.role == "assistant" and m.message_id not in withheld_ids
+    ]
     tool_calls: list[ToolCall] = []
     tool_results: list[ToolResult] = []
 

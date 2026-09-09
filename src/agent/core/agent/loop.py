@@ -377,9 +377,32 @@ class AgentLoop:
                         yield compacted_msg
 
                     if controller is not None:
-                        round_pending = controller.drain_pending()
+                        round_pending, context_revision = (
+                            controller.drain_pending_with_revision()
+                        )
+                        active_hook_ctx = replace(
+                            active_hook_ctx,
+                            metadata={
+                                **dict(active_hook_ctx.metadata),
+                                "context_revision": context_revision
+                                if controller.revalidate_output
+                                else None,
+                                "revalidate_output": controller.revalidate_output,
+                            },
+                        )
                         for pending in round_pending:
                             llm_messages.append(pending.message)
+                            if controller.revalidate_output:
+                                content = pending.message.content
+                                yield Message(
+                                    message_id=make_message_id(),
+                                    role="user",
+                                    content=content if isinstance(content, str) else "",
+                                    parts=tuple(content)
+                                    if isinstance(content, list)
+                                    else None,
+                                    metadata={"pending_id": pending.pending_id},
+                                )
                         if round_pending:
                             # bugfix-426-M4 决策6: signal the consume point so the gateway
                             # can roll the IM bubble. Applies to EVERY steer (mid-loop
@@ -387,7 +410,7 @@ class AgentLoop:
                             # context now, so the reply to it belongs in a NEW bubble that
                             # sorts after the steer message, not appended to the prior one.
                             await self._dispatch_pending_consumed(
-                                active_hook_ctx, run_id, round_pending
+                                active_hook_ctx, run_id, round_pending, context_revision
                             )
                         if controller.is_aborted:
                             # bugfix-426-M4 V1: hard stop — commit the terminal. A steer
@@ -420,6 +443,7 @@ class AgentLoop:
                         if self._current_tool_registry() is not None
                         else None
                     )
+                    buffered_body: list[Message] = []
                     iteration_tool_calls: list[ToolCall] = []
                     early_tool_results: list[ToolResult] = []
                     finish_reason: str | None = None
@@ -488,8 +512,14 @@ class AgentLoop:
                         last_assistant_msg_id = assistant_msg.message_id
                         last_parent_id = assistant_msg.message_id
 
+                        if controller is not None and controller.revalidate_output:
+                            if assistant_msg.content:
+                                buffered_body.append(assistant_msg)
+                            hook_message = replace(assistant_msg, content="")
+                        else:
+                            hook_message = assistant_msg
                         published = await self._dispatch_message_hooks(
-                            assistant_msg,
+                            hook_message,
                             active_hook_ctx,
                             run_id,
                             controller=controller,
@@ -603,6 +633,96 @@ class AgentLoop:
                                 result, active_hook_ctx, run_id
                             )
 
+                    if (
+                        controller is not None
+                        and controller.revalidate_output
+                        and buffered_body
+                    ):
+                        candidate = "".join(msg.content for msg in buffered_body)
+                        publish = (
+                            active_hook_ctx.output_event_publisher
+                            or active_hook_ctx.session_event_publisher
+                        )
+
+                        def publish_candidate() -> None:
+                            if publish is not None:
+                                publish(
+                                    "assistant_message",
+                                    {
+                                        "event": "assistant_message",
+                                        "run_id": run_id,
+                                        "turn_id": active_hook_ctx.turn_id,
+                                        "message_id": buffered_body[0].message_id,
+                                        "group_id": buffered_body[0].group_id,
+                                        "content": candidate,
+                                        "reasoning_content": "",
+                                        "origin": active_hook_ctx.metadata.get(
+                                            "run_origin"
+                                        ),
+                                        "metadata": {},
+                                        "background_returns": active_hook_ctx.metadata.get(
+                                            "source_background_returns", []
+                                        ),
+                                    },
+                                )
+
+                        outcome = controller.try_commit_output(
+                            context_revision, publish_candidate
+                        )
+                        candidate_id = buffered_body[0].message_id
+                        message_ids = [msg.message_id for msg in buffered_body]
+                        if outcome == "stale" and publish is not None:
+                            publish(
+                                "draft_withheld",
+                                {
+                                    "event": "draft_withheld",
+                                    "run_id": run_id,
+                                    "context_revision": context_revision,
+                                    "draft_id": candidate_id,
+                                    "source": "assistant",
+                                    "text": candidate,
+                                },
+                            )
+                        committed = outcome == "committed"
+                        status_text = (
+                            "COMMITTED FOR DELIVERY by the local output gate. "
+                            "This records submission to the delivery path, not a remote delivery acknowledgment. "
+                            if committed
+                            else "NOT SENT. Only this text was withheld; earlier committed text remains committed, "
+                            "even if their text is identical. "
+                            "Consider the subsequent new messages and continue under the original reply rules. "
+                            "Do not describe this withheld text as already delivered or refer the recipient to it. "
+                            "If a reply is still called for, provide the complete current answer; "
+                            "an unrelated update does not cancel the original request. "
+                        )
+                        status_message = Message(
+                            message_id=make_message_id(),
+                            role="user",
+                            content="<system-reminder>\n"
+                            "Output status of the immediately preceding assistant text: "
+                            f"{status_text.rstrip()}\n</system-reminder>",
+                            metadata={
+                                "output_status": {
+                                    "candidate_id": candidate_id,
+                                    "message_ids": message_ids,
+                                    "run_id": run_id,
+                                    "context_revision": context_revision,
+                                    "state": "committed_for_delivery"
+                                    if committed
+                                    else "withheld",
+                                },
+                                **(
+                                    {}
+                                    if committed
+                                    else {"withheld_message_ids": message_ids}
+                                ),
+                            },
+                        )
+                        llm_messages.append(
+                            LLMMessage(role="user", content=status_message.content)
+                        )
+                        yield status_message
+
                     turn_usage = _accumulate_usage(turn_usage, latest_usage)
                     if turn_usage is not None and turn_usage.prompt_tokens > 0:
                         last_real_prompt_tokens = turn_usage.prompt_tokens
@@ -610,16 +730,8 @@ class AgentLoop:
                         on_progress(turn_usage, tuple(all_tool_calls))
 
                     if not iteration_tool_calls:
-                        # bugfix-426-M4 决策5: before finishing, atomically re-check for a
-                        # steer that landed in the terminal window (after this round's
-                        # round-boundary drain but before the break). try_commit_terminal
-                        # holds the controller's terminal lock so this re-drain cannot
-                        # race a concurrent inject: a non-empty result means a steer
-                        # arrived — consume it into context and run ANOTHER round on the
-                        # SAME run (no run_id split, the #140 carrier of dropped events),
-                        # signalling the consume point so the gateway can roll the IM
-                        # bubble (决策6). An empty result commits the terminal: subsequent
-                        # injects are rejected and fall back to a new run.
+                        # Leave pending queued until the next round has passed its
+                        # budget/compaction checks; terminal recovery owns hard stops.
                         if controller is not None:
                             if controller.is_aborted:
                                 controller.commit_terminal()
@@ -635,13 +747,7 @@ class AgentLoop:
                                     },
                                 )
                                 return
-                            late_pending = controller.try_commit_terminal()
-                            if late_pending:
-                                for pending in late_pending:
-                                    llm_messages.append(pending.message)
-                                await self._dispatch_pending_consumed(
-                                    active_hook_ctx, run_id, late_pending
-                                )
+                            if not controller.try_finish_terminal():
                                 continue
                         stop_reason = finish_reason or "completed"
                         yield Message(
@@ -787,6 +893,7 @@ class AgentLoop:
         hook_ctx: HookContext,
         run_id: str | None,
         consumed: list[Any],
+        context_revision: int = 0,
     ) -> None:
         """Signal that injected (steered) messages just entered the model context.
 
@@ -796,26 +903,32 @@ class AgentLoop:
         bubble, open a new one after the steer message". Carries ``run_id`` so the
         relay can scope it to the live run (which stays the SAME run under 决策5).
         """
+        payload = _with_optional_run_id(
+            {
+                "event": "injection_consumed",
+                "session_id": hook_ctx.session_id,
+                "turn_id": hook_ctx.turn_id,
+                "message_count": len(consumed),
+                "pending_ids": [item.pending_id for item in consumed],
+                "context_revision": context_revision,
+                "user_message_count": sum(
+                    item.origin in {RunOrigin.USER, RunOrigin.HUMAN}
+                    for item in consumed
+                ),
+                "background_returns": [
+                    item.background_return.to_dict()
+                    for item in consumed
+                    if item.background_return is not None
+                ],
+            },
+            run_id=run_id,
+        )
+        publisher = hook_ctx.session_event_publisher
+        if publisher is not None:
+            publisher("injection_consumed", payload)
         await self._dispatch_observe_async(
             "pending_injection_consumed",
-            _with_optional_run_id(
-                {
-                    "session_id": hook_ctx.session_id,
-                    "turn_id": hook_ctx.turn_id,
-                    "message_count": len(consumed),
-                    "user_message_count": sum(
-                        1
-                        for item in consumed
-                        if item.origin in {RunOrigin.USER, RunOrigin.HUMAN}
-                    ),
-                    "background_returns": [
-                        item.background_return.to_dict()
-                        for item in consumed
-                        if item.background_return is not None
-                    ],
-                },
-                run_id=run_id,
-            ),
+            {**payload, "session_stream_published": publisher is not None},
             hook_ctx,
         )
 

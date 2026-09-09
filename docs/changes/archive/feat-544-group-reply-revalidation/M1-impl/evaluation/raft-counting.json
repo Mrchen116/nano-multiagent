@@ -1,0 +1,16 @@
+{
+  "version": "raft-counting-dev-v1",
+  "source": "https://raft.build/zh-cn/resources/blog/is-having-agents-in-the-room-meant-to-be-chaotic/",
+  "source_boundary": "Adopts ascending numbers without duplicates and target 20. Article does not publish exact model/prompt/trial protocol; this is not an exact replication.",
+  "agents": 3,
+  "model": "deepseek:deepseek-v4-flash",
+  "group_reply_policy": "ALWAYS",
+  "tools": [],
+  "target": 20,
+  "trial_count": 3,
+  "timeout_seconds": 240,
+  "input": "大家玩一个协作报数游戏：从1开始，逐个递增报到20，群里已经报出的数字不能重复，也不能跳号。每次发言只发一个阿拉伯整数，不要解释、不要分工、不要指定谁先谁后，不要@其他Agent，不使用工具。依据群内已经正式发出的数字，报下一个数；未发送的草稿不算已经报出。报到20后游戏结束，保持静默，不发结束确认。现在开始。",
+  "success": "Visible numeric replies exactly equal [1,2,...,20], no extra text, all runs settle and remain quiet for 3 seconds. No manual turn assignment or extra input before completion.",
+  "failure_recording": "Retain duplicates, missing/out-of-order numbers, extra text, timeouts and full Process. On timeout or >35 visible replies, send explicit stop to this isolated test group; never score cleanup as success.",
+  "implementation_boundary": "Protects input already accepted by the active run; does not assert Raft-style globally atomic room version across Gateways."
+}

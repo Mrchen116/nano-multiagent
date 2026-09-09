@@ -6,6 +6,8 @@ import asyncio
 from pathlib import Path
 
 from IM.application.relay_service import RelayService
+from IM.application.event_bridge import EventBridge
+from IM.infra.repositories.events import EventRepository
 from IM.infra.db import connect, initialize_schema
 from IM.infra.gateway_persistence import (
     AgentDispatchRecord,
@@ -55,6 +57,7 @@ def _build_runtime(
     node_persistence: GatewayNodePersistence,
     conversation_persistence: GatewayConversationPersistence,
     message_repository: MessageRepository,
+    event_bridge: EventBridge | None = None,
 ) -> GatewayRuntime:
     lock = asyncio.Lock()
     sessions = GatewaySessions(node_persistence=node_persistence, lock=lock)
@@ -62,6 +65,7 @@ def _build_runtime(
         sessions=sessions,
         conversation_persistence=conversation_persistence,
         message_repository=message_repository,
+        event_bridge=event_bridge,
         lock=lock,
     )
     return GatewayRuntime(
@@ -243,6 +247,10 @@ def test_group_fanout_rebinds_later_peer_before_its_enqueue(tmp_path: Path) -> N
         node_persistence=GatewayNodePersistence(connection),
         conversation_persistence=GatewayConversationPersistence(connection),
         message_repository=MessageRepository(connection),
+        event_bridge=EventBridge(
+            message_repository=MessageRepository(connection),
+            event_repository=EventRepository(connection),
+        ),
     )
     sockets["node-z-old"]._after_first_send = lambda: (
         connection.execute(
@@ -265,28 +273,22 @@ def test_group_fanout_rebinds_later_peer_before_its_enqueue(tmp_path: Path) -> N
         )
     message = MessageRepository(connection).create_message(
         conversation_id=conversation.id,
-        sender_user_id="owner-id",
-        sender_type="user",
-        content="ask source",
+        sender_user_id="source-id",
+        sender_type="agent",
+        content="",
+        allow_empty=True,
+        delivery_status="running",
     )
-    original = relay_service.enqueue_message_relay(
-        message=message,
-        target_node_id="node-source",
-        idempotency_key="group-source",
-        sender_user_id="owner-id",
-        conversation_type="group",
-        _override_agent_id="S",
-    ).relay_task
 
     response = asyncio.run(
         handler.handle_message(
             websocket=sockets["node-source"],
-            message_type="node.delivery_receipt",
+            message_type="node.streaming_delta",
             payload={
                 "node_id": "node-source",
-                "relay_task_id": original.relay_task_id,
-                "delivery_status": "completed",
-                "detail": "source reply",
+                "kind": "message_completed",
+                "message_id": message.id,
+                "final_content": "source reply",
             },
         )
     )

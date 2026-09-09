@@ -205,6 +205,7 @@ class ControlledKernel:
                 "run_id": run_id,
                 "origin": _kwargs.get("origin"),
                 "trace_id": trace_id,
+                "revalidate_output": _kwargs.get("revalidate_output", False),
             }
         )
         self._latest_run_by_session[session_id] = run_id
@@ -319,6 +320,7 @@ class ControlledKernel:
                 "origin": origin,
                 "run_id": run_id,
                 "trace_id": trace_id,
+                "revalidate_output": _kwargs.get("revalidate_output", False),
             }
         )
         self._latest_run_by_session[session_id] = run_id

@@ -66,6 +66,7 @@ from personal_assistant.gateway.inbound_models import (
     StopRunRequest,
     WorkflowCommandRequest,
     build_group_context_key,
+    im_source_reference,
 )
 from personal_assistant.gateway.workflow_commands import (
     WorkflowCommand,
@@ -154,6 +155,7 @@ class _MessagePartsProjection:
     model_parts: list[dict[str, Any]]
     model_fallback: str
     readable_fallback: str
+    source_messages: tuple[Mapping[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,6 +164,7 @@ class AcceptedRecoveryFollower:
 
     pending_id: str
     request: InboundRunRequest
+    source_messages: tuple[Mapping[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -430,6 +433,7 @@ class SessionRunCoordinator:
         self._update_workflow_size_guideline = update_workflow_size_guideline
         self._run_idle_timeout_seconds = run_idle_timeout_seconds
         self._active_runs: dict[str, _ActiveRunHandle] = {}
+        self._background_runs: dict[str, SessionBinding] = {}
         self._steered_requests: dict[str, list[AcceptedRecoveryFollower]] = {}
         self._consumed_steer_counts: dict[str, int] = {}
         self._recovery_handoffs: dict[str, _RecoveryHandoffState] = {}
@@ -444,6 +448,139 @@ class SessionRunCoordinator:
         self._readable_input_projection_store = readable_input_projection_store
         self._time_context = time_context
         self._sticky_store = sticky_store or ModelStickyStore()
+
+    async def observe_background_run(
+        self,
+        *,
+        binding: SessionBinding,
+        agent: LiveAgentSnapshot,
+        event: Mapping[str, Any],
+    ) -> bool:
+        """Adopt opted-in background output into group delivery and steer admission.
+
+        Args:
+            binding: Frozen originating session and reply route.
+            agent: Current Agent snapshot for session controls.
+            event: One event from the persistent session subscriber.
+
+        Returns:
+            Whether this event belongs to an adopted background run.
+        """
+        run_id = event.get("run_id")
+        if not isinstance(run_id, str):
+            return False
+        if (
+            event.get("event") == "run_status"
+            and event.get("status") == "running"
+            and event.get("origin") == "background_task"
+            and event.get("revalidate_output") is True
+        ):
+            async with self._transition(binding.session_key):
+                self._background_runs[run_id] = binding
+                self._active_runs[binding.session_key] = _ActiveRunHandle(
+                    run_id=run_id, binding=binding, agent=agent
+                )
+        if run_id not in self._background_runs:
+            return False
+        if event.get("event") == "injection_consumed":
+            event = self._attach_consumed_steer_identity(run_id, event)
+            if event is None:
+                return True
+        if self._kernel_event_observer is not None:
+            result = self._kernel_event_observer(event)
+            if asyncio.iscoroutine(result):
+                await result
+        if (
+            event.get("event") == "run_status"
+            and event.get("status") in TERMINAL_RUN_STATUSES
+        ):
+            accepted = self._steered_requests.get(run_id, [])
+            consumed = self._consumed_steer_counts.get(run_id, 0)
+            suffix = accepted[consumed:]
+            try:
+                if suffix and run_id not in self._user_interrupted_runs:
+                    # Background subscriptions own no foreground request. The
+                    # first unconsumed follower supplies the existing recovery
+                    # chain's route, while its ledger owns suffix settlement.
+                    request = suffix[0].request
+                    stream = self._kernel.stream(
+                        binding.kernel_session_id,
+                        after_sequence=int(
+                            event.get("_id") or event.get("sequence_num") or 0
+                        ),
+                    )
+                    try:
+                        recovery = await self._await_recovery_handoff(
+                            stream=stream,
+                            predecessor_run_id=run_id,
+                            request=request,
+                            binding=binding,
+                            model=self._resolve_agent_model(
+                                agent, kernel_session_id=binding.kernel_session_id
+                            )
+                            or "",
+                            on_other=lambda other: self._on_other_event(
+                                other, binding=binding
+                            ),
+                            predecessor_terminal_emitted=True,
+                        )
+                        if recovery is not None:
+                            run_state, reply_text, anchor, followers = recovery
+                            if run_state.get("status") == "completed":
+                                await self._complete_recovery_batch(
+                                    request=anchor,
+                                    followers=followers,
+                                    binding=binding,
+                                    run_state=run_state,
+                                    reply_text=reply_text,
+                                )
+                            else:
+                                await self._emit_follower_lifecycle(
+                                    (anchor, *followers),
+                                    RelayLifecycleUpdate(
+                                        phase="failed",
+                                        agent_id=agent.agent_id,
+                                        session_key=binding.session_key,
+                                        run_id=str(run_state.get("run_id") or run_id),
+                                        error=self._extract_run_error(
+                                            run_state, "interrupted"
+                                        ),
+                                    ),
+                                )
+                    except asyncio.CancelledError:
+                        await self._abort_recovery_handoff(
+                            predecessor_run_id=run_id,
+                            request=request,
+                            error="background recovery interrupted",
+                        )
+                        raise
+                    finally:
+                        await stream.aclose()
+                else:
+                    followers = await self._close_active_run(
+                        session_key=binding.session_key,
+                        run_id=run_id,
+                    )
+                    completed = event.get("status") == "completed"
+                    await self._emit_follower_lifecycle(
+                        followers,
+                        RelayLifecycleUpdate(
+                            phase="completed" if completed else "failed",
+                            agent_id=agent.agent_id,
+                            session_key=binding.session_key,
+                            run_id=run_id,
+                            usage=self._extract_usage(event),
+                            error=None
+                            if completed
+                            else self._extract_run_error(event, "interrupted"),
+                        ),
+                    )
+            finally:
+                await self._close_active_run(
+                    session_key=binding.session_key, run_id=run_id
+                )
+                self._background_runs.pop(run_id, None)
+        return True
 
     async def dispatch(self, request: InboundRunRequest) -> PipelineResult:
         """Admit one normal message through steer or per-session FIFO.
@@ -490,6 +627,7 @@ class SessionRunCoordinator:
                             AcceptedRecoveryFollower(
                                 pending_id=record.pending_id,
                                 request=request,
+                                source_messages=projection.source_messages,
                             )
                         )
                         injected_result = PipelineResult(
@@ -1433,6 +1571,12 @@ class SessionRunCoordinator:
                             workspace_root=latest_agent.config.workspace_root,
                             origin=RunOrigin.HUMAN,
                             trace_id=trace_id,
+                            revalidate_output=(
+                                request.message.is_group
+                                and request.message.ingress.im_relay is not None
+                                and request.message.ingress.external_conversation
+                                is None
+                            ),
                         )
                     except BaseException:
                         if readable_store is not None:
@@ -1822,6 +1966,14 @@ class SessionRunCoordinator:
         )
         model_parts: list[dict[str, Any]] = []
         readable_parts: list[dict[str, Any]] = []
+        source_messages = [
+            dict(metadata["_im_source_reference"])
+            for _, _, metadata in buffered
+            if isinstance(metadata.get("_im_source_reference"), Mapping)
+        ]
+        current_source = im_source_reference(message, request.sender_label)
+        if current_source is not None:
+            source_messages.append(current_source)
         projected_messages = [
             *buffered,
             (request.sender_label, message.text, message.metadata),
@@ -1858,6 +2010,7 @@ class SessionRunCoordinator:
             model_parts=model_parts,
             model_fallback=_render_parts_fallback(model_parts),
             readable_fallback=_render_parts_fallback(readable_parts),
+            source_messages=tuple(source_messages),
         ), None
 
     async def _ensure_binding(
@@ -3060,40 +3213,36 @@ class SessionRunCoordinator:
     def _attach_consumed_steer_identity(
         self, run_id: str, event: Mapping[str, object]
     ) -> Mapping[str, object] | None:
-        raw_user_count = event.get("user_message_count")
-        raw_background_returns = event.get("background_returns")
-        if (
-            raw_user_count == 0
-            and isinstance(raw_background_returns, list)
-            and raw_background_returns
-        ):
-            # Background task notifications share the pending-message queue, but
-            # they are not user steers and have no follower identity to attach.
-            # Their sidecars still have to cross the delivery observer so the
-            # model's reply and raw task return land on the same IM message.
-            return event
-        raw_count = (
-            raw_user_count
-            if isinstance(raw_user_count, int)
-            else event.get("message_count")
-        )
-        message_count = (
-            raw_count
-            if isinstance(raw_count, int)
-            and not isinstance(raw_count, bool)
-            and raw_count >= 0
-            else 1
-        )
-        if message_count == 0:
-            return None
         followers = self._steered_requests.get(run_id, [])
-        index = self._consumed_steer_counts.get(run_id, 0)
-        if index >= len(followers):
-            return event
-        end = min(index + message_count, len(followers))
-        self._consumed_steer_counts[run_id] = end
-        shadow = followers[end - 1].request.routed.shadow
+        pending_ids = event.get("pending_ids")
+        if isinstance(pending_ids, list):
+            # The Kernel shares this queue with task returns. Match identities,
+            # never count an automatic notification as a human follower.
+            by_id = {item.pending_id: item for item in followers}
+            consumed = [by_id[pid] for pid in pending_ids if pid in by_id]
+            if not consumed:
+                return event
+            self._consumed_steer_counts[run_id] = self._consumed_steer_counts.get(
+                run_id, 0
+            ) + len(consumed)
+        else:
+            # Preserve consumers of pre-identity events (including external steers).
+            raw_count = event.get("user_message_count", event.get("message_count", 1))
+            message_count = (
+                raw_count if isinstance(raw_count, int) and raw_count >= 0 else 1
+            )
+            if message_count == 0:
+                return event if event.get("background_returns") else None
+            index = self._consumed_steer_counts.get(run_id, 0)
+            consumed = followers[index : index + message_count]
+            if not consumed:
+                return event
+            self._consumed_steer_counts[run_id] = index + len(consumed)
+        shadow = consumed[-1].request.routed.shadow
         enriched = dict(event)
+        sources = [dict(source) for item in consumed for source in item.source_messages]
+        if sources:
+            enriched["source_messages"] = sources
         if shadow.saga_id is not None:
             enriched["shadow_saga_id"] = shadow.saga_id
             enriched["shadow_anchor_pending"] = shadow.ref is None

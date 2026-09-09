@@ -620,6 +620,11 @@
       "thinking": "思考",
       "thinkingCount": "{{count}} 段思考",
       "toolCount_other": "{{count}} 工具",
+      "replyProcessCount": {
+        "draft_other": "{{count}} 份未发送草稿",
+        "revalidation_other": "{{count}} 次复核",
+        "segment_handoff_other": "转入后续处理"
+      },
       "backgroundReturn": "后台返回",
       "backgroundReturnCount_other": "{{count}} 条后台返回",
       "backgroundTaskLabel": "后台任务",

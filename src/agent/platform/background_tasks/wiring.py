@@ -83,7 +83,18 @@ def wire_background_tasks(
         else _NoOpSubagentRunner()
     )
 
-    registry = BackgroundTaskRegistry(store=store, clock=clock)
+    def output_revalidation_for_session(session_id: str) -> bool:
+        if runs_registry is None:
+            return False
+        run_id = runs_registry.get_active_run_id(session_id)
+        run = runs_registry.get(run_id) if run_id is not None else None
+        return bool(run is not None and run.revalidate_output)
+
+    registry = BackgroundTaskRegistry(
+        store=store,
+        clock=clock,
+        output_revalidation_for_session=output_revalidation_for_session,
+    )
     # bugfix-417-M7 (decision 12): foreground bash registers its killpg stopper here,
     # not in BackgroundTaskRegistry — so it never becomes a background task and never
     # emits a <task-notification>. The kernel injects foreground_registry.stop_for_session
@@ -209,6 +220,7 @@ def _deliver_notification(
             else (),
             workspace_root=workspace_root,
             model=runtime_model,
+            revalidate_output=record.revalidate_output,
         )
     except Exception as exc:  # noqa: BLE001
         log_error(
