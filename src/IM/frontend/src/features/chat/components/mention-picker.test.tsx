@@ -51,7 +51,7 @@ describe("MentionPicker", () => {
     const faces = document.querySelectorAll<HTMLElement>(".chat-avatar-face");
     expect(faces).toHaveLength(CANDIDATES.length);
     CANDIDATES.forEach((c, i) => {
-      expect(faces[i]!.style.background).toBe(colorForAgent({ display_name: c.display_name, agent_id: c.agent_id }));
+      expect(faces[i]!).toHaveStyle({ background: colorForAgent({ display_name: c.display_name, agent_id: c.agent_id }) });
     });
   });
 

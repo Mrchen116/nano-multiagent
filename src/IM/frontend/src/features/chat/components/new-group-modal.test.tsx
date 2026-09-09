@@ -1,8 +1,8 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import "../../../i18n";
+import { i18n } from "../../../i18n";
 import { NewGroupModal } from "./new-group-modal";
 
 const AGENTS = [
@@ -12,6 +12,21 @@ const AGENTS = [
 ];
 
 describe("NewGroupModal", () => {
+  it.each(["en", "zh"])("shows machine identity and translated presence in %s", async (locale) => {
+    await act(async () => { await i18n.changeLanguage(locale); });
+    try {
+      render(<NewGroupModal agents={[
+        { agent_id: "a", display_name: "Assistant", node_name: "mac-mini", status: "online" },
+        { agent_id: "b", display_name: "Planner", node_name: "macbook-air", status: "offline" }
+      ]} onClose={() => {}} onCreate={() => {}} />);
+      expect(screen.getByText("mac-mini")).toBeVisible();
+      expect(screen.getByText("macbook-air")).toBeVisible();
+      expect(screen.getByText(locale === "en" ? "online" : "在线")).toBeVisible();
+      expect(screen.getByText(locale === "en" ? "offline" : "离线")).toBeVisible();
+    } finally {
+      await act(async () => { await i18n.changeLanguage("en"); });
+    }
+  });
   it("Create is disabled until at least one agent is selected", async () => {
     const user = userEvent.setup();
     render(<NewGroupModal agents={AGENTS} onClose={() => {}} onCreate={() => {}} />);

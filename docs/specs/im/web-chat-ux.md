@@ -163,10 +163,12 @@ Web IM SHALL 让消息正文的文本选择、链接和代码优先使用浏览�
 - **THEN** 剪贴板只得到被选择的可见文字
 - **AND** Web IM 不以整条消息菜单替换浏览器文本菜单
 
-#### Scenario: 移动端正文与链接保留原生长按
-- **WHEN** 终端用户在移动浏览器中长按消息正文或链接
-- **THEN** 浏览器可以提供文本选择、选区调整或链接预览与操作
-- **AND** Web IM 不弹出消息级操作菜单
+#### Scenario: 移动端长按复用右键菜单并保留文本选择
+- **GIVEN** 触发点位于普通消息正文内，且不在已有文本选区、链接、代码或其他原生交互控件内
+- **WHEN** 用户单指按住约半秒，期间没有滑动或取消触摸
+- **THEN** Web IM 通过与右键相同的判断逻辑打开消息级短菜单
+- **AND** 已有文字选择、选区内原生菜单、链接和代码交互继续保留，不禁用正文的文本选择
+- **AND** 快速点击或滑动不会打开消息菜单
 
 #### Scenario: 桌面端普通消息区域打开短菜单
 - **GIVEN** 当前消息没有覆盖触发点的文本选区，且触发点不在链接、代码或其他原生交互控件内
@@ -179,16 +181,17 @@ Web IM SHALL 让消息正文的文本选择、链接和代码优先使用浏览�
 - **THEN** Web IM 显示轻量消息 toolbar
 - **AND** 普通阅读状态不常驻成排动作
 
-#### Scenario: 触控环境通过 More 打开消息动作
-- **GIVEN** 当前是 compact viewport，或设备存在 coarse pointer
+#### Scenario: 桌面触控环境通过 More 打开消息动作
+- **GIVEN** 当前不是移动端布局，且设备存在 coarse pointer
 - **WHEN** 终端用户点击消息 metadata 旁的 More 入口
 - **THEN** Web IM 显示适合触控的短 action sheet
 - **AND** action sheet 与 desktop 使用相同的整条复制和 fork 可用性
 
 #### Scenario: 混合输入设备按本次输入自然响应
 - **GIVEN** 同一设备同时支持 mouse 与 touch 或 pen
-- **WHEN** 终端用户用 touch 或 pen 长按消息正文
-- **THEN** Web IM 保留浏览器原生文本或链接操作，并提供独立 More 入口
+- **WHEN** 终端用户在移动端布局用 touch 长按消息正文
+- **THEN** Web IM 复用原有右键菜单判断，并保留已有选区和原生交互
+- **AND** 移动端 metadata 不显示 More 三个点；桌面触控设备保留该入口，pen 沿用原生处理
 - **WHEN** 终端用户改用 mouse 在无选区普通区域右键
 - **THEN** Web IM 可以显示消息级短菜单
 
@@ -212,7 +215,7 @@ Web IM SHALL 让消息正文的文本选择、链接和代码优先使用浏览�
 - **AND** 当前聊天、阅读位置和未发送输入保持不变
 
 #### Scenario: 键盘与触控可达
-- **WHEN** 终端用户用键盘访问 toolbar、菜单、链接或代码复制，或在触控设备点击 More/action row
+- **WHEN** 终端用户用键盘访问 toolbar、菜单、链接或代码复制，或在触控设备长按消息、点击桌面 More/action row
 - **THEN** 所有入口有可理解的本地化名称、清晰焦点或足够触控区域
 - **AND** 菜单关闭后焦点回到仍存在的发起入口
 
@@ -224,14 +227,14 @@ Web IM SHALL 让消息正文的文本选择、链接和代码优先使用浏览�
 - **WHEN** 终端用户在移动设备上打开同一聊天并向上滚动
 - **THEN** 同样触发加载更早消息,且阅读位置保持稳定
 
-#### Scenario: 在手机端从 More 对 Agent 回复 fork
+#### Scenario: 在手机端长按 Agent 回复 fork
 - **GIVEN** 当前消息是符合既有 fork 资格的 Agent 回复
-- **WHEN** 终端用户点击该消息的 More 并选择“从此处分支”
+- **WHEN** 终端用户长按该消息的普通区域并选择“从此处分支”
 - **THEN** 触发既有 fork 流程并给出明确反馈
 - **AND** 长按该消息正文仍保留系统文本选择能力
 
 #### Scenario: desktop 与 mobile 使用同一消息动作资格
-- **WHEN** 同一条消息分别显示在 desktop toolbar/context menu 与 mobile action sheet
+- **WHEN** 同一条消息分别显示在 desktop toolbar/context menu 与 mobile context menu
 - **THEN** 整条复制和 fork 的出现、enabled、disabled 与 in-flight 状态一致
 
 ### Requirement: Web IM 聊天链接按目标类型自然导航
@@ -404,3 +407,18 @@ Web IM 在移动端以同一套克制、清晰的产品图标表达 Chat、Agent
 - **WHEN** 用户通过移动底栏切换入口，且存在未读会话
 - **THEN** Chat、Agents 与 Me 仍导航到既有目的地并显示原有标签
 - **AND** 既有未读 badge 继续显示在对应入口，不被图标遮挡
+
+
+#### Scenario: 移动端具体聊天隐藏全局底栏
+- **WHEN** 用户进入移动端具体会话
+- **THEN** Chat、Agents、Me 底栏隐藏，消息输入区占据底部并保留安全区留白
+- **AND** 返回聊天列表后恢复底栏；返回和设置按钮各保留 44px 点击区域
+
+### Requirement: 聊天身份与群聊选择信息清楚可辨
+
+聊天和 Agents 页面 SHALL 使用统一浅色表面、辅助文字和头像配色；群聊使用区别于单 Agent 字母头像的群组图标。
+
+#### Scenario: 新建群聊选择候选 Agent
+- **WHEN** 用户打开新建群聊
+- **THEN** 候选第一行显示名称及本地化在线状态，第二行显示 Agent ID 与所属机器名；机器名缺省时回退 node ID
+- **AND** 描述不占用额外行，机器归属不依赖描述内容

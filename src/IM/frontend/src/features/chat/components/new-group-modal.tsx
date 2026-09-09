@@ -8,6 +8,7 @@ interface AgentRow {
   agent_id: string;
   display_name: string;
   description?: string;
+  node_name?: string;
   status?: "online" | "offline";
 }
 
@@ -42,7 +43,7 @@ export function NewGroupModal({ agents, onClose, onCreate }: NewGroupModalProps)
 
   const inner = (
     <>
-      <header className="chat-modal-header" style={{ background: "#fff" }}>
+      <header className="chat-modal-header" style={{ background: "var(--im-surface)" }}>
         {isMobile && (
           <div className="chat-modal-sheet-handle">
             <div className="chat-modal-sheet-handle-bar" />
@@ -50,10 +51,10 @@ export function NewGroupModal({ agents, onClose, onCreate }: NewGroupModalProps)
         )}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
-            <h2 id={titleId} style={{ margin: 0, fontSize: 16, fontWeight: 800, color: "oklch(0.14 0.01 240)", letterSpacing: "-0.02em" }}>
+            <h2 id={titleId} style={{ margin: 0, fontSize: 16, fontWeight: 800, color: "var(--im-text)", letterSpacing: "-0.02em" }}>
               {t("chat.newGroup.title")}
             </h2>
-            <p style={{ margin: "3px 0 0", fontSize: 12.5, color: "oklch(0.55 0.01 240)" }}>
+            <p style={{ margin: "3px 0 0", fontSize: 12.5, color: "var(--im-text-muted)" }}>
               {t("chat.newGroup.subtitle")}
             </p>
           </div>
@@ -63,13 +64,13 @@ export function NewGroupModal({ agents, onClose, onCreate }: NewGroupModalProps)
               onClick={onClose}
               style={{
                 background: "transparent",
-                border: "1px solid oklch(0.87 0.006 240)",
+                border: "1px solid var(--im-border)",
                 borderRadius: 8,
                 padding: "5px 12px",
                 font: "inherit",
                 fontSize: 12,
                 fontWeight: 600,
-                color: "oklch(0.45 0.01 240)",
+                color: "var(--im-text-muted)",
                 cursor: "pointer"
               }}
             >
@@ -91,8 +92,8 @@ export function NewGroupModal({ agents, onClose, onCreate }: NewGroupModalProps)
                     padding: "11px 12px",
                     minHeight: 52,
                     borderRadius: 12,
-                    background: on ? "oklch(0.93 0.06 180)" : "oklch(0.97 0.004 240)",
-                    border: on ? "1px solid oklch(0.75 0.12 180)" : "1px solid oklch(0.88 0.005 240)"
+                    background: on ? "var(--im-accent-soft)" : "var(--im-surface)",
+                    border: on ? "1px solid var(--im-accent-border)" : "1px solid var(--im-border)"
                   }}
                 >
                   <input
@@ -100,28 +101,33 @@ export function NewGroupModal({ agents, onClose, onCreate }: NewGroupModalProps)
                     checked={on}
                     onChange={() => toggle(a.agent_id)}
                     aria-label={a.display_name}
-                    style={{ width: 16, height: 16, accentColor: "oklch(0.52 0.14 180)", flexShrink: 0 }}
+                    style={{ width: 16, height: 16, accentColor: "var(--im-accent)", flexShrink: 0 }}
                   />
                   <Avatar initials={a.display_name.slice(0, 2)} size={30} status={a.status} color={colorForAgent({ display_name: a.display_name, agent_id: a.agent_id })} />
                   <span className="chat-modal-agent-body">
-                    <span className="chat-modal-agent-name">{a.display_name}</span>
-                    {a.description && <span className="chat-modal-agent-desc">{a.description}</span>}
-                  </span>
-                  {a.status && (
-                    <span
-                      style={{
-                        fontSize: 11,
-                        fontWeight: 700,
-                        padding: "2px 8px",
-                        borderRadius: 99,
-                        flexShrink: 0,
-                        background: a.status === "online" ? "oklch(0.93 0.10 145)" : "oklch(0.93 0.005 240)",
-                        color: a.status === "online" ? "oklch(0.35 0.14 145)" : "oklch(0.55 0.01 240)"
-                      }}
-                    >
-                      {t(`chat.status.${a.status}`)}
+                    <span className="chat-modal-agent-topline">
+                      <span className="chat-modal-agent-name">{a.display_name}</span>
+                      {a.status && (
+                        <span
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 700,
+                            padding: "2px 8px",
+                            borderRadius: 99,
+                            flexShrink: 0,
+                            background: a.status === "online" ? "var(--im-success-soft)" : "var(--im-surface-2)",
+                            color: a.status === "online" ? "var(--im-success-text)" : "var(--im-text-muted)"
+                          }}
+                        >
+                          {t(`chat.newGroup.${a.status}`)}
+                        </span>
+                      )}
                     </span>
-                  )}
+                    <span className="chat-modal-agent-meta">
+                      <span className="chat-modal-agent-id" title={a.agent_id}>{a.agent_id}</span>
+                      {a.node_name && <span className="chat-modal-agent-node" title={a.node_name}>{a.node_name}</span>}
+                    </span>
+                  </span>
                 </label>
               </li>
             );
@@ -142,7 +148,7 @@ export function NewGroupModal({ agents, onClose, onCreate }: NewGroupModalProps)
       <footer
         className="chat-modal-footer"
         style={{
-          background: "#fff",
+          background: "var(--im-surface)",
           paddingBottom: isMobile ? "calc(12px + env(safe-area-inset-bottom, 0px))" : "12px"
         }}
       >

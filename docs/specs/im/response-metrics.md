@@ -15,6 +15,10 @@ agent 回复墙钟耗时、工具聚合展示和缓存命中率 token 气泡的�
 
 一轮 agent 回复从占位消息创建(`message.created`,`delivery_status=running`)到收尾(`message.completed`)之间的本轮处理墙钟,在收尾时作为该消息的 `elapsed_ms`(整数毫秒)对消费者可见——既随 `message.completed` 事件帧下发,也在历史消息读取的响应里回填。起点为占位消息的 `created_at` (agent 开始处理这一轮),终点为收尾时刻;仅 agent 消息有该值,进行中(未收尾)的消息无 `elapsed_ms`。
 
+#### Scenario: 展开用量不遮挡消息
+- **WHEN** 用户点击 token 用量入口
+- **THEN** 默认收起的浅色明细在消息内按正常布局展开，不浮在后续消息之上
+
 #### Scenario: message.completed 携带本轮墙钟
 - **GIVEN** 一条 agent 占位消息已于 `created_at` 创建、处于 `running`
 - **WHEN** 该轮收尾、IM 发出 `message.completed`

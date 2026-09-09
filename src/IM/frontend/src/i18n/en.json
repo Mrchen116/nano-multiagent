@@ -184,6 +184,8 @@
     }
   },
   "agents": {
+    "selectTitle": "Select an Agent",
+    "selectBody": "Choose an Agent from the sidebar to view and edit its configuration.",
     "title": "Agents",
     "newButton": "+ New",
     "loadError": "Could not load agents.",

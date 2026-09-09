@@ -36,6 +36,7 @@ describe("Workflow tool detail", () => {
     );
 
     await openProcess();
+    await userEvent.click(document.querySelector<HTMLButtonElement>(".chat-tool-call-row")!);
     expect(screen.getByText(/async def main/)).toBeInTheDocument();
     expect(screen.getByText(/medium/)).toBeInTheDocument();
     expect(container.querySelector(".chat-tool-detail-workflow-input")).not.toBeNull();
@@ -70,6 +71,7 @@ describe("Workflow tool detail", () => {
     );
 
     await openProcess();
+    await userEvent.click(document.querySelector<HTMLButtonElement>(".chat-tool-call-row")!);
     const input = container.querySelector(".chat-tool-detail-workflow-input")!;
     const result = container.querySelector(".chat-tool-detail-workflow-result")!;
     expect(input.compareDocumentPosition(result) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
@@ -105,6 +107,7 @@ describe("Workflow tool detail", () => {
     );
 
     await openProcess();
+    await userEvent.click(document.querySelector<HTMLButtonElement>(".chat-tool-call-row")!);
     const result = container.querySelector(".chat-tool-detail-workflow-result");
     expect(result).not.toBeNull();
     expect(result).toHaveTextContent(/未执行|not run/i);
@@ -142,6 +145,7 @@ describe("Workflow tool detail", () => {
     );
 
     await openProcess();
+    await userEvent.click(document.querySelector<HTMLButtonElement>(".chat-tool-call-row")!);
     const input = container.querySelector(".chat-tool-detail-workflow-input")!;
     const result = container.querySelector(".chat-tool-detail-workflow-result")!;
     expect(input).toHaveTextContent("/workspace/workflows/review.py");

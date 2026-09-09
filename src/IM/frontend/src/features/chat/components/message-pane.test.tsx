@@ -931,6 +931,40 @@ describe("MessagePane", () => {
       expect(screen.queryByRole("menu")).not.toBeInTheDocument();
     });
 
+    it("uses the original context menu for both mobile right-click and holding, while preserving selection", () => {
+      vi.useFakeTimers();
+      try {
+        render(<MessagePane conversation={DIRECT_CONV} messages={SAMPLE_MESSAGES} mentionCandidates={[]} isMobile onSend={() => {}} />);
+        const bubble = screen.getByTestId("message-bubble-m2");
+        const body = bubble.querySelector(".chat-message-body")!;
+        vi.spyOn(body, "getBoundingClientRect").mockReturnValue({ left: 0, top: 0, right: 100, bottom: 100, width: 100, height: 100, x: 0, y: 0, toJSON() {} });
+        fireEvent.touchStart(bubble, { touches: [{ clientX: 20, clientY: 20 }] });
+        fireEvent.touchMove(bubble, { touches: [{ clientX: 20, clientY: 40 }] });
+        act(() => { vi.advanceTimersByTime(600); });
+        expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+        fireEvent.touchStart(bubble, { touches: [{ clientX: 20, clientY: 20 }] });
+        act(() => { vi.advanceTimersByTime(500); });
+        expect(screen.getByRole("menu")).toBeInTheDocument();
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+        fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+        fireContextMenu(bubble, { button: 2, buttons: 2, clientX: 20, clientY: 20, pointerType: "mouse" });
+        expect(screen.getByRole("menu")).toBeInTheDocument();
+        fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+        act(() => { vi.runOnlyPendingTimers(); });
+        const range = document.createRange();
+        range.selectNodeContents(body);
+        window.getSelection()!.removeAllRanges();
+        window.getSelection()!.addRange(range);
+        fireEvent.touchStart(body, { touches: [{ clientX: 20, clientY: 20 }] });
+        act(() => { vi.advanceTimersByTime(500); });
+        expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+        expect(window.getSelection()!.toString()).toBe("Hi back");
+      } finally {
+        window.getSelection()?.removeAllRanges();
+        vi.useRealTimers();
+      }
+    });
+
     it("does not open a custom menu on mobile long-press", () => {
       render(
         <MessagePane
@@ -957,7 +991,6 @@ describe("MessagePane", () => {
           conversation={DIRECT_CONV}
           messages={SAMPLE_MESSAGES}
           mentionCandidates={[]}
-          isMobile
           onSend={() => {}}
         />
       );
@@ -1015,7 +1048,6 @@ describe("MessagePane", () => {
           mentionCandidates={[]}
           isDirectChat
           agentOnline
-          isMobile
           onFork={onFork}
           onSend={() => {}}
         />
@@ -1531,7 +1563,7 @@ describe("MessagePane", () => {
       expect(inlineCode.closest(".im-code-block")).toBeNull();
     });
 
-    it("renders the More button in compact viewport and keeps toolbar on hybrid", () => {
+    it("hides the More button on mobile", () => {
       render(
         <MessagePane
           conversation={DIRECT_CONV}
@@ -1542,7 +1574,7 @@ describe("MessagePane", () => {
         />
       );
 
-      expect(screen.getByTestId("message-more-m2")).toBeInTheDocument();
+      expect(screen.queryByTestId("message-more-m2")).not.toBeInTheDocument();
     });
 
     it("opens the More action sheet and restores focus to More on close", async () => {
@@ -1552,7 +1584,6 @@ describe("MessagePane", () => {
           conversation={DIRECT_CONV}
           messages={SAMPLE_MESSAGES}
           mentionCandidates={[]}
-          isMobile
           onSend={() => {}}
         />
       );
@@ -2231,7 +2262,8 @@ describe("MessagePane", () => {
       );
       const configBtn = screen.getByRole("button", { name: /config/i });
       expect(configBtn.className).toMatch(/compact|icon|chat-pane-config-icon/);
-      expect(configBtn.textContent?.trim()).toBe("⚙");
+      expect(configBtn.textContent?.trim()).toBe("");
+      expect(configBtn.querySelector("svg")).not.toBeNull();
     });
 
     it("keeps participants + KindBadge + text Config on desktop (isMobile=false)", () => {
