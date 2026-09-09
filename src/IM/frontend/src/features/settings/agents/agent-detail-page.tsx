@@ -1636,7 +1636,7 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
           aria-label={t("agents.detail.sections.navLabel")}
         >
           {([
-            ...(draft.work_mode === "global" ? [["work", "工作"]] : []),
+            ...(draft.work_mode === "global" ? [["work", t("agents.detail.sections.work")]] : []),
             ["overview", t("agents.detail.sections.overview")],
             ["config", t("agents.detail.sections.config")],
             ["channels", t("agents.detail.sections.channels")],

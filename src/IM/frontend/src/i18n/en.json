@@ -215,6 +215,7 @@
       "loading": "Loading agent profile...",
       "sections": {
         "navLabel": "Agent detail sections",
+        "work": "Work",
         "overview": "Overview",
         "config": "Config",
         "channels": "Channels",

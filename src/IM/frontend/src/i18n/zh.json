@@ -213,6 +213,7 @@
       "loading": "加载 Agent 配置中...",
       "sections": {
         "navLabel": "Agent 详情分区",
+        "work": "工作",
         "overview": "概览",
         "config": "配置",
         "channels": "通道",
