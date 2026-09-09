@@ -55,15 +55,15 @@ export function AgentRow({ agent, nodes, nodesPending = false, isActive, isMobil
         isActive
           ? ""
           : isMobile
-            ? "hover:bg-[oklch(0.90_0.006_240)]"
-            : "hover:bg-[oklch(0.28_0.012_240)] focus-visible:bg-[oklch(0.29_0.012_240)]"
+            ? "hover:bg-[var(--im-hover)]"
+            : "hover:bg-[var(--im-hover)] focus-visible:bg-[var(--im-hover)]"
       }`}
       style={{
         background: isActive
-          ? (isMobile ? "oklch(0.90 0.010 180)" : "oklch(0.31 0.015 240)")
+          ? "var(--im-accent-soft)"
           : undefined,
         outlineColor: isActive
-          ? (isMobile ? "oklch(0.75 0.12 180)" : "oklch(0.40 0.08 180)")
+          ? "var(--im-accent-border)"
           : "transparent",
         cursor: "pointer",
       }}
@@ -78,22 +78,12 @@ export function AgentRow({ agent, nodes, nodesPending = false, isActive, isMobil
       />
       <div className="min-w-0 flex-1">
         <p
-          className={`m-0 font-semibold truncate ${
-            isMobile
-              ? "text-[15px] text-[oklch(0.18_0.01_240)]"
-              : `text-[13px] ${isActive ? "text-white" : "text-[oklch(0.86_0.01_240)]"}`
-          }`}
+          className={`m-0 font-semibold truncate text-im-text ${isMobile ? "text-[15px]" : "text-[13px]"}`}
         >
           {agent.display_name}
         </p>
         <p
-          className={`m-0 mt-[2px] truncate ${
-            isMobile
-              ? "text-[12.5px] text-[oklch(0.55_0.01_240)]"
-              : `font-mono text-[11px] ${
-                  isActive ? "text-[oklch(0.70_0.01_240)]" : "text-[oklch(0.64_0.01_240)]"
-                }`
-          }`}
+          className={`m-0 mt-[2px] truncate text-im-text-muted ${isMobile ? "text-[12.5px]" : "font-mono text-[11px]"}`}
         >
           {isMobile ? agent.description || agent.agent_id : agent.agent_id}
         </p>
@@ -101,17 +91,15 @@ export function AgentRow({ agent, nodes, nodesPending = false, isActive, isMobil
       {isMobile ? (
         <div className="flex flex-col items-end gap-[3px] shrink-0">
           {deviceLabel ? (
-            <span className="text-[12px] text-[oklch(0.60_0.01_240)] truncate max-w-[110px]">
+            <span className="text-[12px] text-im-text-muted truncate max-w-[110px]">
               {deviceLabel}
             </span>
           ) : null}
-          <span className="text-[11px] text-[oklch(0.65_0.01_240)]">›</span>
+          <span className="text-[11px] text-im-text-muted">›</span>
         </div>
       ) : deviceLabel ? (
         <span
-          className={`shrink-0 self-end pb-[1px] text-[11px] text-right truncate max-w-[92px] ${
-            isActive ? "text-[oklch(0.64_0.01_240)]" : "text-[oklch(0.55_0.01_240)]"
-          }`}
+          className="shrink-0 self-end pb-[1px] text-[11px] text-right truncate max-w-[92px] text-im-text-muted"
         >
           {deviceLabel}
         </span>

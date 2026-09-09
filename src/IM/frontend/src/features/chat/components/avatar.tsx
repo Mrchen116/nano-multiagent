@@ -1,27 +1,26 @@
 /**
- * Single source of truth for agent avatar colors.
- *
- * The same agent must render the same avatar color everywhere it appears:
- * settings list, settings detail, chat sidebar row, chat header, and message
- * bubbles. Two things have to stay aligned for that to hold:
- *   1. the seed — `display_name` is the only identifier available in *all*
- *      those places. Message bubbles only carry the sender's IM user UUID
- *      (`sender_user_id`), never the `agent_id` the settings pages key off, so
- *      keying on `agent_id` would leave bubbles a different color from the
- *      sidebar/header. Seeding on `display_name` keeps every surface in sync
- *      (and the avatar initials already track `display_name` anyway).
- *   2. the oklch lightness/chroma — fixed here so every call site renders the
- *      same shade for a given hue.
+ * Shared Agent palette, seeded by display name: historical message senders carry
+ * an IM user UUID rather than agent_id, so names keep colors aligned across views.
  */
-const AVATAR_LIGHTNESS = 0.52;
-const AVATAR_CHROMA = 0.14;
+const AVATAR_PALETTE = [
+  { background: "#e4dbcf", foreground: "#6b5945" },
+  { background: "#d9dfd1", foreground: "#506345" },
+  { background: "#dfd8e8", foreground: "#69567b" },
+  { background: "#e7d7dc", foreground: "#79525f" },
+  { background: "#cbdedb", foreground: "#2f5954" },
+  { background: "#d5ddea", foreground: "#485c7d" }
+];
 
-/** Deterministic avatar color from an arbitrary seed string. */
+/** Deterministic color from a curated palette, seeded by the full display name. */
 export function colorForAgentSeed(seed: string): string {
   let hash = 0;
   for (let i = 0; i < seed.length; i += 1) hash = (hash << 5) - hash + seed.charCodeAt(i);
-  const hue = Math.abs(hash) % 360;
-  return `oklch(${AVATAR_LIGHTNESS} ${AVATAR_CHROMA} ${hue})`;
+  return AVATAR_PALETTE[Math.abs(hash) % AVATAR_PALETTE.length].background;
+}
+
+/** Soft Agent backgrounds use dark lettering; explicit non-Agent colors retain white. */
+export function foregroundForAvatar(background: string): string {
+  return AVATAR_PALETTE.find((color) => color.background === background)?.foreground ?? "#fff";
 }
 
 /** Avatar color for an agent, seeded by display_name (id fallback). */
@@ -69,6 +68,8 @@ export function Avatar({ initials, color, size = 32, status }: AvatarProps) {
           width: size,
           height: size,
           background: bg,
+          color: foregroundForAvatar(bg),
+          fontWeight: 600,
           fontSize: size * 0.35,
           letterSpacing: "-0.02em"
         }}
@@ -93,3 +94,34 @@ export function Avatar({ initials, color, size = 32, status }: AvatarProps) {
   );
 }
 
+/** Group mark shared by the sidebar and chat header. */
+export function GroupAvatar({ size = 36, label }: { size?: number; label: string }) {
+  return (
+    <span role="img" aria-label={label} style={{
+      width: size, height: size, flexShrink: 0, display: "inline-flex",
+      alignItems: "center", justifyContent: "center",
+      borderRadius: size * 0.275, background: "var(--im-group-avatar)", color: "var(--im-group-avatar-text)"
+    }}>
+      <svg width={size * 0.525} height={size * 0.525} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M18 21a8 8 0 0 0-16 0" />
+        <circle cx="10" cy="8" r="5" />
+        <path d="M22 20c0-3.37-2-6.5-4-8a5 5 0 0 0-.45-8.3" />
+      </svg>
+    </span>
+  );
+}
+
+/* Lucide users-round, v0.468.0 — ISC License.
+ * Copyright (c) for portions of Lucide are held by Cole Bemis 2013-2022 as part
+ * of Feather (MIT). All other copyright (c) for Lucide are held by Lucide Contributors 2022.
+ * Permission to use, copy, modify, and/or distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */

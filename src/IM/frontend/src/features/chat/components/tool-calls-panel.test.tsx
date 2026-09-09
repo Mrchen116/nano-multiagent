@@ -87,9 +87,7 @@ describe("ToolCallsPanel · process timeline (feat-439-M2)", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  // code-review CONFIRMED: defaultOpen 曾用合并时间线下标 i===0，当第一项是思考时
-  // 首个工具不再默认展开。首工具默认展开应与「前面有没有思考」无关。
-  it("default-opens the first tool row even when a thinking segment precedes it", async () => {
+  it("keeps tool details collapsed until clicked, including after reopening Process", async () => {
     const user = userEvent.setup();
     render(
       <ToolCallsPanel
@@ -99,7 +97,12 @@ describe("ToolCallsPanel · process timeline (feat-439-M2)", () => {
     );
     await user.click(screen.getByRole("button", { name: /过程|process/i }));
     const toolBtn = screen.getByText("read_file").closest("button");
+    expect(toolBtn).toHaveAttribute("aria-expanded", "false");
+    await user.click(toolBtn!);
     expect(toolBtn).toHaveAttribute("aria-expanded", "true");
+    await user.click(screen.getByRole("button", { name: /过程|process/i }));
+    await user.click(screen.getByRole("button", { name: /过程|process/i }));
+    expect(screen.getByText("read_file").closest("button")).toHaveAttribute("aria-expanded", "false");
     expect(screen.getByTestId("process-thinking-toggle")).toHaveAttribute("aria-expanded", "false");
   });
 
@@ -131,6 +134,7 @@ describe("ToolCallsPanel · collapsed row (R1)", () => {
   async function expandPanel() {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /过程|process/i }));
+    await user.click(document.querySelector<HTMLButtonElement>(".chat-tool-call-row")!);
   }
 
   it("renders the presenter output as the collapsed-row summary text", async () => {
@@ -328,6 +332,7 @@ describe("ToolCallsPanel · skill_view rows (feat-446-M4 R3)", () => {
     const { container } = render(<ToolCallsPanel toolCalls={calls} />);
     await user.click(screen.getByRole("button", { name: /过程|process/i }));
 
+    await userEvent.click(screen.getByText("skill_view").closest("button")!);
     const card = container.querySelector(".chat-tool-detail-skill-view");
     expect(card).not.toBeNull();
     expect(card?.textContent).toContain("name");
@@ -362,6 +367,7 @@ describe("ToolCallsPanel · skill_view rows (feat-446-M4 R3)", () => {
 
     const row = screen.getByText("skill_view").closest(".chat-tool-call-row");
     expect(row?.className).toContain("chat-tool-call-row--failed");
+    await userEvent.click(screen.getByText("skill_view").closest("button")!);
     const card = container.querySelector(".chat-tool-detail-skill-view");
     expect(card?.className).toContain("chat-tool-detail-info--failed");
     expect(card?.textContent).toContain("missing-skill");
@@ -375,12 +381,12 @@ describe("ToolCallsPanel · skill_view rows (feat-446-M4 R3)", () => {
 // rows without detail degrade to the output string.
 describe("ToolCallsPanel · expanded body (R2)", () => {
   function renderSingle(call: ToolCall) {
-    // A single call defaults open (i===0) once the panel is expanded.
     return render(<ToolCallsPanel toolCalls={[call]} />);
   }
   async function open() {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /过程|process/i }));
+    await user.click(document.querySelector<HTMLButtonElement>(".chat-tool-call-row")!);
   }
 
   it("renders bash as a terminal block with command + stdout", async () => {
@@ -701,6 +707,7 @@ describe("ToolCallsPanel · long output (R3)", () => {
   async function open() {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /过程|process/i }));
+    await user.click(document.querySelector<HTMLButtonElement>(".chat-tool-call-row")!);
   }
 
   const LONG_STDOUT = Array.from({ length: 200 }, (_, i) => `line ${i + 1}`).join("\n");
@@ -803,6 +810,7 @@ describe("ToolCallsPanel · bespoke failure routing (Round-1 fix)", () => {
   async function open() {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /过程|process/i }));
+    await user.click(document.querySelector<HTMLButtonElement>(".chat-tool-call-row")!);
   }
 
   it("renders an agent in-band failure via AgentCard with prompt + error text (not an empty ErrorCard)", async () => {
@@ -881,6 +889,7 @@ describe("ToolCallsPanel · success-false failure (Round-3 fix)", () => {
   async function open() {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /过程|process/i }));
+    await user.click(document.querySelector<HTMLButtonElement>(".chat-tool-call-row")!);
   }
 
   it("renders a memory success=false detail as a failure (✕ + error text, not ✓)", async () => {
@@ -987,6 +996,7 @@ describe("ToolCallsPanel · failed calls with start-side detail", () => {
   async function open() {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /过程|process|tool call/i }));
+    await user.click(document.querySelector<HTMLButtonElement>(".chat-tool-call-row")!);
   }
 
   it("keeps an interrupted agent prompt visible without rendering the completed result body", async () => {

@@ -59,6 +59,8 @@ describe("ConversationSidebar", () => {
     expect(screen.getByRole("button", { name: /Assistant/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Sprint Planning/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Deploy: agent network/ })).toBeInTheDocument();
+    expect(within(screen.getByTestId("conv-avatar-c2")).getByRole("img", { name: "Group" })).toBeVisible();
+    expect(within(screen.getByTestId("conv-avatar-c1")).queryByRole("img", { name: "Group" })).toBeNull();
   });
 
   it("filters by kind when a tab is selected", async () => {

@@ -97,6 +97,14 @@ describe("AppShell", () => {
     expect(mobile).not.toHaveTextContent("👤");
   });
 
+  it("hides mobile navigation inside a conversation", () => {
+    setViewportWidth(390);
+    const { container } = renderShell("/chat/conversation-1");
+    expect(screen.queryByRole("navigation", { name: /mobile/i })).not.toBeInTheDocument();
+    expect(container.querySelector(".im-shell--conversation")).toBeInTheDocument();
+    expect(screen.getByTestId("content")).toBeInTheDocument();
+  });
+
   it("UserMenu sign-out clears auth store", async () => {
     renderShell("/chat");
     await userEvent.click(screen.getByRole("button", { name: /alex chen/i }));

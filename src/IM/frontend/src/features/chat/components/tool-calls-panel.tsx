@@ -188,20 +188,15 @@ export function ToolCallsPanel({
       {expanded && (
         <div className="chat-tool-calls-panel chat-tool-calls-panel--open">
           <ul className="chat-tool-calls-list">
-            {(() => {
-              // code-review fix: 用「工具计数」而非合并时间线下标判定默认展开——首个
-              // 工具行始终默认展开，与它前面有没有思考段无关（恢复旧行为）。
-              let toolIndex = 0;
-              return timeline.map((item) =>
-                item.kind === "thinking" ? (
-                  <ThinkingRow key={item.key} segment={item.segment} />
-                ) : item.kind === "tool" ? (
-                  <ToolCallRow key={item.key} call={item.call} defaultOpen={toolIndex++ === 0} />
-                ) : (
-                  <BackgroundReturnRow key={item.key} value={item.value} />
-                )
-              );
-            })()}
+            {timeline.map((item) =>
+              item.kind === "thinking" ? (
+                <ThinkingRow key={item.key} segment={item.segment} />
+              ) : item.kind === "tool" ? (
+                <ToolCallRow key={item.key} call={item.call} />
+              ) : (
+                <BackgroundReturnRow key={item.key} value={item.value} />
+              )
+            )}
           </ul>
         </div>
       )}
@@ -355,7 +350,7 @@ function ThinkingRow({ segment }: { segment: ThinkingSegment }) {
           className="chat-tool-call-status-icon chat-process-think-icon"
           aria-hidden="true"
         >
-          💭
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11a8 8 0 0 1-8 8H5l-3 3V11a9 9 0 0 1 19 0Z" /><path d="M7 10h10M7 14h6" /></svg>
         </span>
         <span className="chat-tool-call-name chat-process-think-name">
           {t("chat.messagePane.thinking")}
@@ -392,9 +387,9 @@ const REASON_LABEL_KEYS: Record<string, string> = {
   stalled: "chat.messagePane.toolReasonInterrupted",
 };
 
-function ToolCallRow({ call, defaultOpen = false }: { call: ToolCall; defaultOpen?: boolean }) {
+function ToolCallRow({ call }: { call: ToolCall }) {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, setOpen] = useState(false);
   // Failure derives from isCallFailed (status OR detail.success===false), so
   // never-raising tools (memory/skill failures) also render red (Round-3 fix).
   const failed = isCallFailed(call);

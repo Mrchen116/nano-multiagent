@@ -94,23 +94,23 @@ describe("AgentRow on desktop", () => {
     expect(within(row).queryByText("node-1")).not.toBeInTheDocument();
   });
 
-  it("keeps the light-on-dark identity colors: readable name/id in normal state, brighter when active", () => {
+  it("uses shared readable identity colors in normal and active states", () => {
     const { unmount } = render(
       <AgentRow agent={AGENT} nodes={NODES} isActive={false} isMobile={false} onSelect={() => {}} />
     );
     let row = screen.getByRole("button", { name: "Planner" });
-    expect(within(row).getByText("Planner")).toHaveClass("text-[oklch(0.86_0.01_240)]");
-    expect(within(row).getByText("agent-1")).toHaveClass("text-[oklch(0.64_0.01_240)]");
-    expect(within(row).getByText("mac-mini")).toHaveClass("text-[oklch(0.55_0.01_240)]");
+    expect(within(row).getByText("Planner")).toHaveClass("text-im-text");
+    expect(within(row).getByText("agent-1")).toHaveClass("text-im-text-muted");
+    expect(within(row).getByText("mac-mini")).toHaveClass("text-im-text-muted");
     unmount();
 
     render(
       <AgentRow agent={AGENT} nodes={NODES} isActive={true} isMobile={false} onSelect={() => {}} />
     );
     row = screen.getByRole("button", { name: "Planner" });
-    expect(within(row).getByText("Planner")).toHaveClass("text-white");
-    expect(within(row).getByText("agent-1")).toHaveClass("text-[oklch(0.70_0.01_240)]");
-    expect(within(row).getByText("mac-mini")).toHaveClass("text-[oklch(0.64_0.01_240)]");
+    expect(within(row).getByText("Planner")).toHaveClass("text-im-text");
+    expect(within(row).getByText("agent-1")).toHaveClass("text-im-text-muted");
+    expect(within(row).getByText("mac-mini")).toHaveClass("text-im-text-muted");
   });
 
   it("gets its hover background from Tailwind classes, suppressed while active", () => {
@@ -118,8 +118,8 @@ describe("AgentRow on desktop", () => {
       <AgentRow agent={AGENT} nodes={NODES} isActive={false} isMobile={false} onSelect={() => {}} />
     );
     expect(screen.getByRole("button", { name: "Planner" })).toHaveClass(
-      "hover:bg-[oklch(0.28_0.012_240)]",
-      "focus-visible:bg-[oklch(0.29_0.012_240)]"
+      "hover:bg-[var(--im-hover)]",
+      "focus-visible:bg-[var(--im-hover)]"
     );
     unmount();
 
@@ -127,7 +127,7 @@ describe("AgentRow on desktop", () => {
       <AgentRow agent={AGENT} nodes={NODES} isActive={true} isMobile={false} onSelect={() => {}} />
     );
     expect(screen.getByRole("button", { name: "Planner" })).not.toHaveClass(
-      "hover:bg-[oklch(0.28_0.012_240)]"
+      "hover:bg-[var(--im-hover)]"
     );
   });
 
@@ -146,15 +146,15 @@ describe("AgentRow on desktop", () => {
     expect(within(row).queryByText("mac-mini")).not.toBeInTheDocument();
   });
 
-  it("marks the active row with the prototype background and outline", () => {
+  it("marks the active row with the shared selection background and outline", () => {
     render(
       <AgentRow agent={AGENT} nodes={NODES} isActive={true} isMobile={false} onSelect={() => {}} />
     );
 
     const row = screen.getByRole("button", { name: "Planner" });
     expect(row).toHaveClass("outline", "outline-1");
-    expect(row.style.background).toBe("oklch(0.31 0.015 240)");
-    expect(row.style.outlineColor).toMatch(/^oklch\(0\.4\s+0\.08\s+180\)$/);
+    expect(row.style.background).toBe("var(--im-accent-soft)");
+    expect(row.style.outlineColor).toBe("var(--im-accent-border)");
   });
 
   it("invokes onSelect with the agent id", async () => {
