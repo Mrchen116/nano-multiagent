@@ -30,6 +30,7 @@
     "sha256": "d749812db4868a3ee7c61073c9e45f456853b4f223721e7fbdab1e0f3669f76d",
     "trigger": "User requested existing system-reminder wrapper and removal of candidate IDs that preceding model-visible messages do not expose.",
     "change": "Reuse system-reminder convention; identify immediately preceding assistant text. Candidate/message IDs remain in internal durable metadata.",
-    "validation": "Existing request-capture and JSONL reload test updated: observed red for exposed candidate ID, then all 4 output revalidation tests passed. Earlier real-model logs are v3 and are not relabeled as v4."
+    "validation": "Existing request-capture and JSONL reload test updated: observed red for exposed candidate ID, then all 4 output revalidation tests passed. Earlier real-model logs are v3 and are not relabeled as v4.",
+    "real_model_retest": "Six fresh DeepSeek real-stack cases passed on ed925a8ab. Every case has actual proxy requests containing the system-reminder wrapper and no candidate IDs in model-visible text, plus persisted withheld state and completed revalidation. See v4-real-retest.json. Previous v3 observations remain unchanged."
   }
 }

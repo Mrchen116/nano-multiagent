@@ -37,3 +37,9 @@ The initial diagnostic counting capture also includes stop acknowledgments; its 
 | 4 | 18 | 3 | 14 / 14 | Failed: duplicate and 240 s timeout |
 
 All three fixed-code trials fail the exact 1–20 criterion. The original broken-fanout diagnostic is an additional earlier attempt, not one of these three trials.
+
+## v4 real-model retest
+
+After the user requested direct evidence of model understanding, six fresh real IM/Gateway/kernel/DeepSeek cases ran on `ed925a8ab`: date correction, irrelevant update, repeated update, allowed silence, same-group tool sending, and background continuation. **All six passed with actual draft withholding and completed revalidation; no window misses.** The repeated-update case consumed two batches and produced the September 23 two-sentence final notice. The tool case returned held for the old send, successfully sent the corrected September 19 / Room B notice, and explicitly stated the old version had not been sent. Allowed silence kept empty formal bodies with durable Process. Background returned September 28 / Room D and completed the input lifecycle.
+
+Each corresponding real LLM_PROXY request was checked for `<system-reminder>` wrapping, immediately preceding text reference, and absence of candidate IDs in model-visible text. JSONL still retains the candidate metadata. See [v4 real retest](v4-real-retest.json) for exact raw/session/proxy paths and hashes. These are targeted behavioral observations supporting correct use of the prompt in these cases, not a general guarantee of model comprehension or a new counting/reliability benchmark.
