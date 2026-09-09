@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 
 import { useTranslation } from "../../../i18n";
-import type { BackgroundReturn, ThinkingSegment, ToolCall } from "../chat-types";
+import type { BackgroundReturn, ReplyProcessItem, ThinkingSegment, ToolCall } from "../chat-types";
 import { ToolDetailBody } from "./tool-detail-renderers";
 import {
   collapsedSummary,
@@ -18,6 +18,9 @@ interface ToolCallsPanelProps {
   thinking?: ThinkingSegment[];
   /** feat-517: terminal task returns are independent process items, not tools. */
   backgroundReturns?: BackgroundReturn[];
+  replyProcess?: ReplyProcessItem[];
+  availableMessageIds?: ReadonlySet<string>;
+  onNavigateMessage?: (messageId: string) => void;
 }
 
 // feat-414: 抽共享工具，供单工具行与气泡耗时复用（message-pane.tsx import 它）。
@@ -35,6 +38,7 @@ export function formatDuration(ms: number): string {
 type ProcessItem =
   | { kind: "thinking"; segment: ThinkingSegment; key: string }
   | { kind: "tool"; call: ToolCall; key: string }
+  | { kind: "reply-process"; value: ReplyProcessItem; key: string }
   | { kind: "background-return"; value: BackgroundReturn; key: string };
 
 /**
@@ -50,6 +54,7 @@ function buildTimeline(
   toolCalls: ToolCall[],
   thinking: ThinkingSegment[],
   backgroundReturns: BackgroundReturn[],
+  replyProcess: ReplyProcessItem[],
 ): ProcessItem[] {
   const items: { sortKey: number; item: ProcessItem }[] = [];
   for (const s of thinking) {
@@ -72,6 +77,7 @@ function buildTimeline(
       },
     });
   });
+  replyProcess.forEach(value => items.push({sortKey: value.seq, item: {kind: "reply-process", value, key: `reply-process-${value.item_id}`}}));
   return items.sort((a, b) => a.sortKey - b.sortKey).map((entry) => entry.item);
 }
 
@@ -88,18 +94,23 @@ export function ToolCallsPanel({
   toolCalls,
   thinking,
   backgroundReturns,
+  replyProcess,
+  availableMessageIds,
+  onNavigateMessage,
 }: ToolCallsPanelProps) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const segments = thinking ?? [];
   const returns = backgroundReturns ?? [];
-  if (toolCalls.length === 0 && segments.length === 0 && returns.length === 0) return null;
+  const replies = replyProcess ?? [];
   const anyRunning = toolCalls.some((c) => c.status === "running");
   // feat-439-M2 fix: 长对话避免每次渲染重排过程项。
   const timeline = useMemo(
-    () => buildTimeline(toolCalls, segments, returns),
-    [toolCalls, segments, returns],
+    () => buildTimeline(toolCalls, segments, returns, replies),
+    [toolCalls, segments, returns, replies],
   );
+
+  if (timeline.length === 0) return null;
 
   // feat-434-M1: collapsed-state approval count suffix「K 次授权 · X 允许 · Y 拒绝」.
   // Audits "how many times the user approved" (bugfix-367 risk保住) without the old
@@ -143,6 +154,13 @@ export function ToolCallsPanel({
             </span>
           </>
         )}
+        {(["draft", "revalidation", "segment_handoff"] as const).map(kind => {
+          const count = replies.filter(item => item.kind === kind).length;
+          return count > 0 ? <span key={kind} className="chat-reply-process-count">
+            <span className="chat-tool-calls-sep">·</span>{" "}
+            {t(`chat.messagePane.replyProcessCount.${kind}`, {count})}
+          </span> : null;
+        })}
         {returns.length > 0 && (
           <>
             <span className="chat-tool-calls-sep">·</span>
@@ -197,6 +215,8 @@ export function ToolCallsPanel({
                   <ThinkingRow key={item.key} segment={item.segment} />
                 ) : item.kind === "tool" ? (
                   <ToolCallRow key={item.key} call={item.call} defaultOpen={toolIndex++ === 0} />
+                ) : item.kind === "reply-process" ? (
+                  <ReplyProcessRow key={item.key} value={item.value} availableMessageIds={availableMessageIds} onNavigateMessage={onNavigateMessage} />
                 ) : (
                   <BackgroundReturnRow key={item.key} value={item.value} />
                 )
@@ -207,6 +227,30 @@ export function ToolCallsPanel({
       )}
     </div>
   );
+}
+
+function ReplyProcessRow({value, availableMessageIds, onNavigateMessage}: {
+  value: ReplyProcessItem;
+  availableMessageIds?: ReadonlySet<string>;
+  onNavigateMessage?: (id: string) => void;
+}) {
+  const reference = (id: string, label: string) => availableMessageIds?.has(id)
+    ? <button type="button" className="chat-reply-process-reference" onClick={() => onNavigateMessage?.(id)}>{label}</button>
+    : <span>{label} · 消息不可用</span>;
+  return <li className="chat-reply-process-row">
+    {value.kind === "draft" ? <details>
+      <summary>原草稿 · 未发送</summary>
+      <p>这是当时生成的草稿，不是正式回复。</p>
+      <div className="chat-reply-process-draft">{value.text}</div>
+    </details> : value.kind === "revalidation" ? <>
+      <span>{value.status === "failed" ? "复核失败" : value.status === "stopped" ? "复核已停止" : value.status === "completed" ? "复核已结束" : "正在复核新消息"}</span>
+      {(value.source_messages ?? []).map(ref => <div key={ref.message_id}>{reference(ref.message_id, `${ref.sender} · ${ref.timestamp}`)}</div>)}
+      {value.predecessor_message_id && <div>{reference(value.predecessor_message_id, "查看上一段处理 ↑")}</div>}
+    </> : <>
+      <span>本段结束 · 转入后续处理</span>
+      {value.successor_message_id && <div>{reference(value.successor_message_id, "查看后续处理 ↓")}</div>}
+    </>}
+  </li>;
 }
 
 function BackgroundReturnField({ label, value }: { label: string; value: string }) {
@@ -398,12 +442,14 @@ function ToolCallRow({ call, defaultOpen = false }: { call: ToolCall; defaultOpe
   // Failure derives from isCallFailed (status OR detail.success===false), so
   // never-raising tools (memory/skill failures) also render red (Round-3 fix).
   const failed = isCallFailed(call);
-  const statusColor = failed
+  const sendState = call.name === "send_message" ? call.detail?.status : null;
+  const unsent = sendState === "pending_revalidation" || sendState === "held_for_revalidation";
+  const statusColor = unsent ? "oklch(0.55 0.03 180)" : failed
     ? "oklch(0.55 0.15 25)"
     : call.status === "running"
       ? "oklch(0.70 0.18 60)"
       : "oklch(0.55 0.18 145)";
-  const statusIcon = failed ? "✕" : call.status === "running" ? "◌" : "●";
+  const statusIcon = unsent ? "○" : failed ? "✕" : call.status === "running" ? "◌" : "●";
   const rowStatus = failed ? "failed" : call.status;
   // feat-434-M1 决策 4: two orthogonal regions.
   // GATE region (贴名称右侧): 是否经用户授权. Reads gateVerdict (approval, 历史 denied
@@ -443,6 +489,7 @@ function ToolCallRow({ call, defaultOpen = false }: { call: ToolCall; defaultOpe
               : t("chat.messagePane.toolGateDenied")}
           </span>
         )}
+        {unsent && <span>{sendState === "pending_revalidation" ? "待发送" : "未发送"}</span>}
         {summary && <span className="chat-tool-call-summary">{summary}</span>}
         {reasonKey && (
           <span className="chat-tool-call-reason" style={{ color: "oklch(0.55 0.15 25)" }}>

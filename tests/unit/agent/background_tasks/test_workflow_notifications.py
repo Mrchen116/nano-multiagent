@@ -99,3 +99,36 @@ def test_notification_claim_has_one_winner() -> None:
     assert first is not None
     assert first.notified is True
     assert second is None
+
+
+def test_idle_background_return_inherits_originating_run_output_policy(tmp_path):
+    from types import SimpleNamespace
+    from agent.platform.background_tasks.wiring import wire_background_tasks
+
+    class Runs:
+        active = "origin"
+        submitted = []
+
+        def get_active_run_id(self, session_id):
+            return self.active
+
+        def get(self, run_id):
+            return SimpleNamespace(revalidate_output=True)
+
+        def submit(self, **kwargs):
+            self.submitted.append(kwargs)
+
+    runs = Runs()
+    wiring = wire_background_tasks(workspace_root=tmp_path, runs_registry=runs)
+    wiring.registry.register_bash(
+        task_id="bash",
+        parent_session_id="parent",
+        description="work",
+        command="echo ok",
+        output_file=str(tmp_path / "out"),
+        workspace_root=str(tmp_path),
+    )
+    runs.active = None
+    wiring.registry.complete("bash", result_text="ok")
+    assert len(runs.submitted) == 1
+    assert runs.submitted[0]["revalidate_output"] is True

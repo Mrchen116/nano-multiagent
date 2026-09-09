@@ -5,7 +5,7 @@ import logging
 
 
 from IM.application.relay_service import RelayService
-from IM.domain.models import Actor, Message, SystemNotice
+from IM.domain.models import SystemNotice
 from IM.infra.gateway_persistence import (
     AgentDispatchRecord,
     DispatchTarget,
@@ -79,10 +79,6 @@ class GatewayRelay:
             detail=detail,
         )
         self._persist_receipt_events(task=task, node_id=node_id, detail=detail)
-        if delivery_status == "completed":
-            await self._broadcast_group_reply_context(
-                task=task, node_id=node_id, detail=detail
-            )
         return {
             "type": "ack",
             "payload": {
@@ -93,56 +89,43 @@ class GatewayRelay:
             },
         }
 
-    async def _broadcast_group_reply_context(
-        self, *, task, node_id: str, detail: str | None
-    ) -> None:  # noqa: ANN001
-        if self._conversation_persistence is None:
+    async def handle_streaming_delta(
+        self, *, payload: dict[str, object]
+    ) -> dict[str, object]:
+        """Persist streaming output, then relay an actually committed group message."""
+        response = await self._execution.handle_streaming_delta(payload=payload)
+        if payload.get("kind") == "message_completed" and response.get("type") == "ack":
+            await self._broadcast_group_reply_context(
+                message_id=_require_text(
+                    payload.get("message_id"), field_name="message_id"
+                )
+            )
+        return response
+
+    async def _broadcast_group_reply_context(self, *, message_id: str) -> None:
+        if self._conversation_persistence is None or self._message_repository is None:
             return
+        message = self._message_repository.get_message(message_id=message_id)
         if (
-            detail is None
-            or not detail.strip()
-            or detail.strip() == "NO_REPLY"
-            or "suppressed_by=no_reply_token" in detail
+            message is None
+            or message.sender_type != "agent"
+            or message.delivery_status != "completed"
+            or not message.content.strip()
+            or message.content.strip() == "NO_REPLY"
+            or message.sender is None
+            or message.sender.agent_id is None
         ):
             return
-        relay_metadata = task.payload.get("metadata", {})
-        if (
-            not isinstance(relay_metadata, dict)
-            or relay_metadata.get("conversation_type") != "group"
-        ):
-            return
-        source_agent_id = task.payload.get("agent_id")
-        if not isinstance(source_agent_id, str) or not source_agent_id.strip():
-            return
+        source_agent_id = message.sender.agent_id
         route = self._conversation_persistence.group_reply_route(
-            conversation_id=task.conversation_id,
+            conversation_id=message.conversation_id,
             source_agent_id=source_agent_id,
         )
         if route is None:
             return
 
-        # bugfix-358: IM 在此处只做哑路由——给每个 peer agent 各扇出一份 group relay。
-        # 是否触发回复(MENTION gate)的判断完全交给 Gateway:Gateway 看 enqueue_message_relay
-        # 内部从 content 里 <mention type="agent" target_id="X"/> 标签解出的 mentioned_agent_ids,
-        # 自己 in 列表 → 触发;否则 buffer 进 group_context_store 当背景上下文(inbound_pipeline §3.1)。
-        # content 不在 IM 端预加 sender 前缀:Gateway pipeline 会按 _format_sender_text(sender_label, text)
-        # 自己拼 [sender] 前缀;IM 再加一遍会 double-prefix。
-        synthetic_message = Message(
-            id=task.message_id,
-            conversation_id=task.conversation_id,
-            sender_user_id=route.sender_user_id,
-            sender_type="agent",
-            sender=Actor(
-                type="agent",
-                id=source_agent_id,
-                display_name=route.sender_display_name,
-                user_id=route.sender_user_id,
-            ),
-            content=detail.strip(),
-            attachments=[],
-            delivery_status="completed",
-            created_at=task.updated_at,
-        )
+        # Delivery receipts also acknowledge consumed steer inputs. Only a durable
+        # output message identifies a public utterance; Gateway still owns admission.
         for target in route.targets:
             target_node_id = self._conversation_persistence.agent_node_id(
                 agent_id=target.agent_id
@@ -150,9 +133,9 @@ class GatewayRelay:
             if target_node_id is None:
                 continue
             result = self._relay_service.enqueue_message_relay(
-                message=synthetic_message,
+                message=message,
                 target_node_id=target_node_id,
-                idempotency_key=f"agent-reply:{task.relay_task_id}:{target.agent_id}",
+                idempotency_key=f"agent-reply:{message.id}:{target.agent_id}",
                 sender_user_id=route.sender_user_id,
                 conversation_type="group",
                 extra_metadata={
@@ -363,6 +346,7 @@ class GatewayRelay:
 
         if existing is None:
             message_id = message.id
+        await self._broadcast_group_reply_context(message_id=message_id)
         return {
             "type": "ack",
             "payload": {
@@ -582,6 +566,10 @@ class GatewayRelay:
             delivery_status=task.status,
             payload=payload,
         )
+        # A peer consumes this message as context; its run outcome does not own
+        # the source agent's already committed message or its terminal status.
+        if task.idempotency_key.startswith("agent-reply:"):
+            return
         if progress_state == "completed":
             self._event_repository.append_event(
                 conversation_id=task.conversation_id,

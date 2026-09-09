@@ -132,6 +132,7 @@ class _FakeKernel:
         steer: bool = False,
         flush_held: bool = True,
         model: str | None = None,
+        revalidate_output: bool = False,
     ) -> MagicMock:
         active = self.active_run_by_session.get(session_id)
         if steer and active is not None:

@@ -1,0 +1,16 @@
+{
+  "version": "development-v1",
+  "classification": "open development cases; not held-out evaluation",
+  "injection": "Send updates after public running bubble appears, while model is generating. Require draft/revalidation evidence for conflict cases; retain window misses.",
+  "cases": [
+    {"id":"no-update","input":"用中文写一段约150字的会议通知，会议日期是9月12日，地点A会议室。不要使用工具。","updates":[],"expect":"One visible reply; date and location retained; no revalidation"},
+    {"id":"date-correction","input":"用中文写一份约600字的发布会通知，时间9月12日，地点A会议室。不要使用工具。","updates":["日期更正：改成9月19日，其他要求不变。"],"expect":"Full old draft in Process only; new formal notice uses 9月19日; source points to correction"},
+    {"id":"language-three-points","input":"Write a detailed 600-word proposal for a team documentation cleanup. Do not use tools.","updates":["改成中文，只给三个简短要点。"],"expect":"Formal output Chinese with three short points; old long English draft not formal"},
+    {"id":"irrelevant-update","input":"用中文写一段约400字的会议通知，会议日期9月12日，地点A会议室。不要使用工具。","updates":["补充一个无关事项：我午饭吃了面，会议通知要求不变。"],"expect":"Notice still delivered with original date/location; no invented silence"},
+    {"id":"repeated-update","input":"用中文写一份约600字的发布会通知，时间9月12日，地点A会议室。不要使用工具。","updates":["日期改成9月19日。","再次更正：最终是9月23日，请用中文两句话给出最终通知。"],"expect":"After two distinct consumptions new segments point to actual consumed inputs; final uses 9月23日"},
+    {"id":"tool-send","input":"请用send_message工具向当前群发一份约400字的活动通知：9月12日，A会议室。","updates":["更正为9月19日，B会议室。"],"expect":"A stale same-group tool send returns held without visible stale content; final send uses latest facts"},
+    {"id":"image-correction","input":"为这次会议写约400字通知：9月12日，A会议室。不要使用工具。","updates":["以新上传图片中的日期和地点为准。"],"expect":"Image input reaches revalidation and final uses image facts; retain image fixture"},
+    {"id":"direct-mention-regression","input":"普通直聊回复及MENTION群未提及消息检查","updates":[],"expect":"Direct unchanged; ignored MENTION message does not trigger run"},
+    {"id":"background-continuation","input":"启动后台任务并在任务完成时向当前群整理较长通知。","updates":["后台续跑生成期间更正日期。"],"expect":"Opted background run inherits flag; steer same run; Process and current final visible once"}
+  ]
+}

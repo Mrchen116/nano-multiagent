@@ -46,6 +46,20 @@ class _SendMessagePresenter:
                 summary=f"→ {target}".strip() or "failed",
                 detail={"target": target, "text": text, "status": str(error)},
             )
+        if (
+            isinstance(output, Mapping)
+            and output.get("status") == "held_for_revalidation"
+        ):
+            return ToolPresentationEvent(
+                visible=True,
+                label="SendMessage",
+                summary=f"→ {target} · 未发送",
+                detail={
+                    "target": target,
+                    "text": text,
+                    "status": "held_for_revalidation",
+                },
+            )
         ok = bool(output.get("ok", False)) if isinstance(output, Mapping) else False
         return ToolPresentationEvent(
             visible=True,
@@ -168,6 +182,9 @@ class SendMessageTool:
             else None,
             "dispatch_request_id": dispatch_request_id,
         }
+        if ctx.context_revision is not None:
+            payload["origin_run_id"] = ctx.run_id
+            payload["context_revision"] = ctx.context_revision
         timeout = httpx.Timeout(connect=3.0, write=10.0, read=None, pool=3.0)
         response = httpx.post(dispatch_url.strip(), json=payload, timeout=timeout)
         try:
@@ -180,6 +197,14 @@ class SendMessageTool:
             raise RuntimeError(
                 "send_message: gateway dispatch returned non-object response"
             )
+        if response.status_code < 400 and body.get("status") == "held_for_revalidation":
+            return {
+                "ok": False,
+                "status": "held_for_revalidation",
+                "draft_id": body["draft_id"],
+                "target": target,
+                "message": "This draft was not sent because new input arrived. Read the new input and continue under the existing reply rules.",
+            }
         if response.status_code >= 400 or body.get("ok") is not True:
             error = body.get("error")
             if isinstance(error, str) and error.strip():

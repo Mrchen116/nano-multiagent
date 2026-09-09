@@ -16,6 +16,8 @@ Event payload shape rules:
 
 from __future__ import annotations
 
+from dataclasses import asdict
+
 from typing import Any
 
 from IM.domain.models import (
@@ -175,6 +177,7 @@ def build_message_created_payload(*, message: Message) -> dict[str, Any]:
         ],
         "tool_calls": [tool_call_to_dict(tc) for tc in (message.tool_calls or [])],
         # feat-439-M2: 整轮多段思考随气泡创建一并下发，历史回放还原过程盘。
+        "reply_process": [asdict(item) for item in (message.reply_process or [])],
         "thinking": [thinking_segment_to_dict(s) for s in (message.thinking or [])],
         "background_returns": [
             background_return_to_dict(item)

@@ -166,6 +166,7 @@ class _FakeKernel:
         workspace_root: Path | None = None,
         trace_id: str | None = None,
         model: str | None = None,
+        revalidate_output: bool = False,
     ) -> Any:
         self._run_index += 1
         run_id = f"run-{self._run_index}"

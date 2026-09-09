@@ -20,6 +20,31 @@ from agent.core.llm.interfaces import LLMMessage
 from agent.core.runs.origin import RunOrigin
 
 
+def test_output_commit_requires_consumed_revision_and_active_run() -> None:
+    controller = RunController()
+    published = []
+    assert (
+        controller.try_commit_output(0, lambda: published.append("first"))
+        == "committed"
+    )
+    pending_id = controller.enqueue_pending_message(
+        LLMMessage(role="user", content="update"), RunOrigin.USER
+    )
+    assert controller.try_commit_output(0, lambda: published.append("stale")) == "stale"
+    pending, revision = controller.drain_pending_with_revision()
+    assert [item.pending_id for item in pending] == [pending_id]
+    assert (
+        controller.try_commit_output(revision, lambda: published.append("fresh"))
+        == "committed"
+    )
+    controller.abort()
+    assert (
+        controller.try_commit_output(revision, lambda: published.append("stopped"))
+        == "inactive"
+    )
+    assert published == ["first", "fresh"]
+
+
 def test_try_commit_terminal_returns_pending_when_nonempty_and_does_not_commit() -> (
     None
 ):

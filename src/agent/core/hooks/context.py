@@ -152,6 +152,7 @@ class HookContext:
     logger: HookLogger = field(default_factory=HookLogger)
     model_caller: HookModelCaller | None = None
     session_event_publisher: HookSessionEventPublisher | None = None
+    output_event_publisher: HookSessionEventPublisher | None = None
     # Classifier transcript: tuple of LLM messages (user + assistant tool_use).
     # Populated by AgentLoop per-turn; empty when unavailable (e.g. first turn).
     # Type is tuple[Any, ...] to avoid importing LLMMessage from core.llm here.

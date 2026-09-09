@@ -58,6 +58,8 @@ class BackgroundSubscriptionManager:
         kernel: In-process Kernel whose session event stream is subscribed.
         session_event_callback: Optional receiver for session-level events.
         bg_reply_sender: Optional visible text sender for BACKGROUND_TASK output.
+        background_run_event_callback: Optional first receiver for all run events;
+            True claims delivery and suppresses the legacy background sender.
         skill_created_handler: Optional synchronous config-sync handler for
             source-marked self-evolution skill creation.
     """
@@ -75,6 +77,10 @@ class BackgroundSubscriptionManager:
             Awaitable[None],
         ]
         | None = None,
+        background_run_event_callback: Callable[
+            [ReplyContext, str, str, Mapping[str, Any]], Awaitable[bool]
+        ]
+        | None = None,
         skill_created_handler: Callable[[str, Mapping[str, object]], object]
         | None = None,
     ) -> None:
@@ -82,6 +88,7 @@ class BackgroundSubscriptionManager:
         self._session_event_callback = session_event_callback
         self._bg_reply_sender = bg_reply_sender
         self._skill_created_handler = skill_created_handler
+        self._background_run_event_callback = background_run_event_callback
         self._subscribers: dict[str, BackgroundSessionEventSubscriber] = {}
         self._background_reply_contexts: dict[str, ReplyContext] = {}
         self._session_event_routes: OrderedDict[str, ReplyContext] = OrderedDict()
@@ -230,6 +237,23 @@ class BackgroundSubscriptionManager:
                 event,
             )
 
+        background_run_event_callback = None
+        if self._background_run_event_callback is not None:
+            run_callback = self._background_run_event_callback
+
+            async def _on_background_run_event(event: Mapping[str, Any]) -> bool:
+                reply_context = self._background_reply_contexts.get(request.session_id)
+                if reply_context is None:
+                    return False
+                return await run_callback(
+                    reply_context,
+                    request.agent_id,
+                    request.session_id,
+                    event,
+                )
+
+            background_run_event_callback = _on_background_run_event
+
         bg_run_output_callback = None
         if self._bg_reply_sender is not None:
             sender = self._bg_reply_sender
@@ -285,6 +309,7 @@ class BackgroundSubscriptionManager:
             on_event=_on_session_event,
             after_sequence=request.after_sequence,
             bg_run_output_callback=bg_run_output_callback,
+            background_run_event_callback=background_run_event_callback,
             skill_created_callback=skill_created_callback,
         )
 
@@ -292,8 +317,9 @@ class BackgroundSubscriptionManager:
         """Start one subscriber while the manager admission lock is held."""
 
         has_session_delivery = self._session_event_callback is not None
-        has_background_delivery = (
-            request.reply_context is not None and self._bg_reply_sender is not None
+        has_background_delivery = request.reply_context is not None and (
+            self._bg_reply_sender is not None
+            or self._background_run_event_callback is not None
         )
         has_skill_sync = self._skill_created_handler is not None
         if (

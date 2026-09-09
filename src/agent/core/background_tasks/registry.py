@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import replace
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from agent.core.background_tasks.interfaces import (
     BackgroundSubagentMessageHandle,
@@ -33,7 +33,9 @@ class BackgroundTaskRegistry:
         *,
         store: BackgroundTaskStore | None = None,
         clock: Clock | None = None,
+        output_revalidation_for_session: Callable[[str], bool] | None = None,
     ) -> None:
+        self._output_revalidation_for_session = output_revalidation_for_session
         self._store = store
         self._clock = clock
         self._lock = threading.Lock()
@@ -70,6 +72,11 @@ class BackgroundTaskRegistry:
             status=BackgroundTaskStatus.QUEUED,
             created_at=self._now_iso(),
             workspace_root=workspace_root,
+            revalidate_output=(
+                self._output_revalidation_for_session(parent_session_id)
+                if self._output_revalidation_for_session is not None
+                else False
+            ),
         )
         with self._lock:
             self._records[task_id] = record
@@ -96,6 +103,11 @@ class BackgroundTaskRegistry:
             status=BackgroundTaskStatus.QUEUED,
             created_at=self._now_iso(),
             workspace_root=workspace_root,
+            revalidate_output=(
+                self._output_revalidation_for_session(parent_session_id)
+                if self._output_revalidation_for_session is not None
+                else False
+            ),
         )
         with self._lock:
             self._records[task_id] = record
@@ -128,6 +140,11 @@ class BackgroundTaskRegistry:
             status=BackgroundTaskStatus.QUEUED,
             created_at=self._now_iso(),
             workspace_root=workspace_root,
+            revalidate_output=(
+                self._output_revalidation_for_session(parent_session_id)
+                if self._output_revalidation_for_session is not None
+                else False
+            ),
         )
         with self._lock:
             self._records[task_id] = record

@@ -1,10 +1,12 @@
 # feat-544: 群聊 Agent 发言前复核 — 技术方案
 
 > 对齐：spec.md（2026-09-09 当前群运行范围确认；S7 交互已确认）
-> 状态：完整技术设计；Gate 2 结论见 [design-review.md](design-review.md)；本单尚未实施。
-> Unit branch: `codex/feat-544` (will be created by orchestrator)
+> 状态：已实施；设计评审历史见 [design-review.md](design-review.md)，实现、自测及用户豁免独立后置评审的记录见 [M1-impl/progress.md](M1-impl/progress.md)。
+> Unit branch: `codex/feat-544`
 
 ## Changelog
+
+- 2026-09-09：实现与真实模型自测。补足独立后台订阅路径：通过 `run_status.revalidate_output` 识别已启用的后台运行，接入 coordinator/observer，沿用既有 follower 终态和 recovery；SDK RunInfo 同步暴露该开关。HTTP 层为 held 返回 200 业务结果，普通发送失败仍为 503。根据连续更正实测，未发送状态提示明确禁止把旧草稿描述成已送达，并要求必要时给出完整当前答复。范围与用户验收标准不变。
 
 ## 现状分析
 
@@ -81,7 +83,7 @@ flowchart LR
 
 本轮生成的正文块按 provider 原顺序暂存为一份完整候选，工具调用与实际结果保持合法配对，usage 正常累计。可展示的真实 thinking 和工具过程照旧。生成结束且本轮工具收齐后提交正文：fresh 则整段发布；stale 则发出一次明确未发送的 draft 过程事件，继续下一模型轮。
 
-模型历史保留真实 assistant/tool transcript，候选标记为 withheld；下一轮注入事实性状态说明“上一轮此正文未发送，结合随后新消息按原回复规则继续”，加上原始新消息（含身份和图片）。不编造工具结果，不新增裁判 LLM，不要求输出推理解释。历史重载与 compact 也保留未发送语义，不能将草稿摘要伪装成已公开回答。
+模型历史保留真实 assistant/tool transcript；每份正文候选均以稳定 candidate ID 记录 `committed_for_delivery` 或 `withheld`，状态与关联 message IDs 随 JSONL 持久化。提交仅表示进入本地发送路径，不冒充远端回执。未发送说明只指向该候选，不覆盖此前同文但已提交的候选；下一轮加上原始新消息（含身份和图片）继续。不编造工具结果，不新增裁判 LLM，不要求输出推理解释。历史重载与 compact 也保留未发送语义，不能将草稿摘要伪装成已公开回答。
 
 下一轮只有在确实还能调用模型时才消费 pending 并发 consumption。若已达 max_turns、工具设施失败或 /stop，先按原终态收口，让尚未消费的 pending 走既有 recovery/held 机制。不能先取出消息、切新块，然后在轮数检查处丢掉它。每次复核实际调用计入原有轮数、usage 与预算；没有三次暂停、强发或新静默出口。
 
@@ -109,7 +111,7 @@ NO_REPLY/HEARTBEAT_OK 仍由原产品可见性规则处理，不在 Process 当�
 
 **新增 typed reply_process 项，复用消息级 seq、历史与重放，不冒充工具调用。**
 
-IM 消息增加 `reply_process_json`（默认空数组），新增项与 thinking/tool/background 共用排序 seq；API DTO、WS、前端状态归并、查询历史、sync/fork/重连重放和空消息保留一并覆盖。只发过程事件，不走 message_delta、正式正文存储或群 fanout。原始草稿存完整文本，默认折叠、展开按正文同样的安全渲染规则呈现；不截断后声称全文。
+IM 消息增加 `reply_process_json`（默认空数组），新增项与 thinking/tool/background 共用排序 seq；API DTO、WS、前端状态归并、查询历史、sync/fork/重连重放和空消息保留一并覆盖。只发过程事件，不走 message_delta、正式正文存储或群 fanout。群 fanout 由实际非空正式回复完成落库触发，以真实消息 ID 和目标 Agent 去重；输入/follower 的完成回执只结算投递，不再产生同伴消息。同伴回执也不能改写源正式消息的终态。原始草稿存完整文本，默认折叠、展开按正文同样的安全渲染规则呈现；不截断后声称全文。
 
 事件具有稳定 item_id，重放幂等；记录 predecessor/successor 与 source message ids。来源已删除或不可定位时展示原有发送者/时间快照和“来源不可用”，不能跳到别的消息。run usage 继续只结算一次，片段只分摊已有过程的耗时，不把每个片段标成一个新 run 或重复累计 token。
 

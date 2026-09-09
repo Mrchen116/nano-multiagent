@@ -3,6 +3,7 @@
 import logging
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime, timedelta, timezone
+from dataclasses import replace
 
 from IM.application.metrics_service import MetricsService
 from IM.application.relay_service import RelayEnqueueResult, RelayService
@@ -475,6 +476,8 @@ class WebIMService:
                     sender_type=message.sender_type,
                     attachments=message.attachments,
                     tool_calls=message.tool_calls,
+                    background_returns=message.background_returns,
+                    reply_process=message.reply_process,
                     token_usage=message.token_usage,
                     kernel_message_id=branch_kernel_id,
                     delivery_status=message.delivery_status,  # #8: preserve source state
@@ -492,7 +495,30 @@ class WebIMService:
                     key=lambda s: s.seq if s.seq is not None else 0,
                 ):
                     self._messages.append_thinking_segment(
-                        message_id=copied.id, text=segment.text
+                        message_id=copied.id, text=segment.text, process_seq=segment.seq
+                    )
+            for source_message in copied_history:
+                for item in source_message.reply_process or []:
+                    mapped = replace(
+                        item,
+                        predecessor_message_id=target_message_ids.get(
+                            item.predecessor_message_id, item.predecessor_message_id
+                        ),
+                        successor_message_id=target_message_ids.get(
+                            item.successor_message_id, item.successor_message_id
+                        ),
+                        source_messages=[
+                            {
+                                **ref,
+                                "message_id": target_message_ids.get(
+                                    ref["message_id"], ref["message_id"]
+                                ),
+                            }
+                            for ref in item.source_messages
+                        ],
+                    )
+                    self._messages.upsert_reply_process(
+                        message_id=target_message_ids[source_message.id], item=mapped
                     )
             if self._boundaries is not None:
                 for boundary in self._boundaries.list_all(

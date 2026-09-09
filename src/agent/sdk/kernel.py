@@ -531,6 +531,7 @@ def _to_run_info(
         start_sequence=int(getattr(record, "start_sequence", 0) or 0),
         injected=injected,
         pending_id=pending_id,
+        revalidate_output=bool(getattr(record, "revalidate_output", False)),
     )
 
 
@@ -1722,6 +1723,7 @@ class Kernel:
         workspace_root: str | Path | None = None,
         trace_id: str | None = None,
         steer: bool = False,
+        revalidate_output: bool = False,
         flush_held: bool = True,
         model: str | None = None,
     ) -> RunInfo:
@@ -1733,6 +1735,8 @@ class Kernel:
             origin: Message origin (user, system, background, etc.).
             workspace_root: Session workspace root.
             trace_id: Optional trace correlation id.
+            revalidate_output: Buffer generated body until its consumed input revision
+                is confirmed current. Defaults to False.
             steer: When True and a run is already active for the session, inject
                 this message into that run's next LLM round instead of queueing a
                 new run (feat-338 ``priority="next"`` semantics). When no run is
@@ -1777,8 +1781,39 @@ class Kernel:
             trace_id=trace_id,
             flush_held=flush_held,
             model=model,
+            revalidate_output=revalidate_output,
         )
         return _to_run_info(record)
+
+    def try_commit_output(
+        self,
+        *,
+        session_id: str,
+        expected_run_id: str,
+        context_revision: int,
+        publish: Callable[[], None],
+        draft: Mapping[str, Any] | None = None,
+    ) -> str:
+        """Atomically enqueue output for the current model context.
+
+        Args:
+            session_id: Session that owns the active run.
+            expected_run_id: Run captured in the tool execution context.
+            context_revision: Revision captured in the tool execution context.
+            publish: Short synchronous enqueue callback; no IO or Kernel reentry.
+            draft: Optional draft_id/source/text/tool_call_id event fields, emitted
+                reliably as draft_withheld when the candidate is stale.
+
+        Returns:
+            committed, stale, or inactive. A rejected publisher is never invoked.
+        """
+        return self._c.runs_registry.try_commit_output(
+            session_id=session_id,
+            expected_run_id=expected_run_id,
+            context_revision=context_revision,
+            publish=publish,
+            draft=draft,
+        )
 
     def replay_last_user(
         self,

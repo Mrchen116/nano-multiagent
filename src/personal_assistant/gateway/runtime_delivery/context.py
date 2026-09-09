@@ -114,6 +114,9 @@ class RunDeliveryContext:
     terminal_footer_facts: TerminalFooterFacts | None = None
     visibility_policy: ReplyVisibilityPolicy = ReplyVisibilityPolicy.LITERAL_TEXT
     discard_empty_completion: bool = False
+    revalidate_output: bool = False
+    has_reply_process: bool = False
+    has_withheld_draft: bool = False
     visible_reply_committed: bool = False
     discard_current_bubble: bool = False
     suppressed: bool = False
@@ -165,6 +168,8 @@ class RunDeliveryContext:
         self.external_intermediate_sent_marker = ""
         self.visible_reply_committed = False
         self.discard_current_bubble = False
+        self.has_reply_process = False
+        self.has_withheld_draft = False
 
     def record_shadow_snapshot(self, shadow_message_id: str) -> None:
         """Remember the durable shadow message representing the current bubble."""
@@ -204,7 +209,11 @@ class RunDeliveryContext:
     def mark_suppressed_reply(self) -> None:
         """Record protocol silence for a provisional bubble, if one exists."""
 
-        if self.message_id and not self.kernel_message_id:
+        if (
+            self.message_id
+            and not self.kernel_message_id
+            and not self.has_reply_process
+        ):
             self.discard_current_bubble = True
         self.clear_external_text()
 
@@ -213,6 +222,13 @@ class RunDeliveryContext:
 
         self.preserve_current_bubble()
         self.visible_reply_committed = True
+
+    def record_reply_process(self, *, draft: bool = False) -> None:
+        """Retain a factual process-only segment without claiming a public reply."""
+
+        self.has_reply_process = True
+        self.has_withheld_draft = self.has_withheld_draft or draft
+        self.preserve_current_bubble()
 
     def preserve_current_bubble(self) -> None:
         """Cancel an earlier provisional-silence decision for this bubble."""
@@ -454,5 +470,10 @@ class RunDeliveryContextStore:
                 # successful process-only terminal state means protocol silence. Other
                 # transports keep their existing completion semantics.
                 discard_empty_completion=message.ingress.im_relay is not None,
+                revalidate_output=(
+                    message.is_group
+                    and message.ingress.im_relay is not None
+                    and external_identity is None
+                ),
             )
         )

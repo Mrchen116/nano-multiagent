@@ -794,6 +794,7 @@ def build_kernel_event_observer(
                     turn_completed
                     and bool(ctx.discard_empty_completion)
                     and not bool(ctx.visible_reply_committed)
+                    and not ctx.has_reply_process
                 )
                 shadow_snapshot = _record_shadow(
                     rid=run_id,
@@ -1485,6 +1486,7 @@ def build_kernel_event_observer(
                 turn_completed
                 and ctx.discard_empty_completion
                 and not ctx.visible_reply_committed
+                and not ctx.has_reply_process
             ):
                 discard_reason = "empty_visible_reply"
             if message_id and discard_reason:
@@ -1648,6 +1650,16 @@ def build_kernel_event_observer(
                 if start_pres.get("summary"):
                     start_output = str(start_pres["summary"])
                 start_detail = start_pres.get("detail")
+            if (
+                ctx.revalidate_output
+                and tool_name == "send_message"
+                and isinstance(arguments, Mapping)
+                and arguments.get("to") == ctx.conversation_id
+            ):
+                start_detail = {
+                    **(start_detail or {}),
+                    "status": "pending_revalidation",
+                }
             # bugfix-410-M2 R3: remember this call as in-flight until tool_end.
             # bugfix-416 #111 stores the original input; bugfix-441-M2 stores the
             # parameter-side presentation too, so abnormal reconcile can re-emit the
@@ -1894,6 +1906,35 @@ def build_kernel_event_observer(
         shadow_snapshot = scope.shadow_snapshot
         abnormal_inflight = scope.abnormal_inflight
 
+        if event_name == "draft_withheld":
+            text = event.get("text")
+            if not isinstance(text, str) or not text or is_protocol_silence_token(text):
+                return None
+            if not message_id or not conversation_id:
+                return None
+            ctx.record_reply_process(draft=True)
+
+            async def _retain_draft() -> None:
+                await manager.send_json_await_ack(
+                    "node.streaming_delta",
+                    {
+                        "kind": "reply_process",
+                        "conversation_id": conversation_id,
+                        "message_id": message_id,
+                        "item": {
+                            "item_id": str(event["draft_id"]),
+                            "kind": "draft",
+                            "run_id": run_id,
+                            "draft_id": str(event["draft_id"]),
+                            "text": text,
+                            "source": str(event.get("source", "assistant")),
+                            "tool_call_id": event.get("tool_call_id"),
+                        },
+                    },
+                )
+
+            return _retain_draft()
+
         if event_name == "injection_consumed":
             # bugfix-426-M4 决策6: the kernel just drained a steered (injected) message
             # into the model context on THIS run (run_id unchanged under 决策5). IM is a
@@ -1931,6 +1972,9 @@ def build_kernel_event_observer(
                 ) -> None:
                     reconcile_started = False
                     new_message_id: str | None = None
+                    had_draft = ctx.has_withheld_draft
+                    sources = event.get("source_messages", [])
+                    revalidating = ctx.revalidate_output or had_draft
                     try:
                         new_message_id = await roll_bubble(
                             mgr,
@@ -1954,6 +1998,39 @@ def build_kernel_event_observer(
                         if new_message_id is None:
                             _clear_live_bubble_context(
                                 rid=rid, clear_conversation=False
+                            )
+                        elif revalidating:
+                            ctx.record_reply_process()
+                            if old_msg_id and had_draft:
+                                await mgr.send_json_await_ack(
+                                    "node.streaming_delta",
+                                    {
+                                        "kind": "reply_process",
+                                        "message_id": old_msg_id,
+                                        "conversation_id": cid,
+                                        "item": {
+                                            "item_id": f"handoff:{rid}:{new_message_id}",
+                                            "kind": "segment_handoff",
+                                            "run_id": rid,
+                                            "successor_message_id": new_message_id,
+                                        },
+                                    },
+                                )
+                            await mgr.send_json_await_ack(
+                                "node.streaming_delta",
+                                {
+                                    "kind": "reply_process",
+                                    "message_id": new_message_id,
+                                    "conversation_id": cid,
+                                    "item": {
+                                        "item_id": f"revalidation:{rid}:{new_message_id}",
+                                        "kind": "revalidation",
+                                        "run_id": rid,
+                                        "source_messages": sources,
+                                        "predecessor_message_id": old_msg_id or None,
+                                        "status": "running",
+                                    },
+                                },
                             )
                         if (
                             rolled_shadow_snapshot is not None
@@ -2121,6 +2198,7 @@ def build_kernel_event_observer(
         "tool_end": _handle_process_event,
         "permission_request": _handle_process_event,
         "permission_resolved": _handle_process_event,
+        "draft_withheld": _handle_terminal_or_steer_event,
         "injection_consumed": _handle_terminal_or_steer_event,
         "run_terminal_reconcile": _handle_terminal_or_steer_event,
     }

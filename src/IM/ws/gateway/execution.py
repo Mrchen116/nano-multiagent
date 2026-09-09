@@ -359,6 +359,13 @@ class GatewayExecution:
             source = event.source or ""
             self._event_bridge.on_run_heartbeat(message_id=message_id, source=source)
 
+        elif kind == "reply_process":
+            message_id = _require_text(event.message_id, field_name="message_id")
+            assert event.reply_process_item is not None
+            self._event_bridge.on_reply_process(
+                message_id=message_id, item=event.reply_process_item
+            )
+
         elif kind == "thinking_segment":
             # feat-439-M2: 一段思考过程项。EventBridge 持久化进 thinking_json 并广播
             # thinking.segment。seq 在 repo 持久化边界赋予(= 当前 tool_calls 数)。

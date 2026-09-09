@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from IM.domain.models import BackgroundReturn, TokenUsage, ToolCall
+from IM.domain.models import BackgroundReturn, ReplyProcessItem, TokenUsage, ToolCall
 
 """Package-local parsers for Gateway websocket runtime protocol frames."""
 
@@ -55,6 +55,7 @@ class StreamingDeltaEvent:
     process_seq: int | None
     elapsed_ms: int | None
     background_returns: tuple[BackgroundReturn, ...]
+    reply_process_item: ReplyProcessItem | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,6 +132,7 @@ def parse_streaming_delta_event(payload: Mapping[str, object]) -> StreamingDelta
             "message_completed",
             "message_discarded",
             "run_heartbeat",
+            "reply_process",
             "thinking_segment",
             "tool_call_upserted",
             "tool_call_completed",
@@ -180,6 +182,13 @@ def parse_streaming_delta_event(payload: Mapping[str, object]) -> StreamingDelta
                 payload.get("elapsed_ms"), field_name="elapsed_ms"
             )
             if kind == "message_completed"
+            else None
+        ),
+        reply_process_item=(
+            ReplyProcessItem(
+                **dict(_require_mapping(payload.get("item"), field_name="item"))
+            )
+            if kind == "reply_process"
             else None
         ),
         background_returns=(

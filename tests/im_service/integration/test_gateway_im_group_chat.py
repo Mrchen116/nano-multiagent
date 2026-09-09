@@ -107,7 +107,41 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
                 delivery_status="sent",
                 detail=None,
             )
+            # Public assistant output, rather than its input receipt, owns peer fanout.
+            websocket.send_json(
+                {
+                    "type": "node.streaming_delta",
+                    "payload": {
+                        "kind": "turn_start",
+                        "node_id": "node-1",
+                        "agent_id": "agent-a",
+                        "conversation_id": conversation_id,
+                    },
+                }
+            )
+            turn_start = websocket.receive_json()
+            assert turn_start["type"] == "ack"
+            output_id = turn_start["payload"]["message_id"]
+            websocket.send_json(
+                {
+                    "type": "node.streaming_delta",
+                    "payload": {
+                        "kind": "message_completed",
+                        "node_id": "node-1",
+                        "message_id": output_id,
+                        "final_content": 'gateway-reply:<mention type="agent" target_id="agent-a"/> first mention',
+                    },
+                }
+            )
             peer_context_frames: list[dict[str, object]] = []
+            while True:
+                frame = websocket.receive_json()
+                if frame["type"] == "ack":
+                    break
+                assert frame["type"] == "relay.message"
+                peer_context_frames.append(frame)
+            assert len(peer_context_frames) == 1
+            assert peer_context_frames[0]["payload"]["message"]["id"] == output_id
             send_delivery_receipt(
                 websocket,
                 relay_payload=first_relay["payload"],

@@ -184,6 +184,8 @@ def setup(hooks):  # noqa: ANN001, ANN201
         run_id = _extract_run_id(event)
         if run_id is None:
             return
+        if event.get("session_stream_published"):
+            return
         ctx.publish_session_event(
             event="injection_consumed",
             data={
@@ -191,6 +193,8 @@ def setup(hooks):  # noqa: ANN001, ANN201
                 "run_id": run_id,
                 "turn_id": event.get("turn_id"),
                 "message_count": event.get("message_count"),
+                "pending_ids": event.get("pending_ids") or [],
+                "context_revision": event.get("context_revision"),
                 "user_message_count": event.get("user_message_count"),
                 "background_returns": event.get("background_returns") or [],
             },

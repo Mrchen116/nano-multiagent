@@ -4927,3 +4927,33 @@ body {
   width: 100%;
   height: 46px;
 }
+
+/* Process keeps its dark surface in both application themes. */
+.chat-reply-process-row {
+  padding: 0.45rem 0.85rem;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  color: oklch(0.85 0.01 240);
+  border-bottom: 1px solid oklch(0.25 0.01 240);
+}
+.chat-reply-process-row:last-child { border-bottom: 0; }
+.chat-reply-process-row summary { cursor: pointer; color: oklch(0.9 0.05 180); }
+.chat-reply-process-row p { margin: 0.35rem 0; color: oklch(0.72 0.02 240); }
+.chat-reply-process-draft {
+  white-space: pre-wrap;
+  max-height: 24rem;
+  overflow-y: auto;
+  padding: 10px;
+  border-left: 2px solid #bccbc8;
+  background: #f5f8f7;
+  color: #26383e;
+}
+.chat-reply-process-reference {
+  color: oklch(0.8 0.1 180);
+  text-align: left;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.chat-tool-calls-toggle:has(.chat-reply-process-count) { flex-wrap: wrap; max-width: 100%; }
+[data-message-id] { scroll-margin: 24px; }

@@ -7,9 +7,13 @@ existing IM routing layer without requiring a separate process or service.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from threading import Lock
-from typing import Any, Callable, Mapping
+from typing import TYPE_CHECKING, Any, Callable, Mapping
+
+if TYPE_CHECKING:
+    from agent.sdk import Kernel
 
 from personal_assistant.gateway.session_binder import (
     ConversationBindingRequest,
@@ -68,11 +72,13 @@ class InternalDispatchHandler:
         *,
         im_connection_manager: Any | None = None,
         kernel_client: Any | None = None,
+        kernel: Kernel | None = None,
         session_binder: GatewaySessionBinder | None = None,
         direct_channel_name: str = "web_relay",
     ) -> None:
         self._im_connection_manager = im_connection_manager
         self._kernel_client = kernel_client
+        self._kernel = kernel
         self._session_binder = session_binder
         self._direct_channel_name = direct_channel_name
         self._sealed = False
@@ -158,7 +164,70 @@ class InternalDispatchHandler:
                 "error": "origin Kernel session provenance is not registered",
             }
         try:
-            ack = await manager.send_agent_message(dispatch_payload)
+            context_revision = payload.get("context_revision")
+            origin_run_id = payload.get("origin_run_id")
+            source_binding = (
+                self._session_binder.find_by_kernel_session_id(origin_kernel_session_id)
+                if self._session_binder is not None
+                and isinstance(origin_kernel_session_id, str)
+                and context_revision is not None
+                else None
+            )
+            same_group = (
+                source_binding is not None
+                and source_binding.reply_context.channel_name
+                == self._direct_channel_name
+                and source_binding.reply_context.target_chat_id == to.strip()
+            )
+            if same_group:
+                if (
+                    self._kernel is None
+                    or not isinstance(origin_run_id, str)
+                    or not isinstance(context_revision, int)
+                    or isinstance(context_revision, bool)
+                ):
+                    return {
+                        "ok": False,
+                        "error": "group output run identity is missing",
+                    }
+                draft_id = f"draft:{origin_run_id}:{dispatch_request_id}"
+                send_task: asyncio.Task | None = None
+
+                def enqueue() -> None:
+                    nonlocal send_task
+                    # This callback runs under the Kernel's short acceptance lock.
+                    # Only enqueue here; the network and ACK run after lock release.
+                    send_task = asyncio.create_task(
+                        manager.send_agent_message(dict(dispatch_payload))
+                    )
+
+                decision = self._kernel.try_commit_output(
+                    session_id=origin_kernel_session_id,
+                    expected_run_id=origin_run_id,
+                    context_revision=context_revision,
+                    publish=enqueue,
+                    draft={
+                        "draft_id": draft_id,
+                        "source": "send_message",
+                        "text": text.strip(),
+                        "tool_call_id": dispatch_request_id,
+                    },
+                )
+                if decision == "stale":
+                    return {
+                        "ok": False,
+                        "status": "held_for_revalidation",
+                        "draft_id": draft_id,
+                    }
+                if decision != "committed":
+                    return {
+                        "ok": False,
+                        "error": "group output run is no longer active",
+                    }
+                assert send_task is not None
+                ack = await send_task
+            else:
+                ack = await manager.send_agent_message(dispatch_payload)
             await self._sync_direct_session(
                 ack=ack,
                 text=text.strip(),
@@ -276,7 +345,11 @@ class InternalDispatchHandler:
                     text=json.dumps({"ok": False, "error": "invalid JSON body"}),
                 )
             result = await self.handle(body)
-            status = 200 if result.get("ok") else 503
+            status = (
+                200
+                if result.get("ok") or result.get("status") == "held_for_revalidation"
+                else 503
+            )
             return Response(
                 status=status,
                 content_type="application/json",

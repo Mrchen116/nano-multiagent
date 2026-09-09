@@ -622,6 +622,14 @@
       "thinkingCount": "{{count}} thinking",
       "toolCount_one": "{{count}} tool",
       "toolCount_other": "{{count}} tools",
+      "replyProcessCount": {
+        "draft_one": "{{count}} unsent draft",
+        "draft_other": "{{count}} unsent drafts",
+        "revalidation_one": "{{count}} revalidation",
+        "revalidation_other": "{{count}} revalidations",
+        "segment_handoff_one": "continued",
+        "segment_handoff_other": "continued"
+      },
       "backgroundReturn": "Background return",
       "backgroundReturnCount_one": "{{count}} background return",
       "backgroundReturnCount_other": "{{count}} background returns",

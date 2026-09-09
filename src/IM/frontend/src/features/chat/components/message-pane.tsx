@@ -824,6 +824,7 @@ export function MessagePane({
               const m = item.message;
               return (
                 <MessageBubble
+                    availableMessageIds={anchoredMessageIds}
                   key={m.id}
                   message={m}
                   conversationId={conversation.id}
@@ -1239,6 +1240,7 @@ function ContextMenu({
 
 function MessageBubble({
   message,
+  availableMessageIds,
   conversationId,
   isMobile,
   participants,
@@ -1251,6 +1253,7 @@ function MessageBubble({
   onSheetRequest,
 }: {
   message: Message;
+  availableMessageIds?: ReadonlySet<string>;
   conversationId: string;
   isMobile?: boolean;
   participants?: Actor[];
@@ -1422,6 +1425,7 @@ function MessageBubble({
 
   return (
     <div
+      id={`chat-message-${message.id}`}
       data-message-id={message.id}
       className={`chat-bubble chat-bubble--${isUser ? "user" : "agent"} flex ${rowFlex} gap-2 items-end`}
     >
@@ -1471,11 +1475,15 @@ function MessageBubble({
           {isAgent &&
             ((message.tool_calls && message.tool_calls.length > 0) ||
               (message.thinking && message.thinking.length > 0) ||
-              (message.background_returns && message.background_returns.length > 0)) && (
+              (message.background_returns && message.background_returns.length > 0) ||
+              (message.reply_process && message.reply_process.length > 0)) && (
               <ToolCallsPanel
                 toolCalls={message.tool_calls ?? []}
                 thinking={message.thinking}
                 backgroundReturns={message.background_returns}
+                replyProcess={message.reply_process}
+                availableMessageIds={availableMessageIds}
+                onNavigateMessage={(id) => document.getElementById(`chat-message-${id}`)?.scrollIntoView({block: "center", behavior: "smooth"})}
               />
             )}
           {isAgent && deliveryStatus === "completed" && message.token_usage && (

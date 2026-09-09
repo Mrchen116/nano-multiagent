@@ -206,6 +206,7 @@ export function applyWsEvent(
         tool_calls: ev.tool_calls,
         thinking: ev.thinking,
         background_returns: ev.background_returns,
+        reply_process: ev.reply_process,
         token_usage: ev.token_usage,
         elapsed_ms: ev.elapsed_ms,
         kernel_message_id: ev.kernel_message_id,
@@ -255,6 +256,7 @@ export function applyWsEvent(
         // feat-439-M2: 历史回放 / 建泡时还原已持久化的思考过程项。
         thinking: ev.thinking,
         background_returns: ev.background_returns,
+        reply_process: ev.reply_process,
         token_usage: ev.token_usage,
         permission_requests: [],
         system_notice: ev.system_notice,
@@ -287,6 +289,7 @@ export function applyWsEvent(
       return patchMessage(state, ev.message_id, (m) => ({
         ...m,
         content: ev.content,
+        reply_process: m.reply_process?.map(item => item.kind === "revalidation" && item.status === "running" ? {...item, status: ev.delivery_status === "failed" ? "failed" : "completed"} : item),
         delivery_status: ev.delivery_status === "failed" ? "failed" : "completed",
         token_usage: ev.token_usage,
         // feat-414: 权威耗时来自后端，覆盖前端本地 tick。
@@ -307,6 +310,9 @@ export function applyWsEvent(
     // feat-439-M2: 追加一段思考过程项。seq 是后端赋予的 per-message 单调唯一序号；
     // 按 seq 去重(幂等)——reducer 契约会重放/双投递事件，正如 tool_calls 按 id 幂等。
     // 渲染端按 seq 把思考与工具 merge 成一条过程时间线。
+    case "reply_process.updated": {
+      return patchMessage(state, ev.message_id, (m) => ({...m, reply_process: ev.reply_process}));
+    }
     case "thinking.segment": {
       return patchMessage(state, ev.message_id, (m) => {
         const current = m.thinking ?? [];

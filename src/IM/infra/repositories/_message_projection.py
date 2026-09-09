@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 
 from IM.domain.models import (
     Actor,
     Attachment,
     BackgroundReturn,
+    ReplyProcessItem,
     Message,
     SystemNotice,
     ThinkingSegment,
@@ -75,6 +77,7 @@ def _message_created_payload(message: Message) -> dict[str, object]:
             {"seq": int(segment.seq), "text": segment.text}
             for segment in (message.thinking or [])
         ],
+        "reply_process": [asdict(item) for item in (message.reply_process or [])],
         "background_returns": [
             _background_return_to_dict(item)
             for item in (message.background_returns or [])
@@ -372,10 +375,17 @@ def _decode_tool_calls(value: object) -> list[ToolCall] | None:
     return out
 
 
+def _decode_reply_process(value: object) -> list[ReplyProcessItem]:
+    return (
+        [ReplyProcessItem(**item) for item in json.loads(str(value))] if value else []
+    )
+
+
 def _next_process_seq(
     thinking: list[ThinkingSegment],
     tools: list[ToolCall],
     background_returns: list[BackgroundReturn] | None = None,
+    reply_process: list[ReplyProcessItem] | None = None,
 ) -> int:
     """feat-439-M2: 下一个「过程项」seq = 思考与工具现有 seq 的 max + 1（从 0 起）。
 
@@ -383,6 +393,7 @@ def _next_process_seq(
     据此 merge 成时间线，唯一性让 live 事件可幂等去重。旧工具行 seq 为 None，忽略。
     """
     seqs = [s.seq for s in thinking]
+    seqs += [item.seq for item in (reply_process or []) if item.seq is not None]
     seqs += [t.seq for t in tools if t.seq is not None]
     seqs += [item.seq for item in (background_returns or []) if item.seq is not None]
     return (max(seqs) + 1) if seqs else 0
@@ -522,6 +533,7 @@ def _upsert_message(messages: list[Message], candidate: Message) -> list[Message
         delivery_status=candidate.delivery_status,
         created_at=candidate.created_at,
         system_notice=candidate.system_notice or existing.system_notice,
+        reply_process=candidate.reply_process or existing.reply_process,
         background_returns=(
             candidate.background_returns
             if candidate.background_returns

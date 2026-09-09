@@ -235,6 +235,7 @@ def test_non_user_terminal_continuation_preserves_structured_pending_parts(
         session_id=session.ref.session_id,
         workspace_root=tmp_path,
         parts=[{"type": "text", "text": "first"}],
+        revalidate_output=True,
     )
     assert conversations[0].started.wait(timeout=1)
     assert registry.inject_pending_message(
@@ -255,6 +256,7 @@ def test_non_user_terminal_continuation_preserves_structured_pending_parts(
         {"type": "text", "text": "continue with image"},
         {"type": "image", "image_url": "data:image/png;base64,BBBB"},
     ]
+    assert conversations[0].requests[-1].controller.revalidate_output is True
     registry.shutdown()
 
 
@@ -281,7 +283,10 @@ def test_expected_run_injection_never_targets_replacement_active_run(
     )
     session = directory.create(NewSession(workspace_root=tmp_path))
     executor = KernelExecutor()
-    registry = RunsRegistry(directory=directory, executor=executor)
+    from agent.core.events.hub import EventStreamHub
+
+    hub = EventStreamHub()
+    registry = RunsRegistry(directory=directory, executor=executor, event_hub=hub)
     first = registry.submit(
         session_id=session.ref.session_id,
         workspace_root=tmp_path,
@@ -295,6 +300,26 @@ def test_expected_run_injection_never_targets_replacement_active_run(
     )
     _wait_for(lambda: registry.get(second.run_id).status is RunStatus.RUNNING)
 
+    published = []
+    assert (
+        registry.try_commit_output(
+            session_id=session.ref.session_id,
+            expected_run_id=first.run_id,
+            context_revision=0,
+            publish=lambda: published.append("wrong run"),
+        )
+        == "inactive"
+    )
+    assert (
+        registry.try_commit_output(
+            session_id=session.ref.session_id,
+            expected_run_id=second.run_id,
+            context_revision=0,
+            publish=lambda: published.append("fresh"),
+        )
+        == "committed"
+    )
+
     assert not registry.inject_pending_message(
         session.ref.session_id,
         LLMMessage(role="user", content="must-not-reach-second"),
@@ -306,6 +331,22 @@ def test_expected_run_injection_never_targets_replacement_active_run(
         expected_run_id=second.run_id,
     )
 
+    assert (
+        registry.try_commit_output(
+            session_id=session.ref.session_id,
+            expected_run_id=second.run_id,
+            context_revision=0,
+            publish=lambda: published.append("stale"),
+            draft={
+                "draft_id": "draft",
+                "text": "stale",
+                "source": "send_message",
+                "tool_call_id": "call",
+            },
+        )
+        == "stale"
+    )
+    assert published == ["fresh"]
     assert registry.interrupt(session.ref.session_id) == second.run_id
     assert [
         item.message.content for item in registry._held_pending[second.session_id]

@@ -142,6 +142,7 @@ CREATE TABLE IF NOT EXISTS messages (
     thinking_json TEXT,
     -- feat-517: terminal subagent/workflow results shown as process items.
     background_returns_json TEXT,
+    reply_process_json TEXT,
     -- feat-414: 本轮 agent 处理墙钟耗时（毫秒）。turn_start 建行时为 NULL，
     -- on_message_completed 写入 elapsed_ms = round((T1 − T0) * 1000)。
     elapsed_ms INTEGER,
@@ -645,6 +646,8 @@ def _migrate_messages_metadata(connection: sqlite3.Connection) -> None:
     # feat-439-M2: 整轮多段思考（过程时间线）。Nullable JSON：旧行 / 无思考的轮为 NULL。
     if "thinking_json" not in column_names:
         connection.execute("ALTER TABLE messages ADD COLUMN thinking_json TEXT")
+    if "reply_process_json" not in column_names:
+        connection.execute("ALTER TABLE messages ADD COLUMN reply_process_json TEXT")
     if "background_returns_json" not in column_names:
         connection.execute(
             "ALTER TABLE messages ADD COLUMN background_returns_json TEXT"

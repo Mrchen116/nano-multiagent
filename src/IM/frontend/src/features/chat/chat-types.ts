@@ -121,6 +121,21 @@ export interface ThinkingSegment {
 }
 
 export type BackgroundTaskType = "subagent" | "workflow";
+export interface ReplyProcessItem {
+  item_id: string;
+  kind: "draft" | "revalidation" | "segment_handoff";
+  run_id: string;
+  seq: number;
+  text?: string | null;
+  source?: string | null;
+  draft_id?: string | null;
+  tool_call_id?: string | null;
+  source_messages?: {message_id: string; sender: string; timestamp: string}[];
+  predecessor_message_id?: string | null;
+  successor_message_id?: string | null;
+  status?: "running" | "completed" | "failed" | "stopped" | null;
+}
+
 export type BackgroundReturnStatus = "completed" | "failed" | "stopped" | "killed";
 
 /**
@@ -180,7 +195,7 @@ export interface Message {
   /** feat-439-M2: 整轮多段思考（过程时间线）。undefined = 无思考 / 旧行（不留空壳）。 */
   thinking?: ThinkingSegment[];
   /** feat-517: terminal background task returns displayed as process items. */
-  background_returns?: BackgroundReturn[];
+  background_returns?: BackgroundReturn[]; reply_process?: ReplyProcessItem[];
   token_usage?: TokenUsage | null;
   /** feat-414: 本轮 agent 处理墙钟（毫秒）。用户消息及旧行为 undefined / null。 */
   elapsed_ms?: number | null;
@@ -265,14 +280,15 @@ export function classifyConversationKind(c: Pick<Conversation, "type" | "direct_
 
 export type WsEvent =
   | { type: "agent.config.changed"; seq?: number; id: string; conversation_id: string; agent_id: string; before_message_id: string; applied_at: string }
-  | { type: "message.created"; seq?: number; conversation_id: string; message_id: string; sender_user_id: string; sender_type: string; sender?: Actor | null; sender_display_name?: string | null; content: string; attachments?: Attachment[]; tool_calls: ToolCall[]; thinking?: ThinkingSegment[]; background_returns?: BackgroundReturn[]; token_usage: TokenUsage | null; delivery_status: DeliveryStatus; created_at: string; system_notice?: SystemNotice | null }
-  | { type: "message.reconciled"; seq?: number; conversation_id: string; message_id: string; sender_user_id: string; sender_type: string; sender?: Actor | null; sender_display_name?: string | null; content: string; attachments: Attachment[]; tool_calls: ToolCall[]; thinking: ThinkingSegment[]; background_returns?: BackgroundReturn[]; token_usage: TokenUsage | null; delivery_status: Extract<DeliveryStatus, "completed" | "failed">; created_at: string; elapsed_ms: number | null; kernel_message_id: string | null; permission_requests?: PermissionRequest[] }
+  | { type: "message.created"; seq?: number; conversation_id: string; message_id: string; sender_user_id: string; sender_type: string; sender?: Actor | null; sender_display_name?: string | null; content: string; attachments?: Attachment[]; tool_calls: ToolCall[]; thinking?: ThinkingSegment[]; background_returns?: BackgroundReturn[]; reply_process?: ReplyProcessItem[]; token_usage: TokenUsage | null; delivery_status: DeliveryStatus; created_at: string; system_notice?: SystemNotice | null }
+  | { type: "message.reconciled"; seq?: number; conversation_id: string; message_id: string; sender_user_id: string; sender_type: string; sender?: Actor | null; sender_display_name?: string | null; content: string; attachments: Attachment[]; tool_calls: ToolCall[]; thinking: ThinkingSegment[]; background_returns?: BackgroundReturn[]; reply_process?: ReplyProcessItem[]; token_usage: TokenUsage | null; delivery_status: Extract<DeliveryStatus, "completed" | "failed">; created_at: string; elapsed_ms: number | null; kernel_message_id: string | null; permission_requests?: PermissionRequest[] }
   | { type: "message.delta"; seq?: number; conversation_id: string; message_id: string; delta_text: string }
   | { type: "message.completed"; seq?: number; conversation_id: string; message_id: string; content: string; token_usage: TokenUsage | null; delivery_status?: Extract<DeliveryStatus, "completed" | "failed">; elapsed_ms?: number | null; kernel_message_id?: string | null }
   | { type: "message.discarded"; seq?: number; conversation_id: string; message_id: string; reason: string }
   | { type: "tool_call.upserted"; seq?: number; conversation_id: string; message_id: string; tool_call: ToolCall }
   | { type: "tool_call.completed"; seq?: number; conversation_id: string; message_id: string; tool_call: ToolCall }
   // feat-439-M2: 一段思考过程项到达当前气泡（过程时间线）。
+  | { type: "reply_process.updated"; seq?: number; conversation_id: string; message_id: string; reply_process: ReplyProcessItem[] }
   | { type: "thinking.segment"; seq?: number; conversation_id: string; message_id: string; thinking_segment: ThinkingSegment }
   // bugfix-367 (updated from feat-333-M3/R1): permission ask flow. Backend emits
   // these when auto_mode_gate triggers an `ask` decision; the frontend reducer

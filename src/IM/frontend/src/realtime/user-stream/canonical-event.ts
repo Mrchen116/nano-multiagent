@@ -15,6 +15,7 @@ const CHAT_STREAM_EVENT_TYPES = new Set([
   "tool_call.upserted",
   "tool_call.completed",
   "thinking.segment",
+  "reply_process.updated",
   "permission.request",
   "permission.resolved",
   "agent.config.changed"
@@ -156,6 +157,9 @@ export function validateCanonicalUserStreamEvent(
     case "tool_call.completed":
       if (!isToolCall(payload.tool_call)) malformed(eventType);
       return;
+    case "reply_process.updated":
+      if (!Array.isArray(payload.reply_process) || !payload.reply_process.every((item) => isRecord(item) && isText(item.item_id) && isText(item.run_id) && ["draft", "revalidation", "segment_handoff"].includes(String(item.kind)) && typeof item.seq === "number")) malformed(eventType);
+      break;
     case "thinking.segment":
       if (!isThinkingSegment(payload.thinking_segment)) malformed(eventType);
       return;
