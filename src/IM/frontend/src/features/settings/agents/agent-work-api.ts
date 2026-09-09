@@ -1,3 +1,4 @@
+import { tr } from "./agent-work-text";
 import { authFetch } from "../../auth/auth-fetch";
 import type { TokenUsage } from "../../chat/chat-types";
 
@@ -8,7 +9,7 @@ export interface WorkTurnPage { control_items?: WorkItem[]; turns: WorkTurn[]; n
 export interface WorkView extends WorkTurnPage { root_agent_id: string; main_session_id: string | null; revision: number; node_connection_state: string; main_execution: string; latest_main_usage: (Partial<TokenUsage> & { turn_id: string; model_id?: string }) | null; other_executions: WorkSession[] }
 export async function workRequest<T>(path: string): Promise<T> {
   const response = await authFetch(path);
-  if (!response.ok) throw new Error(`工作记录读取失败 (${response.status})`);
+  if (!response.ok) throw new Error(`${tr("工作记录读取失败")} (${response.status})`);
   return response.json() as Promise<T>;
 }
 export const workBase = (agentId: string) => `/im/v1/agents/${encodeURIComponent(agentId)}/work`;

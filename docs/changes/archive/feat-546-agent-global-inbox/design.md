@@ -208,7 +208,7 @@ instruction or an agent's claim into higher-priority authority.
 
 ## 前端原型
 
-原型：[prototype.html](prototype.html)。沿用现有 Agent 详情页头部、桌面员工列表、工作页签、手机返回、白色卡片和绿色强调色；工具详情复用 ToolCallRow／ToolDetailBody 的 Presenter 两阶段约定。没有重新设计整个 IM。
+原型：[prototype.html](prototype.html)。沿用现有 Agent 详情页头部、桌面员工列表、工作页签、手机返回、白色卡片和绿色强调色；工作视图采用与原型一致的独立工具卡片与通栏 usage；复用 ToolDetailBody 和 Presenter 两阶段数据约定，不直接套用聊天页 ToolCallRow／TokenChip 的视觉结构。没有重新设计整个 IM。
 
 | ID | 约束 | 对齐入口与必验行为 |
 |---|---|---|

@@ -1660,7 +1660,7 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
         </nav>
       </header>
 
-      <div className="im-agent-panel-body im-agent-detail-body">
+      <div className={`im-agent-panel-body im-agent-detail-body ${activeSection === "work" ? "im-agent-work-body" : ""}`}>
         {activeSection === "work" && draft.work_mode === "global" ? (
           <AgentWorkPanel agentId={agentId} />
         ) : activeSection === "skills" ? (
