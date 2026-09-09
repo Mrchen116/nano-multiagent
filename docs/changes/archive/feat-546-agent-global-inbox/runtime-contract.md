@@ -134,7 +134,7 @@ Gateway 启动按顺序打开数据库、恢复全局绑定与事件归属、安
 
 没有阻塞条目时，在仍持目标接收锁的情况下，经 Kernel 当前 run 的输出准入屏障同步 enqueue 既有 send_agent_message 协程；随后释放锁并等待网络 ACK。锁顺序固定 `target admission → Kernel publication guard`，Kernel 回调只 enqueue，不查询数据库、不回调 PA；Inbox 接收不获取 Kernel 锁。`try_commit_output` 的 context_revision 检查继续防止该主模型上下文已有待摄取的内部返回时提交旧输出。已进入 enqueue 之后新收到的输入属于下一次复核，不撤销已受理发送；此界限仍只覆盖 Gateway 已接收消息，不做 IM 全房间仲裁。
 
-其他群的 Inbox 条目、仅作背景的非 attention 条目不参与目标判断。单聊和外部 channel 继续原投递，无新增复核。持久草稿、正式 ACK 与 call_id 关联到同一 send_message 工具行；不新建草稿卡。网络 ACK 不确定继续复用 dispatch_request_id 去重，不能因工作页显示超时就自动换 ID 再发。
+其他群的 Inbox 条目、仅作背景的非 attention 条目不参与目标判断。单聊和外部 channel 继续原投递，无新增复核。外部 target 使用 Inbox 保存的 ReplyContext 接回既有 OutboundRouter；IM shadow ACK 只确认镜像消息，外部发送也成功后才记录 dispatch_confirmed，失败仍返回工具错误。相同 dispatch identity 复用既有回复去重与已确认工作事实。持久草稿、正式 ACK 与 call_id 关联到同一 send_message 工具行；不新建草稿卡。网络 ACK 不确定继续复用 dispatch_request_id 去重，不能因工作页显示超时就自动换 ID 再发。
 
 全局默认 assistant body、thinking、tool events 均走工作记录；不通过 last ReplyContext 自动向人发话。现有单 Thread observer/relay 继续原路，避免全局和旧 background subscriber 双重投递。
 

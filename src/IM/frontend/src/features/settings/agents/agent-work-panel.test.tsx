@@ -50,6 +50,18 @@ describe("Agent work view", () => {
     expect(screen.getByRole("button", { name: "关闭子轨迹" })).toBeVisible();
   });
 
+  it("shows a repeated background source once while retaining distinct task returns", async () => {
+    const result = { task_id: "task-a", task_type: "agent", agent_id: "researcher", status: "completed", result: "Shared result" };
+    view = { ...view, turns: [{ ...view.turns[0], items: [
+      { item_id: "message:first", seq: 1, kind: "assistant_message", payload: { content: "Reasoning result", background_returns: [result] } },
+      { item_id: "message:second", seq: 2, kind: "assistant_message", payload: { content: "Delivery result", background_returns: [result] } },
+      { item_id: "message:third", seq: 3, kind: "assistant_message", payload: { content: "Other task", background_returns: [{ ...result, task_id: "task-b" }] } }
+    ] }] };
+    renderWork();
+    fireEvent.click(await screen.findByText("收件箱通知"));
+    expect(screen.getAllByTestId("process-background-return-toggle")).toHaveLength(2);
+  });
+
   it.each([["manual", "Cron · 手动执行"], ["scheduled", "Cron · 定时执行"], [undefined, "Cron"]])("shows %s Cron metadata and actual session delivery with navigation", async (trigger, label) => {
     view = { ...view, other_executions: [{ session_id: "cron-session", scope: "cron", job_id: "report", trigger }] };
     const page = { turns: [{ ...view.turns[0], session_id: "cron-session", turn_id: "cron-turn", scope: "cron", job_id: "report", origin: "model", trigger: { kind: "cron", source: trigger }, items: [] }], next_cursor: null, control_items: [

@@ -171,7 +171,7 @@ WorkItem
 
 **Session 边界**：当前 cron 每次创建隔离 Session；Heartbeat 优先 owner canonical Session，无 canonical 时复用该 Agent 的 heartbeat Session。按实际 session_id 展示执行与统计，不能为凑主线把 cron 轮次改归全局主 Session，也不能把结果投递的聊天当执行归属。全局模式的 scheduler 寻址按 [运行契约 §6](runtime-contract.md#6-heartbeatcron-与全局归属) 执行：Heartbeat 使用全局主 Session，Cron 保留隔离执行和明确投递策略。
 
-核对依据：`src/agent/core/runs/origin.py`、`core/background_tasks/{models,notifications}.py`、`platform/background_tasks/wiring.py`、`platform/background_tasks/runtime_runner.py`；`src/personal_assistant/scheduler/{cron_runner,cron_execution_service,heartbeat_scheduler}.py`；current 契约见 [后台任务](../../specs/kernel/background-tasks.md)、[运行](../../specs/kernel/runs.md)、[Heartbeat 与 Cron](../../specs/gateway/heartbeat-cron.md)。
+核对依据：`src/agent/core/runs/origin.py`、`core/background_tasks/{models,notifications}.py`、`platform/background_tasks/wiring.py`、`platform/background_tasks/runtime_runner.py`；`src/personal_assistant/scheduler/{cron_runner,cron_execution_service,heartbeat_scheduler}.py`；current 契约见 [后台任务](../../../specs/kernel/background-tasks.md)、[运行](../../../specs/kernel/runs.md)、[Heartbeat 与 Cron](../../../specs/gateway/heartbeat-cron.md)。
 
 worker／reviewer 须覆盖以上真实来源、active 摄取与 idle 新运行、cron scheduled/manual、正确 Session 归属以及缺少后台类型时的通用标签；原型标题示例不是已实现的后端字段或调度联调证据。
 

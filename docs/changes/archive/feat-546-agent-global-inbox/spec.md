@@ -1,6 +1,6 @@
 # feat-546: Agent 全局收件箱与单 Thread 模式选择
 
-状态：需求与设计已收口、实现和 native 自测完成；专用飞书用户授权是剩余实际入口验证前提，详见 M1 progress。
+状态：实现、native 与飞书真实入口自测完成；交付证据与保留演示见 [M1 进度](M1-global-agent-inbox/progress.md)。
 
 ## Relations
 

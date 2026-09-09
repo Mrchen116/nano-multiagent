@@ -81,6 +81,7 @@
 #### Scenario: 单聊和外部聊天不新增复核
 - **WHEN** 全局 Agent 向单聊或外部 channel 发言
 - **THEN** 不因本项群聊复核能力增加草稿拦截或复核步骤
+- **AND** 外部回复经原 Channel 投递，不能仅保存 Web IM 镜像就确认已发送
 
 ### Requirement: 全局模式不通过聊天命令重置工作上下文
 

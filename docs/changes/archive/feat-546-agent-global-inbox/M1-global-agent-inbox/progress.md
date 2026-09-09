@@ -22,7 +22,7 @@
 
 ## Progress
 
-Implementation is complete and native real-stack self-tests passed. Dedicated Feishu end-to-end input remains blocked on the test profile user authorization; do not archive or declare final delivery complete until it is exercised.
+Implementation and native/Feishu real-stack self-tests are complete. User explicitly requested retaining the running demo and its worktree for inspection. Final PR and remote CI are tracked live in GitHub.
 
 ### Implemented seams and focused evidence
 
@@ -71,3 +71,15 @@ Implementation is complete and native real-stack self-tests passed. Dedicated Fe
 
 - After staging all task code/docs, documentation integrity passed (**236 maintained Markdown sources / 72 routes**), all **156 contract tests passed**, Ruff and staged diff checks passed. Only the two canonical additions initially appeared missing to the tracked-file documentation checker; staging them resolved those diagnostics.
 - Both isolated stacks, the owned Vite server and the isolated Playwright browser have been stopped. Process inspection found no remaining unit-owned runtime. The active unit and worktree are retained solely for the pending Feishu authorization and final PR delivery.
+
+
+### Authorized Feishu completion and retained cross-chat demonstration
+
+- The user completed the dedicated test identity authorization. Its real Feishu message reached global Agent `globalFeishu546`, main `sess_262eecbb881aba8e`, and the model correctly called Inbox/read/send_message. The first platform assertion then exposed a real omission: `agent.message` had confirmed the IM shadow bubble but never invoked the external Channel sender. No platform receipt was inferred from that ACK.
+- Added a reproducing SDK-loop integration test for provider success and failure: both cases first failed because no external delivery was attempted. Global dispatch now passes the saved ReplyContext to the existing OutboundRouter, uses the stable dispatch identity for its existing dedupe, and records `dispatch_confirmed` only after external send succeeds. The focused dispatch/runtime suite passed **17 tests**; final Python CI-equivalent shards passed **1835 + 1842 = 3677 tests**.
+- Real Feishu rerun passed: source `om_x100b6523846748a0debf099ac1aa2dc`, send call `call_00_ET_rgDgBXkXoOo2VklIjHti0747`, IM shadow reply `4e81f3a064c541d1ab7b73bb699efa35`, actual Feishu Bot reply `om_x100b652385de38a4c33f6fed0ee88f3`, exact body `FEISHU546_d0b980=42`. The platform query returned one matching user request and one matching Bot final; internal reasoning did not appear there. The source target was direct/external and gained no group-revalidation gate.
+- Repeated actual J2 on that retained stack after the external fix: Agent `e2eGlobala3052729`, main `sess_73623c2b60394dd1`, original child Agent `ad8979b1fddb04948` / Session `sess_840d29e37b897138`. A `fe502d4d9f92467cac7f2899b2a3a80a` launched the task; B `5b3a94fea7154fa68b2785cf34a9d6b2` amended it; the exact same child received the change. Final `AMENDA3052729 / total 63420 / count 60` was delivered only to A as message `6e544bae913140c08fecdcfe8da35eeb`. The actual A chat and Agent work view were opened in the app.
+- Native inspection of that final work view found repeated copies of the same background return because its source sidecar accompanies multiple assistant messages. Added a failing UI reproduction, then deduplicated by real task type/id within each turn while preserving distinct task returns. The panel suite passed **8 tests** and production build passed; final frontend regression follows below.
+- Retention authorization: user explicitly said “跑完不要关服务。我要看一下改好后，跨thread工作的具体的效果。” Therefore keep IM/Gateway at `http://127.0.0.1:59669`, runtime `/tmp/feat546-feishu-authorized`, and this implementation worktree. These are the task's isolated processes/config/workspaces; production was not changed. Clean them when the user finishes inspection or explicitly requests shutdown. Do not apply the normal post-CI removal while this instruction remains in effect.
+
+- Final frontend regression after deduplicating background source display: **73 files / 700 tests passed**. Production build, Ruff, format, documentation and staged diff checks passed. No remaining implementation or actual-entry verification blocker.

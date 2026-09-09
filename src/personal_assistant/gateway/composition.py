@@ -992,6 +992,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         global_inbox=global_inbox,
         work_recorder=work_recorder,
         shadow_sync=shadow_sync,
+        outbound_router=outbound_router,
         im_connection_manager=im_connection_manager,
         kernel_client=kernel_shim,
         kernel=kernel,

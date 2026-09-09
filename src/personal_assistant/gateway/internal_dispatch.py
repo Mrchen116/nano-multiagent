@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING, Any, Callable, Mapping
 if TYPE_CHECKING:
     from agent.sdk import Kernel
 
+from personal_assistant.channels.base import ReplyContext
+from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.session_binder import (
     ConversationBindingRequest,
     GatewaySessionBinder,
@@ -78,6 +80,7 @@ class InternalDispatchHandler:
         global_inbox: Any | None = None,
         work_recorder: Any | None = None,
         shadow_sync: Any | None = None,
+        outbound_router: OutboundRouter | None = None,
     ) -> None:
         self._im_connection_manager = im_connection_manager
         self._kernel_client = kernel_client
@@ -87,6 +90,7 @@ class InternalDispatchHandler:
         self._global_inbox = global_inbox
         self._work_recorder = work_recorder
         self._shadow_sync = shadow_sync
+        self._outbound_router = outbound_router
         self._sealed = False
 
     def seal(self) -> None:
@@ -385,11 +389,34 @@ class InternalDispatchHandler:
                 ack = await send_task
             else:
                 ack = await self._im_connection_manager.send_agent_message(dispatch)
+            dispatch_event_id = f"dispatch:{session_id}:{call_id}"
+            channel_name = metadata.get("channel_name")
+            if (
+                channel_name
+                and channel_name != self._direct_channel_name
+                and recorder.store.get_work_event(dispatch_event_id) is None
+            ):
+                if self._outbound_router is None:
+                    raise RuntimeError("external delivery router unavailable")
+                # The IM ACK confirms only the shadow bubble. The captured source
+                # route must also succeed before this explicit reply is delivered.
+                await self._outbound_router.send_text_async(
+                    text=dispatch["text"],
+                    reply_context=ReplyContext(
+                        channel_name=channel_name,
+                        target_chat_id=metadata["target_chat_id"],
+                        thread_id=metadata.get("thread_id"),
+                        metadata={
+                            **metadata.get("metadata", {}),
+                            "reply_dedupe_key": dispatch_event_id,
+                        },
+                    ),
+                )
             recorder.record(
                 agent_id=agent_id,
                 session_id=session_id,
                 event_type="dispatch_confirmed",
-                event_id=f"dispatch:{session_id}:{call_id}",
+                event_id=dispatch_event_id,
                 payload={**facts, **ack.as_dict()},
             )
             return {"ok": True, "to": target, "text": dispatch["text"], **ack.as_dict()}

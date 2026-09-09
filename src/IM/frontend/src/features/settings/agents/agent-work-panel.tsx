@@ -137,8 +137,13 @@ function Turn({ turn, agentId, online, sessions, expanded, expand, onChild, refr
     const page = await workRequest<{ items: WorkItem[]; next_cursor: string | null }>(`${workBase(agentId)}/sessions/${encodeURIComponent(turn.session_id)}/turns/${encodeURIComponent(turn.turn_id)}/items?after_seq=${cursor}`);
     setExtra(old => [...old, ...page.items]); setCursor(page.next_cursor);
   } catch (e) { setError(String(e)); } finally { setLoading(false); } };
+  const seenBackgroundReturns = new Set<string>();
   const backgroundRows = (raw: unknown, itemKey: string) => !Array.isArray(raw) ? null : <ul>{raw.map((entry, index) => {
     const value = obj(entry);
+    const sourceKey = str(value.task_id) ? `${str(value.task_type)}:${str(value.task_id)}` : "";
+    // Source sidecars accompany multiple assistant messages in the same turn.
+    if (sourceKey && seenBackgroundReturns.has(sourceKey)) return null;
+    if (sourceKey) seenBackgroundReturns.add(sourceKey);
     const child = sessions.find(session => session.session_id === value.child_session_id || (session.child_agent_id && session.child_agent_id === value.agent_id));
     const backgroundKey = `${itemKey}:background:${str(value.task_id) || index}`;
     return <BackgroundReturnRow key={backgroundKey} value={value as unknown as BackgroundReturn} expanded={expanded[backgroundKey] ?? false} onExpandedChange={open => expand(backgroundKey, open)} detailFooter={child && <button type="button" className="im-work-child-link" onClick={() => onChild(child.session_id)}>查看关联执行 · {child.description || child.child_agent_id || child.session_id}</button>} />;

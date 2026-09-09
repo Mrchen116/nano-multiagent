@@ -120,7 +120,7 @@ async def _wait(predicate):
             await asyncio.sleep(0.01)
 
 
-async def _runtime(tmp_path, model):
+async def _runtime(tmp_path, model, *, outbound_router=None):
     endpoint = InternalDispatchEndpoint()
     kernel = build_kernel(
         llm=_lc_llm(),
@@ -170,6 +170,7 @@ async def _runtime(tmp_path, model):
         session_binder=binder,
         global_inbox=inbox,
         work_recorder=recorder,
+        outbound_router=outbound_router,
     )
     app = web.Application()
     app.router.add_post("/internal/dispatch", handler.build_aiohttp_handler())

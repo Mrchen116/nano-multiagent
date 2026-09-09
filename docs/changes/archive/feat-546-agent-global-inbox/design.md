@@ -2,7 +2,7 @@
 
 > 对齐: [spec.md](spec.md)（2026-09-09 实验版本需求）
 > Unit branch: `unit/feat-546` (will be created by orchestrator)
-> 状态：设计与接口已收口；门禁 2 结论以 [独立设计审查](design-review.md) 为准。已实施；实际自测与剩余飞书授权前提见 [M1 进度](M1-global-agent-inbox/progress.md)。
+> 状态：设计与接口已收口；门禁 2 结论以 [独立设计审查](design-review.md) 为准。已实施；实际自测与保留演示见 [M1 进度](M1-global-agent-inbox/progress.md)。
 
 ## Changelog
 
@@ -29,7 +29,7 @@
 | `scheduler/heartbeat_scheduler.py`、`cron_runner.py`、`cron_execution_service.py` | Heartbeat 优先 canonical，Cron 隔离并记录 scheduled/manual。全局模式分别衔接主 Session 与独立执行；不改 cron 工具 |
 | IM `app-shell.tsx`、`chat-workspace-page.tsx`、`ToolDetailBody`、`TokenChip`、`PermissionCard` | 复用既有 Agent 详情与 Chat 结构、过程组件和权限选项；跨页 message locator 解析需新增，不能只拼 URL |
 
-current 契约核对范围：[Gateway routing](../../specs/gateway/routing-delivery.md)、[Heartbeat/Cron](../../specs/gateway/heartbeat-cron.md)、[Kernel runs](../../specs/kernel/runs.md)、[后台任务](../../specs/kernel/background-tasks.md)、[IM timeline](../../specs/im/tool-timeline.md)。上述“尚无”均是本期新增连接，不把文档外推为已有能力；没有据过期契约复活独立 Kernel HTTP server。
+current 契约核对范围：[Gateway routing](../../../specs/gateway/routing-delivery.md)、[Heartbeat/Cron](../../../specs/gateway/heartbeat-cron.md)、[Kernel runs](../../../specs/kernel/runs.md)、[后台任务](../../../specs/kernel/background-tasks.md)、[IM timeline](../../../specs/im/tool-timeline.md)。上述“尚无”均是本期新增连接，不把文档外推为已有能力；没有据过期契约复活独立 Kernel HTTP server。
 
 包边界：PA 只 import `agent.sdk`；IM 不 import PA/agent；core 不做平台 IO。SQLite、WS、配置更新沿既有模式，新增一个有状态 Inbox 模块和一个运行协调模块，不搭通用任务总线。codebase-design 的职责收敛应用在 Inbox/调度的边界，未开并行替代架构。
 
@@ -345,3 +345,8 @@ worktree 若无 `.venv`，以上 Python 换成已激活的主仓 `.venv` 解释�
 | feat-546-M1 | global-agent-inbox | — | A | `src/personal_assistant/{gateway,tools,config,product.py,scheduler,ws,reporter}` 的上述接点；`src/agent/{sdk,core/runs,core/events,core/session,core/agent,platform/hooks,platform/background_tasks}` 的准入／观察；`src/IM/{domain,api,application,infra,ws,frontend/src}` 的配置／工作／查询；对应 tests、canonical delta、e2e catalog | [reviewer] J1–J9 覆盖首文档全部 Scenario，真实 UI 对齐 P1–P5/P7；[worker] 两份接口契约闭合、现有工具协议及 Presenter 不变、SDK import 边界通过、最窄测试及要求的 CI 通过，留真实模型与原型对照证据 |
 
 `M1-global-agent-inbox/.gitkeep` 是唯一骨架文件，不预填 tasks/progress。门禁 2 独立审查通过后才由 orchestrator 开实施分支。
+
+
+### 实施补充：外部显式回复
+
+真实 J9 发现 IM 的 agent.message 只创建 shadow 聊天消息，不承担外部 Channel 投递。Global dispatch 使用 Inbox 已持久保存的 ReplyContext 接回现有 OutboundRouter，等待原 Channel 发送成功后才确认工作事实；沿用原发送器和 dispatch identity 去重，不新增工具或外部消息协议。
