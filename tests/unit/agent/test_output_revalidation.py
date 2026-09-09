@@ -274,8 +274,12 @@ async def test_identical_committed_and_withheld_candidates_keep_distinct_durable
     assert len({s["candidate_id"] for s in statuses}) == 3
     assert statuses[0]["message_ids"] != statuses[1]["message_ids"]
     next_context = str(requests[2].messages)
-    assert statuses[0]["candidate_id"] in next_context
-    assert statuses[1]["candidate_id"] in next_context
+    assert all(s["candidate_id"] not in next_context for s in statuses)
+    assert all(
+        m.content.startswith("<system-reminder>\n")
+        and m.content.endswith("\n</system-reminder>")
+        for m in status_messages
+    )
     assert "COMMITTED FOR DELIVERY" in next_context
     assert "NOT SENT" in next_context
     assert "even if their text is identical" in next_context

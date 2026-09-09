@@ -23,5 +23,13 @@
     "trigger": "raft-counting-1.json",
     "change": "Candidate ID scopes status; every locally committed candidate also records status. JSONL retains candidate/message IDs and state. Earlier identical committed text is not reclassified by later withholding.",
     "boundary": "Local gate commit does not assert remote delivery. Fanout bug fixed at the same time, so counting differences do not isolate prompt effects."
+  },
+  "v4": {
+    "committed_text": "<system-reminder>\nOutput status of the immediately preceding assistant text: COMMITTED FOR DELIVERY by the local output gate. This records submission to the delivery path, not a remote delivery acknowledgment.\n</system-reminder>",
+    "withheld_text": "<system-reminder>\nOutput status of the immediately preceding assistant text: NOT SENT. Only this text was withheld; earlier committed text remains committed, even if their text is identical. Consider the subsequent new messages and continue under the original reply rules. Do not describe this withheld text as already delivered or refer the recipient to it. If a reply is still called for, provide the complete current answer; an unrelated update does not cancel the original request.\n</system-reminder>",
+    "sha256": "d749812db4868a3ee7c61073c9e45f456853b4f223721e7fbdab1e0f3669f76d",
+    "trigger": "User requested existing system-reminder wrapper and removal of candidate IDs that preceding model-visible messages do not expose.",
+    "change": "Reuse system-reminder convention; identify immediately preceding assistant text. Candidate/message IDs remain in internal durable metadata.",
+    "validation": "Existing request-capture and JSONL reload test updated: observed red for exposed candidate ID, then all 4 output revalidation tests passed. Earlier real-model logs are v3 and are not relabeled as v4."
   }
 }

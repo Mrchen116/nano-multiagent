@@ -27,3 +27,9 @@ See [evaluation report](evaluation/report.md), [case results](evaluation/results
 Final local CI-equivalent Python shards: **1,771 agent/PA passed** and **1,814 remaining passed**. Frontend: **71 files / 685 tests passed**, critical dependency audit passed (existing lower-severity advisories remain). Ruff check/format passed. Browser desktop/mobile full draft, continuation and source interactions were exercised against real services. All raw trials, including invalid setup, missed windows and failures, are retained locally with artifact hashes in the committed results.
 
 No production deployment or PR merge is part of this delivery. Main checkout and unrelated work are preserved.
+
+## Post-PR prompt clarification
+
+On user request, output status messages now use the existing `<system-reminder>` envelope and refer to the immediately preceding assistant text. Candidate IDs are removed from model-visible status text and retained in structured metadata for durable linkage. Rewrote the existing request/reload regression rather than adding a parallel test: RED exposed the old ID in the model request; GREEN **4 output revalidation tests passed**, including distinct committed/withheld state after JSONL reload. Ruff and diff checks passed. This bounded prompt change does not alter admission, commit or fanout behavior. Historical real-model logs remain v3; the new wording is recorded separately as v4.
+
+Worktree remains available at the user's explicit request; isolated services remain stopped. Cleanup awaits a subsequent user instruction.
