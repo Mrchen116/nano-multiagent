@@ -80,6 +80,7 @@ from personal_assistant.gateway.effort_commands import (
 )
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.runtime_footer import ExternalFinalProjection
+from personal_assistant.gateway.runtime_delivery.context import RunDeliveryContextStore
 from personal_assistant.gateway.reply_visibility import (
     ReplyVisibilityPolicy,
     is_protocol_silence_token,
@@ -396,6 +397,9 @@ class SessionRunCoordinator:
         restore_run_delivery: Callable[[str], None] | None = None,
         commit_run_delivery: Callable[[str], Awaitable[None]] | None = None,
         drain_run_delivery: Callable[[str], Awaitable[None]] | None = None,
+        delivery_context_store: RunDeliveryContextStore | None = None,
+        drain_admitted_deliveries: Callable[[tuple[str, ...]], Awaitable[None]]
+        | None = None,
         drain_external_control_deliveries: Callable[[], Awaitable[None]] | None = None,
         update_workflow_size_guideline: Callable[[str, str], None] | None = None,
         run_idle_timeout_seconds: float = _DEFAULT_RUN_IDLE_TIMEOUT_SECONDS,
@@ -429,6 +433,8 @@ class SessionRunCoordinator:
         self._restore_run_delivery = restore_run_delivery
         self._commit_run_delivery = commit_run_delivery
         self._drain_run_delivery = drain_run_delivery
+        self._delivery_context_store = delivery_context_store
+        self._drain_admitted_deliveries = drain_admitted_deliveries
         self._drain_external_control_deliveries = drain_external_control_deliveries
         self._update_workflow_size_guideline = update_workflow_size_guideline
         self._run_idle_timeout_seconds = run_idle_timeout_seconds
@@ -480,6 +486,7 @@ class SessionRunCoordinator:
                 self._active_runs[binding.session_key] = _ActiveRunHandle(
                     run_id=run_id, binding=binding, agent=agent
                 )
+                self._register_delivery_session(run_id, binding.session_key)
         if run_id not in self._background_runs:
             return False
         if event.get("event") == "injection_consumed":
@@ -666,7 +673,7 @@ class SessionRunCoordinator:
 
         reply_text = "已开始新会话。"
         active_run_id: str | None = None
-        quiesced_run_id: str | None = None
+        quiesced_run_ids: tuple[str, ...] = ()
         async with self._transition(request.session_key):
             if request.operation_id is not None:
                 completed = self._session_binder.completed_control(
@@ -725,10 +732,28 @@ class SessionRunCoordinator:
             active_run_id = active.run_id if active is not None else None
             if active_run_id is not None:
                 reply_text = "已停止当前操作，并已开始新会话。"
-                if self._quiesce_run_delivery is not None:
-                    await self._quiesce_run_delivery(active_run_id)
-                    quiesced_run_id = active_run_id
+            generation = self._session_generations.get(request.session_key, 0)
+            retained = (
+                self._delivery_context_store.retained_run_ids(
+                    request.session_key, generation
+                )
+                if self._delivery_context_store is not None
+                else ()
+            )
+            quiesced_run_ids = tuple(
+                dict.fromkeys((*retained, *((active_run_id,) if active_run_id else ())))
+            )
+            # Freeze all targets before any drain: pending preparation and gate
+            # waiters depend on this reset's decision and must not be drained here.
+            if self._delivery_context_store is not None:
+                for run_id in quiesced_run_ids:
+                    self._delivery_context_store.quiesce(run_id)
             try:
+                if self._quiesce_run_delivery is not None:
+                    for run_id in quiesced_run_ids:
+                        await self._quiesce_run_delivery(run_id)
+                if self._drain_admitted_deliveries is not None:
+                    await self._drain_admitted_deliveries(quiesced_run_ids)
                 binding = self._session_binder.publish_reset(
                     candidate,
                     operation_id=request.operation_id,
@@ -736,27 +761,32 @@ class SessionRunCoordinator:
                     reply_text=reply_text,
                     external_saga_id=_external_shadow_saga_id(request.routed),
                 )
-            except Exception:
-                if (
-                    quiesced_run_id is not None
-                    and self._restore_run_delivery is not None
-                ):
-                    self._restore_run_delivery(quiesced_run_id)
+            except BaseException as exc:
+                for run_id in quiesced_run_ids:
+                    if self._delivery_context_store is not None:
+                        self._delivery_context_store.restore(run_id)
+                    if self._restore_run_delivery is not None:
+                        self._restore_run_delivery(run_id)
+                if not isinstance(exc, Exception):
+                    raise
                 logging.getLogger(__name__).exception(
                     "fresh session publication failed"
                 )
                 return await self._new_session_failure(request)
-            self._session_generations[request.session_key] = (
-                self._session_generations.get(request.session_key, 0) + 1
-            )
+            self._session_generations[request.session_key] = generation + 1
+            if self._delivery_context_store is not None:
+                self._delivery_context_store.advance_generation(
+                    request.session_key, generation + 1
+                )
+            for run_id in quiesced_run_ids:
+                if self._commit_run_delivery is not None:
+                    await self._commit_run_delivery(run_id)
+                elif self._suppress_run_delivery is not None:
+                    self._suppress_run_delivery(run_id)
             if active is not None:
                 self._reset_suppressed_runs.add(active.run_id)
                 self._fence_recovery_for_control(active.run_id, reset=True)
                 self._active_runs.pop(request.session_key, None)
-                if self._commit_run_delivery is not None:
-                    await self._commit_run_delivery(active.run_id)
-                elif self._suppress_run_delivery is not None:
-                    self._suppress_run_delivery(active.run_id)
                 self._kernel.interrupt(active.binding.kernel_session_id)
         outbound = await self._deliver_control_reply(
             text=reply_text,
@@ -1092,6 +1122,8 @@ class SessionRunCoordinator:
                 # This order is the user-stop attribution contract. The original
                 # stream consumer performs reconcile after Kernel interruption.
                 self._user_interrupted_runs.add(active_run_id)
+                if self._delivery_context_store is not None:
+                    self._delivery_context_store.suppress(active_run_id)
                 self._fence_recovery_for_control(active_run_id, reset=False)
                 self._kernel.interrupt(binding.kernel_session_id)
                 self._kernel.append_message(
@@ -1597,6 +1629,9 @@ class SessionRunCoordinator:
                             binding=binding,
                             agent=latest_agent,
                         )
+                        self._register_delivery_session(
+                            run_id, request.session_key, request.generation
+                        )
                     admission_event.set()
             if failure_kind is not None:
                 result = await self._reply_image_failure(
@@ -1719,6 +1754,8 @@ class SessionRunCoordinator:
             await self._emit_follower_lifecycle(terminal_followers, completed)
             return result
         except asyncio.CancelledError:
+            if run_id and self._delivery_context_store is not None:
+                self._delivery_context_store.suppress(run_id)
             try:
                 if run_id:
                     await self._abort_recovery_handoff(
@@ -1820,6 +1857,20 @@ class SessionRunCoordinator:
         if active is None:
             return
         self._active_runs[session_key] = replace(active, run_id=run_id)
+        self._register_delivery_session(run_id, session_key)
+
+    def _register_delivery_session(
+        self, run_id: str, session_key: str, generation: int | None = None
+    ) -> None:
+        """Freeze generation before the accepted lifecycle can yield to reset."""
+        if self._delivery_context_store is not None:
+            self._delivery_context_store.register_session(
+                run_id,
+                session_key,
+                self._session_generations.get(session_key, 0)
+                if generation is None
+                else generation,
+            )
 
     def _turn_close_run_id(self, *, session_key: str, run_id: str | None) -> str:
         """Prefer the live busy handle so failover replay still gets closed."""
@@ -1916,6 +1967,16 @@ class SessionRunCoordinator:
         external_reply_text = reply_text
         external_runtime_footer = ""
         if _is_external_channel_inbound(request.message):
+            delivery_context = (
+                self._delivery_context_store.get(run_id)
+                if self._delivery_context_store is not None
+                else None
+            )
+            output_key = (
+                delivery_context.reply_output_key
+                if delivery_context is not None
+                else f"{run_id}:bubble:0"
+            )
             if self._external_final_projection_provider is not None:
                 cached = self._external_final_projection_provider(run_id)
                 if cached:
@@ -1933,12 +1994,15 @@ class SessionRunCoordinator:
                     output_kind="final",
                     kernel_message_id=None,
                     content=reply_text.strip(),
+                    output_key=output_key,
                 )
             metadata = dict(reply_context.metadata)
             metadata.update(
                 {
                     "reply_phase": "final",
                     "reply_dedupe_key": f"{run_id}:text:{external_reply_text.strip()}",
+                    "run_id": run_id,
+                    "output_key": output_key,
                 }
             )
             if external_runtime_footer:
@@ -2645,6 +2709,8 @@ class SessionRunCoordinator:
                                     f"kernel run {run_id} produced no events for "
                                     f"{self._run_idle_timeout_seconds:g}s"
                                 )
+                            if self._delivery_context_store is not None:
+                                self._delivery_context_store.suppress(run_id)
                             self._kernel.cancel(run_id)
                             await self._flush_held_assistant_events(
                                 held_assistant_events
@@ -2668,6 +2734,12 @@ class SessionRunCoordinator:
                     if consumed_event is None:
                         continue
                     event = consumed_event
+                if (
+                    event.get("event") == "run_status"
+                    and event.get("status") == "cancelled"
+                    and self._delivery_context_store is not None
+                ):
+                    self._delivery_context_store.suppress(run_id)
                 if self._kernel_event_observer is not None:
                     if held_assistant_events is not None and _should_hold_for_notice(
                         event
@@ -2990,6 +3062,9 @@ class SessionRunCoordinator:
                 binding=binding,
                 agent=anchor.agent,
             )
+            self._register_delivery_session(
+                claim.run_id, request.session_key, request.generation
+            )
             self._steered_requests.setdefault(claim.run_id, [])
 
     async def _await_recovery_successor(
@@ -3093,6 +3168,8 @@ class SessionRunCoordinator:
             state.control_event.set()
             for successor_run_id in successor_run_ids:
                 if successor_run_id not in state.completed_run_ids:
+                    if self._delivery_context_store is not None:
+                        self._delivery_context_store.suppress(successor_run_id)
                     self._kernel.cancel(successor_run_id)
             return
 
@@ -3168,6 +3245,8 @@ class SessionRunCoordinator:
             return
         for successor_run_id in state.ledger.successor_run_ids:
             if successor_run_id not in state.completed_run_ids:
+                if self._delivery_context_store is not None:
+                    self._delivery_context_store.suppress(successor_run_id)
                 self._kernel.cancel(successor_run_id)
         state.ledger.close()
         claimed_pending_ids: set[str] = set()

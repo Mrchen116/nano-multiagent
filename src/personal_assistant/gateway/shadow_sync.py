@@ -32,6 +32,7 @@ from personal_assistant.gateway.shadow_saga import (
     ExternalShadowSaga,
     ExternalShadowSagaStore,
 )
+from personal_assistant.gateway.reply_images import ReplyImageContext, ReplyImages
 
 
 def _metadata_text(metadata: Mapping[str, Any], *, key: str) -> str | None:
@@ -62,6 +63,11 @@ class IMShadowConversationSync:
         timeout_seconds: float = 3.0,
         transport: httpx.AsyncBaseTransport | None = None,
         saga_store: ExternalShadowSagaStore | None = None,
+        reply_images: ReplyImages | None = None,
+        image_context_factory: Callable[[str, str, str, str], ReplyImageContext]
+        | None = None,
+        before_publish: Callable[[str], Awaitable[bool]] | None = None,
+        after_publish: Callable[[str], None] | None = None,
         promote_pending_boundary: (
             Callable[[str, ShadowConversationRef], object] | None
         ) = None,
@@ -73,6 +79,10 @@ class IMShadowConversationSync:
         self._timeout_seconds = timeout_seconds
         self._transport = transport
         self._saga_store = saga_store
+        self._reply_images = reply_images
+        self._image_context_factory = image_context_factory
+        self._before_publish = before_publish
+        self._after_publish = after_publish
         self._promote_pending_boundary = promote_pending_boundary
         self._resolved_owner_user_id: str | None = None
         self._resolved_owner_scope_id: str | None = None
@@ -205,6 +215,7 @@ class IMShadowConversationSync:
                     json={
                         "sender_user_id": owner_user_id,
                         "sender_type": "user",
+                        "sender_source_id": message.external_user_id,
                         "content": _shadow_message_content(message, metadata),
                         "sender_display_name": _metadata_text(
                             metadata, key="sender_display_name"
@@ -247,6 +258,7 @@ class IMShadowConversationSync:
         output_kind: str,
         kernel_message_id: str | None,
         content: str,
+        output_key: str | None = None,
     ) -> ExternalShadowOutput:
         """Persist one Agent output before the external adapter receives it."""
 
@@ -259,7 +271,14 @@ class IMShadowConversationSync:
             output_kind=output_kind,
             kernel_message_id=kernel_message_id,
             content=content,
+            output_key=output_key,
         )
+
+    def resolved_anchor(self, saga_id: str) -> Any:
+        """Return a previously confirmed shadow anchor without performing IO."""
+        if self._saga_store is None:
+            return None
+        return self._saga_store.require(saga_id).shadow_ref
 
     def reply_context_for_saga(self, saga_id: str) -> ReplyContext:
         """Return the original external reply target captured by one durable saga."""
@@ -309,6 +328,13 @@ class IMShadowConversationSync:
         shadow_ref = saga.shadow_ref
         if shadow_ref is None:
             return
+        content = await self._project_images(
+            saga=saga,
+            run_id=snapshot.run_id,
+            bubble_id=str(snapshot.bubble_ordinal),
+            output_key=snapshot.output_key,
+            content=snapshot.content,
+        )
         token = await self._token_getter()
         token_usage = snapshot.token_usage
         token_payload = None
@@ -332,21 +358,30 @@ class IMShadowConversationSync:
             trust_env=False,
             transport=self._transport,
         ) as client:
-            response = await client.put(
-                f"/im/v1/conversations/{shadow_ref.conversation_id}/external-agent-messages/"
-                f"{snapshot.shadow_message_id}",
-                json={
-                    "agent_id": saga.agent_id,
-                    "content": snapshot.content,
-                    "thinking": list(snapshot.thinking),
-                    "tool_calls": list(snapshot.tool_calls),
-                    "token_usage": token_payload,
-                    "elapsed_ms": snapshot.elapsed_ms or 0,
-                    "delivery_status": snapshot.delivery_status,
-                    "kernel_message_id": snapshot.kernel_message_id,
-                },
-            )
-            response.raise_for_status()
+            if self._before_publish is not None and not await self._before_publish(
+                snapshot.run_id
+            ):
+                saga_store.discard_snapshot(snapshot.shadow_message_id)
+                return
+            try:
+                response = await client.put(
+                    f"/im/v1/conversations/{shadow_ref.conversation_id}/external-agent-messages/"
+                    f"{snapshot.shadow_message_id}",
+                    json={
+                        "agent_id": saga.agent_id,
+                        "content": content,
+                        "thinking": list(snapshot.thinking),
+                        "tool_calls": list(snapshot.tool_calls),
+                        "token_usage": token_payload,
+                        "elapsed_ms": snapshot.elapsed_ms or 0,
+                        "delivery_status": snapshot.delivery_status,
+                        "kernel_message_id": snapshot.kernel_message_id,
+                    },
+                )
+                response.raise_for_status()
+            finally:
+                if self._after_publish is not None:
+                    self._after_publish(snapshot.run_id)
             message_id = str(response.json().get("id") or "").strip()
             if not message_id:
                 raise ValueError("external shadow reconcile response missing id")
@@ -380,6 +415,7 @@ class IMShadowConversationSync:
         output_kind: str,
         kernel_message_id: str | None,
         content: str,
+        output_key: str | None = None,
     ) -> None:
         """Persist and mirror one Agent output without blocking external delivery.
 
@@ -394,6 +430,7 @@ class IMShadowConversationSync:
             output_kind=output_kind,
             kernel_message_id=kernel_message_id,
             content=content,
+            output_key=output_key,
         )
         await self.mirror_prepared_agent_output(output)
 
@@ -403,6 +440,13 @@ class IMShadowConversationSync:
         shadow_ref = saga.shadow_ref
         if shadow_ref is None:
             raise ValueError("shadow output requires a confirmed user anchor")
+        content = await self._project_images(
+            saga=saga,
+            run_id=output.run_id,
+            bubble_id=str(output.ordinal),
+            output_key=output.output_key,
+            content=output.content,
+        )
         token = await self._token_getter()
         async with httpx.AsyncClient(
             base_url=self._base_url,
@@ -411,22 +455,57 @@ class IMShadowConversationSync:
             trust_env=False,
             transport=self._transport,
         ) as client:
-            response = await client.post(
-                f"/im/v1/conversations/{shadow_ref.conversation_id}/messages",
-                headers={"Idempotency-Key": output.caller_idempotency_key},
-                json={
-                    "sender": {"type": "agent", "id": saga.agent_id},
-                    "content": output.content,
-                    "suppress_relay": True,
-                },
-            )
-            response.raise_for_status()
+            if self._before_publish is not None and not await self._before_publish(
+                output.run_id
+            ):
+                assert self._saga_store is not None
+                self._saga_store.discard_output(output)
+                return
+            try:
+                response = await client.post(
+                    f"/im/v1/conversations/{shadow_ref.conversation_id}/messages",
+                    headers={"Idempotency-Key": output.caller_idempotency_key},
+                    json={
+                        "sender": {"type": "agent", "id": saga.agent_id},
+                        "content": content,
+                        "suppress_relay": True,
+                    },
+                )
+                response.raise_for_status()
+            finally:
+                if self._after_publish is not None:
+                    self._after_publish(output.run_id)
             message_id = str(response.json().get("id") or "").strip()
             if not message_id:
                 raise ValueError("external shadow agent message response missing id")
         saga_store = self._saga_store
         assert saga_store is not None
         saga_store.record_output_anchor(output=output, im_message_id=message_id)
+
+    async def _project_images(
+        self,
+        *,
+        saga: ExternalShadowSaga,
+        run_id: str,
+        bubble_id: str,
+        output_key: str,
+        content: str,
+    ) -> str:
+        images = self._reply_images
+        factory = self._image_context_factory
+        if images is None:
+            return content
+        if factory is None:
+            raise RuntimeError("reply images require a workspace context factory")
+        prepared = await asyncio.to_thread(images.load, output_key)
+        if prepared is None:
+            prepared = await asyncio.to_thread(
+                images.prepare,
+                factory(saga.agent_id, run_id, bubble_id, output_key),
+                content,
+            )
+        assert saga.shadow_ref is not None
+        return await images.project_im(prepared, saga.shadow_ref.conversation_id)
 
     def _promote_boundary(
         self, *, saga_id: str, shadow_ref: ShadowConversationRef

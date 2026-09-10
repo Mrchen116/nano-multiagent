@@ -211,10 +211,10 @@ def test_group_relay_payload_sender_fallback_to_id_when_no_user_record(
     assert sender["display_name"] == unknown_sender_id
 
 
-def test_direct_relay_payload_does_not_include_sender_participants(
+def test_direct_relay_payload_carries_real_sender_and_participants(
     tmp_path: Path,
 ) -> None:
-    """Direct relay payloads must NOT include sender/participants fields (backward compat)."""
+    """Private Inbox messages retain the same readable identities as groups."""
     relay_service, messages, conversations, users, _profiles = _build_fixture(tmp_path)
     alice = users.create_user(username="alice", display_name="Alice Chen")
     conversation = conversations.create_conversation(
@@ -236,8 +236,9 @@ def test_direct_relay_payload_does_not_include_sender_participants(
     )
 
     payload = result.relay_task.payload
-    assert "sender" not in payload
-    assert "participants" not in payload
+    assert payload["sender"]["display_name"] == "Alice Chen"
+    assert payload["sender"]["user_id"] == alice.id
+    assert payload["participants"][0]["display_name"] == "Alice Chen"
 
 
 def test_external_shadow_relay_payload_loops_back_external_identity(

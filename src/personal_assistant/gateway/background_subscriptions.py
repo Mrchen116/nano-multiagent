@@ -285,6 +285,34 @@ class BackgroundSubscriptionManager:
                     if sequence is not None
                     else request.session_id
                 )
+                run_id = event.get("run_id")
+                if (
+                    event.get("event") == "assistant_message"
+                    and isinstance(run_id, str)
+                    and run_id.strip()
+                ):
+                    kernel_message_id = event.get("message_id")
+                    output_key = (
+                        f"{run_id}:message:{kernel_message_id}"
+                        if isinstance(kernel_message_id, str) and kernel_message_id
+                        else f"{run_id}:event:{sequence}"
+                        if sequence is not None
+                        else f"{run_id}:bubble:0"
+                    )
+                    # Freeze this event's source identity without mutating the
+                    # persistent route also used by controls and session notices.
+                    reply_context = ReplyContext(
+                        channel_name=reply_context.channel_name,
+                        target_chat_id=reply_context.target_chat_id,
+                        thread_id=reply_context.thread_id,
+                        metadata={
+                            **reply_context.metadata,
+                            "background_agent_id": request.agent_id,
+                            "background_run_id": run_id,
+                            "background_session_id": request.session_id,
+                            "background_output_key": output_key,
+                        },
+                    )
                 await sender(
                     text,
                     reply_context,

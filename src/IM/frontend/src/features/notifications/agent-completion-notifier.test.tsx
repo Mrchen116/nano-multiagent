@@ -188,3 +188,12 @@ describe("AgentCompletionNotifier integration", () => {
     expect(installedNotificationCalls).toHaveLength(1);
   });
 });
+
+it("uses current mention names in desktop notification bodies", () => {
+  installFakeNotification("granted");
+  setHidden(true);
+  setNotificationPreference(true);
+  const h = renderHarness();
+  h.pushCandidate({ ...completedAgent, preview: '<mention type="user" target_id="asst-1"/> done' });
+  expect(installedNotificationCalls[0].options?.body).toBe("@Assistant done");
+});

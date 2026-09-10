@@ -1,3 +1,4 @@
+import { mentionNameMap, mentionPlainText } from "../chat/components/mention-parser";
 // 桌面通知展示器:消费顶层协调器产出的 completion candidate。
 //
 // 设计要点:
@@ -103,7 +104,9 @@ export function AgentCompletionNotifier({
     const candidateIdentity = `${userId}:${candidate.messageKey}`;
     if (seenCandidateRef.current === candidateIdentity) return;
     seenCandidateRef.current = candidateIdentity;
-    const spec = buildCandidateSpec(candidate, {
+    const conversation = queryClient.getQueryData<Conversation[]>(["chat", "conversations"])
+      ?.find((item) => item.id === candidate.conversationId);
+    const spec = buildCandidateSpec({ ...candidate, preview: mentionPlainText(candidate.preview, mentionNameMap(conversation?.participants)) }, {
       hidden: hiddenRef.current,
       enabled: preferenceRef.current,
       permissionGranted:
@@ -128,7 +131,7 @@ export function AgentCompletionNotifier({
         navigateRef.current(`/chat/${spec.conversationId}`);
       }
     });
-  }, [candidate, resolveAgentName, userId]);
+  }, [candidate, resolveAgentName, userId, queryClient]);
 
   return null;
 }

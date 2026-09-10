@@ -822,3 +822,18 @@ describe("useGlobalMessageToast", () => {
     expect(result.current.toast).toBeNull();
   });
 });
+
+it("renders mention names in toast while preserving whole wire tags in the list cache", () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const longId = "planner-" + "x".repeat(100);
+  client.setQueryData(["chat", "conversations"], [conversation("mentions", {
+    participants: [{ type: "agent", id: longId, display_name: "小策" }]
+  })]);
+  const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(client) });
+  const wire = `<mention type="user" target_id="${longId}"/>`;
+  emit("mentions", { eventId: 1, eventType: "message.sent", payload: {
+    message_id: "mention-msg", sender_type: "user", sender_user_id: "other", content: wire + " 请准时到"
+  } });
+  expect(result.current.toast?.preview).toBe("@小策 请准时到");
+  expect(client.getQueryData<Conversation[]>(["chat", "conversations"])?.[0].last_message_preview).toBe(wire + " 请准时到");
+});

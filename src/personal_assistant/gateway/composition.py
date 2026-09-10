@@ -3,18 +3,28 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
+
+from personal_assistant.gateway.global_inbox import GlobalInboxStore, GlobalInboxService
+from personal_assistant.gateway.global_work import (
+    GlobalWorkRecorder,
+    GlobalWorkRelay,
+    GlobalWorkRuntime,
+)
+from personal_assistant.gateway.global_run_coordinator import GlobalRunCoordinator
 
 _PA_GLOBAL_SKILL_ROOT = Path("~/.nanoassistant/skills")
 
 import websockets
 from websockets.asyncio.client import ClientConnection
 
-from personal_assistant.channels.base import ReplyContext
+from personal_assistant.channels.base import OutboundMessage, ReplyContext
 from personal_assistant.channels.web_relay_adapter import (
     RelayDeduplicationStore,
     WebRelayAdapter,
@@ -83,6 +93,8 @@ from personal_assistant.gateway.runtime_delivery.background import (
     build_bg_reply_sender,
     build_session_event_callback,
     build_workflow_permission_delivery,
+    reply_context_im_conversation_id,
+    reply_context_external_delivery_metadata,
 )
 from personal_assistant.gateway.runtime_delivery.lifecycle import (
     build_relay_lifecycle_callback,
@@ -97,7 +109,11 @@ from personal_assistant.gateway.internal_dispatch import (
     InternalDispatchEndpoint,
     InternalDispatchHandler,
 )
-from personal_assistant.gateway.outbound_router import OutboundRouter
+from personal_assistant.gateway.outbound_router import OutboundRouter, PreparedOutbound
+from personal_assistant.gateway.reply_images import ReplyImageContext, ReplyImages
+from personal_assistant.gateway.runtime_delivery.image_connection import (
+    ImageReplyConnection,
+)
 from personal_assistant.gateway.external_control_delivery import (
     ExternalControlDeliveryMaterializer,
 )
@@ -166,6 +182,8 @@ def _make_prompt_preview_provider(
         tool_ids: list,
         scenario: str,
         skill_ids: list = (),
+        *,
+        work_mode: str = "single_thread",
     ) -> dict:
         # refactor-406-M1 R6 决策 8 (preview same-source): build PromptSlots with
         # the SAME prompt_for factory the runtime uses, from an "imaginary agent"
@@ -182,8 +200,15 @@ def _make_prompt_preview_provider(
             heartbeat_enabled = bool(feat.get("heartbeat", False))
             cron_enabled = bool(feat.get("cron_scheduling", False))
 
+        _PreviewAgent.work_mode = work_mode
+        _PreviewAgent.tool_allowlist = tuple(tool_ids)
         _PreviewAgent.custom_prompt = custom_prompt  # type: ignore[attr-defined]
         prompt_scenario: dict = {"conversation_type": scen_type}
+        if work_mode == "global":
+            from personal_assistant.product import resolve_enabled_tools
+
+            tool_ids = resolve_enabled_tools(_PreviewAgent())
+            prompt_scenario["pa_work_scope"] = "global_main"
         prompt = prompt_for(
             _PreviewAgent(),
             scenario=prompt_scenario,
@@ -257,6 +282,68 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
     permission_response_handler = build_permission_response_handler(kernel=kernel)
 
     runtime_dir = config.source_path.parent
+    global_store = GlobalInboxStore(runtime_dir / "global_agent.sqlite3")
+
+    async def _query_conversations(
+        agent_id: str, action: str, args: Mapping[str, Any]
+    ) -> dict:
+        manager = im_connection_manager
+        if manager is None or not manager.connected:
+            raise ConnectionError("source_unavailable")
+        main = global_store.get_global_session(agent_id)
+        if main is None:
+            raise ValueError("scope_not_allowed")
+        await work_relay.wait_caught_up()
+        response = await manager.send_json_await_ack(
+            "conversation.query",
+            {
+                "request_id": str(uuid4()),
+                "agent_id": agent_id,
+                "session_id": main["session_id"],
+                **dict(args),
+                "action": action,
+            },
+        )
+        if response.get("ok") is not True:
+            raise ValueError(str(response.get("error") or "source_unavailable"))
+        return dict(response["result"])
+
+    async def _materialize_image(block: Mapping[str, Any]) -> dict | None:
+        source = block.get("source") or {}
+        if source.get("type") == "base64":
+            return dict(block)
+        descriptor = block.get("attachment") or {
+            "url": block.get("url") or source.get("url") or block.get("image_url"),
+            "content_type": block.get("content_type") or block.get("mime_type"),
+        }
+        if not descriptor.get("url"):
+            return None
+        resolution = await image_resolver.resolve([dict(descriptor)])
+        if resolution.failure or not resolution.parts:
+            return None
+        part = resolution.parts[0]
+        url = str(part.get("image_url") or "")
+        if url.startswith("data:"):
+            header, _, data = url.partition(",")
+            return {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": header[5:].split(";")[0],
+                    "data": data,
+                },
+            }
+        return {"type": "image", "source": {"type": "url", "url": url}}
+
+    global_inbox = GlobalInboxService(
+        global_store,
+        conversation_reader=_query_conversations,
+        image_materializer=_materialize_image,
+    )
+    work_recorder = GlobalWorkRecorder(
+        kernel=kernel, store=global_store, inbox=global_inbox
+    )
+
     # Shared GroupContextStore for FeishuAdapter (non-mention group message buffer)
     # and InboundPipeline (context retrieval). Must be a single instance.
     group_context_store = GroupContextStore(
@@ -274,7 +361,12 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         ),
         feishu_permission_decision_callback=permission_response_handler,
     )
-    outbound_router = OutboundRouter(channel_registry)
+    relay_channel = channel_registry.get("web_relay")
+    if isinstance(relay_channel, WebRelayAdapter):
+        relay_channel.durable_inbox_agent = lambda agent_id: (
+            (snapshot := agent_catalog.get(agent_id)) is not None
+            and snapshot.config.work_mode == "global"
+        )
     # Use SQLite-backed store so kernel session mappings survive gateway restarts
     # (docs/specs/gateway/routing-delivery.md). Live session validation is owned by
     # GatewaySessionBinder via the in-process Kernel — no HTTP kernel client is needed.
@@ -287,6 +379,8 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         catalog=agent_catalog,
         repository=session_store,
         kernel=kernel,
+        global_store=global_store,
+        product_default_model=config.llm.default_model,
         reasoning_catalog=reasoning_catalog,
         time_context=time_context,
     )
@@ -295,6 +389,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
     sticky_store = ModelStickyStore()
     kernel_shim = kernel_client.InProcessKernelClient(
         kernel,
+        work_recorder=work_recorder,
         agent_catalog=agent_catalog,
         session_binder=session_binder,
         product_default_model=config.llm.default_model,
@@ -315,6 +410,129 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
     im_config_sync_client: IMAgentConfigSync | None = None
     run_delivery_contexts = RunDeliveryContextStore()
     _owner_user_id = config.node.user_id or ""
+    runtime_delivery_tasks = RuntimeDeliveryTaskTracker(
+        context_store=run_delivery_contexts
+    )
+    token_getter = None
+    reply_images = ReplyImages(
+        runtime_dir / "reply-images",
+        im_base_url=(
+            normalize_im_http_base_url(config.im_service.url)
+            if config.im_service
+            else ""
+        ),
+        token_getter=lambda: token_getter() if token_getter is not None else None,
+    )
+
+    def _image_context(
+        agent_id: str, run_id: str, bubble_id: str, output_key: str
+    ) -> ReplyImageContext:
+        return ReplyImageContext(
+            output_key,
+            _owner_user_id,
+            agent_id,
+            run_id,
+            bubble_id,
+            agent_catalog.require(agent_id).config.workspace_root,
+        )
+
+    async def _admit_live_reply(run_id: str) -> bool:
+        # assistant_message already crossed the kernel's group commit boundary.
+        # Later input does not revoke a committed reply; reset/cancellation does.
+        if not await run_delivery_contexts.await_visibility(run_id):
+            return False
+        return runtime_delivery_tasks.admit_publication(run_id)
+
+    async def _prepare_outbound(outbound: OutboundMessage) -> PreparedOutbound | None:
+        run_id = str(outbound.metadata.get("run_id") or "")
+        if not run_id:
+            return None
+        context = run_delivery_contexts.get(run_id)
+        if context is None:
+            return PreparedOutbound(
+                outbound, lambda _: None, lambda: False, lambda: None, lambda: None
+            )
+        run_delivery_contexts.retain(run_id)
+        try:
+            output_key = str(
+                outbound.metadata.get("output_key") or context.reply_output_key
+            )
+            prepared = await asyncio.to_thread(
+                reply_images.prepare,
+                _image_context(context.agent_id, run_id, output_key, output_key),
+                outbound.text,
+            )
+            adapter = channel_registry.get(outbound.channel_name)
+            images = await asyncio.to_thread(
+                reply_images.outbound_images, prepared, adapter.image_account_id
+            )
+            loop = asyncio.get_running_loop()
+
+            def before() -> bool:
+                return asyncio.run_coroutine_threadsafe(
+                    _admit_live_reply(run_id), loop
+                ).result()
+
+            async def release_admission() -> None:
+                runtime_delivery_tasks.release_publication(run_id)
+
+            def after() -> None:
+                asyncio.run_coroutine_threadsafe(release_admission(), loop).result()
+
+            return PreparedOutbound(
+                replace(outbound, text=prepared.markdown_template, images=images),
+                lambda receipt: reply_images.record_provider_receipts(
+                    output_key, receipt
+                ),
+                before,
+                after,
+                lambda: run_delivery_contexts.release(run_id),
+            )
+        except BaseException:
+            run_delivery_contexts.release(run_id)
+            raise
+
+    outbound_router = OutboundRouter(
+        channel_registry, prepare_outbound=_prepare_outbound
+    )
+    image_connection = None
+
+    def _image_connection():
+        nonlocal image_connection
+        if im_connection_manager is None:
+            return None
+        if image_connection is None:
+            image_connection = ImageReplyConnection(
+                im_connection_manager,
+                reply_images=reply_images,
+                context_store=run_delivery_contexts,
+                task_tracker=runtime_delivery_tasks,
+                image_context_factory=lambda context, key: _image_context(
+                    context.agent_id, context.run_id, key, key
+                ),
+            )
+        return image_connection
+
+    shadow_admissions: dict[str, int] = {}
+
+    async def _admit_shadow(run_id: str) -> bool:
+        if run_delivery_contexts.get(run_id) is None:
+            return True  # Persisted recovery after restart has no live execution.
+        run_delivery_contexts.retain(run_id)
+        if not await _admit_live_reply(run_id):
+            run_delivery_contexts.release(run_id)
+            return False
+        shadow_admissions[run_id] = shadow_admissions.get(run_id, 0) + 1
+        return True
+
+    def _release_shadow(run_id: str) -> None:
+        if shadow_admissions.get(run_id, 0):
+            shadow_admissions[run_id] -= 1
+            if not shadow_admissions[run_id]:
+                shadow_admissions.pop(run_id)
+            runtime_delivery_tasks.release_publication(run_id)
+            run_delivery_contexts.release(run_id)
+
     _gateway_internal_port = 0
     shadow_sync: IMShadowConversationSync | None = None
     external_control_delivery: ExternalControlDeliveryMaterializer | None = None
@@ -325,6 +543,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
     _kernel_event_observer: Any | None = None
     background_subscriptions: BackgroundSubscriptionManager | None = None
     cron_runtime = GatewayCronRuntime(
+        work_recorder=work_recorder,
         registry=_cron_dispatcher,
         agent_catalog=agent_catalog,
         kernel=kernel,
@@ -455,6 +674,10 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
             token_getter=token_getter,
             owner_user_id=_owner_user_id,
             node_id=config.node.node_id,
+            reply_images=reply_images,
+            image_context_factory=_image_context,
+            before_publish=_admit_shadow,
+            after_publish=_release_shadow,
             saga_store=ExternalShadowSagaStore(
                 db_path=runtime_dir / "external_shadow_sagas.sqlite3"
             ),
@@ -488,7 +711,6 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         channel_registry=channel_registry,
     )
 
-    runtime_delivery_tasks = RuntimeDeliveryTaskTracker()
     shadow_output_prepare = None
     if shadow_sync is not None:
         external_control_delivery = ExternalControlDeliveryMaterializer(
@@ -526,7 +748,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
 
     skill_created_handler = getattr(im_config_sync_client, "handle_skill_created", None)
     _kernel_event_observer = build_kernel_event_observer(
-        im_connection_manager_factory=lambda: im_connection_manager,
+        im_connection_manager_factory=_image_connection,
         run_context_store=run_delivery_contexts,
         external_reply_sender=_send_external_reply,
         external_final_projection_builder=_build_external_final_projection,
@@ -544,13 +766,103 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         external_permission_request_sender=_send_external_permission_request,
         external_permission_resolved_sender=_mark_external_permission_resolved,
         skill_created_handler=skill_created_handler,
+        work_recorder=work_recorder,
         task_tracker=runtime_delivery_tasks,
         workflow_permission_bindings=workflow_permission_bindings,
         workflow_permission_delivery=workflow_permission_delivery,
     )
+
+    async def _deliver_background_images(
+        text, reply_context, from_session_id, background_returns
+    ):
+        metadata = reply_context.metadata
+        run_id = str(metadata["background_run_id"])
+        agent_id = str(metadata["background_agent_id"])
+        session_id = str(metadata["background_session_id"])
+        output_key = str(metadata["background_output_key"])
+        binding = session_store.find_by_kernel_session_id(session_id)
+        if binding is None:
+            return  # The originating session was replaced while the child ran.
+        created = run_delivery_contexts.get(run_id) is None
+        if created:
+            run_delivery_contexts.register_session(
+                run_id,
+                binding.session_key,
+                run_delivery_contexts.current_generation(binding.session_key),
+            )
+            run_delivery_contexts.seed(
+                RunDeliveryContext(
+                    run_id,
+                    agent_id,
+                    session_id,
+                    RunDeliveryTarget.none(),
+                    conversation_id=reply_context_im_conversation_id(reply_context),
+                    reply_image_output_key=output_key,
+                )
+            )
+        run_delivery_contexts.retain(run_id)
+        try:
+            prepared = await asyncio.to_thread(
+                reply_images.prepare,
+                _image_context(agent_id, run_id, output_key, output_key),
+                text,
+            )
+            external_metadata = reply_context_external_delivery_metadata(
+                reply_context, from_session_id=from_session_id
+            )
+
+            async def external() -> None:
+                if external_metadata is not None:
+                    await _send_external_reply(
+                        text,
+                        {
+                            **external_metadata,
+                            "run_id": run_id,
+                            "output_key": output_key,
+                        },
+                    )
+
+            async def internal() -> None:
+                conversation_id = reply_context_im_conversation_id(reply_context)
+                if (
+                    not conversation_id
+                    or im_connection_manager is None
+                    or not im_connection_manager.connected
+                ):
+                    return
+                projected = await reply_images.project_im(prepared, conversation_id)
+                if not await _admit_live_reply(run_id):
+                    return
+                try:
+                    payload = {
+                        "text": projected,
+                        "to": conversation_id,
+                        "from_session_id": from_session_id,
+                    }
+                    if background_returns:
+                        payload["background_returns"] = list(background_returns)
+                    await im_connection_manager.send_agent_message(payload)
+                finally:
+                    runtime_delivery_tasks.release_publication(run_id)
+
+            results = await asyncio.gather(
+                external(), internal(), return_exceptions=True
+            )
+            for result in results:
+                if isinstance(result, Exception):
+                    logging.getLogger(__name__).warning(
+                        "background reply image delivery failed: %s",
+                        type(result).__name__,
+                    )
+        finally:
+            if created:
+                run_delivery_contexts.discard(run_id)
+            run_delivery_contexts.release(run_id)
+
     bg_reply_sender = build_bg_reply_sender(
         im_connection_manager_factory=lambda: im_connection_manager,
         external_reply_sender=_send_external_reply,
+        assistant_reply_delivery=_deliver_background_images,
     )
     base_session_event_callback = None
     if config.im_service is not None:
@@ -631,7 +943,6 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         """Hold new old-run output, then settle already permitted delivery."""
 
         run_delivery_contexts.quiesce(run_id)
-        await runtime_delivery_tasks.drain_run(run_id)
 
     async def _drain_run_delivery(run_id: str) -> None:
         """等已入队的流式投递落地，不 quiesce，避免备用正文被压住。"""
@@ -707,6 +1018,8 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         drain_run_delivery=_drain_run_delivery,
         restore_run_delivery=_restore_run_delivery,
         commit_run_delivery=_commit_run_delivery,
+        delivery_context_store=run_delivery_contexts,
+        drain_admitted_deliveries=runtime_delivery_tasks.drain_admitted,
         drain_external_control_deliveries=(
             external_control_delivery.drain
             if external_control_delivery is not None
@@ -719,7 +1032,33 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         time_context=time_context,
         sticky_store=sticky_store,
     )
+    global_coordinator = GlobalRunCoordinator(
+        kernel=kernel,
+        kernel_client=kernel_shim,
+        catalog=agent_catalog,
+        binder=session_binder,
+        inbox=global_inbox,
+        store=global_store,
+        recorder=work_recorder,
+        outbound_router=outbound_router,
+        image_resolver=image_resolver,
+        sticky_store=sticky_store,
+        product_default_model=config.llm.default_model,
+        reasoning_catalog=reasoning_catalog,
+        time_context=time_context,
+        relay_lifecycle_callback=relay_lifecycle_callback,
+        bg_reply_sender=bg_reply_sender,
+    )
+    work_recorder.on_event = global_coordinator.observe_event
+    work_relay = GlobalWorkRelay(
+        store=global_store, manager_provider=lambda: im_connection_manager
+    )
+    work_recorder.on_record = work_relay.notify
+    global_work_runtime = GlobalWorkRuntime(
+        recorder=work_recorder, relay=work_relay, coordinator=global_coordinator
+    )
     pipeline = InboundPipeline(
+        global_coordinator=global_coordinator,
         agent_catalog=agent_catalog,
         run_coordinator=run_coordinator,
         group_context_store=group_context_store,
@@ -767,6 +1106,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         is_session_busy=run_coordinator.is_session_busy,
     )
     polling_heartbeat_runner = heartbeat_runner.PollingHeartbeatRunner(
+        work_recorder=work_recorder,
         scheduler=_heartbeat_scheduler,
         config=config.heartbeat,
         kernel=kernel if _owner_user_id else None,
@@ -851,6 +1191,8 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
             token_getter=token_getter,
             connect=_connect_websocket,
             permission_response_handler=permission_response_handler,
+            work_permission_handler=work_recorder.decide_permission,
+            work_connected_callback=global_work_runtime.on_connected,
             on_connected=connection_ready_coordinator.on_connected,
             managed_channel_bindings=managed_channel_control.connection_bindings(),
             channel_bootstrap_items_provider=lambda owner_id: (
@@ -863,12 +1205,16 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
     # bugfix-402-M3 R3: kernel is closed explicitly via runtime.GatewayRuntime(kernel=) and
     # its aclose() in the ordered shutdown phase (Decision 7). It must not be in
     # resource_closers — that list only holds lightweight sync cleanup (HTTP clients).
-    closers: list[Callable[[], None]] = []
+    closers: list[Callable[[], None]] = [work_recorder.close, global_store.close]
     if im_bootstrap_client is not None:
         closers.append(im_bootstrap_client.close)
     if im_config_sync_client is not None:
         closers.append(im_config_sync_client.close)
     internal_dispatch_handler = InternalDispatchHandler(
+        global_inbox=global_inbox,
+        work_recorder=work_recorder,
+        shadow_sync=shadow_sync,
+        outbound_router=outbound_router,
         im_connection_manager=im_connection_manager,
         kernel_client=kernel_shim,
         kernel=kernel,
@@ -885,7 +1231,8 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         internal_dispatch_endpoint=_internal_dispatch_endpoint,
         kernel=kernel,
         cron_dispatcher=_cron_dispatcher,
-        startup_collaborators=(cron_runtime,),
+        startup_collaborators=(global_work_runtime, cron_runtime),
+        global_work_runtime=global_work_runtime,
         managed_channel_control=managed_channel_control,
         run_coordinator=run_coordinator,
         runtime_delivery_tasks=runtime_delivery_tasks,

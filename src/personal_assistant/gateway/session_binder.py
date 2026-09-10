@@ -7,6 +7,9 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from threading import Lock
 from typing import Any, Literal, Protocol
+from pathlib import Path
+
+from personal_assistant.config.local_store import resolve_run_model
 
 from personal_assistant.channels.base import InboundMessage, ReplyContext
 from personal_assistant.config.model_reasoning import ModelReasoningCatalog
@@ -210,6 +213,17 @@ class _VerifiedBindingOwnership:
     workspace_root: str
 
 
+@dataclass(frozen=True, slots=True)
+class GlobalSessionBinding:
+    """Persist one Agent main session without a conversation reply target."""
+
+    agent_id: str
+    kernel_session_id: str
+    workspace_root: str
+    applied_runtime_fingerprint: str
+    applied_profile_version: int
+
+
 class GatewaySessionBinder:
     """Own Gateway channel-to-Kernel session binding business rules.
 
@@ -232,12 +246,17 @@ class GatewaySessionBinder:
         kernel: Any,
         reasoning_catalog: ModelReasoningCatalog | None = None,
         time_context: PaTimeContext | None = None,
+        global_store: Any | None = None,
+        product_default_model: str | None = None,
     ) -> None:
         self._catalog = catalog
         self._repository = repository
         self._kernel = kernel
         self._reasoning_catalog = reasoning_catalog
         self._time_context = time_context
+        self._global_store = global_store
+        self._product_default_model = product_default_model
+        self._global_locks: dict[str, asyncio.Lock] = {}
         self._lock = Lock()
         self._binding_revisions: dict[str, int] = {}
         self._binding_agents: dict[str, LiveAgentSnapshot] = {}
@@ -248,6 +267,65 @@ class GatewaySessionBinder:
             snapshot.agent_id: snapshot.revision
             for snapshot in catalog.values_snapshot()
         }
+
+    async def resolve_global(self, agent: LiveAgentSnapshot) -> GlobalSessionBinding:
+        """Restore or create this Agent's sole durable global main session.
+
+        Args:
+            agent: Captured live configuration of a global Agent.
+
+        Returns:
+            The retained main-session identity and applied runtime provenance.
+        """
+        if agent.config.work_mode != "global" or self._global_store is None:
+            raise ValueError("global session store and global Agent are required")
+        async with self._global_locks.setdefault(agent.agent_id, asyncio.Lock()):
+            root = str(agent.config.workspace_root.resolve())
+            row = self._global_store.get_global_session(agent.agent_id)
+            if row is None:
+                model = resolve_run_model(
+                    agent.config, product_default=self._product_default_model
+                )
+                runtime = project_agent_runtime(
+                    agent,
+                    scenario={
+                        "agent_id": agent.agent_id,
+                        "pa_work_scope": "global_main",
+                    },
+                    resolved_model=model,
+                    reasoning_catalog=self._reasoning_catalog,
+                    time_context=self._time_context,
+                ).runtime
+                session = await self._kernel.create_session(
+                    title=agent.config.title,
+                    workspace_root=Path(root),
+                    runtime=runtime,
+                    metadata={
+                        "agent_id": agent.agent_id,
+                        "pa_work_scope": "global_main",
+                        "work_mode": "global",
+                    },
+                )
+                identity = self._kernel.identify_runtime(runtime=runtime)
+                self._global_store.save_global_session(
+                    agent.agent_id,
+                    session.session_id,
+                    root,
+                    runtime_fingerprint=identity.runtime_fingerprint,
+                    profile_version=agent.revision,
+                )
+                row = self._global_store.get_global_session(agent.agent_id)
+            if row["workspace_root"] != root:
+                raise ValueError("global Agent workspace is immutable")
+            self._kernel.get_session(row["session_id"], workspace_root=Path(root))
+            self.register_session_provenance(agent, kernel_session_id=row["session_id"])
+            return GlobalSessionBinding(
+                agent.agent_id,
+                row["session_id"],
+                root,
+                row["runtime_fingerprint"],
+                row["profile_version"],
+            )
 
     async def resolve(
         self,

@@ -39,6 +39,44 @@ class _StreamingKernel:
             yield event
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["cancelled", "failed"])
+async def test_terminal_cancellation_revokes_pending_publication_but_failure_does_not(
+    status: str,
+) -> None:
+    store = RunDeliveryContextStore()
+    observed: list[bool] = []
+
+    def observer(event: Mapping[str, Any]) -> None:
+        if event["event"] == "assistant_message":
+            assert store.retain("run-1")
+        elif event["event"] == "run_status":
+            observed.append(store.can_publish("run-1"))
+
+    await stream_run_to_completion(
+        run_id="run-1",
+        kernel_session_id="session",
+        agent_id="agent",
+        owner_user_id="owner",
+        run_context_store=store,
+        observer=observer,
+        kernel=_StreamingKernel(
+            [
+                {
+                    "run_id": "run-1",
+                    "event": "assistant_message",
+                    "content": "image pending",
+                },
+                {"run_id": "run-1", "event": "run_status", "status": status},
+            ]
+        ),
+    )
+    assert observed == [status != "cancelled"]
+    assert store.can_publish("run-1") is (status != "cancelled")
+    store.release("run-1")
+    assert store.get("run-1") is None
+
+
 class _OwnerDirectSkillKernel:
     """Expose one per-run stream plus one persistent session stream."""
 

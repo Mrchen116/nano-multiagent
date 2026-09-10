@@ -90,6 +90,7 @@ class InboundPipeline:
         route_config: InboundRouteConfig | None = None,
         shadow_sync: ShadowConversationSync | None = None,
         human_message_context: PaHumanMessageContext | None = None,
+        global_coordinator: object | None = None,
     ) -> None:
         self._agent_catalog = agent_catalog
         self._run_coordinator = run_coordinator
@@ -97,16 +98,21 @@ class InboundPipeline:
         self._route_config = route_config or InboundRouteConfig()
         self._shadow_sync = shadow_sync
         self._human_message_context = human_message_context
+        self._global_coordinator = global_coordinator
 
     def seal(self) -> None:
         """Synchronously close coordinator admission."""
 
         self._run_coordinator.seal()
+        if self._global_coordinator is not None:
+            self._global_coordinator.seal()
 
     async def settle_admission(self, deadline: float) -> None:
         """Wait for coordinator submit-or-rollback boundaries by one deadline."""
 
         await self._run_coordinator.settle_admission(deadline)
+        if self._global_coordinator is not None:
+            await self._global_coordinator.settle_admission(deadline)
 
     async def handle_inbound(self, message: InboundMessage) -> PipelineResult | None:
         """Route one channel message or suppress unaddressed group chatter.
@@ -145,7 +151,10 @@ class InboundPipeline:
                 session_key=session_key,
                 agent_id=agent.agent_id,
             )
-            if command == "compact" and not sync_only and should_process
+            if command == "compact"
+            and not sync_only
+            and should_process
+            and agent.config.work_mode != "global"
             else None
         )
         try:
@@ -156,6 +165,23 @@ class InboundPipeline:
             if compact_reservation is not None:
                 self._run_coordinator.abandon_compact(compact_reservation)
             raise
+
+        if agent.config.work_mode == "global":
+            if self._global_coordinator is None:
+                raise RuntimeError("global Agent coordinator is unavailable")
+            if command is not None and (sync_only or not should_process):
+                return None
+            routed = RoutedInbound(message=message, shadow=shadow)
+            return await self._global_coordinator.receive(
+                message=message,
+                agent=agent,
+                shadow=shadow,
+                should_process=should_process,
+                sender_label=sender_label,
+                command=command,
+                focus=focus,
+                operation_id=self._control_operation_id(routed),
+            )
 
         if self._human_message_context is not None:
             message = attach_frozen_context(
@@ -388,9 +414,13 @@ class InboundPipeline:
             else {agent_id}
         )
         if structurally_mentioned or strip_all_mentions:
+            participants = message.metadata.get("participants") or []
             candidates.update(
-                f'<mention type="agent" target_id="{target_id}"/>'
-                for target_id in target_ids
+                f'<mention type="user" target_id="{p["user_id"]}"/>'
+                for p in participants
+                if isinstance(p, Mapping)
+                and p.get("user_id")
+                and (p.get("agent_id") or p.get("id")) in target_ids
             )
         feishu_mentions = message.metadata.get("feishu_mentions")
         if (structurally_mentioned or strip_all_mentions) and isinstance(

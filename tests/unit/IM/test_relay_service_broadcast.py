@@ -70,7 +70,7 @@ def test_group_chat_creates_one_relay_per_participant_agent(tmp_path: Path) -> N
     message = messages.create_message(
         conversation_id=conversation.id,
         sender_user_id=alice.id,
-        content='<mention type="agent" target_id="agent-a"/> please respond',
+        content=f'<mention type="user" target_id="{agent_a_user.id}"/> please respond',
     )
 
     results = relay_service.enqueue_message_relay_all(
@@ -156,7 +156,7 @@ def test_group_relay_each_carries_mentioned_agent_ids(tmp_path: Path) -> None:
     message = messages.create_message(
         conversation_id=conversation.id,
         sender_user_id=alice.id,
-        content='<mention type="agent" target_id="agent-a"/> please respond',
+        content=f'<mention type="user" target_id="{agent_a_user.id}"/> please respond',
     )
 
     results = relay_service.enqueue_message_relay_all(

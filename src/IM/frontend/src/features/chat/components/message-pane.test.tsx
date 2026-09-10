@@ -65,8 +65,8 @@ const SAMPLE_MESSAGES: Message[] = [
 ];
 
 const MENTION_CANDIDATES: MentionCandidate[] = [
-  { agent_id: "a-planner", display_name: "Planner", initials: "PL", status: "online" },
-  { agent_id: "a-coder", display_name: "Coder", initials: "CO", status: "online" }
+  { user_id: "a-planner", agent_id: "a-planner", display_name: "Planner", initials: "PL", status: "online" },
+  { user_id: "a-coder", agent_id: "a-coder", display_name: "Coder", initials: "CO", status: "online" }
 ];
 
 describe("MessagePane", () => {
@@ -2097,7 +2097,7 @@ describe("MessagePane", () => {
     await user.keyboard("{Enter}");
     expect(onSend).toHaveBeenCalledTimes(1);
     const sentText = onSend.mock.calls[0][0];
-    expect(sentText).toContain('<mention type="agent" target_id="a-planner"/>');
+    expect(sentText).toContain('<mention type="user" target_id="a-planner"/>');
     expect(sentText).not.toContain("@Planner");
   });
 
@@ -2420,7 +2420,7 @@ describe("MessagePane", () => {
         render(
           <MessagePane
             conversation={CONV_WITH_PARTICIPANTS}
-            messages={[agentMsgWithParticipants('<mention type="agent" target_id="a-coder"/> 你怎么看？')]}
+            messages={[agentMsgWithParticipants('<mention type="user" target_id="a-coder"/> 你怎么看？')]}
             mentionCandidates={[]}
             onSend={() => {}}
           />
@@ -2436,7 +2436,7 @@ describe("MessagePane", () => {
         render(
           <MessagePane
             conversation={CONV_WITH_PARTICIPANTS}
-            messages={[agentMsgWithParticipants('<mention type="agent" target_id="a-coder"/>\n正文继续')]}
+            messages={[agentMsgWithParticipants('<mention type="user" target_id="a-coder"/>\n正文继续')]}
             mentionCandidates={[]}
             onSend={() => {}}
           />
@@ -2453,7 +2453,7 @@ describe("MessagePane", () => {
           <MessagePane
             conversation={CONV_WITH_PARTICIPANTS}
             messages={[agentMsgWithParticipants(
-              '<mention type="agent" target_id="a-coder"/> 和 <mention type="agent" target_id="a-planner"/> 请审阅'
+              '<mention type="user" target_id="a-coder"/> 和 <mention type="user" target_id="a-planner"/> 请审阅'
             )]}
             mentionCandidates={[]}
             onSend={() => {}}
@@ -2484,7 +2484,7 @@ describe("MessagePane", () => {
       sender: { type: "agent", id: "a-planner", display_name: "Planner" },
       sender_user_id: "a-planner",
       sender_type: "agent",
-      content: '<mention type="agent" target_id="a-coder"/> 你怎么看？',
+      content: '<mention type="user" target_id="a-coder"/> 你怎么看？',
       attachments: [],
       delivery_status: "completed",
       created_at: "2026-01-01T00:00:00Z",
@@ -2510,7 +2510,7 @@ describe("MessagePane", () => {
       const msg: Message = {
         ...AGENT_MSG_WITH_MENTION,
         id: "m-unknown",
-        content: '<mention type="agent" target_id="nonexistent-agent"/> hello',
+        content: '<mention type="user" target_id="nonexistent-agent"/> hello',
       };
       render(
         <MessagePane
@@ -2713,7 +2713,7 @@ describe("MessagePane", () => {
       await user.type(box, "max");
       await user.keyboard("{Enter}");
       expect(onSend).toHaveBeenCalledWith(
-        '<mention type="agent" target_id="a-coder"/> /effort max',
+        '<mention type="user" target_id="a-coder"/> /effort max',
         [],
       );
     });

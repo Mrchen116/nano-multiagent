@@ -47,6 +47,7 @@ def _llm() -> LLMConfigPayload:
 def _agent_payload(agent: AgentWorkspaceConfig) -> dict[str, object]:
     return {
         "agent_id": agent.agent_id,
+        "work_mode": agent.work_mode,
         "display_name": agent.title or agent.agent_id,
         "skills": list(agent.skills),
         "tool_allowlist": list(agent.tool_allowlist),

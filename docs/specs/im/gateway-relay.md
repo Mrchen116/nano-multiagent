@@ -1,6 +1,6 @@
 # IM - Gateway Relay Specification
 
-> 对齐: bugfix-536
+> 对齐: feat-546
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -28,6 +28,8 @@ Node Gateway 主动向 IM 建 `/im/ws/gateway` 持久连接，所有双向通信
 - **THEN** 该业务帧与其他需确认业务帧按连接顺序等待 ACK，ACK 表示 IM 已完成 durable insert 或幂等命中
 
 ### Requirement: Gateway 上报实际配置边界并在 durable ACK 后完成投递
+
+本条按 conversation/首条用户消息定位的配置边界及 Scenario 适用于 `single_thread`。global 的实际配置应用事实随主工作轮次经工作记录同步，作用域和持久回看见 [agent-work](agent-work.md)；不为全局主上下文构造聊天锚点。
 
 Gateway 经 `/im/ws/gateway` 上行 `agent.config.boundary`，将某聊天真正采用新运行配置的事实关联到首条用户消息。IM 校验已注册 node、owner、conversation、agent 与锚点归属，幂等持久化成功后才返回 success ACK；持久化或归属校验失败返回稳定 error ACK。重复上报同一边界复用既有条目，不产生重复时间线项。
 
@@ -63,6 +65,8 @@ Gateway 经 `/im/ws/gateway` 上行 `agent.config.boundary`，将某聊天真正
 - **AND** 超出恢复窗口时浏览器收到既有 `resync_required` 并从 REST 恢复权威时间线
 
 ### Requirement: 消息中继与流式回复幂等,投递回执推进状态
+
+以下消息及显式投递的幂等、回执规则继续适用。global 入站 recipient 的 completed 仅表示已持久交给 Inbox，不代表主 Agent 已阅读或完成工作；无模型运行期间的预建回复气泡，后续发言是显式发送的独立消息。工作进展见 [agent-work](agent-work.md)。
 
 同一消息以相同 `idempotency_key` 重复中继时,IM 复用同一 relay 任务,**不产生重复消息/重复投递**。同一 Agent 流式回复增量以稳定 `idempotency_key` 重传时,IM 只追加和发布一次,因此 Gateway 在 ACK 丢失后重连补发不会使用户看到重复正文。Gateway 上行 `node.delivery_receipt` 把对应消息的 `delivery_status` 沿 `sent` → `completed` 推进, 并回流到前端可见的消息投递状态。
 
@@ -101,6 +105,8 @@ Gateway 为 external shadow Agent 气泡上行 live frame 时，可在 `turn_sta
 
 ### Requirement: IM 是可选中心服务,离线与中继关闭都不连累外部 IM 主路径
 
+以下外部 IM 自动回复及离线完整主路径 Scenario 适用于 `single_thread`。global 在 IM 离线时仍可本地接受和读取已收到消息；显式投递依赖既有目标解析/投递链的实际可用性，不可用明确失败，不能报告发送成功。global 的工作记录本地持久并在重连同步，见 [agent-work](agent-work.md)。两种模式均不在 IM 内执行 agent。
+
 IM 整体离线时,经 Node Gateway Channel 的外部 IM 主路径仍可用(Gateway 本地自治);中继单独关闭时,IM 仍作为配置中心独立可用。IM 不直接调用 agent 内核,所有 Agent 执行经 Node Gateway 中继。
 
 #### Scenario: IM 离线不影响外部 IM 主路径
@@ -114,6 +120,8 @@ IM 整体离线时,经 Node Gateway Channel 的外部 IM 主路径仍可用(Gate
 - **THEN** 这些接口照常可用(仅 Web IM 聊天链路停用)
 
 ### Requirement: 后台 agent 通知实时到达在线用户,无需刷新
+
+以下后台普通回复、气泡及 message-scoped sidecar Scenario 适用于 `single_thread`。global 的后台返回及综合过程进入 [agent-work](agent-work.md) 的工作轨迹，不因任务完成自动创建聊天消息；显式发送的消息仍沿原实时投递链。
 
 Agent 的任意后台任务完成后回发给人类用户的通知，与前台回复一样实时到达：在线浏览器无需刷新即可看到一次性完整终态消息，不经历可见空泡或“生成中”。既有 background Bash 继续保留这条文本气泡契约。对后台 subagent / Workflow，同一消息还持久保存结构化后台返回，作为“过程”中的可归因原始结果。消息只进入存储、要刷新才显示，或实时可见但刷新后丢失 sidecar，都不满足本契约。
 
@@ -146,6 +154,7 @@ Agent 的任意后台任务完成后回发给人类用户的通知，与前台�
 - **WHEN** Gateway 投递的 `agent.message` 正文为空，但 `background_returns` 非空
 - **THEN** IM 接受并持久化该消息，在同一 `message.created` 中完整发布 sidecar，浏览器显示可展开过程项
 - **AND** 不制造占位文本；只有正文与 sidecar 都为空时才拒绝消息
+
 ### Requirement: Gateway 可原子回滚未形成用户回复的 provisional 消息
 
 Gateway 为普通聊天预先创建的 `running` agent 消息是 provisional 状态。若 Agent 最终选择协议静默, Gateway 发送 `message_discarded`;IM 在同一事务内留下可重放 tombstone、删除 provisional 消息及其 message-scoped 过程事件,并恢复会话 preview / last_message_at / unread_count。浏览器收到 tombstone 后按 message_id 移除占位气泡;重复 discard 幂等,刷新历史也不得重新出现该消息。

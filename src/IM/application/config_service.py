@@ -68,6 +68,12 @@ class ConfigService:
         username = agent_user_username(agent_id)
         existing = self._users.get_user_by_username(username=username)
         if existing is not None:
+            if existing.display_name != display_name:
+                return self._users.update_user(
+                    user_id=existing.id,
+                    display_name=display_name,
+                    default_entry_node_id=existing.default_entry_node_id,
+                )
             return existing
         return self._users.create_user(username=username, display_name=display_name)
 
@@ -85,6 +91,7 @@ class ConfigService:
         default_model: str | None,
         workspace_root: str | None,
         reasoning_effort: str | None = None,
+        work_mode: str = "single_thread",
         workspace_is_default: bool | None = None,
         features: dict[str, bool] | None = None,
         custom_prompt: str | None = None,
@@ -121,6 +128,7 @@ class ConfigService:
             group_reply_policy=group_reply_policy,
             default_model=default_model,
             reasoning_effort=reasoning_effort,
+            work_mode=work_mode,
             workspace_root=self.normalize_workspace_root(
                 agent_id=agent_id, workspace_root=workspace_root
             ),
@@ -434,6 +442,8 @@ class ConfigService:
             skills_selection_mode=skills_selection_mode,
             model_fallbacks=model_fallbacks,
         )
+        # Chat participants use the synthetic user identity, not the config mirror.
+        self.ensure_agent_user(agent_id=agent_id, display_name=updated.display_name)
         if notify_config_sync:
             self._notify_config_sync(
                 agent_id=agent_id, profile_version=updated.profile_version

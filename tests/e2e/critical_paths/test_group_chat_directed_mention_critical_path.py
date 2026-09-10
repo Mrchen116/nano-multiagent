@@ -3,12 +3,12 @@
 spec Req「群聊里人与 agent 的定向 @ 双向可用」。两个 Scenario：
 
 1. **人 @agent 再 agent @agent**:群里有用户 + A + B,用户 `@A 请 @B 让他做 X`(全程不直接
-   @B) → 用户先看到 A 应答**且 A 的消息里带 `<mention type="agent" target_id="B"/>` 标签**
+   @B) → 用户先看到 A 应答**且 A 的消息里带 `<mention type="user" target_id="B"/>` 标签**
    (人→agent 唤醒) → 再看到 B 因被 A 点名而应答(agent→agent 唤醒)。这是多 agent 协作闭环。
 2. **未被点名不抢话**:同群,用户只 @A → 只有 A 应答,B 在有界窗口内不发言(MENTION gate)。
 
 鲁棒断言(design 决策 4):
-- 群聊 @ **只认 XML 标签**(relay_service 正则),断言 A 消息含 `<mention type="agent"
+- 群聊 @ **只认 XML 标签**(relay_service 正则),断言 A 消息含 `<mention type="user"
   target_id="B"/>` 用正则匹配标签本身,不锁 A 的自然语言措辞。
 - 发送者区分走 IM REST 历史的 ``sender.id``(== agent_id)——``message.completed`` WS 帧
   不带 sender,REST item 的 ``sender`` ActorPayload 才是黑盒区分 A/B 的稳锚。
@@ -43,7 +43,7 @@ def _make_group_agent(
         custom_prompt=(
             "你在一个群聊里。规则：只有当有人在群里 @ 你时你才回应；没 @ 你时保持沉默。"
             "需要在群里点名另一个 agent 时，直接在回复中写 "
-            '<mention type="agent" target_id="对方的agent_id"/> 标签来 @ 他。'
+            '<mention type="user" target_id="对方的user_id"/> 标签来 @ 他。'
         ),
         group_reply_policy="MENTION",
         default_model=model,
@@ -103,8 +103,11 @@ def test_human_mentions_a_then_a_mentions_b(
     )
 
     # A 应答,且其消息里带 B 的 mention 标签(只认 XML 标签,正则匹配标签本身)。
+    user_b = next(
+        a["user_id"] for a in im_user.list_agents() if a["agent_id"] == agent_b
+    )
     b_tag_re = re.compile(
-        rf'<mention\s+type="agent"\s+target_id="{re.escape(agent_b)}"\s*/>',
+        rf'<mention\s+type="user"\s+target_id="{re.escape(user_b)}"\s*/>',
         re.IGNORECASE,
     )
     _wait_agent_message(

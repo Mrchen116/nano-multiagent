@@ -357,6 +357,8 @@ def test_feishu_intermediate_reply_goes_to_external_without_im_manager() -> None
                 "reply_thread_id": "om_trigger",
                 "reply_phase": "intermediate",
                 "reply_dedupe_key": "run-1:bubble:kmsg-1",
+                "run_id": "run-1",
+                "output_key": "run-1:bubble:0",
             },
         )
     ]
@@ -439,6 +441,8 @@ def test_observer_external_sync_reply_does_not_block_gateway_event_loop(
                 "target_chat_id": "feishu:app:dm:ou_user",
                 "reply_phase": phase,
                 "reply_dedupe_key": "run-1:bubble:kmsg-1",
+                "run_id": "run-1",
+                "output_key": "run-1:bubble:0",
             },
         )
     ]

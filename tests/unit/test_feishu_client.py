@@ -187,3 +187,68 @@ def test_reaction_create_and_delete_use_message_identity() -> None:
     assert create_request.message_id == "message-1"
     assert delete_request.message_id == "message-1"
     assert delete_request.reaction_id == "reaction-1"
+
+
+@pytest.mark.parametrize("code", [429, 500])
+def test_prepared_publish_rechecks_admission_after_retry_backoff(code: int) -> None:
+    client, rest = _client_with_response(_response(success=False, code=code))
+    admitted = False
+    revoked = False
+
+    def before() -> bool:
+        nonlocal admitted
+        admitted = not revoked
+        return admitted
+
+    def after() -> None:
+        nonlocal admitted
+        admitted = False
+
+    def create(request: object) -> MagicMock:
+        assert admitted
+        return _response(success=False, code=code)
+
+    rest.im.v1.message.create.side_effect = create
+
+    def backoff(_: float) -> None:
+        nonlocal revoked
+        assert not admitted
+        revoked = True
+
+    with patch("personal_assistant.channels.feishu.client.time.sleep") as sleep:
+        sleep.side_effect = backoff
+        result = client.send_prepared_message(
+            receive_id="oc_group",
+            text="![x](img_ready)",
+            before_publish=before,
+            after_publish=after,
+        )
+    assert result == "suppressed"
+    assert rest.im.v1.message.create.call_count == 1
+
+
+@pytest.mark.parametrize("gate", [None, lambda: False, lambda: 1 / 0])
+def test_prepared_publish_fails_closed_without_valid_admission(gate: object) -> None:
+    client, rest = _client_with_response(_response(success=True, code=0))
+    result = client.send_prepared_message(
+        receive_id="oc_group",
+        text="ready",
+        before_publish=gate,
+        after_publish=lambda: None,
+    )
+    assert result == "suppressed"
+    rest.im.v1.message.create.assert_not_called()
+
+
+def test_prepared_publish_releases_admission_on_transport_exception() -> None:
+    client, rest = _client_with_response(_response(success=True, code=0))
+    rest.im.v1.message.create.side_effect = OSError("offline")
+    release = MagicMock()
+    with pytest.raises(OSError):
+        client.send_prepared_message(
+            receive_id="oc_group",
+            text="ready",
+            before_publish=lambda: True,
+            after_publish=release,
+        )
+    release.assert_called_once()

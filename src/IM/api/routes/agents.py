@@ -50,6 +50,7 @@ class AgentConfigResponse(BaseModel):
     default_model: str | None
     model_fallbacks: list[str] = Field(default_factory=list)
     reasoning_effort: str | None = None
+    work_mode: Literal["single_thread", "global"] = "single_thread"
     workspace_root: str | None
     workspace_is_default: bool | None
     profile_version: int
@@ -80,6 +81,7 @@ class UpdateAgentConfigRequest(BaseModel):
     default_model: str | None = None
     model_fallbacks: list[str] = Field(default_factory=list)
     reasoning_effort: str | None = None
+    work_mode: Literal["single_thread", "global"] | None = None
     # feat-379-M5 (ISSUE-2): per-agent feature flags and custom prompt supplement
     features: dict[str, bool] = Field(default_factory=dict)
     custom_prompt: str | None = None
@@ -270,6 +272,7 @@ def to_agent_config_response(
         default_model=profile.default_model,
         model_fallbacks=list(profile.model_fallbacks),
         reasoning_effort=profile.reasoning_effort,
+        work_mode=profile.work_mode,
         workspace_root=service.workspace_root_for_profile(profile),
         workspace_is_default=service.workspace_is_default_for_profile(profile),
         profile_version=profile.profile_version,
@@ -336,6 +339,7 @@ def _merge_live_agent_profile(
         )
         if "reasoning_effort" in payload
         else profile.reasoning_effort,
+        work_mode=profile.work_mode,
         workspace_root=profile.workspace_root,
         workspace_is_default=profile.workspace_is_default,
         profile_version=profile.profile_version,
@@ -559,6 +563,8 @@ async def update_agent_config(
                 "message": "The Agent is not bound to a Gateway node.",
             },
         )
+    if payload.work_mode is not None and payload.work_mode != profile.work_mode:
+        raise HTTPException(status_code=409, detail="work_mode is immutable")
     if profile.profile_version != payload.profile_version:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="profile_version conflict"
@@ -805,6 +811,7 @@ class PromptPreviewRequest(BaseModel):
     custom_prompt: str | None = None
     tool_ids: list[str] = Field(default_factory=list)
     scenario: str = "direct"
+    work_mode: Literal["single_thread", "global"] = "single_thread"
     skill_ids: list[str] = Field(default_factory=list)
     heartbeat_enabled: bool | None = None
     cron_enabled: bool | None = None
@@ -863,6 +870,7 @@ async def agent_prompt_preview(
     )
 
     result = await gateway_handler.request_prompt_preview(
+        **({"work_mode": "global"} if profile.work_mode == "global" else {}),
         target_node_id=profile.node_id,
         agent_id=agent_id,
         workspace_root=workspace_root,

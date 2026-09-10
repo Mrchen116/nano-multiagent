@@ -1,0 +1,28 @@
+{
+  "desktop": {
+    "b_after_switch": "",
+    "a_restored": "draft-for-chat-A",
+    "b_restored": "draft-for-chat-B"
+  },
+  "mobile": {
+    "b_after_switch": "",
+    "a_restored": "draft-for-chat-A"
+  },
+  "console": [
+    "desktop debug: [vite] connecting...",
+    "desktop debug: [vite] connected.",
+    "desktop info: %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold",
+    "desktop error: user stream runtime error TypeError: Failed to fetch\n    at authFetch (http://127.0.0.1:18765/src/features/auth/auth-fetch.ts:18:23)\n    at authFetchJson (http://127.0.0.1:18765/src/features/auth/auth-fetch.ts:26:21)\n    at Object.sync (http://127.0.0.1:18765/src/realtime/user-stream/index.ts:32:26)\n    at beginConnection (http://127.0.0.1:18765/src/realtime/user-stream/user-stream-runtime.ts:236:45)",
+    "desktop debug: [vite] connecting...",
+    "desktop debug: [vite] connected.",
+    "desktop info: %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold",
+    "mobile debug: [vite] connecting...",
+    "mobile debug: [vite] connected.",
+    "mobile info: %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold",
+    "mobile error: user stream runtime error TypeError: Failed to fetch\n    at authFetch (http://127.0.0.1:18765/src/features/auth/auth-fetch.ts:18:23)\n    at authFetchJson (http://127.0.0.1:18765/src/features/auth/auth-fetch.ts:26:21)\n    at Object.sync (http://127.0.0.1:18765/src/realtime/user-stream/index.ts:32:26)\n    at beginConnection (http://127.0.0.1:18765/src/realtime/user-stream/user-stream-runtime.ts:236:45)",
+    "mobile debug: [vite] connecting...",
+    "mobile debug: [vite] connected.",
+    "mobile info: %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold"
+  ],
+  "failures": []
+}

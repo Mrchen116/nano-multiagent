@@ -39,8 +39,9 @@ import {
 } from "../chat-types";
 import { Avatar, GroupAvatar, colorForAgentSeed, foregroundForAvatar } from "./avatar";
 import { KindBadge } from "./kind-badge";
-import { parseMentions } from "./mention-parser";
+import { parseMentions, mentionNameMap, mentionDisplayName } from "./mention-parser";
 import { MentionPicker } from "./mention-picker";
+import { DirectConversationMenu } from "./direct-conversation-menu";
 import { NodeChip } from "./node-chip";
 import { PermissionCard } from "./permission-card";
 import { SlashPicker } from "./slash-picker";
@@ -54,6 +55,26 @@ import { TokenChip } from "./token-chip";
 import { formatDuration, ToolCallsPanel } from "./tool-calls-panel";
 import { remarkMention } from "./remark-mention";
 import { formatSystemNotice } from "../system-notice";
+import { MessageImage, messageImageUrlTransform } from "./message-image";
+import {
+  cloneComposerSnapshot,
+  clearComposerSending,
+  EMPTY_COMPOSER_SNAPSHOT,
+  isComposerSending,
+  markComposerSending,
+  subscribeComposerStore,
+  writeComposerSnapshot,
+  composerStoreFor,
+  type ComposerSnapshot
+} from "./composer-draft-store";
+
+type DraftMention = {
+  label: string;       // e.g. "@架构" — visible text inserted into textarea
+  type: "agent" | "user";
+  target_id: string;
+};
+
+export type { ComposerSnapshot };
 
 export interface MessagePaneProps {
   conversation: Conversation;
@@ -62,7 +83,7 @@ export interface MessagePaneProps {
   /** Compatibility input for callers not yet upgraded to the typed timeline. */
   messages?: Message[];
   mentionCandidates: MentionCandidate[];
-  draftSeed?: { id: string; text: string } | null;
+  draftSeed?: { id: string; conversationId?: string; text: string } | null;
   /** feat-430: enabled skills for this conversation's agent(s), for the slash picker. */
   slashSkills?: SlashSkillCandidate[];
   /** feat-517: authoritative dynamic commands supplied by the active Agent runtime. */
@@ -78,12 +99,15 @@ export interface MessagePaneProps {
   onSend(text: string, attachments: Attachment[]): void | Promise<void>;
   onBack?(): void;
   onOpenConfig?(): void;
+  onRename?(title: string): Promise<unknown>;
   /** Send mutation error message, shown as an in-app toast. */
   sendError?: string | null;
   /** Current logged-in user id; used to distinguish local send appends from external user messages. */
   selfUserId?: string | null;
-  /** Whether a message is currently being sent. */
+  /** Whether this conversation currently has a send in flight. */
   isSending?: boolean;
+  /** 蒸馏预填已被当前会话消费后由页面清掉，避免卸挂后再写进别的会话。 */
+  onDraftSeedConsumed?: () => void;
   /** feat-445-M1: this is a direct user↔agent chat (fork is only offered here). */
   isDirectChat?: boolean;
   /** feat-445-M1: the agent's node is online (fork requires a live agent). */
@@ -102,6 +126,11 @@ export interface MessagePaneProps {
   uploadAttachment?(file: File): Promise<Attachment>;
   /** Reports each rejected attachment to the page-level error owner. */
   onAttachmentUploadError?(error: unknown): void;
+  /**
+   * 测试 seam：注入会话草稿仓库。生产路径用模块级仓库，撑过 MessagePane
+   * 和聊天页卸载；测试默认用组件内仓库，避免并行文件互相污染。
+   */
+  composerStore?: Map<string, ComposerSnapshot>;
 }
 
 const MENTION_RE = /@([^@\s]*)$/;
@@ -131,19 +160,6 @@ function buildMirrorNodes(text: string): React.ReactNode[] {
 }
 
 /**
- * One picker-originated mention range in the draft.
- *
- * bugfix-358 (composer): textarea 装可见 `@DisplayName` 文本, 此 state 跟踪每次 picker
- * 选中产生的 mention 元数据。commit 时按 label 在 draft 里精确替换为 wire XML。
- * 用户手敲删除 label 时, indexOf 找不到自然跳过——零清理逻辑。
- */
-type DraftMention = {
-  label: string;       // e.g. "@架构" — visible text inserted into textarea
-  type: "agent" | "user";
-  target_id: string;
-};
-
-/**
  * Reconstruct wire content from visible draft + picker-tracked mention metadata.
  *
  * 遍历每个 tracked mention,在 draft 中按 label 找第一处匹配替换为对应的 inline XML 标签。
@@ -167,9 +183,11 @@ function reconstructWireContent(draftText: string, mentions: DraftMention[]): st
  *
  * The component is fully controlled by the caller for `messages` and the
  * `onSend` callback fires when the user hits Send / Enter. The composer holds
- * draft text + pending attachments locally; on send it returns the trimmed
- * string + attachment snapshot, clearing those values only after async success.
- * A failed send keeps the draft and attachments available for retry.
+ * draft text + pending attachments locally, keyed by conversation so switching
+ * chats restores that chat's unsent content instead of leaking it. On send it
+ * returns the trimmed string + attachment snapshot, clearing those values only
+ * after async success on the conversation that submitted. A failed send keeps
+ * that conversation's draft and attachments available for retry.
  * Mention picker activates only when `classifyConversationKind` resolves to
  * `group` or `agent-network` (matches spec Q5 — mention only meaningful when
  * there are 2+ agents to disambiguate).
@@ -190,6 +208,7 @@ export function MessagePane({
   onSend,
   onBack,
   onOpenConfig,
+  onRename,
   sendError,
   selfUserId = null,
   isSending,
@@ -201,19 +220,39 @@ export function MessagePane({
   isLoadingHistory = false,
   onLoadOlder,
   uploadAttachment = uploadOneAttachment,
-  onAttachmentUploadError
+  onAttachmentUploadError,
+  onDraftSeedConsumed,
+  composerStore
 }: MessagePaneProps) {
   const { t } = useTranslation();
   const messages = messagesProp ?? timeline?.flatMap((item) => item.type === "message" ? [item.message] : []) ?? [];
   const renderedTimeline = timeline ?? messages.map((message) => ({ type: "message" as const, message }));
   const anchoredMessageIds = new Set(messages.map((message) => message.id));
-  const [draft, setDraft] = useState("");
-  const [draftMentions, setDraftMentions] = useState<DraftMention[]>([]);
-  const [pending, setPending] = useState<Attachment[]>([]);
-  const [composerSending, setComposerSending] = useState(false);
+  const localComposerStoreRef = useRef<Map<string, ComposerSnapshot>>(new Map());
+  const composerSnapshots = composerStore
+    ?? (import.meta.env.MODE === "test" ? localComposerStoreRef.current : composerStoreFor(selfUserId));
+  // 从仓库起状态：StrictMode 会先卸再挂，cleanup 若读到空初始 state 会把已存草稿盖掉。
+  const initialSnapshot = composerSnapshots.get(conversation.id);
+  const [draft, setDraft] = useState(initialSnapshot?.draft ?? "");
+  const [draftMentions, setDraftMentions] = useState<DraftMention[]>(
+    () => (initialSnapshot ? [...initialSnapshot.draftMentions] : [])
+  );
+  const [pending, setPending] = useState<Attachment[]>(
+    () => (initialSnapshot ? [...initialSnapshot.pending] : [])
+  );
+  const [composerSending, setComposerSending] = useState(() => isComposerSending(conversation.id));
   // feat-430: Esc / click-outside hides the slash picker but keeps the `/` text;
   // any further typing re-opens it (reset on draft change).
-  const [slashDismissed, setSlashDismissed] = useState(false);
+  const [slashDismissed, setSlashDismissed] = useState(initialSnapshot?.slashDismissed ?? false);
+  const displayedConversationIdRef = useRef(conversation.id);
+  const sendingConversationIdRef = useRef<string | null>(null);
+  const liveComposerRef = useRef<ComposerSnapshot>({
+    draft: initialSnapshot?.draft ?? "",
+    draftMentions: initialSnapshot ? [...initialSnapshot.draftMentions] : [],
+    pending: initialSnapshot ? [...initialSnapshot.pending] : [],
+    slashDismissed: initialSnapshot?.slashDismissed ?? false
+  });
+  liveComposerRef.current = { draft, draftMentions, pending, slashDismissed };
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const mirrorRef = useRef<HTMLDivElement | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
@@ -229,7 +268,11 @@ export function MessagePane({
   const nearBottomRef = useRef(true);
   const forceScrollToBottomRef = useRef(false);
   const sendInFlightRef = useRef(false);
-  const composerBusy = Boolean(isSending || composerSending);
+  const composerBusy = Boolean(
+    isSending
+    || composerSending
+    || isComposerSending(conversation.id)
+  );
 
   // feat-484-M1: pane-level copy coordination.
   const conversationGenerationRef = useRef(0);
@@ -269,8 +312,12 @@ export function MessagePane({
 
   const [copyNotice, setCopyNotice] = useState<CopyNotice>(null);
 
+  const onDraftSeedConsumedRef = useRef(onDraftSeedConsumed);
+  onDraftSeedConsumedRef.current = onDraftSeedConsumed;
+
   useEffect(() => {
     if (!draftSeed) return;
+    if (draftSeed.conversationId && draftSeed.conversationId !== conversation.id) return;
     setDraft(draftSeed.text);
     setDraftMentions([]);
     setSlashDismissed(false);
@@ -281,7 +328,17 @@ export function MessagePane({
         el.setSelectionRange(draftSeed.text.length, draftSeed.text.length);
       });
     }
-  }, [draftSeed?.id]);
+    onDraftSeedConsumedRef.current?.();
+  }, [draftSeed?.id, draftSeed?.conversationId, conversation.id]);
+
+  function applyComposerSnapshot(next: ComposerSnapshot) {
+    liveComposerRef.current = next;
+    setDraft(next.draft);
+    setDraftMentions([...next.draftMentions]);
+    setPending([...next.pending]);
+    setSlashDismissed(next.slashDismissed);
+    setComposerSending(isComposerSending(conversation.id));
+  }
 
   useLayoutEffect(() => {
     // Bump generation before new conversation paint so any in-flight copy from the
@@ -295,18 +352,45 @@ export function MessagePane({
       window.clearTimeout(noticeTimerRef.current);
       noticeTimerRef.current = null;
     }
-  }, [conversation.id]);
+
+    const previousId = displayedConversationIdRef.current;
+    if (previousId !== conversation.id) {
+      writeComposerSnapshot(composerSnapshots, previousId, liveComposerRef.current);
+      displayedConversationIdRef.current = conversation.id;
+    }
+    const restored = composerSnapshots.get(conversation.id);
+    if (previousId === conversation.id && !restored) {
+      setComposerSending(isComposerSending(conversation.id));
+      return;
+    }
+    applyComposerSnapshot(
+      restored ? cloneComposerSnapshot(restored) : cloneComposerSnapshot(EMPTY_COMPOSER_SNAPSHOT)
+    );
+  }, [conversation.id, composerSnapshots]);
 
   useEffect(() => {
     mountedRef.current = true;
+    const unsubscribe = subscribeComposerStore(composerSnapshots, (changedId) => {
+      if (!mountedRef.current || changedId !== displayedConversationIdRef.current) return;
+      const restored = composerSnapshots.get(changedId);
+      applyComposerSnapshot(
+        restored ? cloneComposerSnapshot(restored) : cloneComposerSnapshot(EMPTY_COMPOSER_SNAPSHOT)
+      );
+    });
     return () => {
       mountedRef.current = false;
+      unsubscribe();
+      writeComposerSnapshot(
+        composerSnapshots,
+        displayedConversationIdRef.current,
+        liveComposerRef.current
+      );
       if (noticeTimerRef.current !== null) {
         window.clearTimeout(noticeTimerRef.current);
         noticeTimerRef.current = null;
       }
     };
-  }, []);
+  }, [composerSnapshots]);
 
   // useCallback 稳定引用:ContextMenu 的 effect 依赖 onClose,不稳定会让
   // 每次 render 重挂监听并把键盘导航中的焦点抢回首项。
@@ -492,15 +576,22 @@ export function MessagePane({
     : t("chat.messagePane.placeholderDirect", { title: conversation.title });
 
   async function commit(text: string) {
-    if (isSending || sendInFlightRef.current) return;
+    if (
+      isSending
+      || isComposerSending(conversation.id)
+      || (sendInFlightRef.current && sendingConversationIdRef.current === conversation.id)
+    ) return;
     const trimmed = text.trim();
     if (!trimmed && pending.length === 0) return;
+    const sourceConversationId = displayedConversationIdRef.current;
     // bugfix-358 (composer): textarea 装可见 `@DisplayName`, wire XML 在此处重建。
     const wireContent = reconstructWireContent(trimmed, draftMentions);
     const submittedAttachments = pending;
     const submittedAttachmentUrls = new Set(submittedAttachments.map((attachment) => attachment.url));
     forceScrollToBottomRef.current = true;
     sendInFlightRef.current = true;
+    sendingConversationIdRef.current = sourceConversationId;
+    markComposerSending(sourceConversationId);
     setComposerSending(true);
     try {
       await onSend(wireContent, submittedAttachments);
@@ -509,7 +600,24 @@ export function MessagePane({
       return;
     } finally {
       sendInFlightRef.current = false;
-      setComposerSending(false);
+      sendingConversationIdRef.current = null;
+      clearComposerSending(sourceConversationId);
+      if (displayedConversationIdRef.current === sourceConversationId) {
+        setComposerSending(false);
+      }
+    }
+    const remainingPending = (composerSnapshots.get(sourceConversationId)?.pending ?? pending)
+      .filter((attachment) => !submittedAttachmentUrls.has(attachment.url));
+    const cleared: ComposerSnapshot = {
+      ...EMPTY_COMPOSER_SNAPSHOT,
+      pending: remainingPending
+    };
+    liveComposerRef.current = displayedConversationIdRef.current === sourceConversationId
+      ? cleared
+      : liveComposerRef.current;
+    writeComposerSnapshot(composerSnapshots, sourceConversationId, cleared);
+    if (!mountedRef.current || displayedConversationIdRef.current !== sourceConversationId) {
+      return;
     }
     setDraft("");
     setDraftMentions([]);
@@ -552,7 +660,7 @@ export function MessagePane({
     if (target) {
       const label = `@${target.display_name}`;
       insert = `${label} ${insert}`;
-      setDraftMentions([{ label, type: "agent", target_id: target.agent_id }]);
+      setDraftMentions([{ label, type: "user", target_id: target.user_id }]);
     } else {
       setDraftMentions([]);
     }
@@ -575,18 +683,30 @@ export function MessagePane({
     const label = `@${c.display_name}`;
     const before = draft.slice(0, draft.length - mentionMatch[0].length);
     setDraft(`${before}${label} `);
-    setDraftMentions((prev) => [...prev, { label, type: "agent", target_id: c.agent_id }]);
+    setDraftMentions((prev) => [...prev, { label, type: "user", target_id: c.user_id }]);
     composerRef.current?.focus();
   }
 
   async function handleAdd(files: File[]) {
-    if (sendInFlightRef.current) return;
+    if (composerBusy) return;
+    const sourceConversationId = displayedConversationIdRef.current;
     for (const file of files) {
       try {
         // Sequential uploads keep the chip ordering deterministic and avoid
         // bursting `/im/v1/uploads` with N parallel large bodies.
         const att = await uploadAttachment(file);
-        setPending((prev) => [...prev, att]);
+        const base = displayedConversationIdRef.current === sourceConversationId
+          ? liveComposerRef.current
+          : (composerSnapshots.get(sourceConversationId) ?? EMPTY_COMPOSER_SNAPSHOT);
+        const next: ComposerSnapshot = {
+          ...cloneComposerSnapshot(base),
+          pending: [...base.pending, att]
+        };
+        writeComposerSnapshot(composerSnapshots, sourceConversationId, next);
+        if (mountedRef.current && displayedConversationIdRef.current === sourceConversationId) {
+          liveComposerRef.current = next;
+          setPending(next.pending);
+        }
       } catch (error) {
         onAttachmentUploadError?.(error);
       }
@@ -786,7 +906,10 @@ export function MessagePane({
           </div>
         </div>
         {!isMobile && <KindBadge kind={kind} />}
-        {onOpenConfig && (
+        {conversation.type === "direct" && onRename ? (
+          <DirectConversationMenu key={conversation.id} title={conversation.title}
+            onRename={onRename} onOpenConfig={onOpenConfig} />
+        ) : onOpenConfig && (
           <button
             type="button"
             className={`chat-pane-config${isMobile ? " chat-pane-config-icon" : ""}`}
@@ -919,7 +1042,9 @@ export function MessagePane({
               disabled={composerBusy || (!draft.trim() && pending.length === 0)}
               aria-label="Send"
             >
-              ↑
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M12 19V5m-6 6 6-6 6 6" />
+              </svg>
             </button>
           </div>
           {!isMobile && (
@@ -1610,18 +1735,11 @@ const MarkdownContent = React.memo(function MarkdownContent({
   const { t } = useTranslation();
   // CR-3: participantMap 和 components 用 useMemo，仅 participants 变化时重建，
   // 保证 react-markdown 的 components 引用稳定，不触发不必要的 pipeline 重建。
-  const participantMap = useMemo(() => {
-    const map = new Map<string, string>();
-    if (participants) {
-      for (const p of participants) {
-        map.set(p.id, p.display_name ?? p.id);
-      }
-    }
-    return map;
-  }, [participants]);
+  const participantMap = useMemo(() => mentionNameMap(participants), [participants]);
 
   const components: Components = useMemo(() => ({
     ...MD_TABLE_COMPONENTS,
+    img: ({ src, alt, title }) => <MessageImage src={src} alt={alt} title={title} />,
     // CR-2: node prop 不透传 DOM。
     // remarkMention sets data-mention-target-id on the injected <span>.
     span: (props: any) => {
@@ -1633,8 +1751,8 @@ const MarkdownContent = React.memo(function MarkdownContent({
         return <span {...rest}>{children}</span>;
       }
 
-      const displayName = participantMap.get(targetId);
-      if (displayName) {
+      const displayName = mentionDisplayName(targetId, participantMap);
+      if (displayName !== "unknown") {
         return (
           <span className="chat-mention-chip" data-target-id={targetId}>
             @{displayName}
@@ -1705,6 +1823,7 @@ const MarkdownContent = React.memo(function MarkdownContent({
   return (
     <div className="im-md">
       <ReactMarkdown
+        urlTransform={messageImageUrlTransform}
         remarkPlugins={MD_REMARK_PLUGINS}
         components={components}
       >
@@ -1723,14 +1842,7 @@ function renderInlineContent(
   text: string,
   participants?: Actor[],
 ): React.ReactNode {
-  // Build a lookup map from wire ID to display_name for mention chip resolution.
-  const participantMap = new Map<string, string>();
-  if (participants) {
-    for (const p of participants) {
-      const displayName = p.display_name ?? p.id;
-      participantMap.set(p.id, displayName);
-    }
-  }
+  const participantMap = mentionNameMap(participants);
 
   const segments = parseMentions(text);
   // Fast path: no mention segments — fall back to markdown-only rendering.
@@ -1740,8 +1852,8 @@ function renderInlineContent(
 
   return segments.map((seg, idx) => {
     if (seg.kind === "mention") {
-      const displayName = participantMap.get(seg.target_id);
-      if (displayName) {
+      const displayName = mentionDisplayName(seg.target_id, participantMap);
+      if (displayName !== "unknown") {
         return (
           <span key={idx} className="chat-mention-chip" data-target-id={seg.target_id}>
             @{displayName}

@@ -1,6 +1,7 @@
 """Agent turn loop that mediates model calls, tools, and hooks."""
 
 import json
+import copy
 import time
 from collections.abc import AsyncIterator, Callable
 from contextvars import ContextVar
@@ -445,7 +446,7 @@ class AgentLoop:
                     )
                     buffered_body: list[Message] = []
                     iteration_tool_calls: list[ToolCall] = []
-                    early_tool_results: list[ToolResult] = []
+                    early_tool_results: list[Message] = []
                     finish_reason: str | None = None
                     latest_usage: TokenUsage | None = None
 
@@ -588,7 +589,7 @@ class AgentLoop:
                                     )
                                     last_parent_id = tool_msg.message_id
                                     yield tool_msg
-                                    early_tool_results.append(result)
+                                    early_tool_results.append(tool_msg)
                                     await self._dispatch_tool_result_hook(
                                         result, active_hook_ctx, run_id
                                     )
@@ -608,9 +609,7 @@ class AgentLoop:
                     for result in early_tool_results:
                         _append_llm_message(
                             llm_messages,
-                            self._build_llm_tool_result_message(
-                                result, session_id=state.session_id
-                            ),
+                            self._build_llm_tool_result_message(result),
                         )
                     if executor is not None:
                         async for result in executor.get_remaining_results():
@@ -625,9 +624,7 @@ class AgentLoop:
                             yield tool_msg
                             _append_llm_message(
                                 llm_messages,
-                                self._build_llm_tool_result_message(
-                                    result, session_id=state.session_id
-                                ),
+                                self._build_llm_tool_result_message(tool_msg),
                             )
                             await self._dispatch_tool_result_hook(
                                 result, active_hook_ctx, run_id
@@ -684,23 +681,16 @@ class AgentLoop:
                                 },
                             )
                         committed = outcome == "committed"
-                        status_text = (
-                            "COMMITTED FOR DELIVERY by the local output gate. "
-                            "This records submission to the delivery path, not a remote delivery acknowledgment. "
-                            if committed
-                            else "NOT SENT. Only this text was withheld; earlier committed text remains committed, "
-                            "even if their text is identical. "
-                            "Consider the subsequent new messages and continue under the original reply rules. "
-                            "Do not describe this withheld text as already delivered or refer the recipient to it. "
-                            "If a reply is still called for, provide the complete current answer; "
-                            "an unrelated update does not cancel the original request. "
-                        )
                         status_message = Message(
                             message_id=make_message_id(),
                             role="user",
-                            content="<system-reminder>\n"
-                            "Output status of the immediately preceding assistant text: "
-                            f"{status_text.rstrip()}\n</system-reminder>",
+                            content=(
+                                ""
+                                if committed
+                                else "<system-reminder>\n"
+                                "Your previous reply was NOT SENT because new messages arrived. "
+                                "Consider the new messages and reply again.\n</system-reminder>"
+                            ),
                             metadata={
                                 "output_status": {
                                     "candidate_id": candidate_id,
@@ -718,9 +708,13 @@ class AgentLoop:
                                 ),
                             },
                         )
-                        llm_messages.append(
-                            LLMMessage(role="user", content=status_message.content)
-                        )
+                        # Successful publication is durable audit metadata, not
+                        # another instruction to the model. Only a withheld draft
+                        # needs a reminder so the model can reconsider it.
+                        if not committed:
+                            llm_messages.append(
+                                LLMMessage(role="user", content=status_message.content)
+                            )
                         yield status_message
 
                     turn_usage = _accumulate_usage(turn_usage, latest_usage)
@@ -1009,15 +1003,19 @@ class AgentLoop:
             return self._available_tools
         return ()
 
-    def _serialize_tool_result(self, result: ToolResult, *, session_id: str) -> str:
+    def _serialize_tool_result(
+        self, result: ToolResult, *, session_id: str
+    ) -> tuple[Any, str]:
         """Serialize tool result via tool adapter, then apply budget compression."""
 
+        serialization_status = "succeeded"
         registry = self._current_tool_registry()
         tool = registry.get(result.name) if registry is not None else None
         if tool is not None and hasattr(tool, "serialize_result"):
             try:
                 raw_content = tool.serialize_result(result.output, result.error)
-            except Exception:  # pragma: no cover - defensive fallback.
+            except Exception:
+                serialization_status = "fallback"
                 raw_content = _serialize_tool_result_content(result)
         else:
             raw_content = _serialize_tool_result_content(result)
@@ -1035,17 +1033,16 @@ class AgentLoop:
                 max_size_chars=max_size,
             )
 
-        return raw_content
+        return copy.deepcopy(raw_content), serialization_status
 
-    def _build_llm_tool_result_message(
-        self, result: ToolResult, *, session_id: str
-    ) -> LLMMessage:
+    def _build_llm_tool_result_message(self, message: Message) -> LLMMessage:
         """Build an LLMMessage for appending to the live prompt."""
 
         return LLMMessage(
             role="tool",
-            content=self._serialize_tool_result(result, session_id=session_id),
-            tool_call_id=result.call_id,
+            content=message.content,
+            tool_call_id=message.tool_call_id,
+            is_error=message.metadata.get("tool_error") is not None,
         )
 
     def _build_tool_result_message(
@@ -1058,15 +1055,19 @@ class AgentLoop:
     ) -> Message:
         """Build a Message for yielding a completed tool result."""
 
+        content, serialization_status = self._serialize_tool_result(
+            result, session_id=session_id
+        )
         return Message(
             message_id=make_message_id(),
             parent_message_id=parent_message_id,
             group_id=group_id,
             role="tool",
-            content=self._serialize_tool_result(result, session_id=session_id),
+            content=content,
             tool_call_id=result.call_id,
             metadata={
                 "tool_phase": "result",
+                "serialization_status": serialization_status,
                 "tool_call_id": result.call_id,
                 "tool_name": result.name,
                 "tool_output": result.output,

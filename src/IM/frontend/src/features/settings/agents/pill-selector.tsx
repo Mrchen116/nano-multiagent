@@ -15,6 +15,7 @@ type PillSelectorProps = {
   testId: string;
   label: string;
   selected: string[];
+  fixed?: string[];
   options: PillOption[];
   isLoading?: boolean;
   errorMessage?: string | null;
@@ -26,6 +27,7 @@ export function PillSelector({
   testId,
   label,
   selected,
+  fixed = [],
   options,
   isLoading = false,
   errorMessage = null,
@@ -33,7 +35,7 @@ export function PillSelector({
   onChange,
 }: PillSelectorProps) {
   function isSelected(opt: PillOption): boolean {
-    return selected.includes(opt.name);
+    return selected.includes(opt.name) || fixed.includes(opt.name);
   }
 
   function toggle(name: string) {
@@ -73,6 +75,7 @@ export function PillSelector({
                   type="button"
                   data-pill-name={opt.name}
                   aria-pressed={isOn}
+                  disabled={fixed.includes(opt.name)}
                   title={opt.description || opt.name}
                   onClick={() => toggle(opt.name)}
                   className={

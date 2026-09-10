@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from agent.core.events.hub import EventStreamHub
 from agent.core.session.directory import SessionDirectory
 from agent.core.session.jsonl_files import JsonlSessionFiles
 from agent.core.session.jsonl_writer import JsonlWriter
@@ -57,6 +58,7 @@ def _control(tmp_path: Path) -> _SessionSubagentControl:
         directory=directory,
         files=JsonlSessionFiles(data_dir=tmp_path / "data"),
         engine=None,  # not exercised by create_subagent / list_parent_enabled_tool_names tests
+        event_hub=EventStreamHub(),
     )
 
 

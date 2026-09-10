@@ -21,8 +21,10 @@ import type { PermissionOption, PermissionRequest } from "../chat-types";
 
 export interface PermissionCardProps {
   request: PermissionRequest;
-  conversationId: string;
-  messageId: string;
+  conversationId?: string;
+  messageId?: string;
+  endpoint?: string;
+  disabled?: boolean;
   /** Called with the chosen decision string after a successful POST. */
   onResolved(decision: string): void;
   /** Test seam: override fetch. Defaults to authFetch (injects Authorization header). */
@@ -79,6 +81,8 @@ export function PermissionCard({
   request,
   conversationId,
   messageId,
+  endpoint,
+  disabled = false,
   onResolved,
   fetchFn = authFetch,
 }: PermissionCardProps) {
@@ -100,7 +104,7 @@ export function PermissionCard({
     const carriesReason = option.id === "deny" && trimmedReason.length > 0;
     try {
       const resp = await fetchFn(
-        `/im/v1/conversations/${conversationId}/permissions/${request.request_id}`,
+        endpoint ?? `/im/v1/conversations/${conversationId}/permissions/${request.request_id}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -114,7 +118,11 @@ export function PermissionCard({
       );
       if (!resp.ok) {
         const text = await resp.text().catch(() => "Unknown error");
-        throw new Error(text || `HTTP ${resp.status}`);
+        throw new Error(text.includes("decision_unconfirmed")
+          ? t("chat.permission.decisionUnconfirmed")
+          : text.includes("permission_decision_failed")
+            ? t("chat.permission.submitError")
+            : text || `HTTP ${resp.status}`);
       }
       // 不再写本地 resolved state —— 服务端的 permission.resolved WS 事件会通过
       // reducer 把 request.status 更新为 "resolved", 组件自然重渲染。
@@ -175,7 +183,7 @@ export function PermissionCard({
         rows={2}
         value={reason}
         onChange={(e) => setReason(e.target.value)}
-        disabled={isSubmitting}
+        disabled={disabled || isSubmitting}
         placeholder={t("chat.permission.reasonPlaceholder")}
         aria-label={t("chat.permission.reasonLabel")}
       />
@@ -192,7 +200,7 @@ export function PermissionCard({
               type="button"
               className={`chat-permission-btn${variant}`}
               onClick={() => handleChoice(opt)}
-              disabled={isSubmitting}
+              disabled={disabled || isSubmitting}
               aria-busy={isChosen}
               title={opt.description}
             >

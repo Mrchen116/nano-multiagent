@@ -34,6 +34,8 @@ class BackgroundReturnInfo:
     output_file: str | None = None
     diagnostics: str | None = None
     resume_hint: str | None = None
+    command: str | None = None
+    exit_code: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return the compact stream-safe representation, omitting absent fields."""
@@ -53,6 +55,8 @@ class BackgroundReturnInfo:
             "output_file": self.output_file,
             "diagnostics": self.diagnostics,
             "resume_hint": self.resume_hint,
+            "command": self.command,
+            "exit_code": self.exit_code,
         }
         return {key: value for key, value in values.items() if value is not None}
 
@@ -82,6 +86,7 @@ class _NotificationProjection:
     duration_ms: int | None
     diagnostics: str | None
     resume_hint: str | None
+    command: str | None
 
 
 def build_background_notification(
@@ -119,6 +124,7 @@ def _project(record: BackgroundTaskRecord) -> _NotificationProjection:
         duration_ms=record.duration_ms,
         diagnostics=record.diagnostics,
         resume_hint=record.resume_hint,
+        command=record.command,
     )
 
 
@@ -169,11 +175,6 @@ def _render_xml(projection: _NotificationProjection) -> str:
 def _render_background_return(
     projection: _NotificationProjection,
 ) -> BackgroundReturnInfo | None:
-    if projection.task_type not in {
-        BackgroundTaskType.SUBAGENT,
-        BackgroundTaskType.WORKFLOW,
-    }:
-        return None
     return BackgroundReturnInfo(
         task_id=projection.task_id,
         task_type=projection.task_type.value,
@@ -189,6 +190,8 @@ def _render_background_return(
         output_file=projection.output_file or None,
         diagnostics=projection.diagnostics,
         resume_hint=projection.resume_hint,
+        command=projection.command,
+        exit_code=projection.exit_code,
     )
 
 

@@ -86,7 +86,7 @@ async def test_tool_execution_update_final_output_not_a_heartbeat() -> None:
     assert pub.events == []
 
 
-async def test_tool_execution_update_without_run_id_skipped() -> None:
+async def test_tool_execution_update_without_run_or_turn_id_skipped() -> None:
     hooks = HookRegistry()
     setup_realtime_stream(hooks)
     runner = HookRunner(registry=hooks)
@@ -99,3 +99,21 @@ async def test_tool_execution_update_without_run_id_skipped() -> None:
         ctx,
     )
     assert pub.events == []
+
+
+async def test_child_tool_heartbeat_keeps_turn_without_run() -> None:
+    hooks = HookRegistry()
+    setup_realtime_stream(hooks)
+    runner = HookRunner(registry=hooks)
+    pub = _FakePublisher()
+    ctx = HookContext(
+        session_id="child", turn_id="child-turn", session_event_publisher=pub
+    )
+    await runner.dispatch_observe(
+        "tool_execution_update",
+        {"session_id": "child", "turn_id": "child-turn", "phase": "running"},
+        ctx,
+    )
+    assert len(pub.events) == 1
+    assert pub.events[0]["data"]["run_id"] is None
+    assert pub.events[0]["data"]["turn_id"] == "child-turn"

@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Routing and Delivery Specification
 
-> 对齐: feat-544-group-reply-revalidation
+> 对齐: feat-546 / feat-551-agent-reply-images
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -10,6 +10,37 @@
 入站触发、运行中插话、回复定位、会话映射、产品投递工具和用户可见失败反馈的 Gateway 契约。
 
 ## Requirements
+
+### Requirement: 当前会话的 Agent 图片回复具有统一交付语义
+
+Gateway MUST 将普通 assistant 回复中的可交付图片与文字按原顺序交付到当前聊天，支持本地 PNG/JPEG/WebP 产物和既有可获取网络图片。图片引用不授予额外文件读取权限。每气泡最多五个不同来源、单图最多 10 MiB；同来源重复引用不重复准备资源。
+
+#### Scenario: 本地产物跨机器查看
+- **WHEN** 用户请求 Agent 展示其通过工具准备的本地图片
+- **THEN** 原聊天可以直接查看图片和说明，无需用户访问运行机器。
+
+#### Scenario: 图片语法不绕过权限
+- **WHEN** 回复引用无权读取或未准备为可交付产物的文件
+- **THEN** 图片不发送，对应位置出现可读失败说明。
+
+#### Scenario: 图文投递保持入口路由
+- **WHEN** 飞书触发的 run 产生中间或最终图文回复
+- **THEN** 原飞书聊天和内部影子会话收到等价内容，普通富文本和运行信息卡片均可显示图片
+- **WHEN** 内部 IM 影子会话触发同类回复
+- **THEN** 只在内部 IM 显示，不回写飞书。
+
+#### Scenario: IM 离线不阻塞飞书图片
+- **GIVEN** 飞书可用、IM 暂不可用
+- **WHEN** Agent 产生图片回复，随后 IM 恢复
+- **THEN** 飞书先收到图文，IM 后续补齐相同图片的历史且不重复创建气泡。
+
+#### Scenario: 局部图片失败
+- **WHEN** 图片不可读、格式不支持、超限或上传失败
+- **THEN** 对应位置显示失败原因，正文和其余可用图片仍可阅读。
+
+#### Scenario: 普通文本和示例保持原语义
+- **WHEN** Agent 回复纯文字或代码中的 Markdown 图片示例
+- **THEN** 保持原有文字，示例不触发文件读取或图片发送。
 
 ### Requirement: PA 为每条真人消息固定模型侧发生时间与实际入口
 
@@ -68,6 +99,8 @@ Gateway 对来自内置 Web IM 或外部 Channel 的真人消息，在不改变�
 
 ### Requirement: 入站消息按四步决策路由并回发原通道原目标
 
+本条以下按聊天绑定、处理和自动展示的规则及 Scenario 适用于 `single_thread`。全局模式对应行为以 [global-agent](global-agent.md) 为准。 Agent 身份解析与未知 Agent 拒绝适用于两种模式；global 的入站持久接受后交 Inbox，不预建等待主模型回复的聊天消息。
+
 任一通道（外部 IM 或内置 Web IM）收到一条入站消息时，Gateway 依次决策：路由到哪个 Agent、用哪个会话、是否串行排队、回复发回哪个通道目标。同一会话的回复**只**回发原通道原目标，不跨通道混发。idle 看门狗按 **liveness 心跳**判定一轮是否仍有进展——执行静默长工具、等待主模型返回和自动整理上下文三类“活着但安静”的窗口都有周期性 liveness 心跳，看门狗不再以“无业务输出事件”判卡死；等待用户权限决策的窗口则完全豁免于 idle 看门狗超时。只有该轮收到 `permission_resolved` 或判定窗口内既无业务事件也无 liveness 心跳时才判失去进展并收尾。
 
 #### Scenario: 直聊消息被默认 Agent 处理并把回复发回原通道
@@ -113,6 +146,8 @@ Gateway 对来自内置 Web IM 或外部 Channel 的真人消息，在不改变�
 
 ### Requirement: Gateway 为已接收的普通消息维持可见恢复交付
 
+本条以下按聊天绑定、处理和自动展示的规则及 Scenario 适用于 `single_thread`。全局模式对应行为以 [global-agent](global-agent.md) 为准。 global 未摄取正文留在持久 Inbox，恢复其信号与主上下文，不创建按原聊天自动投递的恢复 batch。
+
 Gateway 在非用户终态前已接受、但尚未进入模型上下文的普通消息，必须在 Kernel 给出可验证的恢复 batch 后继续由原聊天交付；恢复的最终文本一次发送，已接受消息各自只收到一次 terminal delivery status。
 
 #### Scenario: 真中断前已接收的插话由同一聊天继续交付
@@ -134,6 +169,8 @@ Gateway 在非用户终态前已接受、但尚未进入模型上下文的普通
 - **AND** 其他自然语言文本仍按普通消息处理，不触发停止或重开
 
 ### Requirement: 群聊只在被 @提及 / 回复 Agent / 明确的全群控制命令时触发 Agent
+
+MENTION/ALWAYS 和命令实际触达范围适用于两种模式。以下群 buffer 自动带入、按群创建 Session、普通正文/过程气泡和 `/new` 重开的 Scenario 适用于 `single_thread`；global 将可见更新存入 Inbox，仅有效实时触发推进唤醒，不自动摄取正文；命中的 global Agent 对 `/new` 在原聊天明确答复不支持。全局模式对应行为以 [global-agent](global-agent.md) 为准。
 
 群聊流量在分配任何内核会话或队列槽**之前**先过 @提及门控。未被点名的群聊消息不触发 Agent 执行;Agent 判断无需回复时输出约定 token(`NO_REPLY`)则不向用户发言。门控策略由各 Agent 的 `group_reply_policy`决定(默认 `MENTION`;`ALWAYS` 则有消息即回)。裸 `/stop` 与内置 Web IM 群聊中的精确裸 `/new` 不受 MENTION 门控：前者只中断正在运行的 Agent，后者为群内每个 Agent 重开各自的共同会话。`/compact`、`/compact <关注点>` 和 `/effort <level>` 仍必须以 mention 或 reply 明确指向 Agent，且不因该 Agent 或其他 Agent 的 `ALWAYS` 策略扩大成群组控制。
 
@@ -177,6 +214,8 @@ Gateway 在非用户终态前已接受、但尚未进入模型上下文的普通
 
 ### Requirement: 用户可用文本命令切换当前 Agent 会话
 
+本条以下按聊天绑定、处理和自动展示的规则及 Scenario 适用于 `single_thread`。全局模式对应行为以 [global-agent](global-agent.md) 为准。 命令路由与入站幂等仍通用；global 的 `/new` 拒绝不重置主上下文。
+
 Gateway 在已路由的 direct chat，或明确指向 Agent 的 group chat 中，把精确的 `/new` 作为当前 Gateway session 的新会话命令。命令确认留在原聊天，既有可见历史不删除；后续普通消息使用新的 Kernel session。若原 session 正在执行，Gateway 先撤销并收敛旧 run 的所有尚未完成用户可见输出，再中断它；已排队但尚未提交的旧输入不能在新会话执行，旧 run 的 stream、final reply 或 external mirror 也不得在新会话确认之后抵达。`/new` 之外带有额外文本的 slash 消息按普通用户消息处理。
 
 #### Scenario: `/new` 保留可见历史并切换后续上下文
@@ -206,6 +245,8 @@ Gateway 在已路由的 direct chat，或明确指向 Agent 的 group chat 中�
 - **AND** 暂挂的 old run output 以原 identity 恰好一次恢复投递，old run 后续输出仍可见
 
 ### Requirement: 用户可安全地手动压缩当前 Agent 会话
+
+以下按聊天寻址及 `/new` 切换的 Scenario 适用于 `single_thread`；global 将相同 focus、幂等、FIFO 预留、失败不改上下文和来源反馈作用于主 Session。消息被读入/提交的执行不得越过压缩预留边界，接收 Inbox 本身不被阻塞。全局模式对应行为以 [global-agent](global-agent.md) 为准。
 
 Gateway 在已路由的聊天中把精确的 `/compact` 和 `/compact <关注点>` 作为当前 Kernel session 的手动压缩命令。非空关注点仅指导这次摘要保留重点；它不作为普通用户 turn 写入会话。无论当前 session 是否有 active 或 queued work，Gateway 都接受该命令并立即预留其 FIFO 位置：在此前工作完成后执行压缩，且后续普通消息不得越过该压缩边界。若 `/new` 在已排队的压缩执行前切换会话，Gateway 不在新会话上执行该旧压缩，并在同一聊天说明其未执行。Gateway 在同一聊天明确区分成功、无需压缩、未执行和失败；失败不得改变调用前上下文。其他 slash 文本按普通用户消息处理。
 
@@ -244,6 +285,8 @@ Gateway 在已路由的聊天中把精确的 `/compact` 和 `/compact <关注点
 
 ### Requirement: /stop 控制命令中断当前运行
 
+命令语法、实际触达范围和原聊天反馈适用于两种模式。以下“当前运行/会话”在 single_thread 指聊天绑定，在 global 指实际触达 Agent 的主工作上下文；global 控制记录归工作轨迹，停止不清 Inbox，也不新增对子任务的级联停止。全局模式对应行为以 [global-agent](global-agent.md) 为准。
+
 终端用户发 `/stop`(支持 `/stop`、`@agent /stop`、`/stop @agent` 形式)可中断该会话当前活动运行;无活动运行时返回友好提示而非报错。
 
 #### Scenario: /stop 中断正在执行的运行
@@ -261,6 +304,8 @@ Gateway 在已路由的聊天中把精确的 `/compact` 和 `/compact <关注点
 - **THEN** 该 `/stop` 仍送达群内 Agent 并中断正在运行的那个;当前无运行的 Agent 不受影响、不在群里发任何反馈(幂等无副作用)
 
 ### Requirement: Agent 正在回复时，用户仍能继续发消息并被及时采纳
+
+本条以下按聊天绑定、处理和自动展示的规则及 Scenario 适用于 `single_thread`。全局模式对应行为以 [global-agent](global-agent.md) 为准。 global 忙时接收至 Inbox，由主 Agent 自主读取，不强制把新正文注入安全边界。
 
 用户不必等 Agent 把当前这条回复彻底做完，就能再发消息；Agent 会尽快把新消息纳入考虑，而不是把它晾到当前回复结束之后才理。
 
@@ -292,6 +337,8 @@ Gateway 在已路由的聊天中把精确的 `/compact` 和 `/compact <关注点
 
 ### Requirement: 对插话的回复出现在插话下方，并随 Agent 做事逐步显示
 
+本条以下按聊天绑定、处理和自动展示的规则及 Scenario 适用于 `single_thread`。全局模式对应行为以 [global-agent](global-agent.md) 为准。 global 的过程与轮次归工作页，聊天仅显示显式发出的消息。
+
 #### Scenario: 对插话的回复排在插话下方，并随做事逐步显示
 - **GIVEN** Agent 正在回复用户，会话里已经有它这条回复
 - **WHEN** 用户在它回复期间又发一条消息
@@ -313,6 +360,8 @@ Gateway 为正在进行的回复保持其开始时的 Agent 运行配置。配�
 - **THEN** 该插话与当前整轮继续使用 A，不在同一轮中混入 B
 
 ### Requirement: 实际配置边界最终可靠同步到 Web IM
+
+本条以下按聊天绑定、处理和自动展示的规则及 Scenario 适用于 `single_thread`。全局模式对应行为以 [global-agent](global-agent.md) 为准。 global 采用新配置的事实归主 Session 的工作轮次，使用工作记录的持久同步，不伪造聊天/用户消息锚点；纯展示变化和保存失败仍不产生边界。
 
 当既有聊天的一轮新回复首次采用不同的有效运行配置时，Gateway 为该聊天和首条用户消息产生稳定、可重试的配置边界事实。IM 暂时离线或 Gateway 重启不会永久丢失该事实；重复投递不会产生重复边界。外部 channel 的业务回复不因 IM 暂时离线而被阻塞，恢复后其 Web IM 影子聊天补齐边界，外部平台不收到伪造消息。边界只携带定位、幂等和代次证明所需的非敏感身份。
 
@@ -343,6 +392,8 @@ Gateway 为正在进行的回复保持其开始时的 Agent 运行配置。配�
 
 ### Requirement: 会话映射与实际运行配置状态持久化，进程重启后续接不丢历史
 
+本条以下按聊天绑定、处理和自动展示的规则及 Scenario 适用于 `single_thread`。全局模式对应行为以 [global-agent](global-agent.md) 为准。 global 按 Agent 持久绑定唯一主 Session，已读取的不同聊天内容可在该上下文关联使用；不迁移旧聊天绑定或合并旧历史。
+
 Gateway 持久化聊天与内核会话的绑定及该聊天实际采用的运行配置身份。配置更新不删除绑定；同一聊天在原内核会话应用最新配置。进程重启后恢复同一绑定、历史与实际配置状态。升级前没有配置身份的旧绑定惰性建立基线，不因部署升级产生虚假配置提示。
 
 #### Scenario: 重启后同一通道会话续接原内核会话
@@ -371,11 +422,13 @@ Gateway 持久化聊天与内核会话的绑定及该聊天实际采用的运行
 
 ### Requirement: 内核中的产品工具可把 Agent 产出的消息投递到目标会话
 
-内核中运行的产品工具(如 `send_message`)可把 Agent 产出的消息投递到另一目标会话;`to` 为稳定业务标识 (`user_id` / `agent_id` / `conversation_id`)。Gateway 经 live IM 连接路由到目标会话,目标直聊不存在则创建、已存在则复用;IM 连接不可用时返回明确错误而非静默丢弃。
+以下工具显式指定目标、权限校验和真实投递结果适用于两种模式。当前群来源的复核适用于 single_thread；global 按其目标群已接收范围复核，无隐含当前聊天。全局模式对应行为以 [global-agent](global-agent.md) 为准。
+
+内核中运行的产品工具(如 `send_message`)可把 Agent 产出的消息投递到另一目标会话;模型参数 `target` 使用聊天成员的短 `user_id` 或短 `conversation_id`，人和 Agent 均以 `user_id` 联系。外部 Inbox 在镜像尚未同步时返回的临时 `local:` 目标也可原样用于回复，Gateway 在同步恢复后解析到原聊天。Gateway 经 live IM 连接路由到目标会话,目标直聊不存在则创建、已存在则复用;IM 连接不可用时返回明确错误而非静默丢弃。
 
 #### Scenario: IM 在线时投递成功并回执
 - **GIVEN** Gateway 的 IM 连接已激活
-- **WHEN** 工具发起投递 `{text, to, from_session_id}`
+- **WHEN** 工具发起投递 `{target, text}`
 - **THEN** 消息经 IM 连接投递到目标会话,投递返回 `ok=True` 与目标会话标识
 
 #### Scenario: IM 连接不可用时返回明确错误
@@ -383,7 +436,7 @@ Gateway 持久化聊天与内核会话的绑定及该聊天实际采用的运行
 - **THEN** 投递返回 `ok=False` 并附带错误说明(不静默丢消息)
 
 #### Scenario: 缺必填字段时拒绝投递
-- **WHEN** 投递请求缺 `text` 或 `to`
+- **WHEN** 投递请求缺 `text` 或 `target`
 - **THEN** 投递返回 `ok=False` 与字段校验错误
 
 
@@ -394,6 +447,8 @@ Gateway 持久化聊天与内核会话的绑定及该聊天实际采用的运行
 - **AND** 网络失败保留原错误语义，不把未发送当成功回执
 
 ### Requirement: 后台任务完成后 Gateway 把 Agent 回复中继回原 IM 对话
+
+本条以下按聊天绑定、处理和自动展示的规则及 Scenario 适用于 `single_thread`。全局模式对应行为以 [global-agent](global-agent.md) 为准。 global 的后台结果与主 Agent 综合正文归工作轨迹；只有显式发言进入聊天，不按最后聊天自动回传，也不另复制一份 Inbox 通知。
 
 用户让 Agent 后台执行长任务后，主轮先回复已启动；任务结束时，Gateway 把消费该 `<task-notification>` 后产生的普通 Agent 回复投递回原 IM 对话。既有 background Bash 继续以第二条文本回复送达。对内置 Web IM 的后台 subagent / Workflow，回复还携带与 notification 同源的结构化后台返回，让用户核对原始 result 或 error 与来源；对不提供内部过程时间线的外部 IM，继续只投递普通文本。重复投递经稳定 identity 去重，不产生重复消息或重复后台返回。
 
@@ -456,6 +511,8 @@ Gateway 只把含非空真实更新对象的 self-evolution structured result �
 
 ### Requirement: agent 回复失败时即时反馈真实原因
 
+本条以下按聊天绑定、处理和自动展示的规则及 Scenario 适用于 `single_thread`。全局模式对应行为以 [global-agent](global-agent.md) 为准。 global 在对应工作轮次显示真实失败/中断状态，节点断连时显示不可确认或离线；不为此创建聊天失败气泡。
+
 当一轮 agent 回复因故无法完成时,Gateway 即时把该条回复在消息级翻为失败态并附带可读的真实失败原因, 归属到对应 agent。该即时反馈不依赖 IM 的 idle 看门狗;看门狗仅在「整个节点失联、无法发出任何反馈」时作为最后兜底。
 
 #### Scenario: run 失败即时翻为失败态
@@ -483,6 +540,8 @@ Gateway 在每个 PA 会话的 user 或 assistant 文本进入其持久化投递
 - **THEN** 仍从内核 session transcript 恢复上下文，而非把简化 JSONL 当作唯一恢复来源
 
 ### Requirement: 内置当前群运行在发言提交前复核已接受消息
+
+本条当前群上下文、插话和过程分段规则及 Scenario 适用于 `single_thread`。global 没有隐含当前群，其显式发送执行独立的目标群复核。全局模式对应行为以 [global-agent](global-agent.md) 为准。
 
 仅内置普通群运行启用；普通正文、同群发送工具及回到该群继续运行的后台结果采用相同规则。复核只处理已按原策略被当前运行接受的新消息，不新增静默许可、触发条件或冲突暂停。
 

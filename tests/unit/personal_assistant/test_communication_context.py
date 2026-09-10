@@ -23,14 +23,19 @@ def test_group_context_exposes_typed_participant_identities() -> None:
         agent_id="Arch",
         participant_agent_ids=None,
         participants=[
-            {"type": "agent", "agent_id": "ArchA", "display_name": "Q"},
+            {
+                "type": "agent",
+                "agent_id": "ArchA",
+                "user_id": "u_aaaaaaaa",
+                "display_name": "Q",
+            },
             {"type": "user", "user_id": "user-1", "display_name": "Alice"},
         ],
     )
 
     assert "session_type: group" in block
-    assert "your_agent_id: Arch" in block
-    assert "agent_id: ArchA" in block
+    assert "your_agent_id" not in block
+    assert "user_id: u_aaaaaaaa" in block
     assert "user_id: user-1" in block
     assert "Q" in block
     assert "Alice" in block
@@ -42,10 +47,34 @@ def test_group_context_teaches_inline_mentions_for_known_participants() -> None:
         agent_id="Arch",
         participant_agent_ids=None,
         participants=[
-            {"type": "agent", "agent_id": "ArchA", "display_name": "Q"},
+            {
+                "type": "agent",
+                "agent_id": "ArchA",
+                "user_id": "u_aaaaaaaa",
+                "display_name": "Q",
+            },
             {"type": "user", "user_id": "user-1", "display_name": "Alice"},
         ],
     )
 
-    assert '<mention type="agent" target_id="<id>"/>' in block
-    assert '<mention type="user" target_id="<id>"/>' in block
+    assert '<mention type="agent"' not in block
+    assert '<mention type="user" target_id="u_..."/>' in block
+
+
+def test_group_context_identifies_self_by_chat_user_id():
+    block = build_communication_context_block(
+        conversation_type="group",
+        agent_id="worker",
+        participant_agent_ids=None,
+        participants=[
+            {
+                "type": "agent",
+                "agent_id": "worker",
+                "user_id": "u_worker00",
+                "display_name": "Worker",
+            }
+        ],
+    )
+    assert "your_user_id: u_worker00" in block
+    assert "your_name: Worker" in block
+    assert "agent_id:" not in block

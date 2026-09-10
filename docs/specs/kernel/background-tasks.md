@@ -1,6 +1,6 @@
 # kernel (agent) - Background Tasks Specification
 
-> 对齐: feat-517
+> 对齐: feat-546
 > 上级: [kernel (agent) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)「给库/内核写契约的额外纪律」。本目录只收 **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 + 归档 design)。
@@ -15,7 +15,7 @@
 
 后台 bash / subagent / Workflow 任务自然终态后，发起它的 session 在下一轮输入中收到一条 `<task-notification>`，内含任务结果；消费者无需轮询即可感知。该通知在任意 workspace_root 下均可靠送达，不因 session 绑定非默认工作区而丢失。同步前台工具的结果只经 tool result 返回，不额外发 notification；只有真正转为后台后的任务才走一次通知通路。
 
-对后台 subagent 与 Workflow，消费者经 `Kernel.stream()` 还能在“哪一轮消费了该 notification”的事件上取得与 XML 同源的结构化后台返回，包含 task 类型/身份、terminal status、原始 result 或 error、usage、duration 与 artifact locator。parent 有 active run 时它跟随实际消费该 pending message 的 round boundary；parent idle 时它跟随为该 notification 新建的 BACKGROUND_TASK-origin run。两条路径都不得只保留文本或把返回归到会话中最新的其他回复。后台 bash 的结构化 Web 展示不在本 requirement 增量范围内。
+对后台 bash、subagent 与 Workflow，消费者经 `Kernel.stream()` 还能在“哪一轮消费了该 notification”的事件上取得与 XML 同源的结构化后台返回，包含 task 类型/身份、terminal status、实际存在的原始 result 或 error、duration 与 artifact locator；subagent／Workflow 保留实际 usage，bash 保留实际 command／exit_code，不伪造 token。parent 有 active run 时它跟随实际消费该 pending message 的 round boundary；parent idle 时它跟随为该 notification 新建的 BACKGROUND_TASK-origin run。两条路径都不得只保留文本或把返回归到会话中最新的其他回复。这些观察字段不改变既有工具参数、模型可见返回或通知文本。
 
 #### Scenario: 非默认 workspace 下后台任务完成通知送达
 - **GIVEN** 一个绑定非默认 workspace_root 的 session 启动了后台任务
@@ -60,6 +60,13 @@
 - **WHEN** parent 因非用户终态转入 continuation，或因用户 `/stop` 暂存到下一次 submit
 - **THEN** notification XML 与对应结构化返回按原 FIFO 一起进入真正消费它们的 continuation / held-flush reply
 - **AND** 每条 task id 仍只出现一次，不只保留 XML 或归到更晚的无关回复
+
+#### Scenario: 后台 Bash 返回可按真实消费位置观察
+- **GIVEN** 消费者的 Bash 命令真正转入后台
+- **WHEN** 终态通知被其 parent Session 消费
+- **THEN** SDK 观察流提供同一 task 的 bash 类型、真实退出码／结果定位及消费执行身份
+- **AND** 消费者不需解析模型文本，也不会收到伪造的子 Agent 身份或 usage
+
 ### Requirement: 运行中的后台 subagent follow-up 必须先被 live session 接收再确认 queued
 
 消费者经 `agent` 工具向一个仍在运行的后台 subagent 发送 follow-up prompt 时，内核只有在确认该 prompt 已被同一个 live subagent session 接收、可在安全轮次边界消费后，才向消费者报告 follow-up 已 queued。内核不得静默丢弃 prompt，也不得为该 prompt 偷偷启动另一个无关的并发 subagent。

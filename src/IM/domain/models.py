@@ -80,6 +80,7 @@ class AgentProfile:
     default_model: str | None = None
     model_fallbacks: list[str] = field(default_factory=list)
     reasoning_effort: str | None = None
+    work_mode: str = "single_thread"
     workspace_root: str | None = None
     workspace_is_default: bool | None = None
     profile_version: int = 1

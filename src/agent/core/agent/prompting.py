@@ -91,7 +91,14 @@ def build_chat_messages(
     # These are synthetic assistant messages (is_provider_error=True) that were
     # persisted for IM/CLI display but must not pollute the LLM's context window
     # (mirrors CC isSyntheticApiErrorMessage / normalizeMessagesForAPI pattern).
-    history_messages = tuple(m for m in history_messages if not _is_provider_error(m))
+    history_messages = tuple(
+        m
+        for m in history_messages
+        if not _is_provider_error(m)
+        # Delivery commit records remain in the transcript, including older
+        # success notices, but never become model instructions on replay.
+        and m.metadata.get("output_status", {}).get("state") != "committed_for_delivery"
+    )
 
     # Coalesce assistant Message rows that share a group_id before converting.
     # When parallel tool_use blocks stream in as separate LLM chunks, each chunk
@@ -117,11 +124,14 @@ def build_chat_messages(
                 name=message.name,
                 tool_call_id=message.tool_call_id or _extract_tool_call_id(metadata),
                 tool_calls=_extract_tool_calls(metadata),
+                is_error=message.role == "tool"
+                and metadata.get("tool_error") is not None,
                 reasoning_content=message.reasoning_content,
                 reasoning_signature=message.reasoning_signature,
             )
         )
     messages = _merge_adjacent_assistant(messages)
+    messages = _pair_tool_results(messages)
     # bugfix-433 决策2: send the current user turn as a block list when it carries an
     # image; otherwise keep the plain-text content (no drift for text-only turns).
     current_content: str | list[dict[str, Any]] = (
@@ -488,6 +498,29 @@ def _coalesce_assistant_group(messages: tuple[Message, ...]) -> tuple[Message, .
             result.append(msg)
 
     return tuple(result)
+
+
+def _pair_tool_results(messages: list[LLMMessage]) -> list[LLMMessage]:
+    """Keep persisted external notifications after complete tool exchanges."""
+    results = {
+        message.tool_call_id: (index, message)
+        for index, message in enumerate(messages)
+        if message.role == "tool" and message.tool_call_id
+    }
+    paired: set[int] = set()
+    ordered: list[LLMMessage] = []
+    for index, message in enumerate(messages):
+        if index in paired:
+            continue
+        ordered.append(message)
+        for call in message.tool_calls:
+            result = results.get(call.call_id)
+            if result is not None and result[0] > index:
+                # External append is durable even while a tool is running. Keep
+                # that arrival order in JSONL, but satisfy the model protocol.
+                paired.add(result[0])
+                ordered.append(result[1])
+    return ordered
 
 
 def _merge_adjacent_assistant(messages: list[LLMMessage]) -> list[LLMMessage]:

@@ -130,14 +130,11 @@ class RelayService:
                 "created_at": message.created_at,
             },
         }
-        # M247: group relays carry structured sender and participants so gateway
-        # can show display names instead of raw UUIDs.  Direct chats omit these
-        # fields to keep the payload backward-compatible.
-        if conversation_type == "group":
-            payload["sender"] = self._resolve_sender_info(sender_user_id=sender_user_id)
-            payload["participants"] = self._resolve_all_participants(
-                conversation_id=message.conversation_id,
-            )
+        # Direct Inbox messages need the same real sender identity as groups.
+        payload["sender"] = self._resolve_sender_info(sender_user_id=sender_user_id)
+        payload["participants"] = self._resolve_all_participants(
+            conversation_id=message.conversation_id,
+        )
         # _override_agent_id is used by enqueue_message_relay_all for group fan-out:
         # each per-agent relay identifies its own target agent explicitly.
         effective_agent_id = (
@@ -331,38 +328,22 @@ class RelayService:
             return None
         return str(row["node_id"])
 
-    # bugfix-358: 替换旧的 @text 扫描 + display_name fallback 查表。
-    # wire 层只认 <mention type="agent" target_id="X"/> 标签；不再扫 @token、不再按 display_name 查表。
-    _MENTION_TAG_RE = re.compile(
-        r"""<mention\s+type="agent"\s+target_id="([^"]+)"\s*/>""", re.IGNORECASE
-    )
+    _MENTION_TAG_RE = re.compile(r'<mention\s+type="user"\s+target_id="([^"]+)"\s*/>')
 
-    @classmethod
     def _resolve_mentioned_agent_ids_from_tags(
-        cls,
-        *,
-        content: str,
-        participant_agent_ids: list[str],
+        self, *, content: str, participant_agent_ids: list[str]
     ) -> list[str]:
-        """扫 content 中 <mention type="agent" target_id="X"/> 标签，过滤为当前会话 participants 中的 agent_id。
-
-        Args:
-            content: 消息文本，可能含 inline mention 标签。
-            participant_agent_ids: 当前会话合法 agent_id 集合（用于过滤 out-of-participants 的 target_id）。
-
-        Returns:
-            去重、排序后的 agent_id 列表；target_id 不在 participants 中的标签被丢弃。
-
-        Notes:
-            不查数据库做 display_name fallback——wire 层只认标签，
-            旧式 @<display_name> 文本不进路由（字面渲染，自然降级）。
-        """
-        participant_set = set(participant_agent_ids)
-        found: set[str] = set()
-        for m in cls._MENTION_TAG_RE.finditer(content):
-            target_id = m.group(1)
-            if target_id in participant_set:
-                found.add(target_id)
+        """Resolve user mentions only among this conversation's Agent members."""
+        members = set(participant_agent_ids)
+        found = set()
+        for match in self._MENTION_TAG_RE.finditer(content):
+            row = self._connection.execute(
+                "SELECT username FROM users WHERE id=?", (match.group(1),)
+            ).fetchone()
+            if row and row["username"].startswith("agent:"):
+                agent_id = row["username"][6:]
+                if agent_id in members:
+                    found.add(agent_id)
         return sorted(found)
 
     def _resolve_agent_snapshot(
@@ -514,7 +495,7 @@ class RelayService:
         Returns:
             For agent senders: ``{type, agent_id, display_name}``.
             For user senders:  ``{type, user_id, display_name}``.
-            No ``id`` field — wire ID is explicit per actor type (bugfix-358).
+            The chat identity is user_id; agent_id remains internal routing metadata.
 
         Notes:
             Resolves against the users table first; if the user's username begins with
@@ -536,7 +517,12 @@ class RelayService:
         display_name = str(row["display_name"]) or sender_user_id
         if username.startswith("agent:"):
             agent_id = username[len("agent:") :].strip() or sender_user_id
-            return {"type": "agent", "agent_id": agent_id, "display_name": display_name}
+            return {
+                "type": "agent",
+                "agent_id": agent_id,
+                "user_id": sender_user_id,
+                "display_name": display_name,
+            }
         return {"type": "user", "user_id": sender_user_id, "display_name": display_name}
 
     def _resolve_all_participants(
@@ -549,9 +535,9 @@ class RelayService:
 
         Returns:
             Ordered list of participant dicts in insertion order.
-            Agent entries: ``{type, agent_id, display_name}``.
+            Agent entries: ``{type, user_id, agent_id, display_name}``.
             User entries:  ``{type, user_id, display_name}``.
-            No ``id`` field — wire ID is explicit per actor type (bugfix-358).
+            The chat identity is user_id; agent_id remains internal routing metadata.
 
         Notes:
             For agent participants (``agent:`` username prefix), ``agent_id`` is
@@ -575,7 +561,7 @@ class RelayService:
             username = str(row["username"])
             user_display_name = str(row["display_name"]) or user_id
             if username.startswith("agent:"):
-                # agent_id is the stable wire ID; display_name from agent_profiles is canonical.
+                # Keep the config identity internal and expose user_id for chat mentions.
                 agent_id = username[len("agent:") :].strip()
                 profile_display = (
                     self._agent_display_name_row(agent_id=agent_id)
@@ -587,6 +573,7 @@ class RelayService:
                     {
                         "type": "agent",
                         "agent_id": agent_id,
+                        "user_id": user_id,
                         "display_name": display_name,
                     }
                 )

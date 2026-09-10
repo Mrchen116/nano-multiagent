@@ -80,6 +80,7 @@ class CreateMessageRequest(BaseModel):
     attachments: list[AttachmentPayload] = Field(default_factory=list)
     target_node_id: str | None = None
     sender_display_name: str | None = None
+    sender_source_id: str | None = None
     suppress_relay: bool = False
 
     @model_validator(mode="after")
@@ -469,6 +470,7 @@ async def create_message(
             ],
             auto_complete_delivery=resolved_target_node_id is None,
             sender_display_name=payload.sender_display_name,
+            sender_source_id=payload.sender_source_id,
             emit_created_event=payload.suppress_relay,
             caller_idempotency_key=idempotency_key,
         )

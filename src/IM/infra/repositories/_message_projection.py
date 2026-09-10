@@ -16,7 +16,7 @@ from IM.domain.models import (
     TokenUsage,
     ToolCall,
 )
-from IM.infra._helpers import _optional_text, _preview_from_event
+from IM.infra._helpers import _optional_text, _preview_from_event, _text_preview
 
 
 def _attachment_to_dict(attachment: Attachment) -> dict[str, object]:
@@ -552,7 +552,7 @@ def _to_message_preview(*, content: str, attachments: list[Attachment]) -> str:
     """Choose the best lightweight inbox preview for one persisted message."""
     normalized_content = content.strip()
     if normalized_content:
-        return normalized_content
+        return _text_preview(normalized_content)
     first_attachment = attachments[0] if attachments else None
     if first_attachment and first_attachment.file_name:
         return first_attachment.file_name

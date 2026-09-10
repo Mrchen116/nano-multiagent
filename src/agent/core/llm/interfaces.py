@@ -35,6 +35,8 @@ class LLMMessage:
     # issued by the model ("I sealed this reasoning"). Returning an empty signature causes
     # the upstream to replay the same reasoning segment every turn → infinite loop (bugfix-375).
     reasoning_signature: str | None = None
+    # Runtime-only tool status for consumers such as approval transcript projection.
+    is_error: bool = False
 
 
 @dataclass(frozen=True, slots=True)

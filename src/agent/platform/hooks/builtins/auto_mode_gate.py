@@ -32,7 +32,7 @@ import logging
 import re
 import uuid
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 _log = logging.getLogger("agent.platform.hooks.auto_mode_gate")
 
@@ -297,11 +297,16 @@ def build_yolo_system_prompt(config: AutoModeConfig) -> str:
     return system_prompt
 
 
-def build_transcript_entries(messages: list | tuple) -> list[dict]:
+def build_transcript_entries(
+    messages: list | tuple,
+    *,
+    project_tool_result: Callable[[str, Any], str | None] | None = None,
+) -> list[dict]:
     """Build classifier transcript from conversation history.
 
     Includes: user text messages + assistant tool_use blocks.
-    Excludes: assistant text (prevent prompt injection), tool results, images.
+    Excludes: assistant text (prevent prompt injection), images, and tool results
+    unless their registered tool explicitly projects successful result content.
 
     Mirrors CC buildTranscriptEntries semantically. CC's assistant `content`
     natively carries `tool_use` blocks; this kernel's `LLMMessage` instead keeps
@@ -314,11 +319,35 @@ def build_transcript_entries(messages: list | tuple) -> list[dict]:
 
     Args:
         messages: Sequence of LLMMessage objects or LLMMessage-like dicts.
+        project_tool_result: Optional projection of a matched tool name and its
+            recorded result content. Missing, failed and unmatched results stay out.
 
     Returns:
         List of transcript entries with role and content.
+
+    Raises:
+        ValueError: A result projection returns a value other than string or None.
     """
     transcript = []
+    call_names: dict[str, str] = {}
+
+    def append_result(call_id: Any, content: Any, is_error: Any) -> None:
+        name = call_names.pop(call_id, None) if isinstance(call_id, str) else None
+        if name is None or is_error or project_tool_result is None:
+            return
+        projected = project_tool_result(name, content)
+        if projected is not None and not isinstance(projected, str):
+            raise ValueError(f"invalid classifier result projection for {name}")
+        if projected:
+            transcript.append(
+                {
+                    "role": "tool",
+                    "name": name,
+                    "tool_call_id": call_id,
+                    "content": projected,
+                }
+            )
+
     for msg in messages:
         if not isinstance(msg, Mapping):
             # LLMMessage dataclass — access via attributes
@@ -343,12 +372,35 @@ def build_transcript_entries(messages: list | tuple) -> list[dict]:
                 combined = "\n".join(t for t in texts if t)
                 if combined:
                     transcript.append({"role": "user", "content": combined})
+                for block in content:
+                    if (
+                        isinstance(block, Mapping)
+                        and block.get("type") == "tool_result"
+                    ):
+                        append_result(
+                            block.get("tool_use_id"),
+                            block.get("content"),
+                            block.get("is_error", False),
+                        )
+
+        elif role == "tool":
+            append_result(
+                msg.get("tool_call_id")
+                if isinstance(msg, Mapping)
+                else getattr(msg, "tool_call_id", None),
+                content,
+                msg.get("is_error", False)
+                if isinstance(msg, Mapping)
+                else getattr(msg, "is_error", False),
+            )
 
         elif role == "assistant":
             tool_uses = []
             if isinstance(content, list):
                 for block in content:
                     if isinstance(block, dict) and block.get("type") == "tool_use":
+                        if isinstance(block.get("id"), str):
+                            call_names[block["id"]] = block.get("name", "")
                         tool_uses.append(
                             {
                                 "type": "tool_use",
@@ -363,11 +415,15 @@ def build_transcript_entries(messages: list | tuple) -> list[dict]:
             if not tool_uses and tool_calls:
                 for call in tool_calls:
                     if isinstance(call, Mapping):
+                        call_id = call.get("call_id")
                         name = call.get("name", "")
                         args = call.get("arguments", {})
                     else:
+                        call_id = getattr(call, "call_id", None)
                         name = getattr(call, "name", "")
                         args = getattr(call, "arguments", {})
+                    if isinstance(call_id, str):
+                        call_names[call_id] = name
                     tool_uses.append(
                         {
                             "type": "tool_use",
@@ -635,12 +691,25 @@ def _build_transcript_user_message(
         Full user prompt wrapped in <transcript> tags.
     """
     history = getattr(ctx, "message_history", None) or []
-    entries = build_transcript_entries(list(history))
+
+    def project_result(name: str, content: Any) -> str | None:
+        tool = _tool_instance_from_registry(ctx, name)
+        project = getattr(tool, "to_auto_classifier_result", None)
+        return project(content) if callable(project) else None
+
+    entries = build_transcript_entries(
+        list(history), project_tool_result=project_result
+    )
 
     compact_parts = []
     for entry in entries:
         if entry["role"] == "user":
             compact_parts.append(f"User: {entry['content']}\n")
+        elif entry["role"] == "tool":
+            compact_parts.append(
+                f"Tool result ({entry['name']}, call_id={entry['tool_call_id']}): "
+                f"{entry['content']}\n"
+            )
         elif entry["role"] == "assistant":
             for block in entry["content"]:
                 history_tool_name = str(block.get("name", "") or "")
@@ -970,9 +1039,10 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
 
         # Step 8: Classifier (W2: no longer prepends OUTSIDE NOTE — classifier uses system prompt)
         system_prompt = build_yolo_system_prompt(config)
-        user_prompt = _build_transcript_user_message(ctx, tool_name, current_projection)
-
         try:
+            user_prompt = _build_transcript_user_message(
+                ctx, tool_name, current_projection
+            )
             decision = await _classify_action(
                 ctx,
                 system_prompt,

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from personal_assistant.config.local_store import (
     resolve_model_candidates,
@@ -45,6 +45,7 @@ class InProcessKernelClient:
         reasoning_catalog: ModelReasoningCatalog | None = None,
         time_context: PaTimeContext | None = None,
         sticky_store: ModelStickyStore | None = None,
+        work_recorder: Any | None = None,
     ) -> None:
         self._kernel = kernel
         # refactor-406-M1 R6: per-agent config for building PromptSlots at
@@ -59,6 +60,7 @@ class InProcessKernelClient:
         self._reasoning_catalog = reasoning_catalog
         self._time_context = time_context
         self._sticky_store = sticky_store or ModelStickyStore()
+        self._work_recorder = work_recorder
 
     async def create_session(
         self,
@@ -149,12 +151,21 @@ class InProcessKernelClient:
         agent_snapshot: LiveAgentSnapshot,
         workspace_root: str,
         metadata: dict[str, object] | None = None,
-    ) -> None:
-        """Align a reused unattended session before its next background run."""
+        only_if_idle: bool = False,
+    ) -> bool:
+        """Align runtime, returning False if an idle-only replacement was rejected."""
 
+        global_main = (metadata or {}).get("pa_work_scope") == "global_main"
+        if global_main and self._work_recorder is not None:
+            self._work_recorder.register(
+                agent_id=agent_snapshot.agent_id,
+                session_id=session_id,
+                scope="global_main",
+                workspace_root=str(workspace_root),
+            )
         model = self._first_candidate(agent_snapshot, session_id=session_id)
         if model is None:
-            return
+            return True
         chain_head = resolve_run_model(
             agent_snapshot.config, product_default=self._product_default_model
         )
@@ -176,11 +187,55 @@ class InProcessKernelClient:
             or current.identity.fingerprint_schema != desired.fingerprint_schema
             or current.identity.runtime_fingerprint != desired.runtime_fingerprint
         ):
-            await self._kernel.reconfigure_session(
+            result = await self._kernel.reconfigure_session(
                 session_id=session_id,
                 workspace_root=Path(workspace_root),
                 runtime=runtime,
+                **({"only_if_idle": True} if only_if_idle else {}),
             )
+            if only_if_idle and result is None:
+                return False
+        if global_main and self._work_recorder is not None:
+            self._work_recorder.runtime_applied(
+                agent_id=agent_snapshot.agent_id,
+                session_id=session_id,
+                workspace_root=str(workspace_root),
+                runtime_fingerprint=desired.runtime_fingerprint,
+                profile_version=agent_snapshot.revision,
+                model=model,
+            )
+        return True
+
+    def try_submit_idle(
+        self,
+        *,
+        session_id: str,
+        texts: list[str],
+        submission_id: str,
+        workspace_root: str,
+        origin: str = "heartbeat",
+        model: str | None = None,
+        agent_id: str | None = None,
+        revalidate_output: bool = True,
+    ) -> dict[str, object] | None:
+        """Admit a global automatic tick only if the SDK's whole Session is idle.
+
+        A busy result creates neither queued work nor an Inbox signal.
+        """
+        from agent.sdk import RunOrigin
+
+        run = self._kernel.try_submit_idle(
+            session_id=session_id,
+            parts=[{"type": "text", "text": text} for text in texts],
+            submission_id=submission_id,
+            workspace_root=Path(workspace_root),
+            origin=RunOrigin.HEARTBEAT if origin == "heartbeat" else RunOrigin.USER,
+            model=model,
+            revalidate_output=revalidate_output,
+        )
+        if run is None:
+            return None
+        return {"run_id": run.run_id, "anchor_sequence": 0, "status": run.status}
 
     def submit_message(
         self,

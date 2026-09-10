@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import threading
+import copy
 from importlib.resources import files as package_files
 import os
 from dataclasses import dataclass, replace
@@ -144,6 +146,7 @@ class _SessionSubagentControl:
     directory: SessionDirectory
     files: JsonlSessionFiles
     engine: AgentEngine
+    event_hub: EventStreamHub
 
     @property
     def workspace_root(self) -> Path:
@@ -232,6 +235,17 @@ class _SessionSubagentControl:
                 if prompt_seed is not None
                 else PromptSlotSeed(),
             )
+        )
+        self.event_hub.publish(
+            event="session_linked",
+            session_id=self.ref.session_id,
+            data={
+                "parent_session_id": self.ref.session_id,
+                "child_session_id": conversation.ref.session_id,
+                "child_agent_id": metadata.get("agent_id"),
+                "workflow_run_id": metadata.get("workflow_run_id"),
+                "description": metadata.get("description"),
+            },
         )
         return conversation.ref
 
@@ -899,7 +913,11 @@ def _build_kernel_base(
     # session-id keyed state, so every stable conversation shares this dependency
     # graph and the provider clients it holds.
     engine_services = _make_engine()
-    executor = KernelExecutor()
+    executor = KernelExecutor(
+        on_session_idle=lambda session: event_hub.publish(
+            event="session_idle", session_id=session.ref.session_id, data={}
+        )
+    )
 
     def _conversation_factory(ref: SessionRef, transcript: Any) -> ConversationSession:
         control = _SessionSubagentControl(
@@ -907,6 +925,7 @@ def _build_kernel_base(
             directory=directory,
             files=files,
             engine=engine_services,
+            event_hub=event_hub,
         )
         return ConversationSession(
             ref=ref,
@@ -1272,6 +1291,8 @@ class Kernel:
         capability_resolver: _SessionCapabilityResolver | None = None,
     ) -> None:
         self._c = components
+        self._submission_lock = threading.Lock()
+        self._submissions: dict[tuple[str, str], RunInfo] = {}
         self._repo_root = repo_root
         # SDK-owned LLM catalog (decision 5) for list_models / get_llm_config DTO
         # mapping. None on the legacy product_profile path (catalog unknown there).
@@ -1527,14 +1548,36 @@ class Kernel:
         session_id: str,
         workspace_root: Path | str,
         runtime: SessionRuntimeConfig,
-    ) -> SessionReconfigureResult:
-        """Durably replace every future-turn setting without changing session identity."""
+        only_if_idle: bool = False,
+    ) -> SessionReconfigureResult | None:
+        """Durably replace future-turn settings without changing session identity.
+
+        Args:
+            session_id: Existing Session identity.
+            workspace_root: Session workspace root.
+            runtime: Complete target runtime.
+            only_if_idle: Reject a changed runtime while any Session carrier is
+                accepted; do not queue or wait for its execution to finish.
+
+        Returns:
+            Applied or unchanged runtime, or None for an idle-only busy rejection.
+        """
 
         root = Path(workspace_root).expanduser().resolve()
         ref = SessionRef(session_id=session_id, workspace_root=root)
         if self._c.directory.get(ref) is None:
             raise ValueError(f"session does not exist: {session_id}")
         conversation = self._c.directory.open(ref)
+        if only_if_idle:
+            current = await self.get_session_runtime(
+                session_id=session_id, workspace_root=root
+            )
+            # Creation persists optional null fields that replacement may omit.
+            # Canonical identity compares their effective runtime semantics.
+            if current is not None and current.identity == identify_runtime(runtime):
+                return SessionReconfigureResult(
+                    session_id=session_id, changed=False, state=current
+                )
         config, seed = conversation.config_snapshot()
         target_metadata = runtime_metadata(runtime, existing=config.metadata)
         target_prompt_seed = _to_prompt_seed(runtime.prompt)
@@ -1560,12 +1603,15 @@ class Kernel:
             )
         changed = await self._c.executor.replace_runtime(
             conversation,
+            only_if_idle=only_if_idle,
             runtime_model=runtime.model,
             skills=tuple(runtime.skills) if runtime.skills is not None else None,
             tool_allowlist=tuple(runtime.enabled_tools),
             metadata=target_metadata,
             prompt_seed=target_prompt_seed,
         )
+        if changed is None:
+            return None
         state = await self.get_session_runtime(
             session_id=session_id, workspace_root=root
         )
@@ -1714,6 +1760,130 @@ class Kernel:
             expected_run_id=expected_run_id,
         )
 
+    def try_submit_idle(
+        self,
+        *,
+        session_id: str,
+        parts: list[dict],
+        submission_id: str,
+        workspace_root: str | Path | None = None,
+        origin: RunOrigin = RunOrigin.USER,
+        model: str | None = None,
+        revalidate_output: bool = False,
+    ) -> RunInfo | None:
+        """Atomically admit input only when all Session carriers are idle.
+
+        Args:
+            session_id: Existing Session identity.
+            parts: Initial model input parts.
+            submission_id: Stable caller identity, deduplicated for this process.
+            workspace_root: Session workspace, defaulting to the Kernel workspace.
+            origin: Actual trigger origin.
+            model: Model matching the Session runtime when configured.
+            revalidate_output: Enable context revision guarded publication.
+
+        Returns:
+            Accepted run, the same prior acceptance on retry, or None while busy.
+            Busy rejection never creates a queued run or injects input. A terminal
+            acceptance with no durable input may be readmitted on retry.
+        """
+        if not submission_id.strip():
+            raise ValueError("submission_id must not be empty")
+        root = Path(workspace_root or self._repo_root).expanduser().resolve()
+        ref = SessionRef(session_id=session_id, workspace_root=root)
+        if self._c.directory.get(ref) is None:
+            raise ValueError(f"session does not exist: {session_id}")
+        runtime_model = self._c.directory.open(ref).config_snapshot()[0].runtime_model
+        with self._submission_lock:
+            key = (session_id, submission_id)
+            prior = self._submissions.get(key)
+            if prior is not None:
+                prior_run = self.get_run(prior.run_id)
+                terminal = prior_run is not None and prior_run.status in {
+                    "completed",
+                    "failed",
+                    "cancelled",
+                }
+                committed = (
+                    self._c.directory.open(ref).submission_receipt(submission_id)
+                    if terminal
+                    else None
+                )
+                if not terminal or committed is not None:
+                    return prior
+            if runtime_model is not None:
+                if model is not None and model != runtime_model:
+                    raise ValueError("submit model must match the session runtime")
+                model = runtime_model
+            record = self._c.runs_registry.submit(
+                session_id=session_id,
+                parts=parts,
+                workspace_root=root,
+                origin=origin,
+                model=model,
+                submission_id=submission_id,
+                only_if_idle=True,
+                revalidate_output=revalidate_output,
+            )
+            if record is None:
+                return None
+            accepted = _to_run_info(record)
+            self._submissions[key] = accepted
+            return accepted
+
+    def get_submission_receipt(
+        self,
+        *,
+        session_id: str,
+        submission_id: str,
+        workspace_root: str | Path | None = None,
+    ) -> dict[str, Any] | None:
+        """Read durable initial-input metadata, including after a process restart.
+
+        Returns:
+            Receipt with run_id, turn_id, input_committed and status; None when
+            neither a durable input nor this process's acceptance exists.
+            A durable input from an earlier process is reported as interrupted.
+        """
+        ref = SessionRef(
+            session_id=session_id,
+            workspace_root=Path(workspace_root or self._repo_root),
+        )
+        if self._c.directory.get(ref) is None:
+            return None
+        receipt = self._c.directory.open(ref).submission_receipt(submission_id)
+        with self._submission_lock:
+            accepted = self._submissions.get((session_id, submission_id))
+        if receipt is not None:
+            run = self.get_run(receipt.get("run_id")) if receipt.get("run_id") else None
+            return {**receipt, "status": run.status if run else "interrupted"}
+        if accepted is not None:
+            run = self.get_run(accepted.run_id)
+            return {
+                "run_id": accepted.run_id,
+                "turn_id": None,
+                "input_committed": False,
+                "status": run.status if run else accepted.status,
+            }
+        return None
+
+    def observe_events(self, listener: Callable[[Mapping[str, Any]], None]) -> Any:
+        """Observe future SDK events synchronously before live stream fanout.
+
+        Args:
+            listener: Short local callback; must not perform network IO or
+                reenter Kernel. Exceptions are isolated from model execution.
+
+        Returns:
+            Subscription whose close waits for any entered callback to finish.
+        """
+        from types import MappingProxyType
+
+        def observe(event: Any) -> None:
+            listener(MappingProxyType(copy.deepcopy(_flatten_stream_event(event))))
+
+        return self._c.event_hub.observe(observe)
+
     def submit(
         self,
         *,
@@ -1822,6 +1992,7 @@ class Kernel:
         origin: RunOrigin = RunOrigin.USER,
         workspace_root: str | Path | None = None,
         trace_id: str | None = None,
+        revalidate_output: bool = False,
     ) -> RunInfo:
         """Start a new run that reuses the last user message without appending another.
 
@@ -1834,6 +2005,7 @@ class Kernel:
             origin: Message origin recorded on the new run.
             workspace_root: Session workspace root.
             trace_id: Optional trace correlation id.
+            revalidate_output: Preserve context revision guarded publication on replay.
 
         Returns:
             RunInfo for the newly queued run.
@@ -1859,6 +2031,7 @@ class Kernel:
             trace_id=trace_id,
             model=runtime_model,
             replay_last_user=True,
+            revalidate_output=revalidate_output,
         )
         return _to_run_info(record)
 
@@ -1947,11 +2120,7 @@ class Kernel:
             # Merge StreamEvent.data (the full payload) with top-level metadata fields
             # so callers can do event.get("run_id"), event.get("event"), event.get("status")
             # without knowing about the StreamEvent.data nesting.
-            flat: dict[str, Any] = dict(ev.data)
-            flat.setdefault("event", ev.event)
-            flat.setdefault("session_id", ev.session_id)
-            flat.setdefault("sequence_num", ev.sequence_num)
-            yield flat
+            yield _flatten_stream_event(ev)
 
     def interrupt(self, session_id: str) -> str | None:
         """Interrupt the active run for a session and cancel pending permissions.
@@ -2179,6 +2348,7 @@ class Kernel:
             directory=self._c.directory,
             files=self._c.session_files,
             engine=self._c.engine_services,
+            event_hub=self._c.event_hub,
         )
         snapshot = self._c.workflow_manager.resume(
             run_id,
@@ -2860,3 +3030,14 @@ def _build_session_event_publisher_factory(
         return _publish
 
     return _factory
+
+
+def _flatten_stream_event(event: Any) -> dict[str, Any]:
+    return {
+        **event.data,
+        "event": event.event,
+        "session_id": event.session_id,
+        "sequence_num": event.sequence_num,
+        "event_id": event.event_id,
+        "created_at": event.created_at,
+    }
