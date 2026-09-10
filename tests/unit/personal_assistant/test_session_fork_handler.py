@@ -1,6 +1,7 @@
 """feat-445-M1 R3: gateway fork RPC handler — 由 source conversation 的 binding 定位源
 session → kernel.fork_session(up_to) → 把新 conversation 绑定到 fork 出的新 session。"""
 
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -220,6 +221,79 @@ async def test_fork_handler_kernel_failure_returns_not_ok(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
+async def test_fork_uses_config_published_before_operation_without_source_turn(
+    tmp_path: Path,
+) -> None:
+    """A settled config update applies to the branch without warming the source."""
+
+    from personal_assistant.gateway.session_binder import ConversationBindingRequest
+    from personal_assistant.gateway.session_binder import build_session_fork_handler
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    old_config = AgentWorkspaceConfig(
+        agent_id="alpha",
+        workspace_root=workspace,
+        default_model="model-v1",
+        reasoning_effort="low",
+        custom_prompt="prompt-v1",
+        skills=("skill-v1",),
+        tool_allowlist=("read",),
+        features={"memory_curation": False},
+    )
+    catalog = LiveAgentCatalog((old_config,))
+    store = _store(tmp_path)
+    kernel = _FakeKernel()
+    binder = GatewaySessionBinder(catalog=catalog, repository=store, kernel=kernel)
+    old_snapshot = catalog.require("alpha")
+    source = binder.bind_conversation(
+        ConversationBindingRequest(
+            channel_name="web_relay",
+            conversation_id="conv-src",
+            agent_id="alpha",
+            kernel_session_id="ksess-src",
+            guard=binder.capture_write_guard(old_snapshot),
+        ),
+        old_snapshot,
+    )
+    assert source.status == "bound"
+
+    current = catalog.publish(
+        replace(
+            old_config,
+            default_model="model-v2",
+            reasoning_effort="high",
+            custom_prompt="prompt-v2",
+            skills=("skill-v2",),
+            tool_allowlist=("write",),
+            features={"memory_curation": True},
+        )
+    )
+    handler = build_session_fork_handler(
+        kernel=kernel,
+        session_binder=binder,
+        channel_name="web_relay",
+    )
+
+    result = await handler(
+        {
+            "source_conversation_id": "conv-src",
+            "new_conversation_id": "conv-new",
+            "agent_id": "alpha",
+            "fork_point": {"message_id": "a3"},
+        }
+    )
+
+    assert result["ok"] is True
+    target = binder.capture_binding_provenance(
+        "web_relay:conv-new:alpha",
+        expected_agent_id="alpha",
+    )
+    assert target is not None
+    assert target.agent == current
+
+
+@pytest.mark.asyncio
 async def test_fork_publish_race_returns_failure_without_stale_branch_binding(
     tmp_path: Path,
 ) -> None:
@@ -294,7 +368,9 @@ async def test_fork_publish_race_returns_failure_without_stale_branch_binding(
     result = await fork
 
     assert result["ok"] is False
-    assert result["error"] == "agent config changed while session fork was running"
+    assert result["error"] == (
+        "agent config changed while session fork was running; please retry"
+    )
     assert binder.lookup("web_relay:conv-new:alpha") is None
 
 
@@ -364,7 +440,7 @@ async def test_fork_captures_source_binding_and_revision_atomically(
 
     assert result == {
         "ok": False,
-        "error": "agent config changed while session fork was running",
+        "error": "agent config changed while session fork was running; please retry",
     }
     assert kernel.fork_calls[0]["workspace_root"] == old_workspace
     assert binder.lookup("web_relay:conv-new:alpha") is None
