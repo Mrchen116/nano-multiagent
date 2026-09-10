@@ -106,7 +106,7 @@ class SendMessageTool:
             },
             "target": {
                 "type": "string",
-                "description": "A user_id (u_...) from context or member info for a private message, or a conversation_id (c_...) from inbox or conversations to post in that chat.",
+                "description": "A user_id (u_...) from context or member info for a private message, or a conversation_id (c_...) from inbox or conversations to post in that chat. Use an external inbox target (local:...) unchanged to reply there.",
             },
         },
         "required": ["text", "target"],
@@ -165,9 +165,12 @@ class SendMessageTool:
         text = _require_text(args.get("text"), field_name="text")
         target = _require_text(args.get("target"), field_name="target")
 
-        if not re.fullmatch(r"[uc]_[a-z0-9]{8}", target):
+        if not re.fullmatch(
+            r"(?:[uc]_[a-z0-9]{8}|local:[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})",
+            target,
+        ):
             raise ValueError(
-                "target must be a user_id (u_...) or conversation_id (c_...)"
+                "target must be a user_id (u_...), conversation_id (c_...), or external inbox target (local:...)"
             )
 
         source_agent_id = ctx.session_metadata.get("agent_id")

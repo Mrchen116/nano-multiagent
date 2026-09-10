@@ -30,6 +30,9 @@ def source_summary(source: Mapping[str, Any]) -> dict[str, Any]:
         result["name"] = source["name"]
     result["type"] = source.get("kind", source.get("type", "unknown"))
     result["channel"] = _channel(source.get("channel", "web"))
+    for field in ("history_availability", "permission_confirmed_at"):
+        if field in source:
+            result[field] = source[field]
     if "pending_count" in source:
         result["unread"] = source["pending_count"]
     timestamp = _time(
@@ -107,6 +110,9 @@ def model_page(page: Mapping[str, Any]) -> dict[str, Any]:
                 message["text"] = "".join(block.get("text", "") for block in content)
                 del message["content"]
         result["messages"] = messages
+    for field in ("history_scope", "permission_confirmed_at"):
+        if field in page:
+            result[field] = page[field]
     if page.get("next_cursor"):
         result["next_cursor"] = page["next_cursor"]
     if page.get("errors"):

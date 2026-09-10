@@ -150,6 +150,8 @@ describe("agent create page", () => {
   it.each(["single_thread", "global"] as const)("creates a %s agent from selected node capabilities and opens its settings", async (workMode) => {
     const user = userEvent.setup();
     mockNodes();
+    const nodes = await apiMocks.listNodesMock();
+    apiMocks.listNodesMock.mockResolvedValue([...nodes, {...nodes[0], node_id: "node-2", node_name: "Mini"}]);
 
     apiMocks.getNodeCreateStateMock.mockResolvedValue({
       node: {
@@ -228,6 +230,12 @@ describe("agent create page", () => {
 
     expect(screen.getByLabelText(/Owning Node/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/^Custom Instructions/)).toBeInTheDocument();
+    if (workMode === "global") {
+      await user.click(screen.getByRole("radio", { name: /Global · Experimental/ }));
+      await user.selectOptions(screen.getByLabelText(/Owning Node/i), "node-2");
+      await user.selectOptions(screen.getByLabelText(/Owning Node/i), "node-1");
+      expect(screen.getByRole("radio", { name: /Global · Experimental/ })).toBeChecked();
+    }
 
     fireEvent.change(screen.getByLabelText(/^Agent ID/), { target: { value: "agent-new" } });
     fireEvent.change(screen.getByLabelText(/^Display Name/), { target: { value: "Agent New" } });

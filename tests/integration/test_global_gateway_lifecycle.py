@@ -88,3 +88,28 @@ async def test_restart_restores_one_main_and_does_not_reawaken_committed_signal(
         assert len(model.requests) == 1
     finally:
         await _close(restored)
+
+
+@pytest.mark.asyncio
+async def test_stop_ack_and_relay_completion_survive_control_journal_failure(
+    tmp_path, monkeypatch
+):
+    import sqlite3
+
+    rt = await _runtime(tmp_path, _Model())
+    record = rt.recorder.record
+
+    def fail_control(**kwargs):
+        if kwargs["event_type"] == "control_result":
+            raise sqlite3.OperationalError("database is locked")
+        return record(**kwargs)
+
+    monkeypatch.setattr(rt.recorder, "record", fail_control)
+    try:
+        result = await _receive(
+            rt, _message("stop", "/stop"), command="stop", operation_id="stop-op"
+        )
+        assert result.reply_text and rt.controls
+        assert rt.receipts == [("c_group001", "accepted"), ("c_group001", "completed")]
+    finally:
+        await _close(rt)

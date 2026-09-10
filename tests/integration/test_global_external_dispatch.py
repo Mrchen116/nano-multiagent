@@ -106,3 +106,91 @@ async def test_external_dispatch_waits_for_provider_before_confirming_work(
     finally:
         channel.release.set()
         await _close(rt)
+
+
+@pytest.mark.asyncio
+async def test_external_local_target_from_inbox_replies_after_shadow_recovery(tmp_path):
+    import json
+    from types import SimpleNamespace
+    from agent.core.llm.interfaces import LLMMessage, LLMToolCall
+
+    class ReplyModel:
+        requests = []
+        target = None
+
+        async def generate(self, request):
+            self.requests.append(request)
+            count = len([c for m in request.messages for c in m.tool_calls])
+            if count == 1:
+                output = next(
+                    m.content for m in reversed(request.messages) if m.role == "tool"
+                )
+                self.target = json.loads(output)["conversations"][0]["target"]
+            steps = [
+                ("check", "inbox", {"action": "check"}),
+                ("read", "inbox", {"action": "read", "target": self.target}),
+                (
+                    "send",
+                    "send_message",
+                    {"target": self.target, "text": "Recovered reply"},
+                ),
+            ]
+            if count < len(steps):
+                call, name, args = steps[count]
+                yield LLMMessage(
+                    role="assistant",
+                    content="",
+                    tool_calls=(LLMToolCall(call_id=call, name=name, arguments=args),),
+                )
+                yield LLMMessage(
+                    role="assistant", content="", finish_reason="tool_calls"
+                )
+            else:
+                yield LLMMessage(role="assistant", content="Done", finish_reason="stop")
+
+    channel = _ExternalChannel(False)
+    channel.release.set()
+    model = ReplyModel()
+    shadow = SimpleNamespace(
+        resolved_anchor=lambda saga: ShadowConversationRef("c_group001", "shadow-m1")
+    )
+    rt = await _runtime(
+        tmp_path,
+        model,
+        outbound_router=OutboundRouter(ChannelRegistry([channel])),
+        shadow_sync=shadow,
+    )
+    try:
+        message = replace(
+            _message("external", "Please reply"),
+            channel_name=channel.name,
+            external_chat_id="feishu:app:dm:human",
+            is_group=False,
+            ingress=InboundIngress(
+                external_event=ExternalInboundEventIdentity("app", "external"),
+                external_conversation=ExternalConversationIdentity(
+                    "feishu", "feishu:app:dm:human", "worker", "direct", "external"
+                ),
+            ),
+        )
+        await rt.coordinator.receive(
+            message=message,
+            agent=rt.catalog.require("worker"),
+            shadow=GatewayShadowState(saga_id="recover-saga"),
+            should_process=True,
+            sender_label="Human",
+        )
+        await _wait(
+            lambda: (
+                model.requests
+                and not rt.coordinator._monitors
+                and not rt.coordinator._drains
+            )
+        )
+        assert model.target.startswith("local:")
+        assert [(item.target_chat_id, item.text) for item in channel.sent] == [
+            ("feishu:app:dm:human", "Recovered reply")
+        ]
+        assert rt.manager.sent[0]["to"] == "c_group001"
+    finally:
+        await _close(rt)

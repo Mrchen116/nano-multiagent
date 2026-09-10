@@ -953,23 +953,24 @@ class IMConnectionManager:
                 await self._flush_pending_frames()
             return
         if message_type == "agent.work.permission":
+            error = "permission request is no longer pending"
             try:
                 accepted = (
                     self._work_permission_handler is not None
                     and self._work_permission_handler(body)
                 )
             except Exception:
+                _log.exception(
+                    "work permission decision failed request=%s", body.get("request_id")
+                )
                 accepted = False
+                error = "permission_decision_failed"
             await self.send_json(
                 "agent.work.permission.result",
                 {
                     "request_id": body.get("request_id"),
                     "ok": accepted,
-                    **(
-                        {}
-                        if accepted
-                        else {"error": "permission request is no longer pending"}
-                    ),
+                    **({} if accepted else {"error": error}),
                 },
             )
             return

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from threading import Lock
 from typing import TYPE_CHECKING, Any, Callable, Mapping
 
@@ -22,6 +23,9 @@ from personal_assistant.gateway.session_binder import (
     GatewaySessionBinder,
     SessionProvenance,
 )
+
+
+_log = logging.getLogger(__name__)
 
 
 class InternalDispatchEndpoint:
@@ -306,6 +310,12 @@ class InternalDispatchHandler:
         call_id = payload.get("dispatch_request_id")
         run_id = payload.get("origin_run_id")
         revision = payload.get("context_revision")
+        if native_group and (
+            not isinstance(run_id, str)
+            or not run_id.strip()
+            or type(revision) is not int
+        ):
+            return {"ok": False, "error": "global output run identity is missing"}
         draft_id = f"draft:{run_id}:{call_id}"
         facts = {
             "tool_call_id": call_id,
@@ -340,11 +350,6 @@ class InternalDispatchHandler:
                             "ok": False,
                             "status": "held_for_revalidation",
                             "draft_id": draft_id,
-                        }
-                    if not isinstance(run_id, str) or type(revision) is not int:
-                        return {
-                            "ok": False,
-                            "error": "global output run identity is missing",
                         }
                     send_task = None
 
@@ -412,13 +417,21 @@ class InternalDispatchHandler:
                         },
                     ),
                 )
-            recorder.record(
-                agent_id=agent_id,
-                session_id=session_id,
-                event_type="dispatch_confirmed",
-                event_id=dispatch_event_id,
-                payload={**facts, **ack.as_dict()},
-            )
+            try:
+                recorder.record(
+                    agent_id=agent_id,
+                    session_id=session_id,
+                    event_type="dispatch_confirmed",
+                    event_id=dispatch_event_id,
+                    payload={**facts, **ack.as_dict()},
+                )
+            except Exception:
+                # Both required deliveries have succeeded. Reporting failure here
+                # invites the model to send the same message with a new call id.
+                _log.exception(
+                    "global dispatch confirmation recording failed event=%s",
+                    dispatch_event_id,
+                )
             return {"ok": True, "to": target, "text": dispatch["text"], **ack.as_dict()}
         except Exception as exc:
             return {"ok": False, "error": f"IM dispatch failed: {exc}"}

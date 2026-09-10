@@ -123,11 +123,21 @@ class GatewayRuntime:
     ) -> dict[str, object] | None:
         """Dispatch one decoded Gateway protocol message to its concrete owner."""
         if message_type == "node.register":
-            return await self._sessions.register(
-                websocket=websocket,
-                payload=payload,
-                authenticated_owner_id=authenticated_owner_id,
-            )
+            try:
+                return await self._sessions.register(
+                    websocket=websocket,
+                    payload=payload,
+                    authenticated_owner_id=authenticated_owner_id,
+                )
+            except ValueError as exc:
+                return {
+                    "type": "error",
+                    "payload": {
+                        "message_type": message_type,
+                        "code": "bad_payload",
+                        "message": str(exc),
+                    },
+                }
         if message_type not in self._SUPPORTED_UPSTREAM_TYPES:
             return {
                 "type": "error",

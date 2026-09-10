@@ -121,3 +121,20 @@ def test_missing_source_ids_do_not_merge_distinct_messages_or_invent_partial(tmp
     )
     assert service.confirm_committed_read(proof(page))
     assert not service.blocking_entries("a", "room")
+
+
+def test_large_attachment_descriptor_always_makes_forward_progress(tmp_path):
+    service, store = make_service(tmp_path)
+    attachment = {
+        "type": "attachment",
+        "filename": "report.pdf",
+        "url": "https://files.invalid/" + "a" * 25000,
+    }
+    receive(service, content=[attachment, {"type": "text", "text": "next"}])
+    first = read(service, limit=1)
+    assert first["messages"][0]["content"] == [attachment]
+    assert service.confirm_committed_read(proof(first))
+    second = read(service, "next", cursor=first["next_cursor"])
+    assert second["messages"][0]["content"] == [{"type": "text", "text": "next"}]
+    assert service.confirm_committed_read(proof(second, call="next"))
+    assert not service.blocking_entries("a", "room")

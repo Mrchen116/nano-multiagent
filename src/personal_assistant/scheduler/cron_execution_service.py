@@ -515,7 +515,9 @@ class CronRunTerminalConsumer:
             outcome=outcome,
             origin=RunOrigin.CRON,
             consume_replay=_consume_replay,
-            deliver_notice=_deliver_notice,
+            deliver_notice=None
+            if snapshot.config.work_mode == "global"
+            else _deliver_notice,
             scenario={"agent_id": agent_id, "pa_work_scope": "cron"}
             if snapshot.config.work_mode == "global"
             else None,

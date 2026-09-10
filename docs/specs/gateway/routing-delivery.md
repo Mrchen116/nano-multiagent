@@ -393,7 +393,7 @@ Gateway 持久化聊天与内核会话的绑定及该聊天实际采用的运行
 
 以下工具显式指定目标、权限校验和真实投递结果适用于两种模式。当前群来源的复核适用于 single_thread；global 按其目标群已接收范围复核，无隐含当前聊天。全局模式对应行为以 [global-agent](global-agent.md) 为准。
 
-内核中运行的产品工具(如 `send_message`)可把 Agent 产出的消息投递到另一目标会话;模型参数 `target` 使用聊天成员的短 `user_id` 或短 `conversation_id`，人和 Agent 均以 `user_id` 联系。Gateway 经 live IM 连接路由到目标会话,目标直聊不存在则创建、已存在则复用;IM 连接不可用时返回明确错误而非静默丢弃。
+内核中运行的产品工具(如 `send_message`)可把 Agent 产出的消息投递到另一目标会话;模型参数 `target` 使用聊天成员的短 `user_id` 或短 `conversation_id`，人和 Agent 均以 `user_id` 联系。外部 Inbox 在镜像尚未同步时返回的临时 `local:` 目标也可原样用于回复，Gateway 在同步恢复后解析到原聊天。Gateway 经 live IM 连接路由到目标会话,目标直聊不存在则创建、已存在则复用;IM 连接不可用时返回明确错误而非静默丢弃。
 
 #### Scenario: IM 在线时投递成功并回执
 - **GIVEN** Gateway 的 IM 连接已激活

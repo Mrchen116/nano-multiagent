@@ -44,7 +44,7 @@ class GatewayWork:
                 roots = {e["root_agent_id"] for e in payload["events"]}
                 for root in roots:
                     profile = AgentProfileRepository(self.db).get_profile(agent_id=root)
-                    view = self.repository.view(root)
+                    revision = self.repository.revision(root)
                     await self.registry.broadcast_to_user(
                         profile.owner_id,
                         json.dumps(
@@ -53,7 +53,7 @@ class GatewayWork:
                                 "event_type": "agent.work.updated",
                                 "data": {
                                     "agent_id": root,
-                                    "revision": view["revision"],
+                                    "revision": revision,
                                 },
                             }
                         ),
@@ -82,10 +82,16 @@ class GatewayWork:
                 "type": "conversation.query.result",
                 "payload": {"request_id": request_id, "ok": True, "result": result},
             }
-        except (ValueError, KeyError, TypeError) as exc:
+        except (ValueError, KeyError, TypeError, sqlite3.Error) as exc:
             return {
                 "type": "conversation.query.result",
-                "payload": {"request_id": request_id, "ok": False, "error": str(exc)},
+                "payload": {
+                    "request_id": request_id,
+                    "ok": False,
+                    "error": "storage_unavailable"
+                    if isinstance(exc, sqlite3.Error)
+                    else str(exc),
+                },
             }
 
     async def permission(
@@ -121,7 +127,9 @@ class GatewayWork:
             try:
                 return await asyncio.wait_for(waiter, 10)
             except asyncio.TimeoutError:
-                raise ValueError("source_unavailable") from None
+                # The frame was sent, so the broker may already have applied it.
+                # Its durable permission_resolved event reconciles late success.
+                raise ValueError("decision_unconfirmed") from None
         finally:
             self.waiters.pop(key, None)
 

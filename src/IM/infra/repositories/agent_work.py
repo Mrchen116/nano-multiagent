@@ -477,6 +477,13 @@ class AgentWorkRepository:
             "next_cursor": rows[limit - 1]["turn_id"] if len(rows) > limit else None,
         }
 
+    def revision(self, root: str) -> int:
+        """Return the latest persisted revision without loading work-view content."""
+        return self.db.execute(
+            "SELECT COALESCE(MAX(revision),0) FROM agent_work_events WHERE root_agent_id=?",
+            (root,),
+        ).fetchone()[0]
+
     def view(self, root: str, before_turn: str | None = None, limit: int = 20) -> dict:
         """Read the root work overview and latest reported main usage."""
         rows = self.db.execute(
@@ -490,10 +497,7 @@ class AgentWorkRepository:
             if main
             else {"turns": [], "next_cursor": None}
         )
-        revision = self.db.execute(
-            "SELECT COALESCE(MAX(revision),0) FROM agent_work_events WHERE root_agent_id=?",
-            (root,),
-        ).fetchone()[0]
+        revision = self.revision(root)
         latest = None
         if main:
             for row in self.db.execute(

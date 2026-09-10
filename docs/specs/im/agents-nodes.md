@@ -215,6 +215,11 @@ operation id、已持久化 root/provenance/display identity 时，才能原子�
 认领后 operation 与待认领标记都清除。普通 `node.register` 首见 profile、预配置 Agent 和任意
 operation-id 广告都不是可认领证据；任意一次正常 profile 更新也会清除未认领标记。
 
+#### Scenario: 切换创建节点保留已选工作模式
+- **GIVEN** 用户已在创建页选择工作模式
+- **WHEN** 用户切换到另一个可创建 Agent 的节点
+- **THEN** 已选工作模式保持，最终创建请求使用该模式
+
 #### Scenario: 创建页显示真实默认路径并原地编辑
 - **GIVEN** 当前 owner 选中在线节点 `node-1` 并填写 Agent ID A
 - **WHEN** 页面取得节点能力
@@ -292,6 +297,12 @@ IM 处理 `node.register` 时,对帧中**首次出现**(无既有 profile)的 ag
 - **GIVEN** agent X 的 profile 已存在、其 workspace root/provenance 已由 Gateway 确认(含用户特意清空的 skills / tool_allowlist)
 - **WHEN** 再次收到 `node.register`(无论帧内上报何值)
 - **THEN** profile 的 workspace_root / skills / tool_allowlist 均保持既有值
+
+#### Scenario: 注册声明与固定工作模式冲突
+- **GIVEN** Agent 已有创建时确定的工作模式
+- **WHEN** Gateway 注册声明与其冲突
+- **THEN** 注册返回明确的冲突原因，原工作模式保持，失败的连接不被登记为在线
+- **AND** 修正声明后可以正常注册
 
 #### Scenario: 旧帧未声明 workspace 时保持未知
 - **GIVEN** IM 中无 agent Y 的 profile

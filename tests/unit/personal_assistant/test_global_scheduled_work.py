@@ -255,6 +255,7 @@ async def test_global_cron_delivers_only_terminal_body_even_after_fallback(tmp_p
     bodies = [event for event in delivered if event["event"] == "assistant_message"]
     assert bodies[-1]["content"] == "Delivered final"
     assert all("reasoning_content" not in event for event in bodies)
+    assert [event["run_id"] for event in bodies] == ["replay"]
     assert not any(
         event.get("content") == "Investigating" or event["event"] == "tool_start"
         for event in delivered

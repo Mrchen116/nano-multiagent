@@ -124,7 +124,7 @@ async def _wait(predicate):
             await asyncio.sleep(0.01)
 
 
-async def _runtime(tmp_path, model, *, outbound_router=None):
+async def _runtime(tmp_path, model, *, outbound_router=None, shadow_sync=None):
     endpoint = InternalDispatchEndpoint()
     kernel = build_kernel(
         llm=_lc_llm(),
@@ -175,6 +175,7 @@ async def _runtime(tmp_path, model, *, outbound_router=None):
         global_inbox=inbox,
         work_recorder=recorder,
         outbound_router=outbound_router,
+        shadow_sync=shadow_sync,
     )
     app = web.Application()
     app.router.add_post("/internal/dispatch", handler.build_aiohttp_handler())
@@ -219,6 +220,7 @@ async def _runtime(tmp_path, model, *, outbound_router=None):
         recorder=recorder,
         coordinator=coordinator,
         manager=manager,
+        handler=handler,
         catalog=catalog,
         server=server,
         controls=controls,

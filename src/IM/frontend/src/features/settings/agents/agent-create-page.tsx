@@ -402,7 +402,6 @@ export function AgentCreatePage() {
       ...current,
       skills: [],
       tool_allowlist: [],
-  work_mode: "single_thread",
       default_model: null,
       model_fallbacks: [],
       reasoning_effort: null,

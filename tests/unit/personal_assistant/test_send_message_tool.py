@@ -69,7 +69,10 @@ def test_send_message_presenter_splits_start_params_and_end_status() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_send_message_tool_dispatches_http_post_to_gateway_dispatch_url() -> None:
+@pytest.mark.parametrize(
+    "target", ["u_bbbbbbbb", "c_abcdefgh", "local:4ce4c533-0b05-5cf6-a6b5-c4249791b048"]
+)
+def test_send_message_tool_dispatches_http_post_to_gateway_dispatch_url(target) -> None:
     """run() must POST to gateway_dispatch_url from session_metadata."""
     from personal_assistant.tools.send_message import SendMessageTool
 
@@ -98,15 +101,15 @@ def test_send_message_tool_dispatches_http_post_to_gateway_dispatch_url() -> Non
     tool = SendMessageTool()
 
     with patch("httpx.post", side_effect=mock_post):
-        result = tool.run({"text": "hello", "target": "u_bbbbbbbb"}, ctx)
+        result = tool.run({"text": "hello", "target": target}, ctx)
 
     assert result["ok"] is True
-    assert result["target"] == "u_bbbbbbbb"
-    assert result == {"ok": True, "target": "u_bbbbbbbb"}
+    assert result["target"] == target
+    assert result == {"ok": True, "target": target}
     assert len(captured_urls) == 1
     assert "127.0.0.1:8089" in captured_urls[0]
     assert captured_payloads[0]["text"] == "hello"
-    assert captured_payloads[0]["to"] == "u_bbbbbbbb"
+    assert captured_payloads[0]["to"] == target
     assert captured_payloads[0]["origin_kernel_session_id"] == "sess_test"
     assert captured_payloads[0]["source_agent_id"] == "agent_a"
     assert captured_payloads[0]["dispatch_request_id"] == "toolu_test_dispatch"

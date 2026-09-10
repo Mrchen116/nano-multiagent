@@ -550,7 +550,7 @@ class GlobalRunCoordinator:
                 if not isinstance(attachment, Mapping):
                     continue
                 mime = str(attachment.get("content_type") or "")
-                if mime and not mime.startswith("image/"):
+                if not mime.startswith("image/"):
                     continue
                 resolution = await self.image_resolver.resolve([dict(attachment)])
                 if resolution.failure:
@@ -630,17 +630,26 @@ class GlobalRunCoordinator:
             text = "已压缩全局 Agent 主会话上下文。"
         else:
             raise ValueError(f"unsupported global control: {command}")
-        self.recorder.record(
-            agent_id=agent.agent_id,
-            session_id=binding.kernel_session_id,
-            event_type="control_result",
-            event_id=event_id,
-            payload={
-                "command": command,
-                "text": text,
-                "source_conversation_id": message.external_chat_id,
-            },
-        )
+        try:
+            self.recorder.record(
+                agent_id=agent.agent_id,
+                session_id=binding.kernel_session_id,
+                event_type="control_result",
+                event_id=event_id,
+                payload={
+                    "command": command,
+                    "text": text,
+                    "source_conversation_id": message.external_chat_id,
+                },
+            )
+        except Exception:
+            # The control already took effect; journal failure must not suppress
+            # its source reply and leave the relay forever in progress.
+            _log.exception(
+                "global control result recording failed agent=%s command=%s",
+                agent.agent_id,
+                command,
+            )
         outbound = None
         if self.bg_reply_sender is not None:
             from personal_assistant.gateway.session_run_coordinator import (

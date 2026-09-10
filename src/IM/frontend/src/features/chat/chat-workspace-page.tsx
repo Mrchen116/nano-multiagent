@@ -681,6 +681,9 @@ export function ChatWorkspacePage() {
   useEffect(() => {
     locatedRef.current = "";
     setLocatorNotice("");
+    chatRootRef.current?.querySelectorAll(".im-work-message-target").forEach(element => {
+      element.classList.remove("im-work-message-target");
+    });
   }, [conversationId, locatorMessageId]);
 
   useEffect(() => {

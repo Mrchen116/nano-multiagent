@@ -147,6 +147,19 @@ class GatewayNodePersistence:
         Side Effects:
             Writes node, profile, synthetic agent-user, binding, and stale state.
         """
+        # Reject immutable-mode conflicts before any node/profile write can mark
+        # a failed advertisement online or partially seed its other agents.
+        for agent_id in agent_ids:
+            mode = (agent_work_modes or {}).get(agent_id)
+            if mode is None:
+                continue
+            if mode not in {"single_thread", "global"}:
+                raise ValueError(f"invalid work_mode for {agent_id}")
+            existing = self._profiles.get_profile(agent_id=agent_id)
+            if existing is not None and existing.work_mode != mode:
+                raise ValueError(
+                    f"work_mode is immutable for {agent_id}: expected {existing.work_mode}, received {mode}"
+                )
         previous_node = self._nodes.get_node(node_id=node_id)
         node = self._nodes.record_gateway_registration(
             node_id=node_id,

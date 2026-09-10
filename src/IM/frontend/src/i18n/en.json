@@ -517,6 +517,7 @@
       "leaveWithoutSaving": "Leave without saving"
     },
     "work": {
+      "暂不可定位": "Location unavailable",
       "工作": "Work",
       "全局 · 实验": "Global · Experimental",
       "跨聊天的主工作轨迹及关联执行": "Main work across chats and linked executions",
@@ -857,6 +858,7 @@
       "noMatch": "No matching agents"
     },
     "permission": {
+      "decisionUnconfirmed": "The decision was sent, but confirmation has not arrived. It may already have taken effect; the work view will update when confirmation arrives.",
       "allowed": "Allowed",
       "denied": "Denied",
       "hint": "Needs review",

@@ -171,28 +171,28 @@ class CronRunner:
             )
             return None
 
-        if global_mode and self._work_recorder is not None:
-            self._work_recorder.register(
-                agent_id=self._agent_id,
-                session_id=session_id,
-                scope="cron",
-                workspace_root=str(self._workspace_root),
-                job_id=job.id,
-                request_id=request_id,
-                trigger=trigger,
-            )
-            self._work_recorder.record(
-                agent_id=self._agent_id,
-                session_id=session_id,
-                event_type="cron_trigger",
-                event_id=f"cron-trigger:{request_id or session_id}",
-                payload={
-                    "job_id": job.id,
-                    "request_id": request_id,
-                    "trigger": trigger,
-                },
-            )
         try:
+            if global_mode and self._work_recorder is not None:
+                self._work_recorder.register(
+                    agent_id=self._agent_id,
+                    session_id=session_id,
+                    scope="cron",
+                    workspace_root=str(self._workspace_root),
+                    job_id=job.id,
+                    request_id=request_id,
+                    trigger=trigger,
+                )
+                self._work_recorder.record(
+                    agent_id=self._agent_id,
+                    session_id=session_id,
+                    event_type="cron_trigger",
+                    event_id=f"cron-trigger:{request_id or session_id}",
+                    payload={
+                        "job_id": job.id,
+                        "request_id": request_id,
+                        "trigger": trigger,
+                    },
+                )
             run_payload = self._kernel_client.submit_message(
                 session_id=session_id,
                 texts=[job.instruction],

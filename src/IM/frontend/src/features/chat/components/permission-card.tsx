@@ -118,7 +118,11 @@ export function PermissionCard({
       );
       if (!resp.ok) {
         const text = await resp.text().catch(() => "Unknown error");
-        throw new Error(text || `HTTP ${resp.status}`);
+        throw new Error(text.includes("decision_unconfirmed")
+          ? t("chat.permission.decisionUnconfirmed")
+          : text.includes("permission_decision_failed")
+            ? t("chat.permission.submitError")
+            : text || `HTTP ${resp.status}`);
       }
       // 不再写本地 resolved state —— 服务端的 permission.resolved WS 事件会通过
       // reducer 把 request.status 更新为 "resolved", 组件自然重渲染。

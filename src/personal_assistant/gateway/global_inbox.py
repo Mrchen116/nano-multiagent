@@ -567,18 +567,29 @@ class GlobalInboxService:
             if args["action"] == "list":
                 return await self._combined_list(agent_id, args)
             target = self.get_target(agent_id, str(args.get("target", "")))
+            local_cursor = str(args.get("cursor", "")).startswith("v1:")
             if not target or target.get("conversation_id"):
                 try:
-                    page = await self._conversation_reader(
-                        agent_id,
-                        str(args["action"]),
+                    native_args = (
                         {**args, "target": target["conversation_id"]}
                         if target
-                        else args,
+                        else args
                     )
-                    return await self._materialize_history_page(page)
+                    # A received-history cursor belongs to the Gateway snapshot.
+                    # Recheck live access after reconnect, but do not switch pages
+                    # to IM history or send its incompatible cursor to IM.
+                    page = await self._conversation_reader(
+                        agent_id,
+                        "info" if local_cursor else str(args["action"]),
+                        {"target": native_args["target"]}
+                        if local_cursor
+                        else native_args,
+                    )
+                    if not local_cursor:
+                        return await self._materialize_history_page(page)
                 except (ConnectionError, TimeoutError):
-                    pass
+                    if args.get("cursor") and not local_cursor:
+                        raise
                 except ValueError as exc:
                     if "target_not_accessible" in str(exc) and target:
                         self.update_target(
@@ -642,11 +653,11 @@ class GlobalInboxService:
             high, state = self._decode_cursor(
                 args["cursor"], agent, "conversations", query, "list"
             )
-            if isinstance(state, int):
-                with self.store._lock, self.store._db:
-                    return self._list(agent, "conversations", args)
             if not isinstance(state, dict):
                 raise ValueError("invalid_cursor")
+            if "targets" in state:
+                with self.store._lock, self.store._db:
+                    return self._list(agent, "conversations", args)
         else:
             with self.store._lock, self.store._db:
                 local_args = {**args, "limit": 50}
@@ -675,6 +686,8 @@ class GlobalInboxService:
             try:
                 page = await self._conversation_reader(agent, "list", remote_args)
             except (ConnectionError, TimeoutError):
+                if args.get("cursor"):
+                    raise
                 with self.store._lock, self.store._db:
                     return self._list(
                         agent,
@@ -918,7 +931,10 @@ class GlobalInboxService:
                 for block in part["content"]
             )
             image_count = sum(block.get("type") == "image" for block in part["content"])
-            if (
+            # Text is already split at ingestion. Keep an oversized attachment
+            # descriptor intact on its own page rather than returning the same
+            # empty page forever or falsely consuming a truncated locator.
+            if selected and (
                 chars + text_size > 24000
                 or images + image_count > 4
                 or (entry["seq"] not in seen and len(seen) >= limit)

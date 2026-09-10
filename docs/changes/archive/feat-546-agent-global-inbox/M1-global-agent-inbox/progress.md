@@ -191,3 +191,10 @@ Implementation and native/Feishu real-stack self-tests are complete. User explic
 图片验证首轮虽然答对，但请求审计发现 Inbox 图片未进入请求，模型从日志找图后使用 read 绕路。原因是旧 serializer 输出 provider source 格式，SDK mapper 只接受通用图片字段；修复该边界后，新建无 read/bash 的独立 Agent，仅调用 inbox/send_message，正确识别 929069 和红绿蓝。Proxy 原始 tool_result 内图片 SHA256 与输入完全一致，读取也已确认。先前首轮不能算原生图片路径通过。
 
 相关 100 项测试通过（包含真实 SDK 持久边界、provider mapper、权限上下文、名称／同名、预算续页、分片与失败、访问范围及 relay 回归）；Ruff、docs-check、diff check 通过。原始请求目录与审计汇总保留于 output/inbox-protocol/request-audit.json、vision-request-audit.json；运行数据不提交，原演示和新增隔离案例均保留。
+
+
+### 2026-09-10 — 外部 review 反馈逐项核对与修复
+
+按用户“自己逐个检查、真有问题就解决”的要求，在 `c33df27a6` 上直接复核。完整裁决见 [review-followup.md](../review-followup.md)：20 项采纳/部分采纳并处理，10 项不成立或已确认行为，7 项保留为未证实当前故障的条件风险；原报告中的重叠条目分别列出，没有照搬其不一致计数。
+
+复现后修复注册失败隔离、local: 外部回复、无 MIME 文件摄取、数据库查询隔离、投递/控制结果记录失败、分页恢复及范围标签、权限异常/确认迟到、Cron 工作归属和模型切换通知，以及 UI 定位/i18n/死代码和创建模式保留。取工作广播版本号的实测 SELECT 从 11 次减至 1 次，版本值不变。
