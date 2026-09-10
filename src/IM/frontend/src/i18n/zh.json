@@ -639,6 +639,15 @@
     }
   },
   "chat": {
+    "conversationMenu": {
+      "label": "会话菜单",
+      "rename": "重命名",
+      "agentConfig": "Agent 配置",
+      "renameTitle": "重命名会话",
+      "name": "会话名称",
+      "saveFailed": "保存失败，请重试。",
+      "saving": "保存中…"
+    },
     "list": {
       "header": "消息",
       "newGroup": "+ 群聊",

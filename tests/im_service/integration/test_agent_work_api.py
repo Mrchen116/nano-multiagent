@@ -149,6 +149,11 @@ def test_work_http_journal_query_and_permission_share_real_ownership(
             ws.send_json({"type": "agent.work.append", "payload": batch})
             assert ws.receive_json()["payload"]["through_seq"] == 3
             assert len(client.get(base).json()["turns"][0]["items"]) == 1
+            renamed = client.patch(
+                f"/im/v1/conversations/{visible.id}", json={"title": "My custom chat"}
+            )
+            assert renamed.status_code == 200
+            assert renamed.json()["title"] == "My custom chat"
             ws.send_json(
                 {
                     "type": "conversation.query",
@@ -166,7 +171,7 @@ def test_work_http_journal_query_and_permission_share_real_ownership(
             assert names["ok"] is True
             rows = names["result"]["conversations"]
             assert [row["target"] for row in rows] == [visible.id]
-            assert rows[0]["name"] == f"与 {owner.display_name} 的私聊"
+            assert rows[0]["name"] == "My custom chat"
             assert any(
                 p["id"] == owner.id and p["name"] == owner.display_name
                 for p in rows[0]["participants"]

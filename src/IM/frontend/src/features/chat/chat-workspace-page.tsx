@@ -920,7 +920,10 @@ export function ChatWorkspacePage() {
   // the panel's z-index and would be hidden by the scrim / mobile full-screen).
   const renameMutation = useMutation({
     mutationFn: (title: string) => updateConversation(conversationId!, { title }),
-    onSuccess: invalidateConversations
+    onSuccess: () => {
+      invalidateConversations();
+      void queryClient.invalidateQueries({ queryKey: ["work-conversation-names"] });
+    }
   });
 
   const addParticipantsMutation = useMutation({
@@ -1198,6 +1201,7 @@ export function ChatWorkspacePage() {
             }}
             onBack={isMobile ? () => navigate("/chat") : undefined}
             isMobile={isMobile}
+            onRename={(title) => renameMutation.mutateAsync(title)}
             onOpenConfig={
               isGroupKind
                 ? () => setShowGroupSettings(true)

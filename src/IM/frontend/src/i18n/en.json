@@ -642,6 +642,15 @@
     }
   },
   "chat": {
+    "conversationMenu": {
+      "label": "Conversation menu",
+      "rename": "Rename",
+      "agentConfig": "Agent configuration",
+      "renameTitle": "Rename conversation",
+      "name": "Conversation name",
+      "saveFailed": "Could not save. Please try again.",
+      "saving": "Saving…"
+    },
     "list": {
       "header": "Messages",
       "newGroup": "+ Group",

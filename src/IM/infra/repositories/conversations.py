@@ -237,7 +237,9 @@ class ConversationRepository:
         if existing is not None:
             with self._connection:
                 self._connection.execute(
-                    "UPDATE conversations SET title = ?, type = ? WHERE id = ?",
+                    """UPDATE conversations
+                    SET title = CASE WHEN type = 'direct' AND title_is_custom = 1
+                        THEN title ELSE ? END, type = ? WHERE id = ?""",
                     (
                         " ".join(title.split()),
                         "group" if is_group else "direct",
@@ -349,7 +351,9 @@ class ConversationRepository:
                 raise
             with self._connection:
                 self._connection.execute(
-                    "UPDATE conversations SET title = ?, type = ? WHERE id = ?",
+                    """UPDATE conversations
+                    SET title = CASE WHEN type = 'direct' AND title_is_custom = 1
+                        THEN title ELSE ? END, type = ? WHERE id = ?""",
                     (
                         " ".join(title.split()),
                         conversation_type,
@@ -411,10 +415,18 @@ class ConversationRepository:
             self._connection.execute(
                 """
                 UPDATE conversations
-                SET title = ?, is_pinned = ?, is_muted = ?
+                SET title = ?, is_pinned = ?, is_muted = ?,
+                    title_is_custom = CASE WHEN ? IS NOT NULL AND type = 'direct'
+                        THEN 1 ELSE title_is_custom END
                 WHERE id = ?
                 """,
-                (next_title, int(next_is_pinned), int(next_is_muted), conversation_id),
+                (
+                    next_title,
+                    int(next_is_pinned),
+                    int(next_is_muted),
+                    title,
+                    conversation_id,
+                ),
             )
         updated = self.get_conversation(conversation_id=conversation_id)
         assert updated is not None

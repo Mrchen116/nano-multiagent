@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS settings_policies (
 CREATE TABLE IF NOT EXISTS conversations (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
+    title_is_custom INTEGER NOT NULL DEFAULT 0,
     type TEXT NOT NULL DEFAULT 'group',
     owner_id TEXT NOT NULL DEFAULT '',
     creator_id TEXT NOT NULL DEFAULT '',
@@ -496,6 +497,10 @@ def _migrate_conversations_metadata(connection: sqlite3.Connection) -> None:
             )
             WHERE last_message_preview IS NULL
             """
+        )
+    if "title_is_custom" not in column_names:
+        connection.execute(
+            "ALTER TABLE conversations ADD COLUMN title_is_custom INTEGER NOT NULL DEFAULT 0"
         )
     if "config_agent_id" not in column_names:
         connection.execute("ALTER TABLE conversations ADD COLUMN config_agent_id TEXT")

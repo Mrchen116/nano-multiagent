@@ -41,6 +41,7 @@ import { Avatar, GroupAvatar, colorForAgentSeed, foregroundForAvatar } from "./a
 import { KindBadge } from "./kind-badge";
 import { parseMentions, mentionNameMap, mentionDisplayName } from "./mention-parser";
 import { MentionPicker } from "./mention-picker";
+import { DirectConversationMenu } from "./direct-conversation-menu";
 import { NodeChip } from "./node-chip";
 import { PermissionCard } from "./permission-card";
 import { SlashPicker } from "./slash-picker";
@@ -78,6 +79,7 @@ export interface MessagePaneProps {
   onSend(text: string, attachments: Attachment[]): void | Promise<void>;
   onBack?(): void;
   onOpenConfig?(): void;
+  onRename?(title: string): Promise<unknown>;
   /** Send mutation error message, shown as an in-app toast. */
   sendError?: string | null;
   /** Current logged-in user id; used to distinguish local send appends from external user messages. */
@@ -190,6 +192,7 @@ export function MessagePane({
   onSend,
   onBack,
   onOpenConfig,
+  onRename,
   sendError,
   selfUserId = null,
   isSending,
@@ -786,7 +789,10 @@ export function MessagePane({
           </div>
         </div>
         {!isMobile && <KindBadge kind={kind} />}
-        {onOpenConfig && (
+        {conversation.type === "direct" && onRename ? (
+          <DirectConversationMenu key={conversation.id} title={conversation.title}
+            onRename={onRename} onOpenConfig={onOpenConfig} />
+        ) : onOpenConfig && (
           <button
             type="button"
             className={`chat-pane-config${isMobile ? " chat-pane-config-icon" : ""}`}

@@ -73,12 +73,6 @@ class WorkConversationQuery:
                     continue
                 participants = self._participants(row["id"], with_agent_ids=True)
                 name = row["title"]
-                if row["type"] == "direct":
-                    others = [
-                        p["name"] for p in participants if p.get("agent_id") != agent_id
-                    ]
-                    if others:
-                        name = "与 " + "、".join(others) + " 的私聊"
                 descriptions.append(
                     {"target": row["id"], "name": name, "participants": participants}
                 )
