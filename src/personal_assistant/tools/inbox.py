@@ -139,10 +139,10 @@ class InboxTool:
 
     name = "inbox"
     description = (
-        "Check unread sources or read a chosen conversation, oldest unread content first. "
-        "Unread counts messages not fully read into your context; reading does not complete "
-        "a task or require a reply. Times are UTC. partial marks a message incomplete on "
-        "this page. Text, images and attachments retain source order."
+        "Check which conversations have unread messages, or read them oldest first. "
+        "Reading brings messages into your context and marks fully read messages as read; "
+        "it does not complete a task or require a reply. partial marks an incomplete message; "
+        "continue with next_cursor. Text, images and attachments stay in source order. Times are UTC."
     )
     presenter = QueryPresenter("Inbox")
     max_result_size_chars = None
@@ -150,20 +150,24 @@ class InboxTool:
     input_schema = {
         "type": "object",
         "properties": {
-            "action": {"type": "string", "enum": ["check", "read"]},
+            "action": {
+                "type": "string",
+                "enum": ["check", "read"],
+                "description": "check: list conversations with unread messages; read: read unread content from one conversation.",
+            },
             "target": {
                 "type": "string",
-                "description": "Conversation target returned by check; required for read.",
+                "description": "For read only, required: copy a conversation target (c_...) returned by check.",
             },
             "cursor": {
                 "type": "string",
-                "description": "Returned only when more content remains. Repeat the same action and target with this next_cursor unchanged.",
+                "description": "Copy next_cursor from the previous result and keep the same action and target. Omit on the first page.",
             },
             "limit": {
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 50,
-                "description": "Optional maximum sources for check or message parts for read. check normally lists all sources within its budget; read defaults to 20 parts.",
+                "description": "Maximum conversations for check or message parts for read. A long message may span parts. Omit to check all conversations that fit in one page, or read up to 20 parts.",
             },
         },
         "required": ["action"],
