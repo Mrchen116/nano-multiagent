@@ -437,6 +437,8 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
     assert relay_adapter.sent[1].target_chat_id == old_conversation_id
     assert relay_adapter.sent[2].target_chat_id == new_conversation_id
     assert relay_adapter.sent[0].metadata == {
+        "sender_display_name": "Alice",
+        "participants": first_relay["payload"]["participants"],
         "relay_task_id": first_relay["payload"]["relay_task_id"],
         "idempotency_key": "idem-m150-old-before",
         "message_id": first_relay["payload"]["message"]["id"],
@@ -447,6 +449,8 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
         "conversation_id": old_conversation_id,
     }
     assert relay_adapter.sent[1].metadata == {
+        "sender_display_name": "Alice",
+        "participants": old_after_relay["payload"]["participants"],
         "relay_task_id": old_after_relay["payload"]["relay_task_id"],
         "idempotency_key": "idem-m150-old-after",
         "message_id": old_after_relay["payload"]["message"]["id"],
@@ -457,6 +461,8 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
         "conversation_id": old_conversation_id,
     }
     assert relay_adapter.sent[2].metadata == {
+        "sender_display_name": "Alice",
+        "participants": new_after_relay["payload"]["participants"],
         "relay_task_id": new_after_relay["payload"]["relay_task_id"],
         "idempotency_key": "idem-m150-new-after",
         "message_id": new_after_relay["payload"]["message"]["id"],
