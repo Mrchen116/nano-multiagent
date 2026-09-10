@@ -124,3 +124,10 @@ Implementation and native/Feishu real-stack self-tests are complete. User explic
 - 正文、工具卡片、列表摘要、应用内通知与桌面通知共用 mention-parser 的名字解析和 unknown 回退；列表搜索基于显示名。通知仅在展示层完成名字转换后截断，保留缓存中的原始消息。
 - 验证：前端全量 74 文件 / 713 测试通过，生产构建通过。新增 Agent/user mention、列表两种模式、名字搜索、缺失成员、长标签跨截断位置、toast 与桌面通知覆盖。
 - 实际保留环境 :59669 重新加载构建：人数确认群摘要为 @小策 · 聚餐统筹，请在策划群提醒大家准时到，人数和预算不变；搜索小策可找到该群，已目视检查。服务与消息记录保留。
+
+### 2026-09-10 — 简化正文暂扣提醒并复测
+
+- 按用户确认的核心意思，将长状态说明简化为 `Your previous reply was NOT SENT because new messages arrived. Consider the new messages and reply again.`；保留 system-reminder 包装、正常提交的空内容审计记录和历史过滤。
+- 读取 feat-544 的 cases.json、supplementary-cases.json 和旧报告，选六个正文场景改用日常短句，另加同文先发后扣；真实 DeepSeek V4 Flash/high 七场景通过，六个有更新场景共七次实际暂扣，连续更新消费两批输入。无关插话仍完整回复，取消通知保持静默，正常跟进不新增暂扣提醒。
+- 每次核对实际 LLM 请求均为新短提醒、无成功提醒；原始证据/执行前计划/运行脚本/摘要保留在 `output/simple-reminder-evaluation/`。这是针对性行为验证，不是原历史全集重放或提示词因果 A/B；未重跑工具、后台、图片和报数压力场景。
+- 相关内核测试 39 passed；Ruff、diff check 通过。保留 :59669 演示服务与旧数据，仅重载隔离 Gateway 以加载新提醒。

@@ -681,14 +681,6 @@ class AgentLoop:
                                 },
                             )
                         committed = outcome == "committed"
-                        status_text = (
-                            "NOT SENT. Only this text was withheld; earlier committed text remains committed, "
-                            "even if their text is identical. "
-                            "Consider the subsequent new messages and continue under the original reply rules. "
-                            "Do not describe this withheld text as already delivered or refer the recipient to it. "
-                            "If a reply is still called for, provide the complete current answer; "
-                            "an unrelated update does not cancel the original request. "
-                        )
                         status_message = Message(
                             message_id=make_message_id(),
                             role="user",
@@ -696,8 +688,8 @@ class AgentLoop:
                                 ""
                                 if committed
                                 else "<system-reminder>\n"
-                                "Output status of the immediately preceding assistant text: "
-                                f"{status_text.rstrip()}\n</system-reminder>"
+                                "Your previous reply was NOT SENT because new messages arrived. "
+                                "Consider the new messages and reply again.\n</system-reminder>"
                             ),
                             metadata={
                                 "output_status": {

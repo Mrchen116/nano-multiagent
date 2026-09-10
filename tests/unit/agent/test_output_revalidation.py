@@ -284,7 +284,10 @@ async def test_identical_committed_and_withheld_candidates_keep_distinct_durable
     )
     assert "COMMITTED FOR DELIVERY" not in next_context
     assert "NOT SENT" in next_context
-    assert "even if their text is identical" in next_context
+    assert (
+        "Your previous reply was NOT SENT because new messages arrived. "
+        "Consider the new messages and reply again."
+    ) in next_context
 
     transcript, files, writer, ref = _build_transcript(tmp_path)
     try:
