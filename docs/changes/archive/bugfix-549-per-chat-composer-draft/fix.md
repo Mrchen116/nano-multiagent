@@ -50,3 +50,15 @@ Web IM 里，未发送的输入框内容和待发附件会跟着整页输入框�
 - 蒸馏：成功后新建执行会话并预填 prompt，用户按普通聊天继续发。修复后预填仍进入目标会话输入框。
 - feat-484：切会话时进行中的复制操作作废。这条继续独立成立，不能为了修草稿把复制隔离拆掉。
 - feat-469：切走之后才回来的上传失败，不得写进新打开的会话。这条继续成立。
+
+## 修复
+
+未发送文字、`@mention` 元数据、待发附件和 slash 收起态按 `conversation.id` 放进模块级仓库，账号用 `selfUserId` 分仓。切会话时先把当前输入写回旧会话，再恢复目标会话；没写过的就是空输入框。生产路径用模块仓库，是为了撑过移动端 `/chat` ↔ `/chat/:id` 换路由把 `MessagePane` 卸掉的情况。测试默认用组件内仓库，避免 vitest 并行文件共用同一份草稿。
+
+发送、上传、蒸馏预填都按发起时的会话写回仓库，并用仓库订阅通知后挂上的实例：发送成功清提交那一会话（含发送中途离开再进来）；上传完成后附件仍归发起会话；蒸馏 seed 带目标 `conversationId`，不会写进当前正在看的其它会话，消费后清掉以免移动端再挂时覆盖。某一会话发送中，其它会话仍可输入。开发环境 `StrictMode` 会先卸再挂，从仓库初始化状态，避免空初始 state 把已存草稿盖掉。刷新或关页仍不持久化。
+
+## 验证
+
+- `src/IM/frontend/src/features/chat/components/message-pane-composer-draft.test.tsx`：切会话不串稿、切回恢复、待发附件跟随会话、发送成功只清提交会话、发送失败留在原会话、蒸馏预填只进目标会话、卸载再挂恢复、StrictMode 重挂恢复、发送中途离开后成功仍清该会话。
+- 同目录 `message-pane.test.tsx`、`message-pane-fork.test.tsx`、`chat-workspace.integration.test.tsx` 回归通过。
+- 真实浏览器：隔离 IM `:62005` + Vite `:18765`，账号 `nano`，会话 Draft Chat A / Draft Chat B。桌面 1440 侧栏切换、移动 375 回列表再进，均满足「B 为空、切回 A 仍是 A 的草稿、B 另写一份互不影响」。证据在 `M1-fix/evidence/`。
