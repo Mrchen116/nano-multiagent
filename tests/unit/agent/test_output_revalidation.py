@@ -254,6 +254,7 @@ async def test_identical_committed_and_withheld_candidates_keep_distinct_durable
     assert first_status is not None, (
         "A committed candidate needs its own durable delivery-state record"
     )
+    assert first_status.content == ""
     second_state = replace(
         state,
         turn_id="turn-2",
@@ -279,8 +280,9 @@ async def test_identical_committed_and_withheld_candidates_keep_distinct_durable
         m.content.startswith("<system-reminder>\n")
         and m.content.endswith("\n</system-reminder>")
         for m in status_messages
+        if m.metadata["output_status"]["state"] == "withheld"
     )
-    assert "COMMITTED FOR DELIVERY" in next_context
+    assert "COMMITTED FOR DELIVERY" not in next_context
     assert "NOT SENT" in next_context
     assert "even if their text is identical" in next_context
 
@@ -299,8 +301,20 @@ async def test_identical_committed_and_withheld_candidates_keep_distinct_durable
         replay = build_chat_messages(
             history_messages=tuple(reloaded), user_text="continue"
         )
-        assert "COMMITTED FOR DELIVERY" in str(replay)
+        assert "COMMITTED FOR DELIVERY" not in str(replay)
         assert "NOT SENT" in str(replay)
+        legacy_history = tuple(
+            replace(
+                m, content="<system-reminder>COMMITTED FOR DELIVERY</system-reminder>"
+            )
+            if m.metadata.get("output_status", {}).get("state")
+            == "committed_for_delivery"
+            else m
+            for m in reloaded
+        )
+        assert "COMMITTED FOR DELIVERY" not in str(
+            build_chat_messages(history_messages=legacy_history, user_text="continue")
+        )
         assert [
             m.content
             for m in build_turn_result("session", "turn", list(reloaded)).messages

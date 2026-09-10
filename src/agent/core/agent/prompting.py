@@ -91,7 +91,14 @@ def build_chat_messages(
     # These are synthetic assistant messages (is_provider_error=True) that were
     # persisted for IM/CLI display but must not pollute the LLM's context window
     # (mirrors CC isSyntheticApiErrorMessage / normalizeMessagesForAPI pattern).
-    history_messages = tuple(m for m in history_messages if not _is_provider_error(m))
+    history_messages = tuple(
+        m
+        for m in history_messages
+        if not _is_provider_error(m)
+        # Delivery commit records remain in the transcript, including older
+        # success notices, but never become model instructions on replay.
+        and m.metadata.get("output_status", {}).get("state") != "committed_for_delivery"
+    )
 
     # Coalesce assistant Message rows that share a group_id before converting.
     # When parallel tool_use blocks stream in as separate LLM chunks, each chunk

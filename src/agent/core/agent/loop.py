@@ -682,10 +682,7 @@ class AgentLoop:
                             )
                         committed = outcome == "committed"
                         status_text = (
-                            "COMMITTED FOR DELIVERY by the local output gate. "
-                            "This records submission to the delivery path, not a remote delivery acknowledgment. "
-                            if committed
-                            else "NOT SENT. Only this text was withheld; earlier committed text remains committed, "
+                            "NOT SENT. Only this text was withheld; earlier committed text remains committed, "
                             "even if their text is identical. "
                             "Consider the subsequent new messages and continue under the original reply rules. "
                             "Do not describe this withheld text as already delivered or refer the recipient to it. "
@@ -695,9 +692,13 @@ class AgentLoop:
                         status_message = Message(
                             message_id=make_message_id(),
                             role="user",
-                            content="<system-reminder>\n"
-                            "Output status of the immediately preceding assistant text: "
-                            f"{status_text.rstrip()}\n</system-reminder>",
+                            content=(
+                                ""
+                                if committed
+                                else "<system-reminder>\n"
+                                "Output status of the immediately preceding assistant text: "
+                                f"{status_text.rstrip()}\n</system-reminder>"
+                            ),
                             metadata={
                                 "output_status": {
                                     "candidate_id": candidate_id,
@@ -715,9 +716,13 @@ class AgentLoop:
                                 ),
                             },
                         )
-                        llm_messages.append(
-                            LLMMessage(role="user", content=status_message.content)
-                        )
+                        # Successful publication is durable audit metadata, not
+                        # another instruction to the model. Only a withheld draft
+                        # needs a reminder so the model can reconsider it.
+                        if not committed:
+                            llm_messages.append(
+                                LLMMessage(role="user", content=status_message.content)
+                            )
                         yield status_message
 
                     turn_usage = _accumulate_usage(turn_usage, latest_usage)

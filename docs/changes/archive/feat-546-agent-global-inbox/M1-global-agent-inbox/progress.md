@@ -111,3 +111,9 @@ Implementation and native/Feishu real-stack self-tests are complete. User explic
 - Inbox 唤醒改用已有 `<system-reminder>`，明确表达新消息已到、通知不含正文、先查看待读聊天再选择读取并决定处理。内部 submission ID 仅用于去重／回执，不作为模型可见的批次解释。
 - Inbox 与 conversations 使用工具既有 `check_permissions` 放行合法查询；参数验证、Gateway Session 身份和来源访问检查保持。后续其他操作所需的用户请求审批上下文投影保持。
 - 49 项工具／权限钩子／真实 SDK 循环测试通过。保留的聚餐现场追加简短请求「人数和预算不变，请在策划群补充提醒：周五晚上聚餐。」；真实 DeepSeek 调用了 inbox、inbox、send_message，在策划群回复「补充提醒：本次聚餐时间为周五晚上，人数8人、预算400元不变。」。代理原始请求确认 system reminder 到达模型，此次新增权限分类请求为 0，主 Session 保持不变，服务继续保留。
+
+### 2026-09-10 — 仅暂扣正文向模型提醒
+
+按用户侧聊转达要求，正常放行正文仅保留内部 `output_status` 审计元数据，不再向模型追加成功状态 system reminder。暂扣仍提供 NOT SENT 及明确的当前正文范围；历史模型上下文和 compaction 共用的组装入口过滤旧成功提醒，原持久记录不改写。
+
+48 项 output revalidation、prompting、loop、compaction 与全局 SDK 测试通过，包括先前同文已发送、后来同文暂扣、重载后仅排除暂扣正文且保留两次独立审计状态。真实聚餐主 Session 再次读取跟进并发布「提醒大家周五晚上准时到场，人数8人、预算400元不变。」；新增模型请求不包含 COMMITTED FOR DELIVERY，Inbox 两次调用无权限分类请求。原 IM、群聊和服务继续保留。
