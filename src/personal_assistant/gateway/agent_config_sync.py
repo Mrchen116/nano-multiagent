@@ -118,6 +118,7 @@ def canonical_agent_operation_payload(
         )
     return {
         "agent_id": agent_id,
+        "work_mode": str(payload.get("work_mode") or "single_thread"),
         "display_name": display_name,
         "skills": skills,
         "skills_selection_mode": skills_selection_mode,
@@ -433,6 +434,7 @@ class IMAgentConfigSync:
             cp_val.strip() if isinstance(cp_val, str) and cp_val.strip() else None
         )
         agent_config = AgentWorkspaceConfig(
+            work_mode=str(agent_payload.get("work_mode") or "single_thread"),
             agent_id=agent_id,
             workspace_root=workspace_root,
             workspace_is_default=workspace_is_default,
@@ -475,6 +477,7 @@ class IMAgentConfigSync:
             "skills_selection_mode": effective_skills_selection_mode(
                 agent.skills_selection_mode, agent.skills
             ),
+            "work_mode": agent.work_mode,
             "tool_allowlist": list(agent.tool_allowlist),
             "group_reply_policy": agent.group_reply_policy or "MENTION",
             "default_model": agent.default_model,
@@ -560,6 +563,14 @@ class IMAgentConfigSync:
             try:
                 existing_receipt = self._operation_receipts.get(operation_id)
                 if existing_receipt is None:
+                    if kind == "apply" and "work_mode" not in raw_candidate:
+                        existing_agent = self._local_agent(
+                            str(canonical_request["agent_id"])
+                        )
+                        if existing_agent is not None:
+                            # Keep wire identity separate from the effective saved
+                            # candidate when an older sender omits immutable fields.
+                            canonical_request["work_mode"] = existing_agent.work_mode
                     # Validate deterministic candidate fields before workspace
                     # setup can create or initialize a custom directory.
                     try:
@@ -861,7 +872,13 @@ class IMAgentConfigSync:
             field_name="model_fallbacks",
         )
         existing_agent = self._local_agent(agent_id)
+        if existing_agent is not None:
+            _validate_execution_identity(existing_agent, payload)
         return AgentWorkspaceConfig(
+            work_mode=str(
+                payload.get("work_mode")
+                or (existing_agent.work_mode if existing_agent else "single_thread")
+            ),
             agent_id=agent_id,
             workspace_root=Path(workspace_text).expanduser().resolve(),
             workspace_is_default=(
@@ -1205,6 +1222,8 @@ class IMAgentConfigSync:
             if isinstance(payload.get("heartbeat_json"), str)
             else None,
         }
+        if "work_mode" in payload:
+            patch_payload["work_mode"] = payload["work_mode"]
         response = self._get_client().patch(
             f"/im/v1/agents/{agent_id}/config",
             json=patch_payload,
@@ -1387,7 +1406,13 @@ class IMAgentConfigSync:
             field_name="model_fallbacks",
         )
         existing_agent = self._local_agent(agent_id)
+        if existing_agent is not None:
+            _validate_execution_identity(existing_agent, payload)
         return AgentWorkspaceConfig(
+            work_mode=str(
+                payload.get("work_mode")
+                or (existing_agent.work_mode if existing_agent else "single_thread")
+            ),
             agent_id=agent_id,
             workspace_root=workspace_root,
             workspace_is_default=(
@@ -1439,6 +1464,13 @@ class IMAgentConfigSync:
             agents = list(current.agents)
             for index, existing in enumerate(agents):
                 if existing.agent_id == agent_config.agent_id:
+                    _validate_execution_identity(
+                        existing,
+                        {
+                            "work_mode": agent_config.work_mode,
+                            "workspace_root": str(agent_config.workspace_root),
+                        },
+                    )
                     agents[index] = agent_config
                     break
             else:
@@ -1495,6 +1527,7 @@ class IMAgentConfigSync:
                 "skills_selection_mode": effective_skills_selection_mode(
                     agent.skills_selection_mode, agent.skills
                 ),
+                "work_mode": agent.work_mode,
                 "tool_allowlist": list(agent.tool_allowlist),
                 "group_reply_policy": agent.group_reply_policy or "manual",
                 "default_model": agent.default_model,
@@ -1604,6 +1637,7 @@ def _agent_operation_payload(agent: AgentWorkspaceConfig) -> dict[str, object]:
         "display_name": agent.title or agent.agent_id,
         "skills": list(agent.skills),
         "skills_selection_mode": agent.skills_selection_mode,
+        "work_mode": agent.work_mode,
         "tool_allowlist": list(agent.tool_allowlist),
         "group_reply_policy": agent.group_reply_policy or "manual",
         "default_model": agent.default_model,
@@ -1716,3 +1750,18 @@ def _parse_heartbeat_from_im_payload(
     else:
         hb_start, hb_end, hb_tz = None, None, None
     return heartbeat_every, hb_start, hb_end, hb_tz
+
+
+def _validate_execution_identity(
+    existing: AgentWorkspaceConfig, payload: Mapping[str, object]
+) -> None:
+    """Keep one global Agent bound to its original mode and workspace."""
+    if payload.get("work_mode", existing.work_mode) != existing.work_mode:
+        raise ValueError("work_mode is immutable after creation")
+    root = payload.get("workspace_root")
+    if (
+        existing.work_mode == "global"
+        and root
+        and Path(str(root)).expanduser().resolve() != existing.workspace_root.resolve()
+    ):
+        raise ValueError("global Agent workspace is immutable after creation")

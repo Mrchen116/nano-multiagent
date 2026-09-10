@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-import asyncio
+import threading
+
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
@@ -173,6 +174,7 @@ class RunsRegistry:
         self._controllers: dict[str, RunController] = {}
         # session_id → run_id for the currently-executing run (RUNNING state only).
         self._active_run_by_session: dict[str, str] = {}
+        self._admission_lock = threading.RLock()
         # bugfix-426 决策3 (held-pending): when a user /stop ends a run, messages that
         # were steered into it but never consumed are NOT auto-continued (that would
         # contradict the explicit stop) and NOT discarded (that would lose the user's
@@ -222,89 +224,99 @@ class RunsRegistry:
         continuation: Mapping[str, Any] | None = None,
         replay_last_user: bool = False,
         revalidate_output: bool = False,
-    ) -> RunRecord:
+        submission_id: str | None = None,
+        only_if_idle: bool = False,
+    ) -> RunRecord | None:
         """Prepare semantic state, bind an executor token, then publish the run."""
 
-        if workspace_root is None:
-            raise ValueError("workspace_root is required to submit a session")
-        # 空 parts 仍非法；replay-last-user 复用 transcript 里最近一条用户消息。
-        if not parts and not replay_last_user:
-            raise ValueError("empty input parts are not allowed")
-        with self._lock:
-            if self._state is not _RegistryState.OPEN:
-                raise RegistryClosedError(
-                    "registry is shutting down; no new runs will be accepted"
-                )
-            held = self._held_pending.pop(session_id, None) if flush_held else None
-        normalized_parts: list[Mapping[str, Any]] = []
-        normalized_background_returns: list[BackgroundReturnInfo] = []
-        if held:
-            for pending in held:
-                normalized_parts.extend(_input_parts_from_message(pending.message))
-                if pending.background_return is not None:
-                    normalized_background_returns.append(pending.background_return)
-        normalized_parts.extend(dict(part) for part in parts)
-        normalized_background_returns.extend(source_background_returns)
+        with self._admission_lock:
+            if workspace_root is None:
+                raise ValueError("workspace_root is required to submit a session")
+            # 空 parts 仍非法；replay-last-user 复用 transcript 里最近一条用户消息。
+            if not parts and not replay_last_user:
+                raise ValueError("empty input parts are not allowed")
+            with self._lock:
+                if self._state is not _RegistryState.OPEN:
+                    raise RegistryClosedError(
+                        "registry is shutting down; no new runs will be accepted"
+                    )
+                held = self._held_pending.pop(session_id, None) if flush_held else None
+            normalized_parts: list[Mapping[str, Any]] = []
+            normalized_background_returns: list[BackgroundReturnInfo] = []
+            if held:
+                for pending in held:
+                    normalized_parts.extend(_input_parts_from_message(pending.message))
+                    if pending.background_return is not None:
+                        normalized_background_returns.append(pending.background_return)
+            normalized_parts.extend(dict(part) for part in parts)
+            normalized_background_returns.extend(source_background_returns)
 
-        ref = SessionRef(session_id=session_id, workspace_root=workspace_root)
-        if self._directory.get(ref) is None:
-            if held:
-                with self._lock:
-                    self._held_pending.setdefault(session_id, [])[:0] = held
-            raise ValueError(f"session does not exist: {session_id}")
-        session = self._directory.open(ref)
-        run_id = make_run_id()
-        now = _utc_now_iso()
-        resolved_trace_id = trace_id or current_trace_id()
-        start_sequence = (
-            self._event_hub.current_sequence() if self._event_hub is not None else 0
-        )
-        record = RunRecord(
-            run_id=run_id,
-            session_id=session_id,
-            status=RunStatus.QUEUED,
-            created_at=now,
-            updated_at=now,
-            trace_id=resolved_trace_id,
-            origin=origin,
-            source_task_id=source_task_id,
-            source_background_returns=tuple(normalized_background_returns),
-            workspace_root=ref.workspace_root,
-            start_sequence=start_sequence,
-            model=model,
-            continuation=continuation,
-            revalidate_output=revalidate_output,
-        )
-        controller = RunController(revalidate_output=revalidate_output)
-        sink = _RegistryCompletionSink(
-            registry=self,
-            record=record,
-            controller=controller,
-        )
-        try:
-            self._executor.start_top_level(
-                run_id,
-                session,
-                TurnRequest(
-                    parts=tuple(normalized_parts),
-                    run_id=run_id,
-                    trace_id=resolved_trace_id,
-                    controller=controller,
-                    origin=origin,
-                    model=model,
-                    source_background_returns=tuple(
-                        item.to_dict() for item in normalized_background_returns
-                    ),
-                    replay_last_user=replay_last_user,
-                ),
-                sink,
+            ref = SessionRef(session_id=session_id, workspace_root=workspace_root)
+            if self._directory.get(ref) is None:
+                if held:
+                    with self._lock:
+                        self._held_pending.setdefault(session_id, [])[:0] = held
+                raise ValueError(f"session does not exist: {session_id}")
+            session = self._directory.open(ref)
+            run_id = make_run_id()
+            now = _utc_now_iso()
+            resolved_trace_id = trace_id or current_trace_id()
+            start_sequence = (
+                self._event_hub.current_sequence() if self._event_hub is not None else 0
             )
-        except Exception:
-            if held:
-                with self._lock:
-                    self._held_pending.setdefault(session_id, [])[:0] = held
-            raise
-        return record
+            record = RunRecord(
+                run_id=run_id,
+                session_id=session_id,
+                status=RunStatus.QUEUED,
+                created_at=now,
+                updated_at=now,
+                trace_id=resolved_trace_id,
+                origin=origin,
+                source_task_id=source_task_id,
+                source_background_returns=tuple(normalized_background_returns),
+                workspace_root=ref.workspace_root,
+                start_sequence=start_sequence,
+                model=model,
+                continuation=continuation,
+                revalidate_output=revalidate_output,
+            )
+            controller = RunController(revalidate_output=revalidate_output)
+            sink = _RegistryCompletionSink(
+                registry=self,
+                record=record,
+                controller=controller,
+            )
+            try:
+                token = self._executor.start_top_level(
+                    run_id,
+                    session,
+                    TurnRequest(
+                        parts=tuple(normalized_parts),
+                        run_id=run_id,
+                        trace_id=resolved_trace_id,
+                        controller=controller,
+                        origin=origin,
+                        model=model,
+                        source_background_returns=tuple(
+                            item.to_dict() for item in normalized_background_returns
+                        ),
+                        replay_last_user=replay_last_user,
+                        submission_id=submission_id,
+                    ),
+                    sink,
+                    only_if_idle=only_if_idle,
+                )
+                if token is None:
+                    if held:
+                        with self._lock:
+                            self._held_pending.setdefault(session_id, [])[:0] = held
+                    return None
+            except Exception:
+                if held:
+                    with self._lock:
+                        self._held_pending.setdefault(session_id, [])[:0] = held
+                raise
+            return record
 
     def set_foreground_stopper(self, stopper: "ForegroundStopper | None") -> None:
         """Inject the foreground-tool subprocess reaper after construction.
@@ -595,7 +607,9 @@ class RunsRegistry:
                 self._active_run_by_session[started.session_id] = run_id
         log_info("run_started", run_id=run_id)
 
-    def _target_completed(self, run_id: str, completion: TargetCompletion) -> None:
+    async def _target_completed(
+        self, run_id: str, completion: TargetCompletion
+    ) -> None:
         with self._lock:
             record = self._runs.get(run_id)
             controller = self._controllers.get(run_id)
@@ -640,7 +654,7 @@ class RunsRegistry:
                     model=record.model,
                 )
 
-        asyncio.get_running_loop().create_task(_finish())
+        await _finish()
 
     def _settle_terminal_pending(
         self,
@@ -1055,8 +1069,8 @@ class _RegistryCompletionSink:
             raise RuntimeError("executor bound a token to the wrong run")
         self.registry._target_started(self.record.run_id)
 
-    def complete(self, completion: TargetCompletion) -> None:
-        self.registry._target_completed(self.record.run_id, completion)
+    async def complete(self, completion: TargetCompletion) -> None:
+        await self.registry._target_completed(self.record.run_id, completion)
 
 
 _TERMINAL_STATUSES = {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED}

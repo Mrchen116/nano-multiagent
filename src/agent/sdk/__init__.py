@@ -21,6 +21,7 @@ Public API:
 
 from .kernel import CanUseToolFn, Kernel, ReplayLastUserRejected, build_kernel
 from .contracts import HookAPI, Tool, ToolContext
+from .content import tool_content_digest
 from .dto import (
     FeatureInfo,
     LLMConfig,
@@ -63,6 +64,7 @@ __all__ = [
     # 2-layer surface (refactor-406 决策 2/4/5/6/8)
     "Tool",
     "ToolContext",
+    "tool_content_digest",
     "HookAPI",
     "PromptSlots",
     "PromptText",

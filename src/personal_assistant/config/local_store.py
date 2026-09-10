@@ -176,6 +176,7 @@ class AgentWorkspaceConfig:
         workspace_is_default: Whether Gateway assigned the root from its default factory.
         create_operation_id: Durable IM ``agent.create`` operation that created this
             local binding.  Absent for pre-hosted/local configuration agents.
+        work_mode: Immutable execution mode, single_thread or global.
         title: Optional operator-facing label.
         skills: Enabled skill identifiers for this agent.
         tool_allowlist: Allowed tool names restricting the agent's tool access.
@@ -216,6 +217,7 @@ class AgentWorkspaceConfig:
     workspace_root: Path
     workspace_is_default: bool = False
     create_operation_id: str | None = None
+    work_mode: str = "single_thread"
     title: str | None = None
     skills: tuple[str, ...] = ()
     skills_selection_mode: str | None = None
@@ -236,6 +238,13 @@ class AgentWorkspaceConfig:
     heartbeat_active_hours_start: str | None = None
     heartbeat_active_hours_end: str | None = None
     heartbeat_active_hours_timezone: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.work_mode, str) or self.work_mode not in {
+            "single_thread",
+            "global",
+        }:
+            raise ValueError("work_mode must be single_thread or global")
 
     @property
     def heartbeat_enabled(self) -> bool:
@@ -390,6 +399,7 @@ class RuntimeConfigOwner:
     def replace(self, config: LocalConfig) -> None:
         """Replace the in-memory snapshot when no durable write is required."""
         with self._lock:
+            _validate_agent_execution_bindings(self._config, config)
             self._config = config
 
     def persist(
@@ -403,9 +413,28 @@ class RuntimeConfigOwner:
             updated = transform(self._config)
             if updated == self._config:
                 return self._config
+            _validate_agent_execution_bindings(self._config, updated)
             save_config(updated, updated.source_path)
             self._config = updated
             return updated
+
+
+def _validate_agent_execution_bindings(
+    current: LocalConfig, updated: LocalConfig
+) -> None:
+    previous = {agent.agent_id: agent for agent in current.agents}
+    for agent in updated.agents:
+        existing = previous.get(agent.agent_id)
+        if existing is None:
+            continue
+        if existing.work_mode != agent.work_mode:
+            raise ValueError("work_mode is immutable after creation")
+        if (
+            existing.work_mode == "global"
+            and existing.workspace_root.expanduser().resolve()
+            != agent.workspace_root.expanduser().resolve()
+        ):
+            raise ValueError("global Agent workspace is immutable after creation")
 
 
 def load_gateway_runtime_config(
@@ -951,6 +980,7 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
         agent_dict: dict[str, Any] = {
             "agent_id": agent.agent_id,
             "workspace_root": str(agent.workspace_root),
+            "work_mode": agent.work_mode,
             "workspace_is_default": agent.workspace_is_default,
         }
         if agent.create_operation_id is not None:
@@ -1466,6 +1496,7 @@ def _parse_agents(
         agents.append(
             AgentWorkspaceConfig(
                 agent_id=agent_id,
+                work_mode=item.get("work_mode", "single_thread"),
                 workspace_root=workspace_root,
                 workspace_is_default=workspace_is_default,
                 create_operation_id=create_operation_id,

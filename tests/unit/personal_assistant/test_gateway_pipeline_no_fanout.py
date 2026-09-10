@@ -222,12 +222,17 @@ def test_group_effort_requires_its_explicit_target_even_for_always_agents(
     )
     relay_for_always_peer = InboundMessage(
         channel_name="web_relay",
-        text='<mention type="agent" target_id="agent-a"/> /effort high',
+        text='<mention type="user" target_id="u_aaaaaaaa"/> /effort high',
         external_user_id="user-1",
         external_chat_id="conv-1",
         is_group=True,
         agent_id="agent-b",
-        metadata={"mentioned_agent_ids": ["agent-a"]},
+        metadata={
+            "mentioned_agent_ids": ["agent-a"],
+            "participants": [
+                {"type": "agent", "agent_id": "agent-a", "user_id": "u_aaaaaaaa"}
+            ],
+        },
         source_timestamp=datetime(2026, 8, 12, 1, 2, tzinfo=timezone.utc),
     )
 
@@ -240,7 +245,7 @@ def test_group_effort_requires_its_explicit_target_even_for_always_agents(
     ) == [
         (
             "user-1",
-            '<mention type="agent" target_id="agent-a"/> /effort high',
+            '<mention type="user" target_id="u_aaaaaaaa"/> /effort high',
             {
                 "_pa_human_message_context": {
                     "version": 1,
@@ -282,7 +287,12 @@ def test_peer_agent_reply_relay_buffers_when_self_not_mentioned(tmp_path: Path) 
         external_chat_id="conv-1",
         is_group=True,
         agent_id="agent-a",
-        metadata={"mentioned_agent_ids": ["agent-a"]},
+        metadata={
+            "mentioned_agent_ids": ["agent-a"],
+            "participants": [
+                {"type": "agent", "agent_id": "agent-a", "user_id": "u_aaaaaaaa"}
+            ],
+        },
     )
 
     reply_result = asyncio.run(pipeline.handle_inbound(peer_reply_for_a))
@@ -393,7 +403,12 @@ def test_non_mentioned_group_relay_buffers_for_its_target_agent(tmp_path: Path) 
         external_chat_id="conv-1",
         is_group=True,
         agent_id="agent-a",
-        metadata={"mentioned_agent_ids": ["agent-a"]},
+        metadata={
+            "mentioned_agent_ids": ["agent-a"],
+            "participants": [
+                {"type": "agent", "agent_id": "agent-a", "user_id": "u_aaaaaaaa"}
+            ],
+        },
     )
 
     result_a_background = asyncio.run(pipeline.handle_inbound(relay_for_a))

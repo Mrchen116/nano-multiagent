@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 
 import { useTranslation } from "../../../i18n";
 import type { BackgroundReturn, ReplyProcessItem, ThinkingSegment, ToolCall } from "../chat-types";
@@ -258,9 +258,11 @@ function BackgroundReturnField({ label, value }: { label: string; value: string 
   );
 }
 
-function BackgroundReturnRow({ value }: { value: BackgroundReturn }) {
+export function BackgroundReturnRow({ value, expanded, onExpandedChange, detailFooter }: { value: BackgroundReturn; expanded?: boolean; onExpandedChange?: (open: boolean) => void; detailFooter?: ReactNode }) {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
+  const [localOpen, setLocalOpen] = useState(false);
+  const open = expanded ?? localOpen;
+  const setOpen = (next: boolean) => { setLocalOpen(next); onExpandedChange?.(next); };
   const failed = value.status === "failed" || value.status === "killed";
   const stopped = value.status === "stopped";
   const statusColor = failed
@@ -281,7 +283,7 @@ function BackgroundReturnRow({ value }: { value: BackgroundReturn }) {
       <button
         type="button"
         className={`chat-tool-call-row chat-process-background-row chat-tool-call-row--${rowStatus}`}
-        onClick={() => setOpen((current) => !current)}
+        onClick={() => setOpen(!open)}
         aria-expanded={open}
         data-testid="process-background-return-toggle"
       >
@@ -367,6 +369,7 @@ function BackgroundReturnRow({ value }: { value: BackgroundReturn }) {
                 </div>
               </div>
             )}
+            {detailFooter}
           </div>
         </div>
       )}
@@ -431,9 +434,11 @@ const REASON_LABEL_KEYS: Record<string, string> = {
   stalled: "chat.messagePane.toolReasonInterrupted",
 };
 
-function ToolCallRow({ call }: { call: ToolCall }) {
+export function ToolCallRow({ call, expanded, onExpandedChange, detailFooter }: { call: ToolCall; expanded?: boolean; onExpandedChange?: (open: boolean) => void; detailFooter?: ReactNode }) {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
+  const [localOpen, setLocalOpen] = useState(false);
+  const open = expanded ?? localOpen;
+  const setOpen = (value: boolean) => { setLocalOpen(value); onExpandedChange?.(value); };
   // Failure derives from isCallFailed (status OR detail.success===false), so
   // never-raising tools (memory/skill failures) also render red (Round-3 fix).
   const failed = isCallFailed(call);
@@ -465,7 +470,7 @@ function ToolCallRow({ call }: { call: ToolCall }) {
       <button
         type="button"
         className={`chat-tool-call-row chat-tool-call-row--${rowStatus}`}
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => setOpen(!open)}
         aria-expanded={open}
       >
         <span className="chat-tool-call-status-icon" style={{ color: statusColor }}>
@@ -508,6 +513,7 @@ function ToolCallRow({ call }: { call: ToolCall }) {
         <div className="chat-tool-call-body chat-tool-call-body--open">
           <div className="chat-tool-call-body-inner">
             <ToolDetailBody call={call} />
+            {detailFooter}
           </div>
         </div>
       )}

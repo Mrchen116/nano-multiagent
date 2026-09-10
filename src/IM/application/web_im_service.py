@@ -209,6 +209,7 @@ class WebIMService:
         attachments: list[Attachment] | None = None,
         auto_complete_delivery: bool = True,
         sender_display_name: str | None = None,
+        sender_source_id: str | None = None,
         emit_created_event: bool = False,
         caller_idempotency_key: str | None = None,
     ) -> Message:
@@ -235,6 +236,7 @@ class WebIMService:
             attachments=attachments,
             auto_complete_delivery=auto_complete_delivery,
             sender_display_name=sender_display_name,
+            sender_source_id=sender_source_id,
             emit_created_event=emit_created_event,
             caller_idempotency_key=caller_idempotency_key,
         )

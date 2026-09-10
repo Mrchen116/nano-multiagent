@@ -30,6 +30,7 @@ class _InjectedCrash(RuntimeError):
 
 
 @pytest.mark.parametrize("kind", ["create", "apply"])
+@pytest.mark.parametrize("work_mode", ["single_thread", "global"])
 @pytest.mark.parametrize(
     "crash_phase",
     ["prepared", "workspace_initialized", "config_persisted", "published"],
@@ -38,6 +39,7 @@ def test_config_operation_recovers_each_write_boundary_once(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     kind: str,
+    work_mode: str,
     crash_phase: str,
 ) -> None:
     seed_workspace = tmp_path / "seed"
@@ -46,6 +48,7 @@ def test_config_operation_recovers_each_write_boundary_once(
     target_workspace.mkdir()
     target = AgentWorkspaceConfig(
         agent_id="target",
+        work_mode=work_mode,
         workspace_root=target_workspace,
         title="Target",
         skills=("plan",),
@@ -82,6 +85,7 @@ def test_config_operation_recovers_each_write_boundary_once(
     if kind == "create":
         agent = {
             "agent_id": "created",
+            "work_mode": work_mode,
             "display_name": "Created",
             "skills": ["plan"],
             "tool_allowlist": ["read"],
@@ -128,6 +132,7 @@ def test_config_operation_recovers_each_write_boundary_once(
     applied_agent = result["agent"]
     assert isinstance(applied_agent, dict)
     assert applied_agent["reasoning_effort"] == ("high" if kind == "create" else "max")
+    assert applied_agent["work_mode"] == work_mode
     assert applied_agent["heartbeat_json"] == '{"every":"45m"}'
     assert save_count == 1
 

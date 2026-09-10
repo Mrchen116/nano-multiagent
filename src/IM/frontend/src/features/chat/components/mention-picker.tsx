@@ -18,10 +18,10 @@ export interface MentionPickerProps {
  * Keyboard navigation (ArrowUp/ArrowDown/Enter) is supported so the user can
  * select without leaving the keyboard.
  *
- * bugfix-358: handle column (@agent_id) is always shown on every row so the
+ * bugfix-358: handle column (@user_id) is always shown on every row so the
  * user can verify the wire ID of the candidate they are about to select.
  * Disambiguation under duplicate display_names is then a natural consequence
- * of two distinct agent_ids being visible.
+ * of two distinct user_ids being visible.
  */
 export function MentionPicker({ candidates, query, onSelect, onClose }: MentionPickerProps) {
   const { t } = useTranslation();
@@ -75,7 +75,7 @@ export function MentionPicker({ candidates, query, onSelect, onClose }: MentionP
       <div className="chat-mention-picker-header">{t("chat.mention.header")}</div>
       {filtered.map((c, idx) => (
         <button
-          key={c.agent_id}
+          key={c.user_id}
           type="button"
           className="chat-mention-picker-row"
           style={idx === highlighted ? { background: "var(--im-surface-2)" } : undefined}
@@ -86,9 +86,9 @@ export function MentionPicker({ candidates, query, onSelect, onClose }: MentionP
           }}
           onMouseEnter={() => setHighlighted(idx)}
         >
-          <Avatar initials={c.initials} size={26} color={colorForAgent({ display_name: c.display_name, agent_id: c.agent_id })} />
+          <Avatar initials={c.initials} size={26} color={colorForAgent({ display_name: c.display_name, agent_id: c.user_id })} />
           <span className="chat-mention-picker-name">{c.display_name}</span>
-          <span className="chat-mention-picker-handle">@{c.agent_id.replace(/^agent[_-]/, "")}</span>
+          <span className="chat-mention-picker-handle">@{c.user_id}</span>
         </button>
       ))}
     </div>

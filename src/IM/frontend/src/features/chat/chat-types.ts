@@ -299,7 +299,8 @@ export type WsEvent =
   | { type: "permission.resolved"; seq?: number; conversation_id: string; message_id: string; request_id: string; decision: string };
 
 export interface MentionCandidate {
-  agent_id: string;
+  user_id: string;
+  agent_id?: string;
   display_name: string;
   initials: string;
   status: "online" | "offline";

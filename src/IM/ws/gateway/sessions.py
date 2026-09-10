@@ -348,8 +348,6 @@ class GatewaySessions:
             credential_algorithm=_optional_text(payload.get("credential_algorithm")),
             credential_public_key=_optional_text(payload.get("credential_public_key")),
         )
-        async with self._lock:
-            self._connections[node_id] = connection
         if self._node_persistence is not None:
             result = self._node_persistence.register(
                 node_id=node_id,
@@ -357,6 +355,9 @@ class GatewaySessions:
                 version=version,
                 agent_ids=agents,
                 agent_workspaces=agent_workspaces,
+                agent_work_modes=payload.get("agent_work_modes")
+                if isinstance(payload.get("agent_work_modes"), dict)
+                else {},
                 agent_workspace_is_default=agent_workspace_is_default,
                 agent_create_operations=agent_create_operations,
                 agent_skills=agent_skills,
@@ -374,6 +375,8 @@ class GatewaySessions:
                     node=result.current_node,
                     agent_ids=list(result.agent_ids),
                 )
+        async with self._lock:
+            self._connections[node_id] = connection
         return {
             "type": "ack",
             "payload": {"message_type": "node.register", "node_id": node_id},

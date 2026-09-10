@@ -6,7 +6,7 @@ import asyncio
 import threading
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Protocol
+from typing import Any, Protocol
 
 from agent.core.types import Message, TokenUsage, ToolCall, TurnResult
 from agent.core.agent.compaction.types import (
@@ -243,6 +243,10 @@ class ConversationSession:
             # attached for residual writes and cancellation progress; the next
             # serialized operation reloads whenever its captured epoch differs.
             return result
+
+    def submission_receipt(self, submission_id: str) -> dict[str, Any] | None:
+        """Read one durable input receipt without exposing transcript storage."""
+        return self._transcript.submission_receipt(submission_id)
 
     def history_snapshot(self) -> tuple[Message, ...]:
         """Return an immutable diagnostic snapshot of the loaded reachable history."""

@@ -111,6 +111,7 @@ class GatewayNodePersistence:
         version: str,
         agent_ids: list[str],
         agent_workspaces: dict[str, str],
+        agent_work_modes: dict[str, str] | None = None,
         agent_workspace_is_default: dict[str, bool] | None = None,
         agent_create_operations: dict[str, str] | None = None,
         agent_skills: dict[str, list[str]] | None = None,
@@ -146,6 +147,19 @@ class GatewayNodePersistence:
         Side Effects:
             Writes node, profile, synthetic agent-user, binding, and stale state.
         """
+        # Reject immutable-mode conflicts before any node/profile write can mark
+        # a failed advertisement online or partially seed its other agents.
+        for agent_id in agent_ids:
+            mode = (agent_work_modes or {}).get(agent_id)
+            if mode is None:
+                continue
+            if mode not in {"single_thread", "global"}:
+                raise ValueError(f"invalid work_mode for {agent_id}")
+            existing = self._profiles.get_profile(agent_id=agent_id)
+            if existing is not None and existing.work_mode != mode:
+                raise ValueError(
+                    f"work_mode is immutable for {agent_id}: expected {existing.work_mode}, received {mode}"
+                )
         previous_node = self._nodes.get_node(node_id=node_id)
         node = self._nodes.record_gateway_registration(
             node_id=node_id,
@@ -210,6 +224,10 @@ class GatewayNodePersistence:
                 group_reply_policy=group_reply_policy,
                 default_model=default_model,
                 reasoning_effort=reasoning_effort,
+                work_mode=(agent_work_modes or {}).get(
+                    agent_id,
+                    existing.work_mode if existing is not None else "single_thread",
+                ),
                 workspace_root=workspace_root,
                 workspace_is_default=workspace_is_default,
                 registration_seed=existing is None,
@@ -344,6 +362,11 @@ class GatewayConversationPersistence:
         self._profiles = AgentProfileRepository(connection)
         self._users = UserRepository(connection)
 
+    def agent_work_mode(self, *, agent_id: str) -> str:
+        """Return persisted execution scope without accessing Gateway runtime files."""
+        profile = self._profiles.get_profile(agent_id=agent_id)
+        return profile.work_mode if profile is not None else "single_thread"
+
     def agent_user_id(self, *, agent_id: str) -> str | None:
         """Return the synthetic IM user id for an agent, or None when absent."""
         user = self._users.get_user_by_username(username=f"agent:{agent_id}")
@@ -438,9 +461,9 @@ class GatewayConversationPersistence:
         Args:
             source_agent_id: Agent sending the message.
             target: Explicit or implicit conversation, agent, or user reference.
-            caller_owner_id: Owner policy supplied by the caller. None deliberately
-                preserves the current agent-message behavior; this module never
-                infers or repairs owner policy.
+            caller_owner_id: Explicit owner policy supplied by the caller. Without it,
+                two Agents with the same profile owner use that owner for their
+                private chat; synthetic agent users are not tenant owners.
 
         Returns:
             Normalized target and the landed conversation identifier.
@@ -449,7 +472,8 @@ class GatewayConversationPersistence:
             ValueError: When source or target identity cannot be resolved.
 
         Side Effects:
-            May create one direct conversation using the caller-supplied owner input.
+            May create a direct conversation. For same-owner Agents, may repair a
+            legacy random owner that belongs to no user or Agent profile.
         """
         source_user_id = self._require_user_id_by_username(
             username=f"agent:{source_agent_id}"
@@ -466,12 +490,39 @@ class GatewayConversationPersistence:
             target_user_id = self._require_user_id_by_username(
                 username=f"agent:{resolved_target.id}"
             )
+            source_profile = self._profiles.get_profile(agent_id=source_agent_id)
+            target_profile = self._profiles.get_profile(agent_id=resolved_target.id)
+            shared_owner = (
+                source_profile.owner_id
+                if source_profile
+                and target_profile
+                and source_profile.owner_id
+                and source_profile.owner_id == target_profile.owner_id
+                else None
+            )
             landed = self._find_or_create_direct_conversation(
                 left_user_id=source_user_id,
                 right_user_id=target_user_id,
                 expected_direct_kind="agent-agent",
-                caller_owner_id=caller_owner_id,
+                caller_owner_id=caller_owner_id or shared_owner,
             )
+            if (
+                caller_owner_id is None
+                and shared_owner
+                and landed.owner_id != shared_owner
+            ):
+                # Older peer chats received random tenant IDs from synthetic users.
+                # Keep their message/link IDs; never take a real tenant's chat.
+                with self._connection:
+                    self._connection.execute(
+                        """
+                        UPDATE conversations SET owner_id = ?
+                        WHERE id = ? AND owner_id = ?
+                          AND NOT EXISTS (SELECT 1 FROM users WHERE owner_id = conversations.owner_id)
+                          AND NOT EXISTS (SELECT 1 FROM agent_profiles WHERE owner_id = conversations.owner_id)
+                        """,
+                        (shared_owner, landed.id, landed.owner_id),
+                    )
             return DispatchResolution(resolved_target, landed.id)
         target_user = self._users.get_user(user_id=resolved_target.id)
         if target_user is None:

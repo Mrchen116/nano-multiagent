@@ -162,6 +162,8 @@ async def failover_unattended_run(
     origin: RunOrigin,
     consume_replay: Callable[..., Awaitable[StreamRunOutcome]],
     deliver_notice: Callable[[str], Awaitable[None]] | None = None,
+    scenario: Mapping[str, object] | None = None,
+    revalidate_output: bool = False,
 ) -> StreamRunOutcome:
     """Replay the last user turn onto later candidates after an unattended failure.
 
@@ -189,7 +191,9 @@ async def failover_unattended_run(
 
             runtime = project_agent_runtime(
                 agent_snapshot,
-                scenario={"agent_id": agent_snapshot.agent_id},
+                scenario=scenario
+                if scenario is not None
+                else {"agent_id": agent_snapshot.agent_id},
                 resolved_model=nxt,
                 reasoning_catalog=reasoning_catalog,
                 time_context=time_context,
@@ -204,6 +208,7 @@ async def failover_unattended_run(
                 session_id=session_id,
                 workspace_root=workspace_root,
                 origin=origin,
+                **({"revalidate_output": True} if revalidate_output else {}),
             )
         except ReplayLastUserRejected:
             sticky_store.set(

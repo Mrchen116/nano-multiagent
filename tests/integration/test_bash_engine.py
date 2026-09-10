@@ -181,6 +181,9 @@ async def test_bash_timeout_surfaces_tool_timeout_reason_through_build_kernel(
     )
     bash_end = next((e for e in tool_ends if e.get("name") == "bash"), None)
     assert bash_end is not None, f"no bash tool_end; tool_ends: {tool_ends}"
+    assert len(tool_ends) == 1
+    assert bash_end["turn_id"]
+    assert bash_end["call_id"] == "call_1"
     assert bash_end.get("reason_code") == "tool_timeout", (
         f"bash timeout did not surface reason_code=tool_timeout: {bash_end!r}"
     )

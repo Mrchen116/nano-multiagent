@@ -164,6 +164,7 @@ class GatewayRuntime:
         kernel: object | None = None,
         cron_dispatcher: CronServiceRegistry | None = None,
         startup_collaborators: tuple[GatewayStartupCollaborator, ...] = (),
+        global_work_runtime: Any | None = None,
         managed_channel_control: ManagedChannelControl | None = None,
         run_coordinator: SessionRunCoordinator | None = None,
         runtime_delivery_tasks: RuntimeDeliveryTaskTracker | None = None,
@@ -188,6 +189,7 @@ class GatewayRuntime:
         # worker threads (asyncio.to_thread) can schedule execute_fn correctly.
         self._cron_dispatcher = cron_dispatcher
         self._startup_collaborators = startup_collaborators
+        self._global_work_runtime = global_work_runtime
         self._managed_channel_control = managed_channel_control
         self._inbound_dispatcher = (
             on_inbound if isinstance(on_inbound, InboundDispatcher) else None
@@ -262,6 +264,14 @@ class GatewayRuntime:
                     "/internal/dispatch",
                     build_dispatch_handler(),
                 )
+                query_handler = getattr(
+                    self._internal_dispatch_handler, "build_query_handler", None
+                )
+                if callable(query_handler):
+                    for tool_name in ("inbox", "conversations"):
+                        _dispatch_app.router.add_post(
+                            f"/internal/{tool_name}", query_handler(tool_name)
+                        )
                 dispatch_runner = _aiohttp_web.AppRunner(_dispatch_app)
                 await dispatch_runner.setup()
                 dispatch_site = _aiohttp_web.TCPSite(
@@ -279,6 +289,8 @@ class GatewayRuntime:
                     self._internal_dispatch_endpoint.publish(
                         host="127.0.0.1", port=actual_port
                     )
+            if self._global_work_runtime is not None:
+                self._global_work_runtime.ready()
             start_channels(self._channel_registry, self._on_inbound)
             channels_started = True
             if self._managed_channel_control is not None:
@@ -331,6 +343,10 @@ class GatewayRuntime:
             if self._inbound_dispatcher is not None:
                 self._run_shutdown_action(
                     "inbound dispatcher seal", self._inbound_dispatcher.seal
+                )
+            if self._global_work_runtime is not None:
+                self._run_shutdown_action(
+                    "global work seal", self._global_work_runtime.seal
                 )
             if self._internal_dispatch_handler is not None:
                 self._run_shutdown_action(
@@ -437,6 +453,12 @@ class GatewayRuntime:
                     enforce_deadline=False,
                 )
 
+            if self._global_work_runtime is not None:
+                await self._run_shutdown_operation(
+                    "global work close",
+                    inner_deadline,
+                    lambda: self._global_work_runtime.close(inner_deadline),
+                )
             if self._im_connection_manager is not None:
                 im_outbound_drain = getattr(self._im_connection_manager, "drain", None)
                 if callable(im_outbound_drain):

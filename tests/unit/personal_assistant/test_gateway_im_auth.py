@@ -98,13 +98,13 @@ def test_send_message_tool_dispatches_via_gateway_boundary() -> None:
     )
 
     with patch("httpx.post", side_effect=_mock_post):
-        result = tool.run({"text": "hello", "to": "agent-b"}, ctx)
+        result = tool.run({"text": "hello", "target": "u_bbbbbbbb"}, ctx)
 
     assert result["ok"] is True
-    assert result["target"] == "agent-b"
-    assert result["text"] == "hello"
+    assert result["target"] == "u_bbbbbbbb"
+    assert "text" not in result
     assert seen_payloads[0]["text"] == "hello"
-    assert seen_payloads[0]["to"] == "agent-b"
+    assert seen_payloads[0]["to"] == "u_bbbbbbbb"
     assert seen_payloads[0]["origin_kernel_session_id"] == "sess-1"
     assert seen_payloads[0]["source_agent_id"] is None
     assert isinstance(seen_payloads[0]["dispatch_request_id"], str)

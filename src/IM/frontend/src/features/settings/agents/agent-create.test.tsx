@@ -136,9 +136,22 @@ function mockAgentSummaries() {
 }
 
 describe("agent create page", () => {
-  it("creates an agent from the selected node capabilities and opens its settings", async () => {
+  it("retries node options as well as capabilities after a reconnect", async () => {
+    mockNodes();
+    mockCreateState();
+    apiMocks.listNodesMock.mockResolvedValueOnce([]);
+    apiMocks.getNodeCreateStateMock.mockRejectedValueOnce(new Error("node disconnected"));
+    renderCreatePage();
+    await userEvent.click(await screen.findByRole("button", { name: /Retry/i }));
+    expect(await screen.findByRole("heading", { name: /New agent/i })).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: /MacBook.*online/i })).toBeInTheDocument();
+  });
+
+  it.each(["single_thread", "global"] as const)("creates a %s agent from selected node capabilities and opens its settings", async (workMode) => {
     const user = userEvent.setup();
     mockNodes();
+    const nodes = await apiMocks.listNodesMock();
+    apiMocks.listNodesMock.mockResolvedValue([...nodes, {...nodes[0], node_id: "node-2", node_name: "Mini"}]);
 
     apiMocks.getNodeCreateStateMock.mockResolvedValue({
       node: {
@@ -217,6 +230,12 @@ describe("agent create page", () => {
 
     expect(screen.getByLabelText(/Owning Node/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/^Custom Instructions/)).toBeInTheDocument();
+    if (workMode === "global") {
+      await user.click(screen.getByRole("radio", { name: /Global · Experimental/ }));
+      await user.selectOptions(screen.getByLabelText(/Owning Node/i), "node-2");
+      await user.selectOptions(screen.getByLabelText(/Owning Node/i), "node-1");
+      expect(screen.getByRole("radio", { name: /Global · Experimental/ })).toBeChecked();
+    }
 
     fireEvent.change(screen.getByLabelText(/^Agent ID/), { target: { value: "agent-new" } });
     fireEvent.change(screen.getByLabelText(/^Display Name/), { target: { value: "Agent New" } });
@@ -226,6 +245,10 @@ describe("agent create page", () => {
     await user.click(screen.getByRole("button", { name: /read/i }));
     await user.selectOptions(screen.getByLabelText("Reasoning effort"), "max");
 
+    if (workMode === "global") {
+      await user.click(screen.getByRole("radio", { name: /Global · Experimental/ }));
+      for (const tool of ["inbox", "conversations", "send_message", "agent"]) expect(screen.getByRole("button", { name: tool })).toBeDisabled();
+    }
     await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
 
     await waitFor(() => {
@@ -243,6 +266,7 @@ describe("agent create page", () => {
         default_model: null,
         model_fallbacks: [],
         reasoning_effort: "max",
+        work_mode: workMode,
         workspace_root: null,
         confirm_existing_workspace: false
       });
@@ -359,7 +383,7 @@ describe("agent create page", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "pa-global" })).toHaveAttribute("aria-pressed", "true");
     });
-    expect(screen.getByText(/Global|全局/)).toBeInTheDocument();
+    expect(screen.getByText(/^(Global|全局)$/)).toBeInTheDocument();
     expect(screen.getByText(/Compatibility|兼容来源/)).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText(/^Agent ID/), { target: { value: "agent-default-skills" } });
     fireEvent.change(screen.getByLabelText(/^Display Name/), { target: { value: "Agent Default Skills" } });

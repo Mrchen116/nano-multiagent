@@ -1,6 +1,6 @@
 # IM - Conversations and Messages Specification
 
-> 对齐: feat-551-agent-reply-images
+> 对齐: feat-548 / feat-551-agent-reply-images
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -40,6 +40,10 @@ IM MUST 将新托管 Agent 图片作为对应会话的受保护资源。访问�
 - **WHEN** 前端创建用户或 Agent 消息
 - **THEN** 响应继续包含既有 message id、conversation id、delivery status、sender type 与 attachments
 
+#### Scenario: 并发创建会话
+- **WHEN** 同一用户同时提交多个合法的创建会话请求
+- **THEN** 每个请求返回独立会话，所有会话均保留完整参与者列表
+
 #### Scenario: 列时间线走 items 与消息游标信封
 - **WHEN** 前端读取会话历史
 - **THEN** 响应含 `items` 与 `next_before_message_id`
@@ -53,6 +57,21 @@ IM MUST 将新托管 Agent 图片作为对应会话的受保护资源。访问�
 - **WHEN** 浏览器前端请求 conversation 列表或 sync 数据
 - **THEN** 每个 conversation item 包含通用字段 `run_state`，取值至少支持 `"idle"` 与 `"running"`
 - **AND** 该字段不带 distill 命名，可被其他功能复用
+
+### Requirement: 同一 owner 的 Agent 私聊可从投递记录打开
+
+两个 Agent profile 归属同一 owner 时，经 `send_message` 创建的 Agent 私聊属于该 owner；投递回执中的 conversation id 和 message id 可用于该 owner 读取原聊天、定位原消息。Agent 的合成用户身份不作为独立租户归属。
+
+#### Scenario: 工作记录链接到 Agent 私聊
+- **WHEN** Agent 向同一 owner 的另一个 Agent 发送消息
+- **THEN** owner 的会话列表包含该私聊，并能用回执 ID 读取会话和消息
+- **AND** 其他 owner 读取该会话或消息仍返回 404
+
+#### Scenario: 复用旧的随机归属私聊
+- **GIVEN** 两个 Agent 同属一个 owner，旧私聊的归属未对应任何用户或 Agent profile
+- **WHEN** 发送操作重新解析这对 Agent 的私聊
+- **THEN** 归属修复为共同 owner，保留原 conversation id 和已有消息
+- **AND** 不改写已属于其他真实 owner 的会话，也不为不同 owner 的 Agent 推断共同归属
 
 ### Requirement: 聊天时间线支持非消息型 Agent 配置边界
 
@@ -326,3 +345,53 @@ IM 通过 WebSocket relay 把影子会话中的用户消息转发给 Gateway 时
 - **GIVEN** 校验通过、agent 在线、新会话已建并已委托内核侧 fork，但其后某一步（内核 fork 或展示历史复制）失败
 - **WHEN** fork 流程结束
 - **THEN** 已建的新会话被回滚删除，用户看到 fork 失败提示；不留下一个有历史显示但 agent 不记得的单聊
+
+### Requirement: 私聊提供会话菜单
+
+#### Scenario: 从菜单访问会话操作
+- **WHEN** 用户在桌面或手机打开私聊顶部的会话菜单
+- **THEN** 可选择重命名，并可继续进入原有 Agent 配置（该会话有对应 Agent 时）
+
+### Requirement: 私聊可以按会话修改标题
+
+#### Scenario: 修改已有私聊名称
+- **GIVEN** 用户打开一条自己可访问的私聊
+- **WHEN** 用户修改会话名并保存
+- **THEN** 聊天列表与聊天顶部展示新名，刷新后仍保留
+- **AND** 消息记录和该会话的继续聊天能力保持
+
+#### Scenario: 外部私聊后续同步保留手动改名
+- **GIVEN** 用户已在 IM 中为外部渠道映射的私聊修改会话名
+- **WHEN** 外部渠道后续消息再次同步到这条私聊
+- **THEN** 用户设置的会话名保持，消息继续正常显示
+
+#### Scenario: 同一 Agent 的其他会话保持原名
+- **GIVEN** 用户和同一个 Agent 有两条私聊
+- **WHEN** 用户修改其中一条的会话名
+- **THEN** 另一条会话名和 Agent 名称不变
+
+#### Scenario: 取消或提交空名称
+- **WHEN** 用户取消改名或输入纯空白
+- **THEN** 原标题保留；纯空白不能保存
+
+#### Scenario: 保存失败可重试
+- **WHEN** 保存会话名失败
+- **THEN** 显示失败反馈并保留输入供重试，不把未保存的名字展示为已生效
+
+### Requirement: Agent 使用用户设定的会话名
+
+#### Scenario: 修改后读取会话
+- **GIVEN** 用户已成功修改私聊会话名
+- **WHEN** Agent 随后查询或读取该会话
+- **THEN** 得到用户设定的新名称，并仍能正确回复这条会话
+- **AND** 后续修改 Agent 显示名不覆盖用户设定的会话名
+
+### Requirement: 聊天参与者身份在所有群保持一致
+#### Scenario: 查询成员后联系或提及
+- **WHEN** 用户或Agent查询聊天成员并私信或群内提及该成员
+- **THEN** 使用同一稳定短身份触达同一对象，不要求使用另一套Agent配置身份
+- **AND** 人与Agent的群内提及统一按聊天用户身份解析，非成员不触发Agent
+
+#### Scenario: 外部聊天发送者没有 IM 身份映射
+- **WHEN** 读取外部来源消息，现有记录未关联真实 IM 用户
+- **THEN** 明确显示外部来源身份，不将代记账号作为可私信发送者；平台身份已知时保留该身份，未知历史只保留已知显示名，回复仍发往原聊天

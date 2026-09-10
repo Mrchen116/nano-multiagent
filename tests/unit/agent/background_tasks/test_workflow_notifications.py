@@ -72,7 +72,9 @@ def test_notification_projection_renders_workflow_xml_and_sidecar_from_same_reco
     assert notification.background_return.resume_hint == "/workflows wf_123456 resume"
 
 
-def test_bash_notification_keeps_xml_but_has_no_ui_sidecar() -> None:
+def test_bash_notification_keeps_xml_and_reports_actual_task_without_agent_usage() -> (
+    None
+):
     registry = BackgroundTaskRegistry()
     registry.register_bash(
         task_id="b1",
@@ -86,7 +88,11 @@ def test_bash_notification_keeps_xml_but_has_no_ui_sidecar() -> None:
     notification = build_background_notification(terminal)
 
     assert "<task-id>b1</task-id>" in notification.xml
-    assert notification.background_return is None
+    sidecar = notification.background_return.to_dict()
+    assert sidecar["task_type"] == "bash"
+    assert sidecar["command"] == "pytest"
+    assert sidecar["result"] == "ok"
+    assert "agent_id" not in sidecar and "usage" not in sidecar
 
 
 def test_notification_claim_has_one_winner() -> None:

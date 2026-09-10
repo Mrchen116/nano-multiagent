@@ -17,9 +17,9 @@ from personal_assistant.ws.im_connection import IMDispatchAck
 @pytest.mark.parametrize(
     "decision, target, sent",
     [
-        ("stale", "group-1", False),
-        ("inactive", "group-1", False),
-        ("committed", "group-1", True),
+        ("stale", "c_group001", False),
+        ("inactive", "c_group001", False),
+        ("committed", "c_group001", True),
         ("stale", "other-group", True),
     ],
 )
@@ -41,7 +41,7 @@ async def test_dispatch_only_sends_a_current_same_group_candidate(
     binder = MagicMock()
     binder.find_by_kernel_session_id.return_value = SimpleNamespace(
         reply_context=SimpleNamespace(
-            channel_name="web_relay", target_chat_id="group-1"
+            channel_name="web_relay", target_chat_id="c_group001"
         )
     )
 
@@ -97,13 +97,13 @@ def test_send_tool_returns_held_without_raising_or_claiming_sent():
         request=httpx.Request("POST", "http://localhost/internal/dispatch"),
     )
     with patch("httpx.post", return_value=response) as post:
-        result = tool.run({"to": "group-1", "text": "Old draft"}, ctx)
+        result = tool.run({"target": "c_group001", "text": "Old draft"}, ctx)
     assert result["status"] == "held_for_revalidation"
     assert result["ok"] is False
     assert post.call_args.kwargs["json"]["origin_run_id"] == "run-a"
     assert post.call_args.kwargs["json"]["context_revision"] == 0
     presentation = tool.presenter.format_end(
-        {"to": "group-1", "text": "Old draft"},
+        {"target": "c_group001", "text": "Old draft"},
         SimpleNamespace(output=result, error=None),
         10,
     )

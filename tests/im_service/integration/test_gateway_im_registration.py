@@ -272,3 +272,47 @@ def test_fresh_runtime_agents_can_back_group_creation_before_bind(
                 agent_a_user.json()["id"],
                 agent_b_user.json()["id"],
             }
+
+
+def test_registration_rejects_mode_conflict_without_false_online_and_can_recover(
+    tmp_path,
+):
+    from tests.im_service._auth_helpers import authorize, register_user
+
+    app = create_app(db_path=tmp_path / "conflict.db")
+    with TestClient(app) as client:
+        owner = register_user(client, username="owner")
+        authorize(client, owner)
+        payload = {
+            "node_id": "node",
+            "agents": ["worker"],
+            "agent_work_modes": {"worker": "global"},
+        }
+        with client.websocket_connect("/im/ws/gateway") as ws:
+            ws.send_json({"type": "node.register", "payload": payload})
+            assert ws.receive_json()["type"] == "ack"
+        with client.websocket_connect("/im/ws/gateway") as ws:
+            ws.send_json(
+                {
+                    "type": "node.register",
+                    "payload": {
+                        **payload,
+                        "agent_work_modes": {"worker": "single_thread"},
+                    },
+                }
+            )
+            rejection = ws.receive_json()
+            assert rejection["type"] == "error"
+            assert "work_mode" in rejection["payload"]["message"]
+            assert (
+                app.state.connection.execute(
+                    "SELECT status FROM nodes WHERE node_id='node'"
+                ).fetchone()[0]
+                == "offline"
+            )
+            # A rejected socket has no authority to issue business requests.
+            assert not client.portal.call(
+                app.state.gateway_work.sessions.list_connected_node_ids
+            )
+            ws.send_json({"type": "node.register", "payload": payload})
+            assert ws.receive_json()["type"] == "ack"

@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Agent Capabilities Specification
 
-> 对齐: feat-541
+> 对齐: feat-546
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -12,6 +12,8 @@ agent 模型选择、工具白名单、Skill 选择与发现、上下文窗口�
 ## Requirements
 
 ### Requirement: 主模型因可用性失败时按有序备用链换模型，本轮继续回复
+
+两种模式均保持下述候选链、可重试条件、持久 Session 粘性与配置重置规则。以下按聊天隔离、失败气泡、切换说明自动出站和 `/new` 重置的 Scenario 适用于 `single_thread`；global 的粘性归主 Session，改模型配置可重置，失败/切换记录归工作轮次，正式聊天仍显式发言，`/new` 不改变其状态。
 
 Gateway 在每次新回复开始时先组链：有该 Kernel session 的备用粘性则第一次就用粘性模型，否则以 Agent 保存的 `default_model`（空则产品默认）为链头，再加上有序 `model_fallbacks`。本轮候选因欠费/额度、过载/5xx、超时、限流或认证失败而无法完成时，用户先看到带该模型名的失败提示；若该 run 没有产出非失败气泡的真实正文或工具时间线，Gateway 按列表顺序改用下一个候选并继续本轮，用户不必再发消息。明确不可重试的错误（如无效密钥 / 401）很快投下该提示，不对同一模型空转；网络抖动与限流才按既有预算同模型重试。上下文太长不换模型。没配备用或整条链耗尽时，每个失败候选留下带模型名的失败提示，不改用其它 Agent 的模型，也不把未配置的平台默认塞进备用链。自动切换不写回保存的 `default_model`。切到备用时使用该备用模型自己的默认推理档，不沿用主模型保存的强度，也不沿用会话 `/effort`。
 
@@ -219,6 +221,8 @@ Gateway 对 `agent.create` 与 `agent.config.apply` 接收稳定 operation id �
 - **THEN** 后续自动分类使用 D
 
 ### Requirement: Agent 工具集由 tool_allowlist 真白名单决定并在执行层强制，能力特性按 requires_tool 联动其工具
+
+本条以下恰等于配置白名单、显式空集和不自动扩宽的规则及 Scenario 适用于 `single_thread`。global 主 Agent 的有效集为配置集合与固定基础四项的并集；其他工具仍按配置限制，能力特性联动规则不变。固定项及创建默认值以本 area 的“全局主 Agent 保留默认工具并具备固定基础能力”为准；子工具继续既有继承和角色限制，不因主工具固定而扩大数据权限。
 
 Gateway 为某 Agent 构建会话工具集时，以该 Agent 配置的 `tool_allowlist` 为白名单单一来源：非空时 Agent 工具集**恰为**列出的这些（列表外的默认工具不提供，即默认文件/web 工具可被用户禁用）；**显式为空时该 Agent 没有任何工具**。会话执行层按同一白名单强制：名单外工具调用（含模型未按声明自由发挥的调用）被拒且不产生副作用，调用方收到含工具名与「未在本会话启用」语义的错误结果。能力特性（如 cron）启用时，其 `requires_tool` 工具经"特性→工具"联动已落在该 Agent 的 `tool_allowlist` 里，Gateway 不在运行时另行注入——Agent 工具集与配置侧存储的 `tool_allowlist` 一致，无分裂。
 
@@ -476,3 +480,16 @@ Gateway 对 self-evolution review 成功产生的 `skill_created` 业务事件�
 #### Scenario: 运行中配置更新
 - **WHEN** Agent 正在回复或已启动 Workflow 时保存新的 Workflow 工具选择
 - **THEN** 当前整轮及其 Workflow 保持启动时配置，下一轮整体采用新配置
+
+### Requirement: 全局主 Agent 保留默认工具并具备固定基础能力
+
+#### Scenario: 新建全局 Agent 时保留正常执行能力
+- **WHEN** 用户新建全局 Agent
+- **THEN** 除读取收件箱、查阅聊天、显式发言及委派的固定基础工具外，仍默认拥有现有创建流程提供的工具
+- **AND** 不因选择全局模式变成只能统筹、不能正常查询或执行的空工具 Agent
+
+#### Scenario: 固定基础工具与可配置工具区分
+- **GIVEN** 用户创建或编辑全局 Agent
+- **WHEN** 查看和调整工具配置
+- **THEN** `inbox`、`conversations`、`send_message`、`agent` 作为固定基础工具，不可关闭
+- **AND** 其他工具继续按现有规则默认选择及配置，单 Thread 模式不因此改变

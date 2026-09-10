@@ -1,6 +1,6 @@
 # IM - Tool Timeline Specification
 
-> 对齐: feat-544-group-reply-revalidation
+> 对齐: feat-546
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -192,6 +192,8 @@ run 异常终止、工具自身超时或工具被拒绝时,IM 工具徽标必须
 
 ### Requirement: 内部 IM 把思考与工具调用展示为过程时间线、外部不展示
 
+本条以下气泡内过程归属及 Scenario 适用于 `single_thread`。global 的相同真实思考/工具/后台信息展示在 [agent-work](agent-work.md) 的工作轮次，正式聊天不携带内部轨迹；共享工具详情、统计、授权与外部不展示内部过程的约束继续适用。
+
 #### Scenario: 内部 Web IM 一轮含多段思考与工具调用
 - **WHEN** 一轮带多段思考、多次工具调用的助手回复在内部 Web IM 展示
 - **THEN** 气泡内有一个可折叠“过程”区域，把多段思考与工具调用按真实先后次序混排；每段思考可展开读完整内容、可收起；历史回看仍可展开
@@ -251,6 +253,8 @@ IM 的待决工具授权卡在决策按钮区上方常驻一个选填的拒绝�
 - **THEN** 该工具被照常放行，理由框内容不产生任何可观察影响
 
 ### Requirement: 群聊 Process 保存真实未发送草稿与复核分段
+
+以下当前群聊天气泡的草稿、复核、插话分段 Scenario 适用于 `single_thread`。global 的未发送草稿与目标复核归工作页对应发送工具详情，见 [agent-work](agent-work.md)；同伴只收到实际正式消息、来源不可用不误定位的规则继续适用于两种模式。
 
 草稿和复核是明确标记的过程信息，不是正式正文、模型推理声明或工具计数。已写入历史的完整草稿可在刷新后回看。
 

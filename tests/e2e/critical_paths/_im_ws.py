@@ -35,12 +35,9 @@ DEFAULT_EVENT_TIMEOUT = 90.0
 NEGATIVE_ASSERT_WINDOW = 25.0
 
 
-def mention_tag(agent_id: str) -> str:
-    """拼一个 IM wire 层唯一认得的 agent mention 标签。
-
-    relay_service.py 只认 ``<mention type="agent" target_id="X"/>``,不认 ``@文本``。
-    """
-    return f'<mention type="agent" target_id="{agent_id}"/>'
+def mention_tag(user_id: str) -> str:
+    """Build the unified IM chat-user mention tag."""
+    return f'<mention type="user" target_id="{user_id}"/>'
 
 
 @dataclass

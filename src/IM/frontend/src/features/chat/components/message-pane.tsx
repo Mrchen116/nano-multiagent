@@ -39,8 +39,9 @@ import {
 } from "../chat-types";
 import { Avatar, GroupAvatar, colorForAgentSeed, foregroundForAvatar } from "./avatar";
 import { KindBadge } from "./kind-badge";
-import { parseMentions } from "./mention-parser";
+import { parseMentions, mentionNameMap, mentionDisplayName } from "./mention-parser";
 import { MentionPicker } from "./mention-picker";
+import { DirectConversationMenu } from "./direct-conversation-menu";
 import { NodeChip } from "./node-chip";
 import { PermissionCard } from "./permission-card";
 import { SlashPicker } from "./slash-picker";
@@ -98,6 +99,7 @@ export interface MessagePaneProps {
   onSend(text: string, attachments: Attachment[]): void | Promise<void>;
   onBack?(): void;
   onOpenConfig?(): void;
+  onRename?(title: string): Promise<unknown>;
   /** Send mutation error message, shown as an in-app toast. */
   sendError?: string | null;
   /** Current logged-in user id; used to distinguish local send appends from external user messages. */
@@ -206,6 +208,7 @@ export function MessagePane({
   onSend,
   onBack,
   onOpenConfig,
+  onRename,
   sendError,
   selfUserId = null,
   isSending,
@@ -657,7 +660,7 @@ export function MessagePane({
     if (target) {
       const label = `@${target.display_name}`;
       insert = `${label} ${insert}`;
-      setDraftMentions([{ label, type: "agent", target_id: target.agent_id }]);
+      setDraftMentions([{ label, type: "user", target_id: target.user_id }]);
     } else {
       setDraftMentions([]);
     }
@@ -680,7 +683,7 @@ export function MessagePane({
     const label = `@${c.display_name}`;
     const before = draft.slice(0, draft.length - mentionMatch[0].length);
     setDraft(`${before}${label} `);
-    setDraftMentions((prev) => [...prev, { label, type: "agent", target_id: c.agent_id }]);
+    setDraftMentions((prev) => [...prev, { label, type: "user", target_id: c.user_id }]);
     composerRef.current?.focus();
   }
 
@@ -903,7 +906,10 @@ export function MessagePane({
           </div>
         </div>
         {!isMobile && <KindBadge kind={kind} />}
-        {onOpenConfig && (
+        {conversation.type === "direct" && onRename ? (
+          <DirectConversationMenu key={conversation.id} title={conversation.title}
+            onRename={onRename} onOpenConfig={onOpenConfig} />
+        ) : onOpenConfig && (
           <button
             type="button"
             className={`chat-pane-config${isMobile ? " chat-pane-config-icon" : ""}`}
@@ -1036,7 +1042,9 @@ export function MessagePane({
               disabled={composerBusy || (!draft.trim() && pending.length === 0)}
               aria-label="Send"
             >
-              ↑
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M12 19V5m-6 6 6-6 6 6" />
+              </svg>
             </button>
           </div>
           {!isMobile && (
@@ -1727,15 +1735,7 @@ const MarkdownContent = React.memo(function MarkdownContent({
   const { t } = useTranslation();
   // CR-3: participantMap 和 components 用 useMemo，仅 participants 变化时重建，
   // 保证 react-markdown 的 components 引用稳定，不触发不必要的 pipeline 重建。
-  const participantMap = useMemo(() => {
-    const map = new Map<string, string>();
-    if (participants) {
-      for (const p of participants) {
-        map.set(p.id, p.display_name ?? p.id);
-      }
-    }
-    return map;
-  }, [participants]);
+  const participantMap = useMemo(() => mentionNameMap(participants), [participants]);
 
   const components: Components = useMemo(() => ({
     ...MD_TABLE_COMPONENTS,
@@ -1751,8 +1751,8 @@ const MarkdownContent = React.memo(function MarkdownContent({
         return <span {...rest}>{children}</span>;
       }
 
-      const displayName = participantMap.get(targetId);
-      if (displayName) {
+      const displayName = mentionDisplayName(targetId, participantMap);
+      if (displayName !== "unknown") {
         return (
           <span className="chat-mention-chip" data-target-id={targetId}>
             @{displayName}
@@ -1842,14 +1842,7 @@ function renderInlineContent(
   text: string,
   participants?: Actor[],
 ): React.ReactNode {
-  // Build a lookup map from wire ID to display_name for mention chip resolution.
-  const participantMap = new Map<string, string>();
-  if (participants) {
-    for (const p of participants) {
-      const displayName = p.display_name ?? p.id;
-      participantMap.set(p.id, displayName);
-    }
-  }
+  const participantMap = mentionNameMap(participants);
 
   const segments = parseMentions(text);
   // Fast path: no mention segments — fall back to markdown-only rendering.
@@ -1859,8 +1852,8 @@ function renderInlineContent(
 
   return segments.map((seg, idx) => {
     if (seg.kind === "mention") {
-      const displayName = participantMap.get(seg.target_id);
-      if (displayName) {
+      const displayName = mentionDisplayName(seg.target_id, participantMap);
+      if (displayName !== "unknown") {
         return (
           <span key={idx} className="chat-mention-chip" data-target-id={seg.target_id}>
             @{displayName}

@@ -485,13 +485,22 @@ def test_structured_group_mention_targets_one_new_session(tmp_path: Path) -> Non
             pipeline.handle_inbound(
                 InboundMessage(
                     channel_name="web_relay",
-                    text='<mention type="agent" target_id="agent-a"/> /new',
+                    text='<mention type="user" target_id="u_aaaaaaaa"/> /new',
                     external_user_id="user-1",
                     external_chat_id="group-1",
                     is_group=True,
                     agent_id=agent_id,
                     ingress=_relay_ingress(f"mention-new-{agent_id}"),
-                    metadata={"mentioned_agent_ids": ["agent-a"]},
+                    metadata={
+                        "mentioned_agent_ids": ["agent-a"],
+                        "participants": [
+                            {
+                                "type": "agent",
+                                "agent_id": "agent-a",
+                                "user_id": "u_aaaaaaaa",
+                            }
+                        ],
+                    },
                 )
             )
         )
@@ -911,7 +920,12 @@ def test_stop_command_in_group_chat_with_mention_is_recognized(tmp_path: Path) -
         external_user_id="user-1",
         external_chat_id="grp-1",
         is_group=True,
-        metadata={"mentioned_agent_ids": ["agent-a"]},
+        metadata={
+            "mentioned_agent_ids": ["agent-a"],
+            "participants": [
+                {"type": "agent", "agent_id": "agent-a", "user_id": "u_aaaaaaaa"}
+            ],
+        },
     )
     result = asyncio.run(pipeline.handle_inbound(inbound))
     assert result is not None
@@ -981,7 +995,12 @@ def test_stop_command_with_agent_after_slash_is_recognized(tmp_path: Path) -> No
         external_chat_id="grp-1",
         is_group=True,
         ingress=_relay_ingress("agent-after-slash"),
-        metadata={"mentioned_agent_ids": ["agent-a"]},
+        metadata={
+            "mentioned_agent_ids": ["agent-a"],
+            "participants": [
+                {"type": "agent", "agent_id": "agent-a", "user_id": "u_aaaaaaaa"}
+            ],
+        },
     )
 
     result = asyncio.run(pipeline.handle_inbound(inbound))
@@ -1015,7 +1034,12 @@ def test_stop_command_does_not_enter_group_context_buffer(tmp_path: Path) -> Non
         external_chat_id="grp-1",
         is_group=True,
         ingress=_relay_ingress("buffer-stop"),
-        metadata={"mentioned_agent_ids": ["agent-a"]},
+        metadata={
+            "mentioned_agent_ids": ["agent-a"],
+            "participants": [
+                {"type": "agent", "agent_id": "agent-a", "user_id": "u_aaaaaaaa"}
+            ],
+        },
     )
 
     result = asyncio.run(pipeline.handle_inbound(inbound))
@@ -1092,7 +1116,16 @@ async def test_bare_stop_in_group_multi_agent_stops_only_running_no_noise(
                 is_group=True,
                 agent_id="agent-a",
                 ingress=_relay_ingress("active-group-work"),
-                metadata={"mentioned_agent_ids": ["agent-a"]},
+                metadata={
+                    "mentioned_agent_ids": ["agent-a"],
+                    "participants": [
+                        {
+                            "type": "agent",
+                            "agent_id": "agent-a",
+                            "user_id": "u_aaaaaaaa",
+                        }
+                    ],
+                },
             )
         )
     )

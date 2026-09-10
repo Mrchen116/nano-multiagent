@@ -250,6 +250,8 @@ class ToolRegistry:
             tool_call_payload, _ = await self._dispatch_intercept(
                 "tool_call",
                 {
+                    "session_id": active_hook_context.session_id,
+                    "turn_id": active_hook_context.turn_id,
                     "name": name,
                     "args": dict(args),
                     "arguments": dict(args),

@@ -86,6 +86,12 @@
 
 消费者中断、取消或关闭包含工具调用的运行后,内核必须使已持久化的每个 assistant tool call 具有对应的 tool result。进程异常退出留下的历史悬空调用在下次提交运行前自动恢复为取消终态; 恢复保持 append-only、按 tool call id 幂等,并向 provider 物化为合法消息顺序。只读加载、列表和预览不得因检查完整性而改写会话。
 
+#### Scenario: 工具执行期间收到带外通知
+- **GIVEN** 工具调用已落盘，结果尚未返回
+- **WHEN** 消费者经 `append_message` 追加通知，工具随后完成，再提交下一轮运行
+- **THEN** 模型输入中工具调用与匹配结果相邻，通知完整保留在该工具交换之后
+- **AND** 持久化档案保留实际到达顺序，重新加载后仍能继续运行
+
 #### Scenario: 中断权限等待后继续同一会话
 - **GIVEN** 一个运行已经持久化 assistant tool call,正在等待权限决定
 - **WHEN** 消费者调用 `kernel.interrupt(session_id)`,随后向同一会话再次 `submit`

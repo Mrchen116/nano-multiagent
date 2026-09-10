@@ -50,6 +50,7 @@ export interface AgentConfig {
   default_model: string | null;
   model_fallbacks: string[];
   reasoning_effort: string | null;
+  work_mode?: "single_thread" | "global";
   workspace_root: string | null;
   workspace_is_default: boolean | null;
   profile_version: number;
@@ -161,6 +162,7 @@ export interface NodeAgentCreateRequest {
   default_model: string | null;
   model_fallbacks?: string[];
   reasoning_effort: string | null;
+  work_mode?: "single_thread" | "global";
   workspace_root: string | null;
   confirm_existing_workspace?: boolean;
 }
@@ -186,6 +188,7 @@ export interface UpdateAgentConfigRequest {
   default_model: string | null;
   model_fallbacks?: string[];
   reasoning_effort: string | null;
+  work_mode?: "single_thread" | "global";
 }
 
 export interface AgentDetailState {
@@ -556,6 +559,7 @@ export function normalizeAgentConfigResponse(raw: Record<string, unknown>): Agen
 
   return {
     ...config,
+    work_mode: config.work_mode === "global" ? "global" : "single_thread",
     skills_selection_mode:
       config.skills_selection_mode === "explicit_allowlist"
         ? "explicit_allowlist"
@@ -744,6 +748,7 @@ export async function promptPreview(
     features: Record<string, boolean>;
     custom_prompt: string;
     tool_ids?: string[];
+    work_mode?: "single_thread" | "global";
     skill_ids?: string[];
   }
 ): Promise<string> {
@@ -768,6 +773,7 @@ export async function nodePromptPreview(
     features: Record<string, boolean>;
     custom_prompt: string;
     tool_ids?: string[];
+    work_mode?: "single_thread" | "global";
     skill_ids?: string[];
     agent_id_hint?: string;
     workspace_mode?: "default" | "custom";

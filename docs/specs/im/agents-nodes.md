@@ -1,6 +1,6 @@
 # IM - Agents and Nodes Specification
 
-> 对齐: feat-541
+> 对齐: feat-546
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -215,6 +215,11 @@ operation id、已持久化 root/provenance/display identity 时，才能原子�
 认领后 operation 与待认领标记都清除。普通 `node.register` 首见 profile、预配置 Agent 和任意
 operation-id 广告都不是可认领证据；任意一次正常 profile 更新也会清除未认领标记。
 
+#### Scenario: 切换创建节点保留已选工作模式
+- **GIVEN** 用户已在创建页选择工作模式
+- **WHEN** 用户切换到另一个可创建 Agent 的节点
+- **THEN** 已选工作模式保持，最终创建请求使用该模式
+
 #### Scenario: 创建页显示真实默认路径并原地编辑
 - **GIVEN** 当前 owner 选中在线节点 `node-1` 并填写 Agent ID A
 - **WHEN** 页面取得节点能力
@@ -292,6 +297,12 @@ IM 处理 `node.register` 时,对帧中**首次出现**(无既有 profile)的 ag
 - **GIVEN** agent X 的 profile 已存在、其 workspace root/provenance 已由 Gateway 确认(含用户特意清空的 skills / tool_allowlist)
 - **WHEN** 再次收到 `node.register`(无论帧内上报何值)
 - **THEN** profile 的 workspace_root / skills / tool_allowlist 均保持既有值
+
+#### Scenario: 注册声明与固定工作模式冲突
+- **GIVEN** Agent 已有创建时确定的工作模式
+- **WHEN** Gateway 注册声明与其冲突
+- **THEN** 注册返回明确的冲突原因，原工作模式保持，失败的连接不被登记为在线
+- **AND** 修正声明后可以正常注册
 
 #### Scenario: 旧帧未声明 workspace 时保持未知
 - **GIVEN** IM 中无 agent Y 的 profile
@@ -646,3 +657,17 @@ Agents 设置首页、agent 详情页与新建页的左侧列表在桌面端浅�
 - **WHEN** 在桌面端查看列表
 - **THEN** 未选中条目的显示名与 Agent ID 以正文与辅助文字颜色呈现在浅色侧栏上,清晰可读
 - **AND** 选中与 hover 底色上文字保持可读
+
+### Requirement: 新建时选择工作模式，已有 Agent 保持原行为
+
+#### Scenario: 新建全局 Agent
+- **WHEN** 用户创建 Agent 并选择全局模式
+- **THEN** 创建结果保留该选择，后续跨聊天工作按全局方式进行
+
+#### Scenario: 保留单 Thread 方式
+- **WHEN** 用户使用已有 Agent，或新建时选择单 Thread 模式
+- **THEN** 继续使用当前各聊天独立工作的行为
+
+#### Scenario: 不提供模式切换
+- **WHEN** 用户查看或编辑一个已创建 Agent 的配置
+- **THEN** 可以辨认其模式，但不能将其改成另一种模式

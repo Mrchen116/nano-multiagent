@@ -12,6 +12,8 @@ from typing import Any, Mapping
 from uuid import uuid4
 
 import httpx
+import json
+import re
 
 from agent.sdk import ToolContext, ToolPresentationEvent
 
@@ -20,7 +22,7 @@ class _SendMessagePresenter:
     """Presenter for the product-owned `send_message` tool."""
 
     def format_start(self, args: Mapping[str, Any]) -> ToolPresentationEvent:
-        target = str(args.get("to", ""))
+        target = str(args.get("target", ""))
         text = str(args.get("text", ""))
         return ToolPresentationEvent(
             visible=True,
@@ -35,7 +37,7 @@ class _SendMessagePresenter:
         result: Any,
         duration_ms: int,
     ) -> ToolPresentationEvent:
-        target = str(args.get("to", ""))
+        target = str(args.get("target", ""))
         text = str(args.get("text", ""))
         output = getattr(result, "output", None) or {}
         error = getattr(result, "error", None)
@@ -86,27 +88,38 @@ class SendMessageTool:
     Raises:
         RuntimeError: When the injected live endpoint is unavailable, or standalone
             session metadata has no ``gateway_dispatch_url``.
-        ValueError: When ``text`` or ``to`` arguments are blank.
+        ValueError: When ``text`` or ``target`` arguments are blank.
     """
 
     name = "send_message"
     presenter = _SEND_MESSAGE_PRESENTER
     description = (
-        "Send a message via the gateway IM routing layer. "
-        "`to` accepts stable business ids: user_id, agent_id, or conversation_id."
+        "Send a private message to a user or agent, or post to a conversation. "
+        'Use member IDs from your conversation context; in global mode, conversations(action="info", target=...) also provides IDs and mention tags.'
     )
     input_schema = {
         "type": "object",
         "properties": {
-            "text": {"type": "string", "description": "Message body to send."},
-            "to": {
+            "text": {
                 "type": "string",
-                "description": "Target stable id: user_id, agent_id, or conversation_id.",
+                "description": "Message text. To mention someone, insert their mention tag; it already displays as @name.",
+            },
+            "target": {
+                "type": "string",
+                "description": "A user_id (u_...) from context or member info for a private message, or a conversation_id (c_...) from inbox or conversations to post in that chat. Use an external inbox target (local:...) unchanged to reply there.",
             },
         },
-        "required": ["text", "to"],
+        "required": ["text", "target"],
         "additionalProperties": False,
     }
+
+    def serialize_result(self, output: Any, error: str | None = None) -> str:
+        """Return a concise UTF-8 delivery receipt without repeating the message."""
+        return (
+            error
+            if error is not None
+            else json.dumps(output, ensure_ascii=False, separators=(",", ":"))
+        )
 
     def __init__(
         self,
@@ -119,7 +132,7 @@ class SendMessageTool:
         """Dispatch one collaboration message through the gateway HTTP boundary.
 
         Args:
-            args: Tool arguments; must contain ``text`` and ``to``.
+            args: Tool arguments; must contain ``text`` and ``target``.
             ctx: Execution context. Standalone tools require
                 ``ctx.session_metadata["gateway_dispatch_url"]``; production tools
                 resolve the injected listener provider instead.
@@ -130,7 +143,7 @@ class SendMessageTool:
         Raises:
             RuntimeError: When the production listener is not ready or has shut down,
                 or standalone session metadata has no dispatch URL.
-            ValueError: When ``text`` or ``to`` arguments are blank.
+            ValueError: When ``text`` or ``target`` arguments are blank.
         """
 
         provider = self._gateway_dispatch_url_provider
@@ -150,7 +163,15 @@ class SendMessageTool:
                 )
 
         text = _require_text(args.get("text"), field_name="text")
-        target = _require_text(args.get("to"), field_name="to")
+        target = _require_text(args.get("target"), field_name="target")
+
+        if not re.fullmatch(
+            r"(?:[uc]_[a-z0-9]{8}|local:[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})",
+            target,
+        ):
+            raise ValueError(
+                "target must be a user_id (u_...), conversation_id (c_...), or external inbox target (local:...)"
+            )
 
         source_agent_id = ctx.session_metadata.get("agent_id")
         if isinstance(source_agent_id, str) and source_agent_id.strip():
@@ -216,8 +237,7 @@ class SendMessageTool:
         return {
             "ok": True,
             "target": target,
-            "text": text,
-            "dispatch_request_id": dispatch_request_id,
+            **({"message_id": body["message_id"]} if body.get("message_id") else {}),
         }
 
 

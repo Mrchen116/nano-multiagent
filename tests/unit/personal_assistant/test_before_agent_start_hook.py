@@ -19,11 +19,15 @@ def test_build_context_block_group_contains_required_fields() -> None:
         conversation_type="group",
         agent_id="agent-a",
         participant_agent_ids=["agent-a", "agent-b"],
+        participants=[
+            {"type": "agent", "agent_id": "agent-a", "user_id": "u_aaaaaaaa"},
+            {"type": "agent", "agent_id": "agent-b", "user_id": "u_bbbbbbbb"},
+        ],
     )
     assert "[Communication Context]" in block
     assert "group" in block
-    assert "agent-a" in block
-    assert "agent-b" in block
+    assert "u_aaaaaaaa" in block
+    assert "u_bbbbbbbb" in block
 
 
 def test_build_context_block_direct_contains_agent_id_only() -> None:
@@ -35,6 +39,6 @@ def test_build_context_block_direct_contains_agent_id_only() -> None:
     )
     assert "[Communication Context]" in block
     assert "direct" in block
-    assert "agent-x" in block
+    assert "agent-x" not in block
     # Direct chat should not list participants.
     assert "participants" not in block.lower() or "[]" in block

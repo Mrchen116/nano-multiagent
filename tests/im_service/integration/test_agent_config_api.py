@@ -323,6 +323,16 @@ def test_profile_updates_only_affect_new_conversations(tmp_path: Path) -> None:
         assert second_conv.json()["config_profile_version"] == 2
         assert second_conv_after_patch.json()["config_profile_version"] == 2
 
+        # Names remain current even when a conversation retains its config snapshot.
+        for response in (first_conv_after_patch, second_conv_after_patch):
+            participant = next(
+                item
+                for item in response.json()["participants"]
+                if item["id"] == "agent-1"
+            )
+            assert participant["display_name"] == "Alpha v2"
+        assert users.get_user(user_id=agent_participant.id).owner_id == owner.owner_id
+
 
 def test_bound_agent_survives_fresh_reregistration_and_remains_updatable(
     tmp_path: Path,

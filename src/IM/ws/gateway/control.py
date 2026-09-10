@@ -484,6 +484,7 @@ class GatewayControl:
         tool_ids: list[str],
         scenario: str,
         skill_ids: list[str] | None = None,
+        work_mode: str = "single_thread",
         timeout_seconds: float = 10.0,
         heartbeat_enabled: bool | None = None,
         cron_enabled: bool | None = None,
@@ -513,6 +514,7 @@ class GatewayControl:
             "tool_ids": tool_ids,
             "skill_ids": skill_ids or [],
             "scenario": scenario,
+            **({"work_mode": "global"} if work_mode == "global" else {}),
         }
         # feat-394-M4 R2-2: include heartbeat/cron flags only when provided so
         # the gateway-side handler can forward them to assemble_prompt_preview.
@@ -547,6 +549,7 @@ class GatewayControl:
         agent_id_hint: str | None,
         workspace_root: str | None,
         skill_ids: list[str] | None = None,
+        work_mode: str = "single_thread",
         timeout_seconds: float = 10.0,
     ) -> dict[str, object] | None:
         """Send a node.prompt.preview.request frame and await the assembled result.
@@ -578,6 +581,7 @@ class GatewayControl:
                     "tool_ids": tool_ids,
                     "skill_ids": skill_ids or [],
                     "scenario": scenario,
+                    **({"work_mode": "global"} if work_mode == "global" else {}),
                 },
             )
             if not pushed:

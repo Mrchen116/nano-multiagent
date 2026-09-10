@@ -1,3 +1,4 @@
+import { mentionNameMap, mentionPlainText } from "../components/mention-parser";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "react-router-dom";
@@ -74,18 +75,14 @@ function normalizeUserId(value: unknown): string | null {
   return raw;
 }
 
-function truncatePreview(preview: string): string {
-  return preview.slice(0, 80);
-}
-
 function extractPreview(payload: Record<string, unknown>): string | null {
   const content = normalizeText(payload.content);
   if (content) {
-    return truncatePreview(content);
+    return content;
   }
   const fileName = normalizeText(payload.file_name);
   if (fileName) {
-    return truncatePreview(fileName);
+    return fileName;
   }
   const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
   if (attachments.length > 0) {
@@ -256,7 +253,7 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
           candidate = {
             messageKey: completion.candidate.messageKey,
             senderName: completion.candidate.senderName,
-            preview: truncatePreview(completion.candidate.preview),
+            preview: completion.candidate.preview,
             createdAt: completion.candidate.createdAt
           };
         }
@@ -281,7 +278,10 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
             id: candidate.messageKey,
             conversationId,
             senderName: candidate.senderName,
-            preview: candidate.preview
+            preview: mentionPlainText(candidate.preview, mentionNameMap(
+              queryClient.getQueryData<Conversation[]>(["chat", "conversations"])
+                ?.find((item) => item.id === conversationId)?.participants
+            )).slice(0, 80)
           });
         };
 

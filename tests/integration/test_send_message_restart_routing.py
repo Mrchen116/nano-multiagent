@@ -79,7 +79,7 @@ class _SendMessageThenStopLLM:
                         LLMToolCall(
                             call_id="call-restart-dispatch",
                             name="send_message",
-                            arguments={"text": "after restart", "to": "agent-b"},
+                            arguments={"text": "after restart", "target": "u_bbbbbbbb"},
                         ),
                     ),
                 )

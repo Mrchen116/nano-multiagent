@@ -1940,28 +1940,39 @@ body {
   background: var(--im-accent);
   color: var(--im-accent-fg);
   border: 0;
-  border-radius: 0.6rem;
-  width: 38px;
-  height: 38px;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  margin: 3px;
+  padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 1rem;
   cursor: pointer;
   flex-shrink: 0;
-  transition: all 0.15s;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.chat-pane-composer-send:not(:disabled):hover {
+  background: color-mix(in srgb, var(--im-accent), black 12%);
+}
+
+.chat-pane-composer-send:focus-visible {
+  outline: 2px solid var(--im-accent);
+  outline-offset: 3px;
 }
 
 .chat-pane-composer-send:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+  background: var(--im-surface-2);
+  color: var(--im-text-muted);
+  cursor: default;
 }
 
 @media (max-width: 767px) {
   .chat-pane-composer-send {
     width: 42px;
     height: 42px;
-    border-radius: 12px;
   }
 }
 
@@ -5191,4 +5202,25 @@ body {
 
 .im-shell--conversation .chat-pane-composer {
   padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.im-work-message-target { outline: 2px solid var(--im-accent); outline-offset: 4px; border-radius: 12px; }
+.im-work-chat-navigation { position:absolute; top:8px; left:50%; transform:translateX(-50%); z-index:25; display:flex; gap:12px; align-items:center; padding:8px 14px; background:var(--im-surface); border:1px solid var(--im-border); border-radius:10px; box-shadow:0 3px 10px #0001; font-size:12px; }
+
+.chat-conversation-menu { position: relative; flex-shrink: 0; }
+.chat-conversation-menu-items {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 30;
+  min-width: 160px; width: max-content; padding: 4px; border: 1px solid var(--im-border);
+  border-radius: 10px; background: white; box-shadow: 0 6px 20px #0002;
+}
+.chat-conversation-menu-items button {
+  display: block; width: 100%; padding: 10px 12px; border: 0;
+  border-radius: 6px; background: transparent; text-align: left;
+  color: var(--im-text); font: inherit; cursor: pointer;
+}
+.chat-conversation-menu-items button:hover,
+.chat-conversation-menu-items button:focus-visible { background: oklch(0.96 0.005 240); outline: none; }
+.chat-rename-dialog {
+  position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  z-index: 101; width: min(400px, calc(100vw - 32px));
 }

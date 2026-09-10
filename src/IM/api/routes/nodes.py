@@ -62,6 +62,7 @@ class NodePromptPreviewRequest(BaseModel):
     custom_prompt: str | None = None
     tool_ids: list[str] = Field(default_factory=list)
     scenario: str = "direct"
+    work_mode: Literal["single_thread", "global"] = "single_thread"
     skill_ids: list[str] = Field(default_factory=list)
     agent_id_hint: str | None = None
     workspace_mode: Literal["default", "custom"] = "default"
@@ -110,6 +111,7 @@ class CreateNodeAgentRequest(BaseModel):
     default_model: str | None = None
     model_fallbacks: list[str] = Field(default_factory=list)
     reasoning_effort: str | None = None
+    work_mode: Literal["single_thread", "global"] = "single_thread"
     workspace_root: str | None = None
     confirm_existing_workspace: bool = False
 
@@ -219,6 +221,7 @@ async def node_prompt_preview(
             status_code=status.HTTP_404_NOT_FOUND, detail="node_id not found"
         )
     result = await gateway_handler.request_node_prompt_preview(
+        **({"work_mode": "global"} if payload.work_mode == "global" else {}),
         target_node_id=node_id,
         features=payload.features,
         custom_prompt=payload.custom_prompt,
@@ -329,6 +332,7 @@ async def create_node_agent(
         "default_model": payload.default_model,
         "model_fallbacks": list(payload.model_fallbacks),
         "reasoning_effort": payload.reasoning_effort,
+        "work_mode": payload.work_mode,
         "workspace_root": payload.workspace_root,
         "heartbeat_json": None,
         "owner_id": user.owner_id,

@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS settings_policies (
 CREATE TABLE IF NOT EXISTS conversations (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
+    title_is_custom INTEGER NOT NULL DEFAULT 0,
     type TEXT NOT NULL DEFAULT 'group',
     owner_id TEXT NOT NULL DEFAULT '',
     creator_id TEXT NOT NULL DEFAULT '',
@@ -64,6 +65,7 @@ CREATE TABLE IF NOT EXISTS agent_profiles (
     default_model TEXT,
     model_fallbacks_json TEXT NOT NULL DEFAULT '[]',
     reasoning_effort TEXT,
+    work_mode TEXT NOT NULL DEFAULT 'single_thread',
     workspace_root TEXT,
     workspace_is_default INTEGER,
     registration_seed INTEGER NOT NULL DEFAULT 0,
@@ -148,6 +150,7 @@ CREATE TABLE IF NOT EXISTS messages (
     -- on_message_completed 写入 elapsed_ms = round((T1 − T0) * 1000)。
     elapsed_ms INTEGER,
     sender_display_name TEXT,
+    sender_source_id TEXT,
     caller_idempotency_key TEXT,
     system_notice_json TEXT,
     UNIQUE(conversation_id, caller_idempotency_key),
@@ -510,6 +513,10 @@ def _migrate_conversations_metadata(connection: sqlite3.Connection) -> None:
             WHERE last_message_preview IS NULL
             """
         )
+    if "title_is_custom" not in column_names:
+        connection.execute(
+            "ALTER TABLE conversations ADD COLUMN title_is_custom INTEGER NOT NULL DEFAULT 0"
+        )
     if "config_agent_id" not in column_names:
         connection.execute("ALTER TABLE conversations ADD COLUMN config_agent_id TEXT")
     if "config_profile_version" not in column_names:
@@ -690,6 +697,8 @@ def _migrate_messages_metadata(connection: sqlite3.Connection) -> None:
     # have none — fork is disabled on bubbles without it.
     if "kernel_message_id" not in column_names:
         connection.execute("ALTER TABLE messages ADD COLUMN kernel_message_id TEXT")
+    if "sender_source_id" not in column_names:
+        connection.execute("ALTER TABLE messages ADD COLUMN sender_source_id TEXT")
     if "sender_display_name" not in column_names:
         connection.execute("ALTER TABLE messages ADD COLUMN sender_display_name TEXT")
     if "caller_idempotency_key" not in column_names:
@@ -763,6 +772,10 @@ def _migrate_agent_profile_tables(connection: sqlite3.Connection) -> None:
     if agent_column_names and "heartbeat_json" not in agent_column_names:
         connection.execute("ALTER TABLE agent_profiles ADD COLUMN heartbeat_json TEXT")
 
+    if agent_column_names and "work_mode" not in agent_column_names:
+        connection.execute(
+            "ALTER TABLE agent_profiles ADD COLUMN work_mode TEXT NOT NULL DEFAULT 'single_thread'"
+        )
     if agent_column_names and "reasoning_effort" not in agent_column_names:
         connection.execute(
             "ALTER TABLE agent_profiles ADD COLUMN reasoning_effort TEXT"
