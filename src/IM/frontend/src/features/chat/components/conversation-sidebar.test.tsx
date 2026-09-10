@@ -248,3 +248,19 @@ describe("ConversationSidebar", () => {
     expect(within(row).getByText("2")).toBeInTheDocument();
   });
 });
+
+it.each([false, true])("resolves agent/user mentions in preview and search (distill=%s)", async (distillMode) => {
+  const conversations = [conv({ id: "mention-chat", title: "Dinner", type: "group", direct_kind: null,
+    participants: [{ type: "agent", id: "planner", display_name: "小策" }, { type: "user", id: "u1", display_name: "小陈" }],
+    last_message_preview: '<mention type="agent" target_id="planner"/> <mention type="user" target_id="u1"/> 准时到。'
+  })];
+  const props = { conversations, activeConversationId: null, onSelect: () => {}, onNewGroup: () => {}, distillMode };
+  const view = render(<ConversationSidebar {...props} />);
+  expect(screen.getByText("@小策 @小陈 准时到。")).toBeVisible();
+  await userEvent.type(screen.getByRole("searchbox"), "小策");
+  expect(screen.getByText("@小策 @小陈 准时到。")).toBeVisible();
+  await userEvent.clear(screen.getByRole("searchbox"));
+  view.rerender(<ConversationSidebar {...props} conversations={[{ ...conversations[0], participants: [] }]} />);
+  expect(screen.getByText("@unknown @unknown 准时到。")).toBeVisible();
+  expect(view.container.textContent).not.toContain("<mention");
+});

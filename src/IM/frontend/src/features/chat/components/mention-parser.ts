@@ -1,5 +1,5 @@
 /**
- * mention-parser.ts — shared mention tag parser for composer mirror and MessageBubble.
+ * mention-parser.ts — shared mention parsing and name resolution for messages and previews.
  *
  * bugfix-358: wire format changed from @display_name text to inline XML-like tag:
  *   <mention type="agent" target_id="ArchA"/>
@@ -60,4 +60,21 @@ export function parseMentions(content: string): Segment[] {
   }
 
   return segments;
+}
+
+/** Resolve mention names consistently across rich text and plain previews. */
+export function mentionDisplayName(targetId: string, names: ReadonlyMap<string, string>): string {
+  return names.get(targetId) || "unknown";
+}
+
+/** Build the same current participant dictionary used by message bubbles. */
+export function mentionNameMap(participants: readonly { id: string; display_name?: string | null }[] = []): Map<string, string> {
+  return new Map(participants.map((person) => [person.id, person.display_name || person.id]));
+}
+
+/** Plain-text surfaces cannot render chips, but must never show wire tags. */
+export function mentionPlainText(content: string, names: ReadonlyMap<string, string>): string {
+  return parseMentions(content).map((segment) => segment.kind === "text"
+    ? segment.text
+    : `@${mentionDisplayName(segment.target_id, names)}`).join("");
 }

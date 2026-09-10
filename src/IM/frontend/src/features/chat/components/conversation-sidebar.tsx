@@ -1,3 +1,4 @@
+import { mentionNameMap, mentionPlainText } from "./mention-parser";
 import { useMemo, useState } from "react";
 
 import { useTranslation } from "../../../i18n";
@@ -83,16 +84,20 @@ export function ConversationSidebar({
   const [search, setSearch] = useState("");
   const [contextMenu, setContextMenu] = useState<{ conversationId: string; x: number; y: number } | null>(null);
 
+  const previews = useMemo(() => new Map(conversations.map((c) => [
+    c.id, mentionPlainText(c.last_message_preview ?? "", mentionNameMap(c.participants))
+  ])), [conversations]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return conversations.filter((c) => {
       const kind = classifyConversationKind(c);
       if (filter !== "all" && kind !== filter) return false;
       if (!q) return true;
-      const haystack = `${c.title} ${c.last_message_preview ?? ""}`.toLowerCase();
+      const haystack = `${c.title} ${previews.get(c.id) ?? ""}`.toLowerCase();
       return haystack.includes(q);
     });
-  }, [conversations, filter, search]);
+  }, [conversations, filter, search, previews]);
 
   return (
     <aside className="chat-sidebar" aria-label={t("chat.list.header")} onClick={() => setContextMenu(null)}>
@@ -232,7 +237,7 @@ export function ConversationSidebar({
                         ) : null}
                       </span>
                       <span className="chat-sidebar-row-preview-line">
-                        <span className="chat-sidebar-row-preview">{c.last_message_preview ?? ""}</span>
+                        <span className="chat-sidebar-row-preview">{previews.get(c.id) ?? ""}</span>
                         {c.unread_count > 0 && (
                           <span className="chat-sidebar-row-unread" aria-label={`${c.unread_count} unread`}>
                             {c.unread_count}
@@ -264,7 +269,7 @@ export function ConversationSidebar({
                       )}
                     </span>
                     <span className="chat-sidebar-row-preview-line">
-                      <span className="chat-sidebar-row-preview">{c.last_message_preview ?? ""}</span>
+                      <span className="chat-sidebar-row-preview">{previews.get(c.id) ?? ""}</span>
                       {c.unread_count > 0 && (
                         <span className="chat-sidebar-row-unread" aria-label={`${c.unread_count} unread`}>
                           {c.unread_count}

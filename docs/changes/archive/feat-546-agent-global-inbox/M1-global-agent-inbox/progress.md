@@ -117,3 +117,10 @@ Implementation and native/Feishu real-stack self-tests are complete. User explic
 按用户侧聊转达要求，正常放行正文仅保留内部 `output_status` 审计元数据，不再向模型追加成功状态 system reminder。暂扣仍提供 NOT SENT 及明确的当前正文范围；历史模型上下文和 compaction 共用的组装入口过滤旧成功提醒，原持久记录不改写。
 
 48 项 output revalidation、prompting、loop、compaction 与全局 SDK 测试通过，包括先前同文已发送、后来同文暂扣、重载后仅排除暂扣正文且保留两次独立审计状态。真实聚餐主 Session 再次读取跟进并发布「提醒大家周五晚上准时到场，人数8人、预算400元不变。」；新增模型请求不包含 COMMITTED FOR DELIVERY，Inbox 两次调用无权限分类请求。原 IM、群聊和服务继续保留。
+
+### 2026-09-10 — mention 展示归一补漏
+
+- 用户截图确认会话列表摘要直接泄露 mention wire 标签。正文原有解析已存在，但列表与通知没有复用；通知还提前截断 wire 文本。
+- 正文、工具卡片、列表摘要、应用内通知与桌面通知共用 mention-parser 的名字解析和 unknown 回退；列表搜索基于显示名。通知仅在展示层完成名字转换后截断，保留缓存中的原始消息。
+- 验证：前端全量 74 文件 / 713 测试通过，生产构建通过。新增 Agent/user mention、列表两种模式、名字搜索、缺失成员、长标签跨截断位置、toast 与桌面通知覆盖。
+- 实际保留环境 :59669 重新加载构建：人数确认群摘要为 @小策 · 聚餐统筹，请在策划群提醒大家准时到，人数和预算不变；搜索小策可找到该群，已目视检查。服务与消息记录保留。

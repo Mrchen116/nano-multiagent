@@ -39,7 +39,7 @@ import {
 } from "../chat-types";
 import { Avatar, GroupAvatar, colorForAgentSeed, foregroundForAvatar } from "./avatar";
 import { KindBadge } from "./kind-badge";
-import { parseMentions } from "./mention-parser";
+import { parseMentions, mentionNameMap, mentionDisplayName } from "./mention-parser";
 import { MentionPicker } from "./mention-picker";
 import { NodeChip } from "./node-chip";
 import { PermissionCard } from "./permission-card";
@@ -1610,15 +1610,7 @@ const MarkdownContent = React.memo(function MarkdownContent({
   const { t } = useTranslation();
   // CR-3: participantMap 和 components 用 useMemo，仅 participants 变化时重建，
   // 保证 react-markdown 的 components 引用稳定，不触发不必要的 pipeline 重建。
-  const participantMap = useMemo(() => {
-    const map = new Map<string, string>();
-    if (participants) {
-      for (const p of participants) {
-        map.set(p.id, p.display_name ?? p.id);
-      }
-    }
-    return map;
-  }, [participants]);
+  const participantMap = useMemo(() => mentionNameMap(participants), [participants]);
 
   const components: Components = useMemo(() => ({
     ...MD_TABLE_COMPONENTS,
@@ -1633,8 +1625,8 @@ const MarkdownContent = React.memo(function MarkdownContent({
         return <span {...rest}>{children}</span>;
       }
 
-      const displayName = participantMap.get(targetId);
-      if (displayName) {
+      const displayName = mentionDisplayName(targetId, participantMap);
+      if (displayName !== "unknown") {
         return (
           <span className="chat-mention-chip" data-target-id={targetId}>
             @{displayName}
@@ -1723,14 +1715,7 @@ function renderInlineContent(
   text: string,
   participants?: Actor[],
 ): React.ReactNode {
-  // Build a lookup map from wire ID to display_name for mention chip resolution.
-  const participantMap = new Map<string, string>();
-  if (participants) {
-    for (const p of participants) {
-      const displayName = p.display_name ?? p.id;
-      participantMap.set(p.id, displayName);
-    }
-  }
+  const participantMap = mentionNameMap(participants);
 
   const segments = parseMentions(text);
   // Fast path: no mention segments — fall back to markdown-only rendering.
@@ -1740,8 +1725,8 @@ function renderInlineContent(
 
   return segments.map((seg, idx) => {
     if (seg.kind === "mention") {
-      const displayName = participantMap.get(seg.target_id);
-      if (displayName) {
+      const displayName = mentionDisplayName(seg.target_id, participantMap);
+      if (displayName !== "unknown") {
         return (
           <span key={idx} className="chat-mention-chip" data-target-id={seg.target_id}>
             @{displayName}

@@ -1,7 +1,6 @@
 import type { UserStreamEvent } from "../../realtime/user-stream";
 
 const STORAGE_PREFIX = "im.agent-completion.pending.v1";
-const PREVIEW_MAX = 140;
 
 export interface PendingAgentCompletion {
   conversationId: string;
@@ -46,10 +45,6 @@ function senderName(payload: Record<string, unknown>, senderUserId: string): str
     ?? text(payload.agent_display_name)
     ?? text(payload.agent_id)
     ?? senderUserId;
-}
-
-function truncatePreview(value: string): string {
-  return value.length <= PREVIEW_MAX ? value : `${value.slice(0, PREVIEW_MAX - 1)}…`;
 }
 
 function withoutPending(state: AgentCompletionState, messageId: string): AgentCompletionState {
@@ -107,7 +102,7 @@ export function reduceAgentCompletionEvent(
       ...pending,
       messageKey: `message:${messageId}`,
       messageId,
-      preview: truncatePreview(preview)
+      preview
     }
   };
 }
