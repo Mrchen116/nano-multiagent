@@ -502,3 +502,85 @@ def test_gateway_websocket_error_correlates_rejected_agent_message(
         "message": "username not found: agent:unknown-source",
         "message_type": "agent.message",
     }
+
+
+@pytest.mark.parametrize("legacy_orphan", [False, True])
+def test_agent_private_dispatch_link_is_readable_by_shared_owner(
+    tmp_path: Path, legacy_orphan: bool
+) -> None:
+    """The dispatch receipt must open its real conversation under the human owner."""
+    from IM.infra.repositories.agents import AgentProfileRepository
+    from IM.infra.repositories.conversations import ConversationRepository
+    from IM.infra.repositories.users import UserRepository
+    from tests.im_service._auth_helpers import authorize, register_user
+
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner = register_and_authorize(client)
+        users = UserRepository(app.state.connection)
+        profiles = AgentProfileRepository(app.state.connection)
+        participants = []
+        for agent_id in ("planner", "budget"):
+            participants.append(
+                users.create_user(
+                    username=f"agent:{agent_id}", display_name=agent_id
+                ).id
+            )
+            profiles.upsert_profile(
+                agent_id=agent_id,
+                owner_id=owner.owner_id,
+                display_name=agent_id,
+                description="",
+                skills=[],
+                tool_allowlist=[],
+                group_reply_policy="MENTION",
+                default_model=None,
+                workspace_root="",
+            )
+        old = None
+        if legacy_orphan:
+            old = ConversationRepository(app.state.connection).create_conversation(
+                title="Budget", participant_ids=participants
+            )
+            assert client.get(f"/im/v1/conversations/{old.id}").status_code == 404
+        with client.websocket_connect("/im/ws/gateway") as websocket:
+            websocket.send_json(
+                {
+                    "type": "node.register",
+                    "payload": {"node_id": "node-1", "agents": []},
+                }
+            )
+            assert websocket.receive_json()["type"] == "ack"
+            websocket.send_json(
+                {
+                    "type": "agent.message",
+                    "payload": {
+                        "node_id": "node-1",
+                        "from_session_id": "planner",
+                        "to": "budget",
+                        "text": "Please calculate 6 × 50.",
+                    },
+                }
+            )
+            response = websocket.receive_json()
+            assert response["type"] == "ack", response
+        receipt = response["payload"]
+        cid = receipt["conversation_id"]
+        if old:
+            assert cid == old.id
+        detail = client.get(f"/im/v1/conversations/{cid}")
+        assert detail.status_code == 200, detail.text
+        assert detail.json()["owner_id"] == owner.owner_id
+        assert cid in [
+            item["id"] for item in client.get("/im/v1/conversations").json()["items"]
+        ]
+        messages = client.get(f"/im/v1/conversations/{cid}/messages")
+        assert messages.status_code == 200
+        assert any(
+            item.get("message", {}).get("id") == receipt["message_id"]
+            for item in messages.json()["items"]
+        )
+        outsider = register_user(client, username="outsider")
+        authorize(client, outsider)
+        assert client.get(f"/im/v1/conversations/{cid}").status_code == 404
+        assert client.get(f"/im/v1/conversations/{cid}/messages").status_code == 404

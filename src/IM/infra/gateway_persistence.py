@@ -448,9 +448,9 @@ class GatewayConversationPersistence:
         Args:
             source_agent_id: Agent sending the message.
             target: Explicit or implicit conversation, agent, or user reference.
-            caller_owner_id: Owner policy supplied by the caller. None deliberately
-                preserves the current agent-message behavior; this module never
-                infers or repairs owner policy.
+            caller_owner_id: Explicit owner policy supplied by the caller. Without it,
+                two Agents with the same profile owner use that owner for their
+                private chat; synthetic agent users are not tenant owners.
 
         Returns:
             Normalized target and the landed conversation identifier.
@@ -459,7 +459,8 @@ class GatewayConversationPersistence:
             ValueError: When source or target identity cannot be resolved.
 
         Side Effects:
-            May create one direct conversation using the caller-supplied owner input.
+            May create a direct conversation. For same-owner Agents, may repair a
+            legacy random owner that belongs to no user or Agent profile.
         """
         source_user_id = self._require_user_id_by_username(
             username=f"agent:{source_agent_id}"
@@ -476,12 +477,39 @@ class GatewayConversationPersistence:
             target_user_id = self._require_user_id_by_username(
                 username=f"agent:{resolved_target.id}"
             )
+            source_profile = self._profiles.get_profile(agent_id=source_agent_id)
+            target_profile = self._profiles.get_profile(agent_id=resolved_target.id)
+            shared_owner = (
+                source_profile.owner_id
+                if source_profile
+                and target_profile
+                and source_profile.owner_id
+                and source_profile.owner_id == target_profile.owner_id
+                else None
+            )
             landed = self._find_or_create_direct_conversation(
                 left_user_id=source_user_id,
                 right_user_id=target_user_id,
                 expected_direct_kind="agent-agent",
-                caller_owner_id=caller_owner_id,
+                caller_owner_id=caller_owner_id or shared_owner,
             )
+            if (
+                caller_owner_id is None
+                and shared_owner
+                and landed.owner_id != shared_owner
+            ):
+                # Older peer chats received random tenant IDs from synthetic users.
+                # Keep their message/link IDs; never take a real tenant's chat.
+                with self._connection:
+                    self._connection.execute(
+                        """
+                        UPDATE conversations SET owner_id = ?
+                        WHERE id = ? AND owner_id = ?
+                          AND NOT EXISTS (SELECT 1 FROM users WHERE owner_id = conversations.owner_id)
+                          AND NOT EXISTS (SELECT 1 FROM agent_profiles WHERE owner_id = conversations.owner_id)
+                        """,
+                        (shared_owner, landed.id, landed.owner_id),
+                    )
             return DispatchResolution(resolved_target, landed.id)
         target_user = self._users.get_user(user_id=resolved_target.id)
         if target_user is None:

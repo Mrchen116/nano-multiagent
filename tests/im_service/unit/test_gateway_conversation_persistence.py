@@ -301,3 +301,35 @@ def test_system_notice_source_rejects_untrusted_identity(
             source_agent_id="product",
             node_id="node-other" if case == "wrong_node" else "node-1",
         )
+
+
+@pytest.mark.parametrize("same_owner", [False, True])
+def test_private_chat_owner_inference_never_claims_another_tenant(
+    tmp_path: Path, same_owner: bool
+) -> None:
+    """Mixed-owner peers and an already owned chat cannot be silently reassigned."""
+    connection, persistence = _build(tmp_path)
+    users = UserRepository(connection)
+    owner = users.create_user(username="owner", display_name="Owner")
+    other = users.create_user(username="other", display_name="Other")
+    source = users.create_user(username="agent:A", display_name="A")
+    target = users.create_user(username="agent:B", display_name="B")
+    for agent_id, owner_id in [
+        ("A", owner.owner_id),
+        ("B", owner.owner_id if same_owner else other.owner_id),
+    ]:
+        _upsert_profile(connection, agent_id=agent_id, owner_id=owner_id, node_id=None)
+    conversations = ConversationRepository(connection)
+    existing = conversations.create_conversation(
+        title="Existing",
+        participant_ids=[source.id, target.id],
+        caller_owner_id=other.owner_id if same_owner else None,
+    )
+    result = persistence.resolve_send_target(
+        source_agent_id="A", target="B", caller_owner_id=None
+    )
+    assert result.conversation_id == existing.id
+    assert (
+        conversations.get_conversation(conversation_id=existing.id).owner_id
+        == existing.owner_id
+    )

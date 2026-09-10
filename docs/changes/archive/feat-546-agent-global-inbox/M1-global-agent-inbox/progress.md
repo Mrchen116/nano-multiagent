@@ -131,3 +131,10 @@ Implementation and native/Feishu real-stack self-tests are complete. User explic
 - 读取 feat-544 的 cases.json、supplementary-cases.json 和旧报告，选六个正文场景改用日常短句，另加同文先发后扣；真实 DeepSeek V4 Flash/high 七场景通过，六个有更新场景共七次实际暂扣，连续更新消费两批输入。无关插话仍完整回复，取消通知保持静默，正常跟进不新增暂扣提醒。
 - 每次核对实际 LLM 请求均为新短提醒、无成功提醒；原始证据/执行前计划/运行脚本/摘要保留在 `output/simple-reminder-evaluation/`。这是针对性行为验证，不是原历史全集重放或提示词因果 A/B；未重跑工具、后台、图片和报数压力场景。
 - 相关内核测试 39 passed；Ruff、diff check 通过。保留 :59669 演示服务与旧数据，仅重载隔离 Gateway 以加载新提醒。
+
+### 2026-09-10 — Agent 私聊原消息链接 404
+
+- 用户从小策向小算的 send_message 投递确认点击原消息，进入空聊天。实测回执 ID 与真实记录一致，但 GET 会话/消息均 404；数据库显示两个 Agent profile 同属登录 owner，合成用户各自拥有独立 owner，Gateway 传入空 caller owner 后私聊被分配随机归属。
+- Gateway 会话持久层用两个 Agent profile 的共同 owner 创建私聊。复用旧随机归属会话时，仅当旧 owner 不属于任何用户或 Agent profile 才修复归属；保留会话/消息 ID，不改其他真实租户会话，不为跨 owner Agent 推断共同归属。
+- 先补真实 WebSocket agent.message → 回执 ID → owner 会话/消息 API 回归，新建与旧随机归属两例均 404 红；修后通过，其他 owner 仍 404。连同 Gateway 相关测试 67 passed；会话与租户/架构补充回归 173 passed。
+- 已用同一修复路径校正 :59669 原测试会话 d96b6935c57c4c1e809f29380fe0b3a2，4 条消息内容/ID 不变。重新加载保留运行环境后，实际浏览器打开原深链接显示“已定位原消息”，预算请求高亮，300/400 元核算记录完整。修复证据在 output/chat-link-repair/evidence.json。
