@@ -2310,6 +2310,12 @@ body {
   word-break: break-word;
 }
 
+/* Grid items otherwise keep their image state's 320px intrinsic width and can
+   escape a narrower mobile message bubble. */
+.im-md > * {
+  min-width: 0;
+}
+
 .im-md p,
 .im-md ul,
 .im-md ol,
