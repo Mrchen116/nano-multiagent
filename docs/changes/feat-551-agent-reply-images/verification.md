@@ -172,3 +172,47 @@ requires_full_verification: false
 无。
 
 All checks passed. Ready for PR.
+
+## Corrected Delta Reconciliation
+
+> Validation snapshot: `6ec610be5d43a085a44c80518150dd91cafa61bd → 320bc117e8450b0d35c7a7cf4ff586f409989a07`
+
+Mode: corrected-delta
+
+| Delta item | Implementation evidence | Test evidence | Outcome |
+|---|---|---|---|
+| `specs/gateway/routing-delivery.md` Requirement: 当前会话的 Agent 图片回复具有统一交付语义 | `src/personal_assistant/product.py:356-382`; `src/personal_assistant/gateway/reply_images.py:78-120,158-238,248-367`; `src/personal_assistant/gateway/composition.py:322-425` | `tests/integration/test_personal_assistant_prompt_integration.py:68-81`; `tests/unit/personal_assistant/test_reply_images.py:24-184`; `tests/unit/personal_assistant/test_reply_image_public_sources.py:26-78` | aligned |
+| gateway Scenario: 本地产物跨机器查看 | Gateway 先在持久 state 中固定 bytes，再经 IM 私有 URL 或 Feishu image key 投影：`reply_images.py:158-238,319-367`; `src/IM/api/routes/message_images.py:41-117`; `src/personal_assistant/channels/feishu/adapter.py:211-298` | `test_reply_images.py:24-56`; `tests/im_service/integration/test_message_images_api.py:42-84`; `M1-reply-images/evidence/web-im-{1280,390,gateway-offline}.png`; `M1-reply-images/evidence/feishu-real-image-C.png` | aligned |
+| gateway Scenario: 图片语法不绕过权限 | 只用 directory descriptor + `O_NOFOLLOW` 读取 workspace `.nanoassistant/exports/` 中的普通文件：`reply_images.py:78-120`; 产品提示要求先经既有受控工具复制：`product.py:356-382` | `test_reply_images.py:84-132`; `test_personal_assistant_prompt_integration.py:68-81` | aligned |
+| gateway Scenario: 图文投递保持入口路由 | external-triggered 气泡保留原 channel metadata 并同时进入 provider/shadow，`trigger_source=im` 则不组造外部投影：`src/personal_assistant/gateway/runtime_delivery/observer.py:260-380`; `src/personal_assistant/gateway/shadow_sync.py:430-501`; Post/card 共用 `adapter.py:239-298` | `tests/integration/test_shadow_reply_images.py:74-263`; `tests/unit/personal_assistant/test_external_visible_delivery.py:600-634`; `tests/unit/test_feishu_adapter_send.py:250-329` | aligned |
+| gateway Scenario: IM 离线不阻塞飞书图片 | provider 投递不依赖 IM；shadow output 保留 `output_key`，恢复时从 Gateway 快照上传私有资源后幂等写回原气泡：`reply_images.py:274-367`; `shadow_saga.py:96-167`; `shadow_sync.py:430-540` | `test_shadow_reply_images.py:146-263`; `M1-reply-images/progress.md:53-58` | aligned |
+| gateway Scenario: 局部图片失败 | prepare 为每个 ordinal 保留 `limit/type/source/missing/upload` 局部结果，Feishu prepare 逐图上传并保留部分成功回执：`reply_images.py:64-75,168-238,274-317`; `adapter.py:211-298` | `test_reply_images.py:59-184`; `test_reply_image_public_sources.py:26-78`; `test_feishu_adapter_send.py:250-329`; `M1-reply-images/evidence/feishu-partial-failure-valid-D.png` | aligned |
+| gateway Scenario: 普通文本和示例保持原语义 | 共用流式/完整 Markdown 解析器仅处理 code/escape 之外的 inline image：`src/personal_assistant/gateway/reply_image_stream.py:13-115`; 无图回复保留原文：`reply_images.py:216-238` | `tests/unit/personal_assistant/test_reply_image_stream.py:9-77`; `test_reply_images.py:135-184`; `src/IM/frontend/src/features/chat/components/message-image.test.tsx:119-127` | aligned |
+| `specs/im/conversations-messages.md` Requirement: Agent 新托管图片按会话保护且稳定可回看 | 新 `message_images` 表和独立私有存储与旧 `/im/uploads` 分离，POST/GET 先做会话 owner 校验：`src/IM/infra/db.py:158-169`; `src/IM/infra/repositories/message_images.py:34-127`; `src/IM/api/routes/message_images.py:19-117`; `src/IM/app.py:286-289,438-441` | `tests/im_service/integration/test_message_images_api.py:42-124` | aligned |
+| IM Scenario: 已交付图片持久回看 | IM 持久不可变 bytes/metadata，正文只存稳定相对 URL：`message_images.py:57-127`; Gateway 原图删除后不再重读：`reply_images.py:144-157,240-246` | `test_message_images_api.py:42-84`; `test_reply_images.py:24-36`; `M1-reply-images/evidence/web-im-gateway-offline.png` | aligned |
+| IM Scenario: 地址不授予访问权限 | Bearer 身份来自 `current_user`，不信任请求 owner；跨 owner/不存在会话统一 404：`message_images.py:19-26,41-117` | `test_message_images_api.py:42-84` 同时断言 owner 200、未登录 401、其他 owner 404 | aligned |
+| IM Scenario: 会话 fork 保留图片 | fork 在新会话复制资源引用并改写正文 URL，可共享不可变存储文件：`message_images.py:129-167`; `src/IM/application/web_im_service.py:475-501` | `test_message_images_api.py:127-197` 删除原会话后原 URL 404、fork URL 仍返回原 bytes | aligned |
+| `specs/im/web-chat-ux.md` Requirement: Agent 图片在正文中按顺序展示 loading/ready/error | ReactMarkdown `img` 只在原位置接入 `MessageImage`，不改 attachment renderer：`src/IM/frontend/src/features/chat/components/message-pane.tsx:1594-1621,1740-1743`; 私有 URL/pending/remote 分流：`message-image.tsx:9-44` | `src/IM/frontend/src/features/chat/components/message-image.test.tsx:48-127`; `M1-reply-images/evidence/web-im-{1280,390,desktop-loading,mobile-loading,desktop-error,mobile-error}.png` | aligned |
+| Web Scenario: 成功和纯图片回复 | 成功图使用气泡内原比例按钮和 Dialog，未合成任何占位正文：`message-image.tsx:88-105`; `src/IM/frontend/src/styles/global.css:2497-2514,2532-2561` | `message-image.test.tsx:48-61,77-87`; ready/zoom 证据与 `M1-reply-images/progress.md:42-49` | aligned |
+| Web Scenario: 图片准备与加载 | Gateway 在语法闭合前缓冲 destination，仅发 pending ordinal，完成帧在 IM 上传后才替换 URL：`reply_image_stream.py:13-115`; `src/personal_assistant/gateway/runtime_delivery/image_connection.py:73-148`; 前端 pending/private-fetch loading 均是文本状态：`message-image.tsx:28-42,46-86` | `test_reply_image_stream.py:9-77`; `tests/unit/personal_assistant/test_im_reply_image_delivery.py:48-108`; `message-image.test.tsx:48-61`; desktop/mobile loading 证据 | aligned |
+| Web Scenario: 图片失败 | 准备/上传失败在原 ordinal 投影为可读原因；私有 GET/decode 失败则在原位显示可重试按钮：`reply_images.py:64-75,207-238,319-367`; `message-image.tsx:46-86` | `test_reply_images.py:59-184`; `test_reply_image_public_sources.py:26-78`; `message-image.test.tsx:63-87`; desktop/mobile error 证据 | aligned |
+| Web Scenario: 登出和切换账号 | 私有图组件以当前 user + URL 为生命周期 key，卸载时 abort fetch 并 revoke Object URL：`message-image.tsx:28-39,46-75` | `message-image.test.tsx:90-117` | aligned |
+| 跨契约核对：`/new` 对图片投递的撤销 | 这不是本 unit 新增的 `/new` 语义；canonical `docs/specs/gateway/routing-delivery.md:178-206` 已要求旧 run 的 stream/final/external mirror 不得在确认后晚到。图片作为普通 assistant delivery 继承该约束：`src/personal_assistant/gateway/runtime_delivery/context.py:318-417`; `task_tracker.py:97-135`; `src/personal_assistant/gateway/session_run_coordinator.py:671-805`; `image_connection.py:82-148`; `src/personal_assistant/gateway/outbound_router.py:146-206` | `tests/unit/personal_assistant/test_session_reset_delivery.py:29-217`; `test_runtime_delivery_task_tracker.py:19-94`; `test_im_reply_image_delivery.py:110-165`; `test_shadow_reply_images.py:146-263`; 真实飞书等待 run + `/new` 证据见 `M1-reply-images/progress.md:58` | aligned |
+
+### Unit Diff Coverage Audit
+
+| 可观察增量 / 支撑机制 | Delta 承接 | 审计结果 |
+|---|---|---|
+| Agent 可交付目录和产品提示 | gateway 统一交付 Requirement + 本地跨机器/不绕过权限 Scenarios | 只建立 `.nanoassistant/exports/` 明确边界，没有扩大工具读权或新建截图工具。 |
+| Gateway 快照、output identity、provider receipt、shadow recovery 与 public admission | gateway 路由、IM 离线恢复、局部失败 Scenarios；`/new` 部分继承既有 canonical reset 契约 | 都是为声明的图片交付结果服务的内部实现与恢复边界；没有新运行时路由或跨 provider exactly-once 承诺。 |
+| IM 私有上传/GET、幂等错误和 fork URL 重绑 | IM conversations/messages Requirement 与三个 Scenarios | 只覆盖新托管资源；旧 `/im/uploads` 保持现状，与 delta 的不追溯迁移边界一致。 |
+| 流式 pending、完成 URL、侧边栏/回执摘要隐去 destination、响应式状态和账号 blob 销毁 | Web UX Requirement + loading/failure/account Scenarios；gateway 权限/普通文本 Scenario | `src/IM/infra/_helpers.py:7-15,57-91` 和 `src/personal_assistant/gateway/runtime_delivery/lifecycle.py:50-123` 只将图片 destination 降为安全标签，确保声明的“不闪现本地路径”在气泡外的同一 Web IM 可观察摘要面也不被破坏。 |
+| 既有 public/data 安全下载器增加稳定 `limit/type` 分类 | gateway 局部失败 + 普通文本/既有示例不回归 Scenarios | delta 只承诺“既有可获取网络图片”不回归，没有把 data/GIF 提升为新的本地格式承诺。 |
+
+Current-snapshot reconciliation checks: Python mapping suite **75 passed**; Web IM `message-image` suite **6 passed** at the same `320bc117e` tree. Earlier full and targeted verification remains the authority for product completion; this reconciliation does not replace it.
+
+### Uncovered Observable Behavior
+
+None. The final unit diff's user-observable image delivery, persistence, routing, failure, loading, responsive, preview-safety and account-lifecycle changes are covered by the three deltas. `/new` image suppression is correctly inherited from the unchanged canonical session-reset and external-mirror contracts rather than duplicated as a new feat-551 rule.
+
+Outcome: aligned
