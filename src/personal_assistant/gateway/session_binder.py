@@ -672,24 +672,20 @@ class GatewaySessionBinder:
     def capture_binding_provenance(
         self, session_key: str, *, expected_agent_id: str
     ) -> BindingProvenance | None:
-        """Atomically capture a source binding, Agent snapshot, and semantic guard."""
+        """Capture source history with the config current when the operation starts."""
 
         with self._lock:
+            current_agent = self._catalog.get(expected_agent_id)
             binding = self._repository.get(session_key)
-            if binding is None:
+            if binding is None or current_agent is None:
                 return None
-            agent = self._binding_agents.get(session_key)
-            if agent is None:
-                agent = self._catalog.get(expected_agent_id)
-                if agent is None:
-                    return None
-                self._record_provenance(binding, agent=agent, persist_binding=True)
-            if agent.agent_id != expected_agent_id:
+            source_agent = self._binding_agents.get(session_key)
+            if source_agent is not None and source_agent.agent_id != expected_agent_id:
                 return None
             return BindingProvenance(
                 binding=binding,
-                agent=agent,
-                guard=self._guard_for(agent),
+                agent=current_agent,
+                guard=self._guard_for(current_agent),
             )
 
     def find_by_kernel_session_id(
@@ -984,7 +980,9 @@ def build_session_fork_handler(
         if bind_result.status == "stale":
             return {
                 "ok": False,
-                "error": "agent config changed while session fork was running",
+                "error": (
+                    "agent config changed while session fork was running; please retry"
+                ),
             }
         return {
             "ok": True,

@@ -469,3 +469,64 @@ def test_agent_config_update_keeps_chat_context_with_stub_llm(
     )["agents"][0]
     assert saved_agent["custom_prompt"] == _UPDATED_PROMPT
     assert "system_prompt" not in saved_agent
+
+
+@pytest.mark.e2e
+def test_fork_immediately_after_config_update_uses_new_runtime(
+    stub_im_user: IMClient, stub_llm_stack: StubLLMStack
+) -> None:
+    """A historical reply can fork before the source chat runs under new config."""
+
+    agent_id = stub_im_user.first_agent_id()
+    old_prompt = "BUGFIX-547 OLD CONFIG"
+    new_prompt = "BUGFIX-547 CURRENT CONFIG"
+    source_sentinel = "FORKSRC" + secrets.token_hex(4).upper()
+    branch_sentinel = "FORKBRANCH" + secrets.token_hex(4).upper()
+    record = Path(stub_llm_stack.record_path)
+
+    stub_im_user.update_agent_config(
+        agent_id,
+        custom_prompt=old_prompt,
+        tool_allowlist=[],
+    )
+    conversation_id = stub_im_user.create_direct_conversation(agent_id)
+    ws = stub_im_user.connect_ws()
+    try:
+        stub_im_user.send_message(
+            conversation_id,
+            f"请记住这个标记:{source_sentinel}。",
+        )
+        ws.wait_for_event("message.completed")
+        _wait_records(record, 1)
+        source_reply = stub_im_user.agent_messages(conversation_id, agent_id)[-1]
+
+        stub_im_user.update_agent_config(
+            agent_id,
+            custom_prompt=new_prompt,
+            tool_allowlist=["read"],
+        )
+        _wait_gateway_custom_prompt(
+            Path(stub_llm_stack.wt_dir) / ".gateway-config.yaml", new_prompt
+        )
+        branch_id = stub_im_user.fork_conversation(
+            conversation_id,
+            source_reply["id"],
+        )
+
+        stub_im_user.send_message(
+            branch_id,
+            f"继续分支，新标记是:{branch_sentinel}。",
+        )
+        ws.wait_for_event("message.completed")
+        records = _wait_records(record, 2)
+    finally:
+        ws.close()
+
+    last = records[-1]
+    blob = _message_blob(last)
+    system = _system_blob(last)
+    assert source_sentinel in blob
+    assert branch_sentinel in blob
+    assert new_prompt in system
+    assert old_prompt not in system
+    assert "read" in _tool_names(last)

@@ -84,8 +84,15 @@ fork handler 从源 binding 捕获这份 v1 来源快照，按指定消息完成
 
 ## 修复
 
-由 `M1-fix` 实施完成后回填。
+- `GatewaySessionBinder.capture_binding_provenance()` 在 fork 操作开始时先捕获 Agent catalog 的当前快照，再读取源 binding。源 Kernel Session 仍只提供截至 fork 点的历史；目标分支则使用 fork 开始时已经稳定发布的当前配置建立 provenance 和写回 guard。
+- 若配置在这次捕获之后、目标 binding 提交之前再次发布，现有 revision guard 继续拒绝写回；错误增加 `please retry`，IM 沿既有事务路径回滚临时分支。
+- current IM spec 补充“配置已更新但源会话尚未开始新一轮时可直接 fork”和“fork 途中再次更新则原子失败”的场景。
 
 ## 验证
 
-由 `M1-fix` 验证完成后回填。
+- Red：新增 `test_fork_uses_config_published_before_operation_without_source_turn`，修复前稳定得到 `ok=False`。
+- Green：`tests/unit/personal_assistant/test_session_fork_handler.py`，7 passed。
+- 并发回归：session fork、binder 与 binder concurrency 聚焦集，18 passed；既有两类真实 mid-fork publication 均继续失败且不落目标 binding。
+- 黑盒产品旅程：真实隔离 IM + Gateway 进程、recording LLM stub 下执行“旧配置回复 → 保存新配置 → 不发源会话占位消息 → fork → 分支首条消息”，1 passed；上游请求同时包含 fork 前历史和分支新消息，并使用新 Custom Instructions 与新 tool allowlist。
+- PA 单测：`tests/unit/personal_assistant`，1156 passed。
+- 静态门禁：`scripts/docs_check.py`、`ruff check .`、`ruff format --check .`、`git diff --check` 均通过。
