@@ -55,8 +55,9 @@ function sessionTitle(session?: WorkSession) {
 }
 
 function SessionFacts({ items, title = "执行记录" }: { items?: WorkItem[]; title?: string }) {
-  if (!items?.length) return null;
-  return <details className="im-work-other"><summary>{tr(title)}</summary>{items.map(item => {
+  const visibleItems = items?.filter(item => !(item.kind === "control_result" && item.payload.command === "new"));
+  if (!visibleItems?.length) return null;
+  return <details className="im-work-other"><summary>{tr(title)}</summary>{visibleItems.map(item => {
     const p = item.payload;
     return <div key={item.item_id}>
       <strong>{item.kind === "cron_delivery" ? "Cron 实际投递" : item.kind === "cron_trigger" ? cronTitle(p.trigger, str(p.job_id)) : str(p.command) || item.kind}</strong>
