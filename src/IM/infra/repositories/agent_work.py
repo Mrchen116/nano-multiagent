@@ -9,6 +9,8 @@ from typing import Any
 from IM.infra.repositories.agents import AgentProfileRepository
 
 _SCHEMA = """
+CREATE TABLE IF NOT EXISTS agent_work_query_snapshots (
+ snapshot_id TEXT PRIMARY KEY, data TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS agent_work_journals (
  node_id TEXT, journal_id TEXT, through_seq INTEGER NOT NULL DEFAULT 0,
  PRIMARY KEY(node_id,journal_id));
@@ -540,7 +542,7 @@ class AgentWorkRepository:
                 payload.get("status") == "pending"
                 and turn
                 and json.loads(turn[0]).get("status")
-                in {"running", "waiting_permission"}
+                in {"running", "waiting_permission", "unknown"}
             ):
                 return {
                     **payload,

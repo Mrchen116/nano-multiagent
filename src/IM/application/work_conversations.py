@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import sqlite3
+from uuid import uuid4
 
 from IM.infra.repositories.agent_work import AgentWorkRepository
 from IM.infra.repositories.agents import AgentProfileRepository
@@ -71,8 +72,22 @@ class WorkConversationQuery:
             "query": params.get("query"),
         }
         cursor = _decode(params["cursor"]) if params.get("cursor") else None
-        if cursor and any(cursor.get(k) != v for k, v in identity.items()):
-            raise ValueError("invalid_cursor")
+        snapshot = None
+        if cursor:
+            if any(
+                type(cursor.get(k)) is not int or cursor[k] < 0
+                for k in ("offset", "part")
+            ):
+                raise ValueError("invalid_cursor")
+            saved = self.db.execute(
+                "SELECT data FROM agent_work_query_snapshots WHERE snapshot_id=?",
+                (cursor.get("snapshot"),),
+            ).fetchone()
+            if saved is None:
+                raise ValueError("invalid_cursor")
+            snapshot = json.loads(saved[0])
+            if any(snapshot.get(k) != v for k, v in identity.items()):
+                raise ValueError("invalid_cursor")
         if action == "list":
             conversations = []
             for row in rows:
@@ -96,18 +111,20 @@ class WorkConversationQuery:
                     }
                 )
             # Cursor freezes membership/order of this page snapshot. Recheck current permissions on every query.
-            ids = cursor["ids"] if cursor else [c["target"] for c in conversations]
+            ids = snapshot["ids"] if snapshot else [c["target"] for c in conversations]
             lookup = {c["target"]: c for c in conversations}
-            ordered = [lookup[i] for i in ids if i in lookup]
             start = cursor["offset"] if cursor else 0
-            page = ordered[start : start + limit]
-            more = start + limit < len(ordered)
+            page = []
+            while start < len(ids) and len(page) < limit:
+                item = lookup.get(ids[start])
+                start += 1
+                if item:
+                    page.append(item)
+            more = any(key in lookup for key in ids[start:])
             return {
                 "conversations": page,
                 "has_more": more,
-                "next_cursor": _encode(
-                    {**identity, "ids": ids, "offset": start + limit}
-                )
+                "next_cursor": self._cursor(identity, ids, start, cursor=cursor)
                 if more
                 else None,
             }
@@ -133,7 +150,7 @@ class WorkConversationQuery:
             if before is None:
                 raise ValueError("target_not_accessible")
             messages = messages[:before]
-        ids = cursor["ids"] if cursor else [m.id for m in reversed(messages)]
+        ids = snapshot["ids"] if snapshot else [m.id for m in reversed(messages)]
         by_id = {m.id: m for m in messages}
         index = cursor.get("offset", 0) if cursor else 0
         part = cursor.get("part", 0) if cursor else 0
@@ -200,12 +217,30 @@ class WorkConversationQuery:
             "messages": page,
             "history_scope": "im_history",
             "has_more": more,
-            "next_cursor": _encode(
-                {**identity, "ids": ids, "offset": index, "part": part}
-            )
+            "next_cursor": self._cursor(identity, ids, index, part=part, cursor=cursor)
             if more
             else None,
         }
+
+    def _cursor(
+        self,
+        identity: dict,
+        ids: list[str],
+        offset: int,
+        *,
+        part: int = 0,
+        cursor: dict | None = None,
+    ) -> str:
+        # Store the frozen membership once, rather than returning every history
+        # message ID to the model on every page. Recheck access on each query.
+        snapshot_id = cursor["snapshot"] if cursor else uuid4().hex
+        if cursor is None:
+            with self.db:
+                self.db.execute(
+                    "INSERT INTO agent_work_query_snapshots VALUES (?,?)",
+                    (snapshot_id, json.dumps({**identity, "ids": ids})),
+                )
+        return _encode({"snapshot": snapshot_id, "offset": offset, "part": part})
 
     def _participants(self, conversation_id: str) -> list[dict]:
         return [

@@ -145,3 +145,31 @@ it("shows empty and failed views with retry", async () => {
   expect(await screen.findByRole("alert")).toBeInTheDocument();
   expect(screen.getByRole("button", {name: "重试"})).toBeEnabled();
 });
+
+it("loads a newly available process page, refreshes its tools and restores it after Chat", async () => {
+  let lateStatus = "running";
+  mocks.fetch.mockImplementation(async (url: string) => new Response(JSON.stringify(
+    url === "/im/v1/conversations" ? {items:[]} : url.includes("/items?") ? {items:[{item_id:"late",seq:101,kind:"tool",payload:{id:"late",name:"inbox",status:lateStatus,input:{action:"read",target:"group-b"},detail:{action:"read",target:"group-b",messages:[{message_id:"late-message",content:[{type:"text",text:"Later page message"}],source:{conversation_id:"group-b"}}]}}}],next_cursor:null} : view
+  ),{status:200}));
+  renderWork();
+  fireEvent.click(await screen.findByText("Inbox 唤醒"));
+  expect(screen.queryByRole("button",{name:"加载更多过程"})).not.toBeInTheDocument();
+  view = {...view,revision:2,turns:[{...view.turns[0],next_items_cursor:"100",items:Array.from({length:100},(_,i)=>({item_id:`initial-${i}`,seq:i+1,kind:"thinking",payload:{text:`Thought ${i}`}}))}]};
+  act(()=>mocks.subscribe.mock.calls[0][0].onEvent({eventType:"agent.work.updated",payload:{agent_id:"global"}}));
+  fireEvent.click(await screen.findByRole("button",{name:"加载更多过程"}));
+  fireEvent.click(await screen.findByRole("button",{name:/inbox.*group-b/}));
+  expect(screen.queryByText("Later page message")).not.toBeInTheDocument();
+  lateStatus = "completed";
+  act(()=>mocks.subscribe.mock.calls[0][0].onEvent({eventType:"agent.work.updated",payload:{agent_id:"global"}}));
+  expect(await screen.findByText("Later page message")).toBeVisible();
+  fireEvent.click(screen.getByRole("link",{name:"原消息"}));
+  fireEvent.click(await screen.findByRole("button",{name:"Return to work"}));
+  expect(await screen.findByText("Later page message")).toBeVisible();
+});
+
+it("lets the online Gateway validate an unresolved permission after IM recovery", async () => {
+  view = {...view,main_execution:"unknown",turns:[{...view.turns[0],status:"unknown",items:[{item_id:"permission:p",seq:1,kind:"permission",payload:{request_id:"p",tool_name:"bash",tool_input:{command:"pwd"},question:"Allow execution?",status:"pending",options:[{id:"allow_once",label:"Allow",description:""}]}}]}]};
+  renderWork();
+  fireEvent.click(await screen.findByText("Inbox 唤醒"));
+  expect(screen.getByRole("button",{name:"允许"})).toBeEnabled();
+});

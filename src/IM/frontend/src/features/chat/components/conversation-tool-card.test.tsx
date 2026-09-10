@@ -1,3 +1,4 @@
+import { WorkNavigationContext } from "./work-thread-link";
 import { beforeEach } from "vitest";
 import { setLanguage } from "../../../i18n";
 beforeEach(() => setLanguage("zh"));
@@ -30,4 +31,11 @@ describe("conversation tool presentation", () => {
     expect(screen.getByText("没有匹配记录")).toBeInTheDocument();
     expect(screen.getByText("聊天历史查询 · 不推进收件箱")).toBeInTheDocument();
   });
+});
+
+it("renders wire mentions with participant names in the actual inbox card", () => {
+  const detail = {...page, messages: [{...page.messages[0], content: [{type:"text",text:'<mention type="agent" target_id="planner"/> 改成8人'}]}]};
+  render(<MemoryRouter><WorkNavigationContext.Provider value={{returnUrl:"/work",beforeLeave(){},people:{planner:"小策"}}}><ToolDetailBody call={{...call,status:"completed",detail}}/></WorkNavigationContext.Provider></MemoryRouter>);
+  expect(screen.getByText("@小策")).toBeInTheDocument();
+  expect(screen.queryByText(/<mention/)).not.toBeInTheDocument();
 });

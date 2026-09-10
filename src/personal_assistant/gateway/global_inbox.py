@@ -526,7 +526,11 @@ class GlobalInboxService:
             if not target or target.get("conversation_id"):
                 try:
                     page = await self._conversation_reader(
-                        agent_id, str(args["action"]), args
+                        agent_id,
+                        str(args["action"]),
+                        {**args, "target": target["conversation_id"]}
+                        if target
+                        else args,
                     )
                     return await self._materialize_history_page(page)
                 except (ConnectionError, TimeoutError):
@@ -675,11 +679,13 @@ class GlobalInboxService:
         high = db.execute(
             "SELECT COALESCE(MAX(seq),0) FROM inbox_entries WHERE agent_id=?", (agent,)
         ).fetchone()[0]
-        offset = 0
+        position = None
         if args.get("cursor"):
-            high, offset = self._decode_cursor(
+            high, position = self._decode_cursor(
                 args["cursor"], agent, tool, str(args.get("query", "")), args["action"]
             )
+        if position is not None and not isinstance(position, dict):
+            raise ValueError("invalid_cursor")
         rows = db.execute(
             "SELECT data FROM inbox_targets WHERE agent_id=?", (agent,)
         ).fetchall()
@@ -736,9 +742,22 @@ class GlobalInboxService:
         if tool != "inbox":
             results.sort(key=lambda item: item["latest_message_at"], reverse=True)
         limit = args.get("limit", 20)
-        has_more = len(results) > offset + limit
+        # Freeze source order, not the shrinking unread result list. A previous
+        # page may have been consumed while this cursor was held by the Agent.
+        targets = (
+            position["targets"] if position else [item["target"] for item in results]
+        )
+        offset = position["offset"] if position else 0
+        lookup = {item["target"]: item for item in results}
+        selected = []
+        while offset < len(targets) and len(selected) < limit:
+            item = lookup.get(targets[offset])
+            offset += 1
+            if item:
+                selected.append(item)
+        has_more = any(target in lookup for target in targets[offset:])
         return {
-            "conversations": results[offset : offset + limit],
+            "conversations": selected,
             "has_more": has_more,
             "next_cursor": self._cursor(
                 agent,
@@ -746,7 +765,7 @@ class GlobalInboxService:
                 str(args.get("query", "")),
                 args["action"],
                 high,
-                offset + limit,
+                {"targets": targets, "offset": offset},
             )
             if has_more
             else None,

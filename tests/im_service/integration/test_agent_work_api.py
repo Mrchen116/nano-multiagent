@@ -1,6 +1,7 @@
 """Protect authenticated work transport, conversation scope and live permission routing."""
 
 import threading
+import pytest
 from fastapi.testclient import TestClient
 from IM.app import create_app
 from IM.infra.repositories.agents import AgentProfileRepository
@@ -10,7 +11,10 @@ from IM.infra.repositories.nodes import NodeRepository
 from .conftest import authorize, register_user, seed_user_under_owner
 
 
-def test_work_http_journal_query_and_permission_share_real_ownership(tmp_path):
+@pytest.mark.parametrize("recover_im", [False, True])
+def test_work_http_journal_query_and_permission_share_real_ownership(
+    tmp_path, recover_im
+):
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         owner = register_user(client, username="owner")
@@ -175,6 +179,17 @@ def test_work_http_journal_query_and_permission_share_real_ownership(tmp_path):
                 ).status_code
                 == 409
             )
+            if recover_im:
+                app.state.work_repository.mark_active_unknown()
+                ws.send_json({"type": "agent.work.append", "payload": batch})
+                assert ws.receive_json()["payload"]["through_seq"] == 3
+                assert client.get(base).json()["turns"][0]["status"] == "unknown"
+                assert (
+                    app.state.work_repository.pending_permission("global", "permit")[
+                        "session_id"
+                    ]
+                    == "main"
+                )
             holder = {}
             worker = threading.Thread(
                 target=lambda: holder.setdefault(
@@ -248,3 +263,104 @@ def test_work_http_journal_query_and_permission_share_real_ownership(tmp_path):
             authorize(client, owner)
         assert client.get(base).json()["node_connection_state"] == "offline"
         assert client.get("/im/v1/agents/global/config").json()["work_mode"] == "global"
+
+
+def test_history_cursor_is_bounded_and_keeps_snapshot_across_reopen(tmp_path):
+    from uuid import uuid4
+    from IM.application.work_conversations import WorkConversationQuery
+    from IM.infra.repositories.agent_work import AgentWorkRepository
+
+    app = create_app(db_path=tmp_path / "history.db")
+    with TestClient(app) as client:
+        owner = register_user(client, username="history-owner")
+        db = app.state.connection
+        NodeRepository(db).upsert_node(
+            node_id="node", node_name="Node", owner_id=owner.owner_id
+        )
+        AgentProfileRepository(db).create_profile(
+            agent_id="global",
+            owner_id=owner.owner_id,
+            node_id="node",
+            display_name="Global",
+            description="",
+            skills=[],
+            tool_allowlist=[],
+            group_reply_policy="ALWAYS",
+            default_model=None,
+            workspace_root=None,
+            work_mode="global",
+        )
+        agent_user = seed_user_under_owner(
+            client, username="agent:global", owner_id=owner.owner_id
+        )
+        room = ConversationRepository(db).create_conversation(
+            title="History",
+            participant_ids=[owner.id, agent_user],
+            caller_owner_id=owner.owner_id,
+        )
+        work = app.state.work_repository
+        work.append(
+            node_id="node",
+            journal_id="history",
+            from_seq=1,
+            events=[
+                dict(
+                    seq=1,
+                    event_id="register",
+                    root_agent_id="global",
+                    session_id="main",
+                    turn_id=None,
+                    type="session_registered",
+                    observed_at="2026-09-09T00:00:00Z",
+                    payload={"scope": "global_main"},
+                )
+            ],
+        )
+        ids = [uuid4().hex for _ in range(10000)]
+        with db:
+            db.executemany(
+                "INSERT INTO messages(id,conversation_id,sender_user_id,sender_type,content,delivery_status,created_at) VALUES (?,?,?,'user',?,'completed',?)",
+                [
+                    (key, room.id, owner.id, "old constraint", f"2026-09-09T{i:05d}")
+                    for i, key in enumerate(ids)
+                ],
+            )
+        params = dict(
+            node_id="node",
+            agent_id="global",
+            session_id="main",
+            action="read",
+            target=room.id,
+            limit=1,
+        )
+        query = WorkConversationQuery(db, work)
+        first = query.query(**params)
+        assert first["messages"][0]["message_id"] == ids[-1]
+        assert len(first["next_cursor"]) < 256
+        MessageRepository(db).create_message(
+            conversation_id=room.id,
+            sender_user_id=owner.id,
+            sender_type="user",
+            content="new arrival",
+            attachments=[],
+        )
+        # A new query/repository instance still resolves the durable snapshot.
+        reopened = WorkConversationQuery(db, AgentWorkRepository(db))
+        second = reopened.query(**params, cursor=first["next_cursor"])
+        assert second["messages"][0]["message_id"] == ids[-2]
+        assert len(second["next_cursor"]) < 256
+        assert (
+            db.execute("SELECT COUNT(*) FROM agent_work_query_snapshots").fetchone()[0]
+            == 1
+        )
+        with pytest.raises(ValueError, match="invalid_cursor"):
+            reopened.query(
+                **{**params, "target": "another"}, cursor=first["next_cursor"]
+            )
+        with db:
+            db.execute(
+                "DELETE FROM conversation_participants WHERE conversation_id=? AND user_id=?",
+                (room.id, agent_user),
+            )
+        with pytest.raises(ValueError, match="target_not_accessible"):
+            reopened.query(**params, cursor=second["next_cursor"])

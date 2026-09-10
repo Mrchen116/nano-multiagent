@@ -13,15 +13,18 @@ const icons: Record<string, string> = { inbox: "↓", conversations: "☰", send
 /** Work cards share presenter data and detail rendering, with their own visual hierarchy. */
 export function WorkTool({ call, expanded, onExpandedChange, detailFooter, childLink }: { call: ToolCall; expanded?: boolean; onExpandedChange?: (open: boolean) => void; detailFooter?: ReactNode; childLink?: ReactNode }) {
   useTranslation();
-  const names = useContext(WorkNavigationContext)?.names ?? {};
+  const navigation = useContext(WorkNavigationContext);
+  const names = navigation?.names ?? {};
+  const people = navigation?.people ?? {};
   const input = record(call.input), detail = record(call.detail);
   const targetId = text(input.target) || text(input.to) || text(detail.target);
-  const target = names[targetId] || text(detail.target_name) || targetId;
+  const target = names[targetId] || people[targetId] || text(detail.target_name) || targetId;
   let summary = text(call.output);
   if (call.name === "inbox") summary = input.action === "check" ? tr("查看待读来源") : `${tr("读取新消息")} ${target}`;
   if (call.name === "conversations") summary = input.action === "list" ? `${tr("查找聊天")} · ${text(input.query)}` : `${tr("回查历史")} ${target}`;
   if (call.name === "send_message") summary = `${tr("发送到")} ${target}`;
-  const error = Boolean(detail.error) || detail.success === false || call.status === "failed";
+  const sendError = call.name === "send_message" && text(detail.status) && !["ok", "held_for_revalidation", "pending_revalidation"].includes(text(detail.status)) ? text(detail.status) : "";
+  const error = Boolean(sendError) || Boolean(detail.error) || detail.success === false || call.status === "failed";
   const pending = call.status === "running";
   const denied = call.approval === "user_deny" || call.reason === "denied";
   const business = text(detail.status);
@@ -42,13 +45,13 @@ export function WorkTool({ call, expanded, onExpandedChange, detailFooter, child
       {!pending && <p><span className="im-work-status-label">{tr(labels[business] || (error ? "失败" : "已完成"))}</span> {text(detail.agent_id)}</p>}
       {text(detail.content) && <pre>{text(detail.content)}</pre>}
       {text(detail.output_file) && <p className="im-work-muted">{tr("结果文件")}：<code>{text(detail.output_file)}</code></p>}
-    </> : call.name === "send_message" ? <><p>{tr("发送到")} <WorkThreadLink conversationId={targetId}>{target}</WorkThreadLink></p><pre>{text(detail.text) || text(input.text)}</pre>{detail.error && <p className="im-work-error">{text(detail.error) || text(record(detail.error).message)}</p>}</> : <ToolDetailBody call={call} />}{detailFooter}</div>}</div>{expanded && childLink}
+    </> : call.name === "send_message" ? <><p>{tr("发送到")} {people[targetId] && !names[targetId] ? <span>{target}</span> : <WorkThreadLink conversationId={targetId}>{target}</WorkThreadLink>}</p><pre>{text(detail.text) || text(input.text)}</pre>{(detail.error || sendError) && <p className="im-work-error">{text(detail.error) || text(record(detail.error).message) || sendError}</p>}</> : <ToolDetailBody call={call} />}{detailFooter}</div>}</div>{expanded && childLink}
   </li>;
 }
 
 export function WorkBackground({ value, expanded, onExpandedChange, detailFooter }: { value: BackgroundReturn; expanded?: boolean; onExpandedChange?: (open: boolean) => void; detailFooter?: ReactNode }) {
   useTranslation();
-  return <li className="im-work-background"><button type="button" data-testid="process-background-return-toggle" aria-expanded={expanded ?? false} onClick={() => onExpandedChange?.(!expanded)}><strong>{tr("后台结果")} · {value.description || value.task_type}</strong><span className="im-work-status-label">{tr(value.status === "completed" ? "已完成" : value.status === "failed" ? "失败" : "状态未知")}</span></button>{expanded && <div><pre>{typeof value.result === "string" ? value.result : JSON.stringify(value.result, null, 2)}</pre>{detailFooter}</div>}</li>;
+  return <li className="im-work-background"><button type="button" data-testid="process-background-return-toggle" aria-expanded={expanded ?? false} onClick={() => onExpandedChange?.(!expanded)}><strong>{tr("后台结果")} · {value.description || value.task_type}</strong><span className="im-work-status-label">{tr(value.status === "completed" ? "已完成" : value.status === "failed" ? "失败" : value.status === "stopped" ? "已停止" : value.status === "killed" ? "已终止" : "状态未知")}</span></button>{expanded && <div>{value.result != null && <pre>{typeof value.result === "string" ? value.result : JSON.stringify(value.result, null, 2)}</pre>}{value.error && <pre className="im-work-error">{value.error}</pre>}{detailFooter}</div>}</li>;
 }
 
 /** Context is the last input; output and cache counters accumulate within this turn. */

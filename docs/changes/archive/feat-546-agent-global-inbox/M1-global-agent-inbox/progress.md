@@ -92,3 +92,16 @@ Implementation and native/Feishu real-stack self-tests are complete. User explic
 - Localized work labels and conversation detail labels through the existing language resources. Established readable sizes: 14px body/tool names, 12px metadata, 14px expansion indicator; desktop close target 36px and mobile 44px. Long paths, prompts and output wrap within both columns.
 - Live retained runtime at 127.0.0.1:59669: checked real main/child expansion, named J2 A/B targets, desktop card layout, English/Chinese switch, and mobile child/back behavior. Browser measurements found no overflowing work-view descendants; visible expanded tool bodies had scrollWidth equal to clientWidth. Close target measured 36px and expansion indicator 14px. No new model execution is claimed for this presentation-only correction.
 - Frontend regression: 74 files / 705 tests passed; production build passed. Added coverage for named inbox/send targets preserving hrefs, hidden lifecycle noise, language changes preserving original text, empty/error/retry, denied/in-band failure states, and unknown/cumulative usage. Existing tests retain main/child linking, real Chat route restoration, cron delivery, workflow scope, and offline permission protection.
+
+### 2026-09-10 — 聚餐演示审查问题修复
+
+用户要求直接修复审查发现及截图中的 mention 原始标记。主会话完成修复；未继续派发实施或验收子 Agent。
+
+- Inbox 来源分页冻结来源顺序，消费前页不会跳过仍待读来源；在线历史查询将已物化的本地别名解析为原生会话 ID。
+- IM 历史分页把完整 ID 快照留在持久存储，返回有界游标，逐页继续校验查询归属与当前访问权限。10,000 条消息下游标小于 256 字符，新增消息不会进入已冻结快照。
+- IM 恢复后的 unknown 轮次允许未决审批送至在线 Gateway，由其真实 pending broker 决定是否仍可处理；离线仍禁用，终结请求仍拒绝。
+- 工作轮次后续页进入查询缓存与实时刷新，跨 Chat 返回保留已加载内容和展开状态；新增分页入口随轮次增长更新。
+- 工作视图恢复发送错误详情、后台 error 与 stopped/killed 终态；新增模式说明及固定工具文案接入中英文。
+- Inbox 正文复用 mention 解析器及人员名称，截图中的标记实际显示为「@小策 · 聚餐统筹」；发送目标为已知 Agent 时显示其名称。
+
+验证：前端 74 文件 / 709 测试通过；后端相关测试及架构契约 182 通过，最终分页补充后相关 12 测试通过；前端生产构建、Ruff 与文档完整性检查通过。实际浏览器复查原聚餐消息及 mention 展示。测试服务加载新代码后，原两群、300→400 元消息、两个主 Session 均保留，节点在线。未声称将每项后端失败场景重跑为真实模型旅程。

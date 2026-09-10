@@ -252,3 +252,73 @@ def test_online_conversation_discovery_includes_unmaterialized_local_sources(tmp
         )
     )
     assert page2["conversations"][0]["target"] == "native"
+
+
+def test_check_cursor_does_not_skip_remaining_source_after_consumption(tmp_path):
+    service, _ = make_service(tmp_path)
+    receive(service)
+    service.receive(
+        agent_id="a",
+        target="second",
+        ingress_key="two",
+        source_message_id="two",
+        sender={},
+        content=[{"type": "text", "text": "second"}],
+    )
+
+    def check(**args):
+        return asyncio.run(
+            service.execute(
+                "inbox",
+                agent_id="a",
+                session_id="main",
+                tool_call_id="check",
+                args={"action": "check", "limit": 1, **args},
+            )
+        )
+
+    first = check()
+    assert first["conversations"][0]["target"] == "room"
+    assert service.confirm_committed_read(proof(read(service)))
+    second = check(cursor=first["next_cursor"])
+    assert [c["target"] for c in second["conversations"]] == ["second"]
+    assert not second["has_more"]
+
+
+def test_online_history_resolves_materialized_local_target(tmp_path):
+    seen = []
+
+    async def native(agent, action, args):
+        seen.append(args["target"])
+        if args["target"] != "native":
+            raise ValueError("target_not_accessible")
+        return {
+            "target": "native",
+            "messages": [],
+            "has_more": False,
+            "next_cursor": None,
+        }
+
+    _, store = make_service(tmp_path)
+    service = GlobalInboxService(store, conversation_reader=native)
+    service.receive(
+        agent_id="a",
+        target="local:one",
+        ingress_key="one",
+        source_message_id="one",
+        sender={},
+        content=[{"type": "text", "text": "hello"}],
+    )
+    service.update_target("a", "local:one", conversation_id="native")
+    page = asyncio.run(
+        service.execute(
+            "conversations",
+            agent_id="a",
+            session_id="main",
+            tool_call_id="read",
+            args={"action": "read", "target": "local:one"},
+        )
+    )
+    assert seen == ["native"]
+    assert page["target"] == "native"
+    assert service.get_target("a", "local:one")["permission_status"] == "allowed"

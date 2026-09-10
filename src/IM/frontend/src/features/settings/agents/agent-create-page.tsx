@@ -1,3 +1,4 @@
+import { tr } from "./agent-work-text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Label from "@radix-ui/react-label";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -714,14 +715,14 @@ export function AgentCreatePage() {
         style={{ padding: isMobile ? "14px 14px" : "20px 28px", gap: 14 }}
       >
         <section className="im-agent-card">
-          <h3 className="im-agent-card-title">工作模式</h3>
+          <h3 className="im-agent-card-title">{tr("工作模式")}</h3>
           <div className="grid gap-3 sm:grid-cols-2">
             {(["single_thread", "global"] as const).map(mode => <label key={mode} className="flex cursor-pointer gap-3 rounded-lg border border-[var(--im-border)] p-3">
               <input type="radio" name="work_mode" value={mode} checked={(draft.work_mode ?? "single_thread") === mode} onChange={() => { setDraft({ ...draft, work_mode: mode }); setIsDirty(true); }} />
-              <span><strong>{mode === "global" ? "全局模式 · 实验" : "单 Thread"}</strong><small className="block text-slate-500">{mode === "global" ? "一个持续上下文统筹各聊天，按需读取收件箱和委派。" : "每个聊天独立上下文，保持现有工作方式。"}</small></span>
+              <span><strong>{mode === "global" ? tr("全局模式 · 实验") : tr("单 Thread")}</strong><small className="block text-slate-500">{mode === "global" ? tr("一个持续上下文统筹各聊天，按需读取收件箱和委派。") : tr("每个聊天独立上下文，保持现有工作方式。")}</small></span>
             </label>)}
           </div>
-          <p className="text-xs text-slate-500">创建后固定，不能切换工作模式。全局模式固定保留 inbox、conversations、send_message、agent，其他工具仍可配置。</p>
+          <p className="text-xs text-slate-500">{tr("创建后固定，不能切换工作模式。全局模式固定保留 inbox、conversations、send_message、agent，其他工具仍可配置。")}</p>
         </section>
         <section className="im-agent-card">
           <div>

@@ -227,8 +227,8 @@ describe("agent create page", () => {
     await user.selectOptions(screen.getByLabelText("Reasoning effort"), "max");
 
     if (workMode === "global") {
-      await user.click(screen.getByRole("radio", { name: /全局模式/ }));
-      for (const tool of ["inbox", "conversations", "send_message", "agent"]) expect(screen.getByRole("button", { name: `${tool} · 固定` })).toBeDisabled();
+      await user.click(screen.getByRole("radio", { name: /Global · Experimental/ }));
+      for (const tool of ["inbox", "conversations", "send_message", "agent"]) expect(screen.getByRole("button", { name: `${tool} · Required` })).toBeDisabled();
     }
     await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
 

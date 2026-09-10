@@ -1,3 +1,4 @@
+import { tr } from "./agent-work-text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Label from "@radix-ui/react-label";
 import type { FocusEvent, FormEvent, MouseEvent, ReactNode } from "react";
@@ -1681,7 +1682,7 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
           <div>
             <h3 className="im-agent-card-title">{t("agents.form.identity.title")}</h3>
             <p className="im-agent-card-sub">{t("agents.form.identity.subEdit")}</p>
-            <p className="text-xs text-slate-500">工作模式：{draft.work_mode === "global" ? "全局模式 · 实验" : "单 Thread"} · 创建后固定</p>
+            <p className="text-xs text-slate-500">{tr("工作模式")}：{draft.work_mode === "global" ? tr("全局模式 · 实验") : tr("单 Thread")} · {tr("创建后固定")}</p>
           </div>
           {/* M19/R11-4: Identity row1 = Agent ID + Display Name (Owner UUID 对用户无意义, 移除). */}
           <div className="im-agent-card-grid-2" data-testid="agent-identity-row1">

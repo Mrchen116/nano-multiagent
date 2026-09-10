@@ -141,16 +141,21 @@ export function AgentWorkPanel({ agentId }: { agentId: string }) {
 
 function Turn({ turn, agentId, online, sessions, expanded, expand, onChild, refresh }: { turn: WorkTurn; agentId: string; online?: boolean; sessions: WorkSession[]; expanded: Record<string, boolean>; expand(key: string, open: boolean): void; onChild(id: string): void; refresh(): void }) {
   const key = `${turn.session_id}:${turn.turn_id}`;
-  const [extra, setExtra] = useState<WorkItem[]>([]);
-  const [cursor, setCursor] = useState(turn.next_items_cursor);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+  const client = useQueryClient();
+  const queryKey = ["agent-work", agentId, "items", turn.session_id, turn.turn_id];
+  const [loaded, setLoaded] = useState(() => Boolean(client.getQueryData(queryKey)));
+  const pages = useInfiniteQuery({
+    queryKey,
+    enabled: loaded,
+    initialPageParam: String(turn.items.at(-1)?.seq ?? 0),
+    queryFn: ({pageParam}) => workRequest<{items: WorkItem[]; next_cursor: string | null}>(`${workBase(agentId)}/sessions/${encodeURIComponent(turn.session_id)}/turns/${encodeURIComponent(turn.turn_id)}/items?after_seq=${pageParam}`),
+    getNextPageParam: page => page.next_cursor ?? undefined,
+  });
+  const extra = pages.data?.pages.flatMap(page => page.items) ?? [];
+  const cursor = pages.data ? pages.hasNextPage : turn.next_items_cursor;
   const items = [...new Map([...extra, ...turn.items].map(item => [item.item_id, item])).values()].sort((a,b) => a.seq-b.seq);
   const status = !online && ["running", "waiting_permission"].includes(turn.status) ? "unknown" : turn.status;
-  const load = async () => { setLoading(true); setError(""); try {
-    const page = await workRequest<{ items: WorkItem[]; next_cursor: string | null }>(`${workBase(agentId)}/sessions/${encodeURIComponent(turn.session_id)}/turns/${encodeURIComponent(turn.turn_id)}/items?after_seq=${cursor}`);
-    setExtra(old => [...old, ...page.items]); setCursor(page.next_cursor);
-  } catch (e) { setError(String(e)); } finally { setLoading(false); } };
+  const load = () => { if (loaded) void pages.fetchNextPage(); else setLoaded(true); };
   const seenBackgroundReturns = new Set<string>();
   const backgroundRows = (raw: unknown, itemKey: string) => !Array.isArray(raw) || raw.length === 0 ? null : <ul>{raw.map((entry, index) => {
     const value = obj(entry);
@@ -175,7 +180,7 @@ function Turn({ turn, agentId, online, sessions, expanded, expand, onChild, refr
           const child = sessions.find(s => s.session_id === childId || (s.parent_session_id === turn.session_id && (s.parent_tool_call_id === call.id || (s.child_agent_id && s.child_agent_id === (obj(p.detail).agent_id ?? obj(p.input ?? p.arguments).agent_id)))));
           return <WorkTool key={item.item_id} call={call} expanded={expanded[itemKey] ?? false} onExpandedChange={open => expand(itemKey, open)} detailFooter={<WorkFacts facts={p.work_facts} />} childLink={child && <button id={`work-child-${child.session_id}`} type="button" className="im-work-child-link" onClick={() => onChild(child.session_id)}>{tr("查看子执行")} · {child.description || child.child_agent_id || child.session_id}</button>} />;
         }
-        if (item.kind === "permission") return <li key={item.item_id}><PermissionCard request={p as unknown as PermissionRequest} endpoint={`${workBase(agentId)}/permissions/${encodeURIComponent(str(p.request_id))}`} disabled={!online || status === "unknown"} onResolved={refresh} /></li>;
+        if (item.kind === "permission") return <li key={item.item_id}><PermissionCard request={p as unknown as PermissionRequest} endpoint={`${workBase(agentId)}/permissions/${encodeURIComponent(str(p.request_id))}`} disabled={!online} onResolved={refresh} /></li>;
         if (["message", "message_delta", "text_delta", "assistant_message"].includes(item.kind)) return <li className="im-work-body" key={item.item_id}>{str(p.reasoning_content) && <details open={expanded[itemKey] ?? false} onToggle={event => { if (event.target === event.currentTarget) expand(itemKey, event.currentTarget.open); }}><summary>{tr("思考")}</summary><p className="whitespace-pre-wrap">{str(p.reasoning_content)}</p></details>}{(str(p.text) || str(p.content) || str(p.delta)) && <div className="im-work-assistant"><strong>{tr("Agent 正文")}</strong><ReactMarkdown remarkPlugins={[remarkGfm]}>{str(p.text) || str(p.content) || str(p.delta)}</ReactMarkdown></div>}{backgroundRows(p.background_returns, itemKey)}</li>;
         if (["thinking", "thinking_delta", "reasoning"].includes(item.kind)) return <li key={item.item_id}><details open={expanded[itemKey] ?? false} onToggle={event => { if (event.target === event.currentTarget) expand(itemKey,event.currentTarget.open); }}><summary>{tr("思考")}</summary><p className="whitespace-pre-wrap">{str(p.text) || str(p.content) || str(p.reasoning_content)}</p></details></li>;
         if (item.kind === "cron_delivery" || item.kind === "cron_trigger") return <li key={item.item_id}><SessionFacts items={[item]} /></li>;
@@ -187,7 +192,7 @@ function Turn({ turn, agentId, online, sessions, expanded, expand, onChild, refr
         return null;
       })}</ul>
       <footer className="im-work-turn-footer"><Usage value={turn.usage} label="本轮统计" />{typeof turn.elapsed_ms === "number" && <small>{formatDuration(turn.elapsed_ms)}</small>}</footer>
-      {cursor && <button type="button" disabled={loading} onClick={() => void load()}>{tr("加载更多过程")}</button>}{error && <p role="alert">{error}</p>}
+      {cursor && <button type="button" disabled={pages.isFetching} onClick={load}>{tr("加载更多过程")}</button>}{pages.error && <p role="alert">{pages.error.message}<button type="button" onClick={() => void pages.refetch()}>{tr("重试")}</button></p>}
     </div>
   </details>;
 }
