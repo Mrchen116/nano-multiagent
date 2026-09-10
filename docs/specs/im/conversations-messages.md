@@ -1,6 +1,6 @@
 # IM - Conversations and Messages Specification
 
-> 对齐: bugfix-509
+> 对齐: feat-548
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -324,3 +324,43 @@ IM 通过 WebSocket relay 把影子会话中的用户消息转发给 Gateway 时
 - **GIVEN** 校验通过、agent 在线、新会话已建并已委托内核侧 fork，但其后某一步（内核 fork 或展示历史复制）失败
 - **WHEN** fork 流程结束
 - **THEN** 已建的新会话被回滚删除，用户看到 fork 失败提示；不留下一个有历史显示但 agent 不记得的单聊
+
+### Requirement: 私聊提供会话菜单
+
+#### Scenario: 从菜单访问会话操作
+- **WHEN** 用户在桌面或手机打开私聊顶部的会话菜单
+- **THEN** 可选择重命名，并可继续进入原有 Agent 配置（该会话有对应 Agent 时）
+
+### Requirement: 私聊可以按会话修改标题
+
+#### Scenario: 修改已有私聊名称
+- **GIVEN** 用户打开一条自己可访问的私聊
+- **WHEN** 用户修改会话名并保存
+- **THEN** 聊天列表与聊天顶部展示新名，刷新后仍保留
+- **AND** 消息记录和该会话的继续聊天能力保持
+
+#### Scenario: 外部私聊后续同步保留手动改名
+- **GIVEN** 用户已在 IM 中为外部渠道映射的私聊修改会话名
+- **WHEN** 外部渠道后续消息再次同步到这条私聊
+- **THEN** 用户设置的会话名保持，消息继续正常显示
+
+#### Scenario: 同一 Agent 的其他会话保持原名
+- **GIVEN** 用户和同一个 Agent 有两条私聊
+- **WHEN** 用户修改其中一条的会话名
+- **THEN** 另一条会话名和 Agent 名称不变
+
+#### Scenario: 取消或提交空名称
+- **WHEN** 用户取消改名或输入纯空白
+- **THEN** 原标题保留；纯空白不能保存
+
+#### Scenario: 保存失败可重试
+- **WHEN** 保存会话名失败
+- **THEN** 显示失败反馈并保留输入供重试，不把未保存的名字展示为已生效
+
+### Requirement: Agent 使用用户设定的会话名
+
+#### Scenario: 修改后读取会话
+- **GIVEN** 用户已成功修改私聊会话名
+- **WHEN** Agent 随后查询或读取该会话
+- **THEN** 得到用户设定的新名称，并仍能正确回复这条会话
+- **AND** 后续修改 Agent 显示名不覆盖用户设定的会话名

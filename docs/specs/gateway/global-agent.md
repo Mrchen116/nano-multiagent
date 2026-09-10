@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Global Agent Specification
 
-> 对齐: feat-546
+> 对齐: feat-548
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 
 ## Purpose
@@ -150,3 +150,9 @@
 - **THEN** 来源摘要提供真实可读名称、待读数量和必要的提及线索；普通 check 在输出预算内列全，超过预算时可继续读取且不遗漏来源
 - **AND** read 保留消息与发送者稳定身份、真实名字、秒级 UTC 时间和有序正文／多模态内容；内部回执、分片及重复路由字段不进入模型上下文
 - **AND** 只有存在后续页、不完整内容或读取错误时才附相应信息；精简展示不影响持久摄取确认、用户请求的权限识别或人的聊天已读状态
+
+### Requirement: Inbox 与聊天使用同一会话标题
+
+#### Scenario: 私聊被用户改名后读取
+- **WHEN** 用户修改私聊会话名后 Agent 再查询或读取该会话
+- **THEN** Inbox 显示同一个新标题，身份和回复目标不变

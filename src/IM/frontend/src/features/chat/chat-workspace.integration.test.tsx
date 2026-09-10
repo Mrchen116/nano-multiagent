@@ -1668,7 +1668,7 @@ describe("ChatWorkspacePage — integration", () => {
     });
   });
 
-  it("R7-5: header shows the agent's Node chip and a ⚙ Config button that navigates to /settings/agents/<id>", async () => {
+  it("R7-5: header shows the agent's Node chip and a conversation menu that links to /settings/agents/<id>", async () => {
     const user = userEvent.setup();
     renderAtRoute("/chat/c1");
     await screen.findByText("Hi Planner");
@@ -1677,9 +1677,9 @@ describe("ChatWorkspacePage — integration", () => {
     const chip = await screen.findByText(/laptop-prod/);
     expect(chip.closest(".chat-node-chip")).toHaveClass("chat-node-chip--online");
 
-    // ⚙ Config button navigates to the agent settings page.
-    const configButton = screen.getByRole("button", { name: /Config/i });
-    await user.click(configButton);
+    // The conversation menu preserves navigation to the agent settings page.
+    await user.click(screen.getByRole("button", { name: /Conversation menu/i }));
+    await user.click(screen.getByRole("menuitem", { name: /Agent configuration/i }));
     await waitFor(() => {
       // The MemoryRouter test rig doesn't mount /settings; we just assert the
       // workspace stops rendering the chat title because navigate("/settings/...")
@@ -2094,12 +2094,13 @@ describe("ChatWorkspacePage — integration", () => {
     expect(await screen.findByRole("dialog", { name: /Group settings/i })).toBeInTheDocument();
   });
 
-  it("feat-438: direct-agent ⚙ navigates to the agent config (no group settings drawer)", async () => {
+  it("feat-438: direct-agent menu navigates to the agent config (no group settings drawer)", async () => {
     const user = userEvent.setup();
     renderAtRoute("/chat/c1");
     await screen.findByText("Hi Planner");
 
-    await user.click(screen.getByRole("button", { name: /Config/i }));
+    await user.click(screen.getByRole("button", { name: /Conversation menu/i }));
+    await user.click(screen.getByRole("menuitem", { name: /Agent configuration/i }));
     await waitFor(() => {
       expect(screen.queryByRole("heading", { name: "Planner" })).not.toBeInTheDocument();
     });
