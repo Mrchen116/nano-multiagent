@@ -82,6 +82,9 @@ describe("inline reply images", () => {
     const trigger = screen.getByRole("button", { name: /enlarge|放大/i });
     await userEvent.click(trigger);
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+    const close = screen.getByRole("button", { name: /close|关闭/i });
+    expect(close.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    expect(close).not.toHaveTextContent(/close|关闭/i);
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(trigger).toHaveFocus();

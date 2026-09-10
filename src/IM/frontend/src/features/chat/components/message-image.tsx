@@ -97,7 +97,9 @@ function PrivateMessageImage({ url, signedIn, alt, title }: { url: string; signe
         <Dialog.Content className="chat-image-preview" aria-describedby={undefined}>
           <Dialog.Title className="sr-only">{t("chat.messagePane.imagePreview")}</Dialog.Title>
           <Dialog.Close className="chat-image-preview-close" aria-label={t("chat.messagePane.imageClose")}>
-            {t("chat.messagePane.imageClose")}
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M6 6l12 12M18 6 6 18" />
+            </svg>
           </Dialog.Close>
           <img src={blobUrl} alt={alt} />
         </Dialog.Content>

@@ -74,6 +74,12 @@ Implementation and the main live Web IM/Feishu journeys are complete. These test
 - Final corrected-delta verification is `aligned`: the three unit deltas accurately cover the implementation without overclaiming legacy uploads, unsupported formats or provider-wide exactly-once. The existing canonical `/new` contract already governs late image delivery, so no duplicate reset requirement was added.
 - The aligned deltas are merged into the Gateway and IM canonical specs. Post-merge documentation integrity passed with 233 maintained Markdown sources and 70 required routes, and the archive guard recognizes `feat-551` at its completed path.
 
+## Post-PR image-preview polish (2026-09-10)
+
+- After reviewing the first durable zoom screenshot, the user rejected the white card and text-style close control as visually unfinished. The preview now treats the image as the only surface: an 88% dark blurred backdrop, a rounded image with a restrained shadow, and a 44px translucent circular close icon over the top-right corner. The localized accessible name, Escape dismissal and focus return remain unchanged.
+- A fresh real Agent generated a 960×600 PNG in the isolated worktree stack. Browser validation at 1280×900 and 390×844 confirmed proportional containment and no mobile horizontal overflow (`clientWidth === scrollWidth === 390`); Escape removed the dialog and returned focus to the image trigger. The replacement [desktop zoom](evidence/web-im-zoom.png) and new [mobile zoom](evidence/web-im-mobile-zoom.png) are durable evidence from that run.
+- Focused image tests passed **6/6**, the full frontend suite passed **708/708**, the production frontend build passed, and the audit critical threshold remained clear with the same seven non-critical dependency notices.
+
 ## Remaining
 
-Create the ready PR, wait for required CI to turn green, and remove owned runtime artifacts/worktree. Code-review gate is omitted by explicit user override.
+- No implementation work remains. PR #291 stays unmerged and undeployed for user review; its current head must retain green required checks before merge. The code-review gate remains omitted by explicit user override.
