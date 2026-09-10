@@ -138,3 +138,9 @@ Implementation and native/Feishu real-stack self-tests are complete. User explic
 - Gateway 会话持久层用两个 Agent profile 的共同 owner 创建私聊。复用旧随机归属会话时，仅当旧 owner 不属于任何用户或 Agent profile 才修复归属；保留会话/消息 ID，不改其他真实租户会话，不为跨 owner Agent 推断共同归属。
 - 先补真实 WebSocket agent.message → 回执 ID → owner 会话/消息 API 回归，新建与旧随机归属两例均 404 红；修后通过，其他 owner 仍 404。连同 Gateway 相关测试 67 passed；会话与租户/架构补充回归 173 passed。
 - 已用同一修复路径校正 :59669 原测试会话 d96b6935c57c4c1e809f29380fe0b3a2，4 条消息内容/ID 不变。重新加载保留运行环境后，实际浏览器打开原深链接显示“已定位原消息”，预算请求高亮，300/400 元核算记录完整。修复证据在 output/chat-link-repair/evidence.json。
+
+### 2026-09-10 — 工作页重复显示同一次思考
+
+- 原聚餐小策工作记录中，相邻 assistant_message 事件带有相同 run_id/group_id 与相同 reasoning_content；一次模型输出拆成内部消息后，工作页逐条展示导致重复，没有新增模型调用。
+- 工作页合并并排序加载记录后，按 run/output group 处理累计思考快照：重复内容隐藏，增长内容仅展示增量；保留正文、工具与不同输出组，原始日志不变。规则与聊天投递现有处理一致。
+- 两项回归先红后绿，覆盖同组不同消息 ID、正文/工具保留、累计增长和不同组相同文本；前端全量 74 文件 / 715 测试通过，构建通过。实际浏览器重载原工作页并展开该思考，确认只显示一次，后续工具与回复完整。

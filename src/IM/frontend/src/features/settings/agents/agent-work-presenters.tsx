@@ -5,10 +5,26 @@ import { ToolDetailBody } from "../../chat/components/tool-detail-renderers";
 import { formatDuration } from "../../chat/components/tool-calls-panel";
 import { WorkNavigationContext, WorkThreadLink } from "../../chat/components/work-thread-link";
 import { tr } from "./agent-work-text";
+import type { WorkItem } from "./agent-work-api";
 
 const text = (v: unknown) => typeof v === "string" ? v : "";
 const record = (v: unknown): Record<string, unknown> => v && typeof v === "object" ? v as Record<string, unknown> : {};
 const icons: Record<string, string> = { inbox: "↓", conversations: "☰", send_message: "↗", agent: "◇", bash: "⌘", read: "▤", edit: "✎", write: "✎" };
+
+/** Match chat delivery: repeated reasoning snapshots belong to a run/output group. */
+export function withVisibleReasoning(items: WorkItem[]): WorkItem[] {
+  const seen = new Map<string, string>();
+  return items.map(item => {
+    const reasoning = text(item.payload.reasoning_content).trim();
+    const group = text(item.payload.group_id);
+    if (!reasoning || !group) return item;
+    const key = JSON.stringify([item.payload.run_id, group]);
+    const previous = seen.get(key);
+    seen.set(key, reasoning);
+    const visible = previous && reasoning.startsWith(previous) ? reasoning.slice(previous.length).trim() : reasoning;
+    return visible === reasoning ? item : { ...item, payload: { ...item.payload, reasoning_content: visible } };
+  });
+}
 
 /** Work cards share presenter data and detail rendering, with their own visual hierarchy. */
 export function WorkTool({ call, expanded, onExpandedChange, detailFooter, childLink }: { call: ToolCall; expanded?: boolean; onExpandedChange?: (open: boolean) => void; detailFooter?: ReactNode; childLink?: ReactNode }) {

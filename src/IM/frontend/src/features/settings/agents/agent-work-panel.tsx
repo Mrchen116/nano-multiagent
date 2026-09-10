@@ -7,7 +7,7 @@ import remarkGfm from "remark-gfm";
 import { subscribeUserStream } from "../../../realtime/user-stream";
 import type { BackgroundReturn, PermissionRequest, TokenUsage, ToolCall } from "../../chat/chat-types";
 import { formatDuration } from "../../chat/components/tool-calls-panel";
-import { WorkTool, WorkBackground, WorkUsage } from "./agent-work-presenters";
+import { WorkTool, WorkBackground, WorkUsage, withVisibleReasoning } from "./agent-work-presenters";
 import { tr } from "./agent-work-text";
 import { i18n, useTranslation } from "../../../i18n";
 import { PermissionCard } from "../../chat/components/permission-card";
@@ -153,7 +153,7 @@ function Turn({ turn, agentId, online, sessions, expanded, expand, onChild, refr
   });
   const extra = pages.data?.pages.flatMap(page => page.items) ?? [];
   const cursor = pages.data ? pages.hasNextPage : turn.next_items_cursor;
-  const items = [...new Map([...extra, ...turn.items].map(item => [item.item_id, item])).values()].sort((a,b) => a.seq-b.seq);
+  const items = withVisibleReasoning([...new Map([...extra, ...turn.items].map(item => [item.item_id, item])).values()].sort((a,b) => a.seq-b.seq));
   const status = !online && ["running", "waiting_permission"].includes(turn.status) ? "unknown" : turn.status;
   const load = () => { if (loaded) void pages.fetchNextPage(); else setLoaded(true); };
   const seenBackgroundReturns = new Set<string>();

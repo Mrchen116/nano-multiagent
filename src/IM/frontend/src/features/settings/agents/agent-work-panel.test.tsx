@@ -173,3 +173,28 @@ it("lets the online Gateway validate an unresolved permission after IM recovery"
   fireEvent.click(await screen.findByText("Inbox 唤醒"));
   expect(screen.getByRole("button",{name:"允许"})).toBeEnabled();
 });
+
+it("shows repeated reasoning from one model output once while retaining its body and tool", async () => {
+  view.turns[0].items = [
+    { item_id: "event:first", seq: 1, kind: "assistant_message", payload: { run_id: "run", group_id: "group", message_id: "m1", content: "", reasoning_content: "Calculate dinner budget" } },
+    { item_id: "event:second", seq: 2, kind: "assistant_message", payload: { run_id: "run", group_id: "group", message_id: "m2", content: "I will ask the budget agent.", reasoning_content: "Calculate dinner budget" } },
+    { item_id: "tool:send", seq: 3, kind: "tool", payload: { id: "send", name: "send_message", status: "completed", input: { to: "budget", text: "Please calculate" } } }
+  ];
+  renderWork();
+  fireEvent.click(await screen.findByText("Inbox 唤醒"));
+  expect(screen.getAllByText("Calculate dinner budget")).toHaveLength(1);
+  expect(screen.getByText("I will ask the budget agent.")).toBeVisible();
+  expect(screen.getByText("send_message")).toBeVisible();
+});
+
+it("keeps new reasoning and identical wording from different model outputs", async () => {
+  view.turns[0].items = [
+    { item_id: "a", seq: 1, kind: "assistant_message", payload: { run_id: "run", group_id: "group", reasoning_content: "Check budget." } },
+    { item_id: "b", seq: 2, kind: "assistant_message", payload: { run_id: "run", group_id: "group", reasoning_content: "Check budget. Then ask the planner." } },
+    { item_id: "c", seq: 3, kind: "assistant_message", payload: { run_id: "run", group_id: "other", reasoning_content: "Check budget." } }
+  ];
+  renderWork();
+  fireEvent.click(await screen.findByText("Inbox 唤醒"));
+  expect(screen.getAllByText("Check budget.")).toHaveLength(2);
+  expect(screen.getByText("Then ask the planner.")).toBeInTheDocument();
+});
