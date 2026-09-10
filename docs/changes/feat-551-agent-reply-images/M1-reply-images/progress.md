@@ -2,7 +2,7 @@
 
 ## Scope and decisions
 
-- Worktree: `.worktrees/unit-feat-551`, branch `unit/feat-551`, base `origin/main@f455c6220`.
+- Worktree: `.worktrees/unit-feat-551`, branch `unit/feat-551`, initial base `origin/main@f455c6220`; synchronized to `origin/main@6ec610be5` before independent gates.
 - Only the approved feat-551 documentation commit was cherry-picked (`1eb93ee67`). Main checkout's unrelated changes were not moved or staged.
 - 2026-09-10 user override: skip the final `change-code-review` gate because of its cost. Product acceptance, spec/design verification, corrected-delta verification, real-entry evidence and CI remain required. Do not merge the PR.
 - IM backend, frontend, provider, lifecycle and shadow work used disjoint implementation agents in the unit worktree; main owns integration.
@@ -24,16 +24,16 @@
 | Private IM image authentication, immutable bytes, fork ownership | Existing messages/uploads/fork tests keep | New private resource API integration file; 44 relevant tests passed |
 | Inline image loading, account teardown, zoom | Existing message-pane/auth-fetch tests keep | New message-image lifecycle tests Red → 6 Green; frontend full suite 695 passed with `--maxWorkers=2`; build passed |
 | Stream destination privacy | No prior outgoing local-image parser | New stream module tests, shared complete/stream parser; parser + snapshot tests 15 passed |
-| Durable snapshots/export scope | Existing inbound-image tests keep (different direction) | New ReplyImages boundary tests: source deletion/restart, symlink/outside/type failures, limits, code examples |
+| Durable snapshots/export scope | Existing inbound-image tests keep (different direction) | New ReplyImages boundary tests: source deletion/restart, PNG/JPEG/WebP, exact and exceeded 10 MiB, unreadable/symlink/outside/type failures, five-source limit, public/data snapshots and code examples |
 | Provider preparation/publication | Existing rich-message/public-network tests keep | Existing adapter/client files extended; 45 tests passed |
 | Reset/terminal retention and admission | Existing admission/stream/lifecycle tests keep; do not grow the 1174-line admission file | New reset-delivery tests and tracker extensions; 32 focused + 70 related tests passed |
 | Cancellation during delivery | Failed terminal remains eligible for partial text | Stream cancel/failed contrast and stop-before-terminal tests; 34 focused tests passed |
 | Shadow recovery and revoked output | Existing shadow/reconnect tests keep | New cross-module recovery file; 44 tests passed; source removed before recovery still uploads saved bytes; revoke persists across restart |
 | Background reply identity | Existing subscription/control tests keep | New background image seam integration file; 30 tests passed |
-| Router receipt collection | Existing router dedupe tests keep | New two-phase/cancellation file; 17 related tests passed |
+| Router receipt collection | Existing router dedupe tests keep | New two-phase/cancellation and failed-send/restart tests: receipts precede public send; same App reuses the saved key and another App uploads separately |
 | Production metadata seam | Existing exact metadata assertions updated with run/output identity, not weakened | 77 relevant tests passed |
 
-Implementation and the main live Web IM/Feishu journeys are complete. These test counts are scoped runs rather than a synthetic total; the real-provider evidence is recorded separately below. Independent product/spec gates and the final post-fix CI-equivalent run remain before PR creation.
+Implementation and the main live Web IM/Feishu journeys are complete. These test counts are scoped runs rather than a synthetic total; the real-provider evidence is recorded separately below.
 
 ## Runtime evidence
 
@@ -45,6 +45,7 @@ Implementation and the main live Web IM/Feishu journeys are complete. These test
 - Durable screenshots: [desktop](evidence/web-im-1280.png), [mobile](evidence/web-im-390.png), [zoom](evidence/web-im-zoom.png), [Gateway offline](evidence/web-im-gateway-offline.png). Desktop/mobile compare against prototype `#reply`: text/image/text order, constrained proportional size and zoom match. These screenshots predate the summary-path correction and are not evidence for that correction.
 - Live validation found a separate sidebar preview leak: lifecycle report/receipt summary still contained raw Markdown while `messages.content` and `message.completed` already contained private image URLs. The outgoing report/receipt now uses `[图片]` for image references, retaining code examples and the original runtime text. Completed messages are authoritative for previews, with destinations reduced to `[alt]`; startup reconstruction uses the same projection. Regression tests reproduced the original failure before the correction.
 - A fresh-stack browser check on IM `57321` confirmed the corrected sidebar preview contains only `已停止当前操作，并已开始新会话。`, with no workspace path. The success and partial-failure images loaded through authenticated `blob:` URLs at their natural dimensions (480×270 and 360×200); the partial failure stayed inline between `中间文字` and `结束`. The zoom dialog opened and closed, browser warning/error logs were empty, and [the fresh-stack screenshot](evidence/web-im-feishu-partial-failure.png) records the result.
+- Independent Round 1 acceptance delayed and interrupted real authenticated image reads to verify the transient UI states. Loading and error remained at both image positions while surrounding text stayed readable, at [desktop 1280×900 loading](evidence/web-im-desktop-loading.png), [mobile 390×844 loading](evidence/web-im-mobile-loading.png), [desktop error](evidence/web-im-desktop-error.png), and [mobile error](evidence/web-im-mobile-error.png). These durable screenshots close the prototype pending/error must-match matrix; the accepted journey also retried one failed image without disturbing its neighbour.
 
 ### Feishu authorization run
 
@@ -57,16 +58,18 @@ Implementation and the main live Web IM/Feishu journeys are complete. These test
 
 ## Broad regression (2026-09-10)
 
-- CI-equivalent Python shards: **1802 passed** (agent/PA, 20.45s) and **1841 passed** (remaining, 58.41s), no skips added. These ran before the final sidebar-preview and multi-bubble identity corrections; the final post-fix run is still required.
+- After synchronizing bugfix-549 from latest main, its only merge conflict with feat-551 was the `message-pane.tsx` import block; both feature imports were retained and the two focused frontend files passed **19 tests**.
+- CI-equivalent Python shards on the synchronized head: **1804 passed** (agent/PA, 19.66s) and **1842 passed** (remaining, 51.65s), no skips added. The later verifier-finding corrections have **46 focused tests** green; final full post-fix shards remain before PR.
 - An intermediate PA-only run had one transient `FileNotFoundError` reading a user-global `lark-wiki/SKILL.md`; the unchanged isolated test passed, then both complete shards above passed. No global skill files or unrelated runtime behavior were changed.
-- Frontend rerun: **695 passed** / 72 files, 30.75s, `npm run test -- --maxWorkers=2`. Production build passed (`index-dWoMkIuG.js`); audit critical threshold passed with 7 pre-existing low/moderate/high notices and no dependency changes.
+- Frontend synchronized-head rerun: **708 passed** / 73 files, 28.59s, `npm run test -- --maxWorkers=2`. Production build passed during independent acceptance; audit critical threshold passed with 7 pre-existing low/moderate/high notices and no dependency changes.
 - Ruff check, all-file format check and staged diff-check passed. Documentation integrity passed (240 maintained Markdown sources, 70 required routes).
 
 ## Current state
 
 - The dedicated feat-551 IM/Gateway stack was stopped with `e2e-down.sh` after the fresh browser check, and its owned `feat551-e2e` tmux session was removed. The user-authorized feat-546 test services remain off. No production service was changed or deployed.
-- Real Web IM and exclusive Feishu journeys are complete. Independent final gates, canonical-spec merge, archive, ready PR and remote CI remain; no deployment or merge is authorized.
+- Real Web IM and exclusive Feishu journeys are complete. Independent product acceptance passed Round 1 at `89986aa1a` with all 11 scenarios, both prototype contracts and zero issues; report commit `c27bc814a` rebases that verdict over the concurrent verifier report.
+- Independent full verification at the same validated implementation head reported one critical evidence gap and three warning-level implementation/test gaps. The durable pending/error matrix is now promoted into the unit; public/data failures use stable `limit`/`type` categories without changing the safe downloader's checks or legacy text; permanent JPEG/WebP, limit, permission/symlink, public/data and provider receipt-reentry tests are added. Targeted closure is still required.
 
 ## Remaining
 
-Run the independent product reviewer and spec/design verifier, apply any verified delta, merge canonical specs, run final CI equivalents, archive the unit, create a ready PR, wait for CI green, and remove owned runtime artifacts. Code-review gate is omitted by explicit user override.
+Commit the four verifier resolutions, run targeted verifier closure, reconcile and verify the corrected delta, merge canonical specs, run final CI equivalents, archive the unit, create a ready PR, wait for CI green, and remove owned runtime artifacts. Product acceptance remains valid because these changes only correct provider failure classification, permanent tests and durable evidence paths. Code-review gate is omitted by explicit user override.

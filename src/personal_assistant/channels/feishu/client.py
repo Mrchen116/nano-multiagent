@@ -1006,6 +1006,19 @@ def _replace_markdown_images_outside_code(
     return "".join(output)
 
 
+class OutboundImageReadError(ValueError):
+    """Classify image validation failures without changing legacy exception text.
+
+    Args:
+        message: Existing human-readable failure message.
+        error_code: Stable size or raster-type failure category.
+    """
+
+    def __init__(self, message: str, *, error_code: Literal["limit", "type"]) -> None:
+        super().__init__(message)
+        self.error_code = error_code
+
+
 def read_outbound_image(source: str) -> tuple[bytes, str]:
     """Read a public HTTP(S) or data image using the bounded safe downloader.
 
@@ -1016,6 +1029,7 @@ def read_outbound_image(source: str) -> tuple[bytes, str]:
         Bounded image bytes and detected raster media type.
 
     Raises:
+        OutboundImageReadError: When image size or raster type is unsupported.
         ValueError: When the source fails network, size or raster validation.
     """
     return _read_outbound_image(source)
@@ -1035,7 +1049,9 @@ def _read_outbound_image(source: str) -> tuple[bytes, str]:
     data = _download_from_pinned_public_address(parsed, addresses, port=port)
     content_type = _detect_image_content_type(data)
     if content_type is None:
-        raise ValueError("feishu outbound image is not a supported raster image")
+        raise OutboundImageReadError(
+            "feishu outbound image is not a supported raster image", error_code="type"
+        )
     return data, content_type
 
 
@@ -1048,10 +1064,14 @@ def _decode_image_data_url(source: str) -> tuple[bytes, str]:
     except ValueError as exc:
         raise ValueError("feishu image data URL contains invalid base64") from exc
     if len(data) > _MAX_OUTBOUND_IMAGE_BYTES:
-        raise ValueError("feishu outbound image exceeds 10 MB")
+        raise OutboundImageReadError(
+            "feishu outbound image exceeds 10 MB", error_code="limit"
+        )
     content_type = _detect_image_content_type(data)
     if content_type is None:
-        raise ValueError("feishu outbound image is not a supported raster image")
+        raise OutboundImageReadError(
+            "feishu outbound image is not a supported raster image", error_code="type"
+        )
     return data, content_type
 
 
@@ -1130,7 +1150,9 @@ def _download_from_pinned_public_address(
             while chunk := response.read(64 * 1024):
                 size += len(chunk)
                 if size > _MAX_OUTBOUND_IMAGE_BYTES:
-                    raise ValueError("feishu outbound image exceeds 10 MB")
+                    raise OutboundImageReadError(
+                        "feishu outbound image exceeds 10 MB", error_code="limit"
+                    )
                 chunks.append(chunk)
             return b"".join(chunks)
         except (OSError, http.client.HTTPException) as exc:

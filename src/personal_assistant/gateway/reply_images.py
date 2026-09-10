@@ -180,10 +180,14 @@ class ReplyImages:
                         else:
                             if urlsplit(source).scheme in {"http", "https", "data"}:
                                 from personal_assistant.channels.feishu.client import (
+                                    OutboundImageReadError,
                                     read_outbound_image,
                                 )
 
-                                data, mime = read_outbound_image(source)
+                                try:
+                                    data, mime = read_outbound_image(source)
+                                except OutboundImageReadError as exc:
+                                    raise ValueError(exc.error_code) from exc
                             else:
                                 data, mime = _local_image(context.workspace, source)
                             resource.content_type = mime
