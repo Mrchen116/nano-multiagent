@@ -241,7 +241,7 @@ class TestMentionTagParsing:
         msg = messages.create_message(
             conversation_id=conv.id,
             sender_user_id=alice.id,
-            content='<mention type="agent" target_id="Arch"/> 你怎么看？',
+            content=f'<mention type="user" target_id="{arch_user.id}"/> 你怎么看？',
         )
 
         results = relay_service.enqueue_message_relay_all(
@@ -371,7 +371,7 @@ class TestMentionTagParsing:
         msg = messages.create_message(
             conversation_id=conv.id,
             sender_user_id=alice.id,
-            content='<mention type="agent" target_id="Arch"/> 和 <mention type="agent" target_id="ArchA"/> 请各自回答',
+            content=f'<mention type="user" target_id="{arch_user.id}"/> 和 <mention type="user" target_id="{archa_user.id}"/> 请各自回答',
         )
 
         results = relay_service.enqueue_message_relay_all(
@@ -429,7 +429,7 @@ class TestMentionTagParsing:
         msg = messages.create_message(
             conversation_id=conv.id,
             sender_user_id=alice.id,
-            content='<mention type="agent" target_id="ArchA"/> 你说呢',
+            content=f'<mention type="user" target_id="{real_user.id}"/> 你说呢',
         )
 
         results = relay_service.enqueue_message_relay_all(

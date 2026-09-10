@@ -69,16 +69,20 @@ class _Model:
             self.read_done.set()
             await asyncio.to_thread(self.resume.wait)
         steps = [
-            ("read-first", "inbox", {"action": "read", "target": "group-a"}),
-            ("send-first", "send_message", {"to": "group-a", "text": "Acknowledged"}),
+            ("read-first", "inbox", {"action": "read", "target": "c_group001"}),
+            (
+                "send-first",
+                "send_message",
+                {"target": "c_group001", "text": "Acknowledged"},
+            ),
         ]
         if self.pause:
             steps += [
-                ("read-new", "inbox", {"action": "read", "target": "group-a"}),
+                ("read-new", "inbox", {"action": "read", "target": "c_group001"}),
                 (
                     "send-new",
                     "send_message",
-                    {"to": "group-a", "text": "Updated acknowledgment"},
+                    {"target": "c_group001", "text": "Updated acknowledgment"},
                 ),
             ]
         if count < len(steps):
@@ -99,7 +103,7 @@ class _Model:
             )
 
 
-def _message(identity, text, target="group-a"):
+def _message(identity, text, target="c_group001"):
     return InboundMessage(
         channel_name="web_relay",
         text=text,
@@ -257,8 +261,8 @@ async def test_actual_loop_reads_commits_then_sends_without_default_chat_body(tm
         )
         assert result.reply_text == "" and result.outbound is None
         assert [x["text"] for x in rt.manager.sent] == ["Acknowledged"]
-        assert rt.inbox.blocking_entries("worker", "group-a") == []
-        assert rt.receipts == [("group-a", "accepted"), ("group-a", "completed")]
+        assert rt.inbox.blocking_entries("worker", "c_group001") == []
+        assert rt.receipts == [("c_group001", "accepted"), ("c_group001", "completed")]
         events = rt.store.read_unacked_events(limit=200)
         proof = next(
             e
@@ -329,7 +333,7 @@ async def test_target_refresh_holds_old_draft_and_new_message_is_read_before_sen
         ]
         assert len(held) == 1
         assert held[0]["payload"]["source_refs"][0]["message_id"] == "m2"
-        assert rt.inbox.blocking_entries("worker", "group-a") == []
+        assert rt.inbox.blocking_entries("worker", "c_group001") == []
     finally:
         model.resume.set()
         await _close(rt)

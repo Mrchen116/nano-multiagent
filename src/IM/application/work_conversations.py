@@ -56,7 +56,7 @@ class WorkConversationQuery:
             isinstance(limit, bool)
             or not isinstance(limit, int)
             or not 1 <= limit <= 50
-            or action not in {"list", "read", "describe"}
+            or action not in {"list", "read", "info", "describe"}
         ):
             raise ValueError("invalid_arguments")
         rows = self.db.execute(
@@ -74,10 +74,35 @@ class WorkConversationQuery:
                 participants = self._participants(row["id"], with_agent_ids=True)
                 name = row["title"]
                 descriptions.append(
-                    {"target": row["id"], "name": name, "participants": participants}
+                    {
+                        "target": row["id"],
+                        "name": name,
+                        "kind": row["type"],
+                        "channel": row["external_source"] or "web",
+                        "participants": participants,
+                    }
                 )
             return {"conversations": descriptions}
         target = params.get("target")
+        if action == "info":
+            row = next((r for r in rows if r["id"] == target), None)
+            if row is None:
+                raise ValueError("target_not_accessible")
+            return {
+                "target": target,
+                "name": row["title"],
+                "type": row["type"],
+                "channel": row["external_source"] or "web",
+                "members": [
+                    {
+                        "user_id": p["id"],
+                        "name": p["name"],
+                        "type": p["kind"],
+                        "mention": f'<mention type="user" target_id="{p["id"]}"/>',
+                    }
+                    for p in self._participants(target)
+                ],
+            }
         identity = {
             "agent": agent_id,
             "action": action,
@@ -145,6 +170,13 @@ class WorkConversationQuery:
             raise ValueError("invalid_arguments")
         if target not in {r["id"] for r in rows}:
             raise ValueError("target_not_accessible")
+        source_ids = {
+            r["id"]: r["sender_source_id"]
+            for r in self.db.execute(
+                "SELECT id,sender_source_id FROM messages WHERE conversation_id=?",
+                (target,),
+            )
+        }
         messages = MessageRepository(self.db).list_all_messages(conversation_id=target)
         messages = [
             m
@@ -206,7 +238,21 @@ class WorkConversationQuery:
                         "sender": {
                             "id": m.sender_user_id,
                             "name": sender.display_name if sender else m.sender_user_id,
-                            "kind": m.sender_type,
+                            "kind": "external"
+                            if row["external_source"] and m.sender_type == "user"
+                            else m.sender_type,
+                            **(
+                                {
+                                    "channel": row["external_source"],
+                                    **(
+                                        {"source_id": source_ids[m.id]}
+                                        if source_ids.get(m.id)
+                                        else {}
+                                    ),
+                                }
+                                if row["external_source"] and m.sender_type == "user"
+                                else {}
+                            ),
                         },
                         "source_time": m.created_at,
                         "source": {
@@ -227,6 +273,9 @@ class WorkConversationQuery:
         more = index < len(ids)
         return {
             "target": target,
+            "name": row["title"],
+            "kind": row["type"],
+            "channel": row["external_source"] or "web",
             "messages": page,
             "history_scope": "im_history",
             "has_more": more,

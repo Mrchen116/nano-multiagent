@@ -68,7 +68,7 @@ async def test_external_dispatch_waits_for_provider_before_confirming_work(
             message=message,
             agent=rt.catalog.require("worker"),
             shadow=GatewayShadowState(
-                saga_id="saga-m1", ref=ShadowConversationRef("group-a", "shadow-m1")
+                saga_id="saga-m1", ref=ShadowConversationRef("c_group001", "shadow-m1")
             ),
             should_process=True,
             sender_label="Human",
@@ -98,7 +98,7 @@ async def test_external_dispatch_waits_for_provider_before_confirming_work(
             assert not facts and not channel.sent
         else:
             assert len(facts) == 1
-            assert facts[0]["payload"]["conversation_id"] == "group-a"
+            assert facts[0]["payload"]["conversation_id"] == "c_group001"
             assert [(x.target_chat_id, x.text) for x in channel.sent] == [
                 ("feishu:app:dm:human", "Acknowledged")
             ]

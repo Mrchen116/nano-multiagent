@@ -93,7 +93,7 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(
                 json={
                     "sender_user_id": user_id,
                     # bugfix-358: mention format changed to XML tag.
-                    "content": '<mention type="agent" target_id="agent-a"/> please inspect rollout',
+                    "content": f'<mention type="user" target_id="{agent_a_user_id}"/> please inspect rollout',
                     "target_node_id": "node-1",
                 },
             )
@@ -111,7 +111,7 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(
                 json={
                     "sender_user_id": user_id,
                     # bugfix-358: mention format changed to XML tag.
-                    "content": '<mention type="agent" target_id="agent-b"/> review the result',
+                    "content": f'<mention type="user" target_id="{agent_b_user_id}"/> review the result',
                     "target_node_id": "node-1",
                 },
             )
@@ -163,8 +163,8 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(
         },
     ]
     assert [call["text"] for call in kernel_client.send_calls] == [
-        '[Alice] <mention type="agent" target_id="agent-a"/> please inspect rollout',
-        '[Alice] <mention type="agent" target_id="agent-b"/> review the result',
+        f'[Alice] <mention type="user" target_id="{agent_a_user_id}"/> please inspect rollout',
+        f'[Alice] <mention type="user" target_id="{agent_b_user_id}"/> review the result',
     ]
     assert first_frame["payload"]["agent_id"] == "agent-a"
     assert first_frame["payload"]["metadata"] == {
@@ -183,7 +183,7 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(
     assert relay_adapter.sent == [
         OutboundMessage(
             channel_name="web_relay",
-            text='reply:[Alice] <mention type="agent" target_id="agent-a"/> please inspect rollout',
+            text=f'reply:[Alice] <mention type="user" target_id="{agent_a_user_id}"/> please inspect rollout',
             target_chat_id=conversation_id,
             thread_id=None,
             metadata={
@@ -199,14 +199,24 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(
                 "sender_display_name": "Alice",
                 "participants": [
                     {"user_id": user_id, "display_name": "Alice", "type": "user"},
-                    {"agent_id": "agent-a", "display_name": "A", "type": "agent"},
-                    {"agent_id": "agent-b", "display_name": "B", "type": "agent"},
+                    {
+                        "agent_id": "agent-a",
+                        "user_id": agent_a_user_id,
+                        "display_name": "A",
+                        "type": "agent",
+                    },
+                    {
+                        "agent_id": "agent-b",
+                        "user_id": agent_b_user_id,
+                        "display_name": "B",
+                        "type": "agent",
+                    },
                 ],
             },
         ),
         OutboundMessage(
             channel_name="web_relay",
-            text='reply:[Alice] <mention type="agent" target_id="agent-b"/> review the result',
+            text=f'reply:[Alice] <mention type="user" target_id="{agent_b_user_id}"/> review the result',
             target_chat_id=conversation_id,
             thread_id=None,
             metadata={
@@ -222,8 +232,18 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(
                 "sender_display_name": "Alice",
                 "participants": [
                     {"user_id": user_id, "display_name": "Alice", "type": "user"},
-                    {"agent_id": "agent-a", "display_name": "A", "type": "agent"},
-                    {"agent_id": "agent-b", "display_name": "B", "type": "agent"},
+                    {
+                        "agent_id": "agent-a",
+                        "user_id": agent_a_user_id,
+                        "display_name": "A",
+                        "type": "agent",
+                    },
+                    {
+                        "agent_id": "agent-b",
+                        "user_id": agent_b_user_id,
+                        "display_name": "B",
+                        "type": "agent",
+                    },
                 ],
             },
         ),

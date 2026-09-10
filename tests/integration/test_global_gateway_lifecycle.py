@@ -19,11 +19,11 @@ async def test_stop_retains_inbox_and_new_rejects_without_rebinding(tmp_path):
     try:
         await _receive(rt, _message("m1", "Initial requirement"))
         await _wait(model.read_done.is_set)
-        await _receive(rt, _message("m2", "Another request", "group-b"))
+        await _receive(rt, _message("m2", "Another request", "c_group002"))
         main = rt.store.get_global_session("worker")["session_id"]
         await _receive(
             rt,
-            _message("stop", "/stop", "group-b"),
+            _message("stop", "/stop", "c_group002"),
             command="stop",
             operation_id="stop-op",
         )
@@ -32,12 +32,12 @@ async def test_stop_retains_inbox_and_new_rejects_without_rebinding(tmp_path):
         )
         assert rt.store.get_global_session("worker")["session_id"] == main
         assert rt.store.get_signal_state("worker")["stop_through_seq"] == 2
-        assert len(rt.inbox.blocking_entries("worker", "group-b")) == 1
-        assert [row[1] for row in rt.controls] == ["group-b", "group-c"]
+        assert len(rt.inbox.blocking_entries("worker", "c_group002")) == 1
+        assert [row[1] for row in rt.controls] == ["c_group002", "group-c"]
         rt.store.update_signal_state("worker", latest_signal_seq=3)
         await _receive(
             rt,
-            _message("stop", "/stop", "group-b"),
+            _message("stop", "/stop", "c_group002"),
             command="stop",
             operation_id="stop-op",
         )
@@ -81,7 +81,7 @@ async def test_restart_restores_one_main_and_does_not_reawaken_committed_signal(
         )
         assert len(model.requests) == 1
         assert restored.store.get_signal_state("worker")["signaled_through_seq"] == 2
-        assert len(restored.inbox.blocking_entries("worker", "group-a")) == 1
+        assert len(restored.inbox.blocking_entries("worker", "c_group001")) == 1
         # Choosing not to read leaves pending content without a repeated wake.
         restored.coordinator.notify("worker")
         await _wait(lambda: not restored.coordinator._drains)

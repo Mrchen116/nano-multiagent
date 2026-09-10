@@ -1690,7 +1690,7 @@ def build_kernel_event_observer(
                 ctx.revalidate_output
                 and tool_name == "send_message"
                 and isinstance(arguments, Mapping)
-                and arguments.get("to") == ctx.conversation_id
+                and arguments.get("target") == ctx.conversation_id
             ):
                 start_detail = {
                     **(start_detail or {}),

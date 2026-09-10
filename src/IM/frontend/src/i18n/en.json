@@ -851,9 +851,9 @@
       "actionError": "Something went wrong. Please try again."
     },
     "mention": {
-      "header": "Mention agent",
-      "empty": "No agents to mention",
-      "noAgents": "No agents available to mention",
+      "header": "Mention member",
+      "empty": "No members to mention",
+      "noAgents": "No members available to mention",
       "noMatch": "No matching agents"
     },
     "permission": {

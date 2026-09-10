@@ -74,6 +74,7 @@ def validate_arguments(tool_name: str, args: Mapping[str, Any]) -> None:
         ("inbox", "check"): {"action", "cursor", "limit"},
         ("inbox", "read"): {"action", "target", "cursor", "limit"},
         ("conversations", "list"): {"action", "query", "cursor", "limit"},
+        ("conversations", "info"): {"action", "target"},
         ("conversations", "read"): {
             "action",
             "target",
@@ -87,7 +88,7 @@ def validate_arguments(tool_name: str, args: Mapping[str, Any]) -> None:
     limit = args.get("limit", 20)
     if type(limit) is not int or not 1 <= limit <= 50:
         raise ValueError("invalid_arguments: limit must be 1–50")
-    if action == "read" and not args.get("target"):
+    if action in {"read", "info"} and not args.get("target"):
         raise ValueError("invalid_arguments: target is required")
     for key in ("target", "cursor", "before_message_id", "query"):
         if key in args and (not isinstance(args[key], str) or not args[key].strip()):
@@ -259,7 +260,6 @@ class InboxTool:
         requests = [
             {
                 "message_id": message.get("id"),
-                "sender_id": message.get("sender_id"),
                 "sender": message.get("sender"),
                 "target": page.get("target"),
                 "partial": message.get("partial", False),
@@ -271,7 +271,7 @@ class InboxTool:
                 ),
             }
             for message in page.get("messages", [])
-            if message.get("sender_type") == "user"
+            if message.get("sender", {}).get("type") in {"user", "external"}
         ]
         return (
             "User messages received through this Agent's Inbox: "

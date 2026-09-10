@@ -843,9 +843,9 @@
       "actionError": "操作失败，请重试。"
     },
     "mention": {
-      "header": "选择 agent",
-      "empty": "没有可召唤的 agent",
-      "noAgents": "没有可提及的 agent",
+      "header": "选择成员",
+      "empty": "没有可提及的成员",
+      "noAgents": "没有可提及的成员",
       "noMatch": "无匹配结果"
     },
     "permission": {

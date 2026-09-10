@@ -393,25 +393,16 @@ export function ChatWorkspacePage() {
     return map;
   }, [agentsQuery.data]);
 
-  // Derive mention candidates from already-loaded agentsQuery instead of a
-  // separate API round-trip. This eliminates the loading race where the user
-  // types `@` before listMentionCandidates resolves.
   const mentionCandidates = useMemo(() => {
     if (!activeConversation) return [];
-    const allowed = new Set(
-      activeConversation.participants
-        .filter((p) => p.type === "agent")
-        .map((p) => p.id.replace(/^agent:/, ""))
-    );
-    return (agentsQuery.data ?? [])
-      .filter((a) => allowed.has(a.agent_id.replace(/^agent:/, "")))
-      .map((a) => ({
-        agent_id: a.agent_id,
-        display_name: a.display_name,
-        initials: a.display_name?.slice(0, 2).toUpperCase() ?? a.agent_id.slice(0, 2).toUpperCase(),
-        status: ((nodesQuery.data ?? []).find((n) => n.node_id === a.node_id)?.status === "online" ? "online" : "offline") as "online" | "offline"
-      }));
-  }, [activeConversation, agentsQuery.data, nodesQuery.data]);
+    return activeConversation.participants.filter((p) => p.type !== "system" && (p.user_id || p.type === "user")).map((p) => ({
+      user_id: p.user_id || p.id,
+      agent_id: p.type === "agent" ? p.id : undefined,
+      display_name: p.display_name || p.user_id || p.id,
+      initials: (p.display_name || p.id).slice(0, 2).toUpperCase(),
+      status: "online" as const
+    }));
+  }, [activeConversation]);
 
   // feat-430: agents in the active conversation (canonical agent_id + display_name)
   // — drives the slash picker's per-agent skill fetch.

@@ -414,9 +414,13 @@ class InboundPipeline:
             else {agent_id}
         )
         if structurally_mentioned or strip_all_mentions:
+            participants = message.metadata.get("participants") or []
             candidates.update(
-                f'<mention type="agent" target_id="{target_id}"/>'
-                for target_id in target_ids
+                f'<mention type="user" target_id="{p["user_id"]}"/>'
+                for p in participants
+                if isinstance(p, Mapping)
+                and p.get("user_id")
+                and (p.get("agent_id") or p.get("id")) in target_ids
             )
         feishu_mentions = message.metadata.get("feishu_mentions")
         if (structurally_mentioned or strip_all_mentions) and isinstance(

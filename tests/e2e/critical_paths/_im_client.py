@@ -310,13 +310,14 @@ class IMClient:
     ) -> str:
         """以用户身份发一条消息,返回 message_id。
 
-        ``mentions`` 中每个 agent_id 拼成 ``<mention .../>`` 标签前缀进 content
+        ``mentions`` 中每个 agent_id 先查对应 user_id 再拼成 ``<mention .../>`` 标签前缀进 content
         (IM wire 层只认标签,不认 @文本)。
         """
         assert self.user_id is not None, "call register_or_login() first"
         body = content
         if mentions:
-            prefix = " ".join(mention_tag(aid) for aid in mentions)
+            identities = {a["agent_id"]: a["user_id"] for a in self.list_agents()}
+            prefix = " ".join(mention_tag(identities[aid]) for aid in mentions)
             body = f"{prefix} {content}"
         headers = dict(self._auth_headers)
         if idempotency_key:

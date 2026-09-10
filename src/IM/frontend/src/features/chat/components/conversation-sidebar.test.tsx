@@ -252,7 +252,7 @@ describe("ConversationSidebar", () => {
 it.each([false, true])("resolves agent/user mentions in preview and search (distill=%s)", async (distillMode) => {
   const conversations = [conv({ id: "mention-chat", title: "Dinner", type: "group", direct_kind: null,
     participants: [{ type: "agent", id: "planner", display_name: "小策" }, { type: "user", id: "u1", display_name: "小陈" }],
-    last_message_preview: '<mention type="agent" target_id="planner"/> <mention type="user" target_id="u1"/> 准时到。'
+    last_message_preview: '<mention type="user" target_id="planner"/> <mention type="user" target_id="u1"/> 准时到。'
   })];
   const props = { conversations, activeConversationId: null, onSelect: () => {}, onNewGroup: () => {}, distillMode };
   const view = render(<ConversationSidebar {...props} />);

@@ -4,6 +4,8 @@ from dataclasses import dataclass
 import sqlite3
 from uuid import uuid4
 
+from IM.infra.short_ids import new_chat_id
+
 from IM.domain.models import (
     Actor,
     Conversation,
@@ -96,7 +98,6 @@ class ConversationRepository:
             normalized_participants.append(resolved_user_id)
             ordered_rows.append(resolved_user)
         owner_ids = {str(row["owner_id"]) for row in ordered_rows}
-        conversation_id = uuid4().hex
         created_at = utc_now()
         if caller_owner_id is not None:
             # When the authenticated caller is known, always use their owner_id so the
@@ -121,51 +122,62 @@ class ConversationRepository:
             participant_rows=ordered_rows,
             conversation_type=conversation_type,
         )
-        with self._connection:
-            self._connection.execute(
-                """
-                INSERT INTO conversations(
-                    id,
-                    title,
-                    type,
-                    owner_id,
-                    creator_id,
-                    is_pinned,
-                    is_muted,
-                    unread_count,
-                    last_message_preview,
-                    last_message_at,
-                    config_agent_id,
-                    config_profile_version,
-                    external_source,
-                    external_chat_id,
-                    target_node_id,
-                    created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    conversation_id,
-                    title,
-                    conversation_type,
-                    owner_id,
-                    resolved_creator_id,
-                    0,
-                    0,
-                    0,
-                    None,
-                    None,
-                    config_snapshot.agent_id,
-                    config_snapshot.profile_version,
-                    None,
-                    None,
-                    normalized_target_node_id,
-                    created_at,
-                ),
-            )
-            self._connection.executemany(
-                "INSERT INTO conversation_participants(conversation_id, user_id) VALUES (?, ?)",
-                [(conversation_id, user_id) for user_id in normalized_participants],
-            )
+        while True:
+            conversation_id = new_chat_id("c_")
+            try:
+                with self._connection:
+                    self._connection.execute(
+                        """
+                        INSERT INTO conversations(
+                            id,
+                            title,
+                            type,
+                            owner_id,
+                            creator_id,
+                            is_pinned,
+                            is_muted,
+                            unread_count,
+                            last_message_preview,
+                            last_message_at,
+                            config_agent_id,
+                            config_profile_version,
+                            external_source,
+                            external_chat_id,
+                            target_node_id,
+                            created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            conversation_id,
+                            title,
+                            conversation_type,
+                            owner_id,
+                            resolved_creator_id,
+                            0,
+                            0,
+                            0,
+                            None,
+                            None,
+                            config_snapshot.agent_id,
+                            config_snapshot.profile_version,
+                            None,
+                            None,
+                            normalized_target_node_id,
+                            created_at,
+                        ),
+                    )
+                    self._connection.executemany(
+                        "INSERT INTO conversation_participants(conversation_id, user_id) VALUES (?, ?)",
+                        [
+                            (conversation_id, user_id)
+                            for user_id in normalized_participants
+                        ],
+                    )
+            except sqlite3.IntegrityError as error:
+                if str(error) == "UNIQUE constraint failed: conversations.id":
+                    continue
+                raise
+            break
         return Conversation(
             id=conversation_id,
             title=title,
@@ -283,53 +295,63 @@ class ConversationRepository:
         profile_version = (
             int(profile_row["profile_version"]) if profile_row is not None else None
         )
-        conversation_id = uuid4().hex
         created_at = utc_now()
         conversation_type = "group" if is_group else "direct"
         try:
-            with self._connection:
-                self._connection.execute(
-                    """
-                    INSERT INTO conversations(
-                        id,
-                        title,
-                        type,
-                        owner_id,
-                        creator_id,
-                        is_pinned,
-                        is_muted,
-                        unread_count,
-                        last_message_preview,
-                        last_message_at,
-                        config_agent_id,
-                        config_profile_version,
-                        external_source,
-                        external_chat_id,
-                        created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        conversation_id,
-                        " ".join(title.split()),
-                        conversation_type,
-                        normalized_owner_id,
-                        resolved_creator_id,
-                        0,
-                        0,
-                        0,
-                        None,
-                        None,
-                        normalized_agent_id,
-                        profile_version,
-                        normalized_source,
-                        normalized_chat_id,
-                        created_at,
-                    ),
-                )
-                self._connection.executemany(
-                    "INSERT INTO conversation_participants(conversation_id, user_id) VALUES (?, ?)",
-                    [(conversation_id, user_id) for user_id in normalized_participants],
-                )
+            while True:
+                conversation_id = new_chat_id("c_")
+                try:
+                    with self._connection:
+                        self._connection.execute(
+                            """
+                            INSERT INTO conversations(
+                                id,
+                                title,
+                                type,
+                                owner_id,
+                                creator_id,
+                                is_pinned,
+                                is_muted,
+                                unread_count,
+                                last_message_preview,
+                                last_message_at,
+                                config_agent_id,
+                                config_profile_version,
+                                external_source,
+                                external_chat_id,
+                                created_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                conversation_id,
+                                " ".join(title.split()),
+                                conversation_type,
+                                normalized_owner_id,
+                                resolved_creator_id,
+                                0,
+                                0,
+                                0,
+                                None,
+                                None,
+                                normalized_agent_id,
+                                profile_version,
+                                normalized_source,
+                                normalized_chat_id,
+                                created_at,
+                            ),
+                        )
+                        self._connection.executemany(
+                            "INSERT INTO conversation_participants(conversation_id, user_id) VALUES (?, ?)",
+                            [
+                                (conversation_id, user_id)
+                                for user_id in normalized_participants
+                            ],
+                        )
+                except sqlite3.IntegrityError as error:
+                    if str(error) == "UNIQUE constraint failed: conversations.id":
+                        continue
+                    raise
+                break
         except sqlite3.IntegrityError:
             existing_after_race = self._connection.execute(
                 """

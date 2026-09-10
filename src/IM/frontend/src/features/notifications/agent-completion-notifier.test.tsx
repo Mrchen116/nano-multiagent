@@ -194,6 +194,6 @@ it("uses current mention names in desktop notification bodies", () => {
   setHidden(true);
   setNotificationPreference(true);
   const h = renderHarness();
-  h.pushCandidate({ ...completedAgent, preview: '<mention type="agent" target_id="asst-1"/> done' });
+  h.pushCandidate({ ...completedAgent, preview: '<mention type="user" target_id="asst-1"/> done' });
   expect(installedNotificationCalls[0].options?.body).toBe("@Assistant done");
 });

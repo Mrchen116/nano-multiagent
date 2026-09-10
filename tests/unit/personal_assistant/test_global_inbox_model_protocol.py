@@ -82,8 +82,11 @@ def test_current_names_are_projected_without_mutating_message_identity(tmp_path)
     first = read(service)
     model = json.loads(InboxTool().serialize_result(first))
     assert model["name"] == "与 Alex renamed 的私聊"
-    assert model["messages"][0]["sender"] == current_name
-    assert model["messages"][0]["sender_id"] == "u"
+    assert model["messages"][0]["sender"] == {
+        "name": current_name,
+        "user_id": "u",
+        "type": "user",
+    }
     current_name = "Alex changed again"
     assert read(service) == first  # Same tool call replays its exact receipt page.
     next_page = read(service, "new-call")

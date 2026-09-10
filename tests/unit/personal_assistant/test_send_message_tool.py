@@ -47,18 +47,18 @@ def test_send_message_presenter_splits_start_params_and_end_status() -> None:
     from personal_assistant.tools.send_message import SendMessageTool
 
     presenter = SendMessageTool.presenter
-    start = presenter.format_start({"to": "agent_b", "text": "hello"})
-    assert start.summary == "→ agent_b"
-    assert start.detail == {"target": "agent_b", "text": "hello"}
+    start = presenter.format_start({"target": "u_bbbbbbbb", "text": "hello"})
+    assert start.summary == "→ u_bbbbbbbb"
+    assert start.detail == {"target": "u_bbbbbbbb", "text": "hello"}
 
     end = presenter.format_end(
-        {"to": "agent_b", "text": "hello"},
-        _FakeResult(output={"ok": True, "target": "agent_b", "text": "hello"}),
+        {"target": "u_bbbbbbbb", "text": "hello"},
+        _FakeResult(output={"ok": True, "target": "u_bbbbbbbb", "text": "hello"}),
         duration_ms=12,
     )
-    assert end.summary == "→ agent_b"
+    assert end.summary == "→ u_bbbbbbbb"
     assert end.detail == {
-        "target": "agent_b",
+        "target": "u_bbbbbbbb",
         "text": "hello",
         "status": "ok",
     }
@@ -98,15 +98,15 @@ def test_send_message_tool_dispatches_http_post_to_gateway_dispatch_url() -> Non
     tool = SendMessageTool()
 
     with patch("httpx.post", side_effect=mock_post):
-        result = tool.run({"text": "hello", "to": "agent_b"}, ctx)
+        result = tool.run({"text": "hello", "target": "u_bbbbbbbb"}, ctx)
 
     assert result["ok"] is True
-    assert result["target"] == "agent_b"
-    assert result["text"] == "hello"
+    assert result["target"] == "u_bbbbbbbb"
+    assert result == {"ok": True, "target": "u_bbbbbbbb"}
     assert len(captured_urls) == 1
     assert "127.0.0.1:8089" in captured_urls[0]
     assert captured_payloads[0]["text"] == "hello"
-    assert captured_payloads[0]["to"] == "agent_b"
+    assert captured_payloads[0]["to"] == "u_bbbbbbbb"
     assert captured_payloads[0]["origin_kernel_session_id"] == "sess_test"
     assert captured_payloads[0]["source_agent_id"] == "agent_a"
     assert captured_payloads[0]["dispatch_request_id"] == "toolu_test_dispatch"
@@ -139,9 +139,9 @@ def test_send_message_tool_resolves_live_provider_on_every_call() -> None:
         )
 
     with patch("httpx.post", side_effect=_ok_response):
-        tool.run({"text": "first", "to": "agent_b"}, ctx)
+        tool.run({"text": "first", "target": "u_bbbbbbbb"}, ctx)
         endpoint.publish(host="127.0.0.1", port=42002)
-        tool.run({"text": "second", "to": "agent_b"}, ctx)
+        tool.run({"text": "second", "target": "u_bbbbbbbb"}, ctx)
 
     assert captured_urls == [
         "http://127.0.0.1:41001/internal/dispatch",
@@ -169,7 +169,7 @@ def test_send_message_tool_live_provider_clear_never_falls_back_to_metadata() ->
         patch("httpx.post") as post,
         pytest.raises(RuntimeError, match="live gateway_dispatch_url.*not available"),
     ):
-        tool.run({"text": "hello", "to": "agent_b"}, ctx)
+        tool.run({"text": "hello", "target": "u_bbbbbbbb"}, ctx)
 
     post.assert_not_called()
 
@@ -182,7 +182,7 @@ def test_send_message_tool_raises_when_no_gateway_dispatch_url() -> None:
     tool = SendMessageTool()
 
     with pytest.raises(RuntimeError, match="gateway_dispatch_url"):
-        tool.run({"text": "hello", "to": "agent_b"}, ctx)
+        tool.run({"text": "hello", "target": "u_bbbbbbbb"}, ctx)
 
 
 def test_send_message_tool_validates_text_field() -> None:
@@ -197,4 +197,4 @@ def test_send_message_tool_validates_text_field() -> None:
     tool = SendMessageTool()
 
     with pytest.raises(ValueError, match="text must be a non-empty string"):
-        tool.run({"text": "  ", "to": "agent_b"}, ctx)
+        tool.run({"text": "  ", "target": "u_bbbbbbbb"}, ctx)

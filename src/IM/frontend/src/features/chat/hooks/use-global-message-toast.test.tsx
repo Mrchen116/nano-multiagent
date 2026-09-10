@@ -830,7 +830,7 @@ it("renders mention names in toast while preserving whole wire tags in the list 
     participants: [{ type: "agent", id: longId, display_name: "小策" }]
   })]);
   const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(client) });
-  const wire = `<mention type="agent" target_id="${longId}"/>`;
+  const wire = `<mention type="user" target_id="${longId}"/>`;
   emit("mentions", { eventId: 1, eventType: "message.sent", payload: {
     message_id: "mention-msg", sender_type: "user", sender_user_id: "other", content: wire + " 请准时到"
   } });

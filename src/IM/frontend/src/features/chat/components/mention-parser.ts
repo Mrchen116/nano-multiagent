@@ -1,25 +1,16 @@
-/**
- * mention-parser.ts — shared mention parsing and name resolution for messages and previews.
- *
- * bugfix-358: wire format changed from @display_name text to inline XML-like tag:
- *   <mention type="agent" target_id="ArchA"/>
- *   <mention type="user"  target_id="user-uuid"/>
- *
- * parseMentions(content) splits a message string into alternating text and mention
- * segments so callers can render each segment appropriately (plain text vs chip).
- */
+/** Shared parsing and name resolution for user_id mention tags. */
 
 export type TextSegment = { kind: "text"; text: string };
-export type MentionSegment = { kind: "mention"; type: "agent" | "user"; target_id: string };
+export type MentionSegment = { kind: "mention"; type: "user"; target_id: string };
 export type Segment = TextSegment | MentionSegment;
 
 // Shared regex source for mention tags — exported so remark-mention.ts can
 // build its own variants (global / non-global) from the same authoritative
 // pattern and avoid format-drift between the two parsers.
 export const MENTION_TAG_RE_SOURCE =
-  /<mention\s+type="(agent|user)"\s+target_id="([^"]+)"\s*\/>/;
+  /<mention\s+type="(user)"\s+target_id="([^"]+)"\s*\/>/;
 
-// Matches self-closing <mention type="agent"|"user" target_id="X"/> tags.
+// Matches the single user mention format used by every chat participant.
 // Attribute order (type before target_id) matches what both the frontend picker
 // and the agent prompt example produce.
 const MENTION_TAG_RE = new RegExp(MENTION_TAG_RE_SOURCE.source, "g");
@@ -49,7 +40,7 @@ export function parseMentions(content: string): Segment[] {
     if (match.index > last) {
       segments.push({ kind: "text", text: content.slice(last, match.index) });
     }
-    const mentionType = match[1] as "agent" | "user";
+    const mentionType = match[1] as "user";
     const targetId = match[2];
     segments.push({ kind: "mention", type: mentionType, target_id: targetId });
     last = match.index + match[0].length;
@@ -68,8 +59,8 @@ export function mentionDisplayName(targetId: string, names: ReadonlyMap<string, 
 }
 
 /** Build the same current participant dictionary used by message bubbles. */
-export function mentionNameMap(participants: readonly { id: string; display_name?: string | null }[] = []): Map<string, string> {
-  return new Map(participants.map((person) => [person.id, person.display_name || person.id]));
+export function mentionNameMap(participants: readonly { id: string; user_id?: string | null; display_name?: string | null }[] = []): Map<string, string> {
+  return new Map(participants.map((person) => [person.user_id || person.id, person.display_name || person.user_id || person.id]));
 }
 
 /** Plain-text surfaces cannot render chips, but must never show wire tags. */

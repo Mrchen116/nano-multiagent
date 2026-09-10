@@ -532,6 +532,7 @@ class GlobalInboxService:
                     native[row["target"]],
                     name=row["name"],
                     participants=row["participants"],
+                    kind=row.get("kind", "unknown"),
                 )
 
     async def execute(
@@ -598,6 +599,22 @@ class GlobalInboxService:
             target = self.get_target(agent_id, args["target"])
             if not target or target.get("permission_status") != "allowed":
                 raise ValueError("target_not_accessible")
+            if action == "info":
+                return {
+                    "target": target["target"],
+                    "name": target.get("name"),
+                    "type": target.get("kind", "unknown"),
+                    "channel": target.get("channel", "web"),
+                    "members": [
+                        {
+                            "user_id": p["id"],
+                            "name": p["name"],
+                            "type": p["kind"],
+                            "mention": f'<mention type="user" target_id="{p["id"]}"/>',
+                        }
+                        for p in target.get("participants", [])
+                    ],
+                }
             if tool_name == "inbox":
                 if not tool_call_id:
                     raise ValueError("invalid_arguments: missing tool call identity")
@@ -1063,11 +1080,30 @@ class GlobalInboxService:
                 continue
             sender = entry["sender"]
             person = people.get(sender.get("id"))
-            if person:
+            if person and not (
+                entry.get("source", {}).get("channel", "web")
+                not in {"web", "web_relay"}
+                and sender.get("kind") == "user"
+            ):
                 sender = {
                     **sender,
-                    "id": person.get("agent_id") or person["id"],
+                    "id": person["id"],
                     "name": person["name"],
+                }
+            elif (
+                entry.get("source", {}).get("channel", "web")
+                not in {"web", "web_relay"}
+                and sender.get("kind") == "user"
+            ):
+                sender = {
+                    "name": sender.get("name") or sender.get("id") or "unknown",
+                    "kind": "external",
+                    "channel": entry["source"]["channel"],
+                    **(
+                        {"source_id": sender["id"]}
+                        if sender.get("id") and sender["id"] not in people
+                        else {}
+                    ),
                 }
             returned_parts[entry["seq"]] = returned_parts.get(entry["seq"], 0) + 1
             total_parts[entry["seq"]] = len(entry["parts"])
@@ -1097,6 +1133,8 @@ class GlobalInboxService:
         page = {
             "target": args["target"],
             "name": target_info.get("name"),
+            "kind": target_info.get("kind", "unknown"),
+            "channel": target_info.get("channel", "web"),
             "messages": messages,
             "has_more": remaining is not None,
             "next_cursor": self._cursor(
@@ -1106,7 +1144,6 @@ class GlobalInboxService:
             else None,
         }
         if tool != "inbox":
-            page.pop("name", None)
             for message in messages:
                 message.pop("entry_seq", None)
         if errors:

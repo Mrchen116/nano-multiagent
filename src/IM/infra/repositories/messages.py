@@ -85,6 +85,7 @@ class MessageRepository:
         kernel_message_id: str | None = None,
         delivery_status: str | None = None,
         sender_display_name: str | None = None,
+        sender_source_id: str | None = None,
         emit_created_event: bool = False,
         caller_idempotency_key: str | None = None,
         system_notice: SystemNotice | None = None,
@@ -317,10 +318,11 @@ class MessageRepository:
                     token_usage_json,
                     kernel_message_id,
                     sender_display_name,
+                    sender_source_id,
                     caller_idempotency_key,
                     system_notice_json,
                     background_returns_json, reply_process_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     message_id,
@@ -335,6 +337,7 @@ class MessageRepository:
                     token_usage_json,
                     kernel_message_id,
                     display_name_override,
+                    sender_source_id,
                     stored_idempotency_key,
                     system_notice_json,
                     background_returns_json,

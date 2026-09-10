@@ -205,6 +205,7 @@ class IMShadowConversationSync:
                     json={
                         "sender_user_id": owner_user_id,
                         "sender_type": "user",
+                        "sender_source_id": message.external_user_id,
                         "content": _shadow_message_content(message, metadata),
                         "sender_display_name": _metadata_text(
                             metadata, key="sender_display_name"

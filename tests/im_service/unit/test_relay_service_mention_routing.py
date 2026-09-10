@@ -67,7 +67,7 @@ def test_enqueue_message_relay_targets_the_mentioned_agent_in_group_chats(
     message = messages.create_message(
         conversation_id=conversation.id,
         sender_user_id=alice.id,
-        content='<mention type="agent" target_id="agent-b"/> please reply in thread',
+        content=f'<mention type="user" target_id="{agent_b_user.id}"/> please reply in thread',
     )
 
     created = relay_service.enqueue_message_relay(
@@ -143,7 +143,7 @@ def test_enqueue_message_relay_advances_group_profile_version(
     message = messages.create_message(
         conversation_id=conversation.id,
         sender_user_id=alice.id,
-        content='<mention type="agent" target_id="agent-a"/> please stay silent if NO_REPLY works.',
+        content=f'<mention type="user" target_id="{agent_a_user.id}"/> please stay silent if NO_REPLY works.',
     )
 
     created = relay_service.enqueue_message_relay(
@@ -213,7 +213,7 @@ def test_enqueue_message_relay_uses_live_group_profile_version(
     message = messages.create_message(
         conversation_id=conversation.id,
         sender_user_id=alice.id,
-        content='<mention type="agent" target_id="agent-a"/> please stay silent if NO_REPLY works.',
+        content=f'<mention type="user" target_id="{agent_a_user.id}"/> please stay silent if NO_REPLY works.',
     )
 
     created = relay_service.enqueue_message_relay(
@@ -271,12 +271,12 @@ def test_enqueue_message_relay_normalizes_typed_and_picker_mentions_to_the_same_
     typed = messages.create_message(
         conversation_id=conversation.id,
         sender_user_id=alice.id,
-        content='<mention type="agent" target_id="agent-b"/> please review the typed mention',
+        content=f'<mention type="user" target_id="{agent_b_user.id}"/> please review the typed mention',
     )
     picker = messages.create_message(
         conversation_id=conversation.id,
         sender_user_id=alice.id,
-        content='<mention type="agent" target_id="agent-b"/> please review the picker mention',
+        content=f'<mention type="user" target_id="{agent_b_user.id}"/> please review the picker mention',
     )
 
     typed_relay = relay_service.enqueue_message_relay(

@@ -1,7 +1,7 @@
 """SQLite repositories for IM users, conversations, and messages."""
 
 import sqlite3
-from uuid import uuid4
+from IM.infra.short_ids import new_chat_id
 
 from IM.domain.models import (
     User,
@@ -68,29 +68,33 @@ class UserRepository:
         if not username.strip() or not display_name.strip():
             raise ValueError("username and display_name must be non-empty")
 
-        user_id = uuid4().hex
         created_at = utc_now()
-        owner_id = user_id
-        try:
-            with self._connection:
-                self._connection.execute(
-                    """
-                    INSERT INTO users(id, username, display_name, owner_id, default_entry_node_id, password_hash, locale, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        user_id,
-                        username,
-                        display_name,
-                        owner_id,
-                        None,
-                        password_hash,
-                        locale,
-                        created_at,
-                    ),
-                )
-        except sqlite3.IntegrityError as error:
-            _raise_constraint_error(error)
+        while True:
+            user_id = new_chat_id("u_")
+            owner_id = user_id
+            try:
+                with self._connection:
+                    self._connection.execute(
+                        """
+                        INSERT INTO users(id, username, display_name, owner_id, default_entry_node_id, password_hash, locale, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            user_id,
+                            username,
+                            display_name,
+                            owner_id,
+                            None,
+                            password_hash,
+                            locale,
+                            created_at,
+                        ),
+                    )
+            except sqlite3.IntegrityError as error:
+                if str(error) == "UNIQUE constraint failed: users.id":
+                    continue
+                _raise_constraint_error(error)
+            break
         return User(
             id=user_id,
             username=username,

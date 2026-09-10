@@ -555,7 +555,7 @@ export function MessagePane({
     if (target) {
       const label = `@${target.display_name}`;
       insert = `${label} ${insert}`;
-      setDraftMentions([{ label, type: "agent", target_id: target.agent_id }]);
+      setDraftMentions([{ label, type: "user", target_id: target.user_id }]);
     } else {
       setDraftMentions([]);
     }
@@ -578,7 +578,7 @@ export function MessagePane({
     const label = `@${c.display_name}`;
     const before = draft.slice(0, draft.length - mentionMatch[0].length);
     setDraft(`${before}${label} `);
-    setDraftMentions((prev) => [...prev, { label, type: "agent", target_id: c.agent_id }]);
+    setDraftMentions((prev) => [...prev, { label, type: "user", target_id: c.user_id }]);
     composerRef.current?.focus();
   }
 

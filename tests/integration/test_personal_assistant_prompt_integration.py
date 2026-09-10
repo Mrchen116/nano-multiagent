@@ -47,6 +47,7 @@ def test_group_scenario_reaches_the_assembled_pa_prompt(tmp_path: Path) -> None:
                 {
                     "type": "agent",
                     "agent_id": "agent-peer-unique",
+                    "user_id": "u_peer0001",
                     "display_name": "Peer",
                 },
                 {
@@ -58,9 +59,10 @@ def test_group_scenario_reaches_the_assembled_pa_prompt(tmp_path: Path) -> None:
         },
     )
 
-    assert "agent-peer-unique" in prompt
+    assert "u_peer0001" in prompt
+    assert "agent-peer-unique" not in prompt
     assert "user-unique" in prompt
-    assert '<mention type="agent" target_id="<id>"/>' in prompt
+    assert '<mention type="agent"' not in prompt
     assert "<task-notification>" in prompt
 
 

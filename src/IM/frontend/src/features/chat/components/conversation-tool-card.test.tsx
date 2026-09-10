@@ -35,7 +35,7 @@ describe("conversation tool presentation", () => {
 });
 
 it("renders wire mentions with participant names in the actual inbox card", () => {
-  const detail = {...page, messages: [{...page.messages[0], content: [{type:"text",text:'<mention type="agent" target_id="planner"/> 改成8人'}]}]};
+  const detail = {...page, messages: [{...page.messages[0], content: [{type:"text",text:'<mention type="user" target_id="planner"/> 改成8人'}]}]};
   render(<MemoryRouter><WorkNavigationContext.Provider value={{returnUrl:"/work",beforeLeave(){},people:{planner:"小策"}}}><ToolDetailBody call={{...call,status:"completed",detail}}/></WorkNavigationContext.Provider></MemoryRouter>);
   expect(screen.getByText("@小策")).toBeInTheDocument();
   expect(screen.queryByText(/<mention/)).not.toBeInTheDocument();

@@ -92,7 +92,7 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
                 json={
                     "sender_user_id": human_user_id,
                     # bugfix-358: mention format changed to XML tag.
-                    "content": '<mention type="agent" target_id="agent-a"/> first mention',
+                    "content": f'<mention type="user" target_id="{agent_a_user_id}"/> first mention',
                     "target_node_id": "node-1",
                 },
             )
@@ -129,7 +129,7 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
                         "kind": "message_completed",
                         "node_id": "node-1",
                         "message_id": output_id,
-                        "final_content": 'gateway-reply:<mention type="agent" target_id="agent-a"/> first mention',
+                        "final_content": f'gateway-reply:<mention type="user" target_id="{agent_a_user_id}"/> first mention',
                     },
                 }
             )
@@ -147,7 +147,7 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
                 relay_payload=first_relay["payload"],
                 delivery_status="completed",
                 # bugfix-358: detail echoes actual relay output text (now with XML mention tag).
-                detail='gateway-reply:<mention type="agent" target_id="agent-a"/> first mention',
+                detail=f'gateway-reply:<mention type="user" target_id="{agent_a_user_id}"/> first mention',
                 extra_frames=peer_context_frames,
             )
             # bugfix-358: peer relay no longer carries background_context_only;
@@ -215,7 +215,7 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
                 json={
                     "sender_user_id": human_user_id,
                     # bugfix-358: mention format changed to XML tag.
-                    "content": '<mention type="agent" target_id="agent-a"/> please stay silent if NO_REPLY works.',
+                    "content": f'<mention type="user" target_id="{agent_a_user_id}"/> please stay silent if NO_REPLY works.',
                     "target_node_id": "node-1",
                 },
             )
@@ -294,11 +294,11 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
     # First relay: profile_version=1, no NO_REPLY prompt → message is sent.
     # Second relay: profile_version=2, NO_REPLY prompt → output suppressed; relay_adapter.sent only has first message.
     assert [message.text for message in relay_adapter.sent] == [
-        'gateway-reply:[Alice] <mention type="agent" target_id="agent-a"/> first mention',
+        f'gateway-reply:[Alice] <mention type="user" target_id="{agent_a_user_id}"/> first mention',
     ]
     assert relay_adapter.sent[0].metadata["config_profile_version"] == 1
     assert [payload["detail"] for payload in accepted_payloads] == [None, None]
     assert [payload["detail"] for payload in completed_payloads] == [
-        'gateway-reply:<mention type="agent" target_id="agent-a"/> first mention',
+        f'gateway-reply:<mention type="user" target_id="{agent_a_user_id}"/> first mention',
         "NO_REPLY | suppressed_by=no_reply_token",
     ]

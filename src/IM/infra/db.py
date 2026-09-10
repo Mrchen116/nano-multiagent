@@ -149,6 +149,7 @@ CREATE TABLE IF NOT EXISTS messages (
     -- on_message_completed 写入 elapsed_ms = round((T1 − T0) * 1000)。
     elapsed_ms INTEGER,
     sender_display_name TEXT,
+    sender_source_id TEXT,
     caller_idempotency_key TEXT,
     system_notice_json TEXT,
     UNIQUE(conversation_id, caller_idempotency_key),
@@ -682,6 +683,8 @@ def _migrate_messages_metadata(connection: sqlite3.Connection) -> None:
     # have none — fork is disabled on bubbles without it.
     if "kernel_message_id" not in column_names:
         connection.execute("ALTER TABLE messages ADD COLUMN kernel_message_id TEXT")
+    if "sender_source_id" not in column_names:
+        connection.execute("ALTER TABLE messages ADD COLUMN sender_source_id TEXT")
     if "sender_display_name" not in column_names:
         connection.execute("ALTER TABLE messages ADD COLUMN sender_display_name TEXT")
     if "caller_idempotency_key" not in column_names:

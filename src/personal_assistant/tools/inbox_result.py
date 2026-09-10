@@ -19,12 +19,19 @@ def _time(value: str | None) -> str | None:
     )
 
 
+def _channel(value: str) -> str:
+    return "web" if value == "web_relay" else value.split(":", 1)[0]
+
+
 def source_summary(source: Mapping[str, Any]) -> dict[str, Any]:
     """Return the facts needed to choose a pending conversation."""
     result = {"target": source["target"]}
     if source.get("name") and source["name"] != source["target"]:
         result["name"] = source["name"]
-    result["unread"] = source["pending_count"]
+    result["type"] = source.get("kind", source.get("type", "unknown"))
+    result["channel"] = _channel(source.get("channel", "web"))
+    if "pending_count" in source:
+        result["unread"] = source["pending_count"]
     timestamp = _time(
         source.get("latest_message_at") or source.get("latest_received_at")
     )
@@ -41,12 +48,19 @@ def model_page(page: Mapping[str, Any]) -> dict[str, Any]:
     Message parts on this page are grouped in source order. A partial message
     remains explicitly partial even when earlier parts were read on another page.
     """
+    if "members" in page:
+        return dict(page)
     if "conversations" in page:
         result = {
             "conversations": [source_summary(row) for row in page["conversations"]]
         }
     else:
-        result = {"target": page.get("target")}
+        result = {
+            "target": page.get("target"),
+            "type": page.get("kind", page.get("type", "unknown")),
+            "channel": page.get("channel", "web"),
+        }
+        result["channel"] = _channel(result["channel"])
         if page.get("name") and page["name"] != page.get("target"):
             result["name"] = page["name"]
         messages: list[dict[str, Any]] = []
@@ -63,11 +77,20 @@ def model_page(page: Mapping[str, Any]) -> dict[str, Any]:
                 message: dict[str, Any] = {}
                 if message_id:
                     message["id"] = message_id
-                if sender.get("name") and sender["name"] != sender.get("id"):
-                    message["sender"] = sender["name"]
-                if sender.get("id"):
-                    message["sender_id"] = sender["id"]
-                message["sender_type"] = sender.get("kind", "unknown")
+                kind = sender.get("kind", "unknown")
+                identity = {
+                    "name": sender.get("name") or sender.get("id") or "unknown",
+                    "type": kind,
+                }
+                if kind == "external":
+                    identity["channel"] = _channel(
+                        sender.get("channel") or page.get("channel", "unknown")
+                    )
+                    if sender.get("source_id"):
+                        identity["source_id"] = sender["source_id"]
+                elif sender.get("id"):
+                    identity["user_id"] = sender["id"]
+                message["sender"] = identity
                 timestamp = _time(part.get("source_time") or part.get("received_at"))
                 if timestamp:
                     message["time"] = timestamp

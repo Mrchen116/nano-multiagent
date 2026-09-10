@@ -178,14 +178,14 @@ def test_model_inbox_read_hides_receipts_and_preserves_same_named_identities():
     }
     result = json.loads(InboxTool().serialize_result(page))
     assert result == {
+        "type": "unknown",
+        "channel": "web",
         "target": "room",
         "name": "Design group",
         "messages": [
             {
                 "id": f"message-{i}",
-                "sender": "Alex",
-                "sender_id": f"user-{i}",
-                "sender_type": "user",
+                "sender": {"name": "Alex", "user_id": f"user-{i}", "type": "user"},
                 "time": "2026-09-10T03:30:04Z",
                 "text": f"Request {i}",
             }
