@@ -72,7 +72,8 @@ Implementation and the main live Web IM/Feishu journeys are complete. These test
 - Real Web IM and exclusive Feishu journeys are complete. Independent product acceptance passed Round 1 at `89986aa1a` with all 11 scenarios and zero issues; its Round 2 functional failure-classification check also passed.
 - Independent verification closed the public/data classification, boundary-matrix and provider receipt-reentry findings, then correctly kept the pending/error prototype contract open because the committed 390px screenshots exposed mobile overflow. The grid minimum-width correction and replacement real-product evidence passed targeted acceptance and verification; all review findings are closed.
 - Final corrected-delta verification is `aligned`: the three unit deltas accurately cover the implementation without overclaiming legacy uploads, unsupported formats or provider-wide exactly-once. The existing canonical `/new` contract already governs late image delivery, so no duplicate reset requirement was added.
+- The aligned deltas are merged into the Gateway and IM canonical specs. Post-merge documentation integrity passed with 233 maintained Markdown sources and 70 required routes, and the archive guard recognizes `feat-551` at its completed path.
 
 ## Remaining
 
-Merge the aligned deltas into canonical specs, run the final documentation check, archive the unit, create a ready PR, wait for CI green, and remove owned runtime artifacts. Code-review gate is omitted by explicit user override.
+Create the ready PR, wait for required CI to turn green, and remove owned runtime artifacts/worktree. Code-review gate is omitted by explicit user override.

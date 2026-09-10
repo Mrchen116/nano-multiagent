@@ -150,7 +150,7 @@ R4-S1、R4-S2 在当前 validated head 上保持通过；Round 1 其余 9 个 Sc
 | `prototype.html#reply` pending | R4-S1：正文可读，图片原位 pending，desktop/mobile must-match | `M1-reply-images/evidence/web-im-desktop-loading.png`（SHA-256 `c733b7d6…91849`）；`M1-reply-images/evidence/web-im-mobile-loading.png`（`fa6da24e…7d24c5`） | 1280×900 / 390×844；loading | **match**：两张图片均原位 loading，前/中/后正文持续可读；两文件分别与 Round 1 原始验收截图字节一致。 |
 | `prototype.html#reply` error | R4-S2：失败原位可读、正文继续、可独立 Retry，desktop/mobile must-match | `M1-reply-images/evidence/web-im-desktop-error.png`（SHA-256 `549b22c2…000ad`）；`M1-reply-images/evidence/web-im-mobile-error.png`（`f27f58ab…0a8b4`） | 1280×900 / 390×844；error | **match**：两处失败均在各自引用位置，Retry 独立可见，正文未丢失；两文件分别与 Round 1 原始验收截图字节一致。 |
 
-上述相对路径均位于 `docs/changes/feat-551-agent-reply-images/`，随 unit 提交并可持久引用。Round 1 的 ready/zoom must-match 未受本次 delta 影响，继续继承通过。
+上述相对路径均位于 `docs/changes/archive/feat-551-agent-reply-images/`，随 unit 提交并可持久引用。Round 1 的 ready/zoom must-match 未受本次 delta 影响，继续继承通过。
 
 ## 问题清单
 
