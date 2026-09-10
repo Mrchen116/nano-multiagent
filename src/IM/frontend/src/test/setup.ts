@@ -1,4 +1,7 @@
 import "@testing-library/jest-dom/vitest";
+import { beforeEach } from "vitest";
+
+import { resetComposerStores } from "../features/chat/components/composer-draft-store";
 
 // jsdom 27 + node 25 expose `localStorage` as a plain object missing the Storage API
 // (no getItem/setItem/clear), so install an in-memory polyfill before tests touch it.
@@ -77,4 +80,6 @@ if (typeof window !== "undefined" && typeof globalThis.Request === "function") {
   });
 }
 
-export {};
+beforeEach(() => {
+  resetComposerStores();
+});
