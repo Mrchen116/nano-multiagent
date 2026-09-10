@@ -74,6 +74,7 @@ _MARKDOWN_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)\s]+)\)")
 _MAX_OUTBOUND_IMAGE_BYTES = 10 * 1024 * 1024
 _MAX_INBOUND_IMAGE_BYTES = 5 * 1024 * 1024
 _MAX_OUTBOUND_IMAGE_SOURCES = 5
+_PUBLISH_SUPPRESSED = object()
 
 # Retry policy constants for send_message error handling.
 _MAX_RATE_LIMIT_RETRIES = 3  # Total attempts for 429 (original + 2 retries)
@@ -369,6 +370,63 @@ class FeishuClient:
 
         return self._resolve_outbound_markdown_images(text)
 
+    def upload_image(self, data: bytes, *, content_type: str) -> str:
+        """Upload validated image bytes without creating a visible message.
+
+        Args:
+            data: Gateway-validated image snapshot.
+            content_type: Detected raster media type.
+
+        Returns:
+            Image key belonging to this application's credentials.
+
+        Raises:
+            FeishuAPIError: When the provider rejects the upload.
+        """
+        return self._upload_image(data, content_type=content_type)
+
+    def send_prepared_message(
+        self,
+        *,
+        receive_id: str,
+        text: str,
+        receive_id_type: str = "chat_id",
+        card: Mapping[str, Any] | None = None,
+        before_publish: Callable[[], bool] | None = None,
+        after_publish: Callable[[], None] | None = None,
+    ) -> Literal["delivered", "suppressed"]:
+        """Publish prepared content, checking admission before every attempt.
+
+        Args:
+            receive_id: Target provider chat or user identifier.
+            text: Markdown containing only already prepared image references.
+            receive_id_type: Provider address kind.
+            card: Optional runtime card instead of an ordinary Post.
+            before_publish: Admission callback; missing or failed gates suppress.
+            after_publish: Release callback called after every admitted request.
+
+        Returns:
+            Delivered only after provider success, otherwise suppressed by gate.
+
+        Raises:
+            FeishuAPIError: When the existing finite retry policy is exhausted.
+        """
+        content = (
+            dict(card)
+            if card is not None
+            else {"zh_cn": {"content": [[{"tag": "md", "text": text}]]}}
+        )
+        result = self._send_create_message(
+            receive_id=receive_id,
+            receive_id_type=receive_id_type,
+            msg_type="interactive" if card is not None else "post",
+            content=json.dumps(content, ensure_ascii=False),
+            require_admission=True,
+            before_publish=before_publish,
+            after_publish=after_publish,
+        )
+        return "suppressed" if result is _PUBLISH_SUPPRESSED else "delivered"
+
     def download_message_image(
         self,
         *,
@@ -526,7 +584,10 @@ class FeishuClient:
         receive_id_type: str,
         msg_type: str,
         content: str,
-    ) -> str | None:
+        require_admission: bool = False,
+        before_publish: Callable[[], bool] | None = None,
+        after_publish: Callable[[], None] | None = None,
+    ) -> str | None | object:
         """Create a Feishu message with the shared retry/error policy."""
         if self._rest_client is None:
             raise RuntimeError("feishu client is not started")
@@ -554,7 +615,21 @@ class FeishuClient:
         server_error_attempt = 0
 
         while True:
-            response = self._rest_client.im.v1.message.create(request)
+            if require_admission:
+                if before_publish is None or after_publish is None:
+                    return _PUBLISH_SUPPRESSED
+                try:
+                    allowed = before_publish()
+                except Exception:
+                    logger.warning("feishu publication admission failed")
+                    return _PUBLISH_SUPPRESSED
+                if not allowed:
+                    return _PUBLISH_SUPPRESSED
+            try:
+                response = self._rest_client.im.v1.message.create(request)
+            finally:
+                if require_admission and after_publish is not None:
+                    after_publish()
             if response.success():
                 data = getattr(response, "data", None)
                 message_id = getattr(data, "message_id", None)
@@ -929,6 +1004,21 @@ def _replace_markdown_images_outside_code(
         output.append(text[index])
         index += 1
     return "".join(output)
+
+
+def read_outbound_image(source: str) -> tuple[bytes, str]:
+    """Read a public HTTP(S) or data image using the bounded safe downloader.
+
+    Args:
+        source: Public image URL or base64 image data URL; never a local path.
+
+    Returns:
+        Bounded image bytes and detected raster media type.
+
+    Raises:
+        ValueError: When the source fails network, size or raster validation.
+    """
+    return _read_outbound_image(source)
 
 
 def _read_outbound_image(source: str) -> tuple[bytes, str]:

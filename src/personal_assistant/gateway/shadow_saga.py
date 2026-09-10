@@ -102,6 +102,8 @@ CREATE TABLE IF NOT EXISTS external_shadow_outputs (
     ordinal INTEGER NOT NULL,
     content TEXT NOT NULL,
     im_message_id TEXT,
+    output_key TEXT NOT NULL,
+    suppressed INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (saga_id, run_id, output_kind, ordinal),
     UNIQUE (saga_id, run_id, output_kind, kernel_message_id),
     FOREIGN KEY (saga_id) REFERENCES external_shadow_sagas(saga_id)
@@ -125,6 +127,7 @@ CREATE TABLE IF NOT EXISTS external_shadow_bubbles (
     delivery_status TEXT,
     kernel_message_id TEXT,
     im_message_id TEXT,
+    output_key TEXT NOT NULL,
     UNIQUE (saga_id, run_id, bubble_ordinal),
     FOREIGN KEY (saga_id) REFERENCES external_shadow_sagas(saga_id)
 )
@@ -152,6 +155,7 @@ class ExternalShadowOutput:
     ordinal: int
     content: str
     im_message_id: str | None
+    output_key: str = ""
 
     @property
     def caller_idempotency_key(self) -> str:
@@ -199,6 +203,7 @@ class ExternalShadowBubble:
     delivery_status: str | None
     kernel_message_id: str | None
     im_message_id: str | None
+    output_key: str = ""
 
 
 class ExternalShadowSagaStore:
@@ -216,6 +221,24 @@ class ExternalShadowSagaStore:
         self._conn.execute(_CREATE_OUTPUT_TABLE_SQL)
         self._conn.execute(_CREATE_BUBBLE_TABLE_SQL)
         self._conn.execute(_CREATE_DIAGNOSTICS_TABLE_SQL)
+        # Old per-saga ordinals can collide within one run after steer. Keep their
+        # recovery keys isolated; newly allocated bubbles use run-global ordinals.
+        for table in ("external_shadow_outputs", "external_shadow_bubbles"):
+            columns = {
+                row[1] for row in self._conn.execute(f"PRAGMA table_info({table})")
+            }
+            if "output_key" not in columns:
+                self._conn.execute(f"ALTER TABLE {table} ADD COLUMN output_key TEXT")
+            if table == "external_shadow_outputs" and "suppressed" not in columns:
+                self._conn.execute(
+                    f"ALTER TABLE {table} ADD COLUMN suppressed INTEGER NOT NULL DEFAULT 0"
+                )
+        self._conn.execute(
+            "UPDATE external_shadow_bubbles SET output_key = 'legacy-shadow:' || shadow_message_id WHERE output_key IS NULL"
+        )
+        self._conn.execute(
+            "UPDATE external_shadow_outputs SET output_key = 'legacy-output:' || saga_id || ':' || run_id || ':' || output_kind || ':' || ordinal WHERE output_key IS NULL"
+        )
         self._conn.commit()
 
     def prepare(
@@ -428,6 +451,7 @@ class ExternalShadowSagaStore:
         output_kind: str,
         kernel_message_id: str | None,
         content: str,
+        output_key: str | None = None,
     ) -> ExternalShadowOutput:
         """Durably capture one Agent output before external reply delivery.
 
@@ -466,14 +490,36 @@ class ExternalShadowSagaStore:
                 ordinal = self._next_output_ordinal(
                     saga_id=saga_id, run_id=run_id, output_kind=output_kind
                 )
+            if output_key is None:
+                bubble = self._conn.execute(
+                    "SELECT output_key FROM external_shadow_bubbles "
+                    "WHERE saga_id = ? AND run_id = ? AND kernel_message_id = ?",
+                    (saga_id, run_id, kernel_message_id),
+                ).fetchone()
+                if bubble is not None:
+                    output_key = str(bubble[0])
+                else:
+                    count = self._conn.execute(
+                        "SELECT COUNT(*) FROM external_shadow_outputs WHERE run_id = ?",
+                        (run_id,),
+                    ).fetchone()[0]
+                    output_key = f"{run_id}:bubble:{count}"
             self._conn.execute(
                 """
                 INSERT INTO external_shadow_outputs(
-                    saga_id, run_id, output_kind, kernel_message_id, ordinal, content
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                    saga_id, run_id, output_kind, kernel_message_id, ordinal, content, output_key
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(saga_id, run_id, output_kind, ordinal) DO NOTHING
                 """,
-                (saga_id, run_id, output_kind, kernel_message_id, ordinal, content),
+                (
+                    saga_id,
+                    run_id,
+                    output_kind,
+                    kernel_message_id,
+                    ordinal,
+                    content,
+                    output_key,
+                ),
             )
         return self.require_output(
             saga_id=saga_id, run_id=run_id, output_kind=output_kind, ordinal=ordinal
@@ -654,6 +700,23 @@ class ExternalShadowSagaStore:
                 raise LookupError("ready external shadow bubble not found")
         return self.require_snapshot(shadow_message_id)
 
+    def discard_snapshot(self, shadow_message_id: str) -> None:
+        """Persist publication revocation so reconnect cannot revive a stale bubble."""
+        with self._conn:
+            self._conn.execute(
+                "UPDATE external_shadow_bubbles SET state = 'discarded' WHERE shadow_message_id = ?",
+                (shadow_message_id,),
+            )
+
+    def discard_output(self, output: ExternalShadowOutput) -> None:
+        """Retain a revoked output's identity while excluding it from recovery."""
+        with self._conn:
+            self._conn.execute(
+                "UPDATE external_shadow_outputs SET suppressed = 1 "
+                "WHERE saga_id = ? AND run_id = ? AND output_kind = ? AND ordinal = ?",
+                (output.saga_id, output.run_id, output.output_kind, output.ordinal),
+            )
+
     def _recording_bubble_row(
         self, *, saga_id: str, run_id: str
     ) -> sqlite3.Row | tuple[Any, ...] | None:
@@ -689,9 +752,9 @@ class ExternalShadowSagaStore:
             """
             SELECT COALESCE(MAX(bubble_ordinal), -1) + 1
             FROM external_shadow_bubbles
-            WHERE saga_id = ? AND run_id = ?
+            WHERE run_id = ?
             """,
-            (saga_id, run_id),
+            (run_id,),
         ).fetchone()
         ordinal = int(ordinal_row[0])
         shadow_message_id = _shadow_message_id(
@@ -700,8 +763,8 @@ class ExternalShadowSagaStore:
         self._conn.execute(
             """
             INSERT INTO external_shadow_bubbles(
-                shadow_message_id, saga_id, run_id, bubble_ordinal, state, started_at_ms
-            ) VALUES (?, ?, ?, ?, 'recording', ?)
+                shadow_message_id, saga_id, run_id, bubble_ordinal, state, started_at_ms, output_key
+            ) VALUES (?, ?, ?, ?, 'recording', ?, ?)
             """,
             (
                 shadow_message_id,
@@ -709,6 +772,7 @@ class ExternalShadowSagaStore:
                 run_id,
                 ordinal,
                 started_at_ms or _now_ms(),
+                f"{run_id}:bubble:{ordinal}",
             ),
         )
         row = self._recording_bubble_row(saga_id=saga_id, run_id=run_id)
@@ -733,6 +797,7 @@ class ExternalShadowSagaStore:
             delivery_status=str(row[12]) if row[12] is not None else None,
             kernel_message_id=str(row[13]) if row[13] is not None else None,
             im_message_id=str(row[14]) if row[14] is not None else None,
+            output_key=str(row[15]),
         )
 
     def require_output(
@@ -743,7 +808,7 @@ class ExternalShadowSagaStore:
         row = self._conn.execute(
             """
             SELECT saga_id, run_id, output_kind, kernel_message_id, ordinal, content,
-                   im_message_id
+                   im_message_id, output_key
             FROM external_shadow_outputs
             WHERE saga_id = ? AND run_id = ? AND output_kind = ? AND ordinal = ?
             """,
@@ -759,9 +824,9 @@ class ExternalShadowSagaStore:
         rows = self._conn.execute(
             """
             SELECT saga_id, run_id, output_kind, kernel_message_id, ordinal, content,
-                   im_message_id
+                   im_message_id, output_key
             FROM external_shadow_outputs
-            WHERE im_message_id IS NULL
+            WHERE im_message_id IS NULL AND suppressed = 0
             ORDER BY rowid ASC
             """
         ).fetchall()
@@ -912,7 +977,7 @@ def _saga_id(
 _BUBBLE_COLUMNS = """
 shadow_message_id, saga_id, run_id, bubble_ordinal, state, content,
 thinking_json, tool_calls_json, token_usage_json, started_at_ms,
-finished_at_ms, elapsed_ms, delivery_status, kernel_message_id, im_message_id
+finished_at_ms, elapsed_ms, delivery_status, kernel_message_id, im_message_id, output_key
 """
 
 

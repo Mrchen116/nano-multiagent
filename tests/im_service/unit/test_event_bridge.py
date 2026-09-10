@@ -432,18 +432,28 @@ def test_on_thinking_segment_persists_and_emits(tmp_path: Path) -> None:
     assert p["message_id"] == msg.id
 
 
-def test_on_message_completed_sets_token_usage_and_status(tmp_path: Path) -> None:
+def test_on_message_completed_sets_token_usage_status_and_preview(
+    tmp_path: Path,
+) -> None:
     bridge, conv_id, agent_uid, messages, captured = _make_bridge(tmp_path)
     msg = bridge.on_turn_start(
         conversation_id=conv_id, agent_user_id=agent_uid, agent_id="planner"
     )
     bridge.on_message_delta(message_id=msg.id, delta_text="final text")
+    bridge.event_repository.append_event(
+        conversation_id=conv_id,
+        message_id=msg.id,
+        event_type="relay.report",
+        delivery_status="completed",
+        payload={"summary": "old ![chart](</private/source image.png>)"},
+    )
     captured.clear()
 
     usage = TokenUsage(output=42, context_used=1000, context_window=200000)
+    final_text = "final ![chart](/im/v1/conversations/chat/images/image) text"
     bridge.on_message_completed(
         message_id=msg.id,
-        final_content="final text",
+        final_content=final_text,
         token_usage=usage,
     )
 
@@ -451,13 +461,25 @@ def test_on_message_completed_sets_token_usage_and_status(tmp_path: Path) -> Non
     final = reloaded[-1]
     assert final.delivery_status == "completed"
     assert final.token_usage == usage
-    assert final.content == "final text"
+    assert final.content == final_text
 
     completed_events = [e for e in captured if e.event_type == "message.completed"]
     assert len(completed_events) == 1
     payload = json.loads(completed_events[0].payload_json)
-    assert payload["content"] == "final text"
+    assert payload["content"] == final_text
     assert payload["token_usage"]["output"] == 42
+    connection = connect(tmp_path / "im.db")
+    conversations = ConversationRepository(connection)
+    assert (
+        conversations.get_conversation(conversation_id=conv_id).last_message_preview
+        == "final [chart] text"
+    )
+    initialize_schema(connection)
+    assert (
+        conversations.get_conversation(conversation_id=conv_id).last_message_preview
+        == "final [chart] text"
+    )
+    connection.close()
 
 
 # ---------------------------------------------------------------------------

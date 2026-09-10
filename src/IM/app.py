@@ -15,6 +15,7 @@ from IM.api.routes.agents import router as agent_router
 from IM.api.routes.agent_channels import router as agent_channels_router
 from IM.api.routes.auth import router as auth_router
 from IM.api.routes.messages import router as message_router
+from IM.api.routes.message_images import router as message_image_router
 from IM.api.routes.metrics import router as metrics_router
 from IM.api.routes.nodes import router as nodes_router
 from IM.api.routes.policies import router as policies_router
@@ -36,6 +37,7 @@ from IM.infra.gateway_persistence import (
 from IM.infra.repositories.config_boundaries import AgentConfigBoundaryRepository
 from IM.infra.repositories.events import EventRepository
 from IM.infra.repositories.messages import MessageRepository
+from IM.infra.repositories.message_images import MessageImageRepository
 from IM.infra.repositories.metrics import UsageMetricsRepository
 from IM.infra.repositories.users import UserRepository
 from IM.ws.gateway.channel_control import GatewayChannelControl
@@ -284,6 +286,9 @@ def create_app(
         app_instance.state.binding_store = BindingStore(resolved_db_path)
         app_instance.state.channel_control_store = ChannelControlStore(resolved_db_path)
         app_instance.state.upload_dir = resolved_upload_dir
+        app_instance.state.message_image_repository = MessageImageRepository(
+            connection, resolved_db_path.parent / "message-images"
+        )
         app_instance.state.auth_service = AuthService(
             users=UserRepository(connection),
             jwt_secret=resolved_jwt_secret,
@@ -433,6 +438,7 @@ def create_app(
     app.include_router(agent_channels_router)
     app.include_router(web_im_router)
     app.include_router(message_router)
+    app.include_router(message_image_router)
     app.include_router(nodes_router)
     app.include_router(policies_router)
     app.include_router(metrics_router)

@@ -122,6 +122,12 @@ class RunDeliveryContext:
     suppressed: bool = False
     visibility_state: Literal["active", "quiescing", "revoked"] = "active"
     visibility_changed: asyncio.Event = field(default_factory=asyncio.Event)
+    session_key: str = ""
+    session_generation: int = 0
+    pending_deliveries: int = 0
+    execution_finished: bool = False
+    bubble_ordinal: int = 0
+    reply_image_output_key: str = ""
 
     def __post_init__(self) -> None:
         """Start every newly accepted run with a visible delivery lease."""
@@ -163,6 +169,8 @@ class RunDeliveryContext:
     def reset_bubble_state(self) -> None:
         """Clear state that belongs to the bubble just closed or discarded."""
 
+        self.bubble_ordinal += 1
+        self.reply_image_output_key = ""
         self.kernel_message_id = ""
         self.external_current_text = ""
         self.external_intermediate_sent_marker = ""
@@ -171,10 +179,21 @@ class RunDeliveryContext:
         self.has_reply_process = False
         self.has_withheld_draft = False
 
-    def record_shadow_snapshot(self, shadow_message_id: str) -> None:
+    def record_shadow_snapshot(
+        self, shadow_message_id: str, output_key: str = ""
+    ) -> None:
         """Remember the durable shadow message representing the current bubble."""
 
         self.shadow_message_id = shadow_message_id
+        if output_key:
+            self.reply_image_output_key = output_key
+
+    @property
+    def reply_output_key(self) -> str:
+        """Return a stable output identity unaffected by a late kernel message id."""
+        return (
+            self.reply_image_output_key or f"{self.run_id}:bubble:{self.bubble_ordinal}"
+        )
 
     def switch_shadow_saga(self, shadow_saga_id: str) -> None:
         """Move subsequent delivery to another shadow saga and clear its anchor."""
@@ -278,6 +297,71 @@ class RunDeliveryContextStore:
 
     def __init__(self) -> None:
         self._contexts: dict[str, RunDeliveryContext] = {}
+        self._registrations: dict[str, tuple[str, int]] = {}
+        self._session_generations: dict[str, int] = {}
+
+    def register_session(self, run_id: str, session_key: str, generation: int) -> None:
+        """Bind a run's original generation before lifecycle events can be delayed."""
+        context = self._contexts.get(run_id)
+        if context is None:
+            self._registrations.setdefault(run_id, (session_key, generation))
+            return
+        context.session_key = session_key
+        context.session_generation = generation
+        if generation < self._session_generations.get(session_key, 0):
+            self.suppress(run_id)
+
+    def current_generation(self, session_key: str) -> int:
+        """Return the current generation for a still-bound background session."""
+        return self._session_generations.get(session_key, 0)
+
+    def advance_generation(self, session_key: str, generation: int) -> None:
+        """Fence all old-generation output after successful reset publication."""
+        self._session_generations[session_key] = generation
+        for context in self._contexts.values():
+            if (
+                context.session_key == session_key
+                and context.session_generation < generation
+            ):
+                self.suppress(context.run_id)
+
+    def retained_run_ids(self, session_key: str, generation: int) -> tuple[str, ...]:
+        """List executing or retained runs belonging to a reset's old generation."""
+        return tuple(
+            context.run_id
+            for context in self._contexts.values()
+            if context.session_key == session_key
+            and context.session_generation <= generation
+        )
+
+    def retain(self, run_id: str) -> bool:
+        """Hold the live context until one already-created delivery is settled."""
+        context = self._contexts.get(run_id)
+        if context is None:
+            return False
+        context.pending_deliveries += 1
+        return True
+
+    def release(self, run_id: str) -> None:
+        """Release one delivery hold and remove a fully settled terminal context."""
+        context = self._contexts.get(run_id)
+        if context is None:
+            return
+        context.pending_deliveries -= 1
+        if context.execution_finished and context.pending_deliveries == 0:
+            self._contexts.pop(run_id, None)
+
+    def can_publish(self, run_id: str) -> bool:
+        """Check visibility and generation synchronously at public-I/O admission."""
+        context = self._contexts.get(run_id)
+        return (
+            context is not None
+            and context.visibility_state == "active"
+            and (
+                context.session_generation
+                >= self._session_generations.get(context.session_key, 0)
+            )
+        )
 
     def get(self, run_id: str) -> RunDeliveryContext | None:
         """Return typed context for one run, if present."""
@@ -360,9 +444,16 @@ class RunDeliveryContextStore:
         )
 
     def take(self, run_id: str) -> RunDeliveryContext | None:
-        """Atomically remove and return one live context for its terminal owner."""
+        """Claim terminal ownership, retaining context while delivery still holds it."""
 
-        return self._contexts.pop(run_id, None)
+        self._registrations.pop(run_id, None)
+        context = self._contexts.get(run_id)
+        if context is None or context.execution_finished:
+            return None
+        context.execution_finished = True
+        if not context.pending_deliveries:
+            self._contexts.pop(run_id, None)
+        return context
 
     def discard(self, run_id: str) -> bool:
         """Remove one live context and report whether it was still present."""
@@ -377,6 +468,13 @@ class RunDeliveryContextStore:
             return existing
         context.ensure_initial_runtime_state()
         self._contexts[context.run_id] = context
+        registration = self._registrations.pop(context.run_id, None)
+        if registration is not None:
+            self.register_session(context.run_id, *registration)
+        elif context.session_generation < self._session_generations.get(
+            context.session_key, 0
+        ):
+            self.suppress(context.run_id)
         return context
 
     def seed_from_lifecycle(
@@ -449,6 +547,7 @@ class RunDeliveryContextStore:
                 kernel_session_id=update.kernel_session_id or "",
                 delivery_target=delivery_target,
                 model=update.model or "",
+                session_key=update.session_key,
                 trigger_source=trigger_source,
                 reply_channel_name=reply_channel_name,
                 reply_target_chat_id=reply_target_chat_id,

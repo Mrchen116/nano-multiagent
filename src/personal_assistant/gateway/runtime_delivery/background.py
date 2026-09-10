@@ -193,6 +193,10 @@ def build_bg_reply_sender(
     *,
     im_connection_manager_factory: "Callable[[], IMConnectionManager | None]",
     external_reply_sender: Callable[[str, Mapping[str, str]], Any] | None = None,
+    assistant_reply_delivery: Callable[
+        [str, ReplyContext, str, tuple[Mapping[str, Any], ...]], Awaitable[None]
+    ]
+    | None = None,
 ) -> "Callable[..., Awaitable[None]]":
     """Build an async callable that relays user-visible agent/control text.
 
@@ -205,6 +209,9 @@ def build_bg_reply_sender(
     Args:
         im_connection_manager_factory: Returns the live IM connection manager (may be None).
         external_reply_sender: Optional sender for external-channel visible text.
+        assistant_reply_delivery: Optional common prepared-image delivery pipeline,
+            used only for a subscription's explicitly identified assistant output.
+            It owns image snapshots, run visibility and both channel projections.
 
     Returns:
         Async callable ``(text, reply_context, from_session_id) -> None``.
@@ -221,6 +228,18 @@ def build_bg_reply_sender(
     ) -> None:
         cleaned_text = text.strip()
         if not from_session_id or (not cleaned_text and not background_returns):
+            return
+        if (
+            assistant_reply_delivery is not None
+            and _metadata_text(reply_context.metadata, key="background_run_id")
+            and _metadata_text(reply_context.metadata, key="background_agent_id")
+            and _metadata_text(reply_context.metadata, key="background_output_key")
+        ):
+            # Control and session notices never manufacture run identities. Only
+            # actual assistant events enter the shared run-aware image pipeline.
+            await assistant_reply_delivery(
+                cleaned_text, reply_context, from_session_id, background_returns
+            )
             return
 
         external_metadata = reply_context_external_delivery_metadata(

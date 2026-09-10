@@ -136,6 +136,7 @@ def ensure_workspace_defaults(workspace_root: Path) -> Path:
 
     # Heartbeat is PA-owned state too, so it stays beside memory under the config root.
     config_dir = resolved_root / WORKSPACE_CONFIG_DIRNAME
+    (config_dir / "exports").mkdir(exist_ok=True)
     for filename, default_content in DEFAULT_WORKSPACE_CONFIG_FILES:
         file_path = config_dir / filename
         if file_path.exists():

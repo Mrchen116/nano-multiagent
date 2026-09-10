@@ -7,25 +7,38 @@ from collections.abc import Awaitable
 import logging
 from typing import Any
 
+from personal_assistant.gateway.runtime_delivery.context import RunDeliveryContextStore
+
 _log = logging.getLogger("personal_assistant.gateway.runtime_delivery.task_tracker")
 
 
 class RuntimeDeliveryTaskTracker:
     """Create and drain every delivery awaitable that leaves its caller's stack."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, context_store: RunDeliveryContextStore | None = None) -> None:
         self._tasks: set[asyncio.Task[None]] = set()
         self._tasks_by_run: dict[str, set[asyncio.Task[None]]] = {}
+        self._preserved_tasks: set[asyncio.Task[None]] = set()
+        self._context_store = context_store
+        self._admitted: dict[str, int] = {}
+        self._admitted_empty: dict[str, asyncio.Event] = {}
         self._closed = False
 
     def start(
-        self, awaitable: Awaitable[object], *, name: str, run_id: str | None = None
+        self,
+        awaitable: Awaitable[object],
+        *,
+        name: str,
+        run_id: str | None = None,
+        preserve_on_reset: bool = False,
     ) -> None:
         """Accept one detached delivery awaitable under a semantic task name.
 
         Args:
             awaitable: Delivery operation to run on the current event loop.
             name: Stable event/run label used in shutdown diagnostics.
+            run_id: Run whose context must survive this delivery operation.
+            preserve_on_reset: Keep resource finalizers alive when public output is revoked.
 
         Raises:
             RuntimeError: If delivery admission has already closed.
@@ -35,7 +48,16 @@ class RuntimeDeliveryTaskTracker:
             self._dispose_rejected(awaitable)
             raise RuntimeError("runtime delivery task tracker is closed")
 
+        retained = bool(
+            run_id is not None
+            and self._context_store is not None
+            and self._context_store.retain(run_id)
+        )
+        started = False
+
         async def _run() -> None:
+            nonlocal started
+            started = True
             try:
                 await awaitable
             except asyncio.CancelledError:
@@ -51,11 +73,18 @@ class RuntimeDeliveryTaskTracker:
             name=f"runtime-delivery:{name}",
         )
         self._tasks.add(task)
+        if preserve_on_reset:
+            self._preserved_tasks.add(task)
         if run_id is not None:
             self._tasks_by_run.setdefault(run_id, set()).add(task)
 
         def _discard(done: asyncio.Task[None]) -> None:
             self._tasks.discard(done)
+            self._preserved_tasks.discard(done)
+            if not started:
+                self._dispose_rejected(awaitable)
+            if retained and self._context_store is not None and run_id is not None:
+                self._context_store.release(run_id)
             if run_id is not None:
                 tasks = self._tasks_by_run.get(run_id)
                 if tasks is not None:
@@ -69,7 +98,35 @@ class RuntimeDeliveryTaskTracker:
         """Cancel delivery work that has not crossed the reset visibility boundary."""
 
         for task in tuple(self._tasks_by_run.get(run_id, ())):
-            task.cancel()
+            if task not in self._preserved_tasks:
+                task.cancel()
+
+    def admit_publication(self, run_id: str) -> bool:
+        """Register a visible request on the Gateway loop, after async qualification."""
+        if self._context_store is None or not self._context_store.can_publish(run_id):
+            return False
+        self._admitted[run_id] = self._admitted.get(run_id, 0) + 1
+        self._admitted_empty.setdefault(run_id, asyncio.Event()).clear()
+        return True
+
+    def release_publication(self, run_id: str) -> None:
+        """Release one admitted public request from its I/O finally block."""
+        remaining = self._admitted[run_id] - 1
+        if remaining:
+            self._admitted[run_id] = remaining
+        else:
+            self._admitted.pop(run_id)
+            self._admitted_empty.pop(run_id).set()
+
+    async def drain_admitted(self, run_ids: tuple[str, ...]) -> None:
+        """Wait only for already-admitted I/O, never preparation or gate waiters."""
+        events = [
+            self._admitted_empty[run_id]
+            for run_id in run_ids
+            if run_id in self._admitted_empty
+        ]
+        if events:
+            await asyncio.gather(*(event.wait() for event in events))
 
     async def drain_run(self, run_id: str) -> None:
         """Wait for already-permitted output from one run to finish sending."""

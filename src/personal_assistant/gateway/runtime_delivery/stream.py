@@ -91,6 +91,11 @@ async def stream_run_to_completion(
         ):
             if event.get("run_id") != run_id:
                 continue
+            if (
+                event.get("event") == "run_status"
+                and event.get("status") == "cancelled"
+            ):
+                run_context_store.suppress(run_id)
             if event.get("event") == "assistant_message":
                 content = str(event.get("content") or "").strip()
                 if content:
@@ -136,6 +141,9 @@ async def stream_run_to_completion(
                     if asyncio.iscoroutine(reconcile):
                         await reconcile
                 break
+    except asyncio.CancelledError:
+        run_context_store.suppress(run_id)
+        raise
     finally:
         # 成功路径先发「已改用」再冲刷备用正文；失败气泡已在 reconcile 前冲刷。
         if hold_assistant_events and observer is not None:

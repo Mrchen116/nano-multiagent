@@ -10,6 +10,7 @@ from agent.core.agent.prompt_sections.base import PromptContext, assemble_system
 from agent.core.agent.prompt_sections.skeleton import build_kernel_prompt_skeleton
 from agent.core.types import ToolSpec
 from personal_assistant.config.local_store import AgentWorkspaceConfig
+from personal_assistant.config.local_store import ensure_workspace_defaults
 from personal_assistant.product import prompt_for
 
 
@@ -62,6 +63,20 @@ def test_group_scenario_reaches_the_assembled_pa_prompt(tmp_path: Path) -> None:
     assert "user-unique" in prompt
     assert '<mention type="agent" target_id="<id>"/>' in prompt
     assert "<task-notification>" in prompt
+
+
+def test_agent_receives_existing_explicit_reply_image_export_directory(
+    tmp_path: Path,
+) -> None:
+    workspace = ensure_workspace_defaults(tmp_path / "workspace")
+    prompt = _assemble(
+        AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace)
+    )
+    exports = workspace / ".nanoassistant/exports"
+    assert exports.is_dir()
+    assert str(exports) in prompt
+    assert "![" in prompt
+    assert "PNG" in prompt and "JPEG" in prompt and "WebP" in prompt
 
 
 def test_legacy_system_input_is_ignored_and_custom_is_injected_once(

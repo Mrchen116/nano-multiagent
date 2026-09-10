@@ -355,6 +355,8 @@ def build_kernel_event_observer(
         metadata: dict[str, str] = {
             "reply_phase": phase,
             "reply_dedupe_key": f"{rid}:bubble:{bubble_key}",
+            "run_id": rid,
+            "output_key": ctx.reply_output_key,
             **external_metadata,
         }
         if projection is not None and projection.runtime_footer:
@@ -369,6 +371,7 @@ def build_kernel_event_observer(
             ),
             name=f"external-reply:{rid}:{phase}",
             run_id=rid,
+            preserve_on_reset=True,
         )
 
     def _mirror_external_permission_request(
@@ -455,7 +458,7 @@ def build_kernel_event_observer(
                 **facts,
             )
         )
-        ctx.record_shadow_snapshot(snapshot.shadow_message_id)
+        ctx.record_shadow_snapshot(snapshot.shadow_message_id, snapshot.output_key)
         return snapshot
 
     def _notify_shadow_pending() -> None:
