@@ -19,7 +19,7 @@
 | Area | Covers | Requirements |
 |---|---|---|
 | [Auth and Tenancy](auth-tenancy.md) | JWT、owner 隔离、系统 policies | 3 |
-| [Conversations and Messages](conversations-messages.md) | 会话/消息 CRUD、shadow conversation、配置边界、outbox、群聊、分页、fork | 15 |
+| [Conversations and Messages](conversations-messages.md) | 会话/消息 CRUD、shadow conversation、配置边界、outbox、群聊、分页、fork | 16 |
 | [Web Chat UX](web-chat-ux.md) | 历史加载、配置边界、滚动、输入、slash 控制命令、消息操作、图片 attachment 预览、conversation skill 蒸馏入口、响应式体验、身份展示与自进化提示本地化 | 17 |
 | [Tool Timeline](tool-timeline.md) | single_thread 消息内过程、真实后台返回、群回复复核与两种模式共享展示边界 | 9 |
 | [Agent Work](agent-work.md) | 全局主工作轨迹、关联子执行、执行明细、统计与持久回看 | 2 |

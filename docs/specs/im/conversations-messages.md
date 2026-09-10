@@ -37,6 +37,21 @@
 - **THEN** 每个 conversation item 包含通用字段 `run_state`，取值至少支持 `"idle"` 与 `"running"`
 - **AND** 该字段不带 distill 命名，可被其他功能复用
 
+### Requirement: 同一 owner 的 Agent 私聊可从投递记录打开
+
+两个 Agent profile 归属同一 owner 时，经 `send_message` 创建的 Agent 私聊属于该 owner；投递回执中的 conversation id 和 message id 可用于该 owner 读取原聊天、定位原消息。Agent 的合成用户身份不作为独立租户归属。
+
+#### Scenario: 工作记录链接到 Agent 私聊
+- **WHEN** Agent 向同一 owner 的另一个 Agent 发送消息
+- **THEN** owner 的会话列表包含该私聊，并能用回执 ID 读取会话和消息
+- **AND** 其他 owner 读取该会话或消息仍返回 404
+
+#### Scenario: 复用旧的随机归属私聊
+- **GIVEN** 两个 Agent 同属一个 owner，旧私聊的归属未对应任何用户或 Agent profile
+- **WHEN** 发送操作重新解析这对 Agent 的私聊
+- **THEN** 归属修复为共同 owner，保留原 conversation id 和已有消息
+- **AND** 不改写已属于其他真实 owner 的会话，也不为不同 owner 的 Agent 推断共同归属
+
 ### Requirement: 聊天时间线支持非消息型 Agent 配置边界
 
 IM 可在聊天时间线中持久化 `agent_config_changed` 条目。该条目不是用户、Agent 或 system message，不带发送者，不进入 Agent 对话上下文；它稳定锚在第一条实际采用新运行配置的用户消息之前。重复上报幂等，晚到也不改变锚定位置；持久数据不包含 prompt、完整 Agent 配置、secret、工具参数或变更字段明细。
