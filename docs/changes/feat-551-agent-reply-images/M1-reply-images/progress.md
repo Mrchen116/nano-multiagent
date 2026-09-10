@@ -64,13 +64,15 @@ Implementation and the main live Web IM/Feishu journeys are complete. These test
 - An intermediate PA-only run had one transient `FileNotFoundError` reading a user-global `lark-wiki/SKILL.md`; the unchanged isolated test passed, then both complete shards above passed. No global skill files or unrelated runtime behavior were changed.
 - Frontend synchronized-head rerun: **708 passed** / 73 files, 28.59s, `npm run test -- --maxWorkers=2`. Production build passed during independent acceptance; audit critical threshold passed with 7 pre-existing low/moderate/high notices and no dependency changes.
 - Ruff check, all-file format check and staged diff-check passed. Documentation integrity passed (240 maintained Markdown sources, 70 required routes).
+- Final post-fix CI equivalents: agent/PA **1815 passed**; remaining Python **1842 passed**; frontend **708 passed** / 73 files after a fresh `npm ci`; `npm audit --audit-level=critical` passed with the same 7 non-critical notices. Ruff check and all-file format check passed for 995 files. The production frontend build also passed on the accepted image-state fix.
 
 ## Current state
 
 - The dedicated feat-551 IM/Gateway stack was stopped with `e2e-down.sh` after the fresh browser check, and its owned `feat551-e2e` tmux session was removed. The user-authorized feat-546 test services remain off. No production service was changed or deployed.
 - Real Web IM and exclusive Feishu journeys are complete. Independent product acceptance passed Round 1 at `89986aa1a` with all 11 scenarios and zero issues; its Round 2 functional failure-classification check also passed.
-- Independent verification closed the public/data classification, boundary-matrix and provider receipt-reentry findings, then correctly kept the pending/error prototype contract open because the committed 390px screenshots exposed mobile overflow. The one-line grid minimum-width correction is ready for real-product revalidation and replacement evidence.
+- Independent verification closed the public/data classification, boundary-matrix and provider receipt-reentry findings, then correctly kept the pending/error prototype contract open because the committed 390px screenshots exposed mobile overflow. The grid minimum-width correction and replacement real-product evidence passed targeted acceptance and verification; all review findings are closed.
+- Final corrected-delta verification is `aligned`: the three unit deltas accurately cover the implementation without overclaiming legacy uploads, unsupported formats or provider-wide exactly-once. The existing canonical `/new` contract already governs late image delivery, so no duplicate reset requirement was added.
 
 ## Remaining
 
-Commit the mobile overflow correction, refresh the real 390px loading/error evidence, run targeted acceptance/verification closure, reconcile and verify the corrected delta, merge canonical specs, run final CI equivalents, archive the unit, create a ready PR, wait for CI green, and remove owned runtime artifacts. Code-review gate is omitted by explicit user override.
+Merge the aligned deltas into canonical specs, run the final documentation check, archive the unit, create a ready PR, wait for CI green, and remove owned runtime artifacts. Code-review gate is omitted by explicit user override.

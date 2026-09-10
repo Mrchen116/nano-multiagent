@@ -1,6 +1,6 @@
 # IM - Web Chat UX Specification
 
-> 对齐: bugfix-549
+> 对齐: feat-551-agent-reply-images
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -10,6 +10,26 @@
 Web IM 聊天页滚动、输入、消息操作和桌面/移动一致性的用户可见契约。
 
 ## Requirements
+
+### Requirement: Agent 图片在正文中按顺序展示加载、成功和失败状态
+
+Web IM MUST 保持 Agent 回复的图文顺序，内联图片保持原比例、不重复加入附件区，适配桌面与移动端；图片状态不影响相邻文字阅读。
+
+#### Scenario: 成功和纯图片回复
+- **WHEN** 用户收到包含图片的说明或纯图片回复
+- **THEN** 图片按引用位置显示，可放大查看，纯图片回复不额外合成无意义正文。
+
+#### Scenario: 图片准备与加载
+- **WHEN** 图片尚未就绪
+- **THEN** 图片位置显示加载状态，已到达正文可读，不闪现本地路径或破图图标。
+
+#### Scenario: 图片失败
+- **WHEN** 图片无法准备或读取
+- **THEN** 原位置显示明确失败说明，不无限加载；下载失败可在原位置重试读取。
+
+#### Scenario: 登出和切换账号
+- **WHEN** 用户登出或切换到无权查看该会话的账号
+- **THEN** 原账号图片不残留在当前界面。
 
 ### Requirement: Web IM 聊天页消息历史支持向上滚动分页加载
 
