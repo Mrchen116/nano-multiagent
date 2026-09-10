@@ -16,3 +16,11 @@
 ## 现场
 
 用户此前要求保留演示现场，继续保留 /tmp/feat546-feishu-authorized 和当前 unit worktree。仅独立测试浏览器在交付时关闭。无生产部署、无 PR 合并。
+
+## Closure 收尾
+
+- 独立代码 finder（A/B/C、复用、简化、效率、抽象层级）在 `74284146..298987e` 仅发现旧 workspace 测试入口不符；独立 implementation verifier 复现为 W1（0 critical / 1 warning），未发现产品实现缺口。保留原始 verification fail 报告，不改写为独立复验通过。
+- Author resolution：`fed0fc8d0` 将两条旧测试改为“Conversation menu → Agent configuration”，保留 Node chip、导航和无群设置弹窗断言；workspace 52 项通过，完整前端 75 文件 / 722 项通过。独立报告中的 W1 已由这次测试结果闭合，产品代码与已验版本 `298987e` 相同。
+- IM conversations-messages 和 Gateway global-agent delta 已归并，入口 Requirement 数同步为 19 / 9；仓库 `.venv` 下 docs check 通过。
+- 独立产品验收 `acceptance.md`：7 个 Scenario 全部 pass，0 blocking / major / minor，产品快照固定 `298987e`；独立浏览器已关闭，共享服务和数据保留。
+- `fed0fc8d0` 的 GitHub CI run `34441216682` 四项检查全部通过（Frontend checks、Python checks、agent and PA、remaining）；完整报告归档后继续核对最终文档提交 CI。
