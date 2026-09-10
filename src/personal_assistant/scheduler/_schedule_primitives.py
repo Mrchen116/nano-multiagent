@@ -99,10 +99,18 @@ class _IntervalSchedule:
     """
 
     interval: timedelta
+    anchor: datetime | None = None
 
     def due_times_up_to(
         self, *, now: datetime, last_due_at: datetime | None
     ) -> list[datetime]:
+        if self.anchor is not None:
+            if now < self.anchor:
+                return []
+            due_at = self.anchor + self.interval * (
+                (now - self.anchor) // self.interval
+            )
+            return [due_at] if last_due_at is None or due_at > last_due_at else []
         # First-ever tick (last_due_at is None): trigger immediately at floor(now, interval).
         if last_due_at is None:
             return [_floor_datetime(now, self.interval)]

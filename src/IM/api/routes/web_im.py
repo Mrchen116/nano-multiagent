@@ -214,12 +214,14 @@ def _load_owner_scoped_conversation(
     response_model=ConversationResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def create_conversation(
+async def create_conversation(
     payload: CreateConversationRequest,
     user: User = Depends(current_user),
     service: WebIMService = Depends(get_web_im_service),
 ) -> ConversationResponse:
     """Create a conversation with validated participants under the caller's tenant."""
+    # The app-scoped SQLite handle also serves Gateway writes on the event loop.
+    # Keep this short transaction there so concurrent creates cannot cross-commit.
     try:
         participant_refs = _resolve_create_conversation_participants(payload)
         created = service.create_conversation(

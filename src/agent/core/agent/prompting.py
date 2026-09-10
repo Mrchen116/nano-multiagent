@@ -131,6 +131,7 @@ def build_chat_messages(
             )
         )
     messages = _merge_adjacent_assistant(messages)
+    messages = _pair_tool_results(messages)
     # bugfix-433 决策2: send the current user turn as a block list when it carries an
     # image; otherwise keep the plain-text content (no drift for text-only turns).
     current_content: str | list[dict[str, Any]] = (
@@ -497,6 +498,29 @@ def _coalesce_assistant_group(messages: tuple[Message, ...]) -> tuple[Message, .
             result.append(msg)
 
     return tuple(result)
+
+
+def _pair_tool_results(messages: list[LLMMessage]) -> list[LLMMessage]:
+    """Keep persisted external notifications after complete tool exchanges."""
+    results = {
+        message.tool_call_id: (index, message)
+        for index, message in enumerate(messages)
+        if message.role == "tool" and message.tool_call_id
+    }
+    paired: set[int] = set()
+    ordered: list[LLMMessage] = []
+    for index, message in enumerate(messages):
+        if index in paired:
+            continue
+        ordered.append(message)
+        for call in message.tool_calls:
+            result = results.get(call.call_id)
+            if result is not None and result[0] > index:
+                # External append is durable even while a tool is running. Keep
+                # that arrival order in JSONL, but satisfy the model protocol.
+                paired.add(result[0])
+                ordered.append(result[1])
+    return ordered
 
 
 def _merge_adjacent_assistant(messages: list[LLMMessage]) -> list[LLMMessage]:

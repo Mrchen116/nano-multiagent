@@ -265,7 +265,13 @@ def _parse_schedule_dict(schedule: dict[str, Any]) -> _Schedule:
         if every_ms <= 0:
             raise ValueError("'every.everyMs' must be positive")
         interval = timedelta(milliseconds=every_ms)
-        return _IntervalSchedule(interval=interval)
+        anchor_ms = schedule.get("anchorMs")
+        anchor = (
+            datetime.fromtimestamp(int(anchor_ms) / 1000, tz=UTC)
+            if anchor_ms is not None
+            else None
+        )
+        return _IntervalSchedule(interval=interval, anchor=anchor)
     elif kind == "cron":
         expr = schedule.get("expr")
         if not isinstance(expr, str) or not expr.strip():
@@ -334,8 +340,8 @@ class CronScheduler:
             state_jobs[job.id] = _CronRunState(
                 last_due_at=due_at.isoformat() if due_at else current_time.isoformat()
             )
-            if job.delete_after_run:
-                self._job_store.remove(job.id)
+            # Enqueue only accepts work. CronRunner removes delete_after_run
+            # jobs after Kernel submission; deleting here races the queue reader.
         self._state_store.save(_CronState(jobs=state_jobs))
 
     def _compute_due_jobs(self, *, now: datetime) -> list[CronJob]:

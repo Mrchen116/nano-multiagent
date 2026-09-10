@@ -23,6 +23,10 @@
 - **WHEN** 前端创建用户或 Agent 消息
 - **THEN** 响应继续包含既有 message id、conversation id、delivery status、sender type 与 attachments
 
+#### Scenario: 并发创建会话
+- **WHEN** 同一用户同时提交多个合法的创建会话请求
+- **THEN** 每个请求返回独立会话，所有会话均保留完整参与者列表
+
 #### Scenario: 列时间线走 items 与消息游标信封
 - **WHEN** 前端读取会话历史
 - **THEN** 响应含 `items` 与 `next_before_message_id`

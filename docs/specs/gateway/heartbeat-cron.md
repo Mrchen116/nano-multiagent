@@ -42,6 +42,11 @@ Cron 的定时触发和 Agent 手动触发具有同一执行语义:同样的 Ker
 - **WHEN** Agent 查询某 job 的运行历史
 - **THEN** Gateway 返回手动和定时触发的最新结构化记录,包含触发来源、状态、时间、结果或错误, 不只返回 scheduler 的 `last_due_at`
 
+#### Scenario: 一次性任务入队后仍可执行
+- **WHEN** 启用 `deleteAfterRun` 的定时任务到期入队
+- **THEN** 任务定义保留到执行器成功提交 Kernel 后再删除，不会因提前删除而得到 `job_not_found`
+- **AND** 提交失败时保留任务供用户检查或手动重试
+
 #### Scenario: 手动运行未知或不可运行任务
 - **WHEN** cron 工具请求不存在或未启用的 job
 - **THEN** Gateway 在创建 isolated session 前拒绝请求并返回明确错误,不执行其他任务
@@ -70,6 +75,12 @@ Cron 的定时触发和 Agent 手动触发具有同一执行语义:同样的 Ker
 - **GIVEN** 一个固定间隔的 heartbeat/cron 在 Gateway 停机或空闲期间错过了多个周期
 - **WHEN** 调度器恢复
 - **THEN** 只在最近一次边界触发一次,不为每个错过的周期各补跑一次
+
+#### Scenario: 周期 Cron 指定未来起始时间
+- **GIVEN** 周期 Cron 设置了 `anchorMs` 起始时间
+- **WHEN** 起始时间尚未到达
+- **THEN** 定时 tick 不提前执行该任务，显式手动运行仍可执行
+- **AND** 到达起始时间后按该起点和间隔对齐，只触发最近一次尚未处理的周期
 
 #### Scenario: 过期的一次性任务不补跑
 - **GIVEN** 一个一次性(`at`)cron/heartbeat 的触发时刻在 Gateway 停机期间已过

@@ -202,3 +202,11 @@ Implementation and native/Feishu real-stack self-tests are complete. User explic
 修复提交 `07a8b0fe1`；合入 `origin/main` 的 `6ec610be5` 后，在 `3a312807c` 完成最终本地验证：Python 非 E2E 全量 3722 passed；前端 78 文件 / 739 测试通过，生产构建通过；Ruff lint/format、docs-check 和 diff check 通过。依赖 audit 按 CI 的 critical 门槛通过（仍有 2 low、3 moderate、2 high，未把结果表述为无漏洞）。PR 最终提交的四项远端结果以 [PR #287 Checks](https://github.com/Mrchen116/nano-multiagent/pull/287/checks) 为准。
 
 本轮外部渠道验证使用捕获适配器，未新发真实飞书消息或调用真实模型；新增构建输出位于独立临时目录，保留演示及生产服务未重启、数据库未改写。历史真实模型和浏览器验收记录仍对应各自条目，不算成本轮重跑。
+
+### 2026-09-10 — 按用户要求补跑真实链路
+
+用户确认“那你做呀”，要求补跑真实模型、渠道和故障恢复。当前分支 `664eb2e8a` 在新隔离栈中运行，保留既有演示与生产。真实飞书回复、附件摄取、缓存/在线分页断连恢复和浏览器审批迟到已获得证据，最终汇总在完成后补记。
+
+Cron 实测暴露另一个原有缺陷：模型按要求创建 `everyMs=3600000, anchorMs=4102444800000`，持久任务参数正确，但除手动执行外，调度器在下一个 tick 又提前触发一次。`_parse_schedule_dict` 只读取 everyMs、忽略 anchorMs，继而走未设起点的立即执行分支；`origin/main` 的同一实现也存在该遗漏。修复范围限于尊重显式起点及其后间隔，无起点任务和 heartbeat 保留现有行为；通过公开 `CronScheduler.tick` 保护起点前不触发、起点后保持对齐、不重复或刷屏补跑，并重新跑真实 Cron 验收。
+
+完整操作、失败证据、修复和验证边界见 [真实链路复测](../review-live-validation.md)。此外修复了 Cron 带外通知拆开工具调用/结果、一次性任务入队后提前删除，以及并发建群交叉提交事务；均先确认实际失败路径再改动。最终代码 Python 非 E2E 全量 3728 passed。已有失败 Session 保留原 JSONL 的真实追问已恢复；最后一个新建一次性 Cron 的重叠场景被自动审批拒绝，已请求用户授权，未记为通过。

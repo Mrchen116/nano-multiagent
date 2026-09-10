@@ -3,12 +3,76 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
 from personal_assistant.gateway.runtime_delivery.stream import StreamRunOutcome
 from personal_assistant.scheduler.cron_execution_service import CronExecutionService
-from personal_assistant.scheduler.cron_scheduler import CronJob, CronJobStore
+from personal_assistant.scheduler.cron_runner import CronRunner
+from personal_assistant.scheduler.cron_scheduler import (
+    CronJob,
+    CronJobStore,
+    CronScheduler,
+    CronSchedulerStateStore,
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("submit_fails", [False, True])
+async def test_delete_after_run_waits_for_kernel_submission(
+    tmp_path, submit_fails
+) -> None:
+    store = CronJobStore(workspace_root=tmp_path)
+    now = datetime(2026, 9, 10, tzinfo=UTC)
+    store.add(
+        CronJob(
+            id="one-shot",
+            name="One shot",
+            schedule={"kind": "at", "at": now.isoformat()},
+            instruction="run once",
+            delete_after_run=True,
+        )
+    )
+    kernel = SimpleNamespace(
+        create_session=AsyncMock(return_value={"session_id": "cron-session"}),
+        submit_message=Mock(
+            return_value={"run_id": "cron-run"},
+            side_effect=RuntimeError("submission failed") if submit_fails else None,
+        ),
+    )
+    service = CronExecutionService(
+        agent_id="agent-a",
+        workspace_root=tmp_path,
+        runner=CronRunner(
+            agent_id="agent-a",
+            workspace_root=tmp_path,
+            kernel_client=kernel,
+            session_binder=None,
+        ),
+        terminal_consumer=_Delivery(),
+    )
+
+    async def enqueue(*, agent_id, job):
+        assert service.enqueue(job_id=job.id, trigger="scheduled")["accepted"]
+
+    scheduler = CronScheduler(
+        agent_id="agent-a",
+        job_store=store,
+        state_store=CronSchedulerStateStore(state_path=tmp_path / "state.json"),
+        submit_fn=enqueue,
+    )
+    await scheduler.tick(now=now)
+    assert store.get("one-shot") is not None
+    await scheduler.tick(now=now)
+    await service.drain(asyncio.get_running_loop().time() + 2)
+    records = service.runs_store.list_by_job("one-shot")
+    assert len(records) == 1
+    assert records[0].status == ("failed" if submit_fails else "completed")
+    assert records[0].error == ("submit_failed" if submit_fails else None)
+    assert (store.get("one-shot") is not None) == submit_fails
 
 
 class _Runner:
