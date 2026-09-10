@@ -239,7 +239,7 @@ describe("agent create page", () => {
 
     if (workMode === "global") {
       await user.click(screen.getByRole("radio", { name: /Global · Experimental/ }));
-      for (const tool of ["inbox", "conversations", "send_message", "agent"]) expect(screen.getByRole("button", { name: `${tool} · Required` })).toBeDisabled();
+      for (const tool of ["inbox", "conversations", "send_message", "agent"]) expect(screen.getByRole("button", { name: tool })).toBeDisabled();
     }
     await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
 
