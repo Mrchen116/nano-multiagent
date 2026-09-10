@@ -27,11 +27,11 @@ beforeEach(() => {
 describe("Agent work view", () => {
   it("distinguishes child execution from receiving a background result", async () => {
     view = { ...view, turns: [
-      { ...view.turns[0], turn_id: "child-execution", scope: "subagent", origin: "background_task", trigger: undefined, items: [] },
+      { ...view.turns[0], turn_id: "child-execution", description: "Explain the joke", scope: "subagent", origin: "background_task", trigger: undefined, items: [] },
       { ...view.turns[0], turn_id: "child-return", scope: "subagent", origin: "background_task", trigger: undefined, items: [{ item_id: "return", seq: 2, kind: "background_return", payload: { task_type: "agent", result: "Nested child result" } }] }
     ] };
     renderWork();
-    expect(await screen.findByText("子 Agent 执行")).toBeVisible();
+    expect(await screen.findByText("Explain the joke")).toBeVisible();
     expect(screen.getByText("收到子 Agent 结果")).toBeVisible();
     expect(screen.queryByText("收到后台结果")).not.toBeInTheDocument();
   });

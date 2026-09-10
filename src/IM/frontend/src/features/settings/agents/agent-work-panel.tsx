@@ -37,7 +37,7 @@ function turnTitle(turn: WorkTurn) {
   if (turn.scope === "workflow") return "Workflow 执行";
   if (type === "background_task") {
     const returns = turn.items.flatMap(item => Array.isArray(item.payload.background_returns) ? item.payload.background_returns.map(obj) : item.kind === "background_return" ? [item.payload] : []);
-    if (turn.scope === "subagent" && returns.length === 0 && !trigger.task_type) return "子 Agent 执行";
+    if (turn.scope === "subagent" && returns.length === 0 && !trigger.task_type) return turn.description || "子 Agent 执行";
     const taskType = str(trigger.task_type) || str(returns[0]?.task_type);
     return ({ agent: "收到子 Agent 结果", subagent: "收到子 Agent 结果", bash: "收到后台 Bash 结果", workflow: "收到 Workflow 结果" }[taskType] ?? "收到后台结果");
   }
@@ -128,7 +128,7 @@ export function AgentWorkPanel({ agentId }: { agentId: string }) {
             {mainTurns.length ? mainTurns.map(renderTurn) : <p className="im-work-state">{tr("暂无工作记录。符合配置的新消息会进入收件箱。")}</p>}
             {viewQuery.hasNextPage && <button type="button" disabled={viewQuery.isFetchingNextPage} onClick={() => void viewQuery.fetchNextPage()}>{tr("更早轮次")}</button>}
           </section>
-          {saved.selected && <aside className="im-work-child"><button className="im-work-back" onClick={() => selectChild(null)}>{tr("← 返回主轨迹")}</button><header><div><h3>{tr(sessionTitle(selected))}</h3><small>{tr(selected?.scope === "workflow" ? "Workflow 执行" : selected?.scope === "subagent" ? "子执行" : selected?.scope || "关联执行")} · {saved.selected}</small></div><button type="button" aria-label={tr("关闭子轨迹")} onClick={() => selectChild(null)}>×</button></header>
+          {saved.selected && <aside className="im-work-child"><button className="im-work-back" onClick={() => selectChild(null)}>{tr("← 返回主轨迹")}</button><header><div><h3>{tr(sessionTitle(selected))}</h3><small>{tr(selected?.scope === "workflow" ? "Workflow 执行" : selected?.scope === "subagent" ? "子 Agent" : selected?.scope || "关联执行")} · {saved.selected}</small></div><button type="button" aria-label={tr("关闭子轨迹")} onClick={() => selectChild(null)}>×</button></header>
             {childQuery.isLoading ? <p role="status">{tr("加载子轨迹…")}</p> : childQuery.isError ? <p role="alert">{tr("关联执行不可访问 ")}<button type="button" onClick={() => void childQuery.refetch()}>{tr("重试")}</button></p> : childTurns.length ? childTurns.map(renderTurn) : <p>{tr("尚未报告执行轮次")}</p>}
             <SessionFacts items={childQuery.data?.pages[0]?.control_items} />
             {childQuery.hasNextPage && <button type="button" disabled={childQuery.isFetchingNextPage} onClick={() => void childQuery.fetchNextPage()}>{tr("更早轮次")}</button>}

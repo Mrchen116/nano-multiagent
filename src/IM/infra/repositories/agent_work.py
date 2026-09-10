@@ -435,6 +435,28 @@ class AgentWorkRepository:
         for row in rows[:limit]:
             turn = json.loads(row["payload"])
             turn["scope"] = registered["scope"]
+            if registered["scope"] == "subagent":
+                # The same child can resume many times; bind the title to the
+                # launch preceding this turn, not the Session's first description.
+                launch = self.db.execute(
+                    "SELECT payload FROM agent_work_items WHERE session_id=? "
+                    "AND kind='tool' AND seq<=? "
+                    "AND json_extract(payload,'$.name')='agent' "
+                    "AND COALESCE(json_extract(payload,'$.detail.agent_id'), "
+                    "json_extract(payload,'$.input.agent_id'))=? "
+                    "AND COALESCE(json_extract(payload,'$.detail.status'),'') "
+                    "!= 'message_queued' ORDER BY seq DESC LIMIT 1",
+                    (
+                        registered["parent_session_id"],
+                        row["seq"],
+                        registered.get("child_agent_id"),
+                    ),
+                ).fetchone()
+                if launch:
+                    payload = json.loads(launch["payload"])
+                    turn["description"] = (payload.get("input") or {}).get(
+                        "description"
+                    ) or (payload.get("detail") or {}).get("description")
             if registered["scope"] == "cron":
                 turn["job_id"] = registered.get("job_id")
                 turn["trigger"] = {

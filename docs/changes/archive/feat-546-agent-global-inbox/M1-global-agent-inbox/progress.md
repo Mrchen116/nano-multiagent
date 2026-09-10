@@ -173,3 +173,9 @@ Implementation and native/Feishu real-stack self-tests are complete. User explic
 按用户截图反馈，工作页 Inbox 展开区直接展示消息内容、可解析的发送者、时间和原消息链接；顶栏已给出读取动作、目标、状态和耗时，展开区去掉重复目标及“收件箱消息页”。不再展示“当前页面已返回”和 inbox_read_committed 的内部摄取确认及重复链接；还有后续页、内容截断和错误仍可见。不能解析的发送者 ID 不作为名字展示。聊天中的通用工具卡片保持原布局。
 
 相关 20 项测试和构建通过，隔离环境已加载新构建。浏览器复查时用户正在同一标签输入消息，未继续切换其页面；本轮不宣称截图复验完成。
+
+### 2026-09-10 — 子 Agent 每轮使用启动描述
+
+按用户确认，仅调整两处：子 Agent 执行轮次标题使用启动该轮的 agent.description；侧栏身份行显示“子 Agent”。查询层按轮次开始前对应的父 Agent 调用关联描述，不使用 Session 的首次描述覆盖后续轮次；运行中 message_queued 的补充不改原轮标题。分块和展开行为保持。
+
+前端 16 项、后端 5 项测试通过，构建及 Ruff 通过。重载保留环境后，实际 sess_87a0798076a8a4bf 查询返回第二轮 Explain the joke、第一轮 Explore channel mechanism，历史数据无需改写。

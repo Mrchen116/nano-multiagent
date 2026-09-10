@@ -206,3 +206,61 @@ def test_cron_turn_metadata_and_session_facts_remain_separate_from_main(
     assert [item["turn_id"] for item in main["turns"]] == ["main-turn"]
     assert main["latest_main_usage"]["context_used"] == 12
     assert main["control_items"] == []
+
+
+def test_child_turn_titles_follow_each_launch_not_running_followups(tmp_path):
+    db = connect(tmp_path / "titles.sqlite3")
+    initialize_schema(db)
+    work = AgentWorkRepository(db)
+    work._register("root", "main", "node", {"scope": "global_main"})
+    work._register(
+        "root",
+        "child",
+        "node",
+        {
+            "scope": "subagent",
+            "parent_session_id": "main",
+            "child_agent_id": "child-agent",
+            "description": "Explore channels",
+        },
+    )
+
+    def project(seq, session, turn, kind, payload):
+        work._project(
+            {
+                "session_id": session,
+                "turn_id": turn,
+                "type": kind,
+                "event_id": f"event-{seq}",
+                "payload": payload,
+            },
+            seq,
+        )
+
+    def launch(seq, call, description, status):
+        project(
+            seq,
+            "main",
+            f"parent-{call}",
+            "tool_end",
+            {
+                "call_id": call,
+                "name": "agent",
+                "arguments": {"agent_id": "child-agent", "description": description},
+                "presentation": {
+                    "detail": {"agent_id": "child-agent", "status": status}
+                },
+            },
+        )
+
+    launch(1, "first", "Explore channels", "async_launched")
+    project(2, "child", "first-turn", "turn_start", {"origin": "background_task"})
+    launch(3, "steer", "Stop and tell a joke", "message_queued")
+    project(4, "child", "first-turn", "turn_end", {"status": "completed"})
+    launch(5, "resume", "Explain the joke", "async_launched")
+    project(6, "child", "second-turn", "turn_start", {"origin": "background_task"})
+    turns = work.turns("root", "child")["turns"]
+    assert [(turn["turn_id"], turn["description"]) for turn in turns] == [
+        ("second-turn", "Explain the joke"),
+        ("first-turn", "Explore channels"),
+    ]
