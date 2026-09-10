@@ -4,9 +4,9 @@
 
 ## Summary
 
-Mode: full  
-Delta range: N/A  
-Focus issues: N/A  
+Mode: full
+Delta range: N/A
+Focus issues: N/A
 requires_full_verification: false
 
 | 维度 | 结果 |
@@ -75,3 +75,53 @@ requires_full_verification: false
 无。
 
 1 critical issue(s), 3 warning(s) found. Fix before PR.
+
+# Round 2
+
+> Validation snapshot: `6ec610be5d43a085a44c80518150dd91cafa61bd → b147c61698852879d16fba105c56c99a5ea6e1db`
+
+## Summary
+
+Mode: targeted-closure
+Delta range: `89986aa1a804f86cd569cd9ce5081015e085dd6f..b147c61698852879d16fba105c56c99a5ea6e1db`
+Focus issues: V1-C1, V1-W1, V1-W2, V1-W3
+requires_full_verification: false
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 0/1 M1 fully evidenced and matched |
+| Correctness | 3/4 focus issues closed |
+| Coherence | 1 related deviation remains |
+
+## Targeted Closure
+
+| Focus issue | Delta evidence | Verification | Status |
+|---|---|---|---|
+| V1-C1 pending/error desktop/mobile 持久证据 | 新增 `web-im-{desktop,mobile}-{loading,error}.png`；`M1-reply-images/progress.md:48` 链接四张图 | 四张文件与 Round 1 acceptance 原始产物 SHA-256 逐一相同，尺寸为 1280×900 / 390×844；desktop 的 loading/error 均在原位且正文可读。但两张 mobile 图均显示水平滚动条，320px 状态卡越出 Agent 气泡右边界，不符合 `prototype.html#reply` 的同一气泡结构及 `design.md:213,226-230` 的移动端无溢出约束 | **open (CRITICAL)** |
+| V1-W1 public/data 大小与格式失败分类 | `client.py:1009-1019,1038-1075,1096-1162`; `reply_images.py:181-213`; `test_reply_image_public_sources.py:26-78` | `OutboundImageReadError` 仍是 `ValueError`，直接 probe 确认 `limit` / `type` 的稳定属性与旧人类可读异常文本均不变；data 与 mocked HTTPS 的 ready/limit/type 六个分支均断言好图/正文保留。安全解析、公网 IP 判定、连接地址钉扎和超时代码未改，对应既有安全回归通过 | **closed** |
+| V1-W2 ReplyImages 永久边界矩阵 | `test_reply_images.py:39-104`; `test_reply_image_public_sources.py:26-78` | 本地 JPEG/WebP、10 MiB 精确边界与超限、无读权限文件和父目录 symlink，以及 data/mocked HTTPS 的成功快照均在长期 unit 套件中经过真实 `ReplyImages.prepare` seam | **closed** |
+| V1-W3 provider 回执在失败公开发送后重入复用 | `test_outbound_image_delivery.py:94-174`; `reply_images.py:274-317`; `outbound_router.py:156-206` | 测试跨 `ReplyImages` + `OutboundRouter` + provider seam：回执先持久，公开 send 再失败；删除原图并重建 store 后同 App 不重传，不同 App 单独上传 | **closed** |
+
+## Validation
+
+- Focused permanent suite: **46 passed** (`test_reply_images.py`, `test_reply_image_public_sources.py`, `test_outbound_image_delivery.py`, `test_feishu_rich_messages.py`, `test_feishu_adapter_send.py`).
+- Downloader security plus architecture contracts: **7 passed**; typed-error direct probe confirmed stable codes and unchanged exception text.
+- Changed Python files: Ruff check and Ruff format check passed.
+- Fix commit `b147c6169^..b147c6169`: `git diff --check` passed.
+- Visual evidence: all four committed screenshots inspected at original resolution and matched byte-for-byte with the acceptance run originals.
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+- [V1-C1] **desktop 证据已补齐，但 mobile loading/error 证据显示状态卡和页面横向溢出，因而 must-match 仍未成立。** `docs/changes/feat-551-agent-reply-images/M1-reply-images/evidence/web-im-mobile-loading.png` 与 `web-im-mobile-error.png` 中都可见页面底部水平滚动条，状态卡从气泡内部延伸到浅色气泡右侧之外。对应 CSS 在 `src/IM/frontend/src/styles/global.css:1975-1980,2012-2025,2510-2519` 同时给外层 Agent 气泡 `max-width: 72%` 和状态卡 `width: 320px; max-width: 100%`，而 ready 图片的 390px 证据没有该水平滚动条。请将 loading/error 状态卡约束在实际 `chat-bubble-card` / Markdown content 可用宽度内；在真浏览器 390px 复验状态卡 bounding rect 不超过气泡且页面/聊天滚动容器 `scrollWidth === clientWidth`，再更新两张 mobile 证据与 `M1-reply-images/progress.md:48` 的对照结论。
+
+### WARNING（提 PR 前必须修）
+
+无。
+
+### SUGGESTION（可以修）
+
+无。
+
+1 critical issue(s), 0 warning(s) found. Fix before PR.
