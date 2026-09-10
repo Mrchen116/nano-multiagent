@@ -987,6 +987,8 @@ def test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion() 
             {
                 "reply_phase": "intermediate",
                 "reply_dedupe_key": "run-1:bubble:kernel-msg-a",
+                "run_id": "run-1",
+                "output_key": "run-1:bubble:0",
                 "channel_name": "feishu:agent-a",
                 "target_chat_id": "feishu:cli_a:dm:ou_user",
                 "feishu_message_id": "om_msg_1",
@@ -997,6 +999,8 @@ def test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion() 
             {
                 "reply_phase": "final",
                 "reply_dedupe_key": "run-1:bubble:kernel-msg-b",
+                "run_id": "run-1",
+                "output_key": "run-1:bubble:1",
                 "channel_name": "feishu:agent-a",
                 "target_chat_id": "feishu:cli_a:dm:ou_user",
                 "feishu_message_id": "om_msg_1",

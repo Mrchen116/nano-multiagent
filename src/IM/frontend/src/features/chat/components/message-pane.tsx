@@ -54,6 +54,7 @@ import { TokenChip } from "./token-chip";
 import { formatDuration, ToolCallsPanel } from "./tool-calls-panel";
 import { remarkMention } from "./remark-mention";
 import { formatSystemNotice } from "../system-notice";
+import { MessageImage, messageImageUrlTransform } from "./message-image";
 import {
   cloneComposerSnapshot,
   clearComposerSending,
@@ -1738,6 +1739,7 @@ const MarkdownContent = React.memo(function MarkdownContent({
 
   const components: Components = useMemo(() => ({
     ...MD_TABLE_COMPONENTS,
+    img: ({ src, alt, title }) => <MessageImage src={src} alt={alt} title={title} />,
     // CR-2: node prop 不透传 DOM。
     // remarkMention sets data-mention-target-id on the injected <span>.
     span: (props: any) => {
@@ -1821,6 +1823,7 @@ const MarkdownContent = React.memo(function MarkdownContent({
   return (
     <div className="im-md">
       <ReactMarkdown
+        urlTransform={messageImageUrlTransform}
         remarkPlugins={MD_REMARK_PLUGINS}
         components={components}
       >

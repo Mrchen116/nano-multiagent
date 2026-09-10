@@ -21,6 +21,7 @@ from IM.infra.repositories.config_boundaries import AgentConfigBoundaryRepositor
 from IM.infra.repositories.conversations import ConversationRepository
 from IM.infra.repositories.conversations import ExternalConversationWriteResult
 from IM.infra.repositories.messages import MessageRepository
+from IM.infra.repositories.message_images import MessageImageRepository
 
 _log = logging.getLogger(__name__)
 
@@ -54,6 +55,7 @@ class WebIMService:
         conversations: ConversationRepository,
         messages: MessageRepository,
         boundaries: AgentConfigBoundaryRepository | None = None,
+        images: MessageImageRepository | None = None,
         relay_service: RelayService | None = None,
         metrics_service: MetricsService | None = None,
     ) -> None:
@@ -68,6 +70,7 @@ class WebIMService:
         self._conversations = conversations
         self._messages = messages
         self._boundaries = boundaries
+        self._images = images
         self._relay_service = relay_service
         self._metrics_service = metrics_service
 
@@ -472,7 +475,15 @@ class WebIMService:
                 copied = self._messages.create_message(
                     conversation_id=new_conversation.id,
                     sender_user_id=sender_user_id,
-                    content=message.content,
+                    content=(
+                        self._images.copy_references(
+                            source_conversation_id=source_conversation_id,
+                            target_conversation_id=new_conversation.id,
+                            content=message.content,
+                        )
+                        if self._images is not None
+                        else message.content
+                    ),
                     sender_type=message.sender_type,
                     attachments=message.attachments,
                     tool_calls=message.tool_calls,

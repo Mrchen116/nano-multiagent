@@ -111,6 +111,36 @@ class ReplyContext:
 
 
 @dataclass(frozen=True, slots=True)
+class OutboundImage:
+    """Carry validated image bytes or a current-provider receipt, never a path."""
+
+    ordinal: int
+    data: bytes
+    content_type: str
+    file_name: str
+    image_key: str | None = None
+    error_code: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderImageEntry:
+    """Record the provider preparation outcome for one image source."""
+
+    ordinal: int
+    image_key: str | None = None
+    error_code: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderImagePreparation:
+    """Scope immutable upload receipts to the provider account/application."""
+
+    connector_account_id: str
+    app_id: str
+    entries: tuple[ProviderImageEntry, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class OutboundMessage:
     """Represent one normalized outbound reply emitted by the gateway.
 
@@ -120,6 +150,7 @@ class OutboundMessage:
         target_chat_id: External chat identifier to deliver to.
         thread_id: Optional thread identifier for threaded delivery.
         metadata: Opaque adapter-specific delivery hints.
+        images: Validated sources keyed by Markdown placeholder ordinal.
     """
 
     channel_name: str
@@ -127,6 +158,7 @@ class OutboundMessage:
     target_chat_id: str
     thread_id: str | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    images: tuple[OutboundImage, ...] = ()
 
 
 InboundHandler = Callable[[InboundMessage], None]

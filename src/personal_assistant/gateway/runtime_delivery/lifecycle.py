@@ -12,6 +12,7 @@ from personal_assistant.gateway.inbound_models import (
     RoutedInbound,
 )
 from personal_assistant.gateway.reply_visibility import is_protocol_silence_token
+from personal_assistant.gateway.reply_image_stream import transform_images
 from personal_assistant.reporter.upstream_reporter import UpstreamReporter
 from personal_assistant.ws.im_connection import IMConnectionManager
 
@@ -49,6 +50,12 @@ def build_relay_lifecycle_callback(
                 owner_user_id=owner_user_id,
             )
         elif update.phase in ("completed", "failed", "cancelled"):
+            if (
+                update.phase == "cancelled"
+                and run_context_store is not None
+                and update.run_id
+            ):
+                run_context_store.suppress(update.run_id)
             _discard_run_context(
                 run_context_store=run_context_store,
                 run_id=update.run_id,
@@ -62,6 +69,13 @@ def build_relay_lifecycle_callback(
         manager = im_connection_manager_factory()
         if manager is None:
             return
+        # Reports/receipts are previews, not image delivery surfaces. Never copy
+        # model-local destinations into IM summaries or leave permanent pending URLs.
+        reply_summary = (
+            transform_images(update.reply_text, lambda _match: "[图片]")
+            if update.reply_text is not None
+            else None
+        )
         if update.phase == "accepted":
             payload = reporter.send_delivery_receipt(
                 relay_task_id=relay.relay_task_id,
@@ -82,7 +96,7 @@ def build_relay_lifecycle_callback(
                 session_key=update.session_key,
                 conversation_id=conversation_id,
                 message_id=message_id,
-                summary=update.reply_text,
+                summary=reply_summary,
             )
             await manager.send_json("node.report", payload)
             return
@@ -102,13 +116,13 @@ def build_relay_lifecycle_callback(
                     session_key=update.session_key,
                     conversation_id=conversation_id,
                     message_id=message_id,
-                    summary=update.reply_text,
+                    summary=reply_summary,
                     detail=update.detail,
                     usage=update.usage,
                 )
                 await manager.send_json("node.report", payload)
             receipt_detail = _completed_receipt_detail(
-                reply_text=update.reply_text,
+                reply_text=reply_summary,
                 detail=update.detail,
             )
             payload = reporter.send_delivery_receipt(

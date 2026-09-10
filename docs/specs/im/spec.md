@@ -1,6 +1,6 @@
 # IM Specification
 
-> 对齐: bugfix-549 / feat-544 / bugfix-545
+> 对齐: feat-551-agent-reply-images
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端(内置 Web IM)、Node Gateway(`personal_assistant`)、终端用户,以及 `tests/im_service/` 里的契约测试。
 
@@ -19,8 +19,8 @@
 | Area | Covers | Requirements |
 |---|---|---|
 | [Auth and Tenancy](auth-tenancy.md) | JWT、owner 隔离、系统 policies | 3 |
-| [Conversations and Messages](conversations-messages.md) | 会话/消息 CRUD、shadow conversation、配置边界、outbox、群聊、分页、fork | 15 |
-| [Web Chat UX](web-chat-ux.md) | 历史加载、配置边界、滚动、输入、未发送内容按会话隔离、slash 控制命令、消息操作、图片 attachment 预览、conversation skill 蒸馏入口、响应式体验、身份展示与自进化提示本地化 | 18 |
+| [Conversations and Messages](conversations-messages.md) | 会话/消息 CRUD、受保护 Agent 图片、shadow conversation、配置边界、outbox、群聊、分页、fork | 16 |
+| [Web Chat UX](web-chat-ux.md) | 历史加载、配置边界、滚动、输入、未发送内容按会话隔离、slash 控制命令、消息操作、Agent 内联图片、图片 attachment 预览、conversation skill 蒸馏入口、响应式体验、身份展示与自进化提示本地化 | 19 |
 | [Tool Timeline](tool-timeline.md) | thinking、tool/reasoning、可归因后台返回与群回复复核共享消息内过程折叠 | 9 |
 | [Workflows](workflows.md) | Workflow 在既有 tool、permission、slash 与普通消息 surface 中的呈现和开关 | 2 |
 | [Response Metrics](response-metrics.md) | 墙钟耗时、气泡指标、缓存命中率 | 3 |
