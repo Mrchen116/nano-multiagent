@@ -105,3 +105,9 @@ Implementation and native/Feishu real-stack self-tests are complete. User explic
 - Inbox 正文复用 mention 解析器及人员名称，截图中的标记实际显示为「@小策 · 聚餐统筹」；发送目标为已知 Agent 时显示其名称。
 
 验证：前端 74 文件 / 709 测试通过；后端相关测试及架构契约 182 通过，最终分页补充后相关 12 测试通过；前端生产构建、Ruff 与文档完整性检查通过。实际浏览器复查原聚餐消息及 mention 展示。测试服务加载新代码后，原两群、300→400 元消息、两个主 Session 均保留，节点在线。未声称将每项后端失败场景重跑为真实模型旅程。
+
+### 2026-09-10 — Inbox 提醒语义与查询权限开销
+
+- Inbox 唤醒改用已有 `<system-reminder>`，明确表达新消息已到、通知不含正文、先查看待读聊天再选择读取并决定处理。内部 submission ID 仅用于去重／回执，不作为模型可见的批次解释。
+- Inbox 与 conversations 使用工具既有 `check_permissions` 放行合法查询；参数验证、Gateway Session 身份和来源访问检查保持。后续其他操作所需的用户请求审批上下文投影保持。
+- 49 项工具／权限钩子／真实 SDK 循环测试通过。保留的聚餐现场追加简短请求「人数和预算不变，请在策划群补充提醒：周五晚上聚餐。」；真实 DeepSeek 调用了 inbox、inbox、send_message，在策划群回复「补充提醒：本次聚餐时间为周五晚上，人数8人、预算400元不变。」。代理原始请求确认 system reminder 到达模型，此次新增权限分类请求为 0，主 Session 保持不变，服务继续保留。

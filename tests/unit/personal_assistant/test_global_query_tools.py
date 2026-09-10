@@ -127,3 +127,24 @@ def test_transport_uses_live_listener_and_real_session_provenance(tool, monkeypa
         )
     ]
     assert instance.max_result_size_chars is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "tool,args",
+    [
+        (InboxTool, {"action": "check"}),
+        (InboxTool, {"action": "read", "target": "room"}),
+        (ConversationsTool, {"action": "list"}),
+        (ConversationsTool, {"action": "read", "target": "room"}),
+    ],
+)
+async def test_query_permissions_bypass_classifier(tool, args):
+    from tests.unit.test_auto_mode_gate_hook import TestGateHookLogic
+
+    harness = TestGateHookLogic()
+    handler, config = harness._get_handler()
+    ctx = harness._make_ctx_with_config(config)
+    ctx.metadata["tool_registry"] = {tool.name: tool()}
+    assert await handler({"name": tool.name, "args": args}, ctx) is None
+    ctx.call_model.assert_not_awaited()

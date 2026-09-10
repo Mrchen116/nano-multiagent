@@ -240,7 +240,15 @@ class GlobalRunCoordinator:
                 parts=[
                     {
                         "type": "text",
-                        "text": f"Inbox notifications are available (batch {submission_id}). Use inbox to inspect the pending sources and read applicable messages.",
+                        "text": (
+                            "<system-reminder>\n"
+                            "New messages have arrived in your Inbox. "
+                            "This notification does not contain their contents. "
+                            'Use inbox(action="check") to see which chats have unread messages, '
+                            'then inbox(action="read", target=...) to read the relevant messages '
+                            "before deciding what to do.\n"
+                            "</system-reminder>"
+                        ),
                     }
                 ],
             )

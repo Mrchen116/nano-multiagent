@@ -273,6 +273,10 @@ async def test_actual_loop_reads_commits_then_sends_without_default_chat_body(tm
             m.content for m in model.requests[0].messages if m.role == "user"
         ]
         assert "请确认这个请求" not in str(first_input)
+        reminder = next(text for text in first_input if "Inbox" in str(text))
+        assert reminder.startswith("<system-reminder>\n")
+        assert reminder.endswith("\n</system-reminder>")
+        assert "batch" not in reminder and "inbox:worker:" not in reminder
         assert any(
             "请确认这个请求" in str(m.content)
             for r in model.requests

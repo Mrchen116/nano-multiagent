@@ -9,7 +9,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
-from agent.sdk import ToolContext, ToolPresentationEvent
+from agent.sdk import PermissionDecision, ToolContext, ToolPresentationEvent
 
 
 def content_digest(content: Any) -> str:
@@ -135,6 +135,16 @@ class InboxTool:
         self, *, gateway_dispatch_url_provider: Callable[[], str | None] | None = None
     ) -> None:
         self._provider = gateway_dispatch_url_provider
+
+    def check_permissions(
+        self, tool_input: Mapping[str, Any], ctx: ToolContext
+    ) -> PermissionDecision:
+        """Allow scoped queries; the Gateway checks identity and source access."""
+        try:
+            validate_arguments(self.name, tool_input)
+        except ValueError as exc:
+            return PermissionDecision(behavior="deny", reason=str(exc))
+        return PermissionDecision(behavior="allow")
 
     def run(self, args: Mapping[str, Any], ctx: ToolContext) -> Mapping[str, Any]:
         """Submit a session-scoped query to the live Gateway listener.
