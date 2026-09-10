@@ -314,7 +314,12 @@ def build_kernel_event_observer(
             )
 
     def _mirror_external_reply(
-        *, rid: str, ctx: RunDeliveryContext, phase: str, text: str
+        *,
+        rid: str,
+        ctx: RunDeliveryContext,
+        phase: str,
+        text: str,
+        output_key: str | None = None,
     ) -> None:
         if not _is_external_reply_context(ctx):
             return
@@ -356,7 +361,7 @@ def build_kernel_event_observer(
             "reply_phase": phase,
             "reply_dedupe_key": f"{rid}:bubble:{bubble_key}",
             "run_id": rid,
-            "output_key": ctx.reply_output_key,
+            "output_key": output_key or ctx.reply_output_key,
             **external_metadata,
         }
         if projection is not None and projection.runtime_footer:
@@ -405,7 +410,7 @@ def build_kernel_event_observer(
             )
 
     def _mirror_external_current_as_intermediate(
-        *, rid: str, ctx: RunDeliveryContext
+        *, rid: str, ctx: RunDeliveryContext, output_key: str | None = None
     ) -> None:
         current_text = ctx.external_current_text
         if not current_text.strip():
@@ -418,6 +423,7 @@ def build_kernel_event_observer(
             ctx=ctx,
             phase="intermediate",
             text=current_text,
+            output_key=output_key,
         )
         ctx.mark_external_intermediate_sent(marker)
 
@@ -940,7 +946,15 @@ def build_kernel_event_observer(
                     and prev_kernel_msg_id
                     and kernel_msg_id != prev_kernel_msg_id
                 ):
-                    _mirror_external_current_as_intermediate(rid=run_id, ctx=ctx)
+                    _mirror_external_current_as_intermediate(
+                        rid=run_id,
+                        ctx=ctx,
+                        output_key=(
+                            rolled_shadow_snapshot.output_key
+                            if rolled_shadow_snapshot is not None
+                            else None
+                        ),
+                    )
                 ctx.record_assistant_text(content, kernel_message_id=kernel_msg_id)
                 return _PreparedEvent(handled=True, result=None)
             if event_name in {"tool_start", "permission_request"}:
@@ -1247,6 +1261,11 @@ def build_kernel_event_observer(
                             ctx=ctx,
                             phase="intermediate",
                             text=old_text,
+                            output_key=(
+                                rolled_shadow_snapshot.output_key
+                                if rolled_shadow_snapshot is not None
+                                else None
+                            ),
                         )
                         new_msg_id = await roll_bubble(
                             mgr,

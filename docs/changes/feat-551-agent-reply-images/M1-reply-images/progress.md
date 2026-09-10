@@ -46,6 +46,13 @@ Full implementation, live browser/Feishu evidence and independent gates are not 
 - Live validation found a separate sidebar preview leak: lifecycle report/receipt summary still contained raw Markdown while `messages.content` and `message.completed` already contained private image URLs. The outgoing report/receipt now uses `[图片]` for image references, retaining code examples and the original runtime text. Completed messages are authoritative for previews, with destinations reduced to `[alt]`; startup reconstruction uses the same projection. Regression tests reproduced the original failure before the correction. A fresh-stack browser check remains required.
 - Feishu profile authentication checked: test Bot and user verified, user token valid. No Feishu test message sent yet; explicit sending confirmation requested under the lark-im skill.
 
+### Feishu authorization run
+
+- User authorized the dedicated test user/Bot messages. After a false start in an ephemeral terminal (both IM and Gateway exited with that terminal, local saga count stayed zero), the stack was restarted in an owned persistent tmux session. The repository runtime probe then passed and observed exactly one runtime card plus its plain shadow content.
+- A real image request reached the feat-551 Agent, which generated a valid PNG under `exports`. It exposed a multi-bubble identity bug: when the second assistant bubble began, the first bubble's intermediate provider delivery used the new bubble's `output_key`; the immutable image manifest for `bubble:1` was therefore frozen with the first text and the final image could not replace it. `test_each_external_bubble_freezes_images_under_its_own_output_key` reproduced this failure before the fix. The observer now passes the rolled snapshot's key for the prior intermediate bubble, including IM-offline delivery; the focused integration tests pass.
+- The clean post-fix rerun could not be attributed to feat-551 because another pre-existing `feat546` test Gateway is still connected to the same dedicated App/Bot. The post-fix messages' provider event IDs were found in `/tmp/feat546-feishu-authorized/external_shadow_sagas.sqlite3`, while feat-551's saga had only its probe. This is an exclusive-listener environment conflict, not evidence for or against the fix. No additional messages were sent after confirming it.
+- Therefore Feishu image success, per-image failure and `/new` remain unverified at the real provider. Temporarily stopping the other dedicated E2E Gateway is required before the final exclusive rerun.
+
 ## Broad regression (2026-09-10)
 
 - CI-equivalent Python shards: **1802 passed** (agent/PA, 20.45s) and **1841 passed** (remaining, 58.41s), no skips added. These ran before the final sidebar preview correction.

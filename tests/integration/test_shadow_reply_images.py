@@ -15,11 +15,33 @@ from personal_assistant.channels.base import (
 )
 from personal_assistant.gateway.inbound_models import ShadowConversationRef
 from personal_assistant.gateway.reply_images import ReplyImageContext, ReplyImages
+from personal_assistant.gateway.runtime_delivery.observer import (
+    build_kernel_event_observer,
+)
+from personal_assistant.gateway.runtime_delivery.task_tracker import (
+    RuntimeDeliveryTaskTracker,
+)
 from personal_assistant.gateway.shadow_saga import (
     ExternalShadowBubbleEvent,
     ExternalShadowSagaStore,
 )
 from personal_assistant.gateway.shadow_sync import IMShadowConversationSync
+from tests.helpers.runtime_delivery import delivery_context_store
+
+
+class _ConnectedIM:
+    connected = True
+
+    async def send_json(self, _message_type, _payload):
+        return None
+
+    async def send_json_await_ack(self, _message_type, payload):
+        if payload["kind"] == "turn_start":
+            return {"payload": {"message_id": "im-message"}}
+        return {"payload": {"kind": payload["kind"]}}
+
+    def finish_external_shadow_run(self, _run_id):
+        return None
 
 
 def _saga(store, event="event"):
@@ -47,6 +69,78 @@ def _saga(store, event="event"):
         agent_id="agent",
         owner_id="owner",
     )
+
+
+def test_each_external_bubble_freezes_images_under_its_own_output_key(tmp_path):
+    store = ExternalShadowSagaStore(db_path=tmp_path / "sagas.db")
+    saga = _saga(store)
+    source = tmp_path / ".nanoassistant/exports/chart.png"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"\x89PNG\r\n\x1a\nimage")
+    images = ReplyImages(tmp_path / "images")
+    tracker = RuntimeDeliveryTaskTracker()
+    contexts = delivery_context_store(
+        {
+            "run": {
+                "agent_id": "agent",
+                "conversation_id": "conversation",
+                "trigger_source": "feishu",
+                "reply_channel_name": "feishu:agent",
+                "reply_target_chat_id": "chat",
+                "shadow_saga_id": saga.saga_id,
+            }
+        }
+    )
+
+    def deliver(text, metadata):
+        images.prepare(
+            ReplyImageContext(
+                metadata["output_key"],
+                "owner",
+                "agent",
+                "run",
+                metadata["output_key"],
+                tmp_path,
+            ),
+            text,
+        )
+
+    observer = build_kernel_event_observer(
+        im_connection_manager_factory=_ConnectedIM,
+        run_context_store=contexts,
+        external_reply_sender=deliver,
+        shadow_bubble_record=store.record,
+        task_tracker=tracker,
+    )
+
+    async def emit():
+        for event in (
+            {"event": "run_status", "run_id": "run", "status": "running"},
+            {
+                "event": "assistant_message",
+                "run_id": "run",
+                "message_id": "kernel-1",
+                "content": "first bubble",
+            },
+            {
+                "event": "assistant_message",
+                "run_id": "run",
+                "message_id": "kernel-2",
+                "content": f"before ![chart](<{source}>) after",
+            },
+        ):
+            pending = observer(event)
+            if pending is not None:
+                await pending
+        observer({"event": "turn_end", "run_id": "run", "completed": True})
+        await tracker.drain_run("run")
+
+    asyncio.run(emit())
+
+    assert images.load("run:bubble:0").markdown_template == "first bubble"
+    second = images.load("run:bubble:1")
+    assert second is not None
+    assert len(second.images) == 1
 
 
 @pytest.mark.parametrize("kind", ["rich", "legacy"])
