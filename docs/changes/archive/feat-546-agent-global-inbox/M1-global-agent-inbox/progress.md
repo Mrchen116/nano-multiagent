@@ -163,3 +163,7 @@ Implementation and native/Feishu real-stack self-tests are complete. User explic
 ### 2026-09-10 — 隐藏未执行的 /new 控制记录
 
 按用户反馈，工作页不再展示全局模式拒绝执行的 /new，包括已有历史记录；仅有该记录时不显示空的控制记录区。聊天中的一次拒绝提示保持，实际 stop/compact 记录保持。此项只改变展示，不删除持久记录或重置会话。
+
+### 2026-09-10 — 子执行轮次标题纠正
+
+子 Agent 受委派执行使用 background_task origin，前端误将其等同于收到后台结果。现按 subagent scope 与实际返回记录区分：任务执行显示“子 Agent 执行”，真正接收嵌套子任务结果仍显示“收到子 Agent 结果”。工作页 16 项测试通过，包含二者区分。

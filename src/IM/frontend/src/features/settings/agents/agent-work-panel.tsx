@@ -37,6 +37,7 @@ function turnTitle(turn: WorkTurn) {
   if (turn.scope === "workflow") return "Workflow 执行";
   if (type === "background_task") {
     const returns = turn.items.flatMap(item => Array.isArray(item.payload.background_returns) ? item.payload.background_returns.map(obj) : item.kind === "background_return" ? [item.payload] : []);
+    if (turn.scope === "subagent" && returns.length === 0 && !trigger.task_type) return "子 Agent 执行";
     const taskType = str(trigger.task_type) || str(returns[0]?.task_type);
     return ({ agent: "收到子 Agent 结果", subagent: "收到子 Agent 结果", bash: "收到后台 Bash 结果", workflow: "收到 Workflow 结果" }[taskType] ?? "收到后台结果");
   }

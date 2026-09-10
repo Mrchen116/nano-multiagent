@@ -534,6 +534,7 @@
       "收到子 Agent 结果": "Subagent result received",
       "收到后台 Bash 结果": "Background Bash result received",
       "收到 Workflow 结果": "Workflow result received",
+      "子 Agent 执行": "Subagent execution",
       "收到后台结果": "Background result received",
       "人工输入": "Human input",
       "输入触发": "Input received",
