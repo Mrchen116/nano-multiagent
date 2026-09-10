@@ -1,4 +1,3 @@
-import { tr } from "./agent-work-text";
 import * as Label from "@radix-ui/react-label";
 
 // M19/R11-3: prototype `im-components.jsx::MultiSelect` 视觉重写 —
@@ -86,7 +85,7 @@ export function PillSelector({
                       : "bg-[oklch(0.96_0.005_240)] text-[oklch(0.50_0.01_240)] border-[oklch(0.91_0.005_240)] hover:bg-[oklch(0.94_0.005_240)]")
                   }
                 >
-                  {opt.name}{fixed.includes(opt.name) ? ` · ${tr("固定")}` : ""}
+                  {opt.name}
                 </button>
               );
             })
