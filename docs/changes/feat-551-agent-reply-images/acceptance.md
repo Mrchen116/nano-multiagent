@@ -183,3 +183,80 @@ R1-S1、R1-S2、R2-S1、R2-S2、R3-S1、R3-S2、R4-S3、R5-S1、R5-S2 均继承 
 - [x] `docs/specs/gateway/`、`docs/specs/im/`：**需要更新**；继续由 orchestrator 将 unit delta 归并 canonical，本轮没有新增产品契约。
 - [x] `AGENTS.md` / `CLAUDE.md`：**无需更新**。
 - [x] `docs/specs/CONTRIBUTING.md`：**无需更新**。
+
+---
+
+# Round 3 — 2026-09-10
+
+> Validation snapshot: `4862b53f6655ede1e2ac1b0c9b1eca6b8306b6b4`
+
+> Mode: Fast-lane targeted revalidation
+
+> Focus: V1-C1；390×844 真实 Web IM pending/error 状态必须位于同一 Agent 气泡内，且页面与真实消息滚动区均无水平溢出
+
+## Verdict
+
+**pass**
+
+**Highest Required Action: pass**
+
+V1-C1 在当前 validated head 上关闭。Round 2 发现的移动端状态块超出 Agent 气泡问题已不再出现；两张持久化移动证据已用当前 head 的真实产品截图替换。
+
+## Fast-lane 定向旅程
+
+1. **环境与真实回复**
+   - 从 `4862b53f6` 在独立临时 worktree 重建前端，构建通过；隔离、非飞书 IM + Gateway 在 `55343` 端口和专属 tmux 会话中运行，未触碰生产 `:8011` 或其他测试栈。IM 实际托管的 `index-yMRqOR1_.js` 与本轮 build 产物 SHA-256 同为 `9d1c493e…84b0`。
+   - 真实 Agent 调用工具在其隔离 workspace 的 `exports/` 下生成两张有效 PNG，并在同一条回复中按“Before first image → 图 A → Between images → 图 B → After second image”返回。owner 浏览器对两条私有图片 GET 均曾真实取得 `200 OK`。
+
+2. **390×844 loading**
+   - 对同一 owner 浏览器的两条真实 `/im/v1/conversations/.../images/...` GET 施加 45 秒受控延迟，刷新后同时观察到两个 `Image loading…`。
+   - 两个状态块矩形分别为 `(x=65, width=256.078)`，并且均只有一个 `.chat-bubble-card` 祖先；同一 Agent 气泡矩形为 `(x=52, width=282.078)`，因而两个状态的左右边界都完全位于该气泡内。
+   - 真实消息滚动区 `.chat-pane-messages` 的 `clientWidth/scrollWidth` 为 `390/390`；`documentElement` 为 `390/390`，无水平溢出。
+
+3. **390×844 error**
+   - 对同两条真实私有 GET 施加受控 abort，网络记录为两个 `net::ERR_FAILED`；页面同时显示两个 `Image could not be displayed: loading failed` 和两个 `Retry loading`。
+   - 两个状态块矩形分别为 `(x=65, width=250.797)`，并且均只有一个 `.chat-bubble-card` 祖先；同一 Agent 气泡矩形为 `(x=52, width=276.797)`，左右边界全部被包含。
+   - 出现纵向滚动条后，`.chat-pane-messages` 的 `clientWidth/scrollWidth` 为 `384/384`；`documentElement` 仍为 `390/390`，无水平溢出。
+
+4. **持久证据与目视复核**
+   - `M1-reply-images/evidence/web-im-mobile-loading.png`：390×844，SHA-256 `6bed79ae…8c07ac`。
+   - `M1-reply-images/evidence/web-im-mobile-error.png`：390×844，SHA-256 `85d3b684…cb488`。
+   - 两张图均已以原始像素目视检查：两个状态按原引用顺序位于同一 Agent 气泡内，前/中/后正文可读，未见水平滚动条、破图图标或气泡外溢出。
+
+## Reference Artifacts Reviewed
+
+| Reference | Required contract | Durable actual product evidence | Viewport / state | Comparison conclusion |
+|---|---|---|---|---|
+| `prototype.html#reply` pending | V1-C1 / R4-S1：pending 位于同一 Agent 气泡内，移动端无水平溢出 | `M1-reply-images/evidence/web-im-mobile-loading.png` | 390×844；loading | **match**：2 个状态都被唯一的同一气泡包含；滚动区与根文档 `scrollWidth === clientWidth`。 |
+| `prototype.html#reply` error | V1-C1 / R4-S2：error 位于同一 Agent 气泡内，Retry 可见，移动端无水平溢出 | `M1-reply-images/evidence/web-im-mobile-error.png` | 390×844；error | **match**：2 个状态都被唯一的同一气泡包含，2 个 Retry 可见；滚动区与根文档 `scrollWidth === clientWidth`。 |
+
+## 问题清单
+
+无。
+
+| # | 严重度 | 现象 | Regression Relation | Recommended Action | Action Rationale |
+|---|---|---|---|---|---|
+| — | — | 未发现问题 | — | pass | V1-C1 的真实 390×844 loading/error 旅程、DOM 包含关系与宽度测量全部通过。 |
+
+## 验收标准覆盖（Fast-lane 更新）
+
+### V1-C1 移动端 pending/error 气泡边界与水平溢出 — 定向结论: pass
+
+| 验证点 | 本轮验证方式 | 本轮证据 | 结果 | 备注 |
+|---|---|---|---|---|
+| loading 在同一 Agent 气泡内 | 延迟两条真实 owner 图片 GET；对每个状态与最近 `.chat-bubble-card` 做实测 | `web-im-mobile-loading.png`；2 组 state/card 矩形 | pass | 两个状态共享同一 card，左右边界均在 card 内。 |
+| error 在同一 Agent 气泡内 | abort 两条真实 owner 图片 GET；对状态/card 做实测并统计 Retry | `web-im-mobile-error.png`；2 组 state/card 矩形；2 个 Retry | pass | 两个状态共享同一 card，左右边界均在 card 内。 |
+| 无水平溢出 | 分别读取 `documentElement` 与实际 `.chat-pane-messages` 的 client/scroll width | loading `390/390`；error 滚动区 `384/384`、根文档 `390/390` | pass | error 的 6px 差值为可见纵向滚动条，不是水平溢出。 |
+
+Round 2 的其他定向结论以及 Round 1 其余 Scenario 均继承已有 `pass`；本轮仅关闭 V1-C1，没有扩展验收范围。
+
+## Side Findings
+
+无。
+
+## 上层文档同步
+
+- [x] `SPEC.md`：**无需更新**；本轮不改变产品或跨包契约。
+- [x] `docs/specs/gateway/`、`docs/specs/im/`：**无新增验收 delta**；继续由 orchestrator 处理已有 unit delta 的 canonical 归并。
+- [x] `AGENTS.md` / `CLAUDE.md`：**无需更新**。
+- [x] `docs/specs/CONTRIBUTING.md`：**无需更新**。
