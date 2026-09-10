@@ -125,3 +125,50 @@ requires_full_verification: false
 无。
 
 1 critical issue(s), 0 warning(s) found. Fix before PR.
+
+# Round 3
+
+> Validation snapshot: `6ec610be5d43a085a44c80518150dd91cafa61bd → d79a82d78dbe403438ac206c450ab9b98f56f2b1`
+
+## Summary
+
+Mode: targeted-closure (Fast-lane)
+Delta range: `fbf9415dac41fb430dac9ea3c389368b87faa6de..d79a82d78dbe403438ac206c450ab9b98f56f2b1`
+Focus issues: V1-C1
+requires_full_verification: false
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 1/1 M1 fully evidenced and matched |
+| Correctness | 1/1 focus issue closed |
+| Coherence | Followed |
+
+## Targeted Closure
+
+| Focus issue | Implementation and evidence | Verification | Status |
+|---|---|---|---|
+| V1-C1 mobile pending/error 气泡边界与水平溢出 | `src/IM/frontend/src/styles/global.css:2307-2317,2516-2528`; `M1-reply-images/progress.md:48-49`; `acceptance.md:189-251`; `M1-reply-images/evidence/web-im-mobile-{loading,error}.png` | `4862b53f6` 将 `.im-md` 直接 grid item 的自动最小宽度降为 `0`，使状态块既有 `max-width: 100%` 按真实气泡内宽收缩。两张新证据均为原始 390×844，SHA-256 分别为 `6bed79ae…8c07ac` / `85d3b684…cb488`；原像素目视显示两个状态位于同一 Agent 气泡内，无底部水平滚动条。Acceptance 实测 loading 的 state/card 为 `x=65,width=256.078` / `x=52,width=282.078`，error 为 `x=65,width=250.797` / `x=52,width=276.797`；左右边界均被 card 包含。消息滚动区 loading `390/390`、error `384/384`，根文档均 `390/390` (`clientWidth/scrollWidth`) | **closed** |
+
+## Validation
+
+- Frontend focused suites: **99 passed** (`message-image.test.tsx`, `message-pane.test.tsx`). The commands reused the already-installed lockfile dependencies in the implementation worktree at the exact same `d79a82d78` tree because the detached verifier worktree has no `node_modules`; no dependencies were installed or changed.
+- Frontend production build passed on that same tree: 509 modules transformed; emitted `index-yMRqOR1_.js`, matching the asset recorded by the real-product acceptance run.
+- Documentation integrity passed: 242 maintained Markdown sources and 70 required routes.
+- `4862b53f6^..4862b53f6` and the current worktree passed `git diff --check`.
+- Both durable screenshots were inspected at original resolution; recorded dimensions and full SHA-256 hashes match the checked-in files.
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+无。
+
+### WARNING（提 PR 前必须修）
+
+无。
+
+### SUGGESTION（可以修）
+
+无。
+
+All checks passed. Ready for PR.
