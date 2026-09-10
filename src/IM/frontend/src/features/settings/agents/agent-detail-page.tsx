@@ -2049,7 +2049,7 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
   return (
     <div className="flex h-full overflow-hidden">
       <AgentsRailDesktop activeId={agentId} />
-      <div className="flex-1 overflow-y-auto bg-[oklch(0.93_0.007_240)]">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[oklch(0.93_0.007_240)]">
         {detailPanel}
       </div>
     </div>

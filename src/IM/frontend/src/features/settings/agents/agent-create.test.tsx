@@ -136,6 +136,17 @@ function mockAgentSummaries() {
 }
 
 describe("agent create page", () => {
+  it("retries node options as well as capabilities after a reconnect", async () => {
+    mockNodes();
+    mockCreateState();
+    apiMocks.listNodesMock.mockResolvedValueOnce([]);
+    apiMocks.getNodeCreateStateMock.mockRejectedValueOnce(new Error("node disconnected"));
+    renderCreatePage();
+    await userEvent.click(await screen.findByRole("button", { name: /Retry/i }));
+    expect(await screen.findByRole("heading", { name: /New agent/i })).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: /MacBook.*online/i })).toBeInTheDocument();
+  });
+
   it.each(["single_thread", "global"] as const)("creates a %s agent from selected node capabilities and opens its settings", async (workMode) => {
     const user = userEvent.setup();
     mockNodes();

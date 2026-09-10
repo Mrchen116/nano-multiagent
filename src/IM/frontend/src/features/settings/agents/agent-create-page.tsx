@@ -593,7 +593,10 @@ export function AgentCreatePage() {
             {nodesQuery.error instanceof Error ? nodesQuery.error.message : queryErrorDetail}
           </p>
         </div>
-        <button className="im-btn im-btn-muted w-fit" type="button" onClick={() => void createStateQuery.refetch()}>
+        <button className="im-btn im-btn-muted w-fit" type="button" onClick={() => {
+          void nodesQuery.refetch();
+          if (selectedNodeId) void createStateQuery.refetch();
+        }}>
           {t("agents.retry")}
         </button>
       </section>
