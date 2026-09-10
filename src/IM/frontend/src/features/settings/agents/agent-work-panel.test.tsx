@@ -128,9 +128,9 @@ it("renders named targets and hides lifecycle noise", async () => {
   renderWork();
   fireEvent.click(await screen.findByText("Inbox 唤醒"));
   fireEvent.click(await screen.findByRole("button", {name: /inbox.*Project A/}));
-  expect(screen.getByRole("link", {name: "Project A"})).toHaveAttribute("href", "/chat/group-a");
+  expect(screen.queryByRole("link", {name: "Project A"})).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", {name: /send_message.*Project A/}));
-  expect(screen.getAllByRole("link", {name: "Project A"})).toHaveLength(2);
+  expect(screen.getByRole("link", {name: "Project A"})).toHaveAttribute("href", "/chat/group-a");
   expect(screen.queryByText("运行配置已应用")).not.toBeInTheDocument();
   expect(screen.queryByText("run_status")).not.toBeInTheDocument();
   expect(screen.queryByText("private-config")).not.toBeInTheDocument();

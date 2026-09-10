@@ -6,6 +6,7 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import type { ToolCall } from "../chat-types";
+import { ConversationToolCard } from "./conversation-tool-card";
 import { ToolDetailBody } from "./tool-detail-renderers";
 
 const call: ToolCall = { id: "read", name: "inbox", status: "running", input: { action: "read", target: "group-a", limit: 20 }, detail: { action: "read", target: "group-a", limit: 20 } };
@@ -38,4 +39,14 @@ it("renders wire mentions with participant names in the actual inbox card", () =
   render(<MemoryRouter><WorkNavigationContext.Provider value={{returnUrl:"/work",beforeLeave(){},people:{planner:"小策"}}}><ToolDetailBody call={{...call,status:"completed",detail}}/></WorkNavigationContext.Provider></MemoryRouter>);
   expect(screen.getByText("@小策")).toBeInTheDocument();
   expect(screen.queryByText(/<mention/)).not.toBeInTheDocument();
+});
+
+it("keeps the compact inbox focused on messages and actionable pagination", () => {
+  const detail = { ...page, messages: [{ ...page.messages[0], sender: { id: "opaque-sender-id" } }] };
+  const result = render(<MemoryRouter><ConversationToolCard call={{...call,status:"completed",detail}} compact /></MemoryRouter>);
+  expect(screen.getByText("The actual constraint")).toBeInTheDocument();
+  expect(screen.getByRole("link", {name:"原消息"})).toHaveAttribute("href", "/chat/group-a?message_id=message-a");
+  for (const label of ["收件箱消息页", "目标：", "当前页面已返回", "opaque-sender-id"]) expect(screen.queryByText(label)).not.toBeInTheDocument();
+  result.rerender(<MemoryRouter><ConversationToolCard call={{...call,status:"completed",detail:{...detail,has_more:true}}} compact /></MemoryRouter>);
+  expect(screen.getByText("还有后续页面")).toBeInTheDocument();
 });

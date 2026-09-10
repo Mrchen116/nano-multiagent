@@ -201,7 +201,7 @@ function Turn({ turn, agentId, online, sessions, expanded, expand, onChild, refr
 
 function WorkFacts({ facts }: { facts: unknown }) {
   if (!Array.isArray(facts)) return null;
-  return <>{facts.map((raw, index) => { const fact = obj(raw); const target = str(fact.conversation_id) || str(fact.target); const refs = Array.isArray(fact.source_refs) ? fact.source_refs.map(obj) : [];
+  return <>{facts.filter(raw => obj(raw).type !== "inbox_read_committed").map((raw, index) => { const fact = obj(raw); const target = str(fact.conversation_id) || str(fact.target); const refs = Array.isArray(fact.source_refs) ? fact.source_refs.map(obj) : [];
     return <div key={index} className="im-work-tool-fact">
       <p>{tr(fact.type === "inbox_read_committed" ? "本页正文已持久摄取" : fact.type === "draft_withheld" ? "原草稿 · 未发送" : "实际投递确认")}</p>
       {fact.type === "draft_withheld" && <pre className="chat-tool-call-pre">{str(fact.text) || str(fact.draft)}</pre>}
