@@ -14,6 +14,7 @@ def test_approval_receives_inbox_user_request_but_not_agent_or_image_content():
     tool = InboxTool()
     page = {
         "receipt_id": "read-receipt",
+        "target": "room",
         "messages": [
             {
                 "message_id": "user-request",
@@ -24,7 +25,11 @@ def test_approval_receives_inbox_user_request_but_not_agent_or_image_content():
                     {"type": "text", "text": "Schedule a reminder in one minute"},
                     {
                         "type": "image",
-                        "source": {"type": "base64", "data": "private image"},
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": "private image",
+                        },
                     },
                 ],
             },
@@ -148,3 +153,140 @@ async def test_query_permissions_bypass_classifier(tool, args):
     ctx.metadata["tool_registry"] = {tool.name: tool()}
     assert await handler({"name": tool.name, "args": args}, ctx) is None
     ctx.call_model.assert_not_awaited()
+
+
+def test_model_inbox_read_hides_receipts_and_preserves_same_named_identities():
+    page = {
+        "target": "room",
+        "name": "Design group",
+        "receipt_id": "private-receipt",
+        "has_more": False,
+        "next_cursor": None,
+        "messages": [
+            {
+                "message_id": f"message-{i}",
+                "sender": {"id": f"user-{i}", "name": "Alex", "kind": "user"},
+                "source_time": "2026-09-10T11:30:04.229072+08:00",
+                "received_at": "2026-09-10T03:30:04.235470+00:00",
+                "source": {"channel": "web_relay", "reply_target": "room"},
+                "part_key": "0:text:0",
+                "complete_message": True,
+                "content": [{"type": "text", "text": f"Request {i}"}],
+            }
+            for i in range(2)
+        ],
+    }
+    result = json.loads(InboxTool().serialize_result(page))
+    assert result == {
+        "target": "room",
+        "name": "Design group",
+        "messages": [
+            {
+                "id": f"message-{i}",
+                "sender": "Alex",
+                "sender_id": f"user-{i}",
+                "sender_type": "user",
+                "time": "2026-09-10T03:30:04Z",
+                "text": f"Request {i}",
+            }
+            for i in range(2)
+        ],
+    }
+    assert page["receipt_id"] == "private-receipt"
+
+
+def test_model_inbox_preserves_mixed_content_order_partial_and_errors():
+    image = {
+        "type": "image",
+        "source": {"type": "base64", "media_type": "image/png", "data": "YWJj"},
+    }
+    parts = [
+        {"type": "text", "text": "Before"},
+        image,
+        {"type": "text", "text": "After"},
+        {
+            "type": "attachment",
+            "file_name": "notes.pdf",
+            "url": "https://example.test/notes.pdf",
+        },
+    ]
+    page = {
+        "target": "room",
+        "receipt_id": "receipt",
+        "next_cursor": "continue-here",
+        "messages": [
+            {
+                "message_id": "message",
+                "sender": {"kind": "user", "id": "u", "name": "User"},
+                "content": [part],
+                "part_key": str(i),
+                "complete_message": False,
+            }
+            for i, part in enumerate(parts)
+        ],
+        "errors": [
+            {
+                "code": "attachment_unavailable",
+                "message_id": "missing",
+                "part_key": "0:image",
+                "retryable": True,
+            }
+        ],
+    }
+    result = InboxTool().serialize_result(page)
+    assert result[1] == {"type": "image", "data": "YWJj", "mimeType": "image/png"}
+    model = json.loads(result[0]["text"])
+    assert len(model["messages"]) == 1
+    assert model["messages"][0]["content"] == [
+        parts[0],
+        {"type": "image", "image_index": 0},
+        *parts[2:],
+    ]
+    assert model["messages"][0]["partial"] is True
+    assert model["next_cursor"] == "continue-here"
+    assert "part_key" not in model["errors"][0]
+    assert (
+        json.loads(InboxTool().to_auto_classifier_result(result).split(": ", 1)[1])[0][
+            "text"
+        ]
+        == "Before\nAfter"
+    )
+    assert ConversationsTool().to_auto_classifier_result(result) is None
+
+
+def test_inbox_image_survives_actual_provider_request_mapping():
+    from agent.core.llm.interfaces import LLMGenerateRequest, LLMMessage
+    from agent.platform.llm.providers.anthropic.mapper import AnthropicMapper
+
+    page = {
+        "target": "room",
+        "messages": [
+            {
+                "message_id": "picture",
+                "sender": {"kind": "user"},
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": "YWJj",
+                        },
+                    }
+                ],
+            }
+        ],
+    }
+    content = InboxTool().serialize_result(page)
+    request = LLMGenerateRequest(
+        model="fixture",
+        session_id="main",
+        messages=(LLMMessage(role="tool", content=content, tool_call_id="read-image"),),
+    )
+    mapped = AnthropicMapper().map_generate_request(request)
+    result = mapped["messages"][0]["content"][0]
+    assert result["type"] == "tool_result"
+    assert result["content"][1] == {
+        "type": "image",
+        "source": {"type": "base64", "media_type": "image/png", "data": "YWJj"},
+    }

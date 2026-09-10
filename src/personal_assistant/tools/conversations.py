@@ -1,6 +1,6 @@
 """Discover accessible conversations and inspect history without Inbox writes."""
 
-from personal_assistant.tools.inbox import InboxTool, QueryPresenter
+from personal_assistant.tools.inbox import InboxTool, QueryPresenter, serialize_page
 
 
 class ConversationsTool(InboxTool):
@@ -9,6 +9,11 @@ class ConversationsTool(InboxTool):
     name = "conversations"
     description = "List accessible conversations or read their history. These queries never consume Inbox messages."
     presenter = QueryPresenter("Conversations")
+
+    def serialize_result(self, output, error=None):
+        """Keep the existing history query representation."""
+        return serialize_page(output, error)
+
     input_schema = {
         "type": "object",
         "properties": {

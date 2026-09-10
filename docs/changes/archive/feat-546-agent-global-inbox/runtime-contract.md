@@ -58,12 +58,20 @@ native `target` 为现有 conversation ID；外部已物化 shadow 同样返回 
 
 | 操作 | 参数 | 返回 |
 |---|---|---|
-| `inbox.check` | `action="check", cursor?: string, limit?: int`；默认 20，范围 1–50 | `{conversations:[{target,name,kind,channel,pending_count,attention_reasons,oldest_received_at,latest_received_at}], next_cursor, has_more}` |
-| `inbox.read` | `action="read", target: string, cursor?: string, limit?: int`；默认 20，范围 1–50 | `{target,messages:[MessagePart], next_cursor, has_more, receipt_id}`；receipt 只作内部联系，不是 ack 工具 |
+| `inbox.check` | `action="check", cursor?: string, limit?: int`；默认列出预算内全部来源，显式 limit 范围 1–50 | `{conversations:[{target,name?,unread,latest_at?,mentioned?}], next_cursor?}`；只有确有后续来源才返回游标 |
+| `inbox.read` | `action="read", target: string, cursor?: string, limit?: int`；默认 20 个消息部分，范围 1–50 | `{target,name?,messages:[InboxMessage], next_cursor?,errors?}`；模型不可见内部 receipt |
 | `conversations.list` | `action="list", query?: string, cursor?: string, limit?: int`；默认 20，范围 1–50 | `{conversations:[{target,name,kind,channel,participants,latest_message_at,history_availability}], next_cursor, has_more}` |
 | `conversations.read` | `action="read", target: string, before_message_id?: string, cursor?: string, limit?: int`；默认 20，范围 1–50；before 与 cursor 互斥 | `{target,messages:[MessagePart], next_cursor, has_more, history_scope}` |
 
-`MessagePart`：`{message_id, sender:{id,name,kind}, source_time, received_at?, source:{channel,conversation_id?,reply_target}, part_key, content:[text/image/attachment blocks], complete_message}`。没有消息定位 ID 时不编 ID；原消息 ID、Inbox entry seq 与 IM message ID 分开。群成员背景来自读取权限允许的实际 participant 数据，不从主 Session 上一群的 tail 继承。
+2026-09-10 按用户实际请求日志审阅收口：模型结果与内部页面／Presenter 分开。`InboxMessage` 为 `{id?,sender?,sender_id?,sender_type,time?,text}`；有图文／附件时用保持顺序的 `content` 替代 `text`。同页同消息的部分合并展示；只有本页未包含整条消息时增加 `partial:true`。图片在序列化边界转换为 SDK 通用 `{type:image,data,mimeType}`，再由 provider mapper 转成请求图片块，不能直接把 provider 的 source 对象作为 SDK 工具结果；JSON 的 image_index 仅关联其位置；附件保留文件名和读取入口。图片物化失败返回 `{code,message_id?,retryable?}`，不暴露 part_key，不宣称已读完缺失图片。
+
+- `unread` 计尚未完整进入上下文的消息，不计业务待办；`mentioned:true` 仅在存在真实 mention 线索时给出，不列重复的 direct/channel 标签。
+- 普通 check 不按 20 条强制分页。摘要条目累计约 24,000 字符预算，超过预算或调用方显式给出 limit 才续页；保证至少能取到一个来源，不静默丢弃余项。沿用冻结来源顺序的游标，读取前页后未读集合缩小也不跳过后页。
+- 模型时间统一为 UTC、精确到秒，用 `Z` 明确时区；消息发送时间缺失时使用接收时间。原始精度留在内部，不同时暴露两套时间。
+- Web 私聊与群聊 relay 都携带真实 sender/participants。Inbox 查询前通过内部 `conversation.query(action="describe", targets=[...])` 获取调用 Agent 可访问的聊天名称和成员，不读取历史正文或修改已读。私聊名称由除当前 Agent 外的真实成员生成；发送者名字和稳定身份分别提供，同名不合并，改名在新查询中生效。缺失名字不重复显示 ID；离线时使用已知名字。重复 tool_call 仍返回原不可变 receipt 页面，不因后来改名改变同次调用内容。
+- `target` 保留可操作地址；receipt_id、part_key、接收流水及重复路由只在内部页面使用。`has_more:false`、`next_cursor:null`、`complete_message:true` 不进入模型结果；只在确有后续内容时给 next_cursor，完整性异常才增加字段。
+
+下面的 `MessagePart` 继续用于内部页面、Presenter 和未改动的 conversations 历史结果：`{message_id, sender:{id,name,kind}, source_time, received_at?, source:{channel,conversation_id?,reply_target}, part_key, content:[text/image/attachment blocks], complete_message}`。没有消息定位 ID 时不编 ID；原消息 ID、Inbox entry seq 与 IM message ID 分开。群成员背景来自读取权限允许的实际 participant 数据，不从主 Session 上一群的 tail 继承。
 
 通知默认按 `oldest_received_at ASC, target ASC` 排列，让等待更久的来源可见；attention reasons 不改变调度或承诺固定业务优先级。`conversations.list` 按最近消息时间倒序、target 打破并列；query 仅匹配名称／参与者展示名，本期不加正文搜索。
 
@@ -71,13 +79,13 @@ native `target` 为现有 conversation ID；外部已物化 shadow 同样返回 
 
 ### 大消息、多模态与精确消费
 
-每页最多 24,000 个文本字符、4 个图片块和 50 条消息；limit 是消息数上界，不保证一次返回这么多。文本超过页面预算时按固定 part_key 和 Unicode 字符范围分段，返回 next_cursor；部分读取仍计为该消息待读。图片复用现有 `read` 的模型 content blocks 格式和受限文件／图片物化能力，图片单独占一个必需部分，不能只给占位词就确认已经看过图片。
+read 每页最多 24,000 个文本字符、4 个图片块和 50 个消息部分；limit 是部分数上界，不保证一次返回这么多。模型层再合并同页同消息的部分。文本超过页面预算时按固定 part_key 和 Unicode 字符范围分段，返回 next_cursor；部分读取仍计为该消息待读。图片复用现有 `read` 的模型 content blocks 格式和受限文件／图片物化能力，图片单独占一个必需部分，不能只给占位词就确认已经看过图片。
 
 附件的消息部分是完整的附件描述与受控读取 locator，摄取消息不等于阅读附件文件全文；这与现有聊天附件语义一致。图片数据获取失败则该图片部分不确认，并返回可重试错误；已经完整持久摄取的其他部分可以确认，继续游标允许访问后续消息。提供商／附件链不支持的类型明确显示，不改写成“已完整读入”。
 
-`inbox.read` 选页时保存不可变 receipt，结果的完整正文、来源和实际图片块由新工具的确定性 `serialize_result` 返回。该工具自管预算并设置 `max_result_size_chars=None`，复用现有多模态 tool result 路径，避免通用压缩把正文换成预览。receipt 按真实主 Session/tool_call 绑定，保存预期最终模型 content 的 digest；receipt_id 只是该页面身份。`conversations` 同样自管页面预算，但不生成消费 receipt。
+`inbox.read` 选页时保存不可变内部页面和 receipt；`serialize_inbox_page` 从该页面投影模型所需的消息正文、身份、时间和实际图片块，过滤内部字段。该工具自管预算并设置 `max_result_size_chars=None`，复用现有多模态 tool result 路径，避免通用压缩把正文换成预览。receipt 按真实主 Session/tool_call 绑定，保存预期最终模型 content 的 digest；receipt_id 只是内部页面身份，不送给模型；Gateway 和工具共用同一个确定性序列化入口计算模型实际内容。`conversations` 同样自管页面预算，但不生成消费 receipt。
 
-**自动权限上下文**：消息正文经 Inbox 工具进入主会话，不能只给审批模型发送 synthetic wake。新增 InboxTool 提供可选 `to_auto_classifier_result(content)` 投影，提取实际 read receipt 中 `sender.kind=user` 的文本、消息／来源身份与完整性；Agent/Bot 回复、图片数据和 check 摘要不作为用户授权。Kernel 按持久历史中的真实 call identity 配对成功结果，只有显式提供该投影的工具才加入审批 transcript；旧工具行为、动作参数、结果与 Presenter 不变。结果投影异常仍 fail closed，不能用这条上下文路径直接绕过审批。
+**自动权限上下文**：消息正文经 Inbox 工具进入主会话，不能只给审批模型发送 synthetic wake。新增 InboxTool 提供可选 `to_auto_classifier_result(content)` 投影，从真实成功的 Inbox 工具结果提取 `sender_type=user` 的文本、sender_id、消息 ID、target 和 partial；不再依赖模型内容中的 receipt_id；Agent/Bot 回复、图片数据和 check 摘要不作为用户授权。Kernel 按持久历史中的真实 call identity 配对成功结果，只有显式提供该投影的工具才加入审批 transcript；旧工具行为、动作参数、结果与 Presenter 不变。结果投影异常仍 fail closed，不能用这条上下文路径直接绕过审批。
 
 **消费入口唯一采用新增 SDK `tool_result_committed` 事件，不采用既有原始 `tool_result` hook 或 Presenter。** Gateway composition 只注册一份 `GlobalWorkRecorder` SDK observer：收到此事件，验证实际 work scope，再调用 `GlobalInboxService.confirm_committed_read(proof)`；服务以 session_id/tool_call_id 查询服务器 receipt，要求 name=inbox、is_error=false、serialization_status=succeeded 及实际 content_digest 匹配，再在同一 SQLite 事务提交对应 parts、完整消息 consumed_at 和 `inbox_read_committed` 工作事件。事件必须来自 Kernel durable tool-message 边界；不能用模型传入 ID、原始 output 重算值或最大 seq 冒充证明。
 
@@ -111,7 +119,7 @@ stateDiagram-v2
     Quiet --> Pending: stop 之后的新有效 signal
 ```
 
-每 Agent 只有一个 Gateway drain 协程。pending 范围是 `latest_signal_seq > max(signaled_through_seq, stop_through_seq)`；只比较有效触发水位，不能改用 entries 的最大 seq 或未读总数；持久化一个 `submission_id=inbox:<agent_id>:<through_seq>` 再调用空闲准入。提示只说明有 Inbox 通知及本批标识，不携带聊天正文。忙时等 Kernel 生命周期事件、配置／连接恢复或新 signal，不做忙轮询；提交发生临时异常按 1s、5s、30s 间隔重试，封顶 30s，关闭 Gateway 时停止等待。
+每 Agent 只有一个 Gateway drain 协程。pending 范围是 `latest_signal_seq > max(signaled_through_seq, stop_through_seq)`；只比较有效触发水位，不能改用 entries 的最大 seq 或未读总数；持久化一个 `submission_id=inbox:<agent_id>:<through_seq>` 再调用空闲准入。提示只说明有新消息，并指引先 check 再 read；不携带聊天正文或本批内部标识，不追加“本通知不含正文”等实现说明。忙时等 Kernel 生命周期事件、配置／连接恢复或新 signal，不做忙轮询；提交发生临时异常按 1s、5s、30s 间隔重试，封顶 30s，关闭 Gateway 时停止等待。
 
 `turn_input_committed` 是新增的真实持久输入边界事件，含 submission_id、run_id、turn_id；收到它才推进 signaled_through_seq。失败或崩溃前未看到该事件，启动时以 SDK receipt 核对，避免因事件观察的小窗口重复唤醒。已经提示但 Agent 选择不读的旧消息不会反复唤醒；未读正文仍留在 Inbox。新的 signal 会带来下一轮机会。
 

@@ -231,12 +231,12 @@ worker／reviewer 须覆盖以上真实来源、active 摄取与 idle 新运行�
 
 ### 新增工具的开始态、结束态和专用卡片
 
-以下为 presentation detail 的字段投影约束；工具执行协议的分页与地址细节仍以 design D4 收口为准，不由 UI 另造协议。
+以下为内部页面到 presentation detail 的投影约束。2026-09-10 起 Inbox 的模型精简结果由单独 serializer 生成，不用模型 JSON 反解 UI；模型字段、分页与地址细节以运行契约 §2 为准。
 
 | 工具操作 | `format_start` 的参数展示 | `format_end` 的结果展示 | 前端卡片 |
 |---|---|---|---|
 | `inbox.check` | action、查询范围及已给出的分页参数；摘要“查看待读来源” | 实际 target/name、待读数量、attention reasons、等待时间、是否还有来源页；真正空返回才显示无待读 | `InboxCard` 展示紧凑来源列表，目标 Thread 可点；不显示消息已读成功 |
-| `inbox.read` | action、target、limit；摘要说明读取该目标新消息 | 保留读取范围，加消息 ID／发送者／时间／实际正文／附件引用和分页结果；失败保留目标与错误 | `InboxCard` 展示消息页与原消息链接；附件沿用既有展示；摄取确认是独立实际消费事件 |
+| `inbox.read` | action、target、limit；摘要说明读取该目标新消息 | 保留读取范围，加消息 ID／发送者／时间／实际正文／附件引用和分页结果；失败保留目标与错误 | `InboxCard` 展示消息页与原消息链接；附件沿用既有展示；摄取确认保留为内部实际消费事件，卡片不重复展示 |
 | `conversations.list` | action、query、分页参数；没有 query 时说明当前可访问范围 | 匹配的真实聊天 ID、名称、类型及分页状态；空查询结果与失败分别表达 | `ConversationsCard` 展示可点击聊天列表；不使用 Inbox 待读或消费成功标签 |
 | `conversations.read` | action、target、before_message_id、limit；摘要说明回查历史 | 保留查询范围，加实际历史消息页／附件引用／游标，失败保留查询上下文与错误 | `ConversationsCard` 展示历史消息与原消息链接；明确回查不推进 Inbox |
 
@@ -255,7 +255,7 @@ worker／reviewer 须覆盖以上真实来源、active 摄取与 idle 新运行�
 
 1. 两个新工具的每个 action 都有开始、成功、空结果、失败的 presenter 验证；开始态无伪造输出，结束态参数与结果均可检查。
 2. 浏览器覆盖长耗时期间展开参数、完成后在同一行更新结果，以及刷新回看；主／子工作页复用同一套卡片，跳转 Thread 不丢定位与返回上下文。
-3. `inbox.check`、`conversations.*` 绝不展示摄取确认；`inbox.read` 只有实际 `inbox_read_committed` 记录存在时才展示确认。
+3. Inbox／conversations 卡片不重复展示内部摄取确认；工作页 Inbox 正文区不重复顶栏目标，不展示“当前页面已返回”和额外“新消息”链接，仅在确有后续页或异常时提示。
 4. 工具摘要、名称、emoji、错误、长结果截断与权限状态沿既有契约，不从原始结果文本猜结构，也不将 `serialize_result` 直接作为 UI 设计。
 
 原型已改为专用参数／结果展示，补上 conversations list/read 示例。审阅栏“工具呈现”可切换记录态、开始态与失败态，仅检查展示阶段，不能当成业务执行状态或后端验证证据。原型中的 JavaScript presenter 是 fixture，不是生产实现，也不 import 运行项目代码。

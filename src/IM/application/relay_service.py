@@ -130,14 +130,11 @@ class RelayService:
                 "created_at": message.created_at,
             },
         }
-        # M247: group relays carry structured sender and participants so gateway
-        # can show display names instead of raw UUIDs.  Direct chats omit these
-        # fields to keep the payload backward-compatible.
-        if conversation_type == "group":
-            payload["sender"] = self._resolve_sender_info(sender_user_id=sender_user_id)
-            payload["participants"] = self._resolve_all_participants(
-                conversation_id=message.conversation_id,
-            )
+        # Direct Inbox messages need the same real sender identity as groups.
+        payload["sender"] = self._resolve_sender_info(sender_user_id=sender_user_id)
+        payload["participants"] = self._resolve_all_participants(
+            conversation_id=message.conversation_id,
+        )
         # _override_agent_id is used by enqueue_message_relay_all for group fan-out:
         # each per-agent relay identifies its own target agent explicitly.
         effective_agent_id = (

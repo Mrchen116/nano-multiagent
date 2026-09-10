@@ -149,6 +149,29 @@ def test_work_http_journal_query_and_permission_share_real_ownership(
             ws.send_json({"type": "agent.work.append", "payload": batch})
             assert ws.receive_json()["payload"]["through_seq"] == 3
             assert len(client.get(base).json()["turns"][0]["items"]) == 1
+            ws.send_json(
+                {
+                    "type": "conversation.query",
+                    "payload": {
+                        "node_id": "node",
+                        "request_id": "names",
+                        "agent_id": "global",
+                        "session_id": "main",
+                        "action": "describe",
+                        "targets": [visible.id, private.id],
+                    },
+                }
+            )
+            names = ws.receive_json()["payload"]
+            assert names["ok"] is True
+            rows = names["result"]["conversations"]
+            assert [row["target"] for row in rows] == [visible.id]
+            assert rows[0]["name"] == f"与 {owner.display_name} 的私聊"
+            assert any(
+                p["id"] == owner.id and p["name"] == owner.display_name
+                for p in rows[0]["participants"]
+            )
+            assert "messages" not in names["result"]
             for target, expected in [(visible.id, True), (private.id, False)]:
                 ws.send_json(
                     {

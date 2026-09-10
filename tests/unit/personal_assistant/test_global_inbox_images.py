@@ -6,7 +6,10 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 
 from personal_assistant.gateway.global_inbox import GlobalInboxService, GlobalInboxStore
-from personal_assistant.tools.inbox import content_digest, serialize_page
+from personal_assistant.tools.inbox import (
+    content_digest,
+    serialize_inbox_page as serialize_page,
+)
 
 
 IMAGE = {
@@ -134,7 +137,11 @@ async def test_native_history_materializes_actual_images_without_inbox_consumpti
     )
     page = await query(service, "history", tool="conversations")
     assert page["messages"][0]["content"][0]["source"] == IMAGE["source"]
-    assert serialize_page(page)[1]["source"] == IMAGE["source"]
+    assert serialize_page(page)[1] == {
+        "type": "image",
+        "data": IMAGE["source"]["data"],
+        "mimeType": "image/png",
+    }
     assert calls == [native_image]
     assert service.blocking_entries("agent", "room")
     assert not service.confirm_committed_read(committed("history", page))

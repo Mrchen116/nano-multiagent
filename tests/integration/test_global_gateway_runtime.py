@@ -277,11 +277,25 @@ async def test_actual_loop_reads_commits_then_sends_without_default_chat_body(tm
         assert reminder.startswith("<system-reminder>\n")
         assert reminder.endswith("\n</system-reminder>")
         assert "batch" not in reminder and "inbox:worker:" not in reminder
+        assert "does not contain their contents" not in reminder
         assert any(
             "请确认这个请求" in str(m.content)
             for r in model.requests
             for m in r.messages
             if m.role == "tool"
+        )
+        read_outputs = [
+            str(m.content)
+            for r in model.requests
+            for m in r.messages
+            if m.role == "tool" and "请确认这个请求" in str(m.content)
+        ]
+        assert read_outputs
+        assert all(
+            "receipt_id" not in output
+            and "part_key" not in output
+            and "received_at" not in output
+            for output in read_outputs
         )
         assert rt.store.get_signal_state("worker")["signaled_through_seq"] == 1
     finally:

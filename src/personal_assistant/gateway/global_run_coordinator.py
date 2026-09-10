@@ -243,7 +243,6 @@ class GlobalRunCoordinator:
                         "text": (
                             "<system-reminder>\n"
                             "New messages have arrived in your Inbox. "
-                            "This notification does not contain their contents. "
                             'Use inbox(action="check") to see which chats have unread messages, '
                             'then inbox(action="read", target=...) to read the relevant messages '
                             "before deciding what to do.\n"

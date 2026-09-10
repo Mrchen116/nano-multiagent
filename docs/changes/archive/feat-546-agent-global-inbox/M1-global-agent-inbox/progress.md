@@ -179,3 +179,15 @@ Implementation and native/Feishu real-stack self-tests are complete. User explic
 按用户确认，仅调整两处：子 Agent 执行轮次标题使用启动该轮的 agent.description；侧栏身份行显示“子 Agent”。查询层按轮次开始前对应的父 Agent 调用关联描述，不使用 Session 的首次描述覆盖后续轮次；运行中 message_queued 的补充不改原轮标题。分块和展开行为保持。
 
 前端 16 项、后端 5 项测试通过，构建及 Ruff 通过。重载保留环境后，实际 sess_87a0798076a8a4bf 查询返回第二轮 Explain the joke、第一轮 Explore channel mechanism，历史数据无需改写。
+
+### 2026-09-10 — Inbox 模型协议精简与真实请求验收
+
+用户检查实际 LLM Proxy 请求后，要求精简 check/read，并补齐名称、时间、分页、多模态和内部确认边界。最终协议已同步 design.md、runtime-contract.md、work-trace-contract.md 及 gateway current spec。模型结果与内部页面／Presenter 分离；删去通知中的“本通知不含正文”。check 默认预算内列全，必要时续页；read 同页合并消息部分，稳定身份与真实名称分开，时间统一秒级 UTC，仅异常／不完整／续页时增加字段。receipt、entry_seq、part_key 和重复路由保持内部使用，权限上下文从真实用户消息投影，读取确认校验实际模型内容。
+
+发现的名称根因是 direct relay 没带 sender 信息；已和群聊一样携带真实身份，并通过受限 describe 元数据查询刷新聊天／成员名称。查询不读取历史正文，不扩大成员可见范围。改名不改变同一次 tool_call 的冻结页面。
+
+实际模型 DeepSeek V4 Flash：新隔离 Agent 正确读取 Test User，执行用户授权的 printf 返回 IBX_OK；群聊读完 26,656 字符分页材料，回复尾码 TAIL_0910 并保留私聊代号桦木。原始请求确认 3 次 check、4 次 read 使用新结构，4 个 receipt 已确认、待读 0。
+
+图片验证首轮虽然答对，但请求审计发现 Inbox 图片未进入请求，模型从日志找图后使用 read 绕路。原因是旧 serializer 输出 provider source 格式，SDK mapper 只接受通用图片字段；修复该边界后，新建无 read/bash 的独立 Agent，仅调用 inbox/send_message，正确识别 929069 和红绿蓝。Proxy 原始 tool_result 内图片 SHA256 与输入完全一致，读取也已确认。先前首轮不能算原生图片路径通过。
+
+相关 100 项测试通过（包含真实 SDK 持久边界、provider mapper、权限上下文、名称／同名、预算续页、分片与失败、访问范围及 relay 回归）；Ruff、docs-check、diff check 通过。原始请求目录与审计汇总保留于 output/inbox-protocol/request-audit.json、vision-request-audit.json；运行数据不提交，原演示和新增隔离案例均保留。

@@ -12,9 +12,11 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from personal_assistant.tools.inbox_result import source_summary
+
 from personal_assistant.tools.inbox import (
     content_digest,
-    serialize_page,
+    serialize_inbox_page,
     validate_arguments,
 )
 
@@ -505,6 +507,33 @@ class GlobalInboxService:
             ).fetchall()
             return [json.loads(row[0]) for row in rows]
 
+    async def _refresh_source_names(
+        self, agent_id: str, targets: Sequence[str]
+    ) -> None:
+        if self._conversation_reader is None or not targets:
+            return
+        native = {}
+        for target in targets:
+            entry = self.get_target(agent_id, target)
+            if entry and entry.get("conversation_id"):
+                native[entry["conversation_id"]] = target
+        if not native:
+            return
+        try:
+            page = await self._conversation_reader(
+                agent_id, "describe", {"targets": list(native)}
+            )
+        except (ConnectionError, TimeoutError):
+            return  # Offline received messages retain their last known names.
+        for row in page.get("conversations", []):
+            if row.get("target") in native:
+                self.update_target(
+                    agent_id,
+                    native[row["target"]],
+                    name=row["name"],
+                    participants=row["participants"],
+                )
+
     async def execute(
         self,
         tool_name: str,
@@ -519,6 +548,20 @@ class GlobalInboxService:
         if not binding or binding["session_id"] != session_id:
             raise ValueError("scope_not_allowed")
         validate_arguments(tool_name, args)
+        if tool_name == "inbox":
+            with self.store._lock:
+                targets = (
+                    [
+                        row[0]
+                        for row in self.store._db.execute(
+                            "SELECT DISTINCT target FROM inbox_entries WHERE agent_id=? AND consumed_at IS NULL",
+                            (agent_id,),
+                        )
+                    ]
+                    if args["action"] == "check"
+                    else [args["target"]]
+                )
+            await self._refresh_source_names(agent_id, targets)
         if tool_name == "conversations" and self._conversation_reader is not None:
             if args["action"] == "list":
                 return await self._combined_list(agent_id, args)
@@ -710,6 +753,8 @@ class GlobalInboxService:
             if tool == "inbox":
                 item.update(
                     pending_count=len(entries),
+                    latest_message_at=entries[-1]["source_time"]
+                    or entries[-1]["received_at"],
                     attention_reasons=sorted(
                         {r for e in entries for r in e["attention_reasons"]}
                     ),
@@ -741,7 +786,7 @@ class GlobalInboxService:
         )
         if tool != "inbox":
             results.sort(key=lambda item: item["latest_message_at"], reverse=True)
-        limit = args.get("limit", 20)
+        limit = args.get("limit", len(results) if tool == "inbox" else 20)
         # Freeze source order, not the shrinking unread result list. A previous
         # page may have been consumed while this cursor was held by the Agent.
         targets = (
@@ -750,8 +795,14 @@ class GlobalInboxService:
         offset = position["offset"] if position else 0
         lookup = {item["target"]: item for item in results}
         selected = []
+        budget = 24000
         while offset < len(targets) and len(selected) < limit:
             item = lookup.get(targets[offset])
+            if item and tool == "inbox":
+                cost = len(_json(source_summary(item)))
+                if selected and cost > budget:
+                    break
+                budget -= cost
             offset += 1
             if item:
                 selected.append(item)
@@ -894,7 +945,10 @@ class GlobalInboxService:
     async def _materialize_received_parts(self, agent: str, candidates: list) -> None:
         for entry, index, part in candidates:
             for block_index, block in enumerate(part["content"]):
-                if block.get("type") != "image" or block.get("source"):
+                if (
+                    block.get("type") != "image"
+                    or (block.get("source") or {}).get("type") == "base64"
+                ):
                     continue
                 materialized = await self._materialize_image(block)
                 if materialized is None:
@@ -935,7 +989,10 @@ class GlobalInboxService:
         for message in result.get("messages", []):
             content = []
             for block in message.get("content", []):
-                if block.get("type") != "image" or block.get("source"):
+                if (
+                    block.get("type") != "image"
+                    or (block.get("source") or {}).get("type") == "base64"
+                ):
                     content.append(block)
                     continue
                 resolved = await self._materialize_image(block)
@@ -978,9 +1035,19 @@ class GlobalInboxService:
             candidates, args.get("limit", 20)
         )
         messages, selected, errors = [], [], []
+        target_info = self.get_target(agent, args["target"])
+        people = {
+            identity: participant
+            for participant in target_info.get("participants", [])
+            for identity in (participant.get("id"), participant.get("agent_id"))
+            if identity
+        }
+        returned_parts: dict[int, int] = {}
+        total_parts: dict[int, int] = {}
         for entry, index, part in candidates:
             if any(
-                b.get("type") == "image" and not b.get("source")
+                b.get("type") == "image"
+                and (b.get("source") or {}).get("type") != "base64"
                 for b in part["content"]
             ):
                 errors.append(
@@ -994,6 +1061,16 @@ class GlobalInboxService:
                     }
                 )
                 continue
+            sender = entry["sender"]
+            person = people.get(sender.get("id"))
+            if person:
+                sender = {
+                    **sender,
+                    "id": person.get("agent_id") or person["id"],
+                    "name": person["name"],
+                }
+            returned_parts[entry["seq"]] = returned_parts.get(entry["seq"], 0) + 1
+            total_parts[entry["seq"]] = len(entry["parts"])
             messages.append(
                 {
                     **{
@@ -1007,12 +1084,19 @@ class GlobalInboxService:
                         )
                     },
                     **part,
-                    "complete_message": len(entry["parts"]) == 1,
+                    "entry_seq": entry["seq"],
+                    "sender": sender,
                 }
             )
             selected.append([entry["seq"], part["part_key"]])
+        for message in messages:
+            message["complete_message"] = (
+                returned_parts[message["entry_seq"]]
+                == total_parts[message["entry_seq"]]
+            )
         page = {
             "target": args["target"],
+            "name": target_info.get("name"),
             "messages": messages,
             "has_more": remaining is not None,
             "next_cursor": self._cursor(
@@ -1021,6 +1105,10 @@ class GlobalInboxService:
             if remaining is not None
             else None,
         }
+        if tool != "inbox":
+            page.pop("name", None)
+            for message in messages:
+                message.pop("entry_seq", None)
         if errors:
             page["errors"] = errors
         if tool == "inbox":
@@ -1033,7 +1121,7 @@ class GlobalInboxService:
                     call,
                     page["receipt_id"],
                     _json(selected),
-                    content_digest(serialize_page(page)),
+                    content_digest(serialize_inbox_page(page)),
                     _json(page),
                 ),
             )

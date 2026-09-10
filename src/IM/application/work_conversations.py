@@ -56,7 +56,7 @@ class WorkConversationQuery:
             isinstance(limit, bool)
             or not isinstance(limit, int)
             or not 1 <= limit <= 50
-            or action not in {"list", "read"}
+            or action not in {"list", "read", "describe"}
         ):
             raise ValueError("invalid_arguments")
         rows = self.db.execute(
@@ -64,6 +64,25 @@ class WorkConversationQuery:
           JOIN users u ON u.id=cp.user_id WHERE u.username=? ORDER BY COALESCE(c.last_message_at,c.created_at) DESC,c.id""",
             (f"agent:{agent_id}",),
         ).fetchall()
+        if action == "describe":
+            # Internal metadata lookup: no history content or read state changes.
+            targets = set(params.get("targets", []))
+            descriptions = []
+            for row in rows:
+                if row["id"] not in targets:
+                    continue
+                participants = self._participants(row["id"], with_agent_ids=True)
+                name = row["title"]
+                if row["type"] == "direct":
+                    others = [
+                        p["name"] for p in participants if p.get("agent_id") != agent_id
+                    ]
+                    if others:
+                        name = "与 " + "、".join(others) + " 的私聊"
+                descriptions.append(
+                    {"target": row["id"], "name": name, "participants": participants}
+                )
+            return {"conversations": descriptions}
         target = params.get("target")
         identity = {
             "agent": agent_id,
@@ -242,12 +261,19 @@ class WorkConversationQuery:
                 )
         return _encode({"snapshot": snapshot_id, "offset": offset, "part": part})
 
-    def _participants(self, conversation_id: str) -> list[dict]:
+    def _participants(
+        self, conversation_id: str, *, with_agent_ids: bool = False
+    ) -> list[dict]:
         return [
             {
                 "id": r["id"],
                 "name": r["display_name"],
                 "kind": "agent" if r["username"].startswith("agent:") else "user",
+                **(
+                    {"agent_id": r["username"][len("agent:") :]}
+                    if with_agent_ids and r["username"].startswith("agent:")
+                    else {}
+                ),
             }
             for r in self.db.execute(
                 "SELECT u.id,u.display_name,u.username FROM users u JOIN conversation_participants cp ON cp.user_id=u.id WHERE cp.conversation_id=?",

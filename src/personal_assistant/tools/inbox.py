@@ -10,6 +10,7 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 
 from agent.sdk import PermissionDecision, ToolContext, ToolPresentationEvent
+from personal_assistant.tools.inbox_result import model_page
 
 
 def content_digest(content: Any) -> str:
@@ -31,10 +32,24 @@ def serialize_page(output: Any, error: str | None = None) -> str | list[dict[str
     page = json.loads(json.dumps(output, ensure_ascii=False))
     if isinstance(page, dict):
         for message in page.get("messages", []):
+            if "content" not in message:
+                continue
             blocks = []
             for block in message.get("content", []):
                 if block.get("type") == "image":
-                    images.append(block)
+                    source = block.get("source", {})
+                    if source.get("type") == "base64":
+                        images.append(
+                            {
+                                "type": "image",
+                                "data": source["data"],
+                                "mimeType": source["media_type"],
+                            }
+                        )
+                    else:
+                        raise ValueError(
+                            "attachment_unavailable: image has not been materialized"
+                        )
                     blocks.append({"type": "image", "image_index": len(images) - 1})
                 else:
                     blocks.append(block)
@@ -43,6 +58,13 @@ def serialize_page(output: Any, error: str | None = None) -> str | list[dict[str
         page, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
     )
     return [{"type": "text", "text": text}, *images] if images else text
+
+
+def serialize_inbox_page(
+    output: Any, error: str | None = None
+) -> str | list[dict[str, Any]]:
+    """Serialize only model-facing fields; internal receipts stay in the Gateway."""
+    return serialize_page(model_page(output), error) if error is None else error
 
 
 def validate_arguments(tool_name: str, args: Mapping[str, Any]) -> None:
@@ -115,7 +137,12 @@ class InboxTool:
     """Read bounded Inbox pages for the authenticated global main Session."""
 
     name = "inbox"
-    description = "Check pending conversation summaries or read their new messages. Reading is not task completion."
+    description = (
+        "Check unread sources or read a chosen conversation, oldest unread content first. "
+        "Unread counts messages not fully read into your context; reading does not complete "
+        "a task or require a reply. Times are UTC. partial marks a message incomplete on "
+        "this page. Text, images and attachments retain source order."
+    )
     presenter = QueryPresenter("Inbox")
     max_result_size_chars = None
     is_concurrency_safe = False
@@ -123,9 +150,20 @@ class InboxTool:
         "type": "object",
         "properties": {
             "action": {"type": "string", "enum": ["check", "read"]},
-            "target": {"type": "string"},
-            "cursor": {"type": "string"},
-            "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+            "target": {
+                "type": "string",
+                "description": "Conversation target returned by check; required for read.",
+            },
+            "cursor": {
+                "type": "string",
+                "description": "Returned only when more content remains. Repeat the same action and target with this next_cursor unchanged.",
+            },
+            "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 50,
+                "description": "Optional maximum sources for check or message parts for read. check normally lists all sources within its budget; read defaults to 20 parts.",
+            },
         },
         "required": ["action"],
         "additionalProperties": False,
@@ -193,7 +231,7 @@ class InboxTool:
         self, output: Any, error: str | None = None
     ) -> str | list[dict[str, Any]]:
         """Return the exact page used for the server's expected content digest."""
-        return serialize_page(output, error)
+        return serialize_inbox_page(output, error)
 
     def to_auto_classifier_result(self, content: Any) -> str | None:
         """Expose received user requests to approval without promoting Agent replies.
@@ -212,22 +250,28 @@ class InboxTool:
             page = json.loads(content)
         except (ValueError, TypeError):
             return None
-        if not isinstance(page, dict) or not page.get("receipt_id"):
+        if (
+            self.name != "inbox"
+            or not isinstance(page, dict)
+            or not isinstance(page.get("messages"), list)
+        ):
             return None
         requests = [
             {
-                "message_id": message.get("message_id"),
-                "sender": message["sender"],
-                "source": message.get("source"),
-                "complete_message": message.get("complete_message"),
-                "text": "\n".join(
+                "message_id": message.get("id"),
+                "sender_id": message.get("sender_id"),
+                "sender": message.get("sender"),
+                "target": page.get("target"),
+                "partial": message.get("partial", False),
+                "text": message.get("text")
+                or "\n".join(
                     block.get("text", "")
                     for block in message.get("content", [])
                     if block.get("type") == "text"
                 ),
             }
             for message in page.get("messages", [])
-            if message.get("sender", {}).get("kind") == "user"
+            if message.get("sender_type") == "user"
         ]
         return (
             "User messages received through this Agent's Inbox: "
