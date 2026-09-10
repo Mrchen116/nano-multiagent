@@ -17,7 +17,7 @@
 - Existing failure: `tests/contract/test_kernel_sdk_behavior_contract.py::test_submit_steer_preserves_structured_image_content`, expects two model requests but observed one. Isolated unchanged rerun passed (0.25s). The test waits for run `running`, not first model-request entry; do not count the rerun as a clean full baseline or modify kernel behavior in this unit.
 - Frontend baseline: message-pane/auth-fetch **98 passed** after `npm ci`. Existing dependency audit notices recorded; no dependency upgrades.
 
-## Test strategy and current evidence (in progress)
+## Test strategy and current evidence
 
 | Risk / owner | Existing coverage disposition | New evidence |
 |---|---|---|
@@ -33,7 +33,7 @@
 | Router receipt collection | Existing router dedupe tests keep | New two-phase/cancellation file; 17 related tests passed |
 | Production metadata seam | Existing exact metadata assertions updated with run/output identity, not weakened | 77 relevant tests passed |
 
-Full implementation, live browser/Feishu evidence and independent gates are not yet complete. These test counts are scoped runs, not a sum or a real-provider success claim.
+Implementation and the main live Web IM/Feishu journeys are complete. These test counts are scoped runs rather than a synthetic total; the real-provider evidence is recorded separately below. Independent product/spec gates and the final post-fix CI-equivalent run remain before PR creation.
 
 ## Runtime evidence
 
@@ -42,29 +42,31 @@ Full implementation, live browser/Feishu evidence and independent gates are not 
 - Real Agent generated a 480×240 PNG using its bash/Python tool. The first answer used invalid bare-path Markdown with spaces and correctly produced a per-image failure; the product prompt now explicitly specifies literal angle brackets around paths. A second real answer using valid angle-bracket syntax displayed the image between its two explanatory paragraphs.
 - Desktop 1280px: displayed width 320px, natural size 480×240. Mobile 390px: image width 250.8px and document width 390px (no horizontal overflow). Click opened the image dialog; Escape closed it and restored focus. Browser warning/error logs were empty.
 - Reload retained the image. Then the test Gateway was stopped and the original file moved to a `.retention-test-backup` name; a fresh page load still obtained a complete 480px image through an IM-backed blob URL while the node displayed offline. This is a real persistence check, not a source-file/cache claim.
-- Durable screenshots: [desktop](evidence/web-im-1280.png), [mobile](evidence/web-im-390.png), [zoom](evidence/web-im-zoom.png), [Gateway offline](evidence/web-im-gateway-offline.png). Desktop/mobile compare against prototype `#reply`: text/image/text order, constrained proportional size and zoom match. Pending/error full reference comparison is not yet complete. These screenshots predate the summary-path correction and are not evidence for that correction.
-- Live validation found a separate sidebar preview leak: lifecycle report/receipt summary still contained raw Markdown while `messages.content` and `message.completed` already contained private image URLs. The outgoing report/receipt now uses `[图片]` for image references, retaining code examples and the original runtime text. Completed messages are authoritative for previews, with destinations reduced to `[alt]`; startup reconstruction uses the same projection. Regression tests reproduced the original failure before the correction. A fresh-stack browser check remains required.
-- Feishu profile authentication checked: test Bot and user verified, user token valid. No Feishu test message sent yet; explicit sending confirmation requested under the lark-im skill.
+- Durable screenshots: [desktop](evidence/web-im-1280.png), [mobile](evidence/web-im-390.png), [zoom](evidence/web-im-zoom.png), [Gateway offline](evidence/web-im-gateway-offline.png). Desktop/mobile compare against prototype `#reply`: text/image/text order, constrained proportional size and zoom match. These screenshots predate the summary-path correction and are not evidence for that correction.
+- Live validation found a separate sidebar preview leak: lifecycle report/receipt summary still contained raw Markdown while `messages.content` and `message.completed` already contained private image URLs. The outgoing report/receipt now uses `[图片]` for image references, retaining code examples and the original runtime text. Completed messages are authoritative for previews, with destinations reduced to `[alt]`; startup reconstruction uses the same projection. Regression tests reproduced the original failure before the correction.
+- A fresh-stack browser check on IM `57321` confirmed the corrected sidebar preview contains only `已停止当前操作，并已开始新会话。`, with no workspace path. The success and partial-failure images loaded through authenticated `blob:` URLs at their natural dimensions (480×270 and 360×200); the partial failure stayed inline between `中间文字` and `结束`. The zoom dialog opened and closed, browser warning/error logs were empty, and [the fresh-stack screenshot](evidence/web-im-feishu-partial-failure.png) records the result.
 
 ### Feishu authorization run
 
 - User authorized the dedicated test user/Bot messages. After a false start in an ephemeral terminal (both IM and Gateway exited with that terminal, local saga count stayed zero), the stack was restarted in an owned persistent tmux session. The repository runtime probe then passed and observed exactly one runtime card plus its plain shadow content.
 - A real image request reached the feat-551 Agent, which generated a valid PNG under `exports`. It exposed a multi-bubble identity bug: when the second assistant bubble began, the first bubble's intermediate provider delivery used the new bubble's `output_key`; the immutable image manifest for `bubble:1` was therefore frozen with the first text and the final image could not replace it. `test_each_external_bubble_freezes_images_under_its_own_output_key` reproduced this failure before the fix. The observer now passes the rolled snapshot's key for the prior intermediate bubble, including IM-offline delivery; the focused integration tests pass.
-- The clean post-fix rerun could not be attributed to feat-551 because another pre-existing `feat546` test Gateway is still connected to the same dedicated App/Bot. The post-fix messages' provider event IDs were found in `/tmp/feat546-feishu-authorized/external_shadow_sagas.sqlite3`, while feat-551's saga had only its probe. This is an exclusive-listener environment conflict, not evidence for or against the fix. No additional messages were sent after confirming it.
-- Therefore Feishu image success, per-image failure and `/new` remain unverified at the real provider. Temporarily stopping the other dedicated E2E Gateway is required before the final exclusive rerun.
+- A pre-existing `feat546` test Gateway initially competed for the dedicated App/Bot. After the user explicitly authorized stopping all of that isolated test stack, its Gateway, IM, children and tmux session were stopped while unrelated ref-550 processes were left untouched. A fresh feat-551 stack acquired the exclusive listener lock and its repository probe passed.
+- Real success request `om_x100b6513bf9ff8a0b283de3b6cf5e87` reached feat-551 run `run_e396e706390a34a9`. The Agent generated a 480×270 PNG; Gateway persisted the final bubble snapshot, IM receipt and app-scoped Feishu receipt, and the real Feishu Post contained pre-text, the uploaded image and post-text. The actual resource downloaded from the Feishu message is preserved as [feishu-real-image-C.png](evidence/feishu-real-image-C.png).
+- Real partial-failure request `om_x100b6513b96924b8b2c08d7c59339df` reached run `run_51f9b90634fec55b` and produced one valid image plus one missing export. The real Feishu Post contained the valid image, `中间文字`, `（图片未能展示：图片来源不可用）`, and `结束`; only the valid ordinal received a provider receipt. The delivered valid resource is [feishu-partial-failure-valid-D.png](evidence/feishu-partial-failure-valid-D.png).
+- For `/new`, request `om_x100b651c4d199888b481fd87a332f1f` entered the controlled 90-second wait and `/new` `om_x100b651c4d3ef0b8b489e8ec60bb3d2` followed about two seconds later. The old run was discarded, no reply-image manifest or late Bot image appeared after more than 95 seconds, and the only Bot response was `已停止当前操作，并已开始新会话。`. This is a real waiting-run cancellation; the integration suite covers the narrower upload-in-progress, admitted-publication and reset-failure interleavings.
 
 ## Broad regression (2026-09-10)
 
-- CI-equivalent Python shards: **1802 passed** (agent/PA, 20.45s) and **1841 passed** (remaining, 58.41s), no skips added. These ran before the final sidebar preview correction.
+- CI-equivalent Python shards: **1802 passed** (agent/PA, 20.45s) and **1841 passed** (remaining, 58.41s), no skips added. These ran before the final sidebar-preview and multi-bubble identity corrections; the final post-fix run is still required.
 - An intermediate PA-only run had one transient `FileNotFoundError` reading a user-global `lark-wiki/SKILL.md`; the unchanged isolated test passed, then both complete shards above passed. No global skill files or unrelated runtime behavior were changed.
 - Frontend rerun: **695 passed** / 72 files, 30.75s, `npm run test -- --maxWorkers=2`. Production build passed (`index-dWoMkIuG.js`); audit critical threshold passed with 7 pre-existing low/moderate/high notices and no dependency changes.
 - Ruff check, all-file format check and staged diff-check passed. Documentation integrity passed (240 maintained Markdown sources, 70 required routes).
 
-## Pause / resumable state
+## Current state
 
-- Dedicated E2E stack stopped using `e2e-down.sh`; owned tmux session `feat551-e2e` removed. No production process was restarted. Test data and the unit worktree are retained as unfinished implementation state, not a running service.
-- Sending confirmation is pending for the dedicated Feishu test identity/Bot. Consequently, no real Feishu success claim, independent final gates, canonical merge, archive, PR or deployment has been performed.
+- The dedicated feat-551 IM/Gateway stack was stopped with `e2e-down.sh` after the fresh browser check, and its owned `feat551-e2e` tmux session was removed. The user-authorized feat-546 test services remain off. No production service was changed or deployed.
+- Real Web IM and exclusive Feishu journeys are complete. Independent final gates, canonical-spec merge, archive, ready PR and remote CI remain; no deployment or merge is authorized.
 
 ## Remaining
 
-Complete integration and real-entry verification, update as-built design/deltas, run product reviewer/verifier, merge verified canonical specs, run CI equivalents, archive, create ready PR, wait CI green, clean owned runtime/worktree. Code-review gate omitted by explicit user override.
+Run the independent product reviewer and spec/design verifier, apply any verified delta, merge canonical specs, run final CI equivalents, archive the unit, create a ready PR, wait for CI green, and remove owned runtime artifacts. Code-review gate is omitted by explicit user override.

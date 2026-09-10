@@ -8,6 +8,8 @@
 
 - 2026-09-10 implementation: runtime image projection uses `runtime_delivery/image_connection.py` at the existing outgoing IM-frame seam; Markdown parser is shared with `reply_image_stream.py`. Public/data downloads reuse Feishu's existing safe reader via its public wrapper. Stable new image identity uses the already allocated run-global bubble ordinal; see [implementation record](M1-reply-images/progress.md).
 - 2026-09-10 qualification clarification: a committed `assistant_message` already holds group publish qualification. Current group contracts do not revoke it for later input; post-upload admission rechecks visibility/generation, not a second `try_commit_output` after terminal.
+- 2026-09-10 live correction: delivery freezes a rolled bubble with that snapshot's own `output_key`, so starting the next assistant bubble cannot redirect the prior bubble's provider preparation. Lifecycle summaries replace image destinations with `[图片]`, while completed IM messages provide the authoritative safe sidebar preview.
+- 2026-09-10 real-entry evidence: isolated Web IM and exclusive Feishu journeys verified successful image delivery, per-image failure isolation, authenticated history, source-independent reload, responsive/zoom behavior and `/new` late-send suppression; exact evidence is in the implementation record.
 - 2026-09-10 user override: omit final code-review gate; retain product/spec verification, real-entry validation and CI.
 
 ## 现状分析
