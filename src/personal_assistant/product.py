@@ -208,7 +208,7 @@ def _user_custom_text(custom_prompt: str | None) -> str | None:
 
 _CHAT_IDENTITY_TEXT = (
     "聊天成员统一使用 user_id（u_...），聊天使用 conversation_id（c_...）。"
-    '群内提及人或 Agent 均写 <mention type="user" target_id="u_..."/>；ID 取自成员信息，普通 @名字不触发提及。'
+    '群内提及人或 Agent 均写 <mention type="user" target_id="u_..."/>；ID 取自成员信息。标签会显示为 @名字，无需另加 @。'
     "send_message(target=user_id, text=...) 发私信；target=conversation_id 发到该聊天。"
     "外部发送者没有 user_id 时，source_id 仅标识来源，回复使用原聊天 target。"
 )
