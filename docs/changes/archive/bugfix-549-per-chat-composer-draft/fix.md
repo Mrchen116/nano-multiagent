@@ -61,4 +61,4 @@ Web IM 里，未发送的输入框内容和待发附件会跟着整页输入框�
 
 - `src/IM/frontend/src/features/chat/components/message-pane-composer-draft.test.tsx`：切会话不串稿、切回恢复、待发附件跟随会话、发送成功只清提交会话、发送失败留在原会话、蒸馏预填只进目标会话、卸载再挂恢复、StrictMode 重挂恢复、发送中途离开后成功仍清该会话。
 - 同目录 `message-pane.test.tsx`、`message-pane-fork.test.tsx`、`chat-workspace.integration.test.tsx` 回归通过。
-- 真实浏览器：隔离 IM `:62005` + Vite `:18765`，账号 `nano`，会话 Draft Chat A / Draft Chat B。桌面 1440 侧栏切换、移动 375 回列表再进，均满足「B 为空、切回 A 仍是 A 的草稿、B 另写一份互不影响」。证据在 `M1-fix/evidence/`。
+- 真实浏览器：隔离 IM `:62005` + Vite `:18765`，账号 `nano`，会话 Draft Chat A / Draft Chat B。桌面 1440 侧栏切换、移动 375 回列表再进，均满足「B 为空、切回 A 仍是 A 的草稿、B 另写一份互不影响」。断言记录在 `M1-fix/evidence/browser-qa.md`。

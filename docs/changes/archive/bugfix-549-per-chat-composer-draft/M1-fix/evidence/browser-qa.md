@@ -16,9 +16,7 @@ Web IM 未发送输入按会话隔离：切到没写过的会话是空输入框�
 
 ## Result
 
-通过。`browser-qa.json`：`desktop.b_after_switch=""`, `desktop.a_restored="draft-for-chat-A"`, `desktop.b_restored="draft-for-chat-B"`, `mobile.b_after_switch=""`, `mobile.a_restored="draft-for-chat-A"`。
-
-截图：`desktop-chat-a-draft.png`、`desktop-chat-b-empty.png`、`desktop-chat-a-restored.png`、`desktop-chat-b-restored.png`、`mobile-chat-a-draft.png`、`mobile-chat-b-empty.png`、`mobile-chat-a-restored.png`。
+通过。`browser-qa.json`：`desktop.b_after_switch=""`, `desktop.a_restored="draft-for-chat-A"`, `desktop.b_restored="draft-for-chat-B"`, `mobile.b_after_switch=""`, `mobile.a_restored="draft-for-chat-A"`。截图不入库。
 
 控制台有既有 user stream `Failed to fetch`（隔离栈未接该通道），与输入框草稿无关。
 
