@@ -318,7 +318,7 @@ export function ChatWorkspacePage() {
   const [distillError, setDistillError] = useState<string | null>(null);
   const [distillNotice, setDistillNotice] = useState<string | null>(null);
   const [distillSubmitting, setDistillSubmitting] = useState(false);
-  const [draftSeed, setDraftSeed] = useState<{ id: string; text: string } | null>(null);
+  const [draftSeed, setDraftSeed] = useState<{ id: string; conversationId: string; text: string } | null>(null);
   // feat-445-M1: fork success toast (top-left, auto-fade); null = hidden.
   const [forkToast, setForkToast] = useState<boolean>(false);
   const selfUserId = useAuthStore((s) => s.user?.id ?? null);
@@ -1028,6 +1028,7 @@ export function ChatWorkspacePage() {
       });
       setDraftSeed({
         id: `distill-${conv.id}-${Date.now()}`,
+        conversationId: conv.id,
         text: result.prompt,
       });
       setShowDistillDialog(false);
@@ -1142,7 +1143,11 @@ export function ChatWorkspacePage() {
             sendError={visibleWorkspaceError?.kind === "send" ? visibleWorkspaceError.message : null}
             onAttachmentUploadError={(error) => handleAttachmentUploadError(activeConversation.id, error)}
             selfUserId={selfUserId}
-            isSending={sendMutation.isPending}
+            isSending={
+              sendMutation.isPending
+              && sendMutation.variables?.conversationId === activeConversation.id
+            }
+            onDraftSeedConsumed={() => setDraftSeed(null)}
             isDirectChat={conversationKind === "direct-agent"}
             agentOnline={headerAgentContext.nodeStatus === "online"}
             onFork={(messageId) => forkMutation.mutate({
