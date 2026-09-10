@@ -94,5 +94,7 @@ fork handler 从源 binding 捕获这份 v1 来源快照，按指定消息完成
 - Green：`tests/unit/personal_assistant/test_session_fork_handler.py`，7 passed。
 - 并发回归：session fork、binder 与 binder concurrency 聚焦集，18 passed；既有两类真实 mid-fork publication 均继续失败且不落目标 binding。
 - 黑盒产品旅程：真实隔离 IM + Gateway 进程、recording LLM stub 下执行“旧配置回复 → 保存新配置 → 不发源会话占位消息 → fork → 分支首条消息”，1 passed；上游请求同时包含 fork 前历史和分支新消息，并使用新 Custom Instructions 与新 tool allowlist。
-- PA 单测：`tests/unit/personal_assistant`，1156 passed。
+- 完整 Python CI 分片：Agent + PA 1772 passed；其余 1814 passed。
+- 前端 CI：`npm ci`、`npm audit --audit-level=critical` 通过（无 critical）；Vitest 71 files / 689 tests passed。
 - 静态门禁：`scripts/docs_check.py`、`ruff check .`、`ruff format --check .`、`git diff --check` 均通过。
+- `change-code-review`：full finder 与独立 verifier 均无存活 finding；verifier 另外确认 fork 后首次准入会在 submit 前把继承的 v1 runtime 整体重配为当前配置。
