@@ -4,27 +4,51 @@ from __future__ import annotations
 
 import asyncio
 from collections import OrderedDict
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass
 from concurrent.futures import Future
-from threading import Lock
+from threading import Event, Lock
 
-from personal_assistant.channels.base import OutboundMessage, ReplyContext
+from personal_assistant.channels.base import (
+    OutboundImage,
+    OutboundMessage,
+    ReplyContext,
+)
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 
 _MAX_DEDUPE_KEYS = 4096
+
+
+@dataclass
+class PreparedOutbound:
+    """Carry frozen reply bytes and lifecycle callbacks into the dedupe owner."""
+
+    outbound: OutboundMessage
+    record_receipts: Callable[[object], None]
+    before_publish: Callable[[], bool]
+    after_publish: Callable[[], None]
+    release: Callable[[], None]
 
 
 class OutboundRouter:
     """Send normalized replies to the adapter captured in reply context."""
 
     def __init__(
-        self, registry: ChannelRegistry, *, max_dedupe_keys: int = _MAX_DEDUPE_KEYS
+        self,
+        registry: ChannelRegistry,
+        *,
+        max_dedupe_keys: int = _MAX_DEDUPE_KEYS,
+        prepare_outbound: Callable[
+            [OutboundMessage], Awaitable[PreparedOutbound | None]
+        ]
+        | None = None,
     ) -> None:
         self._registry = registry
         self._sent_dedupe_keys: OrderedDict[str, None] = OrderedDict()
         self._active_dedupe_flights: dict[str, Future[bool]] = {}
         self._dedupe_lock = Lock()
         self._max_dedupe_keys = max(1, max_dedupe_keys)
+        self._prepare_outbound = prepare_outbound
 
     def send_text(
         self, *, text: str, reply_context: ReplyContext
@@ -72,7 +96,14 @@ class OutboundRouter:
         return outbound
 
     async def send_text_async(
-        self, *, text: str, reply_context: ReplyContext
+        self,
+        *,
+        text: str,
+        reply_context: ReplyContext,
+        images: tuple[OutboundImage, ...] = (),
+        record_provider_receipts: Callable[[object], None] | None = None,
+        before_publish: Callable[[], bool] | None = None,
+        after_publish: Callable[[], None] | None = None,
     ) -> OutboundMessage | None:
         """Dispatch text without blocking the event loop or cancellation on a waiter.
 
@@ -110,22 +141,69 @@ class OutboundRouter:
             target_chat_id=reply_context.target_chat_id,
             thread_id=reply_context.thread_id,
             metadata=dict(reply_context.metadata),
+            images=images,
         )
-        send_task = asyncio.create_task(asyncio.to_thread(channel.send, outbound))
-        try:
-            await asyncio.shield(send_task)
-        except asyncio.CancelledError:
-            send_task.add_done_callback(
-                lambda completed: self._finish_cancelled_owner(
-                    dedupe_keys, outcome, completed
-                )
+        cancelled = Event()
+        prepared_sender = getattr(channel, "send_prepared", None)
+
+        def admit() -> bool:
+            return (
+                not cancelled.is_set()
+                and before_publish is not None
+                and before_publish()
             )
+
+        async def deliver() -> bool:
+            nonlocal outbound, before_publish, after_publish, record_provider_receipts
+            projected = None
+            try:
+                if callable(prepared_sender) and self._prepare_outbound is not None:
+                    projected = await self._prepare_outbound(outbound)
+                    if projected is not None:
+                        outbound = projected.outbound
+                        before_publish = projected.before_publish
+                        after_publish = projected.after_publish
+                        record_provider_receipts = projected.record_receipts
+                if callable(prepared_sender) and (
+                    outbound.images or before_publish is not None
+                ):
+                    preparation = await asyncio.to_thread(
+                        channel.prepare_images, outbound
+                    )
+                    if record_provider_receipts is not None:
+                        await asyncio.to_thread(record_provider_receipts, preparation)
+                    outcome = await asyncio.to_thread(
+                        prepared_sender,
+                        outbound,
+                        preparation,
+                        before_publish=admit,
+                        after_publish=after_publish,
+                    )
+                    return outcome == "delivered"
+                await asyncio.to_thread(channel.send, outbound)
+                return True
+            finally:
+                if projected is not None:
+                    projected.release()
+
+        send_task = asyncio.create_task(deliver())
+        try:
+            delivered = await asyncio.shield(send_task)
+        except asyncio.CancelledError:
+            cancelled.set()
+            # A provider upload thread cannot be cancelled. Keep this owner alive
+            # through its receipt finalizer, but close all later public admission.
+            try:
+                delivered = await asyncio.shield(send_task)
+            except Exception:
+                delivered = False
+            self._finish_dedupe_flight(dedupe_keys, outcome, delivered=delivered)
             raise
         except Exception:
             self._finish_dedupe_flight(dedupe_keys, outcome, delivered=False)
             raise
-        self._finish_dedupe_flight(dedupe_keys, outcome, delivered=True)
-        return outbound
+        self._finish_dedupe_flight(dedupe_keys, outcome, delivered=delivered)
+        return outbound if delivered else None
 
     def _claim_dedupe_keys(
         self, dedupe_keys: set[str]

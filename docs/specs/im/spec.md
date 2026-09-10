@@ -1,6 +1,6 @@
 # IM Specification
 
-> 对齐: feat-548 / bugfix-549
+> 对齐: feat-548 / bugfix-549 / feat-551-agent-reply-images
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端(内置 Web IM)、Node Gateway(`personal_assistant`)、终端用户,以及 `tests/im_service/` 里的契约测试。
 
@@ -19,8 +19,8 @@
 | Area | Covers | Requirements |
 |---|---|---|
 | [Auth and Tenancy](auth-tenancy.md) | JWT、owner 隔离、系统 policies | 3 |
-| [Conversations and Messages](conversations-messages.md) | 会话/消息 CRUD、稳定短身份、shadow conversation、配置边界、outbox、群聊、分页、fork | 20 |
-| [Web Chat UX](web-chat-ux.md) | 历史加载、配置边界、滚动、输入、未发送内容按会话隔离、slash 控制命令、消息操作、图片 attachment 预览、conversation skill 蒸馏入口、响应式体验、身份展示与自进化提示本地化 | 18 |
+| [Conversations and Messages](conversations-messages.md) | 会话/消息 CRUD、稳定短身份、受保护 Agent 图片、shadow conversation、配置边界、outbox、群聊、分页、fork | 21 |
+| [Web Chat UX](web-chat-ux.md) | 历史加载、配置边界、滚动、输入、未发送内容按会话隔离、slash 控制命令、消息操作、Agent 内联图片、图片 attachment 预览、conversation skill 蒸馏入口、响应式体验、身份展示与自进化提示本地化 | 19 |
 | [Tool Timeline](tool-timeline.md) | single_thread 消息内过程、真实后台返回、群回复复核与两种模式共享展示边界 | 9 |
 | [Agent Work](agent-work.md) | 全局主工作轨迹、关联子执行、执行明细、统计与持久回看 | 2 |
 | [Workflows](workflows.md) | Workflow 在既有 tool、permission、slash 与普通消息 surface 中的呈现和开关 | 2 |

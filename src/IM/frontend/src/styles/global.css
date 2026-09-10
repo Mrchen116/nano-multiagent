@@ -2321,6 +2321,12 @@ body {
   word-break: break-word;
 }
 
+/* Grid items otherwise keep their image state's 320px intrinsic width and can
+   escape a narrower mobile message bubble. */
+.im-md > * {
+  min-width: 0;
+}
+
 .im-md p,
 .im-md ul,
 .im-md ol,
@@ -2497,6 +2503,104 @@ body {
   flex-wrap: wrap;
   gap: 0.4rem;
   margin-top: 0.25rem;
+}
+
+.chat-message-image {
+  display: block;
+  width: fit-content;
+  max-width: min(320px, 100%);
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--im-surface);
+  cursor: zoom-in;
+}
+
+.chat-message-image img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0;
+}
+
+.chat-message-image-state {
+  display: block;
+  width: 320px;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 24px 14px;
+  border: 1px dashed var(--im-border-strong);
+  border-radius: 8px;
+  color: var(--im-text-muted);
+}
+
+.chat-message-image-state--error { padding: 12px 14px; }
+.chat-message-image-state button { display: block; margin-top: 8px; min-height: 44px; }
+.chat-message-image:focus-visible,
+.chat-image-preview-close:focus-visible { outline: 2px solid var(--im-accent); outline-offset: 2px; }
+
+.chat-image-preview-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgb(8 15 26 / 88%);
+  backdrop-filter: blur(6px);
+}
+
+.chat-image-preview {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 101;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - 24px);
+  padding: 0;
+  box-sizing: border-box;
+  background: transparent;
+  outline: none;
+}
+
+.chat-image-preview img {
+  display: block;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - 24px);
+  width: auto;
+  height: auto;
+  border-radius: 12px;
+  box-shadow: 0 24px 72px rgb(0 0 0 / 42%);
+  object-fit: contain;
+}
+
+.chat-image-preview-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 1;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid rgb(255 255 255 / 28%);
+  border-radius: 50%;
+  background: rgb(8 15 26 / 72%);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 25%);
+  color: #fff;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+}
+
+.chat-image-preview-close:hover { background: rgb(8 15 26 / 90%); }
+.chat-image-preview-close:focus-visible { outline-color: #fff; }
+.chat-image-preview-close svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
 }
 
 .chat-bubble-attachments .chat-attachment-chip--image {

@@ -209,4 +209,10 @@ Implementation and native/Feishu real-stack self-tests are complete. User explic
 
 Cron 实测暴露另一个原有缺陷：模型按要求创建 `everyMs=3600000, anchorMs=4102444800000`，持久任务参数正确，但除手动执行外，调度器在下一个 tick 又提前触发一次。`_parse_schedule_dict` 只读取 everyMs、忽略 anchorMs，继而走未设起点的立即执行分支；`origin/main` 的同一实现也存在该遗漏。修复范围限于尊重显式起点及其后间隔，无起点任务和 heartbeat 保留现有行为；通过公开 `CronScheduler.tick` 保护起点前不触发、起点后保持对齐、不重复或刷屏补跑，并重新跑真实 Cron 验收。
 
-完整操作、失败证据、修复和验证边界见 [真实链路复测](../review-live-validation.md)。此外修复了 Cron 带外通知拆开工具调用/结果、一次性任务入队后提前删除，以及并发建群交叉提交事务；均先确认实际失败路径再改动。最终代码 Python 非 E2E 全量 3728 passed。已有失败 Session 保留原 JSONL 的真实追问已恢复；最后一个新建一次性 Cron 的重叠场景被自动审批拒绝，已请求用户授权，未记为通过。
+完整操作、失败证据、修复和验证边界见 [真实链路复测](../review-live-validation.md)。此外修复了 Cron 带外通知拆开工具调用/结果、一次性任务入队后提前删除，以及并发建群交叉提交事务；均先确认实际失败路径再改动。最终代码 Python 非 E2E 全量 3728 passed。已有失败 Session 保留原 JSONL 的真实追问已恢复；最后一个新建一次性 Cron 的重叠场景被 nano 自身自动审批拒绝，未记为通过。用户已授权测试；先前误写为等待用户另行授权，现已更正，权限识别和主动申请卡片另建 feat-552 讨论。
+
+### 2026-09-10 — 同步 main 并解决图片能力合并冲突
+
+按用户要求合入 `origin/main` 的 `183009cca`（feat-551）。保留全局 Web Relay 持久 Inbox 接线和主分支的图片投递 Router，去掉被新 Router 替代的重复实例；合并四份 current 文档的行为与索引计数。图片提示仅进入直接投递 assistant 回复的执行，全局主上下文保持显式 `send_message` 路由，不注入与其矛盾的“直接回复当前聊天”指令。复用 prompt 集成测试覆盖单聊天、全局主执行和独立 Cron 三种提示。
+
+合并后针对性 35 项通过；Python 非 E2E 全量 3801 项通过；前端 79 文件 / 745 项及生产构建通过；Ruff lint/format、docs-check 和 diff check 通过。此轮验证合并兼容性，没有把此前受 nano 自动审批阻塞的一次性 Cron 实测记为通过。授权卡片草稿在独立的 feat-552 中继续讨论，不混入本 PR 的产品实现。

@@ -1,6 +1,6 @@
 # IM - Conversations and Messages Specification
 
-> 对齐: feat-548
+> 对齐: feat-548 / feat-551-agent-reply-images
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -10,6 +10,23 @@
 会话、消息、外部 channel 影子会话、消息顺序、群会话和 fork 的 IM 契约。
 
 ## Requirements
+
+### Requirement: Agent 新托管图片按会话保护且稳定可回看
+
+IM MUST 将新托管 Agent 图片作为对应会话的受保护资源。访问遵循会话 owner 权限；历史回看不依赖 Agent 原文件或节点在线。此规则不追溯迁移旧公开上传附件。
+
+#### Scenario: 已交付图片持久回看
+- **GIVEN** 会话已有新托管的 Agent 图片
+- **WHEN** 原文件删除或覆盖、Gateway 重启或离线，用户刷新或重新登录
+- **THEN** 有权用户仍看到交付时的同一图片。
+
+#### Scenario: 地址不授予访问权限
+- **WHEN** 未登录或其他 owner 用户请求新托管图片
+- **THEN** 分别返回 401 或 404，不返回图片；有权用户正常读取。
+
+#### Scenario: 会话 fork 保留图片
+- **WHEN** 用户 fork 含图片的消息历史并随后删除原会话
+- **THEN** fork 中仍可查看已复制消息的图片，且访问遵循目标会话权限。
 
 ### Requirement: 会话消息与时间线条目响应字段稳定且按消息游标分页
 

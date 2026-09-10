@@ -348,6 +348,34 @@ def prompt_for(
             text=_PA_GLOBAL_ROUTING_TEXT if global_main else _PA_ROUTING_TEXT,
         )
     )
+    workspace = getattr(agent, "workspace_root", None)
+    # Global main publishes through explicit dispatch, outside reply-image delivery.
+    if workspace is not None and not global_main:
+        exports = (
+            Path(workspace).expanduser().absolute()
+            / WORKSPACE_CONFIG_DIRNAME
+            / "exports"
+        )
+        body_pieces.append(
+            PromptText(
+                name="pa.reply_images",
+                text=(
+                    "## Reply Images\n"
+                    f"Deliverable image directory: {exports}\n"
+                    "To show a PNG, JPEG or WebP image in this chat, use your existing tools "
+                    "to create or copy the real image into that directory, then include "
+                    "![description](<absolute image path>) in your reply at the intended position. "
+                    "The angle brackets < and > are literal Markdown syntax: always put them "
+                    "around the entire path, especially when the filename contains spaces. "
+                    "Only regular files within this directory can be delivered; symbolic links "
+                    "and other local paths are not accepted. Copy screenshots from elsewhere "
+                    "using the existing permission-controlled tools first. "
+                    "Never invent a file path or output base64. Do not claim an image was sent "
+                    "when its preparation failed. Reply to the current chat directly; "
+                    "do not use send_message for the current reply."
+                ),
+            )
+        )
 
     custom_pieces: list[PromptText] = []
     custom_text = _user_custom_text(custom_prompt)

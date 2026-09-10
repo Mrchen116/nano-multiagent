@@ -7,6 +7,7 @@ import sqlite3
 from IM.infra._helpers import (
     _optional_text,
     _preview_from_event,
+    _text_preview,
 )
 
 _SCHEMA_SQL = """
@@ -155,6 +156,19 @@ CREATE TABLE IF NOT EXISTS messages (
     UNIQUE(conversation_id, caller_idempotency_key),
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
     FOREIGN KEY (sender_user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS message_images (
+    image_id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    source_key TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    file_name TEXT NOT NULL,
+    byte_size INTEGER NOT NULL,
+    storage_name TEXT NOT NULL,
+    UNIQUE(conversation_id, source_key),
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS conversation_events (
@@ -892,7 +906,7 @@ def _migrate_usage_metrics(connection: sqlite3.Connection) -> None:
 def _preview_from_message_row(row: sqlite3.Row) -> str:
     content = str(row["content"] or "").strip()
     if content:
-        return content
+        return _text_preview(content)
     try:
         attachments = json.loads(row["attachments_json"] or "[]")
     except json.JSONDecodeError:

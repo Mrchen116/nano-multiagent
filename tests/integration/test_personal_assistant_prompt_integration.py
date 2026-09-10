@@ -6,10 +6,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 from agent.core.agent.prompt_sections.base import PromptContext, assemble_system_prompt
 from agent.core.agent.prompt_sections.skeleton import build_kernel_prompt_skeleton
 from agent.core.types import ToolSpec
 from personal_assistant.config.local_store import AgentWorkspaceConfig
+from personal_assistant.config.local_store import ensure_workspace_defaults
 from personal_assistant.product import prompt_for
 
 
@@ -64,6 +67,34 @@ def test_group_scenario_reaches_the_assembled_pa_prompt(tmp_path: Path) -> None:
     assert "user-unique" in prompt
     assert '<mention type="agent"' not in prompt
     assert "<task-notification>" in prompt
+
+
+@pytest.mark.parametrize(
+    ("work_mode", "work_scope", "reply_images"),
+    [
+        ("single_thread", None, True),
+        ("global", "global_main", False),
+        ("global", "cron", True),
+    ],
+)
+def test_reply_image_guidance_matches_the_publication_mode(
+    tmp_path: Path, work_mode: str, work_scope: str | None, reply_images: bool
+) -> None:
+    workspace = ensure_workspace_defaults(tmp_path / "workspace")
+    prompt = _assemble(
+        AgentWorkspaceConfig(
+            agent_id="agent-a", workspace_root=workspace, work_mode=work_mode
+        ),
+        scenario={"pa_work_scope": work_scope} if work_scope else None,
+    )
+    exports = workspace / ".nanoassistant/exports"
+    assert exports.is_dir()
+    assert (str(exports) in prompt) is reply_images
+    if reply_images:
+        assert "![" in prompt
+        assert "PNG" in prompt and "JPEG" in prompt and "WebP" in prompt
+    else:
+        assert "do not use send_message for the current reply" not in prompt
 
 
 def test_legacy_system_input_is_ignored_and_custom_is_injected_once(

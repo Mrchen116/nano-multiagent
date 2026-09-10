@@ -896,6 +896,7 @@ def test_im_outage_keeps_external_delivery_and_durably_records_final_shadow_outp
         output_kind: str,
         kernel_message_id: str | None,
         content: str,
+        output_key: str | None = None,
     ):
         delivery_order.append("durable")
         return sync.prepare_agent_output(
@@ -904,6 +905,7 @@ def test_im_outage_keeps_external_delivery_and_durably_records_final_shadow_outp
             output_kind=output_kind,
             kernel_message_id=kernel_message_id,
             content=content,
+            output_key=output_key,
         )
 
     pipeline = build_inbound_pipeline(

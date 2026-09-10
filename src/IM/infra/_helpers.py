@@ -4,6 +4,17 @@ Internal to IM.infra — not part of the IM public API.
 Consolidated from private copies in db.py and repositories.py as refactor-395-M1.
 """
 
+import re
+
+
+def _text_preview(content: str) -> str:
+    """Show image labels, never image destinations, in the plain-text inbox."""
+    return re.sub(
+        r"!\[([^\]\n]*)\]\(\s*(?:<[^>\n]+>|[^\s)]+)\s*\)",
+        lambda match: f"[{match[1].strip() or '图片'}]",
+        content.strip(),
+    )
+
 
 def _optional_text(value: object) -> str | None:
     """Return the stripped string if *value* is a non-empty str, else None.
@@ -57,8 +68,13 @@ def _preview_from_event(event_type: str, payload: dict[str, object]) -> str | No
         A preview string, or None if no suitable content is found.
     """
     content = _optional_text(payload.get("content"))
-    if event_type in {"message.sent", "message_created"} and content is not None:
-        return content
+    if (
+        event_type in {"message.sent", "message_created", "message.completed"}
+        and content is not None
+    ):
+        # A completed body can replace provisional relay summaries after channel
+        # projection; inbox and startup replay must use that same final content.
+        return _text_preview(content)
 
     if event_type in {
         "relay.processing",
@@ -72,7 +88,7 @@ def _preview_from_event(event_type: str, payload: dict[str, object]) -> str | No
         preview = summary or detail or content
         if preview is None or _is_no_reply_protocol_token(preview):
             return None
-        return preview
+        return _text_preview(preview)
 
     file_name = _optional_text(payload.get("file_name"))
     if file_name is not None:

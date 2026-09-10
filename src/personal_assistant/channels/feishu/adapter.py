@@ -13,9 +13,10 @@ import base64
 from concurrent.futures import ThreadPoolExecutor
 import json
 import logging
+import re
 import threading
 from collections.abc import Callable, Mapping
-from typing import Any
+from typing import Any, Literal
 
 from personal_assistant.channels.base import (
     ExternalConversationIdentity,
@@ -24,6 +25,8 @@ from personal_assistant.channels.base import (
     InboundIngress,
     InboundMessage,
     OutboundMessage,
+    ProviderImageEntry,
+    ProviderImagePreparation,
 )
 from personal_assistant.channels.feishu.approval import FeishuPermissionApprovalSurface
 from personal_assistant.channels.feishu.client import (
@@ -34,6 +37,7 @@ from personal_assistant.channels.feishu.client import (
     FeishuImageTooLargeError,
     FeishuMessageEvent,
     FeishuMention,
+    _replace_markdown_images_outside_code,
 )
 from personal_assistant.channels.feishu.worker import FeishuWorkerStatus
 from personal_assistant.gateway.group_context_store import GroupContextStore
@@ -114,6 +118,11 @@ class FeishuAdapter:
     @property
     def name(self) -> str:
         return self._name
+
+    @property
+    def image_account_id(self) -> str:
+        """Return the provider account scope for reusable image upload receipts."""
+        return self._app_id
 
     def start(self, on_inbound: InboundHandler) -> None:
         """Start the feishu WebSocket listener and register the inbound callback."""
@@ -198,6 +207,95 @@ class FeishuAdapter:
                 },
             )
             raise
+
+    def prepare_images(self, outbound: OutboundMessage) -> ProviderImagePreparation:
+        """Upload each image independently without publishing a chat message.
+
+        Args:
+            outbound: Validated image bytes and current-application receipts.
+
+        Returns:
+            Account-scoped outcomes for persistence before public delivery.
+
+        Raises:
+            RuntimeError: When the adapter has not been started.
+        """
+        if self._client is None:
+            raise RuntimeError("feishu adapter is not started")
+        entries = []
+        for image in outbound.images:
+            key, error = image.image_key, image.error_code
+            if not key and not error:
+                try:
+                    key = self._client.upload_image(
+                        image.data, content_type=image.content_type
+                    )
+                except Exception:
+                    # Provider errors may contain sensitive payloads; retain a category only.
+                    error = "upload_failed"
+            entries.append(ProviderImageEntry(image.ordinal, key, error))
+        return ProviderImagePreparation(self._app_id, self._app_id, tuple(entries))
+
+    def send_prepared(
+        self,
+        outbound: OutboundMessage,
+        preparation: ProviderImagePreparation,
+        before_publish: Callable[[], bool] | None,
+        after_publish: Callable[[], None] | None,
+    ) -> Literal["delivered", "suppressed"]:
+        """Publish saved provider image outcomes without any image I/O.
+
+        Args:
+            outbound: Reply with ordinal image placeholders.
+            preparation: Receipts persisted by the Gateway for this application.
+            before_publish: Admission callback checked for each provider attempt.
+            after_publish: Release callback for each admitted attempt.
+
+        Returns:
+            Delivered on provider success, suppressed on rejected admission.
+
+        Raises:
+            ValueError: When receipts belong to another application.
+            FeishuAPIError: When the provider rejects the public message.
+        """
+        if self._client is None:
+            raise RuntimeError("feishu adapter is not started")
+        if (preparation.connector_account_id, preparation.app_id) != (
+            self._app_id,
+            self._app_id,
+        ):
+            raise ValueError("image preparation belongs to another application")
+        entries = {entry.ordinal: entry for entry in preparation.entries}
+
+        def replace_image(match: re.Match[str]) -> str:
+            source = match.group(2)
+            if not source.startswith("nano-image-pending:"):
+                return match.group(0)
+            ordinal = source.removeprefix("nano-image-pending:")
+            entry = entries.get(int(ordinal)) if ordinal.isdecimal() else None
+            if entry is not None and entry.image_key:
+                return f"![{match.group(1)}]({entry.image_key})"
+            if entry is not None and entry.error_code == "missing":
+                return "图片未能展示：图片快照不可用"
+            return "图片未能展示：上传失败"
+
+        text = _replace_markdown_images_outside_code(outbound.text, replace_image)
+        footer = _runtime_footer_for(outbound)
+        result = self._client.send_prepared_message(
+            receive_id=_extract_chat_id(outbound.target_chat_id),
+            receive_id_type="open_id"
+            if ":dm:" in outbound.target_chat_id
+            else "chat_id",
+            text=text,
+            card=_build_runtime_card(text=text, runtime_footer=footer)
+            if footer
+            else None,
+            before_publish=before_publish,
+            after_publish=after_publish,
+        )
+        if result == "delivered":
+            self._remove_ack_after_reply(outbound)
+        return result
 
     def stop(self) -> None:
         """Stop the feishu WebSocket listener."""
