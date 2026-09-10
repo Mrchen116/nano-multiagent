@@ -45,3 +45,27 @@
 ## 交付
 
 current specs 已同步，迁移 prompt 随完整 unit 归档并进入 PR287。没有合并或生产部署。
+
+## 2026-09-10 工具说明真实模型复验
+
+用户要求验证精简后的 description / 参数说明。以 `7a56e85b3` 为基础，在此前迁移副本（IM 59770）恢复隔离 Gateway，另建无旧角色限制的 `tool-wording-main`、`tool-wording-peer`（global）及 `tool-wording-single`（single_thread）。模型均为真实 `deepseek:deepseek-v4-flash`，无 mock；自然语言任务不提供工具调用答案。原 59669 演示和生产未改动。副本继续保留供用户查看。
+
+| 场景 | 实际结果 |
+|---|---|
+| 按群名查找、查询完整成员 | list(query) → info，取得正确 user_id 与 mention |
+| 全局群内 Agent 提及 | 发送真实 user 标签，小舟在目标群回复“青竹收到” |
+| Agent 私信与用户私信 | user_id 寻址成功，小舟回信“私信收到”，用户收到“已发出两项检查” |
+| 按成员名查找、列表分页 | query=小舟、limit=1，沿两个返回游标完整读出 3 个会话 |
+| 历史分页 | 26 条记录按 10+10+6 读取，数量合计 2457，01/13/26 校验词为松果/海棠/银杏 |
+| 按消息定位更早内容 | before_message_id=第13条、limit=2，返回12号84和11号77，未混用 cursor |
+| 空搜索 | 不存在的会话名返回空列表；模型报告未找到 |
+| Inbox 分页 | 小舟读取26条存档时沿 next_cursor 续读，无额外存档回复 |
+| 长消息与图片 | 34856字符正文首段 partial=true，随后复制游标读取剩余正文和原生图片；识别雾杉、鹿鸣742、929069、红绿蓝 |
+| 单会话及全局真人提及 | 正确 user 标签；本轮所有模型公开消息均无 @<mention 的重复前缀 |
+| 重启连续性 | 重载后主 Agent 查到之前的小舟私信回执，正确在群内提及用户并回原私聊报告 |
+
+检查全部 Session 工具记录时发现一次单会话误调 conversations(list)，返回 scope_not_allowed；该测试 Agent 显式开放了查询工具，而原说明未写 global 限制。补充 inbox/conversations 的“Global mode only”，并将 send_message 引导改为优先使用会话上下文，global 模式才查询成员。无路由或执行逻辑改动。
+
+相同单会话请求在新群 `c_duxnn6h2`、新 Session `sess_3973c7ceb7707816` 复验：直接使用上下文身份输出真人与 Agent mention，无工具误调，小舟回“单会话收到”。主 global Session `sess_bedd3cadbceb19d9` 的重启复验也通过。
+
+复查 `test_global_inbox_images.py`、`test_global_inbox_model_protocol.py`、`test_global_inbox.py`、`test_send_message_tool.py`：21 passed；Ruff及diff检查通过。此结果证明上述实际样例成功，不代表对模型误用率的统计结论。

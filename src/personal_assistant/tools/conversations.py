@@ -9,7 +9,7 @@ class ConversationsTool(InboxTool):
 
     name = "conversations"
     description = (
-        "Find conversations, look up members, or read history newest first. "
+        "Global mode only: find conversations, look up members, or read history newest first. "
         "These queries do not mark Inbox messages as read. "
         "If next_cursor is returned, use it to continue; partial marks an incomplete message."
     )

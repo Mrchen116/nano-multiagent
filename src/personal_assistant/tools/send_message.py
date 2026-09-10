@@ -95,18 +95,18 @@ class SendMessageTool:
     presenter = _SEND_MESSAGE_PRESENTER
     description = (
         "Send a private message to a user or agent, or post to a conversation. "
-        'Use conversations(action="info", target=...) to get member IDs and mention tags.'
+        'Use member IDs from your conversation context; in global mode, conversations(action="info", target=...) also provides IDs and mention tags.'
     )
     input_schema = {
         "type": "object",
         "properties": {
             "text": {
                 "type": "string",
-                "description": "Message text. To mention someone, insert their returned mention tag; it already displays as @name.",
+                "description": "Message text. To mention someone, insert their mention tag; it already displays as @name.",
             },
             "target": {
                 "type": "string",
-                "description": "A user_id (u_...) from member info for a private message, or a conversation_id (c_...) from inbox or conversations to post in that chat.",
+                "description": "A user_id (u_...) from context or member info for a private message, or a conversation_id (c_...) from inbox or conversations to post in that chat.",
             },
         },
         "required": ["text", "target"],

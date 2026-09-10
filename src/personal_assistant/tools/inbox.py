@@ -139,7 +139,7 @@ class InboxTool:
 
     name = "inbox"
     description = (
-        "Check which conversations have unread messages, or read them oldest first. "
+        "Global mode only: check which conversations have unread messages, or read them oldest first. "
         "Reading brings messages into your context and marks fully read messages as read; "
         "it does not complete a task or require a reply. partial marks an incomplete message; "
         "continue with next_cursor. Text, images and attachments stay in source order. Times are UTC."
