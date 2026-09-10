@@ -1940,28 +1940,39 @@ body {
   background: var(--im-accent);
   color: var(--im-accent-fg);
   border: 0;
-  border-radius: 0.6rem;
-  width: 38px;
-  height: 38px;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  margin: 3px;
+  padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 1rem;
   cursor: pointer;
   flex-shrink: 0;
-  transition: all 0.15s;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.chat-pane-composer-send:not(:disabled):hover {
+  background: color-mix(in srgb, var(--im-accent), black 12%);
+}
+
+.chat-pane-composer-send:focus-visible {
+  outline: 2px solid var(--im-accent);
+  outline-offset: 3px;
 }
 
 .chat-pane-composer-send:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+  background: var(--im-surface-2);
+  color: var(--im-text-muted);
+  cursor: default;
 }
 
 @media (max-width: 767px) {
   .chat-pane-composer-send {
     width: 42px;
     height: 42px;
-    border-radius: 12px;
   }
 }
 
