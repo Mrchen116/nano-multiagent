@@ -105,6 +105,58 @@ def _approval_text(request):
     return "\n".join(str(m.content) for m in request.messages if m.role == "user")
 
 
+class _FailFirstClient(_Client):
+    async def generate(self, request):
+        if not self.requests:
+            self.requests.append(request)
+            raise RuntimeError("provider unavailable before producing output")
+        async for message in super().generate(request):
+            yield message
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sources", [("system",), ("agent",), ("system", "human")])
+async def test_model_fallback_replay_preserves_committed_input_sources(
+    tmp_path, sources
+):
+    from agent.platform.hooks.builtins._auto_mode_transcript import SOURCE_INSTRUCTIONS
+
+    source, action, client = _Source(), _Action(), _FailFirstClient()
+    kernel = _kernel(tmp_path, client, source, action)
+    try:
+        session = await kernel.create_session(enabled_tools=[action.name])
+        record = kernel.submit(
+            session_id=session.session_id,
+            parts=[
+                {
+                    "type": "text",
+                    "text": f"Publication context from {origin}",
+                    "context_origin": origin,
+                }
+                for origin in sources
+            ],
+        )
+        failed = await _wait_for_terminal_run(kernel, record.run_id)
+        assert failed.status == "failed"
+        replay = kernel.replay_last_user(session_id=session.session_id)
+        terminal = await _wait_for_terminal_run(kernel, replay.run_id)
+        assert terminal.status == "completed", terminal
+        first_users = [
+            m.content for m in client.requests[0].messages if m.role == "user"
+        ]
+        replay_users = [
+            m.content for m in client.requests[1].messages if m.role == "user"
+        ]
+        assert replay_users == first_users
+        key = "system-with-human" if len(sources) > 1 else sources[0]
+        assert json.dumps(SOURCE_INSTRUCTIONS[key], ensure_ascii=False)[
+            1:-1
+        ] in _approval_text(client.approvals[0])
+        assert len(action.executed) == 1
+    finally:
+        kernel.close()
+
+
 @pytest.mark.asyncio
 async def test_mixed_input_keeps_system_notice_separate_from_same_turn_human(tmp_path):
     from agent.platform.hooks.builtins._auto_mode_policy import (

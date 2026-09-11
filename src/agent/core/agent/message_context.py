@@ -138,6 +138,43 @@ def render_source_message(
     return replace(message, content=content)
 
 
+def restore_input_parts(
+    content: Any, metadata: Mapping[str, Any]
+) -> list[Mapping[str, Any]]:
+    """Restore submitted parts without reinterpreting their persisted source.
+
+    Args:
+        content: Persisted text or structured content blocks.
+        metadata: Message-owned source and accepted delegation context.
+
+    Returns:
+        Canonical submit parts retaining each original part's provenance.
+    """
+    shared = {
+        key: metadata[key]
+        for key in ("context_origin", "context_has_human", "inherited_approval_context")
+        if key in metadata
+    }
+    entries = metadata.get("context_parts") or ()
+    if isinstance(content, str):
+        if entries:
+            return [{**shared, **dict(entry)} for entry in entries]
+        return [{"type": "text", "text": content, **shared}]
+    parts = []
+    for index, part in enumerate(content):
+        entry = entries[index] if index < len(entries) else {}
+        parts.append(
+            {
+                **dict(part),
+                **shared,
+                "context_origin": entry.get(
+                    "context_origin", metadata.get("context_origin")
+                ),
+            }
+        )
+    return parts
+
+
 class LiveToolContext:
     """Remember host facts produced by this runtime, never facts loaded from disk."""
 

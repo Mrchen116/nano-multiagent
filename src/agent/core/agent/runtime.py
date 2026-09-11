@@ -30,7 +30,11 @@ from agent.core.hooks.context import HookContext, HookModelCall, HookModelResult
 from agent.core.hooks.runner import HookRunner, log_hook_diagnostics
 from agent.core.llm.factory import LLMFactoryConfig
 from agent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage
-from agent.core.agent.message_context import LiveToolContext, input_context_metadata
+from agent.core.agent.message_context import (
+    LiveToolContext,
+    input_context_metadata,
+    restore_input_parts,
+)
 from agent.core.llm.model_registry import context_window_for_model, provider_of
 from agent.core.session.conversation import ConversationState
 from agent.core.session.transcript import USER_INTERRUPT_RECOVERY_CONTENT
@@ -443,13 +447,12 @@ class AgentEngine:
             if last_user is None:
                 raise ValueError("replay-last-user requires a prior user message")
             user_text = last_user.content if isinstance(last_user.content, str) else ""
-            if last_user.parts:
-                # 保留原 user parts（含图片），不要退化成纯文本占位。
-                input_parts = parse_input_parts(list(last_user.parts))
-            else:
-                input_parts = parse_input_parts(
-                    [{"type": "text", "text": user_text}] if user_text else []
+            input_parts = parse_input_parts(
+                restore_input_parts(
+                    last_user.parts or user_text,
+                    last_user.metadata,
                 )
+            )
             if not user_text:
                 user_text = render_user_text(input_parts)
         else:

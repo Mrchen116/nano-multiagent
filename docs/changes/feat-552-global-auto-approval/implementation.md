@@ -28,6 +28,7 @@ M1/M2 的产品实现已落入本 worktree，尚未完成全部真实旅程和�
 - child 创建与 follow-up 从父会话取得当时可见上下文及有效 Auto 配置，并沿已接纳的委派输入保留快照；没有新增公开 provider/DTO。既有 `SessionRuntimeConfig` 增加可选 `auto_mode_interaction`，覆盖 PA 创建、读回、重配和恢复。
 - 混合真人/通知输入拆分时保留同轮标记；主请求和审批请求使用相同的 CC 来源模板。系统通知没有升级为真人。
 - HookRunner 原有 intercept 聚合只转交 approval，导致新决定来源丢失，已补齐既有返回映射；工具错误因此区分自动拒绝与审批无结论，后者不表述为用户否决。
+- 聚焦代码审查发现并由独立 verifier 确认 fallback replay 会丢失已提交输入来源。新增 system、agent、mixed 三例均先 Red；修正重放入口复用已持久化的分段来源，并与 stranded pending continuation 共用现有恢复逻辑，相关 58 项 Green。只复验该 finding 及修复增量，不重跑大规模 finder。
 - 真实 CLI 发现 Anthropic mapper 未传出 gate 已提供的 S1 停止序列；最小 mapper 回归先 Red（缺少字段），修复后相关 37 项 Green，随后真实 Terra 请求确认 `stop_sequences=["</block>"]`、2112 token 预算、禁用 thinking 和完整 policy 均已出站。见 [CLI journey](evidence/cli-real-journey.md)。
 
 ## 当前验证快照
@@ -42,4 +43,4 @@ M1/M2 的产品实现已落入本 worktree，尚未完成全部真实旅程和�
 - T1 的[真实单聊天](evidence/single-chat-real-journey.md)也完成文件创建、unittest 和 loopback HTTP 服务清理；实际捕获一个 S1 block → S2 allow，六份审批请求保留正确阶段参数。
 - T2–T5/T8 的全局真实旅程尚未通过。首次 T3 被既存外部代理 strict 转换问题挡在 Inbox(check)，不是审批机制拒绝；[阻塞证据](evidence/proxy-strict-blocker.md)记录真实 A/B 和待审补丁。未放宽 Inbox 校验或将该失败计为产品旅程成功。
 
-当前状态：实现和针对验证继续，未形成最终验收结论、未合并、未部署。
+当前状态：实现和针对验证继续，未形成最终产品验收结论、未合并、未部署。
