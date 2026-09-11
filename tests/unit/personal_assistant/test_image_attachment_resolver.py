@@ -12,6 +12,9 @@ from personal_assistant.gateway.image_attachments import ImageAttachmentResolver
 _PNG_BYTES = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
 )
+_JPEG_BYTES = base64.b64decode(
+    "/9j/4AAQSkZJRgABAgAAAQABAAD//gAQTGF2YzYxLjE5LjEwMQD/2wBDAAgEBAQEBAUFBQUFBQYGBgYGBgYGBgYGBgYGBgYHBwcICAgHBwcGBgcHCAgICAkJCQgICAgJCQoKCgwMCwsODg4RERT/xABMAAEBAAAAAAAAAAAAAAAAAAAABgEBAQAAAAAAAAAAAAAAAAAABgcQAQAAAAAAAAAAAAAAAAAAAAARAQAAAAAAAAAAAAAAAAAAAAD/wAARCAACAAIDASIAAhEAAxEA/9oADAMBAAIRAxEAPwCLAFF/f//Z"
+)
 
 
 def _attachments(*, content_type: str = "image/jpeg") -> list[dict[str, str]]:
@@ -37,6 +40,20 @@ async def test_resolve_returns_typed_data_url_with_detected_mime() -> None:
     assert len(result.parts) == 1
     assert result.parts[0]["mime_type"] == "image/png"
     assert result.parts[0]["image_url"].startswith("data:image/png;base64,")
+
+
+@pytest.mark.asyncio
+async def test_resolve_accepts_complete_jpeg_with_trailing_data() -> None:
+    """A complete JPEG remains valid when metadata follows its EOI marker."""
+
+    async def _fetch(_url: str) -> bytes:
+        return _JPEG_BYTES + b"synthetic-trailing-data"
+
+    result = await ImageAttachmentResolver(fetcher=_fetch).resolve(_attachments())
+
+    assert result.failure is None
+    assert result.parts[0]["mime_type"] == "image/jpeg"
+    assert result.parts[0]["image_url"].startswith("data:image/jpeg;base64,")
 
 
 @pytest.mark.asyncio
@@ -94,6 +111,7 @@ async def test_resolve_without_fetcher_still_validates_self_contained_data_url()
         (_PNG_BYTES, 8, "oversize"),
         (b"not an image", 1024, "corrupt"),
         (b"\x89PNG\r\n\x1a\n" + b"x" * 36, 1024, "corrupt"),
+        (_JPEG_BYTES.removesuffix(b"\xff\xd9"), 1024, "corrupt"),
     ],
 )
 async def test_resolve_returns_typed_failure_for_invalid_image(

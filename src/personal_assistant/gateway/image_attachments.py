@@ -151,7 +151,7 @@ def _detect_image_mime(data: bytes) -> str | None:
     if data.startswith(b"\x89PNG\r\n\x1a\n"):
         return "image/png" if _png_is_structurally_valid(data) else None
     if data.startswith(b"\xff\xd8\xff"):
-        return "image/jpeg" if data.rstrip(b"\x00").endswith(b"\xff\xd9") else None
+        return "image/jpeg" if b"\xff\xd9" in data[3:] else None
     if data.startswith(b"GIF87a") or data.startswith(b"GIF89a"):
         return "image/gif" if data.endswith(b"\x3b") else None
     if data.startswith(b"RIFF") and data[8:12] == b"WEBP" and len(data) >= 12:

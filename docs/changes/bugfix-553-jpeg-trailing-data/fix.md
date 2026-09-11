@@ -12,6 +12,10 @@
 
 > 所以这种是正常的图片，但是我们校对算法有问题是么？那开个unit修一下？
 
+> 按 change-orchestrator 太重了，你在worktree 内能闭环就行，省去不必要的环节
+
+实施方式按用户后续指示简化为 worktree 内修复与必要验证。
+
 ## 现象 / 复现
 
 用户在生产飞书直聊发送招聘长图及文字请求，收到“这张图片我无法识别，没能收到它，无法据此回复。请确认图片有效后重新发送。”，图文请求未进入模型。
@@ -38,8 +42,21 @@
 
 ## 修复
 
-由 M1-fix 实施后回填。
+`ImageAttachmentResolver` 的 JPEG 检测改为：确认 SOI magic 后，只要求后续字节中存在完整 EOI marker，不再要求 EOI 必须位于物理文件末尾。这样保留原有轻量完整性边界，同时允许相机、编辑器或平台在 EOI 后附加数据；完全缺失 EOI 的截断 JPEG 仍按 `corrupt` 拒绝。下载、大小上限及其他图片格式的检测路径未改变。
+
+永久回归扩展既有 resolver 公开行为测试：使用可解码的合成 2 × 2 JPEG，分别覆盖 EOI 后有 trailer 时成功进入 `image/jpeg` data URL，以及去掉 EOI 后仍失败。Gateway 入站接线已有独立长期保护，本 unit 另以一次性 Feishu-shaped 图文消息从 `InboundPipeline.handle_inbound()` 重放到 Kernel，避免为同一 detector 失败原因重复建立高层测试。
 
 ## 验证
 
-由 M1-fix 记录修前失败、修后通过与相关回归证据。
+- 修前红测：`test_resolve_accepts_complete_jpeg_with_trailing_data` 在 `d5f3183ba` 基线返回 `failure='corrupt'`，结果 `1 failed`。
+- 修后聚焦回归：`pytest -q tests/unit/personal_assistant/test_image_attachment_resolver.py tests/unit/personal_assistant/test_gateway_image_inbound.py`，结果 `18 passed in 0.59s`；包含下载失败、超限、损坏图片固定反馈和后续文本轮恢复等既有保护。
+- Gateway 入站 evidence：用与 Feishu adapter 输出一致的 data-URL attachment、`kernel_input_parts` 和 channel metadata 调用 `InboundPipeline.handle_inbound()`；断言一次 Kernel submit 同时保留文字与完整 JPEG+trailer，且没有 fixed corrupt reply，结果 `PASS`。
+- 合成样本解码：将同一 JPEG+trailer 输入 FFmpeg MJPEG decoder，退出码 0。
+- 静态检查：`ruff check`、`ruff format --check`（受影响的 2 个 Python 文件）和 `git diff --check` 全部通过。
+- 边界：未向生产用户发消息，未重放原聊天或调用真实模型，未重启/修改生产服务；生产原图的下载与可解码证据沿用本 unit 原始报告中的只读取证。
+
+- 收尾原图验证：从生产 shadow 数据库只读取得同一附件，在修复后的本地 resolver 运行，结果 PASS / image/jpeg；输出 data URL 与原始值逐字相同，原图数据未裁剪或落盘。未调用真实模型。
+- 文档契约已同步 `docs/specs/gateway/external-channels.md`。`docs-check` 仅报告 origin/main 已存在的 bugfix-549 与 feat-551 active/archive 重号；用 `git ls-tree origin/main` 确认两组目录均在基线中，本 unit 未修改这些目录。此无关问题未扩大修复范围。
+- 按用户简化要求，在 worktree 中完成代码核对与必要验证；未追加多角色 review、全量 CI 或 PR 流程。已提前启动的无关全量测试已停止，不作为通过证据。
+
+- PR #292 CI follow-up：用户报告 CI 失败后，确认唯一失败为上述两组重复活动文档。逐文件比较后保留完整 archive 版本，移除旧 active 副本；不改对应产品实现。修后 docs-check 通过（227 sources / 72 routes），全仓 Ruff check 与 format check 通过（1036 files）。
