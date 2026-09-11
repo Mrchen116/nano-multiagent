@@ -38,8 +38,15 @@
 
 ## 修复
 
-由 M1-fix 实施后回填。
+`ImageAttachmentResolver` 的 JPEG 检测改为：确认 SOI magic 后，只要求后续字节中存在完整 EOI marker，不再要求 EOI 必须位于物理文件末尾。这样保留原有轻量完整性边界，同时允许相机、编辑器或平台在 EOI 后附加数据；完全缺失 EOI 的截断 JPEG 仍按 `corrupt` 拒绝。下载、大小上限及其他图片格式的检测路径未改变。
+
+永久回归扩展既有 resolver 公开行为测试：使用可解码的合成 2 × 2 JPEG，分别覆盖 EOI 后有 trailer 时成功进入 `image/jpeg` data URL，以及去掉 EOI 后仍失败。Gateway 入站接线已有独立长期保护，本 unit 另以一次性 Feishu-shaped 图文消息从 `InboundPipeline.handle_inbound()` 重放到 Kernel，避免为同一 detector 失败原因重复建立高层测试。
 
 ## 验证
 
-由 M1-fix 记录修前失败、修后通过与相关回归证据。
+- 修前红测：`test_resolve_accepts_complete_jpeg_with_trailing_data` 在 `d5f3183ba` 基线返回 `failure='corrupt'`，结果 `1 failed`。
+- 修后聚焦回归：`pytest -q tests/unit/personal_assistant/test_image_attachment_resolver.py tests/unit/personal_assistant/test_gateway_image_inbound.py`，结果 `18 passed in 0.59s`；包含下载失败、超限、损坏图片固定反馈和后续文本轮恢复等既有保护。
+- Gateway 入站 evidence：用与 Feishu adapter 输出一致的 data-URL attachment、`kernel_input_parts` 和 channel metadata 调用 `InboundPipeline.handle_inbound()`；断言一次 Kernel submit 同时保留文字与完整 JPEG+trailer，且没有 fixed corrupt reply，结果 `PASS`。
+- 合成样本解码：将同一 JPEG+trailer 输入 FFmpeg MJPEG decoder，退出码 0。
+- 静态检查：`ruff check`、`ruff format --check`（受影响的 2 个 Python 文件）和 `git diff --check` 全部通过。
+- 边界：未向生产用户发消息，未重放原聊天或调用真实模型，未重启/修改生产服务；生产原图的下载与可解码证据沿用本 unit 原始报告中的只读取证。
