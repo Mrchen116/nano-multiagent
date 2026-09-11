@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - External Channels Specification
 
-> 对齐: feat-541
+> 对齐: bugfix-553 / feat-541
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -75,6 +75,10 @@ Gateway 必须把 Agent Markdown 作为飞书可渲染富文本发送，并把�
 - **THEN** 内部 IM 显示 `前文[图片]后文` 或等价位置标记，并同时显示实际图片 attachment
 - **AND** 模型按 `text("前文") → image → text("后文")` 的顺序收到多模态 parts
 - **AND** 模型的 text parts 不包含 `[图片]` 占位符
+
+#### Scenario: JPEG 结束标记后存在附加数据
+- **WHEN** 用户从飞书发送大小允许、可正常解码且结束标记后带附加数据的 JPEG 与文字
+- **THEN** Agent 能基于图文继续回复，不因尾随数据误报图片损坏
 
 #### Scenario: 飞书群历史中的纯图片消息可作为后续上下文
 - **GIVEN** 飞书群中存在一条没有正文的 standalone image 消息

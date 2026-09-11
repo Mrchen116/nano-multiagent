@@ -12,6 +12,10 @@
 
 > 所以这种是正常的图片，但是我们校对算法有问题是么？那开个unit修一下？
 
+> 按 change-orchestrator 太重了，你在worktree 内能闭环就行，省去不必要的环节
+
+实施方式按用户后续指示简化为 worktree 内修复与必要验证。
+
 ## 现象 / 复现
 
 用户在生产飞书直聊发送招聘长图及文字请求，收到“这张图片我无法识别，没能收到它，无法据此回复。请确认图片有效后重新发送。”，图文请求未进入模型。
@@ -50,3 +54,7 @@
 - 合成样本解码：将同一 JPEG+trailer 输入 FFmpeg MJPEG decoder，退出码 0。
 - 静态检查：`ruff check`、`ruff format --check`（受影响的 2 个 Python 文件）和 `git diff --check` 全部通过。
 - 边界：未向生产用户发消息，未重放原聊天或调用真实模型，未重启/修改生产服务；生产原图的下载与可解码证据沿用本 unit 原始报告中的只读取证。
+
+- 收尾原图验证：从生产 shadow 数据库只读取得同一附件，在修复后的本地 resolver 运行，结果 PASS / image/jpeg；输出 data URL 与原始值逐字相同，原图数据未裁剪或落盘。未调用真实模型。
+- 文档契约已同步 `docs/specs/gateway/external-channels.md`。`docs-check` 仅报告 origin/main 已存在的 bugfix-549 与 feat-551 active/archive 重号；用 `git ls-tree origin/main` 确认两组目录均在基线中，本 unit 未修改这些目录。此无关问题未扩大修复范围。
+- 按用户简化要求，在 worktree 中完成代码核对与必要验证；未追加多角色 review、全量 CI 或 PR 流程。已提前启动的无关全量测试已停止，不作为通过证据。
