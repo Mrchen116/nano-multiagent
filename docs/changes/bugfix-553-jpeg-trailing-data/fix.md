@@ -58,3 +58,5 @@
 - 收尾原图验证：从生产 shadow 数据库只读取得同一附件，在修复后的本地 resolver 运行，结果 PASS / image/jpeg；输出 data URL 与原始值逐字相同，原图数据未裁剪或落盘。未调用真实模型。
 - 文档契约已同步 `docs/specs/gateway/external-channels.md`。`docs-check` 仅报告 origin/main 已存在的 bugfix-549 与 feat-551 active/archive 重号；用 `git ls-tree origin/main` 确认两组目录均在基线中，本 unit 未修改这些目录。此无关问题未扩大修复范围。
 - 按用户简化要求，在 worktree 中完成代码核对与必要验证；未追加多角色 review、全量 CI 或 PR 流程。已提前启动的无关全量测试已停止，不作为通过证据。
+
+- PR #292 CI follow-up：用户报告 CI 失败后，确认唯一失败为上述两组重复活动文档。逐文件比较后保留完整 archive 版本，移除旧 active 副本；不改对应产品实现。修后 docs-check 通过（227 sources / 72 routes），全仓 Ruff check 与 format check 通过（1036 files）。
