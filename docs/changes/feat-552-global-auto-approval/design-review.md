@@ -1,5 +1,7 @@
 # Design Review: feat-552
 
+> 状态说明（2026-09-12）：Round 1–3 属于旧方案。用户随后确认了新的 CC 复刻与 Nano 适配原则，design.md 及 delta 已重写，并授权独立 subagent 审查到可实施；新稿从 Round 4 起审查，旧结论不能作为新稿通过依据。
+
 ## Round 1
 
 ### Metadata
@@ -214,3 +216,249 @@ R1 两项阻断均关闭。设计可作为后续实施输入，仍须等待用�
 - 已逐项核查本轮 delta 证据、R1-C1/C2 closure 和继承范围；接受 Approved，当前无实质问题。
 - R2-R1：作为归并措辞建议保留。CLI Scenario 的 WHEN 表达采用新机制，未承诺在启动时预扫描所有 session；实际报错时点已由 D7 与 SDK delta 明确为首次 Auto 决策。按该明确契约实施即可，无需变更已审产物或扩展启动流程。
 - R2-R2：接受。交付限设计和取证，留待用户 review；本轮后未修改受审设计、spec、delta 或证据。
+
+## Round 3
+
+### Metadata
+
+- reviewer: `/root/feat552_design_reviewer`
+- review_mode: `delta`
+- mode_reason: 用户 review 要求撤回新增委派审批；变化限于 agent 新派发/follow-up 的准入，子任务实际工具审批、来源继承及 SDK 接口不变。已独立检查实际 diff 和相关上下游，无需扩大为 full。
+- started_at: `2026-09-11T17:39:54+08:00`
+- completed_at: `2026-09-11T17:41:00+08:00`
+- duration: `1m 06s`
+- inputs: 当前 design D2/D8、现状表、T7，kernel runs delta，spec R6，R1/R2 审查；相关生产源码。
+- execution_boundary: 只追加本报告；未修改受审文件，包括 design 第 41 行用户已有空格。未实施代码、运行产品验收或启动服务。
+
+### Verdict
+
+Approved — 0 CRITICAL / 0 WARNING。
+
+撤回委派分类器后，文档之间一致，仍满足子任务实际动作遵循统一 Auto 的要求。
+
+### Coverage
+
+- 本轮重查：agent 免审与 child 实际工具审批的关系；D2/D8/现状表/runs delta/T7 一致性；委派来源及策略/工具/skills 继承；M1 范围。
+- retained_from: Round 2（完整 inventory 见 Round 1）— 共享策略、配置迁移、来源 provider/DTO、计数、全局普通确认、发送和恢复链没有变化；R1-C1/C2 的闭环仍有效。
+
+### 历史结论校正
+
+| 历史项 | 本轮核实 | 状态 |
+|---|---|---|
+| R1-C1 / R1-C2 | 本次不撤销来源契约迁移或 DTO owner/导出边界；runs 只改委派 Scenario | 保持 closed |
+| R1 决策台账 D8「委派先审」与架构进攻中的委派审批认可，R2 对该部分的继承 | 原认可未举出“agent 免审导致 child 实际动作免审”的证据。用户纠正成立：新建/继续 child 与 child 工具执行是不同边界。旧审查中认可新增委派分类器必要性的结论由本轮取代；不回写历史 | corrected |
+| R1 spec R6 覆盖与 M1/M2 切片 | R6 要求主/子任务的操作受统一机制约束，没有要求委派本身增加一次 LLM 审批；M1 仍负责继承与实际动作检查 | 继续成立 |
+
+### 本轮核实台账
+
+| changed atom | 实际证据 | 判断 |
+|---|---|---|
+| 当前 agent 免审不等于 child 动作免审 | `src/agent/platform/hooks/builtins/auto_mode_gate.py:187–198` 的安全表含 agent；`platform/background_tasks/runtime_runner.py:190–208` 打开 child session 并提交真实 auxiliary TurnRequest；实际工具由 `core/agent/tool_executor.py:192` 调用 registry.execute，仍经过工具权限链 | 保留委派免审有现行实现依据，不能从工具名字免审推导整个子任务免审 |
+| D2/D8 与现状 | design `:46,123,191–195` 一致保留新派发和 follow-up 免审，并明确不新增委派动作投影/启动前 classifier；send_message 的动作审批仍单独保留 | 一致，无残留要求把 agent 移出安全表 |
+| 来源与能力继承 | design `:195` 仍要求有效 Auto 配置、模型、交互和已验证用户事实继承；agent_delegation 不冒充人工。当前 `platform/tools/builtins/agent.py:670–701` 已做父工具集合减子类型 deny、skills 继承与 parent_session_id | 没有把取消委派分类器扩成放宽实际动作或伪造授权 |
+| runs delta / spec R6 | delta `:63–69` 明确新派发/follow-up 免审，实际动作仍经权限链，伪造同意仍不赋权；spec `:183–185` 要求同范围主/子操作统一受约束 | 对齐用户纠正及首文档要求 |
+| T7 和 M1 | design `:323` 同时检查不新增委派 classifier 请求与 child 实际需审核动作仍审批，越权判据落到实际动作；M1 `:266` 仍需 agent/RuntimeRunner 以完成继承，无需为删一个分类步骤拆新 milestone | 验收覆盖正确，没有要求阻断合法派发 |
+| 残留文本扫描 | 在 unit Markdown（排除历史 review）检索“先审后/审委派/委派分类器/委派动作投影/agent 移除”，只剩明确不新增的目标语义 | 未发现与修订矛盾的活跃契约 |
+
+### 受影响的架构进攻
+
+- **该不该存在**：对委派 classifier 做删除测试，子任务每个实际工具动作的 gate 仍在，工具/skills 交集和来源限制仍在。没有证据证明额外一次审批必需；保留它会增加 LLM 延迟与误拒，并重复判断尚未发生的动作。此次删除降低复杂度，符合本仓避免过度设计要求。
+- **归属/治本**：约束继续落在实际副作用动作处；来源继承解决真实用户授权与委派文本的区分，而不是靠审一次委派文本代替整个 child 的后续权限检查。
+- **深浅**：没有新增接口或 wrapper；删除委派投影后，既有 child 执行链继续承担执行检查，职责更集中。
+
+### Issues
+
+无。
+
+### Recommendations
+
+- [R3-R1] 后续按修订后的 T7 验证“派发免审、实际动作受审”两个边界；不要重新以 agent 安全表项本身作为新增委派审批的理由。
+
+## Round 4
+
+### Metadata
+
+- reviewer: `/root/feat552_design_reviewer`
+- review_mode: `full`
+- mode_reason: 用户重新确定核心上下文、配置、Bash、计数和恢复边界；旧 inventory 不能直接继承。重新读取当前完整设计/spec/delta、全部 evidence 文件及相关源码。
+- started_at: `2026-09-12T01:09:16+08:00`
+- completed_at: `2026-09-12T01:35:48+08:00`
+- duration: `26m 32s`（包含对话中断）
+- baseline: `main d5f3183ba`；输入对照 `/tmp/feat552-round4-input-hashes.json`。只读保留其他 dirty 文件，包括 auto_mode.py 的空白修改。
+- scope: 只追加审查报告。未实施、提交、推送或启动 Nano；运行了已有 CC 函数回放脚本，未调用模型。用户后续已授权设计完成后按 change-orchestrator-simple 实施；冻结输入的旧阶段说明不作为本轮问题。
+
+### Verdict
+
+Issues Found — 1 CRITICAL / 0 WARNING。
+
+主体方案可保留。唯一阻断为全局 Heartbeat 的真实会话归属同时落入两个相反分流规则；明确该入口优先级即可，不需要新增权限框架。
+
+### Coverage 与历史结论
+
+本轮重新核对现状表全部 10 项、D1–D8、spec 六段场景与 R1–R6 全部 17 个 Scenario、最新澄清/非目标、5 份 delta 全部 Requirement、两项 milestone 与四角度架构进攻。
+
+R1/R2 的 provider/DTO/配置迁移结论已被用户新决定取代，不再当作实施要求。R3“agent 派发免审，child 实际动作受审”仍成立，但本轮重新核实；不继承旧 root 共享计数或恢复授权认证。R1-C1 关于 delta 精确锚定/保留旧场景的原则已用于本稿，R1-C2 因公开 DTO 撤出而不再适用。
+
+### 现状与事实核对台账
+
+路径相对仓库根；CC 偏移只针对 evidence 指定固定哈希。
+
+| 原子 | 本轮核实动作与证据 | 结论 |
+|---|---|---|
+| gate 真生产入口 | CLI product.py:244、PA product.py:475 → SDK kernel.py:834 build_hook_registry → platform/hooks/loader.py builtin → auto_mode_gate.setup；旧安全表 :187 含 agent/send_message | 同一真实链，无平行死实现 |
+| 历史来源缺口 | core/agent/runtime.py:482–486 仅 hook run_origin，:667 新消息 metadata 主要 submission/run；prompting.py:110–140 重建 LLMMessage；llm/interfaces.py:20–40 无消息 origin/host 字段 | D3 接线有真实动机 |
+| Broker | platform/permissions/broker.py:234–289 按 run/tool；gate:986 预查阈值；现有 pending/cancel/allowlist 保留 | 当前断言成立 |
+| Bash | bash.py:217–269 单次 check_command_policy；bash_policy.py:71–78 四个宽 Git 前缀、:214–225 overrides 替换 | 应在该链实现等价语法/参数规则 |
+| 配置/SDK | auto_mode.py:76–83 workspace update global；SDK kernel.py:746 配置根；CLI product.py:255 / PA product.py:493 显式 global root | 保留覆盖不需 SDK delta |
+| Inbox/query | tools/inbox.py:241–285 当前成功结果 JSON 投影，筛 user/external；conversations.py 继承但 self.name 阻止用户投影 | D3 必须改混合来源和物化，不能只改 prompt |
+| send_message | tools/send_message.py:199–210 既有 dispatch；gateway/internal_dispatch.py:398–427 外部发送后记录 confirmed，另有 held 状态 | 保留真实 outcome 可行，无需新投递认证 |
+| global | global_run_coordinator.py:216–238 创建 global_main、HUMAN 的系统 wake；入站 :491–515 保存 sender 信息 | 必须区分调度 origin 和消息 origin |
+| Cron/Heartbeat | cron_execution_service.py:516 CRON；heartbeat_scheduler.py:452–460 resolve_global 返回主会话，:559–566 仍 origin=heartbeat；heartbeat_runner.py:395 同样用于重试 | Cron 隔离成立，Heartbeat 分流交集见 C1 |
+| child | agent.py:670–701 工具集合减 deny、skills/parent 继承；runtime_runner.py:190–208 真 auxiliary，:234–238 follow-up USER；tool_executor.py:192 仍 registry.execute | 派发免审不免 child 动作 |
+| current 契约 | 重新读 kernel runs/sdk-boundary/tools-hooks、gateway global-agent/heartbeat-cron、CLI；runs:139 广义“内核不内置权限策略”确与 platform 装配不同 | drift 已在 delta 处理 |
+| 固定 CC 资产 | 实读二进制 SHA-256=a681f300…2558；defaults 17/69/1/21；核对 policy 的 Path A/B、host live/restored、调度/协作例外与 stages 参数 | 不把文档说明当成灰度开启证据 |
+| context 实验 | 7 份 classifier request 原件哈希全部匹配 experiments JSON；重跑原 yTr VM 脚本 6 项通过；脚本依赖替身限 human ASCII，不能证明真实开启分支或模型正确性 | 证据边界清楚 |
+| CC host/计数 | 独立读固定二进制 166126000 附近 Wjn：message+call+正文、10000 上限；165599392 Sfe/Jlt/WV/Zlt：3/20；165633383 local tracking、总阈值清零/提示 | D3/D6 的这些前提成立 |
+| 附件与骨架 | JSON 全部可解析，context-replay 源码已读；两个 M 只有 .gitkeep；既有原 Cron 误拒原件在前轮已定位，本轮设计未宣称新机制通过 | 不需预填实施记录 |
+
+### 决策台账
+
+| 决策原子 | 逐项检查及依据 | 结论 |
+|---|---|---|
+| D1 原文与七类适配 | coding→assistant、Path/outcome/host 原文、六个实际 cron action、协作、真实目录、宿主事实、短 Inbox 说明均拍死；与原 policy 和实际 cron.py:351–370 对照 | 无隐含新权限引擎；R1/R3/R6 驱动 |
+| D2 优先级 | 自检一次、deny 先于宽 allow，agent 保留/send_message 移除；当前生产链可承载 | 明确 |
+| D2 Bash 五项 | 原始字符串、tree-sitter Bash、全命令/flags/参数表、复合合成、sandbox 条件与显式 overrides 均明确；算法/表落内部模块 | 架构可实施，完整固定源映射和差分 fixture 为退出条件，不能拿辅助旧源码冒充固定版本 |
+| D3 原生输入 | 真人后 pending assistant、末尾 2000 UTF-16、非真人清 pending、当前旁白不入；role 不决定 origin；旧 unstamped 明确沿 CC | 与函数证据一致 |
+| D3 host | 投影完成时物化、匹配调用；内存 id+正文登记，live/restored 生命周期、头 2000 和 partial 已定义 | 无需原件认证服务；普通历史重建不能当重启 |
+| D3 多聊天 | 历史发送 target/text/outcome + Inbox sender 原文，模型判断；不造 reply_to/固定问答实体 | 用户明确选择；正反例验收承担模型行为证明 |
+| D4 自动来源 | scheduled/system/同轮三模板，cron 任务与新同意分开；global wake/child 各保留来源 | 原模板固定包可提取，未把字面 user 当真人 |
+| D5 压缩恢复 | 当前窗口、原生 user 与 restored host 区分；查询背景可辅助重新问，不恢复旧授权 | 最新 spec R4 已同步接受 |
+| D6 计数 | 实际 session_id、3/20、child 独立、allow 清连续、总阈值清双计数，无永久锁、跨 run 保留 | CC 前提已核，内部接口足够 |
+| D6 分流 | global session metadata 与原 unattended 的交集真实存在；表和文字未裁定 global heartbeat | C1 |
+| D7 配置/模型 | 原根/覆盖/空数组、扩展键与 $defaults，2112/10240、同快照、模型不降级、无额外裁剪、prompt-too-long source | 最新用户约束内，不恢复旧强制迁移 |
+| D8 child | agent 免审、父已读只读快照、agent 来源、普通 child prose 分支关闭、host 恢复降权、不做完成第三审 | 与实际 child 执行边界一致 |
+| 接线表 | Message→LLMMessage→runtime/loop/prompting、tool seam、projector、metadata route、Broker、结果、child 均有调用方/生命周期；core 不 import platform/PA | 数据主链闭合 |
+
+### spec 约束台账
+
+| 原子 | 设计/验收对应 | 结论 |
+|---|---|---|
+| 场景1日常不反复确认 | D1/D2/D7，T1/T2/T9 | 覆盖 |
+| 场景2主Agent沟通 | D3/D6，T3/T4 | 覆盖 |
+| 场景3等待继续 | D6，T3 | 覆盖 |
+| 场景4跨运行 | D5、最新 R4 澄清，T5 | 以新用户决定解释旧场景文字 |
+| 场景5区分原因 | D6/T6 | Heartbeat 交集待 C1 |
+| 场景6统一迁移 | D7/D8，T8/T10 | 最新确认是不搬配置 |
+| R1本地开发；一次Cron；限制仍生效 | D1/D2/D3，T1/T2/T4 | 三项覆盖 |
+| R2三种处理；问题可理解 | D6，T3 | 两项覆盖 |
+| R3简短同意；无答/否决/无关；引用/转述；部分/多选 | D3，T3/T4 | 四项覆盖，不要求确定性匹配 |
+| R4另一聊天；空闲回复；重启压缩 | D5/D6，T3/T5 | 三项覆盖 |
+| R5服务失败 | D6/T6，spec 明确保留原 unattended allow | C1 |
+| R5多次拒绝；其他入口 | D6，T7 | 两项覆盖 |
+| R6主/子任务；沟通/原配置 | D2/D7/D8，T8/T10 | 两项覆盖 |
+| 原澄清卡片撤回、Q2、Q3 | 普通聊天、独立推进、共用机制且入口不同 | 无回退旧卡片 |
+| 最新=1、原文适配、Inbox工具、scheduled来源 | D1/D3/D4 | 覆盖 |
+| 最新移除认证/DTO/裁剪/配置迁移、child独立计数、完整Bash | 撤出表、D2/D5–D8 | 全部落实 |
+| 非目标/授权 | 无新卡片/UI/组织服务/OS沙箱；后续实施授权另由主任务执行 | 未越界 |
+
+### delta 与 milestone 台账
+
+| 每个 Requirement / M | 核实 | 判断 |
+|---|---|---|
+| runs MODIFIED callback | 原标题精确、两个旧 Scenario 保留 | 合格 |
+| runs MODIFIED 动作描述 | 四项保留，两项 host 投影替换 | 合格 |
+| runs MODIFIED 指定模型 | 三项保留、失败项保持既有 fallback 并区分 source | 合格 |
+| runs ADDED 来源语义 | 真人prose、非真人、恢复三个 Scenario | 对齐 D3–D5 |
+| runs ADDED 计数分流 | 主/child与阈值/故障 | Heartbeat交集继承C1 |
+| runs ADDED child约束 | 派发免审/真实来源 | 合格 |
+| tools-hooks ADDED deny优先 | 消费者观察不被宽许可盖过 | 合格 |
+| tools-hooks ADDED Bash | 参数/复合两个 Scenario | 合格 |
+| tools-hooks ADDED 工具来源说明 | 物化/稳定历史，SDK工具消费者视角 | 合格 |
+| tools-hooks ADDED 结果来源 | 未执行/outcome | 合格 |
+| gateway global 三个 ADDED | 未获准处理、Inbox多来源、等待恢复，8个 Scenario逐项与D3/D5/D6核对 | 除C1外一致 |
+| gateway heartbeat-cron ADDED | scheduled、system、任务内动作；明确原fallback不变 | 与D6有C1冲突 |
+| CLI ADDED | 常规、多轮、阈值、故障、原配置五项可见行为 | 合格 |
+| SDK/IM no delta | 无公开参数/DTO、根不变，IM协议/UI不变 | 合理 |
+| M1 | CLI/单聊天端到端+完整Bash、计数/模型；大规模实现/资产与M2串行 | 垂直切片成立 |
+| M2 | 全局聊天确认/独立任务/调度来源/恢复为端到端出口 | 垂直切片成立 |
+| 拆分/退出 | 20–25与12–16文件规模、共享处串行；T表明确worker确定性与reviewer真旅程 | 两轨可执行，无需另拆层 |
+| runbook/风险 | 隔离e2e、PID确认、保留数据重启、CLI真实根、T1–T10、核心各3次；模型/截断风险承认且不扩框架 | 足够进入实施后验证 |
+
+### 架构进攻
+
+1. **归属**：policy/Bash/Broker留platform，core只传来源和记录，产品注入固定工具说明及会话元数据，不新增反向import。session级route却与run级无人值守重叠，是C1的职责判定缺口。
+2. **该不该存在**：删除provider/DTO/确定性问答服务后现有工具投影仍完成职责；host内存登记解决真实live/restored差异，不是另建认证数据库；Bash语法适配器承载明确用户要求，没有假想多态。
+3. **深浅**：复用model caller、工具检查、SessionDirectory、消息metadata和发送outcome；Bash入口统一组合语法/表，不让执行器再查。无第二LLM client或独立审批状态机。
+4. **治本**：来源通路覆盖submit/steer/recovery/compact，避免只改初始prompt；完整Bash替代宽前缀。保留配置fallback是用户决策，不能借审查恢复一刀切deny。C1只需明确既有入口交集的结果，不需增加新框架。
+
+### Issues
+
+- **[R4-C1][CRITICAL] D6 未裁定全局 Heartbeat 同时命中全局 session 路由和无人值守来源时的行为。** design:191–200 令全局会话及child返回Agent，同时承诺原无人值守fallback不变，并只解释“Cron/heartbeat的独立session”。实际 `heartbeat_scheduler.py:452–460` 对global返回全局主session，:559–566仍提交origin=heartbeat；`heartbeat_runner.py:395–401` 重试亦如此。故设置session级return_to_agent后，该真实Heartbeat会同时满足两列。采用全局优先会使显式unattended_fallback=allow的原Heartbeat变为不执行，违背spec R5和heartbeat-cron delta“原fallback不变”；采用原origin优先又必须明确普通global child与BACKGROUND_TASK的例外。请明确按实际run入口的优先级，至少列出global Inbox wake、global Heartbeat、single-thread Heartbeat、独立Cron及global普通child，并把global Heartbeat的allow/deny fallback纳入T6。不改会让两个worker实现出不同裁决，不是未实施的假想边界。
+
+### Recommendations
+
+- [R4-R1] evidence/README“对本设计有用的事实”第2项仍说恢复时重新验证原记录，第1项仍说assistant待对齐；已被当前D3/D5和最新用户确认取代。可标为历史结论，防止实施者把它们当目标；当前design的优先级已明确，不单独阻断。
+- [R4-R2] M表可直接标注[reviewer]/[worker]并引用T项，方便轻量编排；现有T表已足以区分，不必增加大规模审查流程。
+
+### Author Resolutions
+
+- **R4-C1 — accepted.** 作者复核 `heartbeat_scheduler.py:452–460` 的 global binder 路径及 `:559–566` 的 HEARTBEAT 提交，另查 `session_binder.py:271–309` 和 Heartbeat `ensure_agent_runtime` 刷新；确实不能仅凭 session 标签选路由。按用户已确认的“原无人值守 fallback 保持”规定入口优先级：继承全局交互的普通 child → Heartbeat/Cron 自动入口 → global 主会话设置 → 其他原路由。global Heartbeat 保留显式 allow/deny fallback；global wake 与普通 child 返回主 Agent。D6 增加入入口表和重试归属，D8 明确 child 继承 session 选择而非父本轮 Heartbeat 例外；共享 PA runtime 装配负责设置标签，覆盖 binder/coordinator/Heartbeat 刷新。spec R5、kernel/global/heartbeat delta 和 T6 同步，T6 包含真实 global Heartbeat 不可达审批模型的 allow/deny 临时文件动作验证。这是消除已确认规则的交集歧义，不新增权限框架或配置开关。
+- **R4-R1 — accepted.** evidence README 两处旧目标已改成用户确认的 `=1` 和 CC live/restored 边界；spec 场景4/6同步为当前恢复/配置原则，避免实施者读旧场景产生相反理解。
+- **R4-R2 — accepted.** M1/M2 退出标准直接标注 `[reviewer]` / `[worker]` 并引用 T 项；没有新增门禁、milestone 或过程台账。
+- **后续授权同步。** spec/design 阶段声明更新为用户已授权通过设计审查后使用 change-orchestrator-simple 实施、精简重复流程；尚未修改产品代码、创建实施分支或启动服务。
+
+
+## Round 5
+
+### Metadata
+
+- reviewer: `/root/feat552_design_reviewer`
+- review_mode: `delta`
+- mode_reason: R4 的完整台账仍有效；本轮语义变化可封闭为 D6 实际入口优先级、D8 继承对象及其装配/验收覆盖。另有恢复/配置旧文字清理、两轨标签和实施阶段授权更新，没有更换核心架构、上下文协议、配置体系或 milestone 拆分。
+- started_at: `2026-09-12T01:40:49+08:00`
+- completed_at: `2026-09-12T01:42:50+08:00`
+- duration: `2m 1s`
+
+### Verdict
+
+Approved — 0 CRITICAL / 0 WARNING
+
+### Coverage
+
+与 Round 4 冻结 manifest 比较，变更恰为 design、spec、kernel/runs、gateway/global-agent、gateway/heartbeat-cron、evidence/README 六个文件。逐项重查 D6/D8、交互 metadata 接线、R5 及受影响 Scenario、三份 delta、T6、M1/M2 退出标签及旧文字清理。落盘前确认 17 个输入文件哈希均未变化。`git diff --check -- docs/changes/feat-552-global-auto-approval` 通过。
+
+retained_from: Round 4 — D1–D5/D7 的策略、上下文/恢复语义、固定 CC 源证据、模型与配置方案没有改变；tools-hooks/CLI delta、实验原件及 milestone 骨架哈希相同。其完整台账和未受影响的架构检查继续有效，不重复运行 CC 探针、重抄台账或冒充实施验收。
+
+### 历史问题闭环
+
+| 历史项 | Author Resolution | 本轮核实 | 状态 |
+|---|---|---|---|
+| R4-C1 | accepted；用实际入口优先级解开全局 session 与无人值守运行交集 | design:200–213 明定普通 global child → Heartbeat/Cron → global 主 session → 其他，列全局 wake、两类 Heartbeat、Cron、child 及其他入口；model retry 保留归属。D8:233 明确继承 session 交互而非父本轮 Heartbeat 例外。spec R5:171/174、三份 delta 和 T6 同步 | closed |
+| R4-R1 | accepted；删除仍像目标的旧恢复认证/待对齐描述 | evidence README 的事实1明确用户选择 =1，事实2明确 live/restored、不恢复认证；spec 场景4/6:103/105 与 D5/D7 一致 | closed |
+| R4-R2 | accepted；直接增加两轨标签和 T 引用 | design:295–296 的 M1/M2 均有 reviewer/worker 出口，并引用既有 T；无新增 milestone/过程门禁 | closed |
+
+### 本轮重查证据与影响链
+
+| changed atom | 独立核实动作与证据 | 判断 |
+|---|---|---|
+| 实际入口优先级 | `heartbeat_scheduler.py:452–460` 确认 global 复用主 session，:559–566 提交 heartbeat；`global_run_coordinator.py:216–238` 则以 global 场景和 HUMAN 提交 wake；`cron_execution_service.py:516` 提交 CRON。design:204–211 对各入口有唯一结果 | R4 的真实交集已消歧，显式 unattended allow 不被 global 标签意外取消 |
+| 重试和 runtime 装配 | binder:289–305 创建时传 global 场景；coordinator:217–222 与 heartbeat_scheduler:512–526 均经 ensure_agent_runtime 刷新。`kernel_client.py:172–194` 将场景交给 `session_composition.py:52–100` 共用 runtime 投影；`heartbeat_runner.py:385–401` 重试保留 HEARTBEAT 及 global 场景。design:200/251 要求共享装配覆盖这些路径 | 有真实共用落点；不能只在 Inbox wake 上打标签。此处评审的是明确的改动契约，当前代码尚未实现该新标签 |
+| child 识别及继承 | `agent.py:670–701` 取得父 session、构造 kind=subagent 并传 parent_session_id；`background_tasks/runtime_runner.py:183–205` 默认 BACKGROUND_TASK，:234–238 follow-up 用 USER。design:202/210/233 用既有身份和继承设置识别普通 global child | 不从枚举猜真人或权限方式；父 Heartbeat 的临时 fallback 不污染 child。既有子任务身份可承载，不需新权限状态机 |
+| 既有 fallback 与硬限制 | gate:849–856 当前根据 run origin/workflow_unattended 分流，:944–976 有工具 allow/deny/ask 处理。design:195–198/202 保留各入口原处理，明确 deny 与必须人工安全检查先处理 | 新优先级不将 classifier fallback 扩大成工具硬限制豁免；其他入口仍沿原路由 |
+| 受影响 spec/delta | 全读三份改动 delta，核对 R5:169–179；kernel 模型故障、计数分流，global 连续拒绝，heartbeat 新 Scenario 均表达同一入口区分；runs 原 MODIFIED 标题和保留 Scenario 未删 | 消费者可观察结果一致，现有 canonical runs:218 的显式审批/unattended fallback 未被无意抹去 |
+| 验收与交付 | T6 明列 global/single Heartbeat、Cron allow/deny 及 global wake/child 对照；表后另要求真实 global Heartbeat 不可达审批模型 + 临时文件动作各一次，区分协议异常 fixture 和真实入口。M2 引 T6，M1/M2 串行范围保持 | 能抓住原冲突，不仅测试孤立路由函数；设计通过后可按已授权 simple 实施，部署仍另行授权 |
+
+### 受影响的架构进攻
+
+1. **归属**：产品提供交互选择，runtime 保留实际 run 来源，platform gate 统一判定；主会话标签不冒充本轮入口，child 继承不复制父临时调度状态。D6/D8 组合没有新增反向 import 或产品权限逻辑下沉 core。
+2. **该不该存在**：复用既有 session/scenario、child 身份和共用 runtime 装配即可；没有新增路由服务、公开 DTO 或配置开关。把各入口判断散写在 Gateway 每个调用点会造成刷新遗漏，当前共用装配要求能避免该具体维护代价。
+3. **深浅**：统一 gate 收敛入口交集规则，沿现有 binder/coordinator/Heartbeat 接线；无需为本次消歧另造包装层。其他未变抽象继承 Round 4。
+4. **治本**：明确 run 与 session 两层事实的优先级，并用真实 global Heartbeat 验证，直接解决 R4 的生产入口冲突；没有把症状用一刀切 deny 或仅改测试桩掩盖。
+
+### Issues
+
+无。Round 4 唯一 CRITICAL 已闭合，本轮未发现会使实施者实质走偏的新问题。
+
+### Recommendations
+
+无新增建议。可进入用户已授权的 change-orchestrator-simple 实施；本轮结论只表示设计可实施，不表示新机制已经运行验证。

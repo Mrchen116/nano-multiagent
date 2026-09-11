@@ -4,7 +4,7 @@
 
 ## 基线与方法
 
-- 本机 `/opt/homebrew/bin/claude --version`：`2.1.267 (Claude Code)`；[官方同版本发布页](https://github.com/anthropics/claude-code/releases/tag/v2.1.267)已核对，包含 Workflow 大输出 schema 被误拒的修复。没有升级或修改安装。
+- 本机 `/opt/homebrew/bin/claude --version`：`2.1.267 (Claude Code)`；[官方同版本发布页](https://github.com/anthropics/claude-code/releases/tag/v2.1.267)已核对，包含 Workflow 大输出 schema 被误拒的修复。这是凌晨首轮基线。晚间 PTY 探针触发了 CC 自身自动更新到 2.1.268；发现后，后续实验改用临时目录中的官方 2.1.267 固定安装并关闭自动更新，未降级全局安装。
 - Nano 当前远端 `main`：`71734873805199d011f777791e8add7b14b80e60`，已包含 feat-546 的 PR #287；读代码使用其等价 feature head `b35ed739e` 的现存 worktree。主 checkout 当时为 `7a966f21f`，不能拿该 checkout 缺失的全局代码当作最新实现。
 - 旧 CC 本地重建仓 HEAD `0991eac5`，工作树另有大量他人变更；不以它代表 2.1.267，不修改它。2.1.227/232 的既有证据见本机原研究包 `docs/research/studies/claude-code-auto-mode-classifier-2026-08-13/README.md`（既有未提交资料，不作为本交付链接依赖）。2.1.232 的历史原始 proxy locator 在本次机器文件系统中已不可读，相关判断仅引用其已保存报告，不声称重新跑过该版本。
 - 使用用户给定代理 `127.0.0.1:4000`，主模型 Sol、Haiku→Luna、Sonnet→Terra、Opus/Fable→Sol、子模型 Terra、effort high、context 258000、auto compact 238000、tool search off；模型能力映射同用户设置。无子 Agent 被启动。
@@ -40,13 +40,18 @@
 
 ## 对本设计有用的事实
 
-1. 最新 prompt 明确包含两种同意路径：用户自己说清楚操作及关键对象；或者 Agent 的先前提议说清楚、用户明确同意。可见的 assistant prose 只提供指代对象，不自行构成授权。**这部分在已保存 2.1.227 prompt 中已存在，不是 2.1.267 才新增。** Nano 当前丢弃普通 assistant prose，所以需要补输入契约。
-2. 相对已保存 2.1.227，2.1.267 新增 `host_context_live` / `host_context` 的来源区分。实时宿主转交的真实用户话语可作 intent；不具备实时来源保证的恢复文本不能直接作 intent。本设计借鉴来源区分，但 Nano 有可信原始 Inbox/收据，恢复时重新验证原记录，不能简单把所有恢复的真用户原话永久降权。
+1. 最新 prompt 明确包含两种同意路径：用户自己说清楚操作及关键对象；或者 Agent 的先前提议说清楚、用户明确同意。可见的 assistant prose 只提供指代对象，不自行构成授权。**这部分在已保存 2.1.227 prompt 中已存在，不是 2.1.267 才新增。** 但 prompt 支持不等于入口实际传入：晚间真实 PTY 捕获显示当前第三方代理入口没有携带普通 assistant prose；其组装受默认关闭的 `priorAssistantContext` 开关控制。详见[上下文实测](cc-2.1.267-context-experiments.md)。用户随后确认 Nano 采用 `priorAssistantContext=1` 分支；这是明确选择启用该机制，不是声称已验证当前代理入口的默认行为。
+2. 相对已保存 2.1.227，2.1.267 新增 `host_context_live` / `host_context` 的来源区分。实时宿主转交的真实用户话语可作 intent；不具备实时来源保证的恢复文本不能直接作 intent。当前设计按用户确认沿用 CC 实时/恢复边界，不增加原 Inbox/收据的恢复认证服务；历史查询只帮助找回背景，必要时重述具体动作求确认。原生 user 历史仍按其对应分支处理，不与 restored host context 混为一谈。
 3. transcript 可附工具 outcome，区分实际执行、人工拒绝、自动拒绝、权限规则拒绝、审核不可用和解析失败。`ok` 只说明该调用执行，不是安全背书；后台任务启动成功也不代表子任务完成。
 4. 默认规则包含普通多 Agent 协作、发起聊天回复、CC 内置调度等例外；需要映射 Nano 的消息和定时任务语义，不能把产品工具名逐字替换就算迁移。Cron 自动触发的 payload 不等于新的人工同意。
 5. 2.1.267 增加宿主隔离等规则，说明“最新”不等于“更宽松”。迁移是否解决 Nano 的问题，应以已授权操作的误拒绝、重复确认和越权反例验证。
 
 官方旁证（访问于 2026-09-11）：[权限模式](https://code.claude.com/docs/en/permission-modes)、[Auto 配置](https://code.claude.com/docs/en/auto-mode-config)。规则优先级、只读/编辑路径、3/20 计数、无结论处理和子任务检查仍参照官方说明；未重新逐分支执行所有 CC 工具。不存在“最新 CC 全机制已真实回放”的声明。
+
+## 后续取证
+
+- [上下文实验](cc-2.1.267-context-experiments.md)：真实提议/同意、长历史、compact 与启用分支函数回放。
+- [适配补充定位](cc-2.1.267-adaptation-grounding.md)：cron 来源、host live 登记与长度、父子计数的固定安装包代码。
 
 ## 设计交接
 

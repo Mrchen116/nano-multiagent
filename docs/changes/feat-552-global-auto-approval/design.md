@@ -1,284 +1,315 @@
 # feat-552: Auto 权限机制迁移与全局模式主动确认 — 技术方案
 
-> 对齐: [spec.md](spec.md) v1。2026-09-11，用户授权独立完成设计；本方案待用户 review，未实施。
+> 对齐：[spec.md](spec.md) v1，含 2026-09-12 用户确认。本文已将确认结论归并为完整设计；仅文档，未实施、未部署。用户已授权独立审查、修订到可实施后按 change-orchestrator-simple 实施；精简重复流程，保留相关测试、真实入口和聚焦改动的审查。当前设计复审中。
 > Unit branch: `codex/feat-552` (will be created by orchestrator)
 
 ## 架构总览
 
-**统一升级自动审批；让它认出真实用户的请求和确认。全局模式被拒绝后立即把原因交回主 Agent，由它在普通聊天里继续处理。**
+**以固定 CC 2.1.267、`priorAssistantContext=1` 为实现底稿。共享 Auto 机制统一更新；Nano 只适配真实入口、工具、模型与现有交互。**
 
-用户最先会看到三点变化：常规本地开发和内置定时任务少被误拒；“请做这个”或对明确问题回答“同意”可以成为有效授权；等某人回复时，整个全局 Agent 不必停下来。
+审批模型收到当前会话的用户话语、符合条件的历史 assistant 文本、历史工具动作及宿主附加上下文，最后一项是待审批动作。Inbox 仍是工具；真人、Agent、定时任务和系统事件保留来源。多聊天的问答关系由模型结合目标、发送者及原文判断，不建立确定性问答匹配服务。
 
-完整审批链保留在现有 `auto_mode_gate`，它继续调用工具自己的权限检查和现有 LLM 调用入口。把大段版本化策略从 hook 移到内部策略 module；把聊天来源核验留给拥有原记录的 Gateway，通过 `agent.sdk` 注入。PermissionBroker 继续处理需要人工界面的入口，不负责全局聊天事项的调度。
+全局消息驱动的主 Agent 与普通 child 的未获准动作立即返回主 Agent。主 Agent 可换方案、在合适聊天提出具体问题，或停止；等待期间继续其他独立工作。CLI/单聊天沿用人工入口；Heartbeat（包括复用全局主 session 的 Heartbeat）和独立 Cron 沿用既有无人值守 fallback。
 
 ```mermaid
-graph TD
-    CLI[coding_cli] --> SDK[agent.sdk]
-    PA[personal_assistant Gateway] --> SDK
-    PA --> Inbox[GlobalInboxStore 原消息与收据]
-    SDK --> Core[core HookContext / ToolRegistry]
-    SDK --> Gate[platform auto_mode_gate]
-    Gate --> Core
-    Gate --> Tool[工具 check_permissions 与动作描述]
-    Gate --> Policy[内部 auto_mode_policy 与版本化规则]
-    Gate --> Broker[PermissionBroker]
-    Gate --> LLM[既有 hook model caller]
-    Gate -.调用 SDK 注入的来源接口.-> PA
+flowchart LR
+    Input[真人 / 调度 / Agent / 系统输入] --> Runtime[既有 Runtime：保存来源]
+    Inbox[Inbox 工具结果及宿主说明] --> Runtime
+    Runtime --> History[当前会话历史与来源元数据]
+    History --> Gate[共享 Auto gate]
+    Tool[工具检查与动作描述] --> Gate
+    Policy[固定 CC 策略 + 必要 Nano 映射] --> Gate
+    Gate --> LLM[既有审批模型 caller：S1 / S2]
+    LLM --> Route{现有产品交互}
+    Route --> Global[全局：原因返回主 Agent]
+    Route --> Human[CLI / 单聊天：现有人工入口]
+    Route --> Unattended[无人值守：现有 fallback]
 ```
 
-实线为 import/装配依赖，虚线是注入的运行时回调，不是 platform import 产品包。没有新权限服务、消息队列、确认卡片或前端组件。
+core 只传消息、来源和工具事实；策略与计数仍在 platform，PA 工具和 Gateway 只通过 `agent.sdk` 接入。没有新增权限服务、审批数据库、授权卡片或前端组件。
+
+### 已确定的范围与取舍
+
+| 事项 | 最终决定 |
+|---|---|
+| Prompt、S1/S2、默认规则 | 固定 CC 原文，只做下表列出的必要映射；不重写摘要版策略 |
+| assistant 历史文本 | 启用 CC `=1` 分支；真人回复前最近一段文本，末尾 2000 UTF-16 单位；普通 child 仍沿用 CC 子循环限制 |
+| Inbox / 多聊天 | 工具形态 + `host_context_live`；保留来源和目标，由模型判断授权范围，不建立问题/答案实体 |
+| 定时触发 / 系统通知 | 使用 CC 原始标记与完整说明；文本可在 `user` 行中，但来源不是真人 |
+| 压缩 / 恢复 | 沿用 CC 当前历史和 live/restored 区别；不建立历史授权复认证机制、不追加审批专用裁剪 |
+| `agent` / `send_message` | 新派发、follow-up 保持免审；子工具受审；`send_message` 移出整工具免审，正常回复适用 CC 例外 |
+| 计数 | CC 的 3/20 逻辑；主会话跨 run 累计，普通 child 独立；不增加根树共用计数或暂停锁 |
+| 配置 | 保留 Nano 当前配置根、覆盖顺序及既有 fallback；不强制迁移、不禁用 workspace |
+| Bash | 复刻 CC 命令、参数与复合语法检查；撤销此前仅做有限前缀修补的方案 |
+| 多模型 | 保留 catalog/model caller；固定请求形态，超限走既有无结论处理，无隐式改模型 |
+
+撤出的方案不进入接口表、milestone 或验收：`approval_context_provider`、三个 Approval DTO、额外收据/digest 核验链、query work_events、确定性跨聊天匹配、workspace 强制迁移、按问答组裁剪、child 完成后额外 LLM 审核。现有 Inbox 收据和消息投递机制继续用于原职责。
 
 ## Changelog
 
 ## 现状分析
 
-### 涉及范围
+### 基线与证据
 
-代码基线：远端 main `717348738`（含 PR #287），主要用现存 `b35ed739e` worktree 核对全局路径；非全局共享文件与主 checkout 对照。上游基线和原始请求见 [evidence/README.md](evidence/README.md)。
+本次核对 Nano `main` HEAD `d5f3183ba` 及工作区现存代码。工作区有他人修改，包括 `src/agent/platform/config/auto_mode.py`；本文不覆盖这些修改，实施前须按最新集成树重新核对。feat-546 / PR #287 的 Inbox 误拒事实仍成立：实际请求包含用户创建 Cron 的原话，S2 却因 Inbox 来源拒绝，详见 [取证入口](evidence/README.md)。
 
-| 当前落点 | 实际行为 | 本次处置 |
+CC 2.1.267 策略与阶段参数有真实代理请求；历史提议分支有安装包代码和函数回放；当前第三方代理入口实际关闭该开关。长历史和原生 compact 已真实捕获。cron 来源/模板、拒绝计数归属有安装包代码证据，尚未声称真实 cron 或阈值端到端捕获。详见 [上下文实验](evidence/cc-2.1.267-context-experiments.md) 和 [补充代码定位](evidence/cc-2.1.267-adaptation-grounding.md)。本地 CC 重建仓仅辅助导航，不能替代固定二进制基线。
+
+### 涉及范围与现有能力
+
+| 文件 / 模块 | 当前事实 | 本次处置 |
 |---|---|---|
-| `src/agent/platform/hooks/builtins/auto_mode_gate.py` | 旧 BASE_PROMPT 含 Network Services；S1/S2 已有独立 suffix，64/4096；调用 get_tool_approval_model。普通 assistant prose 不进审批记录；Inbox 用户被写在 Tool result 名下 | 改策略组装、来源投影、分类结果与 Auto 路由；不另造 PermissionPolicyEngine |
-| `src/agent/platform/config/auto_mode.py` | workspace 字段覆盖 global；allow/soft_deny/environment 有值即替换默认；无 hard_deny/$defaults | 明确可信配置来源与升级语义 |
-| `src/agent/platform/permissions/broker.py` | pending Future、session tool allowlist；拒绝计数按 run_id/tool_name；阈值跳过分类器直接 ask | 保留人工请求；Auto 计数改为根 session，产品选择交互路径 |
-| `src/agent/platform/tools/builtins/bash.py`、`bash_policy.py`、write/edit/web_fetch 等 | 已有工具级决策和动作描述；Bash 是 shlex/有限命令策略，不是 CC 完整 AST 或 OS sandbox | 复用保守路径，修正 Auto 中优先级；不声称拥有沙箱 |
-| `src/agent/core/hooks/context.py`、`core/agent/loop.py`、`core/tools/registry.py`、`core/agent/tool_executor.py`、`src/agent/sdk/kernel.py` | 当前 LLM history 进入 HookContext；工具拒绝带 denied，但原因来源未形成稳定完整分类；SDK 装配 broker/model caller | 增加小型来源接口与可观察决策来源；core 只传类型和数据 |
-| `src/agent/platform/tools/builtins/agent.py`、`platform/background_tasks/runtime_runner.py` | agent 工具整体在 SAFE_TOOL_ALLOWLIST；子工具集合/skills 已受父集合限制，模型继承；委派 prompt 以 user role 发给 child | 委派先审，继承 Auto 上下文；委派文本不能冒充人工同意 |
-| `src/personal_assistant/tools/inbox.py`、`conversations.py` | Inbox 已将收到的 user/external 消息做 result projection；历史查询不赋予授权；当前投影只解析工具结果 JSON | 用 Gateway 的原记录核验来源，支持历史原文恢复 |
-| `src/personal_assistant/gateway/global_inbox.py`、`global_work.py` | Gateway 本地 SQLite 保存消息、读取收据和工作事件；Inbox 消费基于 SDK committed proof | 复用可信原件、收据与 work_events，补查询/发出消息的核验记录；不建待审批事项数据库 |
-| `gateway/composition.py`、`global_run_coordinator.py`、`personal_assistant/product.py` | 全局运行由 pa_work_scope=global_main 标识；新信号/独立事项已有推进机制 | 装配 return_to_agent 路由和主 Agent 指导；不让权限 Future 占住全局运行 |
-| `personal_assistant/tools/send_message.py`、`cron.py` | send_message 整体被安全表放行且尚无稳定审批动作描述；cron 已有动作投影与只读检查 | 消息按收件人与内容审，内置 Cron 采用明确产品例外 |
+| `platform/hooks/builtins/auto_mode_gate.py` | 旧策略、64/4096 阶段预算；assistant prose 丢弃；成功 Inbox 结果投影写成普通 Tool result | 更新共享策略、投影、决策来源、入口分流；继续使用同一 gate |
+| `core/agent/runtime.py`、`prompting.py`、`loop.py`、`core/llm/interfaces.py` | RunOrigin 可到 hook，但持久化 user 消息和 LLMMessage 没有完整来源；每轮会重新建立历史 | 补最小消息来源、宿主附加上下文及 live 生命周期传递；保持 provider wire 格式；host registry 按 CC 同时匹配消息/调用 id 与正文 |
+| `platform/permissions/broker.py` | pending Future、session allowlist；计数按 run/tool | 保留 pending/cancel 协议，改为会话级双计数；child 各自一份 |
+| `platform/tools/builtins/bash.py`、`bash_policy.py` | shlex/前缀检查；`git config/branch/tag/remote` 可把写命令误当只读 | 引入等价语法及参数检查，仍由 `check_permissions` 单点调用 |
+| `platform/config/auto_mode.py`、SDK workspace 装配 | workspace 字段覆盖 global；空规则数组取默认 | 保持来源与覆盖规则，更新默认资产和新增规则键，不搬配置 |
+| `personal_assistant/tools/inbox.py`、`inbox_result.py`、`conversations.py` | 有成功结果投影；模型页含 target、sender、id、partial；历史查询不授予用户身份 | 复用投影 seam，保留混合来源；历史查询继续是背景 |
+| `tools/send_message.py`、`gateway/internal_dispatch.py` | 发送参数已有 target/text；结果已有 ok/held/error；当前整工具免审 | 补稳定动作描述，保留现有状态供审批解释，不新增投递认证服务 |
+| `gateway/global_run_coordinator.py`、`product.py`、现有入站/分段消息处理 | 全局以 `pa_work_scope=global_main` 标识，wake 用 HUMAN 发起，但正文只是读 Inbox 通知 | 显式标记 wake 为系统来源，并配置全局拒绝返回主 Agent |
+| `scheduler/cron_execution_service.py`、`heartbeat_scheduler.py`、`cron_runner.py`、`heartbeat_runner.py` | Cron 用 CRON 且 session 隔离；Heartbeat 用 HEARTBEAT，global 复用主 session，single 复用 canonical/专属 session；结果通知与任务运行分开 | 加 CC 对应来源及完整说明；分流按实际 run 入口区分，保留两种 Heartbeat 与 Cron 的 fallback，不改调度存储、触发或补跑规则 |
+| `platform/tools/builtins/agent.py`、`background_tasks/runtime_runner.py` | 新派发和 follow-up 已有工具/skills 继承；follow-up 可带 USER origin | 保存 Agent 来源，继承有效审批设置与真实父上下文，不能按 USER 枚举误当人类 |
 
-**已证实误拒绝**：`sess_492f06fa9eea990f` 的实际两阶段请求都含“请创建一个一次性 cron 任务”，S2 仍以“不可信 Inbox”拒绝。不是缺原话，而是来源语义错误。既有 13 个 projection/Inbox 协议测试通过，只证明形状，没证明确认闭环。
+路径前缀未写全的 kernel 文件位于 `src/agent/`，产品文件位于 `src/personal_assistant/`。IM 消息/历史/投递协议、Inbox 消费收据、群聊发言复核不改变。
 
-### 既有约束
+### 契约与约束
 
-另有直接影响迁移的快速路径缺口：Bash 当前把 `git config`、`git branch`、`git tag`、`git remote` 当作整前缀只读；但这些命令也有写操作。现有 prefix 注释不能当安全证明。D2 收紧这一明确缺口，否则更新后的分类器仍看不到这些动作。
+已核对 current 的 [Kernel Runs](../../specs/kernel/runs.md)、[SDK Boundary](../../specs/kernel/sdk-boundary.md)、[Tools/Hooks](../../specs/kernel/tools-hooks.md)、[Global Agent](../../specs/gateway/global-agent.md)、[Heartbeat/Cron](../../specs/gateway/heartbeat-cron.md) 和 CLI 入口。
 
-产品仅 import `agent.sdk`；core 不 import platform；IM 不调用 agent。worktree E2E 隔离端口、节点、配置、数据和 workspace。新的用户行为只写本 unit delta，实施完成后再归并 current spec。CLI/单聊天的人工审批入口与取消语义保留。
+Runs 中“内核不内置权限策略”比实现宽：SDK 已装配 platform Auto hook；delta 精确区分 core、platform 与人工 callback。其余 current 的配置覆盖、指定审批模型不降级、取消解除人工等待、Inbox 成功结果显式投影等继续成立。此次不修改 SDK 导出表或新增公开 DTO。
 
-契约核对发现一处已有描述过宽：`docs/specs/kernel/runs.md` 说“内核不内置权限策略”，但 SDK 实际装配 platform 内置 Auto hook，仅人工许可阶段交给 `can_use_tool`/broker。这句话将在本单元 delta 中精确化，不另建第二个消费者权限裁决器。`sdk-boundary.md` 当前允许 workspace Auto 覆盖，本方案明确改变该语义并提供迁移。
-
-### 可复用能力
-
-- **用**：HookContext/model caller、PermissionDecision/decision_reason、工具动作描述、tool result 提交事件、Gateway 原始收据、全局 wake/Inbox/history/send_message、子任务 parent_session_id 与工具白名单。
-- **改**：安全工具表、配置合并、审批 transcript、拒绝原因投递、Broker 计数；共享代码仍在 platform。
-- **不用**：研究提案的大型 PermissionPolicyEngine；单为确认建立新 action service、持久化 pending 状态或独立调度器。这里真实变化的 seam 是 SDK 的“产品可核验消息来源”接口，CLI 原生 transcript 与 PA 多聊天来源是两个实际不同的 adapter。
-
-### 相关历史
-
-feat-539 的迁移需求并入本单元；旧草稿保留来源，不再独立实施。feat-546 提供全局会话、Inbox 原件/收据、显式发送和工作记录；bugfix-355 的工具自检/安全检查不可被宽许可短路；feat-394 的无人值守路径用于 Cron；feat-474 的子任务工具与技能约束继续有效。上述历史不代替本次真实验收。
+feat-539 迁移目标并入本单元；feat-546 提供全局历史和显式发送；bugfix-355 的工具自检不能被宽许可短路；feat-394 无人值守及 feat-474 子任务工具/skills 边界保留。现有 Gateway 收据不被废弃，只是不再为 Auto 另建查询/核验接口。
 
 ## 关键决策
 
-### D1：以实际 2.1.267 策略为基础，逐项适配 Nano
+### D1：固定 CC 原文，明确每一处 Nano 适配
 
-**移植完整规则与输入契约，保留明确的 Nano 差异表。**
+**运行时策略采用 `cc-2.1.267-nano-v1`，不随上游自动升级。**
 
-`auto_mode_policy.py` 负责 system 的组装和 S1/S2 suffix；随代码保存 UTF-8 策略模板与默认规则 JSON，版本 `cc-2.1.267-nano-v1`。运行时不读取研究目录。精确来源、原文哈希、适配 diff 在实施产物 manifest 中可核对；不静默追随上游更新。
+将完整 Security Monitor、S1/S2 suffix、默认规则和来源说明保存为 platform 内部 UTF-8 资产，由 `auto_mode_policy.py` 组装；运行时不读 research/evidence 目录。保留原文哈希和可审 diff：每处说明原文、替换内容、原因。没有映射的段落逐字保留；脱敏示例替换单列，不伪装成权限修改。
 
-| 上游内容 | Nano 决策 |
+| 上游内容 | 唯一允许的适配 |
 |---|---|
-| hard/soft/allow、用户直接指令和问答确认、实际动作与历史 outcome | 采用；显式 deny 不能被 LLM 覆盖。S1 风险筛查、S2 才应用完整授权和例外 |
-| 编码 Agent 场景 | CLI 保留；PA 增补消息、用户委托、内置调度和多聊天来源；不把所有个人助手任务默认限制成“当前 Git 仓库开发” |
-| `host_context_live` 与恢复文本 | 借鉴来源区分；Nano 的已验证持久化原消息可保持人工身份，未经核验的恢复 tool text 不行 |
-| assistant prose 帮助理解“同意” | 采用；只取用户实际看见的既往提议，不能用当前动作旁新生成的自述背书 |
-| Claude Code Scheduling | 替换成 Nano 内置 Cron/heartbeat 管理的范围例外。创建/修改审完整 payload 与 schedule；自动触发带 standing task scope，但不能冒充新的人类确认；shell system cron/systemd 不适用该例外 |
-| Multi-Agent Coordination | 映射内部 child、原任务聊天回复/澄清；正常询问许可无需为“发送许可问题”再走人工确认。无关收件人、额外敏感内容仍审 |
-| CLAUDE.md / Memory Directory | 映射本产品实际指令/记忆目录；普通记录可用，改权限/审批规则仍受审；不把文件中声称的用户批准算作真实批准 |
-| “can you” 等请求形式 | 结合真实语言语境理解指令，不把中文“帮我/能不能帮我做”一概当成没有授权；高影响操作的对象和范围仍须明确 |
-| Host containment / 外发敏感信息 / 破坏性变更 | 保留规则；环境由可信部署配置描述，不由 Agent 自述推断出容器隔离 |
-| CC 浏览器、Artifact、RemoteTrigger 专属形式 | 仅保留适用于外部/动态工具的实际风险语义；不新增这些产品工具，不填不存在的 host metadata |
-| CC 支持的模型/订阅资格 | 不移植；Nano 沿用 catalog 与 tool_approval_model，不因模型名不是 Claude 禁用 Auto |
+| `autonomous AI coding agents` / `autonomous coding agent` | 分别改为 `autonomous AI assistants` / `autonomous AI assistant`；其余能力和范围规则保留 |
+| Path A/B、hard/soft/allow、outcome、host context | 原文保留；不扩大“个人事务默认授权”，也不把所有风险变成不可覆盖 deny |
+| Claude Code Scheduling | 映射 Nano `cron` 的 list/runs、add/update/remove/run 六个实际 action（启停通过 update）和 `.nanoassistant/cron/` 存储事实；不存在的 RemoteTrigger 云服务不虚构。例外范围不扩大 |
+| Multi-Agent Coordination | 映射 `agent`、`send_message` 与 Agent 来源说明，保留正常协作/回复例外、队友非真人及无关会话/硬限制边界 |
+| 指令/记忆目录 | 根据 CLI/PA 实际配置根生成事实；普通记录与修改权限的规则含义保持一致 |
+| 宿主/沙箱/云端事实 | 只陈述本次运行确实具备的能力；Nano 不具备 OS sandbox 或 CC 云通道时不能宣称具备，不删除相关安全原则 |
+| Inbox 说明 | 加一个短产品段：来源字段由应用提供；真人原话可表达意图，Agent/自动事件/引用不能成为新的人类同意；结合 sender、target、reply 信息理解范围 |
 
-理由：已捕获的最新策略有 17/69/1/21 组默认规则，远不止改旧 Network Services 一条。风险是长 prompt 提高成本且模型效果不同，故固定版本、验证矩阵与实际 usage 是交付条件。
+Inbox 说明同时供主 session 和 Auto Gate 使用；分类器拥有独立 system prompt，不能只改 `_PA_GLOBAL_ROUTING_TEXT`。不复制 CC 账号资格、灰度控制、配置 UI 或遥测基础设施。Nano 默认启用已确认的 assistant 分支，不对外新增灰度开关。
 
-### D2：复用既有工具检查，调整 Auto 中的决策顺序
+### D2：复用权限入口，完成 Bash 等价检查
 
-**明确拒绝与不可越过的人工检查，必须先于任何宽放行。**
+**工具明确 deny 先于 Auto 的整工具宽许可；需要模型判断的动作都带完整描述。**
 
-以下仅描述启用 Auto 的路径；用户主动选择的其他模式不在本次重新定义。
+顺序：调用一次工具 `check_permissions` → 保留不可绕过检查和明确 deny → 应用原有模式/明确许可与只读路径 → 组装当前动作 → S1/S2 → 产品交互分流。非 Auto 模式的 skip、人工许可和取消语义不在本次重定义。普通风险不得擅自改为硬 deny。
 
-```mermaid
-flowchart TD
-    A[工具提议] --> B[工具检查及受保护路径/配置规则]
-    B -->|明确 deny| D[拒绝并交回 Agent]
-    B -->|真正的人工 consent / 安全检查故障| I{入口支持人工界面?}
-    I -->|CLI/单聊天| P[现有 Broker / callback]
-    I -->|全局/无人值守| D
-    B -->|范围内低风险 allow| E[执行]
-    B -->|其余| T[核验上下文与稳定动作描述]
-    T -->|缺失/无法完整判断| N[no_verdict 不执行]
-    T --> S1[S1 风险筛查]
-    S1 -->|允许| E
-    S1 -->|阻断| S2[S2 用户意图与例外复核]
-    S2 -->|允许| E
-    S2 -->|阻断| D
-    S1 -->|异常| N
-    S2 -->|异常| N
+`agent` 新派发、follow-up 保持免审；`send_message` 移出内置整工具安全表。用户显式配置的许可仍按当前配置规则读取，再依 CC 对 Auto 宽规则的筛选处理，不能先用工具名短路明确 deny。工具缺失/动作投影失败保留显式故障，不用空动作调用分类器。
+
+Bash 仍由 `bash_policy.check_command_policy` 返回 `allow/review/deny`，执行器不再查第二次。替换前缀免审实现为固定 CC 的同等检查：
+
+1. 保留命令原始字符串，解析命令列表、管道、重定向、引号、替换及子命令；不能先 lower 整行或丢失引号边界后判权限。
+2. 使用 Python tree-sitter Bash 解析适配器提供与 CC SimpleCommand 路径等价的 argv、重定向及语法节点信息。依赖随实现锁定；不拉起 Node/CC 子进程做运行时审批，不自行实现 shell 执行器。
+3. 移植固定版本的命令表、safe flags、参数类型、位置参数约束、额外命令检查及 sed/path 检查。覆盖 Git、rg、find/xargs、常用文本命令与 CC 已支持的其他表项，不能只挑几个易实现命令。
+4. 复合命令按 CC 对各段及重定向的判断合成；纯只读管道不能因 Nano 简化一律进分类器。CC 自身无法证明只读的结构按相同规则进入 review；解析错误/不支持分支不得当 allow。
+5. CC 中依赖 OS sandbox 的免审只在真实能力成立时采用；Nano 不新增沙箱。现有显式 `.nano/policy.toml` overrides 的来源和覆盖语义保留，不能夹带配置收紧迁移。
+
+实现文件拆为现有策略入口 + 内部 `bash_readonly.py` / `bash_syntax.py` / 版本化命令表；表和算法同属一个策略，不建立通用 PolicyEngine。固定安装包为最终参考，本地重建源码的 `readOnlyValidation.ts`、`readOnlyCommandValidation.ts`、`bashPermissions.ts`、`pathValidation.ts`、`sedValidation.ts` 只帮助定位。实施交付完整表项映射与差分 fixture；任何为方便而遗漏的分支不能写成“已复刻”。
+
+### D3：按 CC 组织上下文，不建立问答匹配系统
+
+**保留真实来源和消息顺序，让分类器判断意图；不能仅凭 API role 或正文自报身份。**
+
+#### 原生输入与工具记录
+
+主会话启用 CC `priorAssistantContext=1`：assistant 文本块按换行连接，暂存最近一段；遇到后续真人输入时插到该输入前，截取末尾 2000 UTF-16 单位并处理代理对边界。新 assistant 文本替换暂存；非真人的有意义输入清除暂存；当前工具前没有真人回复的旁白不加入。工具调用本身继续作为历史动作，不因此删除。
+
+来源判定独立于 RunOrigin 的运行调度用途：CLI/单聊天直接真人输入为 human；global Inbox wake 为 system；child 派发/follow-up 为 agent；Cron 为 scheduled-trigger；heartbeat 和普通后台结果为 system；摘要为 summary。来源来自入口元数据，不根据正文前缀猜测。混合 steer batch 保留各段来源，不能把混入真人 batch 的通知全部升级为 human。老历史缺字段时，使用现有 run/session/background 元数据恢复已知来源；完全没有来源标记的原生 user 行按 CC unstamped 分支处理。只有已识别为非真人但具体来源未分类时使用 unclassified 说明；不新增拒绝旧历史的迁移闸。
+
+历史工具动作使用当时的工具名和原始 args，不用当前同名工具替换历史。结果保留执行/错误/拒绝的来源和必要状态；Cron 当前动作投影移除现有 240 字符摘要限制，保留完整 schedule/payload；普通网页/文件/任意工具 body 不整体进入授权上下文。当前待审批动作放在最后，没有 outcome 或 host context。
+
+#### Inbox 与 host context
+
+继续使用现有 `to_auto_classifier_result(content) -> str | None`。它仅对成功且有匹配调用的应用消息工具起作用，不从任意工具返回的字段认领 host context。Inbox 投影包含本页 target、channel、message id、sender、text、partial，以及实际存在的 reply 字段；保留真人、Agent、系统混合内容，并明确各自来源。`external` 仅表示渠道身份映射：当前 Gateway 只把外部渠道实际 user 映射为 external，不能按名称或未知来源补成人类。
+
+宿主附加上下文在工具结果产生时物化到结果消息 metadata，并跟工具 call id 绑定。当前活跃会话保有实时来源时序列化为 `host_context_live`；恢复的宿主上下文用 `host_context`，沿用 CC 不授予新 intent 的规则。该投影不展开为一组人工 user turn，也不触发原生 assistant/human 配对。
+
+CC 对 host context 使用现有 2000 UTF-16 单位上限；按原函数从头截取。Nano 不另加“按问答成组裁剪”。长 Inbox 页仍遵守原有分页和 partial；被截断/不完整的内容不能由模型补齐为授权。如果本次已读页过长而关键消息不在分类上下文中，Agent 可按现有 cursor 缩小读取、重述具体问题让用户确认；不绕过长度边界或从数据库暗补全部消息。
+
+#### 多聊天与 send_message
+
+`send_message` 历史动作本身包含 target 和完整 text；不另建 `assistant_proposal` 事件，不要求额外调用 delivery provider。既有结果中的成功、错误、排队、`held_for_revalidation` 等状态按原义保留，不能把“已受理”表述成“已送达”。模型根据实际可见事实判断回复与提议，不由系统固定绑定“全局最近一个问题”或强制额外身份规则。
+
+示意（省略长度处理和环境字段）：
+
+```jsonl
+{"send_message":{"target":"c_A","text":"可以推送 release 分支吗？"}}
+{"send_message":{"target":"c_B","text":"可以清理临时报告吗？"}}
+{"inbox":{"action":"read","target":"c_A"},"id":"i_1"}
+{"host_context_live":"target=c_A; sender=user:u_A; text=可以","id":"i_1"}
+{"Bash":"git push origin release"}
 ```
 
-- `check_permissions` 仍每次调用一次；区分 `rule` / `safety_check` / `command_policy` / `preapproved` 等 decision_reason。不因 session allowlist、always_allow_tools 或安全表忽略其 deny。受保护路径的写入不能被工具名宽许可放过。
-- 只读 read、web_search、skill_view 和已有明确只读动作沿用快速路径；memory、task_stop 应按已有作用域检查，不能让自检 deny 被安全表盖掉。
-- `agent` 和 `send_message` 从整工具安全表移除，补动作描述并走分类器。用户配置的宽 `always_allow_tools` 在 Auto 中不能绕过 bash/agent/Workflow/send_message 等任意执行或外发动作；这些项保留在配置诊断中并注明 Auto 不采用。
-- 本期不复制 CC 全量 shell AST；保留现有 Bash 确定性阻断。免审改为有限只读形态：有写分支的 `git config/branch/tag/remote` 只放明确查询形态，其余进分类器；重定向、管道、命令/进程替换、未识别的复合语法和可能执行外部程序的选项不按首前缀免审。已有可靠的简单只读命令才快放行；不确定即分类，而非一律拒绝。写入/开发服务由新分类器理解范围。验收必须包含 `git config key value`、`git remote add`、`git branch -D`、`echo text > file` 不能命中只读免审，和 `pwd` / 简单读取仍能快放行。无需实现完整 shell AST，也不假定 OS sandbox 存在。
-- 已有明确人工语义的工具 ask（如受保护文件确认、Workflow 启用）不自动用一句聊天“同意”清除硬检查。全局模式返回 `manual_required`，Agent 解释需要哪个实际配置操作；不反复询问同一个无效问题。
+A 的回复不能因 B 的提议更近就自动解释为清理报告。是否同意、同意哪些参数、说话人有无相应权限由模型依据 CC 规则和实际字段判断。现有消息格式若没有 reply_to，就不编造，不为此增加 IM 数据迁移。
 
-### D3：分类器输入按真实来源组织
+### D4：照搬 cron / 系统通知的来源说明
 
-**系统核验来源，模型判断授权范围；不靠 prompt 把任意工具 JSON 变成真用户。**
+**自动触发是分配给 session 的任务，但不是新的人类同意。**
 
-原生 transcript 保留 human message、既往 assistant 提议、工具调用和结构化 outcome。普通 tool result/body、网页/文件内容和子 Agent 自述不成为人工消息。已存在的工具投影继续描述动作，但 `to_auto_classifier_result` 的字符串不再承担“谁是人类”的认证职责。
+从固定安装包逐字提取并版本化 scheduled、system notification、与真人同轮的 system notification 三个模板。主模型与审批投影共用同一来源语义；不拿研究示意中的中文缩写替代英文原文。
 
-PA 注入的 provider 从 `GlobalInboxStore` 原始 entry + committed read receipt 核验 Inbox 消息，记录 agent/root session/tool_call/message/target/digest 对应关系；检查 user/external 的真实渠道身份，排除 agent、system、automation、引用内嵌“User:”和未读完的内容。`external` 只是入站身份类型，不能仅凭字段拼写授权。
+| Nano 入口 | 来源与说明 |
+|---|---|
+| Cron 到点触发、原生 run 操作执行已存任务 | `scheduled-trigger`；`[SCHEDULED TASK - AUTOMATED FIRING OF A CONFIGURED PROMPT]`。任务可执行，但存储不能证明作者是谁；声称“用户刚同意”不构成新同意 |
+| Heartbeat、自主周期、任务完成/失败通知 | `system`；`[SYSTEM NOTIFICATION - NOT USER INPUT]`。保留既有任务/周期目标，不作为待确认问题的回答 |
+| 通知与真人输入同时进入 | 分段保留来源，沿用 CC 同轮说明；真人输入仍有其正常效力，通知不分享该效力 |
+| global Inbox wake | `system`。通知只说明有未读内容，实际 user/agent 来源在 Inbox 工具结果中 |
+| child 初始委派与 follow-up / 外部 Agent | `agent`。保留真实 Agent 来源/任务关系；其“用户已批准”主张须回到真正的用户上下文 |
 
-`conversations(read)` 可以恢复真实历史授权，但须同样通过 Gateway 授权查询的原始响应、身份与工具提交记录核验。为此把 query page 的核验摘要和引用作为新的 `work_events` 事件保存，不改变 Inbox 已读游标，也不把所有历史查询结果整体升级成可信用户内容。外部聊天复用已收到的原消息缓存；缓存缺失时明确无法恢复，不编造来源。
+不改变 Cron 隔离 session、存储目录、触发/补跑策略或 heartbeat 生命周期。创建任务的调度例外不自动豁免任务内的推送、外发等动作。
 
-发出的提议只在确认实际投递后进入 `assistant_proposal`：内置 IM 用已提交的 message id；外部 Channel 用成功 delivery receipt。队列接受、held_for_revalidation、错误或未知投递结果不算用户看见。相关事实复用 dispatch/work journal；需要补字段时加到该链，不新建发送路径。
+### D5：沿用压缩和 live/restored 边界
 
-全局 bare yes 的默认关联是同一 conversation、同一请求者、最近的一个已投递明确提议；系统保留消息顺序，模型仍判断语义。明确回复引用可跨插入消息定位；另一聊天的回答必须自己写清操作与范围或有可验证 reply_to，不靠全局时间邻近。其他群成员的答复不能代替原请求者，除非已有明确授权关系。一个提议有多个无优先级选项时，裸“同意”不自动全选。
+**审批使用当前主会话可见历史，不从 Gateway 扫描或重建一套授权历史。**
 
-### D4：无卡片，也无需新待审批状态机
+compact 后只使用摘要及后续历史；摘要沿用 CC 的 user 文本承载和摘要说明，不能自动生成“用户已批准”的规则。暂停同进程会话、结束普通一轮都不是恢复：同一活跃 session 的实时宿主上下文仍保留 live 性质；进程重启/显式重载后，持久化的宿主附加上下文改为 `host_context`。
 
-**全局拒绝立即返回；原事项保留在现有消息与工作记录中。**
+`conversations(read)` 继续提供历史背景。它可以帮助 Agent 找回任务、识别要重新确认的动作，但不因为当前刚查到旧话就升级为 `host_context_live`，也不新增 query work_events。原生真实 user 历史和摘要按 CC 对应分支处理，不把所有历史一概降为 host_context。
 
-SDK 注入接口为当前 root session 决定 `interaction=return_to_agent` 或 `interactive`；该值来自应用拥有的会话绑定，不能让模型工具参数自行指定。global_main 和其 child 继承 return_to_agent，不能用 HUMAN origin 推断应该弹窗；全局运行当前正是 HUMAN。
+收到简短回复而现有上下文不足时，Agent 可以查历史理解事项，然后在普通聊天中重述具体动作求确认；不要求用户重提整个任务，不保证压缩/重启后永不再确认。这里沿用用户已接受的 CC 边界，而不是此前草稿的“核原件后恢复旧授权”。
 
-主 Agent 指导增加：拒绝后先看原因，合法替代可继续；缺授权时向正确用户说明具体操作和关键范围；询问成功后继续其他独立工作，无事则结束本轮进入现有 idle。不得把待确认工具挂为 permission Future，不提前执行，不自动重放工具。用户新消息由既有 wake/Inbox 流程唤醒，主 Agent 恢复任务后重新提议并再次审批。
+### D6：计数和分流接入现有产品交互
 
-压缩/重启时不从摘要提取“已批准”直接放行。主 Agent 读入新回复后，若看不见原提议，先用现有 `conversations(read)` 查回；Gateway 核验原始记录后重新提供问答。找不到原文、原问题投递未确认或只能读到半条时，返回上下文不足并让 Agent 澄清。这个设计保持收件人选择在 Agent，来源真实性在应用。
+**只计有效分类拒绝；没有全局权限 Future，也没有另加的 Auto 暂停锁。**
 
-### D5：分清策略拒绝、人工要求和审核失败
+CC 普通主循环使用会话 state，普通 fork 的 child 使用 local state；仅共享循环才显式共享。Nano 以实际 kernel session_id 为计数键，同一 session 跨 run 累计，普通 child 自有 session 因而独立；不用 provider 请求的 llm_session_id，也不按工具名分别计数。有效 classifier deny 同时加 consecutive/total；allow（含权限快放行）清 consecutive；总阈值处理后按 CC 清 total/consecutive。默认 3/20；现有 deny_limit 继续作为连续阈值覆盖，新增 total_deny_limit，默认 20。
 
-**只把有效策略拒绝计入拒绝次数；服务失败不能变成“用户没授权”。**
+取消人工 pending 继续按 run 清理；不因普通一次 run 结束就清掉 session 计数。Kernel 关闭时回收内存；与 CC 一样不新增持久化计数。Broker 锁内更新双计数，不加整棵 Agent 树共享锁。
 
-| 结果来源 | 是否执行 | 计普通拒绝数 | 全局/无人值守 | CLI/单聊天 |
-|---|---|---|---|---|
-| 有效 allow / fast path | 是 | 重置连续数，不清总数 | 返回结果 | 返回结果 |
-| classifier_block | 否 | 是 | 原因交回 Agent | 阈值前交回，触发后现有人工入口 |
-| explicit_deny / user_denied | 否 | 否 | 明确拒绝 | 明确拒绝 |
-| manual_required | 仅真实人工入口批准后 | 否 | 不 park，交回并说明入口要求 | 现有 Broker/callback |
-| classifier_unavailable / parsing_error / context_incomplete | 否 | 否 | no_verdict，允许解释/正常重试，不自动放行 | 既有 fail-closed 人工路径；明确故障原因 |
+| 判定 | 全局消息驱动的主会话及普通 child | CLI / 单聊天 interactive | Heartbeat / Cron 等原有无人值守运行 |
+|---|---|---|---|
+| allow / 快放行 | 执行动作 | 执行动作 | 执行动作 |
+| 有效 deny，未达阈值 | 原因返回 Agent，不执行 | 原因返回 Agent，不执行 | 原因返回 Agent，不执行 |
+| 有效 deny 达阈值 | 仍返回 Agent，不弹窗、不直接放行；后续新提议仍可分类 | 对本次动作走现有人工入口；批准后按成功重置连续数，不永久改模式 | 采用既有 unattended_fallback；标明配置 fallback，不能记为 classifier allow |
+| 超时、API 失败、解析失败、prompt-too-long | no_verdict 返回 Agent，不执行、不计拒绝 | 既有 ask 入口，原因明确为故障 | 既有 unattended_fallback（默认 deny，可显式 allow） |
+| 工具明确 deny | 原因返回，不执行 | 不执行 | 不执行 |
+| 必须人工的工具 ask / 安全检查 | 返回 manual_required，说明实际入口要求，不 park | 既有人工入口 | 沿用此类工具原有处理，不能用 classifier 的 fallback 清掉工具硬限制 |
 
-Broker 中 Auto 计数改为**根 session**，连续 3、总计 20；成功工具动作重置连续值，总数只在触发总阈值后重置。有效判定和重置在同一锁内。父子任务归同一计数根，避免换工具/换 child 绕计数；取消或关闭 session 清理对应状态。现有 `deny_limit` 迁移为连续阈值；新增 `total_deny_limit=20`。
+分流同时使用应用拥有的 `auto_mode_interaction=return_to_agent`、真实 run origin 和既有 child 身份；来源和交互方式是两件事。PA 共享 runtime/scenario 装配在 `pa_work_scope=global_main` 时设置该值，覆盖 binder 创建/恢复、coordinator 刷新及 Heartbeat 的 runtime 刷新；普通 child 从父 session 继承，不能仅在 Inbox wake 调用点赋值。不得从文本或 tool args 推断入口。
 
-CLI/单聊天达到阈值后在当前根 session 暂停需要分类器的 Auto 动作，低风险确定性 fast path 仍可用；使用现有 allow_once/deny 等选项，不增加按钮。人工批准后解除暂停，当前动作只执行一次；拒绝不自动恢复，后续动作仍可通过原人工入口批准并恢复。请求原因说明本次批准会恢复 Auto。全局/无人值守只记次数用于诊断，**不设置跳过分类器的暂停锁**，所以后续真实确认一定能再次进入分类器。
+入口优先级固定如下：先识别继承全局交互的普通 child；再识别 Heartbeat/Cron 自动运行；再应用主 session 的全局交互选择；其他情况走现有路由。模型备用重试保留同一入口归属。工具明确 deny 和必须人工的安全检查仍先按上表处理，不能由此优先级绕过。
 
-Auto 的 no-verdict、硬拒绝、次数阈值均不能经 `unattended_fallback=allow` 放行。此旧配置值在 Auto 迁移时给出错误说明，要求改为 deny；不静默采用。显式 bypass 开关不在这一语义内，但安全锁仍按既有契约执行。
+| 实际 run 入口 | 交互选择 | 关键约束 |
+|---|---|---|
+| global Inbox wake、真人后续事项、普通后台结果唤醒主会话 | return_to_agent | 有效拒绝/无结论返回主 Agent；无人工 Future、无配置 fallback 自动放行 |
+| global Heartbeat（主 session，origin=HEARTBEAT） | 原无人值守 fallback | 达阈值/审批故障按显式 allow 或默认 deny；session 的 return_to_agent 不覆盖此自动入口 |
+| single-thread Heartbeat（canonical 或专属 session） | 原无人值守 fallback | 与 global Heartbeat 同一 fallback 语义；保留现有 session 选择 |
+| Cron 定时/手动运行（独立 session，origin=CRON） | 原无人值守 fallback | 不能因为任务所属 Agent 为 global 就变成交互式确认 |
+| global 普通 child 新派发/follow-up | return_to_agent | 由既有子任务身份及继承设置识别；BACKGROUND_TASK/USER 调度枚举不把它改判成普通无人值守或真人 |
+| 其他 CLI/单聊天/后台入口 | 原有路由 | 保留现有 interactive/unattended 判断与取消协议 |
 
-### D6：保留多模型路由，采用可验证的两阶段参数
+这一优先级兑现 spec R5 已确认的无人值守例外；不增加新的入口配置或权限状态机。Global Heartbeat 本身及其后续普通 child 分别按各自实际入口处理。
 
-**默认采用捕获的 2112/10240 与阶段 suffix；用 Nano 已选审批模型运行，不增加隐式模型回退。**
+主 Agent 指导明确三种下一步：合法替代、普通聊天澄清/确认、说明无法继续。发送询问后继续独立事项，无事则 idle；新回复经既有 wake/Inbox 再次提议动作，不持有旧工具 Future，不自动重放旧调用。主 Agent 不把服务故障解释为用户未授权。child 的未获准结果沿已有任务返回链交回主 Agent处理，不自行创建产品授权卡片。
 
-S1 无 thinking、stop `</block>`，block 才进入 S2；S2 无 stop，用提示词允许内部思考后返回 XML。解析明确区分 `<block>yes/no</block>`、category、reason；任何没有有效判定的输出为 no_verdict。不能用解析失败兜底 allow，也不能丢掉 S1 block 就执行。
+### D7：保留配置和多模型，只更新机制本身
 
-实际模型能力由 catalog/provider 处理；选定模型 C 失败不能偷偷改成主模型 A。本轮 CC 捕获的 Terra 参数是实现基线；Nano 验收还要覆盖生产使用的审批模型。保留既有 provider 重试框架，不叠加 hook 无限重试。请求记录 policy_version、stage、model、输入大小、用量、耗时和 decision_source；不新增用户可见调试 UI。
+**保留 global + workspace 的当前逐字段覆盖规则；不搬文件、不忽略旧配置、不新增迁移阻断。**
 
-transcript 预算按所选模型 context 减去 system+工具描述+输出预算计算。按完整事件组保留：当前动作必留，已选用户指令/确认必须与提议成对；压缩摘要不是原始授权。不能悄悄截断关键内容后猜判，容纳不下返回 context_incomplete，让 Agent 缩小动作或查回更窄的原文。
+已有 enabled、dangerously_skip_permissions、always_allow_tools、deny_limit、ask_timeout_sec、unattended_fallback、allow/soft_deny/environment、web_fetch 及 Bash policy 的配置位置和原含义保持。新增 hard_deny 与 total_deny_limit；规则数组省略/旧空数组继续取默认，非空替换；采用 CC `$defaults` 组合语义时在原位置展开一份版本化默认。占位符展开采用 CC 对应规则，不追加本项目独有的组合限制。配置扩展不构成新配置根或自动迁移。显式原工具 deny 的优先级见 D2。
 
-### D7：配置只能来自应用控制的根，升级有明确说明
+S1：max_tokens=2112、stop=`</block>`、关闭 thinking；S2：max_tokens=10240、无 stop、使用捕获的 suffix。S1 block 才到 S2，两阶段使用同一 policy 与 transcript。有效 XML 按 CC 解析，无有效判定单列 no_verdict。保留指定 tool_approval_model；未指定用当前模型；不静默改用其他模型。复用 provider 已有重试，不叠加 hook 无限重试。
 
-**默认规则可版本化；仓库内容不能自行改写自己的审批政策。**
+不增加审批专用 token 预算裁剪、问答配额或二次摘要。保留 CC 的单项来源长度限制；总请求超限交由现有 provider 错误路径识别为 prompt-too-long/no_verdict，按 D6 分流。不可用分支与有效模型拒绝分别记录；不把上下文错误伪装成授权不足。
 
-保持 `auto_mode` 的现有 snake_case 键。新增 `hard_deny`、`total_deny_limit`；规则数组省略或旧式空数组表示使用默认，非空数组表示替换该类，`$defaults` 在所在位置展开为本版本完整默认列表；多个 `$defaults` 报错。沿用旧式空数组含义，本期不新增显式清空整类规则的配置形式。managed 组织层本项目不存在，不新增。
+日志记录 policy_version、stage、model、字节/字符数、usage、耗时、decision_source；避免重复记录消息正文或 token。所有费用估计不得当作实际账单，主会话 usage 不能代表分类器总开销。
 
-`global_config_root` 为 SDK 消费者显式提供的、应用控制的配置根；CLI 使用自身用户目录，PA 使用部署根。workspace 的 `auto_mode` 不再作为有效策略来源；发现非空旧配置时，在首次 Auto 决策加载配置处返回明确迁移配置错误并阻止动作，避免忽略旧 soft_deny 等限制反而放宽策略。诊断只列出待迁移的键和迁移目的路径，**不打印规则内容或 secret**；不自动移动文件。本期不复制 CC 配置 UI 或 `auto-mode critique` 命令。
+### D8：子任务沿用委派入口，不制造新的人工身份
 
-`.nano/policy.toml` 的既有 Bash 覆盖同样不能在 Auto 中降低默认阻断：workspace blocked 列表只能增加、不能替换删除；workspace allow_prefixes 不构成 Auto 免审依据。保留现有其他模式的兼容语义。应用根提供的有限允许仍须经过 D2 的不可覆盖 deny/安全检查。
+**`agent` 的调用继续免审，实际 child 工具动作继续过 Auto。**
 
-迁移清单随实现提供，逐一列出现用配置旧值→有效新值：enabled、skip、always_allow_tools、deny_limit、ask_timeout_sec、unattended_fallback、allow/soft_deny/environment、web_fetch、Bash policy。存在非空旧 workspace auto_mode 而尚未迁移时，不执行 Auto 动作并报告迁移位置；用户显式迁移至可信根并清除旧项后恢复。无旧项或空映射仍使用默认策略，不能悄悄启用旧 workspace 放宽规则。对当前全局根缺省配置的使用者无需新增必填配置。
+保留既有工具/skills 交集与父子任务关系，继承父有效审批模型、配置和 session 交互选择；不把父本轮 Heartbeat 的入口例外复制成 child 身份，global 普通 child 按 D6 返回主 Agent。普通 child 计数独立。父已读审批上下文以创建/继续时的只读快照交给 child classifier，保留原消息身份和 host live/restored 属性；委派 prompt 与 follow-up 单独标成 agent。快照不改写为“父 Agent 认证过的用户授权”，模型仍逐项判断，也不从父 Inbox 补读未读消息。
 
-### D8：子任务与发消息不能成为绕过路径
+通过现有 subagent control / SessionDirectory 内部装配传递该快照，不新增 SDK provider 或公开 DTO。普通 child 中 `priorAssistantContext` 按 CC 子循环条件关闭，不能用 child 自己写的提议配合自动通知形成同意；已作为历史工具动作传入的父 send_message 仍保留。child 恢复后继承的 host context 同样降为 restored。
 
-**审委派和子任务动作；结果本身保持非人类来源。**
-
-`agent` 的新派发与 follow-up 都投影 description、完整 prompt、child id/类型、有效能力范围；先审后启动/入队。child 使用父 root session 的有效 Auto 配置、审批模型与交互策略；保留工具/skills 交集，child 不能用本地 frontmatter/配置放宽。parent 提供的委派文本和补充消息标记为 agent_delegation，即使主模型协议用 user role，也不产生新人工授权。仅显式继承的已验证用户事实可供 child 审批使用。
-
-本期**不额外复制 CC 的完成后第三次 LLM 安全审查**：Nano 已把 child output 作为不可信内容交回，后续有副作用动作仍逐次审核。增加第三次审核会改变完成延迟且不是解决本次误拒的必要条件；结果不能带“用户已经批准”来获取 authority，这一反例必须测。对照表明确这一不采用项，不能宣传逐分支复刻 CC。
-
-`send_message` 在既有发送链之前审核 target、完整 text、真实 task origin 与收件对象类型；普通发起聊天的回复/询问可按产品例外允许。全局聊天路由、群发言复核和 delivery idempotency 不改。转发给无关目标或携带新增敏感材料不靠“协作消息”例外通行。`cron` 不直接白名单：读操作仍快速允许，新增/修改动作看 schedule/payload/owner scope。
+不新增 child 完成后的第三次 LLM 安全审核；其返回仍是 Agent 输出，后续副作用仍逐次审核。本设计复刻本期已选机制，不宣称实现 CC 的全部工具与灰度分支。
 
 ## 接口与数据流
 
-### SDK 小接口与内部结果
+### 最小实现接线
 
-以下为实施契约，不把所有内部类型暴露给产品：
+| 落点 | 明确输入 / 输出 / 生命周期 |
+|---|---|
+| `Message.metadata` | 内部 `context_origin` 保存 human/agent/scheduled-trigger/system/summary/unclassified；tool result 保存物化 `host_classifier_context`、已存在 tool_call_id 和审批结果来源。由 runtime/工具入口写，模型不能自行写 |
+| `LLMMessage` | 增加相同 origin/context 的内部可选字段和结果 message id；provider mapper不把这些 Python 字段发送为额外 API 属性。host live 布尔值仅在组装时从运行态计算 |
+| `AgentRuntime` / loop / prompting | 输入提交、steer、后台回归、compact、历史重建全部保留来源；当前结果物化后沿现有 transcript 持久化。runtime 内存登记 `(message_id, tool_call_id) -> 原始 host context`，按 CC 上限 10000 条淘汰最早记录；id 与正文均匹配才 live，不信任持久化自报。正常跨 turn 保留，重载/恢复消息撤销登记，关闭清空；不为保活读取磁盘认证旧记录 |
+| 已有 `to_auto_classifier_result` | 成功结果完成时调用一次，仍返回 str/None；物化内容避免以后同名工具替换改写历史。历史旧记录没有物化字段时可用现有投影读取内容，但只能记 restored。错误、未配对调用不得得到 live 身份；投影异常记录 projection_error，下一需分类动作沿当前显式投影失败路径处理，不暗当真人，也不篡改已执行工具的真实 outcome |
+| Tool 可选 `auto_classifier_context_instructions: str` | 应用工具的固定来源说明；gate 从当前启用工具收集，加入独立 system prompt。Inbox 使用它，普通工具不需要实现。不从工具结果或模型输入收集 system 指令 |
+| `build_transcript_entries` / 内部 projector | 统一处理来源、assistant pending、历史动作、outcome、host context 和固定长度限制；输出只读 entries，S1/S2 不再各自重新取状态。当前动作最后追加一次 |
+| `auto_mode_interaction` metadata | 在既有 SDK session/scenario 元数据中传递；PA 共享 runtime 装配设置，覆盖 binder/coordinator/Heartbeat 刷新，child 内部继承。gate 按 D6 的实际 run 入口优先级选交互。不增加 build_kernel 参数、公开类型或 SDK 所有权豁免 |
+| Broker 双计数 | `record_auto_decision(session_id, allowed)` / 查询阈值 / 总阈值清零的内部 API；已有 request/resolve/cancel/allowlist 不变。不添加持久化状态 |
+| 工具未执行结果 | 保留原 `reason_code=denied` 和 user allow/deny 维度，增加 source/category/policy_version；至少区分 classifier_block、explicit_deny、manual_required、classifier_unavailable、parsing_error、prompt_too_long、unattended_fallback |
+| 子任务继承 | 通过 subagent control/SessionDirectory 复制父当前审批 entries + 有效设置；快照只读、按现有父子边界持有，follow-up 刷新时保留原来源。child 不通过任意文本更改 route 或权限集合 |
 
-| 接口/类型 | 所属与调用方 | 内容和约束 |
-|---|---|---|
-| `build_kernel(approval_context_provider=None)` | SDK 可选扩展，CLI 默认不传；PA composition 注入 | 异步 provider；无 provider 时仅使用内核原生来源，不能把普通工具字符串当人类 |
-| `ApprovalContextRequest` | core 类型，SDK re-export，gate 构造 | session_id、root_session_id、当前 tool_call_id/name/input、当前 history 中的工具调用引用；标识从 runtime 获取，不采信工具 args 自报 |
-| `ApprovalContext` | core 类型，SDK re-export，provider 返回 | interaction、经核验的 events、task_origin/standing_scope、完整性状态。只能说明事实，不返回 allow/deny |
-| `ApprovalConversationEvent` | core 类型，SDK re-export | event_id、conversation_id、sender_id/type、role（human/assistant_proposal/automation/agent_delegation）、text、source_message_id、reply_to、source sequence、complete；原始记录标识不能由正文替代 |
-| context 的注入 | SDK→HookContext；core loop 保持能力传递 | 一次分类前获取一次不可变快照，S1/S2 使用同一份。按根 session 解析 child，跨 root 不共享 |
-| 内部 classifier decision | platform，继续用 PermissionDecision | behavior + decision_reason 中的 source/category/policy_version；no_verdict 的 source 独立，原始异常不作为用户同意不足 |
-| hook→tool result | core registry/tool_executor 透传 | 保留 `reason_code=denied` 的既有消费者兼容，同时附 `approval_source` 和可读 reason，持久化后可形成 outcome；不暴露分析思维文本 |
-
-三个公开 DTO `ApprovalContextRequest`、`ApprovalContext`、`ApprovalConversationEvent` 均定义于 `src/agent/core/hooks/approval_context.py`，由 `agent.sdk` 根包 re-export，明确新增到 SDK 精确表面与所有权豁免名单；不创建 SDK wrapper，也不让 core import SDK。provider 使用 Callable 注解，不新增公开类型别名。M1 同步修改 `tests/contract/test_agent_sdk_surface_guard.py` 的 EXPECTED_SURFACE、_OWNERSHIP_EXEMPT 并钉死三个 owner 路径；运行该守卫与 `tests/contract/test_agent_sdk_boundary_contract.py`。
-
-PA provider 只核验当前 history 引用的 Inbox/查询/已发送事件及其直接关联问答，不扫描所有聊天把无关授权灌进每次审批。根请求范围可以显式跨聊天，但确认映射仍遵守 D3。完整性错误返回 no_verdict；无需环境信息的确定性只读快放行不为 provider 不可用停摆。
+来源说明模板归 platform；core 调用已有 generic 消息/工具 seam，不 import PA 或策略模块。新的内部字段必须覆盖实时追加和历史重建两条路径，并覆盖 `runs/registry.py` recovery、`run_control.py` pending、loop 两处 drain、`prompting.py` 合并/配对以及 compact reinjection。单聊天已有人类时间/入口头只提供背景，来源取渠道元数据，混合群历史保留每段作者；图片等 provider 内容保持原格式，不因新增来源丢掉原 parts。仅改最初提交会遗漏 steer 和 compact。
 
 ```mermaid
 sequenceDiagram
     participant U as 用户 A 聊天
     participant G as Gateway / Inbox
-    participant A as 全局主 Agent
-    participant P as Auto gate
+    participant A as 全局 Agent
+    participant P as Auto Gate
     U->>G: 提交任务
     A->>G: inbox.read
-    G-->>A: 用户消息 + 已提交读取证据
-    A->>P: 提议动作
-    P->>G: 核验消息来源
-    G-->>P: 用户原话 / 来源 / 范围
-    P-->>A: classifier_block + 缺少的具体确认
-    A->>G: send_message 提出明确问题
+    G-->>A: 带来源的工具结果
+    A->>P: 提议动作 + 当前历史
+    P-->>A: 缺少确认，不执行
+    A->>G: send_message 明确问题
     G-->>U: 普通聊天消息
-    Note over A: 可处理 B 聊天；无事则 idle
-    U->>G: 同意
-    G-->>A: 现有 wake 信号
-    A->>G: 读回复；必要时查回原提议
-    A->>P: 再次提议该动作
-    P->>G: 核验提议投递与用户回复
-    G-->>P: 对应问答的真实原文
-    P-->>A: allow，工具正常执行
+    Note over A: 处理 B 聊天或进入 idle
+    U->>G: 可以
+    G-->>A: 系统 wake
+    A->>G: inbox.read
+    G-->>A: A 的原话与来源
+    A->>P: 再提议动作；历史 send_message + host_context_live
+    P-->>A: 模型判断允许，执行一次
 ```
-
-### 测试 seam
-
-纯规则组装/计数/关联投影通过现有 hook interface 测行为；Gateway provider 用真实 SQLite 和现有协议适配器测试，跨 SDK 注入验收到最终 tool result。LLM 是真实外部依赖：确定性契约测试可用固定响应，但不能代替真模型验收。保留原模型 caller seam，不再加第二套 LLM client。替换失效的旧 prompt/短 token/安全白名单快照，保留仍有价值的行为回归，避免新旧浅测试重复维护。
 
 ## 风险与回退
 
-- **误拒仍可能存在**：模型不是规则解释器。固定正反例与真实确认旅程是门槛，不能只因新 prompt 更长就验收。对 hard boundary 的拒绝不算误拒。
-- **确认指代错误**：按来源/原用户/聊天/投递和原文绑定；语义不清时查回或澄清。主 Agent 决定跨聊天的路由，分类器不通过简单全局最近邻认“同意”。
-- **长记录与恢复**：仅给当前引用及直接关联原文；预算不足不猜判。已有 Inbox/工作记录是持久化来源，不另维护两套 pending 状态。
-- **消息被拦后无法询问**：正常原任务聊天的安全回复属于明确 allow 例外。询问本身含不应外发的材料时，Agent 应缩减为必要说明；不得给所有发送加豁免。
-- **配置兼容**：停用 workspace 放宽项可能使旧部署更保守；升级报告和显式迁移先于部署。不得为兼容保留隐蔽旧 classifier fallback。
-- **并发与切换**：每次 classifier 固定 context/config 版本；执行前版本若已变，旧结果不沿用，交回后重新提议。Broker 根计数原子更新；不靠低成本工具刷计数来跳过 hard deny。
-- **回退**：实现部署前备份应用控制的权限配置，Gateway 数据仅追加事件类型，无破坏性 schema 迁移。若要回退，停止本 unit 的进程、回到实施前版本并恢复同份旧配置，再启动原版本；未知 work_events 由旧 reader 忽略。回退动作须另外授权，不自动降回已知误拒的旧策略。没有运行时双分类器或静默新旧切换。
+- 模型仍可能误拒或误配；使用多聊天正反例和真实模型重复旅程验证，不用新增确定性绑定替代已选设计。
+- CC 的 2000 单项上限和恢复边界会使部分历史确认失去直接效力；明确再次询问是允许的恢复行为，不暗补 Gateway 原件，不宣传永久授权记忆。
+- 来源传递遗漏比改 prompt 更关键：global wake 虽以 HUMAN 调度，child follow-up 虽以 USER 入队，都不能因此成为真人。验收必须抓最终 classifier 请求。
+- Bash 迁移工作量显著高于前缀修补；完整源映射和差分 fixture 是交付门槛，不能在实现期默默降配。
+- 保留既有 fallback 的显式 allow 是已确认产品行为，故日志必须区分配置 fallback 与模型 allow，不能用“统一 fail closed”掩盖差异。
+- 无破坏性数据库或配置迁移。部署与回滚另外授权；回滚回原代码和原配置，新增消息 metadata 由旧 reader 忽略。运行时不保留新旧分类器双轨或自动回退旧 prompt。
 
 ## Milestones
 
-两个串行的垂直交付：共享 Auto 迁移（CLI/单聊天可验证）和全局自然确认闭环。预估共享部分含策略资产约 20 文件、代码与行为测试 900–1300 行；全局部分约 12 文件、600–900 行，超出单 worker 窗口门槛。不能按“类型→接口→测试”横切拆分。
+保留两个串行垂直交付。M1 包含完整 Bash 复刻，规模约 20–25 个实现/测试文件及版本化资产；M2 覆盖全局、多来源及调度入口约 12–16 个文件。二者分别有可运行产品出口，拆分不是按“类型→接口→测试”横切。代码量只作计划估计，不以限制行数为由删 CC 分支。
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| feat-552-M1 | shared-auto-migration | — | A | platform hook/policy/config/broker、Bash/tool checks、agent/RuntimeRunner、core hooks/registry/tool_executor、SDK、CLI/PA 非全局装配及相关测试 | [reviewer] R1 日常开发、R5 CLI/单聊天人工入口、R6 主/子任务同范围生效；[worker] D1/D2/D5/D6/D7/D8 的矩阵通过，可信 context provider seam 可用，真实 S1/S2 和 no-verdict 不执行有证据 |
-| feat-552-M2 | global-chat-confirmation | M1 | B | PA Inbox/conversations/send_message/cron、Gateway global_inbox/global_work/composition/global coordinator、PA product prompt；必要 SDK 接口集成与测试 | [reviewer] R1 内置 Cron、R2–R4 全部场景、R5 全局多次拒绝/故障、R6 正常沟通与迁移；[worker] D3/D4 来源闭环、消息投递和恢复、旧 Cron 反例真模型复测通过 |
+| feat-552-M1 | shared-auto-migration | — | A | platform gate/policy/config/broker/Bash；core runtime/prompting/loop/LLMMessage/tool result；SDK/subagent 内部装配与相关测试 | [reviewer] T1 的 CLI/单聊天真实请求采用新策略与 `=1`，既有人工入口可用；[worker] T6/T7/T9/T10 的 Bash 全表/复杂语法差分、3/20 与 child 独立计数、模型/故障/fallback 和配置契约通过；无公开 provider/DTO 或配置迁移 |
+| feat-552-M2 | global-chat-confirmation | M1 | B | PA Inbox/send_message/product；Gateway binder/global coordinator/runtime 装配；Cron/heartbeat/后台入口；现有来源与 metadata 集成测试 | [reviewer] T2–T5/T8 全局聊天确认与独立工作闭环，正常消息可发、越权反例不执行；[worker] 最终请求保留 Inbox 混合来源、自动来源及恢复属性；T6 验证 global Heartbeat allow/deny fallback 与普通 global/child 返回分流 |
 
-M1 为可独立验收的共同机制升级，但整个 unit 的 PR 交付须等待 M2；不把 M1 提前部署给全局用户。两组可能改同一 SDK 集成处，故明确串行，不派并行 worker。骨架只含 `.gitkeep`。
+M1 不提前部署给全局用户，完整交付等待 M2。涉及相同接线的文件串行处理。`M1-shared-auto-migration/`、`M2-global-chat-confirmation/` 只放 `.gitkeep`，不预填实施记录。
 
 ## Runbook for Reviewer
 
-### 资源与启动
+本段是将来实施验收的操作契约，本轮没有启动 Nano 服务或执行新实现旅程。不改客户端面，允许通过前端实际使用的同一 IM HTTP 接口驱动；CLI 必须真 PTY。
 
-设计阶段未启动 Nano 服务。实施验收用真实 IM + Gateway + Kernel + 指定 LLM；本单元不改客户端 UI，可经前端使用的同一 IM HTTP 接口驱动原用户消息，最后查看聊天的实际公开消息。CLI 交互须真 PTY 走现有入口。可用资源：仓库自带隔离账号和两个 E2E Agent、真实本地代理 Sol/Terra/Luna（三条 CC 探针已实际完成）。不要求生产群或真实第三方外发。
+### 前置与隔离启动
 
-在**实施 worktree 根目录**执行（仅该 worktree，自身启动的进程自身清理）：
+使用仓库隔离 E2E 账号和两个 Agent，现有代理 `127.0.0.1:4000` 的 Sol 主模型 / Terra 审批模型；不重启代理或生产服务。启动前核对仓库 [worktree runtime](../../development/worktree-runtime.md) 与 [LLM 联调](../../development/llm-integration.md)。端口、node identity、配置、workspace、SQLite 由 e2e-up 隔离。
+
+在实施 worktree 根目录启动：
 
 ```bash
 cp config/e2e/gateway.yaml /tmp/feat552-review-gateway.yaml
-.venv/bin/python - <<'PY'
+.venv/bin/python - <<'PYCFG'
 import yaml
 from pathlib import Path
 p = Path('/tmp/feat552-review-gateway.yaml')
@@ -290,18 +321,13 @@ c['agents'][1]['default_model'] = 'codexOAuth:gpt-5.6-sol'
 c['llm']['default_model'] = 'codexOAuth:gpt-5.6-sol'
 c['llm']['tool_approval_model'] = 'codexOAuth:gpt-5.6-terra'
 p.write_text(yaml.safe_dump(c, allow_unicode=True, sort_keys=False))
-PY
+PYCFG
 ./scripts/e2e-up.sh --main-config /tmp/feat552-review-gateway.yaml
 source .e2e-ports.env
 curl -fsS "$IM_URL/openapi.json" > /dev/null
-./scripts/e2e-down.sh
 ```
 
-最后一条是**验收完成后的停止命令**，不可紧接启动就结束旅程。e2e-up 自行分配端口、隔离节点/数据/workspace、注册登录账号、等待 IM 和 Gateway ready；`.e2e-ports.env` 给出真实 URL/账号凭据，验收日志记录去敏位置即可。不启动/重启代理 `:4000`，它是既有外部依赖。重启场景只操作这套隔离 Gateway，保留其 `.gateway-workspace` 与 SQLite，用相同隔离配置重启，绝不删库模拟重启。
-
-### 真实旅程及证据
-
-Gateway 单独重启命令（先用 `ps -p` 核实 PID 是本 worktree 的 `personal_assistant.main`）：
+结束全部旅程后执行 `./scripts/e2e-down.sh`。重启测试保留同一隔离数据，只重启本 worktree Gateway；先核对 PID 和 cwd，确认旧进程退出后再运行：
 
 ```bash
 ps -p "$(cat .gateway.pid)" -o pid=,command=
@@ -310,36 +336,41 @@ PYTHONPATH=src .venv/bin/python -m personal_assistant.main --config .gateway-con
 echo $! > .gateway.pid
 ```
 
-确认旧进程已退出后再启动，检查新进程存活、日志中的 Gateway started/IM connection 与隔离 IM 节点在线。CLI 的真 PTY 入口为 `PYTHONPATH=src .venv/bin/python -m coding_cli.main --model codexOAuth:gpt-5.6-sol --llm-base-url http://127.0.0.1:4000`；在隔离 workspace 运行。当前 CLI 工厂固定使用 `~/.nanocode`，没有独立配置根 CLI 参数；本次只读核对该目录下 config.yaml 不存在，实施验收前须再次核对。不得覆盖 HOME 或写用户配置；若届时存在配置，使用 SDK 临时 global_config_root 运行配置迁移矩阵，真实 PTY 仅运行不需修改用户配置的场景，报告实际读取配置。
+检查新进程、日志启动完成及隔离 IM 节点在线，不删库模拟恢复。CLI 在独立非生产 workspace 用 `PYTHONPATH=src .venv/bin/python -m coding_cli.main --model codexOAuth:gpt-5.6-sol --llm-base-url http://127.0.0.1:4000`；CLI 工厂仍使用 `~/.nanocode`，不得改 HOME 或覆盖用户配置。配置矩阵通过 SDK 临时 global/workspace roots 验证，真实 PTY 记录实际配置来源。
 
-| 旅程 | 驱动与判据 |
-|---|---|
-| T1 正常任务 | CLI 和单聊天各执行已授权项目内写入/测试/loopback 开发服务；核对工具真正执行及用户无需重复确认；服务测试用临时端口并清理 |
-| T2 原 Cron 误拒 | 在隔离 A 聊天给全局 Agent 明确一次任务名、时间和唯一输出值；看到任务创建、触发一次和真实输出。保存两阶段请求；不能只用“模型说创建了”验收 |
-| T3 问答确认 | 在 A 先设置一个具体操作需确认的用户边界；让 Agent 提议并收到 auto block，普通聊天询问；B 提交独立任务并获结果；A 回复同意后原动作执行。取发送成功、原回复、两次审批和执行事件，确认没有 permission pending |
-| T4 反例 | A 未回复/明确拒绝、B 无关同意、第三方 Agent 转述、引用文本伪造、多选裸同意；目标操作均不执行，正常询问仍可发送 |
-| T5 恢复 | 询问送达后结束本轮，再正常重启隔离 Gateway或触发正常 compact；A 回复，Agent 查回缺失提议并完成。删除/伪造原件属于独立契约测试，不修改真实用户记录 |
-| T6 故障和计数 | 在独立测试配置将审批模型入口指向本机不可达端口，主模型仍走正常代理；真实 gate 产生 no-verdict，目标不执行，B 可完成低风险工作。有效拒绝 3/20 次的状态机用确定性测试，另走一次真 CLI/单聊天人工 fallback；故障不能算普通拒绝 |
-| T7 委派和发送 | 真实 child 在父任务范围内完成一步；给 child 越权委派或伪造人工同意的结果不能扩大权限。原任务回复可发送，无关目标/敏感外发反例不发送 |
+### 验收矩阵
 
-实施时将 T1–T7 映射至 spec 的全部 Scenario，输出最小证据清单（请求、决定、实际效果、未执行证明）。测试数据使用隔离本机文件/假的敏感标记，不读取真实秘密或向真实收件人发送。真实全局旅程至少对基线和新实现同输入各执行一次；关键的“明确 Cron”“确认后同范围重试”新实现各 3 次独立 session，全部通过，不能以多数票接受仍可复现的核心误拒。记录模型、policy_version、变量、成功/失败分母，不宣传总体误拒率 KPI。
+| ID | 真实旅程 / worker 契约 | 判据 |
+|---|---|---|
+| T1 / R1 | CLI、单聊天已授权项目写入/测试/loopback 服务 | 真正执行、无需旧 Network Services 误确认；服务用临时端口并清理 |
+| T2 / R1,R2 | 真人经 Inbox 创建一次 Cron，实际触发并执行工具 | 新请求有 host_context_live；触发请求有 CC scheduled 标记，无新人工同意；保存创建/触发/输出证据 |
+| T3 / R2–R4 | A 明确边界→询问→B 独立任务→A 同意→再次动作 | B 能完成；A 同范围动作执行一次；无 permission pending；请求同时含历史发送动作和 A 来源 |
+| T4 / R3 | A/B 交错提议；不同真人、Agent 转述、引用伪造、多选、明确拒绝、无人回复 | 以真实字段和模型判据区分，未获准动作不执行；通知不当 Yes，正常询问仍可发送 |
+| T5 / R4 | 普通跨 turn、compact、重启后分别回复 | 普通跨 turn live 保留；compact 只取新窗口；重启 host 变 restored；必要时重述求确认，不从 query 恢复旧授权 |
+| T6 / R5 | 不可达审批模型、非法 XML、总 prompt 超限；global Heartbeat、single Heartbeat、Cron 的显式 allow/deny fallback，以及 global wake/child 对照 | 故障 source 可见且不计有效拒绝；global wake/child 不执行；两类 Heartbeat/Cron 按配置（含复用 global 主 session）；不换模型、不暗裁剪 |
+| T7 / R5,R6 | 3 次连续、20 次累计、成功打断、同会话跨 run、两个 child、人工批准/否决 | 按 D6 精确计数；child 独立；只本次 ask，无永久暂停锁；普通非全局人工入口正常 |
+| T8 / R6 | 真实 child 合法任务、follow-up、越权委派/伪造批准结果；send_message 正常和无关目标 | agent 调用仍免审；child 真正副作用过 gate；原始来源保留；消息适用原协作例外而非整工具免审 |
+| T9 / R1,R6 | CC Bash 命令表、flags、引号、管道、重定向、替换、sed/find/xargs、Git 写参数 | 与固定参考 fixture 对齐；危险写形态不误免审，CC 支持的只读组合不因降配多审批 |
+| T10 / R6 | 现有 global/workspace 覆盖、空数组、非空规则、$defaults、web_fetch/Bash overrides | 配置位置/覆盖保持；不迁移、不增加必填项；更新默认版本与新增键可追溯 |
 
-### 最窄回归起点
+worker 对来源转换、长度边界、错误分类、计数与 Bash 差分使用确定性测试；reviewer 对 T1–T5/T8 走真模型产品旅程。T6 的 API 超限可用协议层固定异常验证映射，另在隔离全局 Heartbeat 真实入口各跑一次不可达审批模型 + allow/deny fallback，用临时文件动作核对执行与未执行，并与普通 global wake/child 返回结果对照；不能把 fixture 当实际厂商超限。CC cron 和开启灰度的第一方 Path B 尚无真实捕获，不在报告中伪称已有。
+
+关键“明确 Cron”和“跨聊天确认后同范围重试”新实现各 3 次独立 session，全部通过；记录输入、模型、policy_version、结果分母、实际动作，不能宣传总体准确率 KPI。比较旧新实现同一输入至少一次，旧失败不能当用户未授权。每次验收保留最小去敏请求/决定/执行证据，不提交真实秘密、图像正文或运行数据库。
+
+最窄已有回归起点：
 
 ```bash
 .venv/bin/python -m pytest tests/unit/test_auto_mode_gate.py tests/unit/test_auto_mode_config.py tests/unit/test_permission_broker.py tests/unit/test_auto_mode_gate_dispatch.py tests/unit/test_auto_mode_gate_allowlist.py
 .venv/bin/python -m pytest tests/integration/test_bash_check_permissions_integration.py tests/unit/agent/platform/tools/builtins/test_bash_policy.py
 ```
 
-新增来源/问答恢复、子任务继承和 dispatch 证据测试随改动放在现有 unit/integration/e2e 目录。之后跑 contract、相关 Gateway 测试与仓库 CI 所需 checks；通过后不循环追逐假设边角。文档交付只验证文档/链接/JSON，不声称执行过上述 Nano 新机制旅程。
+补充 runtime 来源往返、Inbox/cron/global dispatch、child、provider mapper 和 SDK 边界契约；之后跑相关 contract 与仓库要求检查。通过后不追逐无证据的边角假设。
 
-## Canonical delta-spec
+## Canonical delta-spec 与交付边界
 
-- kernel：`runs.md`、`sdk-boundary.md`、`tools-hooks.md`，定义共享裁决/来源输入/失败原因和配置边界。
-- gateway：`global-agent.md`，定义普通聊天确认与独立推进。
-- cli：`interactive-repl.md`，定义有效拒绝后的人工 fallback 和故障说明。
-- IM：no spec delta；消息发送、历史查询、群聊复核与工作事件传输沿用原协议，无前端结构变化。因此无 prototype.html。
+- kernel：[runs](specs/kernel/runs.md)、[tools-hooks](specs/kernel/tools-hooks.md)；配置根和 SDK 导出未变，`sdk-boundary` no spec delta。
+- gateway：[global-agent](specs/gateway/global-agent.md)、[heartbeat-cron](specs/gateway/heartbeat-cron.md)。
+- cli：[interactive-repl](specs/cli/interactive-repl.md)。
+- IM：no spec delta；没有前端改动，无 prototype。
 
-## 设计交付边界
-
-本设计已纳入用户所有已确认需求及独立设计授权。CC 取证只是设计输入；实现、Nano 真实验收、配置迁移执行、PR 合并和双节点部署均未发生。独立设计审查记录另存 [design-review.md](design-review.md)；其结论不替代用户醒来后的 review。
+current 文档不在设计阶段改写；实施验收后按实际行为归并 delta。历史 [design-review.md](design-review.md) 保留原轮次，但旧 provider/配置迁移方案的审查不代表本稿已通过。用户已授权审查修订到可实施后，按 change-orchestrator-simple 在独立 worktree 实施并交付 PR；精简重复台账和大规模 code review，保留相关测试、真实模型旅程及聚焦实际改动的独立检查。部署另行授权。

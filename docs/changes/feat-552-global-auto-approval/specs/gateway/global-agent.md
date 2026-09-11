@@ -1,45 +1,43 @@
 # Global Agent — feat-552 delta
 
-目标：`docs/specs/gateway/global-agent.md`。依据 spec R1–R6、design D3/D4/D8。
+目标：`docs/specs/gateway/global-agent.md`。依据 spec R1–R6、design D3–D8。原群聊复核、投递、Inbox 消费与访问权限不变。
 
 ## ADDED Requirements
 
-### Requirement: 全局自动拒绝由主 Agent 主动处理
+### Requirement: 全局未获准动作由主 Agent 继续处理
 
-#### Scenario: 动作自动被拒
-- **WHEN** 全局主 Agent 或其 child 动作未获准
-- **THEN** 不弹权限卡片、不占住权限等待；主 Agent 可选择合规替代、普通聊天询问或说明停止。
+#### Scenario: 自动拒绝或审核故障
+- **WHEN** 全局消息驱动的主 Agent 或其普通 child 动作未获准
+- **THEN** 不弹权限卡片、不挂权限 Future；原因交回主 Agent，由其选择合规替代、普通聊天询问或说明停止；故障不归咎于用户未授权。
 
-#### Scenario: 需要询问
-- **WHEN** 缺少具体操作的确认
-- **THEN** 主 Agent 自行选择合适聊天，向有权确认的用户说明操作和关键范围；正常询问本身可投递。
+#### Scenario: 正常发送询问
+- **WHEN** Agent 在发起事项的合适聊天中澄清具体操作
+- **THEN** send_message 根据目标和正文审核，正常询问适用协作/回复例外；工具整体不免审，不改变实际投递语义。
 
-### Requirement: 系统提供的真实用户消息可成为授权依据
+### Requirement: Inbox 保留工具形态与多来源授权语义
 
-#### Scenario: 用户经 Inbox 要求内置定时任务
-- **WHEN** 用户明确给出任务时间与内容
-- **THEN** Auto 不因它通过 Inbox 送达就当作非用户指令；任务按原生 Cron 能力执行。
+#### Scenario: 同页包含真人与 Agent
+- **WHEN** Agent 读取实际 Inbox 消息
+- **THEN** 审批获得工具调用、带 target/sender/id/text/partial 的宿主附加上下文；只有明确真人原话可表达人工意图，Agent 转述、自动事件与引用不升级。
 
-#### Scenario: 同一用户答复原提议
-- **WHEN** 已投递的明确提议后原用户同意
-- **THEN** 问题和回答一并用于再次审批；同范围操作不会重复因“未见授权”而拒绝。
+#### Scenario: 多聊天提议与简短回复
+- **WHEN** Agent 已通过 send_message 对不同聊天提出不同问题，某一用户回复
+- **THEN** 历史发送目标/正文和该回复来源共同交给模型判断；同范围明确同意可继续，无关回复不凭全局时间邻近扩大授权；不要求新建专用确认实体。
 
-#### Scenario: 不相干或伪造确认
-- **WHEN** 用户未答、否决、另一聊天无关同意、引用/其他 Agent 转述、或多选问题未选定
-- **THEN** 不执行仍未获准的操作，也不扩大确认范围。
+#### Scenario: Inbox wake
+- **WHEN** Gateway 因有未读消息唤醒全局主 session
+- **THEN** wake 是系统通知；实际发送者身份与原话通过后续 Inbox read 提供，不能凭运行 origin=HUMAN 把通知当确认。
 
-### Requirement: 等待确认仍可推进独立事项
+### Requirement: 等待确认可继续独立事项并按原来源恢复
 
-#### Scenario: 等待期间另一聊天有任务
-- **WHEN** 待确认事项未得到答复
-- **THEN** Agent 仍可处理独立任务；无事则空闲，待确认动作不执行。
+#### Scenario: 其他聊天有工作
+- **WHEN** 当前事项在等待用户回复
+- **THEN** 待确认动作保持未执行，Agent 可完成独立工作，无事则 idle，回复到来后重新处理原事项。
 
-#### Scenario: 空闲、重启或压缩后收到回答
-- **WHEN** 用户回答原问题
-- **THEN** 原事项重新处理；原文缺失时先查回可核验的记录，无法恢复则澄清，不凭摘要假定同意。
+#### Scenario: 普通跨轮或重启压缩后回复
+- **WHEN** 用户回答旧问题
+- **THEN** 根据当前可见问答与 CC 实时/恢复规则判断；必要时查背景后重述确认，不通过历史查询复认证旧授权，也不要求用户重提完整任务。
 
-#### Scenario: 审核失败或连续拒绝
-- **WHEN** 模型不可用、无有效结论或多次拒绝
-- **THEN** 不自动放行、不弹窗阻塞全局运行，主 Agent 得到实际原因。
-
-原有群聊发言复核、外部投递、Inbox 消费和跨聊天权限范围不变。
+#### Scenario: 连续拒绝
+- **WHEN** 普通 global wake 或 global child 的拒绝次数达到阈值
+- **THEN** 不变成弹窗等待、不因计数放行，后续新动作仍能接受分类；Heartbeat（包括复用全局主 session）和独立 Cron 按各自自动入口继续原有 fallback；普通 global child 仍返回主 Agent，不因 BACKGROUND_TASK 调度值切到该 fallback。
