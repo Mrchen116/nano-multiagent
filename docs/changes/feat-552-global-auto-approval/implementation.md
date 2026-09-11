@@ -35,12 +35,13 @@ M1/M2 的产品实现已落入本 worktree，尚未完成全部真实旅程和�
 
 2026-09-12，实施 worktree：
 
-- CI 等价 Python 两组检查：agent/PA 1869 passed；其余 1910 passed。之后补的混合来源修正已通过 runs 与真实 SDK 的 50 项针对检查；最终提交前按增量重新核对。
+- 修复并独立复验 replay 后重新运行 CI 等价 Python 两组检查：agent/PA 1870 passed；其余 1914 passed，共 3784 项。未运行标记为 e2e 的套件作为这些计数的一部分；真实旅程另列。
 - Ruff check / format check、`git diff --check` 通过；将本 unit 新文档纳入待跟踪集合的 docs-check 为 0 issues。
 - `uv build --wheel` 成功，逐项比对 wheel 包含全部 11 个策略/命令资产。
 - 前端依赖安装完成；critical 级 dependency audit 通过，79 个测试文件 / 745 tests passed。未改动前端代码或 lockfile。
 - T1 的真实 CLI 写文件、unittest、loopback HTTP 服务和停止清理通过；使用现有 CLI kernel factory 注入点的隔离真实 SDK 装配，默认 CLI factory 的个人配置读取不在该证据覆盖内。
 - T1 的[真实单聊天](evidence/single-chat-real-journey.md)也完成文件创建、unittest 和 loopback HTTP 服务清理；实际捕获一个 S1 block → S2 allow，六份审批请求保留正确阶段参数。
+- T6 的[真实 Global Heartbeat 对照](evidence/heartbeat-real-journey.md)通过：真实 Sol 在 Global main 发起写入，审批端点无监听并在 S1 超时；显式 allow 实际生成文件，显式 deny 未执行，均保留 classifier_unavailable 故障类别且无 pending permission。普通 Global wake/child 对照仍被 Inbox 参数问题挡在目标动作之前，未记通过；T6 其余矩阵以确定性契约测试为证，不能混为这两条真实旅程。
 - T2–T5/T8 的全局真实旅程尚未通过。首次 T3 被既存外部代理 strict 转换问题挡在 Inbox(check)，不是审批机制拒绝；[阻塞证据](evidence/proxy-strict-blocker.md)记录真实 A/B 和待审补丁。未放宽 Inbox 校验或将该失败计为产品旅程成功。
 
-当前状态：实现和针对验证继续，未形成最终产品验收结论、未合并、未部署。
+当前状态：共享实现、聚焦代码审查及上述检查已提交到 `codex/feat-552`；全局旅程被外部代理阻塞，尚未形成最终产品验收结论、归档或创建 PR。主 unit 测试 IM/Gateway、Heartbeat 独立测试栈和 CLI/单聊天临时服务均已停止；保留工作分支供授权后继续。未合并、未部署。
