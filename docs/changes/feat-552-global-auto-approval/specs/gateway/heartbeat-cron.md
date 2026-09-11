@@ -16,9 +16,11 @@
 
 #### Scenario: 创建任务与任务内动作
 - **WHEN** Agent 管理产品内置 Cron 或执行任务内工具
-- **THEN** 调度操作使用已映射的 CC 例外，任务内动作继续走共享 Auto；原无人值守 fallback、Cron 隔离 session、投递与不补跑行为不变。
+- **THEN** 审批取得调度操作的完整参数（包括实际 schedule/payload），不裁剪为摘要；调度操作使用已映射的 CC 例外，任务内动作继续走共享 Auto。
+- **AND** Cron 继续使用隔离 session，不因所属 Agent 为 global 就取得主会话交互选择；原无人值守 fallback、投递与不补跑行为不变。
 
 #### Scenario: 全局 Heartbeat 与普通全局运行区分交互
 - **WHEN** Heartbeat 复用全局主 session，且审批没有有效结论或达到拒绝阈值
 - **THEN** 仍按原无人值守 fallback 处理：显式 allow 可执行，默认/显式 deny 不执行，结果区分配置决定与模型判断
+- **AND** 提交前的共享 runtime 刷新保留全局主 session 的交互选择，但它不覆盖本次 Heartbeat 的实际自动入口；仅读取恢复绑定不重配忙碌运行。
 - **AND** 普通 global wake 与 global child 仍把未获准原因返回主 Agent；不能只凭 session 归属或 BACKGROUND_TASK 枚举混用这两类交互。

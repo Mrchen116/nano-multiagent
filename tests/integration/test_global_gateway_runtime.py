@@ -126,12 +126,25 @@ async def _wait(predicate):
 
 async def _runtime(tmp_path, model, *, outbound_router=None, shadow_sync=None):
     endpoint = InternalDispatchEndpoint()
+    classifier_requests = []
+
+    class PermissionModel:
+        async def generate(self, request):
+            if request.model == "test-model-xyz":
+                classifier_requests.append(request)
+                yield LLMMessage(role="assistant", content="<block>no</block>")
+                yield LLMMessage(role="assistant", content="", finish_reason="stop")
+            else:
+                async for message in model.generate(request):
+                    yield message
+
     kernel = build_kernel(
         llm=_lc_llm(),
         repo_root=tmp_path,
         workspace_config_dirname=".nanoassistant",
+        tool_approval_model="test-model-xyz",
         can_use_tool=_allow_all,
-        _llm_client_override=model,
+        _llm_client_override=PermissionModel(),
         tools=[
             InboxTool(gateway_dispatch_url_provider=endpoint.current_url),
             ConversationsTool(gateway_dispatch_url_provider=endpoint.current_url),
@@ -225,6 +238,7 @@ async def _runtime(tmp_path, model, *, outbound_router=None, shadow_sync=None):
         server=server,
         controls=controls,
         receipts=receipts,
+        classifier_requests=classifier_requests,
     )
 
 
@@ -280,10 +294,30 @@ async def test_actual_loop_reads_commits_then_sends_without_default_chat_body(tm
         ]
         assert "请确认这个请求" not in str(first_input)
         reminder = next(text for text in first_input if "Inbox" in str(text))
-        assert reminder.startswith("<system-reminder>\n")
+        assert "[SYSTEM NOTIFICATION - NOT USER INPUT]" in reminder
+        assert "<system-reminder>\n" in reminder
         assert reminder.endswith("\n</system-reminder>")
         assert "batch" not in reminder and "inbox:worker:" not in reminder
         assert "does not contain their contents" not in reminder
+        first_message = next(m for m in model.requests[0].messages if m.role == "user")
+        assert first_message.context_metadata["context_origin"] == "system"
+        session_id = rt.store.get_global_session("worker")["session_id"]
+        assert (
+            rt.kernel.get_session(session_id, workspace_root=tmp_path)["metadata"][
+                "auto_mode_interaction"
+            ]
+            == "return_to_agent"
+        )
+        assert len(rt.classifier_requests) == 1
+        approval_input = next(
+            message.content
+            for message in rt.classifier_requests[0].messages
+            if message.role == "user"
+        )
+        assert all(
+            text in approval_input
+            for text in ("请确认这个请求", "send_message", "c_group001", "Acknowledged")
+        )
         assert any(
             "请确认这个请求" in str(m.content)
             for r in model.requests

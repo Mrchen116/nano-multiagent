@@ -268,6 +268,11 @@ class ConversationSession:
         loaded = self._transcript.load()
         return loaded.config, loaded.prompt_seed
 
+    def subagent_context_snapshot(self) -> dict[str, Any]:
+        """Capture caller-owned context for a child without interpreting its policy."""
+        capture = getattr(self._subagent_control, "approval_context_snapshot", None)
+        return capture() if callable(capture) else {}
+
     def partial_turn_result(self) -> TurnResult | None:
         """Snapshot durable progress when raw cancellation prevents a result."""
 

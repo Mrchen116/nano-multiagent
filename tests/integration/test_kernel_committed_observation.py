@@ -200,7 +200,11 @@ async def test_real_agent_child_has_link_tools_and_terminal_without_top_level_ru
                 yield LLMMessage(
                     role="assistant", content="", finish_reason="tool_calls"
                 )
-            elif "read" in available and "child-read" in texts and not calls:
+            elif (
+                "read" in available
+                and any(text.endswith("child-read") for text in texts)
+                and not calls
+            ):
                 yield LLMMessage(
                     role="assistant",
                     content="",

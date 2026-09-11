@@ -1,7 +1,7 @@
 # feat-552: Auto 权限机制迁移与全局模式主动确认 — 技术方案
 
-> 对齐：[spec.md](spec.md) v1，含 2026-09-12 用户确认。本文已将确认结论归并为完整设计；仅文档，未实施、未部署。用户已授权独立审查、修订到可实施后按 change-orchestrator-simple 实施；精简重复流程，保留相关测试、真实入口和聚焦改动的审查。当前设计复审中。
-> Unit branch: `codex/feat-552` (will be created by orchestrator)
+> 对齐：[spec.md](spec.md) v1，含 2026-09-12 用户确认。已按授权进入 change-orchestrator-simple 实施；M2 PA 接线及脚本模型下的真实 SDK/Gateway 集成已完成，共享内核集成与真实模型旅程继续验证中，未部署。本文记录范围内技术细化，既定需求与 D6 路由不变。
+> Unit branch: `codex/feat-552`
 
 ## 架构总览
 
@@ -47,6 +47,9 @@ core 只传消息、来源和工具事实；策略与计数仍在 platform，PA 
 
 ## Changelog
 
+- 2026-09-12：回填 M2 PA 实际接线。共享 create/restore/reconfigure/Heartbeat 路径使用完整 `SessionRuntimeConfig`，因此在该既有 SDK-owned 类型中增加可选 `auto_mode_interaction` 字段，并接入持久化、读回及 runtime identity；仅写创建 metadata 或 Inbox wake 会在后续配置刷新时遗漏该选择。不新增 DTO、provider、导出或 `build_kernel` 参数。补最小 [SDK boundary delta](specs/kernel/sdk-boundary.md)，保留 D6 的入口优先级；验证见 [PA integration evidence](evidence/pa-integration.md)。
+- 2026-09-12：策略和 transcript helper 最终使用 `_auto_mode_policy.py` / `_auto_mode_transcript.py`，遵循既有 hook loader 忽略私有模块的规则，避免被当成独立 `setup(hooks)` 插件。
+
 ## 现状分析
 
 ### 基线与证据
@@ -86,7 +89,7 @@ feat-539 迁移目标并入本单元；feat-546 提供全局历史和显式发�
 
 **运行时策略采用 `cc-2.1.267-nano-v1`，不随上游自动升级。**
 
-将完整 Security Monitor、S1/S2 suffix、默认规则和来源说明保存为 platform 内部 UTF-8 资产，由 `auto_mode_policy.py` 组装；运行时不读 research/evidence 目录。保留原文哈希和可审 diff：每处说明原文、替换内容、原因。没有映射的段落逐字保留；脱敏示例替换单列，不伪装成权限修改。
+将完整 Security Monitor、S1/S2 suffix、默认规则和来源说明保存为 platform 内部 UTF-8 资产，由 `platform/hooks/builtins/_auto_mode_policy.py` 组装；transcript 由同目录 `_auto_mode_transcript.py` 投影。两者是私有 helper，使用绝对导入并遵循既有 hook discovery 的 `_` 前缀排除规则；运行时不读 research/evidence 目录。保留原文哈希和可审 diff：每处说明原文、替换内容、原因。没有映射的段落逐字保留；脱敏示例替换单列，不伪装成权限修改。
 
 | 上游内容 | 唯一允许的适配 |
 |---|---|
@@ -133,6 +136,8 @@ Bash 仍由 `bash_policy.check_command_policy` 返回 `allow/review/deny`，执�
 #### Inbox 与 host context
 
 继续使用现有 `to_auto_classifier_result(content) -> str | None`。它仅对成功且有匹配调用的应用消息工具起作用，不从任意工具返回的字段认领 host context。Inbox 投影包含本页 target、channel、message id、sender、text、partial，以及实际存在的 reply 字段；保留真人、Agent、系统混合内容，并明确各自来源。`external` 仅表示渠道身份映射：当前 Gateway 只把外部渠道实际 user 映射为 external，不能按名称或未知来源补成人类。
+
+PA 已以 `tools/inbox_result.py::INBOX_SOURCE_INSTRUCTIONS` 作为共享说明，主 Agent prompt 与 Inbox 的 `auto_classifier_context_instructions` 复用同一段。Inbox 保留自身工具名检查，继承该实现的 `conversations(read)` 不产生新的 live 投影，查询结果继续只提供历史背景。原有 reply 元数据沿 Gateway source record 和模型页保留，不新建配对关系。
 
 宿主附加上下文在工具结果产生时物化到结果消息 metadata，并跟工具 call id 绑定。当前活跃会话保有实时来源时序列化为 `host_context_live`；恢复的宿主上下文用 `host_context`，沿用 CC 不授予新 intent 的规则。该投影不展开为一组人工 user turn，也不触发原生 assistant/human 配对。
 
@@ -197,7 +202,9 @@ CC 普通主循环使用会话 state，普通 fork 的 child 使用 local state�
 | 工具明确 deny | 原因返回，不执行 | 不执行 | 不执行 |
 | 必须人工的工具 ask / 安全检查 | 返回 manual_required，说明实际入口要求，不 park | 既有人工入口 | 沿用此类工具原有处理，不能用 classifier 的 fallback 清掉工具硬限制 |
 
-分流同时使用应用拥有的 `auto_mode_interaction=return_to_agent`、真实 run origin 和既有 child 身份；来源和交互方式是两件事。PA 共享 runtime/scenario 装配在 `pa_work_scope=global_main` 时设置该值，覆盖 binder 创建/恢复、coordinator 刷新及 Heartbeat 的 runtime 刷新；普通 child 从父 session 继承，不能仅在 Inbox wake 调用点赋值。不得从文本或 tool args 推断入口。
+分流同时使用应用拥有的 `auto_mode_interaction=return_to_agent`、真实 run origin 和既有 child 身份；来源和交互方式是两件事。PA 的 `project_agent_runtime` 在 `pa_work_scope=global_main` 时设置既有 `SessionRuntimeConfig` 的可选 `auto_mode_interaction` 字段，其余 scope 为 `None`；SDK 将该字段纳入 session metadata、读回与 runtime identity。普通 child 从父 session 继承，不能仅在 Inbox wake 调用点赋值，也不得从文本或 tool args 推断入口。
+
+新建全局主 session 时 binder 使用该共享装配；已有/恢复绑定仍只做查找，不因读取记录重配忙碌运行。后续 Inbox admission 和全局 Heartbeat 在提交前调用 `ensure_agent_runtime`，经同一装配比较 identity，必要时仅在空闲时应用完整 runtime；global 模型 fallback 同样保留 `global_main` scenario 后重配。独立 Cron 使用 `cron` scope，不设置主 session 的选择。该字段是既有完整 runtime 组合必需的技术细化，不新增公开类型、入口参数或配置根。
 
 入口优先级固定如下：先识别继承全局交互的普通 child；再识别 Heartbeat/Cron 自动运行；再应用主 session 的全局交互选择；其他情况走现有路由。模型备用重试保留同一入口归属。工具明确 deny 和必须人工的安全检查仍先按上表处理，不能由此优先级绕过。
 
@@ -247,8 +254,8 @@ S1：max_tokens=2112、stop=`</block>`、关闭 thinking；S2：max_tokens=10240
 | `AgentRuntime` / loop / prompting | 输入提交、steer、后台回归、compact、历史重建全部保留来源；当前结果物化后沿现有 transcript 持久化。runtime 内存登记 `(message_id, tool_call_id) -> 原始 host context`，按 CC 上限 10000 条淘汰最早记录；id 与正文均匹配才 live，不信任持久化自报。正常跨 turn 保留，重载/恢复消息撤销登记，关闭清空；不为保活读取磁盘认证旧记录 |
 | 已有 `to_auto_classifier_result` | 成功结果完成时调用一次，仍返回 str/None；物化内容避免以后同名工具替换改写历史。历史旧记录没有物化字段时可用现有投影读取内容，但只能记 restored。错误、未配对调用不得得到 live 身份；投影异常记录 projection_error，下一需分类动作沿当前显式投影失败路径处理，不暗当真人，也不篡改已执行工具的真实 outcome |
 | Tool 可选 `auto_classifier_context_instructions: str` | 应用工具的固定来源说明；gate 从当前启用工具收集，加入独立 system prompt。Inbox 使用它，普通工具不需要实现。不从工具结果或模型输入收集 system 指令 |
-| `build_transcript_entries` / 内部 projector | 统一处理来源、assistant pending、历史动作、outcome、host context 和固定长度限制；输出只读 entries，S1/S2 不再各自重新取状态。当前动作最后追加一次 |
-| `auto_mode_interaction` metadata | 在既有 SDK session/scenario 元数据中传递；PA 共享 runtime 装配设置，覆盖 binder/coordinator/Heartbeat 刷新，child 内部继承。gate 按 D6 的实际 run 入口优先级选交互。不增加 build_kernel 参数、公开类型或 SDK 所有权豁免 |
+| `_auto_mode_transcript.py::build_transcript_entries` / 内部 projector | 统一处理来源、assistant pending、历史动作、outcome、host context 和固定长度限制；输出只读 entries，S1/S2 不再各自重新取状态。当前动作最后追加一次 |
+| 既有 `SessionRuntimeConfig.auto_mode_interaction` | 可选 `Literal["return_to_agent"]` 或 `None`，默认 `None`。PA 共享 runtime 装配设置；SDK 负责 metadata 持久化、读回与 identity，覆盖创建和后续空闲刷新/恢复，child 内部继承。gate 按 D6 的实际入口优先级选交互。只扩已有类型一个字段，不增加 build_kernel 参数、DTO/provider、导出或 SDK 所有权豁免 |
 | Broker 双计数 | `record_auto_decision(session_id, allowed)` / 查询阈值 / 总阈值清零的内部 API；已有 request/resolve/cancel/allowlist 不变。不添加持久化状态 |
 | 工具未执行结果 | 保留原 `reason_code=denied` 和 user allow/deny 维度，增加 source/category/policy_version；至少区分 classifier_block、explicit_deny、manual_required、classifier_unavailable、parsing_error、prompt_too_long、unattended_fallback |
 | 子任务继承 | 通过 subagent control/SessionDirectory 复制父当前审批 entries + 有效设置；快照只读、按现有父子边界持有，follow-up 刷新时保留原来源。child 不通过任意文本更改 route 或权限集合 |
@@ -368,7 +375,7 @@ worker 对来源转换、长度边界、错误分类、计数与 Bash 差分使�
 
 ## Canonical delta-spec 与交付边界
 
-- kernel：[runs](specs/kernel/runs.md)、[tools-hooks](specs/kernel/tools-hooks.md)；配置根和 SDK 导出未变，`sdk-boundary` no spec delta。
+- kernel：[runs](specs/kernel/runs.md)、[tools-hooks](specs/kernel/tools-hooks.md)、[sdk-boundary](specs/kernel/sdk-boundary.md)；SDK delta 仅记录既有 `SessionRuntimeConfig` 的可选交互字段，配置根、公开导出及 `build_kernel` 参数不变。
 - gateway：[global-agent](specs/gateway/global-agent.md)、[heartbeat-cron](specs/gateway/heartbeat-cron.md)。
 - cli：[interactive-repl](specs/cli/interactive-repl.md)。
 - IM：no spec delta；没有前端改动，无 prototype。

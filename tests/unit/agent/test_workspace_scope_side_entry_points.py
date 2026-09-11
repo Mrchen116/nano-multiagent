@@ -39,7 +39,7 @@ class _EntryPointScopeLLM:
             return self._stop()
         if user_text.startswith("launch child"):
             return self._launch_child()
-        if user_text.startswith("child scope"):
+        if "child scope" in user_text:
             return self._run_child_extension()
         return self._stop()
 
@@ -188,4 +188,4 @@ async def test_scope_is_preserved_by_slash_skill_subagent_and_compaction(
     assert any(
         role == "tool" and "tool-child" in content for role, content in child_messages
     )
-    assert "child scope-hook-child" in llm.user_texts
+    assert any(text.endswith("child scope-hook-child") for text in llm.user_texts)

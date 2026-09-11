@@ -200,8 +200,12 @@ def test_interrupt_parks_pending_synchronously_before_next_submit(
     )
     _wait_for(lambda: registry.get(second.run_id).status is RunStatus.COMPLETED)
     assert list(conversations[0].requests[-1].parts) == [
-        {"type": "text", "text": "steered"},
-        {"type": "image", "image_url": "data:image/png;base64,AAAA"},
+        {"type": "text", "text": "steered", "context_origin": "human"},
+        {
+            "type": "image",
+            "image_url": "data:image/png;base64,AAAA",
+            "context_origin": "human",
+        },
         {"type": "text", "text": "second"},
     ]
     registry.shutdown()
@@ -253,8 +257,12 @@ def test_non_user_terminal_continuation_preserves_structured_pending_parts(
     _wait_for(lambda: len(conversations[0].requests) == 2)
 
     assert list(conversations[0].requests[-1].parts) == [
-        {"type": "text", "text": "continue with image"},
-        {"type": "image", "image_url": "data:image/png;base64,BBBB"},
+        {"type": "text", "text": "continue with image", "context_origin": "human"},
+        {
+            "type": "image",
+            "image_url": "data:image/png;base64,BBBB",
+            "context_origin": "human",
+        },
     ]
     assert conversations[0].requests[-1].controller.revalidate_output is True
     registry.shutdown()

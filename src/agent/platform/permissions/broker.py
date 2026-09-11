@@ -2,7 +2,7 @@
 
 Holds:
 - pending asyncio.Future per request_id (keyed per run_id)
-- per-run deny-count per tool_name (for deny-limit escalation)
+- per-session consecutive and total classifier denials
 - per-session allowlist (for allow_session decisions)
 
 Thread-safety: all mutable state is protected by threading.Lock.
@@ -107,7 +107,7 @@ class PermissionBroker:
     Provides:
     - register_request / resolve: future-based park-and-resume for ask flows
     - cancel_all_pending: resolve all pending futures to deny (on run interrupt)
-    - deny-count per (run_id, tool_name)
+    - classifier denial counts per session_id
     - session-allowlist per session_id
     """
 
@@ -120,8 +120,7 @@ class PermissionBroker:
             str, tuple[asyncio.Future[PermissionResponse], str | None]
         ] = {}
 
-        # (run_id, tool_name) -> deny count
-        self._deny_counts: dict[tuple[str, str], int] = {}
+        self._auto_denials: dict[str, tuple[int, int]] = {}
 
         # session_id -> set[tool_name]
         self._session_allowlist: dict[str, set[str]] = {}
@@ -231,62 +230,46 @@ class PermissionBroker:
     # Deny-count state (deny-limit escalation)
     # ------------------------------------------------------------------
 
-    def increment_deny_count(self, run_id: str, tool_name: str) -> int:
-        """Increment and return the deny count for (run_id, tool_name).
+    def record_auto_decision(
+        self, session_id: str, allowed: bool, *, total_deny_limit: int | None = None
+    ) -> tuple[int, int]:
+        """Update session counters atomically and return this decision's counts.
+
+        An allow resets only consecutive denials. On reaching the total limit,
+        return the reached counts and reset both stored counters for the next
+        proposal, matching CC's one-action threshold handling.
 
         Args:
-            run_id: The current run identifier.
-            tool_name: The tool that was denied.
+            session_id: Kernel session identity, shared across ordinary runs.
+            allowed: Whether the action was permitted (including fast paths).
+            total_deny_limit: Effective session limit; defaults to broker config.
 
         Returns:
-            New deny count after increment.
+            Consecutive and total counts at the decision, before a total reset.
         """
-        key = (run_id, tool_name)
-        with self._lock:
-            self._deny_counts[key] = self._deny_counts.get(key, 0) + 1
-            return self._deny_counts[key]
-
-    def get_deny_count(self, run_id: str, tool_name: str) -> int:
-        """Return current deny count for (run_id, tool_name)."""
-        key = (run_id, tool_name)
-        with self._lock:
-            return self._deny_counts.get(key, 0)
-
-    def reset_deny_count(self, run_id: str, tool_name: str) -> None:
-        """Reset deny count to 0 (on allow or ask resolution)."""
-        key = (run_id, tool_name)
-        with self._lock:
-            self._deny_counts.pop(key, None)
-
-    def is_deny_limit_exceeded(
-        self,
-        run_id: str,
-        tool_name: str,
-        *,
-        deny_limit: int | None = None,
-    ) -> bool:
-        """Check if deny count has reached the configured limit.
-
-        The broker is instantiated once per app (deny-count state must be a
-        single source of truth) but the limit threshold is per-session because
-        ``deny_limit`` is loaded from the active workspace's ``auto_mode``
-        config. Callers pass the resolved limit in; falling back to the
-        broker's bootstrap default only when no override is provided so unit
-        tests and CLI callers without a workspace config keep working.
-
-        Args:
-            run_id: The current run identifier.
-            tool_name: The tool to check.
-            deny_limit: Workspace-resolved limit override. ``None`` falls back
-                to the broker's bootstrap ``AutoModeConfig.deny_limit``.
-
-        Returns:
-            True if deny count >= deny_limit threshold.
-        """
-        effective_limit = (
-            deny_limit if deny_limit is not None else self._config.deny_limit
+        limit = (
+            total_deny_limit
+            if total_deny_limit is not None
+            else self._config.total_deny_limit
         )
-        return self.get_deny_count(run_id, tool_name) >= effective_limit
+        with self._lock:
+            consecutive, total = self._auto_denials.get(session_id, (0, 0))
+            counts = (0, total) if allowed else (consecutive + 1, total + 1)
+            self._auto_denials[session_id] = (
+                (0, 0) if not allowed and counts[1] >= limit else counts
+            )
+            return counts
+
+    def get_auto_denial_counts(self, session_id: str) -> tuple[int, int]:
+        """Return this session's current consecutive and total denial counts."""
+        with self._lock:
+            return self._auto_denials.get(session_id, (0, 0))
+
+    def clear_session_state(self) -> None:
+        """Release nonpersistent permission state when the kernel closes."""
+        with self._lock:
+            self._auto_denials.clear()
+            self._session_allowlist.clear()
 
     # ------------------------------------------------------------------
     # Session allowlist state (allow_session decisions)

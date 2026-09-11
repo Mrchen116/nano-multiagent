@@ -59,3 +59,27 @@ def test_missing_approval_uses_auto_rejection_semantics() -> None:
     assert build_reject_message(
         approval=None, reason="", is_subagent=False
     ) == auto_reject_message("")
+
+
+def test_approval_fault_is_not_reported_as_a_user_or_classifier_denial() -> None:
+    text = build_reject_message(
+        approval=None,
+        reason="stage 1 timed out",
+        is_subagent=False,
+        permission_context={"decision_source": "classifier_unavailable"},
+    )
+    assert "no verdict" in text
+    assert "stage 1 timed out" in text
+    assert "user doesn't want" not in text
+    assert "Permission for this action has been denied" not in text
+
+
+def test_subagent_receives_the_actual_approval_reason() -> None:
+    text = build_reject_message(
+        approval=None,
+        reason="destination was not authorized",
+        is_subagent=True,
+        permission_context={"decision_source": "classifier_block"},
+    )
+    assert "destination was not authorized" in text
+    assert "report the limitation" in text

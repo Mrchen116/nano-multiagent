@@ -12,13 +12,19 @@
 
 #### Scenario: 正常发送询问
 - **WHEN** Agent 在发起事项的合适聊天中澄清具体操作
-- **THEN** send_message 根据目标和正文审核，正常询问适用协作/回复例外；工具整体不免审，不改变实际投递语义。
+- **THEN** send_message 根据完整目标和正文审核，正常询问适用协作/回复例外；工具整体不免审，结果中的 accepted、held_for_revalidation 或错误按实际状态保留，不把受理或暂缓描述为已送达。
+
+#### Scenario: 主会话创建、恢复与运行配置刷新
+- **WHEN** 全局主 session 新建，或既有/恢复主 session 在空闲后继续接收事项、刷新运行配置
+- **THEN** 保留未获准动作返回主 Agent 的交互选择；仅读取已有绑定不替换忙碌运行的配置，后续接续在提交前沿共享运行配置入口应用该选择。
+- **AND** 该会话被 Heartbeat 复用时仍按实际自动入口的原 fallback 处理，不改变普通 global wake 和普通 child 的返回路由。
 
 ### Requirement: Inbox 保留工具形态与多来源授权语义
 
 #### Scenario: 同页包含真人与 Agent
 - **WHEN** Agent 读取实际 Inbox 消息
-- **THEN** 审批获得工具调用、带 target/sender/id/text/partial 的宿主附加上下文；只有明确真人原话可表达人工意图，Agent 转述、自动事件与引用不升级。
+- **THEN** 审批获得工具调用、带 target/channel/sender/id/text/partial 及实际 reply 字段的宿主附加上下文，并保留真人、Agent、系统及未知来源；只有明确真人原话可表达人工意图，Agent 转述、自动事件与引用不升级。
+- **AND** 主 Agent 与审批模型收到同一份应用来源说明；外部真人身份只沿 Gateway 已有 user 映射，不根据名称或正文推断。
 
 #### Scenario: 多聊天提议与简短回复
 - **WHEN** Agent 已通过 send_message 对不同聊天提出不同问题，某一用户回复
@@ -36,7 +42,7 @@
 
 #### Scenario: 普通跨轮或重启压缩后回复
 - **WHEN** 用户回答旧问题
-- **THEN** 根据当前可见问答与 CC 实时/恢复规则判断；必要时查背景后重述确认，不通过历史查询复认证旧授权，也不要求用户重提完整任务。
+- **THEN** 根据当前可见问答与 CC 实时/恢复规则判断；必要时通过 conversations 查询背景后重述确认，查询旧消息不产生新的 live Inbox 投影，不复认证旧授权，也不要求用户重提完整任务。
 
 #### Scenario: 连续拒绝
 - **WHEN** 普通 global wake 或 global child 的拒绝次数达到阈值

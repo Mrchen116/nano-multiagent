@@ -147,8 +147,14 @@ class HookRunner:
                 # dropped step — without it the gate's approval=user_allow never reaches
                 # the registry and the "已授权" verdict never surfaces. The block=True
                 # branch carries approval=user_deny alongside the reason.
-                if "approval" in result:
-                    mutable_payload["approval"] = result["approval"]
+                for field in (
+                    "approval",
+                    "decision_source",
+                    "category",
+                    "policy_version",
+                ):
+                    if field in result:
+                        mutable_payload[field] = result[field]
                 if bool(result.get("block")):
                     mutable_payload["block"] = True
                     mutable_payload["reason"] = result.get("reason")

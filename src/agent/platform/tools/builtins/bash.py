@@ -227,8 +227,8 @@ class BashTool(WiringMixin):
 
         Returns:
             PermissionDecision with behavior:
-              - 'allow'       if command matches BASH_ALLOWED_PREFIXES
-              - 'deny'        if command matches BASH_BLOCKED_COMMANDS or BASH_BLOCKED_FRAGMENTS
+              - 'allow'       if parsed syntax, arguments and flags pass read-only checks
+              - 'deny'        if an explicit policy override denies the command
               - 'passthrough' if command is unlisted (review → classifier decides)
         """
         command = str(tool_input.get("command", "")).strip()
@@ -238,9 +238,10 @@ class BashTool(WiringMixin):
 
         try:
             overrides = getattr(ctx, "metadata", {}).get("bash_policy_overrides")
-            decision = check_command_policy(command, overrides=overrides)
+            cwd = Path(getattr(ctx, "metadata", {}).get("cwd") or ctx.repo_root)
+            decision = check_command_policy(command, overrides=overrides, cwd=cwd)
         except Exception:
-            # Unparseable command — fail open; let tool body raise ToolError.
+            # Parsing/policy errors require classification before execution.
             return PermissionDecision(behavior="passthrough")
 
         if decision.status == "allowed":

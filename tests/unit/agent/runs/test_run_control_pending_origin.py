@@ -34,6 +34,10 @@ def test_enqueue_drain_carries_origin_fifo() -> None:
     ]
     assert all(p.pending_id.startswith("pending_") for p in drained)
     assert drained[0].pending_id != drained[1].pending_id
+    assert [p.message.context_metadata["context_origin"] for p in drained] == [
+        "human",
+        "system",
+    ]
 
 
 def test_drain_empties_queue() -> None:
@@ -43,6 +47,22 @@ def test_drain_empties_queue() -> None:
     )
     assert len(controller.drain_pending()) == 1
     assert controller.drain_pending() == []
+
+
+def test_consumed_mixed_batch_marks_system_notice_as_accompanying_human() -> None:
+    controller = RunController()
+    controller.enqueue_message(
+        LLMMessage(role="user", content="human instruction"), origin=RunOrigin.USER
+    )
+    controller.enqueue_message(
+        LLMMessage(role="user", content="job completed"),
+        origin=RunOrigin.BACKGROUND_TASK,
+    )
+
+    messages, _ = controller.drain_pending_with_revision()
+
+    assert messages[1].message.context_metadata["context_origin"] == "system"
+    assert messages[1].message.context_metadata["context_has_human"] is True
 
 
 def test_enqueue_drain_carries_background_return_with_its_message() -> None:

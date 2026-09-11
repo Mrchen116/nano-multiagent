@@ -1,6 +1,6 @@
 # Claude Code 2.1.267 Auto 取证
 
-记录于 2026-09-11（Asia/Shanghai）。研究证据，**不是 Nano 实施或新机制验收结果**。
+CC 研究记录于 2026-09-11（Asia/Shanghai）。下方 CC 取证不是 Nano 新机制验收结果；Nano 实施证据另列于本页末尾。
 
 ## 基线与方法
 
@@ -56,3 +56,14 @@
 ## 设计交接
 
 完整 policy、suffix 与 defaults 是移植输入；实际运行时策略须按 [design.md](../design.md) D1 的适配清单产出并独立测试。不能把研究 JSON 直接作为产品运行时文件，也不能把这三条 CC 探针当作 Nano 的验收。
+
+## Nano 实施证据
+
+- [策略适配与资产验证](policy-adaptation.md)
+- [Bash 完整命令表和固定参考差分](bash-port-implementation.md)
+- [PA 来源与 runtime 装配](pa-integration.md)
+- [真实 CLI 旅程与 S1 请求补验](cli-real-journey.md)
+- [真实单聊天、两阶段审批和服务清理](single-chat-real-journey.md)
+- [全局旅程的外部代理阻塞](proxy-strict-blocker.md)
+
+各报告区分确定性契约测试、真实 SDK 接线测试和真实模型行为；[实施记录](../implementation.md)维护当前进度，不把部分旅程升级为最终验收结论。

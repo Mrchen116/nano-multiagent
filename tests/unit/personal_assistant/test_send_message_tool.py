@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Mapping
 from unittest.mock import MagicMock, patch
+import json
 
 import pytest
 
@@ -83,7 +84,9 @@ def test_send_message_tool_dispatches_http_post_to_gateway_dispatch_url(target) 
         captured_urls.append(url)
         captured_payloads.append(kwargs.get("json", {}))
         req = httpx.Request("POST", url)
-        return httpx.Response(200, json={"ok": True}, request=req)
+        return httpx.Response(
+            200, json={"ok": True, "status": "accepted", "accepted": True}, request=req
+        )
 
     ctx = _make_tool_context(
         session_metadata={
@@ -105,7 +108,12 @@ def test_send_message_tool_dispatches_http_post_to_gateway_dispatch_url(target) 
 
     assert result["ok"] is True
     assert result["target"] == target
-    assert result == {"ok": True, "target": target}
+    assert result == {
+        "ok": True,
+        "target": target,
+        "status": "accepted",
+        "accepted": True,
+    }
     assert len(captured_urls) == 1
     assert "127.0.0.1:8089" in captured_urls[0]
     assert captured_payloads[0]["text"] == "hello"
@@ -117,6 +125,17 @@ def test_send_message_tool_dispatches_http_post_to_gateway_dispatch_url(target) 
         captured_payloads[0]["from_session_id"]
         == "agent_a|tool_call:toolu_test_dispatch"
     )
+
+
+def test_send_message_classifier_sees_complete_target_and_message() -> None:
+    from personal_assistant.tools.send_message import SendMessageTool
+
+    args = {
+        "target": "c_abcdefgh",
+        "text": "context " * 90 + "May I publish the report?",
+    }
+
+    assert json.loads(SendMessageTool().to_auto_classifier_input(args)) == args
 
 
 def test_send_message_tool_resolves_live_provider_on_every_call() -> None:

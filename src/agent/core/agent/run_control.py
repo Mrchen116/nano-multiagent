@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import queue
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Callable
 from uuid import uuid4
+from agent.core.agent.message_context import origin_for_input
 
 if TYPE_CHECKING:
     from agent.core.background_tasks.notifications import BackgroundReturnInfo
@@ -139,7 +140,15 @@ class RunController:
             ):
                 return None
             pending = PendingMessage(
-                message=message,
+                message=replace(
+                    message,
+                    context_metadata={
+                        **dict(message.context_metadata),
+                        "context_origin": origin_for_input(
+                            origin, message.context_metadata
+                        ),
+                    },
+                ),
                 origin=origin,
                 background_return=background_return,
             )
@@ -208,6 +217,27 @@ class RunController:
             if self.is_aborted or self.is_cancelled:
                 return [], self.context_revision
             messages = self._drain_locked()
+            if any(
+                item.message.context_metadata.get("context_origin") == "human"
+                or any(
+                    part.get("context_origin") == "human"
+                    for part in item.message.context_metadata.get("context_parts", ())
+                )
+                for item in messages
+            ):
+                messages = [
+                    replace(
+                        item,
+                        message=replace(
+                            item.message,
+                            context_metadata={
+                                **dict(item.message.context_metadata),
+                                "context_has_human": True,
+                            },
+                        ),
+                    )
+                    for item in messages
+                ]
             self.context_revision = self.accepted_revision
             return messages, self.context_revision
 

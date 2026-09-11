@@ -16,6 +16,7 @@ Design (refactor-387 M1, refactor-462):
 from __future__ import annotations
 
 import asyncio
+import json
 import inspect
 import threading
 import copy
@@ -128,6 +129,7 @@ class _KernelComponents:
     tool_registry: Any
     runs_registry: RunsRegistry
     event_hub: EventStreamHub
+
     permission_broker: PermissionBroker
     hook_registry: HookRegistry
     hook_runner: HookRunner
@@ -147,6 +149,41 @@ class _SessionSubagentControl:
     files: JsonlSessionFiles
     engine: AgentEngine
     event_hub: EventStreamHub
+
+    def approval_context_snapshot(self) -> dict[str, Any]:
+        """Copy the parent's current approval facts and effective settings for a child."""
+        from dataclasses import asdict
+        from agent.core.agent.prompting import build_chat_messages
+        from agent.platform.hooks.builtins._auto_mode_transcript import (
+            build_transcript_entries,
+        )
+
+        parent = self.directory.open(self.ref)
+        config, _ = parent.config_snapshot()
+        metadata = dict(config.metadata)
+        history = parent.history_snapshot()
+        for message in history:
+            inherited = message.metadata.get("inherited_approval_context")
+            if isinstance(inherited, Mapping):
+                metadata.update(inherited)
+        scope = self.engine._scope_for_workspace(self.ref.workspace_root)
+        effective_config = metadata.get("inherited_auto_mode_config")
+        if effective_config is None:
+            effective_config = json.loads(
+                json.dumps(asdict(scope.auto_mode_config_loader()))
+            )
+        messages = build_chat_messages(history_messages=history, user_text="")
+        entries = list(
+            metadata.get("parent_approval_context") or []
+        ) + build_transcript_entries(
+            messages,
+            prior_assistant_context=metadata.get("kind") != "subagent",
+        )
+        return {
+            "parent_approval_context": entries,
+            "inherited_auto_mode_config": effective_config,
+            "auto_mode_interaction": metadata.get("auto_mode_interaction"),
+        }
 
     @property
     def workspace_root(self) -> Path:
@@ -220,6 +257,7 @@ class _SessionSubagentControl:
 
         if parent_session_id != self.ref.session_id:
             raise ValueError("subagent parent must be the active conversation")
+        metadata = {**metadata, **self.approval_context_snapshot()}
         conversation = self.directory.create(
             NewSession(
                 workspace_root=workspace_root,
@@ -746,6 +784,7 @@ class _SessionCapabilityResolver:
                 global_config_dir=self._global_config_root,
                 workspace_config_dir=layout.config_root,
             ),
+            global_config_root=self._global_config_root,
         )
         self._scopes[layout.workspace_root] = scope
         return scope
@@ -893,6 +932,10 @@ def _build_kernel_base(
     )
 
     def _make_engine() -> AgentEngine:
+        from agent.platform.hooks.builtins._auto_mode_transcript import (
+            SOURCE_INSTRUCTIONS,
+        )
+
         engine = AgentEngine(
             hook_runner=hook_runner,
             repo_root=resolved_repo_root,
@@ -904,6 +947,7 @@ def _build_kernel_base(
             workspace_config_dirname=workspace_config_dirname,
             workspace_skill_dirnames=resolved_workspace_skill_dirnames,
             skill_search_roots=resolved_skill_roots,
+            source_instructions=SOURCE_INSTRUCTIONS,
         )
         engine._llm_config = factory_config  # type: ignore[attr-defined]
         engine._can_use_tool = can_use_tool  # type: ignore[attr-defined]
@@ -945,6 +989,8 @@ def _build_kernel_base(
 
     async def _finalize_resources() -> None:
         errors: list[BaseException] = []
+        engine_services._live_tool_context.clear()
+        permission_broker.clear_session_state()
         if workflow_manager is not None:
             try:
                 await asyncio.to_thread(workflow_manager.close)
@@ -1539,6 +1585,7 @@ class Kernel:
             reasoning_effort_override=runtime_reasoning_effort_override,
             workflow_ultracode=runtime_workflow_ultracode,
             workflow_size_guideline=runtime_workflow_size_guideline,
+            auto_mode_interaction=config.metadata.get("auto_mode_interaction"),
         )
         return SessionRuntimeState(runtime=runtime, identity=identify_runtime(runtime))
 
@@ -2059,15 +2106,26 @@ class Kernel:
             render_user_text,
         )
         from agent.core.llm.interfaces import LLMMessage  # noqa: PLC0415
+        from agent.core.agent.message_context import input_context_metadata
 
         registry = self._c.runs_registry
         parsed_parts = parse_input_parts(parts)
         user_content = render_user_content_parts(parsed_parts) or render_user_text(
             parsed_parts
         )
+        ref = self._c.directory.ref_for(session_id)
+        session = self._c.directory.get(ref) if ref is not None else None
         accepted = registry.try_inject_pending_message(
             session_id,
-            LLMMessage(role="user", content=user_content),
+            LLMMessage(
+                role="user",
+                content=user_content,
+                context_metadata=input_context_metadata(
+                    parsed_parts,
+                    origin=origin,
+                    metadata=session.metadata if session is not None else {},
+                ),
+            ),
             origin=origin,
             expected_run_id=expected_run_id,
         )

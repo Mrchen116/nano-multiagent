@@ -81,6 +81,12 @@ async def test_restart_restores_one_main_and_does_not_reawaken_committed_signal(
         )
         assert len(model.requests) == 1
         assert restored.store.get_signal_state("worker")["signaled_through_seq"] == 2
+        assert (
+            restored.kernel.get_session(main_id, workspace_root=tmp_path)["metadata"][
+                "auto_mode_interaction"
+            ]
+            == "return_to_agent"
+        )
         assert len(restored.inbox.blocking_entries("worker", "c_group001")) == 1
         # Choosing not to read leaves pending content without a repeated wake.
         restored.coordinator.notify("worker")

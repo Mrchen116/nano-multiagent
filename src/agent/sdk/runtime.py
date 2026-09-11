@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from hashlib import sha256
 import json
-from typing import Mapping
+from typing import Literal, Mapping
 
 from agent.core.session.types import INTERNAL_RUNTIME_KEY
 
@@ -28,6 +28,8 @@ class SessionRuntimeConfig:
         reasoning_effort: Provider-neutral effort for future normal model requests.
         reasoning_effort_override: User-selected session value behind the effective
             effort, or ``None`` when the product baseline owns the selection.
+        auto_mode_interaction: Return unresolved approvals to the agent when the
+            product uses ordinary conversation instead of a permission dialog.
     """
 
     model: str
@@ -39,6 +41,7 @@ class SessionRuntimeConfig:
     reasoning_effort_override: str | None = None
     workflow_ultracode: bool = False
     workflow_size_guideline: str | None = None
+    auto_mode_interaction: Literal["return_to_agent"] | None = None
 
     def __post_init__(self) -> None:
         guideline = self.workflow_size_guideline
@@ -96,6 +99,7 @@ def identify_runtime(runtime: SessionRuntimeConfig) -> SessionRuntimeIdentity:
         "reasoning_effort": runtime.reasoning_effort,
         "reasoning_effort_override": runtime.reasoning_effort_override,
         "workflow_ultracode": runtime.workflow_ultracode,
+        "auto_mode_interaction": runtime.auto_mode_interaction,
         "workflow_size_guideline": (
             _active_workflow_size_guideline(runtime) or "medium"
             if "Workflow" in runtime.enabled_tools
@@ -122,6 +126,10 @@ def runtime_metadata(
 
     metadata = dict(existing or {})
     metadata["agent_features"] = dict(runtime.features or {})
+    if runtime.auto_mode_interaction is not None:
+        metadata["auto_mode_interaction"] = runtime.auto_mode_interaction
+    else:
+        metadata.pop("auto_mode_interaction", None)
     runtime_payload: dict[str, object] = {
         "model": runtime.model,
         "features": dict(runtime.features) if runtime.features is not None else None,

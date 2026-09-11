@@ -173,13 +173,11 @@ class TestGateHookLogic:
         return FakeRegistry()
 
     @pytest.mark.asyncio
-    async def test_bash_allowed_prefix_passes(self):
-        """bash commands matching allowed prefixes pass without classifier.
-
-        After M6, requires tool_registry with BashTool so check_permissions is dispatched.
-        """
+    async def test_bash_readonly_command_passes(self, tmp_path):
+        """A real Bash permission check with an effective cwd bypasses the model."""
         handler, config = self._get_handler()
         ctx = self._make_ctx_with_config(config)
+        ctx.repo_root = tmp_path
         ctx.metadata = dict(ctx.metadata)
         ctx.metadata["tool_registry"] = self._make_bash_tool_registry()
         ctx.call_model = AsyncMock()  # should NOT be called
@@ -188,39 +186,36 @@ class TestGateHookLogic:
         ctx.call_model.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_bash_blocked_fragment_denies(self):
-        """Fork-bomb fragment is still hard-denied via ``bash_blocked_fragments``.
-
-        ``rm -rf /`` was moved out of hard-deny in M6 to route through the
-        classifier (CC Auto Mode parity — workspace destruction belongs in the
-        ask flow, not a silent kill). Fork-bomb syntax has no base command so
-        it remains in the fragment denylist as the canonical example.
-
-        After M6, requires tool_registry with BashTool.
-        """
+    async def test_bash_dangerous_syntax_is_classified(self):
         handler, config = self._get_handler()
         ctx = self._make_ctx_with_config(config)
         ctx.metadata = dict(ctx.metadata)
         ctx.metadata["tool_registry"] = self._make_bash_tool_registry()
+        ctx.call_model = AsyncMock(
+            return_value=MagicMock(
+                content="<block>yes</block><reason>blocked action</reason>"
+            )
+        )
         result = await handler(
             {"name": "bash", "args": {"command": ":(){:|:&};:"}}, ctx
         )
-        assert result is not None
-        assert result.get("block") is True
+        assert result["decision_source"] == "classifier_block"
+        assert ctx.call_model.await_count == 2
 
     @pytest.mark.asyncio
-    async def test_bash_blocked_command_denies(self):
-        """``reboot`` is a base-command hard-deny (token match, not substring).
-
-        After M6, requires tool_registry with BashTool.
-        """
+    async def test_bash_system_command_is_classified(self):
         handler, config = self._get_handler()
         ctx = self._make_ctx_with_config(config)
         ctx.metadata = dict(ctx.metadata)
         ctx.metadata["tool_registry"] = self._make_bash_tool_registry()
+        ctx.call_model = AsyncMock(
+            return_value=MagicMock(
+                content="<block>yes</block><reason>blocked action</reason>"
+            )
+        )
         result = await handler({"name": "bash", "args": {"command": "reboot"}}, ctx)
-        assert result is not None
-        assert result.get("block") is True
+        assert result["decision_source"] == "classifier_block"
+        assert ctx.call_model.await_count == 2
 
     @pytest.mark.asyncio
     async def test_classifier_allow_passes(self):
@@ -359,7 +354,7 @@ class TestGateHookLogic:
         assert captured_prompts
         prompt = captured_prompts[0]
         assert "retired_dynamic" in prompt
-        assert '"tool": "retired_dynamic"' in prompt
+        assert '"retired_dynamic":' in prompt
         assert '"danger": "tail-risk"' in prompt
 
     @pytest.mark.asyncio
@@ -556,7 +551,7 @@ class TestGateHookLogic:
         deny_limit_config = AutoModeConfig(deny_limit=1)
         broker = PermissionBroker(config=deny_limit_config)
         # Pre-increment deny count past limit
-        broker.increment_deny_count("run-1", "write")
+        broker.record_auto_decision("sess-1", False)
 
         model_result = MagicMock()
         model_result.content = "<block>yes</block><reason>risky</reason>"

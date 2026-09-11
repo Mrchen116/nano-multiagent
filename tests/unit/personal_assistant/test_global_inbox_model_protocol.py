@@ -62,7 +62,12 @@ def test_current_names_are_projected_without_mutating_message_identity(tmp_path)
     from personal_assistant.tools.inbox import InboxTool
 
     service, store = make_service(tmp_path)
-    receive(service, conversation_id="room", name="room")
+    receive(
+        service,
+        conversation_id="room",
+        name="room",
+        reply_context={"metadata": {"reply_to_message_id": "proposal-original"}},
+    )
     current_name = "Alex renamed"
     calls = []
 
@@ -87,6 +92,7 @@ def test_current_names_are_projected_without_mutating_message_identity(tmp_path)
         "user_id": "u",
         "type": "user",
     }
+    assert model["messages"][0]["reply_to_message_id"] == "proposal-original"
     current_name = "Alex changed again"
     assert read(service) == first  # Same tool call replays its exact receipt page.
     next_page = read(service, "new-call")

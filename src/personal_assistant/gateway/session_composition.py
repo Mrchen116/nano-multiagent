@@ -90,6 +90,11 @@ def project_agent_runtime(
             skills=_session_skills(config),
             enabled_tools=resolve_enabled_tools(config),
             features=features,
+            auto_mode_interaction=(
+                "return_to_agent"
+                if scenario.get("pa_work_scope") == "global_main"
+                else None
+            ),
             reasoning_effort=reasoning_effort,
             workflow_size_guideline=(
                 config.workflow_size_guideline

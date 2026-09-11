@@ -96,6 +96,7 @@ class ToolResult:
     # Machine-only correlation for product event routing. It is never serialized
     # into the model-facing tool result content.
     event_metadata: Mapping[str, Any] | None = None
+    permission_context: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -30,10 +30,12 @@ class TestAutoModeConfigDefaults:
             dangerously_skip_permissions=False,
             always_allow_tools=(),
             deny_limit=3,
+            total_deny_limit=20,
             ask_timeout_sec=600,
             unattended_fallback="deny",
             allow=(),
             soft_deny=(),
+            hard_deny=(),
             environment=(),
             web_fetch=WebFetchConfig(),
         )
@@ -59,6 +61,8 @@ class TestLoadAutoModeConfig:
             "auto_mode": {
                 "allow": ["reading files"],
                 "soft_deny": ["deleting files"],
+                "hard_deny": ["disclosing secrets"],
+                "total_deny_limit": 12,
                 "environment": ["Python project"],
             }
         }
@@ -70,6 +74,8 @@ class TestLoadAutoModeConfig:
         )
         assert cfg.allow == ("reading files",)
         assert cfg.soft_deny == ("deleting files",)
+        assert cfg.hard_deny == ("disclosing secrets",)
+        assert cfg.total_deny_limit == 12
         assert cfg.environment == ("Python project",)
 
     def test_workspace_overrides_global(self, tmp_path):
@@ -81,11 +87,14 @@ class TestLoadAutoModeConfig:
             "auto_mode": {
                 "allow": ["global rule"],
                 "deny_limit": 5,
+                "total_deny_limit": 15,
+                "hard_deny": ["global boundary"],
             }
         }
         workspace_data = {
             "auto_mode": {
                 "allow": ["workspace rule"],
+                "hard_deny": [],
                 "dangerously_skip_permissions": True,
             }
         }
@@ -103,6 +112,8 @@ class TestLoadAutoModeConfig:
         assert cfg.dangerously_skip_permissions is True
         # global value used when workspace doesn't override
         assert cfg.deny_limit == 5
+        assert cfg.total_deny_limit == 15
+        assert cfg.hard_deny == ()
 
     def test_missing_auto_mode_section_returns_defaults(self, tmp_path):
         global_dir = tmp_path / "global"

@@ -8,6 +8,9 @@ were not threaded through at all before this change).
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
+
+from agent.platform.config.auto_mode import AutoModeConfig
 
 import pytest
 
@@ -34,6 +37,13 @@ class _FakeConversation:
         self.ref = ref
         self.transcript = transcript
 
+    def config_snapshot(self):
+        loaded = self.transcript.load()
+        return loaded.config, loaded.prompt_seed
+
+    def history_snapshot(self):
+        return tuple(self.transcript.load().messages)
+
     async def close(self) -> None:  # pragma: no cover - unused by these tests
         pass
 
@@ -57,7 +67,11 @@ def _control(tmp_path: Path) -> _SessionSubagentControl:
         ref=parent.ref,
         directory=directory,
         files=JsonlSessionFiles(data_dir=tmp_path / "data"),
-        engine=None,  # not exercised by create_subagent / list_parent_enabled_tool_names tests
+        engine=SimpleNamespace(
+            _scope_for_workspace=lambda _: SimpleNamespace(
+                auto_mode_config_loader=AutoModeConfig
+            )
+        ),
         event_hub=EventStreamHub(),
     )
 

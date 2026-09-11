@@ -82,6 +82,8 @@ class AnthropicMapper:
         }
         if request.temperature is not None:
             payload["temperature"] = request.temperature
+        if request.stop_sequences:
+            payload["stop_sequences"] = list(request.stop_sequences)
         if system_parts:
             payload["system"] = "\n\n".join(system_parts)
         if request.tools:

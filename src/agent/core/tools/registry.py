@@ -264,6 +264,11 @@ class ToolRegistry:
                 },
                 active_hook_context,
             )
+            permission_context = {
+                key: tool_call_payload[key]
+                for key in ("decision_source", "category", "policy_version")
+                if key in tool_call_payload
+            }
             if bool(tool_call_payload.get("block")):
                 log_error("tool_execution_error", tool_name=name, blocked_by_hook=True)
                 raise ToolError(
@@ -282,6 +287,11 @@ class ToolRegistry:
                         # for a user Deny; absent (None) for an auto block — so the
                         # gate region only shows 已拒绝 for真正经用户卡决策的拒绝.
                         "approval": tool_call_payload.get("approval"),
+                        **(
+                            {"permission_context": permission_context}
+                            if permission_context
+                            else {}
+                        ),
                     },
                 )
 
@@ -290,6 +300,8 @@ class ToolRegistry:
             # exception carrier, so hand it to the caller via out_meta to lift onto
             # ToolResult.approval. Absent when auto-allowed (gate returns no approval).
             if out_meta is not None:
+                if permission_context:
+                    out_meta["permission_context"] = permission_context
                 approval = tool_call_payload.get("approval")
                 if isinstance(approval, str) and approval:
                     out_meta["approval"] = approval

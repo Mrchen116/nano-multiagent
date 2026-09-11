@@ -48,6 +48,7 @@ def test_tool_contract_fields_are_stable() -> None:
         "approval",
         # feat-517: machine-only tool result correlation, never model-facing output.
         "event_metadata",
+        "permission_context",
     ]
 
 

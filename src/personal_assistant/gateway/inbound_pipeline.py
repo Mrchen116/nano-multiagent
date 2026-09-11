@@ -495,6 +495,8 @@ def _buffered_input_metadata(metadata: Mapping[str, object]) -> dict[str, object
             "kernel_input_parts",
             "image_resolution_failure",
             "_pa_human_message_context",
+            "sender_type",
+            "sender_agent_id",
         )
         if key in metadata
     }

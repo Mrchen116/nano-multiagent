@@ -1,19 +1,8 @@
-"""Bash command policy layer — strategy for BashTool permission decisions.
+"""Single authoritative Bash permission entry point.
 
-This module owns the single authoritative command policy for bash execution.
-Policy is checked exactly once per tool call, at BashTool.check_permissions
-(called by auto_mode_gate hook). Neither BashTool.run nor shell_runner
-performs a second check — trusting the hook's decision (D10 single-point
-principle).
-
-Known gap: prefix-level precision only (not CC's full flag-level validator
-from readOnlyValidation.ts). Flag-level precision (e.g. blocking
-``git log --output=/file``) is tracked as a future unit. This module's
-docstring is the canonical notice for that work.
-
-Policy entry point for bypasses: any caller that directly runs bash commands
-WITHOUT going through ToolRegistry.execute (and therefore skips the hook)
-MUST call check_command_policy manually and respect the result.
+The pinned read-only policy proves command arguments and shell structure before
+allowing a call. Other commands go to the Auto classifier. Only explicit user
+policy denies are hard denials; executors trust this result without rechecking.
 """
 
 from __future__ import annotations
@@ -27,101 +16,13 @@ from typing import Any, Literal, Mapping
 from agent.core.errors import ToolError
 
 
-# ---------------------------------------------------------------------------
-# Policy constants (D9 — prefix-level precision, per CC isReadOnly alignment)
-# ---------------------------------------------------------------------------
+from agent.platform.tools.builtins.bash_readonly import readonly_reason
+from agent.platform.tools.builtins.bash_syntax import parse_bash
 
-# True read-only command prefixes. Each entry is a complete prefix that, when
-# matched against the lowercased segment, indicates no filesystem side-effects.
-# Multi-token prefixes (e.g. "git status") are checked with boundary awareness:
-# the segment must be equal to the prefix or the next char must be whitespace
-# or a shell separator.
-#
-# Removed vs. previous ToolSafetyConfig.bash_allowed_prefixes (D9 rationale):
-#   - "bash"   → executes arbitrary scripts → review
-#   - "pytest" → arbitrary fixture side-effects → review
-#   - "sed"    → sed -i modifies files → review (whole command, not just -i)
-#   - "sleep"  → not a retrieval operation → review
-#   - "python" / "python3" (bare) → executes arbitrary scripts → review
-#   - "git"    (bare) → write subcommands (push/commit/reset) → review
-#
-# Added (sub-command precision, per CC GIT_READ_ONLY_COMMANDS):
-#   - git status / log / diff / show / branch / config / rev-parse / ls-files /
-#     blame / tag / describe / remote / stash list
-#
-# Added (interpreter version flags only, anchored — per CC readOnlyValidation.ts):
-#   - python --version / python -V / python3 --version / python3 -V
-BASH_ALLOWED_PREFIXES: tuple[str, ...] = (
-    "cat",
-    "command -v",
-    "echo",
-    "false",
-    "head",
-    "ls",
-    "pwd",
-    "rg",
-    "tail",
-    "true",
-    "wc",
-    # git read-only subcommands (mirrors CC GIT_READ_ONLY_COMMANDS)
-    "git status",
-    "git log",
-    "git diff",
-    "git show",
-    "git branch",
-    "git config",
-    "git rev-parse",
-    "git ls-files",
-    "git blame",
-    "git tag",
-    "git describe",
-    "git remote",
-    "git stash list",
-    # interpreter version queries only — anchored prefix prevents
-    # "python3 file.py" from matching (next char after "-V" must be space/sep)
-    "python --version",
-    "python -V",
-    "python3 --version",
-    "python3 -V",
-)
-
-# Hard-deny: base-command token match (not substring).
-# Mirrors CC bashSecurity.ts ZSH_DANGEROUS_COMMANDS set semantics.
-# Deviations from CC (narrow): mkfs/reboot/shutdown/halt/poweroff are
-# hard-denied here because a dev agent has zero legitimate use; CC routes
-# them through classifier, but the classifier round-trip cost is unjustified
-# for commands that are universally destructive in a dev context.
-BASH_BLOCKED_COMMANDS: tuple[str, ...] = (
-    "mkfs",
-    "reboot",
-    "shutdown",
-    "halt",
-    "poweroff",
-    "zmodload",
-    "emulate",
-    "ztcp",
-    "zsocket",
-    "zpty",
-    "sysopen",
-    "sysread",
-    "syswrite",
-    "sysseek",
-    "zf_rm",
-    "zf_mv",
-    "zf_ln",
-    "zf_chmod",
-    "zf_chown",
-    "zf_mkdir",
-    "zf_rmdir",
-    "zf_chgrp",
-    "mapfile",
-)
-
-# Structural-syntax fragment (substring match). Reserved for shell constructs
-# without a base command. Fork-bomb function literal ":(){" is the canonical
-# example — it is a function definition, not an executable, so base-command
-# matching cannot catch it.
-BASH_BLOCKED_FRAGMENTS: tuple[str, ...] = (":(){",)
+# Overrides replace these defaults, retaining the existing configuration seam.
+BASH_ALLOWED_PREFIXES: tuple[str, ...] = ()
+BASH_BLOCKED_COMMANDS: tuple[str, ...] = ()
+BASH_BLOCKED_FRAGMENTS: tuple[str, ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -194,85 +95,52 @@ def check_command_policy(
     command: str,
     *,
     overrides: BashPolicyOverrides | None = None,
+    cwd: Path | None = None,
 ) -> CommandPolicyDecision:
-    """Classify a shell command as allowed / denied / review.
-
-    Decision order:
-      1. Fragment denylist (substring): immediate deny (fork-bomb etc.)
-      2. Parse check: unparseable command → ToolError (caller should surface)
-      3. Base-command denylist (token): immediate deny per segment
-      4. Prefix allowlist (multi-token boundary): all segments must match → allowed
-      5. Otherwise: review (classifier will decide)
+    """Classify a shell command using explicit rules then the pinned policy.
 
     Args:
-        command: Raw command string as received from the model.
-        overrides: Optional user overrides from .nano/policy.toml; if None,
-                   module-level constants are used.
+        command: Original shell input; quotes and case remain significant.
+        overrides: Optional replacement rules from the existing policy file.
+        cwd: Effective tool working directory for Git path checks.
+
+    Returns:
+        An allowed, denied, or review decision, with details for the caller.
     """
-    if overrides is not None:
-        allowed_prefixes = (
-            overrides.allow_prefixes
-            if overrides.allow_prefixes is not None
-            else BASH_ALLOWED_PREFIXES
-        )
-        blocked_commands = (
-            overrides.blocked_commands
-            if overrides.blocked_commands is not None
-            else BASH_BLOCKED_COMMANDS
-        )
-        blocked_fragments = (
-            overrides.blocked_fragments
-            if overrides.blocked_fragments is not None
-            else BASH_BLOCKED_FRAGMENTS
-        )
-    else:
-        allowed_prefixes = BASH_ALLOWED_PREFIXES
-        blocked_commands = BASH_BLOCKED_COMMANDS
-        blocked_fragments = BASH_BLOCKED_FRAGMENTS
-
-    normalized = command.strip().lower()
-
-    # Step 1: Fragment denylist (structural shell constructs)
-    for fragment in blocked_fragments:
-        if fragment in normalized:
-            return CommandPolicyDecision(
-                status="denied",
-                details={"blocked_fragment": fragment},
-            )
-
-    # Step 2: Parse check — shlex.split with posix=True; raises ToolError on
-    # failure so the caller (BashTool.check_permissions) surfaces it to the
-    # hook as an error rather than silently passing or denying.
+    rules = overrides or BashPolicyOverrides()
+    for fragment in rules.blocked_fragments or ():
+        if fragment in command.strip().lower():
+            return CommandPolicyDecision("denied", {"blocked_fragment": fragment})
     _ensure_command_parseable(command)
-
-    # Step 3: Per-segment base-command denylist
-    blocked_set = {cmd.lower() for cmd in blocked_commands}
-    for segment in _split_and_segments(command):
-        base_cmd = _extract_base_command(segment)
-        if base_cmd and base_cmd in blocked_set:
+    syntax = parse_bash(command)
+    blocked = {item.lower() for item in rules.blocked_commands or ()}
+    for name, segment in syntax.command_names:
+        if name.lower() in blocked:
             return CommandPolicyDecision(
-                status="denied",
-                details={"blocked_command": base_cmd, "segment": segment},
+                "denied", {"blocked_command": name, "segment": segment}
             )
-
-    # Step 4: Prefix allowlist — every &&-segment must match
-    unmatched: list[str] = []
-    for segment in _split_and_segments(command):
-        if not _matches_any_allowed_prefix(
-            segment=segment, allow_prefixes=allowed_prefixes
-        ):
-            unmatched.append(segment)
-
-    if unmatched:
-        return CommandPolicyDecision(
-            status="review",
-            details={
-                "allow_prefixes": allowed_prefixes,
-                "unmatched_segments": tuple(unmatched),
-            },
+    # Explicit allow_prefixes remains a replacement allowlist. Its permission
+    # scope is user-provided, so it does not acquire the default flag restrictions.
+    if rules.allow_prefixes is not None:
+        unmatched = tuple(
+            segment
+            for segment in _split_and_segments(command)
+            if not _matches_any_allowed_prefix(
+                segment=segment, allow_prefixes=rules.allow_prefixes
+            )
         )
-
-    return CommandPolicyDecision(status="allowed", details={})
+        if not unmatched:
+            return CommandPolicyDecision("allowed", {})
+        return CommandPolicyDecision(
+            "review",
+            {"allow_prefixes": rules.allow_prefixes, "unmatched_segments": unmatched},
+        )
+    reason = readonly_reason(command, syntax, cwd=cwd)
+    if reason:
+        return CommandPolicyDecision(
+            "review", {"reason": reason, "unmatched_segments": (command,)}
+        )
+    return CommandPolicyDecision("allowed", {})
 
 
 def enforce_command_policy(
@@ -313,25 +181,6 @@ def _ensure_command_parseable(command: str) -> None:
 def _split_and_segments(command: str) -> tuple[str, ...]:
     segments = [segment.strip() for segment in command.split("&&")]
     return tuple(segment for segment in segments if segment)
-
-
-def _extract_base_command(segment: str) -> str:
-    """Return lowercased base command of segment, stripping VAR=val prefixes."""
-    try:
-        tokens = shlex.split(segment, posix=True)
-    except ValueError:
-        tokens = segment.split()
-    for token in tokens:
-        if "=" in token:
-            head, _, _ = token.partition("=")
-            if (
-                head
-                and (head[0].isalpha() or head[0] == "_")
-                and all(ch.isalnum() or ch == "_" for ch in head)
-            ):
-                continue
-        return token.lower()
-    return ""
 
 
 def _matches_any_allowed_prefix(

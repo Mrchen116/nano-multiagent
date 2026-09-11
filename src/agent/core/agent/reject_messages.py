@@ -24,6 +24,8 @@ a ``user_deny`` — a with-reason subagent rejection is a dead path. Do not "com
 the set by adding it unless subagents gain an authorization channel.
 """
 
+from typing import Any, Mapping
+
 # Main-session user reject (Provenance: messages.ts REJECT_MESSAGE), newText-localized.
 REJECT_MESSAGE = (
     "The user doesn't want to proceed with this tool use. The tool use was "
@@ -85,7 +87,11 @@ def auto_reject_message(reason: str) -> str:
 
 
 def build_reject_message(
-    *, approval: str | None, reason: str | None, is_subagent: bool
+    *,
+    approval: str | None,
+    reason: str | None,
+    is_subagent: bool,
+    permission_context: Mapping[str, Any] | None = None,
 ) -> str:
     """Select the LLM-visible rejection text from the block's signals.
 
@@ -102,13 +108,30 @@ def build_reject_message(
             automatic block.
         reason: free-text reason (user's verbatim text for a Deny, classifier/系统
             string for an auto block). May be empty/None for a bare user Deny.
+        permission_context: Automatic decision source and fault category, when present.
         is_subagent: True when this run IS a fork side-chain, driven by the
             explicit fork side-chain signal (``is_fork_sidechain``) rather than
             inferred from the executor's allowlist — the two are decoupled
             (feat-440-M2 F6), so an active ``tool_execution_allowlist`` no longer
             implies subagent reject semantics.
     """
+    context = permission_context or {}
+    source = context.get("category") or context.get("decision_source")
+    if source in {
+        "classifier_unavailable",
+        "parsing_error",
+        "prompt_too_long",
+        "projection_error",
+    }:
+        return (
+            "This action was not executed because automatic approval produced no verdict. "
+            f"Reason: {reason or source}. "
+            "Report this approval failure and the proposed action to the parent agent or user; "
+            "do not describe it as a user refusal or a classifier rejection."
+        )
     if is_subagent:
+        if reason and permission_context:
+            return f"{SUBAGENT_REJECT_MESSAGE} Reason: {reason}."
         return SUBAGENT_REJECT_MESSAGE
     if approval == "user_deny":
         if reason:

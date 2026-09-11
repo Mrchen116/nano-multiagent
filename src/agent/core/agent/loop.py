@@ -56,6 +56,11 @@ from .prompting import (
     estimate_llm_context_tokens,
 )
 from .run_control import RunController
+from .message_context import (
+    classifier_metadata,
+    input_context_metadata,
+    render_source_message,
+)
 from .state import AgentState, render_user_content_parts
 from .tool_executor import StreamingToolExecutor
 
@@ -302,6 +307,15 @@ class AgentLoop:
                 user_parts=render_user_content_parts(state.input_parts),
             )
         )
+        llm_messages[-1] = replace(
+            llm_messages[-1],
+            message_id=state.user_message_id,
+            context_metadata=input_context_metadata(
+                state.input_parts,
+                origin=active_hook_ctx.metadata.get("run_origin"),
+                metadata=active_hook_ctx.metadata,
+            ),
+        )
         from agent.core.workflows.activation import (  # noqa: PLC0415
             append_workflow_turn_reminder,
         )
@@ -392,18 +406,31 @@ class AgentLoop:
                             },
                         )
                         for pending in round_pending:
-                            llm_messages.append(pending.message)
-                            if controller.revalidate_output:
-                                content = pending.message.content
-                                yield Message(
-                                    message_id=make_message_id(),
-                                    role="user",
-                                    content=content if isinstance(content, str) else "",
-                                    parts=tuple(content)
-                                    if isinstance(content, list)
-                                    else None,
-                                    metadata={"pending_id": pending.pending_id},
+                            inherited = pending.message.context_metadata.get(
+                                "inherited_approval_context"
+                            )
+                            if isinstance(inherited, Mapping):
+                                active_hook_ctx = replace(
+                                    active_hook_ctx,
+                                    metadata={
+                                        **dict(active_hook_ctx.metadata),
+                                        **dict(inherited),
+                                    },
                                 )
+                            llm_messages.append(pending.message)
+                            content = pending.message.content
+                            yield Message(
+                                message_id=make_message_id(),
+                                role="user",
+                                content=content if isinstance(content, str) else "",
+                                parts=tuple(content)
+                                if isinstance(content, list)
+                                else None,
+                                metadata={
+                                    **dict(pending.message.context_metadata),
+                                    "pending_id": pending.pending_id,
+                                },
+                            )
                         if round_pending:
                             # bugfix-426-M4 决策6: signal the consume point so the gateway
                             # can roll the IM bubble. Applies to EVERY steer (mid-loop
@@ -452,7 +479,15 @@ class AgentLoop:
 
                     messages_for_llm = [
                         LLMMessage(role="system", content=rendered_system_prompt),
-                        *llm_messages,
+                        *(
+                            render_source_message(
+                                message,
+                                active_hook_ctx.metadata.get(
+                                    "_source_instructions", {}
+                                ),
+                            )
+                            for message in llm_messages
+                        ),
                     ]
                     stream = active_client.generate(
                         LLMGenerateRequest(
@@ -586,6 +621,9 @@ class AgentLoop:
                                         parent_message_id=last_assistant_msg_id,
                                         group_id=last_assistant_msg_id,
                                         session_id=state.session_id,
+                                        live_context=active_hook_ctx.metadata.get(
+                                            "_live_tool_context"
+                                        ),
                                     )
                                     last_parent_id = tool_msg.message_id
                                     yield tool_msg
@@ -619,6 +657,9 @@ class AgentLoop:
                                 parent_message_id=last_assistant_msg_id,
                                 group_id=last_assistant_msg_id,
                                 session_id=state.session_id,
+                                live_context=active_hook_ctx.metadata.get(
+                                    "_live_tool_context"
+                                ),
                             )
                             last_parent_id = tool_msg.message_id
                             yield tool_msg
@@ -692,6 +733,7 @@ class AgentLoop:
                                 "Consider the new messages and reply again.\n</system-reminder>"
                             ),
                             metadata={
+                                "context_origin": "system",
                                 "output_status": {
                                     "candidate_id": candidate_id,
                                     "message_ids": message_ids,
@@ -713,7 +755,13 @@ class AgentLoop:
                         # needs a reminder so the model can reconsider it.
                         if not committed:
                             llm_messages.append(
-                                LLMMessage(role="user", content=status_message.content)
+                                LLMMessage(
+                                    role="user",
+                                    content=status_message.content,
+                                    context_metadata=classifier_metadata(
+                                        status_message.metadata
+                                    ),
+                                )
                             )
                         yield status_message
 
@@ -1005,7 +1053,7 @@ class AgentLoop:
 
     def _serialize_tool_result(
         self, result: ToolResult, *, session_id: str
-    ) -> tuple[Any, str]:
+    ) -> tuple[Any, str, dict[str, Any]]:
         """Serialize tool result via tool adapter, then apply budget compression."""
 
         serialization_status = "succeeded"
@@ -1020,6 +1068,19 @@ class AgentLoop:
         else:
             raw_content = _serialize_tool_result_content(result)
 
+        context_metadata: dict[str, Any] = {}
+        projector = getattr(tool, "to_auto_classifier_result", None)
+        if result.error is None and callable(projector):
+            try:
+                projected = projector(raw_content)
+                if projected is not None and not isinstance(projected, str):
+                    raise ValueError("host context projection must return text or None")
+                context_metadata["host_classifier_context"] = projected
+            except Exception as exc:
+                context_metadata["host_projection_error"] = (
+                    f"{type(exc).__name__}: {exc}"
+                )
+
         compressor = self._current_tool_result_compressor()
         if compressor is not None and result.call_id:
             max_size = getattr(
@@ -1033,7 +1094,7 @@ class AgentLoop:
                 max_size_chars=max_size,
             )
 
-        return copy.deepcopy(raw_content), serialization_status
+        return copy.deepcopy(raw_content), serialization_status, context_metadata
 
     def _build_llm_tool_result_message(self, message: Message) -> LLMMessage:
         """Build an LLMMessage for appending to the live prompt."""
@@ -1043,6 +1104,8 @@ class AgentLoop:
             content=message.content,
             tool_call_id=message.tool_call_id,
             is_error=message.metadata.get("tool_error") is not None,
+            message_id=message.message_id,
+            context_metadata=classifier_metadata(message.metadata),
         )
 
     def _build_tool_result_message(
@@ -1052,14 +1115,44 @@ class AgentLoop:
         parent_message_id: str | None = None,
         group_id: str | None = None,
         session_id: str,
+        live_context: Any = None,
     ) -> Message:
         """Build a Message for yielding a completed tool result."""
 
-        content, serialization_status = self._serialize_tool_result(
+        content, serialization_status, context_metadata = self._serialize_tool_result(
             result, session_id=session_id
         )
+        message_id = make_message_id()
+        outcome = {
+            "status": result.reason_code
+            or ("error" if result.error is not None else "ok")
+        }
+        if result.approval:
+            outcome["approval"] = result.approval
+        if result.permission_context:
+            outcome.update(result.permission_context)
+        # Delivery receipts describe actual tool outcome, never new human intent.
+        if result.name == "send_message" and isinstance(result.output, Mapping):
+            outcome.update(
+                {
+                    key: result.output[key]
+                    for key in (
+                        "ok",
+                        "status",
+                        "accepted",
+                        "held_for_revalidation",
+                        "message_id",
+                        "error",
+                    )
+                    if key in result.output
+                }
+            )
+        context_metadata["tool_outcome"] = outcome
+        host_context = context_metadata.get("host_classifier_context")
+        if host_context and live_context is not None:
+            live_context.register(message_id, result.call_id, host_context)
         return Message(
-            message_id=make_message_id(),
+            message_id=message_id,
             parent_message_id=parent_message_id,
             group_id=group_id,
             role="tool",
@@ -1067,6 +1160,7 @@ class AgentLoop:
             tool_call_id=result.call_id,
             metadata={
                 "tool_phase": "result",
+                **context_metadata,
                 "serialization_status": serialization_status,
                 "tool_call_id": result.call_id,
                 "tool_name": result.name,
@@ -1226,6 +1320,7 @@ class AgentLoop:
             content=summary,
             metadata={
                 "is_compact_summary": True,
+                "context_origin": "summary",
                 "compact_reason": plan.reason.value,
                 "restored_files": restored_files,
             },
@@ -1272,10 +1367,20 @@ class AgentLoop:
             failure_tracker.reset()
 
         # Build new llm_messages before the post-compact model retry/continuation.
-        llm_messages[:] = [LLMMessage(role="user", content=summary)]
+        llm_messages[:] = [
+            LLMMessage(
+                role="user",
+                content=summary,
+                context_metadata=classifier_metadata(summary_msg.metadata),
+            )
+        ]
         if reinjection_msg is not None:
             llm_messages.append(
-                LLMMessage(role=reinjection_msg.role, content=reinjection_msg.content)
+                LLMMessage(
+                    role=reinjection_msg.role,
+                    content=reinjection_msg.content,
+                    context_metadata={"context_origin": "system"},
+                )
             )
 
         # Notify runtime to invalidate cached memory snapshot so the next turn
@@ -1362,8 +1467,8 @@ def _append_llm_message(messages: list[LLMMessage], msg: LLMMessage) -> None:
         # as the tool_calls).
         merged_reasoning = prev.reasoning_content or msg.reasoning_content
         merged_signature = prev.reasoning_signature or msg.reasoning_signature
-        messages[-1] = LLMMessage(
-            role="assistant",
+        messages[-1] = replace(
+            prev,
             content=merged_content,
             tool_calls=tuple(merged_tool_calls),
             reasoning_content=merged_reasoning,
