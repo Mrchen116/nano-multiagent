@@ -291,3 +291,116 @@ b218d31e4 修复测试启动清理后，用同样公开 HTTP 消息形态独立�
 本轮没有 out-of-unit major/blocking，未新建 GitHub issue。上层文档同步项继承 R1：产品行为 delta 尚待整体通过后由 orchestrator 归并，reviewer 未改写 canonical。
 
 本轮 Global 与 manual 两个 supervisor 均正常 exit 0、执行各自 e2e-down；正常重启的 Gateway PTY 也 exit 0。独立核对 PID 90082、7237、97365、79384 均不存在；IM 62041/62997、临时 HTTP 59769、无服务审批 62495 的 TCP connect_ex 全为61。本轮保留证据文件，没有清除先前证据、生产文件或他人工作。仅本 acceptance.md 可被提交。
+
+---
+
+# Round 3 — 2026-09-12
+
+- Revalidation mode: **targeted**；复用同一 reviewer 上下文，关闭 I2、R5 多次拒绝证据缺口，并记录 I3 disposition。
+- Validated at: `79c83080a50479776838ac4d62a1a2d8aa185e76`（产品修复 `10bf12c44`，该 HEAD 另含 R1/R2 报告）。
+- Executed base: `2fd84b9ac2b1949947ac899b3de7fea1488731ef`
+- Fix delta: R2 产品树 `b218d31e4` → `10bf12c44`，orchestrator 提供的改动范围为当前 Write 审批描述补充已观察的目标状态；不改变策略、自动来源或产品交互。
+- Verdict: **pass**
+- Highest Required Action: **pass**
+- Open in-unit issues: **0 blocking / 0 major / 0 minor**。
+- Scope-out observation: I3，已由 orchestrator 单独记录 [#293](https://github.com/Mrchen116/nano-multiagent/issues/293)。
+
+本轮只执行两个组合：原 Cron 失败输入的一次真实复验，以及同一 Global Agent 多次有效拒绝后继续独立工作。R1/R2 的有效正常任务、聊天确认、child、compact、正常重启和人工 allow/deny 结论继续保留；没有重跑固定 3/3 样本、人工故障矩阵或数值计数矩阵。
+
+## R3 Service Takeover
+
+两栈均由 reviewer 新启动的真实 PTY supervisor 持有，并经对应 e2e-down 收尾；没有复用旧 PID、修改产品/配置或重启代理。
+
+- Cron：指定 unit worktree，正常 E2E 启动，IM `50136`，Gateway PID `19723`，owner `u_yev39fxd`。通过公开 Agent API 以 `confirm_existing_workspace=true` 使用本单元已有的临时 `review552r2` workspace，保留原任务绝对路径和文件状态；原 cron-review.txt 确实不存在。
+- 拒绝组合：专用 runtime `/var/folders/mf/fxm1x6xs7pbf34h6rnmvjz1c0000gn/T/feat552-global-denials-ctaw9wt7`，IM `50152`，Gateway PID `19759`，owner `u_hvpsyny4`。Agent `feat552-denials` 的专用配置由 orchestrator 预备，reviewer 只读核对：Auto enabled、skip=false、always_allow_tools=[]、deny_limit=3、total_deny_limit=20、fallback=deny；hard_deny 使用 `$defaults` 加入本测试 workspace 禁止 `approval-denied-` 文件名前缀写入的规则。配置仍为真实 Sol 主模型/Terra 审批，不提供假的分类返回。
+- 本轮未改前端，不重复视觉验收；R2 资源指纹与无视觉 reference 的结论保留。
+
+## Targeted Journeys and Issue Closure
+
+### I2 closure：原 Cron 输入的一次实际调度成功
+
+真人消息 `f4c9cd1366d44baf9af5f91e0dc5a779` 送往真实聊天 `c_qvk79tg9`。从 R2 保存的原输入逐字复用，**仅将已过期的 at 时间替换为未来的 `2026-09-12T05:07:26.063005+00:00`**；校验替换回原时间后全文与原输入相同。名称、路径、内容、动作措辞和原输入中的独立 child 请求均未改。保留 child 子段是为了不借删改上下文改善 Cron 样本，不将它另算新的验收分母。
+
+- Global 主会话 `sess_bb58baa39a860209` 成功注册 job `c66b561d7d9a432080b9d14fef7d18e3`，明确 at、deleteAfterRun=true。到点前独立文件检查仍为不存在。
+- 实际调度 session `sess_ae7d2ba5a896cb0a` 于 `05:07:35.272508Z` 开始，`05:07:49.011408Z` 完成，origin=cron，trigger=scheduled。
+- 公开 work 中的 write 为 completed，结果 19 字节；目标精确为 `FEAT552_REVIEW_CRON`。最终实际文件和工具结果一致，模型报告成功；jobs 列表已清空、主工作 idle。以实际 write/文件证明完成，不以仅注册、运行 completed 或任务自动删除代替。
+- 一次复验即完成；未在同一修复上重试挑选成功。R2 的原始误拒继续保留。这是一条失败路径的关闭证据，不是分类准确率或对改动的统计因果估计；真实主模型生成的 Cron payload 不是固定回放。
+
+证据：`/tmp/feat552-independent-review-r3/` 中完整真人输入、`work-before-due.json`、`cron-turns.json`、`final-work.json`、`final-file.json`、`final-jobs.json`。
+
+### R5 多次拒绝 closure：三次真实拒绝后仍可处理另一聊天
+
+同一 Global 主会话 `sess_f31ffc32b30586d1`，同一真人聊天 `c_oho6oazg`，分别要求只尝试一次独立目标，并在拒绝后停止该项、不换工具或改规则。
+
+| 目标 / 真人消息 | 实际 write | 可观察结论 |
+|---|---|---|
+| approval-denied-1.txt / `894761a5f1544ddcaf5e536e4658fa2a` | `call_WfVJswuRYy62iL0G4PPDFCSd`，failed，明确策略禁止此前缀写入 | 回复 `8131768ebbfd424aa57b2b198330fa0d` 说明未创建并停止；无 permission pending |
+| approval-denied-2.txt / `a02e741e82854c46851d40040b408f2d` | `call_LcHkCPiNPKzUtSmbCF5sORui`，failed，同一策略原因 | 回复 `6f9aeb7b5d1746edb29459ebfa50723c` 说明本项拒绝和结束；无 permission pending |
+| approval-denied-3.txt / `9d1c3d1c1914447f8fb3afc6db9e63ce` | `call_f4xS68MMxhKwhcwECY5ooqMC`，failed，无条件禁止该前缀写入 | 回复 `22e75e17608144a992e9dc2795ef67e2` 说明本项拒绝和结束；无 permission pending |
+
+三个目标实际均不存在；这里确实提出了三个 write 并得到有效策略拒绝，不是模型事先决定不提议，也不是服务无结论。随后在另一聊天 `c_pztu3tyr` 输入 `91124e87c38d42b5a1d7aa13e4dbb685` 请求独立计算，实际回复 `e1d2f822b6ee4e6b9bea0a8531250fd6`：“31 × 17 = 527。”同一主会话最终 idle，control_items=[]，没有进入人工等待或因多次拒绝而执行受限文件。
+
+本组合验证的是用户连续遭遇多次真实拒绝时的产品交互。各真人请求之间包含 Inbox 和正常回复；**不声称内部 consecutive 计数已达到3，也不替代 verifier 的默认3/20、成功打断和 child 独立计数检查**。数值阈值属于已固定的内部契约验证，不重复造一套大矩阵。
+
+证据：`/tmp/feat552-independent-review-denials/` 中逐次输入、工作/消息快照、`actual-write-results.json` 和 `final-files.json`。
+
+### I3 disposition
+
+保留 R2 “在 B 请求的定时任务结束通知进入 A”的事实。Orchestrator 完成基线与 current 契约核对后确认其属于既有 owner-direct 定时投递限制，相关实现与 origin/main 相同；reviewer 没有自行读实现归因。**未证明 `/compact` 与目标选择存在因果**，R2 仅记录其时间顺序。该项移为范围外已知限制，由 orchestrator 单独记录 [#293](https://github.com/Mrchen116/nano-multiagent/issues/293)，不扩大本权限迁移单元。没有把其旧行为补写为 feat-552 已修复。
+
+## Scenario Coverage — Final
+
+期望来源仍为 [spec.md](spec.md) 同名 Scenario。未重跑行明确继承前轮真实证据，不作为 R3 新执行计数。
+
+### Requirement: R1 已授权的常见任务无需重复确认
+
+| Scenario | 证据 | 结果 |
+|---|---|---|
+| 日常本地开发 | retained J1/J2；新 Write 描述未改变既有交互，实际新 Cron 写入亦成功 | pass |
+| 明确要求一次 Nano 定时任务 | R3 I2 closure，真实到点 write 与目标文件 | pass |
+| 用户限制仍生效 | retained J3-R2/J4-R2；R3 固定 workspace 限制实际拦截 | pass |
+
+### Requirement: R2 全局模式拒绝后由主 Agent 处理
+
+| Scenario | 证据 | 结果 |
+|---|---|---|
+| 替代、确认和停止 | R3 三次真实拒绝均得到可解释原因，普通回复并停止该项，无弹窗；I2 的错误解释已随实际 Cron 成功关闭 | pass |
+| 需要确认时问题可理解 | retained J3-R2 原始与重启后的具体问题 | pass |
+
+### Requirement: R3 用户回答作用于对应操作
+
+| Scenario | 证据 | 结果 |
+|---|---|---|
+| 原问题后的简短同意 | retained J3-R2 | pass |
+| 无回答、拒绝或不同事项的回答 | retained J3-R2 | pass |
+| 引用或 Agent 转述同意 | retained J3-R2/J4-R2 的实际引用读取和 child 结果 | pass |
+| 回复只同意部分内容 | retained J3-R2，仅批准 B 时仅 B 执行 | pass |
+
+### Requirement: R4 等待确认不阻塞独立工作
+
+| Scenario | 证据 | 结果 |
+|---|---|---|
+| 其他聊天有工作 | retained J3-R2；R3 多次拒绝后另一聊天得到527 | pass |
+| 空闲后收到回复 | retained J3-R2 | pass |
+| 重启或压缩后回复 | retained J3-R2，两种控制均实际执行 | pass |
+
+### Requirement: R5 故障原因与产品交互明确
+
+| Scenario | 证据 | 结果 |
+|---|---|---|
+| 审批服务失败 | retained J5-R2及真实 main/child/Heartbeat 原件复核，范围限制继承 | pass |
+| 多次拒绝 | R3 同一 Global 三次有效拒绝、无 pending、另一个聊天实际完成 | pass |
+| 其他入口的交互 | retained J5-R2 单聊天 allow_once/deny 与原生 CLI J2；CLI 人工细节仍由 verifier 负责 | pass |
+
+### Requirement: R6 迁移在所有 Auto 入口生效
+
+| Scenario | 证据 | 结果 |
+|---|---|---|
+| 主任务与子任务 | retained J3-R2/J4-R2及先前真实 follow-up；R3保留原输入的child子段未另计数 | pass |
+| 正常沟通与既有配置 | retained J1/J2/J3-R2/J5-R2；R3同一路径 workspace 规则生效且可继续正常回复；I3已范围外单列 | pass |
+
+## Final Cleanup and Documentation Disposition
+
+R3 两个 supervisor 均正常 exit 0，分别执行 e2e-down；独立 ps 确认 Gateway PID19723/19759均不存在，两个 IM 端口50136/50152的TCP connect_ex均为61。R1/R2的清理证据已在前轮保留；本次没有残留测试服务，也没有删除他人内容或生产数据。仅提交本报告。
+
+上层文档同步检查继承前轮：`SPEC.md`、`AGENTS.md`/`CLAUDE.md` 和文档规范无新增变更需要；kernel/gateway/CLI 的目标 delta 正由 orchestrator 收尾归并，最终文档一致性由对应门禁确认；IM没有本单元 spec delta。范围外Cron投递问题保留在#293，不通过改写当前契约隐去。
