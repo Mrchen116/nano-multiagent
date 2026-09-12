@@ -68,5 +68,6 @@ CC 研究记录于 2026-09-11（Asia/Shanghai）。下方 CC 取证不是 Nano �
 - [全局聊天确认、Cron、边界、压缩与重启](global-real-journeys.md)
 - [真实 child、follow-up 与授权范围](child-real-journey.md)
 - [外部代理阻塞及已授权修复](proxy-strict-blocker.md)
+- [同一真实 Cron 输入的旧/新审批比较](old-new-classifier-comparison.md)
 
 各报告区分确定性契约测试、真实 SDK 接线测试和真实模型行为；[实施记录](../implementation.md)维护当前进度，不把部分旅程升级为最终验收结论。

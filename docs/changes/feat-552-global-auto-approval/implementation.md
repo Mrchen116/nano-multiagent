@@ -45,5 +45,6 @@ M1/M2 的产品实现已落入本 worktree，实际旅程已取得下列证据�
 - [T2–T5 全局真实旅程](evidence/global-real-journeys.md)：跨聊天确认 3/3、明确一次性 Cron 创建和实际 write 3/3；无关同意、引用伪造、拒绝和部分批准组合通过；真实 compact 及同数据 Gateway 重启后可继续。结构化证据明确不同 Web owner 的额外消息被 ingress 404 拒绝，并未声称模型实际判读过它。
 - [T8 真实 child/follow-up](evidence/child-real-journey.md)完成两次经 Terra 审批的写入，原真人范围及 Agent 来源保留；伪造批准文件未扩大范围，无关聊天零消息。未发生的越权工具提议没有被写成 gate deny。
 - 首次 T3 的外部代理 strict 问题已在用户授权后修复并重启本机代理，外部提交 `016f32e`；持久回归先 Red，转换与路由 56 项通过，实际 `/v1/messages` 转换恢复可选参数语义。见[完整证据](evidence/proxy-strict-blocker.md)。
+- 对同一真实 Cron 用户原话、当前动作和此前历史完成[旧/新审批 A/B](evidence/old-new-classifier-comparison.md)：每分支一次，两者均 S1 allow。没有为得到拒绝反复试探，也不据此声称误拒率下降。
 
-当前状态：共享实现和聚焦代码审查已提交到 `codex/feat-552`；外部阻塞已解除，执行者真实旅程已完成，进入独立产品验收和实现对账。Heartbeat 独立测试栈及 CLI/单聊天临时服务已停止；主 unit 隔离栈由集成者管理，验收接管前及最终交付前清理。尚未归档或创建 PR，未合并、未部署 Nano。
+当前状态：共享实现和聚焦代码审查已提交到 `codex/feat-552`；外部阻塞已解除，执行者真实旅程已完成，进入独立产品验收和实现对账。Heartbeat 独立测试栈、CLI/单聊天临时服务及集成者主 unit 隔离 IM/Gateway 均已停止，后续 reviewer 从已固定的候选版本重新启动。尚未归档或创建 PR，未合并、未部署 Nano。
