@@ -62,3 +62,5 @@ M1/M2 的产品实现已落入本 worktree，实际旅程已取得下列证据�
 修复在现有 Write permission check 中核对实际 cwd 下的目标，并以既有 passthrough reason 附到当前动作。原参数、CC policy、scheduled 模板、阶段规则和权限决定保持不变，没有新增 DTO、工具方法或免审路径。现有 gate dispatch 以真实 WriteTool 覆盖存在/不存在及相对/绝对路径，4 项先 Red，相关 117 项 Green；分类器仍可 deny，新建和已有目标均不会提前写入。
 
 一次有界真实请求复验保留原失败的 scheduled 原文、动作、路径、内容和 policy，仅加入实际工具检查的目标不存在事实：Terra S1 返回 `<block>no</block>`。未执行工具，不能代替真实 Cron 入口 closure。记录位于本机代理 `2026-09-12_13-00-40_247_feat552-write-state-fixed-replay`，响应 ID `msg_c9a1b7141a274a6bab9dfe135f100e4c`。临时客户端最初把 SSE 当 JSON 读取而报解析错误；实际模型响应由代理原始记录核对，没有重试挑样本。
+
+独立验收同时发现 Cron 无法遵循“只回发起聊天”的结果目标要求。已核对执行/投递文件与 `origin/main=2fd84b9ac` 完全一致，当前路径使用 owner-direct 目标，非本 unit 引入的权限回归。按范围边界另记 [issue #293](https://github.com/Mrchen116/nano-multiagent/issues/293)，保留同 owner 两聊天的观察，不将期间 compact 与目标选择推断为因果。
