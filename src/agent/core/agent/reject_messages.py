@@ -117,7 +117,8 @@ def build_reject_message(
     """
     context = permission_context or {}
     source = context.get("category") or context.get("decision_source")
-    if source in {
+    # A later human decision supersedes the fault that opened the approval UI.
+    if approval != "user_deny" and source in {
         "classifier_unavailable",
         "parsing_error",
         "prompt_too_long",

@@ -1,5 +1,7 @@
 """Semantic tool-rejection feedback tests."""
 
+import pytest
+
 from agent.core.agent.reject_messages import (
     DENIAL_WORKAROUND_GUIDANCE,
     REJECT_MESSAGE,
@@ -35,19 +37,36 @@ def test_subagent_rejection_takes_precedence() -> None:
     )
 
 
-def test_user_rejection_preserves_optional_reason() -> None:
+@pytest.mark.parametrize(
+    "fault", [None, "classifier_unavailable", "parsing_error", "prompt_too_long"]
+)
+def test_user_rejection_preserves_optional_reason(fault) -> None:
+    context = {"category": fault} if fault else None
     assert (
         build_reject_message(
-            approval="user_deny", reason="先别动这个文件", is_subagent=False
+            approval="user_deny",
+            reason="先别动这个文件",
+            is_subagent=False,
+            permission_context=context,
         )
         == REJECT_MESSAGE_WITH_REASON_PREFIX + "先别动这个文件"
     )
     assert (
-        build_reject_message(approval="user_deny", reason="", is_subagent=False)
+        build_reject_message(
+            approval="user_deny",
+            reason="",
+            is_subagent=False,
+            permission_context=context,
+        )
         == REJECT_MESSAGE
     )
     assert (
-        build_reject_message(approval="user_deny", reason=None, is_subagent=False)
+        build_reject_message(
+            approval="user_deny",
+            reason=None,
+            is_subagent=False,
+            permission_context=context,
+        )
         == REJECT_MESSAGE
     )
 

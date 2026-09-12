@@ -18,6 +18,7 @@ from typing import Any, Mapping
 
 _log = logging.getLogger("agent.platform.hooks.auto_mode_gate")
 
+from agent.core.errors import ModelError
 from agent.core.runs.origin import RunOrigin
 from agent.platform.hooks.builtins._auto_mode_transcript import (
     build_transcript_entries,
@@ -197,6 +198,11 @@ async def _classify_action(
                 )
         except Exception as exc:
             error_text = str(exc).lower()
+            if isinstance(exc, ModelError):
+                error_text += " " + " ".join(
+                    str(exc.details.get(key) or "").lower()
+                    for key in ("provider_code", "provider_type")
+                )
             if any(
                 marker in error_text
                 for marker in (

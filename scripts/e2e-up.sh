@@ -241,6 +241,8 @@ rm -f "$WT_ROOT/session_bindings.sqlite3" "$WT_ROOT/session_bindings.sqlite3-wal
 rm -f "$WT_ROOT/group_context_buffer.sqlite3" "$WT_ROOT/group_context_buffer.sqlite3-wal" "$WT_ROOT/group_context_buffer.sqlite3-shm"
 rm -f "$WT_ROOT/relay_dedup.sqlite3" "$WT_ROOT/relay_dedup.sqlite3-wal" "$WT_ROOT/relay_dedup.sqlite3-shm"
 rm -f "$WT_ROOT/external_shadow_sagas.sqlite3" "$WT_ROOT/external_shadow_sagas.sqlite3-wal" "$WT_ROOT/external_shadow_sagas.sqlite3-shm"
+# A previous Global journal names agents absent from this fresh IM database.
+rm -f "$WT_ROOT/global_agent.sqlite3" "$WT_ROOT/global_agent.sqlite3-wal" "$WT_ROOT/global_agent.sqlite3-shm"
 # The copied config gets a fresh node id on every run, so its credential key and
 # encrypted manifest must be fresh as one isolation pair as well.
 rm -f "$WT_ROOT/channel-credentials-v1.pem"
