@@ -1,6 +1,6 @@
 # Verification Report: feat-552
 
-实现核验最新结论见 [Round 2](#round-2)：W1/W2 已关闭，verdict=pass；契约收尾见 [Corrected Delta Reconciliation](#corrected-delta-reconciliation)，outcome=aligned。以下 Round 1 的原始发现与证据保留。
+实现核验最新结论见 [Round 3](#round-3)：Write 目标状态修复的接线通过，原 W1/W2 保持关闭，verdict=pass；契约收尾见 [Corrected Delta Reconciliation](#corrected-delta-reconciliation)，outcome=aligned。产品 reviewer 的真实 Cron closure 独立进行。以下原始发现与证据保留。
 
 > Validation snapshot: `2fd84b9ac2b1949947ac899b3de7fea1488731ef → 21537b9801732169efc915ca442a5647ecfbd8b9`
 > Round 1 · 2026-09-12 · 独立实现对账；源码、测试、配置只读。
@@ -175,9 +175,11 @@ Mode: corrected-delta
 
 Validated at: `d4a83f34769e289bc234176bbf9357cfd917b56f`
 
+Effective through: `79c83080a50479776838ac4d62a1a2d8aa185e76`（Round 3 对 Write 目标状态增量的有界核对）
+
 Executed base: `2fd84b9ac2b1949947ac899b3de7fea1488731ef`
 
-六份 delta 共 **16 条 Requirement、47 个 Scenario**，逐项核对完成。`kernel/runs.md` 的三项 MODIFIED 现在是完整条目：原 12 个 Scenario 均保留，其中投影来源两项及分类故障一项按已批准设计更新；另加全局返回场景。无 REMOVED Requirement。本轮源码与已通过 Round 2 的 `b218d31e4` 完全相同，之后只有实施、review、verification 和 runs delta 文档变化。
+六份 delta 共 **16 条 Requirement、47 个 Scenario**，逐项核对完成。`kernel/runs.md` 的三项 MODIFIED 现在是完整条目：原 12 个 Scenario 均保留，其中投影来源两项及分类故障一项按已批准设计更新；另加全局返回场景。无 REMOVED Requirement。首次对账快照 `d4a83f347` 的源码与已通过 Round 2 的 `b218d31e4` 完全相同；后续 Write 状态增量及结论有效范围见 Round 3。
 
 下表按 Requirement 合并列出其全部 Scenario，路径以本 unit 的 `specs/` 为根；实现与测试定位沿用并复查 Round 1/2 的最终代码。测试列是已有永久覆盖及对应实际断言，不表示本轮重跑；真实模型结果仍受上文 Evidence limits 限制。
 
@@ -208,6 +210,55 @@ None。按最终 unit diff 逐组核对：权限结果与原人工否决、Bash 
 
 未发现与 unit 首文档 R1–R6 或 design D1–D8 冲突。普通 full + targeted-closure 结论继续有效；本结论只准许将这六份最终契约增量交给 orchestrator 后续归并，不替代仍在进行的独立产品旅程验收。
 
-检查状态：`git diff --check` 通过；`./scripts/docs-check` 仅报告已有 `implementation.md:38` 的 `acceptance.md` 尚未是 tracked 文件。该产品验收报告仍待独立 reviewer 完成，未将本次文档完整性检查记为通过。
+首次对账时 `git diff --check` 通过，`./scripts/docs-check` 因 `implementation.md:38` 的 `acceptance.md` 尚未 tracked 而未通过。至 Round 3 快照，reviewer 已提交原始验收报告，文档检查恢复通过：244 maintained Markdown sources / 72 required routes。
+
+Round 3 确认新增的目标存在性观察属于 `kernel/runs.md:25` 的当前工具动作描述细化，符合 design D2 新增说明；只附于当前动作，不进入历史 outcome 或宿主授权来源，不改变无人值守路由。六份 delta 字节均未修改，无新增 SDK 或产品配置入口，原 aligned 结论继续有效。
 
 Outcome: **aligned**
+
+# Round 3
+
+## Summary
+
+Mode: targeted-closure
+
+Review round: 3
+
+Prior verification: 本文件 Round 2 和 Corrected Delta Reconciliation
+
+Validated at: `79c83080a50479776838ac4d62a1a2d8aa185e76`
+
+Effective through: `79c83080a50479776838ac4d62a1a2d8aa185e76`
+
+Executed base: `2fd84b9ac2b1949947ac899b3de7fea1488731ef`
+
+Delta range: `7c9f5ee37bfdec983445f55610f2b8195d32fc65..79c83080a50479776838ac4d62a1a2d8aa185e76`
+
+Focus issues: 产品 acceptance Round 2 I2 的实现修复——审批缺少当前 Write 目标存在性事实
+
+requires_full_verification: false
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 目标存在性观察及当前动作传递已实现；原 milestone 覆盖结论保留 |
+| Correctness | I2 的事实接线修复通过，新增 4 项参数化回归及原 gate/写入约束通过；真实 Cron 产品结果由 reviewer closure 判定 |
+| Coherence | 符合 R1、R5 和 D2 的已记录细化；原两阶段、来源、路由与六份 delta 结论继续有效 |
+
+Verdict: **pass**。0 CRITICAL / 0 WARNING / 0 SUGGESTION。
+
+## Closure evidence
+
+修复提交 `10bf12c446929aa02b9a22a5c01f26a7b1ae5f6b` 只修改 Write、共享 gate 及现有 dispatch 测试，另补 design D2 和 implementation 说明；随后 `79c83080a` 仅加入产品验收原始报告。独立 detached 签出并核对完整增量，未修改源码、测试或配置，未使用模型请求或生产服务。
+
+| 核对项 | 实现与证据 | 结果 |
+|---|---|---|
+| 实际 cwd 与目标状态 | `src/agent/platform/tools/builtins/write.py:143` 优先读取 ToolContext cwd / HookContext metadata cwd；`src/agent/core/agent/runtime.py:481` 将真实 session workspace 放入该 metadata。`:162` 的 expanduser、cwd 和 resolve 与既有 `ToolSafety.normalize_path` 语义一致，观察存在性后仍返回 passthrough。 | 相对/绝对路径、存在/不存在四种组合都使用正确的实际目标；没有写入副作用。 |
+| 状态进入当前动作且不变成许可 | `src/agent/platform/hooks/builtins/auto_mode_gate.py:584` 在已验证的动作投影后附上工具检查原因，再用原 `:303` 生成以当前 tool_use 结尾的 transcript；没有增添 history outcome、host_context 或 human 消息。 | `tests/unit/test_auto_mode_gate_dispatch.py:270` 四项均让真实 WriteTool 产生状态，并断言 S1/S2 均收到该状态、仍可 block、目标内容/不存在状态不变。 |
+| 保留原工具门禁与实际写入约束 | 危险路径仍先返回 safety_check ask；共享 gate 的 allow/deny/ask 路由没有改动。`write.py:172` 后的实际 run 与 Read-Before-Write 代码没有改动。 | 原 dispatch 的直接允许/明确拒绝/必须人工/缺投影回归通过；`tests/unit/test_tools_write_edit.py:179` 起验证未读/陈旧文件拒绝、新文件创建、读后覆盖与后续自写。 |
+| 原结论继续有效 | 本轮 diff 未修改 CC policy/scheduled 资产、两阶段参数、计数、身份来源、SDK/child 或入口优先级。目标状态说明明确限制为 permission-check time，不承诺审批后文件状态不变。 | 与 R1 已授权新建任务和 D2 动作描述一致；六份 delta 不需要为了该内部事实接线新增重复条目，corrected-delta 保持 aligned。 |
+
+独立执行最窄相关检查：`tests/unit/test_auto_mode_gate_dispatch.py` **11 passed**；`tests/unit/test_tools_write_edit.py` **22 passed**，合计 **33 passed**。未重跑此前 117、237 或全量测试。`./scripts/docs-check`、`git diff --check` 通过。
+
+本报告关闭的是 I2 所需的目标事实传递与约束保持核验；不把脚本分类器返回 block 的永久测试记作真实 Cron 已成功，也不把执行者的一次 Terra 请求回放替代 reviewer 的原失败入口 closure。acceptance 的最终产品 verdict 仍由 reviewer 更新。未扩展到其独立记录的 I3 通知路由旁支。
+
+All checks passed. Ready for PR.
