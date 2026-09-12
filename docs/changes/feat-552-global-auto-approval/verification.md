@@ -1,6 +1,6 @@
 # Verification Report: feat-552
 
-最新有效结论见 [Round 2](#round-2)：W1/W2 已关闭，verdict=pass；以下 Round 1 的原始发现与证据保留。
+实现核验最新结论见 [Round 2](#round-2)：W1/W2 已关闭，verdict=pass；契约收尾见 [Corrected Delta Reconciliation](#corrected-delta-reconciliation)，outcome=aligned。以下 Round 1 的原始发现与证据保留。
 
 > Validation snapshot: `2fd84b9ac2b1949947ac899b3de7fea1488731ef → 21537b9801732169efc915ca442a5647ecfbd8b9`
 > Round 1 · 2026-09-12 · 独立实现对账；源码、测试、配置只读。
@@ -168,3 +168,46 @@ Verdict: **pass**。0 CRITICAL / 0 WARNING / 0 SUGGESTION。
 `git diff --check` 通过。当前存活问题为空；收尾 corrected-delta 仍由后续单独对账处理。
 
 All checks passed. Ready for PR.
+
+## Corrected Delta Reconciliation
+
+Mode: corrected-delta
+
+Validated at: `d4a83f34769e289bc234176bbf9357cfd917b56f`
+
+Executed base: `2fd84b9ac2b1949947ac899b3de7fea1488731ef`
+
+六份 delta 共 **16 条 Requirement、47 个 Scenario**，逐项核对完成。`kernel/runs.md` 的三项 MODIFIED 现在是完整条目：原 12 个 Scenario 均保留，其中投影来源两项及分类故障一项按已批准设计更新；另加全局返回场景。无 REMOVED Requirement。本轮源码与已通过 Round 2 的 `b218d31e4` 完全相同，之后只有实施、review、verification 和 runs delta 文档变化。
+
+下表按 Requirement 合并列出其全部 Scenario，路径以本 unit 的 `specs/` 为根；实现与测试定位沿用并复查 Round 1/2 的最终代码。测试列是已有永久覆盖及对应实际断言，不表示本轮重跑；真实模型结果仍受上文 Evidence limits 限制。
+
+| Delta item | Implementation evidence | Test evidence | Outcome |
+|---|---|---|---|
+| `kernel/runs.md:7` 工具使用权限回调：采纳 allow/deny、interrupt 解挂、全局返回（3） | `src/agent/core/agent/runtime.py:1639` 回调与 Broker 竞争；`src/agent/sdk/kernel.py:2193` 中断取消；`src/agent/platform/hooks/builtins/auto_mode_gate.py:436`/`:508` 按实际入口返回 | `tests/unit/test_permission_requester_cancel.py:27`/`:165`；`tests/unit/test_auto_mode_gate_hook.py:611`/`:665`；`tests/unit/test_auto_mode_interaction.py:26`/`:62`，校验无需人工调用且不锁住后续动作 | aligned |
+| `kernel/runs.md:25` 稳定工具动作描述：缺失 fail closed、动态通用描述、历史不改写、只读 skill 免审、显式成功投影、普通/失败结果不升级（6） | `auto_mode_gate.py:267`/`:288`/`:571` 保留原始动作及单次投影；`src/agent/core/agent/loop.py:1054`/`:1111` 物化；`src/agent/platform/hooks/builtins/_auto_mode_transcript.py:64` 校验配对 | `tests/unit/test_auto_mode_gate_dispatch.py:180`/`:201`；`tests/unit/test_auto_mode_gate_hook.py:313`/`:361`/`:416`；`tests/unit/test_skill_manage_tool.py:83`/`:121`；`tests/unit/test_auto_mode_result_projection.py:126`/`:141`/`:153`/`:172`/`:197`，覆盖真实正文、未配对/失败及投影异常阻断 | aligned |
+| `kernel/runs.md:64` 分类模型选择：显式只用于分类、省略用当前模型、catalog 校验、故障不降级（4） | `src/agent/sdk/kernel.py:442` 校验；`auto_mode_gate.py:155`/`:201`/`:625` 使用选定模型并区分超限、不可用和不可解析，保持入口分流 | `tests/contract/test_sdk_kernel_wiring.py:239`/`:257`；`tests/unit/test_auto_mode_gate_hook.py:237`/`:254`/`:278`/`:293`；`tests/unit/test_auto_mode_interaction.py:101`。Round 2 W2 的真实 provider 协议复现通过 | aligned |
+| `kernel/runs.md:93` 来源独立于承载角色：真人回复前 assistant、自动与 Agent 输入、跨轮/compact/恢复（3） | `_auto_mode_transcript.py:47`/`:64`/`:214`；`src/agent/core/agent/message_context.py:29`/`:178`；`loop.py:1320`/`:1367`，UTF-16 2000、真人配对与 live/restored 生命周期均符合条目 | `tests/unit/test_auto_mode_result_projection.py:19`/`:46`；`tests/integration/test_auto_approval_context.py:119`/`:161`/`:206`，覆盖输入来源、同 turn 混合以及跨轮 live/重启 restored；T5 实际 compact/重启证据已核对 | aligned |
+| `kernel/runs.md:107` 会话拒绝计数与分流：主会话/独立 child、阈值/服务故障（2） | `src/agent/platform/permissions/broker.py:233`；`auto_mode_gate.py:436`/`:639`，3/20、成功清连续、总阈值清总数、无永久锁；child 先于自动 origin 判路由 | `tests/unit/test_permission_broker.py:85`/`:93`/`:102`；`tests/unit/test_auto_mode_interaction.py:26`/`:62`，覆盖跨 run/工具和 fault 不计数；Heartbeat 真故障对照见既有 evidence | aligned |
+| `kernel/runs.md:117` 子任务约束与原始来源：新派发/follow-up、委派或结果声称批准（2） | `src/agent/sdk/kernel.py:153`/`:257`；`src/agent/platform/background_tasks/runtime_runner.py:216`/`:264`；`_auto_mode_transcript.py:64`，原始父上下文与更新配置继承，child 输入是 Agent，关闭 child 自身文本配对 | `tests/integration/test_auto_approval_context.py:284`；`tests/unit/agent/test_kernel_create_subagent.py:92`，父子真实 SDK 接线及原 tools/skills 约束保留；T8 真实结果的未提出越权动作边界不扩大为模型实际 deny | aligned |
+| `kernel/tools-hooks.md:7` 宽许可不得忽略工具明确拒绝：deny 与整工具 allow 同时存在（1） | `auto_mode_gate.py:526`/`:562` 单次工具自检，明确 deny 先于 Auto 宽许可；`src/agent/core/tools/registry.py:264` 保持单一 hook 执行入口 | `tests/unit/test_auto_mode_interaction.py:45`；`tests/unit/test_auto_mode_gate_dispatch.py:124`/`:141`，直接验证宽许可下仍拒绝及不进入分类器 | aligned |
+| `kernel/tools-hooks.md:13` Bash 免审按语法参数：读写参数、复合命令（2） | `src/agent/platform/tools/builtins/bash_policy.py:109` 组合 `bash_syntax.py` 与 `bash_readonly.py:856` 的完整解析、argv/flags/cwd 决策 | `tests/unit/agent/platform/tools/builtins/test_bash_policy.py:31`/`:41`/`:50`，固定参考 2437 条含参数与复合语法，检查 malformed、Git cwd 及 overrides | aligned |
+| `kernel/tools-hooks.md:23` 应用提供来源说明：显式宿主投影/固定说明、稳定历史/live 属性（2） | `auto_mode_gate.py:591` 只从已注册工具取固定说明；`loop.py:1054`/`:1111` 与 `message_context.py:178` 绑定真实结果；`src/personal_assistant/tools/inbox.py:152` | `tests/unit/test_auto_mode_policy.py:78`；`tests/unit/test_auto_mode_result_projection.py:46`/`:126`/`:153`；`tests/integration/test_auto_approval_context.py:206`，正文篡改/恢复不能自报 live，固定 system 说明与用户规则分开 | aligned |
+| `kernel/tools-hooks.md:33` 区分授权/执行/故障：动作未执行、历史 outcome（2） | `auto_mode_gate.py:450`；`src/agent/core/hooks/runner.py:150`；`src/agent/core/tools/registry.py:267`；`src/agent/core/agent/reject_messages.py:120`；`_auto_mode_transcript.py:64` 保留决定来源、故障类别与实际 outcome | `tests/unit/test_reject_messages.py` 的有/无理由人工 deny 及故障组合；`tests/unit/test_auto_mode_interaction.py:101`；`tests/unit/personal_assistant/test_global_query_tools.py:93`；Round 2 W1/W2 原复现已通过 | aligned |
+| `kernel/sdk-boundary.md:7` 完整 runtime 选择交互：创建/重配/读回/identity、省略/清除（2） | `src/agent/sdk/runtime.py:44`/`:78`/`:122` 既有类型可选字段、identity 与完整替换清除；`src/agent/sdk/kernel.py:1588` 读回默认 None；不新增入口类型或 build 参数 | `tests/integration/test_session_run_coordinator_real_kernel.py:341` 以真实 SDK 验证初始 None、完整替换后的 runtime 精确读回及稳定会话；`tests/unit/personal_assistant/test_pa_time_prompt_policy.py:102`；`tests/integration/test_global_gateway_lifecycle.py:86` 保护产品创建/恢复装配 | aligned |
+| `cli/interactive-repl.md:7` 多轮确认与原人工入口：正常工作、具体提议回复、阈值、故障、原配置（5） | `src/agent/platform/hooks/builtins/_auto_mode_policy.py:36`/`:95`；`_auto_mode_transcript.py:64`；`auto_mode_gate.py:336`；`src/agent/platform/config/auto_mode.py:70`，固定策略、原路径和逐字段覆盖保持 | `tests/unit/test_auto_mode_policy.py:35`/`:54`；`tests/unit/test_auto_mode_config.py:57`/`:81`；`tests/unit/test_auto_mode_result_projection.py:19`；`tests/unit/test_auto_mode_gate_hook.py:465`/`:547`；CLI/单聊真实旅程已核对，工厂 seam 限制不变 | aligned |
+| `gateway/global-agent.md:7` 未获准由主 Agent 处理：拒绝/故障返回、正常发送询问、创建/恢复/刷新（3） | `src/personal_assistant/product.py:202`；`src/personal_assistant/tools/send_message.py:124`；`src/personal_assistant/gateway/session_composition.py:52`；`global_run_coordinator.py:216`，共享完整 runtime 装配及实际入口优先级 | `tests/unit/test_auto_mode_interaction.py:26`；`tests/unit/personal_assistant/test_send_message_tool.py:47`/`:130`；`tests/integration/test_global_gateway_runtime.py:307` 和 lifecycle 覆盖恢复；T3 具体询问与普通回复三次闭环 | aligned |
+| `gateway/global-agent.md:22` Inbox 多来源：同页真人/Agent、多聊天提议/简短回复、system wake（3） | `inbox.py:246`；`src/personal_assistant/tools/inbox_result.py:9`；`global_run_coordinator.py:238`，目标/身份/原话/reply 保留；主模型与 classifier 共用应用说明 | `tests/unit/personal_assistant/test_global_query_tools.py:13`/`:186`；`tests/integration/test_global_gateway_runtime.py`；T3/T4 同范围/无关/部分同意与来源反例；不以第二 owner 入站 404 冒充 classifier 证据 | aligned |
+| `gateway/global-agent.md:37` 等待与恢复：其他聊天继续、跨轮/重启/compact 回复、连续拒绝（3） | `product.py:202`；`auto_mode_gate.py:508`；`global_run_coordinator.py:216`；`_auto_mode_transcript.py:214`，无权限挂起/计数放行/历史复认证；按可见上下文续办 | `tests/unit/test_auto_mode_interaction.py:62`；`tests/integration/test_auto_approval_context.py:206`；global runtime/lifecycle；T3 等待 A 时 B 实际完成、T5 compact/重启证据 | aligned |
+| `gateway/heartbeat-cron.md:7` 已配置任务与实时同意：Cron 工具、Heartbeat/后台通知、调度管理与任务动作、global Heartbeat 分流（4） | `message_context.py:29`/`:91`；`src/personal_assistant/tools/cron.py:340`/`:351`；`session_composition.py:93`；`auto_mode_gate.py:436`，完整调度参数、CC scheduled/system 来源、隔离 Cron 与复用 global Heartbeat 的路由一致 | `tests/unit/test_auto_mode_policy.py:92`；`tests/integration/test_auto_approval_context.py:161`；`tests/unit/personal_assistant/test_cron_tool_permissions.py:25`/`:35`；`tests/unit/test_auto_mode_interaction.py:26`；既有 Cron 3/3 与 Heartbeat 真故障 allow/deny/普通 global-child 对照 | aligned |
+
+表内省略目录的源码沿用同行或本报告已给出的完整目录；测试与实现代码行号均针对本轮快照。共享 Scenario 复用同一层的长期回归，不为收尾文档增加重复测试。本轮只做文本/源码/断言对账以及文档与 diff 检查，未重跑 237 项、48 项或真实模型旅程。
+
+### Uncovered Observable Behavior
+
+None。按最终 unit diff 逐组核对：权限结果与原人工否决、Bash 行为、完整 policy/原配置、来源持久化与 provider 输出边界、SDK runtime 与 child 继承、Global Inbox/发送/恢复、Cron/Heartbeat 均由上述 delta 覆盖。内部 `LLMMessage` 来源字段与 `ToolResult.permission_context` 是这些行为的传递实现；Anthropic stop 映射用于已批准的两阶段机制，不新增产品选择入口。打包资产、固定依赖、参考 fixture 和 `e2e-up.sh` 隔离验收数据库/journal 同步重置不构成遗漏的产品运行契约。
+
+未发现与 unit 首文档 R1–R6 或 design D1–D8 冲突。普通 full + targeted-closure 结论继续有效；本结论只准许将这六份最终契约增量交给 orchestrator 后续归并，不替代仍在进行的独立产品旅程验收。
+
+检查状态：`git diff --check` 通过；`./scripts/docs-check` 仅报告已有 `implementation.md:38` 的 `acceptance.md` 尚未是 tracked 文件。该产品验收报告仍待独立 reviewer 完成，未将本次文档完整性检查记为通过。
+
+Outcome: **aligned**
