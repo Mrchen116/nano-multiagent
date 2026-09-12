@@ -569,7 +569,13 @@ def setup(hooks: Any) -> None:
                 or metadata.get("run_origin") != RunOrigin.HUMAN.value
             ):
                 return allow()
-            return await escalate(reason, "manual_required")
+            # Default lack of permission is Auto-approvable; explicit asks are not.
+            if not (
+                config.enabled
+                and isinstance(checked.decision_reason, dict)
+                and checked.decision_reason.get("type") == "fallback"
+            ):
+                return await escalate(reason, "manual_required")
 
         # CC skips the classifier when the tool would allow this in acceptEdits.
         # Consume that tool-owned result only after deny/ask and only in Auto.
