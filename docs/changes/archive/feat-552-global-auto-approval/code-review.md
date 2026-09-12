@@ -41,3 +41,13 @@
 范围 `7c9f5ee37..10bf12c44`，仅检查真实 Cron finding 的修复增量及必要调用上下文。独立 finder 无新 findings（`[]`）：权限检查的 cwd 与实际执行上下文一致，敏感路径仍先经硬检查；存在性只是检查时点事实，仍需分类且执行阶段保留 Read-Before-Write。33 项相关测试及增量 diff check 通过，没有把已不存在的旧测试路径计为通过。
 
 本报告有效代码结论更新到 `10bf12c44`；其余完整范围及两个先前 patch 的有效结论保留。真实 Cron 入口 closure 由独立产品验收报告记录。
+
+## Patch review：普通工作区 Write/Edit 直接放行
+
+2026-09-12，复用原独立 finder `feat552_focused_code_review`，仅审 `ab80c695a` 上的本次未提交增量及调用上下文。沿用用户已授权的聚焦检查方式，未重跑大规模扫描。
+
+结论 `[]`：HookContext 的 session workspace/cwd 与执行器一致；传入与解析路径均检查敏感目录，二者都在 workspace 内才提供 acceptEdits hint；gate 在 deny/ask 后、仅 Auto enabled 时消费；没有按工具名免审。独立临时验证 6 组同名 override，passthrough 仍进入 classifier，deny/ask 均阻止。相关 135 项和 diff check 通过。没有候选需要二次投票，不以此替代真实 Cron 验收。既有完整范围与历史 patch 结论保留；本次改变的行为及旧证据替代范围见 [补漏证据](evidence/workspace-file-fastpath.md)。
+
+审查代码随后原样固定为 `b9a61941a`，`validated_at=b9a61941a`，`executed_base=effective_base=2fd84b9ac`；后续仅报告/契约同步时保留该代码结论。
+
+同一 finder 仅对 `b9a61941a..1cf086696` 的 macOS 系统路径别名补充检查，结论 `[]`。归一匹配完整 `/private/var`、`/private/tmp` 段，敏感检查仍在先，真实目标仍须位于 root 内；独立运行 22 项 gate 用例通过，覆盖别名与双向跨界符号链接。最终 `validated_at=effective_through=1cf086696`；执行和有效 base 仍为 `2fd84b9ac`，原审查结论继续有效。

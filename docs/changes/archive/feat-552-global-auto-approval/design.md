@@ -383,3 +383,11 @@ worker 对来源转换、长度边界、错误分类、计数与 Bash 差分使�
 - IM：no spec delta；没有前端改动，无 prototype。
 
 current 文档不在设计阶段改写；实施验收后按实际行为归并 delta。历史 [design-review.md](design-review.md) 保留原轮次，但旧 provider/配置迁移方案的审查不代表本稿已通过。用户已授权审查修订到可实施后，按 change-orchestrator-simple 在独立 worktree 实施并交付 PR；精简重复台账和大规模 code review，保留相关测试、真实模型旅程及聚焦实际改动的独立检查。部署另行授权。
+
+## 同一 PR 追加：普通工作区写入的 acceptEdits 路径
+
+2026-09-12，用户在 CC 同模型实测后要求补齐遗漏的直接放行行为。固定 CC 2.1.267 的 Auto gate 会在 classifier 前模拟工具的 acceptEdits 权限检查；普通 Write/Edit 的原路径及实际解析目标均属于工作目录且通过敏感路径检查时可直接放行。此项属于 M1 已授权的 CC 权限行为迁移补漏，不新增 milestone。
+
+Nano 在 Write/Edit 共享的路径权限检查中判断上述条件，通过既有 `PermissionDecision` 的 passthrough + `decision_reason={type: mode, mode: acceptEdits}` 表达该模式下可放行。共享 gate 在原 deny/ask 处理后、仅在 Auto enabled 时消费此结果；没有按工具名称添加通用放行名单，workspace override 仍由其自己的权限方法决定。相对路径使用执行 cwd，边界使用 session repo_root；敏感路径同时检查传入与解析路径。工具执行体的读取、外部修改校验保持原样。
+
+完整证据、旧结论替代范围和测试见 [工作区写入补漏](evidence/workspace-file-fastpath.md)。

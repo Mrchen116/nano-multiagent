@@ -1,6 +1,6 @@
 # Verification Report: feat-552
 
-实现核验最新结论见 [Round 3](#round-3)：Write 目标状态修复的接线通过，原 W1/W2 保持关闭，verdict=pass；契约收尾见 [Corrected Delta Reconciliation](#corrected-delta-reconciliation)，outcome=aligned。产品 reviewer 的真实 Cron closure 独立进行。以下原始发现与证据保留。
+实现核验最新结论见 [Round 4](#round-4)：普通工作目录 write/edit 免审增量通过，原 W1/W2 保持关闭，verdict=pass；契约收尾见 [Corrected Delta Reconciliation](#corrected-delta-reconciliation)，outcome=aligned。旧 inside-write 分类器轨迹仅保留为历史证据；新真实 Cron 与目录外对照由产品 reviewer 独立验收。以下原始发现与证据保留。
 
 > Validation snapshot: `2fd84b9ac2b1949947ac899b3de7fea1488731ef → 21537b9801732169efc915ca442a5647ecfbd8b9`
 > Round 1 · 2026-09-12 · 独立实现对账；源码、测试、配置只读。
@@ -173,15 +173,15 @@ All checks passed. Ready for PR.
 
 Mode: corrected-delta
 
-Validated at: `d4a83f34769e289bc234176bbf9357cfd917b56f`
+Validated at: `1cf0866961f2b6da185dc49f32ef659b05246d72`
 
-Effective through: `79c83080a50479776838ac4d62a1a2d8aa185e76`（Round 3 对 Write 目标状态增量的有界核对）
+Effective through: `1cf0866961f2b6da185dc49f32ef659b05246d72`（Round 4 聚焦增量及新增 delta 对账）
 
 Executed base: `2fd84b9ac2b1949947ac899b3de7fea1488731ef`
 
-六份 delta 共 **16 条 Requirement、47 个 Scenario**，逐项核对完成。`kernel/runs.md` 的三项 MODIFIED 现在是完整条目：原 12 个 Scenario 均保留，其中投影来源两项及分类故障一项按已批准设计更新；另加全局返回场景。无 REMOVED Requirement。首次对账快照 `d4a83f347` 的源码与已通过 Round 2 的 `b218d31e4` 完全相同；后续 Write 状态增量及结论有效范围见 Round 3。
+六份 delta 现共 **17 条 Requirement、49 个 Scenario**。首次对账 `d4a83f347` 的 16 条/47 个保留，Round 4 追加 `kernel/tools-hooks.md:13` 的普通工作目录 write/edit 免审 Requirement 及两个 Scenario；其余五份 delta 未改。`kernel/runs.md` 三项 MODIFIED 的原 12 个 Scenario 均保留，无 REMOVED Requirement。新增 delta 的工作副本 SHA-256 为 `a66beee6349a9a595b2fc01a3d3b7d69a3084372e8f16c368893e2805d038156`，待 orchestrator 与本报告一起提交、通过产品验收后归并 current。
 
-下表按 Requirement 合并列出其全部 Scenario，路径以本 unit 的 `specs/` 为根；实现与测试定位沿用并复查 Round 1/2 的最终代码。测试列是已有永久覆盖及对应实际断言，不表示本轮重跑；真实模型结果仍受上文 Evidence limits 限制。
+下表按 Requirement 合并列出其全部 Scenario，路径以本 unit 的 `specs/` 为根。新增行的实现/测试定位为 Round 4；其余源码定位沿用已核验快照，本次只追查增量影响。测试列不表示全量重跑；旧真实模型结果受 Evidence limits 及下述替代范围约束：ordinary workspace write/edit 如今在工具检查后直接允许，不再以旧 inside-write 的 classifier、拒绝或 fallback 结果证明当前行为。
 
 | Delta item | Implementation evidence | Test evidence | Outcome |
 |---|---|---|---|
@@ -192,9 +192,10 @@ Executed base: `2fd84b9ac2b1949947ac899b3de7fea1488731ef`
 | `kernel/runs.md:107` 会话拒绝计数与分流：主会话/独立 child、阈值/服务故障（2） | `src/agent/platform/permissions/broker.py:233`；`auto_mode_gate.py:436`/`:639`，3/20、成功清连续、总阈值清总数、无永久锁；child 先于自动 origin 判路由 | `tests/unit/test_permission_broker.py:85`/`:93`/`:102`；`tests/unit/test_auto_mode_interaction.py:26`/`:62`，覆盖跨 run/工具和 fault 不计数；Heartbeat 真故障对照见既有 evidence | aligned |
 | `kernel/runs.md:117` 子任务约束与原始来源：新派发/follow-up、委派或结果声称批准（2） | `src/agent/sdk/kernel.py:153`/`:257`；`src/agent/platform/background_tasks/runtime_runner.py:216`/`:264`；`_auto_mode_transcript.py:64`，原始父上下文与更新配置继承，child 输入是 Agent，关闭 child 自身文本配对 | `tests/integration/test_auto_approval_context.py:284`；`tests/unit/agent/test_kernel_create_subagent.py:92`，父子真实 SDK 接线及原 tools/skills 约束保留；T8 真实结果的未提出越权动作边界不扩大为模型实际 deny | aligned |
 | `kernel/tools-hooks.md:7` 宽许可不得忽略工具明确拒绝：deny 与整工具 allow 同时存在（1） | `auto_mode_gate.py:526`/`:562` 单次工具自检，明确 deny 先于 Auto 宽许可；`src/agent/core/tools/registry.py:264` 保持单一 hook 执行入口 | `tests/unit/test_auto_mode_interaction.py:45`；`tests/unit/test_auto_mode_gate_dispatch.py:124`/`:141`，直接验证宽许可下仍拒绝及不进入分类器 | aligned |
-| `kernel/tools-hooks.md:13` Bash 免审按语法参数：读写参数、复合命令（2） | `src/agent/platform/tools/builtins/bash_policy.py:109` 组合 `bash_syntax.py` 与 `bash_readonly.py:856` 的完整解析、argv/flags/cwd 决策 | `tests/unit/agent/platform/tools/builtins/test_bash_policy.py:31`/`:41`/`:50`，固定参考 2437 条含参数与复合语法，检查 malformed、Git cwd 及 overrides | aligned |
-| `kernel/tools-hooks.md:23` 应用提供来源说明：显式宿主投影/固定说明、稳定历史/live 属性（2） | `auto_mode_gate.py:591` 只从已注册工具取固定说明；`loop.py:1054`/`:1111` 与 `message_context.py:178` 绑定真实结果；`src/personal_assistant/tools/inbox.py:152` | `tests/unit/test_auto_mode_policy.py:78`；`tests/unit/test_auto_mode_result_projection.py:46`/`:126`/`:153`；`tests/integration/test_auto_approval_context.py:206`，正文篡改/恢复不能自报 live，固定 system 说明与用户规则分开 | aligned |
-| `kernel/tools-hooks.md:33` 区分授权/执行/故障：动作未执行、历史 outcome（2） | `auto_mode_gate.py:450`；`src/agent/core/hooks/runner.py:150`；`src/agent/core/tools/registry.py:267`；`src/agent/core/agent/reject_messages.py:120`；`_auto_mode_transcript.py:64` 保留决定来源、故障类别与实际 outcome | `tests/unit/test_reject_messages.py` 的有/无理由人工 deny 及故障组合；`tests/unit/test_auto_mode_interaction.py:101`；`tests/unit/personal_assistant/test_global_query_tools.py:93`；Round 2 W1/W2 原复现已通过 | aligned |
+| `kernel/tools-hooks.md:13` 普通工作目录文件免审：新建/覆盖/编辑；目录外/跨界 symlink/敏感目标及 Auto 开关（2） | `src/agent/platform/tools/dangerous_paths.py:140` 在原路径和 resolve 目标上先做敏感检查，再校验两者所属 workspace；`:132` 仅归一 macOS 系统目录别名；`write.py:132`/`edit.py:133` 复用现有检查；`auto_mode_gate.py:576` 仅在 Auto 且原 deny/ask 未拦截时消费模式 hint；run 执行体不变 | `tests/unit/test_auto_mode_gate_dispatch.py:336` 22 个组合覆盖两工具、路径边界、macOS 系统别名、实际 cwd、敏感/解析敏感及 Auto 关闭；`:270` 4 项继续证明目录外 write 的真实状态进入两阶段；`tests/unit/test_tools_write_edit.py:179`/`:240` 保留读取/外部修改约束 | aligned |
+| `kernel/tools-hooks.md:24` Bash 免审按语法参数：读写参数、复合命令（2） | `src/agent/platform/tools/builtins/bash_policy.py:109` 组合 `bash_syntax.py` 与 `bash_readonly.py:856` 的完整解析、argv/flags/cwd 决策 | `tests/unit/agent/platform/tools/builtins/test_bash_policy.py:31`/`:41`/`:50`，固定参考 2437 条含参数与复合语法，检查 malformed、Git cwd 及 overrides | aligned |
+| `kernel/tools-hooks.md:34` 应用提供来源说明：显式宿主投影/固定说明、稳定历史/live 属性（2） | `auto_mode_gate.py:591` 只从已注册工具取固定说明；`loop.py:1054`/`:1111` 与 `message_context.py:178` 绑定真实结果；`src/personal_assistant/tools/inbox.py:152` | `tests/unit/test_auto_mode_policy.py:78`；`tests/unit/test_auto_mode_result_projection.py:46`/`:126`/`:153`；`tests/integration/test_auto_approval_context.py:206`，正文篡改/恢复不能自报 live，固定 system 说明与用户规则分开 | aligned |
+| `kernel/tools-hooks.md:44` 区分授权/执行/故障：动作未执行、历史 outcome（2） | `auto_mode_gate.py:450`；`src/agent/core/hooks/runner.py:150`；`src/agent/core/tools/registry.py:267`；`src/agent/core/agent/reject_messages.py:120`；`_auto_mode_transcript.py:64` 保留决定来源、故障类别与实际 outcome | `tests/unit/test_reject_messages.py` 的有/无理由人工 deny 及故障组合；`tests/unit/test_auto_mode_interaction.py:101`；`tests/unit/personal_assistant/test_global_query_tools.py:93`；Round 2 W1/W2 原复现已通过 | aligned |
 | `kernel/sdk-boundary.md:7` 完整 runtime 选择交互：创建/重配/读回/identity、省略/清除（2） | `src/agent/sdk/runtime.py:44`/`:78`/`:122` 既有类型可选字段、identity 与完整替换清除；`src/agent/sdk/kernel.py:1588` 读回默认 None；不新增入口类型或 build 参数 | `tests/integration/test_session_run_coordinator_real_kernel.py:341` 以真实 SDK 验证初始 None、完整替换后的 runtime 精确读回及稳定会话；`tests/unit/personal_assistant/test_pa_time_prompt_policy.py:102`；`tests/integration/test_global_gateway_lifecycle.py:86` 保护产品创建/恢复装配 | aligned |
 | `cli/interactive-repl.md:7` 多轮确认与原人工入口：正常工作、具体提议回复、阈值、故障、原配置（5） | `src/agent/platform/hooks/builtins/_auto_mode_policy.py:36`/`:95`；`_auto_mode_transcript.py:64`；`auto_mode_gate.py:336`；`src/agent/platform/config/auto_mode.py:70`，固定策略、原路径和逐字段覆盖保持 | `tests/unit/test_auto_mode_policy.py:35`/`:54`；`tests/unit/test_auto_mode_config.py:57`/`:81`；`tests/unit/test_auto_mode_result_projection.py:19`；`tests/unit/test_auto_mode_gate_hook.py:465`/`:547`；CLI/单聊真实旅程已核对，工厂 seam 限制不变 | aligned |
 | `gateway/global-agent.md:7` 未获准由主 Agent 处理：拒绝/故障返回、正常发送询问、创建/恢复/刷新（3） | `src/personal_assistant/product.py:202`；`src/personal_assistant/tools/send_message.py:124`；`src/personal_assistant/gateway/session_composition.py:52`；`global_run_coordinator.py:216`，共享完整 runtime 装配及实际入口优先级 | `tests/unit/test_auto_mode_interaction.py:26`；`tests/unit/personal_assistant/test_send_message_tool.py:47`/`:130`；`tests/integration/test_global_gateway_runtime.py:307` 和 lifecycle 覆盖恢复；T3 具体询问与普通回复三次闭环 | aligned |
@@ -202,17 +203,17 @@ Executed base: `2fd84b9ac2b1949947ac899b3de7fea1488731ef`
 | `gateway/global-agent.md:37` 等待与恢复：其他聊天继续、跨轮/重启/compact 回复、连续拒绝（3） | `product.py:202`；`auto_mode_gate.py:508`；`global_run_coordinator.py:216`；`_auto_mode_transcript.py:214`，无权限挂起/计数放行/历史复认证；按可见上下文续办 | `tests/unit/test_auto_mode_interaction.py:62`；`tests/integration/test_auto_approval_context.py:206`；global runtime/lifecycle；T3 等待 A 时 B 实际完成、T5 compact/重启证据 | aligned |
 | `gateway/heartbeat-cron.md:7` 已配置任务与实时同意：Cron 工具、Heartbeat/后台通知、调度管理与任务动作、global Heartbeat 分流（4） | `message_context.py:29`/`:91`；`src/personal_assistant/tools/cron.py:340`/`:351`；`session_composition.py:93`；`auto_mode_gate.py:436`，完整调度参数、CC scheduled/system 来源、隔离 Cron 与复用 global Heartbeat 的路由一致 | `tests/unit/test_auto_mode_policy.py:92`；`tests/integration/test_auto_approval_context.py:161`；`tests/unit/personal_assistant/test_cron_tool_permissions.py:25`/`:35`；`tests/unit/test_auto_mode_interaction.py:26`；既有 Cron 3/3 与 Heartbeat 真故障 allow/deny/普通 global-child 对照 | aligned |
 
-表内省略目录的源码沿用同行或本报告已给出的完整目录；测试与实现代码行号均针对本轮快照。共享 Scenario 复用同一层的长期回归，不为收尾文档增加重复测试。本轮只做文本/源码/断言对账以及文档与 diff 检查，未重跑 237 项、48 项或真实模型旅程。
+表内省略目录的源码沿用同行或本报告已给出的完整目录。共享 Scenario 复用同一层的长期回归，不为收尾文档增加重复测试。本次仅执行 Round 4 的 55 项定向检查，没有重跑原 full 套件或真实模型旅程。
 
 ### Uncovered Observable Behavior
 
 None。按最终 unit diff 逐组核对：权限结果与原人工否决、Bash 行为、完整 policy/原配置、来源持久化与 provider 输出边界、SDK runtime 与 child 继承、Global Inbox/发送/恢复、Cron/Heartbeat 均由上述 delta 覆盖。内部 `LLMMessage` 来源字段与 `ToolResult.permission_context` 是这些行为的传递实现；Anthropic stop 映射用于已批准的两阶段机制，不新增产品选择入口。打包资产、固定依赖、参考 fixture 和 `e2e-up.sh` 隔离验收数据库/journal 同步重置不构成遗漏的产品运行契约。
 
-未发现与 unit 首文档 R1–R6 或 design D1–D8 冲突。普通 full + targeted-closure 结论继续有效；本结论只准许将这六份最终契约增量交给 orchestrator 后续归并，不替代仍在进行的独立产品旅程验收。
+本次新增行为符合用户已授权的 M1 漏项修复和 design 末尾追加条目；不是用当前代码反推新需求。current `tools-hooks.md:14` 的 session 工作区与 override、`:240` 的工具明确 deny、`runs.md:159` 的待分类动作描述，以及读取/外部修改约束均保持：普通文件动作通过工具现有权限检查，未增加工具名通用 allowlist，也不改变仍需分类动作的来源规则。未受影响的 full/closure 结论保留；旧 inside-write 分类结果不继续有效。本次 aligned 只覆盖契约与实现对账，不替代独立产品旅程验收。
 
 首次对账时 `git diff --check` 通过，`./scripts/docs-check` 因 `implementation.md:38` 的 `acceptance.md` 尚未 tracked 而未通过。至 Round 3 快照，reviewer 已提交原始验收报告，文档检查恢复通过：244 maintained Markdown sources / 72 required routes。
 
-Round 3 确认新增的目标存在性观察属于 `kernel/runs.md:25` 的当前工具动作描述细化，符合 design D2 新增说明；只附于当前动作，不进入历史 outcome 或宿主授权来源，不改变无人值守路由。六份 delta 字节均未修改，无新增 SDK 或产品配置入口，原 aligned 结论继续有效。
+Round 3 的目标存在性事实在仍需分类的目录外 Write 中继续有效；ordinary workspace write/edit 的旧分类轨迹由 Round 4 的直接允许路径替代。新的直接允许沿既有 allow 路径重置连续拒绝数，没有引入用户审批标识或新增会话模式。新增/改变的外部行为均落在新增 Requirement 的两个 Scenario 内，没有遗漏 SDK、配置、来源或执行结果契约。
 
 Outcome: **aligned**
 
@@ -260,5 +261,50 @@ Verdict: **pass**。0 CRITICAL / 0 WARNING / 0 SUGGESTION。
 独立执行最窄相关检查：`tests/unit/test_auto_mode_gate_dispatch.py` **11 passed**；`tests/unit/test_tools_write_edit.py` **22 passed**，合计 **33 passed**。未重跑此前 117、237 或全量测试。`./scripts/docs-check`、`git diff --check` 通过。
 
 本报告关闭的是 I2 所需的目标事实传递与约束保持核验；不把脚本分类器返回 block 的永久测试记作真实 Cron 已成功，也不把执行者的一次 Terra 请求回放替代 reviewer 的原失败入口 closure。acceptance 的最终产品 verdict 仍由 reviewer 更新。未扩展到其独立记录的 I3 通知路由旁支。
+
+All checks passed. Ready for PR.
+
+# Round 4
+
+## Summary
+
+Mode: delta
+
+Review round: 4
+
+Prior verification: 本文件 Round 1–3 和 Corrected Delta Reconciliation
+
+Validated at: `1cf0866961f2b6da185dc49f32ef659b05246d72`
+
+Effective through: `1cf0866961f2b6da185dc49f32ef659b05246d72`
+
+Executed base: `2fd84b9ac2b1949947ac899b3de7fea1488731ef`
+
+Delta range: `ab80c695af56ee2d9270c44fc09fd5acc82d77bc..1cf0866961f2b6da185dc49f32ef659b05246d72`
+
+Focus issues: M1 漏项——Auto 对普通工作目录 write/edit 的 acceptEdits 等价直接允许
+
+requires_full_verification: false
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | write/edit 共享路径检查与 Auto gate 消费已落地；新增 Requirement 的两个 Scenario 均有实现与永久回归 |
+| Correctness | 目录内普通文件不调用 classifier；目录外/双向跨界 symlink 继续原流程；原路径或 resolve 目标敏感仍要求人工；Auto 关闭不使用新增路径；执行体约束保留 |
+| Coherence | 仅扩展已有 PermissionDecision passthrough reason，无新 DTO、工具方法、配置根或工具名通用 allowlist；符合用户授权的 M1 迁移补漏与 design 追加细化 |
+
+Verdict: **pass**。0 CRITICAL / 0 WARNING / 0 SUGGESTION。Corrected delta outcome: **aligned**。
+
+## Focused evidence and limits
+
+在指定 unit worktree 读取并核对初始未提交源码补丁；它随后原样固定为 `b9a61941a`。实施者继而复现 macOS 的 `/var` 与 `/private/var` 同目录拼写被误送 classifier，`1cf086696` 仅修正该系统别名判断并补两项 Darwin 回归；已核对最终源码/测试工作副本相对该提交无 diff。新增设计/契约文档以本轮工作副本对账，SHA-256 见上方唯一的 Corrected Delta Reconciliation。本轮只修改 verification 报告，由 orchestrator 汇总提交，不改 canonical、源码、测试或运行数据。
+
+- `dangerous_paths.py:157`–`:176` 同时检查 supplied 与 resolved 的敏感语义；只有二者均属于 workspace 才发出 `acceptEdits` hint。`:132` 的别名归一仅统一 `/private/var`/`/var` 和 `/private/tmp`/`/tmp`，真实 resolve 仍必须属于 root，没有把普通跨界符号链接当作额外工作根。相对路径按实际 cwd 解析，根边界由 session repo_root 提供；`src/agent/core/agent/runtime.py:1831` 确认 HookContext 使用 scope 的 session workspace，未误用进程启动目录。
+- `auto_mode_gate.py:576` 在原工具 deny/ask 处理之后、仅 Auto enabled 且 passthrough mode hint 精确匹配时走已有 allow；普通 Cron/主会话/child 共用这一动作层判断。模式 hint 由工具权限方法产生，不按名字豁免 override 工具，也没有将调度输入提升为真人授权。
+- `tests/unit/test_auto_mode_gate_dispatch.py:336` 的 22 项组合逐项核对期望：write/edit 的 new、existing、absolute 和 macOS 同目录 alias 直接允许；outside、symlink-outside、outside-link-inside、cwd-outside 仍调用两阶段；sensitive、symlink-sensitive 返回 manual_required；Auto disabled 不免审。四项原目标存在性测试移到目录外，未删除对应 classifier 事实保护。
+- `write.py`/`edit.py` 的 `run` 执行体无 diff。已有 `test_tools_write_edit.py` 验证真实创建/覆盖/编辑，以及未读文件、外部变更后的拒绝。免审不等于绕过这些执行条件；敏感路径沿已有显式确认路由处理。
+
+独立执行 `tests/unit/test_auto_mode_gate_dispatch.py` 与 `tests/unit/test_tools_write_edit.py`，**55 passed**（最终别名修复后重跑，含两项 Darwin 用例）。这证明确定性权限分流与原写入约束，不冒充真实模型或真实 Cron 旅程；实施者的 137 项、后续全量结果及产品 reviewer 的实测另行记录，未重复运行。文档完整性与 `git diff --check` 均通过。
+
+本次检查没有发现新增 delta 对已批准意图的多写、少写或实现偏离。保留旧 full 的其余结论，同时明确替代旧 ordinary inside-write 的分类/故障轨迹：历史 Cron 误拒、inside Heartbeat/ordinary/child 不可达审批模型下的 allow/deny/no-verdict 文件结果只描述当时版本，不能继续作为当前 inside 文件操作断言。来源投影、目录外分类、非文件工具及拒绝计数/故障分流的机制与长期测试继续适用。新真实 Cron 和 outside 对照由产品 reviewer 单独完成。
 
 All checks passed. Ready for PR.

@@ -77,3 +77,11 @@ M1/M2 产品实现、真实旅程、独立产品验收和实现对账均已完�
 - 代码审查：[code review](code-review.md) 初始完整范围及 replay、审批语义、写入事实的必要增量均无存活 findings，有效产品代码为 `10bf12c44`。
 - 收尾只展开完整 delta、归并对应 canonical 条目/派生数量、增加配置操作指南并移动归档位置；没有改动产品代码、测试或策略资产，因此不使上述通过范围失效。
 - 最终同步基线 `origin/main=2fd84b9ac2b1949947ac899b3de7fea1488731ef`，没有新的 main 增量需要整合。主 checkout 保留原分支和所有原有改动。
+
+## 同一 PR 追加：工作区 Write/Edit 直接放行
+
+用户在同模型 CC 对照后明确要求修正 Nano。恢复 PR #294 的独立干净 worktree，主 checkout 不变。此增量补齐 M1 的 acceptEdits 直接放行分支，同时共用 write/edit 的路径判断并保留敏感路径、目录外分类与执行时读取约束。范围、8 个 Red / 135 个 Green、固定 CC 来源及历史证据失效说明见 [补漏证据](evidence/workspace-file-fastpath.md)。独立 patch review、实现对账和真实 Cron 增量验收分别追加到现有报告。
+
+`b9a61941a` 实现路径补漏，`1cf086696` 在实际复现 macOS `/var` 与 `/private/var` 同目录别名后补齐 CC 的系统别名规则；额外 2 个 Red，最终聚焦 137 passed。最后代码上的独立真实 Cron Write/Edit 成功，5 次 Sol / 0 次 Terra；目录外仍发出 Terra 请求。产品 Round 5 pass、实现 Round 4 pass / aligned、聚焦代码审查无 findings，`validated_at=1cf086696`，`executed_base=effective_base=2fd84b9ac`。此前完整范围继续有效，但旧 inside 文件分类轨迹按证据说明被新行为替代。
+
+新增 delta 与 canonical 已逐字核对，Tools and Hooks 派生数量同步为 16；其后提交只含报告和契约。两轮真实验收进程均清理，主 checkout 保持原状；原 PR #294 承接本次增量，未合并、未部署。
