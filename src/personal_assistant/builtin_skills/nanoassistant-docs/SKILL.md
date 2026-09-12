@@ -1,6 +1,6 @@
 ---
 name: nanoassistant-docs
-description: Nano Personal Assistant（PA）产品说明书。用户询问 PA/Nano Assistant 能做什么、Web IM、Gateway、节点与 Agent 配置、模型、skills、tools、memory、heartbeat、cron、飞书渠道、启动、状态判断或故障排查时使用；也用于区分本机已安装版本、远端最新版和现场运行状态。不用于回答 Coding CLI、Agent Kernel 内部架构或仓库开发流程。
+description: "回答当前安装版 Nano Personal Assistant 的产品用法、配置或能力边界时使用；开发设计、源码排障和其他产品问题不触发。"
 ---
 
 # Nano Personal Assistant 产品说明书
