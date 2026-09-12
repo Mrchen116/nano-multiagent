@@ -14,6 +14,7 @@ Verifies:
 from __future__ import annotations
 
 import asyncio
+import sys
 from typing import Any, Mapping
 from unittest.mock import AsyncMock, MagicMock
 
@@ -315,6 +316,14 @@ async def test_write_classifier_receives_observed_target_state(
         ("new", True, "allow"),
         ("existing", True, "allow"),
         ("absolute", True, "allow"),
+        pytest.param(
+            "macos-alias",
+            True,
+            "allow",
+            marks=pytest.mark.skipif(
+                sys.platform != "darwin", reason="macOS path aliases"
+            ),
+        ),
         ("outside", True, "classifier"),
         ("symlink-outside", True, "classifier"),
         ("outside-link-inside", True, "classifier"),
@@ -340,6 +349,8 @@ async def test_workspace_file_auto_permission(
         target.write_text("original")
     elif target_kind == "absolute":
         raw_path = str(target)
+    elif target_kind == "macos-alias":
+        raw_path = str(target).removeprefix("/private")
     elif target_kind == "outside":
         raw_path = "../outside.txt"
     elif target_kind == "symlink-outside":

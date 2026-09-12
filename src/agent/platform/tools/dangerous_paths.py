@@ -129,6 +129,14 @@ def check_dangerous_path(file_path: str, *, cwd: Path | None = None) -> bool:
     return False
 
 
+def _workspace_path_spelling(path: Path) -> Path:
+    path = Path(abspath(path))
+    # CC treats these macOS system aliases as the same spelling, not an added root.
+    if path.parts[:3] in {("/", "private", "var"), ("/", "private", "tmp")}:
+        return Path("/", *path.parts[2:])
+    return path
+
+
 def check_file_edit_permissions(
     raw_path: str, *, cwd: Path, workspace_root: Path | None
 ) -> PermissionDecision:
@@ -159,9 +167,9 @@ def check_file_edit_permissions(
         )
     if workspace_root is not None:
         root = Path(workspace_root)
-        if Path(abspath(supplied)).is_relative_to(Path(abspath(root))) and (
-            resolved.is_relative_to(root.resolve())
-        ):
+        if _workspace_path_spelling(supplied).is_relative_to(
+            _workspace_path_spelling(root)
+        ) and (resolved.is_relative_to(root.resolve())):
             return PermissionDecision(
                 behavior="passthrough",
                 decision_reason={"type": "mode", "mode": "acceptEdits"},
