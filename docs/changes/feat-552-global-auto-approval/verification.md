@@ -1,5 +1,7 @@
 # Verification Report: feat-552
 
+最新有效结论见 [Round 2](#round-2)：W1/W2 已关闭，verdict=pass；以下 Round 1 的原始发现与证据保留。
+
 > Validation snapshot: `2fd84b9ac2b1949947ac899b3de7fea1488731ef → 21537b9801732169efc915ca442a5647ecfbd8b9`
 > Round 1 · 2026-09-12 · 独立实现对账；源码、测试、配置只读。
 
@@ -115,3 +117,54 @@ Verdict: **fail**。0 CRITICAL / 2 WARNING / 0 SUGGESTION。两项均有范围�
 无。本轮不因测试函数数量或文档文件布局另加流程项。
 
 0 critical issue(s), 2 warning(s) found. Fix before PR.
+
+# Round 2
+
+## Summary
+
+Mode: targeted-closure
+
+Review round: 2
+
+Prior verification: 本文件 Round 1
+
+Validated at: `6bce9c9dc909d2d9da0b481d984e707ded09cfe5`
+
+Effective through: `6bce9c9dc909d2d9da0b481d984e707ded09cfe5`
+
+Executed base: `2fd84b9ac2b1949947ac899b3de7fea1488731ef`
+
+Delta range: `21537b9801732169efc915ca442a5647ecfbd8b9..6bce9c9dc909d2d9da0b481d984e707ded09cfe5`
+
+Focus issues: W1, W2
+
+requires_full_verification: false
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 两项修复已实现，原 2/2 milestone 覆盖结论继续有效 |
+| Correctness | W1 closed；W2 closed；增量未发现新偏离 |
+| Coherence | 原 D1–D8 结论继续有效；D6/D7 原阻塞已解除 |
+
+Verdict: **pass**。0 CRITICAL / 0 WARNING / 0 SUGGESTION。
+
+## Closure evidence
+
+修复提交为 `b218d31e4e27bb2fdad8cbd27bc33e3f92adc817`；`6bce9c9dc` 仅在其上增加本文件 Round 1 报告。本轮重新 detached 签出远端，未修改源码、测试或配置，也未重跑 Round 1 的 237 项全量核验。
+
+| 原问题 | 修复核对 | 独立复验 |
+|---|---|---|
+| W1 人工否决被故障文案覆盖 | `src/agent/core/agent/reject_messages.py:120` 使 fault 专用文案仅在 `approval != user_deny` 时使用；人工否决仍沿原用户/子循环选择，未清除来源字段。 | 重跑原 gate → 人工回调 → tool 反馈复现：审批先抛不可用异常，人工回调一次并返回 deny；结果仍 block、approval=user_deny，最终文本精确走既有 `REJECT_MESSAGE_WITH_REASON_PREFIX` 并保留 `Do not send this report.`。现有反馈测试覆盖无故障及三类故障后的有/无理由拒绝。closed |
+| W2 结构化超限被记为不可用 | `src/agent/platform/hooks/builtins/auto_mode_gate.py:201` 消费已有 `ModelError.details` 中的 provider_code/provider_type，再应用当前超限判据；未添加重试或裁剪。 | 重跑原真实 OpenAICompatClient + MockTransport HTTP 400 协议复现：`context_length_exceeded`、短文本 `too long` 产生 category/decision_source=prompt_too_long；动作不执行、一次分类调用、计数 `(0,0)`、人工入口未调用。新增同 seam 的非超限 provider code 对照仍归 classifier_unavailable。closed |
+
+最窄永久检查：`tests/unit/test_auto_mode_interaction.py`、`tests/unit/test_reject_messages.py`、`tests/unit/test_auto_mode_gate_hook.py`，**48 passed**。这轮结果包含修复的组合回归及原 ask/分流行为；协议复现仍不声称真实厂商超限已经发生。
+
+## Delta and prior-conclusion validity
+
+两处产品修复只纠正分类原因与已发生人工决定的优先级，没有改变工具可用范围、计数、Global/child/Heartbeat/Cron 路由、SDK seam、依赖方向或模型选择。无需升级 full，也无需为这两项重新跑真实副作用旅程。
+
+同提交的 `scripts/e2e-up.sh:245` 在脚本原本创建全新 IM 数据库的清理段，同步清理 worktree 内的旧 Global journal 及 WAL/SHM；它修复隔离验收重用遗留状态，与正常同数据 Gateway 重启是不同入口。只核对该两行与既有隔离重置范围一致，并运行 `bash -n`，未启动服务。该改动未改变 Nano 生产运行/审批契约，不影响 Round 1 产品对账结论。
+
+`git diff --check` 通过。当前存活问题为空；收尾 corrected-delta 仍由后续单独对账处理。
+
+All checks passed. Ready for PR.
